@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The reporter driven against stub test modules: one whose test ran 10 ms
- * inside a file that ran 1500 ms, as a heavy beforeAll leaves it, and one
- * never run (#4313).
- *
- * A STUB, NOT A NESTED VITEST RUN: the reporter reads only `moduleId` and
- * `diagnostic()`, and vitest's own JsonReporter only `task`, so a stub of
- * those pins its whole behaviour without a second suite's startup.
- *
- * BREAKING IT COSTS the CI per-file record and `check-file-ci-time.js` their
- * hook time again, or reads a file never run as 0 s.
- */
 
 import fs from "node:fs";
 import os from "node:os";

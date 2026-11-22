@@ -1,13 +1,4 @@
 // @vitest-environment node
-
-/*
- * .github/workflows/landing-quiet.yml's step, run as the shell it is (#3964),
- * under the `-eo pipefail` GitHub gives `shell: bash`, with GitHub's activity
- * endpoint stubbed as a `curl` at WFC_CURL. Run from YAML, because no other test or
- * check executes a workflow's shell. Break this and the one alarm that outlives
- * the machine can stay green through a stall, unnoticed.
- */
-
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

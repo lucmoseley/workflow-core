@@ -1,9 +1,3 @@
-/*
- * canonical-json.js — JSON.stringify with keys optionally sorted (by UTF-8
- * bytes), so two values equal in content serialise equal whatever their key
- * order.
- */
-
 /**
  * @param {unknown} value
  * @param {boolean} sortKeys

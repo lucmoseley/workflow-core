@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-suite-concurrency core of guard-dispatch.js refuses a test suite
- * launched under the resting headroom docs/environment.md §6 measures, or
- * beside a running whole suite, sending it to the queue (#2305, #2680); warns
- * a build or a queued launch; and hands a quiet launch its rules once a
- * session (mantahostels#1805, #181, #2024, #2237). These are its boundary
- * cases, the dispatcher entry run on it alone: the payload, the env seams,
- * the host's own files, the rule store and the latch, end to end (#2795).
- * Which launch draws which verdict and which text is
- * lib/suite-concurrency.test.ts's; the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#3227).
- *
- * The entry runs in process (base §X3) with a fabricated `/proc/meminfo` at
- * WFC_MEMINFO and a stub `ps` at WFC_PS, so no verdict depends on the machine
- * running the suite, save the one case that crosses both for real.
- *
- * The core judges PreToolUse Bash calls: break it and a second whole suite, or
- * a launch under the measured headroom, runs unrefused into the 10 GB cap that
- * earlyoom enforces by killing live sessions; make it throw and every call its
- * row's `if` admits is refused until the fault is fixed.
- */
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -40,7 +19,6 @@ import { ensureProof } from "./lib/verdict-probe.js";
 
 const CORE = "guard-suite-concurrency";
 
-/** Well above the three-suite rung, so no headroom warn swallows a verdict. */
 const ROOMY_MB = 8000;
 
 const RUNNER = "node /r/node_modules/.bin/vitest run";
@@ -78,17 +56,14 @@ const write = (rel: string, body: string) => {
 	fs.writeFileSync(path.join(root, rel), body);
 };
 
-/** The seams every case pins. */
 const seams = (over: Record<string, string | undefined> = {}) => ({
 	WFC_MEMINFO: meminfo,
 	WFC_PS: quietPs,
 	WFC_READ_GRAPH_RENDERS: "0",
-	/* The queues' markers, which the climb charge reads (#3488). */
 	TMPDIR: dir,
 	...over,
 });
 
-/** Run `body` beside a live process holding a spawned suite marker. */
 const withSpawnedSuite = (body: (pid: number) => void) => {
 	const suite = spawn("sleep", ["30"]);
 	try {
@@ -109,7 +84,6 @@ const withSpawnedSuite = (body: (pid: number) => void) => {
 	}
 };
 
-/** The hook output for `command`, parsed; null where it said nothing. */
 const emission = (
 	command: string,
 	{
@@ -124,7 +98,6 @@ const emission = (
 		env: seams(env),
 	});
 
-/** The raw run, for a case reading the streams. */
 const raw = (
 	payload: Record<string, unknown>,
 	env: Record<string, string | undefined> = {},
@@ -153,8 +126,6 @@ describe("each exit path", () => {
 			expect(r.status).toBe(0);
 			expect(r.stderr).toBe("");
 			const out = JSON.parse(r.stdout);
-			/* The limb rides for the queue's poll alone (#2421): a session's
-			 * envelope carries no key Claude Code does not document. */
 			expect(Object.keys(out)).toEqual(["hookSpecificOutput"]);
 			expect(Object.keys(out.hookSpecificOutput).sort()).toEqual([
 				"hookEventName",
@@ -188,11 +159,6 @@ describe("each exit path", () => {
 	});
 });
 
-/*
- * THE LATCH (mantahostels#1805): each rule once a session, under the markers
- * directory of the project root, keyed on the payload's session_id. It lands
- * at CLAUDE_PROJECT_DIR and never the checkout (mantahostels#2025).
- */
 describe("once a session, end to end", () => {
 	it("says suite-tree-dirty once per session, latched under the project's markers, and again for a different session", () => {
 		expect(emission("npm run test", { session: "sess-A" })).not.toBeNull();
@@ -240,8 +206,6 @@ describe("once a session, end to end", () => {
 		});
 
 	it("draws the plain-`--full` limb once per session, under a latch of its own, and again for a different session (#181)", () => {
-		// A session whose first launch was narrowed has spent the rule's
-		// latch; the `--full` it types later is the launch the limb is for.
 		expect(emission("npm run test", { session: "sess-L" })).not.toBeNull();
 		expect(limb("sess-L").additionalContext).toContain(Limb);
 		expect(
@@ -270,7 +234,6 @@ describe("once a session, end to end", () => {
 			);
 			write(Canary, "it passes\n");
 		});
-		/** Records a passed verdict probe for the tree as it stands. */
 		const prove = () => {
 			fs.mkdirSync(markers(), { recursive: true });
 			expect(
@@ -331,7 +294,6 @@ describe("the seams and the fail-open record (mantahostels#103 §6, mantahostels
 		expect(failOpenLog()).toContain("ps unreadable");
 	});
 
-	/* The paired negative: a run whose reads all land records nothing. */
 	it("records nothing where every read lands", () => {
 		setMb(1000);
 		emission("npm run test -- --queue");
@@ -340,7 +302,6 @@ describe("the seams and the fail-open record (mantahostels#103 §6, mantahostels
 });
 
 describe("the production adapters, crossed for real", () => {
-	/* The verdict is the machine's; that both reads landed is the assertion. */
 	it("reads the real /proc/meminfo and the real `ps` without faulting", () => {
 		const r = raw(buildBashPayload("npm run test -- --queue", "test"), {
 			WFC_MEMINFO: undefined,
@@ -421,8 +382,6 @@ describe("the production adapters, crossed for real", () => {
 
 	describe("a part-suite beside a spawned suite (#4111)", () => {
 		const launch = "npm run test -- scripts/a.test.ts";
-		/** The rung `launch` is judged on beside `runner`, off its refusal at
-		 * 1000 MB. */
 		const rungBeside = (runner: string) => {
 			setMb(1000);
 			const out = emission(launch, {
@@ -461,13 +420,6 @@ describe("the production adapters, crossed for real", () => {
 	});
 
 	it("reaches the real read-graph render without faulting", () => {
-		// EVERY OTHER CASE DRIVES WFC_READ_GRAPH_RENDERS, so only this one
-		// requires lib/read-edges-render.js and calls `render`. A fault
-		// there — a renamed export, a wrong repo root — is swallowed into
-		// the fail-open log, whose silence is the assertion. The graph renders
-		// from the session's tree, so the payload's cwd is this checkout, a
-		// real one (#4242). The verdict depends on that tree, so it is not
-		// asserted.
 		const out = dispatchCoreOutput(
 			CORE,
 			{
@@ -487,8 +439,6 @@ describe("the production adapters, crossed for real", () => {
 });
 
 describe("the core's header", () => {
-	/* The deny is cut to what changes the next call (#519); its reasons live
-	 * here. */
 	it("keeps the deny's reasons", () => {
 		const header = fs
 			.readFileSync(path.join(__dirname, "lib", "suite-concurrency.js"), "utf8")
@@ -500,8 +450,6 @@ describe("the core's header", () => {
 
 describe("the manifest row's wiring (#2303)", () => {
 	const row = readManifest().PreToolUse?.find((r) => r.name === CORE);
-	/* The dispatcher reaches the core only on a call its row's `if` admits, so
-	 * a declared command no clause lets through is never told. */
 	const reaches = (command: string) =>
 		row !== undefined &&
 		isAdmitted(row, { tool_name: "Bash", tool_input: { command } });

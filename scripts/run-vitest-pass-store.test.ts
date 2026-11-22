@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The launcher's half of the per-file pass store (#4790), through
- * run-vitest.js's `main` and its injected spawn: a file a recorded pass
- * attests on identical inputs is taken out of what vitest is handed, a
- * launch the store caches whole spawns nothing and joins no queue yet leaves
- * its certificate and ledger line, and the launches that ask every file to
- * run look nothing up. Loosen a case and a file is skipped on a run that
- * asked for it, or a run that skipped one attests nothing of it.
- */
 
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -45,7 +36,6 @@ afterEach(() => {
 const git = (dir: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 
-/** A repository holding two test files, committed. */
 function repo() {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rvps-")));
 	dirs.push(dir);
@@ -63,7 +53,6 @@ function repo() {
 	return dir;
 }
 
-/** A clean vitest run at `dir` in which each of `files` passed. */
 function passed(dir: string, files: string[]) {
 	record(
 		{
@@ -81,7 +70,6 @@ function passed(dir: string, files: string[]) {
 	);
 }
 
-/** A child that closes at once with 0, and the spawns it was handed. */
 function spawner() {
 	const calls: { args: string[]; env: Record<string, string> }[] = [];
 	const handoffs: unknown[] = [];
@@ -249,12 +237,9 @@ describe("a launch the pass store caches whole", () => {
 	it("joins the queue where its own run finds a file the probe did not", async () => {
 		const dir = repo();
 		passed(dir, [A]);
-		/* False: the gate stands open. */
 		const gate = vi.fn(() => false);
 		const queueDir = fs.mkdtempSync(path.join(os.tmpdir(), "rvps-q-"));
 		dirs.push(queueDir);
-		/* The skip line is written between the probe's lookup and the run's:
-		 * an edit landing there is the tree the two read apart. */
 		const out = {
 			write: (s: string) => {
 				if (s.includes("caches whole"))
@@ -303,8 +288,6 @@ describe("launches that look nothing up", () => {
 		);
 	});
 
-	/* The probe's red run would otherwise skip a canary passed without the
-	 * variable and exit 0, failing every honest command's probe (#5296). */
 	it("looks nothing up under the verdict probe", () => {
 		expect(
 			isPassStoreLaunch({ kind: "named", source: "named" }, [A], {

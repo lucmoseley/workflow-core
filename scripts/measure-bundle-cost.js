@@ -1,48 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-bundle-cost.js — what does a dispatch bundle cost, by member count?
- *
- * mantahostels#1094's measurement, behind the figures
- * `.claude/skills/pick-next/references/measured-figures.md` cites.
- *
- *   node scripts/measure-bundle-cost.js --since 2026-08-18
- *
- * METHOD, and where it can be wrong.
- *
- * A session's MEMBERS are counted as the distinct issue numbers it ran
- * `gh issue close` on. That both over- and under-counts: a bundle whose last
- * member was left open closes fewer, and a session closing a duplicate it never
- * worked closes more. Nothing records bundle membership at dispatch.
- *
- * STANDING CONTEXT is fresh input + cache write + cache read on each assistant
- * turn — what the model was sent. MAIN-TIER ONLY, deliberately: the corpus
- * scan here (`fs.readdirSync`, unlike `lib/guard-fires.js` `readTranscriptFiles`)
- * never descends into a `subagents/` directory, so a dispatched subagent's own
- * billed turns are excluded from every figure below, not merged into the
- * dispatching session's. A `gh issue close` a subagent ran itself would also
- * be missed by the MEMBERS count above, for the same reason.
- *
- * COST is weighted at the Opus 5 API list ratios, the same weighting mantahostels#830 used,
- * and is a cost-EQUIVALENT: a Max plan does not meter this way (mantahostels#829).
- * A cache write is weighted at its own TTL's rate (#1203). The dollar figures
- * `measured-figures.md` cites were measured at the flat 5-minute rate, before
- * this.
- *
- * `sdk-py` sessions are excluded by requiring a user turn — pooling them
- * corrupts every per-session statistic (mantahostels#830).
- *
- * ⚠ THE HEADLINE IS CONFOUNDED. Only issues judged `small` may be merged, so a
- * bundled issue is a cheap issue by construction and this cannot separate the
- * size band from the merging. Read it for the negative it does establish: the
- * marginal cost of member N does not visibly rise with N.
- *
- * NOT IN A PREFIX FAMILY, per §N3. It gates nothing and files nothing; it is an
- * ad-hoc measurement kept for re-derivation, so no family's contract fits. It
- * borrows only exit 2 for BROKEN.
- *
- * REPORTS ONLY. Exit 0 on a reading; exit 2 only where the corpus cannot be read
- * at all.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -52,29 +8,22 @@ const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { writesByTtl } = require("./lib/session-spend.js");
 const { corpusDirs, listTranscripts } = require("./lib/project-dirs.js");
 
-/** Human-readable output, written so it survives `process.exit` (§N6). */
 const out = (/** @type {string} */ text) => writeFd(1, `${text}\n`);
 const fail = (/** @type {string} */ text) => writeFd(2, `${text}\n`);
 
-/* Per Mtok: fresh input, output, 5-minute and 1-hour cache write, cache read. */
 const RATES = { input: 15, output: 75, write: 18.75, write1h: 30, read: 1.5 };
 
 const USAGE = `Usage: node ${scriptPath("measure-bundle-cost.js")} [--since <YYYY-MM-DD>]`;
 
 const CLOSE = /gh\s+issue\s+close\s+(?:--\S+\s+\S+\s+)*?#?(\d{2,5})/g;
 
-/**
- * One session's cost, turns, context and member count.
- * @param {string} text
- */
+/** @param {string} text */
 function sessionRow(text) {
 	/** @type {number | null} */
 	let firstAt = null;
 	let hasUser = false;
 	/** @type {Bill} */
 	const bill = {
-		/* A transcript repeats one message across its content blocks, so bill each
-		 * message once (mantahostels#830's de-duplication key). */
 		billed: new Set(),
 		cost: 0,
 		turns: 0,
@@ -106,11 +55,7 @@ function sessionRow(text) {
 	};
 }
 
-/**
- * A session's running bill: the message keys already billed, the weighted
- * cost, the billed turns, and the standing context's sum, count and peak.
- * @typedef {{ billed: Set<string>, cost: number, turns: number, ctxSum: number, ctxN: number, peak: number }} Bill
- */
+/** @typedef {{ billed: Set<string>, cost: number, turns: number, ctxSum: number, ctxN: number, peak: number }} Bill */
 
 /**
  * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
@@ -118,9 +63,8 @@ function sessionRow(text) {
  */
 
 /**
- * Bill one assistant message, unless its key was billed already.
- * @param {Bill} bill accumulator: the turn's key, cost and context are added
- * @param {TranscriptRecord["message"]} message one carrying `usage`
+ * @param {Bill} bill
+ * @param {TranscriptRecord["message"]} message
  */
 function billTurn(bill, message) {
 	const usage = message.usage;
@@ -138,7 +82,6 @@ function billTurn(bill, message) {
 }
 
 /**
- * One turn's cost-equivalent in dollars, at RATES.
  * @param {TranscriptRecord["message"]["usage"]} usage
  * @returns {number}
  */
@@ -159,8 +102,7 @@ function turnCost(usage) {
 }
 
 /**
- * Add every issue number a Bash `gh issue close` in `content` names.
- * @param {Set<string | undefined>} closed accumulator: each closed issue number is added
+ * @param {Set<string | undefined>} closed
  * @param {TranscriptBlock[]} content
  */
 function addClosures(closed, content) {
@@ -192,9 +134,6 @@ function main(argv) {
 		fail("--since needs an ISO date, e.g. 2026-08-18.");
 		return 2;
 	}
-	/* Derived from THIS CHECKOUT, never a literal and never the cwd: the slug
-	 * was hard-coded to the founder's own path until mantahostels#1982, so the corpus read
-	 * as unreadable on any other machine. */
 	const dirs = corpusDirs(process.env.WFC_TRANSCRIPT_DIR);
 	const where = dirs.join(", ");
 

@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-stale-suite-queue.js reports a suite-queue marker whose
- * waiter is gone, never removes one, and stays silent on a marker it cannot
- * judge.
- *
- * Drives the real script as a subprocess, TMPDIR pointed at a sandbox so a
- * real machine's own `/tmp` is never read or written — the way
- * `npm run status` runs it, matching check-stranded-file-claims.test.ts and
- * check-ghost-jobs.test.ts, this family's two models.
- *
- * Two properties carry the ruling (mantahostels#2034 — the sweep exists only to report,
- * never to act): it never removes a marker under any flag, and a marker this
- * sweep cannot judge (unparseable, an unreadable directory) is silence or SKIP
- * rather than a finding — reporting one as stale on a guess is exactly the
- * failure mode that would let this sweep eject a legitimate waiter.
- *
- * It reports through `npm run status`: loosen a case and a dead waiter's
- * marker sits unreported in the queue directory, or a live waiter loses its
- * place.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -27,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-stale-suite-queue.js");
+const DEAD_PID = 2 ** 30;
 
-/* `root` is the run's TMPDIR, and `dir` the queue directory under it. */
 let root: string;
 let dir: string;
 
@@ -42,7 +22,6 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** A marker on disk, in the shape queueJoin writes. */
 function marker(pid: number, extra: Record<string, unknown> = {}) {
 	const file = path.join(dir, `wfc-suite-queue-${pid}.json`);
 	fs.writeFileSync(
@@ -66,14 +45,12 @@ const report = (r: { stdout: string; stderr: string }) => r.stdout + r.stderr;
 
 describe("what it reports", () => {
 	it("names a marker whose pid does not exist", () => {
-		// 2**30 is never a real pid on this machine.
-		marker(2 ** 30);
+		marker(DEAD_PID);
 
 		const r = run();
 		const out = report(r);
 		expect(out).toContain("STALE-QUEUE-MARKER");
-		expect(out).toContain(`wfc-suite-queue-${2 ** 30}.json`);
-		// WARN, never FAIL: nothing here is refused.
+		expect(out).toContain(`wfc-suite-queue-${DEAD_PID}.json`);
 		expect(r.status).toBe(0);
 	});
 
@@ -86,8 +63,6 @@ describe("what it reports", () => {
 	});
 
 	it("names a marker whose pid is alive but whose start time no longer matches", () => {
-		// This process's own pid has a real, non-zero start time; recording a
-		// different one makes it read as reused.
 		marker(process.pid, { start: 1 });
 
 		const out = report(run());
@@ -96,9 +71,7 @@ describe("what it reports", () => {
 	});
 
 	it("does not judge a marker with no start recorded, even against a dead pid's own reuse", () => {
-		// start: 0 is silently absent from the reuse test — only liveness judges
-		// this one, and it IS dead, so it should still be reported.
-		const file = marker(2 ** 30, { start: 0 });
+		const file = marker(DEAD_PID, { start: 0 });
 
 		expect(report(run())).toContain(file);
 	});
@@ -129,11 +102,6 @@ describe("what it reports", () => {
 		expect(report(run())).toContain("OK:");
 	});
 
-	/* The drift mantahostels#2034's own review caught: readTurn requires a numeric `at`
-	 * and an earlier draft of this sweep did not, so a marker with none was
-	 * reported stale here under advice readTurn would not honour on that
-	 * same marker (readTurn skips it outright). The walk is shared now
-	 * (lib/suite-queue.js's readMarkers), so this asserts the shared answer. */
 	it("skips a marker with a numeric pid and no numeric at, matching readTurn", () => {
 		fs.writeFileSync(
 			path.join(dir, "wfc-suite-queue-11.json"),
@@ -161,7 +129,7 @@ describe("what it reports", () => {
 
 describe("it never removes a marker (mantahostels#2034)", () => {
 	it("leaves a stale marker on disk byte-for-byte", () => {
-		const file = marker(2 ** 30);
+		const file = marker(DEAD_PID);
 		const before = fs.readFileSync(file, "utf8");
 
 		expect(report(run())).toContain("STALE-QUEUE-MARKER");
@@ -171,18 +139,15 @@ describe("it never removes a marker (mantahostels#2034)", () => {
 	});
 
 	it("has no flag that deletes anything", () => {
-		const file = marker(2 ** 30);
+		const file = marker(DEAD_PID);
 
 		for (const flag of ["--sweep", "--fix", "--force", "--clean"]) run([flag]);
 
 		expect(fs.existsSync(file)).toBe(true);
 	});
 
-	/* The way out, not just the fact of a finding — a reader who only sees
-	 * "STALE-QUEUE-MARKER" and no next step reaches for `rm` on a marker that
-	 * might still be a live waiter's. */
 	it("names the way out on a hand run: nothing removed, who does, when to act by hand", () => {
-		marker(2 ** 30);
+		marker(DEAD_PID);
 
 		const out = report(run());
 		expect(out).toContain("Nothing was removed");
@@ -191,7 +156,7 @@ describe("it never removes a marker (mantahostels#2034)", () => {
 	});
 
 	it("suppresses the way-out advice under --notify, where the itemised list already carries it", () => {
-		marker(2 ** 30);
+		marker(DEAD_PID);
 
 		const out = run(["--notify"]).stdout;
 		expect(out).toContain("STALE-QUEUE-MARKER (1) standing");
@@ -209,7 +174,7 @@ describe("--notify", () => {
 	});
 
 	it("prints the standing count on a stale marker, exiting 0", () => {
-		marker(2 ** 30);
+		marker(DEAD_PID);
 
 		const r = run(["--notify"]);
 		expect(r.stdout).toContain("STALE-QUEUE-MARKER (1) standing");

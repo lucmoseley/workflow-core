@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * record-acts.js writes a session's raw `gh` close, question round, `takes:`
- * relabel and blocked-by edge to its acts ledger, one line per act (#2308,
- * #2464, spec #2245). These are its boundary cases: the line hooks/hooks.json
- * registers, run by bash as the harness runs it, on a harness-shaped payload —
- * the wiring, the session id's two channels, the fail-open record, and the
- * ledger, the fs and git crossed for real. Which call records which act is
- * lib/gh-acts.test.ts's (#2799).
- *
- * Break the line and the refill loop reads every launch as idle.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -54,7 +43,6 @@ const fire = (
 		stderr?: string;
 		stdin?: string;
 		env?: NodeJS.ProcessEnv;
-		/** The payload's `cwd`, absent from it where unset. */
 		cwd?: string;
 	} = {},
 ) =>

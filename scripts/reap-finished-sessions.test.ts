@@ -1,48 +1,41 @@
 // @vitest-environment node
-/*
- * Pins the reaper that stops finished background sessions: its gates, its
- * plan, every path where it degrades to reaping nothing, the retry window
- * after a failed stop, and its SessionStart wiring.
- *
- * The judgement — every gate, the retry window, the per-run ceiling, the
- * report, the deaths a wedged run counts — lives in lib/reaper.js and is
- * driven through `reap` and `openedRecord`, the two exports the program calls,
- * against a frozen clock and injected readings: end to end the program reads
- * the real clock and /proc and spawns git, and `deaths` shows only in a row a
- * killed run left open. What the program
- * itself reads and writes — the claim store, the finish clock, the state and
- * run files, persist mode, its command line — is pinned by running it in a
- * sandbox config dir holding a fixture registry (lib/registry-agents.js),
- * against a fake `claude` (WFC_CLAUDE_BIN) answering its stops, so no test
- * stops a real session. Nothing is imported from the program: §G6 exports
- * nothing for a test alone (#1369).
- *
- * Breaking it either stops a session still working, or leaves finished ones
- * holding memory, so admission turns new sessions away (mantahostels#421).
- */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { reclaimableMb } from "./lib/admission.js";
+import { readProcStartOf } from "./lib/arbiter-proc.js";
 import { keptSpawn } from "./lib/kept-spawn.js";
+import {
+	base as notifyBase,
+	readReport,
+	readRun,
+	reportFile,
+} from "./lib/notify-report.js";
+import { projectSlug } from "./lib/project-slug.js";
+import type { Candidate, RunRecord } from "./lib/reaper.js";
+import { openedRecord, reap } from "./lib/reaper.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { buildBashCall } from "./lib/transcript-testkit";
 
-// biome-ignore lint/suspicious/noExplicitAny: CommonJS module
-const { readProcStartOf } = require("./lib/arbiter-proc.js") as any;
-// biome-ignore lint/suspicious/noExplicitAny: CommonJS module
-const { projectSlug } = require("./lib/project-slug.js") as any;
+type ReapInput = Parameters<typeof reap>[0];
 
-const {
-	reap,
-	openedRecord,
-	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-} = require("./lib/reaper.js") as any;
+type WrittenRecord = RunRecord & {
+	listed?: number;
+	stopped?: number;
+	faults?: string[];
+	why?: string;
+	candidates: Candidate[];
+};
 
-/* A state-file row: the bare first-sighting stamp, or the record a failed stop
- * leaves behind (mantahostels#846). */
+function last(records: WrittenRecord[]): WrittenRecord {
+	const r = records.at(-1);
+	if (!r) throw new Error("no run record was written");
+	return r;
+}
+
 type StateRow =
 	| number
 	| {
@@ -56,14 +49,10 @@ const SCRIPT = path.resolve(__dirname, "reap-finished-sessions.js");
 
 const NOW = 1_787_030_000_000;
 
-/* The test's own figures, never the module's constants (#1369): the per-run
- * ceiling, and the first and longest retry windows (mantahostels#846). */
 const CAP = 10;
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-/* The name the persisted report is filed under — the replay reader keys on it
- * (mantahostels#2152). */
 const REPORT_NAME = "reap-finished-sessions";
 
 interface Agent {
@@ -103,31 +92,20 @@ interface ReapOverrides {
 	recordStopped?: (rows: Agent[], now: number) => string | null;
 }
 
-/**
- * One `reap` against the frozen clock, every write captured: the lines it
- * logged, the states it saved, the job ids it stopped and the run records it
- * wrote. By default it lists one finished, unclaimed session and stops it.
- */
 function reapWith(over: ReapOverrides = {}) {
 	const lines: string[] = [];
 	const saved: Record<string, StateRow>[] = [];
 	const stopped: string[] = [];
-	// biome-ignore lint/suspicious/noExplicitAny: run records as written
-	const records: any[] = [];
+	const records: WrittenRecord[] = [];
 	const verdict = reap({
 		argv: [],
 		listed: { faults: [], seats: ["/s"], agents: [agent()] },
 		claims: { held: new Map<string, string[]>() },
-		// A real session id that matches no fixture, so gate 2 is satisfied
-		// without hiding it: the unset case is its own test.
 		self: "the-running-session",
 		now: NOW,
-		// Default: finished long enough ago to be past the grace window.
 		state: { "aaaa-1": NOW - 1 },
 		finishAt: () => null,
-		// Default: its transcript shows its last turn ended.
 		lastTurn: () => ({ ended: true, at: null }),
-		// Default: its transcript shows no launch still out.
 		pending: () => [],
 		stop: (id: string) => {
 			stopped.push(id);
@@ -136,9 +114,8 @@ function reapWith(over: ReapOverrides = {}) {
 		readPss: () => 400,
 		isDirty: () => false,
 		runs: {},
-		// biome-ignore lint/suspicious/noExplicitAny: run records as written
-		recordRun: (r: any) => {
-			records.push(r);
+		recordRun: (r: RunRecord) => {
+			records.push(r as WrittenRecord);
 		},
 		saveState: (s: Record<string, StateRow>) => {
 			saved.push(s);
@@ -147,7 +124,7 @@ function reapWith(over: ReapOverrides = {}) {
 			lines.push(l);
 		},
 		...over,
-	});
+	} as unknown as ReapInput);
 	return {
 		lines,
 		saved,
@@ -158,12 +135,6 @@ function reapWith(over: ReapOverrides = {}) {
 	};
 }
 
-/**
- * The plan for one run: `reap` under `--dry-run --json`, which judges every
- * session and stops none, read back as what it would take (`reap`), what it
- * held back (`kept`), the state it saves (`nextState`) and the run record it
- * closes (`record`).
- */
 function run({
 	agents,
 	held,
@@ -186,20 +157,12 @@ function run({
 		reap: out.reaped,
 		kept: out.kept,
 		nextState: h.saved[0],
-		record: h.records.at(-1),
+		record: last(h.records),
 	};
 }
 
 const ids = (list: Agent[]) => list.map((a) => a.sessionId);
 
-/**
- * The registry the program reads its pool from (lib/registry-agents.js,
- * #2665), laid under `seat`: one `sessions/<n>.json` per agent naming this
- * test's own process — running, with its real start time — and each job's
- * `state.json`, merged into one the test laid down itself and never written
- * over one that will not parse. Answers the body of a fake `claude` that
- * exits 0 to a stop.
- */
 function registered(seat: string, agents: Agent[]) {
 	const sessions = path.join(seat, "sessions");
 	fs.mkdirSync(sessions, { recursive: true });
@@ -240,7 +203,6 @@ function registered(seat: string, agents: Agent[]) {
 	return "exit 0\n";
 }
 
-/** A turn's closing rows, as the harness writes them once a turn has ended. */
 const ENDED_TURN = `${[
 	{ type: "assistant", message: { content: [] } },
 	{ type: "system", subtype: "stop_hook_summary" },
@@ -249,11 +211,6 @@ const ENDED_TURN = `${[
 	.map((r) => JSON.stringify(r))
 	.join("\n")}\n`;
 
-/**
- * A transcript whose last turn ended, where the program looks for `sessionId`'s
- * — unless the test laid one there itself. Dated at `firstTerminalAt` where
- * that is set, so the finish clock still reads the stamp the test laid.
- */
 function endedTranscript(
 	seat: string,
 	cwd: string,
@@ -268,12 +225,6 @@ function endedTranscript(
 	if (Number.isFinite(at)) fs.utimesSync(t, at / 1000, at / 1000);
 }
 
-/**
- * The program run for real with `sandbox` as its config dir and cwd, against a
- * fake `claude` whose shell body is `stub`, as a session the fake does not
- * list. `subprocess` spawns a real process instead, for a case that kills it;
- * a timeout or a non-zero exit then throws.
- */
 function runReaper(
 	sandbox: string,
 	stub: string,
@@ -288,13 +239,10 @@ function runReaper(
 	const env = {
 		...process.env,
 		CLAUDE_CONFIG_DIR: sandbox,
-		/* The sandbox as the only seat, so no stop is retried on a sibling of the
-		 * tmpdir (#1571); the two-seat cases override all three. */
 		WFC_CLAUDE_CONFIG_A: sandbox,
 		WFC_CLAUDE_CONFIG_B: sandbox,
 		WFC_CLAUDE_CONFIG_C: sandbox,
 		WFC_CLAUDE_BIN: bin,
-		/* The stop journal's dir, kept off the real machine one (#5331). */
 		WFC_REFILL_DIR: sandbox,
 		CLAUDE_CODE_SESSION_ID: "the-session-this-hook-started-in",
 		...opts.env,
@@ -316,9 +264,6 @@ function runReaper(
 	return { status: 0, stdout: res.stdout, stderr: res.stderr };
 }
 
-/* The claim store as main() reads it: lock records under the sandbox config
- * dir, judged through a `--dry-run --json` run whose reaped rows carry the
- * paths each holder claimed. */
 describe("the claim store, as the run reads it", () => {
 	let sandbox: string;
 	let project: string;
@@ -373,8 +318,6 @@ describe("the claim store, as the run reads it", () => {
 		expect(r.claimsOf("holder-2")).toEqual(["b.md"]);
 	});
 
-	/* The paths are the whole reason this is read at all: the reaper decides
-	 * nothing on a claim (mantahostels#747). */
 	it("reports every path one holder claims, grouped under it", () => {
 		writeLock("a", JSON.stringify({ sessionId: "holder-1", path: "a.md" }));
 		writeLock("b", JSON.stringify({ sessionId: "holder-1", path: "b.md" }));
@@ -382,11 +325,10 @@ describe("the claim store, as the run reads it", () => {
 		expect([...r.claimsOf("holder-1")].sort()).toEqual(["a.md", "b.md"]);
 	});
 
-	/* mantahostels#1692, where one bad record ended the whole run. */
 	it("judges every readable claim past a record that will not parse", () => {
 		writeLock("a", JSON.stringify({ sessionId: "holder-1", path: "a.md" }));
 		writeLock("b", "{ this is not json");
-		writeLock("c", ""); // the zero-byte shape the incident actually left
+		writeLock("c", "");
 		const r = runWith(["holder-1", "holder-2"]);
 		expect(r.claimsUnread).toBeNull();
 		expect(r.claimsOf("holder-1")).toEqual(["a.md"]);
@@ -400,8 +342,6 @@ describe("the claim store, as the run reads it", () => {
 		const r = runWith(["holder-1"]);
 		expect(r.claimsUnread).toBeNull();
 		expect(r.claimsOf("holder-1")).toEqual(["b.md"]);
-		// Named by the PATH it claims: this one parsed, so there is no filename
-		// fault to report — only its holder is missing.
 		expect(r.unnamedRecords).toEqual(["a.md"]);
 	});
 
@@ -418,8 +358,6 @@ describe("the claim store, as the run reads it", () => {
 	});
 });
 
-/* Gate 1, read off where the plan files each session: taken, or turned away
- * at gate `finished` in the run record. */
 describe("gate 1: finished", () => {
 	const gateOf = (a: Agent) =>
 		run({ agents: [a], state: { [a.sessionId]: NOW - 1 } }).record.candidates[0]
@@ -438,8 +376,6 @@ describe("gate 1: finished", () => {
 		expect(gateOf(agent({ state: "working" }))).toBe("finished");
 	});
 
-	/* #2980: a forced Stop-hook turn runs under `done`, and `claude stop` on a
-	 * job reading `tempo: active` writes `stopped` over its result. */
 	it("refuses a done session whose tempo is active", () => {
 		expect(gateOf(agent({ tempo: "active" }))).toBe("finished");
 		expect(gateOf(agent({ tempo: "idle" }))).toBeNull();
@@ -521,7 +457,6 @@ describe("plan", () => {
 		expect(p.reap[0].claims).toEqual([]);
 	});
 
-	/* Zero (mantahostels#1290; docs/environment.md §5). */
 	it("holds nothing back for age alone: the grace window is zero", () => {
 		expect(ids(run({ finishAt: () => NOW }).reap)).toEqual(["aaaa-1"]);
 		const ahead = run({ finishAt: () => NOW + 1 });
@@ -539,8 +474,6 @@ describe("plan", () => {
 		expect(ids(p.reap)).toEqual(["aaaa-1"]);
 	});
 
-	/* The stamp is written before the age gate, so it still lands on the run that
-	 * reaps. */
 	it("stamps a newly-finished session even as it reaps it", () => {
 		const p = run({ state: {} });
 		expect(p.nextState["aaaa-1"]).toBe(NOW);
@@ -562,11 +495,7 @@ describe("plan", () => {
 		}
 		const p = run({ agents, state });
 		expect(p.reap).toHaveLength(CAP);
-		// The rest are reaped at the next start, and the record names them.
-		expect(
-			// biome-ignore lint/suspicious/noExplicitAny: record rows
-			p.record.candidates.filter((c: any) => c.gate === "cap"),
-		).toHaveLength(5);
+		expect(p.record.candidates.filter((c) => c.gate === "cap")).toHaveLength(5);
 	});
 
 	it("sorts each finished session into exactly one of reap or kept", () => {
@@ -589,7 +518,6 @@ describe("plan", () => {
 });
 
 describe("reap — the degradation paths", () => {
-	/* #2665: a seat that will not read costs its own sessions, not the run. */
 	const darkSeat = {
 		listed: {
 			agents: [agent()],
@@ -630,13 +558,11 @@ describe("reap — the degradation paths", () => {
 		expect(JSON.parse(h.out).faults).toEqual([
 			"/s/sessions would not read (EACCES)",
 		]);
-		expect(h.records.at(-1).faults).toEqual([
+		expect(last(h.records).faults).toEqual([
 			"/s/sessions would not read (EACCES)",
 		]);
 	});
 
-	/* mantahostels#747: a claim decides nothing, so an unreadable store costs the naming and
-	 * not the run. */
 	const darkStore = {
 		claims: { why: "the claim store could not be read" },
 	};
@@ -672,8 +598,6 @@ describe("reap — the degradation paths", () => {
 		);
 	});
 
-	/* mantahostels#1692: individual records that would not parse, as against the whole store
-	 * going dark above. */
 	const badRecords = {
 		claims: {
 			held: new Map([["aaaa-1", ["docs/a.md"]]]),
@@ -726,8 +650,6 @@ describe("reap — the degradation paths", () => {
 		expect(h.out).not.toMatch(/reap: stopped/);
 	});
 
-	/* The stamp is kept so the next attempt is not made to serve a fresh grace
-	 * window. */
 	it("keeps the first-seen stamp of a session that would not stop", () => {
 		const h = reapWith({ stop: () => ({ ok: false, why: "exit 1" }) });
 		expect(h.saved[0]["aaaa-1"]).toMatchObject({ since: NOW - 1 });
@@ -738,7 +660,6 @@ describe("reap — the degradation paths", () => {
 		expect(h.saved[0]["aaaa-1"]).toBeUndefined();
 	});
 
-	/* mantahostels#846: what stops the retry happening again at the very next session start. */
 	it("records the failure, and a window before the next attempt", () => {
 		const h = reapWith({ stop: () => ({ ok: false, why: "exit 1" }) });
 		expect(h.saved[0]["aaaa-1"]).toEqual({
@@ -749,7 +670,6 @@ describe("reap — the degradation paths", () => {
 		});
 	});
 
-	/* #2665: a busy daemon, not a refusal. */
 	const timedOut = () => ({ ok: false, why: "ETIMEDOUT", timedOut: true });
 
 	it("records no failure for a stop that timed out, so the next run retries it", () => {
@@ -804,7 +724,6 @@ describe("reap — the degradation paths", () => {
 		expect(h.saved[0]["aaaa-1"]).toBeUndefined();
 	});
 
-	/* A held-back session, i.e. one inside the window a failure opened. */
 	const ghost = {
 		state: {
 			"aaaa-1": {
@@ -840,10 +759,6 @@ describe("reap — the degradation paths", () => {
 		expect(r.kept[0].failures).toBe(1);
 	});
 
-	/* `claude stop` and `claude attach` are both addressed by the short job id,
-	 * and answer a session id with "No job matching '<id>'" and exit 1 — so the
-	 * wrong spelling fails every stop, and hands back a recovery command that
-	 * cannot work (mantahostels#492). */
 	it("addresses claude stop by the job id", () => {
 		expect(reapWith({}).stopped).toEqual(["aaaa"]);
 	});
@@ -875,10 +790,6 @@ describe("reap — the degradation paths", () => {
 		expect(h.saved[0]["aaaa-1"]).toBe(NOW);
 	});
 
-	/*
-	 * What a stop leaves behind (mantahostels#747). The reaper releases nothing: stopping
-	 * the host is what makes the lock stale.
-	 */
 	const holding = (paths: string[]) => ({
 		claims: { held: new Map([["aaaa-1", paths]]) },
 	});
@@ -898,8 +809,6 @@ describe("reap — the degradation paths", () => {
 		expect(h.out).toContain("scripts/x.js, docs/y.md (DIRTY)");
 	});
 
-	/* git answering `null` is doubt, not dirt: saying DIRTY on a git that could
-	 * not run would send someone hunting a diff that is not there. */
 	it("marks nothing where git could not say whether the file is clean", () => {
 		const h = reapWith({ ...holding(["scripts/x.js"]), isDirty: () => null });
 		expect(h.out).toContain(": scripts/x.js");
@@ -945,8 +854,6 @@ describe("the state file — an unwritable config dir", () => {
 	afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 	it("swallows a config directory that cannot be created, and still judges the run", () => {
-		// A plain file where the config directory should be: mkdirSync throws
-		// ENOTDIR for any user, root included.
 		const blocked = path.join(tmp, "not-a-dir");
 		fs.writeFileSync(blocked, "");
 		const res = runReaper(
@@ -975,8 +882,6 @@ describe("the state file — an unwritable config dir", () => {
 	});
 });
 
-/* main() is the wiring the unit tests above cannot reach: the oracle refuses a
- * listing not naming the session the hook is starting in (mantahostels#535). */
 describe("the SessionStart wiring: the run's own session is not yet registered", () => {
 	let sandbox = "";
 
@@ -985,10 +890,7 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 	});
 	afterEach(() => fs.rmSync(sandbox, { recursive: true, force: true }));
 
-	/** Runs the script for real, as a session the fake daemon does not list.
-	 * Returns the parsed `--json` object, or raw stdout where `argv` overrides it. */
 	function runScript(listing: Agent[], argv?: string[]) {
-		// Finished well before the grace window, so it is due rather than held.
 		fs.writeFileSync(
 			path.join(sandbox, "wfc-reap-state.json"),
 			JSON.stringify({ "other-1": Date.now() - 60_000 }),
@@ -1052,8 +954,6 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 		]);
 	});
 
-	/* The one thing only the wiring carries: that main() passes the recorder in
-	 * at all (mantahostels#1920). */
 	it("leaves a closed record on disk, under the mode it ran in", () => {
 		runScript([finished]);
 		const runs = JSON.parse(
@@ -1068,8 +968,6 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 		expect(runs.live).toBeUndefined();
 	});
 
-	/* THE CASE mantahostels#1920 EXISTS FOR, and the only test that can see it: a run killed
-	 * inside its slow part, here a stop the daemon never answers. */
 	it("leaves the start half behind when it is killed inside a stop", () => {
 		registered(sandbox, [finished]);
 		expect(() =>
@@ -1087,7 +985,6 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 		expect(runs.live.finishedAt).toBeUndefined();
 	});
 
-	/* The other half of the wiring: that main() reads the previous record back. */
 	it("reads the previous run's record back off disk and reports it unfinished", () => {
 		fs.writeFileSync(
 			path.join(sandbox, "wfc-reap-run.json"),
@@ -1100,9 +997,6 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 		);
 	});
 
-	/* #920 (`--help` once ran a live reap). The fake daemon records any call,
-	 * list or stop, and the run record is what openRun writes before the oracle
-	 * is read. */
 	describe("a command line it does not take reaps nothing", () => {
 		function runArgv(argv: string[]) {
 			const called = path.join(sandbox, "claude-called");
@@ -1145,11 +1039,6 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 	});
 });
 
-/*
- * The clock mantahostels#654 chose: `max(firstTerminalAt, transcript mtime)`, both terms or
- * neither (mantahostels#652): the stamp survives a resume and so can read early, the mtime
- * is "last touched" and so reads late.
- */
 describe("the finish clock, as the run reads it off disk", () => {
 	let sandbox = "";
 
@@ -1164,8 +1053,6 @@ describe("the finish clock, as the run reads it off disk", () => {
 	const slug = "-home-lucmo-mantahostels";
 	const minute = 60_000;
 
-	/** Lays down a job record and a transcript the way the real harness does,
-	 * each dated `…Ago` before the real clock the script will read. */
 	function lay(over: { record?: unknown; transcriptAgo?: number | null } = {}) {
 		const now = Date.now();
 		const dir = path.join(sandbox, "jobs", "aaaa");
@@ -1189,8 +1076,6 @@ describe("the finish clock, as the run reads it off disk", () => {
 		}
 	}
 
-	/** The one reaped row of a real `--dry-run --json` run, with no state file,
-	 * so the observation clock — the fallback — reads zero minutes. */
 	function reaped() {
 		const res = runReaper(sandbox, registered(sandbox, [agent()]), [
 			"--dry-run",
@@ -1202,9 +1087,6 @@ describe("the finish clock, as the run reads it off disk", () => {
 		return out.reaped[0];
 	}
 
-	/** Where the transcript cannot be found, the run holds the session for the
-	 * hold window, timed on the observation clock — never off the stamp alone,
-	 * and never off another session's transcript (#2980). */
 	function heldUnreadable() {
 		const res = runReaper(sandbox, registered(sandbox, [agent()]), [
 			"--dry-run",
@@ -1238,8 +1120,6 @@ describe("the finish clock, as the run reads it off disk", () => {
 	});
 
 	it("derives the transcript path from the cwd, not from linkScanPath", () => {
-		// A resumed session's linkScanPath still names the transcript it resumed
-		// FROM.
 		lay({
 			record: {
 				cwd: jobCwd,
@@ -1252,7 +1132,6 @@ describe("the finish clock, as the run reads it off disk", () => {
 	});
 
 	it("gives no time where firstTerminalAt is null", () => {
-		// The `backend: "peer"` shape of mantahostels#652 F4, which stamps null unconditionally.
 		lay({ record: { cwd: jobCwd, firstTerminalAt: null } });
 		noTime(reaped());
 	});
@@ -1290,9 +1169,6 @@ describe("the finish clock, as the run reads it off disk", () => {
 				firstTerminalAt: new Date(Date.now() - 20 * minute).toISOString(),
 			},
 		});
-		/* A transcript where the REAPING run's own cwd would put it, so a
-		 * reader that defaulted the missing cwd would find one and date the
-		 * session off somebody else's mtime. */
 		const own = path.join(
 			sandbox,
 			"projects",
@@ -1384,8 +1260,6 @@ describe("the finish clock, as the run reads it off disk", () => {
 	});
 });
 
-/* #2980: a job reads `done` before its Stop hooks run, and a blocking one
- * forces a turn under that `done`. */
 describe("plan — holding a job whose turn has not visibly ended", () => {
 	const Min = 60_000;
 	const withTurn = (
@@ -1405,7 +1279,6 @@ describe("plan — holding a job whose turn has not visibly ended", () => {
 		const held = withTurn(at(15 * Min - 1000), 0).kept[0];
 		expect([held.gate, held.clock]).toEqual(["turn", "turn-row"]);
 		expect(held.why).toMatch(/last turn row 899s ago/);
-		// Bookkeeping rows moved the finish clock to now; the row still rules.
 		expect(ids(withTurn(at(15 * Min), 0).reap)).toEqual(["aaaa-1"]);
 	});
 
@@ -1424,7 +1297,6 @@ describe("plan — holding a job whose turn has not visibly ended", () => {
 	});
 });
 
-/* #5387: gate 1's `done` is no proof a job has nothing left to wake it. */
 describe("plan — keeping a job with a launch still out", () => {
 	it("keeps a job whose transcript shows a launch still out, naming it", () => {
 		const p = run({ pending: () => [{ name: "landing-status.js --wait" }] });
@@ -1485,9 +1357,6 @@ describe("plan — dating a session from when it finished, not when it was sight
 		expect(p.reap[0].clock).toBe("finish-stamp");
 	});
 
-	/* The age gate survives the cut to zero for this one case: a finish stamp in
-	 * the future means the clock is wrong, and a run that cannot date a session
-	 * does not reap it. */
 	it("holds a session whose finish stamp is in the future", () => {
 		const p = withClock(() => NOW + 5000, {});
 		expect(p.reap).toEqual([]);
@@ -1500,8 +1369,6 @@ describe("plan — dating a session from when it finished, not when it was sight
 		expect(p.reap[0].clock).toBe("observation");
 	});
 
-	/* mantahostels#632's burst case: with no finish time to read the fallback clock dates a
-	 * session from its first sighting, which at a zero window is this very run. */
 	it("reaps on the fallback clock at first sighting", () => {
 		const p = withClock(() => null, { "aaaa-1": NOW - 1000 });
 		expect(ids(p.reap)).toEqual(["aaaa-1"]);
@@ -1511,7 +1378,6 @@ describe("plan — dating a session from when it finished, not when it was sight
 	it("never reads the clock for a session an earlier gate already kept", () => {
 		let reads = 0;
 		const p = run({
-			/* Gate 2, this very session. */
 			self: "aaaa-1",
 			state: {},
 			finishAt: () => {
@@ -1538,7 +1404,6 @@ describe("the SessionStart wiring: one sighting is enough", () => {
 		name: "a session from the burst",
 	});
 
-	/** Runs the script for real, with no wfc-reap-state.json written first. */
 	function runFirstEver(withJobRecord: boolean) {
 		const cwd = process.cwd();
 		if (withJobRecord) {
@@ -1581,17 +1446,6 @@ describe("the SessionStart wiring: one sighting is enough", () => {
 	});
 });
 
-/*
- * mantahostels#747: end to end, a finished session holding a claim is stopped, and the run
- * says which lock it left stale. Driven through the CLI entry point because the
- * claim store is read by main() alone — the judgement is handed the answer.
- *
- * UNVERIFIED: that main() passes `gitDirty` as the reader
- * behind the DIRTY marker. Only main()'s own stdout is asserted on here, and
- * making a tracked file dirty to find out would write to the shared working
- * tree. The marker's own logic is unit-covered above; the omission costs a
- * marker, never a wrong reap.
- */
 describe("the SessionStart wiring: a claim does not keep a session", () => {
 	let sandbox = "";
 	let project = "";
@@ -1660,12 +1514,6 @@ describe("the SessionStart wiring: a claim does not keep a session", () => {
 	});
 });
 
-/*
- * mantahostels#846: the reaper selected and retried two ghost ids at every session start,
- * for ever — job records the listing oracle still names whose daemon holds no
- * job to stop, so `claude stop` answers "No job matching '<id>'" and exit 1
- * however often it is asked.
- */
 describe("a stop that failed is not retried at every session start", () => {
 	const failed = (over: Partial<Extract<StateRow, object>> = {}) => ({
 		"aaaa-1": {
@@ -1700,8 +1548,6 @@ describe("a stop that failed is not retried at every session start", () => {
 		expect(ids(p.reap)).toEqual(["aaaa-1"]);
 	});
 
-	/* Two permanent failures took two of the ten slots on every run, so the
-	 * ceiling bound two lower than it reads. */
 	it("spends no slot under the ten-a-run ceiling on a held-back session", () => {
 		const agents: Agent[] = [];
 		const state: Record<string, StateRow> = {};
@@ -1717,9 +1563,6 @@ describe("a stop that failed is not retried at every session start", () => {
 	});
 
 	it("holds the session back rather than reaping it", () => {
-		/* `failed()` must stay past the grace window, or gate 4 keeps this and
-		 * gate 5 — the point of the test — is never reached. `heldBack` is the
-		 * discriminator; `reap` being empty is true at either gate. */
 		const p = run({ state: failed() });
 		expect(p.reap).toEqual([]);
 		expect(p.kept[0].heldBack).toBe(true);
@@ -1736,9 +1579,6 @@ describe("a stop that failed is not retried at every session start", () => {
 	});
 });
 
-/* Through `plan`, which reads each row and writes it back into `nextState`: a
- * never-failed row goes back as the bare stamp, a failed one as its whole
- * record. */
 describe("the state file's rows — reading both shapes it holds", () => {
 	const minute = 60_000;
 
@@ -1778,8 +1618,6 @@ describe("the state file's rows — reading both shapes it holds", () => {
 		expect(p.reap[0].why).toBe("finished 0 minute(s) ago");
 	});
 
-	/* Degrades to "never failed", which costs a retry — never to a state that
-	 * would suppress one. */
 	it("reads junk as a session that has never failed", () => {
 		for (const row of [null, "yesterday", [1, 2], Number.NaN, undefined]) {
 			const p = run({
@@ -1799,9 +1637,6 @@ describe("the state file's rows — reading both shapes it holds", () => {
 	});
 });
 
-/* Through `reap` with a stop that fails, reading the window off the state it
- * saves. A prior failure count
- * is seeded with its window already run out, so the stop is attempted. */
 describe("the retry window — it doubles, then stops doubling", () => {
 	function windowAfter(prior: StateRow) {
 		const { saved } = reapWith({
@@ -1826,9 +1661,6 @@ describe("the retry window — it doubles, then stops doubling", () => {
 		expect(windowAfter(failedBefore(2))).toBe(4 * HOUR);
 	});
 
-	/* Reachable only from a corrupt row: a negative count passes gate 5 (its
-	 * `failures &&` is truthy but the window is long gone) and the failure
-	 * then counts to zero. */
 	it("treats a nonsensical zeroth failure as the first, not half a window", () => {
 		expect(windowAfter({ since: NOW - 1, failures: -1, retryAt: 0 })).toBe(
 			HOUR,
@@ -1840,11 +1672,6 @@ describe("the retry window — it doubles, then stops doubling", () => {
 	});
 });
 
-/*
- * mantahostels#846 end to end, against a daemon that lists a job it cannot stop. Two runs,
- * because the bug was only ever visible across runs: the first attempt is
- * right, the SECOND one is the loop.
- */
 describe("a ghost the daemon lists but cannot stop, across consecutive runs", () => {
 	let sandbox = "";
 
@@ -1863,14 +1690,11 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 		status: "idle",
 	};
 
-	/* The fake `claude` body: lists the ghost, logs each stop asked of it and
-	 * refuses it. */
 	function ghostStub() {
 		registered(sandbox, [ghost]);
 		return [
 			'if [ "$1" = "stop" ]; then',
 			`  echo "$2" >> ${shellQuote(path.join(sandbox, "stops"))}`,
-			// A warning ABOVE the reason, per docs/agents/verification.md.
 			'  echo "warning: daemon socket is busy, retrying" >&2',
 			"  echo \"No job matching '$2'. Run 'claude agents' to list running sessions.\" >&2",
 			"  exit 1",
@@ -1896,7 +1720,6 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 		}
 	};
 
-	/** Seeds the sighting clock so the ghost is already past its grace window. */
 	function seed() {
 		fs.writeFileSync(
 			path.join(sandbox, "wfc-reap-state.json"),
@@ -1911,18 +1734,12 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 		const first = runOnce(stub);
 		expect(readStopsAttempted()).toEqual(["ghost"]);
 		expect(first).toContain("reap: could not stop ghost");
-		// The daemon's own answer, which is what tells a reader it is a ghost
-		// rather than a slow stop.
 		expect(first).toContain("No job matching 'ghost'.");
 
 		const second = runOnce(stub);
-		// THE BUG: this read ["ghost", "ghost"], for ever, at every session start.
 		expect(readStopsAttempted()).toEqual(["ghost"]);
 		expect(second).not.toContain("could not stop");
 
-		// A third run, because the record has to SURVIVE the runs it suppresses:
-		// a suppression that forgot the failure while holding the session back
-		// would pass on two runs and loop again on every one after.
 		runOnce(stub);
 		expect(readStopsAttempted()).toEqual(["ghost"]);
 	});
@@ -1959,7 +1776,6 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 		expect(state["ghost-1"].retryAt).toBeGreaterThan(Date.now());
 	});
 
-	/* The state file must not grow a row per dead session for ever. */
 	it("forgets a ghost that has left the listing altogether", () => {
 		const stub = ghostStub();
 		seed();
@@ -1983,9 +1799,11 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 });
 
 describe("the run record — what a run that took nothing leaves behind (mantahostels#1920)", () => {
-	/** The record the run closed with, or undefined where it closed none. */
-	// biome-ignore lint/suspicious/noExplicitAny: run records as written
-	const closed = (records: any[]) => records.filter((r) => r.finishedAt).pop();
+	const closed = (records: WrittenRecord[]) => {
+		const r = records.filter((x) => x.finishedAt).pop();
+		if (!r) throw new Error("no closed run record");
+		return r;
+	};
 
 	it("closes the record on a run that reaped nothing at all", () => {
 		const h = reapWith({
@@ -2037,8 +1855,7 @@ describe("the run record — what a run that took nothing leaves behind (mantaho
 			state: {},
 		});
 		const byId = new Map(
-			// biome-ignore lint/suspicious/noExplicitAny: record rows
-			closed(h.records).candidates.map((c: any) => [c.sessionId, c]),
+			closed(h.records).candidates.map((c) => [c.sessionId, c]),
 		);
 		expect(byId.get("w-1")).toMatchObject({
 			gate: "finished",
@@ -2068,8 +1885,6 @@ describe("the run record — what a run that took nothing leaves behind (mantaho
 		const h = reapWith({ self: undefined });
 		expect(closed(h.records)).toMatchObject({ listed: 1 });
 		expect(closed(h.records).why).toMatch(/^CLAUDE_CODE_SESSION_ID is unset/);
-		/* Gate 2's, not gate 1's: nothing was judged, so nothing can be said about
-		 * which of them were finished. */
 		expect(closed(h.records).candidates).toEqual([
 			expect.objectContaining({ sessionId: "aaaa-1", gate: "session-id" }),
 		]);
@@ -2117,8 +1932,6 @@ describe("a previous run that never finished (mantahostels#1920)", () => {
 		expect(reapWith({ runs: {} }).out).not.toContain("never finished");
 	});
 
-	/* `admission.js` parses the whole of --json's stdout, so the warning has to
-	 * ride inside the object rather than beside it. */
 	it("rides inside the --json object rather than beside it", () => {
 		const out = reapWith({ argv: ["--json"], runs: unfinished }).out;
 		expect(JSON.parse(out).previousRunUnfinished).toBe(
@@ -2175,8 +1988,6 @@ describe("the run record on disk (mantahostels#1920)", () => {
 	const runFile = () => path.join(sandbox, "wfc-reap-run.json");
 	const readRunsOnDisk = () => JSON.parse(fs.readFileSync(runFile(), "utf8"));
 
-	/** One run, against a daemon listing one session still working, so even a
-	 * live run stops nothing. */
 	function runOnce(argv: string[]) {
 		const res = runReaper(
 			sandbox,
@@ -2219,19 +2030,13 @@ describe("the run record on disk (mantahostels#1920)", () => {
 	});
 });
 
-/* The record the program's openRun writes, judged by lib/reaper.js's
- * `openedRecord` against the prior row the run read. */
 describe("openedRecord — a live reap cancelled at consecutive session starts (mantahostels#1952)", () => {
-	/* The grace an open row is aged against: the test's own figure. */
 	const liveGraceMs = 300_000;
 
-	/* More than one grace past `now`, matching detached-run.test.ts's own
-	 * reasoning: a ladder spaced at exactly the grace reads every row as still
-	 * alive, since an open row is aged on `>`, not `>=`. */
 	const pastGrace = (from: number, ms = liveGraceMs + 60_000) => from - ms;
 
 	it("stays at zero across runs that each close", () => {
-		let runs: Record<string, unknown> = {};
+		let runs: Record<string, RunRecord> = {};
 		for (let i = 0; i < 5; i++) {
 			const opened = openedRecord([], runs, NOW + i * 1000);
 			runs = { live: { ...opened, finishedAt: new Date().toISOString() } };
@@ -2260,10 +2065,6 @@ describe("openedRecord — a live reap cancelled at consecutive session starts (
 	});
 
 	it("ages from openedSince, not startedAt — the busy-machine case (mantahostels#1999's reasoning, reused here)", () => {
-		/* Each reopen is closer to the one before it than the grace, so ageing
-		 * against `startedAt` alone would read every one as still fresh and never
-		 * count a death; ageing from `openedSince` — fixed at the first open of
-		 * this unbroken run — lets the total elapsed time win. */
 		const step = liveGraceMs / 3;
 		const start = NOW - liveGraceMs * 2;
 		let record = openedRecord([], {}, start);
@@ -2314,18 +2115,11 @@ describe("openedRecord — a live reap cancelled at consecutive session starts (
 	});
 });
 
-/*
- * PERSIST MODE (mantahostels#2152).
- */
 describe("persist mode: the report goes to a file, not to stdout", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const notify: any = require("./lib/notify-report.js");
 	let sandbox = "";
 
 	beforeEach(() => {
 		sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "reap-persist-"));
-		/* Mirrored onto this process as well as the run's, so the two agree on
-		 * where `base()` puts the report. */
 		vi.stubEnv("CLAUDE_CONFIG_DIR", sandbox);
 		vi.stubEnv("CLAUDE_PROJECT_DIR", sandbox);
 		vi.stubEnv("WFC_CLAUDE_CONFIG_A", sandbox);
@@ -2351,57 +2145,47 @@ describe("persist mode: the report goes to a file, not to stdout", () => {
 	it("writes what it would have printed, and prints nothing", () => {
 		const out = runWithListing([finished], ["--notify"]);
 		expect(out).toBe("");
-		const report = notify.readReport(REPORT_NAME);
-		expect(report.outcome).toBe("WARN");
-		expect(report.text).toContain("reap: stopped a finished session");
-		expect(report.durationMs).toEqual(expect.any(Number));
+		const report = readReport(REPORT_NAME);
+		expect(report?.outcome).toBe("WARN");
+		expect(report?.text).toContain("reap: stopped a finished session");
+		expect(report?.durationMs).toEqual(expect.any(Number));
 	});
 
 	it("stamps the report with the session it ran in", () => {
 		runWithListing([finished], ["--notify"]);
-		expect(notify.readReport(REPORT_NAME).owner).toBe(
+		expect(readReport(REPORT_NAME)?.owner).toBe(
 			"the-session-this-hook-started-in",
 		);
 	});
 
-	/* The reader must be able to tell "ran and had nothing to say" apart from
-	 * "never ran", and only a present file can say the first. */
 	it("writes an empty OK report when it has nothing to say", () => {
-		// An empty listing is the degraded path; a listing of one LIVE session is
-		// the quiet one — judged, kept, and nothing worth a line.
 		const live = { ...finished, state: "working" };
 		runWithListing([live], ["--notify"]);
-		const report = notify.readReport(REPORT_NAME);
-		expect(report.outcome).toBe("OK");
-		expect(report.text).toBe("");
+		const report = readReport(REPORT_NAME);
+		expect(report?.outcome).toBe("OK");
+		expect(report?.text).toBe("");
 	});
 
-	/* A reaper that ran and could not work is not a reaper that found nothing. */
 	it("writes BROKEN when it judged no candidate at all", () => {
 		runWithListing([finished], ["--notify"], { CLAUDE_CODE_SESSION_ID: "" });
-		const report = notify.readReport(REPORT_NAME);
-		expect(report.outcome).toBe("BROKEN");
-		expect(report.text).toContain("CLAUDE_CODE_SESSION_ID is unset");
+		const report = readReport(REPORT_NAME);
+		expect(report?.outcome).toBe("BROKEN");
+		expect(report?.text).toContain("CLAUDE_CODE_SESSION_ID is unset");
 	});
 
-	/* The record the replay reader (mantahostels#1976) calls a cancellation. A run that
-	 * finished must not leave one behind. */
 	it("closes its open run record once the report has landed", () => {
 		runWithListing([finished], ["--notify"]);
-		expect(notify.readRun(REPORT_NAME)).toBeNull();
+		expect(readRun(REPORT_NAME)).toBeNull();
 	});
 
-	/* notify-report.js's stated contract, exercised through the reaper: an
-	 * unwritable report directory costs the report and never the reap. */
 	it("still reaps when the report directory cannot be written", () => {
-		const base = notify.base();
+		const base = notifyBase();
 		fs.mkdirSync(path.dirname(base), { recursive: true });
-		// A regular file where the directory must go, so every write below fails.
 		fs.writeFileSync(base, "not a directory");
 		expect(runWithListing([finished], ["--notify"])).toContain(
 			"reap: stopped a finished session",
 		);
-		expect(notify.readReport(REPORT_NAME)).toBeNull();
+		expect(readReport(REPORT_NAME)).toBeNull();
 		const runs = JSON.parse(
 			fs.readFileSync(path.join(sandbox, "wfc-reap-run.json"), "utf8"),
 		);
@@ -2411,15 +2195,10 @@ describe("persist mode: the report goes to a file, not to stdout", () => {
 		});
 	});
 
-	/* The half of the close-only-if-wrote trade a writable directory cannot show:
-	 * the record opens, the report write fails, and the record is LEFT open so the
-	 * reader (mantahostels#1976) reads this run as a cancellation rather than as silence. */
 	it("leaves its run record open when only the report write fails", () => {
-		// A directory where the report file must go: openRun's own file lands
-		// beside it, so the record opens and only writeReport fails.
-		fs.mkdirSync(notify.reportFile(REPORT_NAME), { recursive: true });
+		fs.mkdirSync(reportFile(REPORT_NAME), { recursive: true });
 		runWithListing([finished], ["--notify"]);
-		expect(notify.readRun(REPORT_NAME)).toMatchObject({
+		expect(readRun(REPORT_NAME)).toMatchObject({
 			checker: REPORT_NAME,
 			pid: expect.any(Number),
 		});
@@ -2430,41 +2209,24 @@ describe("persist mode: the report goes to a file, not to stdout", () => {
 			WFC_NOTIFY_PERSIST: "",
 		});
 		expect(out).toContain("reap: stopped a finished session");
-		expect(notify.readReport(REPORT_NAME)).toBeNull();
+		expect(readReport(REPORT_NAME)).toBeNull();
 	});
 
-	/* One REPORT_NAME key serves both modes, so a hand `--dry-run --notify` would
-	 * otherwise overwrite the live report the next session start reads. */
 	it("persists nothing from a dry run", () => {
 		const out = runWithListing([finished], ["--notify", "--dry-run"]);
 		expect(out).toContain("reap: would stop other");
-		expect(notify.readReport(REPORT_NAME)).toBeNull();
+		expect(readReport(REPORT_NAME)).toBeNull();
 	});
 
-	/* `--json` is a caller's document (lib/admission.js parses it), never a
-	 * reader's, so it outranks the variable rather than being captured by it. */
 	it("keeps --json on stdout and writes no report", () => {
-		// No --dry-run: that limb would mask this one.
 		const out = runWithListing([finished], ["--notify", "--json"]);
 		expect(JSON.parse(out).reaped.map((a: Agent) => a.sessionId)).toEqual([
 			"other-1",
 		]);
-		expect(notify.readReport(REPORT_NAME)).toBeNull();
+		expect(readReport(REPORT_NAME)).toBeNull();
 	});
 });
 
-/*
- * Two fake seats under one root, the run made from seat A. The fake
- * `claude` lists every seat, as the union oracle does, and answers `stop` as a
- * per-seat daemon: it holds the job ids in its seat's `daemon-jobs` file, and
- * answers anything else "No job matching". Job RECORDS are laid separately, so
- * a test can hold the record and the daemon on different seats.
- */
-/*
- * #2665: the pool is each seat's registry, pid-verified and joined to its job
- * records. Each record a check refuses is one
- * the run must not stop.
- */
 describe("the pool, read off the registry", () => {
 	let sandbox = "";
 	beforeEach(() => {
@@ -2475,7 +2237,6 @@ describe("the pool, read off the registry", () => {
 	const done = agent();
 	const jobFile = () => path.join(sandbox, "jobs", "aaaa", "state.json");
 
-	/** What a `--dry-run --json` run would stop, by session id. */
 	function wouldStop(env: Record<string, string> = {}) {
 		const res = runReaper(sandbox, "exit 0\n", ["--dry-run", "--json"], {
 			env,
@@ -2588,7 +2349,6 @@ describe("seats other than the run's own (#1571)", () => {
 	const daemonHolds = (seat: string, jobId: string) =>
 		fs.appendFileSync(path.join(seat, "daemon-jobs"), `${jobId}\n`);
 
-	/** A job record on `seat` naming `sessionId`, finished `agoMin` ago. */
 	function record(seat: string, jobId: string, sessionId: string, agoMin = 0) {
 		const dir = path.join(seat, "jobs", jobId);
 		fs.mkdirSync(dir, { recursive: true });
@@ -2603,8 +2363,6 @@ describe("seats other than the run's own (#1571)", () => {
 		endedTranscript(seat, cwd, sessionId, firstTerminalAt);
 	}
 
-	/* Each session in its own seat's registry, after the test's own job
-	 * records, which `registered` merges its state into. */
 	function registerSeats() {
 		registered(seatA, [liveA]);
 		registered(seatB, [onB, liveB]);
@@ -2648,8 +2406,6 @@ describe("seats other than the run's own (#1571)", () => {
 	});
 
 	it("retries a stop refused with No job matching on the other seat before reporting it", () => {
-		/* Seat B's record names it, so B is asked first; seat A, holding no
-		 * record of the id, is asked next. */
 		daemonHolds(seatA, "bbbb");
 		const out = reapFromA();
 		expect(readStops()).toEqual([`${seatB} bbbb`, `${seatA} bbbb`]);
@@ -2680,8 +2436,6 @@ describe("seats other than the run's own (#1571)", () => {
 	});
 
 	it("never addresses a seat whose record of the id names another session", () => {
-		/* Seat A's bbbb is a different job under a colliding id; its daemon would
-		 * stop it if asked. */
 		record(seatA, "bbbb", "someone-else");
 		daemonHolds(seatA, "bbbb");
 		const out = reapFromA();
@@ -2703,11 +2457,6 @@ describe("seats other than the run's own (#1571)", () => {
 		expect(plan.reaped[0].why).toBe("finished 20 minute(s) ago");
 	});
 
-	/* What admission.js's `taken by the next reap` reads: the count off the
-	 * reaper's own dry run, run here AFTER a live reap from seat A. Before #1571
-	 * that reap's "No job matching" opened a retry window, and the dry run held
-	 * the session back. The fake
-	 * keeps listing it after the stop, so the dry run still sees it. */
 	it("counts a seat-B session in admission's reclaimable figure after a reap from seat A", () => {
 		daemonHolds(seatB, "bbbb");
 		reapFromA();
@@ -2719,8 +2468,6 @@ describe("seats other than the run's own (#1571)", () => {
 		}))
 			vi.stubEnv(k, v);
 		vi.stubEnv("WFC_REAP_SCRIPT", undefined);
-		// biome-ignore lint/suspicious/noExplicitAny: CommonJS module, read for the figure admission.js prints
-		const { reclaimableMb } = require("./lib/admission.js") as any;
 		expect(reclaimableMb()).toMatchObject({ ok: true, count: 1 });
 	});
 });

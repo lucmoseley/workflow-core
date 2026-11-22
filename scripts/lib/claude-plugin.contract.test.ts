@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/claude-plugin-fake.ts, the `claude` init-adopter.test.ts's
- * materialising cases run, to the installed harness's recorded answers
- * (scripts/fixtures/claude-plugin.json, re-recorded by
- * `node scripts/record-claude-plugin.js`) (#5146). Where `claude` is on PATH,
- * the live cases run the free, offline calls against it in a scratch config
- * dir and project (§G7.2); `details` goes through `--plugin-dir`, since
- * `details` of an installed plugin needs `install`, which clones the plugin's
- * url source from GitHub. Unheld, being unrecorded: a url source's
- * `marketplace add`, and the clone `install` lands at the row's installPath
- * (the fake's `place`).
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -34,7 +22,6 @@ import { findInstallRecord } from "./plugin-state.js";
 import { shellQuote } from "./sh-quote.js";
 
 const PLUGIN_ID = "workflow-core@workflow-core";
-/* This checkout: a directory marketplace and a plugin, as init adds it. */
 const CHECKOUT = path.resolve(__dirname, "../..");
 
 const realClaude = (process.env.PATH ?? "")
@@ -67,7 +54,6 @@ afterEach(() => {
 
 const fake = (opts: PluginFake = {}) => writeClaudePluginFake(dir, opts);
 
-/** The fake run as materialise-plugin.js's `run` runs a call. */
 const call = (bin: string, args: string[]) =>
 	spawnSync(bin, args, {
 		cwd: project,
@@ -256,7 +242,6 @@ it("logs each call's argv, one line per call, its config dir first where asked",
 
 describe.skipIf(!realClaude)("against the installed claude", () => {
 	const real = realClaude as string;
-	/* On a red here, re-record (the header's command) and re-read the fake. */
 	const stale = () =>
 		`recorded on ${recorded.harness}, run on ${run(project, [real, "--version"]).trim()}`;
 
@@ -267,7 +252,6 @@ describe.skipIf(!realClaude)("against the installed claude", () => {
 			pluginId: PLUGIN_ID,
 			configDir: config,
 		};
-		/* The verdict and reason, not the argv, which names each binary. */
 		const verdict = (claudeBin: string) => {
 			const r = materialisePlugin({ ...at, claudeBin });
 			return { ok: r.ok, reason: "reason" in r ? r.reason : undefined };

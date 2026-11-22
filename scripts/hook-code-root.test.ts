@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Every hook the core registers runs the main checkout's script, never the
- * session's worktree's (#4701, spec #4229 seam 2). The harness hands a
- * worktree session's hooks `CLAUDE_PROJECT_DIR` naming that worktree and
- * `CLAUDE_PLUGIN_ROOT` naming the main checkout's `self-plugin/`.
- *
- * Break it and a session that edits a hook is judged by its own unlanded
- * edit: a weakened guard lets its author through, a broken one locks it out.
- *
- * It also pins the canary line's own registration, its type, onFailure and
- * timeout, which the harness reads from the session's worktree (#4745).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -183,9 +171,6 @@ describe("an edited hook script in the session's worktree (#4701)", () => {
 	});
 });
 
-/* The worktree's own `.claude/settings.json` is the canary line the harness
- * runs, and a session is cut only from `origin/main`, which only the lander
- * moves, on this whole suite green (#4745). */
 describe("the canary registration the harness reads", () => {
 	it("is a command hook that reaches both verdicts inside its timeout (#4745)", () => {
 		expect(canaryLine).toMatchObject({
@@ -194,8 +179,6 @@ describe("the canary registration the harness reads", () => {
 			timeout: expect.any(Number),
 		});
 		const worktree = cutWorktree("timed");
-		/* Wall-clock, as the harness kills the hook at its registered timeout
-		 * and the line runs in `sh`, where no clock seam reaches. */
 		const timed = () => {
 			const at = performance.now();
 			const r = runHook(worktree, canary, BASH_LS);

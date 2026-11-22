@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the band read's `put`, `get` and `list`: an entry stored under the key
- * it was given or a body's own, only tracked paths recorded, and a missing or
- * malformed key refused rather than invented (mantahostels#385).
- *
- * Run against a throwaway repository: `put` records which of the write-set's
- * paths git tracks, so the assertions need a real tree, and pointing it at this
- * one would write the real cache.
- *
- * `/pick-next` runs `put` after every band read: break it and a judged answer
- * lands under the wrong key, or not at all, and the next pick pays for the
- * read again or ranks on a stale write-set.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,12 +11,10 @@ const writeSetCache = require("./lib/write-set-cache.js");
 
 const SCRIPT = path.resolve(__dirname, "pick-next-cache.js");
 
-/** Real 64-hex keys: `put` refuses anything else. */
 const HASH_A = writeSetCache.bodyHash("body a");
 const HASH_B = writeSetCache.bodyHash("body b");
 let root: string;
 
-/** A throwaway repo tracking `files`. */
 const stubRepo = (files: string[]) => {
 	for (const f of files) {
 		fs.mkdirSync(path.join(root, path.dirname(f)), { recursive: true });
@@ -89,7 +74,6 @@ describe("put", () => {
 	});
 
 	it("records only the write-set paths git tracks today", () => {
-		// That subset is what later tells a rename from a file yet to be created.
 		stubRepo(["scripts/exists.js"]);
 		run(
 			"put",
@@ -105,8 +89,6 @@ describe("put", () => {
 	});
 
 	it("records no tracked path where git cannot answer at all", () => {
-		// Claiming a path was tracked when that is unknown would re-derive the
-		// entry the moment git works again.
 		stubRepo(["scripts/a.js"]);
 		const put = () =>
 			run("put", "7", "--body-hash", HASH_A, "--write-set", "scripts/a.js");
@@ -148,9 +130,6 @@ describe("put", () => {
 	});
 
 	it("takes the key a dumped body carries, not a hash of the whole file", () => {
-		// A --dump-bodies file is the body plus a title line and the key itself,
-		// so hashing it whole yields a key that can never match while reporting
-		// success.
 		const f = path.join(root, "7.md");
 		fs.writeFileSync(
 			f,

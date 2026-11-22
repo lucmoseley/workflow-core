@@ -1,27 +1,3 @@
-/*
- * dispatch-gates.js — dispatch-sessions.js's seat, key and auth gates in one
- * node start (#4321). Each gate keeps its own module and its own refusal; this
- * file only runs them in the script's order.
- *
- *   node scripts/lib/dispatch-gates.js -- <config dir> [<key var>]
- *
- * Prints `<seat kind> <burn>` — `plan` or `overflow` (lib/refill-seats.js),
- * then `on` where burn mode's marker exists (lib/burn-mode.js) — a second
- * line: the variables every launch's environment drops, and a third: the
- * seat's label (lib/refill-seats.js's buildSeatLabel), which the dispatcher's
- * lines name it by. The variables dropped are the launcher's root
- * (lib/inherited-roots.js) and, on an overflow seat, those
- * lib/overflow-key.js's buildOverflowLaunch names, any key among them, so the
- * key reaches the child through that file's helper alone, which
- * lib/headless-sessions.js passes in `--settings`. Exits 0. Exits 2 printing `REFUSED:` and why where
- * the seat file refuses the seat, the overflow key cannot be read, or the
- * launch would bill other than its seat (lib/launch-auth.js), judged in the
- * environment the launch hands its child.
- *
- * The duplicate gate and the kernel check stay their own starts: each runs
- * under lib/check.js's runCheck, which owns its process's exit.
- */
-
 const fs = require("node:fs");
 const { parseArgs } = require("node:util");
 const { markerPath } = require("./burn-mode.js");
@@ -38,10 +14,7 @@ const {
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
 
-/**
- * Fails open (#4321): burn mode only remaps a model.
- * @returns {"on" | "off"}
- */
+/** @returns {"on" | "off"} */
 function readBurnMode() {
 	let marker;
 	try {
@@ -66,10 +39,7 @@ function readBurnMode() {
  * @param {string} dir
  * @param {string | undefined} keyVar
  * @returns {{kind: "plan" | "overflow", label: string,
- *   overflow?: {settings: string, unset: string[]}} | {why: string}}
- *   the seat's kind and label and an overflow launch's settings and dropped
- *   variables, or the refusal of the first gate that refuses, ending in a
- *   newline
+ * overflow?: {settings: string, unset: string[]}} | {why: string}}
  */
 function gateOutcome(dir, keyVar) {
 	const list = readDeclaredSeats();
@@ -110,9 +80,8 @@ function usage() {
 	process.exit(2);
 }
 
-/** @returns {[string, string | undefined]} the config dir and key var */
+/** @returns {[string, string | undefined]} */
 function readArgs() {
-	// An unknown option is a usage error, said below like a missing dir.
 	const positionals = orFallback(
 		() => parseArgs({ allowPositionals: true, strict: true }).positionals,
 		/** @type {string[]} */ ([]),

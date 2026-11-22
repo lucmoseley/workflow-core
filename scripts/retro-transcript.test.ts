@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * retro-transcript.test.ts — pins what the log reducer keeps, drops, cuts and
- * masks, where it may write, and that it streams a large log rather than
- * loading it whole. The log reducer driven as a program against
- * fixture logs, asserting on its output and exit code only (#962). Break it
- * and a retro subagent reads a transcript missing the faults it looks for, or
- * a reduction that loads a large log whole.
- *
- * Every case runs in-process (scripts/lib/run-in-process.js, §X3) except the
- * memory bound. That case also measures a
- * whole-file read of the same log, so the bound is shown to separate streaming
- * from loading rather than merely to pass.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -94,43 +81,42 @@ const system = (subtype: string, extra: Record<string, unknown> = {}) => ({
 	...extra,
 });
 
-/** One of each kept kind, then one of each dropped kind, in that order. */
 const KEPT = [
-	user("please fix the guard", { origin: { kind: "human" } }), // L1
+	user("please fix the guard", { origin: { kind: "human" } }),
 	assistant([
 		{ type: "thinking", thinking: "DROPPED-THINKING" },
 		{ type: "text", text: "Reading the guard." },
-	]), // L2
-	buildBashCall("npm run lint", "t1", { timestamp: T }), // L3
-	toolResult("lint clean"), // L4
-	toolResult([{ type: "text", text: "boom: no such file" }], true), // L5
+	]),
+	buildBashCall("npm run lint", "t1", { timestamp: T }),
+	toolResult("lint clean"),
+	toolResult([{ type: "text", text: "boom: no such file" }], true),
 	attachment({
 		type: "hook_blocking_error",
 		hookName: "PreToolUse:Bash",
 		blockingError: { blockingError: "guard refused the push" },
-	}), // L6
+	}),
 	attachment({
 		type: "hook_additional_context",
 		hookName: "PreToolUse:Write",
 		content: ["claim the file first"],
-	}), // L7
-	user("Stop hook feedback:\nanswer the question", { isMeta: true }), // L8
+	}),
+	user("Stop hook feedback:\nanswer the question", { isMeta: true }),
 	system("stop_hook_summary", {
 		hookErrors: ["refused a bare marker"],
 		preventedContinuation: false,
-	}), // L9
-	system("compact_boundary", { compactMetadata: { trigger: "auto" } }), // L10
+	}),
+	system("compact_boundary", { compactMetadata: { trigger: "auto" } }),
 	assistant([{ type: "text", text: "API Error: stream stalled" }], {
 		isApiErrorMessage: true,
 		error: "server_error",
-	}), // L11
-	system("api_error", { error: { formatted: "No response from API" } }), // L12
+	}),
+	system("api_error", { error: { formatted: "No response from API" } }),
 	attachment({
 		type: "queued_command",
 		commandMode: "prompt",
 		prompt: "short beard only",
 		origin: { kind: "human" },
-	}), // L13
+	}),
 ];
 const DROPPED = [
 	user("DROPPED-SUMMARY of the compacted turns", { isCompactSummary: true }),
@@ -250,8 +236,6 @@ describe("reduction", () => {
 	});
 });
 
-/* Each token split across a template literal, so the secrets scan reads none
- * of them as a live credential. */
 const TOKENS: [string, string][] = [
 	["huggingface", `hf_${"Qm7pXz2Lr9KfT4vWn8BcYd3Hs6Ja1EuGo5"}`],
 	["anthropic", `sk-ant-${"api03-Zx8Kq2Wm9Lr4Tp7Vn3Bc6Yd1Hs5Ja0Eu"}`],
@@ -287,7 +271,6 @@ describe("token masking (#1031)", () => {
 			expect(out).not.toContain(token);
 			expect(out).toContain(`[REDACTED:${rule}]`);
 		}
-		/* Each token in three lines, and the first once more in the subagent. */
 		expect(r.stdout).toMatch(
 			new RegExp(
 				`, ${TOKENS.length * 3 + 1} token-shaped substrings masked\\n$`,
@@ -734,8 +717,6 @@ describe("subagent folding", () => {
 				JSON.stringify(meta),
 			);
 	};
-	/* Every subagent record carries isSidechain relative to its parent; the
-	 * reducer must not drop them for it (lib/transcript.js, mantahostels#1779). */
 	const sub = (r: Record<string, unknown>) => ({ ...r, isSidechain: true });
 
 	it("folds a subagent under its dispatching call, labelled by its description", () => {
@@ -921,9 +902,6 @@ describe("output path", () => {
 describe("output path from a linked worktree (#5424)", () => {
 	let tree: string;
 
-	/* Per case, not a template (#5424): the outer beforeEach already inits a
-	 * fresh repo per case, and RUN COST reads the file under its 10 s budget.
-	 * Residual: each case pays a commit and a worktree add. */
 	beforeEach(() => {
 		const git = (...args: string[]) =>
 			execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
@@ -950,7 +928,6 @@ describe("output path from a linked worktree (#5424)", () => {
 		["CLAUDE_PROJECT_DIR naming the main checkout", () => repo],
 	] as const;
 
-	/* The Bash tool sets no CLAUDE_PROJECT_DIR; a hook names the worktree. */
 	const fromTree = (args: string[], projectDir?: string) => {
 		const env: NodeJS.ProcessEnv = {
 			...process.env,
@@ -1002,7 +979,6 @@ describe("output path from a linked worktree (#5424)", () => {
 		expect(fs.readFileSync(out, "utf8")).toBe("tracked\n");
 	});
 
-	/* Passes under hostRoot() too: it guards the symlink check, not #5424. */
 	it("refuses a symlink out of the worktree's .claude/tmp/", () => {
 		fs.mkdirSync(path.join(tree, ".claude/tmp"), { recursive: true });
 		fs.mkdirSync(path.join(tree, "docs"));
@@ -1017,10 +993,7 @@ describe("output path from a linked worktree (#5424)", () => {
 });
 
 describe("memory bound", () => {
-	/** Peak RSS in KB of `node <args>`, through a preload that records it.
-	 * VmHWM, not resourceUsage().maxRSS: Linux carries the spawning process's
-	 * high-water mark across exec into maxRSS, so under a vitest worker grown
-	 * past the whole read's peak every child reads the worker's figure (#4881). */
+	// Linux keeps ru_maxrss across execve: https://man7.org/linux/man-pages/man2/getrusage.2.html
 	const peakKb = (args: string[]) => {
 		const preload = path.join(repo, "peak.js");
 		const record = path.join(repo, "peak.txt");
@@ -1028,20 +1001,16 @@ describe("memory bound", () => {
 			preload,
 			`process.on("exit", () => { const fs = require("fs"); fs.writeFileSync(${JSON.stringify(record)}, /VmHWM:\\s+(\\d+)/.exec(fs.readFileSync("/proc/self/status", "utf8"))[1]); });`,
 		);
-		/* A small heap and nursery so GC runs promptly: without them a streaming
-		 * read's garbage lingers and its peak tracks the file size anyway. 24 MB:
-		 * compiling lib/token-shapes.js's patterns peaked at 13.7 MB of heap,
-		 * measured on a one-line log, too close to 16 (#3661). */
 		const env: NodeJS.ProcessEnv = {
 			...process.env,
 			CLAUDE_PROJECT_DIR: repo,
 			WFC_SECRETS_FILE: path.join(repo, "secrets.env"),
 		};
-		/* So the heap flags below are the only ones in force. */
 		delete env.NODE_OPTIONS;
 		const r = keptSpawn("boundary").spawnSync(
 			process.execPath,
 			[
+				// #3661 measured 13.7 MB peak heap compiling lib/token-shapes.js's patterns
 				"--max-old-space-size=24",
 				"--max-semi-space-size=1",
 				"--require",

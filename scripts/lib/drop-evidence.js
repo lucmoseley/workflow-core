@@ -1,37 +1,21 @@
-/*
- * drop-evidence.js — why the queue lander dropped a member, as text: the one
- * builder its fix ticket's body and the owning session's landing status both
- * read (#4950, spec #4947), so the two never say different things of a drop;
- * the few words a fix ticket's comment gives for it; and what that ticket's
- * change must do. Every word said of a cause is here, so a new cause kind's
- * words are this file's edit alone (#5077).
- */
-
 const { short } = require("./lander-git.js");
 const { queueBranch } = require("./landing-refs.js");
 
 /** @param {readonly string[]} files */
 const buildFileList = (files) => files.map((f) => `- \`${f}\``).join("\n");
 
-/* A gate's output, fenced so no reader takes it for the text around it, its
- * backtick runs broken so none closes the fence. */
 const quoteBlock = (/** @type {string} */ text) =>
 	`\`\`\`text\n${text.replaceAll("```", "'''")}\n\`\`\``;
 
-/**
- * The type-check's first errors, quoted, or that its log showed none.
- * @param {readonly string[]} errors
- */
+/** @param {readonly string[]} errors */
 const buildTypeErrors = (errors) =>
 	errors.length > 0
 		? `its first errors:\n\n${quoteBlock(errors.join("\n"))}`
 		: "whose errors its log did not name";
 
 /**
- * What a red did twice: failed its files, the type-check where that failed,
- * or the whole suite where the red named neither.
  * @param {{files: readonly string[], typecheck?: readonly string[]}} red
- * @param {boolean} onMain whether `main` is known to pass them
+ * @param {boolean} onMain
  */
 function buildFailed({ files, typecheck }, onMain) {
 	const where = onMain ? ", where `main` passes it" : "";
@@ -46,9 +30,6 @@ function buildFailed({ files, typecheck }, onMain) {
 }
 
 /**
- * The CI runs a red cites, where the tester read any: those that were red,
- * and the one in which `main` passed the same. A file new in the member is
- * in no run at `main` (#4347).
  * @param {{files: readonly string[], runs?: readonly number[],
  *   mainRun?: number}} red
  */
@@ -68,10 +49,7 @@ function buildRuns({ files, runs = [], mainRun }) {
 		: "";
 }
 
-/**
- * The failing tests' errors, quoted, where the tester read any.
- * @param {{failures?: readonly import("./lander-records.js").QuotedFailure[]}} red
- */
+/** @param {{failures?: readonly import("./lander-records.js").QuotedFailure[]}} red */
 const buildFailures = ({ failures = [] }) =>
 	failures.length > 0
 		? `\n\nThe failing tests' errors, as the tester read them:\n\n${quoteBlock(
@@ -79,11 +57,7 @@ const buildFailures = ({ failures = [] }) =>
 			)}`
 		: "";
 
-/**
- * What a red that ran cites beyond what it failed: its CI runs and its
- * failing tests' errors.
- * @param {Parameters<typeof buildRuns>[0] & Parameters<typeof buildFailures>[0]} red
- */
+/** @param {Parameters<typeof buildRuns>[0] & Parameters<typeof buildFailures>[0]} red */
 const buildCited = (red) => `${buildRuns(red)}${buildFailures(red)}`;
 
 const NO_RUN =
@@ -111,10 +85,7 @@ function buildDropEvidence({ onto, cause }) {
 	}
 }
 
-/**
- * Why the drop was made, in a few words, for a comment.
- * @param {import("./lander-records.js").Drop["cause"]} cause
- */
+/** @param {import("./lander-records.js").Drop["cause"]} cause */
 function buildCauseLine(cause) {
 	switch (cause.kind) {
 		case "conflict":
@@ -134,10 +105,7 @@ function buildCauseLine(cause) {
 	}
 }
 
-/**
- * What a red drop's change must pass: what it failed.
- * @param {{files: readonly string[], typecheck?: readonly string[]}} cause
- */
+/** @param {{files: readonly string[], typecheck?: readonly string[]}} cause */
 function buildOwedPass({ files, typecheck }) {
 	const failed = [
 		...(files.length > 0 ? ["each file above"] : []),
@@ -153,10 +121,7 @@ function buildDropAcceptance({ sha, name, cause }) {
 	return `${short(sha)}'s change${buildOwedClause(cause)} and is pushed to \`${queueBranch(name)}\` again.`;
 }
 
-/**
- * The clause after "<sha>'s change", carrying its own leading space or comma.
- * @param {import("./lander-records.js").Drop["cause"]} cause
- */
+/** @param {import("./lander-records.js").Drop["cause"]} cause */
 function buildOwedClause(cause) {
 	switch (cause.kind) {
 		case "conflict":

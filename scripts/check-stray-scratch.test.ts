@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which untracked paths the stray-scratch report names, in which of its
- * two buckets and under which remedy, and that it names only what has settled
- * (mantahostels#2349, mantahostels#2455).
- *
- * Every test drives the real script end to end through lib/run-in-process.js,
- * against a throwaway git repo on `--root`. A real repo rather than a stubbed
- * git: what the check asserts is exactly how `git status --porcelain` classifies
- * a path — ignored, tracked, untracked, a collapsed directory — and a stub would
- * be asserting the stub.
- *
- * Fixtures are backdated with `utimesSync`, which sets mtime only, so every run
- * sets `WFC_SCRATCH_AGE_MTIME_ONLY=1` except the #1003 case.
- *
- * The report runs in `npm run status`: loosen a case and scratch the write
- * guard missed piles up unnamed, or an unposted research note is handed an
- * `rm` remedy and lost.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -28,14 +10,11 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-stray-scratch.js");
 
-/** Mirrors the script's own constant; a change to either should fail a test. */
 const NAMED_MAX = 5;
 
 let root: string;
-/** Every `mkdtempSync` dir an oracle fixture made this test, swept in `afterEach`. */
 let oracleDirs: string[];
 
-/** A throwaway repo with one committed file and `.claude/tmp/` gitignored. */
 function makeRepo(): string {
 	const dir = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "stray-scratch-")),
@@ -52,30 +31,19 @@ function makeRepo(): string {
 	return dir;
 }
 
-/*
- * WRITES A SETTLED PATH — one whose mtime is two days old, so the script's
- * 24-hour cut names it (mantahostels#2436). The default, since every case here asserts on a
- * NAMED path.
- */
 function write(rel: string, body = "x\n") {
 	writeFresh(rel, body);
-	/* THE DIRECTORIES TOO, not just the file. `readUntrackedEntries` collapses an
-	 * untracked directory to one entry, and the script stats THAT entry — so a
-	 * fixture that aged only the leaf leaves every collapsed case reading
-	 * fresh. */
 	const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
 	for (let at = path.join(root, rel); at !== root; at = path.dirname(at))
 		fs.utimesSync(at, old, old);
 }
 
-/** Written now, so the script reads it as a live session's working scratch. */
 function writeFresh(rel: string, body = "x\n") {
 	const at = path.join(root, rel);
 	fs.mkdirSync(path.dirname(at), { recursive: true });
 	fs.writeFileSync(at, body);
 }
 
-/** Write and commit, so the path's directory is tracked rather than collapsed. */
 function commit(rel: string, body = "x\n") {
 	write(rel, body);
 	execFileSync("git", ["add", rel], { cwd: root, stdio: "ignore" });
@@ -85,14 +53,6 @@ function commit(rel: string, body = "x\n") {
 	});
 }
 
-/**
- * A fake `claude agents --json`, in the shape `agent-liveness.js` expects.
- * `null` fakes a daemon that will not run at all (limb 2 unreadable).
- *
- * Written OUTSIDE `root`: `root` is the tree this very check scans, so a
- * bin/listing pair dropped inside it would show up as untracked scratch of
- * its own and inflate the counts every test asserts on.
- */
 function oracle(agents: { sessionId: string; startedAt?: number }[] | null) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stray-scratch-oracle-"));
 	oracleDirs.push(dir);
@@ -111,21 +71,10 @@ function oracle(agents: { sessionId: string; startedAt?: number }[] | null) {
 	return bin;
 }
 
-/**
- * The default oracle every ordinary test gets: one live session that started
- * NOW — after every path `write()` ages to two days old, and so predating
- * nothing.
- */
 function defaultOracle() {
 	return oracle([{ sessionId: "s-live", startedAt: Date.now() }]);
 }
 
-/**
- * An oracle that also counts its own invocations, in a file OUTSIDE `root`
- * for the same reason `oracle()` is — proves the gate at `check-stray-scratch.js`'s
- * `if (aged.length)` actually skips the spawn rather than merely hiding its
- * answer.
- */
 function countingOracle(agents: { sessionId: string; startedAt?: number }[]) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stray-scratch-counting-"));
 	oracleDirs.push(dir);
@@ -146,25 +95,16 @@ function run(...args: string[]) {
 	return runAs("", defaultOracle(), true, ...args);
 }
 
-/** `run`, but with the caller's own oracle rather than the always-condemns default. */
 function runWithOracle(bin: string, ...args: string[]) {
 	return runAs("", bin, true, ...args);
 }
 
-/**
- * Under a session id — `""` for none, the plain-terminal shape — and an
- * oracle. `mtimeOnly: false` ages by the real write time (#1003).
- */
 function runAs(
 	sessionId: string,
 	bin: string,
 	mtimeOnly: boolean,
 	...args: string[]
 ) {
-	// Off, not inherited: a real Actions run sets it globally, and this
-	// suite runs inside one — runCheck's per-finding ::warning:: annotation
-	// would otherwise leak into `out` uncapped, alongside the capped
-	// human-readable list these tests assert on (mantahostels#2427).
 	const res = runInProcess(SCRIPT, ["--root", root, ...args], {
 		env: {
 			...process.env,
@@ -196,7 +136,6 @@ interface Envelope {
 	findings: { severity: string; tag: string; path: string }[];
 }
 
-/** The --json envelope, which is stdout's whole content in that mode. */
 function json(...args: string[]) {
 	const res = run("--json", ...args);
 	return JSON.parse(res.stdout) as Envelope;
@@ -227,11 +166,8 @@ describe("check-stray-scratch", () => {
 		expect(out).toContain("STRAY-SCRATCH (1)");
 		expect(out).toContain(".c2349.out");
 		expect(out).toContain("docs/environment.md` §12");
-		// The other bucket stays silent (mantahostels#2455) — a regression filling both
-		// passes every positive assertion above.
 		expect(out).not.toContain("STRANDED-UNTRACKED");
 		expect(json().research).toEqual([]);
-		// WARN, never FAIL — it reports and a human decides (mantahostels#2349).
 		expect(status).toBe(0);
 		expect(json().outcome).toBe("WARN");
 	});
@@ -318,7 +254,6 @@ describe("check-stray-scratch", () => {
 			fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-")),
 		);
 
-		// A SKIP line injected into every session start would be worse than silence.
 		expect(run("--notify").out).toBe("");
 	});
 
@@ -335,10 +270,7 @@ describe("check-stray-scratch", () => {
 		expect(json().strayCount).toBe(1);
 	});
 
-	// --- the two buckets (mantahostels#2455) --------------------------------------------
-
 	it("reports an untracked research artefact in its own bucket, not as scratch (mantahostels#2455)", () => {
-		// Tracked, so git names the stray file itself rather than the directory.
 		commit("docs/research/landed.md");
 		write("docs/research/.stranded.findings.md");
 
@@ -407,7 +339,6 @@ describe("check-stray-scratch", () => {
 
 		expect(findings).toHaveLength(2);
 		expect(findings.every((f) => f.severity === "WARN")).toBe(true);
-		// Tag TIED TO PATH: a tag set alone passes with the two codes swapped.
 		expect(findings.map((f) => `${f.tag} ${f.path}`).sort()).toEqual([
 			"STRANDED-UNTRACKED docs/research/.a.findings.md",
 			"STRAY-SCRATCH .b.out",
@@ -459,7 +390,6 @@ describe("check-stray-scratch", () => {
 	});
 
 	it("counts a collapsed docs/research/ entry as one artefact, not as scratch (mantahostels#2455)", () => {
-		// `docs/` tracked, so git collapses no higher than `docs/research/`.
 		commit("docs/keep.md");
 		write("docs/research/.a.findings.md");
 		write("docs/research/.b.findings.md");
@@ -472,10 +402,6 @@ describe("check-stray-scratch", () => {
 	});
 
 	it("swallows research into the scratch bucket when docs/ itself collapses (mantahostels#2455)", () => {
-		// The accepted limit of one tree read: git collapses no further than the
-		// shallowest untracked directory, so `docs/` untracked hides the prefix
-		// and the paths take the `rm` remedy. Unreachable in this repo, where
-		// `docs/` carries hundreds of tracked files.
 		write("docs/research/.a.findings.md");
 
 		expect(json().stray).toEqual(["docs/"]);
@@ -490,7 +416,7 @@ describe("check-stray-scratch", () => {
 	});
 });
 
-/* THE AGE CUT (mantahostels#2436, mantahostels#2418). */
+// lucmoseley/mantahostels#2436
 describe("the 24-hour cut on the scratch bucket", () => {
 	it("does not name a stray a live session may still be writing", () => {
 		writeFresh(".fresh2436.out");
@@ -515,10 +441,6 @@ describe("the 24-hour cut on the scratch bucket", () => {
 	});
 
 	it("says NOTHING on the notify channel where every stray is fresh", () => {
-		/* A `say` from the checker body escapes runCheck's OK suppression, so an
-		 * unconditional count would inject an unactionable line into every
-		 * session start — and one referring to a named block that was never
-		 * printed. */
 		writeFresh(".fresh2436.out");
 		const { out } = run("--notify");
 		expect(out).toBe("");
@@ -544,10 +466,6 @@ describe("the 24-hour cut on the scratch bucket", () => {
 	});
 
 	it("keeps the research bucket off the cut entirely", () => {
-		/* A research artefact is finished work whatever its mtime, and its
-		 * remedy — post it to its issue, then delete it — is safe on a new file.
-		 * A committed neighbour first, or `docs/` itself collapses to one
-		 * untracked entry and the path never reaches the research bucket. */
 		commit("docs/research/landed.md");
 		writeFresh("docs/research/.fresh2436.findings.md");
 		const { out } = run("--notify");
@@ -556,9 +474,6 @@ describe("the 24-hour cut on the scratch bucket", () => {
 	});
 
 	it("never names a path it cannot stat, and never calls it deletable", () => {
-		/* FAIL-SAFE DIRECTION: an unreadable mtime must not become an `rm`
-		 * instruction. A dangling symlink is untracked to git and unstattable
-		 * through `statSync`, which follows the link. */
 		fs.symlinkSync(
 			path.join(root, "nothing-here"),
 			path.join(root, ".dangling2436"),
@@ -570,7 +485,6 @@ describe("the 24-hour cut on the scratch bucket", () => {
 	});
 
 	it("says its mtime was unreadable rather than asserting an age it never read", () => {
-		/* mantahostels#103 §6 asks a fail-open to be VISIBLE where a human reads the output. */
 		fs.symlinkSync(
 			path.join(root, "nothing-here"),
 			path.join(root, ".dangling2436"),
@@ -619,13 +533,11 @@ describe("the write time userland cannot rewind (#1003)", () => {
 		const envelope = envelopeAgedBy(false);
 		expect(envelope.stray).toEqual([]);
 		expect(envelope.strayFresh).toBe(1);
-		// Not vacuous: by mtime alone the same tree names it under `rm`.
 		expect(envelopeAgedBy(true).stray).toEqual([".extracted1003/"]);
 	});
 });
 
-/* LIMB 2 (mantahostels#2505): the age cut alone is a guess, and the reaper's real gate
- * also asks the liveness oracle whether a live session predates the mtime. */
+// lucmoseley/mantahostels#2505
 describe("limb 2 — the liveness oracle", () => {
 	it("condemns an age-settled path where the oracle confirms no live session predates it", () => {
 		write(".settled2505.out");
@@ -661,8 +573,6 @@ describe("limb 2 — the liveness oracle", () => {
 		const envelope = jsonWithOracle(bin);
 		const { out } = runWithOracle(bin, "--notify");
 
-		// An unread oracle means the tree was NOT fully assessed — WARN, not a
-		// silent OK.
 		expect(envelope.outcome).toBe("WARN");
 		expect(envelope.stray).toEqual([]);
 		expect(envelope.strayUnverified).toBe(1);
@@ -674,10 +584,7 @@ describe("limb 2 — the liveness oracle", () => {
 	});
 
 	it("prints the spared count alongside a named stray", () => {
-		// Older than the one live session — condemned.
 		write(".condemned2505.out");
-		// Just past the 24 h age cut, but younger than the live session's
-		// start — spared, since that session may still be writing it.
 		const barelyAged = Date.now() - 25 * 60 * 60 * 1000;
 		writeFresh(".live2505b.out");
 		fs.utimesSync(
@@ -739,8 +646,7 @@ describe("limb 2 — the liveness oracle", () => {
 		expect(envelope.stray).toEqual([".self1446.out"]);
 	});
 
-	/* Mid-session the oracle lists its caller, so a listing that omits it is
-	 * short, and the strict self-test refuses it (#1446). */
+	// #1446
 	it("names nothing where the oracle has not listed the session it runs in", () => {
 		write(".short1446.out");
 		const bin = oracle([{ sessionId: "s-other", startedAt: Date.now() }]);
@@ -756,8 +662,6 @@ describe("limb 2 — the liveness oracle", () => {
 
 	it("spares an age-settled path where the oracle lists no readable start time", () => {
 		write(".nostart2505.out");
-		// A record with no startedAt at all — `earliestStart` reads it as
-		// unreadable rather than as "no live session predates this".
 		const bin = oracle([{ sessionId: "s-blind" }]);
 
 		const envelope = jsonWithOracle(bin);
@@ -781,8 +685,6 @@ describe("limb 2 — the liveness oracle", () => {
 
 		const envelope = jsonWithOracle(bin);
 
-		// The EARLIEST live session is what limb 2 checks, so the old one
-		// sparing predates both mtimes: neither is condemned.
 		expect(envelope.stray).toEqual([]);
 		expect(envelope.strayLiveSpared).toBe(2);
 	});

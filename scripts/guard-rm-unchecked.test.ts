@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-rm-unchecked core of guard-dispatch.js refuses, once per command,
- * an `rm` Claude Code's built-in removal check cannot resolve (#2436). These
- * are its boundary cases (§X11), the dispatcher entry run on it alone: the
- * payload on stdin, the rule store, and the latch on disk under
- * CLAUDE_PROJECT_DIR. Which command earns which verdict, and the refusal's
- * words, are lib/unchecked-rm.test.ts's (#2801); the entry's payload faults
- * and the throw policy are guard-dispatch's own tests' (#3226).
- *
- * `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` sit in a temp directory so the
- * latch and the fail-open log never land in the real checkout or the
- * founder's log.
- */
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -42,14 +29,11 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The hook's hookSpecificOutput for `payload`, or null; exit 0 and a quiet
- * stderr asserted on every call. */
 const emission = (
 	payload: Record<string, unknown>,
 	env: NodeJS.ProcessEnv = {},
 ) => dispatchCoreOutput(CORE, payload, { project: dir, config, cwd: dir, env });
 
-/** The latch file at guard-entry.js's latchPath for `command`. */
 const latchFile = (command: string, session: string, agent = "main") =>
 	path.join(
 		dir,
@@ -110,8 +94,6 @@ describe("the refusal, end to end", () => {
 	});
 
 	it("spells the fragment's file at the plugin root in an install", () => {
-		// WFC_SCRIPT_ROOT stands in for an install: a core root with no
-		// package.json.
 		const install = path.join(dir, "install");
 		const rules = path.join(install, "docs", "agents", "rules");
 		fs.mkdirSync(rules, { recursive: true });

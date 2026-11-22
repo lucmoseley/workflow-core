@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * guard-failed-call-rules.js hands back the silent-kill rule on a Bash call
- * killed by a signal, and the skill-refused rule on a batch holding a Skill
- * refused as slash-only (#2026). These are its boundary cases: the lines
- * hooks/hooks.json registers on PostToolUseFailure and PostToolBatch, run by
- * bash as the harness runs them, on a harness-shaped payload — the wiring,
- * each exit, the fail-open record, and the rule store crossed for real.
- * Which failure or batch draws a rule is lib/failed-call-rules.test.ts's
- * (#2799).
- *
- * Break a line and the rule, gone from the pool, reaches nobody.
- */
 
 import fs from "node:fs";
 import path from "node:path";

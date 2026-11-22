@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * landing-registry-gate.js — the pre-push limb that judges a push to a queue
- * ref on `main`'s bytes: refuse a push whose pushed sha's tree holds a gating guard-registry fault, an expired anchor
- * among them, that `origin/main`'s tip does not.
- * `check-guard-registry.js --against <tip> --head <sha>` judges the one
- * against the other. A deletion passes unjudged.
- *
- * LIMIT: `git push --no-verify` skips every pre-push hook, this one included;
- * branch protection on the remote is the gate that binds (#2414).
- *
- * IN NO `scripts/` FAMILY (code-standards §N3), as landing-push-gate.js.
- *
- * FAILS OPEN: 2 refuses on the checker's own FAIL alone, and a checker that
- * cannot answer — a BROKEN reading — passes the push, printed, as does a push
- * in a clone holding no `origin/main` or whose git will not resolve it (#4613),
- * since a refusal there would refuse every push for a fault that is not the
- * push's.
- */
-
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { readCommit } = require("./lib/commit-sha.js");
@@ -40,12 +21,10 @@ const unchecked = buildUnchecked(
 );
 
 /**
- * @typedef {{ sha: string, ref: string }} JudgedPush `ref` the pushed queue
- *   ref
+ * @typedef {{ sha: string, ref: string }} JudgedPush
  */
 
 /**
- * Each push to a queue ref.
  * @param {string} stdin
  * @returns {JudgedPush[]}
  */
@@ -58,7 +37,7 @@ function parseJudgedPushes(stdin) {
 
 /**
  * @param {JudgedPush} push
- * @param {string} tree the pushing tree
+ * @param {string} tree
  * @returns {number}
  */
 function judgeOne(push, tree) {
@@ -96,7 +75,7 @@ function judgeOne(push, tree) {
 
 /**
  * @param {string} stdin
- * @param {string} tree the pushing tree
+ * @param {string} tree
  * @returns {number}
  */
 function judge(stdin, tree) {

@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that disk-frag.js reads the kernel's mb_groups buddy table into free
- * space by aligned chunk size and used space by disk band (#5054). A wrong
- * order cut misstates how much free space `compact vdisk` cannot reach.
- *
- * The cases feed a synthetic table through --table, the program's one seam,
- * so the arithmetic is pinned on known chunks; one contract case reads the
- * machine's own table, world-readable, where an ext4 root has one.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,10 +13,8 @@ function row(group: number, free: number, orders: number[]) {
 	return `#${group}    : ${free}     1     0     [ ${orders.join("     ")}     ]`;
 }
 
-// A never-written 128 MiB group: four order-13 chunks.
 const EMPTY = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4];
 const NONE = new Array(14).fill(0);
-// One 4 KiB chunk, one 512 KiB (order 7), one 2 MiB (order 9).
 const GAPPY = [1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0];
 const TABLE = [
 	HEADER,

@@ -330,7 +330,10 @@ describe("check-roadmap-valid", () => {
 		});
 
 		it("stays BROKEN where the staged config keeps the module", () => {
-			stage(".claude/workflow-core.json", '{ "modules": ["roadmap"] }\n');
+			stage(
+				".claude/workflow-core.json",
+				'{ "modules": ["roadmap", "landing"] }\n',
+			);
 			expect(check().status).toBe(2);
 		});
 

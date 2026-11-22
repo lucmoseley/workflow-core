@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins cpu-sample.js's CPU split across a run (mantahostels#1953) and the load
- * ceiling new work waits under (#830). The module reads /proc, so the
- * arithmetic is exercised on FABRICATED samples — the same shape `markerFrom`
- * is tested in, and the only way to assert a figure against a known answer. The
- * two live reads get one smoke test each, skipped where /proc is absent.
- *
- * admission.js, pick-next.js and run-vitest.js hold test runs and session launches on
- * `overloadReading`, so a loosened case lets new work start on a machine
- * already saturated, or holds work on
- * a misread figure.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,7 +16,6 @@ const {
 
 const hasProc = fs.existsSync("/proc/stat");
 
-/* Build a sample from named jiffie counts; anything unnamed is 0. */
 function fab(counts: Record<string, number>, load1: number | null = 1.5) {
 	const jiffies: Record<string, number> = {};
 	let total = 0;
@@ -41,7 +28,6 @@ function fab(counts: Record<string, number>, load1: number | null = 1.5) {
 
 describe("delta — the arithmetic", () => {
 	it("reports busy as a share of the whole ceiling, not of one core", () => {
-		// 400 busy jiffies of an 800-jiffie span on 8 cores = half the machine.
 		const before = fab({});
 		const after = fab({ system: 400, idle: 400 });
 		const d = delta(before, after, 8);
@@ -53,17 +39,12 @@ describe("delta — the arithmetic", () => {
 		const before = fab({});
 		const after = fab({ system: 500, nice: 300, user: 100, idle: 100 });
 		const d = delta(before, after, 8);
-		expect(d.busyPct).toBe(720); // 900/1000 of 800
+		expect(d.busyPct).toBe(720);
 		expect(d.systemPct).toBe(400);
 		expect(d.nicePct).toBe(240);
 		expect(d.userPct).toBe(80);
 	});
 
-	/*
-	 * The finding the split exists for (mantahostels#1953): a Claude session runs at NI 5, so
-	 * a machine at 88% of its ceiling reads 8% `user`. A reader watching `user`
-	 * alone would call this idle.
-	 */
 	it("keeps a niced-session-dominated machine from reading as idle in user", () => {
 		const d = delta(
 			fab({}),
@@ -76,7 +57,6 @@ describe("delta — the arithmetic", () => {
 
 	it("excludes iowait from busy and still reports it", () => {
 		const d = delta(fab({}), fab({ system: 600, iowait: 200, idle: 200 }), 8);
-		// iowait is not the CPU running anything: 600/1000, not 800/1000.
 		expect(d.busyPct).toBe(480);
 		expect(d.iowaitPct).toBe(160);
 	});
@@ -101,11 +81,6 @@ describe("delta — the arithmetic", () => {
 });
 
 describe("delta — what it refuses rather than guessing", () => {
-	/*
-	 * The load-bearing one. A zero or negative span divided into is nonsense, and
-	 * a `busyPct: 0` written to a marker reads as a MEASURED idle machine — the
-	 * exact false reading these fields exist to prevent.
-	 */
 	it("returns null on a zero span rather than a measured-looking zero", () => {
 		const s = fab({ idle: 100 });
 		expect(delta(s, s, 8)).toBeNull();
@@ -136,7 +111,6 @@ describe("sample — parsing /proc/stat", () => {
 
 	it.skipIf(!hasProc)("takes two samples that advance", () => {
 		const a = sample();
-		// Busy-wait rather than sleep: the span must be > 0 jiffies, not > 0 ms.
 		const until = Date.now() + 60;
 		let spins = 0;
 		while (Date.now() < until) spins++;
@@ -153,10 +127,6 @@ describe("sample — parsing /proc/stat", () => {
 	});
 });
 
-/*
- * #830: the ceiling is 3 per core — its derivation is at
- * `LOAD_PER_CORE_CEILING`.
- */
 describe("overloadReading — the load ceiling new work waits under (#830)", () => {
 	it("sits at 3 per core, 24 on 8 cores", () => {
 		expect(overloadReading({ load1: 0, cores: 8, env: {} }).ceiling).toBe(24);
@@ -235,7 +205,6 @@ describe("overloadReading — the load ceiling new work waits under (#830)", () 
 		).toBe(false);
 	});
 
-	/* A typo must not silently disarm the check. */
 	it("keeps the default on an unparseable override", () => {
 		expect(
 			overloadReading({ load1: 0, cores: 8, env: { WFC_LOAD_CEILING: "lots" } })
@@ -276,12 +245,10 @@ describe("sessionCeiling — how many live sessions admission lets run at once (
 		expect(sessionCeiling(8, { WFC_SESSION_CEILING: "0" })).toBeNull();
 	});
 
-	/* A typo must not silently disarm the check. */
 	it("keeps the default on an unparseable override", () => {
 		expect(sessionCeiling(8, { WFC_SESSION_CEILING: "lots" })).toBe(12);
 	});
 
-	/* Floored, it would hold every slot. */
 	it("keeps the default on an override under one", () => {
 		expect(sessionCeiling(8, { WFC_SESSION_CEILING: "0.5" })).toBe(12);
 	});
@@ -321,7 +288,6 @@ describe("holdForLoad, which keeps a suite out of an overloaded machine (#830)",
 		expect(lines.join("")).toMatch(/fell to 3/);
 	});
 
-	/* Unlike --queue's run-anyway: running into the overload risks the freeze. */
 	it("refuses when the hold expires still overloaded, quoting the load1 figure", async () => {
 		const lines: string[] = [];
 		const go = await holdForLoad({

@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * arbiter-observations.js's own suite: on a detect-only path, a second writer
- * gets its own baseline and is shown its own last write, never the holder's,
- * and an unknown is never reported as changed (mantahostels#363, mantahostels#419).
- *
- * Each case runs in arbiter-testkit's sandbox over a real `git init`, because a
- * baseline is a real blob, with the claim holder and second writer set by hand.
- *
- * The arbiter runs behind `lib/file-claim.js`, a `PreToolUse` core on every
- * Write and Edit: loosen a case here and a clobber of a second writer's
- * scripts/ edit goes unreported, or its own refresh is reported as one.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -27,12 +15,6 @@ import {
 const sb = freshSandbox();
 
 describe("a second writer's own content record on a detect-only path (mantahostels#363)", () => {
-	// mantahostels#330 found the hole: the detect-only tier refuses nobody, so two sessions can
-	// write one scripts/ file at once — and only the first, which holds the claim,
-	// got a baseline.
-	//
-	// The baseline is a property of the (session, path) pair here, not of the claim,
-	// so each writer compares against its OWN last write.
 	const rel = "scripts/evidence-audit.py";
 	const abs = () => path.join(sb.repo, rel);
 	const write = (text: string) => {
@@ -61,7 +43,6 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
 	});
 
-	/** The holder: claims the path and records what it wrote, as PostToolUse does. */
 	const holder = (sessionId: string, text: string) => {
 		const me = live(sb, sessionId);
 		write(text);
@@ -69,11 +50,10 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		return { me, blob: store.recordContent(rel, me) };
 	};
 
-	/** The second writer: writes a path someone else holds, and records for itself. */
 	const observer = (sessionId: string, text: string) => {
 		const me = live(sb, sessionId);
 		write(text);
-		store.acquire(rel, me); // "held" — no lock of its own is minted
+		store.acquire(rel, me);
 		return { me, blob: store.recordObservation(rel, me) };
 	};
 
@@ -83,19 +63,15 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 
 		expect(bob.blob).toMatch(/^[0-9a-f]{40,64}$/);
 		expect(bob.blob).not.toBe(alice.blob);
-		// The lock is the holder's record, and a second writer never touches it.
 		expect(readLock().sessionId).toBe("alice");
 		expect(readLock().blob).toBe(alice.blob);
 	});
 
 	it("shows the second writer its OWN last write, never the holder's", () => {
-		// The bug the obvious one-liner would have shipped (mantahostels#363): lifting the
-		// "held" skip makes contentState read the HOLDER's blob, so the recovery
-		// command hands the second writer somebody else's content as its own.
 		const alice = holder("alice", "alice's work\n");
 		observer("bob", "bob's work\n");
 
-		write("restored from a backup\n"); // the clobber, by any route
+		write("restored from a backup\n");
 
 		const seen = store.observationState(rel, "bob");
 		expect(seen.state).toBe("changed");
@@ -114,8 +90,6 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 	});
 
 	it("says nothing when the second writer refreshed its own file", () => {
-		// cmdRefresh's half: a second writer's `sed -i` on the path must not report
-		// as a clobber.
 		holder("alice", "alice's\n");
 		const { me } = observer("bob", "bob's v1\n");
 		write("bob's v2\n");
@@ -130,8 +104,6 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 	});
 
 	it("records nothing on the refusing tier, where a second writer is denied anyway", () => {
-		// mantahostels#363 scopes this to the detect-only tier. On docs/ the guard refuses the
-		// write, so a second baseline there would describe a write that never lands.
 		const guarded = "docs/doc-map.md";
 		fs.writeFileSync(path.join(sb.repo, guarded), "held\n");
 		store.acquire(guarded, live(sb, "alice"));
@@ -139,16 +111,11 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 	});
 
 	it("records nothing where the caller holds the claim itself", () => {
-		// The claim's own blob is that session's record; a second one would be two
-		// baselines for one writer, and the pins would disagree.
 		const { me } = holder("alice", "alice's\n");
 		expect(store.recordObservation(rel, me)).toBeNull();
 	});
 
 	it("records a baseline where nobody holds the path at all (mantahostels#2333)", () => {
-		// The write landed — the detect-only tier refuses nobody — so this record is
-		// the only trace the writer exists. Withholding it left park() reading an
-		// empty writer set and restoring HEAD over live work.
 		write("unclaimed\n");
 		expect(store.recordObservation(rel, live(sb, "bob"))).toMatch(
 			/^[0-9a-f]{40,64}$/,
@@ -165,9 +132,6 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 	});
 
 	it("keeps a second writer's pin through the sweep that collects orphans", () => {
-		// pruneBlobRefs spares what the LOCKS name. A second writer holds no lock, so
-		// without its own sparing rule the sweep collects exactly the bytes this
-		// exists to keep recoverable.
 		holder("alice", "alice's\n");
 		const bob = observer("bob", "bob's\n");
 		store.pruneAll(noSessions);
@@ -188,8 +152,6 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 
 	describe("release — the drop path for a record its caller does not hold", () => {
 		it("drops the second writer's record and pin, and reports the clobber first", () => {
-			// Without this the record and its pin leak until the sweep, and the second
-			// writer never gets the release-site report (mantahostels#332) the holder gets.
 			holder("alice", "alice's\n");
 			const bob = observer("bob", "bob's work\n");
 			write("clobbered by a third route\n");
@@ -206,20 +168,18 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 			holder("alice", "alice's\n");
 			const aliceRef = `refs/arbiter/${readLock().claimId}`;
 			observer("bob", "bob's\n");
-			fs.rmSync(store.paths.lock(rel)); // alice's claim, gone
+			fs.rmSync(store.paths.lock(rel));
 
 			const r = store.release(rel, live(sb, "bob"));
 			expect(r.verdict).toBe("not-held");
 			expect(r.observed.state).toBe("same");
 			expect(fs.existsSync(store.paths.observation(rel, "bob"))).toBe(false);
-			// Bob's pin went with bob's record; alice's is now an orphan for the sweep.
 			expect(readRefs()).toEqual([aliceRef]);
 		});
 
 		it("leaves the holder's own release untouched", () => {
 			const { me } = holder("alice", "alice's\n");
 			observer("bob", "bob's\n");
-			// Alice's release is judged on alice's claim alone.
 			const r = store.release(rel, me);
 			expect(r.verdict).toBe("dirty");
 			expect(fs.existsSync(store.paths.observation(rel, "bob"))).toBe(true);
@@ -272,10 +232,6 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 });
 
 describe("readObservedBy reads its own records, not the whole store (mantahostels#419)", () => {
-	// The observations directory is one flat store shared by every session, and the
-	// scan made it grow with every watched path any session Bash-touches. Opening
-	// all of it after every Bash call in every session is what would walk the hook
-	// into its own `timeout 5`.
 	const rel = "scripts/evidence-audit.py";
 
 	beforeEach(() => {

@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/landing-push-gate.js and its .husky/pre-push limb (#2409).
- *
- * Each case runs the gate on a throwaway repo's ref list and ledger, and the
- * last two run .husky/pre-push itself through `sh`, as git does: one tests
- * the hook's wiring of the gate, the other that a push to a queue ref meets no
- * coverage warning (#2929).
- *
- * Loosen it and a push from the founder's terminal or a script moves `main`
- * to a sha the full suite never passed; tighten it and the lander's own push
- * of a green batch is refused.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -37,7 +25,6 @@ const ledgerHolds = (held: string) => {
 	fs.writeFileSync(ledger(), `${held} 2026-10-21T00:00:00.000Z\n`);
 };
 
-/* The remote's own tip, as git reads it off a remote whose ref exists. */
 const REMOTE_TIP = "a".repeat(40);
 
 const buildRefLine = (local: string, remoteRef: string, remote = REMOTE_TIP) =>

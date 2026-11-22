@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/deny-capable.js decides which guards the lost-deny reporter speaks for
- * when one is killed at its timeout, and which the census counts. A route it
- * misses is a refusal that fails open in silence; a route it invents blocks a
- * turn over a guard that could never have refused.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

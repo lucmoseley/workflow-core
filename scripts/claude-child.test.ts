@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * claude-child.js, driven through its command line against a stub `claude`
- * whose `-p` is the headless-run fake, which reads its argv against the
- * harness's recorded options and logs it, its environment and its stdin
- * (#2040).
- *
- * Each of the Chrome mode's ends (#4847, #5385) is a launch of its own, most
- * a third of a second, those waiting out the 1.5 s SIGKILL or a closer's 5 s
- * wait for a live child longer: clean, a close turn, its caps, the limit's
- * interrupt, a hold, a trim, a trapped SIGTERM, a signal, a binary that is
- * gone; and each of chrome-close's outcomes and skips. The rows are
- * hand-built in the extension's wording (lib/chrome-rows-fake.ts): a
- * rewording there is caught only by a live run. That is this file's run time
- * over its CI record.
- */
-
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
@@ -53,7 +37,6 @@ let seat = "";
 
 const callsLog = () => path.join(dir, "calls.jsonl");
 
-/** The stub `claude`, its `-p` run ending `exit`. */
 const writeStub = (exit = 0) =>
 	writeClaudeStub(path.join(dir, "claude"), [
 		buildHeadlessBranch(
@@ -100,15 +83,12 @@ const run = (
 		env: runEnv(extra),
 	});
 
-/** The clock every launcher and closer test runs at, through WFC_NOW. */
 const NOW = "2026-11-17T12:00:00.000Z";
 
-/** A resume's tool result emptying the group. */
 const CLOSED_ROW = buildToolResultRow(
 	"Closed tab 8. Group is now empty (auto-removed).",
 );
 
-/** The one file named `name` under `root`. */
 const findFile = (root: string, name: string): string => {
 	const hit = (fs.readdirSync(root, { recursive: true }) as string[]).find(
 		(f) => path.basename(f) === name,
@@ -153,7 +133,6 @@ describe("usage", () => {
 	});
 
 	it("names the cached reading where the child cannot start", () => {
-		/* Answers `auth status`, then is gone before the launch. */
 		const vanishing = path.join(dir, "vanishing");
 		fs.writeFileSync(
 			vanishing,
@@ -187,8 +166,6 @@ describe("chrome", () => {
 		return f;
 	};
 
-	/** The stub's `-p` run reading stream-json, answering each user message
-	 * with the next of `turns`. */
 	const writeTurns = (
 		turns: Record<string, unknown>[][],
 		over: Partial<Parameters<typeof writeHeadlessFake>[1]> = {},
@@ -220,7 +197,6 @@ describe("chrome", () => {
 			extra,
 		);
 
-	/** The one JSON line stdout carries, on every end path (#5381). */
 	const oneLine = (r: { stdout: string }) => {
 		const lines = r.stdout.split("\n");
 		expect(lines).toHaveLength(2);
@@ -260,7 +236,6 @@ describe("chrome", () => {
 	const Close8 = buildToolResultRow(
 		"Closed tab 8. Group is now empty (auto-removed).",
 	);
-	/** One model turn's text row, its message id `id`. */
 	const assistant = (id: string) => ({
 		type: "assistant",
 		message: { id, content: [{ type: "text", text: "closing" }] },
@@ -613,12 +588,10 @@ describe("chrome", () => {
 		expect(row.notes).toEqual([
 			"claude-child: the child was killed by SIGKILL.",
 		]);
-		/* A kill keeps the group, so the sweep may still find a tab (#5352). */
 		expect(records()).toEqual([`${row.sessionId}.json`]);
 	});
 
 	it("says so where the child cannot start", () => {
-		/* Answers `auth status`, then is gone before the launch. */
 		const vanishing = path.join(dir, "vanishing");
 		fs.writeFileSync(
 			vanishing,

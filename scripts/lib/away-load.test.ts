@@ -1,10 +1,4 @@
 // @vitest-environment node
-// Pins the away-only load's verdicts (#5472): it starts only after 15 minutes
-// with no Windows input, stops on input or a stale reading, ends at #5346's
-// gate, holds Windows free memory in its band and keeps WSL's CPU over 550%.
-// Pure verdicts over seeded readings, so each boundary is one case; the
-// program's own I/O is away-load.test.ts's. Break it and the load can start
-// while the founder is at the laptop, or swing out of #5346's band.
 import { describe, expect, it } from "vitest";
 import {
 	decide,
@@ -17,7 +11,6 @@ import {
 	workersFor,
 } from "./away-load.js";
 
-/* #5449's away trigger, in seconds. */
 const AWAY_S = 900;
 const NOW = 1_800_000_000;
 const reading = (

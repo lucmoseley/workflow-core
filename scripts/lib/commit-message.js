@@ -1,34 +1,8 @@
-/*
- * commit-message.js — a commit message file's lines as git will record them:
- * the one scissors cut and comment rule for the readers .husky/commit-msg runs
- * (#2884, #3075).
- *
- * THE COMMENT RULE FOLLOWS git's CLEANUP MODE. `strip` drops every `#` line;
- * `whitespace`, `verbatim` and `scissors` keep them. Unset or `default`, git
- * strips when the editor runs and keeps them when it does not, so `-m "#123 …"`
- * and `-F` record `#123 …` as the subject. A hook sees no editor as
- * GIT_EDITOR=`:` (#3075) and reads `commit.cleanup`
- * from config. Two corners no hook signal separates: a `--cleanup` flag
- * reaches no hook, so it is read as unset; and an exported GIT_EDITOR=`:` on
- * the editor route reads as no editor, keeping `#` lines git drops.
- * `#` is hard-coded, so a repository setting `core.commentChar` elsewhere has
- * its template block kept.
- *
- * THE SCISSORS CUT applies in `strip` and `scissors` modes alone. Git cuts in
- * `strip` only under `--verbose`, which no hook sees, but there the line is
- * git's own, with the diff below it UNPREFIXED, so a commit editing a rule's
- * own text would match its own diff.
- */
-
 const { gitOrNull } = require("./git.js");
 
 const SCISSORS = /^# -+ >8 -+/;
 
-/**
- * The commit's cleanup mode as far as it bears here, `keep` standing for the
- * modes that keep `#` lines and cut nothing.
- * @returns {"strip" | "scissors" | "keep"}
- */
+/** @returns {"strip" | "scissors" | "keep"} */
 function cleanupMode() {
 	const configured =
 		gitOrNull(["config", "--get", "commit.cleanup"])?.trim() || "default";

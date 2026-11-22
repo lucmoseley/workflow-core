@@ -1,14 +1,3 @@
-"""Tests for scripts/lib/claude_sessions.py — the live-session count the suite
-bench's quiet gate and sample_load.py read, and the session pair the memory
-sampler charges as admission does (docs/environment.md §5, #2231).
-
-Break it and the gate refuses a machine one session quieter than it states, or
-admits one busier: the daemon's standing spare is always resident (#1798). The
-cwds are injected, or read from a fake WFC_PROC, save one case: it reads this
-process's own cwd off the kernel, to pin that an empty WFC_PROC falls back to
-/proc as the shell and Node twins do.
-"""
-
 import os
 import sys
 from pathlib import Path
@@ -37,8 +26,6 @@ def pair(host, child, sock):
     ]
 
 
-# Captured: two claimed sessions and the daemon's unclaimed spare,
-# whose `bg-spare` cwd is still the spare directory.
 CAPTURED = pair(628508, 628530, "d5f82b16") + pair(631360, 631382, "e5f120f6")
 CAPTURED += pair(646413, 646834, "77b33c1f")
 CAPTURED_CWDS = {
@@ -47,8 +34,6 @@ CAPTURED_CWDS = {
     646834: SPARE,
 }
 
-# A resumed session re-execs its child as the versioned binary, whose argv[0]
-# basename is `2.1.234`, not `claude`.
 RESUMED = [
     "700 1 claude bg-pty-host --bg-pty-host /tmp/b.pty.sock 200 50",
     "701 700 /home/l/.local/share/claude/versions/2.1.234 --resume /x/y.jsonl",
@@ -57,7 +42,6 @@ NOT_SESSIONS = [
     "800 1 /home/l/.local/bin/claude daemon run --origin transient",
     "801 1 claude agents --json",
     "802 1 node scripts/pick-next.js",
-    # A shell pipeline that merely mentions the flag.
     "803 1 /bin/bash -c ps -eo args= | grep bg-pty-host",
 ]
 
@@ -72,7 +56,6 @@ def test_the_unclaimed_spare_is_not_a_session():
 
 
 def test_a_claimed_spare_is_a_session_whatever_its_job_record_says():
-    # The claim with no job state #1798 found: counted, as it holds memory.
     cwds = {**CAPTURED_CWDS, 646834: "/home/lucmo"}
     assert count(CAPTURED, cwds) == 3
 
@@ -136,8 +119,6 @@ def test_a_session_pairs_through_its_spare_socket_and_alone_without_one():
 def test_live_cwd_reads_under_wfc_proc_and_is_none_for_a_pid_with_no_link(
     tmp_path, monkeypatch, capsys
 ):
-    # Built by hand: lib/proc-fake.ts, the TS suites' fake /proc, has no
-    # Python twin, and one cwd symlink carries no behaviour to drift (#3674).
     (tmp_path / "41").mkdir()
     (tmp_path / "41" / "cwd").symlink_to(SPARE)
     monkeypatch.setenv("WFC_PROC", str(tmp_path))
@@ -151,6 +132,5 @@ def test_live_cwd_reads_under_wfc_proc_and_is_none_for_a_pid_with_no_link(
     not os.path.exists("/proc/self/cwd"), reason="no /proc on this platform"
 )
 def test_live_cwd_reads_proc_where_wfc_proc_is_empty(monkeypatch):
-    # As the shell and Node twins do: an empty root is no root.
     monkeypatch.setenv("WFC_PROC", "")
     assert live_cwd(os.getpid()) == os.getcwd()

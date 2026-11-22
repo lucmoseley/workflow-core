@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/atomic-write.js's guarantee (#2085): a reader sees the old file or the
- * new one, never a torn write, and a failed write leaves the old file and no
- * aside behind. Every caller's own suite relies on this one. In-process, each
- * case in its own temp directory: beforeRename is the reader's window between
- * the two steps, and fs is spied only to tear a write.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -44,8 +37,6 @@ describe("writeFileAtomic", () => {
 	});
 
 	it("leaves the old file and no aside when the write tears", () => {
-		// A spy, since no real seam fills a disk under a temp directory: it
-		// writes half the bytes to the aside and then fails as ENOSPC would.
 		const real = fs.writeFileSync;
 		vi.spyOn(fs, "writeFileSync").mockImplementation((target) => {
 			real(target, "ne");

@@ -1,12 +1,3 @@
-"""Pins conftest.py's private temp root (#5083).
-
-A session's `tempfile.gettempdir()` and `TMPDIR` are a `wfc-pytest-<pid>-`
-root under the real temp dir, removed when the session finishes with every
-fixture a test left in it. Breaking it leaves each such fixture in `/tmp` for
-good. Driven through a nested pytest loading the real conftest.py, with its own
-`TMPDIR`, since the root is made before the session starts.
-"""
-
 import json
 import os
 import subprocess

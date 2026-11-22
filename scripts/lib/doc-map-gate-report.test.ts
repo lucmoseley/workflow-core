@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/doc-map-gate-report.js: what the pre-commit doc-map gate makes of the
- * checker's held report on a run it lets through (mantahostels#1300, mantahostels#1403, mantahostels#2050,
- * mantahostels#2124, mantahostels#2227). The reports below are shaped as check-doc-map.js's
- * reportFault prints them: message, indented items, a blank line, one advice
- * line, then the long report-only section the hold suppresses. The two
- * `cuts the real checker's … block` cases run the real checker, so the
- * wording and the shape the slice cuts on are pinned to what it prints.
- *
- * Loosen a case and a commit adding a register row for a file it does not
- * carry lands unrefused, to read as DEAD on the sweeps' clean checkout, or a
- * WARN only this replay can show goes mute.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -53,7 +40,6 @@ const UNTRACKED_REPORT = [
 	"WARN: 0 doc-map problem(s)",
 ].join("\n");
 
-/** Assertion 22's WARN block (mantahostels#2050). */
 const GREW_REPORT = [
 	"1 §B entr(ies) marked over cap by ruling grew in this commit:",
 	"  B223 — 379 → 402 prose words, +23, marked exempt by #1911",
@@ -65,7 +51,6 @@ const GREW_REPORT = [
 	"WARN: 0 doc-map problem(s)",
 ].join("\n");
 
-/** Assertion 23's WARN block (mantahostels#2124). */
 const MALFORMED_REPORT = [
 	"1 §B line(s) look like an over-cap marker but do not parse as one:",
 	"  B1 — - **Over cap by ruling (#2124)** the colon sits outside the bold",
@@ -77,7 +62,6 @@ const MALFORMED_REPORT = [
 	"WARN: 0 doc-map problem(s)",
 ].join("\n");
 
-/** Assertion 24's WARN block (mantahostels#2227). */
 const DROPPED_REPORT = [
 	"1 over-cap §B entr(ies) lost the marker the baseline carried:",
 	"  B223 — 402 prose words, marked exempt by #1911 until this commit",
@@ -110,24 +94,17 @@ const OK_REPORT = "OK: doc map covers everything";
 const sectionARow = (entry: string) =>
 	`| \`${entry}\` | a note | \`reference\` |`;
 
-/** A HEAD map carrying `inherited` as Section A rows; a header line always,
- * so an empty `inherited` is still a readable map. */
 const headWithRows = (inherited: string[] = UNTRACKED_ENTRIES) =>
 	["# Section A", ...inherited.map(sectionARow)].join("\n");
 
-/** A HEAD map carrying `inherited` as Section C route lines, ids absent. */
 const headWithRoutes = (
 	inherited: string[] = UNTRACKED_ROUTES.map((r) => r.path),
 ) =>
 	["# Section C", ...inherited.map((p) => `- **Read:** \`${p}\``)].join("\n");
 
 describe("the WARN blocks a green run replays", () => {
-	/* Assertion 22's growth WARN exits 0, so without a replay the hold swallows
-	 * it — and the sweeps cannot substitute, running a clean checkout where no
-	 * entry can read as grown. */
 	it("replays the growth block when the checker passes", () => {
 		const { text, exit } = greenReport(GREW_REPORT, "");
-		// WARN-only by ruling: surfacing it must never start gating it.
 		expect(exit).toBe(0);
 		expect(text).toContain("marked over cap by ruling grew in this commit:");
 		expect(text).toContain("B223 — 379 → 402 prose words, +23");
@@ -156,9 +133,6 @@ describe("the WARN blocks a green run replays", () => {
 		);
 	});
 
-	/* Assertion 24's WARN is the ONLY notice a dropped marker ever gets: it
-	 * compares against the parent, so the sweeps' clean checkout can never see
-	 * one. */
 	it("replays the dropped-marker block when the checker passes", () => {
 		const { text, exit } = greenReport(DROPPED_REPORT, "");
 		expect(exit).toBe(0);
@@ -173,8 +147,6 @@ describe("the WARN blocks a green run replays", () => {
 		);
 	});
 
-	// The whole text, not a phrase alone: a marker blanked to match every line
-	// would replay the OK line itself.
 	it("says nothing on a green run that reports no WARN block", () => {
 		expect(greenReport(OK_REPORT, "")).toEqual({ text: "", exit: 0 });
 	});
@@ -183,7 +155,6 @@ describe("the WARN blocks a green run replays", () => {
 describe("the untracked blocks a green run replays and judges", () => {
 	it("replays the untracked-entry block when the checker passes", () => {
 		const { text, exit } = greenReport(UNTRACKED_REPORT, headWithRows());
-		// Still WARN, per mantahostels#1193 — surfacing it must not start gating it.
 		expect(exit).toBe(0);
 		expect(text).toContain("not yet tracked by git:");
 		expect(text).toContain("docs/research/machine-binding-constraints.md");
@@ -201,8 +172,6 @@ describe("the untracked blocks a green run replays and judges", () => {
 		expect(text).not.toContain("WARN: 0 doc-map problem(s)");
 	});
 
-	/* The half of mantahostels#1300 the replay does not close: the session that ADDS the
-	 * row is the one that can still fix it in the same commit. */
 	it("refuses a commit that adds a row for a file it does not contain, naming each row and offering to name the file in the pathspec as the way out", () => {
 		const { text, exit } = greenReport(UNTRACKED_REPORT, headWithRows([]));
 		expect(exit).toBe(1);
@@ -230,7 +199,6 @@ describe("the untracked blocks a green run replays and judges", () => {
 			headWithRows([UNTRACKED_ENTRIES[0]]),
 		);
 		expect(exit).toBe(1);
-		// The refusal's own list, not the replayed block above it, which names both.
 		const listed = text.slice(text.indexOf("and not the file(s) they name"));
 		expect(listed).toContain(UNTRACKED_ENTRIES[1]);
 		expect(listed).not.toContain(UNTRACKED_ENTRIES[0]);
@@ -258,9 +226,6 @@ describe("the untracked blocks a green run replays and judges", () => {
 		expect(text).toContain("drop the route until it lands");
 	});
 
-	/* The discriminator: HEAD's map carries the paths and none of the route ids,
-	 * so judging the whole "C36 → path" item would read every route as new and
-	 * refuse the commit mantahostels#1403 exists to let through. */
 	it("judges a route against HEAD by its path, never its id", () => {
 		const { text, exit } = greenReport(
 			UNTRACKED_ROUTE_REPORT,
@@ -282,8 +247,6 @@ describe("the untracked blocks a green run replays and judges", () => {
 		expect(listed).not.toContain(UNTRACKED_ROUTES[0].path);
 	});
 
-	/* One report can hold both blocks. A single marker matching both would
-	 * slice the first and judge the route items against Section A's wording. */
 	it("replays both blocks when the report holds an entry and a route", () => {
 		const { text, exit } = greenReport(
 			[UNTRACKED_REPORT, UNTRACKED_ROUTE_REPORT].join("\n"),
@@ -296,8 +259,6 @@ describe("the untracked blocks a green run replays and judges", () => {
 		expect(text).toContain("Section C route(s) above reach");
 	});
 
-	/* Fail-open: with no map in HEAD nothing can be called new, so the row keeps
-	 * the WARN rather than blocking the commit that first adds the map. */
 	it("warns without refusing when HEAD has no doc-map.md at all", () => {
 		const { text, exit } = greenReport(UNTRACKED_REPORT, "");
 		expect(exit).toBe(0);
@@ -327,7 +288,6 @@ describe("the untracked blocks a green run replays and judges", () => {
 	});
 });
 
-/** The one docs/research register entry the untracked case models its row on. */
 const RESEARCH_PATH = "docs/research/synthetic-model.md";
 
 const DOC_MAP_FILES = [
@@ -340,8 +300,6 @@ const DOC_MAP_FILES = [
 	"doc-map-classes.json",
 ];
 
-/** A self-contained map: a docs/research register-list entry to model an
- * injected row on, and a §B entry with no marker to inject a near miss beside. */
 const syntheticDocMap = () =>
 	buildDocMap({
 		head: ["# Doc map", "", "v1.0 · 17 September 2026", ""],
@@ -369,7 +327,6 @@ const syntheticDocMap = () =>
 		],
 	});
 
-/** A temp directory holding the synthetic map's sidecars, and its map as text. */
 function syntheticDocMapDir(prefix: string): { dir: string; map: string } {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 	temps.push(dir);
@@ -380,7 +337,6 @@ function syntheticDocMapDir(prefix: string): { dir: string; map: string } {
 			n !== "doc-map-restatements.json",
 	))
 		fs.writeFileSync(path.join(dir, name), emptyDataFile(name));
-	// loadRestatements refuses an empty register, so §B1 needs one pointer.
 	fs.writeFileSync(
 		path.join(dir, "doc-map-restatements.json"),
 		JSON.stringify({ B1: { paths: [{ path: "docs/doc-map.md" }] } }),
@@ -402,13 +358,8 @@ function syntheticDocMapDir(prefix: string): { dir: string; map: string } {
 	return { dir, map: syntheticDocMap() };
 }
 
-/*
- * GITHUB_ACTIONS off: check.js writes ::error:: and ::warning:: annotations to
- * stdout when it is set, which would add lines the slice does not model.
- */
 const NO_ANNOTATIONS = { ...process.env, GITHUB_ACTIONS: "" };
 
-/** The real checker's combined report over the map in `dir`. */
 const realReport = (dir: string) => {
 	const run = runInProcess(
 		path.join(ROOT, "scripts", "check-doc-map.js"),
@@ -419,18 +370,9 @@ const realReport = (dir: string) => {
 };
 
 describe("the slice against the real checker's wording and shape", () => {
-	/*
-	 * mantahostels#1300's slice is a contract between two files: the gate cuts on wording
-	 * check-doc-map.js prints, and on the shape reportFault prints after it.
-	 * Reword either, or wrap the advice onto a second line, and the replay
-	 * silently stops reporting. The row is injected pointing at a scratch file
-	 * made untracked-but-present for the length of the case.
-	 */
 	it("cuts the real checker's untracked block, wording and shape both", () => {
 		const { dir, map } = syntheticDocMapDir("doc-map-slice-");
 		const scratch = `docs/research/.slice-fixture-${process.pid}.md`;
-		/* The model line is found through the SHIPPED parsers, not a private
-		 * pattern (mantahostels#2743, mantahostels#2783). */
 		const { parseRegister, registerListPath, registerRowPaths } =
 			require("./doc-map") as typeof import("./doc-map");
 		const registered = new Set(
@@ -465,28 +407,20 @@ describe("the slice against the real checker's wording and shape", () => {
 			"the real checker did not raise the untracked entry",
 		).toContain(scratch);
 
-		// Against a HEAD map that lacks the entry, the gate refuses: the replayed
-		// block, then the refusal heading and the items it cut back out.
 		const { text, exit } = greenReport(report, "# Section A");
 		expect(exit).toBe(1);
 		const [sliced, refusal] = text.split(
 			"\npre-commit: this commit adds the doc-map Section A row(s) below",
 		);
-		// Both halves, per §X3: the offending thing, and the way out.
 		expect(sliced).toContain("not yet tracked by git:");
 		expect(sliced).toContain(scratch);
 		expect(sliced).toContain("Commit the file, or drop the entry");
-		// The entry comes back OUT of the slice: the refusal compares these paths
-		// against HEAD's map, so a change to reportFault's indent would leave the
-		// gate with nothing to judge (mantahostels#1300).
 		expect(refusal.split("\n").filter((l) => l.startsWith("  docs/"))).toEqual([
 			`  ${scratch}`,
 		]);
-		// And nothing past the advice line — the report-only section stays held.
 		expect(sliced).not.toContain("Section C route");
 		expect(sliced.split("\n").length).toBe(4);
 
-		// Reword the heading and the slice goes silent.
 		expect(
 			greenReport(
 				report.replace("not yet tracked by git:", "not yet tracked by git —"),
@@ -495,8 +429,6 @@ describe("the slice against the real checker's wording and shape", () => {
 		).not.toContain(scratch);
 	});
 
-	/* Assertion 23's marker (mantahostels#2124, mantahostels#2268). The fault is a line in the map
-	 * itself, so this one needs no scratch file. */
 	it("cuts the real checker's malformed-marker block, wording and shape both", () => {
 		const { dir, map } = syntheticDocMapDir("doc-map-marker-");
 		const entries = map.split(/^### (?=B\d+ )/m).slice(1);
@@ -522,12 +454,10 @@ describe("the slice against the real checker's wording and shape", () => {
 			"the real checker did not raise the malformed marker",
 		).toContain("do not parse as one:");
 
-		// A green run replays the block, alone, with a newline after it.
 		const sliced = greenReport(report, "").text.replace(/\n$/, "");
 		expect(sliced).toContain("do not parse as one:");
 		expect(sliced).toContain(`${id} — ${nearMiss}`);
 		expect(sliced).toContain("Respell the bullet exactly");
-		// Nothing past the advice line: message, item, blank, advice.
 		expect(sliced.split("\n").length).toBe(4);
 
 		expect(
@@ -538,12 +468,6 @@ describe("the slice against the real checker's wording and shape", () => {
 		).toBe("");
 	});
 
-	/*
-	 * Assertions 22 and 24 need a git baseline the tmp-dir fixture has no HEAD
-	 * for, so the coupling of every replay marker to the checker's wording is
-	 * pinned statically. The checker builds each message by concatenation, so
-	 * the source is joined before matching; `$` is the anchor, not the message.
-	 */
 	it("anchors every marker on wording the checker still emits", () => {
 		const checker = fs
 			.readFileSync(path.join(ROOT, "scripts", "check-doc-map.js"), "utf8")

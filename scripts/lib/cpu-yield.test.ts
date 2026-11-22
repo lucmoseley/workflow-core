@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * A run outside the whole-suite slot yielding its CPU to a running whole
- * suite in its own cgroup (#2955, #2956).
- *
- * Loosen it and the runs beside the lander's whole suite take the cores it
- * needs to finish inside the ceiling; widen it and the lander's own bisect
- * runs, a run with no whole suite to yield to, or one beside a suite in
- * another cgroup, where nice cannot reach, crawl at a tenth's weight.
- */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -50,8 +41,6 @@ const priority = (start: number) => {
 	return { set, os: { getPriority: () => start, setPriority: set } };
 };
 
-/* Process 30 (child of 20, child of 10) yielding child 7 at nice 5, unless
- * told otherwise. */
 const run = ({
 	alive = () => true,
 	queueDir = dir,
@@ -160,7 +149,6 @@ describe("yieldToWhole", () => {
 	it("really lowers a live child's priority", async () => {
 		const child = spawn("sleep", ["5"]);
 		try {
-			/* A child is never in its parent's lineage, and it is alive. */
 			marker(child.pid as number, { spawned: true });
 			const before = os.getPriority(child.pid);
 			yieldToWhole(child, { queueDir: dir });

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The practice guard hands a session the craft list (#2324) and the
- * evidence-tier ranking (#2637) on its first touch of docs/practice/, and
- * refuses a note written under a slug off the list (#2324); at Stop, it
- * refuses once a session that wrote a tracked file with no **Practice:** line,
- * or one that does not hold up (#2326).
- *
- * What runs here is the shipped scripts/practice-guard.sh, copied byte for byte
- * into a fixture plugin root beside the shipped docs/practice-crafts.md, and
- * into a fixture ~/.claude/hooks/ as the founder's machine copy, so each craft
- * list and note lookup is driven (#5344). A miss here lets an off-list note
- * land in every adopter, or charges every session the list where none touched
- * a note.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -33,22 +19,17 @@ const SCRIPT = path.resolve(__dirname, "practice-guard.sh");
 const CRAFTS = path.resolve(__dirname, "..", "docs", "practice-crafts.md");
 const SESSION = "s1";
 const NO_LIST = /^practice-guard: no craft list at .*, so nothing is judged\n$/;
-/** The clause of the evidence-tier ranking a note writer most often gets wrong (#2637, #2657). */
 const RANKING =
 	"A project's docs, open-source or company-run, earn the top tier only for how that project's own product behaves or is configured";
 
 let dir: string;
-/** The shipped guard, run from a fixture plugin root. */
 let hook: string;
-/** The same script as the founder's machine copy, under `home`. */
 let machineHook: string;
 let home: string;
 let repo: string;
 let list: string;
-/** The session latch's XDG_RUNTIME_DIR, fresh for each case. */
 let tmp: string;
 
-/** A byte-for-byte copy of the shipped guard at `at`. */
 const install = (at: string) => {
 	fs.mkdirSync(path.dirname(at), { recursive: true });
 	fs.copyFileSync(SCRIPT, at);
@@ -56,12 +37,10 @@ const install = (at: string) => {
 	return at;
 };
 
-/** The machine copy's own list: one craft, so a case can tell which list it was handed. */
 const MACHINE_LIST =
 	"- machine-only-craft: a craft only the machine list holds.";
 
 beforeAll(() => {
-	// Real, so the work tree root git prints matches the paths fed in.
 	dir = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "practice-guard-")),
 	);
@@ -98,7 +77,6 @@ const spawnOptions = (homeDir = home, env: Record<string, string> = {}) => ({
 	env: { HOME: homeDir, XDG_RUNTIME_DIR: tmp, ...env },
 });
 
-/** What the guard hands the session on one call: hookSpecificOutput, or null. */
 const run = (
 	toolName: string,
 	toolInput: Record<string, string>,
@@ -244,8 +222,6 @@ describe("silence", () => {
 	});
 });
 
-// The positive pair, an object payload with jq present judged, is "the craft
-// list on a session's first docs/practice/ touch" above.
 describe("a payload the guard cannot judge", () => {
 	const spawn = (stdin: string, env: Record<string, string> = {}) =>
 		spawnGuard(hook, null, { ...spawnOptions(home, env), stdin });
@@ -304,7 +280,6 @@ describe("the craft list each copy reads (#5344)", () => {
 		);
 		expect(out.additionalContext).toContain(MACHINE_LIST);
 		expect(out.additionalContext).not.toContain("shell-scripting-and-hooks:");
-		// It cannot check the plugin's notes, so it names the work tree alone (#5394).
 		expect(out.additionalContext).not.toContain("plugin's copy");
 	});
 
@@ -315,9 +290,7 @@ describe("the craft list each copy reads (#5344)", () => {
 	});
 });
 
-/** The day the guard's expiry reckons from, through PRACTICE_GUARD_TODAY. */
 const TODAY = "2026-06-15";
-/** Researched: dates counted back from TODAY; a note expires at exactly 6 months. */
 const FIVE_MONTHS_AGO = "2026-01-15";
 const SIX_MONTHS_LESS_A_DAY = "2025-12-16";
 const SIX_MONTHS_AGO = "2025-12-15";
@@ -334,11 +307,6 @@ const wrote = (filePath: string) =>
 	toolUse("Write", { file_path: filePath, content: "x" });
 const declared = (line: string) => text(`Done.\n\n**Practice:** ${line}`);
 
-/**
- * The guard's Stop verdict on a session whose main chain made `blocks`, one
- * assistant turn each, a string being a raw transcript line: the refusal's
- * reason, or null where it passed silent.
- */
 const stop = (
 	blocks: (Block | string)[],
 	{
@@ -415,7 +383,6 @@ describe("the Stop limb", () => {
 	const bad = "docs/practice/technical-documentation.md";
 	const boundary = "docs/practice/web-frontend-development.md";
 	const lastDay = "docs/practice/data-schema-and-validation.md";
-	/* An adopter's fallback: the plugin's own copy, outside the work tree (#5294). */
 	const pluginNote = () =>
 		path.join(dir, "plugin", "docs", "practice", "llm-evaluation.md");
 	const noKind =
@@ -440,7 +407,6 @@ describe("the Stop limb", () => {
 		fs.writeFileSync(path.join(repo, precedent), "# logo precedent\n");
 		fs.mkdirSync(path.dirname(pluginNote()), { recursive: true });
 		fs.writeFileSync(pluginNote(), dated(FIVE_MONTHS_AGO));
-		// A current plugin copy of the work tree's stale note, which the work tree's outranks.
 		fs.writeFileSync(path.join(dir, "plugin", stale), dated(FIVE_MONTHS_AGO));
 	});
 
@@ -577,8 +543,6 @@ describe("the Stop limb", () => {
 			},
 		);
 
-		// skipped_fault searches a U+200B-spaced tail whole, its opening preposition included, for a JOINS word (#3622).
-		// Both lists are compared word by word, so `as well as` also bars `as` and `well` from PREPOSITIONS (#3719).
 		it("no word is in both PREPOSITIONS and JOINS (#3622)", () => {
 			const source = fs.readFileSync(hook, "utf8");
 			const words = (name: string) => {
@@ -802,7 +766,6 @@ describe("the Stop limb", () => {
 			]),
 		])("skipped — %s", (_, kind, says) => {
 			const reason = stop([wrote(code()), declared(`skipped — ${kind}`)]);
-			// fault_in strips an aside's closing bracket and skipped_fault deletes U+200B before the line is named.
 			const named = kind.replace(/\)$/, "").replaceAll("\u200b", "");
 			expect(reason).toContain(`skipped names "${named}", which ${says}`);
 			expect(reason).toContain(list);
@@ -898,7 +861,6 @@ describe("the Stop limb", () => {
 			expect(stop(blocks)).toContain('"big change"');
 		});
 
-		/** A resolve-ticket.js close whose body file holds `body`. */
 		const closeWith = (body: string) => {
 			fs.writeFileSync(path.join(tmp, "close.md"), body);
 			return JSON.stringify({
@@ -932,7 +894,6 @@ describe("the Stop limb", () => {
 			expect(stop([wrote(code()), comment])).toBeNull();
 		});
 
-		/** A gh comment whose $'...' body ends on the declaration `skipped — <kind>`. */
 		const ansiComment = (kind: string) =>
 			toolUse("Bash", {
 				command: `gh issue comment 12 --body $'Done.\\r\\n\\r\\n**Practice:** skipped — ${kind}'`,
@@ -1090,7 +1051,6 @@ describe("the Stop limb", () => {
 });
 
 describe("the machine copy in an adopter that enables the plugin (#5394, #5410)", () => {
-	/** A machine install whose list matches the plugin's, as the founder's does. */
 	let adopterHome: string;
 	let machine: string;
 	const pluginNote = () =>
@@ -1101,7 +1061,6 @@ describe("the machine copy in an adopter that enables the plugin (#5394, #5410)"
 		"covered — docs/practice/prose-editing-and-style.md, 2026-01-01";
 	const settings = (file: string) => path.join(repo, ".claude", file);
 	const userSettings = () => path.join(adopterHome, ".claude", "settings.json");
-	/** A settings file: raw text, or enabledPlugins with any marketplaces it declares. */
 	const writeSettings = (
 		file: string,
 		value: unknown,
@@ -1115,7 +1074,6 @@ describe("the machine copy in an adopter that enables the plugin (#5394, #5410)"
 				: JSON.stringify({ enabledPlugins: value, extraKnownMarketplaces }),
 		);
 	};
-	/** The marketplace `name` declared from the plugin's repo, pinned at `ref` where one is given. */
 	const pinned = (ref?: string, name = "workflow-core") => ({
 		[name]: {
 			source: {
@@ -1139,7 +1097,6 @@ describe("the machine copy in an adopter that enables the plugin (#5394, #5410)"
 			stderr,
 			...arranged,
 		});
-	/** Each copy's verdict on one Stop, the plugin's first, sharing one latch. */
 	const both = (line: string) => [
 		stop([wrote(code()), declared(line)]),
 		machineAlone(line),

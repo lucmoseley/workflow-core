@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * report-cycle-review-due.test.ts — the scheduled 90-day cycle trigger
- * (mantahostels#1034, mantahostels#942).
- * Break it and the sweep files a review mid-cycle, or never.
- *
- * Driven end to end through `runInProcess` (§X3; #1194). `gh` is a real
- * script recording its own argv, injected at WFC_GH, and the cycle log is a
- * real file in a fixture cwd — the same shape
- * report-manual-staleness.test.ts uses, so the two reporters stay comparable.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -42,9 +32,7 @@ function cycle(n: number, start: string, end: string, status: string) {
 function fixture(opts: {
 	log: string;
 	ghIssueList: unknown;
-	/** The issue's body before the run; absent, an empty one. */
 	existingBody?: string;
-	/** Declared as cycleLogPath in the fixture config, the log written there. */
 	logPath?: string;
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "cycle-log-"));
@@ -61,8 +49,6 @@ function fixture(opts: {
 		);
 	}
 
-	// The sanctioned body writer (mantahostels#131), faked so the refresh path is
-	// observable without a network call.
 	const issueBody = fakeIssueBody(root, opts.existingBody);
 
 	const argvLog = path.join(root, "gh-argv.log");
@@ -123,8 +109,6 @@ describe("the scheduled 90-day cycle trigger", () => {
 		expect(ghCalls(fx)).toBe("");
 	});
 
-	// The end date is inclusive: a review is due the day AFTER the cycle ends,
-	// not on its last day.
 	it("stays silent on the cycle's final day", () => {
 		const fx = fixture({
 			log: cycle(3, "2026-08-01", "2026-10-30", "open"),
@@ -151,10 +135,7 @@ describe("the scheduled 90-day cycle trigger", () => {
 		expect(output).toContain("issues/999");
 	});
 
-	// mantahostels#942 §3 ruled the review is a conversation the founder holds, not something
-	// a command opens; and a create from inside a workflow is invisible to
-	// the guard-issue-create-label core (mantahostels#470), so the label has to be here.
-	it("labels the issue it files takes:wayfinder", () => {
+	it("labels the issue it files takes:wayfinder (lucmoseley/mantahostels#470)", () => {
 		const fx = fixture({
 			log: cycle(3, "2026-08-01", "2026-10-30", "open"),
 			ghIssueList: [],
@@ -164,8 +145,7 @@ describe("the scheduled 90-day cycle trigger", () => {
 		expect(ghCalls(fx)).toContain("takes:wayfinder");
 	});
 
-	// A log that has never held a cycle has nothing overdue (#395 Q1).
-	it("skips by name, filing nothing, on a log that declares no cycle yet", () => {
+	it("skips by name, filing nothing, on a log that declares no cycle yet (#395)", () => {
 		const fx = fixture({
 			log: "# Cycle log\n\nNothing declared yet.\n",
 			ghIssueList: [],
@@ -178,12 +158,7 @@ describe("the scheduled 90-day cycle trigger", () => {
 		expect(ghCalls(fx)).toBe("");
 	});
 
-	/*
-	 * The point of the trigger. An undeclared cycle is the failure mode the
-	 * ritual exists to catch, so silence here would hide exactly the thing worth
-	 * catching (mantahostels#1034).
-	 */
-	it("files when every declared cycle is closed, rather than staying silent", () => {
+	it("files when every declared cycle is closed, rather than staying silent (lucmoseley/mantahostels#1034)", () => {
 		const fx = fixture({
 			log: cycle(3, "2026-08-01", "2026-10-30", "closed"),
 			ghIssueList: [],
@@ -193,8 +168,6 @@ describe("the scheduled 90-day cycle trigger", () => {
 		expect(ghCalls(fx)).toContain("No 90-day cycle is declared");
 	});
 
-	// Exactly one cycle runs at a time, so two open sections leave no end date to
-	// read — reporting the ambiguity beats picking one.
 	it("names both when two cycles are marked open", () => {
 		const fx = fixture({
 			log: `${cycle(4, "2026-11-01", "2027-01-30", "open")}\n${cycle(3, "2026-08-01", "2026-10-30", "open")}`,
@@ -247,8 +220,6 @@ describe("the scheduled 90-day cycle trigger", () => {
 		expect(output).toContain("current");
 	});
 
-	// A heading with no status line is an unparseable log, not an absent cycle:
-	// filing "no cycle declared" against it would assert the wrong fact.
 	it("raises rather than filing when a cycle carries no status line", () => {
 		const fx = fixture({
 			log: "## Cycle 3 — 2026-08-01 → 2026-10-30\n\n**Traction goal:** ship it\n",
@@ -261,8 +232,6 @@ describe("the scheduled 90-day cycle trigger", () => {
 		expect(ghCalls(fx)).toBe("");
 	});
 
-	// A heading that almost matches must raise: reported as an absent cycle, a
-	// real declaration would be silently invisible.
 	it("raises on a cycle heading it cannot read, and makes no gh call", () => {
 		const fx = fixture({
 			log: "## Cycle 3 -- 2026-08-01 to 2026-10-30\n\n**Status:** open\n",
@@ -316,7 +285,6 @@ describe("the scheduled 90-day cycle trigger", () => {
 	});
 });
 
-// An overdue cycle, so any fall-through to the default action would file (#1051).
 describe("the command line", () => {
 	const overdue = () =>
 		fixture({

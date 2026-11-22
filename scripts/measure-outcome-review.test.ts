@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * measure-outcome-review.test.ts — the weekly outcome review's verdicts
- * (#4797, spec #4796 §Testing Decisions, Seam 2). Break it and a fix is kept
- * or unwound on the wrong count, the baseline reads the trigger week, a
- * session resumed on two seats counts twice, an unwind past the cap is
- * dropped, a missed signature or a line lost with its worktree goes
- * unlisted, the confirm list outgrows the step's budget (#5031), or a finding filed in an adopter's tracker is never judged (#4858)
- * or is read from a stale local ref that misses an upstream revert (#4872).
- */
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -23,14 +14,9 @@ import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
 
 const SCRIPT = path.join(__dirname, "measure-outcome-review.js");
 const TRACKER = "o/t";
-/* A recorded failure other than a 404, which the signature log reads as no
- * rows. */
 const FORBIDDEN = readGhAnswer(
 	path.join(__dirname, "lib/fixtures/gh/checks-forbidden.json"),
 );
-/* The recorded commits-endpoint row the stub's commit rows are filled from,
- * so a key the recording renames or drops reaches these tests (#4908).
- * Residual: they then fail as "a commit with no sha or date", naming no key. */
 const COMMIT_ROW = JSON.parse(
 	readGhAnswer(path.join(__dirname, "lib/fixtures/gh/commits-page.json"))
 		.stdout,
@@ -39,8 +25,6 @@ const ADOPTER_TRACKER = "o/m";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
 const d = (n: number) => new Date(T0 + n * DAY).toISOString();
-/* The finding is filed on day 35: its trigger week is days 28-35 and its
- * baseline days 21-28. The fix lands on day 40; the run reads on day 60. */
 const FILED = 35;
 const FIXED = 40;
 const NOW = d(60);
@@ -54,7 +38,6 @@ afterEach(() => {
 
 interface Issue {
 	number: number;
-	/** The tracker it is in: TRACKER where unset. */
 	repo?: string;
 	title: string;
 	state?: "OPEN" | "CLOSED";
@@ -64,16 +47,11 @@ interface Issue {
 	labels?: string[];
 }
 
-/** What the stub serves through `gh api`: each code repo's main, newest
- * last, and its signature log, absent (a 404) where unset. */
 interface Upstream {
 	commits: Record<string, { sha: string; at: string; message: string }[]>;
 	logs: Record<string, string>;
 }
 
-/** A checkout with a workflow-core config naming `tracker`, and `codeRepo`
- * where given, whose main `upstream` holds under its code repo, as GitHub
- * would serve it. */
 function fixtureRepo(
 	root: string,
 	tracker: string,
@@ -99,7 +77,6 @@ function fixtureRepo(
 	return {
 		root,
 		commit,
-		/** A signature line, landed on main as file-issue.js's is. */
 		signatureLine(n: number, extra: Record<string, unknown> = {}) {
 			upstream.logs[code] = `${upstream.logs[code] ?? ""}${JSON.stringify({
 				issue: `${tracker}#${n}`,
@@ -111,7 +88,6 @@ function fixtureRepo(
 			})}\n`;
 			commit("Log a signature", FILED);
 		},
-		/** A local origin/main last moved on `day`, holding none of main. */
 		localRef(day: number) {
 			const at = d(day);
 			const env = {
@@ -148,8 +124,6 @@ function scratch() {
 		issues,
 		commit: (message: string, day: number) => main.commit(message, day),
 		signatureLine: main.signatureLine,
-		/** A second repo under `name`, its tracker `tracker`, with a session
-		 * whose cwd is in it, so the review finds it. */
 		adopter(name: string, tracker: string, codeRepo?: string) {
 			const repo = fixtureRepo(
 				path.join(home, name),
@@ -170,8 +144,6 @@ function scratch() {
 			);
 			return repo;
 		},
-		/** A session starting on day `day` with `hits` BOOM records in its
-		 * main log and `subHits` in one subagent log. */
 		session(
 			id: string,
 			day: number,
@@ -206,7 +178,6 @@ function scratch() {
 				`${JSON.stringify({ mode: "weekly", date: "2026-06-01", ...line })}\n`,
 			);
 		},
-		/** Each `since` the stub's commit reads were sent, in call order. */
 		sinces: () => {
 			const r = readText(path.join(home, "sinces"));
 			return r.state === "read" ? r.data.trim().split("\n") : [];
@@ -286,8 +257,6 @@ if (api && api[2] === "commits") {
 						...process.env,
 						...env,
 						CLAUDE_PROJECT_DIR: root,
-						/* Off the fixture's own tree, which repoRootOf would
-						 * otherwise read as system temp. */
 						TMPDIR: tmp,
 					},
 				},
@@ -397,7 +366,6 @@ describe("measure-outcome-review.js", () => {
 		);
 	});
 
-	/** Finding #1 read once inconclusive: 1 hit in its first 3 sessions. */
 	function extendedOnce() {
 		const f = scratch();
 		baselineOfOne(f);
@@ -491,7 +459,6 @@ describe("measure-outcome-review.js", () => {
 
 	it("grows the window until the baseline predicts 3", () => {
 		const f = scratch();
-		/* Two hits over four sessions: half a hit each, so six sessions. */
 		for (const [i, day] of [21, 23, 25, 27].entries())
 			f.session(`b${i}`, day, i < 2 ? 1 : 0);
 		fixedFinding(f);
@@ -503,7 +470,6 @@ describe("measure-outcome-review.js", () => {
 			baseline: { count: 2, sessions: 4 },
 			window: {
 				start: d(FIXED),
-				/* The sixth session's first record, a second into its day. */
 				end: new Date(Date.parse(d(FIXED + 6)) + 1000).toISOString(),
 			},
 		});
@@ -512,10 +478,8 @@ describe("measure-outcome-review.js", () => {
 	it("never reads the trigger week into the baseline", () => {
 		const f = scratch();
 		baselineOfOne(f);
-		/* The trigger week, days 28-35, full of the fault. */
 		f.session("t0", 29, 9);
 		f.session("t1", 33, 9);
-		/* A session starting exactly at the trigger week's edge is in it. */
 		f.session("t2", FILED - 7, 9);
 		fixedFinding(f);
 		afterFix(f, 3, 0);
@@ -533,7 +497,6 @@ describe("measure-outcome-review.js", () => {
 		fixedFinding(f);
 		afterFix(f, 5, 0);
 		const { out } = f.run();
-		/* b0 is in both seats; b4's two hits are its subagent's. */
 		expect(outcome(out)).toMatchObject({
 			baseline: { count: 6, sessions: 5 },
 		});
@@ -635,7 +598,6 @@ describe("measure-outcome-review.js", () => {
 		const { out } = f.run();
 		const refs = (rows: { finding: string }[]) => rows.map((r) => r.finding);
 		expect(out.unwinds.file).toHaveLength(5);
-		/* #6 has harm; #99, carried in at 3x, outranks the 1x unwinds. */
 		expect(refs(out.unwinds.file)).toEqual([
 			`${TRACKER}#6`,
 			`${TRACKER}#99`,
@@ -668,8 +630,6 @@ describe("measure-outcome-review.js", () => {
 	});
 
 	describe("the miss backstop and its confirm list (#5031)", () => {
-		/** A ticket closed on `day`, created on `createdOn`: by default day 50,
-		 * past the rollout. */
 		const closer =
 			(f: Fixture) =>
 			(
@@ -733,7 +693,6 @@ describe("measure-outcome-review.js", () => {
 			f.commit("Keep the ref (#31)", 56);
 			f.commit("Read once (#33)", 56);
 			f.commit("Free the ref (#34)", 56);
-			/* Day 35: the tracker's rollout. */
 			f.signatureLine(24, { signature: null, why: "no trace" });
 			closed(40, "no-fault bug", 57, { labels: ["bug", "origin:triage"] });
 			closed(41, "signed bug", 57, { labels: ["bug", "origin:audit"] });
@@ -751,8 +710,6 @@ describe("measure-outcome-review.js", () => {
 			f.signatureLine(41, { signature: null, why: "no trace" });
 			const { status, out } = f.run();
 			expect(status).toBe(0);
-			/* #31 and #32 predate the rollout; #30 declared --no-fault and
-			 * carries no bug; #34's origin is a script's. */
 			expect(out.misses).toEqual([
 				expect.objectContaining({ issue: `${TRACKER}#20`, why: ["bug"] }),
 				expect.objectContaining({
@@ -1067,7 +1024,6 @@ describe("measure-outcome-review.js", () => {
 			n: number,
 		) => out.outcomes.find((o) => o.finding === ref(n));
 
-		/** Finding o/m#5, logged and fixed by a bare `#5` in the adopter. */
 		function adopterFinding() {
 			const f = scratch();
 			f.commit("Initial", 1);
@@ -1075,7 +1031,6 @@ describe("measure-outcome-review.js", () => {
 			const a = f.adopter("adopter", ADOPTER_TRACKER);
 			f.issues.push(
 				{ number: 5, repo: ADOPTER_TRACKER, title: "BOOM in the adopter" },
-				/* Same number in the host tracker: its bare `#5` is not o/m's. */
 				{ number: 5, title: "host five", state: "OPEN" },
 				{
 					number: 20,
@@ -1095,7 +1050,6 @@ describe("measure-outcome-review.js", () => {
 
 		it("judges a finding filed and fixed in the second repo, and lists its misses", () => {
 			const { f, sha } = adopterFinding();
-			/* A second checkout of the adopter: the first found is read. */
 			f.adopter("adopter-clone", ADOPTER_TRACKER);
 			const { status, out } = f.run();
 			expect(status).toBe(0);
@@ -1185,9 +1139,7 @@ describe("measure-outcome-review.js", () => {
 			};
 			created(ADOPTER_TRACKER, 5, 30);
 			created(ADOPTER_TRACKER, 20, 33);
-			/* #5 in the host tracker is no finding, so its d(20) sets nothing. */
 			created(TRACKER, 5, 20);
-			/* An open finding reads no commits, so its d(10) sets nothing. */
 			f.issues.push({
 				number: 6,
 				repo: ADOPTER_TRACKER,
@@ -1296,7 +1248,6 @@ describe("--baseline, a finding's baseline at filing", () => {
 			out: r.status === 2 ? null : JSON.parse(r.stdout),
 		};
 	}
-	/* The triggering session, in the trigger week: its line 2 is a BOOM. */
 	const declared = {
 		signature: SIG,
 		prediction: "the boom stops",

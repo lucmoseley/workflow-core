@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/dmesg-fake.ts to the real dmesg (§G7, #2207, #3362): each case
- * runs against the fake and the machine's own dmesg and checks shape and
- * verdict, never values, the kernel ring read through check-kernel-stall.js's
- * dmesg reader. Loosened, every kernel-stall reader test stays green on the
- * fake while a new dmesg prints a stamp the fake does not, or production
- * counts a refusal as a clean ring.
- *
- * The real side runs where dmesg is installed, never in CI (§G7 item 2): the
- * open-ring cases where kernel.dmesg_restrict lets it read, the restricted
- * case where it does not, and none where it fails for another reason.
- *
- * Red on the real side after a util-linux upgrade: `dmesg -T | head`, then fix
- * check-kernel-stall.js's dmesg reader or the fake's builder.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,10 +11,8 @@ import { writeSchedClock } from "./sched-clock-fake";
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 
-/** `[Wed Oct  7 22:43:24 2026] `, ctime's shape, as `-T` stamps a line. */
 const CTIME =
 	/^\[(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ \d]\d \d\d:\d\d:\d\d \d{4}\] /;
-/** `[    0.000000] `, seconds since boot, as a read without `-T` stamps one. */
 const MONOTONIC = /^\[\s*\d+\.\d{6}\] /;
 
 const T0 = Date.parse("2026-10-07T22:43:24Z");
@@ -47,10 +30,8 @@ interface Read {
 	stderr: string;
 }
 interface Side {
-	/** `dmesg -T`, and `dmesg` with no flag, run directly. */
 	stamped: Read;
 	plain: Read;
-	/** check-kernel-stall.js's --json outcome and data, dmesg its only reader. */
 	verdict: { outcome: string; readers?: string[]; lines?: number };
 }
 
@@ -119,7 +100,6 @@ const CASES: Case[] = [
 		check({ stamped, verdict }: Side) {
 			expect(verdict.outcome).not.toBe("SKIP");
 			expect(verdict.readers).toHaveLength(1);
-			/* A live ring can grow between the two reads. */
 			expect(verdict.lines).toBeGreaterThanOrEqual(
 				lineList(stamped.stdout).length,
 			);
@@ -166,8 +146,6 @@ describe.each(CASES)("$name", (c) => {
 		c.check(fakes[c.ring] as Side);
 	});
 
-	/* The first runs every real read: dmesg -T, dmesg, and check-kernel-stall.js's
-	 * under its 5 s READ_TIMEOUT_MS; the two direct reads took 0.02 s here. */
 	it("on the real dmesg", ({ skip }) => {
 		real ??= readReal();
 		if (!real.side) return skip(real.skip);

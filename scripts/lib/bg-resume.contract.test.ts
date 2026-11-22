@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/bg-resume.js's parse of the launcher's `--bg --resume` response
- * (#2968) to one case list, run against the installed harness's recorded
- * responses (scripts/fixtures/bg-resume.json, re-recorded by
- * `node scripts/record-claude-responses.js`) and against lib/bg-resume-fake.ts,
- * which the refill-loop-run suites' `claude` stub prints. Breaking it costs the
- * refill loop's resume: a response the parse misreads counts a working
- * resume failed.
- */
 import { describe, expect, it } from "vitest";
 import { parseResumed } from "./bg-resume.js";
 import {
@@ -24,7 +15,6 @@ const cases: { kind: ResumeKind; copy: boolean }[] = [
 	{ kind: "ownId", copy: false },
 ];
 
-/** What parseResumed reads off response `r`: a copy keeps its note's line. */
 const expected = (r: { stderr: string; startedAs: string }, copy: boolean) =>
 	copy
 		? { jobId: r.startedAs, copy, why: r.stderr.trim() }
@@ -42,7 +32,6 @@ describe.each(cases)("the $kind response", ({ kind, copy }) => {
 	});
 });
 
-/* The binary's other copy notes, which no recorder run reaches. */
 it.each([
 	"note: a restricted shell does not wake background session job7 in place, so this started a restricted copy as c0de7a11.",
 	"note: started a copy of that conversation as c0de7a11. To continue a session under its own id, pass its full session id (lowercase, as `claude agents --json` prints it) to --resume.",

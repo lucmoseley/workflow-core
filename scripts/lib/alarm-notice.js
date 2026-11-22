@@ -1,43 +1,27 @@
-/*
- * alarm-notice.js — the core of scripts/alarm-notice.js (#4939): judges each
- * off-machine queue alarm's finished runs on `main` against the notice
- * issue's comments.
- *
- * ONE MENTION PER STALL: an alarm whose newest finished run on `main` failed
- * is noticed unless the issue already carries the bot's notice for it posted
- * since that alarm's newest green run. A forced failure counts like any
- * other, so a forced pair tests the dedup.
- */
-
 const { VERIFIED_BRANCH } = require("./landing-refs.js");
 const { ALARMS } = require("./queue-alarms.js");
 
 const BOT = "github-actions[bot]";
-/* A guess: enough finished runs to reach the last green of a stall days
- * long; with none listed, any notice for that alarm stands for this stall. */
+// guess, #5529
 const RUN_PAGE = 100;
-/* GitHub's ceiling for one page of issue comments. */
 const COMMENT_PAGE = 100;
-/* A guess: comments since an alarm's last green, far past one a stall. */
+// guess, #5529
 const COMMENT_PAGES = 10;
 
 /**
  * @typedef {{id: number, conclusion: string|null, updated_at: string,
- *   html_url: string}} Run a workflow run, as the REST API lists it
- * @typedef {{created_at: string, body?: string, user?: {login?: string}}}
- *   Comment an issue comment, as the REST API lists it
+ *   html_url: string}} Run
+ * @typedef {{created_at: string, body?: string, user?: {login?: string}}} Comment
  * @typedef {import("./actions-api.js").Get} Get
  * @typedef {import("./actions-api.js").Post} Post
  * @typedef {{get: Get, post: Post, say: (line: string) => void,
- *   codeRepo: string, noticeRepo: string, issue: number, mention: string}}
- *   NoticeDeps
+ *   codeRepo: string, noticeRepo: string, issue: number, mention: string}} NoticeDeps
  */
 
-/** @param {string} file the alarm's workflow file */
+/** @param {string} file */
 const buildMarker = (file) => `<!-- alarm-notice:${file} -->`;
 
 /**
- * Whether the bot's notice for this alarm stands since its last green.
  * @param {Comment[]} comments
  * @param {string} marker
  * @param {Run|undefined} green
@@ -57,12 +41,9 @@ const isNoticed = (comments, marker, green) => {
 };
 
 /**
- * The issue's comments updated since `since`, or all where it is undefined.
- * Throws past COMMENT_PAGES: GitHub lists them oldest first, so a cut list
- * drops the newest, the notice among them, and would page every hour.
  * @param {Get} get
- * @param {string} path the comments path, no query
- * @param {string|undefined} since an ISO time
+ * @param {string} path
+ * @param {string|undefined} since
  * @returns {Promise<Comment[]>}
  */
 async function readComments(get, path, since) {
@@ -81,7 +62,7 @@ async function readComments(get, path, since) {
 
 /**
  * @param {NoticeDeps} deps
- * @returns {Promise<number>} the exit code
+ * @returns {Promise<number>}
  */
 async function runNotice({
 	get,

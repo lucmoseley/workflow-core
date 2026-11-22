@@ -183,7 +183,7 @@ describe("the scripts a gate invokes", () => {
 	});
 
 	it("returns nothing for a gate that calls no repo script", () => {
-		expect(invokedBy("actionlint $tool_paths")).toEqual([]);
+		expect(invokedBy("hook_bound actionlint")).toEqual([]);
 	});
 
 	it("never reports a scripts/… path quoted inside a message string", () => {
@@ -245,7 +245,7 @@ describe("the scripts a gate invokes", () => {
 			"check-swallowed-errors.js",
 			["scripts/check-swallowed-errors.js"],
 		],
-		["actionlint", "actionlint $tool_paths", []],
+		["actionlint", "hook_bound actionlint", []],
 	] as const)(
 		"matches the live .husky/pre-commit exactly on the %s gate",
 		(_name, anchor, supplied) => {

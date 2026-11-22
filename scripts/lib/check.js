@@ -89,10 +89,6 @@ const { spawnGitSync } = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-/* PERSIST MODE (mantahostels#1974) — the
- * `WFC_NOTIFY_PERSIST` gate, shared with `reap-finished-sessions.js` since
- * mantahostels#2252 so the two cannot drift. What the mode is and why the gate is spelled
- * as it is: lib/persist-mode.js's header. */
 const { persisting } = require("./persist-mode.js");
 const { reportOwner } = require("./session-id.js");
 const { ENVELOPE_FRAME_KEYS } = require("./envelope-frame-keys.js");
@@ -108,16 +104,7 @@ const {
 } = require("./outcome-error.js");
 const { readObjectBatch, listTree } = require("./git-objects.js");
 
-/*
- * PERSIST MODE'S BACKEND IS REQUIRED BY A COMPUTED PATH, so no literal
- * `require` edge leads from the harness to notify-report.js and, behind it, the
- * whole arbiter-* store (#459). The release render still ships it:
- * lib/surface-closure.js reads this `path.join(__dirname, …)` spelling as an
- * edge (#464). Keep the spelling, or the render stops guarding the file.
- * Persist mode runs from a core SessionStart hook alone, so only a persisting
- * run loads it. A tree without the file fails persist mode SILENTLY: the crash
- * line goes to stdout, which the async hook discards.
- */
+// #464
 const NOTIFY_REPORT = path.join(__dirname, "notify-report.js");
 /** @returns {typeof import("./notify-report.js")} */
 const loadNotify = () => require(NOTIFY_REPORT);
@@ -126,8 +113,6 @@ const AGAINST = "--against";
 const HEAD_FLAG = "--head";
 const INDEX_FLAG = "--index";
 
-/* The flags this library reads itself, which every checker accepts without
- * declaring them (#938). */
 const LIBRARY_FLAGS = [
 	"--warn",
 	"--json",
@@ -139,29 +124,11 @@ const LIBRARY_FLAGS = [
 	INDEX_FLAG,
 ];
 
-/* What a checker declaring `against` accepts on top: the re-exec passes it. */
 const AGAINST_FLAGS = ["--root"];
 
-/*
- * Where a --json run's human report goes instead of nowhere. Set by the
- * --against re-exec below and by nothing else: the child is run under --json
- * for its envelope, but its own report is what a pre-commit session actually
- * reads — check-guard-registry.js's implicit-behaviour roster (mantahostels#1261) and every
- * checker's fix advice live there — so it is streamed to the parent's stderr
- * while stdout stays a single parseable document.
- *
- * PERSIST MODE NEVER MEETS THIS, though it would outrank it: the `--against`
- * re-exec that sets it runs the child under `--json`, which persist mode's gate
- * refuses (lib/persist-mode.js), and say()'s capture route is checked before
- * its fd route either way. Reordering those two routes needs that read again.
- */
 const SAY_FD_ENV = "WFC_CHECK_SAY_FD";
 
-/**
- * The fd a spawned side run's parent named for its human report, by
- * SAY_FD_ENV.
- * @returns {number | null}
- */
+/** @returns {number | null} */
 function sayFdFromEnv() {
 	const fd = Number(process.env[SAY_FD_ENV]);
 	return Number.isInteger(fd) && fd > 0 ? fd : null;
@@ -175,27 +142,11 @@ function sideFromEnv() {
 	return side === "index" || side === "baseline" ? side : undefined;
 }
 
-/**
- * How a run reads its `--against`/`--index` sides: `spawn` re-runs the
- * checker's file as a child; `in-process` runs
- * its spec in this process over the same materialised tree (#5172).
- * @typedef {"spawn" | "in-process"} SideRun
- */
+/** @typedef {"spawn" | "in-process"} SideRun */
 
-/*
- * The checker name a persist-mode run opened its record under, so the crash
- * reporter closes THAT record rather than one it guessed — see persistCrash.
- * Module-level because one process runs one checker, so there is nothing to key.
- */
 /** @type {string | null} */
 let openedKey = null;
 
-/*
- * Set once finish() reaches its exit. A real process ends there; under
- * runInProcessAsync the exit throws instead, and finishWhenSettled must pass
- * that throw on rather than report it as a crash, whose persist branch would
- * overwrite the report finish() just wrote (#3616).
- */
 let finished = false;
 
 /** @param {number} code @returns {never} */
@@ -204,16 +155,6 @@ function exitFinished(code) {
 	process.exit(code);
 }
 
-/*
- * The cap on every child-process stream an `--against` run reads, and on the
- * one exported use in check-context-budget.js: lib/child-buffer.js's, whose
- * header carries the derivation (#1440). Per-stream measurements: mantahostels#1940.
- *
- * Exceeding it is not silent HERE. spawnSync sets `error` to ENOBUFS with a
- * status of 0, so a caller testing only the status would read a truncated
- * stream as a clean one; all three callers below test `error` too and turn it
- * into BROKEN. The exported fourth use deliberately fails open.
- */
 const { CHILD_MAX_BUFFER: MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { noop } = require("./noop.js");
@@ -234,17 +175,9 @@ const OUTCOMES = {
 /**
  * @typedef {"OK" | "SKIP" | "WARN" | "FAIL" | "BROKEN"} Outcome
  * @typedef {{ severity: "FAIL" | "WARN", tag: string, message: string, key?: string, [k: string]: unknown }} Finding
- *   `key` is the finding's stable IDENTITY, and the only field a set-diffing
- *   reader may compare (mantahostels#2490).
  * @typedef {{ okLine?: string, noun?: string, count?: number, data?: object,
  *   stamp?: string, stamps?: Record<string, string>,
- *   maxAgeMs?: number, afterReport?: () => void }} CheckResult `stamp` is
- *   the once-only delivery signature a persisted report carries so the reader
- *   can stamp it once shown (mantahostels#1975); `stamps` is the same idea for a checker
- *   whose findings do not reduce to one signature — a name-to-signature map
- *   the reader applies entry by entry (mantahostels#2277); `afterReport` runs once a
- *   non-`--json` report is out, so a run killed before it repeats its report
- *   rather than swallows it
+ *   maxAgeMs?: number, afterReport?: () => void }} CheckResult
  * @typedef {{
  *   profile: string,
  *   materialise: "tree" | "blobs",
@@ -253,13 +186,11 @@ const OUTCOMES = {
  *   baselineCode?: "rev",
  *   refuse?: (ctx: CheckContext) => void,
  *   settle?: (ctx: CheckContext, added: FaultItem[], sides: Sides) => { refuse: FaultItem[], remedy: string[], data?: object },
- * }} AgainstSpec `settle`'s `data` joins the --json envelope, under the
- *   envelope's own keys
+ * }} AgainstSpec
  * @typedef {{
  *   baseline: Record<string, unknown> | undefined,
  *   read: (rev: string) => { outcome: Outcome, summary: string, envelope: Record<string, unknown> },
- * }} Sides what settle() may read beyond the faults: the baseline's envelope,
- *   and this checker re-run over another rev
+ * }} Sides
  * @typedef {{
  *   name: string,
  *   usage: string,
@@ -269,21 +200,12 @@ const OUTCOMES = {
  *   against?: AgainstSpec,
  *   screenNotices?: boolean,
  *   run: (ctx: CheckContext) => CheckResult | void | Promise<CheckResult | void>,
- * }} CheckSpec `screenNotices` buffers a `--notify` run's stdout, for
- *   sayNotice() to reach the founder's screen as well (finish()).
- *
+ * }} CheckSpec
  * @typedef {{ lines: string[], notify: typeof import("./notify-report.js"),
  *   startedAtMono: number }} Persist
  */
 
-/**
- * A checker whose spec names a `module` the host config does not list SKIPs
- * with the one line naming it (#2) — the first that is off, where the spec
- * names several (#418) — before --against materialises anything, so a
- * module-off commit pays no tree extraction. Read at the host root, never
- * --root's tree, because the opt-in is the host's and not the commit's.
- * @param {import("./workflow-core-config.js").ModuleGate} modules
- */
+/** @param {import("./workflow-core-config.js").ModuleGate} modules */
 function skipUnlessModuleOn(modules) {
 	const config = require("./workflow-core-config.js");
 	let off;
@@ -302,11 +224,7 @@ class CheckContext {
 	 * @param {{ usage: string, valueFlags?: string[], capture?: string[],
 	 *   screen?: string[], persisting?: boolean, sink?: Sink,
 	 *   script?: string, spec?: CheckSpec, sides?: SideRun,
-	 *   side?: "index" | "baseline", sayFd?: number | null }} opts `script`
-	 *   is the checker's own file, which a spawned `--against`/`--index` side
-	 *   re-runs; `sink` takes every byte the run writes; `side` and `sayFd`
-	 *   are a side run's own,
-	 *   in place of SIDE_ENV and SAY_FD_ENV
+	 *   side?: "index" | "baseline", sayFd?: number | null }} opts
 	 */
 	constructor(argv, opts) {
 		this.argv = argv;
@@ -315,45 +233,26 @@ class CheckContext {
 		this._spec = opts.spec;
 		/** @type {SideRun} */
 		this.sides = opts.sides ?? "spawn";
-		/** Which side of a fault diff this run reads, where it is one. */
 		this.side = opts.side ?? sideFromEnv();
 		this.warnOnly = argv.includes("--warn");
 		this.asJson = argv.includes("--json");
-		/* Whether the envelope also carries say()'s text, as `text` — opt-in,
-		 * because `--json` has consumers that assert on what its stdout does NOT
-		 * contain (mantahostels#2490). */
 		this.jsonText = argv.includes("--json-text");
 		this.notify = argv.includes("--notify");
-		/* Whether this run persists its report rather than being the delivery
-		 * itself — read by lib/delivery-stamp.js (mantahostels#1975). Set from runCheck
-		 * rather than re-derived, so one place decides persist mode. */
 		this.persisting = Boolean(opts.persisting);
 		this.inActions = process.env.GITHUB_ACTIONS === "true";
 		/** @type {Finding[]} */
 		this.findings = [];
-		/* Tracked-file side effects, said last — see dirtied() below and the
-		 * ordering note in finish(). */
 		/** @type {string[]} */
 		this.dirtyNotes = [];
 		this._usage = opts.usage;
-		/* An in-process caller's own array, collecting say()'s text instead of a
-		 * fd — how report-manual-staleness.js reads a checker's human report
-		 * without spawning it (mantahostels#2062). Takes priority over every other say()
-		 * route, --json included, since capturing IS the point of passing it. */
 		this._capture = opts.capture || null;
-		/** The sayNotice() text of a run that buffers for the founder's screen. */
 		this._screen = opts.screen ?? null;
-		/** say()'s text under --json-text, which the envelope carries as `text`. */
 		this._jsonLines = /** @type {string[]} */ ([]);
-		/* See SAY_FD_ENV. A non-numeric or absent value leaves say() alone. */
 		this._sayFd = opts.sayFd === undefined ? sayFdFromEnv() : opts.sayFd;
-		/* Bare arguments, in order. Flag VALUES are pulled by name via value()
-		 * before this is read, so a checker that takes `--ref main` must declare it
-		 * in `valueFlags` or `main` shows up here as a positional. */
 		this.args = positionals(argv, opts.valueFlags || []);
 	}
 
-	/** @returns {boolean} whether this run reads a fault diff's older revision */
+	/** @returns {boolean} */
 	isBaselineSide() {
 		return this.side === "baseline";
 	}
@@ -364,21 +263,13 @@ class CheckContext {
 	}
 
 	/**
-	 * The value after `--flag`, or `fallback` when absent.
-	 *
-	 * Two overloads rather than one `string | null` return: a caller that
-	 * supplies a fallback can never be handed null, and saying so is what lets
-	 * `path.join(ctx.value("--data-dir", dir), …)` type without a cast.
-	 *
 	 * @overload
 	 * @param {string} flag
 	 * @returns {string | null}
-	 *
 	 * @overload
 	 * @param {string} flag
 	 * @param {string} fallback
 	 * @returns {string}
-	 *
 	 * @param {string} flag
 	 * @param {string | null} [fallback]
 	 * @returns {string | null}
@@ -393,8 +284,6 @@ class CheckContext {
 	}
 
 	/**
-	 * Bad invocation is BROKEN, never a finding: nothing was checked.
-	 *
 	 * @param {string} message
 	 * @returns {never}
 	 */
@@ -403,9 +292,6 @@ class CheckContext {
 	}
 
 	/**
-	 * The number after `--flag`, or `fallback` when absent. One that is not
-	 * finite, or falls outside `bound`, is a usage error.
-	 *
 	 * @param {string} flag
 	 * @param {number} fallback
 	 * @param {"positive" | "non-negative"} bound
@@ -419,15 +305,7 @@ class CheckContext {
 		return n;
 	}
 
-	/**
-	 * Human-readable report text. Suppressed under --json so stdout stays a
-	 * single parseable document.
-	 *
-	 * writeFd, not console: node buffers writes to a PIPE and drops whatever is
-	 * still buffered at process.exit — and a hook's stdout is always a pipe.
-	 *
-	 * @param {string} message
-	 */
+	/** @param {string} message */
 	say(message = "") {
 		if (this._capture) {
 			this._capture.push(message);
@@ -437,9 +315,6 @@ class CheckContext {
 			this.sink.write(this._sayFd, `${message}\n`);
 			return;
 		}
-		/* Under --json-text the human report is KEPT rather than dropped (mantahostels#2490),
-		 * and rides out as the envelope's `text` rather than stdout, which the
-		 * envelope owns. */
 		if (this.asJson) {
 			if (this.jsonText) this._jsonLines.push(message);
 			return;
@@ -447,22 +322,12 @@ class CheckContext {
 		this.sink.write(this.notify ? 1 : 2, `${message}\n`);
 	}
 
-	/**
-	 * say(), and under a `screenNotices` `--notify` run the founder's screen too.
-	 * @param {string} message
-	 */
+	/** @param {string} message */
 	sayNotice(message) {
 		this.say(message);
 		this._screen?.push(message);
 	}
 
-	/**
-	 * Writes a buffering run's stdout: one JSON document where it holds a notice,
-	 * as a hook's stdout parses only whole, else the plain text. `systemMessage`
-	 * reaches the screen and not the model, `additionalContext` the reverse
-	 * (#3776). Residual: a run killed before this says
-	 * nothing, where unbuffered text would have streamed.
-	 */
 	flushBuffered() {
 		if (!this._screen) return;
 		const context = (this._capture ?? []).join("\n");
@@ -480,14 +345,10 @@ class CheckContext {
 	}
 
 	/**
-	 * A finding that gates (subject to the --warn cap).
-	 *
 	 * @param {string} tag
 	 * @param {string} message
 	 * @param {object} [data]
-	 * @param {string} [key] the finding's stable identity — see the Finding
-	 *   typedef. Spread LAST so a `data` that happens to carry a `key` of its own
-	 *   cannot silently become the diffing identity.
+	 * @param {string} [key]
 	 */
 	fail(tag, message, data, key) {
 		this.findings.push({
@@ -500,12 +361,10 @@ class CheckContext {
 	}
 
 	/**
-	 * A finding that is real but deliberately does not gate.
-	 *
 	 * @param {string} tag
 	 * @param {string} message
 	 * @param {object} [data]
-	 * @param {string} [key] see fail() above.
+	 * @param {string} [key]
 	 */
 	warn(tag, message, data, key) {
 		this.findings.push({
@@ -518,10 +377,6 @@ class CheckContext {
 	}
 
 	/**
-	 * Could not run; cause is outside the repo. Declared `never` so a checker's
-	 * code after the call narrows as unreachable rather than reading as a branch
-	 * that falls through (mantahostels#1463).
-	 *
 	 * @param {string} message
 	 * @returns {never}
 	 */
@@ -530,9 +385,6 @@ class CheckContext {
 	}
 
 	/**
-	 * Could not run; cause is tracked in the repo, or the invocation is wrong.
-	 * `never` for the same reason skip() is.
-	 *
 	 * @param {string} message
 	 * @returns {never}
 	 */
@@ -540,27 +392,13 @@ class CheckContext {
 		throw brokenError(message);
 	}
 
-	/**
-	 * A tracked file this run wrote to, whatever severity the run itself ended
-	 * up at — the "clean, but I changed a tracked file" channel mantahostels#2665 built.
-	 * status-report.js's verdict() (`scripts/status-report.js:177-183`) drops a
-	 * checker's whole report when its LAST line is its own OK:/SKIP: summary,
-	 * so an append that happened during an otherwise-clean run went unreported.
-	 * Reaches only the PLAIN human route: suppressed under --notify (see
-	 * finish()), and under --json/--json-text nothing carries it either —
-	 * say() itself drops the message there (`--json`) or would route it
-	 * through `_jsonLines`, which dirtied() never feeds.
-	 *
-	 * @param {string} message
-	 */
+	/** @param {string} message */
 	dirtied(message) {
 		this.dirtyNotes.push(message);
 	}
 }
 
 /**
- * Bare args, with declared flag values and their flags removed.
- *
  * @param {string[]} argv
  * @param {string[]} valueFlags
  * @returns {string[]}
@@ -581,11 +419,7 @@ function positionals(argv, valueFlags) {
 }
 
 /**
- * Why argv is refused for naming a flag this checker never reads, or null
- * (#938). A declared flag spelled `--name=value` is refused too: has() and
- * value() match whole tokens, so it would be dropped just the same.
- *
- * @param {string[]} ownArgs argv before any bare `--`
+ * @param {string[]} ownArgs
  * @param {string[]} valueFlags
  * @param {Set<string>} accepted
  * @returns {string | null}
@@ -610,16 +444,8 @@ function flagRefusal(ownArgs, valueFlags, accepted) {
 /** @type {(a: Outcome, b: Outcome) => Outcome} */
 const worst = (a, b) => (OUTCOMES[a].rank >= OUTCOMES[b].rank ? a : b);
 
-// --- --against ---------------------------------------------------------------
-
-/** git's empty tree, the baseline a repo with no commits compares against. */
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-/**
- * Whether this repo holds no commit by any ref — the unborn HEAD an adopter's
- * first commit is made against, as opposed to a HEAD that exists and cannot be
- * read, which is an apparatus fault and must stay one.
- */
 function unborn() {
 	const r = spawnGitSync(["rev-list", "--all", "--count"], {
 		encoding: "utf8",
@@ -627,21 +453,13 @@ function unborn() {
 	return r.status === 0 && r.stdout.trim() === "0";
 }
 
-/**
- * The rev a diff against `rev` reads. The baseline against an unborn HEAD is
- * the empty tree: every fault the index carries is new, which is the truth
- * about a first commit rather than a checker that cannot run (#5).
- *
- * @param {string} rev
- */
+/** @param {string} rev */
 function baselineOf(rev) {
 	if (rev !== "HEAD") return rev;
 	return readCommitOrBroken(rev) === null && unborn() ? EMPTY_TREE : rev;
 }
 
 /**
- * `git`, with a non-zero exit reported as APPARATUS — BROKEN, never a finding.
- *
  * @param {string[]} args
  * @param {string} what
  * @returns {string}
@@ -657,22 +475,6 @@ function git(args, what, env = process.env) {
 }
 
 /**
- * The index as a tree object, so the side being judged is the bytes this commit
- * carries rather than the working tree's (mantahostels#1801 Q2).
- *
- * AGAINST A PRIVATE COPY OF THE INDEX, never the index itself: `git write-tree`
- * refreshes what it reads and takes `index.lock` to do it, and by the time a
- * pre-commit hook runs, `git commit` is already holding that lock — so reading
- * the real one fails outright. The copy is safe to take at any moment: git
- * replaces an index by rename, so a reader sees the whole of one version or the
- * whole of the other.
- *
- * `--git-path index` RATHER THAN `.git/index`. `git commit -- <paths>` — this repo's committing convention (mantahostels#63) — builds a
- * temporary index holding only those paths and points its hooks at it through
- * GIT_INDEX_FILE, which is exactly what `--git-path index` resolves to when it
- * is set. Spelling `.git/index` would judge the WHOLE index there, files
- * the commit leaves staged included.
- *
  * @param {string} privateIndex
  * @returns {string}
  */
@@ -681,8 +483,6 @@ function indexTree(privateIndex) {
 		["rev-parse", "--git-path", "index"],
 		"locating the index",
 	).trim();
-	/* Absent in a repo where nothing has ever been staged; write-tree then
-	 * creates the copy itself and answers with the empty tree. */
 	if (fs.existsSync(live)) fs.copyFileSync(live, privateIndex);
 	return git(["write-tree"], "reading the index", {
 		...process.env,
@@ -691,8 +491,6 @@ function indexTree(privateIndex) {
 }
 
 /**
- * The whole of `rev` extracted into `dir`.
- *
  * @param {string} rev
  * @param {string} dir
  */
@@ -708,28 +506,12 @@ function extractTree(rev, dir) {
 }
 
 /**
- * How a rev becomes a directory a checker can be pointed at with --root.
- *
- * `tree` is the whole rev extracted, for a checker that DISCOVERS its own scan
- * roots by walking — the alternative, spelling those roots out again here, is a
- * second copy of a scope that drifts with nothing keeping the two in step
- * (mantahostels#1753).
- *
- * `blobs` is the paths a `pathspecs()` names, fetched by sha, for a checker
- * whose scan scope IS a declared pathspec (mantahostels#1834). It exists to keep the cheap
- * path cheap: extracting mantahostels' whole 19 MB tree cost 0.42 s a side, where
- * the two pathspec checkers between them name a few hundred KB, so putting them
- * on `tree` would be a measured cost regression for no reading they could not
- * already do.
- *
  * @type {Record<string, (rev: string, dir: string, pathspecs: string[]) => void>}
  */
 const MATERIALISERS = {
 	tree: extractTree,
 
 	blobs(rev, dir, pathspecs) {
-		/* A pathspec set that names nothing is a gate about to go green over scope
-		 * it never looked at. */
 		if (pathspecs.length === 0)
 			throw brokenError(
 				`a blob fetch at ${rev} was asked for and the spec named no pathspec.`,
@@ -739,29 +521,17 @@ const MATERIALISERS = {
 };
 
 /**
- * The blobs `pathspecs` match at `rev`, written under `dir` at their paths.
- * A path already written there is kept, not written twice.
- *
  * @param {string} rev
  * @param {string} dir
  * @param {string[]} pathspecs
  */
 function writeBlobs(rev, dir, pathspecs) {
 	const entries = listTree(rev, pathspecs).filter(
-		/* cat-file rightly says a gitlink is missing. Nothing downstream
-		 * measures a submodule, so it is skipped rather than refused. */
 		(e) => e.mode !== GIT_MODE.gitlink && !isPresent(path.join(dir, e.path)),
 	);
 
-	/* A pathspec that resolved and matched nothing is NOT the refusal above
-	 * (mantahostels#1940). An empty spec is a fault in the spec — apparatus, and this
-	 * library's to judge. An empty listing means the pathspecs matched no blob
-	 * at the revision, which is the checker's to judge, or every match is
-	 * already in `dir`. */
 	if (entries.length === 0) return;
 
-	/* One `cat-file --batch` for the lot: the per-blob alternative is a process
-	 * per file. */
 	const bodies = readObjectBatch(
 		entries.map((e) => e.sha),
 		`${rev}'s blobs`,
@@ -769,9 +539,6 @@ function writeBlobs(rev, dir, pathspecs) {
 
 	for (const [i, e] of entries.entries()) {
 		const body = bodies[i]?.body;
-		/* git listed the entry and then would not hand it over, so the tree we
-		 * are about to judge is incomplete. Counting the path 0 B would read as
-		 * a SHED to a cap gate and pass the very commit that broke it (mantahostels#1834). */
 		if (!body)
 			throw brokenError(
 				`git cat-file would not return ${rev}'s blob for ${e.path}, ` +
@@ -781,10 +548,7 @@ function writeBlobs(rev, dir, pathspecs) {
 	}
 }
 
-/**
- * Whether `file` stands, a symlink by its own entry rather than its target.
- * @param {string} file
- */
+/** @param {string} file */
 function isPresent(file) {
 	try {
 		fs.lstatSync(file);
@@ -802,17 +566,8 @@ function isPresent(file) {
 function writeEntry(e, body, { rev, dir }) {
 	const dest = path.join(dir, e.path);
 	fs.mkdirSync(path.dirname(dest), { recursive: true });
-	/* A symlink is written back as a symlink, not as its target's path in a
-	 * file: check-context-budget.js draws its own/vendored split with
-	 * lstat().isSymbolicLink(), so flattening one here would charge a
-	 * vendored skill's description to the capped pool. */
 	if (e.mode === GIT_MODE.symlink) {
 		const target = body.toString("utf8");
-		/* git stores the target verbatim, absolute paths included, and every
-		 * reader downstream stats through the link. A target resolving outside
-		 * the materialised tree therefore reads the live working tree — the
-		 * one thing --against exists to stop, and it fails OPEN: both sides
-		 * read the same live bytes and agree, so the gate passes (mantahostels#1834). */
 		const landing = path.resolve(path.dirname(dest), target);
 		const root = path.resolve(dir);
 		if (!isUnder(landing, [root], path.sep))
@@ -828,21 +583,10 @@ function writeEntry(e, body, { rev, dir }) {
 }
 
 /**
- * This same checker, re-run against a materialised tree, as its --json envelope.
- *
- * `stream` puts the child's own human report on our stderr — see SAY_FD_ENV.
- * The baseline side is silent.
- *
- * The parent's POSITIONALS are forwarded: a checker whose scan roots are bare
- * arguments (`check-website-copy.js app docs`) would otherwise read its default
- * root on both sides and judge a scope nobody asked about. Flags are not — the
- * child's invocation is this library's, not the caller's.
- *
  * @param {string} dir
  * @param {string} label
  * @param {{ stream: boolean, side: "index" | "baseline", code?: string,
- *   sink: Sink, env?: NodeJS.ProcessEnv }} opts the streamed report goes to
- *   `sink`
+ *   sink: Sink, env?: NodeJS.ProcessEnv }} opts
  * @param {string[]} args
  * @returns {{ outcome: Outcome, summary: string, envelope: Record<string, unknown> }}
  */
@@ -875,7 +619,6 @@ function reread(dir, label, { stream, side, code, sink, env }, args) {
 }
 
 /**
- * A side's `--json` stdout read as its envelope, BROKEN where it is none.
  * @param {string} stdout
  * @param {string} label
  * @param {number | null} exit
@@ -898,8 +641,6 @@ function envelopeOf(stdout, label, exit) {
 }
 
 /**
- * A side's stderr: dropped unless streamed, inherited where the sink is the
- * real fds so it streams live, else piped and written to the sink whole.
  * @param {boolean} stream
  * @param {boolean} live
  * @returns {"ignore" | "inherit" | "pipe"}
@@ -910,29 +651,6 @@ function sideStderr(stream, live) {
 }
 
 /**
- * THE FIGURE A SHED IS MEASURED AGAINST (mantahostels#1939).
- *
- * The refusal a measurement-carrying fault prints is written by the CHILD, in
- * report mode, which has read one revision and so knows one number: "the pool
- * is 38,200 B against a 38,000 B cap". Its own instruction is to name the shed
- * that pays for the bytes, and a shed is sized on the DELTA — a session told a
- * surface is 1,037 B over cap cannot otherwise tell whether it added 20 of them
- * or 900. Both readings exist only here, so the line is composed here and
- * printed under the parent's own fault list rather than inside the child's
- * refusal.
- *
- * IT BELONGS TO EVERY MEASURING PROFILE, NOT TO ONE CHECKER. `family`/`worse`
- * already generalise "a fault carrying a number" (lib/fault-diff.js), and
- * `measure` is the third member of that set: it reads ONE fault's subject out
- * of EITHER envelope, so passing the staged item against the baseline gives the
- * same surface at <rev>. Nothing here knows what is being measured, and a
- * profile without `measure` prints exactly what it printed before.
- *
- * NOT THE BASELINE'S OWN FAULT LIST, which is why `measure` takes an envelope
- * and not a kin item: a commit that FIRST breaches a cap faces a baseline
- * carrying no fault for that surface at all, and that is precisely the commit
- * whose delta is worth printing.
- *
  * @param {import("./fault-diff.js").FaultDiffProfile} profile
  * @param {{ key: string, item: unknown }} fault
  * @param {{ staged: Record<string, unknown>, baseline: Record<string, unknown> | undefined, rev: string }} envelopes
@@ -942,19 +660,8 @@ function measuredDelta(profile, fault, { staged, baseline, rev }) {
 	if (!profile.measure || !baseline) return;
 	const now = profile.measure(fault.item, fault.key, staged);
 	const base = profile.measure(fault.item, fault.key, baseline);
-	/* Silence rather than a guess: a profile that measures some of its keys and
-	 * not others is the ordinary case, and half a delta is worse than none. */
 	if (typeof now !== "number" || typeof base !== "number") return;
 	const delta = now - base;
-	/* A NON-POSITIVE DELTA IS NOT A CASE TO PHRASE, so the answer to it is
-	 * silence: "this commit adds -40 B" would send the reader shedding bytes
-	 * that are not the cause.
-	 *
-	 * IT IS A GUARD, NOT DEAD CODE. Whether a fault can be new for a reason the
-	 * measurement does not explain is a property of the PROFILE, not of this
-	 * function. Unreachable through the one profile that measures today
-	 * (mantahostels#1939), and nothing keeps it so: a profile whose `measure` outruns its
-	 * `worse` lands here, and gets silence instead of nonsense. */
 	if (delta <= 0) return;
 	const u = ` ${profile.unit}`;
 	const line = `  ${rev} had ${base}${u}, so this commit adds ${delta}${u}.`;
@@ -962,10 +669,6 @@ function measuredDelta(profile, fault, { staged, baseline, rev }) {
 }
 
 /**
- * The whole --against run: materialise, re-exec twice, diff.
- *
- * Findings are about DIRECTION and nothing else.
- *
  * @param {CheckSpec} spec
  * @param {CheckContext} ctx
  * @returns {CheckResult}
@@ -973,7 +676,6 @@ function measuredDelta(profile, fault, { staged, baseline, rev }) {
 function runAgainst(spec, ctx) {
 	const { against, rev, head } = readAgainst(spec, ctx);
 
-	// Required lazily: most checkers load this library and never direction-gate.
 	const { PROFILES } = require("./fault-profiles.js");
 	const profile = PROFILES[against.profile];
 	if (!profile)
@@ -986,9 +688,6 @@ function runAgainst(spec, ctx) {
 
 	const baseRev = baselineOf(rev);
 
-	/* Resolved BEFORE the index is read, not when the baseline is: the baseline
-	 * is only materialised where there is a fault to attribute, so a typo'd rev
-	 * would otherwise pass every clean commit in silence. */
 	git(["rev-parse", "--verify", `${baseRev}^{tree}`], `resolving ${baseRev}`);
 	const headTree =
 		head &&
@@ -1006,9 +705,6 @@ function runAgainst(spec, ctx) {
 	});
 	const { added, inherited, notes, commit, baselineSummary } = sides;
 
-	/** The measurement both sides carry, where the profile can read one. */
-	/* Measured from the nearest parent: a merge adds over the side it is
-	 * closest to, never over HEAD alone. */
 	const measured = (/** @type {FaultItem} */ f) =>
 		[
 			{ baseline: sides.baselineEnvelope, rev },
@@ -1023,9 +719,6 @@ function runAgainst(spec, ctx) {
 				undefined,
 			);
 
-	/* The checker's own last word on what it adds, run in the PARENT, where the
-	 * live tree and the session's claims are readable: the exemptions only it
-	 * can judge, and the way out it owes the refusal. */
 	const {
 		refuse,
 		remedy,
@@ -1114,13 +807,10 @@ function runIndex(spec, ctx) {
 }
 
 /**
- * The spec's `against`, refusing a checker that declares none and a `--root`,
- * which a materialising flag sets for itself.
- *
  * @param {CheckSpec} spec
  * @param {CheckContext} ctx
  * @param {string} flag
- * @param {string} absent why a checker with no `against` cannot take `flag`
+ * @param {string} absent
  * @returns {AgainstSpec}
  */
 function materialisedSpec(spec, ctx, flag, absent) {
@@ -1135,12 +825,6 @@ function materialisedSpec(spec, ctx, flag, absent) {
 }
 
 /**
- * This checker re-run over `rev` materialised in a fresh directory under
- * `work`. Its pathspecs are resolved per side, not once: a pathspec set read
- * out of the tree it describes — check-context-budget.js's injected-docs array
- * is one — can legitimately differ between the index and <rev>, and pinning
- * one side's list onto the other would measure a file the rev does not name.
- *
  * @param {CheckContext} ctx
  * @param {{ against: AgainstSpec,
  *   materialise: (rev: string, dir: string, pathspecs: string[]) => void,
@@ -1153,7 +837,6 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 	materialise(rev, dir, against.pathspecs?.(ctx, rev) ?? []);
 	const revCode = which === "baseline" && against.baselineCode === "rev";
 	const stream = which === "index" && !ctx.asJson;
-	/* A rev's own code is a file in that rev, so only a spawn can run it. */
 	if (ctx.sides === "in-process" && !revCode && ctx._spec)
 		return readInProcess(ctx, ctx._spec, dir, { label, which, stream });
 	const checker = revCode
@@ -1168,9 +851,6 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 }
 
 /**
- * reread()'s in-process twin: the same spec run over `dir` as
- * `--root <dir> --json <args>`.
- *
  * @param {CheckContext} ctx
  * @param {CheckSpec} spec
  * @param {string} dir
@@ -1201,23 +881,6 @@ function readInProcess(ctx, spec, dir, { label, which, stream }) {
 }
 
 /**
- * The copy of the checker at `script` that `rev`, materialised at `dir`,
- * carries at the same path, else undefined.
- *
- * A `blobs` tree holds only its pathspecs, so the checker and every file its
- * run reaches are fetched at `rev` beside them first (#5178). The reach is
- * lib/code-edges.js's `readRunReach`, seeded from this process's own copy and
- * then walked over the fetched tree until it names nothing more `rev`
- * carries: a file only the rev's checker reaches is fetched too, where a
- * seed alone would leave the rev's copy to crash and read BROKEN.
- *
- * That copy runs with this process's core root as its own (lib/script-path.js's
- * WFC_SCRIPT_ROOT): a `blobs` tree is no whole core, and the root decides how
- * a message spells a script path, so a copy rooted in the tree would render
- * the text it measures longer than the index side does. Every other file the
- * copy finds through coreRoot(), corePath() or docPath() is therefore read off
- * this process's core too.
- *
  * @param {string} rev
  * @param {string} dir
  * @param {AgainstSpec} against
@@ -1252,9 +915,6 @@ function checkerPath(script) {
  */
 function fetchRunReach(rev, dir, self) {
 	if (listTree(rev, [self.rel]).length === 0) return;
-	/* Required here, not at the top: only a blobs baseline under
-	 * `baselineCode: "rev"` walks a reach, and every other checker would pay
-	 * code-edges.js's load for nothing. */
 	const { readRunReach } = require("./code-edges.js");
 	/** @type {Set<string>} */
 	const asked = new Set();
@@ -1269,9 +929,6 @@ function fetchRunReach(rev, dir, self) {
 }
 
 /**
- * readSide over `rev` as a baseline, in a directory of its own removed on the
- * way out.
- *
  * @param {CheckSpec} spec
  * @param {CheckContext} ctx
  * @param {{ against: AgainstSpec,
@@ -1306,10 +963,6 @@ function materialiserOf(against, ctx) {
 }
 
 /**
- * A re-exec that did not finish has no findings to judge, so its verdict is
- * carried rather than one invented. Its summary is stripped of its outcome
- * word: `broken()` adds one, and "BROKEN: BROKEN: …" reads as two failures.
- *
  * @param {CheckContext} ctx
  * @param {{ outcome: Outcome, summary: string }} side
  */
@@ -1322,8 +975,6 @@ function carryUnfinished(ctx, { outcome, summary }) {
 /** @typedef {{ key: string, item: unknown, line: string }} FaultItem */
 
 /**
- * The baseline rev and, under `--head`, the judged commit.
- *
  * @param {CheckContext} ctx
  * @returns {{ rev: string, head: string | undefined }}
  */
@@ -1335,8 +986,6 @@ function againstRevs(ctx) {
 }
 
 /**
- * The --against spec and rev, refusing any invocation that cannot direction-gate.
- *
  * @param {CheckSpec} spec
  * @param {CheckContext} ctx
  * @returns {{ against: AgainstSpec, rev: string, head: string | undefined }}
@@ -1352,34 +1001,20 @@ function readAgainst(spec, ctx) {
 	const rev = ctx.value(AGAINST, "");
 	if (!rev) ctx.usageError(`${AGAINST} needs a rev.`);
 
-	/* AFTER the rev is read and BEFORE anything reads the repo (mantahostels#1940). Above
-	 * the rev check, a bare `--against` with no value reports the checker's own
-	 * usage complaint instead of the missing value; below any git call, the git
-	 * failure gets there first and the usage error is lost. */
+	// lucmoseley/mantahostels#1940
 	if (against.refuse) against.refuse(ctx);
 	const head = ctx.has(HEAD_FLAG) ? ctx.value(HEAD_FLAG, "") : undefined;
 	if (head === "") ctx.usageError(`${HEAD_FLAG} needs a rev.`);
 	return { against, rev, head };
 }
 
-/* The refs whose history counts as landed: work there already passed the
- * gates. */
 const LANDED_REFS = ["refs/remotes/origin/main", "refs/heads/main"];
 
 /**
- * A LANDED MERGED-IN HEAD IS A BASELINE TOO (#4582). The index of a merge in
- * flight becomes a commit whose parents are HEAD and each head it brings in,
- * so a fault a landed one already carries is inherited, not added: judged
- * against HEAD alone, every fault `main` holds reads as added by the commit
- * merging it in. Landed only: an unlanded head is a queue member, whose faults the
- * lander's merge gate exists to refuse (.husky/pre-commit, `--gates=merge`).
- * Only the pre-commit form, whose baseline is HEAD: a `--head` judges a
- * commit already made, and any other rev is no parent of the index.
- *
  * @param {CheckContext} ctx
  * @param {string} rev
  * @param {string | undefined} head
- * @returns {string[]} the full shas, HEAD's own left out
+ * @returns {string[]}
  */
 function otherParents(ctx, rev, head) {
 	if (head || rev !== "HEAD") return [];
@@ -1405,8 +1040,6 @@ function otherParents(ctx, rev, head) {
 }
 
 /**
- * Whether `sha` is in `ref`'s history. BROKEN where git cannot say.
- *
  * @param {string} sha
  * @param {string} ref
  */
@@ -1422,11 +1055,6 @@ function isAncestor(sha, ref) {
 }
 
 /**
- * Re-runs the checker over the index and, where there is a gating fault to
- * attribute, over the baseline, and diffs the two. A fault left new is then
- * diffed against each of a merge's `others` in turn, and stays added only
- * where none of them carries it.
- *
  * @param {CheckSpec} spec
  * @param {CheckContext} ctx
  * @param {{ against: AgainstSpec,
@@ -1441,7 +1069,6 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	const work = fs.mkdtempSync(
 		path.join(os.tmpdir(), `check-against-${spec.name}-`),
 	);
-	/** A rev read by this same checker, in a directory removed on the way out. */
 	const read = (
 		/** @type {string} */ rev_,
 		/** @type {string} */ label,
@@ -1451,8 +1078,6 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	let added = /** @type {FaultItem[]} */ ([]);
 	let inherited = /** @type {string[]} */ ([]);
 	let notes = /** @type {FaultItem[]} */ ([]);
-	/* The envelopes outlive the directories they were read from: measuredDelta
-	 * reads this one after the trees are removed. */
 	let baselineEnvelope = /** @type {Record<string, unknown> | undefined} */ (
 		undefined
 	);
@@ -1461,30 +1086,16 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	/** @type {{ rev: string, envelope: Record<string, unknown> }[]} */
 	const otherEnvelopes = [];
 	try {
-		/* Unreferenced, and collected with every other loose object. */
 		const commitSide = headTree ?? indexTree(path.join(work, "index-copy"));
 		const commit = read(commitSide, head ?? "the index", "index");
 
 		carryUnfinished(ctx, commit);
 
-		/* Every gating fault the index side has, by diffing it against nothing. */
 		const gating = newFaultItems(commit.envelope, {}, profile);
-		/* THE BASELINE IS READ ONLY WHEN THERE IS SOMETHING TO ATTRIBUTE. A clean
-		 * index is the ordinary case and needs no <rev> at all, which keeps the
-		 * green-path cost at one materialisation rather than two (mantahostels#1833).
-		 *
-		 * `baseline: "always"` opts out, for a checker whose NON-gating findings
-		 * are also direction-dependent — check-context-budget.js's admissibility
-		 * prompt fires on a pool that grew without breaching anything, so a lazy
-		 * baseline would silence it on exactly the commits it exists for. Only a
-		 * blob fetch may ask: on `tree` the second extraction is the 0.42 s the
-		 * laziness was bought to avoid (mantahostels#1834). */
 		if (gating.length > 0 || against.baseline === "always") {
 			const baseline = read(baseRev, rev, "baseline");
 			baselineSummary = baseline.summary;
 			baselineEnvelope = baseline.envelope;
-			/* FAILING CLOSED: an unanswerable baseline must not read as
-			 * "inherited", which is the answer that passes the commit. */
 			if (baseline.outcome === "BROKEN" || baseline.outcome === "SKIP")
 				ctx.broken(
 					`no readable ${rev} baseline to compare against — ${baseline.summary}`,
@@ -1495,10 +1106,6 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 					!gate(item, key),
 			};
 			added = newFaultItems(commit.envelope, baseline.envelope, profile);
-			/* The same diff over what the profile does NOT gate on. A non-gating
-			 * finding says something true about the commit — that the pool grew —
-			 * and dropping it silently would lose mantahostels#1177's prompt. It warns
-			 * and never refuses. */
 			notes = newFaultItems(commit.envelope, baseline.envelope, notGating);
 			({ added, notes } = narrowToOthers(ctx, {
 				others,
@@ -1529,10 +1136,6 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 }
 
 /**
- * `found` less each fault a merge's `others` already carries. Each envelope
- * read is pushed onto
- * `envelopes`. BROKEN where a parent cannot be read: that is no "inherited".
- *
  * @param {CheckContext} ctx
  * @param {{ others: string[],
  *   read: (rev: string) => { outcome: Outcome, summary: string, envelope: Record<string, unknown> },
@@ -1556,7 +1159,6 @@ function narrowToOthers(
 				`no readable baseline at ${other}, the merge's other parent — ${side.summary}`,
 			);
 		envelopes.push({ rev: other, envelope: side.envelope });
-		/* Both lists hold the staged envelope's own item objects. */
 		const newAt = (
 			/** @type {import("./fault-diff.js").FaultDiffProfile} */ p,
 		) => new Set(newFaultItems(staged, side.envelope, p).map((f) => f.item));
@@ -1569,13 +1171,9 @@ function narrowToOthers(
 }
 
 /**
- * Says what the diff found: faults this commit adds, else the inherited ones
- * it passes over, and every non-gating note.
- *
  * @param {CheckContext} ctx
  * @param {{ added: FaultItem[], inherited: string[], notes: FaultItem[],
- *   rev: string, base: string, judged: string }} found `base` names every
- *   parent judged against, `rev` and a merge's others
+ *   rev: string, base: string, judged: string }} found
  * @param {(f: FaultItem) => { base: number, delta: number, line: string } | undefined} measured
  */
 function reportAgainst(
@@ -1617,22 +1215,7 @@ function reportAgainst(
 }
 
 /**
- * Persist a crash summary, returning whether it landed. Anything at all going
- * wrong returns false and the stream route below carries the summary instead:
- * this runs inside the uncaughtException handler, where a second throw would
- * end the process with nothing printed anywhere.
- *
- * KEYED ON THE RECORD ACTUALLY OPENED wherever there is one. A key derived
- * from the filename disagrees with `spec.name` the moment a checker names
- * itself anything but its own basename minus `check-`, and closing the wrong
- * key orphans the real record — which the reader reads as a cancellation,
- * for good (mantahostels#1974).
- *
- * The derived name is the fallback for the case this reporter exists for: a
- * throw during the checker's own top-level requires, where no spec was ever
- * read and no record was ever opened.
- *
- * @param {string} name basename of the crashing script
+ * @param {string} name
  * @param {string} summary
  */
 function persistCrash(name, summary) {
@@ -1644,11 +1227,7 @@ function persistCrash(name, summary) {
 			text: `${summary}\n`,
 			owner: reportOwner(),
 		});
-		// CLOSED ONLY WHERE THE REPORT LANDED. Closing after a failed write
-		// leaves no report AND no open record: the run vanishes, which is
-		// mantahostels#1899's own class reintroduced on the path added to catch it. Left
-		// open, a dead pid reads as cancelled — wrong about the cause, but
-		// visible.
+		// lucmoseley/mantahostels#1899
 		if (wrote) notify.closeRun(key);
 		return wrote;
 	} catch {
@@ -1657,21 +1236,6 @@ function persistCrash(name, summary) {
 }
 
 /**
- * THE LAST-RESORT REPORTER (mantahostels#1899).
- *
- * runCheck's own try/catch begins after the checker's top-level `require()`s
- * have run and after `new CheckContext(...)` has parsed argv, so a throw in
- * either is outside it: node prints a stack to STDERR and exits non-zero. A
- * SessionStart hook injects STDOUT alone (see the Streams note above) and
- * settings.json wraps each of these in `|| true`, so both signals are
- * discarded and the checker vanishes — running, reporting nothing, for as long
- * as nobody thinks to run it by hand (mantahostels#1854).
- *
- * Installed at require time so it covers the checker's own later requires. The
- * throw becomes a BROKEN line on whichever stream the run's own flags say a
- * reader is on — read off `process.argv` rather than off a ctx, because the
- * case this exists for includes the one where the ctx could not be built.
- *
  * @param {unknown} e
  * @returns {never}
  */
@@ -1679,17 +1243,8 @@ function reportCrash(e) {
 	const argv = process.argv.slice(2);
 	const notify = argv.includes("--notify");
 	const name = path.basename(process.argv[1] || "a checker");
-	/* The stack, not the message: at this point nobody knows what happened, and
-	 * this is the only place it will ever be printed. */
 	const said = (e instanceof Error && e.stack) || errMessage(e);
 	const summary = `BROKEN: ${name} threw before it could check anything: ${said}`;
-	/* Persist mode has to reach this path too, or the class mantahostels#1899 exists to
-	 * catch goes back to being invisible under an `async` hook.
-	 *
-	 * Where no record was opened the key is derived from the FILE, no spec
-	 * having been read. A checker naming itself something else lands its crash
-	 * under a second key rather than overwriting its report; the reader
-	 * enumerates the directory, so it is still delivered. */
 	if (persisting(argv) && persistCrash(name, summary)) process.exit(0);
 	if (argv.includes("--json"))
 		writeFd(
@@ -1697,7 +1252,6 @@ function reportCrash(e) {
 			`${JSON.stringify({ checker: name, outcome: "BROKEN", exit: notify ? 0 : 2, summary })}\n`,
 		);
 	else writeFd(notify ? 1 : 2, `${summary}\n`);
-	/* --notify exits 0, as exitFor does and for its reason. */
 	process.exit(notify ? 0 : 2);
 }
 
@@ -1748,10 +1302,6 @@ process.on("unhandledRejection", reportCrash);
  */
 function runCheck(spec) {
 	const argv = process.argv.slice(2);
-	/* Persist mode routes say() into an array instead of a fd, so the decision
-	 * is taken here — before the ctx exists — and the captured lines become the
-	 * report file's text in finish(). `capture`'s in-process user builds its own ctx
-	 * (mantahostels#2062), so the two never contend. */
 	const persist =
 		persisting(argv) && !helpAsked(argv)
 			? {
@@ -1760,9 +1310,6 @@ function runCheck(spec) {
 					startedAtMono: performance.now(),
 				}
 			: null;
-	/* Opened before any work and closed in finish(), so a run cut off midway
-	 * leaves the record standing — which is the whole signal a reader has that
-	 * a producer was cancelled rather than merely quiet (mantahostels#1949). */
 	if (persist) openedKey = spec.name;
 	const started = startRun(spec, argv, {
 		sink: FD_SINK,
@@ -1776,13 +1323,6 @@ function runCheck(spec) {
 }
 
 /**
- * Run a checker inside this process: `argv` in, its exit code and both
- * streams out, byte for byte as runCheck's process would have written them.
- * It reads no `process.argv`, sets no exit code and never exits; `script` is
- * the checker's own file. Its `--against`/`--index` sides run in-process too,
- * bar a `baselineCode: "rev"` baseline and a caller's `sides: "spawn"`, which
- * re-run `script` as a child. Persist mode is a process run's alone.
- *
  * @param {CheckSpec} spec
  * @param {string[]} argv
  * @param {{ script: string, sides?: SideRun }} opts
@@ -1813,8 +1353,6 @@ const helpAsked = (argv) => {
 };
 
 /**
- * The run both shells share, up to its outcome.
- *
  * @param {CheckSpec} spec
  * @param {string[]} argv
  * @param {{ sink: Sink, script: string | undefined, persist: Persist | null,
@@ -1822,7 +1360,6 @@ const helpAsked = (argv) => {
  * @returns {{ help: true } | { help: false, ctx: CheckContext, run: Ran | Promise<Ran> }}
  */
 function startRun(spec, argv, { sink, script, persist, sides, side, sayFd }) {
-	/* Before any work, as lib/cli-args.js answers it (#920). */
 	if (helpAsked(argv)) {
 		sink.write(1, `usage: ${spec.usage}\n`);
 		return { help: true };
@@ -1833,9 +1370,6 @@ function startRun(spec, argv, { sink, script, persist, sides, side, sayFd }) {
 		argv.includes("--notify") &&
 		!argv.includes("--json") &&
 		!persist;
-	/* --against is the library's own flag, so its rev is declared a flag VALUE
-	 * for every checker rather than by each spec — otherwise the rev lands in
-	 * ctx.args as a positional in whichever checker forgot. */
 	const valueFlags = [
 		...(spec.valueFlags || []),
 		AGAINST,
@@ -1868,8 +1402,6 @@ function startRun(spec, argv, { sink, script, persist, sides, side, sayFd }) {
 }
 
 /**
- * runCheck's tail for an async run() (#1586).
- *
  * @param {CheckContext} ctx
  * @param {CheckSpec} spec
  * @param {Promise<Ran>} run
@@ -1877,15 +1409,9 @@ function startRun(spec, argv, { sink, script, persist, sides, side, sayFd }) {
  * @returns {Promise<never>}
  */
 function finishWhenSettled(ctx, spec, run, persist) {
-	/* A rejection run() started but never awaited — the second of two parallel
-	 * reads, failing while the first is awaited — misses run's own Promise.
-	 * Ahead of reportCrash, so it folds as a throw would. */
 	process.prependOnceListener("unhandledRejection", (e) =>
 		exitFinished(finish(ctx, spec, fromThrow(spec, e), persist)),
 	);
-	/* A run() awaiting something that can never settle leaves node an empty
-	 * loop, and node then exits 0 having printed nothing. finish() exits, so
-	 * this fires only if it never ran. */
 	process.once("beforeExit", () =>
 		exitFinished(
 			finish(
@@ -1911,11 +1437,6 @@ function finishWhenSettled(ctx, spec, run, persist) {
 }
 
 /**
- * The checker's own run, or `--against`'s, folded into an outcome — a thrown
- * SKIP or BROKEN included. A run() returning a thenable gets a Promise of the
- * same, its rejection folded exactly as a throw; a synchronous run() gets its
- * outcome synchronously.
- *
  * @param {CheckSpec} spec
  * @param {CheckContext} ctx
  * @param {() => string | null | undefined} refusalOf
@@ -1926,8 +1447,6 @@ function runBody(spec, ctx, refusalOf) {
 		const refusal = refusalOf();
 		if (refusal) ctx.usageError(refusal);
 		if (spec.module) skipUnlessModuleOn(spec.module);
-		/* Caught by its keyword before any work, because under --against the
-		 * parent never calls run() — only the re-exec'd children do. */
 		if (spec.against && require("node:util").types.isAsyncFunction(spec.run))
 			throw brokenError(asyncAgainstRefusal(spec));
 		if (ctx.has(HEAD_FLAG) && !ctx.has(AGAINST))
@@ -1940,9 +1459,6 @@ function runBody(spec, ctx, refusalOf) {
 		else returned = spec.run(ctx);
 		if (!isThenable(returned)) return fromReturn(ctx, returned);
 		if (spec.against) {
-			/* A plain function returning a thenable reaches here instead (#1586).
-			 * Its work has started, so its rejection is swallowed rather than left
-			 * to reportCrash, which would end the process first. */
 			returned.then(undefined, noop);
 			throw brokenError(asyncAgainstRefusal(spec));
 		}
@@ -1986,15 +1502,11 @@ function fromReturn(ctx, returned) {
 	/** @type {Outcome} */
 	let outcome = "OK";
 	for (const f of ctx.findings) outcome = worst(outcome, f.severity);
-	// The cap, applied to the outcome and never to the findings themselves.
-	// Reached by a completed run alone, so it cannot touch a SKIP or BROKEN.
 	if (ctx.warnOnly && outcome === "FAIL") outcome = "WARN";
 	return { outcome, result: returned || {}, message: "" };
 }
 
 /**
- * A throw or a rejection, folded into its outcome.
- *
  * @param {CheckSpec} spec
  * @param {unknown} e
  * @returns {Ran}
@@ -2004,9 +1516,6 @@ function fromThrow(spec, e) {
 		const thrown = outcomeOf(e);
 		if (thrown) return { outcome: thrown, result: {}, message: e.message };
 	}
-	/* An unexpected throw is the checker being broken, not a finding about
-	 * the thing it checks. The stack goes out because at this point nobody
-	 * knows what happened. */
 	const stack = e instanceof Error ? e.stack : undefined;
 	const named = e instanceof Error ? e.name : "a value with no message";
 	return {
@@ -2020,35 +1529,15 @@ function fromThrow(spec, e) {
  * @param {CheckContext} ctx
  * @param {CheckSpec} spec
  * @param {Ran} ran
- * @param {Persist | null} persist present under persist mode alone — see
- *   lib/persist-mode.js
- * @returns {number} the run's exit code
+ * @param {Persist | null} persist
+ * @returns {number}
  */
 function finish(ctx, spec, { outcome, result, message }, persist) {
 	const gating = ctx.findings.filter((f) => f.severity === "FAIL");
 	const warned = ctx.findings.filter((f) => f.severity === "WARN");
-	/* What the summary counts: the findings that drove the outcome. A FAIL
-	 * demoted by --warn still counts its FAIL findings — they are what was
-	 * reported.
-	 *
-	 * A checker that raised findings and THEN hit a SKIP or BROKEN did not
-	 * finish, so those findings are not a verdict on anything: they stay in the
-	 * envelope, having genuinely been raised, but count 0. Counting them would
-	 * put "1 finding(s)" beside "SKIP: GitHub unreachable" — a partial scan
-	 * reported as a result. */
 	const incomplete = outcome === "SKIP" || outcome === "BROKEN";
 	const count = incomplete ? 0 : findingCount(result, gating, warned);
 	const noun = result.noun || "finding(s)";
-	/* The set a delta-gated reader diffs (mantahostels#2490), sorted and deduplicated so two
-	 * runs of the same standing findings produce byte-identical sets.
-	 *
-	 * Empty on an incomplete run, for `count`'s reason above: a checker that
-	 * SKIPped drew no conclusion, and an empty set read as a verdict would report
-	 * every standing finding as newly ADDED at the next complete run.
-	 *
-	 * A finding with no `key` falls back to tag and message. A checker that does
-	 * not key is therefore noisy, never silent, which is why this falls back
-	 * instead of refusing. */
 	const keys = incomplete
 		? []
 		: [
@@ -2064,21 +1553,14 @@ function finish(ctx, spec, { outcome, result, message }, persist) {
 
 	annotate(ctx, outcome, message);
 
-	/* --notify's stdout is injected into every session that starts, so an "OK:
-	 * nothing found" line on each one is the noise the flag exists to avoid.
-	 * Anything above OK/SKIP still prints. */
 	if (!(ctx.notify && (outcome === "OK" || outcome === "SKIP")))
 		ctx.say(summary);
-	/* Order matters: this must stay after the ctx.say(summary) call above, or
-	 * the note stops being the last line. Suppressed under --notify: no
-	 * SessionStart reader exists yet to serve. */
 	if (!ctx.notify) for (const note of ctx.dirtyNotes) ctx.say(note);
 	if (persist) persistReport(spec, outcome, result, persist);
 	ctx.flushBuffered();
 	try {
 		result.afterReport?.();
 	} catch (e) {
-		/* The report is out, so a failed stamp only repeats it (#3776). */
 		ctx.sink.write(
 			2,
 			`${spec.name}: afterReport failed: ${caught(e).message}\n`,
@@ -2120,17 +1602,12 @@ function writeEnvelope(
 	spec,
 	{ outcome, result, count, keys, noun, summary },
 ) {
-	/* Every key built here — see ENVELOPE_FRAME_KEYS above — must join that
-	 * Set (mantahostels#2600); the loop below throws before writing the envelope where
-	 * one doesn't. */
 	const frame = {
 		checker: spec.name,
 		outcome,
 		exit: exitFor(ctx, outcome),
 		count,
 		keys,
-		/* say()'s lines in order, without the summary, which follows them
-		 * and has a field of its own. Absent unless --json-text asked. */
 		...(ctx.jsonText ? { text: ctx._jsonLines.join("\n") } : {}),
 		noun,
 		summary,
@@ -2142,16 +1619,10 @@ function writeEnvelope(
 				`lib/check.js: envelope frame key "${key}" is missing from ` +
 					"ENVELOPE_FRAME_KEYS — add it there too (mantahostels#2600).",
 			);
-	/* writeFd for the same reason say() uses it: node buffers writes to a
-	 * pipe and drops what is still buffered at process.exit, which truncates a
-	 * large envelope mid-string and hands the reader invalid JSON. */
 	ctx.sink.write(
 		1,
 		`${JSON.stringify(
 			{
-				/* The checker's own payload goes FIRST, so the envelope's own keys
-				 * always win. Several checkers carry a `findings` array of their own,
-				 * which spread last silently replaced the envelope's. */
 				...(result.data || {}),
 				...frame,
 			},
@@ -2162,11 +1633,6 @@ function writeEnvelope(
 }
 
 /**
- * Annotations come off the same `outcome` that sets the exit code, so a
- * demoted exit cannot leave an ::error:: on a green job.
- *
- * GitHub renders at most 10 per severity per step.
- *
  * @param {CheckContext} ctx
  * @param {Outcome} outcome
  * @param {string} message
@@ -2179,27 +1645,13 @@ function annotate(ctx, outcome, message) {
 	}
 	if (outcome !== "FAIL" && outcome !== "WARN") return;
 	for (const f of ctx.findings) {
-		// A FAIL demoted by --warn annotates as a warning, matching its exit.
 		const level = f.severity === "FAIL" && !ctx.warnOnly ? "error" : "warning";
 		ctx.sink.write(1, `::${level}::${toOneLine(f.message)}\n`);
 	}
 }
 
+// #5529
 /**
- * Land a persist-mode run: the report file, then the open run record closed.
- *
- * That order, because a report present with the record still open is a reader
- * seeing a producer mid-flight for an instant, while the reverse is a window
- * where a finished run looks like one that never wrote anything.
- *
- * The text is the bytes stdout would have carried, newline per say() and all.
- * An OK or SKIP run persists an EMPTY text rather than no file, deliberately:
- * the file is how a reader tells "ran, nothing to say" apart from "never ran".
- *
- * A FAILED WRITE FALLS BACK TO STDOUT.
- * notify-report.js degrades to a no-op rather than throwing, so without this an
- * unwritable state directory would swallow the run silently.
- *
  * @param {CheckSpec} spec
  * @param {Outcome} outcome
  * @param {CheckResult} result
@@ -2210,32 +1662,19 @@ function persistReport(spec, outcome, result, persist) {
 	const wrote = persist.notify.writeReport(spec.name, {
 		outcome,
 		text,
-		/* Carried rather than applied: the reader stamps with it once it has
-		 * shown this report (mantahostels#1975), `stamps` beside it for a checker whose
-		 * findings need more than one signature (mantahostels#2277). */
 		stamp: result.stamp,
 		stamps: result.stamps,
 		maxAgeMs: result.maxAgeMs,
 		durationMs: performance.now() - persist.startedAtMono,
-		// The session whose start ran this hook, for scripts/deliver-to-session.js (#853).
 		owner: reportOwner(),
 	});
-	// Closed only where the report landed, for persistCrash's reason. The
-	// stdout fallback below reaches a hand run alone — the async hook discards
-	// it.
 	if (wrote) persist.notify.closeRun(spec.name);
 	if (!wrote && text) writeFd(1, text);
 }
 
-/* --notify exits 0 unconditionally, BROKEN included. Claude Code reads a
- * non-zero SessionStart hook as the hook itself being broken and stops showing
- * it, so a typo'd --days must surface as visible text in the session rather than
- * as a dead hook. */
 /** @type {(ctx: CheckContext, outcome: Outcome) => number} */
 const exitFor = (ctx, outcome) => (ctx.notify ? 0 : OUTCOMES[outcome].exit);
 
-/* Workflow commands are line-oriented: a newline inside one silently ends it and
- * leaves the rest as loose log text. */
 /** @type {(s: unknown) => string} */
 const toOneLine = (s) =>
 	String(s)
@@ -2249,12 +1688,7 @@ const toOneLine = (s) =>
  */
 const errMessage = (e) => (e instanceof Error ? e.message : String(e));
 
-/**
- * Why a git or gh call failed: its stderr, else its message. The message holds
- * the call's whole argv, a filed body included, so stderr comes first.
- *
- * @param {unknown} e
- */
+/** @param {unknown} e */
 function failureReason(e) {
 	const stderr =
 		e && typeof e === "object" && "stderr" in e ? String(e.stderr).trim() : "";
@@ -2263,26 +1697,8 @@ function failureReason(e) {
 
 const { now } = require("./clock.js");
 
-/**
- * CheckContext under the name every check-*.js call site already uses:
- * `import("./lib/check").Ctx` instead of a hand-cut local slice (mantahostels#1315).
- *
- * Residual: a checker that still declares its OWN `Ctx`-named slice, rather
- * than importing this one, passes tsc regardless — method parameters are
- * checked bivariantly, so a mismatched hand-cut slice is caught at runtime
- * only, never at the call site.
- *
- * @typedef {CheckContext} Ctx
- */
+/** @typedef {CheckContext} Ctx */
 
-/* The outcome errors and the outcome table stay internal: `lib/gh.js` raises
- * a SKIP or BROKEN through skipError/brokenError and never inspects one. */
-// CheckContext is exported for a script that builds one outside runCheck
-// (report-manual-staleness.js); a type reference names it `Ctx`, as
-// TypeScript 7 resolves no class through `import("./lib/check").CheckContext`
-// (#4892). errMessage and failureReason are exported for their narrowing
-// logic, so a checker imports either instead of re-deriving it locally
-// (mantahostels#1315).
 module.exports = {
 	runCheck,
 	checkInProcess,

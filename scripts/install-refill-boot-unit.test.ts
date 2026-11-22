@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The boot unit's installer (#3878) against a fake systemctl at WFC_SYSTEMCTL
- * (#3970), loginctl at WFC_LOGINCTL and journalctl at WFC_JOURNALCTL (#4594),
- * its unit written under a sandbox XDG_CONFIG_HOME. Loosen it and a host
- * can believe the loop returns at boot with the unit disabled or linger off,
- * a unit can run the loop without the installer's seat and PATH, can start from
- * a working copy mid-edit, or a failed boot can leave the loop's log silent. And
- * the watch timer (#4139): loosen that and a dead loop stays down until the next
- * boot, or a watch that will not load stays out of the log.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -29,7 +19,6 @@ const unitDir = () => at("config/systemd/user");
 const unitFile = () => path.join(unitDir(), "refill-loop-boot.service");
 const watchFile = () => path.join(unitDir(), "refill-loop-watch.service");
 const timerFile = () => path.join(unitDir(), "refill-loop-watch.timer");
-/* Resolving already, so the installer leaves this repo's git alone. */
 const bootLink = () => at(".claude/.refill-loop-code.current");
 const logFile = () => at(".claude/.refill-loop.log");
 
@@ -67,7 +56,6 @@ const buildInstallEnv = (env: NodeJS.ProcessEnv = {}) => ({
 const install = (env: NodeJS.ProcessEnv = {}, ...argv: string[]) =>
 	runInProcess(SCRIPT, argv, { cwd: dir, env: buildInstallEnv(env) });
 
-/* A unit's ExecStopPost= as its shell receives it, systemd's escapes undone. */
 function readStopPostCommand(file = unitFile()) {
 	const line = fs
 		.readFileSync(file, "utf8")

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/supervise-landing.js end to end (#2692, ruled at #2672; #4458).
- *
- * Loosen it and a dead queue lander waits for the next push or session
- * start, a stalled queue sits unticketed while the founder is away, or every
- * tick files a second stall ticket.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -18,7 +11,6 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const SUPERVISE = path.resolve(__dirname, "supervise-landing.js");
 const MIN = 60 * 1000;
-/* A guess: a lander run here takes well under a second. */
 const WAIT_MS = 30_000;
 
 let tmp: string;
@@ -35,7 +27,6 @@ const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
 		env: { ...process.env, ...env },
 	}).trim();
 
-/** A commit made `ago` ms back, pushed to each of `branches`. */
 const commit = (name: string, ago: number, ...branches: string[]) => {
 	fs.writeFileSync(path.join(work, name), name);
 	git(work, ["add", "-A"]);
@@ -48,7 +39,6 @@ const commit = (name: string, ago: number, ...branches: string[]) => {
 
 const markers = () => path.join(work, ".claude", "tmp", "markers");
 
-/** The queue log holding one land row, `ago` ms back. */
 const landedAgo = (ago: number) => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(
@@ -62,7 +52,6 @@ const landedAgo = (ago: number) => {
 	);
 };
 
-/** A queue lander heartbeat from `pid`, written now. */
 const beat = (pid: number, extra: Record<string, unknown> = {}) => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(
@@ -95,7 +84,6 @@ const STALL = "Landing queue stalled: main has not moved for 2 h";
 const stallTickets = () =>
 	readIssues().filter((i: { title: string }) => i.title === STALL);
 
-/* Crosses the real clock: the lander is a detached process. */
 const waitFor = async (done: () => boolean) => {
 	for (let waited = 0; waited < WAIT_MS && !done(); waited += 100)
 		await new Promise((resolve) => setTimeout(resolve, 100));
@@ -230,11 +218,9 @@ it("files one urgent bug stall ticket for a running lander whose main has stood 
 	expect(ticket.body).toContain("Standalone:");
 });
 
-/* The positive pair: the case above, whose ticket names the batch. */
 it("leaves the stall ticket's body unchanged across passes while the lander's verdict keepalives beat between them (#5360)", () => {
 	commit("seed", 8 * 60 * MIN, "main");
 	const tip = commit("work", 121 * MIN, "refs/heads/queue/work");
-	/* The production writer, not `beat`: its keepalive's default is the case. */
 	const beatAs = heartbeatWriter(
 		path.join(markers(), ".queue-lander-heartbeat.json"),
 	);

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/blind-dispatch.js, a PreToolUse dispatcher core (#2791), refuses an
- * Agent dispatch saying "blind" until its prompt names the HEAD whose snapshot
- * the dispatcher read (#1783).
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * production git adapter, in a temp repository.
- *
- * Loosen it and a blind scorer reads its answer off a commit subject; tighten
- * it and every dispatch mentioning the word is refused with no way through.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -288,7 +277,6 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		const other = path.join(dir, "other");
 		fs.mkdirSync(other);
 		const head = git("rev-parse", "--short", "HEAD");
-		/* The host root has no repository: only the cwd's HEAD can pass. */
 		expect(
 			run({ prompt: `blind run\nBlind-checked: ${head}` }, { root: other }),
 		).toBeNull();
@@ -307,7 +295,6 @@ describe("the cases a mutant must not survive (#2791)", () => {
 
 describe("from a linked worktree, the snapshot is the worktree's (#4242)", () => {
 	let at: { main: string; worktree: string };
-	/** `at`'s tree moved on by one commit; its short HEAD. */
 	const advance = (root: string, subject: string) => {
 		const g = (...args: string[]) =>
 			spawnSync(

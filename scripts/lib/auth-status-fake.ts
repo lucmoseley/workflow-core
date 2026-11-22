@@ -1,10 +1,3 @@
-/*
- * The `auth status` branch of a `claude` stub, which every launch site's
- * lib/launch-auth.js check calls before its launch (#2236). It hands off to
- * the fake program, lib/fixtures/auth-status.js, before the stub logs its
- * argv, so a suite's launch log holds the launches alone.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
@@ -15,21 +8,14 @@ export const AUTH_STATUS_FAKE = path.join(
 	"auth-status.js",
 );
 
-/** The branch, for a bash stub, placed right after its shebang. */
 export function buildAuthStatusBranch(): string {
 	return `if [ "$1" = "auth" ]; then exec ${shellQuote(process.execPath)} ${shellQuote(AUTH_STATUS_FAKE)}; fi`;
 }
 
-/** The branch, for a node stub, placed right after its shebang. */
 export function buildAuthStatusNodeBranch(): string {
 	return `if (process.argv[2] === "auth") require(${JSON.stringify(AUTH_STATUS_FAKE)});`;
 }
 
-/**
- * The launch environments #2236 names, each by what its refusal names. The
- * apiKeyHelper case is the seat's settings, so a site whose cwd is fixed is
- * judged on it too: `writeSeatHelper` writes it.
- */
 export const REFUSED_AUTH: [string, Record<string, string>][] = [
 	["ANTHROPIC_API_KEY", { ANTHROPIC_API_KEY: "k" }],
 	["ANTHROPIC_AUTH_TOKEN", { ANTHROPIC_AUTH_TOKEN: "t" }],

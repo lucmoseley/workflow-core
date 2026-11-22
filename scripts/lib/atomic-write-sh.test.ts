@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/atomic-write.sh's guarantee (#2251): <file> is untouched until the
- * rename, and a failed write leaves the old file and no aside behind. Every
- * shell caller relies on this one.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

@@ -1,25 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-retro-due.js — the weekly trigger for the retro-sweep skill (#969,
- * from #948 §Trigger: a due issue dispatched through /pick-next,
- * never a session-start launch).
- *
- * Same shape as scripts/report-cycle-review-due.js: ONE tracked issue,
- * "Weekly retro due", filed or refreshed through lib/tracking-issue.js, never
- * duplicated across daily runs. The run it asks for closes it
- * (retro-sweep step 8), and the next due week files a fresh one.
- *
- * Due where `retro.weeklyCount` is set and the newest `weekly` line in
- * docs/data/retro-runs.jsonl is 7 or more days old, or there is none. A
- * `calibrate` line never counts. Unset — and an adopter has no `retro` key —
- * is a named SKIP.
- *
- * Exit 0 whether or not a run is due. Exit 2 only where it cannot do its job:
- * the record unreadable, the config unreadable or its `retro` key malformed
- * (BROKEN, so a typo never reads as "not yet calibrated"), its own `takes:`
- * value refused, the file or refresh failing, or a command line
- * lib/cli-args.js refuses.
- */
 
 const { writeFd } = require("./lib/write-fd.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -43,12 +22,8 @@ const LABEL = takesLabel("implement");
 const DUE_DAYS = 7;
 
 /**
- * The date of the newest `weekly` run in the record, or null where it holds
- * none. Throws on a line it cannot read: a corrupt record must not read as
- * "never run", which would file on every run.
- *
  * @param {import("./lib/jsonl.js").Jsonl} read
- * @returns {string | null} YYYY-MM-DD
+ * @returns {string | null}
  */
 function newestWeekly(read) {
 	const [bad] = read.bad;
@@ -65,12 +40,9 @@ function newestWeekly(read) {
 }
 
 /**
- * The date of one record row's `weekly` run, or null for a run of another
- * mode. Throws as newestWeekly documents.
- *
  * @param {Record<string, unknown>} row
- * @param {number} line its 1-based line in the record
- * @returns {string | null} YYYY-MM-DD
+ * @param {number} line
+ * @returns {string | null}
  */
 function weeklyDate(row, line) {
 	if (row.mode !== "weekly") return null;
@@ -84,8 +56,8 @@ function weeklyDate(row, line) {
 
 /**
  * @param {string | null} newest
- * @param {string} todayIso YYYY-MM-DD
- * @returns {{ due: boolean, age: number | null }} age in whole days
+ * @param {string} todayIso
+ * @returns {{ due: boolean, age: number | null }}
  */
 function verdict(newest, todayIso) {
 	if (!newest) return { due: true, age: null };
@@ -94,9 +66,6 @@ function verdict(newest, todayIso) {
 }
 
 /**
- * Carries no date of today's, so an unchanged condition leaves the body
- * current and a run refreshes nothing.
- *
  * @param {string | null} newest
  * @param {number} weeklyCount
  */
@@ -130,10 +99,7 @@ function body(newest, weeklyCount) {
 }
 
 /**
- * The verdict this reporter files on, for scripts/check-cleared-trackers.js
- * too.
- *
- * @param {string} todayIso YYYY-MM-DD
+ * @param {string} todayIso
  * @returns {{ skip: string } | { skip: null, weeklyCount: number, newest: string | null, due: boolean, age: number | null }}
  */
 function condition(todayIso) {
@@ -162,7 +128,6 @@ function condition(todayIso) {
 	};
 }
 
-/** RETRO_TODAY pins the date for tests. */
 const today = () =>
 	(process.env.RETRO_TODAY || new Date().toISOString()).slice(0, 10);
 
@@ -192,8 +157,6 @@ function main() {
 	}
 
 	const text = body(v.newest, v.weeklyCount);
-	/* No PreToolUse hook sees a script's own gh call, so the create guard's
-	 * takes: check is made here (#969). */
 	const refused = takesRefusal([LABEL], text);
 	if (refused) {
 		writeFd(2, `BROKEN: ${refused}\n`);
@@ -208,8 +171,6 @@ function main() {
 			body: text,
 		});
 	} catch (e) {
-		/* Not e.message: a failed gh call's holds its whole argv, the body
-		 * included. */
 		const hint =
 			parseGhFailureReason(e) === "unreachable"
 				? unreachableRemedy(e)

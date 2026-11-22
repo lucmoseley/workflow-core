@@ -1,35 +1,4 @@
 #!/usr/bin/env node
-/*
- * wsl-disk-compaction.js — start the monthly WSL disk compaction without
- * killing a live session (#5044). The daily user timer
- * `wsl-disk-compaction.timer` (scripts/install-interop-watchdog.sh) runs
- * `run`; a person runs `run --now` to start one that is not due.
- *
- *   node scripts/wsl-disk-compaction.js run [--now]
- *
- * A RUN IS DUE 30 days after the last success in %LOCALAPPDATA%\wsl-compact.log.
- * A due run (lib/wsl-disk.js's runCompaction):
- *   1. runs the sparse watch, which files a `takes:wayfinder` ticket per new
- *      trigger and changes nothing on the machine (#5041 Q1 (B));
- *   2. holds the refill loop's launches, renewing the hold each poll, until no
- *      session is live; after 6 h it releases the hold, logs `deferred`, and
- *      the next night's timer tries again;
- *   3. trims the guest (`fstrim -av` as root), since the VHDX learns which
- *      blocks are free only from a trim (docs/environment.md §1);
- *   4. starts the Windows task "WSL Disk Compaction"
- *      (win-interop-watchdog/compact-disk.ps1), whose `wsl --shutdown` ends
- *      this process. It releases the hold once WSL is back.
- *
- * Every line goes to stderr, which the timer's journal keeps.
- *
- * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C (lib/wsl-disk-host.js), WFC_WSL_EXE,
- * WFC_SCHTASKS and WFC_GH (lib/gh.js) inject each read and effect (§N7).
- *
- * Joins no §N3 family: a launcher, not a checker or a guard.
- *
- * Exit codes: 0 started, not due or not WSL; 1 deferred, not installed, the
- * log or kernel release unread, or a step failed; 2 on a command line.
- */
 
 const fs = require("node:fs");
 const os = require("node:os");
@@ -60,30 +29,18 @@ const { writeFd } = require("./lib/write-fd.js");
 const TASK = "WSL Disk Compaction";
 const ORIGIN = "disk-watch-script";
 
-/*
- * The launch hold's holder, compact-disk.ps1's too: refill-loop.js refuses a
- * release from a holder other than the one that held, and the ps1 runs in no
- * session.
- */
 const HOLDER = "wsl-disk-compaction";
 
-/** rescue-sessions.js's states for a session waiting on a person. */
 const WAITING_STATES = new Set(["blocked", "needs_input"]);
 
-/*
- * Untraced: WSL ships a few releases a month, so 30 reach well past any
- * installed version the currency check (check-wsl-currency.js) lets lag.
- */
+// #5044 guess: WSL ships a few releases a month, so 30 reach past any lag the currency check allows
 const RELEASES_READ = 30;
 
 const USAGE = `usage: node ${scriptPath("wsl-disk-compaction.js")} run [--now]`;
 
 const wslExe = () => process.env.WFC_WSL_EXE || WSL_EXE;
 
-/**
- * A gh read, or why it failed.
- * @param {() => any} read
- */
+/** @param {() => any} read */
 function ghRead(read) {
 	try {
 		return read();
@@ -93,9 +50,6 @@ function ghRead(read) {
 }
 
 /**
- * Files one trigger's ticket. file-issue.js refuses while an open issue with
- * a similar title goes unnamed, so its `--check` list is named distinct: the
- * trigger's own title was already searched for (findFiled).
  * @param {string} title
  * @param {string} body
  * @returns {string | {why: string}}
@@ -151,7 +105,6 @@ const sparsePorts = {
 				"[.[] | {tag_name, body, prerelease, draft}]",
 			]),
 		),
-	// The origin label, unlike `takes:`, stays on the ticket through triage.
 	findFiled: (title) =>
 		ghRead(
 			() =>

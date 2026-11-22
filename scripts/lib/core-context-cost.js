@@ -1,17 +1,3 @@
-/*
- * core-context-cost.js — seeds the core's own row in an adopter's
- * `.claude/plugin-context-cost.json`, so check-context-budget.js does not WARN
- * from day one on the one plugin the adopter was told to install (#679).
- *
- * Shared by init-adopter.js, after it materialises the plugin, and by
- * `upgrade()`'s every-run steps, so an adopter adopted before this landed
- * picks the row up on its next bump. Only a MISSING row is added: an existing
- * one is the adopter's, re-measured or not.
- *
- * The figure is `claude plugin details`' own always-on token count, as the
- * table's `about` requires (mantahostels#3116) — never computed here.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { run, installFailure } = require("./materialise-plugin.js");
@@ -25,20 +11,12 @@ const ALWAYS_ON_RE =
 const COST_TABLE = ".claude/plugin-context-cost.json";
 const SETTINGS = ".claude/settings.json";
 
-/**
- * The core's own row for `wfc-self`, the self-plugin that registers its hooks
- * and nothing else (#2295). `claude plugin details` on 2.1.306 lists no skill
- * or agent, calls its hooks harness-only and reads Always-on ~0 tok; the rule
- * text those hooks hand a session is priced from lib/core-hooks.js, with the
- * rest of check-context-budget.js's hook figures. Kept here, not in the core's
- * table, so seeding never copies it into an adopter's.
- */
 const SELF_PLUGIN_COST = {
 	id: SELF_PLUGIN_ID,
 	row: { tokens: 0, measured: "2026-10-22" },
 };
 
-/* Stops a hung CLI holding a SessionEnd hook to its budget. */
+// guess, #5529
 const DETAILS_TIMEOUT_MS = 30_000;
 
 /** @param {unknown} err */
@@ -48,8 +26,6 @@ const ABOUT =
 	"Per-plugin always-on context cost, in tokens as `claude plugin details <name>` reports it, keyed by the `enabledPlugins` name in .claude/settings.json. check-context-budget.js reads it every session and WARNs on an enabled plugin with no row here. An `uncounted` component is one the figure omits, such as an MCP server's tool schemas.";
 
 /**
- * The `Always-on:` figure out of `claude plugin details` output — `~22 tok`,
- * `~2,273 tok` or `~2.3k tok`. Null where no such line reads as a number.
  * @param {string} text
  * @returns {number|null}
  */
@@ -66,9 +42,8 @@ function parseAlwaysOn(text) {
 /** @typedef {(pluginId: string) => Measurement} Measurer */
 
 /**
- * `claude plugin details <pluginId>` against the adopter's tree. Never throws.
  * @param {{root: string, pluginId: string, claudeBin?: string,
- *   configDir?: string}} at
+ * configDir?: string}} at
  * @returns {Measurement}
  */
 function measureAlwaysOn({ root, pluginId, claudeBin = "claude", configDir }) {
@@ -91,7 +66,6 @@ function measureAlwaysOn({ root, pluginId, claudeBin = "claude", configDir }) {
 }
 
 /**
- * `measureAlwaysOn` bound to one adopter, for the callers that hand it on.
  * @param {{root: string, claudeBin?: string, configDir?: string}} at
  * @returns {Measurer}
  */
@@ -100,15 +74,11 @@ function measurerFor(at) {
 }
 
 /**
- * The cost table as it stands — or, where it is absent, the empty one to
- * create — with its raw text and indent. Null where seeding stops here: the
- * table does not parse, has no `plugins` object, or already holds the row.
- *
  * @param {string} tablePath
  * @param {string} pluginId
  * @param {(line: string) => void} out
  * @returns {{text: string|null, indent: string,
- *   table: {plugins: Record<string, unknown>} & Record<string, unknown>}|null}
+ * table: {plugins: Record<string, unknown>} & Record<string, unknown>}|null}
  */
 function readCostTable(tablePath, pluginId, out) {
 	if (!fs.existsSync(tablePath))
@@ -133,18 +103,8 @@ function readCostTable(tablePath, pluginId, out) {
 }
 
 /**
- * Adds `pluginId`'s row where the table lacks it, creating the table where it
- * is absent. Silent where the row is already there, or where no settings file
- * or no enabled entry declares the plugin; one line otherwise, an unparseable
- * settings file included.
- *
- * AN EXISTING TABLE IS WRITTEN ONLY WHERE IT IS ALREADY IN CANONICAL LAYOUT —
- * `JSON.stringify` at its own indent, one trailing newline — so every other
- * row comes back byte-identical. A table in any other layout is left alone
- * and the line names the row to add by hand.
- *
  * @param {{root: string, pluginId: string, measure: Measurer,
- *   dryRun?: boolean, out: (line: string) => void, now?: Date}} at
+ * dryRun?: boolean, out: (line: string) => void, now?: Date}} at
  */
 function seedCoreCost({
 	root,

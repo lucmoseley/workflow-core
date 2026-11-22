@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * report-retro-due.test.ts — the weekly retro trigger (#969). Break it and the
- * sweep files a due issue every day, or never, or files in an adopter.
- *
- * Driven end to end through `runInProcess` (§X3; #1055, over #969's
- * subprocess ask) against a throwaway root, with `gh` and the issue-body
- * writer stubbed as files the script spawns. The root is throwaway so each
- * case writes the exact run record and config the due date turns on; the
- * stubs log their argv, so a case reads what would have reached the tracker
- * and no case files a real issue.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -33,12 +22,9 @@ afterEach(() => {
 const line = (mode: string, date: string) => JSON.stringify({ date, mode });
 
 function fixture(opts: {
-	/** The `retro` value; undefined writes no `retro` key at all. */
 	retro?: unknown;
-	/** The run record's text; null writes no record file. */
 	record?: string | null;
 	ghIssueList?: unknown;
-	/** The issue's body before the run; absent, an empty one. */
 	existingBody?: string;
 	ghRefuses?: boolean;
 }) {
@@ -62,8 +48,6 @@ function fixture(opts: {
 		);
 	}
 
-	// The sanctioned body writer (mantahostels#131), faked so the refresh path is
-	// observable without a network call.
 	const issueBody = fakeIssueBody(root, opts.existingBody);
 	fs.writeFileSync(
 		path.join(root, "issues.json"),
@@ -204,7 +188,6 @@ describe("the weekly retro trigger", () => {
 		expect(ghCalls(fx)).toBe("");
 	});
 
-	// An adopter has no `retro` key, so this is the reporter in every adopter.
 	it("skips by name, filing nothing and reading no record, where the config has no retro key", () => {
 		const fx = fixture({ record: null });
 
@@ -224,7 +207,6 @@ describe("the weekly retro trigger", () => {
 		expect(ghCalls(fx)).toBe("");
 	});
 
-	// Read as "never run", a corrupt record would file on every run.
 	it("exits non-zero, filing nothing, on a record line it cannot parse, naming its file and line", () => {
 		const fx = fixture({
 			retro: { weeklyCount: 3 },
@@ -249,7 +231,6 @@ describe("the weekly retro trigger", () => {
 		expect(output).not.toContain("## What to do");
 	});
 
-	// A typo must not read as "not yet calibrated", the SKIP that hides it.
 	it("exits non-zero on a malformed weeklyCount, naming the file and key and filing nothing, rather than skipping", () => {
 		const fx = fixture({ retro: { weeklyCount: "three" } });
 
@@ -272,8 +253,6 @@ describe("the weekly retro trigger", () => {
 		expect(ghCalls(fx)).toBe("");
 	});
 
-	// No PreToolUse hook sees a script's gh call; the reporter's own check is
-	// the create guard's takes: test, so what it files must pass it.
 	it("files a takes: value and body the create guard's takes: test passes", () => {
 		expect(LABEL).toBe("takes:implement");
 		for (const record of [`${line("weekly", "2026-10-06")}\n`, ""]) {
@@ -290,7 +269,6 @@ describe("the weekly retro trigger", () => {
 	});
 });
 
-// A due week, so any fall-through to the default action would file (#1051).
 describe("the command line", () => {
 	it("prints usage on --help and -h, exits 0, and calls gh not at all", () => {
 		for (const flag of ["--help", "-h"]) {

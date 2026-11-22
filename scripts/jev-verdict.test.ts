@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * jev-verdict.js joins a right/wrong verdict to exactly one flagged Jev turn by
- * hash or unique prefix, and refuses anything it cannot join (#253).
- *
- * Driven through the CLI, over a fixture log on disk (#253), in a temp dir so
- * no case reads or appends to the live verdict store.
- *
- * The founder runs it as `npm run jev:verdict` to count the Jev advisory trial
- * (#175): loosen a case here and a typo lands as a lost verdict, or a verdict
- * joins the wrong flag, and the trial that decides whether the guard stays
- * counts wrong.
- */
-
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -23,7 +10,6 @@ const require_ = createRequire(__filename);
 const { logPath, previousLogPath } = require_("./lib/jev-log.js");
 const jevTrial = require_("./lib/jev-trial.js");
 
-/** The trial's and limb 2's start lines, and limb 2's voided stretch. */
 const TRIAL_START_MS = Date.parse(jevTrial.TRIAL_START);
 const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
 const OUTAGE_VOID_FROM_MS = Date.parse(
@@ -179,9 +165,6 @@ describe("what it refuses", () => {
 });
 
 describe("--list", () => {
-	/* The era is decided per SESSION, by its first logged line, because that is
-	 * how `stand()` counts — a session straddling the start line must not read
-	 * one way here and the other way in the standing. */
 	it("marks a session that straddles the start line as pre-trial throughout, on limb 1", () => {
 		const earlier = new Date(TRIAL_START_MS - 60_000).toISOString();
 		const later = new Date(TRIAL_START_MS + 60_000).toISOString();

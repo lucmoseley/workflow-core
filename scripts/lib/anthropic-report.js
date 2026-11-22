@@ -17,7 +17,6 @@
  * UNGUARDED (#1987): a GraphQL target named by node id or a file-read query,
  * an unreadable repo, a script, `curl` or alias, and a Chrome form.
  */
-
 const {
 	apiPath,
 	defaultsToPost,
@@ -39,8 +38,7 @@ const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} ReportPorts
- * @property {(cwd: string) => string} remotes `git -C <cwd> remote -v`'s
- *   stdout, "" where git cannot answer
+ * @property {(cwd: string) => string} remotes
  * @typedef {import("./kit-context.js").KitContext & ReportPorts} ReportContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
@@ -49,14 +47,12 @@ const { trimEndRun } = require("./trim-run.js");
  * @typedef {import("./guard-entry.js").Decision} Decision
  */
 
-/* The issue and pr flags whose value is free text or a name, skipped. */
 const TEXT_FLAGS = new Set(
 	"-b --body -t --title -F --body-file -l --label --add-label --remove-label -a --assignee --add-assignee --remove-assignee -m --milestone -p --project --add-project --remove-project -B --base -H --head -r --reviewer --add-reviewer --remove-reviewer -T --template -c --comment --reason".split(
 		" ",
 	),
 );
 
-/* `gh <group> <sub>` pairs that read; every other subcommand is a write. */
 const READS = new Set([
 	"issue:list",
 	"issue:view",
@@ -72,14 +68,11 @@ const READS = new Set([
 const WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
 
 /**
- * @typedef {object} Run one call's judging
+ * @typedef {object} Run
  * @property {Parsed} parsed
  * @property {ReportContext} ctx
- * @property {string | null} exported an earlier `export GH_REPO=…` in the
- *   same command, which the walk's own assignment harvest does not see: ""
- *   where none, null where one was set but cannot be read
- * @property {boolean} unsettled a gh write may run in a directory the guard
- *   cannot name
+ * @property {string | null} exported
+ * @property {boolean} unsettled
  */
 
 const UNSETTLED =
@@ -104,7 +97,6 @@ function decide(command, ctx) {
 }
 
 /**
- * Refuse, naming the repo, with the stored rule.
  * @param {Run} run
  * @param {string} segment
  * @param {string} repo
@@ -124,8 +116,6 @@ function refuseRepo(run, segment, repo) {
 }
 
 /**
- * A word read back as the shell hands it over, a command substitution's
- * trailing newlines off; null where any of it cannot be recovered.
  * @param {Run} run
  * @param {string} word
  */
@@ -133,36 +123,24 @@ function captured(run, word) {
 	return capturedRead(literal(word, run.parsed.spans));
 }
 
-/**
- * captured's answer for a word already read.
- * @param {GhRepo} read
- */
+/** @param {GhRepo} read */
 const capturedRead = ({ text, known }) =>
 	known ? trimEndRun(text, "\n") : null;
 
-/**
- * Is `spec`, a repo as gh reads it, a github.com repo owned by `anthropics`?
- * A repo on another host keeps its host prefix in repoSlug, so never matches.
- * @param {string} spec
- */
+/** @param {string} spec */
 const anthropicRepo = (spec) =>
 	spec !== "" && /^anthropics\/[^/]+$/.test(repoSlug(spec));
 
 const URL_RE =
 	/^(https?:\/\/)?(www\.)?github\.com\/(anthropics\/[^/]+)\/(issues|pull)\/[0-9]+\/?(#\S*)?$/;
 
-/**
- * The anthropics/<repo> an issue or PR URL names. Anchored at both ends, so a
- * body citing an upstream issue in prose is no target.
- * @param {string} word
- */
+/** @param {string} word */
 function urlRepo(word) {
 	const m = URL_RE.exec(word.toLowerCase());
 	return m ? requiredGroup(m, 3, URL_RE) : null;
 }
 
 /**
- * One command the call runs: `gh issue <sub>`, `gh pr <sub>` and `gh api`.
  * @param {Run} run
  * @param {Command} cmd
  */
@@ -171,8 +149,6 @@ function judge(run, cmd) {
 	for (const { words, wrapperWords, dirs } of cmd.runs()) {
 		const gh = dispatchingGhCall(words, run.parsed.spans);
 		if (!gh) continue;
-		/* The run's `env` assignments lead it as the segment's own do, and it
-		 * stands wherever its wrappers' and `-c` string's moves put it. */
 		const cwds = dirs();
 		const at = {
 			...cmd,
@@ -187,8 +163,7 @@ function judge(run, cmd) {
 }
 
 /**
- * @param {Run} run accumulator: exported is set by each `GH_REPO=` the
- *   export carries
+ * @param {Run} run
  * @param {string[]} words
  */
 function noteExport(run, words) {
@@ -202,8 +177,6 @@ function noteExport(run, words) {
  * @param {Command} cmd
  * @param {string} group
  * @param {GhCall} gh
- *   dispatchingGhCall's answer: `repo` the `-R` before `group`, which one after it
- *   overrides
  */
 function judgeFlagForm(run, cmd, group, { args: words, repo: before }) {
 	const args = words.slice(1);
@@ -233,18 +206,16 @@ function judgeFlagForm(run, cmd, group, { args: words, repo: before }) {
 }
 
 /**
- * @typedef {object} Scan a flag-form call's arguments, and the repo they name
+ * @typedef {object} Scan
  * @property {Run} run
  * @property {Command} cmd
- * @property {string[]} args from <sub> on
- * @property {boolean} named it carries `-R`/`--repo`
- * @property {string} repo the last one's value
- * @property {boolean} hidden some `-R` value cannot be read
+ * @property {string[]} args
+ * @property {boolean} named
+ * @property {string} repo
+ * @property {boolean} hidden
  */
 
 /**
- * Read the argument at `i`, refusing on an Anthropic issue or PR URL: how
- * many words it took, 0 where the scan stops.
  * @param {Scan} scan
  * @param {number} i
  */
@@ -263,10 +234,7 @@ const LONG_REPO_RE = /^--repo=(.*)$/s;
 const SHORT_REPO_RE = /^-R(.+)$/s;
 
 /**
- * A `-R`/`--repo` at `i`, in any of its three spellings: how many words it
- * took, 0 where it ran out of words, null where `word` is no repo flag. An
- * empty value names no repo, as gh then falls back to GH_REPO (#4268).
- * @param {Scan} scan accumulator: named, repo and hidden are set by a repo flag
+ * @param {Scan} scan
  * @param {number} i
  * @param {string} word
  */
@@ -288,7 +256,6 @@ function readRepoFlag(scan, i, word) {
 }
 
 /**
- * A write whose repo the command did not name: GH_REPO, then the clone.
  * @param {Run} run
  * @param {Command} cmd
  */
@@ -308,15 +275,10 @@ function judgeUnnamed(run, cmd) {
 }
 
 /**
- * The GH_REPO the command runs with: an assignment it carries, by leading
- * assignment or `env`, else an earlier export, the command string's own
- * earlier assignments and the environment. Null where it is set but cannot be
- * read; "" where it is unset.
  * @param {Run} run
  * @param {Command} cmd
  */
 function ghRepoEnv(run, cmd) {
-	/* The last wins: `env` sets its own after the segment's. */
 	const set = cmd.leading.findLast((w) => w.startsWith("GH_REPO="));
 	if (set !== undefined) return captured(run, set.slice("GH_REPO=".length));
 	if (run.exported !== "") return run.exported;
@@ -324,10 +286,6 @@ function ghRepoEnv(run, cmd) {
 }
 
 /**
- * The anthropics repo a clone the command may run in has a remote on, each
- * directory in `cmd.cwds` its run's moves put it in; null where none has
- * one. ANY remote counts, gh choosing among them by rules the command does
- * not show. A directory it cannot name marks the run unsettled (#5067).
  * @param {Run} run
  * @param {Command} cmd
  */
@@ -346,16 +304,12 @@ function cloneRepo(run, cmd) {
 const REPOS_PATH_RE = /^repos\/([^/]+)\/([^/]+)(\/|$)/;
 
 /**
- * `gh api …`, from the words after `api`.
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
  */
 function judgeApi(run, cmd, args) {
 	const call = scanApi(args, run.parsed.spans);
-	/* The method and endpoint are read back through literal: the splitter
-	 * blanks every quoted span, so a quoted endpoint would otherwise walk past.
-	 * A method it cannot read is judged as a write. */
 	const method = captured(run, call.method);
 	if (method === "" && !defaultsToPost(call)) return;
 	if (method && !WRITE_METHODS.includes(method.toUpperCase())) return;
@@ -379,8 +333,6 @@ const NAMES_ANTHROPICS_RE =
 	/(^|[^a-z0-9-])(anthropics\/[a-z0-9._-]+|anthropics)/;
 
 /**
- * `gh api graphql …`: a mutation is a write, and its target is a node id the
- * command cannot show, so the call is refused where it spells `anthropics`.
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args

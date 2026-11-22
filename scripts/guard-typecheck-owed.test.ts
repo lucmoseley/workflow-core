@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the Stop guard that asks for a type-check after a commit's pre-commit try
- * found the slot held, off queue-run.js's exit log.
- *
- * Breaking it leaves that commit's first type report to CI (#3803), or nags a
- * session that has already had a type-check.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

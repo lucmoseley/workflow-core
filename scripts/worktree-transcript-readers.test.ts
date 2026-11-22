@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Every script that finds this repo's transcripts by project slug finds one a
- * session wrote from a linked worktree (#4236). Such a session writes under
- * its worktree's own slug, `<main checkout>/.claude/worktrees/<name>`, not the
- * main checkout's (#4229). Break it and every measure and checker reads only
- * the main checkout's sessions, which once every session runs in a worktree
- * is none: each reads an empty corpus, or refuses one that is there.
- *
- * One fixture for every reader: a real main checkout with a linked worktree,
- * and a seat whose only transcript sits under the worktree's slug, with NO
- * main-slug directory, the seat every session in a worktree leaves.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -88,7 +76,6 @@ beforeAll(() => {
 	fs.mkdirSync(path.dirname(ledger), { recursive: true });
 	fs.writeFileSync(ledger, `${JSON.stringify({ jobId: "aaaaaa11" })}\n`);
 
-	/* At `$HOME/.claude`, the seat `measure-echo-chain.js` reads. */
 	seat = path.join(home, ".claude");
 	const project = path.join(seat, "projects", slug(worktree));
 	fs.mkdirSync(project, { recursive: true });

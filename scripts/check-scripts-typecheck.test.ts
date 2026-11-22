@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * check-scripts-typecheck.js reports every `scripts/` JS file that has opted
- * OUT of type checking (mantahostels#1464). It is exercised inside a throwaway git
- * repository rather than against this one, because it enumerates the tracked
- * set and this repo's is shared by every parallel session.
- *
- * WHAT BREAKING A TEST HERE COSTS. `checkJs` is repo-wide since
- * mantahostels#1464, so silencing a whole file is a one-line edit and this
- * script, run in `npm run status` and document-guards.yml, is the only thing
- * that reports one. Loosening the census block makes that edit invisible.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -22,31 +11,26 @@ const SCRIPT = path.resolve(__dirname, "check-scripts-typecheck.js");
 
 let dir: string;
 
-/** Run a git command inside the throwaway repo. */
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-/** Write a file under the throwaway repo, creating its parent directories. */
 const write = (rel: string, body: string) => {
 	const abs = path.join(dir, rel);
 	fs.mkdirSync(path.dirname(abs), { recursive: true });
 	fs.writeFileSync(abs, body);
 };
 
-/** A script the checker reads, carrying no `@ts-nocheck`. */
 const checked = (name: string) =>
 	`#!/usr/bin/env node\n/*\n * ${name} — a fixture.\n */\n\nmodule.exports = {};\n`;
 
 const buildSilenced = (name: string) =>
 	`#!/usr/bin/env node\n// @ts-nocheck\n/*\n * ${name} — a fixture.\n */\n\nmodule.exports = {};\n`;
 
-/** Track and commit everything written so far. */
 const commitAll = () => {
 	git("add", "-A");
 	git("commit", "-q", "-m", "fixtures");
 };
 
-/** Run the checker against the throwaway repo. */
 const run = (args: string[] = [], env: Record<string, string> = {}) => {
 	const r = runInProcess(SCRIPT, ["--root", dir, ...args], {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
@@ -82,8 +66,6 @@ describe("the census — which tracked files have silenced the type checker", ()
 		write("scripts/off.js", buildSilenced("off.js"));
 		commitAll();
 		const { status, out } = run();
-		// WARN, so exit 0: standing repo state, and the session reading it is
-		// rarely the one that wrote the pragma.
 		expect(status).toBe(0);
 		expect(out).toMatch(/^WARN: 1 scripts\/ \.js file\(s\)/m);
 		expect(out).toContain("scripts/off.js");
@@ -124,9 +106,6 @@ describe("the finding a silenced file raises", () => {
 
 describe("where the pragma counts, which is where TypeScript honours it", () => {
 	it("does not count a pragma sitting below the header block (mantahostels#1395)", () => {
-		// TypeScript honours `@ts-nocheck` only in the leading comment region, so
-		// a line further down silences nothing and must not be reported as if it
-		// had.
 		write(
 			"scripts/late.js",
 			"#!/usr/bin/env node\n/*\n * late.js — a fixture.\n */\n\nconst x = 1;\n// @ts-nocheck\nmodule.exports = { x };\n",
@@ -144,8 +123,6 @@ describe("where the pragma counts, which is where TypeScript honours it", () => 
 	});
 
 	it("reads a file merely quoting the pragma inside prose as checked, never as silenced (mantahostels#1395)", () => {
-		// This script and §N8 both name the pragma in prose; a substring match
-		// would report them as having used it.
 		write(
 			"scripts/prose.js",
 			"#!/usr/bin/env node\n/*\n * prose.js — a fixture that mentions `// @ts-nocheck` in a sentence.\n */\n\nmodule.exports = {};\n",
@@ -175,8 +152,6 @@ describe("scope — the two globs tsconfig.json lists in `include`", () => {
 	});
 
 	it("does not walk deeper than one directory level under a skill (mantahostels#1147)", () => {
-		// The 25 vendored skills are symlinks, and a wider glob walks into
-		// whatever they ship.
 		write(".claude/skills/demo/scripts/nested/off.js", buildSilenced("off.js"));
 		commitAll();
 		const { status, out } = run();
@@ -187,8 +162,6 @@ describe("scope — the two globs tsconfig.json lists in `include`", () => {
 
 describe("apparatus failures", () => {
 	it("is BROKEN when git cannot enumerate the tracked set", () => {
-		// git is the reading apparatus, so this is BROKEN and never SKIP
-		// (check.js:16-26).
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
 		const r = runInProcess(SCRIPT, ["--root", outside]);
 		fs.rmSync(outside, { recursive: true, force: true });

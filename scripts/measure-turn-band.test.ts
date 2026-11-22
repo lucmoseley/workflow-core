@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that the turn-band instrument counts responses, and the crossing
- * response, exactly as `countTurns` does, beside its record and tool-call
- * scales (mantahostels#2618).
- *
- * A measurement that counts turns differently from the guard it calibrates
- * cannot calibrate it. The script shares the dedupe key with `countTurns` via
- * `turnRecords`, but it aggregates on top of that itself, so the agreement is
- * asserted here rather than assumed — including on the unkeyed records the
- * seam's own test cannot reach.
- *
- * Built by running the script end to end through runInProcess over a fixture
- * corpus at WFC_TRANSCRIPT_DIR and reading its printed table (#1369: nothing
- * is exported for its tests). A one-session corpus makes every percentile that
- * session's own figure, so a per-session count reads straight off the p50 row.
- *
- * The turn band in `scripts/guard-session-ceiling.js` rests on this figure:
- * let the two counts drift and the wind-up notice is re-tuned against a scale
- * it does not count on.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -29,7 +9,6 @@ import { countTurns } from "./lib/transcript.js";
 
 const SCRIPT = path.join(__dirname, "measure-turn-band.js");
 
-/** One API response written as several records, all repeating one usage. */
 const response = (id: string, ctx: number, records = 3) =>
 	Array.from({ length: records }, (_, i) =>
 		JSON.stringify({
@@ -45,7 +24,6 @@ const response = (id: string, ctx: number, records = 3) =>
 
 const user = '{"type":"user","message":{"role":"user"}}';
 
-/** A session of `k` one-record responses, none near the threshold. */
 const sessionOf = (k: number, tag: string) =>
 	[
 		user,
@@ -62,7 +40,6 @@ afterEach(() => {
 
 const num = (s: string) => Number(s.replace(/,/g, ""));
 
-/** Run the script over `sessions`, one transcript file each, named in order. */
 function run(sessions: Record<string, string>, args: string[] = []) {
 	for (const [name, text] of Object.entries(sessions))
 		fs.writeFileSync(path.join(dir, `${name}.jsonl`), text);
@@ -81,7 +58,6 @@ function run(sessions: Record<string, string>, args: string[] = []) {
 		const m = respSection.match(new RegExp(`^ {2}p${p}\\s+([\\d,]+)$`, "m"));
 		return m ? num(m[1]) : null;
 	};
-	/** The crossing at percentile `p` on the three scales, or null. */
 	const crossingAt = (p: number) => {
 		const m = crossSection.match(
 			new RegExp(`^ {2}p${p}\\s+([\\d,]+)\\s+([\\d,]+)\\s+([\\d,]+)$`, "m"),
@@ -138,8 +114,6 @@ describe("measure-turn-band.js (mantahostels#2618, the band's calibration)", () 
 	});
 
 	it("records the crossing as a response ordinal, not a record one", () => {
-		// Three responses of three records each; the third crosses. On the record
-		// scale that is the 7th line.
 		const text = [
 			user,
 			response("a", 50_000),
@@ -161,8 +135,6 @@ describe("measure-turn-band.js (mantahostels#2618, the band's calibration)", () 
 			"\n",
 		);
 		const r = run({ s: text });
-		// 2 responses, 6 records, 4 tool calls: 3.00 records and 2.00 tool
-		// calls per response.
 		expect(r.responsesAt(50)).toBe(2);
 		expect(r.ratiosAt(50)).toEqual({ records: 3, toolCalls: 2 });
 	});
@@ -174,9 +146,6 @@ describe("measure-turn-band.js (mantahostels#2618, the band's calibration)", () 
 			response("b", 60_000),
 			response("c", 250_000),
 		].join("\n");
-		// Each response here is 3 records — a text block then two tool_use blocks
-		// — so the 3rd response is the 7th record, and at that record the tool
-		// count still stands at the 4 the first two responses made.
 		expect(run({ s: text }).crossingAt(50)).toEqual({
 			crossedAt: 3,
 			crossedAtRecord: 7,
@@ -221,7 +190,6 @@ describe("its percentiles", () => {
 		expect(r.max).toBe(10);
 	});
 
-	/* The corpus is read in directory order, which is not response order. */
 	it("sort what they are given rather than trusting the order", () => {
 		const r = run({
 			a: sessionOf(9, "a"),

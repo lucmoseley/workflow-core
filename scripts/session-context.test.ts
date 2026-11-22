@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins session-context.js's reading and verdict against the cap, and its
- * refusal to report an unreadable transcript as a low figure.
- *
- * The live-context reader driven as a subprocess, the way a bundle session at a
- * member boundary drives it.
- *
- * A reading is a reading whether it is over or under the cap — exit 0 either
- * way, because nothing is enforced on this (mantahostels#1094, the ticket that capped a
- * dispatch bundle on accumulated context). And an UNREADABLE transcript must
- * never degrade to a low number: a session that reads 0 tokens of standing
- * context would merge on for ever.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -28,7 +15,6 @@ afterEach(() => {
 		fs.rmSync(d, { recursive: true, force: true });
 });
 
-/** A config dir laid out the way Claude Code lays one out. */
 function configDir() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sessctx-"));
 	dirs.push(dir);
@@ -47,7 +33,6 @@ function writeTranscript(cfg: string, sid: string, ...lines: unknown[]) {
 	);
 }
 
-/** An assistant turn whose request carried `ctx` tokens of standing context. */
 const turn = (ctx: number, extra: Record<string, unknown> = {}) => ({
 	type: "assistant",
 	timestamp: "2026-08-22T04:00:00.000Z",

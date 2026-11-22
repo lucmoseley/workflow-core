@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * init-adopter.js's first run switches on each module whose subject a copied
- * repo already tracks, by the predicate check-gate-switches.js refuses a
- * commit on (#1506). Were the two to read the tree differently, a copied repo
- * would start with a commit gate its own setup cannot satisfy.
- *
- * init's core and the checker both run in-process, on a real repository.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -74,7 +66,6 @@ beforeEach(() => {
 		fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
 		fs.writeFileSync(path.join(dir, file), body);
 	}
-	/* The adopter template, since init renders its digest from it. */
 	fs.copyFileSync(
 		path.join(__dirname, "templates/adopter/reference-roadmap.html"),
 		path.join(dir, "docs/reference-roadmap.html"),
@@ -118,7 +109,6 @@ describe("init-adopter's module choice on a copied repo", () => {
 	});
 
 	it("switches no module on for a test file no command is inferred for, and the checker refuses it until commands.test is declared", () => {
-		/* A *.test.js file infers `node --test`; a *.test.ts file infers nothing. */
 		git("rm", "-q", "package.json");
 		git("mv", "lib/a.test.js", "lib/a.test.ts");
 		const r = init();

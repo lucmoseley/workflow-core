@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/log-queue-push.js, its .husky/pre-push limb and lib/queue-log.js's
- * read (#4485, spec #4458), on lib/lander-testkit.ts's clone.
- *
- * Loosen it and a queue ref's push goes unlogged, a deletion or another
- * remote's push is logged as one, or a ref's push time is read off a row for
- * a sha it no longer holds, and the queue lander merges out of push order.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,7 +14,6 @@ const LOG_PUSH = path.join(ROOT, "scripts", "log-queue-push.js");
 const ZERO = "0".repeat(40);
 const A = "a".repeat(40);
 const B = "b".repeat(40);
-/* Inside the log's retention, which prunes by the real clock. */
 const AT = new Date(Date.now() - 60_000).toISOString();
 
 const refLine = (sha: string, ref: string) => `HEAD ${sha} ${ref} ${ZERO}\n`;

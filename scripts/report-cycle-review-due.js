@@ -1,30 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-cycle-review-due.js — the trigger half of mantahostels#942 (the ticket that
- * adopted the 90-day operating rhythm as a document plus a scheduled job),
- * built at mantahostels#1034, and run by the daily repo-checks run (#1557).
- *
- * mantahostels#942 chose a scheduled job over a roadmap card on evidence: a card records
- * that something ought to happen, and the `simplify-review` card proves one can
- * sit unfired indefinitely. A workflow that files an issue is the only trigger
- * in this repo with a track record of reaching the founder unprompted.
- *
- * Same shape as scripts/report-manual-staleness.js, deliberately: ONE tracked
- * issue per standing condition, its body rewritten while the condition stands,
- * so a debt taking days to clear never mails twice.
- *
- * Two conditions file, not one. An overdue cycle is the obvious trigger; an
- * UNDECLARED cycle is the failure mode the ritual exists to catch, so silence
- * there would hide exactly the thing worth catching (mantahostels#1034).
- *
- * A log with no cycle in it yet, or no log at all, files nothing: an adopter
- * that has never declared one has nothing overdue, so it is a named SKIP
- * (#395 Q1). "Undeclared" means a log whose every cycle is closed.
- *
- * Exit code is 0 whether or not a review is due — the issue is the signal. It
- * exits non-zero only when it cannot do its job: an unparseable heading, gh
- * refusing, a command line lib/cli-args.js refuses.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -41,27 +15,18 @@ const {
 const { takesLabel } = require("./lib/takes-label");
 
 const TITLE = "90-day cycle review due";
-/* Matched on label AND exact title, so the label only has to be one this issue
- * genuinely carries. `takes:wayfinder` is that label and the routing both,
- * reversing mantahostels#942 §3's `takes:human` on mantahostels#3439: a founder
- * conversation happens INSIDE Claude Code, in a /wayfinder session. An automatic
- * filer can name no outside act, so the old value made every issue it files a
- * NO-OUTSIDE-ACT by construction (#140). */
 const LABEL = takesLabel("wayfinder");
 const AREA = "Strategy & Brand";
 
 /** @typedef {{ n: number, start: string, end: string, status: string, heading: string }} Cycle */
 
-/** `## Cycle 3 — 2026-08-24 → 2026-11-22`, with `->` accepted for the arrow. */
 const HEADING =
 	/^## Cycle (\d+) — (\d{4}-\d{2}-\d{2}) (?:→|->) (\d{4}-\d{2}-\d{2})\s*$/;
 const STATUS = /^\*\*Status:\*\*\s*(open|closed)\b/m;
 
 /**
- * Every cycle section in the log, in file order (newest first by convention).
- *
  * @param {string} text
- * @param {string} logPath repo-relative, for the error messages
+ * @param {string} logPath
  * @returns {Cycle[]}
  */
 function parseCycles(text, logPath) {
@@ -70,9 +35,6 @@ function parseCycles(text, logPath) {
 	const cycles = [];
 	let fenced = false;
 	for (const [i, line] of lines.entries()) {
-		// The log carries a fenced declaration TEMPLATE whose heading is
-		// deliberately unreadable (`## Cycle N — YYYY-MM-DD → ...`). Skipping
-		// fences keeps it from reading as either a cycle or a malformed one.
 		if (line.startsWith("```")) {
 			fenced = !fenced;
 			continue;
@@ -80,15 +42,12 @@ function parseCycles(text, logPath) {
 		if (fenced) continue;
 		const m = HEADING.exec(line);
 		if (!m) {
-			/* A near-miss heading would otherwise vanish into the "no cycle
-			 * declared" branch — a real declaration reported as an absent one. */
 			if (/^## Cycle\b/.test(line))
 				throw new Error(
 					`${logPath}: "${line.trim()}" is not a readable cycle heading. Spell it "## Cycle <n> — YYYY-MM-DD → YYYY-MM-DD".`,
 				);
 			continue;
 		}
-		// The section runs to the next `## ` heading of any kind.
 		const next = lines.findIndex((l, j) => j > i && l.startsWith("## "));
 		const section = lines
 			.slice(i + 1, next === -1 ? lines.length : next)
@@ -110,9 +69,6 @@ function parseCycles(text, logPath) {
 }
 
 /**
- * What the log says today. `today` is an ISO date string, so the comparison is
- * a string compare and carries no timezone of its own.
- *
  * @param {Cycle[]} cycles
  * @param {string} today
  * @returns {{ kind: "empty" | "undeclared" | "ambiguous" | "due" | "current", open: Cycle[] }}
@@ -127,7 +83,6 @@ function verdict(cycles, today) {
 }
 
 /**
- * The one open cycle a `due` or `current` verdict was reached on.
  * @param {ReturnType<typeof verdict>} v
  * @returns {Cycle}
  */
@@ -215,16 +170,10 @@ function body(v, today, logPath) {
 	].join("\n");
 }
 
-/** The verdicts that file nothing; check-cleared-trackers.js reads them as
- * cleared. @param {ReturnType<typeof verdict>["kind"]} kind */
+/** @param {ReturnType<typeof verdict>["kind"]} kind */
 const filesNothing = (kind) => kind === "current" || kind === "empty";
 
-/**
- * What the run prints before the filing outcome, one per FILING verdict —
- * `current` and `empty` file nothing and return earlier.
- *
- * @type {Record<string, string>}
- */
+/** @type {Record<string, string>} */
 const HEADLINE = {
 	due: "Cycle review due",
 	ambiguous: "Cycle log is ambiguous",

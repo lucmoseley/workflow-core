@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * arbiter-wait.js's own suite: the deadlock walk and `wait`'s verdict table,
- * one reading in and one verdict out (#1500). What needs a process — each
- * verdict's exit code, the want dropped on a signal, the oracle's cadence, one
- * end-to-end DEADLOCK — stays spawned in scripts/session-arbiter.test.ts.
- *
- * `list`'s DEADLOCK block and every blocked `wait` read this walk: loosen a
- * case and two sessions wait on each other unnamed until their ceilings, or a
- * busy holder is reported as a deadlock and its waiter told to release.
- */
 import { describe, expect, it } from "vitest";
 import {
 	findCycles,

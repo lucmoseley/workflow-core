@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins seedCoreCost, which writes the core's own row into an adopter's
- * .claude/plugin-context-cost.json, and measurerFor, which reads the figure
- * `claude plugin details` prints.
- *
- * The measurement is an injected stub and each adopter a temp dir, so no test
- * runs `claude`, and a test can see the table's other rows come back byte for
- * byte.
- *
- * Breaking it brings back the day-one budget warning about the core in every
- * new adopter, or rewrites rows an adopter set itself (#679).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -62,7 +50,6 @@ function seed(
 const tableAt = (root: string) => path.join(root, COST_TABLE);
 
 describe("measurerFor", () => {
-	/** What it reads off a stub `claude plugin details` printing `text`. */
 	const measured = (text: string) => {
 		const root = adopter();
 		const bin = path.join(root, "claude");

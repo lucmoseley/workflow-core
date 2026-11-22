@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-"""fault_bench.py — #3246's page-fault bench, run by a user timer at 28 h uptime (#4768).
-
-#3246 needs the bench at 28 h up, and a session must happen to read its gate
-while the boot is that old. fault-bench.timer runs it instead, and the log
-outlives the boot.
-
-  run      run by fault-bench.service. Once this boot has a bench line, does
-           nothing. Otherwise, at 28 h up and 1,900 MB available, runs 1, 2, 4,
-           8 and 8 concurrent 100 MB allocations and appends their times; short
-           of either, appends a `NO BENCH` line, and the timer retries.
-  install  installs it as a user timer (lib/user_timer.py). Re-run it to take
-           up a change to this script or lib/memwatch_minute.py. No sudo.
-             python3 scripts/fault_bench.py install
-
-Each line carries the boot's start (`uptime -s`), its uptime, `.wslconfig`'s
-autoMemoryReclaim, the guest's MemAvailable and Windows' free memory off
-memwatch's newest minute line. #3246 gates on a line reading `reclaim disabled`.
-
-Exit codes: 0; 1 where a read, write or systemctl call fails; 2 on a command line.
-"""
-
 import argparse
 import glob
 import subprocess
@@ -29,17 +8,13 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-# lib/ beside the checkout's copy and the installed one alike (lib/user_timer.py).
 sys.path.insert(0, str(HERE / "lib"))
 import memwatch_minute  # noqa: E402
 from fail_open import expected, fail_open  # noqa: E402
 from memwatch_minute import MINUTE_LOG  # noqa: E402
 
-# #3246's bench: 28 h, at which the `gradual` bench read 37.9 s, and 1,900 MB,
-# earlyoom's 794 + the bench's 800 + a 300 margin.
-MIN_UPTIME_S = 100_800
-MIN_AVAIL_MB = 1_900
-# #3246's bench shape: rounds of concurrent 100 MB allocations.
+MIN_UPTIME_S = 100_800  # #3246 measured 3 of 3 gradual boots degraded past 28 h
+MIN_AVAIL_MB = 1_900  # #3246 measured earlyoom 794 + bench 800, plus a 300 guess margin
 ROUNDS = (1, 2, 4, 8, 8)
 ALLOC = "b=bytearray(100*1024*1024)"
 NO_BENCH = "NO BENCH"
@@ -68,8 +43,6 @@ def read_boot_id(path=BOOT_ID):
 
 
 def reclaim_mode(pattern=WSLCONFIGS):
-    """`.wslconfig`'s autoMemoryReclaim, `unread` where no one file names it.
-    The file as it reads now: a change takes at the next boot, not this one."""
     modes = set()
     for path in glob.glob(pattern):
         for raw in Path(path).read_text(errors="replace").splitlines():
@@ -80,7 +53,6 @@ def reclaim_mode(pattern=WSLCONFIGS):
 
 
 def windows_reading(minute_log, now):
-    """`Windows N MB (S s old)` off memwatch's newest whole minute line."""
     try:
         sample = memwatch_minute.win_sample(memwatch_minute.newest_line(minute_log))
     except OSError as e:
@@ -92,14 +64,12 @@ def windows_reading(minute_log, now):
 
 
 def bench(python):
-    """Each round's wall time in ms: n allocations started at once, all awaited."""
     out = []
     for n in ROUNDS:
         start = time.monotonic_ns()
         procs = [subprocess.Popen([python, "-I", "-c", ALLOC]) for _ in range(n)]
         failed = sum(p.wait() != 0 for p in procs)
         ms = (time.monotonic_ns() - start) // 1_000_000
-        # A killed allocation's time understates the round, so it is named (#4768).
         out.append(f"{n} x 100 MB: {ms} ms" + (f" ({failed} failed)" if failed else ""))
     return out
 
@@ -124,7 +94,6 @@ def run(
     wslconfigs=WSLCONFIGS,
     python=sys.executable,
 ):
-    """One timer firing. Returns the line it appended, or None."""
     boot = read_boot_id(boot_id)
     if benched_this_boot(log, boot):
         return None
@@ -163,7 +132,7 @@ def main(argv=None):
             if line:
                 print(line)
             return 0
-        # Imported here: the installed copy runs `run` alone.
+        # #4791
         import user_timer
 
         return user_timer.install(

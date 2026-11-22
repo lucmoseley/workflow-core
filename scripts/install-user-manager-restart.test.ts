@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The user manager's restart installer (#3963) against a fake systemctl at
- * WFC_SYSTEMCTL (#3970), its files written under a sandbox --root. Loosen it and a host can believe its
- * manager returns after a kill with no drop-in loaded, or lowering the manager
- * can shield every unit it starts, and the sessions a boot-started loop runs.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,7 +13,6 @@ const SHOWN = {
 	StartLimitIntervalUSec: "10min",
 };
 
-/* SUDO_UID 1000's manager, the unit the installer reads back. */
 const UNIT = "user@1000.service";
 
 let dir: string;

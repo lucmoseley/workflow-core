@@ -1,23 +1,3 @@
-/*
- * carry-job-files.js — the files a background job's prompt names in its own
- * job directory, copied out before `claude rm` deletes that directory (#4750).
- * The harness saves a pasted image there (`<seat>/jobs/<id>/tmp/pasted-<hex>.png`,
- * older `<seat>/jobs/<id>/pasted-N.png`) and names it in the prompt, so every
- * route that removes a job carries them first: the main-checkout job guard's
- * relaunch and the refill loop's removal of a job record. A file pasted in a
- * later turn is named in the transcript's user turns instead
- * (readUserTurnsNaming).
- *
- * Each copy lands in its checkout's ignored `.claude/tmp/attachments/<job>/`,
- * at its path below the job directory. The directory matches as given or
- * resolved; punctuation glued after a path that does not exist is dropped. A
- * file already gone, or resolving outside the job directory, is one removal
- * cannot delete, and is left named as it was. A file whose copy is already
- * there counts as carried, so a second pass after the directory is gone still
- * names it. Residual: a path holding a space is cut there, so it is not
- * matched and not carried.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -29,9 +9,6 @@ const { readWholeLines } = require("./session-transcript.js");
 const { realPathOrNull } = require("./real-path.js");
 
 /**
- * `text` with each file it names under `jobDir` copied to
- * `<checkout>/.claude/tmp/attachments/<jobId>/` and named there instead, and what was
- * carried; throws naming a file it cannot copy.
  * @param {{text: string, jobDir: string, jobId: string, checkout: string}} job
  * @returns {{text: string, carried: {from: string, to: string}[]}}
  */
@@ -63,9 +40,6 @@ function carryJobFiles({ text, jobDir, jobId, checkout }) {
 }
 
 /**
- * `from`, named under job directory spelling `under`: `carried` to `to`;
- * `left` where removal cannot delete it; `absent` where neither it nor its
- * copy exists.
  * @param {string} from
  * @param {{under: string, real: string|null, into: string, checkout: string}} at
  * @returns {{kind: "carried", to: string} | {kind: "left"} | {kind: "absent"}}
@@ -104,20 +78,13 @@ function copyOut(from, to, checkout) {
 	}
 }
 
-/**
- * The line telling a resumed session where `carried` went; empty where
- * nothing was.
- * @param {{from: string, to: string}[]} carried
- */
+/** @param {{from: string, to: string}[]} carried */
 const buildCarriedNote = (carried) =>
 	carried.length === 0
 		? ""
 		: `Files an earlier prompt named in this job's directory, which removing the job deletes, were copied out: ${carried.map((c) => `${c.from} is now ${c.to}`).join("; ")}.`;
 
 /**
- * The text of each user turn in transcript `file` that names job `jobId`'s
- * directory, a turn's own words and no tool result; empty where the
- * transcript is gone.
  * @param {string} file
  * @param {string} jobId
  */
@@ -143,7 +110,6 @@ function readUserTurnsNaming(file, jobId) {
 }
 
 /**
- * A transcript line's user words: its string content, else its text blocks.
  * @param {string} line
  * @returns {string[]}
  */

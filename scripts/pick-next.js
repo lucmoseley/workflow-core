@@ -1,92 +1,4 @@
 #!/usr/bin/env node
-/*
- * pick-next.js — the shortlist half of selection. Prints every issue takeable
- * right now, ordered, plus why each excluded issue was excluded.
- *
- * mantahostels#102 split selection into a script and a skill on "is there judgement in it".
- * The judgement — turning free text into a goal set, ordering the reach-0 tail,
- * saying why the top pick won — is `.claude/skills/pick-next/SKILL.md`. The seam
- * between them is `--goal`: a set of issue numbers, or `drain <ref>` or
- * `unblock <ref>`, the two forms the script walks itself (#3866).
- *
- * THIS SCRIPT NEVER WRITES. Not the `urgent` label, not an assignee, not a
- * comment. mantahostels#101 barred auto-stripping an `urgent` — two selection runs
- * would race to strip it — and mantahostels#111 rejected the skill applying one. Only
- * `gh api <path>` GETs and GraphQL `query` reads are issued below; a
- * `--method` or a `mutation` would breach both.
- *
- * The query is mantahostels#105's:
- *   1. One list call for open issues; PRs share the number space, so drop them.
- *   2. Readiness from each issue's canonical `blockedBy`, open blockers only,
- *      read in batches (lib/blocked-by-batch.js, #2685).
- *      `issue_dependencies_summary.blocked_by` is never read — the staleness
- *      trap (mantahostels#105).
- *   3. Parentage from `parent_issue_url`. /sub_issues is not walked for it: one
- *      call per issue (mantahostels#105). It is read, at per_page=100, only
- *      for an issue whose `sub_issues_summary` counts more open children than
- *      the served repo holds, or a map with none there, to find its children
- *      in other repos (#3658).
- *   4. An assigned issue drops out only where the session arbiter holds a claim
- *      on it AND that session is live (mantahostels#633, mantahostels#645);
- *      the assignee alone cannot name the session. A live claim on its parent
- *      drops it too (#2310),
- *      read off the same `parent_issue_url`, from the parent repo's own store
- *      where that is another repo (lib/parent-claims.js). No label is ever a
- *      filter for readiness, `takes:` included: nothing clears one on close
- *      (mantahostels#235).
- *   5. An open issue with >=1 open child, in any repo, is a heading, not work.
- *      Structural, not label-based (mantahostels#105).
- *   6. /dependencies/blocking is never called. Every blocking edge between two
- *      open issues is the inverse of some open issue's blocked_by, so inverting
- *      halves the call count.
- *
- * The sort, lexicographic (mantahostels#106, mantahostels#259, #2001, #2664, #3222):
- *   open `bug` -> `urgent`, own or inherited -> goal-set membership
- *   -> stalled wait -> ticket type
- *   -> chain depth + closes -> transitive reach -> collision -> number
- * Depth and reach count each open ancestor; closes counts the ancestors that
- * close with the issue, each its parent's only open child (#3613).
- *
- * Beneath the table sit three annotations, NONE a sort input: pairs of
- * shortlisted issues whose bodies name the same repo file (mantahostels#192), pairs of
- * a shortlisted issue with a claimed one naming the same file (mantahostels#384), and the
- * shortlisted issues predicted to write `docs/doc-map.md` (mantahostels#409).
- *
- * The machine is read too, and only read: `/proc/meminfo` and `ps`, for the
- * ADMISSION block that says whether one more session fits (mantahostels#384).
- *
- * "Never writes" is about the tracker. Three local, gitignored artefacts are
- * written: the `--dump-bodies` directory; the write-set cache under
- * `.pick-next/`, which this run reads, prunes against the open list, and writes
- * a PROVISIONAL entry into for every miss (`lib/write-set-cache.js`;
- * `lib/write-set-predict.js` derives them, `scripts/pick-next-cache.js` puts a
- * band read's);
- * and one line per run in the warm-fraction log beside it, which is the only
- * source of the churn figure mantahostels#385's 60-80% claim rests on (`lib/warm-fraction-log.js`;
- * `scripts/warm-fraction.js` reports it). A real run also mints the per-session
- * marker that arms `scripts/guard-selection-sum.js`, pinning the frontier size
- * it checks §5's sum against (`lib/selection-marker.js`, mantahostels#844) and the admission
- * slot count it checks §6's admission-cut line against (mantahostels#1321). `--no-log` skips
- * both.
- *
- * Usage: node scripts/pick-next.js [--goal '116,115'|'drain <ref>'|'unblock <ref>'] [--json] [--limit N] [--repo o/r]
- *                                  [--dump-bodies <dir>] [--no-log] [--no-prewarm]
- *
- * Exit codes:
- *   0  a shortlist was produced (possibly degraded — see DEGRADED below)
- *   1  no shortlist could be produced: the issue list itself was unreachable
- *   2  a command line it refuses: a --goal it cannot read, or one naming another
- *      repo's issue where only a drain can reach one
- *
- * DEPARTS FROM §N7: `module.exports = { main }` (mantahostels#1944) — the reason
- * at the export's own site, above the `module.exports` line.
- *
- * Its decisions live in lib modules named for what each decides, so each is
- * tested by calling it (#4329): lib/pick-next-verdict.js (each issue's sort
- * levels and exclusion), lib/pick-next-sessions.js, lib/pick-next-dispatched.js,
- * lib/pick-next-collisions.js, lib/pick-next-accounting.js and
- * lib/pick-next-band-read.js. This file reads, wires and renders.
- */
 
 const { scriptPath } = require("./lib/script-path.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
@@ -195,25 +107,8 @@ const {
 } = require("./lib/pick-next-verdict.js");
 
 const REPO_DEFAULT = "{owner}/{repo}";
-/**
- * The tree whose tracked files decide whether a backticked token is a path: the
- * HOST repo, through the one seam (#1). WFC_REPO_ROOT stays in front of it as
- * the test-injection point. Script-relative before that, which in a plugin
- * install put this report's root and the arbiter's state directory in two
- * different trees — the disagreement `/pick-next` printed as CLAIMS DEGRADED.
- */
 const REPO_ROOT = process.env.WFC_REPO_ROOT || hostRoot();
 
-/*
- * `parked` — a session posted a house question round on the issue and ended
- * `needs input:`, so relaunching it re-asks the round (#2000, spec #1995); or
- * the refill loop stopped a blocked session on it, whatever the cause (#2699).
- * Writers: lib/parked.js. Choosable here (#2355, #2703); an away-mode refill
- * loop holds it out of a launch, and a normal-mode one resumes it first
- * (lib/refill-decide.js, #3621). Listed under PARKED
- * with its age: the block is the label's reader, without which a park goes
- * quiet (mantahostels#243, mantahostels#259).
- */
 const { PARKED_LABEL } = require("./lib/parked.js");
 
 const args = process.argv.slice(2);
@@ -233,19 +128,10 @@ const { flags } = parseOrExit(args, {
 });
 const asJson = flags["--json"] === true;
 const REPO = flagValue(flags, "--repo") ?? REPO_DEFAULT;
-/* A display cap: it slices the printed table and `shown`, never the frontier
- * any count, check or written report is taken over (mantahostels#1289, mantahostels#3363). */
+/* lucmoseley/mantahostels#1289, lucmoseley/mantahostels#3363 */
 const LIMIT = Number(flagValue(flags, "--limit") ?? 0) || 0;
 const DUMP_DIR = flagValue(flags, "--dump-bodies");
-/*
- * The warm-fraction log records real re-picks and nothing else (mantahostels#628), so a run
- * made to exercise the script rather than to pick work opts out here.
- */
 const NO_LOG = flags["--no-log"] === true;
-/*
- * For a run diagnosing why a ticket keeps going cold, which needs to see the
- * miss rather than have it filled in (mantahostels#1001).
- */
 const NO_PREWARM = flags["--no-prewarm"] === true;
 const GOAL_TEXT = String(flagValue(flags, "--goal") ?? "");
 const GOAL_ASK = GOAL_TEXT === "" ? null : parseGoalForm(GOAL_TEXT);
@@ -253,22 +139,13 @@ if (GOAL_TEXT !== "" && GOAL_ASK === null) {
 	writeFd(2, `${buildGoalRefusal(GOAL_TEXT)}\n`);
 	process.exit(2);
 }
-/**
- * The issues the goal tier ranks on, filled by `main` from `resolveGoal` before
- * any tier is read.
- * @type {Set<number>}
- */
+/** @type {Set<number>} */
 const goalRanked = new Set();
 
 /** @param {string} path */
 async function ghGet(path) {
-	// Deliberately no --jq: every projection happens in JS below, which keeps the
-	// whole shape of the query visible in this file and testable against a stub
-	// `gh` that would otherwise have to reimplement a jq filter to be exercised.
 	return ghApiSlurpAsync([path]);
 }
-
-// ------------------------------------------------------------------ collection
 
 /** @typedef {import("./lib/pick-next-verdict.js").RawIssue} RawIssue */
 /** @typedef {import("./lib/pick-next-verdict.js").Enriching} Enriching */
@@ -277,10 +154,6 @@ async function ghGet(path) {
 
 /** @typedef {import("./lib/pick-next-collisions.js").Pathed} Pathed */
 
-/*
- * Type-predicate filters, so a `.filter(...).map(...)` pair narrows the field
- * a `.filter((i) => i.gate)` truthy-check alone does not carry across.
- */
 /**
  * @param {Issue} i
  * @returns {i is Issue & {gate: NonNullable<Issue["gate"]>}}
@@ -314,28 +187,14 @@ function hasParked(i) {
 
 /** @typedef {import("./lib/pick-next-band-read.js").CacheEntry} CacheEntry */
 
-/**
- * What `listedSessionIds()` in `scripts/lib/agent-liveness.js` hands back. It
- * DEGRADES TO DOUBT, NEVER TO "DEAD": either the oracle answered and every map
- * is present, or it refused and `why` is the only field there is. Written as
- * two shapes rather than one all-optional shape so that a `listed.why` test
- * narrows, and a reader of `listed.ids` — the admission block's session count,
- * below — reads it without making one (mantahostels#1460).
- * @typedef {import("./lib/agent-liveness.js").ListedSessions} ListedSessions
- */
+/** @typedef {import("./lib/agent-liveness.js").ListedSessions} ListedSessions */
 
-/**
- * Frontier issues whose body is empty or whitespace-only (mantahostels#3443): a failed
- * create, naming no parent for check-issue-orphans.js to catch. Display only:
- * it excludes nothing.
- * @param {{number: number, title: string, body: string}[]} frontier
- */
+/** @param {{number: number, title: string, body: string}[]} frontier */
 const emptyBodiedOf = (frontier) =>
 	frontier
 		.filter((i) => !i.body.trim())
 		.map((i) => ({ number: i.number, title: i.title }));
 
-/** The repo the open-issues list reads, `owner/name`, or null. */
 function listRepo() {
 	return REPO === REPO_DEFAULT ? readHostTracker(REPO_ROOT) : String(REPO);
 }
@@ -348,8 +207,6 @@ async function openIssues() {
 		issues
 			.filter((/** @type {any} */ i) => !i.pull_request)
 			.map((/** @type {any} */ i) => ({
-				// The list's own repo where a row carries no repository_url, so a
-				// same-repo parent is never read as another repo's.
 				...edgeOf(i, listRepo()),
 				createdAt: i.created_at,
 				assignees: (i.assignees || []).map((/** @type {any} */ a) => a.login),
@@ -362,8 +219,6 @@ async function openIssues() {
 }
 
 /**
- * One issue in another repo, for a blocker only a `**Blocked on**` marker
- * names.
  * @param {import("./lib/issue-ref").IssueRef} ref
  * @returns {Promise<{ok: false, error: string} | {ok: true, issue: import("./lib/blocker-graph").Edge}>}
  */
@@ -376,8 +231,6 @@ async function readIssueIn(ref) {
 }
 
 /**
- * A served issue's sub-issues in every repo, for blocker-graph's container
- * count (#3658). per_page=100 is the sub-issue cap, so one page holds them all.
  * @param {import("./lib/issue-ref").IssueRef} ref
  * @returns {Promise<import("./lib/blocker-graph").EdgesRead>}
  */
@@ -391,8 +244,6 @@ async function readSubIssuesOf(ref) {
 }
 
 /**
- * Both age-sensitive labels read the same timeline, so an issue carrying both
- * costs one call, not two.
  * @param {number} n
  * @returns {Promise<{ok: true, events: any[]} | {ok: false, error: string}>}
  */
@@ -403,50 +254,18 @@ async function readTimelineOf(n) {
 	return r.ok ? { ok: true, events: r.out } : { ok: false, error: r.error };
 }
 
-// -------------------------------------------------------------------- analysis
-
-/*
- * The `takes:` values, shown so a batch says what to type per issue without
- * opening any of it (mantahostels#227). Never a filter, per rule 4 above, and
- * mantahostels#111 rejected selection writing one. Its one sort input is
- * `takes:wayfinder`, read by lib/pick-next-verdict.js (#2001). A missing
- * or duplicated value prints as it is; check-issue-labels.js reports it.
- *
- * `waiting:external` reaching the sort above does NOT contradict that (mantahostels#243).
- * Rule 4 bars a label from deciding whether an issue is takeable, because no
- * close clears one. This one removes nothing from the shortlist, and what the
- * sort reads is elapsed time on the timeline, which a stale label cannot fake.
- */
 const RETRO_LABEL = takesLabel("triage");
 
-/**
- * Elapsed days, or null where the label is off or its start unreadable.
- * @param {Issue} issue
- */
+/** @param {Issue} issue */
 const waitDays = (issue) =>
 	issue.wait && !issue.wait.unknown ? issue.wait.ageDays : null;
 
-/**
- * Days since `parked` went on; an unreadable start sorts as the oldest, since
- * an unknown age is the one a reader cannot rule out as stale.
- * @param {Issue} issue
- */
+/** @param {Issue} issue */
 const parkedDays = (issue) =>
 	issue.parked && !issue.parked.unknown
 		? issue.parked.ageDays
 		: Number.POSITIVE_INFINITY;
 
-/*
- * Path intersection — mantahostels#192. The estimate above is one bit per issue and so can
- * never say two shortlisted tickets collide *with each other*, which is the
- * collision a batch-planning session actually trips over: measured 6 real pairs
- * in one session, 4 of them the same repo path written into both issue bodies.
- *
- * ADVISORY ONLY, and deliberately not a sort input or an exclusion. A body may
- * name a file as context rather than as an edit target, and inferring edit
- * *intent* from prose is where precision dies — mantahostels#185 measured a prose-content
- * detector at ~15% while its presence check was fine.
- */
 /** @type {TrackedFiles|undefined} */
 let trackedCache;
 function readTrackedFiles() {
@@ -454,7 +273,7 @@ function readTrackedFiles() {
 	/** @type {TrackedFiles} */
 	let read;
 	try {
-		// -z, because a tracked filename may hold a space or an accent (mantahostels#148).
+		// lucmoseley/mantahostels#148
 		const out = execGit(["ls-files", "-z"], {
 			cwd: REPO_ROOT,
 			encoding: "utf8",
@@ -467,39 +286,21 @@ function readTrackedFiles() {
 	return read;
 }
 
-/*
- * The doc-map queue — mantahostels#409. Most open issues would write `docs/doc-map.md`, at
- * the END of their run: it is a STAMP, so they queue there and run together,
- * and sharing it disqualifies nobody (mantahostels#422, .claude/skills/pick-next/SKILL.md). The pairwise collisions
- * (lib/pick-next-collisions.js) cannot see them: their bodies name the entry (`§B56`), never a backticked
- * `docs/doc-map.md`.
- *
- * `scripts/lib/file-claim.js` stays the enforcement tier.
- */
 const DOC_MAP_HINT = writeSetPredict.DOC_MAP_HINT;
 /** @param {any[]} list */
 const docMapQueueOf = (list) =>
 	list.filter((i) => DOC_MAP_HINT.test(i.body)).map((i) => i.number);
 
-/** Graph rows printed per block; --json carries the lot. UNMEASURED, unlike lib/pick-next-collisions.js's INFLIGHT_PRINT_CAP. */
 const GRAPH_PRINT_CAP = 20;
-/** Files named in the graph's by-file summary. */
 const GRAPH_FILE_CAP = 8;
-/**
- * A session's name is its own header line, and this repo's runs to the issue
- * title — long enough to push the file that matters off the right of the row.
- * @param {string} s
- */
+/** @param {string} s */
 const sessionName = (s) =>
 	String(s).length > 34 ? `${String(s).slice(0, 33)}…` : String(s);
 
-/** Warm entries printed; --json carries the lot. UNMEASURED, unlike lib/pick-next-collisions.js's INFLIGHT_PRINT_CAP. */
 const WRITE_SET_PRINT_CAP = 20;
 const DERIVE_PER_LINE = 12;
 
 /**
- * The `... and N more` line under a capped list. Shared by all three cache
- * lists, so none of them can silently truncate while its neighbours say so.
  * @param {number} total
  * @param {string} label
  */
@@ -511,32 +312,20 @@ const printOverflow = (total, label) => {
 		);
 };
 
-/**
- * One cache entry as `--json` reports it. `provisional` and `replaced` ride on
- * every row rather than on the list it sits in, so a consumer that flattens the
- * two lists still knows which kind each row is.
- * @param {CacheEntry} w
- */
+/** @param {CacheEntry} w */
 const cacheEntryJson = (w) => ({
 	number: w.number,
 	writeSet: w.writeSet,
 	sizeBand: w.sizeBand,
-	// The coarse small/medium/large guess (mantahostels#1289) — provisional entries only,
-	// null on a band read. Answers whether a band read is even needed for
-	// `sizeBand`.
 	predictedSize: w.predictedSize ?? null,
 	gist: w.gist,
 	derivedAt: w.derivedAt,
 	provisional: w.provisional === true,
-	// The lookup state the prediction was written over; null for a band read, and
-	// for a prediction carried in from an earlier run's store.
 	replaced: w.replaced ?? null,
-	// git could not list the tree, so the rename check never ran.
 	unrevalidated: w.unrevalidated === true,
 });
 
 /**
- * `n` per line, so a long derive list wraps on issue numbers, not mid-number.
  * @param {string[]} items
  * @param {number} n
  */
@@ -547,17 +336,6 @@ function chunk(items, n) {
 	return rows;
 }
 
-// ------------------------------------------------------------------ admission
-
-/*
- * Admission (mantahostels#384), not a batch: a fixed batch of sessions is a
- * synchronisation barrier the work does not have: members finish at
- * different times, so slots sit idle while later issues are already unblocked.
- *
- * The figures and the arithmetic live in `lib/admission.js` (mantahostels#1144), so the
- * dispatch-time re-read `.claude/skills/pick-next` §5 calls for
- * (`scripts/admission.js`) computes them exactly as this block does.
- */
 const {
 	selectionAdmission,
 	buildSessionDrawLine,
@@ -569,19 +347,6 @@ const { readReserves } = require("./lib/admission-reserves.js");
 /** @typedef {ReturnType<typeof selectionAdmission>} Machine */
 
 /**
- * WHICH ASSIGNMENTS ARE REAL (mantahostels#645, on mantahostels#633's ruling).
- *
- * The assignee alone cannot answer it: every one on this repo is the founder's
- * login, whichever session set it, so an issue a finished session claimed
- * stayed excluded for good (mantahostels#633 measured how many).
- *
- * So an assignment excludes only where the session arbiter holds a matching
- * claim AND the recording session is live. NO MATCHING RECORD MEANS THE ISSUE
- * STAYS SELECTABLE — a session that assigns itself but never runs `claim-issue`
- * leaves its work in the shortlist.
- *
- * The claim is a READ here, like everything else in this script: nothing writes
- * one, and `claimIssue` is the working session's own call.
  * @param {ListedSessions} listed
  * @returns {{held: Map<number, any>, kept: boolean, why: string|null, claimsTree?: string|null}}
  */
@@ -590,18 +355,6 @@ function claimedIssues(listed) {
 		const elsewhere = storeElsewhere(REPO_ROOT, arbiter.paths.repoRoot());
 		return claimsFromStore(arbiter.heldIssues(listed), elsewhere);
 	} catch (e) {
-		// The store fails open on its own account; this catches a store that will
-		// not load at all, which must not take the whole shortlist down.
-		//
-		// A MAP, AND ALL FOUR FIELDS, matching every other branch. A `Set` answers
-		// `.has` false for everything, so nothing reaches the `claims.held.get(...)`
-		// below today — but one line ever putting a member in turns a degraded read
-		// into a TypeError inside the shortlist print (mantahostels#1394).
-		//
-		// GUARDED BY THE TYPE CHECKER, NOT BY A TEST: nothing in-process can make
-		// this branch run, so putting a `Set` back is checked instead — it fails
-		// `npm run typecheck` at the `claims.held.get(...)` below, naming the
-		// missing `get`.
 		return {
 			held: new Map(),
 			kept: false,
@@ -613,40 +366,7 @@ function claimedIssues(listed) {
 
 /** @typedef {import("./lib/dispatch-ledger").DispatchRecord} DispatchRecord */
 
-/**
- * The issues `scripts/dispatch-sessions.js` has already launched or the refill
- * loop resumed (#3704), read off the ledger both write (`.pick-next/dispatched.jsonl`) — the same file,
- * on the same window, that `check-duplicate-dispatch.js` drops a member on.
- *
- * WHY THIS RUN MUST READ IT (mantahostels#1528). Offering an already-dispatched issue is
- * not a harmless duplicate: the launcher deletes that member and does not
- * replace it, so the run starts fewer sessions than admission allowed, and the
- * frontier count §5 does its accounting against counts issues nothing can take.
- * On 26 Aug 2026 five of a frontier of 66 were already running and three of ten
- * dispatch lines were dropped at launch.
- *
- * THE LEDGER'S PATH, WINDOW AND ROOT ARE ALL THE SEAM'S, not restated here and
- * not passed in: `lib/dispatch-ledger.js` resolves WFC_DISPATCH_ROOT ahead of
- * WFC_REPO_ROOT, so a root supplied from this side would read a different
- * file from the one the launcher wrote whenever that variable is set.
- *
- * AN ENTRY HOLDS ON ISSUE AND COMMAND, FOR THE WHOLE WINDOW, LIVE SESSION OR
- * NOT (#752), unless the refill loop released it on a hand-off (#2744). It
- * excludes an issue only where its command matches the issue's
- * CURRENT `takes:` value — the command the launcher would be handed for it,
- * which drops on the same key. So `/triage 34` that relabelled #34
- * `takes:wayfinder` no longer holds it, and #34 meets the ordinary substrate,
- * admission and claim tests; a matching entry still holds whether its session
- * finished or not, because the launcher would still drop it. An entry whose
- * prompt has no readable `/<skill>` holds, and so does an issue carrying no
- * `takes:`.
- * `scripts/dispatch-sessions.js --force` is the way past a stale entry, and the
- * block this feeds prints that.
- *
- * IT FAILS OPEN, like the gate it reads with: an unreadable ledger excludes
- * nothing and says so, rather than emptying the frontier on a bad read.
- * @returns {{byIssue: Map<number, DispatchRecord[]>, why: string|null}}
- */
+/** @returns {{byIssue: Map<number, DispatchRecord[]>, why: string|null}} */
 function dispatchedIssues() {
 	/** @type {Map<number, DispatchRecord[]>} */
 	const byIssue = new Map();
@@ -663,23 +383,7 @@ function dispatchedIssues() {
 	return { byIssue, why: null };
 }
 
-/**
- * Owed work at the fragment layer, ruled at mantahostels#1171: stranded file
- * claims carry no issue number, so they cannot be ranked into the frontier
- * above — this is a headline count, not a sort input. It is a local read and
- * costs no network call.
- *
- * BOTH NUMBERS: most of the pile is inert, and the subset on a file carrying
- * uncommitted work is the part a reader can act on (mantahostels#1780). The cost and the
- * caveats are on lib/stranded-count.js, which owns the rule.
- *
- * The strict `listed` read's `terminal` field (mantahostels#2765, mantahostels#2774) keeps a holder
- * the oracle lists but has marked done, failed or stopped from being exempted
- * as live for ever. NOT its `finished` field, which is narrower and belongs to
- * `reclaimableFrom` (lib/pick-next-sessions.js): that one must match what the reaper actually stops.
- *
- * @param {ListedSessions} listed
- */
+/** @param {ListedSessions} listed */
 function strandedClaimCount(listed) {
 	const { found } = strandedCount.readDirtyWorktrees();
 	return strandedCount.countStranded(arbiter.readLocks(), listed.ids, {
@@ -690,22 +394,9 @@ function strandedClaimCount(listed) {
 	});
 }
 
-// ------------------------------------------------------------------------ main
-
-/**
- * EVERY RUN'S FULL REPORT, ON DISK. The text output runs to ~200 lines, so a
- * reader who tails it loses the ranking and admission blocks at the top — and
- * the only recovery was a second full run, ~30 s of GitHub calls for a report
- * this run had already computed. Written whether or not `--json` was asked for,
- * into `.claude/tmp/markers/.pick-next/`. One file, overwritten: a scratch copy of
- * the last run, never a history.
- *
- * A failure is reported and never thrown — the run's own answer is on stdout.
- * @param {unknown} payload
- */
+/** @param {unknown} payload */
 function writeRunSnapshot(payload) {
 	const file = snapshotFile(REPO_ROOT);
-	// Atomic, because a concurrent picker may be reading this very file.
 	try {
 		writeFileAtomic(file, `${JSON.stringify(payload, null, 2)}\n`, {
 			mkdir: true,
@@ -749,11 +440,6 @@ function writeRunSnapshot(payload) {
  * @property {Machine["live"]} live
  * @property {ReturnType<typeof reclaimableFrom>} reclaimable
  * @property {ReturnType<typeof strandedClaimCount>} stranded
- * `waitingAll`/`gatedAll`/`gatedOnAll` are `enriched.filter(hasWait|hasGate|hasGateOn)`
- * results — the type-predicate narrowing that gives `render` its
- * `i.wait`/`i.gate`/`i.gateOn` non-null reads is lost once the filtered array
- * crosses this plain-object boundary, so `any[]` here (not `Issue[]`) is what
- * keeps those reads type-checking downstream.
  * @property {any[]} waitingAll
  * @property {any[]} gatedAll
  * @property {any[]} gatedOnAll
@@ -770,7 +456,6 @@ function writeRunSnapshot(payload) {
  * @property {ReturnType<typeof pulledInRows>} pulledIn
  */
 
-/** The spec's own figure (#575): names past it make the line too long to read. */
 const TALLY_NAMES_AT_MOST = 3;
 
 /** @param {ReturnType<typeof openTallyOf>} t */
@@ -826,9 +511,6 @@ function owedWorkJson(state) {
 		strandedClaimsUnknown: stranded.ok ? null : stranded.error,
 		strandedClaimsCarrying: stranded.ok ? stranded.carrying : null,
 		strandedWorktrees: stranded.ok ? stranded.strandedWorktrees : null,
-		// A null `carrying` two ways, and a consumer must not read either as
-		// zero: the count was never read — `strandedClaimsUnknown` says so —
-		// or it was read and git would not name the dirty files (mantahostels#1780).
 		strandedClaimsCarryingUnknown:
 			stranded.ok && stranded.carrying === null
 				? "git would not report which files carry uncommitted work"
@@ -836,11 +518,7 @@ function owedWorkJson(state) {
 	};
 }
 
-/**
- * Carried whether or not the gate is still holding: a lapsed one is
- * what a consumer has to act on.
- * @param {State["gatedAll"]} gatedAll
- */
+/** @param {State["gatedAll"]} gatedAll */
 function gatedJson(gatedAll) {
 	return gatedAll.filter(hasGate).map((i) => ({
 		number: i.number,
@@ -850,18 +528,12 @@ function gatedJson(gatedAll) {
 		reason: i.gate.reason,
 		active: i.gateHolds,
 		malformed: i.gate.malformed ? i.gate.raw : null,
-		/* Without this a two-marker issue is indistinguishable here from a
-		 * lapsed date: `active` is false while `daysLeft` is still positive.
-		 * It is also what moved `active`'s meaning — it now answers "is this
-		 * gate holding", not "has the date passed". */
 		bothMarkers: i.gateConflict,
 	}));
 }
 
 /**
- * A sibling array, never a widened `gated[]` (mantahostels#1419): that one has a live
- * consumer asserting `{until, daysLeft, active, malformed}` across all its
- * rows.
+ * lucmoseley/mantahostels#1419
  * @param {State["gatedOnAll"]} gatedOnAll
  */
 function gatedOnJson(gatedOnAll) {
@@ -873,10 +545,6 @@ function gatedOnJson(gatedOnAll) {
 		abandonIf: i.gateOn.abandonIf || null,
 		holding: i.gateOnHolds,
 		malformed: i.gateOn.malformed ? i.gateOn.raw : null,
-		// A separate key from `gated[]`'s `reason`: that one already carries
-		// through malformed rows, but it's the free-text after the date's own
-		// dash, not a cause — a date gate has exactly one way to be malformed,
-		// so nothing there needs naming which one fired (mantahostels#1652).
 		malformedReason: i.gateOn.malformed ? i.gateOn.reason : null,
 		bothMarkers: i.gateConflict,
 	}));
@@ -920,7 +588,6 @@ function frontierJson(i) {
 		number: i.number,
 		title: i.title,
 		url: i.url,
-		// mergeFrontiers' age tie-break across repos (#3385)
 		createdAt: i.createdAt,
 		bug: i.bug,
 		urgent: i.urgent,
@@ -938,21 +605,15 @@ function frontierJson(i) {
 		closes: i.closes,
 		reach: i.reach,
 		collision: i.collision ? "writes repo files" : "comment-only",
-		// Always a list: an issue may carry none or, wrongly, several.
 		takes: i.takes,
 		pathsNamed: i.paths,
 		group: i.group,
 		labels: i.labels,
-		// the loop's oldest-park-first order (#3621)
 		parkedAt: i.parked && !i.parked.unknown ? i.parked.appliedAt : null,
 	};
 }
 
 /**
- * Each frontier row with `unclosedLaunch`: its latest loop launch where that
- * committed and did not close (#3782), else null; and `prompt`: what a lone
- * launch of it types, the loop's own (#4351), null where its `takes:` names
- * no one command. A damaged loop state reads as none, and says so on stderr.
  * @template {{number: number, takes: string[]}} R
  * @param {R[]} rows
  */
@@ -976,12 +637,7 @@ function withLaunchPrompt(rows) {
 	});
 }
 
-/**
- * The launcher's ledger, as this run read it (mantahostels#1528). `degraded` non-null
- * means NOTHING was excluded on it, so a consumer must not read an empty
- * `issues` as "nothing is running".
- * @param {State} state
- */
+/** @param {State} state */
 function alreadyDispatchedJson(state) {
 	const { enriched, dispatched, listed, dispatchJobs } = state;
 	return {
@@ -997,25 +653,14 @@ function alreadyDispatchedJson(state) {
 					title: i.title,
 					dispatchedAt: rec?.ts ?? null,
 					prompt: rec?.prompt ?? null,
-					// live | finished: <detail> | unknown (mantahostels#3488) — the same string
-					// the text report prints, off `dispatchLiveness`'s own read of
-					// the ledger's `jobId` against the oracle and the job's own
-					// `state.json`.
 					liveness: dispatchLivenessLabel(liveness),
-					// Only set on "unknown" — the text report has no room for it, so
-					// this is the one place it's diagnosable (mantahostels#3488 Standards F3).
 					livenessWhy: liveness.why ?? null,
 				};
 			}),
 	};
 }
 
-/**
- * The `--json` envelope. Pure over `state` -- the data `main()` gathers
- * below -- so a ranking or admission assertion can call this directly with
- * no fake repo and no `gh` stub (mantahostels#1794).
- * @param {State} state
- */
+/** @param {State} state */
 function buildPayload(state) {
 	const {
 		repo,
@@ -1057,23 +702,14 @@ function buildPayload(state) {
 				prompt: frontierRows.find((f) => f.number === p.number)?.prompt ?? null,
 			})),
 		},
-		/*
-		 * PROVENANCE, because one file holds whatever ran last. A `--repo` run
-		 * reports another tracker and a `--no-log` one dispatched nothing; both
-		 * overwrite this file, and a reader told to trust it has no other way to tell.
-		 */
 		repo,
 		argv,
 		openIssues: enriched.length,
-		/*
-		 * `frontier` below now carries the whole frontier too (mantahostels#1289) — this stays
-		 * the accounting field mantahostels#844's guard checks against, so a future truncation
-		 * of `frontier` still has a figure to be caught by.
-		 */
+		/* lucmoseley/mantahostels#1289, lucmoseley/mantahostels#844 */
 		frontierCount: frontier.length,
 		emptyBody: emptyBodiedOf(frontier),
 		admission: admissionJson(state),
-		/* `admission.js --json`'s own key and shape (#590). */
+		/* #590 */
 		memory,
 		owedWork: owedWorkJson(state),
 		goal,
@@ -1085,9 +721,6 @@ function buildPayload(state) {
 		})),
 		gated: gatedJson(gatedAll),
 		gatedOn: gatedOnJson(gatedOnAll),
-		// This repo's resolved against the open list this run already fetched
-		// (mantahostels#1289). `open` and `unreadable` still exclude; `closed`
-		// spares a reader confirming it by hand.
 		proseBlocked: proseBlockedAll.map((i) => ({
 			number: i.number,
 			title: i.title,
@@ -1095,22 +728,16 @@ function buildPayload(state) {
 			open: i.proseBlocked.open,
 			closed: i.proseBlocked.closed,
 			unreadable: i.proseBlocked.unreadable,
-			// Names no issue number, so it excludes nothing — §5's
-			// disqualifier 2 is read off this (mantahostels#927).
 			unparsed: i.proseBlocked.unparsed,
 		})),
 		waiting: waitingAll.map(waitingJson),
 		parked: parkedAll.map(parkedJson),
 		frontier: frontierRows,
-		// Launch candidates in other repos, for lib/refill-frontier.js (#2427).
 		pulledIn: state.pulledIn.rows,
 		pulledInUnread: state.pulledIn.unread,
 		ownRepo: state.ownRepo,
 		goalSet: state.goalSet,
 		running: state.running,
-		// The fail-open case (mantahostels#645): assigned in GitHub, but no live session
-		// recorded a claim, so this run treats it as takeable. An issue
-		// excluded for any other reason is left out.
 		assignedUnclaimed: enriched
 			.filter((i) => i.assignedUnclaimed)
 			.map((i) => ({
@@ -1126,25 +753,20 @@ function buildPayload(state) {
 					claimsTree: claims.claimsTree ?? null,
 				}
 			: null,
-		// Parents whose claim store would not read (#2310).
 		parentClaimsUnread: parentHeld.unread,
 		possibleCollisions: collisions,
 		inFlightCollisions,
 		docMapQueue,
 		conflictGraph: graph,
-		// One `/triage <n>…` session each (#1105); §6 writes each as one line.
 		retroBundles: launches,
 		dispatchableFloor,
 		bandReadRequired,
 		writeSetCache: {
 			dir: writeSetCache.CACHE_SUBDIR,
 			warm: cacheState.warm.map(cacheEntryJson),
-			// A SEPARATE LIST, not a flag inside `warm` (mantahostels#1001): a reader taking
-			// `warm` as its band-read set gets the right answer whether or not it
-			// knows predictions exist.
+			// lucmoseley/mantahostels#1001
 			provisional: cacheState.provisional.map(cacheEntryJson),
 			cold: cacheState.cold,
-			// Misses no prediction could cover, with the reason for each.
 			prewarmSkipped: cacheState.skipped,
 			prewarmed: cacheState.enabled,
 			pruned: cachePruned.removed,
@@ -1174,8 +796,6 @@ function buildPayload(state) {
 }
 
 /**
- * What a degraded claims read means for the report below it, as the advice
- * printed under the CLAIMS DEGRADED line.
  * @param {ReturnType<typeof claimedIssues>} claims
  * @returns {string}
  */
@@ -1220,16 +840,13 @@ function renderCounts(state) {
 
 /** @param {State["admission"]} admission */
 function printCpuLimb(admission) {
-	/* The HOLD below already counts it (#834); this line names the limb. */
 	const load = admission.load;
 	if (load.overloaded)
 		writeFd(
 			1,
 			`  cpu load           ${buildOverloadText(load)} — dispatch refuses each launch until it falls\n`,
 		);
-	/* Unknown is never calm (mantahostels#1206): the check fails open on it. */ else if (
-		load.load1 === null
-	)
+	/* lucmoseley/mantahostels#1206 */ else if (load.load1 === null)
 		writeFd(
 			1,
 			"  cpu load           unknown — /proc/loadavg unreadable, so no launch is held on load\n",
@@ -1243,15 +860,7 @@ function printCpuLimb(admission) {
 
 /** @param {State["reclaimable"]} reclaimable */
 function printReclaimable(reclaimable) {
-	/*
-	 * Silent at zero, never at a failed probe (mantahostels#1237, on mantahostels#1206's unknown-never-
-	 * zero rule): a row reading 0 changes nothing a reader does, but a probe that
-	 * could not run would read as 0 to anyone who cannot see the JSON.
-	 *
-	 * The plain run is named, never `--dry-run`, which lists the sessions and no
-	 * size: the real run's MB-returned total is where the reader gets the pool's
-	 * size, and is why no footprint figure is quoted here.
-	 */
+	/* lucmoseley/mantahostels#1237, lucmoseley/mantahostels#1206 */
 	if (!reclaimable.ok)
 		writeFd(
 			1,
@@ -1323,11 +932,6 @@ function renderAdmission(state) {
 /** @param {State} state */
 function renderOwedWork(state) {
 	const { stranded } = state;
-	/*
-	 * mantahostels#1171's fragment layer, one down from the issue layer this frontier
-	 * ranks. A count that could not be read prints as unknown, never as
-	 * zero (mantahostels#1206).
-	 */
 	writeFd(1, "OWED WORK — report only, never a filter or a sort input\n\n");
 	writeFd(
 		1,
@@ -1340,21 +944,14 @@ function renderOwedWork(state) {
 	writeFd(1, "\n");
 }
 
-/**
- * The URG cell: `bug`, `yes` for the issue's own label, `via` for one it
- * inherits.
- * @param {Issue} i
- */
+/** @param {Issue} i */
 function urgentCell(i) {
 	if (i.bug) return "bug";
 	if (i.labels.includes(URGENT_LABEL)) return "yes";
 	return i.urgentVia ? "via" : "";
 }
 
-/**
- * The GOAL cell: `yes` for a goal-set member, `via` for one holding a member out.
- * @param {Issue} i
- */
+/** @param {Issue} i */
 function goalCell(i) {
 	if (goalRanked.has(i.number)) return "yes";
 	return i.goal ? "via" : "";
@@ -1365,7 +962,6 @@ function renderShortlist(state) {
 	const { shown } = state;
 	const header = `${pad("#", 6)}${pad("URG", 5)}${pad("GOAL", 6)}${pad("WAIT", 6)}${pad("DEPTH", 7)}${pad("CLOSES", 8)}${pad("REACH", 7)}${pad("COLL", 6)}${pad("GROUP", 16)}${pad("TAKES", 12)}`;
 	writeFd(1, `${header}TITLE\n`);
-	// The title column is cut at 42 characters below.
 	writeFd(1, `${"-".repeat(header.length + 42)}\n`);
 	for (const i of shown)
 		writeFd(
@@ -1465,8 +1061,6 @@ function printGraphConflicts(graph) {
 
 /** @param {State["graph"]} graph */
 function printGraphStamps(graph) {
-	// Summary, never a list: these pairs run together, so naming each one would
-	// bury the pairs that do not (.claude/skills/pick-next/SKILL.md).
 	if (graph.stampSharing.pairs)
 		writeFd(
 			1,
@@ -1501,10 +1095,6 @@ function printGraphMergeable(graph) {
 
 /** @param {State["graph"]} graph */
 function printGraphNominations(graph) {
-	/*
-	 * Printed even at zero: silence would read as "no such block in this build",
-	 * and §4 acts on the count either way.
-	 */
 	if (graph.candidates.length > 0) {
 		writeFd(
 			1,
@@ -1563,7 +1153,6 @@ function printProposedSet(graph) {
 		`\n  PROPOSED DISJOINT SET (${graph.proposed.length}) — greedy down the ranking above:\n` +
 			`    ${graph.proposed.length > 0 ? graph.proposed.map((/** @type {number} */ n) => `#${n}`).join(", ") : "empty"}\n`,
 	);
-	// Re-spelled from the row: the stored reason carries the untruncated name.
 	const inFlightOf = new Map(
 		graph.inFlight.map((/** @type {any} */ r) => [r.candidate, r]),
 	);
@@ -1677,8 +1266,6 @@ function renderWriteSetCache(state) {
 					`  Store each back: node ${scriptPath("pick-next-cache.js")} put <n> --body-hash <hex>\n` +
 					"  --json carries each hash; --dump-bodies writes it into the dumped file.\n",
 			);
-		// Why a miss stayed a miss — a `wayfinder:map` issue, an unlistable tree, an
-		// unwritable store.
 		for (const sk of cacheState.skipped.slice(0, WRITE_SET_PRINT_CAP))
 			writeFd(1, `  not predicted: #${sk.number} — ${sk.why}\n`);
 		printOverflow(cacheState.skipped.length, "not predicted");
@@ -1688,9 +1275,6 @@ function renderWriteSetCache(state) {
 /** @param {State} state */
 function renderWarmLogged(state) {
 	const { warmLogged } = state;
-	// Outside the block above: a run with nothing to derive still appends a line,
-	// and a failure nobody is told about is how a fortnight of collection ends up
-	// empty.
 	if (warmLogged?.ok === false)
 		writeFd(
 			1,
@@ -1712,10 +1296,7 @@ function renderDumped(state) {
 		);
 }
 
-/**
- * Each source of an issue's urgency, for the URGENT block.
- * @param {Issue} i
- */
+/** @param {Issue} i */
 function urgencySources(i) {
 	const why = [];
 	if (i.bug) why.push("bug");
@@ -1732,7 +1313,6 @@ function urgencySources(i) {
 }
 
 /**
- * A tier and the chain it comes down.
  * @param {string} tier
  * @param {import("./lib/blocker-graph").Via} via
  */
@@ -1742,8 +1322,6 @@ const viaText = (tier, via) =>
 /** @param {State} state */
 function renderUrgent(state) {
 	const { enriched } = state;
-	// Display duty over `urgent`, per mantahostels#111: where it came from, who
-	// applied it and when, never a write.
 	const urgentShown = enriched.filter((i) => i.urgent);
 	if (urgentShown.length > 0) {
 		writeFd(
@@ -1827,8 +1405,6 @@ function printGatedRow(i) {
 		writeFd(1, `${line}\n`);
 		return;
 	}
-	// `gatedAll` carries `i.gate || i.gateOn`; the `i.gate` branch above
-	// having fallen through proves this one non-null.
 	const gateOn = i.gateOn;
 	if (!gateOn) return;
 	writeFd(
@@ -1881,10 +1457,6 @@ function printProseBlockedRow(i) {
 					: "every named issue is closed, resolved")
 			}\n`,
 		);
-	/*
-	 * NAMES NO NUMBER (mantahostels#927). Nothing here resolves against the open
-	 * list, so it prints the sentence rather than a verdict.
-	 */
 	for (const raw of i.proseBlocked.unparsed)
 		writeFd(
 			1,
@@ -1910,10 +1482,7 @@ function renderProseBlocked(state) {
 	}
 }
 
-/**
- * A pulled-in row's inherited tiers and depth, or "" where it inherits none.
- * @param {{bug: boolean, urgent: boolean, goal: boolean, depth: number}} r
- */
+/** @param {{bug: boolean, urgent: boolean, goal: boolean, depth: number}} r */
 function pulledTiers(r) {
 	const tiers = [
 		r.bug ? "bug" : "",
@@ -1924,7 +1493,6 @@ function pulledTiers(r) {
 	return tiers.length > 0 ? `${tiers.join(" ")}  ` : "";
 }
 
-/* The title's room on an 80-column terminal after the row's 11-column indent. */
 const PULLED_TITLE_CHARS = 80 - 11;
 
 /** @param {State} state */
@@ -1993,12 +1561,6 @@ function renderDegraded(state) {
 /** @param {State} state */
 function renderAssignedUnclaimed(state) {
 	const { enriched } = state;
-	/*
-	 * The fail-open case, said out loud (mantahostels#645). An assignment nothing backs is
-	 * treated as free, and a reader who saw the assignee in GitHub needs to know
-	 * this run decided against it — silently ignoring a claim would be the
-	 * unaccountable answer a bare assignee gives.
-	 */
 	const assignedUnclaimed = enriched.filter((i) => i.assignedUnclaimed);
 	if (assignedUnclaimed.length > 0) {
 		writeFd(
@@ -2036,15 +1598,11 @@ function renderClaimsDegraded(state) {
 
 /**
  * @param {State} state
- * @returns {Issue[]} the issues held as already dispatched, which EXCLUDED counts
+ * @returns {Issue[]}
  */
 function renderDispatched(state) {
 	const { enriched, dispatched, listed, dispatchJobs } = state;
-	/*
-	 * A BLOCK OF ITS OWN, never folded into EXCLUDED (mantahostels#1528). These are the only
-	 * exclusions a reader can lift themselves — the launcher's own `--force` —
-	 * and a stale ledger entry is invisible unless its age is printed.
-	 */
+	/* lucmoseley/mantahostels#1528 */
 	const dispatchedShown = enriched
 		.filter((i) => i.dispatchHeld)
 		.sort((a, b) => a.number - b.number);
@@ -2058,9 +1616,6 @@ function renderDispatched(state) {
 			const livenessCell = dispatchLivenessCell(
 				dispatchLiveness(rec, listed, dispatchJobs),
 			);
-			// pad() pads a short label but never truncates a long one (mantahostels#3488
-			// Standards, the "finished: <detail>" case) — `pad(…, 14) + " "`
-			// keeps a separator even where the cell overruns the column.
 			writeFd(
 				1,
 				`  #${i.number}  ${dispatchAge(rec, Date.now())}  ${pad(livenessCell, 14)} ${String(i.title).slice(0, 40)}\n`,
@@ -2092,8 +1647,7 @@ function renderExcluded(state, dispatchedShown) {
 	const { enriched } = state;
 	writeFd(1, "\nEXCLUDED\n\n");
 	for (const i of enriched
-		// The dispatched ones have a block of their own above, so printing them
-		// here too would report the same exclusion twice (mantahostels#1528).
+		// lucmoseley/mantahostels#1528
 		.filter((x) => x.excluded && !x.dispatchHeld)
 		.sort((a, b) => a.number - b.number))
 		writeFd(
@@ -2115,15 +1669,7 @@ function renderNotProposed(state) {
 
 /** @param {State["summary"]} summary */
 function printSummaryFlags(summary) {
-	/*
-	 * A failed probe prints `unknown` and its reason, not silence (mantahostels#1237, on
-	 * mantahostels#1206): §6's *Headroom understated* line fires on this count, so a probe
-	 * that could not run would otherwise remove that line and leave the reader
-	 * concluding the headroom is honest.
-	 *
-	 * The rows below are silent at zero on purpose — each is a §6 line that
-	 * prints only where it applies.
-	 */
+	/* lucmoseley/mantahostels#1237, lucmoseley/mantahostels#1206 */
 	if (summary.reclaimableUnknown)
 		writeFd(
 			1,
@@ -2139,11 +1685,6 @@ function printSummaryFlags(summary) {
 			1,
 			`  ${pad("degraded", 19)}${summary.degraded} readiness unknown — the shortlist is not the whole frontier\n`,
 		);
-	/*
-	 * Printed even at zero where the ledger read, unlike the rows around it:
-	 * §5's accounting denominator moved on this count (mantahostels#1528), so a reader
-	 * reconciling `frontier` against the tracker needs to see it was applied.
-	 */
 	if (summary.dispatchHeldUnknown)
 		writeFd(
 			1,
@@ -2154,8 +1695,7 @@ function printSummaryFlags(summary) {
 			1,
 			`  ${pad("dispatched", 19)}${summary.dispatchHeld} held out on a launch in the last ${DISPATCH_WINDOW_HOURS}h\n`,
 		);
-	// Over the whole frontier, never the shown slice: an issue below the
-	// `--limit` cut can still be a proposed member (mantahostels#3363).
+	// lucmoseley/mantahostels#3363
 	if (summary.labelDefects.length > 0)
 		writeFd(
 			1,
@@ -2168,10 +1708,6 @@ function printSummaryFlags(summary) {
 /** @param {State} state */
 function renderRunSummary(state) {
 	const { summary } = state;
-	/*
-	 * Counted from the blocks above, and printed after them: a reader who tails
-	 * this output lands here, and §6's message is what they write next.
-	 */
 	writeFd(1, "\nRUN SUMMARY — the figures §6's message is written from\n\n");
 	writeFd(1, `  ${pad("open issues", 19)}${summary.openIssues}\n`);
 	writeFd(
@@ -2183,10 +1719,6 @@ function renderRunSummary(state) {
 		1,
 		`  ${pad("open tally", 19)}${buildOpenTallyLine(openTallyOf(state))}\n`,
 	);
-	/*
-	 * Printed at zero too, unlike the silent-at-zero rows further down: §6's
-	 * line carries this term whether or not it is 0.
-	 */
 	writeFd(
 		1,
 		`  ${pad("no command", 19)}${summary.noCommand} — §5's third term: takes:human, plus a rotted takes:children container\n`,
@@ -2233,13 +1765,6 @@ function renderRunSummary(state) {
 
 /** @param {{ok: boolean, file: string, error?: string}} snapshot */
 function renderFooter(snapshot) {
-	/*
-	 * GENUINELY LAST: tailing this output is what loses the top of it, so a
-	 * pointer anywhere else is lost by exactly the reader it is for.
-	 *
-	 * The failure line prescribes the `--json` re-run the skill otherwise bars —
-	 * with no file on disk, that re-run is the only copy.
-	 */
 	writeFd(
 		1,
 		"\nAdvisory only; nothing here was written back to the tracker.\n",
@@ -2256,9 +1781,6 @@ function renderFooter(snapshot) {
 }
 
 /**
- * The text report printed when `--json` was not asked for. Reads `state`
- * alone -- everything `buildPayload` puts in the envelope is data this
- * already has, so nothing here reads the payload it produced.
  * @param {State} state
  * @param {{ok: boolean, file: string, error?: string}} snapshot
  */
@@ -2298,12 +1820,6 @@ async function listOpenIssuesOrExit() {
 	try {
 		return await openIssues();
 	} catch (e) {
-		/*
-		 * The list call is the one failure with no degraded mode: without it there
-		 * is no candidate set at all, and printing an empty shortlist would read as
-		 * "the tracker is drained".
-		 */
-		/* An outcome error is lib/gh.js's own refusal, whole, never a gh fault. */
 		let why;
 		if (isOutcomeError(e))
 			why = `FAILED: could not list open issues: ${/** @type {Error} */ (e).message}\n`;
@@ -2347,7 +1863,6 @@ async function resolveBlockers(issues, byNumber) {
 				parent:
 					parent &&
 					!isInOtherRepo(parent, i.repo) &&
-					// The listing holds only open issues: a parent absent from it is closed.
 					isPassingDown({
 						state: byNumber.get(parent.number)?.state ?? "closed",
 					})
@@ -2359,7 +1874,6 @@ async function resolveBlockers(issues, byNumber) {
 		}),
 		ownRepo,
 		{
-			// The few foreign nodes the walk reaches, read one by one (#2427).
 			blockedBy: (ref) =>
 				readBlockedByOne(ref.repo ?? REPO, ref.number, { home: ref.repo }),
 			issue: readIssueIn,
@@ -2378,12 +1892,6 @@ async function resolveBlockers(issues, byNumber) {
 }
 
 /**
- * lib/blocker-graph.js's launch candidates in other repos, each with the
- * checkout it launches from, `root`, and `held`: why it is held outside the
- * loop, no checkout tracking its repo, else null. An opted-out checkout's
- * issues that hold a served one out still launch (#3281). Each carries the
- * tiers and depth it
- * inherits from what it holds here, for the refill merge to rank it by (#3222).
  * @param {import("./lib/blocker-graph").Graph} graph
  * @param {ReturnType<typeof enrichAll>["inherit"]} inherit
  */
@@ -2408,7 +1916,6 @@ function pulledInRows(graph, inherit) {
  * @param {Enriching[]} issues
  */
 async function timelinesByIssue(issues) {
-	// Only issues actually carrying an age-sensitive label cost a timeline call.
 	const timelineCandidates = issues.filter(
 		(i) =>
 			i.labels.includes(URGENT_LABEL) ||
@@ -2426,11 +1933,6 @@ async function timelinesByIssue(issues) {
 }
 
 /**
- * The issues whose parent map a live session holds a claim on (#2310), as
- * `held` (issue number -> the parent and its holder), and `unread`, one
- * sentence per parent whose kind or store could not be read, each of which
- * holds nothing. A same-repo parent's kind is read off `mapNumbers`; a parent
- * in another repo costs one `issues/<n>/parent` call, whose payload carries it.
  * @param {RawIssue[]} issues
  * @param {Set<number>} mapNumbers
  * @param {ReturnType<typeof claimedIssues>} claims
@@ -2474,20 +1976,11 @@ async function parentClaims(issues, mapNumbers, claims, listed) {
 }
 
 /**
- * The write-set cache (mantahostels#385).
- *
- * Pruned against every open issue, not the frontier: a claimed or blocked
- * issue is still open, and its entry is what makes the *next* re-pick warm.
  * @param {Issue[]} frontier
  * @param {Issue[]} enriched
  * @param {TrackedFiles} tracked
  */
 function writeSetCacheOf(frontier, enriched, tracked) {
-	/*
-	 * Skipped against any repo but this tree's own: the store is keyed on
-	 * REPO_ROOT alone, so another tracker's #7 would read this one's entry, and
-	 * pruning would delete every entry that tracker has no open issue for.
-	 */
 	const cacheUsable = REPO === REPO_DEFAULT;
 	const cacheSplit = cacheUsable
 		? writeSetCache.lookupAll(REPO_ROOT, frontier, tracked)
@@ -2499,11 +1992,6 @@ function writeSetCacheOf(frontier, enriched, tracked) {
 			)
 		: { removed: [] };
 
-	/*
-	 * PRE-WARMING (mantahostels#1001). Every miss the lookup found is filled with a grep
-	 * prediction and folded back in, so this run's band read need only cover what
-	 * no prediction could reach.
-	 */
 	const cacheState = prewarm(REPO_ROOT, frontier, {
 		tracked,
 		split: cacheSplit,
@@ -2512,12 +2000,7 @@ function writeSetCacheOf(frontier, enriched, tracked) {
 	return { cacheUsable, cachePruned, cacheState };
 }
 
-/**
- * How many entries were put since the last run recorded, which is what tells
- * a genuine re-pick from a second record of one run where the frontier has
- * not moved (mantahostels#667). Counted before the append, so the interval ends here.
- * @param {boolean} cacheUsable
- */
+/** @param {boolean} cacheUsable */
 function putsSinceLastRun(cacheUsable) {
 	return cacheUsable && !NO_LOG
 		? writeSetCache.countDerivedSince(
@@ -2528,13 +2011,6 @@ function putsSinceLastRun(cacheUsable) {
 }
 
 /**
- * THE SUBSTRATE-CONFLICT GRAPH (mantahostels#1002).
- *
- * Over the whole frontier, like the collisions it refines. It says which candidates name
- * one file, never which of those files is a substrate: that call is the
- * skill's (mantahostels#506). Retro-bundle members are left out: `/triage`
- * writes no repo file, so they can neither lose a slot to a clash nor cost
- * another issue one (#1105).
  * @param {Issue[]} frontier
  * @param {Enriching[]} issues
  * @param {ReturnType<typeof listedSessionIds>} listed
@@ -2544,11 +2020,6 @@ function conflictGraphOf(frontier, issues, listed, cacheState) {
 	const bundles = retroBundles(frontier);
 	const bundled = new Set(bundles.flat());
 	const unbundled = frontier.filter((i) => !bundled.has(i.number));
-	/*
-	 * The whole open-issue set this run already fetched (`issues`, above) — no
-	 * extra request needed to tell a claim's holder is stranded on an issue that
-	 * has since closed (mantahostels#2764).
-	 */
 	const openIssueNumbers = new Set(issues.map((i) => i.number));
 	const heldFiles = conflictGraph.readHeldFiles(listed, openIssueNumbers);
 	const graph = conflictGraph.buildGraph({
@@ -2562,9 +2033,6 @@ function conflictGraphOf(frontier, issues, listed, cacheState) {
 }
 
 /**
- * One line per real re-pick, for mantahostels#628 — the warm fraction that mantahostels#611's
- * per-ticket saving multiplies. Skipped against another repo, where there is
- * no split to record rather than a cold one.
  * @param {boolean} cacheUsable
  * @param {{frontier: Issue[], cacheState: State["cacheState"], degraded: Issue[], putsSince: ReturnType<typeof putsSinceLastRun>}} run
  */
@@ -2583,20 +2051,7 @@ function logWarmFraction(cacheUsable, run) {
 		: null;
 }
 
-/**
- * The machine's admission readings and the lenient verdict over them.
- *
- * The reclaimable credit (`reclaimableMb`, reading the reaper's own
- * `--dry-run --json` plan) is NOT wired here: it would spawn a second node
- * process and a second oracle read against the very figure this run is
- * measuring — the standing reason `reclaimableFrom` already declines to
- * reap here (mantahostels#653, quoted above). `admission.js`'s dispatch-time re-read is
- * where the credit applies (mantahostels#1288); §5 sends the reader there immediately
- * before the dispatch lines regardless. How many the next reap takes is
- * `reclaimableFrom`'s count, which matches the reaper's plan without running
- * it; the MB it would return stays uncredited.
- * @param {ListedSessions} listed
- */
+/** @param {ListedSessions} listed */
 function admissionOf(listed) {
 	const reclaimable = reclaimableFrom(listed, idSeam.fromEnv());
 	const { mem, procs, host, live, memory, admission } = selectionAdmission({
@@ -2619,32 +2074,21 @@ function admissionOf(listed) {
  * @param {Issue[]} enriched
  */
 function bannersOf(enriched) {
-	/*
-	 * Every waiting issue, shortlisted or not, longest first. An excluded one —
-	 * claimed, or blocked — is the case the rank level above cannot reach, and
-	 * the EXCLUDED table shows no age.
-	 */
 	const waitingAll = enriched
 		.filter(hasWait)
 		.sort((a, b) => (waitDays(b) || 0) - (waitDays(a) || 0));
 
-	/* Every issue carrying either marker, gating or not — one banner. */
 	const gatedAll = enriched
 		.filter((i) => i.gate || i.gateOn)
 		.sort((a, b) => a.number - b.number);
 	const gatedOnAll = gatedAll.filter(hasGateOn);
 
-	/*
-	 * Every issue carrying a `**Blocked on**` marker (mantahostels#1289), whether or not the
-	 * number it names is still open.
-	 */
 	const proseBlockedAll = enriched
 		.filter(
 			(i) =>
 				i.proseBlocked.named.length > 0 || i.proseBlocked.unparsed.length > 0,
 		)
 		.sort((a, b) => a.number - b.number);
-	/* Every parked issue, oldest park first, whatever else excludes it. */
 	const parkedAll = enriched
 		.filter(hasParked)
 		.sort((a, b) => parkedDays(b) - parkedDays(a));
@@ -2671,24 +2115,10 @@ async function main() {
 
 	const timelineByIssue = await timelinesByIssue(issues);
 
-	/*
-	 * One STRICT oracle read for the whole run: it costs ~465 ms (mantahostels#317), and
-	 * the claim test below, the stranded-claims headline and the admission
-	 * block's session count all need it. Undercounting a live session here
-	 * risks over-admission, so the self-test that refuses on doubt stays on.
-	 */
 	const listed = listedSessionIds();
 	const claims = claimedIssues(listed);
 	const parentHeld = await parentClaims(withDeps, mapNumbers, claims, listed);
-	/* One read for the whole run; the seam resolves which tree it reads. */
 	const dispatched = dispatchedIssues();
-	/*
-	 * Read once for the whole run, for `dispatchLiveness` (mantahostels#3488) — every
-	 * ALREADY DISPATCHED row's job lookup shares this one scan of the local
-	 * `jobs/` stores rather than re-reading disk per row. `null` where no store
-	 * could be opened at all, which `dispatchLiveness` reads as "unknown"
-	 * rather than "no jobs exist".
-	 */
 	const dispatchJobs = readJobs();
 
 	/** @type {Omit<import("./lib/pick-next-verdict.js").EnrichContext, "inherit">} */
@@ -2707,25 +2137,8 @@ async function main() {
 	};
 	const { enriched, inherit } = enrichAll(withDeps, byNumber, ctx);
 
-	/*
-	 * An issue whose blocked_by call failed twice is held out of the shortlist
-	 * rather than assumed takeable: presenting it as ready is the one error the
-	 * tool cannot recover from, since a session would claim work something else
-	 * still gates.
-	 *
-	 * It also costs the *other* issues accuracy: a failed call leaves `blockedBy`
-	 * empty, and reach is built by inverting `blockedBy`, so every edge into a
-	 * degraded issue disappears and whatever blocks it loses a reach point. Every
-	 * reach on a degraded run is therefore a lower bound.
-	 */
 	const degraded = enriched.filter((i) => i.depsUnknown);
 
-	/*
-	 * Paths over the whole frontier, not the printed slice: the skill's own
-	 * invocation passes `--limit`, so pairing `shown` would hide exactly the
-	 * collisions a long frontier creates. Annotated after the sort, so they
-	 * can never reach the ordering.
-	 */
 	const tracked = readTrackedFiles();
 	const frontier = annotatePaths(rankFrontier(enriched), tracked);
 	const shown = LIMIT ? frontier.slice(0, LIMIT) : frontier;
@@ -2736,11 +2149,7 @@ async function main() {
 		tracked,
 	);
 
-	// Over the whole frontier: a queue the `--limit` cut hides is a queue the
-	// band read walks into.
 	const docMapQueue = docMapQueueOf(frontier);
-	// Every open issue, not just the shortlist: an excluded issue's body is what
-	// says whether its exclusion still holds.
 	const dumped = DUMP_DIR ? dumpBodies(String(DUMP_DIR), enriched) : null;
 
 	const { cacheUsable, cachePruned, cacheState } = writeSetCacheOf(
@@ -2769,15 +2178,6 @@ async function main() {
 	const { reclaimable, mem, procs, host, live, memory, admission } =
 		admissionOf(listed);
 
-	/*
-	 * Rides `--no-log` for the same reason the warm-fraction line does: a Stop
-	 * hook must not start asking a tooling run for §5's sum. Unlike that line it
-	 * runs against another repo too — the guard reads the message, not the cache.
-	 *
-	 * Minted here rather than beside the warm-fraction log because it carries the
-	 * slot count too (mantahostels#1321), and that is not known until the admission
-	 * arithmetic above has run.
-	 */
 	if (!NO_LOG) {
 		selectionMarker.recordFromEnv(REPO_ROOT, {
 			frontier: frontier.length,
@@ -2866,11 +2266,7 @@ async function main() {
 	render(state, snapshot);
 }
 
-/* `main` is a §N7 departure, mantahostels#1944's: it is the live GitHub fan-out entry
- * point, exported only so `scripts/lib/run-in-process.js`'s `runInProcessAsync`
- * can call and await it directly in `lib/pick-next-testkit.ts` — requiring the module
- * never runs it, since it fires only under `require.main === module` or where
- * a caller invokes the export itself. */
+// lucmoseley/mantahostels#1944
 module.exports = { main };
 
 if (require.main === module) {

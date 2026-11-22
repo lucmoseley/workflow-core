@@ -127,8 +127,7 @@ if ! lander_batch && armed '^(app|lib)/.*\.(ts|tsx)$|^scripts/.*\.(js|mjs|cjs|ts
     if ! command -v eslint >/dev/null 2>&1; then
       echo "SKIP: commands.lint is declared, but eslint is not on PATH" >&2
     else
-      # shellcheck disable=SC2086 # deliberate word-splitting: one path per line.
-      eslint --max-warnings 0 --no-warn-ignored --no-error-on-unmatched-pattern $eslint_paths || {
+      with_lines "$eslint_paths" eslint --max-warnings 0 --no-warn-ignored --no-error-on-unmatched-pattern || {
         echo "pre-commit: ESLint failed on this commit's own app/, lib/ or scripts/ paths." >&2
         echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1133)." >&2
         exit 1
@@ -139,8 +138,7 @@ fi
 
 if ! lander_batch && armed_shell; then
   if tool_gate shellcheck "see CLAUDE.md §Gotchas for the aarch64 binary this machine uses."; then
-    # shellcheck disable=SC2086 # one path per line.
-    hook_bound sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 $tool_paths || {
+    with_lines "$tool_paths" hook_bound sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 || {
       sc_rc=$?
       echo "pre-commit: shellcheck failed on this commit's own shell paths." >&2
       echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1134)." >&2
@@ -152,8 +150,7 @@ fi
 
 if ! lander_batch && armed '^\.github/workflows/.*\.ya?ml$'; then
   if tool_gate actionlint "see package.json's comments[\"scripts.check:actions\"] for the release to fetch."; then
-    # shellcheck disable=SC2086 # one path per line.
-    hook_bound actionlint $tool_paths || {
+    with_lines "$tool_paths" hook_bound actionlint || {
       echo "pre-commit: actionlint failed on this commit's own workflow paths." >&2
       echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1137)." >&2
       exit 1
@@ -212,8 +209,7 @@ if ! lander_batch && armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live 
       exit 2
       ;;
   esac
-  # shellcheck disable=SC2086 # deliberate word-splitting: zero to two flags.
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-format-staged.js $fmt_skip || {
+  with_lines "$fmt_skip" node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-format-staged.js || {
     fs_rc=$?
     if [ "$fs_rc" -ne 1 ]; then
       echo "pre-commit: the format gate refused this commit, its checker unable to run." >&2

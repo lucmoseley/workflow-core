@@ -1,40 +1,20 @@
-/*
- * away-load.js — what the away-only reset-precondition runner (#5472) does
- * next. No I/O: `scripts/away-load.js` reads
- * memwatch and Windows, acts on the verdict and logs it.
- *
- * The precondition is #5346's: a minute with WSL CPU at or over 550% of 800
- * and Windows free memory under 900 MB. The runner makes that minute only
- * while Windows has had no keyboard or mouse input for 15 minutes, holding Windows
- * free memory in a band above the Windows-memory hold's 750 MB floor
- * (lib/windows-memory.js), so the refill loop keeps admitting some sessions.
- */
-
-/* #5346's gate: its start, its count and the Kernel-Power 41 it counts from. */
 const GATE_SINCE = "2026-11-11T17:27";
 const GATE_MINUTES = 1308;
 const RESET_AFTER = "2026-11-11T17:26:26";
 const PRECONDITION_BUSY_PCT = 550;
 const PRECONDITION_WIN_MB = 900;
 
-/* #5449's ruling: the away trigger and the band. Untraced, both. */
+// guess, #5449
 const AWAY_S = 15 * 60;
 const BAND_LOW_MB = 760;
 const BAND_HIGH_MB = 890;
 const BAND_AIM_MB = 825;
 
-/* To start: memwatch's own bound on a reading's age (WIN_MAX_AGE_S, 120 s).
- * While loaded: one minute's read plus 15 s for a read slowed by the load
- * and the poll (#4159). */
+// guess, #4159
 const READING_MAX_AGE_S = 120;
 const RUNNING_MAX_AGE_S = 75;
 
-/* Untraced margins. A holder is one Testlimit process of HOLDER_MB, so a
- * release under the band frees about what it is short. Its pages are not
- * locked, so Windows can trim them and the runner tops up, bounded by the
- * commit line and the total. The CPU aim sits over the precondition line so a
- * minute's dip stays over it; load1 stays clear of the admission load
- * ceiling's 24 (lib/cpu-sample.js). */
+// guess, #5529
 const CHUNK_MB = 64;
 const HOLDER_MB = 2 * CHUNK_MB;
 const MAX_HELD_MB = 8000;
@@ -47,15 +27,10 @@ const LOAD1_LINE = 20;
 
 /**
  * @typedef {{ at: number, availMb: number, commitPct: number, idleS: number|null }} Reading
- *   memwatch's newest Windows reading: epoch seconds, free MB, commit charge
- *   as a percentage of the limit, seconds since the last input, null where
- *   that read failed.
  * @typedef {{ ts: string, busyPct: number|null, load1: number|null }} Minute
  */
 
 /**
- * memwatch's raw reading file: epoch, free MB, pages in, pages out, commit
- * charge, commit limit, idle seconds (-1 where that read failed).
  * @param {string} text
  * @returns {Reading|null}
  */
@@ -77,11 +52,7 @@ function minuteOf(row) {
 	return { ts: row.ts, busyPct: num(row.cpu_busy_pct), load1: num(row.load1) };
 }
 
-/**
- * Whether a minute line counts toward #5346's gate, as its check's `or` reads
- * it: a 0 as missing.
- * @param {Record<string, unknown>} row
- */
+/** @param {Record<string, unknown>} row */
 function isPreconditionMinute(row) {
 	const busy = Number(row.cpu_busy_pct) || 0;
 	const win = Number(row.win_avail_mb) || 9e9;
@@ -94,10 +65,8 @@ function isPreconditionMinute(row) {
 }
 
 /**
- * The newest Kernel-Power 41's `Date:` from `wevtutil qe … /f:text`, compared
- * as #5346's own check compares it.
  * @param {string} text
- * @returns {string|null} `YYYY-MM-DDTHH:MM:SS`
+ * @returns {string|null}
  */
 function newestResetOf(text) {
 	const m = /^[ \t]*Date: (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)/m.exec(text);
@@ -117,8 +86,6 @@ const isGateReset = (reset) => reset !== null && reset > RESET_AFTER;
 /**
  * @param {{ now: number, running: boolean, reading: Reading|null,
  *   handUntil: number|null, gateCount: number, done: string|null }} s
- *   `now` and `handUntil` in epoch seconds; a hand start runs until then
- *   whatever the input.
  * @returns {Verdict}
  */
 function decide(s) {
@@ -168,11 +135,9 @@ function whileRunning(r, ageS) {
 const heldMb = (holders) => holders.reduce((sum, h) => sum + h.mb, 0);
 
 /**
- * The memory hold's step on a new reading: holders to add, of HOLDER_MB at
- * most, newest holders to drop until about the shortfall is freed, or nothing.
  * @template {{ mb: number }} H
  * @param {Reading} reading
- * @param {H[]} holders oldest first
+ * @param {H[]} holders
  * @returns {{ add: number[] } | { drop: H[] } | null}
  */
 function holdStep(reading, holders) {
@@ -201,9 +166,8 @@ function holdStep(reading, holders) {
 }
 
 /**
- * How many CPU workers to run after a new minute line.
  * @param {Minute} minute
- * @param {number} workers running now
+ * @param {number} workers
  */
 function workersFor(minute, workers) {
 	if (minute.load1 !== null && minute.load1 >= LOAD1_LINE)

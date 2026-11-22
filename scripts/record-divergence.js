@@ -122,9 +122,6 @@ function main() {
 			),
 		);
 	} catch (e) {
-		/* A checkout that has lost a lib records nothing, and says so where it
-		 * can: a recorder that crashes on a refused pull is a second failure
-		 * (#289). */
 		log(`recorder threw — no divergence row written: ${String(e)}`);
 	}
 }

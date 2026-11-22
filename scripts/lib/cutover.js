@@ -1,27 +1,3 @@
-/*
- * cutover.js — the main checkout's move to the worktree model (#4248, spec
- * #4229): whether it has moved, and the one pass that moves it.
- *
- * THE MARK IS THE UPSTREAM. Under the shared-tree model the main checkout's
- * `main` tracks `origin/landing`, where sessions pushed from it; under the
- * worktree model it follows `origin/main` by the levelling step alone and
- * tracks nothing. So a `main` whose upstream is `landing` is a main checkout
- * not yet cut over, and every other is cut over: a fresh clone, whose `main`
- * tracks `origin/main`, included. The write refusal, the pre-commit limb and
- * the levelling step all read this one mark, and turn on when the pass below
- * removes that upstream.
- *
- * THE PASS refuses while any session `claude agents --json` lists stands in
- * the main checkout. Otherwise it lands the commits local `main` carries that
- * `origin/main` lacks — a session worktree cut from `origin/main`, `main`
- * merged into it, then lib/session-checkout.js's land, a push of that
- * worktree's queue ref — reports every edit left in the
- * main checkout, never discarding one, removes
- * the upstream, and runs one levelling pass. A merge that conflicts or is
- * refused leaves its worktree for a session to finish in, and the upstream
- * stays.
- */
-
 const path = require("node:path");
 const { gitReader, GIT_TIMEOUT_MS, SHORT_SHA } = require("./git.js");
 const { REMOTE, VERIFIED_BRANCH, VERIFIED_REF } = require("./landing-refs.js");
@@ -31,16 +7,13 @@ const { isUnder } = require("./is-under.js");
 const { worktreePaths } = require("./worktree-paths.js");
 
 const BRANCH = "main";
-/* The shared-tree model's branch, which only the mark still names. */
 const LANDING_BRANCH = "landing";
 const LANDING_REF = `${REMOTE}/${LANDING_BRANCH}`;
 const SHARED_MERGE = `refs/heads/${LANDING_BRANCH}`;
 const UPSTREAM_KEY = `branch.${BRANCH}.merge`;
 
 /**
- * Whether the main checkout `git` reads is cut over, or null where git could
- * not answer.
- * @param {import("./git.js").GitReader} gitRead run in the main checkout
+ * @param {import("./git.js").GitReader} gitRead
  * @returns {boolean | null}
  */
 function readCutOver(gitRead) {
@@ -48,17 +21,11 @@ function readCutOver(gitRead) {
 	return r.ok ? r.out.trim() !== SHARED_MERGE : null;
 }
 
-/**
- * The command that cuts a session its own worktree and prints its path.
- * @param {(name: string) => string} [at] where scripts live: a dispatcher
- *   core passes its `ctx.scriptPath`
- */
+/** @param {(name: string) => string} [at] */
 const buildCutCommand = (at = scriptPath) =>
 	`\`node ${at("session-checkout.js")} cut <session-name>\``;
 
 /**
- * Whether `cwd` is the main checkout or a directory in it outside every
- * linked worktree, each spelling resolved.
  * @param {string} cwd
  * @param {string} root
  * @param {string[]} worktrees
@@ -70,9 +37,8 @@ function standsIn(cwd, root, worktrees) {
 }
 
 /**
- * The linked worktrees' directories, each resolved.
  * @param {string} root
- * @param {(args: string[]) => string} git run in `root`
+ * @param {(args: string[]) => string} git
  */
 function linkedWorktrees(root, git) {
 	const home = realKey(root);
@@ -81,24 +47,14 @@ function linkedWorktrees(root, git) {
 		.filter((d) => d !== home);
 }
 
-/**
- * Whether the write refusal binds: the main checkout `gitRead` reads cut
- * over. A git that cannot answer reads as not.
- * @param {import("./git.js").GitReader} gitRead
- */
+/** @param {import("./git.js").GitReader} gitRead */
 const isCutOverAt = (gitRead) => readCutOver(gitRead) === true;
 
-/**
- * Whether the main checkout at `root` is cut over. A config git cannot read
- * answers not cut over.
- * @param {string} root
- */
+/** @param {string} root */
 const isCutOver = (root) => isCutOverAt(gitReader(root, GIT_TIMEOUT_MS));
 
 /**
- * git run in `dir` through `read`, its output trimmed; a git that fails or
- * cannot answer throws, naming `dir`.
- * @param {import("./git.js").GitReader} read run in `dir`
+ * @param {import("./git.js").GitReader} read
  * @param {string} dir
  * @returns {(args: string[]) => string}
  */
@@ -113,28 +69,24 @@ const throwingGit = (read, dir) => (args) => {
  * @typedef {import("./level-main.js").Blocker} Blocker
  * @typedef {ReturnType<typeof import("./level-main.js").level>} LevelOutcome
  * @typedef {{
- *   listed: () => { agents: { name?: string, sessionId: string, cwd?: string }[] } | { why: string },
- *   cut: (root: string, name: string) => { dir: string },
- *   land: (dir: string) => { queue: string, head: string, lander: string | null },
- *   orphanedEdits: (root: string) => Blocker[],
- *   level: (root: string) => LevelOutcome,
- *   gitIn: (cwd: string) => import("./git.js").GitReader,
- * }} CutoverPorts `gitIn` runs git in a directory: the main checkout, or the
- *   worktree `cut` made
+ * listed: () => { agents: { name?: string, sessionId: string, cwd?: string }[] } | { why: string },
+ * cut: (root: string, name: string) => { dir: string },
+ * land: (dir: string) => { queue: string, head: string, lander: string | null },
+ * orphanedEdits: (root: string) => Blocker[],
+ * level: (root: string) => LevelOutcome,
+ * gitIn: (cwd: string) => import("./git.js").GitReader,
+ * }} CutoverPorts
  * @typedef {(
- *   | { status: "unlisted", why: string }
- *   | { status: "occupied", sessions: string[] }
- *   | { status: "unmerged", dir: string, local: number, files: string[], why: string }
- *   | { status: "cut-over", already: boolean,
- *       landed: { count: number, queue: string, head: string, lander: string | null } | null,
- *       orphanedEdits: Blocker[], level: LevelOutcome }
+ * | { status: "unlisted", why: string }
+ * | { status: "occupied", sessions: string[] }
+ * | { status: "unmerged", dir: string, local: number, files: string[], why: string }
+ * | { status: "cut-over", already: boolean,
+ * landed: { count: number, queue: string, head: string, lander: string | null } | null,
+ * orphanedEdits: Blocker[], level: LevelOutcome }
  * )} CutoverResult
  */
 
 /**
- * Merge local `main` into the worktree `read` runs in. Null where it
- * committed, else the conflicted files (none where git or a gate refused)
- * and why.
  * @param {import("./git.js").GitReader} read
  * @returns {{ files: string[], why: string } | null}
  */
@@ -158,7 +110,7 @@ function mergeMain(read) {
 }
 
 /**
- * @param {string} root the main checkout
+ * @param {string} root
  * @param {CutoverPorts} ports
  * @returns {CutoverResult}
  */
@@ -206,10 +158,9 @@ function cutover(root, ports) {
 }
 
 /**
- * The result as report lines.
  * @param {CutoverResult} r
  * @param {{ renderBlocker: (b: Blocker) => string,
- *   renderLevel: (o: LevelOutcome) => string[] }} how
+ * renderLevel: (o: LevelOutcome) => string[] }} how
  * @returns {string[]}
  */
 function renderCutover(r, { renderBlocker, renderLevel }) {

@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins check-suite-budget.js (#5137) end to end over `--reports`, sweeps
- * already on disk as `gh run download` leaves them; its gh route is
- * scripts/lib/sweep-reports.js's, pinned through check-file-ci-time.test.ts.
- * The arithmetic is scripts/lib/suite-budget.test.ts's. The committed
- * BUDGET_ARMED_BY is null, so a refusal arms through ARMED_ENV. Broken, the
- * sweep goes green over the budget, or red on a budget nobody armed.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -29,7 +21,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** One sweep's shard report, each file `seconds` long. */
 function writeSweep(runId: string, files: Record<string, number>) {
 	const shard = path.join(dir, runId, "vitest-report-1");
 	fs.mkdirSync(shard, { recursive: true });

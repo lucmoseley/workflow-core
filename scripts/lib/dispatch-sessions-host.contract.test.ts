@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Holds the testkit's `node` and `sleep` ports (lib/dispatch-sessions-testkit.ts's
- * corePorts: each helper run in process, each stagger recorded) to the
- * production ones (lib/dispatch-sessions-host.js) on one case list (§G7,
- * #5145). Break it and every module case of the dispatcher passes on a helper
- * answer, or a stagger, the real dispatch never sees.
- */
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { hostPorts } from "./dispatch-sessions-host.js";

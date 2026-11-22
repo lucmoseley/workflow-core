@@ -1,43 +1,4 @@
 #!/usr/bin/env node
-/*
- * generate-doc-map-section-a.js — renders docs/doc-map.md §A's register tables
- * from docs/doc-map-classes.json, the class sidecar mantahostels#1848 built.
- *
- * One judgement per file — its authority class — lives in the sidecar; Role,
- * Update route and Consumes come from the path, the class and the minority of
- * per-file overrides carrying a fact recorded nowhere else (mantahostels#1808, mantahostels#1863).
- *
- * Usage:
- *   node scripts/generate-doc-map-section-a.js [--check] [--map <path>]
- *     [--data-file <path>] [--claim-cmd <cmd>] [--release-cmd <cmd>] [--no-claim]
- *
- * --check      render and diff without writing; exit 1 on drift.
- * --no-claim   skip the claim below; for tests, which run against throwaway
- *              files outside the tree the claim store governs.
- *
- * WHAT IT DOES NOT TOUCH: everything in §A that is not a register table — the
- * preamble, each subsection's own prose, §Version stamps' table (a different
- * header) and the two prose subsections under it. Those stay hand-written and
- * a generator run preserves them byte for byte.
- *
- * Claims §A before it writes, per mantahostels#1808 user story 25: the PreToolUse claim
- * hook watches Write/Edit alone, so a script writing a guarded docs/ path
- * leaves no content record unless it claims for itself. Fails open
- * (lib/doc-map-generator.js's default): a refused claim costs the record and
- * nothing else.
- *
- * §A, NEVER THE BARE MAP (mantahostels#2422). `--generator` is what gets the claim past
- * doc-map-regions.js's `isGeneratorOnlyRegion`, which shuts §A to everybody
- * else.
- *
- * IT RELEASES ON BOTH PATHS, with `--generator` again (mantahostels#2428). The arbiter
- * refuses a dirty subject (mantahostels#63), and the write this run just made is exactly
- * what makes §A dirty, so without the flag the claim stood until somebody
- * committed. The flag waives that refusal on §A alone.
- *
- * SO A RUN THAT DIES MID-WRITE releases too, handing back a claim on a
- * half-rendered §A. Re-running the generator is the whole repair.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -76,9 +37,6 @@ function main(argv) {
 	});
 	const flag = (/** @type {string} */ name) => flags[name] === true;
 	const value = (/** @type {string} */ name) => flagValue(flags, name) ?? null;
-	/* The session's own tree, through the one seam (#1, #4438): in a plugin
-	 * install `path.join(__dirname, "..")` is the plugin root, and the map and
-	 * sidecar were looked for inside the plugin. */
 	const repoRoot = worktreeRoot();
 	const mapPath = value("--map") || path.join(repoRoot, DEFAULT_MAP);
 	const dataFile = value("--data-file") || path.join(repoRoot, SIDECAR_PATH);
@@ -99,10 +57,6 @@ function main(argv) {
 		return 2;
 	}
 
-	/* renderSectionA leaves the map alone two ways — no `## Section A` heading,
-	 * and no register table for rows to land in — and either would otherwise
-	 * read here as "already matches", a false pass on a map where nothing was
-	 * rendered at all (§N5). */
 	const sectionA = sectionARegion(text);
 	if (!sectionA?.includes(REGISTER_HEADER)) {
 		console.error(

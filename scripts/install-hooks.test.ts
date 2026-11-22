@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * A linked worktree's commit and push run that worktree's own .husky hook,
- * not the shared checkout's working copy that core.hooksPath names (#3125,
- * #3138).
- *
- * The fixture installs the hooks as package.json's `prepare` does — husky,
- * then scripts/install-hooks.js — and breaks the shared checkout's copy after
- * the worktree is cut, as a shared tree left behind `landing` or holding a
- * neighbour's half-written edit does.
- *
- * Loosen it and a neighbour's stale hook judges every worktree's commit again.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

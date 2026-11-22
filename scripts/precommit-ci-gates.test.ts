@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that `.husky/pre-commit` runs and enforces the two gates that moved out
- * of CI at mantahostels#910, when the push trigger came off
- * `.github/workflows/document-guards.yml`: each fires only on its own staged
- * paths and refuses the commit on a finding.
- *
- * `check-digest-version.js` keeps a module-on adopter's roadmap/digest pair from
- * drifting, and `check-guard-registry.js` keeps any parallel-safety rule from
- * claiming an enforcement it does not have. Delete these hook blocks and the
- * next thing to run either check is after the push: the daily repo-checks run
- * for the digest, the `landing` push run or the scheduled sweep for the
- * registry (#2413).
- *
- * UNVERIFIED, and deliberately: the CI half — the guard-registry step in
- * document-guards.yml, and scheduled-checks.yml that calls it. Testing those means running a workflow.
- *
- * The digest checker is stubbed in each fixture so its exit code is ours to
- * drive; the guard-registry gate is a dispatcher row, so its arm alone is
- * pinned here.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -51,24 +31,12 @@ function write(root: string, rel: string, body: string): void {
 	fs.writeFileSync(abs, body);
 }
 
-/**
- * A repo holding one commit, a stubbed checker, and whatever `staged` names.
- *
- * The stub prints its own marker and every argument it was handed. `committed`
- * seeds files into the first commit so a case can stage a change over them.
- */
 function fixture(opts: {
 	checker: string;
 	checkerExit: number;
 	committed?: Record<string, string>;
 	staged?: Record<string, string>;
 	dirty?: Record<string, string>;
-	/**
-	 * The direction gate's verdict (mantahostels#1753): 1 = this commit ADDS the faults and
-	 * is refused, 0 = every fault is inherited and it passes, 2 = the comparison
-	 * could not answer and the gate fails closed.
-	 *
-	 */
 	newFaultsExit?: number;
 }): TempRepo {
 	const checker = `console.log("${STUB_MARKER}");
@@ -91,7 +59,6 @@ process.exit(${opts.checkerExit});
 		},
 		opts.staged ?? {},
 	);
-	// Written AFTER staging, so the worktree and the index disagree on purpose.
 	for (const [rel, body] of Object.entries(opts.dirty ?? {}))
 		write(repo.root, rel, body);
 	return repo;
@@ -102,14 +69,6 @@ function runGate(
 	fragment: string,
 ): { code: number; output: string } {
 	try {
-		// `sh -e`, as husky runs the real hook (.husky/_/h), plus a trailing no-op
-		// standing in for the rest of the file, so a deleted `|| exit` cannot hide
-		// behind the fragment's own exit status. Unlike the same no-op in
-		// precommit-roadmap-valid-gate, no case here currently needs it (mantahostels#953).
-		//
-		// `2>&1` over the whole block because the gate's skip notice goes to
-		// stderr, and execFileSync hands back stdout alone.
-
 		const out = execFileSync("sh", ["-ec", `{\n${fragment}\n:\n} 2>&1\n`], {
 			cwd,
 			encoding: "utf8",
@@ -125,7 +84,6 @@ function runGate(
 	}
 }
 
-/** The roadmap pair, present in the index so the gate has something to read. */
 const PAIR = { [ROADMAP]: "v1.0 committed\n", [DIGEST]: "v1.0 committed\n" };
 
 describe("the pre-commit digest-version gate", () => {
@@ -176,8 +134,6 @@ describe("the pre-commit digest-version gate", () => {
 		expect(output).toContain(STUB_MARKER);
 	});
 
-	// BROKEN (exit 2) is the checker unable to do its job — a file that will not
-	// read or will not parse — and must block the commit as a finding does.
 	it("fails the commit when the checker reports BROKEN", () => {
 		const { root } = fixture({
 			checker: DIGEST_CHECKER,
@@ -186,9 +142,6 @@ describe("the pre-commit digest-version gate", () => {
 			staged: { [ROADMAP]: "v1.1\n" },
 		});
 
-		// digest-version runs in `status` mode (unlike `hold`), which exits
-		// with the checker's own code unflattened — pin 2 exactly, or a
-		// `|| exit 1` mutation passes alongside the real BROKEN case.
 		const { code, output } = runGate(root, fragment());
 		expect(code).toBe(2);
 		expect(output).toContain(STUB_MARKER);
@@ -197,7 +150,6 @@ describe("the pre-commit digest-version gate", () => {
 	it("does not run the checker for a commit touching neither file", () => {
 		const { root } = fixture({
 			checker: DIGEST_CHECKER,
-			// Exit 1, so a gate that wrongly ran it fails loudly.
 			checkerExit: 1,
 			committed: PAIR,
 			staged: { "app/page.tsx": "x\n" },
@@ -233,8 +185,6 @@ describe("the pre-commit digest-version gate", () => {
 		expect(output).not.toContain("NEIGHBOUR");
 	});
 
-	// The unstaged half is read at its committed content, which is what it will
-	// still be after this commit.
 	it("reads the unstaged half of the pair from the index too", () => {
 		const { root } = fixture({
 			checker: DIGEST_CHECKER,
@@ -246,7 +196,6 @@ describe("the pre-commit digest-version gate", () => {
 		expect(runGate(root, fragment()).output).toContain("ARG v1.0 committed");
 	});
 
-	// Apparatus missing is not a finding: warn and let the commit through.
 	it("skips, without failing, when the pair is not in the index", () => {
 		const { root } = fixture({
 			checker: DIGEST_CHECKER,
@@ -261,9 +210,6 @@ describe("the pre-commit digest-version gate", () => {
 	});
 });
 
-/* The guard-registry gate is a dispatcher row (#5172): its arm is the row's
- * pattern, its exit and report the dispatcher's, pinned in
- * scripts/precommit-dispatch.test.ts. */
 describe("the pre-commit guard-registry row", () => {
 	const row = GATES.find((g) => g.script === REGISTRY_CHECKER);
 	const arms = (p: string) =>
@@ -273,10 +219,6 @@ describe("the pre-commit guard-registry row", () => {
 		expect(row?.policy).toBe("gate");
 	});
 
-	// Every root the checker actually reads: the documents carrying
-	// guard-registry regions, and the guard files their **Enforced** claims name.
-	// A guard is a file, so deleting .husky/pre-commit falsifies a claim with no
-	// document changing at all.
 	it.each([
 		"docs/doc-map.md",
 		".claude/skills/tdd/SKILL.md",
@@ -288,8 +230,6 @@ describe("the pre-commit guard-registry row", () => {
 		expect(arms(staged)).toBe(true);
 	});
 
-	// The `^` and `$` anchors: a directory merely beginning with the letters
-	// "docs", and a file merely ending in "CLAUDE.md", are not in scope.
 	it.each([
 		"app/page.tsx",
 		"public/robots.txt",
@@ -300,35 +240,20 @@ describe("the pre-commit guard-registry row", () => {
 	});
 });
 
-/*
- * Mutation coverage, held as cases rather than run by hand.
- *
- * `.husky/pre-commit` is read by every session in this repo-global tree and by
- * every worktree (mantahostels#344), so breaking the live file to prove a case bites would
- * break parallel sessions' commits for as long as the mutation stood. Each
- * mutation is applied to the fragment IN MEMORY, and every case asserts the
- * mutation actually changed the text — a `.replace()` matching nothing would
- * silently re-test the real gate and pass vacuously.
- */
 describe("mutations of the digest-version gate are caught by the cases above", () => {
 	const mutate = (
 		checker: string,
 		find: string | RegExp,
 		replace: string,
 	): string => {
-		/* The whole script, library included: the staging, the exit and the
-		 * direction gate live in scripts/lib/precommit-gate.sh (mantahostels#1793),
-		 * so a mutation of the block alone could not reach them. */
 		const original = cutGateScript(checker);
 		const mutant = original.replace(find, replace);
 		expect(mutant, `mutation '${find}' did not apply`).not.toBe(original);
 		return mutant;
 	};
 
-	const dropFilter = (checker: string): string => {
-		// Read off the block; the literal it yields is replaced in the whole script.
-		return mutate(checker, gateHead(checker), "if true; then\n");
-	};
+	const dropFilter = (checker: string): string =>
+		mutate(checker, gateHead(checker), "if true; then\n");
 
 	it("digest-version stops failing the commit when the exit is dropped", () => {
 		const { root } = fixture({

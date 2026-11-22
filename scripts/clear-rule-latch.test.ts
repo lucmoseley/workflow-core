@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that a compaction clears this session's and its subagents' rule
- * latches, and nothing else, wherever lib/guard-entry.js wrote them, exiting 0
- * on any payload.
- *
- * scripts/clear-rule-latch.sh — the PreCompact hook that drops this session's
- * rule latches (mantahostels#1804, spec mantahostels#1762).
- *
- * Each case spawns the real hook with a JSON payload on stdin, as the harness
- * does, against a temp repo on `CLAUDE_PROJECT_DIR` and a temp config dir, so
- * neither this repo's live latches nor gl_log's record land among the files
- * counted.
- *
- * It is the `PreCompact` hook in `self-plugin/hooks/hooks.json` and the shipped
- * plugin's `hooks/hooks.json`: loosen a case and a latch outlives the context
- * it latched, so a session never gets a relocated rule again, or a neighbour's
- * latches are cleared under it.
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -26,11 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const HOOK = path.resolve(__dirname, "clear-rule-latch.sh");
 
-/**
- * Latches rule `one` for session `sid-1` through lib/guard-entry.js's
- * writeLatches, rooted as its run() roots it, then removes the latch and
- * prints where it was.
- */
 const MARKER_OF_ONE = `const fs = require("node:fs");
 const path = require("node:path");
 const { writeLatches } = require(${JSON.stringify(path.resolve(__dirname, "lib/guard-entry.js"))});
@@ -54,8 +30,6 @@ describe("clear-rule-latch.sh", () => {
 	});
 	afterEach(() => fs.rmSync(base, { recursive: true, force: true }));
 
-	// Under .claude/tmp/markers/ rather than the repo root directly since F8
-	// (mantahostels#3515, #2).
 	const markersDir = () => path.join(root, ".claude", "tmp", "markers");
 
 	const latch = (name: string) => {
@@ -67,8 +41,6 @@ describe("clear-rule-latch.sh", () => {
 	const env = (projectDir: string) => ({
 		...process.env,
 		CLAUDE_PROJECT_DIR: projectDir,
-		// Outside the repo root: gl_log's fail-open record would otherwise
-		// land among the very files these cases count.
 		CLAUDE_CONFIG_DIR: path.join(base, "config"),
 	});
 
@@ -91,8 +63,6 @@ describe("clear-rule-latch.sh", () => {
 	});
 
 	it("clears a subagent's latches with its parent's", () => {
-		// A subagent's markers are keyed -a<agent_id>-<sid>, so the same glob
-		// reaches them.
 		latch(".rule-injected-one-aac7cb4a4-sid-1");
 		run('{"hook_event_name":"PreCompact","session_id":"sid-1"}');
 		expect(readMarkerNames()).toEqual([]);
@@ -106,8 +76,6 @@ describe("clear-rule-latch.sh", () => {
 
 	it("touches nothing outside the family", () => {
 		latch(".concision-nagged-sid-1");
-		// Not through `latch()`: this stands for an unrelated file sharing the
-		// markers directory, not one of the family under test.
 		fs.mkdirSync(markersDir(), { recursive: true });
 		fs.writeFileSync(path.join(markersDir(), "README.md"), "");
 		run('{"hook_event_name":"PreCompact","session_id":"sid-1"}');
@@ -146,20 +114,6 @@ describe("clear-rule-latch.sh", () => {
 		expect(readMarkerNames()).toEqual([]);
 	});
 
-	/*
-	 * The pairing this hook is one half of (mantahostels#1905). lib/guard-entry.js
-	 * writes the latch and this hook globs for it, so the two must derive the
-	 * same repo root; a CLAUDE_PROJECT_DIR a human spelled with a trailing / is
-	 * exactly the input that once made them disagree. Every case drives the REAL
-	 * latchPath rather than a hand-written filename.
-	 *
-	 * WHAT EACH SIDE IS DEFENDED AGAINST DIFFERS, and the asymmetry is the
-	 * glob's. A marker respelled on the WRITING side moves the file and fails
-	 * every case here. On the SWEEPING side a root left unnormalised still
-	 * matches, `<root>//.rule-injected-*` and `<root>/.rule-injected-*` globbing
-	 * the same entries — so only a respelling that names a DIFFERENT DIRECTORY
-	 * is observable, which is what the third case supplies.
-	 */
 	describe("agrees with the entry's latch on where the latch is", () => {
 		const readLatchPath = (projectDir: string) =>
 			spawnSync("node", ["-e", MARKER_OF_ONE], {
@@ -176,9 +130,6 @@ describe("clear-rule-latch.sh", () => {
 
 		it("clears one written under a root spelled with a trailing slash", () => {
 			const slashed = `${root}/`;
-			// The path the marker names must land IN the root, not beside it: a
-			// root normalised on one side only puts the latch where the other
-			// side never looks.
 			expect(readLatchPath(slashed)).toBe(
 				path.join(
 					root,
@@ -193,14 +144,6 @@ describe("clear-rule-latch.sh", () => {
 			expect(readMarkerNames()).toEqual([]);
 		});
 
-		/*
-		 * The case that makes the SWEEP side observable: with CLAUDE_PROJECT_DIR
-		 * unset, hostRoot's git limb answers the repo toplevel, while the short
-		 * `${CLAUDE_PROJECT_DIR:-$PWD}` spelling this fold removed answers the
-		 * cwd. Run from a subdirectory those are two different directories, so a
-		 * sweeper reverted to the short form globs the subdirectory and leaves the
-		 * latch standing.
-		 */
 		it("clears one written from a subdirectory, with no root in the environment", () => {
 			execFileSync("git", ["init", "-q", root]);
 			const sub = path.join(root, "deep");

@@ -1,59 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-if-overmatch.js — what each candidate `if` rule in
- * `self-plugin/hooks/hooks.json` costs in wasted guard execs, read off the Bash
- * commands already in the transcripts on disk.
- *
- *   node scripts/measure-if-overmatch.js [--dir <path>] [--json] [--limit <n>]
- *
- * Built at mantahostels#2127, which found `Bash(*gh*)` — a two-letter unanchored substring
- * — matching ordinary English prose (`through`, `neighbour`, `ghost`) and so
- * firing seven guards on calls none of them can act on.
- *
- * WHAT IS COUNTED. Every `tool_use` record naming the `Bash` tool, one per
- * command string, deduped by tool-use id so a resumed or forked transcript
- * replaying the same call counts once. Both tiers: a main session's file and
- * every subagent's.
- *
- * THE THREE POPULATIONS, per tool word (`git`, `gh`):
- *  - `matched`  — the rule fires, so the guard is exec'd. Under an unanchored
- *    `Bash(*x*)` this is a plain substring test against the whole command,
- *    quoted argument text included.
- *  - `invoked`  — the command actually runs the tool, in one of four
- *    spellings: a segment whose first word is the tool; one whose first word
- *    is a no-argument wrapper (`timeout`, `env`, …) that walks to it; one
- *    spelled by path (`/usr/bin/gh`), which ten of the eleven guards resolve
- *    through `basename`; and one only inside a quoted `sh -c` body.
- *  - `wasted`   — `matched` minus `invoked`. A wasted exec costs a fork and
- *    reaches no verdict.
- *
- * SEGMENTATION follows what mantahostels#2159 §5 measured of the matcher, not
- * `hooks.md:436-446`'s table, which omits `;` and `|`: separators are `;`,
- * newline, `&&`, `||`, `|` and `&`, at any nesting depth outside quotes, and
- * `$( … )`, backticks and `( … )` are descended into. Leading `VAR=value`
- * assignments are stripped before the first word is read.
- *
- * ANCHORED `Bash(x *)` MISSES FOUR SPELLINGS — a wrapper prefix
- * (`timeout 5 gh …`), a path (`/usr/bin/gh …`), a quoted body
- * (`sh -c "gh …"`) and the argument-less tool word (`gh` alone) — so its
- * wasted count is zero by construction and its cost is the `invoked` calls it
- * filters out. Whether that is a real loss depends on whether any guard acts
- * on those shapes, which is a guard-layer question this script does not
- * answer.
- *
- * IN NO §N3 FAMILY, DELIBERATELY. It gates nothing, runs from a prompt, writes
- * no file and files no issue; the two `process.exit(1)` paths are an
- * unreadable transcript directory and an unhandled throw, both of which must
- * not read as a zero count.
- *
- * KNOWN BOUNDS:
- *  - Shell keywords are not stripped, so a `then gh issue view …` inside a
- *    conditional reads as a segment led by `then` and scores as waste. Zero
- *    occurrences in a 1,906-call sample.
- *  - A command whose quoting the shell itself would reject (an unbalanced
- *    quote) leaves this walker inside a quote to end-of-string, folding the
- *    rest into one segment.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -69,25 +14,13 @@ const { unwrapped } = require("./lib/issue-phase-scope");
 /** @param {string} word */
 const basename = (word) => word.slice(word.lastIndexOf("/") + 1);
 
-/** A leading `VAR=value` assignment, the one prefix the matcher strips. */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /**
- * A heredoc body is DATA, not commands — a `cat > f <<'EOF'` whose body holds
- * `gh issue create` runs no `gh` at all, and a body line leading with the tool
- * word would otherwise score as a bare invocation. Bodies are dropped before
- * segmentation; the redirection word itself stays, because it is part of the
- * command line the matcher tests.
- *
- * Both `<<DELIM` and `<<-DELIM` are handled, quoted delimiters included. An
- * UNTERMINATED heredoc — no closing delimiter in the string — drops everything
- * after it.
  * @param {string} cmd
  * @returns {string}
  */
 function stripHeredocs(cmd) {
-	/* One iterator, so the inner loop's lines — body and delimiter — are spent
-	 * before the outer loop reads on. */
 	const lines = cmd.split("\n").values();
 	/** @type {string[]} */
 	const out = [];
@@ -108,10 +41,6 @@ function stripHeredocs(cmd) {
 }
 
 /**
- * Split a command into the segments the matcher and the guards each read
- * independently. Quotes suppress separators; `$( )`, backticks and `( )` are
- * descended into rather than skipped, so their contents are segments too.
- * Heredoc bodies are dropped first — see stripHeredocs.
  * @param {string} rawCmd
  * @returns {string[]}
  */
@@ -127,19 +56,12 @@ function segments(rawCmd) {
 	return w.out;
 }
 
-/**
- * A character-at-a-time walk over a command: the string, the index, the text
- * gathered so far, the open quote (empty outside one) and what was emitted.
- * @typedef {{ cmd: string, i: number, cur: string, quote: string, out: string[] }} Walk
- */
+/** @typedef {{ cmd: string, i: number, cur: string, quote: string, out: string[] }} Walk */
 
-/** Characters that end a segment outside quotes, and nothing more. */
 const SEGMENT_BREAKS = new Set(["(", ")", "`", "{", "}", ";", "\n"]);
 
 /**
- * One character inside a quote: a double-quoted backslash keeps itself and
- * the character it escapes; the closing quote is dropped.
- * @param {Walk} w accumulator: the walk's state, advanced one character
+ * @param {Walk} w
  * @param {string} c
  */
 function segmentInQuote(w, c) {
@@ -155,17 +77,14 @@ function segmentInQuote(w, c) {
 	w.cur += c;
 }
 
-/**
- * @param {Walk} w accumulator: the gathered segment is pushed to out and cur emptied
- */
+/** @param {Walk} w */
 function cutSegment(w) {
 	w.out.push(w.cur);
 	w.cur = "";
 }
 
 /**
- * One character outside any quote.
- * @param {Walk} w accumulator: the walk's state, advanced one character
+ * @param {Walk} w
  * @param {string} c
  */
 function segmentOutside(w, c) {
@@ -195,9 +114,8 @@ function segmentOutside(w, c) {
 }
 
 /**
- * The words of a segment, with leading `VAR=value` assignments stripped.
  * @param {string} seg
- * @returns {string[]} every word of the segment, assignments removed
+ * @returns {string[]}
  */
 function words(seg) {
 	const parts = seg.trim().split(/\s+/).filter(Boolean);
@@ -210,8 +128,6 @@ function words(seg) {
 }
 
 /**
- * Does an anchored `Bash(<tool> *)` fire — is `tool` the first word of some
- * segment, with an argument after it?
  * @param {string} cmd
  * @param {string} tool
  */
@@ -224,9 +140,6 @@ function anchoredFires(cmd, tool) {
 }
 
 /**
- * Every quoted span in a command, contents only — where a `sh -c "gh …"` body
- * hides from `segments`, which folds a quoted span into its enclosing segment.
- * Heredoc bodies are dropped first, as in `segments`.
  * @param {string} rawCmd
  * @returns {string[]}
  */
@@ -236,8 +149,6 @@ function quotedSpans(rawCmd) {
 	for (; w.i < w.cmd.length; w.i++) {
 		const c = w.cmd.charAt(w.i);
 		if (w.quote) spanInQuote(w, c);
-		// The same escape rule `segments` applies outside a quote, so the two
-		// walkers cannot disagree about where a quoted span begins.
 		else if (c === "\\") w.i++;
 		else if (c === "'" || c === '"') w.quote = c;
 	}
@@ -245,9 +156,7 @@ function quotedSpans(rawCmd) {
 }
 
 /**
- * One character inside a quote: a double-quoted backslash keeps only the
- * character it escapes; the closing quote emits the span.
- * @param {Walk} w accumulator: the walk's state, advanced one character
+ * @param {Walk} w
  * @param {string} c
  */
 function spanInQuote(w, c) {
@@ -266,30 +175,18 @@ function spanInQuote(w, c) {
 }
 
 /**
- * The index of the first word past any leading wrappers — 0 where the segment
- * leads with none: the walk the guard-issue-phase-scope core performs.
- * @param {string[]} w the segment's words
+ * @param {string[]} w
  * @returns {number}
  */
 const wrapperEnd = (w) => w.length - unwrapped(w).length;
 
 /**
- * How a segment that does not lead with `tool` still reaches it: by path,
- * behind wrappers, or not at all.
- * @param {string[]} w the segment's words
+ * @param {string[]} w
  * @param {string} tool
  * @returns {"pathspelled" | "wrapped" | null}
  */
 function indirectReach(w, tool) {
 	const [head] = w;
-	// Ten of the eleven guards resolve their command word through
-	// `basename` — the six gh guards (lib/issue-phase-scope.js's judge and
-	// five siblings) and the four git guards (`lib/shell-words.js`'s
-	// `gitWords`) — so a path-spelled `/usr/bin/gh` or
-	// `/usr/bin/git` IS judged by them, while the anchored `if` matches it
-	// in neither spelling. The eleventh, `place-new-issue.sh`, matches a
-	// bare `gh issue create` at the start of the command or after a
-	// separator, so it skips a path-spelled call whatever its `if`.
 	if (head !== undefined && basename(head) === tool) return "pathspelled";
 	const i = wrapperEnd(w);
 	if (i > 0 && basename(w[i] ?? "") === tool) return "wrapped";
@@ -297,13 +194,6 @@ function indirectReach(w, tool) {
 }
 
 /**
- * How the command reaches `tool`, if it does: `"bare"` (a segment's own first
- * word), `"wrapped"` (behind `timeout`/`env`/…), `"quoted"` (only as the first
- * word inside a quoted body, e.g. `sh -c "gh …"`), or `null` — the tool word
- * appears nowhere as a command, so every exec on it is wasted.
- *
- * `"quoted"` is deliberately narrow: a bare mention in prose (`the gh guard`)
- * is NOT an invocation.
  * @param {string} cmd
  * @param {string} tool
  * @returns {"bare" | "wrapped" | "pathspelled" | "quoted" | null}
@@ -346,17 +236,12 @@ async function scan(file, onCommand) {
 }
 
 /**
- * Hand every Bash command on one transcript line to `onCommand`.
  * @param {string} line
  * @param {string} file
  * @param {(cmd: string, id: string) => void} onCommand
  */
 function scanLine(line, file, onCommand) {
-	// Cheap pre-filter, and the whole runtime without it.
 	if (!line.includes('"Bash"')) return;
-	/* A line that holds no row is skipped and NOT counted: counting a killed
-	 * session's truncated tail as a call would inflate every share's
-	 * denominator. A whole file that will not read IS counted, in `unreadable`. */
 	const rec = /** @type {TranscriptRecord | null | undefined} */ (
 		parseJsonlRow(line)
 	);
@@ -397,7 +282,6 @@ function readFlags() {
 }
 
 /**
- * The transcripts to read: all of them, or the `limit` most recently modified.
  * @template {{ file: string }} F
  * @param {F[]} files
  * @param {number} limit
@@ -412,8 +296,6 @@ function chooseFiles(files, limit) {
 }
 
 /**
- * One tool's counters. `invoked` holds one count per invocation kind, keyed
- * by the kind `invocation` returns.
  * @typedef {object} ToolStats
  * @property {number} matchedUnanchored
  * @property {number} matchedAnchored
@@ -426,11 +308,10 @@ function chooseFiles(files, limit) {
  */
 
 /**
- * The running totals the file loop builds.
  * @typedef {object} Counts
  * @property {string[]} tools
  * @property {Set<string>} seen
- * @property {Record<string, ToolStats>} stats one per tool
+ * @property {Record<string, ToolStats>} stats
  * @property {number} calls
  * @property {Map<string, number>} dumped
  * @property {string | null} dump
@@ -461,8 +342,7 @@ function newCounts(tools, dump) {
 }
 
 /**
- * Count one Bash call, once per tool-use id.
- * @param {Counts} acc accumulator: the id is marked seen and the call counted
+ * @param {Counts} acc
  * @param {string} cmd
  * @param {string} id
  */
@@ -474,8 +354,7 @@ function countCommand(acc, cmd, id) {
 }
 
 /**
- * Count one Bash call against one tool's rules.
- * @param {Counts} acc accumulator: the tool's stats and the dump are counted
+ * @param {Counts} acc
  * @param {string} cmd
  * @param {string} tool
  */
@@ -501,9 +380,7 @@ function countTool(acc, cmd, tool) {
 }
 
 /**
- * Tally each word carrying the tool word in a wasted call — what the
- * unanchored rule matched instead.
- * @param {Map<string, number>} wasteWords accumulator: each wasted word is counted
+ * @param {Map<string, number>} wasteWords
  * @param {string} cmd
  * @param {string} tool
  */
@@ -515,10 +392,7 @@ function countWasteWords(wasteWords, cmd, tool) {
 	}
 }
 
-/**
- * One tool's report figures, off its counters.
- * @param {ToolStats} s
- */
+/** @param {ToolStats} s */
 function buildToolReport(s) {
 	const top = [...s.wasteWords.entries()]
 		.sort((a, b) => b[1] - a[1])
@@ -548,7 +422,6 @@ function buildToolReport(s) {
 }
 
 /**
- * `--dump`: the commands behind one invocation count, most frequent first.
  * @param {Map<string, number>} dumped
  * @param {string} dump
  */
@@ -561,12 +434,7 @@ function writeDump(dumped, dump) {
 	write(`-- ${dumped.size} distinct ${dump} command(s)\n`);
 }
 
-/**
- * The run's report: the corpus figures, plus one `buildToolReport` per tool keyed
- * by the tool's name. `any` because the two kinds of value share one object,
- * which `--json` prints whole.
- * @typedef {Record<string, any>} Report
- */
+/** @typedef {Record<string, any>} Report */
 
 /**
  * @param {Report} out
@@ -650,9 +518,6 @@ async function main() {
 	writeText(out, tools);
 }
 
-/* The scan is a several-minute walk over every transcript on disk, so it runs
- * only when this file is the entry point — loading it for `main`, as
- * lib/run-in-process.js's `runInProcessAsync` does, must not launch one. */
 if (require.main === module) {
 	main().catch((e) => {
 		write(`measure-if-overmatch: ${e.stack || e}\n`);

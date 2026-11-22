@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The points-per-dollar instrument, run end to end over a fixture seat: each
- * bar's window, every project and subagent file on the seat, and the line it
- * prints (#370, #380).
- *
- * The seat is a temp config dir built per test and the script runs
- * in-process, so no live seat's usage reading or transcripts are read.
- *
- * Its rates are copied by hand into `lib/allowance.js#POINTS_PER_USD`, which
- * the capped launch in `scripts/dispatch-sessions.js` sizes a set by: a wrong
- * rate launches more sessions than a bar has room for, or fewer.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,7 +25,6 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const now = Date.now();
 
-/** $10 at Sonnet 5's $10/Mtok output, written under `root/projects/rel`. */
 function tenDollars(root: string, rel: string, atMs: number) {
 	const file = path.join(root, "projects", rel);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -79,7 +66,6 @@ describe("measure-points-per-usd.js", () => {
 		reading();
 		tenDollars(seat, "p1/a.jsonl", now - HOUR);
 		tenDollars(seat, "p1/a/subagents/agent-x.jsonl", now - HOUR / 2);
-		// Before the 5-hour window, inside the week's.
 		tenDollars(seat, "p2/b.jsonl", now - 48 * HOUR);
 		const r = run();
 		expect(r.status).toBe(0);

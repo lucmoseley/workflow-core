@@ -1,30 +1,4 @@
 #!/usr/bin/env node
-/*
- * generate-plugin-hooks.js — renders hooks/hooks.json, the plugin's hook
- * manifest, from the self-plugin's `self-plugin/hooks/hooks.json` (#4, #2441).
- *
- * Usage:
- *   node scripts/generate-plugin-hooks.js [--check]
- *
- * --check  render the index's self-plugin file into memory and diff against the
- *          index's hooks/hooks.json; exit 1 on a difference, 2 where the
- *          self-plugin file cannot be rendered (unreadable, or a command it
- *          refuses to rewrite; stderr names which) or the index cannot be read.
- *
- * --check JUDGES THE INDEX, extracted to a scratch tree, never the working
- * tree: in .husky/pre-commit that is the commit's own bytes, so a neighbour's
- * unstaged hooks/hooks.json or guard edit cannot refuse a commit that names
- * neither (#2901).
- *
- * The render itself, and why a deny-capable guard fails closed:
- * lib/plugin-hooks-render.js. A run writes `onFailure` into the self-plugin
- * file itself, which the core loads in place, and `--check` exits 1 naming
- * each registration out of step.
- *
- * A RUN WRITES THE SESSION'S OWN TREE, `worktreeRoot()`: from a linked
- * worktree `hostRoot()` is the main checkout, where a render would be an
- * orphaned edit (#4438).
- */
 
 const fs = require("node:fs");
 const os = require("node:os");
@@ -53,9 +27,6 @@ const CLI = {
 	flags: { "--check": "boolean" },
 };
 
-/* THE CORE'S OWN GATE. An adopter ships no plugin — its hooks come from the
- * pinned core — so the gate skips there rather than failing a first commit on
- * an absent self-plugin file (#5). */
 const SKIP =
 	"SKIP: this repo ships no plugin (.claude-plugin/plugin.json is absent), so there is no hook manifest to render\n";
 
@@ -67,15 +38,12 @@ const failClosedAt = (root) =>
 	);
 
 /**
- * --check over `tree`: 0 where its hooks/hooks.json is the render of its
- * self-plugin file, 1 naming each fault where not.
  * @param {string} tree
  * @param {import("./lib/write-fd.js").Write} write
  * @returns {number}
  */
 function checkAt(tree, write) {
 	const { drift } = failClosedAt(tree);
-	/* The committed source, not the fixed one writeAt renders. */
 	const rendered = renderAt(tree);
 	const outPath = path.join(tree, OUT);
 	const current = fs.existsSync(outPath)
@@ -95,7 +63,6 @@ function checkAt(tree, write) {
 }
 
 /**
- * `checkAt` over the index of the repo git finds from the working directory.
  * @param {import("./lib/write-fd.js").Write} write
  * @returns {number}
  */
@@ -116,8 +83,6 @@ function checkIndex(write) {
 }
 
 /**
- * Writes `root`'s render to hooks/hooks.json, and `onFailure` into its
- * self-plugin file where that drifted.
  * @param {string} root
  * @returns {number}
  */
@@ -131,7 +96,6 @@ function writeAt(root) {
 		{ hooks: failClosed.hooks },
 		fs.existsSync(path.join(root, ENTRY)),
 	);
-	/* The file holds `hooks` alone: lib/core-hooks.js reads nothing else. */
 	if (failClosed.drift.length > 0)
 		fs.writeFileSync(
 			path.join(root, SELF_PLUGIN_HOOKS),
@@ -144,7 +108,6 @@ function writeAt(root) {
 }
 
 /**
- * `run`, a throw from it said on fd 2 and exit 2.
  * @param {import("./lib/write-fd.js").Write} write
  * @param {() => number} run
  * @returns {number}
@@ -158,11 +121,7 @@ function brokenOnThrow(write, run) {
 	}
 }
 
-/**
- * The --check run over the index of the working directory's repo, as the
- * pre-commit dispatcher runs it in its own process (#5172).
- * @type {import("./lib/precommit-gates.js").Program}
- */
+/** @type {import("./lib/precommit-gates.js").Program} */
 const PROGRAM = () =>
 	capture((write) => brokenOnThrow(write, () => checkIndex(write)));
 

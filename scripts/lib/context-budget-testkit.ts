@@ -1,9 +1,3 @@
-/*
- * The pool and injection caps check-context-budget.js enforces, read off its
- * own `--json` run over an empty root, so no test spells a cap and a re-seat is
- * one edit to that file (#2089).
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

@@ -1,27 +1,13 @@
-/*
- * The probe modes both in-process-probe.js and in-process-async-probe.js run,
- * so run-in-process.contract.test.ts's rows hold each entry point to the same
- * spawned behaviour (#2782). A mode whose result names its own file, or reads
- * its own `module`, stays in its probe.
- *
- * Writes stay a bare `fs.writeSync`, for the reason in-process-probe.js's
- * header gives.
- */
-
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { noop } = require("../noop.js");
 const { readFdAll } = require("../read-fd.js");
 
-/* Where a leak mode parks its timer, so the test that refused one can clear
- * it rather than leave it running in the vitest worker. */
 const LEAKED = Symbol.for("wfc.in-process-probe.leaked");
 
 const say = (/** @type {string} */ text) => fs.writeSync(1, `${text}\n`);
 
-/* "armed" tells a spawned run that hangs apart from one that never started. */
 const leak = () => {
-	// Only its being live matters: the harness must see it.
 	const timer = setInterval(noop, 1000);
 	/** @type {any} */ (globalThis)[LEAKED] = timer;
 	say("armed");
@@ -75,7 +61,6 @@ const modes = {
 		leak();
 		throw new Error("probe threw");
 	},
-	/* A listener that returns keeps a real process running, timer and all. */
 	"leak-then-handled-throw": () => {
 		process.on("uncaughtException", noop);
 		leak();

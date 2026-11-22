@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/*
- * commit-key.js — the key naming one commit's own changes for one slow gate
- * (#1650, spec #1639): the gate's name, then every (path, new mode, new blob
- * id) by which the index differs from HEAD, deletions included, sorted and
- * hashed. HEAD's side of an entry is not in it, so a neighbour moving HEAD
- * voids a key only where that changes what this commit adds. An unborn branch
- * compares against the empty tree.
- *
- * A gate's pre-lock green writes its key to a stamp of its own, named to the
- * hook by a variable of its own (#1904).
- *
- * One module for both sides — commit-paths in process, the pre-commit gate
- * through `stand-down` — so the two cannot disagree on a key.
- */
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -34,20 +20,14 @@ const git = (opts, ...args) =>
 /** @param {string} gate */
 const isGate = (gate) => /^[a-z]+$/.test(gate);
 
-/**
- * So the name is safe in a variable and a file name.
- * @param {string} gate
- */
+/** @param {string} gate */
 function checkGate(gate) {
 	if (!isGate(gate))
 		throw new Error(`gate name '${gate}' is not lowercase letters alone`);
 	return gate;
 }
 
-/**
- * The variable naming `gate`'s stamp to the hook: WFC_TEST_STAMP for `test`.
- * @param {string} gate
- */
+/** @param {string} gate */
 const stampVariable = (gate) => `WFC_${checkGate(gate).toUpperCase()}_STAMP`;
 
 /**
@@ -65,8 +45,6 @@ const stampFile = (gate, gitDir, run) =>
 const writeStamp = (file, key) => fs.writeFileSync(file, `${key}\n`);
 
 /**
- * `gate`'s key of the index `env.GIT_INDEX_FILE` names, or the default index.
- * Throws where git cannot read it.
  * @param {string} gate
  * @param {{env?: NodeJS.ProcessEnv}} [opts]
  * @returns {string}
@@ -103,8 +81,6 @@ function commitKey(gate, opts = {}) {
 }
 
 /**
- * Null where `stampPath` may stand `gate` down for the index git handed the
- * hook; otherwise the condition that failed.
  * @param {string} gate
  * @param {string} stampPath
  * @returns {string|null}
@@ -117,8 +93,6 @@ function standDownRefusal(gate, stampPath) {
 	try {
 		const gitDir = git({}, "rev-parse", "--absolute-git-dir").trim();
 		const real = fs.realpathSync(stampPath);
-		// Directly in it: a linked worktree's git directory sits under the main
-		// checkout's, and its stamp must not stand the main checkout down.
 		if (path.dirname(real) !== fs.realpathSync(gitDir)) return unreadable;
 		recorded = fs.readFileSync(real, "utf8").trim();
 	} catch {
@@ -133,9 +107,6 @@ function standDownRefusal(gate, stampPath) {
 	return recorded === key ? null : "changes that do not match";
 }
 
-/* `node commit-key.js key <gate>` prints the key;
- * `node commit-key.js stand-down <gate> <stamp>` exits 0 where the stamp
- * stands that gate down, and otherwise prints the failed condition and exits 1. */
 if (require.main === module) {
 	const [verb, gate = "", stamp] = process.argv.slice(2);
 	if (verb === "key" && isGate(gate)) {

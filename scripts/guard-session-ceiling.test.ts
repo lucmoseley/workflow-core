@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * guard-session-ceiling.js speaks at Stop when a session crosses a band of the
- * session-context policy — the 200,000-token wind-up notice, the 100-turn band
- * and the 300,000-token tripwire — and stays silent on any path that cannot
- * read a figure (mantahostels#1731; #1178).
- *
- * Black-box: the guard is driven end to end with a payload on stdin, its
- * repo root pointed at a throwaway directory so the counters and breadcrumbs it
- * mints never land in the shared tree. It reads files rather than git state, so
- * the temp directory is a plain `mkdtempSync` one rather than a git repo.
- *
- * It is the only reader of that policy: break it and a session runs past
- * 300,000 tokens with nothing said; loosen the caps and it blocks turn after
- * turn.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -24,9 +9,6 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
-/* The block counters (`*-nagged-*-<sid>`) live under gr_markers_dir
- * (.claude/tmp/markers), not the throwaway root itself — hook-block.js's
- * counterPath. */
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
@@ -34,14 +16,9 @@ const { readRuleText } = createRequire(__filename)("./lib/rule-text.js");
 
 const GUARD = path.join(__dirname, "guard-session-ceiling.js");
 
-/* The guard's band edges, restated from guard-session-ceiling.js, which a
- * black-box test cannot import: a drift there turns the at-edge cases red. */
 const WIND_UP = 200_000;
 const TURN_BAND = 100;
 const TRIPWIRE = 300_000;
-/* One reading past each edge, for a case about something other than where
- * the edge sits; any value past it serves. PAST_WIND_UP stays short of
- * TRIPWIRE, so only the wind-up band speaks. */
 const PAST_WIND_UP = 214_000;
 const PAST_TURN_BAND = 140;
 const PAST_TRIPWIRE = 480_000;
@@ -49,11 +26,6 @@ const PAST_TRIPWIRE = 480_000;
 let dir: string;
 let sid: string;
 
-/**
- * A transcript whose turns carry the given standing-context totals, split
- * across the three usage fields so what is asserted is their sum, never one
- * field.
- */
 const transcript = (totals: number[], extra: object[] = []): string => {
 	const file = path.join(dir, `${sid}.jsonl`);
 	const lines = totals.map((t, i) =>
@@ -77,9 +49,6 @@ const transcript = (totals: number[], extra: object[] = []): string => {
 	return file;
 };
 
-/** One run of the guard, its dispatch ledger redirected with the other roots.
- * The turn defaults to a session-ending one, the only kind a band below the
- * ceiling refuses (#919). */
 const run = (over: Partial<StopRun> = {}) => {
 	const block = readStopGuardBlock(GUARD, {
 		dir,
@@ -90,7 +59,6 @@ const run = (over: Partial<StopRun> = {}) => {
 		message: "result: done",
 		...over,
 	});
-	/* Read so a returning screen notice, dropped at #1148, fails a test. */
 	const notice = (block as { systemMessage?: string } | null)?.systemMessage;
 	return {
 		blocked: block?.decision === "block",
@@ -99,8 +67,6 @@ const run = (over: Partial<StopRun> = {}) => {
 	};
 };
 
-/** Records this session's claim on `issue` through the arbiter's own CLI,
- * so the store path resolves exactly as a live session's does. */
 const claim = (issue: number, session = sid) => {
 	const r = runInProcess(
 		path.join(__dirname, "session-arbiter.js"),
@@ -119,8 +85,6 @@ const claim = (issue: number, session = sid) => {
 	if (r.status !== 0) throw new Error(`arbiter claim-issue: ${r.stderr}`);
 };
 
-/** A transcript of `count` distinct responses, each at `ctx` standing context
- * and written as `perResponse` assistant records sharing one request id. */
 const turns = (count: number, ctx = 50_000, perResponse = 1) => {
 	const lines: string[] = [];
 	for (let i = 0; i < count; i++)
@@ -138,7 +102,6 @@ const turns = (count: number, ctx = 50_000, perResponse = 1) => {
 	fs.writeFileSync(path.join(dir, `${sid}.jsonl`), `${lines.join("\n")}\n`);
 };
 
-/** The outcome of every breadcrumb this guard has left, across sessions. */
 const readOutcomes = (): string[] => {
 	const crumbDir = hookRecord.recordsDir(dir);
 	return fs
@@ -210,8 +173,6 @@ describe("the 200,000-token wind-up notice (mantahostels#1548, the policy; manta
 		expect(run().reason).toContain("WIND-UP NOTICE");
 	});
 
-	/* The shape the harness actually produces: the Stop straight after one of
-	 * this guard's own blocks carries the flag (mantahostels#2601). */
 	it("lands on every other Stop under the harness's own alternation", () => {
 		transcript([PAST_WIND_UP]);
 		const seen = [
@@ -370,8 +331,6 @@ describe("the 300,000-token tripwire (#1178 Q3 (B), which made the ceiling one)"
 		expect(reason).toContain("Commit what exists");
 		expect(reason).toContain("end your turn");
 		expect(reason).not.toContain("successor");
-		/* The quoted founder-deliverable rule says "the ticket in hand" and
-		 * "HAND-OVER"; the guard's own words must name no hand-off. */
 		const rule = readRuleText("founder-deliverable").trim();
 		expect(reason).toContain(rule);
 		expect(reason.replace(rule, "")).not.toContain("hand");
@@ -461,7 +420,6 @@ describe("in a plugin install (#1452)", () => {
 });
 
 describe("no hand-off in any band (#1178 Q1 (A) and Q4 (B))", () => {
-	/** Every band's first block and a repeat, read for one session. */
 	const everyBand = () => {
 		const seen: string[] = [];
 		turns(PAST_TURN_BAND);
@@ -588,8 +546,6 @@ describe("no hand-off in any band (#1178 Q1 (A) and Q4 (B))", () => {
 });
 
 describe("waiting for the session's own background work (#1179)", () => {
-	/** A background command launched in this session, and — where `settled` —
-	 * the notification that says it came back. */
 	const launch = (id: string, description: string, settled = false) => {
 		const records = [
 			JSON.stringify(
@@ -712,7 +668,6 @@ describe("the inventory step on every band (#985, on #958's spec)", () => {
 		transcript([PAST_WIND_UP]);
 		const first = run().reason;
 		expect(first).toContain("take the inventory");
-		/* #958 ruled this wording; its pieces are lib/inventory-format.js's (#1249). */
 		expect(first).toContain(
 			"Then end with the inventory directly above the status line: `waits on you:`, then one `- #N (what to do)` line per item, or the single line `waits on you: nothing`. In a background job, also end the status line with `— waits on you: #N, #M` or `— nothing waits on you`.",
 		);
@@ -941,7 +896,6 @@ describe("autocompactions (#1032)", () => {
 	const setKeys = () =>
 		fs.readFileSync(compactionSet(), "utf8").trim().split("\n");
 
-	/* The model hears of a new one from inject-compaction-count.js (#1148). */
 	it("counts them below every band, blocking nothing and saying nothing", () => {
 		transcript([28_000], [boundary("c1"), boundary("c2")]);
 		const seen = run();
@@ -1045,8 +999,6 @@ describe("autocompactions (#1032)", () => {
 });
 
 describe("the measured-at stamp (mantahostels#2626)", () => {
-	/* The stamp is read by a hand re-measure and by nothing else, so the one way
-	 * it can rot silently is the measure script being renamed out from under it. */
 	it("names a re-measure command whose script is still on disk", () => {
 		const source = fs.readFileSync(
 			path.join(__dirname, "guard-session-ceiling.js"),

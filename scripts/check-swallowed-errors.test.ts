@@ -1,15 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins check-swallowed-errors.js in an adopter-shaped repo: what it charges,
- * and which paths it judges (#1830, #5487).
- *
- * It is the pre-commit swallowed-error gate's judge in every repo: loosen a
- * case and a swallow lands unrefused, or a commit is refused for swallows it
- * inherited or for a test file. What counts as a swallow is
- * swallowed_errors.py's, pinned by test_swallowed_errors.py.
- */
-
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -33,7 +23,6 @@ const swallow = (fn = "fetch") =>
 const REPORTED =
 	"from fail_open import fail_open\ndef fetch():\n    try:\n        return 1\n    except OSError as e:\n        fail_open(e, 'none')\n        return None\n";
 
-/** An adopter repo holding `committed` at HEAD and `staged` in the index. */
 function repo(
 	committed: Record<string, string>,
 	staged: Record<string, string>,
@@ -47,8 +36,6 @@ function repo(
 function check(r: TempRepo, args: string[] = []) {
 	const run = runInProcess(CHECKER, args, {
 		cwd: r.root,
-		// Pinned, never inherited: the session's own CLAUDE_PROJECT_DIR would
-		// read this repo's config rather than the fixture's.
 		env: { ...process.env, CLAUDE_PROJECT_DIR: r.root },
 	});
 	return { code: run.status, output: `${run.stdout}${run.stderr}` };

@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The glue wiring the arbiter into the vitest globalSetup (mantahostels#392), plus
- * `runTeardown`'s marker-timing wire-up (mantahostels#2182) driven through its sandbox
- * seam — this file's own module state, not a script run end to end.
- *
- * It is the globalSetup of every suite run: loosen a case and a red run caused
- * by a neighbour's half-written file is no longer named as such, so a session
- * debugs a fault that is not its own, or the suite marker lands somewhere
- * other than the store `attestationOf` reads.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -28,13 +18,6 @@ const sb = freshSandbox(() => {
 	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 });
 
-/*
- * Points the module's tree at a committed sandbox repository for each case, so
- * `runTeardown`'s `endOfRunTreeIdentity` asks this repository's git, never the
- * shared checkout's (#2092). Returns a holder whose `sha`, the tree a clean run
- * must stamp, is filled per case: read it inside a test body, never at
- * describe scope.
- */
 function sandboxTree() {
 	const tree = { sha: "" };
 	beforeEach(() => {
@@ -53,7 +36,6 @@ function sandboxTree() {
 	return tree;
 }
 
-/** What `fn` wrote to stderr. */
 function captureStderr(fn: () => void) {
 	const err: string[] = [];
 	const original = process.stderr.write.bind(process.stderr);
@@ -69,23 +51,13 @@ function captureStderr(fn: () => void) {
 	return err.join("");
 }
 
-/*
- * The branch the mantahostels#1942 resolution first declared untestable, on the wrong
- * grounds — code review corrected it. Under the correct code a null outcome
- * writes NOTHING, so no root has to be injected to check it; under the
- * `!== true` mutant this same test writes a line and fails.
- */
 describe("a run whose verdict nobody observed (mantahostels#1942)", () => {
-	/* teardown() resolves its own root from the module's location, never the
-	 * sandbox env, so the store it would write is the real checkout's. */
 	const failStore = markerLib.storePath(
 		markerLib.repoRoot(path.dirname(__filename)) ?? ".",
 		FAIL_STORE,
 	);
 
 	it("records no red marker when the reporter never ran", () => {
-		// Deliberately no outcome filled: mid-suite, the reporter's onTestRunEnd
-		// has not fired, so the run report's outcome is null — the case this pins.
 		const lines = () => {
 			try {
 				return fs.readFileSync(failStore, "utf8").split("\n").length;
@@ -100,25 +72,7 @@ describe("a run whose verdict nobody observed (mantahostels#1942)", () => {
 	});
 });
 
-/*
- * mantahostels#2182: a RED run stamps `startedAt`/`durationMs`, off the reporter's own
- * `onTestRunStart`/`onTestRunEnd` clock rather than the moment the marker is
- * written.
- *
- * Writes to a SANDBOX root via `runTeardown`'s override, never the real
- * checkout's `.test-fail-markers.jsonl` — `teardown()` resolves its root from
- * this module's own location and cannot be sandboxed, which is why this and
- * the mantahostels#2210 block below drive `runTeardown` directly rather than `teardown`.
- *
- * The run report is process-global. Under this repo's `pool: "forks"`
- * (`vitest.config.ts`) this file runs in its own worker, so the real reporter
- * driving THIS suite is a different process and cannot read what the test
- * fills — the take in `afterEach` protects a neighbouring test FILE sharing
- * this worker (`isolate` unset, pool default), never the reporter.
- */
 describe("a red run's timing (mantahostels#2182)", () => {
-	// No case here reads `treeAtEnd`, but `stash create` would still rewrite
-	// the shared checkout's index under a neighbour's run.
 	sandboxTree();
 	let redSandbox: string;
 
@@ -192,10 +146,6 @@ describe("a red run's failures already red on its base (#3624)", () => {
 	});
 });
 
-/*
- * mantahostels#2210: the green and red record() branches stamp `isolated`/`treeAtEnd`
- * (mantahostels#2187) via `endOfRunTreeIdentity`.
- */
 describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 	const tree = sandboxTree();
 	let markerSandbox: string;
@@ -244,7 +194,6 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 		const [certificate] = markerLib.readMarkers({ root: markerSandbox });
 		expect(certificate.closure).toEqual(["a.test.ts", "a.js"]);
 		expect(certificate.changedPaths).toEqual(["a.js"]);
-		// Taken once: the next run's marker must not inherit this closure.
 		expect(takeRunReport().attestation).toBeNull();
 
 		fillRunReport({ outcome: false, attestation: { closure: "*" } });
@@ -254,9 +203,6 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 	});
 
 	it("stamps a red marker with isolated:false where the launch says not isolated", () => {
-		// Explicit, not relied on from ordering: a real `--isolated` run sets
-		// the record on the whole process (`scripts/run-vitest.js`), and this
-		// test means to pin the shared-tree case regardless of what ran before it.
 		stubLaunch({ isolated: false });
 		fillRunReport({ outcome: false });
 
@@ -283,7 +229,6 @@ describe("the read audit (#4916)", () => {
 			fs.rmSync(d, { recursive: true, force: true });
 	});
 
-	/** Set up a run as the outermost one, unaudited so far, rowless by `rowlessBy` or not. */
 	function armed(rowlessBy: "lander" | "ci" | null) {
 		vi.stubEnv("WFC_READ_AUDIT_OWNER", "");
 		vi.stubEnv("WFC_LANDER_RUN", rowlessBy === "lander" ? "1" : "");

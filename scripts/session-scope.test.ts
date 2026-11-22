@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * session-scope.js (#4341), run in process against a fake /proc, its
- * systemd tools stubs at WFC_BUSCTL and WFC_SYSTEMD_RUN and
- * lib/systemctl-fake.ts at WFC_SYSTEMCTL, each logging its calls, so no test
- * moves a real process.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,10 +23,6 @@ function tmp(prefix: string) {
 	return dir;
 }
 
-/** Stubs that log their argv, one call a line; `refuse` fails a busctl call
- * whose words hold it, `active` answers `is-active` yes for session 500's watcher
- * (wfc-session-500-19640000-watch.service). A unit's start or an attach moves
- * the pids it names to `/<unit>` in the fake /proc, as the manager would. */
 function fakeTools(procRoot: string, { refuse = "", active = false } = {}) {
 	const dir = tmp("session-scope-bin-");
 	const log = path.join(dir, "calls");
@@ -75,8 +65,6 @@ done`,
 	return { env, calls };
 }
 
-/** A fake /proc: leader 500 (a spare) in `leaderCgroup`, its child 501, an
- * orphan 600 whose environ names 500, and 700 of another session. */
 function fakeProc(leaderCgroup = NON_SYSTEMD) {
 	const fake = makeProcRoot();
 	cleanups.push(fake.remove);
@@ -108,7 +96,6 @@ function adopt(
 	tools: Record<string, string>,
 	procRoot: string,
 ) {
-	/* This run's own session would otherwise be the leader read. */
 	const { CLAUDE_PID: _, ...inherited } = process.env;
 	return runInProcess(SCRIPT, [], {
 		env: {
@@ -143,12 +130,11 @@ describe("session-scope.js", () => {
 			/^systemd-run --user .*--expand-environment=no .*--unit=wfc-session-500-\d+-watch\.service/,
 		);
 		expect(watch).toMatch(/ sh 500 \d+ wfc-session-500-\d+\.scope ?$/);
-		/* #4848: at the manager's default of 200, earlyoom killed watchers first. */
+		// #4848
 		expect(watch).toContain(" --property=OOMScoreAdjust=0 ");
 	});
 
-	/* #4590: under the manager's default OOMPolicy `stop`, the bound's first
-	 * OOM kill stopped the whole scope and the session's own process with it. */
+	// #4590
 	it("makes the scope with its memory bound, no swap and OOMPolicy continue", () => {
 		const proc = fakeProc();
 		const { env, calls } = fakeTools(proc.root);
@@ -208,7 +194,7 @@ describe("session-scope.js", () => {
 		expect(calls()).toEqual([]);
 	});
 
-	/* #4749: a job the outliving launch started that a pass pulled back in. */
+	// #4749
 	function withPulledBackJob() {
 		const proc = fakeProc();
 		const dir = path.join(proc.root, "800");

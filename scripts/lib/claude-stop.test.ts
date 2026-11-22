@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/claude-stop.js is the one `claude stop` (#2697). Pinned against the
- * shared `claude stop` fake (lib/agents-stop-fake.ts, held to the harness by
- * agents-stop.contract.test.ts) at WFC_CLAUDE_BIN over three sandbox seats,
- * each answering a stop as the test sets it. Breaking it stops a job on a
- * seat whose record names another session, or reports a stop that failed on
- * one seat as nothing to stop.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -21,8 +13,6 @@ let seats: string[];
 
 const at = (name: string) => path.join(root, name);
 
-/** Point WFC_CLAUDE_BIN at the fake, each seat answering as `answers` says
- * in seat order, a seat past its end answering `ok`. */
 function seatsAnswering(...answers: StopAnswer[]) {
 	const bySeat = Object.fromEntries(answers.map((a, i) => [seats[i], a]));
 	writeClaudeStub(at("claude"), [
@@ -45,7 +35,6 @@ const readLines = (name: string) => {
 	}
 };
 
-/** `<seat letter> <job id>` per stop taken, in order. */
 const readStopsTaken = () => {
 	const argvs = readLines("stops");
 	return readLines("env").map(

@@ -1,111 +1,3 @@
-/*
- * file-claim.js — the dispatcher core that warns a write to a file another
- * live session is holding of the likely merge conflict (mantahostels#113,
- * #4249), and hands a session the claim rules at its first guarded write
- * (mantahostels#1646, spec mantahostels#1762). Its production port is
- * lib/file-claim-host.js.
- *
- * THIN BY DESIGN. Every verdict is the arbiter's — scripts/session-arbiter.js
- * and its store under scripts/lib/ — mantahostels#102 having ruled one named
- * subsystem with thin guards over it rather than independent guards, divergent
- * attribution logic being a demonstrated failure. This core builds the
- * arbiter's `check` argv off the payload, reads its answer, and chooses which
- * rules to hand over.
- *
- * It watches Write, Edit and NotebookEdit alike, or a session simply reaches
- * for the tool the guard does not watch. NotebookEdit names its target
- * `notebook_path`; reading `file_path` alone once matched the tool and then
- * allowed every write through it unchecked.
- *
- * THE ARBITER'S ARGV is `check <file> <session> <anchor> <anchor length>
- * <new ids>`:
- *  - THE EDIT ANCHOR (mantahostels#970): an Edit's old_string, which on
- *    docs/doc-map.md places the write inside one `### B<n>` entry or one §A
- *    register row, so two sessions on two entries never contend. Resolving it
- *    is the arbiter's; this core forwards it. A Write or NotebookEdit carries
- *    none, and the arbiter claims the file entire. TRUNCATED at 8,000
- *    characters, because it crosses an execve boundary and Linux caps one
- *    argument at 128 KB. Its ORIGINAL LENGTH rides beside it, because
- *    truncation loses the anchor's end, and the end is what says whether the
- *    write crosses into the next entry: told the length, the arbiter claims
- *    the whole file on a truncated anchor rather than the entry its prefix
- *    happens to sit in.
- *  - THE ENTRY IDS THIS WRITE INTRODUCES (mantahostels#1424): every
- *    `### B<n>` heading at a line's start in new_string and absent from the
- *    UNTRUNCATED old_string, so an Edit that only re-types a heading it quotes
- *    introduces nothing. Unique, at most 64, comma-joined. The arbiter warns
- *    where the session holds no claim on one, and never refuses on it. A Write
- *    carries `content`, not new_string, and a whole-file claim has nothing
- *    per-entry to say.
- *  - The session is the payload's `session_id`, else CLAUDE_CODE_SESSION_ID,
- *    else empty: the arbiter takes no claim for an unidentifiable session, and
- *    a placeholder would mint a lock nothing can ever release.
- *
- * THE ANSWER. A note — exactly `{ hookSpecificOutput: { hookEventName:
- * "PreToolUse", additionalContext } }` — rides ahead of the rules in one
- * envelope (mantahostels#2369), spending the same ceiling. Any other shape is
- * relayed as far as a dispatcher part can carry it — its additionalContext —
- * the rules deferred unlatched to the next write, and every field it cannot
- * carry is named in the error log (mantahostels#2387): a future arbiter field
- * is dropped on the record, never in silence. Output that is not JSON is logged and the write allowed.
- *
- * THE TIER TEST IS THIS CORE'S, AND CHOOSES ONLY WHETHER TO SPEAK. The arbiter
- * stays the authority on what is claimed and contended (mantahostels#102); a
- * prefix drifted out of step here costs a hint not given, never a wrong
- * verdict. It reads the path as the session's tree spells it, and that tree's
- * register, so a linked worktree's write is read by its own repo-relative path
- * (#4242). It warns on docs/, .claude/, CLAUDE.md and AGENTS.md; scripts/ is
- * a detect-only tier (mantahostels#287) never warned on; everything further
- * out is left to git (mantahostels#103). ONE HOLE: .claude/tmp/, the sanctioned
- * scratch directory (mantahostels#2089, mantahostels#2103), which
- * arbiter-core.js's EXEMPT list drops from both tiers — throwaway bytes carry
- * no claim to release. It is tested in the session's tree BEFORE the arbiter
- * runs (#4275; scratch-dir.js holds why).
- *
- * THE RULES, in each call's PRIORITY ORDER. What priority means here is
- * SURVIVAL, not importance (mantahostels#2386): the ids arrive in one
- * envelope, so their order inside it is invisible, and all it decides is which
- * the 4,000-byte ceiling keeps — the rest defer, unlatched, to the next write.
- *  - claim-bash-route LEADS the claim cluster: the injection stops at the
- *    first id that does not fit rather than skipping to a smaller one, and
- *    nothing anywhere reprints claim-bash-route.
- *  - A path-tied rule leads the docs arm on its own path, in a host with every
- *    module it names on (#2302): roadmap-edit on docs/reference-roadmap.html
- *    (#2021; nothing here tells a hand edit from the roadmap-edit loop's own,
- *    and with roadmap off check-gate-switches.js refuses a commit of it,
- *    #2301), manual-sync on docs/operating-manual.md (#2233).
- *  - doc-authority-class leads on a docs/doc-map-classes.json `derived` or
- *    `generated-only` path whose classQualifier is blank (#2016). A host with
- *    no register, a path it does not list, or a qualifier leaving part of the
- *    file hand-edited skips it.
- *  - writing-for-agents leads on a skill file, a CLAUDE.md or an AGENTS.md
- *    anywhere in the repo (#2030) — on its own outside both tiers.
- *  - A Write CREATING scripts/guard-*.sh or guard-*.js leads with
- *    guard-authoring, the pointer to the surfaces a new guard owes (#1011).
- *
- * LIMITS
- *  - It FAILS OPEN on an arbiter that times out, exits non-zero or answers
- *    what is not JSON (mantahostels#103 §6): a fail-closed bug would halt every
- *    concurrent session on their most-used files. Each is logged, through the
- *    dispatcher's guard-error log, which check-guard-errors.js reports.
- *    A store fault in the rule injection fails CLOSED, as the kit's injection
- *    does (mantahostels#1646), and the row's `closed` policy refuses on a throw
- *    of this core's own.
- *  - A file written by a Bash heredoc or by a script is invisible to it — the
- *    arbiter's `claim` command is what scripts call for themselves
- *    (mantahostels#99's signal 3); lib/claimed-bash-write.js warns on the Bash
- *    route.
- *  - On docs/doc-map.md alone a claim is per REGION (mantahostels#848,
- *    mantahostels#970, mantahostels#1402, mantahostels#1685); the arbiter falls
- *    back to the whole file, and says so, where it cannot place an anchor.
- *  - THE NOTE SPENDS THE CEILING. Each arm's first envelope is nearly full, so
- *    a note of a few hundred bytes drops file-claim to the next write —
- *    mantahostels#2334's whole-file notice on docs/doc-map.md already does on
- *    the guarded arm. It defers unlatched and arrives whole next time.
- *  - The entry ids are read off tool writes only: a `sed -i`, a heredoc or a
- *    script appending an entry is never warned about.
- */
-
 const { caught } = require("./caught.js");
 const { ruleModule } = require("./rule-gates.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
@@ -113,27 +5,24 @@ const { treeOrHost } = require("./tree-or.js");
 const { isScratch } = require("./scratch-dir.js");
 const { relativeUnder } = require("./is-under.js");
 
-/** The anchor's argv share, below Linux's 128 KB single-argument cap. */
+// guess, #5529
 const ANCHOR_MAX = 8000;
 
-/** Far above any real entry-adding edit, short of blowing the argv cap. */
+// guess, #5529
 const NEW_IDS_MAX = 64;
 
 const CLASSES = "docs/doc-map-classes.json";
 
 /**
  * @typedef {{ ok: true, stdout: string } | { ok: false, why: string,
- *   stdout: string }} ArbiterAnswer `why` is "timed out" or "exited <code>"
+ *   stdout: string }} ArbiterAnswer
  * @typedef {import("./core-contract.js").CoreContext & {
  *   arbiterCheck: (args: string[], cwd: string) => ArbiterAnswer,
  * }} FileClaimContext
  * @typedef {import("./guard-entry.js").Decision} Decision
  */
 
-/**
- * Every `### B<n>` id at a line's start in `text`, in order.
- * @param {string} text
- */
+/** @param {string} text */
 const entryIds = (text) =>
 	text.split("\n").flatMap((line) => {
 		const m = /^### (B[0-9]+)/.exec(line);
@@ -141,9 +30,6 @@ const entryIds = (text) =>
 	});
 
 /**
- * The anchor, its original length, and the ids the write introduces, off an
- * Edit's strings; a field that is present but not a string is logged and
- * forwarded as nothing.
  * @param {string} file
  * @param {FileClaimContext} ctx
  */
@@ -182,8 +68,6 @@ function editFields(file, ctx) {
 }
 
 /**
- * What a hook object the arbiter printed can be relayed as: its context; every
- * field a dispatcher part cannot carry named in the log.
  * @param {Record<string, unknown>} out
  * @param {FileClaimContext} ctx
  * @returns {Decision}
@@ -209,8 +93,6 @@ function relay(out, ctx) {
 }
 
 /**
- * The arbiter's answer, parsed: a note to carry with the rules, or the
- * decision that defers them.
  * @param {string} stdout
  * @param {FileClaimContext} ctx
  * @returns {{ note: string } | { decision: Decision }}
@@ -245,9 +127,6 @@ function readAnswer(stdout, ctx) {
 }
 
 /**
- * The register's class for `rel`, where its qualifier is blank; "" where the
- * session's tree has no register, does not list the path, or cannot be read
- * (logged).
  * @param {string} rel
  * @param {FileClaimContext} ctx
  * @param {import("./guard-host-ports.js").TreePorts} tree
@@ -266,7 +145,6 @@ function readAuthorityClass(rel, ctx, tree) {
 		const q = row.classQualifier ?? "";
 		if (typeof q !== "string" && q !== false)
 			throw new Error(`its ${rel} classQualifier is not a string`);
-		/* A blank qualifier is no qualifier, as lib/doc-map.js's buildSidecarClassText reads it. */
 		if (q && !/^\s*$/.test(q)) return "";
 		return typeof row.class === "string" ? row.class : "";
 	} catch (e) {
@@ -278,9 +156,6 @@ function readAuthorityClass(rel, ctx, tree) {
 }
 
 /**
- * The arbiter's answer for this write: a note to carry with the rules, or the
- * decision that ends the call. It runs in the session's tree, which a claim's
- * key is spelt from (#4397).
  * @param {string} file
  * @param {FileClaimContext} ctx
  * @param {string} tree
@@ -294,9 +169,6 @@ function arbiterAnswer(file, ctx, tree) {
 		tree,
 	);
 	if (arb.ok) return readAnswer(arb.stdout, ctx);
-	/* The arbiter catches its own exceptions and exits 0, so any other end is a
-	 * fault it never saw: a hang killed at the port's bound, an OOM kill, a node
-	 * that would not start. Whatever it printed first is still said. */
 	ctx.log(`arbiter ${arb.why} on ${file} — write allowed unchecked`);
 	const said = readAnswer(arb.stdout, ctx);
 	if ("decision" in said) return said;
@@ -304,11 +176,8 @@ function arbiterAnswer(file, ctx, tree) {
 }
 
 /**
- * The docs arm's injection: the deny tier's cluster, led by whichever
- * path-tied, class or agent-doc rule this path keeps.
  * @param {string} rel
- * @param {{ agentDoc: boolean, cls: string }} kind whether the path is an
- *   agent doc, and its authority class in the session tree's register
+ * @param {{ agentDoc: boolean, cls: string }} kind
  * @param {string} note
  * @param {FileClaimContext} ctx
  * @returns {Decision}
@@ -340,8 +209,6 @@ function docsRules(rel, { agentDoc, cls }, note, ctx) {
 }
 
 /**
- * The scripts arm's injection. A script writing a tracked doc raises no Write
- * hook, so the script rule's one live trigger is the script being WRITTEN.
  * @param {string} rel
  * @param {boolean} agentDoc
  * @param {boolean} creating
@@ -364,7 +231,6 @@ function scriptRules(rel, agentDoc, creating, note) {
 				"claim-release",
 			],
 		};
-	/* The adopter templates of CLAUDE.md and AGENTS.md live here. */
 	return {
 		prelude: note,
 		skip: agentDoc ? [] : ["writing-for-agents"],
@@ -384,15 +250,10 @@ function scriptRules(rel, agentDoc, creating, note) {
  * @returns {Decision}
  */
 function decide(file, ctx) {
-	/* Read before the arbiter runs, so nothing it does to the path can answer
-	 * for it. An Edit cannot create a file. */
 	const creating = ctx.tool === "Write" && !ctx.exists(file);
-	/* The rules follow the path in the session's tree, so a linked worktree's
-	 * write is read by its own spelling there (#4242); the claim is keyed by
-	 * the same spelling, in the host's store (#4397). */
+	/* #4242, #4397 */
 	const tree = treeOrHost(ctx);
 	const rel = (relativeUnder(tree.root, file) || file).replace(/^\.\//, "");
-	/* Scratch skips the arbiter, so no arbiter-fault line is logged for it. */
 	if (isScratch(rel)) return null;
 	const answer = arbiterAnswer(file, ctx, tree.root);
 	if ("decision" in answer) return answer.decision;
@@ -409,8 +270,6 @@ function decide(file, ctx) {
 		);
 	if (rel.startsWith("scripts/"))
 		return scriptRules(rel, agentDoc, creating, note);
-	/* A vendored skill under .agents/, or a nested CLAUDE.md: the one rule,
-	 * with the note riding it. */
 	if (agentDoc) return { prelude: note, injectRules: ["writing-for-agents"] };
 	return note ? { context: note } : null;
 }

@@ -1,4 +1,59 @@
 #!/usr/bin/env node
+const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
+const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
+const { buildLineRe, hasLine } = require("./lib/marker-line.js");
+const { writeFd } = require("./lib/write-fd.js");
+const issueBody = require("./issue-body.js");
+const { parseErrLine, gh } = require("./lib/gh.js");
+const outstandingLine = require("./lib/outstanding-line.js");
+const { unmetCriteria } = require("./lib/ticket-criteria.js");
+const { ticketedRefusal } = require("./lib/ticketed-tags.js");
+const { openChildrenRefusal } = require("./lib/open-children.js");
+const { isOpenChild, readSubIssues } = require("./lib/issue-tree.js");
+const {
+	censusRefusal,
+	readExpiredRows,
+	hasCensusLine,
+} = require("./lib/census-digest.js");
+const {
+	hasUnlandedLine,
+	readUnlandedCommits,
+	unlandedRefusal,
+} = require("./lib/unlanded-commits.js");
+const {
+	alreadyCommented,
+	isCardOwnIssue,
+	readIssue,
+	readParent,
+	releaseCleanFileClaims,
+	releaseOwnClaim,
+	scriptIo,
+} = require("./lib/tracker-ops.js");
+const { recordOwnAct } = require("./lib/own-acts.js");
+const {
+	buildFindingsRefusal,
+	hasRecordMention,
+	readTicketComments,
+} = require("./lib/review-findings.js");
+const {
+	buildCompactionsLine,
+	COMPACTIONS_MARKER,
+	countCompactions,
+	hasSessionCompactionsLine,
+} = require("./lib/compaction-set.js");
+const { caught } = require("./lib/caught.js");
+const { decisionMarks, isDecisionTicket } = require("./lib/decision-labels.js");
+const { fromEnv: sessionFromEnv } = require("./lib/session-id.js");
+const { parseIssueNumber } = require("./lib/issue-number.js");
+
+const USAGE = `usage: node ${scriptPath("resolve-ticket.js")} <n> --comment-file F|- [--decision "<one line>"] [--reason completed|"not planned"]`;
+
+const REASONS = ["completed", "not planned"];
+
+/** @type {import("./lib/tracker-ops.js").ScriptIo} */
+const io = scriptIo("resolve-ticket");
+
 /*
  * resolve-ticket.js — resolve a ticket in one call: post the resolution
  * comment, close, release this session's arbiter claim and its whole-file
@@ -90,62 +145,6 @@
  * scripts — 0 done or already done, 1 a write did not land or could not be
  * verified, 2 a usage error or a refusal.
  */
-
-const fs = require("node:fs");
-const { scriptPath } = require("./lib/script-path.js");
-const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
-const { buildLineRe, hasLine } = require("./lib/marker-line.js");
-const { writeFd } = require("./lib/write-fd.js");
-const issueBody = require("./issue-body.js");
-const { parseErrLine, gh } = require("./lib/gh.js");
-const outstandingLine = require("./lib/outstanding-line.js");
-const { unmetCriteria } = require("./lib/ticket-criteria.js");
-const { ticketedRefusal } = require("./lib/ticketed-tags.js");
-const { openChildrenRefusal } = require("./lib/open-children.js");
-const { isOpenChild, readSubIssues } = require("./lib/issue-tree.js");
-const {
-	censusRefusal,
-	readExpiredRows,
-	hasCensusLine,
-} = require("./lib/census-digest.js");
-const {
-	hasUnlandedLine,
-	readUnlandedCommits,
-	unlandedRefusal,
-} = require("./lib/unlanded-commits.js");
-const {
-	alreadyCommented,
-	isCardOwnIssue,
-	readIssue,
-	readParent,
-	releaseCleanFileClaims,
-	releaseOwnClaim,
-	scriptIo,
-} = require("./lib/tracker-ops.js");
-const { recordOwnAct } = require("./lib/own-acts.js");
-const {
-	buildFindingsRefusal,
-	hasRecordMention,
-	readTicketComments,
-} = require("./lib/review-findings.js");
-const {
-	buildCompactionsLine,
-	COMPACTIONS_MARKER,
-	countCompactions,
-	hasSessionCompactionsLine,
-} = require("./lib/compaction-set.js");
-const { caught } = require("./lib/caught.js");
-const { decisionMarks, isDecisionTicket } = require("./lib/decision-labels.js");
-const { fromEnv: sessionFromEnv } = require("./lib/session-id.js");
-const { parseIssueNumber } = require("./lib/issue-number.js");
-
-const USAGE = `usage: node ${scriptPath("resolve-ticket.js")} <n> --comment-file F|- [--decision "<one line>"] [--reason completed|"not planned"]`;
-
-const REASONS = ["completed", "not planned"];
-
-/** @type {import("./lib/tracker-ops.js").ScriptIo} */
-const io = scriptIo("resolve-ticket");
-
 /** @param {string[]} argv */
 function parseArgs(argv) {
 	/** @type {{n?: number, commentFile?: string, decision?: string, reason: string}} */
@@ -199,8 +198,6 @@ function readComment(file) {
 }
 
 /**
- * The map line through issue-body.js append-decision, which skips a repeat and
- * exits 1 on a lost neighbour's line or a missing section. Its exit code.
  * @param {string} repo
  * @param {number} map
  * @param {number} n
@@ -265,7 +262,6 @@ function checkCommentOrFail(comment, notPlanned) {
 		);
 }
 
-/* The global CLAUDE.md §The practice gate's exempt kind, as written there. */
 const REPLY_SKIP = buildLineRe(
 	"Practice",
 	"skipped\\b[^\\n]*\\ba reply that only answers a question",
@@ -285,7 +281,6 @@ function checkPracticeKindOrFail(comment, issue) {
 }
 
 /**
- * The issue, refusing a pull request.
  * @param {string} repo
  * @param {number} n
  * @returns {Issue}
@@ -305,8 +300,6 @@ function readIssueOrFail(repo, n) {
 }
 
 /**
- * Refuses a completed close of a card's own issue, or of any issue with
- * unticked, unwaived acceptance criteria, whatever its labels (#1640).
  * @param {Issue} issue
  * @param {number} n
  */
@@ -326,8 +319,6 @@ function checkCompletableOrFail(issue, n) {
 }
 
 /**
- * Refuses any close, not-planned included, that leaves a sub-issue open
- * (#3637).
  * @param {string} repo
  * @param {number} n
  */
@@ -405,7 +396,7 @@ function checkRefusalOrFail(check, n, refuse) {
 	try {
 		refusal = refuse();
 	} catch (e) {
-		// Fails open: a read nobody can make must not strand a close (#1876, #3101).
+		// #1876 #3101
 		io.out(
 			`#${n}: ${check} check skipped — ${caught(e).message.split("\n")[0]}.\n`,
 		);
@@ -435,8 +426,6 @@ function checkOutstandingOrFail(comment, repo, n) {
 }
 
 /**
- * The issue's parent where it is a map, refusing a map close without a usable
- * decision line or a map without its Decisions section.
  * @param {Issue} issue
  * @param {number} n
  * @param {string | undefined} decision
@@ -470,9 +459,6 @@ function readMapOrFail(issue, n, decision) {
 }
 
 /**
- * A `kind:ticket`'s comment with this session's autocompaction count
- * appended; any other issue's, or one already carrying this session's line,
- * as given.
  * @param {string} comment
  * @param {Issue} issue
  */
@@ -525,7 +511,6 @@ function postCommentOnce(repo, n, comment) {
 }
 
 /**
- * Closes the issue with `reason` and reads the close back.
  * @param {string} repo
  * @param {number} n
  * @param {string} reason
@@ -573,9 +558,6 @@ function main() {
 		checkLandedOrFail(comment, n);
 	}
 
-	/* A closed issue was resolved by an earlier run: its comment is posted and
-	 * nothing below re-posts it, so a carrier closed since must not strand the
-	 * claim release and map line. */
 	if (!notPlanned && issue.state !== "closed")
 		checkOutstandingOrFail(comment, repo, n);
 
@@ -603,8 +585,7 @@ function main() {
 			`#${n} has no map parent, so --decision was not written anywhere.\n`,
 		);
 	}
-	// Not process.exit: issue-body's main wrote with process.stdout.write,
-	// which an exit can cut short on a pipe (§N6).
+	// process.exit can cut a pending stdout write on a pipe short: https://nodejs.org/api/process.html#processexit
 	process.exitCode = code;
 }
 

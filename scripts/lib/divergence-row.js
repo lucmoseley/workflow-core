@@ -1,40 +1,9 @@
-/*
- * divergence-row.js — record-divergence.js's core (#2797): whether a Bash call
- * was a refused `git pull` or a rejected `git push`, and the row recording the
- * divergence that caused it (#289). `session-checkout.js land` files its own
- * refused push through landRow (#4446): that push runs inside node, where no
- * Bash hook sees it.
- *
- * A CORE: it does no I/O. Every git read, the pushed ref, the session count,
- * the clock, the directory test and the log directory arrive as ports
- * (lib/divergence-row-host.js wires the real ones), and it returns the row and
- * where it goes rather than writing it.
- *
- * THE COMMAND IS READ BY lib/shell-parse.js's git walk, quote-aware, `-C`
- * followed as git composes it. The walk filters by tree class; this recorder
- * records in ANY repo, so it hands the walk a classifier that judges every
- * tree, and `strict`, so a tree that will not resolve comes back "" and the
- * row is dropped rather than filed under the cwd.
- */
-
 const { basename } = require("node:path").posix;
 
-/* git's words for a push refused because the remote ref holds a commit ours
- * lacks; lib/land-refusal.js builds a land's MOVED test from them. Here, not
- * there, so this hook's load set stays its own (#2899). */
 const REJECTED = "[rejected]";
 const FETCH_FIRST = "fetch first";
 const NON_FAST_FORWARD = "non-fast-forward";
 
-/**
- * The refusal strings, in git's own words, probed in this order; the first
- * found is the row's marker. A pull that merely printed "Already up to date"
- * matches none and is not a row.
- *
- * "Need to specify how to reconcile" is git's message when the branches have
- * diverged and no pull strategy is configured — the same divergence, refused
- * one step earlier.
- */
 const MARKERS = [
 	"Not possible to fast-forward",
 	"Need to specify how to reconcile divergent branches",
@@ -46,44 +15,25 @@ const MARKERS = [
 
 /**
  * @typedef {object} DivergencePorts
- * @property {boolean} disabled WFC_NO_DIVERGENCE_LOG is set: no row at all
- * @property {(payload: Record<string, unknown>) => string} sessionDir the
- *   directory the refused call ran in, lib/host-root.js's `sessionDir`
+ * @property {boolean} disabled
+ * @property {(payload: Record<string, unknown>) => string} sessionDir
  * @property {(p: string) => boolean} isDir
- * @property {(dir: string) => string | null} toplevel `git rev-parse
- *   --show-toplevel` in `dir`
- * @property {(dir: string) => string | null} commonDir the absolute git common
- *   dir of `dir`
- * @property {(top: string) => string} pushedRef lib/landing-refs.js's pushed
- *   ref for the checkout at `top`, "" where it will not say
+ * @property {(dir: string) => string | null} toplevel
+ * @property {(dir: string) => string | null} commonDir
+ * @property {(top: string) => string} pushedRef
  * @property {(top: string, ref: string) => boolean} refExists
- * @property {(top: string) => string | null} upstream `@{u}`, abbreviated
- * @property {(top: string, ref: string) => string | null} counts `git
- *   rev-list --left-right --count HEAD...<ref>`
- * @property {() => number | null} sessions live Claude sessions, null where
- *   unreadable
+ * @property {(top: string) => string | null} upstream
+ * @property {(top: string, ref: string) => string | null} counts
+ * @property {() => number | null} sessions
  * @property {() => Date} now
- * @property {(top: string) => string} projectDir the project directory a
- *   record about the repo at `top` is filed under
- *
- * Each git port answers its stdout less trailing newlines, or null where git
- * would not answer.
- *
- * @typedef {{ dir: string, file: string, line: string }} Row one line, its
- *   newline included, to append to `file` in `dir`
+ * @property {(top: string) => string} projectDir
+ * @typedef {{ dir: string, file: string, line: string }} Row
  */
 
-/** jq's `//`: null, false and an absent field all fall through. */
 const isPresent = (/** @type {unknown} */ v) =>
 	v !== undefined && v !== null && v !== false;
 
-/**
- * The text git printed: `tool_output`, else `tool_response`, else `error` —
- * where a call that exited non-zero (PostToolUseFailure) carries it — else the
- * whole payload, as jq's `tostring` reads it: a string raw, anything else
- * compact JSON. The field's name has changed across harness versions.
- * @param {Record<string, unknown>} payload
- */
+/** @param {Record<string, unknown>} payload */
 function outputOf(payload) {
 	const v =
 		[payload.tool_output, payload.tool_response, payload.error].find(
@@ -93,16 +43,12 @@ function outputOf(payload) {
 }
 
 /**
- * The first pull or push the command runs, and the tree it runs against; ""
- * where that tree will not resolve. Null where it runs neither.
  * @param {string} command
  * @param {string} cwd
  * @param {(p: string) => boolean} isDir
  * @returns {{ kind: string, tree: string } | null}
  */
 function firstRefusable(command, cwd, isDir) {
-	/* Loaded only here: most calls carry no refusal and never reach the walk
-	 * (#2899). */
 	const { parseCommand, walkGit } = require("./shell-parse.js");
 	/** @type {{ kind: string, tree: string } | null} */
 	let found = null;
@@ -114,14 +60,9 @@ function firstRefusable(command, cwd, isDir) {
 		{
 			cwd: undefined,
 			fallbackCwd: cwd,
-			/* No variable resolves: the hook's environment is not the shell the
-			 * command ran in, so a `$VAR` path is one the row cannot place. */
 			vars: {},
 			isDir,
-			/* Every tree is judged: a refusal is recorded in whichever repo it
-			 * happened in. */
 			treeClass: () => "shared",
-			/* `strict` hands an unresolved tree over rather than logging it. */
 			log: () => undefined,
 		},
 		{
@@ -135,9 +76,6 @@ function firstRefusable(command, cwd, isDir) {
 }
 
 /**
- * The REPOSITORY's name, not this checkout's: the common git dir's parent, so
- * a refusal in a linked worktree is filed under the repository it belongs to.
- * The top level's name where git gives no common dir.
  * @param {string} top
  * @param {string} common
  */
@@ -146,11 +84,7 @@ function repoName(top, common) {
 	return repo || basename(top);
 }
 
-/**
- * ahead/behind and the state they read as; `-`, `-`, `unknown` where they
- * will not count.
- * @param {string | null} counts
- */
+/** @param {string | null} counts */
 function readCounts(counts) {
 	const m = /^([0-9]+)[ \t\n\v\f\r]+([0-9]+)$/.exec(counts ?? "");
 	if (!m) return { ahead: "-", behind: "-", state: "unknown" };
@@ -164,17 +98,10 @@ function readCounts(counts) {
 	return { ahead, behind, state };
 }
 
-/**
- * Tab and newline are the row's own delimiters, and `repo` and `ref` come off
- * the filesystem and the ref namespace. Collapsed to spaces, as
- * lib/guard-log.sh does for the same reason.
- * @param {string} s
- */
+/** @param {string} s */
 const flat = (s) => s.replace(/[\t\r\n]/g, " ");
 
 /**
- * The command, the refusal string matched and the payload, where the payload
- * is a Bash call whose output carries a refusal; null otherwise.
  * @param {unknown} payload
  * @returns {{ command: string, marker: string,
  *   payload: Record<string, unknown> } | null}
@@ -197,9 +124,6 @@ function readRefusal(payload) {
 const markerIn = (out) => MARKERS.find((m) => out.includes(m));
 
 /**
- * The ref ahead/behind are counted against: the pushed ref (#2408), else —
- * where the repo has no such ref, an adopter on another default branch — the
- * configured upstream, the row naming whichever was used; "" where neither is.
  * @param {string} top
  * @param {DivergencePorts} ports
  */
@@ -210,8 +134,7 @@ function countedRef(top, ports) {
 }
 
 /**
- * The row a Bash call's payload records, or null where it records none.
- * @param {unknown} payload the hook payload, parsed
+ * @param {unknown} payload
  * @param {DivergencePorts} ports
  * @returns {Row | null}
  */
@@ -224,20 +147,13 @@ function divergenceRow(payload, ports) {
 		ports.sessionDir(refusal.payload),
 		ports.isDir,
 	);
-	/* A tree that is no directory, the session's own included, has no top
-	 * level either: git answers for neither. Residual: a refusal whose cwd
-	 * was removed goes unrecorded, rather than filed under the hook's own
-	 * repo (#4271). */
 	if (!call?.tree) return null;
 	return rowAt(call.tree, call.kind, refusal.marker, ports);
 }
 
 /**
- * The row a refused `session-checkout.js land` push records, kind `land`, or
- * null where its output carries no refusal string or the tree will not
- * resolve. The caller fetches the pushed ref first, so `behind` is current.
- * @param {string} tree the worktree landed from
- * @param {string} output the push's output
+ * @param {string} tree
+ * @param {string} output
  * @param {DivergencePorts} ports
  * @returns {Row | null}
  */
@@ -248,10 +164,8 @@ function landRow(tree, output, ports) {
 }
 
 /**
- * The row for a refusal of `kind` in `tree`, or null where the tree has no
- * top level.
  * @param {string} tree
- * @param {string} kind pull | push | land
+ * @param {string} kind
  * @param {string} marker
  * @param {DivergencePorts} ports
  * @returns {Row | null}
@@ -265,9 +179,6 @@ function rowAt(tree, kind, marker, ports) {
 		ref ? ports.counts(top, ref) : null,
 	);
 	const n = ports.sessions();
-	/* The `.000Z` is SHAPE, not precision: whole seconds is all this reads, and
-	 * the millis are there so a row sorts and parses beside lib/guard-log.sh's,
-	 * which pads the same three zeroes. */
 	const when = `${ports.now().toISOString().slice(0, 19)}.000Z`;
 	const fields = [
 		when,

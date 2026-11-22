@@ -1,31 +1,5 @@
 // @vitest-environment node
-/*
- * Pins reconcile-plugin.js, the SessionEnd actor (#247): it upgrades an
- * adopter's plugin to its pin only on a standing consent and no live
- * neighbour, clears the consent only once the install and migration walk land,
- * and never moves the pin.
- *
- * DRIVEN AS THE HOOK RUNS IT, `--session-end` through `runInProcess`, never
- * through an export (#1369, §G6): what a case asserts is what the program
- * prints, the `claude` calls it makes and the consent it leaves behind.
- *
- * NOTHING HERE READS OR WRITES OUTSIDE ITS OWN FIXTURE. Every case builds a
- * throwaway root, plugin root and config dir, and the environment points every
- * outside reading at them: CLAUDE_CONFIG_DIR and WFC_CLAUDE_CONFIG_A/B/C (the
- * consent store's cross-config-dir scan, and the notify report), HOME (the
- * `~/.claude` fallback), WFC_PS/WFC_PROC (the live count, against a stub `ps`
- * and a fixture /proc), and WFC_CLAUDE_BIN (a shell stub that logs its argv).
- *
- * ONE CASE SPAWNS, for a real fd (§X3's third shape): the contention report
- * must reach stdout BEFORE the rotation it describes, and only a shared file
- * descriptor shows the program's write and the stub's call in their real
- * order.
- *
- * It runs as the SessionEnd hook in `self-plugin/hooks/hooks.json` and the
- * shipped plugin's `hooks/hooks.json`: loosen a case and an upgrade the founder
- * accepted is dropped, or one runs under a live neighbour or against a declined
- * tag.
- */
+// full-sweep-only: #5528
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -65,10 +39,6 @@ function writeJson(at: string, doc: unknown) {
 const PLUGIN = "workflow-core";
 const MARKET = "wc";
 
-/**
- * An adopter whose pin is `pinRef` and whose install is `installedVersion`,
- * with the supply clone sitting on `supplyRef`.
- */
 function fixture({
 	pinRef,
 	installedVersion,
@@ -130,12 +100,6 @@ function fixture({
 	if (supplyRef !== "main")
 		execSync(`git tag ${shellQuote(supplyRef)}`, { cwd: clone });
 
-	/* A real, clean adopter repo — the migration walk (#249) reads the
-	 * working tree's own git status, and every case here must present one
-	 * whether or not the case cares about the walk. Identity is set
-	 * REPO-LOCAL and PERSISTED, not `-c` on this one commit alone: the
-	 * walk's own commit (scripts/lib/walk-and-commit.js) runs without `-c`,
-	 * so it needs the repo's ambient config to be able to commit at all. */
 	execSync("git init -q -b main", { cwd: root });
 	execSync("git config user.email t@t", { cwd: root });
 	execSync("git config user.name t", { cwd: root });
@@ -149,11 +113,6 @@ type Fixture = ReturnType<typeof fixture>;
 
 let stubs = 0;
 
-/**
- * The `claude` the program spawns: logs `cwd :: CLAUDE_CONFIG_DIR :: argv` per
- * call to `log`, and exits 1 saying `fail.said` on a call whose argv contains
- * `fail.on`.
- */
 function claudeStub(
 	at: Fixture,
 	{
@@ -161,8 +120,6 @@ function claudeStub(
 		log = path.join(at.tmp, "claude.log"),
 	}: { fail?: { on: string; said: string }; log?: string } = {},
 ) {
-	/* One file per stub, so the default `sessionEnv` writes cannot overwrite
-	 * the one a case built for itself. */
 	const stub = path.join(at.tmp, `claude-stub-${++stubs}.sh`);
 	fs.writeFileSync(
 		stub,
@@ -182,7 +139,6 @@ function claudeStub(
 	return stub;
 }
 
-/** Every `claude` call the stub logged, in order. */
 function readClaudeCalls(at: Fixture) {
 	const log = path.join(at.tmp, "claude.log");
 	return fs.existsSync(log)
@@ -190,16 +146,11 @@ function readClaudeCalls(at: Fixture) {
 		: [];
 }
 
-/** The calls that move the supply: `marketplace add`, `install`, `update`. */
 const readRotations = (at: Fixture) =>
 	readClaudeCalls(at).filter((c) =>
 		/plugin (?:marketplace add|install|update) /.test(c),
 	);
 
-/**
- * The hook's environment. CLAUDE_PID is dropped: it names the ending
- * session's own pid, which the live count excludes.
- */
 function sessionEnv(at: Fixture, extra: Record<string, string> = {}) {
 	const env: Record<string, string | undefined> = {
 		...process.env,
@@ -212,7 +163,6 @@ function sessionEnv(at: Fixture, extra: Record<string, string> = {}) {
 		HOME: at.tmp,
 		WFC_PS: writePsStub(at.tmp, [], { name: "ps-none.sh" }),
 		WFC_PROC: path.join(at.tmp, "no-proc"),
-		/* Never the runner's own: a case's stub, or the default below. */
 		WFC_CLAUDE_BIN: undefined,
 		...extra,
 	};
@@ -221,7 +171,6 @@ function sessionEnv(at: Fixture, extra: Record<string, string> = {}) {
 	return env as NodeJS.ProcessEnv;
 }
 
-/** One SessionEnd: the program's exit, stdout and stderr. */
 function sessionEnd(at: Fixture, extra: Record<string, string> = {}) {
 	const r = runInProcess(SCRIPT, ["--session-end"], {
 		env: sessionEnv(at, extra),
@@ -230,7 +179,6 @@ function sessionEnd(at: Fixture, extra: Record<string, string> = {}) {
 	return { ...r, text: r.stdout };
 }
 
-/** The persisted SessionEnd report's outcome, or null where none was filed. */
 function readReportOutcome(at: Fixture) {
 	const hit = (
 		fs.readdirSync(at.configDir, { recursive: true }) as string[]
@@ -243,8 +191,6 @@ function readReportOutcome(at: Fixture) {
 const readConsentOf = (at: Fixture, tag: string) =>
 	readPendingConsent(at.root, tag, { configDir: at.configDir });
 
-/* The marketplace entries alone: the walk merges the core's other settings
- * keys into the same file on every run (#1501), and only the pin is held. */
 const pinBytes = (root: string) =>
 	JSON.stringify(
 		JSON.parse(
@@ -301,8 +247,6 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 			supplyRef: "v1.5.0",
 		});
 		setPendingConsent(at.root, "v2.0.0", { configDir: at.configDir });
-		/* The order matters more than the text: a materialise that then hangs
-		 * to the hook's timeout must not swallow the contention report. */
 		const out = path.join(at.tmp, "stdout.log");
 		const fd = fs.openSync(out, "a");
 		try {
@@ -369,7 +313,6 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		fs.rmSync(path.join(at.root, "scratch.txt"));
 		const clean = sessionEnd(at);
 		expect(clean.text).toContain("the next session in");
-		// the install is already at the pin, so neither exit rotates (#747)
 		expect(readRotations(at)).toEqual([]);
 		expect(readConsentOf(at, "v1.0.0")).toBeNull();
 	});
@@ -413,10 +356,8 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 			sessionEnd(at, { WFC_CLAUDE_BIN: claudeStub(at, { fail }) });
 			expect(pinBytes(at.root)).toEqual(before);
 		}
-		// …and on every path that stops before the materialise.
 		const stoppers: [RegExp, (at: Fixture) => void][] = [
 			[/^$/, (at) => decline(at.root, "v3.0.0", { configDir: at.configDir })],
-			// The fixture as built: no consent pending.
 			[/^$/, noop],
 			[
 				/^$/,
@@ -444,7 +385,6 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 			expect(pinBytes(at.root)).toEqual(before);
 		}
 
-		// …and on the deferral, which needs its consent in place to reach.
 		const busy = fixture({ pinRef: "v3.0.0", installedVersion: "1.0.0" });
 		setPendingConsent(busy.root, "v3.0.0", { configDir: busy.configDir });
 		const beforeBusy = pinBytes(busy.root);
@@ -490,7 +430,6 @@ describe("reconcile-plugin.js leaves the supply alone once the install is at the
 		expect(readConsentOf(at, "v1.0.0")).toBeNull();
 	});
 
-	/** An install at the pin with the consent pending and a stub walker. */
 	function walkOnly() {
 		const at = fixture({ pinRef: "v1.0.0", installedVersion: "1.0.0" });
 		setPendingConsent(at.root, "v1.0.0", { configDir: at.configDir });
@@ -548,11 +487,6 @@ describe("reconcile-plugin.js leaves the supply alone once the install is at the
 	});
 });
 
-/**
- * Writes `body` as the fixture install's own `scripts/lib/walk-and-commit.js`
- * and returns the install path — the one `fixture` registers for version
- * "1.0.0".
- */
 function installWalker(configDir: string, body: string) {
 	const installPath = path.join(configDir, "plugins/cache", MARKET, "1.0.0");
 	const at = path.join(installPath, "scripts", "lib", "walk-and-commit.js");
@@ -631,9 +565,6 @@ describe("reconcile-plugin.js's walker is the fresh install's own (#682)", () =>
 	});
 });
 
-/**
- * A stub `ps -eo pid=,args=` printing `rows`, and a fixture /proc for them.
- */
 function procFixture(
 	at: Fixture,
 	rows: {
@@ -668,11 +599,7 @@ function procFixture(
 	return { WFC_PS: ps, WFC_PROC: proc };
 }
 
-/* The count's own pid is the one
- * `runInProcess` runs the program in — the vitest worker's — so a case about
- * ancestry writes a /proc stat for `process.pid`. */
 describe("reconcile-plugin.js's live-session count (#247)", () => {
-	/** An adopter with a pending consent, so the run reaches the count. */
 	function consenting(configName?: string) {
 		const at = fixture({
 			pinRef: "v2.0.0",
@@ -716,8 +643,6 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 			{ pid: "202", args: "claude", configDir: at.configDir, ppid: "1" },
 			{ pid: self, args: "claude", configDir: at.configDir, ppid: "202" },
 		]);
-		// this process's ancestry is self → 202, so both drop out; 201 is
-		// another config dir; 200 is the one real neighbour.
 		const got = sessionEnd(at, procs);
 		expect(got.text).toContain("1 other Claude session(s)");
 		expect(got.text).toContain("(pid 200)");
@@ -747,10 +672,6 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 		expect(sessionEnd(at, procs).text).toContain("(pid 300)");
 	});
 
-	/**
-	 * A daemon and one spare pair as the daemon spawns them, the host on a
-	 * versioned binary, its `bg-spare` half sitting in `spareCwd`.
-	 */
 	function sparePair(at: Fixture, spareCwd: string) {
 		const dir = "/tmp/cc-daemon-1000/abc/spare";
 		const bin = "/home/x/.local/share/claude/versions/2.1.312";
@@ -793,7 +714,6 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 	});
 
 	it("falls back to ~/.claude for a session that exported no config dir", () => {
-		// HOME is the fixture's tmp, so ~/.claude is the fixture's own config dir.
 		const at = consenting(".claude");
 		const procs = procFixture(at, [
 			{ pid: "400", args: "claude" },
@@ -806,7 +726,6 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 });
 
 describe("reconcile-plugin.js's command line", () => {
-	/** A run by hand: no CLAUDE_PLUGIN_ROOT, so the plugin root is the repo's. */
 	function handRun(at: Fixture) {
 		const env = sessionEnv(at);
 		delete env.CLAUDE_PLUGIN_ROOT;

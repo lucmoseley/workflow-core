@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-root-find core of guard-dispatch.js refuses a `find` started at
- * `/`, at any depth, and hands over the plugin's own root, the repo's scratch
- * and named roots (#1006). These are its boundary cases (§X11), the
- * dispatcher entry run on it alone: the payload on stdin, its cwd and the
- * hook's own, the real plugin root and the real core-path rewrite, end to
- * end. Which command earns which verdict is lib/find-start.test.ts's (#2801);
- * the entry's payload faults and the throw policy are guard-dispatch's own
- * tests' (#3227).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -84,8 +74,6 @@ describe("the guard, end to end", () => {
 	});
 
 	it("spells core paths at the plugin root in an install", () => {
-		// WFC_SCRIPT_ROOT stands in for an install: a core root with no
-		// package.json.
 		const install = path.join(dir, "install");
 		fs.mkdirSync(path.join(install, "docs", "agents"), { recursive: true });
 		const out = emission("find / -x", {

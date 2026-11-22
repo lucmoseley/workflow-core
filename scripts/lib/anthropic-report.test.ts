@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * lib/anthropic-report.js, the guard-anthropic-report core (#2798), in
- * process: it refuses every `gh issue`, `gh pr` and writing `gh api` call it
- * can tie to an `anthropics/*` repo (#1987; the ruling, #1967).
- *
- * Do not thin the refusal or allow cases.
- *
- * The clone's remotes are read by the host's own port, real git over a temp
- * clone, bar the wrapper-move cases (#5067), whose port is faked. The
- * entry's own cases — the JSON it prints, the hook line, the failure policy —
- * are guard-anthropic-report.test.ts's.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -50,7 +38,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// A GH_REPO the runner happens to carry would decide every unnamed case.
 const { GH_REPO: _, ...ENV } = process.env;
 
 const run = (
@@ -117,19 +104,16 @@ describe("a write it refuses", () => {
 		'gh api graphql -f query="mutation { createDiscussion(input:{repositoryId:\\"R\\"}) { clientMutationId } }" -f owner=anthropics',
 		'timeout 30 gh issue comment 3 --repo anthropics/claude-code --body "y"',
 		'GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
-		// An empty -R names none, so GH_REPO decides (#4268).
 		'GH_REPO=anthropics/claude-code gh --repo= issue create --title "x" --body "y"',
 		'GH_REPO=anthropics/claude-code gh issue comment 5 --repo= --body "y"',
 		'GH_REPO=anthropics/claude-code gh issue comment 5 -R "" --body "y"',
 		'env GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
 		'GH_REPO=anthropics/claude-code gh api repos/{owner}/{repo}/issues -f title="x"',
 		'export GH_REPO=anthropics/claude-code && gh issue create --title "x" --body "y"',
-		// The GH_REPO a -c string sets, by export or ahead of gh (#4863).
 		'flock /l -c "export GH_REPO=anthropics/claude-code; gh issue create --title x --body y"',
 		'flock /l -c "GH_REPO=anthropics/claude-code gh issue create --title x --body y"',
 		'flock /l -c "export GH_REPO=anthropics/claude-code; export GH_REPO; gh issue create --title x --body y"',
 		'flock /l -c "GH_REPO=anthropics/claude-code; export GH_REPO; gh issue create --title x --body y"',
-		// gh's own -R before the command word, in each spelling (#4268).
 		'gh -R anthropics/claude-code issue create --title "x" --body "y"',
 		'gh --repo=anthropics/claude-code pr create --title "x" --body "y"',
 		'gh "--repo=anthropics/claude-code" issue create --title "x" --body "y"',
@@ -246,8 +230,6 @@ describe("a write naming no repo, run inside a clone", () => {
 	});
 });
 
-/* No path is a directory, so a move that holds only where its directory
- * exists may not have been made. */
 describe("a write naming no repo, from a directory a wrapper moves it to (#5067)", () => {
 	const movedVerdict = (command: string) =>
 		decide(
@@ -317,20 +299,16 @@ describe("what it lets through", () => {
 		"gh api --method GET repos/anthropics/claude-code/issues -f state=closed",
 		'gh api graphql -f query="query { repository(owner:\\"anthropics\\", name:\\"claude-code\\") { id } }"',
 		'gh issue create --repo someone/tool --title "x" --body "y"',
-		// gh's own -R before the command word, and one after overriding it (#4268).
 		'gh -R someone/tool issue create --title "x" --body "y"',
 		'gh -R anthropics/claude-code issue create --repo someone/tool --title "x" --body "y"',
 		'gh issue create --repo anthropics-fan/tool --title "x" --body "y"',
 		'gh issue create --repo ghe.example.com/anthropics/tool --title "x" --body "y"',
 		'gh api repos/someone/tool/issues -f title="x"',
-		// A body citing an upstream issue is no target.
 		'gh issue comment 5 --body "https://github.com/anthropics/claude-code/issues/12"',
 		'gh issue comment 5 --body "see https://github.com/anthropics/claude-code/issues/12"',
-		// A GraphQL mutation that never spells the owner: the node-id residual.
 		'gh api graphql -f query="mutation { addComment(input:{subjectId:\\"X\\", body:\\"y\\"}) { clientMutationId } }"',
 		'echo "gh issue create --repo anthropics/claude-code"',
 		"gh issue create --repo anthropics/claude-code --help",
-		// The groups that write nothing a report travels by.
 		"gh release create v1 --repo anthropics/claude-code",
 	])("lets it through: %s", (call) => {
 		expect(verdict(call)).toBe("allow");
@@ -385,8 +363,6 @@ describe("a repo it cannot read", () => {
 	});
 
 	it("fails open, recorded, where it cannot tell which directory the write runs in, and judges the clone where it can", () => {
-		// The bash guard refused this with an empty repo, its fail-open caught
-		// in a subshell; the Node port fails open as documented (#2798).
 		expect(
 			verdict(`cd "$(mktemp -d)" && gh issue create --title "x" --body "y"`),
 		).toBe("allow");
@@ -400,8 +376,6 @@ describe("a repo it cannot read", () => {
 	});
 });
 
-/* The remotes are the repository's shared config: a worktree reads the main
- * checkout's (#4242). */
 describe("a write naming no repo, from a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
 	freshSandbox((sb) => {

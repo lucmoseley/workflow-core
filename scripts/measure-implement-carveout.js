@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-implement-carveout.js — how many Opus /implement sessions committed
- * to repo machinery rather than product code, using the widened matcher in
- * scripts/lib/implement-carveout.js (mantahostels#2462).
- *
- * Usage:  node scripts/measure-implement-carveout.js [--since <iso>] [--until <iso>] [--dir <path>]
- *
- * REPORTS ONLY. Exit 0 on a reading; exit 2 where every corpus directory
- * refused to be read, or `--since`/`--until` will not parse (#1521).
- *
- * `--since` defaults to `DEFAULT_SINCE`, open-ended (corpus keeps growing).
- * Pair it with `--until` to close the window at a specific past population —
- * see mantahostels#2462 for the values that reproduce that ticket's own figures.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -32,17 +18,12 @@ const { CliExit, exitWith, flagValue, parseOrExit } = require("./lib/cli-args");
 
 const COMMAND = "implement";
 
-/* mantahostels#2449's own re-run window start. */
 const DEFAULT_SINCE = "2026-08-25T04:48:06Z";
 
 const USAGE =
 	"usage: node scripts/measure-implement-carveout.js [--since <iso>] [--until <iso>] [--dir <path>]";
 
 /**
- * Ends the run where `Date.parse` cannot read a window bound: its `NaN`
- * compares false against every start, so the window would filter nothing
- * while the report still named it (#1521).
- *
  * @param {string} flag
  * @param {string} raw
  */
@@ -100,10 +81,7 @@ function isOutsideWindow(startedAt, sinceMs, untilMs) {
 }
 
 /**
- * Count one in-window /implement session against the tally: Opus only, then
- * hard carve-out, adjacent, or a plain miss, first match wins.
- *
- * @param {Tally} t accumulator: the session is counted, and a plain miss pushed
+ * @param {Tally} t
  * @param {string} file
  * @param {ReturnType<typeof scanSession>} s
  */

@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/canary-remark.js's decisions over fake ports (#4744): which sessions a
- * re-mark vouches for, which strand the move, and when no re-mark is owed.
- * Break it and a levelling pass moves `main` past a canary change that
- * refuses a live session every tool, or marks a session whose self-plugin
- * never loaded. The fakes are held to nothing but level-main.test.ts, which
- * crosses lib/canary-remark-host.js's adapters with real canaries and git.
- */
 
 import { describe, expect, it } from "vitest";
 import type { LiveSession, Remarked, RemarkPorts } from "./canary-remark.js";
@@ -19,9 +11,7 @@ const WRITER = "scripts/write-self-plugin-marker.sh";
 
 interface World {
 	revs: Record<string, Record<string, string>>;
-	/** Each listing in turn; the last repeats. */
 	listings: Array<LiveSession[] | { why: string }>;
-	/** Whether the canary under `dir` passes session `id`, given what it has been marked by. */
 	passes: (dir: string, id: string, markedBy: string[]) => boolean;
 }
 
@@ -169,8 +159,6 @@ describe("remarkAroundMove", () => {
 		const { out, marks } = remark({
 			revs: { a: canaryAt("1"), b: canaryAt("2") },
 			listings: [[], [at("late")]],
-			/* Before the move ROOT is `from`'s; after it, `to`'s: the root
-			 * passes only a session its own writer marked. */
 			passes: (dir, _id, markedBy) =>
 				dir === SCRATCH || markedBy.includes(ROOT),
 		});

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins start-orphan-sweep-timer.js against lib/systemctl-fake.ts and a
- * stand-in `systemd-run` at WFC_SYSTEMCTL and WFC_SYSTEMD_RUN (#4342, #3970):
- * it starts the reaper's timer where none runs, leaves one running a live
- * script alone, replaces one whose script is gone or older than its own, and
- * stays green where no user manager answers. The ExecStart record the cases
- * feed the fake is held to the real one by lib/systemctl.contract.test.ts.
- *
- * Loosen a case and the sweep never runs with every session closed, or a
- * timer naming a pruned worktree's script fails at every firing unreplaced.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -32,7 +21,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A stand-in binary that logs its argv and runs `body`. */
 function standIn(name: string, body: string) {
 	const file = path.join(dir, name);
 	fs.writeFileSync(
@@ -43,7 +31,6 @@ function standIn(name: string, body: string) {
 	return file;
 }
 
-/** `systemctl` answering the timer `active` or not, its service running `exec`. */
 function systemctl(active: boolean, exec = "") {
 	return writeSystemctl(dir, {
 		units: {

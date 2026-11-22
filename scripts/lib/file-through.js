@@ -1,9 +1,3 @@
-/*
- * file-through.js — file-issue.js run by a script that has already ruled out
- * the duplicate its similar-title check exists to catch: refused for open
- * lookalike titles, it re-runs naming them `--distinct-from`.
- */
-
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
@@ -11,9 +5,9 @@ const { buildCheckoutEnv } = require("./refill-repos.js");
 const { readDistinctFromHint } = require("./similar-titles.js");
 
 /**
- * @param {string[]} args file-issue.js's
+ * @param {string[]} args
  * @param {string} body
- * @param {string} root the checkout it files from
+ * @param {string} root
  */
 function fileThrough(args, body, root) {
 	const spawnFiler = (/** @type {string[]} */ a) =>

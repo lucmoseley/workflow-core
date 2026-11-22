@@ -1,25 +1,8 @@
-/*
- * file-ci-time.js — which test files' CI time is over FILE_LIMIT_MS, judged
- * on each file's median over the last SWEEPS_JUDGED sweeps it ran in (#4292,
- * on #4283's 4 Nov ruling).
- *
- * A SWEEP IS ONE RUN OF THE SUITE WORKFLOW WITH VITEST REPORTS, listed off
- * `main` alone by check-file-ci-time.js (#4559).
- *
- * THE FILES JUDGED are those timed in the latest SWEEPS_JUDGED sweeps. A file missing from one of them, its shard
- * cancelled say, is judged on the latest SWEEPS_JUDGED sweeps it was timed in,
- * read back to MAX_SWEEPS_READ sweeps; short of that it is unjudged.
- *
- * THE TIME IS the file's run, its beforeAll and afterAll hooks included, as
- * `scripts/lib/suite-timings.js` reads it from the reports (#4313).
- * RESIDUAL: it leaves out the file's import, which holds the worker too.
- */
-
 const { FILE_LIMIT_MS } = require("./suite-ceiling.js");
 
-/* The median of three, ruled with the limit on #4283. */
+// guess, #4283
 const SWEEPS_JUDGED = 3;
-/* Untraced: two days of sweeps at four a day. */
+// guess, #5529
 const MAX_SWEEPS_READ = 8;
 
 /**
@@ -38,11 +21,7 @@ function timesOf(sweep) {
 	return times;
 }
 
-/**
- * Each file timed in the latest SWEEPS_JUDGED sweeps, with its latest
- * readings, up to SWEEPS_JUDGED of them.
- * @param {Sweep[]} sweeps newest first
- */
+/** @param {Sweep[]} sweeps */
 function readingsByFile(sweeps) {
 	const times = sweeps.map(timesOf);
 	const files = new Set(
@@ -65,11 +44,7 @@ function readingsByFile(sweeps) {
 	return readings;
 }
 
-/**
- * Whether an older sweep could judge more: fewer than SWEEPS_JUDGED sweeps
- * read, or a judged file short of its readings.
- * @param {Sweep[]} sweeps newest first
- */
+/** @param {Sweep[]} sweeps */
 function wantsOlder(sweeps) {
 	if (sweeps.length < SWEEPS_JUDGED) return true;
 	for (const r of readingsByFile(sweeps).values())
@@ -78,10 +53,7 @@ function wantsOlder(sweeps) {
 }
 
 /**
- * Sweeps read newest first until no judged file is short of readings,
- * MAX_SWEEPS_READ are read, or `runs` runs out. `read` gives null for a run
- * with no reports, and `collect` lists that run under `passedOver`.
- * @param {string[]} runs newest first
+ * @param {string[]} runs
  * @param {(run: string) => Sweep|null} read
  * @returns {{ sweeps: Sweep[], passedOver: string[] }}
  */
@@ -108,10 +80,9 @@ function median(xs) {
 }
 
 /**
- * @param {Sweep[]} sweeps newest first
+ * @param {Sweep[]} sweeps
  * @returns {{ judged: false, runs: string[] }
  *   | { judged: true, runs: string[], over: FileTime[], unjudged: Unjudged[] }}
- *   `runs` is every sweep read; `over` is slowest first
  */
 function judge(sweeps) {
 	const runs = sweeps.map((s) => s.run);
@@ -140,10 +111,7 @@ function judge(sweeps) {
 	return { judged: true, runs, over, unjudged };
 }
 
-/**
- * The SKIP line where fewer than SWEEPS_JUDGED sweeps were readable.
- * @param {string[]} runs every sweep read
- */
+/** @param {string[]} runs */
 const judgedNothing = (runs) =>
 	`judged nothing: ${runs.length} sweep(s) with vitest reports readable${runs.length > 0 ? ` (${runs.join(", ")})` : ""}, ${SWEEPS_JUDGED} needed for a median.`;
 

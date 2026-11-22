@@ -1,33 +1,4 @@
 // @vitest-environment node
-/*
- * The CLI's argument validation, its cache-eligibility rule, how it fetches a
- * window a day at a time, and how it ties push runs to this checkout's
- * history. Each exists because of a way this tool could print a confident
- * wrong number: a malformed date makes every projected figure NaN, caching a
- * response whose runs had not finished freezes a partial census as if it were
- * the final one, and a run counted twice inflates the bill (mantahostels#386,
- * which hardened this tool against confident wrong numbers, mantahostels#686,
- * which found the first version of that cache guard unreachable, and
- * mantahostels#676, which split the fetch into days).
- *
- * Built end to end (#1369, §G6: nothing is exported only for its tests): the
- * program runs through lib/run-in-process.js's `runInProcessAsync` against a
- * stub `gh` injected at WFC_GH, which serves each day's runs and each run's
- * jobs from files a case writes and logs every path it was asked for. What a
- * case reads is what a user would: the `--json` envelope, the human lines, the
- * cache directory and the stub's call log. Errors are read off stdout and
- * stderr together and only as non-zero, because in-process a throw out of
- * `main` reaches lib/check.js's crash reporter rather than the script's own
- * `.catch`.
- *
- * What the tool does with what it fetches is covered by ci-billing.test.ts,
- * against the pure seam.
- *
- * CI's vitest step runs this file; the tool itself gates nothing and is run by
- * hand, as `.github/workflows/scheduled-checks.yml`'s cadence notes direct.
- * Loosen a case and the CI bill a cadence ruling is priced from can print as
- * NaN or as a partial census served from cache as final.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -43,12 +14,6 @@ const SCRIPT = path.join(__dirname, "measure-ci-billing.js");
 
 withHostConfig({ tracker: "owner/repo" });
 
-/*
- * `gh api <path> --cache 0 --paginate --slurp`: $2 is the path. A runs listing
- * is answered from runs-<day>.json, a jobs listing from jobs-<run id>.json, and
- * anything not written answers as a day that ran nothing or a run with no jobs.
- * Shell builtins only, so a run making a hundred jobs calls pays one `sh` each.
- */
 const stubScript = (stubDir: string) => `#!/bin/sh
 p="$2"
 printf '%s\\n' "$p" >> ${shellQuote(`${stubDir}/calls.log`)}
@@ -78,8 +43,6 @@ afterEach(() => {
 
 const cacheDir = () => path.join(dir, "cache");
 
-/* GIT_* stripped so a hook's GIT_DIR cannot point the program's `git log` at
- * the repo running the suite rather than the case's own directory. */
 const run = (...argv: string[]) =>
 	runInProcessAsync(SCRIPT, [...argv, "--cache", cacheDir()], {
 		cwd: dir,
@@ -91,7 +54,6 @@ const run = (...argv: string[]) =>
 		},
 	});
 
-/** The `--json` envelope; a clamp note may precede it. */
 const envelope = (stdout: string) =>
 	JSON.parse(stdout.slice(stdout.indexOf("{")));
 
@@ -102,7 +64,6 @@ const json = async (...argv: string[]) => {
 	return envelope(r.stdout);
 };
 
-/** Every path the stub was asked for, in order. */
 const readCalls = () => {
 	const log = path.join(dir, "calls.log");
 	return fs.existsSync(log)
@@ -127,7 +88,6 @@ const runOf = (id: string, day: string, extra: object = {}) => ({
 	...extra,
 });
 
-/** Serve one day's runs listing: page objects, or raw text as gh printed it. */
 const serveDay = (day: string, pages: unknown[] | string) =>
 	fs.writeFileSync(
 		path.join(dir, `runs-${day}.json`),
@@ -136,13 +96,6 @@ const serveDay = (day: string, pages: unknown[] | string) =>
 const serveJobs = (runId: string, pages: unknown[]) =>
 	fs.writeFileSync(path.join(dir, `jobs-${runId}.json`), JSON.stringify(pages));
 
-/*
- * Pages the way the real listing does: `per_page=100`, so a busy day arrives
- * as several page objects and `total_count` rides on each. `count` is how many
- * runs the day really returns; `total` is what GitHub claims exists, so
- * `total` above `count` is a day capped at 1,000, and null is a response that
- * carried no count.
- */
 const serveCount = (
 	day: string,
 	count: number,
@@ -288,7 +241,6 @@ describe("the command line", () => {
 		await refuses(args("--branch", "--json"), "--branch needs a value");
 		await refuses(args("--cache"), "--cache needs a value");
 		await refuses(args("--exclude-event"), /needs a value/);
-		/* The = form arrives with an empty value rather than no value. */
 		await refuses(args("--exclude-event="), /event name/);
 	});
 
@@ -318,7 +270,6 @@ describe("fetching the window", () => {
 		serveCount("2026-08-16", 3);
 		const out = await json(...window);
 		expect(out.summary.runs).toBe(6);
-		/* The jobs calls follow the run set's own order. */
 		expect(readJobsCallIds()).toEqual([
 			"2026-08-14-0",
 			"2026-08-14-1",
@@ -339,8 +290,6 @@ describe("fetching the window", () => {
 	});
 
 	it("reports nothing truncated when every day arrived whole", async () => {
-		/* Excluded from the census so the case pays for no jobs calls; truncation
-		 * is judged on the fetch, before any exclusion. */
 		serveCount("2026-08-14", 250, { event: "schedule" });
 		const out = await json(...window, "--exclude-event", "schedule");
 		expect(out.truncated).toBe(false);
@@ -391,9 +340,6 @@ describe("fetching the window", () => {
 	});
 
 	it("leaves the total null when only SOME days carried one", async () => {
-		/* Summing the days that answered and comparing it against runs from all
-		 * of them reads as a truncation that did not happen, or covers for one
-		 * that did. */
 		serveCount("2026-08-14", 200, { event: "schedule" });
 		serveCount("2026-08-15", 100, { total: null, event: "schedule" });
 		const r = await run(...window, "--exclude-event", "schedule", "--json");
@@ -412,8 +358,6 @@ describe("fetching the window", () => {
 });
 
 describe("the window that can be measured today", () => {
-	/* Only Date is faked, so the program's own clock reads this noon too and no
-	 * run straddles a UTC midnight; its timers and the stub gh run for real. */
 	const noon = Date.parse("2026-09-10T12:00:00Z");
 	beforeEach(() => {
 		vi.useFakeTimers({ toFake: ["Date"] });
@@ -452,7 +396,6 @@ describe("the window that can be measured today", () => {
 	});
 
 	it("refuses a window the clamp empties rather than censusing nothing, naming the last day whose billing is final, before any API call", async () => {
-		/* Asking for today alone: every day in it is still accruing minutes. */
 		await refuses(
 			["--since", isoDay(0), "--until", isoDay(0)],
 			/last day whose billing is final/,
@@ -478,7 +421,6 @@ describe("pushes against this checkout's history", () => {
 				},
 			},
 		).trim();
-	/** A commit touching `file`, made at `date`; its sha. */
 	const commit = (file: string, date: string) => {
 		fs.writeFileSync(path.join(dir, file), date);
 		git(["add", file], date);
@@ -487,13 +429,10 @@ describe("pushes against this checkout's history", () => {
 	};
 	beforeEach(() => {
 		git(["init", "-q"]);
-		/* Outside every window below, so the log over the window starts empty. */
 		git(["commit", "-q", "--allow-empty", "-m", "seed"]);
 	});
 
 	it("takes each push run's head commit, once, and no other event's", async () => {
-		/* No commit falls inside the window, so every push head is missing from
-		 * this checkout: the count is the distinct push heads. */
 		serveDay(day, [
 			{
 				total_count: 4,
@@ -535,8 +474,6 @@ describe("pushes against this checkout's history", () => {
 			},
 		]);
 		const out = await json("--since", day, "--until", day);
-		/* The first push is cut by the window and dropped; the second carries the
-		 * two commits after it, one of them code. */
 		expect(out.pushCommits).toMatchObject({
 			pushes: 1,
 			commits: 2,
@@ -651,7 +588,6 @@ describe("the response cache", () => {
 		expect(second.summary).toEqual(first.summary);
 	});
 
-	/** Overwrite the cached runs entry the first run wrote. */
 	const corruptRunsEntry = (content: string) => {
 		const [entry] = readRunsEntries();
 		fs.writeFileSync(path.join(cacheDir(), entry), content);
@@ -667,9 +603,6 @@ describe("the response cache", () => {
 	});
 
 	it("refetches an entry whose pages are not page objects, rather than serving it", async () => {
-		/* The cache file is read as written — gh's --slurp flattening never
-		 * reaches it — so a null or an array where a page belongs is judged as
-		 * it stands. */
 		serveDay(day, completed);
 		await json(...window);
 		corruptRunsEntry("[null]");
@@ -680,9 +613,6 @@ describe("the response cache", () => {
 	});
 
 	it("never caches a fresh answer whose page is not a page object", async () => {
-		/* The read side refetches on a throw as well, so only the write side
-		 * shows the page-shape check: an array where a page belongs has no
-		 * unfinished item, yet must not be judged final. */
 		serveDay(day, [[{ status: "completed" }]]);
 		const out = await json(...window);
 		expect(out.inFlightSkipped).toBe(1);
@@ -692,8 +622,6 @@ describe("the response cache", () => {
 	it("refetches past --max-cache-age rather than serving a stale entry", async () => {
 		serveDay(day, completed);
 		await json(...window);
-		/* Age the entries rather than passing a negative max-cache-age, which the
-		 * command line rejects outright. */
 		const yesterday = Date.now() / 1000 - 86_400;
 		for (const f of readCacheEntries())
 			fs.utimesSync(path.join(cacheDir(), f), yesterday, yesterday);
