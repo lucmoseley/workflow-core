@@ -4,7 +4,14 @@ import { describe, expect, it } from "vitest";
 const { maskMentions } =
 	require("./review-findings.js") as typeof import("./review-findings");
 
+const { keptSpawn } =
+	require("./kept-spawn.js") as typeof import("./kept-spawn");
+
 const EVERY_SPAN = /[\s\S]/;
+/* measured: quadratic before, ~11 min at this size; ~26 ms now (#5559) */
+const QUOTES = 300_000;
+/* guess: 400x the scanner's time, far under the old form's (#5559) */
+const SCAN_LIMIT_MS = 10_000;
 const spans = (line: string) =>
 	maskMentions(line, EVERY_SPAN)
 		.split("")
@@ -34,9 +41,19 @@ describe("maskMentions: the quoted spans of a line", () => {
 		);
 	});
 
-	it("masks nothing on 300,000 unclosed curly quotes, where the old regex ran past the test ceiling (#5559)", () => {
-		const line = "\u201c".repeat(300_000);
-		expect(maskMentions(line, EVERY_SPAN)).toBe(line);
+	it("masks 300,000 unclosed curly quotes inside a 10 s process timeout (#5559)", () => {
+		const r = keptSpawn("timeout").spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`const { maskMentions } = require(${JSON.stringify(require.resolve("./review-findings.js"))});
+const line = "\\u201c".repeat(${QUOTES});
+process.exit(maskMentions(line, /[\\s\\S]/) === line ? 0 : 1);`,
+			],
+			{ timeout: SCAN_LIMIT_MS },
+		);
+		expect(r.signal).toBeNull();
+		expect(r.status).toBe(0);
 	});
 
 	it("masks nothing on unclosed backtick runs of rising length", () => {

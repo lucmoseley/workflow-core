@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const { readImportedFiles } =
 	require("./pool-imports.js") as typeof import("./pool-imports");
 
+/* guess: a line far longer than any real import line (#5559) */
+const LONG = 60_000;
+
 let root: string;
 
 beforeEach(() => {
@@ -39,10 +42,10 @@ describe("readImportedFiles: an import inside a code span is no import", () => {
 	});
 
 	it("reads the imports on a long line after an unclosed backtick", () => {
-		expect(imported(`\`${" @a".repeat(60_000)} @b`)).toEqual(["a", "b"]);
+		expect(imported(`\`${" @a".repeat(LONG)} @b`)).toEqual(["a", "b"]);
 	});
 
 	it("reads none inside a long span whose opening run outnumbers its closing one", () => {
-		expect(imported(`x \`\`\`${" @a".repeat(60_000)}\`\` @b`)).toEqual(["b"]);
+		expect(imported(`x \`\`\`${" @a".repeat(LONG)}\`\` @b`)).toEqual(["b"]);
 	});
 });

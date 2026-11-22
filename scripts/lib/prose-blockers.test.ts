@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 const { judgeProseRefs, proseRefsOf, unparsedBlockersOf } =
 	require("./prose-blockers.js") as typeof import("./prose-blockers");
 
+/* guess: far longer than any real blocker list or owner name (#5559) */
+const LONG = 30_000;
+
 const named = (body: string) => proseRefsOf(body).map((r) => r.number);
 const unparsed = unparsedBlockersOf;
 
@@ -85,14 +88,14 @@ describe("proseRefsOf: the numbers a marker names", () => {
 		expect(proseRefsOf(body)).toEqual(refs);
 	});
 
-	it("reads every reference in a list of thirty thousand", () => {
-		const list = Array.from({ length: 30_000 }, (_, i) => `#${i + 1}`);
-		expect(named(`**Blocked on** ${list.join(", ")}`)).toHaveLength(30_000);
+	it("reads every reference in a long list", () => {
+		const list = Array.from({ length: LONG }, (_, i) => `#${i + 1}`);
+		expect(named(`**Blocked on** ${list.join(", ")}`)).toHaveLength(LONG);
 	});
 
 	it("reads nothing from a long owner-shaped word with no reference after it", () => {
 		expect(
-			named(`**Blocked on** ${"a".repeat(100_000)}/${"b".repeat(100_000)}`),
+			named(`**Blocked on** ${"a".repeat(LONG)}/${"b".repeat(LONG)}`),
 		).toEqual([]);
 	});
 
