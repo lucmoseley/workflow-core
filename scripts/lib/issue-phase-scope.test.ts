@@ -428,6 +428,7 @@ describe("what it fails open on, and records", () => {
 
 	it("records nothing for a gh call that is not a creation (#3426)", () => {
 		fs.rmSync(at("docs/reference-roadmap.html"));
+		fs.mkdirSync(at("docs/reference-roadmap.html"));
 		expect(verdict("gh issue list --state open")).toBe("allow");
 		expect(verdict("gh pr view 5")).toBe("allow");
 		expect(verdict("gh api repos/o/r/issues/5")).toBe("allow");

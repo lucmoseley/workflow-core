@@ -1349,6 +1349,9 @@ describe("the card checks it cannot make", () => {
 	});
 
 	it("still reaches the Outstanding verdict when the card was unchecked", () => {
+		fs.mkdirSync(path.join(shared, "docs", "reference-roadmap.html"), {
+			recursive: true,
+		});
 		expect(
 			readDenyReason("gh issue close 12", {
 				issue: { title: "id-match — Build the hostel ID-matching layer" },

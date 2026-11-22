@@ -72,6 +72,7 @@ const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { BASH_SPACE, parseCommand } = require("./shell-parse.js");
 const { requiredGroup } = require("./regex-group.js");
 const { readOrNull } = require("./file-read.js");
+const { readTreeText } = require("./tree-read.js");
 const { trimRun } = require("./trim-run.js");
 const {
 	commandName,
@@ -151,26 +152,19 @@ function judge(run, cmd) {
 }
 
 /**
- * #5576
- *
  * @param {Run} run
  * @returns {string | null}
  */
 function readRoadmapOrOpen(run) {
 	if (run.roadmap !== undefined) return run.roadmap;
-	const tree = run.ctx.tree();
-	/** @type {string | null} */
-	let text;
-	try {
-		text = tree.readText(ROADMAP);
-	} catch {
+	const got = readTreeText(run.ctx.tree(), ROADMAP);
+	if (got.state === "unreadable")
 		return open(
 			run.ctx,
 			`${ROADMAP} is unreadable — issue creation allowed unchecked`,
 		);
-	}
-	run.roadmap = text;
-	return text;
+	run.roadmap = got.state === "read" ? got.data : null;
+	return run.roadmap;
 }
 
 /**
