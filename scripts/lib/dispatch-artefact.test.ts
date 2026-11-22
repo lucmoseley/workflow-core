@@ -229,6 +229,12 @@ describe("injectArtefact — the transform over one Agent call", () => {
 		).not.toBeNull();
 	});
 
+	it("gives a remote dispatch the line, which runs as a local worktree agent (#5521)", () => {
+		expect(
+			injectArtefact({ prompt: "Do it.", isolation: "remote" }, FILE, watch),
+		).not.toBeNull();
+	});
+
 	it.each([
 		["a usable marker", { prompt: "Artefact: .claude/tmp/x.md" }],
 		[
@@ -246,10 +252,6 @@ describe("injectArtefact — the transform over one Agent call", () => {
 		[
 			"Plan, read-only by its own instructions (#565)",
 			{ prompt: "Do it.", subagent_type: "Plan" },
-		],
-		[
-			"a remote agent, which cannot write a local path",
-			{ prompt: "Do it.", isolation: "remote" },
 		],
 		["no prompt", { description: "d" }],
 		["a blank prompt", { prompt: "  " }],
@@ -284,10 +286,18 @@ describe("buildWatchNote — a prompt that names its own artefact (#2013)", () =
 		expect(note).not.toContain("end the turn");
 	});
 
+	it("watches a remote dispatch's named artefact (#5521)", () => {
+		expect(
+			buildWatchNote(
+				{ prompt: "Artefact: .claude/tmp/x.md", isolation: "remote" },
+				watch,
+			),
+		).toContain("This dispatch names its artefact: .claude/tmp/x.md.");
+	});
+
 	it.each([
 		["a prompt naming none", { prompt: "Do it." }],
 		["Explore", { prompt: "Artefact: a/b.md", subagent_type: "Explore" }],
-		["a remote agent", { prompt: "Artefact: a/b.md", isolation: "remote" }],
 	])("is null for %s", (_n, call) => {
 		expect(buildWatchNote(call, watch)).toBeNull();
 	});
