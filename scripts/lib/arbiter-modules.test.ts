@@ -60,22 +60,21 @@ describe("the family modules' require graph", () => {
 			.filter((to) => fs.existsSync(to));
 
 	it("holds no cycle through a family module, by any path", () => {
-		const family = new Set(families.map((f) => path.join(LIB, f)));
-		const done = new Set<string>();
-		const cycles: string[] = [];
-		const visit = (file: string, trail: string[]) => {
-			if (trail.includes(file)) {
-				const loop = [...trail.slice(trail.indexOf(file)), file];
-				if (loop.some((f) => family.has(f)))
-					cycles.push(loop.map((f) => path.relative(LIB, f)).join(" → "));
-				return;
+		const reachesItself = (start: string) => {
+			const seen = new Set<string>();
+			const queue = requires(start);
+			while (queue.length > 0) {
+				const file = queue.pop() as string;
+				if (file === start) return true;
+				if (seen.has(file)) continue;
+				seen.add(file);
+				queue.push(...requires(file));
 			}
-			if (done.has(file)) return;
-			for (const to of requires(file)) visit(to, [...trail, file]);
-			done.add(file);
+			return false;
 		};
-		for (const file of family) visit(file, []);
-		expect(cycles).toEqual([]);
+		expect(families.filter((f) => reachesItself(path.join(LIB, f)))).toEqual(
+			[],
+		);
 	});
 
 	it("ends each family module on one module.exports, as base §N7 asks of an acyclic file", () => {
