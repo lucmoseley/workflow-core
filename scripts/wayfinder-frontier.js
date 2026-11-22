@@ -308,7 +308,7 @@ function liveClaims() {
 }
 
 /**
- * @param {{ issue: number, sessionId: string, claimedAt: string }[]} live
+ * @param {import("./lib/arbiter-records.js").IssueClaimRecord[]} live
  * @param {boolean} numbersOnly
  */
 function printLive(live, numbersOnly) {
