@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reclaimableMb } from "./lib/admission.js";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
+import { seenFrom } from "./lib/core-path-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import {
 	base as notifyBase,
@@ -17,6 +18,7 @@ import { projectSlug } from "./lib/project-slug.js";
 import type { Candidate, RunRecord } from "./lib/reaper.js";
 import { openedRecord, reap } from "./lib/reaper.js";
 import { runInProcess } from "./lib/run-in-process";
+import { scriptPath } from "./lib/script-path";
 import { shellQuote } from "./lib/sh-quote.js";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -1015,7 +1017,8 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 		it("--help prints the usage and exits 0", () => {
 			const res = runArgv(["--help"]);
 			expect(res.status).toBe(0);
-			expect(res.stdout).toMatch(/^usage: node scripts\/reap-finished/);
+			const usage = `usage: node ${seenFrom(sandbox, () => scriptPath("reap-finished-sessions.js"))} `;
+			expect(res.stdout.slice(0, usage.length)).toBe(usage);
 		});
 
 		it("an unknown flag exits 2, naming it", () => {
@@ -1023,7 +1026,7 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 			expect(res.status).toBe(2);
 			expect(res.stderr).toContain("unknown flag: --bogus");
 			expect(res.stderr).toContain(
-				"usage: node scripts/reap-finished-sessions.js",
+				`usage: node ${seenFrom(sandbox, () => scriptPath("reap-finished-sessions.js"))}`,
 			);
 		});
 	});

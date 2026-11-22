@@ -5,7 +5,9 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { seenFrom } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import { docPath, scriptPath } from "./lib/script-path";
 import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -15,6 +17,7 @@ const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 const { readRuleText } = createRequire(__filename)("./lib/rule-text.js");
 
 const GUARD = path.join(__dirname, "guard-session-ceiling.js");
+const fromDir = <T>(read: () => T) => seenFrom(dir, read);
 
 const WIND_UP = 200_000;
 const TURN_BAND = 100;
@@ -146,7 +149,9 @@ describe("the 200,000-token wind-up notice (mantahostels#1548, the policy; manta
 		transcript([214_500]);
 		const reason = run().reason;
 		expect(reason).toContain("214,500");
-		expect(reason).toContain("node scripts/session-context.js");
+		expect(reason).toContain(
+			`node ${fromDir(() => scriptPath("session-context.js"))}`,
+		);
 	});
 
 	it("blocks at every Stop past it, not once — the whole of mantahostels#2601's (D)", () => {
@@ -313,7 +318,9 @@ describe("the 100-turn band (mantahostels#2601's (B), mantahostels#2619)", () =>
 describe("the 300,000-token tripwire (#1178 Q3 (B), which made the ceiling one)", () => {
 	it("speaks at the threshold itself", () => {
 		transcript([TRIPWIRE]);
-		expect(run().reason).toContain("TRIPWIRE in docs/effort-guide.md");
+		expect(run().reason).toContain(
+			`TRIPWIRE in ${fromDir(() => docPath("effort-guide.md"))}`,
+		);
 	});
 
 	it("says compaction did not fire and names the setting to check", () => {
@@ -331,7 +338,7 @@ describe("the 300,000-token tripwire (#1178 Q3 (B), which made the ceiling one)"
 		expect(reason).toContain("Commit what exists");
 		expect(reason).toContain("end your turn");
 		expect(reason).not.toContain("successor");
-		const rule = readRuleText("founder-deliverable").trim();
+		const rule = fromDir(() => readRuleText("founder-deliverable")).trim();
 		expect(reason).toContain(rule);
 		expect(reason.replace(rule, "")).not.toContain("hand");
 	});
@@ -661,8 +668,8 @@ describe("waiting for the session's own background work (#1179)", () => {
 
 describe("the inventory step on every band (#985, on #958's spec)", () => {
 	const full = "A FOUNDER-FACING ITEM lives in an open issue";
-	const pointer =
-		"The full rule: `scripts/lib/rule-text.sh founder-deliverable`.";
+	const pointer = () =>
+		`The full rule: \`${fromDir(() => scriptPath("lib/rule-text.sh"))} founder-deliverable\`.`;
 
 	it("gives the wind-up the full rule on its first block and the pointer on every repeat", () => {
 		transcript([PAST_WIND_UP]);
@@ -675,7 +682,7 @@ describe("the inventory step on every band (#985, on #958's spec)", () => {
 		for (let i = 0; i < 2; i++) {
 			const repeat = run().reason;
 			expect(repeat).toContain("take the inventory");
-			expect(repeat).toContain(pointer);
+			expect(repeat).toContain(pointer());
 			expect(repeat).not.toContain(full);
 		}
 	});
@@ -698,7 +705,7 @@ describe("the inventory step on every band (#985, on #958's spec)", () => {
 		expect(first).toContain(full);
 		const repeat = run().reason;
 		expect(repeat).toContain("take the inventory");
-		expect(repeat).toContain(pointer);
+		expect(repeat).toContain(pointer());
 		expect(repeat).not.toContain(full);
 	});
 
@@ -709,7 +716,7 @@ describe("the inventory step on every band (#985, on #958's spec)", () => {
 		expect(first).toContain(full);
 		const after = run().reason;
 		expect(after).toContain("take the inventory");
-		expect(after).toContain(pointer);
+		expect(after).toContain(pointer());
 		expect(after).not.toContain(full);
 	});
 
@@ -734,7 +741,7 @@ describe("the inventory step on every band (#985, on #958's spec)", () => {
 		expect(reason).toContain("take the inventory");
 		expect(reason).toContain("`**Close when:**`");
 		expect(reason).toContain(
-			"the rule could not be read from docs/agents/rules/founder-deliverable.txt",
+			`the rule could not be read from ${fromDir(() => docPath("agents/rules/founder-deliverable.txt"))}`,
 		);
 	});
 });
@@ -796,7 +803,9 @@ describe("an ending that already carries the inventory (#1786)", () => {
 		transcript([PAST_TRIPWIRE]);
 		const first = run({ message: inventoried });
 		expect(first.blocked).toBe(true);
-		expect(first.reason).toContain("TRIPWIRE in docs/effort-guide.md");
+		expect(first.reason).toContain(
+			`TRIPWIRE in ${fromDir(() => docPath("effort-guide.md"))}`,
+		);
 		expect(run({ message: inventoried }).blocked).toBe(false);
 		expect(readOutcomes()).toEqual(["message", "inventory-stand-down"]);
 	});

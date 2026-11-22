@@ -4,13 +4,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import vitestConfig from "../vitest.config";
+import { seenFrom } from "./lib/core-path-testkit";
 import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { isUnder } from "./lib/is-under.js";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
 } from "./lib/pretool-guard-testkit";
+import { escapeRe } from "./lib/regex-group.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { scriptPath } from "./lib/script-path";
 import {
 	breakCanaryPath,
 	editSettings,
@@ -56,6 +59,8 @@ const ENV = (): NodeJS.ProcessEnv => ({
 
 const run = (cwd: string, ...args: string[]) =>
 	runInProcess(SCRIPT, args, { cwd, env: ENV() });
+const core = (name: string) => seenFrom(main, () => scriptPath(name));
+const checkoutRe = () => escapeRe(core("session-checkout.js"));
 
 const cutDir = (name: string) => {
 	const r = run(main, "cut", name);
@@ -310,7 +315,9 @@ it("refuses a no-build launch that meets no store at once, naming the warm route
 	expect(r.status).toBe(1);
 	expect(r.stdout).toBe("");
 	expect(r.stderr).toMatch(
-		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; the refill tick's warm pass \(`node scripts\/session-checkout\.js warm`\) builds it, and the next tick launches this member\n$/,
+		new RegExp(
+			`^session checkout: no dependency store stands for this lockfile yet \\([0-9a-f]{16}\\), and this cut builds none; the refill tick's warm pass \\(\`node ${checkoutRe()} warm\`\\) builds it, and the next tick launches this member\n$`,
+		),
 	);
 	expect(readInstalls()).toEqual([]);
 	expect(listWorktrees()).toEqual([]);
@@ -328,7 +335,9 @@ it("names a failed warm build in each no-build refusal until a build succeeds, w
 	expect(failed.status).toBe(1);
 	expect(refused.status).toBe(1);
 	expect(refused.stderr).toMatch(
-		/^session checkout: no dependency store stands for this lockfile yet \([0-9a-f]{16}\), and this cut builds none; its last build failed — npm ci exited 7 in \S+ — its output is above; fix the lockfile or the network, then attach again — so no tick launches this member until a warm pass \(`node scripts\/session-checkout\.js warm`\) builds it\n$/,
+		new RegExp(
+			`^session checkout: no dependency store stands for this lockfile yet \\([0-9a-f]{16}\\), and this cut builds none; its last build failed — npm ci exited 7 in \\S+ — its output is above; fix the lockfile or the network, then attach again — so no tick launches this member until a warm pass \\(\`node ${checkoutRe()} warm\`\\) builds it\n$`,
+		),
 	);
 
 	fs.writeFileSync(
@@ -618,7 +627,7 @@ it("lands a worktree: merges the moved origin/main, the merge commit running pre
 		`pushed ${head} to queue/one, origin/main merged in first`,
 	);
 	expect(r.stderr).toContain(
-		"It has not landed: the queue lander moves main to it once the full suite passes. Wait on its outcome with `node scripts/landing-status.js --wait`, run in the background (`run_in_background`): it exits the moment the lander lands or drops it, so no timer is guessed.",
+		`It has not landed: the queue lander moves main to it once the full suite passes. Wait on its outcome with \`node ${core("landing-status.js")} --wait\`, run in the background (\`run_in_background\`): it exits the moment the lander lands or drops it, so no timer is guessed.`,
 	);
 	const started = `SKIP: a lander is already running (pid ${landerHolder?.pid})`;
 	expect(r.stderr).toContain(started);
@@ -639,7 +648,7 @@ it("tells a background job to end on `result:` naming its pushed commits as queu
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toContain(
-		"It has not landed: the queue lander moves main to it once the full suite passes. In a background job, end on `result:`, naming these commits as queued for the lander, not on main; a drop goes to the lander's own `Fix queue/<name>` ticket. Wait with `node scripts/landing-status.js --wait` only where your next step needs them on main.",
+		`It has not landed: the queue lander moves main to it once the full suite passes. In a background job, end on \`result:\`, naming these commits as queued for the lander, not on main; a drop goes to the lander's own \`Fix queue/<name>\` ticket. Wait with \`node ${core("landing-status.js")} --wait\` only where your next step needs them on main.`,
 	);
 	expect(r.stderr).not.toContain("Wait on its outcome");
 });
@@ -774,8 +783,9 @@ it("names the attach route where a merge brings in a lockfile no store stands fo
 
 	const merged = gitAsSession(dir, "merge", "--no-edit", "origin/main");
 
-	const refusal =
-		/lockfile changed, and no dependency store stands for it yet \([0-9a-f]{16}\), so its node_modules still links the store built for the old one \([0-9a-f]{16}\) — run `node scripts\/session-checkout\.js attach` to build that store, up to 15 min/;
+	const refusal = new RegExp(
+		`lockfile changed, and no dependency store stands for it yet \\([0-9a-f]{16}\\), so its node_modules still links the store built for the old one \\([0-9a-f]{16}\\) — run \`node ${checkoutRe()} attach\` to build that store, up to 15 min`,
+	);
 	expect(merged.status, merged.stderr).toBe(0);
 	expect(merged.stderr).toMatch(refusal);
 	expect(readStoreLock("one")).toBe("lock-1\n");
@@ -880,11 +890,11 @@ it("refuses to land from the main checkout, naming the cut route, and refuses a 
 
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(
-		"the main checkout is never landed from — land from your session worktree, or cut one with `node scripts/session-checkout.js cut <session-name>`",
+		`the main checkout is never landed from — land from your session worktree, or cut one with \`node ${core("session-checkout.js")} cut <session-name>\``,
 	);
 	expect(extra.status).toBe(2);
 	expect(extra.stderr).toContain(
-		"usage: node scripts/session-checkout.js land",
+		`usage: node ${core("session-checkout.js")} land`,
 	);
 });
 

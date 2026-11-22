@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { seenFrom } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -32,7 +33,7 @@ describe("the core, through the dispatcher", () => {
 	it("hands `free -m` the rule as context, refusing nothing, and latches it", () => {
 		expect(emission("free -m")).toEqual({
 			hookEventName: "PreToolUse",
-			additionalContext: readRuleText("headroom-reap"),
+			additionalContext: seenFrom(dir, () => readRuleText("headroom-reap")),
 		});
 		expect(
 			fs.existsSync(

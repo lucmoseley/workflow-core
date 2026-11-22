@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import { seenFrom } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -39,7 +40,7 @@ describe("each exit", () => {
 		expect(out.hookEventName).toBe("PreToolUse");
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toBe(
-			`This writes an issue body whole, erasing any parallel session's edit: gh issue edit 132 --body "…"\n\n${readRuleText("issue-body-clobber")}`,
+			`This writes an issue body whole, erasing any parallel session's edit: gh issue edit 132 --body "…"\n\n${seenFrom(dir, () => readRuleText("issue-body-clobber"))}`,
 		);
 		expect(readFailOpenRecords(config, dir)).toEqual([]);
 	});

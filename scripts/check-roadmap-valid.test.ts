@@ -11,6 +11,7 @@ import {
 	EARLIER_DAY_MIN,
 	witaStamp,
 } from "../.claude/skills/roadmap-edit/scripts/roadmap-fixture";
+import { seenFrom } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-roadmap-valid.js");
@@ -785,14 +786,18 @@ describe("the relocated rule reaches the session whose commit fails", () => {
 		stage(HTML, roadmap(v(2), [card({ state: "nope" })]));
 		const r = check();
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(readRuleText("roadmap-validity"));
+		expect(r.stderr).toContain(
+			seenFrom(repo, () => readRuleText("roadmap-validity")),
+		);
 	});
 
 	it("tree mode carries the same rule", () => {
 		put(HTML, roadmap(v(2), [card({ state: "nope" })]));
 		const r = tree();
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(readRuleText("roadmap-validity"));
+		expect(r.stderr).toContain(
+			seenFrom(repo, () => readRuleText("roadmap-validity")),
+		);
 	});
 
 	it("routes the fix through a pathspec commit (#1732)", () => {

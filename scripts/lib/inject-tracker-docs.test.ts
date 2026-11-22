@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { seenFrom } from "./core-path-testkit";
 import { initGitRepo } from "./git-fixture";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
@@ -853,6 +854,7 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 				tool_input: { skill: "code-review" },
 				session_id: sid(),
 			}),
+			cwd: repo,
 			env: {
 				...process.env,
 				CLAUDE_PROJECT_DIR: repo,
@@ -875,7 +877,7 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 			"review-attacker-run",
 			"review-tier-records",
 		])
-			expect(tier).toContain(readRuleText(id));
+			expect(tier).toContain(seenFrom(repo, () => readRuleText(id)));
 		expect(ctx.endsWith(`\n\n${tier}`)).toBe(true);
 		expect(ctx.length).toBeLessThan(PERSIST_CHARS);
 	});

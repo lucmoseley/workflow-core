@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ignoreFailure } from "./caught.js";
+import { seenFrom } from "./core-path-testkit";
 import { PROGRAM } from "./doc-map-gate-program.js";
 import { emptyDataFile } from "./doc-map-testkit";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
@@ -18,6 +19,7 @@ import {
 } from "./precommit-gate-testkit";
 import { GATES, type PrecommitGate } from "./precommit-gates.js";
 import { runInProcess } from "./run-in-process.js";
+import { docPath, scriptPath } from "./script-path";
 import { shellQuote } from "./sh-quote.js";
 
 const PORTS = "scripts/lib/doc-map-gate-ports.js";
@@ -843,19 +845,21 @@ describe("a pointer count disagreeing with its sidecar", () => {
 	});
 
 	it("refuses the commit and prints the fix", async () => {
-		const { code, output } = await runGate(realCheckerRepo(2, 2, 1));
+		const repo = realCheckerRepo(2, 2, 1);
+		const { code, output } = await runGate(repo);
+		const sidecar = (name: string) => seenFrom(repo, () => docPath(name));
 		expect(code).not.toBe(0);
 		expect(output).toContain(
 			"B1 — pointer says 2 path(s), the sidecar holds 1",
 		);
 		expect(output).toContain(
-			"- **Restated in:** <n> paths, in `docs/doc-map-restatements.json`.",
+			`- **Restated in:** <n> paths, in \`${sidecar("doc-map-restatements.json")}\`.`,
 		);
 		expect(output).toContain(
 			"- **Restated in:** none — <one clause saying why>.",
 		);
 		expect(output).toContain(
-			"- **Supersedes:** see `docs/doc-map-superseded.json`.",
+			`- **Supersedes:** see \`${sidecar("doc-map-superseded.json")}\`.`,
 		);
 	});
 });
@@ -976,7 +980,9 @@ describe("a hand-edited Section A row", () => {
 			expect(code).not.toBe(0);
 			expect(output).toContain("§A does not match what the generator renders");
 			expect(output).toContain("docs/notes.md — row differs");
-			expect(output).toContain("npm run gen:doc-map-section-a");
+			expect(output).toContain(
+				`node ${seenFrom(root, () => scriptPath("generate-doc-map-section-a.js"))}`,
+			);
 			expect(output).toContain("are NOT in HEAD — this commit adds them");
 		},
 		slowGateMs,

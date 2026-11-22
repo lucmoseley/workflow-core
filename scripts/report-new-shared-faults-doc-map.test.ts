@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { seenFrom } from "./lib/core-path-testkit";
 import { emptyDataFile } from "./lib/doc-map-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import {
@@ -17,6 +18,7 @@ import {
 	run,
 	SCRIPT,
 } from "./lib/report-new-shared-faults-testkit";
+import { scriptPath } from "./lib/script-path";
 
 const temps = registerTempCleanup();
 
@@ -126,7 +128,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 		expect(text).toContain("B1");
 		expect(text).toContain("pointer says 2 path(s), the sidecar holds 1");
 		expect(text).toContain(
-			"In full, WARNs and context included: node scripts/check-doc-map.js",
+			`In full, WARNs and context included: node ${seenFrom(repo.root, () => scriptPath("check-doc-map.js"))}`,
 		);
 		expect(fs.existsSync(path.join(__dirname, "check-doc-map.js"))).toBe(true);
 	});

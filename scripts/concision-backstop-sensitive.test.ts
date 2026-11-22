@@ -19,9 +19,11 @@ import {
 	stopIn,
 	write,
 } from "./lib/concision-backstop-testkit";
+import { seenFrom } from "./lib/core-path-testkit";
 import { declareArea } from "./lib/declare-area-testkit";
 import { cutWorktree } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
+import { scriptPath } from "./lib/script-path";
 
 backstopFixture();
 
@@ -160,7 +162,9 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 		wroteSql();
 
 		const reason = run("stop") ?? "";
-		expect(reason).toContain("node scripts/write-review-marker.js --base ");
+		expect(reason).toContain(
+			`node ${seenFrom(repo, () => scriptPath("write-review-marker.js"))} --base `,
+		);
 		expect(reason).toContain(
 			"record it with --tier escalated (or mission-critical) --areas 'RLS'",
 		);
