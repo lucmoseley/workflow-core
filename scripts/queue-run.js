@@ -474,7 +474,7 @@ function buildGateWait(options, words) {
  * @param {Options} options
  * @param {{ repo: string | null, command: string }} holder
  * @param {Out} err
- * @returns {{ peakMb: number, short: boolean } | null}
+ * @returns {import("./lib/gate-seat.js").GatePeak | null}
  */
 function readGatePeak(options, holder, err) {
 	const file =

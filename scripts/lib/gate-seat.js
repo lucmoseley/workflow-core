@@ -87,10 +87,12 @@ function readGateRunsAt(file) {
 		: null;
 }
 
+/** @typedef {{ peakMb: number, short: boolean }} GatePeak */
+
 /**
  * @param {GateRun[]} runs
  * @param {{ repo: string | null, command: string }} seat
- * @returns {{ peakMb: number, short: boolean } | null}
+ * @returns {GatePeak | null}
  */
 function measuredGatePeak(runs, { repo, command }) {
 	const last = runs
