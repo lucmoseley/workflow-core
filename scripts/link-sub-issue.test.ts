@@ -90,8 +90,7 @@ if (argv[argv.indexOf("--jq") + 1] === ${JSON.stringify(LINK_READS.children.jq)}
 	fs.writeFileSync(counter, String(n + 1));
 	if (n < g.lag) exit(0);
 	const home = /^repos\\/(.+)\\/issues\\/\\d+\\/sub_issues$/.exec(argv[1])[1];
-	serveHandlerAnswer(buildJqLines(...g.children.map((c) =>
-		"https://api.github.com/repos/" + (c.includes("#") ? c : home + "#" + c))));
+	serveHandlerAnswer(buildChildRows(home, ...g.children));
 }
 const issue = /^repos\\/(.+)\\/issues\\/(\\d+)$/.exec(argv[1] ?? "");
 const stated = issue && (g.states[issue[1] + "#" + issue[2]] ?? g.states[issue[2]]);

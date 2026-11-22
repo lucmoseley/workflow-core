@@ -372,6 +372,10 @@ export type LinkReadAnswers = Partial<
 export const LINK_READ_FAKE = String.raw`function buildJqLines(...values) {
 	return { status: 0, stdout: values.map((v) => v + "\n").join(""), stderr: "" };
 }
+function buildChildRows(home, ...refs) {
+	return buildJqLines(...refs.map((r) =>
+		"https://api.github.com/repos/" + (String(r).includes("#") ? r : home + "#" + r)));
+}
 function answerLinkRead(argv, answers = {}) {
 	const reads = ${JSON.stringify(LINK_READS)};
 	const filter = argv.includes("--jq") ? argv[argv.indexOf("--jq") + 1] : undefined;
