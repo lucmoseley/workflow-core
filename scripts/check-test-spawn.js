@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { listTreeFiles, saySites } = require("./lib/heresy-scan.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { REASONS } = require("./lib/kept-spawn.js");
 const { programSource } = require("./lib/shell-words.js");
 const { scanJs } = require("./lib/strip-comments.js");
@@ -119,7 +119,7 @@ const SPEC = {
 		pathspecs: () => ROOTS,
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		const files = listTreeFiles(root, ROOTS).filter(isJsTestFile);
 		for (const rel of files) {
 			/** @type {Record<string, number>} */

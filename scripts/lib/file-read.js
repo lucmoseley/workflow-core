@@ -60,9 +60,9 @@ const readTail = (file, bytes) =>
  * @param {FileRead<T>} got
  * @returns {T | null}
  */
-function throwUnreadable(got) {
+function dataOrThrow(got) {
 	if (got.state === "unreadable") throw got.error;
 	return got.state === "read" ? got.data : null;
 }
 
-module.exports = { readBytes, readTail, readText, throwUnreadable };
+module.exports = { readBytes, readTail, readText, dataOrThrow };

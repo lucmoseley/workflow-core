@@ -184,6 +184,45 @@ describe("check-comment-policy", () => {
 		expect([...surface.copies].sort()).toEqual([...COPIES].sort());
 	});
 
+	it.each([
+		["CLAUDE_PROJECT_DIR naming the main checkout", true],
+		["no CLAUDE_PROJECT_DIR", false],
+	])(
+		"reads the linked worktree it runs in, not the main checkout, with %s (#5560)",
+		(_, declared) => {
+			write("scripts/a.js", "const a = 1;\n// one\nconst b = 1;\n// two\n");
+			commit("seed");
+			const linked = fs.mkdtempSync(
+				path.join(os.tmpdir(), "comment-policy-wt-"),
+			);
+			fs.rmSync(linked, { recursive: true });
+			try {
+				git("worktree", "add", "-q", "--detach", linked);
+				fs.writeFileSync(
+					path.join(linked, "scripts/a.js"),
+					"const a = 1;\nconst b = 1;\n// two\n",
+				);
+				const r = runInProcess(SCRIPT, ["--all", "--json"], {
+					cwd: linked,
+					env: {
+						...process.env,
+						GITHUB_ACTIONS: "",
+						CLAUDE_PROJECT_DIR: declared ? root : "",
+					},
+				});
+				expect(r.status).toBe(1);
+				const out = JSON.parse(r.stdout);
+				expect(out.perFile).toEqual({ "scripts/a.js": 1 });
+				expect(out.keys).toEqual([
+					"COMMENT\tscripts/a.js:3  two — fits no permitted comment kind",
+				]);
+			} finally {
+				fs.rmSync(linked, { recursive: true, force: true });
+				git("worktree", "prune");
+			}
+		},
+	);
+
 	describe("--against HEAD", () => {
 		beforeEach(() => {
 			write("scripts/a.js", "const a = 1;\n// inherited note\nconst b = 2;\n");

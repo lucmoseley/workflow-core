@@ -22,6 +22,7 @@ function stripSlash(dir) {
 // lucmoseley/mantahostels#1775
 let memo = { key: "", value: "" };
 let declaredMemo = { key: "", value: "" };
+let worktreeMemo = { key: "", value: "" };
 
 /**
  * @param {string} cwd
@@ -138,9 +139,16 @@ function worktreeRoot(
 	cwd = process.cwd(),
 	{ host: given, timeoutMs, onTimeout } = {},
 ) {
+	const key = JSON.stringify([cwd, given, process.env.CLAUDE_PROJECT_DIR]);
+	if (worktreeMemo.key === key) return worktreeMemo.value;
+	/** @param {string} value */
+	const keep = (value) => {
+		worktreeMemo = { key, value };
+		return value;
+	};
 	if (!given && !process.env.CLAUDE_PROJECT_DIR) {
 		try {
-			return gitTopLevel(cwd, timeoutMs);
+			return keep(gitTopLevel(cwd, timeoutMs));
 		} catch (e) {
 			if (caught(e).code === "ETIMEDOUT") onTimeout?.();
 			return hostRoot(cwd, { timeoutMs });
@@ -148,12 +156,15 @@ function worktreeRoot(
 	}
 	const host = given ? deref(stripSlash(given)) : hostRoot(cwd);
 	try {
-		const top = gitTopLevel(cwd, timeoutMs);
-		if (top === host) return host;
 		const bound = { timeout: timeoutMs };
-		return gitCommonDirOrThrow(cwd, bound) === gitCommonDirOrThrow(host, bound)
-			? top
-			: host;
+		const [rawTop = "", common = ""] = revParseWithCommonDirOrThrow(
+			cwd,
+			["--show-toplevel"],
+			bound,
+		);
+		const top = deref(rawTop);
+		if (top === host) return keep(host);
+		return keep(common === gitCommonDirOrThrow(host, bound) ? top : host);
 	} catch (e) {
 		if (caught(e).code === "ETIMEDOUT") onTimeout?.();
 		return host;

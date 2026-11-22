@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { resolveConfigDir } = require("./lib/plugin-state.js");
 const { coreRoot } = require("./lib/script-path.js");
 const {
@@ -41,7 +41,7 @@ runCheck({
 	usage: "node check-output-style.js [--json]",
 	/** @param {import("./lib/check").Ctx} ctx */
 	run(ctx) {
-		const root = hostRoot();
+		const root = worktreeRoot();
 		const declared = SETTINGS.map((file) => ({
 			rel: file,
 			style: readDeclaredStyle(ctx, path.join(root, file)),
