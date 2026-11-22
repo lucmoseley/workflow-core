@@ -190,6 +190,9 @@ describe("the core-owned rules file", () => {
 			pluginRoot: CORE,
 		});
 		expect(text).toContain("landing-status.js --wait` in the background");
+		expect(text).toContain(
+			"a background job ends on `result:` once its commits are queued",
+		);
 		expect(text).not.toContain("check:ci");
 	});
 

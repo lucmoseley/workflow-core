@@ -16,7 +16,7 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
 )
 import transcript_corpus as tc
-from fail_open import fail_open
+from fail_open import tallied
 
 # #2812 (the baseline)'s window, each scanner's default.
 START = "2026-10-10T04:10:00Z"
@@ -59,8 +59,7 @@ def transcripts(roots, t_start, tally, subagents=True):
         try:
             projects = sorted(os.listdir(root))
         except OSError as e:
-            fail_open(e, f"{root} skipped")
-            tally[tc.UNREADABLE] += 1
+            tallied(e, tally, tc.UNREADABLE)
             continue
         for proj in projects:
             m = re.search(r"workflow-core|mantahostels", proj)
@@ -78,8 +77,7 @@ def transcripts(roots, t_start, tally, subagents=True):
                         if os.path.getmtime(p) < t_start:
                             continue
                     except OSError as e:
-                        fail_open(e, f"{p} skipped")
-                        tally[tc.UNREADABLE] += 1
+                        tallied(e, tally, tc.UNREADABLE)
                         continue
                     yield repo, p
 

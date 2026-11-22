@@ -32,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 # lib/ beside the checkout's copy and the installed one alike (lib/user_timer.py).
 sys.path.insert(0, str(HERE / "lib"))
 import memwatch_minute  # noqa: E402
-from fail_open import fail_open  # noqa: E402
+from fail_open import expected, fail_open  # noqa: E402
 from memwatch_minute import MINUTE_LOG  # noqa: E402
 
 # #3246's bench: 28 h, at which the `gradual` bench read 37.9 s, and 1,900 MB,
@@ -108,7 +108,7 @@ def benched_this_boot(log, boot_id):
     try:
         lines = Path(log).read_text().splitlines()
     except FileNotFoundError as e:
-        fail_open(e, f"{log} read as no bench this boot")
+        expected(e, f"no {log} yet: no bench has run, this boot or any")
         return False
     tag = f" boot {boot_id} "
     return any(tag in line and NO_BENCH not in line for line in lines)

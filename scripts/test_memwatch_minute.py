@@ -20,8 +20,19 @@ def test_the_newest_whole_line_stands_over_a_torn_one(tmp_path, capsys):
         '{"ts": "2026-11-09T20:0'
     )
     assert m.newest_line(log)["win_avail_mb"] == 900
+    assert capsys.readouterr().err == ""
+
+
+def test_a_corrupt_line_under_the_newest_is_named(tmp_path, capsys):
+    log = tmp_path / "minute.jsonl"
+    log.write_text(
+        json.dumps({"ts": "2026-11-09T20:00:01+0800", "win_avail_mb": 800}) + "\n"
+        "{corrupt\n"
+        "{torn"
+    )
+    assert m.newest_line(log)["win_avail_mb"] == 800
     err = capsys.readouterr().err
-    assert "fail-open: torn minute line skipped" in err
+    assert err.count("fail-open: torn minute line skipped") == 1
 
 
 def test_a_missing_log_raises(tmp_path):

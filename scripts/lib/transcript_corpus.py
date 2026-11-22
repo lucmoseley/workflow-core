@@ -20,7 +20,7 @@ import json
 import os
 from collections import defaultdict
 
-from fail_open import fail_open, tallied
+from fail_open import expected, fail_open, tallied
 from host_root import host_root
 from is_under import relative_under
 from project_slug import project_slug
@@ -38,6 +38,9 @@ def _resolved(path):
     """Realpath where it resolves, the absolute literal path otherwise."""
     try:
         return os.path.realpath(path, strict=True)
+    except FileNotFoundError as error:
+        expected(error, f"{path} absent: a seat or slug never created")
+        return os.path.abspath(path)
     except OSError as error:
         fail_open(error, f"{path} deduped by its literal path")
         return os.path.abspath(path)
@@ -111,6 +114,9 @@ def roots_on(seat):
     projects = os.path.join(seat, "projects")
     try:
         names = sorted(os.listdir(projects))
+    except FileNotFoundError as error:
+        expected(error, f"{projects} absent: the seat never ran a session")
+        names = []
     except OSError as error:
         fail_open(error, f"{projects} read as listing no worktree slug")
         names = []
@@ -191,6 +197,9 @@ def transcripts():
 def _size(path):
     try:
         return os.path.getsize(path)
+    except FileNotFoundError as error:
+        expected(error, f"{path} deleted since the listing")
+        return -1
     except OSError as error:
         fail_open(error, f"{path} loses the largest-copy vote")
         return -1

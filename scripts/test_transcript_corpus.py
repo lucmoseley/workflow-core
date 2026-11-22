@@ -36,9 +36,7 @@ def test_the_default_set_is_the_three_sibling_plans(home, capsys):
         str(home / ".claude2"): "plan B",
         str(home / ".claude3"): "plan C",
     }
-    err = capsys.readouterr().err
-    assert "fail-open:" in err
-    assert f"{home / '.claude3'} deduped by its literal path" in err
+    assert capsys.readouterr().err == ""
 
 
 def test_the_session_config_dir_comes_first_and_is_not_repeated(home, monkeypatch):
@@ -135,14 +133,22 @@ def test_jlen_measures_utf8_bytes_and_zero_for_what_will_not_dump(capsys):
     assert "value measured as 0 bytes" in err
 
 
-def test_a_seat_with_no_projects_dir_lists_only_its_main_slug_and_says_so(home, capsys):
+def test_a_seat_with_no_projects_dir_lists_only_its_main_slug_silently(home, capsys):
     seat = home / ".claude"
     got = tc.roots_on(str(seat))
     assert len(got) == 1
     assert got[0].startswith(str(seat / "projects") + os.sep)
+    assert capsys.readouterr().err == ""
+
+
+def test_a_projects_path_that_is_no_directory_is_named(home, capsys):
+    seat = home / ".claude"
+    seat.mkdir()
+    (seat / "projects").write_text("")
+    assert len(tc.roots_on(str(seat))) == 1
     err = capsys.readouterr().err
-    assert "fail-open:" in err
-    assert f"{seat / 'projects'} read as listing no worktree slug" in err
+    assert f"fail-open: {seat / 'projects'} read as listing no worktree slug" in err
+    assert "NotADirectoryError" in err
 
 
 def test_a_copy_gone_since_the_listing_loses_the_largest_copy_vote(seat_roots, capsys):
@@ -153,9 +159,7 @@ def test_a_copy_gone_since_the_listing_loses_the_largest_copy_vote(seat_roots, c
     gone = roots[1] / "s.jsonl"
     gone.symlink_to(roots[1] / "missing")
     assert list(tc.one_copy_each()) == [(str(kept), False, "s")]
-    err = capsys.readouterr().err
-    assert "fail-open:" in err
-    assert f"{gone} loses the largest-copy vote" in err
+    assert capsys.readouterr().err == ""
 
 
 def test_a_worktree_slug_is_a_root_beside_the_main_checkouts(
