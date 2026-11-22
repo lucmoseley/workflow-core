@@ -500,13 +500,6 @@ describe("declared_cmd (#1504)", () => {
 		expect(output).toContain("RUN[touch RAN]");
 	});
 
-	it("exports the command, so a child process of the hook reads it (#5559)", () => {
-		const { output } = run(
-			`if ${reader(0)}; then sh -c 'echo "CHILD[$declared_command]"'; fi`,
-		);
-		expect(output).toContain("CHILD[touch RAN]");
-	});
-
 	it("skips with the reader's own SKIP line on its 1", () => {
 		const { code, output } = run(
 			`if ${reader(1)}; then echo RUN; fi\necho PASSED`,

@@ -85,12 +85,12 @@ describe("proseRefsOf: the numbers a marker names", () => {
 		expect(proseRefsOf(body)).toEqual(refs);
 	});
 
-	it("reads a list of thirty thousand references in one pass (#5559)", () => {
+	it("reads every reference in a list of thirty thousand", () => {
 		const list = Array.from({ length: 30_000 }, (_, i) => `#${i + 1}`);
 		expect(named(`**Blocked on** ${list.join(", ")}`)).toHaveLength(30_000);
 	});
 
-	it("gives up on a long owner-shaped word with no reference after it (#5559)", () => {
+	it("reads nothing from a long owner-shaped word with no reference after it", () => {
 		expect(
 			named(`**Blocked on** ${"a".repeat(100_000)}/${"b".repeat(100_000)}`),
 		).toEqual([]);

@@ -1,10 +1,30 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { importTokens } =
+const { readImportedFiles } =
 	require("./pool-imports.js") as typeof import("./pool-imports");
 
-describe("importTokens: an import inside a code span is no import", () => {
+let root: string;
+
+beforeEach(() => {
+	root = fs.mkdtempSync(path.join(os.tmpdir(), "pool-imports-"));
+	for (const name of ["a", "b", "c", "x", "y", "z"])
+		fs.writeFileSync(path.join(root, name), "");
+});
+
+afterEach(() => {
+	fs.rmSync(root, { recursive: true, force: true });
+});
+
+const imported = (line: string) => {
+	fs.writeFileSync(path.join(root, "CLAUDE.md"), line);
+	return readImportedFiles(root, ["CLAUDE.md"]).map((f) => f.path);
+};
+
+describe("readImportedFiles: an import inside a code span is no import", () => {
 	it.each([
 		["@a `@b` @c", ["a", "c"]],
 		["``@x`` @y", ["y"]],
@@ -14,15 +34,15 @@ describe("importTokens: an import inside a code span is no import", () => {
 		["x ````@x @y", ["x", "y"]],
 		["``@x` @y`` @z", ["x", "z"]],
 		["`@x @y", ["y"]],
-	])("reads %j as %j", (line, tokens) => {
-		expect(importTokens(line)).toEqual(tokens);
+	])("reads %j as importing %j", (line, files) => {
+		expect(imported(line)).toEqual(files);
 	});
 
-	it("reads a long line after an unclosed backtick in one pass (#5559)", () => {
-		expect(importTokens(`\`${" @a".repeat(60_000)}`)).toHaveLength(60_000);
+	it("reads the imports on a long line after an unclosed backtick", () => {
+		expect(imported(`\`${" @a".repeat(60_000)} @b`)).toEqual(["a", "b"]);
 	});
 
-	it("closes a long span whose opening run outnumbers its closing one (#5559)", () => {
-		expect(importTokens(`x \`\`\`${" @a".repeat(60_000)}\`\``)).toEqual([]);
+	it("reads none inside a long span whose opening run outnumbers its closing one", () => {
+		expect(imported(`x \`\`\`${" @a".repeat(60_000)}\`\` @b`)).toEqual(["b"]);
 	});
 });

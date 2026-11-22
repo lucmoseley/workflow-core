@@ -123,4 +123,4 @@ function readImportedFiles(root, members) {
 	return out;
 }
 
-module.exports = { readImportedFiles, importTokens };
+module.exports = { readImportedFiles };

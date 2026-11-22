@@ -34,12 +34,12 @@ describe("maskMentions: the quoted spans of a line", () => {
 		);
 	});
 
-	it("reads a line of thirty thousand unclosed curly quotes in one pass (#5559)", () => {
-		const line = "“".repeat(30_000);
+	it("masks nothing on 300,000 unclosed curly quotes, where the old regex ran past the test ceiling (#5559)", () => {
+		const line = "\u201c".repeat(300_000);
 		expect(maskMentions(line, EVERY_SPAN)).toBe(line);
 	});
 
-	it("reads a line of unclosed backtick runs of rising length in one pass (#5559)", () => {
+	it("masks nothing on unclosed backtick runs of rising length", () => {
 		const line = Array.from({ length: 300 }, (_, i) => "`".repeat(i + 1)).join(
 			"a",
 		);
