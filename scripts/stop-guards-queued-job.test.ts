@@ -71,7 +71,7 @@ const queue = () => {
 	g(wt, "fetch", "-q", "origin");
 };
 
-function blockingHooks(message: string): string[] {
+function readBlockingHooks(message: string): string[] {
 	const transcript = path.join(base, "transcript.jsonl");
 	fs.writeFileSync(
 		transcript,
@@ -92,31 +92,35 @@ function blockingHooks(message: string): string[] {
 		transcript_path: transcript,
 		cwd: wt,
 	});
-	return STOP_COMMANDS.filter((command) => {
+	return STOP_COMMANDS.flatMap((command) => {
 		const out = keptSpawn("boundary").spawnSync("sh", ["-c", command], {
 			input: stdin,
 			cwd: wt,
 			env,
 			encoding: "utf8",
 		});
-		return out.status === 2 || /"decision"\s*:\s*"block"/.test(out.stdout);
+		const blocked =
+			out.status === 2 || /"decision"\s*:\s*"block"/.test(out.stdout);
+		return blocked ? [`${command}\n${out.stdout}${out.stderr}`] : [];
 	});
 }
 
-const named = (hooks: string[], script: string) =>
+const hasHook = (hooks: string[], script: string) =>
 	hooks.some((h) => h.includes(`/scripts/${script} `));
 
 it("lets a background job end on `result:` with its queue ref unlanded, through every Stop hook (#5501)", () => {
 	queue();
-	expect(blockingHooks(RESULT)).toEqual([]);
+	expect(readBlockingHooks(RESULT)).toEqual([]);
 });
 
-it("still blocks that job's `waiting:`, through guard-priced-options.js", () => {
+it("blocks a background job's `waiting:` with its queue ref unlanded, through guard-priced-options.js", () => {
 	queue();
-	const hooks = blockingHooks("Pushed.\n\nwaiting: the lander.");
-	expect(named(hooks, "guard-priced-options.js")).toBe(true);
+	const hooks = readBlockingHooks("Pushed.\n\nwaiting: the lander.");
+	expect(hasHook(hooks, "guard-priced-options.js")).toBe(true);
 });
 
-it("still warns of the commit before it is on the queue ref, through guard-unpushed-commits.js", () => {
-	expect(named(blockingHooks(RESULT), "guard-unpushed-commits.js")).toBe(true);
+it("warns a background job of a commit not yet on its queue ref, through guard-unpushed-commits.js", () => {
+	expect(hasHook(readBlockingHooks(RESULT), "guard-unpushed-commits.js")).toBe(
+		true,
+	);
 });
