@@ -3435,7 +3435,8 @@
 			"scripts/score-session-breaches.test.ts",
 			"scripts/self-plugin-canary.test.ts",
 			"scripts/session-checkout.test.ts",
-			"scripts/start-lander-on-push.test.ts"
+			"scripts/start-lander-on-push.test.ts",
+			"scripts/stop-guards-queued-job.test.ts"
 		],
 		"hooks/register.ts": [
 			"scripts/generate-plugin-hooks.test.ts",
@@ -9303,7 +9304,8 @@
 			"scripts/priced-options-copies.test.ts",
 			"scripts/repo-hold-attach.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/score-session-breaches.test.ts"
+			"scripts/score-session-breaches.test.ts",
+			"scripts/stop-guards-queued-job.test.ts"
 		],
 		"scripts/guard-priced-options.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -9494,7 +9496,8 @@
 			"scripts/lib/stop-guard.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/score-session-breaches.test.ts"
+			"scripts/score-session-breaches.test.ts",
+			"scripts/stop-guards-queued-job.test.ts"
 		],
 		"scripts/guard-unpushed-commits.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",

@@ -1,19 +1,19 @@
 // @vitest-environment node
-/* #5501 */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { cutWorktree } from "./lib/git-fixture";
+import { keptSpawn } from "./lib/kept-spawn.js";
 
 const { projectSlug } = createRequire(__filename)("./lib/project-slug.js");
 
 const CORE = path.resolve(__dirname, "..");
 const HOOKS = JSON.parse(
-	fs.readFileSync(path.join(CORE, "hooks", "hooks.json"), "utf8"),
+	fs.readFileSync(path.resolve(__dirname, "../hooks/hooks.json"), "utf8"),
 );
 const STOP_COMMANDS: string[] = HOOKS.hooks.Stop.flatMap(
 	(group: { hooks: { command: string }[] }) =>
@@ -33,14 +33,15 @@ let root: string;
 let wt: string;
 let sid: string;
 
+const g = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
 beforeEach(() => {
 	base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "queued-job-")));
 	root = path.join(base, "work");
 	const origin = path.join(base, "origin.git");
 	execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
 	execFileSync("git", ["init", "-q", "-b", "main", root]);
-	const g = (cwd: string, ...args: string[]) =>
-		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 	g(root, "config", "user.email", "t@example.com");
 	g(root, "config", "user.name", "T");
 	g(root, "remote", "add", "origin", origin);
@@ -48,8 +49,6 @@ beforeEach(() => {
 	g(root, "push", "-q", "-u", "origin", "main");
 	wt = cutWorktree(root, "q1");
 	g(wt, "commit", "-q", "--allow-empty", "-m", "mine");
-	g(wt, "push", "-q", "origin", "HEAD:refs/heads/queue/q1");
-	g(wt, "fetch", "-q", "origin");
 	sid = `queued-job-${Math.random().toString(36).slice(2)}`;
 	const ledger = path.join(
 		base,
@@ -67,11 +66,12 @@ afterEach(() => {
 	fs.rmSync(base, { recursive: true, force: true });
 });
 
-it("reads the Stop hooks off hooks/hooks.json", () => {
-	expect(STOP_COMMANDS.length).toBeGreaterThan(10);
-});
+const queue = () => {
+	g(wt, "push", "-q", "origin", "HEAD:refs/heads/queue/q1");
+	g(wt, "fetch", "-q", "origin");
+};
 
-it("lets a background job end on `result:` with its queue ref unlanded, through every Stop hook", () => {
+function blockingHooks(message: string): string[] {
 	const transcript = path.join(base, "transcript.jsonl");
 	fs.writeFileSync(
 		transcript,
@@ -88,23 +88,35 @@ it("lets a background job end on `result:` with its queue ref unlanded, through 
 	const stdin = JSON.stringify({
 		session_id: sid,
 		hook_event_name: "Stop",
-		last_assistant_message: RESULT,
+		last_assistant_message: message,
 		transcript_path: transcript,
 		cwd: wt,
 	});
-	const blocks = STOP_COMMANDS.flatMap((command) => {
-		const out = spawnSync("sh", ["-c", command], {
+	return STOP_COMMANDS.filter((command) => {
+		const out = keptSpawn("boundary").spawnSync("sh", ["-c", command], {
 			input: stdin,
 			cwd: wt,
 			env,
 			encoding: "utf8",
-			timeout: 30_000,
 		});
-		const text = out.stdout.trim();
-		const blocked =
-			out.status === 2 ||
-			(text !== "" && /"decision"\s*:\s*"block"/.test(text));
-		return blocked ? [`${command}\n${text}${out.stderr}`] : [];
+		return out.status === 2 || /"decision"\s*:\s*"block"/.test(out.stdout);
 	});
-	expect(blocks).toEqual([]);
+}
+
+const named = (hooks: string[], script: string) =>
+	hooks.some((h) => h.includes(`/scripts/${script} `));
+
+it("lets a background job end on `result:` with its queue ref unlanded, through every Stop hook (#5501)", () => {
+	queue();
+	expect(blockingHooks(RESULT)).toEqual([]);
+});
+
+it("still blocks that job's `waiting:`, through guard-priced-options.js", () => {
+	queue();
+	const hooks = blockingHooks("Pushed.\n\nwaiting: the lander.");
+	expect(named(hooks, "guard-priced-options.js")).toBe(true);
+});
+
+it("still warns of the commit before it is on the queue ref, through guard-unpushed-commits.js", () => {
+	expect(named(blockingHooks(RESULT), "guard-unpushed-commits.js")).toBe(true);
 });
