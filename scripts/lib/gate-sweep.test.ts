@@ -225,6 +225,24 @@ describe("the store across ticks and restarts", () => {
 		expect(lines).toEqual([expect.stringContaining(`${file} is damaged`)]);
 	});
 
+	it("queues a judgement for every gated issue where the store is damaged, as on a first sweep", async () => {
+		fs.writeFileSync(file, "{ not json");
+		const lines: string[] = [];
+		const sweeper = gateSweeper({
+			file,
+			runRoot: async () => ({
+				stdout: envelope([row(7, "v1.3.15"), row(8, "open")]),
+			}),
+			log: (l: string) => lines.push(l),
+			cadenceMs: GATE_SWEEP_MS,
+		});
+		await sweeper.startIfDue([WFC], NOW);
+		const store = readGateStore(file, throwOnLog);
+		expect(store.pending.map((j: { number: number }) => j.number)).toEqual([
+			7, 8,
+		]);
+	});
+
 	it("keeps readings and the last sweep's start, so a restarted loop sweeps on cadence and queues nothing on an unchanged reading", async () => {
 		const stdout = envelope([row(2046, "3 of 4 runs ended")]);
 		await sweepOnce(stdout);

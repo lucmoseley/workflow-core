@@ -1,4 +1,4 @@
-const { execFile, execFileSync } = require("node:child_process");
+const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 
 const {
@@ -6,25 +6,22 @@ const {
 	brokenError,
 	isOutcomeError,
 } = require("./outcome-error.js");
+const {
+	ghBinary,
+	ghUnrouted,
+	MAX_BUFFER,
+	GH_TIMEOUT_MS,
+} = require("./gh-binary.js");
 const { spawnTimeout } = require("./hook-deadline.js");
-// biome-ignore lint/suspicious/noImportCycles: workflow-core-config.js requires this file only inside deriveLogin, once both have loaded.
 const { codeRepoArgs } = require("./workflow-core-config.js");
 
 const pExecFile = promisify(execFile);
-
-// measured 53 MB across 14,433 comments, #5355
-const MAX_BUFFER = 256e6;
 
 // guess, lucmoseley/mantahostels#2481
 const ISSUE_LIST_LIMIT = 20_000;
 
 // https://docs.github.com/en/rest/search/search#about-search
 const SEARCH_CAP = 1000;
-
-// measured 8-187 s over 114 calls under load, #2677
-const GH_TIMEOUT_MS = 300_000;
-
-const ghBinary = () => process.env.WFC_GH || "gh";
 
 const RUNS_SUBCOMMANDS = new Set(["run", "workflow"]);
 
@@ -81,15 +78,7 @@ const isForbidden = (raw) =>
  * @returns {string}
  */
 function gh(args, opts = {}) {
-	return /** @type {string} */ (
-		execFileSync(ghBinary(), routed(args), {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			maxBuffer: MAX_BUFFER,
-			...opts,
-			timeout: spawnTimeout(opts.timeout ?? GH_TIMEOUT_MS),
-		})
-	);
+	return ghUnrouted(routed(args), opts);
 }
 
 /**
@@ -307,7 +296,7 @@ function raiseGhFailure(raw, conclusion = "No conclusion drawn.") {
 	}
 	const hint =
 		asExecError(raw).code === "ENOBUFS"
-			? "\n        gh's output exceeded maxBuffer — raise MAX_BUFFER in scripts/lib/gh.js."
+			? "\n        gh's output exceeded maxBuffer — raise MAX_BUFFER in scripts/lib/gh-binary.js."
 			: "";
 	throw brokenError(
 		`the gh call failed, and not because GitHub was unreachable (${parseErrLine(raw)}).\n` +
@@ -361,7 +350,7 @@ function assertWholeTracker(rows, what = "issues") {
 		`gh returned ${rows.length} ${what} — exactly the --limit ceiling, so\n` +
 			"        the tracker has outgrown it and this check saw only part of it.\n" +
 			"        Raise ISSUE_LIST_LIMIT in scripts/lib/gh.js, and re-check\n" +
-			"        MAX_BUFFER in scripts/lib/gh.js against the measurement in its comment.",
+			"        MAX_BUFFER in scripts/lib/gh-binary.js against the measurement in its comment.",
 	);
 }
 

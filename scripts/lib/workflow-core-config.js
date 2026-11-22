@@ -6,6 +6,7 @@ const { isRepoPath, isRepoPathList } = require("./repo-path.js");
 const { hostRoot } = require("./host-root.js");
 const { caught, orFallback } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
+const { ghUnrouted } = require("./gh-binary.js");
 
 const CONFIG_PATH = path.posix.join(".claude", "workflow-core.json");
 
@@ -973,13 +974,13 @@ function deriveTracker(root) {
 }
 
 function deriveLogin() {
-	const login = orFallback(() => {
-		// biome-ignore lint/suspicious/noImportCycles: required here, not at the top, as lib/gh.js requires this file.
-		const { gh } = require("./gh.js");
-		return gh(["api", "user", "--jq", ".login"], {
-			timeout: 15_000,
-		}).trim();
-	}, "");
+	const login = orFallback(
+		() =>
+			ghUnrouted(["api", "user", "--jq", ".login"], {
+				timeout: 15_000,
+			}).trim(),
+		"",
+	);
 	return login || undefined;
 }
 

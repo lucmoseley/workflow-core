@@ -12,9 +12,11 @@ const { parseCommand, walkCommands } = require("./shell-parse.js") as {
 		ports: object,
 	) => void;
 };
-const { QUOTED, literal, unwrap } = require("./shell-words.js") as {
+const { QUOTED, literal } = require("./shell-words.js") as {
 	QUOTED: string;
 	literal: (w: string, spans: string[]) => { known: boolean; text: string };
+};
+const { unwrap } = require("./shell-parse.js") as {
 	unwrap: (
 		words: string[],
 		spans: string[],

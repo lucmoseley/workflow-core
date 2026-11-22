@@ -39,6 +39,7 @@ import {
 	shWaitFor,
 	spawnDetached,
 	TIGHT_MISSING,
+	UNTRACED,
 	untilPrinted,
 	untilPublished,
 	untilVerdict,
@@ -398,7 +399,7 @@ describe("the kill log's default location (mantahostels#2691) — outside the jo
 		mkdirSync(runDir, { recursive: true });
 		writeFileSync(join(runDir, "out"), "");
 		const { status, stdout } = spawnSync(script, ["check", "run"], {
-			env: { ...process.env, WFC_BG_ROOT: repo },
+			env: { ...process.env, ...UNTRACED, WFC_BG_ROOT: repo },
 			cwd: repo,
 			encoding: "utf8",
 			...BOUNDED,
@@ -416,7 +417,7 @@ describe("the kill log's default location (mantahostels#2691) — outside the jo
 
 	it("puts the launch log beside the kill log in the git common dir (mantahostels#2763)", () => {
 		spawnSync(script, ["run", "logged", "sh", "-c", "exit 0"], {
-			env: { ...process.env, WFC_BG_ROOT: repo },
+			env: { ...process.env, ...UNTRACED, WFC_BG_ROOT: repo },
 			cwd: repo,
 			encoding: "utf8",
 			...BOUNDED,
@@ -441,6 +442,7 @@ describe("the kill log's default location (mantahostels#2691) — outside the jo
 		const { status, stdout } = spawnSync(script, ["check", "run"], {
 			env: {
 				...process.env,
+				...UNTRACED,
 				WFC_BG_ROOT: repo,
 				PATH: `${fakeBin}:${process.env.PATH}`,
 			},

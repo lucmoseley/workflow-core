@@ -87,7 +87,7 @@
  * its launch record carries (#2931).
  *
  * A LAUNCHER WRAPPER IS STRIPPED before the scope test (mantahostels#2511,
- * mantahostels#2552, shell-words.js's `unwrap`). THE CLASS IS NOT CLOSED: a
+ * mantahostels#2552, shell-parse.js's `unwrap`). THE CLASS IS NOT CLOSED: a
  * `sh -c "…"` and a heredoc walk past unjudged (mantahostels#2629). A bare
  * `npx vitest` is counted once running but never judged on the way in. An
  * `npm test -- --watch` is judged only as a one-shot: the watcher limb is

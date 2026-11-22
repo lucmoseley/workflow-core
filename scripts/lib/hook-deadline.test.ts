@@ -13,7 +13,7 @@ interface Deadline {
 	startEntryClock: (event: Event, now?: number) => void;
 }
 
-const MODULES = ["./hook-deadline.js", "./git.js", "./gh.js"];
+const MODULES = ["./hook-deadline.js", "./git.js", "./gh-binary.js", "./gh.js"];
 
 let d: Deadline;
 

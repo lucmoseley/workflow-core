@@ -10,6 +10,7 @@ const { remoteRewindRule } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
+	ghWords,
 	parseCommand,
 	unmask,
 	walkCommands,
@@ -17,7 +18,6 @@ const {
 } = require("./shell-parse.js");
 const {
 	carriesVar,
-	ghWords,
 	literal,
 	scanFlags,
 	stepGhFlags,

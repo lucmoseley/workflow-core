@@ -617,6 +617,7 @@ describe("upgrade", () => {
 			/pin v1\.0\.0 is ahead of the installed plugin v0\.9\.0/,
 		);
 		expect(r.reason).toMatch(/install owes/);
+		expect(r.reason).toMatch(/rule-text\.sh adopter-materialise-sequence/);
 	});
 
 	it("bare pin 1.0.0 against installed v1.0.0 reports up to date, walks nothing, and leaves the pin byte-identical (#241)", () => {
