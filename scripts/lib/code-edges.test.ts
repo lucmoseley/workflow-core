@@ -949,6 +949,36 @@ describe("a shell script's loads", () => {
 			`${dirOf("here")}\noutlive_live node "$here/sweep.js"\n`,
 			["/x/s/sweep.js"],
 		],
+		[
+			"node's --test-reporter joined by `=` (#5512)",
+			`${dirOf("dir")}\nnode --test --test-reporter="$dir/failed-files.js" "$dir/a.test.js"\n`,
+			["/x/s/failed-files.js", "/x/s/a.test.js"],
+		],
+		[
+			"node's --test-reporter as the next word (#5512)",
+			`${dirOf("dir")}\nnode --test --test-reporter "$dir/failed-files.js" --test-reporter-destination stdout "$dir/a.test.js"\n`,
+			["/x/s/failed-files.js", "/x/s/a.test.js"],
+		],
+		[
+			"node's --require joined by `=` (#5512)",
+			`${dirOf("dir")}\nnode --require="$dir/pre.js" "$dir/a.js"\n`,
+			["/x/s/pre.js", "/x/s/a.js"],
+		],
+		[
+			"a joined flag taking a value that is no load (#5512)",
+			`${dirOf("dir")}\nnode --max-old-space-size=4096 --input-type=module "$dir/a.js"\npython3 --check-hash-based-pycs=always "$dir/b.py"\n`,
+			["/x/s/a.js", "/x/s/b.py"],
+		],
+		[
+			"a --test-reporter naming a scoped package (#5512)",
+			`${dirOf("dir")}\nnode --test --test-reporter=@scope/reporter "$dir/a.test.js"\n`,
+			["/x/s/a.test.js"],
+		],
+		[
+			"a built-in --test-reporter, which names no file (#5512)",
+			`${dirOf("dir")}\nnode --test --test-reporter=spec "$dir/a.test.js"\n`,
+			["/x/s/a.test.js"],
+		],
 	])("reads %s", (_what, code, want) => {
 		const reach = sh(code);
 		expect(reach.unread).toEqual([]);
@@ -974,6 +1004,10 @@ describe("a shell script's loads", () => {
 		["a shell's command string", "bash -c 'source ./a.sh'\n"],
 		["a module off python3's search path", "python3 -m helper\n"],
 		["a function running an unread load", 'hb node "$UNSET/x.js"\n'],
+		[
+			"a --test-reporter off the working directory (#5512)",
+			`${dirOf("dir")}\nnode --test --test-reporter=./r.js "$dir/a.test.js"\n`,
+		],
 		/* Finding 2: hook-bound.sh, precommit-gate.sh and relink-store.sh. A
 		 * default naming the caller's $0, the working directory or an
 		 * argument is no path the walk can read; the gate suites run the
@@ -1028,6 +1062,33 @@ describe("a shell script's loads", () => {
 		expect(
 			sh('for d in $PATH; do real="$d/git"; done\n"$real" status\n').unread,
 		).toHaveLength(1);
+	});
+
+	it("reaches the scripts a `# code-edges loads:` line declares, naming an absent one unread (#5512)", () => {
+		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
+		fs.mkdirSync(path.join(root, "test"));
+		fs.writeFileSync(path.join(root, "test/failed-files.js"), "");
+		const code =
+			"# code-edges loads: failed-files.js\n# code-edges loads: gone.js\nregistry='node --test --test-reporter=./test/failed-files.js'\n";
+		const reach = fileReach(
+			path.join(root, "test/all.sh"),
+			code,
+			() => undefined,
+			null,
+		);
+		expect(reach.edges).toEqual([path.join(root, "test/failed-files.js")]);
+		expect(reach.unread).toEqual([
+			"declares # code-edges loads: gone.js, no file",
+		]);
+	});
+
+	it("reads a `#` code-edges loads: line in JS as no declaration (#5512)", () => {
+		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
+		fs.writeFileSync(path.join(root, "x.js"), "");
+		const code = "const t = `\n# code-edges loads: x.js\n`;\n";
+		expect(
+			fileReach(path.join(root, "a.js"), code, () => undefined, null).edges,
+		).toEqual([]);
 	});
 
 	/* Found in round 4: an assignment after `then` or `do` bound nothing, so

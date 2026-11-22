@@ -8,6 +8,8 @@
  * Usage:
  *   node scripts/watch-artefact.js <path> <interval-seconds> [ceiling-seconds]
  *     [--first-write <seconds>] [--log <agent-log>]
+ *   node scripts/watch-artefact.js --no-artefact <interval-seconds>
+ *     [ceiling-seconds] --log <agent-log>
  *
  * The interval, ceiling and first-write deadline accept fractions. The first check is the baseline;
  * each later one compares the size with the check before it. Prints one start
@@ -55,6 +57,11 @@
  * that will not read is judged on growth alone, said once on stderr. Without
  * a log, it cannot tell a stalled agent from a finished one.
  *
+ * `--no-artefact` WAITS ON THE LOG ALONE, for a dispatch with nothing to
+ * watch: an exempt type or a remote agent (#5515). It ends DONE once the log
+ * reads stopped and CEILING at the ceiling, 530 s by default, and draws no
+ * STALLED or MISSING.
+ *
  * Joins no §N3 family: it is a tool an agent runs, not a check, guard,
  * generator or reporter, and its exit codes are its verdicts.
  */
@@ -67,6 +74,8 @@ const { readSubagentLogState } = require("./lib/subagent-log-state.js");
 
 const DEFAULT_CEILING_S = 3600;
 const DEFAULT_FIRST_WRITE_S = 600;
+// guess (#5515): 10 s under rule:job-holds-turn's `timeout 540`
+const LOG_ONLY_DEFAULT_CEILING_S = 530;
 // #5496: guess
 const LOG_POLL_MS = 5000;
 
@@ -82,8 +91,15 @@ const ADVICE = {
 	DONE: "the agent has stopped; read its report, or take over from its artefact where it sent none",
 };
 
+const LOG_ONLY_ADVICE = {
+	CEILING:
+		"the ceiling came before the agent's log read stopped; re-run the watch to keep waiting",
+	DONE: "the agent has stopped; read its report",
+};
+
 // This file's own path, which in an adopter is the plugin's, not `scripts/`.
-const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>] [--log <agent-log>]`;
+const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>] [--log <agent-log>]
+       node ${__filename} --no-artefact <interval-seconds> [ceiling-seconds] --log <agent-log>`;
 
 /**
  * @param {string} message
@@ -177,18 +193,46 @@ class SizeTrack {
 const parseOptionalMs = (raw, name, fallback) =>
 	(raw === undefined ? fallback : parseSeconds(String(raw), name)) * 1000;
 
+/**
+ * @typedef {{intervalMs: number, ceilingMs: number}} Timing
+ * @typedef {Timing & {logOnly: true, log: string}} LogOnlyArgs
+ * @typedef {Timing & {logOnly: false, file: string, log: string | undefined, firstWriteMs: number}} ArtefactArgs
+ * @returns {LogOnlyArgs | ArtefactArgs}
+ */
 function readArgs() {
 	const { positionals, flags } = parseOrExit(process.argv.slice(2), {
 		usage: USAGE,
 		max: 3,
-		flags: { "--first-write": "value", "--log": "value" },
+		flags: {
+			"--first-write": "value",
+			"--log": "value",
+			"--no-artefact": "boolean",
+		},
 	});
+	const log = flags["--log"];
+	if (log === true || log === "") refuse("--log names no agent log");
+	if (flags["--no-artefact"] === true) {
+		if (positionals.length > 2) refuse("--no-artefact takes no artefact path");
+		if (log === undefined) refuse("--no-artefact needs --log");
+		if (flags["--first-write"] !== undefined)
+			refuse("--no-artefact has no first write to wait on");
+		const [rawInterval, rawCeiling] = positionals;
+		return {
+			logOnly: true,
+			log,
+			intervalMs: parseSeconds(rawInterval, "interval") * 1000,
+			ceilingMs: parseOptionalMs(
+				rawCeiling,
+				"ceiling",
+				LOG_ONLY_DEFAULT_CEILING_S,
+			),
+		};
+	}
 	const [file, rawInterval, rawCeiling] = positionals;
 	if (!file) refuse("no artefact path");
 	const intervalMs = parseSeconds(rawInterval, "interval") * 1000;
-	const log = flags["--log"];
-	if (log === true || log === "") refuse("--log names no agent log");
 	return {
+		logOnly: false,
 		file,
 		log,
 		intervalMs,
@@ -204,8 +248,51 @@ function readArgs() {
 	};
 }
 
+/** @param {number} intervalMs */
+const logPollMsFor = (intervalMs) => Math.min(LOG_POLL_MS, intervalMs / 4);
+
+/**
+ * @param {string} log
+ * @param {string} meanwhile
+ * @returns {() => "in-flight" | "stopped" | "unread"}
+ */
+function makeLogReader(log, meanwhile) {
+	let unreadSaid = false;
+	return () => {
+		const read = readSubagentLogState(log);
+		if (read.state === "unread" && !unreadSaid)
+			writeFd(2, `watch-artefact: ${read.why}; ${meanwhile}\n`);
+		unreadSaid ||= read.state === "unread";
+		return read.state;
+	};
+}
+
+/** @param {LogOnlyArgs} args */
+async function watchLogOnly({ log, intervalMs, ceilingMs }) {
+	const ceiling = Date.now() + ceilingMs;
+	const pollMs = logPollMsFor(intervalMs);
+	writeFd(
+		2,
+		`watch-artefact: no artefact, reading the agent log ${log} every ${pollMs / 1000}s, DONE once it reads stopped, ceiling ${ceilingMs / 1000}s\n`,
+	);
+	/** @param {"DONE" | "CEILING"} verdict */
+	const finish = (verdict) => {
+		writeFd(1, `${verdict} ${log} — ${LOG_ONLY_ADVICE[verdict]}\n`);
+		process.exit(EXIT[verdict]);
+	};
+	const readLogState = makeLogReader(log, "still reading it");
+	for (let at = Date.now(); at < ceiling; at += pollMs) {
+		await sleep(at - Date.now());
+		if (readLogState() === "stopped") finish("DONE");
+	}
+	await sleep(ceiling - Date.now());
+	finish("CEILING");
+}
+
 async function main() {
-	const { file, log, intervalMs, ceilingMs, firstWriteMs } = readArgs();
+	const args = readArgs();
+	if (args.logOnly) return watchLogOnly(args);
+	const { file, log, intervalMs, ceilingMs, firstWriteMs } = args;
 
 	const start = Date.now();
 	const tracker = new SizeTrack(readSizeOf(file), firstWriteMs);
@@ -214,18 +301,9 @@ async function main() {
 		`watch-artefact: watching ${file} every ${intervalMs / 1000}s, first write by ${firstWriteMs / 1000}s, ceiling ${ceilingMs / 1000}s, ${log ? `reading the agent log ${log}, DONE once it reads stopped` : "on growth alone, no agent log"}\n`,
 	);
 
-	let unreadSaid = false;
+	const readLog = log ? makeLogReader(log, "judging on growth alone") : null;
 	/** @returns {"in-flight" | "stopped" | "unread" | "none"} */
-	const readLogState = () => {
-		if (!log) return "none";
-		const read = readSubagentLogState(log);
-		if (read.state === "unread") {
-			if (!unreadSaid)
-				writeFd(2, `watch-artefact: ${read.why}; judging on growth alone\n`);
-			unreadSaid = true;
-		}
-		return read.state;
-	};
+	const readLogState = () => (readLog ? readLog() : "none");
 
 	/** @param {keyof typeof ADVICE} verdict */
 	const finish = (verdict) => {
@@ -240,7 +318,7 @@ async function main() {
 		process.exit(EXIT[verdict]);
 	};
 
-	const logPollMs = Math.min(LOG_POLL_MS, intervalMs / 4);
+	const logPollMs = logPollMsFor(intervalMs);
 	/** @param {number} until */
 	const pollLogUntil = async (until) => {
 		if (!log) return;

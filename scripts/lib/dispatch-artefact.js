@@ -212,19 +212,12 @@ function withArtefact(prompt, file) {
 }
 
 /**
- * Whether a call is one an artefact line is given to and watched on: not an
- * exempt agent type, not a remote agent (whose cloud environment cannot write
- * a local path, so a watch on it would abandon a healthy agent), and carrying
- * a prompt. A fork is not exempt: it writes files like any other agent.
- *
- * @param {Record<string, unknown>} call the tool_input object
+ * @param {Record<string, unknown>} call
  * @returns {call is Record<string, unknown> & {prompt: string}}
  */
 function isWatchable(call) {
 	if (typeof call.prompt !== "string" || !call.prompt.trim()) return false;
-	return (
-		!EXEMPT_AGENT_TYPES.has(agentTypeOf(call)) && call.isolation !== "remote"
-	);
+	return !EXEMPT_AGENT_TYPES.has(agentTypeOf(call));
 }
 
 /**
