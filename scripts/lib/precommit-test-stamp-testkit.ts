@@ -22,12 +22,19 @@ import { shellQuote } from "./sh-quote.js";
 
 export const temps = registerTempCleanup();
 
-const gatesEnd = HOOK.split("\n").find((l) =>
-	l.startsWith(": end of the gates"),
-);
-if (gatesEnd === undefined)
-	throw new Error("no line ending the pre-lock gates in .husky/pre-commit");
-export const GATES_END: string = gatesEnd;
+function readGatesEnd(): string {
+	const line = HOOK.split("\n").find((l) => l.startsWith(": end of the gates"));
+	if (line === undefined)
+		throw new Error("no line ending the pre-lock gates in .husky/pre-commit");
+	return line;
+}
+
+export const GATES_END = readGatesEnd();
+
+const gitIn =
+	(root: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd: root });
 
 const STUB_GATE = `staged="$(git diff --cached --name-only | paste -sd, -)"
 lock=0; [ -f .git/index.lock ] && lock=1
@@ -40,7 +47,7 @@ const PRECOMMIT = [
 	cut("tg_stamp=", "unset WFC_TEST_STAMP WFC_MUTATION_STAMP"),
 	`. ${CORE_ROOT}scripts/lib/precommit-gate.sh`,
 	STUB_GATE,
-	gatesEnd,
+	GATES_END,
 	cut(
 		`if ! lander_batch && ! lander_tested && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
 		"fi",
@@ -113,7 +120,7 @@ export const PUSH = JSON.stringify({
 const DEFAULT_CONFIG = JSON.stringify({ commands: { test: "sh stub.sh" } });
 
 const buildRepo = (born: boolean) => (root: string) => {
-	const git = (...args: string[]) => execFileSync("git", args, { cwd: root });
+	const git = gitIn(root);
 	git("init", "-q", ".");
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
@@ -157,7 +164,7 @@ export function fixture({
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "precommit-test-stamp-"));
 	temps.push(root);
 	template.instantiate(root, born ? "born" : "unborn");
-	const git = (...args: string[]) => execFileSync("git", args, { cwd: root });
+	const git = gitIn(root);
 	let coreDir: string | null = null;
 	if (adopter) {
 		coreDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-stamp-core-"));
