@@ -24,7 +24,7 @@ const {
 } = require("./lib/commit-key.js");
 const { settleTestGate } = require("./lib/test-gate.js");
 const { isHoldArmable, readConfig } = require("./lib/workflow-core-config.js");
-const { monotonicMs } = require("./lib/clock.js");
+const { durationClock } = require("./lib/clock.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 const { readText } = require("./lib/file-read.js");
@@ -52,6 +52,9 @@ const OUTCOMES = {
 	3: "git-refused",
 	4: "committed-unsettled",
 };
+
+const clockMs = durationClock();
+delete process.env.WFC_STEP_MS;
 
 let preLockMs = 0;
 /** @param {number} ms */
@@ -1200,7 +1203,7 @@ function preLockTest(root, index, command, env) {
 		return {
 			why: `git could not write the commit's tree (${tree.stderr.trim()})`,
 		};
-	let start = monotonicMs();
+	let start = clockMs();
 	const r = runInTree(root, tree.stdout.trim(), command, {
 		env,
 		gate: true,
@@ -1208,11 +1211,11 @@ function preLockTest(root, index, command, env) {
 			err(
 				`${NAME}: running '${command}' before the commit takes the index lock.\n`,
 			);
-			start = monotonicMs();
+			start = clockMs();
 		},
 	});
 	if (r.error !== null) return { why: r.error.trim() };
-	const ms = monotonicMs() - start;
+	const ms = clockMs() - start;
 	countPreLockMs(ms);
 	if (r.status !== 0) {
 		err(r.output);
@@ -1236,9 +1239,9 @@ function preLockHold(root, env) {
 	err(
 		`${NAME}: running the mutation hold before the commit takes the index lock.\n`,
 	);
-	const start = monotonicMs();
+	const start = clockMs();
 	const r = runHold(root, env, "--pre-lock");
-	const ms = monotonicMs() - start;
+	const ms = clockMs() - start;
 	countPreLockMs(ms);
 	err(`${r.stdout ?? ""}${r.stderr ?? ""}`);
 	if (r.status === 0) return { ms };
