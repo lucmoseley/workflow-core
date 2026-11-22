@@ -33,4 +33,15 @@ const now = (env = process.env) => {
 /** @returns {number} */
 const monotonicMs = () => Math.floor(Number(process.hrtime.bigint()) / 1e6);
 
-module.exports = { monotonicMs, now };
+/** @type {(env?: Record<string, string | undefined>) => () => number} */
+const durationClock = (env = process.env) => {
+	const raw = env.WFC_STEP_MS;
+	if (!raw) return monotonicMs;
+	const step = Number(raw);
+	if (!Number.isInteger(step) || step <= 0)
+		throw new Error(`WFC_STEP_MS is not a whole number of ms: ${raw}`);
+	let reads = 0;
+	return () => step * reads++;
+};
+
+module.exports = { durationClock, monotonicMs, now };

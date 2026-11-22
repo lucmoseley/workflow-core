@@ -1,26 +1,5 @@
 // @vitest-environment node
-/*
- * Pins that check-git-fixture-identity.js fails a repo a test both raw-inits
- * and raw-commits without a full local identity, keyed per repo variable, and
- * passes every identitied, init-only or exempt shape.
- *
- * check-git-fixture-identity.js reads call sites, so a throwaway git repo
- * holding one test file is the whole fixture. mantahostels#2310 is the regression this
- * checker exists to catch (mantahostels#2355): a raw git commit with no local identity,
- * green on a developer machine's global identity and red on a runner with
- * none.
- *
- * git-identity-exempt: this file's own fixture strings quote raw `git(...,
- * "init"/"commit", ...)` calls as TEXT, for the checker under test to read —
- * to the lexical scan itself those read exactly like real call sites, since a
- * string literal and real code are indistinguishable without a parser (mantahostels#2355's
- * spec review, F2). Genuinely committing here is via the real beforeEach/`git`
- * helper above, which sets identity.
- *
- * It is a hard gate in .husky/pre-commit and a step in document-guards.yml:
- * loosen a case and an identity-less fixture lands green on a developer
- * machine, to go red on the first CI runner with no global identity.
- */
+// git-identity-exempt: #5540
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -115,15 +94,25 @@ describe("a test file that raw-inits and raw-commits one repo (mantahostels#2310
 		expect(r.status).toBe(0);
 	});
 
-	it("drops the file on a git-identity-exempt comment", () => {
+	it("drops the file on a git-identity-exempt comment naming an issue", () => {
 		track(
 			"scripts/fixture-x.test.ts",
-			"// git-identity-exempt: this repo never actually commits, see #999\n" +
+			"// git-identity-exempt: #999\n" +
 				'git("init", "-q");\n' +
 				'git("commit", "-qm", "seed");\n',
 		);
 		const r = run();
 		expect(r.status).toBe(0);
+	});
+
+	it("refuses a git-identity-exempt comment carrying prose", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			"// git-identity-exempt: this repo never actually commits\n" +
+				'git("init", "-q");\n' +
+				'git("commit", "-qm", "seed");\n',
+		);
+		expect(run().status).toBe(1);
 	});
 });
 

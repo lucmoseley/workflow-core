@@ -125,6 +125,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { ENTRY_BUDGET_MS } = require("./hook-deadline.js");
 const { trimEndRun } = require("./trim-run.js");
+const { readTreeText } = require("./file-read.js");
 
 /**
  * @typedef {{ refusal: string } | { outOfBudget: true }} RefusalRead
@@ -418,18 +419,6 @@ function judgeCard(run, close) {
 }
 
 /**
- * @param {import("./guard-host-ports.js").TreePorts} tree
- * @returns {string | null}
- */
-function readRoadmap(tree) {
-	try {
-		return tree.readText(ROADMAP);
-	} catch {
-		return null;
-	}
-}
-
-/**
  * @param {Run} run
  * @param {Close} close
  * @returns {string}
@@ -451,8 +440,12 @@ function cardFault(run, close) {
 				.join(" ")
 		: "";
 	if (` ${labels} `.includes(" wayfinder:map ")) return "";
-	const roadmap = readRoadmap(run.ctx.tree());
-	if (roadmap === null) return `could not read the roadmap, so card ${id}`;
+	const got = readTreeText(run.ctx.tree(), ROADMAP);
+	if (got.state === "unreadable")
+		return `could not read the roadmap, so card ${id}`;
+	// #5576
+	if (got.state === "absent") return "";
+	const roadmap = got.data;
 	const count = roadmap.split(`id:"${id}",`).length - 1;
 	if (count !== 1) return `${id} names ${count} cards on the roadmap, so it`;
 	// guess, #2798

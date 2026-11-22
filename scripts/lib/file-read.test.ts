@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { readBytes, readTail, readText } = createRequire(__filename)(
-	"./file-read.js",
-) as typeof import("./file-read.js");
+const { readBytes, readTail, readText, readTreeText } = createRequire(
+	__filename,
+)("./file-read.js") as typeof import("./file-read.js");
 
 let dir: string;
 beforeEach(() => {
@@ -81,5 +81,34 @@ describe("readTail", () => {
 	it("tells a missing file apart from an unreadable one", () => {
 		expect(readTail(path.join(dir, "nope"), 8)).toEqual({ state: "absent" });
 		expect(readTail(dir, 8).state).toBe("unreadable");
+	});
+});
+
+const tree = (read: (rel: string) => string | null) => ({ readText: read });
+
+describe("readTreeText", () => {
+	it("answers read, absent or unreadable off the tree port", () => {
+		expect(
+			readTreeText(
+				tree(() => "x"),
+				"a",
+			),
+		).toEqual({
+			state: "read",
+			data: "x",
+		});
+		expect(
+			readTreeText(
+				tree(() => null),
+				"a",
+			),
+		).toEqual({ state: "absent" });
+		const got = readTreeText(
+			tree(() => {
+				throw new Error("EISDIR");
+			}),
+			"a",
+		);
+		expect(got.state).toBe("unreadable");
 	});
 });

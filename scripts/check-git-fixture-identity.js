@@ -6,9 +6,10 @@ const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
+const { exemptHint, exemptMarker } = require("./lib/exempt-markers.js");
 const { escapeRe, requiredGroup } = require("./lib/regex-group.js");
 
-const EXEMPT = /git-identity-exempt:[ \t]*[A-Za-z0-9]/;
+const EXEMPT = exemptMarker("git-identity");
 
 const QUOTE = `["'\`]`;
 const REPO_VAR = "[A-Za-z_$][\\w.]*";
@@ -143,7 +144,7 @@ const SPEC = {
 				'  Fix: after `git(<repo>, "init", ...)`, add `git(<repo>, "config", "user.email", "test@example.com")` and `git(<repo>, "config", "user.name", "test")` — the shape scripts/lib/git-fixture.ts\'s initGitRepo and every sibling fixture already use.',
 			);
 			ctx.say(
-				"  Genuinely need no identity? Say so in a comment reading `git-identity-exempt: <why>` and this check drops the file.",
+				`  Genuinely need no identity? Record why on an issue and put ${exemptHint("git-identity")} in a comment naming it; this check drops the file.`,
 			);
 		}
 

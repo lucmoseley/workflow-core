@@ -1778,11 +1778,28 @@ describe("the Burn mode switch", () => {
 		);
 	});
 
+	it("shows no progress output on exit 0, only the restart note, past the read (#5578)", async () => {
+		const resume =
+			"  4f1c resumes on its launch model as burn mode stands: --model claude-fable-5-2[1m] --name a -> --model claude-opus-5-5[1m] --name a";
+		const { panel, setStatus } = await panelFlipping(running(BURN_ON), {
+			stdout: "burn mode: off\n",
+			stderr: `${resume}\n${resume}\n`,
+		});
+		setStatus(RUNNING);
+		await panel.click(BURN_ROW);
+		await panel.refreshStatus();
+		expect(burnRows(panel).map((r) => r.text)).toEqual([
+			"Burn mode  [off]",
+			"Running sessions keep their effort until restarted",
+		]);
+	});
+
 	it("shows a warning on exit 0 beside the observed state, and holds it past the read", async () => {
 		const warning =
 			"warning: skipping .claude2/settings.json — it resolves to nothing";
 		const { panel, setStatus } = await panelFlipping(RUNNING, {
-			stderr: `${warning}\n`,
+			stdout: "burn mode: on\n",
+			stderr: `${warning}\n  4f1c resumes on its launch model\n`,
 		});
 		setStatus(running(BURN_ON));
 		await panel.click(BURN_ROW);

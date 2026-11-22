@@ -1,4 +1,5 @@
 const { CITATION_CEILING } = require("./qualify-citations.js");
+const { exemptMarker } = require("./exempt-markers.js");
 const { gitOutcome } = require("./git.js");
 const { readCommit } = require("./commit-sha.js");
 
@@ -34,7 +35,7 @@ const DECLARED_EXTERNAL = /"ref":\s*"mantahostels#\d+"/;
 
 const SELF_TEST = "scripts/check-citation-tracker.test.ts";
 
-const EXEMPT = /citation-exempt:[ \t]*[A-Za-z0-9]/;
+const EXEMPT = exemptMarker("citation");
 
 /**
  * @param {GitReader} [read]

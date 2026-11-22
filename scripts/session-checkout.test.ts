@@ -114,9 +114,7 @@ const holdLanderLock = () => {
 	return landerHolder.pid;
 };
 
-/* The bare origin and its clone, one commit behind origin's `main`, are the
- * same tree in every case, so they are built once and copied (#5144).
- * git-identity-exempt: the bare origin takes no commit; the clone sets one. */
+// git-identity-exempt: #5540
 const template = defineTemplate((dir) => {
 	const bare = path.join(dir, "origin.git");
 	const clone = path.join(dir, "main");

@@ -1,5 +1,5 @@
 // @vitest-environment node
-// isolation-exempt: every fixture holds a stub at this path, which logs nothing.
+// isolation-exempt: #5540
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";

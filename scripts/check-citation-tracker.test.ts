@@ -143,7 +143,18 @@ describe("the citation prefix gate", () => {
 		expect(r.code).toBe(0);
 	});
 
-	it("drops a line carrying citation-exempt", () => {
+	it("drops a line carrying citation-exempt and an issue pointer", () => {
+		const repo = newRepo();
+		repo.stage(
+			"notes.md",
+			"See mantahostels#42.  <!-- citation-exempt: #805 -->\n",
+		);
+
+		const r = run(repo);
+		expect(r.code).toBe(0);
+	});
+
+	it("keeps a line whose citation-exempt carries prose", () => {
 		const repo = newRepo();
 		repo.stage(
 			"notes.md",
@@ -151,7 +162,7 @@ describe("the citation prefix gate", () => {
 		);
 
 		const r = run(repo);
-		expect(r.code).toBe(0);
+		expect(r.code).toBe(1);
 	});
 
 	describe("the owner-qualified form (#1039)", () => {
