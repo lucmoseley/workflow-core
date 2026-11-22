@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which sites check-jsonl-reads.js finds hand-parsing JSONL rather than
- * reading through lib/jsonl.js, over the whole tree, and that its refusal
- * names the reader and its exemplar (#3452, #3453).
- *
- * Fabricated programs in a throwaway directory, never this checkout, so a
- * case's sites are only its own.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here lets the
- * next hand-rolled reader, with its own answer for a torn last line, land.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

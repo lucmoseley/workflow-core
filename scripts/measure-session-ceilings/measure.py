@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""measure.py — measure turns-remaining-past-threshold distribution across this
-repo's Claude Code transcripts on every seat (#379), for issue mantahostels#1546 (wayfinder
-map mantahostels#1542).
-
-Streams each jsonl line-by-line (never loads a whole file into memory).
-"""
 
 import re
 import os
@@ -16,13 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
 
-# The candidate ceilings mantahostels#1546 priced: 150,000 is the figure mantahostels#1544
-# tested, 200,000 mantahostels#1094's bundle stop, 100,000 a point in mantahostels#1544's
-# 60k-120k band. That pairing is inferred from those tickets; nothing records
-# why these three. https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-ceiling-firing-rates.md.
 THRESHOLDS = [100_000, 150_000, 200_000]
-# WFC_SESSIONS_CSV is set by hand by whoever runs the measurement, to keep
-# the CSV out of the working directory: no test fills it (base §G7).
 OUT_CSV = os.environ.get("WFC_SESSIONS_CSV", "sessions.csv")
 
 CMD_RE = re.compile(r"<command-name>/([a-zA-Z0-9_-]+)</command-name>")
@@ -36,7 +24,6 @@ def classify_kind(entrypoint, session_kind, first_user_text, is_subagent):
     if entrypoint == "sdk-py":
         return "sdk-py"
     if session_kind == "bg":
-        # try to refine bg kind by command/name too
         base = "background"
         m = CMD_RE.search(first_user_text or "")
         if m:
@@ -150,7 +137,6 @@ def process_file(path, is_subagent, tally):
 
 
 def corpus():
-    """(main files, subagent files), every seat root's, one copy of each."""
     found = tc.files()
     return (
         [p for p, is_sub in found if not is_sub],

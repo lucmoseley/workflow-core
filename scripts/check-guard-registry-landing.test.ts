@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/check-guard-registry.js: `--against HEAD`'s shape, `--touched-by` and the landing gate.
- *
- * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
- * loosen a case and a rule can claim **Enforced** while its guard is missing
- * or unwired.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from check-guard-registry.test.ts, whose cost was pre-existing (#4294).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -37,24 +27,8 @@ import { runInProcess } from "./lib/run-in-process";
 afterEach(removeTemps);
 
 describe("--against HEAD, the shape .husky/pre-commit's guard-registry gate runs (mantahostels#2077)", () => {
-	/*
-	 * Unlike every fixture above, this one is a real git repository: --against
-	 * materialises both sides with `git archive`/`git write-tree`, so there has
-	 * to be a HEAD to read and an index to diff it against. run()'s cwd,
-	 * the fixture, is what makes those subprocesses see this repo rather than
-	 * the one hosting the test.
-	 */
 	const kept =
 		"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies it.";
-	/*
-	 * A BROKEN-CLAIM already at HEAD, not fixed by any case below. runAgainst()
-	 * only materialises and diffs the HEAD baseline when the staged side ALREADY
-	 * has a gating fault (lib/check.js's `if (gating.length || …)`) — a genuinely
-	 * clean baseline would skip that whole path, and the "passes" case below
-	 * would then go green whether or not the fixture's scripts/lib/ copy actually
-	 * works. Carrying one inherited fault throughout forces the real
-	 * materialise/diff to run in every case.
-	 */
 	const preexisting =
 		"- A pre-existing gap. **Enforced** (#1): `scripts/guard-preexisting.sh` denies it.";
 	const clean = region(kept, preexisting);
@@ -65,9 +39,6 @@ describe("--against HEAD, the shape .husky/pre-commit's guard-registry gate runs
 
 	it("reports the fault a staged change adds over a clean HEAD", () => {
 		const root = committedRepo({ claude: clean, files: cleanFiles });
-		// Staged, not committed: HEAD stays the clean baseline reread() diffs
-		// against. The new bullet goes INSIDE the region, not after its closing
-		// delimiter — outside it, the scanner would never see it at all.
 		fs.writeFileSync(
 			path.join(root, "CLAUDE.md"),
 			region(
@@ -80,11 +51,7 @@ describe("--against HEAD, the shape .husky/pre-commit's guard-registry gate runs
 
 		const r = run(root, ["--against", "HEAD"]);
 		expect(r.code).toBe(1);
-		// Only the new BROKEN-CLAIM gates — the pre-existing one at HEAD is
-		// inherited, and reports as a WARN rather than sitting in this list.
 		expect(r.kinds).toEqual(["NEW-FAULT"]);
-		// The underlying BROKEN-CLAIM's own message rides inside the NEW-FAULT
-		// finding's message.
 		expect(r.json.findings[0].message).toContain("does not exist");
 	});
 
@@ -126,13 +93,10 @@ describe("--against HEAD, the shape .husky/pre-commit's guard-registry gate runs
 });
 
 describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
-	/* Two guards, one sourcing a library, anchored and committed, so each
-	 * case's own commit is the one under judgement. */
 	function anchoredRepo() {
 		const root = committedRepo(TWO_GUARDS, (r) => reviewIn(r));
 		const git = (...args: string[]) =>
 			execFileSync("git", args, { cwd: root, encoding: "utf8" });
-		/* null deletes the file; the commit takes `rel` and `also` alone. */
 		const commit = (rel: string, body: string | null, also: string[] = []) => {
 			if (body === null) fs.rmSync(path.join(root, rel));
 			else fs.writeFileSync(path.join(root, rel), body);
@@ -260,7 +224,6 @@ describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
 				`- One rewrite per dispatch. **Enforced** (#2013): \`${guard}\` rewrites it.`,
 			),
 			files: {
-				// The shape: lib="$here/lib/x.js" … node "$lib".
 				[guard]:
 					'#!/bin/bash\nhere="$(dirname "$0")"\nlib="$here/lib/rewrite.js"\nnode "$lib"\n',
 				[lib]: "module.exports = {};\n",
@@ -299,8 +262,6 @@ describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
 });
 
 describe("scripts/landing-registry-gate.js refuses only the faults a queue push adds to main's tree (#3074)", () => {
-	/* The #2617 template: two guards anchored and committed at X. A real
-	 * spawn, since the gate streams the checker's report to fd 2. */
 	let template = "";
 	const claims = {
 		CLAUDE_CODE_SESSION_ID: "self-session",
@@ -336,7 +297,6 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 		return { root, git, commit, read };
 	}
 
-	/* A push creating `queue/wt-a` at `sha`, `origin/main` at `tip`. */
 	const push = (
 		root: string,
 		{ sha, tip }: { sha: string; tip: string },
@@ -370,7 +330,6 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 	it("refuses an anchors write computed on base A and committed onto base B, which A's pre-commit passes, naming the row and the re-anchor command", () => {
 		const { root, git, commit, read } = repo();
 		const x = git("rev-parse", "HEAD");
-		// Base A: X with guard-branch's library changed and the whole file re-anchored.
 		fs.writeFileSync(
 			path.join(root, "scripts/lib/deny.sh"),
 			"deny() { exit 0; }\n",
@@ -380,7 +339,6 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 		expect(preCommit(root).code).toBe(0);
 		const anchorsOnA = read(ANCHORS);
 		git("reset", "-q", "--hard", x);
-		// Base B, main's tip: guard-amend changed and re-anchored there.
 		commit({ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" }, "amend");
 		reviewIn(root, ["scripts/guard-amend.sh"], claims);
 		const tip = commit({}, "re-anchor amend");
@@ -404,7 +362,6 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 	it("refuses the twin of a commit that moved a row already stale on a diverged branch, onto a main where it was fresh, naming the row and the re-anchor command", () => {
 		const { root, git, commit } = repo();
 		const tip = git("rev-parse", "HEAD");
-		// The diverged local branch: guard-branch stale there already.
 		commit(
 			{
 				"scripts/guard-branch.sh":
@@ -484,8 +441,6 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 	);
 	const Zero = "0".repeat(40);
 
-	/** The fixture with `stale` committed on its first commit, which
-	 * `origin/main` names unless `main` is false. */
 	function staleOnTip({ main = true } = {}) {
 		const root = repo();
 		const git = (...args: string[]) =>
@@ -537,7 +492,6 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 
 	it("judges a fast-forward of a queue ref against main's tip, not the ref's own", () => {
 		const { root, tip, sha } = staleOnTip();
-		/* The ref's remote sha already carries the stale row; main's does not. */
 		const r = push(root, `HEAD ${sha} refs/heads/queue/wt-a ${sha}`);
 		expect(r.status, r.stderr).toBe(2);
 		expect(r.stderr).toContain(`on main's tree at ${tip},`);

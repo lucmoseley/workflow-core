@@ -1,58 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-cleared-trackers.js — report a STANDING-CONDITION TRACKING ISSUE that is
- * still open although the condition it tracks no longer holds.
- *
- * Usage:  npm run check:cleared-trackers  [--notify] [--json]
- *
- * WHAT IT IS FOR (mantahostels#1699). scripts/lib/tracking-issue.js
- * exports openTrackingIssue, refresh and fileOrRefresh — file on the condition
- * arising, rewrite the body while it stands. There is NO CLOSE PATH, so every
- * reporter built on it does nothing at all when the condition clears.
- *
- * WHY A CHECKER AND NOT A CLOSER, ruled at mantahostels#1699 over the auto-close, on two
- * counts kept here because they are what a later session would have to overturn.
- * An auto-close carries no `**Outstanding:**` line, the ritual
- * the guard-issue-close core exists to enforce — and a close from inside a
- * workflow is out of that guard's reach entirely (it matches parsed Bash tool
- * calls only), so the ritual would be skipped invisibly rather than refused.
- * And the conditions flap, so a closer would have to arbitrate a condition a
- * human has already closed against; a report leaves that where it sits.
- *
- * IT SHARES THE FILER'S MEASUREMENT, and restates only the comparison. Each
- * entry imports the reporter's TITLE and LABEL, so the issue it looks for cannot
- * drift from the one that was filed, and calls the same function the filer
- * measures with — freshness(), parseCycles()/verdict(), sectionBWords(). What is
- * NOT shared is the threshold for two of the three: report-doc-map-budget.js
- * tests `words <= BUDGET_WORDS` inline in its main(), and
- * report-cycle-review-due.js decides inline which verdict kinds file. A changed
- * threshold has to be changed in both places.
- *
- * ORDER IS LOAD-BEARING: the tracking issue is looked up FIRST, and the
- * (expensive) `condition` evaluated only for a reporter whose issue is open —
- * so an unreadable condition is never reported about an issue nobody filed.
- * `unfiledCondition` is the one deliberate exception (mantahostels#2297): a red
- * suite is urgent, and report-red-suite.js files it only once a day, from the
- * daily repo-checks run (#1963), so a filer that failed or has not run yet
- * leaves a red nobody filed. For that one tracker a SEPARATE, CHEAP
- * condition is also read with NO issue open.
- *
- * DEGRADES TO SILENCE, NEVER TO "CLEARED". A condition that throws is reported
- * as unreadable, never as cleared. An unreachable gh leaves through lib/gh.js's
- * own SKIP. `unfiledCondition` fails open to silence on a throw instead — it
- * has no issue to report unreadable against.
- *
- * IT DOES NOT STAMP, so a cleared tracker is reported on every run until it is
- * closed. Deliberate at mantahostels#1699: a notice shown once can be missed in the session
- * it lands in, and nothing would ever raise it again.
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports an open tracking issue whose
- *            condition has cleared. It never closes one.
- * JUSTIFIED: fail-safe — no other checker here reads a tracking issue against
- *            its own condition, and a run that cannot evaluate a condition says
- *            so rather than calling the issue cleared.
- * DEFEAT:    none.
- */
 
 const fs = require("node:fs");
 const { runCheck } = require("./lib/check");
@@ -93,15 +39,7 @@ function parseFirstLine(text) {
 	return line;
 }
 
-/**
- * The reporters built on lib/tracking-issue.js, one entry each.
- *
- * `condition` answers the reporter's own question — is it still true — and
- * returns the line a reader needs to judge the answer. It may throw; the caller
- * treats that as unreadable, never as cleared.
- *
- * @type {Tracker[]}
- */
+/** @type {Tracker[]} */
 const TRACKERS = [
 	{
 		script: "scripts/report-manual-staleness.js",
@@ -147,7 +85,6 @@ const TRACKERS = [
 		script: "scripts/report-retro-due.js",
 		title: retro.TITLE,
 		label: retro.LABEL,
-		// An unset N is the filer's SKIP, so an issue open under it is cleared.
 		condition: () => {
 			const today = retro.today();
 			const v = retro.condition(today);
@@ -166,9 +103,6 @@ const TRACKERS = [
 		label: budget.LABEL,
 		condition: () => {
 			const text = fs.readFileSync("docs/doc-map.md", "utf8");
-			// sectionBWords returns 0 for a map with no "## Section B" heading, and
-			// 0 is under budget — so without this the checker would call the
-			// tracker cleared off a map it could not measure.
 			if (!sectionBRange(text.split("\n")))
 				throw new Error(
 					'docs/doc-map.md carries no "## Section B" heading, so §B cannot be measured',
@@ -188,8 +122,6 @@ const TRACKERS = [
 			const html = fs.readFileSync("docs/reference-roadmap.html", "utf8");
 			const { ITEMS } = parseRoadmap(html);
 			const rows = roadmapCeilings.overCeilingRows(ITEMS);
-			// A capOk row is a ratified floor, not work, so it does not hold the
-			// tracker open (mantahostels#3352) — the same test the reporter's own filing makes.
 			return {
 				held: roadmapCeilings.payable(rows).length > 0,
 				detail: roadmapCeilings.verdict(rows),
@@ -200,18 +132,7 @@ const TRACKERS = [
 		script: "scripts/report-red-suite.js",
 		title: redSuite.TITLE,
 		label: redSuite.LABEL,
-		// The one condition here that is not repo state: it is read from the
-		// Actions API, so it costs a `gh run list` plus one `gh run view` per
-		// sweep it walks — paid only when the red-suite issue is open, the
-		// lookup above running first.
-		//
-		// SO A gh OUTAGE REACHES THIS ONE AS AN UNREADABLE CONDITION, not as the
-		// run-wide SKIP the header describes: that SKIP is raised by the tracking
-		// -issue lookup, and this is the first condition to call gh after it. The
-		// verdict is still never "cleared", which is what the degrade rule
-		// protects.
 		condition: () => redSuite.ciStillRed(),
-		// Never ciStillRed() here — see the loop's own comment on why (mantahostels#2297).
 		unfiledCondition: () => redSuite.newestCiRed(),
 	},
 	{
@@ -239,18 +160,10 @@ const TRACKERS = [
  */
 
 /**
- * Looks up one reporter's tracking issue and files its condition's reading
- * into the tally.
- *
  * @param {Tracker} t
- * @param {Tally} tally accumulator: the tracker's reading is filed here
+ * @param {Tally} tally
  */
 function readTracker(t, tally) {
-	/* The gh read is classified, not caught as a finding: a tracker nobody
-	 * can reach is a SKIP for the whole run, never three "unreadable"
-	 * lines. lib/tracking-issue.js throws execFileSync's raw error, so the
-	 * SUBJECT/APPARATUS split lib/check.js runs on has to be applied here —
-	 * GitHub down is the subject, anything else is the apparatus. */
 	/** @type {{ number: number, title: string } | null} */
 	let issue;
 	try {
@@ -271,13 +184,9 @@ function readTracker(t, tally) {
 
 /**
  * @param {Tracker} t
- * @param {Tally["unfiled"]} unfiled accumulator: a held unfiled condition is pushed here
+ * @param {Tally["unfiled"]} unfiled
  */
 function noteUnfiled(t, unfiled) {
-	/* `unfiledCondition` is paid on every healthy run (no issue
-	 * open), so it must be a cheap function, never `condition`'s expensive
-	 * multi-sweep read (mantahostels#2297). Failed open on a throw — an apparatus
-	 * fault must not read as "so it must have been filed". */
 	if (!t.unfiledCondition) return;
 	const v = orFallback(() => t.unfiledCondition?.(), undefined);
 	if (v?.held)
@@ -289,11 +198,9 @@ function noteUnfiled(t, unfiled) {
 }
 
 /**
- * Reads an open tracker's condition: standing, cleared or unreadable.
- *
  * @param {Tracker} t
  * @param {{ number: number, title: string }} issue
- * @param {Tally} tally accumulator: the issue goes to unreadable, standing or cleared
+ * @param {Tally} tally
  */
 function judgeOpen(t, issue, tally) {
 	let verdict;
@@ -337,8 +244,6 @@ function emitFindings(ctx, { cleared, unreadable, unfiled }) {
 			`#${u.number} "${u.title}" — ${u.script} could not answer: ${u.reason}`,
 			u,
 		);
-	/* FAIL, not WARN: this is not a stale filing to tidy up, it is the
-	 * condition the filer exists to report standing with nobody told (mantahostels#2297). */
 	for (const u of unfiled)
 		ctx.fail(
 			"CONDITION-UNFILED",
@@ -408,9 +313,6 @@ runCheck({
 			okLine: openCount
 				? `${openCount} tracking issue(s) open, every condition still standing${standing.length > 0 ? ` (${standing.join(", ")})` : ""}.`
 				: `no tracking issue is open across ${TRACKERS.length} reporter(s).`,
-			// Never "cleared tracker(s)": lib/check.js counts every WARN finding, so
-			// that noun would summarise an UNREADABLE-CONDITION as a clearance —
-			// the one thing this checker must never assert.
 			noun: "tracking-issue finding(s)",
 			data: {
 				cleared,

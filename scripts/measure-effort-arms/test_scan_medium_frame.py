@@ -1,17 +1,3 @@
-"""Pins the `medium` frame's session-to-issue lookup across every seat root
-(#375), its issue list taken from the `gh` that `WFC_GH` names (#1278), and the
-skip counts its report prints (#947 review).
-
-The `seat_roots` fixture points `transcript_corpus`'s seats at temp config
-dirs, and `stub_bin` writes a `gh` that logs its argv, so each test proves the
-stub ran without patching `subprocess` or reaching the network.
-
-CI's pytest step runs this file; the scanner
-gates nothing and is run by hand. Breaking it lets the mantahostels#1214
-control draw from a frame that has silently shrunk or missed a seat, so the
-`medium` arm's defect rate is compared on sessions nobody can re-derive.
-"""
-
 import json
 import os
 import sys
@@ -44,7 +30,6 @@ def test_issue_numbers_come_from_the_binary_wfc_gh_names(stub_bin, monkeypatch):
 def test_the_frame_report_prints_what_the_corpus_skipped(
     seat_roots, stub_bin, monkeypatch, capsys
 ):
-    # #947 review: the frame dropped its skip counts unseen.
     (seat_roots(1)[0] / "s1.jsonl").write_text('{"type": "assistant", broken\n')
     path, _ = stub_bin("gh", "")
     monkeypatch.setenv("WFC_GH", path)

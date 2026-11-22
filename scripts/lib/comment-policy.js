@@ -426,9 +426,30 @@ function shQuoteEnd(source, i) {
 	const q = source.charAt(i);
 	const escapes = q === '"' || source.charAt(i - 1) === "$";
 	let j = i + 1;
-	while (j < source.length && source.charAt(j) !== q)
-		j += source.charAt(j) === "\\" && escapes ? 2 : 1;
+	while (j < source.length && source.charAt(j) !== q) {
+		if (q === '"' && source.startsWith("$(", j)) j = shSubstEnd(source, j + 2);
+		else j += source.charAt(j) === "\\" && escapes ? 2 : 1;
+	}
 	return j + 1;
+}
+
+/**
+ * @param {string} source
+ * @param {number} j
+ */
+function shSubstEnd(source, j) {
+	let depth = 1;
+	while (j < source.length) {
+		const c = source.charAt(j);
+		if (c === "\\") j += 2;
+		else if (c === "'" || c === '"') j = shQuoteEnd(source, j);
+		else if (c === "(") {
+			depth++;
+			j++;
+		} else if (c === ")" && --depth === 0) return j + 1;
+		else j++;
+	}
+	return j;
 }
 
 /**
@@ -466,8 +487,8 @@ function shStep(st, i) {
 	}
 	if (c === "\\") return i + 2;
 	if (c === "'" || c === '"') return shQuoteEnd(source, i);
-	if (source.startsWith("<<", i) && source.charAt(i + 2) !== "<")
-		return shHeredoc(st, i);
+	if (source.startsWith("<<<", i)) return i + 3;
+	if (source.startsWith("<<", i)) return shHeredoc(st, i);
 	return i + 1;
 }
 

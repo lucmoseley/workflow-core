@@ -1,11 +1,3 @@
-"""Re-runs of the same sha from the runs dump that runs.py writes.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I reruns.py <runs.jsonl>
-A run is a re-run when an earlier run had the same key:
-  (sha, treeAtEnd, argv): the ledger runs.py reads records argv, not the selected files.
-The same treeAtEnd means the tracked tree was the same, so the second run tested the same code.
-Each re-run is classed by the verdict of the run before it with that key."""
-
 import collections
 import json
 import sys
@@ -47,7 +39,6 @@ for k, v in sorted(cls.items(), key=lambda kv: -kv[1][1]):
 print("by kind of the re-run:")
 for k, v in sorted(by_kind.items(), key=lambda kv: -kv[1][1]):
     print(f"  {k:14} {v[0]:5} {v[1]:6.2f} h")
-# Runs per sha, ignoring tree: how many runs touch a sha
 per_sha = collections.Counter(r["sha"] for r in runs if r["suite"] == "vitest")
 dist = collections.Counter(min(v, 10) for v in per_sha.values())
 print(

@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins check-doc-map.js's numbered assertions on a real git repo: every tracked
- * in-scope file registered, no dead or stray entry, the pairing grace window,
- * and the reference checks over §B and §C. Each assertion's ticket is cited in
- * check-doc-map.js's own numbered list; the file was built for
- * mantahostels#148.
- *
- * check-doc-map.js reads its scope from `git ls-files`, so it is exercised
- * inside a throwaway repository rather than against this one — a fixture
- * pinned to this repo's own docs/ tree would go red on every doc added.
- *
- * It is a hard gate in .husky/pre-commit, which refuses a commit adding a
- * fault, and in .github/workflows/document-guards.yml, so loosening a test
- * here loosens both: an unregistered document lands, one the update routine
- * will never consider.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,17 +24,11 @@ const write = (file: string, body: string) => {
 	fs.writeFileSync(path.join(repo, file), body);
 };
 
-/** Write a file and track it — untracked files are out of scope by design. */
 const track = (file: string, body = "x\n") => {
 	write(file, body);
 	git("add", "--", file);
 };
 
-/**
- * Commits whatever is currently staged, dated `hoursAgo` hours back — the
- * only way to express an "old" half of a doc-map pairing fault without
- * sleeping in the test (mantahostels#1785).
- */
 const commit = (message: string, hoursAgo = 0) => {
 	const date = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
 	execFileSync("git", ["commit", "-qm", message], {
@@ -60,11 +38,6 @@ const commit = (message: string, hoursAgo = 0) => {
 	});
 };
 
-/**
- * The map as the script parses it: a version stamp, then a Section A table
- * whose first cell holds the registered path(s). `sectionB` is appended after
- * the `## Section B` heading the parser cuts at.
- */
 const mapDoc = (rows: string[], sectionB = "") =>
 	[
 		"# Doc map",
@@ -83,18 +56,12 @@ const mapDoc = (rows: string[], sectionB = "") =>
 		"",
 	].join("\n");
 
-/** `n` whitespace-delimited words. */
 const words = (n: number) =>
 	Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
 
-/** A Section A row registering one or more paths. */
 const row = (...paths: string[]) =>
 	`| ${paths.map((p) => `\`${p}\``).join(", ")} | a doc | \`stable\` |`;
 
-/**
- * The restatement data file, written **untracked** beside the map: tracking it
- * would put it in scope and make every coverage fixture owe it a register row.
- */
 const RESTATEMENTS = "docs/doc-map-restatements.json";
 
 interface Restatement {
@@ -108,11 +75,6 @@ interface RestatementEntry {
 	knownIncomplete?: string;
 }
 
-/**
- * Write the restatement file, and re-stamp the map's pointer counts to agree
- * with it. Assertion 11 (mantahostels#1474) FAILs a pointer whose count disagrees with its
- * key. A test that IS about the disagreement writes the map after calling this.
- */
 const writeRestatements = (data: Record<string, RestatementEntry>) => {
 	write(RESTATEMENTS, JSON.stringify(data));
 	const file = path.join(repo, MAP);
@@ -133,11 +95,6 @@ const writeRestatements = (data: Record<string, RestatementEntry>) => {
 	git("add", "--", MAP);
 };
 
-/**
- * The superseded data file, beside the map and untracked for the same reason.
- * Assertion 11 reads it to reconcile `Supersedes` pointer bullets against their
- * keys (mantahostels#1474), so every fixture owes one.
- */
 const SUPERSEDED = "docs/doc-map-superseded.json";
 
 interface SupersededEntry {
@@ -150,18 +107,9 @@ const writeSuperseded = (data: Record<string, SupersededEntry>) =>
 
 const HIGH_WATER = "docs/doc-map-high-water.json";
 
-/** The high-water mark assertions 12 and 13 read; a missing one is BROKEN. */
 const writeHighWater = (mark = 0) =>
 	write(HIGH_WATER, JSON.stringify({ highWaterMark: mark }));
 
-/**
- * The retired-vocabulary sidecar, beside the map for the restatement file's
- * reason (mantahostels#2293). A missing or empty one is silent, not BROKEN (mantahostels#2324) —
- * every writeMap() fixture gets one written empty by default (mantahostels#2351), so a
- * test that is not about this sidecar never has to think about it. A fixture
- * that builds its own map without writeMap() writes one only where the test
- * needs it present.
- */
 const RETIRED_VOCABULARY = "docs/doc-map-retired-vocabulary.json";
 
 interface FixtureVocabularyEntry {
@@ -171,33 +119,14 @@ interface FixtureVocabularyEntry {
 const writeRetiredVocabulary = (data: Record<string, FixtureVocabularyEntry>) =>
 	write(RETIRED_VOCABULARY, JSON.stringify(data));
 
-/** The pointer bullet assertion 11 requires beside a sidecar key. */
 const pointer = (n: number) =>
 	`- **Restated in:** ${n} path${n === 1 ? "" : "s"}, in \`docs/doc-map-restatements.json\`.`;
 
-/** Its counterpart for an entry the sidecar does not key. */
 const NO_POINTER = "- **Restated in:** none — nothing restates it.";
 
-/**
- * Since mantahostels#591 the data file is the only source of restatement paths, and a
- * missing one is BROKEN — so every fixture needs one, and it may only key an
- * entry the map actually holds. A fixture that states no §B entry of its own
- * gets this one, paired with the default data below.
- */
 const BASELINE_ENTRY = `### B1 · A figure\n\n${pointer(1)}\n- **Settled at #1**`;
 
-/**
- * Assertion 10 FAILs a `### B<n>` entry carrying no `Settled at` bullet, so
- * every fixture that states an entry owes one — none of them is about that
- * bullet. Give each entry the bullet where it lacks one; a test that is about
- * the assertion passes `rawEntries` and gets its fixture through untouched.
- */
 const SETTLED_BULLET = "- **Settled at #1**";
-/**
- * Assertion 11 (mantahostels#1474) FAILs an entry the restatement sidecar keys that carries
- * no `Restated in` pointer, and writeMap keys the first entry — so the same pass
- * supplies the pointer wherever the fixture states none.
- */
 const withSettled = (body: string) => {
 	const lines = body.split("\n");
 	const out: string[] = [];
@@ -221,12 +150,6 @@ const ADMISSIONS = "docs/doc-map-admissions.json";
 const writeAdmissions = (data: Record<string, unknown>) =>
 	write(ADMISSIONS, JSON.stringify(data, null, 2));
 
-/**
- * Assertion 29 (mantahostels#3225) FAILs a `### B<n>` id absent from HEAD with no
- * conforming admission row, and most fixtures here add an entry — so derive a
- * conforming row for every id the fixture states and no test that is not about
- * this sidecar has to think about it.
- */
 const admissionsFor = (body: string) => {
 	const out: Record<string, unknown> = {};
 	for (const [, id] of body.matchAll(/^### (B\d+)/gm))
@@ -240,21 +163,8 @@ const admissionsFor = (body: string) => {
 
 const CLASSES = "docs/doc-map-classes.json";
 
-/**
- * The class sidecar, written **untracked** beside the map for the restatement
- * file's reason. Assertion 1 reads coverage from it and a missing one is BROKEN
- * (mantahostels#1849) — so, like the admission rows above, derive it from the fixture's own
- * rows and no test that is not about this sidecar has to think about it.
- *
- * Every key takes `source-of-truth`: the class the row's markdown cell spells is
- * read by nothing here (mantahostels#1849), and assertion 17 is silent over these
- * fixtures anyway — `mapDoc`'s three-column table is not the register table the
- * renderer places rows into.
- */
 const classesFor = (rows: string[]) => {
 	const out: Record<string, unknown> = {};
-	// A `/**` §A entry is a fixture-only spelling; the sidecar's key vocabulary
-	// takes one trailing `*`, which covers the same directory.
 	for (const line of rows)
 		for (const [, token] of (line.split("|")[1] || "").matchAll(/`([^`]+)`/g))
 			out[token.trim().replace(/\*\*$/, "*")] = {
@@ -264,21 +174,17 @@ const classesFor = (rows: string[]) => {
 				role: null,
 				route: null,
 				consumes: null,
-				// Assertion 31 (mantahostels#3412) requires it on a prose key and refuses it elsewhere.
 				...(/\.(md|html)$/.test(token.trim()) ? { reader: "agent" } : {}),
 			};
 	return out;
 };
 
-/** register-doc.js's canonical bytes (mantahostels#3353): sorted keys, tab indent, one
- * trailing newline, non-ASCII unescaped — what SIDECAR-NOT-CANONICAL gates. */
 const writeClasses = (data: Record<string, unknown>) => {
 	const sorted: Record<string, unknown> = {};
 	for (const key of Object.keys(data).sort()) sorted[key] = data[key];
 	write(CLASSES, `${JSON.stringify(sorted, null, "\t")}\n`);
 };
 
-/** Track the map and the sidecars every assertion needs to reconcile. */
 const writeMap = (
 	rows: string[],
 	sectionB = "",
@@ -289,33 +195,17 @@ const writeMap = (
 		: [sectionB, BASELINE_ENTRY].filter(Boolean).join("\n\n");
 	const body = opts.rawEntries ? stated : withSettled(stated);
 	write(MAP, mapDoc(rows, body));
-	// Keyed to the map's first entry so it is never an orphan; overwrite it with
-	// writeRestatements() where the test is about the data itself. It stages the
-	// map it restamps, so the map is staged once.
 	const first = body.match(/^### (B\d+)/m);
 	if (first)
 		writeRestatements({ [first[1]]: { paths: [{ path: "docs/notes.md" }] } });
 	else git("add", "--", MAP);
-	// Assertion 11 reconciles `Supersedes` bullets against this file, so it must
-	// exist.
 	writeSuperseded({});
 	writeHighWater();
-	// Overwrite it with writeAdmissions() where the test is about the admission
-	// record (mantahostels#3225) itself.
 	writeAdmissions(admissionsFor(body));
-	// Present for the --root/--data-dir fixtures that track or copy it
-	// structurally; overwrite it with writeRetiredVocabulary() where the test is
-	// about the phrase-count assertion (mantahostels#2293) itself.
 	writeRetiredVocabulary({});
-	// Overwrite it with writeClasses() where the test is about the sidecar
-	// itself — a bad class token, a repeated key, an unregistered file.
 	writeClasses(classesFor(rows));
 };
 
-/*
- * scripts/lib/run-in-process.js states what the seam does not reproduce, which
- * is why the cases here stay sequential.
- */
 const check = (env: Record<string, string> = {}, ...args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: repo,
@@ -324,15 +214,8 @@ const check = (env: Record<string, string> = {}, ...args: string[]) => {
 	return { status: r.status, stdout: r.stdout, out: `${r.stdout}${r.stderr}` };
 };
 
-/** The baseline repo: three in-scope files, all registered. */
 const baselineRows = [row(MAP), row("docs/notes.md"), row("CLAUDE.md")];
 
-/**
- * Runs `fn` with `repo` pointed at `dir` — every helper above (`git`, `write`,
- * `track`, `commit`, `writeMap`) writes through the module-level `repo`, so a
- * template build function borrows it rather than re-deriving its own copy of
- * that plumbing.
- */
 const withRepo = <T>(dir: string, fn: () => T): T => {
 	const prev = repo;
 	repo = dir;
@@ -343,9 +226,6 @@ const withRepo = <T>(dir: string, fn: () => T): T => {
 	}
 };
 
-/** `git init` plus the two tracked-but-uncommitted files every fixture below
- * starts from — the baseline every case shared before mantahostels#2072, now the common
- * first step of each template's own independent build. */
 const initBase = () => {
 	git("init", "-q", ".");
 	git("config", "user.email", "test@example.com");
@@ -354,29 +234,8 @@ const initBase = () => {
 	track("CLAUDE.md");
 };
 
-/*
- * THE FIXTURE IS BUILT ONCE AND COPIED (mantahostels#1907), migrated onto the shared
- * scripts/lib/git-fixture.ts helper (mantahostels#2068, mantahostels#2072) for its relink and
- * leak-check — this file's own hand-rolled `cpSync` never repointed the
- * template's absolute path out of anything, which mantahostels#2048 named as exactly the
- * failure mode mantahostels#2016's own fixture had (this one had no `core.hooksPath` or
- * worktree for a naive copy to mis-point, so it never surfaced here, but
- * nothing enforced that it stayed that way).
- */
 const template = defineTemplate((dir) => withRepo(dir, initBase));
 
-/*
- * The pairing-grace-window states (mantahostels#1785) baked into named variants rather
- * than a per-test `commit()` — see mantahostels#2072's fixture-state inventory. Each
- * variant builds ON TOP OF a copy of the base template above (`template`'s
- * own cache, cheap: a `cpSync`, not a re-run of `git init`) rather than
- * redoing `initBase()` from scratch — the earlier version of this file
- * duplicated the base build once per variant, which cost more in git spawns
- * than it saved. The ages used are 0h and 8h, both far from
- * `PAIRING_GRACE_MS`'s 6h boundary (scripts/lib/doc-map.js:1139), so baking
- * the commit date in at build time rather than at each test's run time is
- * safe against wall-clock drift within a run.
- */
 const onBase = (dir: string, steps: () => void): void => {
 	template.instantiate(dir);
 	withRepo(dir, steps);
@@ -420,15 +279,6 @@ const graceTemplate = defineTemplate({
 		}),
 });
 
-/**
- * Switches the current test off the base template's copy and onto a
- * pairing-grace-window variant's, in place of a per-test
- * `writeMap`/`track`/`commit` sequence. Discards the
- * base copy `beforeEach` just instantiated rather than reusing it — kept this
- * way because a `beforeEach` that skips the base instantiation for the seven
- * grace tests alone would need to know a test's variant before it runs; the
- * cost is one `cpSync` plus one leak scan thrown away per grace test (mantahostels#2072).
- */
 const useGrace = (variant: string) => {
 	fs.rmSync(repo, { recursive: true, force: true });
 	const dir = mkScratchDir("doc-map-grace-");
@@ -441,7 +291,6 @@ beforeEach(() => {
 	template.instantiate(repo);
 });
 afterEach(() => {
-	// Guarded because an empty `repo` means beforeEach threw before minting one.
 	if (repo) fs.rmSync(repo, { recursive: true, force: true });
 });
 
@@ -463,13 +312,9 @@ describe("check-doc-map", () => {
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("1 tracked file(s) in scope have no doc-map");
 		expect(r.out).toContain("docs/unregistered.md");
-		// the failure has to carry the way out — the command (mantahostels#1849)
 		expect(r.out).toContain("node scripts/register-doc.js");
 	});
 
-	/* mantahostels#1849 moved coverage's subject: the sidecar is the register, and §A is a
-	 * projection of it. These two pin the direction — a row without a key does
-	 * not cover, and a key without a row does. */
 	it("fails a file §A carries a row for and the sidecar does not key", () => {
 		track("docs/unregistered.md");
 		writeMap([...baselineRows, row("docs/unregistered.md")]);
@@ -496,15 +341,6 @@ describe("check-doc-map", () => {
 		expect(r.out).toContain("renamed or removed");
 	});
 
-	/*
-	 * mantahostels#1785: a split doc-map commit pair — the file half or the row half landed
-	 * on `main` but not the other — WARNs inside a 6h grace window and FAILs
-	 * once it expires. Every case here needs a real commit, dated with
-	 * GIT_AUTHOR_DATE/GIT_COMMITTER_DATE, since with no commit at all (every
-	 * fixture above) history is unavailable and the checker already FAILs —
-	 * that is acceptance criterion 7, pinned by the un-committed fixtures above
-	 * rather than repeated here.
-	 */
 	describe("the pairing grace window", () => {
 		it("warns, not fails, on an uncovered file introduced minutes ago, naming the file, its age and the grace left", () => {
 			useGrace("fresh-uncovered-file");
@@ -555,8 +391,6 @@ describe("check-doc-map", () => {
 			expect(r.out).not.toContain("grace window");
 		});
 
-		// mantahostels#1193, unaffected: present-but-untracked stays a WARN at any age, never
-		// routed through the grace split at all.
 		it("still warns on a present-but-untracked entry regardless of age", () => {
 			useGrace("stale-present-untracked");
 			const r = check();
@@ -567,8 +401,6 @@ describe("check-doc-map", () => {
 			expect(r.out).not.toContain("match no tracked file");
 		});
 
-		// Story 12: a genuine rename/delete, neither half young, FAILs exactly as
-		// today — the file was once real, is committed, and is later removed.
 		it("fails immediately on a genuine delete: an old file, removed, whose old row still names it", () => {
 			useGrace("stale-genuine-delete");
 			const r = check();
@@ -578,13 +410,6 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("renamed or removed");
 		});
 
-		// The --json envelope: an in-grace item keeps its existing key at warn
-		// severity, so the direction gate — lib/fault-profiles.js's `doc-map`
-		// profile, which reads staged vs baseline envelopes to tell an inherited
-		// fault from a new one — still matches it unmodified. The item itself
-		// must be the SAME staged vs baseline (identity is the whole JSON value,
-		// that profile's comment), so no age figure lives in the item — only in
-		// the human report.
 		it("carries an in-grace UNCOVERED item at warn severity under its existing key", () => {
 			useGrace("fresh-uncovered-file");
 			const r = check({}, "--json");
@@ -598,33 +423,13 @@ describe("check-doc-map", () => {
 			expect(byTag.UNCOVERED).toBeUndefined();
 		});
 
-		/*
-		 * The `doc-map` profile's own comment: it diffs the TOP-LEVEL envelope keys
-		 * (`uncovered`, `dead`, …) — `findings` is in its DOC_MAP_NOT_A_FAULT set
-		 * and never compared, and the profile has no `gating` predicate of its
-		 * own, so every item surviving into those top-level lists is gate
-		 * material. `data.uncovered`/`data.dead` therefore carry the OUT-OF-GRACE
-		 * half alone (`check-doc-map.js`'s own comment beside them) — an in-grace
-		 * item left in would read as "not in baseline" and refuse the commit the
-		 * moment the doc map ALSO carries any unrelated, already-FAILing entry,
-		 * exactly the split-commit-pair case grace exists to let through (caught
-		 * in review of mantahostels#1785 — the first version of this test asserted the buggy
-		 * behaviour as correct). Two real envelopes, not one fed to itself, since
-		 * an identical pair passes for any item shape whatsoever and proves
-		 * nothing.
-		 */
 		it("does not let an in-grace item leak into the direction gate's diffed set", () => {
-			// Baseline (HEAD): the grace-window file already landed, days ago, so
-			// it long ago passed out of grace — this run FAILs on it, same as an
-			// inherited fault the founder has not yet cleared.
 			writeMap(baselineRows);
 			track("docs/old-uncovered.md");
 			commit("add old-uncovered.md", 24 * 10);
 			const baseline = check({}, "--json").stdout;
 			expect(JSON.parse(baseline).outcome).toBe("FAIL");
 
-			// Staged (this commit): the same inherited FAIL, plus a second file
-			// this commit alone adds — genuinely new, but young enough to WARN.
 			track("docs/fresh.md");
 			commit("add fresh.md too", 0);
 			const staged = check({}, "--json").stdout;
@@ -640,9 +445,6 @@ describe("check-doc-map", () => {
 					path.resolve(__dirname, "checker-new-faults.js"),
 					["doc-map", stagedFile, baselineFile],
 				);
-				// Exit 0: the old file is inherited, and the fresh, in-grace file
-				// is WARN-only — grace has to mean this pair reads as nothing new,
-				// not merely that check-doc-map.js itself said WARN.
 				expect(nf.status).toBe(0);
 				expect(nf.stdout ?? "").not.toContain("docs/old-uncovered.md");
 				expect(nf.stdout ?? "").not.toContain("docs/fresh.md");
@@ -657,8 +459,6 @@ describe("check-doc-map", () => {
 			const baseline = check({}, "--json").stdout;
 			expect(JSON.parse(baseline).outcome).toBe("OK");
 
-			// Both added by this commit: one backdated past grace (a rebase or
-			// cherry-pick landing an old change), one genuinely fresh.
 			track("docs/old-and-new.md");
 			commit("add old-and-new.md", 24 * 10);
 			track("docs/fresh.md");
@@ -676,13 +476,8 @@ describe("check-doc-map", () => {
 					path.resolve(__dirname, "checker-new-faults.js"),
 					["doc-map", stagedFile, baselineFile],
 				);
-				// Exit 1: the out-of-grace file is genuinely new and gate material.
 				expect(nf.status).toBe(1);
 				expect(nf.stdout ?? "").toContain("docs/old-and-new.md");
-				// The in-grace file must not appear — it is not gate material yet.
-				// Its tag as well as its path (mantahostels#2594): the leak this catches carries
-				// the finding's message and no filename, so the path assertion
-				// alone never bit.
 				expect(nf.stdout ?? "").not.toContain("docs/fresh.md");
 				expect(nf.stdout ?? "").not.toContain("UNCOVERED-GRACE");
 			} finally {
@@ -690,17 +485,6 @@ describe("check-doc-map", () => {
 			}
 		});
 
-		/*
-		 * Acceptance criterion 8 (mantahostels#1785): a clean run raises neither UNCOVERED nor
-		 * DEAD-ENTRY, so `splitByGrace` never runs its loop body and `dateItem`,
-		 * the only caller of `git` in this path, is never invoked. Not directly observable from outside a spawned process (no seam
-		 * to intercept the child's own `execFileSync` calls), so this is the
-		 * closest available proxy: a repo whose git history is entirely absent
-		 * (every fixture above `track()`s but never commits) still passes clean.
-		 * If a clean run called `dateItem` on some item, that item would
-		 * have to exist — and none does, so there is nothing for it to be called
-		 * with. Stated here rather than claimed covered on faith.
-		 */
 		it("passes clean with no commits in the repo at all — no fault means no dating call", () => {
 			writeMap(baselineRows);
 			const r = check();
@@ -709,7 +493,6 @@ describe("check-doc-map", () => {
 		});
 	});
 
-	// Neither check may short-circuit the other.
 	it("reports an uncovered file and a dead entry in the same run", () => {
 		track("docs/unregistered.md");
 		writeMap([...baselineRows, row("docs/deleted.md")]);
@@ -719,9 +502,6 @@ describe("check-doc-map", () => {
 		expect(r.out).toContain("docs/deleted.md");
 	});
 
-	// mantahostels#1193: a register entry whose file exists on disk but was never `git add`-ed
-	// is normal mid-ticket state — the map edit and the file's own commit are
-	// separate steps — so it must not block an unrelated commit.
 	it("warns, not fails, on a register entry naming a present but untracked file", () => {
 		write("docs/pending.md", "pending\n");
 		writeMap([...baselineRows, row("docs/pending.md")]);
@@ -735,8 +515,6 @@ describe("check-doc-map", () => {
 		expect(r.out).not.toContain("renamed or removed");
 	});
 
-	// The same entry, once its file is genuinely gone rather than merely
-	// uncommitted, still FAILs — the rename-or-delete case assertion 2 exists for.
 	it("still fails when the untracked file is later deleted, not just uncommitted, naming the file as renamed or removed", () => {
 		write("docs/pending.md", "pending\n");
 		writeMap([...baselineRows, row("docs/pending.md")]);
@@ -748,8 +526,6 @@ describe("check-doc-map", () => {
 		expect(r.out).toContain("renamed or removed");
 	});
 
-	// #2584: self-plugin/ sat outside SCOPE, so a row naming its tracked hooks
-	// file matched nothing tracked and read as uncommitted.
 	it("warns on an uncommitted self-plugin row, naming it and not the tracked one (#2584)", () => {
 		track("self-plugin/hooks/hooks.json");
 		write("self-plugin/pending.json", "{}\n");
@@ -778,8 +554,6 @@ describe("check-doc-map", () => {
 		expect(r.out).toContain("node scripts/register-doc.js");
 	});
 
-	// mantahostels#1193: neither finding may short-circuit the other, on the same reasoning
-	// as the uncovered/dead pairing above.
 	it("reports an untracked entry and a dead entry as separate findings", () => {
 		write("docs/pending.md", "pending\n");
 		writeMap([...baselineRows, row("docs/pending.md"), row("docs/deleted.md")]);
@@ -813,7 +587,6 @@ describe("check-doc-map", () => {
 		expect(check().status).toBe(0);
 	});
 
-	// A literal entry is an exact path, not a prefix.
 	it("does not let a literal entry cover a longer path sharing its prefix", () => {
 		track("docs/notes.md.bak");
 		writeMap(baselineRows);
@@ -822,8 +595,6 @@ describe("check-doc-map", () => {
 		expect(r.out).toContain("docs/notes.md.bak");
 	});
 
-	// Scope is docs/, .claude/, AGENTS.md, CLAUDE.md. app/ is deliberately out —
-	// it is placeholder product code, and registering it would map fiction.
 	it("ignores tracked files outside the mapped scope", () => {
 		track("app/page.tsx");
 		track("scripts/thing.js");
@@ -855,8 +626,6 @@ describe("check-doc-map", () => {
 		expect(check().status).toBe(0);
 	});
 
-	// Section B quotes paths in prose while explaining where a figure lives.
-	// Parsing it would invent entries that vouch for files nobody registered.
 	it("does not treat a path quoted in Section B as a register entry", () => {
 		track("docs/pricing.md");
 		writeMap(baselineRows, "§B1 — the take rate lives in `docs/pricing.md`.");
@@ -887,7 +656,6 @@ describe("check-doc-map", () => {
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("docs/pricing.md");
 		expect(r.out).toContain("no doc-map register entry");
-		// and no phantom dead entry from a path Section B merely names
 		expect(r.out).not.toContain("docs/long-gone.md");
 	});
 
@@ -902,20 +670,14 @@ describe("check-doc-map", () => {
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("docs/pricing.md");
 		expect(r.out).toContain("no doc-map register entry");
-		// and it must not have been read as an entry vouching for anything
 		expect(r.out).not.toContain("match no tracked file");
 	});
 
-	// Authority classes are written as inline code in the register too. A word
-	// with no slash and no .md is prose, not a path.
 	it("does not read a non-path inline code span as an entry", () => {
 		writeMap([...baselineRows, "| `generated-only` | a class | `derived` |"]);
 		expect(check().status).toBe(0);
 	});
 
-	// Padding inside the backticks is invisible in rendered Markdown, so a map
-	// that reads correct must not fail — and must not register a padded path as
-	// a dead entry alongside the file it was meant to cover.
 	it("tolerates whitespace inside a backticked entry", () => {
 		track("docs/padded.md");
 		writeMap([...baselineRows, "| ` docs/padded.md ` | a doc | `stable` |"]);
@@ -934,10 +696,6 @@ describe("check-doc-map", () => {
 		expect(check().status).toBe(0);
 	});
 
-	// `git ls-files` C-quotes any path holding a space or a non-ASCII byte
-	// ("docs/caf\303\251.md") unless -z is passed, and a quoted path matches no
-	// register entry — so the guard would demand an entry for a file that is
-	// already registered.
 	it("reads paths git would otherwise quote", () => {
 		track("docs/café notes.md");
 		writeMap([...baselineRows, row("docs/café notes.md")]);
@@ -952,19 +710,9 @@ describe("check-doc-map", () => {
 		expect(r.out).toContain("docs/removed/*");
 	});
 
-	/* Scope comes from git, so a git that cannot answer must never read as "no
-	 * files, therefore clean". `git ls-files` is this check's reading APPARATUS —
-	 * how it enumerates the tracked set — so a failure is BROKEN at exit 2, not
-	 * SKIP (mantahostels#155 — the checker family's exit-code and severity model —
-	 * decision 6). */
 	it("reports BROKEN, not a clean scan, when git cannot list the tree", () => {
 		writeMap(baselineRows);
 		fs.rmSync(path.join(repo, ".git"), { recursive: true, force: true });
-		// The fixture now lives under scratchBase(), which is INSIDE Manta's own
-		// repository (mantahostels#3149) — so a `repo` stripped of its `.git` would resolve
-		// upwards and list Manta's tree instead of failing. The ceiling stops
-		// that walk at the base, restoring the out-of-repo shape this case is
-		// about.
 		const r = check({ GIT_CEILING_DIRECTORIES: scratchBase() });
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("BROKEN");
@@ -972,23 +720,17 @@ describe("check-doc-map", () => {
 		expect(r.out).not.toContain("OK:");
 	});
 
-	/* The map is tracked in the repo, so a map that will not read or will not
-	 * parse is BROKEN (exit 2), not a finding about coverage (exit 1). */
 	it("is BROKEN when the map file is missing", () => {
 		const r = check({}, "docs/absent.md");
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("cannot read doc map");
 	});
 
-	// The stamp doubles as a parse canary: without it, the file being read is
-	// not the map, and an empty parse would otherwise look like a clean repo.
 	it("is BROKEN when the map carries no version stamp", () => {
 		track(MAP, "# Doc map\n\n## Section A\n\n| `CLAUDE.md` | a doc | `x` |\n");
 		const r = check();
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("no version stamp");
-		// and it must name the shape the canary accepts, or the author restores
-		// a line the next run rejects again
 		expect(r.out).toContain('("vN.N · <date>")');
 	});
 
@@ -999,8 +741,6 @@ describe("check-doc-map", () => {
 		expect(r.out).toContain("no register entries parsed");
 	});
 
-	// The workflow reads annotations, not the log, so a failure that skipped
-	// them would be invisible on the PR's Files-changed view.
 	it("emits a GitHub Actions annotation for each fault under GITHUB_ACTIONS", () => {
 		track("docs/unregistered.md");
 		writeMap([...baselineRows, row("docs/deleted.md")]);
@@ -1019,11 +759,7 @@ describe("check-doc-map", () => {
 		expect(r.stdout).not.toContain("::error::");
 	});
 
-	/* Report text alone (mantahostels#1665), so what is left to prove is the
-	 * derivation: the route tally the OK line prints, and §B's rounded word
-	 * figure. */
 	describe("derived counts", () => {
-		// Counting routes must not depend on splitting the file at Section C.
 		it("counts every ### C<n> route heading", () => {
 			writeMap(
 				baselineRows,
@@ -1057,7 +793,6 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("§B ~1,000 words");
 		});
 
-		// The figure is §B's alone: prose past the next `## ` heading is not §B.
 		it("counts §B alone, not the rest of the map", () => {
 			const fat = [BASELINE_ENTRY, words(1400)].join("\n\n");
 			track(
@@ -1073,10 +808,6 @@ describe("check-doc-map", () => {
 		});
 	});
 
-	/* Section C routes a question to the documents that answer it. Nothing
-	 * checked those paths existed, so a rename left the reader following a route
-	 * to no file (mantahostels#212). The unreached list is report-only by contrast: gating on
-	 * it would force a route onto every binary asset (mantahostels#22). */
 	describe("Section C routes", () => {
 		const route = (id: string, read: string, not = "") =>
 			[
@@ -1099,9 +830,6 @@ describe("check-doc-map", () => {
 			expect(check().status).toBe(0);
 		});
 
-		/* mantahostels#1403: the map is read off disk but the file set comes out of git, so a
-		 * route written before its target was committed failed the gate. Same
-		 * softening assertion 2 took for register rows at mantahostels#1193. */
 		it("warns, not fails, on a route path naming a present but untracked file", () => {
 			write("docs/pending.md", "pending\n");
 			writeMap(baselineRows, route("C1", "`docs/pending.md` for this"));
@@ -1115,8 +843,6 @@ describe("check-doc-map", () => {
 			expect(r.out).not.toContain("renamed or removed");
 		});
 
-		// The softening runs through the same citation matcher the FAIL does, so a
-		// route citing the pending file by bare filename is softened too.
 		it("warns on an untracked route target cited by its bare filename", () => {
 			write("docs/pending.md", "pending\n");
 			writeMap(baselineRows, route("C1", "`pending.md` for this"));
@@ -1125,7 +851,6 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("C1 → pending.md");
 		});
 
-		// The rename-or-delete case assertion 4 exists for is untouched.
 		it("still fails when the untracked route target is deleted, not just uncommitted, naming the route and its target as renamed or removed", () => {
 			write("docs/pending.md", "pending\n");
 			writeMap(baselineRows, route("C1", "`docs/pending.md` for this"));
@@ -1137,8 +862,6 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("renamed or removed");
 		});
 
-		// A gitignored file is not somewhere a route may point: it will never be
-		// committed, so the sweeps would read the route as dead.
 		it("still fails on a route path naming a gitignored file", () => {
 			track(".gitignore", "docs/ignored.md\n");
 			write("docs/ignored.md", "ignored\n");
@@ -1149,7 +872,6 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("renamed or removed");
 		});
 
-		// Neither finding may short-circuit the other, as with the entry pair.
 		it("reports an untracked route and a dead route as separate findings", () => {
 			write("docs/pending.md", "pending\n");
 			writeMap(
@@ -1185,8 +907,6 @@ describe("check-doc-map", () => {
 			});
 		});
 
-		// A route says "read notes/momtest.md", never "docs/notes/momtest.md" —
-		// but the suffix must start at a segment boundary, or `otes.md` passes.
 		it("does not match a suffix that breaks mid-segment", () => {
 			writeMap(baselineRows, route("C1", "`otes.md`"));
 			const r = check();
@@ -1203,8 +923,6 @@ describe("check-doc-map", () => {
 			expect(check().status).toBe(0);
 		});
 
-		/* A wildcard route path resolves the same way a trailing slash does. No
-		 * route in the map is written that way today. */
 		it("resolves a wildcard route path against the directory's files", () => {
 			track("docs/adr/0001-thing.md");
 			writeMap(
@@ -1221,14 +939,11 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("C1 → docs/gone/");
 		});
 
-		// A route may legitimately send the reader outside the register's scope —
-		// README.md sits at the repo root, outside SCOPE, and takes no Section A row.
 		it("resolves a route path to a tracked file outside the mapped scope", () => {
 			track("README.md");
 			writeMap(baselineRows, route("C1", "`README.md` for the overview"));
 			const r = check();
 			expect(r.status).toBe(0);
-			// and it stays out of scope: the coverage count must not have grown
 			expect(r.out).toContain("all 3 tracked files");
 		});
 
@@ -1259,7 +974,6 @@ describe("check-doc-map", () => {
 			expect(r.stdout).toContain("Section C route path(s)");
 		});
 
-		// Versions and clause numbers are dotted but are not paths.
 		it("does not read a version or a clause number as a path", () => {
 			writeMap(
 				baselineRows,
@@ -1284,8 +998,6 @@ describe("check-doc-map", () => {
 			expect(check().status).toBe(0);
 		});
 
-		// A route runs to the next heading of any depth: a #### sub-heading ends
-		// it.
 		it("ends a route at a deeper sub-heading", () => {
 			writeMap(
 				baselineRows,
@@ -1299,7 +1011,6 @@ describe("check-doc-map", () => {
 			expect(check().status).toBe(0);
 		});
 
-		// Inline code in a route is as often a command or a skill name as a path.
 		it("ignores inline code that is not a path", () => {
 			writeMap(
 				baselineRows,
@@ -1332,8 +1043,6 @@ describe("check-doc-map", () => {
 				expect(after.out).toContain("(3 of 3 in-scope files");
 			});
 
-			// Counting a Not-line path as reached would mark C7's "`docs/` alone"
-			// as routing every doc.
 			it("does not count a Not-line path as reached", () => {
 				writeMap(
 					baselineRows,
@@ -1357,14 +1066,7 @@ describe("check-doc-map", () => {
 		});
 	});
 
-	/* Section B's `Restated in:` line is what a session walks when a figure
-	 * changes, instead of grepping. A path on it that no longer exists drops a
-	 * restatement out of the walk and the stale copy survives, so a dead one
-	 * FAILs on the same rationale as a dead §C route (mantahostels#213). */
 	describe("Section B restated-in paths", () => {
-		/* The paths come from the data file (mantahostels#591), so a fixture states the entry
-		 * in the map and its paths in the JSON. Nothing in the entry's own prose
-		 * is read. */
 		const entry = (id: string) => `### ${id} · A figure`;
 
 		it("fails on a restated-in path matching no tracked file, naming entry and path", () => {
@@ -1387,7 +1089,6 @@ describe("check-doc-map", () => {
 			expect(check().status).toBe(0);
 		});
 
-		// Paths are written relative to docs/, so the match is a suffix one.
 		it("does not match a suffix that breaks mid-segment", () => {
 			writeMap(baselineRows, entry("B1"));
 			writeRestatements({ B1: { paths: [{ path: "otes.md" }] } });
@@ -1396,8 +1097,6 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("B1 → otes.md");
 		});
 
-		/* A locator pins where in the file the copy sits, in a field of its own;
-		 * one left inside the path is refused outright by the loader. */
 		it("checks the path and ignores the locator beside it", () => {
 			writeMap(baselineRows, entry("B1"));
 			writeRestatements({
@@ -1438,8 +1137,6 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("all 3 tracked files");
 		});
 
-		// A restatement is not a route: it must not silence the unreached list, or
-		// a figure's blast radius would read as question-route coverage.
 		it("does not count a restated-in path as reached by a route", () => {
 			writeMap(baselineRows, entry("B1"));
 			writeRestatements({ B1: { paths: [{ path: "notes.md" }] } });
@@ -1467,10 +1164,6 @@ describe("check-doc-map", () => {
 			expect(r.stdout).toContain("Section B restated-in path(s)");
 		});
 
-		/* A line number is the one locator nothing keeps true — every edit above
-		 * it moves it and no generator re-derives it — so the token is refused in
-		 * every field a locator can be written in, and in the entry's own prose
-		 * (mantahostels#3151). */
 		describe("line-number locators", () => {
 			const cases: [string, RestatementEntry, string][] = [
 				[
@@ -1559,8 +1252,6 @@ describe("check-doc-map", () => {
 			});
 		});
 
-		/* The quoted phrase that replaces a line number is held to the file's
-		 * bytes, so the replacement cannot rot the way the number did (mantahostels#3151). */
 		describe("quoted anchors", () => {
 			it("fails a locator phrase the file no longer holds, naming only that phrase and offering to re-quote it", () => {
 				track("docs/notes.md", "The blended figure is thirty.\n");
@@ -1621,8 +1312,6 @@ describe("check-doc-map", () => {
 			expect(r.out).toContain("every §B restatement path live");
 		});
 
-		/* Printed from the same parse so the scripts/check-doc-map.js's header prose quoting it is never
-		 * hand-counted (mantahostels#280, the stale coverage figure). */
 		describe("the restatement census", () => {
 			it("reports paths and covered entries, without failing", () => {
 				writeMap(baselineRows, [entry("B1"), entry("B2")].join("\n\n"));
@@ -1637,9 +1326,6 @@ describe("check-doc-map", () => {
 				expect(r.out).toContain("3 restatement path(s) across 2 of 2 §B");
 			});
 
-			// The denominator is every §B entry; the numerator is the entries the
-			// data file keys, so an entry restating nothing is simply left out of
-			// the file rather than carried there as an empty list.
 			it("counts an entry the data file does not key in the denominator only", () => {
 				writeMap(baselineRows, [entry("B1"), entry("B2")].join("\n\n"));
 				writeRestatements({ B1: { paths: [{ path: "notes.md" }] } });
@@ -1650,11 +1336,6 @@ describe("check-doc-map", () => {
 		});
 	});
 
-	/*
-	 * Every fault is raised through one helper taking the payload key as a
-	 * parameter. The key is what a --json consumer reads the items out of, and it
-	 * is not visible beside the tag.
-	 */
 	it("gives every fault kind its own tag and payload key in --json", () => {
 		track("docs/unregistered.md");
 		writeMap(
@@ -1697,8 +1378,6 @@ describe("check-doc-map", () => {
 		});
 	});
 
-	/* In an adopter the core's scripts, skills and agent docs live at the plugin
-	 * root, not in the host's tree (#604). */
 	describe("a path only the plugin ships", () => {
 		const pluginOnly = [
 			"docs/agents/guide.md",
@@ -1772,20 +1451,15 @@ describe("check-doc-map", () => {
 			row("CLAUDE.md"),
 			row("docs/alt-map.md"),
 		];
-		// three in-scope files once alt-map.md is tracked: it, notes.md, CLAUDE.md
 		track("docs/alt-map.md", mapDoc(rows, BASELINE_ENTRY));
 		writeRestatements({ B1: { paths: [{ path: "docs/notes.md" }] } });
 		writeHighWater();
 		writeClasses(classesFor(rows));
-		// docs/doc-map.md does not exist here; the argument is what makes it pass
 		expect(check({}, "docs/alt-map.md").status).toBe(0);
 	});
 });
 
-/* What this guards is not a wrong verdict but a wrong instruction — the line the
- * check tells a reader to paste. The incident: docs/doc-map.md §A. */
 describe("check-doc-map mid-merge", () => {
-	/** Leave the fixture with contested.md conflicted in the index. */
 	const conflict = () => {
 		git("commit", "-qm", "base");
 		git("checkout", "-qb", "other");
@@ -1794,12 +1468,10 @@ describe("check-doc-map mid-merge", () => {
 		git("checkout", "-q", "-");
 		write("docs/contested.md", "ours\n");
 		git("commit", "-qm", "ours", "--", "docs/contested.md");
-		// Throws on the conflict this fixture exists to create.
 		ignoreFailure(() => git("merge", "other"));
 		expect(git("ls-files", "--unmerged")).not.toBe("");
 	};
 
-	/** Track the contested file and the map that registers it. */
 	const setup = () => {
 		track("docs/contested.md", "base\n");
 		writeMap([...baselineRows, row("docs/contested.md")], "");
@@ -1815,11 +1487,6 @@ describe("check-doc-map mid-merge", () => {
 		expect(r.out).toContain("docs/contested.md");
 	});
 
-	/*
-	 * A file is left unregistered here, so a check that ran would FAIL on
-	 * coverage. Without that the test passes for the wrong reason: a fixture
-	 * with nothing to find is silent whether the SKIP fires or not.
-	 */
 	it("raises no coverage failure while the conflict stands", () => {
 		track("docs/unregistered.md");
 		setup();
@@ -1832,7 +1499,6 @@ describe("check-doc-map mid-merge", () => {
 	it("counts the committed tree once the conflict is resolved", () => {
 		setup();
 		write("docs/contested.md", "resolved\n");
-		// mid-merge git refuses a partial commit, so the resolution is staged
 		git("add", "--", "docs/contested.md");
 		git("commit", "-qm", "resolved");
 		const r = check();
@@ -1841,10 +1507,6 @@ describe("check-doc-map mid-merge", () => {
 	});
 });
 
-/*
- * Assertion 5's paths come from doc-map-restatements.json and nowhere else
- * (mantahostels#591).
- */
 describe("the restatement data file", () => {
 	const data = "docs/doc-map-restatements.json";
 	const sectionB = (restated: string) =>
@@ -1864,10 +1526,6 @@ describe("the restatement data file", () => {
 		expect(r.out).toContain("B7 → docs/gone.md");
 	});
 
-	/* The array-per-entry shape this file held until mantahostels#1469. It is not read
-	 * alongside the object shape: a loader accepting both would take a mistyped
-	 * `paths` for an entry that legitimately restates nothing, and assertion 5
-	 * would scan zero paths while reporting a clean run. */
 	it("is BROKEN on the superseded array-per-entry shape, calling it a non-object item", () => {
 		writeMap(baselineRows, sectionB("docs/notes.md"));
 		write(data, JSON.stringify({ B7: [{ path: "docs/notes.md" }] }));
@@ -1929,9 +1587,6 @@ describe("the restatement data file", () => {
 		expect(r.out).toContain("1 restatement path(s) across 1 of 1 §B entries");
 	});
 
-	/* The mutation the spec called the one that matters most: a checker reading
-	 * nothing reports nothing, which is indistinguishable from a registry whose
-	 * every path is live. So the absent file is BROKEN, not a silent OK (mantahostels#591). */
 	it("is BROKEN where the data file is missing — never a silent clean scan", () => {
 		writeMap(baselineRows, sectionB("docs/gone.md"));
 		fs.rmSync(path.join(repo, data));
@@ -1949,7 +1604,6 @@ describe("the restatement data file", () => {
 		expect(r.out).toContain("holds no entries");
 	});
 
-	// A day-one map has no §B entries, so an empty file is its real state (#3).
 	it("accepts a data file holding no entries where §B holds none either", () => {
 		writeMap(baselineRows);
 		track(MAP, mapDoc(baselineRows, ""));
@@ -1968,10 +1622,6 @@ describe("the restatement data file", () => {
 		expect(r.out).toContain("doc-map-restatements.json");
 	});
 
-	/* .husky/pre-commit stages the sidecar out with the map and its five data
-	 * files, so that caller never reaches this fallback. It answers a caller
-	 * pointing `--data-dir` somewhere holding no sidecar at all (mantahostels#1849). What it
-	 * costs is said out loud, and asserted here. */
 	it("falls back to the tracked sidecar, saying which bytes it read", () => {
 		writeMap(baselineRows);
 		write(
@@ -1986,10 +1636,6 @@ describe("the restatement data file", () => {
 		expect(r.out).toContain("the working tree's bytes, not this commit's");
 	});
 
-	/* Precedence, not merely presence: .husky/pre-commit's whole reason for
-	 * staging the sidecar out is that the --data-dir copy must WIN over the
-	 * tracked one. The tracked sidecar here keys every file, so a checker
-	 * reading it reports no fault at all. */
 	it("reads the --data-dir sidecar over the tracked one when both exist", () => {
 		writeMap(baselineRows);
 		writeClasses(classesFor(baselineRows));
@@ -2024,9 +1670,6 @@ describe("the restatement data file", () => {
 		expect(r.out).toContain("B7 → docs/gone.md");
 	});
 
-	/* Together with the mandatory non-empty file, this is why the census below
-	 * needs no zero-entry guard: a map with no §B entries can hold no valid data
-	 * file, so the run is BROKEN before the census is reached. */
 	it("is BROKEN where the map holds no §B entries at all, naming the entry the data file keys", () => {
 		const rows = baselineRows;
 		track(MAP, mapDoc(rows, ""));
@@ -2050,12 +1693,6 @@ describe("the restatement data file", () => {
 	});
 });
 
-/*
- * Assertion 6 (mantahostels#970). Ids are permanent — mantahostels#892 forbade reusing and
- * renumbering them — and doc-map-restatements.json, -retired-vocabulary.json
- * and -superseded.json all key off them, so a duplicate silently hands one
- * entry's rows to another and cannot be fixed after the fact.
- */
 describe("distinct Section B entry ids", () => {
 	it("passes on a map whose entry ids are all distinct, and says how many", () => {
 		writeMap(baselineRows, "### B1 · One\n\nx\n\n### B2 · Two\n\ny");
@@ -2090,8 +1727,6 @@ describe("distinct Section B entry ids", () => {
 	});
 
 	it("reads a heading inside a fenced block as an example, not an entry", () => {
-		// The allocator skips fences too, so failing here would fail a document the
-		// allocator is meanwhile handing that id out for.
 		writeMap(
 			baselineRows,
 			"### B7 · One\n\n```\n### B7 · a quoted example\n```\n\ny",
@@ -2105,18 +1740,7 @@ describe("distinct Section B entry ids", () => {
 	});
 });
 
-/*
- * Assertion 8 (mantahostels#1402; moved onto the sidecar's own keys at mantahostels#1849). A key is its
- * arbiter region id (`A:<path>`, lib/doc-map-regions.js), so two entries under
- * one key share one lock and their two writers contend — the failure the
- * per-row split ended. Assertion 6 above is the same guarantee for §B.
- *
- * The duplicate is written into the sidecar's BYTES, because that is the only
- * place it can exist: `JSON.parse` keeps the last of a repeated key and drops
- * the rest without a word.
- */
 describe("distinct register keys", () => {
-	/** The baseline sidecar's bytes, with `repeated`'s entry written a second time. */
 	const withRepeat = (repeated: string) => {
 		const data = classesFor(baselineRows) as Record<string, unknown>;
 		const lines = Object.entries(data).map(
@@ -2148,18 +1772,12 @@ describe("distinct register keys", () => {
 		expect(check().out).toContain("arbiter region id");
 	});
 
-	// The summary tally is a separate expression from the findings, so a repeat
-	// can be reported beside "FAIL: 0 doc-map problem(s)" (mantahostels#1352). The tally
-	// is two: `withRepeat`'s hand-built bytes are also 2-space-indented and
-	// unsorted, so SIDECAR-NOT-CANONICAL (mantahostels#3353) fires alongside the duplicate.
 	it("counts the repeat in the summary tally", () => {
 		writeMap(baselineRows);
 		write(CLASSES, withRepeat("docs/notes.md"));
 		expect(check().out).toContain("FAIL: 2 doc-map problem(s)");
 	});
 
-	// A `role` override is free prose and routinely holds a brace or a quote; a
-	// naive scan for `"<key>":` would read one as a second top-level key.
 	it("does not read a key out of an override's own prose", () => {
 		writeMap(baselineRows);
 		const data = classesFor(baselineRows) as Record<
@@ -2171,8 +1789,6 @@ describe("distinct register keys", () => {
 		expect(check().status).toBe(0);
 	});
 
-	// Two §A rows leading with one path is now assertion 17's fault to report:
-	// §A is a projection, and the sidecar it projects cannot hold the duplicate.
 	it("leaves a repeated §A row to the render-agreement assertion", () => {
 		writeMap([...baselineRows, row("docs/notes.md")], "");
 		const r = check();
@@ -2180,9 +1796,6 @@ describe("distinct register keys", () => {
 	});
 });
 
-/* Assertion 30 (mantahostels#3353). register-doc.js's header pins the sidecar's canonical
- * bytes — sorted keys, tab-indented JSON.stringify, one trailing newline,
- * non-ASCII left unescaped. */
 describe("sidecar canonical serialisation", () => {
 	const sortKeys = (data: Record<string, unknown>) => {
 		const sorted: Record<string, unknown> = {};
@@ -2205,7 +1818,6 @@ describe("sidecar canonical serialisation", () => {
 			Record<string, unknown>
 		>;
 		data["docs/notes.md"].section = "§Docs";
-		// json.dump's ensure_ascii=True default escapes the § this writes literally.
 		write(CLASSES, canonicalBytes(data).replace("§Docs", "\\u00a7Docs"));
 		const r = check();
 		expect(r.status).toBe(1);
@@ -2232,8 +1844,6 @@ describe("sidecar canonical serialisation", () => {
 	});
 });
 
-/* Assertion 31 (mantahostels#3412): `reader` on every prose key, from a closed vocabulary,
- * and on no other key. */
 describe("the reader field", () => {
 	const sidecar = () =>
 		classesFor(baselineRows) as Record<string, Record<string, unknown>>;
@@ -2287,8 +1897,6 @@ describe("the reader field", () => {
 	});
 });
 
-/* Assertion 32 (mantahostels#3412): a documentation page's source must be one that may
- * have a page. */
 describe("the page–source assertion", () => {
 	const rows = [...baselineRows, row("docs/notes.html")];
 	const withPage = (
@@ -2341,11 +1949,6 @@ describe("the page–source assertion", () => {
 	});
 });
 
-/*
- * Assertion 19 (mantahostels#1849). The class is the one judgement the sidecar carries, so
- * a token outside the five documented ones is a FAIL naming the path — never a
- * sixth value, and never an abort.
- */
 describe("the class vocabulary", () => {
 	const withClass = (cls: unknown) => {
 		const data = classesFor(baselineRows) as Record<
@@ -2381,8 +1984,6 @@ describe("the class vocabulary", () => {
 		writeMap(baselineRows);
 		writeClasses(withClass("stable"));
 		const r = check();
-		// 2 would be BROKEN — the loader's own throw, which this replaces — and
-		// an abort would cut the report off before the census below.
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("restatement path(s) across");
 	});
@@ -2393,9 +1994,6 @@ describe("the class vocabulary", () => {
 		expect(check().out).toContain("unknown class token(s)");
 	});
 
-	// mantahostels#3545: the third finding to refuse a commit above "FAIL: 0 doc-map
-	// problem(s)" — the register-key repeat at :2053 and the stray at :2474 were
-	// the first two. The tally reads off the FAIL findings, so this counts itself.
 	it("counts the unknown token in the summary tally", () => {
 		writeMap(baselineRows);
 		writeClasses(withClass("stable"));
@@ -2414,7 +2012,6 @@ describe("the class vocabulary", () => {
 	});
 });
 
-/* Assertion 7 (mantahostels#1229). */
 describe("dense Section C route ids", () => {
 	const route = (id: string, read = "`notes.md`") =>
 		[`### ${id} \u00b7 A question?`, `- **Read:** ${read}`].join("\n");
@@ -2441,14 +2038,10 @@ describe("dense Section C route ids", () => {
 		const r = check();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("dense run C1-C4");
-		// the absent id on its own item line, not merely inside the header range
 		expect(r.out).toContain("\n  C3 — no route carries this id");
-		// and nothing else fired
 		expect(r.out).toContain("FAIL: 1 doc-map problem(s)");
 	});
 
-	// The run is measured against the highest id, so C4 — a legitimate permanent
-	// route sitting above the gap — is never itself accused.
 	it("does not accuse the route above the gap", () => {
 		writeMap(baselineRows, routes("C1", "C2", "C4"));
 		expect(check().out).not.toContain("C4 —");
@@ -2461,8 +2054,6 @@ describe("dense Section C route ids", () => {
 		expect(r.out).toContain("C2 — heads more than one route");
 	});
 
-	// Number("C01") is 1, so a leading zero survives the run check — but the id
-	// is then citable only as §C01, which no sidecar spells.
 	it("fails on a leading-zero id, naming the id and the rule it breaks", () => {
 		writeMap(baselineRows, routes("C01", "C2", "C3"));
 		const r = check();
@@ -2475,7 +2066,6 @@ describe("dense Section C route ids", () => {
 		expect(check().status).toBe(1);
 	});
 
-	// The map quotes its own formats; a fenced example must not manufacture a gap.
 	it("ignores a route heading inside a fenced block", () => {
 		writeMap(
 			baselineRows,
@@ -2514,20 +2104,15 @@ describe("dense Section C route ids", () => {
 		expect(gap?.ids).toEqual([{ id: "C2", why: "no route carries this id" }]);
 	});
 
-	/* Everything above the highest surviving id is invisible, so deleting the
-	 * top route leaves the run dense and passes. Catching it needs a
-	 * retired-route sidecar, priced and declined at mantahostels#1229. */
 	it("does not catch the highest-numbered routes being deleted", () => {
 		writeMap(baselineRows, routes("C1", "C2"));
 		expect(check().status).toBe(0);
 	});
 });
 
-/* Assertion 9 (mantahostels#1352). */
 describe("Section B entries inside Section B", () => {
 	const entry = (id: string) => `### ${id} · A figure`;
 
-	/** §B entries, then a Section C heading, then whatever was appended below it. */
 	const withSectionC = (inB: string[], belowC: string[]) =>
 		[
 			...inB.map(entry),
@@ -2549,12 +2134,9 @@ describe("Section B entries inside Section B", () => {
 			"1 Section B entry heading(s) sit outside Section B",
 		);
 		expect(r.out).toMatch(/\n {2}B3 — line \d+, outside Section B/);
-		// the entries that are in range are not accused
 		expect(r.out).not.toContain("B1 —");
 	});
 
-	// mantahostels#3525: the second finding to refuse a commit above "FAIL: 0 doc-map
-	// problem(s)" — the register-key repeat at :2053 was the first.
 	it("refuses the commit and counts the stray in the summary tally", () => {
 		writeMap(baselineRows, withSectionC(["B1", "B2"], ["B3"]));
 		const r = check();
@@ -2567,8 +2149,6 @@ describe("Section B entries inside Section B", () => {
 		expect(check().out).toContain("2 Section B entry heading(s)");
 	});
 
-	// A stray below a later `## ` heading is as invisible as one below §C —
-	// two host entries once landed under `## Capture and placement`.
 	it("catches an entry below a section further down than Section C", () => {
 		writeMap(
 			baselineRows,
@@ -2586,7 +2166,6 @@ describe("Section B entries inside Section B", () => {
 		expect(r.out).toContain("relocation, never a rewrite");
 	});
 
-	// The map quotes its own formats; a fenced example below §C is not a stray.
 	it("ignores an entry heading inside a fenced block below Section C", () => {
 		writeMap(
 			baselineRows,
@@ -2605,16 +2184,10 @@ describe("Section B entries inside Section B", () => {
 		const stray = findings.find((f) => f.tag === "STRAY-ENTRY");
 		expect(stray?.ids?.length).toBe(1);
 		expect(stray?.ids?.[0]).toContain("B2 — line");
-		// The line number is masked: it moves with every edit above it (#1591).
 		expect(stray?.key).toBe("STRAY-ENTRY\tB2 — line #, outside Section B");
 	});
 });
 
-/*
- * Assertion 10 (mantahostels#1458). Presence only, exactly as the guard-issue-close core gates
- * `**Outstanding:**` — the two accepted forms are `**Settled at #<n>**` and
- * `**Settled at:** none — <why>`, and no checker can judge which is true.
- */
 describe("the `Settled at` bullet", () => {
 	const entry = (id: string, bullet = "") =>
 		[`### ${id} · A figure`, bullet].filter(Boolean).join("\n\n");
@@ -2677,11 +2250,6 @@ describe("the `Settled at` bullet", () => {
 	});
 });
 
-/*
- * Assertion 11 (mantahostels#1474). `rawEntries: true` throughout: the fixture helpers
- * supply a conforming pointer, which is exactly what these tests must not get
- * for free.
- */
 describe("Section B pointer shape", () => {
 	const marker = " ⚠ **Restated-in is known incomplete**.";
 	const supersedes = "- **Supersedes:** see `docs/doc-map-superseded.json`.";
@@ -2696,8 +2264,6 @@ describe("Section B pointer shape", () => {
 		writeMap(baselineRows, body, { rawEntries: true });
 		writeRestatements(restatements);
 		writeSuperseded(superseded);
-		// writeRestatements re-stamps pointers, which would erase what is under
-		// test — put the fixture's own body back.
 		track(MAP, mapDoc(baselineRows, body));
 		writeHighWater();
 	};
@@ -2861,16 +2427,11 @@ describe("Section B pointer shape", () => {
 		expect(r.out).toContain("half-rewritten entry is a live session mid-edit");
 	});
 
-	/* The `isDirty(mapPath)` limb of `mapDirty`, which no caller passing
-	 * --map-dirty ever reaches. mantahostels#1193 gave a dirty map the WARN; that softening
-	 * has to hold for a caller that hands over the real tracked path and no
-	 * flag, which is every caller but .husky/pre-commit. */
 	it("WARNs off its own git read, with no --map-dirty flag, naming the entry and its pointer count", () => {
 		fixture(entry("B1", pointer(1)), {
 			B1: { paths: [{ path: "docs/notes.md" }] },
 		});
 		git("commit", "-qm", "base");
-		// dirty against HEAD, and nothing tells the checker so
 		track(MAP, mapDoc(baselineRows, entry("B1", pointer(3))));
 		const r = check();
 		expect(r.status).toBe(0);
@@ -2878,10 +2439,6 @@ describe("Section B pointer shape", () => {
 		expect(r.out).toContain("B1 — pointer says 3 path(s)");
 	});
 
-	/* mantahostels#1191: .husky/pre-commit hands over a `$(mktemp -d)` copy, a path with no
-	 * git identity, so the limb above reads it clean however dirty the real map
-	 * is. That is the whole reason --map-dirty exists — without the flag the
-	 * copy must still FAIL. */
 	it("FAILs on an out-of-repo copy of a dirty map, absent the flag, naming the entry and its pointer count", () => {
 		fixture(entry("B1", pointer(1)), {
 			B1: { paths: [{ path: "docs/notes.md" }] },
@@ -2934,9 +2491,6 @@ describe("Section B pointer shape", () => {
 		expect(fault?.pointers?.[0]).toContain("B1 — pointer says 3 path(s)");
 	});
 
-	/* mantahostels#2293: the Retired vocabulary bullet's free-text phrase count, checked
-	 * against docs/doc-map-retired-vocabulary.json the same way Restated in's
-	 * count is checked against its own sidecar. */
 	describe("the Retired vocabulary bullet's phrase count", () => {
 		const retired2 =
 			"- **Retired vocabulary:** 2 phrases, in `docs/doc-map-retired-vocabulary.json`.";
@@ -2991,17 +2545,11 @@ describe("Section B pointer shape", () => {
 			fixture(entry("B1", pointer(1), retired2), {
 				B1: { paths: [{ path: "docs/notes.md" }] },
 			});
-			// Overwrite writeMap's empty default with an unrelated key — the
-			// mismatch this assertion checks needs a B1 key to compare against;
-			// an uncovered entry is check-retired-vocabulary.js's fault to
-			// raise, not this one's.
 			writeRetiredVocabulary({ B9: { phrases: [vocabOf(1)] } });
 			const r = check();
 			expect(r.status).toBe(0);
 		});
 
-		/* mantahostels#2324: an empty sidecar is a legitimate "nothing retired yet" state,
-		 * not corruption. */
 		it("is silent on an empty sidecar, never BROKEN", () => {
 			fixture(entry("B1", pointer(1), retired2), {
 				B1: { paths: [{ path: "docs/notes.md" }] },
@@ -3033,14 +2581,8 @@ describe("Section B pointer shape", () => {
 	});
 });
 
-/*
- * Assertions 12 and 13 (#2339). Ids are permanent (mantahostels#892): a reused
- * one makes a reference to the removed entry resolve to the new one. The mark
- * is the highest id ever removed, so a new id above it was never held.
- */
 describe("the high-water mark", () => {
 	const entry = (id: string) => `### ${id} · Figure ${id}\n\nx`;
-	// Tracked, so HEAD holds a mark to compare against, and so registered.
 	const rows = [...baselineRows, row(HIGH_WATER)];
 	const stageMap = (ids: string[], mark: number) => {
 		writeMap(rows, ids.map(entry).join("\n\n"));
@@ -3072,8 +2614,6 @@ describe("the high-water mark", () => {
 		expect(r.out).toContain("alloc-entry");
 	});
 
-	/* The commit adding an entry always has a dirty map, so a softened check
-	 * would refuse nothing. */
 	it("still refuses a reused id under --map-dirty", () => {
 		commitMap(["B1"], 3);
 		stageMap(["B1", "B2"], 3);
@@ -3146,13 +2686,7 @@ describe("the high-water mark", () => {
 	});
 });
 
-/*
- * Assertion 25 (mantahostels#2419). `consumes` typed as a reference list: the checker
- * knows what a token is before it tries to resolve it, so a code identifier in
- * backticks is never mistaken for a dead file.
- */
 describe("typed Consumes references", () => {
-	/** The baseline sidecar with one document's `consumes` typed. */
 	const withConsumes = (refs: unknown, key = "docs/notes.md") => {
 		const data = classesFor(baselineRows) as Record<
 			string,
@@ -3183,7 +2717,6 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("docs/notes.md →");
 		expect(r.out).toContain("is not a list of typed references");
 		expect(r.out).toContain("The sidecar will not load until");
-		// The string stands loadDocClasses down rather than aborting the run.
 		expect(r.out).toContain("malformed `consumes` reference(s) in");
 	});
 
@@ -3232,8 +2765,6 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("§B99 heads no Section B entry");
 	});
 
-	/* A pre-commit hook must never wait on `gh`, and a closed issue is corpus
-	 * here rather than history — so shape is checked and existence is not. */
 	it("fails a malformed `issue`, whose shape is all that is checked, saying it is not a bare issue number", () => {
 		writeMap(baselineRows);
 		withConsumes([{ kind: "issue", ref: "#457" }]);
@@ -3265,8 +2796,6 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("docs/notes.md → search-results");
 		expect(r.out).toContain('carries kind "card"');
 		expect(r.out).toContain("are not typed references at all");
-		// The malformed reference stands loadDocClasses down rather than
-		// aborting the run over a fault already named here.
 		expect(r.out).toContain("malformed `consumes` reference(s) in");
 	});
 
@@ -3278,7 +2807,6 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("is not a { kind, ref } reference object");
 	});
 
-	/* A dirty map is a session mid-edit whose sidecar is written last. */
 	it("softens the whole block to WARN while the map is dirty, saying to land the edit", () => {
 		writeMap(baselineRows);
 		withConsumes([{ kind: "path", ref: "docs/gone.md" }]);
@@ -3291,7 +2819,6 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("Land the edit");
 	});
 
-	/* .husky/pre-commit hands the flag rather than a tracked path (mantahostels#1191). */
 	it("softens on the --map-dirty flag over a clean map, warning that the reference resolves to nothing", () => {
 		writeMap(baselineRows);
 		withConsumes([{ kind: "path", ref: "docs/gone.md" }]);
@@ -3302,9 +2829,6 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("resolve to nothing");
 	});
 
-	/* A dirty map excuses a pointer whose target moved in a commit the sidecar
-	 * has not caught up with. It excuses nothing about a reference that is not
-	 * a reference — which is the fault that makes the sidecar unloadable. */
 	it("does not soften a MALFORMED reference while the map is dirty", () => {
 		writeMap(baselineRows);
 		withConsumes([{ kind: "card", ref: "search-results" }]);
@@ -3315,7 +2839,6 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("are not typed references at all");
 	});
 
-	/* "No override" stays exactly one state (`null`), never two. */
 	it("is BROKEN on a `consumes` present but empty, asking for a non-empty array, and passes a null one", () => {
 		writeMap(baselineRows);
 		withConsumes([]);
@@ -3328,8 +2851,6 @@ describe("typed Consumes references", () => {
 		expect(check().status).toBe(0);
 	});
 
-	/* Assertion 26 (mantahostels#2647). The `with <other-ref>:` prefix is a pointer, and a
-	 * reordered cell strands it. */
 	it("fails a pair-scope prefix naming the wrong neighbour", () => {
 		writeMap(baselineRows);
 		withConsumes([
@@ -3364,9 +2885,6 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("npm run gen:doc-map-section-a");
 	});
 
-	/* Both ends of the pointer sit in one sidecar cell, and the cell reorder
-	 * that strands a prefix is exactly what dirties the map — so softening
-	 * would waive the fault at the only gate that sees it (mantahostels#2647 review). */
 	it("does not soften a pair-scope fault while the map is dirty", () => {
 		writeMap(baselineRows);
 		withConsumes([
@@ -3379,7 +2897,6 @@ describe("typed Consumes references", () => {
 		expect(check().status).toBe(1);
 	});
 
-	/* .husky/pre-commit hands the flag rather than a tracked path (mantahostels#1191). */
 	it("does not soften a pair-scope fault on the --map-dirty flag", () => {
 		writeMap(baselineRows);
 		withConsumes([
@@ -3428,12 +2945,6 @@ describe("typed Consumes references", () => {
 	});
 });
 
-/*
- * Assertion 14 (mantahostels#1384, on mantahostels#1350's ruling). The commit that ADDS a §B entry is
- * refused over 300 prose words, and a commit that merely edits one is not —
- * the on-touch scope mantahostels#1311 refused. Every fixture below therefore commits a
- * base first, since "new" means "absent from HEAD's copy of the map".
- */
 describe("the new-entry prose cap", () => {
 	const entry = (id: string, n: number) =>
 		`### ${id} · Figure ${id}\n\n${words(n)}`;
@@ -3462,8 +2973,6 @@ describe("the new-entry prose cap", () => {
 			"1 §B entr(ies) new since HEAD exceed the 300-word prose cap",
 		);
 		expect(r.out).toContain("B2 — 400 prose words, 100 over the 300-word cap");
-		// The over-cap entry is counted in the tally the summary line reports, not
-		// merely printed above it.
 		expect(r.out).toContain("FAIL: 1 doc-map problem(s)");
 	});
 
@@ -3481,12 +2990,6 @@ describe("the new-entry prose cap", () => {
 		expect(check().status).toBe(0);
 	});
 
-	/*
-	 * The load-bearing difference from assertions 3 and 11: those soften
-	 * to a WARN while the map is dirty, and this one must not. Every commit that
-	 * adds an entry has a dirty map by definition, so a softened assertion 14
-	 * would refuse nothing that was ever committed.
-	 */
 	it("still FAILs under --map-dirty, which softens every other assertion, and names the entry and its word count", () => {
 		base(entry("B1", 10));
 		writeMap(baselineRows, `${entry("B1", 10)}\n\n${entry("B2", 400)}`);
@@ -3495,8 +2998,6 @@ describe("the new-entry prose cap", () => {
 		expect(r.out).toContain("B2 — 400 prose words");
 	});
 
-	/* Skeleton bullets are uncapped (mantahostels#891), so the advice must never send a
-	 * reader to cut the pointers that make the entry navigable. */
 	it("routes the fix to cutting prose, never the skeleton bullets", () => {
 		base(entry("B1", 10));
 		writeMap(baselineRows, `${entry("B1", 10)}\n\n${entry("B2", 400)}`);
@@ -3506,10 +3007,6 @@ describe("the new-entry prose cap", () => {
 		expect(r.out).toContain("duty to record a settled load-bearing fact");
 	});
 
-	/*
-	 * No HEAD is "cannot tell which entries are new", not "none are" — so it says
-	 * so rather than passing silently.
-	 */
 	it("says the cap went unchecked where HEAD holds no copy of the map", () => {
 		writeMap(baselineRows, entry("B1", 400));
 		const r = check();
@@ -3538,16 +3035,7 @@ describe("the new-entry prose cap", () => {
 	});
 });
 
-/*
- * Assertion 29 (mantahostels#3225, building mantahostels#2888's design on mantahostels#2884's deferral). The
- * `commentUrl` field is what carries the ordering — a permalink does not exist
- * before its comment does — so these cases pin the field checks as hard as the
- * presence check.
- */
 describe("the admission record", () => {
-	// The `Settled at` bullet is written here rather than left to withSettled's
-	// default mantahostels#1: the cross-check reads it, so every `admission` below would otherwise
-	// fault for naming an issue the entry does not.
 	const entry = (id: string) =>
 		`### ${id} · Figure ${id}\n\nprose\n- **Settled at #42**, 6 September 2026.`;
 	const admission = {
@@ -3561,7 +3049,6 @@ describe("the admission record", () => {
 		git("commit", "-qm", "base");
 	};
 
-	/** Add B2 to a committed B1, then say what the sidecar holds for B2. */
 	const admit = (admittedRow: unknown) => {
 		base(entry("B1"));
 		writeMap(baselineRows, `${entry("B1")}\n\n${entry("B2")}`);
@@ -3601,10 +3088,6 @@ describe("the admission record", () => {
 		expect(r.out).toContain("B2 — `confirmed` is empty or not a string");
 	});
 
-	/*
-	 * The load-bearing field. A bare issue URL, a `#issue-` anchor or a
-	 * hand-typed placeholder all read as "no comment was posted".
-	 */
 	it("fails a commentUrl that is not an issue-comment permalink, naming the entry", () => {
 		const r = admit({
 			...admission,
@@ -3616,8 +3099,6 @@ describe("the admission record", () => {
 		);
 	});
 
-	/* A permalink copied from the wrong issue records a confirmation that was
-	 * never given on the round the entry cites. */
 	it("fails a commentUrl whose issue disagrees with settledAt, naming the entry and both issue numbers", () => {
 		const r = admit({
 			...admission,
@@ -3643,8 +3124,6 @@ describe("the admission record", () => {
 		);
 	});
 
-	/* The row records the round the ENTRY cites, so a settling issue the entry
-	 * itself does not name is a row filed against the wrong decision. */
 	it("fails a settledAt the entry's own `Settled at` bullet does not name", () => {
 		base(entry("B1"));
 		writeMap(
@@ -3660,11 +3139,6 @@ describe("the admission record", () => {
 		);
 	});
 
-	/*
-	 * mantahostels#1350's 300-word cap can force an entry's substance into a fresh id, and
-	 * mantahostels#2920 ruled a split is not an admission — so the row records the split
-	 * and nobody is quoted as confirming it.
-	 */
 	it("passes a cap-split row, which carries no confirmation at all", () => {
 		const r = admit({ capSplit: true, from: "B1", settledAt: 42 });
 		expect(r.status).toBe(0);
@@ -3695,9 +3169,6 @@ describe("the admission record", () => {
 		expect(r.out).not.toContain("UNRECORDED-ADMISSION");
 	});
 
-	/* Assertion 14's reason, and the second assertion it applies to: the commit
-	 * adding an entry always has a dirty map, so a softened one refuses
-	 * nothing that was ever committed. */
 	it("still FAILs under --map-dirty, which softens every other assertion, and names the entry with no admissions row", () => {
 		base(entry("B1"));
 		writeMap(baselineRows, `${entry("B1")}\n\n${entry("B2")}`);
@@ -3707,9 +3178,6 @@ describe("the admission record", () => {
 		expect(r.out).toContain("B2 — no row in the admissions sidecar");
 	});
 
-	/* An absent sidecar is read as empty rather than BROKEN: a commit adding an
-	 * entry with no sidecar at all is the case this assertion exists to refuse,
-	 * so it must fall out as a fault and not as corruption. */
 	it("fails, rather than BROKENs, where the sidecar is absent, naming the entry with no row", () => {
 		base(entry("B1"));
 		writeMap(baselineRows, `${entry("B1")}\n\n${entry("B2")}`);
@@ -3735,8 +3203,6 @@ describe("the admission record", () => {
 		expect(r.out).toContain("the admission record was not checked");
 	});
 
-	/* The advice is where the ordering is taught, and it is the only place a
-	 * session meets it at the moment it matters. */
 	it("routes the fix to posting the comment FIRST", () => {
 		const r = admit(undefined);
 		expect(r.out).toContain("POST THAT COMMENT FIRST");
@@ -3758,19 +3224,12 @@ describe("the admission record", () => {
 	});
 });
 
-/*
- * Assertion 21 (mantahostels#2058). A §B entry's own `Over cap by ruling (#n)` marker is
- * stale once the entry falls at or under the 300-word cap — invisible to
- * assertion 14's NEW-ENTRY-OVER-CAP list, which only ever sees entries still
- * over cap.
- */
 describe("the stale over-cap marker", () => {
 	const buildMarkerText = (n: number) =>
 		`- **Over cap by ruling (#${n}):** every claim here is load-bearing — never cut one to reach 300; read the count from \`overCapEntries()\`.`;
 	const markerWords = (n: number) =>
 		(buildMarkerText(n).match(/\S+/g) || []).length;
 
-	/** A §B entry with `n` total prose words, `n` counting the marker's own. */
 	const entry = (id: string, n: number, markerTicket: number | null) => {
 		const marker = markerTicket === null ? null : buildMarkerText(markerTicket);
 		const bodyWords =
@@ -3816,12 +3275,6 @@ describe("the stale over-cap marker", () => {
 		);
 	});
 
-	/*
-	 * The load-bearing reason: the commit that drains B1 to exactly 300 words
-	 * is itself the one that makes docs/doc-map.md differ from HEAD, so a
-	 * softened assertion here would never refuse the commit responsible —
-	 * only some later, unrelated one.
-	 */
 	it("still FAILs under --map-dirty, which softens every other assertion, and names the entry, its word count and its exemption marker", () => {
 		writeMap(baselineRows, entry("B1", 300, 1911));
 		const r = check({}, MAP, "--map-dirty");
@@ -3847,11 +3300,6 @@ describe("the stale over-cap marker", () => {
 	});
 });
 
-/*
- * Assertion 23 (mantahostels#2124). A line reaching for the marker and missing its
- * spelling leaves the entry unexempted with nothing saying so — the fail-open
- * the exemption regex had before this. WARN, never FAIL: the probe is lexical.
- */
 describe("the malformed over-cap marker", () => {
 	const entry = (id: string, line: string | null, n = 10) =>
 		[
@@ -3875,7 +3323,6 @@ describe("the malformed over-cap marker", () => {
 		expect(r.out).toContain(`B1 — ${nearMiss}`);
 	});
 
-	/* WARN, so it never enters `count` and never refuses the commit. */
 	it("exits 0 on a near miss and leaves the doc-map count alone", () => {
 		writeMap(baselineRows, entry("B1", nearMiss));
 		const r = check();
@@ -3884,7 +3331,6 @@ describe("the malformed over-cap marker", () => {
 	});
 
 	it("stays silent on the marker's own correct spelling", () => {
-		// Over cap, so assertion 21 has nothing stale to say either.
 		writeMap(baselineRows, entry("B1", valid, 400));
 		const r = check();
 		expect(r.status).toBe(0);
@@ -3916,18 +3362,12 @@ describe("the malformed over-cap marker", () => {
 	});
 });
 
-/*
- * Assertion 22 (mantahostels#2050). A marked entry may not GROW — direction, never level.
- * WARN, never FAIL: a FAIL collides with mantahostels#1911's own bar on cutting a claim,
- * which would leave a session holding a load-bearing addition no legal move.
- */
 describe("growth in an over-cap-by-ruling entry", () => {
 	const buildMarkerText = (n: number) =>
 		`- **Over cap by ruling (#${n}):** every claim here is load-bearing — never cut one to reach 300; read the count from \`overCapEntries()\`.`;
 	const markerWords = (n: number) =>
 		(buildMarkerText(n).match(/\S+/g) || []).length;
 
-	/** A §B entry with `n` total prose words, `n` counting the marker's own. */
 	const entry = (id: string, n: number, markerTicket: number | null) => {
 		const marker = markerTicket === null ? null : buildMarkerText(markerTicket);
 		const bodyWords =
@@ -3966,7 +3406,6 @@ describe("growth in an over-cap-by-ruling entry", () => {
 		expect(r.out).not.toContain("marked over cap by ruling grew");
 	});
 
-	/* Marked-only is mantahostels#2050's scope: an unmarked entry has the on-touch rule. */
 	it("says nothing about growth in an over-cap entry carrying no marker", () => {
 		base(entry("B1", 400, null));
 		writeMap(baselineRows, entry("B1", 420, null));
@@ -3975,8 +3414,6 @@ describe("growth in an over-cap-by-ruling entry", () => {
 		expect(r.out).not.toContain("marked over cap by ruling grew");
 	});
 
-	/* Growth lands in a dirty-map commit by construction, so softening on that
-	 * axis would warn on nothing — assertion 21's reason. */
 	it("still WARNs under --map-dirty, naming the entry, its word growth and its exemption", () => {
 		base(entry("B1", 400, 1911));
 		writeMap(baselineRows, entry("B1", 420, 1911));
@@ -3998,16 +3435,10 @@ describe("growth in an over-cap-by-ruling entry", () => {
 		);
 	});
 
-	/*
-	 * The load-bearing exclusion: lib/fault-profiles.js's `doc-map` profile has
-	 * no `gating` predicate and diffs everything in `data`, so a grown entry
-	 * landing there would turn this WARN into a gate by the back door.
-	 */
 	it("keeps the grown entries out of the --json data envelope", () => {
 		base(entry("B1", 400, 1911));
 		writeMap(baselineRows, entry("B1", 420, 1911));
 		const parsed = JSON.parse(check({}, "--json").stdout);
-		// The tag IS in `findings`, which the profile does not gate on.
 		expect(
 			parsed.findings.some(
 				(f: { tag: string }) => f.tag === "OVER-CAP-ENTRY-GREW",
@@ -4029,11 +3460,6 @@ describe("growth in an over-cap-by-ruling entry", () => {
 		]);
 	});
 
-	/*
-	 * Assertion 24 (mantahostels#2227), sharing this block's fixtures because it is the same
-	 * marker over the same baseline. Dropping the bullet takes the entry out of
-	 * assertion 22 above, and 21 sees a missing marker only below the cap.
-	 */
 	describe("a dropped over-cap-by-ruling marker", () => {
 		it("WARNs on an over-cap entry whose marker went, naming the ruling", () => {
 			base(entry("B1", 400, 1911));
@@ -4048,7 +3474,6 @@ describe("growth in an over-cap-by-ruling entry", () => {
 			);
 		});
 
-		/* The sanctioned drain: the §B preamble asks for exactly this. */
 		it("says nothing where the entry was drained under the cap too", () => {
 			base(entry("B1", 400, 1911));
 			writeMap(baselineRows, entry("B1", 250, null));
@@ -4064,7 +3489,6 @@ describe("growth in an over-cap-by-ruling entry", () => {
 			expect(r.out).not.toContain("lost the marker the baseline carried");
 		});
 
-		/* The drop lands in a dirty-map commit by construction, as 22's does. */
 		it("still WARNs under --map-dirty, naming the entry and the exemption this commit drops", () => {
 			base(entry("B1", 400, 1911));
 			writeMap(baselineRows, entry("B1", 400, null));
@@ -4083,7 +3507,6 @@ describe("growth in an over-cap-by-ruling entry", () => {
 			expect(r.out).toContain("Un-marked on purpose, the ruling revisited?");
 		});
 
-		/* The same back-door exclusion assertion 22's block pins above. */
 		it("keeps the dropped entries out of the --json data envelope", () => {
 			base(entry("B1", 400, 1911));
 			writeMap(baselineRows, entry("B1", 400, null));
@@ -4114,26 +3537,12 @@ describe("growth in an over-cap-by-ruling entry", () => {
 	});
 });
 
-/*
- * Assertion 15 (mantahostels#1640). The ledger lives in §Capture and placement, a section
- * the fixture map has no equivalent of — so the list is written into the
- * `sectionB` slot, which is fine because the assertion locates it by its stem
- * line rather than by which section it sits in.
- */
 describe("the shed-ledger entry cap", () => {
-	/** A ledger bullet of exactly `bytes` bytes, ASCII throughout. */
 	const bullet = (issue: number, bytes: number) => {
 		const head = `  - **#${issue}**, 20 August 2026 — `;
-		// Padded on the head's BYTE length, not its character length: the em dash
-		// is one character and three bytes, and the cap counts bytes.
 		return head + "x".repeat(Math.max(0, bytes - Buffer.byteLength(head)));
 	};
 
-	/**
-	 * The stem line and the bullets nested under it. The stem's own indent is
-	 * what the parser measures nesting against, so the fixture writes it flush
-	 * left exactly as the map does.
-	 */
 	const ledger = (...bullets: string[]) =>
 		["- **Sheds paid, most recent first:**", ...bullets].join("\n");
 
@@ -4155,14 +3564,11 @@ describe("the shed-ledger entry cap", () => {
 		expect(r.out).toContain("FAIL: 1 doc-map problem(s)");
 	});
 
-	/* The newest entry is written in full, so its size must never fault. */
 	it("exempts the newest entry however long it is", () => {
 		writeMap(baselineRows, ledger(bullet(9, 9000)));
 		expect(check().status).toBe(0);
 	});
 
-	/* The sibling `Rejected` list is a peer of the stem, not nested under it,
-	 * and mantahostels#1640 left it out of scope: it is already in the compact shape. */
 	it("ignores bullets that are not nested under the stem", () => {
 		writeMap(
 			baselineRows,
@@ -4175,10 +3581,6 @@ describe("the shed-ledger entry cap", () => {
 		expect(check().status).toBe(0);
 	});
 
-	/*
-	 * Every commit that lands a tranche has a dirty map, so softening this
-	 * assertion would refuse nothing that was ever committed.
-	 */
 	it("still FAILs under --map-dirty, which softens every other assertion, and names the ledger entry and its size", () => {
 		writeMap(baselineRows, ledger(bullet(9, 4000), bullet(8, 800)));
 		const r = check({}, MAP, "--map-dirty");
@@ -4186,23 +3588,14 @@ describe("the shed-ledger entry cap", () => {
 		expect(r.out).toContain("#8 — 800 B");
 	});
 
-	/* No stem is "this is not the doc map", not "the ledger is empty" — so it
-	 * says the cap went unchecked rather than passing silently. */
 	it("says the cap went unchecked where the map carries no stem line", () => {
 		writeMap(baselineRows);
 		const r = check();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("the 440 B shed-ledger entry cap was not checked");
-		// And the OK line must not assert the cap held: a run that says both is a
-		// contradiction the reader has to resolve.
 		expect(r.out).not.toContain("every shed-ledger entry but the newest");
 	});
 
-	/*
-	 * The cap is per ENTRY, not per physical line, so an over-long tranche split
-	 * across sub-bullets is still over the cap — otherwise the gate is evaded by
-	 * pressing return.
-	 */
 	it("charges an entry's sub-bullets and continuation lines to that entry", () => {
 		writeMap(
 			baselineRows,
@@ -4218,8 +3611,6 @@ describe("the shed-ledger entry cap", () => {
 		expect(r.out).toContain("#8 — 581 B, 141 over the 440 B cap");
 	});
 
-	/* The newest entry is exempt as a WHOLE: its sub-bullets must not be read as
-	 * the start of the entry below it, which `.slice(1)` on lines would do. */
 	it("exempts the newest entry's sub-bullets along with it", () => {
 		writeMap(
 			baselineRows,
@@ -4232,16 +3623,8 @@ describe("the shed-ledger entry cap", () => {
 		writeMap(baselineRows, ledger(bullet(9, 4000), bullet(8, 900)));
 		const r = check();
 		expect(r.out).toContain("Only the NEWEST entry is written in full");
-		/* The subject clause is the fifth thing, added at mantahostels#1831 against a drafted
-		 * four every ledger entry had already ignored. Pinned because nothing
-		 * else fails if the advice reverts to naming only the other four. */
 		expect(r.out).toContain("what it did in one clause");
 		expect(r.out).toContain("its named residual");
-		/* The verdict is the conditional sixth thing (mantahostels#1864), and its placement
-		 * is the operative half — a verdict folded into the residual leaves no
-		 * marker to find it by. Pinned for the same reason as the fifth: nothing
-		 * else fails if the advice reverts to naming five, or names the sixth
-		 * without saying where it goes. */
 		expect(r.out).toContain(
 			"its verdict is a sixth element beside the residual",
 		);
@@ -4259,12 +3642,6 @@ describe("the shed-ledger entry cap", () => {
 	});
 });
 
-/*
- * Assertion 16 (mantahostels#1788). Two things have to move together for this one: the
- * fixture repo's staged CLAUDE.md (the pool delta) and the ledger written into
- * the map's `sectionB` slot, which the parser locates by its stem line rather
- * than by section.
- */
 describe("the pool-tranche trigger verdict", () => {
 	const bullet = (issue: number, tail = "") =>
 		`  - **#${issue}**, 20 August 2026 — **−10 B**: a shed.${tail}`;
@@ -4307,7 +3684,6 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).toContain("FAIL: 1 doc-map problem(s)");
 	});
 
-	/* The limb that stops one entry's marker paying for every later tranche. */
 	it("fails a pool-byte commit that writes no entry of its own, naming the entry HEAD already held", () => {
 		base(ledger(bullet(8, verdict)));
 		growPool(50);
@@ -4379,7 +3755,6 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).toContain("carries no `**Trigger:**` verdict");
 	});
 
-	/* The verdict rides in the newest entry, which assertion 15 exempts. */
 	it("does not push the newest entry over assertion 15's cap", () => {
 		base(ledger(bullet(8)));
 		growPool(50);
@@ -4390,11 +3765,6 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(check().status).toBe(0);
 	});
 
-	/*
-	 * A missing pool file is a `missing` line, never a non-zero exit, so an exit
-	 * is a git that cannot answer. Reading it as "no rev resolves" would skip
-	 * assertion 16 quietly, so it is BROKEN (#3152).
-	 */
 	it("is BROKEN where git will not size a pool file, never a skipped verdict", () => {
 		base(ledger(bullet(8)));
 		writeMap(baselineRows, ledger(bullet(8)));
@@ -4455,11 +3825,6 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).not.toContain("trigger verdict was not checked");
 	});
 
-	/*
-	 * Asserted on the library rather than through the CLI: the whole checker
-	 * BROKENs on a corrupt index long before it reaches this assertion, so the
-	 * CLI cannot distinguish the fix from the bug.
-	 */
 	it("throws BROKEN on a corrupt index, never reading it as an empty pool", () => {
 		base(ledger(bullet(8)));
 		const bad = path.join(repo, "bad.idx");
@@ -4483,13 +3848,6 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(probe.stdout.trim()).toBe("BROKEN");
 	});
 
-	/*
-	 * The index limb of the creating commit below: a pool file on disk but
-	 * unstaged draws `:<p> missing` from `cat-file --batch-check`, which is 0
-	 * staged bytes rather than a git that could not answer. No CLI
-	 * case reaches it — every rev the checker asks about is `HEAD`, and the
-	 * index always holds the file a test staged.
-	 */
 	it("reads an unstaged pool file on disk as 0 index bytes", () => {
 		base(ledger(bullet(8)));
 		write("docs/working-contract.md", `${"c".repeat(60)}\n`);
@@ -4506,15 +3864,6 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(probe.stdout.trim()).toBe("0");
 	});
 
-	/*
-	 * The commit that CREATES a pool file, whose `HEAD:<p>` is missing. Reading
-	 * that as a broken apparatus nulled the delta, skipping
-	 * assertion 16 on precisely the commit it exists to gate (mantahostels#3526).
-	 *
-	 * docs/working-contract.md is the pool member the fixture's HEAD does not
-	 * hold. CLAUDE.md cannot stand in: initBase() tracks it, so `base()` commits
-	 * it.
-	 */
 	const createPoolFile = () => {
 		track("docs/working-contract.md", `${"c".repeat(60)}\n`);
 		return [...baselineRows, row("docs/working-contract.md")];
@@ -4544,10 +3893,6 @@ describe("the pool-tranche trigger verdict", () => {
 		);
 	});
 
-	/*
-	 * #4205: CHERRY_PICK_HEAD names the commit being applied, never a parent,
-	 * so the picked entry is new here and HEAD alone is the pool baseline.
-	 */
 	const conflictedPick = (tail: string) => {
 		base(ledger(bullet(8, verdict)));
 		git("checkout", "-qb", "picked");
@@ -4588,7 +3933,6 @@ describe("the pool-tranche trigger verdict", () => {
 		);
 	});
 
-	/* An octopus merge run `--no-commit` holds a sha per side. */
 	it("counts every MERGE_HEAD line as a committed side", () => {
 		base(ledger(bullet(8)));
 		git("checkout", "-qb", "first-side");
@@ -4687,11 +4031,6 @@ describe("the pool-tranche trigger verdict", () => {
 	});
 });
 
-/*
- * Assertion 20 (mantahostels#1968, on mantahostels#1890's ruling). Unlike assertion 16 above, this one
- * is indifferent to the pool delta: it fires on a COMPACTION, so the fixture
- * moves the ledger alone and leaves CLAUDE.md where it found it.
- */
 describe("the compaction verdict", () => {
 	const prediction = " **Prediction:** the guard fires within the tranche.";
 
@@ -4735,11 +4074,6 @@ describe("the compaction verdict", () => {
 		expect(r.out).toContain("FAIL: 1 doc-map problem(s)");
 	});
 
-	/*
-	 * The folding limb mantahostels#1864 ruled against (a verdict written INTO the named
-	 * residual) is the same fault as an absent one: it leaves no marker to find
-	 * a verdict by.
-	 */
 	it("fails a verdict folded into the named residual, reading it as no Verdict of its own", () => {
 		base(ledger(bullet(8, prediction)));
 		writeMap(
@@ -4757,7 +4091,6 @@ describe("the compaction verdict", () => {
 		expect(r.out).toContain("carries no `**Verdict` verdict of its own");
 	});
 
-	/* A second tranche under one issue, labelled apart (#1739). */
 	const labelled = (label: string, tail = "") =>
 		`  - **${label}**, 20 August 2026 — **+10 B**: an addition.${tail}`;
 
@@ -4795,11 +4128,6 @@ describe("the compaction verdict", () => {
 		);
 	});
 
-	/*
-	 * The discriminator is exact rather than proxied: a duplicate-cut tranche
-	 * owing no prediction — mantahostels#1928 is one — is the false positive a date proxy
-	 * would have failed next (mantahostels#1890).
-	 */
 	it("passes a compaction of an entry that carried no prediction", () => {
 		base(ledger(bullet(8)));
 		writeMap(baselineRows, ledger(bullet(9), bullet(8)));
@@ -4828,10 +4156,6 @@ describe("the compaction verdict", () => {
 		expect(r.out).toContain("carries no `**Verdict` verdict of its own");
 	});
 
-	/*
-	 * The mantahostels#1647/mantahostels#1648 breach: a verdict written onto the entry BELOW the one that
-	 * earned it. Unanchored, its marker would clear the wrong entry's gate.
-	 */
 	it("fails a verdict naming another entry's issue", () => {
 		base(ledger(bullet(8, prediction)));
 		writeMap(
@@ -4858,8 +4182,6 @@ describe("the compaction verdict", () => {
 		expect(check().status).toBe(0);
 	});
 
-	/* An entry is one bullet, so an empty verdict must not borrow the words of
-	 * the element written after it. */
 	it("does not count a following element's words toward the floor", () => {
 		base(ledger(bullet(8, prediction)));
 		writeMap(
@@ -4877,11 +4199,6 @@ describe("the compaction verdict", () => {
 		expect(r.out).toContain("verdict is 0 word(s); 3 is the floor");
 	});
 
-	/*
-	 * A merge's other parents WIDEN assertions 14 and 16 — a merge's other side
-	 * has already paid for what it added. Here they would NARROW, refusing a
-	 * merge for a compaction the other branch committed.
-	 */
 	it("judges HEAD alone, so a merge parent's compaction is not refused", () => {
 		base(ledger(bullet(8, prediction)));
 		const otherParent = git("rev-parse", "HEAD").trim();
@@ -4910,11 +4227,6 @@ describe("the compaction verdict", () => {
 	});
 });
 
-/*
- * Assertions 17 and 18 (mantahostels#1863). §A is rendered from docs/doc-map-classes.json,
- * so its bytes are gated against the generator's output and a surviving `role`
- * override is word-capped.
- */
 describe("Section A render agreement", () => {
 	const header = "| Path | Role | Class | Update route | Consumes |";
 	const sep = "|---|---|---|---|---|";
@@ -4930,7 +4242,6 @@ describe("Section A render agreement", () => {
 		...over,
 	});
 
-	/** A rendered §A: one heading, one table, one row per sidecar key. */
 	const renderedMap = (rows: string[]) =>
 		[
 			"# Doc map",
@@ -4952,7 +4263,6 @@ describe("Section A render agreement", () => {
 			"",
 		].join("\n");
 
-	/** The three registered paths every fixture below covers, rendered. */
 	const rendered = [
 		"| `CLAUDE.md` | CLAUDE.md | `source-of-truth` | Direct | — |",
 		"| `docs/doc-map.md` | Doc map | `source-of-truth` | Direct | — |",
@@ -4994,7 +4304,6 @@ describe("Section A render agreement", () => {
 		expect(r.out).toContain("npm run gen:doc-map-section-a");
 	});
 
-	/* An adopter's package.json has no gen: script (#664). */
 	it("names the plugin's own generator and register-doc.js in an install, and the generator runs from the adopter (#2066)", () => {
 		const plugin = fs.mkdtempSync(path.join(scratchBase(), "plugin-"));
 		try {
@@ -5042,10 +4351,6 @@ describe("Section A render agreement", () => {
 		expect(r.out).toContain("docs/extra.md — row missing");
 	});
 
-	/* mantahostels#2743 renders `Research runs` as a register list, so `parseRowLines` reads a
-	 * list line as well as a table row. Without that, a path missing from a
-	 * listed subsection collapses into the coarse ordering fault below and the
-	 * report never names it. */
 	it("names a listed path §A has no line for", () => {
 		track("docs/research/a.md");
 		track("docs/research/b.md");
@@ -5104,8 +4409,6 @@ describe("Section A render agreement", () => {
 		expect(r.out).toContain("row order or subsection placement differs");
 	});
 
-	// Since mantahostels#1849 the sidecar is the coverage register, so its absence is
-	// BROKEN above assertion 1 and this assertion is never reached at all.
 	it("is BROKEN where no sidecar sits beside the map, saying no coverage conclusion was drawn", () => {
 		track(MAP, renderedMap(rendered));
 		writeRestatements({ B1: { paths: [{ path: "docs/notes.md" }] } });
@@ -5160,16 +4463,9 @@ describe("Section A render agreement", () => {
 	});
 });
 
-/*
- * --root (mantahostels#1922): the whole reading comes from a materialised tree rather than
- * from the shared working directory, which is what .husky/pre-commit now hands
- * it — a `git checkout-index` extraction of this commit's index, which
- * `extract()` below builds the same way.
- */
 describe("--root", () => {
 	let roots: string[] = [];
 
-	/** The index, extracted the way the pre-commit gate extracts it. */
 	const extract = () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-root-"));
 		execFileSync("git", ["checkout-index", "-a", `--prefix=${dir}/`], {
@@ -5186,12 +4482,6 @@ describe("--root", () => {
 		for (const d of roots) fs.rmSync(d, { recursive: true, force: true });
 	});
 
-	/*
-	 * The four sidecars are written UNTRACKED everywhere else in this file, and
-	 * have to be tracked here: an extraction of the index holds only what the
-	 * index holds. Tracking them puts them in scope, so they take register rows
-	 * too.
-	 */
 	const rootRows = [
 		...baselineRows,
 		row(RESTATEMENTS),
@@ -5213,24 +4503,17 @@ describe("--root", () => {
 			ADMISSIONS,
 		);
 
-	/** The map as the index holds it — what writeMap staged a moment ago. */
 	const readStagedMap = () => fs.readFileSync(path.join(repo, MAP), "utf8");
 
-	/** A Section C route, which `writeMap` places by its `### C<n>` heading. */
 	const route = (id: string, read: string) =>
 		[`### ${id} · A question?`, `- **Read:** ${read}`, "- **Not:** "].join(
 			"\n",
 		);
 
-	/* ASSERTION 2, the worktree-only half: a register row the WORKING COPY of the
-	 * map carries and the commit does not, naming a file that exists nowhere.
-	 * Under --root the map is the commit's, so there is no row and no fault. */
 	it("reads the map from the root, not from the working directory", () => {
 		writeMap(rootRows);
 		stageSidecars();
 		const root = extract();
-		// Edited in place rather than rebuilt: writeMap's sidecars are keyed to
-		// the map it wrote, and a from-scratch mapDoc would be BROKEN against them.
 		write(
 			MAP,
 			readStagedMap()
@@ -5243,15 +4526,11 @@ describe("--root", () => {
 		expect(r.out).toContain("v1.0");
 		expect(r.out).not.toContain("v9.9");
 		expect(r.out).not.toContain("docs/phantom.md");
-		// The same tree without --root is the FAIL, which is what makes the
-		// assertion above about the root rather than about the fixture.
 		const bare = check();
 		expect(bare.status).toBe(1);
 		expect(bare.out).toContain("docs/phantom.md");
 	});
 
-	/* ASSERTION 4's two halves, the pair the ticket asked for: a route the
-	 * working copy adds is ignored, and one the commit itself carries refuses. */
 	it("ignores a Section C route only the working copy of the map carries", () => {
 		writeMap(rootRows);
 		stageSidecars();
@@ -5277,19 +4556,13 @@ describe("--root", () => {
 		expect(r.out).toContain("C9 \u2192 docs/renamed-away.md");
 	});
 
-	/* The leg mantahostels#1922 was filed for: the tracked ENUMERATION, which `git ls-files`
-	 * answered against the shared index and the process's own cwd. */
 	it("enumerates the tracked set by walking the root", () => {
 		writeMap(rootRows);
 		stageSidecars();
 		const root = extract();
-		// Tracked in the live repo, absent from the extraction: coverage is asked
-		// of the commit's files, so this one is not owed a register row.
 		track("docs/added-after.md");
 
 		expect(check({}, "--root", root).status).toBe(0);
-		// The same repo state without --root is a coverage FAIL, which is what
-		// makes the assertion above about the root rather than about luck.
 		const bare = check();
 		expect(bare.status).toBe(1);
 		expect(bare.out).toContain("docs/added-after.md");
@@ -5307,15 +4580,10 @@ describe("--root", () => {
 		expect(r.out).toContain("docs/registered.md");
 	});
 
-	/* THE DELIBERATE EXCEPTION, recorded in the checker's header: the two
-	 * untracked softeners keep asking the live repo under --root. An extraction
-	 * has no untracked files, so resolving them against it would answer "absent"
-	 * for every one and turn each WARN back into the FAIL mantahostels#1193 removed. */
 	it("softens a row for an untracked file, reading the live tree for it", () => {
 		writeMap([...rootRows, row("docs/pending.md")]);
 		stageSidecars();
 		const root = extract();
-		// Written but never staged: absent from the extraction, present on disk.
 		write("docs/pending.md", "x\n");
 
 		const r = check({}, "--root", root);
@@ -5329,16 +4597,10 @@ describe("--root", () => {
 		const absent = path.join(os.tmpdir(), "no-such-root-1922");
 		const r = check({}, "--root", absent);
 		expect(r.status).toBe(2);
-		// Rooted, so it is the copy that is missing and not docs/doc-map.md.
 		expect(r.out).toContain(path.join(absent, MAP));
 	});
 
-	/* The other apparatus failure --root introduces: the map reads and the WALK
-	 * does not. BROKEN, never a clean tree — an unreadable tree must not report
-	 * the repo covered. */
 	it("is BROKEN when the tree will not walk, and says which read failed", () => {
-		// Not docs/: the map lives there and would fail its own read first, which
-		// is a different BROKEN.
 		track("side/thing.md");
 		writeMap([...rootRows, row("side/thing.md")]);
 		stageSidecars();
@@ -5348,7 +4610,6 @@ describe("--root", () => {
 		try {
 			const r = check({}, "--root", root);
 			expect(r.status).toBe(2);
-			// The --root arm of the ternary, not `git ls-files failed`.
 			expect(r.out).toContain("could not walk the materialised tree");
 			expect(r.out).toContain("No coverage conclusion drawn");
 		} finally {
@@ -5357,20 +4618,6 @@ describe("--root", () => {
 	});
 });
 
-/*
- * mantahostels#2068's acceptance criteria require this of every file migrated onto
- * scripts/lib/git-fixture.ts: a write made in an instantiated copy must not
- * reach the template, or a second, independent copy of it. The helper's own
- * leak check already throws on instantiation if relinking left the copy
- * pointing at the template (proven in git-fixture.test.ts) — what is left to
- * assert here is the BEHAVIOURAL isolation a leak would cause.
- *
- * Only the grace-window template carries this case: the base template
- * (Class 1) never commits, so a fresh instantiation of it has no history for
- * a leaked commit to show up in — `git log` there exits 128 whether or not
- * isolation held, which cannot discriminate a leak from a clean copy. The
- * grace variant commits, so its fresh copy has real history to check against.
- */
 describe("the copied fixture is isolated from its template (mantahostels#1907, mantahostels#2068, mantahostels#2072)", () => {
 	it("a commit made in one grace variant's copy leaves a fresh copy of it untouched", () => {
 		useGrace("fresh-uncovered-file");
@@ -5425,13 +4672,9 @@ describe("live section references (#805)", () => {
 	});
 });
 
-/* An adopter has no scripts/ of its own, so each advice line naming
- * register-doc.js spells it at the plugin root (#2066). */
 describe("register-doc.js advice in an install", () => {
 	let plugin: string;
 	beforeEach(() => {
-		/* The core's real scripts/ under a root with no package.json, so the
-		 * command the advice prints can be run. */
 		plugin = fs.mkdtempSync(path.join(scratchBase(), "plugin-"));
 		fs.symlinkSync(path.dirname(SCRIPT), path.join(plugin, "scripts"));
 	});

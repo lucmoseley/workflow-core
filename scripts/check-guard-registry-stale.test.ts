@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/check-guard-registry.js: stale prose and `--review`, the anchors' writer.
- *
- * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
- * loosen a case and a rule can claim **Enforced** while its guard is missing
- * or unwired.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from check-guard-registry.test.ts, whose cost was pre-existing (#4294).
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -78,7 +68,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		const tree = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-wt-"));
 		temps.push(tree);
 		git("worktree", "add", "-q", "--detach", tree);
-		/* The shared tree's guard differs, as a neighbour's uncommitted edit. */
 		fs.writeFileSync(
 			path.join(shared, "scripts", "guard-branch.sh"),
 			"#!/bin/sh\nexit 1\n",
@@ -100,8 +89,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	});
 
 	describe("a non-git export nested in the checkout (#3450)", () => {
-		/* The checkout ignores its scratch, so a filter asked of the enclosing
-		 * repo would drop every document in the export. */
 		function nestedExport() {
 			const shared = committedRepo({
 				...guardFixture,
@@ -147,13 +134,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		});
 	});
 
-	/*
-	 * A SPAWN, KEPT FOR A REAL FD (§X3): the in-process runner captures writes
-	 * before any pipe sees them, so only a spawn shows what reaches a session's
-	 * Bash pipe. node drops what is still buffered on one at process.exit, and
-	 * 64 KiB is the pipe buffer: 1,500 missing paths clear it, and the summary
-	 * is written last.
-	 */
 	it("prints a report longer than the pipe buffer whole, summary included (#1444)", () => {
 		const root = guardRepo();
 		const missing = Array.from(
@@ -197,8 +177,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	});
 
 	it("stops warning by itself when the guard is changed back", () => {
-		// A content digest, not a commit sha: a revert restores the reviewed
-		// bytes, and re-reviewing an unchanged guard would be a rubber stamp.
 		const root = guardRepo();
 		reviewIn(root);
 		const guard = path.join(root, "scripts", "guard-branch.sh");
@@ -231,9 +209,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	});
 
 	it("anchors a guard named inside a longer backticked command", () => {
-		// The release rule (mantahostels#121, mantahostels#126) says `node scripts/session-arbiter.js
-		// release <path>` — the pending staleness instance the ticket cites. An
-		// extractor that only reads whole-span paths misses exactly that case.
 		const root = build({
 			claude: region(
 				"- Release it: `node scripts/session-arbiter.js release <path>`. **Unenforced** (#121): nothing makes a session call it.",
@@ -244,9 +219,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	});
 
 	it("does not anchor a config file a rule mentions in passing", () => {
-		// The release rule recounts a session holding `.claude/settings.json` for
-		// hours. Anchoring that would warn on every unrelated settings edit —
-		// unclearable wallpaper. An unwired guard is UNWIRED's job, not this one.
 		const root = build({
 			claude: region(
 				"- A session held `.claude/settings.json` too long. **Unenforced** (#121): nothing makes it release.",
@@ -321,11 +293,9 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	});
 
 	describe("--review --stale, the list and the re-anchor in one call (#4170)", () => {
-		/* Refused before any scan or write, so one bare tree serves every row. */
 		let bare = "";
 		beforeAll(() => {
 			bare = build({ claude: region() });
-			/* Out of `temps`, which afterEach empties after the first case. */
 			temps.splice(temps.indexOf(bare), 1);
 		});
 		afterAll(() => fs.rmSync(bare, { recursive: true, force: true }));
@@ -406,11 +376,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		});
 	});
 
-	/*
-	 * mantahostels#2636's fixture. Two guards, so a per-path run has something it must
-	 * leave alone — and a real git repo, because the claim check reads the
-	 * working tree's dirty set before it reads any claim.
-	 */
 	const twoGuards = templateOf(() =>
 		committedRepo({
 			claude: region(
@@ -437,7 +402,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		};
 	}
 
-	/** Dirty in git's eyes, and a different digest from the committed bytes. */
 	function dirty(root: string, guard: string): void {
 		fs.writeFileSync(path.join(root, "scripts", guard), "#!/bin/sh\nexit 1\n");
 	}
@@ -446,7 +410,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		const root = twoGuards();
 		reviewIn(root);
 		const before = fs.readFileSync(path.join(root, ANCHORS), "utf8");
-		// Both move on disk; only one is named, so only one may be rewritten.
 		dirty(root, "guard-a.sh");
 		dirty(root, "guard-b.sh");
 		reviewIn(root, ["scripts/guard-a.sh"], env(ownLocks(root, self)));
@@ -487,8 +450,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	});
 
 	it("anchors the named path when the claim is on a DIFFERENT file", () => {
-		// The positive half of the pair: a skip that fired on everything would
-		// pass the case above and fail this one.
 		const root = twoGuards();
 		reviewIn(root);
 		const before = readAnchors(root);
@@ -529,7 +490,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		const before = readAnchors(root);
 		dirty(root, "guard-a.sh");
 		reviewIn(root, [], env([lock("scripts/guard-a.sh")]));
-		// Dropped, it would read as UNANCHORED — a worse claim than a stale one.
 		expect(readAnchors(root)["scripts/guard-a.sh"]).toBe(
 			before["scripts/guard-a.sh"],
 		);
@@ -619,7 +579,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 			git: (...a: string[]) => string;
 		}
 
-		/* TWO_GUARDS anchored and committed: guard-branch.sh sources lib/deny.sh. */
 		function anchoredRepo(): Repo {
 			const root = committedRepo(TWO_GUARDS);
 			const git = (...args: string[]) =>
@@ -633,7 +592,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		const write = (root: string, rel: string, text: string) =>
 			fs.writeFileSync(path.join(root, rel), text);
 
-		/* The library changes in a commit that leaves guard-branch.sh's row stale. */
 		function staleAtHead(): Repo {
 			const repo = anchoredRepo();
 			write(repo.root, "scripts/lib/deny.sh", "deny() { exit 3; }\n");
@@ -641,7 +599,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 			return repo;
 		}
 
-		/** A --review of guard-branch.sh over this session's own edit to it. */
 		function reviewBranch(root: string): string {
 			write(
 				root,
@@ -665,8 +622,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 			const { root, git } = staleAtHead();
 			const out = reviewBranch(root);
 			const at = short(git, "HEAD~1");
-			/* The library HEAD changed is named; the guard, this commit's own
-			 * uncommitted change, is not. */
 			expect(out).toContain(
 				`Already stale at HEAD — re-anchoring this row also asserts a re-read of what changed under it before this commit (#4756):\n  scripts/guard-branch.sh — anchored at ${at}; changed since: scripts/lib/deny.sh\n    git diff ${at} HEAD -- scripts/lib/deny.sh\nRead each against the rules printed for its row, or leave the row stale: restore its HEAD anchor in ${ANCHORS} before committing.`,
 			);
@@ -852,8 +807,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 			execFileSync("git", args, { cwd: root, encoding: "utf8" });
 		const write = (root: string, rel: string, body: string) =>
 			fs.writeFileSync(path.join(root, rel), body);
-		/* deny.sh changed on both sides, so the session claims its re-read;
-		 * extra.sh only on the side coming in. */
 		const midMerge = templateOf(() => {
 			const root = committedRepo(
 				{
@@ -947,7 +900,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	});
 
 	it("keeps a stale anchor from masking a real enforcement failure", () => {
-		// Staleness is advisory; the false-claim checks are not.
 		const root = build({
 			claude: region(
 				"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh`.",

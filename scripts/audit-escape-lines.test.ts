@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The escape-line audit's batch and report (#671 step 3), each run end to end
- * through `runInProcessAsync`: a stub gateway on a local port answers for Jev,
- * and a stub gitleaks stands in for the sweep. The detached batch a
- * `--notify` starts is never let spawn here — it would read this machine's
- * real transcripts — so only its throttle and switch are driven.
- *
- * Its `--notify` runs at every SessionStart, and its windows are the evidence
- * #671's loosening is kept or reversed on: loosen a case and a miscounted or
- * mis-windowed verdict tips that decision, or an unswept question block
- * reaches the gateway.
- */
 
 import fs from "node:fs";
 import http from "node:http";
@@ -71,7 +59,6 @@ function session(name: string, at: string, ...texts: string[]) {
 	);
 }
 
-/** A refused question re-sent after one tool call, at `at`. */
 function refusedSession(name: string, at: string, resend: string) {
 	const user = (content: unknown, meta = false) =>
 		JSON.stringify({
@@ -110,8 +97,6 @@ function refusedSession(name: string, at: string, resend: string) {
 	);
 }
 
-/** A gateway answering each ask from `answers` in turn: a probability, or a
- *  status to fail with; `bodies` holds each request as sent. */
 async function gateway(answers: (number | { status: number })[]) {
 	let calls = 0;
 	const bodies: string[] = [];
@@ -153,8 +138,6 @@ async function gateway(answers: (number | { status: number })[]) {
 
 function gitleaks(code: number) {
 	const file = path.join(dir, `gitleaks-${code}`);
-	/* A finding only on a non-empty input: the sweep's empty-input probe must
-	 * read clean, or the guard files it unswept rather than a finding. */
 	fs.writeFileSync(
 		file,
 		`#!/bin/sh\n[ -n "$(cat)" ] && exit ${code}\nexit 0\n`,
@@ -173,7 +156,6 @@ async function callable(answers: (number | { status: number })[], sweep = 0) {
 	return g;
 }
 
-/** One `--judge` run over the fixture transcripts; its JSON summary line. */
 const run = async () => {
 	const r = await runInProcessAsync(
 		SCRIPT,

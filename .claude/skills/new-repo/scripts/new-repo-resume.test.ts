@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * new-repo.js run again over a saved one: the argument checks against what a
- * run saved, and --resume from each step a run can stop after. Split from
- * new-repo.test.ts, whose header says how a run is driven and what a loosened
- * case costs (#3258).
- *
- * Over the run-cost budget (base §X8 (5)): each case is a whole run of the
- * script, with the hooks off (#4297).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -131,8 +122,6 @@ describe("new-repo.js --resume after a part-way stop", () => {
 
 	it("foretells a commit and a push where the core has changed init's output since the skeleton commit, as the resume then makes them (#762)", () => {
 		const s = world.at("push");
-		/* A skeleton an older core rendered: init rewrites this core-owned
-		 * file on every run, from this checkout. */
 		const rules = path.join(s.clone, ".claude/workflow-core.md");
 		fs.appendFileSync(rules, "\nA line an older core rendered.\n");
 		s.git("-c", "core.hooksPath=/dev/null", "commit", "-q", "-am", "older");

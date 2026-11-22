@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * away-load.js — the away-only reset-precondition runner (#5472, ruled at
- * #5449): while Windows has had no keyboard or mouse input for 15 minutes it
- * holds Windows free memory at 760–890 MB with Sysinternals Testlimit64 and
- * keeps WSL's CPU at 550% or more with niced busy loops, so #5346 (whether
- * page combining off stopped the resets) gathers its precondition minutes.
- * Commands: USAGE below.
- *
- * It reads memwatch: the raw Windows reading for input and free memory, fresh
- * each minute, and the minute log for CPU and #5346's count. Any input stops
- * the load at the next reading, within about 65 s, or 75 s where a read
- * runs slow under the load; past that it stops on the stale reading. It stops for good at
- * #5346's gate either way. A reset kills it; at the next start, before the
- * refill loop's boot-resume relaunches the killed sessions, `recover` runs
- * `git fsck` in each repo (#4264).
- * It never touches `.wslconfig`.
- *
- * In no family (§N3): an install command and a unit's own processes, not a
- * checker or a guard.
- *
- * Exit codes: 0; 1 where a command fails; 2 on a command line.
- */
 
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -51,15 +29,9 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "away-load.service";
 const USAGE = `usage: node ${scriptPath("away-load.js")} run | recover | sweep | hand-start [--minutes N] | status | install`;
-/* Untraced: long enough to read a settled band and CPU off three or four
- * minute lines. */
 const HAND_MINUTES = 20;
-/* Untraced: a poll costs a few small reads, and the reading it waits on
- * changes once a minute. */
 const POLL_MS = Number(process.env.WFC_AWAY_LOAD_POLL_MS) || 5000;
-/* Untraced: an fsck's output past this is the same fault repeated. */
 const FSCK_OUT_CHARS = 4000;
-/* Untraced: about twice the longest the 4 Nov repos would take, guessed. */
 const FSCK_TIMEOUT_MS = 30 * 60 * 1000;
 const WIN = "/mnt/c/Windows/System32";
 
@@ -78,7 +50,6 @@ function paths(env = process.env) {
 		done: path.join(state, "done"),
 		seen: path.join(state, "seen-reset"),
 		log: env.WFC_AWAY_LOAD_LOG || path.join(os.homedir(), "away-load.jsonl"),
-		/* memwatch's MEMWATCH_WIN_OUT, by the same default. */
 		reading:
 			env.MEMWATCH_WIN_OUT ||
 			path.join(env.XDG_RUNTIME_DIR || "/tmp", "memwatch-win"),
@@ -92,11 +63,7 @@ function paths(env = process.env) {
 	};
 }
 
-/**
- * A state or reading file's text, null where it is absent; one that will not
- * read is said on stderr, the journal, and read as absent, so a run stops.
- * @param {string} file
- */
+/** @param {string} file */
 function textOf(file) {
 	const r = readText(file);
 	if (r.state === "read") return r.data;
@@ -138,10 +105,7 @@ function sweep(p) {
 	return r.error === null || /not found/i.test(r.error) ? null : r.error;
 }
 
-/**
- * How many Testlimit processes Windows runs, null where tasklist fails.
- * @param {ReturnType<typeof paths>} p
- */
+/** @param {ReturnType<typeof paths>} p */
 function windowsHolders(p) {
 	const name = path.basename(p.testlimit);
 	const r = runCommand(p.tasklist, [
@@ -195,7 +159,7 @@ class Runner {
 		/** @type {import("node:child_process").ChildProcess[]} */
 		this.workers = [];
 		this.lastReadingAt = 0;
-		/** @type {Record<string, unknown>} the readings each log line carries */
+		/** @type {Record<string, unknown>} */
 		this.readout = {};
 	}
 
@@ -224,7 +188,6 @@ class Runner {
 		this.dropAllHolders();
 	}
 
-	/* The sweep ends any Testlimit its proxy's end left running. */
 	dropAllHolders() {
 		const was = this.holders;
 		this.holders = [];
@@ -234,8 +197,6 @@ class Runner {
 	}
 
 	/**
-	 * A holder that ends unasked has freed its memory: the next reading tops
-	 * up. Its exit code says whether Testlimit holds at all.
 	 * @param {LiveHolder} h
 	 * @param {number|null} code
 	 */
@@ -373,8 +334,6 @@ async function run() {
 }
 
 /**
- * The git repositories directly under `root`; a linked worktree's `.git` is a
- * file, and its repository is checked from its main checkout.
  * @param {ReturnType<typeof paths>} p
  * @param {string} root
  */
@@ -423,12 +382,6 @@ function fsck(p, repo) {
 	});
 }
 
-/**
- * After a Kernel-Power 41 newer than the last one seen: the runner's end where
- * it meets #5346's gate, then `git fsck` in each repo, then the reset marked
- * seen, so a start cut off part-way does all of it again. The first start
- * only records the newest, so a reset before the install checks nothing.
- */
 function recover() {
 	const p = paths();
 	const read = runCommand(p.wevtutil, [
@@ -441,8 +394,6 @@ function recover() {
 	]);
 	const reset = newestResetOf(read.out.replace(/\r/g, ""));
 	if (read.error !== null) {
-		/* The unit's start fails and systemd retries it: a run started now
-		 * could load past a reset it cannot see. */
 		logEvent(p, "recover-unread", { error: read.error });
 		return 1;
 	}
@@ -488,14 +439,10 @@ function status() {
 	return 0;
 }
 
-/* Refused rather than quoted: these sit inside a command string that systemd
- * unquotes first. */
 const PLAIN_PATH = /^[\w./@+-]+$/;
 
 function install() {
 	const shell = process.env.SHELL || "/bin/bash";
-	/* This copy, from the main checkout alone: a session's linked worktree is
-	 * removed when it ends. The run reads its code at each unit start. */
 	const script = __filename;
 	const dirs = gitDirs(__dirname);
 	if (dirs === null || dirs.gitDir !== dirs.common) {

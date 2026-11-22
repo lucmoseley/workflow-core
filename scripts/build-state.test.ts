@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * build-state.test.ts — `/implement`'s opening step: create or resume a build
- * unit's state file, keyed by issue number (#4410). Rooted on a temp
- * WFC_REPO_ROOT, so no run writes the live checkout's state files. Broken,
- * a successor session loses its predecessor's state file and restarts the unit.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

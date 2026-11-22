@@ -1,28 +1,4 @@
 #!/usr/bin/env python3
-"""measure.py — doc-map claim-denial rate, measured off the session transcripts (mantahostels#1761).
-
-Why not the prescribed one-liner. mantahostels#1761's Instrument section counts every
-transcript line carrying `is held by session` and `docs/doc-map.md`. Measured
-28 Aug 2026, 609 of those lines are matches and only 445 are denials: the rest
-are file dumps of session-arbiter.js, code-review prompts, context summaries,
-vitest failures and prior sessions quoting a denial back. It also counts the
-MEASURING session's own reads of the corpus. Both inflations are removed here.
-
-A denial is a tool result that either (a) carries buildDenyReason()'s invariant
-paragraph ("A claim is taken by writing the file") alongside the deny sentence
--- the PreToolUse hook route -- or (b) opens with `session-arbiter: <path> is
-held by session` -- the CLI route, whose output is too short to carry (a).
-
-Events are deduped on (second-resolution timestamp, denied session).
-
-Denominator is session density: transcripts whose own first/last timestamps
-overlap the window. Volume is not the cause and must not be read as it (mantahostels#1413).
-
-Every seat root's main transcripts are read, one copy of each session (#379);
-`--base DIR` reads one directory instead.
-
-Usage:  python3 measure.py [--base DIR] [--self SESSION_UUID]
-"""
 
 import argparse
 import collections
@@ -49,7 +25,6 @@ ESCALATION = "This write claims the WHOLE of docs/doc-map.md"
 
 
 def contents(rec):
-    """Every tool-result string on a transcript record, both shapes it takes."""
     out = []
     c = (rec.get("message") or {}).get("content")
     if isinstance(c, str):
@@ -74,15 +49,10 @@ def contents(rec):
 
 
 def main_files(base=None):
-    """`base`'s main transcripts, or every seat root's where it is None."""
     return [p for p, _ in tc.files(base, subagents=False)]
 
 
 def scan(files, self_session, tally):
-    """`tally` is the caller's accumulator, which `main` prints: a matched
-    line that will not parse is skipped and counted into `tally[tc.UNPARSED]`
-    (#1274). Every line is read for its timestamp, so `tc.records` and its
-    needle cannot stand in here."""
     events, spans = [], []
     for path in files:
         first = last = None
@@ -107,7 +77,7 @@ def scan(files, self_session, tally):
             elif CLI.search(txt):
                 hit, route = CLI.search(txt), "cli"
             if not hit or not hit.group(1).startswith("docs/doc-map.md"):
-                continue  # a transcript quoting a denial inside a JSON blob
+                continue
             events.append(
                 {
                     "ts": rec.get("timestamp", ""),
@@ -139,13 +109,6 @@ def subject_class(s):
 
 
 def class_breakdown(rs):
-    """Per subject-class event and episode counts, plus route and escalation
-    mix, one entry per class.
-
-    An episode is one (session, class) pair, so one session's serial retries
-    inflate its event share without touching anyone else's -- the cut mantahostels#1031's
-    criterion (2) is judged on, not events alone (mantahostels#2430).
-    """
     events_by_class = collections.Counter(subject_class(e["subj"]) for e in rs)
     episode_pairs = {(e["sess"], subject_class(e["subj"])) for e in rs}
     episodes_by_class = collections.Counter(cls for _, cls in episode_pairs)
@@ -166,9 +129,6 @@ def window(events, spans, w0, w1):
 
 
 def rate_ratio(n1, e1, n0, e0):
-    """Poisson rate ratio and its 95% band. Ignores day-level overdispersion,
-    the dominant variance term here -- see mantahostels#1761's answer, closing paragraphs
-    of the headline-rate section."""
     r = (n1 / e1) / (n0 / e0)
     se = math.sqrt(1 / n1 + 1 / n0)
     return r, math.exp(math.log(r) - 1.96 * se), math.exp(math.log(r) + 1.96 * se)

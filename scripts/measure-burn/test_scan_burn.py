@@ -84,19 +84,12 @@ def run_audit(capsys):
 
 
 def run_report(capsys):
-    """Stdout of `report()` over the whole corpus, given its own run's tally."""
     tally = Counter()
     sb.report(list(sb.requests(tally)), tally)
     return capsys.readouterr().out
 
 
-# --- the counting rule itself -------------------------------------------------
-
-
 def test_max_across_a_streamed_request_is_one_billable_unit(corpus):
-    # A subagent streams: output rises while the cache fields repeat. Summing
-    # the records bills the cache read three times; taking the first truncates
-    # the output. MAX does neither.
     corpus(
         "a1",
         [
@@ -111,8 +104,6 @@ def test_max_across_a_streamed_request_is_one_billable_unit(corpus):
 
 
 def test_max_takes_the_final_record_of_a_cumulative_request(corpus):
-    # A request whose later record restates usage cumulatively, every field
-    # risen. MAX is the request's whole cost.
     corpus(
         "a2",
         [
@@ -125,12 +116,7 @@ def test_max_takes_the_final_record_of_a_cumulative_request(corpus):
     assert (r["out"], r["cr"], r["cw"], r["fi"]) == (372, 106_165, 2_460, 4)
 
 
-# --- what the audit must accept, and what it must refuse ----------------------
-
-
 def test_audit_passes_a_cumulative_subagent_request(corpus, capsys):
-    # Every field rises together, so MAX is still exactly the request's cost.
-    # Demanding *fixed* cache fields instead FAILs this.
     corpus(
         "a3",
         [
@@ -148,8 +134,6 @@ def test_audit_passes_a_cumulative_subagent_request(corpus, capsys):
 def test_audit_fails_a_request_whose_usage_falls_saying_max_is_no_longer_the_rule(
     corpus, capsys
 ):
-    # A field that goes *down* between records means the later record is not a
-    # superset of the earlier one, so MAX invents a request that never happened.
     corpus(
         "a4",
         [
@@ -164,8 +148,6 @@ def test_audit_fails_a_request_whose_usage_falls_saying_max_is_no_longer_the_rul
 
 
 def test_audit_fails_when_message_id_and_request_id_stop_being_1to1(corpus):
-    # Deduplicating on `requestId` is only the same operation as deduplicating
-    # on `message.id` while the two are 1:1.
     a, b = rec("r5"), rec("r5")
     b["message"]["id"] = "msg_other"
     corpus("a5", [a, b])
@@ -174,8 +156,6 @@ def test_audit_fails_when_message_id_and_request_id_stop_being_1to1(corpus):
 
 
 def test_audit_reports_the_two_disagreement_shapes_separately(corpus, capsys):
-    # A new record shape must stay visible rather than being absorbed into the
-    # stream-shaped count (mantahostels#1420).
     corpus(
         "a6",
         [
@@ -202,8 +182,6 @@ def test_audit_reports_the_two_disagreement_shapes_separately(corpus, capsys):
 def test_audit_over_a_window_holding_no_request_says_nothing_matched_and_does_not_fail(
     corpus, capsys
 ):
-    # The default window predates every record here, so the Consequence block
-    # has no MAX total to divide by (#1292).
     corpus("a6b", [rec("r6b")])
     out = run_main(capsys, "--audit")
     assert "Nothing to compare: no billable request matched." in out
@@ -211,11 +189,7 @@ def test_audit_over_a_window_holding_no_request_says_nothing_matched_and_does_no
     assert "AUDIT FAILED" not in out
 
 
-# --- Claude Code's own placeholder records (#1210) ----------------------------
-
-
 def placeholder(rid=None, *, mid=True):
-    """The record Claude Code appends when an API call fails."""
     r = rec(rid or "unused", out=0, cr=0, cw=0, fi=0, model="<synthetic>")
     r["message"]["id"] = "3f1c9a2e-7b4d-4e0a-9c55-1d2e3f4a5b6c"
     r["isApiErrorMessage"] = True
@@ -227,7 +201,6 @@ def placeholder(rid=None, *, mid=True):
 
 
 def test_a_placeholder_sharing_a_real_requests_id_leaves_it_untouched(corpus, capsys):
-    # The corpus case, a safety refusal.
     real = rec("r8", out=16, cr=40_000, cw=1_000, fi=3)
     corpus("a8", [real, placeholder("r8")], subagent_of="parent")
     (r,) = sb.requests(Counter(), keep_records=True)
@@ -259,9 +232,6 @@ def test_a_record_with_neither_id_is_counted_as_unkeyed(corpus, unkeyed):
 
 
 def test_two_scans_in_one_process_do_not_share_their_counts(corpus, unkeyed, capsys):
-    # The module-global counters carried over between runs (#1290). Paired:
-    # each run reports the unkeyed record and the bad line once, so a count
-    # carried over would read 2 on the second.
     path = corpus("a11", [unkeyed(rec("u"), "u1"), rec("r11")])
     with open(path, "a") as fh:
         fh.write('{"type": "assistant", broken\n')
@@ -271,18 +241,11 @@ def test_two_scans_in_one_process_do_not_share_their_counts(corpus, unkeyed, cap
         assert "⚠ 1 record(s) carried neither requestId" in out
 
 
-# --- the subagent token-class split -------------------------------------------
-
-
 def test_fan_out_reports_the_class_split_within_subagent_spend(corpus, capsys):
-    # `CLAUDE.md`'s "cache write is N% of subagent spend" cannot be read off any
-    # corpus-level share.
     corpus("main", [rec("m1", out=1_000, cr=100_000, cw=5_000)])
     corpus("s1", [rec("s1a", out=200, cr=40_000, cw=50_000)], subagent_of="main")
     out = run_report(capsys)
     line = next(ln for ln in out.splitlines() if "subagent spend by class" in ln)
-    # 50k cw at $18.75/Mtok = $0.9375; 40k cr at $1.50 = $0.06; 200 out at
-    # $75 = $0.015; 2 fi ~ $0.
     assert "cache write 92.6%" in line
     assert "cache read 5.9%" in line
 
@@ -296,11 +259,6 @@ def test_class_split_shares_sum_to_100(corpus, capsys):
     shares = [float(t[:-1]) for t in line.split() if t.endswith("%")]
     assert len(shares) == 4
     assert abs(sum(shares) - 100.0) < 0.15
-
-
-# --- cache writes at each TTL's rate (#1207) ----------------------------------
-#
-# Opus 5 dollars: a 5-minute write is $18.75/Mtok, a 1-hour write $30.
 
 
 def only_writes(rid, **kw):
@@ -340,8 +298,6 @@ def test_one_requests_1_hour_write_counts_once_when_a_later_record_drops_the_spl
 
 
 def test_pricing_the_total_equals_summing_each_requests_price(corpus):
-    # A split larger than its write would leave a negative remainder that
-    # summing first lets another request's unsplit write absorb.
     corpus(
         "m",
         [only_writes("a", cw=100, cw5m=100, cw1h=100), only_writes("b", cw=1_000_000)],
@@ -362,7 +318,6 @@ def test_the_class_split_prices_a_subagents_1_hour_write_at_its_own_rate(
     line = next(
         ln for ln in run_report(capsys).splitlines() if "subagent spend by class" in ln
     )
-    # $30 of cache write against $15 of fresh input.
     assert "cache write 66.7%" in line
     assert "fresh input 33.3%" in line
 
@@ -390,23 +345,12 @@ def test_the_scanner_file_states_its_own_rule():
     assert "one billable unit per `requestId`" in src
 
 
-# --- the rolling window (--since) ---------------------------------------------
-#
-# The window is applied as a LEXICAL string comparison against the corpus's one
-# timestamp shape, `YYYY-MM-DDTHH:MM:SS.mmmZ`. Every test below drives
-# `main()`, because the normalisation that bridges the
-# two lives there and a test handing `requests()` a ready-made tuple pins none
-# of it.
-
-
 def run_main(capsys, *argv):
-    """Stdout of a run that must exit 0."""
     assert sb.main(list(argv)) == 0
     return capsys.readouterr().out
 
 
 def refused(capsys, *argv):
-    """Stderr of a run argparse must refuse with exit 2."""
     with pytest.raises(SystemExit) as e:
         sb.main(list(argv))
     assert e.value.code == 2
@@ -414,7 +358,6 @@ def refused(capsys, *argv):
 
 
 def straddling(corpus):
-    """Two requests before the 22 Aug boundary, three on or after it."""
     corpus(
         "main",
         [
@@ -439,18 +382,12 @@ def test_since_keeps_only_requests_at_or_after_the_boundary(corpus, capsys):
 
 
 def test_a_bare_date_starts_at_midnight_not_at_the_end_of_its_day(corpus, capsys):
-    # `2026-08-22` sorts below every timestamp on the 22nd, so the bare-date
-    # spelling cannot by itself distinguish an inclusive bound from an exclusive
-    # one. A bare date normalises to this midnight spelling, which must keep the
-    # request stamped exactly on it.
     straddling(corpus)
     out = run_main(capsys, "--since", "2026-08-22T00:00:00.000Z")
     assert requests_reported(out) == 3
 
 
 def test_basic_format_and_week_dates_window_where_they_mean(corpus, capsys):
-    # `fromisoformat` accepts both. Compared as typed, each sorts ABOVE every
-    # record in the corpus and reports $0 — a wrong answer with no warning.
     straddling(corpus)
     basic = run_main(capsys, "--since", "20260822")
     assert requests_reported(basic) == 3
@@ -459,24 +396,18 @@ def test_basic_format_and_week_dates_window_where_they_mean(corpus, capsys):
 
 
 def test_a_space_separated_boundary_does_not_swallow_its_own_day(corpus, capsys):
-    # `2026-08-22 12:00:00` sorts below every `T`-separated timestamp of the
-    # 22nd, so compared as typed a midday boundary returns the whole day.
     straddling(corpus)
     out = run_main(capsys, "--since", "2026-08-22 12:00:00")
     assert requests_reported(out) == 2
 
 
 def test_the_label_names_the_normalised_boundary(corpus, capsys):
-    # Saved output is quoted later, so the label has to say which instant the
-    # figures rest on.
     straddling(corpus)
     out = run_main(capsys, "--since", "20260822")
     assert "window: 2026-08-22T00:00:00.000Z onward" in out
 
 
 def test_since_leaves_audit_labelling_its_windowed_fact(corpus, capsys):
-    # `--audit`'s first fact always sweeps the whole corpus; the second respects
-    # the window and says which it did.
     straddling(corpus)
     out = run_main(capsys, "--since", "2026-08-22", "--audit")
     assert "(windowed)" in out
@@ -485,8 +416,6 @@ def test_since_leaves_audit_labelling_its_windowed_fact(corpus, capsys):
 def test_a_non_utc_offset_is_refused_naming_the_offset_and_the_z_spelling(
     corpus, capsys
 ):
-    # `+07:00` is compared as its local wall clock, never converted, so it moves
-    # the answer by an ASCII accident rather than the 7 hours it means.
     straddling(corpus)
     err = refused(capsys, "--since", "2026-08-22T00:00:00+07:00")
     assert "--since must be UTC" in err and "+07:00" in err
@@ -494,7 +423,6 @@ def test_a_non_utc_offset_is_refused_naming_the_offset_and_the_z_spelling(
 
 
 def test_utc_marked_boundaries_are_accepted(corpus, capsys):
-    # A zero offset is UTC by another name.
     straddling(corpus)
     for spelling in ("2026-08-22T00:00:00Z", "2026-08-22T00:00:00+00:00"):
         out = run_main(capsys, "--since", spelling)
@@ -513,21 +441,13 @@ def test_since_and_all_together_are_refused_as_exclusive_offering_to_drop_all(
 def test_since_refuses_a_value_that_is_not_a_timestamp_quoting_it_and_an_example(
     corpus, capsys
 ):
-    # A bad date must not reach the lexical comparison, where "last week" sorts
-    # above every real timestamp and reports $0.
     straddling(corpus)
     err = refused(capsys, "--since", "last week")
     assert "--since needs an ISO date or timestamp, not 'last week'" in err
     assert "2026-08-22T12:00:00Z" in err
 
 
-# --- the closed window (--until) ----------------------------------------------
-
-
 def test_until_excludes_its_own_boundary(corpus, capsys):
-    # Half-open, so the request landing exactly on the bound is out. Two
-    # adjacent windows sharing a bound therefore partition the corpus rather
-    # than double-counting the request on the seam.
     straddling(corpus)
     out = run_main(
         capsys, "--since", "2026-08-20", "--until", "2026-08-22T00:00:00.000Z"
@@ -551,8 +471,6 @@ def test_the_window_label_names_both_bounds(corpus, capsys):
 def test_a_non_utc_until_is_refused_like_since_naming_the_offset_and_the_z_spelling(
     corpus, capsys
 ):
-    # An offset bound would be compared as its local wall clock, silently
-    # moving the boundary by up to 14h.
     straddling(corpus)
     err = refused(
         capsys, "--since", "2026-08-20", "--until", "2026-08-22T00:00:00+07:00"
@@ -573,8 +491,6 @@ def test_until_refuses_a_value_that_is_not_a_timestamp_quoting_it_and_an_example
 def test_until_without_since_is_refused_offering_to_add_since_or_drop_until(
     corpus, capsys
 ):
-    # Otherwise it would silently cap mantahostels#830's fixed window, pricing a period
-    # nobody chose and labelling it as the default.
     straddling(corpus)
     err = refused(capsys, "--until", "2026-08-22")
     assert "--until needs a --since" in err
@@ -593,7 +509,6 @@ def test_until_and_all_together_are_refused_as_exclusive_offering_to_drop_the_wi
 def test_an_empty_window_is_refused_naming_both_bounds_and_asking_for_a_later_until_not_a_zero(
     corpus, capsys
 ):
-    # A silent $0 reads as a finding about the period, not about the flags.
     straddling(corpus)
     for upper in ("2026-08-20", "2026-08-19"):
         err = refused(capsys, "--since", "2026-08-20", "--until", upper)
@@ -617,15 +532,8 @@ def test_the_default_and_all_windows_are_untouched_by_the_new_flag(corpus, capsy
     assert requests_reported(whole) == 5
 
 
-# --- seat attribution (mantahostels#2607) -------------------------------------------------
-# The join exists because `history.jsonl` is per-config-root and a session
-# resumed on another seat leaves transcripts under both roots.
-
-
 @pytest.fixture
 def seats(seat_roots):
-    """Writes a seat's `history.jsonl` and `.claude.json` into the temp seat
-    dirs `seat_roots` points the scanner at."""
     home = seat_roots()[0].parents[2]
 
     def write(root, session_ids, email=None):
@@ -649,9 +557,6 @@ def seats(seat_roots):
 
 
 def seat_block(out):
-    """The `== By seat ==` rows only. `(unattributed)` is also `report()`'s
-    label for a skill-less request, so a bare substring test on the whole
-    output passes whether the join works or is wholly broken."""
     lines = out.splitlines()
     start = lines.index("== By seat ==")
     return "\n".join(lines[start:])
@@ -666,7 +571,6 @@ def test_a_session_books_to_the_root_whose_history_names_it(corpus, seats, capsy
     block = seat_block(out)
     assert "plan B one@example.com" in block
     assert "plan C two@example.com" in block
-    # One session each, so neither row can be carrying the other's spend.
     assert block.count("    1 sessions") == 2
     assert sb.UNATTRIBUTED not in block
 
@@ -674,14 +578,10 @@ def test_a_session_books_to_the_root_whose_history_names_it(corpus, seats, capsy
 def test_a_session_no_root_names_is_unattributed_rather_than_guessed(
     corpus, seats, capsys
 ):
-    # A background job or a dispatched session never receives a typed prompt,
-    # so it reaches no history.jsonl at all. Booking it to a seat would invent
-    # the concentration the report exists to measure.
     corpus("s1", [rec("r1", session="s1")])
     corpus("ghost", [rec("r2", session="ghost")])
     seats(".claude2", ["s1"])
     block = seat_block(run_main(capsys, "--all", "--by-seat"))
-    # The named session still books, so a broken join cannot pass this.
     assert [ln for ln in block.splitlines() if "plan B" in ln and "1 sessions" in ln]
     assert [
         ln for ln in block.splitlines() if sb.UNATTRIBUTED in ln and "1 sessions" in ln
@@ -689,8 +589,6 @@ def test_a_session_no_root_names_is_unattributed_rather_than_guessed(
 
 
 def test_a_session_under_two_roots_is_dropped_not_assigned(corpus, seats, capsys):
-    # Resumed on another seat: which seat paid for a given turn is unknowable
-    # from this file, so the report says so rather than taking the first root.
     corpus("s1", [rec("r1", session="s1")])
     seats(".claude2", ["s1"])
     seats(".claude3", ["s1"])
@@ -698,7 +596,6 @@ def test_a_session_under_two_roots_is_dropped_not_assigned(corpus, seats, capsys
     assert "resolve to more than one root" in out
     block = seat_block(out)
     assert sb.UNATTRIBUTED in block
-    # No spend row for either root — only the "Roots read:" line names them.
     assert not [
         ln for ln in block.splitlines() if ln.strip().startswith(("plan B", "plan C"))
     ]
@@ -707,9 +604,6 @@ def test_a_session_under_two_roots_is_dropped_not_assigned(corpus, seats, capsys
 def test_a_subagent_books_to_the_seat_of_the_session_that_dispatched_it(
     corpus, seats, capsys
 ):
-    # A subagent's spend lives in a separate transcript under the parent's
-    # directory. Keying on the owning session — the directory, not the record —
-    # is what keeps fan-out spend on the seat that paid for it.
     corpus("parent", [rec("r1", session="parent", out=1, cr=1_000)])
     corpus(
         "a1",
@@ -726,8 +620,6 @@ def test_a_subagent_books_to_the_seat_of_the_session_that_dispatched_it(
 
 
 def test_the_peak_five_hour_window_is_rolling_not_per_calendar_block():
-    # Three hours apart each: the peak straddles a wall-clock boundary, which a
-    # per-block reading would split and under-report.
     h = 3600
     peak, at = sb.peak_window([(0, 10.0), (3 * h, 40.0), (6 * h, 40.0), (9 * h, 10.0)])
     assert peak == 80.0
@@ -735,8 +627,6 @@ def test_the_peak_five_hour_window_is_rolling_not_per_calendar_block():
 
 
 def test_points_arriving_out_of_time_order_are_sorted_first():
-    # seat_report() appends in transcript order, never in time order, so the
-    # sort inside peak_window is what makes the two-pointer sweep correct.
     h = 3600
     assert sb.peak_window([(9 * h, 10.0), (3 * h, 40.0), (0, 10.0), (6 * h, 40.0)]) == (
         80.0,
@@ -754,9 +644,6 @@ def test_peak_window_of_nothing_is_zero():
 
 
 def test_the_peak_window_line_carries_the_seats_own_requests(corpus, seats, capsys):
-    # Covers the request -> point join, which the peak_window unit tests do not
-    # reach: a timestamp that fails to parse would print $0 and an em dash here
-    # while every other figure stayed right.
     corpus(
         "s1",
         [
@@ -772,8 +659,6 @@ def test_the_peak_window_line_carries_the_seats_own_requests(corpus, seats, caps
 
 
 def test_an_unparsable_timestamp_is_counted_and_printed(corpus, seats, capsys):
-    # It stays in the seat's total but leaves its window, so the peak
-    # understates.
     corpus("s1", [rec("r1", ts="not-a-timestamp")])
     seats(".claude2", ["s1"])
     out = run_main(capsys, "--all", "--by-seat")
@@ -781,8 +666,6 @@ def test_an_unparsable_timestamp_is_counted_and_printed(corpus, seats, capsys):
 
 
 def test_the_report_says_which_roots_it_read(corpus, seats, capsys):
-    # A root with no history file is indistinguishable in the totals from a
-    # root that did no work.
     corpus("s1", [rec("r1")])
     seats(".claude2", ["s1"])
     out = run_main(capsys, "--all", "--by-seat")
@@ -796,13 +679,8 @@ def test_the_seat_block_is_off_unless_asked_for(corpus, seats, capsys):
     assert "== By seat ==" not in out
 
 
-# --- every seat root read (#374) ----------------------------------------------
-
-
 @pytest.fixture
 def two_roots(seat_roots, corpus):
-    """Two real, non-symlinked roots; `write(i, name, records)` fills root `i`
-    with a top-level session, or with a subagent of `subagent_of` where given."""
     roots = seat_roots(2)
 
     def write(i, name, records, subagent_of=None):
@@ -824,8 +702,6 @@ def test_a_request_under_the_second_root_only_is_counted(two_roots, capsys):
 
 
 def test_one_transcript_under_two_roots_is_one_set_of_requests(two_roots):
-    # A session resumed on another seat: the shared request MAXes into one,
-    # and the fan-out still sees one dispatch.
     _, write = two_roots
     write(0, "s", [rec("r1", out=100), rec("r2")])
     write(1, "s", [rec("r1", out=300), rec("r3")])
@@ -912,9 +788,6 @@ def test_an_unread_launch_record_refuses_rather_than_counting_overflow_as_plan(
         sb.main(["--all"])
     assert str(unreadable_launch_record) in str(e.value.code)
     assert "fix that read and re-run" in str(e.value.code)
-
-
-# --- fail-open sites (#5487) ---------------------------------------------------
 
 
 def test_an_unparsable_session_end_leaves_its_duration_out_and_counts_it(

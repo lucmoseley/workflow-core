@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-history-trim.js warns when a seat root's history.jsonl has
- * had its oldest line move forward since the last recording, and never on an
- * absent, unreadable or new root.
- *
- * check-history-trim.js is a detector over an unrecoverable loss (mantahostels#2617): a
- * seat root's history.jsonl trimmed is retroactive burn-attribution corpus
- * gone for good. The tests that matter are the ones on when it must NOT fire
- * — a root that is absent, unreadable, or new (no baseline to compare
- * against) is never reported as trimming, matching mantahostels#1742's "absent means
- * unread, not zero" shape for the seat-utilisation sibling this mirrors.
- *
- * Seat roots are directories under a temp HOME, the clock and watch file are
- * pinned by env, and the end-to-end cases run the script in process, so no
- * case reads a real seat's history.
- *
- * It reports through `npm run status` only: loosen a case and either a trim
- * erodes the burn-attribution corpus (mantahostels#2607) unseen, or a missing root
- * raises a false alarm the founder learns to skip.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,17 +15,14 @@ const {
 	readRoots,
 	recordReading,
 	trimmedRoots,
-	// eslint-disable-next-line @typescript-eslint/no-var-requires
 } = require("./lib/history-trim.js");
 
-/** One seat's reading, through the many-seat reader the checker calls. */
 const readRoot = (seatDir: string) => readRoots([seatDir])[0];
 
 let home: string;
 const HOUR = 36e5;
 const NOW = Date.parse("2026-09-02T12:00:00Z");
 
-/** Write a root's history.jsonl from a list of epoch-ms timestamps. */
 const history = (dir: string, timestampsMs: number[]) => {
 	fs.mkdirSync(path.join(home, dir), { recursive: true });
 	fs.writeFileSync(
@@ -106,8 +83,6 @@ describe("one seat's reading", () => {
 	});
 
 	it("reads a real read error as unreadable, distinct from the ENOENT absent case", () => {
-		// A directory where history.jsonl should be: readFileSync throws EISDIR,
-		// never ENOENT, so this pins the catch's non-ENOENT branch specifically.
 		fs.mkdirSync(path.join(home, ".claude", "history.jsonl"), {
 			recursive: true,
 		});
@@ -168,7 +143,7 @@ describe("trimmedRoots", () => {
 				lineCount: 5,
 			},
 		};
-		history(".claude", [NOW - 20 * HOUR]); // unchanged
+		history(".claude", [NOW - 20 * HOUR]);
 		expect(trimmedRoots(readRoots(seatDirs(home)), baseline)).toEqual([]);
 	});
 
@@ -181,7 +156,7 @@ describe("trimmedRoots", () => {
 				lineCount: 5,
 			},
 		};
-		history(".claude", [NOW - 3 * HOUR]); // the old lines are gone
+		history(".claude", [NOW - 3 * HOUR]);
 		const trimmed = trimmedRoots(readRoots(seatDirs(home)), baseline);
 		expect(trimmed).toEqual([
 			{
@@ -214,7 +189,6 @@ describe("trimmedRoots", () => {
 				lineCount: 5,
 			},
 		};
-		// no history.jsonl written at all this time: absent
 		expect(trimmedRoots(readRoots(seatDirs(home)), baseline)).toEqual([]);
 	});
 });
@@ -253,7 +227,7 @@ describe("the watch-file reading", () => {
 
 	it("reads undefined where the watch file cannot be read at all", () => {
 		const watch = path.join(home, "w.jsonl");
-		fs.mkdirSync(watch); // a directory in its place: EISDIR, never ENOENT
+		fs.mkdirSync(watch);
 		expect(readBaseline(watch)).toBeUndefined();
 	});
 });
@@ -297,7 +271,7 @@ describe("end to end", () => {
 		});
 		expect(r.stderr).toMatch(/HISTORY TRIMMED \(1\)/);
 		expect(r.stderr).toMatch(/\.claude/);
-		expect(r.status).toBe(0); // WARN never gates
+		expect(r.status).toBe(0);
 	});
 
 	it("never fires where a root is unreadable rather than trimmed", () => {
@@ -317,9 +291,9 @@ describe("end to end", () => {
 	it("names a root new — present now, absent from the baseline — never as trimmed", () => {
 		const watch = path.join(home, "w.jsonl");
 		history(".claude", [NOW - 40 * HOUR]);
-		run({ WFC_HISTORY_TRIM_WATCH: watch }); // baseline knows only .claude
-		history(".claude", [NOW - 40 * HOUR]); // unchanged
-		history(".claude2", [NOW - 3 * HOUR]); // a seat provisioned since
+		run({ WFC_HISTORY_TRIM_WATCH: watch });
+		history(".claude", [NOW - 40 * HOUR]);
+		history(".claude2", [NOW - 3 * HOUR]);
 		const r = run({
 			WFC_HISTORY_TRIM_WATCH: watch,
 			WFC_NOW: new Date(NOW + 25 * HOUR).toISOString(),
@@ -349,11 +323,6 @@ describe("end to end", () => {
 	});
 
 	describe("the dirtied() notice (mantahostels#2665)", () => {
-		/*
-		 * mantahostels#2665: status-report.js's verdict() drops a clean checker's body when
-		 * its LAST line is its own OK:. A failed append leaves a reader something
-		 * to act on, so it must survive that — see lib/check.js's dirtied().
-		 */
 		it("stays silent where the reading landed — the ledger asks nothing of the reader", () => {
 			const watch = path.join(home, "w.jsonl");
 			history(".claude", [NOW - 5 * HOUR]);
@@ -366,10 +335,10 @@ describe("end to end", () => {
 		it("stays silent on a throttled run — nothing was attempted", () => {
 			const watch = path.join(home, "w.jsonl");
 			history(".claude", [NOW - 5 * HOUR]);
-			run({ WFC_HISTORY_TRIM_WATCH: watch }); // first run: recorded
+			run({ WFC_HISTORY_TRIM_WATCH: watch });
 			const r = run({
 				WFC_HISTORY_TRIM_WATCH: watch,
-				WFC_NOW: new Date(NOW + 6 * HOUR).toISOString(), // inside the throttle window
+				WFC_NOW: new Date(NOW + 6 * HOUR).toISOString(),
 			});
 			expect(r.status).toBe(0);
 			expect(r.stderr.trim().split("\n").at(-1)).toMatch(/^OK:/);
@@ -417,8 +386,6 @@ describe("end to end", () => {
 			HOME: home,
 			...seatEnv(home),
 			WFC_NOW: new Date(NOW).toISOString(),
-			/* The harness names the main checkout as the project even for a
-			 * session in a linked worktree. */
 			CLAUDE_PROJECT_DIR: repo,
 		};
 		delete env.WFC_HISTORY_TRIM_WATCH;

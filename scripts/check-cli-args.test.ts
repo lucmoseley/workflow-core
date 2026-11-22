@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which scripts check-cli-args.js finds reading argv by hand rather than
- * through a strict parser, and that `--against HEAD` refuses only a script the
- * commit adds or edits, warning on an untouched one.
- *
- * check-cli-args.js (#920) against fabricated scripts in a throwaway git
- * repo, never this one: the live scripts/ changes with every commit.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here loosens
- * that gate — and a script that runs on `--help` or an unknown flag, the shape
- * that stopped five live sessions at #920, lands unrefused.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -46,8 +34,6 @@ const ON_HELPER =
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "cli-args-"));
-	/* An empty hooks dir, so the scratch repo never runs this checkout's
-	 * Husky gates through its absolute core.hooksPath. */
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "cli-args-hooks-"));
 	git("init", "-q", "-b", "main");
 	git("config", "user.email", "test@example.com");
@@ -129,7 +115,6 @@ describe("check-cli-args", () => {
 		expect(r.out).toContain("Fix: ");
 	});
 
-	// A naive strip ran from the string's slash-star to the next star-slash.
 	it("sees a read after a string holding a comment opener", () => {
 		script(
 			"glob.js",

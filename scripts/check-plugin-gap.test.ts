@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-plugin-gap.js's report names an open adopter-upgrade gap
- * with the exact, paste-safe command that closes it, leaves an install at its
- * pin alone, predicts the #258 ref conflict and surfaces owed steps.
- *
- * The reporter is #243's. The fixture tree comes from
- * `lib/plugin-state-testkit.ts`, shared with the four-record read's own tests
- * (#251 item 13).
- *
- * Every case runs `check-plugin-gap.js --notify` end to end through
- * `runInProcess` and reads the report back out of the hook's
- * `additionalContext`. One pipes the printed commands through `bash -c`,
- * because a paste into bash is the only test of their quoting (#430).
- *
- * It is a SessionStart `--notify` hook whose text reaches the model verbatim:
- * loosen a case and a session in a stale adopter invents its own upgrade
- * sequence, or pastes a command whose quoting runs shell.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -31,12 +13,6 @@ import { appendStepsOwed, declineStepOwed } from "./lib/steps-owed.js";
 const SCRIPT = path.join(__dirname, "check-plugin-gap.js");
 const fixture = adopterFixtures("wfc-check-plugin-gap-");
 
-/**
- * The report as the SessionStart hook hands it to the session, or null where
- * `--notify` prints nothing. `pluginRoot` is the session's CLAUDE_PLUGIN_ROOT,
- * absent for a session with none. Every seat the consent store scans is
- * `configDir`, so a decline a case records there is the one the run reads.
- */
 function report({
 	root,
 	pluginRoot,
@@ -97,14 +73,10 @@ describe("check-plugin-gap.js's report (#243)", () => {
 		expect(text).toContain("pin is v1.1.11, supply is on main, running 1.1.8.");
 		expect(text).toContain("THE THREE `claude` CALLS ARE ONE SEQUENCE");
 		expect(text).toContain("THE COMMITTED PIN IS THE CONSENT TOKEN");
-		// the plugin-rooted absolute path, never a bare `scripts/…` — no
-		// adopter repo carries this file (#245's spec-fidelity finding)
 		expect(text).toContain(`${pluginRoot}/scripts/adopter-consent.js accept`);
 		expect(text).toContain(`${pluginRoot}/scripts/adopter-consent.js decline`);
-		// the install is the session's, never a question for the founder (#5230)
 		expect(text).toContain("this session's to run, not the founder's");
 		expect(text).not.toContain("priced yes/no");
-		// the in-session walk, so no session waits on an exit (#5286)
 		expect(text).toMatch(
 			/walks the migration notes in this session[^\n]*\n {2}node scripts\/(lib\/resolve-core\.js scripts\/)?upgrade\.js$/m,
 		);
@@ -167,11 +139,7 @@ describe("check-plugin-gap.js's corrected reporting (#251)", () => {
 
 		const text = report({ root, pluginRoot, configDir });
 		expect(text).toContain("workflow-core: install behind supply —");
-		// the gap list names one gap, so no `marketplace add` for this pin is
-		// printed; the fragment below still quotes the template form
 		expect(text).not.toContain("marketplace add <url>#v1.1.11");
-		// the old line read "pin is v1.1.11, previously v1.1.11" here, and the
-		// running version — the real previous — never appeared (#251 item 4)
 		expect(text).toContain(
 			"pin is v1.1.11, supply is on v1.1.11, running 1.1.8.",
 		);
@@ -488,8 +456,6 @@ const closed = {
 };
 
 describe("check-plugin-gap.js checks each pre-#1839 hook's WFC_PLUGIN_ROOT (#1168)", () => {
-	/** Installs `hooks` in `root` as bootstrap wrote them before #1839,
-	 * rooted at `at`. */
 	const installHooks = (root: string, at: string, hooks: string[]) => {
 		fs.mkdirSync(path.join(root, ".husky"), { recursive: true });
 		for (const hook of hooks)
@@ -543,8 +509,6 @@ describe("check-plugin-gap.js checks each pre-#1839 hook's WFC_PLUGIN_ROOT (#116
 		const shared = path.dirname(pluginRoot);
 		const seats = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-plugin-seats-"));
 		onTestFinished(() => fs.rmSync(seats, { recursive: true, force: true }));
-		/** A config dir `name` whose `plugins` links to `shared`, beside it so
-		 * no link loops; returns the install as reached through that link. */
 		const seat = (name: string) => {
 			const dir = path.join(seats, name);
 			fs.mkdirSync(dir);

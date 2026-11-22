@@ -66,7 +66,7 @@ const temps = registerTempCleanup();
 
 /** The hook's line ending the gates commit-paths runs before its suite (#1763). */
 const GATES_END = HOOK.split("\n").find((l) =>
-	l.startsWith("# ---- end of the gates"),
+	l.startsWith(": end of the gates"),
 );
 if (GATES_END === undefined)
 	throw new Error("no line ending the pre-lock gates in .husky/pre-commit");

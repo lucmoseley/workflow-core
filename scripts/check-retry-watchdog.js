@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-retry-watchdog.js — says so where the in-turn retry watchdog that rides
- * out a dropped connection (#4815) is off: the live user settings' `env` block
- * lacks one of WATCHDOG_ENV's variables at its value, or the installed Claude
- * Code binary no longer holds one of their names. The usage-limit cap's name is
- * undocumented, in 2.1.319's env schema only, so a CLI update can drop it
- * silently, and then a seat at its plan limit waits for days instead of
- * stopping (#4682).
- *
- * Usage: node check-retry-watchdog.js [<settings.json>]
- *   (default the seat's settings.json, lib/config-dir.js)
- *
- * A missing settings file or binary leaves its half unchecked, neither being
- * the repo's (mantahostels#155 (the checker family's exit-code and severity
- * model)): the other half is still judged, and the check SKIPs only where
- * neither could be. A settings file that will not parse is a fault.
- *
- * WFC_CLAUDE_BIN injects the binary (§N7).
- */
 
 const path = require("node:path");
 const { binaryOf, readWindowsOf } = require("./lib/binary-read.js");
@@ -27,17 +8,12 @@ const { runCheck } = require("./lib/check");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
 
-/* The cap's "1" (ms): a plan-limit 429 asks a longer wait than that, so it
- * fails at once, as with the watchdog off (#4682, read from the 2.1.319
- * bundle). */
 const WATCHDOG_ENV = {
 	CLAUDE_CODE_RETRY_WATCHDOG: "1",
 	CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS: "1",
 };
 
 /**
- * Whether `file` holds `name` as a whole name: CLAUDE_CODE_RETRY_WATCHDOG is
- * a prefix of the others, so the byte after it must end the name.
  * @param {string} file
  * @param {string} name
  */
@@ -47,8 +23,6 @@ const hasWholeName = (file, name) =>
 	);
 
 /**
- * The settings file's `env` block; `{absent}` where there is no file, `{bad}`
- * where it will not read or parse.
  * @param {string} file
  * @returns {{env: Record<string, unknown>}|{absent: string}|{bad: string}}
  */
@@ -69,8 +43,6 @@ function readEnv(file) {
  */
 
 /**
- * The faults of the settings `read` at `file`: one where it will not read,
- * else one per WATCHDOG_ENV variable its env block lacks at its value.
  * @param {string} file
  * @param {{env: Record<string, unknown>}|{bad: string}} read
  * @returns {Fault[]}
@@ -98,8 +70,6 @@ function settingsFaults(file, read) {
 }
 
 /**
- * The faults of the binary `file`: one per WATCHDOG_ENV name it no longer
- * holds. Throws where the file will not read.
  * @param {string} file
  * @returns {Fault[]}
  */
@@ -129,7 +99,7 @@ runCheck({
 		};
 		const settingsPath = ctx.args[0] ?? path.join(configDir(), "settings.json");
 		const read = readEnv(settingsPath);
-		/** Why each half went unchecked. @type {string[]} */
+		/** @type {string[]} */
 		const unchecked = [];
 		if ("absent" in read) unchecked.push(read.absent);
 		else report(settingsFaults(settingsPath, read));

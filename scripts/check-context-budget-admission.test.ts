@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The admission gate (#2033, #2056): `check-context-budget.js --against HEAD`
- * refuses a commit adding a top-level pool rule — a list item or a bold-led
- * paragraph — that docs/pool-admission-ledger.json does not admit, behind
- * `.claude/workflow-core.json`'s `admissionGate`.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -32,7 +26,6 @@ beforeEach(() => {
 		"WFC_RULES_FALLBACK_DIR",
 		fs.mkdtempSync(path.join(dir, "rules-")),
 	);
-	/* No ticket lookup reaches the real tracker. */
 	vi.stubEnv("WFC_GH", stubGhScript(dir, "#!/bin/sh\nexit 1\n").gh);
 	vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
 	config(true);
@@ -116,7 +109,6 @@ function gate() {
 	return { status: r.status, stderr: r.stderr, json: JSON.parse(r.stdout) };
 }
 
-/* The report a session reads, which --json does not stream. */
 function report() {
 	const r = spawnGate();
 	return { status: r.status, text: r.stdout + r.stderr };

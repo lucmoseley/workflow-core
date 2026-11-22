@@ -61,7 +61,7 @@ LOW_TURNS = [
     89,
     76,
     52,
-]  # mantahostels#1148 mantahostels#1150 mantahostels#1145 mantahostels#1034 mantahostels#1106 mantahostels#1191
+]
 
 
 def session_issue(session_id):
@@ -114,8 +114,6 @@ def gh_issue_numbers(label, state="closed"):
 
 
 def build_frame(tally, window=("2026-08-12", "2026-08-23")):
-    """`tally` receives the corpus's skipped files, lines and unkeyed records
-    for the caller to print (#1274)."""
     rows = sea.sessions(tally, window, skill="implement", model="opus")
     medium = [
         r
@@ -149,7 +147,6 @@ def main(argv=None):
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--seed", type=int, required=True)
-    # Six, to match the six `low` tickets mantahostels#1108 reviewed.
     ap.add_argument("--n", type=int, default=6)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)

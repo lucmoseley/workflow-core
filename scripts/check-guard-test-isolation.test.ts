@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-guard-test-isolation.js fails a test running a guard — a
- * bash guard or a Node entry — that logs fail-opens without redirecting
- * CLAUDE_CONFIG_DIR, through shared
- * helpers and unresolved indirection too, and never on a guard merely named
- * (mantahostels#1452).
- *
- * check-guard-test-isolation.js reads call sites, so a throwaway git repo
- * holding a guard (a shell script or a Node entry) and a test file that runs it
- * is the whole fixture;
- * one last case runs it against this repo to prove it finds tests to judge.
- *
- * It is a hard gate in .husky/pre-commit and document-guards.yml: loosen a case
- * and a guard's test fills the live fail-open log with deliberate faults,
- * burying a real one.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -31,18 +15,15 @@ let dir: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-/** Track `rel` with `body`, creating its directory. */
 const track = (rel: string, body: string) => {
 	fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
 	fs.writeFileSync(path.join(dir, rel), body);
 	git("add", "--", rel);
 };
 
-/** The shared lib every guard's fail-open record goes through (mantahostels#147). */
 const guardLog = () =>
 	track("scripts/lib/guard-log.sh", 'gl_log() { : "$CLAUDE_CONFIG_DIR"; }\n');
 
-/** A guard that records its fail-opens, `via` an intermediate lib if given. */
 const guard = (name: string, via?: string) => {
 	guardLog();
 	if (via) {
@@ -53,11 +34,6 @@ const guard = (name: string, via?: string) => {
 	}
 };
 
-/**
- * A Node entry that records its fail-opens through lib/entry-input.js's
- * logger, by way of lib/guard-entry.js, and `via` a lib requiring that if
- * given.
- */
 const nodeGuard = (name: string, via?: string) => {
 	track("scripts/lib/entry-input.js", "module.exports = { logger() {} };\n");
 	track("scripts/lib/guard-entry.js", 'require("./entry-input.js");\n');
@@ -69,7 +45,6 @@ const nodeGuard = (name: string, via?: string) => {
 	}
 };
 
-/** A guard that records nothing — no route to guard-log.sh at all. */
 const quietGuard = (name: string) =>
 	track(`scripts/${name}`, "echo '{}'\nexit 0\n");
 
@@ -644,9 +619,6 @@ describe("the escape hatch and the caller-side cap", () => {
 			"/* isolation-exempt: */\n" +
 				'spawnSync(path.join(__dirname, "guard-x.sh"), []);\n',
 		);
-		// exempt (mantahostels#2082): Same finding path as "fails when it lets the guard inherit the real
-		// CLAUDE_CONFIG_DIR" above, which pins the message — this only proves
-		// the empty marker doesn't suppress it.
 		expect(run().status).toBe(1);
 	});
 

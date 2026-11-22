@@ -1,13 +1,3 @@
-// @vitest-environment node
-// Drives the away-only load (#5472) as a program against fakes of Testlimit,
-// taskkill, tasklist and wevtutil at their WFC_ variables: a start on 15 idle minutes
-// holds memory and starts CPU workers, input stops both and logs the pair,
-// and after a new Kernel-Power 41 `recover` ends the runner and runs git fsck
-// in each repo. Break it and the load either never starts, or keeps loading
-// the laptop after the founder is back or after #5346 is already answered.
-//
-// `run` is a loop a signal ends, so its cases cross the real clock: the
-// loop's own poll, bounded.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -31,7 +21,6 @@ import { writeWindowsTasks } from "./lib/windows-tasks-fake";
 const SCRIPT = path.join(__dirname, "away-load.js");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "away-load-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
-/* Untraced: many polls of the 100 ms loop on a loaded machine. */
 const WAIT_MS = 20_000;
 
 const repoTemplate = defineTemplate((dir) => {
@@ -88,7 +77,6 @@ describe("run", () => {
 			await until("the start", () =>
 				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "hold"),
 			);
-			/* A CPU minute only after the start: the first read takes the log whole. */
 			fs.writeFileSync(
 				env.MEMWATCH_MINUTE_LOG,
 				`${JSON.stringify({ ts: "2026-11-21T19:00:00+0800", cpu_busy_pct: 300, load1: 6 })}\n`,
@@ -105,7 +93,6 @@ describe("run", () => {
 				env.MEMWATCH_WIN_OUT,
 				memwatchReading(epoch() + 1, 1100, 3),
 			);
-			/* The stop is logged, then the holders and workers ended. */
 			await until("the stop", () =>
 				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "stop"),
 			);
@@ -131,7 +118,6 @@ describe("run", () => {
 });
 
 describe("run, by its readings", () => {
-	/** Runs the loop until `test` holds, then ends it with SIGTERM. */
 	async function runUntil(
 		env: Record<string, string>,
 		what: string,
@@ -197,7 +183,6 @@ describe("run, by its readings", () => {
 		expect(
 			events(env.WFC_AWAY_LOAD_LOG).find((e) => e.event === "strays"),
 		).toMatchObject({ onWindows: 4, holders: 3 });
-		/* The run's opening sweep, the strays' and the SIGTERM's. */
 		expect(read(files.calls).match(/\/IM Testlimit64.exe \/F/g)).toHaveLength(
 			3,
 		);

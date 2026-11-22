@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/**
- * mark-pass.js — step 6's marker: the session base and the cut count.
- *
- *   node .claude/skills/concision-pass/scripts/mark-pass.js <cuts> [--base <rev>]
- *
- * Writes `.concision-pass-<session-id>` under the markers directory:
- *
- *   base=<the session's start sha>
- *   findings=<cuts>
- *   route=in-session
- *
- * The markers directory is the Stop backstop's: CLAUDE_PROJECT_DIR, else the
- * directory holding the git common dir, so a pass marked from a throwaway
- * worktree lands where the backstop reads.
- *
- * `base=` is `.concision-base-<session-id>`, written at SessionStart; `--base`
- * is the fallback where none was recorded, never an override (SKILL.md §6).
- *
- * Exit 0 written · 1 usage, a non-numeric count, no base, or a start-point
- * file it cannot read.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("../../../../scripts/lib/atomic-write.js");
@@ -36,9 +14,6 @@ const USAGE =
 	"usage: node .claude/skills/concision-pass/scripts/mark-pass.js <cuts> [--base <rev>]";
 
 /**
- * writeFd, not process.stderr: node drops what is still buffered on a pipe at
- * process.exit (docs/code-standards-base.md §N6).
- *
  * @param {string} msg
  * @returns {never}
  */
@@ -53,9 +28,6 @@ function parseErrorFirstLine(err) {
 }
 
 /**
- * The file's text, or "" where it does not exist. Any other fault dies: a
- * start point read as empty would fall back to --base unannounced.
- *
  * @param {string} file
  */
 function readIfPresent(file) {

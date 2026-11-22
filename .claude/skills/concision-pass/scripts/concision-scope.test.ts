@@ -1,29 +1,4 @@
 // @vitest-environment node
-/*
- * concision-scope.test.ts — concision-scope.js turns steps 1 and 2 of the
- * concision-pass skill into arithmetic, so the whole correctness question is
- * the arithmetic and the boundary (mantahostels#1147, the ticket that scripted it).
- * Break it and step 1 records a wrong net-words figure, or the pass reads a
- * diff that is missing additions.
- *
- * Black-box, in a throwaway repo, per docs/code-standards-base.md §X3: the figure
- * comes out of real `git diff` output, never a hand-built fixture, because a
- * fixture would stop pinning the one thing that can drift — what git actually
- * prints.
- *
- * Every fail-closed case is paired with a positive case proving the ordinary
- * path still counts and still exits 0.
- *
- * MUTATIONS RUN (mantahostels#1114 limb 4): `net` made to ignore removed words;
- * the floor made exclusive; the unresolved path made to report a zero; the
- * hunk-start scan made a `+++`/`---` prefix test again. Each turned exactly one
- * case below red, and was reversed by its inverse edit. For the diff section
- * (#582): the cap check removed (over-cap case); the cap made inclusive (at-cap
- * and untracked cases); the diffs printed in reverse (order case); an untracked
- * file's body charged to the cap; an unresolved path listed as untracked; the
- * section printed with no diff; a table row's padding widened (byte-identical
- * case). Each turned the cases named, or its own, red, and was reversed.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,25 +14,21 @@ let repo: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 
-/** Writes `rel` in the throwaway repo, creating its directory. */
 const write = (rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
 	fs.writeFileSync(path.join(repo, rel), body);
 };
 
-/** Stages `rel` and commits it, returning nothing — the sha is never needed. */
 const commit = (rel: string | string[], message: string) => {
 	git("add", "--", ...[rel].flat());
 	git("commit", "-m", message);
 };
 
-/** Runs the script from inside the repo, as the skill does. */
 const run = (...args: string[]) => {
 	const r = runInProcess(SCOPE, args, { cwd: repo });
 	return { code: r.status, out: `${r.stdout}${r.stderr}` };
 };
 
-/** `n` distinct words, so a count is readable against the fixture. */
 const filler = (n: number) =>
 	Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
 
@@ -84,7 +55,6 @@ describe("net words added, per file", () => {
 		const { code, out } = run(base, "doc.md");
 
 		expect(code).toBe(0);
-		// The whole line changed, so the diff removes 20 and adds 30: net 10.
 		expect(out).toContain("(+30 −20, diff)");
 		expect(out).toMatch(/^\s+10\s+doc\.md/m);
 	});
@@ -109,8 +79,6 @@ describe("net words added, per file", () => {
 
 		const { code, out } = run(base, "doc.md");
 
-		// The `---` line is removed content, not the diff's file header, so it
-		// counts as one removed word: net −1.
 		expect(code).toBe(0);
 		expect(out).toContain("(+0 −1, diff)");
 	});
@@ -171,8 +139,6 @@ describe("fails closed rather than reporting a quiet zero (mantahostels#1147)", 
 		expect(out).toContain("UNRESOLVED");
 		expect(out).toContain("typo.md");
 		expect(out).toContain("check the path");
-		// The path that IS resolvable is still counted — a bad path costs its
-		// neighbours nothing.
 		expect(out).toContain("at or over 150");
 	});
 
@@ -203,17 +169,11 @@ describe("fails closed rather than reporting a quiet zero (mantahostels#1147)", 
 });
 
 describe("the diff it counted from, printed after the total (#582)", () => {
-	/** The total line, which the diff section must follow. */
 	const totalLine = /net words added across \d+ path\(s\)/;
 
-	/** Size of what `git diff` prints for one path. */
 	const diffBytes = (base: string, rel: string) =>
 		Buffer.byteLength(git("diff", base, "--", rel));
 
-	/**
-	 * Commits an empty `doc.md` and rewrites it as one line sized so the diff
-	 * against that commit is exactly `target` bytes, measured off a probe.
-	 */
 	const diffOfSize = (target: number) => {
 		write("doc.md", "");
 		commit("doc.md", "empty");
@@ -243,7 +203,6 @@ describe("the diff it counted from, printed after the total (#582)", () => {
 		expect(tail).toContain("+beta two");
 		expect(tail).toContain("+alpha one");
 		expect(tail.indexOf("+beta two")).toBeLessThan(tail.indexOf("+alpha one"));
-		// Only the named paths — c.md changed too, but was not named.
 		expect(out).not.toContain("gamma");
 	});
 
@@ -280,7 +239,6 @@ describe("the diff it counted from, printed after the total (#582)", () => {
 
 		expect(code).toBe(0);
 		expect(out).toContain("untracked, read the file whole: new.md");
-		// The tracked diff alone sits at the cap, so it still prints.
 		expect(out).toContain("(24000 bytes)");
 		expect(out).not.toContain("withheld");
 	});

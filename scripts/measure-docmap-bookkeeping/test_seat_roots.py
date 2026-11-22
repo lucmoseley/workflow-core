@@ -1,16 +1,3 @@
-"""The whole-corpus scripts here read every seat root (#379).
-
-Each script is spawned as a subprocess with `CLAUDE_CONFIG_DIR` pointed at a
-temp dir and one transcript under each of two further seats, so the test
-exercises the same seat discovery a real run does and never reads the real
-corpus.
-
-CI's pytest step runs this file; these scripts
-gate nothing and are run by hand. Breaking it lets the arbiter's `list` cost
-and the doc-map denial counts be taken from one seat's sessions and read as the
-whole machine's.
-"""
-
 import json
 import os
 import subprocess
@@ -21,7 +8,6 @@ HERE = Path(__file__).resolve().parent
 
 
 def _call(i):
-    """One `session-arbiter.js list` call and its result, as two records."""
     ts = f"2026-09-0{i + 1}T10:00:00Z"
     use = {
         "type": "assistant",

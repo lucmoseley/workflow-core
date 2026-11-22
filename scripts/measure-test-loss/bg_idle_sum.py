@@ -1,6 +1,3 @@
-"""Sum bg_idle.py's rows. Usage: python3 -I bg_idle_sum.py bg_idle.jsonl
-Counting rules: #2812 (the baseline)'s, unchanged."""
-
 import json
 import sys
 

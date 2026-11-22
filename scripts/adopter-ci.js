@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-/*
- * adopter-ci.js — the one job of an adopter's core-owned CI workflow
- * (lib/adopter-ci.js renders it, #5347): the repo's own declared commands,
- * then every shipped tree check whose gate holds here.
- *
- * THE COMMANDS: `check`, `lint` and `typecheck`, each declared one under
- * `sh -c`; then the whole suite exactly as the lander's local tester runs
- * it on a clean checkout (lib/local-tester.js `readRunsAt`): `full_test`,
- * else `test`, its shards in turn, and the plugin's pytest runner where the
- * config routes a Python test path. A `test` that narrows to unpushed work
- * selects nothing here, so such a repo declares `full_test`.
- *
- * THE CHECKS are the registry's `check` entries whose gate holds here
- * (lib/repo-checks-registry.js): the daily repo-checks run's tree half.
- *
- * EVERY STEP RUNS, whatever the one before it returned, so no failure masks
- * another.
- *
- * IN NO SCRIPT FAMILY (§N3): it launches commands and checkers and judges
- * them by exit code alone.
- *
- * IMPLICIT: the workflow's `Commands and shipped checks` step, in an adopter
- * whose config carries `ci`.
- */
 
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
@@ -41,12 +17,11 @@ const { writeFd } = require("./lib/write-fd.js");
 const CI_COMMANDS = ["check", "lint", "typecheck"];
 
 /**
- * Runs one step inside an Actions log group.
  * @param {string} title
  * @param {string} file
  * @param {string[]} args
  * @param {{cwd: string, env?: Record<string, string>}} at
- * @returns {number} its exit code, 1 where it ran to none
+ * @returns {number}
  */
 function step(title, file, args, { cwd, env = {} }) {
 	writeFd(1, `::group::${title}\n`);
@@ -63,7 +38,7 @@ function step(title, file, args, { cwd, env = {} }) {
 /**
  * @param {string} root
  * @param {import("./lib/workflow-core-config.js").Config} cfg
- * @returns {string[]} the title of each command or suite run that failed
+ * @returns {string[]}
  */
 function runCommands(root, cfg) {
 	/** @type {{title: string, command: string, args: string[],
@@ -98,10 +73,9 @@ function runCommands(root, cfg) {
 
 /**
  * @param {string} root
- * @returns {string[]} the title of each check that failed
+ * @returns {string[]}
  */
 function runChecks(root) {
-	/* No token on the job: every tracker entry is SKIP. */
 	const host = readHost(root, () => null);
 	/** @type {string[]} */
 	const failed = [];

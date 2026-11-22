@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-harness-canary.js goes red when a description-less plugin
- * skill is in the start listing or does not load, records the version only on
- * green, and speaks at session start only while red (#2037) or while its
- * state file is unreadable (#3436).
- *
- * The live probe is stubbed: WFC_CLAUDE_BIN points at a stub `claude` that
- * replays the transcript rows recorded from a real 2.1.302 probe
- * (scripts/fixtures/harness-canary-listing.jsonl) into a sandbox
- * CLAUDE_CONFIG_DIR, varied per case.
- *
- * Loosen a case and a harness update can bring ~1,280 tokens back to every
- * adopter start, or break every description-less skill, with this check still green.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,8 +19,6 @@ const FIXTURE = path.join(
 	"harness-canary-listing.jsonl",
 );
 
-/* Rows: [listing, Skill call, loaded body]. The body carries the recorded
- * CANARY-0000, swapped for the nonce in the plugin it is handed. */
 const STUB = `#!/usr/bin/env node
 ${buildAuthStatusNodeBranch()}
 const fs = require("node:fs");
@@ -109,9 +93,6 @@ function seedUnprobed(agoMs: number) {
 	);
 }
 
-/* Real time, not a seam: the probe is a detached process the call does not
- * wait for, so only polling its state file sees it finish. 10 s is a ceiling
- * on a stub that writes one file; a guess. */
 const POLLS = 100;
 const POLL_MS = 100;
 async function until(done: () => boolean) {

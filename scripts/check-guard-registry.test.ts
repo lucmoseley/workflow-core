@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that every parallel-safety rule's backing marker is true — an Enforced
- * or Advisory rule names a guard that exists and is wired — and the script's
- * three later assertions: implicit behaviours (mantahostels#1261), the
- * rule-text store (mantahostels#1644) and the hook `if` narrowing
- * (mantahostels#2212).
- *
- * Tests for scripts/check-guard-registry.js (mantahostels#102): its claims,
- * markers and wiring. Its other subjects have a file each beside this one,
- * `check-guard-registry-*.test.ts` (#4294).
- *
- * It is a hard gate in .husky/pre-commit and document-guards.yml: loosen a case
- * and a rule can claim **Enforced** while its guard is missing or unwired.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -86,15 +72,10 @@ describe("false enforcement claims — the reason the script exists", () => {
 	});
 
 	it("treats a .husky hook as wired by existence", () => {
-		// git runs every file in core.hooksPath by name, so pre-commit is live
-		// without being referenced anywhere. Requiring a reference would make the
-		// repo's real branch guard report as unwired.
 		const root = build({
 			claude: region(
 				"- Stay on `main`. **Enforced** (#110): `.husky/pre-commit` blocks it.",
 			),
-			/* The hook also owes the second assertion its row, since mantahostels#1261
-			 * reaches every .husky hook by existence too. */
 			files: {
 				".husky/pre-commit": "exit 0\n",
 				...implicitRows({
@@ -144,9 +125,6 @@ describe("marker presence", () => {
 	});
 
 	it("does not let Unenforced swallow Unenforceable", () => {
-		// "Unenforced" is a prefix of "Unenforceable". Reading the longer word as
-		// the shorter one would demand an owning issue for a rule no mechanism
-		// could ever check — an UNOWNED finding on a correct rule.
 		const root = build({
 			claude: region(
 				"- Show the diff before committing. **Unenforceable**: nobody can see it.",
@@ -180,8 +158,6 @@ describe("marker presence", () => {
 });
 
 describe("the Advisory marker (#185)", () => {
-	// A wired guard that observes the rule and speaks, never refusing. It owes a
-	// path like Enforced does, and owes no issue.
 	it("accepts an Advisory rule naming a wired path and no issue", () => {
 		const root = build({
 			claude: region(
@@ -238,7 +214,6 @@ describe("the Advisory marker (#185)", () => {
 });
 
 describe("the plain-prose decision seam's Advisory entry (#205)", () => {
-	/* The one live Advisory rule the seam-1 Jev guard backs. */
 	const styleText = fs.readFileSync(
 		path.join(__dirname, "..", ".claude", "output-styles", "core-voice.md"),
 		"utf8",
@@ -333,7 +308,6 @@ describe("a guard path named under Unenforced (mantahostels#2347)", () => {
 	});
 
 	it("tests a path named under Unenforceable too", () => {
-		// The marker branches sit BELOW the test, so none of them can return first.
 		const root = build({
 			claude: region(
 				"- Push when the suite is green. **Unenforceable** (#244): `scripts/guard-push-rules.js` hands you the rule.",
@@ -345,7 +319,6 @@ describe("a guard path named under Unenforced (mantahostels#2347)", () => {
 	});
 
 	it("leaves an Unenforced rule naming no path alone", () => {
-		// The marker's normal case: the guard is unbuilt, so there is no path to test.
 		const root = build({
 			claude: region(
 				"- Nothing makes a session release a file. **Unenforced** (#121): nothing calls it.",
@@ -389,8 +362,6 @@ describe("package.json as wiring (mantahostels#2347)", () => {
 	});
 
 	it("does not let package.json's comments block wire a path", () => {
-		// The comments block describes those same scripts in prose, so reading the
-		// whole file would wire a path by anecdote.
 		const root = build({
 			claude: region(rule),
 			files: {
@@ -409,8 +380,6 @@ describe("package.json as wiring (mantahostels#2347)", () => {
 
 describe("rule boundaries", () => {
 	it("treats indented sub-bullets as continuation, not as separate rules", () => {
-		// The pathspec rule has four sub-cases sharing one enforcement story.
-		// Marking each would be four places to go stale instead of one.
 		const root = build({
 			claude: region(
 				"- Commit by pathspec. **Unenforced**: #117 owns it.",
@@ -482,8 +451,6 @@ describe("regressions found by code review — a gate that passed when it should
 	});
 
 	it("counts a guard named in a workflow run: step as wired", () => {
-		// The other side of the comment-stripping change: a real invocation in a
-		// workflow must still pass, or every CI-run check would report unwired.
 		const root = build({
 			claude: region("- R. **Enforced** (#1): `scripts/guard-x.sh`."),
 			files: {
@@ -496,7 +463,6 @@ describe("regressions found by code review — a gate that passed when it should
 	});
 
 	it("does not count a path outside a hook command as wiring", () => {
-		// The registration is parsed, not grepped: only `command` strings count.
 		const root = build({
 			claude: region("- R. **Enforced** (#1): `scripts/guard-x.sh`."),
 			files: {
@@ -513,8 +479,6 @@ describe("regressions found by code review — a gate that passed when it should
 	});
 
 	it("reports the rule's true file line", () => {
-		// region.body starts mid-BEGIN-line, so body index 0 is already the BEGIN
-		// line and must not be counted twice.
 		const root = build({
 			claude: [
 				"# Heading",
@@ -550,7 +514,6 @@ describe("regressions found by code review — a gate that passed when it should
 
 describe("the region itself", () => {
 	it("fails when no region exists anywhere", () => {
-		// Deleting the delimiters silently drops every rule out of scope.
 		const root = build({ claude: "## Conventions\n\n- Stay on `main`.\n" });
 		const r = run(root);
 		expect(r.code).toBe(1);
@@ -633,9 +596,6 @@ describe("reporting", () => {
 	});
 
 	it("does not mistake ordinary backticked prose for a guard path", () => {
-		// The real branch rule quotes `git worktree add …`, `WFC_ALLOW_BRANCH=1`
-		// and `--no-verify`. Reading any of those as a claimed guard would fail
-		// the repo's one genuinely enforced rule.
 		const root = build({
 			claude: region(
 				'- Stay on `main`; use `git worktree add "$CLAUDE_JOB_DIR/tmp/x" main`, never `--no-verify`, escape with `WFC_ALLOW_BRANCH=1`. **Enforced** (#110): `scripts/guard-branch.sh`.',
@@ -651,8 +611,6 @@ describe("reporting", () => {
 
 describe("the live repository", () => {
 	it("passes against this repo's own CLAUDE.md", () => {
-		// This is the case that catches a guard deleted or unwired later: it runs
-		// against the live repo rather than a fixture.
 		const r = runInProcess(REAL_SCRIPT, [], {
 			env: {
 				...process.env,
@@ -667,7 +625,6 @@ describe("the live repository", () => {
 });
 
 describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
-	/** A hooks file wiring one script, with or without an `if` field. */
 	function wiringWithIf(script: string, ifField?: string): string {
 		return JSON.stringify({
 			hooks: {
@@ -809,7 +766,6 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 	});
 
 	it("does not fault a script wired twice, once narrowed and once bare", () => {
-		// The known limit stated beside HEADER_IF_RE: values aggregate per script.
 		const root = build({
 			claude: region(rule),
 			files: {
@@ -855,7 +811,6 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
 			},
 		});
-		// #!/usr/bin/env bash is line 1, so the declaration is on line 4.
 		expect(
 			run(root).json.findings.find((f) => f.kind === "STALE-IF")?.line,
 		).toBe(4);
@@ -901,7 +856,6 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		});
 		const r = run(root);
 		expect(r.kinds).toContain("UNWIRED-IF");
-		// The declaration is on line 4, past the shebang, as STALE-IF cites it.
 		expect(r.report).toContain(`UNWIRED-IF  ${guard}:4`);
 		const detail = r.json.findings.find((f) => f.kind === "UNWIRED-IF")?.detail;
 		expect(detail).toContain("names this script at all");
@@ -910,8 +864,6 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 	});
 
 	it("wires an exec-form entry whose script path sits in `args` (mantahostels#2266)", () => {
-		// `command` is the bare interpreter, so a reader taking it alone finds no
-		// script and raises UNWIRED-IF against one the file plainly wires.
 		const root = build({
 			claude: region(rule),
 			files: {
@@ -943,7 +895,6 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 	});
 
 	it("still faults an exec-form entry that wires some other script (mantahostels#2266)", () => {
-		// The paired negative: reading `args` must not make every narrowing pass.
 		const root = build({
 			claude: region(rule),
 			files: {
@@ -972,8 +923,6 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 	});
 
 	it("faults a narrowing in a script no rule names and the wiring never mentioned (mantahostels#2234)", () => {
-		// The open question mantahostels#2234 settles: a retired guard kept for reference is
-		// not exempt.
 		const retired = "scripts/guard-retired.sh";
 		const root = build({
 			claude: region(
@@ -1003,7 +952,6 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 	describe("a dispatcher core's manifest row (#3244)", () => {
 		const core = "scripts/lib/x.js";
 
-		/** The dispatcher wired, or not, its manifest running one core under `ifs`. */
 		function dispatched(header: string, ifs?: unknown, wired = true) {
 			return build({
 				claude: region(`- Rule. **Enforced** (#1): \`${DISPATCH_ENTRY}\`.`),
@@ -1088,20 +1036,12 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 });
 
 describe("the checker breaking is not the same event as a rule being false", () => {
-	/**
-	 * Raw runner: these cases are about the process's own outcome, so nothing
-	 * here may assume the output parses.
-	 */
 	function raw(root: string, extra: string[] = []) {
 		const r = runInProcess(
 			path.join(root, "scripts", "check-guard-registry.js"),
 			extra,
 			{
 				stdin: "",
-				/* Off deliberately: with it set, check.js writes the BROKEN message
-				 * to stdout as a ::error:: annotation, and the stdout-discipline
-				 * assertions below are about the non-Actions path. Inheriting it made
-				 * these pass locally and fail on a runner. */
 				env: {
 					...process.env,
 					CLAUDE_PROJECT_DIR: root,
@@ -1117,16 +1057,12 @@ describe("the checker breaking is not the same event as a rule being false", () 
 
 	it("reports an unexpected throw as BROKEN at exit 2, not as a false claim at exit 1", () => {
 		const root = build({ claude: wellFormed() });
-		// .husky exists but is a file, so reading it as a directory throws ENOTDIR
-		// from inside the scan. Exit 1 would say "a rule's stated backing is false",
-		// which is a claim about the repo this run is in no position to make.
 		fs.writeFileSync(path.join(root, ".husky"), "not a directory\n");
 
 		const r = raw(root);
 		expect(r.code).toBe(2);
 		expect(r.stderr).toContain("BROKEN:");
 		expect(r.stderr).toContain("unhandled error in guard-registry");
-		// The stack goes out because at this point nobody knows what happened.
 		expect(r.stderr).toContain("ENOTDIR");
 	});
 
@@ -1148,7 +1084,6 @@ describe("the checker breaking is not the same event as a rule being false", () 
 
 			try {
 				const r = raw(root);
-				// Swallowing this reports OK over scope that was never scanned.
 				expect(r.code).toBe(2);
 				expect(r.stderr).toContain("BROKEN:");
 				expect(r.stderr).toContain("EACCES");
@@ -1163,13 +1098,10 @@ describe("the checker breaking is not the same event as a rule being false", () 
 		const r = raw(root, ["--review", "--json"]);
 
 		expect(r.code).toBe(2);
-		// --review writes anchors and reports no findings, so there is no outcome
-		// to serialise, so the run is refused instead.
 		const envelope = JSON.parse(r.stdout);
 		expect(envelope.outcome).toBe("BROKEN");
 		expect(envelope.summary).toContain("no --json form");
 		expect(envelope.summary).toContain("usage:");
-		// Nothing was anchored: the refusal precedes the write.
 		expect(
 			fs.existsSync(path.join(root, ".claude", "guard-registry-anchors.json")),
 		).toBe(false);
@@ -1177,14 +1109,12 @@ describe("the checker breaking is not the same event as a rule being false", () 
 });
 
 describe("a rule whose text its guard reprints when it denies (mantahostels#1032)", () => {
-	/** Rationale: the checker's "reprinted rules" section (mantahostels#886). */
 	const reprintedSentence =
 		"It commits every dirty tracked file, so it takes a parallel session's " +
 		"uncommitted edits — they need not have staged anything, only have a file open.";
 
 	const rule = `- **Never \`git commit -a\`.** ${reprintedSentence} **Enforced** (#1): \`scripts/guard-x.sh\`.`;
 
-	/** A denying guard in the house shape. */
 	function guard(body: string, header = ""): string {
 		return [
 			"#!/usr/bin/env bash",
@@ -1225,7 +1155,6 @@ describe("a rule whose text its guard reprints when it denies (mantahostels#1032
 		const root = build({
 			claude: region(rule),
 			files: {
-				// A deny built from a variable and an appended heredoc.
 				"scripts/guard-x.sh": [
 					"#!/usr/bin/env bash",
 					'reason="Instead: commit by pathspec."',
@@ -1243,8 +1172,6 @@ describe("a rule whose text its guard reprints when it denies (mantahostels#1032
 	});
 
 	it("moves an appended body rather than copying it, so a variable reused for a warning never reaches the deny (#1865)", () => {
-		/* A copy would leave the warning's body in `rest`, to be appended into
-		 * `reason` with the deny's. */
 		const root = build({
 			claude: region(rule),
 			files: {
@@ -1324,11 +1251,6 @@ describe("a rule whose text its guard reprints when it denies (mantahostels#1032
 	});
 
 	it("is silent where only a path is shared — the live pair mantahostels#964 ruled did not qualify", () => {
-		/*
-		 * mantahostels#964 ruled this pair did not qualify: "already a pointer line; nothing
-		 * to gain". Both halves are verbatim from the tree, so rewording either is
-		 * what should redden this.
-		 */
 		const root = build({
 			claude: region(
 				"- **Every issue-body edit goes through `node scripts/issue-body.js`** — a raw " +
@@ -1367,7 +1289,6 @@ describe("a Node guard's refusal, read from its core (#3001)", () => {
 		"It commits every dirty tracked file, so it takes a parallel session's " +
 		"uncommitted edits — they need not have staged anything, only have a file open.";
 
-	/** An entry running a core through guard-entry.js's run(). */
 	const entry = (lib: string) =>
 		[
 			'const { run } = require("./lib/guard-entry.js");',
@@ -1376,7 +1297,6 @@ describe("a Node guard's refusal, read from its core (#3001)", () => {
 			"",
 		].join("\n");
 
-	/** A core refusing with `text`. */
 	const denying = (text: string) =>
 		`const REASON = ${JSON.stringify(text)};\nconst decide = () => ({ deny: REASON });\nmodule.exports = { decide };\n`;
 
@@ -1451,7 +1371,6 @@ describe("the live delayed-deny guard, mantahostels#964's counter-example", () =
 		"utf8",
 	);
 
-	/** Verbatim from the core's NOOP_REASON. */
 	const quoted =
 		"A no-op command like `true` re-invokes this session — which is why " +
 		"the loop it is meant to break keeps going.";
@@ -1485,9 +1404,6 @@ describe("the live delayed-deny guard, mantahostels#964's counter-example", () =
 		);
 
 	it("declares its timing on the core, so the dispatcher draws no REPRINTED warning even where the rule quotes its refusal", () => {
-		// The pairing asserts nothing unless the quote is still the core's
-		// own wording, so drift in its text fails here rather than going
-		// silent.
 		expect(coreSource).toContain(quoted.replace(/`/g, "\\`"));
 		expect(coreSource).toMatch(/^\s*\/\/\s*deny-timing:\s*delayed\b/m);
 		expect(pollReprints(coreSource)).toEqual([]);

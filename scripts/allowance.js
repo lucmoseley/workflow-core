@@ -1,29 +1,4 @@
 #!/usr/bin/env node
-/*
- * allowance.js — the thin CLI over `lib/allowance.js`, for `dispatch-sessions.js`
- * (a bash caller) to shell out to; `admission.js` (Node) `require`s the lib
- * in-process instead (#293).
- *
- * Usage: node allowance.js [--json] [--config-dir <dir>]
- *          [--cap <members> --session-threshold <pct> --week-threshold <pct>]
- *
- * The printed `claude -p "/usage"` transcript, where the caller has one, is
- * read from STDIN — piped, never a flag, because it can be arbitrarily long
- * and a bash caller already has it in a variable.
- *
- * Exit codes:
- *   0  the reading is trustworthy (`lib/allowance.js#isTrustworthy`): each bar
- *      fresh or one the account does not report, at least one fresh (#3758)
- *   1  it is not — the caller's ceiling refusal is its own to
- *      write; this exit code is trust, never a ceiling verdict (#293 ruling 2)
- *   2  an unknown flag or a value flag with no value (lib/cli-args.js)
- *
- * `--json`'s payload carries `trustworthy`, the exit code's verdict, for a
- * caller that discards the code. `--cap` adds a `cap` key to `--json`'s
- * payload, lib/allowance-cap.js's capOf for `<members>`: `cap.floored` whether
- * that launch is the floor's one member alone, and `cap.error` set, with
- * `cap.launch` 0, where it cannot be sized. Never changes the exit code.
- */
 
 const { readFdAll } = require("./lib/read-fd.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");

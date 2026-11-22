@@ -1,69 +1,4 @@
 #!/usr/bin/env node
-/*
- * archive-closed-children.js — the archival-container recipe of
- * docs/agents/issue-tracker.md §Placing a new issue, as a script (#92; #76
- * declined the alternative — a `map:<n>` label scheme — because no map on any
- * adopter's tracker has ever held more than 30 OPEN children, so only closed
- * history ever reaches GitHub's 100-sub-issue cap, and the core already had
- * this remedy by hand).
- *
- * Named `archive-`, not `check-`/`guard-`/`generate-`/`report-` (§N3): it
- * takes `runCheck`'s five-outcome contract without joining the `check-*`
- * family, per §G4.
- *
- * Moves a map's direct CLOSED children into an archival container, creating
- * the container the first time and reusing it on every later run. The
- * container is found among the map's own children by its TITLE, never a
- * label: a closed container needs no `wayfinder:<type>`
- * (docs/agents/issue-tracker.md:252), and a new label would drag in
- * triage-labels.md's vocabulary and check-issue-labels.js's contradictions for
- * a container that scans as open in neither (#76's resolution comment).
- *
- * ORPHAN RECOVERY: if no container sits among the map's current children, a
- * repo-wide title search (`gh issue list --search`) still might find one —
- * created on an earlier run whose link or close step then failed. That
- * container is reused (linked and/or closed as needed) rather than left to
- * spawn a duplicate.
- *
- * CLOSED CHILDREN THAT ARE THEMSELVES CONTAINERS (a `sub_issues_summary.total`
- * above zero) are never moved. A hand-made archival container predating this
- * script — mantahostels#1459 is one, closed and titled its own way — would otherwise be
- * nested a layer deeper on the very first run. Reported, not fatal.
- *
- * ORDER IS LOAD-BEARING: the container exists (created or found) before
- * anything moves into it, children move before the container is linked, and
- * the container links under the map before it closes. Each move
- * reparents a child away from the map, so the map's own count is already
- * falling by the time the container joins it — linking first risks the exact
- * cap this script exists to relieve.
- *
- * IDEMPOTENT. A run that finds no closed direct child does nothing — in
- * particular it never creates an empty container. A run that finds the
- * container already linked and closed reuses it rather than making a second
- * one, moving in only whatever has closed since; one found linked but not yet
- * closed, or found only by the orphan search, is self-healed in place.
- *
- * THE 7-LAYER CAP IS HIT, NOT WALKED. Moving a closed child into the
- * container adds a layer to its own subtree; a child whose subtree already
- * reaches 7 layers gets a 422 whose prose names "7 layers" back, and this
- * script leaves that one as a direct child of the map, reported, not fatal —
- * the same prose match scripts/link-sub-issue.sh reads for the same cap, and
- * the same residual: a reword of GitHub's message demotes it to a generic
- * failure.
- *
- * NOT HANDLED: the container itself reaching the 100-child cap. Chaining a
- * second container was not built because nothing yet needs it (#76's
- * measurement). A POST that 422s on the container's own cap fails loudly
- * (ARCHIVE-MOVE-FAILED).
- *
- * VERIFIED FROM A SEPARATE READ, never from the mutating calls' own exit
- * codes: the map's sub_issues are re-fetched once, after every move and the
- * link/close attempt, and any closed issue still sitting there — one skipped
- * for 7 layers excepted — is a FAIL, as is the container itself missing or
- * still open where this run expected it linked.
- *
- * Usage: node archive-closed-children.js <map> [--dry-run] [--json]
- */
 
 const { runCheck, brokenError } = require("./lib/check");
 const { runLinkSync } = require("./lib/link-writer.js");
@@ -80,8 +15,6 @@ const {
 	subIssueTotal,
 } = require("./lib/issue-tree");
 
-// `gh api` and `gh issue list --json state` disagree on case ("closed" vs
-// "CLOSED"), and the orphan search goes through the latter.
 /** @param {string | undefined} state */
 const isClosed = (state) => (state ?? "").toLowerCase() === "closed";
 
@@ -92,22 +25,14 @@ runCheck({
 	run: runBody,
 });
 
-/**
- * An archival container as the title search finds it.
- * @typedef {{number: number, id: number, state: string}} Container
- */
+/** @typedef {{number: number, id: number, state: string}} Container */
 
 /**
- * One of the map's sub-issues, as GitHub's REST API returns it — the fields
- * this script reads.
  * @typedef {Container & {title: string, pull_request?: object,
  *   sub_issues_summary?: {total?: number}}} SubIssue
  */
 
 /**
- * A repo-wide title search for a container an earlier run created but never
- * linked. `gh issue list --search` is not exact, so results are filtered to
- * the literal title.
  * @param {string} title
  * @returns {Container | null}
  */
@@ -136,8 +61,6 @@ function findOrphanContainer(title) {
 	const matches = rows
 		.filter((r) => r.title === title)
 		.sort((a, b) => a.number - b.number);
-	// Exact-title duplicates should not exist; the lowest number wins rather
-	// than failing, and a genuine duplicate goes unreported here.
 	return matches[0] ?? null;
 }
 
@@ -165,9 +88,6 @@ function runBody(ctx) {
 	const { containerLike, closedDirect } = sortClosedChildren(kids, container);
 	const containerLikeNote = noteContainerLike(containerLike);
 
-	// A container found unlinked (orphan) or linked but still open needs
-	// repair even where nothing new has closed — the very state a prior
-	// run's failed link or close leaves behind.
 	const containerNeedsRepair =
 		!!container && (orphan || !isClosed(container.state));
 
@@ -201,8 +121,6 @@ function runBody(ctx) {
 		orphan,
 	});
 
-	// Findings do not print themselves: every ctx.fail() below is paired
-	// with the ctx.say() that makes it visible outside --json.
 	/** @param {string} tag @param {string} message @param {object} data */
 	const failSay = (tag, message, data) => {
 		ctx.fail(tag, message, data);
@@ -250,8 +168,6 @@ function runBody(ctx) {
 }
 
 /**
- * The run's result record, under the one noun every outcome counts its
- * findings in.
  * @param {string} okLine
  * @param {object} data
  */
@@ -271,7 +187,6 @@ function readMapArg(ctx) {
 }
 
 /**
- * The map's sub-issues; a gh failure raises with `conclusion`.
  * @param {number} map
  * @param {string} conclusion
  * @returns {SubIssue[]}
@@ -294,9 +209,6 @@ function locateContainer(kids, title) {
 	let container = kids.find((k) => k.title === title) || null;
 	const alreadyLinked = !!container;
 	let orphan = false;
-	// A prior run's failed link can leave the map with NO direct children at
-	// all (the one child it had moved into an unlinked container) — the
-	// orphan search runs even here, before the empty-kids bailout below.
 	if (!container) {
 		container = findOrphanContainer(title);
 		orphan = !!container;
@@ -305,8 +217,6 @@ function locateContainer(kids, title) {
 }
 
 /**
- * The map's closed direct children, split into those that hold sub-issues
- * of their own (never moved) and the rest.
  * @param {SubIssue[]} kids
  * @param {Container | null} container
  * @returns {{containerLike: SubIssue[], closedDirect: SubIssue[]}}
@@ -446,8 +356,6 @@ function createContainer(ctx, map, title) {
  */
 
 /**
- * Moves each closed child into the container; a child already 7 layers deep
- * is left where it is.
  * @param {ArchiveStep & {closedDirect: SubIssue[]}} a
  * @returns {{moved: number[], skipped7Layers: number[]}}
  */
@@ -483,7 +391,6 @@ function moveChildren({ ctx, map, containerNumber, closedDirect, failSay }) {
 }
 
 /**
- * Links the container under the map where it is new or orphaned.
  * @param {ArchiveStep & {needsLink: boolean, alreadyLinked: boolean,
  *   movedCount: number}} a
  * @returns {{linked: boolean, linkFailed: boolean}}
@@ -518,7 +425,7 @@ function linkContainer({
 
 /**
  * @param {ArchiveStep & {linked: boolean, needsClose: boolean}} a
- * @returns {boolean} whether the close was tried and failed
+ * @returns {boolean}
  */
 function closeContainer({
 	ctx,

@@ -1,29 +1,6 @@
 #!/usr/bin/env sh
-# pre-applypatch — the secrets scan on `git am` and `git rebase --apply`
-# (mantahostels#1707).
-#
-# Neither route reaches `pre-commit` or `prepare-commit-msg` (the marker table
-# in scripts/lib/commit-route.js), and `pre-applypatch` is the only hook either
-# offers that can refuse: git aborts the apply on a non-zero exit, before the
-# commit is written.
-#
-# gitleaks ALONE, never the whole stack — the same call and the same reasoning
-# as .husky/prepare-commit-msg's replay path (mantahostels#1706): a rebase replaying N
-# commits would otherwise run N full stacks, and an intermediate state can
-# legitimately fail a cross-file check that only the final state satisfies.
-# THE RESIDUAL is everything else in .husky/pre-commit, unrun on these two
-# routes.
-#
-# A PASS READS NO ROUTE AND STARTS NO NODE, so a clean apply is no slower than
-# its scan. A refusal leaves the operation IN PROGRESS with `rebase-apply/`
-# set, so the message names the abort, which differs between the two routes.
-# The printer writes that refusal to stdout and exits 0 once it has; any other
-# exit, node's own startup failures included, means it printed nothing, and
-# the hook prints its one line instead. Node's stderr is dropped, so a fault
-# reads as that line, not a stack.
 
-set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
-# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+set -e
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
 

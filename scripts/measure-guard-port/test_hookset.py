@@ -1,10 +1,3 @@
-"""Pins hookset.py's selection: which hooks one tool call fires, the set every
-always-on guard port's latency gate is benched over (#2711, #2783).
-
-A hook wrongly kept puts an `if`-narrowed guard into the always-on figure; one
-wrongly dropped hides a guard's cost.
-"""
-
 import json
 import os
 import subprocess

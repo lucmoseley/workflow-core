@@ -1,15 +1,3 @@
-"""Pins that the context-bucket extractor lists parent and subagent
-transcripts from every seat root, not the first alone (#375).
-
-The `seat_roots` fixture points `transcript_corpus`'s seats at temp config
-dirs, so a second seat can be staged and nothing reads the real corpus.
-
-CI's pytest step runs this file; the extractor
-gates nothing and is run by hand. Breaking it lets mantahostels#1081's
-cache-read bucket breakdown silently read a fraction of the corpus and report
-it as the whole.
-"""
-
 import os
 import sys
 

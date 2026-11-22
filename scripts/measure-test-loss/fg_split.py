@@ -1,10 +1,3 @@
-"""Split foreground test-call time into queue wait, vitest time and the rest (wrapper cost before
-and after vitest, plus any other part of the same shell command).
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I fg_split.py blocked.jsonl wfc-runs.jsonl <.suite-queue-exits.jsonl>
-Only main-session WFC rows (transcript file name = session id) in the marker window
-(17 Oct 00:39 on) with exactly one marker started inside the call are used."""
-
 import collections
 import json
 import re

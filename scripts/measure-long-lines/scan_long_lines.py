@@ -1,23 +1,4 @@
 #!/usr/bin/env python3
-"""scan_long_lines.py — mantahostels#1431: which tracked documents hide a physical line
-long enough that a line-oriented read aimed at something else delivers it wholesale.
-
-Prior art, hard-coded to one needle: `scripts/measure-shed-ledger/scan_ledger.py`
-(mantahostels#1407). Here the candidate set is discovered: every physical line at or
-above `--min-line` bytes in the mapped scope (`docs/`, `.claude/`, `AGENTS.md`,
-`CLAUDE.md`, `PRODUCT.md`, `DESIGN.md`), each given a needle taken from its own
-text, then all of them counted in one pass over the transcript corpus.
-
-Validated against mantahostels#1407.
-
-Four bounds. Two understate: subagent transcripts are not scanned, and an
-occurrence outside a `tool_result` — an `Agent` dispatch prompt, say — is not
-counted. One overstates, making every cost a ceiling: a turn after a context
-compaction has dropped the delivery is still charged for re-reading it. The
-fourth cuts either way — the candidate set is today's tree matched against a
-past window, so a line deleted or renamed since is invisible, and a line whose
-opening changed mid-window is undercounted.
-"""
 
 import argparse
 import os
@@ -48,9 +29,6 @@ from delivery_scan import (
 
 SCOPE = ["docs", ".claude", "AGENTS.md", "CLAUDE.md", "PRODUCT.md", "DESIGN.md"]
 
-# Extensions that are binary but survive a NUL test over the first 8 KB — a
-# PDF's compressed streams start well past it, so `trademark-clearance-brief.pdf`
-# otherwise enters the table with a needle of decompression garbage.
 SKIP_EXT = {
     ".pdf",
     ".png",
@@ -66,18 +44,11 @@ SKIP_EXT = {
     ".webp",
 }
 
-# A needle carries no quote and no backslash, so it survives JSON encoding
-# unchanged and can be found in a raw transcript line. Length is not fixed: it
-# starts short, because the line may be *edited* mid-window and only its opening
-# is stable, then grows until the needle is unique across every in-scope file.
-# The start length and the steps are guesses; no collision rate was measured.
 NEEDLE_STEPS = (32, 48, 64, 96, 128, 192)
 NEEDLE_MIN = NEEDLE_STEPS[0]
 
 
 def readable_text(path, tally):
-    """Whether `path` is a text file to read. `tally` is the caller's
-    accumulator: a file that will not open is counted into it."""
     if os.path.splitext(path)[1].lower() in SKIP_EXT:
         return False
     try:
@@ -90,15 +61,10 @@ def readable_text(path, tally):
 
 
 def opening_runs(line, limit=400):
-    """Quote-free, backslash-free runs in the line's opening, in order.
-
-    The 400-byte opening and the 24-byte shortest run are guesses, like
-    NEEDLE_STEPS."""
     return [r.strip() for r in re.split(r'["\\]', line[:limit]) if len(r.strip()) >= 24]
 
 
 def card_id_for(lines, idx):
-    """Nearest preceding roadmap card id, so intent can be tested against it."""
     for j in range(idx, max(-1, idx - 12), -1):
         m = re.search(r'\{id:"([a-z0-9-]+)"', lines[j])
         if m:
@@ -107,14 +73,6 @@ def card_id_for(lines, idx):
 
 
 def candidates(min_line, tally):
-    """Every line at or above `min_line` bytes, each with a unique needle.
-
-    Uniqueness is tested against the whole text of every in-scope file, not just
-    against the other candidates: a needle that collides with ordinary prose
-    charges that prose's bytes to this line, silently.
-
-    `tally` is the caller's accumulator: unreadable files are counted into it.
-    """
     blobs = {}
     for path in git("ls-files", *SCOPE).split("\n"):
         path = path.strip()
@@ -158,10 +116,6 @@ def candidates(min_line, tally):
                     "bytes": nbytes,
                     "needle": needle,
                     "card": card_id_for(lines, i) if path.endswith(".html") else None,
-                    # Intent words come from the line's opening, not the needle:
-                    # the needle is truncated to whatever length made it unique,
-                    # which can cut a word in half and lose the term a session
-                    # would actually have grepped for.
                     "words": sorted(
                         {w for w in re.findall(r"[a-z]{5,}", line[:300].lower())}
                     ),
@@ -182,14 +136,6 @@ def classify(res, path):
 
 
 def intent_of(cand, res, route):
-    """Did the session ask for this line, or did it arrive as collateral?
-
-    Lexical, and it errs in **both** directions, so it is not a floor. It
-    over-counts *deliberate*
-    because it matches the whole tool input, not the command alone. It would
-    over-count *incidental* on a whole-file `Read`, which carries only a path
-    and so can match no content word; that route is left unclassified instead.
-    """
     if route.startswith("Read (whole"):
         return "unclassified"
     hay = intent_text(res)
@@ -237,15 +183,6 @@ def scan(cands, start, end, tally):
 
 
 def sizes_by_date(cands, start, end, tally):
-    """Each candidate line's size at the end of each day in the window.
-
-    A delivery is charged against the line as it stood *that day*, not as it
-    stands today. Lines are found by needle rather than by number, so this
-    survives the edits that shift every line below them.
-
-    `tally` is the caller's accumulator: a revision git will not show is
-    counted into it.
-    """
     by_path = defaultdict(list)
     for c in cands:
         by_path[c["path"]].append(c)
@@ -272,7 +209,6 @@ def sizes_by_date(cands, start, end, tally):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--window", nargs=2, default=["2026-08-20", "2026-08-25"])
-    # A guess, never measured against a read's own cut-off.
     ap.add_argument("--min-line", type=int, default=4000)
     ap.add_argument("--list-only", action="store_true")
     ap.add_argument(
@@ -335,9 +271,6 @@ def main():
         if not e:
             continue
         cost = price(e["byte_turns"])
-        # mantahostels#1407's forward model, not an extrapolation of the window cost: the
-        # delivery rate and the landed *fraction* carry forward, the line's size
-        # does not — it is taken as it stands today.
         exposed = sum(sizes[key].get(day, c["bytes"]) for day, _ in e["deliveries"])
         frac = min(e["bytes"] / exposed, 1.0) if exposed else 1.0
         bwt = e["byte_turns"] / e["bytes"] if e["bytes"] else 0.0

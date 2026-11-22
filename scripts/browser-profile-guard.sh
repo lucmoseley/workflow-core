@@ -1,25 +1,6 @@
 #!/usr/bin/env bash
-# browser-profile-guard.sh — PreToolUse(Bash): refuse a command that would open
-# a URL in the wrong Chrome profile. The Windows default browser and a bare
-# chrome.exe open whichever profile Chrome picks, not the one signed in to this
-# session's account (design-vault#64).
-#
-# The right profile is derived live, only once a trigger word matches (#5339):
-# the session's account is `oauthAccount.emailAddress` in the config dir's
-# `.claude.json`, matched against the `user_name` of each profile in Chrome's one
-# `Local State` (`.profile.info_cache`). No email, no single `Local State`, or no
-# single matching profile leaves it underived: every refusal still fires, naming
-# no profile.
-#
-# Self-contained: it runs as a plugin hook and as the founder's machine copy at
-# ~/.claude/hooks/, so it sources nothing from workflow-core and writes its own
-# deny envelope. `npm run check:settings` holds the machine copy to this file.
-#
-# Named for what it guards, not `guard-*`: the founder's machine copy under
-# ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
 set -uo pipefail
 
-# What cannot be judged passes, named on stderr in place of jq's own text (#5389).
 if ! command -v jq >/dev/null; then
   echo "browser-profile-guard: jq is not installed, so nothing is judged" >&2
   exit 0
@@ -35,11 +16,8 @@ deny() {
   exit 0
 }
 
-# Every trigger below names one of these words, so a command naming none skips
-# the scan and reads neither store.
 grep -qiE 'chrome\.exe|xdg-open|wslview|explorer\.exe|cmd\.exe|start-process|url\.dll|auth +login|npm +login' <<<"$cmd" || exit 0
 
-# Where CLAUDE_CONFIG_DIR is unset, Claude Code keeps `.claude.json` in $HOME.
 config_dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 claude_json=$config_dir/.claude.json
 [[ -z "${CLAUDE_CONFIG_DIR:-}" ]] && [[ ! -f "$claude_json" ]] && claude_json=$HOME/.claude.json
@@ -61,22 +39,6 @@ else
 fi
 picker='Name a profile to the founder by its account, never by its directory; its number in Chrome'"'"'s profile picker is in the machine note the `browser-ladder` skill names.'
 
-# The triggers are matched against what the command would RUN, not its raw text
-# (workflow-core#1547): heredoc bodies, comments and quoted arguments are dropped.
-# Kept, because they run:
-#   - a quoted word before the command word, assignment values included, and a
-#     quoted absolute path ending in .exe wherever it stands;
-#   - the string handed to a shell's `-c`, `eval`, an interpreter's `-c`/`-e`,
-#     cmd.exe, PowerShell or rundll32 — a shell's and eval's re-read the same
-#     way unless built by a substitution, which keeps it whole;
-#   - `$(…)` and backticks, inside double quotes and unquoted heredocs too;
-#   - a heredoc body a shell, interpreter or PowerShell reads as its program
-#     (`bash <<EOF`, `cat <<EOF | sh`, `python3 - <<EOF`), or that is written to
-#     a file the command then runs.
-# A dropped quoted argument that held a URL leaves `"https:"` behind, so
-# `explorer.exe "https://…"` still matches. This is a lexer, not a shell: where
-# it misreads it keeps text. Perl, because a bash character loop is quadratic.
-# Where perl fails, the raw command is matched.
 run=$(
   printf '%s' "$cmd" | perl /dev/fd/3 3<<'PERL'
 use strict;
@@ -86,20 +48,12 @@ my $SHELL_NAMES = 'bash|sh|zsh|dash|ksh|script|su';
 my $INTERP_NAMES = 'node|python3?|perl|ruby';
 my $SHELLS = qr/^(?:$SHELL_NAMES)$/;
 my $INTERPS = qr/^(?:$INTERP_NAMES)$/;
-# Every argument of these is part of the command line they run.
 my $PASSERS = qr/^(?:cmd|powershell|pwsh|rundll32)(?:\.exe)?$/i;
-# Words after which the command word is still to come.
 my $LEADERS = qr/^(?:sudo|doas|nohup|setsid|coproc|env|exec|command|builtin|nice|time|timeout|stdbuf|xargs|watch|export|local|declare|readonly|typeset|if|then|else|elif|do|while|until|!|\{)$/;
 
-# Heredoc bodies dropped while written to a file, as [file, body]: kept after
-# all where the command goes on to run that file.
 my @written;
-# Every command word scan() settles, at any depth.
 my @commands;
 
-# dq($s, $to_end): read a double-quoted span from pos($$s) to its closing quote,
-# or to the end of $$s given $to_end. Returns its text and the substitutions in
-# it, which run.
 sub dq {
   my ($s, $to_end) = @_;
   my $plain = $to_end ? qr/\G(?:[^\\`\$]+|\\.?|\$(?!\())/s : qr/\G(?:[^\\"`\$]+|\\.?|\$(?!\())/s;
@@ -116,22 +70,19 @@ sub dq {
   return ($raw, $subs);
 }
 
-# scan($s, $end): read $$s from pos() up to $end — `)` closing a `$(`, a
-# backtick, or '' for the end — and return what would run.
 sub scan {
   my ($s, $end) = @_;
   my ($out, $word, $in_word, $depth, $line_at, @docs) = ('', '', 0, 0, 0);
-  # The simple command being read.
-  my $before_command = 1;    # its command word is still to come
-  my $after_leader = 0;      # a leader such as sudo or timeout has been read
-  my $leader_option = 0;     # the word read last was a leader's option, such as sudo's -u
+  my $before_command = 1;
+  my $after_leader = 0;
+  my $leader_option = 0;
   my $names_shell = 0;
   my $names_interp = 0;
   my $names_passer = 0;
   my $names_eval = 0;
-  my $strings_run = 0;       # its quoted strings are code it runs
-  my $here_string = 0;       # the word being read follows `<<<`
-  my $redirect_to = 0;       # the word being read follows `>` or `<`
+  my $strings_run = 0;
+  my $here_string = 0;
+  my $redirect_to = 0;
 
   my $end_word = sub {
     return unless $in_word;
@@ -143,7 +94,6 @@ sub scan {
       elsif ($base =~ $LEADERS) { $after_leader = 1 }
       elsif ($after_leader && $word =~ /^-/) { $leader_option = 1 }
       elsif ($after_leader && $word =~ /^[\d.]+[smhd]?$/) { }
-      # An option's value, such as sudo -u's user; a path is taken as the command.
       elsif ($was_option && $word !~ m{/}) { }
       else { $before_command = 0; push @commands, $word }
     }
@@ -159,8 +109,6 @@ sub scan {
     $end_word->();
     ($before_command, $after_leader, $leader_option, $names_shell, $names_interp, $names_passer, $names_eval, $strings_run) = (1, 0, 0, 0, 0, 0, 0, 0);
   };
-  # A quoted span: kept where it runs or names what runs, else reduced to its
-  # substitutions.
   my $quoted = sub {
     my ($q, $text, $subs) = @_;
     $in_word = 1;
@@ -175,8 +123,6 @@ sub scan {
     else { $out .= '"' . $subs . ($text =~ /https?:/i ? 'https:' : '') . '"' }
     $word .= $text;
   };
-  # The heredocs a line opened, read once the line ends: run as a program
-  # where a shell, interpreter or PowerShell on that line has no script argument.
   my $bodies = sub {
     my $how = 'drop';
     my $line = substr($out, $line_at);
@@ -260,9 +206,6 @@ sub scan {
 local $/;
 my $cmd = <STDIN>;
 my $run = scan(\$cmd, '');
-# A written file the command goes on to run, by a shell, an interpreter,
-# `source`, or its path as a command word: its body runs too. A path that is
-# only an argument, such as `--comment-file x.md`, is data.
 for my $w (@written) {
   my ($file, $body) = @$w;
   (my $name = $file) =~ s{.*/}{};
@@ -281,7 +224,6 @@ if grep -qiE 'chrome\.exe' <<<"$run" && ! grep -qiE -- '--profile-directory' <<<
   deny "chrome.exe without --profile-directory opens whichever profile Chrome picks, not this session's. $open_right $picker"
 fi
 
-# Anything that hands a URL to the Windows default browser.
 if grep -qiE '(^|[;&|(`][ ]*)([^ ]*/)?(xdg-open|wslview)([ ]|$)|explorer\.exe[^;&|]*https?:|cmd\.exe[^;&|]*start[^;&|]*https?:|start-process[^;&|]*https?:|url\.dll' <<<"$run"; then
   deny "This opens the URL in the Windows default browser, which opens whichever profile Chrome picks, not this session's. $open_right $picker"
 fi

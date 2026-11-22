@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-report-programs.js — a `report-*` program files through createIssue,
- * never a `gh issue create` of its own (#3454). Its output is
- * check-program-output.js's.
- *
- * Usage:
- *   node check-report-programs.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
- *
- * LEXICAL, over every non-test `scripts/report-*.js`, `.cjs` or `.mjs`, with
- * comments blanked; lib/heresy-scan.js lists and reads the programs (#3555).
- * A breach is an `"issue", "create"` argument pair or an `issue create`
- * string, which files past scripts/lib/tracking-issue.js's createIssue
- * (base §N3; lucmoseley/mantahostels#2762).
- *
- * IMPLICIT:  on every commit staging a scripts/report-* program, refuses any report-* in the tree filing past createIssue, naming the file, line, createIssue and its exemplar.
- * JUSTIFIED: fail-safe — a second filing route drifts from the first.
- * DEFEAT:    --warn caps findings below the gating line; a create through `gh api` on the issues endpoint.
- */
 
 const {
 	REPORT_PROGRAM,

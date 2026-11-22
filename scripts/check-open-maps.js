@@ -1,35 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-open-maps.js — reports an open `wayfinder:map` issue with zero open
- * children (mantahostels#1206), a closed child of an open map whose number is missing
- * from the map's Decisions-so-far / Out-of-scope record (mantahostels#1862), and a map
- * whose sub-issue total (closed ones counted, since that is what GitHub's
- * 100-child cap counts) has reached 90 (#92).
- *
- * An undischarged map's destination is not reached, but no ticket is open
- * toward it — a scoping decision, not in-flight work. Route with
- * `takes:triage` (docs/agents/triage-labels.md). A map whose `takes:` already
- * routes it to a command that moves it is not reported (#2267): it waits on
- * that command, not on a routing decision, and `--json` lists it as `routed`.
- *
- * A missing pointer is a decision that has left the map (mantahostels#1819's instance on
- * mantahostels#1763). Presence of `#<number>` in either section is the whole test —
- * grading the pointer's content is out of scope.
- *
- * WHY THE WEEKLY SWEEP, NOT pick-next.js. Reading a map's children costs one
- * `/sub_issues` call per open map, and selection runs on every invocation, so
- * paying that cost there would tax a command run many times a day. The
- * pointer check adds no further API cost: the maps list call already returns
- * each map's `body`.
- *
- * Deliberately sequential, not fanned out with mapLimit: a weekly,
- * report-only job over a handful of open maps need not rush.
- *
- * WARN, never FAIL: world state, not a commit property (same reasoning as
- * check-stale-claims.js).
- *
- * Usage: node check-open-maps.js [--json]
- */
 
 const { runCheck } = require("./lib/check");
 const { scriptPath } = require("./lib/script-path.js");
@@ -42,24 +11,14 @@ const {
 } = require("./lib/gh");
 const { takesLabel } = require("./lib/takes-label");
 
-// GitHub refuses a 101st sub-issue (docs/agents/issue-tracker.md, "Placing a
-// new issue"); 90 leaves room to archive before the map is ever blocked.
-const NEAR_CAP = 90;
+const GITHUB_SUB_ISSUE_CAP = 100;
+const NEAR_CAP = GITHUB_SUB_ISSUE_CAP - 10;
 
-// `/to-spec` files the map's spec, `/wayfinder` works the map itself, and
-// `/triage` is the routing this finding asks for (#2267). A map under one of
-// these that its command never picks up is reported by the idle alarm,
-// check-idle-efforts.js, once nothing in it has launched for 2 days (#3641).
 const ROUTED_LABELS = ["to-spec", "wayfinder", "triage"].map(takesLabel);
 
-/* A line break, which no section name holds. */
 const LINE_BREAK = /[\n\r\u2028\u2029]/;
 
 /**
- * The lowercased name a `## ` heading gives its section, or null where `line`
- * is no such heading: the text after `##` and a blank, less its outer blanks.
- * A name holding a line break is none, and a heading of blanks alone names ""
- * only where a blank other than a line break follows its first.
  * @param {string} line
  */
 function sectionHeadName(line) {
@@ -74,12 +33,6 @@ function sectionHeadName(line) {
 /** @typedef {Partial<import("./lib/gh.js").IssueRow> & {number: number}} GhIssue */
 
 /**
- * Text of a level-2 (`## `) markdown section by lowercased, trimmed header.
- *
- * Residual: an exact, lowercased `## ` header only — a map that spells its
- * record `### Decisions so far`, or whose `body` is empty, yields no section
- * text, so every closed child reports missing. Accepted per mantahostels#1862: every
- * live map today uses the exact `## ` heading.
  * @param {string} body
  * @returns {Map<string, string>}
  */
@@ -105,12 +58,6 @@ function sections(body) {
 }
 
 /**
- * Whether `#<number>` appears in the map body's Decisions-so-far or
- * Out-of-scope section, as a whole reference (not a prefix of a longer one).
- *
- * Residual: any `#<n>` in-section counts, so an incidental mention
- * ("supersedes mantahostels#9") reads as a pointer. Accepted per mantahostels#1862: presence is the
- * whole test — grading the pointer's content is out of scope.
  * @param {string} body
  * @param {number} number
  */
@@ -133,7 +80,6 @@ function hasPointer(body, number) {
  */
 
 /**
- * Every open `wayfinder:map` issue, pull requests filtered out.
  * @returns {GhIssue[]}
  */
 function openMaps() {
@@ -150,7 +96,6 @@ function openMaps() {
 }
 
 /**
- * The map's sub-issues, or the unreadable row saying why they cannot be read.
  * @param {GhIssue} m
  * @returns {{kids: GhIssue[], unreadable?: undefined} | {unreadable: UnreadableMap, kids?: undefined}}
  */
@@ -174,7 +119,6 @@ function readMapChildren(m) {
 }
 
 /**
- * Whether the map's `takes:` already names a command that moves it.
  * @param {GhIssue} m
  */
 function isRouted(m) {
@@ -182,19 +126,14 @@ function isRouted(m) {
 }
 
 /**
- * Records what one map's children say about it.
  * @param {GhIssue} m
  * @param {GhIssue[]} kids
- * @param {Findings} findings accumulator: each fault the children show is
- *   pushed onto its list
+ * @param {Findings} findings
  */
 function recordMapFindings(m, kids, findings) {
-	// Same filter as wayfinder-frontier.js's openChildren: open, non-PR.
 	const open = kids.filter(
 		(/** @type {GhIssue} */ k) => k.state === "open" && !k.pull_request,
 	);
-	// No sub-issues at all is a different fault — unlinked children, not a
-	// worked-through map — so it goes to `unreadable`, never `undischarged`.
 	if (kids.length === 0) {
 		findings.unreadable.push({
 			number: m.number,
@@ -224,8 +163,6 @@ function recordMapFindings(m, kids, findings) {
 			});
 	}
 
-	// The cap counts every sub-issue, closed ones included — kids.length,
-	// not open.length.
 	if (kids.length >= NEAR_CAP)
 		findings.nearCap.push({
 			number: m.number,
@@ -245,7 +182,6 @@ function reportChildlessMaps(ctx, { undischarged, unreadable }) {
 			"UNDISCHARGED-MAP",
 			`#${m.number} ${m.title} — no open children left, but the map is still open`,
 			m,
-			// Titles move; the map does not (mantahostels#2490).
 			`UNDISCHARGED-MAP\t#${m.number}`,
 		);
 	for (const m of unreadable)

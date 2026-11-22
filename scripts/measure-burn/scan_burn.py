@@ -48,30 +48,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
 from fail_open import expected, fail_open, tallied
 
-# $ per Mtok, Opus 5 API list ratios. `cw` is the 5-minute cache write, 1.25x
-# fresh input; `cw1h` the 1-hour one, 2x (#1203).
 WEIGHTS = {"fi": 15.0, "out": 75.0, "cw": 18.75, "cw1h": 30.0, "cr": 1.50}
-# mantahostels#830's window. Data ended 20 Aug 2026 12:09 UTC, so that day is partial.
 WINDOW = ("2026-07-22", "2026-08-20T12:09")
 CLASSES = ("fi", "out", "cw", "cr")
-# The token classes plus the `cache_creation` split of `cw`, each MAXed per
-# request like the classes.
 TOKEN_FIELDS = CLASSES + ("cw5m", "cw1h")
-# Claude Code's placeholder model, written on a record no API call returned.
 SYNTHETIC = "<synthetic>"
 OVERFLOW_CLI = Path(__file__).resolve().parent.parent / "overflow-sessions.js"
 LABELS = {"fi": "Fresh input", "out": "Output", "cw": "Cache write", "cr": "Cache read"}
 
 
 def writes_by_ttl(tok):
-    """(5-minute, 1-hour) cache-write tokens, as `scripts/lib/session-spend.js`'s
-    `writesByTtl` splits them: the 5-minute share also takes whatever the split
-    does not cover — all of a write from a record with no split."""
     return tok["cw5m"] + max(0, tok["cw"] - tok["cw5m"] - tok["cw1h"]), tok["cw1h"]
 
 
 def class_usd(tok):
-    """$ per token class, the cache write priced at each TTL's rate."""
     w5m, w1h = writes_by_ttl(tok)
     out = {f: tok[f] * WEIGHTS[f] / 1e6 for f in CLASSES if f != "cw"}
     out["cw"] = (w5m * WEIGHTS["cw"] + w1h * WEIGHTS["cw1h"]) / 1e6
@@ -83,8 +73,6 @@ def usd(tok):
 
 
 def split_field(use, key):
-    """One `cache_creation` split field, top-level first as session-spend.js's
-    `flatUsage` reads it: a top-level 0 wins over a nested value."""
     v = use.get(key)
     if v is None:
         v = (use.get("cache_creation") or {}).get(key)
@@ -92,7 +80,6 @@ def split_field(use, key):
 
 
 def tokens(use):
-    """A record's `usage` as the token classes plus the TTL split of `cw`."""
     return {
         "fi": use.get("input_tokens") or 0,
         "out": use.get("output_tokens") or 0,
@@ -108,9 +95,6 @@ def zero():
 
 
 def add_request(acc, tok):
-    """`acc` is the caller's accumulator: the request's token classes are
-    added to it, and the TTL split resolved, so pricing the sum equals summing
-    each request's price."""
     for f in CLASSES:
         acc[f] += tok[f]
     w5m, w1h = writes_by_ttl(tok)
@@ -118,7 +102,6 @@ def add_request(acc, tok):
     acc["cw1h"] += w1h
 
 
-# The tally key for a record carrying neither `requestId` nor `message.id`.
 UNKEYED = "unkeyed"
 UNDATED_SESSIONS = "undated sessions"
 UNDATED_REQUESTS = "undated requests"
@@ -148,8 +131,6 @@ def requests(tally, window=None, keep_records=False):
     for rel, path, is_sub, owner in tc.transcript_files():
         if rel != group_rel:
             yield from _in_window(agg, window)
-            # `path` names the group, not the copy a record came from, so a
-            # transcript on two seats stays one dispatch in the fan-out.
             agg, group_rel, group_path = {}, rel, path
         for rec in tc.records(path, tally, needle='"assistant"'):
             if rec.get("type") != "assistant":
@@ -161,22 +142,9 @@ def requests(tally, window=None, keep_records=False):
             ts = rec.get("timestamp") or ""
             rid = rec.get("requestId") or msg.get("id")
             if rid is None:
-                # Neither id present. A uuid is per-record, so falling back
-                # to it would split one request into several billable units,
-                # so each such record is counted.
                 tally[UNKEYED] += 1
                 rid = rec.get("uuid")
             tok = tokens(use)
-            # Three fields the burn report ignores and the effort-arm
-            # report is built on. All three MAX across the request's
-            # records for the same reason the token fields do: a subagent
-            # transcript streams, so every one of them grows as the
-            # response is produced.
-            #   effort   — top-level, the arm the turn ran in.
-            #   thinking — absent before Claude Code 2.1.228 (12 Aug 2026),
-            #              where it reads 0 rather than missing, so a
-            #              window predating that version looks thinkless.
-            #   tools    — `tool_use` blocks in this turn's content.
             extra = {
                 "effort": rec.get("effort"),
                 "think": (use.get("output_tokens_details") or {}).get("thinking_tokens")
@@ -212,7 +180,6 @@ def requests(tally, window=None, keep_records=False):
                     cur["ts"] = ts
                 if keep_records:
                     cur["seen"].append(tok)
-                # attributionSkill is written on every record of a run.
                 cur["skill"] = cur["skill"] or rec.get("attributionSkill")
                 cur["effort"] = cur["effort"] or extra["effort"]
                 cur["version"] = cur["version"] or rec.get("version")
@@ -222,8 +189,6 @@ def requests(tally, window=None, keep_records=False):
 
 
 def overflow_sessions(session_ids):
-    """Those of `session_ids` the launch record marks overflow. Exits where the
-    record will not read: an unread overflow session would book as plan burn."""
     done = subprocess.run(
         ["node", str(OVERFLOW_CLI)],
         input="\n".join(session_ids),
@@ -250,7 +215,6 @@ def totals(reqs):
 
 
 def unkeyed_warning(tally):
-    """The unkeyed-record warning both reports print, or None at zero."""
     if not tally[UNKEYED]:
         return None
     return (
@@ -260,7 +224,6 @@ def unkeyed_warning(tally):
 
 
 def report(reqs, tally):
-    """`tally` is the Counter `requests` filled for this run."""
     tot = totals(reqs)
     cost = usd(tot)
     tokens = sum(tot.values())
@@ -316,8 +279,6 @@ def report(reqs, tally):
             f"mean {st.mean(cw) / 1000:.1f}k"
         )
     if subs:
-        # The token-class split *within* subagent spend, which no share of the
-        # corpus total can stand in for, and which the defect moved (mantahostels#1420).
         sub_class = class_usd(sub_tok)
         print(
             "  subagent spend by class: "
@@ -346,11 +307,6 @@ def report(reqs, tally):
         print(f"  {s:<26} ${c:>9,.0f}  {c / cost * 100:5.1f}%")
     print()
 
-    # Per-session statistics count `cli` sessions only; mixing the hook-started
-    # `sdk-py` population in makes every session-level median an artefact.
-    # Keyed on `owner`, the same key `sess` uses. Keying this on `sessionId`
-    # instead drops any session whose id and filename stem disagree out of both
-    # the cli and the sdk-py population, silently.
     entry = {
         r["owner"]: r["entrypoint"] for r in reqs if not r["sub"] and r["entrypoint"]
     }
@@ -381,13 +337,14 @@ def report(reqs, tally):
             )
         v = sorted((s["all"] for s in cli), reverse=True)
         for frac, lbl in ((0.5, "50%"), (0.8, "80%"), (0.9, "90%")):
-            run, i = 0.0, 0
-            for i, c in enumerate(v):  # noqa: B007 - `i` is read after the loop (#1272)
+            run, carried = 0.0, 0
+            for c in v:
+                carried += 1
                 run += c
                 if run >= sum(v) * frac:
                     break
             print(
-                f"  top {(i + 1) / len(v) * 100:4.1f}% of sessions carry {lbl} of spend"
+                f"  top {carried / len(v) * 100:4.1f}% of sessions carry {lbl} of spend"
             )
         ctx = sorted(c for s in cli for c in s["ctx"])
         print(
@@ -410,9 +367,6 @@ def report(reqs, tally):
                 f"p90 {durs[int(len(durs) * 0.9)]:.1f}  max {durs[-1]:.0f}"
             )
         print(f"  ({UNDATED_SESSIONS}: {tally[UNDATED_SESSIONS]})")
-    # `all` on both sides, so the share and its denominator count the same
-    # thing. Summing `own` over a denominator that includes every subagent
-    # understates this population against the cli block above.
     sdk = [v["all"] for k, v in sess.items() if entry.get(k) == "sdk-py"]
     if sdk:
         print(
@@ -422,14 +376,6 @@ def report(reqs, tally):
 
 
 def audit(reqs, windowed=False):
-    """Re-verify the two facts the method rests on. True where both hold.
-
-    Prints a PASS/FAIL per fact and returns the verdict, so a corpus that has
-    stopped matching fails the command rather than quietly printing different
-    numbers. `windowed` says whether `reqs` came from a windowed run: fact 1
-    always sweeps the whole corpus, fact 2 reads only `reqs`, and its heading
-    says which.
-    """
     ok = True
     mid_to_rid, rid_to_mid = defaultdict(set), defaultdict(set)
     skipped = Counter()
@@ -454,7 +400,6 @@ def audit(reqs, windowed=False):
     print(f"  message.id with >1 requestId: {many_r:,}")
     print(f"  requestId with >1 message.id: {many_m:,}")
     if not mid_to_rid:
-        # Zero pairs is not a clean 1:1 — it means nothing carried both ids.
         print("  FAIL: no record carried both a message.id and a requestId.")
         ok = False
     elif many_r or many_m:
@@ -466,12 +411,6 @@ def audit(reqs, windowed=False):
     else:
         print("  PASS")
 
-    # Counted apart so a third shape stays visible rather than being absorbed:
-    #   * stream-shaped — output rises, cache fields fixed.
-    #   * cumulative    — every field rises, the later record restating the
-    #                     request's usage in full.
-    # A field that *falls* is neither, and MAX would compose a request that
-    # never happened.
     print(
         f"\n== Fact 2: within-request disagreement is monotonic, so MAX is the rule "
         f"({'windowed' if windowed else 'whole corpus'}) =="
@@ -525,20 +464,12 @@ def audit(reqs, windowed=False):
             continue
         add_request(first, r["seen"][0])
         add_request(mx, r)
-        # mantahostels#830 keyed on (message.id, output_tokens, cache_creation_input_tokens).
-        # message.id is constant within a request, so its key reduces here to
-        # distinct (out, cw) pairs — and it kept the first record of each pair
-        # whole, cache_read included. Grouping on all four fields instead would
-        # be strictly finer and would overstate the replica.
         keep = {}
         for s in r["seen"]:
             keep.setdefault((s["out"], s["cw"]), s)
         for s in keep.values():
             add_request(tuple_key, s)
     base = usd(mx)
-    # The verdict is about the two facts, not the window's population, so an
-    # empty window keeps it rather than failing the run (#1292).
-    # Residual: fact 2 then PASSes having read no request.
     if base <= 0:
         print("  Nothing to compare: no billable request matched.")
         return ok
@@ -553,33 +484,10 @@ def audit(reqs, windowed=False):
     return ok
 
 
-# --- Seat attribution (mantahostels#2607) -------------------------------------------------
-#
-# No transcript record names the account that paid for it, and which root a
-# transcript sits under is not a safe proxy: a session resumed on another seat
-# can leave records under both. `history.jsonl` is the way in — each root
-# keeps its own, and every line carries the `sessionId` of the session that
-# received the prompt.
-#
-# What the join misses is sessions that never received a typed prompt. Its
-# measured coverage is on mantahostels#2607; re-read it with `--by-seat`.
-#
-# No retention cap is documented and nothing archives these files, so a root
-# that starts dropping lines loses that history silently.
 UNATTRIBUTED = "(unattributed)"
 
 
 def seat_map(tally):
-    """(sessionId -> seat label, ids resolving to more than one, seats read).
-
-    An ambiguous id is counted and dropped, never assigned to whichever root was
-    read first: it means the session was resumed on another seat, and splitting
-    its turns between them on the two histories' timestamps is not attempted.
-
-    A root whose history will not open is left out of `read`. `tally` is the
-    caller's accumulator: a line that will not parse is counted into it
-    (#1274).
-    """
     owner, ambiguous, read = {}, set(), []
     for cfg, d in tc.seats().items():
         try:
@@ -604,9 +512,6 @@ def seat_map(tally):
 
 
 def seat_accounts():
-    """seat label -> the account's email, so a row names a subscription rather
-    than a directory. Absent where the config is unreadable: the row then prints
-    its bare label (#1274)."""
     out = {}
     for cfg, label in tc.seats().items():
         try:
@@ -624,14 +529,6 @@ def seat_accounts():
 
 
 def peak_window(points, hours=5):
-    """(peak cost, epoch of the earliest request inside that peak window).
-
-    `points` is (epoch, $) in any order — the sort is what makes the two-pointer
-    sweep correct, the caller appending in transcript order. The window is
-    half-open on the left, so a request exactly `hours` old has already left it.
-    `hours` defaults to the plan's rolling five-hour window. Empty input gives
-    (0.0, None).
-    """
     pts = sorted(points)
     span = hours * 3600
     best, best_at, run, lo = 0.0, None, 0.0, 0
@@ -646,11 +543,6 @@ def peak_window(points, hours=5):
 
 
 def seat_report(reqs, tally):
-    """Spend by seat, and each seat's peak 5-hour window.
-
-    The 5-hour window is the meter that fires an early session limit, and the
-    three 20x Max seats partition rather than pool (docs/effort-guide.md).
-    """
     owner, ambiguous, roots = seat_map(tally)
     emails = seat_accounts()
     cost = usd(totals(reqs))
@@ -727,13 +619,6 @@ def seat_report(reqs, tally):
 
 
 def normalise_bound(ap, raw, flag):
-    """One window bound, in the corpus's own timestamp shape, or None.
-
-    Re-emitted rather than trusted as typed. The filter compares strings, and
-    fromisoformat accepts ISO spellings that sort nowhere near the records they
-    mean: `20260822` and `2026-W35-1` sort above every record, a
-    space-separated `2026-08-22 12:00:00` below every one of its own day.
-    """
     if not raw:
         return None
     try:
@@ -805,7 +690,6 @@ def main(argv=None):
             "Move --until later than --since."
         )
     if since:
-        # The open upper bound is a string no timestamp can reach.
         window = (since, until or "9999")
     elif args.all:
         window = None

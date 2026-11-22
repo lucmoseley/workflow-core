@@ -1,25 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-program-output.js — a program that ends in process.exit writes its
- * output through writeFd, never `console` or a std stream's own write, so a
- * pipe keeps the tail (base §N6; #4018, #3454).
- *
- * Usage:
- *   node check-program-output.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
- *
- * LEXICAL, over every program under scripts/ and .claude/skills/<skill>/scripts/
- * that is not a test, test support (lib/test-kind.js's isTestKind) or a
- * scripts/templates/ file, with comments and literals blanked, so text a
- * program emits as code is no write.
- * One is in scope where it calls `process.exit`, and a `report-*` directly
- * under scripts/ always, read with only its comments blanked. A site is any reach for `console`, `process.stdout.write`
- * or `process.stderr.write`, an alias included. A terminal-only path writes
- * through writeTerminal, which is no site.
- *
- * IMPLICIT:  on every commit staging a scripts/ or skill program, refuses any program in the tree that calls process.exit and writes past writeFd, naming the file, line, writeFd and its exemplar.
- * JUSTIFIED: fail-safe — process.exit drops what node still holds for a pipe, so the tail of a piped report is lost without a word.
- * DEFEAT:    --warn caps findings below the gating line; console reached through a destructure or `globalThis`, an exit reached through an alias, or, outside a report-*, a write inside a template's `${…}`.
- */
 
 const {
 	REPORT_PROGRAM,
@@ -32,8 +11,6 @@ const { isTestKind } = require("./lib/test-kind.js");
 
 const SKILL_PROGRAM = /^\.claude\/skills\/[^/]+\/scripts\//;
 const EXIT = /\bprocess\.exit\s*\(/;
-/* A call is matched whole so its message quotes it; any other reach for
- * console or a std stream, an alias or a bracket access, is matched bare. */
 const OUTPUT =
 	/\b(?:console\s*\.\s*\w+|process\.std(?:out|err)\.write)\s*\(|\bconsole\s*[.[]|\bprocess\.std(?:out|err)\.write\b/g;
 

@@ -1,33 +1,4 @@
 #!/usr/bin/env node
-/*
- * card-restatement-report.js — which docs/doc-map.md §B entries restate a
- * roadmap card, so a session cutting a sentence from that card body can see
- * first whether the sentence is a registered copy.
- *
- * WHY IT EXISTS. check-doc-map.js's DEAD-ANCHOR check only reads locators holding a quoted phrase
- * (check-doc-map.js:952-968) and every roadmap locator is a bare backticked
- * card id (mantahostels#1573), so a cut figure on a card is silent; the restatement COUNT
- * fault fires on a sidecar edit, which is after the session has already
- * decided. `roadmap-edit` SKILL.md §What a card holds runs this before a cut
- * for that reason. Ruled at mantahostels#3191, built at mantahostels#3339.
- *
- * IN NO §N3 FAMILY, DELIBERATELY. `report-*` files a GitHub issue and exits 0;
- * this is a lookup a session runs by hand and reads, and it exits 2 where it
- * cannot answer at all. Its `report:` npm alias is concision-route-report.js's
- * arrangement, not a claim on the family.
- *
- * Usage:
- *   node scripts/card-restatement-report.js <card-id>   one card
- *   node scripts/card-restatement-report.js --audit     the whole roadmap edge set
- *
- * EXIT 2 IS WIDER THAN AN UNREADABLE SIDECAR: it is every state in which no
- * answer can be given — a missing or malformed sidecar, an unreadable or
- * Section-B-less map, and no card id (mantahostels#3339).
- *
- * EXIT 0 WITH A `SKIP:` LINE where there is nothing to look up: the roadmap
- * module off, or a §B holding no entry and a sidecar holding no edge — an
- * adopter's day one, not a fault (#418).
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -43,35 +14,19 @@ const {
 } = require("./lib/doc-map.js");
 const { caught } = require("./lib/caught.js");
 
-/* writeFd, never console or process.stdout.write (§N6): node buffers a
- * pipe and drops what is still buffered at process.exit, and a session reads
- * this through Bash, whose stdout is a pipe. */
 const out = (/** @type {string} */ s) => writeFd(1, s);
 const err = (/** @type {string} */ s) => writeFd(2, s);
 
 const ROADMAP = "docs/reference-roadmap.html";
 
-/* A card id as the sidecar writes it: the whole locator, backticked, nothing
- * else. Read out of the locator rather than off the roadmap, so a card cut from
- * the file still reports the entries that named it. */
 const CARD_LOCATOR = /^`([a-z0-9][a-z0-9-]*)`$/;
 
-/**
- * The card id a locator names, or null where it names something else — a
- * quoted anchor, a section, a compound.
- * @param {string|undefined} locator
- */
+/** @param {string|undefined} locator */
 function cardOf(locator) {
 	return locator ? (locator.match(CARD_LOCATOR)?.[1] ?? null) : null;
 }
 
-/**
- * Every roadmap path in the sidecar, flattened to one row per path. Matched
- * through citationMatcher rather than by equality: the sidecar writes the
- * roadmap both as `reference-roadmap.html` and as `docs/reference-roadmap.html`,
- * and one card is named only by the second.
- * @param {Record<string, {paths: {path: string, locator?: string, gloss?: string}[]}>} data
- */
+/** @param {Record<string, {paths: {path: string, locator?: string, gloss?: string}[]}>} data */
 function roadmapEdges(data) {
 	const rows = [];
 	for (const [id, entry] of Object.entries(data))
@@ -82,12 +37,7 @@ function roadmapEdges(data) {
 	return rows;
 }
 
-/**
- * Each §B entry's heading and its `The claim` line, keyed by id. Where an entry
- * carries no claim line the heading, which states the figure, is what a caller
- * renders — never an empty line.
- * @param {string} mapFile
- */
+/** @param {string} mapFile */
 function readEntryText(mapFile) {
 	const lines = fs.readFileSync(mapFile, "utf8").split("\n");
 	const range = sectionBRange(lines);
@@ -147,8 +97,6 @@ function main(argv) {
 }
 
 /**
- * --audit: the whole roadmap edge set, and each locator that is not a bare
- * card id.
  * @param {ReturnType<typeof roadmapEdges>} rows
  * @returns {number}
  */
@@ -164,7 +112,6 @@ function printAudit(rows) {
 }
 
 /**
- * One card: every §B entry restating it, with its claim line and gloss.
  * @param {string | undefined} card
  * @param {ReturnType<typeof roadmapEdges>} rows
  * @param {ReturnType<typeof readEntryText>} entries

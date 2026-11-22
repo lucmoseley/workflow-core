@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * check-injector-margin.js against synthetic text modules (mantahostels#1915):
- * its exits, the margin it prints, --index's staged reading, and the
- * evaluation that runs nothing of the module, and its in-process run as
- * the pre-commit dispatcher makes it. The row's arming is
- * precommit-injector-margin-gate.test.ts's.
- *
- * A fake module is any CommonJS source exporting the composers the measure
- * calls. The real module's own figures are asserted by
- * lib/inject-tracker-docs.test.ts, which owns that ground; pinning one here
- * would go red on every ordinary rule edit.
- *
- * WHAT STAYS UNVERIFIED: that 10,000 is still the harness's threshold
- * (mantahostels#1868).
- *
- * It is a hard pre-commit gate: loosen a case and a text module
- * whose payload crosses the threshold lands, and the tracker commands silently
- * get a ~2 KB preview of their rules instead of the rules.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -93,7 +74,6 @@ describe("check-injector-margin.js", () => {
 		expect(output).toContain(
 			"← OVER: this payload is persisted to a file, not delivered inline",
 		);
-		// The exit code alone is half of it: a refused commit has to say the way out.
 		expect(output).toContain("replace a paste with a pointer");
 	});
 
@@ -103,8 +83,6 @@ describe("check-injector-margin.js", () => {
 		expect(run().code).toBe(0);
 	});
 
-	// The tight note rides on the SAME LINE as the margin, so a case asserting
-	// only the margin passes either way.
 	it("does not mark exactly one rule of headroom as tight", () => {
 		seed(fakeModule(["alpha"], 9000));
 
@@ -183,8 +161,6 @@ describe("check-injector-margin.js", () => {
 		expect(output).toContain("names no command");
 	});
 
-	// The staged blob may be another session's (a merge, a revert), so it is
-	// evaluated with no `require` to reach anything with.
 	it("reports BROKEN, running nothing, when the module reaches for require", () => {
 		seed(
 			`require("node:fs").writeFileSync("ran", "");\n${fakeModule(["alpha"], 100)}`,
@@ -197,7 +173,6 @@ describe("check-injector-margin.js", () => {
 	});
 
 	it("counts the units the harness slices with, not codepoints", () => {
-		// 5,000 emoji: 5,000 codepoints, 10,000 UTF-16 units — over the line.
 		seed(moduleOf(["alpha"], "\u{1F600}".repeat(5000)));
 
 		const { code, output } = run();
@@ -237,8 +212,6 @@ describe("--index: the commit's bytes", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, stdio: "pipe" });
 
-	/* Stages a /code-review composer whose body is `composer`, beside a
-	 * review-dispatch-shape fragment holding "shape". */
 	const stageCodeReview = (composer: string) => {
 		write(
 			TEXT,
@@ -270,8 +243,6 @@ describe("--index: the commit's bytes", () => {
 		expect(run("--index").code).toBe(0);
 		expect(run().code).toBe(1);
 		git("add", TEXT);
-		// --json, as the index side's report streams to the real stderr, which
-		// runInProcess does not capture.
 		const { code, output } = run("--index", "--json");
 		expect(code).toBe(1);
 		expect(JSON.parse(output).findings).toMatchObject([
@@ -300,10 +271,6 @@ describe("--index: the commit's bytes", () => {
 		expect(JSON.parse(run("--json").output).findings).toEqual([]);
 	});
 
-	/* The dispatcher runs the row in the process every row shares (#5194):
-	 * the fragment store is pinned to the measured root for the read alone,
-	 * so the run reads as its spawned CLI and leaves the environment as it
-	 * found it. */
 	it("runs in-process exactly as spawned, its fragment store pinned to the measured root", async () => {
 		stageCodeReview(
 			'["review-dispatch-shape", "review-deviations-read"].map(h.fragment).join("")',
@@ -321,10 +288,6 @@ describe("--index: the commit's bytes", () => {
 		expect(store()).toEqual(before);
 	});
 
-	/* A store an earlier row or the caller left in the environment is never
-	 * the one measured (#5202): the pin outranks it for the read alone. The
-	 * "runs in-process exactly as spawned" case above is this negative
-	 * assertion's positive pair, printing the fallback note it looks for. */
 	it("reads the measured root's fragments over a stale WFC_RULES_DIR, leaving it set", async () => {
 		stageCodeReview('h.fragment("review-dispatch-shape")');
 		const clean = await inProcess(SCRIPT, ["--index"], root);
@@ -341,7 +304,6 @@ describe("--index: the commit's bytes", () => {
 		expect(store()).toEqual([stale, stale]);
 	});
 
-	/* The routes on which this gate must NOT refuse a commit (mantahostels#1915). */
 	it("SKIPs a commit that stages the text module's deletion", () => {
 		git("rm", "-q", "--", TEXT);
 
@@ -351,8 +313,6 @@ describe("--index: the commit's bytes", () => {
 		expect(output).not.toContain("chars,");
 	});
 
-	/* git reports a rename as R, never D, so a deletion probe could miss it and
-	 * refuse a moved module as BROKEN (#1483). */
 	it("SKIPs a commit that renames the text module away (#1483)", () => {
 		fs.mkdirSync(path.join(root, "bin"));
 		git("mv", "--", TEXT, "bin/tracker-inject-text.js");

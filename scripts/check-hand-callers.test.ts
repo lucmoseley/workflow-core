@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-hand-callers.js FAILs a hand-kept `Caller:` header line in
- * a script, naming file and line, and that --against refuses only a line the
- * commit adds (#4720, #4885).
- *
- * Run against a fabricated tree in a throwaway git repo, never this one.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here loosens
- * that gate.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -45,8 +35,6 @@ const run = (...args: string[]) => {
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "hand-callers-"));
-	/* An empty hooks dir, so the scratch repo never runs this checkout's
-	 * Husky gates through its absolute core.hooksPath. */
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "hand-callers-hooks-"));
 	git("init", "-q", "-b", "main");
 	git("config", "user.email", "test@example.com");

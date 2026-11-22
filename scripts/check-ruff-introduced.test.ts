@@ -1,24 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins that check-ruff-introduced.js refuses only the ruff findings a commit
- * introduces, keyed by code and message rather than line, and honours the
- * adopter's `ruffExclude`.
- *
- * check-ruff-introduced.js (#122), run as the pre-commit hook runs it: a child
- * `node` process in a throwaway repo, its ruff injected at WFC_RUFF.
- *
- * ruff is lib/ruff-testkit.ts's stub, so each case places its own findings;
- * the `with the real ruff` cases pin what the stub cannot know — that ruff's
- * own messages carry line numbers, and that --force-exclude reaches a stdin
- * path. The hook's shell around this checker is
- * scripts/precommit-ruff-gate.test.ts's.
- *
- * It is the Python gate in .husky/pre-commit: loosen a case and new findings
- * land, or a commit is charged for findings the file already had, leaving
- * files nobody can touch.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -67,8 +48,6 @@ function check(
 	}
 	const run = runInProcess(CHECKER, opts.args ?? [], {
 		cwd: r.root,
-		// Pinned, never inherited: the session's own CLAUDE_PROJECT_DIR would
-		// read this repo's config rather than the fixture's.
 		env: { ...process.env, WFC_RUFF: ruff, CLAUDE_PROJECT_DIR: r.root },
 	});
 	const code = run.status;
@@ -76,7 +55,6 @@ function check(
 	return { code, output, calls: readStubCalls(path.join(r.root, ARGS_FILE)) };
 }
 
-/** The value following each occurrence of `flag`, across every call. */
 const valuesOf = (calls: string[][], flag: string) =>
 	calls.flatMap((argv) =>
 		argv.flatMap((a, i) => (a === flag ? [argv[i + 1]] : [])),
@@ -111,8 +89,6 @@ describe("check-ruff-introduced", () => {
 	});
 
 	it("charges a second copy of a finding the file already had once", () => {
-		// Keyed by count as well as by code and message: a set comparison would
-		// wave the second one through as already present.
 		const r = repo({ [PY]: `${NEW}${BODY}` }, { [PY]: `${NEW}${NEW}${BODY}` });
 		const { code, output } = check(r);
 		expect(output).toMatch(/1 of these 2 were already in HEAD/);
@@ -127,8 +103,6 @@ describe("check-ruff-introduced", () => {
 	});
 
 	it("reads a message's `line <n>` as no part of the finding", () => {
-		// F811's message names the line it shadows, so a line added above it
-		// rewrites the message — a key holding the number charges that as new.
 		const r = repo(
 			{ [PY]: "# FINDING F811 Redefinition of unused `os` from line 1\n" },
 			{ [PY]: "# FINDING F811 Redefinition of unused `os` from line 2\n" },
@@ -137,9 +111,6 @@ describe("check-ruff-introduced", () => {
 	});
 
 	it("judges a renamed file against its source's findings", () => {
-		// `git diff --cached --name-only` names the new path alone, whose HEAD
-		// blob does not exist — without the rename lookup a `git mv` charges
-		// every finding the file carried.
 		const r = repo({ [PY]: `${OLD}${BODY}` }, {});
 		r.git("mv", "--", PY, "pkg/moved.py");
 		const { code, calls } = check(r);
@@ -148,8 +119,6 @@ describe("check-ruff-introduced", () => {
 	});
 
 	it("judges the STAGED blob, whatever the worktree holds", () => {
-		// The commit carries the index, so a finding fixed on disk but not
-		// staged is still committed — and one deleted from disk is still judged.
 		const fixed = repo({}, { [PY]: `${NEW}${BODY}` });
 		fs.writeFileSync(path.join(fixed.root, PY), BODY);
 		expect(check(fixed).code).toBe(1);
@@ -180,8 +149,6 @@ describe("check-ruff-introduced", () => {
 	});
 
 	it("hands ruff every blob on stdin, never a path to read", () => {
-		// ruff handed a path lints the worktree copy, and handed none it walks
-		// the whole tree — the unscoped run the gate exists to avoid.
 		const r = repo({ [PY]: `${OLD}${BODY}` }, { [PY]: `${NEW}${OLD}${BODY}` });
 		const { calls } = check(r);
 		expect(calls).toHaveLength(2);
@@ -195,8 +162,6 @@ describe("check-ruff-introduced", () => {
 	});
 
 	it("is BROKEN, naming the failure, when ruff itself fails", () => {
-		// A ruff that cannot run has judged nothing, and passing would wave
-		// through whatever the commit introduced.
 		const r = repo({}, { [PY]: BODY });
 		const { code, output } = check(r, { ruffExit: 2 });
 		expect(output).toMatch(/exited 2 on pkg\/thing\.py/);
@@ -219,15 +184,11 @@ describe("the adopter's `ruffExclude`", () => {
 	});
 
 	it("still forces ruff's exclusion when the host declares none", () => {
-		// A host's own ruff `exclude` binds `ruff check .`; without the flag it
-		// would not bind a path handed on stdin.
 		const r = repo({}, { [PY]: BODY });
 		expect(check(r).calls[0]).toContain("--force-exclude");
 	});
 
 	it("excludes nothing, and says so, when the value is not a list of strings", () => {
-		// Failing open on the exclusion is the stricter reading: nothing
-		// escapes the gate.
 		const r = repo({}, { [scratch]: BODY });
 		writeHostConfig(r.root, { ruffExclude: ".scratch" });
 		const { calls, output } = check(r);
@@ -248,7 +209,6 @@ describe("the adopter's `ruffExclude`", () => {
 });
 
 describe.skipIf(!REAL_RUFF)("with the real ruff", () => {
-	/** A repo carrying the plugin's select, judged by the machine's ruff. */
 	function real(
 		committed: Record<string, string>,
 		staged: Record<string, string>,
@@ -258,7 +218,6 @@ describe.skipIf(!REAL_RUFF)("with the real ruff", () => {
 	}
 
 	it("passes a line added above a pre-existing F811", () => {
-		// ruff 0.16 writes F811 as "Redefinition of unused `os` from line 1".
 		const src = "import os\nimport os\n\nprint(os)\n";
 		const { code, output } = real({ [PY]: src }, { [PY]: `# added\n${src}` });
 		expect(output).toMatch(/no ruff finding introduced/);

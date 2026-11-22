@@ -1,14 +1,3 @@
-"""Pins scan_arbiter.py's pre/post day spans to the corpus it reads (#1324).
-
-The script runs as a subprocess over a temp CLAUDE_CONFIG_DIR, with the
-WFC_CLAUDE_CONFIG_* knobs stripped so no live seat leaks into the corpus.
-
-CI's pytest step runs this file; the scanner
-gates nothing and is run by hand. Breaking it lets the per-day table divide by
-the wrong span, misstating session-arbiter.js's daily tool-output cost before
-and after region claims went live.
-"""
-
 import json
 import math
 import os
@@ -67,7 +56,6 @@ def scan_corpus(tmp_path, *stamps):
 
 
 def test_spans_run_from_the_first_record_to_the_cut_and_on_to_the_last(tmp_path):
-    # CUT is 2026-08-21T16:13:50Z: one call 4 days before it, two 2 days after.
     out = scan_corpus(
         tmp_path, "2026-08-17T16:13:50Z", "2026-08-23T16:13:50Z", "2026-08-23T16:13:50Z"
     )

@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-issue-citations.js reports a cross-reference that leads with
- * the title rather than the number, and a blocker named with no number at
- * all, and SKIPs rather than reading all-clear when gh is unavailable (its
- * gh-failure rule, mantahostels#164).
- *
- * Every case runs with a stub `gh` injected via WFC_GH: no
- * network, no auth, and no dependence on this repo's actual issue state —
- * which is the thing the script reports on and so cannot also be its fixture.
- *
- * The exclusion cases are not hypothetical. `## Blocked by` is the section
- * header /to-tickets emits on every ticket, "None — can start immediately",
- * "Blocked by nothing: …", "**Blocked by nothing**, but …" and "**Blocking
- * question:** none." are how an unblocked ticket says so (fantasy-books carried
- * all four, #2389), and research tickets cite other projects'
- * trackers constantly — each would swamp the report if it counted.
- *
- * It runs daily in the repo-checks run, report-only, and is the only check on
- * the number-first rule: loosen a case and buried citations pile up again, or
- * the report swamps itself and stops being read.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -85,7 +64,6 @@ const stubGh = (issues: Issue[], { failing = false } = {}) =>
 		{ failing },
 	);
 
-/** A stub `gh` answering only a since read, plus `extra`: a cold read fails. */
 const stubSince = (issues: Issue[], extra: Record<string, RouteAnswer> = {}) =>
 	stubGhRoutes(dir, {
 		[SINCE_ISSUES]: page("issuesPage", issues.map(issueRow)),
@@ -271,8 +249,6 @@ describe("number-less blockers", () => {
 	);
 
 	it("flags a half-cited line as NO-NUMBER: one numbered blocker beside a described one", async () => {
-		// mantahostels#26's real form. A bare `#\d+` test passes this and the described half
-		// stays unfindable.
 		const stub = stubGh([
 			{
 				number: 26,
@@ -313,8 +289,6 @@ describe("number-less blockers", () => {
 	});
 
 	it("does not scan comments for blocker prose", async () => {
-		// A comment saying "blocked by the other thing" is conversation, not the
-		// ticket's own recorded state.
 		const stub = stubGh([
 			{
 				number: 26,
