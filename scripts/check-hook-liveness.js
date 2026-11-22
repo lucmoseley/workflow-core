@@ -1279,7 +1279,7 @@ function reportOwnPathFault(ctx, hookPath, fault) {
 
 const REAP_RUN_FILE = "wfc-reap-run.json";
 
-// guess, lucmoseley/mantahostels#2331: an async hook's timeout is inert, so no ceiling ends a run
+// guess, #5622: room over the reaper's 10 × 15 s stop cap
 const REAP_INFLIGHT_MS = 300_000;
 
 /**
