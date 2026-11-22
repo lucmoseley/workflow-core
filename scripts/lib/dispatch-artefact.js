@@ -126,16 +126,13 @@ function artefactPath(prompt) {
 	return null;
 }
 
-/**
- * Agent types that will not create a file, so an artefact line would be a
- * promise they do not keep and the watch would read MISSING on a healthy agent.
- * statusline-setup has no tool that can; Explore and Plan have Bash but are
- * read-only by their own instructions (#565), so a stall in one gives no
- * artefact signal. A named list, not an inference from their tools: an agent
- * definition is not something this hook reads, so a renamed type loses its
- * exemption silently.
- */
-const EXEMPT_AGENT_TYPES = new Set(["statusline-setup", "Explore", "Plan"]);
+// #565, #5496
+const EXEMPT_AGENT_TYPES = new Set([
+	"statusline-setup",
+	"web-fetch",
+	"Explore",
+	"Plan",
+]);
 
 /** Where every supplied artefact lives, under the sanctioned scratch directory. */
 const AGENTS_DIR = path.join(".claude", "tmp", "agents");
@@ -240,52 +237,53 @@ function agentTypeOf(call) {
 		: "";
 }
 
+const VERDICTS =
+	"A `DONE` means the agent has stopped: read its report, or take over from its artefact where it sent none. A `STALLED` or `MISSING` means abandon the agent.";
+
 /**
  * @param {string} file
- * @param {(file: string) => string} watch the watch command for a path
+ * @param {(file: string) => string} watch
+ * @param {boolean} job
  * @returns {string}
  */
-function buildWatchSentence(file, watch) {
-	return `Watch it with one backgrounded \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, then end the turn. When the agent's completion notification arrives, \`TaskStop\` the watcher first. A \`STALLED\` or \`MISSING\` before it means abandon the agent.`;
+function buildWatchSentence(file, watch, job) {
+	if (job)
+		return `This session is a background job: hold the turn on \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says. ${VERDICTS}`;
+	return `Watch it with one backgrounded \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, then end the turn. When the agent's completion notification arrives, \`TaskStop\` the watcher first. ${VERDICTS}`;
 }
 
 /**
- * The artefact transform over one `Agent` call's input: the call with its
- * prompt given a line, and what the session is told, or null where the call
- * needs nothing — a usable marker already, or a call isWatchable() refuses.
- *
- * @param {Record<string, unknown>} call the tool_input object
- * @param {string} file the path to supply
- * @param {(file: string) => string} watch the watch command for a path
+ * @param {Record<string, unknown>} call
+ * @param {string} file
+ * @param {(file: string) => string} watch
+ * @param {boolean} [job]
  * @returns {null | {input: Record<string, unknown>, note: string}}
  */
-function injectArtefact(call, file, watch) {
+function injectArtefact(call, file, watch, job = false) {
 	if (!isWatchable(call)) return null;
 	const prompt = withArtefact(call.prompt, file);
 	if (prompt === null) return null;
 	return {
 		input: { ...call, prompt },
-		note: `This dispatch's prompt named no usable artefact, so the dispatch hook gave it one: ${file}. ${buildWatchSentence(file, watch)}`,
+		note: `This dispatch's prompt named no usable artefact, so the dispatch hook gave it one: ${file}. ${buildWatchSentence(file, watch, job)}`,
 	};
 }
 
 /**
- * What the session is told about a call whose prompt names its own usable
- * artefact, or null (#2013).
- *
- * @param {Record<string, unknown>} call the tool_input object
- * @param {(file: string) => string} watch the watch command for a path
- * @param {string} [home] the home directory a `~/` path names
+ * @param {Record<string, unknown>} call
+ * @param {(file: string) => string} watch
+ * @param {string} [home]
+ * @param {boolean} [job]
  * @returns {string|null}
  */
-function buildWatchNote(call, watch, home) {
+function buildWatchNote(call, watch, home, job = false) {
 	if (!isWatchable(call)) return null;
 	const named = artefactPath(call.prompt);
 	if (named === null) return null;
 	/* The watch command quotes its path and a quoted tilde reaches the watcher
 	 * literally, so `~/` is expanded here; left as written where it cannot be. */
 	const file = expandHome(named, home) ?? named;
-	return `This dispatch names its artefact: ${file}. ${buildWatchSentence(file, watch)}`;
+	return `This dispatch names its artefact: ${file}. ${buildWatchSentence(file, watch, job)}`;
 }
 
 module.exports = {

@@ -24,7 +24,8 @@
  *   * the session is told the path and the watcher command to watch it with,
  *     the prompt's own artefact path where it names one, a leading `~/` read
  *     against HOME; a dispatch with no artefact to watch is told to end the
- *     turn;
+ *     turn. A background job, `CLAUDE_JOB_DIR` set, is told instead to hold
+ *     the turn on a foreground wait (rule:job-holds-turn, #5496);
  *   * the model and effort move by the current mode's row in the routing
  *     file, an overflow seat's session never taking burn mode (#4919);
  *   * a named model the effort guide routes away from (lib/dispatch-rules.js)
@@ -36,7 +37,8 @@
  *     (#4992);
  *   * a dispatch from inside a subagent, `agent_id` on the payload, is DENIED
  *     with rule:dispatch-grandchild;
- *   * `statusline-setup`, which has no tool that can create a file, and
+ *   * `statusline-setup` and `web-fetch`, which have no tool that can create
+ *     a file, and
  *     Explore and Plan, read-only by their own instructions (#565), are exempt
  *     by name (lib/dispatch-artefact.js's EXEMPT_AGENT_TYPES), and so is an
  *     `isolation: "remote"` dispatch, which cannot write a local path. A fork
@@ -114,20 +116,18 @@ const [TIER_RULE = "", SEARCH_RULE = ""] = EMITTED.injectRules;
 /** Told where no artefact is watched: an exempt or remote agent. */
 const END_TURN =
 	"While this agent runs, end the turn: its completion notification wakes this session, so a poll learns nothing.";
+const HOLD_TURN =
+	"This session is a background job: hold the turn until this agent reports (`rule:job-holds-turn`).";
 
 /**
- * Every change to one `Agent` call, and what the session is told of it.
- *
- * @param {unknown} input the tool_input object
- * @param {{file: string, burn: boolean, home?: string, inherited?: string, table: ModelTable | null}} opts
- *   the artefact path to supply where one is needed, whether burn mode is on,
- *   the home directory a prompt's `~/` artefact names, the session's own
- *   model, and the model table
+ * @param {unknown} input
+ * @param {{file: string, burn: boolean, home?: string, inherited?: string, job?: boolean, table: ModelTable | null}} opts
  * @returns {null | {artefact: string | null, rules: string[], context: string, updatedInput?: Record<string, unknown>}}
- *   the artefact supplied, if any; the ids of the rules it tripped (#2013);
- *   the notes, joined; and the call as rewritten, where it changed
  */
-function rewrite(input, { file, burn, home, inherited = "", table }) {
+function rewrite(
+	input,
+	{ file, burn, home, inherited = "", job = false, table },
+) {
 	if (input === null || typeof input !== "object") return null;
 	const asked = /** @type {Record<string, unknown>} */ (input);
 	let call = asked;
@@ -137,13 +137,16 @@ function rewrite(input, { file, burn, home, inherited = "", table }) {
 	const rules = [];
 	let artefact = null;
 
-	const artefacted = injectArtefact(call, file, watchCommand);
+	const artefacted = injectArtefact(call, file, watchCommand, job);
 	if (artefacted) {
 		call = artefacted.input;
 		notes.push(artefacted.note);
 		artefact = file;
 	} else {
-		notes.push(buildWatchNote(call, watchCommand, home) ?? END_TURN);
+		notes.push(
+			buildWatchNote(call, watchCommand, home, job) ??
+				(job ? HOLD_TURN : END_TURN),
+		);
 	}
 	const remapped = table ? table.remapModel(call, burn, inherited) : null;
 	if (remapped) {
@@ -280,6 +283,7 @@ function decide(_prompt, ctx) {
 			burn,
 			home: ctx.env.HOME,
 			inherited,
+			job: Boolean(ctx.env.CLAUDE_JOB_DIR),
 			table,
 		});
 	} catch (e) {

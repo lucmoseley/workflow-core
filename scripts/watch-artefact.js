@@ -18,6 +18,8 @@
  *   MISSING  4  never present by the first check at or past the first-write
  *               deadline, or absent at two consecutive checks once seen
  *   CEILING  5  the ceiling came before a stall
+ *   DONE     6  the agent's log reads stopped: it has finished, whether or
+ *               not the artefact grew
  *   (bad invocation, or a path that cannot be stat'd: 2, on stderr; a crash: 1)
  *
  * Last growth on the verdict line is the check that saw it, not the write
@@ -43,13 +45,15 @@
  * interval would compare unequal windows, so reaching it reports CEILING
  * unjudged.
  *
- * GIVEN THE AGENT'S OWN LOG (`--log`, the launch result's `output_file`), A
- * CHECK THAT SEES NO GROWTH READS IT FIRST (#5421): a call in flight
- * (lib/subagent-log-state.js) counts as growth, so an agent waiting on a long
- * tool call or model turn never draws STALLED or MISSING, and a hung one
- * draws CEILING. A log that will not read is judged on growth alone, said
- * once on stderr. Without a log, it cannot tell a stalled agent from a
- * finished one.
+ * GIVEN THE AGENT'S OWN LOG (`--log`, the launch result's `output_file`),
+ * EVERY CHECK READS IT AHEAD OF THE GROWTH TEST (lib/subagent-log-state.js).
+ * A log reading stopped is DONE (#5496); the log is also read between
+ * checks, every LOG_POLL_MS or a quarter interval if shorter, so the wait
+ * after an agent finishes is seconds, not two intervals. A call in flight
+ * counts as growth (#5421), so an agent waiting on a long tool call or model
+ * turn never draws STALLED or MISSING, and a hung one draws CEILING. A log
+ * that will not read is judged on growth alone, said once on stderr. Without
+ * a log, it cannot tell a stalled agent from a finished one.
  *
  * Joins no §N3 family: it is a tool an agent runs, not a check, guard,
  * generator or reporter, and its exit codes are its verdicts.
@@ -63,8 +67,10 @@ const { readSubagentLogState } = require("./lib/subagent-log-state.js");
 
 const DEFAULT_CEILING_S = 3600;
 const DEFAULT_FIRST_WRITE_S = 600;
+// #5496: guess
+const LOG_POLL_MS = 5000;
 
-const EXIT = { USAGE: 2, STALLED: 3, MISSING: 4, CEILING: 5 };
+const EXIT = { USAGE: 2, STALLED: 3, MISSING: 4, CEILING: 5, DONE: 6 };
 
 const ADVICE = {
 	STALLED:
@@ -73,6 +79,7 @@ const ADVICE = {
 		"never written by the first-write deadline, deleted, or the wrong path",
 	CEILING:
 		"the ceiling came before two checks without growth; re-run the watch to keep waiting",
+	DONE: "the agent has stopped; read its report, or take over from its artefact where it sent none",
 };
 
 // This file's own path, which in an adopter is the plugin's, not `scripts/`.
@@ -136,15 +143,14 @@ class SizeTrack {
 	}
 
 	/**
-	 * @param {number | null} now the size at this check
-	 * @param {number} elapsedMs since the start
-	 * @param {() => boolean} inFlight whether the agent has a call in flight,
-	 *   asked only of a check that saw no growth
+	 * @param {number | null} now
+	 * @param {number} elapsedMs
+	 * @param {boolean} inFlight
 	 * @returns {"MISSING" | "STALLED" | null}
 	 */
 	observe(now, elapsedMs, inFlight) {
 		const grew = now !== null && now !== this.size;
-		if (!grew && inFlight()) {
+		if (!grew && inFlight) {
 			this.idle = 0;
 			this.absent = 0;
 			this.size = now;
@@ -205,25 +211,26 @@ async function main() {
 	const tracker = new SizeTrack(readSizeOf(file), firstWriteMs);
 	writeFd(
 		2,
-		`watch-artefact: watching ${file} every ${intervalMs / 1000}s, first write by ${firstWriteMs / 1000}s, ceiling ${ceilingMs / 1000}s, ${log ? `reading the agent log ${log} before a stall` : "on growth alone, no agent log"}\n`,
+		`watch-artefact: watching ${file} every ${intervalMs / 1000}s, first write by ${firstWriteMs / 1000}s, ceiling ${ceilingMs / 1000}s, ${log ? `reading the agent log ${log}, DONE once it reads stopped` : "on growth alone, no agent log"}\n`,
 	);
 
 	let unreadSaid = false;
-	const inFlight = () => {
-		if (!log) return false;
+	/** @returns {"in-flight" | "stopped" | "unread" | "none"} */
+	const readLogState = () => {
+		if (!log) return "none";
 		const read = readSubagentLogState(log);
 		if (read.state === "unread") {
 			if (!unreadSaid)
 				writeFd(2, `watch-artefact: ${read.why}; judging on growth alone\n`);
 			unreadSaid = true;
-			return false;
 		}
-		return read.state === "in-flight";
+		return read.state;
 	};
 
 	/** @param {keyof typeof ADVICE} verdict */
 	const finish = (verdict) => {
-		const { size, lastGrowth } = tracker;
+		const { lastGrowth } = tracker;
+		const size = verdict === "DONE" ? readSizeOf(file) : tracker.size;
 		const at =
 			lastGrowth === null ? "none" : new Date(lastGrowth).toISOString();
 		writeFd(
@@ -233,17 +240,32 @@ async function main() {
 		process.exit(EXIT[verdict]);
 	};
 
+	const logPollMs = Math.min(LOG_POLL_MS, intervalMs / 4);
+	/** @param {number} until */
+	const pollLogUntil = async (until) => {
+		if (!log) return;
+		for (let at = Date.now() + logPollMs; at < until; at += logPollMs) {
+			await sleep(at - Date.now());
+			if (readLogState() === "stopped") finish("DONE");
+		}
+	};
+
+	if (readLogState() === "stopped") finish("DONE");
 	for (let check = 1; ; check++) {
 		const due = start + check * intervalMs;
-		if (due > start + ceilingMs) {
-			await sleep(start + ceilingMs - Date.now());
+		const ceiling = start + ceilingMs;
+		await pollLogUntil(Math.min(due, ceiling));
+		if (due > ceiling) {
+			await sleep(ceiling - Date.now());
 			finish("CEILING");
 		}
 		await sleep(due - Date.now());
+		const state = readLogState();
+		if (state === "stopped") finish("DONE");
 		const verdict = tracker.observe(
 			readSizeOf(file),
 			check * intervalMs,
-			inFlight,
+			state === "in-flight",
 		);
 		if (verdict) finish(verdict);
 	}

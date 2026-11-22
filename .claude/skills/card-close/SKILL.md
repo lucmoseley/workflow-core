@@ -103,7 +103,7 @@ Then **write the log** — the session that has read the whole ticket holds synt
 
 Done when the log names an action to take, and every judgement call it made is listed with its rejected alternative.
 
-**Then write the closure back to any source document that declared this work open in its own words** — a gap ledger, a `Disposition: worth a ticket` row, a "no card covers this" line, a "parked — revisit as a card" note. `docs/adr/0006-disposal-writes-back-to-source.md` rules it: an editable source has its declaring line edited in place or deleted, a `derived` or `generated-only` one is written back at its generator's input, never by hand, a declaration that is an aged sidecar marker (`docs/doc-map-classes.json` `role`) is cleared there, and a file that merely mentions the area takes nothing. Grep the card slug and the work's own words for the declaration; where none exists, nothing is owed. Carry whatever you edit into step 7's pathspec.
+**Then write the closure back to any source document that declared this work open in its own words** — a gap ledger, a `Disposition: worth a ticket` row, a "no card covers this" line, a "parked — revisit as a card" note — by the routes the `roadmap-edit` skill's step 3 gives. Carry whatever you edit into step 7's pathspec.
 
 ### 4. Roadmap edit — via the `roadmap-edit` skill
 

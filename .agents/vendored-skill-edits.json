@@ -100,14 +100,14 @@
 			"why": "the frontmatter description removed, so the skill leaves the start listing"
 		},
 		".agents/skills/domain-modeling/ADR-FORMAT.md": {
-			"editedHash": "cce73834bd9b90034b52441db15c2c8ea2caf9bb27f1eff501a3a454deb5c882",
-			"issue": 3358,
-			"why": "the superseded Status and Considered Options optional sections removed; a changed decision's ADR is edited in place and a reversed one deleted; the rejected-alternatives qualifier recast as recording a rule against a tempting alternative; a deleted record's number is never reused (#2259 rows 1-2, #3358)"
+			"editedHash": "82dafd57ad313f9291162c8057f68286a5963597b61a00f015209f8d60820aba",
+			"issue": 5474,
+			"why": "the superseded Status and Considered Options optional sections removed; a changed decision's ADR is edited in place and a reversed one deleted; the rejected-alternatives qualifier recast as recording a rule against a tempting alternative; a deleted record's number is never reused (#2259 rows 1-2, #3358); the bar adds architectural shape, a process rule going to its shipped owner and a behaviour contract to its test, an optional Options line is added, and an ADR is bounded to one page (#5459)"
 		},
 		".agents/skills/domain-modeling/SKILL.md": {
-			"editedHash": "96bd3a9fba6de5abc2bb3119ef596c038d54429f33ce9b66b878dd0bcf8ef311",
-			"issue": 2334,
-			"why": "an ADR is committed only after a concision pass (#1407 row 1); the frontmatter description removed, so the skill leaves the start listing (#2036)"
+			"editedHash": "c27b11a9bccb7f75b7dc5cd4f42433b1d6e7da8b57ca2415bbc6d7cd2bd63456",
+			"issue": 5474,
+			"why": "an ADR is committed only after a concision pass (#1407 row 1); the frontmatter description removed, so the skill leaves the start listing (#2036); the ADR bar adds architectural shape, a process rule going to its shipped owner and a behaviour contract to its test (#5459)"
 		},
 		".agents/skills/grilling/SKILL.md": {
 			"editedHash": "31930f77c987cc0ac3ec398d8d0fc07db03a272df8e800ea4d8385b794a1c4c8",

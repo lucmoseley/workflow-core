@@ -1941,6 +1941,15 @@
 		],
 		"reader": "both"
 	},
+	"docs/environment-incidents.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Environment incidents",
+		"route": "Direct; one entry per measured incident, re-verified against the logs it cites",
+		"consumes": null,
+		"reader": "both"
+	},
 	"docs/environment.md": {
 		"section": "Governance & process docs",
 		"class": "source-of-truth",

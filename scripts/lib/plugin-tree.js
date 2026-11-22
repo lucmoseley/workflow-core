@@ -150,6 +150,8 @@ const COPIED = [
 	/* The machine's limits and the guards' figures, which their text sends a
 	 * session to (#1452). */
 	"docs/environment.md",
+	/* #5499 */
+	"docs/environment-incidents.md",
 	/* The standards base, read at runtime: every review route hands it over
 	 * from here, beside the host's own local file, which never ships (#967). */
 	STANDARDS_DOCS.base,
@@ -236,9 +238,6 @@ const DOC_NAMES_AS_DATA = new Set([
  * fails the release until judged; one added beside a registered pair passes
  * unseen. */
 const CITED_NOT_READ = new Set([
-	// the ruling's routes stated where it is cited
-	".claude/skills/roadmap-edit/SKILL.md docs/adr/0006-disposal-writes-back-to-source.md",
-	".claude/skills/card-close/SKILL.md docs/adr/0006-disposal-writes-back-to-source.md",
 	// provenance of a figure or list the tool prints from its own data
 	"scripts/count-guard-fires.js docs/research/always-loaded-shed-candidates.md",
 	// the core's own pool and evidence, given as the example the method rests on

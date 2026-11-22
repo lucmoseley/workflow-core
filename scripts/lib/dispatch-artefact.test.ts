@@ -236,6 +236,10 @@ describe("injectArtefact — the transform over one Agent call", () => {
 			{ prompt: "Do it.", subagent_type: "statusline-setup" },
 		],
 		[
+			"web-fetch, which has no tool that can create a file (#5496)",
+			{ prompt: "Do it.", subagent_type: "web-fetch" },
+		],
+		[
 			"Explore, read-only by its own instructions (#565)",
 			{ prompt: "Do it.", subagent_type: "Explore" },
 		],
@@ -266,6 +270,18 @@ describe("buildWatchNote — a prompt that names its own artefact (#2013)", () =
 		);
 		expect(note).toContain("`watch .claude/tmp/x.md`");
 		expect(note).toContain("then end the turn");
+		expect(note).toContain("A `DONE` means the agent has stopped");
+	});
+
+	it("holds a background job's turn on a foreground watch instead (#5496)", () => {
+		const note = buildWatchNote(
+			{ prompt: "Artefact: .claude/tmp/x.md" },
+			watch,
+			undefined,
+			true,
+		);
+		expect(note).toContain("hold the turn on `watch .claude/tmp/x.md`");
+		expect(note).not.toContain("end the turn");
 	});
 
 	it.each([

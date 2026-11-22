@@ -1,34 +1,11 @@
-/*
- * subagent-log-state.js — whether a subagent's own log shows a call in flight
- * (#5421), so scripts/watch-artefact.js never calls an agent stalled that is
- * waiting on a long tool call or a long model turn.
- *
- * The log is `<session>/subagents/agent-<agentId>.jsonl`; a background
- * `Agent` launch result's `output_file` is a symlink to it. Beside it the
- * harness keeps `agent-<agentId>.meta.json`.
- *
- * STOPPED: the meta file's `"finished": true`, since a finished agent's log
- * ends on its `SubagentHandback` `tool_result` (#5421); a user record reading
- * `[Request interrupted by user]`; or an assistant record with no tool call.
- *
- * RESIDUAL: the harness wrote no `finished` flag before November 2026, so on
- * such a harness a finished agent reads in flight.
- *
- * IN FLIGHT is everything else: an assistant record calling a tool, whose
- * result is not yet written; a user record (a tool result, or the prompt)
- * the model is answering; an `api-request` with no reply.
- *
- * UNREAD is a log missing, unreadable, or holding no turn record: the caller
- * judges on growth alone and says so.
- */
-
 const fs = require("node:fs");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { readLastJsonlRow } = require("./jsonl.js");
 
 /** @typedef {{state: "in-flight" | "stopped"} | {state: "unread", why: string}} LogState */
 
 const INTERRUPTED = "[Request interrupted by user";
+const HANDBACK = "SubagentHandback";
 
 /** @param {Record<string, unknown>} row */
 const isTurnRecord = (row) =>
@@ -52,23 +29,50 @@ const isBlock = (block, type) =>
 
 /**
  * @param {import("./transcript.js").TranscriptRecord} row
+ * @param {string} type
+ * @returns {Record<string, unknown>[]}
+ */
+const blocksTyped = (row, type) =>
+	/** @type {Record<string, unknown>[]} */ (
+		blocksOf(row.message?.content).filter((b) => isBlock(b, type))
+	);
+
+/**
+ * @param {import("./transcript.js").TranscriptRecord} row
  * @returns {boolean}
  */
 function isCallOpen(row) {
 	if (row.type === "api-request") return true;
-	const blocks = blocksOf(row.message?.content);
 	if (row.type === "assistant")
 		return (
 			row.message?.stop_reason === "tool_use" ||
-			blocks.some((b) => isBlock(b, "tool_use"))
+			blocksTyped(row, "tool_use").length > 0
 		);
-	return !blocks.some(
-		(b) =>
-			isBlock(b, "text") &&
-			String(/** @type {{text?: unknown}} */ (b).text ?? "").startsWith(
-				INTERRUPTED,
-			),
+	return !blocksTyped(row, "text").some((b) =>
+		String(b.text ?? "").startsWith(INTERRUPTED),
 	);
+}
+
+/**
+ * @param {string} log
+ * @param {import("./transcript.js").TranscriptRecord} row
+ */
+function isHandedBack(log, row) {
+	const call =
+		row.type === "assistant"
+			? row
+			: orFallback(
+					() => readLastJsonlRow(log, (r) => r.type === "assistant"),
+					null,
+				);
+	if (!call) return false;
+	const handbacks = blocksTyped(call, "tool_use").filter(
+		(b) => b.name === HANDBACK,
+	);
+	if (row === call) return handbacks.length > 0;
+	const ids = new Set(handbacks.map((b) => b.id));
+	const results = blocksTyped(row, "tool_result");
+	return results.length > 0 && results.every((b) => ids.has(b.tool_use_id));
 }
 
 /**
@@ -103,7 +107,8 @@ function readSubagentLogState(log) {
 	if (row === null) return { state: "unread", why: `${log} does not exist` };
 	if (row === undefined)
 		return { state: "unread", why: `${log} holds no turn record` };
-	if (isMarkedFinished(log)) return { state: "stopped" };
+	if (isMarkedFinished(log) || isHandedBack(log, row))
+		return { state: "stopped" };
 	return { state: isCallOpen(row) ? "in-flight" : "stopped" };
 }
 

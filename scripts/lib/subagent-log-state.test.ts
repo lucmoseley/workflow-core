@@ -107,6 +107,42 @@ describe("an agent that stopped", () => {
 		expect(readSubagentLogState(log)).toEqual({ state: "stopped" });
 	});
 
+	const handback = {
+		type: "tool_use",
+		id: "h1",
+		name: "SubagentHandback",
+		input: { message: "report" },
+	};
+	const handbackResult = {
+		type: "tool_result",
+		tool_use_id: "h1",
+		content: "Report delivered to your caller.",
+	};
+
+	it.each([
+		["its SubagentHandback call", [assistant([handback], "tool_use")]],
+		[
+			"the result of its SubagentHandback call",
+			[assistant([handback], "tool_use"), user([handbackResult])],
+		],
+	])(
+		"reads a log ending on %s as stopped, with no meta file (#5496)",
+		(_name, rows) => {
+			writeLog(user([toolResult]), ...rows);
+			expect(readSubagentLogState(log)).toEqual({ state: "stopped" });
+		},
+	);
+
+	it("reads a later tool call's result as in flight, a handback before it notwithstanding", () => {
+		writeLog(
+			assistant([handback], "tool_use"),
+			user([handbackResult]),
+			assistant([toolUse], "tool_use"),
+			user([toolResult]),
+		);
+		expect(readSubagentLogState(log).state).toBe("in-flight");
+	});
+
 	it("finds the meta file beside the log a launch result's symlink names", () => {
 		writeLog(user([toolResult]));
 		writeFileSync(join(dir, "agent-a1.meta.json"), '{"finished":true}');

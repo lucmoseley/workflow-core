@@ -50,7 +50,7 @@ const WATCHER = path.join(__dirname, "..", "watch-artefact.js");
  */
 function rewrite(
 	input: unknown,
-	{ file = FILE, burn = false, home = "/home/u", model = "" } = {},
+	{ file = FILE, burn = false, home = "/home/u", model = "", job = false } = {},
 ) {
 	const made: string[] = [];
 	const logged: string[] = [];
@@ -60,7 +60,11 @@ function rewrite(
 			sessionModel: () => model,
 			/* Unchecked: a case may hand the core a malformed input. */
 			input: input as Record<string, unknown>,
-			env: { WFC_BURN_MARKER: "/burn-marker", HOME: home },
+			env: {
+				WFC_BURN_MARKER: "/burn-marker",
+				HOME: home,
+				...(job ? { CLAUDE_JOB_DIR: "/seat/jobs/0badf00d" } : {}),
+			},
 			session: "s1",
 			artefactFile: () => file,
 			makeDir: (at: string) => made.push(at) > 0,
@@ -161,6 +165,43 @@ describe("the composed rewrite", () => {
 			{ file: FILE, burn: false },
 		);
 		expect(out?.prelude).toMatch(/^While this agent runs, end the turn/);
+	});
+
+	it("hands a web-fetch agent, which cannot write a file, no artefact watch (#5496)", () => {
+		const out = rewrite(
+			{ prompt: "Read https://example.com.", subagent_type: "web-fetch" },
+			{ file: FILE },
+		);
+		expect(out?.updatedInput).toBeUndefined();
+		expect(out?.prelude).not.toContain("watch-artefact");
+		expect(out?.prelude).toMatch(/^While this agent runs, end the turn/);
+	});
+
+	describe("in a background job, which holds its turn (#5496)", () => {
+		it.each([
+			["a supplied artefact", { prompt: "Do it." }],
+			["the prompt's own artefact", { prompt: "Artefact: .claude/tmp/x.md" }],
+		])(
+			"prescribes a foreground watch for %s, never ending the turn",
+			(_n, input) => {
+				const prelude = String(rewrite(input, { job: true })?.prelude);
+				expect(prelude).toMatch(/hold the turn on `node .*watch-artefact\.js/);
+				expect(prelude).toContain(
+					"in the foreground as `rule:job-holds-turn` says",
+				);
+				expect(prelude).toContain("A `DONE` means the agent has stopped");
+				expect(prelude).not.toMatch(/end the turn|backgrounded/);
+			},
+		);
+
+		it("tells an agent with no artefact to watch to hold the turn", () => {
+			const prelude = String(
+				rewrite({ prompt: "Find it.", subagent_type: "Explore" }, { job: true })
+					?.prelude,
+			);
+			expect(prelude).toContain("hold the turn until this agent reports");
+			expect(prelude).not.toContain("end the turn");
+		});
 	});
 
 	it.each([
