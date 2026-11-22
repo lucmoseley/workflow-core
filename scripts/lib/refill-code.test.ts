@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { type ChildProcess, execFileSync } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -150,7 +151,9 @@ describe("readRunningCode", () => {
 		try {
 			fake.proc(4242, { argv: "node scripts/refill-loop.js" });
 			writeCwd(fake.root, "4242", fake.root);
-			expect(readRunningCode(4242, codeDir)).toBe("a plugin install");
+			expect(readRunningCode(4242, codeDir)).toEqual({
+				code: "a plugin install",
+			});
 		} finally {
 			fake.remove();
 		}
@@ -381,7 +384,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 		expect(refused.stderr).toContain("usage:");
 	}
 
-	it("runs set, stop and status from the running loop's code", () => {
+	it("runs set, stop and status from the running loop's code", async () => {
 		plant((where) => {
 			const launch = launchProgram(where);
 			if ("error" in launch) throw new Error(launch.error);
@@ -389,9 +392,15 @@ describe("control commands from a stale checkout (#4337)", () => {
 		});
 		loopProc = keptSpawn("concurrent").spawn(
 			process.execPath,
-			["-e", "setInterval(() => {}, 1000)", pinned],
-			{ stdio: "ignore" },
+			[
+				"-e",
+				'process.stdout.write("up\\n"); setInterval(() => {}, 1000)',
+				pinned,
+			],
+			{ stdio: ["ignore", "pipe", "ignore"] },
 		);
+		// #5571
+		await once(loopProc.stdout as NodeJS.ReadableStream, "data");
 		fs.writeFileSync(
 			path.join(state, ".refill-loop.pid"),
 			String(loopProc.pid),
@@ -401,7 +410,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 				Number(loopProc.pid),
 				path.join(state, ".refill-loop-code"),
 			),
-		).not.toBeNull();
+		).toEqual({ code: expect.any(String) });
 		expectPinnedRan();
 	});
 
@@ -702,7 +711,9 @@ describe("adoption", () => {
 		expect(lines).not.toContain("lock refused");
 		expect(readTicks().at(-1)).toContain(`pid ${pid}`);
 		expect(kept.map((f) => fs.readFileSync(path.join(dir, f)))).toEqual(before);
-		expect(readRunningCode(Number(pid), codeDir)).toBe(short(tip));
+		expect(readRunningCode(Number(pid), codeDir)).toEqual({
+			code: short(tip),
+		});
 		await moreTicks(2);
 		expect(fs.readdirSync(codeDir).sort()).toEqual(
 			[path.basename(path.dirname(path.dirname(first))), tip].sort(),
