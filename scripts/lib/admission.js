@@ -1636,4 +1636,5 @@ module.exports = {
 	admissionFrom,
 	readCpuSlots,
 	buildSessionCeilingText,
+	descendantsPssKb,
 };
