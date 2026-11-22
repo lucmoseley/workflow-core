@@ -1,12 +1,3 @@
-"""Run duration, count and kind from the 30-day run ledger, `.test-runs.jsonl` (`scripts/lib/run-ledger.js`).
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I runs.py <markers-dir> [start_iso] [end_iso] [--dump runs.jsonl]
-Each ledger line is one run; (startedAt, session, suite) stays unique only as a guard.
-Kind, verdict and fullCause are the ledger's, except one rule applied here:
-  lander-rerun  any vitest line other than a lander's that carries the lander's mark (#4757);
-          on a line older than the mark, one with no session after the lander's first run
-          (inferred: the lander's isolation and confirm re-runs run with no session id)"""
-
 import collections
 import json
 import os
@@ -130,6 +121,5 @@ if dump:
                     "_v",
                 ]
             }
-            # fg_split, bg_split, reruns and wrapper_cost key on sessionId, the marker stores' name.
             row["sessionId"] = r.get("session")
             f.write(json.dumps(row) + "\n")

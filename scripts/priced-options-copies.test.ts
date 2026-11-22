@@ -48,7 +48,6 @@ const injected = (() => {
 			...process.env,
 			CLAUDE_PROJECT_DIR: SCRATCH,
 			CLAUDE_CONFIG_DIR: SCRATCH,
-			CLAUDE_JOB_DIR: "",
 			CLAUDE_CODE_SESSION_ID: "",
 			TMPDIR: SCRATCH,
 			WFC_GH: "false",
@@ -125,7 +124,6 @@ describe.each(copies)("the $name copy", ({ text, relation }) => {
 const guard = (text: string, { job = false } = {}) => {
 	const env: NodeJS.ProcessEnv = { ...process.env, WFC_REPO_ROOT: SCRATCH };
 	if (job) env.CLAUDE_JOB_DIR = SCRATCH;
-	else delete env.CLAUDE_JOB_DIR;
 	return runInProcess(GUARD, [], {
 		stdin: JSON.stringify({
 			session_id: `copies-${Math.random().toString(36).slice(2)}`,

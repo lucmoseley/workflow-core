@@ -1,46 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-registrations.js — a repo's own hooks, guards and checkers are each
- * registered: pinned, wired or allowlisted, tested, and counted (#1456).
- *
- * Usage:
- *   node check-registrations.js [--root <dir>] [--against <rev>] [--json] [--warn]
- *
- * The host-side form of the core's three whole-repo tests, for a repo with no
- * test runner to carry them (`lib/registrations.js` has the predicates):
- *
- *   hooks     every hook the repo registers itself (lib/core-hooks.js
- *             `ownHooks`: an adopter's .claude/settings.json) has exactly one `hooks`
- *             row in .claude/registrations.json, matching its matcher, covers
- *             and timeout; every scripts/guard-*.{sh,js} is run by a hook or
- *             keyed in `registeredElsewhere`, and has a sibling test
- *   checkers  every scripts/check-*.js is called by a husky hook, a workflow,
- *             a registered hook or another script, or keyed in `calledElsewhere`,
- *             and has a sibling test
- *   needles   every script a registered hook runs has an entry in
- *             .claude/guard-fire-needles.json or the plugin's own, and the host
- *             file keys nothing the registration does not run
- *
- * Members are the core's: a `scripts/check-*.py` is no checker here, though a
- * `.test.py` counts as a sibling test.
- *
- * The core (lib/core-hooks.js `isCoreRoot`) holds all three in its own tests,
- * and is judged on one thing instead (#2447, spec #2295):
- *
- *   settings  .claude/settings.json registers the self-plugin canary
- *             (lib/core-hooks.js `CANARY_COMMAND`) and no other hook, and no
- *             command registers in both it and self-plugin/hooks/hooks.json
- *
- * Run bare, it lists every unregistered member — the migration step's listing.
- * `.husky/pre-commit` runs it under `--against HEAD`, so only a fault the
- * commit adds refuses.
- * An absent registry reads as empty, with its own finding, which is inherited
- * on every commit until the file lands.
- *
- * IMPLICIT:  on every commit staging the repo's hook registration, either host registry, scripts/, .husky/ or a workflow, refuses one that leaves a hook, guard or checker of this repo's own unregistered, untested or uncounted, naming the file to edit; in the core, one that registers a settings hook besides the canary or a command in both settings and the self-plugin.
- * JUSTIFIED: fail-safe — an unwired guard enforces nothing and an uncounted one reads as never firing, both silently; the fix is one registry entry. A guard registered in both files fires twice, doubling a deny or a counter.
- * DEFEAT:    --warn caps findings below the gating line; a caller that only mentions a checker on a line sharing code counts as a call.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -63,15 +21,13 @@ const R = require("./lib/registrations.js");
 /** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 
-/** The plugin's own needles, which key every core guard a host may register. */
 const CORE_NEEDLES = path.join(__dirname, "guard-fire-needles.json");
 
 /**
- * The parsed JSON at `rel`, null where absent; a parse failure is BROKEN.
  * @param {Ctx} ctx
  * @param {string} root
  * @param {string} rel
- * @returns {any}  each caller narrows its shape
+ * @returns {any}
  */
 function readJson(ctx, root, rel) {
 	const at = path.join(root, rel);
@@ -86,8 +42,6 @@ function readJson(ctx, root, rel) {
 }
 
 /**
- * Basenames under scripts/ matching `re`, test files left out: an adopter's
- * `check-x.test.js` or `check-x.spec.js` is no checker.
  * @param {string} root
  * @param {RegExp} re
  */
@@ -102,7 +56,6 @@ function readScriptsMatching(root, re) {
 }
 
 /**
- * The four surfaces that run a checker unasked, by repo-relative path.
  * @param {string} root
  * @returns {Record<string, string>}
  */
@@ -133,8 +86,6 @@ function readCallerSources(root) {
 }
 
 /**
- * The pathspecs a materialised side needs: at the core its two hook files
- * alone, so it never copies its whole scripts/.
  * @param {string} rev
  * @returns {string[]}
  */
@@ -164,8 +115,6 @@ function report(ctx, tag, faults) {
 }
 
 /**
- * The host registry, reporting its absence and any key left without a reason;
- * a wrong shape is BROKEN.
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {R.Registry}
@@ -205,10 +154,9 @@ function readHostRegistry(ctx, root) {
 }
 
 /**
- * A registered hook keyed in neither needles file, and a host key no hook runs.
  * @param {Ctx} ctx
  * @param {string} root
- * @param {{hooks: object}} registered  the repo's own hooks, settings-shaped
+ * @param {{hooks: object}} registered
  * @returns {R.Fault[]}
  */
 function needleFaults(ctx, root, registered) {
@@ -233,9 +181,6 @@ function needleFaults(ctx, root, registered) {
 }
 
 /**
- * The core's settings hooks other than the one canary, the canary's absence,
- * and the canary registered in the self-plugin too; any other command in both
- * files is already a settings hook besides the canary.
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {R.Fault[]}

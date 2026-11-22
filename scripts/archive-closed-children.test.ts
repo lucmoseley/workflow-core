@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that archive-closed-children.js moves only a map's closed children into
- * one archival container — made once, then reused or recovered, never
- * duplicated — leaves container-like children where they are, and reports a
- * refused move or an unreachable GitHub by its own exit (#92).
- *
- * Runs with a stub `gh` injected via WFC_GH: no network, no auth, and no
- * dependence on this repo's own tracker state. The harness itself runs
- * in-process (scripts/lib/run-in-process.js, §X3) — only the stub `gh` the
- * script shells out to is a real subprocess, and each link it makes spawns
- * lib/link-writer.js through runLinkSync, as in production, so a case pays a
- * node start per link; stubbing the writer would leave the link route the
- * script now takes untested (#5086).
- *
- * file-issue.js, promote-spec.js and check-open-maps.js send a session here
- * when a map reaches GitHub's 100-child cap: loosen a case and a run can move
- * an open child off its map, mint a second container, or leave the map full so
- * no new issue can be linked under it.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -36,9 +17,7 @@ interface Kid {
 	id: number;
 	title?: string;
 	state: "open" | "closed";
-	/** the map number this issue is a direct child of, or null (unparented) */
 	parent: number | null;
-	/** non-zero marks a closed child as already holding sub-issues of its own */
 	subIssuesTotal?: number;
 }
 
@@ -46,9 +25,7 @@ interface Fixture {
 	map: number;
 	kids: Kid[];
 	unreachable?: boolean;
-	/** a 7-layers 422 on the move, for these child numbers */
 	sevenLayers?: number[];
-	/** the move POST fails for this child number, with this stderr line */
 	moveFails?: Record<number, string>;
 	createFails?: boolean;
 	linkFails?: boolean;
@@ -317,8 +294,6 @@ describe("creating the container", () => {
 		const child = s.kids.find((k: Kid) => k.number === 10);
 		expect(child.parent).toBe(container.number);
 
-		// #92 — a re-run must find the orphan and self-heal, never spawn a
-		// second container, even with nothing newly closed to move.
 		fs.writeFileSync(CALLS(), "");
 		fs.writeFileSync(
 			STATE(),
@@ -355,8 +330,6 @@ describe("creating the container", () => {
 		expect(container.parent).toBe(8);
 		expect(container.state).toBe("open");
 
-		// #92 — a re-run finds the container already linked and closes it,
-		// with nothing newly closed to move.
 		fs.writeFileSync(CALLS(), "");
 		fs.writeFileSync(
 			STATE(),

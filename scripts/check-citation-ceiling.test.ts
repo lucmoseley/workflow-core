@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * check-citation-ceiling.js — the tracker's top against the ceiling (#726).
- *
- * A stub `gh` injected via WFC_GH answers for the tracker, whose real top is
- * what the checker reports on and so cannot also be its fixture. The host's
- * tracker is declared in a throwaway `.claude/workflow-core.json`, the one
- * input telling the core from an adopter.
- *
- * A FAIL reds the scheduled sweep's `Document guards` job in
- * .github/workflows/document-guards.yml: loosen a case and the tracker can pass
- * the ceiling unwarned, after which the release build ships new citations
- * bare to adopters and check-citation-tracker.js stops refusing a mis-prefixed
- * one.
- */
 
 import fs from "node:fs";
 import os from "node:os";

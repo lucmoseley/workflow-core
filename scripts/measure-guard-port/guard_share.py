@@ -1,28 +1,4 @@
 #!/usr/bin/env python3
-"""guard_share.py — the guard-run share of a test file's time, the instrument
-every guard port is judged by (#2202, #2733, #2783).
-
-Guard-run share = (sum of the wall of the test file's guard calls) / (the file's
-"tests" time from vitest's summary), both from ONE run. `preload.js` wraps the
-fork worker's child_process calls and logs each call's program, first arguments
-and wall; this script launches the run and sums the log.
-
-A guard call is one whose program is a `*.sh` file, or `bash`/`sh` running a
-script, a `source`, or a `pipefail` preamble. The test's own git calls (fixture
-work) are their own class: a Node core removes none of them. A port's cut is
-read on this share of its own test files, never on CI wall (#2202).
-
-  python3 scripts/measure-guard-port/guard_share.py run <test-file> [...]
-  python3 scripts/measure-guard-port/guard_share.py sum <call-log> <vitest-output>
-
-`run` prints one JSON line per file, the machine state before and after beside
-it, and keeps the call log and vitest output under `--keep`. It runs vitest under `npm run test`'s 2048 MB heap.
-
-Exit 0; 1 where a run failed or its log carries no `start` record (the preload
-never loaded), since either would read as a share near 0 — a finished port's
-figure.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -62,7 +38,6 @@ def classify(call: dict) -> str:
 
 
 def vitest_tests_seconds(vitest_text: str) -> float:
-    """The "tests" figure of vitest's Duration line, in seconds."""
     m = re.search(r"tests ([0-9.]+)(m?s)", ANSI.sub("", vitest_text))
     if not m:
         return float("nan")
@@ -142,7 +117,8 @@ def run_one(test_file: str, keep: Path, root: str) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description="The guard-run share of a test file's time.",
+        epilog="Exit 0; 1 where a run failed or its log carries no `start` record.",
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser(

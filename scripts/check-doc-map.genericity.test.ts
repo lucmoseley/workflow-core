@@ -1,31 +1,4 @@
 // @vitest-environment node
-/*
- * The genericity gate (docs/repo-boundary.md §6.1, mantahostels#3510): check-doc-map.js
- * runs green against a repository whose doc map holds NO host string — no
- * `manta`, `hostel`, `lucmo` anywhere in its tracked bytes — and every
- * assertion it makes trips on one fault applied to that green base.
- *
- * Self-contained by design: it copies the handful of helpers it needs from
- * check-doc-map.test.ts rather than importing them, because that file's own
- * fixture embeds two host strings (`CLAUDE.md` in `initBase`, the
- * `owner/repo` admission permalink in `admissionsFor`) that this
- * gate exists to keep out.
- *
- * THE BASE IS THE PASSING FORM OF EVERY ASSERTION. Each case below applies one
- * fault to a fresh copy of it and asserts the severity, the tag and the exit
- * code that fault owes. The message half of §X3 — that the output names the
- * offender and the way out — is check-doc-map.test.ts's, against the real map.
- *
- * Assertion 16 (pool-byte trigger verdict) is reached through
- * docs/working-contract.md, a member of this repo's declared pool
- * (vitest.setup.ts's WFC_ALWAYS_LOADED) carrying no host string; the other
- * three members are host root files or spell `manta`.
- *
- * Breaking it costs the core's portability: check-doc-map.js is the doc-map
- * gate in every adopter's .husky/pre-commit and document-guards.yml, and a
- * loosened case lets a host assumption back into the engine unseen, to fail
- * first in an adopter's repo.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -46,8 +19,6 @@ const VOCAB = "docs/doc-map-retired-vocabulary.json";
 const HIGH_WATER = "docs/doc-map-high-water.json";
 const ADMISSIONS = "docs/doc-map-admissions.json";
 
-/* The engine requires a github.com permalink (lib/doc-map.js
- * ADMISSION_COMMENT_URL). */
 const commentUrl = (n: number) =>
 	`https://github.com/example-org/example-repo/issues/${n}#issuecomment-${n}00`;
 
@@ -57,8 +28,6 @@ interface Ref {
 	ref: string;
 	gloss?: string;
 }
-
-/* ── repo plumbing, per fixture directory ─────────────────────────────── */
 
 const ctxFor = (repo: string) => {
 	const git = (...args: string[]) =>
@@ -80,7 +49,6 @@ const ctxFor = (repo: string) => {
 			env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
 		});
 	};
-	/* register-doc.js's canonical bytes (mantahostels#3353): sorted keys, tabs, newline. */
 	const writeClasses = (data: Sidecar) => {
 		const sorted: Sidecar = {};
 		for (const k of Object.keys(data).sort()) sorted[k] = data[k];
@@ -91,8 +59,6 @@ const ctxFor = (repo: string) => {
 	return { repo, git, write, read, track, commit, writeClasses, writeJson };
 };
 type Ctx = ReturnType<typeof ctxFor>;
-
-/* ── §A rows, hand-rendered in the shape the engine's renderer emits ───── */
 
 const ROUTE: Record<string, string> = {
 	"source-of-truth": "Direct",
@@ -137,8 +103,6 @@ const sectionA = (sidecar: Sidecar) =>
 			.sort()
 			.map((p) => rowFor(p, sidecar[p])),
 	].join("\n");
-
-/* ── the base map ─────────────────────────────────────────────────────── */
 
 const entry = (id: string, name: string, prose: string, bullets: string[]) =>
 	[`### ${id} · ${name}`, "", prose, "", ...bullets].join("\n");
@@ -246,7 +210,6 @@ const baseRestatements = () => ({
 		],
 	},
 });
-/* B2 was removed, so the mark stands at 2. */
 const baseHighWater = () => ({ highWaterMark: 2 });
 const baseAdmissions = () => ({
 	B1: { settledAt: 1, confirmed: "A", commentUrl: commentUrl(1) },
@@ -258,17 +221,13 @@ const admission = (n: number) => ({
 	commentUrl: commentUrl(n),
 });
 
-/** Writes the sidecar and re-renders §A from it. */
 const writeAll = (c: Ctx, opts: MapOpts) => {
 	c.writeClasses(opts.sidecar);
 	c.write(MAP, mapDoc(opts));
 };
 
-/* PAIRING_GRACE_MS (lib/doc-map.js) is 6 h: a commit 8 h old is past the
- * grace window, one 0 h old is inside it. */
 const PAST_GRACE_HOURS = 8;
 const IN_GRACE_HOURS = 0;
-/* The prose cap assertions 14, 18, 21 and 22 measure against (mantahostels#1384). */
 const CAP_WORDS = 300;
 
 const build = (dir: string) => {
@@ -299,7 +258,6 @@ const MARKED_B3 = entry("B3", "Gadget rate", words(CAP_WORDS + 20), [
 	"- **Settled at #3**, 3 January 2026.",
 ]);
 
-/** The base plus a HEAD where B3 is over cap and marked (assertions 22, 24). */
 const buildMarked = (dir: string) => {
 	const c = build(dir);
 	writeAll(c, { sidecar: baseSidecar(), entries: [B1, MARKED_B3] });
@@ -315,8 +273,6 @@ const markedTemplate = defineTemplate((dir) => {
 	buildMarked(dir);
 });
 
-/* ── running the checker ──────────────────────────────────────────────── */
-
 interface Finding {
 	severity: string;
 	tag: string;
@@ -327,7 +283,6 @@ const check = (repo: string) => {
 		cwd: repo,
 		env: { ...process.env },
 	});
-	// A crash leaves no envelope; the assertions below then fail on `outcome`.
 	const json: { outcome?: string; findings?: Finding[] } = orFallback(
 		() => JSON.parse(r.stdout),
 		{},
@@ -340,7 +295,6 @@ const check = (repo: string) => {
 	};
 };
 
-/** Every tracked file's bytes, for the host-string grep. */
 const readTrackedText = (c: Ctx) =>
 	c
 		.git("ls-files")
@@ -348,8 +302,6 @@ const readTrackedText = (c: Ctx) =>
 		.filter(Boolean)
 		.map((f) => `${f}\n${c.read(f)}`)
 		.join("\n");
-
-/* ── the cases ──────────────────────────────────────────────────────────── */
 
 const ghostSidecar = () => ({
 	...baseSidecar(),
@@ -538,11 +490,6 @@ const cases: Record<string, Case> = {
 		{
 			assertion: 16,
 			fault: (c) => {
-				/* docs/working-contract.md is a declared pool member
-				 * (vitest.setup.ts's WFC_ALWAYS_LOADED) carrying no host string, so the pool
-				 * delta is reachable host-free. A pool file absent from HEAD reads
-				 * as 0 bytes (mantahostels#3526), so the whole file staged in one step is the
-				 * tranche. */
 				writeAll(c, {
 					sidecar: {
 						...baseSidecar(),
@@ -676,8 +623,6 @@ const cases: Record<string, Case> = {
 	"UNTRACKED-CONSUMES — a `path` reference to a file on disk but untracked": {
 		assertion: 25,
 		fault: (c) => {
-			/* On guide.md, not the page: a page whose source lost its key trips
-			 * PAGE-SOURCE (assertion 32) too, and this case is about the WARN alone. */
 			const sidecar = baseSidecar();
 			sidecar["docs/guide.md"].consumes = [
 				{ kind: "path", ref: "docs/pending.md" },
@@ -807,8 +752,6 @@ const markedCases: Record<string, Case> = {
 		expected: "WARN OVER-CAP-MARKER-DROPPED",
 	},
 };
-
-/* ── the gate ─────────────────────────────────────────────────────────── */
 
 const withFresh = (
 	t: typeof template,

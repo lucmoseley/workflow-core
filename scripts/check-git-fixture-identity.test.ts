@@ -36,7 +36,6 @@ let dir: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-/** Track `rel` with `body`, creating its directory. */
 const track = (rel: string, body: string) => {
 	fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
 	fs.writeFileSync(path.join(dir, rel), body);
@@ -44,9 +43,6 @@ const track = (rel: string, body: string) => {
 };
 
 const run = (...args: string[]) => {
-	// Off, not inherited: a real Actions run sets it globally, and this
-	// suite runs inside one — runCheck's ::error:: annotation, added off
-	// this flag, would otherwise leak into `out` (mantahostels#2427).
 	const r = runInProcess(SCRIPT, args, {
 		cwd: dir,
 		env: { ...process.env, GITHUB_ACTIONS: "" },
@@ -135,10 +131,7 @@ describe("two repos in one file, keyed by their own variable", () => {
 	it("passes committing into an already-identitied repo while a separate raw init stays bare", () => {
 		track(
 			"scripts/fixture-x.test.ts",
-			// `fresh` is raw-inited with no identity but never committed — inert.
 			'execFileSync("git", ["init", "-q"], { cwd: fresh });\n' +
-				// `shared` is committed but never raw-inited in this file (built by a
-				// helper elsewhere) — presumed already identitied.
 				'execFileSync("git", ["commit", "-qm", "x"], { cwd: shared });\n',
 		);
 		const r = run();
@@ -158,10 +151,6 @@ describe("two repos in one file, keyed by their own variable", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("no identity");
-		// Not a text match on the flagged key: the retired `/\ba\b.*no
-		// identity/` matched the indefinite article in the ::error::
-		// annotation's prose ("commits a raw git repo (b)…"), not the key
-		// itself — this reads the flagged key directly instead (mantahostels#2427).
 		const j = run("--json").json();
 		expect(j.findings).toHaveLength(1);
 		expect(j.findings[0].repos).toEqual(["b"]);
@@ -193,7 +182,6 @@ describe("two repos in one file, keyed by their own variable", () => {
 	});
 });
 
-/** Fails naming these repo keys, and prints the fix. */
 const expectBare = (...repos: string[]) => {
 	const r = run();
 	expect(r.status).toBe(1);

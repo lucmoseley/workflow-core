@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which sites check-program-output.js finds writing past writeFd in a
- * program that calls process.exit, over the whole tree, and that each refusal
- * names writeFd and its exemplar (#4018, #3454).
- *
- * Fabricated programs in a throwaway directory, never this checkout, so a
- * case's sites are only its own.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here lets the
- * next program whose output dies at process.exit on a pipe land.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -77,8 +66,11 @@ describe("check-program-output", () => {
 	it("FAILs a report-* with no process.exit, a bare alias in a .cjs and a write in a template's placeholder", () => {
 		program("scripts/report-a.js", 'console.log("x");\n');
 		program("scripts/report-c.cjs", "const w = process.stdout.write;\n");
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-		program("scripts/report-d.js", "const s = `${console.log(1)}`;\n");
+		const dollar = "$";
+		program(
+			"scripts/report-d.js",
+			`const s = \`${dollar}{console.log(1)}\`;\n`,
+		);
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("FAIL: 3 write(s) past writeFd");

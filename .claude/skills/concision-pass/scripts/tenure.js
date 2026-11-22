@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-/**
- * tenure.js — gathers the evidence the concision-pass tenure check reads (mantahostels#1147).
- *
- *   node .claude/skills/concision-pass/scripts/tenure.js '<phrase>' <path>
- *
- * IT RENDERS NO VERDICT (mantahostels#1114, the bar): whether the commit message speaks to
- * this sentence's own content is a reading of prose, and stays with the model.
- *
- * IT FAILS CLOSED. A phrase it cannot locate in <path> exits 3 and prints no
- * lookup results at all, because a miss printed as "no commit found" reads as
- * proof of absence (mantahostels#1114, mantahostels#587).
- *
- * Exit 0 — every lookup ran, whether or not it found anything.
- * Exit 3 — something is unresolved; the step goes back to the agent. A lookup
- *          past its timeout is unresolved, and so is a run past the
- *          ceiling (#5311).
- * Exit 1 — usage or IO error. A reader closing the pipe early is neither:
- *          output stops and the code above stands (#1238).
- *
- * Two departures from docs/code-standards-base.md, both because the reader is an
- * agent reading one Bash call's output: exit 3 is not §N4's alphabet, which has
- * no code for "not established"; and all output is on stdout, where §N6 puts
- * human text on stderr.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
@@ -36,60 +12,30 @@ const {
 } = require("../../../../scripts/lib/regex-group.js");
 const { caught, ignoreFailure } = require("../../../../scripts/lib/caught.js");
 
-/**
- * Display caps. mantahostels#1114's bar: output that scales with a backlog carries a hard
- * cap, and this runs once per finding with findings running to double digits.
- * Every figure here is a first guess, set where the output still reads in one
- * screen.
- */
+// guess, lucmoseley/mantahostels#1114
 const MAX_COMMITS = 3;
 const MAX_ISSUES = 5;
 const MAX_GREP_HITS = 10;
 const MAX_LINE_CHARS = 200;
 const MAX_ECHO_CHARS = 160;
-/** A commit body here is a lay-readable reason and runs a short paragraph; 600
- * chars holds whole the ones sampled across mantahostels#603's tenure findings. */
+// measured on the bodies sampled, lucmoseley/mantahostels#603
 const MAX_BODY_CHARS = 600;
-/** Below this a needle stops being distinctive and `-S` starts matching commits
- * that never touched this sentence. A first guess, not measured. */
+// guess, lucmoseley/mantahostels#1147
 const MIN_NEEDLE_CHARS = 12;
-/** Above this many repo-wide commit-message matches, an identifier's words
- * are too common to trust as a same-identifier ruling — the actual
- * distinctiveness signal `identifierMessageRegex` is built to test, in place
- * of the identifier's raw character length, which does not track it. Set
- * from the counts mantahostels#3155 measured, which separate distinctive
- * identifiers from bare common words. Fixed as an absolute count against this
- * repository's 5440-commit history, not a rate, because the gap is wide enough
- * that the exact number barely matters; it would need recalibrating only if
- * that commit count changed by an order of magnitude. */
+// measured against a 5440-commit history, lucmoseley/mantahostels#3155
 const MAX_IDENTIFIER_COMMIT_MATCHES = 20;
-/** `scripts/lib/gh.js`'s figure before mantahostels#2466 raised it there. The
- * largest read here is the repo-wide, no-pathspec `git log` the frequency axis
- * added (mantahostels#3155) — orders below this figure, and an overflow lands
- * as `status: null`, so the lookup fails closed rather than silently
- * truncating. */
 const MAX_BUFFER = 64e6;
 
 const GREP_TARGETS = ["scripts", "docs/doc-map.md"];
 
-/** Each subprocess's cap: gh's own, the slowest lookup here measured
- * (#2677). */
+// measured: the slowest lookup here, #2677
 const LOOKUP_TIMEOUT_MS = capMs("WFC_TENURE_LOOKUP_TIMEOUT_MS", GH_TIMEOUT_MS);
-/** The whole run's cap, enforced from a parent process (#5311). A guess: two
- * slow lookups' worth. */
+// guess: two slow lookups, #5311
 const CEILING_MS = capMs("WFC_TENURE_CEILING_MS", 600e3);
-/** Marks the child that does the lookups, so it runs `main` rather than
- * supervising itself again. */
 const WORKER_ENV = "TENURE_WORKER";
 
 let readerGone = false;
-/**
- * A reader that closes early (`| head -1`) makes the next write throw EPIPE.
- * Output stops there, but the exit code stays `main`'s own, so a `pipefail`
- * caller still sees 3 for an unresolved lookup (#1238).
- *
- * @param {string} s
- */
+/** @param {string} s */
 const out = (s) => {
 	if (readerGone) return;
 	try {
@@ -119,10 +65,6 @@ const run = (bin, args) => settle(() => execFileSync(bin, args, READ_OPTS));
 const runGit = (args) => settle(() => execGit(args, READ_OPTS));
 
 /**
- * A read that never throws. A non-zero exit is data here — `grep` says
- * "no match" with 1 and `git log` says "no such path" with 128, and the two
- * mean opposite things.
- *
  * @param {() => string} read
  * @returns {{ status: number | null, stdout: string, stderr: string }}
  */
@@ -150,24 +92,17 @@ function settle(read) {
 	}
 }
 
-/** @param {string} s @param {number} n */
+/**
+ * @param {string} s
+ * @param {number} n
+ */
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s);
 /** @param {string} s */
 const toOneLine = (s) => clip(s.replace(/\s+/g, " ").trim(), MAX_LINE_CHARS);
 
 /**
- * Whether `needle` occurs in `haystack`, tolerating a re-wrap — a run of
- * whitespace in the needle (a line break included) matches, in the haystack,
- * the same run of whitespace optionally carrying one `*` (commit bodies wrap
- * at ~72-80 columns; the reviewed phrase in a file does not wrap the same
- * way), so a needle wrapped one way is still found in text wrapped another
- * (mantahostels#3169). The `*` is optional and single, not `[\s*]+`, so a run of
- * asterisks with no whitespace on either side — Markdown `**bold**`, or two
- * words run together as `word*word` — is not swallowed as one gap; the same
- * leniency also reaches `bodyForDisplay`'s commit-body caller, where a `* `
- * Markdown bullet reads as a gap too.
- *
- * @param {string} haystack @param {string} needle
+ * @param {string} haystack
+ * @param {string} needle
  * @returns {{ start: number, end: number } | null}
  */
 function findAcrossWraps(haystack, needle) {
@@ -180,12 +115,8 @@ function findAcrossWraps(haystack, needle) {
 }
 
 /**
- * Find the phrase in the file's text, tolerating a re-wrap.
- *
- * A finding is quoted by a fresh reader that saw the text reflowed, so the
- * quotation's own line breaks and runs of spaces are not the file's.
- *
- * @param {string} text @param {string} phrase
+ * @param {string} text
+ * @param {string} phrase
  * @returns {{ start: number, end: number } | null}
  */
 function locate(text, phrase) {
@@ -193,15 +124,6 @@ function locate(text, phrase) {
 }
 
 /**
- * `git log -S` matches LITERALLY against the blob, so a needle carrying the
- * file's current line breaks finds only commits that wrote that exact wrap —
- * which, for a sentence reflowed since it landed, is the reflow and not the
- * introduction (mantahostels#1147). So the longest line-internal fragment is the only
- * needle tried. A leading `* ` comment-continuation marker is stripped from
- * each line first — left in, a fragment starting `* ` becomes a `git log -S`
- * needle that matches nothing a comment-unaware commit ever wrote, reading as
- * a false "none" (mantahostels#3169).
- *
  * @param {string} span
  * @returns {{ needle: string, multiline: boolean }}
  */
@@ -220,11 +142,8 @@ const RS = "\x1e";
 const FS = "\x1f";
 const PRETTY = `--pretty=format:%H${FS}%ad${FS}%s${FS}%b${RS}`;
 
-/**
- * @typedef {{ sha: string, date: string, subject: string, body: string }} Commit
- */
+/** @typedef {{ sha: string, date: string, subject: string, body: string }} Commit */
 
-/** A `git log` record short of the fields `PRETTY` asks for (#1341). */
 class LogRecordShortError extends Error {
 	/** @param {string} record */
 	constructor(record) {
@@ -237,15 +156,8 @@ class LogRecordShortError extends Error {
 }
 
 /**
- * Splits `PRETTY`-formatted `git log` stdout into commits. Shared by every
- * axis that reads commit messages, so a parsing fix lands once (mantahostels#3134).
- *
- * A record short of a subject throws (#1341). This program sets the format,
- * so only a commit message carrying the record separator produces one.
- *
  * @param {string} stdout
  * @returns {Commit[]}
- * @throws {LogRecordShortError}
  */
 function parseLog(stdout) {
 	return stdout
@@ -262,13 +174,6 @@ function parseLog(stdout) {
 }
 
 /**
- * One `git log` run over `args`, parsed, OLDEST FIRST.
- *
- * The lookup is labelled "introducing commit", and git's default newest-first
- * order puts the introduction last — so without `--reverse` a sentence edited a
- * few times has its introduction fall off the cap, and the newest revision is
- * presented in its place (mantahostels#1147, the review that caught it).
- *
  * @param {string[]} args
  * @returns {{ ok: true, commits: Commit[] } | { ok: false, why: string }}
  */
@@ -280,24 +185,22 @@ function logOldestFirst(args) {
 	return { ok: true, commits: parseLog(res.stdout) };
 }
 
-/** @param {string} needle @param {string | null} pathspec */
+/**
+ * @param {string} needle
+ * @param {string | null} pathspec
+ */
 function pickaxe(needle, pathspec) {
 	return logOldestFirst(
 		pathspec ? [`-S${needle}`, "--", pathspec] : [`-S${needle}`],
 	);
 }
 
-/** 1-indexed line holding `offset`. @param {string} text @param {number} offset */
+/** @param {string} text @param {number} offset */
 const lineOf = (text, offset) => text.slice(0, offset).split("\n").length;
 
 /**
- * Every commit that touched the phrase's lines. `-S` on the current wording
- * stops at the last rewording and shows it as the introduction; `git log -L`
- * follows the lines through it to the commit that wrote them (#763). The
- * lines are located in HEAD's copy, because `-L` numbers HEAD's lines and the
- * working tree may have shifted them.
- *
- * @param {string} target @param {string} phrase
+ * @param {string} target
+ * @param {string} phrase
  * @returns {{ state: "found", commits: Commit[] } | { state: "skipped" | "unresolved", why: string }}
  */
 function lineHistory(target, phrase) {
@@ -329,23 +232,14 @@ function lineHistory(target, phrase) {
 	if (!span) return skipped;
 	const start = lineOf(head.stdout, span.start);
 	const end = lineOf(head.stdout, span.end);
-	// `-s`: `-L` prints each commit's patch by default, which would land
-	// inside parseLog's records.
 	const res = logOldestFirst(["-s", `-L${start},${end}:${target}`]);
 	if (!res.ok) return { state: "unresolved", why: res.why };
 	return { state: "found", commits: res.commits };
 }
 
 /**
- * Both rungs, always — never the first that hits.
- *
- * A rename breaks the pathspec rung without emptying it: `git log -S… -- <new
- * path>` names the RENAME commit, whose message describes the move and so
- * clears tenure under step 4's bulk-rewrite rule, while the commit that settled
- * the rule is invisible (mantahostels#1147). Anything only the pathspec-less
- * rung can see is printed beside the pathspec rung's hits.
- *
- * @param {string} needlePath @param {string} needle
+ * @param {string} needlePath
+ * @param {string} needle
  */
 function gitAxis(needlePath, needle) {
 	const repo = runGit(["rev-parse", "--git-dir"]);
@@ -377,15 +271,6 @@ function gitAxis(needlePath, needle) {
 	return { state, inPath: inPath.commits, elsewhere };
 }
 
-/**
- * Six declaration shapes, captured group is the identifier: Python `def`;
- * JS/TS `function` (async/generator/default/export); a `class` (either
- * language); a JS `const`/`let`/`var` binding; a `CONSTANT_CASE` assignment
- * (Python or JS); a quoted or bare dict/object key. The last two require a
- * code-shaped name (underscore, digit or internal capital) — plain-English
- * prose lines that happen to start `Word:` (a Markdown "Scope:", "Note:") are
- * not declarations and must not shadow a real one (mantahostels#3134).
- */
 const CODE_SHAPED = /[_0-9]|[a-z][A-Z]/;
 const DECL_PATTERNS = [
 	/^\s*def\s+(\w+)\s*\(/,
@@ -395,17 +280,12 @@ const DECL_PATTERNS = [
 	/^\s*([A-Z_][A-Z0-9_]*)\s*[:=]/,
 	/^\s*(?:["'])?([A-Za-z_][A-Za-z0-9_]*)(?:["'])?\s*:/,
 ];
-/** A guess, not measured: far enough to reach a comment sitting a few lines
- * above the declaration it documents, the shape mantahostels#3134 was filed over. */
+// guess, lucmoseley/mantahostels#3134
 const IDENTIFIER_WINDOW = 80;
 
 /**
- * The enclosing function, class or constant name, if the phrase sits inside
- * or beside one — nearest declaration wins, searched outward by line
- * distance so a comment sitting a few lines above its declaration (the usual
- * shape) is still caught (mantahostels#3134).
- *
- * @param {string} text @param {number} line 1-indexed line the phrase starts on
+ * @param {string} text
+ * @param {number} line
  * @returns {string | null}
  */
 function findEnclosingIdentifier(text, line) {
@@ -424,8 +304,6 @@ function findEnclosingIdentifier(text, line) {
 }
 
 /**
- * The identifier the first matching DECL_PATTERNS entry declares on this line,
- * or null where none does.
  * @param {string} candLine
  * @returns {string | null}
  */
@@ -440,11 +318,7 @@ function declaredName(candLine) {
 	return null;
 }
 
-/**
- * Splits an identifier into lowercase words, tolerating snake_case,
- * CONSTANT_CASE and camelCase alike.
- * @param {string} ident
- */
+/** @param {string} ident */
 function identifierWords(ident) {
 	return ident
 		.replace(/([a-z0-9])([A-Z])/g, "$1_$2")
@@ -454,12 +328,6 @@ function identifierWords(ident) {
 }
 
 /**
- * A commit message may name this identifier in plain English rather than
- * literally — "the reply markers" for `REPLY_MARKERS` — so the search tolerates
- * any separator between words and an optional trailing "s" on each, rather than
- * matching the identifier's exact spelling (mantahostels#3134). Word-bounded so a
- * short identifier (`res`) does not match inside an unrelated longer word
- * (`results`, `reserve`).
  * @param {string} ident
  * @returns {RegExp | null}
  */
@@ -471,13 +339,8 @@ function identifierMessageRegex(ident) {
 }
 
 /**
- * A later commit can rule a line KEPT without ever touching its text — a
- * neighbouring cut's message says so instead — so `-S` on this phrase (which
- * only finds commits that changed it) cannot see that ruling. This scans every
- * commit message touching the file for the enclosing identifier's name instead
- * (mantahostels#3134).
- *
- * @param {string} pathspec @param {string | null} identifier
+ * @param {string} pathspec
+ * @param {string | null} identifier
  */
 function identifierRulingAxis(pathspec, identifier) {
 	if (!identifier) {
@@ -509,11 +372,6 @@ function identifierRulingAxis(pathspec, identifier) {
 			identifier,
 		};
 	}
-	// Repo-wide, no pathspec: the same shape, read for volume rather than for
-	// which commits matched — the distinctiveness signal in place of length
-	// (mantahostels#3155). A failure here fails the whole axis closed, same as the lookup
-	// above: a silently-skipped frequency check would read as "distinctive
-	// enough".
 	const freq = runGit(["log", "--reverse", PRETTY, "--date=short"]);
 	if (freq.status !== 0) {
 		return {
@@ -534,7 +392,7 @@ function identifierRulingAxis(pathspec, identifier) {
 	return { state: "found", identifier, commits, messageRegex: re, frequency };
 }
 
-/** An earlier pass may already have ruled on this passage. @param {string} needle */
+/** @param {string} needle */
 function ghAxis(needle) {
 	const term = `"${needle.replace(/"/g, " ")}"`;
 	const res = settle(() =>
@@ -575,13 +433,7 @@ function ghAxis(needle) {
 	return { state: "found", rows: rows.slice(0, MAX_ISSUES), term };
 }
 
-/**
- * A test asserting the string makes the sentence load-bearing whatever it reads
- * like. A §B `Restated in:` locator does not — the skill owns that reading
- * (mantahostels#722).
- *
- * @param {string} needle
- */
+/** @param {string} needle */
 function grepAxis(needle) {
 	const targets = GREP_TARGETS.filter((t) => fs.existsSync(t));
 	if (targets.length === 0) {
@@ -602,21 +454,8 @@ function grepAxis(needle) {
 }
 
 /**
- * A body under the cap prints whole. Over the cap, the cut can only ever make
- * tenure look weaker than it is (mantahostels#2510) — so before clipping, the whole body
- * (not just the part a clip would keep) is searched for the needle, tolerating
- * a re-wrap (`findAcrossWraps`). Found anywhere, the body prints in
- * full instead of being cut; absent, the clip stands and says so, because a
- * silent clip reads as "there was nothing more to see" when it may just be
- * unsearched.
- *
- * `matcher` is a literal needle, or the same regex that decided whether this
- * commit was admitted in the first place — passing the literal identifier
- * instead disagreed with the tolerant match that admitted the commit, so an
- * over-cap body matched only in its plain-English form printed a false
- * "does not occur past the cut" (mantahostels#3134).
- *
- * @param {string} body @param {string | RegExp} matcher
+ * @param {string} body
+ * @param {string | RegExp} matcher
  */
 function bodyForDisplay(body, matcher) {
 	if (body.length <= MAX_BODY_CHARS) return { text: body, note: null };
@@ -637,17 +476,10 @@ function bodyForDisplay(body, matcher) {
 }
 
 /**
- * `commits` is always oldest-first. Step 1 wants the introducing commit, which
- * sits at the start, so the cap withholds the newest. Step 1b wants a LATER
- * ruling, which by definition sits at the end — withholding the newest there
- * would hide the one commit this lookup exists to surface (mantahostels#3134), so it shows
- * the newest instead and withholds the oldest.
- *
- * A sha already in `printed` prints its subject alone, so a commit two rungs
- * both found costs one body.
- *
- * @param {Commit[]} commits @param {string} heading @param {string | RegExp} needle
- * @param {{ newestFirst?: boolean, printed?: Set<string> }} [opts] accumulator: printed collects the shas shown; newestFirst is read
+ * @param {Commit[]} commits
+ * @param {string} heading
+ * @param {string | RegExp} needle
+ * @param {{ newestFirst?: boolean, printed?: Set<string> }} [opts]
  */
 function printCommits(commits, heading, needle, opts = {}) {
 	const ordered = opts.newestFirst ? [...commits].reverse() : commits;
@@ -676,7 +508,6 @@ function printCommits(commits, heading, needle, opts = {}) {
 }
 
 /**
- * The target's text, or null after printing why it could not be read.
  * @param {string} target
  * @returns {string | null}
  */
@@ -689,10 +520,7 @@ function readTarget(target) {
 	}
 }
 
-/**
- * Step 1's pickaxe half: commits in the target, then elsewhere in the repo.
- * @param {{ git: ReturnType<typeof gitAxis>, target: string, needle: string, printed: Set<string> }} ctx
- */
+/** @param {{ git: ReturnType<typeof gitAxis>, target: string, needle: string, printed: Set<string> }} ctx */
 function printPickaxeAxis({ git, target, needle, printed }) {
 	if (git.state === "unresolved") {
 		out(`   UNRESOLVED: ${git.why}\n`);
@@ -723,8 +551,9 @@ function printPickaxeAxis({ git, target, needle, printed }) {
 }
 
 /**
- * Step 1's `git log -L` half; prints nothing where the pickaxe was unresolved.
- * @param {ReturnType<typeof lineHistory> | null} lines @param {string} needle @param {Set<string>} printed
+ * @param {ReturnType<typeof lineHistory> | null} lines
+ * @param {string} needle
+ * @param {Set<string>} printed
  */
 function printLineHistoryAxis(lines, needle, printed) {
 	if (lines?.state === "found") {
@@ -740,7 +569,8 @@ function printLineHistoryAxis(lines, needle, printed) {
 }
 
 /**
- * @param {ReturnType<typeof identifierRulingAxis>} laterRuling @param {string} target
+ * @param {ReturnType<typeof identifierRulingAxis>} laterRuling
+ * @param {string} target
  */
 function printLaterRulingAxis(laterRuling, target) {
 	if (
@@ -875,17 +705,8 @@ function main(argv) {
 	return 0;
 }
 
-/**
- * Runs `main` in a child and waits at most CEILING_MS for it. Nothing inside
- * one process can bound it: a hang in node's own exit runs no timer.
- *
- * The child leads its own process group, so the kill at the ceiling reaches
- * the lookups it started too; their own timeouts died with it.
- *
- * @param {string[]} argv
- */
+/** @param {string[]} argv */
 function supervise(argv) {
-	// `detached` reaches spawnSync's runner though @types/node omits it there.
 	const opts = /** @type {import("node:child_process").SpawnSyncOptions} */ ({
 		stdio: ["ignore", "inherit", "inherit"],
 		env: { ...process.env, [WORKER_ENV]: "1" },

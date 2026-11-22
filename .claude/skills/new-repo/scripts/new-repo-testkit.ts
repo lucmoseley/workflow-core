@@ -1,10 +1,3 @@
-/*
- * new-repo-testkit.ts — the fixture every new-repo.js suite stands on: the
- * stateful `gh` stub and its server, `sandbox`, the source repo a copy run
- * starts from, and the clean run and part-way worlds the --resume cases
- * rebuild. new-repo.test.ts's header says how a run is driven.
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -30,7 +23,6 @@ const SCRIPT = path.join(__dirname, "new-repo.js");
 export const IDEA =
 	"A tide-table app for surfers.\n\n## It has a heading\n\nAnd a second paragraph, kept as written.";
 
-/** A block in the shape the founder's `~/.bashrc` carries, unlike what the script writes. */
 export const buildLiveBlock = (repo: string, p: string) =>
 	[
 		`# --- ${repo}, one alias per plan ---`,
@@ -48,7 +40,6 @@ const EXISTING_BLOCKS = [
 ].join("\n\n");
 export const BASHRC = `# ~/.bashrc\nexport EDITOR=vi\n\n${EXISTING_BLOCKS}\n`;
 
-/** What the script writes for tides/td. */
 export const TIDES_BLOCK = [
 	"# --- tides, one alias per plan ---",
 	"alias td1='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude claude agents)'",
@@ -59,19 +50,8 @@ export const TIDES_BLOCK = [
 
 const made: string[] = [];
 
-/** One run's own bound: a run commits through the real hook stack (§X3's timeout shape). */
 export const RUN_TIMEOUT_MS = 170_000;
 
-/**
- * The stub `gh`. State lives under `<sb>/github`: `<owner>/<name>.git` is the
- * bare repo, `<owner>/<name>.json` its labels, issues and privacy, an issue's
- * `parent` its sub-issue link. A file
- * `<sb>/fail/<key>` makes that call fail; `issue-create` lands the issue and
- * still reports failure, as GitHub can. Every argv is logged to `<sb>/gh-calls`.
- * A `repo clone` ignores the git arguments after `--`. One server answers the
- * whole file (`serveGhStub`), reading each call's sandbox from its
- * NEW_REPO_SB (#2877).
- */
 const STUB = String.raw`
 ${LINK_READ_FAKE}
 ${LINKS_GRAPHQL_FAKE}
@@ -109,7 +89,6 @@ if (a[0] === "api") {
 	const m = /^repos\/([^/]+\/[^/]+)\/(tags|labels)$/.exec(p);
 	if (m && m[2] === "tags") print([JSON.parse(fs.readFileSync(path.join(SB, "tags"), "utf8")).map((name) => ({ name }))]);
 	if (m && m[2] === "labels") print([need(m[1]).labels.map((name) => ({ name }))]);
-	// init-adopter's feature probes.
 	if (/^repos\/[^/]+\/[^/]+\/(actions\/runs|pulls)\?/.test(p)) print({});
 	if (/\/dependencies\/blocked_by$/.test(p)) print([]);
 	const is = /^repos\/([^/]+\/[^/]+)\/issues\/(\d+)(\/sub_issues)?$/.exec(p);
@@ -138,7 +117,6 @@ if (a[0] === "repo") {
 	if (a[1] === "view") {
 		const s = need(r);
 		let empty = true;
-		// A bare repo git cannot read is reported empty, as GitHub reports one with no refs.
 		try { empty = !execFileSync("git", ["-C", path.join(SB, "github", r + ".git"), "for-each-ref"], { cwd, env, encoding: "utf8" }).trim(); } catch {}
 		print({ isEmpty: empty, isPrivate: s.private, owner: { login: r.split("/")[0] }, defaultBranchRef: empty ? null : { name: s.defaultBranch ?? "main" }, licenseInfo: s.license ?? null });
 	}
@@ -172,7 +150,6 @@ if (a[0] === "issue") {
 	if (a[1] === "list") {
 		const label = flag("--label"), state = (flag("--state") ?? "open").toUpperCase();
 		const listed = s.issues.filter((i) => (!label || i.labels.includes(label)) && (state === "ALL" || i.state === state));
-		// init-adopter's probe reads the newest issue's number.
 		if (flag("--jq") === ".[0].number") print(String(listed.at(-1)?.number ?? ""));
 		print(listed.map((i) => shape(i, flag("--json"))));
 	}
@@ -198,8 +175,6 @@ die("stub gh: unmodelled call: " + joined);
 
 let ghServer: GhStubServer;
 
-/** Register the file's one gh stub server and the afterEach that removes
- * every sandbox a case made. */
 export function newRepoSuite(): void {
 	beforeAll(async () => {
 		ghServer = await serveGhStub(STUB);
@@ -213,11 +188,6 @@ export function newRepoSuite(): void {
 	});
 }
 
-/**
- * Turns `env`'s git hooks off by appending `core.hooksPath=/dev/null` as the
- * last git environment config pair, or on by removing that pair, keeping every
- * pair before it: the suite's maintenance switch-off is among them (#1655).
- */
 function setHooks(env: NodeJS.ProcessEnv, hooks: boolean) {
 	const n = Number(env.GIT_CONFIG_COUNT ?? 0);
 	const off =
@@ -235,12 +205,6 @@ function setHooks(env: NodeJS.ProcessEnv, hooks: boolean) {
 	}
 }
 
-/**
- * The suite's maintenance switch-off (`vitest.setup.ts`, #806), restated in
- * the sandbox's ~/.gitconfig because git strips the suite's environment config
- * from the receiving side of a local push, which would otherwise start
- * maintenance in the bare remote (#1655).
- */
 export const MAINTENANCE_OFF: Record<string, string> = {
 	"maintenance.auto": "false",
 	"gc.auto": "0",
@@ -258,16 +222,10 @@ export const HAS_GITLEAKS = (() => {
 })();
 
 export const SOURCE = "octo/surf-lib";
-/** The source repo's .gitignore in the clean copy: it hides one of init's files. */
 export const SOURCE_IGNORE = "node_modules/\nCLAUDE.md\n";
 export const SOURCE_AGENTS =
 	"# surf-lib\n\nOpen a pull request from a feature branch.\n";
-/** Shebang-less, as husky v9 writes hooks (#1870). */
 export const SOURCE_HOOK = "test -f lib/tide.js\n";
-/**
- * The source repo's row for its hook once set aside, so the core's wiring gate
- * passes `.husky/pre-commit.local`.
- */
 export const SOURCE_HOOK_ROWS = `${JSON.stringify({
 	".husky/pre-commit.local": {
 		IMPLICIT: "runs surf-lib's own check on every commit",
@@ -275,15 +233,8 @@ export const SOURCE_HOOK_ROWS = `${JSON.stringify({
 		DEFEAT: "none",
 	},
 })}\n`;
-/** SOURCE_HOOK set aside: given the shell directive shellcheck needs. */
 export const SET_ASIDE_HOOK = `# shellcheck shell=sh\n${SOURCE_HOOK}`;
 
-/**
- * A public source repo on the stub's GitHub: default branch `trunk`, a stale
- * branch beside it, a lightweight and an annotated tag, a test script, a
- * workflow and `gitignore` as its .gitignore. `extra` adds files; a `{link}` value is a symlink, and
- * `null` leaves that file out.
- */
 function makeSource(
 	sb: string,
 	gitignore: string,
@@ -343,16 +294,6 @@ function makeSource(
 	);
 }
 
-/**
- * `bashrc` seeds ~/.bashrc.
- * `failBashN` puts a `bash` first on PATH whose `-n` refuses any file holding
- * the tides block, as a write that broke the file's syntax would read — on
- * PATH, not through an env var, because the script carries no test hook
- * (#707 Q2). `source` makes the run a copy of a source repo holding that
- * .gitignore, and `sourceFiles` beside its own. `globalIgnore` is HOME's
- * git ignore file, as the founder's hides .claude/settings.local.json.
- * `hooks: false` runs every git call with no hooks.
- */
 export function sandbox({
 	tags = ["v1.9.3", "v1.10.0", "nightly", "v0.99.0"],
 	bashrc = BASHRC as string | null,
@@ -381,10 +322,6 @@ export function sandbox({
 		fs.writeFileSync(path.join(home, ".config/git/ignore"), globalIgnore);
 	}
 	fs.writeFileSync(path.join(sb, "tags"), JSON.stringify(tags));
-	/* Each tag's cache copy, where --no-plugin-install leaves init to find the
-	 * pin installed (#736): a real directory linking each of this checkout's
-	 * entries, so the rules file's real-path spelling (#5433) still names the
-	 * pin rather than the checkout. */
 	const checkout = path.resolve(__dirname, "../../../..");
 	const entries = fs.readdirSync(checkout);
 	for (const tag of tags.filter((t) => /^v\d+\.\d+\.\d+$/.test(t))) {
@@ -394,7 +331,6 @@ export function sandbox({
 			fs.symlinkSync(path.join(checkout, entry), path.join(at, entry));
 	}
 	if (source !== null) makeSource(sb, source, sourceFiles);
-	// The scratch clone of the source repo lands here, where a test can see it gone.
 	fs.mkdirSync(path.join(sb, "tmp"));
 	if (bashrc !== null) fs.writeFileSync(path.join(home, ".bashrc"), bashrc);
 	const stub = stubGhScript(sb, ghServer.script);
@@ -425,13 +361,9 @@ export function sandbox({
 		NEW_REPO_SB: sb,
 		CLAUDE_CONFIG_DIR: path.join(home, ".claude2"),
 		TMPDIR: path.join(sb, "tmp"),
-		/* Run as a session runs /new-repo, whoever runs the suite: the map it
-		 * files is still unassigned (#2460). */
 		CLAUDE_CODE_SESSION_ID: "new-repo-test-session",
 	};
 	setHooks(env, hooks);
-	/* The suite's WFC_MODULES would arm every module over the adopter's own
-	 * declared list, which its real hook stack reads. */
 	for (const k of [
 		"WFC_MODULES",
 		"GIT_DIR",
@@ -502,7 +434,6 @@ export function sandbox({
 	};
 }
 
-/** The plugin copy a run pins, as the CLI caches it for plan 2. */
 export const pinned = (home: string, tag: string) =>
 	installPathFor(
 		path.join(home, ".claude2"),
@@ -511,7 +442,6 @@ export const pinned = (home: string, tag: string) =>
 		tag,
 	);
 
-/** The status column of the report line for `step`. */
 export const statusOf = (stdout: string, step: string) =>
 	stdout
 		.split("\n")
@@ -519,11 +449,6 @@ export const statusOf = (stdout: string, step: string) =>
 		?.slice(15)
 		.split(" — ")[0];
 
-/**
- * What git resolves for the settings `setHooks` must leave intact or toggle,
- * run with `env`; "" is unset. The sandbox's ~/.gitconfig goes unread, so
- * only the env's pairs answer.
- */
 export const gitConfig = (env: NodeJS.ProcessEnv) =>
 	Object.fromEntries(
 		[...Object.keys(MAINTENANCE_OFF), "core.hooksPath"].map((key) => [
@@ -536,7 +461,6 @@ export const gitConfig = (env: NodeJS.ProcessEnv) =>
 		]),
 	);
 
-/** What a run saves for tides/td once its clone exists. */
 export const SAVED = {
 	name: "tides",
 	repo: "lucmoseley/tides",
@@ -549,7 +473,6 @@ export const SAVED = {
 	source: null,
 };
 
-/** What a clean run leaves, to rebuild its steps from and compare against. */
 export interface Golden {
 	issue: unknown;
 	claude: string;
@@ -561,7 +484,6 @@ export interface Golden {
 
 export type Sandbox = ReturnType<typeof sandbox>;
 
-/** The copy step done by hand, as new-repo.js does it. */
 function copyByHand(s: Sandbox) {
 	s.git("remote", "add", "upstream", `https://github.com/${SOURCE}.git`);
 	s.git("remote", "set-url", "--push", "upstream", "no-push");
@@ -574,11 +496,9 @@ function copyByHand(s: Sandbox) {
 	);
 	s.git("fetch", "-q", "upstream", "+refs/tags/*:refs/tags/*");
 	s.git("checkout", "-q", "--no-track", "-B", "main", "upstream/trunk");
-	// main waits for the push step, which carries the skeleton commit (#4685).
 	s.git("push", "-q", "origin", "v1", "v2");
 }
 
-/** The set-aside step done by hand: the source repo's own files moved. */
 function asideByHand(s: Sandbox) {
 	fs.mkdirSync(path.join(s.clone, "docs/source"), { recursive: true });
 	fs.renameSync(
@@ -594,14 +514,8 @@ function asideByHand(s: Sandbox) {
 
 type Step = [string, (s: Sandbox, g: Golden) => void];
 
-/** The sandbox's `gh` stub, which a fixture step drives as the script does. */
 const ghOf = (s: Sandbox) => s.env.WFC_GH ?? "";
 
-/**
- * A flow's steps as report lines, each with a fixture leaving the world as
- * that step would — half-finished states built directly, never by stopping
- * the script (#720). `copy` is the flow copying SOURCE.
- */
 const steps = (copy: boolean): Step[] => [
 	[
 		"github repo",
@@ -644,7 +558,6 @@ const steps = (copy: boolean): Step[] => [
 					"--modules",
 					"",
 					"--marketplace-ref",
-					// The sandbox's newest tag, which the script passes too.
 					"v1.10.0",
 					"--plugin-root",
 					pinned(s.home, "v1.10.0"),
@@ -728,10 +641,6 @@ export const reported = (copy = false) => [
 	...(copy ? ["reconcile"] : []),
 ];
 
-/**
- * The world as left after `step`; `opts` replaces the copy's sandbox. A step
- * needing a clean run's output takes `golden`.
- */
 export function builtThrough(
 	step: string,
 	copy = false,
@@ -744,13 +653,6 @@ export function builtThrough(
 	return s;
 }
 
-/**
- * Every step's world, built once in one sandbox and snapshotted after each
- * step. `at` restores a snapshot to that same path rather than copying it into
- * a new sandbox, since the committed hooks and rules file carry its HOME in
- * blobs no rewrite reaches (#1150). Cases in a file run one at a time, so they
- * can share the path, which afterEach removes between them.
- */
 export function worlds(golden: Golden, copy: boolean) {
 	const s = sandbox(copy ? { source: SOURCE_IGNORE } : {});
 	const snaps = fs.mkdtempSync(path.join(os.tmpdir(), "new-repo-worlds-"));
@@ -797,15 +699,8 @@ const readGolden = (s: Sandbox): Golden => ({
 	docMap: fs.readFileSync(path.join(s.clone, "docs/doc-map.md"), "utf8"),
 });
 
-/** A `git ls-files -s` line: mode, object, stage, then the path. */
 const LS_FILES_LINE = /^(\d{6}) \S+ \d\t(.+)$/;
 
-/**
- * The committed tree with HOME masked, since the hooks and rules file carry
- * the pin's cache path under it (#736); the anchors hash those hooks, so only
- * their keys count. The rules file prints that path shell-quoted, so a HOME
- * holding a `'` appears there in its escaped form too.
- */
 function readMaskedTree(s: Sandbox) {
 	const quotedHome = shellQuote(s.home).replace(/^'|'$/g, "");
 	const readBody = (rel: string, mode: string) => {
@@ -832,7 +727,6 @@ function readMaskedTree(s: Sandbox) {
 	return createHash("sha1").update(files.join("\0")).digest("hex");
 }
 
-/** Everything a finished run leaves, save the backup's timestamped name. */
 export function readEndState(s: Sandbox) {
 	const gh = s.readState();
 	return {
@@ -847,9 +741,7 @@ export function readEndState(s: Sandbox) {
 		commits: s.git("rev-list", "--count", "HEAD"),
 		pushed: s.git("rev-parse", "origin/main") === s.git("rev-parse", "HEAD"),
 		status: s.git("status", "--porcelain", "--untracked-files=all"),
-		// Raw config: `remote -v` resolves the sandbox path HOME's insteadOf maps onto.
 		remotes: s.git("config", "--get-regexp", "^remote\\."),
-		// Names only: a source repo's shas differ between sandboxes.
 		originRefs: s
 			.git("ls-remote", "--refs", "origin")
 			.split("\n")
@@ -863,7 +755,6 @@ export function readEndState(s: Sandbox) {
 	};
 }
 
-/** A clean run's world and end state; `hooks: false` commits with no hooks. */
 export function cleanRun(copy: boolean, { hooks = true } = {}) {
 	const s = sandbox({ ...(copy && { source: SOURCE_IGNORE }), hooks });
 	const r = s.run();
@@ -871,7 +762,6 @@ export function cleanRun(copy: boolean, { hooks = true } = {}) {
 	return { golden: readGolden(s), goldenEnd: readEndState(s) };
 }
 
-/** Every file under `dir` but `.git`'s, by path, with its text or link target. */
 function readFilesUnder(dir: string, rel = ""): Record<string, string> {
 	if (!fs.existsSync(dir)) return {};
 	const found: Record<string, string> = {};
@@ -889,7 +779,6 @@ function readFilesUnder(dir: string, rel = ""): Record<string, string> {
 	return found;
 }
 
-/** What a dry run must leave as it found it. */
 export function readWorld(s: Sandbox) {
 	const cloned = fs.existsSync(s.clone);
 	return {
@@ -908,11 +797,6 @@ export function readWorld(s: Sandbox) {
 	};
 }
 
-/**
- * Re-runs from the world as left after `step`, asserting each step's report
- * line and a clean run's end state — after a dry run that writes nothing and
- * reports `would` wherever the re-run acts, `skipped` wherever it skips (#733).
- */
 export function resumeFinishes(
 	s: Sandbox,
 	step: string,
@@ -920,7 +804,6 @@ export function resumeFinishes(
 	copy: boolean,
 ) {
 	const past = stepIndex(step, copy);
-	// Before the clone nothing is saved, so the re-run is the full form.
 	const again = (...extra: string[]) =>
 		past === 0 ? s.run(...extra) : s.resume(...extra);
 	const before = readWorld(s);
@@ -942,7 +825,6 @@ export function resumeFinishes(
 	return { s, r, past };
 }
 
-/** Scratch clones of the source repo left in TMPDIR, where the hook stack keeps files of its own. */
 export const readScratchLeft = (s: Sandbox) =>
 	fs
 		.readdirSync(path.join(s.sb, "tmp"))
@@ -951,10 +833,8 @@ export const readScratchLeft = (s: Sandbox) =>
 export const KEEP_BLOCK =
 	"# --- workflow-core: keep the core's files trackable (new-repo.js) ---\n!/CLAUDE.md\n# --- end workflow-core block ---\n";
 
-/** What init-adopter appends to every new repo's .gitignore (#737). */
 export const IGNORE_BLOCK = withIgnoreBlock("") as string;
 
-/** `git check-ignore`'s verdict on a path under each ignored directory. */
 export const readIgnoredScratch = (s: Sandbox) =>
 	spawnSync(
 		"git",

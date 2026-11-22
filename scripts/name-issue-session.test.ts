@@ -327,7 +327,6 @@ describe("an interactive session is found in the registry CLAUDE_CONFIG_DIR name
 			WFC_GH: stubGh("ok"),
 			CLAUDE_CONFIG_DIR: cfg,
 		};
-		delete (env as Record<string, string | undefined>).CLAUDE_JOB_DIR;
 		spawnSync("bash", [HOOK], {
 			input: JSON.stringify({
 				session_id: "s1",

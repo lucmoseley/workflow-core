@@ -1,16 +1,3 @@
-"""Pins what the advisor-cost scanner counts as a fired advisor call -- a
-nested `advisor_message` iteration, never `server_tool_use` or a configured
-`advisorModel` -- and how it dedups, attributes and prices one (mantahostels#1185).
-
-Each test writes synthetic transcripts under temp seat roots through the
-`corpus` fixture, so nothing reads the real corpus, and `scan_burn` is
-imported for real because the scanner reuses its walk and MAX-per-request rule.
-
-CI's pytest step runs this file; the scanner
-gates nothing and is run by hand. Breaking it misprices the advisor behind
-every Sonnet `/implement` launch, the figure `docs/effort-guide.md` quotes.
-"""
-
 import json
 import os
 import sys
@@ -40,10 +27,6 @@ def rec(
     cw=0,
     fi=0,
 ):
-    """A bare assistant record, with an optional advisor round nested in
-    `usage.iterations` -- the real shape, not the `usage.server_tool_use`
-    field (an unrelated always-present web-tool counter) and not merely
-    `advisorModel` (which marks configuration, not a fired call)."""
     use = {
         "input_tokens": fi,
         "output_tokens": out,
@@ -55,9 +38,6 @@ def rec(
         use["iterations"] = advisor_iterations
     content = []
     if advisor_content_block:
-        # The `server_tool_use` *content block* named "advisor" (distinct from
-        # the `usage.server_tool_use` field above) carries no token cost of
-        # its own -- the cost lives only in usage.iterations.
         content.append(
             {
                 "type": "server_tool_use",
@@ -104,7 +84,6 @@ def advisor_round(
 
 
 def message_round(fi=0, out=0, cr=0, cw=0):
-    # The parent turn's own reasoning/tool-call rounds, `type=="message"`.
     return {
         "type": "message",
         "input_tokens": fi,
@@ -121,8 +100,6 @@ def test_server_tool_use_field_alone_is_not_an_advisor_call(corpus):
 
 
 def test_advisor_configured_without_a_fired_call_is_not_a_call(corpus):
-    # mantahostels#1102's silent-off risk: advisorModel is written on every record of a
-    # configured session whether or not the advisor ever actually ran.
     corpus(
         "sess", [rec("a", advisor_configured=True), rec("b", advisor_configured=True)]
     )
@@ -170,10 +147,6 @@ def test_only_advisor_message_iterations_are_counted_not_every_iteration(corpus)
 
 
 def test_advisor_tokens_are_excluded_from_the_parent_requests_own_totals(corpus):
-    # The nested iteration is not summed into the parent turn's top-level
-    # usage fields: scan_burn.py's own extraction (top-level input/output
-    # tokens) and scan_advisor.py's (iteration tokens) read disjoint keys of
-    # the same record.
     corpus(
         "sess",
         [
@@ -198,8 +171,6 @@ def test_a_server_tool_use_content_block_named_advisor_carries_no_cost_alone(cor
 
 
 def test_streamed_duplicate_records_are_maxed_not_summed(corpus):
-    # A subagent transcript repeats one request with rising output; an
-    # advisor round inside it must follow the same MAX rule scan_burn uses.
     corpus("parent", [rec("p0")])
     corpus(
         "sub",
@@ -257,16 +228,11 @@ def test_window_filters_on_the_requests_earliest_record(corpus):
 
 
 def test_one_transcript_under_two_seat_roots_is_counted_once(seat_roots):
-    # scan_burn merges a session found on two seats (#374); counting it per
-    # file here would double its advisor spend against scan_burn's total.
     for r in seat_roots(2):
         (r / "s.jsonl").write_text(
             json.dumps(rec("a", advisor_iterations=[advisor_round()])) + "\n"
         )
     assert sum(r["n"] > 0 for r in sa.requests_with_advisor(Counter())) == 1
-
-
-# --- pricing each cache write at its own TTL (#1209) --------------------------
 
 
 def write_only(cw, **split):

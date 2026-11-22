@@ -1,17 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-output-style.js — name a declared `outputStyle` that matches no style
- * the harness can load (#1944).
- *
- * Usage:  node scripts/check-output-style.js [--json]
- *         npm run status -- --only output-style
- *
- * WHY. A setting naming no style loads none, and nothing says so.
- *
- * WHAT COUNTS AS A STYLE: a built-in, a project or user style file, or one this
- * plugin ships. Another plugin's `<name>:` style is not enumerated, so it is
- * reported as unchecked, never as a miss.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -27,7 +14,6 @@ const {
 } = require("./lib/output-styles.js");
 const { caught } = require("./lib/caught.js");
 
-/* The project-scoped settings files, in the harness's precedence: local wins. */
 const SETTINGS = [".claude/settings.local.json", ".claude/settings.json"];
 
 /**

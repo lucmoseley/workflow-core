@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * check-idle-efforts.test.ts — the idle alarm's program (#3641): that it
- * reads every adopting checkout's tracker once, each checkout's dispatch
- * ledger as the launch log, a live loop's launch stopped on its limit as held,
- * a ticket's park marker at the limit-cap parks' cap as held, loop or no loop,
- * a served checkout's probe hold as holding its tracker, and a stopped loop as
- * serving nothing, and reports through runCheck without gating.
- *
- * Its judgement is lib/idle-efforts.test.ts's; this pins the readings the
- * shell hands it, and that a resume the loop writes through
- * lib/refill-batch.js reads as a launch (#3704). `gh` is a stub injected through WFC_GH and the home
- * directory a temp one, so no real tracker or checkout is read. A break here
- * strands an effort unreported while the core's own tests stay green.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -38,8 +24,6 @@ const DAY = 24 * 60 * 60 * 1000;
 let dir: string;
 let home: string;
 
-/* The run reads its clock from WFC_NOW, so a day stamp never crosses midnight
- * mid-test. */
 const NOW = Date.parse("2026-10-30T12:00:00Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
 
@@ -85,7 +69,6 @@ const node = (number: number, labels = ["takes:implement"]) => ({
 	subIssues: { nodes: [] },
 });
 
-/** A stub gh answering the issues query per repo, logging each call. */
 function stubGh(issues: Record<string, ReturnType<typeof node>[]>) {
 	const fixture = path.join(dir, "fixture.json");
 	fs.writeFileSync(fixture, JSON.stringify(issues));
@@ -104,7 +87,6 @@ process.stdout.write(JSON.stringify([{ data: { repository: { issues: { pageInfo:
 	);
 }
 
-/** The program over `issues`, whatever it exits. */
 async function runProgram(
 	issues: Record<string, ReturnType<typeof node>[]>,
 	args: string[] = [],
@@ -137,8 +119,6 @@ async function run(
 	source?: string,
 ) {
 	const r = await runProgram(issues, args, source);
-	/* WARN never gates, so every case through here exits 0 (§X3). A bad flag or a
-	 * throw is BROKEN, exit 2: runProgram's case below. */
 	expect(r.status).toBe(0);
 	const log = path.join(dir, "calls.log");
 	return {
@@ -159,7 +139,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
 
 const STOP_LINE =
@@ -167,7 +146,6 @@ const STOP_LINE =
 
 const PARKED_LABELS = ["takes:implement", "parked"];
 
-/** `body`, run while a process holds the refill loop's pid lock in `refill`. */
 const withLiveLoop = async (refill: string, body: () => Promise<void>) => {
 	const holder = spawnLoopHolder(refill);
 	try {
@@ -212,7 +190,6 @@ const tearHoldStore = (refill: string) => {
 	fs.writeFileSync(path.join(refill, "repo-holds", store, "torn.json"), "{}");
 };
 
-/** A live loop's damage of each kind on the served checkout, and what its line says. */
 const DAMAGE: [string, (refill: string) => void, string[]][] = [
 	[
 		"a hold store",
@@ -378,7 +355,6 @@ describe("check-idle-efforts.js", () => {
 		const held =
 			"#8 (issue 8), idle 3.0 days; skip reason: parked: 2 limit-cap";
 
-		/** Session `s`'s real park marker for #8, written 3 days ago: a question park with no `limitParks`. */
 		function parkedCheckout(limitParks?: number) {
 			checkout("prod", "o/product", [launch(8, 4 * DAY)]);
 			const root = path.join(home, "prod");
@@ -694,20 +670,15 @@ describe("check-idle-efforts.js", () => {
 });
 
 describe("at session start (--notify, #3644)", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const notify: any = createRequire(__filename)("./lib/notify-report.js");
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const delivery: any = createRequire(__filename)("./lib/delivery-stamp.js");
+	const notify = createRequire(__filename)("./lib/notify-report.js");
+	const delivery = createRequire(__filename)("./lib/delivery-stamp.js");
 	const oneIdle = { "o/core": [node(3)] };
 	const stampPath = () => path.join(notify.base(), "idle-efforts.notified");
-	/** The background-start env for a job at `jobDir`, or a plain start for none. */
 	const stubStart = (jobDir?: string) => {
 		for (const [k, v] of Object.entries(buildStartEnv(jobDir)))
 			vi.stubEnv(k, v);
 	};
 
-	/* Mirrored onto this process, so it and the run agree on where reports
-	 * and delivery stamps live. */
 	beforeEach(() => {
 		const config = path.join(dir, "config");
 		const second = path.join(dir, "second");

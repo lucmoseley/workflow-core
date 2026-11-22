@@ -74,7 +74,6 @@ function stopGuardInput({
 		WFC_REPO_ROOT: dir,
 	};
 	if (job) env.CLAUDE_JOB_DIR = job === true ? path.join(dir, "job") : job;
-	else delete env.CLAUDE_JOB_DIR;
 	for (const [k, v] of Object.entries(extra))
 		if (v === undefined) delete env[k];
 		else env[k] = v;

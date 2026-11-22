@@ -1,10 +1,3 @@
-"""Pins guard_share.py's classing and ratio, the figure a guard port's 59% stop
-rule is read on (#2733, #2783).
-
-A call misclassed as a guard inflates the share a port is judged against; one
-missed deflates it.
-"""
-
 import json
 import math
 import subprocess

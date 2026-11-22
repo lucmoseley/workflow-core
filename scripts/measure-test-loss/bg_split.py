@@ -1,8 +1,3 @@
-"""Split the idle wait for background test runs into queue wait, vitest time and the rest, in the
-ratio those parts hold in the launch-to-notice window of the same session.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I bg_split.py bg_idle.jsonl wfc-runs.jsonl <.suite-queue-exits.jsonl> [start]"""
-
 import json
 import re
 import sys

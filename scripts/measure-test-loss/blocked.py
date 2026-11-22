@@ -1,20 +1,3 @@
-"""Time sessions sit blocked in a test run, from the Claude Code session transcripts.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I blocked.py <out.jsonl> [<projects-dir>...] [--start ISO] [--end ISO]
-(corpus.py: which transcripts are read; default window #2812's, 10-24 Oct)
-A row is written for each test call found:
-  fg      a Bash call, not run_in_background, whose command runs a test suite: blocked time is
-          the tool_result timestamp minus the tool_use timestamp (if the harness moved it to the
-          background, the row is marked autobg and the time is up to that point)
-  bg      a Bash call with run_in_background true that runs a suite, launched in the window
-          (no blocked time here)
-  wait    a Monitor call, or a TaskOutput/BashOutput call with block true, whose target is a
-          background test call in the same transcript (Monitor: when its command names a test log
-          or suite): blocked time as for fg
-Test command: a shell segment (split on && ; || |) whose head, after env, timeout, nice, cd and
-bg-run.sh prefixes, is npm test, npm run test*, run-vitest.js, vitest, pytest, run-pytest.js or
-queue-run.js."""
-
 import json
 import os
 import re
@@ -24,7 +7,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import corpus
 from corpus import epoch
 
-# #2812's: how much of a command a row keeps. Untraced.
 CMD_CHARS = 160
 
 PREFIX = re.compile(
@@ -36,7 +18,6 @@ HEAD = re.compile(
 
 
 def test_segment(cmd):
-    """The first shell segment of `cmd` that runs a test suite, prefixes stripped, or None."""
     for seg in re.split(r"&&|\|\||;|\||\n", cmd):
         s = PREFIX.sub("", seg.strip())
         if HEAD.match(s):
@@ -53,15 +34,12 @@ def kind_of(s):
         return "changed"
     if "--adopt" in s:
         return "adopt"
-    # A named run's file pattern is #2812's, narrower than test-kind.js's
-    # JS_TEST_FILE (no .spec., and no c or m before its extension), so rows stay comparable with its baseline.
     if "--retest" in s or re.search(r"\.test\.[jt]s|\s-t\s", s):
         return "named"
     return "bare"
 
 
 def scan_file(path, repo, start, end, *, tally):
-    """blocked.py's rows for one transcript, for test calls launched in [start, end]."""
     sub = corpus.is_subagent(path)
     pend = {}
     rows = []
@@ -123,7 +101,6 @@ def scan_file(path, repo, start, end, *, tally):
                 tur = r.get("toolUseResult")
                 autobg = isinstance(tur, dict) and bool(tur.get("backgroundTaskId"))
                 if cls == "wait" and k in ("TaskOutput", "BashOutput"):
-                    # keep only waits that read a test's output, judged on its first 4,000 characters (#2812, untraced)
                     txt = json.dumps(c.get("content"))[:4000]
                     if not re.search(
                         r"vitest|Test Files|pytest|run-vitest|TEST LOG|passed|failed",
@@ -147,8 +124,6 @@ def scan_file(path, repo, start, end, *, tally):
 
 
 def foreground(rows):
-    """The fg rows that count as blocked: one per (file, at, cls, command head), since a resume
-    repeats a line, and none over the cap (blocked_sum.py's rules)."""
     seen = {}
     for r in rows:
         if r["cls"] == "fg":
@@ -157,4 +132,7 @@ def foreground(rows):
 
 
 if __name__ == "__main__":
-    corpus.run_scanner(__doc__, scan_file)
+    corpus.run_scanner(
+        "Time sessions sit blocked in a test run, from the Claude Code session transcripts.",
+        scan_file,
+    )

@@ -99,13 +99,9 @@ const runRaw = (
 	withEnv(
 		{
 			...process.env,
-			// CLAUDE_PROJECT_DIR is pinned because the output style is read off its
-			// config (#448); unpinned, that read would rest on the runner's cwd.
-			// CLAUDE_JOB_DIR is cleared unless a case sets it: the runner may itself be
-			// a background job, whose state.json would otherwise supply a prompt.
+			// #448
 			CLAUDE_PROJECT_DIR: ROOT,
 			WFC_OUTPUT_STYLE: undefined,
-			CLAUDE_JOB_DIR: "",
 			// The de-duplication keys on the payload's session id, falling back to
 			// this variable — which the runner's OWN session exports, so leaving it
 			// set would make every case below the first a suppressed duplicate.

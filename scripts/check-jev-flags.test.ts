@@ -1,27 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-jev-flags.js shows the Jev advisory's flagged, outage and
- * malformed turns once each since it last spoke, stays silent on an absent or
- * empty log, and reports where the trial stands.
- *
- * Driven end to end through the CLI, the way its sibling check-*.js suites
- * are: a fixture log on disk, argv, and the envelope or the human report as
- * the assertion (#202).
- *
- * TWO SANDBOXES, and the tests need both. `WFC_REPO_ROOT` points the marker
- * directory — and so the guard's log — at a temporary tree. `CLAUDE_CONFIG_DIR`
- * points lib/delivery-stamp.js's store at another, because the stamp lives per
- * machine rather than per repo and a test writing the real one would suppress
- * the founder's own next report.
- *
- * NOTHING HERE RUNS THE GUARD. The log is written by hand: this checker's
- * contract is with the file's shape, and `flagged`/`outage` lines do not exist
- * until the vendor call lands in a later ticket.
- *
- * `npm run status` runs it by hand (#2038): loosen a case and a flag raised in
- * a background job is never seen, so never judged, and #175's stop condition
- * counts the wrong flags.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -30,14 +7,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 
-/* Asked for by name rather than spelled out, which is the whole reason
- * lib/jev-log.js exists: a fixture written to a filename of its own would
- * still pass the day the guard and this checker stopped agreeing. */
 const require_ = createRequire(__filename);
 const { logPath, previousLogPath } = require_("./lib/jev-log.js");
 const jevTrial = require_("./lib/jev-trial.js");
 
-/** The trial's and limb 2's start lines. */
 const TRIAL_START_MS = Date.parse(jevTrial.TRIAL_START);
 const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
 
@@ -73,7 +46,6 @@ interface Line {
 	provider?: string;
 }
 
-/** Write `lines` as the live log, or to `file`, such as the rotated one. */
 function writeLog(lines: (Line | string)[], file = logPath(dir)) {
 	fs.writeFileSync(
 		file,
@@ -155,7 +127,6 @@ describe("check-jev-flags", () => {
 		expect(out).toContain("2026-09-19T10:00:00.000Z");
 		expect(out).toContain("session abcdef01");
 		expect(out).toContain("3f9c1a2b7e40");
-		/* Advisory: it reports and refuses nothing (#173). */
 		expect(status).toBe(0);
 		expect(json().outcome).toBe("WARN");
 	});
@@ -201,8 +172,6 @@ describe("check-jev-flags", () => {
 
 		expect(out).toContain("JEV-MALFORMED (1)");
 		expect(out).toContain("MALFORMED ");
-		/* On "neither", not on "counts toward": a footer saying the opposite —
-		 * "counts toward reversal" — would pass the looser assertion. */
 		expect(out).toContain("toward neither limb");
 	});
 
@@ -275,7 +244,6 @@ describe("check-jev-flags", () => {
 		writeLog([flag("2026-09-19T10:00:00.000Z")]);
 
 		expect(json().flagged).toBe(1);
-		/* The hand run stamped nothing, so the session start still gets it. */
 		expect(run("--notify").out).toContain("JEV-FLAG");
 	});
 
@@ -283,8 +251,6 @@ describe("check-jev-flags", () => {
 		writeLog([flag("2026-09-19T10:00:00.000Z")]);
 		run("--notify");
 
-		/* The live log now starts after the stamp, which is the one state in
-		 * which an unreported flag can be sitting in the rotated file. */
 		writeLog(
 			[flag("2026-09-19T10:30:00.000Z", { messageHash: "aaaabbbbcccc" })],
 			previousLogPath(dir),
@@ -322,8 +288,6 @@ describe("check-jev-flags", () => {
 	});
 
 	it("skips rather than reporting all-clear where the log will not read", () => {
-		/* A directory where the log file should be: present, and unreadable as a
-		 * file — an absent log must stay distinguishable from an unreadable one. */
 		fs.mkdirSync(logPath(dir));
 
 		const { out, status } = run("--notify");
@@ -351,19 +315,11 @@ describe("check-jev-flags", () => {
 	});
 });
 
-/*
- * The trial standing (#253). The arithmetic itself is `lib/jev-trial.test.ts`'s
- * subject; what is asserted here is the reporting — which run shows it, what a
- * flag's verdict reads as, and that an unreadable verdict store leaves the
- * standing unsaid rather than showing a clean trial.
- */
 describe("where the trial stands", () => {
-	/** A timestamp `seconds` after the trial's start line. */
 	function inTrial(seconds: number): string {
 		return new Date(TRIAL_START_MS + seconds * 1000).toISOString();
 	}
 
-	/** A timestamp `seconds` after limb 2's own, later start line. */
 	function afterFix(seconds: number): string {
 		return new Date(OUTAGE_START_MS + seconds * 1000).toISOString();
 	}
@@ -518,7 +474,6 @@ describe("where the trial stands", () => {
 
 	it("leaves the standing unsaid where the verdict store will not read", () => {
 		writeLog([flag(inTrial(10))]);
-		/* A directory where a file is expected: readVerdicts throws EISDIR. */
 		fs.mkdirSync(path.join(markers(), ".jev-verdicts.jsonl"));
 
 		const { out } = run("--notify");

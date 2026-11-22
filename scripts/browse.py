@@ -1,69 +1,15 @@
 #!/usr/bin/env python3
-"""browse.py — render a page with a real browser, for a session that needs one.
-
-Playwright is installed machine-wide on this host as the Python package, not
-per-repo and not as an npm dependency, so `import playwright` already works from
-every checkout (#133).
-
-CORE-OWNED — DO NOT EDIT AN ADOPTER'S COPY. Init and every upgrade rewrite an
-adopter's copy wherever it differs from this one, naming it as they do, so a
-local change is lost (#1453). Fix it upstream in workflow-core instead.
-
-NOT A SCRAPER, AND NOT A CRAWLER. One URL per invocation, no link-following, no
-retry loop. A session that wants several pages calls it several times and paces
-itself — fantasy-books' `docs/sources.md` is the standing guidance on reading
-someone's site politely.
-
-WHY NOT THE PLAYWRIGHT MCP SERVER. Not context: with tool search on it costs
-about 400 tokens a session (#977). Its idle process tree holds about 226 MB in
-every session, and ad-hoc Playwright scripts already did 24 of 28 no-login
-interactive tasks unaided (#953). Which route to try when this one fails: the
-`browser-ladder` skill.
-
-USAGE
-  python3 scripts/browse.py text  <url> [common]
-  python3 scripts/browse.py html  <url> [common]
-  python3 scripts/browse.py shot  <url>  --out PATH [--full-page | --tiles] [common]
-
-  common: [--wait SEL] [--settle MS] [--timeout MS] [--ua STRING] [--out PATH]
-          [--viewport WxH]
-
-`--tiles` captures the whole page as one PNG per viewport height, `<out>-1.png`
-onward, so each can be read at full size: one full-page PNG of a long page is
-downscaled before a model sees it (#2753).
-
-EXITS 0 rendered / 2 the arguments are wrong / 3 Playwright or its browser is
-missing, with the install command named / 4 the page did not render in time /
-5 the browser refused the page — DNS, a refused connection, a TLS failure /
-6 `--tiles` rendered, but the page does not show at real size: it is wider than
-the viewport, or an image is drawn narrower than its own pixels.
-
-No browser or page failure reaches the caller as a traceback: `render` turns
-Playwright's errors into exits 3-5. A local fault, such as an unwritable
-`--out`, still does.
-"""
 
 import argparse
 import sys
 from pathlib import Path
 from typing import NamedTuple
 
-# An ordinary desktop Chrome UA. Playwright's own advertises HeadlessChrome,
-# which Cloudflare and Akamai both answer with a 403 and an interstitial.
-#
-# The version is current as of September 2026 and goes stale on its own. A
-# string a few majors behind is still served normally; one years behind starts
-# drawing upgrade interstitials, so re-pin it when that shows up rather than on
-# a schedule. `--ua` overrides it per call.
 DEFAULT_UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 
-# Both exit-3 causes end at the same two commands, so the lead line says which
-# one happened and this says what to do about either. The pip line carries
-# `--only-binary :all:`, the only form guard-pip-install passes for an
-# undeclared package (#5232).
 INSTALL_HINT = (
     "On this machine Playwright is the Python package under miniforge,\n"
     "installed once per machine rather than per repo:\n"
@@ -73,8 +19,6 @@ INSTALL_HINT = (
 
 
 def first_line(exc):
-    """Playwright's errors open with a blank line and a box-drawn banner, so
-    `splitlines()[0]` is the empty string. Take the first line with text."""
     for line in str(exc).splitlines():
         if line.strip():
             return line.strip()
@@ -85,6 +29,9 @@ def parse(argv):
     p = argparse.ArgumentParser(
         prog="browse.py",
         description="Render one URL with a real browser and print or capture it.",
+        epilog="exits: 0 rendered, 2 bad arguments, 3 Playwright or its browser "
+        "missing, 4 the page did not render in time, 5 the browser refused the "
+        "page, 6 --tiles rendered but the page does not show at real size.",
     )
     p.add_argument("mode", choices=("text", "html", "shot"))
     p.add_argument("url")
@@ -102,13 +49,16 @@ def parse(argv):
         help="Extra milliseconds to wait after load. Use --wait where you can "
         "name a selector; this is the fallback when you cannot.",
     )
-    # Playwright's own default, kept.
     p.add_argument("--timeout", type=int, default=30000, metavar="MS")
     p.add_argument("--ua", default=DEFAULT_UA, metavar="STRING")
     p.add_argument("--out", metavar="PATH", help="Required for `shot`.")
     shape = p.add_mutually_exclusive_group()
     shape.add_argument("--full-page", action="store_true")
-    shape.add_argument("--tiles", action="store_true")
+    shape.add_argument(
+        "--tiles",
+        action="store_true",
+        help="One PNG per viewport height, <out>-1.png onward.",
+    )
     p.add_argument("--viewport", default="1280x800", metavar="WxH")
     at = p.parse_args(argv)
 
@@ -127,7 +77,6 @@ class Shot(NamedTuple):
     faults: list
 
 
-# Each image drawn narrower than its own pixels, as [src, drawn, natural].
 SHRUNK_IMAGES_JS = """[...document.images]
   .filter((i) => i.naturalWidth && i.clientWidth < i.naturalWidth)
   .map((i) => [i.getAttribute("src"), i.clientWidth, i.naturalWidth])"""
@@ -168,24 +117,18 @@ def real_size_faults(page_width, viewport_width, shrunk):
 
 
 class PageTimeoutError(Exception):
-    """The page did not render in time — its own exit code, so a caller can tell
-    a slow page from a broken argument."""
+    pass
 
 
 class NoBrowserError(Exception):
-    """Playwright imported but its Chromium is not downloaded. Shares exit 3
-    with an absent package: both are answered by the same install lines, and a
-    caller cannot act on the difference."""
+    pass
 
 
 class RefusedError(Exception):
-    """The browser reached the network and got nothing usable — DNS, a refused
-    connection, a bad TLS handshake. Not a timeout."""
+    pass
 
 
 def render(at):
-    """Drive the browser. Returns the text to emit, or the Shot that has already
-    written itself."""
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
     from playwright.sync_api import sync_playwright
@@ -194,23 +137,12 @@ def render(at):
         try:
             browser = play.chromium.launch()
         except PlaywrightError as exc:
-            # The one Playwright error that is a setup fault rather than a page
-            # fault: `launch()` fails this way when the browser was never
-            # downloaded, which an `import playwright` alone cannot detect.
             raise NoBrowserError(first_line(exc)) from exc
         try:
-            # A context rather than a bare page: the UA and viewport have to be
-            # set at context level.
             context = browser.new_context(user_agent=at.ua, viewport=at.viewport_size)
-            # Applies --timeout to the capture calls too. Without it
-            # `screenshot`/`content`/`inner_text` keep Playwright's own 30s
-            # default and ignore the flag entirely.
             context.set_default_timeout(at.timeout)
             page = context.new_page()
             try:
-                # `load` and not `networkidle`: idle never fires on a page
-                # holding a websocket or a polling beacon open, which is most
-                # dashboards, and the wait then burns the whole timeout.
                 page.goto(at.url, wait_until="load")
                 if at.wait:
                     page.wait_for_selector(at.wait)
@@ -238,8 +170,6 @@ def render(at):
             except PlaywrightTimeout as exc:
                 raise PageTimeoutError(first_line(exc)) from exc
             except PlaywrightError as exc:
-                # Ordered after PlaywrightTimeout, which subclasses this — the
-                # reverse silently swallows every timeout into exit 5.
                 raise RefusedError(first_line(exc)) from exc
         finally:
             browser.close()

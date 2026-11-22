@@ -113,31 +113,14 @@ const { readOwnHooks } = require("./lib/core-hooks.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
-/**
- * runCheck's result contract (`check.js:155-170`).
- *
- * @typedef {{ okLine?: string, noun?: string, count?: number, data?: object }} CheckResult
- */
+/** @typedef {{ okLine?: string, noun?: string, count?: number, data?: object }} CheckResult */
 
 /** @typedef {{ path: string, bytes: number, note?: string }} FileEntry */
 
-/**
- * One skill/command SKILL.md or command .md, and whether it is vendored.
- *
- * @typedef {{ path: string, vendored: boolean, words: number, bytes: number }} DescEntry
- */
+/** @typedef {{ path: string, vendored: boolean, words: number, bytes: number }} DescEntry */
 
-/*
- * docs/doc-map.md §Capture and placement §4 owns this number, its derivation
- * and the argument for the slack band above the measured pool.
- */
 const CAP_BYTES = 22_500;
 
-/*
- * docs/doc-map.md §Capture and placement §4 owns this number and its derivation.
- *
- * NOT the limit that binds — injectorBytes()'s header below has why.
- */
 const INJECTION_CAP_BYTES = 10_500;
 
 /* #5447: measured 33,577 B for Bash at the install spelling, past a 423 B slack band. */
@@ -146,20 +129,12 @@ const SESSION_CAP_BYTES = 34_000;
 /* #5447: measured 56,878 B across 70 ids at the install spelling, past a 122 B slack band. */
 const RATCHET_CAP_BYTES = 57_000;
 
-/*
- * docs/doc-map.md §Capture and placement §4's whole-file members, in the
- * order it names them. Shared with check-doc-map.js's assertion 16, which
- * gates the ledger entry the same bytes owe (mantahostels#1788) — two copies could
- * disagree about membership and refuse different commits.
- */
 const {
 	getPoolFiles,
 	readDeclaredStyle,
 	getDoubleLoadedFiles,
 } = require("./lib/always-loaded-pool");
 
-/* Shared with lib/fault-profiles.js's `context-budget` profile, whose `gating`
- * predicate names these four tags (mantahostels#1938). */
 const {
 	OVER_POOL,
 	OVER_INJECTION,
@@ -173,11 +148,8 @@ const {
 	LATCH_SURFACE_PREFIX,
 } = require("./lib/context-budget-tags");
 
-/** The fixed surface name the shared ratchet's finding carries. */
 const RATCHET_SURFACE = "rule-ratchet";
 
-/* The session cap's arithmetic, which is a module of its own so that this file
- * holds only the cap, the severity and the reporting (mantahostels#2003, mantahostels#2004). */
 const { reachableAfterCall, reachableByTool } = require("./lib/rule-emission");
 const { asInstall, installStore } = require("./lib/install-probe.js");
 const { AFTER_EVENTS } = require("./lib/hook-events.js");
@@ -202,20 +174,9 @@ const {
 	admit,
 } = require("./lib/pool-admission.js");
 
-/** What a declared style names that `alwaysLoaded` does not list — under-counts the pool by the missing second copy. */
 const STYLE_NOT_POOLED = "STYLE-NOT-POOLED";
 
 /**
- * A pool member's rows — two for a double-loaded file. `path` stays a real repo
- * path on both, so anything keying off it (`admissibility`) sees both
- * copies; the wording that tells the two apart rides in `note`, which only the
- * renderer reads.
- *
- * `doubleLoaded` is the adopter's declared style where another always-loaded
- * file imports it (`getDoubleLoadedFiles()`) — a top-level session pays it
- * twice, once as the active output style and once as the import, a
- * background job being top-level rather than a subagent (mantahostels#1503, #45).
- *
  * @param {string} file
  * @param {number} bytes
  * @param {Set<string>} doubleLoaded
@@ -230,29 +191,6 @@ const poolRows = (file, bytes, doubleLoaded) =>
 		: [{ path: file, bytes }];
 
 /**
- * Bytes of a POOL member, or `null` where this revision does not carry the file
- * at all.
- *
- * ABSENT is not the same as UNREADABLE, and only the second is BROKEN. The pool
- * list is the core's, and a fork of it need not carry every member — an
- * `AGENTS.md` that was never written costs the session no context, so measuring
- * it as a missing instrument refuses every commit in the repo over a file whose
- * absence is the truth. That is check.js's own precedent, "the gitignored data/
- * corpus is absent => SKIP" (scripts/lib/check.js:19).
- *
- * ENOENT is the whole discriminator, and it is a narrow one: the root here is a
- * materialised tree, so a member missing from it is missing from the revision.
- * Any OTHER errno — a permission failure, a directory where a file belongs —
- * is the instrument failing over scope it was meant to cover, and stays BROKEN.
- *
- * The cap can only be UNDER-counted by this, never over, so no breach hides
- * behind it.
- *
- * ONE RESIDUAL, NAMED RATHER THAN CLOSED (#11): `git rm --cached AGENTS.md`
- * leaves the file on disk, where a session goes on loading it, while this reads
- * its bytes as shed. Nothing here can see that — `--against` materialises
- * trees, and a materialised tree is all either side of the comparison gets.
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @param {string} rel
@@ -268,9 +206,6 @@ function readPoolSize(ctx, root, rel) {
 }
 
 /**
- * The text's lines and the index of the one closing its frontmatter, or -1
- * where there is none. Throws on no lines, which `split` never yields.
- *
  * @param {string} text
  * @returns {{ lines: string[], end: number }}
  */
@@ -286,13 +221,6 @@ function splitFrontmatter(text) {
 }
 
 /**
- * A frontmatter value, with YAML block scalars (`description: >`) folded back into
- * one string.
- *
- * Deliberately not a YAML parser: the frontmatter here is hand-written, the failure
- * mode of a miss is one value counted as empty, and a dependency for that is not
- * worth the install.
- *
  * @param {string} text
  * @param {string} key
  * @returns {string | null}
@@ -307,8 +235,6 @@ function frontmatterValue(text, key) {
 	if (line === undefined) return null;
 
 	let value = line.replace(new RegExp(`^${key}:\\s*`), "").trim();
-	/* A block scalar's marker carries no words of its own; the value is the
-	 * indented run beneath it, which ends at the next top-level key. */
 	if (value === ">" || value === "|" || value === ">-" || value === "|-") {
 		const body = [];
 		for (const l of front.slice(at + 1)) {
@@ -323,17 +249,10 @@ function frontmatterValue(text, key) {
 const descriptionOf = (/** @type {string} */ text) =>
 	frontmatterValue(text, "description");
 
-/* Past this many characters a derived line is cut to its first 97 and `...`;
- * probed on 2.1.302 (#2054). */
+// measured on harness 2.1.302, #2054
 const DERIVED_LINE_CHARS = 100;
 
 /**
- * The line the harness lists in place of a missing `description` for a skill
- * or command in the host's own `.claude/`: the body's first non-blank line, a
- * leading `#` heading marker stripped. Probed on 2.1.302 (#2054). Residual:
- * the harness also HTML-escapes it (`>` is served as `&gt;`), which this does
- * not count.
- *
  * @param {string} text
  * @returns {string}
  */
@@ -349,80 +268,33 @@ function derivedLineOf(text) {
 		: line;
 }
 
-/*
- * The three `skillOverrides` states that stop a description being sent, per the
- * settings schema shipped in 2.1.250: `name-only` lists the skill with its name
- * alone, `user-invocable-only` hides it from the model but keeps `/name`, and
- * `off` hides it from both. `on`, and an absent entry, deliver it (mantahostels#1786).
- */
-/* Typed to admit undefined so the absent-entry case needs no separate guard. */
 const SILENCING_OVERRIDES = /** @type {Set<string | undefined>} */ (
 	new Set(["name-only", "user-invocable-only", "off"])
 );
 
 /**
- * The description this skill or command actually costs the pool, or null.
- *
- * Two independent silencers, either sufficient. `disable-model-invocation: true`
- * in the file's own frontmatter, and a `skillOverrides` entry in settings. Which
- * one wins where they disagree is undocumented and does not matter here: both
- * possible answers cost zero description bytes.
- *
- * The frontmatter limb is worth 71 B of the pool (`retire-to-roadmap`,
- * `wait-what`) and 1,586 B of the vendored total (mantahostels#1757). BOUND, and the reason
- * it is not certain: the measurement was taken in a background job, which is
- * served no user-invocable-command listing. An interactive session may be served
- * these names after all, in which case this under-reports by those figures.
- *
- * NAMES ARE NOT CHARGED, under any state. The listing carries every skill's name
- * whatever its override, so charging one only for a `name-only` skill would both
- * understate the `on` skills beside it and make a shed look smaller than it is.
- *
  * @param {string} text
- * @param {string} [override] the file's `skillOverrides` state, if it has one
+ * @param {string} [override]
  * @returns {string | null}
  */
 const deliveredDescriptionOf = (text, override) =>
-	/* Strict on the bare `true` deliberately: a `True`/`yes` spelling nobody
-	 * writes today falls through and is charged, which over-reports — the safe
-	 * direction for a ratchet. */
 	frontmatterValue(text, "disable-model-invocation") === "true" ||
 	SILENCING_OVERRIDES.has(override)
 		? null
 		: (descriptionOf(text) ?? derivedLineOf(text));
 
 /**
- * `skillOverrides` out of the settings JSON, keyed by skill or command name.
- *
- * ONLY the tracked project file is read, never `~/.claude/settings.json` or the
- * gitignored `.claude/settings.local.json` that the `/skills` menu writes.
- * Deliberate: --against measures a materialised revision, which holds no
- * untracked file at all, so honouring one here would make the two disagree on
- * the same commit.
- *
- * ⚠ THAT BLIND SPOT CUTS BOTH WAYS. A local file sits ABOVE this one in the settings hierarchy,
- * so a local `"on"` re-delivers a description this charges at 0 B — a genuine
- * UNDER-report. Latent today: no local file here carries `skillOverrides` at all.
- * The instrument against it is `/skills` writing the local file, so treat a shed
- * figure as unreliable on any machine whose menu has been used.
- *
- * Unreadable or malformed settings yield {} — every description charged, which
- * over-reports rather than under-reports (mantahostels#1786).
- *
- * @param {string} json the settings file's text
- * @returns {Record<string, string> | null} null where the text will not parse
+ * @param {string} json
+ * @returns {Record<string, string> | null}
  */
 function parseSkillOverrides(json) {
 	return settingsObject(json, "skillOverrides");
 }
 
 /**
- * One top-level object out of the settings JSON — the shape both
- * `skillOverrides` and `enabledPlugins` are read through.
- *
- * @param {string} json the settings file's text
+ * @param {string} json
  * @param {string} key
- * @returns {Record<string, any> | null} `{}` where the key is absent or not an object; null where the text will not parse
+ * @returns {Record<string, any> | null}
  */
 function settingsObject(json, key) {
 	try {
@@ -433,29 +305,19 @@ function settingsObject(json, key) {
 	}
 }
 
-/** The finding an enabled plugin with no table row raises (mantahostels#3132). */
 const UNPRICED_PLUGIN = "UNPRICED-PLUGIN";
 
-/**
- * One `enabledPlugins` entry against the table.
- *
- * @typedef {{ name: string, enabled: boolean, tokens: number | null, measured?: string, uncounted?: string }} PluginEntry
- */
+/** @typedef {{ name: string, enabled: boolean, tokens: number | null, measured?: string, uncounted?: string }} PluginEntry */
 
 /**
- * `enabledPlugins` out of the settings JSON, keyed by plugin name.
- *
- * @param {string} json the settings file's text
- * @returns {Record<string, boolean> | null} null where the text will not parse
+ * @param {string} json
+ * @returns {Record<string, boolean> | null}
  */
 function parseEnabledPlugins(json) {
 	return settingsObject(json, "enabledPlugins");
 }
 
 /**
- * `enabledPlugins` out of the settings file; none where it is absent or will
- * not parse.
- *
  * @param {string} root
  * @returns {Record<string, boolean>}
  */
@@ -470,9 +332,6 @@ function readEnabledPlugins(root) {
 }
 
 /**
- * The plugin cost table's `plugins` rows: empty where the table is absent,
- * BROKEN where it will not read or parse.
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {Record<string, { tokens?: unknown, measured?: string, uncounted?: string }>}
@@ -489,8 +348,6 @@ function readPluginCostTable(ctx, root) {
 	/** @type {Record<string, { tokens?: unknown, measured?: string, uncounted?: string }>} */
 	let table = {};
 	if (text !== null) {
-		/* Parsed outside the read's try: broken() throws, and a catch around
-		 * both would swallow it as an absent table. */
 		let parsed;
 		try {
 			parsed = JSON.parse(text)?.plugins;
@@ -507,18 +364,6 @@ function readPluginCostTable(ctx, root) {
 }
 
 /**
- * Every plugin `enabledPlugins` names, priced from the table where it has a row.
- *
- * A disabled plugin is listed and not summed — the reader sees what a flip of
- * `scripts/design-mode.sh` would cost. An ENABLED plugin with no row is a WARN
- * (mantahostels#3132). The core's `wfc-self` row is lib/core-context-cost.js's,
- * beneath the table's.
- *
- * A settings file that will not parse has already raised UNPARSEABLE-SETTINGS
- * in readDescriptions(); here it yields no plugins rather than a second finding on
- * the same fault. An absent table (a fixture root has none) leaves every
- * enabled plugin a WARN.
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {PluginEntry[]}
@@ -555,13 +400,7 @@ function pluginCosts(ctx, root) {
 }
 
 /**
- * The `skillOverrides` key for a SKILL.md or a command file.
- *
- * The settings schema keys by skill name, which for every skill in this repo is
- * its directory name.
- * A command is keyed by its filename without the extension.
- *
- * @param {string} relPath a repo-relative `.claude/...` path
+ * @param {string} relPath
  * @returns {string}
  */
 function overrideKeyFor(relPath) {
@@ -576,12 +415,6 @@ const bytesIn = (/** @type {string | null | undefined} */ s) =>
 	s ? Buffer.byteLength(s) : 0;
 
 /**
- * Every always-loaded description, split by whether this repo can edit it.
- *
- * The own/vendored split is the symlink, exactly as §A's register draws it: a
- * `.claude/skills/<name>` that is a symlink points into .agents/skills/, so an
- * undeclared edit to it is lost on the next pull (mantahostels#1826).
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {DescEntry[]}
@@ -591,15 +424,8 @@ function readDescriptions(ctx, root) {
 	const out = [];
 	const skillsDir = path.join(root, ".claude", "skills");
 	const commandsDir = path.join(root, ".claude", "commands");
-	/**
-	 * A run pointed at the working tree reads its uncommitted bytes, so it
-	 * can disagree with the same commit's --against reading, which
-	 * is materialised out of git (mantahostels#1786).
-	 *
-	 * @type {Record<string, string>}
-	 */
+	/** @type {Record<string, string>} */
 	let overrides = {};
-	// An absent settings file is the ordinary case in a fixture, and says nothing.
 	const parsed = orFallback(
 		() =>
 			parseSkillOverrides(
@@ -608,9 +434,6 @@ function readDescriptions(ctx, root) {
 		{},
 	);
 	if (parsed === null) {
-		/* A FINDING, not a note: it changes what every description below is
-		 * charged, so a commit that breaks the file must be able to report it
-		 * through the envelope rather than only onto a stream (mantahostels#1786). */
 		ctx.warn(
 			"UNPARSEABLE-SETTINGS",
 			`${SETTINGS_FILE} will not parse; every description charged`,
@@ -644,9 +467,6 @@ function readDescriptions(ctx, root) {
 }
 
 /**
- * What one `.claude/agents/*.md` definition puts in the system prompt, permanently:
- * its name and its description.
- *
  * @param {string} root
  * @returns {FileEntry[]}
  */
@@ -666,10 +486,6 @@ function readAgentDefinitions(root) {
 }
 
 /**
- * The injector's union, read off the tracker-inject-text.js at `root`, and
- * whether the copy read was the core's because `root` carries none — an
- * adopter, whose real payloads renderedPayloads() measures instead (#1956).
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {{ files: FileEntry[], fromCore: boolean, text: TextModule }}
@@ -679,12 +495,6 @@ function readInjection(ctx, root) {
 	let source;
 	let fromCore = false;
 	try {
-		/* Prefers the copy already at `root`: self-hosted live runs and every
-		 * `--against` re-run have one (lib/context-budget-pathspecs.js's list names
-		 * TRACKER_TEXT, so a materialised tree carries the REVISION's own blob — this is what lets a
-		 * staged growth of the injector's own bytes still FAIL the gate). Only a
-		 * plugin install's host root lacks it, where TRACKER_TEXT_FILE — the core's own
-		 * disk copy, constant across revisions — is the fallback (#36). */
 		source = fs.readFileSync(path.join(root, TRACKER_TEXT), "utf8");
 	} catch (e) {
 		if (caught(e).code === "ENOENT") {
@@ -715,39 +525,8 @@ function readInjection(ctx, root) {
 	return { files, fromCore, text };
 }
 
-/* ------------------------------------------------------------------ *
- * The injector's own bytes (mantahostels#1284).
- * ------------------------------------------------------------------ */
-
-/*
- * The cap measures a UNION, not a variant: one string per payload part, each
- * at its largest variant, summed. A union binding the largest binds them all,
- * where a per-variant cap would need re-deriving on every narrowing. ONE
- * EXCEPTION: the priced-options part is read as its Core voice pointer, the
- * form this repo's sessions get, and the whole shape is in no sum (#2039).
- * Residual: this cap never sees the whole shape grow, which only
- * check-injector-margin.js's per-command figures bound.
- *
- * The two tracker documents are pointed at rather than pasted, which is what
- * keeps every command's payload under the harness's 10,000-CHARACTER
- * persistence threshold and so landing inline instead of behind a link the
- * session opened roughly a tenth of the time.
- *
- * THE BINDING LIMIT IS PER COMMAND, and this cap cannot read it: it sums the
- * parts flat, with no model of which command takes which.
- * check-injector-margin.js composes each command's payload through the text
- * module's own composers and gates it at the threshold (mantahostels#1915), so a
- * string this union does not count is still priced there.
- *
- * EVALUATED, NOT RUN: lib/load-text-module.js evaluates the text with no
- * `require`, so `--against` measures a revision's blob, and nothing else of
- * the working tree is executed.
- */
-
 /** @typedef {typeof import("./lib/tracker-inject-text.js")} TextModule */
 
-/* What the union reads off the text module. A copy lacking one is BROKEN,
- * never a part read as zero. */
 const UNION_EXPORTS = {
 	COMMANDS: "array",
 	TAKES_READ: "array",
@@ -761,10 +540,6 @@ const UNION_EXPORTS = {
 	codeReviewParts: "function",
 };
 
-/* The inputs a part interpolates, each at the value that makes it longest
- * where it varies: an issue number is the probe's one digit, the session id is
- * rendered-injection.js's probe, and the reviewer type is the plugin spelling,
- * longer than a host's own `code-reviewer`. */
 const MEASURED_ISSUE = "1";
 const MEASURED_REVIEW_TYPE = "workflow-core:code-reviewer";
 const STANDARDS_STATES = /** @type {const} */ ([
@@ -777,17 +552,13 @@ const CORE_DIR = require("./lib/script-path.js").coreRoot();
 const STANDARDS_SHOWN = standardsShown(standardsBase(CORE_DIR), CORE_DIR);
 const GLOSSARY_SHOWN = "GLOSSARY.md";
 
-/**
- * The longest of `xs` in bytes, or "" for none.
- * @param {string[]} xs
- */
+/** @param {string[]} xs */
 const longest = (xs) =>
 	xs.reduce((a, b) => (bytesIn(b) > bytesIn(a) ? b : a), "");
 
 /**
- * Each part of the union, in payload order.
  * @param {TextModule} t
- * @param {(id: string) => string} fragment a rule fragment's text, or ""
+ * @param {(id: string) => string} fragment
  * @returns {string[]}
  */
 function injectorParts(t, fragment) {
@@ -825,16 +596,11 @@ function injectorParts(t, fragment) {
 	];
 }
 
-/**
- * The longest of several part lists in bytes summed.
- * @param {string[][]} lists
- */
+/** @param {string[][]} lists */
 const longestParts = (lists) =>
 	lists.reduce((a, b) => (sum(b, bytesIn) > sum(a, bytesIn) ? b : a));
 
 /**
- * The union's bytes.
- *
  * @param {Ctx} ctx
  * @param {TextModule} t
  * @param {(id: string) => string} fragment
@@ -901,15 +667,6 @@ function readDescribedFile(root, file, vendored, overrides) {
 }
 
 /**
- * The hooks `root` registers, settings-shaped, for the rule-emission figures:
- * lib/core-hooks.js's `ownHooks`.
- *
- * A HOOKS FILE THAT WILL NOT READ IS BROKEN, where `readDescriptions()` above
- * degrades an unparseable settings file into charging every description
- * (mantahostels#1786): a wiring nobody can read, reported as 0 B, is a cap
- * that passes whatever is really there. An adopter's absent settings file is
- * no wiring, so its zero is the truth.
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {object}
@@ -934,14 +691,6 @@ function reachOptions(settings, root) {
 	return {
 		settings,
 		root,
-		/* CAP_SOURCE names a file that ships WITH the core (hook-limits.js), so a
-		 * plugin install's host root has none — joining it onto `root` was the
-		 * HOST-ROOTED-CORE fault #34 found (#36). Omitted, the reach functions
-		 * default to rule-emission.js's own `CAP_FILE`, read off that module's
-		 * `__dirname`, which finds the core's copy wherever it is installed.
-		 * `WFC_CAP_FILE` is the test-injection seam (`lib/host-root.js`'s header
-		 * convention): the suite plants a fake hook-limits.js and points this at
-		 * it rather than at a file under --root. */
 		capFile: process.env.WFC_CAP_FILE,
 		rulesDir: store.dir,
 		/* #109 */
@@ -953,19 +702,11 @@ function reachOptions(settings, root) {
 }
 
 /**
- * Per-session reachable route (f) bytes per PreToolUse tool.
- *
  * @param {Ctx} ctx
  * @param {ReturnType<typeof reachOptions>} opts
  * @returns {{ cap: number, tools: Record<string, { bytes: number, ids: string[], guards: { file: string, bytes: number, calls: number, ids: string[] }[] }>, ratchet: { bytes: number, ids: string[] }, overCap: { id: string, bytes: number, guards: string[] }[], direct: { id: string, bytes: number | null, guards: string[], counted: boolean, latched: "none" | "bounded" | "ambiguous" }[], latchFaults: { id: string, guard: string, resolves: boolean, bound: boolean, marked: boolean }[], fragmentBytes: Record<string, number> }}
  */
 function sessionFigures(ctx, opts) {
-	/* NOTHING WIRED IS NOT AN UNKNOWN. No PreToolUse key, or an empty list, is no
-	 * group to price, so the figure is zero without reading RULE_CAP at all.
-	 *
-	 * A KEY OF THE WRONG SHAPE IS NOT THAT CASE and falls through deliberately:
-	 * rule-emission.js throws on it, and a zero here would swallow that throw and
-	 * report a wiring nobody could read as compliant. */
 	const entries =
 		/** @type {{ hooks?: { PreToolUse?: unknown } } | undefined} */ (
 			opts.settings
@@ -981,18 +722,8 @@ function sessionFigures(ctx, opts) {
 			fragmentBytes: {},
 		};
 	try {
-		/* Priced as an adopter receives it, not as this checkout spells it (#5447). */
 		return asInstall(opts.root, () => reachableByTool(opts));
 	} catch (e) {
-		/* Every throw here is apparatus: the probe install tree, a guard file, the RULE_CAP assignment,
-		 * a malformed settings shape, or an injection naming an id the fragment
-		 * store cannot resolve at all — none of them a bug in this checker, but all
-		 * of them what it reads the repo WITH rather than what it is asking about.
-		 *
-		 * A FRAGMENT OVER RULE_CAP ON ITS OWN DOES NOT LAND HERE (mantahostels#2054):
-		 * that is the repo's own rule text, not this checker's apparatus, so
-		 * reachableByTool() reports it in `overCap` instead, and the OVER_FRAGMENT
-		 * finding below is what surfaces it. */
 		return ctx.broken(
 			`cannot compute the per-session rule emission: ${errMessage(e)}`,
 		);
@@ -1000,8 +731,6 @@ function sessionFigures(ctx, opts) {
 }
 
 /**
- * The rule text each AFTER_EVENTS hook can hand a session (#2144).
- *
  * @param {Ctx} ctx
  * @param {ReturnType<typeof reachOptions>} opts
  * @returns {ReturnType<typeof reachableAfterCall>}
@@ -1017,30 +746,6 @@ function afterCallFigures(ctx, opts) {
 }
 
 /**
- * The mantahostels#1177 admissibility prompt (the ticket that ruled a new rule on the
- * always-loaded pool faces one question before it ships), as a measurement
- * rather than as a message.
- *
- * ONE-SIDED, BECAUSE THIS CHECKER ONLY EVER SEES ONE REVISION (mantahostels#1834). It fires
- * on GROWTH, which is a two-sided fact, so what it emits here is the reading —
- * the pool files' own byte total — and lib/check.js's `--against` prints the
- * prompt where that total is higher than the baseline's. Outside `--against`
- * nothing prints it.
- *
- * mantahostels#1177 scoped the question to the three files the pool then held; mantahostels#1504 added
- * a fourth — the adopter's declared output style, `overrides.output_style` —
- * without revisiting that scope, and mantahostels#1627 confirmed the question governs it
- * too. mantahostels#1503 then made that fourth file double-loaded, so this counts BOTH its
- * rows and matches what the cap charges.
- *
- * Reads the pool files' own bytes, never the wider pool total the caps gate on —
- * that figure also carries skill/command/agent descriptions, which mantahostels#1177 named
- * out of scope by name. A commit that only lengthens a skill description must
- * not print this.
- *
- * The pointer names `.claude/skills/pressure-test/SKILL.md`'s step 1 by
- * position, and nothing re-checks that a later renumbering keeps it true.
- *
  * @param {FileEntry[]} poolFiles
  * @returns {{ surface: string, bytes: number, message: string }[]}
  */
@@ -1073,13 +778,6 @@ const rows = (/** @type {FileEntry[]} */ xs) =>
 	xs
 		.map((f) => `  ${f.bytes} B  ${f.path}${f.note ? ` — ${f.note}` : ""}`)
 		.join("\n");
-/* Which guards make up one tool's figure, and how many injections each holds
- * — a group over its cap is answered by shedding a named guard's text, so the
- * contributors are the finding rather than decoration.
- *
- * A ROW'S BYTES ARE ITS OWN IDS' AND MAY OVERLAP A SIBLING'S: the group total
- * above is the UNION, so the rows can sum past it where two guards reach one
- * id. */
 const guardRows = (
 	/** @type {{ file: string, bytes: number, calls: number, ids: string[] }[]} */ gs,
 ) =>
@@ -1090,10 +788,8 @@ const guardRows = (
 		)
 		.join("\n");
 
-/* Decimal KB, because docs/doc-map.md §Capture and placement states caps that way. */
 const kb = (/** @type {number} */ b) => `${(b / 1000).toFixed(1)} KB`;
 
-/* Exactly on the cap gets words of its own, never "0 B over" (mantahostels#1940). */
 const atOrOver = (/** @type {number} */ headroom) =>
 	headroom === 0 ? "exactly at" : `${-headroom} B over`;
 const capHeading = (/** @type {number} */ headroom) =>
@@ -1130,8 +826,6 @@ function warnUnpooledStyle(ctx, styled) {
 }
 
 /**
- * What the pool's members `@`-import, or BROKEN where a read fails other than
- * by absence.
  * @param {Ctx} ctx
  * @param {string} root
  */
@@ -1144,9 +838,6 @@ function readImports(ctx, root) {
 }
 
 /**
- * The always-loaded pool's rows: every pool file, then the two description
- * totals.
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @param {{ own: DescEntry[], agents: FileEntry[], doubleLoaded: Set<string> }} parts
@@ -1176,11 +867,9 @@ function readPoolEntries(ctx, root, { own, agents, doubleLoaded }) {
 }
 
 /**
- * The refusal's pointer to a shed register, printed only where the host keeps
- * that file: the core's registers list the core's own text (#1673).
  * @param {string} root
  * @param {string} rel
- * @param {string} [cite] what follows the path on its line
+ * @param {string} [cite]
  * @returns {string}
  */
 const buildShedCandidatesLine = (root, rel, cite = "") =>
@@ -1192,10 +881,6 @@ const buildShedCandidatesLine = (root, rel, cite = "") =>
  * @param {{ total: number, headroom: number, pool: FileEntry[] }} figures
  */
 function reportPoolBreach(ctx, root, { total, headroom, pool }) {
-	/* AT the cap counts, not merely past it: the caps are stated as a ceiling
-	 * the surface may reach and not exceed (docs/doc-map.md §Capture and
-	 * placement §4), and a one-byte gap here is a gate that never fires on the
-	 * commit that lands exactly on it. */
 	if (headroom > 0) return;
 	ctx.warn(
 		OVER_POOL,
@@ -1250,9 +935,6 @@ function reportInjectionBreach(ctx, root, { injTotal, injHeadroom, injected }) {
  * @param {[string, ReachGroup][]} reachTools
  */
 function reportSessionBreaches(ctx, reachTools) {
-	/* ONE FINDING PER TOOL, not one for the worst: each group is its own
-	 * surface, so a shed on Bash must not mask a rise on Write. The direction
-	 * gate keys them apart on `surface` (lib/context-budget-tags.js). */
 	for (const [tool, group] of reachTools) {
 		const reachHeadroom = SESSION_CAP_BYTES - group.bytes;
 		if (reachHeadroom > 0) continue;
@@ -1286,12 +968,6 @@ function reportRatchetBreach(
 	ctx,
 	{ reach, reachTools, ratchetTotal, ratchetHeadroom },
 ) {
-	/* The shared ratchet: route (f)'s second axis (mantahostels#1720). The UNION of every
-	 * reachable id across every tool, never a sum per tool: a guard wired to a
-	 * multi-tool matcher (guard-dispatch.js on `Write|Edit|NotebookEdit`)
-	 * fires once per tool it is matched against, but it is the same fragment
-	 * text every time and the latch pays it once. Summing per tool would
-	 * count it three times over. */
 	const ratchetGuardBytes = new Map();
 	for (const [, group] of reachTools)
 		for (const g of group.guards) ratchetGuardBytes.set(g.file, g.bytes);
@@ -1325,12 +1001,7 @@ function reportRatchetBreach(
  * @param {DirectEntry[]} direct
  */
 function directFigures(direct) {
-	/* Null bytes read as zero: an unresolvable id still costs the session the
-	 * guard's fallback sentence, but this module cannot know its length. */
 	const directTotal = direct.reduce((t, d) => t + (d.bytes ?? 0), 0);
-	/* Split out because the two halves answer different questions: the second
-	 * is what no figure carries at all, the first is bytes the figures DO
-	 * carry once a session and this block carries again per firing. */
 	const directUncounted = direct.reduce(
 		(t, d) => t + (d.counted ? 0 : (d.bytes ?? 0)),
 		0,
@@ -1343,11 +1014,6 @@ function directFigures(direct) {
  * @param {Pick<Reach, "cap" | "overCap">} reach
  */
 function reportOverCapFragments(ctx, reach) {
-	/* A fragment a wired guard reaches that is over RULE_CAP on its own
-	 * (mantahostels#2054) is the repo's own rule text, not this checker's apparatus, so it
-	 * is a finding here rather than a throw sessionFigures() catches — one per
-	 * over-cap id, naming every guard that reaches it. Mechanism:
-	 * rule-emission.js's guardIds() docstring. */
 	for (const frag of reach.overCap) {
 		ctx.warn(
 			OVER_FRAGMENT,
@@ -1375,10 +1041,7 @@ function reportOverCapFragments(ctx, reach) {
  * @param {Pick<Reach, "latchFaults">} reach
  */
 function reportDeadLatches(ctx, reach) {
-	/* A stranded `ctx.told` (mantahostels#2283). A finding rather than a table row,
-	 * the table being suppressed under --notify. */
 	for (const f of reach.latchFaults) {
-		/* Every failing limb, never the first. */
 		const why = [
 			f.resolves ? "" : "no fragment answers to that id",
 			f.bound
@@ -1407,11 +1070,7 @@ function reportDeadLatches(ctx, reach) {
 	}
 }
 
-/**
- * The five heaviest vendored descriptions, one line each.
- *
- * @param {DescEntry[]} vendored
- */
+/** @param {DescEntry[]} vendored */
 function topVendored(vendored) {
 	return vendored
 		.slice()
@@ -1434,9 +1093,6 @@ function buildReachLine([tool, g]) {
 				? `${atOrOver(SESSION_CAP_BYTES - g.bytes)} it`
 				: `${SESSION_CAP_BYTES - g.bytes} B headroom`
 		})` +
-		/* An over-cap group printed its guards in the breach block
-		 * above; repeating them here is eight lines saying nothing
-		 * new. An under-cap group has had no other chance to. */
 		(g.bytes >= SESSION_CAP_BYTES || g.guards.length === 0
 			? ""
 			: `\n${guardRows(g.guards)}`)
@@ -1472,14 +1128,9 @@ function buildAfterHookLines(h) {
 	return head + once + perFire.join("");
 }
 
-/**
- * The rule text hooks hand a session after its call has run (#2144).
- *
- * @param {ReturnType<typeof reachableAfterCall>} after
- */
+/** @param {ReturnType<typeof reachableAfterCall>} after */
 function afterCallSection(after) {
 	const events = AFTER_EVENTS.join(", ");
-	/* By id: one guard can be wired on two events. */
 	const perFire = [
 		...new Map(
 			after.hooks.flatMap((h) => h.perFire).map((f) => [f.id, f]),
@@ -1499,9 +1150,7 @@ function afterCallSection(after) {
 /** @typedef {{ script: string, commands: import("./lib/rendered-injection.js").RenderedPayload[] } | { error: string }} RenderedPayloads */
 
 /**
- * The core injector's payload per command, rendered for a host carrying none
- * of its own (#1956).
- * @param {TextModule} text the core's text module, already evaluated
+ * @param {TextModule} text
  * @param {string} root
  * @returns {RenderedPayloads}
  */
@@ -1512,11 +1161,7 @@ function renderedFor(text, root) {
 	};
 }
 
-/**
- * What each command hands this host, where the figure above is the core's.
- * Uncapped: the host cannot shed the core's prose.
- * @param {RenderedPayloads | null} rendered
- */
+/** @param {RenderedPayloads | null} rendered */
 function buildRenderedLines(rendered) {
 	if (rendered === null) return "";
 	if ("error" in rendered)
@@ -1568,9 +1213,6 @@ function printTable(ctx, t) {
 			`\n\nREACHABLE RULE TEXT PER SESSION, PER PreToolUse TOOL — against route (f)'s ${kb(SESSION_CAP_BYTES)}${reach.cap ? `, one delivery capped at ${reach.cap} B (RULE_CAP)` : ""}.\n` +
 			buildReachLines(reachTools) +
 			`\n\nRULE-EMISSION RATCHET — ${kb(ratchetTotal)} of ${kb(RATCHET_CAP_BYTES)}, ${ratchetHeadroom} B headroom (route (f)'s second axis, unioned across every tool).\n` +
-			/* The direct `rule_text` calls, printed under the two capped figures
-			 * and deliberately outside them (mantahostels#2055). The printed text carries
-			 * the reasoning. */
 			`\nDIRECT RULE TEXT — ${directTotal} B across ${reach.direct.length}, of which ${directUncounted} B is on no figure above. Uncapped.\n` +
 			buildDirectLines(reach.direct) +
 			"  Spliced into the guard's own deny or warn text, so it is route (e)\n" +
@@ -1590,15 +1232,10 @@ function printTable(ctx, t) {
 	);
 }
 
-/** A guess, unmeasured: one GraphQL call answered in under 1 s when measured
- * at #2033, so 15 s fails only a hung gh. */
+// guess, #2033
 const GH_TIMEOUT_MS = 15_000;
 
 /**
- * The open/closed state of each ticket, off one GraphQL call to the host's
- * tracker; `{ error }` where gh cannot answer, so no ticket is called open or
- * closed (#2033).
- *
  * @param {number[]} tickets
  * @returns {Map<number, string> | { error: string }}
  */
@@ -1623,7 +1260,6 @@ function readTicketStates(tickets) {
 		)?.data?.repository;
 		return new Map(tickets.map((n) => [n, repo?.[`i${n}`]?.state]));
 	} catch (e) {
-		// Deliberate: an unread state reports as unread, never fails the run (#2033).
 		const [first = ""] = errMessage(e).split("\n");
 		return { error: first };
 	}
@@ -1637,14 +1273,6 @@ const isTicketedTrigger = (e) =>
 	e.route === "trigger" && e.ticket !== undefined;
 
 /**
- * The pool's rule count, and — where `.claude/workflow-core.json` switches
- * `admissionGate` on — the rules the admission ledger does not admit and the
- * `trigger` entries whose ticket has closed (#2033).
- *
- * The unadmitted rules are the envelope's `unadmitted` key, which the
- * direction gate refuses only as this commit's addition (checker-new-faults.js),
- * each matched across the two sides by its ledger `key` (#5140).
- *
  * @param {Ctx} ctx
  * @param {string} root
  */
@@ -1671,8 +1299,6 @@ function poolRuleAdmission(ctx, root) {
 	const { unadmitted, admitted } = admit(items, entries);
 	const triggers = admitted.filter(isTicketedTrigger);
 	const tickets = [...new Set(triggers.map((e) => e.ticket))];
-	/* The baseline side's CLOSED_TRIGGER warns are never compared, so the
-	 * lookup is spent on the index side alone (#2056). */
 	const states =
 		tickets.length === 0 || ctx.isBaselineSide()
 			? new Map()
@@ -1736,8 +1362,6 @@ function admissionSection(a) {
 	].join("\n");
 }
 
-/* Spelled as a constant so the suite can require this file for its pathspecs
- * without running the check (#1120). */
 /** @type {import("./lib/check").CheckSpec} */
 const SPEC = {
 	name: "context-budget",
@@ -1746,29 +1370,13 @@ const SPEC = {
 	valueFlags: ["--root"],
 	against: {
 		profile: "context-budget",
-		/* The scan scope is a declared pathspec, so extracting the whole 19 MB
-		 * tree twice would be a cost regression for reading this already does by
-		 * sha — MATERIALISERS in lib/check.js. */
 		materialise: "blobs",
 		pathspecs: materialisePathspecs,
-		/* The admissibility prompt fires on a pool that grew without breaching
-		 * anything, so the lazy baseline — read only where something already gates
-		 * — would silence it on exactly the commits it exists for. Affordable only
-		 * because this is a blob fetch: a few hundred KB a side, not 19 MB. */
 		baseline: "always",
-		/* The baseline's text module in the old shape is measured by the
-		 * checker that knew that shape: the working one reads an export it
-		 * lacks as BROKEN (#5178). */
-		/* Its run reach, ~430 files under scripts/, is fetched with it: about
-		 * 1 s more a baseline. */
 		baselineCode: "rev",
 	},
 	/** @returns {CheckResult} */
 	run(/** @type {Ctx} */ ctx) {
-		/* The HOST repo, through the one seam (#1), never this script's parent:
-		 * in a plugin install that is the plugin root, and the always-loaded pool
-		 * — CLAUDE.md among it — was read from there (finding F10 of the adoption
-		 * dry run). */
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
 
 		const descs = readDescriptions(ctx, root);
@@ -1787,9 +1395,6 @@ const SPEC = {
 		const headroom = CAP_BYTES - total;
 
 		const { files: injected, fromCore, text } = readInjection(ctx, root);
-		/* The rendering runs the injector once per command, and only the table
-		 * and the index side's envelope show it: the baseline side is silent and
-		 * its profile compares no rendered figure (#4296). */
 		const rendered =
 			fromCore && !ctx.isBaselineSide() ? renderedFor(text, root) : null;
 		const injTotal = sum(injected, (f) => f.bytes);
@@ -1798,9 +1403,6 @@ const SPEC = {
 		const opts = reachOptions(readHooks(ctx, root), root);
 		const reach = sessionFigures(ctx, opts);
 		const after = afterCallFigures(ctx, opts);
-		/* Sorted heaviest first so the table's first line is the group nearest the
-		 * cap, and so a new matcher group lands wherever its bytes put it — the set
-		 * of tools is whatever the wiring names, never a list kept here. */
 		const reachTools = Object.entries(reach.tools).sort(
 			([a, x], [b, y]) => y.bytes - x.bytes || a.localeCompare(b),
 		);
@@ -1829,9 +1431,6 @@ const SPEC = {
 
 		const admitted = poolRuleAdmission(ctx, root);
 
-		/* The full table is the on-demand answer to "have I room to add this?", so
-		 * it prints over a cap as well as under it. Only --notify suppresses it: on
-		 * that route, nothing but a breach has earned the founder's attention. */
 		if (!ctx.notify)
 			printTable(ctx, {
 				total,
@@ -1879,12 +1478,8 @@ const SPEC = {
 					gpRuleCap: reach.cap,
 					tools: reach.tools,
 					overCap: reach.overCap,
-					/* Present whether or not the fragment breached, which `overCap`
-					 * is not — the direction gate reads its baseline half here
-					 * (mantahostels#2260). */
 					fragmentBytes: reach.fragmentBytes,
 					ratchet: { cap: RATCHET_CAP_BYTES, total: ratchetTotal },
-					/* mantahostels#2055. */
 					direct: {
 						total: directTotal,
 						uncounted: directUncounted,

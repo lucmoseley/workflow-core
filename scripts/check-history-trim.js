@@ -1,47 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-history-trim.js — the retroactive-corpus-loss detector mantahostels#2617 built.
- *
- * WHAT IT FIRES ON: a seat root's `~/.claudeN/history.jsonl` whose oldest
- * surviving line's timestamp has moved FORWARD since the last recording —
- * the signature of trimming, per-seat burn attribution (mantahostels#2607) resting
- * entirely on these files with no archive and no documented retention cap.
- *
- * WHAT IT NEVER DOES: repair, archive or copy `history.jsonl`. It reports
- * only. Building the archiver is mantahostels#2607's ruling, deferred until trimming is a
- * dated fact rather than a hypothesis.
- *
- * A root that is absent (no history.jsonl), unreadable (permission error, or
- * a file whose lines carry no parseable timestamp), or new (no prior
- * recording to compare against) is never reported as trimming — see
- * lib/history-trim.js's header for why each is distinct from a real trim.
- *
- * Severity is WARN, matching check-seat-utilisation.js's own upward trigger:
- * this is a notice for the founder's judgement, not a gate — nothing here can
- * regenerate lost history, so failing a commit over it would gate on a fact
- * the commit cannot fix.
- *
- * WHERE IT RUNS: `npm run status` only (scripts/status-report.js), WITHOUT
- * --notify, so a session does not open on a fault list. --notify is exercised
- * by the tests and wired by nothing. The reading is recorded only under
- * `--write` (`npm run status -- --write`): a check run dirties no tree (#4449).
- *
- * THE RESIDUAL of running on demand rather than at every session start: a trim
- * is detected late. The signal itself does not decay — a forward move of the
- * oldest line persists — but the corpus can shrink further in the gap, and
- * mantahostels#2607's archiver is gated on a DATED detection, so a late date is a real
- * cost.
- *
- * IMPLICIT:  on each run, reads each seat root's history.jsonl and reports a
- *            trimming notice when one is detected; under --write, records one
- *            reading a day either way.
- * JUSTIFIED: fail-safe — the loss is unrecoverable and silent otherwise.
- * DEFEAT:    --notify --write — a failed append goes unsaid there:
- *            finish() suppresses every ctx.dirtied() note under --notify
- *            (mantahostels#2665); that route is unwired to any reader today
- *            (see WHERE IT RUNS above). The plain route has none — see the
- *            dirtied() call below.
- */
 
 const { configDirs } = require("./lib/arbiter-store");
 
@@ -75,8 +32,6 @@ function rootTable(roots) {
 }
 
 /**
- * Roots reading ok now with nothing comparable in the baseline; none when
- * there is no usable baseline at all.
  * @param {RootReading[]} roots
  * @param {Record<string, RootReading> | null | undefined} baseline
  */
@@ -90,8 +45,6 @@ function newRootsSince(roots, baseline) {
 }
 
 /**
- * The human-readable body: the root table, then the baseline, new-root and
- * failed-append notes.
  * @param {Ctx} ctx
  * @param {{ roots: RootReading[], baseline: Record<string, RootReading> | null | undefined, newRoots: RootReading[], recorded: "recorded" | "throttled" | "failed" | "unwritten" }} reading
  */
@@ -117,7 +70,6 @@ function sayReadingSummary(ctx, { roots, baseline, newRoots, recorded }) {
 }
 
 /**
- * One HISTORY-TRIMMED warn per trimmed root, then the summary block.
  * @param {Ctx} ctx
  * @param {{ dir: string, priorOldestMs: number, newOldestMs: number }[]} trimmed
  */
@@ -157,36 +109,19 @@ runCheck({
 		const dirs = configDirs();
 		const roots = readRoots(dirs);
 		const present = roots.filter((r) => r.state !== "absent");
-		/* SKIP, not BROKEN: the histories are the SUBJECT and live outside the
-		 * repo — a machine that has never run Claude Code is not this repo's
-		 * fault. */
 		if (present.length === 0)
 			throw skipError(
 				`no Claude Code seat directory holds a history.jsonl (${dirs.join(", ")}).`,
 			);
 
 		const baseline = readBaseline();
-		/* undefined is distinct from null: a corrupt or unreadable watch file
-		 * is this checker's own apparatus failing, not the subject (history.jsonl) —
-		 * BROKEN, never silently treated as "no baseline yet". Reading it as
-		 * null here would re-baseline over whatever trim happened in the gap,
-		 * the one failure mode this detector exists to catch. */
 		if (baseline === undefined)
 			ctx.broken(
 				`could not read the prior recording in ${WATCH_FILE()} — it exists but its newest line will not parse, or it is unreadable.`,
 			);
 		const trimmed = trimmedRoots(roots, baseline);
-		/* "New" is a root reading ok now with nothing comparable in the baseline —
-		 * never seen at all, or seen only as absent/unreadable/empty. recordReading
-		 * always writes every SEAT_DIR (mostly as "absent"), so `baseline[dir]`
-		 * being present but not a comparable ok reading is the common case, not
-		 * `=== undefined`, which recordReading's own shape makes nearly
-		 * unreachable once a baseline exists at all. */
 		const newRoots = newRootsSince(roots, baseline);
 		const recorded = ctx.has("--write") ? recordReading(roots, t) : "unwritten";
-		/* dirtied(): status-report.js's verdict() (the DEFEAT note above) drops
-		 * a clean checker's whole body, so a failed reading must say so here to
-		 * survive that drop. A landed one needs nothing of the reader. */
 		if (recorded === "failed")
 			ctx.dirtied(
 				`${WATCH_FILE()} could not be appended to just now — today's reading is lost.`,

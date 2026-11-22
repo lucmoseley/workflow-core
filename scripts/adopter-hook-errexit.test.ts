@@ -1,19 +1,5 @@
 // @vitest-environment node
 
-/* Errexit in the hooks an adopter runs (#745). The core runs its hooks through
- * husky's `.husky/_` wrapper, `sh -e`; init-adopter points an adopter's
- * core.hooksPath at `.husky` itself, so git runs each hook file directly. That
- * file is a shim (#1839), which runs the core's hook under `sh -e`, and the
- * core's hook carries its own `set -e` besides.
- *
- * The refusal cases commit for real in a throwaway adopter-shaped repo
- * (`buildAdopter`), with every gate a stub script exiting its own
- * STUB_EXIT_<name>, because only git running the hook file directly shows
- * whether a failing gate stops the commit.
- *
- * Loosen a case and an adopter's hook can print a gate's refusal while the
- * commit lands anyway, every core gate passing silently in every adopter. */
-
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -37,7 +23,6 @@ const temps = registerTempCleanup();
 const SHEBANG = "#!/usr/bin/env sh";
 const ERREXIT = /^set -e(\s|$)/;
 
-/** Every line that is not a comment or blank, in file order. */
 const parseCodeLines = (text: string) =>
 	text.split("\n").filter((l) => !/^\s*(#|$)/.test(l));
 
@@ -84,12 +69,6 @@ describe("an adopter's pre-push under `set -e` (#745)", () => {
 	});
 });
 
-/* An adopter-shaped repo: core.hooksPath = .husky, no .husky/_, the pre-commit
- * shim as init writes it, and a plugin root, which WORKFLOW_CORE_DIR names,
- * holding the core's pre-commit and a stub for every script it calls, each
- * exiting its STUB_EXIT_<name> or 0. The hook gains one bare line after the
- * dispatcher's, a probe with no `|| exit`, since every gate a plain commit
- * runs now carries one: only errexit can refuse on the probe's failure. */
 const DISPATCH_LINE = 'scripts/precommit-dispatch.js "$@" || exit "$?"\n';
 const PROBE_LINE = `${coreCall("node", "scripts/errexit-probe.js")}\n`;
 function buildAdopter(opts: { local?: string; errexit?: boolean }) {

@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""stats.py: summarises the per-session CSV that measure.py writes into the
-firing rates and turns-remaining figures of
-https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-ceiling-firing-rates.md (mantahostels#1546).
-
-A separate pass so the figures can be recut without re-streaming the corpus.
-"""
 
 import csv
 import importlib.util
@@ -13,9 +7,6 @@ import statistics as st
 from collections import defaultdict, Counter
 from pathlib import Path
 
-# Loaded by path under its own name, as test_session_ceilings.py loads it:
-# measure-docmap-denials has a `measure.py` too, and a bare `from measure
-# import` takes whichever one sys.modules or sys.path finds first (#1298).
 _spec = importlib.util.spec_from_file_location(
     "session_ceilings_measure", Path(__file__).with_name("measure.py")
 )
@@ -23,8 +14,6 @@ _measure = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_measure)
 THRESHOLDS = _measure.THRESHOLDS
 
-# WFC_SESSIONS_CSV is set by hand by whoever runs the measurement, to keep
-# the CSV out of the working directory: no test fills it (base §G7).
 IN_CSV = os.environ.get("WFC_SESSIONS_CSV", "sessions.csv")
 
 
@@ -62,11 +51,9 @@ print(f"main rows: {len(main_rows)}, subagent rows: {len(sub_rows)}")
 sdkpy_rows = [r for r in main_rows if is_sdkpy(r)]
 print(f"sdk-py main sessions: {len(sdkpy_rows)}")
 
-# population for headline: main sessions excluding sdk-py
 pop_main = [r for r in main_rows if not is_sdkpy(r)]
 print(f"main sessions excl sdk-py: {len(pop_main)}")
 
-# compaction count within pop_main
 compacted = [
     r for r in pop_main if to_int(r["compactions"]) and to_int(r["compactions"]) > 0
 ]
@@ -101,7 +88,6 @@ def dist(values):
 
 
 def wilson_ci(k, n, z=1.96):
-    # z for a two-sided 95% interval.
     if n == 0:
         return (None, None, None)
     p = k / n
@@ -175,7 +161,6 @@ print(
 )
 res_sdkpy = report_population("sdk-py main sessions", sdkpy_rows)
 
-# Kind breakdown for main pop
 print("\n########## Kind breakdown (main sessions, excl sdk-py) ##########")
 kind_counter = Counter(r["kind"] for r in pop_main)
 for k, v in kind_counter.most_common(30):
@@ -199,7 +184,6 @@ for k, group in sorted(by_kind.items(), key=lambda x: -len(x[1])):
         f"  {k}: crossed={n}/{len(group)}, >=30 further turns: {k30}/{n} = {p * 100:.1f}% (CI {lo * 100:.1f}-{hi * 100:.1f}%)"
     )
 
-# background vs interactive split explicit
 print("\n########## background vs interactive (main, excl sdk-py) ##########")
 bg = [r for r in pop_main if r["kind"].startswith("background")]
 interactive = [r for r in pop_main if not r["kind"].startswith("background")]
@@ -216,7 +200,6 @@ for name, grp in [("background", bg), ("interactive/other", interactive)]:
     )
 
 
-# date range
 def get_ts(r, key):
     v = r.get(key)
     return v if v else None
@@ -228,13 +211,11 @@ all_ts = [r["first_ts"] for r in rows if r.get("first_ts")] + [
 if all_ts:
     print(f"\ndate range across all files: {min(all_ts)} to {max(all_ts)}")
 
-# max_context sanity: how many sessions never exceed 100k at all
 never_100k = sum(1 for r in pop_main if to_int(r["cross_100000_turn"]) is None)
 print(
     f"\nmain sessions (excl sdk-py) never crossing 100k: {never_100k}/{len(pop_main)}"
 )
 
-# turn count stats overall
 tt = [to_int(r["total_turns"]) for r in pop_main]
 print(
     f"\nmain session total_turns: median={st.median(tt)}, mean={sum(tt) / len(tt):.1f}, max={max(tt)}"

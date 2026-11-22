@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-host-root-test-isolation.js fails a test spawning a
- * hostRoot()- or gr_root-rooted script without redirecting CLAUDE_PROJECT_DIR, and never
- * one that merely names such a script.
- *
- * check-host-root-test-isolation.js reads call sites, so a throwaway git repo
- * holding a host-root-rooted script and a test file that spawns it is the
- * whole fixture. It gates `.husky/pre-commit`: a false FAIL here refuses an
- * unrelated commit, and a false OK lets a test root itself in the real repo
- * unnoticed, the way #154 did before it was found and fixed (#160).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,14 +15,12 @@ let dir: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-/** Track `rel` with `body`, creating its directory. */
 const track = (rel: string, body: string) => {
 	fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
 	fs.writeFileSync(path.join(dir, rel), body);
 	git("add", "--", rel);
 };
 
-/** A script that roots itself through hostRoot(), `via` marker-root.js if given. */
 const rooted = (name: string, via?: "marker-root.js") => {
 	if (via) {
 		track("scripts/lib/marker-root.js", 'require("./host-root.js");\n');
@@ -43,15 +30,10 @@ const rooted = (name: string, via?: "marker-root.js") => {
 	}
 };
 
-/** A script that touches neither seam. */
 const unrooted = (name: string) =>
 	track(`scripts/${name}`, "process.exit(0);\n");
 
 const run = (...args: string[]) => {
-	// Off, not inherited: a real Actions run sets it globally, and this suite
-	// runs inside one — runCheck's ::error:: annotation, added off this flag,
-	// would otherwise leak into `out` (mantahostels#2427, check-git-fixture-identity.test.ts's
-	// own `run`).
 	const r = runInProcess(SCRIPT, args, {
 		cwd: dir,
 		env: { ...process.env, GITHUB_ACTIONS: "" },
@@ -72,7 +54,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** A guard-root.sh whose `gr_worktree_root` calls `gr_root` internally. */
 const SEAM_WITH_WRAPPER =
 	'gr_root() {\n  printf .\n}\ngr_worktree_root() {\n  printf "$(gr_root)"\n}\n';
 
@@ -187,8 +168,6 @@ describe("what it declines to flag", () => {
 		expect(run().status).toBe(0);
 	});
 
-	/* The negative of "flags a shell script calling gr_worktree_root": the
-	 * same seam, sourced for a function that roots nothing. */
 	it("passes a script sourcing guard-root.sh whose own functions call gr_root (#5287)", () => {
 		track("scripts/lib/guard-root.sh", SEAM_WITH_WRAPPER);
 		track(
@@ -270,9 +249,6 @@ describe("the escape hatch and the caller-side cap", () => {
 				'const SCRIPT = path.resolve(__dirname, "thing.js");\n' +
 				'spawnSync("node", [SCRIPT], {});\n',
 		);
-		// Same finding path as "fails when it lets the script inherit the real
-		// CLAUDE_PROJECT_DIR" above, which pins the message — this only proves
-		// the empty marker doesn't suppress it.
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("scripts/thing.test.ts");

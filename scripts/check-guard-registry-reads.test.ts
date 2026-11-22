@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/check-guard-registry.js: what a guard's digest covers, and the scan's gitignore scope.
- *
- * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
- * loosen a case and a rule can claim **Enforced** while its guard is missing
- * or unwired.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from check-guard-registry.test.ts, whose cost was pre-existing (#4294).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,9 +26,6 @@ import { plantSocket } from "./lib/socket-fixture";
 afterEach(removeTemps);
 
 describe("a guard's digest covers the libraries it sources (mantahostels#140)", () => {
-	/* A guard that reaches its verdict through a shared library, as the three
-	 * Bash guards do. The library is named in no rule, so it can never be
-	 * anchored on its own: the checker rejects an anchor no rule mentions. */
 	const withLib = (lib: string) =>
 		build({
 			claude: region(
@@ -53,8 +40,6 @@ describe("a guard's digest covers the libraries it sources (mantahostels#140)", 
 		});
 
 	it("warns the guard is stale when only its library changed, naming the guard, not the library", () => {
-		// The deny lives in the library, so a change there can falsify the rule
-		// describing the guard.
 		const root = withLib("deny() { exit 2; }\n");
 		reviewIn(root);
 		fs.writeFileSync(
@@ -65,14 +50,12 @@ describe("a guard's digest covers the libraries it sources (mantahostels#140)", 
 		const r = run(root);
 		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
 		expect(r.json.warnings[0].guard).toBe("scripts/guard-branch.sh");
-		// The guard's own bytes did not move, so the finding names the library route too (#3122).
 		expect(r.json.warnings[0].detail).toContain(
 			"the guard or a library its digest hashes changed",
 		);
 	});
 
 	it("still anchors the guard alone, never the library", () => {
-		// An anchor for the library would fail as ORPHAN-ANCHOR: no rule names it.
 		const root = withLib("deny() { exit 2; }\n");
 		reviewIn(root);
 
@@ -88,7 +71,6 @@ describe("a guard's digest covers the libraries it sources (mantahostels#140)", 
 	});
 
 	it("survives a library that sources itself", () => {
-		// A cycle must not hang or blow the stack; each file is hashed once.
 		const root = withLib('source "$(dirname "$0")/lib/deny.sh"\n');
 		reviewIn(root);
 
@@ -97,8 +79,6 @@ describe("a guard's digest covers the libraries it sources (mantahostels#140)", 
 });
 
 describe("a JS guard's digest covers the modules it requires (mantahostels#159)", () => {
-	/* session-arbiter.js's shape after mantahostels#159: a CLI named by the rule, whose
-	 * behaviour sits two requires away in lib/. */
 	const withModules = (leaf: string) =>
 		build({
 			claude: region(
@@ -155,8 +135,6 @@ describe("a JS guard's digest covers the modules it requires (mantahostels#159)"
 	});
 
 	it("does not follow a require that leaves lib/", () => {
-		// Widening past lib/ would start hashing node_modules and every sibling
-		// script.
 		const root = withModules("module.exports = { holderAlive: () => true };\n");
 		fs.writeFileSync(
 			path.join(root, "scripts", "lib", "arbiter-store.js"),
@@ -177,8 +155,6 @@ describe("a JS guard's digest covers the modules it requires (mantahostels#159)"
 });
 
 describe("a thin shell guard's digest covers the program it runs (mantahostels#358)", () => {
-	/* guard-file-claim.sh's shape: a shell guard that extracts a path and shells
-	 * out, with every rule-bearing decision in the node program it runs. */
 	const withDelegate = (store = 'const REFUSING = ["docs/"];\n') =>
 		build({
 			claude: region(
@@ -225,7 +201,6 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 	});
 
 	it("follows a program the guard runs through a variable it assigns (#2487)", () => {
-		// The shape: lib="$here/lib/x.js" … node "$lib".
 		const root = withDelegate();
 		fs.writeFileSync(
 			path.join(root, "scripts", "guard-file-claim.sh"),
@@ -245,7 +220,6 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 	});
 
 	it("follows a .sh program a hook runs by bash, through a variable or directly (#4730)", () => {
-		// .husky/commit-msg's shape: scanner="${ROOT:-$here/..}/scripts/x.sh" … bash "$scanner".
 		const root = build({
 			claude: region(
 				"- No commit closes an issue. **Enforced** (#138): `.husky/commit-msg` refuses a closing keyword.",
@@ -254,8 +228,7 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 				".husky/commit-msg": [
 					"#!/usr/bin/env sh",
 					'here="$(dirname "$0")"',
-					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-					'scanner="${ROOT:-$here/..}/scripts/check-closes.sh"',
+					`scanner="\${ROOT:-$here/..}/scripts/check-closes.sh"`,
 					'bash "$scanner" "$1" commit-msg',
 					'sh "$here/../scripts/check-subject.sh" "$1"',
 					"",
@@ -283,14 +256,11 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 		);
 		reviewIn(root);
 
-		// Absence is the BROKEN-CLAIM check's business, not the digest's.
 		expect(run(root).json.warnings).toEqual([]);
 	});
 });
 
 describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
-	/* .husky/pre-commit's shape: it sources its shared shell lib from the repo
-	 * root, then runs gates whose libraries no rule of its own describes. */
 	const header = (runs: string) =>
 		[
 			"#!/usr/bin/env sh",
@@ -334,7 +304,6 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 		edit(root, "scripts/lib/other-lib.js");
 		edit(root, "scripts/lib/valid-lib.js");
 
-		// check-valid.js carries its own row, so its rule is still re-read.
 		expect(staleRows(root)).toEqual(["scripts/check-valid.js"]);
 	});
 
@@ -355,7 +324,6 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 	});
 
 	it("hashes the shell lib the stack sources from the repo root", () => {
-		// The `lib/gate.sh` tail joined to .husky/ is nowhere; this file is the real one.
 		const root = stack(declared);
 		reviewIn(root);
 		fs.writeFileSync(
@@ -370,8 +338,7 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 		const root = stack(declared);
 		fs.appendFileSync(
 			path.join(root, ".husky", "pre-commit"),
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-			'bash "${ROOT:-.}"/scripts/check-margin.sh || exit "$?"\n',
+			`bash "\${ROOT:-.}"/scripts/check-margin.sh || exit "$?"\n`,
 		);
 		fs.writeFileSync(path.join(root, "scripts", "check-margin.sh"), "exit 0\n");
 		reviewIn(root);
@@ -392,11 +359,6 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 });
 
 describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
-	/*
-	 * A real git repository, because the filter asks `git check-ignore`. Only
-	 * the case that needs a tracked file sets `commit`; the guard is staged in
-	 * every case, as one outside the index is BROKEN-CLAIM (#4517).
-	 */
 	function gitRepo(
 		fx: Fixture & { ignore?: string; commit?: boolean },
 	): string {
@@ -438,10 +400,6 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	});
 
 	it("scans an untracked file that is not ignored", () => {
-		/* Why the filter is not `git ls-files`: an uncommitted docs/research note
-		 * is one `git add` from a commit, and --against reads the INDEX, so
-		 * scoping to the tracked set would drop it while it is still the only
-		 * copy anyone reads. */
 		const r = run(
 			gitRepo({
 				claude,
@@ -453,14 +411,10 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	});
 
 	it("skips the filter on a --root tree outside any repo, and says so", () => {
-		/* The materialised --against tree: `git archive` wrote it tracked-only,
-		 * so there is nothing to drop (#710). */
 		const root = build({
 			claude,
 			files: {
 				...files,
-				// Present and matching, so a hand-rolled .gitignore parser
-				// swapped in for `git check-ignore` would fail this case.
 				".gitignore": ".claude/tmp/\n",
 				".claude/tmp/review-spec-1.md": trigger,
 			},
@@ -478,7 +432,6 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 			ignore: ".claude/tmp/\n",
 			files: { ...files, ".claude/tmp/review-spec-1.md": trigger },
 		});
-		// PATH, not a WFC_ binary var (docs/code-standards-base.md §N7): the case is git missing from PATH.
 		const r = run(root, [], { env: { PATH: "" } });
 		expect(r.kinds).toContain("ORPHAN-TRIGGER");
 		expect(r.code).toBe(1);
@@ -487,10 +440,6 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	});
 
 	it("scans a tracked file that matches an ignore pattern", () => {
-		/* The safety net, and the reason `--no-index` is not on the call: without
-		 * it, `check-ignore` consults the index and will not call a tracked path
-		 * ignored — so a broad pattern cannot quietly take a committed document
-		 * out of the gate. */
 		const r = run(
 			gitRepo({
 				claude,
@@ -503,11 +452,6 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	});
 
 	it("does not read a gitignored emitter", () => {
-		/* The emitter corpus is a SECOND walk over .claude/, and its read is
-		 * deliberately unguarded so an unreadable emitter surfaces as BROKEN. An
-		 * unreadable scratch file must therefore not reach it: .claude/tmp/ is the
-		 * one directory a neighbouring session writes and deletes in while this
-		 * runs. Mode 0 stands in for that race, which cannot be staged directly. */
 		const root = gitRepo({
 			claude,
 			ignore: ".claude/tmp/\n",
@@ -518,17 +462,10 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		expect(r.code).toBe(0);
 	});
 
-	/* In a repo, git's listing never names a socket, so only a tree git cannot
-	 * list sends one through walk() and the emitter walk. The signal still
-	 * fires on those paths: "scans an untracked file that is not ignored" in a
-	 * repo, "skips the filter on a --root tree outside any repo" for walk(), and
-	 * check-guard-registry-rule-text.test.ts's "passes when the fragment, the
-	 * wired emitter and the trigger all agree" for the emitter walk. */
 	const inRepo = (ignore: string) => ({
 		make: () => gitRepo({ claude, ignore, files }),
 		gitLists: true,
 	});
-	/* These rows pin the walks only while git cannot list the root. */
 	const outsideRepo = { make: () => build({ claude, files }), gitLists: false };
 	it.each([
 		["gitignored", inRepo(".claude/tmp/\n"), ".claude/tmp/s/systemd/private"],
@@ -613,9 +550,6 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		},
 	);
 
-	/* The emitter corpus's listing (#4294): each path git lists that the walk
-	 * never read stays unread, each one it read is still read. Mode 0 stands
-	 * in for a read, which BROKEN then names. */
 	it.skipIf(asRoot).each([
 		["a tracked emitter that is a symlink", "scripts/link.sh"],
 		[
@@ -682,7 +616,6 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		expect(r.code).toBe(1);
 	});
 
-	/* git's untracked listing only warns past it, exit 0 (#4170). */
 	it.skipIf(asRoot)(
 		"is BROKEN over an untracked directory it cannot list, in a repo",
 		() => {
@@ -708,9 +641,6 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 });
 
 describe("a row's digest is the commit's, not the worktree's (#4508)", () => {
-	/* Every probe the closure makes: a hook-local lib shadowing the shared one,
-	 * a sibling shadowing a run target, a require of a lib not in the tree, and
-	 * a scripts/ path a gate stack's header names that no commit carries. */
 	const shadows = [
 		".husky/lib/gate.sh",
 		".husky/scripts/check-valid.js",

@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-pick-next-model.js counts and prices every non-Haiku
- * `/pick-next` session in its window, and never calls a window clean that it
- * could not read.
- *
- * Drives the real script through lib/run-in-process.js (§X3, mantahostels#1951),
- * CLAUDE_CONFIG_DIR and its three WFC_CLAUDE_CONFIG_* siblings pointed at a
- * sandbox so the founder's own transcript corpus is never read.
- *
- * Three properties carry the ruling (mantahostels#2449):
- *   1. a non-Haiku `/pick-next` session is COUNTED and PRICED, and the count
- *      is what a mutation to the miss detection would move;
- *   2. a corpus this scan cannot read is SKIP, never "0 misses" — the
- *      subject-vs-apparatus split lib/check.js draws;
- *   3. a session whose model or command cannot be read is counted apart, never
- *      folded into the clean side.
- *
- * It reports through `npm run status`, the only signal on a cost no hook can
- * prevent (mantahostels#1353): loosen a case and `/pick-next` runs keep billing
- * at the Opus rate while the report reads clean.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -42,7 +21,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	// chmod back, or a directory a test made unreadable defeats the removal.
 	ignoreFailure(() => fs.chmodSync(corpus, 0o755));
 	fs.rmSync(sandbox, { recursive: true, force: true });
 });
@@ -52,23 +30,15 @@ let seq = 0;
 interface Turn {
 	model?: string;
 	out: number;
-	/** Fresh input, cache write and cache read. */
 	fi?: number;
 	cw?: number;
 	cr?: number;
-	/** The `cache_creation` split of `cw` by TTL; absent, the record carries none. */
 	cw5m?: number;
 	cw1h?: number;
-	/** Usage fields laid over the built ones, such as a top-level TTL split. */
 	usage?: Record<string, number>;
-	/** Shared requestId across two turns proves the one-unit-per-request rule. */
 	requestId?: string;
 }
 
-/**
- * A parent transcript in the shape the harness writes: the command block in a
- * user record, then one assistant record per turn.
- */
 function session(
 	command: string | null,
 	turns: Turn[],
@@ -137,8 +107,6 @@ const run = (args: string[] = [], env: Record<string, string> = {}) =>
 			...process.env,
 			GITHUB_ACTIONS: "",
 			CLAUDE_CONFIG_DIR: sandbox,
-			// All three siblings too: without them sessionDirs() falls back to
-			// `<parent>/.claude`, `.claude2`, `.claude3` beside the sandbox.
 			WFC_CLAUDE_CONFIG_A: sandbox,
 			WFC_CLAUDE_CONFIG_B: sandbox,
 			WFC_CLAUDE_CONFIG_C: sandbox,
@@ -148,7 +116,6 @@ const run = (args: string[] = [], env: Record<string, string> = {}) =>
 
 const report = (r: { stdout: string; stderr: string }) => r.stdout + r.stderr;
 
-/** lib/notify-report.js's base(), spelled against the sandbox this run points at. */
 const notifyDir = () =>
 	path.join(sandbox, "projects", slugForRepo(), "notify-reports");
 const stampPath = () => path.join(notifyDir(), "pick-next-model.notified");
@@ -160,7 +127,6 @@ const readPersistedReport = () =>
 		),
 	) as { outcome: string; text: string; stamp: string | null };
 
-/** The --json envelope, which is stdout's whole content in that mode. */
 const json = (args: string[] = []) =>
 	JSON.parse(run(["--json", ...args]).stdout) as {
 		outcome: string;
@@ -218,7 +184,6 @@ describe("a clean window", () => {
 
 describe("a window carrying misses", () => {
 	it("WARNs with the count, the rate and the forfeited cost", () => {
-		// 1,000,000 Opus 5 output tokens at $75/Mtok = $75 spent; 98% of that forfeited.
 		session("pick-next", [{ model: OPUS, out: 1_000_000 }]);
 		session("pick-next", [{ model: HAIKU, out: 1_000_000 }]);
 
@@ -244,12 +209,10 @@ describe("a window carrying misses", () => {
 		expect(envelope.missed).toBe(1);
 		expect(envelope.mixed).toBe(1);
 		expect(envelope.opus).toBe(0);
-		expect(report({ stdout: "", stderr: r.stderr })).not.toContain("switched"); // --json is silent
+		expect(report({ stdout: "", stderr: r.stderr })).not.toContain("switched");
 	});
 
 	it("prices one billable unit per requestId, MAXed across its records", () => {
-		// Two records of one request: the streamed shape scan_burn.py's MAX rule
-		// exists for.
 		session("pick-next", [
 			{ model: OPUS, out: 400_000, requestId: "r1" },
 			{ model: OPUS, out: 1_000_000, requestId: "r1" },
@@ -267,14 +230,10 @@ describe("a window carrying misses", () => {
 		const out = report(r);
 		expect(out).toContain("PICK-NEXT-ON-OPUS (1 of 1)");
 		expect(out).toContain("scripts/launch.sh pick-next");
-		// The long explanatory block is a hand run's, not a session start's.
 		expect(out).not.toContain("Nothing was changed");
 		expect(r.status).toBe(0);
 	});
 
-	// mantahostels#2475: SessionStart stdout reaches an agent, not the founder, so the
-	// --notify branch asks the agent to relay rather than ordering a relaunch
-	// the reader cannot perform.
 	it("asks the agent to relay under --notify, and does not on a hand run", () => {
 		session("pick-next", [{ model: OPUS, out: 1_000_000 }]);
 
@@ -298,14 +257,10 @@ describe("what it will not call clean", () => {
 		expect(out).toContain("SKIP:");
 		expect(out).toContain("not clean");
 		expect(out).not.toContain("OK:");
-		// SKIP exits 0 — it is not the checker being broken.
 		expect(r.status).toBe(0);
 	});
 
 	it("does not read a `<synthetic>` API-error record as an Opus turn", () => {
-		// The harness writes a rejected request back as a real assistant record
-		// with model `<synthetic>` and four zero token classes. Counting its model
-		// would book this Haiku session `mixed`, a miss at $0.
 		session("pick-next", [
 			{ model: HAIKU, out: 500_000 },
 			{ model: "<synthetic>", out: 0 },
@@ -328,8 +283,6 @@ describe("what it will not call clean", () => {
 	});
 
 	it("ignores an unclosed <command-name> in a transcript's body", () => {
-		// A session that merely READ this checker's own test, or any prose naming
-		// the tag, is not a /pick-next session.
 		const file = path.join(corpus, "mentions-the-tag.jsonl");
 		fs.writeFileSync(
 			file,
@@ -371,8 +324,6 @@ describe("what it will not call clean", () => {
 	});
 
 	it("SKIPs, and does not WARN, where no config dir holds this repo at all", () => {
-		// configDirs() always answers four paths and keeps one that does not exist
-		// (arbiter-core.js's sessionDirs), which must read as absent, not unreadable.
 		const empty = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-no-corpus-"));
 		try {
 			const out = report(
@@ -407,8 +358,6 @@ describe("what it will not call clean", () => {
 	});
 
 	it("drops a transcript that vanished between the listing and the stat, uncounted", () => {
-		// A dangling symlink is the same ENOENT the readdir/stat race produces: the
-		// file is gone, so it is no session this window could have read either way.
 		session("pick-next", [{ model: HAIKU, out: 500_000 }]);
 		fs.symlinkSync(
 			path.join(corpus, "nothing-here"),
@@ -421,10 +370,7 @@ describe("what it will not call clean", () => {
 	});
 
 	it("counts a transcript it can list but cannot stat", () => {
-		// A file that IS there and will not answer is not the race above — it is a
-		// session whose command and model both went unread.
 		session("pick-next", [{ model: HAIKU, out: 500_000 }]);
-		// Readable but not searchable: readdir lists, stat is refused.
 		fs.chmodSync(corpus, 0o444);
 
 		const envelope = json();
@@ -433,9 +379,6 @@ describe("what it will not call clean", () => {
 	});
 
 	it("counts a confirmed /pick-next session too large to read as unknown, not as an unread command", () => {
-		// The command block IS read — the failure is reading the rest — so this is
-		// a /pick-next session whose model is unknown, and it belongs in the rate's
-		// denominator rather than in the "no command name" line.
 		const file = path.join(corpus, "over-cap.jsonl");
 		fs.writeFileSync(
 			file,
@@ -445,8 +388,6 @@ describe("what it will not call clean", () => {
 				message: { content: "<command-name>/pick-next</command-name>" },
 			})}\n`,
 		);
-		// Sparse: statSync().size clears the 64 MiB whole-file ceiling while the
-		// head read still finds the command at byte 0.
 		fs.truncateSync(file, 64 * 1024 * 1024 + 1);
 
 		const envelope = json();
@@ -457,7 +398,6 @@ describe("what it will not call clean", () => {
 	});
 
 	it("reports a transcript whose command it could not read rather than dropping it", () => {
-		// A file over the 1 MiB head cap whose command block sits beyond it.
 		const file = path.join(corpus, "huge.jsonl");
 		const filler = JSON.stringify({
 			type: "user",
@@ -519,9 +459,6 @@ describe("a tier this checker cannot price (mantahostels#2476)", () => {
 	});
 
 	it("leaves an Opus session that also carries an unpriceable turn out of the cost", () => {
-		// The cost is summed over every request in the file, not per model, so a
-		// mixed Opus/Sonnet session cannot be priced at Opus rates without
-		// inflating the figure the header calls a floor.
 		session("pick-next", [
 			{ model: OPUS, out: 1_000_000 },
 			{ model: SONNET, out: 1_000_000 },
@@ -573,8 +510,6 @@ describe("a SKIP under --notify (mantahostels#2476)", () => {
 		fs.chmodSync(corpus, 0o000);
 
 		const r = run(["--notify"]);
-		// lib/check.js suppresses a SKIP's summary under --notify exactly as it
-		// does an OK's.
 		expect(r.stdout).toContain("SKIPPED");
 		expect(r.stdout).toContain("not clean");
 		expect(r.status).toBe(0);
@@ -591,8 +526,6 @@ describe("a SKIP under --notify (mantahostels#2476)", () => {
 
 describe("what the throttle must never silence (mantahostels#2476)", () => {
 	it("reports a miss whose session STARTED before one already reported", () => {
-		// One of the two miss shapes a high-water mark silenced for good; the
-		// call site in check-pick-next-model.js carries both.
 		session("pick-next", [{ model: OPUS, out: 1_000_000 }]);
 		expect(run(["--notify"]).stdout).toContain("1 of 1");
 		expect(run(["--notify"]).stdout).toBe("");
@@ -652,8 +585,6 @@ describe("what the throttle must never silence (mantahostels#2476)", () => {
 });
 
 describe("under persist mode (mantahostels#2476)", () => {
-	// The producer's stdout is not the delivery, so suppressing on its own
-	// stamp would bury a report the reader never got the chance to show (mantahostels#1975).
 	const persist = (args: string[] = ["--notify"]) =>
 		run(args, { WFC_NOTIFY_PERSIST: "1" });
 
@@ -689,9 +620,6 @@ describe("usage", () => {
 });
 
 describe("pricing each request at its own model (#359)", () => {
-	/* docs/effort-guide.md §Model ids and prices' token mix, in Opus 5 dollars:
-	 * cache read 56.1%, cache write 25.4%, output 18.4%, fresh input 0.1% of
-	 * $1,500. */
 	const mix = { cr: 561_000_000, cw: 20_320_000, out: 3_680_000, fi: 100_000 };
 
 	it("prices an Opus 5.5 session at its own rates, not Opus 5's (#359)", () => {
@@ -723,14 +651,12 @@ describe("pricing each request at its own model (#359)", () => {
 
 		const envelope = json();
 		expect(envelope.mixed).toBe(1);
-		// $75 * 0.02 Haiku + $75 * 0.8 Opus 5.5; only the Opus request forfeits.
 		expect(envelope.spent).toBeCloseTo(1.5 + 60, 6);
 		expect(envelope.forfeited).toBeCloseTo(60 - 1.5, 6);
 	});
 });
 
 describe("pricing each cache write at its own TTL (#1203)", () => {
-	// Opus 5 dollars: a 5-minute write is $18.75/Mtok, a 1-hour write $30.
 	it("prices a 1-hour write at 2x fresh input", () => {
 		session("pick-next", [
 			{ model: OPUS, out: 0, cw: 1_000_000, cw1h: 1_000_000 },
@@ -800,8 +726,6 @@ describe("pricing each cache write at its own TTL (#1203)", () => {
 			},
 		]);
 
-		// The first write is 1-hour from the top level alone; the second's
-		// top-level 0 wins over its nested 1-hour value, leaving it 5-minute.
 		expect(json().spent).toBeCloseTo(30 + 18.75 * 2, 6);
 	});
 });
@@ -812,7 +736,6 @@ describe("a session held on two seats (#382)", () => {
 		const seat2 = path.join(sandbox, "seat2");
 		const corpus2 = path.join(seat2, "projects", slugForRepo());
 		fs.mkdirSync(corpus2, { recursive: true });
-		// Resumed on seat 2 on Opus: the copy there holds the whole session.
 		const resumed = session("pick-next", [
 			{ model: HAIKU, out: 500_000 },
 			{ model: OPUS, out: 1_000_000 },

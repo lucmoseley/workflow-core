@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-research-added.js — refuses a commit that adds a file under
- * `docs/research/`, and prints the rule: research is posted on its issue,
- * never landed in the tree (#2356).
- *
- * Usage:
- *   node check-research-added.js [--json] [--warn]
- *
- * The rule's authored home is docs/agents/issue-tracker.md §Research
- * artefacts; this prints its generated fragment, `rule:research-in-tree`.
- *
- * ADDED, under --no-renames, so a rename or copy into the directory reads as
- * an add. Editing or deleting a note still there passes.
- *
- * IMPLICIT:  on a commit staging a path under docs/research/, refuses one that adds a file there.
- * JUSTIFIED: fail-safe — an index git will not read is BROKEN rather than green.
- * DEFEAT:    --warn caps the finding below the gating line, and pre-commit never passes it.
- */
 
 const { runCheck } = require("./lib/check.js");
 const { readRuleTextOr } = require("./lib/rule-text");
@@ -26,10 +8,6 @@ const { spawnGitSync } = require("./lib/git.js");
 
 const RESEARCH_DIR = "docs/research/";
 
-/*
- * An unreadable fragment is check-guard-registry.js's assertion, not a reason
- * to call the verdict BROKEN (mantahostels#1649's split).
- */
 function readResearchRule() {
 	return readRuleTextOr(
 		"research-in-tree",

@@ -1,18 +1,3 @@
-"""gitop.py — the git operations bench.py's paired gate times in place of a
-hook set (#5207): a throwaway repo per side whose hooks are that side's
-`.husky`, one timed operation per call, and an untimed reset back to the same
-state after it.
-
-Git reaches a `.husky` hook only through husky's dispatch directory: some hooks
-are not executable, so `core.hooksPath` names a per-side copy of husky's `_/`
-whose shim runs `sh -e <side>/.husky/<hook>`, as the host's own `.husky/_` does.
-
-The fixture is built on `main` in a main work tree, with a repo-local identity,
-and carries no `.claude/workflow-core.json`, so the adopter's declared commands,
-identical on both sides, stay out of the read. Every git command the bench
-itself runs, the reset included, runs with hooks off.
-"""
-
 from __future__ import annotations
 
 import json
@@ -34,17 +19,11 @@ IDENTITY = {
     "GIT_COMMITTER_NAME": "bench",
     "GIT_COMMITTER_EMAIL": "bench@example.invalid",
 }
-# Gitleaks' github-pat rule refuses it (#5207).
-# Joined at run time, so this file carries no token for the scan to find.
 FAKE_SECRET = "ghp" + "_Z7VdR3InO7QbjVXdxBpX3E07M9bf82SZZ1iQ"
-# Reported beside the gated shapes, never gated (#5207 §Latency gate).
 UNGATED = {"am-refused"}
 SHAPES = ("commit", "merge", "cherry-pick", "rebase", "am", "am-refused")
-# The env a call must not inherit: a live session's records, and a git
-# location that would point the operation elsewhere.
 DROPPED = ("CLAUDE_CODE_SESSION_ID", "GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE")
 DROPPED_PREFIX = ("HUSKY", "GIT_CONFIG_")
-# The hooks husky 9 writes a shim for (husky's index.js).
 HUSKY_HOOKS = (
     "applypatch-msg",
     "commit-msg",
@@ -61,12 +40,10 @@ HUSKY_HOOKS = (
     "pre-rebase",
     "prepare-commit-msg",
 )
-# husky's own lookup in its `h` shim: the hook beside the `_/` directory.
 HUSKY_LOOKUP = 's=$(dirname "$(dirname "$0")")/$n'
 
 
 def git(repo: str, *args: str, env: dict | None = None) -> str:
-    """A bench-side git command: hooks off, its failure raised."""
     done = subprocess.run(
         ["git", "-c", "core.hooksPath=/dev/null", *args],
         cwd=repo,
@@ -89,13 +66,10 @@ def bare_env() -> dict:
 
 
 def call_env(side_root: str, repo: str) -> dict:
-    """A timed call's env: the side's scripts, the fixture as the project."""
     return {**bare_env(), "WFC_PLUGIN_ROOT": side_root, "CLAUDE_PROJECT_DIR": repo}
 
 
 def husky_template(side_root: str) -> str:
-    """husky's `h` shim as installed: the side's, else the bench's own
-    checkout's."""
     for root in (Path(side_root), Path(host_root())):
         shim = root / "node_modules" / "husky" / "husky"
         if shim.is_file():
@@ -104,8 +78,6 @@ def husky_template(side_root: str) -> str:
 
 
 def husky_dispatch(side_root: str, out: str) -> str:
-    """husky's `_/` dispatch directory, its lookup pinned to the side's
-    `.husky`, at `out`."""
     body = husky_template(side_root)
     if HUSKY_LOOKUP not in body:
         raise ValueError("husky's h shim no longer carries its lookup line")
@@ -130,8 +102,6 @@ def commit_all(repo: str, msg: str) -> str:
 
 
 class Fixture:
-    """One side's throwaway repo, and the state each shape starts from."""
-
     def __init__(self, parent: str, side_root: str, shape: str):
         if shape not in SHAPES:
             raise ValueError(shape)
@@ -186,8 +156,6 @@ class Fixture:
         git(self.repo, "config", "core.hooksPath", hooks)
 
     def reset_tree(self) -> None:
-        """Back to the shape's start: no operation in progress, `main` at the
-        start commit, a clean tree, and the commit shape's change staged."""
         g = self.gitdir
         for state in ("rebase-apply", "rebase-merge", "sequencer"):
             shutil.rmtree(os.path.join(g, state), ignore_errors=True)
@@ -202,8 +170,6 @@ class Fixture:
 
     def reset(self) -> None:
         self.reset_tree()
-        # What a hook or the operation left in the git dir: a stamp,
-        # ORIG_HEAD, MERGE_HEAD, a stopped operation's heads.
         for name in set(os.listdir(self.gitdir)) - self.gitdir_entries:
             p = os.path.join(self.gitdir, name)
             if os.path.isdir(p) and not os.path.islink(p):
@@ -212,8 +178,6 @@ class Fixture:
                 os.unlink(p)
 
     def state(self) -> tuple[str, str, str]:
-        """HEAD, its symbolic name, and the porcelain status: what a reset
-        must return to."""
         r = self.repo
         return (
             git(r, "rev-parse", "HEAD"),
@@ -223,7 +187,6 @@ class Fixture:
 
 
 def timed_call(fx: Fixture, reap) -> dict:
-    """One operation, timed with every hook it fires, then the reset."""
     r0 = resource.getrusage(resource.RUSAGE_CHILDREN)
     t0 = time.monotonic()
     done = subprocess.run(
@@ -245,9 +208,6 @@ def timed_call(fx: Fixture, reap) -> dict:
         "denies": int(done.returncode != 0),
         "exit": done.returncode,
         "detached": detached,
-        # The tail a refused pair reports: a guess, stated as one, at room for a
-        # hook's last few lines, where its refusal says why; a refusal cut short
-        # in a real run would refine it.
         "stderr": done.stderr[-400:].decode(errors="replace"),
     }
 
@@ -284,8 +244,6 @@ def write_wrappers(dispatch: str, husky: str, out: str, log: str) -> list[str]:
 
 
 def hook_cpu(fx: Fixture, calls: int, workdir: str, reap) -> dict:
-    """The median CPU each hook spends per call, read through the wrappers
-    after the gated pairs so they never perturb them."""
     log = os.path.join(workdir, "hook-cpu.jsonl")
     write_wrappers(fx.hooks, fx.husky, os.path.join(workdir, "wrapped"), log)
     fx.use_hooks(os.path.join(workdir, "wrapped"))

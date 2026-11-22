@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-gates.js prints each open gated issue's `check:` reading,
- * gives a dead, silent, over-budget or malformed command its own WARN state,
- * and decides nothing about the condition (mantahostels#2656, mantahostels#1332).
- *
- * Black-box over `node check-gates.js`, with a stub `gh` injected via WFC_GH:
- * no network, no auth, and no dependence on this repo's own gate markers, which
- * are what the script reports on and so cannot also be its fixture.
- *
- * The stub also LOGS every argv it is called with, so the "decides nothing"
- * case can assert the absence of a write: the only place one could happen is
- * a gh call.
- *
- * The `check:` commands here are real shell — `sleep`, `false`, `echo` — rather
- * than a mocked runner, per §X2: the states this script exists to tell apart
- * (dead, silent, over budget) are properties of a real process.
- *
- * Both gate judges, `/pick-next` and the refill loop's gate sweep, read this
- * script's output (#2279): loosen a case and a held ticket stays excluded from
- * `/pick-next` unseen, or the sweep starts writing verdicts mantahostels#1332
- * forbade.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -43,7 +21,6 @@ interface Issue {
 	pull_request?: object;
 }
 
-/** A body carrying a well-formed condition gate over `command`. */
 const gatedOn = (
 	command: string | null,
 	condition = "the thing has happened",
@@ -102,7 +79,6 @@ describe("the reading", () => {
 		expect(r.out).toContain("41 samples");
 		expect(r.out).toContain("at least 20 per-sha samples");
 		expect(r.out).toContain("NOTHING BELOW SAYS MET OR\nUNMET");
-		/* The two judges a met gate has (#2279). */
 		expect(r.out).toContain("/pick-next\n  on its GATED rows");
 		expect(r.out).toContain("the /triage the refill loop launches");
 	});
@@ -149,7 +125,7 @@ describe("the reading", () => {
 describe("a segment that owes a repair", () => {
 	it("gives a dead command a state of its own, at WARN", () => {
 		const r = run([], stubGh([{ number: 7, body: gatedOn("false") }]));
-		expect(r.status).toBe(0); // WARN, deliberately not gating
+		expect(r.status).toBe(0);
 		expect(r.out).toContain("WARN");
 		expect(r.out).toContain("[DEAD]");
 		expect(r.out).toContain("nothing on stdout");
@@ -161,7 +137,6 @@ describe("a segment that owes a repair", () => {
 			stubGh([{ number: 7, body: gatedOn("wfc-no-such-command-xyz") }]),
 		);
 		expect(r.out).toContain("#7  [DEAD]");
-		// The shell's own words on the row: what to repair, not just that it broke.
 		expect(r.out).toContain("not found");
 	});
 
@@ -181,9 +156,6 @@ describe("a segment that owes a repair", () => {
 		expect(r.out).toContain("run it by hand");
 	});
 
-	/* Both limbs of what review of mantahostels#2656 found: the classifier keyed on the kill
-	 * signal, so a check that traps TERM outran the budget and was then called
-	 * DEAD, and a check killed from outside was called over budget. */
 	it("holds the budget against a command that traps SIGTERM", () => {
 		const started = Date.now();
 		const r = run(
@@ -191,7 +163,6 @@ describe("a segment that owes a repair", () => {
 			stubGh([{ number: 2491, body: gatedOn("trap '' TERM; sleep 20") }]),
 		);
 		expect(r.out).toContain("[OVER-BUDGET]");
-		// §X9: a kill: the budget's escalation past a TERM-trapping child is real signals on a real process, so only the clock shows it held.
 		expect(Date.now() - started).toBeLessThan(15_000);
 	});
 
@@ -235,9 +206,6 @@ describe("a segment that owes a repair", () => {
 		expect(r.out).toContain("empty pair");
 	});
 
-	/* The budget is spent through lib/run-budgeted.js because spawnSync's own
-	 * kills the shell alone: mantahostels#2491's check is meant to hit the budget on every
-	 * sweep, and would otherwise orphan a ~22-minute node process each time. */
 	it("kills what the command spawned, not just the shell", () => {
 		const marker = path.join(dir, "outlived");
 		const r = run(
@@ -252,7 +220,6 @@ describe("a segment that owes a repair", () => {
 			]),
 		);
 		expect(r.out).toContain("[OVER-BUDGET]");
-		// Past the grandchild's own 6s, so a survivor would have written by now.
 		spawnSync("sleep", ["8"]);
 		expect(fs.existsSync(marker)).toBe(false);
 	}, 30_000);
@@ -281,8 +248,6 @@ describe("a marker that gates nothing", () => {
 		);
 		expect(r.out).toContain("[GATES-NOTHING]");
 		expect(r.out).toContain("one gate line per issue");
-		// The reading is not taken: the pair is a repair, and running the command
-		// would print a row that reads like a live gate.
 		expect(r.out).not.toContain("[READING]");
 	});
 });
@@ -359,7 +324,6 @@ describe("modes", () => {
 		expect(r.out.trim()).toBe("");
 	});
 
-	/** A stub answering `issues/<n>` with `answer`, an issue or an HTTP error. */
 	const stubOne = (answer: (Issue & { state: string }) | string) => {
 		const fixture = path.join(dir, "issue.json");
 		const isError = typeof answer === "string";

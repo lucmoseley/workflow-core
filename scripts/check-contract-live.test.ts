@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins check-contract-live.js (#5408). Loosened, a live contract case can
- * skip on every sweep for weeks and `npm run status` still reads OK.
- *
- * A PLAIN TEMP DIR, NOT A TEMP GIT REPO: the script reads JSON files and asks
- * git nothing of the temp dir.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -35,7 +28,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** One sweep's shard report, started `day` days after T0. */
 function writeSweep(
 	runId: number,
 	day: number,

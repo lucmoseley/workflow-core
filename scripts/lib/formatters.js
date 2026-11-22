@@ -51,6 +51,7 @@ const { writeFd } = require("./write-fd.js");
 const { readBlob } = require("./staged.js");
 const { HOOK_GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { GIT_MODE } = require("./git-mode.js");
+const { readAttributeExcluded } = require("./git-attributes.js");
 
 /* The shell file set (#1828), which check:sh lints and both formatter routes
  * format: a husky hook, its `.local` companion or a `.sh`/`.bash` file by name, and a file with no
@@ -62,7 +63,6 @@ const SHELL_NAME = /^\.husky\/[^/.]+(\.local)?$|\.(sh|bash)$/;
 const NO_EXTENSION = /(^|\/)[^/.]+$/;
 const SHELL_SHEBANG =
 	/^#!\s*(?:\S*\/)?(?:env\s+(?:-\S+\s+)*)?(?:ba|da|k)?sh(?:\s|$)/;
-const EXCLUDING_ATTRS = ["linguist-vendored", "linguist-generated"];
 
 const SHFMT_OPTIONS = { indent: 2, switchCaseIndent: true };
 
@@ -272,54 +272,12 @@ function indexHead() {
 }
 
 /**
- * How the attribute read runs. cached: read .gitattributes from the index, as
- * a commit carries it; timeout: the git call's ceiling, none where undefined;
- * cwd: the checkout read, the working directory's where undefined.
- * @typedef {{ cached?: boolean, timeout?: number, cwd?: string }} AttributeRead
- */
-
-/**
- * The paths .gitattributes marks vendored or generated. Throws where git
- * cannot read the attributes.
- * @param {string[]} paths
- * @param {AttributeRead} read
- * @returns {Set<string>}
- */
-function readAttributeExcluded(paths, { cached, timeout, cwd }) {
-	if (paths.length === 0) return new Set();
-	const r = spawnGitSync(
-		[
-			"check-attr",
-			"-z",
-			"--stdin",
-			...(cached ? ["--cached"] : []),
-			...EXCLUDING_ATTRS,
-		],
-		{
-			input: paths.map((p) => `${p}\0`).join(""),
-			encoding: "utf8",
-			...(timeout === undefined ? {} : { timeout }),
-			...(cwd === undefined ? {} : { cwd }),
-		},
-	);
-	if (r.status !== 0)
-		throw new Error(`git check-attr failed: ${r.stderr.trim()}`);
-	const fields = r.stdout.split("\0");
-	const excluded = new Set();
-	for (let i = 0; i + 2 < fields.length; i += 3) {
-		const value = fields[i + 2];
-		if (value === "set" || value === "true") excluded.add(fields[i]);
-	}
-	return excluded;
-}
-
-/**
  * The shell files among `paths`, in their order (#1828). Throws where git
  * cannot read the attributes.
  * @param {string[]} paths repo-relative, read from the host root
  * @param {(p: string) => string | null} head a path's opening text, null
  *   where it is no regular file, which drops it
- * @param {AttributeRead} [read]
+ * @param {{ cached?: boolean, timeout?: number, cwd?: string }} [read]
  * @returns {string[]}
  */
 function shellFiles(paths, head, { cached = false, timeout, cwd } = {}) {
@@ -329,7 +287,11 @@ function shellFiles(paths, head, { cached = false, timeout, cwd } = {}) {
 		const text = head(p);
 		return text !== null && (named || SHELL_SHEBANG.test(text));
 	});
-	const excluded = readAttributeExcluded(shell, { cached, timeout, cwd });
+	const excluded = readAttributeExcluded(shell, {
+		from: cached ? "index" : "worktree",
+		timeout,
+		cwd,
+	});
 	return shell.filter((p) => !excluded.has(p));
 }
 

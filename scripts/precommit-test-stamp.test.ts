@@ -25,7 +25,7 @@ import { shellQuote } from "./lib/sh-quote.js";
 const temps = registerTempCleanup();
 
 const GATES_END = HOOK.split("\n").find((l) =>
-	l.startsWith("# ---- end of the gates"),
+	l.startsWith(": end of the gates"),
 );
 if (GATES_END === undefined)
 	throw new Error("no line ending the pre-lock gates in .husky/pre-commit");

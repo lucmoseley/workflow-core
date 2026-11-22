@@ -1,6 +1,3 @@
-"""Pins runs.py's reading of the run ledger (#2828): kind, verdict and fullCause come off each line, and the
-one rule it applies itself, lander-rerun, reclasses an unsessioned run after LANDER_START only."""
-
 import json
 import os
 import subprocess

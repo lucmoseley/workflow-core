@@ -1,52 +1,4 @@
 #!/usr/bin/env node
-/*
- * arm-tasks.js — the before/after test's revert-and-replay tasks (#2044,
- * `docs/research/startup-load-before-after-test.md` D1), defined in
- * `scripts/arm-tasks/tasks.json`.
- *
- *   node scripts/arm-tasks.js build <id> --at <rev> --to <dir> [--issues <dir>]
- *       [--node-modules <dir>] [--config-dir <arm config dir>] [--known-good] [--hold <seconds>]
- *   node scripts/arm-tasks.js accept <id> --sandbox <dir> [--json]
- *   node scripts/arm-tasks.js verify [<id>...] --at <rev> --node-modules <dir> [--scratch <dir>]
- *   node scripts/arm-tasks.js freeze [<id>...] --issues <dir>
- *   node scripts/arm-tasks.js coverage
- *
- * `build` makes one run's sandbox through `build-arm-sandbox.js task`, with the
- * task's landing commits reverted, or its `fix` patch applied in reverse
- * (`--known-good` keeps them), and every ticket
- * frozen in `--issues` served by the gh stub. It writes
- * `<dir>/task.json` (the base revision and the prompt), and prints it. A
- * neighbour task also needs `--config-dir`, the arm's config dir, where the fake
- * neighbour is registered on a detached `sleep` of `--hold` seconds (default
- * 600) and takes a real claim through the sandbox's own arbiter: the claim
- * holds until that process ends, and a session's write to it is warned of a
- * likely merge conflict until then. The hold runs
- * from the build, so launch the session at once: a launch after
- * `neighbour.expiresAt` in `task.json` meets no claim.
- *
- * `accept` judges the sandbox after the run: exit 0 pass, 1 fail, 2 a refused
- * invocation, as every subcommand refuses one. Every remote
- * is the sandbox's own bare origin, HEAD is pushed to it, the task's paths are
- * committed, each doc check matches, and each hidden test — the test file as it
- * stands at the base revision, written beside the original under a new name —
- * passes against the session's code. A hidden test runs only the cases its
- * `names` select, each of which must run, and a `patch` beside `tasks.json`
- * first cuts the assertions on wording its ticket never asked for (#2069).
- *
- * `verify` builds each task's known-good and known-bad sandbox and requires
- * `accept` to pass the first and fail the second.
- *
- * `freeze` writes each task's ticket and parent from the real tracker into
- * `--issues`, as it stood before the first landing commit: OPEN, unassigned,
- * every box unticked, and only the comments made before that commit. The
- * fixtures are never committed (#1963), so the pilot freezes once and every run
- * of the test reads that one copy.
- *
- * A git, gh or arbiter failure throws, exiting 1 with its stack.
- *
- * IN NO §N3 FAMILY, DELIBERATELY: it gates nothing and files no issue, and it
- * writes sandboxes outside the repo.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -70,11 +22,7 @@ const { buildInfixTestName } = require("./lib/test-kind.js");
 
 const TASKS_DIR = path.join(__dirname, "arm-tasks");
 const SANDBOX_CLI = path.join(__dirname, "build-arm-sandbox.js");
-/*
- * Both guesses (#2044), for the pilot to correct. The hold is under the
- * 15-minute Bash wait ceiling (#1286), so waiting it out is a move the rules
- * allow. The test timeout is the Bash tool's own foreground maximum.
- */
+// guess, #2044
 const DEFAULT_HOLD_SECONDS = 600;
 const HIDDEN_TEST_TIMEOUT_MS = 600_000;
 
@@ -122,14 +70,10 @@ const CLI = {
  * @typedef {object} Task
  * @property {string} id
  * @property {number} issue
- * @property {string[]} revert newest first, the order they are reverted in;
- *   `freeze` dates the ticket by the oldest, `fix` or not
- * @property {string} [fix] the work, and any later work its hidden tests need
- *   gone, as a diff against the base, beside `tasks.json`, unapplied in place
- *   of `revert` where that revert no longer applies (#2997, #3979)
+ * @property {string[]} revert
+ * @property {string} [fix]
  * @property {HiddenTest[]} hiddenTests
- * @property {{ file: string, pattern: string, why?: string }[]} docChecks `why`
- *   says what a pattern too opaque to read checks for, printed where it fails
+ * @property {{ file: string, pattern: string, why?: string }[]} docChecks
  * @property {{ path: string, name: string } | null} neighbour
  * @property {string | null} instruction
  * @property {{ kind: string, text: string } | null} pressure
@@ -138,9 +82,9 @@ const CLI = {
 
 /**
  * @typedef {object} HiddenTest
- * @property {string} file the test file, read at the base revision
- * @property {string[]} names substrings of the full names of the cases to run
- * @property {string} [patch] a unified diff against `file`, beside `tasks.json`
+ * @property {string} file
+ * @property {string[]} names
+ * @property {string} [patch]
  */
 
 const tasksFile = () =>
@@ -152,8 +96,6 @@ function loadTasks() {
 }
 
 /**
- * The named tasks, or all of them where none is named; null where any name
- * matches no task, so nothing is done for the names before it.
  * @param {string[]} ids
  * @returns {Task[] | null}
  */
@@ -187,8 +129,6 @@ const git = (cwd, args) =>
 	execGit(args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
 
 /**
- * Register the fake neighbour on a live process of its own and take its claim
- * through the sandbox's arbiter.
  * @param {Task} task
  * @param {string} repo
  * @param {string} configDir
@@ -230,8 +170,6 @@ function seatNeighbour(task, repo, configDir, holdSeconds) {
 		});
 	if (claim(sessionId).status !== 0)
 		throw new Error("the neighbour's claim failed");
-	// A revision before #4249 refuses the probe; one after warns it, naming the
-	// neighbour.
 	const probe = claim("arm-probe");
 	if (probe.status !== 1 && !probe.stderr.includes(sessionId))
 		throw new Error("the neighbour's claim does not reach another session");
@@ -239,11 +177,10 @@ function seatNeighbour(task, repo, configDir, holdSeconds) {
 	return { sessionId, pid, path: task.neighbour.path, holdSeconds, expiresAt };
 }
 
-/** @param {string} name a `fix` patch, beside `tasks.json` */
+/** @param {string} name */
 const fixPatch = (name) => path.join(path.dirname(tasksFile()), name);
 
 /**
- * The files the task's work touches: its `fix` patch's, or its landing commits'.
  * @param {Task} task
  * @param {string} repo
  * @returns {string[]}
@@ -344,30 +281,22 @@ function build({ flags, positionals }) {
 	return 0;
 }
 
-/**
- * `work` marks the checks that tell work done from work not done — the hidden
- * tests and doc checks — which `verify` requires a known-bad sandbox to fail.
- * `info` never fails: it flags a replay for the transcript reader.
- * @typedef {{ check: string, kind: "setup" | "work" | "info", ok: boolean, detail: string }} CheckResult
- */
+/** @typedef {{ check: string, kind: "setup" | "work" | "info", ok: boolean, detail: string }} CheckResult */
 
 /** @param {CheckResult} r */
 const formatResult = (r) =>
 	`${r.ok ? "✓" : "✗"} ${r.check}${r.detail ? ` — ${r.detail}` : ""}`;
 
 /**
- * `text` with `patch` applied, or null where it no longer applies.
  * @param {string} text
- * @param {string} file the path the patch names
+ * @param {string} file
  * @param {string} patch
- * @param {string} scratch an empty directory outside any repository
+ * @param {string} scratch
  */
 function patched(text, file, patch, scratch) {
 	const target = path.join(scratch, file);
 	fs.mkdirSync(path.dirname(target), { recursive: true });
 	fs.writeFileSync(target, `${text}\n`);
-	// Inside a repository, git apply would skip a path outside the directory it
-	// runs from and still exit 0; the ceiling keeps it out of every one (#2069).
 	const r = spawnGitSync(["apply", path.resolve(patch)], {
 		cwd: scratch,
 		encoding: "utf8",
@@ -377,15 +306,11 @@ function patched(text, file, patch, scratch) {
 }
 
 /**
- * The fields read off vitest's `--reporter=json` file.
  * @typedef {{ fullName: string, status: "passed" | "failed" | "skipped" | "pending" | "todo" | "disabled" }} CaseResult
  * @typedef {{ numPassedTests: number, numFailedTests: number, testResults: { assertionResults: CaseResult[] }[] }} VitestReport
  */
 
 /**
- * Each hidden test, written beside its original as `<name>.accept.test.ts`, or
- * whatever test-kind.js `JS_TEST_FILE` form the original takes, so
- * its relative imports resolve, and run over the cases its `names` select.
  * @param {Task} task
  * @param {string} repo
  * @param {string} base
@@ -401,8 +326,6 @@ function runHiddenTests(task, repo, base) {
 		 */
 		const failed = (detail) => ({ check, kind: "work", ok: false, detail });
 		if (!fs.existsSync(vitest)) return failed("no node_modules/.bin/vitest");
-		/* Its copy's name is the original's own otherwise, and the copy's
-		 * cleanup would delete the original (#3387). */
 		const copy = buildInfixTestName(file, "accept");
 		if (copy === null) return failed(`${file} is no test file`);
 		const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "arm-accept-"));
@@ -436,8 +359,6 @@ function runHiddenTests(task, repo, base) {
 			/** @type {VitestReport} */
 			const json = JSON.parse(fs.readFileSync(report, "utf8"));
 			const cases = json.testResults.flatMap((f) => f.assertionResults);
-			// A name matching only skipped cases selects nothing the ticket asks
-			// for, so it fails the check like a name matching none (#2069).
 			const unrun = names.filter(
 				(n) =>
 					!cases.some(
@@ -465,7 +386,7 @@ function runHiddenTests(task, repo, base) {
 
 /**
  * @param {Task} task
- * @param {string} root the sandbox root
+ * @param {string} root
  * @returns {CheckResult[]}
  */
 function acceptance(task, root) {
@@ -481,7 +402,6 @@ function acceptance(task, root) {
 		.split("\n")
 		.filter(Boolean)
 		.map((l) => {
-			// A url-less remote is the session's own doing: a failed check, named.
 			const [name, url] = l.split(/\s+/);
 			return url || `${name} (no url)`;
 		});
@@ -575,14 +495,11 @@ function killNeighbour(root) {
 	try {
 		process.kill(pid);
 	} catch (e) {
-		// ESRCH is a holder whose hold ran out, the claim releasing itself (#2044).
 		if (caught(e).code !== "ESRCH") throw e;
 	}
 }
 
 /**
- * Known-good must pass every check; known-bad must fail every hidden test and
- * doc check.
  * @param {CheckResult[]} results
  * @param {boolean} knownGood
  */
@@ -595,15 +512,12 @@ function isJudgedRight(results, knownGood) {
  * @param {Task} task
  * @param {boolean} knownGood
  * @param {{ scratch: string, at: string, nodeModules: string }} opts
- * @returns {boolean} whether `accept` judged it as it should
+ * @returns {boolean}
  */
 function verifyOne(task, knownGood, { scratch, at, nodeModules }) {
 	const kind = knownGood ? "good" : "bad";
 	const to = path.join(scratch, `${task.id}-${kind}`);
-	// Beside the sandbox, not in it: the build refuses a `--to` that is not empty.
 	const config = `${to}-config`;
-	// Registered so a revision enabling wfc-self builds: the build points it at
-	// the clone, and no session runs here to need more (#2440, #2997).
 	fs.mkdirSync(path.join(config, "plugins"), { recursive: true });
 	fs.writeFileSync(
 		path.join(config, "plugins", "known_marketplaces.json"),
@@ -671,7 +585,7 @@ const FROZEN_FIELDS =
 
 /**
  * @param {number} n
- * @param {string} before ISO time of the first landing commit
+ * @param {string} before
  */
 function readFrozenIssue(n, before) {
 	/** @type {FrozenIssue} */
@@ -681,7 +595,6 @@ function readFrozenIssue(n, before) {
 		...issue,
 		state: "OPEN",
 		assignees: [],
-		/* The indent stops at a line break, so blank lines are read once (#3383). */
 		body: issue.body.replace(/^([^\S\n\r\u2028\u2029]*[-*] )\[x\]/gim, "$1[ ]"),
 		comments: issue.comments.filter((c) => Date.parse(c.createdAt) < cutoff),
 	};
@@ -724,12 +637,8 @@ function freeze({ flags, positionals }) {
 	return 0;
 }
 
-/** Every task carries these two; see tasks.json's comment. */
 const UNIVERSAL_FAMILIES = ["commit-push", "suite-launch"];
 
-/**
- * D1 rule 3's families plus rule 5's.
- */
 const D1_FAMILIES = [
 	...UNIVERSAL_FAMILIES,
 	"founder-decision",

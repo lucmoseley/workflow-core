@@ -1,26 +1,10 @@
 #!/usr/bin/env node
-/*
- * check-comment-policy.js — the comment-policy gate's shell over the
- * permitted kinds (#5455), judged by lib/comment-policy.js (#5477, #5490).
- *
- * Usage:
- *   node check-comment-policy.js [--root <dir>] [--all] [--against <rev>] [--json] [--warn]
- *
- * lib/precommit-gates.js runs it under `--against HEAD` while the `comments`
- * module is on, so a commit is charged only the comments it adds: an edited
- * comment is new, a moved one is not, and a renamed file keeps the comments
- * it brought.
- *
- * IMPLICIT:  with the comments module on, refuses a commit adding a comment to a JS, TS, Python or shell file that fits no permitted kind, or a suppression of a rule off the style-only list, naming the file and line.
- * JUSTIFIED: fail-safe — the fix is deleting or reshaping the comment the commit itself adds.
- * DEFEAT:    --warn caps findings below the gating line; the module off stands the gate down.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { listTree } = require("./lib/git-objects.js");
+const { readAttributeExcluded } = require("./lib/git-attributes.js");
 const {
 	CODE_FILE,
 	depsPattern,
@@ -43,11 +27,8 @@ const SUPPORT = [
 	"pyproject.toml",
 	"tsconfig.json",
 ];
-/* The direct requirements: an `.in` file, or `requirements.txt` where it is
- * hand-written; a compiled lock such as requirements-dev.txt names every
- * transitive package. */
-const REQUIREMENTS = /^requirements(?:[\w.-]*\.in|\.txt)$/;
-/* A guess at what a terminal line shows of a comment beside its path. */
+const DIRECT_REQUIREMENTS = /^requirements(?:[\w.-]*\.in|\.txt)$/;
+// guess, #5490
 const EXCERPT_MAX = 80;
 
 /**
@@ -61,7 +42,6 @@ const readOr = (root, rel) => {
 };
 
 /**
- * The tree's files, as a materialised side holds them.
  * @param {Ctx} ctx
  * @param {string} root
  * @param {boolean} walked
@@ -105,12 +85,11 @@ const PACKAGE_KEYS = [
 ];
 
 /**
- * The names each requirements file's lines open with.
  * @param {string} root
  */
 function readRequirementDeps(root) {
 	const files = fs.existsSync(root)
-		? fs.readdirSync(root).filter((n) => REQUIREMENTS.test(n))
+		? fs.readdirSync(root).filter((n) => DIRECT_REQUIREMENTS.test(n))
 		: [];
 	return files.flatMap((name) =>
 		[
@@ -120,7 +99,6 @@ function readRequirementDeps(root) {
 }
 
 /**
- * Every dependency name the tree's manifests declare.
  * @param {string} root
  */
 function readManifestDeps(root) {
@@ -141,7 +119,6 @@ function readManifestDeps(root) {
 }
 
 /**
- * The facts every file's verdict shares.
  * @param {string} root
  */
 function readTreeFacts(root) {
@@ -164,7 +141,6 @@ function readTreeFacts(root) {
 }
 
 /**
- * The paths the commit changes, and each rename's source.
  * @param {Ctx} ctx
  */
 function readChangedPaths(ctx) {
@@ -193,24 +169,95 @@ function readChangedPaths(ctx) {
 	return { paths, renames };
 }
 
-/** @type {WeakMap<Ctx, ReturnType<typeof readChangedPaths>>} */
+/**
+ * @param {Ctx} ctx
+ * @param {ReturnType<typeof readChangedPaths>} read
+ * @param {string} head
+ */
+function dropAttributeExcluded(ctx, { paths, renames }, head) {
+	const excluded = readExcludedOrBroken(ctx, paths, {
+		from: head ? { rev: head } : "index",
+	});
+	return {
+		paths: paths.filter((p) => !excluded.has(p)),
+		renames: new Map([...renames].filter(([to]) => !excluded.has(to))),
+	};
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string[]} paths
+ * @param {import("./lib/git-attributes.js").AttributeRead} read
+ * @returns {Set<string>}
+ */
+function readExcludedOrBroken(ctx, paths, read) {
+	try {
+		return readAttributeExcluded(paths, read);
+	} catch (e) {
+		return ctx.broken(e instanceof Error ? e.message : String(e));
+	}
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ * @returns {string[]}
+ */
+function readJudgedFiles(ctx, root) {
+	const walked = ctx.has("--root");
+	const files = readTreeFiles(ctx, root, walked);
+	if (ctx.side) return files;
+	const env = walked ? withoutGitRedirects() : undefined;
+	if (!inWorkTree(ctx, root, env)) return files;
+	const excluded = readExcludedOrBroken(ctx, files, {
+		from: walked ? "worktree" : "index",
+		cwd: root,
+		env,
+	});
+	return files.filter((p) => !excluded.has(p));
+}
+
+const withoutGitRedirects = () =>
+	Object.fromEntries(
+		Object.entries(process.env).filter(
+			([k]) => !["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"].includes(k),
+		),
+	);
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+function inWorkTree(ctx, root, env) {
+	const r = spawnGitSync(["rev-parse", "--is-inside-work-tree"], {
+		cwd: root,
+		encoding: "utf8",
+		...(env ? { env } : {}),
+	});
+	if (r.error) ctx.broken(`git rev-parse failed: ${r.error.message}`);
+	return r.status === 0 && r.stdout.trim() === "true";
+}
+
+/** @type {WeakMap<Ctx, ReturnType<typeof dropAttributeExcluded>>} */
 const changed = new WeakMap();
 
 /**
- * The commit's changed paths, read once a run for both sides and the settle.
  * @param {Ctx} ctx
  */
 const changedOnce = (ctx) => {
 	const known = changed.get(ctx);
 	if (known) return known;
-	const read = readChangedPaths(ctx);
+	const read = dropAttributeExcluded(
+		ctx,
+		readChangedPaths(ctx),
+		ctx.value("--head", ""),
+	);
 	changed.set(ctx, read);
 	return read;
 };
 
 /**
- * What a side materialises: the changed code paths, each rename's source,
- * and the files the verdicts read.
  * @param {Ctx} ctx
  * @param {string} rev
  */
@@ -218,7 +265,7 @@ function sidePaths(ctx, rev) {
 	const { paths, renames } = changedOnce(ctx);
 	const requirements = listTree(rev, [], { recursive: false })
 		.map((e) => e.path)
-		.filter((p) => REQUIREMENTS.test(p));
+		.filter((p) => DIRECT_REQUIREMENTS.test(p));
 	const code = [...paths, ...renames.values()].filter((p) => CODE_FILE.test(p));
 	return [...SUPPORT, ...requirements, ...code];
 }
@@ -230,7 +277,6 @@ const identity = (item) => {
 };
 
 /**
- * The added breaches less those a renamed file brought from its source.
  * @param {Ctx} ctx
  * @param {import("./lib/check").FaultItem[]} added
  * @param {{ baseline: Record<string, unknown> | undefined }} sides
@@ -273,7 +319,7 @@ const SPEC = {
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
 		let judged = 0;
-		for (const rel of readTreeFiles(ctx, root, ctx.has("--root"))) {
+		for (const rel of readJudgedFiles(ctx, root)) {
 			const text = readOr(root, rel);
 			const lang = text === null ? null : langOf(rel, text);
 			if (text === null || lang === null) continue;
@@ -308,7 +354,6 @@ const factsFor = (tree, rel, lang) => ({
 });
 
 /**
- * Record one file's breaches; returns how many.
  * @param {Ctx} ctx
  * @param {string} rel
  * @param {string} text
@@ -333,7 +378,6 @@ function judgeFile(ctx, rel, text, facts) {
 }
 
 /**
- * The per-file counts, most first.
  * @param {Ctx} ctx
  * @param {Map<string, number>} perFile
  */

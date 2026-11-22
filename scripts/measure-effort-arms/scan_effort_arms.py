@@ -58,7 +58,6 @@ sys.path.insert(
 import transcript_corpus as tc
 from fail_open import tallied
 
-# Ordered so the report reads low -> high whatever the corpus holds.
 ARM_ORDER = ["low", "medium", "high", "xhigh"]
 UNDATED = "undated sessions"
 
@@ -145,7 +144,6 @@ def sessions(tally, window=None, *, skill=None, model=None, min_turns=1):
         top_model = s["models"].most_common(1)[0][0] if s["models"] else None
         if skill and top_skill != skill:
             continue
-        # Substring, so `opus` matches whatever dated id the alias resolved to.
         if model and (top_model is None or model not in top_model):
             continue
         out.append(
@@ -164,12 +162,6 @@ def sessions(tally, window=None, *, skill=None, model=None, min_turns=1):
                 "out": s["out"],
                 "subagents": len(s["subagents"]),
                 "ctx_median": st.median(s["ctx"]) if s["ctx"] else 0,
-                # Per-turn figures, computed per session and only then aggregated,
-                # so the arm statistic is a median of ratios rather than a ratio of
-                # medians. These are the size-invariant metrics: a session's turn
-                # count tracks how big its ticket was, so a low arm drawn from
-                # smaller tickets reads cheaper per session whatever effort did.
-                # What effort can move is the cost of a turn.
                 "cost_per_turn": s["cost_all"] / s["turns"] if s["turns"] else None,
                 "think_per_turn": s["think"] / s["turns"] if s["turns"] else None,
                 "minutes": _minutes(s["t0"], s["t1"], tally),
@@ -191,7 +183,6 @@ def _minutes(t0, t1, tally):
 
 
 def band(vals):
-    """median, mean, p90 -- or None where the sample is empty."""
     v = sorted(x for x in vals if x is not None)
     if not v:
         return None
@@ -254,9 +245,6 @@ def report(rows, tally, ratio_to="medium"):
                 f"  {arm:<8} n={b['n']:<4} median {fmt.format(b['median']):>10}"
                 f"  mean {fmt.format(b['mean']):>10}  p90 {fmt.format(b['p90']):>10}"
             )
-            # The ratio is what the verdict turns on: `low` buys nothing unless
-            # turns and tool calls fall, and break-even for low-then-re-run is
-            # 1 - L/H on the cost ratio.
             if base and arm != ratio_to and base["median"]:
                 line += f"   x{b['median'] / base['median']:.2f} vs {ratio_to}"
             print(line)
@@ -337,8 +325,6 @@ def main(argv=None):
     ap.add_argument(
         "--min-turns",
         type=int,
-        # A guess, never measured: a floor low enough to keep any session that
-        # did work.
         default=5,
         help="drop sessions below this many parent turns (default 5) "
         "-- a session that died at launch is not an arm "

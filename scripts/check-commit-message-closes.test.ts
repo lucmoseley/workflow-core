@@ -1,24 +1,5 @@
 // @vitest-environment node
 
-/*
- * scripts/check-commit-message-closes.js (#138) — what the scanner matches,
- * given a message file.
- *
- * The seam it is wired into — which git hook fires on which route — is
- * scripts/prepare-commit-msg-gate.test.ts's. This file is about the message
- * text alone, and about the two things git puts in a message file that would
- * otherwise fire: its own `#` template block, and the `--verbose` diff below
- * the scissors line, which is NOT comment-prefixed.
- *
- * Every case calls main in process, over a file on disk, as the two hooks'
- * dispatchers run it.
- *
- * .husky/commit-msg and .husky/prepare-commit-msg refuse a commit on its hit:
- * a false pass lets a message close an issue server-side on the push, with no
- * resolution comment and no `**Outstanding:**` line, and a false fail refuses
- * a commit that only mentions an issue.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,7 +12,6 @@ const { main } = require("./check-commit-message-closes.js") as {
 
 const temps = registerTempCleanup();
 
-/** `message` written to a message file on disk; its path. */
 function messageFile(message: string) {
 	const dir = mkScratchDir("closing-keyword-");
 	temps.push(dir);
@@ -40,14 +20,10 @@ function messageFile(message: string) {
 	return file;
 }
 
-/* lib/commit-message.js reads the hook's cleanup mode from GIT_EDITOR, which
- * git sets to `:` for a pre-commit test gate on a `-m` commit: pinned to the
- * editor route, where git drops `#` lines. */
 beforeEach(() => {
 	vi.stubEnv("GIT_EDITOR", "vi");
 });
 
-/** The scanner in process over `message`: its exit code and stderr. */
 function scan(message: string) {
 	const { code, stderr } = main([messageFile(message), "test"]);
 	return { code, output: stderr };

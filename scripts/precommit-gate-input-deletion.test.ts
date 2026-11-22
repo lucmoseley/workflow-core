@@ -27,6 +27,10 @@ const MAP = "docs/doc-map.md";
 const NEEDLES = "docs/doc-map-superseded.json";
 
 const STUB_MARKER = "STUB-CHECKER-RAN";
+const RETIREMENT = "scripts/lib/module-retirement.js";
+const RETIREMENT_SHIM = `process.exit(require(${JSON.stringify(
+	path.join(ROOT, RETIREMENT),
+)}).isModuleRetirement(process.argv[2]) ? 0 : 1);\n`;
 const ESCAPE = "WFC_ALLOW_GATE_INPUT_DELETE";
 const DOLLAR = "$";
 
@@ -53,7 +57,7 @@ function fixture(opts: {
 	const repo = stagedRepo(
 		"gate-input-deletion-",
 		temps,
-		{ ...stubs, ...opts.committed },
+		{ ...stubs, [RETIREMENT]: RETIREMENT_SHIM, ...opts.committed },
 		opts.staged ?? {},
 	);
 	for (const rel of opts.deleted ?? [])
@@ -295,7 +299,7 @@ describe("the escape", () => {
 	});
 });
 
-describe("a commit retiring the roadmap module", () => {
+describe("a commit retiring the roadmap module (#5405)", () => {
 	const config = ".claude/workflow-core.json";
 	const on = '{ "modules": ["roadmap"] }\n';
 	const off = '{ "modules": [] }\n';

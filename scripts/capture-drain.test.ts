@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which comments capture-drain.js reads as captures and as consumed, that
- * `list` gives the undrained ones oldest first, and that `mark` consumes one by
- * a reaction, never a body edit, reporting a failure rather than claiming it
- * drained (mantahostels#640, mantahostels#679).
- *
- * Runs with a stub `gh` injected via WFC_GH: no network, no auth, and no
- * dependence on this repo's own capture comments — which the script reports on
- * and so cannot also be its fixture.
- *
- * The fixtures are the shapes mantahostels#640 settled: a capture on the issue a session was
- * working, one on mantahostels#678 (the standing surface), a consumed one carrying the
- * reaction, and prose that merely mentions the marker mid-body.
- *
- * The capture-drain skill drains through this script: loosen a case and a
- * captured fact can be skipped unseen, marked drained without landing, or
- * erase a parallel session's comment edit.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -25,8 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
-/** The marker a capture comment opens with (mantahostels#640), restated so a
- * change to it fails here. */
 const MARKER = "**Captured fact:**";
 
 const SCRIPT = path.resolve(__dirname, "capture-drain.js");
@@ -37,9 +17,7 @@ interface Comment {
 	id: number;
 	issue: number;
 	body: string;
-	/** days ago */
 	age: number;
-	/** the reaction summary, omitted entirely on a payload that carries none */
 	reactions?: Record<string, number>;
 }
 
@@ -120,7 +98,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The rows `list --all --json` reads off these comment bodies and reaction summaries. */
 const listed = (comments: Pick<Comment, "body" | "reactions">[]) => {
 	const r = run(
 		{
@@ -137,11 +114,9 @@ const listed = (comments: Pick<Comment, "body" | "reactions">[]) => {
 	return JSON.parse(r.stdout);
 };
 
-/** The fact the drain reads off one comment body, or null where it is no capture. */
 const factOf = (body: string | null) =>
 	listed([{ body: body as string }])[0]?.fact ?? null;
 
-/** Whether the drain reads a capture carrying `reactions` as consumed. */
 const drainedBy = (reactions?: Record<string, number>) =>
 	listed([{ body: `${MARKER} a fact`, reactions }])[0].drained;
 
@@ -165,7 +140,6 @@ describe("what counts as a capture", () => {
 	});
 
 	it("ignores prose that merely mentions the marker mid-body", () => {
-		// This repo's own docs quote the phrase; none of them is a capture.
 		expect(
 			factOf(`The comment opens with ${MARKER} and states the fact.`),
 		).toBeNull();
@@ -183,12 +157,10 @@ describe("consumed state", () => {
 	});
 
 	it("does not read an unrelated reaction as consumed", () => {
-		// +1 and eyes get added by hand while reading a comment.
 		expect(drainedBy({ rocket: 0, "+1": 3, eyes: 1 })).toBe(false);
 	});
 
 	it("treats a payload carrying no reaction summary as undrained", () => {
-		// The safe direction: a capture shown again is noise; one swept past is lost.
 		expect(drainedBy(undefined)).toBe(false);
 	});
 });

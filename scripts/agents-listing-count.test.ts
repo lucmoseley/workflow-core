@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * How many `claude agents --json` unions one admission run and one refill
- * tick make (#3320, measured on #2509). Each union starts one CLI process per
- * seat, about 65 MB PSS apiece, so a reader that lists again for what an
- * earlier listing already holds is paid for on every run.
- *
- * Real admission.js, real reap-finished-sessions.js and a real refill-loop.js
- * `dry-run` run against a fake `claude` that logs each call. The reaper reads
- * the session registry, not the CLI (#2665), so it adds none. Every bar reads
- * full, so the tick sizes no cap, reads no shortlist and makes no GitHub call.
- *
- * Break it and a second listing — a reader re-asking the oracle, or the reaper
- * moved back onto the CLI — shows here as one more line.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -47,12 +33,10 @@ beforeEach(() => {
 	ghLog = at("gh-calls");
 	fs.mkdirSync(at("proc"));
 	fs.mkdirSync(at("seat"));
-	// Room for a slot, so the verdict is read and not refused.
 	fs.writeFileSync(
 		at("meminfo"),
 		buildMeminfo({ availableMb: 8192, swapTotalMb: 2048, swapFreeMb: 2048 }),
 	);
-	// Any reading: WFC_LOAD_CEILING is blanked, so load holds nothing.
 	fs.writeFileSync(at("loadavg"), buildLoadavgLine(0.5));
 	writeListingClaude(SELF);
 	fs.writeFileSync(
@@ -67,8 +51,6 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/* Off this machine's own memory, load, `/proc`, suite queue and seats, with
- * the reclaim plan left to the real reaper. */
 const buildMachineEnv = (): NodeJS.ProcessEnv => ({
 	...process.env,
 	HOME: dir,
@@ -104,13 +86,10 @@ describe("claude agents --json unions (#3320)", () => {
 		expect(r.status).toBe(0);
 		const verdict = JSON.parse(r.stdout);
 		expect(verdict.ok).toBe(true);
-		/* The reaper's plan was read, so its listing is in the count. */
 		expect(verdict.reclaimableError).toBeNull();
 		expect(readLines(listingLog)).toEqual(["agents --json"]);
 	});
 
-	/* Where the strict listing refuses, no reader lists again with
-	 * `requireSelf: false` to get past it (#3330). */
 	it("one admission run lists once where the session is unlisted", () => {
 		writeListingClaude("other");
 		const r = runInProcess(

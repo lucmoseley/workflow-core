@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-hand-callers.js — refuses a script header line keeping a caller list
- * by hand: `Caller:`, `Callers:` or `Callers of …:`, which `git grep` answers
- * instead (#4720, #4885).
- *
- * Usage:
- *   node check-hand-callers.js [--root <dir>] [--against <rev>] [--json] [--warn]
- *
- * SCOPE is a JS, TS, shell or Python script under `scripts/` or a skill's
- * `scripts/`, test files included. `Unbuilt caller: <caller> (#N)`, naming the
- * caller a module was built ahead of, is not a caller list.
- *
- * IMPLICIT:  on every commit staging a script under scripts/ or a skill's scripts/, refuses one whose header gains a Caller: line, naming the file and line.
- * JUSTIFIED: fail-safe — the fix is deleting one comment line, and a line that lands costs a re-anchor on every later caller edit (#4404).
- * DEFEAT:    --warn caps findings below the gating line.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
@@ -30,7 +13,6 @@ const {
 /** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 
-/** The marker is optional: a header is all comment, a docstring included. */
 const HAND_CALLER = new RegExp(
 	String.raw`${LINE_START}(?:(?:${JS_COMMENT}|#)${BLANKS})?(Callers?(?: of [^:\n]*)?:.*)$`,
 	"gim",
@@ -40,9 +22,6 @@ const SCOPE =
 const ROOTS = ["scripts", ".claude/skills"];
 
 /**
- * Every in-scope file under `root`, repo-relative and sorted. A symlink is
- * vendored, and under --against it lands dangling, so both modes skip it.
- *
  * @param {string} root
  * @returns {string[]}
  */
@@ -89,7 +68,6 @@ const SPEC = {
 			for (const m of header.matchAll(HAND_CALLER)) {
 				const line = header.slice(0, m.index).split("\n").length;
 				const match = requiredGroup(m, 1, HAND_CALLER).trim();
-				/* A copy of an inherited line is a new fault, not the same one. */
 				const nth = (seen.get(match) ?? 0) + 1;
 				seen.set(match, nth);
 				const message =

@@ -103,25 +103,14 @@ const { buildHookCommandLine } = require("./lib/rule-emission");
 /** @typedef {{ distinct: number, own: number, vendored: number, disabled: number }} SkillCounts */
 /** @typedef {{ link: boolean, text: string | null }} SkillEntry */
 
-/*
- * Percent of a pool file's bytes, either direction, at which the census's rule
- * inventory over that file stops being evidence. A judgement (mantahostels#1771), not a
- * measurement. SHRINKAGE COUNTS TOO — a rule shed is a row that no longer
- * exists.
- */
 const DEFAULT_THRESHOLD_PCT = 10;
 
-/**
- * The sections that are one count apiece, which --only names whole (#1879).
- *
- * @type {Record<string, (root: string, rev: string | undefined) => object>}
- */
+/** @type {Record<string, (root: string, rev: string | undefined) => object>} */
 const COUNTERS = {
 	hooks: (root, rev) => hookCountsPlain(root, rev),
 	skills: (root, rev) => skillCounts(root, rev),
 };
 
-/** The baseline's sections, each BROKEN by its absence rather than skipped. */
 const REQUIRED_SECTIONS = [
 	"poolFiles",
 	"poolRules",
@@ -144,14 +133,6 @@ function readIfPresent(file) {
 }
 
 /**
- * Both halves of a census verdict, always together.
- *
- * TIMING AND SUFFICIENCY ARE SEPARATE FINDINGS, and quoting either alone
- * misrepresents the census: the `guard-issue-create-label` core fires `at need` and
- * still sheds 0 B, which the census's join table records as a DOWNGRADE to
- * insufficient. A message carrying the timing verdict on its own reads as a
- * guard confirmed to work.
- *
  * @param {GuardAnchor} anchor
  * @returns {string}
  */
@@ -159,8 +140,6 @@ const verdictOf = (anchor) =>
 	`timing "${anchor.verdict}", self-sufficient "${anchor.selfSufficient ?? "unrecorded"}"`;
 
 /**
- * Where `root`'s hooks are read: at `rev`, or from disk where `root` is no git
- * repo (#2052).
  * @param {string} root
  * @param {string} [rev]
  * @returns {{rev: string | undefined}}
@@ -170,14 +149,6 @@ function readAt(root, rev = "HEAD") {
 }
 
 /**
- * The hooks `root` registers itself (lib/core-hooks.js `ownHooks`: the
- * self-plugin's file and the canary its settings keep at the core,
- * `.claude/settings.json` elsewhere), or
- * BROKEN — the one read both `hookCounts` and `readHookCommands` share, so there
- * is exactly one error policy for a missing or unparseable file rather than
- * two that can drift apart (mantahostels#1923). Read at `rev`, so an
- * uncommitted hook entry is neither reported nor anchored (#1879).
- *
  * @param {any} ctx
  * @param {string} root
  * @param {string} [rev]
@@ -199,9 +170,6 @@ function readHooks(ctx, root, rev = "HEAD") {
 }
 
 /**
- * Hook entries `root` registers, counted as the census counted them:
- * one per `hooks[]` command, not one per matcher group.
- *
  * @param {any} ctx
  * @param {string} root
  * @param {string} [rev]
@@ -223,21 +191,6 @@ function hookCounts(ctx, root, rev) {
 }
 
 /**
- * One hook entry's command line — `command` and the exec form's `args`
- * joined via `buildHookCommandLine()` (mantahostels#2301), so a script path living in `args`
- * alone is still seen — keyed by `<event> <scriptPath>`, plus ` if <cond>`
- * where the entry carries an `if` condition.
- * The event prefix is needed because a script wired to two events with
- * different args (`concision-backstop.sh start`/`stop`) would otherwise
- * collide on a path-only key and silently drop one command. The `if` suffix
- * is needed because one script wired once per condition in one event
- * (one script under `Bash(*cat *)`, another under `Bash(*sed *)`, …) is one key
- * per condition, not a collision (#1604). Two entries with the same script
- * and condition, and a command whose script path is wrapped
- * (`bg-run.sh run … node scripts/real.js`, keying on the wrapper), both still
- * drop an entry — closed not here but by the
- * `hooks.total`-versus-`Object.keys(hookCommands).length` check in `run()`.
- *
  * @param {any} ctx
  * @param {string} root
  * @param {string} [rev]
@@ -253,8 +206,6 @@ function readHookCommands(ctx, root, rev) {
 }
 
 /**
- * One event's `[buildHookKey key, command line]` pairs, in settings order.
- *
  * @param {string} event
  * @param {unknown} groups
  * @returns {[string, string][]}
@@ -275,9 +226,9 @@ function eventHookCommands(event, groups) {
 
 /**
  * @param {string} event
- * @param {{ if?: unknown }} hook the settings entry, for its `if` condition
- * @param {string} line its command line
- * @returns {string | null} null where the line names no script
+ * @param {{ if?: unknown }} hook
+ * @param {string} line
+ * @returns {string | null}
  */
 function buildHookKey(event, hook, line) {
 	const m = line.match(/scripts\/[\w./-]+\.(?:sh|js)/);
@@ -287,17 +238,6 @@ function buildHookKey(event, hook, line) {
 }
 
 /**
- * Skill directories, split own/vendored on the symlink — the same test
- * check-context-budget.js draws, and the one the census's own addendum adopted
- * (mantahostels#1757).
- *
- * Read at `rev` (#1977), as the hook entries are, so an uncommitted
- * skill is neither reported nor anchored. Each SKILL.md is read through git's
- * own link resolution, so a linked skill directory, a linked SKILL.md and a
- * link to a link all reach their committed target's text (#2369). Disk answers
- * only where `root` is no git repo; a `rev` git cannot list is BROKEN.
- * Residual: a link resolving outside the repo is read from disk.
- *
  * @param {string} root
  * @param {string} [rev]
  * @returns {SkillCounts}
@@ -327,12 +267,9 @@ function skillCounts(root, rev = "HEAD") {
 }
 
 /**
- * Each path's text at `rev` through git's own link resolution, null where git
- * finds no file there.
- *
  * @param {string} root
  * @param {string} rev
- * @param {string[]} rels relative to `root`, as ls-tree prints them
+ * @param {string[]} rels
  * @returns {(string | null)[]}
  */
 function followedTexts(root, rev, rels) {
@@ -344,18 +281,12 @@ function followedTexts(root, rev, rels) {
 	return rels.map((rel, i) => {
 		const object = objects[i];
 		if (object?.type === "blob") return object.body.toString("utf8");
-		/* Git prints an absolute target without the path left to walk, so the
-		 * outside read goes through the working tree's own link instead. */
 		if (object?.type === "symlink") return readIfPresent(path.join(root, rel));
 		return null;
 	});
 }
 
-/**
- * Whether `root` is a git repo: `rev-parse --git-dir` exits 128 outside one,
- * and any other failure is a git that will not answer, BROKEN (#3068).
- * @param {string} root
- */
+/** @param {string} root */
 function isGitRepo(root) {
 	const r = gitOutcome(["-C", root, "rev-parse", "--git-dir"], [128]);
 	if (!r.ok) throw brokenError(`git rev-parse --git-dir failed: ${r.why}`);
@@ -378,7 +309,6 @@ function diskSkillCounts(root) {
 	const entries = [];
 	for (const name of names.sort()) {
 		const at = path.join(dir, name);
-		// Removed between the listing and the stat: no skill.
 		ignoreFailure(() =>
 			entries.push({
 				link: fs.lstatSync(at).isSymbolicLink(),
@@ -390,8 +320,6 @@ function diskSkillCounts(root) {
 }
 
 /**
- * A directory without a SKILL.md is no skill and is skipped.
- *
  * @param {SkillEntry[]} entries
  * @returns {SkillCounts}
  */
@@ -403,17 +331,12 @@ function tallySkills(entries) {
 		if (text === null) continue;
 		if (link) vendored++;
 		else own++;
-		/* Strict on the bare `true`, as check-context-budget.js is: a spelling
-		 * nobody writes falls through and is counted enabled. */
 		if (/^disable-model-invocation:\s*true\s*$/m.test(text)) disabled++;
 	}
 	return { distinct: own + vendored, own, vendored, disabled };
 }
 
 /**
- * Bytes for each pool file the baseline names, null where gone — from git, as
- * readCommittedBytes reads.
- *
  * @param {string} root
  * @param {Record<string, number>} baselined
  * @param {string} [rev]
@@ -430,8 +353,6 @@ function readPoolSizes(root, baselined, rev) {
 }
 
 /**
- * Live digest per baselined guard, null where the script is gone.
- *
  * @param {string} root
  * @param {Record<string, GuardAnchor>} guards
  * @returns {Record<string, string | null>}
@@ -444,9 +365,6 @@ function guardDigests(root, guards) {
 }
 
 /**
- * Every event whose count moved, `PreToolUse 16 -> 17`, so the reader is told
- * which of Table A's five sections to re-read rather than the total alone.
- *
  * @param {Record<string, number>} live
  * @param {Record<string, number>} was
  * @returns {string}
@@ -486,18 +404,13 @@ function readBaseline(ctx, file) {
 	return parsed;
 }
 
-/**
- * rebaseline()'s narrowing: `only` is --only's keys (null for the whole
- * baseline).
- * @typedef {{ rev?: string, only?: Set<string> | null }} RebaselineScope
- */
+/** @typedef {{ rev?: string, only?: Set<string> | null }} RebaselineScope */
 
 /**
  * @param {string} root
  * @param {any} baseline
  * @param {RebaselineScope} scope
  * @returns {{ rows: Record<string, GuardAnchor>, anchored: string[], goneNamed: string[] }}
- *   the section, and which --only keys it re-anchored or dropped
  */
 function rebaselineGuards(root, baseline, { rev, only }) {
 	/** @type {Record<string, GuardAnchor>} */
@@ -510,13 +423,13 @@ function rebaselineGuards(root, baseline, { rev, only }) {
 		/** @type {Record<string, GuardAnchor>} */ (baseline.guards),
 	)) {
 		if (only && !only.has(rel)) {
-			guards[rel] = anchor; // untouched: not named by --only
+			guards[rel] = anchor;
 			continue;
 		}
 		const digest = digestOf(root, rel, rev);
 		if (digest === null) {
-			if (only) goneNamed.push(rel); // named, but the guard is gone — dropped
-			continue; // a guard that is gone leaves no anchor
+			if (only) goneNamed.push(rel);
+			continue;
 		}
 		guards[rel] = { ...anchor, digest };
 		if (only) anchored.push(rel);
@@ -529,7 +442,6 @@ function rebaselineGuards(root, baseline, { rev, only }) {
  * @param {any} baseline
  * @param {RebaselineScope} scope
  * @returns {{ rows: Record<string, number>, anchored: string[], goneNamed: string[] }}
- *   the section, and which --only keys it re-anchored or dropped
  */
 function rebaselinePoolFiles(root, baseline, { rev, only }) {
 	if (!only)
@@ -556,7 +468,7 @@ function rebaselinePoolFiles(root, baseline, { rev, only }) {
 				.map((k) => {
 					const bytes = readCommittedBytes(root, k, rev);
 					if (bytes === null) {
-						goneNamed.push(k); // named, but the pool file is gone
+						goneNamed.push(k);
 						return [k, undefined];
 					}
 					anchored.push(k);
@@ -572,9 +484,7 @@ function rebaselinePoolFiles(root, baseline, { rev, only }) {
  * @param {any} baseline
  * @param {Record<string, string>} liveHookCommands
  * @param {RebaselineScope} scope
- * @returns {{ rows: Record<string, string>, anchored: string[] }} the
- *   section, and which --only keys it re-anchored; a named key gone from the
- *   live tree is left out of both, and knownButGone reports it
+ * @returns {{ rows: Record<string, string>, anchored: string[] }}
  */
 function rebaselineHookCommands(baseline, liveHookCommands, { only }) {
 	if (!only) return { rows: liveHookCommands, anchored: [] };
@@ -592,11 +502,10 @@ function rebaselineHookCommands(baseline, liveHookCommands, { only }) {
 /**
  * @param {any} baseline
  * @param {Set<string>} only
- * @param {Set<string>} settled the keys a section re-anchored or dropped
+ * @param {Set<string>} settled
  * @returns {string[]}
  */
 function knownButGone(baseline, only, settled) {
-	// known, but no live subject carries it now
 	return [...only].filter(
 		(k) =>
 			!settled.has(k) &&
@@ -605,27 +514,11 @@ function knownButGone(baseline, only, settled) {
 }
 
 /**
- * Re-anchors the baseline to the tree as it stands, keeping every authored
- * field — the verdicts, the rule inventory, the citation of the census that
- * produced them.
- *
- * THE CLAIM IS THIS SCRIPT'S OWN. The PreToolUse claim hook watches
- * Write/Edit/NotebookEdit, so a script writing a docs/ path is invisible to it,
- * and the claim is what records the bytes being replaced. Fails open (mantahostels#1194).
- *
  * @param {string} root
  * @param {string} file
  * @param {any} baseline
  * @param {{ claim: boolean, rev?: string, only?: Set<string> | null }} opts
- *   `rev` anchors at this revision rather than HEAD — for a
- *   measurement taken against a tree that is no longer the tip.
- *   `only` (mantahostels#2105, RebaselineScope): the caller validates every key
- *   names an existing row before calling this — see refuseUnknownOnlyKeys's
- *   "no row in the baseline" usageError.
  * @returns {{ next: any, anchored: Set<string>, goneNamed: Set<string> }}
- *   `anchored`/`goneNamed` partition `only` (empty when `only` is null): which
- *   named keys were actually re-measured, and which were named but dropped
- *   because their live subject is gone.
  */
 function rebaseline(root, file, baseline, { claim, rev, only }) {
 	const scope = { rev, only };
@@ -669,14 +562,12 @@ function rebaseline(root, file, baseline, { claim, rev, only }) {
 	return { next, anchored, goneNamed };
 }
 
-/** A ctx substitute with no reporting behind it — --rebaseline's path. */
 const plainCtx = {
 	broken: (/** @type {string} */ m) => {
 		throw brokenError(m);
 	},
 };
 
-/** hookCounts without a ctx to be BROKEN through — --rebaseline's path. */
 function hookCountsPlain(
 	/** @type {string} */ root,
 	/** @type {string | undefined} */ rev,
@@ -684,7 +575,6 @@ function hookCountsPlain(
 	return hookCounts(plainCtx, root, rev);
 }
 
-/** readHookCommands without a ctx to be BROKEN through — --rebaseline's path. */
 function readHookCommandsPlain(
 	/** @type {string} */ root,
 	/** @type {string | undefined} */ rev,
@@ -709,15 +599,7 @@ function runRebaseline(ctx, root, file, baseline) {
 			)
 		: null;
 	if (only && only.size === 0) ctx.usageError("--only named no key.");
-	/*
-	 * A key naming no row in the baseline is a bad invocation, not a
-	 * no-op (mantahostels#2105): unvalidated, a typo'd guard path or
-	 * hook-command key re-anchors nothing and still exits OK, which is
-	 * silent under-clearing.
-	 */
 	const rev = ctx.value("--at", "HEAD");
-	/* Before any read, so every scope is refused alike rather than by
-	 * whichever read meets the bad rev first (#2052). */
 	if (isGitRepo(root) && readCommitOrBroken(rev, root) === null)
 		ctx.usageError(`--at ${rev} names no commit git can resolve.`);
 	if (only) refuseUnknownOnlyKeys(ctx, root, baseline, { only, rev });
@@ -735,8 +617,6 @@ function runRebaseline(ctx, root, file, baseline) {
 }
 
 /**
- * Refuse an --only key naming no baseline row and no live hook command.
- *
  * @param {any} ctx
  * @param {string} root
  * @param {any} baseline
@@ -749,9 +629,6 @@ function refuseUnknownOnlyKeys(ctx, root, baseline, { only, rev }) {
 		...Object.keys(baseline.hookCommands),
 		...Object.keys(baseline.poolFiles),
 		...Object.keys(readHookCommandsPlain(root, rev)),
-		/* A HOOK-COMMAND-NEW key has no baseline row by definition
-		 * (mantahostels#2648). Without it here the only way to anchor a newcomer
-		 * is the bare --rebaseline this flag exists to avoid. */
 	]);
 	const unknown = [...only].filter((k) => !known.has(k));
 	if (unknown.length > 0)
@@ -763,13 +640,10 @@ function refuseUnknownOnlyKeys(ctx, root, baseline, { only, rev }) {
 /** @typedef {(tag: string, message: string, data: object, key: string) => void} Raise */
 
 /**
- * HOOK-COUNT: the total against the census's, or per event at an unchanged
- * total.
- *
  * @param {Raise} raise
  * @param {HookCounts} hooks
  * @param {any} baseline
- * @param {string} file where the hooks are registered
+ * @param {string} file
  */
 function checkHookCounts(raise, hooks, baseline, file) {
 	if (hooks.total !== baseline.hooks.total) {
@@ -792,11 +666,6 @@ function checkHookCounts(raise, hooks, baseline, file) {
 }
 
 /**
- * A hookCommands key split into its event, its subject (the script path and
- * any ` if <cond>`, which a move between events keeps), and the script path
- * alone. A script path holds no space, so the first space after the event
- * ends it.
- *
  * @param {string} key
  * @returns {{ event: string, subject: string, path: string }}
  */
@@ -813,12 +682,7 @@ function parseHookKey(key) {
 }
 
 /**
- * Where a baseline hookCommands key that has no live entry went: the live key
- * with the same subject under another event (a move), else the live key with
- * the same event and script under another `if` condition (a condition change).
- * Neither is a hook gone. Null where it is.
- *
- * @param {{ event: string, subject: string, path: string }} was the parsed baseline key
+ * @param {{ event: string, subject: string, path: string }} was
  * @param {string[]} liveKeys
  * @returns {{ key: string, kind: "event" | "condition" } | null}
  */
@@ -833,8 +697,8 @@ function successorOf(was, liveKeys) {
 }
 
 /**
- * @param {string} key the baseline key with no live entry
- * @param {{ event: string, subject: string }} parsed that key, parsed
+ * @param {string} key
+ * @param {{ event: string, subject: string }} parsed
  * @param {{ key: string, kind: "event" | "condition" } | null} successor
  * @returns {string}
  */
@@ -847,17 +711,12 @@ function buildGoneMessage(key, parsed, successor) {
 }
 
 /**
- * HOOK-COMMAND-GONE and HOOK-COMMAND: each census hook command against the
- * live one. Returns the live keys a GONE named as a move's destination.
- *
  * @param {Raise} raise
  * @param {Record<string, string>} hookCommands
  * @param {any} baseline
  * @returns {Set<string>}
  */
 function checkHookCommandsGone(raise, hookCommands, baseline) {
-	/* Each live key GONE has already accounted for as a move, so
-	 * HOOK-COMMAND-NEW below does not report it a second time. */
 	/** @type {Set<string>} */
 	const reportedMoves = new Set();
 
@@ -901,8 +760,6 @@ function checkHookCommandsGone(raise, hookCommands, baseline) {
 }
 
 /**
- * HOOK-COMMAND-NEW: a live hook command with no census row.
- *
  * @param {Raise} raise
  * @param {Record<string, string>} hookCommands
  * @param {any} baseline
@@ -923,8 +780,6 @@ function checkHookCommandsNew(raise, hookCommands, baseline, reportedMoves) {
 }
 
 /**
- * SKILL-COUNT: each skill-directory count against the census's.
- *
  * @param {Raise} raise
  * @param {SkillCounts} skills
  * @param {any} baseline
@@ -946,8 +801,6 @@ function checkSkillCounts(raise, skills, baseline) {
 }
 
 /**
- * POOL-GONE and POOL-DRIFT: each census pool file's live bytes.
- *
  * @param {Raise} raise
  * @param {Record<string, number | null>} pool
  * @param {any} baseline
@@ -958,7 +811,6 @@ function checkPoolFiles(raise, pool, baseline, threshold) {
 		/** @type {Record<string, number>} */ (baseline.poolFiles),
 	)) {
 		const now = pool[rel];
-		/* readPoolSizes measures every key of this same object. */
 		if (now === undefined)
 			throw new Error(`readPoolSizes returned no entry for ${rel}`);
 		if (now === null) {
@@ -983,8 +835,6 @@ function checkPoolFiles(raise, pool, baseline, threshold) {
 }
 
 /**
- * GUARD-GONE and GUARD-CHANGED: each anchored guard's live digest.
- *
  * @param {Raise} raise
  * @param {Record<string, string | null>} digests
  * @param {any} baseline
@@ -1023,7 +873,7 @@ function checkGuards(raise, digests, baseline) {
 
 /**
  * @param {any} ctx
- * @param {string} against the census edition and the baseline anchoring it
+ * @param {string} against
  * @param {string} counted
  * @param {string[]} lines
  */
@@ -1042,15 +892,11 @@ function sayFindings(ctx, against, counted, lines) {
 }
 
 /**
- * The anchored rows whose guard, or a rule file it prints from, `rev` touched:
- * each row's anchor and digest at `rev`, null where the guard is gone, and the
- * rule files a row was reached through.
- *
  * @param {string} root
  * @param {string} rev
- * @param {Map<string, string>} touched readTouchedBy's answer
+ * @param {Map<string, string>} touched
  * @param {object} from
- * @param {Record<string, GuardAnchor>} from.anchored the baseline's rows
+ * @param {Record<string, GuardAnchor>} from.anchored
  * @param {import("./lib/git-ceiling.js").GitCeiling} from.ceiling
  */
 function rowsTouched(root, rev, touched, { anchored, ceiling }) {
@@ -1081,8 +927,6 @@ function rowsTouched(root, rev, touched, { anchored, ceiling }) {
 }
 
 /**
- * --touched-by: the guard rows `rev` itself expired.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  * @param {string} file
@@ -1136,8 +980,6 @@ function runTouched(ctx, root, file, baseline) {
 			);
 			continue;
 		}
-		/* A row a neighbour's commit expired first is still owed the
-		 * neighbour's change, which re-anchoring HEAD's bytes vouches for. */
 		const since =
 			digestOf(root, rel, `${rev}^`, { ceiling }) === guards[rel]?.digest
 				? "one aimed at what you changed"
@@ -1189,9 +1031,6 @@ function runChecks(ctx) {
 	if (ctx.has("--touched-by")) return runTouched(ctx, root, file, baseline);
 	if (ctx.has("--rebaseline")) return runRebaseline(ctx, root, file, baseline);
 
-	/* A finding is printed where it is raised, not just recorded: runCheck's
-	 * own reporting tail prints the ::warning:: annotations in Actions and the
-	 * summary line everywhere, never the messages themselves. */
 	/** @type {string[]} */
 	const lines = [];
 	/** @type {Raise} */
@@ -1223,12 +1062,6 @@ function runChecks(ctx) {
 			.join(" and "),
 	);
 
-	/* Every way a hook-command entry can go missing at read time — two
-	 * entries with one event, script and condition, a wrapped script path —
-	 * shows up as this count
-	 * falling short of hooks.total. An unanchored newcomer is NOT one of them: it lifts
-	 * hooks.total and the live key count together, so they still match, and
-	 * HOOK-COMMAND-NEW below is what catches it (mantahostels#2648). */
 	const liveCommandCount = Object.keys(hookCommands).length;
 	if (liveCommandCount !== hooks.total)
 		raise(
@@ -1240,13 +1073,6 @@ function runChecks(ctx) {
 
 	const reportedMoves = checkHookCommandsGone(raise, hookCommands, baseline);
 
-	/* HOOK-COMMAND-GONE's mirror: a live hook command the census never
-	 * anchored (mantahostels#2648). Without it a hook wired after the census was taken
-	 * is invisible — Table A neither cites it nor is told it is missing one.
-	 * A hook that merely MOVED event already reports as GONE against its old
-	 * key, so the one key GONE named as its destination is skipped here
-	 * rather than counted twice. Skipping on the script path instead would
-	 * swallow a second wiring landing alongside a move. */
 	checkHookCommandsNew(raise, hookCommands, baseline, reportedMoves);
 
 	checkSkillCounts(raise, skills, baseline);

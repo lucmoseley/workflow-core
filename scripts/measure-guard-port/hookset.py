@@ -1,23 +1,4 @@
 #!/usr/bin/env python3
-"""hookset.py — print the hook commands that fire for one tool call, read from
-the live layers, one per line (#2711, #2783).
-
-  python3 scripts/measure-guard-port/hookset.py <event> <tool> <command>
-
-Layers, in order: the plugin's `hooks/hooks.json` (CLAUDE_PLUGIN_ROOT, else the
-host's `self-plugin/`), the host's `.claude/settings.json` and
-`.claude/settings.local.json`, and the user's `settings.json` (CLAUDE_CONFIG_DIR,
-else `~/.claude`). A missing layer is skipped and named on stderr.
-
-A group fires where its matcher is empty, `*`, or fully matches the tool name; a
-hook with an `if` fires where the rule names the tool and its pattern globs the
-command or any of its subcommands split on `&&`, `||`, `;` and `|`. That split
-ignores quoting, so it approximates the harness's permission-rule match. A
-command named twice is printed once.
-
-Feed the output to `bench.py`. Exit 0, or 1 on a bad invocation.
-"""
-
 from __future__ import annotations
 
 import fnmatch
@@ -31,6 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from fail_open import expected
 from host_root import host_root
 
+USAGE = """usage: hookset.py <event> <tool> <command>
+
+Print the hook commands that fire for one tool call, one per line.
+Exit 0, or 1 on a bad invocation."""
 SUBCOMMAND_SPLIT = re.compile(r"&&|\|\||;|\|")
 
 
@@ -85,7 +70,7 @@ def load_layers(paths: list[str]) -> list[dict]:
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 3:
-        print(__doc__, file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 1
     event, tool, cmd = args
     layers = load_layers(layer_paths(host_root(), os.environ))

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/check-guard-registry.js: the second assertion, implicit behaviours (mantahostels#1261).
- *
- * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
- * loosen a case and a rule can claim **Enforced** while its guard is missing
- * or unwired.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -28,23 +21,11 @@ import { runInProcess } from "./lib/run-in-process";
 
 afterEach(removeTemps);
 
-/*
- * The second assertion (mantahostels#1261): every script the ACTING wiring reaches says what
- * it does to a session that never asked for it.
- *
- * A guard is a refusal; an implicit behaviour is an action taken for you
- * (mantahostels#1180). The load-bearing property under test throughout is that
- * the set is DERIVED FROM THE WIRING rather than listed anywhere — so wiring a
- * new hook fails the build until its manifest row says what it does, and a row
- * outlives no wiring (#5477).
- */
 describe("implicit behaviours — the second assertion (mantahostels#1261)", () => {
 	const script = "#!/bin/sh\n# Does a thing.\nexit 0\n";
 	const rowFor = (rel: string, row: Record<string, string> = ACTING_ROW) =>
 		implicitRows({ [rel]: row });
 
-	/* A hooks file wiring one script at one event, with the house command
-	 * spelling — the `"$CLAUDE_PROJECT_DIR"/…` form the real file uses. */
 	function wiredAt(event: string, ...scripts: string[]): string {
 		return JSON.stringify({
 			hooks: {
@@ -161,8 +142,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("reaches all four acting events and no others", () => {
-		// PreToolUse is the REFUSING event, and the first assertion's business:
-		// a guard that only refuses owes no implicit annotation.
 		const events = [
 			"PostToolUse",
 			"UserPromptSubmit",
@@ -206,9 +185,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("takes a PreToolUse guard that ALSO acts, on its own row", () => {
-		// The file-claim guard's shape: it refuses a write to a
-		// held file AND takes a claim the session never asked for. Declared, not
-		// inferred — reading "also acts" out of a guard's body is reading intent.
 		const root = build({
 			claude: rules,
 			files: {
@@ -282,11 +258,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("accepts convenience as a verdict, and `none` as a defeat", () => {
-		// mantahostels#1181 ruled Archon's "individually defeatable" clause does not transfer:
-		// in a shared tree almost every implicit behaviour protects NEIGHBOURS, so
-		// a per-session off switch is a hole by construction. DEFEAT records what
-		// escape exists; it never demands one. Convenience is likewise legal;
-		// whether it is good enough is a reader's call (mantahostels#1180).
 		const root = build({
 			claude: rules,
 			files: {
@@ -324,8 +295,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("fails a verdict asserted with no reason behind it, as BAD-JUSTIFICATION", () => {
-		// "fail-safe" alone is the stale label mantahostels#102 ruled out: a verdict showing no
-		// working, which nothing can ever check.
 		const root = build({
 			claude: rules,
 			files: {
@@ -396,16 +365,12 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("reaches every husky hook by existence, including one added later", () => {
-		// git runs every file in core.hooksPath by name, so nothing references them.
 		const root = build({
 			claude: rules,
 			files: {
 				".husky/pre-commit": "# Gates.\nexit 0\n",
 				".husky/post-commit": script,
 				".husky/pre-push": script,
-				/* Read from the directory, not a list — a hook added later is wired
-				 * by its own existence and named by nothing, so a list here would be
-				 * the one place it escapes the assertion silently. */
 				".husky/post-merge": script,
 				...implicitRows({
 					".husky/post-commit": ACTING_ROW,
@@ -456,8 +421,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		});
 		const r = run(root);
 		expect(r.code).toBe(0);
-		// setupFiles is not wiring this assertion covers, "default" is no file of
-		// ours, and a commented-out reporter runs nothing.
 		expect(implicitOf(r).map((i) => i.file)).toEqual([
 			"scripts/vitest-pass-reporter.ts",
 			"scripts/vitest-tree-watch.ts",
@@ -465,8 +428,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("is BROKEN, not OK, at a core with no self-plugin file (#2442)", () => {
-		// The core registers only there, so its absence is a missing input, not
-		// a repo wiring nothing.
 		const root = build({ claude: rules });
 		fs.rmSync(path.join(root, SELF_PLUGIN_HOOKS));
 		const { status } = runInProcess(
@@ -478,9 +439,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("is BROKEN, not OK, when the self-plugin file is there and unparseable", () => {
-		// scripts/lib/check.js's SUBJECT/APPARATUS split: swallowing a tracked file
-		// this checker READS THE REPO WITH empties the acting set, and the new FAIL
-		// gate then reports OK over scope it never looked at.
 		const root = build({
 			claude: rules,
 			files: { [SELF_PLUGIN_HOOKS]: "{ not json" },
@@ -494,7 +452,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("treats a registration carrying no hooks as an answer, not a failure", () => {
-		// A repo with no hooks genuinely wires nothing; that is true, not broken.
 		const root = build({ claude: rules });
 		const r = run(root);
 		expect(r.code).toBe(0);
@@ -502,8 +459,6 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("skips a wired path that does not exist rather than reporting it", () => {
-		// There is no header to annotate, and a hook command pointing at a missing
-		// file is the registration's problem, not this assertion's.
 		const root = build({
 			claude: rules,
 			files: {
@@ -695,8 +650,6 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 describe("the roster names what the wiring reached (mantahostels#1261)", () => {
 	const rules = region("- A rule. **Unenforceable**: nothing can check it.");
 
-	/* The human report goes to stderr — stdout is reserved for machine readers
-	 * (scripts/lib/check.js) — so this reads both streams. */
 	function prose(root: string, extra: string[] = []): string {
 		const r = runInProcess(
 			path.join(root, "scripts", "check-guard-registry.js"),
@@ -740,18 +693,12 @@ describe("the roster names what the wiring reached (mantahostels#1261)", () => {
 	}
 
 	it("names every wired script on every run, with no flag to find first", () => {
-		// mantahostels#1261's Done-when: the run names every wired script it
-		// reached. Behind a flag they are visible only to someone who already
-		// knew to ask.
 		const out = prose(sessionStartRepo(true));
 		expect(out).toContain("1 implicit behaviour(s) — 1 fail-safe");
 		expect(out).toContain("scripts/act.sh  [SessionStart]  fail-safe");
 	});
 
 	it("holds the DETAIL back until asked, so a clean run stays short", () => {
-		// This check runs in .husky/pre-commit on every commit touching docs/,
-		// .claude/, scripts/ or .husky/, so the roster's unchanging prose on each
-		// is the unclearable wallpaper mantahostels#109 ruled against.
 		expect(prose(sessionStartRepo(true))).not.toContain(
 			"sweeps every session's expired markers",
 		);

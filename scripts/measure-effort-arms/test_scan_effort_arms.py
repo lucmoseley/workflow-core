@@ -77,8 +77,6 @@ def test_arm_is_the_effort_every_parent_turn_ran_at(corpus):
 
 
 def test_a_session_whose_effort_changed_is_mixed_not_an_arm(corpus):
-    # `/effort` mid-session rewrites the global setting, so the turns before and
-    # after are not one observation. It must not land in either arm.
     corpus(
         "sess-x",
         [
@@ -95,15 +93,11 @@ def test_a_session_whose_effort_changed_is_mixed_not_an_arm(corpus):
 
 
 def test_sdk_py_hook_sessions_are_excluded(corpus):
-    # Over half the session count for ~4% of spend; including them makes every
-    # per-session median an artefact of hook traffic.
     corpus("hooky", [rec(f"h{i}", entrypoint="sdk-py") for i in range(6)])
     assert sea.sessions(Counter()) == []
 
 
 def test_streaming_records_are_maxed_not_summed(corpus):
-    # A subagent transcript repeats one request with rising output; thinking
-    # and tool_use rise with it. Summing would multiply a single turn.
     corpus("parent", [rec(f"p{i}") for i in range(5)])
     corpus(
         "sub",
@@ -115,10 +109,8 @@ def test_streaming_records_are_maxed_not_summed(corpus):
         subagent_of="parent",
     )
     (row,) = sea.sessions(Counter())
-    # Parent turns only: the subagent's thinking is not the parent's arm.
     assert row["turns"] == 5
     assert row["think"] == 0
-    # ...but its spend is folded into cost_all and left out of cost_own.
     assert row["cost_all"] > row["cost_own"]
     assert row["subagents"] == 1
     subs = [r for r in sb.requests(Counter()) if r["sub"]]
@@ -133,7 +125,7 @@ def test_thinking_and_tool_counts_reach_the_session_row(corpus):
     )
     (row,) = sea.sessions(Counter(), min_turns=1)
     assert row["turns"] == 5
-    assert row["tools"] == 8  # the final text-only turn calls nothing
+    assert row["tools"] == 8
     assert row["think"] == 1200
 
 
@@ -184,7 +176,6 @@ def test_break_even_is_reported_as_absent_when_low_costs_more(corpus, capsys):
 
 
 def test_break_even_is_one_minus_the_cost_ratio(corpus, capsys):
-    # low at a quarter of medium's cost => break-even at 75%.
     corpus("lo", [rec(f"l{i}", effort="low", out=0, cr=1000) for i in range(6)])
     corpus("me", [rec(f"m{i}", effort="medium", out=0, cr=4000) for i in range(6)])
     tally = Counter()
@@ -195,9 +186,6 @@ def test_break_even_is_one_minus_the_cost_ratio(corpus, capsys):
 
 
 def test_unlabelled_turns_do_not_send_a_plain_session_to_mixed(corpus):
-    # A handful of records carry no `effort` field at all. Treating that as a
-    # second arm would have excluded 27 of 256 medium sessions from the
-    # baseline for nothing (mantahostels#1108, measured 23 Aug 2026).
     turns = [rec(f"r{i}", effort="medium") for i in range(20)]
     for r in turns[:3]:
         del r["effort"]
@@ -218,14 +206,6 @@ def test_two_real_efforts_are_still_mixed(corpus):
 
 
 def test_per_turn_cost_is_a_ratio_per_session_and_includes_subagents(corpus):
-    """A median of ratios, not a ratio of medians, and the numerator is the
-    session's whole spend.
-
-    Turn count tracks ticket size, so an arm drawn from smaller tickets reads
-    cheaper per session whatever effort did. Cost per turn is the metric that
-    survives that. The subagent spend has to be in the numerator or the figure
-    understates a session that delegated.
-    """
     corpus("parent", [rec(f"p{i}", think=60) for i in range(5)])
     corpus("sub", [rec("s1", out=5000, cr=200000)], subagent_of="parent")
     (row,) = sea.sessions(Counter())
@@ -238,7 +218,6 @@ def test_per_turn_cost_is_a_ratio_per_session_and_includes_subagents(corpus):
 def test_the_report_warns_of_unkeyed_records_and_only_then(
     corpus, unkeyed, capsys, warned
 ):
-    # Each is booked as its own request, inflating turns and cost (#1293).
     records = [rec(f"r{i}") for i in range(6)]
     if warned:
         records[0] = unkeyed(rec("unused"), "u1")
@@ -252,7 +231,6 @@ def test_the_report_warns_of_unkeyed_records_and_only_then(
 
 
 def test_the_json_output_carries_every_skip_count(corpus, unkeyed, capsys):
-    # A --json consumer sees what the corpus dropped, as the report does (#1297).
     path = corpus(
         "sess", [unkeyed(rec("unused"), "u1")] + [rec(f"r{i}") for i in range(5)]
     )

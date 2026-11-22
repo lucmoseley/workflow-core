@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * check-main-checkout-cutover.js (#4688, #5276) over a throwaway clone whose
- * `main` still tracks `origin/landing`, with the session listing through a
- * `claude` stand-in at WFC_CLAUDE_BIN and the levelling install through an
- * `npm` stand-in at WFC_NPM. Loosened, a main checkout never cut over shares
- * one unguarded tree at every session start, or one a session stands in is
- * cut over under it.
- */
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -32,7 +24,6 @@ const upstream = () =>
 		stdio: "pipe",
 	}).trim();
 
-/** One listed session, in `cwd`. */
 const listSessionIn = (cwd: string) =>
 	writeClaudeStub(path.join(config, "bin", "claude"), [
 		buildAgentsBranch([
@@ -124,8 +115,6 @@ describe("check-main-checkout-cutover.js (#5276)", () => {
 			);
 			const r = check();
 			expect(r.stderr).toContain("NOT-CUT-OVER");
-			/* A skip is silent at SessionStart: the listing would let a cutover
-			 * through, so the mark left in place is the lock's doing. */
 			expect(check("--notify").stdout).toBe("");
 			expect(upstream()).toBe("refs/heads/landing");
 		} finally {

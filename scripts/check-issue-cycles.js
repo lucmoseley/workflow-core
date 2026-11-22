@@ -1,33 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-issue-cycles.js — reports a set of open issues that wait on each other
- * in a loop, so that none of them can ever close (#495), in any tracker
- * (#5070).
- *
- * TWO KINDS OF LINK, READ TOGETHER, ACROSS REPOS. An issue waits on its open
- * blockers, and a parent on its open sub-issues; lib/wait-graph.js reads both.
- * The seeds are every open issue in each tracker the host's corpus resolves
- * to (lib/workflow-core-config.js resolveCorpus); the walk follows links from
- * them into any repo they reach, so a loop through a repo outside the corpus
- * is still found.
- *
- * A loop is a strongly connected component of that graph, so it is reported
- * once however many members it has, with one example path naming each link.
- *
- * FAILS CLOSED ON A PARTIAL READ. One unread node could hide the link that
- * closes a loop, so any read failing twice is BROKEN, never OK — save a corpus
- * tracker whose open-issue list answers not-found or forbidden, which is
- * named on its own line and left out of the seeds, so a token that cannot see
- * one tracker still checks the rest (#5086); where it can see none, that is
- * BROKEN, since an OK over no tracker would be a false clean.
- *
- * WARN, never FAIL: world state, not a commit property. THIS SCRIPT NEVER
- * WRITES — which link is wrong is a judgement about the tickets. The link
- * commands (lib/link-writer.js) refuse a new loop when it is written; this
- * check is the backstop for a link made any other way.
- *
- * Usage: node check-issue-cycles.js [--warn] [--json]
- */
 
 const { runCheck, brokenError, skipError } = require("./lib/check");
 const {
@@ -49,9 +20,6 @@ const CONCLUSION = "No issue-cycle conclusion drawn.";
 /** @typedef {import("./lib/wait-graph.js").Ref} Ref */
 
 /**
- * One tracker's open issues and pull requests, an empty answer re-read once
- * and then held to the repo's own count, as lib/gh.js ghOpenIssues reads the
- * default repo's.
  * @param {string} repo
  * @returns {{number: number, pull_request?: unknown}[]}
  */
@@ -71,8 +39,6 @@ function readOpen(repo) {
 }
 
 /**
- * Each tracker's open issues as seeds, and the trackers whose list GitHub
- * would not show this token.
  * @param {string[]} trackers
  * @returns {{seeds: Ref[], read: string[], hidden: {repo: string, error: string}[]}}
  */

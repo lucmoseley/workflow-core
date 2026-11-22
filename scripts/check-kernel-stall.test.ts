@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-kernel-stall.js names an RCU stall on the current boot
- * (#867), from journalctl or dmesg, and a frozen scheduler clock (#2779), and
- * fails open silently where neither can be read.
- *
- * Most cases read a fixture through WFC_KERNEL_LOG; the reader cases unset it
- * and point WFC_JOURNALCTL at lib/journalctl-fake.ts's stub and
- * WFC_DMESG at lib/dmesg-fake.ts's, so the machine's own kernel log is never
- * read. Every case reads the clock from a WFC_SCHED_CLOCK fixture, a running
- * one unless it says otherwise, so the machine's own is never read; likewise
- * CONFIG_HZ from a WFC_KERNEL_CONFIG fixture, and Windows through a WFC_WEVTUTIL
- * that is absent unless a case supplies lib/wevtutil-fake.ts's stub.
- *
- * It is a SessionStart `--notify` hook in .claude/settings.json, and
- * scripts/dispatch-sessions.js refuses a launch on its plain run: loosen a case
- * and sessions start on a boot about to take the VM down, or a blind reader
- * holds every launch up.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -44,11 +26,9 @@ const CLEAN = [
 		"hv_balloon: Max. dynamic memory size: 10240 MB",
 	),
 ];
-/** The stall's stamp, as buildKernelLine writes it. */
 const STALL_STAMP = "2026-10-07T14:43:24+00:00";
 const STALL_MSG = "rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:";
 const STALL_LINE = buildKernelLine(Date.parse(STALL_STAMP), STALL_MSG);
-/** The stall as dmesg -T holds it, at a wall time the journal's is not. */
 const DMESG_STALL = buildDmesgLine(
 	Date.parse("2026-10-07T22:43:24Z"),
 	STALL_MSG,
@@ -63,7 +43,6 @@ const STALLED = [
 	buildKernelLine(Date.parse("2026-10-07T14:45:13+00:00"), STALL_MSG),
 ];
 
-/** A journal listing two boots to this user, as 12 Nov 2026's ACL loss left it (#5299). */
 const TWO_BOOTS = [
 	{
 		id: "a".repeat(32),
@@ -275,7 +254,6 @@ describe("the scheduler clock (#2779)", () => {
 			WFC_KERNEL_LOG: logFile(CLEAN),
 			WFC_SCHED_CLOCK: at,
 		});
-		// One child's half of 5,002.05, less both children's 5,000.
 		expect(JSON.parse(r.stdout).clock.runtime).toBeCloseTo(2501.025 - 5000, 3);
 		expect(r.status).toBe(0);
 	});
@@ -478,7 +456,6 @@ describe("--boot <n>, for the boot that already died", () => {
 });
 
 describe("each stall's t figure (#4081)", () => {
-	/* The retained Windows boots around these stalls (Kernel-General Event 12). */
 	const WindowsBoots = [
 		"2026-09-14T20:47:22Z",
 		"2026-10-04T13:35:35Z",

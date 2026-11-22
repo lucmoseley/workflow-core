@@ -1,14 +1,8 @@
 #!/usr/bin/env sh
-# post-merge — re-points a session worktree's node_modules at the store for
-# the lockfile a merge brought in (#4702), and keeps the shims live sessions
-# need at hook scripts a merge deleted from this checkout (#2879). A port often
-# lands by merge, which never fires post-commit.
 
-set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
-# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+set -e
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
-# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
 # shellcheck source=scripts/lib/hook-bound.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 
@@ -21,8 +15,6 @@ script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/keep-hook-shims.js"
 [ -f "$script" ] || exit 0
 command -v node >/dev/null 2>&1 || exit 0
 
-# git exports GIT_DIR and GIT_INDEX_FILE into a hook; post-commit's
-# report_new_shared_faults says why each is unset. The keeper always exits 0.
 (
   unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
   node "$script" --lazy

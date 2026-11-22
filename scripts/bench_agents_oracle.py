@@ -1,21 +1,4 @@
 #!/usr/bin/env python3
-"""bench_agents_oracle.py — price `claude agents --json` as a per-turn-end cost (mantahostels#653, map mantahostels#632).
-
-Samples the session oracle under this machine's real concurrent session load
-and reports a distribution, not a single reading. Deliberately modest: tens of
-calls, spaced, so the harness does not become the load it measures.
-
-Per sample it records:
-  * wall-clock latency of `claude agents --json`
-  * the caller's peak RSS (the CLI is a fresh Node process, not a thin client)
-  * the session count the oracle itself reported, and a process-count census
-  * the daemon's RSS and cumulative CPU either side of the call
-
-It reads the real /proc, never WFC_PROC's fake: the figures are this
-machine's (#3608).
-
-Usage: bench_agents_oracle.py [n_samples] [gap_seconds]
-"""
 
 import json
 import os
@@ -31,8 +14,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from fail_open import expected, fail_open, tallied
 from wfc_bin import bin_path
 
-# Samples, and seconds between them. Both are guesses at "tens of calls, spaced":
-# the call rate at which the bench itself loads the machine was never measured.
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 GAP = float(sys.argv[2]) if len(sys.argv) > 2 else 4.0
 
@@ -42,8 +23,6 @@ ORACLE_UNPARSED = "oracle_unparsed"
 
 
 def find_daemon():
-    """The daemon is the `claude daemon run` process. Match on argv[0]+args,
-    never `comm` -- comm is the version string for a versioned binary."""
     out = subprocess.run(
         [bin_path("ps"), "-eo", "pid,args", "--no-headers"],
         capture_output=True,
@@ -57,12 +36,9 @@ def find_daemon():
 
 
 def proc_stat(pid):
-    """(rss_kb, cpu_seconds) for a pid, or None if it has gone — the row then
-    carries a null daemon reading, which the summary counts (#1274)."""
     try:
         with open(f"/proc/{pid}/stat") as fh:
             raw = fh.read()
-        # comm can contain spaces/parens; split after the final ')'
         fields = raw[raw.rindex(")") + 2 :].split()
         utime, stime = int(fields[11]), int(fields[12])
         rss_pages = int(fields[21])
@@ -76,13 +52,12 @@ def proc_stat(pid):
 
 
 CLAUDE_ARGV0 = re.compile(
-    r"^(?:\S*/)?claude(?:\.exe)?$"  # `claude`, `claude.exe`, `/path/bin/claude`
-    r"|^\S*/claude/versions/\S+$"  # the bare versioned binary a RESUMED session runs
+    r"^(?:\S*/)?claude(?:\.exe)?$"
+    r"|^\S*/claude/versions/\S+$"
 )
 
 
 def session_process_census():
-    """Count claude processes by argv[0] in all three spellings."""
     out = subprocess.run(
         [bin_path("ps"), "-eo", "pid,args", "--no-headers"],
         capture_output=True,
@@ -104,9 +79,6 @@ def session_process_census():
 
 
 def oracle_sessions(stdout, tally):
-    """The session count `claude agents --json` printed, or -1 where it will
-    not parse: a failed call is still a latency sample, and the summary counts
-    the -1s (#1274)."""
     try:
         return len(json.loads(stdout))
     except (ValueError, TypeError) as e:
@@ -123,9 +95,6 @@ def meminfo_available_kb():
 
 
 def time_meminfo(reps=2000):
-    """Cost of option (B)'s pre-gate on its own: one MemAvailable read.
-
-    `reps` is a guess, enough reads for the timer's resolution to vanish."""
     t0 = time.perf_counter()
     for _ in range(reps):
         meminfo_available_kb()
@@ -136,7 +105,6 @@ def main():
     daemon = find_daemon()
     print(f"# daemon pid: {daemon}", file=sys.stderr)
 
-    # (B) pre-gate, measured before the oracle sampling perturbs anything.
     pregate_s = time_meminfo()
     print(
         f"# /proc/meminfo MemAvailable read: {pregate_s * 1e6:.1f} us", file=sys.stderr

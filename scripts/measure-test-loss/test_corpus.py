@@ -1,5 +1,3 @@
-"""Pins that corpus.transcripts reports a root or file it cannot read (#5487)."""
-
 import os
 import sys
 from collections import Counter
@@ -21,7 +19,6 @@ def test_a_root_that_will_not_list_is_skipped_and_counted(tmp_path, capsys):
 def test_a_file_that_will_not_stat_is_skipped_and_counted(tmp_path, capsys):
     proj = tmp_path / "-home-x-workflow-core"
     proj.mkdir()
-    # Listed by the walk, but its target is gone.
     (proj / "s1.jsonl").symlink_to(tmp_path / "missing")
     tally = Counter()
     assert list(corpus.transcripts([str(tmp_path)], 0, tally)) == []

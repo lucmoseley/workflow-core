@@ -1196,7 +1196,6 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 			...process.env,
 			WFC_REPO_ROOT: kit.repoRoot as string,
 		};
-		delete env.CLAUDE_JOB_DIR;
 		const r = runInProcess(
 			path.resolve(__dirname, "guard-selection-sum.js"),
 			[],

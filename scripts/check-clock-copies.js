@@ -1,34 +1,12 @@
 #!/usr/bin/env node
-/*
- * check-clock-copies.js — every program reads the clock through `now()` in
- * lib/clock.js, never its own parse of WFC_NOW, so a pinned clock pins every
- * program (#3457).
- *
- * Usage:
- *   node check-clock-copies.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
- *
- * LEXICAL. A site is a read of WFC_NOW — `.WFC_NOW`, `["WFC_NOW"]` or a
- * destructuring `{ … WFC_NOW … } =` on one line — in the code, comments
- * aside, of any non-test `.js`, `.cjs` or `.mjs` under scripts/ but
- * lib/clock.js. lib/heresy-scan.js lists and reads the programs (#3555). A
- * guard core, whose environment is its injected `ctx.env`, calls
- * `now(ctx.env)` (#3566).
- *
- * IMPLICIT:  on every commit staging a scripts/ program, refuses any WFC_NOW read outside lib/clock.js in the tree, naming the file, line, `now()` and its exemplar.
- * JUSTIFIED: fail-safe — each copy answers a malformed pin its own way, and one a test does not pin reads the wall clock; the fix is one `now()` call.
- * DEFEAT:    --warn caps findings below the gating line; a read split across lines, or one through a computed key.
- */
-
 const { runCheck } = require("./lib/check");
 const { parseLineSites, heresySpec } = require("./lib/heresy-scan.js");
 
-/* Built from VAR, so this file's own patterns read as no site. */
 const VAR = "WFC_NOW";
 const READ_SHAPES = [
 	new RegExp(`\\.${VAR}\\b`),
 	new RegExp(`\\[\\s*(["'\`])${VAR}\\1\\s*\\]`),
-	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
-	new RegExp(`\\{[^}]*\\b${VAR}\\b[^}]*\\}\\s*=(?![=>])`),
+	new RegExp(`\\{[^{}]*\\b${VAR}\\b[^}]*\\}\\s*=(?![=>])`),
 ];
 const CLOCK = "scripts/lib/clock.js";
 

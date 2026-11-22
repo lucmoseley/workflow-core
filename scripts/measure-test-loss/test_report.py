@@ -1,9 +1,3 @@
-"""Pins report.py's daily blocked share on a synthetic transcript tree: which test calls count
-as blocked (#2812's rules), what counts as active time (#2821's), and the UTC day each lands on.
-Breaking it lets the verification figure drift from those rules unseen.
-
-Each test writes its own projects dir, so nothing here reads the real corpus."""
-
 import json
 import os
 import sys

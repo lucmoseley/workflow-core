@@ -1,19 +1,8 @@
 #!/usr/bin/env sh
-# commit-msg — refuses a commit message that would close an issue (#138), a
-# subject over 72 characters (#2332), and a commit weakening a check whose
-# message does not name it (#2235).
-#
-# The only hook that sees a commit message typed into $EDITOR: `prepare-commit-msg`
-# runs BEFORE the editor opens and is handed an empty file (measured at #138).
-# So this is the sole seam at which the editor route can be refused.
-#
-# A refusal aborts the commit: git exits 1 and writes nothing.
 
-set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
-# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+set -e
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
-# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
 # shellcheck source=scripts/lib/hook-bound.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 
@@ -21,11 +10,6 @@ here="$(dirname "$0")"
 dispatcher="${WFC_PLUGIN_ROOT:-$here/..}/scripts/commit-msg-dispatch.js"
 local_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/local-hook.sh"
 
-# FAIL CLOSED on a missing script rather than passing the message unread.
-# Each worktree runs its own copy of this hook and resolves its own scripts/
-# (scripts/install-hooks.js, #3138), so a file is absent only where that tree
-# is incomplete, or where a fixture copied the hooks without it.
-# require <path> <what did not run> <why refusing>
 require() {
   [ -r "$1" ] && return 0
   echo "commit-msg: $1 is missing, so $2." >&2
@@ -37,14 +21,6 @@ require "$local_lib" ".husky/commit-msg.local cannot be checked" "running the ad
 # shellcheck source=scripts/lib/local-hook.sh
 . "$local_lib"
 
-# The closing-keyword scan and the subject check stand down on a replay, and
-# the Weakens: check on a merge too: lib/commit-msg-rows.js. A refusal aborts
-# the commit with the dispatcher's own code, through `set -e`.
-#
-# Where `.husky/commit-msg.local` exists, the same run writes the route to a
-# temp file for it (#5215), removed on every exit: dash runs no EXIT trap on a
-# fatal signal, so each signal also gets an `exit` at its 128+n status. The
-# traps go first, so no signal falls between the file and its removal.
 route_file=""
 if [ -f .husky/commit-msg.local ]; then
   trap 'rm -f "$route_file"' EXIT
@@ -61,19 +37,12 @@ else
   node "$dispatcher" "$1"
 fi
 
-# THE ADOPTER'S OWN REFUSALS: `.husky/commit-msg.local` (#5142), on
-# `.husky/pre-commit.local`'s contract (#437): last, only where it exists,
-# SOURCED in this `sh -e` shell, so `$1` is the message file and any failing
-# command or `exit 1` refuses the commit; core never writes it; and a script it
-# names that the repo lacks refuses every commit. It runs on every route, a
-# replay included: `$route` names it, and the adopter stands down for itself.
 if [ -n "$route_file" ]; then
-  # shellcheck disable=SC2034 # read by the sourced .local file below
   IFS= read -r route <"$route_file"
-  # Gone before the adopter's code runs, so a trap of its own cannot leak it.
+  : "$route"
   rm -f "$route_file"
   wfc_local_hook_refuse_missing .husky/commit-msg.local \
     "commit-msg: .husky/commit-msg.local calls a script this repo does not have:"
-  # shellcheck source=/dev/null # the adopter's own optional gate, absent from most repos
+  # shellcheck source=/dev/null
   . ./.husky/commit-msg.local
 fi

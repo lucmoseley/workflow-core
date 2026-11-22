@@ -1,54 +1,4 @@
 #!/usr/bin/env node
-/*
- * build-arm-sandbox.js — the before/after test's two environments (#2042,
- * `docs/research/startup-load-before-after-test.md` D1, D2).
- *
- *   node scripts/build-arm-sandbox.js config --from <config dir> --to <new dir> [--override <path>=<file>]...
- *   node scripts/build-arm-sandbox.js task --repo <repo> --at <rev> --to <new dir>
- *       [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<frozen issue json>]...
- *       [--node-modules <dir>]
- *       [--config-dir <arm config dir>]
- *
- * `config` builds an arm's config dir by COPYING the user-level layer, every
- * symlink dereferenced, so no file in it is a live one: a swap in a symlinked
- * dir would change every live session on the machine. Live config paths in
- * the copied settings and plugin registries are rewritten to the copy; any
- * left over are listed in `liveRefs`, for the pilot to read. Each `--override`
- * puts `<file>` at `<path>` inside the copy before that rewrite, as arm A's
- * pre-cut `CLAUDE.md`, settings and hooks. No credentials are copied — each arm
- * dir is logged in by the founder's Authorize click (D2 step 2).
- *
- * `task` builds one run's sandbox: a fresh clone at `--at` with every
- * `--revert`, then every `--unapply` patch in reverse, applied as one commit, whose `origin` is a local bare repo, and `bin/gh`, a stub
- * that logs every call and reaches nothing (`lib/arm-gh-stub.js`). It refuses a
- * target under any config dir's `jobs/` tree or a `.claude/worktrees` tree, where
- * lib/job-dir-scratch.js and the worktree rules would fire on every run, and a
- * `--revert` or `--unapply` that does not take at `--at`, leaving `--to` as it
- * was.
- * With `--node-modules` linked, the clone's own `npm run prepare` arms its git
- * hooks, so the commit gates and pre-push run as they do live. Launch the
- * session with `sandbox.env` sourced, cwd `<to>/repo`: it puts the stub first
- * on PATH, which is how a session's own `gh` reaches it, and sets `WFC_GH` for
- * the repo's scripts.
- *
- * With `--config-dir`, the arm config dir's `wfc-self` marketplace, and its
- * `extraKnownMarketplaces` declaration in `settings.json`, are pointed at the
- * clone's own `self-plugin/`, so the run loads the registration of the
- * revision under test and its canary finds the marker its own writer leaves
- * (#2440). The config dir is the arm's, shared by its runs: a session reads the
- * pointer at its start, so the next build re-points it without moving one
- * already running (#2295 §2a: plugin hooks do not reload live). Whether a
- * /clear or /compact re-reads it is unmeasured. Residual: whether a session
- * start re-reads the `settings.json` declaration is unmeasured too, so it is
- * pointed in case it does (#2630). Where the revision enables `wfc-self` and
- * the config dir registers no marketplace for it, the build is refused: that
- * run's canary would refuse its every call.
- *
- * Both print a JSON summary on stdout.
- *
- * IN NO §N3 FAMILY, DELIBERATELY: it gates nothing and files no issue, and it
- * writes sandboxes outside the repo rather than one file in it.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -113,7 +63,6 @@ const CONFIG_ENTRIES = [
 	"hooks",
 ];
 
-/** Copied files that name config-dir paths, rewritten to the copy; and every file under `hooks/`. */
 const PATH_FILES = [
 	"settings.json",
 	"statusline.sh",
@@ -133,13 +82,10 @@ function isEmptyOrAbsent(dir) {
 }
 
 /**
- * Copy `src` to `dst` with every symlink replaced by what it points at. A
- * dangling link, or one that loops back into its own ancestry, is skipped and
- * named.
  * @param {string} src
  * @param {string} dst
- * @param {string[]} skipped accumulator: each link not copied is pushed here
- * @param {Set<string>} [ancestry] real paths of the directories being copied
+ * @param {string[]} skipped
+ * @param {Set<string>} [ancestry]
  */
 function copyDereferenced(src, dst, skipped, ancestry = new Set()) {
 	const real = readRealOrNull(src);
@@ -184,27 +130,22 @@ function readSymlinksUnder(dir) {
 
 /**
  * @param {string} p
- * @returns {string | null} null where `p` dangles or is absent
+ * @returns {string | null}
  */
 function readRealOrNull(p) {
 	try {
 		return fs.realpathSync(p);
 	} catch {
-		// Fails open by design (#2042): a dangling link in a plugin cache is no
-		// reason to stop the copy, and each one is printed in `skipped`.
 		return null;
 	}
 }
 
 /**
- * Copy each config entry into `dest`, from the source dir or, failing that,
- * from ~/.claude: settings.json names `$HOME/.claude/hooks`, which a config
- * dir other than ~/.claude does not carry itself.
  * @param {string} from
  * @param {string} userDir
  * @param {string} dest
- * @param {string[]} skipped accumulator: each link not copied is pushed here
- * @returns {Map<string, string>} each copied entry's real source path
+ * @param {string[]} skipped
+ * @returns {Map<string, string>}
  */
 function copyEntries(from, userDir, dest, skipped) {
 	const copied = new Map();
@@ -220,9 +161,6 @@ function copyEntries(from, userDir, dest, skipped) {
 }
 
 /**
- * Every spelling of a copied entry's live path, mapped to its copy: the real
- * path, each config dir linking to the same file (as ~/.claude2 and ~/.claude3
- * do), and the `$HOME` forms a hook command uses.
  * @param {Map<string, string>} copied
  * @param {string} from
  * @param {string} home
@@ -245,7 +183,6 @@ function liveAliases(copied, from, home, dest) {
 			if (readRealOrNull(path.join(dir, entry)) === real)
 				aliases.set(path.join(dir, entry), copy);
 		if (aliases.has(path.join(home, ".claude", entry)))
-			// JSON escapes the quotes a shell command puts round `$HOME`.
 			for (const h of ['\\"$HOME\\"', '"$HOME"', "$HOME", "~"])
 				aliases.set(`${h}/.claude/${entry}`, copy);
 	}
@@ -256,7 +193,7 @@ function liveAliases(copied, from, home, dest) {
  * @param {string} dest
  * @param {Map<string, string>} aliases
  * @param {string} home
- * @returns {string[]} the config-dir paths still named, which no copy answers
+ * @returns {string[]}
  */
 function rewriteLivePaths(dest, aliases, home) {
 	const spellings = [...aliases.keys()].sort((a, b) => b.length - a.length);
@@ -290,7 +227,6 @@ function rewriteLivePaths(dest, aliases, home) {
 }
 
 /**
- * Each `--override <path>=<file>`, or the refusal for the first malformed one.
  * @param {string[]} specs
  * @param {string} dest
  * @returns {{ target: string, file: string }[] | string}
@@ -348,13 +284,7 @@ function buildConfig({ flags, lists }) {
 	return 0;
 }
 
-/**
- * Is `p` inside a config dir's `jobs/` tree or a repo's `.claude/worktrees`?
- * Read through the real path of its nearest existing ancestor, so a link into
- * one is caught, and against `$CLAUDE_CONFIG_DIR`'s own `jobs/` whatever its
- * name.
- * @param {string} p
- */
+/** @param {string} p */
 function isInsideForbiddenTree(p) {
 	let base = path.resolve(p);
 	let rest = "";
@@ -385,21 +315,16 @@ const git = (cwd, args) =>
 	execGit(args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
 
 /**
- * `core.hooksPath` in `repo`, or "none" where it is unset; any other git
- * failure throws (#3440).
  * @param {string} repo
  * @returns {string}
  */
 function readHooksPath(repo) {
-	// `git config <key>` exits 1 on an unset key, which is an answer here.
 	const r = gitReader(repo)(["config", "core.hooksPath"], [1]);
 	if (!r.ok) throw new Error(`git config core.hooksPath: ${r.why}`);
 	return r.out.trim() || "none";
 }
 
 /**
- * Whether `rev` names a commit in `repo`; a git that will not answer, a path
- * that is no repo among them, throws.
  * @param {string} repo
  * @param {string} rev
  */
@@ -408,7 +333,6 @@ function hasCommit(repo, rev) {
 }
 
 /**
- * The sha `rev` names in `repo`, or null; a git that will not answer throws.
  * @param {string} repo
  * @param {string} rev
  * @returns {string | null}
@@ -420,8 +344,6 @@ function readCommitSha(repo, rev) {
 }
 
 /**
- * A clone of the public code repo holds none of the tracker's history, where
- * the task shas live (#1954, #2854).
  * @param {string} repo
  * @param {string[]} missing
  */
@@ -445,8 +367,6 @@ function isSelfPluginEnabled(clone) {
 }
 
 /**
- * Points the `wfc-self` marketplace a settings file declares in
- * `extraKnownMarketplaces` at `dir`, where it declares one.
  * @param {string} settingsFile
  * @param {string} dir
  */
@@ -460,9 +380,6 @@ function pointDeclaredSelfMarketplace(settingsFile, dir) {
 }
 
 /**
- * Points `configDir`'s `wfc-self` marketplace, its `settings.json`
- * declaration, and any install record loaded in place from it, at `clone`'s
- * `self-plugin/`.
  * @param {string} configDir
  * @param {string} clone
  * @returns {{dir: string} | {unpointed: string}}
@@ -520,16 +437,11 @@ function armSelfPlugin(configDir, clone) {
 }
 
 /**
- * Takes the work out of `clone`: each sha reverted, then each patch applied in
- * reverse, as one commit with a neutral subject, not git's `Revert "…"` per
- * sha, whose subjects name the work to redo and the commits that hold it
- * (#2044).
  * @param {string} clone
  * @param {string[]} reverts
- * @param {string[]} unapplied absolute patch paths
- * @param {string} at the revision the clone starts from, for the refusal
- * @returns {string | null} the refusal where a sha does not revert or a patch
- *   does not reverse-apply
+ * @param {string[]} unapplied
+ * @param {string} at
+ * @returns {string | null}
  */
 function startTask(clone, reverts, unapplied, at) {
 	if (reverts.length + unapplied.length === 0) return null;
@@ -551,9 +463,6 @@ function startTask(clone, reverts, unapplied, at) {
 			return `--revert ${sha} does not revert cleanly at ${at}; pick an --at it reverts at, then build again:\n${err}`;
 	}
 	for (const patch of unapplied) {
-		/* Plain, as arm-tasks.test.ts pins each patch: a merge refuses a patch
-		 * the pin passes (#3979). Residual: a repeated context can take the hunk
-		 * at its twin's place. */
 		const err = tryGit(["apply", "--reverse", "--index", patch]);
 		if (err !== null)
 			return `--unapply patch ${patch} does not reverse-apply at ${at}; regenerate it against ${at}, then build again:\n${err}`;
@@ -564,8 +473,6 @@ function startTask(clone, reverts, unapplied, at) {
 }
 
 /**
- * Leaves `root` as the build found it, which `taskRefusal` has made
- * empty or absent.
  * @param {string} root
  * @param {boolean} preexisting
  */
@@ -577,8 +484,6 @@ function unbuild(root, preexisting) {
 }
 
 /**
- * Why a task sandbox cannot be built from these inputs, before anything is
- * written.
  * @param {{ repo: string, at: string, to: string, reverts: string[], unapplied: string[] }} inputs
  * @returns {string | null}
  */
@@ -657,8 +562,6 @@ function buildTask({ flags, lists }) {
 	fs.copyFileSync(path.join(__dirname, "lib", "arm-gh-stub.js"), gh);
 	fs.chmodSync(gh, 0o755);
 	fs.writeFileSync(path.join(root, "gh.log"), "");
-	// GH_HOST is a backstop: a real `gh` reached by absolute path resolves nowhere.
-	// GIT_ALLOW_PROTOCOL keeps git to local paths, so a push to a named URL fails.
 	const env = path.join(root, "sandbox.env");
 	fs.writeFileSync(
 		env,
