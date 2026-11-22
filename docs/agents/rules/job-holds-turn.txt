@@ -8,8 +8,9 @@ moves it to the background at 120 s; 540 s leaves the call room under that
 600 s cap. Re-run a wait until what it waits on reports:
 
 - a subagent: every `Agent` call returns at once, so wait on its artefact
-  with `timeout 540 node scripts/watch-artefact.js <its artefact> 120 --log
-  <output_file>`, the launch result's `output_file`, until it exits `DONE`.
+  with `timeout 540 node scripts/watch-artefact.js <its artefact> 120 530
+  --log <output_file>`, the launch result's `output_file`, until it exits
+  `DONE`.
   Several agents: one wait each, in turn.
 - a long Bash job: `scripts/bg-run.sh run <name> <command>` with
   `run_in_background`, then `scripts/bg-run.sh wait <name> 540`.

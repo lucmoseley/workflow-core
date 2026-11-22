@@ -1958,6 +1958,7 @@
 		"docs/agents/rules/job-holds-turn.txt": [
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/dispatch-rewrite.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/review-tier.test.ts",
 			"scripts/lib/rule-install-cap.test.ts",

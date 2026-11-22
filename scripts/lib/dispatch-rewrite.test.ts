@@ -314,6 +314,28 @@ describe("the watch command", () => {
 		).toBe(true);
 	});
 
+	it("ends a job's watch on its own ceiling inside the rule's timeout (#5520)", () => {
+		const job = String(
+			/hold the turn on `([^`]+)`/.exec(
+				String(
+					rewrite({ prompt: "Do it." }, { file: FILE, job: true })?.prelude,
+				),
+			)?.[1],
+		);
+		const ceiling = Number(
+			new RegExp(` ${FILE} 120 (\\d+) --log <output_file>$`).exec(job)?.[1],
+		);
+		const rule = fs.readFileSync(
+			path.join(__dirname, "../../docs/agents/rules/job-holds-turn.txt"),
+			"utf8",
+		);
+		const timeout = Number(
+			/timeout (\d+) node \S*watch-artefact/.exec(rule)?.[1],
+		);
+		expect(ceiling).toBeGreaterThan(0);
+		expect(ceiling).toBeLessThan(timeout);
+	});
+
 	it("quotes a path a shell would split, apostrophe included", () => {
 		expect(
 			watchCommand("/my repo/it's.md").endsWith(
