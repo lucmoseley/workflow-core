@@ -190,8 +190,7 @@ function bringCoreDocs(ctx) {
  * @typedef {object} Workflows
  * @property {string[]} paths
  * @property {string[]} faultKeys
- * @property {(cfg: import("./workflow-core-config.js").Config) => "write" | "leave" | {remove: string}} want
- * @property {(cfg: import("./workflow-core-config.js").Config) => {rel: string, body: string}[]} render
+ * @property {(cfg: import("./workflow-core-config.js").Config) => {write: {rel: string, body: string}[]} | {remove: string} | "leave"} want
  */
 
 /**
@@ -199,7 +198,7 @@ function bringCoreDocs(ctx) {
  * @param {Workflows} workflows
  * @returns {string[]}
  */
-function bringWorkflows(ctx, { paths, faultKeys, want, render }) {
+function bringWorkflows(ctx, { paths, faultKeys, want }) {
 	const { root, dryRun, out } = ctx;
 	let cfg;
 	try {
@@ -215,20 +214,21 @@ function bringWorkflows(ctx, { paths, faultKeys, want, render }) {
 	}
 	const wanted = want(cfg);
 	if (wanted === "leave") return [];
-	const bodies = wanted === "write" ? render(cfg) : [];
-	return paths.flatMap((rel) => {
+	/** @param {string} rel */
+	const foreign = (rel) => {
 		const existing = readIfPresent(path.join(root, rel));
-		if (existing !== null && !isCoreCi(existing)) {
-			out(
-				`skipped ${rel} — it does not open on the CORE-OWNED marker, so the core did not write it`,
-			);
-			return [];
-		}
-		if (wanted === "write") {
-			const file = bodies.find((f) => f.rel === rel);
-			return file ? bringFile(ctx, file) : [];
-		}
-		if (existing === null) return [];
+		if (existing === null || isCoreCi(existing)) return false;
+		out(
+			`skipped ${rel} — it does not open on the CORE-OWNED marker, so the core did not write it`,
+		);
+		return true;
+	};
+	if ("write" in wanted)
+		return wanted.write.flatMap((file) =>
+			foreign(file.rel) ? [] : bringFile(ctx, file),
+		);
+	return paths.flatMap((rel) => {
+		if (foreign(rel) || !fs.existsSync(path.join(root, rel))) return [];
 		if (dryRun) {
 			out(`would   remove ${rel}`);
 			return [];
@@ -244,9 +244,10 @@ const bringCi = (ctx) =>
 	bringWorkflows(ctx, {
 		paths: [CI_WORKFLOW],
 		faultKeys: ["ci"],
-		want: ({ ci }) => (ci ? "write" : { remove: 'carries no "ci" key' }),
-		render: ({ ci }) =>
-			ci ? [{ rel: CI_WORKFLOW, body: renderCiWorkflow(ci) }] : [],
+		want: ({ ci }) =>
+			ci
+				? { write: [{ rel: CI_WORKFLOW, body: renderCiWorkflow(ci) }] }
+				: { remove: 'carries no "ci" key' },
 	});
 
 /** @param {Context} ctx */
@@ -261,13 +262,14 @@ const bringLanderWorkflows = (ctx) =>
 			"commands.full_test",
 			"commands.test",
 		],
-		want: ({ landingTester }) => {
-			if (landingTester === "auto") return "write";
+		want: (cfg) => {
+			const { landingTester } = cfg;
+			if (landingTester === "auto")
+				return { write: renderLanderWorkflows(cfg) };
 			if (landingTester === "local")
 				return { remove: 'pins "landingTester": "local"' };
 			return "leave";
 		},
-		render: renderLanderWorkflows,
 	});
 
 /** @param {Context} ctx */

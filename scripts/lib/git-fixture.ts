@@ -295,6 +295,10 @@ export function initGitRepo(at: string, hooks: string): void {
 	git(at, "commit", "-qm", "init");
 }
 
+export const emptyRepoTemplate: BuildFn = (dir) => {
+	git(dir, "init", "-q");
+};
+
 export interface TrioOptions {
 	worktree?: "branch" | "detach";
 }

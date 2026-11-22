@@ -415,6 +415,13 @@ function readKey(cfg, key, isValid, want) {
 }
 
 /**
+ * @param {Pick<Config, "commands" | "fullTestShards">} config
+ * @returns {number}
+ */
+const wholeRunShardCount = ({ commands, fullTestShards }) =>
+	(commands.full_test ?? commands.test) ? (fullTestShards ?? 1) : 1;
+
+/**
  * @param {RawConfig} cfg
  * @returns {LandingTester}
  */
@@ -1369,6 +1376,7 @@ module.exports = {
 	coreHost,
 	hostRoot,
 	readConfig,
+	wholeRunShardCount,
 	resolveKey,
 	resolveCorpus,
 	requireKey,

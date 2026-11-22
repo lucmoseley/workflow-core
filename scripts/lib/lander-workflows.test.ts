@@ -1,10 +1,9 @@
 // @vitest-environment node
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineTemplate } from "./git-fixture";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import {
 	GROUP_STEP,
@@ -26,9 +25,7 @@ const SCRIPT = path.resolve(__dirname, "..", "lander-ci.js");
 const PATHS = [LANDER_SUITE_WORKFLOW, LANDER_NAMED_WORKFLOW];
 const expr = (e: string) => `\${{ ${e} }}`;
 
-const repoTemplate = defineTemplate((dir) =>
-	execFileSync("git", ["init", "-q"], { cwd: dir }),
-);
+const repoTemplate = defineTemplate(emptyRepoTemplate);
 
 let tmp: string;
 let root: string;

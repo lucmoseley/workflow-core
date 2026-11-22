@@ -11,7 +11,7 @@ const {
 	SUITE_PASSED_JOB,
 	shardJobName,
 } = require("./lander-job-names.js");
-const { wholeRunGroups } = require("./local-tester.js");
+const { wholeRunShardCount } = require("./workflow-core-config.js");
 
 const LANDER_SUITE_WORKFLOW = `.github/workflows/${ADOPTER_WORKFLOWS.suite}`;
 const LANDER_NAMED_WORKFLOW = `.github/workflows/${ADOPTER_WORKFLOWS.named}`;
@@ -51,7 +51,7 @@ const header = (
  * @returns {string}
  */
 function renderSuiteWorkflow(config) {
-	const n = wholeRunGroups(config);
+	const n = wholeRunShardCount(config);
 	const ids = Array.from({ length: n }, (_, i) => `shard-${i + 1}`);
 	const shards = ids
 		.map(
