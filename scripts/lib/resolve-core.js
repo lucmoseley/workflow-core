@@ -42,7 +42,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { execFileSync, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 
 const PLUGIN = "workflow-core";
 const OVERRIDE = "WORKFLOW_CORE_DIR";
@@ -51,17 +51,22 @@ const CHECKOUT = "WORKFLOW_CORE_CHECKOUT";
 const TAG_REF = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 
 /**
- * `any` because the CLI writes these files, not the core, and every read
- * narrows through `?.`. A missing file and a corrupt one both read null: either
- * way the caller fails naming the file.
+ * #1274, #5504
  * @param {string} at
  * @returns {any}
  */
 function readJson(at) {
+	if (!fs.existsSync(at) || !fs.statSync(at).isFile()) return null;
+	let text;
 	try {
-		return JSON.parse(fs.readFileSync(at, "utf8"));
-	} catch {
-		return null;
+		text = fs.readFileSync(at, "utf8");
+	} catch (cause) {
+		throw new Error(`resolve-core: ${at} cannot be read`, { cause });
+	}
+	try {
+		return JSON.parse(text);
+	} catch (cause) {
+		throw new Error(`resolve-core: ${at} is not JSON`, { cause });
 	}
 }
 
@@ -83,23 +88,21 @@ function isDir(dir) {
  * @returns {{main: string, top: string} | null}
  */
 function readGitRoots({ cwd, env } = {}) {
-	let out;
-	try {
-		out = execFileSync(
-			"git",
-			[
-				"rev-parse",
-				"--path-format=absolute",
-				"--git-common-dir",
-				"--show-toplevel",
-			],
-			{ cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-		);
-	} catch {
-		/* Not a git checkout, or no git to ask: the caller's own directory is
-		 * the only root left, and a miss still fails naming it (#4117). */
-		return null;
-	}
+	const r = spawnSync(
+		"git",
+		[
+			"rev-parse",
+			"--path-format=absolute",
+			"--git-common-dir",
+			"--show-toplevel",
+		],
+		{ cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+	);
+	if (r.error)
+		throw new Error("resolve-core: git cannot be run", { cause: r.error });
+	/* #4117 */
+	if (r.status !== 0) return null;
+	const out = r.stdout;
 	const [common, top] = out.trim().split("\n");
 	if (common === undefined || top === undefined)
 		throw new Error(`git rev-parse printed fewer than two lines: ${out}`);
