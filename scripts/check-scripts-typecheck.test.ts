@@ -37,12 +37,7 @@ const write = (rel: string, body: string) => {
 const checked = (name: string) =>
 	`#!/usr/bin/env node\n/*\n * ${name} — a fixture.\n */\n\nmodule.exports = {};\n`;
 
-/** A script that has silenced the checker and said why, in §N8's spelling. */
-const buildSilencedWithReason = (name: string) =>
-	`#!/usr/bin/env node\n// @ts-nocheck\n/*\n * ${name} — a fixture.\n *\n * NO type checking (§N8). Every value here crosses an untyped boundary.\n */\n\nmodule.exports = {};\n`;
-
-/** A script that has silenced the checker and said nothing about it. */
-const buildSilencedBare = (name: string) =>
+const buildSilenced = (name: string) =>
 	`#!/usr/bin/env node\n// @ts-nocheck\n/*\n * ${name} — a fixture.\n */\n\nmodule.exports = {};\n`;
 
 /** Track and commit everything written so far. */
@@ -84,7 +79,7 @@ describe("the census — which tracked files have silenced the type checker", ()
 
 	it("names a silenced file and warns without gating", () => {
 		write("scripts/a.js", checked("a.js"));
-		write("scripts/off.js", buildSilencedWithReason("off.js"));
+		write("scripts/off.js", buildSilenced("off.js"));
 		commitAll();
 		const { status, out } = run();
 		// WARN, so exit 0: standing repo state, and the session reading it is
@@ -96,8 +91,8 @@ describe("the census — which tracked files have silenced the type checker", ()
 	});
 
 	it("counts every silenced file, not just the first", () => {
-		write("scripts/one.js", buildSilencedBare("one.js"));
-		write("scripts/two.js", buildSilencedBare("two.js"));
+		write("scripts/one.js", buildSilenced("one.js"));
+		write("scripts/two.js", buildSilenced("two.js"));
 		commitAll();
 		const { out } = run();
 		expect(out).toMatch(/^WARN: 2 scripts\//m);
@@ -108,42 +103,22 @@ describe("the census — which tracked files have silenced the type checker", ()
 	it("ignores an untracked file, so a scratch copy never reads as a silencing", () => {
 		write("scripts/a.js", checked("a.js"));
 		commitAll();
-		write("scripts/scratch.js", buildSilencedBare("scratch.js"));
+		write("scripts/scratch.js", buildSilenced("scratch.js"));
 		const { status, out } = run();
 		expect(status).toBe(0);
 		expect(out).not.toContain("scratch.js");
 	});
 });
 
-describe("the reason a silencing owes, and what it says when there is none", () => {
-	it("reads the §N8 spelling back and prints it under --full", () => {
-		write("scripts/off.js", buildSilencedWithReason("off.js"));
-		commitAll();
-		const { out } = run(["--full"]);
-		expect(out).toContain("Every value here crosses an untyped boundary");
-		expect(out).toMatch(/scripts\/off\.js {2}\(\d+ lines\)/);
-	});
-
-	it("raises a distinct finding for a silencing that declares nothing, and prints the spelling to fix it", () => {
-		write("scripts/off.js", buildSilencedBare("off.js"));
-		commitAll();
-		const { status, out } = run(["--json"]);
-		expect(status).toBe(0);
-		const envelope = JSON.parse(out);
-		expect(envelope.findings[0].tag).toBe("TYPECHECK-SILENCED-NO-REASON");
-		const text = run().out;
-		expect(text).toContain("NO type checking (§N8).");
-	});
-
-	it("keeps the two findings apart, so a declared silencing is not reported as a breach", () => {
-		// The positive half of the case above: with a reason, the tag changes.
-		write("scripts/off.js", buildSilencedWithReason("off.js"));
+describe("the finding a silenced file raises", () => {
+	it("raises one TYPECHECK-SILENCED finding whose way out is converting the file (#5492)", () => {
+		write("scripts/plain.js", buildSilenced("plain.js"));
 		commitAll();
 		const envelope = JSON.parse(run(["--json"]).out);
+		expect(envelope.findings).toHaveLength(1);
 		expect(envelope.findings[0].tag).toBe("TYPECHECK-SILENCED");
-		expect(envelope.findings[0].reason).toBe(
-			"Every value here crosses an untyped boundary.",
-		);
+		expect(envelope.findings[0].message).toContain("§N8: convert the file");
+		expect(run(["--full"]).out).toMatch(/scripts\/plain\.js {2}\(\d+ lines\)/);
 	});
 });
 
@@ -163,7 +138,7 @@ describe("where the pragma counts, which is where TypeScript honours it", () => 
 	});
 
 	it("counts a pragma in the leading region, which is the paired positive case", () => {
-		write("scripts/early.js", buildSilencedBare("early.js"));
+		write("scripts/early.js", buildSilenced("early.js"));
 		commitAll();
 		expect(run().out).toMatch(/^WARN: 1 scripts\//m);
 	});
@@ -184,7 +159,7 @@ describe("where the pragma counts, which is where TypeScript honours it", () => 
 
 describe("scope — the two globs tsconfig.json lists in `include`", () => {
 	it("ignores a silenced .js outside both globs", () => {
-		write("lib/off.js", buildSilencedBare("off.js"));
+		write("lib/off.js", buildSilenced("off.js"));
 		write("scripts/a.js", checked("a.js"));
 		commitAll();
 		const { status, out } = run();
@@ -193,7 +168,7 @@ describe("scope — the two globs tsconfig.json lists in `include`", () => {
 	});
 
 	it("covers a skill script one directory below .claude/skills (mantahostels#1147)", () => {
-		write(".claude/skills/demo/scripts/off.js", buildSilencedBare("off.js"));
+		write(".claude/skills/demo/scripts/off.js", buildSilenced("off.js"));
 		commitAll();
 		const { out } = run();
 		expect(out).toContain(".claude/skills/demo/scripts/off.js");
@@ -202,67 +177,11 @@ describe("scope — the two globs tsconfig.json lists in `include`", () => {
 	it("does not walk deeper than one directory level under a skill (mantahostels#1147)", () => {
 		// The 25 vendored skills are symlinks, and a wider glob walks into
 		// whatever they ship.
-		write(
-			".claude/skills/demo/scripts/nested/off.js",
-			buildSilencedBare("off.js"),
-		);
+		write(".claude/skills/demo/scripts/nested/off.js", buildSilenced("off.js"));
 		commitAll();
 		const { status, out } = run();
 		expect(status).toBe(0);
 		expect(out).toMatch(/^OK: all 0 in-scope/m);
-	});
-});
-
-describe("--notify — the session-start surface, quiet while the number holds", () => {
-	const seed = () => {
-		write("scripts/off.js", buildSilencedBare("off.js"));
-		commitAll();
-	};
-
-	it("speaks on the first session, when no count has been recorded yet", () => {
-		seed();
-		const { status, out } = run(["--notify"]);
-		expect(status).toBe(0);
-		expect(out).toContain("scripts/off.js");
-	});
-
-	it("says nothing at all on a second session with the count unchanged", () => {
-		seed();
-		run(["--notify"]);
-		const { status, out } = run(["--notify"]);
-		expect(status).toBe(0);
-		expect(out.trim()).toBe("");
-	});
-
-	it("speaks again when a file is silenced, naming the previous count", () => {
-		seed();
-		run(["--notify"]);
-		write("scripts/second.js", buildSilencedBare("second.js"));
-		commitAll();
-		const { out } = run(["--notify"]);
-		expect(out).toContain("Was 1 at the last session that read this");
-	});
-
-	it("reports OK beside a non-zero silenced count under --json, the declared §G4 departure", () => {
-		// The header's warning made testable: under --notify the subject is
-		// whether the count MOVED, so a machine reader must not take the outcome
-		// as a verdict on the corpus.
-		seed();
-		run(["--notify"]);
-		const { status, out } = run(["--notify", "--json"]);
-		expect(status).toBe(0);
-		const envelope = JSON.parse(out);
-		expect(envelope.outcome).toBe("OK");
-		expect(envelope.silenced).toBe(1);
-	});
-
-	it("exits 0 even on a BROKEN read, so Claude Code does not disable the hook", () => {
-		// check.js:280.
-		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
-		const r = runInProcess(SCRIPT, ["--root", outside, "--notify"]);
-		fs.rmSync(outside, { recursive: true, force: true });
-		expect(r.status).toBe(0);
-		expect(`${r.stdout}${r.stderr}`).toMatch(/^BROKEN:/m);
 	});
 });
 

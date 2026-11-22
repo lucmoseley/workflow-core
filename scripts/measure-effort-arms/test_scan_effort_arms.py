@@ -177,7 +177,8 @@ def test_band_reports_none_on_an_empty_sample():
 def test_break_even_is_reported_as_absent_when_low_costs_more(corpus, capsys):
     corpus("lo", [rec(f"l{i}", effort="low", out=1000) for i in range(6)])
     corpus("me", [rec(f"m{i}", effort="medium", out=100) for i in range(6)])
-    sea.report(sea.sessions(Counter()))
+    tally = Counter()
+    sea.report(sea.sessions(tally), tally)
     out = capsys.readouterr().out
     assert "Break-even does not exist" in out
 
@@ -186,7 +187,8 @@ def test_break_even_is_one_minus_the_cost_ratio(corpus, capsys):
     # low at a quarter of medium's cost => break-even at 75%.
     corpus("lo", [rec(f"l{i}", effort="low", out=0, cr=1000) for i in range(6)])
     corpus("me", [rec(f"m{i}", effort="medium", out=0, cr=4000) for i in range(6)])
-    sea.report(sea.sessions(Counter()))
+    tally = Counter()
+    sea.report(sea.sessions(tally), tally)
     out = capsys.readouterr().out
     assert "L/H on median cost (+subagents) = 0.2" in out
     assert "Break-even failure rate = 1 - L/H = 7" in out
@@ -258,15 +260,20 @@ def test_the_json_output_carries_every_skip_count(corpus, unkeyed, capsys):
         fh.write('{"type": "assistant", broken\n')
     assert sea.main(["--json"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["skipped"] == {"unreadable files": 0, "unparsed lines": 1, "unkeyed": 1}
+    assert out["skipped"] == {
+        "unreadable files": 0,
+        "unparsed lines": 1,
+        "unkeyed": 1,
+        "undated sessions": 0,
+    }
     assert [r["id"] for r in out["sessions"]] == ["sess"]
 
 
 @pytest.mark.parametrize(
     ("t0", "kind"), [(None, "AttributeError"), ("not-a-date", "ValueError")]
 )
-def test_an_unparsable_session_span_reads_as_none_and_says_so(t0, kind, capsys):
-    assert sea._minutes(t0, "2026-08-23T10:00:00Z") is None
-    assert f"fail-open: session minutes read as None: {kind}" in (
-        capsys.readouterr().err
-    )
+def test_an_unparsable_session_span_reads_as_none_and_is_counted(t0, kind, capsys):
+    tally = Counter()
+    assert sea._minutes(t0, "2026-08-23T10:00:00Z", tally) is None
+    assert tally == {sea.UNDATED: 1}
+    assert capsys.readouterr().err == ""

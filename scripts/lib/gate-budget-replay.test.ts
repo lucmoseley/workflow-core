@@ -86,6 +86,30 @@ describe("the budget park replay (#5471)", () => {
 		);
 	});
 
+	it("judges a resumed launch whole, from its start: its earlier session's runs its own, their ceilings never another's (#5514)", () => {
+		const launch = {
+			sessions: ["s-earlier", "s-parked"],
+			launchedAt: new Date(T0 + 0.5 * MIN).toISOString(),
+		};
+		const earlier = { session: "s-earlier" };
+		const runs = [
+			run(0, "red", earlier),
+			run(1, "ceiling", earlier),
+			run(2, "ceiling", { session: "s-other" }),
+			run(3, "red"),
+			run(4, "ceiling"),
+			run(5, "red"),
+		];
+		const asOne = input(runs);
+		expect(replayed(asOne)).toContain(
+			"released, 2 failed in a row and 2 counted",
+		);
+		const whole = input(runs, { park: { ...asOne.park, ...launch } });
+		expect(replayed(whole)).toBe(
+			`${PARKED} kept at ${runs[5]?.at}, on its 4 failed whole-suite gate runs in a row since its last landing, at the limit of 4`,
+		);
+	});
+
 	it("takes a landing from when origin/main showed it, and counts the run ending in its commit's second before it", () => {
 		const ct = Math.floor((T0 + 4 * MIN) / 1000) * 1000;
 		const letThrough = {

@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from fail_open import fail_open
+from fail_open import expected
 from host_root import host_root
 
 SUBCOMMAND_SPLIT = re.compile(r"&&|\|\||;|\|")
@@ -77,7 +77,7 @@ def load_layers(paths: list[str]) -> list[dict]:
             with open(p) as fh:
                 layers.append(json.load(fh))
         except FileNotFoundError as e:
-            fail_open(e, f"no layer at {p}")
+            expected(e, f"no layer at {p}: a settings file the host never wrote")
             continue
     return layers
 

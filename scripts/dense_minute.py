@@ -27,7 +27,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-from fail_open import fail_open
+from fail_open import expected, fail_open
 from transcript_corpus import counts_line, records_with_lines, seats
 
 HOOK_TIMEOUT = "timed out; blocking because onFailure"
@@ -49,6 +49,9 @@ def transcripts(since):
                 seen.add(real)
                 try:
                     st = os.stat(f)
+                except FileNotFoundError as e:
+                    expected(e, f"{f} deleted since the glob")
+                    continue
                 except OSError as e:
                     fail_open(e, f"{f} skipped")
                     continue

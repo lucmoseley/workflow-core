@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-const { readCommitsBy } = require("./lib/arbiter-ledger.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { readText } = require("./lib/file-read.js");
 const { gateRunLogPath, readGateRunsAt } = require("./lib/gate-seat.js");
 const {
 	firstHeldAt,
+	launchOf,
 	renderReplay,
 	renderSweep,
 	unreadLine,
@@ -16,6 +16,7 @@ const { breakerRecordPath } = require("./lib/refill-breaker.js");
 const { scriptPath } = require("./lib/script-path.js");
 const {
 	GIT_LOG_TIMEOUT_MS,
+	readCommitsByEach,
 	readSuiteCommand,
 } = require("./lib/throughput-reads.js");
 const { writeFd } = require("./lib/write-fd");
@@ -70,12 +71,12 @@ function readMainReflog(root) {
 
 /**
  * @param {string} root
- * @param {string} session
+ * @param {Set<string>} ids
  * @param {{at: number, sha: string}[]} reflog
  * @returns {import("./lib/gate-budget-replay.js").Landing[]|null}
  */
-function readLandings(root, session, reflog) {
-	const shas = readCommitsBy(session, root);
+function readLandings(root, ids, reflog) {
+	const shas = readCommitsByEach(ids, root);
 	if (shas === null) return null;
 	return shas.flatMap((sha) => {
 		const ct = git(["log", "-1", "--format=%ct", sha], root);
@@ -119,7 +120,7 @@ function readInputs(parks) {
 			);
 			continue;
 		}
-		const landings = readLandings(park.repo, park.session, reflog);
+		const landings = readLandings(park.repo, launchOf(park).ids, reflog);
 		if (landings === null) notes.push(unreadLine(park, "commit ledger"));
 		inputs.push({
 			park,

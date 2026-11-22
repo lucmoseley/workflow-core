@@ -39,14 +39,24 @@ CHECKOUT = "WORKFLOW_CORE_CHECKOUT"
 TAG_REF = re.compile(r"v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
 
 
+def _refuse_constant(name):
+    raise ValueError(name)
+
+
 def _read_json(at):
-    try:
-        with open(at, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        # Absent or malformed reads as unset; the caller tries its next source
-        # (#1274).
+    """#1274, #5504."""
+    if not os.path.isfile(at):
         return None
+    try:
+        # #5504
+        with open(at, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError as err:
+        raise RuntimeError(f"resolve-core: {at} cannot be read") from err
+    try:
+        return json.loads(text, parse_constant=_refuse_constant)
+    except ValueError as err:
+        raise RuntimeError(f"resolve-core: {at} is not JSON") from err
 
 
 def _get(value, key):
@@ -56,7 +66,7 @@ def _get(value, key):
 def _read_git_roots(**options):
     """resolve-core.js's readGitRoots: (main checkout, top level), or None."""
     try:
-        out = subprocess.run(
+        result = subprocess.run(
             [
                 "git",
                 "rev-parse",
@@ -66,14 +76,14 @@ def _read_git_roots(**options):
             ],
             capture_output=True,
             text=True,
-            check=True,
             **options,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError, ValueError):
-        # Outside a git tree, with no git, or with a root subprocess refuses (a
-        # NUL byte raises ValueError), the caller's own directory is the only
-        # root left (#1274, #4117).
+        )
+    except OSError as err:
+        raise RuntimeError("resolve-core: git cannot be run") from err
+    if result.returncode != 0:
+        # #1274, #4117
         return None
+    out = result.stdout
     lines = out.strip().split("\n")
     if len(lines) < 2:
         raise RuntimeError(f"git rev-parse printed fewer than two lines: {out}")

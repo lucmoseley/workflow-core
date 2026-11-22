@@ -199,7 +199,7 @@ def test_no_minute_log_reads_windows_unread_and_is_named(tmp_path, capsys):
     assert "fail-open: Windows figure read as unread" in capsys.readouterr().err
 
 
-def test_no_log_yet_reads_as_no_bench_this_boot_and_is_named(tmp_path, capsys):
+def test_no_log_yet_reads_as_no_bench_this_boot_silently(tmp_path, capsys):
     log = tmp_path / "absent.log"
     assert f.benched_this_boot(log, "abcdef12") is False
-    assert f"fail-open: {log} read as no bench this boot" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""

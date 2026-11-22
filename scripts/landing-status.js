@@ -67,8 +67,10 @@ const {
 const USAGE = `usage: node ${scriptPath("landing-status.js")} [--session <id>] [--wait]
   the session defaults to CLAUDE_CODE_SESSION_ID
   --wait  re-read every ${WAIT_POLL_MS / 1000} s until nothing of the session's is queued, or
-          ${WAIT_BOUND_MS / 60_000} min; run it with run_in_background to be told when it lands, or in a
-          background job in the foreground under \`timeout 540\`, re-run`;
+          ${WAIT_BOUND_MS / 60_000} min; run it with run_in_background to be told when it lands; a
+          background job whose next step needs the commits on main runs it in
+          the foreground under \`timeout 540\`, re-run, and otherwise ends on
+          result: naming them queued`;
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
