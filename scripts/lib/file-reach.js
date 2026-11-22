@@ -266,7 +266,7 @@ const LOAD_CONST_VALUE = /^(?:["'][^"'\\]*["']|process\.env\.\w+)$/;
  * off the file's directory, of a script; or of a JSON manifest and the key
  * whose every value, at any depth, names a script off the same directory. */
 const LOADS_PRAGMA =
-	/^[ \t]*(?:\/\/|\/?\*)[ \t]*code-edges loads: (\S+)(?: (\w+))?[ \t]*$/gm;
+	/^[ \t]*(?:\/\/|\/?\*|#)[ \t]*code-edges loads: (\S+)(?: (\w+))?[ \t]*$/gm;
 const PY_IMPORT =
 	/^\s*(?:from\s+([\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
 /* Any statement that may load a module or run a file's code, read with its
@@ -1638,9 +1638,10 @@ const NONE = /(?!)/;
 const SH_FLAGS = {
 	node: {
 		inline: /^(?:-[A-Za-z]*[ep]|--eval|--print)$/,
-		load: /^(?:-r|--require|--import|--loader|--experimental-loader|--env-file)$/,
+		load: /^(?:-r|--require|--import|--loader|--experimental-loader|--env-file|--test-reporter)$/,
 		module: NONE,
-		value: /^(?:-C|--conditions|--title|--input-type)$/,
+		value:
+			/^(?:-C|--conditions|--title|--input-type|--test-reporter-destination)$/,
 	},
 	python: {
 		inline: /^-[A-Za-z]*c$/,
@@ -1757,6 +1758,10 @@ function shReach(file, code) {
 				if (p !== file) reach.edges.push(p);
 		shLoads(command, scope, reach);
 	}
+	const declared = declaredLoads(file, code);
+	reach.edges.push(...declared.edges);
+	reach.reads.push(...declared.reads);
+	reach.unread.push(...declared.unread);
 	reach.edges = [...new Set(reach.edges)];
 	return reach;
 }
@@ -2152,7 +2157,7 @@ function shLoads(command, scope, reach) {
 	const run = { scope, reach, said: words.map((w) => w.text).join(" ") };
 	const named = interpreterNamed(head.text);
 	if (named) {
-		shInterpreterLoads(run, named.kind, args);
+		shInterpreterLoads(run, named.kind, args.flatMap(splitJoinedFlag));
 		return;
 	}
 	/* An array's elements are a command only where an interpreter heads them. */
@@ -2161,7 +2166,11 @@ function shLoads(command, scope, reach) {
 	const nested = args.findIndex((w) => interpreterNamed(w.text));
 	const nestedKind = interpreterNamed(args[nested]?.text ?? "")?.kind;
 	if (nestedKind && !SH_NAMING_HEAD.test(head.text))
-		shInterpreterLoads(run, nestedKind, args.slice(nested + 1));
+		shInterpreterLoads(
+			run,
+			nestedKind,
+			args.slice(nested + 1).flatMap(splitJoinedFlag),
+		);
 	const [first] = args;
 	if ((head.text === "source" || head.text === ".") && first)
 		load(run, first, { sourced: true });
@@ -2258,6 +2267,17 @@ function shInterpreterLoads(run, kind, args) {
 		k += shFlagValue(run, flags, args, k);
 	}
 	unreadProgram(run);
+}
+
+/** @param {ShWord} word */
+function splitJoinedFlag(word) {
+	const joined = /^--[\w-]+=/.exec(word.text);
+	if (!joined) return [word];
+	const flag = joined[0].slice(0, -1);
+	return [
+		{ text: flag, at: word.at },
+		{ text: word.text.slice(joined[0].length), at: word.at + joined[0].length },
+	];
 }
 
 /**

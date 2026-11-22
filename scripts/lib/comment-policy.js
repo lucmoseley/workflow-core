@@ -675,6 +675,10 @@ const DIRECTIVES = [
 	},
 	{ lang: "sh", re: /^shellcheck\s/, read: readsAsCode },
 	{
+		re: /^code-edges (?:loads: \S+(?: \w+)?|caller: \w+(?:[ \t]+\w+)*)[ \t]*$/,
+		read: readsAsCode,
+	},
+	{
 		lang: "py",
 		re: /^(?:(?:ruff|flake8):\s*)?noqa\b(?::\s*([\w, ]+))?/i,
 		read: suppresses("ruff"),
