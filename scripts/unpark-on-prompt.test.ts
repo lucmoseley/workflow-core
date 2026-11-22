@@ -79,7 +79,6 @@ function run({
 			CLAUDE_PROJECT_DIR: dir,
 			WFC_REPO_ROOT: dir,
 			WFC_GH: gh,
-			CLAUDE_JOB_DIR: undefined,
 			CLAUDE_CODE_ENTRYPOINT: "cli",
 		},
 	});

@@ -149,7 +149,6 @@ describe.each(copies)("the $name copy", ({ text, relation }) => {
 const guard = (text: string, { job = false } = {}) => {
 	const env: NodeJS.ProcessEnv = { ...process.env, WFC_REPO_ROOT: SCRATCH };
 	if (job) env.CLAUDE_JOB_DIR = SCRATCH;
-	else delete env.CLAUDE_JOB_DIR;
 	return runInProcess(GUARD, [], {
 		stdin: JSON.stringify({
 			session_id: `copies-${Math.random().toString(36).slice(2)}`,

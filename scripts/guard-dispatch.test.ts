@@ -684,6 +684,18 @@ describe("the Agent dispatch cores through the hook line (#2791)", () => {
 		);
 	});
 
+	it("tells a background job to hold its turn on the watch's own ceiling", () => {
+		const out = emission(agent({ prompt: "Do the work." }), {
+			...quiet,
+			CLAUDE_JOB_DIR: path.join(dir, "job"),
+		});
+		const file = /^Artefact: (\S+)$/m.exec(out.updatedInput.prompt)?.[1];
+		expect(out.additionalContext).toContain(
+			`${file} 120 530 --log <output_file>\``,
+		);
+		expect(out.additionalContext).toContain("rule:job-holds-turn");
+	});
+
 	it("refuses a subagent's own Task dispatch with the store's rule", () => {
 		const out = emission(
 			agent({ prompt: "Do it." }, { agent_id: "a1", tool_name: "Task" }),

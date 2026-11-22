@@ -62,6 +62,9 @@ delete process.env.WFC_GATE_SEAT;
  * `head` selection would read them as its fixture's. */
 delete process.env.WFC_MERGE_PARENTS;
 
+/* #5547 */
+delete process.env.CLAUDE_JOB_DIR;
+
 /* The files the suite's own launch cached (#4790) are its reporter's, not a
  * case's: a reporter a case drives would fold them into its certificate.
  * Deleted in the worker, so vitest's own process still reads them. */
