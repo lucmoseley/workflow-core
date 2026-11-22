@@ -118,6 +118,7 @@ interface Options {
 	acquired?: boolean;
 	now?: number;
 	mainMoved?: (sha: string) => boolean;
+	mirrored?: readonly DroppedRef[];
 }
 
 function fakeMerge(
@@ -180,6 +181,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 						pushedAt: r.pushedAt,
 					})),
 					dropped: [...remote.dropped].map(([ref, sha]) => ({ ref, sha })),
+					mirrored: o.mirrored ?? [],
 				};
 			},
 			mergeMembers: (onto, members, fresh, started) => {
@@ -1955,6 +1957,24 @@ describe("the reap", () => {
 		at: NOW,
 		ticket,
 		...TICKETED,
+	});
+
+	it("takes a standing drop whose dropped ref the tracker's remote holds as made, pushing it to origin never, and remakes one it lacks (#5539)", async () => {
+		const remote = remoteOf("m0");
+		const disk = freshDisk();
+		disk.tickets.set(1, "open");
+		disk.tickets.set(2, "open");
+		disk.drops = [dropOf("a", 1), dropOf("b", 2)];
+
+		const { end, actions } = await land(remote, disk, {
+			mirrored: [{ ref: "dropped/a", sha: "a1" }],
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(
+			actions.flatMap((a) => (a.kind === "drop-member" ? [a.drop.ref] : [])),
+		).toEqual(["dropped/b"]);
+		expect([...remote.dropped]).toEqual([["dropped/b", "b1"]]);
 	});
 
 	it("deletes a dropped ref once its fix ticket closes, and keeps one whose ticket is open or unread", async () => {

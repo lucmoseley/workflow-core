@@ -55,6 +55,8 @@ const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { isStringList, parseVerdict } = require("./lander-records.js");
 const { isCoreHost } = require("./plugin-state.js");
 const { CoreUnresolved, resolveTreeCore } = require("./tree-core.js");
+const { readTrackerRemotes } = require("./tracker-remotes.js");
+const { resolveKey } = require("./workflow-core-config.js");
 
 const REGISTRY_PROFILE = (() => {
 	const profile = PROFILES["guard-registry"];
@@ -137,12 +139,24 @@ function readEnvelope(r, sha, timeoutMs) {
 
 /**
  * @param {string} root
+ * @returns {string[]}
+ */
+function trackerRemotesOf(root) {
+	const tracker = resolveKey("tracker", { root });
+	return typeof tracker === "string"
+		? readTrackerRemotes(tracker, { cwd: root }).filter((r) => r !== REMOTE)
+		: [];
+}
+
+/**
+ * @param {string} root
  * @param {object} [options]
  * @param {number} [options.mergeTimeoutMs]
  * @param {ReadonlyMap<string, Regenerated>} [options.regenerated]
  * @param {boolean} [options.ciRepeats]
  * @param {number} [options.gateGraceMs]
  * @param {boolean} [options.suiteRepeats]
+ * @param {readonly string[]} [options.trackerRemotes]
  * @returns {QueueGit}
  */
 function queueGit(
@@ -153,6 +167,7 @@ function queueGit(
 		ciRepeats = false,
 		suiteRepeats = false,
 		gateGraceMs = HOOK_GRACE_MS,
+		trackerRemotes,
 	} = {},
 ) {
 	const batchSet = batchGateSet(ciRepeats, suiteRepeats);
@@ -210,6 +225,23 @@ function queueGit(
 	};
 	/** @param {string[]} args */
 	const git = (args) => readGit(root, args);
+	// #5539
+	/** @returns {DroppedRef[]} */
+	const readMirrored = () =>
+		(trackerRemotes ?? trackerRemotesOf(root)).flatMap((r) => {
+			const under = `refs/remotes/${r}/`;
+			return git([
+				"for-each-ref",
+				"--format=%(refname) %(objectname)",
+				`${under}${DROPPED_PREFIX}`,
+			])
+				.split("\n")
+				.filter(Boolean)
+				.map((line) => {
+					const [ref = "", sha = ""] = line.split(" ");
+					return { ref: ref.slice(under.length), sha };
+				});
+		});
 	/** @param {string[]} shas @returns {Map<string, number>} */
 	const committedAt = (shas) => {
 		if (shas.length === 0) return new Map();
@@ -260,7 +292,12 @@ function queueGit(
 						? [{ ref: ref.slice("refs/heads/".length), sha }]
 						: [],
 				);
-				return { main: heads.get(mainRef) ?? null, queue, dropped };
+				return {
+					main: heads.get(mainRef) ?? null,
+					queue,
+					dropped,
+					mirrored: readMirrored(),
+				};
 			}),
 		mergeMembers: (onto, members, fresh, started) =>
 			repairing(() => {
