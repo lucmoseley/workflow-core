@@ -24,7 +24,7 @@ function inCheckout(env = process.env) {
 /** @type {Map<string, boolean>} */
 const coreRepoAnswers = new Map();
 
-// #5581
+// #5581, #5584
 /**
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {boolean}
@@ -32,35 +32,62 @@ const coreRepoAnswers = new Map();
 function isCoreRepo(env = process.env) {
 	if (!inCheckout(env)) return false;
 	const core = coreRoot(env);
-	const key = [core, process.cwd(), env.GIT_DIR ?? ""].join("\0");
+	const cwd = process.cwd();
+	const key = [core, cwd, env.GIT_DIR ?? ""].join("\0");
 	let answer = coreRepoAnswers.get(key);
 	if (answer === undefined) {
-		answer = probeCoreRepo(core, env);
+		const own = commonDirAt(core);
+		answer =
+			own !== null &&
+			own ===
+				(env.GIT_DIR
+					? commonDirOf(path.resolve(cwd, env.GIT_DIR))
+					: nearestCommonDir(cwd));
 		coreRepoAnswers.set(key, answer);
 	}
 	return answer;
 }
 
 /**
- * @param {string} core
- * @param {NodeJS.ProcessEnv} env
- * @returns {boolean}
+ * @param {string} dir
+ * @returns {string | null}
  */
-function probeCoreRepo(core, env) {
-	const { gitCommonDir, gitOrNull } = require("./git.js");
-	const { scrubbedGitEnv } = require("./hook-entry.js");
-	const [cdup, own] = (
-		gitOrNull(
-			[
-				"rev-parse",
-				"--path-format=absolute",
-				"--show-cdup",
-				"--git-common-dir",
-			],
-			{ cwd: core, env: scrubbedGitEnv(env) },
-		) ?? "\n"
-	).split("\n");
-	return cdup === "" && !!own && own === gitCommonDir(process.cwd(), { env });
+function nearestCommonDir(dir) {
+	for (let at = dir; ; at = path.dirname(at)) {
+		const common = commonDirAt(at);
+		if (common !== null || path.dirname(at) === at) return common;
+	}
+}
+
+/**
+ * @param {string} dir
+ * @returns {string | null}
+ */
+function commonDirAt(dir) {
+	const dotGit = path.join(dir, ".git");
+	let stat;
+	try {
+		stat = fs.statSync(dotGit);
+	} catch {
+		return null;
+	}
+	if (stat.isDirectory()) return commonDirOf(dotGit);
+	const { parseGitFileTarget } = require("./git-file.js");
+	const target = parseGitFileTarget(dir, fs.readFileSync(dotGit, "utf8"));
+	return target === null ? null : commonDirOf(target);
+}
+
+/**
+ * @param {string} gitDir
+ * @returns {string | null}
+ */
+function commonDirOf(gitDir) {
+	const { readRegistrationCommonDir } = require("./git-file.js");
+	try {
+		return fs.realpathSync(readRegistrationCommonDir(gitDir) ?? gitDir);
+	} catch {
+		return null;
+	}
 }
 
 /**
