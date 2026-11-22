@@ -33,9 +33,7 @@ def test_an_unreadable_transcript_is_counted_not_fatal(seat_roots, capsys):
     tally = Counter()
     assert list(ds.parent_transcripts(tally, bool)) == []
     assert tally == {tc.UNREADABLE: 1}
-    err = capsys.readouterr().err
-    assert "fail-open:" in err
-    assert f"{root / 'a.jsonl'} counted unreadable" in err
+    assert capsys.readouterr().err == ""
 
 
 def test_tool_results_yield_in_window_results_with_their_call():

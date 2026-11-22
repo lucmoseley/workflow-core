@@ -32,15 +32,15 @@ def test_main_transcripts_span_both_seat_roots(seat_roots):
     ]
 
 
-def test_unopenable_file_is_skipped_and_reported(tmp_path, capsys):
+def test_unopenable_file_is_skipped_and_counted(tmp_path, capsys):
     gone = str(tmp_path / "gone.md")
     tally = Counter()
     assert sll.readable_text(gone, tally) is False
     assert tally["unreadable repo files"] == 1
-    assert f"fail-open: {gone} skipped: FileNotFoundError" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
-def test_candidate_that_will_not_read_is_skipped_and_reported(
+def test_candidate_that_will_not_read_is_skipped_and_counted(
     tmp_path, monkeypatch, stub_bin, capsys
 ):
     a = tmp_path / "a.md"
@@ -60,12 +60,10 @@ def test_candidate_that_will_not_read_is_skipped_and_reported(
     tally = Counter()
     assert sll.candidates(10, tally)[0] == []
     assert tally["unreadable repo files"] == 1
-    assert f"fail-open: {a} skipped: PermissionError: denied" in (
-        capsys.readouterr().err
-    )
+    assert capsys.readouterr().err == ""
 
 
-def test_unshown_revision_prices_at_todays_size_and_is_reported(
+def test_unshown_revision_prices_at_todays_size_and_is_counted(
     tmp_path, monkeypatch, capsys
 ):
     # A git that names a revision but will not show it.
@@ -79,5 +77,4 @@ def test_unshown_revision_prices_at_todays_size_and_is_reported(
     cands = [{"path": "a.md", "lineno": 1, "needle": "n"}]
     assert sll.sizes_by_date(cands, "2026-01-01", "2026-01-01", tally) == {}
     assert tally["unshown revisions"] == 1
-    err = capsys.readouterr().err
-    assert "fail-open: a.md on 2026-01-01 priced at today's size" in err
+    assert capsys.readouterr().err == ""

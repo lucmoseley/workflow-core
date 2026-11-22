@@ -23,7 +23,8 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
-const { caught, orFallback } = require("./caught.js");
+const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { endGroup, isGroupAlive } = require("./grouped-child.js");
 const { readJsonl } = require("./jsonl.js");
 const { refillPath } = require("./refill-dir.js");
@@ -172,9 +173,13 @@ function stop(jobId, { graceMs = STOP_GRACE_MS } = {}) {
  * @returns {EndResult}
  */
 function readEndResult(run) {
-	const results = (readJsonl(run.log)?.rows ?? []).filter(
-		(e) => e.type === "result",
-	);
+	let rows;
+	try {
+		rows = readJsonl(run.log)?.rows ?? [];
+	} catch (e) {
+		throw new Error(`its log ${run.log}: ${caught(e).message}`, { cause: e });
+	}
+	const results = rows.filter((e) => e.type === "result");
 	const last = results.reduce(
 		(a, e) =>
 			a === null || Number(e.result_index ?? 0) >= Number(a.result_index ?? 0)
@@ -187,7 +192,12 @@ function readEndResult(run) {
 	const base = { costUsd, sessionId: run.sessionId };
 	if (isLive(run)) return { outcome: "running", ...base };
 	// No stderr is no refusal in it (#2607).
-	const stderr = orFallback(() => fs.readFileSync(run.stderr, "utf8"), "");
+	const err = readText(run.stderr);
+	if (err.state === "unreadable")
+		throw new Error(`its stderr ${run.stderr}: ${err.message}`, {
+			cause: err.error,
+		});
+	const stderr = err.state === "read" ? err.data : "";
 	const failed = last?.is_error
 		? `${last.result ?? ""} ${last.error ?? ""}`
 		: "";
@@ -214,12 +224,7 @@ const JOB_STATE_OF = /** @type {const} */ ({
 function readRunAsJob(jobId) {
 	const run = readRun(jobId);
 	if (!run) return null;
-	let outcome;
-	try {
-		({ outcome } = readEndResult(run));
-	} catch (e) {
-		throw new Error(`its log ${run.log}: ${caught(e).message}`, { cause: e });
-	}
+	const { outcome } = readEndResult(run);
 	const base = { sessionId: run.sessionId, cwd: run.cwd };
 	if (outcome === "running" || outcome === "success")
 		return { state: JOB_STATE_OF[outcome], ...base };

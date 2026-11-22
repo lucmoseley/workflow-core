@@ -25,9 +25,10 @@ import statistics
 import subprocess
 import sys
 import time
+from collections import Counter
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-from fail_open import fail_open
+from fail_open import expected, fail_open, tallied
 from wfc_bin import bin_path
 
 # Samples, and seconds between them. Both are guesses at "tens of calls, spaced":
@@ -37,6 +38,7 @@ GAP = float(sys.argv[2]) if len(sys.argv) > 2 else 4.0
 
 CLK = os.sysconf("SC_CLK_TCK")
 PAGE = resource.getpagesize()
+ORACLE_UNPARSED = "oracle_unparsed"
 
 
 def find_daemon():
@@ -65,6 +67,9 @@ def proc_stat(pid):
         utime, stime = int(fields[11]), int(fields[12])
         rss_pages = int(fields[21])
         return rss_pages * PAGE // 1024, (utime + stime) / CLK
+    except (FileNotFoundError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} gone")
+        return None
     except (OSError, ValueError) as e:
         fail_open(e, f"pid {pid} read as gone")
         return None
@@ -98,14 +103,14 @@ def session_process_census():
     return pty_hosts, spares
 
 
-def oracle_sessions(stdout):
+def oracle_sessions(stdout, tally):
     """The session count `claude agents --json` printed, or -1 where it will
     not parse: a failed call is still a latency sample, and the summary counts
     the -1s (#1274)."""
     try:
         return len(json.loads(stdout))
     except (ValueError, TypeError) as e:
-        fail_open(e, "oracle output counted as unparsed (-1)")
+        tallied(e, tally, ORACLE_UNPARSED)
         return -1
 
 
@@ -139,6 +144,7 @@ def main():
 
     claude = bin_path("claude")
     rows = []
+    tally = Counter()
     for i in range(N):
         d_before = proc_stat(daemon) if daemon else None
         pty, spare = session_process_census()
@@ -153,7 +159,7 @@ def main():
         rusage_after = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
         d_after = proc_stat(daemon) if daemon else None
 
-        n_sessions = oracle_sessions(proc.stdout)
+        n_sessions = oracle_sessions(proc.stdout, tally)
 
         rows.append(
             {
@@ -192,7 +198,7 @@ def main():
         "sessions_min": min(r["sessions"] for r in rows),
         "sessions_max": max(r["sessions"] for r in rows),
         "daemon_cpu_total_s": round(sum(r["daemon_cpu_delta_s"] or 0 for r in rows), 3),
-        "oracle_unparsed": sum(r["sessions"] == -1 for r in rows),
+        ORACLE_UNPARSED: tally[ORACLE_UNPARSED],
         "daemon_unread": sum(r["daemon_cpu_delta_s"] is None for r in rows),
         "daemon_rss_first_kb": rows[0]["daemon_rss_kb"],
         "daemon_rss_last_kb": rows[-1]["daemon_rss_kb"],

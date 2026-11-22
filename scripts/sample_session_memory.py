@@ -177,6 +177,8 @@ def pss_kb(pid):
             for line in f:
                 if line.startswith("Pss:"):
                     return int(line.split()[1])
+    except (FileNotFoundError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} exited since the table was read")
     except (OSError, IndexError, ValueError) as e:
         fail_open(e, f"pid {pid} PSS read as gone")
     return None
@@ -186,6 +188,9 @@ def cmdline(pid):
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
             raw = f.read()
+    except (FileNotFoundError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} exited since the table was read")
+        return []
     except OSError as e:
         fail_open(e, f"pid {pid} argv read as empty")
         return []
@@ -198,6 +203,9 @@ def environ_var(pid, name):
     try:
         with open(f"/proc/{pid}/environ", "rb") as f:
             raw = f.read()
+    except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} gone, or another user's")
+        return None
     except OSError as e:
         fail_open(e, f"pid {pid} {name} read as unset")
         return None
@@ -213,6 +221,9 @@ def read_marker(path):
     try:
         with open(path) as f:
             record = json.load(f)
+    except FileNotFoundError as e:
+        expected(e, f"{path} removed: its seat was released")
+        return None
     except (OSError, ValueError) as e:
         fail_open(e, f"{path} read as no marker")
         return None

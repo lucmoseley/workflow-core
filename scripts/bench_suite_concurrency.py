@@ -195,6 +195,9 @@ def volunteer(pid):
         with open(f"/proc/{pid}/oom_score_adj", "w") as f:
             f.write("1000")
         return True
+    except (FileNotFoundError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} exited since the tree was read")
+        return False
     except OSError as e:
         fail_open(e, f"pid {pid} not volunteered")
         return False

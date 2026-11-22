@@ -175,27 +175,32 @@ def test_a_pid_gone_before_its_stat_reads_is_left_out_of_the_table(monkeypatch, 
 
 
 @pytest.mark.parametrize(
-    "read, fallback, instead",
+    "read, fallback",
     [
-        (lambda: m.pss_kb(GONE), None, f"pid {GONE} PSS read as gone"),
-        (lambda: m.cmdline(GONE), [], f"pid {GONE} argv read as empty"),
-        (
-            lambda: m.environ_var(GONE, "CLAUDE_CONFIG_DIR"),
-            None,
-            f"pid {GONE} CLAUDE_CONFIG_DIR read as unset",
-        ),
+        (lambda: m.pss_kb(GONE), None),
+        (lambda: m.cmdline(GONE), []),
+        (lambda: m.environ_var(GONE, "CLAUDE_CONFIG_DIR"), None),
     ],
 )
-def test_a_gone_pids_read_falls_back_and_is_named(read, fallback, instead, capsys):
+def test_a_gone_pids_read_falls_back_silently(read, fallback, capsys):
     assert read() == fallback
-    assert f"fail-open: {instead}" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
-@pytest.mark.parametrize("text", [None, "{torn"])
-def test_an_unreadable_or_torn_marker_is_none_and_named(tmp_path, capsys, text):
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads every environ")
+def test_another_users_environ_reads_as_unset_silently(capsys):
+    assert m.environ_var(1, "CLAUDE_CONFIG_DIR") is None
+    assert capsys.readouterr().err == ""
+
+
+def test_a_removed_marker_is_none_silently(tmp_path, capsys):
+    assert m.read_marker(str(tmp_path / "marker.json")) is None
+    assert capsys.readouterr().err == ""
+
+
+def test_a_torn_marker_is_none_and_named(tmp_path, capsys):
     path = tmp_path / "marker.json"
-    if text is not None:
-        path.write_text(text)
+    path.write_text("{torn")
     assert m.read_marker(str(path)) is None
     assert f"fail-open: {path} read as no marker" in capsys.readouterr().err
 

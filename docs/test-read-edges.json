@@ -22560,6 +22560,7 @@
 			"vitest.setup.test.ts"
 		],
 		"scripts/lib/file-read.js": [
+			"scripts/admission.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -22590,11 +22591,13 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/guard-fires.test.ts",
+			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/project-slug.test.ts",
 			"scripts/lib/read-audit.test.ts",
 			"scripts/lib/refill-batch.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",

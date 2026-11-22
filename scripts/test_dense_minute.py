@@ -117,13 +117,13 @@ def test_transcripts_reads_a_session_on_two_seats_once_from_its_largest_copy(cor
     assert d.transcripts(T0) == [str(large)]
 
 
-def test_a_transcript_gone_since_the_glob_is_skipped_and_named(corpus, capsys):
+def test_a_transcript_gone_since_the_glob_is_skipped_silently(corpus, capsys):
     live = corpus("s1", [])
     os.utime(live, (T0 + 1, T0 + 1))
     gone = live.with_name("s2.jsonl")
     gone.symlink_to(live.with_name("absent.jsonl"))
     assert d.transcripts(T0) == [str(live)]
-    assert f"fail-open: {gone} skipped" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
 def test_program_prints_one_line_a_minute_and_the_skip_counts(corpus):

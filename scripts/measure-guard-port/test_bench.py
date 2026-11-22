@@ -578,9 +578,7 @@ def test_a_hook_exiting_before_its_stdin_is_read_is_still_a_run(tmp_path, capsys
     # Past the pipe buffer, so the write meets the closed pipe.
     call = one_call(["exit 2"], b"x" * (1 << 20), dict(os.environ), str(tmp_path))
     assert call["denies"] == 1
-    assert "fail-open: hook run without its stdin read: BrokenPipeError" in (
-        capsys.readouterr().err
-    )
+    assert capsys.readouterr().err == ""
 
 
 def test_no_child_at_all_counts_none_running():
