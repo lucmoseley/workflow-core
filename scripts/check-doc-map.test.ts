@@ -8,7 +8,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bareCoreRoot } from "./lib/bare-core-fixture";
 import { ignoreFailure } from "./lib/caught.js";
 import { writeFaultyGit } from "./lib/git-fault-fake";
-import { defineTemplate, mkScratchDir, scratchBase } from "./lib/git-fixture";
+import {
+	cutWorktree,
+	defineTemplate,
+	mkScratchDir,
+	scratchBase,
+} from "./lib/git-fixture";
 import { noop } from "./lib/noop.js";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -1385,6 +1390,13 @@ describe("check-doc-map", () => {
 			".claude/skills/pick/SKILL.md",
 			"scripts/check-thing.js",
 		];
+		const checkoutCore = defineTemplate((dir) => {
+			for (const f of [...pluginOnly, "package.json"]) {
+				fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true });
+				fs.writeFileSync(path.join(dir, f), "x\n");
+			}
+			execFileSync("git", ["init", "-q"], { cwd: dir });
+		});
 		let plugin: string;
 		beforeEach(() => {
 			plugin = fs.mkdtempSync(path.join(scratchBase(), "plugin-"));
@@ -1427,18 +1439,33 @@ describe("check-doc-map", () => {
 			expect(r.status).toBe(0);
 		});
 
-		it("resolves all three against a source checkout of the core outside the adopter", () => {
-			fs.writeFileSync(path.join(plugin, "package.json"), "{}\n");
-			execFileSync("git", ["init", "-q"], { cwd: plugin });
-			const r = check({ WFC_SCRIPT_ROOT: plugin });
+		it("resolves all three against a source checkout of the core outside the adopter (#5581)", () => {
+			const core = mkScratchDir("checkout-core-");
+			checkoutCore.instantiate(core);
+			const r = check({ WFC_SCRIPT_ROOT: core });
 			expect(r.out).not.toContain("point at no tracked file");
 			expect(r.out).not.toContain("resolve to nothing");
 			expect(r.status).toBe(0);
 		});
 
-		it("still fails all three in the core's own repo, tagging each DEAD-ROUTE, DEAD-RESTATEMENT or DEAD-CONSUMES", () => {
-			track("package.json", "{}\n");
-			const r = check({ WFC_SCRIPT_ROOT: repo }, "--json");
+		it("resolves all three in a linked worktree's commit hook, which exports GIT_DIR (#5581)", () => {
+			const r = check({
+				WFC_SCRIPT_ROOT: plugin,
+				GIT_DIR: path.join(repo, ".git"),
+			});
+			expect(r.out).not.toContain("point at no tracked file");
+			expect(r.out).not.toContain("resolve to nothing");
+			expect(r.status).toBe(0);
+		});
+
+		it("still fails all three where the core is a worktree of the checked repo holding them, tagging each DEAD-ROUTE, DEAD-RESTATEMENT or DEAD-CONSUMES (#5581)", () => {
+			commit("base");
+			const core = cutWorktree(repo);
+			for (const f of [...pluginOnly, "package.json"]) {
+				fs.mkdirSync(path.join(core, path.dirname(f)), { recursive: true });
+				fs.writeFileSync(path.join(core, f), "x\n");
+			}
+			const r = check({ WFC_SCRIPT_ROOT: core }, "--json");
 			expect(r.status).toBe(1);
 			const byTag = Object.fromEntries(
 				JSON.parse(r.stdout).findings.map((f: { tag: string }) => [f.tag, f]),
@@ -1447,11 +1474,11 @@ describe("check-doc-map", () => {
 				route: "C1",
 				path: "docs/agents/guide.md",
 			});
-			expect(Object.keys(byTag).sort()).toEqual([
-				"DEAD-CONSUMES",
-				"DEAD-RESTATEMENT",
-				"DEAD-ROUTE",
-			]);
+			expect(
+				Object.keys(byTag)
+					.filter((t) => t.startsWith("DEAD-"))
+					.sort(),
+			).toEqual(["DEAD-CONSUMES", "DEAD-RESTATEMENT", "DEAD-ROUTE"]);
 		});
 	});
 

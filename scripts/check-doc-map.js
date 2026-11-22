@@ -83,7 +83,7 @@ const {
 	scriptPath,
 } = require("./lib/script-path");
 const { caught } = require("./lib/caught.js");
-const { inCoreRepo } = require("./lib/core-repo.js");
+const { isCoreRepo } = require("./lib/core-repo.js");
 const { withGitReadMemo } = require("./lib/git-read-memo.js");
 
 /** @param {string} name */
@@ -301,7 +301,7 @@ function walkTree(ctx, root) {
 	}
 
 	let resolvable = allTracked;
-	if (!inCoreRepo())
+	if (!isCoreRepo())
 		try {
 			resolvable = [...allTracked, ...readTrackedFiles(coreRoot())];
 		} catch (e) {

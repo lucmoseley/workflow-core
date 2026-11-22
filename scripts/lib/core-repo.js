@@ -1,19 +1,18 @@
-const { orFallback } = require("./caught.js");
-const { gitCommonDir } = require("./git.js");
-const { gitTopLevel } = require("./host-root.js");
-const { deref } = require("./deref.js");
+const { gitCommonDir, gitOrNull } = require("./git.js");
+const { scrubbedGitEnv } = require("./hook-entry.js");
 const { coreRoot } = require("./script-path.js");
 
-/**
- * @param {string} [cwd]
- * @param {NodeJS.ProcessEnv} [env]
- * @returns {boolean}
- */
-function inCoreRepo(cwd = process.cwd(), env = process.env) {
-	const core = coreRoot(env);
-	if (orFallback(() => gitTopLevel(core), null) !== deref(core)) return false;
-	const own = gitCommonDir(core);
-	return own !== null && own === gitCommonDir(cwd);
+// #5581
+/** @returns {boolean} */
+function isCoreRepo() {
+	const core = coreRoot();
+	const env = scrubbedGitEnv(process.env);
+	if (
+		gitOrNull(["rev-parse", "--show-cdup"], { cwd: core, env })?.trim() !== ""
+	)
+		return false;
+	const own = gitCommonDir(core, { env });
+	return own !== null && own === gitCommonDir(process.cwd());
 }
 
-module.exports = { inCoreRepo };
+module.exports = { isCoreRepo };
