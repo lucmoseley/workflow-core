@@ -19,7 +19,7 @@ These warn and carry no fault:
 - a `globs` item that is not a non-empty string, which is dropped;
 - `mutation` on with no `sensitivePaths` glob, so the mutation hold never fires.
 
-Callers branch on faults, never on a warning's text. A malformed `refillLoop` keeps the checkout out of the refill loop and names the fault as the reason. Either kind of fault on `retro` stops its due report; on `archScan` only a malformed one does. A fault on a key a core-written workflow reads, such as `ci` or `landingTester`, makes upgrade skip that workflow rather than write it from a default.
+Either kind of fault on `retro` stops its due report; on `archScan` only a malformed one does. A fault on a key a core-written workflow reads, such as `ci` or `landingTester`, makes upgrade skip that workflow rather than write it from a default.
 
 ## Keys read as declared, resolved elsewhere
 
@@ -46,4 +46,4 @@ Callers branch on faults, never on a warning's text. A malformed `refillLoop` ke
 
 ## `overrides.output_style`
 
-A repo-relative path to the style file, such as `.claude/output-styles/mine.md`, never a bare style name: the value must contain a `/` or `\`, must not be absolute and must not climb out with `..`. A bare name is malformed and reads as `null`. `null` or absent loads `.claude/output-styles/core-voice.md`. The `WFC_OUTPUT_STYLE` environment variable, where set, replaces the key; set empty, it reads as `null`.
+A repo-relative path to the style file, such as `.claude/output-styles/mine.md`, never a bare style name: the value must contain a `/` or `\`, must not be absolute and must not climb out with `..`. `null` or absent loads `.claude/output-styles/core-voice.md`. The `WFC_OUTPUT_STYLE` environment variable, where set, replaces the key; set empty, it reads as `null`.
