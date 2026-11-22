@@ -1,5 +1,5 @@
 const HEADER = "**Hand-off:**";
-// measured 65,536-character limit, traced to GitHub docs, #2391
+// #2391
 const COMMENT_LIMIT = 65_536;
 const FIELDS = /** @type {const} */ ([
 	"Base",

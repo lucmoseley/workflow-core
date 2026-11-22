@@ -48,8 +48,9 @@ function parseJobDir(jobDir) {
  */
 const rosterPath = (seat) => path.join(seat, "daemon", "roster.json");
 
+// measured 8-character jobs/<id> names, #2954
 /** @param {string} sessionId */
-const shortJobId = (sessionId) => sessionId.slice(0, 8); // measured 8-character jobs/<id> names, #2954
+const shortJobId = (sessionId) => sessionId.slice(0, 8);
 
 // #4704
 const ABSENT = new Set(["ENOENT", "ENOTDIR"]);

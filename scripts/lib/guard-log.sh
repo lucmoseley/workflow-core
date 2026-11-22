@@ -76,7 +76,8 @@ gl_when() {
 }
 
 # guess, #1622
-: "${GL_DETAIL_MAX:=300}"
+GL_DETAIL_MAX=300
+: "$GL_DETAIL_MAX"
 
 gl_project_dir() {
   local slug="$1"

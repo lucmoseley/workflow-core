@@ -12,7 +12,7 @@ const WORTH_REPLAYING_PCT = 1;
  *   lowPct: number, highPct: number}} Rate
  */
 
-// measured, lucmoseley/mantahostels#3260
+// lucmoseley/mantahostels#3260
 /** @type {Record<string, Rate>} */
 const RATES = {
 	"guard-issue-close": {

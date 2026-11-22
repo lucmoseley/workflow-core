@@ -22,8 +22,8 @@ function isJobDir(p, { pwd, jobDir }) {
 	return SHAPE_RE.test(abs);
 }
 
+// lucmoseley/mantahostels#103
 /**
- * lucmoseley/mantahostels#103
  * @param {string} p
  * @param {Where} where
  * @returns {string | null}

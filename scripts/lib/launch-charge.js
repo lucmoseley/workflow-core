@@ -26,7 +26,7 @@ const TSC_PEAK_MB = Math.max(...TSC_PEAKS_MB.values());
 
 // measured 937 MB, the highest of 341 named runs, #3973
 const LANDER_CHARGE_MB = { whole: SUITE_PEAK_MB, named: 940 };
-// measured named runs of 1-6 files, #3973
+// measured 6 files the largest named run sampled, #3973
 const NAMED_MEASURED_FILES = 6;
 
 /**

@@ -53,11 +53,14 @@ function outsideOutageVoid(lines) {
 	return lines.filter((line) => !inOutageVoid(jevLog.whenOf(line)));
 }
 
-const WRONG_IN = 10; // guess, #175
+// guess, #175
+const WRONG_IN = 10;
 
-const LIMB1_SESSIONS = 20; // guess, #175
+// guess, #175
+const LIMB1_SESSIONS = 20;
 
-const OUTAGE_IN = 10; // guess, #175
+// guess, #175
+const OUTAGE_IN = 10;
 
 const VERDICTS_NAME = ".jev-verdicts.jsonl";
 

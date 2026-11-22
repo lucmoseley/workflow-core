@@ -7,16 +7,18 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Liveness from "./agent-liveness.js";
 import { withStopClockLeft } from "./hook-deadline-testkit";
 import { keptSpawn } from "./kept-spawn.js";
+import type * as OracleCache from "./oracle-cache.js";
 import { shellQuote } from "./sh-quote.js";
 
 const cache = createRequire(__filename)(
 	"./oracle-cache.js",
-) as typeof import("./oracle-cache.js");
+) as typeof OracleCache;
 const liveness = createRequire(__filename)(
 	"./agent-liveness.js",
-) as typeof import("./agent-liveness.js");
+) as typeof Liveness;
 
 const hashOf = (key: string) =>
 	crypto.createHash("sha1").update(key).digest("hex").slice(0, 12);

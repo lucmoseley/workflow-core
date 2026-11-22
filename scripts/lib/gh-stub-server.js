@@ -7,7 +7,6 @@ const vm = require("node:vm");
 const { noop } = require("./noop.js");
 const { shellQuote } = require("./sh-quote.js");
 
-// sysexits(3) EX_SOFTWARE: https://man.freebsd.org/cgi/man.cgi?query=sysexits
 const NO_ANSWER = 70;
 
 /** @param {number} port */

@@ -59,7 +59,7 @@ function postReason(text) {
 /** @param {number} ms */
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// guess, #5070
+// guess, #5086
 const timing = () => ({
 	retries: Number(process.env.WFC_LINK_RETRIES ?? 4),
 	sleepMs: Number(process.env.WFC_LINK_SLEEP ?? 2) * 1000,

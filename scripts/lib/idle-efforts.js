@@ -13,7 +13,7 @@ const { scriptPath } = require("./script-path.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// guess, a house figure, #3588
+// guess, #3588
 const IDLE_DAYS = 2;
 const IDLE_MS = IDLE_DAYS * DAY_MS;
 const HUMAN_LABEL = takesLabel("human");

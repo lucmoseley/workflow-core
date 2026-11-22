@@ -1,4 +1,4 @@
-// measured 12 s at Stop, #4115; half each hook's timeout elsewhere, #2792
+// measured 12 s at Stop, #4115
 const ENTRY_BUDGET_MS = { PreToolUse: 30_000, PostToolUse: 7500, Stop: 12_000 };
 
 /** @type {number | null} */

@@ -1,3 +1,4 @@
+// full-sweep-only: #2734
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";

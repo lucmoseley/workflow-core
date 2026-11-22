@@ -184,52 +184,61 @@ describe("adoption", () => {
 		);
 	});
 
-	it("never lets a second adopter take the tree the first is probing, so `.current` never names a missing one (#5431)", async () => {
-		const probing = path.join(dir, "x-probing");
-		// guess, #5431
-		const first = land(
-			`require("fs").writeFileSync(${JSON.stringify(probing)}, ""); process.stdin.resume(); setTimeout(() => {}, 1500);\n`,
-		);
-		const run = () =>
-			new Promise<{ code: number | null; out: string }>((resolve) => {
-				let out = "";
-				const child = keptSpawn("concurrent").spawn(
-					process.execPath,
-					[path.resolve(__dirname, "../adopt-guard-code.js")],
-					{
-						env: {
-							...process.env,
-							CLAUDE_PROJECT_DIR: repo,
-							WFC_GUARD_CODE_DIR: codeDir,
+	// guess, #5431
+	const probeHoldMs = 1500;
+	// guess, #5431
+	const probeWaitMs = 30_000;
+	// guess, #5431
+	const raceTestMs = 60_000;
+
+	it(
+		"never lets a second adopter take the tree the first is probing, so `.current` never names a missing one (#5431)",
+		async () => {
+			const probing = path.join(dir, "x-probing");
+			const first = land(
+				`require("fs").writeFileSync(${JSON.stringify(probing)}, ""); process.stdin.resume(); setTimeout(() => {}, ${probeHoldMs});\n`,
+			);
+			const run = () =>
+				new Promise<{ code: number | null; out: string }>((resolve) => {
+					let out = "";
+					const child = keptSpawn("concurrent").spawn(
+						process.execPath,
+						[path.resolve(__dirname, "../adopt-guard-code.js")],
+						{
+							env: {
+								...process.env,
+								CLAUDE_PROJECT_DIR: repo,
+								WFC_GUARD_CODE_DIR: codeDir,
+							},
+							stdio: ["ignore", "pipe", "ignore"],
 						},
-						stdio: ["ignore", "pipe", "ignore"],
-					},
-				);
-				child.stdout.on("data", (d) => {
-					out += d;
+					);
+					child.stdout.on("data", (d) => {
+						out += d;
+					});
+					child.on("close", (code) => resolve({ code, out }));
 				});
-				child.on("close", (code) => resolve({ code, out }));
+			const x = run();
+			await vi.waitFor(() => expect(fs.existsSync(probing)).toBe(true), {
+				timeout: probeWaitMs,
+				interval: 20,
 			});
-		const x = run();
-		// guess, #5431
-		await vi.waitFor(() => expect(fs.existsSync(probing)).toBe(true), {
-			timeout: 30_000,
-			interval: 20,
-		});
-		const second = land(`${OK}// two\n`);
-		const y = await run();
-		expect((await x).code).toBe(0);
-		expect(y).toEqual({
-			code: 0,
-			out: `guard code: adopted ${second.slice(0, 9)}\n`,
-		});
-		expect(live()).toBe(path.join(codeDir, second));
-		expect(fs.existsSync(path.join(live(), "scripts/guard-dispatch.js"))).toBe(
-			true,
-		);
-		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, first));
-		expect(fs.existsSync(files().previous)).toBe(true);
-	}, 60_000 /* guess, #5431 */);
+			const second = land(`${OK}// two\n`);
+			const y = await run();
+			expect((await x).code).toBe(0);
+			expect(y).toEqual({
+				code: 0,
+				out: `guard code: adopted ${second.slice(0, 9)}\n`,
+			});
+			expect(live()).toBe(path.join(codeDir, second));
+			expect(
+				fs.existsSync(path.join(live(), "scripts/guard-dispatch.js")),
+			).toBe(true);
+			expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, first));
+			expect(fs.existsSync(files().previous)).toBe(true);
+		},
+		raceTestMs,
+	);
 
 	it("adopts nothing in a checkout whose hooks do not run from it", () => {
 		land(OK);

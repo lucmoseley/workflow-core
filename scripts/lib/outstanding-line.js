@@ -20,9 +20,11 @@ const REPO = "[A-Za-z0-9_.-]+";
 const REF_RE = new RegExp(`^(?:(${OWNER})\\/(${REPO})|(${REPO}))?#([1-9]\\d*)`);
 const RANGE_RE =
 	/#\d+[`)]?\s*(?:through|thru|to|until|[-–—]|\.\.\.?)\s*[`(]?(?:[A-Za-z0-9_./-]*#)?\d+/i;
-const HEX_WORD_RE = /(?<![\w-])[0-9a-f]{7,40}(?![\w-])/;
-const SHA_RE =
-	/(?<![\w-])(?=[0-9a-f]{0,39}\d)(?=[0-9a-f]{0,39}[a-f])[0-9a-f]{7,40}(?![\w-])/;
+/** @param {string} lead */
+const hexWord = (lead) =>
+	new RegExp(`(?<![\\w-])${lead}[0-9a-f]{7,40}(?![\\w-])`);
+const HEX_WORD_RE = hexWord("");
+const SHA_RE = hexWord("(?=[0-9a-f]{0,39}\\d)(?=[0-9a-f]{0,39}[a-f])");
 const MARKER_RE = /^[ \t]*\*\*Outstanding:\*\*(.*)$/;
 const FENCE_RE = /^[ \t]{0,3}(```|~~~)/;
 

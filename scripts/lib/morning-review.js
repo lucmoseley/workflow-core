@@ -14,7 +14,7 @@ const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
 const STANDALONE_REASON =
 	"the day's away-mode review, outside every map (#1995)";
 const HISTORY_LINE = /^Table history read to ([0-9a-f]{40}) in (\S+)\.$/gm;
-// guess, #3827
+// guess, 70 times the 12.3 s search lag measured, #3827
 const CLOSE_SETTLE_MS = 15 * 60 * 1000;
 // guess, #2693
 const STUCK_URGENT_DAYS = 7;

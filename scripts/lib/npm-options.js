@@ -1,7 +1,7 @@
 /** @param {string} list */
 const words = (list) => list.trim().split(/\s+/);
 
-// measured off npm 11.16.0's config definitions, #563
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const VALUE_FLAGS = new Set(
 	words(`
 --_auth --access --allow-directory
@@ -31,7 +31,7 @@ const VALUE_FLAGS = new Set(
 `),
 );
 
-// measured off npm 11.16.0's config definitions, #563
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const BOOL_FLAGS = new Set(
 	words(`
 --all --allow-same-version --allow-scripts-pending --allow-scripts-pin --audit
@@ -66,7 +66,7 @@ const CONFIG_LIST = [...VALUE_FLAGS, ...BOOL_FLAGS]
 	.map((f) => f.slice(2));
 const CONFIGS = new Set(CONFIG_LIST);
 
-// measured off npm 11.16.0's config definitions, #563
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const STRING_FLAGS = new Set(
 	words(`
 --call --diff-dst-prefix --diff-src-prefix --editor --git --heading
@@ -77,7 +77,7 @@ const STRING_FLAGS = new Set(
 `),
 );
 
-// measured off npm 11.16.0's config definitions, #563
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const NULLABLE = new Set(
 	words(`
 access also audit-level before depth expect-result-count expect-results
@@ -87,12 +87,12 @@ which workspaces yes
 `),
 );
 
-// measured off npm 11.16.0's config definitions, #563
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const NUMERIC = new Set(
 	words("depth expect-result-count expires min-release-age which"),
 );
 
-// measured off npm 11.16.0's config definitions, #563
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const LITERALS = new Set(
 	words(`
 access:restricted access:public access:private allow-directory:all
@@ -116,7 +116,7 @@ orgs-permission:read-write orgs-permission:no-access
 `),
 );
 
-// measured off npm 11.16.0's shorthands, #563
+// https://github.com/npm/cli/blob/v11.16.0/workspaces/config/lib/definitions/index.js
 /** @type {Map<string, string>} */
 const SHORTHANDS = new Map([
 	["enjoy-by", "--before"],
@@ -350,7 +350,7 @@ function isNpmRun(word) {
 	);
 }
 
-// measured off npm 11.16.0's cmd-list deref, #3851
+// https://github.com/npm/cli/blob/v11.16.0/lib/utils/cmd-list.js
 const SCRIPT_COMMANDS = new Map(
 	Object.entries({
 		t: "test",
@@ -374,7 +374,7 @@ const SCRIPT_COMMANDS = new Map(
  */
 const scriptOfNpmCommand = (word) => SCRIPT_COMMANDS.get(word);
 
-// measured off npm 11.16.0's cmd-list deref, #4255
+// https://github.com/npm/cli/blob/v11.16.0/lib/utils/cmd-list.js
 const TREE_COMMANDS = new Map(
 	Object.entries({
 		install: "add i in ins inst insta instal install isnt isnta isntal isntall",

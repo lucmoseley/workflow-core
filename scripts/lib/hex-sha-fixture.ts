@@ -6,7 +6,7 @@ const SHAPES = {
 	digits: new RegExp(`^\\d{${SHORT}}`),
 	letters: new RegExp(`^[a-f]{${SHORT}}`),
 };
-// measured odds of all missing e^-111, #3230
+// guess, odds of all missing e^-111, #3230
 const TRIES = 100_000;
 const FIRST_DATE = 1_700_000_000;
 
@@ -56,7 +56,7 @@ export function hexShaCommit(
 	throw new Error(`no all-${shape} short sha in ${TRIES} dates`);
 }
 
-// measured odds of all missing e^-149, #3233
+// guess, odds of all missing e^-149, #3233
 const PAIR_TRIES = 200_000;
 
 export function sharedShortShaCommits(
