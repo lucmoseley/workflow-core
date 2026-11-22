@@ -194,7 +194,7 @@ function upgrade({
 			reason:
 				`pin ${pinned} is ahead of the installed plugin ${installed} — ` +
 				`install owes: re-materialise to ${pinned} (full recipe: ` +
-				"materialisePlugin's JSDoc in scripts/lib/materialise-plugin.js)",
+				"scripts/lib/rule-text.sh adopter-materialise-sequence)",
 		};
 	}
 
