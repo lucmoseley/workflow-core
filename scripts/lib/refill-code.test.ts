@@ -150,7 +150,9 @@ describe("readRunningCode", () => {
 		try {
 			fake.proc(4242, { argv: "node scripts/refill-loop.js" });
 			writeCwd(fake.root, "4242", fake.root);
-			expect(readRunningCode(4242, codeDir)).toBe("a plugin install");
+			expect(readRunningCode(4242, codeDir)).toEqual({
+				code: "a plugin install",
+			});
 		} finally {
 			fake.remove();
 		}
@@ -401,7 +403,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 				Number(loopProc.pid),
 				path.join(state, ".refill-loop-code"),
 			),
-		).not.toBeNull();
+		).toEqual({ code: expect.any(String) });
 		expectPinnedRan();
 	});
 
@@ -702,7 +704,9 @@ describe("adoption", () => {
 		expect(lines).not.toContain("lock refused");
 		expect(readTicks().at(-1)).toContain(`pid ${pid}`);
 		expect(kept.map((f) => fs.readFileSync(path.join(dir, f)))).toEqual(before);
-		expect(readRunningCode(Number(pid), codeDir)).toBe(short(tip));
+		expect(readRunningCode(Number(pid), codeDir)).toEqual({
+			code: short(tip),
+		});
 		await moreTicks(2);
 		expect(fs.readdirSync(codeDir).sort()).toEqual(
 			[path.basename(path.dirname(path.dirname(first))), tip].sort(),

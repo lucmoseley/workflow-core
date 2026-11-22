@@ -5,14 +5,19 @@ const { caught } = require("./caught.js");
 const { pidLock } = require("./pid-lock.js");
 const { linkOf } = require("./pinned-code.js");
 const { procRoot } = require("./proc-root.js");
+const { FIELD, readStatFields } = require("./proc-stat.js");
 const { refillPath } = require("./refill-dir.js");
 const { relativeUnder } = require("./is-under.js");
+const { sleepSync } = require("./sleep-sync.js");
 
 const PROGRAM_NAME = "refill-loop.js";
 const PROGRAM = path.join("scripts", PROGRAM_NAME);
 const PID_FILE = ".refill-loop.pid";
 const CODE_DIR = ".refill-loop-code";
 const CONTROL_COMMANDS = new Set(["start", "stop", "set", "status"]);
+// the empty read measured 3 ms at most under 32 busy loops, #5571
+const EXEC_WAIT_MS = 1000;
+const EXEC_POLL_MS = 1;
 
 /** @param {string} codeDir */
 const bootLinkOf = (codeDir) => linkOf(codeDir, "current");
@@ -39,18 +44,49 @@ function throughBootLink(file) {
 	return path.join(bootLinkOf(codeDir), ...inTip);
 }
 
-/** @param {number} pid */
-function readRunningProgram(pid) {
+// measured: a live pid reads an empty cmdline mid-exec, 15 in 4000 spawns, #5571
+/**
+ * @param {number} pid
+ * @param {(ms: number) => void} pause
+ * @returns {{argv: string[]}|{unread: string}}
+ */
+function readArgv(pid, pause) {
+	for (let waited = 0; ; waited += EXEC_POLL_MS) {
+		const raw = fs.readFileSync(`${procRoot()}/${pid}/cmdline`, "utf8");
+		if (raw !== "") return { argv: raw.split("\0") };
+		const state = readStatFields(pid)?.[FIELD.state];
+		if (state === undefined || state === "Z")
+			return { unread: `pid ${pid} has exited` };
+		if (waited >= EXEC_WAIT_MS)
+			return {
+				unread: `pid ${pid}'s command line stayed empty for ${EXEC_WAIT_MS} ms`,
+			};
+		pause(EXEC_POLL_MS);
+	}
+}
+
+/**
+ * @param {number} pid
+ * @param {{pause?: (ms: number) => void}} [ports]
+ * @returns {{program: string}|{unread: string}}
+ */
+function readRunningProgram(pid, { pause = sleepSync } = {}) {
 	try {
-		const arg = fs
-			.readFileSync(`${procRoot()}/${pid}/cmdline`, "utf8")
-			.split("\0")
-			.find((a) => path.basename(a) === PROGRAM_NAME);
+		const read = readArgv(pid, pause);
+		if ("unread" in read) return read;
+		const arg = read.argv.find((a) => path.basename(a) === PROGRAM_NAME);
 		return arg
-			? path.resolve(fs.readlinkSync(`${procRoot()}/${pid}/cwd`), arg)
-			: null;
+			? {
+					program: path.resolve(
+						fs.readlinkSync(`${procRoot()}/${pid}/cwd`),
+						arg,
+					),
+				}
+			: {
+					unread: `pid ${pid} runs no ${PROGRAM_NAME}: ${read.argv.join(" ").trim()}`,
+				};
 	} catch (err) {
-		if (isGone(err)) return null;
+		if (isGone(err)) return { unread: `pid ${pid} is gone` };
 		throw err;
 	}
 }
@@ -60,8 +96,9 @@ function readRunningProgram(pid) {
  * @param {string} codeDir
  */
 function readControlProgram(pid, codeDir) {
+	const running = pid === null ? null : readRunningProgram(pid);
 	const candidates = [
-		pid === null ? null : readRunningProgram(pid),
+		running !== null && "program" in running ? running.program : null,
 		bootLinkProgram(codeDir),
 	];
 	for (const program of candidates) {
