@@ -21,3 +21,7 @@ The core's one page check is `check-website-copy.js`, which refuses a commit sta
 ## This repo's own commit-message refusals
 
 A commit-message refusal of this repo's own goes in `.husky/commit-msg.local`, which the core never writes. The core's commit-msg hook sources it last, on every route, in its `sh -e` shell: `$1` is the message file, `$route` names the route so the file can stand down on a replay itself, and any failing command or `exit 1` refuses the commit. A script it names that this repo lacks refuses every commit.
+
+## What a config key means
+
+What a `.claude/workflow-core.json` key does where it is absent or wrong — which keys are derived, which switches default on, which bad values raise a fault — is in the plugin's `docs/agents/config-keys.md`.
