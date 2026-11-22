@@ -274,7 +274,7 @@ const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
  * @param {(fault: string) => void} say
  * @returns {Record<string, unknown> | null}
  */
-function packageScripts(got, say) {
+function parsePackageScripts(got, say) {
 	if (got.state === "absent") return null;
 	if (got.state === "unreadable") {
 		say("package.json unreadable");
@@ -298,7 +298,7 @@ function buildIsWrapperScript(tree, log) {
 	let scripts;
 	return (script) => {
 		if (scripts === undefined)
-			scripts = packageScripts(tree().read("package.json"), (fault) =>
+			scripts = parsePackageScripts(tree().read("package.json"), (fault) =>
 				log(
 					`${fault} — \`--queue\` offered without knowing whether \`${script}\` runs run-vitest.js`,
 				),

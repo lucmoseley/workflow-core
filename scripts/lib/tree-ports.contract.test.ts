@@ -16,7 +16,7 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-describe("a tree's read, the host's and the fake's alike", () => {
+describe("a tree's read and repoRel, the host's and the fake's alike", () => {
 	it.each([
 		["the host's", () => treePorts(dir)],
 		[
@@ -38,13 +38,14 @@ describe("a tree's read, the host's and the fake's alike", () => {
 		["the host's", () => treePorts(dir)],
 		["the fake's", () => treePortsFake({})],
 	])(
-		"%s repoRel gives a path under the root relative, and null outside it",
+		"%s repoRel gives a path under the root relative, and null outside it or for a relative path",
 		(_, tree) => {
 			const t = tree();
 			expect(t.repoRel(path.join(t.root, "a.md"))).toBe("a.md");
 			expect(
 				t.repoRel(path.join(path.dirname(t.root), "elsewhere.md")),
 			).toBeNull();
+			expect(t.repoRel(`${t.root}/../x.md`)).toBeNull();
 			expect(t.repoRel("a.md")).toBeNull();
 		},
 	);
