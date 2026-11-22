@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins when check-always-loaded-pass.js calls the always-loaded pool due a
- * concision pass — a month since the recorded pass, or the pool
- * near its cap — that an unreadable input reads BROKEN, and that no finding
- * ever gates (mantahostels#2500).
- *
- * check-always-loaded-pass.js reports off two inputs: a committed record of
- * the newest pass, and the pool's live headroom. Both are fabricated here — the
- * record as a temp file, the headroom through the `--headroom` seam — because
- * the live figures move with every commit and a test reading them would pass
- * or fail by what someone else pushed.
- *
- * The wall clock is pinned through WFC_NOW for the same reason: a calendar
- * trigger asserted against `Date.now()` changes verdict overnight.
- *
- * It reports through `npm run status` and gates nothing: loosen a case and a
- * due pass goes unannounced while every session keeps paying for the pool's
- * excess bytes, or a pass is called due when none is.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -51,12 +32,8 @@ const at = (args: string[], extraEnv: Record<string, string> = {}) => {
 
 const run = (...extra: string[]) => at(["--record", record, ...extra]);
 
-/* Headroom well clear of the margin, so a case testing the calendar trigger is
- * not answered by the other one. */
 const SLACK = ["--headroom", "5000"];
 
-/* Writes a recent pass and reads the margin the program reports under --json:
- * the figure is re-measured by hand, so a copy here would go stale. */
 const recordPassReadMargin = (): number => {
 	write([pass("2026-09-28")]);
 	return JSON.parse(run(...SLACK, "--json").out).margin;
@@ -174,11 +151,6 @@ describe("check-always-loaded-pass", () => {
 		expect(r.out).toContain("carries date, sha and issue alone, got files");
 	});
 
-	/* check-always-loaded-pass.js spawns the budget checker off its own
-	 * __dirname, never off --root (#36), so a fixture copy is pointed at
-	 * through WFC_BUDGET_SCRIPT_FILE (`lib/host-root.js`'s header convention)
-	 * rather than planted under `dir` where nothing spawns it any more. */
-
 	it("is BROKEN when the budget checker cannot be run", () => {
 		write([pass("2026-09-20")]);
 		const r = at(["--record", record, "--root", dir], {
@@ -231,9 +203,6 @@ describe("check-always-loaded-pass", () => {
 		expect(out).not.toMatch(/in scope:.*docs\/doc-map\.md/);
 	});
 
-	/* Criterion 6 of mantahostels#2500. A FAIL is what gates, so the assertion is on the
-	 * severity in the envelope as well as on the exit code — a checker that
-	 * exited 2 on every input would pass the exit-code half alone. */
 	it("never gates: no input produces a finding that fails a gate", () => {
 		for (const [passes, extra] of [
 			[[pass("2026-09-20")], SLACK],
@@ -251,11 +220,6 @@ describe("check-always-loaded-pass", () => {
 		}
 	});
 
-	/* The one case outside the fabricated inputs above: it reads the committed
-	 * record, the live pool and the wall clock, which is what makes a record
-	 * someone hand-edits into an unparseable state fail here rather than at a
-	 * session start. Its verdict therefore moves with the repo, so it asserts
-	 * only that the apparatus works — never which trigger fired. */
 	it("reads the live repo's record and pool without BROKENing", () => {
 		const r = runInProcess(SCRIPT, [], { cwd: ROOT });
 		expect(r.status).not.toBe(2);

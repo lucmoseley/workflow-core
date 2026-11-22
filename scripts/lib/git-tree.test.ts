@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Cases for scripts/lib/git-tree.js, the git calls the guard parser's git
- * walk takes (#2785): which tree a directory is, and which files a patch
- * touches. Against a real trio of repositories: `shared`, its linked worktree `wt`, and an unrelated
- * `elsewhere`. Where a case counts git's calls, slows git, or needs git to
- * outlive a timeout, the fault fake sits at lib/git.js's WFC_GIT seam.
- *
- * The classifier keeps one outcome per git argument list for the process, so
- * every case asks of a directory no earlier case has named.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -29,8 +19,6 @@ let dir: string;
 let shared: string;
 let worktree: string;
 let elsewhere: string;
-/** Read-only cases share one instantiation; each that writes makes its own
- * directory beneath it. */
 beforeAll(() => {
 	dir = mkScratchDir("git-tree-");
 	template.instantiate(dir);
@@ -45,8 +33,6 @@ afterAll(() => {
 
 const fresh = (name: string) => fs.mkdtempSync(path.join(dir, `${name}-`));
 
-/** A `.git` naming a gitdir that is gone: the same exit 128 and stderr as no
- * repository at all. */
 const brokenRepo = () => {
 	const broken = fresh("broken-repo");
 	fs.writeFileSync(
@@ -56,11 +42,6 @@ const brokenRepo = () => {
 	return broken;
 };
 
-/**
- * Point WFC_GIT at the fault fake as a pass-through: an `all` match whose
- * script logs each call's arguments, waits `delay` seconds, and falls through
- * to the real git; `calls` reads the log.
- */
 const stubGit = (delay = 0) => {
 	const at = fresh("stub");
 	const log = path.join(at, "calls");
@@ -112,11 +93,6 @@ describe("treeClassifier's four answers", () => {
 	});
 
 	it("finds the repo marker through a symlinked path (mantahostels#253)", () => {
-		// The ancestry walk is lexical and git resolves the physical directory,
-		// so the spelling is canonicalised before it is stripped: the marker sits
-		// ABOVE what the link points at, and never appears on the link's own
-		// path. The proj is outside every repository, so the marker is the only
-		// one the walk can find.
 		const outside = mkDirOutsideRepo("git-tree-link-");
 		try {
 			const proj = path.join(outside, "real", "proj");
@@ -140,8 +116,6 @@ describe("treeClassifier's four answers", () => {
 	});
 
 	it("calls an empty path `unknown`, not `other` (#311)", () => {
-		// A strict walker's unresolved tree. `other` would let a shared-index gate
-		// allow it unrecorded, as "not this repo".
 		expect(treeClassifier(shared)("")).toBe("unknown");
 	});
 });
@@ -182,8 +156,6 @@ describe("treeClassifier — one git call per question, under a timeout", () => 
 	});
 
 	it("answers `unknown` where git outlives the timeout", () => {
-		// Crosses the real clock: the guarantee under test is the child process's
-		// own timeout, which no injected clock reaches.
 		const classify = treeClassifier(shared, { timeoutMs: 100 });
 		const target = fresh("slow");
 		stubGit(1);
@@ -191,8 +163,6 @@ describe("treeClassifier — one git call per question, under a timeout", () => 
 	});
 
 	it("answers `unknown` for a timeout in a directory in no repository", () => {
-		// The real clock, as above: a timeout is git not answering, never a
-		// judged `other`.
 		const classify = treeClassifier(shared, { timeoutMs: 100 });
 		const opaque = mkDirOutsideRepo("git-tree-slow-");
 		stubGit(1);
@@ -205,7 +175,6 @@ describe("treeClassifier — one git call per question, under a timeout", () => 
 });
 
 describe("patchFiles (#2147)", () => {
-	/** A patch changing a.md and renaming it, written outside the tree. */
 	const writePatch = () => {
 		const at = fresh("patch");
 		const file = path.join(at, "own.patch");
@@ -244,9 +213,6 @@ describe("patchFiles (#2147)", () => {
 	});
 
 	it("answers null where git apply outlives the timeout, whatever it printed", () => {
-		// The real clock, as the treeClassifier timeout case: the stub prints one
-		// field, then outlives a ceiling the rev-parse before it must finish
-		// inside.
 		const { git: slow } = writeFaultyGit(
 			{ words: ["apply"] },
 			{ script: "printf '1\\t1\\ta.md\\0'\nexec sleep 3" },

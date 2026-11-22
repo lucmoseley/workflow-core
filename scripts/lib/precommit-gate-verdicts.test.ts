@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * precommit-gate-verdicts.js, the gates' verdict wording in Node (#5155).
- *
- * The module cases pin each branch of the direction verdict (mantahostels#1688,
- * mantahostels#2026). The production-port cases run it over the comparison as
- * doc-map-gate-ports.js spawns it, so node's own exit on a crash meets the
- * verdict for real. The parity case runs scripts/lib/precommit-gate.sh's
- * skip and deletion functions once, in one shell, and holds each Node namesake
- * to the bytes it prints: the two copies serve different gates, and a reworded
- * shell line with no matching Node change would leave one gate's refusal
- * differing from the rest, and the commit-gate refusal table matching only one
- * of them.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -77,7 +64,6 @@ describe("the direction verdict", () => {
 		);
 	});
 
-	// mantahostels#2026: a crash's trace is diagnostics, never the fault list.
 	it("sets the comparison's stderr apart as diagnostics, on a pass and a refusal alike", () => {
 		const diag =
 			"\npre-commit: the doc-map comparison also wrote to stderr — diagnostics, not findings:\n  | one\n  | two\n";
@@ -92,17 +78,11 @@ describe("the direction verdict", () => {
 	});
 });
 
-/*
- * Over the comparison as the production port spawns it: a stub
- * checker-new-faults.js per case, so what node itself does on an absent
- * script, a parse error or a throw reaches the verdict unmodelled.
- */
 describe("the direction verdict over the production comparison port", () => {
 	const notAnAnswer = "could not tell inherited doc-map faults";
 	const addsThem = "are NOT in HEAD";
 	const diagnostics = "diagnostics, not findings";
 
-	/** The verdict on a comparison whose script body is `body`, or none at all. */
 	const verdictOn = (body: string | null) => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-verdicts-cmp-"));
 		try {
@@ -145,8 +125,6 @@ describe("the direction verdict over the production comparison port", () => {
 		expect(v.text).not.toContain(addsThem);
 	});
 
-	/* The stack trace is the crash's, so it must reach the session labelled as
-	 * diagnostics rather than as the faults this commit added. */
 	it("refuses a comparison that throws before it runs, saying it could not tell inherited faults, and labels the trace", () => {
 		const v = verdictOn('throw new Error("boom at require time");\n');
 		expect(v.pass).toBe(false);
@@ -156,9 +134,6 @@ describe("the direction verdict over the production comparison port", () => {
 		expect(v.text).toContain("boom at require time");
 	});
 
-	/* EXIT 1 OBLIGES A FAULT LIST (mantahostels#2026): a 1 that named nothing on either
-	 * stream has answered nothing. A comparison that wrote nothing gets no
-	 * diagnostics block. */
 	it("refuses a silent exit 1 as a failure to answer, not as new faults, with no diagnostics block", () => {
 		const v = verdictOn(exits(1));
 		expect(v.pass).toBe(false);
@@ -167,8 +142,6 @@ describe("the direction verdict over the production comparison port", () => {
 		expect(v.text).not.toContain(diagnostics);
 	});
 
-	/* THE VERDICT IS THE EXIT STATUS, NEVER THE TEXT: a test of the
-	 * comparison's stdout refuses every commit a chatty clean run should pass. */
 	it("passes a clean comparison that printed something anyway", () => {
 		const v = verdictOn(exits(0, "nothing new here"));
 		expect(v.pass).toBe(true);
@@ -183,7 +156,6 @@ describe("the direction verdict over the production comparison port", () => {
 		expect(v.text).toContain("sidecar is stale");
 	});
 
-	// Both streams on the one limb (mantahostels#2026).
 	it("keeps a noisy stderr out of the fault list it refuses on", () => {
 		const v = verdictOn(exits(1, "dead: docs/x.md", "note: cache miss"));
 		expect(v.pass).toBe(false);
@@ -193,11 +165,6 @@ describe("the direction verdict over the production comparison port", () => {
 		expect(v.text).not.toContain("  note: cache miss\n");
 	});
 
-	/* THE COMPOSITION, pinned by the verdict (mantahostels#2314): lib/fault-diff.test.ts
-	 * proves the comparison exits 2 on a crash, the module cases above what the
-	 * verdict does with each code, and this that the two meet. The stub runs
-	 * the shared CLI with its writes wrapped, so it prints part of a fault list
-	 * and then crashes. */
 	it("refuses a comparison that crashes mid-list as a failure to answer, not as new faults, under a diagnostics block", () => {
 		const seam = JSON.stringify(path.join(__dirname, "fault-diff.js"));
 		const v = verdictOn(`const fs = require("node:fs");
@@ -242,7 +209,6 @@ describe("the Node verdicts print what precommit-gate.sh's functions print", () 
 			'echo @@ >&2; gate_stage_out "$PWD" docs/doc-map.md || :',
 		].join("\n");
 		try {
-			// A directory outside any repo, so gate_stage_out's git reads fail.
 			const shell = spawnSync("sh", ["-ec", script], {
 				cwd: dir,
 				encoding: "utf8",

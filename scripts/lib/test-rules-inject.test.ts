@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * lib/test-rules-inject.js hands a session base §X8, §X9 and §X10 the first
- * time it writes a test file (#1887, spec #1869). Break it and a session
- * writes a slow or unselectable test with the rules it breaks never in front
- * of it.
- *
- * Module cases on the core, its path read by the real repo-relative spelling over a temp
- * checkout; the latch, the cap and its deferral are lib/guard-entry.test.ts's,
- * the symlinked spelling of a path lib/guard-dispatch.test.ts's.
- *
- * The seam-2 cases (#4242) run the core through the dispatcher from a linked
- * worktree of a main checkout: the test is named by its path in the session's
- * tree, and the rules' latch lands in the host's marker store.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -61,7 +47,6 @@ describe("a test-file write", () => {
 		expect(judged("scripts/foo.test.ts")).toEqual(RULES);
 	});
 
-	// isTestKind imported, so an edit to the predicate selects this file.
 	it.each([
 		"app/a.test.jsx",
 		"scripts/test_foo.py",
@@ -95,8 +80,6 @@ describe("any other write", () => {
 		expect(judged(file)).toBeNull();
 	});
 
-	// Under a `tests/` the predicate would match, the path as the harness may
-	// send it, `..` unresolved, leading or mid-path.
 	it.each(["../tests/notes.md", "sub/../../tests/a.ts"])(
 		"is handed nothing on %s, a write outside the checkout (#2101, #2546)",
 		(file) => {

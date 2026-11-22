@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what holds an issue back from a launch it is otherwise ready for: a
- * live session's claim, a launch already dispatched, and the machine's
- * admission (mantahostels#384, mantahostels#645, mantahostels#1528).
- *
- * Loosen a case and `/pick-next` can dispatch an already-claimed issue or
- * admit a session the machine has no memory for. The harness is
- * lib/pick-next-testkit.ts.
- *
- * Each case runs scripts/pick-next.js in process against a stub gh, a git
- * tree and a claim store: ~0.2 s a case, under #4302's 60 s per-file limit.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -42,11 +30,6 @@ const selectionMarker = require("./lib/selection-marker.js");
 
 installPickNextHarness();
 
-/*
- * mantahostels#384: continuous refill needs an admission decision, and a fixed five-slot
- * count cannot make one — a working session's cost varies (docs/environment.md), so
- * what is affordable depends on how loaded the machine is.
- */
 describe("admission", () => {
 	it("reports the measured headroom and the live session count", async () => {
 		kit.oracleSessions = ["self", "a@601", "b@602"];
@@ -64,9 +47,6 @@ describe("admission", () => {
 		expect(r.out).toMatch(
 			/live draw\s+2 live session\(s\): mean 858 MB \+ 1\.645 × σ 218 MB − 1280 MB they already hold/,
 		);
-		// 3072 − 106 − 794 − 300 = 1872 MB, the 106 MB the one spare pair
-		// reserved where none is idle; the live draw and 3 more need 1432 at
-		// p95, and 4 more 1915.
 		expect(r.out).toMatch(/free slots\s+3/);
 		expect(r.out).toMatch(/START ONE NOW/);
 	});
@@ -102,20 +82,12 @@ describe("admission", () => {
 		expect(r.out).toMatch(/live sessions\s+unknown/);
 		expect(r.out).toMatch(/4 claude processes/);
 		expect(r.out).not.toMatch(/live sessions\s+2/);
-		/* Unknown, never an idle machine's 0 MB (#337). */
 		expect(r.out).toMatch(
 			/live draw\s+unknown — the session listing was refused/,
 		);
 	});
 
 	it("reflects a live failure on the second read rather than the first read's cached success (mantahostels#1946, mantahostels#1960, mantahostels#1983)", async () => {
-		// Cache deliberately left ON (opts.oracleCache) for this one case: with it
-		// off, as every other test in this file runs, the seam this pins is never
-		// exercised at all. Both calls become their own leader — sequential, not
-		// concurrent, so neither is ever a follower reading the other's write —
-		// which is exactly the case a reintroduced plain cache-hit in
-		// readListing() would answer wrongly: this pins that nothing in the
-		// read path takes a leader's own record as an answer either.
 		kit.oracleSessions = ["self"];
 		const first = await run({ issues: [{ number: 1 }] }, [], {
 			oracleCache: true,
@@ -141,7 +113,6 @@ describe("admission", () => {
 			/HOLD — -906 MB available after reserving 212 MB for the spare pool, holding 794 \+ 300 MB above earlyoom's kill line, under the 577 MB the live sessions' draw and one more need at p95/,
 		);
 		expect(r.out).not.toMatch(/START ONE NOW/);
-		// A hold is about the machine, not the tracker: the shortlist still prints.
 		expect(r.status).toBe(0);
 		expect(r.order()).toEqual([1]);
 	});
@@ -165,15 +136,11 @@ describe("admission", () => {
 		expect(r.out).not.toMatch(/claude processes/);
 	});
 
-	/* This run never reaps (mantahostels#1029); it says what a reap would be worth, so a low
-	 * headroom reading is not read as permanently spent. */
 	it("names the finished-but-resident pool, and the run that frees it now", async () => {
 		kit.oracleSessions = ["self", "a", "b"];
 		kit.oracleFinished = ["a", "b"];
 		const r = await run({ issues: [{ number: 1 }] });
 		expect(r.out).toMatch(/reclaimable\s+2 finished sessions still resident/);
-		/* The plain run, never --dry-run: only a real run reports the MB it
-		 * returned. */
 		expect(r.out).toMatch(/`node scripts\/reap-finished-sessions\.js` stops/);
 		expect(r.out).not.toMatch(/--dry-run/);
 		expect(r.out).toMatch(/reports the MB returned/);
@@ -193,9 +160,6 @@ describe("admission", () => {
 		expect(r.out).not.toMatch(/reclaimable/);
 	});
 
-	/* Without an id this run cannot subtract itself. It refuses to count instead,
-	 * as the reaper does on the same unset variable — and says so, rather than
-	 * printing nothing a reader cannot tell from zero (mantahostels#1237, on mantahostels#1206). */
 	it("prints the reclaimable row as unknown when this run has no session id", async () => {
 		kit.oracleSessions = ["self", "a"];
 		kit.oracleFinished = ["a"];
@@ -249,13 +213,6 @@ describe("admission", () => {
 		});
 	});
 
-	/*
-	 * #590: the breakdown is `admission.js`'s, off the same function, so on
-	 * one machine the two print the same rows. The fixture is `admission.js`'s
-	 * own, read as `--launch` reads it, as selection prices its slots as
-	 * launches (#2568), and with a reap plan returning no MB, as selection
-	 * credits none.
-	 */
 	describe("the memory breakdown (#590)", () => {
 		const fixture = JSON.parse(
 			fs.readFileSync(
@@ -272,7 +229,6 @@ describe("admission", () => {
 
 		const machine = (pss = fixture.pss) => {
 			kit.meminfoText = fixture.meminfo;
-			/* The fixture's idle `aaa` pair, its spare in the claim socket's directory. */
 			kit.procCwds = { "112": "/tmp/x/spare" };
 			kit.psOut = fixture.ps.join("\n");
 			kit.oracleSelfId = selfSessionId;
@@ -355,11 +311,6 @@ describe("admission", () => {
 	});
 });
 
-/*
- * mantahostels#1206: a local, read-only count at the fragment layer one down
- * from the issue layer `pick-next` ranks — stranded file claims, which carry
- * no issue number and so cannot join the sort.
- */
 describe("owed work (mantahostels#1206)", () => {
 	it("reports the stranded-claim count, never as a filter or sort input", async () => {
 		kit.oracleSessions = ["self"];
@@ -370,7 +321,6 @@ describe("owed work (mantahostels#1206)", () => {
 			},
 		});
 		expect(r.out).toMatch(/stranded claims\s+1/);
-		// The shortlist order is untouched: the count is not a sort key.
 		expect(r.order()).toEqual([1, 2]);
 	});
 
@@ -385,9 +335,6 @@ describe("owed work (mantahostels#1206)", () => {
 		expect(r.out).toMatch(/stranded claims\s+0/);
 	});
 
-	/* mantahostels#2765: a claim held by a session the oracle still lists but has marked
-	 * finished ages into the count on the usual threshold, rather than staying
-	 * exempt for ever. */
 	it("counts a claim held by a listed-but-finished session, past the threshold", async () => {
 		kit.oracleSessions = ["self", "done-1"];
 		kit.oracleFinished = ["done-1"];
@@ -400,12 +347,6 @@ describe("owed work (mantahostels#1206)", () => {
 		expect(r.out).toMatch(/stranded claims\s+1/);
 	});
 
-	/*
-	 * #1390: the headline reads the admission block's own STRICT oracle read,
-	 * as check-stranded-file-claims.js does. A listing that omits this run's
-	 * session is a short one, where a live neighbour's claim would count as
-	 * stranded, so both refuse on it.
-	 */
 	it("prints unknown for stranded claims, as for live sessions, when this run's own session is not listed", async () => {
 		kit.oracleSessions = ["other"];
 		const r = await run({
@@ -457,11 +398,9 @@ describe("owed work (mantahostels#1206)", () => {
 		expect(j.owedWork.strandedClaimsCarryingUnknown).toMatch(
 			/would not report/,
 		);
-		// The other null: the count itself read fine, so this one stays clear.
 		expect(j.owedWork.strandedClaimsUnknown).toBeNull();
 	});
 
-	/* Conflating the two nulls tells a consumer git was asked (mantahostels#1780). */
 	it("blames the oracle, not git, when the stranded count itself is unknown", async () => {
 		kit.oracleFails = true;
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
@@ -470,13 +409,6 @@ describe("owed work (mantahostels#1206)", () => {
 		expect(j.owedWork.strandedClaimsCarryingUnknown).toBeNull();
 	});
 
-	/*
-	 * mantahostels#1780: the standing count alone is not owed work — most of the pile is
-	 * inert, and the subset on a file carrying uncommitted work is the part a
-	 * reader can act on. It is the same subset check-stranded-file-claims.js
-	 * itemises under --notify, off lib/stranded-count.js, so the two readers
-	 * cannot disagree (mantahostels#1206).
-	 */
 	it("names how many stranded claims carry uncommitted work", async () => {
 		kit.oracleSessions = ["self"];
 		stubRepo(["scripts/dirty.js"]);
@@ -502,7 +434,6 @@ describe("owed work (mantahostels#1206)", () => {
 		expect(r.out).toMatch(/stranded claims\s+1, unknown how many carrying/);
 	});
 
-	/* #4704: a job store that will not read may hold a dirty worktree's owner. */
 	it("renders the counts with the worktree count unknown where a job store will not read", async () => {
 		kit.oracleSessions = ["self"];
 		const repo = kit.repoRoot as string;
@@ -562,8 +493,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 	});
 
 	it("keeps every claim standing when the oracle will not answer", async () => {
-		// Narrowing the live set on a partial read would dispatch a second session
-		// onto work already in flight.
 		kit.oracleFails = true;
 		const r = await run({
 			issues: [{ number: 1, assignees: ["owner"] }, { number: 2 }],
@@ -575,8 +504,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 	});
 
 	it("warns a corrupt claim record apart from a wholly unread store (mantahostels#1186)", async () => {
-		// A corrupt record among readable ones still leaves some claims held —
-		// unlike a store that would not open at all.
 		kit.oracleSessions = ["self", "alice"];
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }],
@@ -590,7 +517,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 	});
 
 	it("still offers an unclaimed assignment when the oracle will not answer", async () => {
-		// Doubt keeps the claims that exist; it never invents one.
 		kit.oracleFails = true;
 		const r = await run({ issues: [{ number: 1, assignees: ["owner"] }] });
 		expect(r.order()).toEqual([1]);
@@ -631,7 +557,6 @@ describe("an assignment is real only where a live session claimed it (mantahoste
 	});
 });
 
-/* mantahostels#708: what selection TELLS a reader about a claim. */
 /* #2310 */
 describe("a live claim on an issue's parent holds the issue too", () => {
 	const thereUrl = "https://api.github.com/repos/o/there";
@@ -697,7 +622,6 @@ describe("a live claim on an issue's parent holds the issue too", () => {
 			[],
 			{ env: { HOME: home } },
 		);
-		/* #7 here is not that parent: only the child of o/there#7 is held. */
 		expect(r.order()).toEqual([7, 22]);
 		expect(r.out).toMatch(/#21\s+.*parent map o\/there#7 by session alice/);
 	});
@@ -734,7 +658,6 @@ describe("a claim is reported the same way to a person and to a machine (mantaho
 	};
 
 	it("names the claim's session in --json where there is no assignee to name", async () => {
-		// The defect: `claimedBy: []` told a machine reader nobody had claimed it.
 		kit.oracleSessions = ["self", "alice"];
 		const j = (
 			await run({ issues: sharing(), claims: { 2: "alice" } }, ["--json"])
@@ -744,7 +667,6 @@ describe("a claim is reported the same way to a person and to a machine (mantaho
 	});
 
 	it("names the holding session rather than printing a bare id", async () => {
-		// A uuid tells a reader nothing about which session to go and look at.
 		kit.oracleSessions = ["self", "alice"];
 		kit.oracleNames = { alice: "Implement 708" };
 		const r = await run({
@@ -764,13 +686,6 @@ describe("a claim is reported the same way to a person and to a machine (mantaho
 });
 
 describe("which tree the claims came from (mantahostels#703)", () => {
-	/*
-	 * This script pins its repo with WFC_REPO_ROOT; the arbiter store keys its
-	 * state directory on CLAUDE_PROJECT_DIR. Invoke the canonical checkout's copy
-	 * from inside a throwaway worktree and the two name different trees, so the
-	 * store resolves cleanly to a directory holding no claims — and a run that
-	 * reads no claim at all looks exactly like a genuinely unclaimed frontier.
-	 */
 	const elsewhere = () => {
 		kit.claimsRepo = fs.mkdtempSync(
 			path.join(os.tmpdir(), "pick-next-worktree-"),
@@ -786,10 +701,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 		expect(r.out).toMatch(/Claims filed against .* are invisible/);
 	});
 
-	/*
-	 * A run from a linked worktree in production's shape: no CLAUDE_PROJECT_DIR,
-	 * claims filed under the canonical checkout.
-	 */
 	const linkedWorktree = () => {
 		const canonical = kit.repoRoot as string;
 		spawnSync(
@@ -818,11 +729,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 		return { canonical: fs.realpathSync(canonical), wt: fs.realpathSync(wt) };
 	};
 
-	/*
-	 * mantahostels#1 is assigned and a LIVE session holds its claim, filed under
-	 * the canonical checkout. From the worktree the store resolves to that
-	 * checkout too (#4482), so the issue stays out of the shortlist.
-	 */
 	it("reads the canonical checkout's claims from inside a linked worktree", async () => {
 		linkedWorktree();
 		kit.oracleSessions = ["self", "alice"];
@@ -834,10 +740,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 		expect(r.out).not.toMatch(/CLAIMS DEGRADED/);
 	});
 
-	/*
-	 * With neither variable set, the canonical checkout drives the same `git rev-parse` fallback and must stay
-	 * silent, or every ordinary run cries wolf.
-	 */
 	it("says nothing from the canonical checkout with neither variable set", async () => {
 		kit.noProjectDir = true;
 		kit.runCwd = kit.repoRoot;
@@ -853,12 +755,6 @@ describe("which tree the claims came from (mantahostels#703)", () => {
 	});
 });
 
-/*
- * mantahostels#1528: the launcher records every launch to `.pick-next/dispatched.jsonl` and
- * drops a set member whose issues are already there, so a run that ranks one
- * spends a set slot on a line the launcher will delete — under-dispatching, and
- * counting a non-takeable issue in §5's accounting denominator.
- */
 describe("issues the launcher has already dispatched", () => {
 	it("holds a recently dispatched issue out of the frontier", async () => {
 		const r = await run({
@@ -902,12 +798,6 @@ describe("issues the launcher has already dispatched", () => {
 		expect(d.issues[0]).toMatchObject({ number: 2, prompt: "/implement 2" });
 	});
 
-	/*
-	 * mantahostels#3488: the ledger holds an issue out for the whole window regardless of
-	 * whether its launch is still running. `liveness` is the join that tells a
-	 * finished launch from a live one — read off the ledger's `jobId`, the oracle
-	 * listing, and the job's own local `state.json`.
-	 */
 	describe("whether the dispatched launch's own job is still alive (mantahostels#3488)", () => {
 		it("reads live off a working job the oracle still lists", async () => {
 			kit.oracleSessions = ["self", "worker1"];
@@ -934,9 +824,6 @@ describe("issues the launcher has already dispatched", () => {
 
 		it("reads unknown, never live, where the job id names no readable job record", async () => {
 			kit.oracleSessions = ["self"];
-			// A different job's state.json makes the store itself readable
-			// (jobs !== null), so the "ghost" lookup exercises "no job record
-			// found for ghost" rather than the un-opened-store branch.
 			writeJobState("job1", { state: "working", sessionId: "worker1" });
 			const r = await run(
 				{
@@ -979,14 +866,6 @@ describe("issues the launcher has already dispatched", () => {
 	});
 });
 
-/*
- * The review of mantahostels#1528 found three defects in the first implementation: the held
- * issues printed under both ALREADY DISPATCHED and EXCLUDED; the block and its
- * counts keyed off the ledger rather than off the exclusion that actually
- * fired, so a claimed issue was reported as dispatch-held too; and the picker
- * passed its own WFC_REPO_ROOT while the launcher resolves
- * WFC_DISPATCH_ROOT first, so the two could read different ledgers.
- */
 describe("what the mantahostels#1528 review caught", () => {
 	it("prints a held issue once, under its own block and not under EXCLUDED", async () => {
 		const r = await run({
@@ -996,7 +875,6 @@ describe("what the mantahostels#1528 review caught", () => {
 		const excluded = r.out.split("\nEXCLUDED\n")[1] ?? "";
 		expect(r.out).toContain("ALREADY DISPATCHED (1)");
 		expect(excluded).not.toMatch(/^#2\s/m);
-		// Still accounted for, so the table is not silently short.
 		expect(excluded).toContain("1 more excluded as already dispatched");
 	});
 
@@ -1018,8 +896,6 @@ describe("what the mantahostels#1528 review caught", () => {
 	});
 
 	it("reads the ledger WFC_DISPATCH_ROOT names, as the launcher does", async () => {
-		// The ledger goes somewhere WFC_REPO_ROOT does not point at, so a run
-		// that resolved its own root would find nothing and offer mantahostels#2 as takeable.
 		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "pick-next-led-"));
 		roots.push(elsewhere);
 		fs.mkdirSync(
@@ -1051,7 +927,6 @@ describe("what the mantahostels#1528 review caught", () => {
 });
 
 describe("the band no command opens — §5's third accounting term (mantahostels#1626)", () => {
-	/** The RUN SUMMARY block alone, so a match cannot land in another block. */
 	const block = (out: string) =>
 		out.split("RUN SUMMARY")[1]?.split("\nAdvisory only")[0] ?? "";
 
@@ -1063,9 +938,6 @@ describe("the band no command opens — §5's third accounting term (mantahostel
 	});
 
 	it("counts nothing for a takes:human issue an open blocker excluded", async () => {
-		// `<U>` is a term of a sum whose denominator is the frontier, so counting
-		// one off it would put the line permanently above `<F>` and refuse every
-		// honest accounting.
 		const r = await run({
 			issues: [
 				{ number: 1, labels: ["takes:implement"] },
@@ -1089,8 +961,6 @@ describe("the band no command opens — §5's third accounting term (mantahostel
 	});
 
 	it("counts the whole frontier, never the --limit slice", async () => {
-		// `<U>` is a term of an accounting whose denominator is the frontier, so a
-		// display cap that moved it would make every honest line fail the pin.
 		const r = await run(
 			{
 				issues: [
@@ -1105,8 +975,6 @@ describe("the band no command opens — §5's third accounting term (mantahostel
 	});
 
 	it("joins several rotted containers, which is the measured case", async () => {
-		// mantahostels#1622 counted three at once on the runs it measured, so the single-mantahostels#2
-		// case never exercises the join.
 		const r = await run({
 			issues: [
 				{ number: 1, labels: ["takes:implement"] },
@@ -1120,8 +988,6 @@ describe("the band no command opens — §5's third accounting term (mantahostel
 	});
 
 	it("prints the row under --no-log, which mints no marker", async () => {
-		// mantahostels#1626's Done-when is written against a --no-log run, and that flag
-		// suppresses the marker and the warm-fraction line, not the output.
 		const r = await run(
 			{
 				issues: [

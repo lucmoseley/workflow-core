@@ -1,9 +1,3 @@
-/*
- * session-head.js — what a session log's opening records say about where the
- * session ran (#960): pick-retro-sessions.js picks by it, and lib/log-reading.js
- * and the close-check reading find each repo's root the same way (#1103).
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -14,8 +8,6 @@ const { isUnder } = require("./is-under.js");
 /** @typedef {{firstTimestamp: string|null, cwd: string|null, entrypoint: string|null}} SessionHead */
 
 /**
- * The first timestamp, cwd and entrypoint a log records, read only as far as
- * it takes to find all three. Throws where the log cannot be read.
  * @param {string} file
  * @returns {SessionHead}
  */
@@ -33,11 +25,7 @@ function readSessionHead(file) {
 	return out;
 }
 
-/**
- * The repo root a session's cwd belongs to, or null where the cwd is job
- * temp, system temp or repo scratch.
- * @param {string} cwd
- */
+/** @param {string} cwd */
 function repoRootOf(cwd) {
 	const p = path.resolve(cwd);
 	if (/\/\.claude[^/]*\/jobs\//.test(p)) return null;

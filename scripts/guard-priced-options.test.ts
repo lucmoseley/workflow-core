@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * guard-priced-options.js blocks a turn that puts the founder a question not in
- * the lettered priced form, and the status-marker limbs a background job's
- * ending owes, each bounded by its block cap (mantahostels#802, why a Stop hook;
- * mantahostels#785, the background-job marker).
- *
- * Driven end-to-end through the CLI — a payload on stdin, a transcript on disk,
- * the block JSON on stdout. One case loads the module in-process, for the
- * escape pattern the refusal text must not drift from (#1008).
- *
- * It runs at every `Stop` (`self-plugin/hooks/hooks.json`, `hooks/hooks.json`)
- * and is the only enforcement of core-voice's priced-options rule: loosen a
- * case and an unpriced choice reaches the founder, or a job waiting on him is
- * filed Completed; tighten one and a well-formed turn is refused.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -30,24 +15,17 @@ import {
 import { buildBashCall, researchCalls } from "./lib/transcript-testkit";
 import { readProgramLibs } from "./lib-closure-fixture";
 
-/* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 
-/* The block counters (`*-nagged-<sid>`) live under gr_markers_dir
- * (.claude/tmp/markers), not the throwaway root itself — hook-block.js's
- * counterPath (mantahostels#3515 F8, issue #2). */
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
 const GUARD = path.join(__dirname, "guard-priced-options.js");
 
-/* A top figure two steps clear of the low-top line, for the rounds that test
- * something else: a re-rule of LOW_TOP moves them with it (#2538). */
 const { CLOSE_GAP, LOW_TOP } = createRequire(__filename)(
 	"./lib/close-rivals.js",
 );
 const LIKELY_TOP = LOW_TOP + 10;
 
-/** A headline figure with a ten-point band, as a `Confidence:` line gives it. */
 const priced = (figure: number) =>
 	`${figure}% (${figure - 5}% - ${figure + 5}%)`;
 
@@ -63,18 +41,10 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/*
- * A background Bash call with no settling notification: a `waiting:` ending is
- * refused in a background job even with a launch out (#5395).
- */
 const PENDING_LAUNCH = buildBashCall("sleep 60", "toolu_pending", {
 	input: { run_in_background: true },
 });
 
-/**
- * A transcript whose outgoing message is `text`, preceded by a user turn and
- * enough research that the under-researched-round limb (#1710) passes it.
- */
 function transcriptWith(text: string, extra: object[] = []): string {
 	const file = path.join(dir, `${sid}.jsonl`);
 	const records = [
@@ -90,15 +60,8 @@ function transcriptWith(text: string, extra: object[] = []): string {
 	return file;
 }
 
-/*
- * The needs-input check keys off CLAUDE_JOB_DIR, which vitest inherits when the
- * suite is itself run from a background job. Every runner below sets it
- * explicitly.
- */
-/** One channel (mantahostels#2350): `reason` carries the whole correction. */
 type Block = StopBlock;
 
-/* `stdin` is spawnSync's `input` under the name the seam uses. */
 const runGuardCli = (opts: {
 	stdin: string;
 	cwd: string;
@@ -109,10 +72,6 @@ const runGuardCli = (opts: {
 		env: { ...opts.env, CLAUDE_CONFIG_DIR: path.join(dir, "config") },
 	});
 
-/**
- * A `null` `jobDir` runs the guard as an interactive session. `extra`
- * overrides the runner's environment; an `undefined` in it unsets.
- */
 const runGuard = (
 	transcript: string,
 	jobDir: string | null,
@@ -126,31 +85,20 @@ const runGuard = (
 		env: extra,
 	});
 
-/** Run the guard as an interactive session; null when it allowed the stop. */
 function run(transcript: string): Block | null {
 	return runGuard(transcript, null);
 }
 
-/**
- * Run the guard with the turn's text on the payload, as the harness supplies it
- * (mantahostels#1273), and no transcript to fall back to — so only the payload can answer.
- */
 const runWithMessage = (message: string) =>
 	readStopGuardBlock(GUARD, { dir, sid, message });
 
-/**
- * Run the guard as a background job with the turn's text on the payload and no
- * transcript behind it (mantahostels#1254).
- */
 const runInJobWithMessage = (message: string) =>
 	readStopGuardBlock(GUARD, { dir, sid, message, job: dir });
 
-/** Run the guard as a background job, where the status line can be mislabelled. */
 function runInJob(transcript: string): Block | null {
 	return runGuard(transcript, dir);
 }
 
-/** GOOD's runner-up, priced so the pair sums to 100. */
 const GOOD_B = `Confidence: ${priced(100 - LIKELY_TOP)}.`;
 
 const GOOD = `Two things to settle.
@@ -167,15 +115,8 @@ Relation: (A) and (B) conflict on the expiry date itself — a code cannot both 
 
 ➡️ (A).`;
 
-/*
- * mantahostels#2583 obliges a round above any `needs input:` in a background job, so a
- * fixture isolating one of the MARKER limbs carries a well-formed round to keep
- * the new limb out of its way.
- */
 const withRound = (text: string) => `${GOOD}\n\n${text}`;
 
-/* A re-rule that breaks one of these leaves a fixture built on LIKELY_TOP
- * passing without testing what its case names: re-shape that fixture. */
 describe("the figures derived from LIKELY_TOP", () => {
 	it("keep every band between 0 and 100", () => {
 		for (const figure of [
@@ -293,7 +234,6 @@ describe("the defects it names", () => {
 		);
 		const reason = run(transcriptWith(text))?.reason ?? "";
 		expect(reason).toContain("option (B) carries no Confidence line");
-		/* Scoped to the defect line, the only place a letter should appear. */
 		const defectLine =
 			reason.split("\n").find((l) => l.startsWith("Q1:")) ?? "";
 		expect(defectLine).not.toContain("(A)");
@@ -383,10 +323,6 @@ Relation: (A) and (B) are mutually exclusive — the answer is one date or the o
 		const unpriced = GOOD.replace(`${GOOD_B} `, "");
 		const reason = () => run(transcriptWith(unpriced))?.reason ?? "";
 
-		/* The escape words as the guard declares them, pinned here so a word
-		 * dropped from the refusal turns this red. The case below feeds back
-		 * whatever the refusal names, so a word dropped from the pattern alone
-		 * turns that one red. */
 		it("names every escape word", () => {
 			const words = [
 				"unknowable",
@@ -442,7 +378,6 @@ describe("the message it sends back", () => {
 		expect(whole).not.toContain("(A) <the first option");
 	});
 
-	/* mantahostels#2319, mantahostels#2335, mantahostels#2350. */
 	it("opens on the machine-directed notice, then the whole correction", () => {
 		const block = blocked();
 		const reason = block?.reason ?? "";
@@ -458,8 +393,6 @@ describe("the message it sends back", () => {
 	});
 
 	it("names no question where the fault was not a question's", () => {
-		/* A misplaced `result:` marker faults the turn, not a question — so there
-		 * is no corrected question coming and the notice must not imply one. */
 		const reason =
 			runInJobWithMessage("Landed it.\n\nresult: done\n\nShall I push?")
 				?.reason ?? "";
@@ -473,7 +406,6 @@ describe("the message it sends back", () => {
 		expect(reason).toContain("`needs input:` line enumerating");
 	});
 
-	/* The style is read off `dir`'s config, not the runner's (#448). */
 	const blockedAt = () =>
 		runGuard(transcriptWith("❓ **Q1** - **X**: pick one."), null, {
 			WFC_OUTPUT_STYLE: undefined,
@@ -572,9 +504,6 @@ describe("the two checks the injected rule also states", () => {
 		);
 	});
 
-	/* `toBeNull` and not `not.toContain`: the weaker form passes on any
-	 * unrelated defect, so it would stop testing bold the moment something else
-	 * in the fixture drifted. */
 	it("leaves bold alone inside an option's prose (mantahostels#1722)", () => {
 		const text = GOOD.replace(
 			"(B) No expiry at all",
@@ -583,8 +512,6 @@ describe("the two checks the injected rule also states", () => {
 		expect(run(transcriptWith(text))).toBeNull();
 	});
 
-	/* A round repeating a letter would otherwise be shown its innocent line and
-	 * told that one was bold. */
 	it("quotes the offending line, not the first sharing its letter (mantahostels#1722)", () => {
 		const text = GOOD.replace(
 			"(B) No expiry at all",
@@ -641,8 +568,6 @@ describe("the needs-input marker a background job owes (mantahostels#785)", () =
 	});
 
 	it("does not fire on a turn that asks the founder nothing", () => {
-		/* Carries `result:` so mantahostels#1200's missing-marker check stays out of the way:
-		 * what is under test is that a question-less turn owes no needs-input. */
 		expect(
 			runInJob(
 				transcriptWith("Landed the fix and pushed it.\n\nresult: fix pushed."),
@@ -689,8 +614,6 @@ describe("a result: that is still waiting on the founder (mantahostels#822)", ()
 	});
 
 	it("reads result: only on a line of its own", () => {
-		/* The inline "result:" must not arm this check; the trailing marker is
-		 * mantahostels#1200's check, not this one's. */
 		const text =
 			"The result: nothing worth adding. Say the word and I'll stop there.\n\n" +
 			"needs input: whether to stop there.";
@@ -727,10 +650,6 @@ describe("a result: that is still waiting on the founder (mantahostels#822)", ()
 			GOOD.replace(`${GOOD_B} `, "") +
 			"\n\nresult: expiry options priced.\n\nSay the word and I'll implement (A).";
 		const transcript = transcriptWith(text);
-		/* Four counters, spent TOGETHER: the round's shape, its missing marker,
-		 * the approval-seeking `result:`, and the report sitting below that
-		 * marker. Each still keeps its own three, so three blocks
-		 * exhaust all four at once and the fourth stop is allowed. */
 		const phrases = [
 			"carries no Confidence line",
 			"nothing but a human will wake this session",
@@ -757,7 +676,6 @@ describe("an offer of work beyond the delivered task (mantahostels#2445)", () =>
 		expect(reason).toContain("offers to take on the next ticket");
 		expect(reason).toContain("Do NOT switch to `needs input:`");
 		expect(reason).toContain("`/pick-next`'s call");
-		/* "leads with" is an ordering claim, so assert the order. */
 		expect(reason.indexOf("delete the")).toBeLessThan(
 			reason.indexOf("Switch to `needs input:`"),
 		);
@@ -783,8 +701,6 @@ describe("an offer of work beyond the delivered task (mantahostels#2445)", () =>
 	});
 
 	it("reads a slash command only where one can start, never inside a path", () => {
-		/* `\b` closes on the following slash, so an unanchored limb read
-		 * `docs/research/…` as `/research`. */
 		const text =
 			"result: findings landed.\n\n" +
 			"They sit in docs/agents/triage-labels.md — want me to fold them in?";
@@ -794,9 +710,6 @@ describe("an offer of work beyond the delivered task (mantahostels#2445)", () =>
 	});
 
 	it("keeps the original refusal where a blocking ask sits alongside", () => {
-		/* The first offer is a real decision; only the second is next-work. The
-		 * founder is blocked, so the marker-switch advice is the right one — and
-		 * the blocking ask must not be quoted back as evidence of further work. */
 		const text =
 			"result: assessed.\n\nShall I use the wider timeout?\n\n" +
 			"Separately, want me to take #2403 next?";
@@ -815,8 +728,6 @@ describe("an offer of work beyond the delivered task (mantahostels#2445)", () =>
 	});
 
 	it("gives the same advice when its own refusal is pasted back", () => {
-		/* The gists sit in a sentence carrying a further-work token, so the
-		 * quoted block re-enters on the branch that emitted it. */
 		const emitted = runInJob(transcriptWith(nextTicket))?.reason ?? "";
 		const reason =
 			runInJob(transcriptWith(`Blocked earlier with:\n\n${emitted}`))?.reason ??
@@ -834,8 +745,6 @@ describe("an offer of work beyond the delivered task (mantahostels#2445)", () =>
 	});
 
 	it("wants the offer and the ticket in one sentence, not merely one message", () => {
-		/* The `result:` line cites the ticket it closed; the offer below is about
-		 * this task. Reading the whole message at once would misfire here. */
 		const text =
 			"result: #2401 closed, suite green.\n\n" +
 			"Say the word and I'll add the wiring too.";
@@ -869,8 +778,6 @@ describe("a needs input: the message then undercuts (mantahostels#85)", () => {
 	});
 
 	it("hands a promise in a paragraph BELOW the marker to the placement check", () => {
-		/* Since #228 the marker must be last, so a promise under it is not a
-		 * second defect and does not charge a second counter. */
 		const text = `${ask}.\n\nOnce you answer I will draft the chase email.`;
 		const reason = runInJob(transcriptWith(text))?.reason ?? "";
 		expect(reason).toContain("characters sit below it");
@@ -882,7 +789,6 @@ describe("a needs input: the message then undercuts (mantahostels#85)", () => {
 	});
 
 	it("allows the promise when it sits above the marker", () => {
-		// Same words, ordered so the last thing the classifier reads is the ask.
 		const text = `With a schedule chosen I will build the gate.\n\n${ask}.`;
 		expect(runInJob(transcriptWith(withRound(text)))).toBeNull();
 	});
@@ -893,9 +799,6 @@ describe("a needs input: the message then undercuts (mantahostels#85)", () => {
 	});
 
 	it("blocks a marker whose own line runs past the window, giving its distance from the end in characters", () => {
-		/* Since #228 everything BELOW the marker is `needsInputMisplaced`'s, which
-		 * leaves this limb the one over-long case that has nothing below it to
-		 * find: the marker's own line overrunning the window. */
 		const text = `needs input: ${"pick one of these and then. ".repeat(200)}`;
 		const reason = runInJob(transcriptWith(text))?.reason ?? "";
 		expect(reason).toContain("characters from the end");
@@ -915,16 +818,12 @@ describe("a needs input: the message then undercuts (mantahostels#85)", () => {
 	});
 
 	it("measures the last marker, not one quoted earlier in the message", () => {
-		// A message that pastes a block reason back quotes the marker near the top.
-		// Measuring from there would call the real marker at the end unreachable.
 		const quoted = "Blocked earlier with:\n\nneeds input: <the decision>\n\n";
 		const text = `${quoted}${"filler prose. ".repeat(400)}\n\n${ask}.`;
 		expect(runInJob(transcriptWith(withRound(text)))).toBeNull();
 	});
 
 	it("does not fire on a turn carrying no marker at all", () => {
-		/* This check is the undercut of an EXISTING needs-input marker, so a turn
-		 * with none owes it nothing; mantahostels#1200's check is what blocks that turn. */
 		const reason =
 			runInJob(transcriptWith("Landed the fix. I'll push it next."))?.reason ??
 			"";
@@ -958,8 +857,6 @@ describe("a needs input: written above the round it announces (#228)", () => {
 	});
 
 	it("judges the last marker, not one quoted earlier", () => {
-		// A turn pasting a block reason back quotes the marker near the top; the
-		// real one still ends the message.
 		const text =
 			"Blocked earlier with:\n\nneeds input: <the decision>\n\n" +
 			`${round}\n\nneeds input: pick a schedule.`;
@@ -967,8 +864,6 @@ describe("a needs input: written above the round it announces (#228)", () => {
 	});
 
 	it("stands down where a later result: governs the filing", () => {
-		// `result:` below it means the needs-input above is not the governing
-		// marker, so its placement is resultMisplaced's to judge, not this limb's.
 		const text = "needs input: quoted.\n\nDelivered it.\n\nresult: done.";
 		expect(runInJob(transcriptWith(text))?.reason ?? "").not.toContain(
 			"characters sit below it",
@@ -997,7 +892,6 @@ describe("a needs input: written above the round it announces (#228)", () => {
 });
 
 describe("it leaves proof that it ran (mantahostels#872)", () => {
-	/** One appended line per invocation, oldest first (mantahostels#1274). */
 	const readRecords = () => {
 		const file = path.join(
 			hookRecord.recordsDir(dir),
@@ -1064,7 +958,6 @@ describe("it leaves proof that it ran (mantahostels#872)", () => {
 	});
 
 	it("names the route the message came from", () => {
-		// No `last_assistant_message` on this payload, so the fallback runs.
 		run(transcriptWith(GOOD));
 		expect(readLastRecord()).toMatchObject({
 			source: "transcript",
@@ -1084,9 +977,6 @@ describe("it leaves proof that it ran (mantahostels#872)", () => {
 	});
 
 	it("still blocks when the record cannot be written", () => {
-		/* A directory where the record file goes, so the append fails. Recursive
-		 * because the breadcrumb directory itself does not exist until
-		 * a guard has written once (mantahostels#3382), and this test blocks the first write. */
 		fs.mkdirSync(
 			path.join(
 				hookRecord.recordsDir(dir),
@@ -1121,7 +1011,6 @@ describe("it judges the text the payload carries (mantahostels#1273)", () => {
 });
 
 describe("the relation between the options (mantahostels#1037)", () => {
-	/** The GOOD round with its `Relation:` line taken back out. */
 	const noRelation = GOOD.split("\n")
 		.filter((l) => !l.startsWith("Relation:"))
 		.join("\n");
@@ -1184,7 +1073,6 @@ Relation: (C) is orthogonal to both; (A) and (B) conflict on where the ordering 
 	});
 
 	it("accepts mantahostels#1505's cross-question reference", () => {
-		/* The "(D)" belongs to Q1, not to the question the line sits in. */
 		const text = noRelation.replace(
 			"➡️ (A).",
 			"Relation: (B) is takeable under any Q1 answer, though under Q1 (D) it lands later.\n\n➡️ (A).",
@@ -1221,9 +1109,6 @@ Relation: these conflict.
 	});
 
 	it("accepts the relations that are neither conflict nor independence (mantahostels#1037 review)", () => {
-		/* Subsumption and sequencing are real answers with no vocabulary of their
-		 * own, and a list narrow enough to separate conflict from independence
-		 * refuses both. */
 		for (const line of [
 			"Relation: (A) and (B) can both be taken.",
 			"Relation: (A) subsumes (B).",
@@ -1357,8 +1242,6 @@ Relation: ${relation}
 		).toBeNull();
 	});
 
-	/* LIKELY_TOP + 10 misses 100 by more than five, so each case refuses where
-	 * the sum were taken. */
 	it("does not sum a relation that never declares rivals", () => {
 		expect(
 			run(
@@ -1520,8 +1403,6 @@ describe("a result: the message then buries (mantahostels#1210)", () => {
 	});
 
 	it("ignores a result: quoted above the real needs input: marker", () => {
-		/* The marker that governs the message is the later `needs input:`, whose
-		 * placement is mantahostels#85's check to judge, not this one's. */
 		const text =
 			"Blocked earlier with:\n\nresult: <what was delivered>\n\n" +
 			`${report}\n\nneeds input: which sweep to wait for.`;
@@ -1552,7 +1433,6 @@ describe("a result: the message then buries (mantahostels#1210)", () => {
 	});
 });
 
-/** Three options on one axis, the highest priced first, for the cases below. */
 const THREE_OPTIONS =
 	"(A) Build the partial launch now.\n" +
 	"Confidence: 71% (60% - 80%). Drives it: it is what the command means.\n\n" +
@@ -1561,11 +1441,6 @@ const THREE_OPTIONS =
 	"(C) Leave it exactly as it is.\n" +
 	"Confidence: 62% (50% - 72%). Drives it: the gate has one firing.\n";
 
-/*
- * A recommendation naming the option its own message priced lowest
- * (mantahostels#1344). These cases carry neither the `❓ **Qn**` round marker nor the
- * `➡` recommendation arrow.
- */
 describe("a recommendation that contradicts its own prices", () => {
 	it("blocks the recommendation of the option priced lowest, quoting the higher prices and the ruling ticket", () => {
 		const reason =
@@ -1643,10 +1518,6 @@ describe("a recommendation that contradicts its own prices", () => {
 		expect(run(transcriptWith(THREE_OPTIONS))).toBeNull();
 	});
 
-	// Were an option reference to start at any blank, each of 100,000 blanks
-	// ahead of a word would re-read the run after them, minutes in all;
-	// started only where the run starts, milliseconds (#3383, Sonar S8786).
-	// The refusal names the option read past the stretch.
 	it("reads a recommendation with a long blank stretch mid-line, promptly", () => {
 		const block = readStopGuardBlockWithin(GUARD, {
 			dir,
@@ -1693,12 +1564,6 @@ describe("accounting for every option passed over, not just the top one", () => 
 	});
 });
 
-/*
- * `docs/working-contract.md` §Self-containment requires an option be "restated
- * in full wherever they're used again", so the well-formed message this
- * refusal exists for repeats the recommended option on its own line — which
- * reads as a fresh run of letters unless the unpriced run is discarded.
- */
 describe("a recommendation that restates the option it names", () => {
 	it("blocks though the restatement opens a second run of letters (mantahostels#1344)", () => {
 		const text =
@@ -1720,8 +1585,6 @@ describe("a recommendation that restates the option it names", () => {
 		expect(reason).toContain("Q2 (A)");
 	});
 
-	/* The positive case §X4 demands beside the two above: the same restated
-	 * shape, recommending the option priced highest, still passes. */
 	it("allows a restatement of the option priced highest (mantahostels#1344)", () => {
 		const text =
 			`${THREE_OPTIONS}\nMy recommendation:\n\n` +
@@ -1765,9 +1628,6 @@ describe("what the restatement filter must not swallow", () => {
 });
 
 describe("a status marker carrying nothing after the colon (mantahostels#2013)", () => {
-	/* The shape that filed a blocked session Completed: a priced round, a
-	 * recommendation, a clean-tree report, and a bare marker under it. `round`
-	 * passes every other check, so the bare marker is all that is refused. */
 	const round =
 		"❓ **Q2** — revised order\n\n" +
 		"(A) Cut spawns in the heaviest test files.\n" +
@@ -1811,8 +1671,6 @@ describe("a status marker carrying nothing after the colon (mantahostels#2013)",
 	});
 
 	it("judges the last marker, not a bare one quoted above a real one", () => {
-		// A message pasting this guard's own block text back quotes a marker near
-		// the top; the one at the end is what the classifier files on.
 		const text =
 			"Blocked earlier with:\n\nneeds input:\n\n" +
 			`${round}\n\nneeds input: whether to take (B) before (A).`;
@@ -1826,8 +1684,6 @@ describe("a status marker carrying nothing after the colon (mantahostels#2013)",
 	});
 
 	it("allows a filled marker below a bare one of ANOTHER kind", () => {
-		// The marker list is walked in a fixed order, so taking the first kind
-		// found rather than the one latest in the text would block this.
 		const text =
 			"Blocked earlier on a bare:\n\nneeds input:\n\n" +
 			"Then finished it.\n\nresult: the guard is in and pushed.";
@@ -1898,15 +1754,9 @@ describe("a `needs input:` with no round (mantahostels#2583)", () => {
 });
 
 describe("the bucket-deciding checks keep their own block budget (mantahostels#2544)", () => {
-	/* A round with one unpriced option, and its `needs input:` marker present so
-	 * nothing but the cosmetic defect fires: the shared `.priced-options-nagged-`
-	 * counter and no other. */
 	const unpriced = `${GOOD.replace(`${GOOD_B} `, "")}\n\nneeds input: the expiry period.`;
-	/* A finished report with no marker of any kind — the turn that decides how
-	 * the job is filed. */
 	const noMarker = "Both commits are in, #2532 is closed. Nothing else ran.";
 
-	/** Spend the shared counter to its cap with `text`, asserting each block. */
 	function spendShared(text: string) {
 		const transcript = transcriptWith(text);
 		for (let i = 0; i < 3; i++) expect(runInJob(transcript)).not.toBeNull();
@@ -1925,8 +1775,6 @@ describe("the bucket-deciding checks keep their own block budget (mantahostels#2
 		expect(reason).toContain("carrying neither status marker");
 	});
 
-	/* One row per bucket-deciding limb but `unmarkedStop`, which is `noMarker`
-	 * above, each with a phrase only that limb's own refusal carries. */
 	const bucket: [string, string, string][] = [
 		[
 			"a result: with the report below it",
@@ -1968,8 +1816,6 @@ describe("the bucket-deciding checks keep their own block budget (mantahostels#2
 		},
 	);
 
-	/* The converse: each bucket limb spent to its own cap leaves the unmarked
-	 * check still armed. */
 	it.each(bucket)(
 		"spending %s's own counter leaves the unmarked check armed",
 		(_what, text, expected) => {
@@ -1988,13 +1834,7 @@ describe("the bucket-deciding checks keep their own block budget (mantahostels#2
 	});
 });
 
-/*
- * The session ceiling (mantahostels#2786): every shape and filing limb shares one
- * allowance, on top of the per-limb caps.
- */
 describe("the ceiling every shape and filing limb shares (mantahostels#2786)", () => {
-	/* One turn per limb, so no single counter caps out and only the ceiling can
-	 * end the run. Each carries a defect a different prefix pays for. */
 	const unpriced = `${GOOD.replace(`${GOOD_B} `, "")}\n\nneeds input: the expiry period.`;
 	const turns = [
 		unpriced,
@@ -2007,8 +1847,6 @@ describe("the ceiling every shape and filing limb shares (mantahostels#2786)", (
 	it("blocks five times and then goes quiet", () => {
 		for (const text of turns)
 			expect(runInJob(transcriptWith(text))).not.toBeNull();
-		/* The first turn's own counter has two blocks left, so a sixth stop is
-		 * allowed by the ceiling and by nothing else. */
 		expect(runInJob(transcriptWith(unpriced))).toBeNull();
 	});
 
@@ -2017,14 +1855,10 @@ describe("the ceiling every shape and filing limb shares (mantahostels#2786)", (
 		const reason = runInJob(transcriptWith(turns[4]))?.reason ?? "";
 		expect(reason).toContain("last Stop block of the session");
 		expect(reason).toContain("get this one right unaided");
-		/* #1067: the close-rivals check sits outside the ceiling. */
 		expect(reason).toContain("checks count separately and may still block");
 		for (const name of EXEMPT_NAMES) expect(reason).toContain(name);
 	});
 
-	/* The positive half: the notice belongs on the FIFTH block and no earlier.
-	 * Without this, a ceiling probe reading `SESSION_MAX - 2` would put it on
-	 * blocks four and five alike and nothing would say so. */
 	it("holds the notice back until the last block", () => {
 		for (const text of turns.slice(0, 3)) runInJob(transcriptWith(text));
 		const reason = runInJob(transcriptWith(turns[3]))?.reason ?? "";
@@ -2051,10 +1885,6 @@ describe("the ceiling every shape and filing limb shares (mantahostels#2786)", (
 	});
 });
 
-/*
- * The ceiling's last block is the consequential tier's (mantahostels#3420):
- * shape stops one block short of it.
- */
 describe("the ceiling is reserved by stake tier (mantahostels#3430)", () => {
 	const unpriced = `${GOOD.replace(`${GOOD_B} `, "")}\n\nneeds input: the expiry period.`;
 	const noRound = "needs input: whether to widen the guard.";
@@ -2075,9 +1905,7 @@ describe("the ceiling is reserved by stake tier (mantahostels#3430)", () => {
 
 	it("lets a shape-only turn stop at SESSION_MAX - 1", () => {
 		spendFourOnShape();
-		/* `noRound`'s own counter has two blocks left: only the reserve allows it. */
 		expect(runInJob(transcriptWith(noRound))).toBeNull();
-		/* It spent nothing, so the reserved block is still there. */
 		expect(runInJob(transcriptWith(noMarker))).not.toBeNull();
 	});
 
@@ -2112,9 +1940,6 @@ describe("the ceiling is reserved by stake tier (mantahostels#3430)", () => {
 	});
 });
 
-/* Spawned, not run in process: the guard's load-failure handler is an
- * `uncaughtException` listener, which a throw inside the test runner's own
- * `require` never reaches. */
 describe("a lib that will not load (#2645)", () => {
 	it("blocks the stop naming it, then lets the re-stop and an unread payload through", () => {
 		const scripts = path.join(dir, "plugin", "scripts");

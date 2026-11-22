@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins check-gh-route.js's boundary set (base §X11): each exit, argv and
- * --index, and the real tree and shell-file reads. Which shapes reach `gh` or
- * `claude` off its one route is lib/gh-route.test.ts's (#3455, #3559, #4652).
- *
- * Fabricated files in a throwaway directory, never this checkout, so a case's
- * findings are only its own. The Node bodies live in lib/fixtures/gh-route/ as
- * `.txt`, which the checker never reads, so this file holds no breach of its
- * own.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here lets a
- * `gh` or `claude` call escape every test's stub and reach the live tracker or
- * the live sessions.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -49,7 +35,6 @@ const FIXTURE = {
 const fixture = (rel: string, name: keyof typeof FIXTURE) =>
 	file(rel, fs.readFileSync(FIXTURE[name], "utf8"));
 
-/** Runs the checker in `cwd`, its host root `home`. */
 const runFrom = (home: string, args: string[], cwd = root) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd,
@@ -62,7 +47,6 @@ const run = (...args: string[]) => runFrom(root, args);
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-"));
-	// shellFiles() asks git which files are vendored.
 	execFileSync("git", ["init", "-q"], { cwd: root });
 });
 afterEach(() => {

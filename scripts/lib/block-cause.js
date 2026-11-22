@@ -1,31 +1,3 @@
-/*
- * block-cause.js — why a launched session the listing shows `blocked` is
- * blocked (#2699, spec #2695; rules from #2358 F9, first match wins).
- *
- * Pure: the caller reads the three records and passes them in.
- *
- * UNKNOWN IS THE FAIL-SAFE: an unread record or a field of an unexpected type
- * reads UNKNOWN, on which the loop acts on nothing (#2358 F9) until a restart
- * kills the session, whose resume then asks it what it waits on (#3980).
- *
- * PERMISSION IS TESTED FIRST: a new prompt can open over a stale question
- * `needs` (#2358 F3).
- *
- * LOCKED_OUT IS TESTED BEFORE QUESTION (#4228): a session every one of whose
- * tool calls a guard refused, at least one for want of a guard that could
- * judge it, writes `needs input:` over a fault no answer of the founder's
- * mends. A session with a passed call reads on as before, its lockout, if any,
- * met after it reached its ticket (#4202's ruling), a call passed before any
- * other resume included. A session the loop resumed off a hold reads from that
- * resume only, so it meets its new fault, not the old.
- *
- * EDGE_BLOCK IS TESTED BEFORE AUTH (#5164): Cloudflare's WAF or IP block page
- * is a 403 the CLI tags `authentication_failed` and words "Please run /login"
- * though the login is good, so it reads transient and the loop's capped
- * resumes take it up. Residual: a block that outlasts the cap parks as any
- * spent transient error does.
- */
-
 const { isLockoutText } = require("./core-fault.js");
 const { parseFirstLine } = require("./first-line.js");
 const { isMachineWrittenPrompt } = require("./founder-typing.js");
@@ -33,7 +5,6 @@ const { HOLD_PROMPT } = require("./loop-prompts.js");
 const { parseStatus } = require("./status-marker.js");
 const { isTurnRow } = require("./transcript.js");
 
-/* Below it the transcript carries no `permissionDecision` (#2358 F8). */
 const MIN_CLI = [2, 1, 293];
 
 const PERMISSION_WAITS = new Set([
@@ -41,11 +12,9 @@ const PERMISSION_WAITS = new Set([
 	"sandbox request",
 	"worker request",
 ]);
-/* A tool approval's `needs` (#2358 F3; #2699's live reading). */
 const APPROVE_TOOL = /^approve (?!plan$)[^:]+: /;
 const LIMIT_OPENING = "^You've (hit|reached) your ";
 const LIMIT_TEXT = new RegExp(`${LIMIT_OPENING}.*limit`);
-/* The bar a limit text names: the 5-hour bar is its "session limit" (#2128). */
 const LIMIT_BARS = /** @type {const} */ ([
 	[new RegExp(`${LIMIT_OPENING}session limit`), "5-hour"],
 	[new RegExp(`${LIMIT_OPENING}weekly limit`), "weekly"],
@@ -61,11 +30,6 @@ const AUTH_ERRORS = new Set(["authentication_failed", "oauth_org_not_allowed"]);
 const BILLING_TEXT = /can't use your Claude subscription/;
 const BILLING_NEEDS = /^can't use subscription — pay or renew/;
 const EDGE_BLOCK = /API Error: 403\b.*\bCloudflare\b/s;
-/* The `needs` a dialog writes to the job record, the one mark a parked row
- * keeps of it: 2.1.311's `dialog open` table, its managed-settings emit and
- * its startup-wedge watchdog, read from the binary (#3252). A dialog the
- * table gives no `needs` never blocks the job, so a parked row never shows
- * it. Residual: a later CLI's reworded or new `needs` reads QUESTION. */
 const DIALOG_NEEDS = new Set([
 	"acknowledge the classifier billing notice (Enter continues in auto mode)",
 	"choose: run ultraplan in the cloud",
@@ -89,18 +53,11 @@ const API_NEEDS = new Set([
 
 /**
  * @typedef {"transient"|"auth"|"invalid_request"} ApiErrorKind
- * @typedef {"5-hour"|"weekly"} LimitBar  the bar a LIMIT's text names, where
- *   it names one
+ * @typedef {"5-hour"|"weekly"} LimitBar
  * @typedef {"PERMISSION"|"QUESTION"|"LIMIT"|"API_ERROR"|"OTHER_DIALOG"
  *   |"LOCKED_OUT"|"RESUMED_IDLE"|"SYNTHETIC_STOP"|"UNKNOWN"} Cause
- *   RESUMED_IDLE is read from a `working` job by resumedIdleSince, and
- *   SYNTHETIC_STOP from a `done` one by syntheticStopAt, not by blockCause
- *   (#2659, #5322)
- * @typedef {{tool_name: unknown, tool_input: unknown}} RefusedCall  the call
- *   a lockout's first refusal answered, as the session made it
- * @typedef {{refusal: string, call: RefusedCall|null}} Lockout  `refusal`,
- *   that refusal's first line; `call`, null where its call is not in the
- *   transcript
+ * @typedef {{tool_name: unknown, tool_input: unknown}} RefusedCall
+ * @typedef {{refusal: string, call: RefusedCall|null}} Lockout
  * @typedef {{cause: Exclude<Cause,
  *   "API_ERROR"|"LIMIT"|"LOCKED_OUT"|"RESUMED_IDLE"|"SYNTHETIC_STOP"|"UNKNOWN">}
  *   | {cause: "LIMIT", bar?: LimitBar}
@@ -108,16 +65,9 @@ const API_NEEDS = new Set([
  *   | {cause: "LOCKED_OUT", lockout: Lockout}
  *   | {cause: "UNKNOWN", why: string}} Reading
  * @typedef {{row: unknown, job: unknown, tail: unknown}} Records
- *   `row`, the launch's `claude agents --json` row; `job`, its parsed
- *   `jobs/<id>/state.json`; `tail`, its transcript's last main-chain user and
- *   assistant rows, oldest first. Each null where it would not read.
- * @typedef {number|null|"unread"} IdleReading  resumedIdleSince's
+ * @typedef {number|null|"unread"} IdleReading
  */
 
-/* `any`, not `unknown`, in this file's records: the harness owns their
- * schemas, and each reader tests a field's type before relying on it —
- * fieldFault for the row and job a classification reads. A transcript row is a
- * TranscriptRecord, for that typedef's reason. */
 /** @param {unknown} v @returns {v is Record<string, any>} */
 const isObject = (v) =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
@@ -139,14 +89,11 @@ function isCliAtLeastMin(v) {
 }
 
 /**
- * Why the row or the job record cannot be read, or null.
  * @param {Record<string, any>} row
  * @param {Record<string, any>} job
  * @param {unknown} cliVersion
  */
 function fieldFault(row, job, cliVersion) {
-	/* 2.1.310's row for a parked session carries `state` and neither `status`
-	 * nor `waitingFor` (#3200). */
 	if (row.status == null && row.state == null)
 		return "row carries neither status nor state";
 	if (typeof row.state !== "string") return "row state is not a string";
@@ -184,14 +131,9 @@ const textOf = (row) =>
 const rowText = (row) =>
 	typeof row.message?.content === "string" ? row.message.content : textOf(row);
 
-/* The head the harness gives a call a PreToolUse hook refused, and the
- * command an exit-2 refusal's text names after it. */
 const REFUSAL_HEAD = /^PreToolUse:\S+ hook error: (\[[^\]\n]*\]: )?/;
 
-/**
- * A tool result's text.
- * @param {import("./transcript.js").TranscriptBlock} block
- */
+/** @param {import("./transcript.js").TranscriptBlock} block */
 function resultText(block) {
 	const { content } = block;
 	if (typeof content === "string") return content;
@@ -204,7 +146,6 @@ function resultText(block) {
 }
 
 /**
- * Each tool result's text in `tail`, with the call it answers.
  * @param {import("./transcript.js").TranscriptRecord[]} tail
  * @returns {{text: string, call: RefusedCall|null}[]}
  */
@@ -230,9 +171,6 @@ const isHoldResumeRow = (row) =>
 	row.type === "user" && rowText(row).trimStart().startsWith(HOLD_PROMPT);
 
 /**
- * The session's lockout, read off its transcript since the loop last resumed
- * it off a hold: its first refusal there for want of a guard that could judge
- * the call, where every call's result there is a hook's refusal.
  * @param {import("./transcript.js").TranscriptRecord[]} tail
  * @returns {Lockout|null}
  */
@@ -254,9 +192,6 @@ function lockoutOf(tail) {
  * @typedef {{job: Record<string, any>, needs: string, detail: string,
  *   waiting: string, last: import("./transcript.js").TranscriptRecord|undefined,
  *   said: import("./transcript.js").TranscriptRecord, lockout: Lockout|null}} Facts
- *   `waiting`, the row's `waitingFor` while its status is `waiting`; `last`,
- *   the last main-chain row; `said`, the last assistant row; `lockout`,
- *   lockoutOf's
  */
 
 /** @param {Facts} f */
@@ -366,9 +301,7 @@ function blockCause({ row, job, tail }) {
 		job,
 		needs: job.needs ?? "",
 		detail: job.detail ?? "",
-		/* The listing gives `waitingFor` only on a `waiting` row (#2358 F1);
-		 * the `status` test keeps it to `waiting` rows should a later CLI
-		 * widen it. */
+		// #2358
 		waiting: row.status === "waiting" ? (row.waitingFor ?? "") : "",
 		last: tail.at(-1),
 		said,
@@ -380,11 +313,7 @@ function blockCause({ row, job, tail }) {
 	return typeof reading === "function" ? reading(facts) : reading;
 }
 
-/* The transcript rows that show a turn ran (#2659). */
 const TURN_ROWS = new Set(["assistant", "api-request"]);
-/* The harness's own record of a restart, written when it starts a session
- * again after its process died (#2976 F2): a meta row where a turn was in
- * flight, a stopped-shell notification where a background shell ran. */
 const RESTART_PROMPT =
 	"Continue from where you left off. Note: this session was automatically restarted";
 const RESTART_SHELL =
@@ -403,19 +332,7 @@ function isRestartRow(row) {
 }
 
 /**
- * When a `working` job's harness restarted it and no turn has run since, ms:
- * its RESUMED_IDLE reading (#2659, #2978), the time of the last restart row
- * after the last `api-request` or assistant row. No other user row starts the
- * clock: a delivery row, one tool result of a parallel batch or a stale
- * notification starts no turn (#2976 F3). Null where the job is not working
- * or holds no such row; "unread" where a record will not read, has an
- * unexpected shape or holds neither a user nor a turn row, so the caller
- * holds what it knew (#2847). The row's own timestamp, never the
- * transcript's mtime, which the attachment and cost-state rows written after
- * a resume move.
- * @param {{job: unknown, rows: unknown}} records  `job`, the parsed
- *   state.json; `rows`, lib/transcript.js's main-chain records in file
- *   order, null unread
+ * @param {{job: unknown, rows: unknown}} records
  * @returns {IdleReading}
  */
 function resumedIdleSince({ job, rows }) {
@@ -439,7 +356,6 @@ function resumedIdleSince({ job, rows }) {
 }
 
 /**
- * Whether `r` is a row stamped after `at`, ms.
  * @param {unknown} r
  * @param {number} at
  * @returns {r is import("./transcript.js").TranscriptRecord}
@@ -450,10 +366,7 @@ const isRowAfter = (r, at) =>
 	Date.parse(r.timestamp) > at;
 
 /**
- * Whether `rows` hold an `api-request` or assistant row stamped after `at`,
- * ms: a turn the session took after the loop's resume, whatever user rows
- * followed it (#2979). False where `rows` is unread.
- * @param {unknown} rows  as resumedIdleSince's
+ * @param {unknown} rows
  * @param {number} at
  */
 function hasTurnedSince(rows, at) {
@@ -463,20 +376,12 @@ function hasTurnedSince(rows, at) {
 	);
 }
 
-/**
- * Whether `r` is a reply the model wrote, not the harness's `<synthetic>` error row.
- * @param {import("./transcript.js").TranscriptRecord} r
- */
+/** @param {import("./transcript.js").TranscriptRecord} r */
 const isModelReply = (r) =>
 	r.type === "assistant" && r.message?.model !== "<synthetic>";
 
 /**
- * Whether `rows` hold a reply the model wrote, stamped after `at`, ms: the
- * work a resume bought (#3792). A resume its limit refuses writes only the
- * harness's `<synthetic>` error row, so hasTurnedSince cannot tell the two
- * apart.
- * Null where `rows` is unread.
- * @param {unknown} rows  as resumedIdleSince's
+ * @param {unknown} rows
  * @param {number} at
  * @returns {boolean|null}
  */
@@ -486,8 +391,6 @@ function hasRepliedSince(rows, at) {
 }
 
 /**
- * When the newest API-error row the harness wrote in `rows` was stamped, ms;
- * null where `rows` is unread or holds no such row.
  * @param {unknown} rows
  * @returns {number|null}
  */
@@ -503,8 +406,8 @@ function apiStopAt(rows) {
 }
 
 /**
- * @param {unknown[]} timeline  a job's timeline rows
- * @param {number} at  ms
+ * @param {unknown[]} timeline
+ * @param {number} at
  */
 const hasWorkedSince = (timeline, at) =>
 	timeline.some(
@@ -515,11 +418,7 @@ const hasWorkedSince = (timeline, at) =>
 			Date.parse(r.at) > at,
 	);
 
-/**
- * When the newest `blocked` row in `timeline` was stamped, ms; -Infinity
- * where it holds none.
- * @param {unknown[]} timeline  a job's timeline rows
- */
+/** @param {unknown[]} timeline */
 function blockedAt(timeline) {
 	const row = timeline.findLast(
 		(r) => isObject(r) && r.state === "blocked" && typeof r.at === "string",
@@ -530,16 +429,9 @@ function blockedAt(timeline) {
 }
 
 /**
- * Whether a session took a turn after its last API-error stop, which a stop
- * and relaunch would copy (#4815): a prompt in its transcript after the stop,
- * or a `working` row on its job's timeline stamped after it. Where the
- * transcript is unread or holds no stop row, the timeline alone answers
- * (#4873): a `working` row after `since` and after its newest `blocked` row,
- * which follows any turn a resume of the loop's own bought. Null, unknown,
- * where that leaves no anchor or the timeline is unread too.
- * @param {unknown} rows  its transcript's rows
- * @param {unknown} timeline  its job's timeline rows, null unread
- * @param {number} [since]  when the loop first read the stop, ms
+ * @param {unknown} rows
+ * @param {unknown} timeline
+ * @param {number} [since]
  * @returns {boolean|null}
  */
 function hasTurnSinceApiStop(rows, timeline, since) {
@@ -552,11 +444,8 @@ function hasTurnSinceApiStop(rows, timeline, since) {
 }
 
 /**
- * Whether a session resumed after its API-error stop, first read at `since`:
- * its job record's `tempo` reads `active`, or hasTurnSinceApiStop.
- * @param {unknown} job  its job record, null unread
+ * @param {unknown} job
  * @param {{rows: unknown, timeline: unknown, since?: number}} read
- *   hasTurnSinceApiStop's
  * @returns {boolean|null}
  */
 function isResumedSinceApiStop(job, { rows, timeline, since }) {
@@ -565,11 +454,7 @@ function isResumedSinceApiStop(job, { rows, timeline, since }) {
 }
 
 /**
- * The prompts a session took after its last API-error stop (#4815): the text of
- * each user row, machine-written or not, stamped after the newest API-error
- * row the harness wrote, a tool result aside. Null where `rows` is unread or
- * holds no such row.
- * @param {unknown} rows  as resumedIdleSince's
+ * @param {unknown} rows
  * @returns {string[]|null}
  */
 function promptsAfterApiStop(rows) {
@@ -583,8 +468,6 @@ function promptsAfterApiStop(rows) {
 }
 
 /**
- * Whether the founder typed into a session after its last API-error stop: a
- * prompt promptsAfterApiStop reads that no machine wrote (lib/founder-typing.js).
  * @param {unknown} rows
  * @returns {boolean|null}
  */
@@ -596,14 +479,7 @@ function hasFounderTypedSinceApiStop(rows) {
 }
 
 /**
- * Whether a session no longer running took a turn after `since`, ms, and that turn
- * left it unblocked (#3940): its last user or assistant row, machine-written
- * prompts aside (lib/founder-typing.js), a reply the model wrote after `since`,
- * calling no tool, whose governing status marker is not `needs input:`. A pending
- * tool call is a permission or question prompt, the harness's own row a limit or
- * API stop, and his trailing prompt a turn never answered. Its last reply from
- * before `since` is the park itself, whatever it says.
- * @param {unknown[]} rows  lib/transcript.js's main-chain records, in file order
+ * @param {unknown[]} rows
  * @param {number} since
  */
 function hasEndedUnblocked(rows, since) {
@@ -621,28 +497,13 @@ function hasEndedUnblocked(rows, since) {
 	);
 }
 
-/* The record the harness writes in place of a reply when it ends a background
- * job's turn itself (#5322): its model and its whole text, measured in
- * transcript 22cf8d98 line 2836. Residual: a harness that rewords the text, or
- * renames the model, makes syntheticStopAt read no stop, silent, never wrong. */
 const SYNTHETIC_MODEL = "<synthetic>";
 const NO_RESPONSE_TEXT = "No response requested.";
-/* `state` reads `done` until the reaper stops the job, then `stopped`
- * (#5324). */
 const SYNTHETIC_STOP_STATES = new Set(["done", "stopped"]);
 const ENDING_MARKERS = new Set(["result:", "needs input:"]);
 
 /**
- * When the harness ended a background job's turn on its own "No response
- * requested." record, ms (#5322): the job reads `done` (or `stopped`, once
- * reaped), its last turn row is that `<synthetic>` assistant row, and the last
- * reply a real model wrote before it carries no governing `result:` or
- * `needs input:`. Null where the job is not one; "unread" where a record will
- * not read or has an unexpected shape, on which nothing acts. `rows` may be a
- * function that reads
- * them, called only for a job in a stop state, so a caller judging every live
- * session reads no transcript of a running one.
- * @param {{job: unknown, rows: unknown}} records  as resumedIdleSince's
+ * @param {{job: unknown, rows: unknown}} records
  * @returns {IdleReading}
  */
 function syntheticStopAt({ job, rows: read }) {

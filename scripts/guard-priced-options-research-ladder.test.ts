@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * guard-priced-options-research-ladder.test.ts — the research-ladder limb
- * (#2006): a question the close-rivals limb refused, re-sent still caught
- * by its close or low-top test (#2328), is refused while any rung — past rulings, the web, a fresh subagent —
- * lacks a qualifying tool call since that refusal.
- *
- * The guard runs at every `Stop` (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`): loosen a call shape and a still-caught question reaches
- * the founder on research he would have asked for; tighten one and a session
- * that climbed the ladder is refused for ever, until the cap.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -59,7 +48,6 @@ beforeEach(() => {
 		JSON.stringify({ contract: 1, founder: "F", corpus: CORPUS }),
 	);
 	reset();
-	/* Past the under-researched-round limb's floor, which this file does not test. */
 	writeTranscript(
 		file,
 		founder(),
@@ -89,7 +77,6 @@ const CLEAR_ROUND =
 	"(A) option A\nConfidence: 85% (80% - 90%). a fact found\n\n" +
 	"(B) option B\nConfidence: 15% (10% - 20%). why\n\n➡ (A).";
 
-/* Stamped after the wall-clock time the refusal record carries. */
 let seq = 0;
 const call = (name: string, input: Record<string, unknown>) => {
 	seq++;
@@ -109,7 +96,6 @@ const QUALIFYING: Record<Rung, string> = {
 	subagent: call("Agent", { prompt: "find the fact", description: "x" }),
 };
 
-/** Refuse Q1 on first sight, as the close-rivals limb does. */
 const refuseOnce = () => expect(stop(CLOSE_ROUND)).toContain(CLOSE);
 
 const closeLog = () => readJsonl(logPath(dir, CLOSE_CHECK_LOG))?.rows ?? [];
@@ -117,7 +103,6 @@ const { counter, seed } = sessionCounters(() => ({ dir, sid }));
 
 describe("which rungs are missing", () => {
 	const rungs: Rung[] = ["rulings", "web", "subagent"];
-	/* Every proper subset of rungs tried. */
 	const tried = [
 		[],
 		["rulings"],
@@ -182,7 +167,6 @@ describe("which rungs are missing", () => {
 });
 
 describe("qualifying calls", () => {
-	/* Each case's other two rungs tried, so the call under test decides. */
 	const others = (rung: Rung) =>
 		(Object.keys(QUALIFYING) as Rung[])
 			.filter((r) => r !== rung)
@@ -359,7 +343,6 @@ describe("a low-top question re-sent (#2328)", () => {
 			)
 			.join("\n\n") +
 		"\n\n➡ (A).";
-	/* Top two 40 points apart, bands apart: caught by the low-top test alone. */
 	const lowTopRound = lowTop([65, 25, 10]);
 	const refuseLowTop = () =>
 		expect(stop(lowTopRound)).toContain("so none is likely right");

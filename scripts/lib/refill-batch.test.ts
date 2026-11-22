@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's launch step (#2315): the dispatcher call each batch makes
- * and the records read back from the dispatch ledger after it. The batch
- * cases run a fake dispatcher, a bash script in a temporary directory that
- * writes real ledger lines; the rest touch no disk but the read of
- * dispatch-sessions.js that pins the member lines a refusal keys on.
- *
- * The resume cases (#3621) drive launchOrResume with the resume and the
- * dispatcher call injected; the adoption cases (#4180), adoptLaunching with
- * the ledger and the job store's answer injected.
- *
- * Loosen one and a loop launch can run outside its repo's gates or on the
- * wrong seat, a batch's launches go unrecorded or mis-stamped, a stale ledger
- * entry pass for a launch, a member it never reached be dropped from the
- * gate queue, or a parked ticket lose its conversation to a fresh launch.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -76,7 +60,6 @@ const entry = (prompt: string, ts: number, jobId: string) => ({
 	jobId,
 });
 
-/** launchBatch's io with no spawn, the ledger seeded with `entries`, at NOW. */
 const seededIo = (
 	entries: ReturnType<typeof entry>[],
 ): Parameters<typeof launchBatch>[1] => ({
@@ -190,14 +173,6 @@ describe("a refused member's reason (#2500)", () => {
 });
 
 describe("one dispatcher call per repo (#2315)", () => {
-	/*
-	 * A fake dispatcher: per member, in argument order, the word at its place
-	 * in FAKE_PLAN says what it does. `launch` writes the member's ledger entry
-	 * as dispatch-sessions.js does, `refuse` skips it as an admission refusal,
-	 * printing the re-read under its REFUSED line, `drop` as a duplicate drop,
-	 * `die` exits 5 there (a launch timeout, interop wedge or kernel stall),
-	 * and `timeout` as a launch timeout, printing its REFUSED line.
-	 */
 	const fakeDispatcher = `#!/usr/bin/env bash
 shift_plan() { plan="\${plan#*,}"; }
 plan="$FAKE_PLAN,"
@@ -249,7 +224,6 @@ done
 		reason: "soonest reset" as const,
 	});
 
-	/** One tick's `launches`, batched and launched, each repo's plan its FAKE_PLAN. */
 	function settle(
 		launches: ReturnType<typeof pick>[],
 		plans: Record<string, string>,

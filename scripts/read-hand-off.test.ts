@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * read-hand-off.js is the pick-up step for a ticket a parked session left a
- * `**Hand-off:**` block on (#2391). Each case runs the script in a throwaway
- * git repo, against a stub `gh` serving the issue's comments, and reads its
- * verdict line.
- *
- * WHAT BREAKING IT COSTS: a fresh session applies a stale diff over a
- * neighbour's newer work, or trusts a Base the tree has moved past.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -49,7 +40,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** Serve `bodies` as the issue's comments, oldest first. */
 const serve = (...bodies: string[]) =>
 	fs.writeFileSync(
 		path.join(dir, "comments.json"),
@@ -68,8 +58,6 @@ const run = (args = ["31"]) =>
 		},
 	});
 
-/** A real `git diff` of a.txt from "one" to "two", its `index` line and all,
- * which `--3way` needs to merge rather than fail outright. */
 const realDiff = () => {
 	fs.writeFileSync(path.join(dir, "a.txt"), "two\n");
 	const diff = git("diff");
@@ -143,11 +131,6 @@ describe("read-hand-off.js", () => {
 	});
 });
 
-/*
- * Seam 2 (#4244, spec #4229): run from a session worktree with the `landing`
- * module on, it reads Done off that worktree's own queue ref (#4458) and
- * checks the diff against the worktree's files, not the main checkout's.
- */
 describe("read-hand-off.js from a linked worktree", () => {
 	it("reads Done off the worktree's queue ref and applies the diff in the worktree", () => {
 		const diff = realDiff();
@@ -155,7 +138,6 @@ describe("read-hand-off.js from a linked worktree", () => {
 		git("update-ref", "refs/remotes/origin/queue/q", head);
 		const wt = path.join(dir, ".claude", "worktrees", "q");
 		git("worktree", "add", "-q", "--detach", wt, head);
-		/* The main checkout moves on, so the diff no longer applies there. */
 		fs.writeFileSync(path.join(dir, "a.txt"), "three\n");
 		git("commit", "-qam", "moved");
 		const unlanded = git("rev-parse", "HEAD");

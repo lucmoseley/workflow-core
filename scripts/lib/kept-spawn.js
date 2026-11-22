@@ -15,15 +15,6 @@ const {
 	execFileSync,
 } = require("node:child_process");
 
-/** @type {readonly SpawnReason[]} */
-const REASONS = Object.freeze([
-	"timeout",
-	"signal",
-	"concurrent",
-	"fd",
-	"boundary",
-]);
-
 /**
  * Why a test runs the program as a real process, not through runInProcess:
  * - `timeout`: the case runs on the real clock — it kills a run that hangs,
@@ -34,9 +25,17 @@ const REASONS = Object.freeze([
  *   child inherits.
  * - `boundary`: the process itself is the subject — its own fresh state, an
  *   entry runInProcess cannot load, or a real run held as another's comparand.
- *
- * @typedef {"timeout" | "signal" | "concurrent" | "fd" | "boundary"} SpawnReason
+ * @type {readonly SpawnReason[]}
  */
+const REASONS = Object.freeze([
+	"timeout",
+	"signal",
+	"concurrent",
+	"fd",
+	"boundary",
+]);
+
+/** @typedef {"timeout" | "signal" | "concurrent" | "fd" | "boundary"} SpawnReason */
 
 /**
  * @param {SpawnReason} reason

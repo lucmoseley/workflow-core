@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the transcript seam's readings — standing context, the main chain,
- * the subagent tier, autocompactions and turn counts — and its refusal to
- * read "no usage record" as zero.
- *
- * The transcript seam in-process, where the two CLIs above it can only be
- * driven as subprocesses (§X3).
- *
- * The property that matters most is the one a caller cannot recover from:
- * `lastStandingContext` returns null rather than 0 when it finds no usage
- * record, because a session reading an unreadable transcript as 0 tokens of
- * standing context would merge on for ever (mantahostels#1094, the ticket that capped a
- * dispatch bundle on accumulated context).
- */
 
 import { describe, expect, it } from "vitest";
 import {
@@ -78,8 +64,6 @@ describe("mainChainRecords", () => {
 	});
 
 	it("reads every record on tier subagent, none of them filtered as sidechain — mantahostels#1779", () => {
-		// A subagent's own file: every record carries isSidechain true relative
-		// to its PARENT, and here that IS the chain, not something to skip.
 		const text = [
 			turn(10_000, { isSidechain: true }),
 			turn(500_000, { isSidechain: true }),
@@ -237,7 +221,6 @@ describe("lastTurn (#2980)", () => {
 	});
 
 	it("reads a turn running where a Stop hook blocked and forced a turn", () => {
-		// #2977's 9b4f2431: block, its feedback, the summary, the forced request.
 		expect(
 			ended(lines(assistant, blocked, row({ type: "user" }), summary, request)),
 		).toBe(false);
@@ -277,8 +260,6 @@ describe("lastTurn (#2980)", () => {
 });
 
 describe("countTurns (mantahostels#2601, the 100-turn band's instrument)", () => {
-	/* One API response, written as three records — a text block and two
-	 * tool_use blocks — all repeating the same requestId and the same usage. */
 	const response = (id: string, records = 3) =>
 		Array.from({ length: records }, (_, i) =>
 			JSON.stringify({

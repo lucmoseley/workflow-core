@@ -1,28 +1,9 @@
-/*
- * js-lex.js — the bracket and argument scanning a lexical reader of JS or TS
- * source needs, with strings, comments and regex literals skipped so a
- * bracket or comma inside one is never counted (#1770). What is a literal or
- * a comment is strip-comments.js's scanJs to decide, so a reader that blanks
- * comments with it and finds brackets here never sees the two disagree
- * (#3667).
- */
-
 const { scanJs } = require("./strip-comments.js");
 
-/**
- * How many texts' span ends are kept before the cache is emptied whole. A
- * reader scans one source and the slices it cuts from it: the most one file
- * sent through generate-test-read-edges.js was 79 (check-guard-registry.js,
- * measured at #3667), so emptying costs at most one rescan of the source.
- * 256 is that peak about three times over, the margin a guess.
- */
+// measured 79 scans for one file at peak, #3667
 const SCANS_KEPT = 256;
 
-/**
- * @typedef {{ spans: [number, number][], lasts: Map<number, number> }} Inert
- *   `spans` each stretch that is not code as `[first, last]`, in order;
- *   `lasts` the same, keyed by its first index
- */
+/** @typedef {{ spans: [number, number][], lasts: Map<number, number> }} Inert */
 
 /** @type {Map<string, Inert>} */
 const inertByText = new Map();
@@ -44,9 +25,6 @@ function inertOf(text) {
 }
 
 /**
- * Whether `i` falls inside a stretch that is not code, past its first index.
- * A scan started there reads the text from `i` as code, as a reader handing
- * an index inside a template's text means it (#3667).
  * @param {string} text
  * @param {number} i
  */
@@ -66,8 +44,6 @@ function isInsideInert(text, i) {
 }
 
 /**
- * Where a string, comment or regex literal opening at `i` ends — its last
- * character — or `i` itself where none opens there.
  * @param {string} text
  * @param {number} i
  * @returns {number}
@@ -77,10 +53,8 @@ function tokenEnd(text, i) {
 }
 
 /**
- * The index just past the bracket closing the one at `open`, or -1, with
- * strings, comments and regex literals skipped.
  * @param {string} text
- * @param {number} open  index of a `(`, `[` or `{`
+ * @param {number} open
  * @returns {number}
  */
 function closeOf(text, open) {
@@ -99,8 +73,7 @@ function closeOf(text, open) {
 }
 
 /**
- * A call's or list's arguments, split at its own top-level commas.
- * @param {string} inner  the text between the brackets
+ * @param {string} inner
  * @returns {string[]}
  */
 function topLevelArgs(inner) {
@@ -124,9 +97,6 @@ function topLevelArgs(inner) {
 }
 
 /**
- * Where the statement starting at `from` ends: just past its first `;`
- * outside any bracket, string, comment or regex literal, or the end of the
- * text. Biome ends every statement with one, so a line break never does.
  * @param {string} text
  * @param {number} from
  * @returns {number}
@@ -147,9 +117,6 @@ function statementEnd(text, from) {
 }
 
 /**
- * Where each string, comment and regex literal in `text` sits, as `[first,
- * last]` index pairs in order: the stretches that are not code. A template
- * literal is one stretch, its interpolations included.
  * @param {string} text
  * @returns {[number, number][]}
  */

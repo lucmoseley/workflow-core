@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/bg-job.js hands a session the killed-background-job rule at the moment
- * it sets `run_in_background`, rather than leaving it in `CLAUDE.md` for a
- * session that never reads §Subagent dispatch (mantahostels#1904, under
- * mantahostels#1900). It is a guard-dispatch.js core on Bash: loosen a case and
- * a session backgrounds a job without the rule that the harness may kill it.
- *
- * Module cases on the core; the latch, the cap and the store fault are
- * lib/guard-entry.test.ts's and lib/guard-dispatch.test.ts's.
- *
- * The seam-2 case (#4242) runs it through the dispatcher from a linked
- * worktree of a main checkout: the rule's latch is the main checkout's.
- */
 
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -24,8 +11,6 @@ import {
 	toolCall,
 } from "./guard-core-testkit";
 import { readRuleCap } from "./rule-emission";
-/* The store's Node accessor, so a test asks for the rule by id rather than
- * holding a second copy of its text. */
 import { readRuleText } from "./rule-text";
 
 const judged = (input: Record<string, unknown>) =>
@@ -62,26 +47,12 @@ describe("things that are not a backgrounded Bash call", () => {
 	});
 
 	it("a command that only mentions the flag is handed nothing", () => {
-		// The field is read, never the command string — which is what keeps this
-		// core off every session that greps the repo for the flag's name.
 		expect(
 			judged({ command: "grep -rn run_in_background scripts" }),
 		).toBeNull();
 	});
 });
 
-/*
- * MUTATION ANCHORS. `toContain(readRuleText(<id>))` reads the same file the guard
- * does, so it moves with a mutation to the fragment instead of catching it.
- *
- * Reads the fragment directly, not the emission (mantahostels#2230, following mantahostels#2226) — this
- * trigger carries one id today, but a row over the emission would stop catching
- * a clause moved to a second fragment the moment one joins it.
- *
- * The fragment is hard-wrapped at ~80 columns, so a clause straddles a newline
- * whenever a reflow moves it. Collapsing the fragment's whitespace pins the
- * words and never the wrapping — so a wrap CANNOT be pinned here.
- */
 const carries = (clause: string) =>
 	expect(readRuleText("killed-background-job").replace(/\s+/g, " ")).toContain(
 		clause,
@@ -172,7 +143,6 @@ describe("the injected rule still carries its operative clauses", () => {
 	});
 
 	it("spends little of the cap, so a later id on this trigger still fits", () => {
-		// RULE_CAP is BYTES, and the fragment is multibyte.
 		expect(
 			Buffer.byteLength(readRuleText("killed-background-job"), "utf8"),
 		).toBeLessThan(readRuleCap());

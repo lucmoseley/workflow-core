@@ -1,50 +1,3 @@
-/*
- * actions-tester.js — the queue lander's Actions tester. It reads the suite
- * workflow's run that a push to a lander ref started at the exact sha,
- * through `gh` with the read access the token already has.
- *
- * Green only on a finished, successful run whose every Vitest shard job and
- * whose `Suite passed` job passed, naming the run and the files its in-job
- * retry cleared, the batch's flakes (#4558); red on a failed one, with
- * its failing jobs and the test files their logs name. A push run that
- * never appears is a red naming no file, marked `noRun`: the tree fires no
- * run on the ref (#4571). A run in progress at the wait bound, ended any
- * other way, or that cannot be read is no verdict, never green.
- *
- * A failed run where a job failed at a step that only readies the runner
- * (`RUNNER_STEPS`) is neither: its tests ran without their tools. Its failed
- * jobs are rerun, up to `RUNNER_RERUNS` times, and the last attempt still
- * failing so is no verdict, never a red to isolate. A failed run whose
- * listed jobs all passed but `Suite passed`, as when GitHub never created
- * some of them, judges no code either: its ref is pushed again once and
- * only a newer run judged, a second such run, or none, no verdict (#4827).
- * Residual: where GitHub keeps failing to create jobs, the lander exits on
- * that no verdict, never dropping a member.
- *
- * `queueTester` is asked at a placement: a batch slot, judged on its
- * `lander/batch-<k>` ref, or a run alone, member `k`'s or `main`'s base
- * check, on `lander/iso-suite-<k>` for the whole suite (#4910). Its whole
- * suite is the push run at the sha, read as above, on the placement's ref,
- * which the tester force-pushes to the sha first: a ref already there is
- * left as it is, so a restart's ask fires no second run (#4573). `start`
- * pushes it the same way ahead of the ask, as a batch's gate pass runs.
- * Asked again, a failed run has its failed jobs rerun; any other run at
- * the sha, or a failed one whose rerun GitHub refuses (#4822), is never
- * read, its ref deleted and created again so a run starts after the ask
- * (#4524). Where none at the sha is listed, as when its ref was pushed
- * while Actions fired nothing, the ref is pushed again once before the
- * tree is read as firing none (#4572). Named files asked alone are run by
- * named-rerun.yml, which fetches the sha from the remote, so the tester
- * first pushes it to `lander/iso-<k>`, a ref no suite run fires on.
- * Asked at a batch slot, they are read off its ref's run at the sha, a
- * failed one rerunning its failed jobs; where it lists none they go to
- * named-rerun.yml too, under its daily cap. Its `cancel` cancels every
- * unfinished run on the placement's ref but the one at the sha the lander
- * is about to test, naming every sha the ref lists a run at (#4556, #4576).
- * Its runs repeat the gates a batch's own gate pass leaves out
- * (`repeatsGates`).
- */
-
 const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const path = require("node:path");
@@ -87,17 +40,13 @@ const { writeFd } = require("./write-fd.js");
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 /** @typedef {import("./queue-lander.js").Placement} Placement */
 
-/* Untraced: GitHub lists a push run within seconds; the rest is room for a
- * slow queue. Past it a run never listed is a red that can drop a member
- * (#4571), so it decides a drop, not only a wait. */
+// guess, #4571
 const APPEAR_MS = 3 * 60 * 1000;
-/* Untraced: a sharded run is held under 3 min once its jobs start (#2413);
- * the rest is room for runners to queue. */
+// guess, #2413
 const RUN_BOUND_MS = 30 * 60 * 1000;
-/* Untraced: a twelfth of a 3 min run, at four `gh` reads a minute. */
+// guess, #5529
 const POLL_MS = 15 * 1000;
-/* Untraced: GitHub's newest push runs on a lander ref, deep enough to reach a
- * batch tip a few later pushes have buried. */
+// guess, #5529
 const RUN_LIST_LIMIT = 50;
 /** @type {Workflows} */
 const CORE_WORKFLOWS = {
@@ -119,28 +68,20 @@ const ADOPTER_FLAGS = {
 	repeatsGates: false,
 	repeatsSuite: true,
 };
-/* Untraced: a runaway's stop, minutes being free on the public repo (#1930). */
+// guess, #1930
 const NAMED_DAILY_CAP = 12;
-/* Untraced: a month, far past the UTC day the cap reads. */
 const NAMED_RECORD = ".lander-named-runs.jsonl";
+// guess, #5529
 const NAMED_RECORD_RETAIN_MS = 30 * DAY_MS;
-/* Untraced: as RUN_LIST_LIMIT, deep enough for dispatches a cap of 12 a day
- * can bury a run under. */
+// guess, #5529
 const NAMED_RUN_LIST_LIMIT = 50;
-/* ci.yml's step re-running a lander batch's failed files once, and the lines
- * it ends on naming those it cleared and those still failing
- * (retry-failed-files.js, #4545). */
 const RETRY_STEP = "Retry failed files";
-/* ci.yml's step running `npm run typecheck`, and a `tsc` error line. */
 const TYPECHECK_STEP = "Typecheck";
 const TYPE_ERROR = /\berror TS\d+: /;
-/* What `gh run view --log-failed` prints for the step of a job a reusable
- * workflow calls. */
 const UNNAMED_STEP = "UNKNOWN STEP";
-/* Untraced: enough to name the fault, one mistake often printing many. */
+// guess, #5529
 const TYPE_ERRORS_MAX = 10;
-/* New attempts of a run whose runner failed to ready, before no verdict. A
- * first guess, and stated as one. */
+// guess, #5529
 const RUNNER_RERUNS = 2;
 
 /**
@@ -153,23 +94,19 @@ const RUNNER_RERUNS = 2;
  *   | (Extract<Verdict, {kind: "green" | "red"}> & {timed: Timed})}
  *   AskVerdict
  * @typedef {{databaseId: number, headSha: string, attempt: number,
- *   conclusion: string|null}} Run a `gh run list` row
+ *   conclusion: string|null}} Run
  * @typedef {{name: string, conclusion: string|null, startedAt?: string,
  *   completedAt?: string}} Step
  * @typedef {{name: string, conclusion: string|null, databaseId?: number,
  *   steps?: Step[]}} Job
  * @typedef {object} Reads
- * @property {() => Run[]} runs the push runs on the tested branch
+ * @property {() => Run[]} runs
  * @property {(run: number) => Job[]} jobsOf
- * @property {(run: number) => string} failedLogOf `gh run view --log-failed`
- * @property {(job: number) => string} jobLogOf `gh run view --job <id> --log`
- * @property {(sha: string, files: string[]) => string[]} presentAt those of
- *   `files` the tree at `sha` holds
- * @property {(run: number) => void} rerun starts a new attempt of the run's
- *   failed jobs
- * @property {(to: string, sha: string) => boolean} repush deletes the
- *   remote's branch `to` where it holds `sha` or is gone, then creates it
- *   at `sha`; false where it moved
+ * @property {(run: number) => string} failedLogOf
+ * @property {(job: number) => string} jobLogOf
+ * @property {(sha: string, files: string[]) => string[]} presentAt
+ * @property {(run: number) => void} rerun
+ * @property {(to: string, sha: string) => boolean} repush
  * @typedef {AskVerdict | {kind: "pending", run: number|null}} RunVerdict
  * @typedef {RunVerdict
  *   | {kind: "runner", run: number, attempt: number, reason: string}
@@ -185,8 +122,7 @@ const RUNNER_RERUNS = 2;
  *   push: (branch: string, sha: string) => void,
  *   runsOn: (branch: string) => Run[],
  *   cancel: (run: number) => void,
- * }} QueueReads `push` force-pushes `sha` to the remote's `branch`, a no-op
- *   where it is there already; `runsOn` the push runs on `branch`
+ * }} QueueReads
  */
 
 /**
@@ -199,17 +135,10 @@ const newestRun = (sha, runs) =>
 		.filter((r) => r.headSha === sha)
 		.sort((a, b) => b.databaseId - a.databaseId)[0];
 
-/**
- * Whether a job still runs under a run GitHub has concluded, whatever the
- * conclusion: one lists `in_progress`, no conclusion, after the run reads
- * `success` (#4347), and a failed run's log is then partial too.
- * @param {readonly Job[]} jobs
- */
+/** @param {readonly Job[]} jobs */
 const isUnconcluded = (jobs) => jobs.some((j) => !j.conclusion);
 
 /**
- * Why a successful run's jobs do not show every shard and `Suite passed`
- * passed, or null where they do.
  * @param {Job[]} jobs
  * @returns {string|null}
  */
@@ -238,8 +167,6 @@ const startedAStep = (job) =>
 	(job.steps ?? []).some((s) => !!s.conclusion && s.conclusion !== "skipped");
 
 /**
- * The verdict of the newest listed run at `sha`, reading its jobs and failed
- * logs only once it has finished.
  * @param {string} sha
  * @param {On} on
  * @param {number} after
@@ -248,15 +175,12 @@ const startedAStep = (job) =>
 function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
 	const run = newestRun(sha, reads.runs());
 	if (run === undefined) return { kind: "pending", run: null };
-	/* A run has finished when it has a conclusion, never when `status` says
-	 * so (ci-verdict.js). */
 	if (run.attempt <= after || !run.conclusion)
 		return { kind: "pending", run: run.databaseId };
 	const id = run.databaseId;
 	const jobs = reads.jobsOf(id);
 	if (isUnconcluded(jobs)) return { kind: "pending", run: id };
 	if (run.conclusion === "success") {
-		/* GitHub concludes `success` over jobs that all skipped. */
 		const gap = greenGap(jobs);
 		if (gap !== null)
 			return { kind: "unknown", reason: `run ${id} passed, but ${gap}` };
@@ -270,9 +194,6 @@ function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	/* `Suite passed` fails beside any job not passing, a never-created one
-	 * included. A cancelled or timed-out job is a red, a hang being the
-	 * code's. */
 	if (
 		jobs.every(
 			(j) =>
@@ -328,9 +249,6 @@ function stepSeconds(job, name) {
 }
 
 /**
- * The red of run `id`, whose jobs `failed` failed on the code: their names,
- * the files and tests its log names, and the type-check's errors where that
- * step failed.
  * @param {string} sha
  * @param {number} id
  * @param {Job[]} failed
@@ -339,11 +257,6 @@ function stepSeconds(job, name) {
  */
 function readRed(sha, id, failed, reads) {
 	const names = failed.map((j) => j.name);
-	/* Every failed job red again at its in-job retry: the lander's own
-	 * re-run would only repeat it, and the files are the retry's alone, the
-	 * first run's failures it cleared dropped (#4545). A red naming no file
-	 * re-ran nothing there, so the lander's whole-suite re-run stays.
-	 * `Suite passed` fails beside any red shard and holds no retry step. */
 	const shards = failed.filter((j) => j.name !== SUITE_PASSED_JOB);
 	const atRetry =
 		shards.length > 0 && shards.every((j) => hasFailedStep(j, RETRY_STEP));
@@ -371,10 +284,7 @@ const hasFailedStep = (job, name) =>
 	(job.steps ?? []).some((s) => s.conclusion === "failure" && s.name === name);
 
 /**
- * The first TYPE_ERRORS_MAX `tsc` errors the type-check printed to a failed
- * run's log: the lines of the `jobs` that failed at it, less those `gh`
- * names another step for, since a test's fixture can print one.
- * @param {string} log as `gh` prints it, each line led by its job and step
+ * @param {string} log
  * @param {readonly string[]} jobs
  */
 const parseTypeErrors = (log, jobs) =>
@@ -396,9 +306,6 @@ const parseTypeErrors = (log, jobs) =>
 		.map((l) => l.trim());
 
 /**
- * The first failed job whose runner failed to ready, and the step, or null:
- * its tests, where they ran, ran without their tools, so pass or fail they
- * say nothing of the code.
  * @param {Job[]} failed
  * @returns {string|null}
  */
@@ -411,14 +318,10 @@ function runnerFault(failed) {
 }
 
 /**
- * The tree's files a failed run's log names, and the failing tests it names in
- * them: a test that prints a runner's output as its fixture logs FAIL lines
- * naming files the tree lacks (#2410).
  * @param {string} sha
- * @param {string} log the run's failed log, its prefix stripped
+ * @param {string} log
  * @param {Pick<Reads, "presentAt">} reads
- * @param {boolean} [atRetry] every failed job failed at its retry step, so
- *   the files are those its last lines name still failing
+ * @param {boolean} [atRetry]
  * @returns {{files: string[], failures?: import("./queue-lander.js").Failure[]}}
  */
 function readFailed(sha, log, reads, atRetry = false) {
@@ -431,10 +334,6 @@ function readFailed(sha, log, reads, atRetry = false) {
 }
 
 /**
- * The tree's files the in-job retry cleared on a passed run's shards, read
- * off the log of each shard whose retry step ran and passed. A read that
- * fails costs the record, never the green (#4558), and says so on stderr,
- * which the lander's log takes.
  * @param {string} sha
  * @param {readonly Job[]} jobs
  * @param {Pick<Reads, "jobLogOf" | "presentAt">} reads
@@ -451,8 +350,6 @@ function readCleared(sha, jobs, reads) {
 		const files = retried.flatMap((j) => {
 			if (j.databaseId === undefined)
 				throw new Error(`job ${j.name} lists no id`);
-			/* The retry step's own lines: a test's output can print the
-			 * cleared line as its fixture. */
 			const own = reads
 				.jobLogOf(j.databaseId)
 				.split("\n")
@@ -471,7 +368,6 @@ function readCleared(sha, jobs, reads) {
 }
 
 /**
- * The files each retry step's line opening `prefix` names, across shards.
  * @param {string} log
  * @param {string} prefix
  * @returns {string[]}
@@ -487,9 +383,6 @@ function parseRetryLine(log, prefix) {
 }
 
 /**
- * `gh run view --log-failed` output as the runner printed it: each line's
- * job, step and timestamp columns dropped, and the escape codes gh prints as
- * literal `^[[…` text (#3529).
  * @param {string} log
  * @returns {string}
  */
@@ -505,11 +398,10 @@ const stripLogPrefix = (log) =>
 		.join("\n");
 
 /**
- * The suite workflow's newest `limit` runs on `branch`.
  * @param {string} workflow
  * @param {string} branch
  * @param {number} limit
- * @param {string[]} [filter] further `gh run list` flags
+ * @param {string[]} [filter]
  * @returns {Run[]}
  */
 const listRuns = (workflow, branch, limit, filter = []) =>
@@ -530,7 +422,6 @@ const listRuns = (workflow, branch, limit, filter = []) =>
 	);
 
 /**
- * The live reads, over `gh` routed to the code repo and git in `root`.
  * @param {string} root
  * @returns {Omit<Reads, "runs">}
  */
@@ -540,8 +431,6 @@ function liveReads(root) {
 			JSON.parse(gh(["run", "view", String(run), "--json", "jobs"])).jobs,
 		failedLogOf: (run) => gh(["run", "view", String(run), "--log-failed"]),
 		jobLogOf: (job) => gh(["run", "view", "--job", String(job), "--log"]),
-		/* ls-tree lists only the paths present and exits 0 either way, so a
-		 * throw is a failed read, never a missing file. */
 		presentAt: (sha, files) => {
 			if (files.length === 0) return [];
 			const listed = execFileSync(
@@ -576,8 +465,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 
 /**
- * `read`'s verdict once it has one; still `pending` where no run was listed by
- * APPEAR_MS, or none finished by RUN_BOUND_MS.
  * @template {SuiteRunVerdict} T
  * @param {() => T} read
  * @param {(err: unknown) => AskVerdict} unread
@@ -592,8 +479,6 @@ async function pollRun(read, unread, { wait, now }) {
 		try {
 			v = read();
 		} catch (err) {
-			/* A network fault is retried to the run's bound, never read as
-			 * no verdict. */
 			if (!isNetworkFault(err) || now() - start >= RUN_BOUND_MS)
 				return unread(err);
 			await wait(POLL_MS);
@@ -621,10 +506,6 @@ const failedCall = (reason, err) => ({
 	...(isNetworkFault(err) ? {} : { offActions: true }),
 });
 
-/* `gh run rerun` prints every HTTP 403 as "run <id> cannot be rerun;
- * <message>", "This workflow run cannot be retried" among them (#4822). No
- * 403 starts an attempt, and pushing the ref again needs only git's push
- * access, so every one is replaced that way. */
 const RERUN_REFUSED = /cannot be rerun/;
 
 /** @param {unknown} err */
@@ -639,12 +520,6 @@ const unreadable = (workflow, err) =>
 	failedCall(`${workflow} runs unreadable`, err);
 
 /**
- * A push run still unlisted APPEAR_MS into the ask, the push before it, is a
- * verdict about the tree, whose workflow fires no run on the ref: a red
- * naming no file, so the lander's red path ends its batch (#4571).
- * Residual: a listing GitHub delays past APPEAR_MS on both the ask and its
- * rerun, but not on `main`'s base check, drops a member on a false red,
- * which the verdict ledger keeps.
  * @param {RunVerdict} v
  * @returns {AskVerdict}
  */
@@ -659,16 +534,10 @@ function settle(v) {
 }
 
 /**
- * The verdict of the push run at `sha` on `branch`, judging only an attempt
- * after `after`; a runner that failed to ready has its failed jobs rerun, up
- * to RUNNER_RERUNS times, before it is no verdict. A rerun GitHub refuses
- * has the branch pushed again, counted as an attempt (#4822).
  * @param {string} sha
  * @param {number} after
  * @param {On} suite
- * @param {{reruns?: number, repushed?: boolean}} [ask] `reruns` attempts
- *   started for a runner that failed to ready; `repushed` the branch was
- *   pushed again for this ask
+ * @param {{reruns?: number, repushed?: boolean}} [ask]
  * @returns {Promise<AskVerdict>}
  */
 async function suiteVerdict(
@@ -689,8 +558,6 @@ async function suiteVerdict(
 				kind: "unknown",
 				reason: `${v.reason}, after ${suite.branch} was pushed again`,
 			};
-		/* A run at the sha was listed, so none after the push is GitHub's
-		 * fault, never the tree firing none (#4571). */
 		const next = await repushedVerdict(sha, suite, v.run);
 		return next.kind === "red" && next.noRun
 			? {
@@ -728,7 +595,6 @@ function namedRunVerdict(sha, title, reads) {
 	const jobs = reads.jobsOf(id);
 	if (isUnconcluded(jobs)) return { kind: "pending", run: id };
 	if (run.conclusion === "success") {
-		/* GitHub concludes `success` over a job its `if:` skipped. */
 		const job = jobs.find((j) => j.name === NAMED_JOB);
 		return job?.conclusion === "success"
 			? { kind: "green", named: id }
@@ -740,7 +606,6 @@ function namedRunVerdict(sha, title, reads) {
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
 	const failed = readFailed(sha, stripLogPrefix(reads.failedLogOf(id)), reads);
-	/* A failed checkout or install fails the run naming no test. */
 	return failed.files.length > 0
 		? { kind: "red", ...failed, run: id }
 		: {
@@ -750,8 +615,6 @@ function namedRunVerdict(sha, title, reads) {
 }
 
 /**
- * The day's dispatches counted against the cap: an isolation one is not
- * (#4458).
  * @param {string} file
  * @param {number} nowMs
  * @returns {number}
@@ -801,10 +664,6 @@ const liveNamedReads = (root, workflow) => ({
 });
 
 /**
- * The verdict on `files` at `sha` from a dispatched run of those its tree
- * holds alone, green where it holds none; no verdict where the day's cap is
- * spent, unless `isolation` exempts it, or
- * the dispatch or its run reaches none.
  * @param {Named} named
  * @param {string} sha
  * @param {string[]} files
@@ -819,10 +678,6 @@ async function namedVerdict(
 ) {
 	/** @type {(reason: string) => AskVerdict} */
 	const unknown = (reason) => ({ kind: "unknown", reason });
-	/* A file the tree at `sha` lacks has no test to fail there: the base
-	 * check of a test file new in the tip (#4347). local-tester.js's
-	 * readRunsAt holds the same rule. Residual: a path misnamed by the red that asked reads
-	 * green here, never no verdict. */
 	/** @type {string[]} */
 	let present;
 	try {
@@ -848,8 +703,6 @@ async function namedVerdict(
 		nonce,
 		...(isolation ? { isolation } : {}),
 	};
-	/* Said and gone on (#3764): the run is already spent, so the only loss is
-	 * this one going uncounted against the cap. */
 	if (!appendRetained(record, entry, NAMED_RECORD_RETAIN_MS))
 		writeFd(2, `lander: named-run record unwritten: ${record}\n`);
 	const title = `named-rerun ${sha} ${nonce}`;
@@ -887,7 +740,7 @@ const liveQueueReads = (root, workflows) => ({
 
 /**
  * @typedef {object} QueueTesterOptions
- * @property {string} root the canonical checkout
+ * @property {string} root
  * @property {Workflows} [workflows]
  * @property {Flags} [flags]
  * @property {QueueTester} [fallback]
@@ -932,7 +785,6 @@ function queueTester({
 	async function ask(place, sha, files, again) {
 		const alone = files.length > 0 && place.kind === "iso";
 		const branch = alone ? `${LANDER_ISO_PREFIX}${place.k}` : suiteRef(place);
-		/* A batch's named files are read off the run its ref already has. */
 		if (alone || files.length === 0) {
 			try {
 				reads.push(branch, sha);
@@ -951,8 +803,6 @@ function queueTester({
 			reads: { ...reads, runs: () => reads.runsOn(branch) },
 		};
 		if (files.length === 0 && !again) return suiteVerdict(sha, 0, on);
-		/* The batch's flakes are its first whole-suite ask's to record: a
-		 * later ask read off the same run would record them again. */
 		const { cleared: _, ...v } =
 			/** @type {AskVerdict & {cleared?: string[]}} */ (
 				await rerunVerdict(sha, files, on, named)
@@ -1041,22 +891,17 @@ function judged(v) {
 const placeName = (place) =>
 	place.kind === "batch" ? `batch ${place.slot}` : `run alone ${place.k}`;
 
-/**
- * The ref whose push runs judge the whole suite at `place`.
- * @param {Placement} place
- */
+/** @param {Placement} place */
 const suiteRef = (place) =>
 	place.kind === "batch"
 		? batchBranch(place.slot)
 		: `${LANDER_ISO_SUITE_PREFIX}${place.k}`;
 
 /**
- * The no verdict for `branch` not pushed at `sha`, transient on a network
- * fault.
  * @param {string} branch
  * @param {string} sha
  * @param {unknown} err
- * @param {boolean} [again] where it was a push again
+ * @param {boolean} [again]
  * @returns {AskVerdict}
  */
 const unpushed = (branch, sha, err, again = false) => ({
@@ -1066,16 +911,6 @@ const unpushed = (branch, sha, err, again = false) => ({
 });
 
 /**
- * The verdict at `sha` asked again on `on`'s branch, the newest run at `sha`
- * rerun where it failed: on `files`, which it judges too, else the whole
- * suite. Files at a sha no run covers are run alone. The whole suite is
- * never read off a run listed before the ask (#4524): any other run at
- * `sha`, or a failed one whose rerun GitHub refuses (#4822), has the
- * branch pushed again, and only a run newer than every one
- * the branch listed is judged. Where no run at `sha` was listed and none
- * newer appears, the branch is pushed again and waited on once more before
- * a no-run red (#4572). Residual: a run the lander's own push started
- * and GitHub listed by the ask is run twice.
  * @param {string} sha
  * @param {string[]} files
  * @param {On} on
@@ -1122,7 +957,6 @@ async function rerunVerdict(sha, files, on, named) {
 const newestId = (listed) => Math.max(0, ...listed.map((r) => r.databaseId));
 
 /**
- * `newerVerdict` once `on`'s branch is pushed again at `sha`.
  * @param {string} sha
  * @param {On} on
  * @param {number} bound
@@ -1134,12 +968,10 @@ const repushedVerdict = async (sha, on, bound, reruns = 0) =>
 	newerVerdict(sha, on, bound, { reruns, repushed: true });
 
 /**
- * The whole suite at `sha` read off a run on `on`'s branch newer than run
- * `bound`.
  * @param {string} sha
  * @param {On} on
  * @param {number} bound
- * @param {{reruns?: number, repushed?: boolean}} [ask] as `suiteVerdict`'s
+ * @param {{reruns?: number, repushed?: boolean}} [ask]
  * @returns {Promise<AskVerdict>}
  */
 function newerVerdict(sha, on, bound, ask) {
@@ -1159,7 +991,6 @@ function newerVerdict(sha, on, bound, ask) {
 }
 
 /**
- * Deletes and creates `on`'s branch again at `sha`: null where it did, else the no verdict naming why not.
  * @param {On} on
  * @param {string} sha
  * @returns {AskVerdict|null}

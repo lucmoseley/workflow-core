@@ -1,8 +1,3 @@
-/*
- * lost-verdict-host.js — the production ports guard-lost-verdict.js wires
- * into its core, lib/lost-verdict.js (#2799).
- */
-
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { readRuns } = require("./test-log.js");
@@ -25,12 +20,10 @@ function buildHostPorts({ root, payload, log }) {
 			try {
 				return readConfig({ root, quiet: true }).suiteRunners ?? [];
 			} catch (e) {
-				/* Fails open to the built-in launches (mantahostels#103 §6). */
 				log("suite runners unreadable", caught(e).message);
 				return [];
 			}
 		},
-		/* Only `other` launches read it, and this guard counts none. */
 		isWrapperScript: () => true,
 	};
 }

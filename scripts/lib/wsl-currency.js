@@ -1,16 +1,6 @@
-/*
- * wsl-currency.js — the check-wsl-currency core (#4082): judges this machine's
- * WSL version against upstream's latest stable release. Held apart from its
- * reads so each verdict is testable without a bridge or a network.
- */
-
 const { compareVersions } = require("./compare-versions.js");
 const { scriptPath } = require("./script-path.js");
 
-/*
- * --jq keeps each answer to the fields judged, so a release's optional fields
- * cannot turn the gh contract red. 100 is GitHub's largest page.
- */
 const RELEASE_READS = {
 	latest: ["api", "repos/microsoft/WSL/releases/latest", "--jq", "{tag_name}"],
 	releases: [
@@ -33,20 +23,12 @@ const RELEASE_READS = {
  * @typedef {{state: "NOT_WSL" | "UNREAD" | "BEHIND" | "CURRENT", lines: string[]}} Verdict
  */
 
-/**
- * A version's numeric components, or null where it is not one.
- * @param {string} text
- * @returns {number[] | null}
- */
+/** @param {string} text @returns {number[] | null} */
 function parseVersion(text) {
 	return /^\d+(?:\.\d+)*$/.test(text) ? text.split(".").map(Number) : null;
 }
 
-/**
- * Stable tags above `installed`.
- * @param {ReleaseRow[]} rows
- * @param {number[]} installed
- */
+/** @param {ReleaseRow[]} rows @param {number[]} installed */
 function countStableAbove(rows, installed) {
 	return rows.filter((r) => {
 		const tag = parseVersion(r.tag_name);

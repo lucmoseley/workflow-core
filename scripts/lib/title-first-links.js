@@ -1,15 +1,5 @@
-/*
- * title-first-links.js — the markdown links to an issue in one repo whose link
- * text does not lead with `#<n>`, the number hidden in the URL (#2265).
- */
-
 const { requiredGroup } = require("./regex-group");
 
-/*
- * The trailing group allows a `#issuecomment-…` fragment: `[#31's
- * verification comment](…/issues/31#…)` is a legitimate deep link and passes,
- * while the same link with a prose title in front is the fault.
- */
 /** @param {string} repo */
 const issueLinkPattern = (repo) =>
 	new RegExp(

@@ -1,14 +1,3 @@
-/*
- * gh-route.js — check-gh-route.js's core (#3455, #3559, #4123): the shapes
- * that reach `gh` or `claude` off the binary's one route, judged line by line
- * over one file's text. check-gh-route.js's header holds the contract: the
- * four shapes, the opt-out marker and what defeats them.
- *
- * A CORE (base §T7): it performs no I/O; judgeTree reads through its
- * injected `read(rel)` port. The shell lists the tree and names its shell
- * files.
- */
-
 const { blankComments } = require("./strip-comments.js");
 const { requiredGroup } = require("./regex-group.js");
 const { cutAt } = require("./cut-at.js");
@@ -32,9 +21,6 @@ const { isTestKind } = require("./test-kind.js");
  */
 
 /**
- * `calls` names what a Node program calls from the primitive, and the
- * exemplars a Node and a shell file on the route, as the base primitives row
- * names them: each a file the release ships.
  * @param {{
  *   bin: string,
  *   envVar: string,
@@ -62,11 +48,11 @@ function buildRoute({
 		fix: {
 			"SECOND-VAR": `name the binary through ${envVar}, the one var ${primitive} reads, as ${exemplar} and ${shellExemplar} do.`,
 			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
-			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it \`${bin}-route-exempt: <why>\` where \`${bin}\` is only text.`,
+			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it \`${bin}-route-exempt: #N\` where \`${bin}\` is only text.`,
 			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
 		},
 		secondVar,
-		exempt: new RegExp(`${bin}-route-exempt:\\s*\\w`),
+		exempt: new RegExp(`${bin}-route-exempt:\\s*(?:\\w|#\\d)`),
 		envRead: new RegExp(`\\bprocess\\.env\\.${envVar}\\b(?!\\s*=[^=])`),
 		literalSpawn: new RegExp(
 			`\\b(?:execFileSync|execFile|spawnSync|spawn)\\s*\\(\\s*(["'\`])${bin}\\1`,
@@ -105,14 +91,10 @@ const ROUTES = [
 	}),
 ];
 
-// A local helper's header: its name, then its parameter list (#3638).
 const HELPER =
 	/(?:\bfunction\s+(\w+)\s*|\b(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\s*)?)(?:<[^<>]*>\s*)?\(((?:[^()]|\([^()]*\))*)\)/g;
 
-/**
- * `text` split at its commas outside brackets.
- * @param {string} text
- */
+/** @param {string} text */
 function splitTopLevel(text) {
 	/** @type {string[]} */
 	const parts = [""];
@@ -127,8 +109,6 @@ function splitTopLevel(text) {
 }
 
 /**
- * Where the helper body opening at `from` ends: its block's closing brace, or
- * the `;`, `,` or closing bracket ending an expression body.
  * @param {string} code
  * @param {number} from
  */
@@ -146,8 +126,6 @@ function findBodyEnd(code, from) {
 }
 
 /**
- * A parameter's name, its type annotation and optional mark cut: `dir?: string`
- * and `dir: string` both give `dir`.
  * @param {string} param
  * @returns {string}
  */
@@ -158,9 +136,6 @@ function paramName(param) {
 }
 
 /**
- * The directories local helpers join their first parameter onto, a directory
- * that is itself a parameter read off its default, for each helper a call
- * passes `bin` first.
  * @param {string} bin
  * @param {string} code
  * @returns {string[]}
@@ -216,8 +191,6 @@ function kindOf(rel, shell) {
 }
 
 /**
- * `binDirs` holds the directories a file PATH-STUB reads joins the route's
- * binary onto, itself or through a helper, and is empty for any other file.
  * @param {{ r: Route, rel: string, kind: "node" | "test" | "shell", binDirs: Set<string> }} at
  * @param {string} line
  * @returns {Shape | null}
@@ -244,7 +217,6 @@ const MARKABLE = new Set(["SHELL-BARE", "PATH-STUB"]);
 /** @typedef {{ r: Route, shape: Shape, line: number, text: string }} Found */
 
 /**
- * One route's findings, `code` being `raw` with its comments blanked.
  * @param {Route} r
  * @param {string} rel
  * @param {"node" | "test" | "shell"} kind
@@ -299,8 +271,6 @@ function findingsIn(rel, kind, source) {
 }
 
 /**
- * Each finding in one file, its occurrence among identical lines counted for
- * its identity, with the fix its shape takes.
  * @param {string} rel
  * @param {"node" | "test" | "shell"} kind
  * @param {string} source
@@ -325,8 +295,6 @@ function judgeFile(rel, kind, source) {
 }
 
 /**
- * Every finding in `files`, each read through `read` only where its kind is
- * judged, with how many were scanned and each distinct fix line.
  * @param {string[]} files
  * @param {Set<string>} shell
  * @param {(rel: string) => string} read

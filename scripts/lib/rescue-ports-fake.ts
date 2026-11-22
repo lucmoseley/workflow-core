@@ -1,16 +1,3 @@
-/*
- * The in-process fakes of the ports rescue-sessions' cores take (#5157):
- * `claude agents --json` as a RunOracle, `claude stop` as its spawn, `gh`,
- * and a clock whose sleep advances it.
- *
- * The oracle and the stop answer through lib/arm-claude-fake.ts's spawn, the
- * installed harness's recordings; the oracle's fold of each seat's answer
- * into what lib/agent-liveness.js's runOracle returns or throws is held to
- * runOracle itself by lib/rescue-ports.contract.test.ts.
- *
- * FOR TESTS ONLY.
- */
-
 import path from "node:path";
 import type { Row } from "./agents-stop-fake";
 import { buildUnrecordedRow } from "./agents-stop-fake";
@@ -25,18 +12,12 @@ interface SpawnOpts {
 	timeout: number;
 }
 
-/** What an unreachable tracker answers every call. */
 export const GH_DOWN: GhAnswer = {
 	status: 1,
 	stdout: "",
 	stderr: "HTTP 502\n",
 };
 
-/**
- * The oracle over `seatAnswer`, one spawned answer a seat: each seat's stdout
- * where every seat exits 0, else runOracle's throw, carrying the first
- * failing seat's status in seat order.
- */
 export function buildRunOracle(
 	seatAnswer: (bin: string, dir: string, timeoutMs: number) => Answer,
 ): RunOracle {
@@ -52,7 +33,6 @@ export function buildRunOracle(
 	};
 }
 
-/** A row as the listing prints it: a field left undefined is left out. */
 export const listed = (row: object): Row =>
 	buildUnrecordedRow(
 		Object.fromEntries(
@@ -65,17 +45,11 @@ export interface Stop {
 	seat: string;
 }
 
-/** One `gh` call: its argv, and the stdin it was given. */
 export interface GhCall {
 	args: string[];
 	input: string | undefined;
 }
 
-/**
- * Every seat lists this session
- * ("sandbox") ahead of its rows, for the oracle's self-test; a seat never
- * given rows fails its listing.
- */
 export function createRescuePorts(procRoot: string) {
 	const listing = new Map<string, Row[]>();
 	const afterStop = new Map<string, Row[]>();
@@ -95,7 +69,6 @@ export function createRescuePorts(procRoot: string) {
 		down: false,
 		commentFails: false,
 	};
-	/* A day ahead of the wall clock, so a read that skips `now` reads a different age. */
 	let clock = Date.now() + 24 * 3_600_000;
 	let stopSeat = "";
 
@@ -168,14 +141,12 @@ export function createRescuePorts(procRoot: string) {
 
 	return {
 		ports,
-		/** What `dir` lists, or lists once stopped where `after`. */
 		lists(dir: string, rows: object[], after = false) {
 			(after ? afterStop : listing).set(
 				dir,
 				[{ sessionId: "sandbox", state: "working" }, ...rows].map(listed),
 			);
 		},
-		/** `dir`'s listing as `raw` rows, the sandbox's own left out. */
 		listsRaw(dir: string, rows: object[], after = false) {
 			(after ? afterStop : listing).set(dir, rows.map(listed));
 		},
@@ -184,9 +155,7 @@ export function createRescuePorts(procRoot: string) {
 		},
 		failing: (dir: string) => failing.add(dir),
 		stopFails: (dir: string) => stopFails.add(dir),
-		/** Runs on `dir`'s second listing: between the probe's two samples. */
 		between: (dir: string, fn: () => void) => between.set(dir, fn),
-		/** Runs once a stop on `dir` takes, after its after-stop listing. */
 		onSeatStop: (dir: string, fn: () => void) => onSeatStop.set(dir, fn),
 		close: (n: number) => closed.add(n),
 		ghDown: () => {

@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-restatement-edges.js reports a tracked file carrying a §B
- * figure's current value that the entry's `Restated in:` list does not name,
- * as a candidate and never a verdict (mantahostels#1104).
- *
- * check-restatement-edges.js enumerates the repo with `git ls-files`, so it is
- * exercised inside a throwaway repository rather than against this one — a
- * fixture pinned to this repo's own docs/ tree would go red on every doc added.
- *
- * Findings never gate, so a test asserting a candidate edge also asserts exit 0.
- *
- * It reports in the daily repo-checks run: loosen a case and a file the
- * restatement list misses is skipped by every propagation pass, leaving a
- * stale figure live.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -38,18 +23,9 @@ const track = (file: string, body: string) => {
 	git("add", "--", file);
 };
 
-/** A Section A register row: path, role, class, update route, consumes. */
 const row = (p: string, cls: string) =>
 	`| \`${p}\` | a doc | \`${cls}\` | Direct | — |`;
 
-/**
- * The map as the script parses it: a Section A register giving each file its
- * authority class, then Section B entries whose headings carry the figure.
- *
- * One `binary-asset` row is always present — the script treats a Section A
- * that parses no row as unreadable, since without the register the scan cannot
- * tell a binary asset from prose.
- */
 const mapDoc = (rows: string[], entries: string[]) =>
 	[
 		"# Doc map",
@@ -69,7 +45,6 @@ const mapDoc = (rows: string[], entries: string[]) =>
 		"",
 	].join("\n");
 
-/** A Section B entry: the heading states the figure, the bullets its sources. */
 const entry = (id: string, title: string, ...bullets: string[]) =>
 	[
 		`### ${id} · ${title}`,
@@ -79,7 +54,6 @@ const entry = (id: string, title: string, ...bullets: string[]) =>
 		"",
 	].join("\n");
 
-/** The restatement edges the entry already has, keyed by entry id. */
 const edges = (
 	data: Record<
 		string,
@@ -294,7 +268,6 @@ describe("check-restatement-edges", () => {
 	});
 
 	it("skips a file the entry names before the allowlist, so its anchor cannot rot in silence", () => {
-		// Both mechanisms cover the same fixture; the entry's own prose wins (mantahostels#1104).
 		track("scripts/thing.test.ts", 'const fixture = "$45";\n');
 		writeMap(
 			[row("docs/owner.md", "s"), row(MAP, "s")],
@@ -318,7 +291,6 @@ describe("check-restatement-edges", () => {
 	});
 
 	it("exempts a file classed binary-asset in Section A", () => {
-		// docs/history.bin carries the same $45 and is registered binary-asset.
 		writeMap(
 			[row("docs/owner.md", "s"), row(MAP, "s")],
 			[entry("B1", "Blended average order value ≈ $45")],

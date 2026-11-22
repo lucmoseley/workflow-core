@@ -1,21 +1,11 @@
-/*
- * proc-environ.js — one variable out of `/proc/<pid>/environ` (#3322), which
- * holds a process's environment as it was at exec, NUL-separated.
- *
- * A leaf: it depends on nothing but `fs`, `path` and lib/proc-root.js.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { procRoot } = require("./proc-root.js");
 
 /**
- * Each of `keys`' values in `pid`'s environment: `{ ok: false }` where the
- * environ will not read — the process gone, or another user's — and a `null`
- * value for a key it reads without.
  * @param {number | string} pid
  * @param {string[]} keys
- * @param {string} [proc] the /proc to read, a test's stand-in
+ * @param {string} [proc]
  * @returns {{ ok: false } | { ok: true, values: Record<string, string | null> }}
  */
 function readEnvironVars(pid, keys, proc = procRoot()) {
@@ -23,7 +13,6 @@ function readEnvironVars(pid, keys, proc = procRoot()) {
 	try {
 		environ = fs.readFileSync(path.join(proc, String(pid), "environ"), "utf8");
 	} catch {
-		/* Each caller says what an unreadable environ means to it. */
 		return { ok: false };
 	}
 	const entries = environ.split("\0");
@@ -37,10 +26,9 @@ function readEnvironVars(pid, keys, proc = procRoot()) {
 }
 
 /**
- * `key`'s value in `pid`'s environment, as readEnvironVars reads it.
  * @param {number | string} pid
  * @param {string} key
- * @param {string} [proc] the /proc to read, a test's stand-in
+ * @param {string} [proc]
  * @returns {{ ok: false } | { ok: true, value: string | null }}
  */
 function readEnvironVar(pid, key, proc = procRoot()) {

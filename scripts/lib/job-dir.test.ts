@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * lib/job-dir.js — the job-directory predicate the job-dir-scratch and
- * tracker-rules dispatcher cores share (mantahostels#2592), and jobRel beside
- * it.
- *
- * THE LIMBS ARE ISOLATED BY CHOOSING PATHS ONLY ONE CAN MATCH, not by stubbing
- * anything, so each case below proves which limb answered it.
- *
- * Both cores judge on this predicate, so a loosened case lets session scratch
- * land under the job directory unwarned, or fires their rule on a path outside
- * it.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -23,7 +11,8 @@ interface Where {
 	cwd?: string;
 }
 
-/* A case's working directory, handed over as `pwd`. */
+const braced = (name: string) => `\${${name}}`;
+
 const where = ({ jobDir, cwd }: Where) => ({
 	pwd: cwd ?? "/",
 	jobDir: jobDir ?? "",
@@ -35,16 +24,13 @@ describe("isJobDir", () => {
 	describe("the unexpanded spelling, which survives with no variable at all", () => {
 		it.each([
 			["$CLAUDE_JOB_DIR/tmp/x.out", "the bare variable"],
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-			["${CLAUDE_JOB_DIR}/tmp/x.out", "a braced expansion"],
+			[`${braced("CLAUDE_JOB_DIR")}/tmp/x.out`, "a braced expansion"],
 		])("%s is under the job directory — %s", (p) => {
 			expect(isJobDir(p, {})).toBe(true);
 		});
 	});
 
 	describe("the $CLAUDE_JOB_DIR prefix, as this process sees it", () => {
-		/* `/srv/jobdir` names no dot-prefixed config directory, so the shape limb
-		 * cannot answer for any of these and a match is the prefix limb's. */
 		const jobDirPath = "/srv/jobdir";
 
 		it("matches a path inside it", () => {
@@ -57,8 +43,6 @@ describe("isJobDir", () => {
 			expect(isJobDir("/srv/jobdir", { jobDir: jobDirPath })).toBe(true);
 		});
 
-		/* THE PREFIX GUARD: a bare prefix test reads the sibling `/srv/jobdir-two`
-		 * as the job directory. */
 		it.each([
 			[
 				"/srv/jobdir-two/tmp/x.out",
@@ -70,16 +54,11 @@ describe("isJobDir", () => {
 		});
 
 		it("matches through a trailing slash on the variable", () => {
-			// The variable is the harness's to set, so `/srv/jobdir/` must answer as
-			// `/srv/jobdir` does.
 			expect(
 				isJobDir("/srv/jobdir/tmp/x.out", { jobDir: "/srv/jobdir/" }),
 			).toBe(true);
 		});
 
-		/* A relative target is resolved against the working directory before the
-		 * prefix test, so the same word answers differently depending on where the
-		 * command runs. */
 		it.each([
 			["tmp/x.out", "a bare relative path"],
 			["./tmp/x.out", "a dot-prefixed one"],
@@ -154,8 +133,7 @@ const jobRel = (p: string, jobDir?: string, cwd?: string) =>
 describe("jobRel — where under the job directory a path sits", () => {
 	it.each([
 		["$CLAUDE_JOB_DIR/tmp/a.md", undefined, "the unexpanded variable"],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-		["${CLAUDE_JOB_DIR}/tmp/a.md", undefined, "a braced expansion"],
+		[`${braced("CLAUDE_JOB_DIR")}/tmp/a.md`, undefined, "a braced expansion"],
 		["/srv/jobdir/tmp/a.md", "/srv/jobdir", "the live variable"],
 		["/home/u/.claude2/jobs/abc/tmp/a.md", undefined, "the shape"],
 	])("places %s at tmp/a.md — %s", (p, jobDir, _label) => {
@@ -165,8 +143,6 @@ describe("jobRel — where under the job directory a path sits", () => {
 	it.each([
 		["/srv/jobdir", "the job directory itself"],
 		["/home/u/work/jobs/42/tmp/a.md", "an ordinary jobs/ directory"],
-		/* isJobDir's shape limb lets `*` span a slash and says yes here; this
-		 * declines to place it, so the core warns rather than refuses. */
 		[
 			"/home/u/.claude2/x/jobs/a/tmp/f",
 			"a shape the predicate's glob alone reaches",

@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * proc-stat.js is the shared parser of `/proc/<pid>/stat` (#3056): loosen its
- * count-from-the-last-`)` rule and a comm holding a space or bracket shifts
- * every field, so the queue, the arbiter and the admission gate each misread
- * a pid's parent or start time. The parse is pinned on synthetic lines, the
- * read on this process's own real stat and on a fixture root, and the walk's
- * stop conditions through an injected `parentOf`, since no real process tree
- * holds a cycle.
- */
 
 import fs from "node:fs";
 import os from "node:os";

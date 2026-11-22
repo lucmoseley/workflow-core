@@ -1,38 +1,5 @@
 // @vitest-environment node
-/*
- * The persist-and-replay harness's own judgement (mantahostels#1977), through
- * lib/persist-replay.js, the module scripts/verify-persist-replay.js calls.
- *
- * The harness runs every persisting producer concurrently, so the pipeline it
- * checks cannot be asserted in-process. What CAN be is what it makes of what
- * it gets back: the report keys it looks under, which malformed reports it
- * catches, and which differences it is entitled to forgive.
- *
- * full-sweep-only: reads each producer script `self-plugin/hooks/hooks.json` wires,
- * a set derived at runtime on purpose (mantahostels#2574), so no literal names them.
- *
- * THE KEY TABLE IS THE ONE THAT BITES. A checker's report key is the `name` it
- * hands `runCheck`, not its filename: most of the checkers drop the `check-`
- * prefix and one — `check-cleared-trackers` — keeps it. A wrong key here reads
- * exactly like a producer that never ran.
- *
- * Mutations run: mantahostels#1977, thirteen of them, each failing exactly its own test
- * and each reversed with the inverse edit — the report-window bound; the
- * checker-name comparison; the outcome-alphabet membership; the reaper's
- * narrower alphabet; the stdout-under-persist fault; the open-run-record
- * fault; the control-run-killed limb; the `volatile` exemption; the stamp limb
- * that excuses a live run saying nothing; the `knownGap` limb; the mask's hex-letter requirement; and each half of
- * `parkStamps` — the clear and the restore.
- *
- * Four more: dropping the mask rule, widening it to swallow the found-in count
- * as well as the corpus size, and unanchoring it from `in <n> of`.
- *
- * mantahostels#2574, one more, reversed the same way: dropping `parkStamps`'s read of a
- * producer's own report for stamp names beyond `stampKeys` — the mechanism
- * that lets a producer's run-time-named stamps be parked with no hand-kept list —
- * fails exactly "also parks every name a producer's own report says it wrote
- * under `stamps`, with no stampKeys entry".
- */
+// full-sweep-only: lucmoseley/mantahostels#2574
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -42,8 +9,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useScratchCore } from "./scratch-core-testkit";
 
 const require_ = createRequire(__filename);
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const replay: any = require_("./persist-replay.js");
+type Lenient<T> = {
+	[K in keyof T]: T[K] extends (...a: never[]) => infer R
+		? (...a: unknown[]) => R
+		: T[K];
+};
+const replay = require_("./persist-replay.js") as Lenient<
+	typeof import("./persist-replay.js")
+>;
 
 const SCRIPTS = path.resolve(__dirname, "..");
 const REPO = path.resolve(SCRIPTS, "..");
@@ -75,7 +48,6 @@ const runResult = (over: Record<string, unknown> = {}) => ({
 
 const ghost = { key: "ghost-jobs" };
 
-/** The faults the harness finds in `rep` alone: a clean persist run, no control. */
 const faultsOf = (
 	producer: Record<string, unknown>,
 	rep: Record<string, unknown> | null,
@@ -89,7 +61,6 @@ const faultsOf = (
 		stampSeen: false,
 	}).faults;
 
-/** What the harness makes of a persisted `persisted` against a live `live`. */
 const compare = (persisted: string, live: string) =>
 	replay.judge(ghost, {
 		persistRun: runResult(),
@@ -100,7 +71,6 @@ const compare = (persisted: string, live: string) =>
 		stampSeen: false,
 	});
 
-/** The producer key a SessionStart hook wires as persisting, if it does. */
 function persistingKey(
 	hook: { command?: string; args?: string[] } | undefined,
 ): string | undefined {
@@ -113,10 +83,6 @@ function persistingKey(
 }
 
 describe("the producer table", () => {
-	/* A snapshot, not a derivation check (the table IS the derivation now,
-	 * mantahostels#2574) — pinned so a new persisting producer trips this test and forces
-	 * a look at whether it needs a PRODUCER_META entry, rather than silently
-	 * inheriting the checker default with nobody having judged it. */
 	it("holds exactly the three producers the settings block currently wires as persisting", () => {
 		expect(PRODUCERS.map((p: { key: string }) => p.key).sort()).toEqual([
 			"ci-status",
@@ -147,9 +113,6 @@ describe("the producer table", () => {
 		for (const p of PRODUCERS) {
 			const src = fs.readFileSync(path.join(SCRIPTS, p.script), "utf8");
 			const literal = src.match(/^\s*name: "([^"]+)",/m)?.[1];
-			/* The reaper is not a runCheck member (mantahostels#2152) but names itself the same
-			 * way, in a CHECKER constant, so it is checked here rather than
-			 * skipped. */
 			const viaConst = src.match(/^const CHECKER = "([^"]+)";/m)?.[1];
 			expect(literal ?? viaConst, `${p.script} names itself`).toBe(p.key);
 		}
@@ -162,10 +125,6 @@ describe("the producer table", () => {
 });
 
 describe("the producer table against another wiring", () => {
-	/* mantahostels#2574: a stale or misspelt PRODUCER_META key would otherwise apply
-	 * silently to nothing, and the annotation it names — most often `volatile`
-	 * — reads as if it were still in force for a producer it no longer
-	 * matches. */
 	let root = "";
 	beforeEach(() => {
 		root = fs.mkdtempSync(path.join(os.tmpdir(), "persist-replay-"));
@@ -246,11 +205,10 @@ describe("a persisted report's own faults", () => {
 		const reaper = PRODUCERS.find(
 			(p: { key: string }) => p.key === "reap-finished-sessions",
 		);
+		if (reaper === undefined) throw new Error("no reap-finished-sessions row");
 		const asReaper = (outcome: string) =>
 			faultsOf(reaper, report({ checker: reaper.key, outcome })).join();
 		expect(asReaper("WARN")).toBe("");
-		/* SKIP and FAIL are reachable for a checker and unreachable for the
-		 * reaper, so a report carrying one is the gate having gone wrong. */
 		expect(asReaper("SKIP")).toMatch(/outside its alphabet/);
 		expect(asReaper("FAIL")).toMatch(/outside its alphabet/);
 	});
@@ -391,7 +349,6 @@ describe("what the comparison masks", () => {
 		);
 	});
 
-	/* mantahostels#1977: the corpus grows with every session on the machine. */
 	it("masks how big the corpus was, and keeps how much of it the fault reached", () => {
 		expect(
 			compare("in 726 of 3939 session(s)", "in 726 of 3945 session(s)").match,
@@ -399,8 +356,6 @@ describe("what the comparison masks", () => {
 		expect(
 			compare("in 726 of 3939 session(s)", "in 12 of 3939 session(s)").match,
 		).toBe("differs");
-		/* Anchored, so a session count that is a finding rather than a corpus
-		 * size still shows a change. */
 		expect(compare("stopped 3 session(s)", "stopped 4 session(s)").match).toBe(
 			"differs",
 		);
@@ -408,11 +363,9 @@ describe("what the comparison masks", () => {
 });
 
 describe("parkStamps", () => {
-	/* The founder's once-only stamps are real state this harness borrows: a
-	 * control run that spent them would silence the next session start about a
-	 * standing finding nobody had been shown. */
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const stamps: any = require_("./delivery-stamp.js");
+	const stamps = require_(
+		"./delivery-stamp.js",
+	) as typeof import("./delivery-stamp.js");
 	let sandbox = "";
 
 	beforeEach(() => {
@@ -462,10 +415,6 @@ describe("parkStamps", () => {
 		expect(stamps.readStamp("ghost-jobs")).toBe(null);
 	});
 
-	/* mantahostels#2574: a producer whose stamp set is decided at run time
-	 * needs no hand-kept `stampKeys` list. Phase A's
-	 * own report already carries every name it stamped under, in `stamps`, and
-	 * `parkStamps` reads them from there. */
 	it("also parks every name a producer's own report says it wrote under `stamps`, with no stampKeys entry", () => {
 		stamps.recordDelivery("hook-liveness-corpus", "sig-a");
 		stamps.recordDelivery("hook-liveness-census", "sig-b");

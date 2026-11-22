@@ -1,65 +1,4 @@
 // @vitest-environment node
-/*
- * tenure.test.ts — tenure.js gathers evidence and renders no verdict, so
- * the tests pin two things: that the evidence is the evidence the skill's
- * step 4 asks for, and that a lookup which could not run never comes back
- * looking like an absence, which the pass would take as licence to cut a
- * line nobody understands (mantahostels#1147, the ticket that scripted the
- * step; mantahostels#1114).
- *
- * Black-box in a throwaway git repo, per docs/code-standards-base.md §X3, with `gh`
- * injected at WFC_GH rather than found on PATH (§N7). Every fail-closed case
- * is paired with a positive case proving the ordinary path still reports.
- *
- * Real git repos, not synthetic fixtures: the one thing that can drift under
- * this script is what `git log -S` actually prints, and a fixture would stop
- * pinning it.
- *
- * Loosen a case and the concision pass's step 4 is shown the wrong commit as
- * a line's origin, or a lookup that never ran as "no history", and cuts a
- * line that was load-bearing.
- *
- * MUTATIONS RUN (mantahostels#1114 limb 4): the locate failure made to fall
- * through to the lookups; the unresolved-lookup exit made 0; the needle made
- * the multi-line span again; the pathspec-less rung dropped; `--reverse`
- * dropped; the re-wrap-tolerant body search made a literal `includes` (mantahostels#2510);
- * `findAcrossWraps`'s token separator widened from `\s+\*?\s*` to `[\s*]+`,
- * losing the boundary that keeps a bare `single*use` and a `**bold**` run
- * from reading as a wrap; `needleFor`'s leading `* ` strip removed, so a
- * marker-bearing fragment reaches `git log -S` and hides the introducing
- * commit behind whichever one wrote the wrap (mantahostels#3169). Each turned exactly one
- * case below red, and each was reversed by its inverse edit.
- *
- * MUTATIONS RUN ON THE mantahostels#3134 AXIS (1b): the message filter made a no-op; the
- * identifier-match regex's word boundaries dropped; the prose-line guard on
- * `DECL_PATTERNS` disabled; the display order's `newestFirst` flag flipped.
- * Each turned exactly one case in "the later-ruling scan" red, and each was
- * reversed by its inverse edit.
- *
- * MUTATIONS RUN ON THE mantahostels#3155 IDENTIFIER-FREQUENCY AXIS: the threshold raised
- * to Infinity turned only the "too common" case red; the threshold dropped to
- * 0 turned only the "rare" case red. Each was reversed by its inverse edit.
- * NOT mutation-tested: the repo-wide frequency lookup's own `git log` failure
- * falling through to a clear rather than `unresolved` — no test here drives
- * `git log` itself to fail, the same pre-existing gap as the file-scoped
- * lookup a few lines above it never having one either.
- *
- * MUTATIONS RUN ON THE #763 LINE-HISTORY RUNG: `lineHistory` made to return
- * no commits; its lines located in the working tree rather than HEAD; the
- * already-printed dedupe disabled; its `--reverse` dropped. Each turned only
- * #763 cases red (the working-tree one also the uncommitted-absence case),
- * and each was reversed by its inverse edit.
- *
- * MUTATIONS RUN ON THE #1238 CLOSED-PIPE CASES: the EPIPE catch removed
- * turned all three red; EPIPE made `process.exit(0)` turned only the exit-3
- * case red. Each was reversed by its inverse edit.
- *
- * MUTATIONS RUN ON THE #5311 HANG CASES: READ_OPTS's timeout dropped turned
- * only the lookup-timeout case red; the entry made to run `main` with no
- * supervising parent turned only the ceiling case red; the kill of the
- * worker's process group dropped turned only the ceiling case red. Each was
- * reversed by its inverse edit.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -72,13 +11,9 @@ import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 
 const TENURE = path.resolve(__dirname, "tenure.js");
 
-/** The sentence under test throughout: long enough to be a distinctive needle,
- * and shaped like the prose this skill actually judges. */
 const SENTENCE =
 	"A reward code is single use and expires ninety days after it is issued.";
 
-/** The tail of axis 1b's too-common warning (mantahostels#3155). One shared fragment, so
- * a reword cannot leave the negative case passing vacuously. */
 const TOO_COMMON_WARNING =
 	"commit messages repo-wide — too common to trust as a ruling on this specific " +
 	"line, so read what follows as candidates rather than rulings";
@@ -99,9 +34,6 @@ const commit = (rel: string, message: string) => {
 	git("commit", "-m", message);
 };
 
-/** Replaces the injected `gh` with one that outlasts every clock the hang
- * cases set (60 s against their 30 s spawn cap), recording its pid so
- * afterEach can end it if the run under test left it. */
 const stubGhHanging = () => {
 	fs.writeFileSync(
 		ghStub,
@@ -110,7 +42,6 @@ const stubGhHanging = () => {
 	);
 };
 
-/** Replaces the injected `gh` with a script emitting `body` and exiting `code`. */
 const stubGh = (body: string, code = 0) => {
 	fs.writeFileSync(
 		ghStub,
@@ -119,8 +50,6 @@ const stubGh = (body: string, code = 0) => {
 	);
 };
 
-/** In process, as the worker: the parent's self-spawn would write past the
- * captured stdout (run-in-process.js limit 6). */
 const runIn = (cwd: string, ...args: string[]) => {
 	const r = runInProcess(TENURE, args, {
 		cwd,
@@ -138,8 +67,6 @@ beforeEach(() => {
 	git("init", "-b", "main");
 	git("config", "user.email", "t@example.com");
 	git("config", "user.name", "T");
-	// The grep axis looks at scripts/ and docs/doc-map.md; both must exist or
-	// the axis is unresolved by design.
 	write("scripts/placeholder.js", "// nothing\n");
 	write("docs/doc-map.md", "# doc map\n");
 	git("add", "-A");
@@ -293,11 +220,6 @@ describe("the later-ruling scan (mantahostels#3134)", () => {
 				'    """\n',
 		);
 		commit("page.py", "Read each hostel's page and fill its dossier");
-		// Four commits name booking_dorm_rate without ever touching the phrase
-		// itself — the cap (3) must withhold the OLDEST of these, because the
-		// true ruling is the newest and step 1's oldest-first rule would hide
-		// exactly the commit this lookup exists to surface (mantahostels#3134). The
-		// docstring stays untouched throughout: only unrelated lines are added.
 		let body =
 			"def booking_dorm_rate(page_text):\n" +
 			'    """The lowest rate quoted for a room on this page.\n\n' +
@@ -402,9 +324,6 @@ describe("the later-ruling scan (mantahostels#3134)", () => {
 			'def hostel(page_text):\n    """A comment on this function."""\n',
 		);
 		commit("page.py", "Read each hostel's page and fill its dossier");
-		// 20 more commits naming "hostel", repo-wide: 21 matches in total,
-		// over MAX_IDENTIFIER_COMMIT_MATCHES (20) — a single common word run
-		// into the ground, the case raw character length cannot see (mantahostels#3155).
 		for (let i = 0; i < 20; i++) {
 			write("filler.md", `filler ${i}\n`);
 			commit("filler.md", `Mention hostel again, filler commit ${i}`);
@@ -425,9 +344,6 @@ describe("the later-ruling scan (mantahostels#3134)", () => {
 				'    """A comment on this function."""\n',
 		);
 		commit("page.py", "Read each hostel's page and fill its dossier");
-		// One other commit does name it in plain English — frequency 1, not 0
-		// — so this case actually exercises the threshold rather than passing
-		// vacuously on an identifier nothing ever mentions.
 		write("notes.md", "note\n");
 		commit(
 			"notes.md",
@@ -442,9 +358,6 @@ describe("the later-ruling scan (mantahostels#3134)", () => {
 	});
 
 	it("stays silent about frequency where the identifier was never searchable (mantahostels#3155)", () => {
-		// `_` holds no word characters, so the axis is unresolved before a
-		// frequency lookup ever runs. Warning it matched too much would
-		// contradict the line beneath it.
 		write("page.py", '_ = 1\n"""A comment on this function."""\n');
 		commit("page.py", "Read each hostel's page and fill its dossier");
 
@@ -460,8 +373,6 @@ describe("the retry ladder", () => {
 	it("finds the commit that settled a rule, not the commit that reflowed it (mantahostels#1147)", () => {
 		write("doc.md", `${SENTENCE}\n`);
 		commit("doc.md", "Stop a reward code being redeemed twice");
-		// The same sentence, re-wrapped by a later, unrelated edit. A needle
-		// carrying the new line break matches only this commit.
 		write(
 			"doc.md",
 			"A reward code is single use\nand expires ninety days after it is issued.\n",
@@ -484,8 +395,6 @@ describe("the retry ladder", () => {
 		const { code, out } = run(SENTENCE, "new.md");
 
 		expect(code).toBe(0);
-		// The pathspec rung names only the rename, whose message describes the
-		// move — which clears tenure under step 4's bulk-rewrite rule.
 		expect(out).toContain("Rename old.md to new.md");
 		expect(out).toContain("which new.md's own history cannot see");
 		expect(out).toContain("Stop a reward code being redeemed twice");
@@ -541,9 +450,6 @@ describe("the retry ladder", () => {
 	});
 
 	it("also crosses a Markdown list boundary, the same shape as a comment marker (mantahostels#3169)", () => {
-		// Accepted residual, documented at findAcrossWraps: a `* ` list
-		// bullet is indistinguishable from a comment-continuation marker, so
-		// tolerating one tolerates the other too.
 		write("doc.md", "the rule\n* applies to partners\nand nobody else.\n");
 		commit("doc.md", "add the rule");
 
@@ -556,9 +462,6 @@ describe("the retry ladder", () => {
 	it("finds the commit that settled a rule, not the commit that wrapped it into a comment (mantahostels#3169)", () => {
 		write("doc.md", `${SENTENCE}\n`);
 		commit("doc.md", "Stop a reward code being redeemed twice");
-		// Rewrapped into a doc comment by a later, unrelated edit, with the
-		// longest line-internal fragment (needleFor's pick) now carrying the
-		// comment's leading `* ` marker.
 		write(
 			"doc.md",
 			"/**\n * A reward\n * code is single use and expires ninety days after it is issued.\n */\n",
@@ -590,8 +493,6 @@ describe("the retry ladder", () => {
 		commit("doc.md", "Stop a reward code being redeemed twice");
 		write("doc.md", `${SENTENCE}\n`);
 		commit("doc.md", "Tighten the wording across the document");
-		// Uncommitted lines above the phrase: `-L` numbers HEAD's lines, so
-		// the working tree's line number would point it at the wrong line.
 		write("doc.md", `new heading\n\nintro\n\n${SENTENCE}\n`);
 
 		const { code, out } = run(SENTENCE, "doc.md");
@@ -613,8 +514,6 @@ describe("the retry ladder", () => {
 	});
 
 	it("reports a string no commit ever carried as a real absence, both rungs run", () => {
-		// Present in the working tree, never committed: git genuinely holds no
-		// commit that added this string.
 		write("doc.md", "placeholder\n");
 		commit("doc.md", "add the file");
 		write("doc.md", `${SENTENCE}\n`);
@@ -640,8 +539,6 @@ describe("fails closed — a lookup that could not run is never an absence (mant
 		expect(code).toBe(3);
 		expect(out).toContain("UNRESOLVED: that phrase is not in doc.md");
 		expect(out).toContain("Nothing about");
-		// None of the lookups must appear: a printed "none" here would read
-		// as proof that no commit introduced the sentence.
 		expect(out).not.toContain("introducing commit");
 		expect(out).not.toContain("later ruling on this identifier");
 		expect(out).not.toContain("earlier ruling");
@@ -741,8 +638,6 @@ describe("output stays bounded, whatever the history holds (mantahostels#1114)",
 		expect(code).toBe(0);
 		expect(out).toContain("9 in doc.md:");
 		expect(out).toContain("(+6 newer, not shown)");
-		// The point of the cap's direction: what survives it is the commit that
-		// introduced the sentence, not the newest edit to touch it (mantahostels#1147).
 		expect(out).toContain("commit one");
 		expect(out).not.toContain("restore five");
 	});
@@ -787,9 +682,6 @@ describe("output stays bounded, whatever the history holds (mantahostels#1114)",
 		const { code, out } = run(SENTENCE, "doc.md");
 
 		expect(code).toBe(0);
-		// The needle-echo line always prints SENTENCE, so the assertion that
-		// actually pins full-body printing is the marker sitting after it —
-		// unreachable unless the body printed past the 600-char cap.
 		expect(out).toContain(tailMarker);
 		expect(out).toContain("holds the needle — printed in full");
 	});
@@ -825,12 +717,6 @@ describe("output stays bounded, whatever the history holds (mantahostels#1114)",
 });
 
 describe("a reader that closes the pipe early (#1238)", () => {
-	/** Runs tenure.js into `reader` through bash, printing tenure.js's own exit
-	 * code after the reader's output. The inner `timeout` is the hang pin: a
-	 * hang reads `tenure-exit=124`, and the hung node is killed, not orphaned.
-	 * Spawned, not run in process (§X3): EPIPE needs a real fd 1 whose reader
-	 * has gone, which run-in-process.js's captured stdout never is, and the
-	 * hang pin needs a timeout. */
 	const piped = (reader: string, ...args: string[]) => {
 		const r = spawnSync(
 			"bash",
@@ -861,8 +747,6 @@ describe("a reader that closes the pipe early (#1238)", () => {
 		expect(r.stderr).not.toContain("EPIPE");
 	});
 
-	// `true` exits before tenure.js writes anything, so every write meets a
-	// closed pipe — the case `head -1` reaches only when it wins a race.
 	it("keeps exit 0 when the reader is gone before the first write", () => {
 		write("doc.md", `${SENTENCE}\n`);
 		commit("doc.md", "add the rule");
@@ -886,9 +770,6 @@ describe("a reader that closes the pipe early (#1238)", () => {
 });
 
 describe("a lookup that never ends (#5311)", () => {
-	/** The real entry, spawned: the ceiling lives in a parent process. The
-	 * 30 s cap is far past every clock a case sets, so a run that ignored them
-	 * reads `code: null`, not a pass. */
 	const spawned = (env: Record<string, string>, ...args: string[]) => {
 		const r = keptSpawn("concurrent").spawnSync("node", [TENURE, ...args], {
 			cwd: repo,
@@ -915,7 +796,6 @@ describe("a lookup that never ends (#5311)", () => {
 		commit("doc.md", "add the rule");
 		stubGhHanging();
 
-		// 500 ms: long past a stub's start, short beside the test's budget.
 		const r = spawned(
 			{ WFC_TENURE_LOOKUP_TIMEOUT_MS: "500" },
 			SENTENCE,
@@ -934,7 +814,6 @@ describe("a lookup that never ends (#5311)", () => {
 		commit("doc.md", "add the rule");
 		stubGhHanging();
 
-		// The lookup cap past the stub's 60 s, so only the 1 s ceiling can end it.
 		const r = spawned(
 			{ WFC_TENURE_LOOKUP_TIMEOUT_MS: "90000", WFC_TENURE_CEILING_MS: "1000" },
 			SENTENCE,
@@ -945,8 +824,6 @@ describe("a lookup that never ends (#5311)", () => {
 		expect(r.out).toContain(
 			"UNRESOLVED: tenure.js ran past its 1 s ceiling and was killed",
 		);
-		// The kill reached the worker's lookups too, not only the worker: the
-		// stub is gone, or a zombie awaiting its reaper.
 		const pid = Number(fs.readFileSync(`${ghStub}.pid`, "utf8"));
 		const state = orFallback(
 			() => fs.readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1][0],
@@ -968,8 +845,6 @@ describe("the log parser (#1341)", () => {
 		expect(out).not.toContain("undefined");
 	});
 
-	/* A message carrying the record separator is the one way git hands the
-	 * parser a record short of its fields. */
 	it("fails loud on a record short of a subject, naming it, rather than building a commit of undefined fields", () => {
 		write("doc.md", `${SENTENCE}\n`);
 		commit("doc.md", "Add the rule\n\nfirst half\x1esecond half");

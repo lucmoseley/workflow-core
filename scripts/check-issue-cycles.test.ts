@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-issue-cycles.js reports each loop of open issues waiting on
- * each other — through blockers and sub-issues together, in any repo the
- * corpus reaches — once, never writes, and goes BROKEN rather than OK on an
- * unread node.
- *
- * The check is #495's, run here with a stub `gh` injected via WFC_GH: no
- * network, no auth, and no dependence on this repo's own tracker state — which
- * is what the script reports on and so cannot also be its fixture.
- *
- * It runs daily in the repo-checks run, report-only: loosen a case and a
- * ticket can sit blocked on itself unnoticed.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -40,26 +27,19 @@ interface Blocker {
 
 interface Issue {
 	number: number;
-	/** `owner/name`; `o/r` where unset */
 	repo?: string;
-	/** the open parent's number, in the same repo */
 	parent?: number;
 	blockedBy?: Blocker[];
-	/** this one issue's blockers read fails, batched and alone alike */
 	failBlockers?: boolean;
 	pull_request?: object;
-	/** read by the walk alone: absent from its repo's open-issue list */
 	unlisted?: boolean;
 }
 
 interface Fixture {
 	issues: Issue[];
-	/** the trackers the corpus declares; `o/r` alone where unset */
 	corpus?: string[];
-	/** each repo's open-issue list answer, where it fails */
 	failList?: Record<string, GhAnswer>;
 	unreachable?: boolean;
-	/** the list reads, then the links read finds gh logged out */
 	blockersUnreachable?: boolean;
 }
 
@@ -274,8 +254,6 @@ describe("cycles", () => {
 });
 
 describe("across trackers (#5070)", () => {
-	/* #5055's shape: a loop crossing two repos, one sub-issue link and two
-	 * blocker links. */
 	const twoRepoLoop: Issue[] = [
 		{
 			number: 3864,
@@ -402,7 +380,6 @@ describe("failure handling", () => {
 	});
 
 	it("is BROKEN, never OK, when one issue's links cannot be read, naming the issue", async () => {
-		// An unread blocker list could hide the one link that closes a loop.
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2, failBlockers: true }],
 		});

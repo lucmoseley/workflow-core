@@ -31,9 +31,6 @@ function field(e, key) {
 }
 
 /**
- * execFileSync attaches a child's output as a string or a Buffer, by its
- * `encoding`.
- *
  * @param {unknown} v
  * @returns {string | undefined}
  */
@@ -43,8 +40,6 @@ function text(v) {
 }
 
 /**
- * `String(e)`, which itself throws on an object with no usable `toString`.
- *
  * @param {unknown} e
  * @returns {string}
  */
@@ -74,10 +69,7 @@ function caught(e) {
 }
 
 /**
- * What a failed call said: the child's stderr where it printed any, else the
- * message, as a timed-out spawn's stderr is empty (#2673).
- *
- * @param {unknown} e a catch binding
+ * @param {unknown} e
  * @returns {string}
  */
 function parseErrorText(e) {
@@ -86,17 +78,13 @@ function parseErrorText(e) {
 }
 
 /**
- * A thrown value as a log line carries it: an Error's stack, which opens with
- * its message, else the value itself.
- *
- * @param {unknown} e a catch binding
+ * @param {unknown} e
  * @returns {string}
  */
 const buildErrorText = (e) =>
 	e instanceof Error ? (e.stack ?? e.message) : String(e);
 
 /**
- * `read()`'s value, or null where it throws, logged as `what` unread.
  * @template T
  * @param {(line: string) => void} log
  * @param {string} what

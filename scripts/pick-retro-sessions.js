@@ -1,42 +1,4 @@
 #!/usr/bin/env node
-/*
- * pick-retro-sessions.js — which finished sessions of one week a retro should
- * read, ranked by fault signal, from one pool across every repo that runs the
- * plugin (#960; contract: #948 §Session picker).
- *
- * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a read-only ranker
- * whose output retro-sweep reads. Prints one JSON object to stdout; exits 2 on
- * a bad argument.
- *
- * POOL. Every seat's `projects/` (`lib/seat-args.js`), realpath-deduped, one
- * copy of each session (`lib/project-dirs.js`). A session's repo comes from the
- * first `cwd` its transcript records, never from the slug, which flattens every
- * `/`, `.` and `-` alike and so cannot be read back into a path. Excluded by
- * that cwd: job temp (`<seat>/jobs/<id>/tmp`), system temp (`os.tmpdir()`) and
- * repo scratch (`<repo>/.claude/tmp/…`). A harness worktree
- * (`<repo>/.claude/worktrees/<name>`) counts as its repo. A repo is pooled
- * where it is workflow-core itself (its own `.claude-plugin/plugin.json`) or
- * its `.claude/settings.json`, as committed when the session started, enables
- * `workflow-core@<marketplace>`; that commit's pin is the release reported.
- *
- * WINDOW. A session belongs to the week its first timestamp falls in:
- * `[start, start + 7 days)`, start being `--week`'s date at 00:00 UTC, or
- * 7 days before now by default. `WFC_NOW` pins now.
- *
- * EXCLUDED: an `sdk-cli` entrypoint (headless `claude -p`); the calling
- * session (`CLAUDE_CODE_SESSION_ID`); any session `lib/agent-liveness.js`
- * reads as live, or, on another seat, the arbiter's sessions registry does.
- * Where either cannot be read, every session whose main or subagent log
- * changed within 60 minutes is skipped too, and stderr says so.
- *
- * SCORE. #876's six signals, counted over the main log and every subagent log,
- * each capped at 10, summed. A classifier denial is not also a tool error. Ties go to more API responses (distinct
- * `requestId`s), then to the lower session id so the order is stable.
- *
- * THE ONE WRITE IS THE ORACLE LIBRARY'S: its single-flight cache under
- * `CLAUDE_CONFIG_DIR` (`lib/oracle-cache.js`). This script opens nothing for
- * writing, and its `git` calls only read.
- */
 
 const crypto = require("node:crypto");
 const { scriptPath } = require("./lib/script-path.js");
@@ -75,25 +37,17 @@ workflow-core plugin, by fault signal. Prints JSON.
   --config-dir <dir>  a seat to read, repeatable (default: every known seat)`;
 
 const DAY_MS = 86_400_000;
-/* #948 §Session picker sets the hour, the cap and the 8 + 4 split (#927's
- * ruled 12-session calibration batch, a third of it random control). None is
- * measured; calibration is what tests them. */
+/* #948 guess: calibration tests them */
 const LIVE_WINDOW_MS = 60 * 60_000;
 const SIGNAL_CAP = 10;
 const CALIBRATE_RANKED = 8;
 const CALIBRATE_CONTROLS = 4;
 
 const CLASSIFIER = /auto mode classifier/i;
-/* A founder asking whether the session is still moving. A first cut from the
- * #883 trial's three asks; calibration is what tests it. */
+/* #883 guess: calibration tests it */
 const LIVENESS_ASK =
 	/\b(progress|have a (check|look)|check (in|on)|status|any (news|update)|how'?s it going|how is it going|still (working|going|running|there|alive)|are you (stuck|there|alive|working)|stuck|frozen|stalled|hung)\b/i;
-/* A first guess, and stated as one: the #883 asks run to ~120 characters, and
- * a longer message mentioning "progress" is the founder briefing new work.
- * Only `origin.kind` human counts: a subagent log's dispatch prompt is a plain
- * user string too. A refill-loop resume prompt, or another script's typed
- * one, is human too, so it is skipped by its text (#3381, #4844). Each
- * `[image]` marker in the text counts toward the cap. */
+/* #883 guess: the asks run to ~120 characters */
 const LIVENESS_ASK_MAX = 200;
 
 /** @typedef {{toolErrors: number, classifierDenials: number, stopBlocks: number,
@@ -109,7 +63,7 @@ const LIVENESS_ASK_MAX = 200;
  * @typedef {import("./lib/transcript.js").TranscriptBlock} TranscriptBlock
  */
 
-/** lib/check.js's clock, a malformed WFC_NOW exiting 2. @returns {number} */
+/** @returns {number} */
 function now() {
 	try {
 		return checkNow();
@@ -118,7 +72,7 @@ function now() {
 	}
 }
 
-/** An absent directory reads empty: a session with no subagents. @param {string} dir */
+/** @param {string} dir */
 function readDir(dir) {
 	try {
 		return fs.readdirSync(dir, { withFileTypes: true });
@@ -127,7 +81,7 @@ function readDir(dir) {
 	}
 }
 
-/** NaN where the file cannot be stat'ed. @param {string} file */
+/** @param {string} file */
 function readMtimeOf(file) {
 	try {
 		return fs.statSync(file).mtimeMs;
@@ -137,11 +91,8 @@ function readMtimeOf(file) {
 }
 
 /**
- * A repo's `.claude/settings.json` as last committed before `at`, so a session
- * reports the pin it ran under rather than one bumped since. The working copy
- * where git has no such commit to show.
  * @param {string} root
- * @param {string} at  an ISO timestamp
+ * @param {string} at
  * @returns {unknown}
  */
 function readSettingsAt(root, at) {
@@ -150,11 +101,9 @@ function readSettingsAt(root, at) {
 		execGit(["-C", root, ...args], {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
-			// A guess, never measured: a wedged git, not a slow one.
+			// #960 guess: a wedged git, not a slow one
 			timeout: 10_000,
 		}).trim();
-	// Not a repo git can read, or no parseable commit: the working copy below
-	// is the best remaining answer.
 	const committed = orFallback(() => {
 		const sha = git(["log", "-1", "--format=%H", `--before=${at}`, "--", rel]);
 		return sha ? JSON.parse(git(["show", `${sha}:${rel}`])) : undefined;
@@ -164,8 +113,6 @@ function readSettingsAt(root, at) {
 }
 
 /**
- * Whether a repo ran the plugin at `at`, and the release it pinned: `self`
- * for workflow-core itself, the pin's `ref` (or null) for an adopter.
  * @param {string} root
  * @param {string} at
  * @returns {{release: string|null} | null}
@@ -184,11 +131,9 @@ function readPluginRelease(root, at) {
 }
 
 /**
- * Adds one log's signals and request ids to `tally`. Throws where the log
- * cannot be read, leaving what was counted before the failure.
  * @param {string} file
  * @param {"main"|"subagent"} tier
- * @param {Tally} tally accumulator: signals are counted and request ids added
+ * @param {Tally} tally
  */
 function countSignals(file, tier, { signals, requests }) {
 	for (const r of streamRecords(file, tier)) {
@@ -203,7 +148,7 @@ function countSignals(file, tier, { signals, requests }) {
 
 /**
  * @param {TranscriptRecord} r
- * @param {Signals} signals accumulator: counts stop blocks, liveness asks and tool errors
+ * @param {Signals} signals
  */
 function countUserSignals(r, signals) {
 	const content = r.message?.content;
@@ -221,7 +166,7 @@ function countUserSignals(r, signals) {
 
 /**
  * @param {TranscriptBlock[]} content
- * @param {Signals} signals accumulator: counts classifier denials and other tool errors
+ * @param {Signals} signals
  */
 function countToolErrors(content, signals) {
 	for (const b of content) {
@@ -232,11 +177,7 @@ function countToolErrors(content, signals) {
 	}
 }
 
-/**
- * A seeded uniform draw in [0, 1) — mulberry32 over the seed's hash — or
- * Math.random where no seed is given.
- * @param {string|undefined} seed
- */
+/** @param {string|undefined} seed */
 function drawFrom(seed) {
 	if (seed === undefined) return Math.random;
 	let a = crypto.createHash("sha256").update(seed).digest().readUInt32LE(0);
@@ -311,9 +252,6 @@ function topOf(topFlag, refuse) {
 }
 
 /**
- * The window's sessions in plugin repos, before the liveness skip, with the
- * main logs that could not be read and the seat or project directories that
- * could not be listed (#1054).
  * @param {string[]} seats
  * @param {number} start
  * @param {number} end
@@ -341,8 +279,6 @@ function poolCandidates(seats, start, end) {
 }
 
 /**
- * One listed main log as a Candidate, or null where the session is excluded;
- * `unreadable` says the log itself could not be read.
  * @param {string} file
  * @param {string} sessionId
  * @param {{ start: number, end: number }} window
@@ -355,13 +291,10 @@ function candidateOf(file, sessionId, { start, end }) {
 	const subagentLogs = readDir(subagentDir)
 		.filter((e) => e.name.endsWith(".jsonl"))
 		.map((e) => path.join(subagentDir, e.name));
-	// A subagent log that vanished since the listing changes nothing here.
 	const changed = Math.max(
 		own,
 		...subagentLogs.map(readMtimeOf).filter((m) => !Number.isNaN(m)),
 	);
-	// The first record is written before any later one, so a log last
-	// changed before the window opened cannot start inside it.
 	const excluded = { candidate: null, unreadable: false };
 	if (changed < start) return excluded;
 	/** @type {SessionHead} */
@@ -395,11 +328,6 @@ function candidateOf(file, sessionId, { start, end }) {
 }
 
 /**
- * The candidates nothing shows running. `claude agents --json` lists the
- * caller's own seat; the sessions registry (`lib/arbiter-core.js`) covers
- * every seat by pid. A session the oracle calls finished is kept whatever the
- * registry says, its process merely resident. Where either cannot be read,
- * the header's EXCLUDED fallback applies (#948 §Session picker).
  * @param {Candidate[]} candidates
  * @param {number} t
  * @returns {Candidate[]}
@@ -430,12 +358,7 @@ function dropLive(candidates, t) {
 	return kept;
 }
 
-/**
- * One candidate's output row, and the logs that failed partway: each is
- * counted on what was read (#960 fails open here: one bad log must not drop a
- * week's ranking).
- * @param {Candidate} c
- */
+/** @param {Candidate} c */
 function scoreSession(c) {
 	/** @type {string[]} */
 	const unreadable = [];
@@ -481,16 +404,13 @@ function scoreSession(c) {
 }
 
 /**
- * The top CALIBRATE_RANKED as `rank`, then CALIBRATE_CONTROLS drawn uniformly
- * from the rest as `control`, each keeping its place in the full ranking.
  * @template {object} T
- * @param {T[]} scored  in rank order
+ * @param {T[]} scored
  * @param {string|undefined} seed
  */
 function pickCalibration(scored, seed) {
 	const rest = scored.slice(CALIBRATE_RANKED);
 	const draw = drawFrom(seed);
-	// A partial Fisher-Yates: the first k slots end up a uniform draw.
 	const k = Math.min(CALIBRATE_CONTROLS, rest.length);
 	for (let i = 0; i < k; i++) {
 		const j = i + Math.floor(draw() * (rest.length - i));

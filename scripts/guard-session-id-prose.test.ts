@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * guard-session-id-prose.js sends a reply back once where its prose names a
- * session by id rather than by name (#3557).
- *
- * It runs at every `Stop` (`self-plugin/hooks/hooks.json`, `hooks/hooks.json`):
- * a break here lets bare session ids reach the founder unchallenged.
- */
 
 import fs from "node:fs";
 import os from "node:os";

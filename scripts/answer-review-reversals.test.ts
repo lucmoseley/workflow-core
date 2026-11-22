@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * answer-review-reversals.js, driven through its command line against a stub
- * gh (#2017). Filing goes through the real file-issue.js. Break it and a
- * founder's `reverse <n>` goes unanswered, or files its ticket twice.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -34,7 +29,6 @@ const {
 } = morningReviewFixture(sb, SCRIPT);
 const { run: runFiling } = morningReviewFixture(sb, FILING);
 
-/* A guess: a node start and its gh reads, on a machine running full suites. */
 const HOLDER_START_MS = 30_000;
 const HOLDER_TEST_MS = 2 * HOLDER_START_MS;
 
@@ -53,10 +47,6 @@ const writeTrackerConfig = (root: string, tracker: string) => {
 	);
 };
 
-/**
- * A plain-terminal run from a second clone of acme/wfc, outside the harness,
- * its config spelling the tracker in another case.
- */
 function runFromClone() {
 	const clone = path.join(sb.dir, "clone");
 	writeTrackerConfig(clone, "Acme/WFC");
@@ -162,7 +152,6 @@ describe("answer-review-reversals.js (#2017)", () => {
 		fs.writeFileSync(stub("fail-comment"), "");
 		expect((await run()).status).toBe(1);
 		fs.rmSync(stub("fail-comment"));
-		/* A failing search leaves only the record to name the ticket by. */
 		fs.writeFileSync(stub("fail-issues-since"), "");
 		const again = runFromClone();
 		expect(again.stderr).toBe("");
@@ -224,7 +213,6 @@ describe("answer-review-reversals.js (#2017)", () => {
 		expect((await run()).status).toBe(1);
 		expect(readCreated()).toHaveLength(1);
 		fs.rmSync(stub("fail-comment"));
-		/* Named off the record now: this run's read of the tracker would fail. */
 		fs.writeFileSync(stub("fail-issues-since"), "");
 		const named = await run();
 		expect(named.stderr).toBe("");
@@ -251,7 +239,6 @@ describe("answer-review-reversals.js (#2017)", () => {
 
 	it("files a reversal whose title another request's ticket already carries (#3828)", async () => {
 		seed([openReview()]);
-		/* The URL holds this request's as a prefix, as `entry 1` does `entry 12`. */
 		fs.writeFileSync(
 			stub("created-800.json"),
 			JSON.stringify({
@@ -283,8 +270,6 @@ describe("answer-review-reversals.js (#2017)", () => {
 		"files nothing from %s while a live run holds the reversal lock",
 		async (_from, runIt) => {
 			seed([openReview()]);
-			/* pid-lock.js reads a holder by its command line, so the holder runs
-			 * a file of this script's name. */
 			const holderScript = path.join(
 				sb.dir,
 				"holder",
@@ -317,8 +302,6 @@ describe("answer-review-reversals.js (#2017)", () => {
 	])(
 		"with %s mid-answer, a run of %s leaves the answering to it (#3815)",
 		async (_holder, _other, holderScript, runOther) => {
-			/* Today's review is already filed, so a filing run goes straight to
-			 * answering. */
 			seed([
 				{ ...openReview(), title: buildReviewTitle(localDate(new Date())) },
 			]);

@@ -1,43 +1,11 @@
 #!/usr/bin/env node
-/*
- * check-commit-message-closes.js — refuse a commit message that closes an
- * issue.
- *
- * NOT IN THE `check-*` FAMILY, despite the name: those report a survey, and
- * this refuses one commit. It exits 0 or 1, not the family's alphabet.
- *
- * Usage: check-commit-message-closes.js <message-file> <context>
- *   <context> names the seam for the refusal text: `commit-msg` or
- *   `prepare-commit-msg`. The git hooks' dispatchers run main in-process.
- *
- * cli-args-exempt: a git hook's helper taking two positionals; parseOrExit's
- * exit 2 on an unknown flag would refuse the commit on a usage error.
- *
- * WHY A SECOND DETECTOR (#138). The guard-commit-form core denies the same pattern,
- * but it is a PreToolUse hook on the Bash tool and reads `-m`/`--message`
- * values alone. Four routes reach GitHub past it: `git commit -F <file>`, a
- * message reused with `-c`/`-C`, a message typed into $EDITOR, and any commit
- * made from the founder's own terminal. A git hook sees all four, because it
- * reads the finished message file. The pattern is lib/closing-keyword.js,
- * shared with that guard so the two cannot drift.
- *
- * WHAT IS STRIPPED BEFORE MATCHING, and why each would otherwise fire:
- *   - git's commentary, through lib/commit-message.js: `#` lines where git
- *     drops them, and the `--verbose` diff below the scissors line.
- *   - a `Revert "…"` line: `git revert` of a pre-#129 commit generates `Revert
- *     "Fixes #77 …"` verbatim, and refusing there strands a revert behind a
- *     message nobody wrote (measured at #138).
- *
- * THE RESIDUAL that last strip leaves: GitHub does honour a keyword inside the
- * quoted subject, so reverting a pre-rule commit re-closes its issue silently.
- */
-
 const fs = require("node:fs");
+const { parseArgs } = require("node:util");
 const { closingMatch, closingRefusal } = require("./lib/closing-keyword.js");
 const { recordedLines } = require("./lib/commit-message.js");
 
 /**
- * @param {string} raw the message file's text
+ * @param {string} raw
  */
 function messageText(raw) {
 	return recordedLines(raw)
@@ -69,7 +37,12 @@ function main(argv) {
 }
 
 if (require.main === module) {
-	const { code, stderr } = main(process.argv.slice(2));
+	const { positionals } = parseArgs({
+		args: process.argv.slice(2),
+		allowPositionals: true,
+		strict: true,
+	});
+	const { code, stderr } = main(positionals);
 	if (stderr) process.stderr.write(stderr);
 	process.exitCode = code;
 }

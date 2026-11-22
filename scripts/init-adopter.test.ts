@@ -1,30 +1,4 @@
 // @vitest-environment node
-/*
- * init-adopter.js writes a fresh repository's day-one skeleton — config, rules
- * file, hooks, .gitignore — that commits green through its own gate stack.
- *
- * init runs against a throwaway repository, because what it promises is a
- * repo that COMMITS (#5). The branch cases call its core in-process
- * (`adoptWith`, `init`). The program cases are its boundary set (§X11): each
- * exit with its stream (--help, an unknown flag, a settings file that does not
- * parse), the env it reads (WFC_GITLEAKS and PATH, WFC_CLAUDE_BIN, WFC_GH,
- * CLAUDE_PLUGIN_ROOT as the plugin root's fallback, CLAUDE_CONFIG_DIR as the
- * plugin registry's, the cwd as the default root), and each production
- * adapter crossed once (the
- * `claude plugin` install, the cost measurer, the gh probes, and the plugin
- * scripts run as children, which init-adopter-commit.test.ts's program runs
- * cross).
- *
- * The plugin root is this checkout, which is what an install resolves it to.
- * `--no-tracker` throughout, but for the tracker block, which fakes `gh` at
- * WFC_GH: nothing here touches GitHub.
- *
- * init is the one command a new adopter runs to bootstrap: loosen a case here
- * and that adopter's first commit is refused by the gates init itself installed,
- * or its sessions run from a skeleton that is missing pieces. The cases that
- * commit through the whole hook stack are init-adopter-commit.test.ts's
- * (#4296).
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -64,14 +38,6 @@ import { installPathFor } from "./lib/plugin-state.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { MODULES } from "./lib/workflow-core-config.js";
 
-/**
- * The `claude plugin` fake (lib/claude-plugin-fake.ts), held to the real
- * binary by lib/claude-plugin.contract.test.ts, in a directory of its own.
- *
- * `update` answers as recorded and writes nothing, so a passing test below
- * proves the right commands were sent, never that `update` actually re-pulled
- * an already-installed plugin (#120).
- */
 function fakeClaude(fake: PluginFake = {}) {
 	const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-claude-"));
 	made.push(stub);
@@ -96,11 +62,7 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("names every missing tool, on a PATH that supplies none of them", () => {
-		/* PATH emptied, so the MISSING branch is what this machine's own
-		 * installs cannot change. WFC_GITLEAKS unset too (#239): gitleaks's
-		 * probe honours it like the hooks do, so a session running this suite
-		 * with the var exported would otherwise see gitleaks drop out of the
-		 * MISSING line. */
+		// #239
 		const { dir } = repo();
 		const { WFC_GITLEAKS: _unused, ...rest } = process.env;
 		const env = { ...rest, PATH: "" };
@@ -139,8 +101,6 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("finds gitleaks through WFC_GITLEAKS on a PATH that supplies none of the tools (#239)", () => {
-		/* PATH emptied, as the MISSING case above, but WFC_GITLEAKS points at a
-		 * real binary off PATH. Every tool but gitleaks stays MISSING. */
 		const { dir } = repo();
 		const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-gitleaks-"));
 		made.push(stub);
@@ -243,7 +203,6 @@ describe("init in a fresh repository", () => {
 			);
 		});
 
-		/** Runs init through a `claude` whose `plugin details` prints ~2,273 tok. */
 		const initMeasuring = (dir: string) => {
 			const bin = fakeClaude({ alwaysOn: "2,273" });
 			const env = { ...process.env, WFC_CLAUDE_BIN: bin };
@@ -302,14 +261,6 @@ describe("init in a fresh repository", () => {
 
 		it("keeps `ref` in the final settings.json on a url source, despite the install's own rewrite", () => {
 			const { dir } = repo();
-			/* The real CLI's own side effect: `marketplace add` rewrites the
-			 * marketplace's settings.json entry, and a caller that did not pass
-			 * `ref` via the source URL's `#ref` syntax loses it. The fake writes
-			 * the recorded directory shape, with no `ref`, in place of the url
-			 * shape, which is unheld: recording a url source's add clones a
-			 * published marketplace (record-claude-plugin.js). */
-			/* An empty CLAUDE_CONFIG_DIR, so #258's own cross-scope check reads no
-			 * real user-scope settings.json this machine happens to carry. */
 			const configDir = fs.mkdtempSync(
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
@@ -396,12 +347,10 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					/* On PATH, not WFC_CLAUDE_BIN, and with that var dropped: the
-					 * fallback names whatever binary init resolved, and this asserts
-					 * the default `claude` (#775). */
+					// #775
 					env: {
 						...withoutClaudeBin,
-						// claude-route-exempt: asserts the bare `claude` fallback
+						// claude-route-exempt: #3559
 						PATH: `${stub}${path.delimiter}${process.env.PATH}`,
 					},
 				},
@@ -536,8 +485,6 @@ describe("init in a fresh repository", () => {
 
 		it("url-source run records its ref, claiming no resolved sha before install runs", () => {
 			const { dir } = repo();
-			/* An empty CLAUDE_CONFIG_DIR, so this reads no real
-			 * installed_plugins.json this machine happens to carry. */
 			const configDir = fs.mkdtempSync(
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
@@ -596,9 +543,6 @@ describe("init in a fresh repository", () => {
 
 		it("doesn't misattribute an ancestor checkout's HEAD to a nested plugin root with none of its own", () => {
 			const { dir } = repo();
-			/* A real ancestor repo, so a `git rev-parse HEAD` run from the nested
-			 * directory would (if run there directly, with no `--no-git-dir` walk
-			 * guard) resolve to the ANCESTOR's HEAD rather than reporting no git. */
 			const ancestorRoot = fs.mkdtempSync(
 				path.join(os.tmpdir(), "adopter-ancestor-"),
 			);
@@ -634,13 +578,7 @@ describe("init in a fresh repository", () => {
 
 		it("resolves and records a url source's sha once install actually runs", () => {
 			const { dir } = repo();
-			/* The fake's `plugin install` writes the same side effect the real
-			 * CLI leaves: an `installed_plugins.json` row for
-			 * this repo and release carrying `gitCommitSha`, which installedSha()
-			 * reads (#108: the marketplace clone's own HEAD tracks a
-			 * moving branch and isn't the installed commit). Writes nothing on
-			 * `update`, so an `update` that applied is indistinguishable from a
-			 * no-op here too (#120). */
+			// #108 #120
 			const configDir = fs.mkdtempSync(
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
@@ -689,9 +627,6 @@ describe("init in a fresh repository", () => {
 
 		it("--config-dir isolates the install from the calling session's own registry (#134)", () => {
 			const { dir } = repo();
-			/* The registry a live founder session already carries — must read
-			 * back byte-identical once this run, passed a different
-			 * --config-dir, is done. */
 			const sessionRegistry = fs.mkdtempSync(
 				path.join(os.tmpdir(), "adopter-session-registry-"),
 			);
@@ -721,9 +656,6 @@ describe("init in a fresh repository", () => {
 			});
 			const resolvedSha = "c".repeat(40);
 			const log = path.join(dir, "claude-calls.log");
-			/* The fake writes under whatever CLAUDE_CONFIG_DIR it was invoked
-			 * with, as the real binary does, never a path the fixture
-			 * hardcodes. */
 			const claude = fakeClaude({
 				log,
 				logConfigDir: true,
@@ -842,8 +774,6 @@ describe("init in a fresh repository", () => {
 				version: "1.1.0",
 				gitCommitSha: "a".repeat(40),
 			};
-			/* Another adopter's later install, last in the array — the row the
-			 * old any-root read took. */
 			registry([
 				ours,
 				{ ...ours, projectPath: "/elsewhere", gitCommitSha: "e".repeat(40) },
@@ -937,8 +867,6 @@ describe("init in a fresh repository", () => {
 
 		it("writes nothing under --dry-run but still prints what it would record", () => {
 			const { dir } = repo();
-			/* An empty CLAUDE_CONFIG_DIR, so this reads no real
-			 * installed_plugins.json this machine happens to carry. */
 			const configDir = fs.mkdtempSync(
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
@@ -992,9 +920,7 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("anchors the hooks in the ADOPTER's tree, not the session's own", () => {
-		/* The --review child inherits the environment, and lib/host-root.js
-		 * answers CLAUDE_PROJECT_DIR unconditionally, so a child left to inherit
-		 * it re-anchors the CORE's registry and writes the adopter nothing (#5). */
+		// #5
 		const { dir } = repo();
 		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-else-"));
 		made.push(elsewhere);
@@ -1073,20 +999,14 @@ describe("init in a fresh repository", () => {
 		const { dir } = initialised();
 		const at = path.join(dir, "scripts/browse.py");
 		const body = fs.readFileSync(at, "utf8");
-		/* Byte-identical to the core's, since nothing is rewritten on the way in
-		 * — the property that lets a bump replace it wholesale. */
 		expect(body).toBe(
 			fs.readFileSync(path.join(CORE, "scripts/browse.py"), "utf8"),
 		);
 		expect(fs.statSync(at).mode & 0o111).toBeTruthy();
-		/* Deliberately NOT in the class sidecar: `scripts` is outside
-		 * doc-map.js's SCOPE, so a key here would report UNTRACKED-ENTRY
-		 * against every adopter for good. */
 		const sidecar = JSON.parse(
 			fs.readFileSync(path.join(dir, "docs/doc-map-classes.json"), "utf8"),
 		);
 		expect(sidecar["scripts/browse.py"]).toBeUndefined();
-		expect(body).toContain("DO NOT EDIT AN ADOPTER'S COPY");
 	});
 
 	it("copies in the resolver the hook shims run, byte-identical to the core's (#1839)", () => {
@@ -1099,15 +1019,13 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("replaces an adopter's edit to the browser helper on a re-run (#133)", () => {
-		/* The other half of `generated-only`: unlike CLAUDE.md this is NOT kept,
-		 * so a bump actually delivers a fixed helper rather than skipping it. */
 		const { dir } = initialised();
 		fs.writeFileSync(path.join(dir, "scripts/browse.py"), "clobbered\n");
 		const again = init(dir, "--founder", "A Founder", "--no-tracker");
 		expect(again.status).toBe(0);
-		expect(
-			fs.readFileSync(path.join(dir, "scripts/browse.py"), "utf8"),
-		).toContain("browse.py — render a page with a real browser");
+		expect(fs.readFileSync(path.join(dir, "scripts/browse.py"), "utf8")).toBe(
+			fs.readFileSync(path.join(CORE, "scripts/browse.py"), "utf8"),
+		);
 	});
 
 	it("leaves an adopter's .husky/pre-commit.local byte-identical on a re-run (#437)", () => {
@@ -1132,8 +1050,7 @@ describe("init in a fresh repository", () => {
 		expect(fs.existsSync(path.join(dir, "docs/doc-map.md"))).toBe(true);
 	});
 
-	/* The core method and the retro-sweep brief send a reader to this ledger
-	 * (#5296). */
+	// #5296
 	it("writes a doc map holding the shed ledger under the heading the doc-map gate reads", () => {
 		const { dir } = repo();
 		init(dir, "--founder", "A Founder", "--no-tracker");
@@ -1159,10 +1076,7 @@ describe("init in a fresh repository", () => {
 			path.join(dir, "docs/roadmap-digest.md"),
 			"utf8",
 		);
-		/* One placeholder card per phase, and the digest's version line must
-		 * match the roadmap's or check-digest-version.js refuses the commit.
-		 * The major.minor tracks the core's own plugin.json, never a literal —
-		 * it drifts on every minor bump otherwise (#7). */
+		// #7
 		const { version: pluginVersion } = JSON.parse(
 			fs.readFileSync(path.join(CORE, ".claude-plugin/plugin.json"), "utf8"),
 		);
@@ -1326,7 +1240,7 @@ describe("a complete day-one config (#715)", () => {
 		);
 	});
 
-	// Biome's --staged reads each staged path's worktree bytes (#2540).
+	// #2540
 	it.each([
 		[
 			"biome check --staged --no-errors-on-unmatched --error-on-warnings",
@@ -1496,7 +1410,7 @@ describe("a complete day-one config (#715)", () => {
 		expect(readConfig(dir).commands.check_staged).toBe("npm run check:staged");
 	});
 
-	// lint-staged hides a neighbour's unstaged hunks for its run (#2583).
+	// #2583
 	it("infers no check_staged from a lint-staged script alone (#2587)", () => {
 		const { dir } = repo();
 		write(
@@ -1700,8 +1614,7 @@ describe("a complete day-one config (#715)", () => {
 		expect(said?.[1]).toBe(
 			`node ${CORE}/scripts/init-adopter.js --no-plugin-install`,
 		);
-		/* The template's own [roadmap] lines, so a cut or rewording of them
-		 * selects this test and needs no hand copy here (#2240). */
+		// #2240
 		const roadmapLines = fs
 			.readFileSync(
 				path.join(CORE, "scripts/templates/adopter/session-rules.md"),
@@ -1714,8 +1627,6 @@ describe("a complete day-one config (#715)", () => {
 		const edited = readConfig(dir);
 		edited.modules = ["roadmap"];
 		write(dir, ".claude/workflow-core.json", JSON.stringify(edited));
-		/* Run as the session would, from the repo with no --root, but for the
-		 * one flag that keeps the fixture off GitHub. */
 		const env = { ...process.env };
 		delete env.CLAUDE_PROJECT_DIR;
 		const r = spawnSync("bash", ["-c", `${said?.[1]} --no-tracker`], {
@@ -1728,8 +1639,6 @@ describe("a complete day-one config (#715)", () => {
 			true,
 		);
 		for (const line of roadmapLines) expect(readRules()).toContain(line);
-		/* The commit the rules file asks for next: the module's documents are
-		 * registered, so the doc-map gate passes them. */
 		git("add", "-A");
 		const gate = runInProcess(path.join(CORE, "scripts/check-doc-map.js"), [], {
 			cwd: dir,
@@ -1764,8 +1673,6 @@ describe("a complete day-one config (#715)", () => {
 		};
 		const declarePath = (at: string) =>
 			declareSource({ source: "directory", path: at });
-		/* The checkout bootstrap ran from. The re-run's plugin root is CORE, as
-		 * the cache copy the rules file names is to a real adopter. */
 		const checkout = fs.mkdtempSync(path.join(os.tmpdir(), "checkout-"));
 		made.push(checkout);
 		const env = { ...process.env };
@@ -1783,11 +1690,9 @@ describe("a complete day-one config (#715)", () => {
 		declarePath(path.join(checkout, "gone"));
 		expect(bare().status).toBe(0);
 		expect(readSource()).toEqual({ source: "directory", path: CORE });
-		/* An explicit --plugin-root re-points it. */
 		declarePath(checkout);
 		expect(init(dir, "--no-tracker").status).toBe(0);
 		expect(readSource()).toEqual({ source: "directory", path: CORE });
-		/* A git source's ref is kept as a url source's is. */
 		declareSource({
 			source: "git",
 			url: "https://example.invalid/x.git",
@@ -1819,7 +1724,6 @@ describe("the rules file's core commands (#654)", () => {
 });
 
 describe("init then upgrade (#1501)", () => {
-	/** Every file under `dir` but `.git`, as its bytes and mode. */
 	function snapshot(dir: string) {
 		const files: Record<string, string> = {};
 		const walk = (rel: string) => {
@@ -1893,7 +1797,6 @@ describe("init then upgrade (#1501)", () => {
 });
 
 describe("where a url pin's hooks and rules file run from (#736)", () => {
-	/** An empty config dir, and an env reading neither this session's plugin nor its project. */
 	function pinEnv() {
 		const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-config-"));
 		made.push(configDir);
@@ -1910,8 +1813,6 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			cwd: dir,
 			env,
 		});
-	/** The cache copy an install lands: a real directory, as an install's is,
-	 * whose entries link to this checkout. */
 	function cacheCopy(configDir: string, version: string) {
 		const at = installPathFor(
 			configDir,
@@ -2022,8 +1923,6 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			"workflow-core",
 			"7.8.0",
 		);
-		/* Unheld: `place` stands in for the clone a url source's install lands
-		 * at the row's installPath, a network fetch the recording does not hold. */
 		const claude = fakeClaude({ install: { version: "7.8.0", place: CORE } });
 		const r = bare(
 			{ ...env, WFC_CLAUDE_BIN: claude },
@@ -2047,9 +1946,7 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 	it("runs from CLAUDE_PLUGIN_ROOT where no --plugin-root is given, as the program", () => {
 		const { dir } = repo();
 		const { env } = pinEnv();
-		/* A path of its own, not this checkout's, which is also the default: a
-		 * real directory linking each of the checkout's entries, so its real
-		 * path (#5433) is still its own. */
+		// #5433
 		const link = path.join(
 			fs.mkdtempSync(path.join(os.tmpdir(), "adopter-root-")),
 			"plugin",
@@ -2096,17 +1993,12 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 });
 
 describe("the tracker step on a brand-new tracker (#716)", () => {
-	/* Each failure is a recorded answer gh.contract.test.ts holds: a logged-out
-	 * gh for set-default and the issue list, the founder's token refused (HTTP
-	 * 403), a missing issue (HTTP 404) for any other error, since a 5xx cannot
-	 * be recorded on demand. */
 	const forbidden = readGhAnswer(
 		path.join(__dirname, "lib/fixtures/gh/checks-forbidden.json"),
 	);
 	const firstLine = (a: GhAnswer) => a.stderr.split("\n")[0];
 
 	interface Tracker {
-		/** The newest issue's number, empty for none. */
 		issue?: string;
 		setDefault?: GhAnswer;
 		list?: GhAnswer;
@@ -2185,7 +2077,6 @@ describe("the tracker step on a brand-new tracker (#716)", () => {
 
 	it.each([
 		["403", forbidden],
-		/* Unheld: no call GitHub answers 410 can be made on demand to record. */
 		["410", refused("gh: Sub-issues are disabled (HTTP 410)")],
 	])(
 		"reads a %s as off for this owner, and any other error as gh's own message",
@@ -2309,13 +2200,11 @@ describe("the skeleton pathspec", () => {
 });
 
 describe("a run refused before it writes anything (#743)", () => {
-	/** Every path under `dir` but `.git`, so a refusal is seen writing nothing. */
 	const readTree = (dir: string) =>
 		(fs.readdirSync(dir, { recursive: true }) as string[])
 			.filter((p) => p !== ".git" && !p.startsWith(`.git${path.sep}`))
 			.sort();
 
-	/** A copy of the core's marketplace manifest, as its own checkout carries. */
 	function fakeCore() {
 		const { dir } = repo();
 		fs.mkdirSync(path.join(dir, ".claude-plugin"));

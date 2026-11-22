@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/commit-msg-dispatch.js and lib/commit-msg-rows.js (#5208, spec
- * #5207): the registry's order and route gating, and the boundary set through
- * the real .husky/commit-msg as git fires it — a pass, a refusal ending the
- * run at the first red, a dispatcher that is missing, and one whose
- * lib/hook-entry.js will not load.
- *
- * Breaking it costs all three message checks at once: the hook's one line
- * runs them all.
- */
-
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";

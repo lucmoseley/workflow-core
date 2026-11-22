@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/kit-context.js's kitContext reads a rule from the store and spells a
- * core path as an install reaches it (#3018): a wrong spelling hands a core a
- * path that does not exist in an adopter's install. kit-context.contract.test.ts
- * holds the fake to the same builder.
- */
 
 import fs from "node:fs";
 import os from "node:os";

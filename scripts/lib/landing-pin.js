@@ -1,14 +1,3 @@
-/*
- * landing-pin.js — whether a repo is pinned to a workflow-core release that
- * still let `landing` be switched off, and runs it off (#5276).
- *
- * From ALWAYS_ON every repo lands through the queue, its main checkout cut
- * over at session start. A repo whose pin names an earlier tag runs that
- * release, so where its config's `modules` lacks `"landing"` its sessions
- * share one unguarded tree. A pin that is a branch or a SHA names no
- * release, so it is never judged older.
- */
-
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { compareVersions } = require("./compare-versions.js");
@@ -17,11 +6,7 @@ const { readPin } = require("./plugin-state.js");
 
 const ALWAYS_ON = "v3.0.0";
 
-/**
- * The tag's numeric parts, any pre-release or build suffix dropped; null
- * where it names no `x.y.z`.
- * @param {string} tag
- */
+/** @param {string} tag */
 function parseTag(tag) {
 	const m = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(tag);
 	return m ? m.slice(1).map(Number) : null;
@@ -34,8 +19,6 @@ const ALWAYS_ON_PARTS = (() => {
 })();
 
 /**
- * Whether the config at `root` names `"landing"` in its `modules`, none
- * where it is absent, or why it would not read (#5301).
  * @param {string} root
  * @returns {boolean|{unread: string}}
  */
@@ -54,8 +37,6 @@ function declaresLanding(root) {
 }
 
 /**
- * Why the repo at `root` runs `landing` off on a release before ALWAYS_ON, or
- * might, its config unread, failing closed; null where it does not.
  * @param {string} root
  * @returns {string|null}
  */

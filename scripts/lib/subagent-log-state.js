@@ -11,10 +11,7 @@ const HANDBACK = "SubagentHandback";
 const isTurnRecord = (row) =>
 	row.type === "assistant" || row.type === "user" || row.type === "api-request";
 
-/**
- * @param {unknown} content a message's content, string or blocks
- * @returns {unknown[]}
- */
+/** @param {unknown} content @returns {unknown[]} */
 const blocksOf = (content) =>
 	Array.isArray(content) ? content : [{ type: "text", text: content }];
 
@@ -75,27 +72,17 @@ function isHandedBack(log, row) {
 	return results.length > 0 && results.every((b) => ids.has(b.tool_use_id));
 }
 
-/**
- * The meta file is read beside the log's real path, so a launch result's
- * symlink finds it.
- * @param {string} log
- */
+/** @param {string} log */
 function isMarkedFinished(log) {
 	try {
 		const meta = fs.realpathSync(log).replace(/\.jsonl$/, ".meta.json");
 		return JSON.parse(fs.readFileSync(meta, "utf8"))?.finished === true;
 	} catch {
-		/* Fail-open to in flight (#5421): no meta file, or none that reads,
-		 * leaves the log's own record to judge, and a finished agent read live
-		 * costs only a watch its completion notification stops. */
 		return false;
 	}
 }
 
-/**
- * @param {string} log the subagent's own log
- * @returns {LogState}
- */
+/** @param {string} log @returns {LogState} */
 function readSubagentLogState(log) {
 	let row;
 	try {

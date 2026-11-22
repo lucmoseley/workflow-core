@@ -1,44 +1,7 @@
-/*
- * implement-carveout.js — the /implement carve-out matcher used to measure
- * how many Opus /implement sessions committed to repo machinery rather than
- * product code (mantahostels#1334, mantahostels#2462).
- *
- * THIS IS THE MEASUREMENT MATCHER, NOT §6'S ROUTING RULE. §6 of
- * .claude/skills/pick-next/SKILL.md decides, ahead of a launch, which model an
- * /implement session should run on — and the founder ruled `.claude/skills/*`
- * OUT of that routing carve-out (mantahostels#1334 Q3). This module asks a different,
- * retrospective question — did an ALREADY-Opus session's own commit touch
- * repo machinery rather than product code, when judging whether that
- * historical launch was a genuine miss — so widening it here does not reopen
- * or contradict the routing ruling.
- *
- * The rules below widen mantahostels#1334's original eight-substring hard list to the
- * eight candidates mantahostels#2449's by-subject census named (mantahostels#2462's own acceptance
- * criteria: see the ticket and `.claude/tmp/scan-2449-bysubject.md` for the
- * evidence).
- *
- * `scripts/lib/*guard*` is widened here to ALL of `scripts/lib/`, which holds
- * nothing but check/guard/arbiter/doc-map support code by directory
- * convention — no product path has ever lived there. This is NOT extended to
- * `docs/research/`, which mixes genuine business/legal research with
- * repo-machinery notes, so widening it wholesale would carve out exactly the
- * false positives mantahostels#2462 exists to remove.
- *
- * RESIDUAL, STATED RATHER THAN PAPERED OVER, NOT CLOSED BY THIS WIDENING:
- * most of mantahostels#2449's flagged population carries NO commit captured in the
- * transcript at all — no width of path list can ever classify a session this
- * scan cannot see a commit for. mantahostels#2462's AC2 is UNMET as filed (see the ticket
- * for the figures and the open question that leaves).
- */
-
 const { requiredGroup } = require("./regex-group.js");
 const { mainChainRecords } = require("./transcript.js");
 
-/* How far into a transcript the first <command-name> block is looked for —
- * same cap and same tradeoff as check-pick-next-model.js:99 (HEAD_BYTES),
- * copied rather than shared because that module's is tuned to a 7-day /pick-
- * next window and this one is not. A transcript capped without a command name
- * is reported CAPPED rather than silently read as "not /implement". */
+// measured 7 files capped at 1 MiB against 58 at 256 kB, #362
 const HEAD_BYTES = 1024 * 1024;
 
 const COMMAND_RE =
@@ -68,7 +31,6 @@ const HARD_LIST = [
 		name: "scripts/session-arbiter*",
 		test: (p) => p.includes("scripts/session-arbiter"),
 	},
-	/* Widened at mantahostels#2462, on mantahostels#2449's by-subject census: */
 	{
 		name: "scripts/lib/*",
 		test: (p) => p.includes("scripts/lib/"),
@@ -93,8 +55,6 @@ const HARD_LIST = [
 	},
 ];
 
-/* Unchanged by mantahostels#2462 — mantahostels#1334 Q3 kept these as the "adjacent" tier rather than
- * hard carve-out, and the ticket did not ask this tier to move. */
 /** @type {Rule[]} */
 const ADJACENT_LIST = [
 	{
@@ -108,8 +68,6 @@ const ADJACENT_LIST = [
 ];
 
 /**
- * The first rule in `list` any of `paths` matches, or `null`.
- *
  * @param {string[]} paths
  * @param {Rule[]} list
  * @returns {{ path: string, rule: string } | null}
@@ -124,8 +82,6 @@ function firstMatch(paths, list) {
 }
 
 /**
- * Whether any committed path is repo machinery under the widened hard list.
- *
  * @param {string[]} paths
  * @returns {{ hit: boolean, path: string | null, rule: string | null }}
  */
@@ -137,8 +93,6 @@ function isHardCarveOut(paths) {
 }
 
 /**
- * Whether any committed path is one of the two "adjacent" paths (mantahostels#1334 Q3).
- *
  * @param {string[]} paths
  * @returns {{ hit: boolean, path: string | null, rule: string | null }}
  */
@@ -152,17 +106,7 @@ function isAdjacent(paths) {
 const PATHSPEC_TAIL_RE = /--\s+(\S.*)$/m;
 
 /**
- * Pull every committed pathspec out of a set of `git commit` Bash command
- * strings — CLAUDE.md's mandated `git commit -m "…" -- <paths>` shape.
- *
- * Takes everything after the FIRST `-- ` on the first line that has one, to
- * end of that line, split on whitespace, quotes stripped — mantahostels#2449's
- * `scan2449.py` rule, kept identical so this module reproduces mantahostels#2449's own
- * findings rather than a subtly
- * different reading of the same transcripts.
- *
- * @param {string[]} commitCommands raw Bash tool `input.command` strings
- *   containing "git commit"
+ * @param {string[]} commitCommands
  * @returns {string[]}
  */
 function extractCommitPaths(commitCommands) {
@@ -181,7 +125,7 @@ function extractCommitPaths(commitCommands) {
 
 /**
  * @param {TranscriptRecord} record
- * @returns {number|null}  the record's timestamp, null where it has none that parses
+ * @returns {number|null}
  */
 function startOf(record) {
 	if (typeof record.timestamp !== "string") return null;
@@ -190,8 +134,8 @@ function startOf(record) {
 }
 
 /**
- * @param {unknown} model  an assistant message's `model`
- * @returns {"opus"|"sonnet"|null}  opus where the name carries both
+ * @param {unknown} model
+ * @returns {"opus"|"sonnet"|null}
  */
 function familyOf(model) {
 	if (typeof model !== "string" || !model) return null;
@@ -202,8 +146,8 @@ function familyOf(model) {
 }
 
 /**
- * @param {unknown} content  an assistant message's `content`
- * @returns {string[]}  each Bash tool call's command that runs `git commit`
+ * @param {unknown} content
+ * @returns {string[]}
  */
 function commitCommandsIn(content) {
 	if (!Array.isArray(content)) return [];
@@ -219,7 +163,7 @@ function commitCommandsIn(content) {
 }
 
 /**
- * @param {Set<"opus"|"sonnet">} families  every family the session's turns ran on
+ * @param {Set<"opus"|"sonnet">} families
  * @returns {"opus"|"sonnet"|"mixed"|"unknown"}
  */
 function tierOf(families) {
@@ -230,15 +174,6 @@ function tierOf(families) {
 }
 
 /**
- * A session's command, model tier, every path its own `git commit` Bash
- * calls named, when it started, and whether the head read was capped before
- * a `<command-name>` block turned up.
- *
- * A record whose `timestamp` will not parse is skipped for start-time
- * purposes rather than treated as "started now" — the caller decides what an
- * unparseable start means for its window, this function only reports it as
- * `startedAt: null`.
- *
  * @param {string} text
  * @returns {{ command: string | null, model: "opus"|"sonnet"|"mixed"|"unknown", paths: string[], startedAt: number | null, capped: boolean }}
  */

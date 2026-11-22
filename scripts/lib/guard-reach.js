@@ -1,18 +1,3 @@
-/*
- * guard-reach.js — which files a guard or script reaches, read once for every
- * reader (#4233): the registry digest (check-guard-registry.js), rule pricing
- * (lib/rule-emission.js), the census digest (lib/census-digest.js), the
- * test-isolation check (check-guard-test-isolation.js) and test selection's
- * launch hop (lib/test-read-edges.js, #4567).
- *
- * A REGEX READER, NOT TYPESCRIPT'S: the registry check runs on every commit
- * and loading TypeScript would slow each one (#4233).
- *
- * Residuals: a `require(` whose call is split across lines is no edge, as
- * requires are read a line at a time; a require inside a
- * template literal is one.
- */
-
 const path = require("node:path");
 const { MANIFEST_REL, coresOf, hostOf } = require("./guard-cores.js");
 const {
@@ -30,22 +15,15 @@ const {
 const { RULES_DIR } = require("./rule-text.js");
 const { isUnder } = require("./is-under.js");
 
-/** The dispatcher's kit, which loads its cores by manifest path (#2786). */
 const DISPATCH_KIT = "scripts/lib/guard-dispatch.js";
 
 /**
  * @typedef {"source" | "require" | "run" | "launch" | "manifest-core" | "host" | "rule-file"} EdgeKind
- * @typedef {{ kind: EdgeKind, to: string, bindings?: string[] }} Edge `to` is
- *   a path from the repo root; `bindings` are the names a destructuring
- *   require binds
+ * @typedef {{ kind: EdgeKind, to: string, bindings?: string[] }} Edge
  * @typedef {object} ReadOpts
- * @property {(rel: string) => boolean} [isFile] whether a path is in the tree
- *   read; where a spelling has two readings it picks the first there, and
- *   without it the first
- * @property {() => import("./guard-cores.js").Manifest | null} [manifest] the
- *   dispatch manifest, which `manifest-core` and `host` edges read, asked
- *   for only where one is wanted
- * @property {Iterable<EdgeKind>} [kinds] the kinds wanted, all by default
+ * @property {(rel: string) => boolean} [isFile]
+ * @property {() => import("./guard-cores.js").Manifest | null} [manifest]
+ * @property {Iterable<EdgeKind>} [kinds]
  */
 
 const ALL_KINDS = /** @type {EdgeKind[]} */ ([
@@ -58,16 +36,8 @@ const ALL_KINDS = /** @type {EdgeKind[]} */ ([
 	"rule-file",
 ]);
 
-/**
- * A `source` or `.` command's argument, to the end of its command: at a line
- * start or after a blank or `;&|(`.
- */
 const SOURCE_RE = /(?:^|[\s;&|(])(?:source|\.)[ \t]+([^;&|\n]+)/gm;
 
-/**
- * The shell expansion in front of a sourced path, to the LAST of them —
- * `$here/`, `${BASH_SOURCE[0]%/*}/` and `$(dirname "${BASH_SOURCE[0]}")/`.
- */
 const SOURCE_PREFIX_RE = /^.*[$})]\w*\//;
 
 const SOURCED_TAIL_RE = /^[\w.-]+(?:\/[\w.-]+)*\.sh$/;
@@ -75,11 +45,6 @@ const SOURCED_TAIL_RE = /^[\w.-]+(?:\/[\w.-]+)*\.sh$/;
 const REQUIRE_RE = /\brequire\(\s*["'](\.\.?\/[\w./-]+)["']\s*\)/g;
 
 /**
- * A whole-line assignment of an expansion-led path to a variable, the name
- * its group 1, the expansion between the `$` and its slash its group 2, and
- * the path after that slash, matching `pathRe`, its group 3. A `pathRe`
- * admitting a leading `..` keeps `$here/../lib` whole: the lazy expansion
- * would otherwise run on past it to `lib`.
  * @param {string} pathRe
  */
 const buildVarAssignRe = (pathRe) =>
@@ -88,71 +53,23 @@ const buildVarAssignRe = (pathRe) =>
 		"gm",
 	);
 
-/*
- * A program's path assigned to a variable the guard then runs (#2487),
- * `lib="$here/lib/x.js"` and then `node "$lib"`, or a `.sh` run by `bash`
- * or `sh` (#4730). Self-relative, as parseProgramRuns' path is.
- */
 const VAR_PATH_RE = buildVarAssignRe(
 	`(?:\\.\\.\\/)*[\\w-][\\w./-]*(?:${PROGRAM_SUFFIXES.map(escapeRe).join("|")})`,
 );
 
-/**
- * A directory assigned to a variable a guard then runs a program in
- * (#4890), `lib="$(cd "$here" && pwd)/lib"` and then `sh "$lib/x.sh"`.
- * A path ending in a program suffix is VAR_PATH_RE's, and parseRuns drops it.
- */
 const VAR_DIR_RE = buildVarAssignRe(
 	"(?:\\.\\.|[\\w-][\\w.-]*)(?:\\/(?:\\.\\.|[\\w-][\\w.-]*))*",
 );
 
-/** The variable a run's lead names alone: `lib` of `$lib/`, `${lib}/`, `"$lib"/`. */
 const LEAD_VAR_RE = /^\{?(\w+)\}?"?$/;
 
-/**
- * The variable a lead strips its last segment off (#5000): `_cs_dir` of
- * `${_cs_dir%/*}/`. `BASH_SOURCE` and a positional parameter name a file or
- * an argument, not a directory.
- */
 const LEAD_PARENT_RE = /^\{(?!BASH_SOURCE%)([A-Za-z_]\w*)%\/\*\}"?$/;
 
-/**
- * A script a shell line launches: after `node`, `bash`, `sh` or `exec`, or in
- * command position, a path to a `.js` or `.sh` file, through an optional
- * `$var/`, `${var:-x}/` or `$(dirname "$0")/` prefix (captured) or a
- * root-relative literal.
- */
 const LAUNCH_RE =
 	/(?:(?:^|[\s;|&(`])(?:node|bash|sh|exec)[ \t]+|(?:^|[;|&(`]|\$\()[ \t]*)["']?(?<dirVar>(?:\$\{[A-Za-z_][A-Za-z0-9_]*(?:[:%#][^}"'\s]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*|\$\(dirname\s+"?\$(?:0|\{?BASH_SOURCE(?:\[0\])?\}?)"?\))\/)?(?<tail>(?:\.\/)?[A-Za-z0-9_./-]+\.(?:[mc]?js|sh))["']?(?=[\s;|&)`]|$)/gm;
 
 /**
- * The edges of the file at `rel` whose text is `text`, in the order read.
- *
- * - `source`: each shell `source` or `.` of a `.sh` path, resolved against
- *   the file's own directory, then, for a `scripts/…` or `lib/…` spelling,
- *   against the root or scripts/ (`. "$root/scripts/lib/x.sh"` from .husky/).
- *   An absolute path, one escaping the root and one still holding a variable
- *   yield nothing. A `#` comment is skipped.
- * - `require`: each relative require, `.js` added where no extension is
- *   spelt (#3795). One on a `//` line or a `*` comment line is skipped.
- * - `run`: each program a shell guard runs self-relatively by `node`,
- *   `bash` or `sh` (#4730), `node "$here/x.js"` or through a variable
- *   holding it (#2487) or its directory (#4890), resolved against its own
- *   directory, then the root.
- * - `launch`: each `.js` or `.sh` a shell file runs by `node`, `bash`, `sh`,
- *   `exec` or in command position, self-relatively or from the root, sorted
- *   (#4567). Wider than `run`, which the registry digest keeps to the
- *   self-relative runs, as a bare `node scripts/x.js` is how guards
- *   quote advice back (mantahostels#358). Only a path `isFile` holds, other
- *   than `rel` itself, is an edge.
- * - `manifest-core`: the dispatch kit's manifest and every core and host it
- *   binds.
- * - `host`: the host lib the manifest binds the core at `rel` to.
- * - `rule-file`: each rule file the text's emission calls name, readRuleParagraph's
- *   included (#4033). Read over `text` as given: a caller wanting comments
- *   ignored passes a comment-free reprint.
- *
- * @param {string} rel the file's path from the repo root
+ * @param {string} rel
  * @param {string} text
  * @param {ReadOpts} [opts]
  * @returns {Edge[]}
@@ -209,17 +126,12 @@ function parseSourced(dir, text, isFile) {
 			const tail = sourcedTail(requiredGroup(m, 1, SOURCE_RE));
 			if (tail === null) continue;
 			const to = pick(sourceCandidates(dir, tail), isFile);
-			// Normalised, so a path escaping the tree is `..` or beneath it.
 			if (!isUnder(to, [".."]) && !out.includes(to)) out.push(to);
 		}
 	return out;
 }
 
 /**
- * The path a `source` argument names once its expansion is off, or null
- * where it names no `.sh` file. Quotes come off first:
- * `"${ROOT:-.}"/scripts/lib/x.sh` puts one between the expansion and its
- * slash.
  * @param {string} arg
  * @returns {string | null}
  */
@@ -232,9 +144,6 @@ function sourcedTail(arg) {
 }
 
 /**
- * Where a sourced `tail` can be, in the order tried: the sourcing file's own
- * directory, then the root for a `scripts/…` tail or scripts/ for a `lib/…`
- * one (#4456).
  * @param {string} dir
  * @param {string} tail
  */
@@ -247,8 +156,6 @@ function sourceCandidates(dir, tail) {
 }
 
 /**
- * Each line of `text` cut at a `#` comment, one opening the line or after a
- * blank: `${x#y}` is no comment.
  * @param {string} text
  */
 function shellCodeLines(text) {
@@ -273,8 +180,6 @@ function parseRequires(dir, text) {
 }
 
 /**
- * Each relative require's specifier and where it opens. Line by line, so a require reads only its
- * own line's lead: a lead sliced per match is quadratic on one long line.
  * @param {string} text
  * @returns {{ spec: string, at: number }[]}
  */
@@ -294,9 +199,6 @@ function liveRequires(text) {
 }
 
 /**
- * The names a `{ … } = ` just before `at` binds, or null where the require
- * is not destructured. Read backwards by hand, so each require reads only
- * its own declaration.
  * @param {string} text
  * @param {number} at
  * @returns {string[] | null}
@@ -308,7 +210,6 @@ function destructuredBefore(text, at) {
 	i--;
 	while (i >= 0 && /\s/.test(text[i] ?? "")) i--;
 	if (text[i] !== "}") return null;
-	/* Back to the nearest brace either way, so no stretch is read twice. */
 	let open = i - 1;
 	while (open >= 0 && text[open] !== "{" && text[open] !== "}") open--;
 	if (text[open] !== "{") return null;
@@ -316,17 +217,12 @@ function destructuredBefore(text, at) {
 }
 
 /**
- * Limit: a variable's value is read off its assignments' text alone, so a
- * lead naming a scratch directory (`$tmp/x.sh`) or a directory the file
- * took in resolves to a path that need not exist; the digest hashes nothing for such a path
- * (lib/guard-digest.js).
  * @param {string} dir
  * @param {string} text
  * @param {(rel: string) => boolean} isFile
  * @returns {string[]}
  */
 function parseRuns(dir, text, isFile) {
-	/** A `//` before `node` makes a JS line dead. */
 	/** @template {{prefix: string}} M @param {M[]} matches */
 	const live = (matches) => matches.filter((m) => !m.prefix.includes("//"));
 	const dirs = parseAssignments(
@@ -342,9 +238,7 @@ function parseRuns(dir, text, isFile) {
 		),
 		...live(parseProgramVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
 	];
-	/* The root reading is offered only for a scripts/ tail, the one a run
-	 * from the root can name: elsewhere it could only displace the sibling,
-	 * and in the core walk it would probe the plugin cache's root (#3144). */
+	// #3144
 	return [
 		...new Set(
 			tails.map((tail) => {
@@ -360,11 +254,6 @@ function parseRuns(dir, text, isFile) {
 }
 
 /**
- * The self-relative paths `value` names after `lead`, the expansion between
- * its `$` and its slash: beneath each directory `dirs` holds for the
- * variable `lead` names, or that directory's parent where `lead` strips its
- * last segment; the file's own directory stands in for a variable `dirs`
- * lacks and for any other lead.
  * @param {string} lead
  * @param {string} value
  * @param {Map<string, string[]>} dirs
@@ -380,13 +269,9 @@ function underLead(lead, value, dirs) {
 }
 
 /**
- * Each variable's assigned paths, in the order assigned, of those `keep`
- * holds, each read beneath its lead (underLead).
  * @param {string} text
- * @param {RegExp} re a `gm` regex built by buildVarAssignRe
- * @param {Map<string, string[]> | null} dirs the directories leads name, or
- *   null for the map being built, so a directory built off one assigned
- *   before it reads beneath that one
+ * @param {RegExp} re
+ * @param {Map<string, string[]> | null} dirs
  * @param {(path: string) => boolean} [keep]
  * @returns {Map<string, string[]>}
  */
@@ -405,10 +290,6 @@ function parseAssignments(text, re, dirs, keep = () => true) {
 }
 
 /**
- * Read over `shellOperands` with every quoted string kept: the lexer does not
- * nest quotes, so `"$(x | node "$here/y.js")"` reads `" | node "` as one
- * string. A `$var/`-prefixed path resolves against the file's own directory,
- * then the root; a bare one against the root.
  * @param {string} rel
  * @param {string} dir
  * @param {string} text
@@ -435,7 +316,6 @@ function parseLaunches(rel, dir, text, isFile) {
 }
 
 /**
- * The rule files `text`'s emission calls and injectRules ids name, sorted.
  * @param {string} text
  * @returns {string[]}
  */
@@ -457,24 +337,16 @@ function pick(candidates, isFile) {
 
 /**
  * @typedef {object} WalkPolicy
- * @property {readonly EdgeKind[]} follow the kinds walked through
- * @property {(edge: Edge, from: string) => boolean} [keep] which edges to
- *   walk, all by default
- * @property {Omit<ReadOpts, "kinds">} [read] the tree and manifest each
- *   file's edges resolve against
+ * @property {readonly EdgeKind[]} follow
+ * @property {(edge: Edge, from: string) => boolean} [keep]
+ * @property {Omit<ReadOpts, "kinds">} [read]
  */
 
 /**
- * Several closures walked in lockstep, so each level of every walk reads in
- * one batch (#3411). `read` takes each walk's unread paths of a level and
- * answers each path's text, or null where it cannot be read; an unread file
- * is reached, but nothing past it.
- *
- * @param {string[][]} walks each walk's starting files
+ * @param {string[][]} walks
  * @param {(levels: string[][]) => (string | null)[][]} read
  * @param {WalkPolicy} policy
- * @returns {Map<string, string | null>[]} each walk's reached files, starts
- *   first, in the order reached, with their texts
+ * @returns {Map<string, string | null>[]}
  */
 function walkReachAll(walks, read, policy) {
 	const reached = walks.map(
@@ -494,9 +366,8 @@ function walkReachAll(walks, read, policy) {
 }
 
 /**
- * The files `level`'s edges reach that `seen` lacks, each once.
  * @param {string[]} level
- * @param {Map<string, string | null>} seen every file reached, with its text
+ * @param {Map<string, string | null>} seen
  * @param {WalkPolicy} policy
  * @returns {string[]}
  */
@@ -518,8 +389,6 @@ function nextLevel(level, seen, policy) {
 }
 
 /**
- * One closure, walkReachAll's single walk.
- *
  * @param {string[]} starts
  * @param {(paths: string[]) => (string | null)[]} read
  * @param {WalkPolicy} policy

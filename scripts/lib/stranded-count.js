@@ -1,44 +1,8 @@
-/*
- * stranded-count.js — STRANDED_AFTER_HOURS and hoursHeld are shared with
- * check-stranded-file-claims.js's presentation; countStranded is the
- * headline count pick-next.js prints from the same threshold, so the two
- * numbers never drift apart (mantahostels#1206).
- *
- * The same module owns the ACTIONABLE SUBSET (mantahostels#1780) — which standing
- * claims sit on a file carrying uncommitted work — for the same reason: the
- * stranded-claim report and pick-next's headline both print it.
- *
- * classifyClaims owns the WHOLE LOOP, not just the per-lock predicate
- * (mantahostels#1800) — check-stranded-file-claims.js keeps only its own presentation
- * shapes and the dirty-file annotation. `countStranded` still calls it with no
- * `hours`, by design (its signature is frozen so pick-next.js does not
- * change), so a `--hours` sweep and pick-next's default-threshold headline can
- * still disagree, at that one call site only.
- *
- * WORKTREES (#4244). A claim's file carries work where it is dirty in the main
- * checkout or in a linked worktree its holder owns (lib/session-worktrees.js),
- * and `classifyWorktrees` judges a dirty worktree whose owner has finished by
- * the same threshold a claim takes.
- *
- * "NEVER DRIFT APART" IS THE SHARED LOOP'S GUARANTEE AND THE READER'S. Both
- * read the STRICT `listedSessionIds()` (#1390), so the two never answer from
- * different readers (mantahostels#2555): neither the sweep nor pick-next is a
- * SessionStart hook, and the WAIVED `sweepSessionIds()` would bite mostly on a
- * short list, where it calls a live claim stranded. RESIDUAL: a session that
- * runs pick-next before the daemon lists it — measured within 5 s for an
- * interactive one, unmeasured for a background one (docs/environment.md
- * §Counting live sessions) — reads the headline as unknown, as its admission
- * count does. The two numbers can still disagree on an
- * ordinary race between two processes' oracle reads, and on a `--hours` sweep
- * against pick-next's frozen default (above).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { isListedLive } = require("./agent-liveness.js");
 const { orFallback } = require("./caught.js");
 
-// The arbiter's module, not its CLI: session-arbiter.js exports nothing (mantahostels#158).
 const { paths, recordTree, subjectPath } = require("./arbiter-store");
 const { deref } = require("./deref.js");
 const { porcelainEntries } = require("./dirty-tree.js");
@@ -66,49 +30,15 @@ const { readLinkedWorktrees } = require("./worktree-paths.js");
  */
 const STRANDED_AFTER_HOURS = 12;
 
-/*
- * Every caller in this repo passes a real `terminal` set today
- * (listedSessionIds() carries one) — this default exists
- * only so a bare call, as
- * the tests below still make, does not throw. A future caller with a real
- * oracle read that forgets to pass its `terminal` set silently re-creates
- * mantahostels#2765's exemption rather than failing loud.
- */
 const EMPTY_IDS = new Set();
 
-/**
- * Whole hours a claim has stood, or null where its timestamp is unreadable.
- * @param {string | undefined} claimedAt
- */
+/** @param {string | undefined} claimedAt */
 function hoursHeld(claimedAt) {
 	const at = Date.parse(claimedAt ?? "");
 	if (!Number.isFinite(at)) return null;
 	return (Date.now() - at) / 3_600_000;
 }
 
-/*
- * Paths git reports as carrying uncommitted work, as a set of repo-relative
- * spellings matching the ones a lock holds.
- *
- * `-uall` rather than guard-uncommitted-work.js's `-uno`: an untracked scratch
- * file is exactly where an abandoned session's findings sit.
- *
- * `-z` because porcelain v1 C-quotes any path with a space or a non-ASCII byte,
- * and a quoted path never matches the raw one the lock holds.
- *
- * NOTHING BUT THE `git status` CALL IS INSIDE THE try. A catch wide enough to
- * cover the whole body means "anything threw", not "git could not answer", and
- * reads as every claim being clean (mantahostels#1747).
- *
- * ONE FORK FOR THE WHOLE SET. arbiter-store's subjectDirty() is the precise
- * per-claim test and costs three git calls each, which neither caller can
- * spend (mantahostels#1780).
- *
- * @param {string} [root] the tree read; the main checkout where not given
- * @returns {Set<string> | null} null where git could not answer at all — the
- *   caller then reports the count and itemises nothing, rather than calling
- *   every claim clean.
- */
 function readDirtyPaths(root = paths.repoRoot()) {
 	const out = gitOrNull(["status", "--porcelain", "-z", "-uall"], {
 		cwd: root,
@@ -129,19 +59,9 @@ function readDirtyPaths(root = paths.repoRoot()) {
  * @typedef {{found: {worktree: string, dirty: Set<string>}[],
  *   unreadable: string[] | null}} DirtyWorktrees
  * @typedef {{worktrees: WorktreeDirt[], unread: string[]}} AttributedDirt
- *   `unread` each job store or record that would not read, as
- *   session-worktrees.js's readJobCwds names it
  */
 
-/**
- * Every linked worktree carrying uncommitted work, with its dirty paths as
- * readDirtyPaths reads them (#4244), and each worktree git would not read —
- * most often a registration whose directory has gone. `unreadable` is null
- * where git would not list the worktrees at all: the caller says so rather
- * than calling them clean.
- * @param {string} [root] the main checkout
- * @returns {DirtyWorktrees}
- */
+/** @param {string} [root] @returns {DirtyWorktrees} */
 function readDirtyWorktrees(root = paths.repoRoot()) {
 	const listed = readLinkedWorktrees(root);
 	/** @type {DirtyWorktrees["found"]} */
@@ -157,12 +77,8 @@ function readDirtyWorktrees(root = paths.repoRoot()) {
 }
 
 /**
- * The dirty worktrees that belong to a session, each with its owner and when
- * its newest dirty file was written. Job records are read only where some
- * worktree is dirty.
- * @param {DirtyWorktrees["found"]} found readDirtyWorktrees()'s `found`
- * @param {ListedCwds} [listed] the oracle read, whose sessions own a worktree
- *   ahead of any job record
+ * @param {DirtyWorktrees["found"]} found
+ * @param {ListedCwds} [listed]
  * @returns {AttributedDirt}
  */
 function attributeWorktreeDirt(found, listed) {
@@ -187,11 +103,7 @@ function attributeWorktreeDirt(found, listed) {
 	return { worktrees, unread };
 }
 
-/**
- * The newest mtime among `rels` in `root`, or null where none can be read.
- * @param {string} root
- * @param {Iterable<string>} rels
- */
+/** @param {string} root @param {Iterable<string>} rels */
 function readNewestWrite(root, rels) {
 	let newest = null;
 	for (const rel of rels) {
@@ -206,9 +118,6 @@ function readNewestWrite(root, rels) {
 }
 
 /**
- * The worktrees whose session has plausibly finished, by strandedVerdict's
- * rule: the owner is not listed live, and the newest dirty file is at least
- * `hours` old. An unreadable age is reported, as a claim's is.
  * @param {WorktreeDirt[]} worktrees
  * @param {Set<string>} listedIds
  * @param {{ hours?: number, terminal?: Set<string> }} [opts]
@@ -233,11 +142,8 @@ function classifyWorktrees(
 }
 
 /**
- * Each tree's dirty paths, keyed by real path: the main checkout's, then each
- * dirty linked worktree's — or null where the main checkout's would not read,
- * which is NOT the same as none of them being dirty.
- * @param {Set<string> | null} dirty readDirtyPaths()'s result
- * @param {DirtyWorktrees["found"]} found readDirtyWorktrees()'s `found`
+ * @param {Set<string> | null} dirty
+ * @param {DirtyWorktrees["found"]} found
  * @returns {Map<string, Set<string>> | null}
  */
 function dirtByTree(dirty, found) {
@@ -248,16 +154,7 @@ function dirtByTree(dirty, found) {
 }
 
 /**
- * Whether a claim's subject carries uncommitted work in the tree its holder
- * wrote it in (#4457): a key names no tree, so the same path dirty in the main
- * checkout or a neighbour's worktree is not this claim's work.
- *
- * THROUGH subjectPath, NEVER the raw claim. A lock's `path` is a claim SUBJECT,
- * so a region claim spells itself `docs/doc-map.md#B42` and git has never heard
- * of it (mantahostels#1747). A region claim is judged by its WHOLE file, so a neighbour's
- * live edit elsewhere in that file reads as work to recover.
- *
- * @param {Map<string, Set<string>> | null} dirt dirtByTree()'s result
+ * @param {Map<string, Set<string>> | null} dirt
  * @param {{path: string, tree?: string}} lock
  */
 function isDirtyClaim(dirt, lock) {
@@ -269,25 +166,10 @@ function isDirtyClaim(dirt, lock) {
 /** @typedef {import("./arbiter-store").ListedLock} Lock */
 
 /**
- * Whether a lock is stranded, and where not, why not — the one place either
- * reader decides it. check-stranded-file-claims.js branches on this verdict,
- * through `classifyClaims`, for its own unreadable/young split rather than
- * repeating the tests, so a change here moves both numbers together (mantahostels#1780, on mantahostels#1206's rule).
- *
- * `unreadable` is the coarse verdict: the sweep splits it further, into a lock
- * that would not parse and one naming no session, which need different words.
- *
  * @param {Lock} lock
- * @param {Set<string>} listedIds the caller's oracle read — listedSessionIds()
- *   for both the stranded-claim report and pick-next's headline (#1390).
- * @param {number} [hours] the sweep's `--hours <n>` override; the derived
- *   threshold otherwise.
- * @param {Set<string>} [terminalIds] the same oracle read's `terminal` pool —
- *   sessions the oracle still lists but has marked done, failed or stopped
- *   (mantahostels#2765, widened past `done` alone at mantahostels#2774). A holder in this set is judged
- *   exactly like an unlisted one, never exempted as `listed`, because the
- *   oracle listing it proves nothing about liveness once it has stopped working
- *   and simply not been reaped yet.
+ * @param {Set<string>} listedIds
+ * @param {number} [hours]
+ * @param {Set<string>} [terminalIds]
  * @returns {"unreadable" | "listed" | "young" | "stranded"}
  */
 function strandedVerdict(
@@ -299,34 +181,18 @@ function strandedVerdict(
 	if (lock.unreadable || !lock.sessionId) return "unreadable";
 	if (isListedLive(lock.sessionId, listedIds, terminalIds)) return "listed";
 	const held = hoursHeld(lock.claimedAt);
-	// An unreadable timestamp is reported, not suppressed: the substantive test
-	// — the holder is not listed and live — has already passed, and the
-	// threshold only exists to keep noise down.
 	if (held !== null && held < hours) return "young";
 	return "stranded";
 }
 
 /**
- * A lock past the unreadable/no-sessionId check — `sessionId` narrowed to
- * `string`, matching the `!lock.sessionId` test that put it in this bucket.
  * @typedef {Exclude<Lock, { unreadable: true }> & { sessionId: string }} ReadableLock
  */
 
 /**
- * Every lock, sorted into the four buckets `strandedVerdict` can name (mantahostels#1800).
- *
- * The unreadable/no-sessionId check is repeated here rather than read off
- * `strandedVerdict`'s return alone, so a lock that clears it is narrowed to
- * `ReadableLock` for the three buckets that need `.path`/`.sessionId`.
- *
- * @param {Lock[]} locks readLocks()'s result. A caller with a `null` store
- *   decides what that means before calling this — the same split
- *   `countStranded` makes below.
- * @param {Set<string>} listedIds as below — either oracle reader. Ditto for a
- *   caller with no oracle.
- * @param {{ hours?: number, terminal?: Set<string> }} [opts] `terminal` is the
- *   same oracle read's stopped-but-resident pool — see `EMPTY_IDS` above for
- *   why omitting it is not a safe default (mantahostels#2765, mantahostels#2774).
+ * @param {Lock[]} locks
+ * @param {Set<string>} listedIds
+ * @param {{ hours?: number, terminal?: Set<string> }} [opts]
  * @returns {{ stranded: ReadableLock[], young: ReadableLock[], unreadable: Lock[], live: ReadableLock[] }}
  */
 function classifyClaims(
@@ -351,29 +217,10 @@ function classifyClaims(
 }
 
 /**
- * The stranded-claim headline counts pick-next.js prints: the standing count,
- * and the actionable subset carrying uncommitted work.
- *
- * Returns `{ ok:false, error }` or `{ ok:true, stranded, carrying,
- * strandedWorktrees }`, where `carrying` is null on a `dirty` of null — a
- * working tree git would not report on, which is NOT the same as none of them
- * being dirty — and `strandedWorktrees` counts classifyWorktrees' stranded
- * ones, so the headline and the report's STRANDED-WORKTREE section agree. It
- * is null where a job store or record would not read: a dirty worktree's
- * owner may sit in it.
- *
- * @param {Lock[] | null} locks readLocks()'s result, or null where the store
- *   could not be read.
+ * @param {Lock[] | null} locks
  * @param {Set<string> | null | undefined} listedIds
- *   either oracle reader's ids, or null/undefined where the running-session
- *   oracle could not be read.
  * @param {{dirty?: Set<string> | null, terminal?: Set<string>,
  *   found?: DirtyWorktrees["found"], attributed?: AttributedDirt}} [opts]
- *   `dirty` is readDirtyPaths()'s result, omitted where the caller wants the
- *   standing count alone; `terminal` the same oracle read's
- *   stopped-but-resident pool — see `EMPTY_IDS` above for why omitting it is
- *   not a safe default (mantahostels#2765, mantahostels#2774); `found`
- *   readDirtyWorktrees()'s, and `attributed` attributeWorktreeDirt()'s over it.
  */
 function countStranded(
 	locks,

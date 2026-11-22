@@ -29,10 +29,8 @@ const { writeFd } = require("./write-fd.js");
 const pExecFile = promisify(execFile);
 
 /**
- * What execFileSync does with a finished spawn: its stdout, or the error it
- * throws, carrying the same fields.
  * @param {import("node:child_process").SpawnSyncReturns<string | Buffer>} r
- * @param {readonly string[]} argv the program and its arguments
+ * @param {readonly string[]} argv
  * @returns {string | Buffer}
  */
 function stdoutOrThrow(r, argv) {
@@ -50,8 +48,6 @@ function stdoutOrThrow(r, argv) {
 const gitBinary = () => process.env.WFC_GIT || "git";
 
 /**
- * The options every git spawn takes: its timeout, or none, cut to what a
- * started hook budget leaves (hook-deadline.js).
  * @template {object} T
  * @param {T} [opts]
  * @returns {T & {maxBuffer: number}}
@@ -68,7 +64,6 @@ const gitSpawnOptions = (opts) => {
 };
 
 /**
- * execFileSync on git: returns stdout, throws on a non-zero exit.
  * @overload
  * @param {readonly string[]} args
  * @param {import("node:child_process").ExecFileSyncOptionsWithStringEncoding} opts
@@ -95,7 +90,6 @@ function execGit(args, opts = {}) {
 	const full = gitSpawnOptions(opts);
 	const read = consultGitMemo(args, full);
 	if (!read) return execFileSync(gitBinary(), args, full);
-	/* execFileSync echoes the stderr of a caller naming no stdio. */
 	if (opts.stdio === undefined && read.stderr?.length)
 		writeFd(2, read.stderr.toString());
 	return stdoutOrThrow(read, [gitBinary(), ...args]);
@@ -116,9 +110,6 @@ const consultGitMemo = (args, opts) =>
 	);
 
 /**
- * An `execFn` for a caller whose spawn runs other programs as well as git: git
- * by execGit, so its reads reach the call's memo, and anything else as it is,
- * after which the memo keeps nothing it may have changed.
  * @param {string} file
  * @param {readonly string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
@@ -131,7 +122,6 @@ function execProgram(file, args, opts) {
 }
 
 /**
- * gitOrNull's answer, and whether a null came from overrunning `opts.timeout`.
  * @param {readonly string[]} args
  * @param {Omit<import("node:child_process").ExecFileSyncOptions, "encoding">} [opts]
  * @returns {{ out: string | null, timedOut: boolean }}
@@ -153,8 +143,6 @@ function gitAnswer(args, opts = {}) {
 }
 
 /**
- * execGit's stdout, or null where git could not answer: no git, not a repo, a
- * non-zero exit. An overrun buffer or a timeout is null too.
  * @param {readonly string[]} args
  * @param {Omit<import("node:child_process").ExecFileSyncOptions, "encoding">} [opts]
  * @returns {string | null}
@@ -176,9 +164,6 @@ const BOTH_DIRS_ARGS = [
 ];
 
 /**
- * The absolute git common dir of the checkout holding `cwd` — from a linked
- * worktree, its main checkout's `.git`. Throws execGit's error, stderr on it,
- * where git will not say; gitCommonDir is the null-on-failure form.
  * @param {string} cwd
  * @param {Omit<import("node:child_process").ExecFileSyncOptions, "encoding" | "cwd">} [opts]
  * @returns {string}
@@ -193,7 +178,6 @@ function gitCommonDirOrThrow(cwd, opts = {}) {
 }
 
 /**
- * gitCommonDirOrThrow, or null where git will not say or prints nothing.
  * @param {string} cwd
  * @param {Omit<import("node:child_process").ExecFileSyncOptions, "encoding" | "cwd">} [opts]
  * @returns {string | null}
@@ -203,10 +187,6 @@ function gitCommonDir(cwd, opts = {}) {
 }
 
 /**
- * The absolute git dir and common dir of the checkout holding `cwd`, from one
- * `rev-parse` rather than gitCommonDir and a second fork (#4302); equal in a
- * main checkout, different in a linked worktree or a submodule. Null where git
- * will not say.
  * @param {string} cwd
  * @returns {{ gitDir: string, common: string } | null}
  */
@@ -215,8 +195,6 @@ function gitDirs(cwd) {
 }
 
 /**
- * `BOTH_DIRS_ARGS`' stdout as gitDirs answers it, for a caller running git
- * through its own exec seam.
  * @param {string | null} out
  * @returns {{ gitDir: string, common: string } | null}
  */
@@ -226,9 +204,6 @@ function parseGitDirs(out) {
 }
 
 /**
- * `git rev-parse` of `flags` and then the git common dir, absolute paths, in
- * one fork: each flag's line, the common dir last. Throws execGit's error
- * where git refuses a flag.
  * @param {string} cwd
  * @param {readonly string[]} flags
  * @param {Omit<import("node:child_process").ExecFileSyncOptions, "encoding" | "cwd">} [opts]
@@ -249,7 +224,6 @@ function revParseWithCommonDirOrThrow(cwd, flags, opts = {}) {
 }
 
 /**
- * spawnSync on git: never throws; the caller reads `status` and `error`.
  * @overload
  * @param {readonly string[]} args
  * @param {import("node:child_process").SpawnSyncOptionsWithStringEncoding} opts
@@ -277,39 +251,22 @@ function spawnGitSync(args, opts = {}) {
 	return consultGitMemo(args, full) ?? spawnSync(gitBinary(), args, full);
 }
 
-/* The ceiling on one git call a hook makes, sized to the tightest budget any
- * caller answers to (#3248): the 7.5 s the PostToolUse dispatcher cuts its
- * reads to (hook-deadline.js). The PreToolUse dispatcher cuts them to 30 s,
- * and standalone hooks answer to their own registration, 10 s or more. A
- * ceiling, not a measurement: `git rev-parse` answers in milliseconds, and two
- * wedged calls at 3 s leave 1.5 s of the 7.5 s to the rest. */
+// guess, #3248
 const HOOK_GIT_TIMEOUT_MS = 3000;
 
-/* The ceiling on a git call not held to HOOK_GIT_TIMEOUT_MS, unmeasured and
- * there only so a wedged git ends the read rather than hanging a suite launch
- * or a Stop hook: dirty-tree.js's `gitRead` answers null, `gitOutcome`
- * `ok: false`. A hook that started hook-deadline.js's clock cuts it further. */
+// guess, #2196
 const GIT_TIMEOUT_MS = 30_000;
-/* Untraced: long enough to stay unique in a repository this size. */
+// guess, #2607
 const SHORT_SHA = 9;
 
 /**
  * @typedef {{ ok: true, out: string } | { ok: false, why: string, isUnrun?: true }} GitRead
- *   `isUnrun`: git never answered, its spawn failing or outliving its time
  * @typedef {(args: string[], noMatch: number[]) => GitRead} GitReader
  */
 
 /**
- * git's THREE outcomes, kept apart.
- *
- * `git grep` exits 1 on no match and >1 on failure, and `rev-parse --verify`
- * exits 1 on an unknown ref and 128 outside a repository — so a wrapper that
- * folds every non-zero into one answer reports a broken apparatus as an empty
- * result. That is the fail-open `lib/check.js`'s SUBJECT/APPARATUS split exists
- * to prevent, and it is why `noMatch` is named per call rather than assumed.
- *
  * @param {string[]} args
- * @param {number[]} noMatch exit codes that mean "asked and answered nothing"
+ * @param {number[]} noMatch
  * @param {string} [cwd]
  * @returns {GitRead}
  */
@@ -324,9 +281,6 @@ function gitOutcome(args, noMatch, cwd, timeout = GIT_TIMEOUT_MS) {
 	if (r.status === 0) return { ok: true, out: String(r.stdout) };
 	if (r.status !== null && noMatch.includes(r.status))
 		return { ok: true, out: "" };
-	/* One line: every caller logs `why` inside a one-line record, and git's
-	 * stderr can run to several (#2527). stdout where stderr is empty: `git
-	 * merge` prints its refusal there. */
 	const why =
 		String(r.stderr || r.stdout || "")
 			.trim()
@@ -344,8 +298,6 @@ const gitReader = (cwd, timeout) => (args, noMatch) =>
 	gitOutcome(args, noMatch, cwd, timeout);
 
 /**
- * execFile on git, promisified: resolves `{ stdout, stderr }` as strings,
- * rejects on a non-zero exit.
  * @param {readonly string[]} args
  * @param {import("node:child_process").ExecFileOptions} [opts]
  * @returns {Promise<{stdout: string, stderr: string}>}

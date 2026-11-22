@@ -1,13 +1,3 @@
-/*
- * tree-or.js — a core's session tree where one resolves, else the fallback
- * the core names (#4242). `ctx.tree()` throws TreeUnresolved where git names
- * no top level for the session's directory, which the dispatcher allows the
- * core on; a core that still has something true to say there — a remedy's
- * text, a write made by absolute path to the host's files — names what it
- * reads instead: the host's own ports, or null to judge without a tree.
- */
-
-/** The session's directory, in which git names no top level. */
 class TreeUnresolved extends Error {
 	/** @param {string} cwd */
 	constructor(cwd) {
@@ -20,8 +10,6 @@ class TreeUnresolved extends Error {
 }
 
 /**
- * Any other throw is the core's own fault, and propagates. Matched by name, as
- * a loader can hand the dispatcher and the core separate copies of this class.
  * @template T, F
  * @param {{ tree: () => T }} ctx
  * @param {F} fallback
@@ -37,8 +25,6 @@ function treeOr(ctx, fallback) {
 }
 
 /**
- * The session's tree, else the host root's own tree ports, which the
- * dispatcher hands every core beside `tree`.
  * @param {import("./guard-host-ports.js").TreePorts
  *   & { tree: () => import("./guard-host-ports.js").TreePorts }} ctx
  * @returns {import("./guard-host-ports.js").TreePorts}
@@ -52,10 +38,6 @@ const treeOrHost = (ctx) =>
 	});
 
 /**
- * The core-side half of lib/host-root.js's `worktreeRoot`: the session's tree
- * where it is a linked worktree of the root's repository, since the root is
- * its main checkout; else the root, logged where git will not name either
- * common dir.
  * @param {Parameters<typeof treeOrHost>[0] & { commonDir: (dir: string) => string | null,
  *   log: (message: string) => void }} ctx
  * @returns {string}
@@ -63,7 +45,7 @@ const treeOrHost = (ctx) =>
 function linkedTreeOrRoot(ctx) {
 	const { root } = treeOrHost(ctx);
 	if (root === ctx.root) return root;
-	/* A git before 2.31 rejects --path-format (#2529). */
+	// git before 2.31 has no --path-format: https://github.com/git/git/blob/master/Documentation/RelNotes/2.31.0.txt
 	const common = ctx.commonDir(root);
 	const rootCommon = ctx.commonDir(ctx.root);
 	if (common === null || rootCommon === null) {

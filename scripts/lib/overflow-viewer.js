@@ -1,17 +1,3 @@
-/*
- * overflow-viewer.js — the founder's terminal view of the overflow seats'
- * headless runs (#4583), laid out as `claude agents` lays out plan sessions.
- *
- * A SESSION is every run in lib/headless-runs.js's store sharing a session id:
- * a resume, the founder's reply or the loop's, is a new run of the same
- * session. Its latest run gives its state:
- *   working         that run's pid alive with its recorded start time;
- *   awaiting input  ended, its last assistant text ending on `needs input:`;
- *   completed       any other ended run.
- *
- * Node built-ins only: raw-mode stdin read by lib/refill-panel-input.js.
- */
-
 const { readLiveAgents, readStoredRuns } = require("./headless-runs.js");
 const { readJsonl } = require("./jsonl.js");
 const { ESC, createInputReader } = require("./refill-panel-input.js");
@@ -28,24 +14,20 @@ const {
 /**
  * @typedef {object} Session
  * @property {string} sessionId
- * @property {string} name its first run's prompt
+ * @property {string} name
  * @property {SessionState} state
- * @property {string} last its last assistant text
- * @property {RunRecord[]} runs oldest first
+ * @property {string} last
+ * @property {RunRecord[]} runs
  * @property {RunRecord} latest
- *
  * @typedef {{kind: string, text: string}} RunEvent
  */
 
-/* A completed session whose latest run started longer ago than this is not
- * shown; one awaiting input always is. Untraced. */
+// guess, #4583
 const ENDED_WINDOW_MS = 48 * 60 * 60 * 1000;
-/* Untraced: a run's messages a few seconds late read fine on a terminal. */
+// guess, #4583
 const POLL_MS = 3000;
-/* A session's name where a status line quotes it, leaving the line room for
- * what happened. Untraced, a first guess. */
+// guess, #4583
 const NAME_IN_STATUS = 40;
-/* Bracketed paste on, so a pasted reply's newlines never send it. */
 const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?2004h`;
 const SCREEN_OFF = `${ESC}[?2004l${ESC}[?25h${ESC}[?1049l`;
 const CLEAR = `${ESC}[2J`;
@@ -70,7 +52,6 @@ const STATE_WORDS = {
 const STATE_WIDTH = Math.max(
 	...Object.values(STATE_WORDS).map((w) => w.length),
 );
-/* A row's mark and its space, then two spaces before each later column. */
 const ROW_GUTTERS = 6;
 const HINTS = {
 	list: "↑↓ select · Enter open · Space reply · x stop · q quit",
@@ -87,8 +68,6 @@ const clip = (s, n) => {
 /** @param {string} s @param {number} n */
 const pad = (s, n) => clip(s, n).padEnd(n);
 
-/* `any` in these: a stream-json row is the CLI's undocumented shape, read by
- * optional fields alone. */
 /**
  * @param {Record<string, any>} input
  * @returns {string}
@@ -142,11 +121,10 @@ const isAskingFounder = (said) =>
 	/^needs input:/i.test(said.trim().split("\n").at(-1)?.trim() ?? "");
 
 /**
- * The sessions to show, by section, then newest first.
  * @param {RunRecord[]} runs
- * @param {Set<string>} live the live runs' job ids
+ * @param {Set<string>} live
  * @param {(log: string) => RunEvent[]} eventsOf
- * @param {number} now ms
+ * @param {number} now
  * @returns {Session[]}
  */
 function buildSessions(runs, live, eventsOf, now) {
@@ -167,7 +145,6 @@ function buildSessions(runs, live, eventsOf, now) {
 		const asking = !working && isAskingFounder(said);
 		if (!working && !asking && now - latest.launchedAt > ENDED_WINDOW_MS)
 			continue;
-		/* A resume that has said nothing yet shows what the session said last. */
 		const last =
 			said || lastSaid(own.slice(0, -1).flatMap((r) => eventsOf(r.log)));
 		/** @type {SessionState} */
@@ -190,10 +167,7 @@ function buildSessions(runs, live, eventsOf, now) {
 	);
 }
 
-/**
- * @returns {Session[]}
- * @throws where the store or a record cannot be read
- */
+/** @returns {Session[]} */
 function readSessions() {
 	const live = new Set(readLiveAgents().map((a) => a.id));
 	return buildSessions(readStoredRuns(), live, readEvents, Date.now());
@@ -212,14 +186,13 @@ function readThread(session) {
 
 /**
  * @param {Session[]} sessions
- * @param {string|null} selected session id
+ * @param {string|null} selected
  * @param {number} columns
  * @param {boolean} styled
  * @returns {{lines: string[], selectedLine: number}}
  */
 function buildListLines(sessions, selected, columns, styled) {
-	/* Untraced: 30% of the width, at least a job id and at most a status
-	 * line's quote of it. */
+	// guess, #4583
 	const nameWidth = Math.max(
 		12,
 		Math.min(NAME_IN_STATUS, Math.floor(columns * 0.3)),
@@ -284,9 +257,6 @@ function buildThreadLines(events, columns) {
 }
 
 /**
- * The view's state and what each key does to it. `reply` and `stop` act on a
- * session's latest run; `onChange` draws, and is called before either acts,
- * as each can take seconds.
  * @param {{readSessions: () => Session[],
  *   readThread: (s: Session) => RunEvent[],
  *   reply: (run: RunRecord, text: string) => {jobId: string}|{why: string},
@@ -303,7 +273,6 @@ function createViewer(io) {
 	let mode = "list";
 	/** @type {RunEvent[]} */
 	let thread = [];
-	/* Thread lines held below the screen; 0 follows the end. */
 	let scrollUp = 0;
 	/** @type {string|null} */
 	let draft = null;
@@ -317,8 +286,6 @@ function createViewer(io) {
 		try {
 			sessions = io.readSessions();
 		} catch (err) {
-			/* #4583: a store read failing mid-write must not close the view; the
-			 * last list stays up, the fault named, until a poll reads again. */
 			notice = `overflow sessions unreadable: ${err instanceof Error ? err.message : err}`;
 		}
 		if (!current()) {
@@ -443,8 +410,6 @@ function createViewer(io) {
 
 	/** @param {Key} key */
 	const pressKey = (key) => {
-		/* A run of typed characters arrives as one key; each acts alone, as
-		 * Space opens the line the rest is typed into. */
 		const keys =
 			"text" in key ? [...key.text].map((ch) => ({ ...key, text: ch })) : [key];
 		for (const one of keys) {
@@ -508,7 +473,6 @@ function createViewer(io) {
 }
 
 /**
- * Runs the view until the process exits, through `proc.exit`.
  * @param {{stdin: Pick<import("node:tty").ReadStream, "setRawMode"|"resume"|"setEncoding"|"on">,
  *   stdout: Pick<import("node:tty").WriteStream, "write"|"on"|"columns"|"rows">,
  *   proc: Pick<import("node:events").EventEmitter, "on"> & {exit: (code: number) => void},

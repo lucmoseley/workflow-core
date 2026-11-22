@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The real gh's refusal of a repeated field, which issue-create-label.js's
- * REST judge passes unjudged on the strength of (#3614). A dummy token and a
- * dead proxy: a gh that stopped refusing reaches nothing.
- *
- * Red after a gh upgrade: that judge now owes a verdict on the value gh sends.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -17,7 +10,6 @@ const realGh = (process.env.PATH ?? "")
 	.map((d) => path.join(d, "gh"))
 	.find((f) => fs.existsSync(f));
 
-// Residual: where no gh is installed this skips, and the refusal goes unchecked.
 describe.skipIf(!realGh)("gh api, a field given twice", () => {
 	it.each([
 		["-f", "-f"],

@@ -1,21 +1,3 @@
-/*
- * queue-owning-session.js — whether a queue ref's owning session is still working,
- * for the queue lander, which files no fix ticket for a drop while it is
- * (#4950, spec #4947).
- *
- * A queue ref is named after its owning session's worktree
- * (lib/landing-refs.js), so the read finds that worktree among the host's
- * linked worktrees, takes the session in it from lib/session-worktrees.js, the
- * session whose cwd lies in it, and asks lib/agent-liveness.js whether that
- * session is listed and not terminal.
- *
- * DOUBT IS `stopped`, and nothing here throws. A drop is then ticketed
- * rather than deferred for good on a guess, and a read that failed says so
- * on stderr.
- * Residual: a listed session left idle reads `working` for as long as it is
- * listed.
- */
-
 const fs = require("node:fs");
 const { parseErrorFirstLine } = require("./first-line.js");
 const { admissionSessionIds, isListedLive } = require("./agent-liveness.js");
@@ -27,16 +9,13 @@ const { writeFd } = require("./write-fd.js");
 /**
  * @typedef {import("./queue-lander.js").OwningSessionState} OwningSessionState
  * @typedef {object} OwningSessionDeps
- * @property {() => string[]|null} worktrees the host's linked worktrees,
- *   null where git will not list them
- * @property {() => import("./agent-liveness.js").ListedSessions} listed the
- *   agents oracle's listing, or why it would not read
+ * @property {() => string[]|null} worktrees
+ * @property {() => import("./agent-liveness.js").ListedSessions} listed
  * @property {(line: string) => void} say
  */
 
 /**
- * The lander runs as no session, so an empty listing reads as nothing live.
- * @param {string} root the canonical checkout
+ * @param {string} root
  * @returns {OwningSessionDeps}
  */
 const liveOwningSessionDeps = (root) => ({
@@ -46,9 +25,8 @@ const liveOwningSessionDeps = (root) => ({
 });
 
 /**
- * Whether the owning session of `queue/<name>` is working.
- * @param {string} root the canonical checkout
- * @param {string} name after `queue/`
+ * @param {string} root
+ * @param {string} name
  * @param {OwningSessionDeps} [deps]
  * @returns {OwningSessionState}
  */

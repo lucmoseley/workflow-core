@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * rescue-sessions-probe.test.ts — `rescue-sessions.js probe` through its
- * command line (#620, spec #617): the boundary set lib/rescue-probe.js's
- * module cases (lib/rescue-probe.test.ts) leave to the program (#5157) — a
- * probe across the real oracle adapter, `gh` and WFC_PROC, a refusal, and the
- * oracle's failure, each through the shell's exit.
- *
- * Fixtures: scripts/lib/rescue-testkit.ts. The real script runs in a sandbox
- * against the kit's fake `claude` oracle, fake `gh` and fabricated `/proc`
- * (WFC_PROC), so no live session is ever sampled.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -28,10 +17,6 @@ import {
 const sb = freshSandbox(withTracker);
 const { plan, lists, proc, writeTranscript, jobState, run } = rescueKit(sb);
 
-/**
- * The common case: listed working on the first plan, a transcript whose turn
- * ended on `waiting:`, nothing in flight, and a process tree that idles.
- */
 const frozenHolder = () => {
 	lists([holderRow()]);
 	writeTranscript([said("Delegated the suite.\n\nwaiting: the suite run")]);

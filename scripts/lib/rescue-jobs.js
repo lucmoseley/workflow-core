@@ -1,15 +1,3 @@
-/*
- * rescue-jobs.js — the core of `rescue-sessions.js list`, `snapshot` and
- * `stop` (#5157, mantahostels#2605): a plan's jobs, each one's transcript
- * reduced to the narration a successor resumes from, and where it got to.
- * Takeover and hand-off snapshot through it too.
- *
- * Every entry takes its parsed arguments and RescuePorts and answers
- * `{status, stdout, stderr}`, which the program's shell writes and exits on.
- * The oracle, `claude stop`, `gh`, the clock, the sleep and /proc come in as
- * ports; the filesystem and git are read in place.
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -27,9 +15,7 @@ const { bufferedIo, collectIo } = require("./tracker-ops.js");
 
 const STUCK_STATES = new Set(["blocked", "running", "working", "needs_input"]);
 
-// How much of each transcript entry the narration keeps. A Bash command is the
-// one that most often loses something the successor wants — a commit's pathspec
-// runs past 140 — so raise BASH_CHARS before the others if a rescue reads short.
+// guess, lucmoseley/mantahostels#2605
 const USER_TURN_CHARS = 600;
 const BASH_CHARS = 140;
 const OTHER_INPUT_CHARS = 100;
@@ -39,15 +25,12 @@ const OTHER_INPUT_CHARS = 100;
 /** @typedef {import("./agent-liveness").RunOracle} RunOracle */
 
 /**
- * What the rescue cores reach outside the filesystem and git. The shell fills
- * each with production's; a module case passes its fakes.
  * @typedef {object} RescuePorts
  * @property {NodeJS.ProcessEnv} env
- * @property {() => number} now  the clock, in epoch milliseconds
+ * @property {() => number} now
  * @property {(ms: number) => Promise<void>} sleep
- * @property {RunOracle} oracle  `claude agents --json` per config dir
- * @property {typeof import("./child-spawn.js").spawnRaw} claude  `claude
- *   stop`'s spawn
+ * @property {RunOracle} oracle
+ * @property {typeof import("./child-spawn.js").spawnRaw} claude
  * @property {import("./gh.js").GhRun} gh
  * @property {string} procRoot
  */
@@ -66,19 +49,14 @@ const OTHER_INPUT_CHARS = 100;
  * @property {string} model
  * @property {string} updatedAt
  * @property {string} cwd
- * @property {boolean} [cwdGuessed] `cwd` is the main checkout by default,
- *   not a directory the session is known to have run in
+ * @property {boolean} [cwdGuessed]
  * @property {string} [deathPoint]
  * @property {string[]} [commitsAttempted]
  * @property {string[] | null} [commitsLanded]
  * @property {string[]} [artefactsSurvived]
  */
 
-/**
- * A transcript content-block entry, narrow enough to read without `any`.
- *
- * @typedef {{ type: string, text?: string, file_path?: string }} ContentBlock
- */
+/** @typedef {{ type: string, text?: string, file_path?: string }} ContentBlock */
 
 /**
  * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
@@ -86,7 +64,6 @@ const OTHER_INPUT_CHARS = 100;
  */
 
 /**
- * A bad invocation: `msg` on stderr, exit 2.
  * @param {BufferedIo} io
  * @param {string} msg
  * @returns {never}
@@ -109,7 +86,6 @@ function configDir(args, io, env) {
 			"--from needs a config dir, e.g. --from ~/.claude3 (or set $CLAUDE_CONFIG_DIR)",
 		);
 	}
-	// os.homedir() rather than $HOME, which an `env -i` invocation leaves unset.
 	const resolved = expandHome(d, os.homedir());
 	if (resolved === null)
 		die(io, `cannot expand ${d}: the home directory is unset or not absolute`);
@@ -122,14 +98,7 @@ function configDir(args, io, env) {
 	return resolved;
 }
 
-/**
- * The model a session ran on, read off `--model` by name.
- *
- * Never off position: `dispatch-sessions.js` launches `--advisor <a> --model <m>`
- * as well as the bare form, so respawnFlags[1] is the advisor, not the model.
- *
- * @param {string[]} flags
- */
+/** @param {string[]} flags */
 function modelOf(flags) {
 	const i = flags.indexOf("--model");
 	const model = flags[i + 1];
@@ -137,13 +106,8 @@ function modelOf(flags) {
 }
 
 /**
- * Every job in a config dir, newest first, with the fields a rescue needs.
- *
  * @param {string} dir
- * @returns {{ jobs: Job[], unreadable: number }} `unreadable`
- *   counts state files that would not parse — a job mid-write, or an entry
- *   that is not a directory. A directory with no state file at all is skipped,
- *   not counted: it has no state to rescue (#1146).
+ * @returns {{ jobs: Job[], unreadable: number }}
  */
 function readJobs(dir) {
 	const jobsDir = jobStorePath(dir);
@@ -176,19 +140,12 @@ function readJobs(dir) {
 	return { jobs, unreadable };
 }
 
-/**
- * A session's own account of itself: every real user turn, every line of
- * prose it wrote, and a one-line signature for every tool call, in order.
- *
- * @param {TranscriptRecord[]} records
- */
+/** @param {TranscriptRecord[]} records */
 function extractNarration(records) {
 	return records.flatMap(buildNarrationLines).join("\n");
 }
 
 /**
- * Every parseable line of a transcript.
- *
  * @param {string} transcriptPath
  * @returns {TranscriptRecord[]}
  */
@@ -197,8 +154,6 @@ function readTranscriptRecords(transcriptPath) {
 }
 
 /**
- * Every Bash command the session ran, whole.
- *
  * @param {TranscriptRecord[]} records
  * @returns {string[]}
  */
@@ -218,16 +173,12 @@ function bashCommands(records) {
 }
 
 /**
- * The narration lines one transcript record gives: a real user turn, or an
- * assistant turn's prose and its tool-call signatures.
- *
  * @param {TranscriptRecord} j
  * @returns {string[]}
  */
 function buildNarrationLines(j) {
 	/** @type {string[]} */
 	const out = [];
-	// A real user turn, not an injected system-reminder or hook payload.
 	if (
 		j.type === "user" &&
 		j.message &&
@@ -250,9 +201,7 @@ function buildNarrationLines(j) {
 	return out;
 }
 
-/**
- * @param {TranscriptBlock} c a `tool_use` block
- */
+/** @param {TranscriptBlock} c */
 function toolSignature(c) {
 	let detail;
 	if (c.name === "Bash")
@@ -262,15 +211,9 @@ function toolSignature(c) {
 	return `  [${c.name}] ${detail}`;
 }
 
-/** A narration line `extractNarration` writes for a Write or Edit call. */
 const WRITE_LINE = /^ {2}\[(?:Write|Edit)\] (.+)$/;
 
 /**
- * Every file the session wrote or edited, filtered to what still exists on
- * disk — the "which artefacts survived" half of the brief step, read off the
- * narration `extractNarration` already built rather than re-scanning the
- * transcript.
- *
  * @param {string} narration
  * @param {string} cwd
  */
@@ -283,15 +226,11 @@ function survivedArtefacts(narration, cwd) {
 	}
 	return [...paths].filter((p) => {
 		if (path.isAbsolute(p)) return fs.existsSync(p);
-		// No cwd to resolve a relative path against — checking it against THIS
-		// process's own cwd would answer plausibly and wrongly, since a rescue
-		// script usually runs from the very repo a relative path names.
 		if (!cwd) return false;
 		return fs.existsSync(path.join(cwd, p));
 	});
 }
 
-/* Only a command naming a commit is walked. */
 const MENTIONS_COMMIT = /commit/;
 
 /**
@@ -299,15 +238,9 @@ const MENTIONS_COMMIT = /commit/;
  */
 
 /**
- * This session's own commit calls, each with the subject git would record for
- * it. Read by lib/commit-calls.js, which walks each command as the guards do
- * (#2383). Read off the whole Bash commands, not the narration: BASH_CHARS
- * cuts a plugin-cache path or a long message before it shows (#1714). Empty
- * where the walk throws, with a warning saying so.
- *
  * @param {BufferedIo} io
  * @param {string[]} commands
- * @param {string} cwd the job's directory, a relative `-F` file's base
+ * @param {string} cwd
  * @returns {CommitAttempt[]}
  */
 function readCommitsAttempted(io, commands, cwd) {
@@ -341,23 +274,12 @@ function commitCallsUnread(io, why) {
 	return [];
 }
 
-/* How far before a job's last update to look for its own commits. `updatedAt`
- * is when the job DIED, which is after it committed, not before — an
- * unbounded `--since` would miss nothing, but scanning the whole repo
- * history on every snapshot is wasteful, so this bounds it generously
- * against a long-running session instead of trying to date the job's start
- * (readJobs does not carry one). */
+// guess, lucmoseley/mantahostels#2628
 const COMMIT_LOOKBACK_MS = 6 * 60 * 60 * 1000;
 
 /**
- * A commit call's subject as git records it, best-effort, from what the
- * scanner found: an `m` word as written, a `"$(cat <<'EOF'` heredoc among
- * them, or an `F` file read relative to `cwd` while it still exists. `null`
- * where none can be read.
- *
- * @param {{ call: string, flag: string, word: string }} scanned one call as
- *   lib/commit-calls.js read it: `flag` is `m`, `F` or `-`
- * @param {string} command the whole Bash command the call stands in
+ * @param {{ call: string, flag: string, word: string }} scanned
+ * @param {string} command
  * @param {string} cwd
  * @returns {string | null}
  */
@@ -372,33 +294,26 @@ function commitSubjectOf({ call, flag, word }, command, cwd) {
 		}
 	}
 	if (flag !== "m") return null;
-	// A lone `"$` is such a heredoc, cut short by the scanner's split.
 	const body = /^"\$(?:\(cat\s|$)/.test(word) ? heredocOf(command, call) : null;
 	return subjectOf(body ?? shellWord(word, 0)) || null;
 }
 
 /**
- * The body of the `-m "$(cat <<'EOF'` heredoc at or after `call` in
- * `command`. `null` where none opens there.
- *
  * @param {string} command
  * @param {string} call
  */
 function heredocOf(command, call) {
-	const heredoc = command.slice(Math.max(command.indexOf(call), 0)).match(
-		// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
-		/-m\s+"\$\(cat\s+<<(-?)\s*['"]?(\w+)['"]?(?:[^\S\n]*\n)+([\s\S]*?)(?:^[\t ]*\2(?=\s*\)|[\t ]*$)|$(?![\s\S]))/m,
-	);
+	const heredoc = command
+		.slice(Math.max(command.indexOf(call), 0))
+		.match(
+			/-m\s+"\$\(cat\s+<<(-?)\s*['"]?(\w+)['"]?(?:[^\S\n]*\n)+(?![^\S\n]*\n)([\s\S]*?)(?:^[\t ]*\2(?=\s*\)|[\t ]*$)|$(?![\s\S]))/m,
+		);
 	if (!heredoc) return null;
 	const raw = heredoc[3] ?? "";
 	return heredoc[1] ? raw.replace(/^\t+/gm, "") : raw;
 }
 
 /**
- * The bash word starting at `from`, with its quotes and escapes resolved as
- * bash would: adjacent quoted pieces joined (`'it'\''s'`), and `\"`, `\\`,
- * `\$` and `` \` `` undone inside double quotes.
- *
  * @param {string} text
  * @param {number} from
  */
@@ -411,11 +326,7 @@ function shellWord(text, from) {
 	return word;
 }
 
-/**
- * git's `%s` for a message: its first paragraph, lines joined by a space.
- *
- * @param {string} text
- */
+/** @param {string} text */
 function subjectOf(text) {
 	const lines = text.split("\n").map((l) => l.trimEnd());
 	const start = lines.findIndex((l) => l !== "");
@@ -425,20 +336,9 @@ function subjectOf(text) {
 }
 
 /**
- * Which of THIS job's own commit attempts actually landed on `cwd`'s
- * branch — a subject equal to one of the job's own commit messages (#2373)
- * rather than a bare time window, so a neighbour's concurrent commit is
- * never misattributed to this job (several sessions commit to `main`
- * concurrently in this repo).
- * `null` where git could not be asked at all — `cwd` gone, not a repo, the
- * call itself failing — as against `[]`, which means git answered and
- * nothing attempted landed.
- * Residual: a neighbour's commit whose subject is identical, such as a bare
- * `wip`, is still credited.
- *
  * @param {string} cwd
  * @param {string} updatedAt
- * @param {(string | null)[]} subjects the job's attempts' subjects
+ * @param {(string | null)[]} subjects
  * @returns {string[] | null}
  */
 function readCommitsLanded(cwd, updatedAt, subjects) {
@@ -461,7 +361,7 @@ function readCommitsLanded(cwd, updatedAt, subjects) {
 		const log = execGit(args, {
 			cwd,
 			encoding: "utf8",
-			// A guess, never measured: a wedged git, not a slow one.
+			// guess, lucmoseley/mantahostels#2628
 			timeout: 15_000,
 		}).trim();
 		const logLines = log ? log.split("\n") : [];
@@ -473,36 +373,21 @@ function readCommitsLanded(cwd, updatedAt, subjects) {
 	}
 }
 
-/* The message a session blocked at its seat's limit carries, in its job
- * record's `detail` and as the transcript's last assistant line: the 5-hour
- * bar's "session limit", the weekly one (#2128), or a model's own, "reached
- * your Fable limit" (#2380). A word run, not a list of names, so a new model's
- * limit needs no edit. Residual: a question that opens on that wording reads as
- * a limit; the anchor spares only one quoting it mid-sentence (#2158). */
 const LIMIT_MESSAGE = /^You've (hit|reached) your [\w .]+ limit/;
 
-/**
- * The last three things a session said; three is a guess, never measured.
- *
- * @param {string} narration
- */
+/** @param {string} narration */
 function deathPoint(narration) {
-	return narration
-		.split("\n")
-		.filter((l) => l.startsWith("A: ") && !LIMIT_MESSAGE.test(l.slice(3)))
-		.slice(-3)
-		.join("\n");
+	return (
+		narration
+			.split("\n")
+			.filter((l) => l.startsWith("A: ") && !LIMIT_MESSAGE.test(l.slice(3)))
+			// guess, lucmoseley/mantahostels#2605
+			.slice(-3)
+			.join("\n")
+	);
 }
 
 /**
- * Which of a plan's sessions the daemon still lists as live.
- *
- * `claude agents --json` is scoped to one config dir, so this is asked of the
- * SOURCE plan with that plan's own dir — the one case where a session missing
- * from the listing really does read dead. So it reads `readSeatListing`, not
- * `listedAgents`, which unions every plan's listing (#3512). Degrades to
- * `null`, never to "all dead".
- *
  * @param {string} dir
  * @param {RunOracle} oracle
  * @returns {Set<string> | null}
@@ -511,7 +396,7 @@ function liveSessions(dir, oracle) {
 	try {
 		const listing = readSeatListing(
 			dir,
-			// A guess, never measured: a wedged daemon, not a slow one.
+			// guess, lucmoseley/mantahostels#2605
 			capMs("WFC_RESCUE_ORACLE_TIMEOUT_MS", 45_000),
 			oracle,
 		);
@@ -523,13 +408,9 @@ function liveSessions(dir, oracle) {
 }
 
 /**
- * `--ids`' value, split and validated. Dies on any id shaped like a flag:
- * parseArgs takes an undeclared next token as the value, so `--ids --force`
- * and `--ids=--force` both arrive here as the string `"--force"`.
- *
  * @param {ParsedArgs} args
  * @param {BufferedIo} io
- * @returns {string[] | null} null where --ids was not given at all
+ * @returns {string[] | null}
  */
 function readIds(args, io) {
 	if (args.ids === undefined) return null;
@@ -588,19 +469,14 @@ function listJobs(io, args, ports) {
 }
 
 /**
- * Copy one job's state and transcript into `out`, write its narration, and
- * work out the fields a successor resumes from.
  * @param {BufferedIo} io
  * @param {string} dir
  * @param {string} out
  * @param {Job} j
- * @returns {{ job: Job, narrationBytes: number }} the job with those fields
- *   filled, and the narration's size in bytes
+ * @returns {{ job: Job, narrationBytes: number }}
  */
 function snapshotJob(io, dir, out, j) {
 	const state = jobStatePath(dir, j.short);
-	// A session run with no job record — interactive, or one whose record is
-	// gone — has only its transcript to copy.
 	if (fs.existsSync(state))
 		fs.copyFileSync(state, path.join(out, `${j.short}.state.json`));
 	if (!j.transcript || !fs.existsSync(j.transcript))
@@ -673,7 +549,6 @@ function snapshotJobs(io, args, ports) {
 }
 
 /**
- * One snapshotted job's block of snapshot's "where each one died" report.
  * @param {BufferedIo} io
  * @param {Job} j
  */
@@ -708,9 +583,8 @@ function stopJobs(io, args, ports) {
 }
 
 /**
- * One subcommand's entry: `body` on a fresh buffered io, as its outcome.
  * @param {(io: BufferedIo, args: ParsedArgs, ports: RescuePorts) => Promise<number | void> | number | void} body
- * @param {string} [name]  the prefix of its `warn` and `fail` lines
+ * @param {string} [name]
  * @returns {(args: ParsedArgs, ports: RescuePorts) => Promise<Outcome>}
  */
 const entry =

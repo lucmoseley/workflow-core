@@ -1,40 +1,8 @@
-/*
- * core-deny-text.js — the refusal texts a Node guard core can print, read
- * from its source without loading it (#3001), for check-guard-registry.js's
- * REPRINTED pass. The bash reader there follows `gp_deny`; a core ported
- * under #2733 denies by returning `{ deny: … }` instead.
- *
- * A core's deny text is every string bound to a `REASON` or `*_REASON` name,
- * and whatever a deny site reaches. A site is a `deny:` value or the
- * arguments of a `deny(…)` call, lib/guard-verdict.js's refusal. It reaches:
- *   - every literal inside it;
- *   - every string bound to a name it mentions, so `deny:
- *     ctx.corePaths(withWait(REASON, w))` reads REASON's text;
- *   - the body of a function it calls that the file declares, read as a site
- *     itself, so `deny: refusal(found, ctx)` reads refusal()'s wording;
- *   - for a name no string is bound to, every value assigned to it or keyed by
- *     it, read as a site itself: `deny: refusal` reads `refusal =
- *     refusalText(…)`, and `denyText(ctx, segment, reason)` reads every
- *     `reason: …` key in the file.
- * A template's `${name}` is filled from the first string bound to that name,
- * any other placeholder read as a gap.
- *
- * LEXICAL, AND IT FAILS SHORT: a string reached only through an import, or
- * through a property read (`out.deny`), is unseen, costing coverage. A rule fragment the core prints through
- * `ctx.ruleText(<id>)` is not its text either. Names are read file-wide, scope
- * ignored, and a followed function's whole body is read, so a warning worded
- * in a function that also denies counts as deny text.
- */
-
 const { scanJs, stripComments } = require("./strip-comments.js");
 
-/* The name a literal is bound to: `const X = `, `x = `, `x += `. Its tail
- * meets a lone `=`, so `==`, `<=` and `=>` never match. */
 const BOUND_TO_RE = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*\+?=\s*$/;
 
-/* How far back of a literal its binding is looked for. The longest live
- * spelling, `const SOME_LONG_REASON =` and its indent, is under 40; 120 is a
- * guess that leaves room for a type cast or a wrapped line. */
+// guess, #5529
 const BINDING_LOOKBACK = 120;
 
 const REASON_NAME_RE = /^(?:\w+_)?REASON$/;
@@ -45,27 +13,18 @@ const DECLARED_RE = /\bfunction\s*$/;
 
 const NAME_RE = /(?<![\w$.])[A-Za-z_$][\w$]*/g;
 
-/* `name = ` or `name: ` opening a value, `==`, `=>` and `?.` aside. */
 const ASSIGNED_RE = /(?<![\w$.?])([A-Za-z_$][\w$]*)\s*(?:\+?=(?![=>])|:(?!:))/g;
 
-/* `function name(` or `name = (…) =>` / `name = x =>`, up to the arrow or the
- * parameter list's opener. */
 const FUNCTION_RE =
 	/\bfunction\s+([A-Za-z_$][\w$]*)\s*\(|(?<![\w$.])([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?(?:\([^()]*\)|[A-Za-z_$][\w$]*)\s*=>/g;
 
 const OPENERS = "([{";
 const CLOSERS = ")]}";
 
-/* `decide` destructured off a sibling module, as an entry running a core
- * through guard-entry.js's `run()` takes it. */
-/* Opened at a run's first `{` after a `}`: a later `{` before the same `}`
- * shares its tail, so trying it again only re-reads the run. */
 const DECIDE_FROM_RE =
 	/(?:^|\})[^{}]*\{(?=[^}]*\bdecide\b)[^}]*\}\s*=\s*require\(\s*["'](\.\/lib\/[\w.-]+)["']\s*\)/;
 
 /**
- * A literal's text, quotes dropped and escapes read. A template's
- * placeholders are filled by `fill`.
  * @param {string} literal
  * @param {(expr: string) => string} fill
  */
@@ -78,11 +37,9 @@ function textOf(literal, fill) {
 }
 
 /**
- * Where the expression starting at `from` ends: the closer of a bracket it did
- * not open, or, unless `args`, the first `,` or `;` at its own depth.
- * @param {string} code literals blanked, so their brackets do not count
+ * @param {string} code
  * @param {number} from
- * @param {boolean} args a call's whole argument list, commas and all
+ * @param {boolean} args
  */
 function expressionEnd(code, from, args) {
 	let depth = 0;
@@ -98,12 +55,9 @@ function expressionEnd(code, from, args) {
 }
 
 /**
- * The span of the body of the function whose header ends at `from`: its
- * braced block, or an arrow's bare expression. A `function` header's
- * parameter list is skipped first.
- * @param {string} code literals blanked
- * @param {number} from just past `(` for a `function`, past `=>` for an arrow
- * @param {boolean} declared a `function` declaration
+ * @param {string} code
+ * @param {number} from
+ * @param {boolean} declared
  * @returns {[number, number]}
  */
 function bodySpan(code, from, declared) {
@@ -115,10 +69,6 @@ function bodySpan(code, from, declared) {
 }
 
 /**
- * The spans of every deny site: each `deny:` value and `deny(…)` call, then,
- * to a fixed point, the arguments of each call to a declared function whose
- * body holds a site — so `refuse(TEXT, segment)` is one where refuse()'s
- * body is `{ deny: spliceCmd(segment, text) }`.
  * @param {string} blank
  * @param {Map<string, [number, number]>} bodies
  * @returns {[number, number][]}
@@ -144,9 +94,8 @@ function denySites(blank, bodies) {
 }
 
 /**
- * Each match's value or argument span, past a declaration's own name.
  * @param {string} blank
- * @param {RegExp} re a key or call, ending at its `:` or `(`
+ * @param {RegExp} re
  * @returns {[number, number][]}
  */
 function callSpans(blank, re) {
@@ -165,16 +114,12 @@ const callRe = (name) =>
 /**
  * @typedef {{ at: number, raw: string }} Literal
  * @typedef {{
- *   blank: string,
- *   literals: Literal[],
- *   bound: Map<string, string[]>,
- *   bodies: Map<string, [number, number]>,
- *   assigned: Map<string, [number, number][]>,
- * }} Lexed `blank` the source with comments spaced out and literals filled
- *   with `0`, so offsets still index the source and no bracket or name inside
- *   either counts as code, yet an arrow's bare-literal body is still found;
- *   `bound` each name's strings in source order; `bodies` each declared
- *   function's body span; `assigned` each name's assigned or keyed values
+ * blank: string,
+ * literals: Literal[],
+ * bound: Map<string, string[]>,
+ * bodies: Map<string, [number, number]>,
+ * assigned: Map<string, [number, number][]>,
+ * }} Lexed
  */
 
 /**
@@ -183,8 +128,7 @@ const callRe = (name) =>
  */
 function lex(source) {
 	const { comments, literals } = scanJs(source);
-	// One code unit per slot, filled in place: rebuilding the string per span
-	// is quadratic on a large core (#4170).
+	// #4170
 	const units = source.split("");
 	for (const [from, to] of comments) units.fill(" ", from, to);
 	for (const { at, raw } of literals) units.fill("0", at, at + raw.length);
@@ -224,7 +168,6 @@ function lex(source) {
 }
 
 /**
- * A literal's text, its placeholders filled from the strings bound so far.
  * @param {Lexed} lx
  * @param {string} raw
  */
@@ -232,11 +175,10 @@ const textIn = (lx, raw) =>
 	textOf(raw, (expr) => lx.bound.get(expr)?.[0] ?? " ");
 
 /**
- * Add to `texts` what the span from `from` to `to` reaches.
  * @param {Lexed} lx
  * @param {[number, number]} span
- * @param {Set<string>} texts accumulator: each text reached is added
- * @param {Set<string>} followed accumulator: the names already followed
+ * @param {Set<string>} texts
+ * @param {Set<string>} followed
  */
 function reach(lx, [from, to], texts, followed) {
 	for (const { at, raw } of lx.literals)
@@ -251,8 +193,6 @@ function reach(lx, [from, to], texts, followed) {
 }
 
 /**
- * Where a name a site mentions leads: a declared function's body, or, for a
- * name no string is bound to, every value assigned to it or keyed by it.
  * @param {Lexed} lx
  * @param {string} name
  * @returns {[number, number][]}
@@ -265,7 +205,6 @@ function followedSpans(lx, name) {
 }
 
 /**
- * Every deny text the core in `source` can print, raw.
  * @param {string} source
  * @returns {string[]}
  */
@@ -282,11 +221,7 @@ function coreDenyTexts(source) {
 	return [...texts];
 }
 
-/**
- * The module an entry takes its core's `decide` from, as a path relative to
- * the entry's directory, or null where it runs no core.
- * @param {string} source
- */
+/** @param {string} source */
 function decideModule(source) {
 	return DECIDE_FROM_RE.exec(stripComments(source))?.[1] ?? null;
 }

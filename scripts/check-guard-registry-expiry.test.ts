@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/check-guard-registry.js: `--against HEAD` refusing the commit that expires an anchor (#2617).
- *
- * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
- * loosen a case and a rule can claim **Enforced** while its guard is missing
- * or unwired.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from check-guard-registry.test.ts, whose cost was pre-existing (#4294).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -83,7 +73,6 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	it("stands down a path a live neighbour holds dirty, and says whose", () => {
 		const { root, stage } = stagingRepo();
 		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
-		// Dirty in the working tree only: the neighbour's, not this commit's.
 		fs.writeFileSync(
 			path.join(root, "scripts", "guard-branch.sh"),
 			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nexit 3\n',
@@ -264,8 +253,6 @@ describe("--against HEAD reads HEAD under HEAD's own checker, so a digest-code c
 	const { stagingRepo, gate, review, added } = anchorExpiryKit();
 	const digestCode = "scripts/lib/guard-digest.js";
 	const loop = "for (const lib of sourcedBy(base, rel, text, !stack).sort())";
-	/* The fixture's own digest code, its digest of guard-branch.sh widened to
-	 * fold guard-amend.sh in, every anchor and guard as committed. */
 	const widen = (root: string) => {
 		const code = fs.readFileSync(path.join(root, digestCode), "utf8");
 		if (!code.includes(loop)) throw new Error(`no ${loop} in ${digestCode}`);

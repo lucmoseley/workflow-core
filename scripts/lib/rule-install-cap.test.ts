@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Every fragment a wired guard injects fits RULE_CAP as an INSTALL spells it
- * (#5439), read through lib/install-probe.js's probe tree. The store is pinned
- * as both layers, so a core fragment's bare `#N` is qualified as an install's
- * is: vitest.setup.ts's default leaves no core layer beneath it.
- * WFC_SCRIPT_ROOT is stubbed empty, so an inherited one cannot point the
- * probe's core elsewhere.
- */
 
 import fs from "node:fs";
 import path from "node:path";

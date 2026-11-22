@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins vitest.setup.ts's per-file Claude config dir: a test case sees a temp
- * dir, not the one the runner started with.
- *
- * It compares against /proc/self/environ, which holds the environment the
- * worker started with and which no later write to `process.env` changes, so it
- * reads the runner's value rather than the override.
- *
- * Breaking it lets tests write arbiter state and caches into the founder's
- * live ~/.claude* again (#838).
- *
- * Also pins its removal of git's repository-locating variables (#1677), and its
- * empty host (#3334), without which a test that drops its CLAUDE_PROJECT_DIR
- * pin reads the live checkout and is red only on the founder's machine.
- *
- * And that the read audit sees its host lookup as a guarded git call (#4932):
- * an unguarded one is a read the audit cannot see, in every test file, so the
- * pass store records no row at all.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -54,11 +35,6 @@ describe("the Claude config dir a test case sees", () => {
 
 const REPO_ROOT = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Runs `<dir>/probe.test.ts` in a nested vitest under `env`, loading the real
- * setup file unless `withSetup` is false. Returns the JSON the probe wrote to
- * `<PROBE_OUT>/<outFile>`.
- */
 const runNestedVitest = <T>(
 	dir: string,
 	env: NodeJS.ProcessEnv,
@@ -95,12 +71,6 @@ const runNestedVitest = <T>(
 	return JSON.parse(fs.readFileSync(path.join(out, outFile), "utf8")) as T;
 };
 
-/*
- * #1677: a run started under a linked worktree's exported `GIT_DIR` — a hook,
- * `git bisect run` — must not let a fixture's plain `git init <dir>` mark the
- * worktree's main repo bare. Driven through a nested vitest run loading the real setup
- * file, since the variables have to be set before the worker starts.
- */
 const GIT_LOCATORS = [
 	"GIT_DIR",
 	"GIT_WORK_TREE",
@@ -140,7 +110,6 @@ test("probe", () => {
 	});
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-	/** Runs the probe with `leaked` set, and returns the `GIT_*` names its worker saw. */
 	const runProbe = (leaked: Record<string, string>, withSetup = true) =>
 		runNestedVitest<string[]>(
 			dir,
@@ -184,13 +153,6 @@ test("probe", () => {
 	});
 });
 
-/*
- * #3334: a test that drops its `CLAUDE_PROJECT_DIR` pin, or reaches the host in
- * process, reads the same empty non-repository whether the run started under a
- * session's live checkout or, as in CI, with the variable unset, and so does a
- * child spawned on the inherited env. The probe asks from inside this
- * checkout, so without the setup file's override the git limb answers it.
- */
 describe("the host a test that drops its pin reads (#3334)", () => {
 	const hostRootModule = path.join(REPO_ROOT, "scripts/lib/host-root.js");
 	let dir: string;
@@ -265,7 +227,6 @@ describe("the setup file's own git call under the read audit (#4932)", () => {
 			path.join(dir, "probe.test.ts"),
 			'test("probe", () => {});\n',
 		);
-		/* Armed as the suite's globalSetup arms it: in the runner, for its workers. */
 		fs.writeFileSync(
 			path.join(dir, "arm.cjs"),
 			`const fs = require("node:fs");
@@ -288,7 +249,6 @@ module.exports = () => {
 			"NODE_OPTIONS",
 		])
 			delete env[name];
-		/* The runner's `PATH`, which holds no guard: this worker's does. */
 		env.PATH = (env.PATH ?? "")
 			.split(path.delimiter)
 			.filter((d) => path.basename(d) !== "host-git-guard")

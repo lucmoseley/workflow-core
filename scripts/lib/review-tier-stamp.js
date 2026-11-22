@@ -1,25 +1,13 @@
-/*
- * review-tier-stamp.js — the review hold's stamp: the file in the git
- * directory through which scripts/review-hold-gate.js hands a passed commit's
- * `Review-Tier:` value to scripts/review-tier-trailer.js (#3664). One per
- * session, as a shared tree's git directory serves every session's commits at
- * once (#3906). Its first line is the tree the hold passed, its second the
- * trailer's value or `unheld`.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { ignoreFailure } = require("./caught.js");
 
 const PREFIX = "wfc-review-tier-";
 
-/** A day, far past any commit's gates: a guess, never measured. */
+// guess, #3906
 const STALE_MS = 24 * 60 * 60 * 1000;
 
 /**
- * This session's stamp in `gitDir`, or null with no session, which leaves no
- * stamp. The session id's every character outside `[A-Za-z0-9_-]` becomes
- * `_`, so no id reaches outside the git directory.
  * @param {string} gitDir
  * @param {string | undefined} sessionId
  * @returns {string | null}
@@ -30,10 +18,8 @@ function reviewTierStamp(gitDir, sessionId) {
 }
 
 /**
- * Removes the stamps in `gitDir` over a day old, which dead sessions
- * stranded. Throws where the directory will not list.
  * @param {string} gitDir
- * @param {number} now epoch milliseconds
+ * @param {number} now
  */
 function sweepReviewTierStamps(gitDir, now) {
 	for (const name of fs.readdirSync(gitDir)) {

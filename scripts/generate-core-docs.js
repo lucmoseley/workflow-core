@@ -1,17 +1,4 @@
 #!/usr/bin/env node
-/*
- * generate-core-docs.js — renders the core documents an adopter reads but
- * never edits, `.claude/workflow-core.glossary.md` from GLOSSARY.md and
- * `.claude/workflow-core.doc-map.md` from docs/doc-map.md's method sections
- * (lib/core-docs.js, #5294).
- *
- * --check  render and compare without writing; exit 1 on drift.
- *
- * Runs only in a repo shipping the plugin: in an adopter its GLOSSARY.md and
- * doc map are its own, and the renders are copies of the core's, so it SKIPs.
- *
- * Exit 2 where a source cannot be read or the doc map lacks a method section.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -33,7 +20,6 @@ const {
 } = require("./lib/core-docs.js");
 
 /**
- * Renders both documents in `root`, or with `check` compares them.
  * @param {string} root
  * @param {{ check: boolean }} opts
  * @param {import("./lib/write-fd.js").Write} write
@@ -101,11 +87,7 @@ function main(argv) {
 	return render(worktreeRoot(), { check: flags["--check"] === true }, writeFd);
 }
 
-/**
- * The --check run over the repo at `cwd`, as the pre-commit dispatcher runs
- * it in its own process (#5172).
- * @type {import("./lib/precommit-gates.js").Program}
- */
+/** @type {import("./lib/precommit-gates.js").Program} */
 const PROGRAM = ({ cwd }) =>
 	capture((write) => render(cwd, { check: true }, write));
 

@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-peak-tripwire.js — say so on `npm run status` when the peak tripwire
- * (lib/peak-tripwire.js, #5367) holds part-suites on the ladder: tripped by an
- * earlyoom kill, blind on a journal that would not read, or on a state file
- * that would not.
- *
- * WARNS on either, naming the re-arm route; OK while armed and seeing. Reads
- * the persisted state alone, never the journal.
- */
 
 const { runCheck } = require("./lib/check");
 const {

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the breadcrumb a Stop guard appends on every run: one line per
- * invocation, from a closed set of outcomes and sources, never the message
- * text (mantahostels#872, mantahostels#1274).
- *
- * Exercised against a throwaway root: the default root is the cwd, and pointing
- * it at this repo would scatter real records through it.
- *
- * check-stop-guard-outcomes.js (`npm run check:stop-guards`) reads these lines
- * to tell a guard that ran and read nothing from a Stop that never fired, so a
- * loosened case lets a lost or overwritten line make those two look alike
- * again.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -42,17 +28,11 @@ afterEach(() => {
 const put = (outcome: string, extra: Record<string, unknown> = {}) =>
 	record({ root, guard: GUARD, sessionId: SID, outcome, ...extra });
 
-/**
- * The lines this guard-session has recorded, oldest first; a `null` session
- * reads the record kept for payloads naming none.
- */
 const readBreadcrumbLines = (sessionId: string | null = SID) =>
 	readBreadcrumbs(root, GUARD, sessionId);
 
-/** The files every record so far landed in, by name. */
 const readFiles = (): string[] => fs.readdirSync(recordsDir(root)).sort();
 
-/** The one file this guard-session's first record went to. */
 const recordFile = () => {
 	put("message");
 	const [name] = readFiles();
@@ -99,7 +79,6 @@ describe("recording an invocation", () => {
 
 		expect(readBreadcrumbLines()).toHaveLength(1);
 		expect(readBreadcrumbs(root, "guard-selection-sum", SID)).toHaveLength(1);
-		// One file each, so one guard's cap never silences the other.
 		expect(readFiles()).toHaveLength(2);
 	});
 
@@ -132,7 +111,6 @@ describe("one line per invocation, so a turn is not overwritten (mantahostels#12
 	it("never reads the file before writing, so a corrupt line costs only itself", () => {
 		fs.appendFileSync(recordFile(), "not json\n");
 		expect(put("empty-message")).toBe(true);
-		// The unparseable line is skipped; the new one survives it.
 		expect(readBreadcrumbLines()).toHaveLength(2);
 		expect(readLastRecord()?.outcome).toBe("empty-message");
 	});
@@ -199,7 +177,6 @@ describe("the fields each line carries (mantahostels#1274)", () => {
 describe("the 32 KB cap (mantahostels#1274)", () => {
 	const capBytes = 32_768;
 
-	/** Fills the record's file to `bytes` without going through `record()`. */
 	const fill = (bytes = capBytes) => {
 		const file = recordFile();
 		const line = JSON.stringify({ guard: GUARD, session: SID, filler: 1 });
@@ -214,7 +191,6 @@ describe("the 32 KB cap (mantahostels#1274)", () => {
 		const before = fs.statSync(file).size;
 		expect(put("message")).toBe(false);
 		const after = fs.statSync(file).size;
-		// Only the sentinel was added, and it is not an invocation record.
 		expect(after).toBeGreaterThan(before);
 		expect(readLastRecord()).toMatchObject({
 			guard: GUARD,
@@ -260,19 +236,13 @@ describe("a subagent's Stop", () => {
 
 describe("failure paths stay silent", () => {
 	it("returns false rather than throwing when the record cannot be written", () => {
-		// A directory where the record file wants to be: appendFileSync throws EISDIR.
 		const file = recordFile();
 		fs.rmSync(file);
 		fs.mkdirSync(file);
 		expect(put("message")).toBe(false);
 	});
 
-	/* The mkdirSync mantahostels#3382 added sits inside the same silent try as the append, so
-	 * a directory that cannot be created must return false rather than throw —
-	 * the same contract the append already had. Nothing else reaches that branch:
-	 * every other failure test blocks the FILE, which leaves the mkdir working. */
 	it("returns false rather than throwing when the directory cannot be created", () => {
-		// A file where the directory wants to be: mkdirSync throws EEXIST/ENOTDIR.
 		fs.writeFileSync(recordsDir(root), "not a directory\n");
 		expect(put("message")).toBe(false);
 	});
@@ -314,8 +284,6 @@ describe("guardName", () => {
 });
 
 describe("normaliseGuardName", () => {
-	/* Records written before guardName stripped the suffix are still on disk, so
-	 * a reader keying on the raw string counts one guard as two (mantahostels#2545). */
 	it("folds a record's suffixed name onto the one the guard writes today", () => {
 		expect(normaliseGuardName("guard-priced-options.js")).toBe(
 			"guard-priced-options",

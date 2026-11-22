@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The trial-scoped read gate 2 turns on (mantahostels#2849). Its ordinary sibling — the
- * three-seat upward trigger, the rolled-window figure, `readSeats`, `recordReading`
- * and `rungOneLogged` — is covered beside the checker in
- * `scripts/check-seat-utilisation.test.ts`; this file is the layer added over
- * it, which is a separate read and never an edit to that one (mantahostels#2845).
- *
- * WHY THE COVERAGE IS HEAVY FOR THE SIZE. The trial runs once, for a fortnight,
- * and the window cannot be replayed: a branch that silently fails to fire is
- * unrecoverable, which is the exact defect mantahostels#2835 was opened on.
- *
- * In-process, on hand-built readings against a fixed clock (`NOW`), so every
- * branch of the window can be reached without waiting a fortnight for it.
- * `check-seat-utilisation.js` runs it as a SessionStart hook in
- * `.claude/settings.json`; a loosened case lets gate 2 stay silent through the
- * one window it is read in.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -27,14 +10,11 @@ const {
 	scopedVerdict,
 	trialReview,
 	trialVerdict,
-	// eslint-disable-next-line @typescript-eslint/no-var-requires
 } = require("./seat-utilisation.js");
 
 const NOW = Date.parse("2026-09-15T12:00:00Z");
 const HOUR = 36e5;
-/** A reset comfortably outside the 24 h the policy waits out. */
 const FAR = new Date(NOW + 72 * HOUR).toISOString();
-/** …and one inside it. */
 const NEAR = new Date(NOW + 6 * HOUR).toISOString();
 
 const BASELINE = {
@@ -74,14 +54,10 @@ type SeatOver = Partial<{
 	sevenDay: number | null;
 	resetsAt: string | null;
 	fetchedAtMs: number | null;
-	/** Only ever set on a HISTORY row, which spells the stamp as an ISO string. */
 	fetchedAt: string;
 	scopedBars: ScopedBarOver[];
 }>;
 
-/** One `weekly_scoped` bar, already judged — `scopedVerdict()` takes `Seat[]`
- * off `readSeats()`, never raw cache JSON, so its own tests build the bar
- * shape directly rather than through the judging `readSeats()` does. */
 const scopedBar = (
 	model: string,
 	percent: number,
@@ -111,7 +87,6 @@ const seat = (dir: string, sevenDay: number | null, over: SeatOver = {}) => ({
 	...over,
 });
 
-/** Seat 3 as the declaration describes it, untouched since. */
 const seat3 = (over: SeatOver = {}) =>
 	seat(".claude3", BASELINE.sevenDay, {
 		accountUuid: "acct-3",
@@ -147,8 +122,6 @@ describe("trialVerdict — what it refuses to honour", () => {
 	});
 
 	it("refuses when the declared directory and account name different seats", () => {
-		/* readSeats deduplicates by account, so the survivor may not be the row
-		 * the founder wrote the line about (mantahostels#2847 Q3). */
 		const t = trialVerdict(
 			[seat(".claude", 100), seat3({ dir: ".claude9" })],
 			DECL,
@@ -225,8 +198,6 @@ describe("trialVerdict — the trigger over the seats the trial leaves live", ()
 	});
 
 	it("would fire on a seat 3 the trial did not exclude — the blindness mantahostels#2835 opened on", () => {
-		/* The ordinary read over all three: seat 3's frozen 62% is what keeps the
-		 * every-live-seat test false for the whole fortnight. */
 		const t = trialVerdict(
 			[seat(".claude", 100), seat(".claude2", 100), seat3()],
 			DECL,
@@ -241,8 +212,6 @@ describe("trialVerdict — the trigger over the seats the trial leaves live", ()
 	});
 });
 
-/** What the honoured trial read says of seat 3's own use, beside two live
- *  seats with allowance left. */
 const seat3Use = (excluded: ReturnType<typeof seat3>) =>
 	trialVerdict([seat(".claude", 40), seat(".claude2", 40), excluded], DECL, NOW)
 		.use;
@@ -277,8 +246,6 @@ describe("the trial's read of seat 3's use — void, annotate, or clean (mantaho
 	});
 
 	it("ANNOTATES a roll that spent nothing, rather than voiding on a touch", () => {
-		/* mantahostels#2848 rejected voiding on any sign of life: one accidental session must
-		 * not cost another 14-21 days on a window that cannot be replayed. */
 		const u = seat3Use(
 			seat3({ resetsAt: "2026-09-27T21:00:00Z", sevenDay: 0 }),
 		);
@@ -302,7 +269,6 @@ describe("the trial's read of seat 3's use — void, annotate, or clean (mantaho
 	});
 });
 
-/** Shared by every `trialReview` test below, whichever `describe` it sits in. */
 const row = (at: string, a: number, b: number, three: SeatOver = {}) => ({
 	at,
 	seats: [
@@ -355,8 +321,6 @@ describe("trialReview — the fortnight read back off the daily series", () => {
 	});
 
 	it("ignores rows outside the declared window, and calls that UNMEASURED", () => {
-		/* Not "passed": a window nothing observed must not prescribe retiring a
-		 * $200/month seat, and the two consumers must not disagree about it. */
 		const r = trialReview(
 			[
 				row("2026-09-01T00:00:00Z", 100, 100),
@@ -459,8 +423,6 @@ describe("trialVerdict's basis refusal, and trialReview's gap and annotation han
 	});
 
 	it("measures the largest gap from both edges, not just between readings", () => {
-		/* One reading in the middle of a 14-day window: the gap to the END is the
-		 * biggest hole, and a review that only looked between rows would report 0. */
 		const r = trialReview([row("2026-09-12T21:00:00Z", 40, 40)], DECL);
 		expect(Math.round(r.largestGapHours)).toBe(288);
 	});
@@ -520,8 +482,6 @@ describe("scopedVerdict — #298's second state (#304)", () => {
 	});
 
 	it("reads a cache with no numeric seven-day figure as unread too, exactly as verdict() does", () => {
-		/* A cache present but carrying nothing readable — `effective: null` —
-		 * is unread for the same reason an absent one is (#298 ruling 3). */
 		const seats = [
 			seat(".claude", 16, { scopedBars: [scopedBar("Fable", 100)] }),
 			seat(".claude2", null, { scopedBars: [scopedBar("Fable", 100)] }),

@@ -1,33 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-compaction-backstop.js — the evidence for moving the autocompaction
- * backstop (#4410): closed build units binned by how often they compacted,
- * against the follow-ups their specs drew.
- *
- * Usage:  node scripts/check-compaction-backstop.js [--days <n>] [--json]
- *
- * Reads the `kind:ticket` issues closed in the last n days. A unit's count is
- * each session's highest `**Compactions:** <n> (session <id>)` line across its
- * comments, plus every line naming no session, so a unit built across two
- * sessions — a backstop hand-off, then a resolution — counts both, each once.
- * A unit with no such line closed before the log existed, or by hand,
- * and is counted apart, never binned.
- *
- * A FOLLOW-UP is a sub-issue of the unit's spec filed after the unit closed.
- * Its candidates are every closed `kind:ticket` of that spec closed before it
- * was filed, inside the window or not. It goes to each candidate it cites — by
- * `#<n>`, or by the sha of a commit on HEAD citing that ticket — split evenly
- * among them; one citing none is split evenly across all its candidates. Only
- * the window's logged units are binned, so a share going to a unit outside
- * the window or with no line is counted nowhere.
- *
- * Bins: 0, 1, 2–3, 4–6, 7–10, 11+, the last two split at the backstop. The
- * spec's five are untraced (#4410 §Values).
- *
- * A report: it raises no finding and gates nothing. SKIP where the tracker
- * will not answer; BROKEN where git will not.
- */
-
 const { now, runCheck } = require("./lib/check");
 const { scriptPath } = require("./lib/script-path.js");
 const { ghApiSlurp, parseErrLine } = require("./lib/gh.js");
@@ -40,10 +11,9 @@ const {
 const { caught } = require("./lib/caught.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/* Untraced: a month of closes, a guess at enough units to bin. */
+// guess, #4410
 const DEFAULT_DAYS = 30;
 const SHA_PREFIX_RE = /\b[0-9a-f]{7,40}\b/g;
-/* A commit's full sha, then its message, one record per commit. */
 const LOG_FORMAT = "--format=%x1e%H%x1f%B";
 
 /** @type {ReadonlyArray<{label: string, min: number, max: number}>} */
@@ -63,7 +33,6 @@ const BINS = [
 /**
  * @typedef {{ number: number, closedAt: number, spec: number | null,
  *   compactions: number | null }} Unit
- *   `compactions` null where no comment carries the line
  * @typedef {{ number: number, closedAt: number }} Candidate
  * @typedef {{ number: number, state: string, created_at: string,
  *   closed_at?: string | null, body?: string | null,
@@ -77,8 +46,6 @@ const issueOfUrl = (url) => {
 };
 
 /**
- * A unit's total: each session's highest count, plus every line naming no
- * session.
  * @param {{ body?: string | null }[]} comments
  */
 function sumCompactions(comments) {
@@ -96,7 +63,6 @@ function sumCompactions(comments) {
 }
 
 /**
- * Each ticket's commits on HEAD since `sinceMs`, by the tickets they cite.
  * @param {number} sinceMs
  * @returns {Map<number, string[]>}
  */
@@ -117,8 +83,6 @@ function commitsByTicket(sinceMs) {
 }
 
 /**
- * Whether `text` cites ticket `n`, by number or by a prefix of one of its
- * commits' shas.
  * @param {string} text
  * @param {number} n
  * @param {Map<number, string[]>} commits
@@ -138,7 +102,6 @@ const isClosedTicket = (s) =>
 	(s.labels ?? []).some((l) => l.name === "kind:ticket");
 
 /**
- * Each ticket's follow-up share, keyed by issue number.
  * @param {Map<number, SubIssue[]>} subsBySpec
  * @param {Map<number, string[]>} commits
  */
@@ -204,7 +167,6 @@ runCheck({
 		const days = ctx.numberValue("--days", DEFAULT_DAYS, "positive");
 		const since = now() - days * DAY_MS;
 		/**
-		 * `any[]`: each endpoint decides its row, as lib/gh.js's ghApiSlurp says.
 		 * @param {string[]} args
 		 * @returns {any[]}
 		 */

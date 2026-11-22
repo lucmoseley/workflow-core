@@ -1,28 +1,13 @@
-/*
- * proc-stat.js — the shared parser of `/proc/<pid>/stat` (#3056): a pid's
- * fields, its parent and its ancestors.
- *
- * `comm` is parenthesised, unquoted and may itself hold spaces and brackets,
- * so the fields are counted from after its LAST `)` — never by splitting the
- * whole line.
- *
- * A leaf: it depends on nothing but `fs` and lib/proc-root.js.
- */
-
 const fs = require("node:fs");
 const { procRoot } = require("./proc-root.js");
 
-/* Indices into the array `parseStatFields` returns, each proc(5)'s field
- * number less 3. */
+// https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
 const FIELD = { state: 0, ppid: 1, pgrp: 2, utime: 11, stime: 12, start: 19 };
 
-/* How many parents `readAncestorsOf` walks before giving up: a guess, set far
- * above the session → shell → driver → runner depth any caller looks through. */
+// guess, #3056
 const ANCESTOR_MAX_HOPS = 64;
 
 /**
- * The fields of one stat line from the state on, or null where the line holds
- * no `)` to count from.
  * @param {string} stat
  * @returns {string[] | null}
  */
@@ -36,9 +21,8 @@ function parseStatFields(stat) {
 }
 
 /**
- * `pid`'s stat fields, or null where they cannot be read.
  * @param {number|string} pid
- * @param {string} [proc] the procfs root; a fixture tree in tests
+ * @param {string} [proc]
  * @returns {string[] | null}
  */
 function readStatFields(pid, proc = procRoot()) {
@@ -50,8 +34,6 @@ function readStatFields(pid, proc = procRoot()) {
 }
 
 /**
- * The parent pid on one stat line's fields; 0 where they are missing or hold
- * none.
  * @param {string[] | null | undefined} fields
  * @returns {number}
  */
@@ -61,7 +43,6 @@ function parentInFields(fields) {
 }
 
 /**
- * `pid`'s parent pid; 0 where it cannot be read.
  * @param {number|string} pid
  * @param {string} [proc]
  * @returns {number}
@@ -71,10 +52,6 @@ function readParentOf(pid, proc) {
 }
 
 /**
- * `pid`'s ancestors, nearest first, `pid` itself left out. The walk stops at a
- * parent that reads 0, at a pid already seen, or after ANCESTOR_MAX_HOPS.
- * DUPLICATED BY HAND in scripts/sample_session_memory.py's ancestors: move
- * both, or neither (#5274).
  * @param {number} pid
  * @param {{ parentOf?: (pid: number) => number }} [options]
  * @returns {number[]}

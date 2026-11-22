@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * lib/dispatch-rewrite.js, a PreToolUse dispatcher core (#2791), composes the
- * dispatch transforms into one rewrite (#515). Two rewrites on one call race,
- * the last to finish winning (anthropics/claude-code#83353), so a composition
- * that dropped either change would bring the race back by another route,
- * unseen. A red here means a dispatch either lost a change it was owed — the
- * line or the remap — or was rewritten when it should have been left alone,
- * or a subagent spawned a subagent. It runs on every `Agent`/`Task` dispatch,
- * so a lost `Artefact:` line leaves a stalled agent unseen.
- *
- * The composition's cases call `decide` in process over a fake context — a
- * fixed artefact path, burn mode as given, a recorded `makeDir` — since what
- * it rewrites is a function of the input alone. The core's cases run in
- * process through
- * lib/guard-core-testkit.ts over the production ports
- * (lib/dispatch-rewrite-host.js), the real rule store and a temp project. The
- * burn marker is always WFC_BURN_MARKER here — the real one, at
- * ~/.claude/.burn-mode, is the machine's live switch. The routing is the
- * fixture's, by WFC_MODEL_ROUTING (lib/model-table.test.ts names its rows), so
- * no case here pins a real routing value; its routed-away model is `sonnet`.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -42,12 +21,6 @@ beforeEach(() => {
 });
 const WATCHER = path.join(__dirname, "..", "watch-artefact.js");
 
-/**
- * One parent dispatch through `decide`: the fresh artefact path is FILE, burn
- * mode's marker present as `burn` says, and every directory the core makes
- * recorded in `made` — the artefact's, where one was supplied — and every
- * line it logs in `logged`.
- */
 function rewrite(
 	input: unknown,
 	{ file = FILE, burn = false, home = "/home/u", model = "", job = false } = {},
@@ -58,7 +31,6 @@ function rewrite(
 		"",
 		kitContextFake({
 			sessionModel: () => model,
-			/* Unchecked: a case may hand the core a malformed input. */
 			input: input as Record<string, unknown>,
 			env: {
 				WFC_BURN_MARKER: "/burn-marker",
@@ -246,7 +218,6 @@ describe("the composed rewrite", () => {
 	});
 });
 
-/** The watch the context hands the session for an artefact supplied at `file`. */
 const watchCommand = (file: string) =>
 	/backgrounded `([^`]+)`/.exec(
 		String(rewrite({ prompt: "Do it." }, { file })?.prelude),
@@ -314,8 +285,6 @@ describe("the watch command", () => {
 		expect(fs.existsSync(watcher)).toBe(true);
 	});
 
-	// The watcher's own path is the checkout's, quoted or not, so only the
-	// artefact's half is pinned.
 	it("leaves a plain path bare", () => {
 		expect(
 			watchCommand(FILE).endsWith(` ${FILE} 120 --log <output_file>`),
@@ -354,8 +323,6 @@ describe("the watch command", () => {
 		).toBe(true);
 	});
 });
-
-/* ---- the core, through the dispatcher ---- */
 
 let dir: string;
 let project: string;
@@ -396,7 +363,6 @@ interface HookOut {
 	updatedInput: Record<string, string>;
 }
 
-/** The hook output a dispatch gets; it must say something. */
 const envelopeOf = (payload: Record<string, unknown>) => {
 	const out = run(payload);
 	expect(out).not.toBeNull();
@@ -491,8 +457,6 @@ describe("the artefact line", () => {
 });
 
 describe("burn mode, in the same rewrite", () => {
-	// Two hooks each rewriting the call raced, the last winning
-	// (anthropics/claude-code#83353); one rewrite is what #515 built to stop it.
 	it("moves the model and supplies the line in one rewrite", () => {
 		burnOn();
 		const v = envelopeOf(dispatch({ model: "haiku" }));
@@ -634,7 +598,6 @@ describe("the dispatch rules, printed at the call (#2013)", () => {
 	});
 });
 
-// A widened matcher must not rewrite some other tool's input (mantahostels#258).
 it("stays out of another tool's input", () => {
 	burnOn();
 	expect(
@@ -642,7 +605,6 @@ it("stays out of another tool's input", () => {
 	).toBeNull();
 });
 
-/** Swap `lib` in the module cache for one whose exports throw `e`. */
 function breakModule(lib: string, e: Error & { code?: string }) {
 	const req = createRequire(__filename);
 	const id = req.resolve(lib);

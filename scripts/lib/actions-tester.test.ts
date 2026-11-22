@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/actions-tester.js on canned run listings (#2413).
- *
- * Loosen it and the queue lander can land a sha whose run it never saw
- * finish green: a missing, unfinished or unreadable run read as a pass.
- *
- * Every case drives the tester through its injected reads and clock, so a
- * 30 min wait bound costs no wall time (§X9); one case crosses the live
- * adapters, `gh` through a WFC_GH stub and git in a temp repo (§X8).
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -28,8 +18,6 @@ import type { Placement } from "./queue-lander.js";
 
 const SHA = "a".repeat(40);
 const OTHER = "b".repeat(40);
-/* The CJS module's own PushRefused, which actions-tester.js tells by
- * `instanceof`: an ESM import would load a second copy. */
 const { PushRefused } = createRequire(__filename)("./network-fault.js");
 
 const BATCH0 = { kind: "batch", slot: 0 } as const;
@@ -62,7 +50,6 @@ const FAILED_LOG = [
 	"Full suite / Python\tPytest\t2026-10-27T08:30:02.0Z FAILED scripts/test_b.py::test_c - assert 1",
 ].join("\n");
 
-/** Reads serving each listing in turn, the last one thereafter. */
 const reads = (
 	listings: (() => Run[])[],
 	jobs: Job[] = [...shards("success", "success"), SUITE_PASSED],
@@ -96,7 +83,6 @@ const reads = (
 	};
 };
 
-/** A clock from `start` ms, which only its `wait` moves. */
 const clock = (start = 0) => {
 	let t = start;
 	return {
@@ -107,7 +93,6 @@ const clock = (start = 0) => {
 	};
 };
 
-/** The whole suite at SHA, read off its push run on `lander/batch-0`. */
 const verdictOf = (r: ReturnType<typeof reads>) =>
 	queueTester({
 		root: "/",
@@ -193,12 +178,9 @@ it("marks a red retried where every failed job failed at its in-job retry, namin
 			{ name: step, conclusion: "failure" },
 		],
 	});
-	/* The first run failed a.test.ts and test_b.py; the retry cleared the
-	 * first. --log-failed prints both steps' lines. */
 	const retriedLog = `${FAILED_LOG}
 Full suite / Vitest (1/2)\tRetry failed files\t2026-10-27T08:31:00.0Z retry-failed-files: still failing after one retry: scripts/test_b.py`;
 	const verdictWith = (job: Job, log = retriedLog, present?: string[]) => {
-		/* A failed shard fails `Suite passed`, at a step of its own. */
 		const summary: Job = {
 			name: "Suite passed",
 			conclusion: "failure",
@@ -233,7 +215,6 @@ it("names on a batch's whole-suite green the files its in-job retry cleared, off
 	});
 	const logs: Record<number, string> = {
 		101: [
-			/* A test printing the line as its fixture, in the Vitest step. */
 			"Full suite / Vitest (1/2)\tVitest\t2026-11-09T03:59:00.0Z retry-failed-files: cleared by one retry: scripts/test_b.py",
 			"Full suite / Vitest (1/2)\tRetry failed files\t2026-11-09T04:00:00.0Z retry-failed-files: cleared by one retry: scripts/lib/a.test.ts, scripts/fixture-only.test.ts",
 		].join("\n"),
@@ -247,15 +228,12 @@ it("names on a batch's whole-suite green the files its in-job retry cleared, off
 		read.push(job);
 		return logs[job] ?? "";
 	};
-	/* The file the tree lacks is a fixture's text, never a flake. */
 	expect(await verdictOf(r)).toEqual({
 		kind: "green",
 		run: 1,
 		cleared: ["scripts/lib/a.test.ts"],
 	});
 	expect(read).toEqual([101]);
-	/* A later ask read off the same run records none: the batch's whole
-	 * suite ask did. */
 	expect(
 		await queueTester({
 			root: "/",
@@ -277,7 +255,6 @@ it("names on a batch's whole-suite green the files its in-job retry cleared, off
 });
 
 it("names a failing file from a log whose colour codes gh printed as literal caret text (#3529)", async () => {
-	/* Verbatim from run 40759126911's `--log-failed`, shard 8/8. */
 	const log =
 		"Full suite / Vitest (8/8)\tUNKNOWN STEP\t2026-10-28T20:01:13.4874989Z ^[[41m^[[1m FAIL ^[[22m^[[49m scripts/refill-loop-run.test.ts^[[2m > ^[[22mrun (#2435)^[[2m > ^[[22mends at the tick whose dispatch a stop landed in, recorded explicit";
 	const r = {
@@ -382,8 +359,6 @@ it("reads an unreadable listing as unknown, never green", async () => {
 	expect(v.kind === "unknown" && v.reason).toMatch(/403/);
 });
 
-/* A shard whose runner failed to ready: a download outage at a tool install,
- * its Vitest step run on regardless, on a runner missing the tool. */
 const unreadied = (step: string, vitest = "success"): Job[] => [
 	{
 		name: "Full suite / Vitest (1/2)",
@@ -430,8 +405,6 @@ it("is no verdict where the runner fails to ready on every attempt, naming the s
 	expect(r.reran).toEqual([5, 5]);
 });
 
-/* GitHub created 6 of its 12 jobs, all passed, and
- * concluded the run `failure`. */
 const partlyCreated = (): Job[] => shards("success", "success", "success");
 
 it("pushes the ref again over a failed run whose created jobs all passed, judging only the newer run and never a red (#4827)", async () => {
@@ -516,8 +489,6 @@ it("names on a red that failed the step ci.yml runs the type-check at the first 
 		{ length: 12 },
 		(_, i) => `scripts/a.js(${i + 1},5): error TS2304: Cannot find name 'c'.`,
 	);
-	/* `gh` names a step, or prints UNKNOWN STEP for a job a reusable
-	 * workflow calls, as on run 39747307904. */
 	const logOf = (step: string) =>
 		[
 			`Full suite / Vitest (1/2)\t${step}\t2026-11-10T08:30:00.0Z fixture.js(1,1): error TS1: another job's`,
@@ -560,7 +531,6 @@ it("reads a failed run through gh and the tree through git", async () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
 	git("init", "-q");
-	/* Its own origin, so the batch ref's push lands somewhere. */
 	git("remote", "add", "origin", tmp);
 	fs.mkdirSync(path.join(tmp, "scripts", "lib"), { recursive: true });
 	fs.writeFileSync(path.join(tmp, "scripts", "lib", "a.test.ts"), "");
@@ -643,7 +613,6 @@ const namedRoot = () => {
 	return tmp;
 };
 
-/** Named files at SHA asked at `place`, on a clock from `start`. */
 const askNamed = (
 	r: ReturnType<typeof fakeNamedReads>,
 	{ root = namedRoot(), start = 0, place = ISO1 as Placement } = {},
@@ -792,7 +761,6 @@ it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764
 	const root = namedRoot();
 	const r = fakeNamedReads({ conclusion: "success" });
 	const DayOne = Date.parse("2026-11-01T23:00:00Z");
-	/* At a batch sha no run covers. */
 	const ask = (nowMs: number) =>
 		askNamed(r, { root, start: nowMs, place: BATCH0 });
 	for (let i = 0; i < 12; i++) {
@@ -812,27 +780,22 @@ it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764
 	expect(r.dispatched).toHaveLength(1);
 });
 
+const DOLLAR = "$";
+
 it("finds its run by the title named-rerun.yml gives it, and reads the job it names (#3764)", () => {
 	const workflow = fs.readFileSync(
 		path.join(import.meta.dirname, "../../.github/workflows/named-rerun.yml"),
 		"utf8",
 	);
 	expect(workflow).toContain(
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a workflow's own expression, quoted
-		"run-name: named-rerun ${{ inputs.sha }} ${{ inputs.nonce }}\n",
+		`run-name: named-rerun ${DOLLAR}{{ inputs.sha }} ${DOLLAR}{{ inputs.nonce }}\n`,
 	);
 	expect(workflow).toContain("    name: Named files\n");
 });
 
-/* The queue lander's tester (#4458): whole runs read on `lander/batch-<k>` or
- * a `lander/iso-suite-*` ref, named files dispatched to named-rerun.yml. */
 const NAMED_OK: Job = { name: "Named files", conclusion: "success" };
 const ISO = "c".repeat(40);
 
-/**
- * Queue reads whose `lander/batch-0` serves `listings`, every other ref
- * `runsOn`; each push recorded as `<branch>@<sha>`.
- */
 const queueReads = (
 	listings: (() => Run[])[],
 	{
@@ -876,7 +839,6 @@ const queueReads = (
 	};
 };
 
-/* From the wall clock: the dispatch record keeps rows by their age then. */
 const wallClock = () => {
 	let t = Date.now();
 	return {
@@ -928,8 +890,6 @@ it("starts a batch's run by pushing its sha to the slot's ref, pushes named file
 	const tester = queueOf(r);
 	tester.start?.({ kind: "batch", slot: 3 }, SHA);
 	expect(r.pushed).toEqual([`lander/batch-3@${SHA}`]);
-	/* named-rerun.yml fetches the sha from the remote, which a local
-	 * isolation merge reaches only by this push. */
 	expect(await tester.verdict(ISO1, ISO, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
 		named: 100,
@@ -1060,7 +1020,6 @@ it("exempts isolation dispatches from the daily cap, and counts a dispatch at ma
 	const r = queueReads([() => []]);
 	const tester = queueOf(r);
 	const files = ["scripts/lib/a.test.ts"];
-	/* A batch slot whose ref lists no run at OTHER. */
 	const Batch1 = { kind: "batch", slot: 1 } as const;
 	for (let i = 0; i < 3; i++)
 		expect(await tester.verdict(ISO1, ISO, files)).toEqual({
@@ -1495,7 +1454,6 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	const Iso0 = { kind: "iso", k: 0 } as const;
 	const heads = () => git(work, "ls-remote", "origin", "refs/heads/lander/*");
 	const pushedBefore = heads();
-	/* The batch ref already holds its sha: the push leaves it as it was. */
 	expect(await tester.verdict(Batch1, batch)).toEqual({
 		kind: "green",
 		run: 3,
@@ -1505,7 +1463,6 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	expect(
 		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),
 	).toBe(`${iso}\trefs/heads/lander/iso-suite-0`);
-	/* An isolation commit no pushed ref reaches, as a local merge is. */
 	git(work, "checkout", "-q", "-b", "side", iso);
 	commit("alone");
 	const alone = git(work, "rev-parse", "HEAD");
@@ -1529,8 +1486,6 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 		kind: "unknown",
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
-	/* Asked again over the passed run 9, the ref is pushed again and no run
-	 * newer than 9 is listed. */
 	expect(await tester.verdict(Iso0, iso, [], true)).toEqual({
 		kind: "red",
 		files: [],
@@ -1596,9 +1551,6 @@ it("cancels every unfinished run on a batch ref but those at the sha kept, namin
 	expect(all.cancelled).toEqual([2]);
 });
 
-/* ci.yml's own spelling of each step it names that readies a runner, so
- * renaming one there without the tester fails here (#5138). The generated
- * names, "Set up job" and "Run <action>", are not checked. */
 it.each(["Install test tools", "Full history"])(
 	"reads a failure at ci.yml's %s step as the runner's",
 	async (step) => {

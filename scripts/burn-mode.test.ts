@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that burn-mode.sh writes the routing file's settings for the target
- * mode into every plan — its session `model`, and the effort under every id
- * and other name the mode's `modelSettings` names — over any hand-set value,
- * leaving every other key alone; that `on` and `off` re-apply when run twice;
- * that a routing file that will not load stops the switch before any write;
- * that `off` exits 1 keeping the marker where a plan is left out of step; and
- * that `status` writes nothing (#126, #127, #4919, #5032).
- *
- * The routing is the fixture's, by WFC_MODEL_ROUTING (lib/model-table.test.ts
- * names its rows), so no case pins a real routing value. Every write lands in
- * a scratch HOME and a scratch marker — the real ones are the machine's live
- * default.
- *
- * The burn-mode skill runs it, and lib/dispatch-rewrite.js and
- * dispatch-sessions.js read its marker: loosen a case and an `off` can leave a
- * plan burning allowance unannounced.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -27,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const SCRIPT = path.resolve(__dirname, "burn-mode.sh");
 const FIXTURE = path.resolve(__dirname, "fixtures/model-routing/fixture.json");
 
-/** The fixture's writes for each mode. */
 const STANDARD = {
 	model: "test-haiku-1[1m]",
 	modelSettings: {
@@ -55,8 +36,6 @@ const OFF_MODEL = STANDARD.model;
 let dir: string;
 let home: string;
 let marker: string;
-/** `claude`, listing no session, so `off`'s move of live sessions
- * (scripts/burn-off-sessions.js) never reaches the machine's own. */
 let stub: string;
 
 const settings = (plan: string) => path.join(home, plan, "settings.json");
@@ -233,8 +212,6 @@ describe("off", () => {
 
 	it("treats a plan whose settings.json is a symlink to another's as one file", () => {
 		fs.rmSync(settings(".claude2"));
-		// Built, not spelt: a literal here would read to the extractor as this
-		// test reading the repo's own .claude/settings.json.
 		fs.symlinkSync(
 			path.relative(path.dirname(settings(".claude2")), settings(".claude")),
 			settings(".claude2"),
@@ -245,15 +222,11 @@ describe("off", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).not.toContain("still departs");
 		expect(modelOf(".claude")).toBe(OFF_MODEL);
-		// The alias is gone AND the real file is still listed — a status
-		// listing no plan at all would satisfy the negative on its own.
 		const listed = run("status").stdout;
 		expect(listed).toContain(".claude/settings.json");
 		expect(listed).not.toContain(".claude2/settings.json");
 	});
 
-	/* A settings.json symlinked to nothing is named and skipped, rather than
-	 * emitting an empty path that jq then refuses without naming it. */
 	it("names and skips a plan whose settings.json resolves to nothing", () => {
 		fs.rmSync(settings(".claude2"));
 		fs.symlinkSync("./gone.json", settings(".claude2"));
@@ -342,9 +315,6 @@ describe("the marker is one per machine, not one per checkout", () => {
 		return at;
 	};
 
-	/* CLAUDE_PROJECT_DIR is dropped because the resolver reads it first
-	 * (lib/host-root.js): inherited, both scratch checkouts would have
-	 * resolved to the real repo, and the write would land on the live marker. */
 	const runIn = (at: string, arg: string) => {
 		const { CLAUDE_PROJECT_DIR: _drop, ...env } = process.env;
 		return spawnSync(SCRIPT, [arg], {
@@ -376,8 +346,6 @@ describe("the marker is one per machine, not one per checkout", () => {
 	});
 });
 
-/* #2532: a `.claude*` dir that is no `.claude<digits>` — the arm-test dirs —
- * is no plan, so burn mode neither moves nor records it. */
 describe("the plan dirs", () => {
 	it("leaves a non-plan .claude* dir alone through on, status and off", () => {
 		fs.rmSync(settings(".claude2"));

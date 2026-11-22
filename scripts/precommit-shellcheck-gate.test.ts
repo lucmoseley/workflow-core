@@ -1,20 +1,5 @@
 // @vitest-environment node
 
-/*
- * The pre-commit shellcheck gate (mantahostels#1134), exercised as the shell it is.
- *
- * `.husky/pre-commit` runs shellcheck only when the commit stages a shell file,
- * as scripts/lib/formatters.js picks them (#1828), hands it exactly those
- * paths, and fails the commit when shellcheck exits non-zero.
- *
- * shellcheck itself is stubbed as a script on PATH, so both exit codes are ours
- * to drive and no case depends on the repo's real findings. The CI half, the
- * whole-repo run in `ci.yml`'s Lint and tests job, is pinned too.
- *
- * Both halves are hard gates: loosen a case and a shellcheck finding in a guard
- * or husky hook — the shell every other gate runs in — lands unrefused.
- */
-
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -38,32 +23,12 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
-// Anchored on the shell variable holding the path list, not on any flag: the
-// cutter must survive a mutation to the flags the cases below assert, or
-// removing one would break every case by throwing rather than by failing the
-// single case that guards it.
 const gateFragment = () => cutGateFragment("shellcheck -x");
 
-/** Where the stub records the argv it was handed, one path per line. */
 const ARGS_FILE = "shellcheck-args.txt";
 
-/**
- * What an isolated fixture's PATH must hold: the commands the cut fragment
- * and the library's arming read shell out to, plus `sh` itself —
- * execFileSync resolves the shell against the CHILD's PATH, so omitting it
- * fails the spawn with no output at all rather than failing the gate.
- */
 const NEEDED = ["sh", "node", ...LIB_COMMANDS];
 
-/**
- * Populates `bin` with a symlink to each of NEEDED, so a PATH of `bin` alone
- * runs the fragment with NO shellcheck reachable.
- *
- * Built up rather than subtracted from `process.env.PATH`: subtracting every
- * directory that holds a `shellcheck` removes ~/.local/bin here but /usr/bin on
- * ubuntu-latest, taking git and grep with it — so the absent-binary case would
- * pass or fail on the host rather than on the gate.
- */
 function linkNeeded(bin: string): void {
 	for (const cmd of NEEDED) {
 		const abs = commandPath(cmd);
@@ -71,12 +36,6 @@ function linkNeeded(bin: string): void {
 	}
 }
 
-/**
- * A git repo with one commit and `staged` written and staged, plus — unless
- * `stub` is false — a stubbed `shellcheck` on PATH whose exit code is ours.
- * `noFlock` leaves flock off PATH; `flockExit` stubs a flock that only exits.
- * Either absent binary makes the fixture `isolated`: its bin is the whole PATH.
- */
 type GateRepo = TempRepo & { bin: string; isolated: boolean };
 
 function fixture(opts: {
@@ -113,18 +72,7 @@ function gateLaunch(repo: GateRepo): {
 	script: string;
 	env: NodeJS.ProcessEnv;
 } {
-	// A trailing no-op stands in for the rest of the hook, which really does
-	// continue past this gate. Without it the fragment's own exit status is
-	// shellcheck's, and the `|| { … exit 1; }` block could be deleted with every
-	// case still green.
-	// `exec 2>&1` because every message this gate prints goes to stderr, which
-	// execFileSync surfaces only on a non-zero exit — the warn-and-pass case
-	// would otherwise assert against an empty string and pass whatever the hook
-	// printed.
 	const script = `exec 2>&1\n${HOOK_BOUND_LIB}\n${LIB}\n${gateFragment()}\n:\n`;
-	// An isolated fixture withheld the stub, so its bin holds only git and grep
-	// and must stand ALONE as PATH — appending the real one would hand the
-	// fragment the machine's own shellcheck back.
 	const search = repo.isolated
 		? repo.bin
 		: `${repo.bin}${path.delimiter}${process.env.PATH ?? ""}`;
@@ -169,10 +117,6 @@ function runGate(repo: GateRepo): {
 	return { code, output, args: readStubArgs(repo) };
 }
 
-/**
- * runGate in the background, for a case that must act while the gate waits:
- * `whenSaid` runs once the output matches `cue`.
- */
 function runGateAsync(
 	repo: GateRepo,
 	cue: RegExp,
@@ -204,8 +148,6 @@ describe("the pre-commit shellcheck gate", () => {
 	it("does not run shellcheck when the commit stages no shell file", () => {
 		const repo = fixture({
 			staged: { [OUTSIDE]: "const a = 1;\n", "docs/x.md": "# x\n" },
-			// Red, so a gate that fired anyway would fail the case rather than
-			// passing by luck.
 			shellcheckExit: 1,
 		});
 		const { code, args } = runGate(repo);
@@ -229,14 +171,17 @@ describe("the pre-commit shellcheck gate", () => {
 	});
 
 	it("runs on scripts/lib/*.sh, matching check:sh's own subdirectory reach", () => {
-		// `git ls-files 'scripts/*.sh'` in check:sh matches slashes, so the libs
-		// are in its file set; a gate anchored on `^scripts/[^/]*\.sh$` would
-		// silently never fire on the three files 13 guards source.
 		const repo = fixture({
 			staged: { "scripts/lib/guard-thing.sh": BODY },
 			shellcheckExit: 0,
 		});
 		expect(runGate(repo).args).toContain("scripts/lib/guard-thing.sh");
+	});
+
+	it("hands shellcheck a staged path holding a space as one argument (#5542)", () => {
+		const spaced = "scripts/two words.sh";
+		const repo = fixture({ staged: { [spaced]: BODY }, shellcheckExit: 0 });
+		expect(runGate(repo).args).toContain(spaced);
 	});
 
 	it("fails the commit when shellcheck exits non-zero", () => {
@@ -257,23 +202,15 @@ describe("the pre-commit shellcheck gate", () => {
 	});
 
 	it("drops a deletion from a commit that ALSO stages a live shell file", () => {
-		// A commit staging only a deletion never opens the gate at all, so that
-		// case would pass with no --diff-filter on the path list. Forcing the
-		// gate open with a live file is what makes the filter load-bearing:
-		// without it shellcheck is handed a path with no file behind it.
 		const gone = "scripts/guard-gone.sh";
 		const repo = fixture({ staged: {}, shellcheckExit: 0 });
 		fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
-		// Deliberately unlike BODY. Two identical short files read to git as one
-		// RENAME rather than a delete plus an add, and a rename stages no
-		// deletion at all — so the case would pass with the filter gone.
 		fs.writeFileSync(
 			path.join(repo.root, gone),
 			`#!/bin/sh\n${"echo distinct\n".repeat(12)}`,
 		);
 		repo.git("add", "--", gone);
 		repo.git("commit", "-qm", "add");
-		// `git rm` takes the now-empty directory with it.
 		repo.git("rm", "-q", "--", gone);
 
 		fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
@@ -295,9 +232,6 @@ describe("the pre-commit shellcheck gate", () => {
 	});
 
 	it("says nothing about a missing binary on a commit staging no shell file", () => {
-		// `stub: false` is what makes this a test. With the stub present the
-		// SKIPPED branch is unreachable whatever the gate does, so the case would
-		// stay green with the whole file-set guard deleted.
 		const repo = fixture({
 			staged: { [OUTSIDE]: "const a = 1;\n" },
 			stub: false,
@@ -306,10 +240,6 @@ describe("the pre-commit shellcheck gate", () => {
 	});
 
 	it("reads the commit's staged paths, NOT every tracked shell file", () => {
-		// Every other fixture's only tracked .sh IS its staged one, so swapping
-		// the path list for check:sh's own `git ls-files 'scripts/*.sh'` leaves
-		// them all green — this case is the only thing pinning scoped-not-whole-
-		// repo (mantahostels#1134).
 		const tracked = "scripts/guard-untouched.sh";
 		const repo = fixture({ staged: {}, shellcheckExit: 0 });
 		fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
@@ -327,9 +257,6 @@ describe("the pre-commit shellcheck gate", () => {
 	});
 
 	it("skips a path staged and then deleted from the worktree", () => {
-		// shellcheck has no --no-error-on-unmatched-pattern, so without the
-		// gate's `[ -f ]` filter it fails the commit on "does not exist" — a
-		// non-finding error that reads as a lint failure.
 		const repo = fixture({ staged: { [GUARD]: BODY }, shellcheckExit: 0 });
 		fs.rmSync(path.join(repo.root, GUARD));
 		const { code, args } = runGate(repo);
@@ -348,9 +275,6 @@ describe("the pre-commit shellcheck gate", () => {
 			expect(script, `check:sh lost ${flag}`).toContain(flag);
 			expect(fragment, `the gate lost ${flag}`).toContain(flag);
 		}
-		// #1315 Q2 excluded this one by code; any other false finding takes an
-		// inline disable, and a sourced script silences SC2148 with its own
-		// `# shellcheck shell=` line (#753).
 		const exclusions = (s: string) =>
 			[...s.matchAll(/\s(-e\s+\S+|--exclude[=\s]\S+)/g)].map((m) => m[1]);
 		expect(exclusions(script), "check:sh excludes another code").toEqual([
@@ -442,7 +366,6 @@ describe("the gate's serialisation across commits (#2579)", () => {
 
 	it("runs shellcheck unserialised where the lock file will not open", () => {
 		const repo = fixture({ staged: { [GUARD]: BODY }, shellcheckExit: 0 });
-		// A directory where the lock file goes: the open fails, not the lock.
 		fs.mkdirSync(path.join(gateTmpdir(repo.root), "wfc-shellcheck.lock"));
 		const { code, output, args } = runGate(repo);
 		expect(output).toMatch(/cannot open .*wfc-shellcheck\.lock/);
@@ -471,8 +394,6 @@ describe("the CI half of the same gate", () => {
 	);
 
 	it("keeps the whole-repo run in the Lint and types job", () => {
-		// The pre-commit gate reads only the paths a commit names, so nothing but
-		// this step ever re-checks a guard whose sourced lib changed under it.
 		const step = /- name: Shellcheck\n((?:.*\n)*?) {6}- name:/.exec(ci);
 		expect(
 			step,
@@ -491,9 +412,6 @@ describe("the CI half of the same gate", () => {
 	});
 
 	it("puts the pinned binary on $GITHUB_PATH, so later steps run it too", () => {
-		// Vitest's adopter first-commit tests run the real pre-commit shellcheck
-		// gate; left on the image's 0.9.0 they went red on an info finding the
-		// pinned 0.11.0 does not raise (#1295).
 		const action = fs.readFileSync(
 			path.join(ROOT, ".github", "actions", "shellcheck", "action.yml"),
 			"utf8",

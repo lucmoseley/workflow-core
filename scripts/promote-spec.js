@@ -42,7 +42,6 @@
  * cli-args-exempt: it refuses any argv but one issue number, `--help`
  * included, before any gh call.
  */
-
 const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 const { openChildrenRefusal } = require("./lib/open-children.js");
@@ -152,8 +151,6 @@ function readMapOrFail(brief, n) {
 }
 
 /**
- * The brief's open specs and the map's children, refusing more than one spec
- * and any other open child, which the brief's close would strand (#3637).
  * @param {string} repo
  * @param {number} n
  * @param {Issue} map
@@ -224,7 +221,6 @@ function readPriorSpecOrFail(at, mapKids) {
 }
 
 /**
- * What a move the writer did not make means, and what to do.
  * @param {import("./lib/link-writer.js").Outcome} r
  * @param {number} spec
  * @param {number} mapNumber
@@ -249,7 +245,6 @@ function moveRefusal(r, spec, mapNumber, n) {
 }
 
 /**
- * Moves the held spec under the map, verified from the map's side.
  * @param {string} repo
  * @param {number} n
  * @param {Issue} map
@@ -268,7 +263,6 @@ function moveSpecOrFail(repo, n, map, held) {
 }
 
 /**
- * Posts the hand-off comment on the brief, unless it is already its latest.
  * @param {string} repo
  * @param {number} n
  * @param {number} spec
@@ -306,7 +300,6 @@ function commentOnce(repo, n, spec, map) {
 }
 
 /**
- * Closes the brief and reads the close back.
  * @param {string} repo
  * @param {number} n
  */
@@ -338,8 +331,6 @@ function main() {
 	const map = readMapOrFail(brief, n);
 	const { specs, mapKids } = listSpecsOrFail(repo, n, map);
 
-	/* At most one, past `listSpecsOrFail`'s refusal: the spec still under the brief,
-	 * which this run moves. */
 	const [held] = specs;
 	const spec =
 		held === undefined

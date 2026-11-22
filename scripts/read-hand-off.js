@@ -1,34 +1,4 @@
 #!/usr/bin/env node
-/*
- * read-hand-off.js — the pick-up step for a ticket a parked session left a
- * `**Hand-off:**` block on (#2391, built at #2700). `/implement` and
- * `/wayfinder` run it right after claim-issue.js.
- *
- *   node scripts/read-hand-off.js <n>
- *
- * Reads the newest comment on #n carrying the block (lib/hand-off.js), prints
- * it, writes its diff to `.claude/tmp/`, and runs three checks before the
- * record is used:
- *   Base   an ancestor of HEAD
- *   Done   each sha in it on the pushed ref, the session's own queue ref
- *          where it stands (lib/landing-refs.js)
- *   diff   `git apply --3way --check` applies it with no conflict
- * Git runs in the session's own tree, its linked worktree where it works in
- * one (#4244); the diff is written to the host root's scratch.
- * `--3way --check` exits 0 on a patch it would apply with conflicts (git
- * 2.43), so its "with conflicts" line fails the check too. A diff that
- * applies in reverse is already in the working tree, as where the refill
- * loop handed off a session that left its files in place (#2659), and
- * passes.
- *
- * Only a well-formed block counts (lib/hand-off.js's `handOffFaults`), so a
- * comment quoting the header in prose is passed over. The last line is the
- * verdict: usable, reference only (naming the failed checks, to be said on
- * the ticket), or no hand-off.
- *
- * Joins no §N3 family: its exits are claim-issue.js's tracker-script three —
- * 0 any verdict, 1 the comments could not be read, 2 a usage error.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -53,8 +23,6 @@ const io = scriptIo("read-hand-off");
 const USAGE = `usage: node ${scriptPath("read-hand-off.js")} <issue-number>`;
 
 /**
- * Run git in the session's tree; whether it exited 0, and its output on both
- * streams — `git apply` reports a conflict on stderr at exit 0.
  * @param {string[]} args
  * @returns {{ok: boolean, out: string}}
  */
@@ -68,12 +36,10 @@ function git(args) {
 }
 
 /**
- * Write the diff where `git apply` and the session can read it.
  * @param {number} n
  * @param {string} diff
  */
 function writeDiff(n, diff) {
-	/* The house scratch name carries the session id's first 8 characters (#1167). */
 	const sid = (process.env.CLAUDE_CODE_SESSION_ID ?? "nosession").slice(0, 8);
 	const file = path.join(
 		repoRoot(),
@@ -87,8 +53,7 @@ function writeDiff(n, diff) {
 }
 
 /**
- * What a usable hand-off's reader does with its diff before going on.
- * @param {boolean} inTree  its diff already in the working tree
+ * @param {boolean} inTree
  * @param {string|null} diffFile
  */
 function nextStep(inTree, diffFile) {
@@ -100,8 +65,6 @@ function nextStep(inTree, diffFile) {
 }
 
 /**
- * The failed checks on a parsed hand-off, one clause each, and whether its
- * diff is already in the working tree.
  * @param {import("./lib/hand-off.js").HandOff} h
  * @param {string|null} diffFile
  * @returns {{failed: string[], inTree: boolean}}

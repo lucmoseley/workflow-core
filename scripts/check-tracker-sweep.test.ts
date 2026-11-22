@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the hand route (mantahostels#2490): every standing key listed, and a
- * check that drew no conclusion never read as clean. The delta gate is
- * lib/key-delta.js's, pinned in its own test and through repo-checks.test.ts.
- *
- * The fixture is a git repo holding the daily repo-checks run's merged result,
- * `.repo-checks.json`, in its git common directory (#1557).
- *
- * It is `npm run status`'s tracker-sweep line: loosen a case and a check that
- * died or holds a finding reads as quiet.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -31,7 +20,6 @@ const git = (cwd: string, ...args: string[]) =>
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-sweep-test-"));
-	// Keeps the run off the real config directory.
 	state = path.join(dir, "claude");
 	fs.mkdirSync(state, { recursive: true });
 	git(dir, "init", "-q");
@@ -49,10 +37,6 @@ interface Job {
 
 const resultFile = () => path.join(dir, ".git", ".repo-checks.json");
 
-/**
- * Write the merged result as scripts/repo-checks.js does: every registry
- * entry `jobs` does not name reads OK and clean, as a full reading would.
- */
 const reading = (
 	jobs: Job[],
 	extra: Record<string, unknown> = { repo: REPO },
@@ -139,8 +123,6 @@ describe("the two states that are never clean", () => {
 		expect(runReader().out).toContain("drift — MISSING");
 	});
 
-	/* "We looked and found 19" and "we did not look" are opposite facts, and a
-	 * shared word for them merges the two. */
 	it("reads BROKEN and MISSING differently from each other and from FAIL", () => {
 		reading([
 			{ job: "a", outcome: "BROKEN" },

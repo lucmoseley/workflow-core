@@ -1,27 +1,3 @@
-/*
- * contract-live.js — which live contract cases have skipped in every
- * scheduled sweep for longer than WINDOW_MS (#5408), off a ledger of each
- * `*.contract.test.ts` case's newest live run, folded from each sweep's
- * vitest reports once.
- *
- * WHY SWEEPS. A contract file that skips a case on a silent service still
- * passes, so the pass store caches it and a local run never asks again; the
- * sweep runs every file from cold on a clock, rowless (lib/pass-store.js).
- *
- * WHY A LEDGER. A sweep's reports are ~11 MB and kept 14 days; reading the
- * window's sweeps whole on every run would download over 300 MB.
- *
- * LIVE is a case that passed or failed: either way it reached what it asks
- * about. A case that never ran live in any sweep folded — one that skips on
- * the runner by design, as a Windows tool or the installed `claude` — is
- * never a finding. One first seen after the
- * ledger began is named for a window, so a new case whose service was silent
- * from the start is seen.
- *
- * A GAP — sweeps that dropped off the listing unread — may hold a case's live
- * run, so a case is judged from the first sweep after it at the earliest.
- */
-
 const path = require("node:path");
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -31,14 +7,8 @@ const { reportRoot } = require("./suite-timings.js");
 
 const DAY_MS = 86_400_000;
 
-/* Fowler's limit on a quarantined test's stay, "no longer than a week"
- * (martinfowler.com/articles/nonDeterminism.html, in
- * docs/practice/test-design-and-reliability.md): a skipping case is one
- * quarantined by the service rather than by a person. */
 const WINDOW_MS = 7 * DAY_MS;
 
-/* scheduled-checks.yml keeps a sweep's reports 14 days: a case unseen that
- * long is renamed or gone, and leaves the ledger. */
 const FORGET_MS = 14 * DAY_MS;
 
 const CONTRACT = /\.contract\.test\.ts$/;
@@ -72,8 +42,6 @@ const isLedger = (v) => {
 };
 
 /**
- * The ledger at `file`: an empty one where it is absent, and an empty one
- * with the fault where it will not read or is not a ledger.
  * @param {string} file
  * @returns {{ ledger: Ledger, fault: string|null }}
  */
@@ -96,10 +64,8 @@ function writeLedger(file, ledger) {
 }
 
 /**
- * One sweep's contract cases off the vitest reports under `dir`, its time
- * the latest report's `startTime`; null where it holds no report.
  * @param {string} dir
- * @param {string} root this checkout, which the report's file names are made relative to
+ * @param {string} root
  * @returns {Sweep|null}
  */
 function readSweep(dir, root) {
@@ -120,7 +86,6 @@ function readSweep(dir, root) {
 }
 
 /**
- * The contract cases in one parsed vitest report.
  * @param {{ testResults?: { name?: string, assertionResults?: { fullName: string, status: string }[] }[] }} report
  * @param {string} root
  * @returns {Seen[]}
@@ -140,8 +105,6 @@ function casesOf(report, root) {
 }
 
 /**
- * `ledger` with sweep `run` folded in, and the cases unseen for FORGET_MS
- * dropped. `afterGap` where sweeps before this one went unread.
  * @param {Ledger} ledger
  * @param {number} run
  * @param {Sweep} sweep
@@ -177,13 +140,7 @@ function fold(ledger, run, sweep, afterGap) {
 	};
 }
 
-/**
- * The cases skipped in the newest sweep and in every sweep since their last
- * live run (or the last gap), that more than WINDOW_MS before it, oldest
- * first; the never-live cases first seen since the ledger began or the last
- * gap, and within the window; and how many never ran live in all.
- * @param {Ledger} ledger
- */
+/** @param {Ledger} ledger */
 function judge(ledger) {
 	const silent = [];
 	const fresh = [];

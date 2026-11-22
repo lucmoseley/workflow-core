@@ -1,94 +1,4 @@
 #!/usr/bin/env node
-/*
- * reconcile-plugin.js — the SessionEnd actor for the adopter-upgrade
- * mechanism (#238, #247). A session in the adopter records the pinned tag
- * accepted, and the next session there runs the version the repo says it
- * runs. Since #5230 that session has usually run the install itself, so this
- * actor's usual work is the walk.
- *
- * Usage:
- *   node scripts/reconcile-plugin.js --session-end   the SessionEnd hook shape
- *
- * A PLUGIN-SCOPE `SessionEnd` ENTRY FIRES (#247, which also lists the
- * variables the hook's environment carries). An ABNORMAL exit fires nothing
- * (scripts/proving-session.ts, `killed()`), which this design survives:
- * nothing here records an accept as done, so a killed session costs a
- * deferral rather than a dropped upgrade.
- *
- * WHERE THE FOUNDER READS THE OUTCOME. Where SessionEnd's own stdout lands is
- * not established, so the record that is, is the run persisted through
- * `lib/notify-report.js` and shown by `npm run status`
- * (`replay-notify-reports.js --status`). A session start holds it back, since
- * no starting session acts on a deferral (#2038).
- *
- * THE HOOK'S 400s TIMEOUT (self-plugin/hooks/hooks.json) is three
- * `materialise-plugin.js` `DEFAULT_TIMEOUT_MS` calls (120s each) plus slack.
- * Raising that constant without raising this leaves the harness killing the
- * hook mid-install.
- *
- * THAT BUDGET DOES NOT BOUND EVERYTHING THIS FILE DOES (#249): a
- * successful materialise also runs the migration walk, which
- * `execSync`s each note's own `## Verify` shell command (arbitrary,
- * unbounded) and can call `gh label create` per label over the network —
- * and, on the half-way path, runs the whole walk TWICE (`walk-and-commit.js`'s
- * own header). A harness kill mid-walk leaves the tree dirty with no commit,
- * which then defers every later exit on the clean-tree precondition — with
- * the consent left standing (below). Whether the walk wants its own,
- * separate wall-clock ceiling is undecided; put it to the founder before
- * raising this file's own timeout to cover it.
- *
- * THE ORDER OF THE STOPS, cheapest and most decisive first:
- *   1. no pin, or a directory-sourced adopter  — nothing to reconcile
- *   2. a decline for this repo+tag             — the founder said no
- *   3. no pending consent for this repo+tag    — no session recorded the
- *      accept, or the last walk already consumed it.
- *   4. an install already at the pin makes no `claude` call, so the shared
- *      supply is not rotated again (#747), and goes straight to the walk —
- *      deferring only on another Claude session whose cwd is this checkout,
- *      under any config dir, since the walk's one commit is all it does and
- *      that lands under those sessions' edits alone (#5286).
- *   5. any other Claude session under this config dir — defer. A
- *      mid-session plugin rotation must not silence a neighbour's guards any
- *      more than it may silence the founder's own. The daemon and its idle
- *      spares hold no session and are not counted (#4741).
- * At the hook the first three stop silently. A hand run, which carries no
- * CLAUDE_PLUGIN_ROOT, prints which one stopped it instead (#4741).
- *
- * THE PIN IS NEVER WRITTEN. Nothing in this file opens the adopter's
- * `.claude/settings.json` for writing; the committed pin stays the record of
- * a decision somebody took (#238).
- *
- * THE SUPPLY IS NEVER RESTORED afterwards. The install is already extracted
- * to a version-keyed cache copy, so a neighbour's running plugin is
- * untouched; restoring costs a fetch and only moves which adopter reads
- * clean. Contention is REPORTED BY NAME before the rotation and the rotation
- * happens anyway — this adopter asked.
- *
- * A FAILED `update` LEAVES THE CONSENT STANDING even though
- * `materialisePlugin` reports `ok: true` for it. `update` is the one call
- * that re-pulls an already-installed plugin, so a failure there means the
- * rotated ref probably never reached the install — the gap is still open,
- * and the next session should run the commands again rather than be told it
- * closed.
- *
- * A SUCCESSFUL MATERIALISE ALSO RUNS THE MIGRATION WALK (#249,
- * `lib/walk-and-commit.js`), which — on a clean adopter tree — CAN MAKE ONE
- * COMMIT IN THE FOUNDER'S OWN REPO, on this session's git identity, before he
- * has looked at it. Never pushed, never more than one commit, and skipped
- * (deferred to the next exit) rather than made against a tree that already
- * carries uncommitted work of his own.
- *
- * THE WALKER IS THE NEW RELEASE'S OWN (#682, ruled at #680). Two limits
- * accepted at #680: the first bump onto a release carrying this is still
- * walked by the previous reconciler, and the new walker runs under the OLD
- * install's hook timeout, which the harness read at session start — a
- * release raising that timeout gets it one bump late.
- *
- * FAILS OPEN AND QUIET on anything unexpected (#247), naming the error on
- * one line and stopping: a session END broken by this hook is worse than an
- * upgrade missed, and the consent survives either way, so the next exit
- * retries it.
- */
 
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -129,13 +39,13 @@ const { configDirFrom } = require("./lib/config-dir.js");
 
 const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
 
-/* Overridable so the live-session count can be tested against a stub `ps` and
- * a fixture /proc tree — WFC_PS here, WFC_PROC in lib/proc-root.js. */
 const PS_BIN = () => process.env.WFC_PS || "ps";
-/** A `ps -eo pid=,args=` line: the pid, argv[0], then the rest of argv. */
 const PS_LINE = /^(\d+)\s+(\S+)((?:\s.*)?)$/;
 
-/** @param {string} at @returns {any} a raw JSON parse, or null */
+/**
+ * @param {string} at
+ * @returns {any}
+ */
 function readJsonSafe(at) {
 	try {
 		return JSON.parse(fs.readFileSync(at, "utf8"));
@@ -144,16 +54,7 @@ function readJsonSafe(at) {
 	}
 }
 
-/**
- * Every Claude session's pids, one list per session: argv[0] a Claude
- * process's, less the daemon and each idle spare pair it keeps warm (#4741),
- * and a claimed pair folded into one session. Idle is admission's cwd test
- * (`sparePairs`,
- * #2502), fed every row as admission feeds it; it reads a pair claimed
- * wherever it cannot say, so a doubt defers. `ps -eo pid=,args=` rather than
- * `comm=`, for the reason `lib/claude-argv0.js` states.
- * @returns {string[][]}
- */
+/** @returns {string[][]} */
 function readClaudeSessions() {
 	const out = execFileSync(PS_BIN(), ["-eo", "pid=,args="], {
 		encoding: "utf8",
@@ -185,11 +86,6 @@ function readClaudeSessions() {
 }
 
 /**
- * The config dir a pid is running under, from its own environ. Null where
- * that cannot be read — another user's process, or one that exited between
- * the `ps` and this read — which the caller counts as a neighbour rather
- * than assuming it is somebody else's: deferring costs one session's delay,
- * and rotating under a live neighbour costs that neighbour its guards.
  * @param {string} pid
  * @returns {string|null}
  */
@@ -199,21 +95,7 @@ function readConfigDirOf(pid) {
 	return configDirFrom(record.value);
 }
 
-/**
- * This process and every ancestor of it.
- *
- * A SessionEnd hook is a CHILD of the session that is ending, and that
- * session's own `claude` process is still alive while the hook runs — so
- * without this the actor would count itself as the neighbour that stops it,
- * and no upgrade would ever happen. `CLAUDE_PID` is folded in as well — the
- * ending session's own pid, exported into the hook's environment — so a
- * launcher shape that puts the session outside this process's ancestry is
- * still excluded.
- *
- * RESIDUAL: a session that double-forks away from both is counted as a
- * neighbour, and the actor then defers forever rather than acting wrongly.
- * @param {string} pid
- */
+/** @param {string} pid */
 function readOwnPids(pid) {
 	const seen = new Set([pid, ...readAncestorsOf(Number(pid)).map(String)]);
 	if (process.env.CLAUDE_PID) seen.add(String(process.env.CLAUDE_PID));
@@ -221,9 +103,6 @@ function readOwnPids(pid) {
 }
 
 /**
- * Claude sessions running alongside this one that `isApart` cannot place
- * elsewhere, each named by its pids, a claimed spare pair's joined by `+`.
- * A session is apart only where every one of its pids is.
  * @param {(pid: string) => boolean} isApart
  * @param {string} [selfPid]
  * @returns {{count: number, pids: string[]}}
@@ -239,10 +118,7 @@ function countNeighbours(isApart, selfPid = String(process.pid)) {
 	return { count: pids.length, pids };
 }
 
-/**
- * Sessions under the same config dir as this one.
- * @param {string} configDir
- */
+/** @param {string} configDir */
 function countConfigNeighbours(configDir) {
 	const want = path.resolve(configDir);
 	return countNeighbours((pid) => {
@@ -251,13 +127,7 @@ function countConfigNeighbours(configDir) {
 	});
 }
 
-/**
- * Sessions whose cwd is this checkout, under any config dir: `root` or a
- * directory beneath it that no nested `.git` — a linked worktree's or a
- * submodule's — makes a checkout of its own. A cwd that cannot be read
- * counts.
- * @param {string} root
- */
+/** @param {string} root */
 function countCheckoutNeighbours(root) {
 	const real = realKey(root);
 	return countNeighbours((pid) => {
@@ -271,15 +141,6 @@ function countCheckoutNeighbours(root) {
 }
 
 /**
- * The migration walker the fresh install ships, loaded in this process (#682).
- * Node's module cache keys on the absolute path, so everything that walker
- * requires — `./upgrade-walk.js` and its siblings — loads from the same install.
- * Falls back to this file's own bundled walker where the install carries
- * none, as a release before #249 does not, or where loading it throws.
- *
- * Residual: a rollback onto a release between #679 and #682 loads that
- * release's walker, which takes `measureCore` rather than `claudeBin`, so
- * the core's context-cost row is not seeded on that walk, and nothing says so.
  * @param {string} installPath
  * @returns {{walk: typeof walkAndCommit, from: string, fallback?: string}}
  */
@@ -302,29 +163,6 @@ function loadWalker(installPath) {
 }
 
 /**
- * The whole actor; `main` is its one caller, and the tests drive it through
- * `main` (#1369). Every outside reading it makes is steered by the
- * environment — the config dir and the consent store's cross-config-dir scan
- * by CLAUDE_CONFIG_DIR and WFC_CLAUDE_CONFIG_A/B/C, the live count by
- * WFC_PS/WFC_PROC, the `claude` it spawns by WFC_CLAUDE_BIN — so a test points
- * each at a fixture and never touches the real registry (#238 user story 48).
- *
- * `emit` receives each line THE MOMENT IT IS COMPOSED rather than at the
- * return: the contention report is written before the rotation it describes,
- * and a materialise that then hangs to the hook's timeout cannot swallow it.
- *
- * The migration walk (#249) runs only after a materialise that actually
- * succeeds, or with none where the install is already at the pin (#747) —
- * never on a failed or contended one, and never from or against
- * `pluginRoot`, which is this session's OLD running bytes. Both the walker
- * code and the notes it walks come from the install at the pin — re-read
- * through `findInstallRecord` once `materialisePlugin` has returned ok, or the
- * state read's own record where it was already there (#682, `loadWalker`).
- * Against the old bytes `upgrade()` would read the OLD
- * `plugin.json` and note set and hit exit code 3 (pin ahead of installed) on
- * every run; with only the old walker code, a new release's notes would be
- * walked by the previous release's rules. Only plain data crosses that
- * version seam: the walker builds its own helpers, `measureCore` among them.
  * @param {{
  *   root: string,
  *   pluginRoot: string,
@@ -354,9 +192,6 @@ function reconcile({ root, pluginRoot, emit }) {
 	if (isDeclined(root, tag)) return { action: "declined", lines };
 	if (!readPendingConsent(root, tag)) return { action: "no-consent", lines };
 
-	/* The install already matches the pin, so the supply is not this
-	 * adopter's to move: rotating it again only takes it off another
-	 * adopter's tag, and the next of those turns it back (#738). */
 	if (state.installAtPin && state.installRecord) {
 		const here = countCheckoutNeighbours(root);
 		if (here.count > 0)
@@ -381,10 +216,6 @@ function reconcile({ root, pluginRoot, emit }) {
 			"Rotating now would silence their guards mid-session.",
 		);
 
-	/* The pin's url, which `readPluginState` does not carry back. A directory
-	 * source never reaches here — `state.pin` is null for one — so the url is
-	 * the only spelling to handle, and `#<ref>` is the CLI's own syntax for a
-	 * non-default tag on it, the same spelling `init-adopter.js` builds (#75). */
 	const { source } = findPin(
 		readJsonSafe(path.join(root, ".claude", "settings.json")) ?? {},
 		plugin.name,
@@ -427,22 +258,6 @@ function reconcile({ root, pluginRoot, emit }) {
 
 	say(`${plugin.name}: materialised ${tag} at session end.`);
 
-	/* THE CONSENT IS CLEARED ONLY ONCE THE WALK ALSO LANDS (`walkFrom`) —
-	 * never here. Once the gap closes, `check-plugin-gap.js`'s "third
-	 * reading" (materialised but not yet live: nothing owed) goes silent, so
-	 * a cleared consent is the only signal left that would make a later
-	 * SessionEnd retry a walk this one deferred or broke on.
-	 *
-	 * A PERMANENTLY REFUSING COMMIT (walk-and-commit.js condition 4) retries
-	 * EVERY SESSION END: hook refuses -> tree left dirty -> consent stands ->
-	 * next exit walks again, hits condition 1 on the still-dirty tree and
-	 * defers. It stops only once a human clears the tree by hand; nothing
-	 * here throttles the retry. */
-
-	/* The fresh install's own root, never `pluginRoot` — see this function's
-	 * JSDoc. `state.pin.marketplace` is this same materialise's own target,
-	 * so a miss here (no install record yet, an unexpected cache layout) is
-	 * reported and the walk simply skipped this run rather than guessed at. */
 	const record = findInstallRecord(
 		path.join(cfg, "plugins"),
 		plugin.name,
@@ -509,7 +324,6 @@ function reconcile({ root, pluginRoot, emit }) {
 	}
 }
 
-/** Outcomes that mean the founder is owed a look, not merely informed. */
 const WARNING_ACTIONS = new Set([
 	"failed",
 	"unusable-source",

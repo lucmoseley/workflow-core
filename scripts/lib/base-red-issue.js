@@ -1,9 +1,3 @@
-/*
- * base-red-issue.js — the one issue the queue lander keeps open for files red
- * on `main` itself: failures a red batch shares with `main`, which it blames
- * on no member (#4485, spec #4458).
- */
-
 const { buildFileList } = require("./drop-evidence.js");
 const { short } = require("./lander-git.js");
 const { queueIssueFiler } = require("./queue-issue.js");

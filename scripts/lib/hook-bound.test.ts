@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/lib/hook-bound.sh — every checker a git hook runs, bounded by one
- * wall-clock limit (#4187). A checker that never returns is killed with
- * everything it started, named on the hook's own stderr even where the call
- * site discards the checker's, and fails pre-commit; post-commit reports it
- * and returns.
- *
- * Each hung-checker case runs the REAL library against a checker that never
- * returns, under a 1 s limit, crossing the real clock: no injected clock
- * reaches a real process group's kill. prepare-commit-msg's cases run the
- * real hook and dispatcher, each in its own Node start, and a pre-commit
- * that outlasts the limit: most of the file's time (#5213).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -22,12 +9,7 @@ import { defineTemplate, initGitRepo } from "./git-fixture";
 import { isGroupDead } from "./process-fixture";
 
 const ROOT = path.join(__dirname, "..", "..");
-const SOURCE_LINE =
-	// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-	'[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"';
-/* pre-merge-commit starts no checker of its own: it runs pre-commit, which
- * sources the library. pre-applypatch's one `node`, its refusal printer,
- * runs unbounded. */
+const SOURCE_LINE = `[ ! -r "\${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "\${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"`;
 const HOOKS = [
 	".husky/pre-commit",
 	".husky/prepare-commit-msg",
@@ -37,15 +19,13 @@ const HOOKS = [
 	".husky/post-checkout",
 	".husky/pre-push",
 ];
-/* Untraced: far past the 1 s limit plus run-budgeted.js's 10 s KILL grace, so
- * only a kill that never comes reaches it. */
+// guess, #4187
 const HOOK_RUN_TIMEOUT_MS = 60_000;
-/* Untraced: the kernel reaps on its own clock. */
+// guess, #4187
 const REAP_TIMEOUT_MS = 5000;
 
-/* Untraced: far past the 1 s limit, so a sleeper outliving it is unkilled. */
+// guess, #4187
 const SLEEPER_S = 30;
-/* Prints its pid, the group's leader, starts a sleeper in it, then spins. */
 const LOOP_SOURCE = `const { spawn } = require("node:child_process");
 spawn("sleep", ["${SLEEPER_S}"], { stdio: "ignore" });
 process.stdout.write(process.pid + "\\n");
@@ -73,7 +53,6 @@ function runHook(name: string, body: string, prelude = "") {
 		hook,
 		`#!/usr/bin/env sh\nset -e\n${prelude}${SOURCE_LINE}\n${body}\n`,
 	);
-	// A timeout: the library's limit kills a real process group.
 	return spawnSync("sh", ["-e", hook], {
 		encoding: "utf8",
 		env: boundEnv(ROOT),
@@ -138,7 +117,6 @@ describe("a checker that never returns (#4187)", () => {
 		const env: NodeJS.ProcessEnv = boundEnv(plugin);
 		delete env.CLAUDE_CODE_SESSION_ID;
 		delete env.CLAUDE_PROJECT_DIR;
-		// A timeout: the library's limit kills a real process group.
 		const r = spawnSync("sh", [path.join(ROOT, ".husky", "post-commit")], {
 			cwd: repo,
 			encoding: "utf8",
@@ -155,15 +133,10 @@ describe("a checker that never returns (#4187)", () => {
 describe("prepare-commit-msg's steps (#5213)", () => {
 	const repoTemplate = defineTemplate((root) => initGitRepo(root, ".no-hooks"));
 
-	/* A step whose export never returns, waiting on a child as a hung step
-	 * does: the limit's TERM ends it, where a spin would wait out the 10 s
-	 * KILL grace. */
 	const hung = (name: string) =>
 		`module.exports = { ${name}: () => require("node:child_process").spawnSync("sleep", ["${SLEEPER_S}"]) };\n`;
-	/* Past the 1 s limit, so only a stopped clock lets it finish. */
 	const SlowPreCommit = "sleep 2\necho PRE-COMMIT-DONE\n";
 
-	/* What .husky/prepare-commit-msg reaches under the plugin root. */
 	const PrepareCommitMsgScripts = [
 		"lib",
 		"prepare-commit-msg-dispatch.js",
@@ -180,7 +153,6 @@ describe("prepare-commit-msg's steps (#5213)", () => {
 	) {
 		const scripts = path.join(dir, "plugin", "scripts");
 		fs.mkdirSync(scripts, { recursive: true });
-		/* Named, not the whole of scripts/, so this file reads only what it runs. */
 		for (const name of PrepareCommitMsgScripts)
 			if (steps[name] === undefined)
 				fs.symlinkSync(
@@ -208,7 +180,6 @@ describe("prepare-commit-msg's steps (#5213)", () => {
 		};
 		delete env.CLAUDE_CODE_SESSION_ID;
 		delete env.CLAUDE_PROJECT_DIR;
-		// A timeout: the library's limit kills a real process group.
 		return spawnSync("sh", [path.join(husky, "prepare-commit-msg"), file], {
 			cwd: repo,
 			encoding: "utf8",
@@ -247,7 +218,6 @@ describe("prepare-commit-msg's steps (#5213)", () => {
 	});
 
 	it("times the trailer after the inline pre-commit, the clock resumed", () => {
-		/* A Review-Tier: line arms the trailer. */
 		const r = prepareCommitMsg(
 			SlowPreCommit,
 			"subject\n\nReview-Tier: light\n",
@@ -296,7 +266,6 @@ describe("the hooks (#4187)", () => {
 		expect(hook).toContain(SOURCE_LINE);
 	});
 
-	/* `env <var>… node` runs the binary past the function, unbounded. */
 	it.each(HOOKS)("%s starts no node or bash through env", (name) => {
 		const hook = fs.readFileSync(path.join(ROOT, name), "utf8");
 		expect(hook).not.toMatch(/\benv\b[^\n#]*(\\\n[^\n]*)*\b(node|bash) /);

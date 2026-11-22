@@ -1,10 +1,3 @@
-"""Wrapper time outside vitest: .test-logs/runs-<session>.jsonl records (startedAt/endedAt of the
-whole run) matched to a marker by pid-free time: the marker whose startedAt is the nearest after
-the record's startedAt, same session, within 10 min. Before = marker.startedAt - record.startedAt;
-after = record.endedAt - marker.at.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I wrapper_cost.py <markers-dir> <runs.jsonl dump>"""
-
 import glob
 import json
 import os

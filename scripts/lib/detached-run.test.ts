@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the completion record a detached session-start child leaves, and the
- * death count a later session reads off it (mantahostels#1910, mantahostels#1999).
- *
- * In-process against a temp config dir per test, never the founder's record,
- * which live session starts rewrite under the suite.
- * CLAUDE_CONFIG_DIR IS SET PER TEST, not once at module load: the module reads
- * it at call time, deliberately, so that the proving harness can redirect it.
- *
- * check-hook-liveness.js reports these deaths under `npm run status`, so a loosened
- * case lets a housekeeping sweep that dies every start go unreported again, or
- * cries death over a run still inside its grace.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,13 +19,7 @@ afterEach(() => {
 const file = () => path.join(cfg, mod.RUN_FILE);
 const readRows = () => JSON.parse(fs.readFileSync(file(), "utf8"));
 
-/* Long enough ago that openRun reads the row it belongs to as dead.
- *
- * CONSECUTIVE BACKDATED OPENS MUST BE MORE THAN ONE GRACE APART, not exactly
- * one: openRun ages a row on `> INFLIGHT_MS`, so a ladder spaced at exactly
- * INFLIGHT_MS reads every row as still alive and counts nothing. Hence the even
- * multiples below. */
-const GRACE = 300_000; // INFLIGHT_MS in lib/detached-run.js
+const GRACE = 300_000;
 const pastGrace = (ms = GRACE + 60_000) => Date.now() - ms;
 
 describe("the record itself", () => {
@@ -118,11 +99,6 @@ describe("the death count — what a later session reads", () => {
 	});
 
 	it("counts a death from consecutive restarts each inside the grace of the one before it — the busy-machine case (mantahostels#1999)", () => {
-		/* Each reopen is closer to its predecessor than INFLIGHT_MS, so ageing
-		 * against the latest `startedAt` alone would read
-		 * every one of these as still within grace and never count a death. Ageing
-		 * against `openedSince` — fixed at the first open of this unbroken run —
-		 * lets the total elapsed time win once it passes the grace. */
 		const step = GRACE / 3;
 		const start = Date.now() - GRACE * 2;
 		mod.openRun("prune-markers", start);
@@ -134,10 +110,6 @@ describe("the death count — what a later session reads", () => {
 	});
 
 	it("counts one death from a burst of concurrent starts against an already-stale row, never one per opener", () => {
-		/* mantahostels#1999: resetting `openedSince` only on CLOSE, never on a counted death,
-		 * made every further open past the first stale one count its own death —
-		 * three starts 2s apart against a row already well past grace would each
-		 * add one, reaching DEATHS_TO_REPORT on concurrency alone. */
 		mod.openRun("prune-markers", pastGrace(GRACE * 3));
 		const burstStart = Date.now();
 		mod.openRun("prune-markers", burstStart);
@@ -186,11 +158,6 @@ describe("the death count — what a later session reads", () => {
 });
 
 describe("it never throws on the session-start path", () => {
-	/* THE UNWRITABLE PARENT IS A REGULAR FILE, NEVER A PATH UNDER /proc. On this
-	 * machine's WSL2 kernel `fs.mkdirSync(p, { recursive: true })` under /proc
-	 * never returns, so a /proc path here hangs the whole run with no output and
-	 * reads as a broken test suite rather than a failing test. A file standing
-	 * where a directory is wanted refuses at once. */
 	it("survives a config dir it cannot write to", () => {
 		const blocked = path.join(cfg, "not-a-dir");
 		fs.writeFileSync(blocked, "x");

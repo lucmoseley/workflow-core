@@ -1,25 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-format-staged.js — the pre-commit format gate's judge (#1332): it
- * refuses a staged shell or Python path that shfmt or `ruff format` would
- * change, as check:staged's Biome refuses unformatted JS and TS.
- *
- * Usage:
- *   node scripts/check-format-staged.js [--skip-shell] [--skip-python]
- *
- * Each path's STAGED blob is formatted, never the worktree copy: the commit
- * carries the blob, and a worktree read would judge an unstaged edit. Unlike the ruff lint gate it charges the
- * whole file, not what the commit introduced — every tracked file was
- * formatted when the gate landed, so an unformatted one is this commit's.
- *
- * A formatter that is not installed is BROKEN: it is the checker's apparatus
- * (base §N4), and the refusal names the line that installs it. The hook
- * passes --skip-shell or --skip-python only where a workflow runs the missing
- * formatter (lib/formatters.js, #1354, #1463). Python's exclusions are ruff's
- * own (`--force-exclude`, `ruffExclude`); shell's are what the staged
- * .gitattributes marks vendored or generated (#1828).
- */
-
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const {
@@ -46,13 +25,10 @@ const { scriptPath } = require("./lib/script-path.js");
  */
 
 /**
- * Formats each staged shell path's blob with shfmt, refusing what it would
- * change.
- *
  * @param {Ctx} ctx
  * @param {string[]} shell
  * @param {Judge} judge
- * @returns {number} the paths checked
+ * @returns {number}
  */
 function checkShell(ctx, shell, { readStagedBlob, refuse }) {
 	if (shell.length === 0) return 0;
@@ -71,13 +47,10 @@ function checkShell(ctx, shell, { readStagedBlob, refuse }) {
 }
 
 /**
- * Runs `ruff format --check` over each staged Python path's blob, refusing
- * what it would change or cannot parse.
- *
  * @param {Ctx} ctx
  * @param {string[]} python
  * @param {Judge} judge
- * @returns {number} the paths checked
+ * @returns {number}
  */
 function checkPython(ctx, python, { readStagedBlob, refuse }) {
 	if (python.length === 0) return 0;
@@ -114,14 +87,7 @@ function checkPython(ctx, python, { readStagedBlob, refuse }) {
 }
 
 /**
- * Why ruff itself failed rather than the blob, or "" where the blob is at
- * fault. Ruff exits 2 on a syntax error and on a config it cannot load alike,
- * so the same arguments rerun over an empty blob, which has no syntax to fail
- * on, tell the two apart (#3825).
- *
- * Residual: a ruff that panics on one blob alone, the rerun passing, still
- * reads as that blob's fault.
- *
+ * #3825
  * @param {RuffRun} failed
  * @param {string[]} args
  * @returns {string}
@@ -137,8 +103,6 @@ function readRuffToolFault(failed, args) {
 }
 
 /**
- * Why a ruff run ended without an exit status, or "" where it has one.
- *
  * @param {RuffRun} run
  * @returns {string}
  */
@@ -147,7 +111,6 @@ function readRunDeath(run) {
 	return run.signal ? `killed by ${run.signal}` : "";
 }
 
-/** check-shfmt.js, relative inside the repo, absolute from an adopter's plugin cache. */
 function shfmtPath() {
 	const abs = path.join(__dirname, "check-shfmt.js");
 	return relativeUnder(process.cwd(), abs) ?? abs;
@@ -179,7 +142,7 @@ runCheck({
 		/**
 		 * @param {string[]} candidates
 		 * @param {string} flag
-		 * @param {string} why what the hook found missing, and its install
+		 * @param {string} why
 		 */
 		const skip = (candidates, flag, why) => {
 			if (!ctx.has(flag)) return candidates;

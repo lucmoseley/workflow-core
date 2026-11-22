@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what pick-next lays out for the skill's §4 band read (#4329): the
- * grep prediction stored for each write-set cache miss (mantahostels#1001),
- * each open issue's body on disk with its cache key (mantahostels#409,
- * mantahostels#385), and whether the run needs a band read at all
- * (mantahostels#1485).
- *
- * Loosen a case and a run dispatches a ~60 s band-read subagent it did not
- * need, reads a grep back as an agent's judgement, or leaves a band read
- * unable to store its answer.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -76,7 +65,6 @@ describe("the prediction stored over each miss (mantahostels#1001)", () => {
 			enabled: true,
 		});
 		expect(r.warm).toEqual([]);
-		// Carried in from the store rather than written over a miss this run.
 		expect(r.provisional).toEqual([carried]);
 	});
 

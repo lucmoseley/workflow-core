@@ -1,37 +1,3 @@
-/*
- * refill-code.js — the code the refill loop runs (#2361): a detached worktree
- * the loop owns per sha of the verified ref (lib/landing-refs.js's
- * VERIFIED_REF), under loopFiles()'s code directory: lib/pinned-code.js's
- * first instance.
- *
- * Only a loop whose scripts sit in a git checkout does this. A plugin install
- * has none.
- *
- * THE CLOSURE a tip must change to be adopted: every module the loop has
- * loaded, and everything under scripts/ bar the tests. The second stands in
- * for the scripts the loop spawns each tick, whose own requires and sourced
- * files (dispatch-sessions.js's) no static reading follows.
- *
- * ADOPTION checks the tip out into its own worktree, has a child node require
- * the new program, and only on its exit 0 calls process.execve: same pid, so
- * the pidfile stays held, and no exit handler runs to release it. Any failure
- * leaves the running image as it was, and that sha is not tried again.
- *
- * THE BOOT LINK (#3891): a symlink beside the code directory to the worktree
- * the loop last ran, which the boot unit starts from, as a restart can leave
- * the checkout's working copy mid-edit. Nothing removes the worktree it names:
- * an image moves it first, and a refused tip's removal spares it.
- *
- * A WORKTREE A LIVE PROCESS RUNS FROM is kept until it exits (#4548), and
- * never checked out in place: a queue lander or levelling pass an older image
- * started spawns its children from its own worktree, and they fail to load
- * where that is gone or rewritten.
- *
- * THE IMAGE'S OWN REGISTRATION is checked each tick and made again where it is
- * gone (#5209): git then answers for the worktree again, so the loop still
- * adopts tips, and the children it runs there still name a common dir.
- */
-
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -65,7 +31,10 @@ const { readRegistrationFault } = require("./git-file.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
 const { isTestKind } = require("./test-kind.js");
 
-/** @param {string} program a loop program's path @returns {string} its checkout's root */
+/**
+ * @param {string} program
+ * @returns {string}
+ */
 const rootOf = (program) => path.dirname(path.dirname(program));
 
 /**
@@ -83,10 +52,7 @@ const instance = (repo, codeDir, log) => ({
 /** @param {string} line */
 const toStderr = (line) => process.stderr.write(`${line}\n`);
 
-/**
- * Null where the program at `dir` loads, else why not.
- * @param {string} dir
- */
+/** @param {string} dir */
 function loadFailure(dir) {
 	const r = spawnSync(
 		process.execPath,
@@ -102,11 +68,10 @@ function loadFailure(dir) {
 }
 
 /**
- * Whether `from..to` changes a file of the closure.
  * @param {string} repo
  * @param {string} from
  * @param {string} to
- * @param {Set<string>} loaded the loop's loaded modules, relative to its root
+ * @param {Set<string>} loaded
  */
 function closureChanged(repo, from, to, loaded) {
 	return git(repo, ["diff", "--name-only", "--no-renames", from, to])
@@ -115,8 +80,6 @@ function closureChanged(repo, from, to, loaded) {
 }
 
 /**
- * `scriptsDir`'s checkout; else its own program, a plugin install; or why git
- * would not say.
  * @param {string} scriptsDir
  * @returns {{repo: string}|{program: string}|{error: string}}
  */
@@ -132,11 +95,7 @@ function locateCode(scriptsDir) {
 }
 
 /**
- * The program `start` spawns `run` from: the verified tip's worktree, fetched
- * first and shown to load, where `scriptsDir` is in a checkout; else
- * `scriptsDir`'s own.
  * @param {{scriptsDir: string, codeDir: string, log?: (line: string) => void}} where
- *   `log` takes why a tip was checked out fresh
  * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
 function launchProgram({ scriptsDir, codeDir, log = toStderr }) {
@@ -165,24 +124,16 @@ function launchProgram({ scriptsDir, codeDir, log = toStderr }) {
 	return { program: path.join(dir, PROGRAM), fetchError };
 }
 
-/**
- * `dir` with symlinks resolved, as node resolves the running program's path;
- * `dir` itself where it does not exist.
- * @param {string} dir
- */
+/** @param {string} dir */
 function realPathOf(dir) {
 	try {
 		return fs.realpathSync(dir);
 	} catch {
-		// No code directory: an image outside it, which the comparison then finds.
 		return dir;
 	}
 }
 
 /**
- * The program a boot unit names: its own in a plugin install; else through the
- * boot link, which outlives any tip the loop adopts. A link that resolves stays
- * as it is, a running loop's own to move.
  * @param {{scriptsDir: string, codeDir: string, log?: (line: string) => void}} where
  * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
@@ -203,9 +154,6 @@ function bootProgram({ scriptsDir, codeDir, log = toStderr }) {
 }
 
 /**
- * What `status` names as the code the loop at `pid` runs: the sha its program
- * is checked out at, and the directory where it is not one of `codeDir`'s;
- * null where its command line will not read.
  * @param {number} pid
  * @param {string} codeDir
  */
@@ -214,28 +162,16 @@ function readRunningCode(pid, codeDir) {
 		const program = readRunningProgram(pid);
 		if (program === null) return null;
 		const root = rootOf(program);
-		/* One of `codeDir`'s is named for the sha it is detached at
-		 * (lib/pinned-code.js's worktreeAt), so no git runs for it: the panel
-		 * polls `status` every few seconds (#4821). */
 		if (path.dirname(root) === codeDir) return short(path.basename(root));
 		if (checkoutOf(root) === null) return "a plugin install";
 		return `${short(git(root, ["rev-parse", "HEAD"]))} in ${root}`;
 	} catch {
-		// A process unreadable or a git read failed mid-status.
 		return null;
 	}
 }
 
 /**
- * Each of `stale` a live process other than this one runs from, mapped to its
- * pid: its cwd, or a path its command line names resolved against that cwd,
- * sits in it, spelt through the real code directory or through `codeDir`.
- * Null where /proc will not be read, which keeps them all.
- * Residual: a process holding a tree only through a module it loaded or a
- * file it holds open, with neither its cwd nor an argument there (`node -e
- * "require(…)"`), holds none; so does one whose cwd will not read, another
- * user's.
- * @param {string[]} stale real paths, each a child of the code directory
+ * @param {string[]} stale
  * @param {string} codeDir
  * @returns {Map<string, number>|null}
  */
@@ -260,11 +196,8 @@ function readHeldDirs(stale, codeDir) {
 }
 
 /**
- * The worktrees an in-place checkout must leave alone: `own`, the boot link's,
- * and each a live process runs from; null, every one, where /proc will not
- * read.
  * @param {string} codeDir
- * @param {string|null} [own] the running image's worktree
+ * @param {string|null} [own]
  * @returns {Array<string|null>|null}
  */
 function readKeptWorktrees(codeDir, own = null) {
@@ -274,7 +207,6 @@ function readKeptWorktrees(codeDir, own = null) {
 	try {
 		names = fs.readdirSync(realCodeDir);
 	} catch {
-		// No code directory yet.
 		return keep;
 	}
 	const held = readHeldDirs(
@@ -285,12 +217,8 @@ function readKeptWorktrees(codeDir, own = null) {
 }
 
 /**
- * Remove every worktree in the code directory but `root`, the spare and those
- * a live process runs from, logging each of those once; true where none was
- * kept.
  * @param {{root: string, codeDir: string, realCodeDir: string,
- *   kept: Set<string>, log: (line: string) => void}} o `kept` accumulator:
- *   the directories already logged as kept
+ *   kept: Set<string>, log: (line: string) => void}} o
  */
 function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
 	const others = fs
@@ -321,10 +249,6 @@ function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
 }
 
 /**
- * A check, each call, that `root`, an image's worktree in the code directory,
- * is still registered with git, registering it again where it is not; a no-op
- * for an image elsewhere. A failure is logged, once until its reason changes,
- * and never thrown (#5209).
  * @param {string} root
  * @param {string} codeDir
  * @param {(line: string) => void} log
@@ -338,7 +262,6 @@ function registrationKeeper(root, codeDir, log) {
 		const fault = readRegistrationFault(root);
 		if (fault === null) return;
 		try {
-			/* Named for the sha it is detached at (lib/pinned-code.js's worktreeAt). */
 			reregister(root, path.basename(root));
 			failed = null;
 			log(`registered ${root} with git again: ${fault}`);
@@ -350,18 +273,10 @@ function registrationKeeper(root, codeDir, log) {
 	};
 }
 
-/**
- * process.execve, missing from the Node types this repo pins; it returns only
- * by throwing.
- * @typedef {(file: string, args: string[], env: NodeJS.ProcessEnv) => void} Exec
- */
+/** @typedef {(file: string, args: string[], env: NodeJS.ProcessEnv) => void} Exec */
 const proc = /** @type {NodeJS.Process & {execve: Exec}} */ (process);
 
-/**
- * The running loop's updater, or null where its program is in no checkout or
- * git would not say, which it logs.
- * @param {{program: string, codeDir: string, log: (line: string) => void}} opts
- */
+/** @param {{program: string, codeDir: string, log: (line: string) => void}} opts */
 function codeUpdater({ program, codeDir, log }) {
 	const root = rootOf(program);
 	const keepRegistered = registrationKeeper(root, codeDir, log);
@@ -390,7 +305,6 @@ function codeUpdater({ program, codeDir, log }) {
 				.map((f) => path.relative(root, f).split(path.sep).join("/")),
 		);
 
-	/** The fetched tip where it is new, not refused, and changes the closure. */
 	const newTip = () => {
 		const fetchError = fetchVerified(root);
 		if (fetchError !== null && fetchError !== fetchFailed)
@@ -431,31 +345,17 @@ function codeUpdater({ program, codeDir, log }) {
 			log(
 				`not adopting ${short(tip)}: ${whyOf(err)}; running ${short(running)}`,
 			);
-			/* Not kept as a spare, as the guards' refused tree is (#5426): this
-			 * image prunes no more once settled, so a second spare would stay. */
 			if (dir !== null && dir !== readLink(bootLinkOf(codeDir)))
 				removeWorktree(root, dir);
 		}
 	};
 
 	return {
-		/**
-		 * Fetch the verified ref and adopt its tip where it changes the
-		 * closure, unless `hold`: a gate sweep or review runner the loop
-		 * started still runs, or a stop is pending.
-		 * @param {{hold: boolean}} opts
-		 */
+		/** @param {{hold: boolean}} opts */
 		adoptIfMoved({ hold }) {
 			const tip = hold ? null : newTip();
 			if (tip !== null) adopt(tip);
 		},
-		/**
-		 * After the first tick of an image from the code directory, point the
-		 * boot link at it; then, each tick until none is left, remove every
-		 * worktree there but its own, the spare and those a live process runs
-		 * from. A
-		 * link that will not move keeps the worktree it names.
-		 */
 		afterTick() {
 			keepRegistered();
 			if (settled) return;

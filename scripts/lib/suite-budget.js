@@ -1,26 +1,7 @@
-/*
- * suite-budget.js — whether the whole suite's summed per-file CI time is over
- * SUITE_BUDGET_MS (#5137), and whether that refuses.
- *
- * THE FILES SUMMED ARE THOSE THE NEWEST SWEEP TIMED, each at its median over
- * its latest SWEEPS_JUDGED sweeps (`scripts/lib/file-ci-time.js`), so a file
- * deleted or renamed since counts nowhere. RESIDUAL: a file whose shard the
- * newest sweep lost counts nowhere either, which can only understate the sum.
- *
- * A REFUSAL COUNTS ONLY FILES WITH SWEEPS_JUDGED READINGS. A new file counts
- * towards the reported total from its first sweep, and towards a refusal from
- * its third.
- *
- * IT REFUSES ONLY ONCE ARMED: BUDGET_ARMED_BY in `scripts/lib/suite-ceiling.js`
- * names the cold lone whole suite that first passed under TARGET_MS. ARM
- * ONLY: ARMED_ENV may arm an unarmed budget, for tests; it never disarms one.
- */
-
 const { SWEEPS_JUDGED, median, readingsByFile } = require("./file-ci-time.js");
 const { BUDGET_ARMED_BY, SUITE_BUDGET_MS } = require("./suite-ceiling.js");
 
 const ARMED_ENV = "WFC_SUITE_BUDGET_ARMED_BY";
-/* Untraced. */
 const SLOWEST_NAMED = 10;
 
 /**
@@ -42,7 +23,7 @@ const armedBy = (env = process.env) =>
 const sumOf = (files) => files.reduce((sum, f) => sum + f.medianSeconds, 0);
 
 /**
- * @param {import("./file-ci-time.js").Sweep[]} sweeps newest first
+ * @param {import("./file-ci-time.js").Sweep[]} sweeps
  * @param {{ armed?: string|null, budgetMs?: number }} [options]
  * @returns {Verdict}
  */

@@ -1,7 +1,3 @@
-"""Survey each log: line count, date span, field keys and value counts.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I survey.py <markers-dir>"""
-
 import collections
 import json
 import os

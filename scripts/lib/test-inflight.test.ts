@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * test-inflight.js's on-disk record names every test module started and not
- * finished, beats on each event, and never throws (mantahostels#1910, #1149).
- *
- * The module holds its set in memory as well as on disk, so `begin` is called
- * at the top of every case that reads. Each case writes under its own temp
- * root, with the wrapper's live record simulated (mantahostels#2790, below).
- *
- * `run-vitest.js`'s watchdog reads the record on every `npm run test`; loosen
- * a case and a parked suite is killed naming no file, or a slow file is read
- * as parked and killed.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,19 +21,9 @@ let shared: string;
 
 const FOREIGN = [{ module: "/other/live.test.ts", stage: "loading" }];
 
-/** The record a bare run under `r` writes, the environment naming none. */
 const recordAt = (r: string) =>
 	path.join(r, ".claude", "tmp", "markers", ".test-inflight.json");
 
-/* THE FULL-SUITE CONDITION IS SIMULATED HERE RATHER THAN WAITED FOR.
- * The module prefers WFC_INFLIGHT_FILE over the `root` argument — right
- * for the real run, where run-vitest.js names one per-run file every worker
- * shares — but the real run also SETS it, so every case below would otherwise
- * write to that live record and read back another worker's concurrent write
- * (mantahostels#2790). `beforeEach` therefore points the variable at a record of
- * this file's own, standing in for the wrapper's, and then unsets it for the
- * case. Simulated rather than merely unset, because with no ambient variable to
- * defeat, dropping the unset leaves every case green. */
 beforeAll(() => {
 	sharedDir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-inflight-live-"));
 	shared = path.join(sharedDir, "live.json");
@@ -93,8 +71,6 @@ describe("what a reader outside the process sees", () => {
 		]);
 	});
 
-	/* Collection sits between queue and end, so recording it must not read as
-	 * the module leaving — a test-body stall would vanish from the record. */
 	it("keeps a collected module open, at its new stage", () => {
 		mod.enter(root, "/repo/a.test.ts", "loading");
 		mod.enter(root, "/repo/a.test.ts", "running its tests");
@@ -149,9 +125,6 @@ describe("what a reader outside the process sees", () => {
 	});
 });
 
-/* The two halves of mantahostels#2790: the fixture must isolate these cases from the
- * wrapper's shared record, and must not do it by weakening the preference the
- * wrapper itself depends on. Both read the files themselves, by path. */
 describe("which record a case actually touches", () => {
 	it("writes under its own root while the wrapper's record is named", () => {
 		mod.enter(root, "/repo/a.test.ts", "loading");
@@ -204,7 +177,6 @@ describe("it never costs the run", () => {
 		expect(mod.read(root)).toEqual([]);
 	});
 
-	/* A ceiling kill names the files never started from it (#2696). */
 	it("records the run's schedule, and starts each run with none", () => {
 		mod.schedule(root, ["/repo/a.test.ts", undefined, "/repo/b.test.ts"]);
 
@@ -230,8 +202,6 @@ describe("it never costs the run", () => {
 		expect(mod.read(root)).toEqual([]);
 	});
 
-	/* vitest hands a module with no id where it could not resolve one; recording
-	 * it would put a bare "undefined" in the report a stalled session reads. */
 	it("ignores a module with no id at all", () => {
 		mod.enter(root, undefined, "loading");
 		mod.leave(root, undefined);

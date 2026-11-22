@@ -1,14 +1,3 @@
-/*
- * status-render.js — the report npm run status prints from its checkers'
- * finished runs (scripts/status-report.js), a module of its own so the
- * STANDINGS print rule is tested through its export (#4107).
- */
-
-/**
- * Checkers whose clean run IS the report — a standing to read, not a finding —
- * so their body is printed even under an `OK:` line. A SKIP is no clean run:
- * it stays with the clean list.
- */
 const STANDINGS = new Set([
 	"escape-audit",
 	"primitives",
@@ -20,18 +9,12 @@ const STANDINGS = new Set([
 /**
  * @typedef {object} Result
  * @property {string} name
- * @property {number | null} code   exit status, or null where a signal killed it
+ * @property {number | null} code
  * @property {string | null} signal
- * @property {string} out           stdout and stderr, merged in arrival order
+ * @property {string} out
  */
 
-/**
- * A checker whose last line is its own `OK:` or `SKIP:` summary found nothing,
- * and its body is dropped rather than printed. So did a `--notify` run that
- * printed nothing at all.
- *
- * @param {Result} r
- */
+/** @param {Result} r */
 function verdict(r) {
 	const last = r.out.split("\n").pop() ?? "";
 	if (r.signal) return `killed by ${r.signal}`;
@@ -41,12 +24,7 @@ function verdict(r) {
 	return null;
 }
 
-/**
- * The report for a finished run.
- *
- * @param {Result[]} results
- * @returns {string}
- */
+/** @param {Result[]} results @returns {string} */
 function render(results) {
 	let text = "";
 	/** @type {string[]} */

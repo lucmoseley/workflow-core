@@ -1,33 +1,16 @@
-/*
- * gh-api-call.js — reading a `gh api` invocation (mantahostels#511, #2796).
- *
- * A CORE: it reads nothing but its arguments. Words arrive masked, as
- * lib/shell-parse.js hands them over, and a caller reads one back through
- * shell-words.js's literal.
- */
-
 const { literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
- * @typedef {object} ApiCall raw words, quoted spans still masked
- * @property {string} method the --method/-X value, "" where none was given
- * @property {string} endpoint the first bare word
- * @property {string[]} fields every -f/-F/--field/--raw-field value, in order
- * @property {Set<string>} magicFields those of `fields` given on -F or --field,
- *   whose value gh reads for `@file`, numbers, booleans and null; -f and
- *   --raw-field send it as typed
- * @property {boolean} opaque a field's own NAME cannot be read even through
- *   literal — `-f "$FIELD"` — so which field it is cannot be told. A name
- *   merely quoted — `-f "title=x"`, `-f 'labels[]=y'` — reads back and is not
- *   opaque (#3421); a masked VALUE never decides
- * @property {boolean} input the payload arrives whole through --input, so
- *   there are no field words to read at all
+ * @typedef {object} ApiCall
+ * @property {string} method
+ * @property {string} endpoint
+ * @property {string[]} fields
+ * @property {Set<string>} magicFields
+ * @property {boolean} opaque
+ * @property {boolean} input
  */
 
-/* Every other gh api flag whose value is a SEPARATE WORD. Without these the
- * value is read as the endpoint, the caller's endpoint test then answers no,
- * and the write is allowed through in silence. */
 const VALUE_FLAGS = [
 	"--cache",
 	"--header",
@@ -38,8 +21,8 @@ const VALUE_FLAGS = [
 ];
 
 /**
- * @param {string[]} argv the invocation's words, `api` itself dropped
- * @param {string[]} spans the parse's quoted spans, which literal reads back
+ * @param {string[]} argv
+ * @param {string[]} spans
  * @returns {ApiCall}
  */
 function scanApi(argv, spans) {
@@ -69,16 +52,12 @@ function scanApi(argv, spans) {
 }
 
 /**
- * Whether a field word's name, read back through literal, still cannot be
- * known: no `=` ends it before an unescaped expansion or a span never
- * recorded.
  * @param {string} val
  * @param {string[]} spans
  */
 const isNameUnread = (val, spans) => !literal(val, spans).head.includes("=");
 
 /**
- * Whether a field word sets the issue's `body`.
  * @param {string} val
  * @param {string[]} spans
  */
@@ -125,7 +104,6 @@ function longWord(call, tok, next) {
 		return { val: "", step };
 	}
 	if (name === "--input") {
-		/* The payload comes from a file or stdin: its fields are unreadable. */
 		call.input = true;
 		return { val: "", step };
 	}
@@ -133,16 +111,11 @@ function longWord(call, tok, next) {
 }
 
 /**
- * A SHORTHAND BUNDLE, read exactly as pflag reads one (mantahostels#2580).
- * pflag walks the letters and the first VALUE-TAKING one ends the walk: what
- * follows it in the bundle is that letter's value, or, where nothing follows,
- * the next word. `-i` is gh api's only boolean shorthand and so the only
- * letter the walk continues past.
- *
- * `-X=PATCH` reaches gh as PATCH, `-X==PATCH` as `=PATCH`, and a lone trailing
- * `-X=` as `=`: pflag drops the separator only when something follows it.
- * @param {string} rest the bundle, its `-` off
- * @param {string} next the word after it
+ * pflag ends a shorthand bundle at its first value-taking letter, and drops a
+ * `=` separator only when something follows it:
+ * https://github.com/spf13/pflag/blob/master/flag.go
+ * @param {string} rest
+ * @param {string} next
  * @returns {{ letter: string, value: string, step: number }}
  */
 function shortBundle(rest, next) {
@@ -158,17 +131,13 @@ function shortBundle(rest, next) {
 }
 
 /**
- * Did the call give gh a body to send? gh's own default: POST where any field
- * or --input was passed, GET otherwise.
+ * gh api sends POST once any field or --input is given, else GET:
+ * https://cli.github.com/manual/gh_api
  * @param {ApiCall} call
  */
 const defaultsToPost = (call) => call.input || call.fields.length > 0;
 
-/**
- * An endpoint reduced to its path, so the three spellings gh accepts — bare,
- * leading-slash and full URL — compare equal.
- * @param {string} e
- */
+/** @param {string} e */
 function apiPath(e) {
 	let p = e;
 	for (const host of ["https://api.github.com", "http://api.github.com"])
@@ -179,25 +148,15 @@ function apiPath(e) {
 	return p.startsWith("/") ? p.slice(1) : p;
 }
 
-/**
- * Is this endpoint one issue — not a comment, a label set or any other
- * sub-resource, whose bodies are a different thing?
- * @param {string} e
- */
+/** @param {string} e */
 const isIssueEndpoint = (e) =>
 	/^repos\/[^/]+\/[^/]+\/issues\/[0-9]+$/.test(apiPath(e));
 
-/**
- * Is this endpoint the issue COLLECTION, which is what a creation POSTs to?
- * @param {string} e
- */
+/** @param {string} e */
 const isIssueCollection = (e) =>
 	/^repos\/[^/]+\/[^/]+\/issues$/.test(apiPath(e));
 
 /**
- * The owner/repo a `repos/<owner>/<repo>/…` endpoint names. "" where both are
- * gh's placeholders (`{owner}`, `:owner`), which gh fills from the cwd's repo;
- * null where only one is, a repo the caller cannot know.
  * @param {string} e
  * @returns {string | null}
  */
@@ -215,22 +174,10 @@ function endpointRepo(e) {
 	return named;
 }
 
-/**
- * Is this the GraphQL endpoint? The URL form is what a copied curl example
- * carries.
- * @param {string} e
- */
+/** @param {string} e */
 const isGraphql = (e) => e === "graphql" || e.endsWith("/graphql");
 
 /**
- * GraphQL names what it writes in the query TEXT rather than in a field name
- * or an endpoint, so a guard has to read that text back out of the span the
- * parser blanked: every `query=` field's text, concatenated, and whether some
- * of it could not be read.
- *
- * Only a field NAMED query is read (mantahostels#284): a value elsewhere in
- * the call that cannot be read is a variable the query already names, and
- * treating it as hidden would fire on a fully visible read query.
  * @param {string[]} fields
  * @param {string[]} spans
  * @returns {{ query: string, hidden: boolean }}
@@ -241,7 +188,7 @@ function scanGraphql(fields, spans) {
 	for (const val of fields) {
 		const { text, known } = literal(val, spans);
 		const field = trimEndRun(text, "\n");
-		/* `@file` and `@-` are gh's own file and stdin spellings. */
+		// gh api reads a field value of `@file` from a file and `@-` from stdin: https://cli.github.com/manual/gh_api
 		if (field.startsWith("query=@")) hidden = true;
 		else if (field.startsWith("query=")) {
 			query += `${field.slice("query=".length)} `;
@@ -252,13 +199,6 @@ function scanGraphql(fields, spans) {
 }
 
 /**
- * The named mutation's OWN arguments, read out of `query`: the text from its
- * opening bracket to the first close. Null where the query names no such
- * mutation.
- *
- * Whitespace goes first, GraphQL ignoring it. Scoping to the arguments is
- * what separates a write from a read: the same token after that bracket
- * closes is a selection on the result, not an input field.
  * @param {string} query
  * @param {string} name
  * @returns {string | null}

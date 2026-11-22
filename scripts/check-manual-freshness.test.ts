@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * Pins check-manual-freshness.js's verdict on the operating manual: how far its
- * provenance stamp trails the roadmap, that its corrections log is well-formed,
- * that `--notify` speaks only on drift, and that every path it cites still
- * exists (thresholds mantahostels#389, the WARN band mantahostels#391).
- *
- * check-manual-freshness.js resolves the stamp's SHAs against real git history,
- * so it is exercised inside a throwaway repository with commits of its own
- * rather than against this one — pinning a fixture to this repo's SHAs would
- * rot on the next rebase.
- *
- * Assertions 1–3 are covered incidentally: every fixture here has to produce a
- * valid stamp for the rest to be reached.
- *
- * The last block is the exception to the throwaway repository — it runs against
- * this repo's real manual and real allowlist, which is what makes removing an
- * allowlist entry visible as a failing test.
- *
- * The daily repo-checks run's report-manual-staleness.js files an issue on its FAIL,
- * and `npm run status` prints its drift line: loosen a case and a manual stale
- * against the roadmap reads as fresh, so sessions take strategy from it.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,7 +17,6 @@ let sha: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 
-/** The manual as the script sees it: stamp paragraph, then the corrections line. */
 const manual = (corrections: string, stampSha = sha, body = "") =>
 	[
 		"# Manual",
@@ -57,14 +34,12 @@ const manual = (corrections: string, stampSha = sha, body = "") =>
 const write = (corrections: string, stampSha?: string) =>
 	fs.writeFileSync(path.join(repo, MANUAL), manual(corrections, stampSha));
 
-/** A manual whose body is `body`, with a clean corrections log. */
 const writeBody = (body: string) =>
 	fs.writeFileSync(
 		path.join(repo, MANUAL),
 		manual("**Corrections since last sync:** none.", sha, body),
 	);
 
-/** The checker run under `env`, or this process's own where undefined. */
 const checkUnder = (env: NodeJS.ProcessEnv | undefined, ...extra: string[]) => {
 	const r = runInProcess(SCRIPT, [MANUAL, ROADMAP, ...extra], {
 		cwd: repo,
@@ -84,10 +59,7 @@ beforeEach(() => {
 	git("config", "user.email", "test@example.com");
 	git("config", "user.name", "test");
 	fs.mkdirSync(path.join(repo, "docs"));
-	// A root commit shows no diff to `git diff-tree`, so the anchor commit needs a
-	// parent for the script's "does this commit touch the roadmap?" check to see it.
 	git("commit", "-q", "--allow-empty", "-m", "root");
-	// The roadmap commit anchor must be a commit that actually touches the HTML.
 	fs.writeFileSync(
 		path.join(repo, ROADMAP),
 		"<p>v1.0 · updated 1 Jan 2026</p>\n",
@@ -120,8 +92,6 @@ describe("check-manual-freshness — corrections log", () => {
 		expect(r.out).toMatch(/corrections log:\s+1 entry line\(s\)/);
 	});
 
-	// The whole point of the source requirement: an uncited correction is a
-	// hand-edit wearing targeted-correction clothes.
 	it("fails an entry that cites no source", () => {
 		write(
 			[
@@ -134,8 +104,6 @@ describe("check-manual-freshness — corrections log", () => {
 		expect(r.out).toContain("cites no source");
 	});
 
-	// A targeted correction advances neither anchor, so a stamp that has moved
-	// past a live entry means a full sync ran and skipped the clear-down step.
 	it("fails when the stamp has advanced past a live entry", () => {
 		fs.appendFileSync(path.join(repo, ROADMAP), "<p>later</p>\n");
 		git("add", ROADMAP);
@@ -165,7 +133,6 @@ describe("check-manual-freshness — corrections log", () => {
 		expect(r.out).toContain("malformed");
 	});
 
-	// A blank line between a bold lead-in and its list is ordinary Markdown.
 	it("accepts a blank line between the header and its entries", () => {
 		write(
 			[
@@ -179,8 +146,6 @@ describe("check-manual-freshness — corrections log", () => {
 		expect(r.out).toMatch(/corrections log:\s+1 entry line\(s\)/);
 	});
 
-	// The log is the one under the stamp. A later line quoting the label — in a
-	// section explaining the mechanism, say — must not be parsed as the log.
 	it("reads the log under the stamp, not a later line quoting the label", () => {
 		fs.writeFileSync(
 			path.join(repo, MANUAL),
@@ -236,10 +201,6 @@ describe("check-manual-freshness — corrections log", () => {
 		expect(r.out).toContain("opens a list but carries no entries");
 	});
 
-	// check.js owns the one `SEVERITY:` line a run emits, and this checker is the
-	// only one of the fourteen that prints per-assertion detail as well. Prefixing
-	// that detail put `OK: stamp shape valid` inside a run that ended FAIL — the
-	// outcome vocabulary meaning two different things in one stream.
 	it("emits exactly one severity line, whatever the per-assertion state", () => {
 		write(
 			[
@@ -256,16 +217,9 @@ describe("check-manual-freshness — corrections log", () => {
 	});
 });
 
-/*
- * --notify is the SessionStart path (mantahostels#391). It exists so the 5-9 MINOR band —
- * a WARN, and so exit 0, which report-manual-staleness.js reads as fresh and
- * never files — reaches the session that would run manual-sync. Its stdout is
- * injected into every session that starts.
- */
 describe("check-manual-freshness — --notify", () => {
 	const notify = () => check("--notify");
 
-	/** Set the roadmap's version, the manual's stamp staying at v1.0. */
 	const roadmapAt = (version: string) => {
 		fs.writeFileSync(
 			path.join(repo, ROADMAP),
@@ -302,21 +256,13 @@ describe("check-manual-freshness — --notify", () => {
 		roadmapAt("v1.12");
 		write("**Corrections since last sync:** none.");
 		const r = notify();
-		// --notify exits 0 unconditionally (check.js), so the exit code says nothing
-		// about severity here; the printed line is the whole signal.
 		expect(r.status).toBe(0);
 		expect(r.out).toMatch(/^FAIL:/m);
 		expect(r.out).toMatch(/12 roadmap MINOR versions behind/);
 	});
 });
 
-/*
- * Assertion 5 (mantahostels#1149). The failure mode it exists to avoid is a FALSE POSITIVE:
- * this runs on a hook that is silent when the manual is current, so a token
- * wrongly read as a path would put noise into every session start.
- */
 describe("check-manual-freshness — cited paths", () => {
-	// `repo` is minted per test, so the path is read at call time, not here.
 	const allowlistPath = () => path.join(repo, "allowlist.json");
 	const allowlist = (entries: unknown[]) =>
 		fs.writeFileSync(allowlistPath(), JSON.stringify({ allowlist: entries }));
@@ -329,8 +275,6 @@ describe("check-manual-freshness — cited paths", () => {
 		expect(r.out).toMatch(
 			/cited paths:\s+1 miss\(es\): docs\/research\/gone\.md/,
 		);
-		// A stale citation is a documentation defect, not the sync routine
-		// stalling — WARN, so it never gates and never files an issue (mantahostels#391).
 		expect(r.out).toMatch(/^WARN:/m);
 		expect(r.status).toBe(0);
 	});

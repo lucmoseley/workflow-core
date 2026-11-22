@@ -1,13 +1,3 @@
-/*
- * build-state.js — where a build unit's state file lives (#4410).
- *
- * ONE FILE PER ISSUE, in the main checkout's `.claude/tmp/build-state/`, so a
- * successor session in another worktree finds it by the issue number alone,
- * without its predecessor's session id.
- * Rooted on `hook-block.js`'s `repoRoot()`, so the hook and a session's own
- * Bash call in a linked worktree name one file.
- */
-
 const path = require("node:path");
 const { repoRoot } = require("./hook-block.js");
 
@@ -19,10 +9,9 @@ function buildStateFile(issue) {
 }
 
 /**
- * A new unit's state, in the shape #4410 fixes.
  * @param {number} issue
  * @param {number|null} spec
- * @param {number} at epoch ms, the caller's `now()` (lib/check.js)
+ * @param {number} at
  */
 function newBuildState(issue, spec, at) {
 	return {

@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * test-file-timings.js records each test file's span from queued to end and
- * writes it once at the run's end, for run-vitest.js's run-cost report
- * (#1883). The clock is handed in, so every figure here is exact (§X9).
- *
- * Loosen a case and the report names a file at the wrong seconds, reads a
- * previous run's figures as this one's, or loses its record unannounced.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const { clear, createTimings } = require("./test-file-timings.js");
 
-/* test-file-timings.js's SLOWEST_KEPT. */
 const SLOWEST_KEPT = 10;
 
 let dir: string;

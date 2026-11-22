@@ -1,22 +1,3 @@
-/*
- * sensitive-paths.js — which declared sensitive paths a set of changed paths
- * touches (#1617, spec #1612 §The declaration). The one matcher the review
- * escalation's later tickets are to read: the pre-commit hold, the skill-load
- * tier block, the Stop nag and the push warning.
- *
- * GLOBS MATCH AS `git diff -- ':(glob)<glob>'` DOES, through
- * lib/pathspec-glob.js, whose semantics this file's suite checks against git.
- *
- * RUN AS A SCRIPT it prints the match as JSON for the config in the working
- * directory's own tree (`ownTree()`), or with
- * `--names` the matched areas' names one per line, exit 0; a config warning
- * reaches stderr and never changes the exit. `--narrowed-from <rev>`, which
- * repeats, adds each area the declaration narrows from its copy at <rev>;
- * exit 3 is any copy not reading, the match printed as far as it could be
- * read and the fault on stderr. Exit 2 is a config that will not read, or bad
- * usage. heldAreas is the pre-commit hold's read of the areas it holds.
- */
-
 const { readFdAll } = require("./read-fd.js");
 const { CONFIG_PATH, readConfig } = require("./workflow-core-config.js");
 const { globMatches } = require("./pathspec-glob.js");
@@ -27,13 +8,11 @@ const { writeFd } = require("./write-fd.js");
 
 /**
  * @typedef {Omit<SensitivePath, "globs"> & {paths: string[]}} TouchedSensitivePath
- *   `paths` are those its globs matched
- *
  * @typedef {object} Match
  * @property {"absent" | "none" | "declared"} state
- * @property {"standard" | "escalated"} tier `escalated` where any glob matched
+ * @property {"standard" | "escalated"} tier
  * @property {TouchedSensitivePath[]} matched
- * @property {Omit<SensitivePath, "globs">[]} globless every entry with no glob, whatever the paths, for a session to judge
+ * @property {Omit<SensitivePath, "globs">[]} globless
  */
 
 /** @param {SensitivePath[] | undefined} declared @returns {Match["state"]} */
@@ -43,9 +22,8 @@ function stateOf(declared) {
 }
 
 /**
- * Which declared areas `paths` touch.
- * @param {SensitivePath[] | undefined} declared the config's `sensitivePaths`
- * @param {string[]} paths repo-relative; a path given twice is matched once
+ * @param {SensitivePath[] | undefined} declared
+ * @param {string[]} paths
  * @returns {Match}
  */
 function matchSensitivePaths(declared, paths) {
@@ -71,12 +49,9 @@ function matchSensitivePaths(declared, paths) {
 }
 
 /**
- * The areas `before` declares that `after` removes or takes a glob from. A
- * reworded glob reads as one taken, as nothing here can compare what two globs
- * match.
  * @param {SensitivePath[] | undefined} before
  * @param {SensitivePath[] | undefined} after
- * @returns {string[]} names
+ * @returns {string[]}
  */
 function narrowedAreas(before, after) {
 	const globsAfter = new Map((after ?? []).map((a) => [a.name, a.globs]));
@@ -89,8 +64,6 @@ function narrowedAreas(before, after) {
 }
 
 /**
- * `match` plus each area `before` declares that `after` narrows, at the
- * escalated tier, where `paths` carry the declaration (#3905).
  * @param {Match} match
  * @param {SensitivePath[] | undefined} before
  * @param {SensitivePath[] | undefined} after
@@ -113,15 +86,8 @@ function withNarrowing(match, before, after, paths) {
 }
 
 /**
- * The areas the pre-commit hold holds `paths` under (#3905, #4512): those
- * either copy of the declaration matches, plus, where `paths` carry the
- * declaration itself, those `after` narrows from `before`, sorted and once
- * each. An `after` that will not read declares nothing, so a broken copy
- * reads as dropping every area; `fault` is then its read fault, for the
- * refusal to name. Not `judged` where `before` will not read, or `after`
- * will not and narrows nothing from `before`, `fault` saying why.
- * @param {() => SensitivePath[] | undefined} readBefore HEAD's declaration
- * @param {() => SensitivePath[] | undefined} readAfter the staged one
+ * @param {() => SensitivePath[] | undefined} readBefore
+ * @param {() => SensitivePath[] | undefined} readAfter
  * @param {string[]} paths
  * @returns {{ judged: boolean, areas: string[], fault: string }}
  */
@@ -154,9 +120,6 @@ function heldAreas(readBefore, readAfter, paths) {
 }
 
 /**
- * `--narrowed-from`'s copies in `root`: `befores`, one per revision in
- * `since` that reads; `after` at `to`, else the working copy, read as
- * declaring nothing where it will not parse, as the hold reads it (#3905).
  * @param {string} root
  * @param {string[]} since
  * @param {string | true | undefined} to
@@ -186,12 +149,6 @@ function readNarrowingCopies(root, since, to) {
 	return { befores, after, fault };
 }
 
-/**
- * The working directory's git top level, else the directory itself, as its
- * callers cd into the tree they diff: not `worktreeRoot()`, whose host answer
- * for a repository unrelated to the host would read the declaration at
- * revisions the caller took from its own tree (#4615).
- */
 function ownTree() {
 	const { gitTopLevel } = require("./host-root.js");
 	try {

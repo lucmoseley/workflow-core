@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * In-process cases for scripts/lib/shell-parse.js, the guard parser (#2784):
- * the lexer, split, cd tracking, variable expansion, redirects, write targets
- * and command walk.
- *
- * The core does no I/O, so a variable arrives through `vars`, and a directory
- * test through an `isDir` stub. The paths under /fx stand in for a repo's
- * directories: no case here touches the filesystem.
- *
- * A Command's `redirects`, `writeTargets` and `resolveWord` read the walk's
- * cwd and assignments AS THEY STAND, so every helper calls them inside the
- * callback.
- */
 
 import { describe, expect, it } from "vitest";
 import { parseFileAliases } from "./git-alias.js";
@@ -38,14 +25,12 @@ import {
 } from "./shell-parse.js";
 import { literal, QUOTED, unwrap } from "./shell-words.js";
 
-/* A fixture's directories (`dir`, `shared`, `wt`, `elsewhere`), as plain
- * strings. */
+const braced = (inner: string) => `$\{${inner}}`;
 const DIR = "/fx";
 const SHARED = `${DIR}/shared`;
 const WORKTREE = `${DIR}/wt`;
 const ELSEWHERE = `${DIR}/elsewhere`;
 
-/** The hook's environment: CLAUDE_PROJECT_DIR names the shared tree. */
 const ENV = { CLAUDE_PROJECT_DIR: SHARED };
 
 const ports = (over: Partial<WalkPorts> = {}): WalkPorts => ({
@@ -56,7 +41,6 @@ const ports = (over: Partial<WalkPorts> = {}): WalkPorts => ({
 	...over,
 });
 
-/** `fn`'s answer for each command the walk hands over, asked in the callback. */
 const walkMap = <T>(
 	command: string,
 	fn: (cmd: Command) => T,
@@ -67,24 +51,19 @@ const walkMap = <T>(
 	return out;
 };
 
-/** `printf '[%s]' "$@"`: each word bracketed, `[]` for none. */
 const bracket = (words: string[]) =>
 	words.length > 0 ? words.map((w) => `[${w}]`).join("") : "[]";
 
-/** The segment, then the command's words, one call per line. */
 const shown = (command: string, over: Partial<WalkPorts> = {}) =>
 	walkMap(command, (c) => `${bracket([c.segment, ...c.words])}\n`, over).join(
 		"",
 	);
 
-/** The words of each `git checkout` the walk hands over, for the
- * logical-line and heredoc cases. */
 const checkouts = (command: string) =>
 	walkMap(command, (c) => c.words).filter(
 		(w) => w[0] === "git" && w[1] === "checkout",
 	);
 
-/** Whether some `git checkout` the walk hands over carries the word `evil`. */
 const seesEvil = (command: string) =>
 	checkouts(command).some((w) => w.includes("evil"));
 
@@ -159,7 +138,6 @@ describe("normAbs (mantahostels#3315)", () => {
 });
 
 describe("literal (mantahostels#284)", () => {
-	/** literal over a string masked as parseCommand masks it. */
 	const read = (text: string) => {
 		const p = parseCommand(text);
 		return literal(p.masked, p.spans);
@@ -295,7 +273,6 @@ describe("literal (mantahostels#284)", () => {
 	});
 
 	it("leaves the spans it reads as they were", () => {
-		// Safe in a command substitution, the span count unmoved.
 		const p = parseCommand("-f query='a b'");
 		expect(literal(p.masked, p.spans).text).toBe("-f query=a b");
 		expect(p.spans).toHaveLength(1);
@@ -321,8 +298,6 @@ describe("walkCommands", () => {
 	});
 
 	it("strips leading environment assignments from the words", () => {
-		// The segment itself still carries it, because that is what a deny quotes
-		// back.
 		expect(shown("FOO=bar gh issue edit 12")).toBe(
 			"[FOO=bar gh issue edit 12][gh][issue][edit][12]\n",
 		);
@@ -348,7 +323,6 @@ describe("walkCommands", () => {
 	])(
 		"hands over the command behind a leading reserved word or exec: %s (%s, #1013)",
 		(command) => {
-			// The assignment must come through as well as the command.
 			const out = walkMap(
 				command,
 				(c) =>
@@ -363,7 +337,6 @@ describe("walkCommands", () => {
 	});
 
 	it("harvests no assignment from an exec -a name", () => {
-		// `-a` names argv[0], not a variable.
 		expect(
 			walkMap("exec -a FOO=1 gh x", (c) =>
 				c.resolveWord("$FOO") === null ? "UNSET" : "SET",
@@ -380,7 +353,6 @@ describe("walkCommands", () => {
 	});
 
 	it("blanks a quoted span before the callback sees it", () => {
-		// The blanking is what stops `echo "git checkout x"` reading as a checkout.
 		const out = shown(`gh issue close 3 -c "hi there"`);
 		expect(out).not.toContain("hi there");
 		expect(out).toContain("[-c]");
@@ -441,7 +413,6 @@ describe("walkCommands", () => {
 });
 
 describe("Command.cwd — the directory the walk's command runs in (mantahostels#3453)", () => {
-	/** `<command word>=<cwd>` per call, for a payload whose cwd is `from`. */
 	const cwds = (
 		command: string,
 		from: string | null = "/start",
@@ -487,11 +458,9 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 			"cd=/start",
 			"gh=/home/u/n",
 		]);
-		// A quoted span after the ~ keeps its `..` unfolded (#4611).
 		expect(
 			cwds('cd ~/"a/b"/.. && gh x', "/start", { HOME: "/home/u" }).at(-1),
 		).toBe("gh=/home/u/a/b/..");
-		// Quoted, the ~ is a directory of that name.
 		expect(cwds("cd '~' && gh x").at(-1)).toBe("gh=/start/~");
 	});
 
@@ -532,8 +501,6 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 	});
 
 	it("hands a nested walk's caller back its own cwd and assignments", () => {
-		// commit-form's listRewritten walks again from inside walkGit's
-		// callback (mantahostels#3327).
 		const parsed = parseCommand('D=/x; cd /a; gh x; cd "$D"; gh y');
 		const seen: string[] = [];
 		walkCommands(
@@ -740,7 +707,6 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 			"/a",
 			"/missing",
 		]);
-		/* An escaped `)` is no bracket ending the lifted run. */
 		expect(last('cd /usr | gh "$(echo a\\))"; gh y')).toEqual(["/start"]);
 		expect(last('cd /usr && gh "$(a)" && gh "$(b)" & gh y')).toEqual([
 			"/usr",
@@ -750,9 +716,7 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 			"/usr",
 			"/start",
 		]);
-		/* The list `&` closes holds no cd. */
 		expect(last('cd /usr; gh "$(x)" & gh y')).toEqual(["/usr"]);
-		/* A cd in a substitution reads its own run's joins, not the outer list's. */
 		expect(last('true && gh "$(cd /usr; x)" && gh y')).toEqual(["/start"]);
 	});
 
@@ -821,7 +785,6 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && echo \\& & gh y")).toEqual(both);
 		expect(last("cd /usr && echo \\; & gh y")).toEqual(both);
 		expect(last("cd /usr && echo \\| & gh y")).toEqual(both);
-		/* `\\` escapes itself, so the bracket after it is one. */
 		expect(last("(cd /usr; echo \\\\); gh y")).toEqual(["/start"]);
 	});
 });
@@ -865,7 +828,6 @@ describe("parseCommand — an escaped operator stays in its word (#5113)", () =>
 
 describe("Command.runs — each run with every directory it may stand in (#5075)", () => {
 	const isDir = (p: string) => !p.startsWith("/missing");
-	/** Each run's directories, for the last command the walk hands over. */
 	const runDirs = (command: string, vars: Record<string, string> = {}) =>
 		walkMap(command, (c) => c.runs().map((r) => r.dirs()), {
 			vars,
@@ -916,8 +878,6 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		).toEqual(["/usr", "/missing"]);
 	});
 
-	/* A wrapper's word reads the environment and the assignments before its
-	 * command as a `cd` does. */
 	it.each([
 		["env -C $X find . -x", [["/x"]]],
 		["env -C ~ find . -x", [["/h"]]],
@@ -930,8 +890,6 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		expect(runDirs(command, { X: "/x", HOME: "/h", PWD: "/p" })).toEqual(dirs);
 	});
 
-	/* An `export` assigns as a bare assignment does, and puts the name in the
-	 * environment a -c string's shell inherits. */
 	it.each([
 		["export D=/d; env -C $D gh x", [["/d"]]],
 		["export D=/d && env -C $D gh x", [["/d"]]],
@@ -1054,8 +1012,6 @@ describe("Command.runs — a -c string's cds stand its commands where the walk w
 });
 
 describe("Command.redirects — redirections out of the words and into a lookup (#1488)", () => {
-	/** Per command: its words, then one `fd kind target path` line per
-	 * redirection, the target read back through literal. */
 	const redirs = (command: string, bare = false, from = "/start") => {
 		const parsed = parseCommand(command);
 		let out = "";
@@ -1182,8 +1138,6 @@ describe("Command.redirects — redirections out of the words and into a lookup 
 });
 
 describe("Command.writeTargets — every write spelling the guard tier reads (#1827)", () => {
-	/** What `print` makes of each command's write targets, under a bare-redirect
-	 * walk from /start. */
 	const answer = (
 		print: (
 			rows: ReturnType<Command["writeTargets"]>,
@@ -1197,8 +1151,6 @@ describe("Command.writeTargets — every write spelling the guard tier reads (#1
 		}).join("");
 	};
 
-	/** One `mode target path` line per target, the target read back through
-	 * literal. */
 	const targets = (command: string) =>
 		answer(
 			(rows, spans) =>
@@ -1238,8 +1190,6 @@ describe("Command.writeTargets — every write spelling the guard tier reads (#1
 
 	it("resolves a target through the cwd and the command's own assignments, and leaves an unknown one empty", () => {
 		expect(targets("cd sub && tee x")).toBe("write x /start/sub/x\n");
-		// The slash sits inside the quoted span, out of reach of the join, so the
-		// text doubles it; the path folds it.
 		expect(targets('D=/d; cp a "$D/"')).toBe("write $D//a /d/a\n");
 		expect(targets('cp "$UNSET_FOR_TEST" /d/')).toBe(
 			"write /d/$UNSET_FOR_TEST /d/$UNSET_FOR_TEST\n",
@@ -1261,7 +1211,6 @@ describe("Command.writeTargets — every write spelling the guard tier reads (#1
 	])(
 		"names the route that read each row of %s (#2142)",
 		(command, expected) => {
-			// One line per row, or one empty.
 			const routes = answer(
 				(rows) =>
 					rows.length > 0 ? rows.map((r) => `${r.route}\n`).join("") : "\n",
@@ -1273,14 +1222,6 @@ describe("Command.writeTargets — every write spelling the guard tier reads (#1
 });
 
 describe("path resolution", () => {
-	/**
-	 * The tree each `git checkout` the walk hands over would be judged in,
-	 * walked from an unrelated directory so only the cd or the `-C` word can
-	 * reach the shared tree: the `-C` word (absolute in every case below)
-	 * through the command's own resolveWord, else the walk's cwd. null where it
-	 * will not resolve — the walk's "could not resolve the working tree"
-	 * record — and false for a command that is no checkout.
-	 */
 	const treeOf = (c: Command): string | null | false => {
 		const [head, flag, value, sub] = c.words;
 		if (head !== "git") return false;
@@ -1312,8 +1253,9 @@ describe("path resolution", () => {
 	});
 
 	it("expands the braced spelling as well as the bare name", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash braces, and the point of the case — rewriting them would test the bare form twice.
-		expect(tree('cd "${CLAUDE_PROJECT_DIR}" && git checkout x')).toBe(SHARED);
+		expect(tree(`cd "${braced("CLAUDE_PROJECT_DIR")}" && git checkout x`)).toBe(
+			SHARED,
+		);
 	});
 
 	it("expands a variable in git -C", () => {
@@ -1330,18 +1272,11 @@ describe("path resolution", () => {
 	});
 
 	it("resolves a linked worktree reached through a variable", () => {
-		// The tree resolves, so nothing is recorded. Exempting the worktree
-		// is #2785's tree scope.
 		expect(
 			tree('cd "$WFC_WT" && git checkout x', { ...ENV, WFC_WT: WORKTREE }),
 		).toBe(WORKTREE);
 	});
 
-	/*
-	 * Variables the command string assigns to ITSELF (mantahostels#208). The
-	 * assignment happens inside the Bash call, so the hook's own environment
-	 * never sees it.
-	 */
 	it("resolves a variable the command assigned on the same line (mantahostels#208)", () => {
 		expect(tree(`WT=${WORKTREE} && git -C "$WT" checkout x`)).toBe(WORKTREE);
 	});
@@ -1455,9 +1390,7 @@ describe("path resolution", () => {
 	});
 
 	it("refuses a brace-operator form even when the variable is set", () => {
-		const command =
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash braces, and the operator inside them is exactly what must not be expanded.
-			'cd "${CLAUDE_PROJECT_DIR:-/tmp}" && git checkout x';
+		const command = `cd "${braced("CLAUDE_PROJECT_DIR:-/tmp")}" && git checkout x`;
 		expect(tree(command)).toBeNull();
 	});
 
@@ -1491,27 +1424,17 @@ describe("path resolution", () => {
 	});
 
 	it("reads a quote nested in the other kind as literal, as shell does (#490)", () => {
-		// `"'a'"` is one double-quoted span holding two apostrophes, so the cd
-		// target is a directory named with them — never the shared tree.
 		expect(tree(`cd "'${SHARED}'" && git checkout x`)).toBe(
 			`${ELSEWHERE}/'${SHARED}'`,
 		);
 	});
 
 	it("leaves an unterminated quote alone", () => {
-		// A lone quote is not a span; every guard must see the same command shape.
 		expect(shown(`git commit -m "unterminated`)).toContain('["unterminated]');
 	});
 });
 
-/*
- * Logical lines (mantahostels#182). Physical lines are still the unit for
- * heredoc detection.
- */
 describe("logical lines (mantahostels#182)", () => {
-	/** The segments outside every bracket, a body's `"$(…)"` lifting its own
-	 * inside one (#3375); a bracket's line is the one `Parsed.segments`
-	 * documents. */
 	const lines = (command: string) => {
 		let depth = 0;
 		return parseCommand(command).segments.filter((seg) => {
@@ -1577,7 +1500,6 @@ describe("logical lines (mantahostels#182)", () => {
 	});
 
 	it("leaves a quote that never closes reading line by line", () => {
-		// A stray apostrophe is not a multi-line string.
 		expect(checkouts("echo it's fine\ngit checkout evil")).toEqual([
 			["git", "checkout", "evil"],
 		]);
@@ -1709,7 +1631,6 @@ describe("logical lines (mantahostels#182)", () => {
 		).toBe(true);
 	});
 
-	/** Each run the command's words hold, through unwrap, read literal. */
 	const runsOf = (command: string) => {
 		const spans: string[] = [];
 		return parseScript(command, spans).flatMap((cmd) =>
@@ -1751,8 +1672,6 @@ describe("logical lines (mantahostels#182)", () => {
 	});
 
 	it("falls back to per-line when a message quote never closes", () => {
-		// The fail-CLOSED net behind the message test: believing a message is open
-		// forever must not hide the commands inside it.
 		expect(seesEvil('git commit -m "Subject\n\ngit checkout -b evil')).toBe(
 			true,
 		);
@@ -1797,9 +1716,6 @@ describe("logical lines (mantahostels#182)", () => {
 			`gh issue create --title t --body "${`it's \\"q\\" line. `.repeat(2500)}" --label takes:triage`,
 		],
 	])("joins %s inside the bound (#510, #1916)", (_, command) => {
-		// Counted, not clocked (#1916): a join that re-lexes its pending lines
-		// goes quadratic and far over three passes of the text. Three passes is
-		// the bash parser's bound (#1916); these inputs measure 2.0–2.97 (#4134).
 		let lexed = 0;
 		const lex = Lexer.prototype.lex;
 		Lexer.prototype.lex = function (
@@ -1814,6 +1730,7 @@ describe("logical lines (mantahostels#182)", () => {
 		} finally {
 			Lexer.prototype.lex = lex;
 		}
+		// #4134 measured 2.0–2.97 passes over these inputs
 		expect(lexed).toBeLessThanOrEqual(3 * command.length);
 		const out = lines(command);
 		expect(out).toHaveLength(1);
@@ -1821,9 +1738,6 @@ describe("logical lines (mantahostels#182)", () => {
 	});
 
 	it("resolves a path argument after a joined line", () => {
-		// A join given up re-masks its lines one by one, so the attempt must leave
-		// no span behind — an off-by-one in the spans would make the cd
-		// unresolvable and fail open silently.
 		expect(
 			walkMap(
 				`echo "a\n\nb"\ncd "${SHARED}" && git checkout x`,
@@ -1834,11 +1748,6 @@ describe("logical lines (mantahostels#182)", () => {
 	});
 });
 
-/*
- * Heredoc openers (mantahostels#201). A heredoc body is dropped as data, so a
- * `<<` read as an opener where the shell reads none takes every command after
- * it out of the sight of every guard that walks a command string.
- */
 describe("heredoc openers (mantahostels#201)", () => {
 	it.each([
 		["a double-quoted string", 'echo "a\nb << EOF\nc"'],
@@ -1859,8 +1768,6 @@ describe("heredoc openers (mantahostels#201)", () => {
 	});
 
 	it("still opens one from a << outside any string", () => {
-		// The control for the four above: suppressing every opener would pass them
-		// while reading heredoc bodies as commands.
 		const out = shown("gh api <<EOF\ngit checkout evil\nEOF\ngh issue list");
 		expect(out).not.toContain("[evil]");
 		expect(out).toContain("[list]");
@@ -1889,7 +1796,6 @@ describe("heredoc openers (mantahostels#201)", () => {
 	});
 
 	it("invents no opener by closing up the text a span leaves behind", () => {
-		// `a<"x"<b` would read as `a<<b` if a blanked span became nothing at all.
 		expect(seesEvil('echo a<"x"<b\ngit checkout -b evil')).toBe(true);
 	});
 
@@ -1898,38 +1804,24 @@ describe("heredoc openers (mantahostels#201)", () => {
 	});
 });
 
-/*
- * ---------------------------------------------------------------------------
- * The git walk (#2785): the tree class is the fake over the /fx stand-ins, and
- * every fail-open record is a call to a `log` stub.
- * ---------------------------------------------------------------------------
- */
-
-/** A `.git` naming a gitdir that is gone: git cannot answer for it. */
 const BROKEN = `${DIR}/broken-repo`;
 
-/** The tree class of each /fx stand-in. */
 const treeClass: GitWalkPorts["treeClass"] = fakeTreeClassifier({
 	[SHARED]: "shared",
 	[WORKTREE]: "linked",
 	[BROKEN]: "unknown",
 });
 
-/** The record the walk writes for a checkout whose tree did not resolve. */
 const FAIL_OPEN =
 	"could not resolve the working tree for a git checkout — branch move allowed unchecked";
 
 interface GitWalkRun {
-	/** One `[segment][sub][tree][arg]…` line per call. */
 	out: string;
 	calls: GitCall[];
-	/** Each record's text. */
 	logged: string[];
-	/** Each record's detail, "" where it has none (#320). */
 	details: string[];
 }
 
-/** Every call a git walk made. */
 const walkGitWith = (
 	command: string,
 	opts: Partial<GitWalkOpts>,
@@ -1961,7 +1853,6 @@ const walkGitWith = (
 	return run;
 };
 
-/** Every call a git walk made, judged from `cwd`, the hook's own directory. */
 const walkGitRun = (
 	command: string,
 	opts: Partial<GitWalkOpts> = {},
@@ -2081,15 +1972,10 @@ describe("walkGit reads the repository and the subcommand git will use (#3997)",
 });
 
 describe("walkGit reads an alias wherever git defines one (#4009)", () => {
-	/* `git config -z --get-regexp ^alias\\.`'s output for the tree, as the host
-	 * reads it: `st` and `u` defined, `x.y` the subsection form, `bare` with no
-	 * value. */
 	const fileAliases =
 		"alias.st\nstatus -s\0alias.x.y\nlog\0alias.bare\0alias.u\n!x\0";
 	const unread = "unread alias";
 
-	/** `[sub, ...args]` of each call, `file` being the config files' aliases
-	 * and `null` where git could not read them, or each tree's. */
 	const subs = (
 		command: string,
 		file: string | null | ((dir: string) => string) = fileAliases,
@@ -2201,7 +2087,6 @@ describe('walkGit, scope "shared"', () => {
 
 	it("resolves the tree through a cd, and never calls back for the cd", () => {
 		const r = walkGitRun(`cd ${WORKTREE} && git checkout x`, {}, ELSEWHERE);
-		// The worktree is a linked one, so it is exempt.
 		expect(r.out).toBe("");
 		expect(r.logged).toEqual([]);
 	});
@@ -2236,7 +2121,6 @@ describe('walkGit, scope "shared"', () => {
 	});
 
 	it("records a fail-open when the tree cannot be resolved", () => {
-		// An unexpanded variable in the cd target.
 		const r = walkGitRun('cd "$SOMEWHERE" && git checkout x');
 		expect(r.out).toBe("");
 		expect(r.logged).toEqual([FAIL_OPEN]);
@@ -2281,7 +2165,6 @@ describe('walkGit, scope "shared"', () => {
 	});
 
 	it("seeds from the hook's own directory, not the payload's cwd", () => {
-		// walkGit seeds from fallbackCwd, where walkCommands reads `cwd` first.
 		const r = walkGitRun("git checkout x");
 		expect(r.out).toContain(`[checkout][${SHARED}]`);
 	});
@@ -2481,7 +2364,6 @@ describe('walkGit, scope "shared"', () => {
 			const X = { ...ENV, X: SHARED, HOME: SHARED };
 			const asked = (command: string) =>
 				trees(command, DIR, X, { treeClass: () => "shared" });
-			/* A tree spelt with a `$` is one the walk declines to judge. */
 			expect(asked(`env -C '$X' git checkout x`)).toEqual(lost);
 			expect(asked(`env -C '~' git checkout x`).trees).toEqual([`${DIR}/~`]);
 			expect(asked("env -C $X git checkout x").trees).toEqual([SHARED]);
@@ -2494,7 +2376,7 @@ describe('walkGit, scope "shared"', () => {
 			).toEqual([SHARED]);
 			expect(
 				trees(
-					`flock /l -c 'X=${SHARED}; export X; echo $X \${X}; cd "$X"; git checkout x'`,
+					`flock /l -c 'X=${SHARED}; export X; echo $X ${braced("X")}; cd "$X"; git checkout x'`,
 					DIR,
 					X,
 				).trees,
@@ -2564,11 +2446,6 @@ describe("path resolution through the git walk", () => {
 	const judged = (command: string, vars: Record<string, string> = ENV) =>
 		walkGitRun(command, { subs: ["checkout"] }, ELSEWHERE, vars);
 
-	/*
-	 * Asserts the REASON, not the number of records. A path that resolves to a
-	 * directory that happens not to exist also logs nothing — so counting alone
-	 * lets a refusal and a resolution look identical.
-	 */
 	const unresolved = (command: string, vars?: Record<string, string>) => {
 		const r = judged(command, vars);
 		expect(r.out).toBe("");
@@ -2585,8 +2462,10 @@ describe("path resolution through the git walk", () => {
 			"an environment variable in a cd target",
 			'cd "$CLAUDE_PROJECT_DIR" && git checkout x',
 		],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash braces, the braced spelling under test.
-		["the braced spelling", 'cd "${CLAUDE_PROJECT_DIR}" && git checkout x'],
+		[
+			"the braced spelling",
+			`cd "${braced("CLAUDE_PROJECT_DIR")}" && git checkout x`,
+		],
 		["a variable in git -C", 'git -C "$CLAUDE_PROJECT_DIR" checkout x'],
 		[
 			"an assignment naming the shared tree (mantahostels#208)",
@@ -2685,8 +2564,7 @@ describe("path resolution through the git walk", () => {
 		],
 		[
 			"refuses a brace-operator form even when the variable is set",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash braces, and the operator inside them is exactly what must not be expanded.
-			'cd "${CLAUDE_PROJECT_DIR:-/tmp}" && git checkout x',
+			`cd "${braced("CLAUDE_PROJECT_DIR:-/tmp")}" && git checkout x`,
 		],
 	])("%s, so the checkout is logged as allowed unchecked", (_, command) => {
 		unresolved(command);
@@ -2718,8 +2596,6 @@ describe("path resolution through the git walk", () => {
 	});
 
 	it("reads an empty path as the cwd, which is where the shell leaves it (#301)", () => {
-		// Judged from `elsewhere`, so staying put means no verdict — and no
-		// fail-open record either.
 		for (const command of ['cd "" && git checkout x', 'git -C "" checkout x']) {
 			const r = judged(command);
 			expect(r.out).toBe("");
@@ -2738,7 +2614,6 @@ describe("path resolution through the git walk", () => {
 		it("calls back with an empty tree instead of logging and skipping", () => {
 			const r = walkGitRun('git -C "$UNSET_301" checkout x', { strict: true });
 			expect(r.out).toContain("[checkout][]");
-			// Nothing logged: the callback owns the record now.
 			expect(r.logged).toEqual([]);
 		});
 
@@ -2825,8 +2700,6 @@ describe("the unresolved-tree record's fourth field (#320)", () => {
 	});
 
 	it("hands a tab or newline in the typed path over whole, for the log port to collapse", () => {
-		// The `log` port (lib/guard-entry.js) collapses both, so neither can
-		// shift a field or forge a record.
 		expect(details('git -C "a\tb$UNSET_320" checkout x')[0]).toMatch(
 			/^target=-C "a\tb\$UNSET_320" /,
 		);
@@ -2834,8 +2707,6 @@ describe("the unresolved-tree record's fourth field (#320)", () => {
 	});
 
 	it("writes a fixed <quoted> for a span index never recorded, and no \\x01", () => {
-		// No command reaches it: every sentinel the masker writes has its span
-		// recorded. #315 ruled the marker for that case anyway.
 		expect(asWritten(`a${QUOTED}7\x01b`, [])).toBe("a<quoted>b");
 	});
 
@@ -2873,7 +2744,6 @@ describe("the unresolved-tree record's fourth field (#320)", () => {
 });
 
 describe("--empty-unset reads a provably empty target as the cwd (#310, #325)", () => {
-	/** A walk opted in, through either scope, from `cwd`. */
 	const walkEmpty = (
 		command: string,
 		cwd: string,
@@ -2890,8 +2760,7 @@ describe("--empty-unset reads a provably empty target as the cwd (#310, #325)", 
 	it.each([
 		'cd "$UNSET_325" && git checkout x',
 		'git -C "$UNSET_325" checkout x',
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash braces, the braced spelling under test.
-		'git -C "${UNSET_325}" checkout x',
+		`git -C "${braced("UNSET_325")}" checkout x`,
 		'git -C "$UNSET_325$UNSET_325B" checkout x',
 	])("judges %s in the cwd, unlogged", (command) => {
 		const r = walkEmpty(command, SHARED);
@@ -2922,12 +2791,9 @@ describe("--empty-unset reads a provably empty target as the cwd (#310, #325)", 
 	);
 
 	it.each([
-		// Unquoted, an empty expansion drops the word: `cd` alone goes to $HOME.
 		["an unquoted reference", "cd $UNSET_325 && git checkout x"],
 		["a command substitution", 'cd "$(pwd)" && git checkout x'],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash braces, and the operator inside them is what must not be expanded.
-		["an operator form", 'git -C "${UNSET_325:-/x}" checkout x'],
-		// The harvest sees leading `NAME=` words and an export's, never a plain `declare`'s.
+		["an operator form", `git -C "${braced("UNSET_325:-/x")}" checkout x`],
 		[
 			"an assignment it cannot harvest",
 			'declare UNSET_325=/x; git -C "$UNSET_325" checkout x',
@@ -2942,7 +2808,6 @@ describe("--empty-unset reads a provably empty target as the cwd (#310, #325)", 
 		],
 		["a name assigned from $(…)", 'U=$(pwd); git -C "$U" checkout x'],
 		["a name set empty twice over", 'U=; U=; git -C "$U" checkout x'],
-		// Each can assign the name without the command text ever naming it.
 		["a `source` before it", 'source ./env.sh; git -C "$UNSET_325" checkout x'],
 		["a `.` before it", '. ./env.sh && git -C "$UNSET_325" checkout x'],
 		["an `eval` before it", 'eval "$X"; git -C "$UNSET_325" checkout x'],
@@ -2984,7 +2849,6 @@ describe("--empty-unset reads a provably empty target as the cwd (#310, #325)", 
 		expect(r.out).toContain(`[checkout][${SHARED}]`);
 	});
 
-	/** Each call's emptyVars, `<name>` each, `<>` for none. */
 	const names = (command: string, subs: string[]) =>
 		walkEmpty(command, SHARED, { subs }).calls.map(
 			(c) => c.emptyVars.map((n) => `<${n}>`).join("") || "<>",
@@ -3070,13 +2934,6 @@ describe("unsetText", () => {
 	});
 });
 
-/*
- * The guarded-head class test (mantahostels#2346, on mantahostels#1818's
- * near-miss): the logical-line join abandons only at a `git` or `gh` line, so
- * a quoted multi-line argument whose prose line begins with any other command
- * name stays one argument. Widen the list and an issue body reaches the deny
- * guards as commands. The heads are illustrative.
- */
 describe("the guarded heads stay git and gh (mantahostels#2346)", () => {
 	const Heads = ["cp", "mv", "sed", "perl", "cat", "grep", "awk", "rm", "tee"];
 
@@ -3091,9 +2948,6 @@ describe("the guarded heads stay git and gh (mantahostels#2346)", () => {
 
 const wordsOf = (command: string) => walkMap(command, (c) => c.words);
 
-/*
- * Mutation-run cases (#4134): each input tells the parser apart from a one-token change to it.
- */
 describe("the lexer reads quotes, comments and heredocs as bash does", () => {
 	it("comments out a word opening on #, and only to its line's end (#490, #510)", () => {
 		expect(wordsOf("# git checkout x\ngit status")).toEqual([

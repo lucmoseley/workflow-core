@@ -1,25 +1,14 @@
-/*
- * child-spawn.js — run a child to its end, and judge it (lib/child-failure.js).
- * Its own module so a program can take it without the load-time state of
- * lib/refill-tick.js (#3814); runTickChild is the bound refill-tick.js and
- * lib/resume-io.js run their children under.
- */
-
 const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { childVerdict } = require("./child-failure.js");
 
-/* Every refill-loop tick's child but the `/usage` probe; untraced. */
+// guess, #5529
 const CHILD_TIMEOUT_MS = 120 * 1000;
 
-/* claude-child.js's Chrome child; a guess over 91 s for one page and 222 s for
- * four. */
+// 91 s a page measured, #5529
 const CHROME_TIMEOUT_MS_A_PAGE = 300_000;
 
 /**
- * The child's status, output and error as text, unjudged; a spawn that throws
- * (a NUL in an argument, a vanished cwd) comes back as `error`. Each caller's
- * bound is its own, so `timeout` is required.
  * @param {string} file
  * @param {string[]} args
  * @param {import("node:child_process").SpawnSyncOptions & {timeout: number}} opts
@@ -45,7 +34,6 @@ function spawnRaw(file, args, opts) {
 }
 
 /**
- * spawnRaw's child with its verdict.
  * @param {string} file
  * @param {string[]} args
  * @param {import("node:child_process").SpawnSyncOptions & {timeout: number}} opts
@@ -56,7 +44,6 @@ function spawnChild(file, args, opts) {
 }
 
 /**
- * spawnChild under a refill-loop tick's bound.
  * @param {string} file
  * @param {string[]} args
  * @param {import("node:child_process").SpawnSyncOptions} [opts]

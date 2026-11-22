@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * check-husky-shim.js reports, from any worktree, a canonical checkout whose
- * husky shim has lost #3138's own-tree lookup, or whose core.hooksPath is off
- * the absolute pin, and names the rerun that restores it (#3172, #3819).
- *
- * The shim is the real one: husky writes it, as `npm install` does, and
- * scripts/install-hooks.js patches it, as `prepare` does.
- *
- * Loosen it and a stock shim sends every worktree's commit and push back to
- * the shared checkout's hook copy with nothing said (#3125).
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -100,7 +89,6 @@ describe("check-husky-shim.js (#3172)", () => {
 
 	it("fails a shim carrying neither lookup, naming the constant to update", () => {
 		husky();
-		// husky's copy is read-only where node_modules is a dependency store.
 		fs.rmSync(shim());
 		fs.writeFileSync(shim(), '#!/usr/bin/env sh\nsh -e "$0.hook"\n');
 		const r = check();

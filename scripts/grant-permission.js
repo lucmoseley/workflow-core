@@ -1,38 +1,4 @@
 #!/usr/bin/env node
-/*
- * grant-permission.js — adds one permission rule to a Claude Code settings
- * file's allow list, so a founder hand-over can grant a permission in one
- * pasted line rather than a walk through `/permissions` (#596, spec #525).
- *
- * Usage:
- *   node grant-permission.js '<rule>' [--project]
- *
- * <rule> is Claude Code's permission syntax: a tool name, optionally with a
- * parenthesised specifier — `Read`, `Bash(git status *)`,
- * `mcp__github__get_issue`, `WebFetch(domain:example.com)`.
- *
- * TARGET: the host repository's `.claude/settings.local.json` — the founder's
- * own, uncommitted file (#479 Q3) — or, with `--project`, the committed
- * `.claude/settings.json`. The host root is `lib/host-root.js`'s, so an
- * install writes into the adopter's tree, never the plugin cache.
- *
- * NO FAMILY (§N3): a founder-run writer, not a generator — exit 2 separates
- * a mistyped paste from a settings file needing a hand fix. 0 when the rule
- * was added or was already there (the file is then not rewritten); 1 when the
- * file will not parse or its `permissions`/`allow` is not the shape Claude
- * Code reads; 2 on a malformed rule or bad arguments. Every refusal leaves the
- * file untouched.
- *
- * THE REWRITE keeps every other key, the existing entries' order, the file's
- * indentation and its trailing newline, and lands by rename, so a reader never
- * sees half a file. Three things do not survive the JSON round-trip: comments
- * refuse as unparseable, a duplicate key collapses to its last value, and an
- * integer-like key such as `"10"` moves to the front of its object.
- *
- * NO FILE CLAIM (spec #525). `--project`'s target is tracked, so a session
- * holding it is not consulted and its unsaved edit can be written over — the
- * founder's paste has no session of its own to claim with.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -44,14 +10,10 @@ const { caught } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
 
 const LOCAL = ".claude/settings.local.json";
-/** The first indented line's leading whitespace. */
+const CLAUDE_CODE_INDENT = "  ";
 const INDENT = /\n([ \t]+)\S/;
 const PROJECT = ".claude/settings.json";
 
-/* A name as Claude Code spells tools, MCP ones and their wildcard included
- * (`mcp__srv__tool`, `mcp__srv__*`), then an optional non-blank specifier
- * running to the rule's last character. Parentheses inside it are not paired:
- * `Bash(echo ")")` is one specifier to the harness. */
 const RULE = /^[A-Za-z][A-Za-z0-9_*-]*(\([^\S\n]*\S[^\n]*\))?$/;
 
 const USAGE = `usage: grant-permission.js '<rule>' [--project]
@@ -59,15 +21,13 @@ const USAGE = `usage: grant-permission.js '<rule>' [--project]
   --project  write the committed .claude/settings.json instead of .claude/settings.local.json`;
 
 /**
- * The indent unit of the first indented line; none for a one-line file; two
- * spaces — Claude Code's own — for any other.
  * @param {string} text
  * @returns {string}
  */
 function detectIndent(text) {
 	if (!text.trimEnd().includes("\n")) return "";
 	const m = text.match(INDENT);
-	return m ? requiredGroup(m, 1, INDENT) : "  ";
+	return m ? requiredGroup(m, 1, INDENT) : CLAUDE_CODE_INDENT;
 }
 
 /**
@@ -79,9 +39,6 @@ function isPlainObject(v) {
 }
 
 /**
- * Whether git ignores `rel` under `root`. check-ignore exits 1 for "not
- * ignored" and 128 outside a repository; both mean nothing keeps the file out
- * of a commit.
  * @param {string} root
  * @param {string} rel
  * @returns {boolean}
@@ -111,15 +68,12 @@ function refuse(why, status) {
 }
 
 /**
- * The settings file's object and the layout its rewrite keeps — an absent file
- * reads as an empty object at Claude Code's two-space indent — or the exit
- * status of a refusal already said.
  * @param {string} file
  * @returns {{settings: Record<string, unknown>, indent: string, trailingNewline: boolean} | {exit: number}}
  */
 function readSettings(file) {
 	if (!fs.existsSync(file))
-		return { settings: {}, indent: "  ", trailingNewline: true };
+		return { settings: {}, indent: CLAUDE_CODE_INDENT, trailingNewline: true };
 	const text = fs.readFileSync(file, "utf8");
 	let parsed;
 	try {
@@ -146,7 +100,7 @@ function readSettings(file) {
 
 /**
  * @param {string[]} argv
- * @returns {number} exit status
+ * @returns {number}
  */
 function main(argv) {
 	const { flags, positionals } = parseOrExit(argv, {

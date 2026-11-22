@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The panel's terminal wiring (#3873, #3887, #3948, #4065): what it asks of the terminal on opening,
- * and what it hands back on each way out, over injected streams and a fake process,
- * so a signal costs no real process. Broken, a crash leaves the founder's pane raw
- * and in mouse mode, or the panel outlives its agents view.
- */
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,7 +20,6 @@ const STATUS = JSON.stringify({
 	burnMode: { on: false, disagreeing: [], error: null },
 });
 const noop = (): void => undefined;
-/* The row the newest frame draws `text` on, as a mouse report counts it. */
 const drawnRowOf = (t: { text: () => string }, text: string) => {
 	const frame = t.text().slice(t.text().lastIndexOf(`${ESC}[?25l`));
 	const before = frame.slice(0, frame.indexOf(text));
@@ -37,9 +30,7 @@ const drawnRowOf = (t: { text: () => string }, text: string) => {
 			?.match(/\d+/)?.[0],
 	);
 };
-/* ESCAPE_WAIT_MS in refill-panel-terminal.js. */
 const ESCAPE_WAIT_MS = 50;
-/* POLL_MS in refill-panel-terminal.js. */
 const POLL_MS = 3000;
 
 function terminal(over: object = {}) {
@@ -245,7 +236,6 @@ describe("the panel's terminal", () => {
 				},
 			});
 			await vi.advanceTimersByTimeAsync(0);
-			/* The field sits straight above its caption. */
 			const fieldRow = drawnRowOf(t, "Click to change it") - 1;
 			clickRow(t, fieldRow);
 			return { t, presses };
@@ -361,7 +351,6 @@ describe("the images' fallback", () => {
 	const Sixel = `${ESC}[?61;4;6;7c`;
 	const Cell = `${ESC}[6;20;10t`;
 	const HoverOn = `${ESC}[?1003h`;
-	/* The switch's row, as a mouse report counts it. */
 	const SwitchRow = 2;
 	const settled = async (t: ReturnType<typeof terminal>) => {
 		await vi.advanceTimersByTimeAsync(0);

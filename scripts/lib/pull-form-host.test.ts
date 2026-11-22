@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/pull-form-host.js (#2797): each production read the guard-pull-form core's
- * core asks of git and the landing config,
- * answered by a real throwaway repo, in process. What the core does with
- * each answer is lib/pull-form.test.ts's.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

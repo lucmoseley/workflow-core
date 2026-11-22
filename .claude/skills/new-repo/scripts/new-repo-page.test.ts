@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * docs/new-repo.md, the founder's page on /new-repo, quotes the script in three
- * places only — `/new-repo`, `--resume <name>` and the meaning of exits 0, 1
- * and 2 (#724) — and gives one line to each module. Each is held to what the
- * script or the config prints or states, so a change there fails here until the
- * page follows.
- *
- * The two driven cases stop in the script's input check, before preflight's
- * first `gh` call, so they need no stub and run in process (§X3).
- *
- * Loosen a case and the page can hand the founder a command, an exit meaning or
- * a module the script no longer has, with nothing else to catch it — the suite
- * is the only check on the page.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -31,7 +17,6 @@ afterEach(() => {
 		fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** Runs the script with HOME at a fresh folder, where `~/<name>` resolves. */
 function run(args: string[], seed?: (home: string) => void) {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "new-repo-page-"));
 	made.push(home);
@@ -90,8 +75,7 @@ describe("docs/new-repo.md quotes the script correctly", () => {
 	it("states each exit code's meaning as the script does", () => {
 		const header = fs
 			.readFileSync(SCRIPT, "utf8")
-			.replace(/\n \* ?/g, " ")
-			.match(/Exits 0 (.+?) \/ 1 (.+?) \/ 2 (.+?) \(#/);
+			.match(/^exits 0 (.+?) \/ 1 (.+?) \/ 2 (.+?)`;$/m);
 		expect(header).not.toBeNull();
 		const meanings = Object.fromEntries(
 			[...PAGE.matchAll(/^- \*\*([012])\*\* — (.+)$/gm)].map((m) => [
@@ -102,7 +86,6 @@ describe("docs/new-repo.md quotes the script correctly", () => {
 		expect(meanings).toEqual({
 			0: header?.[1],
 			1: header?.[2],
-			// The page speaks to the founder; the header speaks about them.
 			2: header?.[3].replace("the founder acts", "you act"),
 		});
 	});

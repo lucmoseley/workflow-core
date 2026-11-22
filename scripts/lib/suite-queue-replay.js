@@ -1,57 +1,3 @@
-/*
- * suite-queue-replay.js — what held each queued test run, for a firing of the
- * queue-wait alarm (report-suite-queue-wait.js) to answer by limb (#3060).
- * scripts/replay-suite-queue-wait.js is its command line.
- *
- * THE METHOD is #2909's and #3047's diagnosis: replay the suite gate at
- * TICK_S over the window and label each waiter-tick with the first limb that
- * held it, in the gate's order:
- *   count       a whole waiter while a whole run holds the slot (WHOLE_SUITE_MAX)
- *   memory      memwatch's MemAvailable under suiteRungMb(busy + own workers)
- *   fifo-whole  a whole waiter behind any older waiter
- *   fifo-part   a part waiter behind an older part waiter
- *   touched-claim  a named part waiter behind an older touched one's first
- *               claim, from #5367's commit, its exit `kind` telling the two
- *   admitted    another waiter between its `opened` exit and its spawn
- *   load        memwatch load1 at or over the load ceiling (#830)
- *   open        none of these: the replay cannot say what held it
- * A `tsc` exit is a waiter of its own class, on the type-check slot's gate
- * (lib/tsc-slot.js, #3163), which no suite limb reads:
- *   tsc-count   memwatch's process lines show TSC_MAX `tsc` running
- *   tsc-memory  memwatch's MemAvailable under the rung of the waiter's compiler
- *   tsc-fifo    an older `tsc` waiter, its queue being its own
- * then `admitted`, a suite's admission holding its turn (#3203), `peer-climb`,
- * and `open`:
- *   peer-climb  an older waiter in the other queue stamped `climbHeld`
- *               (`climbStampsAt`)
- * In either class, directly after the memory limb and ahead of the fifos:
- *   climb       MemAvailable clears the rung, but not less the climb the wait's
- *               exit line says held it (#3416, #3806)
- *   windows     memwatch's minute log shows Windows under its floor or
- *               paging hard (`windowsShortfall`), for at most one unbroken
- *               WINDOWS_MAX_HOLD_MS spell (#4850); between #4557's commit and
- *               #4850's, its win_avail_mb under the waiter's draw plus the
- *               margin
- * The fifos, `admitted` and `peer-climb` are the gate's own turn, `turnOf` in
- * lib/suite-queue.js, asked of each tick's waits (#4260).
- * Every later limb holding the same waiter-tick is tallied too, since one
- * cleared may leave the next binding
- * (docs/practice/capacity-planning-and-admission.md).
- * A waiter is an exit line's [at - waitS, at]. Each `opened` or `timeout`
- * exit is matched to its `.test-runs.jsonl` run: same session, spawned from
- * MATCH_BEFORE_S before the exit to MATCH_AFTER_S after it, nearest first.
- * The run's `wholeSlot` and `resolvedFiles` weigh it; a run logged before
- * those fields existed is weighed from its vitest marker's module count and
- * PRE_FIELDS_GATE. A non-vitest whole run holds the slot too (#5450): a whole
- * one on the ledger, and a gate run off `.gate-runs.jsonl`, but a short
- * gate's and one whose own vitest run the ledger holds.
- * An exit line's own `passed` (#3115) is tallied beside the modelled pass, as
- * what the waiters themselves recorded, and so is its `peerS` and a `peer`
- * limb at the bound (#4765) beside the modelled peer-climb limb. The opened part waits the memory limb
- * held at some tick, `tsc` waits left out, are the sample PART_PASS_AGE_MS is
- * derived from (#3361).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readJsonl } = require("./jsonl.js");
@@ -83,21 +29,17 @@ const {
 	windowsShortfall,
 } = require("./windows-memory");
 
-/* #2909's tick; the figures #3047 reports are at it. */
+// #2909 guess
 const TICK_S = 10;
-/* #3047's match window. */
+// #3047 guess
 const MATCH_BEFORE_S = 3;
 const MATCH_AFTER_S = 900;
-/* A vitest marker whose run is the same as a `.test-runs.jsonl` line where the
- * two start within this of each other: #2909's, chosen, not measured. */
+// #2909 guess
 const MARKER_MATCH_S = 3;
-/* A marker counting this share of the suite's modules ran the whole of it:
- * #2909's, a guess. */
+// #2909 guess
 const WHOLE_SHARE = 0.9;
-/* Logs are read this far past each end of the window, so a run spanning an
- * end is seen whole: an hour, past the 840 s suite ceiling (#2726). */
+// #2726 guess an hour, past the 840 s suite ceiling
 const PAD_MS = 3_600_000;
-/* Rows a ranked table prints: a display choice. */
 const TOP = 8;
 const LIMBS = [
 	"count",
@@ -115,46 +57,33 @@ const LIMBS = [
 	"load",
 	"open",
 ];
-/* The gate as it stood before a run's `.test-runs.jsonl` line carried
- * `wholeSlot` and `resolvedFiles` (from 25 Oct 2026 10:49 UTC): 3 files made a
- * whole run until #2931 (11:26 UTC that day), and a whole run ran 3 workers
- * until 24 Oct 07:27 UTC. */
+// #2931 measured: the gate's whole-run file and worker counts, and the commit times each changed at
 const PRE_FIELDS_GATE = {
 	wholeFilesUntil: Date.parse("2026-10-25T11:26:00Z"),
 	wholeFilesBefore: 3,
 	wholeWorkersUntil: Date.parse("2026-10-24T07:27:00Z"),
 	wholeWorkersBefore: 3,
 };
-/* #3058's commit, from which a part waiter passes an older one the memory
- * rung holds. */
+// #3058 measured: its commit's time
 const PART_PASS_FROM = Date.parse("2026-10-26T10:39:01Z");
-/* #5367's commit, from which a named part waiter skips every older part
- * waiter but one holding first claim, and a part waiter the gate charged its
- * own peak is held on that peak's rung. */
+// #5367 measured: its commit's time
 const PART_PEAK_FROM = Date.parse("2026-11-17T09:59:14Z");
-/* #4557's commit, from which the Windows-memory hold holds a launch. */
+// #4557 measured: its commit's time
 const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
-/* #4850's commit, from which that hold reads Windows' floor and paging in
- * place of each launch's draw. */
+// #4850 measured: its commit's time
 const WINDOWS_FLOOR_FROM = Date.parse("2026-11-10T01:48:21Z");
-/* #4782's commit, from which a part waiter passes an older one that hold
- * keeps out. */
+// #4782 measured: its commit's time
 const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:33:04Z");
-/* #4783's commit, from which a part waiter passes an older one held at rest
- * past PART_PASS_AGE_MS. */
+// #4783 measured: its commit's time
 const REST_PASS_FROM = Date.parse("2026-11-09T15:00:37Z");
-/* #4760's commit, from which a waiter yields to an older one in the other
- * queue stamped `climbHeld`. */
+// #4760 measured: its commit's time
 const PEER_CLIMB_FROM = Date.parse("2026-11-09T08:18:51Z");
-/* #5310's commit, from which a suite rung is clamped to MemTotal less
- * earlyoom's line. */
+// #5310 measured: its commit's time
 const RUNG_CLAMP_FROM = Date.parse("2026-11-17T02:16:39Z");
-/* #4799's commit, from which a wait keeps that stamp while it is charged. */
+// #4799 measured: its commit's time
 const CLIMB_KEEP_FROM = Date.parse("2026-11-09T15:36:27Z");
 const MEMWATCH_HEADER =
 	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
-/* A process line of a memwatch block: `PID RSS COMMAND`, or
- * `PID S %CPU RSS COMMAND`. */
 const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
 
 /**
@@ -176,19 +105,11 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   memTotalMb: number, loadCeiling: number | null }} Window
  */
 
-/**
- * What the reading could not read, printed with it so an all-zero reading off
- * a wrong `--markers` says so (#3060).
- * @typedef {{ absent: string[], unparsed: number }} Unread
- */
+/** @typedef {{ absent: string[], unparsed: number }} Unread */
 
 /**
- * Each parseable JSON line of `file` that `pre` passes, in file order. A
- * missing file is none and a line that will not parse is skipped, each
- * counted into `unread` (#3060).
- *
  * @param {string} file
- * @param {Unread} unread  accumulator: the absent file and the torn lines
+ * @param {Unread} unread
  * @param {(line: string) => boolean} [pre]
  * @returns {any[]}
  */
@@ -209,8 +130,6 @@ const isoAt = (s) => {
 };
 
 /**
- * The logs the replay reads, cut to what can touch [since, until].
- *
  * @param {{ markers: string, memwatch: string[], minuteLog: string, since: number, until: number }} o
  * @returns {Logs}
  */
@@ -268,8 +187,6 @@ function readLogs({ markers, memwatch, minuteLog, since, until }) {
 }
 
 /**
- * A whole gate run off its `.gate-runs.jsonl` line (lib/gate-seat.js), its
- * span `runS` before its end.
  * @param {import("./gate-seat.js").GateRun} g
  * @returns {Run}
  */
@@ -289,7 +206,6 @@ const gateRunOf = (g) => {
 };
 
 /**
- * Whether gate run `g` started run `r`: its session's, inside its span.
  * @param {Run} g
  * @param {Run} r
  */
@@ -297,11 +213,8 @@ const isRunOfGate = (g, r) =>
 	r.session !== null && r.session === g.session && g.st <= r.st && r.en <= g.en;
 
 /**
- * memwatch's minute log's Windows free memory, keyed by minute, from each
- * row in [lo, hi] whose reading the gate would take as fresh.
- *
  * @param {string} file
- * @param {Unread} unread  accumulator: the absent log and the torn lines
+ * @param {Unread} unread
  * @param {number} lo
  * @param {number} hi
  */
@@ -321,11 +234,8 @@ function readWindowsMinutes(file, unread, lo, hi) {
 }
 
 /**
- * memwatch's block headers, with the `tsc` its process lines show running,
- * keyed by local minute; the last block in a minute stands for it.
- *
  * @param {string[]} files
- * @param {Unread} unread  accumulator: the absent logs
+ * @param {Unread} unread
  */
 function readMemwatch(files, unread) {
 	/** @type {Map<number, MemBlock>} */
@@ -339,14 +249,12 @@ function readMemwatch(files, unread) {
 }
 
 /**
- * @param {string} text  one memwatch log
- * @param {Map<number, MemBlock>} mem  accumulator: its blocks are added
+ * @param {string} text
+ * @param {Map<number, MemBlock>} mem
  */
 function parseMemwatch(text, mem) {
 	/** @type {MemBlock | null} */
 	let block = null;
-	/* A block lists its top processes twice, by RSS and by CPU, so a `tsc` is
-	 * counted once by its pid. */
 	/** @type {Set<number>} */
 	const tscPids = new Set();
 	for (const line of text.split("\n")) {
@@ -369,11 +277,8 @@ function parseMemwatch(text, mem) {
 }
 
 /**
- * Each session's vitest marker starts and module counts, from both stores and
- * their archives.
- *
  * @param {string} markers
- * @param {Unread} unread  accumulator: the absent stores and torn lines
+ * @param {Unread} unread
  * @param {(line: string) => boolean} inRange
  */
 function readModuleCounts(markers, unread, inRange) {
@@ -397,9 +302,6 @@ function readModuleCounts(markers, unread, inRange) {
 }
 
 /**
- * Each run, those with no `resolvedFiles` given their vitest marker's module
- * counts.
- *
  * @param {Run[]} runs
  * @param {ReturnType<typeof readModuleCounts>} bySession
  * @returns {Run[]}
@@ -415,11 +317,7 @@ function withModuleCounts(runs, bySession) {
 	});
 }
 
-/**
- * A run's test files: logged, or a marker's module count, where a count of
- * most of the suite stands for the whole of it.
- * @param {Run} r
- */
+/** @param {Run} r */
 function filesOf(r) {
 	if (r.resolvedFiles !== null) return r.resolvedFiles;
 	if (r.modulesRun === null) return null;
@@ -431,13 +329,8 @@ function filesOf(r) {
 /** @param {Run} r */
 function isWhole(r) {
 	if (r.kind === "lander") return true;
-	/* The kinds that launch the whole suite unless their files resolve fewer:
-	 * the replay's reading of #2909's logs, not a list the gate keeps. */
 	const sessionWhole = ["bare", "full", "adopt"].includes(r.kind);
 	if (r.wholeSlot !== null) {
-		/* A run killed before its files resolved logs `wholeSlot: false`;
-		 * #3047's replay counts a killed whole-kind run whole. Residual: a
-		 * killed part `changed` run is counted whole too. */
 		if (
 			r.verdict === "killed" &&
 			!r.wholeSlot &&
@@ -478,10 +371,7 @@ function sizeOf(n) {
 	return `, ${WHOLE_SLOT_FILES}+ files`;
 }
 
-/**
- * Who a whole run is, for the count limb's holder table.
- * @param {Run} r
- */
+/** @param {Run} r */
 function holderOf(r) {
 	if (r.kind !== "lander")
 		return `${r.session === null ? "sessionless " : ""}\`${r.kind}\`${sizeOf(filesOf(r))}`;
@@ -499,7 +389,6 @@ const addNested = (m, k, limb) => {
 };
 
 /**
- * The part of a wait inside the window, or null where none is.
  * @param {{ st: number, en: number }} e
  * @param {Window} w
  * @returns {[number, number] | null}
@@ -511,8 +400,10 @@ function spanIn(e, w) {
 }
 
 /**
- * Seconds of [a, b) inside [from, to).
- * @param {number} a @param {number} b @param {number} from @param {number} to
+ * @param {number} a
+ * @param {number} b
+ * @param {number} from
+ * @param {number} to
  */
 const clip = (a, b, from, to) =>
 	Math.max(0, Math.min(b, to) - Math.max(a, from)) / 1000;
@@ -524,13 +415,10 @@ const clip = (a, b, from, to) =>
  */
 
 /**
- * The nearest unmatched run of `e`'s session spawned from MATCH_BEFORE_S
- * before its exit to MATCH_AFTER_S after it, and seconds from exit to spawn.
- *
  * @param {Exit} e
  * @param {number} en
  * @param {WeighedRun[]} runs
- * @param {Set<WeighedRun>} used  accumulator: the matched run is added
+ * @param {Set<WeighedRun>} used
  */
 function matchRun(e, en, runs, used) {
 	/** @type {{ run: WeighedRun, gap: number } | null} */
@@ -550,16 +438,11 @@ function matchRun(e, en, runs, used) {
 	return best;
 }
 
-/**
- * Whether `e` launched a suite run the replay can match: an `opened` or
- * `timeout` suite wait, a `tsc` running no suite.
- * @param {Exit} e
- */
+/** @param {Exit} e */
 const isMatchable = (e) =>
 	e.kind !== "tsc" && (e.reason === "opened" || e.reason === "timeout");
 
 /**
- * Whole or part: `slotFree`, then the matched run, then the kind, marked `?`.
  * @param {Exit} e
  * @param {WeighedRun | null} run
  */
@@ -573,9 +456,6 @@ function classOf(e, run) {
 }
 
 /**
- * The queued waits whose exit was logged by `w.until` and whose wait touches
- * the window, as the alarm counts them, each matched to its run.
- *
  * @param {Exit[]} queued
  * @param {WeighedRun[]} runs
  * @returns {Waiter[]}
@@ -613,10 +493,6 @@ function toWaiters(queued, runs) {
  */
 
 /**
- * The gate's state at `t`: the whole runs, the busy workers, memwatch's block
- * for that minute, who waits, the era, and the waiters stamped `climbHeld`
- * (`climbStampsAt`), from `stamped`, the last tick's.
- *
  * @param {number} t
  * @param {{ runs: WeighedRun[], waiters: Waiter[], admitting: Waiter[],
  *   mem: Logs["mem"], windows: Logs["windows"], eraOf: (t: number) => string }} s
@@ -641,11 +517,6 @@ function tickAt(t, s, w, stamped) {
 }
 
 /**
- * The waiters `tick` stamps `climbHeld`, as `waitForGate` does: of those the
- * count limb, read first, leaves to the rest, each the climb limb holds, and
- * from #4799's commit each `stamped` on the last tick that `isClimbKept` in
- * lib/suite-queue.js keeps.
- *
  * @param {GateTick} tick
  * @param {Window} w
  * @param {Set<Waiter>} stamped
@@ -657,7 +528,6 @@ function climbStampsAt(tick, w, stamped) {
 		if (isMemoryHeld(e, tick, w)) return "memory";
 		return isWindowsHeld(e, tick) ? "windows" : undefined;
 	};
-	/* The other queue's launches alone charge a wait (`readPeerClimbMb`). */
 	const isCharged = (/** @type {Waiter} */ e) =>
 		e.kind === "tsc" ? tick.busy > 0 : (tick.mem?.tsc ?? 0) > 0;
 	const isKept = (/** @type {Waiter} */ e) =>
@@ -696,7 +566,7 @@ function buildTallies() {
 /**
  * @param {Tick} tick
  * @param {Window} w
- * @param {ReturnType<typeof buildTallies>} acc  accumulator: the tick is added
+ * @param {ReturnType<typeof buildTallies>} acc
  */
 function tallyTick(tick, w, acc) {
 	if (tick.whole.length >= WHOLE_SUITE_MAX) acc.slotBusy += TICK_S;
@@ -716,8 +586,6 @@ function tallyTick(tick, w, acc) {
 }
 
 /**
- * The count limb: `TSC_MAX` `tsc` running for a `tsc` waiter, a whole run in
- * the slot for a whole one.
  * @param {Waiter} e
  * @param {GateTick} tick
  */
@@ -752,13 +620,7 @@ function rungOf(e, tick, w) {
 		: rung;
 }
 
-/**
- * The peak a type-check waiter is charged: its exit line's, that of the
- * compiler it ran; on a line from before #4892, whose type-checks all ran on
- * TypeScript 5, 5's. Residual: a killed line from #4892 to #4921 carries no
- * charge, and a 7 waiter's is read as 5's.
- * @param {Waiter} e
- */
+/** @param {Waiter} e */
 const tscChargeOf = (e) => e.chargeMb ?? chargeMb({ kind: "tsc", major: 5 });
 
 /**
@@ -773,16 +635,10 @@ function isClimbHeld(e, tick, w) {
 	return available >= rung && available - e.climbMb < rung;
 }
 
-/* When each waiter's current spell of the Windows-memory hold began, for
- * #4850's maximum hold. Ticks reach a waiter in time order. */
 /** @type {WeakMap<Waiter, number>} */
 const windowsSpell = new WeakMap();
 
 /**
- * The Windows-memory hold: from #4850, Windows under its floor or paging
- * hard, until one unbroken spell has held `e` for WINDOWS_MAX_HOLD_MS; from
- * #4557 until then, Windows' free memory under what `e` would draw, its own
- * workers' share of the rung or a `tsc`'s peak, plus the margin.
  * @param {Waiter} e
  * @param {GateTick} tick
  */
@@ -805,7 +661,6 @@ function isWindowsHeld(e, tick) {
 }
 
 /**
- * What stamps a marker `memoryHeld`.
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -814,23 +669,13 @@ const isRungHeld = (e, tick, w) =>
 	isMemoryHeld(e, tick, w) || isClimbHeld(e, tick, w);
 
 /**
- * The gate's own turn for `e` at this tick (`turnOf`, #4260), from a snapshot
- * of the waits the logs show: the older waiters in its queue, none yet
- * spawned, each stamped `memoryHeld` where its rung holds it, `restHeld`
- * where its memory rung does at a tick no test worker runs, else
- * `windowsHeld` where the Windows hold does; another waiter between its
- * `opened` exit and its spawn; and an older waiter in the other queue the
- * tick stamps `climbHeld`. #3058's pass is on from its commit, the Windows
- * stamp from #4782's, the rest stamp from #4783's, and the named lane from
- * #5367's, a part waiter's lane its exit's `lane`, else read off its `kind`
- * as run-vitest.js joins it (`laneOf`).
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
  */
 function turnReasonsOf(e, tick, w) {
 	const tsc = e.kind === "tsc";
-	/* Each queue's turn reads its own directory alone (#3163). */
+	// #3163
 	const ahead = tick.waiting
 		.filter((o) => o !== e && o.st < e.st && (o.kind === "tsc") === tsc)
 		.map((o) => ({
@@ -877,16 +722,12 @@ function turnReasonsOf(e, tick, w) {
 }
 
 /**
- * A suite waiter's part-suite lane (#5367): the one its exit line records,
- * else its kind's, a line logged before the lane was.
  * @param {Waiter} e
  * @returns {import("./suite-queue.js").PartKind}
  */
 const laneOf = (e) => e.lane ?? partLaneOf(partKindOf(e.kind));
 
 /**
- * Every limb that holds `e` at this tick, in the gate's order; `open` where
- * none does.
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -918,12 +759,9 @@ function limbsOf(e, tick, w) {
 }
 
 /**
- * Share a count-held tick between the whole runs holding the slot, by who
- * they are and by launching session.
- *
  * @param {WeighedRun[]} whole
- * @param {Map<string, number>} holder  accumulator: the tick's share by holder
- * @param {Map<string, number>} holderSession  accumulator: by session
+ * @param {Map<string, number>} holder
+ * @param {Map<string, number>} holderSession
  */
 function shareSlot(whole, holder, holderSession) {
 	for (const r of whole) {
@@ -933,10 +771,7 @@ function shareSlot(whole, holder, holderSession) {
 	}
 }
 
-/**
- * The eras, the window's start opening the first where it falls before them.
- * @param {Window} w
- */
+/** @param {Window} w */
 function erasOf(w) {
 	const eras = [...w.eras].sort((a, b) => a.from - b.from);
 	if ((eras[0]?.from ?? w.since) > w.since)
@@ -945,9 +780,6 @@ function erasOf(w) {
 }
 
 /**
- * Per session: the waits summed, and their union, the gap being waits one
- * session ran side by side.
- *
  * @param {Waiter[]} waiters
  * @param {Window} w
  * @param {Map<string, Map<string, number>>} limbSession
@@ -997,9 +829,6 @@ function peakOf(waiters, w) {
 }
 
 /**
- * The exits touching `w`, the runs weighed, and the waits the replay tallies:
- * every touching exit but a skipped one, matched to its run.
- *
  * @param {Logs} logs
  * @param {Pick<Window, "since" | "until">} w
  */
@@ -1020,9 +849,6 @@ function waitersOf(logs, w) {
 }
 
 /**
- * Each wait the replay tallies over `w`, as its span in epoch ms, for a
- * reading that sets queued time beside other figures (throughput-readout.js).
- *
  * @param {Logs} logs
  * @param {Pick<Window, "since" | "until">} w
  * @returns {{ st: number, en: number }[]}
@@ -1031,8 +857,6 @@ const waitSpans = (logs, w) =>
 	waitersOf(logs, w).waiters.map((e) => ({ st: e.st, en: e.en }));
 
 /**
- * The replay over `w`. Every figure is in seconds.
- *
  * @param {Logs} logs
  * @param {Window} w
  */
@@ -1111,13 +935,7 @@ function replay(logs, w) {
 	};
 }
 
-/**
- * What the waits' own exit lines record of the `peer` limb (#4765), `tsc`
- * waits and suite waits apart: the waits it held, their seconds on it, and
- * those it still held at the queue's wait bound. Absent from every line before #4765.
- *
- * @param {Waiter[]} waiters
- */
+/** @param {Waiter[]} waiters */
 function recordedPeers(waiters) {
 	/** @param {Waiter[]} ws */
 	const sum = (ws) => ({
@@ -1135,7 +953,6 @@ function recordedPeers(waiters) {
 const hours = (s) => (s / 3600).toFixed(2);
 
 /**
- * #3047's quantile rule.
  * @param {number[]} sorted
  * @param {number} p
  */
@@ -1146,8 +963,6 @@ const quantileOf = (sorted, p) =>
 const byValue = (m) => [...m].sort((a, b) => b[1] - a[1]);
 
 /**
- * The reading, as markdown a diagnosis comment can quote.
- *
  * @param {ReturnType<typeof replay>} r
  * @param {Window} w
  */

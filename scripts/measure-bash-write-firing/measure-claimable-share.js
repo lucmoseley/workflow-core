@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-bash-write-firing/measure-claimable-share.js — the false-warn rate
- * again, over the firings that could ever DELIVER a line (mantahostels#2854).
- *
- *   node <this file> <all-fires.jsonl> <marginal-fires.jsonl>
- *
- * A candidate under `.claude/tmp/` is scratch — gitignored, swept at 24 hours,
- * and no session ever claims one — so a firing whose only candidates sit there
- * costs nothing however the arm reads it. Dropping those is what separates
- * mantahostels#2854's two denominators: the whole corpus, and the marginal firings the arm
- * adds over the nine routes alone.
- */
 const fs = require("node:fs");
 const { writeFd } = require("../lib/write-fd.js");
 const {

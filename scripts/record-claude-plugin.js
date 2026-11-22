@@ -1,39 +1,4 @@
 #!/usr/bin/env node
-/*
- * record-claude-plugin.js — re-records the installed harness's answers to the
- * `claude plugin` calls init-adopter.js and upgrade.js make, as
- * scripts/fixtures/claude-plugin.json, which lib/claude-plugin-fake.ts serves
- * and lib/claude-plugin.contract.test.ts holds it to (#5146):
- *   - the exits of `marketplace add` of a directory source (this checkout),
- *     `install`, `update` and `details`, as lib/materialise-plugin.js and
- *     lib/core-context-cost.js run them;
- *   - `details`' Always-on line, which lib/core-context-cost.js parses;
- *   - a refusal, `marketplace add` of a path that does not exist: its exit and
- *     its stderr's first line, which materialise-plugin.js's installFailure
- *     reads;
- *   - the shape of the two side effects the adopter's state is read from: the
- *     `extraKnownMarketplaces.<name>.source` object `marketplace add` writes
- *     into the project's .claude/settings.json, and the row `install` writes
- *     into `<configDir>/plugins/installed_plugins.json`, with that file's
- *     top-level `version`.
- * Paths, shas, timestamps and the plugin's version are replaced with
- * synthetic values (§G7.3).
- *
- * Unrecorded: a url source's `marketplace add` (`<url>#<ref>`). The CLI
- * takes only owner/repo, https:// or a path, refusing file://, so recording
- * one clones a published marketplace.
- *
- * The calls write a plugin registry, and `install` clones the plugin's url
- * source (.claude-plugin/marketplace.json) from GitHub. Each runs in a
- * throwaway CLAUDE_CONFIG_DIR and a throwaway git project, through
- * materialise-plugin.js's own `run`, so
- * stdin is closed (`update` with stdin open waits on it). Run it by hand
- * after a harness upgrade, then
- * `npm run test -- scripts/lib/claude-plugin.contract.test.ts`.
- *
- * In no family (§N3): it writes a fixture, but runs the real `claude` to do
- * it, so it is no `generate-*` a gate may run.
- */
 
 const fs = require("node:fs");
 const os = require("node:os");
@@ -62,7 +27,6 @@ const SYNTHETIC = {
 };
 
 /**
- * A refusal's status and stderr read off `run`'s throw, any other throw (a timeout, no binary) rethrown.
  * @param {{config: string, project: string}} at
  * @param {string[]} args
  */
@@ -80,8 +44,6 @@ function claude(at, args) {
 }
 
 /**
- * `value` with every machine value of this run swapped for its synthetic
- * one, its keys and types kept.
  * @param {unknown} value
  * @param {[string, string][]} swaps
  * @returns {unknown}
@@ -112,7 +74,6 @@ function main() {
 	const base = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "record-claude-plugin-")),
 	);
-	/* The checkout this is run from, its plugin the directory source. */
 	const core = sessionTree({ cwd: process.cwd() });
 	if (!core) throw new Error("run it from a checkout of workflow-core");
 	const at = {

@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The seam's three halves answer byte for byte alike (#14).
- *
- * `lib/arbiter-core.js`'s `stateDir()` slugs `hostRoot()` and `lib/guard-log.sh`
- * slugs `gr_root`, so a divergence relocates live state silently. The halves
- * are spawned rather than in-process because the shell and Python halves have
- * no in-process seam, and the JS half run in-process would share this worker's
- * cwd and memo.
- *
- * The `.` case runs from a working directory reached through a symlink: from a
- * physical one, the dereference it tests would be the identity.
- *
- * Loosen a case and a divergence lands unseen: the guards' fail-open records
- * go to a project directory check-guard-errors.js never reads, so every
- * guard that failed open looks as if it never had. This test, red in CI, is
- * what catches it.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -66,7 +49,6 @@ afterAll(() => {
 	if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/** `undefined` unsets CLAUDE_PROJECT_DIR; a string sets it, the empty one included. */
 const envWith = (declared: string | undefined): NodeJS.ProcessEnv => {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
@@ -91,7 +73,6 @@ const readAnswers = (cwd: string, declared: string | undefined) => {
 	const sh = spawnSync(
 		"bash",
 		["-c", `source ${shellQuote(path.join(LIB, "guard-root.sh"))}; gr_root`],
-		/* bash's $PWD is the logical path it inherits, so hand it the spelling. */
 		{ ...opts, env: { ...opts.env, PWD: cwd } },
 	);
 	const py = spawnSync(
@@ -112,8 +93,6 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 		["a symlinked CLAUDE_PROJECT_DIR", () => [tmp, repoLink], () => repo],
 		["a trailing slash", () => [tmp, `${repo}/`], () => repo],
 		[
-			/* Only here does the strip itself act: an existing path loses its
-			 * slash to the dereference anyway. */
 			"a trailing slash on a path that does not exist",
 			() => [tmp, `${path.join(tmp, "absent")}/`],
 			() => path.join(tmp, "absent"),
@@ -140,8 +119,6 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 			() => path.join(repo, "file.txt"),
 		],
 		[
-			/* A session launched in a linked worktree hands its hooks this
-			 * (#4493); the Bash tool, none — the two must name one store. */
 			"a CLAUDE_PROJECT_DIR naming a linked worktree",
 			() => [linked, linked],
 			() => repo,
@@ -157,7 +134,6 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 			() => repo,
 		],
 		[
-			/* The Bash tool sets no CLAUDE_PROJECT_DIR (#4482). */
 			"no CLAUDE_PROJECT_DIR, from a linked worktree",
 			() => [linked, undefined],
 			() => repo,
@@ -187,8 +163,6 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 });
 
 describe("sessionTree() and gr_session_tree agree (#4271)", () => {
-	/** Each half's answer for a payload `cwd` (none where undefined), run from
-	 * `from` with CLAUDE_PROJECT_DIR on the main checkout; "" for no tree. */
 	const readTrees = (from: string, cwd: string | undefined) => {
 		const opts = { cwd: from, env: envWith(repo), encoding: "utf8" as const };
 		const input = cwd === undefined ? {} : { cwd };

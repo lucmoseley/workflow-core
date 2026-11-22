@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/lost-verdict.js, guard-lost-verdict.js's core (#1575, ported at
- * #2799), in process: a suite run whose output lost its pass/fail line is
- * handed that run's verdict and TEST LOG path.
- *
- * The run record and the logs are real files in the case's temp directory,
- * read through lib/lost-verdict-host.js's production ports; only the clock
- * is injected.
- *
- * Loosen the "which log" cases and a session is handed a neighbour's verdict
- * as its own; loosen the silent ones and a shown verdict draws a second copy.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,8 +14,6 @@ const { buildHostPorts } = require("./lost-verdict-host.js") as {
 };
 
 const SID = "sess-1575";
-/* The call's length as the payload reports it; a run recorded inside it
- * starts `offset` ms after the call began. */
 const CALL_MS = 60_000;
 const NOW = Date.parse("2026-10-25T12:00:00Z");
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -55,7 +40,6 @@ function writeLog(name: string, text: string) {
 	return file;
 }
 
-/** A finished run in `session`'s record, `offset` ms after the call began. */
 function record(session: string, log: string, pid = 4242, offset = 5000) {
 	const began = NOW - CALL_MS;
 	recordRun(project, session, {
@@ -125,7 +109,6 @@ describe("a suite run whose verdict was cut from its output", () => {
 		expect(said).toContain("Tests  1 failed | 3 passed (4)");
 		expect(said).toContain("FAIL  scripts/b.test.ts > fails on purpose");
 		expect(said).toContain("FILTERED RUN — ran 4 of 9 tests");
-		// Only a banner line's first line, and none of vitest's other summary lines.
 		expect(said).not.toContain("The certificate is keyed");
 		expect(said).not.toContain("Duration");
 		expect(said).toContain(`TEST LOG: ${path.relative(project, log)}`);

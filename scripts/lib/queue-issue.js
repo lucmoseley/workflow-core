@@ -1,19 +1,3 @@
-/*
- * queue-issue.js — the one open issue the landing queue keeps per condition
- * (#2406, #2692): the refill loop's stall ticket, the queue lander's
- * base-red ticket (lib/base-red-issue.js). Each is
- * `urgent` and `bug`, so the refill loop launches them first (#2694, ruled at
- * #2672). Found among the open issues by its fixed title,
- * filed through file-issue.js where none is open, else its body refreshed. The
- * body carries its own `Standalone:` line, so file-issue.js adds none and a
- * refresh of an unchanged condition finds it current. A refresh replaces the
- * whole body, carrying over a `**Gated on:**` line a session wrote there
- * and its `**Gate basis:**` (#3636, #5419).
- *
- * Residual: a retitled open issue is not found, and the next filing files a
- * second.
- */
-
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { parseErrorText } = require("./caught.js");
@@ -35,27 +19,24 @@ const LABELS = [URGENT_LABEL, "bug", takesLabel("implement"), "kind:ticket"];
 /**
  * @typedef {object} QueueIssueDeps
  * @property {(title: string) =>
- *   {number: number, labels: string[], body: string}|null} openIssue the open
- *   issue with exactly `title`, throwing where the tracker cannot be read
+ *   {number: number, labels: string[], body: string}|null} openIssue
  * @property {(title: string) => {number: number, title: string}[]} similar
  * @property {(args: string[], input: string) =>
  *   import("./fix-ticket.js").Ran} fileIssue
- * @property {(n: number, body: string) => string} refresh replaces the
- *   issue's body where it differs, returning what it did
+ * @property {(n: number, body: string) => string} refresh
  * @property {(n: number, labels: string[]) => void} addLabels
  * @property {(n: number, comment: string) => void} close
  * @typedef {object} QueueIssue
  * @property {string} title
- * @property {string} standalone why it sits under no parent
- * @property {string} noun what a refresh line calls it
- * @property {string} subject what a refusal names it filed for
- * @property {string} origin the filing flow, file-issue.js's `--origin`
+ * @property {string} standalone
+ * @property {string} noun
+ * @property {string} subject
+ * @property {string} origin
  */
 
 /**
  * @param {QueueIssueDeps} deps
- * @returns {(issue: QueueIssue, body: string) => string} files or refreshes
- *   the issue, returning a line naming it
+ * @returns {(issue: QueueIssue, body: string) => string}
  */
 function queueIssueFiler({
 	openIssue,
@@ -93,10 +74,7 @@ function queueIssueFiler({
 /**
  * @param {Pick<QueueIssueDeps, "openIssue" | "refresh" | "close">} deps
  * @returns {(title: string, criterion: string,
- *   why: (body: string) => string|null) => number|null} closes the open
- *   issue titled `title` with the comment `why` makes of its body, its
- *   `criterion` ticked first, returning its number, or null where none is open or
- *   `why` gives none
+ *   why: (body: string) => string|null) => number|null}
  */
 function queueIssueCloser({ openIssue, refresh, close }) {
 	return (title, criterion, why) => {
@@ -110,10 +88,6 @@ function queueIssueCloser({ openIssue, refresh, close }) {
 }
 
 /**
- * A failed edit reports rather than throws, as the body has already landed.
- *
- * Residual: the issue stays without the missing labels until the next refresh.
- *
  * @param {{number: number, labels: string[]}} found
  * @param {QueueIssueDeps["addLabels"]} addLabels
  */
@@ -174,8 +148,6 @@ function liveQueueDeps(root) {
 			try {
 				return similarTitles(repo(), title).found;
 			} catch {
-				/* file-issue.js runs the same check itself and refuses on it
-				 * (#2406). */
 				return [];
 			}
 		},

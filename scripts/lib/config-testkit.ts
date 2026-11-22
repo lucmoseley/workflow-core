@@ -1,15 +1,8 @@
-/*
- * A throwaway host root holding `.claude/workflow-core.json`, pointed at by
- * CLAUDE_PROJECT_DIR for the file's tests, so a script under test reads a
- * fixture config rather than whatever repo the session runs in.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, vi } from "vitest";
 
-/** Registers beforeAll/beforeEach/afterAll; returns a getter for the host root. */
 export function withHostConfig(config: Record<string, unknown>): () => string {
 	let root = "";
 	beforeAll(() => {

@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the duplicate gate's per-member drop (mantahostels#1337): a set with one
- * member already dispatched launches the rest, naming the one it dropped.
- *
- * The fixture is scripts/lib/dispatch-sessions-testkit.ts's. The dispatch's
- * cases are split by subject across dispatch-sessions.test.ts (the advisor),
- * -launch (model, burn mode, launcher binary, seat, auth, usage), -allowance,
- * -duplicate, -drop (a set with one member already dispatched), -reread (the
- * per-member re-read, CPU holds, stagger, roster remedy), -overflow, -bridge
- * and -bridge-budget (the interop-bridge probe), so the forks pool runs them
- * side by side and no file holds the suite to its own length (#2413, #4299). The case that breaks the interop-probe library lives in
- * dispatch-sessions-probe-load.test.ts, as it links every file in scripts/lib
- * and so makes its file a reader of each one (#2423).
- *
- * Loosen a test here and a set launches an issue already dispatched, or one
- * dispatched member refuses the whole set.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -27,7 +7,6 @@ import { dispatchFixture } from "./lib/dispatch-sessions-testkit";
 const fx = dispatchFixture();
 const { stubClaude, readArgvLines, runCore, run } = fx;
 
-/* Refusal is per member, not per set — the follow-up to mantahostels#1337. */
 describe("a set with one member already dispatched", () => {
 	const ledgerFile = () =>
 		path.join(

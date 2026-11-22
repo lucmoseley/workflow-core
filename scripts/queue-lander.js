@@ -22,9 +22,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const say = (line) => writeFd(1, `${line}\n`);
 
 /**
- * The run the command line asks for: the canonical checkout and the
- * `--tester` command, where one is given. Else its exit code, its reason
- * printed.
  * @param {string[]} argv
  * @returns {{root: string, tester: string|undefined} | number}
  */
@@ -62,9 +59,6 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 /**
- * A fresh lander on the code `sha` carries, started as any push starts one
- * once the checkout carries each superseded file as `sha` does. Its output
- * joins this run's.
  * @param {string} root
  * @param {string|undefined} tester
  * @param {import("./lib/lander-code.js").RunCode} code

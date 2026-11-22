@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Runs the worktree-model measurement (#4253) end to end over a real git
- * repository: a bare origin, a main checkout cloned from it, and one seat
- * holding a transcript. The readings themselves are pinned in
- * lib/worktree-model-reading.test.ts; this file crosses what that cannot —
- * the git reads, the transcript walk and the exit codes — once each, since a
- * reader that misreads git turns every check into a false PASS (§X11).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -70,7 +62,6 @@ function writeTranscript(at: number) {
 		path.join(dir, "s1.jsonl"),
 		`${records.map((r) => JSON.stringify(r)).join("\n")}\n`,
 	);
-	/* The CLI reads only transcripts written since the window opened. */
 	const when = new Date(at + 1500);
 	fs.utimesSync(path.join(dir, "s1.jsonl"), when, when);
 }
@@ -90,7 +81,6 @@ beforeEach(() => {
 	git(tmp, "clone", "-q", origin, main);
 	git(main, "config", "user.email", "t@t");
 	git(main, "config", "user.name", "t");
-	/* After the clone's own writes, which no levelling pass made. */
 	since = new Date(Date.now() + 1000).toISOString();
 	writeTranscript(Date.parse(since) + 1000);
 });
@@ -114,8 +104,6 @@ it("passes a main checkout no session wrote, and times its Edit", async () => {
 
 it("fails on a commit made on main, and says so on stderr", async () => {
 	await new Promise((resolve) => setTimeout(resolve, 2100));
-	/* Crosses the real clock: reflog times are whole seconds, so the commit
-	 * must fall after `since`. */
 	fs.writeFileSync(path.join(main, "a.txt"), "v2\n");
 	git(main, "commit", "-qam", "on main");
 

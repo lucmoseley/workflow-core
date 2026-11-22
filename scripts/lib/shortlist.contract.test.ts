@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/shortlist-fake.ts, the shortlist the refill loop's run tests stub,
- * to what the real pick-next.js prints under `--json`, run in process against
- * lib/pick-next-testkit.ts's stub gh (#4358). Breaking it lets a key
- * pick-next renames or drops pass the run tests while the loop reads it
- * missing live.
- */
 import { describe, expect, it } from "vitest";
 import { installPickNextHarness, run } from "./pick-next-testkit";
 import { buildShortlist, buildShortlistRow } from "./shortlist-fake";
@@ -14,7 +7,6 @@ const { parseShortlist } = require("./shortlist-parse.js");
 
 installPickNextHarness();
 
-/** A value's JSON kind, null kept apart from object. */
 const kindOf = (v: unknown) => {
 	if (v === null) return "null";
 	return Array.isArray(v) ? "array" : typeof v;

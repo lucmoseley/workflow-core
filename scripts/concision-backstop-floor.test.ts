@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the backstop's /implement floor (mantahostels#2769), the in-session
- * pass (mantahostels#1143), the Husky hooks as code (mantahostels#2779) and the
- * closing steps it hands over (#2031). Loosen a case and an /implement
- * session or a hook-only change ends with no review, or the nag stops naming
- * the steps it owes. The fixture: concision-backstop.test.ts's header.
- *
- * Over base §X8 (5)'s 10 s budget: each case spawns the hook for real, 0.3-0.5 s
- * a run (#4308's profile), and the logic under test is bash with no in-process seam.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -36,13 +26,7 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 backstopFixture();
 
-/*
- * mantahostels#2769: /implement's injected closing steps make the two-axis review mandatory
- * at any diff size, so the churn floor that prices a review against its ~2M
- * tokens (mantahostels#1071) is the wrong question for those sessions.
- */
 describe("the /implement floor — mantahostels#2769", () => {
-	/** A code change far below CODE_THRESHOLD, attributed to this session. */
 	const tinyCode = (sid = ME) => {
 		write("scripts/tiny.ts", "export const x = 1;\n");
 		record("scripts/tiny.ts", sid);
@@ -63,8 +47,6 @@ describe("the /implement floor — mantahostels#2769", () => {
 		expect(run("stop")).toBeNull();
 	});
 
-	// Keyed to the session, not the machine: a parallel session's /implement
-	// must not lower this one's floor.
 	it("reads only its own session's marker", () => {
 		implementRan(OTHER);
 		tinyCode();
@@ -72,8 +54,6 @@ describe("the /implement floor — mantahostels#2769", () => {
 		expect(run("stop")).toBeNull();
 	});
 
-	// Below the floor is the only case the marker changes; above it the nag
-	// fires either way, and says nothing about /implement when none ran.
 	it("still nags a large change, without claiming /implement ran", () => {
 		write("scripts/mine.ts", `${BIG_CODE}\n`);
 		record("scripts/mine.ts", ME);
@@ -83,7 +63,6 @@ describe("the /implement floor — mantahostels#2769", () => {
 		expect(reason).not.toContain("(#2769)");
 	});
 
-	// The prose signal has its own threshold, which mantahostels#2769 did not touch.
 	it("does not lower the prose threshold", () => {
 		implementRan();
 		write("docs/mine.md", "three short words\n");
@@ -92,14 +71,7 @@ describe("the /implement floor — mantahostels#2769", () => {
 		expect(run("stop")).toBeNull();
 	});
 
-	// The marker path is a contract between two scripts, and a session's floor
-	// silently returns to 20 if they drift. Pinned by running the injector for
-	// real rather than by matching its source.
 	it("reads the marker inject-tracker-docs.js actually writes", () => {
-		// A sid the sanitiser actually changes, so a drift between the two
-		// spellings of it fails here rather than passing on a plain uuid.
-		// Dots, not a slash: the base and nag marker filenames use the sid RAW,
-		// so a slash makes them unwritable paths and the backstop exits silent.
 		const sid = "sid.with.dots";
 		const injected = runInProcess(
 			path.resolve(__dirname, "inject-tracker-docs.js"),
@@ -110,15 +82,9 @@ describe("the /implement floor — mantahostels#2769", () => {
 					hook_event_name: "UserPromptSubmit",
 					prompt: "/implement 2769",
 				}),
-				// Its `takes:` read (#1164) stays off the network. CLAUDE_CONFIG_DIR
-				// restates env()'s for check-guard-test-isolation.js, which reads
-				// only this call site.
 				env: { ...env(), CLAUDE_CONFIG_DIR: cfg, WFC_GH: "false" },
 			},
 		);
-		// The injector reserves the marker only once it has text to emit, and
-		// exits 0 silently on a dedupe hit — so an unasserted
-		// run would leave a drift to fail below, blaming the backstop.
 		expect(injected.status).toBe(0);
 		expect(injected.stdout).not.toBe("");
 
@@ -128,8 +94,6 @@ describe("the /implement floor — mantahostels#2769", () => {
 		expect(run("stop", sid)).toContain("(mantahostels#2769)");
 	});
 
-	// The floor is the only thing mantahostels#2769 moved: a review that ran still clears
-	// the signal, and pass_valid gates ahead of the threshold either way.
 	it("stays silent when a valid review marker already covers the change", () => {
 		implementRan();
 		tinyCode();
@@ -144,14 +108,10 @@ describe("the /implement floor — mantahostels#2769", () => {
 		expect(run("stop")).toBeNull();
 	});
 
-	// A changed file can report zero churn — a mode-only chmod — and mantahostels#2769
-	// asked for "any tracked code-file change (however small)".
 	it("nags a mode-only change, which reports no churn at all", () => {
 		write("scripts/moded.sh", "echo hi\n");
 		git("add", "scripts/moded.sh");
 		git("commit", "-qm", "a script to chmod", "--", "scripts/moded.sh");
-		// Re-record the base ON that commit, or the diff carries the file's
-		// whole body and the case is no longer a zero-churn one.
 		fs.rmSync(path.join(markersDir(), `.concision-base-${ME}`));
 		run("start");
 		fs.chmodSync(path.join(repo, "scripts/moded.sh"), 0o755);
@@ -170,26 +130,17 @@ describe("the /implement floor — mantahostels#2769", () => {
 	});
 });
 
-/*
- * mantahostels#1143 reverted mantahostels#1097: the pass this nag demands runs in the session that
- * wrote the prose, and mantahostels#1099's marker line recording the route survives it. The
- * nag string is the only place a session learns the instruction or the route to
- * write, so both are pinned here.
- */
 describe("the pass runs in this session — mantahostels#1143, mantahostels#1099", () => {
-	/** The base the hook recorded at SessionStart, which markers must match. */
 	const readRecordedBase = () =>
 		fs
 			.readFileSync(path.join(markersDir(), `.concision-base-${ME}`), "utf8")
 			.trim();
 
-	/** Writes a pass marker as a session's step 6 would. */
 	const marker = (name: string, body: string) => {
 		fs.mkdirSync(markersDir(), { recursive: true });
 		fs.writeFileSync(path.join(markersDir(), name), body);
 	};
 
-	/** Trips the prose signal: enough attributed words to clear THRESHOLD. */
 	const wroteProse = () => {
 		write("docs/mine.md", PARAGRAPH);
 		record("docs/mine.md", ME);
@@ -203,8 +154,6 @@ describe("the pass runs in this session — mantahostels#1143, mantahostels#1099
 			`Run the concision-pass skill with fixed point ${readRecordedBase()}`,
 		);
 		expect(reason).not.toContain("Do NOT run that pass in this session");
-		// The dispatch wording mantahostels#1097 added, and only it: `Agent` is still live
-		// in the code signal's own nag, which mantahostels#1143 did not touch.
 		expect(reason).not.toContain("dispatch it (#1097)");
 	});
 
@@ -227,8 +176,6 @@ describe("the pass runs in this session — mantahostels#1143, mantahostels#1099
 		);
 	});
 
-	// route= is instrumentation, not a gate: a pass that ran is not worth
-	// re-running because it recorded its route badly, or not at all.
 	it("accepts a marker carrying route=, and one still missing it", () => {
 		wroteProse();
 		marker(
@@ -252,11 +199,6 @@ describe("the pass runs in this session — mantahostels#1143, mantahostels#1099
 	});
 });
 
-/*
- * mantahostels#2779: the Husky hooks carry no extension, so CODE's extension globs
- * missed them and a hook-only change fell through to PROSE — no review nag at
- * any threshold.
- */
 describe("the Husky hooks are code — mantahostels#2779", () => {
 	const hookNames = [
 		"pre-commit",
@@ -268,7 +210,6 @@ describe("the Husky hooks are code — mantahostels#2779", () => {
 		"pre-push",
 	];
 
-	/** 31 lines and 182 words: past CODE_THRESHOLD and past THRESHOLD alike. */
 	const hookBody = [
 		"#!/usr/bin/env sh",
 		...Array.from(
@@ -282,9 +223,6 @@ describe("the Husky hooks are code — mantahostels#2779", () => {
 		record(`.husky/${name}`, ME);
 	};
 
-	// PROSE is CODE's complement, so a hook added to one and not removed from the
-	// other is billed twice, on two signals. The pathspec is a directory, so a
-	// seventh hook is covered on the day it is added.
 	it.each(hookNames)("counts .husky/%s as code, and not as prose", (name) => {
 		wroteHook(name);
 
@@ -294,15 +232,10 @@ describe("the Husky hooks are code — mantahostels#2779", () => {
 		expect(reason).not.toContain("words of prose");
 	});
 
-	// Every case above writes a hook the fixture does not track, which drives the
-	// untracked limb alone. Editing a hook that already exists — the ticket's own
-	// case — goes through the tracked diff instead, a separate pathspec use.
 	it("counts an edit to a hook already committed", () => {
 		write(".husky/pre-commit", "#!/usr/bin/env sh\necho one\n");
 		git("add", ".husky/pre-commit");
 		git("commit", "-qm", "a hook to edit", "--", ".husky/pre-commit");
-		// Re-record the base ON that commit, or the hook is new to the diff and
-		// the case is an untracked one again.
 		fs.rmSync(path.join(markersDir(), `.concision-base-${ME}`));
 		run("start");
 		wroteHook("pre-commit");
@@ -313,7 +246,6 @@ describe("the Husky hooks are code — mantahostels#2779", () => {
 		expect(reason).not.toContain("words of prose");
 	});
 
-	// The exclusion is scoped to .husky, not to extensionless files at large.
 	it("leaves an extensionless file elsewhere on the prose signal", () => {
 		write("docs/RUNBOOK", PARAGRAPH);
 		record("docs/RUNBOOK", ME);
@@ -322,7 +254,6 @@ describe("the Husky hooks are code — mantahostels#2779", () => {
 	});
 });
 
-/* Each rule fragment's text, as rule_text prints it. */
 const closingSteps = fs
 	.readFileSync(
 		path.resolve(__dirname, "../docs/agents/rules/implement-closing-steps.txt"),

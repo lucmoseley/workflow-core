@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/gate-judge.js's judgedBasisFaults and readGateWrite, the three write
- * routes' one entry, driven with a body and the in-process `judge` fake
- * (lib/gate-judge-fake.ts `judgeServe`). Broken, a wait or basis the model faults
- * files unrefused, or a write the model cannot read is refused.
- *
- * The boundary set runs the fake `claude` binary through the real launcher:
- * a real fd (§X3), the judge piping its prompt to the launcher, which hands
- * the child its own stdin; the launcher's kill of a hang (a timeout); and its
- * refusal to launch on an API key.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -44,7 +33,6 @@ type Plan = Exclude<JudgeFakePlan, { hang: true }>;
 
 let dir = "";
 let log = "";
-/* Each prompt the in-process fake was sent. */
 let prompts: string[] = [];
 
 beforeEach(() => {
@@ -335,8 +323,6 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	});
 
 	it("falls back on a hang past the bound", () => {
-		/* The launcher's real kill, not a faked one: the fallback reason is read
-		 * off its timeout exit. */
 		const r = launch(Body, { hang: true }, { boundMs: 500 });
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toBe("the judge did not answer within 0.5 s");
@@ -474,11 +460,9 @@ describe("an edit", () => {
 });
 
 describe("the edit rule, one for both readings (#5080)", () => {
-	/* A wait the patterns read, and a basis deriving its window. */
 	const Read = "Read it a week after it lands.";
 	const Derived =
 		"**Gate basis:** a week: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
-	/* A wait only the model reads. */
 	const Modelled = "Wait a week before starting.";
 
 	it("refuses deleting the basis under an old wait, as a create would", () => {
@@ -800,7 +784,6 @@ describe("a write route words the cited follow (#5007)", () => {
 		};
 	const graphqlCalls = () =>
 		ghCalls.filter(([cmd, sub]) => cmd === "api" && sub === "graphql").length;
-	/* `cited` omitted, the read is lib/gh.js's own, for the boundary case. */
 	const write = (
 		body: string,
 		cited: GhRun | undefined,

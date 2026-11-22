@@ -1,29 +1,3 @@
-/*
- * suite-ceiling.js — the hard wall-clock ceiling on every suite run (#2680,
- * ruled at #2667: no run may hold the machine past 15 minutes, whatever its
- * load or output).
- *
- * THE CLOCK STARTS AT SPAWN. A run's queue wait, load hold and worktree setup
- * hold no worker, so they are not charged.
- *
- * LOWER ONLY. The environment may shorten the ceiling, for tests and short
- * runs. A value above it, zero or not a number leaves it in force.
- *
- * THE WHOLE GROUP. The run's process leads a group of its own, and the kill
- * signals the group, so every worker it forked dies with it. A group still
- * live when this process exits is killed with it. RESIDUAL: a SIGKILL to this
- * process cannot be caught and leaves the group running; the deadline file is
- * there for bg-run's backstop (#2704) to reach that case.
- *
- * AND EVERY PROCESS CARRYING THE RUN'S MARK (#3494). A worker that left the
- * group, its parent dead, is reparented to init where no group kill reaches
- * it.
- *
- * AND, FROM OUTSIDE, EVERY PROCESS OF A RUN WHOSE WRAPPER IS GONE (#3528). A
- * SIGKILLed wrapper runs no handler, so each run's processes carry its pid
- * too, and `sweepOrphanedRuns` kills those whose owner no longer exists.
- */
-
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught, ignoreFailure } = require("./caught.js");
@@ -33,50 +7,22 @@ const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot, REAL_PROC } = require("./proc-root.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 
-/* 14 minutes, so bg-run's backstop at the deadline plus 60 s still lands
- * inside #2667's 15. */
+// #2667
 const CEILING_MS = 840_000;
-/* The target a green lone whole suite is held to (#2729): under 180 s, the
- * founder's ruling of 24 and 27 Oct 2026. The ceiling is the backstop, this is
- * the aim. `check-suite-margin.js` reports a run at or over it and refuses
- * nothing. RESIDUAL: a sharded whole suite (`fullTestShards`) is judged shard
- * by shard against this same figure, so shards each under it do not show the
- * lone whole suite is. */
+// #2729
 const TARGET_MS = 180_000;
-/* The limit one test file's CI time is held to, judged on its median over the
- * last `SWEEPS_JUDGED` sweeps (`scripts/lib/file-ci-time.js`): delegated on
- * #4283, 4 Nov 2026, resting on Bazel's 60 s short-test timeout and the
- * TARGET_MS above. `check-file-ci-time.js` fails the scheduled sweep on a
- * file over it (#4293). */
+// #4283
 const FILE_LIMIT_MS = 60_000;
-/* #3290's bench on #2729: 1,497 s of file and setup time summed over a 343 s
- * run at 5 workers. */
+// #3290 measured 1,497 s of file and setup time summed over a 343 s run at 5 workers
 const BENCH_WORKERS = 5;
 const PACKING = 1497 / (343 * BENCH_WORKERS);
-/* The summed per-file time a whole suite at TARGET_MS holds (#5137, ruled on
- * #5131): 786 worker-seconds. `check-suite-budget.js` judges the
- * suite's summed sweep medians against it. RESIDUAL: the medians are CI runner
- * times, the packing a local bench's. */
+// #5137
 const SUITE_BUDGET_MS = TARGET_MS * WHOLE_SUITE_WORKERS * PACKING;
-/* The sha of the first cold lone whole suite under TARGET_MS, or null. Until
- * one is recorded `check-suite-budget.js` only reports, since a suite that has
- * never fitted would refuse every change; `check-suite-margin.js` names the
- * run to record here. */
 const BUDGET_ARMED_BY = null;
 const CEILING_ENV = "WFC_SUITE_CEILING_MS";
-/* Where a run writes `<deadline s> <pgid>`, one line, for bg-run's
- * `read -r` to take. The deadline is on CLOCK_MONOTONIC, the clock this
- * process's own timer counts on, so a host suspend that steps the wall clock
- * on resume moves neither (#2886). */
 const DEADLINE_ENV = "WFC_SUITE_DEADLINE_FILE";
-/* The first word of a ceiling kill's report, which the lander's tester and
- * the lost-verdict hand-back quote. */
 const CEILING_LINE = "SUITE CEILING";
-/* How long a killed run waits for `close` before settling without it: a
- * leader stuck in uninterruptible sleep, or a group the kill could not reach,
- * never sends one. Ten seconds is a guess, never measured: well past a kill's
- * own cost, short of leaving a session waiting on a run that will never
- * report. */
+// #2702 guess
 const SETTLE_MS = 10_000;
 
 /** @param {number} ms */
@@ -87,9 +33,7 @@ function seconds(ms) {
 }
 
 /**
- * The kill report's first line, with no closing stop, so a wrapper may add
- * its own reading after it.
- * @param {string} what the process the clock started on, e.g. "pytest"
+ * @param {string} what
  * @param {{ elapsed: number, ceiling: number }} run
  */
 function ceilingHeadline(what, { elapsed, ceiling }) {
@@ -101,11 +45,11 @@ const CEILING_CLOSE = [
 	"partial result counts: the run fails.",
 ];
 
-/** @param {string} error why `armCeiling` wrote no deadline file */
+/** @param {string} error */
 const deadlineUnwritten = (error) =>
 	`suite deadline not written (${error}) — a wrapper watching for it cannot back the ceiling up\n`;
 
-/** @param {string} what @param {string} reason why `killGroup` failed */
+/** @param {string} what @param {string} reason */
 const groupUnkilled = (what, reason) =>
 	`${what}'s process group could not be killed (${reason}); a worker may outlive this report.\n`;
 
@@ -120,8 +64,6 @@ function ceilingMs(env = process.env) {
 
 /** @type {Set<number>} */
 const live = new Set();
-/* Registered on the first group held, so a reader of CEILING_LINE alone adds
- * no exit listener. */
 let exitArmed = false;
 /** @param {number} pgid */
 function hold(pgid) {
@@ -134,10 +76,9 @@ function hold(pgid) {
 }
 
 /**
- * A group already gone is no failure.
  * @param {number} pgid
  * @param {NodeJS.Signals} [signal]
- * @returns {string|null} why the group may still be running, else null
+ * @returns {string|null}
  */
 function killGroup(pgid, signal = "SIGKILL") {
 	try {
@@ -149,15 +90,11 @@ function killGroup(pgid, signal = "SIGKILL") {
 }
 
 /**
- * SIGKILLs every process but `self` whose environment sets `key` to a value
- * `doomed` accepts. An environ that will not read is no carrier, and one
- * already gone is no failure.
  * @param {string} key
  * @param {(value: string) => boolean} doomed
  * @param {{ proc: string, self: number,
  *   kill: (pid: number, signal: NodeJS.Signals) => unknown }} options
  * @returns {{ killed: { pid: number, value: string }[], unkilled: string|null }}
- *   `unkilled` is why a process may still be running, else null
  */
 function killWhere(key, doomed, { proc, self, kill }) {
 	let names;
@@ -187,10 +124,7 @@ function killWhere(key, doomed, { proc, self, kill }) {
 	return { killed, unkilled };
 }
 
-/**
- * @param {string} reason why a carrier kill failed
- * @param {string} [run] whose process it was
- */
+/** @param {string} reason @param {string} [run] */
 const carrierUnkilled = (reason, run = "this run") =>
 	`a process of ${run} could not be killed (${reason}); it may still hold memory.\n`;
 
@@ -198,13 +132,11 @@ const carrierUnkilled = (reason, run = "this run") =>
 const killPid = (pid, signal) => process.kill(pid, signal);
 
 /**
- * SIGKILLs every process whose environment sets `key` to `value`, but `self`,
- * which may carry it too.
  * @param {string} key
  * @param {string} value
  * @param {{ proc?: string, self?: number,
  *   kill?: (pid: number, signal: NodeJS.Signals) => unknown }} [options]
- * @returns {string|null} why a process may still be running, else null
+ * @returns {string|null}
  */
 function killCarrying(
 	key,
@@ -214,24 +146,13 @@ function killCarrying(
 	return killWhere(key, (v) => v === value, { proc, self, kill }).unkilled;
 }
 
-/* Names the wrapper pid whose run a process belongs to. */
 const OWNER_ENV = "WFC_INFLIGHT_OWNER";
-/* The largest pid Node's process.kill passes to the kernel (an int32). Up to
- * it, kill(pid, 0) fails only with ESRCH or EPERM, so pidAlive's answer is the
- * kernel's; past it Node throws, which pidAlive reads as dead (#4020). */
-const KILL_PID_MAX = 2_147_483_647;
+const KILL_PID_MAX = 2 ** 31 - 1;
 
 /**
- * SIGKILLs every process but `self` whose OWNER_ENV names a pid that no
- * longer exists. A value that cannot be a pid is no owner, so its run is
- * left, never killed. The owner is asked by signal, never by `proc`'s listing, so
- * a fixture root that leaves a live owner out kills nothing of its.
- * RESIDUAL: an owner pid already recycled, or a zombie, reads as live, so its
- * run's processes wait for a sweep after that pid ends.
  * @param {{ proc?: string, self?: number, alive?: (pid: number) => boolean,
  *   kill?: (pid: number, signal: NodeJS.Signals) => unknown }} [options]
  * @returns {{ killed: { pid: number, owner: number }[], unkilled: string|null }}
- *   `unkilled` is why a process may still be running, else null
  */
 function sweepOrphanedRuns({
 	proc = procRoot(),
@@ -254,12 +175,9 @@ function sweepOrphanedRuns({
 }
 
 /**
- * A run whose wrapper was SIGKILLed ran no handler, so its workers wait for
- * the next run's start, or the next session's (#3528).
  * @param {{ err?: { write: (s: string) => unknown } } & Parameters<typeof sweepOrphanedRuns>[0]} [options]
  */
 function sweepAtStart({ err = process.stderr, ...options } = {}) {
-	/* Its kills are real, so never from an inherited fixture root. */
 	const { killed, unkilled } = sweepOrphanedRuns({
 		proc: REAL_PROC,
 		...options,
@@ -271,13 +189,7 @@ function sweepAtStart({ err = process.stderr, ...options } = {}) {
 	if (unkilled) err.write(carrierUnkilled(unkilled, "a killed run"));
 }
 
-/**
- * Calls `fire` once `ms` passes, on a timer that never by itself keeps this
- * process alive.
- * @param {() => void} fire
- * @param {number} ms
- * @returns {() => void} cancels the call
- */
+/** @param {() => void} fire @param {number} ms @returns {() => void} */
 function afterMs(fire, ms) {
 	const timer = setTimeout(fire, ms);
 	timer.unref?.();
@@ -285,20 +197,9 @@ function afterMs(fire, ms) {
 }
 
 /**
- * Start the ceiling on `pgid`, the leader of a group spawned with
- * `detached: true`: write the deadline where the environment names a file,
- * hold the group for the exit-time kill, and call `onCeiling` once the
- * ceiling passes. `schedule` is `afterMs` but in a test, which fires the
- * ceiling on an event rather than racing a timer (#3520).
- *
- * `release` cancels the ceiling, drops the deadline file and the group's hold;
- * call it once the run has closed.
- *
  * @param {{ pgid: number|undefined, ms: number, onCeiling: () => void,
  *   env?: NodeJS.ProcessEnv, now?: number, schedule?: typeof afterMs }} options
- *   `now` is CLOCK_MONOTONIC ms
  * @returns {{ release: () => void, error: string|null }}
- *   `error` is why the deadline file was not written, else null
  */
 function armCeiling({
 	pgid,
@@ -330,8 +231,6 @@ function armCeiling({
 			cancel();
 			if (!pgid) return;
 			live.delete(pgid);
-			// A stale deadline names a dead group, which bg-run's kill finds already
-			// gone.
 			if (file) ignoreFailure(() => fs.rmSync(file, { force: true }));
 		},
 	};

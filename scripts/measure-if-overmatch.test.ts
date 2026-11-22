@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins how one Bash command is sorted into `matched` / `invoked` / `wasted`
- * for a candidate `if` rule — the classifier. Every
- * figure mantahostels#2127 turns on is a count of commands sorted into those three.
- *
- * The rows below are seven of the nine commands mantahostels#2159 §5 ran
- * against the live matcher, read in its `Bash(git *)` column, plus the shapes
- * mantahostels#2127 probed against the guards.
- *
- * Built end to end (#1369, §G6: nothing is exported only for its tests): each
- * case writes a one-command transcript, runs the program over it in-process
- * through lib/run-in-process.js's `runInProcessAsync` with `--dir --json`, and
- * reads which counter the command landed in. The four `invoked*` counters are
- * exclusive per command, so the one that moved IS the command's invocation
- * verdict, and `matchedAnchored` is whether the anchored rule fires.
- *
- * CI's vitest step runs this file; the script itself gates nothing and is run
- * by hand. Breaking it misprices a candidate `if` rule in
- * `.claude/settings.json`, so a rule can be chosen that still fires guards on
- * prose, or one that misses calls a guard must judge.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -51,7 +30,6 @@ const measure = async (records: object[]) => {
 
 type Invocation = "bare" | "wrapped" | "pathspelled" | "quoted" | null;
 
-/** How the scan sorts one command for `tool`. */
 const verdict = async (cmd: string, tool: string) => {
 	const s = (await measure([buildBashCall(cmd, "t1")]))[tool];
 	const moved = Object.entries({
@@ -74,13 +52,6 @@ const anchoredFires = async (cmd: string, tool: string) =>
 	(await verdict(cmd, tool)).anchored;
 
 describe("segments", () => {
-	/*
-	 * Two of these six — `;` and `|` — were measured against the live matcher
-	 * (mantahostels#2159 §5). The other four are `hooks.md`'s documented behaviour, or were
-	 * measured against one guard's own walker rather than the matcher, so the
-	 * anchored counts this script prints are an UPPER bound on the matcher's
-	 * real coverage.
-	 */
 	it("splits the six separators, two of them measured", async () => {
 		for (const cmd of [
 			"echo x ; git status",
@@ -116,7 +87,6 @@ describe("segments", () => {
 });
 
 describe("anchoredFires", () => {
-	/* mantahostels#2159 §5's first seven rows, read in its `Bash(git *)` column. */
 	const measured: [string, boolean][] = [
 		["echo P1_plain", false],
 		["git --version", true],
@@ -169,7 +139,6 @@ describe("invocation", () => {
 	});
 
 	it("reads a no-argument wrapper prefix as wrapped", async () => {
-		// The three spellings the `guard-issue-phase-scope` core walks (mantahostels#2127).
 		expect(await invocation("timeout 60 gh issue view 1", "gh")).toBe(
 			"wrapped",
 		);
@@ -220,11 +189,6 @@ describe("heredoc bodies", () => {
 });
 
 describe("the wrapper walk is the guard-issue-phase-scope core's", () => {
-	/*
-	 * The core's unwrapped() (`scripts/lib/issue-phase-scope.js`) steps over a
-	 * no-argument wrapper, plus the ONE leading value `timeout` and `nice` each
-	 * take, and stops on anything else.
-	 */
 	const walks: [string, string][] = [
 		["timeout 60 gh issue view 1", "a bare duration"],
 		["timeout 5m gh issue view 1", "a suffixed duration"],
@@ -249,11 +213,6 @@ describe("the wrapper walk is the guard-issue-phase-scope core's", () => {
 });
 
 describe("path-spelled invocations", () => {
-	/*
-	 * Every guard resolves its command word through `basename`, so this IS an
-	 * invocation they judge — and the anchored `if` matches it in neither
-	 * spelling.
-	 */
 	it("is neither bare nor wasted", async () => {
 		expect(await verdict("/usr/bin/gh issue create --title x", "gh")).toEqual({
 			invocation: "pathspelled",
@@ -263,10 +222,6 @@ describe("path-spelled invocations", () => {
 });
 
 describe("anchored matches are a subset of bare invocations", () => {
-	/*
-	 * A segment leading with the tool word IS an invocation of it, so the
-	 * anchored form cannot waste an exec.
-	 */
 	const corpusShapes = [
 		"gh issue view 1",
 		"echo x ; gh issue view 1",
@@ -291,7 +246,6 @@ describe("quoted spans", () => {
 		expect(
 			await invocation(`echo 'a b' && sh -c "gh issue view 1"`, "gh"),
 		).toBe("quoted");
-		/* `gh` follows a span but sits outside it, as an argument to echo. */
 		expect(await invocation(`echo 'a b' gh issue view 1`, "gh")).toBeNull();
 	});
 });

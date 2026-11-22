@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The retry of a copy's original whose job would not retire (#4646,
- * lib/refill-retire.js), and its carrying onto the launch the copy runs as
- * (lib/refill-block-core.js's relaunched).
- *
- * Loosen one and an original whose stop a busy daemon refused stays
- * revivable beside its copy, with nobody told two rows are live.
- */
 import { describe, expect, it } from "vitest";
 import { relaunched } from "./refill-block-core.js";
 import { fakeIo, logs, record } from "./refill-blocks-fixture";

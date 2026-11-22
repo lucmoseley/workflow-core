@@ -1,17 +1,3 @@
-/*
- * steps-owed.js — the sole reader/writer of `.claude/workflow-core.json`'s
- * `stepsOwed` array (#248): a manual step a migration note's walk could not
- * discharge itself, carried forward as `{tag, type, text}` rather than lost.
- * `upgrade.js` (the walker) appends to it; `scripts/steps-owed.js` (the CLI)
- * clears an entry or marks a `choice` declined — the only writer outside the
- * walker; `check-plugin-gap.js` (the reporter) reads it.
- *
- * A `choice` entry is never removed on decline — it is marked `declined:
- * true` in place, so the founder's preference about this repo's files
- * travels with the repo (in git) rather than being asked again on the next
- * machine or the next session here.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { STEP_TYPES } = require("./migration-note.js");
@@ -66,12 +52,7 @@ function writeStepsOwed(at, config, steps) {
 	fs.writeFileSync(at, formatConfigJson({ ...config, stepsOwed: steps }));
 }
 
-/**
- * The well-formed entries only — a malformed one (hand-edited, or left by a
- * stale contract) is dropped here rather than surfaced or written back.
- * @param {string} root
- * @returns {StepOwed[]}
- */
+/** @param {string} root @returns {StepOwed[]} */
 function readStepsOwed(root) {
 	const { config } = readConfigRaw(root);
 	const raw = Array.isArray(config.stepsOwed) ? config.stepsOwed : [];
@@ -79,9 +60,6 @@ function readStepsOwed(root) {
 }
 
 /**
- * Appends `entries` for `tag`, preserving whatever the field already holds.
- * `upgrade.js`'s only write to this field (#248) — never called with an
- * empty `entries`.
  * @param {string} root
  * @param {string} tag
  * @param {{type: "act"|"choice"|"notice", text: string}[]} entries
@@ -95,10 +73,6 @@ function appendStepsOwed(root, tag, entries) {
 }
 
 /**
- * Clears one entry — an `act` performed, a `notice` printed, or a `choice`
- * already declined and now stale — matching `tag`+`type`+`text` exactly, as
- * `readStepsOwed()` prints them. Throws on a malformed identifier before
- * touching the file; returns false where nothing matched.
  * @param {string} root
  * @param {{tag: string, type: string, text: string}} at
  */
@@ -118,13 +92,7 @@ function clearStepOwed(root, { tag, type, text }) {
 	return true;
 }
 
-/**
- * Marks a `choice` entry declined in place, matching `tag`+`text` exactly.
- * Throws on a malformed identifier before touching the file; returns false
- * where nothing matched.
- * @param {string} root
- * @param {{tag: string, text: string}} at
- */
+/** @param {string} root @param {{tag: string, text: string}} at */
 function declineStepOwed(root, { tag, text }) {
 	if (!tag || !text)
 		throw new Error("decline needs a tag and the choice's exact text");

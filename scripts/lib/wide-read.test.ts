@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * lib/wide-read.js (#2791), mantahostels#1562's core: given one opaque shell
- * string, is this command about to pour a whole file, a wide slice or an
- * uncounted glob into the context window? And the same question of a `Read`
- * tool call (mantahostels#2595).
- *
- * The fire cases prove it names the shape and the cheaper form; the pass cases
- * prove it stays silent on a bounded read. Every case asserts no
- * `permissionDecision`: this guard warns and must never deny, whatever it
- * matched.
- *
- * Module cases, over small files in a temp repo with the thresholds passed as
- * WFC_WIDE_READ_* so fixtures stay tiny; one block binds the shipped default
- * instead. The `Read` limb runs through lib/guard-core-testkit.ts as the
- * dispatcher runs it, latches and all. The Bash limbs call `decide` with the
- * production host ports (lib/wide-read-host.js) and a built context; the
- * dispatcher entry is crossed for them in guard-wide-read.test.ts.
- *
- * Loosen a fire case and whole files pour into a session's context unwarned,
- * the largest share of a long session's spend (mantahostels#1553); loosen a
- * pass case and bounded reads draw noise.
- */
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -39,11 +17,9 @@ import { MARKERS_REL } from "./marker-root.js";
 import { decide } from "./wide-read.js";
 import { buildHostPorts } from "./wide-read-host.js";
 
-/** Thresholds the fixtures are sized against, passed to the core as its own. */
 const WIDE_BYTES = 1000;
 const WIDE_LINES = 20;
 const WIDE_MATCHES = 3;
-/** The Read limb's threshold, overridden the same way. */
 const WIDE_READ_BYTES = 1000;
 
 const THRESHOLDS: Record<string, string> = {
@@ -62,8 +38,6 @@ beforeEach(() => {
 	repo = path.join(dir, "repo");
 	fs.mkdirSync(repo, { recursive: true });
 	logs = [];
-	// One file over the byte threshold, one comfortably under, and four small
-	// ones so a glob can cross the match threshold without crossing the byte one.
 	fs.writeFileSync(path.join(repo, "big.md"), "x".repeat(WIDE_BYTES + 1));
 	fs.writeFileSync(path.join(repo, "small.md"), "x".repeat(20));
 	for (const n of [1, 2, 3, 4])
@@ -77,8 +51,6 @@ interface Verdict {
 	denied: boolean;
 }
 
-/** `env` laid over the thresholds; an `undefined` value removes the key, so a
- * case can bind the SHIPPED default. */
 const envWith = (env: Record<string, string | undefined>) => {
 	const out: Record<string, string> = {};
 	for (const [k, v] of Object.entries({ ...THRESHOLDS, ...env }))
@@ -86,7 +58,6 @@ const envWith = (env: Record<string, string | undefined>) => {
 	return out;
 };
 
-/** The core on a Bash `command`, standing in the repo, as the entry runs it. */
 function run(
 	command: string,
 	env: Record<string, string | undefined> = {},
@@ -108,8 +79,6 @@ function run(
 	};
 }
 
-/** The core on a `Read` payload through the dispatcher: the file, and
- * optionally offset and limit. */
 function runRead(
 	toolInput: Record<string, unknown>,
 	env: Record<string, string | undefined> = {},
@@ -218,8 +187,6 @@ describe("the reads it must stay silent on", () => {
 		["stays silent on a large file named in prose", "echo 'cat big.md'"],
 		["stays silent on a file that does not exist", "cat absent.md"],
 		["stays silent on an ordinary command", "ls -la"],
-		// grep, rg, head and tail bound their own output, so a glob given to one
-		// is the cheaper form this guard recommends, not a shape to warn about.
 		["stays silent on a glob given to grep", "grep -n x part-*.txt"],
 		["stays silent on a glob given to head", "head -2 part-*.txt"],
 	])("%s", (_what, command) => {
@@ -228,11 +195,8 @@ describe("the reads it must stay silent on", () => {
 });
 
 describe("the default byte threshold", () => {
-	// Every other case overrides WFC_WIDE_READ_BYTES, so nothing else here can
-	// see the shipped default move (mantahostels#2571).
 	const defaultWideBytes = 20_000;
 
-	/** Runs the core with no byte override, so the shipped default binds. */
 	const runShipped = (command: string) =>
 		run(command, { WFC_WIDE_READ_BYTES: undefined });
 
@@ -277,15 +241,10 @@ describe("the verdict", () => {
 });
 
 describe("the Read limb", () => {
-	// mantahostels#2595. Every case here goes through a `Read` payload.
 	const abs = (name: string) => path.join(repo, name);
 
 	beforeEach(() => {
-		// 3,000 lines of 10 characters, so the first 2,000 are 20,000 characters
-		// and the last 1,000 are the part `Read` would never return.
 		fs.writeFileSync(path.join(repo, "long.md"), "abcdefghi\n".repeat(3000));
-		// 2,000 lines of 2 characters, then one very long line past the cap. The
-		// whole file clears the threshold below; the window `Read` returns does not.
 		fs.writeFileSync(
 			path.join(repo, "tail-only.md"),
 			`${"a\n".repeat(2000)}${"b".repeat(10_000)}\n`,
@@ -305,19 +264,13 @@ describe("the Read limb", () => {
 	});
 
 	it("still judges a Read carrying an offset but no limit", () => {
-		// An offset moves the window; it does not bound it.
 		const { warning } = runRead({ file_path: abs("long.md"), offset: 5 });
 		expect(warning).toContain("pours a whole file into context");
 	});
 
 	it("measures the lines Read returns, not the file", () => {
-		// The wide part sits past line 2,000, where `Read` stops. The file is
-		// 14,000 characters and the window is 4,000, so a threshold between them
-		// separates the two measures: warning here would mean it measured the file.
 		const env = { WFC_WIDE_READ_TOOL_BYTES: "5000" };
 		expect(runRead({ file_path: abs("tail-only.md") }, env)).toEqual(silent);
-		// The same file read from the far side of the cap does warn, which proves
-		// the silence above is the window and not an unreadable fixture.
 		const { warning } = runRead(
 			{ file_path: abs("tail-only.md"), offset: 2001 },
 			env,
@@ -352,8 +305,6 @@ describe("the Read limb", () => {
 	});
 
 	it.each([
-		// A leading zero and an offset past nine digits must read as "no offset"
-		// and judge from line 1, as must anything not a positive integer.
 		["a leading-zero offset", "08"],
 		["an offset wider than any file", "99999999999999999999"],
 		["a non-numeric offset", "first"],
@@ -372,7 +323,6 @@ describe("the Read limb", () => {
 	});
 
 	it("measures a relative path from the hook's own directory, a leading dash and all", () => {
-		// PreToolUse fires before the Read tool rejects such a path.
 		fs.writeFileSync(path.join(repo, "-n.md"), "x".repeat(WIDE_READ_BYTES + 1));
 		const { warning } = runRead({ file_path: "-n.md" });
 		expect(warning).toContain("pours a whole file into context");
@@ -438,7 +388,6 @@ describe("the Read limb's latch", () => {
 	});
 
 	it("is silenced by its latch in the shared marker scheme, whoever wrote it", () => {
-		// The latch file `latchAfter` writes for `wide-read.<16 hex of sha1(path)>`.
 		const file = abs("big.md");
 		const hex = crypto
 			.createHash("sha1")
@@ -459,8 +408,6 @@ describe("the Read limb's latch", () => {
 });
 
 describe("the default Read threshold", () => {
-	// mantahostels#2595 set it at half the Bash limb's. That halving is the
-	// guarantee, so it is pinned here.
 	const defaultReadBytes = 10_000;
 
 	beforeEach(() => {
@@ -740,8 +687,6 @@ describe("from a linked worktree, the file read is the worktree's (#4242)", () =
 		fs.mkdirSync(path.dirname(inWorktree), { recursive: true });
 		fs.renameSync(inMain, inWorktree);
 		expect(read()?.additionalContext).toBeDefined();
-		/* That warning latched again in the main checkout; the seed alone is
-		 * laid back. */
 		fs.rmSync(inMain);
 		fs.renameSync(inWorktree, inMain);
 		expect(read()).toBeNull();

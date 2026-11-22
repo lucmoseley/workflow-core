@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * lib/issue-body-write.js, the guard-issue-body core (#2798), in process: it
- * refuses a raw issue-body write (mantahostels#132), and a deny is only
- * defensible while it cannot wedge sanctioned work. Every allow-case below is
- * a shape that would otherwise be a false positive — `gh issue create
- * --body`, every field-only edit, `gh issue comment` — so do not thin them
- * out.
- *
- * Loosen a deny case and a whole-body `gh issue edit` silently erases a
- * parallel session's edit to the same issue; lose an allow case and filing or
- * commenting on issues is wedged.
- *
- * The verdict is read off the command alone, so the ports are the kit fake's:
- * the real rule store and a checkout's script paths, in process. The entry's
- * own cases — the JSON it prints, the hook line, the failure policy — are
- * guard-issue-body.test.ts's.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -53,7 +35,6 @@ const verdict = (command: string) => {
 	return "warn";
 };
 
-/** What the session reads: a refusal's reason or the warn handed over. */
 const said = (command: string, over: object = {}) => {
 	const d = run(command, over);
 	if (!d) return "";
@@ -105,9 +86,6 @@ describe("a raw body write through gh issue edit is denied", () => {
 		['(gh issue edit 132 --body "x")', "inside a subshell"],
 		["gh issue edit 132 -bt", "a bundle whose first letter is the body flag"],
 	])("%s — %s", (command) => {
-		// exempt (mantahostels#2145): the guard has ONE deny message,
-		// pinned by "%s carries the whole rule — %s" below, and only a body-write
-		// segment can reach it.
 		expect(verdict(command)).toBe("deny");
 	});
 });
@@ -120,8 +98,6 @@ describe("the PATCH spelling of the same write is denied too", () => {
 		],
 		["gh api -X PATCH repos/o/r/issues/96 -f body=x", "the -X shorthand"],
 		["gh api -XPATCH repos/o/r/issues/96 -f body=x", "-X glued to its value"],
-		// pflag strips one leading `=` off a shorthand's value, so both of these
-		// reach gh exactly as the un-glued forms above do (mantahostels#2580).
 		[
 			"gh api -X=PATCH repos/o/r/issues/96 -f body=x",
 			"-X joined to its value by an =",
@@ -134,8 +110,6 @@ describe("the PATCH spelling of the same write is denied too", () => {
 			"gh api -X=PATCH repos/o/r/issues/96 -F=body=x",
 			"both shorthands joined by an =",
 		],
-		// -i is gh api's only boolean shorthand, so it is the one letter that
-		// can sit in front of another flag inside a bundle.
 		[
 			"gh api -iX PATCH repos/o/r/issues/96 -f body=x",
 			"the method behind a boolean shorthand",
@@ -177,8 +151,6 @@ describe("the PATCH spelling of the same write is denied too", () => {
 			"gh api --method PATCH https://api.github.com/repos/o/r/issues/96 -f body=x",
 			"the absolute API URL",
 		],
-		// A value-taking flag before the endpoint must not have its value read as
-		// the endpoint: that allows the write through in silence.
 		[
 			'gh api -H "Accept: application/vnd.github+json" --method PATCH repos/o/r/issues/96 -f body=x',
 			"a header first — the shape GitHub's own docs put first",
@@ -212,16 +184,11 @@ describe("the PATCH spelling of the same write is denied too", () => {
 			"the name escaped, read as bash reads it (#3518)",
 		],
 	])("%s — %s", (command) => {
-		// exempt (mantahostels#2145): the guard has ONE deny message,
-		// pinned by "%s carries the whole rule — %s" below, and only a body-write
-		// segment can reach it.
 		expect(verdict(command)).toBe("deny");
 	});
 });
 
 describe("a PATCH at an issue whose fields cannot be read warns", () => {
-	// mantahostels#103: deny on a structured fact, warn where the hook is inferring. Here the
-	// payload is out of sight, so the guard cannot say whether it touches the body.
 	it.each([
 		[
 			"gh api --method PATCH repos/o/r/issues/96 --input payload.json",
@@ -265,13 +232,10 @@ describe("a PATCH at an issue whose fields cannot be read warns", () => {
 
 describe("the sanctioned routes are never matched", () => {
 	it.each([
-		// A body that does not exist yet cannot be clobbered.
 		['gh issue create --title t --body "x"', "creating an issue"],
 		["gh issue create --title t --body-file body.md", "creating from a file"],
-		// A comment is a new resource and reads no existing state.
 		['gh issue comment 96 --body "x"', "commenting"],
 		["gh issue comment 96 -F -", "commenting from stdin"],
-		// Field-only edits are server-side and download no body.
 		["gh issue edit 96 --add-assignee @me", "the claim, on every command"],
 		["gh issue edit 96 --add-label kind:ticket", "labelling"],
 		["gh issue edit 96 --remove-label needs-triage", "unlabelling"],
@@ -289,8 +253,6 @@ describe("the sanctioned routes are never matched", () => {
 			"gh api -iX=PATCH repos/o/r/issues/96 -f state=closed",
 			"a field-only PATCH bundled behind -i",
 		],
-		// pflag drops ONE separator, so this reaches gh as the method `=PATCH`,
-		// which net/http rejects.
 		[
 			"gh api -X==PATCH repos/o/r/issues/96 -f body=x",
 			"a second = is part of the value, not a separator",
@@ -299,14 +261,11 @@ describe("the sanctioned routes are never matched", () => {
 		["gh issue edit 96 --parent 51", "a parent link"],
 		["gh issue close 96", "closing"],
 		["gh issue view 96 --comments", "reading"],
-		// A different resource, with no helper to route to.
 		['gh pr edit 5 --body "x"', "a pull request body"],
-		// The permitted path itself.
 		[
 			'node scripts/issue-body.js append 96 --text "x"',
 			"the helper this guard exists to protect",
 		],
-		// gh api shapes that write no issue body.
 		["gh api repos/o/r/issues/96", "a plain GET"],
 		[
 			"gh api --method PATCH repos/o/r/issues/96 -f state=closed",
@@ -349,17 +308,10 @@ describe("the sanctioned routes are never matched", () => {
 	});
 
 	it("<< inside a quoted string does not hide a later write", () => {
-		// Otherwise it opens a heredoc that swallows every line after it.
-		// exempt (mantahostels#2145): the guard has ONE deny message,
-		// pinned by "%s carries the whole rule — %s" below, and only a body-write
-		// segment can reach it.
 		expect(verdict('echo "a << b"\ngh issue edit 96 --body x')).toBe("deny");
 	});
 
 	it("judges the command form, not the cwd it runs in", () => {
-		// exempt (mantahostels#2145): the guard has ONE deny message,
-		// pinned by "%s carries the whole rule — %s" below, and only a body-write
-		// segment can reach it.
 		const elsewhere = { cwd: "/nonexistent/elsewhere" };
 		expect(verdict("gh issue edit 96 --body x")).toBe("deny");
 		expect(run("gh issue edit 96 --body x", elsewhere)).toHaveProperty("deny");
@@ -410,9 +362,6 @@ describe("the graphql spelling of the same write is denied too (mantahostels#284
 			"the deny is not gated on the endpoint reading as graphql",
 		],
 	])("%s — %s", (command) => {
-		// exempt (mantahostels#2145): the guard has ONE deny message,
-		// pinned by "%s carries the whole rule — %s" below, and only a body-write
-		// segment can reach it.
 		expect(verdict(command)).toBe("deny");
 	});
 
@@ -496,10 +445,6 @@ describe("across segments", () => {
 	});
 });
 
-/*
- * Keyed by fragment id, never by a literal copied out of the fragment — a
- * second copy is the drift the store exists to prevent.
- */
 describe("the relocated rule reaches the session that trips the guard", () => {
 	it.each([
 		['gh issue edit 132 --body "new text"', "the long form"],
@@ -515,7 +460,6 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 	});
 
 	it("carries the helper spelling a session needs to comply", () => {
-		// The deny is useless without the command that replaces the denied one.
 		expect(said('gh issue edit 132 --body "x"')).toContain(
 			"node scripts/issue-body.js append-section",
 		);

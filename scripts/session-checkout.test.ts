@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/session-checkout.js against real git (#4235): a bare origin carrying
- * `main`, a main checkout cloned from it, and the linked worktrees each cut
- * adds, each landing through its own queue ref (#4485). `npm` is a stub that records each install.
- *
- * Loosen it and a session starts on stale work or local `main`, two sessions
- * install into one tree, a tool writes under a store every neighbour on its
- * lockfile reads, or a lockfile change runs against a tree built for another
- * lockfile, one a merge or checkout brought in included (#4702). Loosen `land` (#4239) and a merge commit skips the pre-commit
- * gates, a rewritten HEAD's push is lost or misreported, a registry-anchor
- * conflict costs a hand merge, or uncommitted work reads as landed.
- *
- * Every land runs with a live process holding the lander's lock, so
- * start-lander.js answers without starting a real lander.
- *
- * Every case cuts real worktrees off a real bare origin, and the relink cases
- * run this repository's own post-merge, post-checkout and post-commit, the
- * last's every block, so the file runs over the 10 s budget (base §X8 (5)).
- */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -65,23 +46,17 @@ const commitIn = (
 const DRIVER = path.resolve(__dirname, "merge-registry-anchors.js");
 
 /* #5501 */
-const ENV = (): NodeJS.ProcessEnv => {
-	const env: NodeJS.ProcessEnv = {
-		...process.env,
-		CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
-		CLAUDE_PROJECT_DIR: main,
-		WFC_NPM: npmStub,
-		WFC_MODULES: "",
-	};
-	delete env.CLAUDE_JOB_DIR;
-	return env;
-};
+const ENV = (): NodeJS.ProcessEnv => ({
+	...process.env,
+	CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
+	CLAUDE_PROJECT_DIR: main,
+	WFC_NPM: npmStub,
+	WFC_MODULES: "",
+});
 
 const run = (cwd: string, ...args: string[]) =>
 	runInProcess(SCRIPT, args, { cwd, env: ENV() });
 
-/** A cut worktree's directory. Asserted first: a failed cut prints nothing, and
- * a write joined onto "" lands in the test's own working directory. */
 const cutDir = (name: string) => {
 	const r = run(main, "cut", name);
 	expect(r.status, r.stderr).toBe(0);
@@ -95,7 +70,6 @@ const readInstalls = () =>
 
 const worktree = (name: string) =>
 	path.join(main, ".claude", "worktrees", name);
-/** The session worktrees standing, the dot-named store folder left out. */
 const listWorktrees = () =>
 	fs
 		.readdirSync(path.join(main, ".claude", "worktrees"))
@@ -104,7 +78,6 @@ const stores = () => path.join(main, ".claude", "worktrees", ".dep-stores");
 const storeOf = (name: string) =>
 	fs.realpathSync(path.join(worktree(name), "node_modules"));
 
-/** Remove `dir`, a frozen store's write bits given back first. */
 const removeTree = (dir: string) => {
 	if (fs.existsSync(dir)) execFileSync("chmod", ["-R", "u+w", dir]);
 	fs.rmSync(dir, { recursive: true, force: true });
@@ -129,7 +102,6 @@ let landerHolder: ReturnType<typeof spawn> | undefined;
 
 const markers = () => path.join(main, ".claude", "tmp", "markers");
 
-/** A live process whose command line names queue-lander.js, in the lander's lock. */
 const holdLanderLock = () => {
 	landerHolder = spawn("sh", ["-c", "sleep 60", "queue-lander.js"], {
 		stdio: "ignore",
@@ -237,7 +209,6 @@ it("gives a launch --into an existing session worktree that worktree, uncut and 
 
 it("refuses a launch --into a worktree a live process still works in, naming its pid (#4385)", () => {
 	const dead = cutDir("still-held");
-	/* 60 s outlives the case; `finally` kills it. */
 	const holder = spawn("sh", ["-c", "sleep 60"], {
 		cwd: dead,
 		stdio: "ignore",
@@ -418,14 +389,11 @@ it("leaves a built store read-only, so nothing run in a worktree writes under it
 	expect(run(main, "cut", "one").status).toBe(0);
 	const link = path.join(worktree("one"), "node_modules");
 
-	/* Vite's config bundle and vitest's cache are the writes ordinary use makes
-	 * under node_modules; vite falls back beside its source on EACCES. */
 	expect(() => fs.mkdirSync(path.join(link, ".vite-temp"))).toThrow(/EACCES/);
 	expect(() => fs.writeFileSync(path.join(link, "lock"), "x")).toThrow(
 		/EACCES/,
 	);
 	expect(fs.readFileSync(path.join(link, "lock"), "utf8")).toBe("lock-1\n");
-	/* Vite's own default, `node_modules/.vite`, would sit in the store. */
 	expect(vitestConfig.cacheDir).toBeTypeOf("string");
 	const treeRoot = path.resolve(__dirname, "..");
 	const cache = path.resolve(treeRoot, String(vitestConfig.cacheDir));
@@ -477,8 +445,6 @@ it("waits on a live builder of the same store and reuses what it built, running 
 	removeTree(path.join(stores(), key));
 	const lock = path.join(stores(), `.build-${key}.lock`);
 	const built = path.join(stores(), key, "node_modules");
-	/* A real neighbour process and the real clock: the lock is read by pid
-	 * liveness, and the waiter polls in wall time. */
 	const holder = spawn(
 		"sh",
 		[
@@ -592,7 +558,6 @@ it("leaves no worktree and no store behind where the install fails, only the fai
 	expect(git(main, "worktree", "list")).not.toContain("one");
 });
 
-/** Hooks for every tree of the main checkout, `pre-merge-commit` among them. */
 const installHooks = (hooks: Record<string, string>) => {
 	const dir = path.join(tmp, "hooks");
 	fs.mkdirSync(dir, { recursive: true });
@@ -605,7 +570,6 @@ const installHooks = (hooks: Record<string, string>) => {
 
 const ROOT = path.resolve(__dirname, "..");
 
-/** This repository's own hooks, each `.husky/<name>`, as the fixture's. */
 const installRealHooks = (...hooks: string[]) =>
 	installHooks(
 		Object.fromEntries(
@@ -619,7 +583,6 @@ const installRealHooks = (...hooks: string[]) =>
 		),
 	);
 
-/** A git command run as a session would, its hooks' stderr kept. */
 const gitAsSession = (cwd: string, ...args: string[]) =>
 	spawnSync("git", args, { cwd, encoding: "utf8", env: ENV() });
 
@@ -630,7 +593,6 @@ const parents = (cwd: string, rev: string) =>
 	git(cwd, "rev-list", "--parents", "-n1", rev).split(" ").slice(1);
 
 const mainTip = () => git(origin, "rev-parse", "main");
-/** The tip of `name`'s queue ref on origin, or "" where it has none. */
 const queueTip = (name = "one") =>
 	spawnSync("git", ["rev-parse", "--verify", "--quiet", `queue/${name}`], {
 		cwd: origin,
@@ -738,8 +700,6 @@ it("reports a push refused as no fast-forward of its queue ref with the merge ro
 		"the push is no fast-forward: your queue ref holds a commit HEAD lacks, so HEAD was rewritten after a push — merge `origin/queue/one` into HEAD, then land again",
 	);
 	expect(queueTip()).toBe(first);
-	/* One `land` row, counted against the re-fetched queue ref: HEAD carries
-	 * the redone commit, the pushed one is the one behind. */
 	const projects = path.join(tmp, "config", "projects");
 	const rows = fs
 		.readdirSync(projects)

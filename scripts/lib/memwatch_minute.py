@@ -1,8 +1,3 @@
-"""memwatch_minute.py — the one reader of memwatch's minute log,
-`~/memwatch-minute.jsonl` (docs/environment.md §4), for fault_bench.py
-(#4791).
-"""
-
 import json
 import os
 from datetime import datetime
@@ -12,8 +7,7 @@ from typing import NamedTuple
 from fail_open import expected, fail_open
 
 MINUTE_LOG = Path.home() / "memwatch-minute.jsonl"
-# Read from the log's end: a line is ~800 bytes, so this holds several whole
-# lines, a torn last one included.
+# guess, #4791
 TAIL_BYTES = 16384
 
 
@@ -27,13 +21,10 @@ def parse_ts(text):
 
 
 def format_ts(t):
-    """memwatch's own timestamp shape, so parse_ts reads it back."""
     return datetime.fromtimestamp(t).astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
 
 
 def newest_line(path):
-    """The newest whole JSON line of `path`, or None. Raises OSError where the
-    log cannot be read."""
     with open(path, "rb") as f:
         f.seek(0, os.SEEK_END)
         start = max(0, f.tell() - TAIL_BYTES)
@@ -54,9 +45,6 @@ def newest_line(path):
 
 
 def win_sample(line):
-    """Windows' free memory off a minute line and when it was sampled, or None
-    where the line carries no reading: memwatch writes null once its sample is
-    over 120 s old."""
     if not line:
         return None
     avail, age, ts = line.get("win_avail_mb"), line.get("win_age_s"), line.get("ts")

@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that a granted permission lands once in the right settings file's allow
- * list, with every other key, entry, indentation and layout kept.
- *
- * grant-permission.js adds one rule to a Claude Code settings file (#596).
- *
- * Every case drives the CLI in-process against a throwaway git repo and reads
- * back only what the founder sees: the exit, the printed line, the file's
- * bytes. The repo shuts out the developer's global git excludes, which ignore
- * settings.local.json on this machine and would silence the git-ignore warning
- * whatever the script did. Loosening a byte-exact assertion here lets a
- * rewrite reorder or reflow a founder's hand-kept settings unnoticed.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

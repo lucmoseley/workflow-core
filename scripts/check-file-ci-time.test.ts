@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins check-file-ci-time.js end to end over `--reports`, sweeps already on
- * disk as `gh run download` leaves them. The judging arithmetic is
- * scripts/lib/file-ci-time.test.ts's. Its exit gates the scheduled sweep's
- * `Suite passed` (#4293), so a case loosened here loosens that gate.
- *
- * A PLAIN TEMP DIR, NOT A TEMP GIT REPO: the script reads JSON files and asks
- * git nothing of the temp dir.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,7 +22,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** One sweep's shard report, each file `seconds` long. */
 function writeSweep(runId: string, files: Record<string, number>) {
 	const shard = path.join(dir, runId, "vitest-report-1");
 	fs.mkdirSync(shard, { recursive: true });
@@ -169,10 +158,6 @@ describe("check-file-ci-time.js", () => {
 			databaseId: Number(id),
 			headBranch: "main",
 		}));
-		/* A handler, not stubGhRoutes: `run download` must write the reports
-		 * into its -D directory, which a route's printed answer cannot. The
-		 * lander rows fill whatever --limit asks, so an unfiltered list never
-		 * reaches a sweep however RUNS_LISTED moves. */
 		const stub = stubGhHandler(
 			dir,
 			`const fs = require("node:fs");

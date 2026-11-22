@@ -1,28 +1,4 @@
 // @vitest-environment node
-/*
- * lib/job-dir-scratch.js, a PreToolUse dispatcher core (#2789), answers one
- * question about a tool call: does it WRITE session scratch under the
- * harness's per-job directory? A file straight into the job's own `tmp/` is
- * refused; every other job-dir write is warned (#1139), bar one into the
- * `.claude/tmp/` of a checkout under the job's `tmp/` (#3178).
- *
- * THE SPELLINGS ARE THE POINT. The background-job preamble prints both the
- * variable and the path it resolved to, so a session pastes either — and the
- * unexpanded form must be caught even where the hook's environment lacks the
- * variable to expand it. Each is pinned below; do not thin them out.
- *
- * THE SILENT CASES ARE THE FALSE-POSITIVE SURFACE. A READ of the job directory
- * is how a session reads its own background job's output and must stay silent,
- * which is why the Bash limb walks write targets and not the command string.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * real rule store and a latch directory in the case's temp dir. The hook
- * line, stdin and the environment the entry inherits are
- * scripts/guard-dispatch.test.ts's boundary set.
- *
- * Loosen a spelling and session scratch lands in a directory the harness owns;
- * widen the Bash limb and a session is nagged for reading its own job's output.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -34,8 +10,8 @@ import { latchPath } from "./kit-context.js";
 import { kitContextFake } from "./kit-context-fake";
 import { TreeUnresolved } from "./tree-or.js";
 
-/* The shape the third predicate limb keys on, for the case where the hook
- * environment did not carry CLAUDE_JOB_DIR at all. */
+const braced = (name: string) => `\${${name}}`;
+
 const JOB_DIR = "/home/someone/.claude2/jobs/8d029a78";
 
 let dir: string;
@@ -84,9 +60,6 @@ function run(p: Payload, { jobDir, sid, home }: Opts = {}): Verdict | null {
 		),
 		{
 			root: dir,
-			/* Unset where left off: this session really runs under a job dir,
-			 * and inheriting it would silently satisfy the limb a case means to
-			 * exclude. */
 			env: {
 				...(jobDir === undefined ? {} : { CLAUDE_JOB_DIR: jobDir }),
 				...(home === undefined ? {} : { HOME: home }),
@@ -114,8 +87,10 @@ const warned = (v: Verdict | null) => {
 describe("a Bash redirect straight into the job's tmp folder", () => {
 	it.each([
 		["gh issue view 1 > $CLAUDE_JOB_DIR/tmp/x.out", "the bare variable"],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-		["gh issue view 1 > ${CLAUDE_JOB_DIR}/tmp/x.out", "a braced expansion"],
+		[
+			`gh issue view 1 > ${braced("CLAUDE_JOB_DIR")}/tmp/x.out`,
+			"a braced expansion",
+		],
 		['echo hi > "$CLAUDE_JOB_DIR/tmp/x.out"', "a double-quoted span"],
 		["echo hi >> $CLAUDE_JOB_DIR/tmp/x.out", "the append form"],
 		["echo hi >$CLAUDE_JOB_DIR/tmp/x.out", "glued to the operator"],
@@ -142,10 +117,6 @@ describe("a Bash redirect straight into the job's tmp folder", () => {
 		).toContain("lands at /home/u/.claude2/jobs/abc/tmp/a.md");
 	});
 
-	/* ISOLATES THE LIVE-VARIABLE LIMB. JOB_DIR above also matches the shape
-	 * fallback below, so a mutation of this limb alone survives against it — a
-	 * job directory the harness put somewhere else is the only case that fails
-	 * when it goes. */
 	it("refuses in a job directory that only the live variable can identify", () => {
 		const odd = "/var/opt/harness-scratch/run-91";
 		expect(
@@ -181,8 +152,6 @@ describe("a Bash redirect straight into the job's tmp folder", () => {
 		).toContain("$CLAUDE_JOB_DIR/tmp/b.out");
 	});
 
-	/* NOT LATCHED: a latched deny would allow every stray after the first
-	 * (mantahostels#2436). */
 	it("refuses every time in one session", () => {
 		for (const f of ["a", "b", "c"])
 			refused(bash(`echo hi > $CLAUDE_JOB_DIR/tmp/${f}.out`, { sid: "one" }));
@@ -200,8 +169,6 @@ describe("a write elsewhere under the job directory", () => {
 	});
 });
 
-/* Every write spelling lib/shell-parse.js's writeTargets reads is judged as
- * the `>` beside it is: one verdict kind, one quoted target. */
 describe("a write by any spelling the shared reader reads (#1827)", () => {
 	const spellings: [string, (t: string) => string][] = [
 		["tee", (t) => `gh issue view 1 | tee ${t}`],
@@ -366,8 +333,10 @@ describe("a redirect target resolved as the shell lands it", () => {
 
 	it.each([
 		["T=$CLAUDE_JOB_DIR/tmp; cat > $T/prof.js", "the bare variable"],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-		["T=$CLAUDE_JOB_DIR/tmp; cat > ${T}/prof.js", "a braced expansion"],
+		[
+			`T=$CLAUDE_JOB_DIR/tmp; cat > ${braced("T")}/prof.js`,
+			"a braced expansion",
+		],
 		['T="$CLAUDE_JOB_DIR/tmp" && cat > "$T/prof.js"', "both quoted"],
 	])(
 		"refuses a variable the command assigned — %s, %s, naming where the write lands",
@@ -428,8 +397,6 @@ describe("a redirect target resolved as the shell lands it", () => {
 		).toBeNull();
 	});
 
-	/* A named LIMIT, pinned so a widening shows up here: pushd makes the
-	 * directory unknown, and the relative target is judged as written. */
 	it("is silent after a pushd, which it does not follow", () => {
 		expect(bash(`pushd ${JOB_DIR}/tmp && echo x > a.txt`)).toBeNull();
 	});
@@ -487,8 +454,6 @@ describe("what it leaves alone", () => {
 		expect(bash('[[ "$a" > $CLAUDE_JOB_DIR ]] && echo yes')).toBeNull();
 	});
 
-	/* The shape limb is anchored on a dot-prefixed config directory precisely so
-	 * an ordinary `jobs/` directory in a repo is not swept in. */
 	it("is silent on an ordinary jobs/ directory in a project", () => {
 		expect(bash("echo hi > /home/someone/work/jobs/42/tmp/x.out")).toBeNull();
 	});
@@ -499,8 +464,6 @@ describe("what it leaves alone", () => {
 		).toBeNull();
 	});
 
-	/* #3178: the preamble puts a background job's worktree under the job
-	 * directory, so its own `.claude/tmp/` is the sanctioned target there. */
 	it.each([
 		["Write", { tool: "Write", filePath: `${JOB_DIR}/tmp/wt/.claude/tmp/x` }],
 		[
@@ -610,8 +573,6 @@ describe("the cases a mutant must not survive (#2789)", () => {
 	});
 
 	it("still refuses, pointing at the fragment, where the rule cannot be read", () => {
-		/* The production rule store always reads in this checkout, so the port
-		 * is faked to throw. */
 		const core = require("./job-dir-scratch.js") as {
 			decide: (s: string, ctx: Record<string, unknown>) => { deny?: string };
 		};
@@ -680,8 +641,6 @@ describe("a refusal for a session in its own worktree (#4242)", () => {
 	});
 
 	it("bounds its warning by the host root's latch, not the worktree's (#4274)", () => {
-		/* Each run its own session, so the latch the kit writes after a warning
-		 * never decides a later run: only the seeded one does. */
 		const warnedAs = (sid: string, seededIn: string) => {
 			const latch = latchPath(seededIn, "warn.job-dir-scratch", {
 				agent: "main",

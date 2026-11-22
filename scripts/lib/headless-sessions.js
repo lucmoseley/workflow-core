@@ -1,39 +1,3 @@
-/*
- * headless-sessions.js — launches, lists and stops headless `claude -p` runs
- * on an overflow seat, and reads how each ended (#2607, spec #2570; #4580).
- * A plan's included API credits cover `claude -p`, and not a `claude --bg`
- * job, which is interactive Claude Code (#4578).
- *
- * LAUNCH: `claude -p` detached in its own process group, stdin on /dev/null,
- * cwd the target checkout, under the overflow seat's config dir (its plan
- * seat's, #3701) and a fresh CLAUDE_JOB_DIR, with headless-contract.md
- * appended to its system prompt, and `--max-budget-usd` and a name where the
- * caller gives them: a resume the refill loop makes of its own run gives no
- * budget, the tick's allowance stop capping it as any overflow run (#3698),
- * and a founder's reply is marked so that stop leaves it (#4174). The name
- * takes OVERFLOW_PREFIX, so the run's row says it spends API credits; the
- * child is handed that prefix pinned to its session id, which
- * name-issue-session.sh keeps on each rename, and which a session the child
- * starts, under another id, does not take (#3701). The model is named, never
- * the plans' settings `model`, which burn mode moves; and the child carries
- * its session id under lib/model-table.js's OVERFLOW_SESSION_VAR, so burn mode
- * never reaches the seat (#4919). `resume` continues a session headless on the
- * same seat and key.
- *
- * THE KEY reaches the child only through lib/overflow-key.js's
- * `apiKeyHelper` in `--settings`, so no Bash call or hook in the session sees
- * it (#2604 (b)); the child runs without the variables buildOverflowLaunch
- * names, nor the launcher's root (lib/inherited-roots.js).
- * A key that will not read, or any launch lib/launch-auth.js refuses,
- * refuses the launch by name before anything spawns.
- *
- * THE STORE, liveness, end reading and stop are lib/headless-runs.js's.
- *
- * WFC_CLAUDE_BIN names the `claude` to spawn.
- *
- * dispatch-sessions.js launches through the CLI.
- */
-
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -72,11 +36,6 @@ const buildOverflowName = (name) =>
 /** @typedef {import("./headless-runs.js").RunRecord} RunRecord */
 
 /**
- * Launch a headless run on an overflow seat. `resume`, a session id, continues
- * that session with `prompt` as its next turn: a parked run the refill loop
- * resumes, or the founder answering one that ended on a question (#3685).
- * A resume is refused where its cwd's own settings would lock the session
- * out (lib/settings-lockout.js, #4752).
  * @param {{keyVar: string, cwd: string, budgetUsd?: number, prompt: string,
  *   resume?: string, name?: string, founderReply?: boolean}} opts
  * @returns {{record: RunRecord}|{why: string}}
@@ -142,8 +101,7 @@ function launch({
 			...(name === undefined ? [] : ["-n", buildOverflowName(name)]),
 			"--append-system-prompt",
 			fs.readFileSync(CONTRACT, "utf8"),
-			// A prompt opening with `-`, as a founder's bulleted reply does, is
-			// otherwise read as an unknown option (#4671).
+			// #4671
 			"--",
 			prompt,
 		],
@@ -181,17 +139,6 @@ function launch({
 
 module.exports = { launch, main };
 
-/*
- * CLI mode, for the dispatcher. Exit 0 done, 2 usage, 1 otherwise: a refusal
- * prints `REFUSED:` first, any other fault its message alone.
- *
- *   launch --key <key var> --cwd <dir> --budget <usd> [--name <name>]
- *          [--resume <session id>] [--] <prompt>
- *                      first line the job id; second `session <uuid>`
- *   list               the live runs, as a JSON array of liveness records
- *   stop <job id>      `stopped`, `killed`, `not running` or `unknown`
- *   result <job id>    the run's EndResult as JSON
- */
 const usage = () => {
 	writeFd(
 		2,

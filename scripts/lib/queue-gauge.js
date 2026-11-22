@@ -1,35 +1,16 @@
-/*
- * queue-gauge.js — the landing queue's gauge: the queue refs waiting on the
- * remote, each with the time it has waited, the 7-day baselines
- * lib/queue-log.js reads off the queue log, the limits the stall check and
- * the queue alert hold them to, and the status line (#4485, spec #4458).
- *
- * WAITING: every `refs/heads/queue/<name>` on the remote, read as the queue
- * lander reads its batch (lib/queue-lander-adapters.js): it has waited since
- * its earliest pending push in the queue log (lib/queue-log.js), so a ref
- * pushed again still ages; where none is pending, since the lander's push
- * time for the sha it holds, else that tip's committer time.
- *
- * LIMITS (untraced): the oldest waiting ref is past its limit when it has
- * waited longer than twice the 7-day p90 time in queue, or AGE_FLOOR_MS
- * where that is longer; the queue is too deep when more refs wait than
- * twice the 7-day p90 depth, or DEPTH_FLOOR where that is more. With no
- * baseline the floor alone holds.
- */
-
 const { queueBranch, queueHead } = require("./landing-refs.js");
 const { BASELINE_MS, pendingSince, queueBaseline } = require("./queue-log.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
 const BASELINE_DAYS = BASELINE_MS / DAY_MS;
 
+// guess, #4485
 const AGE_FLOOR_MS = 60 * 60 * 1000;
 const DEPTH_FLOOR = 10;
 const BASELINE_FACTOR = 2;
 
 /**
- * @typedef {{name: string, sha: string, since: number}} Waiting `name` as
- *   in `queue/<name>`, `since` in ms
+ * @typedef {{name: string, sha: string, since: number}} Waiting
  * @typedef {object} QueueGauge
  * @property {number} now
  * @property {Waiting[]} waiting
@@ -37,15 +18,11 @@ const BASELINE_FACTOR = 2;
  * @typedef {{ageMs: number, depth: number}} QueueLimits
  * @typedef {object} QueueCrossings
  * @property {QueueLimits} limits
- * @property {(Waiting & {waitedMs: number})|null} age the oldest waiting ref,
- *   where it is past its limit
- * @property {number|null} depth the refs waiting, where more than the limit
+ * @property {(Waiting & {waitedMs: number})|null} age
+ * @property {number|null} depth
  */
 
-/**
- * A span as `<h> h <m> min`, rounded down.
- * @param {number} ms
- */
+/** @param {number} ms */
 function formatHoursMin(ms) {
 	const min = Math.floor(ms / 60_000);
 	return `${Math.floor(min / 60)} h ${min % 60} min`;
@@ -128,9 +105,8 @@ function buildQueueLine({ now, waiting, baseline: b }) {
 }
 
 /**
- * The gauge of the remote's queue refs and the queue log's rows at `now`.
  * @param {readonly import("./queue-lander.js").QueueRef[]} queue
- * @param {import("./queue-log.js").LoggedRow[]} rows oldest first
+ * @param {import("./queue-log.js").LoggedRow[]} rows
  * @param {number} now
  * @returns {QueueGauge}
  */

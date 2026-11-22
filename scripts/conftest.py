@@ -1,13 +1,3 @@
-"""scripts/conftest.py — fixtures shared across scripts/ and its subdirectories.
-
-`bench` exists so every test in test_bench_suite_concurrency.py takes the
-harness as `bench` (#1277). `stub_bin` is the §N7 seam: a program's `WFC_GH`,
-`WFC_CLAUDE_BIN`, `WFC_PS` or `WFC_GIT` pointed at a real executable, never a patched
-`subprocess` (#1278). `seat_roots` is transcript_corpus.py's: its seats pointed at temp config
-dirs by the env it reads, never a patched module global (#1275). `corpus` and
-`unkeyed` are the transcript scanners' tests' own, written once (#1297).
-"""
-
 import atexit
 import json
 import os
@@ -19,13 +9,7 @@ from pathlib import Path
 
 import pytest
 
-# No test's git call reaches the real repo through an inherited GIT_DIR
-# (#1677): under a linked worktree's hook or `git bisect run`, a plain
-# `git init <dir>` re-initialises the worktree's git dir and marks the shared
-# `.git/config` bare. Cleared at import, before any test or xdist worker runs;
-# a test that wants one sets it in its child's env. The same seven as
-# vitest.setup.ts, unlike which this clears the whole pytest process — harmless,
-# as no plugin here runs git.
+# #1677
 for _name in (
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -37,8 +21,7 @@ for _name in (
 ):
     os.environ.pop(_name, None)
 
-# No test's git call writes to this checkout's repository (#3161): the `git`
-# on `PATH` becomes lib/host-git-guard/git, as vitest.setup.ts makes it.
+# #3161
 _guard_dir = str(Path(__file__).resolve().parent / "lib" / "host-git-guard")
 os.environ["WFC_HOST_GIT_DIR"] = subprocess.run(
     ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
@@ -58,13 +41,7 @@ if _real_git:
     os.environ["WFC_HOST_GIT_REAL"] = _real_git
 os.environ["PATH"] = os.pathsep.join([_guard_dir] + _path_dirs)
 
-# The session's temp root is a private one (#5083), `wfc-pytest-<pid>-XXXXXX`,
-# which pytest_sessionfinish removes with every fixture a test left in it,
-# pytest's own `tmp_path` base inside it. An xdist worker, or a pytest a test
-# runs, whose `TMPDIR` is still that root shares it and leaves its removal to
-# the process that made it; one whose `TMPDIR` a test set makes its own there.
-# run-pytest.js removes a root whose pid is dead, once it stood an hour. Set
-# before any dir below is made, so each lands in the root.
+# #5083
 _RUN_ROOT_ENV = "WFC_PYTEST_TMP_ROOT"
 _inherited_root = os.environ.get(_RUN_ROOT_ENV)
 _owns_run_root = not (
@@ -83,13 +60,11 @@ tempfile.tempdir = _run_root
 
 
 def _remove_run_root():
-    # Never from a child a test forked, whose exit would take the live root.
     if os.getpid() != _owner_pid or not os.path.exists(_run_root):
         return
     try:
         shutil.rmtree(_run_root)
     except OSError:
-        # A fixture left without write or search permission, opened up first.
         for _dir, _subdirs, _files in os.walk(_run_root):
             for _sub in _subdirs:
                 os.chmod(os.path.join(_dir, _sub), 0o700)
@@ -101,21 +76,17 @@ def _remove_run_root():
         )
 
 
-# A session that ends before pytest_sessionfinish, on a usage error or a
-# signal pytest handles, still removes its root.
 if _owns_run_root:
     atexit.register(_remove_run_root)
 
 
-# trylast: after every other plugin's finish, xdist's and tmp_path's among them.
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session):
     if _owns_run_root:
         _remove_run_root()
 
 
-# No test reaches the session's host through CLAUDE_PROJECT_DIR (#3334): an
-# empty dir that is no repository, as vitest.setup.ts points it at.
+# #3334
 _test_host_dir = tempfile.mkdtemp(prefix="wfc-test-host-")
 os.environ["CLAUDE_PROJECT_DIR"] = _test_host_dir
 
@@ -129,8 +100,6 @@ def bench():
 
 @pytest.fixture
 def stub_bin(tmp_path):
-    """`stub_bin(name, stdout)` writes an executable that logs its argv and
-    prints `stdout`, and returns (path, calls): `calls()` lists each run's argv."""
     log = tmp_path / "stub-calls"
 
     def make(name, stdout):
@@ -147,9 +116,6 @@ def stub_bin(tmp_path):
 
 @pytest.fixture
 def seat_roots(tmp_path, monkeypatch):
-    """`seat_roots(n)` points transcript_corpus.py's seats at `.claude`,
-    `.claude2` and `.claude3` under a temp dir, plan A to C, and returns the
-    first `n` seats' transcript roots for this repo, created."""
 
     def make(n=1):
         monkeypatch.syspath_prepend(str(Path(__file__).resolve().parent / "lib"))
@@ -168,10 +134,6 @@ def seat_roots(tmp_path, monkeypatch):
 
 @pytest.fixture
 def corpus(seat_roots):
-    """`corpus(name, records, subagent_of=None, seat=0)` writes `records` as a
-    transcript under seat `seat`'s root, a subagent's where `subagent_of` names
-    its parent session, and returns its path. The first seat's root exists
-    from the start."""
     seat_roots()
 
     def write(name, records, subagent_of=None, seat=0):
@@ -190,8 +152,6 @@ def corpus(seat_roots):
 
 @pytest.fixture
 def unkeyed():
-    """`unkeyed(record, uuid)`: `record` with neither `requestId` nor
-    `message.id`, carrying `uuid` — what a scanner counts as unkeyed (#1293)."""
 
     def strip(record, uuid):
         del record["requestId"]
@@ -204,8 +164,6 @@ def unkeyed():
 
 @pytest.fixture
 def isolated_home(tmp_path, monkeypatch):
-    """A `HOME` holding no checkout, so a scanner's launch-record read reaches no
-    live ledger (#3696)."""
     root = tmp_path / "isolated-home"
     root.mkdir()
     monkeypatch.setenv("HOME", str(root))
@@ -216,9 +174,6 @@ OVERFLOW_KEY_VAR = "WFC_OVERFLOW_API_KEY_FAKE"
 
 
 def declare_overflow_seat(home):
-    """`home`'s seat file: a plan seat and an overflow seat on its dir, as a
-    launch-record reader consults the ledger only where one is declared
-    (#4393)."""
     (home / ".claude").mkdir(exist_ok=True)
     (home / ".claude" / "refill-seats").write_text(
         f"~/.claude\n~/.claude api key={OVERFLOW_KEY_VAR} grant=100 cycle-day=1\n"
@@ -226,7 +181,6 @@ def declare_overflow_seat(home):
 
 
 def ledger_of_checkout(home, name):
-    """A fixture checkout under `home`, and the dispatch ledger path in it."""
     root = home / name
     (root / ".git").mkdir(parents=True)
     (root / ".claude").mkdir()
@@ -236,8 +190,6 @@ def ledger_of_checkout(home, name):
 
 @pytest.fixture
 def unreadable_launch_record(isolated_home):
-    """An overflow seat declared under `isolated_home` beside a checkout whose
-    dispatch ledger will not read; returns that checkout."""
     declare_overflow_seat(isolated_home)
     ledger = ledger_of_checkout(isolated_home, "broken")
     ledger.mkdir(parents=True)
@@ -246,9 +198,6 @@ def unreadable_launch_record(isolated_home):
 
 @pytest.fixture
 def mark_overflow(isolated_home):
-    """Marks a session overflow in a fixture checkout's dispatch ledger under
-    `isolated_home`, in the row's shape `scripts/lib/dispatch-ledger.js` writes,
-    its overflow seat declared."""
 
     def mark(session_id):
         declare_overflow_seat(isolated_home)

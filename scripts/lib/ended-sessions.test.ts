@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/ended-sessions.js's judgement — which processes outlived their
- * Claude session and what each kill takes — against a fake /proc (#4342).
- *
- * Loosen a case and a live session's worker, the lander, or the daemon that
- * holds every session is SIGKILLed; tighten one and a dead session's worker
- * spins on unseen.
- */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findEndedSessions } from "./ended-sessions.js";
@@ -27,7 +19,6 @@ afterEach(() => {
 	fixture.remove();
 });
 
-/** A process carrying `env`, the session's two keys by default. */
 function proc(
 	pid: number,
 	spec: ProcSpec,
@@ -96,8 +87,6 @@ describe("findEndedSessions", () => {
 		expect(find()).toEqual([]);
 	});
 
-	/* An outliving session-start job (#4706): stripped, owner-tagged, its
-	 * starter gone. */
 	it("never takes one carrying a report owner but no session id, its leader gone", () => {
 		proc(6001, { ppid: 1, argv: "node repo-checks.js", ageS: 600 }, [
 			`CLAUDE_PID=${LEADER}`,

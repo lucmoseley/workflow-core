@@ -1,15 +1,6 @@
-/*
- * line-match.test.ts — pins lib/line-match.js's matcher (#4903) against the
- * textbook LCS table on seeded random lists. A short
- * match makes lib/landed-edit.js see a kept line as dropped, which can read
- * an unlanded change as landed and so offer `git worktree remove --force`
- * over it.
- */
-
 import { describe, expect, it } from "vitest";
 import { matchLines } from "./line-match.js";
 
-/** A longest common subsequence's length. */
 function lcsLength(a: string[], b: string[]) {
 	let row = new Array<number>(b.length + 1).fill(0);
 	for (const x of a) {
@@ -25,21 +16,24 @@ function lcsLength(a: string[], b: string[]) {
 	return row[b.length] ?? 0;
 }
 
-/** A seeded generator, so a failure replays: the ANSI C `rand` LCG's
- * constants, which reach every value mod 2^31. */
+const ANSI_C_RAND_MULTIPLIER = 1_103_515_245;
+const ANSI_C_RAND_INCREMENT = 12_345;
+
 function seeded(seed: number) {
 	let s = seed;
 	return () => {
-		s = (Math.imul(s, 1_103_515_245) + 12_345) & 0x7f_ff_ff_ff;
+		s =
+			(Math.imul(s, ANSI_C_RAND_MULTIPLIER) + ANSI_C_RAND_INCREMENT) &
+			0x7f_ff_ff_ff;
 		return s / 2 ** 31;
 	};
 }
 
-/* Guesses, not measured: enough lists, each shorter than LENGTH_LIMIT so
- * the table stays small, drawn from the first one to all of ALPHABET's
- * lines so repeats, the hard case, are common. */
+// guess, #4903
 const TRIALS = 3000;
+// guess, #4903
 const LENGTH_LIMIT = 12;
+// guess, #4903
 const ALPHABET = "abcd";
 
 describe("matchLines (#4903)", () => {

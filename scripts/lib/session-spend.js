@@ -26,11 +26,7 @@ const { orFallback } = require("./caught.js");
 
 /** @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord */
 
-/**
- * $/Mtok: fresh input, output, 5-minute cache write, 1-hour cache write, cache
- * read.
- * @typedef {readonly [number, number, number, number, number]} Price
- */
+/** @typedef {readonly [number, number, number, number, number]} Price */
 
 /** @type {Readonly<Record<string, Price>>} */
 const PRICES = {
@@ -62,9 +58,6 @@ const TOKEN_FIELDS = [
 ];
 
 /**
- * A record's usage with the `cache_creation` split lifted to the top level, so
- * the requestId dedupe takes the max of each TTL as it does of every other
- * field. A top-level field wins over its nested one, even at 0.
  * @param {Record<string, unknown> & { cache_creation?: Record<string, unknown> }} usage
  * @returns {Record<string, number>}
  */
@@ -78,17 +71,10 @@ function flatUsage(usage) {
 	return out;
 }
 
-/**
- * `atMs` is the first stamped record's timestamp, NaN where none is stamped.
- * @typedef {{ usage: Record<string, number>, model: string | null | undefined, atMs?: number }} RequestUsage
- */
+/** @typedef {{ usage: Record<string, number>, model: string | null | undefined, atMs?: number }} RequestUsage */
 
 /**
- * Folds one record's `flatUsage` into its request's entry, creating it on the
- * first record, with each field the maximum across the request's records. The
- * entry's `model` is the caller's to set: check-pick-next-model.js takes none
- * from a record that billed nothing.
- * @param {Map<string, RequestUsage>} requests accumulator: the request's entry is created or folded here
+ * @param {Map<string, RequestUsage>} requests
  * @param {string} id
  * @param {Record<string, number>} usage
  * @returns {RequestUsage}
@@ -104,10 +90,7 @@ function mergeRequest(requests, id, usage) {
 	return cur;
 }
 
-/**
- * Whether a usage bought any tokens at all.
- * @param {Record<string, number>} usage  a `flatUsage` or `mergeRequest` result
- */
+/** @param {Record<string, number>} usage */
 const hasUsage = (usage) =>
 	TOKEN_FIELDS.some((k) => {
 		const n = usage[k];
@@ -115,12 +98,9 @@ const hasUsage = (usage) =>
 	});
 
 /**
- * A request's cache-write tokens at each TTL's price. The 5-minute share also
- * takes whatever the `cache_creation` split does not cover — all of a write
- * from a record with no split.
- * @param {number} total  `cache_creation_input_tokens`
- * @param {number} w5m  `ephemeral_5m_input_tokens`
- * @param {number} w1h  `ephemeral_1h_input_tokens`
+ * @param {number} total
+ * @param {number} w5m
+ * @param {number} w1h
  * @returns {{ w5m: number, w1h: number }}
  */
 const writesByTtl = (total, w5m, w1h) => ({
@@ -129,16 +109,13 @@ const writesByTtl = (total, w5m, w1h) => ({
 });
 
 /**
- * A merged request's token counts in `Price` order: fresh input, output,
- * 5-minute write, 1-hour write, cache read.
- * @param {Record<string, number>} usage  a `mergeRequest` entry's usage
+ * @param {Record<string, number>} usage
  * @returns {[number, number, number, number, number]}
  */
 function pricedTokens(usage) {
 	/** @param {string} k */
 	const field = (k) => {
 		const n = usage[k];
-		// mergeRequest sets every TOKEN_FIELDS entry, at 0 where none was billed.
 		if (n === undefined)
 			throw new Error(`usage carries no ${k}: not a mergeRequest entry's`);
 		return n;
@@ -157,27 +134,14 @@ function pricedTokens(usage) {
 	];
 }
 
-/** The committed table, in the HOST repo: it is derived from that repo's own
- * dispatch ledger. */
 const SESSION_COST_TABLE = "docs/data/session-cost-table.json";
 /** @param {string} [root] */
 const tablePath = (root = hostRoot()) => path.join(root, SESSION_COST_TABLE);
-/**
- * The table readCostTable reads by default, for the host `root`.
- * `WFC_SESSION_COST_TABLE` wins over `root` too, so a test's fixed table holds
- * for the loop's in-process cap sizing (#4176).
- * @param {string} [root]
- */
+/** @param {string} [root] */
 const costTableFile = (root) =>
 	process.env.WFC_SESSION_COST_TABLE || tablePath(root);
 
-/**
- * A listed session with no transcript yet started within this window is a
- * just-launched one and counts at the full mean (#371 item 6). Ten minutes is
- * a first guess, not a measurement. Older and still absent,
- * it is a session another seat's transcript holds — the oracle lists every
- * seat's sessions — and spends that seat, not this one.
- */
+// #371 guess
 const FRESH_LAUNCH_MS = 10 * 60 * 1000;
 
 /**
@@ -193,9 +157,6 @@ function priceFor(model, prices = PRICES) {
 }
 
 /**
- * One transcript file's list-price cost in dollars, and how many deduped
- * requests ran on a model outside the price table. With `window`, only
- * records timestamped inside `[fromMs, toMs]` count.
  * @param {string} file
  * @param {{ window?: { fromMs: number, toMs: number }, prices?: Readonly<Record<string, Price>> }} [opts]
  * @returns {{ usd: number, unpriced: number }}
@@ -204,12 +165,9 @@ function fileSpend(file, { window, prices = PRICES } = {}) {
 	return spendOf(readFileRequests(file, window).values(), prices);
 }
 
-/* The key prefix of a request its transcript gives no id. */
 const NO_REQUEST_ID = "__norid__";
 
 /**
- * One transcript file's requests, each deduped to its fullest usage; empty
- * where the file cannot be read.
  * @param {string} file
  * @param {{ fromMs: number, toMs: number }} [window]
  * @returns {Map<string, RequestUsage>}
@@ -238,15 +196,11 @@ function readFileRequests(file, window) {
 }
 
 /**
- * An assistant transcript record carrying usage. Parsed JSON, checked only for
- * its `type` and `message.usage`, so every other field may be absent.
  * @typedef {{ requestId?: string, timestamp?: string, message: { model?: string | null,
  *   usage: Record<string, unknown> & { cache_creation?: Record<string, unknown> } } }} UsageRecord
  */
 
 /**
- * The transcript record where it is an assistant turn carrying usage,
- * timestamped inside `window` where one is given; else `null`.
  * @param {TranscriptRecord} r
  * @param {{ fromMs: number, toMs: number }} [window]
  * @returns {UsageRecord | null}
@@ -280,7 +234,7 @@ function spendOf(requests, prices) {
 }
 
 /**
- * @param {Record<string, number>} usage  a `mergeRequest` entry's usage
+ * @param {Record<string, number>} usage
  * @param {Price} price
  */
 function requestUsd(usage, price) {
@@ -298,7 +252,6 @@ function requestUsd(usage, price) {
 const fileCostUsd = (file) => fileSpend(file).usd;
 
 /**
- * A session's cost so far.
  * @param {string} mainFile
  * @returns {number}
  */
@@ -307,10 +260,6 @@ function sessionSpendUsd(mainFile) {
 }
 
 /**
- * The cost so far of sessions that share requests, each request once: a
- * `--bg --resume` copy repeats its parent's main-thread requests up to the
- * fork under the parent's request ids (#4195). Residual: a request with no
- * id is keyed per file, so one a copy repeats counts twice.
  * @param {string[]} mainFiles
  * @returns {number}
  */
@@ -329,8 +278,6 @@ function readChainSpendUsd(mainFiles) {
 /** @typedef {{ atMs: number, usd: number }} SpendEvent */
 
 /**
- * A session's priced requests, each with its first timestamp, in time order;
- * an unstamped one sorts first. What `sessionSpendUsd` sums.
  * @param {string} mainFile
  * @returns {SpendEvent[]}
  */
@@ -348,7 +295,6 @@ function readSessionSpendEvents(mainFile) {
 	return events.sort((a, b) => key(a.atMs) - key(b.atMs));
 }
 
-/** The token fields a session's total counts: the 5m/1h fields split cache writes, so they would count twice. */
 const TOTAL_TOKEN_FIELDS = [
 	"input_tokens",
 	"output_tokens",
@@ -357,7 +303,6 @@ const TOTAL_TOKEN_FIELDS = [
 ];
 
 /**
- * A session's tokens so far, over `readSessionFiles`, as `sessionSpendUsd` is (#2241).
  * @param {string} mainFile
  * @returns {number}
  */
@@ -369,11 +314,7 @@ function sessionTokens(mainFile) {
 	return total;
 }
 
-/**
- * A session's main transcript and every `<session>/subagents/agent-*.jsonl`
- * beside it.
- * @param {string} mainFile
- */
+/** @param {string} mainFile */
 function readSessionFiles(mainFile) {
 	const subDir = subagentDirOf(mainFile);
 	/** @type {string[]} */
@@ -386,20 +327,9 @@ function readSessionFiles(mainFile) {
 	];
 }
 
-/**
- * `tailRemainderUsd` is the measured mean of cost − u over sessions costing
- * more than u, the second-highest quantile. `landedByHours` is `[hours,
- * share]` pairs, hours rising: the share of a session's spend landed within
- * that many hours of its first request.
- * @typedef {{ meanUsd: number, quantilesUsd: number[], tailRemainderUsd: number, landedByHours: Array<[number, number]> }} CostTable
- */
+/** @typedef {{ meanUsd: number, quantilesUsd: number[], tailRemainderUsd: number, landedByHours: Array<[number, number]> }} CostTable */
 
 /**
- * The committed table, or null where it is missing or malformed. By default
- * the host's copy: the main checkout carries the landed table, never a
- * session's unlanded measurement.
- * `WFC_SESSION_COST_TABLE` points the default elsewhere, so a test fixes the
- * figures a refresh would otherwise move; readCostTableIn's never moves.
  * @param {string} [file]
  * @returns {CostTable | null}
  */
@@ -425,7 +355,6 @@ function readCostTable(file = costTableFile()) {
 }
 
 /**
- * The table committed in the checkout `root`, as readCostTable reads it.
  * @param {string} root
  * @returns {CostTable | null}
  */
@@ -433,13 +362,6 @@ const readCostTableIn = (root) =>
 	readCostTable(path.join(root, SESSION_COST_TABLE));
 
 /**
- * E[cost − spent | cost > spent], with the table's equally weighted quantiles
- * standing in for the distribution — never floored at zero, which reads a
- * session past the median as finished (#370). The top quantile is the sample
- * maximum, so the top point stands at u + `tailRemainderUsd`, the tail's
- * measured mean, u being the second-highest quantile. At or past u the
- * remainder is `tailRemainderUsd` whatever the spend: an exponential tail
- * (#2925).
  * @param {number} spentUsd
  * @param {CostTable} table
  * @returns {number}
@@ -459,11 +381,6 @@ function expectedRemainderUsd(spentUsd, table) {
 }
 
 /**
- * The share of a session's remaining spend that lands within `hours`, read
- * off `landedByHours` by straight lines from (0, 0); past its last point, that
- * point's share. Measured from each session's first request, so a session
- * already running is credited as landing at least as fast as a fresh one
- * (#2925).
  * @param {CostTable} table
  * @param {number} hours
  * @returns {number}
@@ -485,9 +402,6 @@ function landedShare(table, hours) {
  */
 
 /**
- * Each still-working listed session's expected remaining spend on THIS seat.
- * `agents` is the oracle's listing; terminal ones (done, failed, stopped) are
- * skipped.
  * @param {{ agents: Array<{ sessionId: string, kind?: string, state?: string, startedAt?: number }>, table: CostTable, configDir: string, now?: number }} opts
  * @returns {Running[]}
  */

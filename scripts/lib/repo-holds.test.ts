@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * lib/repo-holds.js's functions, called in-process against a real checkout in
- * the test's temp directory: git real there, `gh` through WFC_GH's route stub,
- * and a probe hold's filing through the real file-issue.js that lib/file-through.js
- * spawns. The tick's wiring of these, one case per adapter it crosses, is
- * refill-loop-run-holds.test.ts's; the CLI's is repo-hold.test.ts's (#4314),
- * save the store a raise from a broken worktree reaches, read here (#4880).
- * The probe is lib/guard-probe.js's, run for real on its git half; its guard
- * entry's answer is injected here, guard-probe.test.ts running the hook line.
- *
- * Broken, a repo hold (#3857) or probe hold (#3860) that never lifts stops every
- * launch into a served checkout, and one that never raises launches sessions into
- * a broken `.git`.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -86,13 +72,6 @@ const readFiled = () =>
 const readBodies = () =>
 	fs.existsSync(at("bodies")) ? fs.readFileSync(at("bodies"), "utf8") : "";
 
-/**
- * Point WFC_GH at a route stub for the calls that follow. `open` is what the
- * search for an open probe issue finds; `isFiling` false refuses file-issue.js's
- * label read, so the filing fails; `isClosing` false leaves the close unrouted;
- * `states` answers `issue view <n>`'s state read for each issue it names. Any
- * other call answers logged out.
- */
 const serve = ({
 	open = [] as { number: number; title: string }[],
 	isFiling = true,
@@ -125,8 +104,6 @@ const serve = ({
 	vi.stubEnv("WFC_GH", gh);
 };
 
-/** One tick's holds over `served`, each settled and probed, at `now`, through
- * lib/guard-probe.js unless `probe` stands in for it. */
 const tick = (
 	now = NOW,
 	served = [repo],
@@ -602,7 +579,6 @@ describe("the probe hold (#3860)", () => {
 		const raised = tick(NOW, [worktree]);
 		expect(raised.text).toContain("repo hold raised: probe in");
 		const broken = holdsDir(worktree);
-		/* A session parked on it, as an attach leaves it (#3858). */
 		fs.writeFileSync(path.join(broken, "probe.attached.job-a"), "");
 
 		fs.writeFileSync(gitFile, text);
@@ -720,8 +696,6 @@ describe("the probe hold (#3860)", () => {
 
 		describe("a locked-out session's hold (#4228)", () => {
 			const Fault = `guard-x ${CORE_FAULT_TEXT}, and it fails closed: boom`;
-			/* A kept `locked` call still fails, as a core the guard could not run
-			 * refuses it; a `merits` call passes, refused only on its merits. */
 			const StillLocked = `refused a replayed Bash: ${Fault}`;
 			beforeEach(() => {
 				replayFailure = (command) =>
@@ -867,7 +841,6 @@ describe("a hold raised through repo-hold.js from a linked worktree git refuses 
 					...process.env,
 					HOME: dir,
 					CLAUDE_PROJECT_DIR: projectDir,
-					CLAUDE_JOB_DIR: "",
 					CLAUDE_CODE_SESSION_ID: "",
 				},
 			},
@@ -994,13 +967,10 @@ describe("a lifted hold's record (#3863)", () => {
 });
 
 describe("a tick's store resolution (#4398)", () => {
-	/* Through require, as lib/repo-hold-notices.js reaches it, so the tick's
-	 * calls share one copy of the module and its tick scope. */
 	const load = createRequire(__filename);
 	const holds = load("./repo-holds.js");
 	const { tendHoldNotices } = load("./repo-hold-notices.js");
 
-	/** The `--git-common-dir` forks of every hold call a tick makes. */
 	const countTickForks = (run: (calls: () => void) => void) => {
 		serve();
 		const other = at("other");

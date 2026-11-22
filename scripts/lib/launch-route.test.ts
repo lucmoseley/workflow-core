@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * launch-route.test.ts — whether a run-vitest.js launch is full-shaped
- * (`isFullRunArgv`), where it runs and what it selects from (`launchRoute`, one
- * table over argv and session id, #1498), and which runner flag npm swallowed
- * (`npmSwallowedRefusal`, #2284), and the refusal of vitest's `--no-cache`
- * (`noCacheRefusal`, #4790). Called in process: the route is a pure
- * function of argv and id, which the program's own tests reach only through a
- * whole suite launch (#1633). Break it and a session's narrowed run reads a
- * neighbour's half-written tree, a full run skips its frozen worktree, or a
- * flag npm swallowed is dropped from the launch unrefused.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -22,7 +11,6 @@ const {
 } = require("./launch-route.js");
 
 describe("`launchRoute`, the one place a launch's route is decided (#1498)", () => {
-	/* argv, session id, then `kind tree/fallback source`. */
 	it.each([
 		["", null, "touched shared/shared diff"],
 		["", "s", "touched overlay/shared own"],
@@ -225,8 +213,6 @@ describe("`npmSwallowedRefusal`, a runner flag npm took as its own config (#2284
 	});
 });
 
-/* #4790 pass 2 review's declared departure: `npm run test -- --no-cache`
- * reached vitest, which took it as its own, and the store still skipped. */
 describe("`noCacheRefusal`, vitest's own `--no-cache` (#4790)", () => {
 	it("refuses it, naming --fresh", () => {
 		expect(noCacheRefusal(["a.test.ts", "--no-cache"])).toContain(

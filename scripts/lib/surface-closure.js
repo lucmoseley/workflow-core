@@ -1,18 +1,3 @@
-/*
- * surface-closure.js — does a rendered plugin tree carry the helper surface
- * whole? Every entry point and command scripts/lib/helper-surface.json lists
- * (#655), every file each one reaches, and nothing reached from outside the
- * tree (#464, spec #457).
- *
- * A PRESENCE CLOSURE, NOT A LOAD CLOSURE: a file loaded lazily, or run rather
- * than imported, still has to ship. The reach is code-edges.js's
- * `readRunReach`, a data file a script reads off its directory included; a
- * path it reaches outside the tree, or in a `node_modules`, is a fault. A Python
- * module file-reach.js cannot place is a fault. A JS file's npm
- * package is not judged here: plugin-tree.js's scan already faults one in
- * every shipped file.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -21,9 +6,7 @@ const { readRunReach } = require("./code-edges.js");
 const MANIFEST = "scripts/lib/helper-surface.json";
 
 /**
- * Each root the manifest declares, by its path in the rendered tree, to its
- * kind.
- * @param {string} manifest the manifest's path
+ * @param {string} manifest
  * @returns {Map<string, string>}
  */
 function readSurfaceRoots(manifest) {
@@ -38,10 +21,8 @@ function readSurfaceRoots(manifest) {
 }
 
 /**
- * Faults in the rendered tree `out` against the helper surface `root`
- * declares; none where `root` declares no surface.
- * @param {string} root the source the tree was rendered from
- * @param {string} out the rendered tree
+ * @param {string} root
+ * @param {string} out
  * @returns {string[]}
  */
 function surfaceClosureFaults(root, out) {

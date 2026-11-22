@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins gh-route.js's judgement of a tree's files, in-process (#4123).
- * check-gh-route.test.ts holds the program's boundary cases. Built on
- * in-memory text and a fake read, so each shape is judged with no tree on
- * disk. Breaking it lets a second `gh` or `claude` route past the
- * pre-commit gate, where a call off WFC_GH reaches the live tracker.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -15,11 +8,8 @@ import { isShipped } from "./plugin-tree.js";
 
 const CORE = path.resolve(__dirname, "../..");
 
-/** A shell or template expansion of `name`, spelt out of plain strings. */
 const sub = (name: string) => ["$", `{${name}}`].join("");
 
-/* Bodies that would breach this checker if written here, held as `.txt` it
- * never reads. */
 const FIXTURE = {
 	"claude-copies.js.txt": path.join(
 		__dirname,
@@ -107,7 +97,6 @@ const FIXTURE = {
 const fixture = (name: keyof typeof FIXTURE) =>
 	fs.readFileSync(FIXTURE[name], "utf8");
 
-/** Judges a tree of path to text, reading each `.sh` path as shell. */
 const judge = (texts: Record<string, string>) => {
 	const files = Object.keys(texts).sort();
 	const result = judgeTree(
@@ -124,7 +113,7 @@ const judge = (texts: Record<string, string>) => {
 const GH_FIX = {
 	"SECOND-VAR":
 		"gh SECOND-VAR Fix: name the binary through WFC_GH, the one var scripts/lib/gh.js reads, as scripts/check-issue-orphans.js and scripts/park-blocked.sh do.",
-	"SHELL-BARE": `gh SHELL-BARE Fix: run "${sub("WFC_GH:-gh")}", the var scripts/lib/gh.js reads, as scripts/park-blocked.sh does; or mark it \`gh-route-exempt: <why>\` where \`gh\` is only text.`,
+	"SHELL-BARE": `gh SHELL-BARE Fix: run "${sub("WFC_GH:-gh")}", the var scripts/lib/gh.js reads, as scripts/park-blocked.sh does; or mark it \`gh-route-exempt: #N\` where \`gh\` is only text.`,
 	"PATH-STUB":
 		"gh PATH-STUB Fix: point WFC_GH at the stub executable, never PATH.",
 	"NODE-COPY":
@@ -134,7 +123,7 @@ const GH_FIX = {
 const CLAUDE_FIX = {
 	"SECOND-VAR":
 		"claude SECOND-VAR Fix: name the binary through WFC_CLAUDE_BIN, the one var scripts/lib/claude-bin.js reads, as scripts/run-mod-tests.js and scripts/start-session.sh do.",
-	"SHELL-BARE": `claude SHELL-BARE Fix: run "${sub("WFC_CLAUDE_BIN:-claude")}", the var scripts/lib/claude-bin.js reads, as scripts/start-session.sh does; or mark it \`claude-route-exempt: <why>\` where \`claude\` is only text.`,
+	"SHELL-BARE": `claude SHELL-BARE Fix: run "${sub("WFC_CLAUDE_BIN:-claude")}", the var scripts/lib/claude-bin.js reads, as scripts/start-session.sh does; or mark it \`claude-route-exempt: #N\` where \`claude\` is only text.`,
 	"PATH-STUB":
 		"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub executable, never PATH.",
 	"NODE-COPY":
@@ -143,7 +132,6 @@ const CLAUDE_FIX = {
 
 const TEXT_ONLY = 'msg="Apply it; gh issue edit 7"\n';
 
-/* Spelt apart, so check-gh-route does not read this test as naming one. */
 const SECOND_GH_VAR = ["WFC", "X", "GH"].join("_");
 
 const tags = (rel: string, kind: "node" | "test" | "shell", source: string) =>
@@ -261,13 +249,15 @@ describe("judgeTree", () => {
 		expect(r.findings).toEqual([]);
 	});
 
-	it("honours the opt-out marker only where it gives a reason", () => {
+	it("honours the opt-out marker only where it gives a reason or an issue pointer", () => {
 		const r = judge({
 			"scripts/why.sh": `# gh-route-exempt: tells the agent what to run\n${TEXT_ONLY}`,
+			"scripts/pointer.sh": `# gh-route-exempt: #5527\n${TEXT_ONLY}`,
 			"scripts/sandbox.test.ts": fixture("path-stub-exempt.ts.txt"),
 			"scripts/bare.sh": `# gh-route-exempt:\n${TEXT_ONLY}`,
+			"scripts/hash.sh": `# gh-route-exempt: #\n${TEXT_ONLY}`,
 		});
-		expect(r.sites).toEqual(["scripts/bare.sh:2"]);
+		expect(r.sites).toEqual(["scripts/bare.sh:2", "scripts/hash.sh:2"]);
 		expect(r.fixes).toEqual([GH_FIX["SHELL-BARE"]]);
 	});
 
@@ -365,8 +355,6 @@ describe("judgeFile", () => {
 		expect(
 			tags("scripts/lib/gh.js", "node", "const b = process.env.WFC_GH;\n"),
 		).toEqual([]);
-		/* The program text is spelt apart so no lexical check reads it as this
-		 * test's own env write. */
 		const assign = `${["process", "env", "WFC_GH"].join(".")} = "/stub";\n`;
 		expect(tags("scripts/x.js", "node", assign)).toEqual([]);
 	});

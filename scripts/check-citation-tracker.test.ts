@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * check-citation-tracker.js — the prefix test (#162).
- *
- * Every case runs the REAL checker in a throwaway git repo: the shared tree's
- * index is repo-global (mantahostels#63) and must never be staged into by a test.
- *
- * `WFC_CITATION_BASELINE` points the checker at that repo's own seed commit.
- *
- * It is a hard gate in .husky/pre-commit: a false pass lands a new
- * `mantahostels#N` that sends the reader to the inherited tracker's unrelated
- * issue, and a false fail refuses a correct citation.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,7 +14,6 @@ const temps = registerTempCleanup();
 
 const CHECKER = path.join(ROOT, "scripts", "check-citation-tracker.js");
 
-/* The seed's citations are what the inherited tracker "used": 900 and 63. */
 const SEED = [
 	"A line citing mantahostels#900, which the other tracker really used.",
 	"And mantahostels#63, likewise.",
@@ -145,8 +132,6 @@ describe("the citation prefix gate", () => {
 		expect(r.output).toContain("mantahostels#42 should be #42");
 	});
 
-	/* `"kind": "external"` in the classes sidecar names the other tracker on
-	 * purpose — the prefix there is the entry's content, not a mis-copy. */
 	it("leaves the classes sidecar's declared external references alone", () => {
 		const repo = newRepo();
 		repo.stage(
@@ -158,7 +143,6 @@ describe("the citation prefix gate", () => {
 		expect(r.code).toBe(0);
 	});
 
-	/* The escape, unvalidated by design — one line, not the whole file. */
 	it("drops a line carrying citation-exempt", () => {
 		const repo = newRepo();
 		repo.stage(
@@ -203,6 +187,18 @@ describe("the citation prefix gate", () => {
 			expect(r.output).not.toContain("#3664 should be");
 		});
 
+		it("judges as bare an owner glued to the previous citation's digits", () => {
+			const repo = newRepo();
+			repo.stage(
+				"notes.md",
+				"Filed mantahostels#900lucmoseley/mantahostels#3664.\n",
+			);
+
+			const r = run(repo);
+			expect(r.code).toBe(1);
+			expect(r.output).toContain("mantahostels#3664 should be #3664");
+		});
+
 		it.each(["someone-else", "xlucmoseley"])(
 			"refuses owner %s, naming the citation",
 			(owner) => {
@@ -216,9 +212,6 @@ describe("the citation prefix gate", () => {
 		);
 	});
 
-	/* An added line beginning `++` is a file header to a naive parser, which
-	 * then drops the rest of the hunk — markdown and quoted diffs both make
-	 * them. */
 	it("judges an added line that itself begins with ++", () => {
 		const repo = newRepo();
 		repo.stage(

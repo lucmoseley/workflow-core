@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/local-tester.js against a fixture repo (#2403), and the production
- * suite slot it holds each run under, lib/suite-slot.js, beside it.
- *
- * Loosen it and the lander can land a sha it never tested, test a session's
- * unsaved edit, reinstall on every batch, or run a suite past a shut gate.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -23,12 +16,9 @@ import { suiteSlot } from "./suite-slot.js";
 import { admitted } from "./suite-slot-fake";
 import { LANDER_WORKTREE } from "./worktree-dirs.js";
 
-/** The local tester reads no placement; every ask passes this one. */
 const BATCH0 = { kind: "batch", slot: 0 } as const;
 
-/** A part-suite's carried weight (#2931). */
 const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };
-/* A whole suite's lander charge (#3323). */
 const WHOLE = { chargeMb: launchChargeMb({ kind: "lander", files: [] }) };
 
 let tmp: string;
@@ -38,8 +28,6 @@ let remote: string;
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-/* A runner that runs each `*.check.js` and prints vitest's FAIL line for each
- * one that throws. */
 const RUNNER = `const fs = require("node:fs");
 const { execFileSync } = require("node:child_process");
 let red = false;
@@ -80,7 +68,6 @@ const commit = (message: string) => {
 	return git(work, "rev-parse", "HEAD");
 };
 
-/* Git runs for real; npm is recorded and stands in for an install. */
 const recordingExec = () => {
 	const npm: string[] = [];
 	return {
@@ -179,8 +166,6 @@ it("tests the sha, never the shared tree's unsaved edits", async () => {
 	expect(await tester.verdict(BATCH0, passing)).toEqual({ kind: "green" });
 });
 
-/* A suite that exits 1 where any of `names` reaches it, each set to `work`. A
- * red run names no file, so a suite handed one reads unknown. */
 const probeVerdict = (names: string[]) => {
 	const set = names.map((n) => `e.${n}`).join(" || ");
 	config({
@@ -345,8 +330,6 @@ it("runs the declared full_test over test, and the Python suite only where the c
 	expect(fs.readFileSync(ran, "utf8")).toBe("ran\n");
 });
 
-// #2188 (CodeQL js/shell-command-injection-from-environment): the runner's
-// path once went into `sh -c` unquoted.
 it("runs the Python suite from a plugin path with a space in it", async () => {
 	const pytest = path.join(tmp, "a plugin", "fake-pytest.js");
 	const ran = path.join(tmp, "pytest-ran");
@@ -519,7 +502,6 @@ it("refuses at the ceiling on the limb the guard named, never running anyway (#2
 	expect(memory.text).toMatch(/lander: gate still denies on memory/);
 });
 
-/* 16 Nov's lander waited 2,400 s on a ~13150 MB rung of a 9930 MB machine (#5310). */
 it("clamps a charge past MemTotal to what the machine can supply, and says so on refusal", async () => {
 	const lines: string[] = [];
 	const stderr = vi
@@ -576,8 +558,6 @@ it("yields to a waiter whose turn came true on the same poll, launching only onc
 		);
 	const readdir = fs.readdirSync;
 	let reads = 0;
-	/* Read 1 is the lander's turn, read 2 its admission's re-read: the rival
-	 * joins behind before the first and stamps admitted before the second. */
 	const spy = vi.spyOn(fs, "readdirSync").mockImplementation(((
 		dir: fs.PathLike,
 		...rest: unknown[]
@@ -653,7 +633,6 @@ it("holds a lander marker whose charge is not a number a whole run's (#3323)", (
 	seat.leave();
 });
 
-/* Positive pair: "shows session admission the held slot as a lander (#2416)". */
 it("holds a whole run's charge, and says why, where the queue will not read (#5301)", () => {
 	fs.chmodSync(tmp, 0o000);
 	try {
@@ -892,9 +871,6 @@ it("marks the verdict proof failed on a red naming no failing file, and leaves i
 	expect(verdict()).toBe("fail");
 });
 
-/* A runner taking vitest's `--shard=k/n`: the kth of every n `*.check.js`
- * files by name, each run's files logged to `shards.log`; with no shard, all
- * of them. */
 const SHARDED_RUNNER = `const fs = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const flag = process.argv.find((a) => a.startsWith("--shard="));

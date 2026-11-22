@@ -1,24 +1,4 @@
 # shellcheck shell=sh
-# hook-root.sh — the host root a git hook hands its scripts: the repository the
-# hook runs in, never one an inherited CLAUDE_PROJECT_DIR names (#3307).
-#
-# SOURCED, NEVER RUN, at the top of every .husky/<hook>, and POSIX sh.
-#
-# Where CLAUDE_PROJECT_DIR shares this repository's git common dir it is
-# kept: the seam maps it, the main checkout or a linked worktree of it, to the
-# main checkout the arbiter's state is keyed on (#4493). Anything else,
-# unset or unreadable included, becomes the tree the harness would have named:
-# in a linked worktree, the main checkout that owns a common dir called `.git`, so
-# a shell with the variable unset reads the review marker from the store its
-# writer used (#3830); else this working tree's top level. Where there is no top level, a
-# bare repository's push, CLAUDE_PROJECT_DIR is unset.
-#
-# scripts/lib/host-root.js's resolveCommitHost() is the JS half, and its worktreeRoot()
-# makes the same common-dir comparison for a test run; change them together.
-#
-# GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE are unset for the -C read: git
-# exports them to a hook, and they would answer for this repository wherever
-# -C pointed.
 hr_mine=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || hr_mine=""
 hr_theirs=""
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then

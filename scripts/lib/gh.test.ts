@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Direct tests for the gh seam (mantahostels#154), pinning the contract each
- * caller leans on; the callers' own suites exercise it end-to-end.
- *
- * Each case points WFC_GH at a stub script in a temp dir (gh-stub), so no
- * case reaches the network or the founder's `gh` login; gh.contract.test.ts
- * holds the shared fake's answers to the real binary.
- *
- * Every Node script that calls GitHub goes through this seam, the checkers the
- * husky hooks run among them, so a loosened case can let an unreachable `gh`
- * read as all-clear rather than SKIP, or mis-flatten a paginated listing.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -70,9 +58,6 @@ describe("the injection point", () => {
 });
 
 describe("a call's wall-clock cap (#2677)", () => {
-	/* Asserting the option passed is §X6's internals, kept because the cap's
-	 * only outward sign is a call killed at 300 s, which no test can wait out;
-	 * gh.js binds execFileSync at load, so it is read fresh over the spy. */
 	it("defaults to 300 s", () => {
 		inject("#!/bin/sh\nexit 0\n");
 		const cp = require("node:child_process");
@@ -89,8 +74,6 @@ describe("a call's wall-clock cap (#2677)", () => {
 		}
 	});
 
-	/* Crosses the real clock: what is pinned is a real process killed at the
-	 * caller's own cap. */
 	it("leaves a caller's own timeout winning (mantahostels#2134)", async () => {
 		const { gh } = await load();
 		inject("#!/bin/sh\nsleep 30\n");
@@ -148,8 +131,6 @@ describe("errors", () => {
 		}
 	});
 
-	/* A JS error is the other way up: the reason leads, and what follows is the
-	 * stack, or the input quoted back. */
 	it("parseErrLine takes the FIRST line of a thrown error with no stderr", async () => {
 		const { ghJson, parseErrLine } = await load();
 		inject("#!/bin/sh\nprintf 'not json\\nat all\\n'\n");
@@ -216,22 +197,11 @@ describe("JSON and pagination", () => {
 	});
 });
 
-/*
- * raiseGhFailure THROWS into check.js rather than exiting itself
- * (mantahostels#155 — the checker family's exit-code and severity model —
- * decision 6), so it is driven here the way every caller drives it — inside a
- * runCheck, which owns the outcome and the process's exit code.
- */
 const inCheck = (body: string) =>
 	`const { runCheck } = require(${JSON.stringify(CHECK_LIB)});
 	 const { gh, raiseGhFailure, assertWholeTracker, ghOpenIssues, ISSUE_LIST_LIMIT } = require(${JSON.stringify(LIB)});
 	 runCheck({ name: "t", usage: "t", run(ctx) { ${body} } });`;
 
-/**
- * Stands in for `spawnSync(process.execPath, ["-e", code], ...)` (mantahostels#1945):
- * `runInProcess` takes a script path, not inline source, so `code` is written
- * to its own fixture file first.
- */
 let inlineCount = 0;
 const runInline = (code: string, env: Record<string, string | undefined>) => {
 	const file = path.join(dir, `inline-${inlineCount++}.js`);
@@ -290,11 +260,6 @@ describe("the SKIP-on-unreachable rule", () => {
 	});
 });
 
-/*
- * mantahostels#164 (the ticket that made an unreachable GitHub a SKIP and a gh
- * crash a BROKEN): only no-binary / no-credentials / no-network is a skippable
- * environment fact; everything else is the check itself being broken.
- */
 describe("classifying why a gh call failed", () => {
 	const reasonOf = async (stderr: string) => {
 		const { gh, parseGhFailureReason } = await load();
@@ -427,11 +392,6 @@ describe("a broken call exits loudly at 2", () => {
 	});
 });
 
-/*
- * `gh issue list --limit N` returns at most N rows and says nothing about the
- * rest, so a tracker that reaches the ceiling silently narrows every check to a
- * subset of itself.
- */
 describe("the truncation ceiling", () => {
 	it("passes a short result straight through", async () => {
 		const { assertWholeTracker } = await load();
@@ -473,10 +433,7 @@ describe("ghAllIssues", () => {
 		);
 		ghAllIssues();
 		const args = fs.readFileSync(path.join(dir, "args"), "utf8");
-		// state=all: a closed parent still has to resolve, or every child of one
-		// reads as an orphan.
 		expect(args).toContain("-f state=all");
-		// per_page=100 against the endpoint's default of 30 (#2300).
 		expect(args).toContain("-f per_page=100");
 		expect(args).toContain("repos/{owner}/{repo}/issues");
 	});
@@ -489,8 +446,6 @@ describe("ghAllIssues", () => {
 });
 
 describe("an empty open-issue read (#2565)", () => {
-	/** A stub answering the nth issues call with `pages[n]`, the last one
-	 * repeating, and the repo read with `count`. */
 	const lists = (pages: string[], count: number) => {
 		for (const [n, p] of pages.entries())
 			fs.writeFileSync(path.join(dir, `page${n}`), p);
@@ -538,7 +493,6 @@ describe("an empty open-issue read (#2565)", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("GitHub counts 116 open");
-		// raiseGhFailure passes the refusal on rather than re-reading it as a gh fault.
 		expect(r.stderr).not.toContain("not because GitHub was unreachable");
 		expect(r.stderr).not.toContain("KEPT GOING");
 	});
@@ -585,8 +539,6 @@ describe("retryingOnceSync (#3928)", () => {
 describe("ghGetRetrying — the shared fan-out read (mantahostels#1145)", () => {
 	it("retries once, then reports the failure rather than throwing", async () => {
 		const { ghGetRetrying } = await load();
-		// Succeeds only on the second call, which is the transient 502 the retry
-		// exists for.
 		inject(
 			`#!/bin/sh\nn=$(cat ${shellQuote(dir)}/n 2>/dev/null || echo 0)\nexpr $n + 1 > ${shellQuote(dir)}/n\nif [ "$n" = "0" ]; then echo "gh: HTTP 502" >&2; exit 1; fi\necho '[[{"number":7}]]'\n`,
 		);
@@ -614,8 +566,6 @@ describe("ghGetRetrying — the shared fan-out read (mantahostels#1145)", () => 
 	});
 
 	it("under strict, an exit 0 that printed nothing is a failure", async () => {
-		// On dependencies/blocked_by that empty list is indistinguishable from
-		// "no blockers", so a caller building a frontier cannot accept it.
 		const { ghGetRetrying } = await load();
 		inject("#!/bin/sh\nexit 0\n");
 		const r = await ghGetRetrying("repos/o/r/issues/1", { strict: true });
@@ -636,9 +586,6 @@ describe("ghGetRetrying — the shared fan-out read (mantahostels#1145)", () => 
 describe("mapLimit — the bounded fan-out (mantahostels#1145)", () => {
 	it("returns results in input order, not completion order", async () => {
 		const { mapLimit } = await load();
-		// The first item finishes last, so a function collecting results as they
-		// land would return them reversed — and both callers pair result[i] with
-		// items[i].
 		const out = await mapLimit(
 			[30, 20, 10],
 			3,

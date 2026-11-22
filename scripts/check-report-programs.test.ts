@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which report-* sites check-report-programs.js finds filing past
- * createIssue, over the whole tree, and that each refusal names the primitive
- * and its exemplar (#3454).
- *
- * Fabricated programs in a throwaway directory, never this checkout, so a
- * case's sites are only its own.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here lets the
- * next report-* that files by a second route land.
- */
 
 import fs from "node:fs";
 import os from "node:os";

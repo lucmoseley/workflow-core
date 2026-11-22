@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * copyRequireClosure copies a file with everything it reaches by relative
- * require (#1657). The live case loads the copy in a child node, whose module
- * cache cannot fall back on a file already loaded from the real tree. Loosen
- * it and a fixture copying the config reader can again go missing a helper
- * the reader gains, failing the pre-commit gate suites on an unrelated commit.
- * A shell file's edges are the scripts it names by path (#5423): loosen those
- * cases and a fixture's hook launches a script its copy lacks, failing with
- * ERR_MODULE_NOT_FOUND only after a queued run.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

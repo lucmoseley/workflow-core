@@ -1,15 +1,3 @@
-/*
- * hook-shim.js — what marks a husky hook as the core's shim, and the guard
- * registry's row for it (#5477). Every adopter's shims are one rendering, so
- * their row lives here, never in an adopter's manifest.
- */
-
-/**
- * The hooks whose refusal would stop git: every hook but these four. pre-push
- * refuses no push on a checker that cannot run (#1444), and git ignores
- * post-commit's, post-merge's and a finished post-checkout's exit, so none
- * refuses where no core resolves.
- */
 const FAIL_OPEN_HOOKS = new Set([
 	"pre-push",
 	"post-commit",
@@ -17,7 +5,6 @@ const FAIL_OPEN_HOOKS = new Set([
 	"post-checkout",
 ]);
 
-/** A line every shim carries, which tells it from an adopter's own hook. */
 const SHIM_MARK = "# workflow-core hook shim:";
 
 /** @param {string} text */
@@ -25,7 +12,6 @@ const isHookShim = (text) =>
 	text.split("\n").some((line) => line.startsWith(SHIM_MARK));
 
 /**
- * The guard registry's row for the shim at `.husky/<hook>`.
  * @param {string} hook
  * @returns {Record<string, string>}
  */

@@ -25,13 +25,11 @@ const path = require("node:path");
 
 const PROBE_SESSION_ID = "check-context-budget-probe-00000000";
 
-/* The core's hook entry, beside this directory. `WFC_INJECTOR_ENTRY` is the
- * test-injection seam (`lib/host-root.js`'s header convention). */
 const INJECTOR_ENTRY =
 	process.env.WFC_INJECTOR_ENTRY ||
 	path.join(__dirname, "..", "inject-tracker-docs.js");
 
-/* The injector's own hook timeout is 10 s (hooks/hooks.json). */
+// #1956
 const RUN_TIMEOUT_MS = 10_000;
 
 /**
@@ -39,10 +37,8 @@ const RUN_TIMEOUT_MS = 10_000;
  */
 
 /**
- * Each command's payload, in UTF-16 units, as the core's entry renders it for
- * `root`.
- * @param {string[]} commands the text module's `COMMANDS`
- * @param {string} root the host it renders for
+ * @param {string[]} commands
+ * @param {string} root
  * @returns {RenderedPayload[]}
  */
 function renderedPayloads(commands, root) {
@@ -96,7 +92,6 @@ function render(root, env, command) {
 			return { command, chars: null, error: "no additionalContext" };
 		return { command, chars: context.length };
 	} catch {
-		/* Unparseable stdout is reported as this command's error row (#1956). */
 		return { command, chars: null, error: "output is not JSON" };
 	}
 }

@@ -1,33 +1,3 @@
-/*
- * model-table.js — the one table every model choice is translated through:
- * which model and effort a dispatch, a launch or a plan's session runs on.
- * The values are the routing file's, lib/model-routing.json, beside this one
- * (#5032).
- *
- * THE ROUTING FILE holds each `Agent`-tool alias's current model id and its
- * other names, and per mode (`standard`, `burn`) a row per alias naming the
- * alias it runs as and the effort it runs at (`null` keeping the call's),
- * the plans' session model and the per-model settings effort. Which mode
- * applies is the caller's: burn mode's marker, read through lib/burn-mode.js.
- * `WFC_MODEL_ROUTING` names another file, so a test never reads the real one.
- *
- * ONE SPELLING RULE. A spelling is an alias where it equals the alias, its
- * `id` or one of its `also` names, with or without a `[1m]` suffix. Any other
- * spelling passes through unchanged. A launch target is its alias's full id with
- * `[1m]`, since an alias has moved under this repo once already (#353); a
- * dispatch target is the bare alias, all the `Agent` tool takes.
- *
- * A dispatch naming no model inherits its session's, so a session launched
- * under burn mode would go on handing its model to subagents after `off`: in
- * standard mode a call inheriting a model the standard rows route away from
- * is pinned to that row (#4992).
- *
- * Effort rides with the dispatch remap on the call's own `effort` field, which
- * replaces an agent definition's `effort:` (forks excepted). A launch's effort
- * comes from settings.json's per-model `modelSettings`, read at session start,
- * which scripts/burn-mode.sh writes from the mode's `settings` (CLI below).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
@@ -36,7 +6,6 @@ const { coreRoot, docPath, scriptPath } = require("./script-path.js");
 const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
 
-/** The routing file this module reads unless `WFC_MODEL_ROUTING` names another. */
 const ROUTING_FILE = path.join(__dirname, "model-routing.json");
 
 const LEVELS = ["low", "medium", "high", "xhigh", "max"];
@@ -76,7 +45,6 @@ const isLevel = (v) => typeof v === "string" && LEVELS.includes(v);
 const isAlias = (v, aliases) => typeof v === "string" && aliases.includes(v);
 
 /**
- * The first fault the checks find, run in order; "" for none.
  * @param {Array<() => string>} checks
  */
 function firstOf(checks) {
@@ -89,8 +57,8 @@ function firstOf(checks) {
 
 /**
  * @param {string} alias
- * @param {unknown} m its `models` entry
- * @param {Map<string, string>} seen every name read so far, to its alias
+ * @param {unknown} m
+ * @param {Map<string, string>} seen
  */
 function modelFault(alias, m, seen) {
 	if (!isObject(m) || typeof m.id !== "string" || m.id === "")
@@ -165,7 +133,6 @@ function modeFault(name, mode, aliases) {
 }
 
 /**
- * The first fault in a parsed routing file, or "" where it has none.
  * @param {unknown} r
  * @returns {string}
  */
@@ -190,10 +157,8 @@ function firstFault(r) {
 const loaded = new Map();
 
 /**
- * The routing file, read and shape-checked once per path.
  * @param {Record<string, string | undefined>} [env]
  * @returns {Routing}
- * @throws naming the file and its first fault
  */
 function loadRouting(env = process.env) {
 	const file = routingPath(env);
@@ -230,7 +195,6 @@ function modeOf(burn) {
 }
 
 /**
- * The alias a spelling runs as, by the one spelling rule; "" for none.
  * @param {string} spelling
  * @returns {string}
  */
@@ -244,20 +208,14 @@ function aliasOf(spelling) {
 }
 
 /**
- * An alias's current model id.
  * @param {string} alias
  * @returns {string}
- * @throws where the routing file names no such alias
  */
 function modelId(alias) {
 	return modelOf(alias).id;
 }
 
-/**
- * An alias's entry in the routing file's models.
- * @param {string} alias
- * @throws where the routing file names no such alias
- */
+/** @param {string} alias */
 function modelOf(alias) {
 	const m = loadRouting().models[alias];
 	if (!m) throw new Error(`${routingPath()}: no model \`${alias}\``);
@@ -265,10 +223,8 @@ function modelOf(alias) {
 }
 
 /**
- * A mode's row for an alias; the load check gives every alias one.
  * @param {boolean} burn
  * @param {string} alias
- * @throws where the mode has no row for the alias
  */
 function rowOf(burn, alias) {
 	const row = modeOf(burn).route[alias];
@@ -276,28 +232,18 @@ function rowOf(burn, alias) {
 	return row;
 }
 
-/**
- * The standard row for the alias a spelling runs as; null where the file
- * does not recognise it.
- * @param {string} spelling
- */
+/** @param {string} spelling */
 function standardRoute(spelling) {
 	const alias = aliasOf(spelling);
 	return alias ? rowOf(false, alias) : null;
 }
 
-/**
- * An alias's launch spelling: its full id with the 1M suffix.
- * @param {string} alias
- */
+/** @param {string} alias */
 function launchSpelling(alias) {
 	return `${modelId(alias)}${LONG_CONTEXT}`;
 }
 
 /**
- * Whether a spelling is a model only burn mode puts work on: one the standard
- * rows route to another alias, and some burn row or the burn session runs on
- * (#4992).
  * @param {string} spelling
  * @returns {boolean}
  */
@@ -312,24 +258,13 @@ function isRoutedAway(spelling) {
 	);
 }
 
-/*
- * Burn mode never reaches an overflow seat (#4919). Its seats share the plans'
- * settings file, whose `model` burn mode moves, so its launch names the
- * overflow alias's model outright; and its child carries OVERFLOW_SESSION_VAR
- * set to its own session id, so the dispatch remap skips the burn mode there
- * and nowhere else — a session that child starts runs under another id.
- */
+// #4919
 const OVERFLOW_ALIAS = "opus";
 const OVERFLOW_SESSION_VAR = "WFC_OVERFLOW_SESSION";
 
-/** What opens an overflow session's name, so its row says it spends API credits. */
 const OVERFLOW_PREFIX = "Overflow · ";
 
-/**
- * Whether a spelling may launch on an overflow seat: the overflow alias or
- * its current id, each bare or `[1m]`. A retired id is refused.
- * @param {string} spelling
- */
+/** @param {string} spelling */
 function isOverflowAdmitted(spelling) {
 	const id = modelId(OVERFLOW_ALIAS);
 	return [OVERFLOW_ALIAS, id]
@@ -337,15 +272,14 @@ function isOverflowAdmitted(spelling) {
 		.includes(spelling);
 }
 
-/** The overflow seat's launch spelling. */
 function overflowModel() {
 	return launchSpelling(OVERFLOW_ALIAS);
 }
 
 /**
  * @param {Record<string, string | undefined>} env
- * @param {string} session the session id the hook payload names
- * @returns {boolean} whether that session runs on an overflow seat
+ * @param {string} session
+ * @returns {boolean}
  */
 function isOverflowSession(env, session) {
 	const pinned = env[OVERFLOW_SESSION_VAR];
@@ -353,9 +287,6 @@ function isOverflowSession(env, session) {
 }
 
 /**
- * One launch spelling through the mode's row: the target's launch spelling,
- * or the spelling as given where the row keeps it on its own alias or the
- * file does not recognise it.
  * @param {string} model
  * @param {boolean} burn
  * @returns {string}
@@ -368,8 +299,6 @@ function mapLaunch(model, burn) {
 }
 
 /**
- * The model a plan's session runs on, its settings `model` read through the
- * mode's rows; "" or none meaning the mode's session model.
  * @param {string | undefined} model
  * @param {boolean} burn
  * @returns {string}
@@ -380,8 +309,6 @@ function mapSessionModel(model, burn) {
 }
 
 /**
- * The settings a mode writes into every plan: its session model's launch
- * spelling, and the effort under each named alias's id and every `also` id.
  * @param {boolean} burn
  * @returns {{model: string, modelSettings: Record<string, {effortLevel: string}>}}
  */
@@ -397,14 +324,8 @@ function modeSettings(burn) {
 }
 
 /**
- * A job's saved launch flags for a resume while burn mode is off: a saved
- * `--model` routed away in standard mode, saved by a launch under burn mode,
- * moved to the standard row's launch spelling, since resumed as saved it
- * brings that model back after `off` (#4992). Anything else, and every flag
- * under burn mode, comes back as the very array given, so a caller tells a
- * move by identity.
  * @param {string[]} flags
- * @param {boolean} burn whether burn mode's marker exists
+ * @param {boolean} burn
  * @returns {string[]}
  */
 function relaunchFlags(flags, burn) {
@@ -421,8 +342,6 @@ function relaunchFlags(flags, burn) {
 }
 
 /**
- * Where a flag list names its `--model`, joined (`--model=x`, one element
- * wide) or split (`--model x`, two); null where it names none.
  * @param {string[]} flags
  * @returns {{at: number, width: 1 | 2, model: string} | null}
  */
@@ -438,14 +357,9 @@ function parseModelFlag(flags) {
 	return model === undefined ? null : { at, width: 2, model };
 }
 
-/** The plugin's own agent definitions — the code reviewer's among them. */
 const AGENTS_DIR = path.join(coreRoot(), ".claude", "agents");
 
 /**
- * The `model:` an agent definition this plugin ships pins, for a call that
- * names none: the harness runs the definition's model then, so it is the
- * model to translate. A namespaced type (`wfc:code-reviewer`) is read by its
- * bare name; any other type, or a definition naming none, gives "".
  * @param {string} type
  * @returns {string}
  */
@@ -463,9 +377,6 @@ function readDefinitionModel(type) {
 }
 
 /**
- * The model one `Agent` call runs on, as the table must read it: its own
- * `model`, else the one its plugin definition pins; "" for a fork, which
- * ignores the field, and for a call inheriting the session's model.
  * @param {Record<string, unknown>} call
  * @returns {string}
  */
@@ -478,21 +389,9 @@ function dispatchedModel(call) {
 }
 
 /**
- * The model-table transform over one `Agent` call's input: the call with its
- * model and effort moved by the mode's row, and what the session is told, or
- * null where nothing changes — a fork (which ignores both fields), a spelling
- * the file does not know, or a row that keeps both model and effort.
- *
- * Every other field is carried through untouched, `updatedInput` replacing the whole
- * input.
- *
- * A call naming no model inherits the session's, and is left alone unless,
- * in standard mode, that model is routed away: then it is pinned to the
- * standard row (#4992).
- *
- * @param {unknown} input the tool_input object
- * @param {boolean} burn whether burn mode's marker exists
- * @param {string} [inherited] the session's own model, "" where unknown
+ * @param {unknown} input
+ * @param {boolean} burn
+ * @param {string} [inherited]
  * @returns {null | {input: Record<string, unknown>, note: string}}
  */
 function remapModel(input, burn, inherited = "") {
@@ -508,8 +407,6 @@ function remapModel(input, burn, inherited = "") {
 const atEffort = (effort) => (effort ? ` at \`${effort}\`` : "");
 
 /**
- * A call naming no model, pinned to the standard row in standard mode where
- * the session's model is routed away; null otherwise, and for a fork.
  * @param {Record<string, unknown>} call
  * @param {boolean} burn
  * @param {string} inherited
@@ -526,8 +423,6 @@ function pinInherited(call, burn, inherited) {
 }
 
 /**
- * A call naming a model, or pinned one by its definition, moved by the mode's
- * row; null where the file does not know it or the row keeps both fields.
  * @param {Record<string, unknown>} call
  * @param {string} from
  * @param {boolean} burn
@@ -568,26 +463,7 @@ module.exports = {
 	standardRoute,
 };
 
-/*
- * CLI mode. Every mode exits 2 on a routing file that will not load, naming
- * it on stderr.
- *
- *   launch <spelling> [--burn]
- *                     prints the spelling to launch under the mode's rows
- *   session <model> [--burn]
- *                     the same for a plan's settings `model`, "" meaning the
- *                     mode's session model
- *   alias <spelling>  prints the alias the spelling runs as, or nothing
- *   admits <spelling> exits 0 where the spelling may launch on an overflow
- *                     seat, 1 where it may not
- *   settings [--burn] prints the mode's settings writes as JSON
- *
- * stdout is always a pipe here, so it is written synchronously before the
- * exit — process.stdout.write can be cut off by process.exit on a pipe.
- */
 /**
- * Each CLI mode: the positionals it takes, whether it takes `--burn`, and its
- * run, printing through `say` and giving the exit code.
  * @type {Record<string, {arity: number, burn: boolean,
  *   run: (args: string[], burn: boolean, say: (s: string) => void) => number}>}
  */
@@ -633,7 +509,6 @@ const CLI = {
 };
 
 /**
- * One CLI call's exit code.
  * @param {string[]} argv
  * @returns {number}
  */

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The §G5 reader lister (#2750): a noun-named function whose own body reads,
- * or returns what a `readX` call gave it (#2858), is listed; a verb-named one, a command-named wrapper, one reading only
- * inside a nested function and one doing no I/O are not. A miss here hands
- * the rename tickets under #2750 a short candidate list, and the breaches it
- * drops never get renamed.
- *
- * The lister reads what git tracks, so each case stages its sample in a
- * fresh repo built with the real git, beside an untracked file it must not
- * read. It runs in process (§X3).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

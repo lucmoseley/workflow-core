@@ -1,30 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-exhausted-map.js — Stop hook. Refuses the stop of a session holding
- * the arbiter claim on an exhausted map: a `wayfinder:map` that is open,
- * still `takes:wayfinder`, not `parked`, not gated, and has no open sub-issue
- * (#3639, spec #3623).
- *
- * WHY. The refill loop launches `/wayfinder <map>` for such a map, and nothing
- * else routes it, so a session that ends having given it no new route leaves
- * it to be relaunched every tick (#3623).
- *
- * ON Stop, NOT ON THE CLOSE OF THE LAST CHILD: a close-path check cannot see
- * a close made in the web UI or through `gh api`.
- *
- * CHILDREN COME FROM `/sub_issues`, never this repo's issue list, so an open
- * child in another repo counts (lib/issue-tree.js).
- *
- * A PARKING TURN PASSES: a `needs input:` ending whose round park-on-round.js
- * parks the map this same Stop is itself the park route, read through the
- * same `parkTargets` that hook uses, since both hooks run at once. A turn
- * whose message cannot be read may be that turn, so it passes too.
- *
- * STEPS (a)–(c) AND EACH BRANCH'S OPENING ARE `rule:wayfinder-ops-shapes`
- * §Exhausted map's, restated in the block because the rule fragment runs to
- * the whole of `/wayfinder`'s operations; guard-exhausted-map.test.ts pins
- * the two against each other.
- */
 
 const { parkTargets } = require("./guard-inventory");
 const { logError, readClaimedIssues } = require("./lib/arbiter-store");
@@ -40,12 +14,7 @@ const stopGuard = require("./lib/stop-guard");
 const TAKES_WAYFINDER = "takes:wayfinder";
 const EXHAUSTED_MAP_PREFIX = ".exhausted-map-nagged-";
 
-/* A session claims the one issue it works (`rule:issue-claim-scope`), so a map
- * takes two reads under lib/stop-guard.js's READ_BUDGET_MS. */
-
 /**
- * Whether `n` in `tracker` is an exhausted map. Throws on a read error, and
- * on a read begun past `deadline` (epoch ms).
  * @param {string} tracker
  * @param {number} n
  * @param {number} deadline
@@ -69,7 +38,6 @@ function isExhaustedMap(tracker, n, deadline) {
 }
 
 /**
- * The maps this turn's own ending parks, or null where the message is unread.
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
  * @returns {number[]|null}
@@ -114,7 +82,6 @@ function judge({ sessionId: sid, payload }) {
 	try {
 		exhausted = claimed.filter((n) => isExhaustedMap(tracker, n, deadline));
 	} catch (err) {
-		/* Fails open (#3639): a map read short may have a route already. */
 		logError("guard-exhausted-map read", err);
 		return;
 	}

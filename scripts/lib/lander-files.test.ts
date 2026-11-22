@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/lander-files.js's ledger reads (#4856): a ledger that does not
- * exist holds no sha, and one that will not read throws rather than reading
- * as empty. A directory stands in for the
- * unreadable ledger: its read fails with EISDIR whatever the user's rights.
- * And its heartbeat's keepalive keeps the batch last named (#5360).
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";

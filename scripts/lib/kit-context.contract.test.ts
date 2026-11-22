@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The KitContext contract (§G7, #3018): kit-context-fake.ts's
- * kitContextFake against lib/kit-context.js's kitContext, the context `run`
- * and the dispatcher build for every core. A fake drifted from the kit lets every core's module
- * cases pass against a context production never builds.
- *
- * The real side is built at a temp root that holds no config and no latch;
- * nothing it is asked for reaches git.
- */
 
 import fs from "node:fs";
 import os from "node:os";

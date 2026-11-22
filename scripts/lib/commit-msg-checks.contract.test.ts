@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The equivalence contract for two of .husky/commit-msg's checks (#5207):
- * the closing-keyword scan and the `Weakens:` check, each run in-process as
- * its dispatcher row runs it, give the same exit code, stdout and stderr as
- * the program its CLI spawns, over the same message and tree.
- *
- * Loosen a case and a check whose in-process run drifts from its program
- * refuses, or passes, a commit differently from the hook it replaced.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,12 +31,10 @@ const message = (body: string) => {
 
 const STAND_DOWN = /^WFC_[A-Z0-9_]+_OFF$/;
 
-/** process.env less any gate stand-down a developer has exported. */
 const ENV = Object.fromEntries(
 	Object.entries(process.env).filter(([k]) => !STAND_DOWN.test(k)),
 );
 
-/* The in-process side reads process.env, so it sheds the same stand-downs. */
 beforeEach(() => {
 	for (const k of Object.keys(process.env))
 		if (STAND_DOWN.test(k)) vi.stubEnv(k, undefined);
@@ -86,7 +75,6 @@ describe("the closing-keyword scan in-process equals check-commit-message-closes
 });
 
 describe("the Weakens: check in-process equals check-weakens-line.js", () => {
-	/** A repo whose HEAD config disables nothing, `staged` its next config. */
 	const repo = (staged: string[]) => {
 		const dir = scratch();
 		initGitRepo(dir, path.join(dir, ".git", "no-hooks"));

@@ -1,38 +1,4 @@
 #!/usr/bin/env node
-/*
- * divergence-report.js — what record-divergence.js has collected, read across
- * every repo at once (#289).
- *
- * Usage:
- *   node scripts/divergence-report.js [--since <N>d|<ISO date>] [--rows] [--json]
- *
- * THE QUESTION IT SERVES (#289): which of `state`, `behind` and `sessions`
- * parts the two repos. That is what every summary field below is chosen for.
- *
- * READS EVERY CONFIG DIR THIS MACHINE HAS, not just this session's. The machine
- * runs three Claude plans under `.claude`, `.claude2` and `.claude3`
- * (lib/arbiter-core.js's sessionDirs), a repo's project directory is NOT
- * symlinked between them, and a session on any plan can refuse a pull. A report
- * reading one dir would attribute a plan's silence to the repo.
- *
- * DEDUPLICATION IS BY ROW, not by dir: the same log would be reached twice if a
- * plan's projects directory were symlinked to another's.
- * Identical rows in one repo ARE dropped, and the cost is real — two sessions
- * refusing in the same whole second with the same counts collapse to one. The
- * timestamp has second resolution, so that collision needs two refusals in the
- * same second at the same ahead/behind/sessions. Accepted: a doubled log would
- * over-count every row, which is worse.
- *
- * `behind` ON A PUSH ROW IS A LOWER BOUND. A rejected push has fetched nothing,
- * so its origin-tracking ref is as stale as the session left it. Reported as a
- * separate column rather than pooled with the pull rows, which are current. A
- * `land` row — a `session-checkout.js land` push a neighbour beat (#4446) — is
- * counted after a re-fetch, so its `behind` is current unless that fetch
- * failed, and has its own column.
- *
- * REPORTS, NEVER GATES. It is run by hand and by nothing else; there is no
- * threshold here and no exit code but 0, short of its own apparatus failing.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -45,7 +11,6 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 
 const USAGE = `usage: node ${scriptPath("divergence-report.js")} [--since <N>d|<ISO date>] [--rows] [--json]`;
 
-/** The columns record-divergence.js writes, in order. */
 const FIELDS = [
 	"when",
 	"repo",
@@ -65,9 +30,6 @@ const FIELDS = [
  */
 
 /**
- * The text of every readable `divergence.log` under one config dir's
- * projects, in directory order; an unreadable dir or log is skipped.
- *
  * @param {string} dir
  * @returns {string[]}
  */
@@ -93,11 +55,9 @@ function readLogTexts(dir) {
 }
 
 /**
- * Appends each well-formed line of `text` not already `seen` to `rows`.
- *
  * @param {string} text
- * @param {Set<string>} seen accumulator: each line taken is added here
- * @param {Row[]} rows accumulator: each new well-formed line's row is pushed here
+ * @param {Set<string>} seen
+ * @param {Row[]} rows
  */
 function addRows(text, seen, rows) {
 	for (const line of text.split("\n")) {
@@ -114,14 +74,7 @@ function addRows(text, seen, rows) {
 	}
 }
 
-/**
- * Every `divergence.log` under every config dir, as parsed rows.
- *
- * A malformed line is DROPPED rather than reported: the writer is a hook that
- * can be killed mid-append, so a truncated last line is ordinary.
- *
- * @returns {Row[]}
- */
+/** @returns {Row[]} */
 function readRows() {
 	/** @type {Row[]} */
 	const rows = [];
@@ -134,9 +87,6 @@ function readRows() {
 }
 
 /**
- * `--since 7d` or `--since 2026-09-19` as an ISO prefix to compare against.
- * Returns null where nothing was asked for.
- *
  * @param {string | undefined} since
  * @returns {string | null}
  */
@@ -152,9 +102,6 @@ function sinceBound(since) {
 }
 
 /**
- * The median of a numeric list, or null where it is empty. Averaged across the
- * middle pair on an even count.
- *
  * @param {number[]} values
  * @returns {number | null}
  */
@@ -170,11 +117,7 @@ function median(values) {
 	return Math.round(((lower + upper) / 2) * 10) / 10;
 }
 
-/**
- * One repo's rows, summarised into the shape the #289 question asks for.
- *
- * @param {Row[]} rows
- */
+/** @param {Row[]} rows */
 function summarise(rows) {
 	/** @param {(r: Row) => boolean} p */
 	const count = (p) => rows.filter(p).length;
@@ -293,10 +236,6 @@ if (require.main === module) {
 	try {
 		main();
 	} catch (e) {
-		/* writeFd, not console.error: this line precedes a process.exit and
-		 * an agent reads this script through a pipe, where console's buffered
-		 * write can be dropped at exit (§N6). The success path exits naturally
-		 * and needs no such care. */
 		writeFd(2, `divergence-report: ${e instanceof Error ? e.message : e}\n`);
 		process.exit(2);
 	}

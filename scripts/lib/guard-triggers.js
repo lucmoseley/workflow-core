@@ -64,70 +64,31 @@ const {
 	readManifest,
 } = require("./guard-cores.js");
 
-/** A host that disables no core and switches every module on. */
 const ALL_ON = { disabled: () => false, moduleOn: () => true };
 
-/** The dispatcher's basename, as a failure record's command names it. */
 const DISPATCHER = path.basename(DISPATCH_ENTRY);
 
-/** The hook event a deny can be issued on, and `triggerTable`'s default. */
 const DENY_EVENT = "PreToolUse";
 
 /**
- * The hook events this file can derive a population for: the two that fire on a
- * tool call and therefore have `matcher` and `if` to read (mantahostels#3356).
- *
- * `UserPromptSubmit`, `Stop`, `PreCompact` and `SessionStart` are deliberately
- * absent rather than merely unsupported: none of them fires on a tool call at
- * all, so no count of `tool_use` blocks is their denominator at any scope.
- *
  * @type {ReadonlySet<string>}
  */
 const EVENTS = new Set(["PreToolUse", "PostToolUse"]);
 
 /**
- * Which of an event's guards a table covers.
- *
- *   deny — the deny-capable ones alone, the lost-deny census's population and
- *     this file's original and default scope (mantahostels#3287).
- *   nondeny — the rest: guards that warn, inject context or hand over a rule,
- *     but cannot deny. mantahostels#3350's population.
- *   all — both, for a denominator over every one of the event's guards at once.
- *
- * ONLY `all` IS ACCEPTED ON `PostToolUse` (mantahostels#3356). The tool call has already
- * run by the time that event fires, so no `PostToolUse` hook can deny one
- * whatever its source says; `deny` there would report an empty table and
- * `nondeny` a table indistinguishable from `all`.
- *
  * @type {ReadonlySet<string>}
  */
 const SCOPES = new Set(["deny", "nondeny", "all"]);
 
 /**
  * @typedef {object} Trigger
- * @property {string} guard the script's basename, or a dispatcher core's
- *   name in lib/guard-cores.json
- * @property {string | null} via the script a core runs under — the
- *   dispatcher's basename — or null for a standalone guard. A core's
- *   `conditions` are its `if` clauses, read as the dispatcher reads them; a
- *   standalone guard's `rules` carry its registrations' own
- * @property {boolean} denyCapable whether the script can refuse a call
- *   (`lib/deny-capable.js`), and always false on `PostToolUse`, where nothing can. Carried
- *   on the row so a caller reading a `nondeny` or `all` table can say WHY a
- *   guard has no deny rate — it cannot have one — rather than reporting it as
- *   an unmeasured zero (mantahostels#3350).
+ * @property {string} guard
+ * @property {string | null} via
+ * @property {boolean} denyCapable
  * @property {Array<{isToolCovered: (tool: string) => boolean, raw: string,
- *   tool: string | null, glob: string | null, test: RegExp | null}>} rules one
- *   per settings.json registration; `raw` is the matcher as settings.json
- *   spells it, which is what reporting prints.
- * @property {string[]} conditions the raw `if` clauses, for reporting
- * @property {string | null} unknown why this guard's population cannot be
- *   counted, or null where it can. EVERY unreadable registration is named, not
- *   just the last: this string is the whole of what `--triggers`
- *   reports about the guard (mantahostels#3296, mantahostels#3310). Reasons join with `; `, two
- *   registrations producing the identical reason saying it once. The joined
- *   string is for a reader, never for splitting: a reason embeds
- *   `JSON.stringify` output, which can hold the separator itself.
+ *   tool: string | null, glob: string | null, test: RegExp | null}>} rules
+ * @property {string[]} conditions
+ * @property {string | null} unknown
  */
 
 /**
@@ -141,14 +102,10 @@ const SCOPES = new Set(["deny", "nondeny", "all"]);
  * @returns {void}
  */
 function assertTableOptions(scope, event) {
-	// Refused rather than defaulted: a typo silently narrowing to the deny set
-	// would report a nondeny denominator of zero.
 	if (!SCOPES.has(scope))
 		throw new Error(
 			`unknown scope ${JSON.stringify(scope)} — one of ${[...SCOPES].join(", ")}`,
 		);
-	// A typo, or an event that fires on no tool call, would match no
-	// registration and report an empty table as a measurement.
 	if (!EVENTS.has(event))
 		throw new Error(
 			`unknown event ${JSON.stringify(event)} — one of ${[...EVENTS].join(", ")}`,
@@ -161,7 +118,7 @@ function assertTableOptions(scope, event) {
 
 /**
  * @param {"deny" | "nondeny" | "all"} scope
- * @param {boolean} capable  whether the guard can deny
+ * @param {boolean} capable
  * @returns {boolean}
  */
 function isInScope(scope, capable) {
@@ -171,10 +128,10 @@ function isInScope(scope, capable) {
 }
 
 /**
- * @param {Map<string, Trigger>} table accumulator: a new guard's empty row is added
+ * @param {Map<string, Trigger>} table
  * @param {string} guard
  * @param {boolean} capable
- * @param {string | null} [via] the script a core runs under
+ * @param {string | null} [via]
  * @returns {Trigger}
  */
 function ensureRow(table, guard, capable, via = null) {
@@ -194,18 +151,13 @@ function ensureRow(table, guard, capable, via = null) {
 }
 
 /**
- * Adds one registration's rule to its guard's row, or, where its matcher or
- * `if` will not read, the reason to the row's `unknown`.
- * @param {Trigger} row accumulator: the registration's rule and condition, or its unknown reason, is added
+ * @param {Trigger} row
  * @param {Registration} reg
- * @param {(guard: string, reason: string) => string} note  records a reason,
- *   returning the guard's reasons so far, joined
+ * @param {(guard: string, reason: string) => string} note
  * @returns {void}
  */
 function addRegistration(row, reg, note) {
 	const { guard } = row;
-	// An absent matcher, `"*"` and `""` are one route, so all three report
-	// as `*` (mantahostels#3296).
 	const spelling = reg.matcher ?? "*";
 	const raw = spelling === "" ? "*" : spelling;
 	let isToolCovered;
@@ -240,11 +192,9 @@ function addRegistration(row, reg, note) {
 }
 
 /**
- * Adds one dispatcher core's route to its row: the core's `tools` as the
- * matcher, its `if` clauses as the dispatcher reads them.
- * @param {Trigger} row accumulator: the core's rule and clauses, or its unknown reason, are added
+ * @param {Trigger} row
  * @param {import("./guard-cores.js").CoreRow} core
- * @param {(guard: string, reason: string) => string} note  `addRegistration`'s
+ * @param {(guard: string, reason: string) => string} note
  * @returns {void}
  */
 function addCore(row, core, note) {
@@ -269,37 +219,10 @@ function addCore(row, core, note) {
 }
 
 /**
- * The `event` guards the registration holds within `scope`, with the tool
- * calls that reach each.
- *
- * Keyed on the script's BASENAME, not `guardKey`: two registrations of one
- * script are two ways into the same guard, and a call reaching either is one
- * invocation of it. `guardKey` deliberately keeps them apart, which is right
- * for counting what a hook PRINTED and wrong for counting what reached it.
- *
- * SCOPE CHANGES WHICH GUARDS GET A ROW, NEVER HOW A ROW IS DERIVED (mantahostels#3350).
- * `denyCapable` is the only filter it moves, so a guard's matchers, conditions
- * and `unknown` reason read identically whichever scope produced it — which is
- * what lets a `nondeny` denominator be compared with a `deny` one.
- *
- * EVENT CHANGES WHICH REGISTRATIONS ARE READ, AND NOTHING ELSE (mantahostels#3356). A
- * `PostToolUse` registration carries the same `matcher` and the same
- * `Tool(pattern)` `if`, so the derivation, `addRegistration`, never looks at
- * the event again after the filter.
- *
- * A DISPATCHER CORE GETS ITS OWN ROW, keyed by its manifest name. Each core's
- * deny capability is read off its module (`lib/deny-capable.js`
- * `isDenyingCore`), found beside `manifest`.
- *
  * @param {Record<string, any>} settings
- * @param {string[]} guardDirs where the guard scripts are looked up, in order
- *   (`lib/deny-capable.js` `guardDirs`)
+ * @param {string[]} guardDirs
  * @param {{scope?: "deny" | "nondeny" | "all", event?: "PreToolUse" | "PostToolUse",
  *   manifest?: string, host?: Parameters<typeof import("./guard-cores.js").isDispatchedOn>[2]}} [options]
- *   `manifest` is the lib/guard-cores.json the dispatcher runs from
- *   (`lib/guard-cores.js` `manifestAt`), this plugin's where unnamed; `host`
- *   says which cores the host has disabled or switched off by module, none
- *   where unnamed
  * @returns {Map<string, Trigger>}
  */
 function triggerTable(settings, guardDirs, options = {}) {
@@ -311,14 +234,12 @@ function triggerTable(settings, guardDirs, options = {}) {
 	const cores = hostCores(manifestFile, event, options.host ?? ALL_ON);
 	/** @type {Map<string, Trigger>} */
 	const table = new Map();
-	// The reasons behind each row's `unknown`, kept apart from the joined string
-	// the row carries so a repeat can be recognised before it is appended.
 	/** @type {Map<string, string[]>} */
 	const reasons = new Map();
 	/**
 	 * @param {string} guard
 	 * @param {string} reason
-	 * @returns {string} the guard's reasons so far, joined for its row's `unknown`
+	 * @returns {string}
 	 */
 	const note = (guard, reason) => {
 		const seen = reasons.get(guard) ?? [];
@@ -340,10 +261,7 @@ function triggerTable(settings, guardDirs, options = {}) {
 			continue;
 		}
 		const [guard] = cutAt(reg.key, " ");
-		// A deny is only issuable before the call runs, so the textual test is
-		// asked at all only on `PreToolUse` (mantahostels#3356). Otherwise a `PostToolUse`
-		// script that merely spells a deny verdict — in a comment, or because it
-		// greps the guards for one — would be reported as able to deny a call it cannot.
+		// lucmoseley/mantahostels#3356
 		const capable = event === DENY_EVENT && isDenyCapable(guard);
 		if (!isInScope(scope, capable)) continue;
 		addRegistration(ensureRow(table, guard, capable), reg, note);
@@ -352,8 +270,6 @@ function triggerTable(settings, guardDirs, options = {}) {
 }
 
 /**
- * The manifest's `event` cores the host runs: not disabled, and their module,
- * where they name one, on.
  * @param {string} manifestFile
  * @param {string} event
  * @param {Parameters<typeof import("./guard-cores.js").isDispatchedOn>[2]} host
@@ -366,16 +282,9 @@ function hostCores(manifestFile, event, host) {
 }
 
 /**
- * Does this tool call reach this guard?
- *
- * `false` for an unknown guard: a caller must ask `trigger.unknown` first and
- * report the guard as uncounted rather than reading this as "no calls reached
- * it". This returns false rather than throwing so that a caller that forgets
- * under-counts one guard instead of dying.
- *
  * @param {Trigger} trigger
  * @param {string} toolName
- * @param {string} command the tool's `command` input, "" where it has none
+ * @param {string} command
  * @returns {boolean}
  */
 function firesOn(trigger, toolName, command) {
@@ -388,8 +297,6 @@ function firesOn(trigger, toolName, command) {
 	for (const rule of trigger.rules) {
 		if (!rule.isToolCovered(toolName)) continue;
 		if (rule.test === null) return true;
-		// An `if` names the tool its glob is written against; a registration
-		// whose matcher admits several tools narrows to that one here.
 		if (rule.tool !== null && rule.tool !== toolName) continue;
 		if (rule.test.test(command)) return true;
 	}
@@ -397,17 +304,6 @@ function firesOn(trigger, toolName, command) {
 }
 
 /**
- * The table as plain data — no RegExps — for printing or serialising.
- *
- * ONE ROUTE PRINTS ONE WAY, as settings.json spells it — every-tool as `*`,
- * never a compiled RegExp source (mantahostels#3296).
- *
- * AN `unknown` GUARD REPORTS NO ROUTES. Its readable registrations are a
- * partial reading of a guard `firesOn` refuses to count, and listing them reads
- * as "counted via these routes"; the `unknown` string names what could not be
- * read (mantahostels#3296). A reader wanting the registrations that DID read opens
- * settings.json — nothing here reports them.
- *
  * @param {Map<string, Trigger>} table
  * @returns {Array<{guard: string, via: string | null, denyCapable: boolean, matchers: string[], conditions: string[], unconditionalMatchers: string[], unknown: string | null}>}
  */
@@ -416,14 +312,9 @@ function triggerRows(table) {
 		.map((t) => ({
 			guard: t.guard,
 			via: t.via,
-			// Reported even for an unknown guard, unlike the routes: it is read off
-			// the script on disk, not off the registration that would not parse.
 			denyCapable: t.denyCapable,
 			matchers: t.unknown ? [] : [...new Set(t.rules.map((r) => r.raw))],
 			conditions: t.unknown ? [] : [...new Set(t.conditions)],
-			// The matchers a registration binds with NO `if`, i.e. the tools every
-			// call of which reaches this guard. Empty where every route is
-			// condition-narrowed.
 			unconditionalMatchers: t.unknown ? [] : unconditionalMatchersOf(t),
 			unknown: t.unknown,
 		}))
@@ -431,8 +322,6 @@ function triggerRows(table) {
 }
 
 /**
- * The matchers every call of which reaches `t`: a registration's with no `if`,
- * or a core's tools that none of its clauses names.
  * @param {Trigger} t
  * @returns {string[]}
  */

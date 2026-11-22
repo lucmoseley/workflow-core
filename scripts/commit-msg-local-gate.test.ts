@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * .husky/commit-msg sources the adopter's own `.husky/commit-msg.local` last
- * (#5142).
- *
- * Breaking it costs every adopter's own commit-msg refusals: they stop firing
- * silently, or one whose script has gone missing passes every commit.
- *
- * Each case commits through the real hook in a throwaway repo, run from the
- * plugin root as an adopter's shim runs it. The scan's own cases are
- * scripts/precommit-local-gate.test.ts's, over scripts/lib/local-hook.sh.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -24,7 +13,7 @@ let dir: string;
 let hooks: string;
 let extraEnv: NodeJS.ProcessEnv = {};
 
-// CLAUDE_PROJECT_DIR is the fixture, never a session's live checkout (#3311).
+// #3311
 const git = (args: string[]) => {
 	const r = spawnSync("git", args, {
 		cwd: dir,
@@ -48,7 +37,6 @@ const commit = (message: string) => {
 	return git(["commit", "-q", "-m", message]);
 };
 
-/** The refusal's way out, which every missing-script case must print. */
 const WAY_OUT =
 	"Every commit is refused until it exists or the local file stops naming it";
 
@@ -124,7 +112,6 @@ describe(".husky/commit-msg's commit-msg.local seam (#5142)", () => {
 
 	it("runs on a replay with $route naming it, while the core's checks stay stood down", () => {
 		writeLocal('echo "local route=$route" >&2\n');
-		/* A cherry-pick's `--continue`: CHERRY_PICK_HEAD at commit-msg (scripts/lib/commit-route.js). */
 		fs.writeFileSync(
 			path.join(dir, ".git", "CHERRY_PICK_HEAD"),
 			`${readHead()}\n`,

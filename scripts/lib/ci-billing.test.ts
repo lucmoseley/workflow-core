@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The sums behind .github/workflows/scheduled-checks.yml. Every fixture here is a job shape the
- * runs API really returns.
- *
- * Settled at mantahostels#386 (the reproducible census) and #405 (GitHub
- * Free's 2,000-minute allowance). It runs in-process on hand-built API shapes,
- * with no network: measure-ci-billing.js does the fetching, so the sums are
- * checked against known answers.
- *
- * No hook or CI step refuses on it — measure-ci-billing.js is run by hand —
- * so a loosened case lets a wrong bill through silently: CI cost misread
- * against the free allowance, or a missed trigger read as clean.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -30,7 +17,6 @@ const {
 	dailyMeanBand,
 } = require("./ci-billing.js");
 
-/** A finished job of `seconds` seconds, starting at a fixed instant. */
 const job = (seconds: number, conclusion = "success") => ({
 	conclusion,
 	started_at: "2026-08-14T10:00:00Z",
@@ -39,7 +25,6 @@ const job = (seconds: number, conclusion = "success") => ({
 	).toISOString(),
 });
 
-/** A job GitHub has started and not finished — completed_at is null. */
 const inFlight = {
 	conclusion: null,
 	started_at: "2026-08-14T10:00:00Z",
@@ -54,7 +39,6 @@ const run = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** summarise over one push run carrying `jobs`. */
 const oneRun = (jobs: unknown[], over: Record<string, unknown> = {}) =>
 	summarise([run(over)], () => jobs);
 
@@ -335,7 +319,6 @@ describe("foldShareRows", () => {
 		expect(tail).toBeNull();
 	});
 
-	// What the event split relies on (mantahostels#677).
 	it("folds nothing at a zero threshold, however small the row", () => {
 		const { shown, tail } = foldShareRows([row(99.9), row(0.1)], 0);
 		expect(shown.map((r: { pct: number }) => r.pct)).toEqual([99.9, 0.1]);
@@ -473,14 +456,12 @@ describe("summarise — run attempts", () => {
 });
 
 describe("parseCommitLog", () => {
-	/* `git log --reverse --pretty=format:%x00%H --name-only` output. */
 	const log = "\0aaa\n\ndocs/a.md\ndocs/b.md\n\0bbb\n\nscripts/x.js\n\0ccc\n";
 
 	it("reads each commit's sha and the files it touched, oldest first", () => {
 		expect(parseCommitLog(log)).toEqual([
 			{ sha: "aaa", files: ["docs/a.md", "docs/b.md"] },
 			{ sha: "bbb", files: ["scripts/x.js"] },
-			/* A merge commit lists no files under --name-only. */
 			{ sha: "ccc", files: [] },
 		]);
 	});
@@ -665,8 +646,6 @@ describe("dayWindows", () => {
 	});
 
 	it("keeps every day of the fortnight the re-measure runs", () => {
-		/* A fortnight is the window mantahostels#676 was filed about — the one a single
-		 * request would truncate. */
 		expect(dayWindows("2026-08-15", "2026-08-28")).toHaveLength(14);
 	});
 

@@ -1,15 +1,5 @@
 // @vitest-environment node
 
-/*
- * scripts/lib/ci-runs.js as tool_gate reads it (#1629): the `ci:` line naming
- * the workflows that run a tool. The format and lint gates' reading of the
- * same function is pinned through formatters.js in formatters.test.ts.
- *
- * Each case reads a throwaway host's workflows, never this checkout's, which
- * change under the suite. Loosen one and a skipped gate names a workflow that
- * does not run the tool, or says none does where one does.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

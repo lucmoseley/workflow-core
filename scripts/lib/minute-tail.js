@@ -1,21 +1,10 @@
-/*
- * minute-tail.js — memwatch's minute log (`~/memwatch-minute.jsonl`) read
- * forward, for a long-running reader that must count each line once and keep
- * the newest: the away-only load (scripts/away-load.js) counts #5346's
- * precondition minutes on it as they are written.
- */
-
 const fs = require("node:fs");
 const { parseJsonlRow } = require("./jsonl.js");
 const { writeFd } = require("./write-fd.js");
 
-/* Untraced: a read's buffer, about 800 minute lines. */
+// guess, #5472
 const READ_BYTES = 1 << 20;
 
-/**
- * Read forward from an offset; a file shorter than the offset was pruned, so
- * it is read again whole and the count starts over.
- */
 class MinuteTail {
 	/**
 	 * @param {string} file
@@ -31,13 +20,11 @@ class MinuteTail {
 		this.last = null;
 	}
 
-	/** True where a row was appended since the last call. */
 	advance() {
 		let fd;
 		try {
 			fd = fs.openSync(this.file, "r");
 		} catch (err) {
-			/* memwatch not yet started is nothing new; anything else is said. */
 			const code = /** @type {NodeJS.ErrnoException} */ (err).code;
 			if (code !== "ENOENT") writeFd(2, `${this.file}: ${String(err)}\n`);
 			return false;

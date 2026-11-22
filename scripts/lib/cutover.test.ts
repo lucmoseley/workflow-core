@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The cutover's core (#4248) against real git: a bare origin carrying `main` and
- * `landing`, and a main checkout cloned from it whose `main` tracks
- * `landing`, as the shared-tree model set it. The session listing is
- * injected; the cut is a detached worktree from `origin/main`, and the land a
- * push of `HEAD` to that worktree's queue ref, as lib/session-checkout.js's do, without
- * its dependency store or lander start. The program's boundary set is
- * scripts/cutover-main-checkout.test.ts.
- *
- * Loosen it and the main checkout is cut over under a live session, a local
- * commit is lost rather than landed, an edit there is discarded, or a
- * conflicted merge flips the mark anyway.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -177,7 +164,6 @@ it("leaves the mark where merging main's commits conflicts, naming the files", (
 	const r = cutover(main, ports());
 
 	expect(r).toMatchObject({ status: "unmerged", local: 1, files: ["a.md"] });
-	/* git merge says why on stdout, its stderr empty. */
 	expect(r).toHaveProperty(
 		"why",
 		expect.stringContaining("CONFLICT (content)"),

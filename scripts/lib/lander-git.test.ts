@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/lander-git.js's reading of what the gates refusing a merge said
- * (#4800).
- *
- * Loosen it and a fix ticket shows a gate's remedy with its reason cut off:
- * the session taking the ticket replays the merge to learn which row went
- * stale and why (#4793).
- */
 import { expect, it } from "vitest";
 import { parseGateRefusal } from "./lander-git.js";
 

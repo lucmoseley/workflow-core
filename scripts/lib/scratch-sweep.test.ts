@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * scratch-sweep.js's own suite — the reaper for `.claude/tmp/` (mantahostels#2214).
- *
- * The CLI tail is run in process, through lib/run-in-process.js, against a
- * fixture directory: nothing here points at the repo's own `.claude/tmp/`.
- *
- * Every fixture is aged against a FIXED clock (`NOW`), never wall time, so no
- * assertion here can pass or fail on how long the run took — EXCEPT the
- * CLI-tail block and the #1003 block below, whose fixtures are aged against
- * `Date.now()`: the CLI reads the real clock, and ctime cannot be backdated.
- *
- * Every fixture is backdated with `utimesSync`, which sets mtime only, and the
- * sweep ages by the later of mtime and ctime (#1003) — so the suite reads
- * mtime alone, through `readMtime`, and the real reader is driven by
- * `the write time userland cannot rewind` below.
- *
- * `session-start-sweeps.sh` launches the sweep at every session start, and it
- * deletes for real: loosen a case and it can delete a live session's scratch
- * or a dispatched agent's artefact mid-run, or stop clearing `.claude/tmp/`.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -30,10 +10,8 @@ import { runInProcess } from "./run-in-process.js";
 
 const { earliestStart, sweepScratch, writtenAtMs } = require("./scratch-sweep");
 
-/** A clock every fixture is aged against, so no test depends on wall time. */
 const NOW = Date.parse("2026-08-31T12:00:00.000Z");
 const HOUR = 60 * 60 * 1000;
-/** The ruled floors (mantahostels#2090), spelled here rather than imported. */
 const SCRATCH_FLOOR = 24 * HOUR;
 const RESEARCH_FLOOR = 7 * 24 * HOUR;
 
@@ -45,7 +23,6 @@ function freshDir(): string {
 	return dir;
 }
 
-/** Writes `rel` under `dir` with an mtime `ageMs` before NOW. */
 function aged(dir: string, rel: string, ageMs: number): string {
 	const full = path.join(dir, rel);
 	fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -55,13 +32,11 @@ function aged(dir: string, rel: string, ageMs: number): string {
 	return full;
 }
 
-/** Back-dates a directory itself, which writing into it has just bumped. */
 function ageDir(dir: string, rel: string, ageMs: number): void {
 	const t = (NOW - ageMs) / 1000;
 	fs.utimesSync(path.join(dir, rel), t, t);
 }
 
-/** An entry's mtime alone. */
 function readMtime(full: string): number | null {
 	try {
 		return fs.lstatSync(full).mtimeMs;
@@ -70,15 +45,12 @@ function readMtime(full: string): number | null {
 	}
 }
 
-/** A liveness oracle answering with sessions started `ageMs` before NOW. */
 const started = (...ageMs: number[]) => ({
 	agents: ageMs.map((a, i) => ({ sessionId: `s${i}`, startedAt: NOW - a })),
 });
 
-/** The oracle answering with nothing usable. */
 const refused = { why: "`claude agents --json` would not run (ENOENT)" };
 
-// The fault log is not what these cases read.
 const discardFault = noop;
 
 type Logged = [string, Error];
@@ -106,15 +78,12 @@ describe("the age limb", () => {
 	it("deletes a file older than 24 hours", () => {
 		const dir = freshDir();
 		const f = aged(dir, "stale.out", 25 * HOUR);
-		// Every live session started AFTER the file, so limb 2 condemns it too.
 		expect(run(dir, () => started(1 * HOUR)).deleted).toEqual([f]);
 		expect(fs.existsSync(f)).toBe(false);
 	});
 
 	it("keeps a file younger than 24 hours", () => {
 		const dir = freshDir();
-		// Paired with an aged file, or the sweep would never read the oracle and
-		// the survival would prove only that the cheap pre-check short-circuited.
 		aged(dir, "stale.out", 25 * HOUR);
 		const young = aged(dir, "fresh.out", 23 * HOUR);
 		expect(run(dir, () => started(1 * HOUR)).deleted).not.toContain(young);
@@ -175,7 +144,6 @@ describe("the liveness limb", () => {
 	it("keeps an aged file while a live session's startedAt predates its mtime", () => {
 		const dir = freshDir();
 		const f = aged(dir, "held.out", 30 * HOUR);
-		// The session started 40 h ago, so it could have written the file 30 h ago.
 		expect(run(dir, () => started(40 * HOUR)).deleted).toEqual([]);
 		expect(fs.existsSync(f)).toBe(true);
 	});
@@ -183,7 +151,6 @@ describe("the liveness limb", () => {
 	it("spares on the EARLIEST session, not on all of them", () => {
 		const dir = freshDir();
 		const f = aged(dir, "held.out", 30 * HOUR);
-		// Two of the three started after the file; the third is what saves it.
 		expect(
 			run(dir, () => started(1 * HOUR, 40 * HOUR, 2 * HOUR)).deleted,
 		).toEqual([]);
@@ -302,9 +269,6 @@ describe("a dispatched agent's evidence keeps the 7-day floor (#1009)", () => {
 	});
 });
 
-/*
- * F8 (mantahostels#3515, #2): `markers/` is exempt; scratch-sweep.js says why.
- */
 describe("the marker directory is exempt (F8, mantahostels#3515)", () => {
 	it("never deletes a file under markers/, however old, with no live session", () => {
 		const dir = freshDir();
@@ -361,8 +325,6 @@ describe("an unreadable oracle", () => {
 	it("counts a record with no readable startedAt as doubt, sparing everything", () => {
 		const dir = freshDir();
 		const f = aged(dir, "stale.out", 30 * HOUR);
-		// The oracle answered, so this is not the refusal above: the list is
-		// usable and one record's start time is not.
 		const out = run(dir, () => ({
 			agents: [{ sessionId: "a", startedAt: NOW - HOUR }, { sessionId: "b" }],
 		}));
@@ -442,8 +404,6 @@ describe("what the walk cannot do, it records", () => {
 		const dir = freshDir();
 		fs.mkdirSync(path.join(dir, "emptied"));
 		ageDir(dir, "emptied", 30 * HOUR);
-		// The pre-check has to see it: with no aged FILE anywhere, a files-only
-		// walk pays no oracle read and the directory sits there for good.
 		expect(run(dir, () => started(1 * HOUR)).readOracle).toBe(true);
 		expect(fs.existsSync(path.join(dir, "emptied"))).toBe(false);
 	});
@@ -451,9 +411,6 @@ describe("what the walk cannot do, it records", () => {
 	it("deletes an aged symlink rather than letting it immortalise its directory", () => {
 		const dir = freshDir();
 		fs.mkdirSync(path.join(dir, "linked"));
-		// The target is OUTSIDE the fixture, so a walk that followed the link
-		// would read a mtime that is none of the sweep's business — and one that
-		// refused to unlink it would leave `linked` permanently ENOTEMPTY.
 		const outside = path.join(dir, "..", "scratch-sweep-target");
 		fs.writeFileSync(outside, "not ours");
 		fs.symlinkSync(outside, path.join(dir, "linked", "link"));
@@ -476,9 +433,7 @@ describe("what the walk cannot do, it records", () => {
 
 		const logged: Logged[] = [];
 		const out = run(dir, () => started(1 * HOUR), logged);
-		fs.chmodSync(path.join(dir, "walled"), 0o755); // or the cleanup cannot either
-		// The reachable file still went: one unreadable corner must not abort the
-		// rest of the sweep.
+		fs.chmodSync(path.join(dir, "walled"), 0o755);
 		expect(out.deleted).toContain(path.join(dir, "reachable.out"));
 		expect(out.failed.join(" ")).toContain("walled");
 		expect(logged).toHaveLength(1);
@@ -494,8 +449,6 @@ describe("what the walk cannot do, it records", () => {
 });
 
 describe("the CLI tail, which is what the session-start launcher runs", () => {
-	/** Runs the module as the launcher does, against a fixture directory, and
-	 * returns its stdout; a non-zero exit fails the case. */
 	const cli = (scratch: string, extraEnv: Record<string, string> = {}) => {
 		const r = runInProcess(path.join(__dirname, "scratch-sweep.js"), [], {
 			env: { ...process.env, WFC_SCRATCH_DIR: scratch, ...extraEnv },
@@ -504,16 +457,6 @@ describe("the CLI tail, which is what the session-start launcher runs", () => {
 		return r.stdout;
 	};
 
-	/**
-	 * Stands a fake `claude` on WFC_CLAUDE_BIN — no CI runner has a real one
-	 * (mantahostels#2310), and this is the only test in this block with an aged candidate,
-	 * so it is the only one that ever reaches the oracle (the aged-candidate
-	 * pre-check gates it; a case gaining an aged file needs its own stub, silently, or it
-	 * re-breaks CI the same way). Written OUTSIDE `dir`, the directory under
-	 * test — inside it, the stub would be a fresh file the sweep itself has to
-	 * spare, proving nothing about the sweep and everything about the stub's
-	 * own mtime.
-	 */
 	function fakeClaudeBin(startedAtMs: number): string {
 		const bin = path.join(freshDir(), "claude");
 		const body = JSON.stringify([{ sessionId: "s0", startedAt: startedAtMs }]);
@@ -524,8 +467,6 @@ describe("the CLI tail, which is what the session-start launcher runs", () => {
 
 	it("sweeps the directory WFC_SCRATCH_DIR names, and nothing else", () => {
 		const dir = freshDir();
-		// Both fixtures are aged against WALL time, not NOW: the CLI has its own
-		// clock.
 		const old = path.join(dir, "i1995", "guard.before.test.ts");
 		fs.mkdirSync(path.dirname(old), { recursive: true });
 		fs.writeFileSync(old, "x");
@@ -536,7 +477,6 @@ describe("the CLI tail, which is what the session-start launcher runs", () => {
 		fs.writeFileSync(young, "x");
 		const t2 = Date.now() / 1000;
 		fs.utimesSync(young, t2, t2);
-		// A live session started after `old`, so limb 2 condemns it too.
 		const bin = fakeClaudeBin(Date.now());
 
 		cli(dir, { WFC_CLAUDE_BIN: bin, WFC_SCRATCH_AGE_MTIME_ONLY: "1" });
@@ -553,9 +493,6 @@ describe("the CLI tail, which is what the session-start launcher runs", () => {
 	});
 });
 
-/*
- * These cases use the REAL reader and the real clock.
- */
 describe("the write time userland cannot rewind (#1003)", () => {
 	const day = 24 * HOUR;
 
@@ -591,10 +528,8 @@ describe("the write time userland cannot rewind (#1003)", () => {
 		execFileSync("tar", ["-x", "-f", archive, "-C", dir]);
 		const page = path.join(dir, "r2", "page.html");
 		const commitMs = Date.parse("2020-01-01T00:00:00Z");
-		// Not vacuous: tar really did backdate the mtime past both limbs.
 		expect(fs.lstatSync(page).mtimeMs).toBe(commitMs);
 
-		// An aged sibling forces the oracle read, so limb 2 is judged too.
 		const other = path.join(dir, "other.out");
 		fs.writeFileSync(other, "x");
 		const now = Date.now();
@@ -619,7 +554,6 @@ describe("the write time userland cannot rewind (#1003)", () => {
 		fs.writeFileSync(backdated, "x");
 		const t = (now - 30 * HOUR) / 1000;
 		fs.utimesSync(backdated, t, t);
-		// The pre-check alone: nothing else is aged, so the oracle goes unread.
 		let calls = 0;
 		const quiet = sweepScratch({
 			dir,
@@ -633,8 +567,6 @@ describe("the write time userland cannot rewind (#1003)", () => {
 		expect(quiet.readOracle).toBe(false);
 		expect(calls).toBe(0);
 
-		// The walk: a second entry the reader calls aged forces the oracle
-		// read.
 		const other = path.join(dir, "other.out");
 		fs.writeFileSync(other, "x");
 		const out = sweepScratch({
@@ -678,9 +610,6 @@ describe("earliestStart", () => {
 	});
 
 	it("is -Infinity on an empty list, never +Infinity, which condemns everything", () => {
-		// `listedAgents` refuses a list naming no agent, so this cannot arrive
-		// through the wiring — but a fold over nothing defaults the other way, and
-		// that default deletes the directory.
 		expect(earliestStart([])).toBe(Number.NEGATIVE_INFINITY);
 	});
 });

@@ -1,23 +1,3 @@
-/*
- * suite-launch.js — "does this unwrapped command launch a suite, and which
- * kind?" (#1528), for the suite guards and scripts/queue-run.js.
- *
- * THE KINDS:
- *   npm-vitest  `npm test`, `npm run test|test:changed`, npm's aliases for
- *               `test` and `run` included
- *   npm-watch   `npm run test:watch`
- *   npm-py      `npm test:py`, `npm run test:py`, `node <path>/run-pytest.js`;
- *               `isWholePytestRun` tells a whole run of it from one naming
- *               its test files
- *   wrapper     `node <path>/run-vitest.js`
- *   other       a runner other than vitest — see `isOtherRunner` — run bare,
- *               or anything run through scripts/queue-run.js, `queued`
- *               telling which
- * `script` is the npm script's name, empty for a `node` launch and `other`, and
- * `taken` counts the words naming the launch, so the script's own argv
- * starts at word `taken`.
- */
-
 const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { JS_TEST_FILE, PY_COLLECTED_TEST } = require("./test-kind.js");
 const { unwrapArgv } = require("./shell-words.js");
@@ -27,11 +7,8 @@ const { unwrapArgv } = require("./shell-words.js");
  * @typedef {{ kind: LaunchKind, script: string, taken: number,
  *   queued: boolean }} Launch
  * @typedef {object} LaunchPorts
- * @property {() => string[]} runners the declared `suiteRunners` the caller
- *   reads, the host's or a process's own checkout's (lib/gate-seat.js)
- * @property {(script: string) => boolean} isWrapperScript whether the
- *   host's npm script runs run-vitest.js, the one runner `--queue` belongs
- *   to; a package.json or script it cannot read answers yes
+ * @property {() => string[]} runners
+ * @property {(script: string) => boolean} isWrapperScript
  */
 
 const afterSlash = (/** @type {string} */ w) => w.slice(w.lastIndexOf("/") + 1);
@@ -68,11 +45,9 @@ function isOtherRunner(words, runners) {
 }
 
 /**
- * What a flag before the script says: a runner, no runner — a flag whose
- * value would be read for the script ends the read — or null to read on.
  * @param {string} word
  * @param {string} next
- * @param {boolean} node node's, else python's
+ * @param {boolean} node
  * @returns {boolean | null}
  */
 function flagRuns(word, next, node) {
@@ -83,8 +58,6 @@ function flagRuns(word, next, node) {
 }
 
 /**
- * Whether the script word is a suite: a Python test file, or a host's
- * declared runner.
  * @param {string} word
  * @param {boolean} python
  * @param {() => string[]} runners
@@ -140,7 +113,7 @@ function isNamedPythonRun(words) {
 	return false;
 }
 
-/** @param {string[]} argv pytest's own argv */
+/** @param {string[]} argv */
 function isNamedPytestRun(argv) {
 	const paths = pytestPathWords(argv);
 	return (
@@ -152,9 +125,7 @@ function isNamedPytestRun(argv) {
 const UNITTEST_VALUED_FLAGS = new Set(["-k", "--durations"]);
 const UNITTEST_MODULE_SEGMENT = /^test_\w+$|^\w+_test$/;
 
-/**
- * @param {string[]} argv unittest's own argv
- */
+/** @param {string[]} argv */
 function isNamedUnittestRun(argv) {
 	const targets = argv.filter(
 		(w, i) =>
@@ -167,8 +138,6 @@ function isNamedUnittestRun(argv) {
 function isUnittestTarget(word) {
 	if (word.includes("/") || word.endsWith(".py"))
 		return PY_COLLECTED_TEST.test(afterSlash(word));
-	/* The module part ends at the first segment naming a class, capitalised
-	 * by PEP 8. */
 	const segments = word.split(".");
 	const end = segments.findIndex((seg) => /^[A-Z]/.test(seg));
 	const module = end < 0 ? segments : segments.slice(0, end);
@@ -184,8 +153,6 @@ const SCRIPT_KINDS = {
 };
 
 /**
- * The suite the words launch, wrappers already taken off by `unwrap` and
- * quoted spans read as typed; null where they launch none.
  * @param {string[]} words
  * @param {LaunchPorts} ports
  * @returns {Launch | null}
@@ -200,8 +167,6 @@ function suiteLaunchKind(words, ports) {
 }
 
 /**
- * `node <path>/run-vitest.js` or `run-pytest.js`, or a launch through
- * scripts/queue-run.js.
  * @param {string[]} words
  * @param {LaunchPorts} ports
  * @returns {Launch | null}
@@ -220,9 +185,6 @@ function nodeLaunch(words, ports) {
 }
 
 /**
- * The npm script the words run, and how many words name it, each command
- * word read as npm derefs it (#4032): `npm t`, `npm run-script x`. Null
- * where they run no script.
  * @param {string[]} words
  * @returns {{ script: string, taken: number } | null}
  */
@@ -234,11 +196,7 @@ function npmScriptOf(words) {
 	return script ? { script, taken: 2 } : null;
 }
 
-/**
- * `npm test`, `npm test:py`, or `npm run` one of the suite scripts.
- * @param {string[]} words
- * @returns {Launch | null}
- */
+/** @param {string[]} words @returns {Launch | null} */
 function npmLaunch(words) {
 	const run = npmScriptOf(words);
 	const kind =
@@ -248,14 +206,9 @@ function npmLaunch(words) {
 	return run && kind ? { kind, ...run, queued: false } : null;
 }
 
-/* The xdist workers `npm run test:py` runs pytest on, where its argv names no
- * other count. `-n 2` more than halves the local suite but gains only ~7% on
- * the 2-vCPU CI runner (mantahostels#313). No other worker count was ever
- * measured; requirements-dev.in has why two, not one per core. */
+// lucmoseley/mantahostels#313 measured ~7% gain from `-n 2` on the 2-vCPU CI runner
 const TEST_PY_WORKERS = 2;
 
-/* pytest's and xdist's flags that take their value as the next word. One off
- * this list has its value read as a path. */
 const PYTEST_VALUED_FLAGS = new Set([
 	"-c",
 	"-k",
@@ -280,37 +233,21 @@ const PYTEST_VALUED_FLAGS = new Set([
 	"--tb",
 ]);
 
-/**
- * The paths `npm run test:py`'s argv hands pytest: each word that is neither
- * a flag nor a PYTEST_VALUED_FLAGS flag's value.
- * @param {string[]} argv the script's own argv, quoted spans read as typed
- */
+/** @param {string[]} argv */
 function pytestPathWords(argv) {
 	return argv.filter(
 		(w, i) => !w.startsWith("-") && !PYTEST_VALUED_FLAGS.has(argv[i - 1] ?? ""),
 	);
 }
 
-/**
- * Whether `npm run test:py`'s argv is a whole run (#4775), as run-pytest.js
- * routes it: one whose paths are not all test files, a directory, a lone
- * `--full` and one naming no path among them. A bare one is a touched run.
- * @param {string[]} argv the script's own argv, quoted spans read as typed
- */
+/** @param {string[]} argv */
 function isWholePytestRun(argv) {
 	const own = argv[0] === "--" ? argv.slice(1) : argv;
 	if (own.length === 0) return false;
 	return !isNamedPytestRun(own);
 }
 
-/**
- * Whether the words after `node <path>/queue-run.js` are a launch it takes
- * (#1776). Its `--` is optional, and a wrapper behind it is taken off, as
- * queue-run.js reads the command. Any path ending `queue-run.js` is taken for
- * the core's, so a host script of that name passes as queued.
- * @param {string[]} words
- * @param {LaunchPorts} ports
- */
+/** @param {string[]} words @param {LaunchPorts} ports */
 function isQueuedLaunch(words, ports) {
 	const rest = words[0] === "--" ? words.slice(1) : words;
 	if (rest.length === 0) return false;
@@ -319,13 +256,7 @@ function isQueuedLaunch(words, ports) {
 	);
 }
 
-/**
- * Whether scripts/queue-run.js takes the launch (#1776): an `other` runner not
- * already queued, `npm run test:py` (#4775), or an npm `test`/`test:changed`
- * whose script does not run run-vitest.js.
- * @param {string[]} words
- * @param {LaunchPorts} ports
- */
+/** @param {string[]} words @param {LaunchPorts} ports */
 function isQueueable(words, ports) {
 	const launch = suiteLaunchKind(words, ports);
 	if (launch?.kind === "other") return !launch.queued;
@@ -335,18 +266,10 @@ function isQueueable(words, ports) {
 	return false;
 }
 
-/**
- * Whether an npm script body runs run-vitest.js; an empty or absent one reads
- * as yes.
- * @param {string | null} body
- */
+/** @param {string | null} body */
 const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 
 /**
- * LaunchPorts' `isWrapperScript` over one tree's package.json, the tree
- * resolved and the file read on the first script asked about. An absent
- * package.json answers yes; so do an unreadable and an unparsed one, logged
- * (mantahostels#103 §6, #2795). A fault resolving the tree propagates.
  * @param {() => Pick<import("./guard-host-ports.js").TreePorts, "readText">} tree
  * @param {(what: string) => void} log
  * @returns {LaunchPorts["isWrapperScript"]}

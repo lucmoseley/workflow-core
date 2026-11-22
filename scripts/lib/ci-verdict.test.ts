@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/ci-verdict.js's newestVerdictRuns on canned `gh run list` output — the
- * set the delivery script's CI re-check keys on.
- *
- * Loosen it and a run that never judged `main`'s tree — a named rerun of a
- * queue tree stamped with `main`'s sha, or a queue alarm — re-checks `main` as
- * red (#4676).
- */
 import fs from "node:fs";
 import path from "node:path";
 import { expect, it } from "vitest";

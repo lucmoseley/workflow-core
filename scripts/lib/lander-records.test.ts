@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/lander-records.js through each record's read and write on a real temp
- * file, as the lander's next run reads what an older lander wrote (#4897,
- * #4912). The older-shape cases pin the records' no-version contract: break
- * them and a lander upgraded mid-batch reads its own pipeline as torn and
- * drops the batches in flight.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -34,7 +27,6 @@ afterEach(() => {
 
 const noFile = { kind: "red" as const, files: [], jobs: ["Lint and types"] };
 
-/** A batch with every field the current shape carries set. */
 const b = {
 	slot: 1,
 	members: [{ name: "a", sha: "s0", pushedAt: 1 }],
@@ -57,7 +49,6 @@ const b = {
 	bases: [{ sha: "m0", files: ["a.ts"], verdict: noFile }],
 };
 
-/** The pipeline with `x` as its search and the line's head. */
 const holding = (x: unknown) => ({ line: [x], search: x, depth: 1 });
 
 const writeRaw = (value: unknown) =>
@@ -258,11 +249,6 @@ describe("the drop record", () => {
 	});
 });
 
-/*
- * Every field each type holds, set, so a field the type gains fails the
- * type-check until it is here, then the round trip until the reader keeps it
- * (#5077).
- */
 describe("every field a verdict or a cause holds", () => {
 	const failure = {
 		file: "x.ts",

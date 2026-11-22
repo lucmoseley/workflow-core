@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-/*
- * landing-status.js — where this session's commits stand on the landing route:
- * each commit its commit ledger names is landed (on `main`), queued (on the
- * session's queue ref, not yet on `main`), or unpushed. Fetches `main` and
- * the queue refs first. Then, where the session runs in a worktree, each stay
- * of its queue ref, queued, testing, landed or dropped
- * (lib/queue-ref-status.js), and the queue lander's last run end where it
- * was held (lib/landing-stall.js, #5436). Its last line is the landing
- * queue's (lib/queue-gauge.js).
- *
- *   node scripts/landing-status.js [--session <id>] [--wait]
- *
- * `--wait` re-reads until every sha the session had queued has landed or been
- * dropped, or a bound under the 15-minute Bash wait, then prints the last
- * reading and a `wait:` line naming which (lib/landing-wait.js).
- *
- * Joins no §N3 family: it gates nothing and is no hook.
- *
- * Exit codes: 0 on a report; 1 where the
- * remote or the commit ledger cannot be read; 2 on a command line it refuses
- * or no session id. Queue lines it cannot read are named on stderr, and
- * change no exit code.
- */
-
 const { caught, parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const arbiterLedger = require("./lib/arbiter-ledger.js");
@@ -108,8 +84,7 @@ function main(argv = process.argv.slice(2)) {
 		for (const line of r.lines) say(line);
 		return 0;
 	}
-	/* The real clock, not check.js's now(): a pinned WFC_NOW would stop the
-	 * bound from ever arriving. */
+	// #4617
 	const t0 = Date.now();
 	const o = waitForLanding(read, {
 		sleep: sleepSync,
@@ -122,8 +97,6 @@ function main(argv = process.argv.slice(2)) {
 }
 
 /**
- * One reading of the session's landing route, or the exit code of a read
- * that failed, named on stderr.
  * @param {string} root
  * @param {string} sessionId
  * @returns {Reading|import("./lib/landing-wait.js").Fault}
@@ -174,14 +147,9 @@ function readLanding(root, sessionId) {
 }
 
 /**
- * The queue's lines, pushed onto `lines`: each stay of the session's queue
- * ref, recorded in `refKinds` by sha, the lander's held run end where it was
- * held, then the gauge. Fail-open (#4485): the queue's lines are a second
- * reading, and the commit states stand without them.
  * @param {string} root
- * @param {string[]} lines accumulator: the reading's lines
+ * @param {string[]} lines
  * @param {Map<string, import("./lib/queue-ref-status.js").RefState["state"]>} refKinds
- *   accumulator: each queue ref stay's state, by sha
  */
 function pushQueueLines(root, lines, refKinds) {
 	try {

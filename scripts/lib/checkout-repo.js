@@ -1,13 +1,3 @@
-/*
- * checkout-repo.js — what every session-checkout step reads of the
- * repository and the machine: the main checkout a directory belongs to, the
- * shared fetch, a worktree's git directory, the linked worktrees, and every
- * live process's cwd. Its own module (#4703) so lib/dep-store.js and
- * lib/worktree-reaper.js read them without requiring lib/session-checkout.js
- * back. Its refusals are `CheckoutError`s, which the CLI prints as they
- * stand.
- */
-
 const fs = require("node:fs");
 const { readProcCwd } = require("./claude-sessions.js");
 const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
@@ -22,13 +12,11 @@ const { REAL_PROC } = require("./proc-root.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { readLinkedWorktrees } = require("./worktree-paths.js");
 
-/* Untraced: a neighbour's fetch holds the ref lock for well under a second. */
+// guess, #5529
 const FETCH_TRIES = 3;
-/* Untraced: a fetch retry's and a store-lock wait's pause, short beside the
- * second-scale fetch and the minutes-scale `npm ci` either waits on. */
+// guess, #5529
 const POLL_MS = 1000;
 
-/** A refusal the CLI prints as it stands. */
 class CheckoutError extends Error {}
 
 /**
@@ -46,7 +34,6 @@ const git = (args, cwd, timeout = GIT_TIMEOUT_MS) =>
 	}).trim();
 
 /**
- * The main checkout `cwd` belongs to, symlinks dereferenced.
  * @param {string} cwd
  * @returns {string}
  */
@@ -60,10 +47,8 @@ function rootOf(cwd) {
 }
 
 /**
- * Fetch `main` and every queue ref, pruning the queue refs gone from the
- * remote, again where a neighbour's fetch held a ref's lock.
  * @param {string} root
- * @param {number} [timeout] each try's
+ * @param {number} [timeout]
  */
 function fetchShared(root, timeout) {
 	for (let tries = 1; ; tries++)
@@ -88,19 +73,12 @@ function fetchShared(root, timeout) {
 		}
 }
 
-/**
- * The git directory of the worktree at `dir`.
- * @param {string} dir
- */
+/** @param {string} dir */
 function adminDirOf(dir) {
 	return git(["rev-parse", "--absolute-git-dir"], dir);
 }
 
-/**
- * Every process on this machine with a readable cwd, and that cwd. The real
- * /proc, whatever a test stands in.
- * @returns {{ pid: string, cwd: string }[]}
- */
+/** @returns {{ pid: string, cwd: string }[]} */
 function readProcesses() {
 	/** @type {{ pid: string, cwd: string }[]} */
 	const out = [];
@@ -113,8 +91,6 @@ function readProcesses() {
 }
 
 /**
- * Every linked worktree of `root`; a throw where git will not list them, as
- * each would then read unregistered.
  * @param {string} root
  * @returns {string[]}
  */

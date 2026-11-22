@@ -1,21 +1,10 @@
 // @vitest-environment node
-/*
- * surface-closure.test.ts — the render refuses a helper surface that does not
- * ship whole (#464): each edge kind lib/surface-closure.js follows, through
- * buildTree, so a refusal is the render's own. Each case renders a fixture
- * core under the system temp dir.
- *
- * `release-plugin.js` cuts every adopter's install from that render; loosen a
- * case and a release ships a helper surface missing a file it reaches, so an
- * adopter's checks that import through it fail on a missing module.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildTree } from "./plugin-tree.js";
 
-// Spelled in pieces: a `${…}` literal in a plain string trips Biome's template lint.
 const DIRNAME = ['$(dirname "$', '{BASH_SOURCE[0]}")'].join("");
 const STRIPPED = ["$", "{BASH_SOURCE[0]%/*}"].join("");
 
@@ -153,8 +142,6 @@ describe("the render's helper-surface closure", () => {
 				"import os; from pkg.sub import y",
 			].join("\n"),
 		);
-		/* A regular package: a run's relative import from a namespace one
-		 * faults, its other directories unknown. */
 		write("scripts/lib/__init__.py", "");
 		write("scripts/lib/sib.py", "import sys\n");
 		write("scripts/lib/pkg/__init__.py", "import yaml\n");

@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Holds the refill loop's typed resume, pty_type.py driving `claude attach`
- * (#2354 F6), to one case list, run against the installed harness's recorded
- * exits (scripts/fixtures/claude-attach.json, re-recorded by
- * `node scripts/record-claude-responses.js`) and against
- * lib/claude-attach-fake.ts, which the refill-loop-run suites' `claude` stub
- * runs. No case runs the real `claude`: each needs a live job, which a launch
- * spends a turn to make. It holds the exit off a terminal and pty_type.py's
- * exit after drawing on one, each through the verdict the loop judges its
- * typed resume by. Whether the harness takes the line is unheld: pty_type.py
- * exits 0 once the line is written, taken or not. Breaking it costs the
- * loop's typed resume: a fake whose exit the loop judges otherwise than the
- * harness's passes a refill-loop-run test the loop fails.
- *
- * Apart from that list, it holds buildTypedAttach to typing only a prompt
- * that opens with the loop's prefix or a script's (#4844). Breaking that lets
- * a script's typed line read as the founder's, which returns away mode to
- * normal while he is away.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

@@ -1,46 +1,21 @@
-/*
- * review-reversal.js — a `reverse <n>` comment on the morning review issue,
- * turned into the ticket that undoes entry n and the reply acknowledging it
- * (#2017, spec #1995 §The morning review issue). Pure:
- * scripts/answer-review-reversals.js reads the issue and the ledgers and files.
- *
- * THE ACKNOWLEDGEMENT IS THE RECORD: each reply carries a hidden marker naming
- * the reverse comment and the entry, so a request already answered is never
- * filed again, by the next tick or by a hand run. A request that can never be
- * filed — an entry number the review does not list, a decision no ledger
- * holds, a line opening `reverse` that names no number — is answered too,
- * saying why.
- *
- * A primitives-table entry (#3465) is reversed from the review line alone:
- * the commit, the side and the job are on it.
- */
-
 const { commentLink, quoted } = require("./morning-review.js");
 const { STANDARDS_DOCS } = require("./primitives-table.js");
 const { requiredGroup } = require("./regex-group.js");
 
-/* A line opening `reverse`, then its entry numbers, a list allowed, then
- * anything: "reverse 3", "Reverse entry #3, 5 — wrong call". */
 const REQUEST = /^[ \t]*reverse\b(.*)$/gim;
 const NUMBERS =
 	/^[ \t]+(?:entry[ \t]+|entries[ \t]+)?(#?\d+(?:[ \t]*(?:,|and)[ \t]*#?\d+)*)/i;
 const MARKER = /<!-- reversal-of (\S+) entry (\d+|\?) -->/g;
-/* Untraced: room for the question, or the primitive, in a title GitHub lists
- * whole. */
+// guess, #3465
 const TITLE_TEXT_MAX = 80;
 
 /**
  * @typedef {{url: string, body: string}} Comment
- * @typedef {{commentUrl: string, n: number | null}} Request the reverse
- *   comment and the entry number it names; null where a `reverse` line names
- *   none
- * @typedef {{filed: string} | {why: string}} Outcome the ticket filed, as
- *   `owner/name#n`, or why none was
+ * @typedef {{commentUrl: string, n: number | null}} Request
+ * @typedef {{filed: string} | {why: string}} Outcome
  */
 
 /**
- * What a reversal ticket's body says of the request that produced it, and all
- * that tells that ticket from another with the same title.
  * @param {{repo: string, number: number}} review
  * @param {Request} request
  */
@@ -51,8 +26,6 @@ const buildRequestClause = (review, request) =>
 const buildMarker = (url, n) => `<!-- reversal-of ${url} entry ${n ?? "?"} -->`;
 
 /**
- * The entry numbers one comment asks to reverse, each once; null for a
- * `reverse` line whose numbers cannot be read.
  * @param {string} body
  * @returns {(number | null)[]}
  */
@@ -68,9 +41,7 @@ function parseReverseRequests(body) {
 }
 
 /**
- * The requests on a review issue's comments no reply has answered yet,
- * oldest first.
- * @param {Comment[]} comments oldest first
+ * @param {Comment[]} comments
  * @returns {Request[]}
  */
 function pendingRequests(comments) {
@@ -89,7 +60,6 @@ function pendingRequests(comments) {
 }
 
 /**
- * The `takes:implement` ticket for one reversal, filed in the entry's repo.
  * @param {{review: {repo: string, number: number}, request: Request,
  *   entry: import("./delegated-decision.js").LedgerLine}} r
  * @returns {{title: string, body: string}}
@@ -138,8 +108,6 @@ const UNDO = {
 };
 
 /**
- * The `takes:implement` ticket for reversing one primitives-table change,
- * filed in the repo whose history holds the commit.
  * @param {{review: {repo: string, number: number}, request: Request,
  *   entry: Extract<import("./morning-review.js").Entry, {kind: "primitive"}>}} r
  * @returns {{title: string, body: string}}
@@ -167,7 +135,7 @@ function buildPrimitiveReversalTicket({ review, request, entry: e }) {
 }
 
 /**
- * @param {number} reviewNumber the review issue the request was made on
+ * @param {number} reviewNumber
  * @param {Request} request
  * @param {Outcome} outcome
  */

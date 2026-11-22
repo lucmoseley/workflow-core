@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * allowance.js's own reader arithmetic — JSON-vs-text priority, staleness and
- * kind matching — with no subprocess. scripts/allowance.test.ts covers the
- * CLI wrapper (argv, stdin, exit codes) over the same lib. The rulings it
- * holds are #280's and #293's; `capSet` is #371's.
- *
- * Its readings gate `dispatch-sessions.js`'s launch and `admission.js`'s
- * per-spawn re-read: loosen a case here and a stale or misread bar launches
- * sessions past the allowance, or refuses a set the allowance had room for.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,7 +12,6 @@ import {
 	recordedLimit,
 } from "./usage-probe-fake";
 
-/** #280 ruling 3's five-minute window, pinned here rather than read back. */
 const STALE_MS = 5 * 60 * 1000;
 
 let dir: string;
@@ -31,8 +20,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** A seat cache of `bars`, stamped now unless `fetchedAtMs` says; absent
- * options build each bar resetting one window after the stamp. */
 const writeCache = (
 	configDir: string,
 	bars: Bars,
@@ -53,7 +40,6 @@ describe("JSON source (#280 ruling 1-2)", () => {
 				{
 					model: "Opus",
 					percent: 100,
-					// Neither unscoped bar's recorded severity, so a misread shows.
 					severity: "warning",
 					resetsAt: new Date(now + 60 * 60 * 1000).toISOString(),
 				},
@@ -148,8 +134,6 @@ describe("text fallback (#280 ruling 1)", () => {
 	});
 });
 
-/* A plan with no 5-hour bar caches `five_hour: null`, no `kind: "session"`
- * limit, and prints no `Current session:` line (#3758). */
 describe("a bar the account does not report (#3758)", () => {
 	it("reads unreported where a fresh cache lists the weekly bar alone", () => {
 		writeCache(dir, { week: 0 });
@@ -258,7 +242,6 @@ describe("capSet (#371)", () => {
 	});
 
 	it("launches X: the shortest prefix whose cumulative spend reaches the headroom", () => {
-		// Headroom 100 − 94 − 1 = 5; 3 × 1.5 = 4.5 falls short, 4 × 1.5 = 6 reaches it.
 		const r = capSet({
 			readings: { session: 94, weekly_all: 10 },
 			thresholds,
@@ -271,7 +254,6 @@ describe("capSet (#371)", () => {
 	});
 
 	it("stops at the member that lands exactly on 100%", () => {
-		// Headroom 3: 2 × 1.5 = 3 reaches it, so a third is not launched.
 		const r = capSet({
 			readings: { session: 97, weekly_all: 10 },
 			thresholds,
@@ -283,8 +265,6 @@ describe("capSet (#371)", () => {
 	});
 
 	it("launches one where the running sessions leave exactly a session's headroom", () => {
-		// #371's 11 Oct 2026 reversal: headroom 100 − 99 − 0.8 is 0.2 to within
-		// rounding, one session ~0.2, so the X loop gives one, not the floor.
 		const r = capSet({
 			readings: { session: 10, weekly_all: 99 },
 			thresholds,
@@ -303,7 +283,6 @@ describe("capSet (#371)", () => {
 			runningPoints: none,
 			perSessionPoints: figures,
 		});
-		// session: 9 / 1.5 → 6; weekly: 0.5 / 0.1 → 5.
 		expect(r.warned.map((b) => [b.bar, b.fits])).toEqual([
 			["session", 6],
 			["weekly_all", 5],
@@ -345,7 +324,6 @@ describe("capSet (#371)", () => {
 	});
 
 	it("never lets rounding buy a member past X", () => {
-		// Headroom 100 − 90 − 0.1 = 9.9; 6 × 1.65 rounds to 9.899999999999999.
 		const r = capSet({
 			readings: { session: 90, weekly_all: 10 },
 			thresholds,

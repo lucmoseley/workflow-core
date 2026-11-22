@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * retry-failed-files.js — re-runs, once, the test files a Vitest JSON report
- * marks failed, so a lander batch's flake costs one more step in the same
- * Actions job rather than a second run (#4545).
- *
- *   node scripts/retry-failed-files.js <report.json>
- *
- * ci.yml's "Retry failed files" step runs it on a `lander/batch-<k>` push after
- * a failed Vitest step. The re-run writes its own report beside the first,
- * which stays the uploaded one. It ends on two lines: the files the retry
- * cleared, lib/suite-output.js's `CLEARED`, which lib/actions-tester.js records
- * on a green batch as its flakes (#4558); and the files still failing, `STILL_FAILING`,
- * which it takes a red batch's failing files from alone, since `--log-failed`
- * also prints the first run's failures from the step that went on past them.
- *
- * In no family: it gates nothing itself, its exit being the re-run's, and
- * writes no file of the repo's (§N3).
- *
- * Exit codes: the re-run's own; 1 where the report is missing, cannot be read,
- * will not parse or marks no file failed; 2 on a command line it refuses.
- */
-
 const { spawnSync } = require("node:child_process");
 const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
@@ -35,7 +13,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const buildFileList = (files) => (files.length > 0 ? files.join(", ") : "none");
 
 /**
- * The repo-relative files the report at `file` marks failed, else why none.
  * @param {string} file
  * @param {string} root
  * @returns {{files: string[]} | {why: string}}
@@ -52,7 +29,6 @@ function readFailedFiles(file, root) {
 	} catch {
 		return { why: `the report at ${file} does not parse` };
 	}
-	/* An isolated worktree's run names its files under that tree (#4560). */
 	const under = reportRoot(parsed, root, (rel) =>
 		fs.existsSync(path.join(root, rel)),
 	);
@@ -92,8 +68,6 @@ function main(argv = process.argv.slice(2)) {
 	});
 	const code = r.status ?? 1;
 	const again = readFailedFiles(retryReport, root);
-	/* A failed re-run whose report is unread or names no failure leaves the
-	 * first run's files standing. */
 	let still = code === 0 ? [] : first.files;
 	if (code !== 0 && !("why" in again) && again.files.length > 0)
 		still = again.files;

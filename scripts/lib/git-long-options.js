@@ -1,19 +1,3 @@
-/*
- * git-long-options.js — the long options of each git subcommand the
- * guard-pull-form core judges, and git's reading of an abbreviated one (#3998).
- *
- * git takes a long option's unique abbreviation, among ALL of that subcommand's
- * options: `git merge --e` is `--edit`, and `git branch --for` is refused as
- * ambiguous with `--format`. Read against a
- * guard's own tables, `--e` would be rebase's `--edit-todo`, which passes.
- *
- * Taken from `git <sub> --git-completion-helper-all`, `git stash push` for
- * stash, on git 2.43.0. A later git's new option leaves a word this list reads
- * as one option ambiguous there, so git refuses it, unless that word is the new
- * option's whole name. An older git lacking a listed option can take as unique a
- * word this list calls ambiguous, and that word reads here as spelled.
- */
-
 /** @type {Record<string, string>} */
 const LONG_OPTIONS = {
 	branch:
@@ -42,9 +26,6 @@ const LONG_OPTIONS = {
 };
 
 /**
- * The long option `flag` names under `git <sub>`: its whole name where it
- * abbreviates exactly one, else `flag` as spelled, git refusing an ambiguous or
- * unknown word. A whole name is itself, though it begins a longer one.
  * @param {string} sub
  * @param {string} flag
  * @returns {string}

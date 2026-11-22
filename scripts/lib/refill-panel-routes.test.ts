@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * Which splits an environment offers (#3886), and what returns focus from each
- * (#3887, #4065). Asserted on the whole argv, as a
- * dropped word or a flag `wt.exe` swallows opens no panel and nothing says so.
- */
 import { describe, expect, it } from "vitest";
 import { buildFocusReturn, buildRoutes } from "./refill-panel-routes.js";
 

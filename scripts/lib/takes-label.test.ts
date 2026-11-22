@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that takesLabel and takesValue refuse a value outside the takes: set,
- * naming it, so a script spelling a value the set has dropped fails at load
- * instead of matching no issue (#2193), and what takesRefusal prints (#4129,
- * #4665).
- */
 
 import fs from "node:fs";
 import os from "node:os";

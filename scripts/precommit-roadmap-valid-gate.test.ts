@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-commit roadmap-validity gate (mantahostels#698), a pre-commit
- * dispatcher row (#5172).
- *
- * The row runs `check-roadmap-valid.js` only when the commit stages
- * `docs/reference-roadmap.html`, after the roadmap-pair row, so the cheaper
- * and more common half-staged-pair failure reports first. What the dispatcher
- * does with its exit is scripts/precommit-dispatch.test.ts's.
- *
- * The hook is the PRIMARY gate, and not the only one (mantahostels#974): the
- * daily repo-checks run, with the `roadmap` module on, runs the same checker in
- * `--tree` mode, which judges the roadmap as it stands rather than a commit
- * against its parent (scripts/repo-checks.test.ts pins its arguments).
- *
- * It is a hard gate: loosen a case and a structurally invalid roadmap — the
- * sole authority on card status — lands, unseen until the daily run.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -37,12 +20,6 @@ const temps = registerTempCleanup();
 const ROW = patternRow(CHECKER);
 const PATTERN = ROW.arm.pattern;
 
-/**
- * How the row's arm differs from the path `check-roadmap-valid.js` itself
- * judges, or `null` where they agree. The two are separate spellings of one
- * path: renaming the roadmap in the checker alone would leave a gate that
- * silently never fires.
- */
 function parityGap(pattern: RegExp): string | null {
 	const checker = fs.readFileSync(path.join(ROOT, CHECKER), "utf8");
 	const decl = /const HTML = "([^"]+)"/.exec(checker);
@@ -54,7 +31,6 @@ function parityGap(pattern: RegExp): string | null {
 		: `the row matches ${pattern}, the checker judges '${judged}'`;
 }
 
-/** Whether the dispatcher runs the row on what is staged in `root`. */
 async function arms(root: string): Promise<boolean> {
 	return (await dispatchStubbed(root, ROW)).ran;
 }
@@ -63,7 +39,6 @@ const repo = (staged: Record<string, string>, committed = {}) =>
 	stagedRepo("roadmap-valid-gate-", temps, committed, staged);
 
 describe("the pre-commit roadmap-validity row", () => {
-	/* No lander Actions run repeats it, so the batch set runs it. */
 	it("is a gating checker row the batch set runs", () => {
 		expect(ROW).toMatchObject({
 			policy: "gate",

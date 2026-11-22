@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * check-lockfile-sync.js refuses a commit whose staged lockfile is out of step
- * with its staged package.json, and prints the lockfile rule (#2029). That
- * refusal is the rule's only delivery, so a case loosened here lets a
- * dependency land without its lockfile.
- *
- * Each case commits through a real git hook in a throwaway repo: the checker
- * ends in runCheck's process exit and reads the index through git, so a spawned
- * commit is the one route that reaches it whole.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -41,7 +31,6 @@ const manifest = (deps: Record<string, string>) => ({
 	dependencies: deps,
 });
 
-/* The shape npm writes: the root entry mirrors the manifest's ranges. */
 const lockfile = (deps: Record<string, string>) => ({
 	name: "x",
 	lockfileVersion: 3,
@@ -175,8 +164,6 @@ describe("check-lockfile-sync", () => {
 		},
 	);
 
-	/* The checker arms itself on what it reads; an arm pattern on its row
-	 * would be a second list free to drift from it (#3434). */
 	it("runs on every commit, an always-armed dispatcher row (#5172)", () => {
 		const row = GATES.find((g) => g.script === CHECKER);
 		expect(row?.arm).toEqual({ always: true });

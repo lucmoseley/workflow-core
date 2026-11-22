@@ -1,14 +1,3 @@
-"""Idle wait for a background test run, from the transcripts.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I bg_idle.py <out.jsonl> [<projects-dir>...] [--start ISO] [--end ISO]
-For each Bash test call with run_in_background true, and each foreground test call the harness
-moved to the background (its result carries backgroundTaskId; the wait then counts from the move)
-(blocked.py's test_segment rule), find the <task-notification> line that names its tool-use id.
-The idle wait is the notification time minus the time of the session's last assistant line before
-it, where that last line is at or after the launch: the session had ended its turn and sat waiting
-for the run. Where the session kept working until the run ended, the idle wait is the gap from its
-last line only (often near zero)."""
-
 import os
 import re
 import sys
@@ -19,13 +8,11 @@ from blocked import kind_of, test_segment
 from corpus import epoch
 
 ASSISTANT = '"role":"assistant"'
-# #2812's: an assistant line names its role within its first 600 characters. Untraced.
 ROLE_WITHIN = 600
 NOTICE = "<task-notification>"
 
 
 def scan_file(path, repo, start, end, *, tally):
-    """bg_idle.py's rows for one transcript, for runs launched in [start, end]."""
     launches = {}
     fgtests = {}
     last_asst = None
@@ -95,4 +82,6 @@ def scan_file(path, repo, start, end, *, tally):
 
 
 if __name__ == "__main__":
-    corpus.run_scanner(__doc__, scan_file)
+    corpus.run_scanner(
+        "Idle wait for a background test run, from the transcripts.", scan_file
+    )

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * session-spend.js: pricing a transcript, the conditional remainder off the
- * cost table, and which listed sessions count as running on this seat (#372,
- * #1197).
- *
- * In-process, over JSONL transcripts and project trees written to a temp dir,
- * with a hand-built cost table, so no case reads this machine's sessions or
- * moves with the committed table — bar one case that reads the committed table
- * on purpose.
- *
- * `allowance.js` sizes `/pick-next`'s capped launch in `dispatch-sessions.js`
- * from these figures; loosen a case and a mispriced spend launches a set past
- * the usage bar, or cuts one that would have fitted.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -50,8 +36,6 @@ const table = {
 	] as [number, number][],
 };
 
-/** The window a listed session with no transcript yet counts as just
- *  launched (#371 item 6), spelled here rather than imported. */
 const FRESH_LAUNCH_MS = 10 * 60 * 1000;
 
 describe("sessionSpendUsd", () => {
@@ -60,7 +44,6 @@ describe("sessionSpendUsd", () => {
 		fs.writeFileSync(
 			file,
 			[
-				// A streamed turn logged twice: the second, larger output wins.
 				turn("r1", "claude-opus-5-5", { output_tokens: 100_000 }),
 				turn("r1", "claude-opus-5-5", { output_tokens: 200_000 }),
 				turn("r2", "claude-sonnet-5", {
@@ -73,7 +56,6 @@ describe("sessionSpendUsd", () => {
 				"not json",
 			].join("\n"),
 		);
-		// opus 0.2M out × $20 = 4; sonnet 2 + 2.5 + 0.2 = 4.7; haiku unpriced.
 		expect(sessionSpendUsd(file)).toBeCloseTo(8.7, 6);
 	});
 
@@ -113,7 +95,6 @@ describe("fileSpend", () => {
 				assistantAt("r1", "claude-sonnet-5", "2026-09-26T00:00:00Z"),
 				assistantAt("r2", "claude-sonnet-5", "2026-09-26T02:00:00Z"),
 				assistantAt("r3", "claude-fable-5-1", "2026-09-26T00:30:00Z"),
-				// Zero tokens: nothing left out, so not counted as unpriced.
 				JSON.stringify({
 					type: "assistant",
 					requestId: "r4",
@@ -161,7 +142,6 @@ describe("fileSpend", () => {
 				turn("r1", "claude-opus-5-5", split(1_000_000, 1_000_000)),
 			].join("\n"),
 		);
-		// 1M × $5 (5-minute) + 1M × $8 (1-hour).
 		expect(fileSpend(file).usd).toBeCloseTo(13, 6);
 	});
 
@@ -176,8 +156,6 @@ describe("fileSpend", () => {
 });
 
 describe("the conditional remainder a working session is charged", () => {
-	/** A working session that has spent `usd` on Sonnet output ($10 a million
-	 *  tokens), and the remainder `runningRemainders` charges it. */
 	const remainderAfter = (usd: number) => {
 		const p = path.join(dir, "projects", "-repo");
 		fs.mkdirSync(p, { recursive: true });
@@ -201,10 +179,7 @@ describe("the conditional remainder a working session is charged", () => {
 	});
 
 	it("averages the gap to every quantile above the spend, the top one standing at the tail's mean, never flooring at zero", () => {
-		// The top point stands at u 4 + tail 3 = 7, not the maximum 8. Above
-		// 3: 4 and 7 → gaps 1 and 4.
 		expect(remainderAfter(3)).toBe(2.5);
-		// Past the median a session is not read as finished.
 		expect(remainderAfter(2)).toBe(3.5);
 	});
 

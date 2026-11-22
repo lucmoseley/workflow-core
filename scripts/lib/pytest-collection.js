@@ -1,13 +1,3 @@
-/*
- * pytest-collection.js — which of a set of test files pytest collects in a
- * tree (#2952), read off its config rather than asked: named files, which
- * `pytest --collect-only` would collect whatever `testpaths` and
- * `python_files` say, cannot ask it.
- *
- * A config file that is present but unreadable throws, never widening to
- * pytest's defaults.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -17,8 +7,6 @@ const { PYTEST_DEFAULT_FILES } = require("./test-kind.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 
-/* pytest 9.1.1's documented `norecursedirs` default, the version
- * requirements-dev.txt pins (docs.pytest.org/en/stable/reference/reference.html#confval-norecursedirs). */
 const PYTEST_DEFAULT_NORECURSE = [
 	"*.egg",
 	".*",
@@ -31,10 +19,6 @@ const PYTEST_DEFAULT_NORECURSE = [
 	"{arch}",
 ];
 
-/**
- * The config files pytest reads at its rootdir, in its own order, each with
- * the section that makes it count: pytest.ini and .pytest.ini count bare.
- */
 const PYTEST_CONFIGS = [
 	["pytest.ini", null],
 	[".pytest.ini", null],
@@ -47,9 +31,6 @@ const INI_HEAD = /^\[(.+)\]\s*$/;
 const INI_KEY = /^([\w-]+)\s*[=:]\s*(\S.*|)$/;
 
 /**
- * `section`'s keys in ini `text`, each value split on whitespace; null where
- * `text` has no such section.
- *
  * @param {string} text
  * @param {string} section
  * @returns {Record<string, string[]>|null}
@@ -72,11 +53,8 @@ function parseIniSection(text, section) {
 }
 
 /**
- * Folds one line of an ini section into `keys`, returning the key a
- * continuation line after it extends.
- *
  * @param {Record<string, string[]>} keys
- * @param {string} key the key the line before it set or extended
+ * @param {string} key
  * @param {string} line
  * @returns {string}
  */
@@ -93,7 +71,6 @@ function foldIniLine(keys, key, line) {
 	return name;
 }
 
-/* pyproject's table through Python's own TOML reader. */
 const PYPROJECT_OPTIONS = [
 	"import json, sys, tomllib",
 	"t = tomllib.load(open(sys.argv[1], 'rb'))",
@@ -101,9 +78,6 @@ const PYPROJECT_OPTIONS = [
 ].join("\n");
 
 /**
- * pyproject.toml's `[tool.pytest.ini_options]`, a string value split on
- * whitespace as pytest splits an ini one.
- *
  * @param {string} file
  * @param {ExecFn} execFn
  * @returns {Record<string, string[]>}
@@ -126,9 +100,6 @@ function readPyprojectOptions(file, execFn) {
 }
 
 /**
- * `file`'s text, or null where it is missing, as pytest reads a missing
- * config.
- *
  * @param {string} file
  * @returns {string|null}
  */
@@ -142,9 +113,6 @@ function readIfPresent(file) {
 }
 
 /**
- * The pytest config at `root`: the first of `PYTEST_CONFIGS` that counts,
- * read as pytest reads it; none where no file does.
- *
  * @param {string} root
  * @param {ExecFn} execFn
  * @returns {Record<string, string[]>}
@@ -166,11 +134,6 @@ function readPytestConfig(root, execFn) {
 }
 
 /**
- * A glob as a whole-string regex, `*` and `?` stopping at `/` and `**`
- * crossing it: fnmatch's reading for the basenames `python_files` and
- * `norecursedirs` match, and the recursive glob pytest expands `testpaths`
- * with.
- *
  * @param {string} glob
  * @returns {RegExp}
  */
@@ -190,11 +153,6 @@ const buildGlobRegex = (glob) =>
 	);
 
 /**
- * Of `files`, those pytest collects in the tree at `root`: under a
- * `testpaths` entry, or anywhere where none is set; in no `norecursedirs`
- * directory below it; named by a `python_files` glob. An `--ignore` in
- * `addopts` and a conftest's `collect_ignore` are not read.
- *
  * @param {string} root
  * @param {string[]} files
  * @param {ExecFn} execFn
@@ -218,7 +176,6 @@ function pytestCollected(root, files, execFn) {
 			.dirname(f)
 			.split("/")
 			.filter((d) => d !== ".");
-		/* How many leading segments the testpath holding `f` spans. */
 		const held =
 			testpaths.length === 0
 				? 0

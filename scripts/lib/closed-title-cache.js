@@ -1,23 +1,3 @@
-/*
- * closed-title-cache.js — the titles similarTitles scores against (#2755):
- * open issues read live on every call, closed ones off an on-disk cache.
- *
- * ONLY THE CLOSED SET IS CACHED. similarOpen returns open issues alone, so a
- * cached open list could hide an issue another session filed a moment ago —
- * the duplicate the check exists to catch. Closed titles only weight the word
- * frequencies, so a stale closed set shifts a score by a hair and never hides
- * a candidate.
- *
- * No cache, or one that does not parse, is a full pull, written back. A cache
- * past REFRESH_MS fetches the issues updated since its stamp and merges them:
- * closing moves a title in, reopening moves it out. A failed refresh scores
- * against the cache it has and says so on stderr; a failed full pull throws.
- *
- * One file per tracker under the gitignored markers directory, which the
- * scratch sweep leaves alone, written by rename so a concurrent reader never
- * sees half of one. Last writer wins: every write is a whole, valid corpus.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -32,11 +12,7 @@ const { MARKERS_REL } = require("./marker-root.js");
 const { hostRoot } = require("./host-root.js");
 const { writeFd } = require("./write-fd.js");
 
-/*
- * An hour: a batch of filings and its --distinct-from re-runs fall inside one,
- * so they pay no closed read at all. The score drift a stale hour leaves is
- * unmeasured (#2755).
- */
+// guess, #2755
 const REFRESH_MS = 60 * 60 * 1000;
 
 /**
@@ -45,16 +21,12 @@ const REFRESH_MS = 60 * 60 * 1000;
  * @typedef {object} Deps
  * @property {() => number} now
  * @property {string} file
- * @property {() => Row[]} listAll every issue, open and closed
+ * @property {() => Row[]} listAll
  * @property {() => Row[]} listOpen
- * @property {(since: string) => Row[]} listSince every issue updated at or after `since`
+ * @property {(since: string) => Row[]} listSince
  * @property {(text: string) => void} warn
  */
 
-/*
- * The main checkout's, so every worktree shares one cache and only the first
- * call anywhere pays the full pull.
- */
 /** @param {string} repo */
 const cacheFile = (repo) =>
 	path.join(
@@ -83,8 +55,6 @@ function buildGhDeps(repo, run = gh) {
 		file: cacheFile(repo),
 		listAll: () => listState("all"),
 		listOpen: () => listState("open"),
-		/* REST's `since` rather than an `updated:>` search: the same filter, with
-		 * no 1,000-result cap. */
 		listSince: (since) =>
 			ghIssuesUpdatedSince(repo, since, run).map((i) => ({
 				number: i.number,
@@ -96,8 +66,6 @@ function buildGhDeps(repo, run = gh) {
 }
 
 /**
- * The cache at `deps.file`, or null where it is absent or not one — saying so
- * where a file is there but unusable, since that costs a full pull.
  * @param {Deps} deps
  * @returns {Cache|null}
  */
@@ -106,7 +74,6 @@ function readCache(deps) {
 	try {
 		bytes = fs.readFileSync(deps.file, "utf8");
 	} catch {
-		// Absent or unreadable: a cold cache, which the full pull rebuilds.
 		return null;
 	}
 	const unusable = () => {
@@ -141,7 +108,6 @@ function writeCache(deps, cache) {
 	try {
 		writeFileAtomic(deps.file, JSON.stringify(cache), { mkdir: true });
 	} catch (e) {
-		// The cache only saves time: the next call pulls again.
 		deps.warn(`could not write the closed-title cache (${parseErrLine(e)}).`);
 	}
 }
@@ -150,8 +116,6 @@ function writeCache(deps, cache) {
 const isOpen = (r) => r.state.toUpperCase() === "OPEN";
 
 /**
- * Every title to score against: the open issues, live, then the closed ones.
- * Throws where the open read fails, or the full pull does with no cache.
  * @param {string} repo
  * @param {Partial<Deps>} [over]
  * @param {import("./gh.js").GhRun} [run]
@@ -185,7 +149,6 @@ function readTrackerTitles(repo, over = {}, run = gh) {
 			}
 			writeCache(deps, { stamp, closed });
 		} catch (e) {
-			// Stale closed titles shift a weight, never hide an open candidate.
 			closed = cache.closed;
 			deps.warn(
 				`could not refresh the closed-title cache (${parseErrLine(e)}) — scoring against its ${cache.stamp} copy.`,

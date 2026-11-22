@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-code-standards.js names every citation in the code standards
- * that no longer resolves and every §N7 export nothing consumes, with the line
- * the reader must go to (mantahostels#1091, the ticket that built it;
- * mantahostels#1799).
- *
- * check-code-standards.js reads its scope from `git ls-files` and resolves
- * every path against the working directory, so it is exercised inside a
- * throwaway repository rather than against this one — a fixture pinned to this
- * repo's own docs/code-standards.md would go red the moment a citation in it
- * was repinned.
- *
- * The script is report-only and never gates, so almost every case here asserts
- * exit 0. What is actually under test is the MESSAGE: which fault
- * was named, and whether it carried the line the reader has to go to (§X3).
- *
- * It warns on every commit from .husky/pre-commit and backs `npm run
- * check:standards`: loosen a case and a stale pin goes unnamed, so a reviewer
- * cites a rule against the wrong lines and accuses clean code, or an export
- * nothing consumes goes unreported.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -37,7 +16,6 @@ let repo: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 
-/** Write a file and track it — `git ls-files` is the scope, so untracked is invisible. */
 const track = (file: string, body: string) => {
 	fs.mkdirSync(path.join(repo, path.dirname(file)), { recursive: true });
 	fs.writeFileSync(path.join(repo, file), body);
@@ -59,7 +37,6 @@ const run = (...args: string[]) => runAt(repo, ...args);
 const readAnchors = (): Record<string, string> =>
 	JSON.parse(fs.readFileSync(path.join(repo, ANCHORS), "utf8"));
 
-/** A source file whose quotable sentence sits on a known line. */
 const SUBJECT = [
 	"/*",
 	" * a header line",
@@ -122,7 +99,6 @@ describe("quotation-paired pins", () => {
 	});
 
 	it("accepts a quotation running past the end of its cited range", () => {
-		// A pin points at the line a quotation STARTS on, not at its last line.
 		track("lib/a.ts", "/*\n * one two\n * three four\n */\n");
 		doc('Rule — `lib/a.ts:2` *"one two three four"*\n');
 		expect(run().out).toContain("OK:");
@@ -135,9 +111,6 @@ describe("quotation-paired pins", () => {
 	});
 
 	it("still reports elided fragments that appear in the wrong order", () => {
-		// The pair to the case above: an ellipsis must not become a wildcard that
-		// accepts any two phrases from the file. Which of the two quotation faults
-		// it lands as depends on how much of the opening fragment matches.
 		track("lib/a.ts", "/*\n * alpha beta gamma delta epsilon\n */\n");
 		doc('Rule — `lib/a.ts:2` *"delta epsilon … alpha beta"*\n');
 		const r = run();
@@ -158,15 +131,11 @@ describe("quotation-paired pins", () => {
 	});
 
 	it("accepts a quotation sitting in a sibling pin's range on the same line", () => {
-		// #N6's shape: one sentence cited at two places at once ("repeated at
-		// :228-230"), where insisting on the paired pin would report a quotation
-		// that is demonstrably where the line says it is.
 		track(
 			"lib/a.ts",
 			"/*\n * the shared sentence\n * filler\n * filler\n */\n",
 		);
 		doc('Rule — `lib/a.ts:2`, repeated at `:4`: *"the shared sentence"*\n');
-		// The quotation pairs to `:4`; `lib/a.ts:2` is bare and wants an anchor.
 		run("--review");
 		expect(run().out).toContain("OK:");
 	});
@@ -185,15 +154,11 @@ describe("quotation-paired pins", () => {
 
 describe("pairing — what a quotation is answerable to", () => {
 	it("leaves a quotation alone when the span before it is a path with no line number", () => {
-		// The §N4 shape: a rule pins check.js, then quotes another script's
-		// header, which carries no pin. Checking that quotation against the
-		// check.js pin is a FALSE FINDING.
 		track("lib/a.ts", SUBJECT);
 		track("lib/b.ts", "/*\n * a different sentence entirely\n */\n");
 		doc(
 			'Rule — `lib/a.ts:2-4`, and `lib/b.ts` says *"a different sentence entirely"*\n',
 		);
-		// Unpaired, the pin is bare and wants an anchor like any other.
 		run("--review");
 		const r = run();
 		expect(r.out).toContain("OK:");
@@ -215,9 +180,6 @@ describe("pairing — what a quotation is answerable to", () => {
 	});
 
 	it("reads no pin out of a backticked path inside a quotation", () => {
-		// Quotations quote source that itself contains backticked paths. Scanning
-		// them for spans invents citations and corrupts the inheritance a bare pin
-		// walks.
 		track("lib/a.ts", "/*\n * see `lib/phantom.ts:9` for the rest\n */\n");
 		doc('Rule — `lib/a.ts:2` *"see `lib/phantom.ts:9` for the rest"*\n');
 		const r = run();
@@ -236,8 +198,6 @@ describe("pairing — what a quotation is answerable to", () => {
 	});
 
 	it("reports a bare pin with no path anywhere on its line", () => {
-		// The pair: inheritance is within the line and never across one, so a pin
-		// that inherits from the paragraph above must be refused, not guessed.
 		track("lib/a.ts", SUBJECT);
 		doc("Rule — `lib/a.ts:2-4`\n\nAnother rule — (`:5-6`)\n");
 		expect(run().out).toContain("UNRESOLVED");
@@ -277,7 +237,6 @@ describe("the file behind the pin", () => {
 	});
 
 	it("reports a reversed range, whose start is the only end past the file", () => {
-		// `400-2` is the only shape where the start overruns and the end does not.
 		track("lib/a.ts", SUBJECT);
 		doc("Rule — `lib/a.ts:400-2`\n");
 		expect(run().out).toContain("OUT-OF-RANGE");
@@ -320,7 +279,6 @@ describe("bare pins — the hunk digest", () => {
 	});
 
 	it("stays silent when a change lands outside the cited lines", () => {
-		// Pairs with the case above: a whole-file digest fires here, which is why mantahostels#1091 rejected one.
 		track("lib/a.ts", SUBJECT);
 		doc("Rule — `lib/a.ts:5-6`\n");
 		run("--review");
@@ -405,7 +363,6 @@ describe("the alphabet — what gates and what does not", () => {
 	});
 
 	it("is BROKEN when git cannot enumerate the tracked set", () => {
-		// git is what it READS THE REPO WITH, so its failure gates (check.js:16-26).
 		const bare = fs.mkdtempSync(
 			path.join(os.tmpdir(), "code-standards-nogit-"),
 		);
@@ -442,9 +399,6 @@ describe("the alphabet — what gates and what does not", () => {
 });
 
 describe("--touching — a diff-scoped report (mantahostels#2631)", () => {
-	/* Not lib/check.js's --against fault-diff: this filters ONE run's findings,
-	 * so an already-stale backlog entry can resurface on a doc-prose edit even
-	 * with its cited file untouched — see check-code-standards.js:27-43. */
 	const commit = (msg: string) => git("commit", "-m", msg);
 	const readHead = () => git("rev-parse", "HEAD").trim();
 
@@ -617,7 +571,6 @@ describe("§N7 export blocks", () => {
 			doc(docline);
 			track("scripts/thing.js", review);
 			track("scripts/thing.test.ts", 'import { review } from "./thing";\n');
-			// Spells the word, and names a `thing` only in prose, never as a path.
 			track(
 				"scripts/other.js",
 				'require("./elsewhere").review();\n// the thing to review\n',
@@ -715,8 +668,6 @@ describe("§N7 export blocks", () => {
 	});
 
 	it("scans every name in the one-line export form, not just the first", () => {
-		// Biome writes a short block on one line, so both spellings are live in
-		// the corpus and a line-per-entry split sees only the whole line.
 		doc(docline);
 		track(
 			"scripts/thing.js",
@@ -753,7 +704,6 @@ describe("§N7 export blocks", () => {
 		expect(envelope.exports_dead).toEqual([]);
 	});
 	it("reports two files exporting one name and neither consuming it, rather than letting them vouch for each other", () => {
-		// A speller is a consumer only if it does not define the name itself.
 		doc(docline);
 		const body =
 			"function shared() {}\nshared();\n\nmodule.exports = {\n\tshared,\n};\n";
@@ -766,7 +716,6 @@ describe("§N7 export blocks", () => {
 	});
 
 	it("treats a caller that rebinds the import under the same name as a consumer", () => {
-		// A definer by its `const`, and a real consumer by the property it reads.
 		doc(docline);
 		track(
 			"scripts/thing.js",
@@ -808,7 +757,6 @@ describe("§N7 export blocks", () => {
 		const Callers = "docs/export-callers.json";
 		const thing =
 			"function used() {}\nfunction spare() {}\nused();\nspare();\n\nmodule.exports = {\n\tused,\n\tspare,\n};\n";
-		/* A bare word reaches no module, so the scan misses this caller. */
 		const missedCaller = "node scripts/load.js thing spare\n";
 		const rows = (...r: { module: string; name: string; caller: string }[]) =>
 			track(Callers, JSON.stringify(r));
@@ -821,7 +769,6 @@ describe("§N7 export blocks", () => {
 			"STALE-CALLER  docs/export-callers.json  scripts/thing.js spare <- scripts/load.sh";
 		const unread =
 			"scripts/load.sh no longer reads spare off scripts/thing.js — make the name file-local, or name the caller that does";
-		/** A WARN run reporting `detail` on the row, with its footer. */
 		const expectStale = (detail: string) => {
 			const r = run();
 			expect(r.status).toBe(0);
@@ -1002,8 +949,6 @@ describe("§N7 export blocks", () => {
 				"function main() {}\n\nmodule.exports = { main };\n",
 			);
 			track("scripts/prog.test.ts", 'import { main } from "./prog";\n');
-			// Neither the harness's generic read nor another program's guard is a
-			// real caller of this main.
 			track(
 				"scripts/lib/run-in-process.js",
 				"const main = entry.exports?.main;\nmain();\n",
@@ -1104,7 +1049,6 @@ describe("the standards base beside the local file (#963)", () => {
 				(f: { doc: string; pin: string }) => `${f.doc} ${f.pin}`,
 			),
 		).toEqual([`${DOC} lib/a.ts:40`, `${basePath} scripts/b.js:40`]);
-		// The export scan reads neither document, so two of them must not run it twice.
 		expect(envelope.exports_dead).toHaveLength(1);
 	});
 
@@ -1137,7 +1081,6 @@ describe("the standards base beside the local file (#963)", () => {
 	});
 
 	it("warns, exit 0, on a base line pin into a file the release leaves behind, naming the base line and the pin", () => {
-		// release-contains.js is in plugin-tree.js's LEFT_BEHIND set.
 		track("scripts/release-contains.js", SUBJECT);
 		doc("Rule — see the base\n");
 		base(
@@ -1183,7 +1126,6 @@ describe("the standards base beside the local file (#963)", () => {
 	});
 
 	it("never calls a shipped root-level file's line pin a bare name — it opens at the plugin root as cited", () => {
-		// ruff.toml is in plugin-tree.js's COPIED list.
 		track("ruff.toml", SUBJECT);
 		doc("Rule — see the base\n");
 		base('Rule — `ruff.toml:2-4` *"the quoted sentence lives here"*\n');

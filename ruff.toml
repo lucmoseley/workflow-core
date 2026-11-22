@@ -29,8 +29,10 @@
 #
 # BLE001, E4 AND E7 JOINED AT #1333 (#1319 Q7, Q10). BLE001 refuses a blind
 # `except Exception`/`BaseException`, and E7's E722 a bare `except:`, which
-# BLE001 does not flag: a catch-all either names the exceptions it expects or
-# carries `# noqa: BLE001 - <reason> (#ticket)`, or `E722` for a bare one. E4
+# BLE001 does not flag: a catch-all names the exceptions it expects, and
+# neither code takes a `noqa` (docs/comment-kinds.md K3). Where any exception
+# must be survived, a context manager whose `__exit__` reports the error
+# catches it. E4
 # and E7 were left out only as "a formatter's business", but `ruff format` fixes
 # none of what they find: one-line multiple imports (E401), a late import
 # (E402), a lambda bound to a name (E731), `l`/`O`/`I` as a name (E741).

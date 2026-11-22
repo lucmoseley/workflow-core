@@ -1,24 +1,11 @@
-/*
- * reaped-jobs.js — the journal of the background jobs the reaper stopped
- * (#5331), one machine-wide file whatever seat the reaper ran on. The refill
- * loop reads it to reach a session the reaper stopped before the loop read
- * its synthetic stop: such a job has left the registry listing.
- *
- * Two reaper runs writing at once can lose one's entries; check-ghost-jobs's
- * SYNTHETIC-STOP finding still reports such a job.
- */
-
 const { refillPath } = require("./refill-dir.js");
 const { caught } = require("./caught.js");
 const { readJson, readJsonOutcome, writeJson } = require("./refill-json.js");
 
 const REAPED_FILE = ".reaped-jobs.json";
-/* The keys of the entries the refill loop has read. */
 const REAPED_READ_FILE = ".refill-reaped-read.json";
 
-/* How long an entry is kept: longer than the loop is ever off between ticks
- * in ordinary use, so a restart still finds what was reaped meanwhile.
- * Untraced. */
+// guess, #5331
 const REAPED_KEEP_MS = 24 * 60 * 60_000;
 
 /**
@@ -60,20 +47,15 @@ function withReaped(list, stopped, at) {
 	return [...kept, ...added];
 }
 
-/**
- * The journal's entries, none where it is absent or will not read.
- * @returns {ReapedJob[]}
- */
+/** @returns {ReapedJob[]} */
 function readReapedJobs() {
 	const { value } = readJsonOutcome(refillPath(REAPED_FILE));
 	return Array.isArray(value) ? value.filter(isEntry) : [];
 }
 
 /**
- * A journal that will not write costs the loop those resumes, never the
- * reaper its run (#5331): why it failed, else null.
  * @param {import("./agent-liveness.js").AgentRecord[]} stopped
- * @param {number} at  the run's clock, ms
+ * @param {number} at
  * @returns {string|null}
  */
 function journalReapedJobs(stopped, at) {
@@ -89,17 +71,10 @@ function journalReapedJobs(stopped, at) {
 	}
 }
 
-/**
- * An entry's identity, by which the loop remembers having read it.
- * @param {ReapedJob} j
- */
+/** @param {ReapedJob} j */
 const reapedKey = (j) => `${j.seat}\0${j.jobId}\0${j.at}`;
 
-/**
- * The journal and the keys of the entries the loop has read (BlockReads'
- * readReaped).
- * @param {(line: string) => void} log
- */
+/** @param {(line: string) => void} log */
 function readReaped(log) {
 	const raw = readJson(refillPath(REAPED_READ_FILE), log);
 	const read = Array.isArray(raw)

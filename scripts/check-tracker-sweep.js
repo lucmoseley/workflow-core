@@ -1,35 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-tracker-sweep.js — list, on `npm run status`, every standing finding
- * in this repo's daily repo-checks reading (mantahostels#2490), the hand route
- * for what the runner's notify line goes silent on.
- *
- * WHAT IT READS (#1557). `.repo-checks.json` in the git common directory, the
- * merged result scripts/repo-checks.js writes once a day from the session-start
- * launcher. It asks GitHub nothing, and keeps no delivery stamps: what changed
- * since the last delivery is the runner's to say, through lib/key-delta.js's
- * gate.
- *
- * TWO STATES READ DIFFERENTLY FROM FAIL:
- *
- *   BROKEN   the check could not run, so the repo is UNEXAMINED on it, in as
- *            many words, because "we looked and found 19" and "we did not
- *            look" are opposite facts that a shared red would merge.
- *   MISSING  the check produced no envelope, the run's ceiling cut it off
- *            before it was reached, or the reading has no job for a registry
- *            entry at all — so an empty or truncated reading is never an
- *            all-clear.
- *
- * Unlike the runner, it lists a reporter that drew no conclusion: the runner
- * logs a BROKEN reporter to its error log and a MISSING one nowhere.
- *
- * FAILS OPEN, ALWAYS. No result yet is a SKIP, an unreadable one BROKEN, and
- * neither is ever printed as an all-clear.
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), reads the daily repo-checks run's merged result from the git common directory.
- * JUSTIFIED: fail-safe — the runner's notice goes silent on a standing backlog, so this is where a hand run lists every standing key.
- * DEFEAT:    none
- */
 
 const fs = require("node:fs");
 
@@ -45,27 +14,17 @@ const { REPO_CHECKS } = require("./lib/repo-checks-registry.js");
 const { caught } = require("./lib/caught.js");
 
 /**
- * The merged result, parsed JSON from another process. `jobs` is the one
- * field verified at runtime, because a missing one has nothing to iterate;
- * its members are read through String().
- *
  * @typedef {{ job?: unknown, outcome?: unknown, keys?: unknown,
  *   summary?: unknown }} SweepJob
  * @typedef {{ collectedAt?: string, jobs: SweepJob[] }} SweepResult
  */
 
 /**
- * What the per-job loop accumulates: each block's lines, and the two counts
- * the report leads with.
  * @typedef {{ standingLines: string[], unexaminedLines: string[],
  *   unexamined: number, standing: number }} JobTally
  */
 
 /**
- * The result file, through the git common directory so a worktree reads the
- * reading its main checkout's run wrote. Only a directory that is no
- * checkout is a SKIP; git failing any other way is the apparatus broken.
- *
  * @param {import("./lib/check.js").Ctx} ctx
  * @returns {string}
  */
@@ -91,8 +50,6 @@ function resultPath(ctx) {
  * @returns {SweepResult}
  */
 function readResult(ctx, file) {
-	/* The try wraps the READ alone: ctx.skip() and ctx.broken() raise, so a call
-	 * inside it would be caught and re-reported under the wrong reason. */
 	let parsed;
 	let readError = null;
 	let absent = false;
@@ -119,8 +76,6 @@ function readResult(ctx, file) {
 }
 
 /**
- * The reading's jobs, plus a MISSING one for every registry entry it lacks.
- *
  * @param {SweepJob[]} jobs
  * @returns {SweepJob[]}
  */
@@ -136,19 +91,19 @@ function withAbsent(jobs) {
 	];
 }
 
-/** @param {string} name @returns {string} the line naming a job's hand command, or "" */
+/**
+ * @param {string} name
+ * @returns {string}
+ */
 function buildHandLine(name) {
 	const entry = REPO_CHECKS.find((e) => e.id === name);
 	return entry ? `    list them: ${buildHandCommand(entry)}` : "";
 }
 
 /**
- * Raise every standing key a job holds, or that it drew no conclusion.
- *
  * @param {import("./lib/check.js").Ctx} ctx
  * @param {SweepJob} job
- * @param {JobTally} tally accumulator: the job's block lines and its count
- *   are added
+ * @param {JobTally} tally
  */
 function judgeJob(ctx, job, tally) {
 	const name = String(job?.job || "(unnamed job)");
@@ -189,7 +144,6 @@ function judgeJob(ctx, job, tally) {
 }
 
 /**
- * Both blocks lead with a bracketed-count header.
  * @param {import("./lib/check.js").Ctx} ctx
  * @param {JobTally} tally
  * @param {{ jobs: number, when: string, file: string }} reading
@@ -225,8 +179,6 @@ runCheck({
 		const when = result.collectedAt || "an unrecorded time";
 		const jobs = withAbsent(result.jobs);
 
-		/* The standing lines are held rather than said as they are found, so the
-		 * whole block can lead with its count header — see sayJobBlocks. */
 		/** @type {JobTally} */
 		const tally = {
 			standingLines: [],

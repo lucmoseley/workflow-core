@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins issue-gate.js: the date and condition markers that hold an issue out of
- * pick-next.js's shortlist, the day a date gate lapses, the gate-basis checks,
- * the gating rule's hand-over, and the second-map refusal.
- *
- * Pure function tests with the clock passed in, because the time-of-day branch
- * is unreachable from a suite that cannot choose the hour it runs at.
- *
- * Breaking it hides a ticket on the morning its chase is due (the gate once
- * turned at UTC midnight, 08:00 in Lombok), or holds one on a marker nobody can
- * read. Tickets: mantahostels#85 (the date marker) and mantahostels#1419 (the
- * condition marker), #672, #823 and #4946 (the basis line), #717 (the second map);
- * the clock fix came from a code review, with no ticket of its own.
- */
 
 import { describe, expect, it } from "vitest";
 import MEASURED from "./fixtures/gate-cited-bases.json" with { type: "json" };
@@ -30,11 +16,8 @@ const {
 	secondMapVerdict,
 } = require("./issue-gate.js");
 
-/** 2026-08-24, 17:00 UTC — which is already the 25th in WITA (UTC+8). */
 const WITA_25_UTC_24 = Date.parse("2026-08-24T17:00:00Z");
-/** 2026-08-24, 02:00 UTC — the 24th on both clocks. */
 const BOTH_24 = Date.parse("2026-08-24T02:00:00Z");
-/** 2026-08-23, 17:00 UTC — already the 24th in WITA, still the 23rd in UTC. */
 const WITA_24_UTC_23 = Date.parse("2026-08-23T17:00:00Z");
 
 describe("the day a gate turns on", () => {
@@ -54,11 +37,6 @@ describe("the day a gate turns on", () => {
 		).toMatchObject({ active: true, daysLeft: 1 });
 	});
 
-	/*
-	 * The eight hours that separate the two clocks. At 17:00 UTC on the 23rd it
-	 * is already the 24th in Lombok, so a gate naming the 24th is spent — reading
-	 * UTC would hold it for another seven hours of the founder's morning.
-	 */
 	it("lapses on WITA's midnight, not UTC's", () => {
 		expect(
 			gateOf("**Gated until:** 2026-08-24 — x", WITA_24_UTC_23),
@@ -115,7 +93,6 @@ describe("what it reads out of a body", () => {
 	});
 
 	it("rejects a well-shaped date that is not a real day, recording it as raw", () => {
-		// 2026-02-30 parses in JS and silently becomes 2 March.
 		expect(gateOf("**Gated until:** 2026-02-30 — typo", BOTH_24)).toMatchObject(
 			{ malformed: true, raw: "2026-02-30" },
 		);
@@ -170,8 +147,6 @@ describe("gateOnOf — the data-condition marker", () => {
 	});
 
 	it("carries the whole tail back when the abort clause is missing", () => {
-		// Required (mantahostels#1333): the only thing that ever retires a condition nobody
-		// will meet, since a judge only strips one met.
 		expect(
 			gateOnOf("**Gated on:** enough samples exist — check: `npm run count`"),
 		).toEqual({
@@ -181,8 +156,6 @@ describe("gateOnOf — the data-condition marker", () => {
 		});
 	});
 
-	// mantahostels#1332 ruled the malformed line fails open, so the printer needs to tell
-	// "nothing after the marker" from a valid command-less condition.
 	it("is malformed when nothing follows the marker at all", () => {
 		expect(gateOnOf("**Gated on:**")).toEqual({
 			malformed: true,
@@ -191,8 +164,6 @@ describe("gateOnOf — the data-condition marker", () => {
 		});
 	});
 
-	// Also mantahostels#1332: an announced-but-empty clause retires nothing, so it is the
-	// missing-clause case rather than a valid gate.
 	it("is malformed when the abort clause is announced but left empty", () => {
 		expect(gateOnOf("**Gated on:** enough samples — abandon if:")).toEqual({
 			malformed: true,
@@ -207,8 +178,6 @@ describe("gateOnOf — the data-condition marker", () => {
 		).toBeNull();
 	});
 
-	// CommonMark's un-indented-paragraph rule, the tolerance mantahostels#1419 shares with
-	// the date marker rather than hand-copying.
 	it("tolerates up to three spaces of indent and no more", () => {
 		const line = "**Gated on:** c — abandon if: a";
 		expect(gateOnOf(`   ${line}`)).toMatchObject({ condition: "c" });
@@ -216,8 +185,6 @@ describe("gateOnOf — the data-condition marker", () => {
 	});
 
 	it("keeps a condition containing em dashes whole", () => {
-		// The segments are dash-separated, so a naive split mangles exactly the
-		// content it was meant to leave alone.
 		expect(
 			gateOnOf(
 				"**Gated on:** eleven tickets — all of them, control included — have matured — check: `scan.py` — abandon if: the cohort freezes",
@@ -230,7 +197,6 @@ describe("gateOnOf — the data-condition marker", () => {
 		});
 	});
 
-	// Matching the date marker's own separator set.
 	it("takes the segment separator as an em dash, en dash or hyphen", () => {
 		for (const sep of ["—", "–", "-"])
 			expect(
@@ -267,7 +233,6 @@ describe("gateOnOf — the data-condition marker", () => {
 		});
 	});
 
-	// A fenced block is not indented, so AT_LINE_HEAD alone never excludes it (mantahostels#1435).
 	it("skips a marker quoted inside a fenced code block", () => {
 		const body = [
 			"See the shape:",
@@ -632,7 +597,6 @@ describe("basisFaults — the wordings the #4929 audit found escaping (#4946)", 
 			"it polls every 2 hours after boot",
 			"the wording `the week after` is an example",
 			"```\n24 h have run since\n```",
-			// Each a span the widened patterns matched over every issue body (#4949).
 			"away mode ran 3-4 hours after his return",
 			"two workers spun for ~7.5 h after their session ended",
 			"earlier reviews were answered 20 min to 6 h after filing",
@@ -663,7 +627,6 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 			.filter((f: { kind: string }) => f.kind === "no-warrant")
 			.map((f: { text: string }) => f.text.replace(/^a week\. /, ""));
 
-	// The bases as their issues wrote them.
 	const stands = {
 		"#4865 now":
 			"before #4807, 27 of 449 lander attempts (6.0%, 5–10 Nov, #4855) were STALE-PROSE refusals. With 0 such refusals in 150 attempts, the 95% upper bound on the remaining rate is 3/150 = 2% (rule of three), a third of the baseline.",
@@ -708,19 +671,13 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 			"baseline 27/449 attempts (6.0%, `jq -s length .queue-log.jsonl`); pass = 0 refusals in 69 attempts";
 		expect(warrantFaults(derived)).toEqual([]);
 		for (const short of [
-			// no source
 			"baseline 27/449 attempts (6.0%); pass = 0 refusals in 69 attempts",
-			// no bound
 			"baseline 27/449 attempts (`jq`); pass = 0 refusals in 69 attempts",
-			// no count but the baseline's own
 			"baseline 27/449 attempts (6.0%, `jq`), so 449 attempts again",
-			// the window, a date, a year and a clock time are no count
 			"7 days; baseline 27/449 (6.0%), `jq`",
 			"baseline 27/449 attempts (6.0%, `jq`) measured on 10 Nov",
 			"baseline 27/449 attempts (6.0%, `jq`), read in Nov 2026 at 16:06 UTC",
-			// nor is zero
 			"baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals",
-			// a web address is no source
 			"baseline 27/449 attempts (6.0%), 69 attempts, see https://example.com/log.txt",
 		])
 			expect(warrantFaults(short)).toEqual([short]);
@@ -904,7 +861,6 @@ describe("secondMapVerdict — no second map while the first is unfilled (#717)"
 });
 
 describe("reading an open map's Destination", () => {
-	/** Whether an open map with this body reads as still unfilled. */
 	const unfilled = (body: string) =>
 		secondMapVerdict(["wayfinder:map"], () => [{ number: 3, body }]) !== null;
 
@@ -914,7 +870,6 @@ describe("reading an open map's Destination", () => {
 				`## Destination\r\n\r\n  ${UNFILLED_DESTINATION}  \r\n## Notes\r\ny`,
 			),
 		).toBe(true);
-		// A ### heading sits inside the section, so it is part of the text.
 		expect(
 			unfilled(`## Destination\n\n${UNFILLED_DESTINATION}\n### still x\n`),
 		).toBe(false);
@@ -937,7 +892,6 @@ describe("basisFaults — a cited issue followed one hop (#5007)", () => {
 		state: f.state.toLowerCase(),
 		texts: [f.body, ...f.comments],
 	});
-	/** The measured issues, read, keyed as the follow keys them. */
 	const read = () =>
 		new Map(
 			Object.entries(fixtures)

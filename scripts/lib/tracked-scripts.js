@@ -1,17 +1,3 @@
-/*
- * tracked-scripts.js — the tracked files under `scripts/` a checker reads, kept
- * to those its filter admits (#3131), or under the whole repo where the checker
- * names `""` as its top.
- *
- * check-guard-test-isolation.js, check-host-root-test-isolation.js and
- * check-git-fixture-identity.js each read the `scripts/` set, and differ only
- * in the filter; check-test-env-writes.js reads the whole repo's (#4019).
- *
- * `--root` walks the filesystem. That tree is a `git archive HEAD` extraction
- * (mantahostels#1753), so the walk answers what `git ls-files` would. Not
- * `ls-files` itself: a temp dir is not a git repo.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { execGit } = require("./git.js");
@@ -20,14 +6,10 @@ const { caught } = require("./caught.js");
 
 /** @typedef {import("./check.js").Ctx} Ctx */
 
-/** The BROKEN line's tail: what the failure left unread. */
 const noneRead = (/** @type {string} */ top) =>
 	top ? `No ${top}/ files read.` : "No files read.";
 
 /**
- * A root it cannot read, or any read error under it but a directory gone, is
- * the checker's BROKEN, never an empty set. A readable root with no `top`
- * tracks none, so it lists none (#3387).
  * @param {Ctx} ctx
  * @param {string} root
  * @param {(rel: string) => boolean} keep
@@ -44,16 +26,12 @@ function walkScripts(ctx, root, keep, top) {
 	} catch (e) {
 		return reportUnreadable(root, e);
 	}
-	/** `rel`'s entries, or none where it is gone. */
 	const list = (/** @type {string} */ rel) => {
 		try {
 			return fs.readdirSync(path.join(root, rel), { withFileTypes: true });
 		} catch (e) {
 			if (caught(e).code !== "ENOENT")
 				return reportUnreadable(path.join(root, rel), e);
-			/* `top` itself absent tracks nothing. A directory under it,
-			 * listed by its parent then gone, is a parallel write in the tree
-			 * with nothing under it to read (#3170). */
 			if (rel !== top)
 				ctx.say(`${path.join(root, rel)} vanished mid-walk; read as empty.`);
 			return [];
@@ -70,13 +48,7 @@ function walkScripts(ctx, root, keep, top) {
 	return out;
 }
 
-/**
- * The repo root and its tracked paths under `top` that `keep` admits,
- * repo-relative. A git failure is the checker's BROKEN, never an empty set.
- * @param {Ctx} ctx
- * @param {(rel: string) => boolean} keep called with a repo-relative path
- * @param {string} [top] the directory read, `""` for the whole repo
- */
+/** @param {Ctx} ctx @param {(rel: string) => boolean} keep @param {string} [top] */
 function readTrackedScripts(ctx, keep, top = "scripts") {
 	const rootFlag = ctx.value("--root");
 	if (rootFlag) {

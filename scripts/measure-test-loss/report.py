@@ -1,19 +1,3 @@
-"""The test-loss verification figure for any UTC window (#2821, the ruling that set it).
-Usage: python3 -I report.py --start ISO --end ISO [--repo wfc|mh] [--queue-log PATH] [--csv PATH]
-       [<projects-dir>...]
-
-Counting rules: #2812 (the baseline)'s and #2821's, unchanged. Per UTC day, and over the window:
-  blocked  main-session foreground test calls (blocked.foreground) plus idle on background runs
-           (bg_idle.py), counted at the call's launch
-  active   main-session active time (active.py), counted where each gap ends
-  share    blocked / active; the verdict is the median of the daily shares
-Beside it, the per-run p95 queue wait (queue_wait.py's per-exit p95) from the queue log, which
-holds the canonical checkout's waits alone. A day with no active time is shown and left out of
-the median; a day the window cuts is counted over the part inside it.
-
-Reads main-session transcripts only (corpus.py), as text; runs at nice 19 and runs no tests.
-Skipped files and lines are counted on stderr."""
-
 import argparse
 import csv
 import os
@@ -54,7 +38,6 @@ def day_of_hour(h):
 
 
 def daily(roots, start, end, repo, *, tally):
-    """({day: blocked s}, {day: active s}) for one repo's main sessions."""
     fg_rows = []
     blocked_s = defaultdict(float)
     active_s = defaultdict(float)
@@ -76,7 +59,9 @@ def pct_or_dash(share):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(
+        description="The test-loss verification figure for any UTC window."
+    )
     ap.add_argument("roots", nargs="*", help="projects dirs (default: every seat's)")
     ap.add_argument(
         "--start", required=True, help="UTC ISO window start, e.g. 2026-10-10T04:10:00Z"

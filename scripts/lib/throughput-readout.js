@@ -1,37 +1,15 @@
-/*
- * throughput-readout.js — the throughput readout's pure core (#5196):
- * total `COMPLETED` closes per hour, banded by concurrent sessions and by
- * load1, beside the readings needed to judge admission's limits.
- *
- * THE OBJECTIVE IS A READING, NEVER A TARGET (#3212): closes are counted
- * unweighted, a reverted close subtracted and a re-land counted once, with
- * commits per close beside them so a fall in work size shows.
- *
- * THE BUCKET IS THE CLOCK HOUR, cut again at each era, and holds only the
- * minutes the minute log covers. Each minute's sessions come from a fresh refill tick
- * where the loop ran, else the minute line's count; means are time-weighted
- * over those minutes (docs/practice/capacity-planning-and-admission.md
- * §Reading out why work waits). A figure is taken only over the minutes its
- * source covers; the rest are named in `lacking`.
- */
-
 const { LOOP_OFF, STALE_MS } = require("./concurrency.js");
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
-/* Untraced: a band under this many hours is marked thin and states no
- * plateau (#5196). */
+// #5197 guess
 const THIN_HOURS = 10;
-/* Load bands' edges per core: <16, 16–24, 24–32, 32+ on 8 cores. Untraced:
- * #5196's bins. */
+// #5196 guess: <16, 16–24, 24–32, 32+ on 8 cores
 const LOAD_EDGES_PER_CORE = [2, 3, 4];
-/* Untraced: the marginal queue wait is fitted from 5 sessions up, #5185's
- * analysis range. */
+// #5185 guess: its analysis range starts at 5 sessions
 const MARGINAL_FROM_SESSIONS = 5;
-/* Untraced: a guess, enough draws that the 2.5th and 97.5th percentiles
- * settle to the second figure on a rerun with another seed. */
+// #5197 guess: the 2.5th and 97.5th percentiles settle to the second figure on a rerun with another seed
 const BOOTSTRAP_RESAMPLES = 2000;
-/* Fixed so a rerun over the same records prints the same interval. */
 const BOOTSTRAP_SEED = 5196;
 const LIMBS = /** @type {const} */ ([
 	"load",
@@ -45,52 +23,41 @@ const LIMBS = /** @type {const} */ ([
  * @typedef {import("./concurrency.js").Limb} Limb
  * @typedef {{ t: number, load1: number | null, sessions: number | null }} MinuteRow
  * @typedef {{ t: number, live: number | null, limit: string | null,
- *   limb: Limb | null }} TickRow `limit` the binding limit's name, LOOP_OFF
- *   where the loop was not running
+ *  limb: Limb | null }} TickRow
  * @typedef {{ repo: string, number: number, closedAt: number,
- *   reason: string }} CloseRow
+ *  reason: string }} CloseRow
  * @typedef {{ date: string, state: "read" | "failed" | "truncated",
- *   why?: string }} DayRow one UTC day's close fetch
+ *  why?: string }} DayRow
  * @typedef {{ repo: string, sha: string, t: number, seq: number,
- *   subject: string, cites: number[], reverts: string | null,
- *   revertsSubject: string | null }} CommitRow `repo` the tracker whose
- *   issues its bare `#<n>` cites; `seq` its place in that repo's log in
- *   topological order, oldest 0, so a parent sorts before its child whatever
- *   the commit times; `reverts` the sha a `git revert`'s body names,
- *   `revertsSubject` the subject its `Revert "<subject>"` names
+ *  subject: string, cites: number[], reverts: string | null,
+ *  revertsSubject: string | null }} CommitRow
  * @typedef {{ t: number, bash: number[], hto: number }} TranscriptMinute
  * @typedef {{ id: string, template: string | null, st: number,
- *   en: number }} JobRow
+ *  en: number }} JobRow
  * @typedef {{ st: number, en: number }} Span
  * @typedef {{ since: number, until: number, cores: number,
- *   eras: { label: string, from: number }[], minutes: MinuteRow[] | null,
- *   ticks: TickRow[] | null, closes: CloseRow[], days: DayRow[],
- *   commits: CommitRow[], logRepos: string[], queue: Span[] | null,
- *   transcripts: TranscriptMinute[] | null, jobs: JobRow[] | null,
- *   dispatched: string[] | null, queueWhy?: string,
- *   transcriptsWhy?: string }} Records `logRepos` the trackers whose commit
- *   log was read; null where a source would not read, `queueWhy` and
- *   `transcriptsWhy` saying why the queue logs or dense_minute.py gave none
+ *  eras: { label: string, from: number }[], minutes: MinuteRow[] | null,
+ *  ticks: TickRow[] | null, closes: CloseRow[], days: DayRow[],
+ *  commits: CommitRow[], logRepos: string[], queue: Span[] | null,
+ *  transcripts: TranscriptMinute[] | null, jobs: JobRow[] | null,
+ *  dispatched: string[] | null, queueWhy?: string,
+ *  transcriptsWhy?: string }} Records
  */
 
 /**
- * One minute the minute log covers, with what each source says of it.
  * @typedef {{ t: number, era: string, load1: number | null,
- *   sessions: number | null, limb: Limb | null, closesRead: boolean,
- *   queuedS: number | null, bash: number[] | null, hto: number | null,
- *   hand: number | null, dispatched: number | null }} Minute
+ *  sessions: number | null, limb: Limb | null, closesRead: boolean,
+ *  queuedS: number | null, bash: number[] | null, hto: number | null,
+ *  hand: number | null, dispatched: number | null }} Minute
  * @typedef {{ era: string, hour: number, minutes: Minute[],
- *   closes: { counted: number, reverted: number, commits: number,
- *     joined: number } }} Bucket
+ *  closes: { counted: number, reverted: number, commits: number,
+ *    joined: number } }} Bucket
  */
 
 /** @param {number} t */
 const minuteOf = (t) => Math.floor(t / MINUTE_MS) * MINUTE_MS;
 
-/**
- * The session band an hour's time-weighted mean sessions falls in.
- * @param {number} x
- */
+/** @param {number} x */
 const sessionBand = (x) => Math.round(x);
 
 /** @param {number[]} xs */
@@ -111,11 +78,8 @@ function median(xs) {
 /** @param {number} a @param {number} b */
 const ratio = (a, b) => (b > 0 ? a / b : null);
 
-/**
- * A seeded generator: mulberry32.
- * @param {number} seed
- */
-function seeded(seed) {
+/** @param {number} seed */
+function mulberry32(seed) {
 	let a = seed >>> 0;
 	return () => {
 		a = (a + 0x6d_2b_79_f5) >>> 0;
@@ -127,14 +91,13 @@ function seeded(seed) {
 }
 
 /**
- * The 2.5th and 97.5th percentiles of `stat` over resamples of `items`.
  * @template T
  * @param {T[]} items
  * @param {(xs: T[]) => number | null} stat
  * @returns {[number, number] | null}
  */
 function bootstrap(items, stat) {
-	const rand = seeded(BOOTSTRAP_SEED);
+	const rand = mulberry32(BOOTSTRAP_SEED);
 	/** @type {number[]} */
 	const out = [];
 	for (let b = 0; b < BOOTSTRAP_RESAMPLES; b++) {
@@ -153,10 +116,7 @@ function bootstrap(items, stat) {
 	return lo === undefined || hi === undefined ? null : [lo, hi];
 }
 
-/**
- * Least-squares slope of y on x; null where x does not vary.
- * @param {{ x: number, y: number }[]} pts
- */
+/** @param {{ x: number, y: number }[]} pts */
 function slopeOf(pts) {
 	const n = pts.length;
 	if (n < 2) return null;
@@ -170,15 +130,7 @@ function slopeOf(pts) {
 /** @param {CommitRow} c */
 const isRevert = (c) => c.reverts !== null || c.revertsSubject !== null;
 
-/**
- * The sha a revert undoes: the one its body names, else the latest commit
- * before it in its repo's log with the subject it names, so a re-land
- * keeping the subject is never read as the one undone. Log order, not commit
- * time: a rebase-merge stamps a whole branch with one time.
- * @param {CommitRow} c
- * @param {CommitRow[]} commits
- * @returns {string | null}
- */
+/** @param {CommitRow} c @param {CommitRow[]} commits @returns {string | null} */
 function revertTarget(c, commits) {
 	if (c.reverts) return c.reverts;
 	/** @type {CommitRow | null} */
@@ -195,12 +147,7 @@ function revertTarget(c, commits) {
 	return best?.sha ?? null;
 }
 
-/**
- * Whether each commit's work stands: one is undone where a commit that
- * itself stands reverts it, so a revert's own revert restores it.
- * @param {CommitRow[]} commits
- * @returns {(sha: string) => boolean}
- */
+/** @param {CommitRow[]} commits @returns {(sha: string) => boolean} */
 function standing(commits) {
 	/** @type {Map<string, string[]>} */
 	const revertedBy = new Map();
@@ -223,14 +170,7 @@ function standing(commits) {
 	return stands;
 }
 
-/**
- * Each counted close, once per issue at its last close, with whether it was
- * reverted and the commits naming it. A close is reverted where a commit
- * naming its issue was undone and no standing commit naming it comes after it
- * in the log.
- * A revert's own commits are no work and count toward neither.
- * @param {Records} r
- */
+/** @param {Records} r */
 function joinCloses(r) {
 	/** @type {Map<string, CloseRow>} */
 	const last = new Map();
@@ -267,12 +207,7 @@ function joinCloses(r) {
 	});
 }
 
-/**
- * The latest row of `rows`, sorted by `t`, at or before `t` and within
- * STALE_MS of it.
- * @template {{ t: number }} T
- * @param {T[]} rows
- */
+/** @template {{ t: number }} T @param {T[]} rows */
 function freshAt(rows) {
 	let i = 0;
 	/** @type {T | null} */
@@ -287,11 +222,7 @@ function freshAt(rows) {
 	};
 }
 
-/**
- * Seconds of each covered minute that `spans` cover, summed over spans.
- * @param {Span[]} spans
- * @param {Set<number>} covered
- */
+/** @param {Span[]} spans @param {Set<number>} covered */
 function secondsPerMinute(spans, covered) {
 	/** @type {Map<number, number>} */
 	const out = new Map();
@@ -312,22 +243,14 @@ const loopLive = (tick) =>
 		? tick.live
 		: null;
 
-/**
- * The jobs live at `t`, hand-opened and dispatched apart.
- * @param {(JobRow & { sent: boolean })[]} jobs
- * @param {number} t
- */
+/** @param {(JobRow & { sent: boolean })[]} jobs @param {number} t */
 function jobsAt(jobs, t) {
 	const live = jobs.filter((j) => j.st <= t && j.en > t);
 	const dispatched = live.filter((j) => j.sent).length;
 	return { hand: live.length - dispatched, dispatched };
 }
 
-/**
- * Every covered minute in the window with what each source says of it.
- * @param {Records} r
- * @returns {Minute[]}
- */
+/** @param {Records} r @returns {Minute[]} */
 function buildMinutes(r) {
 	const eras = [...r.eras].sort((a, b) => a.from - b.from);
 	const eraOf = (/** @type {number} */ t) =>
@@ -371,12 +294,7 @@ function buildMinutes(r) {
 		});
 }
 
-/**
- * The minutes cut into clock-hour buckets, each holding the closes that
- * landed in one of its minutes whose day's fetch read.
- * @param {Minute[]} minutes
- * @param {ReturnType<typeof joinCloses>} closes
- */
+/** @param {Minute[]} minutes @param {ReturnType<typeof joinCloses>} closes */
 function bucketsOf(minutes, closes) {
 	/** @type {Map<string, Bucket>} */
 	const out = new Map();
@@ -411,27 +329,16 @@ function bucketsOf(minutes, closes) {
 	return [...out.values()];
 }
 
-/**
- * A bucket's mean of `pick` over the minutes that carry it.
- * @param {Bucket} b
- * @param {(m: Minute) => number | null} pick
- */
+/** @param {Bucket} b @param {(m: Minute) => number | null} pick */
 function meanOf(b, pick) {
 	const xs = b.minutes.map(pick).filter((x) => x !== null);
 	return xs.length > 0 ? sum(/** @type {number[]} */ (xs)) / xs.length : null;
 }
 
-/**
- * Minutes as hours where `has` holds.
- * @param {Minute[]} ms
- * @param {(m: Minute) => boolean} has
- */
+/** @param {Minute[]} ms @param {(m: Minute) => boolean} has */
 const hoursWhere = (ms, has) => ms.filter(has).length / 60;
 
-/**
- * Closes per hour over `bs`, the reverted subtracted.
- * @param {Bucket[]} bs
- */
+/** @param {Bucket[]} bs */
 function closesPerHour(bs) {
 	const ms = bs.flatMap((b) => b.minutes);
 	return ratio(
@@ -497,9 +404,8 @@ function bandOf(era, band, bs) {
 /** @typedef {ReturnType<typeof bandOf>} Band */
 
 /**
- * Buckets grouped by era then band label, bands in `order`'s order.
  * @param {Bucket[]} buckets
- * @param {(b: Bucket) => string | null} label null where the bucket has no band
+ * @param {(b: Bucket) => string | null} label
  * @param {(a: string, b: string) => number} order
  */
 function banded(buckets, label, order) {
@@ -519,13 +425,7 @@ function banded(buckets, label, order) {
 	);
 }
 
-/**
- * The marginal queue wait per added session in one era: the slope of queued
- * minutes per hour on mean sessions, over its hours at 5+ sessions, with a
- * 95% bootstrap interval resampling those hours.
- * @param {string} era
- * @param {Bucket[]} buckets
- */
+/** @param {string} era @param {Bucket[]} buckets */
 function marginalOf(era, buckets) {
 	const pts = buckets.flatMap((b) => {
 		const x = meanOf(b, (m) => m.sessions);
@@ -555,14 +455,7 @@ function marginalOf(era, buckets) {
 	};
 }
 
-/**
- * Where total closes per hour plateaus in one era: the fewest-session band,
- * thin bands left out, whose interval reaches the peak band's figure.
- * Untraced: the rule reading "the fewest sessions holding the total at its
- * plateau" (#3212), the 95% interval borrowed from the marginal wait's.
- * @param {string} era
- * @param {Band[]} bands the era's session bands, fewest sessions first
- */
+/** @param {string} era @param {Band[]} bands */
 function plateauOf(era, bands) {
 	const read = bands.filter((b) => !b.thin && b.closesPerHour !== null);
 	if (read.length === 0)
@@ -586,11 +479,7 @@ function plateauOf(era, bands) {
 	return { era, peak: peak.band, from: from?.band ?? peak.band, none: null };
 }
 
-/**
- * Hours a source lacks over the window's minutes.
- * @param {Records} r
- * @param {Minute[]} minutes
- */
+/** @param {Records} r @param {Minute[]} minutes */
 function lackingOf(r, minutes) {
 	const windowH = (r.until - r.since) / HOUR_MS;
 	const coveredH = minutes.length / 60;

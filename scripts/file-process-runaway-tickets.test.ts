@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * file-process-runaway-tickets.js, driven through its command line against a
- * stub gh and a written firing log (#3807). Filing goes through the real
- * file-issue.js. Break it and a runaway memwatch killed goes unreported, or one
- * files a ticket a tick.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -22,7 +16,6 @@ const stub = (name: string) => path.join(sb.dir, "gh", name);
 const logFile = () => path.join(sb.dir, "runaway.jsonl");
 
 const MIN = 60 * 1000;
-/* Read once, so firings meant for one episode share one `since` however long a run takes; handed to the program as WFC_NOW, so its lookback reads the same instant (#5103). */
 const NOW = Date.now();
 const at = (minutesAgo: number) =>
 	new Date(NOW - minutesAgo * MIN).toISOString().replace(/\.\d+Z$/, "+0000");
@@ -91,7 +84,6 @@ describe("file-process-runaway-tickets.js (#3807)", () => {
 		expect(created[0].body).toContain(
 			"Largest group, 700 processes: `bash /tmp/ap.sh head`",
 		);
-		/* A process's own argv cannot break out of the code span or the table. */
 		expect(created[1].body).toContain("`other ? ?x?`");
 		expect(created[1].body).toContain("It killed nothing");
 
@@ -100,12 +92,10 @@ describe("file-process-runaway-tickets.js (#3807)", () => {
 		expect(second.stdout).toBe("");
 		expect(readCreated()).toHaveLength(2);
 
-		/* A later firing in a filed episode files nothing more. */
 		fs.appendFileSync(logFile(), `${firing(30, 1)}\n`);
 		expect(run().status).toBe(0);
 		expect(readCreated()).toHaveLength(2);
 
-		/* A second group under the same `since` reaches a ticket of its own. */
 		fs.appendFileSync(logFile(), `${firing(30, 1, { argv: "another" })}\n`);
 		expect(run().status).toBe(0);
 		expect(readCreated()).toHaveLength(3);

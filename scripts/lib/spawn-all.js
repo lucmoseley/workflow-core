@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/*
- * spawn-all.js — run several children at once from a synchronous caller, and
- * return each one's result in the shape spawnSync gives (#4297).
- *
- * `spawnAllSync` hands the list to this file run as its own child, which
- * starts them under a cap of SPAWN_ALL_CONCURRENCY and prints every result as
- * JSON, so the caller waits for the slowest round rather than the sum, at the
- * price of one extra node start.
- *
- * Each child gets `stdin` closed and `encoding` utf8, and is killed with
- * `error` set once either stream passes CHILD_MAX_BUFFER characters; a child
- * that cannot start comes back with `error` set and `status` null, as
- * spawnSync's does.
- */
 
 const { spawn, spawnSync } = require("node:child_process");
 const os = require("node:os");
@@ -22,8 +8,6 @@ const { readFdAll } = require("./read-fd.js");
 const { writeFd } = require("./write-fd.js");
 const { caught } = require("./caught.js");
 
-/* Untraced: four node checkers at once stay inside a hook's memory share on
- * the 8-core, 10 GB machine (docs/environment.md §6). */
 const SPAWN_ALL_CONCURRENCY = Math.max(
 	1,
 	Math.min(4, os.availableParallelism()),
@@ -32,14 +16,10 @@ const SPAWN_ALL_CONCURRENCY = Math.max(
 /**
  * @typedef {{ file: string, args: string[], cwd?: string, env?: NodeJS.ProcessEnv }} Job
  * @typedef {{ status: number | null, signal: string | null, stdout: string, stderr: string, error?: Error }} JobResult
- * @typedef {Omit<JobResult, "error"> & { error?: string }} WireResult a JobResult as JSON carries it
+ * @typedef {Omit<JobResult, "error"> & { error?: string }} WireResult
  */
 
-/**
- * Every job's result, in the jobs' order.
- * @param {Job[]} jobs
- * @returns {JobResult[]}
- */
+/** @param {Job[]} jobs @returns {JobResult[]} */
 function spawnAllSync(jobs) {
 	if (jobs.length === 0) return [];
 	const r = withoutLateEpipe(
@@ -111,7 +91,6 @@ function runJob(job) {
 async function runAll(jobs) {
 	/** @type {WireResult[]} */
 	const results = new Array(jobs.length);
-	/* One iterator shared by every lane, so each job is taken once. */
 	const queue = jobs.entries();
 	const lane = async () => {
 		for (const [i, job] of queue) results[i] = await runJob(job);

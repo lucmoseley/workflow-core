@@ -1,7 +1,3 @@
-"""The pin helper's own tests, Python half (base §G13 (5), #5338): a pin built
-on it cannot pass blind, so each spawn route, each lazy load and each broken
-call is shown here to be seen, and every patch is shown undone."""
-
 import importlib.util
 import os
 import subprocess
@@ -19,7 +15,6 @@ LAZY = FIXTURES / "call_cost_lazy.py"
 
 
 def _patched_state():
-    """Everything a call patches, as it stands now."""
     return {
         "Popen": subprocess.Popen,
         "system": os.system,
@@ -69,9 +64,7 @@ def test_each_call_reads_its_load_set_from_a_purged_registry(tmp_path, monkeypat
     )
     rare = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(rare)
-    monkeypatch.setitem(
-        sys.modules, "call_cost_rare", rare
-    )  # as an earlier load left it
+    monkeypatch.setitem(sys.modules, "call_cost_rare", rare)
 
     assert call_cost(LAZY, ["rare"], cwd=tmp_path).modules == [
         "lib/fixtures/call_cost_lazy.py",
@@ -142,3 +135,12 @@ def test_a_non_int_exit_is_printed_as_exit_1_as_under_python3(tmp_path):
     probe.write_text("import sys\nsys.exit('gave up')\n")
     r = call_cost(probe, cwd=tmp_path, expect_status=1, allow_stderr=True)
     assert r.stderr == "gave up\n"
+
+
+def test_an_escaping_exception_of_any_type_is_exit_1_with_its_traceback(tmp_path):
+    probe = tmp_path / "scripts" / "thrower.py"
+    probe.parent.mkdir()
+    probe.write_text("class Odd(Exception):\n    pass\n\n\nraise Odd('boom')\n")
+    r = call_cost(probe, cwd=tmp_path, expect_status=1, allow_stderr=True)
+    assert r.stderr.startswith("Traceback (most recent call last):\n")
+    assert r.stderr.endswith("Odd: boom\n")

@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/by-code-unit.js's contract (#1508): the order `<` gives, not the
- * locale's. In-process, since the helper is a pure function. A wrong order
- * reshuffles doc-map.md's rendered §A and the divergence and lost-deny tables.
- */
 
 import { describe, expect, it } from "vitest";
 import { byCodeUnit } from "./by-code-unit.js";

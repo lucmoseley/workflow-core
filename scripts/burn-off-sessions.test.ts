@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/burn-off-sessions.js moves each live session on a model only burn
- * mode uses back to its standard model at `burn-mode.sh off` (#4992). A red
- * here means a session is left routed away reported as moved, or one is
- * resumed that should not be. The routing is the fixture's, whose routed-away
- * model is its `sonnet`.
- */
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { moveOne } from "./burn-off-sessions.js";

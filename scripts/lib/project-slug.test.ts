@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The guarantee under test is ONE thing: every site that names a project's
- * transcript directory spells the slug the same way, and that way is the one
- * the harness actually writes — every non-alphanumeric character to its own
- * hyphen, not the slashes alone.
- *
- * Every caller is asserted here rather than each in its own suite: the fault is
- * DIVERGENCE, which a per-caller suite cannot see.
- *
- * The source scan for callers with no export is `project-slug-scan.test.ts`,
- * apart so this file does not read the scripts tree (#1900).
- *
- * Settled at mantahostels#1963 and mantahostels#1982. The arbiter and the hooks
- * that find their own session's transcript build the path from this slug, so a
- * loosened case lets one site look in a directory the harness never wrote —
- * silently reading nothing.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -60,20 +43,11 @@ describe("transcriptPath — a session's transcript on a seat", () => {
 describe("slugForRepo — for a script with no repoRoot() of its own", () => {
 	const cwd = process.cwd();
 	const repo = path.join(__dirname, "..", "..");
-	// Unset, so the cases read the main checkout owning the cwd.
 	beforeEach(() => vi.stubEnv("CLAUDE_PROJECT_DIR", undefined));
 	afterEach(() => {
 		process.chdir(cwd);
 	});
 
-	/*
-	 * A SUBDIRECTORY OF THE REPO, not `os.tmpdir()` (#1). Since the seam,
-	 * `slugForRepo()` names the HOST repo — `CLAUDE_PROJECT_DIR`, else the main
-	 * checkout owning the cwd — rather than the checkout this file sits in, so from
-	 * outside any repository it answers with the cwd and SHOULD. The defect this
-	 * case exists to catch is unchanged: a script invoked from a subdirectory
-	 * must still name the root, not the directory it was invoked from.
-	 */
 	it("names the repo root, not the directory the caller was invoked from", () => {
 		const from = slugForRepo();
 		process.chdir(__dirname);
@@ -122,8 +96,6 @@ describe("every caller derives the slug from that one function", () => {
 	});
 
 	it("hook-message's fallback transcript resolves a dotted project root", () => {
-		// The dot in the name is the whole point: the slashes-only spelling this
-		// replaced agrees with the right one on every path without one.
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "manta.slug."));
 		dirs.push(root);
 		process.chdir(root);
@@ -133,8 +105,6 @@ describe("every caller derives the slug from that one function", () => {
 		expect(got).toBe(
 			path.join("/cfg", "projects", projectSlug(process.cwd()), "sid1.jsonl"),
 		);
-		/* The slashes-only spelling left the dot in place, so the segment is
-		 * where the two disagree — the `.jsonl` suffix carries a dot either way. */
 		expect(got.split(path.sep).at(-2)).not.toContain(".");
 	});
 });

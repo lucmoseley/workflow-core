@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The parsers the doc-map checkers read docs/doc-map.md with.
- *
- * One shared module, so per-checker copies cannot drift apart
- * (mantahostels#239; the section-reference check, #805).
- *
- * Every case reads a synthetic map and sidecar (doc-map-testkit) or a
- * throwaway repo, never this repo's own docs/doc-map.md, which every
- * registration edits.
- *
- * check-doc-map.js is a hard CI gate, so loosening a test here loosens CI.
- * It gates .husky/pre-commit too, so a parser bug can also refuse a sound commit.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -80,11 +67,6 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-/*
- * A Section A row decides what a scan SKIPS, so a loose match there silently
- * shrinks the scan; a §B allowlist path only suppresses a report its author
- * asked to suppress.
- */
 describe("the two matchers are not interchangeable", () => {
 	it("exempts only the Section A path itself, never a file ending in it", () => {
 		expect(sectionAMatcher("CLAUDE.md")("CLAUDE.md")).toBe(true);
@@ -119,15 +101,12 @@ describe("sectionAMatcher", () => {
 		expect(sectionAMatcher("docs/adr-*")("docs/notes.md")).toBe(false);
 	});
 
-	// A literal entry is an exact path, not a prefix, or docs/notes.md would
-	// vouch for a docs/notes.md.bak nobody registered.
 	it("does not let a literal entry cover a longer path sharing its prefix", () => {
 		expect(sectionAMatcher("docs/notes.md")("docs/notes.md.bak")).toBe(false);
 	});
 });
 
 describe("citationMatcher", () => {
-	// Whole-segment, or `notes.md` would claim `release-notes.md`.
 	it("matches on a segment boundary, not mid-segment", () => {
 		expect(citationMatcher("notes.md")("docs/release-notes.md")).toBe(false);
 		expect(citationMatcher("notes.md")("docs/notes.md")).toBe(true);
@@ -142,7 +121,6 @@ describe("citationMatcher", () => {
 		expect(citationMatcher("docs/research/*")("docs/research/a.md")).toBe(true);
 	});
 
-	// The ambiguity the pin below exists to break (mantahostels#2699), not an endorsement of it.
 	it("without a pin, a root-level filename also matches its subdirectory namesake", () => {
 		expect(citationMatcher("vitest.config.ts")("vitest.config.ts")).toBe(true);
 		expect(
@@ -191,23 +169,17 @@ describe("parseRegister", () => {
 		]);
 	});
 
-	// The classes table sits above Section A and is a markdown table too.
 	it("ignores tables outside Section A", () => {
 		expect(registerPaths(map)).not.toContain("docs/phantom.md");
 		expect(registerPaths(map)).not.toContain("source-of-truth");
 	});
 
-	// A path named in the second cell is a dependency, not a registration.
 	it("reads only the first cell of a row", () => {
 		expect(
 			registerPaths(map).filter((p: string) => p === "docs/a.md"),
 		).toHaveLength(1);
 	});
 
-	// §A's prose quotes register rows to explain their shape, and
-	// lib/doc-map-regions.js skips fenced lines when it cuts a region per row. A
-	// row read here but not there is a document the checkers register and the
-	// arbiter has no lock for, whose writer then claims the whole file (mantahostels#1402).
 	it("ignores a row quoted inside a fence, as the region parser does", () => {
 		const fenced = [
 			"## Section A — document register",
@@ -275,17 +247,11 @@ describe("registerRowPath", () => {
 	});
 });
 
-/** A map whose §A holds `rows` as one register table, then a bare §B. */
 const buildSectionAText = (rows: string[]) =>
 	["## Section A — document register", "", ...rows, "", "## Section B"].join(
 		"\n",
 	);
 
-/**
- * `scanScope`'s `{ files, exemptCount }` for a map reading `text`, run in a
- * throwaway repo tracking `files` — scope is `git ls-files` in the cwd — with
- * `sidecar`, where given, written untracked at docs/doc-map-classes.json.
- */
 const scopeIn = (opts: {
 	text: string;
 	files: string[];
@@ -349,14 +315,7 @@ describe("scanScope's class exemptions", () => {
 	});
 });
 
-/*
- * `scanScope` keeps its signature — the sidecar reaches it through
- * `parseRegister`'s second argument — so the guarantee worth pinning is that
- * no `binary-asset` file changes what a
- * class-aware scan says about it.
- */
 describe("the class sidecar as parseRegister's class source", () => {
-	/** The tracked files `scanScope` drops as class-exempt from a map reading `text`. */
 	const exemptSet = (
 		text: string,
 		files: string[],
@@ -412,13 +371,6 @@ describe("the class sidecar as parseRegister's class source", () => {
 		).toBe("source-of-truth \u00b7 consumer");
 	});
 
-	/* The census of which files this misses moves as §A prose changes, so this
-	 * pins the safety guarantee scanScope actually depends on: the sidecar route
-	 * is never less exempting than the markdown route. The register and the
-	 * tracked tree are a throwaway repo's. One row is exempt by its
-	 * markdown Class cell alone (unkeyed in the sidecar, so the sidecar route
-	 * falls back to that same cell); a second is NOT exempt on its markdown cell
-	 * but IS exempt once the sidecar keys it — the widening the property allows. */
 	it("exempts every file the markdown route did", () => {
 		const [exemptByMarkdown, widenedBySidecar] = syntheticPaths(2);
 		const map = [
@@ -443,11 +395,6 @@ describe("the class sidecar as parseRegister's class source", () => {
 		for (const f of fromMarkdown) expect(fromSidecar.has(f)).toBe(true);
 	});
 
-	/* The mis-parse itself, pinned against a fixture rather than the live map,
-	 * so it survives docs/doc-map.md's prose changing shape either way: an
-	 * escaped `\|` in the Role cell shifts what a naive `line.split("|")` reads
-	 * as the Class cell, so a binary-asset row reads as some other
-	 * class entirely and a class-aware scan stops exempting it. */
 	it("misreads the Class cell of a row whose Role prose holds an escaped `\\|`", () => {
 		const map = [
 			"## Section A",
@@ -459,13 +406,6 @@ describe("the class sidecar as parseRegister's class source", () => {
 		expect(parseRegister(map)[0].cls).not.toBe("`binary-asset`");
 	});
 
-	/* The same two candidates check-doc-map.js resolves, in the same order, so a
-	 * run handed an out-of-repo copy of the map reads one sidecar and not two.
-	 * The second candidate is the literal, cwd-relative
-	 * `docs/doc-map-classes.json`, so the throwaway repo carries a synthetic one
-	 * there and the map path names a directory holding none. Every keyed path
-	 * leaving scope proves the whole sidecar was read; the run without it is the
-	 * control, scanning them all. */
 	it("falls back to the tracked sidecar where none sits beside the map", () => {
 		const paths = syntheticPaths(3);
 		const text = buildSectionAText([
@@ -521,9 +461,6 @@ describe("loadDocClasses's key vocabulary", () => {
 			.toEqual(["docs/adr/*"]);
 	});
 
-	/* A bare `*` reaches sectionAMatcher as an empty wildcard prefix, which every
-	 * path starts with — one such key would report the whole tree covered and
-	 * take check-doc-map.js's assertion 1 green over an unregistered repo. */
 	it("refuses a key that is a wildcard and nothing else", () => {
 		for (const key of ["*", "**"])
 			expect(() => loadDocClasses(write({ [key]: entry }))).toThrow(
@@ -561,7 +498,6 @@ describe("duplicateSidecarKeys", () => {
 	});
 });
 
-/** A sidecar holding one entry of each of the five classes. */
 const oneOfEachClass = () =>
 	syntheticSidecar(syntheticPaths(DOC_CLASSES.length), (_, i) => ({
 		class: DOC_CLASSES[i],
@@ -610,7 +546,6 @@ describe("parseEntries", () => {
 		expect(figures[0].lines).toEqual(["- **Owner:** `docs/a.md`", ""]);
 	});
 
-	// A heading of any depth closes an entry, or B2 would swallow the route.
 	it("stops an entry at the next heading of any depth", () => {
 		const [, b2] = parseEntries(doc, /^### (B\d+)/);
 		expect(b2.lines).toEqual(["- **Supersedes:** **an earlier figure**"]);
@@ -622,19 +557,10 @@ describe("parseEntries", () => {
 	});
 });
 
-/** `n` distinct prose words — one per bullet line's worth, joined on one line. */
 const words = (n: number) =>
 	Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
 
-/*
- * No test pins a figure measured against the live `docs/doc-map.md`: §B moves
- * on nearly every doc-map commit, so one would fail within the day for reasons
- * that are not a regression. Fixtures with hand-counted expectations instead.
- * mantahostels#1317 asked for corpus figures; why they were refused, and the four readings
- * measured, are in its captured-fact comment.
- */
 describe("an entry's prose count, as overCapEntries reads it", () => {
-	/** `lines`' prose words as `overCapEntries` counts them, the entry padded just over the cap. */
 	const proseWords = (lines: string[]) => {
 		const pad = PROSE_CAP_WORDS + 1;
 		const [entry] = overCapEntries(
@@ -678,8 +604,6 @@ describe("an entry's prose count, as overCapEntries reads it", () => {
 
 	it("counts a non-skeleton bullet — Downstream, a warning marker — as prose", () => {
 		const lines = ["- **Downstream (must re-derive):**", words(3)];
-		// "- **Downstream (must re-derive):**" is itself 4 whitespace-delimited
-		// tokens, plus the 3 words appended.
 		expect(proseWords(lines)).toBe(7);
 	});
 
@@ -689,13 +613,9 @@ describe("an entry's prose count, as overCapEntries reads it", () => {
 			"  still indented under the settled-at bullet",
 			"- prose bullet right after, three words",
 		];
-		// The whole "Settled at" bullet and its continuation are skipped; only
-		// the 7-token bullet after it counts.
 		expect(proseWords(lines)).toBe(7);
 	});
 
-	// The live shape this protects (mantahostels#1317): an entry nests an indented sub-bullet
-	// under `Restated in`, which is skeleton, not prose.
 	it("keeps a skeleton bullet's own indented sub-bullets out of prose (mantahostels#1317)", () => {
 		const lines = [
 			"- **Restated in — 7 paths, in `docs/doc-map-restatements.json`.**",
@@ -705,7 +625,6 @@ describe("an entry's prose count, as overCapEntries reads it", () => {
 		expect(proseWords(lines)).toBe(0);
 	});
 
-	// Positive case: a nested sub-bullet under a *prose* bullet still counts.
 	it("still counts an indented sub-bullet nested under a prose bullet", () => {
 		const lines = [
 			"- **Downstream (must re-derive):**",
@@ -714,23 +633,15 @@ describe("an entry's prose count, as overCapEntries reads it", () => {
 		expect(proseWords(lines)).toBe(12);
 	});
 
-	// Skeleton is the five fields as an ENTRY'S OWN bullet leaders; an indented
-	// sub-bullet under a prose bullet that merely opens on one of those words is
-	// prose, and matching it would drop it and every line indented under it
-	// (mantahostels#1317).
 	it("counts an indented sub-bullet opening on a skeleton field word as prose", () => {
 		const lines = [
 			"- **Downstream (must re-derive):**",
 			"  - Owner of the partner fee re-derives from this figure",
 			"    a continuation of that prose sub-bullet",
 		];
-		// 4 tokens in the Downstream leader + 10 + 6.
 		expect(proseWords(lines)).toBe(20);
 	});
 
-	// CommonMark keeps a list item open across a blank line, so an indented
-	// continuation resuming after one is still the skeleton bullet's own value
-	// (mantahostels#1317).
 	it("keeps a skeleton bullet's continuation across a blank line out of prose", () => {
 		const lines = [
 			"- **Restated in:** 3 paths, in `docs/doc-map-restatements.json`.",
@@ -742,9 +653,6 @@ describe("an entry's prose count, as overCapEntries reads it", () => {
 		expect(proseWords(lines)).toBe(6);
 	});
 
-	// The blank line only holds the run open while what follows stays
-	// indented: a dedent to top level after one still ends the skeleton, or
-	// every entry would count as zero prose from its first skeleton bullet on.
 	it("ends a skeleton bullet at a top-level line following a blank", () => {
 		const lines = ["- **Settled at #55**", "", words(5)];
 		expect(proseWords(lines)).toBe(5);
@@ -791,14 +699,10 @@ describe("overCapEntries", () => {
 	});
 });
 
-// mantahostels#2058: overCapEntries()/staleExemptionMarkers() reading the §B preamble's
-// `Over cap by ruling (#n)` marker, and refusing a stale one.
 describe("overCapEntries / staleExemptionMarkers reading the exemption marker", () => {
 	const marker = (n: number) =>
 		`- **Over cap by ruling (#${n}):** every claim here is load-bearing — never cut one to reach 300; read the count from \`overCapEntries()\`.`;
 
-	// The marker's own words count as prose (docs/doc-map.md §B preamble),
-	// so a caller aiming for an exact total must budget for it.
 	const wc = (s: string) => (s.match(/\S+/g) || []).length;
 
 	const docWithMarker = (
@@ -823,11 +727,9 @@ describe("overCapEntries / staleExemptionMarkers reading the exemption marker", 
 			"## Section C",
 		].join("\n");
 
-	/** Body words to hand `docWithMarker` so the entry's total prose lands on `target`. */
 	const bodyWordsFor = (target: number, markerLine: string | null) =>
 		target - (markerLine === null ? 0 : wc(markerLine));
 
-	/** The ruling each entry `staleExemptionMarkers` lists is marked by. */
 	const staleRulings = (text: string) =>
 		staleExemptionMarkers(text).map(
 			(e: { exemptedAt: number }) => e.exemptedAt,
@@ -870,8 +772,6 @@ describe("overCapEntries / staleExemptionMarkers reading the exemption marker", 
 		expect(overCapEntries(text)).toEqual([
 			{ id: "B1", words: target, excess: 10, exemptedAt: null },
 		]);
-		// A sub-bullet under B1 at or under cap is not stale either — it was
-		// never read as a marker in the first place.
 		const underCapText = docWithMarker(
 			bodyWordsFor(1, subBullet),
 			subBullet,
@@ -938,11 +838,7 @@ describe("overCapEntries / staleExemptionMarkers reading the exemption marker", 
 		});
 	});
 
-	// mantahostels#2124: the near-miss residual. Every spelling below reads as
-	// UNEXEMPTED (an under-cap entry carrying one is no stale marker), which is
-	// the fault — this reports it rather than changing what counts as a marker.
 	describe("malformedExemptionMarkers", () => {
-		/** A near miss and the strict marker are indistinguishable to a reader. */
 		const nearMisses = {
 			"colon outside the bold":
 				"- **Over cap by ruling (#1911)**: every claim here is load-bearing.",
@@ -954,9 +850,6 @@ describe("overCapEntries / staleExemptionMarkers reading the exemption marker", 
 				"- **Over cap by ruling (1911):** every claim here is load-bearing.",
 			"no ticket number":
 				"- **Over cap by ruling (#):** every claim here is load-bearing.",
-			// mantahostels#2124: the repo spells the adjective "over-cap"
-			// everywhere, this checker's own message included, so the
-			// hyphenated slip is the likeliest of all of them.
 			"a hyphenated adjective":
 				"- **Over-cap by ruling (#1911):** every claim here is load-bearing.",
 			"lower case": "- **over cap by ruling (#1911):** it is load-bearing.",
@@ -987,11 +880,6 @@ describe("overCapEntries / staleExemptionMarkers reading the exemption marker", 
 			expect(malformedExemptionMarkers(docWithMarker(3, null, 5))).toEqual([]);
 		});
 
-		/*
-		 * The scoping rule: an entry already carrying a valid marker IS exempt,
-		 * so a second line echoing the words — mantahostels#2058's indented sub-bullet among
-		 * them — costs nothing and is not reported.
-		 */
 		it("stays silent on an echo inside an entry that carries a valid marker", () => {
 			const text = [
 				"## Section B",
@@ -1109,8 +997,6 @@ describe("parseRetiredVocabularyText", () => {
 	});
 
 	it("answers empty, not null, for a bullet written bare", () => {
-		// A declaration with nothing after it is still a declaration; read as an
-		// absence it would go unscanned, the false green mantahostels#1247 closes.
 		expect(parseRetiredVocabularyText(["- **Retired vocabulary:**"])).toBe("");
 	});
 });
@@ -1128,13 +1014,6 @@ describe("readTextLines", () => {
 		expect(readTextLines("docs/brand_assets/NunitoSans.ttf")).toBeNull();
 	});
 
-	/*
-	 * mantahostels#268 bug 2 (the three bugs one checker copy inherited from another). A
-	 * tracked file too large to hold as a JS string throws
-	 * ERR_STRING_TOO_LONG on the decode, not on the read — so with the decode
-	 * outside the guard, one oversized file in the repo turns a report into a
-	 * crash. Faked here: a real 512 MB fixture would exceed the machine's cap.
-	 */
 	it("returns null when the decode throws, rather than propagating", () => {
 		vi.spyOn(fs, "readFileSync").mockReturnValue({
 			subarray: () => ({ includes: () => false }),
@@ -1147,11 +1026,6 @@ describe("readTextLines", () => {
 });
 
 describe("repoRelative", () => {
-	/*
-	 * mantahostels#268. `git ls-files` states repo-relative paths, so a scan recognises
-	 * the map as itself only once the CLI argument is in that same form —
-	 * otherwise Section B is free to report every value it quotes by design.
-	 */
 	it("normalises the spellings of one path to what git states", () => {
 		expect(repoRelative("./docs/doc-map.md")).toBe("docs/doc-map.md");
 		expect(repoRelative("docs/doc-map.md")).toBe("docs/doc-map.md");
@@ -1177,23 +1051,16 @@ describe("mapSkipLine", () => {
 		expect(mapSkipLine("docs/x.md", lines, docMapPath)).toBeNull();
 	});
 
-	/* mantahostels#2399: a §A cell is a verbatim copy of docs/doc-map-classes.json, so
-	 * scanning both makes one sentence need two allowlist rows. */
 	it("skips the map's generated §A register rows and not its prose", () => {
 		const skip = mapSkipLine(docMapPath, lines, docMapPath);
 		expect(skip?.(4)).toBe(true);
 		expect(skip?.(3)).toBe(false);
 	});
 
-	/* §A's Version-stamps table is hand-written and the generator leaves it
-	 * alone, so it has no source to carry a suppression instead: skipping it
-	 * would strand a stale stamp with nowhere to be reported. */
 	it("scans a hand-written §A table row, which registers no path", () => {
 		expect(mapSkipLine(docMapPath, lines, docMapPath)?.(5)).toBe(false);
 	});
 
-	// check-machinery-superseded.js retires figures §B does not own, so its scan
-	// keeps reading §B.
 	it("skips §B only for a caller that asks", () => {
 		expect(mapSkipLine(docMapPath, lines, docMapPath)?.(8)).toBe(false);
 		expect(
@@ -1210,16 +1077,11 @@ describe("mapSkipLine", () => {
 });
 
 describe("needlePattern", () => {
-	/* mantahostels#2443: every needle matches case-insensitively, a digit-bearing
-	 * one included, so a sentence-initial copy of a letter-bearing numeric
-	 * needle is found. */
 	it("matches a sentence-initial copy of a letter-and-digit needle", () => {
 		const pattern = needlePattern("call list 23-25");
 		expect("Call list 23-25 goes out Monday.").toMatch(pattern);
 	});
 
-	/* The digit-safe boundary form is what mantahostels#2443 kept: a plain \b would give
-	 * this collision back up, since the needle's own tail is a number. */
 	it("still stops a letter-and-digit needle matching inside a longer number", () => {
 		const pattern = needlePattern("call list 23-25");
 		expect("call list 23-25.5 rooms").not.toMatch(pattern);
@@ -1263,8 +1125,6 @@ describe("scanScope", () => {
 		"## Section B",
 	].join("\n");
 
-	// ctx.broken throws in the real runner, so a stub that records and throws is
-	// what distinguishes "reported broken" from "scanned anything at all".
 	const stubCtx = () => {
 		const broken: string[] = [];
 		return {
@@ -1306,11 +1166,8 @@ describe("scanScope", () => {
 		]);
 	});
 
-	/* mantahostels#2458 — why lockfiles leave scope at all: `LOCKFILES` in doc-map.js. */
 	it("drops the dependency lockfiles from a scope that otherwise holds them", () => {
 		const ctx = stubCtx();
-		// Positive control: both are tracked, so the two negatives below cannot
-		// pass merely because git stopped listing them.
 		expect(readTrackedFiles()).toContain("package-lock.json");
 		expect(readTrackedFiles()).toContain("skills-lock.json");
 		const { files } = scanScope(ctx, {
@@ -1323,8 +1180,6 @@ describe("scanScope", () => {
 		expect(files).toContain("package.json");
 	});
 
-	/* The basename choice is the load-bearing half, and no tracked lockfile in
-	 * THIS repo sits in a subdirectory, so a throwaway repo tracks the cases. */
 	it("reads a lockfile by basename, at any depth and not by resemblance", () => {
 		const { files } = scopeIn({
 			text: map,
@@ -1338,10 +1193,8 @@ describe("scanScope", () => {
 		expect(files).toEqual(["docs/my-package-lock.json", "package.json"]);
 	});
 
-	/* #2415 — why recordings leave scope: `isFrozenCorpus` in doc-map.js. */
 	it("drops the recorded session transcripts from a scope that otherwise holds them", () => {
 		const recording = "scripts/fixtures/arm-secondary/recorded-69f9fc0f.jsonl";
-		// Positive control, as for the lockfiles.
 		expect(readTrackedFiles()).toContain(recording);
 		const { files } = scanScope(stubCtx(), {
 			text: map,
@@ -1388,14 +1241,7 @@ describe("scanScope", () => {
 		]);
 	});
 
-	/* Criterion 4's other half: scanScope reads the class through the sidecar
-	 * too, and a file whose §A cell disagrees is exempt by that route anyway.
-	 * `readSidecarBeside` resolves its sidecar beside the MAP PATH, so an absolute
-	 * mapPath pointing into a scratch dir finds a synthetic sidecar there —
-	 * without a chdir that would break scanScope's own `readTrackedFiles()` git call. */
 	it("exempts a file the sidecar classes binary-asset and §A's cell does not", () => {
-		// scanScope returns tracked files only, so the target is the module under
-		// test — tracked for as long as this suite can run.
 		const target = "scripts/lib/doc-map.js";
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scanscope-sidecar-"));
 		const scratchMap = path.join(dir, "doc-map.md");
@@ -1434,8 +1280,6 @@ describe("scanScope", () => {
 	});
 });
 
-/* #428. scanScope reads scope from `git ls-files` in the cwd, and this repo
- * tracks no archive file. */
 describe("CORE_CLASSES", () => {
 	const report = "docs/archive/sync-reports/2026-09-26.md";
 	const proposal = "docs/archive/sync-proposals/2026-09-26.md";
@@ -1494,11 +1338,6 @@ describe("sectionBEntryCount", () => {
 	});
 });
 
-/*
- * sectionBEntryRate reads the CURRENT repo's git history, like readTrackedFiles
- * and readConflictedPaths above, so it runs inside a throwaway repo whose commit
- * dates are pinned with GIT_AUTHOR_DATE/GIT_COMMITTER_DATE.
- */
 describe("sectionBEntryRate", () => {
 	let repo: string;
 	let cwd: string;
@@ -1518,7 +1357,6 @@ describe("sectionBEntryRate", () => {
 		return lines.join("\n");
 	};
 
-	/** Commits `docs/doc-map.md` holding `n` entries, dated `daysAgo` days back. */
 	const commitMap = (n: number, daysAgo: number) => {
 		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
 		fs.writeFileSync(path.join(repo, mapPath), entryDoc(n));
@@ -1569,8 +1407,6 @@ describe("sectionBEntryRate", () => {
 		expect(result?.rate).toBeCloseTo((12 - 5) / 7, 1);
 	});
 
-	// The case mantahostels#1347 names explicitly: history shorter than 7 days must not
-	// crash or pad the denominator to 7 — it reports over the span it has.
 	it("falls back to the oldest commit, and its actual span, when history is under 7 days", () => {
 		commitMap(2, 3);
 		commitMap(9, 0);
@@ -1586,9 +1422,6 @@ describe("sectionBEntryRate", () => {
 		expect(sectionBEntryRate(mapPath, 4)).toBeNull();
 	});
 
-	// A commit history sparser than the 7-day window: the nearest commit at or
-	// before the cutoff is 20 days old. Dividing its delta by a capped 7 would
-	// read a slow map as a fast one.
 	it("divides by the actual elapsed span, not a capped 7, when the baseline is far older than 7 days", () => {
 		commitMap(1, 20);
 		commitMap(15, 0);
@@ -1599,10 +1432,6 @@ describe("sectionBEntryRate", () => {
 		expect(result?.rate).toBeCloseTo((15 - 1) / 20, 1);
 	});
 
-	// `--follow` can pick up a pre-rename commit whose baseline sha never held
-	// `mapPath` under its current name — `git show <sha>:<mapPath>` then fails
-	// on a real commit, not a missing one, and must degrade to null rather than
-	// throw.
 	it("returns null when the baseline commit predates the file's current name", () => {
 		const oldPath = "docs/doc-map-old.md";
 		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
@@ -1623,12 +1452,6 @@ describe("sectionBEntryRate", () => {
 	});
 });
 
-/*
- * buildFileAgeReader and pairingHalfAgeMs (mantahostels#1785) — what check-doc-map.js's
- * UNCOVERED and DEAD-ENTRY grace windows date through. Same throwaway-repo pattern as
- * sectionBEntryRate above, with commits pinned by GIT_AUTHOR_DATE/
- * GIT_COMMITTER_DATE.
- */
 describe("the pairing faults' datings", () => {
 	let repo: string;
 	let cwd: string;
@@ -1641,7 +1464,6 @@ describe("the pairing faults' datings", () => {
 			env: { ...process.env, ...env },
 		});
 
-	/** Commits what `pathArgs` name, or the index, dated `hoursAgo` back. */
 	const commitDated = (
 		hoursAgo: number,
 		msg: string,
@@ -1654,7 +1476,6 @@ describe("the pairing faults' datings", () => {
 		});
 	};
 
-	/** Commits `rel`'s currently-written content, dated `hoursAgo` back. */
 	const commitFile = (rel: string, hoursAgo: number, msg = `add ${rel}`) => {
 		git(["add", "--", rel]);
 		commitDated(hoursAgo, msg, ["--", rel]);
@@ -1687,7 +1508,6 @@ describe("the pairing faults' datings", () => {
 		expect((ageMs as number) / (60 * 60 * 1000)).toBeCloseTo(3, 1);
 	});
 
-	/** A minimal but real Section A table, parseRegister()-shaped. */
 	const sectionA = (...rows: string[]) =>
 		[
 			"v1.0 · x",
@@ -1718,12 +1538,6 @@ describe("the pairing faults' datings", () => {
 		expect((ageMs as number) / (60 * 60 * 1000)).toBeCloseTo(2, 1);
 	});
 
-	// The bug both review passes on mantahostels#1785 caught: a bare pickaxe (`-S`) hit
-	// matches the path string ANYWHERE in the map, Section B prose included.
-	// docs/doc-map.md is ~79,000 words and routinely mentions a path outside
-	// its own register row, so dating must verify the hit is a genuine
-	// Section A birth — present in the commit's register, absent from its
-	// parent's — not just trust the oldest string match.
 	it("is not misdated by an older §B prose mention of the same path", () => {
 		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
 		fs.writeFileSync(
@@ -1740,8 +1554,6 @@ describe("the pairing faults' datings", () => {
 		const now = Date.now();
 		const ageMs = pairingHalfAgeMs("docs/ghost.md", mapPath, now) as number;
 		expect(ageMs).not.toBeNull();
-		// 1h, from the row's own commit — not 10h, from the older §B mention a
-		// naive pickaxe search would have picked up as the "oldest" hit.
 		expect(ageMs / (60 * 60 * 1000)).toBeCloseTo(1, 1);
 	});
 
@@ -1761,10 +1573,6 @@ describe("the pairing faults' datings", () => {
 		}
 	});
 
-	// mantahostels#1191/mantahostels#1384: a pre-commit invocation hands the checker a temp-directory
-	// copy of the map with no git identity of its own. The row's own path
-	// string is still findable through the SECOND candidate, the tracked
-	// docs/doc-map.md — readMapTextAt's fallback, reused here.
 	it("falls back to the tracked docs/doc-map.md when mapPath has no git identity", () => {
 		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
 		fs.writeFileSync(
@@ -1796,8 +1604,6 @@ describe("the pairing faults' datings", () => {
 		fs.writeFileSync(path.join(repo, "docs", "notes.md"), "x\n");
 		commitFile("docs/notes.md", 3);
 
-		// A "now" 4h past the real clock, against a commit dated 3h before the
-		// real clock: the injected reference makes it read as 7h old.
 		const frozen = Date.now() + 4 * 60 * 60 * 1000;
 		const ageMs = buildFileAgeReader(frozen)("docs/notes.md") as number;
 		expect(ageMs / (60 * 60 * 1000)).toBeCloseTo(7, 0);
@@ -1819,7 +1625,6 @@ describe("the pairing faults' datings", () => {
 		const ageOf = buildFileAgeReader(now);
 		expect(hours(ageOf("docs/a.md"))).toBeCloseTo(9, 1);
 
-		// No git from here on: only the first ask's walk can answer.
 		fs.rmSync(path.join(repo, ".git"), { recursive: true, force: true });
 		expect(hours(ageOf("docs/b.md"))).toBeCloseTo(3, 1);
 		expect(ageOf("docs/never-committed.md")).toBeNull();
@@ -1892,22 +1697,15 @@ describe("the pairing faults' datings", () => {
 		expect(PAIRING_GRACE_MS).toBe(6 * 60 * 60 * 1000);
 	});
 
-	// A commit dated in the future — clock skew, or a deliberately backdated
-	// GIT_AUTHOR_DATE — must never read as permanently young: a negative age
-	// is the same "never a silent pass" hazard `null` is, by another route.
 	it("returns null, not a negative age, for a commit dated in the future", () => {
 		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
 		fs.writeFileSync(path.join(repo, "docs", "notes.md"), "x\n");
-		commitFile("docs/notes.md", -3); // 3h in the future
+		commitFile("docs/notes.md", -3);
 
 		expect(buildFileAgeReader()("docs/notes.md")).toBeNull();
 	});
 });
 
-/*
- * Both functions read the index of whatever repo they are called in, so these
- * run inside a throwaway one with a live conflict.
- */
 describe("a conflicted index", () => {
 	let repo: string;
 	let cwd: string;
@@ -1932,9 +1730,7 @@ describe("a conflicted index", () => {
 		fs.writeFileSync(path.join(repo, "contested.md"), "ours\n");
 		git("commit", "-qm", "ours", "--", "contested.md");
 
-		// The conflict this fixture exists to create.
 		ignoreFailure(() => git("merge", "other"));
-		// The fixture is worthless if the merge resolved itself.
 		expect(git("ls-files", "--unmerged")).not.toBe("");
 
 		cwd = process.cwd();
@@ -1956,8 +1752,6 @@ describe("a conflicted index", () => {
 		expect(readConflictedPaths()).toEqual(["contested.md"]);
 	});
 
-	/* Without `-z` git C-quotes a path holding a tab and both functions hand back
-	 * the escaped spelling — a path no caller can match against. */
 	it("returns a path holding a tab unescaped", () => {
 		const odd = "sp ace\ttab.md";
 		fs.writeFileSync(path.join(repo, odd), "ours\n");
@@ -1968,8 +1762,6 @@ describe("a conflicted index", () => {
 
 	it("reports no conflict once the merge is committed", () => {
 		fs.writeFileSync(path.join(repo, "contested.md"), "resolved\n");
-		// A merge cannot be concluded by a pathspec commit — git refuses a partial
-		// one mid-merge — so the resolution is staged first.
 		git("add", "--", "contested.md");
 		git("commit", "-qm", "resolved");
 		expect(readConflictedPaths()).toEqual([]);
@@ -1977,11 +1769,6 @@ describe("a conflicted index", () => {
 	});
 });
 
-/*
- * The three §B data-file loaders (mantahostels#581). Validation is the point of loading:
- * a bad stem or an empty file is a loud error, never a silent shrink of the
- * scan.
- */
 describe("the data-file loaders", () => {
 	let dir: string;
 	beforeEach(() => {
@@ -2008,7 +1795,6 @@ describe("the data-file loaders", () => {
 		{
 			name: "loadSupersededNeedles",
 			load: loadSupersededNeedles,
-			// Empty is its day-one state (mantahostels#3515 F11).
 			emptyOk: true,
 			good: {
 				B1: { needles: [{ needle: "$18", scanned: true }] },
@@ -2036,7 +1822,6 @@ describe("the data-file loaders", () => {
 			expect(() => load(fixture("{ not json"))).toThrow(/data\.json.*not JSON/);
 		});
 
-		// A zero-byte file is what a write that died mid-way leaves behind.
 		it("errors on an empty file", () => {
 			expect(() => load(fixture(""))).toThrow(/not JSON/);
 		});
@@ -2069,8 +1854,6 @@ describe("the data-file loaders", () => {
 			expect(() => loadRestatements(fixture({ B1: {} }))).toThrow(/B1: paths/);
 		});
 
-		// The array-per-entry form the object shape replaced (mantahostels#1469). Accepting
-		// both would read a mistyped `paths` as an entry legitimately without one.
 		it("rejects the superseded array-per-entry shape outright, naming the entry", () => {
 			expect(() =>
 				loadRestatements(fixture({ B1: [{ path: "docs/a.md" }] })),
@@ -2095,8 +1878,6 @@ describe("the data-file loaders", () => {
 			expect(loadRestatements(fixture(data))).toEqual(data);
 		});
 
-		// Whitespace in a path is a locator left inside it — the migration bug
-		// splitting the fields was meant to end.
 		it("errors on a path still carrying its locator", () => {
 			expect(() =>
 				loadRestatements(
@@ -2129,7 +1910,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/B1: note/);
 		});
 
-		// A marker date that is not a date sorts and compares like one and is not.
 		it("errors on a known-incomplete value that is not an ISO date", () => {
 			expect(() =>
 				loadRestatements(
@@ -2143,7 +1923,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/not an ISO YYYY-MM-DD date/);
 		});
 
-		// A typo'd field name must not read as the field being absent.
 		it("errors on an unknown field, on the entry and on a path, naming the field", () => {
 			expect(() =>
 				loadRestatements(
@@ -2157,7 +1936,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/B1 carries unknown field\(s\) notes/);
 		});
 
-		// A raw TypeError from Object.keys(null) would name no file or entry.
 		it("errors on a null path item, still naming its entry", () => {
 			expect(() =>
 				loadRestatements(fixture({ B1: { paths: [null] } })),
@@ -2177,9 +1955,6 @@ describe("the data-file loaders", () => {
 			expect(loadSupersededNeedles(fixture(data))).toEqual(data);
 		});
 
-		/* The allowlist is the whole point of mantahostels#707: a superseded value quoted on
-		 * purpose — a compliance history row, a checker's own test fixture — is
-		 * permanently unfixable, so it reports forever without one. */
 		it("accepts an entry carrying an allowlist", () => {
 			const data = {
 				B1: {
@@ -2193,8 +1968,6 @@ describe("the data-file loaders", () => {
 			expect(loadSupersededNeedles(fixture(data))).toEqual(data);
 		});
 
-		// An absent flag silently promoting a span to a grep would hit hundreds
-		// of correct lines, so the flag is stated, never defaulted.
 		it("errors where the scanned flag is absent or not boolean", () => {
 			expect(() =>
 				loadSupersededNeedles(
@@ -2230,7 +2003,6 @@ describe("the data-file loaders", () => {
 					}),
 				),
 			).toThrow(/unknown field\(s\) note/);
-			// A field beside needles and allowlist is refused, not ignored.
 			expect(() =>
 				loadSupersededNeedles(
 					fixture({
@@ -2252,8 +2024,6 @@ describe("the data-file loaders", () => {
 			);
 		});
 
-		/* Same validation the retired-vocabulary allowlist runs, so a migration
-		 * typo cannot silently widen a suppression to a whole file. */
 		it("errors on a malformed allowlist, saying what is wrong with it", () => {
 			const entry = (allowlist: unknown) => ({
 				B1: {
@@ -2272,7 +2042,6 @@ describe("the data-file loaders", () => {
 			expect(() =>
 				loadSupersededNeedles(fixture(entry([{ path: "", lines: [] }]))),
 			).toThrow(/allowlist path/);
-			// Line numbers are 1-based; a 0 is an off-by-one from the migration.
 			expect(() =>
 				loadSupersededNeedles(
 					fixture(entry([{ path: "docs/a.md", lines: [0] }])),
@@ -2286,9 +2055,6 @@ describe("the data-file loaders", () => {
 		});
 	});
 
-	/* mantahostels#744: a line pin rots on every insertion above it — one moved twice
-	 * inside one session — so an allowlist row may name the line's content
-	 * instead. Validated in the loader, shared by both grep instruments. */
 	describe("allowlist content anchors", () => {
 		const load = (allowlist: unknown) =>
 			loadSupersededNeedles(
@@ -2320,8 +2086,6 @@ describe("the data-file loaders", () => {
 			);
 		});
 
-		/* mantahostels#2431: an anchor may name the one needle it suppresses, so the line it
-		 * sits on stays scanned for the rest. */
 		it("accepts an anchor scoped to a needle the entry declares", () => {
 			const data = [
 				{ path: "docs/a.md", anchors: [{ anchor: "| v1.2 |", needle: "$18" }] },
@@ -2340,8 +2104,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/does not declare as a needle/);
 		});
 
-		/* An unscanned needle is greped for by nothing, so an anchor scoped to one
-		 * suppresses nothing. */
 		it("errors on a scoped anchor naming a needle the entry does not scan", () => {
 			expect(() =>
 				loadSupersededNeedles(
@@ -2383,8 +2145,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/why/);
 		});
 
-		/* The retired-vocabulary scan resolves its allowlist with no needle in
-		 * hand, so a scoped anchor there would suppress nothing at all. */
 		it("refuses a scoped anchor in the retired-vocabulary data file, saying no needle is in hand", () => {
 			expect(() =>
 				loadRetiredVocabulary(
@@ -2427,7 +2187,6 @@ describe("the data-file loaders", () => {
 			expect(allows(2, "$18")).toBe(true);
 			expect(allows(2, "$40")).toBe(false);
 			expect(allows(1, "$18")).toBe(false);
-			// No needle in hand: only whole-line suppression answers.
 			expect(allows(2)).toBe(false);
 			expect(notes).toEqual([]);
 		});
@@ -2462,8 +2221,6 @@ describe("the data-file loaders", () => {
 			expect([1, 2, 3].filter(allows)).toEqual([]);
 		});
 
-		/* Whole-file suppression stays the empty line list mantahostels#707 shipped: an entry
-		 * naming an anchor is asking about one line, never the file. */
 		it("allows every line only where a row names neither lines nor anchors", () => {
 			expect(
 				[1, 2, 3].filter(resolve([{ path: "docs/a.md", lines: [] }]).allows),
@@ -2490,14 +2247,9 @@ describe("the data-file loaders", () => {
 			);
 			const spread = resolve([{ path: "docs/a.md", anchors: ["a stale"] }]);
 			expect(spread.notes[0].lines).toEqual([1, 3]);
-			// Named, and suppressing neither: the entry meant one of the two, and
-			// an allowlist never hides a line nobody chose to allow.
 			expect([1, 2, 3].filter(spread.allows)).toEqual([]);
 		});
 
-		/* The line-pin twin of the anchor diagnostic (mantahostels#847). A pin points at a
-		 * number, so once the line beneath it changes the pin covers nothing and
-		 * — before this — said nothing about it (mantahostels#792). */
 		describe("line pins", () => {
 			const pinned = (allowlist: unknown[], matches?: (t: string) => boolean) =>
 				resolveAllowlist(
@@ -2526,8 +2278,6 @@ describe("the data-file loaders", () => {
 						text: "| v1.2 | $18 |",
 					},
 				]);
-				// Reported, never resolved: the pin keeps suppressing, which changes
-				// no verdict — a line matching no phrase raises no hit to suppress.
 				expect([1, 2, 3].filter(r.allows)).toEqual([2]);
 			});
 
@@ -2538,8 +2288,6 @@ describe("the data-file loaders", () => {
 				]);
 			});
 
-			/* A caller with no phrases to ask about — or one not asking — gets the
-			 * pre-mantahostels#847 behaviour rather than a note it cannot interpret. */
 			it("reports no pin at all where the caller passes no predicate", () => {
 				expect(pinned([{ path: "docs/a.md", lines: [1, 9] }]).pins).toEqual([]);
 			});
@@ -2551,10 +2299,6 @@ describe("the data-file loaders", () => {
 			});
 		});
 
-		/* The whole-file twin of the anchor and pin diagnostics. A row naming
-		 * neither lines nor anchors suppresses every line in the file, so it
-		 * has no per-line miss to report — only whether the file carries
-		 * anything the entry greps for at all. */
 		describe("whole-file coverage", () => {
 			const wholeFile = (
 				allowlist: unknown[],
@@ -2575,7 +2319,6 @@ describe("the data-file loaders", () => {
 				expect(r.wholeFileNotes).toEqual([
 					{ path: "docs/a.md", file: "docs/a.md" },
 				]);
-				// Still suppressing, same as an anchor or pin note.
 				expect([1, 2, 3].filter(r.allows)).toEqual([1, 2, 3]);
 			});
 
@@ -2615,9 +2358,6 @@ describe("the data-file loaders", () => {
 			expect(loadRetiredVocabulary(fixture(data))).toEqual(data);
 		});
 
-		/* The B49 key's actual stem (mantahostels#344): JavaScript has no inline `(?i)` flag, so in prose
-		 * it sat unscanned in a footer. Here it is the loud error, naming the
-		 * entry that owns it. */
 		it("errors on an uncompilable stem, naming its entry", () => {
 			expect(() =>
 				loadRetiredVocabulary(
@@ -2628,9 +2368,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/B49: stem .*will not compile/);
 		});
 
-		/* The B38 key's real stem (mantahostels#287), corrupted the one way the compile check above lets
-		 * through: `\bGUARDED` with a single backslash is a backspace, not a word
-		 * boundary. */
 		it("errors on a stem holding a literal backspace, naming its entry", () => {
 			expect(() =>
 				loadRetiredVocabulary(
@@ -2639,7 +2376,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/B38: stem .*literal backspace/);
 		});
 
-		// The live failure: a stem whose backticked chunk quoted nothing.
 		it("errors on an empty stem, naming the entry", () => {
 			expect(() =>
 				loadRetiredVocabulary(fixture({ B30: { phrases: [{ stem: "" }] } })),
@@ -2652,8 +2388,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/neither literal nor stem/);
 		});
 
-		// The exact typo the field check exists for: `sem` reads as no stem at
-		// all, silently downgrading the pattern to its literal.
 		it("errors on a typo'd phrase field, naming it", () => {
 			expect(() =>
 				loadRetiredVocabulary(
@@ -2662,9 +2396,6 @@ describe("the data-file loaders", () => {
 			).toThrow(/unknown field\(s\) sem/);
 		});
 
-		/* Compiling fine is not scannable: the checker refuses this shape at scan
-		 * time as an exponential-backtracking hazard, so accepting it at load
-		 * would recreate the silent-unscanned class the loader exists to end. */
 		it("errors on a catastrophic-backtracking stem, naming its entry", () => {
 			expect(() =>
 				loadRetiredVocabulary(
@@ -2697,7 +2428,6 @@ describe("the data-file loaders", () => {
 			expect(() =>
 				loadRetiredVocabulary(fixture(entry([{ path: "", lines: [] }]))),
 			).toThrow(/allowlist path/);
-			// Line numbers are 1-based; a 0 is an off-by-one from the migration.
 			expect(() =>
 				loadRetiredVocabulary(
 					fixture(entry([{ path: "docs/a.md", lines: [0] }])),
@@ -2726,9 +2456,6 @@ describe("readConflictedPaths outside a repo", () => {
 	});
 });
 
-/* The names are the wire contract between the checkers and the migration that
- * writes the files (mantahostels#590) — a rename on either side silently restores the
- * prose fallback everywhere. */
 describe("DATA_FILES", () => {
 	it("states the six canonical file names", () => {
 		expect(DATA_FILES).toEqual({
@@ -2742,11 +2469,6 @@ describe("DATA_FILES", () => {
 	});
 });
 
-/*
- * The two git-reading halves of mantahostels#1384 (the ticket that refused a commit adding
- * a §B entry over the 300-word prose cap, and reported births-over-cap into
- * mantahostels#1079). Both read a repo's history, so both run inside a throwaway one.
- */
 describe("the new-entry cap's git readers", () => {
 	let repo: string;
 	let cwd: string;
@@ -2759,11 +2481,9 @@ describe("the new-entry cap's git readers", () => {
 			env: { ...process.env, ...env },
 		});
 
-	/** `n` whitespace-delimited words of prose. */
 	const prose = (n: number) =>
 		Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
 
-	/** A §B holding one entry per `[id, proseWords]` pair. */
 	const doc = (entries: [string, number][]) =>
 		[
 			"## Section B",
@@ -2805,8 +2525,6 @@ describe("the new-entry cap's git readers", () => {
 		fs.rmSync(repo, { recursive: true, force: true });
 	});
 
-	/* HEAD's copy of the map is newOverCapEntries' baseline. Null where HEAD
-	 * holds none is pinned under newOverCapEntries below. */
 	describe("the HEAD baseline", () => {
 		it("reads HEAD's copy, not the working tree's", () => {
 			commit([["B1", 10]], 1);
@@ -2820,11 +2538,6 @@ describe("the new-entry cap's git readers", () => {
 			]);
 		});
 
-		/*
-		 * The fallback the pre-commit hook depends on: it hands the checker a
-		 * `$(mktemp -d)` copy of the INDEX (mantahostels#1191), a path with no git identity,
-		 * so `HEAD:<that>` resolves to nothing and the tracked path must answer.
-		 */
 		it("falls back to the tracked path for a copy git has never seen", () => {
 			commit([["B1", 10]], 1);
 			const copy = path.join(repo, "scratch-map.md");
@@ -2868,12 +2581,6 @@ describe("the new-entry cap's git readers", () => {
 			).toEqual([]);
 		});
 
-		/*
-		 * The merge case mantahostels#1384 named: once the author stages the resolution the
-		 * index is no longer conflicted, so the check runs — and every entry
-		 * arriving from the OTHER parent is absent from HEAD. Refusing there
-		 * would refuse a merge for an entry somebody else already committed.
-		 */
 		it("does not read the other parent's entries as new, mid-merge", () => {
 			commit([["B1", 10]], 1);
 			git(["checkout", "-qb", "other"]);
@@ -2910,19 +2617,11 @@ describe("the new-entry cap's git readers", () => {
 		});
 	});
 
-	/*
-	 * mantahostels#2050 (the ticket that bounded an over-cap-by-ruling entry's growth). The
-	 * marker disapplies the on-touch reduction, so before this nothing at all
-	 * stood against an addition to one — assertion 14 refuses a birth only.
-	 * Direction, never level: no second cap.
-	 */
 	describe("grownExemptEntries / droppedExemptionMarkers", () => {
 		const exemptMarker =
 			"- **Over cap by ruling (#1911):** every claim here is load-bearing — never cut one to reach 300; read the count from `overCapEntries()`.";
-		/** The marker's own words count as prose, so a total budgets for them. */
 		const markerWords = (exemptMarker.match(/\S+/g) || []).length;
 
-		/** A §B holding one entry per `[id, proseWords, marked]` triple. */
 		const markedDoc = (entries: [string, number, boolean][]) =>
 			[
 				"## Section B",
@@ -2960,11 +2659,6 @@ describe("the new-entry cap's git readers", () => {
 			]);
 		});
 
-		/*
-		 * Marked-only is the ruling's own scope (mantahostels#2050): an UNMARKED over-cap
-		 * entry is already bound by the §B preamble's on-touch reduction, and
-		 * widening to all 38 of them was left out of scope there.
-		 */
 		it("ignores growth in an over-cap entry carrying no marker", () => {
 			commitMarked([["B1", 400, false]]);
 			expect(
@@ -2986,7 +2680,6 @@ describe("the new-entry cap's git readers", () => {
 			).toEqual([]);
 		});
 
-		/* A birth is assertion 14's, and has no baseline to grow from. */
 		it("ignores a marked entry no committed rev holds", () => {
 			commitMarked([["B1", 400, true]]);
 			expect(
@@ -3000,7 +2693,6 @@ describe("the new-entry cap's git readers", () => {
 			).toEqual([]);
 		});
 
-		/* A marked entry under the cap is assertion 21's stale marker. */
 		it("ignores a marked entry that grew but is still under the cap", () => {
 			commitMarked([["B1", 200, true]]);
 			expect(
@@ -3008,7 +2700,6 @@ describe("the new-entry cap's git readers", () => {
 			).toEqual([]);
 		});
 
-		/* Assertion 14's merge case, in this assertion's shape. */
 		it("does not read the other parent's growth as this commit's, mid-merge", () => {
 			commitMarked([["B1", 400, true]]);
 			git(["checkout", "-qb", "other"]);
@@ -3028,11 +2719,6 @@ describe("the new-entry cap's git readers", () => {
 			expect(grownExemptEntries(merged, mapPath)).toEqual([]);
 		});
 
-		/*
-		 * mantahostels#2050's review: CHERRY_PICK_HEAD names the SOURCE commit, not a
-		 * parent, so counting it in the maximum-count baseline would mask the
-		 * growth the pick brings in.
-		 */
 		it("reads growth a cherry-pick brings in, never taking its source as baseline", () => {
 			commitMarked([["B1", 400, true]]);
 			git(["checkout", "-qb", "other"]);
@@ -3040,8 +2726,6 @@ describe("the new-entry cap's git readers", () => {
 			const sha = git(["rev-parse", "HEAD"]).trim();
 			git(["checkout", "-q", "main"]);
 			commitMarked([["B1", 410, true]]);
-			// A conflicting pick is what leaves CHERRY_PICK_HEAD set; with
-			// `--no-commit` git 2.43 writes none, conflict or not.
 			ignoreFailure(() => git(["cherry-pick", sha]));
 			expect(
 				git(["rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"]).trim(),
@@ -3053,11 +2737,6 @@ describe("the new-entry cap's git readers", () => {
 			]);
 		});
 
-		/*
-		 * The marker's own bullet counts as prose, so the commit that FIRST marks
-		 * an undrainable entry — the act the §B preamble prescribes — would
-		 * otherwise be warned for the marker it was told to write (mantahostels#2050 review).
-		 */
 		it("ignores the commit that first marks an unmarked over-cap entry", () => {
 			commitMarked([["B1", 400, false]]);
 			expect(
@@ -3087,12 +2766,6 @@ describe("the new-entry cap's git readers", () => {
 			expect(result?.map((e: { id: string }) => e.id)).toEqual(["B2", "B1"]);
 		});
 
-		/*
-		 * mantahostels#2227 (the ticket that closed the defeat mantahostels#2050 recorded and left
-		 * unrefused). The block above needs the marker on BOTH sides, so
-		 * dropping it leaves that list; assertion 21 sees a missing marker only
-		 * below the cap.
-		 */
 		describe("droppedExemptionMarkers", () => {
 			it("is null where HEAD holds no copy, never an empty list", () => {
 				expect(
@@ -3114,7 +2787,6 @@ describe("the new-entry cap's git readers", () => {
 				).toEqual([{ id: "B1", words: 380, exemptedAt: 1911 }]);
 			});
 
-			/* The sanctioned drain: the §B preamble asks for exactly this. */
 			it("ignores an entry drained under the cap in the same commit", () => {
 				commitMarked([["B1", 400, true]]);
 				expect(
@@ -3136,14 +2808,6 @@ describe("the new-entry cap's git readers", () => {
 				).toEqual([]);
 			});
 
-			/*
-			 * A downgraded marker reads as null to `entryExemptedAt`, so it is a
-			 * drop here as well as assertion 23's malformed line — deliberate: 23
-			 * says the line does not parse, this says the baseline went with it.
-			 *
-			 * The reported count falls by the marker's own words: indenting turns
-			 * it into a sub-bullet, which `entryProseWords` does not count.
-			 */
 			it("reads an indented marker as dropped", () => {
 				commitMarked([["B1", 400, true]]);
 				const indented = markedDoc([["B1", 400, true]]).replace(
@@ -3155,13 +2819,6 @@ describe("the new-entry cap's git readers", () => {
 				]);
 			});
 
-			/*
-			 * HEAD alone, and NOT assertion 22's `readParentRevs()` — the header's
-			 * reason. Any-parent would charge every merge of a long-lived branch
-			 * for a drop that happened, and was warned, on `main` weeks earlier.
-			 * The price is this case: the drop the merge itself resolves is
-			 * invisible.
-			 */
 			it("ignores a marker only the other parent carried, mid-merge", () => {
 				commitMarked([["B1", 400, false]]);
 				git(["checkout", "-qb", "other"]);
@@ -3182,7 +2839,6 @@ describe("the new-entry cap's git readers", () => {
 				).toEqual([]);
 			});
 
-			/* The cap test is `<=`, and the cap is the whole subject. */
 			it("ignores an entry drained to exactly the cap", () => {
 				commitMarked([["B1", 400, true]]);
 				expect(
@@ -3203,7 +2859,6 @@ describe("the new-entry cap's git readers", () => {
 				).toEqual([{ id: "B1", words: PROSE_CAP_WORDS + 1, exemptedAt: 1911 }]);
 			});
 
-			/* A deletion, which the permanent-id rule governs. */
 			it("ignores a marked entry the working text no longer holds", () => {
 				commitMarked([
 					["B1", 400, true],
@@ -3214,12 +2869,6 @@ describe("the new-entry cap's git readers", () => {
 				).toEqual([]);
 			});
 
-			/*
-			 * The three-commit defeat end to end. Only the drop warns: the growth
-			 * commit is unmarked on both sides, and the re-marking is exempt as a
-			 * first marking, so each later step must be silent here AND in
-			 * `grownExemptEntries`.
-			 */
 			it("warns on the drop alone across the drop / grow / re-mark sequence", () => {
 				commitMarked([["B1", 400, true]]);
 				expect(
@@ -3292,12 +2941,6 @@ describe("the new-entry cap's git readers", () => {
 			).toEqual(["B2"]);
 		});
 
-		/*
-		 * The reason the cheap `git log -p` pass alone is wrong: moving an entry
-		 * adds the same `+### B<n>` line a birth does — which is exactly what
-		 * move-stray-doc-map-entries.js does to a stray. The parent-blob check is
-		 * what tells them apart.
-		 */
 		it("does not read a MOVED entry as a birth", () => {
 			commit(
 				[
@@ -3339,8 +2982,6 @@ describe("the new-entry cap's git readers", () => {
 	});
 });
 
-/* §A rendering (mantahostels#1863). check-doc-map.js's assertion 17 gates the committed
- * map against exactly this output. */
 describe("Section A rendering", () => {
 	const entry = (over: Record<string, unknown> = {}) => ({
 		section: "Research runs",
@@ -3352,7 +2993,6 @@ describe("Section A rendering", () => {
 		...over,
 	});
 
-	/** A doc map whose §A holds one register table under one heading. */
 	const map = (rows: string[], section = "Research runs") =>
 		[
 			"# Doc map",
@@ -3375,7 +3015,6 @@ describe("Section A rendering", () => {
 			"",
 		].join("\n");
 
-	/** The §A row `renderSectionA` renders for `p` alone in a table subsection. */
 	const renderedRow = (p: string, e: Record<string, unknown>): string =>
 		renderSectionA(map([], "Book notes"), {
 			[p]: { ...e, section: "Book notes" },
@@ -3384,7 +3023,6 @@ describe("Section A rendering", () => {
 			.find((l: string) => l.startsWith(`| \`${p}\` |`)) ??
 		expect.fail(`no rendered row for ${p}`);
 
-	/** The Role cell `p` renders with when its sidecar entry sets none. */
 	const defaultRole = (p: string) => renderedRow(p, entry()).split(" | ")[1];
 
 	describe("the default Role", () => {
@@ -3395,8 +3033,6 @@ describe("Section A rendering", () => {
 		});
 
 		it("takes a SKILL.md's title from its directory, not its filename", () => {
-			// Every one of them is called SKILL.md, so the stem alone renders
-			// dozens of identical rows.
 			expect(defaultRole(".claude/skills/tdd/SKILL.md")).toBe("Tdd — skill");
 		});
 
@@ -3457,8 +3093,6 @@ describe("Section A rendering", () => {
 		});
 
 		it("names an adopter's own folder only through its sidecar role (#446)", () => {
-			// mantahostels renamed docs/brand_assets/ to docs/brand-assets/; a
-			// core-held noun for either spelling drifts the adopter's §A.
 			expect(defaultRole("docs/brand-assets/*")).toBe(
 				"Every file under `docs/brand-assets/`",
 			);
@@ -3524,11 +3158,9 @@ describe("Section A rendering", () => {
 				entry({ role: "quotes `a \\| b`" }),
 			);
 			expect(line).toContain("`a \\\\\\| b`");
-			// A break is a `|` behind an even run of `\`.
 			expect(line.match(/(?<!\\)(?:\\\\)*\|/g)).toHaveLength(6);
 		});
 
-		/* mantahostels#2419: `consumes` typed as a reference list. */
 		it("renders each kind in the form §A prints it, joined ` · `", () => {
 			expect(
 				renderedRow(
@@ -3648,8 +3280,6 @@ describe("Section A rendering", () => {
 			).toHaveLength(1);
 		});
 
-		/* The capture is the three printed shapes, so ordinary prose opening
-		 * `with ` is not faulted for scoping back to a word (mantahostels#2647 review). */
 		it("reads prose opening `with ` as prose, not a malformed prefix", () => {
 			expect(
 				pairScopeFaults(
@@ -3665,7 +3295,6 @@ describe("Section A rendering", () => {
 			).toEqual([]);
 		});
 
-		/* Shape is assertion 25's, and reporting it here too prints `undefined`. */
 		it("leaves an element of an unknown kind to the shape assertion", () => {
 			expect(
 				pairScopeFaults(
@@ -3689,7 +3318,6 @@ describe("Section A rendering", () => {
 		});
 
 		it("reads the prefix only at the gloss's head, never mid-sentence", () => {
-			/** `gloss`'s faults as the cell's first reference, where any prefix is one. */
 			const firstFaults = (gloss?: unknown) =>
 				pairScopeFaults(cell([{ kind: "issue", ref: "1564", gloss }]));
 			expect(firstFaults("the rule it works with §B243: not a prefix")).toEqual(
@@ -3711,9 +3339,6 @@ describe("Section A rendering", () => {
 	});
 
 	describe("rendering §A into the map", () => {
-		/* `Research runs` renders as a list (mantahostels#2743), so the table's own
-		 * behaviour is asserted through a subsection that is not in
-		 * LIST_SECTIONS. */
 		const tableSection = "Book notes";
 		const tableMap = (rows: string[]) => map(rows, tableSection);
 		const tableEntry = (over: Record<string, unknown> = {}) =>
@@ -3787,9 +3412,6 @@ describe("Section A rendering", () => {
 		});
 	});
 
-	/* mantahostels#2743. `Research runs` renders one path per line between two markers, its
-	 * one class stated once on the opening marker, and Role, Update route and
-	 * Consumes left in the sidecar. */
 	describe("rendering a LIST_SECTIONS subsection", () => {
 		it("renders paths as a marked list carrying the class once", () => {
 			const out = renderSectionA(
@@ -3887,8 +3509,6 @@ describe("Section A rendering", () => {
 			expect(registerPaths(stray)).toEqual([]);
 		});
 
-		/* An unclosed marker is bounded at the next heading, in the renderer and
-		 * in the parser alike. */
 		describe("an unclosed register-list marker", () => {
 			const unclosed = [
 				"# Doc map",
@@ -4057,8 +3677,6 @@ describe("Section A rendering", () => {
 			expect(() => loadDocClasses(f)).toThrow(/section/);
 		});
 
-		/* `consumes` takes two states — null and the typed reference list
-		 * (mantahostels#2419, narrowed from three at mantahostels#2534). */
 		it("takes a typed reference list and a null, and nothing else", () => {
 			expect(() =>
 				loadDocClasses(
@@ -4118,7 +3736,6 @@ describe("Section A rendering", () => {
 			).toThrow(/gloss/);
 		});
 
-		/* "No override" stays exactly one state (`null`), never two. */
 		it("refuses a `consumes` present but empty", () => {
 			const f = writeRawSidecar({
 				"docs/research/a.md": entry({ consumes: [] }),

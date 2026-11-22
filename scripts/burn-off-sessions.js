@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-/**
- * burn-off-sessions.js — move every live background session still running on
- * a model only burn mode uses (lib/model-table.js's isRoutedAway) back to its
- * standard row's model, for `scripts/burn-mode.sh off` (#4992). A program of
- * its own rather than a lib/burn-mode.js mode: it stops and launches
- * sessions, which the table module never does.
- *
- * Claude Code reads its model once, at startup, so `off` alone leaves a
- * session launched under burn mode on burn mode's model until it ends,
- * handing that model to its forks. Each one found is resumed under its own id through the refill
- * loop's own resume (lib/refill-resume.js `resumeOwnId`): its job stopped and
- * retired, then `claude --bg --resume` with its saved launch flags, whose
- * `--model` the model table moves to the standard row now the marker is gone. Its
- * conversation, name and id carry over, and so do its issue claims.
- *
- *   node scripts/burn-off-sessions.js [--dry-run]
- *
- * A session is judged by the model its transcript last answered on; a
- * finished job is never woken. Refuses with exit 2 while the marker still
- * exists. Exit 1 where any session may still be routed away: one not moved, the
- * session running this (it cannot resume itself), or one whose model will not
- * read — each named with why.
- */
 const { caught } = require("./lib/caught.js");
 const { readLiveSessions } = require("./lib/burn-off-listing.js");
 const { isBurnMarkerOn } = require("./lib/burn-mode.js");
@@ -43,10 +20,7 @@ const PROMPT = `Burn mode is off, so this session moved off burn mode's model to
  *   out: (line: string) => void, err: (line: string) => void}} MoveContext
  */
 
-/**
- * The command line, or the exit code it ends on: 0 for --help, 2 refused.
- * @returns {{dryRun: boolean} | number}
- */
+/** @returns {{dryRun: boolean} | number} */
 function readArgs() {
 	try {
 		const { values } = parseArgs({
@@ -66,10 +40,9 @@ function readArgs() {
 }
 
 /**
- * Move one routed-away session to its standard model, or say why not.
  * @param {LiveSession} s
  * @param {MoveContext} how
- * @returns {boolean} false where the session may still be routed away
+ * @returns {boolean}
  */
 function moveOne(s, how) {
 	const label = `${s.name || s.sessionId} (${s.seat})`;
@@ -102,7 +75,6 @@ function moveOne(s, how) {
 }
 
 /**
- * Every live session that may be routed away: on such a model, or of a model unread.
  * @param {LiveSession[]} sessions
  * @param {(line: string) => void} err
  * @returns {{routedAway: LiveSession[], unread: number}}

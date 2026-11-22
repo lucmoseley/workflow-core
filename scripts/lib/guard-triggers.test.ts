@@ -1,23 +1,12 @@
 // @vitest-environment node
-/*
- * The census denominator turns on this file getting two things right: which
- * tool calls settings.json routes to a guard, and saying `unknown` rather than
- * zero where it cannot tell. An under-counted denominator inflates every deny
- * rate derived from it, and a zero denominator reads as "measured, never
- * denies" — the exact failure mantahostels#3261's table names as its own weak limb.
- *
- * The fixtures are settings-shaped objects, not the repo's own settings.json:
- * a test asserting the live wiring would fail on any legitimate rewiring.
- * `docs/data/lost-deny-true-invocations-2026-09-06.csv` carries the reading of
- * the live file that the census actually used.
- */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { firesOn, triggerRows, triggerTable } from "./guard-triggers";
 
-/** One scripts directory holding a deny-capable guard and one that is not. */
+type TableOptions = NonNullable<Parameters<typeof triggerTable>[2]>;
+
 let guardDirs: string[];
 
 beforeAll(() => {
@@ -37,7 +26,6 @@ function settings(hooks: unknown) {
 	return { hooks } as Record<string, unknown>;
 }
 
-/** One PreToolUse registration, in settings.json's own shape. */
 function pre(matcher: string, command: string, ifClause?: string) {
 	return {
 		matcher,
@@ -45,7 +33,6 @@ function pre(matcher: string, command: string, ifClause?: string) {
 	};
 }
 
-/** The deny-capable guard's trigger, registered on Bash under one `if`. */
 function guardedBy(ifClause: unknown) {
 	const row = triggerTable(
 		settings({
@@ -62,7 +49,6 @@ function guardedBy(ifClause: unknown) {
 	return row;
 }
 
-/** Does a Bash call running `command` reach a guard whose `if` is `Bash(glob)`? */
 const reaches = (glob: string, command: string) =>
 	firesOn(guardedBy(`Bash(${glob})`), "Bash", command);
 
@@ -75,7 +61,6 @@ describe("an if clause's glob", () => {
 	it("reads a trailing * as a prefix match", () => {
 		expect(reaches("git *", "git status")).toBe(true);
 		expect(reaches("git *", "gitk")).toBe(false);
-		// `git *` needs something after the space: a bare `git` is not a match.
 		expect(reaches("git *", "git ")).toBe(true);
 		expect(reaches("git *", "git")).toBe(false);
 	});
@@ -131,9 +116,6 @@ describe("triggerTable — which guards get a row", () => {
 			guardDirs,
 		);
 		expect([...table.keys()]).toEqual(["denier.sh"]);
-		// Only the PreToolUse registration: a deny is issued on that event alone,
-		// and the same script wired on PostToolUse or Stop adds no invocation the
-		// census can lose a deny on.
 		expect(table.get("denier.sh")?.rules).toHaveLength(1);
 	});
 
@@ -181,8 +163,6 @@ describe("triggerTable — scope (mantahostels#3350)", () => {
 	});
 
 	it("derives a non-deny guard's routes exactly as a deny-capable one's", () => {
-		// The point of the extension: only the population moves, so a nondeny
-		// denominator is comparable with a deny one.
 		const warner = triggerTable(both, guardDirs, { scope: "nondeny" }).get(
 			"warner.sh",
 		);
@@ -206,14 +186,14 @@ describe("triggerTable — scope (mantahostels#3350)", () => {
 
 	it("refuses an unknown scope rather than narrowing to the default", () => {
 		expect(() =>
-			// @ts-expect-error — the refusal is for a caller that got it wrong.
-			triggerTable(both, guardDirs, { scope: "warn" }),
+			triggerTable(both, guardDirs, {
+				scope: "warn",
+			} as unknown as TableOptions),
 		).toThrow(/unknown scope/);
 	});
 });
 
 describe("triggerTable — event (mantahostels#3356)", () => {
-	/** One PostToolUse registration, in settings.json's own shape. */
 	function post(matcher: string, command: string, ifClause?: string) {
 		return {
 			matcher,
@@ -264,9 +244,6 @@ describe("triggerTable — event (mantahostels#3356)", () => {
 	});
 
 	it("calls no PostToolUse guard deny-capable, whatever its source says", () => {
-		// `denier.sh` spells a deny verdict; registered after the call has
-		// already run, it can deny nothing, and a true reading there would put it
-		// in `lib/guard-deny-rates.js`'s staleness report as an unpinned denier.
 		const table = triggerTable(
 			settings({ PostToolUse: [post("Bash", "scripts/denier.sh")] }),
 			guardDirs,
@@ -277,8 +254,10 @@ describe("triggerTable — event (mantahostels#3356)", () => {
 
 	it("refuses an event that fires on no tool call", () => {
 		expect(() =>
-			// @ts-expect-error — the refusal is for a caller that got it wrong.
-			triggerTable(mixed, guardDirs, { event: "Stop", scope: "all" }),
+			triggerTable(mixed, guardDirs, {
+				event: "Stop",
+				scope: "all",
+			} as unknown as TableOptions),
 		).toThrow(/unknown event/);
 	});
 
@@ -333,8 +312,6 @@ describe("triggerTable — unknown, never zero", () => {
 	});
 
 	it("marks a guard unknown where its `if` names a tool alternation", () => {
-		// `firesOn` compares the tool name literally, so `Write|Edit(x)` would
-		// match no tool at all and narrow the denominator to nothing in silence.
 		const table = triggerTable(
 			settings({
 				PreToolUse: [pre("Write|Edit", "scripts/denier.sh", "Write|Edit(x)")],
@@ -397,7 +374,6 @@ describe("triggerTable — unknown, never zero", () => {
 });
 
 describe("firesOn", () => {
-	/** denier.sh's row, or a thrown error: an absent row is a broken fixture. */
 	const trigger = (hooks: unknown) => {
 		const row = triggerTable(settings(hooks), guardDirs).get("denier.sh");
 		if (!row) throw new Error("fixture has no denier.sh row");
@@ -450,10 +426,6 @@ describe("firesOn", () => {
 	});
 
 	it("never fires for an unknown guard even where one registration reads fine", () => {
-		// The dangerous case: the readable registration would match everything, so
-		// without the unknown short-circuit the guard reports a full population and
-		// a rate computed on a denominator that is missing whatever the unreadable
-		// registration would have added.
 		const t = trigger({
 			PreToolUse: [
 				pre("Bash", "scripts/denier.sh"),
@@ -499,8 +471,6 @@ describe("triggerRows", () => {
 	});
 
 	it("spells every-tool as * however settings.json wrote it (mantahostels#3296)", () => {
-		// `*`, `""` and an absent matcher are one route to Claude Code, so they
-		// are one spelling here — in both fields.
 		for (const reg of [
 			pre("*", "scripts/denier.sh"),
 			pre("", "scripts/denier.sh"),
@@ -540,8 +510,6 @@ describe("triggerRows", () => {
 	});
 
 	it("suppresses the routes whichever way the guard became unknown (mantahostels#3296)", () => {
-		// An unreadable MATCHER is the other route to `unknown`, and the
-		// suppression must not be keyed to the `if` path alone.
 		const rows = triggerRows(
 			triggerTable(
 				settings({

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what one guard-lost-verdict.js call costs on the common path: the repo
- * modules it loads and the processes it starts (base §G13, #5338). The
- * shipped hooks/hooks.json runs it unnarrowed on every Bash call's
- * PostToolUse and PostToolUseFailure, so each module or child past what the
- * call needs is paid on every Bash call of every session.
- *
- * Program cases (base §X3), run through lib/call-cost-harness.js in
- * lib/hook-cost-testkit.ts's fixture repo. Which run's verdict is handed
- * over is guard-lost-verdict.test.ts's and lib/lost-verdict.test.ts's.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -31,7 +20,6 @@ afterEach(() => {
 	fs.rmSync(fx.dir, { recursive: true, force: true });
 });
 
-/** One guard call on a plain `ls`'s `payload`, as the harness sends it. */
 const guard = (payload: Record<string, unknown>) =>
 	callCost(ENTRY, [], {
 		cwd: fx.repo,
@@ -48,16 +36,13 @@ const guard = (payload: Record<string, unknown>) =>
 	});
 
 describe("guard-lost-verdict.js's per-call cost (#5338)", () => {
-	// The hot-path entry: the PostToolUse Bash line. The common call: a plain
-	// `ls` that listed the tree.
 	it("costs a plain Bash call under PostToolUse these modules and starts", () => {
 		const r = guard({
 			hook_event_name: "PostToolUse",
 			tool_response: { stdout: "README.md\n", stderr: "" },
 		});
 		expect(r.stdout).toBe("");
-		// The module set and the child list are internals, asserted because
-		// no output shows the start-up cost they guard (base §X6, #1497).
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-lost-verdict.js",
 			"lib/arbiter-proc.js",
@@ -128,8 +113,6 @@ describe("guard-lost-verdict.js's per-call cost (#5338)", () => {
 		expect(r.children).toEqual(["git rev-parse"]);
 	});
 
-	// The hot-path entry: the PostToolUseFailure Bash line. The common call:
-	// a plain `ls` that exited non-zero.
 	it("costs a plain failed Bash call under PostToolUseFailure these modules and starts", () => {
 		const r = guard({
 			hook_event_name: "PostToolUseFailure",
@@ -138,7 +121,7 @@ describe("guard-lost-verdict.js's per-call cost (#5338)", () => {
 			is_interrupt: false,
 		});
 		expect(r.stdout).toBe("");
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-lost-verdict.js",
 			"lib/arbiter-proc.js",

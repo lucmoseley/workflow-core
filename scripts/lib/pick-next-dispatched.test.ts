@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what pick-next decides about an issue the launcher already dispatched
- * (mantahostels#1528): which ledger entry holds it on its current `takes:`
- * value (#752), the launch's age as the exclusion reads it, and whether the
- * launch's own job is still alive (mantahostels#3488) — #4329.
- *
- * Loosen a case and a run offers an issue the launcher will drop at launch, or
- * prints a finished launch as live and a reader never chases it.
- */
 import { describe, expect, it } from "vitest";
 
 const {
@@ -77,8 +68,6 @@ describe("whether the dispatched launch's own job is still alive (mantahostels#3
 	const jobs = [job("job1", { state: "done", sessionId: "worker1" })];
 
 	it("reads finished: done off a job whose own state.json reads done", () => {
-		// No oracle entry at all: a finished job can fall out of `claude agents
-		// --json` on its own, and its own record is trusted outright.
 		expect(
 			dispatchLiveness(entry({ jobId: "job1" }), listed(["self"]), jobs),
 		).toEqual({ state: "finished", detail: "done" });
@@ -118,7 +107,6 @@ describe("whether the dispatched launch's own job is still alive (mantahostels#3
 	});
 
 	it("prints unknown with its reason in the text table's liveness cell on a pre-mantahostels#3488 entry with no job id, and no reason after live or finished", () => {
-		// Moved from scripts/pick-next-claims.test.ts (#4382).
 		const cell = (rec: ReturnType<typeof entry>, ids: string[], js = jobs) =>
 			dispatchLivenessCell(dispatchLiveness(rec, listed(ids), js));
 		expect(cell(entry(), ["self", "worker1"])).toBe(

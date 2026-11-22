@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Each run's private temp root (#5083): made under the real temp dir with its
- * owner's pid in the name, removed whole, and swept at a wrapper's start once
- * that pid is dead. Loosen a case and a killed run's fixtures stay in `/tmp`,
- * or a live run loses its root mid-run.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -51,7 +45,6 @@ describe("removeRunRoot", () => {
 	});
 });
 
-/* Above Linux's pid_max ceiling of 2^22, so no process holds it. */
 const DEAD_PID = 999_999_999;
 
 function staleRoot(dir: string, ageMs = STALE_MS + 1000) {
@@ -93,8 +86,6 @@ describe("sweepDeadRunRoots", () => {
 		const at = tmp();
 		const dead = staleRoot(path.join(at, `wfc-pytest-${DEAD_PID}-abcdef`));
 		const live = staleRoot(path.join(at, `wfc-pytest-${process.pid}-abcdef`));
-		/* A path that is no test file: the wrapper runs no test, and returns
-		 * in under a second. */
 		const r = keptSpawn("boundary").spawnSync(
 			process.execPath,
 			[
@@ -103,8 +94,6 @@ describe("sweepDeadRunRoots", () => {
 			],
 			{ env: { ...process.env, TMPDIR: at }, encoding: "utf8" },
 		);
-		/* The wrapper's exit for a path that holds no test; a crash would
-		 * print `run-pytest:` with its stack. */
 		expect(r.status).toBe(1);
 		expect(r.stderr).not.toMatch(/run-pytest:|run-temp-root:/);
 		expect(fs.existsSync(dead)).toBe(false);

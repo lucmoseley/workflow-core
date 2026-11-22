@@ -1,26 +1,4 @@
 #!/usr/bin/env bash
-# Installs the Windows-side WSL interop watchdog. Idempotent: safe to re-run,
-# and re-running is how you deploy a change to watchdog.ps1.
-#
-# WHAT IT INSTALLS
-#   C:\Users\<you>\wsl-interop-watchdog\{watchdog.ps1,launcher.vbs,task.xml}
-#   Scheduled task "WSL Interop Watchdog" - at logon + every 2 minutes.
-#   C:\Users\<you>\wsl-interop-watchdog\compact-disk.ps1
-#   Scheduled task "WSL Disk Compaction" - elevated, no trigger (#5044):
-#     registered with one UAC prompt where it is absent or its arguments moved.
-#   User timer wsl-disk-compaction.timer - daily at 02:00, runs
-#     scripts/wsl-disk-compaction.js run, which starts that task once due and
-#     no session is live.
-#
-# The watchdog task never runs `wsl --shutdown`: a false positive would kill live
-# background Claude sessions, which is worse than the fault it guards. It does
-# boot the default distro when the VM is down (launcher.vbs). See
-# docs/environment.md §9 for the incident, the recovery and the keep-alive.
-#
-# The companion shell-side guard is scripts/claude-interop-guard.sh, sourced
-# from ~/.bashrc. That one stops a doomed launch; this one catches a wedge that
-# happens mid-session, when no new launch is coming.
-
 set -euo pipefail
 
 TASK_NAME='WSL Interop Watchdog'
@@ -39,14 +17,12 @@ SCHTASKS='/mnt/c/Windows/System32/schtasks.exe'
   exit 1
 }
 
-# Identity of the Windows user this task runs as.
 win_user="$(/mnt/c/Windows/System32/whoami.exe | tr -d '\r')"
 win_sid="$("$PS" -NoProfile -Command \
   '[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value' | tr -d '\r')"
 win_profile="$("$PS" -NoProfile -Command '$env:USERPROFILE' | tr -d '\r')"
 
 install_win="${win_profile}\\wsl-interop-watchdog"
-# Translate the Windows profile path to something WSL can write to.
 install_wsl="$("$PS" -NoProfile -Command '$env:USERPROFILE' | tr -d '\r' |
   sed -e 's|\\|/|g' -e 's|^\([A-Za-z]\):|/mnt/\L\1|')/wsl-interop-watchdog"
 
@@ -58,14 +34,12 @@ cp "$SRC_DIR/watchdog.ps1" "$SRC_DIR/launcher.vbs" "$SRC_DIR/compact-disk.ps1" "
 
 tmp_xml="$(mktemp)"
 trap 'rm -f "$tmp_xml"' EXIT
-# Backslashes must be doubled in a sed replacement, or GNU sed reads DOMAIN\user
-# as an escape sequence and silently eats the separator (\l lowercases instead).
+# GNU sed reads \l in a replacement as an escape that lowercases the next character: https://www.gnu.org/software/sed/manual/html_node/The-_0022s_0022-Command.html
 sed -e "s|@@USERDOMAINUSER@@|${win_user//\\/\\\\}|" \
   -e "s|@@USERSID@@|${win_sid}|" \
   -e "s|@@INSTALLDIR@@|${install_win//\\/\\\\}|" \
   "$SRC_DIR/task.xml.template" >"$tmp_xml"
 
-# schtasks requires the definition as UTF-16LE with a BOM.
 {
   printf '\xff\xfe'
   iconv -f UTF-8 -t UTF-16LE "$tmp_xml"
@@ -81,14 +55,9 @@ echo
 	'NextRunTime : ' + \$i.NextRunTime
 " | tr -d '\r'
 
-# --- the monthly disk compaction (#5044) ------------------------------------
-
 COMPACT_TASK='WSL Disk Compaction'
-# The main checkout, never a linked worktree a prune would delete.
 repo="$(cd "$SRC_DIR/../.." && git rev-parse --path-format=absolute --git-common-dir)"
 repo="${repo%/.git}"
-# The registered task's arguments, empty where it is absent. A missing task
-# exits PowerShell 1 even with its error silenced, hence the exit 0.
 registered_args() {
   "$PS" -NoProfile -Command "\$t = Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue; if (\$t) { \$t.Actions[0].Arguments }; exit 0" | tr -d '\r'
 }
@@ -98,7 +67,6 @@ want="$("$PS" -NoProfile -ExecutionPolicy Bypass -File "$compact_ps1" -PrintArgs
 have="$(registered_args)"
 if [[ "$have" != "$want" ]]; then
   echo "Registering '$COMPACT_TASK' elevated: accept the UAC prompt on the Windows desktop."
-  # A declined prompt fails Start-Process; the check below says so.
   "$PS" -NoProfile -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${compact_ps1}','-Register','-WslUser','$USER','-Repo','$repo'" || true
   have="$(registered_args)"
   [[ "$have" == "$want" ]] || {
@@ -108,8 +76,6 @@ if [[ "$have" != "$want" ]]; then
 fi
 
 node_bin="$(command -v node)"
-# The unit's own PATH lacks ~/.local/bin and nvm's, where claude (session
-# liveness) and node live; gh is the sparse watch's.
 unit_path=""
 for bin in node claude gh; do
   found="$(command -v "$bin")" || {
@@ -119,7 +85,6 @@ for bin in node claude gh; do
   unit_path+="${found%/*}:"
 done
 unit_path+="/usr/local/bin:/usr/bin:/bin"
-# The units take these unquoted, so a space or quote would split them.
 for p in "$node_bin" "$repo" "$unit_path"; do
   [[ "$p" =~ ^[A-Za-z0-9_./@+:-]+$ ]] || {
     echo "error: cannot write a unit naming '$p': only plain path characters are taken." >&2

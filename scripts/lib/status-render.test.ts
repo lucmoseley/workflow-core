@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the STANDINGS print rule (#4107): a standing's body prints under its
- * OK, while its SKIP and any other checker's OK go to the clean list. Breaking
- * it either buries a standing the founder reads on a clean run, or floods the
- * report with every clean checker's body.
- */
 
 import { describe, expect, it } from "vitest";
 import { render } from "./status-render.js";

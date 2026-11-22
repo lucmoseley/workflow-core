@@ -1,11 +1,3 @@
-/*
- * The morning review scripts' shared fixture (#2011, #2017): a fixture home
- * with one included checkout, `wfc`, filing on acme/wfc, and a stub `gh` over
- * its review issues, closes, labelled issues and comments. Each script's test
- * drives its own script against it; lib/morning-review-filing.test.ts drives
- * the core with the same handler answering in-process (`ghPort`, #5148).
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,29 +29,6 @@ const CREATE_FAILED = path.join(
 	"fixtures/gh/issue-create-no-repo.json",
 );
 
-/**
- * The handler `serveGhStub` runs per call: `gh` over one tracker's review issues (`reviews.json`), closes
- * (`closed.json`), and open `urgent` and `parked` issues (`urgent.json`,
- * `parked.json`) with their timelines (`timelines.json`, `"fail"` failing a read), the idle alarm's
- * GraphQL read of its open issues (`idle.json`'s nodes), logging every call
- * to `calls.log`. A review's create appends to `reviews.json`, so a second
- * run sees the first's issue, and fails where `fail-review-create` exists; a
- * comment appends to its issue there unless `fail-comment` exists. Every create is written to
- * `created-<number>.json`, which the issues-since read serves, failing where
- * `fail-issues-since` exists and answering empty once where `empty-issues-since`
- * does; `fail-after-create` makes a create land and report failure. The closes
- * read fails where `fail-closes` exists, and once where `fail-closes-once` does.
- * The review issues' list fails where `fail-reviews` exists, and the labels
- * list answers empty where `no-labels` does.
- * file-issue.js's similar-title list holds enough unrelated titles that a
- * lookalike scores above the cut, and an open one, #1995, where `lookalike`
- * exists.
- *
- * It routes its own calls (#3833) because `stubGhRoutes` fixes each key's answer
- * when the table is written, and these change within a run. A table hands no
- * call on, so the reads that stay fixed stay here too. It is served from one
- * process (#4311). Each answer comes from a recording gh.contract.test.ts holds.
- */
 const Handler = `
 ${RECORDED_SHAPES}
 const fs = require("node:fs");
@@ -137,13 +106,6 @@ export const HOUR = 60 * 60 * 1000;
 const CORE = path.resolve(__dirname, "..", "..");
 const BASE_DOC = "docs/code-standards-base.md";
 
-/**
- * The core as `WFC_SCRIPT_ROOT` (lib/script-path.js), every entry linked to the
- * real one but the base standards file, whose primitives table names no program
- * as an Enforcing check. check-primitives.js then judges the real rows and
- * prints its count line without starting a node per check (#4311);
- * check-primitives.test.ts pins the counting itself.
- */
 function countFreeCore(dir: string) {
 	for (const name of fs.readdirSync(CORE))
 		if (name !== "docs")
@@ -176,14 +138,8 @@ function countFreeCore(dir: string) {
 	fs.writeFileSync(at, text.slice(0, table) + rows + text.slice(end));
 }
 
-/** What every fixture in a test file shares: the handler's server and the count-free core. */
 let shared: { server: GhStubServer; core: string } | undefined;
 let state: "unregistered" | "registered" | "closed" = "unregistered";
-/**
- * Registers the file's one build and teardown at the first fixture call, and
- * returns a getter that throws outside them: a fixture called inside a
- * `describe` scopes them there, and a later caller would read a closed server.
- */
 function sharedState() {
 	if (state === "unregistered") {
 		state = "registered";
@@ -210,8 +166,6 @@ function sharedState() {
 	};
 }
 
-/* Under heldGh alone: the first create after `hold-create` is written renames
- * it to `holding` and waits for `release`, so its program is seen mid-answer. */
 const Hold = `
 if (argv[0] === "issue" && argv[1] === "create") {
 	const at = (n) => require("node:path").join(env.STUB_DIR, n);
@@ -228,7 +182,6 @@ export function morningReviewFixture(
 	sb: ReturnType<typeof freshSandbox>,
 	script: string,
 ) {
-	/** The fixture home: one included checkout, `wfc`, filing on acme/wfc. */
 	const home = () => path.join(sb.dir, "fixture-home");
 	const wfc = () => path.join(home(), "wfc");
 	const stub = (name: string) => path.join(sb.dir, "gh", name);
@@ -275,7 +228,6 @@ export function morningReviewFixture(
 		fs.writeFileSync(stub("parked.json"), "[]");
 		fs.writeFileSync(stub("timelines.json"), "{}");
 		fs.writeFileSync(stub("idle.json"), "[]");
-		/* One earlyoom kill 3 h ago, its incident ticketed as #61. */
 		const killedAt = Date.now() - 3 * HOUR;
 		writeJournalctl(path.join(sb.dir, "gh"), [
 			buildEarlyoomReadingLine(killedAt),
@@ -305,7 +257,6 @@ export function morningReviewFixture(
 		);
 	}
 
-	/** `WFC_GH` as the handler started per call, which `hold-create` can stop mid-answer. */
 	const heldGh = () =>
 		stubGhHandler(path.join(sb.dir, "held"), `{${Hold}}\n${Handler}`).env;
 
@@ -323,14 +274,12 @@ export function morningReviewFixture(
 		MEMWATCH_MINUTE_LOG: refillFile("memwatch-minute.jsonl"),
 	});
 
-	/** The core's gh port: the handler `WFC_GH` serves, answered in this process. */
 	const ghPort = () =>
 		buildHandlerPort(Handler, {
 			env: { STUB_DIR: path.join(sb.dir, "gh") },
 			cwd: wfc(),
 		});
 
-	/** The environment a filing reads, set on this process for a module case. */
 	const stubRunEnv = () => {
 		const env = runEnv();
 		for (const key of [

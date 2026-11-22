@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The check-interop-latency.js program (#3564): its adapters crossed once for
- * real, and its outcomes and exits. A reg.exe sleeping 3 s reads DEGRADED
- * with its latencies and writes one evidence record of every field, read
- * through the real fs, dmesg, typeperf and /proc adapters; a fast one reads
- * OK and prints nothing at session start; no reg.exe is a silent SKIP; a bad
- * flag is BROKEN. The judging itself is lib/interop-latency.test.ts's.
- *
- * reg.exe is lib/reg-fake.ts's, typeperf.exe lib/typeperf-fake.ts's, dmesg
- * lib/dmesg-fake.ts's and /proc lib/proc-fake.ts's, so no case crosses the
- * machine's own bridge.
- *
- * It is a SessionStart `--notify` hook: loosen a case and a degraded bridge
- * reads as load again, or every healthy start prints a warning.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,11 +11,8 @@ import { writeTypeperf } from "./lib/typeperf-fake";
 
 const SCRIPT = path.join(__dirname, "check-interop-latency.js");
 
-/** #3564's degraded readings. */
 const SAMPLE = { cpuPct: 62.5, availableMb: 1700, vmmemBytes: 6.5 * 2 ** 30 };
 
-/* Two queries of a reg.exe sleeping 3 s, plus the evidence reads, against
- * vitest's 5 s default. */
 const DEGRADED_CASE_MS = 20_000;
 
 let dir: string;
@@ -54,7 +36,6 @@ const logPath = () =>
 		".interop-degraded.jsonl",
 	);
 
-/** An arm64 ring holding one order-4 `hvs_probe` failure, as dmesg prints it. */
 function ring(): string[] {
 	const t0 = Date.parse("2026-10-29T02:20:00Z");
 	return [
@@ -94,9 +75,6 @@ describe("a degraded bridge", () => {
 			argv: ["/init", "/mnt/c/Windows/System32/reg.exe", "reg.exe", "query"],
 		});
 		proc.proc(4101, { argv: "/init" });
-		// §X9: crosses the real clock — #3564's acceptance names a reg.exe
-		// sleeping 3 s, and the latency is the reading under test. A sleep
-		// cannot return early, so the 3 s floor cannot flake.
 		const r = run(["--notify"], writeReg(path.join(dir, "reg"), [3]));
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(
@@ -129,8 +107,6 @@ describe("a degraded bridge", () => {
 	it("exits 1 on a plain run, recording an unreadable reading as null, never 0", {
 		timeout: DEGRADED_CASE_MS,
 	}, () => {
-		// §X9: crosses the real clock — 1.1 s is the shortest sleep over the
-		// check's 1 s threshold.
 		const r = run(["--json"], writeReg(path.join(dir, "reg"), [1.1]), {
 			WFC_TYPEPERF: writeTypeperf(path.join(dir, "win-failing"), "failing"),
 			WFC_DMESG: path.join(dir, "no-dmesg"),

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/windows-memory.js (#4557, #4850): Windows' free memory and paging off
- * memwatch's newest minute line, and the hold they put on a launch. Break it and a launch the
- * guest admits pages Windows, as the 6 Nov 2026 freeze did, or a stale reading
- * holds the machine on a figure minutes old.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -49,7 +43,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A minute line as memwatch writes it, `secsAgo` before NOW. */
 const line = (
 	secsAgo: number,
 	win: number | null,
@@ -155,7 +148,6 @@ describe("lib/windows-memory.js", () => {
 		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({ mb: 1500 });
 	});
 
-	/* The floor is 750 MB and the paging line 100,000 pages (#4850, #4852). */
 	it("holds a launch while Windows is under its floor, and admits one at it (#4850)", () => {
 		const at = (mb: number): WindowsRead => ({ state: "fresh", mb, ageS: 30 });
 		expect(windowsShortfall(at(749))).toEqual({ mb: 749 });

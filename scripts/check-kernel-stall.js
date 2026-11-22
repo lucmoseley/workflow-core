@@ -1,78 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-kernel-stall.js — say so when the WSL VM is unhealthy, on either of
- * two signals: an RCU stall on the CURRENT boot (#867), or a frozen scheduler
- * clock right now (#2779).
- *
- * Usage:  node scripts/check-kernel-stall.js [--boot <n>] [--notify] [--json]
- *
- * THE STALL SIGNAL is `rcu: INFO: rcu_<flavour> detected stalls` or `… self-detected
- * stall` in the kernel log since boot.
- *
- * TWO READERS, both scanned: `journalctl -k -b`, whose short-iso stamps give a
- * wall-clock time, then `dmesg -T`, whose ring buffer still holds what a dead
- * journald missed (§7's 4 Oct entry): a journal with lines in it can still be
- * blind to the stall. A reader counts as
- * having read only where it exited 0 and printed a real line: journalctl
- * without permission prints `-- No entries --` and exits 0, and an empty log is
- * not a clean one. Each binary is injected at WFC_JOURNALCTL / WFC_DMESG (§N7).
- *
- * EACH STALL'S FIGURE (#4081) is its `t=<n> jiffies`, in seconds at the kernel's
- * CONFIG_HZ, beside the VM's age and, for a large one, Windows uptime at the
- * stall: the newest Kernel-General Event 12 before it. CLOCK-LEAP names a `t`
- * near that uptime on a young VM, where the VM's clock leapt forward by about
- * the host's uptime; LARGE-T names any other large `t`, giving no cause. Windows
- * is read only once a large `t` is found, and a reading it cannot take leaves the stall reported with that
- * figure unknown. An earlier boot's `t` converts at the running kernel's
- * CONFIG_HZ.
- *
- * THE CLOCK SIGNAL reads the summed `usage_usec` of the cgroup root's direct
- * children and the non-idle ticks in `/proc/stat`, CLOCK_WAIT_MS apart. A backward
- * `sched_clock` step on arm64 holds every run queue's clock still while the CPUs
- * stay busy (#2708), so the clock is frozen where the machine was busy for at least
- * MIN_BUSY_S and the tasks' run time advanced under FROZEN_RATIO of it. --boot reads
- * no clock.
- *
- * WHY THOSE FILES (#4092). A cgroup's figure takes the delta each task's
- * sum_exec_runtime takes (kernel/sched/fair.c update_se), which stops in a freeze
- * (#2681), and keeps an exited task's time, where a sum over tasks loses it.
- * The children, never the root's own file: a true root's figure is built from the
- * tick counters `/proc/stat` reads (kernel/cgroup/rstat.c root_cgroup_cputime), so
- * it would never disagree with them.
- *
- * FAILS OPEN. Neither reader present, permitted or answering inside
- * lib/journalctl.js's READ_TIMEOUT_MS, with no clock read showing a freeze, is
- * SKIP, which --notify prints nothing for. A clock it cannot read is WARN on a plain run, not the SKIP
- * an unavailable subject otherwise is, since `npm run status` hides a SKIP's body;
- * --notify raises nothing for it, as no session can act on the line (#4092). Never
- * FAIL, whose exit would refuse every launch on a kernel lacking the source. The
- * kernel is subject, not apparatus (lib/check.js), and this check must never be why
- * a session or a launch is held up.
- *
- * A STALL OR A FREEZE IS FAIL, so a plain run exits 1 — the exit
- * `scripts/dispatch-sessions.js` refuses a launch on (exit 5, beside the wedged
- * bridge). Under --notify it exits 0 like every session-start reporter and
- * prints the warning.
- *
- * WFC_KERNEL_LOG replaces both readers with a file in journalctl's short-iso
- * shape, the seam lib/proc-root.js's meminfoPath takes WFC_MEMINFO by; it
- * ignores --boot, and an unreadable or empty one is SKIP, as the readers are.
- * WFC_KERNEL_CONFIG replaces /proc/config.gz, and WFC_WEVTUTIL the Windows reader.
- * WFC_SCHED_CLOCK replaces the clock's reads with a directory holding
- * `before/` and `after/`, each with a `cgroup/` root and a `stat` in the real
- * files' shape, and takes no wait.
- *
- * --boot <n> reads an earlier boot, journalctl's offset (-1 the last), for the
- * post-incident question docs/environment.md §8 starts from: the boot that
- * died is never the one a session starts on. journalctl alone reads one —
- * dmesg holds only the current boot. A boot outside the range `journalctl
- * --list-boots` gives this user is named as not in the readable journal
- * (#5299, docs/environment.md §8).
- *
- * IT NEVER RECOVERS ANYTHING. It prints `sync` and `wsl --shutdown` for a human
- * to run; running either itself would kill every live session on a false
- * positive — §9's rule for Guard 2.
- */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -89,52 +15,27 @@ const { sleepSync } = require("./lib/sleep-sync.js");
 
 /** @typedef {{ runtime: number, busy: number }} Clock */
 
-/** Long enough that a healthy machine's ratio stays far above FROZEN_RATIO (#4092). */
 const CLOCK_WAIT_MS = 1000;
 
-/**
- * Under this, the busy time can all be kernel work no cgroup is charged for, so a
- * still sum says nothing. Untraced margin: about twice the largest such gap read
- * in a second, 0.97 CPU-s under writeback at load 9-25, none read on a quiet
- * machine (#4092). A freeze's onset read 6.5-6.9 busy CPU-s a second (#2681).
- */
+// measured 0.97 CPU-s largest uncharged gap, doubled, #4092
 const MIN_BUSY_S = 2;
 
-/**
- * Untraced: below this source's healthy ratio, 0.82-1.25 over 1 s under five loads
- * (#4092), and above frozen, 0 by the kernel source with no frozen sample yet.
- */
+// guess under a measured healthy 0.82-1.25, #4092
 const FROZEN_RATIO = 0.1;
 
 const CGROUP_ROOT = "/sys/fs/cgroup";
 
-/** `/proc/stat`'s tick unit, USER_HZ, which Linux fixes at 100 on arm64 and x86. */
 const USER_HZ = 100;
 
-/**
- * From here a `t` is reported. Untraced, set between the largest figure in a
- * chain of one stall's reprints (466,907 jiffies, 1,867 s) and
- * the smallest large one that fits no chain (1,757,889 jiffies, 7,032 s).
- */
 const LARGE_T_S = 3600;
 
-/**
- * Oldest VM a CLOCK-LEAP is named on. Untraced: about twice the oldest of the
- * three measured leaps, whose VMs were 2.2-5.3 min old (#4081).
- */
+// guess, twice the measured 5.3 min oldest leap VM, #4081
 const YOUNG_VM_S = 600;
 
-/**
- * Widest gap between `t` and Windows uptime a CLOCK-LEAP is named on, as a
- * fraction of uptime. Untraced: about twice the widest of the three measured
- * gaps, 0.02-1.6% (#4081).
- */
+// guess, twice the measured 1.6% widest gap, #4081
 const LEAP_GAP = 0.03;
 
-/**
- * Measured at 0.12 s on 3 Nov 2026; §9's degraded bridge reads 3.9 s a call,
- * which this still clears (#4081).
- */
+// measured 0.12 s, 3.9 s on a degraded bridge, #4081
 const WINDOWS_READ_TIMEOUT_MS = 5000;
 
 /** Measured at about 8 KB for the 11 boots retained on 3 Nov 2026; this is ~130x that (#4081). */
@@ -146,10 +47,8 @@ const UNREADABLE_RESULT = { noun: "unreadable scheduler clock", count: 1 };
 
 const STALL = /\brcu: INFO: rcu_\w+ (?:detected stalls|self-detected stall)/;
 
-/** `(t=9435698 jiffies g=…` or `(detected by 1, t=15002 jiffies, g=…`. */
 const T_FIGURE = /\bt=(\d+) jiffies\b/;
 
-/** A kernel log whose first line is this starts at the boot, so dates the VM. */
 const BOOT_BANNER = /\b(?:Booting Linux|Linux version)\b/;
 
 /** @param {string} boot */
@@ -158,13 +57,11 @@ const readers = (boot) => ({
 		name: "journalctl",
 		read: () =>
 			runJournalctl(["-k", "-b", boot, "--no-pager", "-o", "short-iso"]).stdout,
-		// `2026-10-07T22:43:24+08:00 host kernel: …`
 		time: (/** @type {string} */ line) => line.split(/\s+/)[0],
 	},
 	dmesg: {
 		name: "dmesg",
 		read: () => runBoundedRead(process.env.WFC_DMESG || "dmesg", ["-T"]).stdout,
-		// `[Wed Oct  7 22:43:24 2026] …`
 		time: (/** @type {string} */ line) =>
 			(line.match(/^\[([^\]]+)\]/)?.[1] ?? "").replace(/\s+/g, " "),
 	},
@@ -172,7 +69,6 @@ const readers = (boot) => ({
 /** @typedef {ReturnType<typeof readers>["journal"]} Reader */
 
 /**
- * Every reader that read, with its real lines — empty where none did.
  * @param {string} boot
  * @returns {{ reader: Reader, lines: string[] }[]}
  */
@@ -198,9 +94,6 @@ function readKernelLog(boot) {
 }
 
 /**
- * Seconds of run time summed over `root`'s direct children; null where none reads,
- * which the check reports. One child alone unread is a race with its exit, so it is
- * left out unprinted, and the fall reads as not frozen (#4092).
  * @param {string} root
  * @returns {number | null}
  */
@@ -209,7 +102,6 @@ function readRuntime(root) {
 	try {
 		children = fs.readdirSync(root, { withFileTypes: true });
 	} catch {
-		// Fails open, as the kernel-log readers do (#2779); the check reports it (#4092).
 		return null;
 	}
 	const usecs = children
@@ -220,7 +112,6 @@ function readRuntime(root) {
 				const usec = text.match(/^usage_usec (\d+)$/m)?.[1];
 				return usec ? [Number(usec)] : [];
 			} catch {
-				// A child gone mid-read, in this function's comment (#4092).
 				return [];
 			}
 		});
@@ -228,8 +119,6 @@ function readRuntime(root) {
 }
 
 /**
- * One reading of the tasks' summed run time and the machine's busy time, both
- * in seconds; null where either is absent, unreadable or not in shape.
  * @param {string} cgroupRoot
  * @param {string} statPath
  * @returns {Clock | null}
@@ -240,22 +129,18 @@ function readClock(cgroupRoot, statPath) {
 	try {
 		stat = fs.readFileSync(statPath, "utf8");
 	} catch {
-		// Fails open, as the kernel-log readers do (#2779); the check reports it (#4092).
 		return null;
 	}
 	const line = stat.match(/^cpu\s+(\S.*)?$/m);
 	if (runtime === null || !line?.[1]) return null;
 	const cpu = line[1].split(/\s+/).map(Number);
 	if (cpu.length < 8) return null;
-	// user, nice, system, irq, softirq, steal; idle and iowait are fields 3 and 4.
 	const busy = [0, 1, 2, 5, 6, 7].reduce((sum, i) => sum + Number(cpu[i]), 0);
 	if (!Number.isFinite(busy)) return null;
 	return { runtime, busy: busy / USER_HZ };
 }
 
 /**
- * How far the tasks' run time and busy time moved across CLOCK_WAIT_MS, in
- * CPU-seconds; null where either reading failed.
  * @returns {Clock | null}
  */
 function sampleClock() {
@@ -263,8 +148,7 @@ function sampleClock() {
 	const read = (/** @type {string} */ name) =>
 		fixture
 			? readClock(`${fixture}/${name}/cgroup`, `${fixture}/${name}/stat`)
-			: /* Its seam is WFC_SCHED_CLOCK; a WFC_PROC fake carries no clock. */
-				readClock(CGROUP_ROOT, `${REAL_PROC}/stat`);
+			: readClock(CGROUP_ROOT, `${REAL_PROC}/stat`);
 	const before = read("before");
 	if (!before) return null;
 	if (!fixture) sleepSync(CLOCK_WAIT_MS);
@@ -277,7 +161,6 @@ function sampleClock() {
 }
 
 /**
- * A negative move is a child cgroup leaving with its total, which says nothing.
  * @param {Clock} d
  */
 const isFrozen = (d) =>
@@ -287,17 +170,13 @@ const isFrozen = (d) =>
 const cpuS = (s) => `${s.toFixed(1)} CPU-s`;
 
 /**
- * SKIP an earlier boot outside the boots journalctl lists to this user (#5299).
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} boot
  */
 function skipUnlistedBoot(ctx, boot) {
-	// WFC_KERNEL_LOG ignores --boot, so no boot list bounds it.
 	if (boot === "0" || process.env.WFC_KERNEL_LOG) return;
 	const { boots, why } = readBoots();
-	// journalctl lists boots oldest first; 1..n count from the oldest, 0 and below back from the newest.
 	const [oldest] = boots;
-	// No list to bound the offset: the caller's plain SKIP follows.
 	if (why !== null || oldest === undefined) return;
 	const n = Number(boot);
 	if (n > 0 ? n <= boots.length : -n < boots.length) return;
@@ -315,8 +194,6 @@ const parseRealLines = (text) =>
 /** @typedef {{ line: string, jiffies: number | null }} StallEvent */
 
 /**
- * Each stall in `lines`, with the `t` the lines after it give, null where the
- * log lost that line.
  * @param {string[]} lines
  * @returns {StallEvent[]}
  */
@@ -333,8 +210,6 @@ function parseStallEvents(lines) {
 }
 
 /**
- * The first reader's stalls, journalctl's stamps being preferred; null where no
- * reader holds one.
  * @param {{ reader: Reader, lines: string[] }[]} logs
  */
 function findStalls(logs) {
@@ -354,8 +229,6 @@ function findStalls(logs) {
 }
 
 /**
- * The running kernel's CONFIG_HZ; null where its config cannot be read, which
- * the warning says (#4081).
  * @returns {number | null}
  */
 function readKernelHz() {
@@ -374,9 +247,6 @@ function readKernelHz() {
 }
 
 /**
- * Every Windows boot the event log retains, as ms since the epoch; empty where
- * it cannot be read, which the warning prints as uptime unknown (#4081).
- * wevtutil's XML carries UTC stamps whatever the locale.
  * @returns {number[]}
  */
 function readWindowsBoots() {
@@ -391,7 +261,6 @@ function readWindowsBoots() {
 		{
 			encoding: "utf8",
 			timeout: WINDOWS_READ_TIMEOUT_MS,
-			// A call stuck on the interop bridge ignores TERM (#4081, §9).
 			killSignal: "SIGKILL",
 			stdio: ["ignore", "pipe", "ignore"],
 			maxBuffer: WINDOWS_MAX_BUFFER,
@@ -423,8 +292,6 @@ function classify(tS, vmAgeS, uptimeS) {
 }
 
 /**
- * Each stall's `t`, the VM's age and, for a large `t` alone, Windows uptime,
- * all at the stall's own stamp.
  * @param {{ reader: Reader, lines: string[], events: StallEvent[] }} stall
  */
 function buildStallFigures({ reader, lines, events }) {
@@ -494,7 +361,7 @@ const clockWarning = (clock) => [
 	`  Over ${CLOCK_WAIT_MS / 1000} s the CPUs were busy for ${cpuS(clock.busy)} and the tasks ran for ${cpuS(clock.runtime)} (${docPath("environment.md")} §7).`,
 ];
 
-/** @param {boolean} stalled a stall asks for the shutdown now, a freeze at the next chance */
+/** @param {boolean} stalled */
 const recovery = (stalled) => [
 	stalled
 		? "  Finish or commit what you can now, then:"

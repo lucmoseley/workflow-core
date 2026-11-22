@@ -1,22 +1,15 @@
 const { CHECKOUT_STEP, SETUP_NODE_STEP } = require("./lander-job-names.js");
 
-/** The workflow's path in the adopter. */
 const CI_WORKFLOW = ".github/workflows/workflow-core-ci.yml";
 
-/** The first line of every copy the core writes; a file without it is the
- * adopter's own and never touched. */
 const CI_MARKER = "# CORE-OWNED.";
 
-/* About five times the 2.9-minute job #5347's close measured; a guess past
- * that, carried as one there. */
+// 2.9 min measured, #5347
 const DEFAULT_TIMEOUT_MINUTES = 15;
 
-/* actions/checkout v4, pinned to a full commit sha as GitHub's secure-use
- * guidance asks (docs/practice/ci-and-repo-quality-gates.md). */
 const CHECKOUT = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262";
 const SETUP_NODE =
 	"actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
-/* Pinned, never floating: a release older than two weeks at pinning. */
 const SEMGREP = "1.182.1";
 
 /** @returns {string} */
@@ -106,7 +99,7 @@ function renderCiWorkflow({
 	return `${CI_MARKER} Written by workflow-core's upgrade from the \`ci\` key in
 # .claude/workflow-core.json, and REWRITTEN on every bump. Change the key, not
 # this file. What it runs: the plugin's scripts/lib/adopter-ci.js. Why:
-# lucmoseley/workflow-core-tracker#5343 and #5347.
+# lucmoseley/workflow-core-tracker#5343 and lucmoseley/workflow-core-tracker#5347.
 name: workflow-core CI
 
 on:
@@ -134,10 +127,7 @@ ${renderJobEnv()}${renderSetupSteps()}
 `;
 }
 
-/**
- * Whether `text` is a copy the core wrote.
- * @param {string} text
- */
+/** @param {string} text */
 const isCoreCi = (text) => text.startsWith(CI_MARKER);
 
 module.exports = {

@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/lander-start.js's startLander (#2405, #4458, #4950): a queue lander
- * starts only where none runs and a queue ref waits or a drop is owed a
- * decision; spawnDetachedRun starts it as no
- * session, in a user scope where the machine makes one (#2956).
- *
- * Loosen it and a second push starts a second lander, an empty queue with
- * every drop decided starts one that has nothing to do, or a drop whose
- * owning session stopped waits unticketed for an unrelated push; drop the scope and the lander's suite
- * competes process by process with every session beside it. The cgroup case
- * runs only where `systemd-run --user --scope` works, which CI's runner
- * lacks.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -130,10 +117,6 @@ describe("launcherName (#2478)", () => {
 	});
 });
 
-/**
- * Runs `probe.js` through spawnDetachedRun, behind `wrap`'s words or, absent
- * them, the user scope the machine makes.
- */
 async function probeRun(source: string, wrap?: string[]) {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lander-start-"));
 	try {
@@ -194,7 +177,6 @@ describe("spawnDetachedRun", () => {
 		vi.stubEnv("CLAUDE_PROJECT_DIR", "/the/shared/tree");
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "starter");
 		vi.stubEnv("CLAUDE_JOB_DIR", "/the/job");
-		/* What a lander start launched as an outliving job carries. */
 		vi.stubEnv("WFC_REPORT_OWNER", "starter");
 		const { tmp, logged } = await probeRun(
 			"const e = process.env; console.log(JSON.stringify([e.CLAUDE_PROJECT_DIR, e.CLAUDE_CODE_SESSION_ID ?? null, e.CLAUDE_JOB_DIR ?? null, e.WFC_REPORT_OWNER ?? null]));",

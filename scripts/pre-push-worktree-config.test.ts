@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-push checkers read the config as committed at the pushing tree's
- * HEAD and the shared stores from the canonical checkout (#3128, #3132).
- *
- * The shared checkout's working copy holds a half-written edit turning off
- * what the committed config turns on. The landing gate's cases cross a real
- * `git push`, since git choosing the hook's working directory is what places
- * the pushing tree; the rest run in-process from the worktree.
- *
- * Loosen it and one neighbour's dirty config opens every push.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -38,7 +27,6 @@ const writeConfig = (dir: string, config: object) => {
 	);
 };
 
-// A session pushing from a worktree carries the shared checkout as its project.
 const env = () => {
 	const e: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: shared };
 	delete e.WFC_MODULES;
@@ -56,8 +44,6 @@ beforeEach(() => {
 	git(shared, "config", "user.email", "t@t");
 	git(shared, "config", "user.name", "t");
 	git(shared, "remote", "add", "origin", remote);
-	// The remote holds a main, so a push to it is no new repo's first; fetched
-	// from the bare side, leaving the checkout no origin/main.
 	git(shared, "commit", "-q", "--allow-empty", "-m", "base");
 	git(remote, "fetch", "-q", shared, "main:refs/heads/main");
 	writeConfig(shared, {

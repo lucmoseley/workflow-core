@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * lib/post-write.js's own suite: the ORDER of the things that follow a tool
- * write, which is the only reason the core exists.
- *
- * Claude Code runs every matching hook in parallel, so while the formatter and
- * the write recorder were two registrations the recorder often stored the
- * pre-format bytes — and the session's next write to that file then reported its
- * own formatter as a clobber by an unwatched route (mantahostels#295).
- *
- * The core runs in process through the dispatcher on a real payload in an
- * arbiter sandbox repo, with a stand-in biome under `node_modules/.bin` that
- * really rewrites the file. The shell and Python formatter is the real one
- * (#1332); the Python case needs the machine's ruff and skips without it.
- *
- * It also pins what the core says of its step 1 (#2019).
- *
- * Loosen a case and every formatted write reads as a clobber at the next one,
- * or a written file reaches the commit gate unformatted.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -33,8 +14,6 @@ import {
 import { runCore, splitCheckout } from "./guard-core-testkit";
 import { REAL_RUFF } from "./ruff-testkit";
 
-/* The store's Node accessor, so a test asks for a rule by id rather than
- * holding a second copy of its text. */
 const { readRuleText } = require("./rule-text") as {
 	readRuleText: (id: string) => string;
 };
@@ -42,10 +21,8 @@ const { readRuleText } = require("./rule-text") as {
 const sb = freshSandbox();
 const REL = "scripts/demo.js";
 
-/** A Biome stand-in that really rewrites the file; `body` replaces what it does. */
 function fakeBiome(
 	sandbox: { repo: string },
-	// It takes biome's own argv shape: format --write -- <file>.
 	body = '#!/bin/sh\nf="$4"\nprintf \'formatted\\n\' > "$f"\n',
 ) {
 	const bin = path.join(sandbox.repo, "node_modules", ".bin", "biome");
@@ -66,7 +43,6 @@ const run = (
 		{ root: sb.repo, event: "PostToolUse" },
 	);
 
-/** What a run handed the session, or null where it said nothing. */
 const context = (r: ReturnType<typeof run>) =>
 	r.output?.additionalContext ?? null;
 
@@ -83,7 +59,7 @@ describe("post-write — format, then record, in that order", () => {
 		const me = live(sb, "alice");
 		fakeBiome(sb);
 		fs.writeFileSync(path.join(sb.repo, REL), "const  x=1\n");
-		store.acquire(REL, me); // the PreToolUse claim
+		store.acquire(REL, me);
 
 		run("alice");
 
@@ -118,7 +94,6 @@ describe("post-write — format, then record, in that order", () => {
 	});
 
 	it("still records the write in the ledger", () => {
-		// The recorder's original job (mantahostels#114).
 		store.acquire(REL, live(sb, "alice"));
 		fs.writeFileSync(path.join(sb.repo, REL), "x\n");
 		run("alice");
@@ -131,10 +106,6 @@ describe("post-write — format, then record, in that order", () => {
 	});
 
 	it("records even where there is no formatter to run", () => {
-		// A worktree has no node_modules. The old inline hook called `npx biome`
-		// there, which fetches an unrelated package that prints nothing and exits 0;
-		// this one skips the format rather than corrupting anything, and the record
-		// must still land.
 		store.acquire(REL, live(sb, "alice"));
 		fs.writeFileSync(path.join(sb.repo, REL), "unformatted\n");
 
@@ -200,7 +171,6 @@ describe("post-write — format, then record, in that order", () => {
 		});
 
 		it("carries a scan fault in the same envelope as the notice", () => {
-			// A biome that reformats by appending, so the fault survives it.
 			fakeBiome(sb, '#!/bin/sh\nprintf "\\n" >> "$4"\n');
 			fs.mkdirSync(path.join(sb.repo, ".claude-plugin"), { recursive: true });
 			fs.writeFileSync(
@@ -213,9 +183,6 @@ describe("post-write — format, then record, in that order", () => {
 		});
 	});
 
-	// A session rooted here can write into another repo, which has its own
-	// formatter or none (#96). What the record step makes of a foreign path is
-	// lib/arbiter-tool-record.js's own.
 	describe("a file outside the repo root is left unformatted", () => {
 		const foreignJson = '{\n  "a": 1\n}\n';
 		const foreignFile = (dir: string) => {
@@ -227,7 +194,6 @@ describe("post-write — format, then record, in that order", () => {
 
 		it.each([
 			["another directory", () => path.join(sb.dir, "elsewhere")],
-			// A bare string-prefix test would call this one inside.
 			[
 				"a sibling sharing the root's name as a prefix",
 				() => `${sb.repo}-other`,
@@ -241,7 +207,6 @@ describe("post-write — format, then record, in that order", () => {
 		});
 
 		it("reached through a symlink inside the root", () => {
-			// Biome writes through the link, so the leaf is what must be judged.
 			fakeBiome(sb);
 			const target = foreignFile(path.join(sb.dir, "elsewhere"));
 			const link = path.join(sb.repo, "linked.json");
@@ -269,17 +234,19 @@ describe("post-write — format, then record, in that order", () => {
 				'{"name":"demo"}\n',
 			);
 		};
-		const write = (body: string) => {
+		const write = (body: string, rel = REL) => {
 			fakeBiome(sb, "#!/bin/sh\n");
-			fs.writeFileSync(path.join(sb.repo, REL), body);
-			return run("alice");
+			const file = path.join(sb.repo, rel);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, body);
+			return run("alice", file);
 		};
+		const walkToDocs = (ups: string) =>
+			`const path = require("node:path");\nmodule.exports = path.join(__dirname, ${ups}, "docs");\n`;
 
 		it("names a __dirname walk into docs/, as the commit gate would", () => {
 			shipPlugin();
-			const r = write(
-				'const path = require("node:path");\nmodule.exports = path.join(__dirname, "..", "docs", "x.json");\n',
-			);
+			const r = write(walkToDocs('".."'));
 			expect(context(r)).toMatch(
 				/scripts\/demo\.js:2 .*outside scripts\/\. Use hostRoot\(\)/,
 			);
@@ -298,19 +265,31 @@ describe("post-write — format, then record, in that order", () => {
 			expect(write('console.log("see (#12) for why");\n').output).toBeNull();
 		});
 
-		it.each([
-			"scripts/demo.test.js",
-			// The release leaves it behind, and check-host-root.js allowlists it.
-			"scripts/cut-mantahostels.js",
-		])("says nothing of %s, which neither gate judges", (rel) => {
+		it("says nothing of a test file, which neither gate judges", () => {
 			shipPlugin();
-			fakeBiome(sb, "#!/bin/sh\n");
-			const file = path.join(sb.repo, rel);
-			fs.writeFileSync(
-				file,
-				'const path = require("node:path");\nconsole.log("see #12");\nmodule.exports = path.join(__dirname, "..", "docs");\n',
+			const r = write(
+				`console.log("see #12");\n${walkToDocs('".."')}`,
+				"scripts/demo.test.js",
 			);
-			expect(run("alice", file).output).toBeNull();
+			expect(r.output).toBeNull();
+		});
+
+		it("says nothing of a #N printed bare by a file the release leaves behind", () => {
+			shipPlugin();
+			const r = write(
+				'console.log("see #12");\n',
+				"scripts/release-contains.js",
+			);
+			expect(r.output).toBeNull();
+		});
+
+		it("says nothing of a __dirname walk check-host-root.js allowlists, naming the same walk beside it", () => {
+			shipPlugin();
+			const walk = walkToDocs('"..", ".."');
+			expect(write(walk, "scripts/lib/rule-text.js").output).toBeNull();
+			expect(context(write(walk, "scripts/lib/other.js"))).toMatch(
+				/scripts\/lib\/other\.js:2 .*outside scripts\//,
+			);
 		});
 
 		it("says nothing where the repo ships no plugin, which neither rule binds", () => {
@@ -420,7 +399,6 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		vi.stubEnv("WFC_DISPATCH_ROOT", at.main);
 	});
 
-	/** A stand-in Biome under `root` that writes `mark` over the file. */
 	const biomeWriting = (root: string, mark: string) =>
 		fakeBiome({ repo: root }, `#!/bin/sh\nprintf '${mark}\\n' > "$4"\n`);
 

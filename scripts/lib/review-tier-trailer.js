@@ -1,40 +1,21 @@
-/*
- * review-tier-trailer.js — writes a held commit's `Review-Tier:` trailer, the
- * commit's own record of its sensitive-path review (#3664, spec #1612
- * §Disposition and records, Reach): its core. scripts/review-tier-trailer.js
- * is its entry, lib/review-tier-trailer-host.js its production ports. The
- * core does no I/O but through its ports, and returns the exit and the whole
- * of stderr.
- *
- * IMPLICIT, JUSTIFIED, DEFEAT and LIMITS: scripts/review-tier-trailer.js's
- * header.
- */
-
 const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} TrailerPorts
  * @property {string} sessionId
- * @property {() => string} gitDir the absolute git directory, "" where git
- *   names none
- * @property {(gitDir: string) => string} route the commit route at
- *   prepare-commit-msg
- * @property {(msg: string) => string} readMessage throws where unreadable
- * @property {(msg: string, text: string) => void} writeMessage throws on a
- *   failed write
- * @property {(route: string) => string} vouching the one message whose
- *   `Review-Tier:` line this commit may keep, "" where none
- * @property {(gitDir: string) => string | null} stampPath null with no session
- * @property {(stamp: string) => string | null} readStamp null where absent,
- *   "" where unreadable
+ * @property {() => string} gitDir
+ * @property {(gitDir: string) => string} route
+ * @property {(msg: string) => string} readMessage
+ * @property {(msg: string, text: string) => void} writeMessage
+ * @property {(route: string) => string} vouching
+ * @property {(gitDir: string) => string | null} stampPath
+ * @property {(stamp: string) => string | null} readStamp
  * @property {(stamp: string) => void} removeStamp
- * @property {() => string} writeTree throws where git will not write it
- * @property {() => import("./review-hold.js").Outcome} hold the review hold,
- *   run on what the commit now carries
+ * @property {() => string} writeTree
+ * @property {() => import("./review-hold.js").Outcome} hold
  * @property {(msg: string, value: string) => { ok: boolean, out: string }} interpretTrailers
- *   writes `Review-Tier: <value>` into the message, replacing any
- * @property {string} commitPaths how a reader runs commit-paths.js
- * @property {(what: string, detail?: string) => void} log the fail-open log
+ * @property {string} commitPaths
+ * @property {(what: string, detail?: string) => void} log
  */
 
 /**
@@ -43,19 +24,14 @@ const { trimEndRun } = require("./trim-run.js");
  * @property {string} stderr
  */
 
-/** A `Review-Tier:` line's start, in any spelling git reads as this key. */
 const KEY = /^review-tier[ \t]*:/i;
 
 /**
- * `msg` less each `Review-Tier:` line `vouching` does not carry, in any
- * spelling git reads as this key: any case, space before the colon, folded
- * lines. Null where nothing is removed.
- * @param {string} msg the message, as the file holds it
+ * @param {string} msg
  * @param {string} vouching
  * @returns {string | null}
  */
 function stripUnvouched(msg, vouching) {
-	// Newlines only: a last line's trailing blanks stay, so a line differing only in them stays unvouched (#5153).
 	const vouched = new Set(trimEndRun(vouching, "\n").split("\n"));
 	const lines = msg.split("\n");
 	if (lines.at(-1) === "") lines.pop();
@@ -83,7 +59,6 @@ class Stop extends Error {
 }
 
 /**
- * Runs the trailer over the message file `msg`.
  * @param {string} msg
  * @param {TrailerPorts} ports
  * @returns {Outcome}
@@ -108,9 +83,8 @@ function runTrailer(msg, ports) {
 }
 
 /**
- * The fail-open sayings: each says why on stderr, logs it and stops at 0.
  * @param {TrailerPorts} ports
- * @param {string[]} said accumulator: each fail-open line is pushed here
+ * @param {string[]} said
  */
 function failOpens(ports, said) {
 	/** @param {string} saying @param {string} logged @param {string} [detail] @returns {never} */
@@ -139,9 +113,8 @@ function failOpens(ports, said) {
 /**
  * @param {string} msg
  * @param {TrailerPorts} ports
- * @param {string[]} said accumulator: each stderr line is pushed here
- * @param {{ stripped: boolean, wrote: boolean }} state accumulator: set to
- *   whether a line was stripped and whether a trailer was written
+ * @param {string[]} said
+ * @param {{ stripped: boolean, wrote: boolean }} state
  */
 function trail(msg, ports, said, state) {
 	const { dropped, unstripped } = failOpens(ports, said);
@@ -164,8 +137,6 @@ function trail(msg, ports, said, state) {
 }
 
 /**
- * Strips the message's unvouched `Review-Tier:` lines; true where it removed
- * one.
  * @param {string} msg
  * @param {TrailerPorts} ports
  * @param {string} route
@@ -190,13 +161,9 @@ function stripMessage(msg, ports, route, unstripped) {
 }
 
 /**
- * The stamp's value once its tree is this commit's: where the tree moved,
- * the hold re-run on it, and the commit refused where that refuses or the
- * tree still differs. Null where there is no stamp, or the re-run hold left
- * none.
  * @param {TrailerPorts} ports
  * @param {string} stamp
- * @param {string[]} said accumulator: the hold's and the refusal's lines are pushed here
+ * @param {string[]} said
  * @param {(why: string) => never} dropped
  * @returns {string | null}
  */
@@ -231,9 +198,6 @@ function settledValue(ports, stamp, said, dropped) {
 }
 
 /**
- * The stamp's tree and value, consumed on read, so a stamp outliving its
- * commit stands behind no other; null where there is none. An unreadable
- * stamp reads as empty, which the caller reports.
  * @param {TrailerPorts} ports
  * @param {string} stamp
  * @returns {[string, string] | null}

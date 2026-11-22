@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * lib/unasked-rerun-guard.js, the guard-unasked-rerun core (#2800), in
- * process: which command reaches the judge — a bare `npm run test`, `npm run
- * test:changed` or `npm test`, `--` and `--queue` alone after it (#1153 Q1) —
- * and what the guard makes of each answer the judge can give.
- *
- * The judge is a fake the case sets, its calls recorded; what the real one
- * answers is lib/unasked-rerun.test.ts's. The rule store is the real one, read
- * through lib/rule-text.js. What the kit makes of a decision — the envelope,
- * the log file — is guard-unasked-rerun.test.ts's boundary set.
- *
- * Loosen a scope case and a run that names its files, or a script nobody
- * asked to repeat, is refused; loosen a policy case and a judge that could not
- * judge refuses, or allows with no record.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -37,7 +22,6 @@ interface JudgeInput {
 }
 type Decision = { deny: string } | null;
 
-/* An install's spelling, so a fallback naming a bare checkout path fails. */
 const docPath = (name: string) => `/core/docs/${name}`;
 const UNASKED_RULE_FALLBACK =
 	"An unasked re-run is refused once a session; the rule could not be read from /core/docs/agents/rules/unasked-rerun.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.";
@@ -47,7 +31,6 @@ const { decide } = require("./unasked-rerun-guard.js") as {
 const rules = require("./rule-text.js") as {
 	readRuleText: (id: string, root: string) => string;
 };
-/* This checkout's store, rendered with the commands its config declares (#3334). */
 const readCheckoutRuleText = (id: string) =>
 	rules.readRuleText(id, path.resolve(__dirname, "..", ".."));
 
@@ -57,11 +40,9 @@ const JUDGE_DENY = "Not run: what this run would test is already attested.";
 const RULE = readCheckoutRuleText("unasked-rerun");
 
 let calls: JudgeInput[];
-/** The session tree each judge call was handed. */
 let trees: string[];
 let logged: [string, string | undefined][];
 
-/** The core on `command`, the judge answering `answer` (or throwing it). */
 function run(
 	command: string,
 	{
@@ -112,11 +93,9 @@ describe("a bare test run is judged", () => {
 		["npm test", "npm test"],
 		["npm run test:changed", "npm run test:changed"],
 		["npm run test --", "npm run test --"],
-		/* --queue counts as bare (#1153 Q1, #1211). */
 		["npm run test -- --queue", "npm run test -- --queue"],
 		["npm run test --queue", "npm run test --queue"],
 		["npm run test:changed -- --queue", "npm run test:changed -- --queue"],
-		/* A quoted span is read as its text, and handed on rendered. */
 		['npm run test "--queue"', 'npm run test "…"'],
 		['npm run "test"', 'npm run "…"'],
 		["timeout 600 npm run test", "timeout 600 npm run test"],
@@ -159,7 +138,6 @@ describe("a bare test run is judged", () => {
 
 	it("once, on the first bare segment of a compound command", () => {
 		run("npm run test -- a.test.ts && npm test && npm run test:changed");
-		/* The flattened segment, as the bash guard handed it on. */
 		expect(calls.map((c) => c.command)).toEqual(["npm test "]);
 	});
 });
@@ -309,7 +287,6 @@ describe("from a session in a linked worktree, the certificates are the main che
 		head = gitIn(at.worktree, "rev-parse", "HEAD");
 	});
 
-	/** An admissible narrowed certificate on the worktree's HEAD, under `root`'s store. */
 	const certify = (root: string) => {
 		fs.mkdirSync(path.dirname(storePath(root)), { recursive: true });
 		fs.writeFileSync(
@@ -333,7 +310,6 @@ describe("from a session in a linked worktree, the certificates are the main che
 		certify(at.worktree);
 		const r = rerun();
 		expect(r.output).toBeNull();
-		/* Judged and found unattested, not let through unjudged. */
 		expect(r.logs.join("\n")).not.toContain("could not judge");
 	});
 });

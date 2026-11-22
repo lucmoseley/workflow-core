@@ -1,102 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-host-root.js — no script in the core computes its own root (#1).
- *
- * Usage:
- *   node scripts/check-host-root.js [--root <dir>] [--json] [--against <rev>]
- *
- * THE RULE IT BACKS. Every script here finds the HOST repository through one
- * seam: `lib/host-root.js`'s `hostRoot()` in JS, `lib/guard-root.sh`'s
- * `gr_root` in shell, `lib/host_root.py`'s `host_root()` in Python — each
- * the main checkout owning `CLAUDE_PROJECT_DIR`, else the one owning the working
- * directory, symlinks dereferenced. A script that instead walks up from its own location
- * roots itself in the PLUGIN CACHE when the core is installed as a plugin, and
- * every host read then lands in the wrong tree. A root with no
- * `.claude-plugin/plugin.json` ships no plugin, so it SKIPs (#83): its scripts
- * run in place. Residual: an adopter shipping a plugin of its own has its
- * whole scripts/ scanned, plugin-bound or not.
- *
- * WHAT FAILS:
- *
- *   SELF-ROOTED-JS      a `path.resolve(__dirname, …)` or `path.join(__dirname,
- *                       …)` whose LITERAL leading segments already climb out of
- *                       `scripts/`, called through `path.`, `nodePath.` or
- *                       bare (`join(`, `resolve(`, as ESM names a `node:path`
- *                       import). `path.join(__dirname, "..", "session-
- *                       arbiter.js")` from `scripts/lib/` lands back inside
- *                       `scripts/` and is fine — it names a sibling that ships
- *                       with the core, which in a plugin install is exactly
- *                       where it should look. ESM's climbs are read the same
- *                       way: from `import.meta.dirname`, `import.meta.filename`
- *                       or `fileURLToPath(import.meta.url)`, and `new URL("..",
- *                       import.meta.url)`.
- *   SELF-ROOTED-SH      `${CLAUDE_PROJECT_DIR:-$(cd "$here/.." && pwd)}` and its
- *                       kin: a second spelling of the seam. Also `git -C
- *                       "$here"` and `git -C "$(dirname "$0")"`, which ask a
- *                       directory that is not a repository at all in a plugin
- *                       install.
- *   SELF-ROOTED-PY      `Path(__file__).resolve().parents[n]` for n ≥ 2, which
- *                       climbs out of `scripts/` the same way.
- *   SECOND-SEAM-JS      `process.env.CLAUDE_PROJECT_DIR` or a `git rev-parse
- *                       --show-toplevel` outside the seam: the JS kin of the
- *                       shell rule's second spelling, which answers
- *                       differently from `hostRoot()` wherever the two limbs
- *                       disagree.
- *   HOST-ROOTED-CORE    the mirror fault: a file that ships WITH the core
- *                       reached THROUGH the host root — `"$(gr_root)/scripts/
- *                       session-arbiter.js"`, `path.join(hostRoot(),
- *                       "scripts", …)`. The host repo has none of the core's
- *                       scripts, so in a plugin install this names a file that
- *                       is not there. Reached through `sessionTree(…)`, the
- *                       session's worktree, it is a copy of another version
- *                       than the hook's own (#4229). In code a hook runs or
- *                       loads (lib/hook-code.js) the session's tree spelled
- *                       bare fails too (#4259): `process.cwd()`, a `.cwd`
- *                       member such as a payload's, a destructured `cwd` or
- *                       a parameter defaulting to `process.cwd()`,
- *                       `process.env.PWD`, and in
- *                       shell `$PWD`, `$(pwd)` or a `--show-toplevel` result,
- *                       inline or through a variable. Elsewhere those are a
- *                       checker's `--root` default, a host root. Name the
- *                       sibling from `$here` or `__dirname` instead. In JS the root may sit
- *                       in a variable first (`const root = hostRoot()`), and the
- *                       core path in a constant (`"scripts/…"` or
- *                       `path.join("scripts", …)`) — this file's, or one it
- *                       destructures from a `require` or an `await import()`
- *                       of a scanned module or names in an `import {…} from`
- *                       of one.
- *
- * WHAT IS NOT SCANNED. A test, a fixture and a test harness root at the CORE
- * checkout because that checkout is their subject: `__dirname` there is the copy
- * under test, and pointing them at a host root would aim them at whatever tree
- * the suite happened to run in. What lib/suite-apparatus.js's `isApparatus`
- * takes is therefore out of scope, by name: test-kind.js's `TEST_KIND`, every
- * shape listed, and the vitest configs, bar a shipped file it names. Nor are
- * their constants read as importable for HOST-ROOTED-CORE: no judged script
- * imports from the suite's apparatus.
- *
- * WHAT IT CANNOT SEE. A cwd read in Python, a hook file reached by no edge lib/hook-code.js reads, a root
- * passed as a parameter rather than assigned from `hostRoot()` in the same file, a read made inside an imported helper, a
- * constant built from anything but literals, a bare `"scripts"` constant joined
- * as its own segment, a shell expansion it cannot read as a literal, and code
- * hidden by JSX text or a regex literal right after `)` (#3634): JSX text's
- * `//` or `/*` reads as a comment, and its backtick, or such a regex, can pair
- * with a later literal's quote. Nor, in ESM (#3635), a `node:path` function
- * reached through an alias (`join as pjoin`) or a namespace import (`import *
- * as p`), a `fileURLToPath(new URL(".", import.meta.url))` base, a template
- * literal in `new URL`, or `import.meta.resolve` — the scan is lexical. It is a
- * gate against the spellings that drifted, not a proof that no script
- * self-roots.
- * `host-root-plugin-cache.test.ts` is the behavioural half: it runs the rooted
- * scripts from a plugin-cache-shaped path and asserts each resolves the host.
- *
- * THE ALLOWLIST is for a file that roots elsewhere on purpose — a measurement
- * run over this checkout, a checker whose subject is the working directory's
- * checkout. Each entry carries its reason.
- *
- * An allowlist entry whose file is ABSENT is silent — the scanned root is
- * simply not this one, which is the ordinary case under `--root`.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -113,17 +15,15 @@ const { shipsPlugin } = require("./lib/plugin-state.js");
 const { ignoreFailure } = require("./lib/caught.js");
 const { noop } = require("./lib/noop.js");
 
+/** @typedef {Pick<import("./lib/check").Ctx, "fail" | "warn">} Judge */
+
 const CWD_SUITE_CHECKER = {
 	tags: ["SECOND-SEAM-JS"],
 	reason:
 		"lists the tracked tests of the checkout it runs in; its suite drives it by cwd into fixture repos, where an inherited CLAUDE_PROJECT_DIR would aim it at the live tree",
 };
 
-/**
- * Files that root elsewhere deliberately, the tags that exempt, and why. Any
- * other tag the file trips still reports.
- * @type {Record<string, {tags: string[], reason: string}>}
- */
+/** @type {Record<string, {tags: string[], reason: string}>} */
 const ALLOWED = {
 	"scripts/lib/heresy-scan.js": {
 		tags: ["HOST-ROOTED-CORE"],
@@ -189,11 +89,6 @@ const ALLOWED = {
 		reason:
 			"bootstraps a host repo FROM this checkout, so its own tree is the source it copies and the host's is --root (#5)",
 	},
-	"scripts/cut-mantahostels.js": {
-		tags: ["SELF-ROOTED-JS"],
-		reason:
-			"cuts mantahostels over FROM this checkout, which is left behind and never shipped; under --pin its plan reads this checkout's init-adopter.js and hooks.json before the pinned release is installed (#423)",
-	},
 	"scripts/lib/rule-text.js": {
 		tags: ["SELF-ROOTED-JS"],
 		reason:
@@ -232,86 +127,47 @@ const ALLOWED = {
 	},
 };
 
-/*
- * Where the core's own scripts live, relative to the root being scanned.
- *
- * `.husky/` IS NOT SCANNED. A husky hook is never plugin-shipped: it lives in
- * the host repo's own `.husky/`, git runs it from the host's working tree, and
- * a plugin install rewrites its `scripts/` references at bootstrap. So a hook
- * resolving its own worktree is right, and the rule here does not reach it.
- */
 const SCANNED = ["scripts"];
 
-/** A call to one of `names`, through `path.` or `nodePath.`, or bare as ESM
- * names a `node:path` import — any bare call of that name, imported or not. */
 const buildPathCall = (/** @type {string} */ names) =>
 	String.raw`(?:\b(?:path|nodePath)\.|(?<![\w$.]))(?:${names})\(\s*`;
 
 const FILE_URL = String.raw`(?:\burl\.)?fileURLToPath\(\s*import\.meta\.url\s*\)`;
 
-/** The file's own path, which a `..` segment climbs out of to its directory. */
 const JS_FILE = String.raw`import\.meta\.filename\b|${FILE_URL}`;
 
-/** The file's own directory: CommonJS `__dirname` or its ESM spellings. */
 const JS_DIR = String.raw`__dirname\b|import\.meta\.dirname\b|${buildPathCall("dirname")}(?:${JS_FILE})\s*\)`;
 
-/**
- * `path.resolve` / `path.join` from the file's directory (group 1) or its own
- * path (group 2), followed by a run of string literals (group 3). The run may
- * be empty (a dynamic first segment), which is skipped: nothing can be said
- * about where it lands.
- */
 const JS_CALL = new RegExp(
 	String.raw`${buildPathCall("resolve|join")}(?:(${JS_DIR})|(${JS_FILE}))\s*((?:,\s*(?:"[^"\n]*"|'[^'\n]*'))*)`,
 	"g",
 );
 
-/** `path.dirname` of the file's own directory — the same climb, spelled
- * without a literal. */
 const JS_DIRNAME = new RegExp(
 	String.raw`${buildPathCall("dirname")}(?:${JS_DIR})\s*\)`,
 	"g",
 );
 
-/** `new URL("..", import.meta.url)`: ESM's climb, resolved against the file. */
 const JS_URL_CALL =
 	/new\s+URL\(\s*(?:"([^"\n]*)"|'([^'\n]*)')\s*,\s*import\.meta\.url\s*\)/g;
 
-/** A string literal naming a core directory, alone or as a path prefix. */
 const CORE_LITERAL = String.raw`["'\x60](?:scripts|\.husky)(?:["'\x60]|/)`;
 
-/**
- * The mirror fault: a core file joined onto the host root, or onto an
- * identifier holding it. The capture is the second argument when it is a bare
- * identifier, judged against the core-path constants.
- * @param {string} root the root's spelling, regex-escaped
- */
+/** @param {string} root */
 const hostCoreJoin = (root) =>
 	new RegExp(
 		String.raw`${buildPathCall("resolve|join")}${root}\s*,\s*(?:${CORE_LITERAL}|([A-Za-z_$][\w$]*)\s*[,)])`,
 		"g",
 	);
 
-/** `${root}/scripts/` in a template literal. */
 const hostCoreTemplate = (/** @type {string} */ root) =>
 	new RegExp(String.raw`\$\{\s*${root}\s*\}/(?:scripts|\.husky)/`, "g");
 
-/** An identifier assigned from an expression calling `hostRoot()` or
- * `sessionTree(…)`: the
- * assignment, then the rest of its statement's line naming the call. Only the
- * head's first reading can reach the call: a shorter `(?:\s*\n)?` leaves the
- * call's search on a line of blanks. */
 const JS_ROOT_VAR = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=(?:\s*\n)?/g;
-/** The calls that answer a tree a core file must never be reached through:
- * the host and the session's tree (#4234). Residual: a
- * `sessionTree` argument holding parentheses, such as `sessionTree(pick(ctx))`,
- * is not matched inline. */
 const ROOT_CALLS = [
 	String.raw`hostRoot\(\)`,
 	String.raw`sessionTree\([^()]*\)`,
 ];
-/** The session's tree spelled without the resolver, judged in hook code
- * alone (#4259): a checker's `--root ?? process.cwd()` is a host root. */
 const HOOK_ROOT_CALLS = [
 	String.raw`process\.cwd\(\)`,
 	String.raw`process\.env\.PWD\b`,
@@ -322,35 +178,21 @@ const buildJsRootCall = (calls) =>
 	new RegExp(String.raw`[^;\n]*\b(?:${calls.join("|")})`, "y");
 const JS_ROOT_CALL = buildJsRootCall(ROOT_CALLS);
 const JS_HOOK_ROOT_CALL = buildJsRootCall([...ROOT_CALLS, ...HOOK_ROOT_CALLS]);
-/** A destructuring pattern, its list in group 1: a declaration's, a
- * `function`'s first parameter or a lone arrow parameter. An object literal
- * passed as an argument, `{ cwd: root }`, is none of these. */
 const JS_DESTRUCTURE =
 	/(?:\b(?:const|let|var)\s*\{([^{}]*)\}\s*=|\bfunction\b[\w$\s]*\(\s*\{([^{}]*)\}|\(\s*\{([^{}]*)\}\s*\)\s*=>)/g;
-/** `cwd` as a key of a destructuring list: group 1 the alias it binds. */
 const JS_CWD_KEY =
 	/(?:^|,)\s*cwd(?:\s*:\s*([A-Za-z_$][\w$]*))?\s*(?:=[^,]*)?(?=,|$)/;
-/** A parameter defaulting to `process.cwd()`: group 1 its name. */
 const JS_CWD_DEFAULT = /[(,]\s*([A-Za-z_$][\w$]*)\s*=\s*process\.cwd\(\)/g;
-/** Any hook-only spelling, which alone makes a lone file's hook scope worth
- * computing. */
-const HOOK_ROOT_ANY = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
-	[...HOOK_ROOT_CALLS, String.raw`\bcwd\b`].join("|"),
-);
+const HOOK_ROOT_ANY = /\bcwd\b|\bprocess\.env\.PWD\b/;
 
-/** A constant naming a core path: `"scripts/…"` or `path.join("scripts", …)`. */
 const JS_CORE_CONST = new RegExp(
 	String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:${buildPathCall("join")}${CORE_LITERAL}|["'\x60](?:scripts|\.husky)/)`,
 	"g",
 );
 
-/** The names a file destructures out of a `require` or a dynamic `import()`,
- * or imports by name. */
 const JS_BOUND_NAMES =
 	/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:require|(?:await\s+)?import)\(|\bimport\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\b/g;
 
-/** The seam's two limbs, spelled again outside it. */
 const JS_SECOND_SEAM = [
 	{
 		re: /process\.env(?:\.CLAUDE_PROJECT_DIR\b|\[\s*["']CLAUDE_PROJECT_DIR["']\s*\])/g,
@@ -362,15 +204,16 @@ const JS_SECOND_SEAM = [
 	},
 ];
 
-/** `Path(__file__).resolve().parents[n]`. */
 const PY_PARENTS = /Path\(\s*__file__\s*\)\.resolve\(\)\.parents\[(\d+)\]/g;
+
+/** @param {string} body */
+const shellParam = (body) => `\${${body}}`;
 
 /** @type {{re: RegExp, what: string}[]} */
 const SH_PATTERNS = [
 	{
 		re: /\$\{CLAUDE_PROJECT_DIR:-\$\(cd "\$here\/\.\." && pwd\)\}/,
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion quoted for a reader, not a JS template
-		what: '${CLAUDE_PROJECT_DIR:-$(cd "$here/.." && pwd)} — a second spelling of the seam',
+		what: `${shellParam('CLAUDE_PROJECT_DIR:-$(cd "$here/.." && pwd)')} — a second spelling of the seam`,
 	},
 	{
 		re: /git -C "\$here"/,
@@ -382,26 +225,20 @@ const SH_PATTERNS = [
 	},
 	{
 		re: /\$\{CLAUDE_PROJECT_DIR:-\.\}/,
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion quoted for a reader, not a JS template
-		what: "${CLAUDE_PROJECT_DIR:-.} — the cwd is not the host root off a wired path",
+		what: `${shellParam("CLAUDE_PROJECT_DIR:-.")} — the cwd is not the host root off a wired path`,
 	},
 ];
 
-/** A core directory after a shell root. */
 const SH_CORE_DIR = String.raw`\/(?:scripts|\.husky)\/`;
 
 /** @type {{re: RegExp, what: string}[]} */
 const MIRROR_PATTERNS = [
 	{
-		/* `$(gr_root)` only, never a bare `$root`, which names different things
-		 * in different files. */
 		re: new RegExp(String.raw`\$\(gr_root\)${SH_CORE_DIR}`),
 		what: 'a file that ships with the core, reached through the HOST root — the host repo has no scripts/ of the core\'s. Name it from "$here" instead',
 	},
 ];
 
-/** The shell spellings of the session's tree, judged in hook code alone
- * (#4259). */
 const SH_TREE = String.raw`(?:\$\{?PWD\b\}?|\$\(pwd\)|\$\(git\b[^)]*--show-toplevel[^)]*\))`;
 const SH_TREE_CORE = new RegExp(`${SH_TREE}${SH_CORE_DIR}`);
 const SH_TREE_VAR = new RegExp(
@@ -409,7 +246,6 @@ const SH_TREE_VAR = new RegExp(
 );
 const SH_TREE_ANY = new RegExp(SH_TREE);
 
-/** Files the seam itself lives in, which state the contract rather than break it. */
 const SEAM_FILES = new Set([
 	"scripts/lib/guard-root.sh",
 	"scripts/lib/host-root.js",
@@ -418,7 +254,6 @@ const SEAM_FILES = new Set([
 ]);
 
 /**
- * Every file under the scanned directories, repo-relative, sorted.
  * @param {string} root
  * @returns {string[]}
  */
@@ -448,7 +283,6 @@ function files(root) {
 }
 
 /**
- * The literal segments of a matched call, in order.
  * @param {string} captured
  * @returns {string[]}
  */
@@ -464,7 +298,6 @@ function segments(captured) {
 }
 
 /**
- * The 1-based line a byte offset falls on.
  * @param {string} text
  * @param {number} index
  * @returns {number}
@@ -472,8 +305,7 @@ function segments(captured) {
 const lineOf = (text, index) => text.slice(0, index).split("\n").length;
 
 /**
- * The name of every core-path constant a JS source declares.
- * @param {string} text comment-blanked source
+ * @param {string} text
  * @returns {Set<string>}
  */
 const coreConstants = (text) =>
@@ -484,8 +316,6 @@ const coreConstants = (text) =>
 	);
 
 /**
- * Each value name a file binds from a `require` or an `import`, local name to the
- * name it was exported under: `{ CAP: LOG }` and `{ CAP as LOG }` bind LOG to CAP.
  * @param {string} text
  * @returns {Map<string, string>}
  */
@@ -496,7 +326,6 @@ function parseBoundNames(text) {
 		for (const part of (m[1] ?? requiredGroup(m, 2, JS_BOUND_NAMES)).split(
 			",",
 		)) {
-			/* A type-only binding feeds no runtime join. */
 			if (/^\s*type\s+[A-Za-z_$]/.test(part)) continue;
 			const [exported, alias] = part
 				.replace(/[=].*/s, "")
@@ -509,11 +338,9 @@ function parseBoundNames(text) {
 }
 
 /**
- * The spellings of every root a core file must not be reached through in
- * `text`: the calls themselves, then each variable assigned from one.
- * @param {string} text comment-blanked source
- * @param {boolean} hook whether a hook runs or loads the file
- * @returns {string[]} regex sources
+ * @param {string} text
+ * @param {boolean} hook
+ * @returns {string[]}
  */
 function parseRoots(text, hook) {
 	return [
@@ -532,9 +359,7 @@ function parseRoots(text, hook) {
 }
 
 /**
- * Each name a hook file binds a `cwd` to by destructuring or a parameter
- * default, regex-escaped.
- * @param {string} text comment-blanked source
+ * @param {string} text
  * @returns {string[]}
  */
 function parseCwdBindings(text) {
@@ -552,14 +377,11 @@ function parseCwdBindings(text) {
 }
 
 /**
- * HOST-ROOTED-CORE: a core directory or core-path constant joined or
- * templated onto the host root. `text` is comment-blanked; `hook` says
- * whether a hook runs or loads the file.
- * @param {import("./lib/check").Ctx} ctx
+ * @param {Judge} ctx
  * @param {string} rel
  * @param {string} text
  * @param {{importable: Set<string>, hook: boolean}} scope
- * @returns {boolean} whether anything was reported
+ * @returns {boolean}
  */
 function judgeHostRootedCore(ctx, rel, text, { importable, hook }) {
 	let found = false;
@@ -599,12 +421,10 @@ function judgeHostRootedCore(ctx, rel, text, { importable, hook }) {
 }
 
 /**
- * SECOND-SEAM-JS: a second spelling of the host-root seam. `text` is
- * comment-blanked.
- * @param {import("./lib/check").Ctx} ctx
+ * @param {Judge} ctx
  * @param {string} rel
  * @param {string} text
- * @returns {boolean} whether anything was reported
+ * @returns {boolean}
  */
 function judgeSecondSeam(ctx, rel, text) {
 	let found = false;
@@ -623,11 +443,10 @@ function judgeSecondSeam(ctx, rel, text) {
 }
 
 /**
- * `importable` is the core-path constants any scanned module declares.
- * @param {import("./lib/check").Ctx} ctx
+ * @param {Judge} ctx
  * @param {string} root
  * @param {{rel: string, source: string, importable: Set<string>, hook: boolean}} file
- * @returns {boolean} whether anything was reported
+ * @returns {boolean}
  */
 function judgeJs(ctx, root, { rel, source, importable, hook }) {
 	const text = blankComments(source);
@@ -672,10 +491,10 @@ function judgeJs(ctx, root, { rel, source, importable, hook }) {
 }
 
 /**
- * @param {import("./lib/check").Ctx} ctx
+ * @param {Judge} ctx
  * @param {string} rel
  * @param {string} text
- * @param {boolean} hook whether a hook runs or sources the file
+ * @param {boolean} hook
  * @returns {boolean}
  */
 function judgeSh(ctx, rel, text, hook) {
@@ -711,8 +530,6 @@ function judgeSh(ctx, rel, text, hook) {
 }
 
 /**
- * The session's tree joined to a core directory in shell, inline or through
- * a variable assigned from it (#4259).
  * @param {string[]} lines
  * @returns {{re: RegExp, what: string}[]}
  */
@@ -734,7 +551,7 @@ function buildShTreePatterns(lines) {
 }
 
 /**
- * @param {import("./lib/check").Ctx} ctx
+ * @param {Judge} ctx
  * @param {string} rel
  * @param {string} text
  * @returns {boolean}
@@ -756,8 +573,6 @@ function judgePy(ctx, rel, text) {
 }
 
 /**
- * Whether a scanned path is judged at all: a script file, neither the seam
- * itself nor the suite's apparatus.
  * @param {string} rel
  * @returns {boolean}
  */
@@ -771,16 +586,9 @@ function isJudged(rel) {
 }
 
 /**
- * Judges one file, its allowlist entry applied. Judged first, then
- * suppressed: an allowlisted file must still be SEEN to trip its tag, or its
- * entry is stale.
- *
- * `seen` is called with each allowlisted tag tripped; `hook` says whether a
- * hook runs or loads the file.
- * @param {import("./lib/check").Ctx} ctx
+ * @param {Judge} ctx
  * @param {string} root
- * @param {{rel: string, text: string, importable: Set<string>, hook: boolean,
- *   seen: (tag: string) => void}} file
+ * @param {{rel: string, text: string, importable: Set<string>, hook: boolean, seen: (tag: string) => void}} file
  */
 function judgeFile(ctx, root, { rel, text, importable, hook, seen }) {
 	const entry = Object.hasOwn(ALLOWED, rel) ? ALLOWED[rel] : undefined;
@@ -793,12 +601,9 @@ function judgeFile(ctx, root, { rel, text, importable, hook, seen }) {
 }
 
 /**
- * The faults one file carries (#1151). No other file is read, so a core-path
- * constant `rel` imports from a sibling module is not known to be one: the
- * commit gate still judges that HOST-ROOTED-CORE spelling.
  * @param {string} root
- * @param {string} rel repo-relative
- * @returns {string[]} one message per fault; none where `root` ships no plugin
+ * @param {string} rel
+ * @returns {string[]}
  */
 function fileFaults(root, rel) {
 	if (!rel.startsWith("scripts/") || !isJudged(rel) || !shipsPlugin(root))
@@ -809,7 +614,6 @@ function fileFaults(root, rel) {
 	const collect = (/** @type {string} */ _tag, /** @type {string} */ msg) =>
 		out.push(msg);
 	judgeFile(
-		// @ts-expect-error judgeFile's judges call fail alone
 		{
 			fail: collect,
 			warn: noop,
@@ -819,12 +623,9 @@ function fileFaults(root, rel) {
 			rel,
 			text,
 			importable: new Set(),
-			/* The hook scope walks hundreds of files, so a lone write pays
-			 * for it only when it holds a spelling the scope decides. */
 			hook:
 				(HOOK_ROOT_ANY.test(text) || SH_TREE_ANY.test(text)) &&
 				readHookCode(root).has(rel),
-			// The allowlist still applies; whether an entry went stale is the whole-repo pass's call.
 			seen: noop,
 		},
 	);
@@ -832,7 +633,6 @@ function fileFaults(root, rel) {
 }
 
 /**
- * The core-path constants every scanned, non-test JS module declares.
  * @param {string} root
  * @param {string[]} scanned
  * @returns {Set<string>}
@@ -842,7 +642,6 @@ function readImportableConstants(root, scanned) {
 	const importable = new Set();
 	for (const rel of scanned) {
 		if (!isJsExt(path.extname(rel)) || isApparatus(rel)) continue;
-		// Unreadable here is unreadable below, where it is skipped too.
 		ignoreFailure(() => {
 			const text = blankComments(fs.readFileSync(path.join(root, rel), "utf8"));
 			for (const name of coreConstants(text)) importable.add(name);
@@ -852,13 +651,10 @@ function readImportableConstants(root, scanned) {
 }
 
 /**
- * Judge every judged file in `scanned`, collecting the `rel\0tag` pairs an
- * allowlist swallowed and counting the files inspected.
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  * @param {string[]} scanned
- * @param {{importable: Set<string>, hooked: Set<string>}} scope `hooked` is
- *   the files a hook runs or loads
+ * @param {{importable: Set<string>, hooked: Set<string>}} scope
  * @returns {{ tripped: Set<string>, inspected: number }}
  */
 function judgeScanned(ctx, root, scanned, { importable, hooked }) {
@@ -886,7 +682,6 @@ function judgeScanned(ctx, root, scanned, { importable, hooked }) {
 }
 
 /**
- * STALE-ALLOWLIST: an allowlisted tag on a present file that no longer trips.
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  * @param {Set<string>} tripped
@@ -911,15 +706,10 @@ const SPEC = {
 	name: "host-root",
 	usage: "node check-host-root.js [--root <dir>] [--json] [--against <rev>]",
 	valueFlags: ["--root"],
-	/* `tree`, not `blobs`: the scan finds its scope by walking scripts/, and
-	 * the plugin-presence SKIP reads .claude-plugin/plugin.json from the
-	 * scanned root (scripts/lib/check.js §--against, #917). */
 	against: { profile: "host-root", materialise: "tree" },
 	/** @returns {import("./lib/check").CheckResult} */
 	run(/** @type {import("./lib/check").Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
-		/* A repo shipping no plugin SKIPs, not BROKEN or FAIL, which would refuse
-		 * every commit it makes (#5, #83). */
 		if (!shipsPlugin(root))
 			ctx.skip(
 				`${root} ships no plugin (.claude-plugin/plugin.json is absent) — its scripts run in place`,
@@ -931,8 +721,6 @@ const SPEC = {
 			ctx.broken(`nothing to scan under ${root} — no scripts/`);
 		}
 
-		/* Every scanned JS module's core-path constants, so a site joining one it
-		 * destructured from a require is judged as if the literal were local. */
 		const importable = readImportableConstants(root, scanned);
 
 		const { tripped, inspected } = judgeScanned(ctx, root, scanned, {
@@ -951,23 +739,21 @@ const SPEC = {
 };
 
 /**
- * `ctx` with the exempt tags swallowed — how an allowlisted file is judged without its
- * exempt finding being reported.
- * @param {import("./lib/check").Ctx} ctx
+ * @param {Judge} ctx
  * @param {string[]} tags
  * @param {(tag: string) => void} seen
- * @returns {any}
+ * @returns {Judge}
  */
 function exemptingCtx(ctx, tags, seen) {
-	/** @param {"fail" | "warn"} kind */
-	const route =
-		(kind) =>
-		(/** @type {string} */ t, /** @type {any[]} */ ...rest) => {
-			if (tags.includes(t)) seen(t);
-			// @ts-expect-error forwarding the checker's own variadic signature
-			else ctx[kind](t, ...rest);
-		};
-	return { fail: route("fail"), warn: route("warn"), broken: ctx.broken };
+	/**
+	 * @param {"fail" | "warn"} kind
+	 * @returns {Judge["fail"]}
+	 */
+	const route = (kind) => (tag, message, data, key) => {
+		if (tags.includes(tag)) seen(tag);
+		else ctx[kind](tag, message, data, key);
+	};
+	return { fail: route("fail"), warn: route("warn") };
 }
 
 if (require.main === module) runCheck(SPEC);

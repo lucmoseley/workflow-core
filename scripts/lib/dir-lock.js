@@ -1,34 +1,20 @@
-/*
- * dir-lock.js — a short read-modify-write lock for a hook's scratch store,
- * where Node has no flock(2): a directory beside the store, made by the one
- * caller that gets it (#2787). lib/echo-record-host.js's echo-chain store
- * takes it for the recorder's writes and the guard's alike.
- *
- * Waits up to LOCK_WAIT_MS, then runs `fn` unserialised, as `flock -w` failing
- * did: a store write is never skipped for want of the lock. `fn` is told
- * whether it holds the lock, for a step only safe under it (lib/retained-jsonl.js's
- * prune). A lock older than
- * LOCK_STALE_MS is a crashed holder's and is taken over.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { sleepSync } = require("./sleep-sync.js");
 
-/** ec_store's `flock -w 2` before the port: the wait a store write had. */
+// guess, #5529
 const LOCK_WAIT_MS = 2000;
 
-/** Far past any store's read-modify-write, which is one small file. */
+// guess, #5529
 const LOCK_STALE_MS = 10_000;
 
-/* That read-modify-write takes well under a millisecond, so a waiter polls
- * often and a full wait is about 400 tries. */
+// guess, #5529
 const POLL_MS = 5;
 
 /**
  * @template T
- * @param {string} lock the lock directory's path
+ * @param {string} lock
  * @param {(held: boolean) => T} fn
  * @param {() => number} [now]
  * @returns {T}
@@ -58,8 +44,6 @@ function withDirLock(lock, fn, now = Date.now) {
 }
 
 /**
- * Delete each file in `dir` last written over `ageMs` ago: a per-agent store
- * would otherwise pile up for the host's life.
  * @param {string} dir
  * @param {number} ageMs
  */

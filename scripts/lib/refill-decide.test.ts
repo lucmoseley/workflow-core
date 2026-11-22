@@ -1,15 +1,3 @@
-/*
- * refill-decide.test.ts — away mode's decision core (#2007): every stop, the
- * seat failover, the free slots, the launch filter and the merged
- * ranking, driven through `decideTick` from plain records, since the core is
- * pure. A break here launches the wrong ticket, or none, while he is away.
- *
- * The progress table lists act kinds by hand, so the progress test covers each
- * kind a writer emits; a kind added to act-line.js gets no case. Deleting one
- * there leaves this table green, since progress counts any key: act-line.test.ts
- * is the table that goes red (#3312).
- */
-
 import { describe, expect, it } from "vitest";
 import { row } from "./refill-loop-fixture";
 
@@ -29,15 +17,12 @@ const { buildVerifyPrompt } = require("./unclosed-launch.js");
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const HOUR = 60 * 60 * 1000;
-/** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
 
 const seat = (
 	name: string,
 	week: number | null,
 	session: number | null,
-	/* Over every case's free slots, so the cap binds only where a case sets
-	 * it. */
 	fits: number | null = 9,
 ) => ({
 	seat: name,
@@ -860,7 +845,6 @@ describe("decideTick past a seat's billing stop (#5479)", () => {
 
 describe("decideTick's seat order and reason (#3732)", () => {
 	const Day = 24 * HOUR;
-	/* A plan seat with room whose week resets `days` from now, null unread. */
 	const on = (
 		name: string,
 		days: number | null,
@@ -1592,7 +1576,6 @@ describe("decideTick launch filter", () => {
 	});
 
 	it("launches a map at any kind, an exhausted takes:wayfinder map as /wayfinder (#2639, #3569)", () => {
-		/* One tick a kind: the unproven cap launches three at most (#4223). */
 		const ticks = ["to-spec", "to-tickets", "implement", "wayfinder"].map(
 			(k, i) =>
 				tick({
@@ -1612,7 +1595,6 @@ describe("decideTick launch filter", () => {
 
 	it("prompts each launchable kind with its own command, every one on Opus", () => {
 		const kinds = ["implement", "wayfinder", "to-spec", "to-tickets", "triage"];
-		/* One tick a kind: the unproven cap launches three at most (#4223). */
 		const launches = kinds.map(
 			(k, i) => tick({ frontier: [row("wfc", 10 + i, k)] }).launches[0],
 		);
@@ -1744,7 +1726,6 @@ describe("decideTick on parked rows (#3621)", () => {
 			freeSlots: 9,
 			frontier: [...frontier, parked(4, null)],
 		});
-		/* The unproven cap stops the walk at three (#4223). */
 		expect(launched(d)).toEqual(["wfc#4", "wfc#3", "wfc#2"]);
 	});
 
@@ -1824,8 +1805,6 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		resumeCwd: "wfc",
 		...over,
 	});
-	/* The founder last typed on the parking seat, so a resume stays there
-	 * while it has room. */
 	const on = (
 		s2: ReturnType<typeof seat>,
 		parkers = [parker()],
@@ -1929,7 +1908,6 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 				},
 			]);
 		}
-		/* Unsized, as every seat behind the first with room is. */
 		const d = on(seat("/s2", 40, 20, null));
 		expect(launched(d)).toEqual(["wfc#2"]);
 		expect(d.launches[0].parkedRoute).toEqual({
@@ -1939,7 +1917,6 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 
 	it("names a held row for the idle alarm though the walk never reaches it (#3680)", () => {
 		const full = seat("/s2", 100, 10);
-		/* /s1 unsized: no fit to carry the session to, nor to launch on. */
 		const d = tick({
 			mode: "normal",
 			freeSlots: 1,

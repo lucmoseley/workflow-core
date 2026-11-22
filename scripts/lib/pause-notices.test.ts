@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/pause-notices.js's tendPauseNotices, called in-process as the tick calls it,
- * with `gh` through WFC_GH's route stub.
- *
- * Broken, a no-progress pause that only the founder can end goes unseen for hours
- * (#4200), or pages him every tick.
- */
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -22,7 +15,6 @@ type Pause = import("./refill-decide.js").Pause;
 let dir: string;
 const at = (name: string) => path.join(dir, name);
 
-/** A checkout tracked at `tracker`, paging from `noticeRepo` where given. */
 const checkout = (name: string, tracker: string, noticeRepo?: string) => {
 	const root = at(name);
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
@@ -64,14 +56,12 @@ const readGhLog = () => {
 	const read = readText(at("gh-log"));
 	return read.state === "read" ? read.data : "";
 };
-/** The markers of every dispatch so far, in order. */
 const readDispatched = () =>
 	[...readGhLog().matchAll(/<!-- (refill-pause-notice [^>]*) -->/g)].map(
 		(m) => m[1] ?? "",
 	);
 const readPhases = () => readDispatched().map((m) => m.split(" ").at(-1));
 
-/** gh for the calls that follow, each dispatch so far commented on its issue. */
 const serve = () => {
 	const routes = fs.mkdtempSync(path.join(dir, "gh-routes-"));
 	const comments = readDispatched().map((m) => ({
@@ -92,10 +82,8 @@ const serve = () => {
 	vi.stubEnv("WFC_GH", gh);
 };
 
-/** The workflow-core issue the stub filer files. */
 const FILED = 77;
 
-/** A filer at the paging checkout, recording its calls; `fails` refuses a filing. */
 const stubFiler = (fails = false) => {
 	const calls: string[] = [];
 	const filer = {
@@ -112,7 +100,6 @@ const stubFiler = (fails = false) => {
 	return { filer, calls };
 };
 
-/** One tick's pause notices at `now` under `repoPaused`; its log lines. */
 const tick = (
 	repoPaused: Record<string, Pause>,
 	now = NOW,
@@ -132,7 +119,6 @@ const noProgress = (
 	],
 ): Pause => ({ by: "no-progress", at: NOW - MIN, issues });
 
-/** The notice file of a pause of `root` written at `pausedAt`. */
 const noticeFileOf = (pausedAt: number, root: string) =>
 	at(
 		`pause-notices/${pausedAt}-${crypto.createHash("sha256").update(root).digest("hex").slice(0, 12)}.notice`,

@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the reading window every reporter cuts its figures at: the point
- * instant counts as reached, the cutoff is the point once reached and now
- * before it, and an event stamped at the cutoff is read (#2629). A module test
- * on a hand-built Point, since the reporters' own tests reach the point only
- * through whole log fixtures. A break moves every reporter's window, filing a
- * reading on figures read past its point.
- */
-
 import { describe, expect, it } from "vitest";
 import { isRead, readingAt } from "./log-reading.js";
 

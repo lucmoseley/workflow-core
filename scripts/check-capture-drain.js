@@ -1,44 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-capture-drain.js — reports that captured facts have been sitting
- * undrained too long.
- *
- * A `**Captured fact:**` comment buys durability the moment it is written and
- * nothing else: the fact is in no document, so no session reads it (mantahostels#639).
- * The settling session
- * files the fact itself and marks its own comment consumed (mantahostels#2748), so what
- * this reports is an ESCAPED one — plus the historical residue on mantahostels#678, closed.
- * Nothing else asks for the drain.
- *
- * AGE, NOT COUNT. A day that captures six facts is a productive day, not a
- * backlog; a fortnight with two uncollected is the failure. So the trigger is
- * how old the OLDEST undrained capture is.
- *
- * THE 7 DAYS IS A FIRST GUESS — `STALE_CAPTURE_DAYS` in scripts/lib/captures.js
- * owns it and says what would re-derive it. `--days <n>` overrides it for a
- * one-off look.
- *
- * WARN, never FAIL: an undrained capture is safe where it sits, and gating
- * anything on tidy-up would teach the reader to ignore the line.
- *
- * THREE PATHS, because the scan costs 20 seconds and the SessionStart hook this
- * was until ad6edc1e4 allowed 15 (the reasoning, and why no narrower query
- * exists, is on the state file in scripts/lib/captures.js):
- *
- *   --notify   reads the state file, calls gh not at all, and kicks a detached
- *              --refresh when the state is old. Wired to nothing since
- *              ad6edc1e4 lifted this off SessionStart.
- *   --refresh  scans and writes the state file. Prints nothing.
- *   neither    scans live, reports, and warms the state file. `npm run
- *              check:captures`, where waiting 20 seconds is the point.
- *
- * Usage: node check-capture-drain.js [--days <n>] [--warn] [--json] [--notify]
- *                                    [--refresh]
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), asks GitHub how old the oldest undrained `**Captured fact:**` comment is and reports a drain reminder.
- * JUSTIFIED: fail-safe — an unreacted capture is a fact that reached no document, and nothing else ever reports one.
- * DEFEAT:    none; --notify is silent while the oldest capture is inside the threshold.
- */
 
 const { spawn } = require("node:child_process");
 
@@ -54,8 +14,6 @@ const {
 const { scriptPath } = require("./lib/script-path");
 const { ignoreFailure } = require("./lib/caught.js");
 
-/** Fire and forget: the session must not wait on it, and its failure is the
- *  next run's stale state rather than anything to report here. */
 function kickRefresh() {
 	ignoreFailure(() =>
 		spawn(process.execPath, [__filename, "--refresh"], {
@@ -71,12 +29,7 @@ function kickRefresh() {
  */
 const ageDaysOf = (c, now) => (now - Date.parse(c.createdAt)) / 864e5;
 
-/**
- * --refresh: pay the scan, write the state, say nothing. Its findings would go
- * to a terminal nobody is watching.
- *
- * @param {import("./lib/check").Ctx} ctx
- */
+/** @param {import("./lib/check").Ctx} ctx */
 function refreshState(ctx) {
 	/** @type {ReturnType<typeof fetchCaptures>} */
 	let captures;
@@ -96,15 +49,9 @@ function refreshState(ctx) {
 	};
 }
 
-/**
- * One undrained capture as either route reads it: the state file keeps only
- * these four fields of a scanned `Capture` (`writeState`).
- * @typedef {Pick<import("./lib/captures").Capture, "id" | "issue" | "url" | "createdAt">} StoredCapture
- */
+/** @typedef {Pick<import("./lib/captures").Capture, "id" | "issue" | "url" | "createdAt">} StoredCapture */
 
 /**
- * `scannedAt` is the state file's ISO stamp, as `writeState` wrote it, and
- * null on the live scan.
  * @typedef {{
  *   early?: { okLine: string, data: object },
  *   undrained: StoredCapture[],
@@ -113,19 +60,10 @@ function refreshState(ctx) {
  * }} UndrainedRead
  */
 
-/**
- * --notify: the state file only. A 20-second gh call here was killed by the
- * SessionStart hook's timeout, and a killed check prints exactly what a clean
- * one prints, so the drift would never surface. `early` is the result to
- * return where no state is recent enough to speak from.
- *
- * @returns {UndrainedRead}
- */
+/** @returns {UndrainedRead} */
 function readUndrainedFromState() {
 	const state = readState();
 	if (!state || state.stale) {
-		// Nothing to say yet. The refresh below is what makes the NEXT
-		// --notify run able to speak — a route nothing wires today (header).
 		kickRefresh();
 		return {
 			early: {
@@ -145,11 +83,7 @@ function readUndrainedFromState() {
 	};
 }
 
-/**
- * Neither flag: scan live, and warm the state file on the way.
- *
- * @returns {UndrainedRead}
- */
+/** @returns {UndrainedRead} */
 function undrainedFromScan() {
 	/** @type {ReturnType<typeof fetchCaptures>} */
 	let captures;
@@ -161,7 +95,6 @@ function undrainedFromScan() {
 	const undrained = captures.filter(
 		(/** @type {{ drained: unknown }} */ c) => !c.drained,
 	);
-	// Warm the state so the next --notify run can speak from it.
 	writeState(captures, Date.now());
 	return { undrained, scannedAt: null, stateAgeHours: null };
 }
@@ -207,11 +140,8 @@ runCheck({
 		if (read.early) return read.early;
 		const { scannedAt, stateAgeHours } = read;
 
-		/* Sampled after the fetch, never before: a 20-second scan taken against a
-		 * clock read before it starts ages every capture 20 seconds short. */
 		const now = Date.now();
 
-		// Oldest first, so the head is the one the threshold is judged against.
 		const undrained = [...read.undrained].sort(
 			(a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
 		);
@@ -220,7 +150,6 @@ runCheck({
 		const overdue =
 			oldest !== null && oldestAgeDays !== null && oldestAgeDays > days;
 
-		// `oldest && oldestAgeDays !== null` is type-only: overdue already implies both.
 		if (overdue && oldest && oldestAgeDays !== null)
 			reportOverdue(ctx, undrained, oldest, oldestAgeDays);
 

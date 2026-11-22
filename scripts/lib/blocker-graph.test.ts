@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the blocked-by graph the shortlist ranks on (#2427): the walk out of
- * the served repo into any repo, the issues it pulls in as launch
- * candidates, and keys that keep a foreign number from crediting the served
- * issue sharing it. Loosen a case and the refill loop launches a ticket
- * another repo's open issue still blocks, or ranks a served issue on a
- * foreign issue's reach. It pins too
- * that each open ancestor counts in reach and depth, and closesOf's chain of
- * sole open children (#3613).
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -25,17 +15,11 @@ const {
 
 type State = "open" | "closed";
 interface Fake {
-	/** `owner/name#n` -> its state and body */
 	issues?: Record<string, { state: State; body?: string }>;
-	/** `owner/name#n` -> the refs blocking it */
 	deps?: Record<string, string[]>;
-	/** `owner/name#n` whose blocked_by read fails */
 	failDeps?: string[];
-	/** `owner/name#n` whose issue read fails */
 	failIssues?: string[];
-	/** `owner/name#n` -> the refs of its sub-issues */
 	subIssues?: Record<string, string[]>;
-	/** `owner/name#n` whose sub-issues read fails */
 	failSubIssues?: string[];
 }
 
@@ -59,8 +43,6 @@ const edge = (fake: Fake, ref: string) => {
 	};
 };
 
-/** A served repo of `served` (number -> its blockers, body, parent, summary's
- * open sub-issue count and map flag), over `fake`. */
 const graphOf = (
 	served: Record<
 		number,
@@ -195,8 +177,6 @@ describe("the walk into other repos", () => {
 
 describe("a served issue's own blockers", () => {
 	it("honours a blocker that is also the blocked issue's own child (mantahostels#105)", async () => {
-		// The live cross-group edge: mantahostels#93 blocks mantahostels#79 while
-		// being its child. A walk assuming edges run parent-downward drops it.
 		const { graph } = await graphOf({
 			79: { deps: [`${OWN}#93`] },
 			93: { parent: 79 },
@@ -231,7 +211,6 @@ describe("what an issue inherits from what it holds out (#3222)", () => {
 	const own = (number: number) => ({ repo: OWN, number });
 
 	it("passes a tier along a blocker chain, its depth the longest path", async () => {
-		// 1 blocks 2 and 3; 3 blocks 4, which is urgent. 2 is a shorter dead end.
 		const { graph } = await graphOf({
 			1: {},
 			2: { deps: [`${OWN}#1`] },
@@ -245,7 +224,6 @@ describe("what an issue inherits from what it holds out (#3222)", () => {
 	});
 
 	it("ends on a cycle, still naming the tier past it", async () => {
-		// 1 blocks 2; 2 and 3 block each other; 3 is urgent.
 		const { graph } = await graphOf({
 			1: {},
 			2: { deps: [`${OWN}#1`, `${OWN}#3`] },
@@ -258,7 +236,6 @@ describe("what an issue inherits from what it holds out (#3222)", () => {
 	});
 
 	it("answers the same into a cycle from either side, whichever is asked first", async () => {
-		// 1 blocks 2 and 4 blocks 3; 2 and 3 block each other; 2 blocks 5, urgent.
 		const { graph } = await graphOf({
 			1: {},
 			4: {},
@@ -314,7 +291,6 @@ describe("what an issue inherits from what it holds out (#3222)", () => {
 	});
 
 	it("passes urgency down a parent link to a child, then on to its blockers (#3250)", async () => {
-		// 5 is the parent of 2; 1 blocks 2; 1 is the parent of 3.
 		const { graph } = await graphOf({
 			1: {},
 			2: { deps: [`${OWN}#1`], parent: 5 },
@@ -393,7 +369,6 @@ describe("proseOf: a served issue's markers as judged (#3277)", () => {
 	});
 
 	it("holds nothing on a marker naming this repo's closed issue, and reads it not", async () => {
-		// mantahostels#831 closed; the issues naming it were takeable all along.
 		const { graph, reads } = await graphOf({
 			832: { body: "**Blocked on** #831." },
 		});
@@ -443,8 +418,6 @@ describe("proseOf: a served issue's markers as judged (#3277)", () => {
 
 describe("holdersOf: what an `unblock` goal names (#3866)", () => {
 	it("walks a ref's blockers across repos and through its children, the ref included", async () => {
-		// 2 is 1's child; 3 and o/y#10 block 1; o/z#20 blocks o/y#10; 4 and the
-		// closed o/y#11 hold nothing.
 		const { graph } = await graphOf(
 			{
 				1: { deps: [`${OWN}#3`, "o/y#10", "o/y#11"] },

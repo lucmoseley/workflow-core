@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/repo-hold-notices.js's tendHoldNotices, called in-process over holds in a
- * real store, with `gh` through WFC_GH's route stub, which serves each dispatch
- * so far as its comment on the issue, as the workflow would. Where a case needs a
- * hold raised, filed or cleared as a tick would, it runs lib/repo-holds.js's
- * tendHolds over a real checkout. The tick's wiring of the notice, its one
- * dispatch adapter crossed, is refill-loop-run-holds.test.ts's (#4314).
- *
- * Broken, a hold that stops every launch reaches nobody's phone (#3871), or a
- * notice repeats every tick.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -73,19 +62,12 @@ afterEach(() => {
 
 const readGhLog = () =>
 	fs.existsSync(at("gh-log")) ? fs.readFileSync(at("gh-log"), "utf8") : "";
-/** The markers of every dispatch so far, in order. */
 const readDispatched = () =>
 	[...readGhLog().matchAll(/<!-- (repo-hold-notice [^>]*) -->/g)].map(
 		(m) => m[1] ?? "",
 	);
 const readPhases = () => readDispatched().map((m) => m.split(" ").at(-1));
 
-/**
- * gh for the calls that follow: each dispatch so far has its comment on the issue
- * unless `isRunDropped`; `isRefusing` refuses the dispatch; `runs` is the notice
- * workflow's run listing; `isFiling` false refuses a probe filing's label read.
- * Any other call answers logged out.
- */
 const serve = ({
 	isRefusing = false,
 	isRunDropped = false,
@@ -119,17 +101,13 @@ const serve = ({
 	return gh;
 };
 
-/* Just past lib/repo-hold-notices.js's windows: no slot at work for 30 min, a
- * sent notice unseen for 15 min, and its give-up after a day. */
 const PAST_NO_WORK = 31 * MIN;
 const PAST_UNSEEN = 16 * MIN;
 const PAST_GIVE_UP = 25 * 60 * MIN;
 const PAST_COOL_DOWN = 6 * 60 * MIN + MIN;
 
-/* A background session that is not at work: no slot has worked. */
 const IDLE = [{ state: "blocked", kind: "background" }];
 
-/** One tick's notices at `now`, off `agents` and the pause; its log lines. */
 const notices = (
 	now = NOW,
 	{
@@ -143,7 +121,6 @@ const notices = (
 	return lines.join("\n");
 };
 
-/** One tick's holds over the checkout at `now`; its log lines. */
 const holdTick = (now = NOW) => {
 	const lines: string[] = [];
 	tendHolds([repo], [repo], now, { log: (l) => lines.push(l) });
@@ -173,7 +150,6 @@ const raiseProbe = (now = NOW) =>
 	});
 
 const lastWorked = () => at("last-slot-worked.json");
-/** When a slot last worked, as the tick a minute before `now` read it. */
 const slotWorkedAgo = (ms: number, now = NOW) =>
 	fs.writeFileSync(
 		lastWorked(),
@@ -360,8 +336,6 @@ exec ${shellQuote(routed)} "$@"
 		expect(readPhases()).toEqual(["raise"]);
 	});
 
-	/* A stub at WFC_GH can only exit, never make execFileSync throw a non-Error, so
-	 * this spies; gh.js binds execFileSync at load, so both libs are read fresh. */
 	it("rolls back a dispatch that threw a null, and retries it next tick (#4192)", () => {
 		raiseProbe();
 		serve();
@@ -470,13 +444,11 @@ exec ${shellQuote(routed)} "$@"
 });
 
 describe("a probe hold that comes back (#4148)", () => {
-	/** Raise a probe hold at `now` and tend its notices; that tick's log. */
 	const raiseAndTend = (now: number) => {
 		raiseProbe(now);
 		serve();
 		return notices(now);
 	};
-	/** Clear the open probe hold at `now`, as the passing probe would, and tend. */
 	const clearAndTend = (now: number) => {
 		serve();
 		expect(holdTick(now)).toContain("repo hold cleared: probe in");

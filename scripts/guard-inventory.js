@@ -1,85 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-inventory.js — Stop hook. Refuses a background job's ending when what
- * waits on the founder is missing, misshapen or carried by no open issue
- * (#988).
- *
- * THE INVENTORY (#904) is the shape `PLACEMENT` prints.
- *
- * WHERE IT IS OWED: a background job (`CLAUDE_JOB_DIR` set) ending on
- * `result:` or `needs input:`. Never at `waiting:`, never in an interactive
- * session — but a block written on any turn, in any session, is checked for
- * shape and carriers. The status-line tail is checked only where the block is
- * owed.
- *
- * FIVE LIMBS, ONE COUNTER of its own, so guard-priced-options.js's refusals
- * earlier in a session cannot silence it:
- *   missing — owed and absent, or sitting below the status line.
- *   shape — the block grammar of lib/outstanding-line.js, the header holding
- *     nothing or the word `nothing` alone; and the tail lists
- *     exactly the block's issues, or says nothing waits where the block does.
- *   open — every leading ref an open issue, through the same module. The
- *     ticket the session just closed is refused as any closed issue is.
- *   posted round — a `needs input:` ending carrying a `❓ **Qn**` round: some
- *     cited issue holds, among its newest five comments, one opening a round
- *     and carrying the round's first question title, from the same batched
- *     read; and this session holds an arbiter claim on one such issue in the
- *     tracker (#1066). A claim another live session holds does not
- *     count: the refusal's `claim-issue.js` then refuses, surfacing the
- *     collision. And a comment holding the round carries a well-formed
- *     `**Hand-off:**` block (lib/hand-off.js, #2391).
- *   park — every `needs input:` ending: the hand-off above, or, where it asks
- *     no round (a pointer to a standing round, a founder hand-over), the
- *     newest comment carrying a `**Hand-off:**` header among the cited
- *     issues' newest five, its `Blocked on:` naming what the park waits on.
- *     Either way a hand-off older than this session's start or last resume is
- *     stale where that can be read and a tool call has run since (#2944, #2950);
- *     with none, as in a session the refill loop woke only to repeat its park
- *     (lib/loop-prompts.js), it has no Done or Left to add (#3939). Residual: the
- *     prompt is never read, so any session with no tool call since its start
- *     passes on an old hand-off.
- *     And no file this session's write ledger names sits uncommitted
- *     in the tree — a file its diff carries is owed its restore to HEAD too —
- *     a live neighbour's claimed files aside. A park on a repo hold (#3858) cites
- *     that hold's issue and its own ticket, whose hand-off this limb reads.
- *
- * THE CHECKLIST (#4206): either block on a background job's `needs input:`
- * ending ends with lib/needs-input-shape.js's list of every piece that ending
- * owes, this guard's own verdicts marking theirs met or missing. It changes
- * what a refusal says, never whether one goes out.
- *
- * DRAFT AND ACT (#989, ruled at #913), ON A SECOND COUNTER, `max: 1`: where
- * an owed block reads `waits on you: nothing`, the session's main-chain
- * transcript is scanned for one response holding a draft — a fence, or
- * three quoted lines running — and a sentence outside it, carrying
- * `you`/`your`, that tells the founder to send, upload, forward, reply to,
- * email, submit or sign something, or check it by eye. A send back to the session ("send back the output", "send me",
- * `send "done"`, "paste what you saw") does not count, nor a send the session
- * itself makes ("I'd send"), each judged on the words beside that act. A draft
- * in one response and the act in a later one are never paired. A hit refuses
- * once, quoting the newest such sentence; ending the same way again passes,
- * since nothing lexical tells a draft already filed or sent from one still
- * owed.
- *
- * FAILS OPEN on any internal error (lib/stop-guard.js). An unreachable GitHub
- * or an unreadable repo leaves the shape check alone, logged by
- * lib/outstanding-line.js, and passes the posted-round limb, as does an
- * unreadable or partly torn claim store, or no session id. It passes the park
- * limb where a cited issue is unread and no read one holds a hand-off. A
- * transcript that cannot be read passes the freshness test and leaves the
- * draft-and-act limb this turn's message, unlogged: a passing Stop hook's output
- * reaches no one.
- *
- * WHAT IT CAN NEVER SEE: founder-facing work the session never put in a
- * draft-and-act turn; a gist that misstates the act; an open issue under the
- * wrong `takes:` label; an interactive session's final turn, no hook telling
- * it from any other; an issue another session closes after the Stop; a round
- * posted by a route that leaves no comment. A dispatch between the round's
- * posting and this Stop, seconds apart, finds the issue unclaimed (#1066).
- * And an item gist using one of the
- * `APPROVAL_SEEKING` phrases trips that limb of guard-priced-options.js at
- * `result:`.
- */
 
 const { readDeliverableRule } = require("./lib/founder-deliverable");
 const { INVENTORY } = require("./lib/inventory-format");
@@ -113,12 +32,10 @@ const { governingMarker } = require("./lib/status-marker");
 const { sinceTime } = require("./lib/tool-calls-since");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
 
-/* Case-sensitive: the form is the plain lower-case line (#904), and prose
- * opening "Waits on you: nothing urgent" is no block. */
+// #904
 const HEADER_RE = /^[ \t]*waits on you:(.*)$/;
 const FENCE_RE = /^[ \t]{0,3}(```|~~~)/;
 const TAIL_NOTHING_RE = /[—–-][ \t]*nothing waits on you\.?[ \t]*$/i;
-/* Read on the status line's last line, as the tail runs to its end. */
 const TAIL_REFS_RE = /[—–-][ \t]*waits on you:(.*)/i;
 const OWED = new Set(["result:", "needs input:"]);
 
@@ -126,10 +43,6 @@ const DRAFT_FENCE_RE = /^\s*(```|~~~)/;
 const QUOTE_LINE_RE = /^[ \t]*>/;
 const QUOTED_RUN = 3;
 const YOU_RE = /\b(?:you|your)\b/i;
-/* "email" and "sign" count as verbs only where one stands: after a subject, a
- * modal, `to` or `please`, or ("email") before its object — so "your Dad's
- * email" and "an early sign" are no act, nor is "sign in". The 40-character
- * reach of "check … by eye" is a guess. */
 const VERB_LEAD = String.raw`(?:\b(?:you|please|to|then|and|could|should|can|must|will|would|might)\s+|['’]ll\s+|^)`;
 const ACT_RE = new RegExp(
 	String.raw`\b(?:send|upload|forward|reply to|submit)\b|${VERB_LEAD}e-?mail\b|\be-?mail\s+(?:him|her|them|it|this|that)\b|${VERB_LEAD}sign\b(?!\s*(?:in|up|on|out)\b|-)|\bcheck\b[^.\n]{0,40}\bby eye\b`,
@@ -137,17 +50,10 @@ const ACT_RE = new RegExp(
 );
 const SESSION_SENDS_RE =
 	/\b(?:I|I'd|I'll|I will|I would|we|we'd|we'll)\s+(?:\w+\s+)?$/i;
-/* Back to the session: "send back the output", "send me", "send it here", or
- * a reply word in quotes — `send "done"`, at most 20 characters, a guess.
- * "Back to #N" is to an issue, never to another person. */
 const SEND_BACK_RE =
 	/^\s+(?:(?:it|them|this|that|the \w+(?: \w+)?)\s+)?back\b(?!\s+to\s+(?!me\b|us\b|here\b|#\d))|^\s+(?:(?:it|them|this)\s+)?(?:to\s+)?(?:me|us)\b|^\s+["“`'][^"”`']{1,20}["”`']|^\s+(?:\w+\s+)?here\b/i;
 
-/**
- * Whether a sentence tells the founder to act on something outside this
- * session.
- * @param {string} sentence
- */
+/** @param {string} sentence */
 function foundersAct(sentence) {
 	if (!YOU_RE.test(sentence)) return false;
 	for (const m of sentence.matchAll(ACT_RE)) {
@@ -160,8 +66,6 @@ function foundersAct(sentence) {
 }
 
 /**
- * One response split: whether it carries a draft — a fence, or a run of
- * quoted lines — and its prose lines outside both.
  * @param {string} text
  * @returns {{drafted: boolean, prose: string[]}}
  */
@@ -186,10 +90,7 @@ function draftAndProse(text) {
 	return { drafted, prose };
 }
 
-/**
- * The newest sentence that hands the founder a draft to act on, or "".
- * @param {string[]} turns  the session's assistant responses, oldest first
- */
+/** @param {string[]} turns */
 function draftActSentence(turns) {
 	for (const text of [...turns].reverse()) {
 		const { drafted, prose } = draftAndProse(text);
@@ -205,9 +106,6 @@ function draftActSentence(turns) {
 }
 
 /**
- * The session's main-chain assistant responses, each its text blocks joined —
- * one response is written as several records — then this turn's message,
- * which the transcript may not hold yet.
  * @param {import("./lib/stop-guard").StopPayload|null} payload
  * @param {string} sessionId
  * @param {string} message
@@ -225,9 +123,8 @@ function sessionTurns(payload, sessionId, message) {
 }
 
 /**
- * @param {string} file  the session's transcript
- * @returns {string} its text; "" where it will not read, leaving the
- *   draft-and-act limb this turn's own message to judge (#3951)
+ * @param {string} file
+ * @returns {string}
  */
 function readTranscriptText(file) {
 	try {
@@ -238,9 +135,7 @@ function readTranscriptText(file) {
 }
 
 /**
- * Add one record's text blocks to its response's entry in `turns`, where it
- * is an assistant record.
- * @param {Map<unknown, string[]>} turns accumulator: the record's text blocks are appended under its response's key
+ * @param {Map<unknown, string[]>} turns
  * @param {import("./lib/transcript.js").TranscriptRecord} record
  */
 function addResponseText(turns, record) {
@@ -263,12 +158,7 @@ const LEAD =
 	"THIS ENDING'S FOUNDER INVENTORY IS REFUSED (`rule:founder-deliverable`, below): everything that waits on the founder is listed, and an open issue carries each item.";
 const PLACEMENT = `It sits ${INVENTORY.placement}: the plain line \`waits on you:\` and its items, or ${INVENTORY.nothingLine}. In a background job the status line itself ends ${INVENTORY.statusTail}.`;
 
-/**
- * The block and the status line, located. The block is the LAST
- * `waits on you:` line outside a fence, running to the status line below it
- * or, with none, to the message's end.
- * @param {string} message
- */
+/** @param {string} message */
 function ending(message) {
 	const lines = message.split(/\r?\n/);
 	const marker = governingMarker(message);
@@ -297,15 +187,11 @@ function ending(message) {
 		header,
 		rest: rest.trim(),
 		body: [rest, ...below].join("\n"),
-		/* The empty block, exactly: `waits on you: nothing` and no item below. */
 		nothing: isNothing(rest) && !below.some((l) => l.trim()),
 	};
 }
 
 /**
- * The round's first question: its number, and its title — the text after its
- * `❓ **Qn**`, or the next non-blank line where that is empty. Null where no
- * round opens.
  * @param {string} message
  * @returns {{number: string, title: string}|null}
  */
@@ -328,9 +214,6 @@ function firstQuestion(message) {
 const squash = (s) => s.replace(/\s+/g, " ").trim();
 
 /**
- * The tracker issues among `holders`, and those of them this session claims.
- * Null where the claim store, the session id or the tracker cannot be read
- * (#1066: fail open). No liveness read: the session asking is the live one.
  * @param {import("./lib/outstanding-line").Item[]} holders
  * @param {string} sessionId
  * @returns {{numbers: number[], mine: number[]}|null}
@@ -338,7 +221,6 @@ const squash = (s) => s.replace(/\s+/g, " ").trim();
 function trackerClaims(holders, sessionId) {
 	const tracker = trackerOf();
 	if (!sessionId || !tracker) return null;
-	/* claim-issue.js claims in the tracker alone, so only its issues count. */
 	const numbers = holders
 		.filter((i) => `${i.owner}/${i.repo}` === tracker)
 		.map((i) => i.number);
@@ -352,8 +234,6 @@ function trackerClaims(holders, sessionId) {
 }
 
 /**
- * The tracker issues among `holders` a claim is owed on: all of them where
- * this session claims none, else [] — [] too where `trackerClaims` cannot read.
  * @param {import("./lib/outstanding-line").Item[]} holders
  * @param {string} sessionId
  * @returns {number[]}
@@ -364,7 +244,6 @@ function claimOwedOn(holders, sessionId) {
 }
 
 /**
- * The block's items whose newest comments hold the round.
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @param {{title: string}} question
  */
@@ -374,7 +253,6 @@ const roundHolders = (verdict, { title }) =>
 	);
 
 /**
- * Whether a comment opens the round whose first question is titled `title`.
  * @param {{body: string}} comment
  * @param {string} title
  */
@@ -382,16 +260,11 @@ const holdsRound = (comment, title) =>
 	hasRoundMarker(comment.body) && squash(comment.body).includes(squash(title));
 
 /**
- * The hand-off fault on a park (#2391): `body`, the comment the park leaves
- * on its ticket, carries no well-formed `**Hand-off:**` block, or this
- * session's ledgered files sit uncommitted — the block's diff carries a named
- * file, so that file is still owed its restore.
  * @param {string} body
- * @param {string|undefined} question  the round's first question number,
- *   which `Blocked on:` must name; undefined where the park asks no round
+ * @param {string|undefined} question
  * @param {string} sessionId
- * @param {string|null} tree the session's checkout, whose dirt is read
- * @returns {string} the fault, or ""
+ * @param {string|null} tree
+ * @returns {string}
  */
 function handOffFault(body, question, sessionId, tree) {
 	const faults = handOffFaults(body, question);
@@ -417,16 +290,11 @@ function handOffFault(body, question, sessionId, tree) {
 	return `this session's own files sit uncommitted at a park (#2391): ${parts.join("; ")}`;
 }
 
-/**
- * The question number a pointer park names — `Qn` in its block or status
- * line — or undefined where it names none.
- * @param {ReturnType<typeof ending>} end
- */
+/** @param {ReturnType<typeof ending>} end */
 const pointedQuestion = (end) =>
 	/\bQ(\d+)\b/.exec(`${end.body}\n${end.payload}`)?.[1];
 
 /**
- * The newest comment `keep` passes among `items`' read comments, or undefined.
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @param {import("./lib/outstanding-line").Item[]} items
  * @param {(c: {body: string}) => boolean} keep
@@ -443,12 +311,8 @@ const hasUnchecked = (verdict) =>
 	verdict.items.some((item) => verdict.statuses[item.ref] === "unchecked");
 
 /**
- * When this session's job was created; null where its record does not read.
- * A `claude --bg --resume` starts a new job and copies the conversation into a
- * new transcript with each record's old timestamp, writing no resume mark
- * there, so the job alone dates the resume (#2950).
  * @param {string} sessionId
- * @returns {number | null} epoch milliseconds
+ * @returns {number | null}
  */
 function readJobCreatedAt(sessionId) {
 	const t = Date.parse(String(readOwnJob(sessionId)?.job.createdAt));
@@ -456,9 +320,7 @@ function readJobCreatedAt(sessionId) {
 }
 
 /**
- * When this session began or last resumed, to the second GitHub stamps a
- * comment at; null where neither its transcript nor its job record reads.
- * @param {string|null|undefined} file  the session's transcript
+ * @param {string|null|undefined} file
  * @param {string} sessionId
  */
 function readSessionStart(file, sessionId) {
@@ -472,10 +334,8 @@ function readSessionStart(file, sessionId) {
 }
 
 /**
- * The verdict a park's hand-off is read from. A park on a repo hold (#3858) cites
- * the hold's issue too, whose round carries the raiser's hand-off, never its own.
  * @param {import("./lib/outstanding-line").Verdict} verdict
- * @param {string} payload  the status line after its marker
+ * @param {string} payload
  * @returns {import("./lib/outstanding-line").Verdict}
  */
 function buildHandOffVerdict(verdict, payload) {
@@ -489,10 +349,9 @@ function buildHandOffVerdict(verdict, payload) {
 }
 
 /**
- * The claim fault on a park on a repo hold.
- * @param {import("./lib/outstanding-line").Verdict} own  the park's own items
+ * @param {import("./lib/outstanding-line").Verdict} own
  * @param {string} sessionId
- * @returns {string} the fault, or ""
+ * @returns {string}
  */
 function holdClaimFault(own, sessionId) {
 	const unclaimed = claimOwedOn(own.items, sessionId);
@@ -509,12 +368,9 @@ const newestHandOff = (verdict, items) =>
 	newestComment(verdict, items, (c) => parseHandOff(c.body) !== null);
 
 /**
- * @param {string} file  the session's transcript
- * @param {number} start  epoch milliseconds
- * @returns {number|null} the tool calls since `start`; null where the transcript
- *   parses to nothing or will not read, which passes the freshness test alone:
- *   left to throw, it would drop every other limb's refusal and every park
- *   target (#3951)
+ * @param {string} file
+ * @param {number} start
+ * @returns {number|null}
  */
 function readToolCallCountSince(file, start) {
 	try {
@@ -525,12 +381,10 @@ function readToolCallCountSince(file, start) {
 }
 
 /**
- * The fault on a park whose newest hand-off predates this session's start or
- * last resume, where its transcript shows a tool call since.
  * @param {ReturnType<typeof newestHandOff>} newest
  * @param {string} sessionId
  * @param {import("./lib/stop-guard").StopPayload|null} payload
- * @returns {string} the fault, or ""
+ * @returns {string}
  */
 function staleHandOffFault(newest, sessionId, payload) {
 	if (!newest) return "";
@@ -542,23 +396,16 @@ function staleHandOffFault(newest, sessionId, payload) {
 }
 
 /**
- * The hand-off fault on a park that asks no round: judged on the newest comment
- * carrying a `**Hand-off:**` header among the cited issues' newest five,
- * whose `Blocked on:` names the pointer's `Qn` where it names one.
  * @param {import("./lib/outstanding-line").Verdict} verdict
- * @param {string|undefined} pointed  the pointer's question number
+ * @param {string|undefined} pointed
  * @param {string} sessionId
  * @param {import("./lib/stop-guard").StopPayload|null} payload
- * @returns {string} the fault, or ""
+ * @returns {string}
  */
 function parkFault(verdict, pointed, sessionId, payload) {
 	if (verdict.items.length === 0)
 		return `this \`needs input:\` park cites no issue, so no hand-off can sit on its ticket (#2391) — list the issue the park waits on, and post the hand-off there:\n\n${HAND_OFF_SHAPE}`;
 	const newest = newestHandOff(verdict, verdict.items);
-	/* An issue whose comments could not be read may hold the hand-off (#958:
-	 * fail open); one a read issue holds is judged on its merits (#2965).
-	 * Residual: a newer good hand-off on the unread issue cannot save a stale
-	 * or malformed one on a read issue, so that park is refused. */
 	if (!newest && hasUnchecked(verdict)) return "";
 	return (
 		staleHandOffFault(newest, sessionId, payload) ||
@@ -573,14 +420,9 @@ function parkFault(verdict, pointed, sessionId, payload) {
 
 /** @typedef {{ piece: "posted" | "claimed" | "hand-off", reason: string }} ParkFault */
 
-/**
- * @typedef {{ fault: ParkFault|null, judgedIn: ParkFault["piece"][] }} ParkJudging
- *   `judgedIn`, the pieces judged in order: the first fault stops the judging,
- *   so those before it are met and those after it unjudged
- */
+/** @typedef {{ fault: ParkFault|null, judgedIn: ParkFault["piece"][] }} ParkJudging */
 
 /**
- * A park on a repo hold is judged on its own items, its claim first.
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @param {ReturnType<typeof ending>} end
  * @param {string} sessionId
@@ -606,8 +448,7 @@ function roundlessParkFault(verdict, end, sessionId, payload) {
  * @param {{number: string, title: string}} question
  * @param {string} sessionId
  * @param {import("./lib/stop-guard").StopPayload|null} payload
- * @returns {ParkFault|null} null where the round is posted on an issue this
- *   session claims with its hand-off, or either is unreadable
+ * @returns {ParkFault|null}
  */
 function roundFault(verdict, question, sessionId, payload) {
 	const { number, title } = question;
@@ -635,7 +476,6 @@ function roundFault(verdict, question, sessionId, payload) {
 			reason: `this \`needs input:\` ending's round sits on #${unclaimed.join(", #")}, which this session holds no claim on, so \`/pick-next\` lists it as free work and a second session re-asks the round (#1066) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again. Where it refuses on a live holder, that session is already asking: stop and report the collision`,
 		};
 	}
-	/* An issue whose comments could not be read may hold it (#958: fail open). */
 	if (hasUnchecked(verdict)) return null;
 	return {
 		piece: "posted",
@@ -643,13 +483,10 @@ function roundFault(verdict, question, sessionId, payload) {
 	};
 }
 
-/* The most of a refused tail the refusal quotes, so a pasted wall of text
- * cannot flood the session (#4035). A first guess: room for a dozen refs and
- * their separators, under a tenth of the ~2.5 KB refusal it sits in. */
+// #4035 guess
 const TAIL_ECHO_MAX = 200;
 
 /**
- * `text`, cut to TAIL_ECHO_MAX characters with a count of what was dropped.
  * @param {string} text
  * @returns {string}
  */
@@ -661,8 +498,7 @@ function cappedForEcho(text) {
 }
 
 /**
- * The status line's tail against the block's items.
- * @param {string} payload  the status line after its marker
+ * @param {string} payload
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @returns {string[]}
  */
@@ -676,7 +512,6 @@ function tailFaults(payload, verdict) {
 			: [];
 	const m = TAIL_REFS_RE.exec(payload.split(/[\n\r\u2028\u2029]/).pop() ?? "");
 	if (!m) return [`the status line ends with no tail: ${INVENTORY.statusTail}`];
-	/* A block that failed its grammar has no item list worth comparing. */
 	if (verdict.refusals.some((r) => !r.ref)) return [];
 	const refsText = trimRun(requiredGroup(m, 1, TAIL_REFS_RE), " \t");
 	const tail = refsText.endsWith(".") ? refsText.slice(0, -1) : refsText;
@@ -695,7 +530,6 @@ function tailFaults(payload, verdict) {
 }
 
 /**
- * The block's placement and header faults, before its items are judged.
  * @param {ReturnType<typeof ending>} end
  * @returns {import("./lib/outstanding-line").Refusal[]}
  */
@@ -717,7 +551,6 @@ function placementFaults(end) {
 }
 
 /**
- * `assess` on an ending with no block: refused where one is owed.
  * @param {ReturnType<typeof ending>} end
  * @param {boolean} owed
  * @returns {ReturnType<typeof assess>}
@@ -741,14 +574,10 @@ function blocklessAssessment(end, owed) {
 }
 
 /**
- * Every fault this ending carries, rendered — "" where it passes — with the
- * verdict and the round's first question it was judged on, null where none,
- * and the pieces of a `needs input:` ending it judged (lib/needs-input-shape.js).
  * @param {string} message
- * @param {ReturnType<typeof ending>} end  the message's block and status line
+ * @param {ReturnType<typeof ending>} end
  * @param {string} sessionId
- * @param {import("./lib/stop-guard").StopPayload|null} payload  null where
- *   the caller holds none: the transcript is then looked up by session id
+ * @param {import("./lib/stop-guard").StopPayload|null} payload
  * @returns {{faults: string, verdict: import("./lib/outstanding-line").Verdict|null, question: ReturnType<typeof firstQuestion>, judged: Judgement}}
  */
 function assess(message, end, sessionId, payload) {
@@ -786,7 +615,6 @@ function assess(message, end, sessionId, payload) {
 /** @typedef {import("./lib/needs-input-shape").Judgement} Judgement */
 
 /**
- * A `needs input:` park's first fault: on its round where it asks one.
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @param {ReturnType<typeof ending>} end
  * @param {ReturnType<typeof firstQuestion>} question
@@ -827,9 +655,6 @@ const refusal = (message, end, sessionId, payload) =>
 const isOwed = (end) => isBackgroundJob(process.env) && OWED.has(end.marker);
 
 /**
- * Whether `message` carries a block this guard passes, judged by the same
- * rules its refusal applies — the draft-and-act limb aside, which refuses on
- * its own. guard-session-ceiling.js stands down on one (#1786).
  * @param {string} message
  * @param {string} sessionId
  */
@@ -842,8 +667,6 @@ const INVENTORY_PREFIX = ".inventory-nagged-";
 const DRAFT_PREFIX = ".inventory-draft-nagged-";
 
 /**
- * The checklist a refused `needs input:` ending in a background job ends with
- * (#4206), read only once the refusal is sure to go out; "" for any other.
  * @param {{ sessionId: string, message: string, end: ReturnType<typeof ending>,
  *   payload: import("./lib/stop-guard").StopPayload|null, judged: Judgement,
  *   prefix: string, max?: number }} turn
@@ -898,11 +721,6 @@ function review({ sessionId, message, payload }) {
 }
 
 /**
- * The tracker issues a passing `needs input:` ending in a background job
- * posted its round on and this session claims, or at a park on a repo hold the
- * job is attached to, the cited ones it claims (#3858) — the issues
- * park-on-round.js labels `parked` (#2000). [] for any other ending, or where
- * a tracker or claim read fails.
  * @param {string} message
  * @param {string} sessionId
  * @returns {number[]}

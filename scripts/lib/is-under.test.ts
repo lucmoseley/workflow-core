@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/is-under.js's contract (#1647, #4021). In-process, since the helper is a pure
- * function. A wrong answer widens or narrows the skeleton pathspec, the
- * doc-map's scope, what the release ships and the needle corpus at once.
- */
-
 import { describe, expect, it } from "vitest";
 import { isUnder, relativeUnder } from "./is-under.js";
 

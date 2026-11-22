@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * lib/self-match.js, a PreToolUse dispatcher core (#2790), answers one
- * question: does this command select the shell running it — by full command
- * line with a pattern its own text matches (#1782, #1805), by name with a
- * pattern `bash` matches (#1842), or either inverted with one that misses
- * (#1847)? `pkill` is denied; `pgrep` and a `ps | grep` liveness check are
- * warned (the second limb mantahostels#2014).
- *
- * A deny is only defensible while it cannot wedge sanctioned work, so every
- * silent case below is a shape that would otherwise be a false positive. Do not
- * thin them out.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * real rule store and a latch directory in the case's temp dir. `run` renders
- * the merged output as the hook line writes it, so each case reads the text a
- * session receives. The hook line itself is scripts/guard-dispatch.test.ts's
- * boundary set.
- *
- * Loosen a case and a session kills its own shell, or waits for ever on a
- * pattern that matches its own loop; widen it and a `kill` by pid or a `pkill`
- * by a name other than the shell's is refused.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -38,7 +16,6 @@ let dir: string;
 
 type Verdict = "deny" | "warn" | "silent";
 
-/** The core's answer on `command`, as the hook line writes it. */
 const run = (command: string) => {
 	const { output } = runCore(
 		"guard-self-match",
@@ -112,9 +89,6 @@ describe("pgrep by command line warns rather than denying", () => {
 		expect(verdict(command)).toBe("warn");
 	});
 
-	/*
-	 * mantahostels#103: deny on a structured fact, warn where the guard is inferring.
-	 */
 	it("never denies a read", () => {
 		expect(run("pgrep -f land.sh")).not.toContain('"deny"');
 	});
@@ -145,10 +119,6 @@ describe("what it stays out of the way of", () => {
 		expect(verdict(command)).toBe("silent");
 	});
 
-	/*
-	 * A caller who has named the calling shell has already reckoned with the
-	 * self-match, and needs no lecture.
-	 */
 	it.each([
 		["pgrep -f land.sh | grep -v $$", "excluding this shell from a read"],
 		["pkill -f land.sh --older-than $PPID", "naming the parent"],
@@ -157,11 +127,6 @@ describe("what it stays out of the way of", () => {
 	});
 });
 
-/*
- * A pattern that cannot match the command's own text cannot self-match, so it
- * passes as a `ps | grep` one does (#1805); every way the guard cannot prove
- * that keeps the verdict.
- */
 describe("a pgrep -f or pkill -f whose pattern cannot match its own text", () => {
 	it.each([
 		["pkill -f '[l]and.sh'", "a bracketed first character"],
@@ -193,12 +158,6 @@ describe("a pgrep -f or pkill -f whose pattern cannot match its own text", () =>
 	});
 });
 
-/*
- * `pgrep -af` is the regression from #1858 (the 2026-08-23 incident), paired
- * with `pkill -if land.sh` in the first block (§X4). Before the bundle walker
- * was used, `-af` read as a single unknown flag and the guard stayed silent on
- * it.
- */
 describe("a bundled -f is still -f", () => {
 	it("warns on pgrep -af", () => {
 		expect(verdict("pgrep -af land.sh")).toBe("warn");
@@ -209,11 +168,6 @@ describe("a bundled -f is still -f", () => {
 	});
 });
 
-/*
- * #1847 (the ticket giving -v its own text): an inverted pattern selects every
- * process it misses, so the bracket recipe, which makes a pattern miss the
- * shell, puts the shell in. The text must say so and offer the pid alone.
- */
 describe("a pgrep -v -f or pkill -v -f is told the inverted hazard", () => {
 	it.each([
 		["pkill -v -f vitest", "deny"],
@@ -229,11 +183,6 @@ describe("a pgrep -v -f or pkill -v -f is told the inverted hazard", () => {
 	});
 });
 
-/*
- * #1842 (the ticket judging pgrep/pkill without -f): the pattern is tested
- * against process names, and the shell running the command is named bash —
- * selected where the pattern matches that name, or under -v misses it.
- */
 describe("a pgrep or pkill without -f whose pattern selects the shell's name", () => {
 	it.each([
 		["pkill -v node", "deny", "inverted, missing bash"],
@@ -254,10 +203,6 @@ describe("a pgrep or pkill without -f whose pattern selects the shell's name", (
 		expect(out).not.toContain("'[n]ode'");
 	});
 
-	/*
-	 * Naming the shell spares it from no inverted match: `-P $$` under `-v`
-	 * selects every process that is not this shell's child, the shell included.
-	 */
 	it.each([
 		["pkill -v node; echo $$", "deny"],
 		["pkill -v -P $$ node", "deny"],
@@ -337,10 +282,6 @@ describe("ps piped into grep warns, checking a job's liveness", () => {
 	});
 });
 
-/*
- * A pattern that cannot match the command's own text cannot self-match, so it
- * passes (#1782); every way the guard cannot prove that still warns.
- */
 describe("a ps | grep whose pattern cannot match its own text", () => {
 	it("passes the build-concurrency rule's own recipe, read from the fragment", () => {
 		const fragment = fs.readFileSync(
@@ -393,10 +334,6 @@ describe("a ps | grep whose pattern cannot match its own text", () => {
 	});
 });
 
-/*
- * #2027: the comm-counting rule left the always-loaded CLAUDE.md for this
- * guard, so its whole text must arrive on the trigger.
- */
 const ruleText = fs
 	.readFileSync(
 		path.resolve(__dirname, "../../docs/agents/rules/claude-process-count.txt"),

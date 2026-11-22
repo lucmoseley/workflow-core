@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * A free-text goal's resolution (#3884). Broken, a number the model invents reaches `set`, or a failed
- * lookup reads as an empty set.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

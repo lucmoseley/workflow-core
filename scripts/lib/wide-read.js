@@ -108,72 +108,33 @@ const { isGlobPattern, literal } = require("./shell-words.js");
 
 /**
  * @typedef {object} WideReadPorts
- * @property {(p: string) => number | null} fileBytes bytes on disk for a
- *   readable regular file; null for anything else
+ * @property {(p: string) => number | null} fileBytes
  * @property {(p: string, first: number, last: number) => number | null} windowBytes
- *   the bytes lines `first` to `last` hold, newlines counted; null where the
- *   file cannot be read
- * @property {(lit: string, cwd: string) => string[]} glob an unquoted word's
- *   expansion under nullglob, absolute
+ * @property {(lit: string, cwd: string) => string[]} glob
  * @typedef {import("./kit-context.js").KitContext
  *   & Pick<import("./guard-host-ports.js").CorePorts, "env">
  *   & WideReadPorts} WideReadContext
  * @typedef {{ bytes: number, lines: number, matches: number, readBytes: number,
  *   cutBytes: number }} Thresholds
- * @typedef {{ ctx: WideReadContext, cwd: string }} DumperRun the ports a run
- *   is judged through and the directory it stands in, "" where unknown
+ * @typedef {{ ctx: WideReadContext, cwd: string }} DumperRun
  */
 
-/**
- * The commands whose whole job is to put file text on stdout, unbounded. A
- * command that bounds its own output — grep by pattern, head and tail by line
- * count, wc by summarising — is deliberately absent; see LIMITS.
- */
 const DUMPERS = ["cat", "sed", "awk"];
 
-/**
- * The limb a dumper has of its own, beside the glob limb every one gets.
- * @type {Record<string, (lits: string[], run: DumperRun, t: Thresholds) => string | null>}
- */
+/** @type {Record<string, (lits: string[], run: DumperRun, t: Thresholds) => string | null>} */
 const OWN_LIMB = {
 	cat: (lits, run, t) => judgeCat(lits, run, t),
 	sed: (lits, _run, t) => judgeSed(lits, t),
 };
 
-/** What `Read` itself stops at. Measuring past it would warn on a long file
- * for lines the call was never going to return. */
 const READ_LINE_CAP = 2000;
 
-/** Rendered rather than returned as bytes, so a byte count measures nothing a
- * session pays for. */
 const RENDERED = /\.(?:png|jpg|jpeg|gif|webp|bmp|svg|pdf|ipynb)$/;
 
 const FOOTER =
 	"Why this fires and what the convention asks for: docs/agents/tool-output.md. It only ever warns.";
 
 /**
- * The thresholds, each an override where its variable holds digits.
- *
- * 20,000 characters is the break-even between what a wide read carries and
- * what the remedy in limb 1 costs — grep-then-sed, TWO extra tool calls, each
- * a turn at full context (mantahostels#2571, which carries the derivation).
- * The figure is a rough centre, NOT a bound in either direction:
- * mantahostels#2571 carries the terms the model leaves out and which way each
- * pushes — re-tune from there, not from this comment.
- *
- * The line and match figures are the same judgement in units the corpus does
- * not measure — UNMEASURED, chosen wide enough that an ordinary targeted read
- * passes untouched, and the first to move if this warns too often.
- *
- * The Read figure is HALF the byte one, by construction rather than by a
- * second measurement: the model is the same and only the remedy's call count
- * differs — two for grep-then-sed, one for a `Read` carrying `offset`/`limit`.
- * Derivation, the turns-remaining check behind it and what it costs in firing
- * rate: mantahostels#2595. Re-tune from there, not from this comment.
- *
- * The cut figure is the CLI's default BASH_MAX_OUTPUT_LENGTH. Past it a Bash
- * result has two fates and nothing found predicts which (#1029): saved to a
- * file behind a 2 KB preview, or cut at ~30,000 with no notice.
  * @param {Record<string, string | undefined>} env
  * @returns {Thresholds}
  */
@@ -183,23 +144,23 @@ function thresholds(env) {
 		return v && /^[0-9]+$/.test(v) ? Number(v) : dflt;
 	};
 	return {
-		bytes: read("WFC_WIDE_READ_BYTES", 20_000),
-		lines: read("WFC_WIDE_READ_LINES", 200),
-		matches: read("WFC_WIDE_READ_MATCHES", 5),
-		readBytes: read("WFC_WIDE_READ_TOOL_BYTES", 10_000),
+		bytes: read("WFC_WIDE_READ_BYTES", 20_000), // lucmoseley/mantahostels#2571 guess
+		lines: read("WFC_WIDE_READ_LINES", 200), // lucmoseley/mantahostels#2571 guess
+		matches: read("WFC_WIDE_READ_MATCHES", 5), // lucmoseley/mantahostels#2571 guess
+		readBytes: read("WFC_WIDE_READ_TOOL_BYTES", 10_000), // lucmoseley/mantahostels#2595 guess
+		// Claude Code reads back at most 30000 characters of Bash output by default (BASH_MAX_OUTPUT_LENGTH): https://code.claude.com/docs/en/env-vars
 		cutBytes: read("WFC_WIDE_READ_CUT_BYTES", 30_000),
 	};
 }
 
 /**
- * @param {string} subject the command, or the `Read` call's file
+ * @param {string} subject
  * @param {WideReadContext} ctx
  * @returns {import("./guard-entry.js").Decision}
  */
 function decide(subject, ctx) {
 	const t = thresholds(ctx.env);
 	if (ctx.tool === "Read") return judgeRead(subject, ctx, t);
-	/* BOUNDED, read off the raw subject: see LIMITS for what that costs. */
 	if (subject.includes("|") || subject.includes(">")) return null;
 	const parsed = parseCommand(subject);
 	/** @type {string[]} */
@@ -215,9 +176,7 @@ function decide(subject, ctx) {
 }
 
 /**
- * One command's findings, one per matched shape, in the order matched.
- * @param {import("./shell-parse.js").Command} cmd its own words, launchers
- *   and all
+ * @param {import("./shell-parse.js").Command} cmd
  * @param {string[]} spans
  * @param {WideReadContext} ctx
  * @param {Thresholds} t
@@ -231,8 +190,7 @@ const judge = (cmd, spans, ctx, t) =>
 		);
 
 /**
- * One unwrap run's findings.
- * @param {string[]} words the run's words
+ * @param {string[]} words
  * @param {string[]} spans
  * @param {DumperRun} run
  * @param {Thresholds} t
@@ -245,7 +203,6 @@ function judgeRun(words, spans, run, t) {
 	if (!base.known) return [];
 	const name = base.text.slice(base.text.lastIndexOf("/") + 1);
 	if (!DUMPERS.includes(name)) return [];
-	/* Each argument as literal reads it; one it cannot fully read is dropped. */
 	const lits = args.flatMap((w) => {
 		const l = literal(w, spans);
 		return l.known ? [l.text] : [];
@@ -260,7 +217,6 @@ function judgeRun(words, spans, run, t) {
 }
 
 /**
- * The sentence limbs 1 and 3 add at or past the cut figure, or "" under it.
  * @param {number} bytes
  * @param {Thresholds} t
  */
@@ -270,7 +226,6 @@ const cutNote = (bytes, t) =>
 		: "";
 
 /**
- * A file argument's bytes; null too for a relative one from an unknown cwd.
  * @param {string} lit
  * @param {DumperRun} run
  */
@@ -278,9 +233,6 @@ const bytesOf = (lit, { ctx, cwd }) =>
 	cwd || path.isAbsolute(lit) ? ctx.fileBytes(path.resolve(cwd, lit)) : null;
 
 /**
- * LIMB 1 — a `cat` whose file arguments are large. Only bare words that name
- * an existing file count, so `cat` on stdin, on a flag, or on a path that will
- * not resolve produces nothing.
  * @param {string[]} lits
  * @param {DumperRun} run
  * @param {Thresholds} t
@@ -304,13 +256,9 @@ function judgeCat(lits, run, t) {
 	return `Reading a whole file into context: ${name} is ${total} characters, and every one of them stays in the window for the rest of the session.${cutNote(total, t)} Read the part you need instead — \`grep -n '<pattern>' ${name}\` to find it, then \`sed -n '<start>,<end>p' ${name}\` — or send the whole thing to a file (\`… > .claude/tmp/out.txt\`) and slice that.`;
 }
 
-/** A word shaped like a `sed -n` range. */
 const RANGE = /^([0-9]+),([0-9]+|\$)p/;
 
 /**
- * LIMB 2 — a wide `sed -n '<a>,<b>p'`. The range is read from any word shaped
- * like one; `-n` is required, because without it sed prints everything anyway
- * and the range is not what makes the output large.
  * @param {string[]} lits
  * @param {Thresholds} t
  * @returns {string | null}
@@ -337,10 +285,6 @@ function judgeSed(lits, t) {
 }
 
 /**
- * LIMB 3 — a glob argument to a reading command. The count is known to this
- * guard and not to the session. Each glob's count stops the moment a
- * threshold is crossed, so a glob over node_modules costs no more than that
- * inside a hook the session waits on; the count reported is the count reached.
  * @param {string[]} lits
  * @param {DumperRun} run
  * @param {Thresholds} t
@@ -357,8 +301,6 @@ function judgeGlob(lits, run, t) {
 }
 
 /**
- * The readable files a glob matches and their bytes, counted until either
- * threshold is crossed; none for a relative glob from an unknown cwd.
  * @param {string} lit
  * @param {DumperRun} run
  * @param {Thresholds} t
@@ -377,11 +319,7 @@ function countGlob(lit, { ctx, cwd }, t) {
 	return { n, total };
 }
 
-/**
- * A payload field as `jq -j '<f> // ""'` prints it: "" for absent, null and
- * false.
- * @param {unknown} v
- */
+/** @param {unknown} v */
 function fieldText(v) {
 	if (v === undefined || v === null || v === false) return "";
 	if (typeof v === "string") return v;
@@ -389,8 +327,6 @@ function fieldText(v) {
 }
 
 /**
- * The bytes a `Read` of `file` returns; null where it is no readable regular
- * file, is rendered rather than returned, or could not be measured, logged.
  * @param {string} file
  * @param {WideReadContext} ctx
  * @returns {number | null}
@@ -399,12 +335,9 @@ function returnedBytes(file, ctx) {
 	const abs = path.resolve(ctx.fallbackCwd, file);
 	if (ctx.fileBytes(abs) === null) return null;
 	if (RENDERED.test(file.toLowerCase())) return null;
-	/* No leading zero, and narrow enough that first + READ_LINE_CAP stays a
-	 * plain line number. */
 	const offset = fieldText(ctx.input.offset);
 	const first = /^[1-9][0-9]{0,8}$/.test(offset) ? Number(offset) : 1;
 	const bytes = ctx.windowBytes(abs, first, first + READ_LINE_CAP - 1);
-	/* A measure that failed is not a finding (mantahostels#147). */
 	if (bytes === null)
 		ctx.log(
 			`could not measure ${file} for the Read limb — this call judged unchecked`,
@@ -413,37 +346,19 @@ function returnedBytes(file, ctx) {
 }
 
 /**
- * LIMB 4 — a `Read` tool call with no `limit`, whose returned lines are large,
- * measured on what the call RETURNS: from `offset` (1-based, defaulting to the
- * first line) for at most READ_LINE_CAP lines. Once per agent and file
- * (#1034): a second warning on a file the agent chose to read whole a first
- * time changes nothing.
  * @param {string} file
  * @param {WideReadContext} ctx
  * @param {Thresholds} t
  * @returns {import("./guard-entry.js").Decision}
  */
 function judgeRead(file, ctx, t) {
-	/* A `limit` is this tool's pipe: the caller has already bounded the output.
-	 * `offset` alone does not bound anything — it moves the window, and the
-	 * window still runs to the 2,000-line cap. */
 	if (fieldText(ctx.input.limit) !== "") return null;
 	const bytes = returnedBytes(file, ctx);
 	if (bytes === null || bytes < t.readBytes) return null;
-	/* The latch is keyed on (agent, session), so a subagent's first wide read
-	 * of a file the parent already read still warns. The path is hashed
-	 * because the latch name maps `/` to `_`, which would let `a/b.md` and
-	 * `a_b.md` share a latch, and a long path outgrow a filename. Sixteen hex
-	 * digits are 64 bits: by the birthday bound, n paths in one session share
-	 * a key with odds near n²/2⁶⁵, nil for the hundreds a session reads.
-	 * Required here, not at load: node:crypto costs ~6 ms, which every Bash
-	 * `cat`, `sed` or `awk` would pay serially in the dispatcher (#3227). */
+	// #3227
 	const crypto = require("node:crypto");
 	const latch = `wide-read.${crypto.createHash("sha1").update(file).digest("hex").slice(0, 16)}`;
 	if (ctx.told(latch)) return null;
-	/* Deliberately NOT limb 1's opening words. scripts/guard-fire-needles.json
-	 * attributes a fire by matching the text, and a shared opening would count
-	 * every Read fire as a `cat` one. */
 	return {
 		injectRules: [],
 		prelude: ctx.corePaths(

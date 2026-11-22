@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins release-contains.js's answer to which releases carry a commit: every
- * release naming it, main-only past the last release, a tag it cannot judge
- * named, and exit 2 where it cannot ask (#797).
- *
- * The fixture cuts releases as release-plugin.js does — root commits made with
- * `git commit-tree`, off every branch, carrying its own `buildReleaseMessage` — so
- * `git tag --contains` answers nothing here too, the trap #791 fell into (#797).
- *
- * A session or the founder runs it by hand (`docs/agents/adopter-upgrade.md`):
- * loosen a case and it tells them a fix has shipped to adopters when it has
- * not, or the reverse.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

@@ -1,31 +1,3 @@
-/*
- * morning-review.js — the morning review issue's title and body (#2011, spec
- * #1995 §The morning review issue). Pure: scripts/file-morning-review.js's
- * core, lib/morning-review-filing.js, does every read and the filing.
- *
- * The window runs from where the previous review issue's window ended to now,
- * not a calendar day. Its end is taken before a filing's reads and printed on
- * the issue, so an event during a filing falls in the next window (windowStart,
- * #3813). Both edges are applied here, after the reads, so the reads may
- * over-fetch: an entry at `since` belongs to the earlier issue, one at `now` to
- * this.
- *
- * Each source's edge sits where an event is sure to be readable (#3827). A
- * ledger line is stamped when appended, on the machine that reads it. Closes
- * run CLOSE_SETTLE_MS behind the window, as they are read off a search index on
- * GitHub's clock. Row changes take no time edge: each review's closing comment
- * names the commit it read each repo's default branch to, and the next reads on
- * from it.
- *
- * A repo that does not read keeps its events for the next review:
- * lib/review-carry.js.
- *
- * Entry numbers run 1…n across every repo, so `reverse <n>` names one entry;
- * each line links the decision's own comment, which keys its ledger line.
- * The primitives-table row changes (#3465) carry on the numbering after the
- * still-caught decisions.
- */
-
 const { requiredGroup } = require("./regex-group.js");
 const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
 const { buildEpisodeTitle, countKilled } = require("./process-runaways.js");
@@ -39,36 +11,26 @@ const { buildStandaloneLine } = require("./standalone-line.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
-/* Printed above the closing comment, so the filer appends no line after it. */
 const STANDALONE_REASON =
 	"the day's away-mode review, outside every map (#1995)";
 const HISTORY_LINE = /^Table history read to ([0-9a-f]{40}) in (\S+)\.$/gm;
-/* How far closes run behind the window: about 70 times the worst search lag
- * measured, 12.3 s (#3827), as GitHub publishes no bound and the sample is small.
- * A guess at the tail. A close slower than this reaches no review; too wide only
- * moves a close to the next day's. */
+// guess, 70 times the 12.3 s search lag measured, #3827
 const CLOSE_SETTLE_MS = 15 * 60 * 1000;
-/* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
- * unmeasured. */
+// guess, #2693
 const STUCK_URGENT_DAYS = 7;
-/* The concurrency section's two readout windows; untraced (#3315). */
+// guess, #3315
 const CONCURRENCY_WINDOWS = {
 	day: { ms: DAY_MS, span: "24 h" },
 	week: { ms: 7 * DAY_MS, span: "7 days" },
 };
 
-/** @param {string} date machine-local `YYYY-MM-DD` */
+/** @param {string} date */
 const buildReviewTitle = (date) => `Morning review — ${date}`;
 
-/**
- * The date a review issue's title carries, or null for any other title.
- * @param {string} title
- */
+/** @param {string} title */
 const parseReviewDate = (title) => TITLE.exec(title)?.[1] ?? null;
 
 /**
- * Where a review issue's window ended, off its `Window:` line (#3813). Null
- * where the line will not read, as after a hand edit.
  * @param {string} body
  * @returns {string | null}
  */
@@ -78,9 +40,6 @@ function parseWindowEnd(body) {
 }
 
 /**
- * Where a filing's window starts, and why that may miss events. Residual:
- * where the previous `Window:` line will not read, the start is that issue's
- * creation, and an event during its filing reaches no review; `why` says so.
  * @param {{number: number, createdAt: string, body: string} | undefined} previous
  * @param {Date} now
  * @returns {{since: string, why: string | null}}
@@ -108,9 +67,8 @@ const closeEdge = (at) =>
 	new Date(Date.parse(at) - CLOSE_SETTLE_MS).toISOString();
 
 /**
- * Why a history must be read by commit time, or null where `cursor` serves.
  * @param {string | null} cursor
- * @param {boolean} isOnTip whether the branch read holds `cursor`
+ * @param {boolean} isOnTip
  * @returns {string | null}
  */
 function whyByTime(cursor, isOnTip) {
@@ -121,9 +79,7 @@ function whyByTime(cursor, isOnTip) {
 }
 
 /**
- * The commit the newest review that read `repo`'s history read it to. A review
- * that could not read it prints none, so the next reads on from the one before.
- * @param {{body: string}[]} reviews newest first
+ * @param {{body: string}[]} reviews
  * @param {string} repo
  * @returns {string | null}
  */
@@ -134,14 +90,9 @@ function parseHistoryCursor(reviews, repo) {
 	return null;
 }
 
-/**
- * The `**Door:**` line of an issue's resolution — the last comment carrying
- * one — when it reads one-way: its text after `one-way`, or null.
- * @param {{body: string}[]} comments oldest first
- */
+/** @param {{body: string}[]} comments */
 function parseOneWayDoor(comments) {
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	const door = /^[ \t]*\*\*Door:\*\*[ \t]*(.*)$/m;
+	const door = /^[ \t]*\*\*Door:\*\*(.*)$/m;
 	for (const { body } of [...comments].reverse()) {
 		const m = door.exec(body ?? "");
 		if (!m) continue;
@@ -160,86 +111,48 @@ function parseOneWayDoor(comments) {
  * @typedef {{number: number, title: string}} OpenIssue
  * @typedef {{number: number, title: string, appliedAt: string,
  *   agedFromCreation: boolean,
- *   why: string | null}} UrgentIssue an open issue carrying `urgent`, when the
- *   label was last applied, or, `agedFromCreation`, the issue's creation where its timeline
- *   records no application, and why pick-next left it unlaunched, where it says
+ *   why: string | null}} UrgentIssue
  * @typedef {{number: number, title: string} & ({appliedAt: string}
- *   | {appliedAt: null, ageError: string})} ParkedIssue an open issue carrying
- *   `parked`, and when the label was last applied, or why that did not read
+ *   | {appliedAt: null, ageError: string})} ParkedIssue
  * @typedef {import("./primitives-table.js").Side} Side
  * @typedef {{sha: string, side: Side, before: string | null,
- *   after: string | null}} TableCommit a commit touching a side's standards
- *   file, with the file's text either side of it,
- *   null where absent
+ *   after: string | null}} TableCommit
  * @typedef {{count: {line: string} | {why: string},
  *   history: {commits: TableCommit[], tip: string, whyByTime: string | null}
  *   | {why: string}}} PrimitivesReading
- *   check-primitives.js's count line, and the commits touching each standards
- *   file up to `tip` that no earlier review read, with why they were found by
- *   commit time where they were; or why either did not read
  * @typedef {{checkout: string, repo: string, closesSince: string,
  *   decisionsSince: string, entries: LedgerLine[] | null,
  *   closed: ClosedIssue[] | null, stalls: OpenIssue[],
  *   alarms: import("./queue-alarms.js").FiringAlarm[], urgent: UrgentIssue[],
- *   parked: ParkedIssue[], primitives: PrimitivesReading}}
- *   RepoReading its directory name, which the next review looks it up by; its
- *   tracker; where its closes and its decisions start (lib/review-carry.js's buildRepoStart), its ledger
- *   and its closes, each null where it did not read, its
- *   open stall ticket (lib/stall-ticket.js, #2692), its off-machine queue
- *   alarms firing (lib/queue-alarms.js, #4772), its urgent issues and its
- *   parked ones
+ *   parked: ParkedIssue[], primitives: PrimitivesReading}} RepoReading
  * @typedef {{checkout: string, repo: string | null, act: string, issue: number | null,
  *   kind: import("./repo-holds.js").RepoHold["kind"], age: string,
- *   attached: number, notice: string}}
- *   OpenHold an open repo hold (lib/repo-holds.js) with its age as text, `repo`
- *   the tracker its issue is on, where that read
+ *   attached: number, notice: string}} OpenHold
  * @typedef {import("./review-carry.js").UnreadEvents} UnreadEvents
  * @typedef {{since: string, now: string, previous: number | null,
  *   repos: RepoReading[], failed: Unread[], unreadEvents: UnreadEvents[],
  *   holds: OpenHold[], throughput: ThroughputReading, kills: KillReading,
  *   runaways: RunawayReading,
  *   concurrency: ConcurrencyReading,
- *   idle: IdleReading, wslCurrency: WslCurrencyReading}}
- *   Reading the machine's earlyoom kills, its process runaways, its concurrency, the idle alarm
- *   and its WSL currency are read once, not per repo (#3094, #3807, #3321, #3644, #4082)
+ *   idle: IdleReading, wslCurrency: WslCurrencyReading}} Reading
  * @typedef {{lines: string[]} | {why: string} | null} WslCurrencyReading
- *   check-wsl-currency.js's lines, why it gave none, or null where this is not WSL
  * @typedef {{trackers: import("./idle-efforts.js").TrackerFinding[],
- *   loopRunning: boolean, damaged: string[]} | {why: string}} IdleReading the idle alarm's
- *   findings, or why check-idle-efforts.js gave none
+ *   loopRunning: boolean, damaged: string[]} | {why: string}} IdleReading
  * @typedef {ReturnType<typeof import("./concurrency.js").readout>} Readout
- * @typedef {Record<keyof typeof CONCURRENCY_WINDOWS, Readout>}
- *   ConcurrencyReading the readout core's readout over each window, all
- *   ending at the review's `now`
+ * @typedef {Record<keyof typeof CONCURRENCY_WINDOWS, Readout>} ConcurrencyReading
  * @typedef {{incidents: import("./earlyoom-kills.js").Incident[],
  *   tickets: Map<string, number> | string, why: string | null}} KillReading
- *   the incidents with a kill in the window, their tickets by title or why
- *   the tracker did not read, and why the journal did not read, where it did
- *   not
  * @typedef {{episodes: import("./process-runaways.js").Episode[],
  *   tickets: Map<string, number> | string, why: string | null}} RunawayReading
- *   the episodes with a firing in the window, their tickets by title or why
- *   the tracker did not read, and why memwatch's log did not read, where it
- *   did not
- * @typedef {{repo: string, why: string}} Unread a repo the review could not
- *   read whole
+ * @typedef {{repo: string, why: string}} Unread
  * @typedef {import("./throughput-reads.js").RepoThroughput} RepoThroughput
- * @typedef {{repos: RepoThroughput[]} | {why: string}} ThroughputReading the
- *   served repos' throughput, or why the loop's control file, which names
- *   them, will not read
+ * @typedef {{repos: RepoThroughput[]} | {why: string}} ThroughputReading
  */
 
-/**
- * Text copied in from a ledger, a title or a comment, as a code span: the
- * basis check file-issue.js runs skips code spans, so a copied "7 days after"
- * cannot get the whole review refused. An inner backtick becomes `'`, since
- * the check finds a span by counting backticks on the line.
- * @param {string} text
- */
+/** @param {string} text */
 const quoted = (text) => `\`${text.replaceAll("`", "'")}\``;
 
 /**
- * The WSL currency section, or nothing where this is not WSL.
  * @param {WslCurrencyReading} reading
  * @returns {string[]}
  */
@@ -255,29 +168,24 @@ function renderWslCurrencyLines(reading) {
 	];
 }
 
-/** GitHub's search reads `+00:00`, not `Z`, as a time zone. @param {string} iso */
+/** @param {string} iso */
 const searchTime = (iso) =>
 	new Date(iso).toISOString().replace(/\.\d{3}Z$/, "+00:00");
 
-/**
- * `encodeURIComponent` leaves parentheses bare, and a bare `)` would end the
- * Markdown link the URL sits in.
- * @param {string} q
- */
+/** @param {string} q */
 const issueSearch = (q) =>
 	`https://github.com/search?type=issues&q=${encodeURIComponent(q).replace(/[()]/g, (c) => (c === "(" ? "%28" : "%29"))}`;
 
 /**
- * A link to a comment on issue `n`, its text leading with the number, which
- * is what check-issue-citations.js reads a citation by (#2265).
- * @param {number} n @param {string} url @param {string} [noun]
+ * @param {number} n
+ * @param {string} url
+ * @param {string} [noun]
  */
 const commentLink = (n, url, noun = "comment") => `[#${n} ${noun}](${url})`;
 
 /**
- * Whole days, or "under a day" below one, which takes in a label applied
- * after `hi`, during the filing's reads (#3802).
- * @param {number} ms @returns {string}
+ * @param {number} ms
+ * @returns {string}
  */
 const wholeDays = (ms) => {
 	if (ms < DAY_MS) return "under a day";
@@ -286,7 +194,6 @@ const wholeDays = (ms) => {
 };
 
 /**
- * An incident's ticket as the review names it.
  * @param {import("./earlyoom-kills.js").Incident} i
  * @param {KillReading["tickets"]} tickets
  * @param {number} now
@@ -301,11 +208,9 @@ function ticketText(i, tickets, now) {
 }
 
 /**
- * The "Memory kills" lines: the window's kills by kind, each at its first
- * signal, then each incident with its ticket.
  * @param {KillReading} r
- * @param {number} lo the window's start, ms, exclusive
- * @param {number} hi its end, ms, inclusive
+ * @param {number} lo
+ * @param {number} hi
  * @returns {string[]}
  */
 function renderKillLines({ incidents, tickets, why }, lo, hi) {
@@ -328,7 +233,6 @@ function renderKillLines({ incidents, tickets, why }, lo, hi) {
 }
 
 /**
- * An episode's ticket as the review names it.
  * @param {RunawayReading["episodes"][number]} e
  * @param {RunawayReading["tickets"]} tickets
  */
@@ -339,11 +243,9 @@ function episodeTicket(e, tickets) {
 }
 
 /**
- * The "Process runaways" lines: each episode with a firing in the window, what
- * it killed and its ticket.
  * @param {RunawayReading} r
- * @param {number} lo the window's start, ms, exclusive
- * @param {number} hi its end, ms, inclusive
+ * @param {number} lo
+ * @param {number} hi
  * @returns {string[]}
  */
 function renderRunawayLines({ episodes, tickets, why }, lo, hi) {
@@ -362,8 +264,6 @@ function renderRunawayLines({ episodes, tickets, why }, lo, hi) {
 const hours = (h) => `${h.toFixed(1)} h`;
 
 /**
- * The sustained figure over `span`; unread where the minute record did not read,
- * as unknown is never calm (mantahostels#1206).
  * @param {Readout} r
  * @param {string} span
  */
@@ -376,9 +276,6 @@ function buildSustainedText(r, span) {
 }
 
 /**
- * The "Concurrency" lines, every figure as lib/concurrency.js's readout gives
- * it: the 7-day sustained figure, the last tick's ceiling, the day's working hours
- * by the limit binding then, and how many sessions worked across them.
  * @param {ConcurrencyReading} c
  * @returns {string[]}
  */
@@ -424,7 +321,6 @@ function renderConcurrencyLines({ day, week }) {
 }
 
 /**
- * One primitives entry line, as PRIMITIVE_LINE reads it back.
  * @param {number} n
  * @param {string} repo
  * @param {TableCommit} commit
@@ -436,7 +332,7 @@ const renderPrimitiveLine = (n, repo, { side, sha }, c) =>
 /**
  * @param {string} repo
  * @param {{commits: TableCommit[]}} history
- * @param {() => number} next the next entry number free
+ * @param {() => number} next
  * @returns {string[]}
  */
 function renderRowChanges(repo, history, next) {
@@ -453,7 +349,7 @@ function renderRowChanges(repo, history, next) {
 /**
  * @param {string} repo
  * @param {PrimitivesReading["history"]} history
- * @param {() => number} next the next entry number free
+ * @param {() => number} next
  * @returns {string[]}
  */
 function renderHistoryLines(repo, history, next) {
@@ -474,9 +370,8 @@ function renderHistoryLines(repo, history, next) {
 }
 
 /**
- * The "Primitives" lines.
  * @param {RepoReading[]} repos
- * @param {number} first the first entry number free
+ * @param {number} first
  * @returns {string[]}
  */
 function renderPrimitivesLines(repos, first) {
@@ -494,8 +389,6 @@ function renderPrimitivesLines(repos, first) {
 }
 
 /**
- * What the next review reads back and the founder never needs, in one comment
- * GitHub does not render (#3934). Absent with nothing read.
  * @param {RepoReading[]} repos
  * @returns {string[]}
  */
@@ -515,7 +408,6 @@ function renderBookkeepingLines(repos) {
 }
 
 /**
- * The "Open repo holds" section, absent with none open (#3865).
  * @param {OpenHold[]} holds
  * @returns {string[]}
  */
@@ -580,7 +472,6 @@ function buildThroughputLine(r) {
 }
 
 /**
- * The Throughput section (#5275).
  * @param {ThroughputReading} reading
  * @returns {string[]}
  */
@@ -618,8 +509,6 @@ function renderThroughputLines(reading) {
 }
 
 /**
- * The Closed tickets section. Closes that did not read count as none and are named,
- * so the tally and the one-way list speak only for the repos read (#3928).
  * @param {{repo: string, closesSince: string, closed: ClosedIssue[] | null}[]} readings
  * @param {string} since
  * @param {string} closedTo
@@ -739,9 +628,8 @@ function renderReview({
 				: earliest,
 		since,
 	);
-	/* Comments recorded before #2594 print `Still close:` and are never
-	 * rewritten. `updated:` is the issue's last activity, not the comment's
-	 * date, so any old issue can re-enter the window: both wordings for good. */
+	// #2594
+
 	const clearLine =
 		clearCount === 0
 			? noDecisions
@@ -861,11 +749,7 @@ function renderReview({
 	].join("\n");
 }
 
-/* An entry line as renderReview writes it: number, repo, issue, the comment.
- * A link numbered other than its entry's issue is no line renderReview wrote,
- * so it is no entry. */
 const ENTRY_LINE = /^(\d+)\. (\S+)#(\d+) — .* — \[#\3 comment\]\((\S+)\)$/;
-/* A primitives entry line, as renderPrimitiveLine writes it. */
 const PRIMITIVE_LINE =
 	/^(\d+)\. (\S+) — (base|local) row (added|removed|rewritten)(?: \(([^)]*)\))?: `([^`]*)` — job `([^`]*)` — ([0-9a-f]+)$/;
 
@@ -876,7 +760,6 @@ const PRIMITIVE_LINE =
  */
 
 /**
- * One body line as an entry, or null for any other line.
  * @param {string} line
  * @returns {[number, Entry] | null}
  */
@@ -913,9 +796,6 @@ function parseEntryLine(line) {
 }
 
 /**
- * The entries a review body lists, by entry number: the body the founder
- * read, so `reverse <n>` names what he saw even where a ledger or a table has
- * changed since.
  * @param {string} body
  * @returns {Map<number, Entry>}
  */

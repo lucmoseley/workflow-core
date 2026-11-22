@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * mark-pass.test.ts — the concision-pass marker writer: its refusals and the
- * marker's shape, which the Stop backstop reads.
- *
- * Black-box, in a throwaway git repo (§X3): the base comes from real git.
- * Break the writer and every session that ran a pass is still nagged at Stop.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";

@@ -1,53 +1,4 @@
 #!/usr/bin/env node
-/*
- * deliver-to-session.js — what is due to one live session now (#853, spec #849).
- *
- * The session is CLAUDE_CODE_SESSION_ID, as the arbiter's self-acts take it,
- * never an argument: a run spends that session's record of what it was given.
- * Prints the text due, and nothing at all when nothing is. The delivery mod
- * (#849) runs it and appends what it prints to the session.
- *
- * SOURCES, each its own flag:
- *   --reports   the `ci-status`, `reap-finished-sessions` and repo-checks
- *               reports in the notify-reports store that this session's own
- *               start produced, each text printed to it once
- *   --ci        the CI re-check (#856): one `gh` call for the runs carrying
- *               the newest verdict (lib/ci-verdict.js), and only where they
- *               differ from the last this session saw,
- *               `check-ci-status.js --notify --recheck --write`, which fires no
- *               sweep; its text printed to it once
- *   --paths     the store directory the mod stats, as JSON, printed alone
- *
- * Every other producer in the store — the Jev
- * flags among them (#829 Q2) — is never printed, nor one added later until a
- * ruling adds it. A report with no owner (written before #853, or by a run
- * with no session) is never printed either; it still reaches the next session
- * start through the replay.
- *
- * THE REPLAY'S CONSUMPTION IS UNTOUCHED. Nothing here writes the replay's
- * `.shown.json` records or the delivery stamps, so the next session start
- * shows every report exactly as it would with no mod, a repeat of what this
- * delivered included (#849 §Reports). What this session has been given lives
- * in a ledger of its own under the store's `delivered/`, which `notify.list()`
- * never matches.
- *
- * Only `--ci` touches the network. `--reports` reads files only.
- *
- * THE RE-CHECK'S FIRST GATE IS SEEDED FROM THE SESSION'S START. Where this
- * session owns the persisted ci-status report and the newest verdict's runs
- * all finished before that check began, the start already reported it, so the run is
- * recorded as seen and nothing is printed. Otherwise a red standing at start
- * would be delivered twice, the second time worded with later ages.
- *
- * A FAILED, TIMED-OUT OR SKIPPED RE-CHECK DELIVERS NOTHING (#856) and records
- * nothing seen, so the mod's next interval asks again. A skip exits 0 and
- * prints nothing under --notify, its budget spent or GitHub unreachable, so
- * the check runs under --json, whose envelope names the outcome.
- * A BROKEN check's text is delivered once, and the run is still not seen.
- *
- * IN NO SCRIPT FAMILY (§N3). Exit 0 with output or without; 2 on a usage
- * error.
- */
 
 const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
@@ -68,32 +19,22 @@ const USAGE =
 	`usage: node ${scriptPath("deliver-to-session.js")} --reports | --ci | --paths\n` +
 	"  the session is CLAUDE_CODE_SESSION_ID\n";
 
-/* Beside these, repo-checks.js's one report per repo (spec #1510 §Where a
- * finding goes). */
 const DELIVERED = ["ci-status", "reap-finished-sessions"];
 
-/** Why a spawned script failed, in one line. @param {import("node:child_process").SpawnSyncReturns<string>} ran */
+/** @param {import("node:child_process").SpawnSyncReturns<string>} ran */
 const whyFailed = (ran) =>
 	(ran.error?.message ?? ran.stderr ?? "").trim() || `exit ${ran.status}`;
 
 const CI_CHECK = path.join(__dirname, "check-ci-status.js");
-// check-ci-status.js's branch default.
 const CI_BRANCH = "main";
-/* Runs the gate reads for one carrying a verdict. A guess: the denylisted
- * workflows are rare enough that 20 always reaches a sweep. */
+// #856 guess
 const CI_GATE_WINDOW = 20;
-// check-ci-status.js's own per-call cap (mantahostels#2134).
 const CI_GATE_TIMEOUT_MS = 8000;
-/* Above the check's 11 s --notify budget, with room for node's start and its
- * git calls; a guess. The variable is for tests. The mod's own timeout sits
- * above this plus the gate. */
+// #856 guess
 const CI_CHECK_TIMEOUT_MS =
 	Number(process.env.WFC_RECHECK_TIMEOUT_MS) || 15_000;
 
-/* A ledger untouched this long is taken to belong to a session long gone. A
- * first guess, never measured against session lifetimes; a ledger pruned under
- * a live session costs at most its start's reports repeated once.
- * Pruned only on a run that writes one, so an idle tick pays nothing for it. */
+// #853 guess
 const LEDGER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const UNREADABLE =
@@ -119,16 +60,9 @@ const ledgerFile = (session) =>
 const digestOf = (text) =>
 	crypto.createHash("sha1").update(text).digest("hex").slice(0, 16);
 
-/**
- * @typedef {{ given: Set<string>, ci: string|null }} Ledger `given` holds the
- *   `<checker>:<digest>` entries this session has been given; `ci` the sorted,
- *   comma-joined `<run id>:<conclusion>` list of the newest verdict runs its CI
- *   re-check last saw.
- */
+/** @typedef {{ given: Set<string>, ci: string|null }} Ledger */
 
 /**
- * Unreadable reads as nothing given and nothing seen, failing open (#853):
- * the cost is a report repeated, never one lost.
  * @param {string} session
  * @returns {Ledger}
  */
@@ -148,7 +82,6 @@ function readLedger(session) {
 function writeLedger(session, { given, ci }) {
 	notify.atomicWriteJSON(ledgerFile(session), { given: [...given], ci });
 	const now = Date.now();
-	// Housekeeping, and a ledger left behind costs a few bytes (#853).
 	ignoreFailure(() => {
 		for (const f of fs.readdirSync(ledgerDir())) {
 			const full = path.join(ledgerDir(), f);
@@ -159,7 +92,6 @@ function writeLedger(session, { given, ci }) {
 }
 
 /**
- * The owned reports this session has not yet been given, as printable blocks.
  * @param {string} session
  * @returns {string[]}
  */
@@ -179,8 +111,6 @@ function ownedReports(session) {
 }
 
 /**
- * The blocks to print where the notify-reports store cannot be listed; null
- * where it can.
  * @param {string} session
  * @returns {string[] | null}
  */
@@ -188,9 +118,7 @@ function blocksForUnlistableStore(session) {
 	try {
 		fs.readdirSync(notify.base());
 	} catch (e) {
-		// ENOENT is a real empty: no producer has written yet.
 		if (caught(e).code === "ENOENT") return [];
-		// Said once, or a dark store repeats this at every tick of the session.
 		if (!core.firstSay(session, "notify-reports store unreadable")) return [];
 		core.logError("deliver-to-session reports", e);
 		return [UNREADABLE];
@@ -199,18 +127,14 @@ function blocksForUnlistableStore(session) {
 }
 
 /**
- * One checker's block, where its report is this session's and new to it —
- * recorded in `given` as it is returned; null where nothing is due.
  * @param {string} session
  * @param {string} checker
- * @param {Set<string>} given accumulator: the ledger's given set, the block's entry added
+ * @param {Set<string>} given
  * @returns {string | null}
  */
 function buildReportBlock(session, checker, given) {
 	const report = notify.readReport(checker);
 	if (!report) {
-		/* Absent is nothing due. Present and unparseable cannot say whose it
-		 * is, so it is said once rather than read as an all-clear. */
 		if (
 			fs.existsSync(notify.reportFile(checker)) &&
 			core.firstSay(session, `notify report unreadable ${checker}`)
@@ -225,13 +149,9 @@ function buildReportBlock(session, checker, given) {
 	return `▸ ${report.checker}\n${trimEndRun(report.text, "\n")}`;
 }
 
-/** The outcomes that settle a verdict. */
 const CONCLUSIVE = new Set(["OK", "WARN", "FAIL"]);
 
 /**
- * Whether this session's own start check began after every one of `runs`
- * finished, and so already reported them. A SKIP or BROKEN start saw no runs,
- * so it reported none (#890). A report with no duration is judged from its end.
  * @param {string} session
  * @param {{ updatedAt?: string }[]} runs
  */
@@ -244,8 +164,6 @@ function reportedAtStart(session, runs) {
 }
 
 /**
- * The CI check's --notify text, where the newest verdict changed since this
- * session last looked and the text is new to it.
  * @param {string} session
  * @returns {string[]}
  */
@@ -276,8 +194,6 @@ function ciRecheck(session) {
 }
 
 /**
- * The runs the gate reads for the newest verdict; null, logged, where `gh`
- * failed or answered with no list.
  * @returns {{ databaseId: number, headSha?: string, conclusion?: string|null, workflowName?: string, updatedAt?: string }[] | null}
  */
 function gateRuns() {
@@ -307,19 +223,13 @@ function gateRuns() {
 
 /** @typedef {{ outcome?: unknown, text?: unknown, summary?: unknown }} CiEnvelope */
 
-/**
- * The CI check's --json envelope; null, logged, where it failed, answered
- * unparseably or skipped.
- * @returns {CiEnvelope | null}
- */
+/** @returns {CiEnvelope | null} */
 function recheckEnvelope() {
-	// --json also keeps the run off persist mode: the stored report is the start's.
 	const ran = spawnSync(
 		process.execPath,
 		[CI_CHECK, "--notify", "--recheck", "--write", "--json", "--json-text"],
 		{ encoding: "utf8", timeout: CI_CHECK_TIMEOUT_MS },
 	);
-	// Unparseable reads as failed, below.
 	/** @type {CiEnvelope | null} */
 	const envelope = orFallback(
 		() => (ran.status === 0 ? JSON.parse(ran.stdout) : null),
@@ -336,7 +246,6 @@ function recheckEnvelope() {
 }
 
 /**
- * The --notify text.
  * @param {CiEnvelope} envelope
  * @returns {string}
  */

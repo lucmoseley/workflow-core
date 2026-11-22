@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * §G7's contract for file-issue's link fake (#5150): file-issue-link-fake.ts's
- * answerLink, which the module cases in file-issue-core.test.ts take as the
- * core's `link` port, answers exactly what the production adapter —
- * lib/file-issue-host.js's `link`, over lib/link-writer.js — answers on
- * file-issue's gh fake, for a link that lands and for each refusal the module
- * cases serve. A drift in link-writer's wording or the adapter's mapping
- * fails here, not as a module case passing on text the real link no longer
- * prints.
- */
 
 import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";

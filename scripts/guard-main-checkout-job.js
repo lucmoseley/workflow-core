@@ -1,41 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-main-checkout-job.js — SessionStart hook (#4340). A
- * background job started with the main checkout as its cwd, as every job the
- * agents view dispatches is (`wc1`/`wc2`/`wc3` run `claude agents` from
- * there), is relaunched in its own worktree before its first turn.
- *
- * THE MOVE. The worktree is `lib/session-checkout.js`'s launch directory for
- * the job's prompt, the cut the refill loop makes. The same job is started
- * there with `claude --bg`, its record's `respawnFlags` and prompt, on the
- * plan its job directory sits under; then the original is removed with
- * `claude rm` while its SessionStart hooks still hold back its first turn.
- *
- * CARRIED FILES. `claude rm` deletes the original's job directory, where the
- * harness saves a pasted image and names it in the prompt. Each file the
- * prompt names there is copied into the worktree and named there in the
- * relaunched prompt (lib/carry-job-files.js, #4750); where one cannot be
- * copied, nothing is relaunched.
- *
- * WHY A RELAUNCH. The harness's own isolation (`worktree.bgIsolation`) sends
- * a background job to `EnterWorktree`, which 2.1.318 does not offer one, and
- * no hook output moves a session's cwd or ends it (#4340).
- *
- * A RESUMED JOB, OR ONE WITH NO PROMPT, IS NOT RELAUNCHED: a worktree is cut
- * and the session told to work there, as is one cut too late to relaunch.
- *
- * ANYTHING ELSE STARTS AS IT WOULD HAVE: an interactive session (no job
- * directory), a job already in a worktree, a `clear` or `compact` start.
- *
- * THE REGISTRATION ALLOWS 1200 s, the cut's own bounds summed: a fetch of up
- * to 3 tries and two more git steps at 30 s each, and an `npm ci` (or a wait
- * on a neighbour's) at 15 minutes (lib/dep-store.js). A cut slower than
- * that — a wait on a builder that then dies, and a build after it — is killed
- * before any launch. The launch and the removal start only with
- * `LAUNCH_ROOM_MS` left, so a kill never falls between them and leaves two
- * jobs on one prompt; a cut finishing later is handed to the session to work
- * in instead.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -53,13 +16,12 @@ const { carryJobFiles } = require("./lib/carry-job-files.js");
 const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
 const { launchDir } = require("./lib/session-checkout.js");
 
-/* Untraced. */
+// #4340 guess
 const CLAUDE_TIMEOUT_MS = 60_000;
-/* The registration's timeout (self-plugin/hooks/hooks.json), held to it by
- * the test. */
 const HOOK_TIMEOUT_MS = 1_200_000;
-/* Both claude calls at their bound, and 10 s for node's own start and exit. */
-const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + 10_000;
+// #4340 guess
+const NODE_START_MS = 10_000;
+const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + NODE_START_MS;
 
 /**
  * @typedef {{ root: string, seat: string, jobId: string, jobDir: string,
@@ -84,7 +46,7 @@ const STARTED_HERE =
 	"This background job started in the main checkout, where no session edits or commits (#4229),";
 
 /**
- * @param {string} source the start's `source`
+ * @param {string} source
  * @param {Ports} io
  * @returns {import("./lib/guard-entry.js").Decision}
  */
@@ -110,7 +72,7 @@ function decide(source, io) {
 			context: `${STARTED_HERE} and its worktree, ${dir}, was cut too late to relaunch the job there. ${workThere(dir)}`,
 		};
 	let intent;
-	/* A file not carried is deleted by the removal below (#4750). */
+	// #4750
 	try {
 		intent = io.carry(job, dir);
 	} catch (err) {
@@ -132,8 +94,6 @@ function decide(source, io) {
 }
 
 /**
- * `claude <args>` on `job`'s seat in `cwd`, in the environment the daemon
- * gave the job.
  * @param {string[]} args
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
@@ -153,8 +113,6 @@ function runOnJobSeat(args, cwd, env, job) {
 }
 
 /**
- * The job this hook runs in where it is a background job started in the
- * main checkout itself.
  * @param {Record<string, unknown>} payload
  * @param {NodeJS.ProcessEnv} env
  * @returns {Job | null}
@@ -217,8 +175,7 @@ if (require.main === module)
 	run({
 		field: "source",
 		top: true,
-		/* guard-entry's HookEvent names no SessionStart, and widening it
-		 * expires every guard's registry anchor; its emit writes any event. */
+		// #4340
 		event: /** @type {import("./lib/guard-entry.js").HookEvent} */ (
 			/** @type {unknown} */ ("SessionStart")
 		),

@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/narrowing-refusal.js, called in-process and pinned byte for byte: the
- * runners' own tests pin only the refusal's first words, so a reworded
- * remedy or a lost whole-suite command would pass unseen in both (#4777).
- */
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";

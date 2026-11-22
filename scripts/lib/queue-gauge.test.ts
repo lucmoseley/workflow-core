@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/queue-gauge.js's limits, crossings and status line (#4485, spec
- * #4458), off canned queue logs; the remote read is
- * lib/queue-lander-adapters.js's, crossed in scripts/landing-status.test.ts.
- *
- * Loosen it and a tiny or empty baseline alerts on a queue a minute old, a
- * busy week's queue is called stalled, or the status line misreports the
- * oldest ref's wait.
- */
 import { describe, expect, it } from "vitest";
 import {
 	buildCrossingLines,
@@ -28,7 +19,6 @@ const row = (min: number, event: Event, name: string) => ({
 	sha: A,
 });
 
-/** A week of `n` refs, pushed a minute apart and each landed `wait` later. */
 const week = (n: number, wait: number) =>
 	Array.from({ length: n }, (_, i) => [
 		row(5000 - i, "enqueue", `r${i}`),
@@ -41,10 +31,8 @@ const waiting = (...ages: number[]) =>
 	ages.map((age, i) => ({ name: `w${i}`, sha: A, since: NOW - age * MIN }));
 
 const EMPTY = queueBaseline([], NOW);
-/** The floors the limits never go under. */
 const FLOORS = { ageMs: 60 * MIN, depth: 10 };
 
-/** The limits a gauge of `b` is held to. */
 const queueLimits = (b: ReturnType<typeof queueBaseline>) =>
 	queueCrossings({ now: NOW, waiting: [], baseline: b }).limits;
 
@@ -60,8 +48,6 @@ describe("the limits", () => {
 	});
 
 	it("is twice the p90s where they pass the floors", () => {
-		/* 12 refs pushed a minute apart, each 90 min in queue: depths 12
-		 * down to 1 at the lands, the 11th of 12 sorted 11. */
 		const b = queueBaseline(week(12, 90), NOW);
 		expect(b.p90Ms).toBe(90 * MIN);
 		expect(b.depthP90).toBe(11);

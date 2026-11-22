@@ -1,5 +1,4 @@
 // @vitest-environment node
-/* A test run's pids-capped scope (#3401). */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -54,8 +53,7 @@ describe("a test run's scope", () => {
 		async () => {
 			const dir = scratch();
 			const inside = path.join(dir, "inside.js");
-			/* node alone holds ~11 tasks in threads; 32 leaves room for it and
-			 * then refuses the sleeps. */
+			// #3407 guess: node alone holds about 11 tasks
 			fs.writeFileSync(
 				inside,
 				`const { spawn } = require("node:child_process");
@@ -94,18 +92,13 @@ next();
 				spawnSync("pgrep", ["-f", left], { encoding: "utf8" }).stdout.trim();
 
 			expect(endRunScope(child)).toBeNull();
-			/* SIGKILL lands asynchronously; 5 s is a guess. */
+			// #3407 guess
 			for (let i = 0; i < 50 && running(); i++) await pause(100);
 			expect(running()).toBe("");
 		},
 	);
 });
 
-/*
- * The outliving launch's Node face (#4706), driven in a fresh node so its
- * probe of the user manager is its own, against a stand-in systemd-run that
- * records what reaches it.
- */
 describe("the outliving launch", () => {
 	function launch(
 		answers: boolean,
@@ -181,8 +174,6 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 		expect(ran).toBe("job sid= job= owner=starter outlives=");
 	});
 
-	/* lib/detach.sh's `outlive` is this face's twin: drift, and the shell
-	 * launcher's jobs keep a key the sweep reads as a session's. */
 	it("strips the same keys and stops at the same ceiling as its shell twin", () => {
 		const r = spawnSync(
 			"bash",

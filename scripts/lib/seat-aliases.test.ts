@@ -1,7 +1,3 @@
-// The founder's agents-view aliases, read off a .bashrc in a temp home (#5293).
-// Driven through readSeatAliases and withWaitingAliases, the exports
-// refill-loop.js calls, so a parse that drifts from his alias shape shows here
-// as the panel naming a bare seat path where he expects the alias he types.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,7 +22,6 @@ afterEach(() => {
 	fs.rmSync(home, { recursive: true, force: true });
 });
 
-/** The alias the panel names for one seat's waiting sessions run in `cwd`. */
 const aliasOf = (seat: string, cwd: string | null) =>
 	withWaitingAliases(
 		{

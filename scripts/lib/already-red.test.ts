@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Whether a red run's failures were already red on its base (#3624), judged
- * off the red store, the certificate store and the pass store's per-file
- * rows (#4790) seeded in a throwaway
- * repository, against its real git. Loosen a case and a
- * session reads its own breakage as a neighbour's, or reruns a suite to
- * attribute a red the record already attributes.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,7 +28,6 @@ const git = (dir: string, ...args: string[]) =>
 
 const TEST = "scripts/a.test.ts";
 
-/** A repository whose one test reads `a.js`, and its base. */
 function repo() {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ared-")));
 	dirs.push(dir);
@@ -54,7 +45,6 @@ function repo() {
 	return { dir, base: git(dir, "rev-parse", "HEAD") };
 }
 
-/** A commit changing `file`, its sha and tree. */
 function commit(dir: string, file: string) {
 	fs.appendFileSync(path.join(dir, file), "changed\n");
 	git(dir, "commit", "-q", "-am", `change ${file}`);
@@ -62,7 +52,6 @@ function commit(dir: string, file: string) {
 	return { sha, tree: git(dir, "rev-parse", `${sha}^{tree}`) };
 }
 
-/** A per-test run of TEST, red where `failed`, reading `tree`. */
 const run = (o: {
 	dir: string;
 	sha: string;
@@ -97,7 +86,6 @@ const run = (o: {
 	roots: ["package.json"],
 });
 
-/** The red run, its failing file recorded under the repository. */
 const failingHere = (dir: string, mine: ReturnType<typeof run>) => ({
 	...mine,
 	scope: {
@@ -109,7 +97,6 @@ const failingHere = (dir: string, mine: ReturnType<typeof run>) => ({
 const linesFor = (dir: string, mine: ReturnType<typeof run>) =>
 	readAlreadyRedLines(failingHere(dir, mine), dir).join("\n");
 
-/** The red run's classing, the answer the unasked-rerun guard reads (#3633). */
 const classingOf = (dir: string, mine: ReturnType<typeof run>) =>
 	classifyFailures(failingHere(dir, mine), readRedEvidence(dir), { root: dir });
 
@@ -199,7 +186,6 @@ describe("a red run's failures judged against its base (#3624)", () => {
 	});
 });
 
-/** A pass-store row of TEST at `at`, off the working tree as it stands. */
 function fileRow(dir: string, at: string, outcome: "pass" | "fail") {
 	recordFiles(
 		{
@@ -211,7 +197,6 @@ function fileRow(dir: string, at: string, outcome: "pass" | "fail") {
 			shared: [],
 			clean: true,
 			steadiness: watched(dir),
-			/* The read audit saw it read nothing beyond its imports. */
 			audits: new Map([[TEST, { reads: NO_READS }]]),
 		},
 		{ storeRoot: dir, rowless: false },
@@ -219,8 +204,6 @@ function fileRow(dir: string, at: string, outcome: "pass" | "fail") {
 }
 
 describe("the pass store's per-file rows as evidence (#4790)", () => {
-	/* Inside the store's retention, and lexically between the red store's
-	 * "1" and the run's `later`, as evidence is before the run it classes. */
 	const recent = new Date(Date.now() - 60_000).toISOString();
 	const later = "3";
 

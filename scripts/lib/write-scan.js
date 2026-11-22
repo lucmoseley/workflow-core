@@ -1,18 +1,3 @@
-/*
- * write-scan.js — two rules the commit and the closing suite run, applied to
- * the one file a tool just wrote (#1151, ruled at #1138): the post-write
- * core's step 3.
- *
- *   host-root   check-host-root.js's judges over this file alone — a
- *               `path.join(__dirname, "..", "docs", …)` refused at commit.
- *   citation    a `#N` a shipped code line prints outside a `( … )`, which
- *               fails every plugin-tree test reading the live core.
- *
- * Both rules bind only a root shipping a plugin, so elsewhere it says nothing.
- * plugin-tree.js is left behind by the release, so the citation half runs in
- * the core alone.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { relativeUnder } = require("./is-under.js");
@@ -34,15 +19,8 @@ function faultsOf(root, rel) {
 	return out;
 }
 
-/**
- * The faults in `written`, as text handed to the session, or "" where it has
- * none or lies outside `root`.
- * @param {string} root
- * @param {string} written
- */
+/** @param {string} root @param {string} written */
 function writeFaults(root, written) {
-	/* Physically, as post-write's in-root test judged it: a symlinked prefix
-	 * would otherwise land outside the dereferenced root. */
 	const rel = relativeUnder(root, fs.realpathSync(path.resolve(root, written)));
 	if (rel === null) return "";
 	const faults = faultsOf(root, rel);

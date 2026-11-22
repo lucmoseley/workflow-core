@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/npm-workspaces.js against what npm 11.16.0 ran in this same tree: each
- * row's directories are the scripts `npm <flags>` ran there (#4041). The rows
- * are measured, not read off npm's source, so a row edited to fit the code
- * rather than rerun against npm stops checking that a selector reaches what npm
- * reaches, and check_staged is judged on the wrong `package.json`.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -17,7 +10,6 @@ import { buildPackageTree } from "./package-reader.js";
 
 const trees: string[] = [];
 
-/** A new tree holding each `package.json` in `pkgs`, by its directory. */
 const makeTree = (pkgs: Record<string, object>) => {
 	const top = fs.mkdtempSync(path.join(os.tmpdir(), "npm-workspaces-"));
 	trees.push(top);
@@ -45,8 +37,6 @@ afterAll(() => {
 	for (const top of trees) fs.rmSync(top, { recursive: true, force: true });
 });
 
-/** The directories `flags` select in `top` from `from`, relative to `top`; "."
- * for it. `prefix` is the directory a `--prefix` names. */
 const select = (top: string, flags: string, from = ".", prefix = "") => {
 	const { options } = parseNpmArgv(
 		flags.split(" ").map((value) => ({ value })),

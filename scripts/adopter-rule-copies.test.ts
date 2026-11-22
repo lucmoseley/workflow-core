@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The working contract's rules that every adopter session needs are written
- * twice: in docs/working-contract.md, and in the adopter session-rules
- * template, rendered into each adopter's `.claude/workflow-core.md`. Each
- * adopter bullet must equal the contract's under five rewrites: the founder's
- * name, the `rule:house-decision` fragment's gloss for the contract's glossary
- * pointer (the glossary does not ship), the bare guard name the template
- * spells guards by, a `node`/`bash`/`sh`/`python3 scripts/` command spelled at the plugin root as
- * the renderer spells it (#2005), and no core issue cites, which would resolve
- * against the adopter's own tracker (#1709, #1739).
- *
- * The adopter's house-decision bullet stops before the contract's
- * `**Enforced**` tail, which the guard prints when it bites (#2035).
- *
- * Loosen a case and a rule reworded in one copy leaves every adopter session
- * working to the old words, unseen until someone reads both.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -110,7 +93,6 @@ describe("the working-pattern rules in the adopter session rules (#5294)", () =>
 	});
 });
 
-/** A contract section's lines, guard-registry markers and blank lines left out. */
 const contractSection = (heading: string) =>
 	(fs.readFileSync(CONTRACT, "utf8").split(`## ${heading}\n`)[1] ?? "")
 		.split("\n## ")[0]

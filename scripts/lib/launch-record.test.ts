@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The one launch-record reader (lib/launch-record.js, #4587) over
- * lib/resume-io-fake.ts, whose route reads resume-io.contract.test.ts holds to
- * the production adapter: a plan launch reads its `--bg` job record, a key
- * launch its headless run, and a headless record that will not read is logged.
- *
- * Loosen one and the refill loop reads a key launch's state off a `--bg` job
- * store it never wrote, or loses why its record would not read.
- */
 
 import { describe, expect, it } from "vitest";
 import { buildLaunchRecordReader } from "./launch-record.js";

@@ -1,38 +1,3 @@
-/*
- * precommit-dispatch.js — the git-hook dispatcher's core (#5172, #5207):
- * every Node step of a git hook runs in one Node process, so they share one
- * startup instead of paying one each. Built for .husky/pre-commit's member
- * gates; each other hook brings its own registry and entry.
- *
- * THE EXIT CONTRACT. Rows run in order, and the first gating red ends the
- * run with that row's code: 1 for FAIL, 2 for BROKEN, a program's own code.
- * 0 means every armed row passed, skipped or only warned; 1 where git will
- * not name the staged paths; 2 where a row arms on a path and the hook
- * passes no path port, a fault of the hook's own wiring. Each row's stdout and stderr reach fds 1 and 2
- * when it finishes, before the next starts — except a `quietPass` row's pass
- * with no WARN in it, whose output is dropped.
- *
- * THE FAILURE POLICY, per row (#5171). A `gate` row fails closed: a throw
- * while its module loads, while the list it arms on is computed or while it
- * runs is BROKEN, exit 2, with one line naming the row. A `warn` row never
- * refuses: its output prints, whatever its exit, and its own throw prints
- * one line naming it and the run goes on.
- *
- * ARMING. A row arms `always`, on a pattern any staged path matches, or on
- * a list a port computes, any member of which is staged. A route that will
- * not read arms no row whose `when` names routes, and says so on fd 2
- * (#5207). A `when` naming a route, route set or fact nothing answers
- * throws, so a misspelt name fails the run rather than standing a row down
- * or arming it everywhere. The staged paths are read
- * only where some row arms on a path, so a hook whose rows all arm `always`
- * passes no `staged`, `computed` or `exists` port.
- *
- * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
- * `interrupted` port is asked before each row, after a gating red and after
- * the last, and once it answers a code, no further row runs and the run
- * exits with it, saying so on fd 2.
- */
-
 const { caught } = require("./caught.js");
 const { checkRouteSetName, inRouteSet } = require("./commit-route.js");
 const { armed } = require("./precommit-arm.js");
@@ -43,16 +8,12 @@ const { armed } = require("./precommit-arm.js");
  * @typedef {{ status: string, path: string }} StagedEntry
  * @typedef {{ always: true }
  *   | { pattern: RegExp, live?: boolean, computed?: string }
- *   | { computed: string }} Arm `live` keeps the paths armed_live would:
- *   added or modified, and still on disk
+ *   | { computed: string }} Arm
  * @typedef {{ exit: number, stdout: string, stderr: string }} RowResult
  * @typedef {{ routes?: string[], unlessRoutes?: string[], facts?: string[],
- *   unlessFacts?: string[] }} When `routes` any of, `unlessRoutes` none of,
- *   each a lib/commit-route.js route set name or one route; `facts` all of,
- *   `unlessFacts` none of, each a fact the hook's entry answers
+ *   unlessFacts?: string[] }} When
  * @typedef {{ id: string, lander?: Lander, arm: Arm, when?: When,
- *   policy: "gate" | "warn", quietPass?: boolean }} Row `lander` absent runs
- *   the row in every gate set
+ *   policy: "gate" | "warn", quietPass?: boolean }} Row
  */
 
 /**
@@ -66,20 +27,16 @@ const { armed } = require("./precommit-arm.js");
  *   interrupted: () => Promise<number | null>,
  *   route?: () => string | null,
  *   fact?: (name: string) => boolean,
- * }} Ports `staged` throws where git will not name the staged paths;
- *   `interrupted` answers the code a caught signal owes, 128 + n, else null;
- *   `route` the commit route, null where it will not read
+ * }} Ports
  */
 
-/** @param {string} name the port */
+/** @param {string} name */
 const missingPortLine = (name) =>
 	`a row arms on a path, and this hook passes no ${name} port`;
 
-/** The ports a path-armed row reads: a hook passes all three or none. */
 const PATH_PORTS = /** @type {const} */ (["staged", "computed", "exists"]);
 
 /**
- * A path port, present once readStagedOrRefuse has passed.
  * @template {Function} F
  * @param {F | undefined} port
  * @returns {F}
@@ -100,22 +57,15 @@ const SETS = {
 	none: ["all"],
 };
 
-/**
- * The hook a run speaks for, and what its rows are called in its lines.
- * @typedef {{ hook: string, noun: string }} Voice
- */
+/** @typedef {{ hook: string, noun: string }} Voice */
 
 /** @type {Voice} */
 const PRE_COMMIT = { hook: "pre-commit", noun: "gate" };
 
-/**
- * Whether `row`'s arm reads the staged paths.
- * @param {Row} row
- */
+/** @param {Row} row */
 const armsOnPaths = (row) => !("always" in row.arm);
 
 /**
- * Whether `row`'s `when` holds on this commit.
  * @template {Row} R
  * @param {R} row
  * @param {Ports<R>} ports
@@ -142,8 +92,6 @@ function whenHolds(row, ports, route) {
 }
 
 /**
- * Whether `row` runs on this commit: `broken` where the list it arms on will
- * not compute.
  * @template {Row} R
  * @param {R} row
  * @param {StagedEntry[]} staged
@@ -176,15 +124,11 @@ const crashLine = (voice, row, at, e) =>
 	`${voice.hook}: the ${row.id} ${voice.noun} ${at === "load" ? "could not load" : "threw"}: ${caught(e).message}\n`;
 
 /**
- * The hook's exit code for this commit's armed rows.
- *
  * @template {Row} R
  * @param {{ rows: R[], gates: GateSet, ports: Ports<R>, voice?: Voice }} input
  * @returns {Promise<number>}
  */
 async function dispatch({ rows, gates, ports, voice = PRE_COMMIT }) {
-	/* Every name, before any row runs: a `some` stops at its first match, so
-	 * a misspelt name after it would otherwise pass on that route. */
 	for (const { when } of rows)
 		for (const name of [...(when?.routes ?? []), ...(when?.unlessRoutes ?? [])])
 			checkRouteSetName(name);
@@ -218,10 +162,6 @@ async function runRows(rows, staged, ports, voice) {
 			try {
 				value = ports.route?.() ?? null;
 			} catch (e) {
-				/* Fail-open by design (#5207): a route that will not read arms no
-				 * route-narrowed row. The gating hooks read their route before
-				 * the run and refuse on its fault, so only post-commit, which
-				 * never refuses, reaches this. */
 				ports.write(
 					2,
 					`${voice.hook}: the commit route would not read (${caught(e).message.split("\n")[0]}), so every ${voice.noun} that arms on a route stood down.\n`,
@@ -248,7 +188,6 @@ async function runRows(rows, staged, ports, voice) {
 }
 
 /**
- * The commit's staged entries, else the exit code where they will not read.
  * @template {Row} R
  * @param {Ports<R>} ports
  * @param {Voice} voice
@@ -300,9 +239,6 @@ async function runRow(row, ports, voice) {
 }
 
 /**
- * The gate set `--gates` names, `merge` or `batch`, else every gate, as the
- * hook's own `case` reads it: `tested` leaves out only the hook's own test
- * gate, which is no row here.
  * @param {string | undefined} value
  * @returns {GateSet}
  */

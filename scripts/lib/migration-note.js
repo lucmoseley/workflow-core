@@ -1,19 +1,3 @@
-/*
- * migration-note.js — parses and validates a major release's migration note
- * (#6; spec §Releases and migration, mantahostels#3527).
- *
- * A note is Markdown with five fixed `##` sections, in order: *What changed*,
- * *Ruling*, *Residue*, *Manual steps*, *Verify*. *Residue* is a fenced ```json
- * block — the machine-readable shape `upgrade` applies — and *Verify* a
- * fenced ```sh block holding one shell command whose exit code proves the
- * bump. Every top-level *Manual steps* bullet carries a leading `[act]`,
- * `[choice]` or `[notice]` type (#246), and its continuation lines are
- * indented with no blank line among them (#2972); `Verify` stays the sole gate
- * on a note regardless of type. Any of these faults, or a missing/out-of-order/
- * duplicate section, is "malformed":
- * `release` refuses it and `upgrade` refuses to walk it.
- */
-
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 
@@ -25,8 +9,6 @@ const SECTIONS = /** @type {const} */ ([
 	"Verify",
 ]);
 
-/** Residue keys `upgrade` knows how to apply; its `EVERY_RUN` names the four
- * now done on every run, which apply nothing more (#1501). */
 const RESIDUE_KEYS = /** @type {const} */ ([
 	"contract",
 	"settingsKeys",
@@ -36,36 +18,28 @@ const RESIDUE_KEYS = /** @type {const} */ ([
 	"roadmapMajorPin",
 ]);
 
-/** What a reader does with a "## Manual steps" bullet (#246). */
 const STEP_TYPES = /** @type {const} */ (["act", "choice", "notice"]);
 
 /** @typedef {{type: (typeof STEP_TYPES)[number], text: string}} Step */
 
-/** A top-level bullet, typed or not. */
 const BULLET_START = /^[-*]\s/;
 
-/** A top-level bullet naming a known step type; group 2 is its text. */
 const TYPED_BULLET = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
-	`^[-*]\\s+\\[(${STEP_TYPES.join("|")})\\]\\s*(.*)$`,
+	`^[-*]\\s+\\[(${STEP_TYPES.join("|")})\\](.*)$`,
 );
 
 /**
- * A fenced code block in the named language.
  * @param {string} lang
  * @returns {RegExp}
  */
 const fence = (lang) => new RegExp(`\`\`\`${lang}\\n([\\s\\S]*?)\`\`\``, "m");
 
-/* A name runs from its first non-blank to its last; the second limb is a
- * heading of blanks alone at the end of the text, named by its last blank. */
 const HEADING_RE =
 	/^##(?:\s+(\S(?:.*\S)?)\s*|\s\s*([^\S\n\r\u2028\u2029])[\n\r\u2028\u2029]*)$/gm;
 const BRACKETED_RE = /^[-*]\s+\[([^\]]*)\]/;
 const TAG_RE = /^#\s+(v\d+\.\d+\.\d+)\s*$/m;
 
 /**
- * The fenced block's body, or null where the section carries none.
  * @param {string} section
  * @param {string} lang
  * @returns {string | null}
@@ -79,7 +53,7 @@ function parseFencedBody(section, lang) {
 /** @typedef {{name: string, index: number}} Heading */
 
 /**
- * @param {string} text a migration note's full body
+ * @param {string} text
  * @returns {{tag: string|null, sections: Record<string, string>, residue: object|null, verify: string|null, faults: string[]}}
  */
 function parseNote(text) {
@@ -114,8 +88,7 @@ function parseNote(text) {
 }
 
 /**
- * Missing, unknown, duplicate and out-of-order sections, in that order.
- * @param {string[]} names the note's `##` headings, in source order
+ * @param {string[]} names
  * @returns {string[]}
  */
 function structureFaults(names) {
@@ -144,8 +117,6 @@ function structureFaults(names) {
 }
 
 /**
- * Each section's trimmed body by heading name; a duplicate heading keeps its
- * first body.
  * @param {string} text
  * @param {Heading[]} headings
  * @returns {Record<string, string>}
@@ -163,9 +134,8 @@ function sectionBodies(text, headings) {
 }
 
 /**
- * The *Residue* section's JSON object, or null with its fault pushed.
  * @param {string} section
- * @param {string[]} faults accumulator: each fault is pushed here
+ * @param {string[]} faults
  * @returns {object|null}
  */
 function parseResidue(section, faults) {
@@ -198,9 +168,8 @@ function parseResidue(section, faults) {
 }
 
 /**
- * @param {string} section the *Manual steps* body
- * @returns {string[]} one fault per bullet with no known type or no text,
- * then each `continuationFaults` names
+ * @param {string} section
+ * @returns {string[]}
  */
 function stepFaults(section) {
 	/** @type {string[]} */
@@ -235,10 +204,9 @@ const MISREAD_FAULTS = {
 		'"## Manual steps" indented line comes after a blank line ended its step, so no step carries it',
 };
 
-/** @typedef {"none" | "step" | "gap"} StepState "gap" once a blank line ends a step */
+/** @typedef {"none" | "step" | "gap"} StepState */
 
 /**
- * One *Manual steps* line classified against the state the lines above it left.
  * @param {string} line
  * @param {StepState} state
  * @returns {{state: StepState, misread: keyof typeof MISREAD_FAULTS | null}}
@@ -253,10 +221,7 @@ function classifyStepLine(line, state) {
 }
 
 /**
- * The lines `parseSteps` would misread, the first of each run named:
- * unindented prose inside a step, which it glues on, and an indented line
- * after a blank, which it drops (#2972).
- * @param {string} section the *Manual steps* body
+ * @param {string} section
  * @returns {string[]}
  */
 function continuationFaults(section) {
@@ -277,9 +242,8 @@ function continuationFaults(section) {
 }
 
 /**
- * The *Verify* command, or null with its fault pushed.
  * @param {string} section
- * @param {string[]} faults accumulator: each fault is pushed here
+ * @param {string[]} faults
  * @returns {string|null}
  */
 function parseVerify(section, faults) {
@@ -298,18 +262,14 @@ function parseVerify(section, faults) {
 
 /**
  * @param {string} text
- * @returns {string[]} empty where the note is well-formed
+ * @returns {string[]}
  */
 function validateNote(text) {
 	return parseNote(text).faults;
 }
 
 /**
- * Every well-typed bullet in a "## Manual steps" section body, in the
- * source's order (#248). Call only where `parseNote`'s `faults` is empty —
- * an untyped bullet is dropped here. A bullet's continuation lines join its
- * text with a single space, up to a blank line or the next bullet (#425).
- * @param {string} text the "Manual steps" section body
+ * @param {string} text
  * @returns {Step[]}
  */
 function parseSteps(text) {

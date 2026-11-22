@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * .husky/post-commit's release-on-commit step (mantahostels#2336, #2058):
- * lib/post-commit-steps.js's releaseClaimsRow, and its claim-release row in
- * lib/post-commit-rows.js run through dispatch() on the real route (#5208).
- *
- * What is under test is the STEP'S GUARDING: which commits it stands down
- * on, how it spells the paths, what environment it hands the arbiter, and
- * that a fault in it never stops the steps after it. The arbiter stands in
- * through its PROGRAM export (lib/post-commit-testkit.ts) wherever its own
- * answer is not the point; its narrowing is session-arbiter.test.ts's.
- *
- * The step runs after every commit in the shared tree: loosen a case and a
- * committed file's claim is never given back, so neighbours stay denied on it
- * until this session's process ends, or the arbiter judges cleanliness against
- * the wrong tree.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -48,7 +32,6 @@ import { commitOverSequencer } from "./lib/precommit-gate-testkit";
 
 const temps = registerTempCleanup();
 
-/** A throwaway repo whose HEAD commit touches `files`. */
 function hookRepo(prefix: string, files: string[]) {
 	const repo = newRepo(prefix, temps);
 	for (const f of files) {
@@ -63,7 +46,6 @@ function hookRepo(prefix: string, files: string[]) {
 const headOf = (repo: { git: (...a: string[]) => Buffer }) =>
 	repo.git("rev-parse", "HEAD").toString().trim();
 
-/** The step on `cwd`, the arbiter echoing the argv it was handed. */
 function runStep(cwd: string, env: NodeJS.ProcessEnv = {}) {
 	const arbiter = stubProgram("session-arbiter.js", echoArgv);
 	const r = releaseClaimsRow(buildRunIo({ cwd, env: hookEnv(env) }), programs);
@@ -71,7 +53,6 @@ function runStep(cwd: string, env: NodeJS.ProcessEnv = {}) {
 	return { ...r, arbiter, argv: r.stdout.split("\n").filter(Boolean) };
 }
 
-/** The whole registry on `cwd`, every program quiet but an echoing arbiter. */
 async function runRegistry(cwd: string) {
 	quietPrograms();
 	const arbiter = stubProgram("session-arbiter.js", echoArgv);
@@ -113,9 +94,6 @@ describe(".husky/post-commit's release-on-commit step", () => {
 		]);
 	});
 
-	// All five sentinels, not a representative one: the stand-down set is a
-	// hand-written list, and a name dropped from it is exactly the regression
-	// this catches. The sixth, `sequencer`, is below.
 	it.each(REPLAY_SENTINELS)(
 		"stands down mid-replay under %s, where the paths are somebody else's",
 		async (sentinel, kind) => {
@@ -131,7 +109,6 @@ describe(".husky/post-commit's release-on-commit step", () => {
 		},
 	);
 
-	/** A second commit on doc-map.md, by commitOverSequencer. */
 	function sequencedRepo(prefix: string, liveSequence: boolean) {
 		const repo = hookRepo(prefix, ["docs/doc-map.md"]);
 		fs.writeFileSync(path.join(repo.root, "docs", "doc-map.md"), "y");
@@ -245,8 +222,6 @@ describe("the release and the record under a linked worktree's hook redirects", 
 				CLAUDE_PROJECT_DIR: sb.repo,
 			}).stdout.split("\n");
 		expect(ledger()).not.toContain("docs/wt.md");
-		/* The ledger the Stop hook reads, at the main tree, bills the
-		 * worktree's commit. */
 		const record = rowOf("commit-record").run(
 			STEPS.buildRunIo({ cwd: wt, env: session }),
 			programs,

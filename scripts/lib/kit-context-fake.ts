@@ -1,17 +1,7 @@
-/*
- * The one fake of lib/kit-context.js's KitContext, the context `run` and the
- * dispatcher hand every core, held to the kit's own by
- * lib/kit-context.contract.test.ts (#3018).
- */
-
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import type { KitContext } from "./kit-context.js";
 import { readRuleText } from "./rule-text.js";
 
-/**
- * A core's module-case context: every port the kit hands a core, `over` laid
- * on top.
- */
 export function kitContextFake<P extends object = object>(
 	over: Partial<KitContext> & P = {} as P,
 ): KitContext & P {

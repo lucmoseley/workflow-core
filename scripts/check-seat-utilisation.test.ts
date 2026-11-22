@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * check-seat-utilisation.js fires the spend policy's only upward trigger, so
- * the tests that matter are the ones on when it must NOT fire: a seat that has
- * never run reads as unknown rather than as 0 (mantahostels#1742), a frozen reading past
- * its `resets_at` reads as 0 rather than as the stale number, and a reset less
- * than 24 h away is waited out rather than escalated (mantahostels#1740).
- *
- * The fixture is a fake home holding `.claudeN/.claude.json` files, which is
- * the whole of what the script reads.
- *
- * It is a SessionStart `--notify` hook in `self-plugin/hooks/hooks.json` and
- * the shipped plugin's `hooks/hooks.json`: loosen a case and the notice either
- * prompts a ceiling re-decision on a non-event, or stays silent while every
- * seat's allowance is spent and work has stopped.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -33,7 +18,6 @@ const {
 	rungOneLogged,
 	scopedVerdict,
 	verdict,
-	// eslint-disable-next-line @typescript-eslint/no-var-requires
 } = require("./lib/seat-utilisation.js");
 
 let home: string;
@@ -41,14 +25,11 @@ let home: string;
 const HOUR = 36e5;
 const NOW = Date.parse("2026-08-28T12:00:00Z");
 
-/** The host config at the fixture's root, which a run with CLAUDE_PROJECT_DIR
- *  set to `home` reads. */
 const hostConfig = (json: string) => {
 	fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
 	fs.writeFileSync(path.join(home, ".claude", "workflow-core.json"), json);
 };
 
-/** Write one seat's `.claude.json`. `cache: null` is a seat that never ran. */
 const seat = (
 	dir: string,
 	cache: {
@@ -78,9 +59,7 @@ const seat = (
 	);
 };
 
-/** A reset comfortably outside the 24 h the policy waits out. */
 const FAR = new Date(NOW + 72 * HOUR).toISOString();
-/** …and one inside it. */
 const NEAR = new Date(NOW + 6 * HOUR).toISOString();
 
 beforeEach(() => {
@@ -197,7 +176,6 @@ describe("reading the seats", () => {
 		const written = buildUsageCache({ session: 7, week: 41 }, NOW - HOUR, {
 			resetsAt: { session: FAR, week: FAR },
 		});
-		// The pre-#377 keys the recorder drops, laid beside the bars to disagree.
 		Object.assign(written.cachedUsageUtilization.utilization, {
 			five_hour: { utilization: 99, resets_at: past },
 			seven_day: { utilization: 99, resets_at: past },
@@ -262,7 +240,6 @@ describe("the daily reading", () => {
 			.split("\n")
 			.map((l) => JSON.parse(l));
 		expect(lines).toHaveLength(2);
-		// The co-indicator is recorded and nothing triggers on it (mantahostels#1737).
 		expect(lines[0]).toHaveProperty("commits24h");
 	});
 
@@ -270,8 +247,6 @@ describe("the daily reading", () => {
 		const history = path.join(home, "h2.jsonl");
 		vi.stubEnv("WFC_SEAT_HISTORY", history);
 		seat(".claude", { sevenDay: 50, resetsAt: FAR });
-		// The seat has not run since NOW - HOUR (fixture default); a reading
-		// taken a day later carries that same cache forward.
 		const seats = readSeats(NOW + 25 * HOUR, seatDirs(home));
 		recordReading(seats, NOW + 25 * HOUR);
 		const [line] = fs
@@ -322,8 +297,6 @@ describe("the rung-1 limb", () => {
 	});
 
 	it("is unaffected by a trial declaration correctly placed above the log (mantahostels#2847)", () => {
-		/* None of the declaration's field lines is a dated bullet, so it cannot
-		 * flip this limb wherever it sits. */
 		const p = path.join(home, "ladder-trial.md");
 		fs.writeFileSync(
 			p,
@@ -350,8 +323,6 @@ describe("the rung-1 limb", () => {
 	});
 
 	it("stops at the next `## ` heading, so a dated line in a later section is not read as the log", () => {
-		/* Guards the `line.startsWith("## ")` break: without it, the later
-		 * section's dated bullet would read as rung 1 having happened. */
 		ladder("None yet.");
 		fs.appendFileSync(
 			path.join(home, "ladder.md"),
@@ -361,7 +332,6 @@ describe("the rung-1 limb", () => {
 	});
 });
 
-/** A window open at the fixture's NOW, and the basis that justifies its start. */
 const TRIAL_START = "2026-08-27T00:00:00Z";
 const TRIAL_END = "2026-09-10T00:00:00Z";
 
@@ -373,9 +343,6 @@ describe("end to end", () => {
 				HOME: home,
 				...seatEnv(home),
 				WFC_SEAT_HISTORY: path.join(home, "h.jsonl"),
-				// Pins the subprocess's clock to the fixture's NOW: the script reads
-				// the real wall clock otherwise, and FAR/NEAR are computed against
-				// this anchor rather than the calendar date the suite runs on.
 				WFC_NOW: new Date(NOW).toISOString(),
 				...env,
 			},
@@ -385,7 +352,6 @@ describe("end to end", () => {
 		const r = run({});
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(/SKIP/);
-		// The way out: which directories it looked in, so the reader can check.
 		expect(r.stderr).toMatch(/no Claude Code seat directory found/);
 		expect(r.stderr).toMatch(/\.claude2/);
 	});
@@ -404,7 +370,6 @@ describe("end to end", () => {
 		const r = run({});
 		expect(r.stderr).toMatch(/SEATS \(2\)/);
 		expect(r.stderr).toMatch(/ALL SEATS EXHAUSTED/);
-		// The act is a re-decision, and the notice must never read as a purchase.
 		expect(r.stderr).toMatch(/NOT A PURCHASE/);
 		expect(r.status).toBe(0);
 	});
@@ -412,13 +377,10 @@ describe("end to end", () => {
 	describe("--notify, the report route no hook now runs", () => {
 		it("says nothing at all while no seat is exhausted", () => {
 			seat(".claude", { sevenDay: 50, resetsAt: FAR });
-			// A ladder that reads and declares nothing: a missing one is loud by
-			// ruling (mantahostels#2871), so silence needs one on disk.
 			const ladderFile = path.join(home, "empty-ladder.md");
 			fs.writeFileSync(ladderFile, "# Capacity procurement ladder\n");
 			const r = run({ WFC_LADDER: ladderFile }, ["--notify"]);
 			expect(r.status).toBe(0);
-			// Silence, both streams: a session start pays for every line printed.
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toBe("");
 		});
@@ -429,7 +391,6 @@ describe("end to end", () => {
 			const r = run({}, ["--notify"]);
 			expect(r.stdout).toMatch(/ALL SEATS EXHAUSTED/);
 			expect(r.stdout).toMatch(/NOT A PURCHASE/);
-			// --notify exits 0 whatever it found: a hook must not fail a session.
 			expect(r.status).toBe(0);
 		});
 
@@ -499,7 +460,6 @@ describe("end to end", () => {
 			});
 
 			it("keeps the warning on stderr without --notify", () => {
-				// Unpinned, so the trial reader resolves the path and warns.
 				const r = quietDay('{"capacityLadderPath": "../ladder.md"}', {
 					notify: false,
 					pinLadderFile: false,
@@ -521,9 +481,6 @@ describe("end to end", () => {
 });
 
 describe("gate 2 — the trial reader (mantahostels#2849)", () => {
-	/* The declaration as the ladder carries it, with `over` replacing lines. The
-	 * account is the fixture's own `uuid-<dir>` spelling, which is what the
-	 * exclusion matches on. */
 	const declare = (over: Record<string, string | null> = {}) => {
 		const lines: Record<string, string> = {
 			seat: "- **seat:** `.claude3`",
@@ -561,14 +518,11 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 				...seatEnv(home),
 				WFC_SEAT_HISTORY: path.join(home, "gate2.jsonl"),
 				WFC_NOW: new Date(NOW).toISOString(),
-				// The host root is `home`, never the running repo, whose own
-				// workflow-core.json would decide what a missing ladder means.
 				CLAUDE_PROJECT_DIR: home,
 				...(ladderPath ? { WFC_LADDER: ladderPath } : {}),
 			},
 		});
 
-	/** Seat 3 frozen at the figure the declaration records. */
 	const disabledSeat3 = () =>
 		seat(".claude3", { sevenDay: 62, resetsAt: "2026-09-20T21:00:00Z" });
 
@@ -638,8 +592,6 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 	});
 
 	it("suppresses the ordinary notice even where the three-seat trigger would fire", () => {
-		/* Seat 3 disabled at 100% lets both reads fire at once; the ceiling
-		 * re-decision stays suppressed (mantahostels#2845). */
 		seat(".claude", { sevenDay: 100, resetsAt: FAR });
 		seat(".claude2", { sevenDay: 100, resetsAt: FAR });
 		seat(".claude3", { sevenDay: 100, resetsAt: FAR });
@@ -655,7 +607,6 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 	});
 
 	it("says a remaining seat is unread rather than holding the fire in silence", () => {
-		// An unreadable live seat holds the trial fire (mantahostels#1742), but never silently (mantahostels#2835).
 		seat(".claude", { sevenDay: 100, resetsAt: FAR });
 		fs.mkdirSync(path.join(home, ".claude2"), { recursive: true });
 		fs.writeFileSync(path.join(home, ".claude2", ".claude.json"), "{}");
@@ -672,7 +623,6 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 		const r = run(declare());
 		expect(r.stdout).toMatch(/TRIAL DECLARED, NOT HONOURED/);
 		expect(r.stdout).toMatch(/not among the 2 seat\(s\) read/);
-		// A SKIP would lose the upward trigger, which is this collector's job.
 		expect(r.stdout).toMatch(/ALL SEATS EXHAUSTED/);
 		expect(r.status).toBe(0);
 	});
@@ -680,8 +630,6 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 	it("runs the ordinary trigger loudly where the declaration is malformed", () => {
 		seat(".claude", { sevenDay: 100, resetsAt: FAR });
 		seat(".claude2", { sevenDay: 100, resetsAt: FAR });
-		/* All three exhausted, so the ORDINARY trigger genuinely has something to
-		 * fire on — which is what the fallback has to keep. */
 		seat(".claude3", { sevenDay: 100, resetsAt: FAR });
 		const r = run(
 			declare({
@@ -694,10 +642,6 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 	});
 
 	it("runs the ordinary trigger loudly where the ladder itself cannot be read (mantahostels#2871)", () => {
-		/* A missing/unreadable ladder must not read as "no trial declared" — that
-		 * would sail past this loud branch on a fortnight that cannot be
-		 * replayed. `declare()` is never called, so `WFC_LADDER` names a file
-		 * that was never written. */
 		hostConfig('{"capacityLadder": true}');
 		seat(".claude", { sevenDay: 100, resetsAt: FAR });
 		seat(".claude2", { sevenDay: 100, resetsAt: FAR });
@@ -738,7 +682,6 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 			}),
 		);
 		expect(r.stdout).toMatch(/GATE 2 TRIAL PENDING/);
-		// Nothing is suppressed before the window opens.
 		expect(r.stdout).toMatch(/ALL SEATS EXHAUSTED/);
 	});
 
@@ -773,7 +716,6 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 				},
 			],
 		});
-		/* A window that has closed by the fixture's NOW. */
 		const closed = () =>
 			declare({
 				basis:
@@ -855,7 +797,6 @@ describe("weekly_scoped — the tier-drop notice (#298, #304)", () => {
 			resetsAt: FAR,
 			scoped: [{ model: "Fable", percent: 100, resetsAt: FAR }],
 		});
-		// .claude2 still has headroom on Fable.
 		expect(scopedVerdict(readSeats(NOW, seatDirs(home))).fired).toBe(false);
 		seat(".claude2", {
 			sevenDay: 11,
@@ -899,7 +840,6 @@ describe("weekly_scoped — the tier-drop notice (#298, #304)", () => {
 			resetsAt: FAR,
 			scoped: [{ model: "Fable", percent: 100, resetsAt: FAR }],
 		});
-		// .claude2 carries no weekly_scoped bar for any model.
 		seat(".claude2", { sevenDay: 50, resetsAt: FAR });
 		expect(scopedVerdict(readSeats(NOW, seatDirs(home))).fired).toBe(false);
 	});
@@ -965,7 +905,6 @@ describe("weekly_scoped — the tier-drop notice (#298, #304)", () => {
 				},
 			});
 
-		/** No trial declared, so `buildCannotHonourNotice` stays out of these fixtures. */
 		const emptyLadder = () => {
 			const p = path.join(home, "empty-ladder.md");
 			fs.writeFileSync(p, "# Capacity procurement ladder\n");

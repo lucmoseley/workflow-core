@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-hook-escape core of guard-dispatch.js refuses an agent's own
- * spelling of a git-hook escape (#916). These are its boundary cases (§X11),
- * the dispatcher entry run on it alone: the payload on stdin, the real rule
- * store and the fail-open log, end to end. Which command earns which verdict
- * is lib/hook-escape.test.ts's; the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#2801, #3225).
- *
- * The command judged is never run: the guard is handed a payload against a
- * throwaway repo, and the deny is checked against the rule fragment it
- * splices rather than a second copy of its text. Loosen it and an agent can
- * stand a `.husky/pre-commit` gate down for itself on its own say-so.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -33,8 +20,6 @@ const { readRuleText } = require("./lib/rule-text") as {
 let dir: string;
 let config: string;
 
-/** The hook output for `command`, or null; exit 0 and a quiet stderr
- * asserted on every call. */
 const emission = (command: string, env: NodeJS.ProcessEnv = {}) =>
 	dispatchCoreOutput(CORE, buildBashPayload(command, "test"), {
 		project: dir,
@@ -93,8 +78,6 @@ describe("a refusal whose rule it cannot read still refuses", () => {
 	});
 
 	it("spells the fragment's file at the plugin root in an install", () => {
-		// WFC_SCRIPT_ROOT stands in for an install: a core root with no
-		// package.json.
 		const install = path.join(dir, "install");
 		const rules = path.join(install, "docs", "agents", "rules");
 		fs.mkdirSync(rules, { recursive: true });

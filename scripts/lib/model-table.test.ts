@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * lib/model-table.js translates every model choice through the routing file
- * (#5032): a dispatch, a launch and a plan's settings, per mode. The mechanism
- * is tested here on a fixture routing file whose values are unlike the real
- * ones, passed by WFC_MODEL_ROUTING, so a value edit to the real file breaks
- * nothing here; the real file is held to its shape alone, at the end. Break
- * it and a dispatch, a launch or a mode switch can run on the wrong model or
- * effort with no test going red.
- *
- * The fixture's routed-away model is `sonnet`: standard mode moves it, and
- * burn mode runs on it.
- *
- * The hook's shell half is tested in ../guard-dispatch-rewrite.test.ts,
- * the launcher's in ../dispatch-sessions-launch.test.ts, the toggle's in
- * ../burn-mode.test.ts. Here the table's functions are called in process, and
- * its CLI run as a program, since the shell halves read it through that CLI.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -56,13 +39,11 @@ const cli = (args: string[], routing = FIXTURE) =>
 		env: { ...process.env, WFC_MODEL_ROUTING: routing },
 	});
 
-/** The model and effort an Agent call is dispatched on. */
 const dispatched = (call: Record<string, unknown>, burn: boolean) => {
 	const out = remapModel(call, burn)?.input ?? call;
 	return `${out.model ?? ""}${out.effort ? ` · ${out.effort}` : ""}`;
 };
 
-/** The launch spelling the CLI's `launch` mode prints for `model`. */
 const launched = (model: string, burn: boolean) => {
 	const r = cli(["launch", model, ...(burn ? ["--burn"] : [])]);
 	expect(r.status, r.stderr).toBe(0);

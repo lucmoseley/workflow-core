@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The shared gh fake's contract (§G7, #2207, #2781): each case runs one gh
- * call against the real binary, the WFC_GH stub and the in-process fake, all
- * fed from the fixture the case names, and asserts they give the same verdict
- * from lib/gh.js's own readers and the same JSON shape. The logged-out case
- * also runs it through serveGhStub's server (#3158). Values are never
- * compared: the fixtures are synthetic and the real tracker's data stays out
- * of them. Loosened, every suite stubbing gh stays green while production
- * misreads what a new gh release prints (#2220).
- *
- * Red after a gh upgrade or a GitHub API change (#4990): re-run the case's
- * call by hand, copy what changed into its fixture. A landed write's two
- * recordings go red on no upgrade: re-record them by their command below.
- *
- * Its run cost: the live cases skip under CI, so CI's record times skips and
- * understates a logged-in run.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -153,8 +136,6 @@ const realGh = (process.env.PATH ?? "")
 
 type Shape = string | Shape[] | { [key: string]: Shape };
 
-/** A JSON value's keys and types, its values dropped; an array by its first
- *  element. Text that is not JSON is `text`, nothing at all `empty`. */
 function shapeOf(out: string): Shape {
 	if (!out.trim()) return "empty";
 	let value: unknown;
@@ -177,7 +158,6 @@ function shapeOf(out: string): Shape {
 	return of(value);
 }
 
-/** One call's verdict as lib/gh.js reads it, and the shape of what it printed. */
 async function observe(call: (args: string[]) => string, args: string[]) {
 	const { parseGhFailureReason } = await import(LIB);
 	try {
@@ -193,7 +173,6 @@ async function observe(call: (args: string[]) => string, args: string[]) {
 	}
 }
 
-/** The same call through lib/gh.js with WFC_GH pointing at `bin`. */
 async function throughSeam(bin: string, args: string[]) {
 	const { gh } = await import(LIB);
 	vi.stubEnv("WFC_GH", bin);
@@ -206,8 +185,6 @@ const stubbed = (fixture: string) =>
 	stubGhScript(path.join(dir, path.basename(fixture)), ghFakeScript(fixture))
 		.gh;
 
-/** The same call through lib/gh.js against serveGhStub's server answering
- *  `fixture`, reached through its bash client. */
 async function throughServed(fixture: string, args: string[]) {
 	const server = await serveGhStub(ghAnswerHandler(fixture));
 	try {
@@ -220,19 +197,6 @@ async function throughServed(fixture: string, args: string[]) {
 	}
 }
 
-/*
- * #2220's case, and the one that runs wherever gh is installed: with no token
- * and an empty config dir, gh refuses before opening any socket. Deleting
- * GH_HOST is part of that: set, gh dials the host before it refuses. Its CI
- * markers go too: set, gh swaps that stderr for an automation hint. Its stderr
- * is compared too, being gh's own text rather than tracker data, so a
- * rewording that gh.js still happens to read as unreachable turns it red.
- * After a gh upgrade, repeat `strace -f -e trace=connect` over the call to
- * confirm it still opens no socket.
- */
-// Residual: where no gh is installed this case skips, and the stubs go unchecked.
-// The served stub is held on the logged-out answer alone, whose stdout is
-// empty; gh-stub-server.test.ts holds its stdout round trip.
 describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 	const loggedOut = () => {
 		for (const v of [
@@ -265,8 +229,6 @@ describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 		expect(await observe(ghFake(LOGGED_OUT), args)).toEqual(real);
 	});
 
-	/* init-adopter.js's tracker step (#716): the failure init-adopter.test.ts
-	 * serves its set-default and issue list is this answer. */
 	it.for([
 		["repo", "set-default", "acme/widget"],
 		[
@@ -294,8 +256,6 @@ describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 		},
 	);
 
-	/* gh parses its flags before it looks for a login. Verdict and shape only:
-	 * the usage text below the first line changes with every flag gh adds. */
 	it("an unknown flag answers alike from the real gh, the stub and the in-process fake", async () => {
 		loggedOut();
 		const flagged = [...args, "--slrup"];
@@ -310,19 +270,13 @@ describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 	});
 });
 
-/*
- * Read-only calls against this repo's own tracker, run where the real gh is
- * logged in (#2207). A failure's stderr carries the tracker's own words, so
- * they compare verdict and shape only.
- */
-// Residual: off the founder's machine these skip, and their fixtures go unchecked.
 function liveSkipReason(): string | undefined {
 	if (!realGh) return "no gh on PATH";
 	if (process.env.CI)
 		return "CI: the live gh cases run on the founder's machine only";
 	const { status } = spawnSync(realGh, ["auth", "status"], {
 		stdio: "ignore",
-		// A guess: it answered in 0.5 s here, and a hang should skip, not stall.
+		// measured 0.5 s, guess margin, #2781
 		timeout: 30_000,
 	});
 	return status === 0 ? undefined : "gh auth status fails: gh is not logged in";
@@ -355,9 +309,6 @@ describe("live: read-only calls", () => {
 		{
 			what: "an issue as the close guard views it",
 			fixture: ISSUE_VIEW,
-			// #948: closed, commented and labelled, with a parent and sub-issues.
-			// Residual: a reaction on its first comment, or its parent unlinked,
-			// turns this red with no gh upgrade; re-record from the same call.
 			args: [
 				"issue",
 				"view",
@@ -390,7 +341,6 @@ describe("live: read-only calls", () => {
 		{
 			what: "a container's sub-issues page",
 			fixture: SUB_ISSUES,
-			// #2260 (a closed spec): closed children, so the page stays put.
 			args: [
 				"api",
 				"repos/{owner}/{repo}/issues/2260/sub_issues",
@@ -408,10 +358,6 @@ describe("live: read-only calls", () => {
 				"--slurp",
 			],
 		},
-		/* The REST reads whose answers the stubs build through
-		 * RECORDED_SHAPES (#2895, #3133). #948 (a closed spec, with a parent) is the
-		 * oldest closed issue carrying its three labels, so it stays the first
-		 * row shapeOf reads; #2331 has closed blockers. */
 		{
 			what: "an issue-list page",
 			fixture: ISSUES_PAGE,
@@ -455,7 +401,6 @@ describe("live: read-only calls", () => {
 		{
 			what: "an issue's latest-comment page, as check-issue-labels reads it",
 			fixture: COMMENTS_PAGE,
-			// Page 1 at one a page is #948's oldest comment, so it stays put.
 			args: [
 				"api",
 				"repos/{owner}/{repo}/issues/948/comments?per_page=1&page=1",
@@ -466,7 +411,6 @@ describe("live: read-only calls", () => {
 		{
 			what: "main's tip commit, as the outcome review reads it",
 			fixture: COMMITS_PAGE,
-			// The tracker's second commit alone, with a parent; history stays put.
 			args: [
 				"api",
 				"repos/{owner}/{repo}/commits?sha=main&since=2026-06-25T01:00:00Z&until=2026-06-25T01:27:20Z&per_page=1",
@@ -475,7 +419,6 @@ describe("live: read-only calls", () => {
 		{
 			what: "a parentless issue's parent",
 			fixture: PARENT_NOT_FOUND,
-			// #1 (a closed ticket) has no parent.
 			args: [
 				"api",
 				"repos/{owner}/{repo}/issues/1/parent",
@@ -522,15 +465,11 @@ describe("live: read-only calls", () => {
 		{
 			what: "a run's jobs, as lib/actions-tester.js's jobsOf reads them",
 			fixture: RUN_JOBS,
-			// A failed scheduled-checks run of 22 Oct 2026, whose jobs no longer
-			// move. Residual: a run GitHub deletes turns this red.
 			args: ["run", "view", "39747307904", "--json", "jobs"],
 		},
 		{
 			what: "a check-runs read, which the founder's fine-grained token is refused",
 			fixture: CHECKS_FORBIDDEN,
-			// The root commit. Residual: a token granted checks:read answers 200
-			// and turns this red; there the 403 stays recorded, not live.
 			args: [
 				"api",
 				"repos/{owner}/{repo}/commits/f46bfeab4aff66c57d6634b2f62fbbeaff833e11/check-runs",
@@ -549,7 +488,6 @@ describe("live: read-only calls", () => {
 		{
 			what: "an issue listing with every field a stub's rows carry",
 			fixture: ISSUE_LIST_ROWS,
-			// #948 again: the oldest closed issue with these labels, and commented.
 			args: [
 				"issue",
 				"list",
@@ -563,7 +501,6 @@ describe("live: read-only calls", () => {
 				"number,title,state,createdAt,closedAt,url,body,labels,comments",
 			],
 		},
-		/* Writes that write nothing: the target does not exist. */
 		{
 			what: "a create on a missing repository",
 			fixture: ISSUE_CREATE_NO_REPO,
@@ -600,15 +537,6 @@ describe("live: read-only calls", () => {
 	);
 });
 
-/*
- * The computed answers (#2873): each fake builds its answer from the call's
- * own arguments, so each case first records the call production makes,
- * through the fake, then sends that call to the real gh. The fake writes its
- * stderr itself, so these compare stderr too: gh prints GraphQL's own
- * messages, which name only the numbers and repository asked. #2331 (a
- * closed ticket) has closed blockers and #2327 is closed, so neither answer
- * moves; 999999999 resolves to nothing.
- */
 describe("live: computed answers", () => {
 	const answerGraphql = ghComputed<
 		(
@@ -619,7 +547,6 @@ describe("live: computed answers", () => {
 		) => GhAnswer
 	>(GRAPHQL_FAKE, "answerGraphql");
 
-	/** A WFC_GH stub serving `call` and logging each argv to `log`. */
 	const computedStub = (source: string, call: string, log: string) =>
 		stubGhScript(
 			fs.mkdtempSync(path.join(dir, "computed-")),
@@ -627,7 +554,6 @@ describe("live: computed answers", () => {
 		).gh;
 
 	const noRepo = "wfc-no-such-repo-999999999";
-	/** This repo's tracker as `owner/name`, read once from the live gh. */
 	let tracker: string | undefined;
 	const readTracker = () => {
 		tracker ??= spawnSync(
@@ -727,7 +653,6 @@ describe("live: computed answers", () => {
 				}
 			: null;
 
-	/* Both callers send lib/link-batch.js's one query shape. */
 	it.for([
 		{
 			caller: "lib/blocked-by-batch.js",
@@ -780,7 +705,6 @@ describe("live: computed answers", () => {
 		},
 	);
 
-	/* #2331's comments fit one page, so the answer's shape holds. */
 	it("lib/basis-cited-read.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
 		skip,
 	}) => {
@@ -822,8 +746,6 @@ describe("live: computed answers", () => {
 		);
 	});
 
-	/* Production's own flags, narrowed to the issue-list page's rows so #948
-	 * stays first and the read stays a few pages (#3833). */
 	it("lib/gh.js's issues-since read answers alike from the real gh, the stub and the in-process fake", async ({
 		skip,
 	}) => {
@@ -862,9 +784,6 @@ describe("live: computed answers", () => {
 		);
 	});
 
-	/* lib/idle-efforts.js's QUERY, cut to closed issues with one label and oldest
-	 * first: #9 (a closed ticket) has labels, blockers and sub-issues, so every
-	 * list in the answer's first row holds a row, and it stays first. */
 	it("lib/idle-efforts.js's read answers alike from the real gh, the stub and the in-process fake", async ({
 		skip,
 	}) => {
@@ -898,8 +817,6 @@ describe("live: computed answers", () => {
 		);
 	});
 
-	/* GRAPHQL_NO_REPO is static: verdict and shape only, its repository name
-	 * being synthetic. */
 	it("lib/link-batch.js's batched read of a missing repository answers alike from the real gh, the stub and the in-process fake", async ({
 		skip,
 	}) => {
@@ -934,14 +851,6 @@ describe("live: computed answers", () => {
 	});
 });
 
-/*
- * link-sub-issue.sh is run for real against a recording stub, so the `--jq`
- * reads sent to the live gh are the ones the writer sends, and a read
- * LINK_READS lacks turns this red. Its POST stays in the stub, and its loop
- * check's GraphQL walk, which the stub refuses, reads as partial. #2260 (a closed spec) has closed
- * children, of which #2327 is one, so neither answer moves (#3652); the
- * stub names the real repo, so every read after it reaches a real issue.
- */
 describe("live: link-sub-issue.sh's reads", () => {
 	it("each answers alike from the real gh, the stub and both fakes", async ({
 		skip,
@@ -983,11 +892,9 @@ exit 1
 			.split("\n")
 			.filter((call) => call.includes(" --jq "))
 			.map((call) => call.split(" "));
-		// A closed parent's child has its state read too, so each shape is once.
 		const filters = [...new Set(reads.map((args) => args.at(-1) as string))];
 		expect(filters).toEqual(Object.values(LINK_READS).map((r) => r.jq));
 		expect(filters.sort()).toEqual(Object.keys(LINK_FIXTURES).sort());
-		// The script's own reader branches on these exact words; shape alone is "text".
 		expect(
 			spawnSync(
 				realGh as string,
@@ -1013,10 +920,6 @@ exit 1
 	});
 });
 
-/*
- * RECORDED_SHAPES holds a stub's own JSON answers to the fixtures the live
- * cases above hold to the real gh (#2895).
- */
 describe("offline: the recorded shapes", () => {
 	it("builds from the fixture each live case holds", () => {
 		for (const fixture of [
@@ -1040,13 +943,6 @@ describe("offline: the recorded shapes", () => {
 			);
 	});
 
-	/*
-	 * A write that lands cannot be a live case (§G7 (2)), so these two are kept
-	 * as recorded answers. Re-record on the tracker,
-	 * then close what they made as not planned:
-	 *   echo x | gh issue create --title x --label takes:triage --body-file - >out 2>err
-	 *   echo x | gh issue comment <n> --body-file - >out 2>err
-	 */
 	it("a landed write's recording prints its URL and nothing else", () => {
 		const created = readGhAnswer(ISSUE_CREATE);
 		expect(created).toMatchObject({ status: 0, stderr: "" });

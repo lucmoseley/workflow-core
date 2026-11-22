@@ -1,27 +1,3 @@
-/*
- * Pins when the liveness mod names a subagent stalled and clears it, that it
- * passes every step through untouched, what its `/liveness` pane shows, and
- * its floor, its two loads and the repo's switch (#865, #866, #944).
- *
- * The mod's own seam (#863 §Testing Decisions, seam 1), run by
- * `claude plugin test .claude/skills/wfc-liveness`. The ordinary vitest suite
- * never collects it: `claude-code/testing` exists only under that runner.
- * The hooks `world()` registers stand for the engine.
- *
- * THE KIT CANNOT RELOAD A MODULE (2.1.291), so a reload is stood in for by a
- * second `session.start`, which a reload raises and which restores the
- * records from `$.state`; module variables are not reset as a reload would.
- *
- * `test`, not §X1's `it`: the kit exports no `it`. Each `as never` hands the
- * kit an event or answer the test builds partly, where the kit's own types
- * want every field an engine would fill.
- *
- * .husky/pre-push refuses a push touching the mod on a failure here
- * (scripts/run-mod-tests.js, #857), and ci.yml's `Mod tests` step reddens the
- * sweep on one (#1854); nothing else runs these tests. Loosen a case and a mod that misses a stall, cries one falsely or alters a step's
- * stream reaches every adopter loading the plugin.
- */
-
 import type { AgentInfo, AgentStatus, On, TurnStepChunk } from "claude-code";
 import type { Engine, Mounted, Plugin } from "claude-code/testing";
 import { describe, expect, mock, test } from "claude-code/testing";
@@ -34,10 +10,8 @@ const MINUTE = 60_000;
 interface World {
 	version?: string;
 	listFails?: number[];
-	/** The repo's `.claude/workflow-core.json`; absent when not given. */
 	config?: string;
 	isConfigUnreadable?: boolean;
-	/** Whether the repo carries the mod's own `.claude/skills/wfc-liveness/`. */
 	hasLocalCopy?: boolean;
 }
 
@@ -50,13 +24,10 @@ function world(on: On, w: World = {}) {
 		statuses: [] as (string | undefined)[],
 		toasts: [] as string[],
 		logs: [] as string[],
-		/** The status line as last written; undefined when cleared or never. */
 		status: () => seen.statuses.at(-1),
 		submits: 0,
 		commands: [] as string[],
-		/** The ids of the panes open now, as `$.ui.panes()` answers. */
 		panes: new Set<string>(),
-		/** Each path whose existence is asked, in order. */
 		exists: [] as string[],
 	};
 	on("fs.exists", (_$, e) => {
@@ -153,8 +124,6 @@ function world(on: On, w: World = {}) {
 	return { clock, seen, list, drop };
 }
 
-/* Which tools each loop's next step calls, and which loops' streams fail;
- * set per test, cleared by `reset`. */
 const TOOLS = new Map<string, string[]>();
 const FAILS = new Set<string>();
 const reset = () => {
@@ -162,9 +131,6 @@ const reset = () => {
 	FAILS.clear();
 };
 
-/* Reads the mod's records for their keys alone, at any `turn.complete`, and
- * logs them: the kit's engine has no `state` noun, and any plugin may read
- * another's value. */
 const RECORD_READER: Plugin = {
 	name: "record-reader",
 	register(on) {
@@ -181,8 +147,6 @@ const RECORD_READER: Plugin = {
 	},
 };
 
-/* The load through the workflow-core plugin, beside the stand-alone load
- * under test (#944). */
 const HOSTED = { plugins: [{ name: "workflow-core", register }] };
 const OFF = JSON.stringify({ mods: { "wfc-liveness": false } });
 
@@ -201,7 +165,6 @@ const start = ($: Kit) =>
 		isInteractive: true,
 	} as never);
 
-/** Runs one model step in `agentId`'s loop (main when absent), read whole. */
 const step = async ($: Kit, agentId?: string) => {
 	const stream = $.turn.step({
 		turnId: "t-1",
@@ -210,8 +173,6 @@ const step = async ($: Kit, agentId?: string) => {
 		messageCount: 1,
 		...(agentId === undefined ? {} : { agentId }),
 	} as never);
-	/* Read by hand: under the kit (2.1.291) `stream.result` resolves
-	 * undefined after a `for await`, the mod in the chain or not. */
 	const chunks: TurnStepChunk[] = [];
 	for (;;) {
 		const read = await stream.next();
@@ -252,7 +213,6 @@ describe("wfc-liveness, the status line (#865)", () => {
 		const writes = seen.statuses.length;
 		drop("a-1");
 		await clock.advance(TICK * 3);
-		// Written only on a change.
 		expect(seen.statuses.length).toBe(writes);
 	});
 
@@ -381,7 +341,6 @@ describe("wfc-liveness, the status line (#865)", () => {
 		await clock.advance(2 * MINUTE);
 		expect(seen.status()).toBeUndefined();
 		list("a-1", "running", "early stepper");
-		// Clocked from its step, 3 minutes before the list named it.
 		await clock.advance(3 * MINUTE);
 		expect(seen.status()).toBe(
 			"1 subagent running; stalled: early stepper (5m quiet, running Read)",
@@ -393,7 +352,6 @@ describe("wfc-liveness, the status line (#865)", () => {
 		await start($);
 		await step($, "fork-1");
 		await clock.advance(30 * MINUTE);
-		// The first tick clears whatever a previous load left on the line.
 		expect(seen.statuses.filter((text) => text !== undefined)).toEqual([]);
 		expect(seen.toasts).toEqual([]);
 		expect(await rowTexts(await mountPane($))).toEqual([]);
@@ -436,10 +394,7 @@ describe("wfc-liveness, the status line (#865)", () => {
 		await start($);
 		list("a-1", "running", "broken");
 		FAILS.add("a-1");
-		/* The kit skips a test hook that throws, as a session skips a failing
-		 * hook, so what reaches the caller is its bottom refusing the step. */
 		await expect(step($, "a-1")).rejects.toThrow("turn.step");
-		// The step ended: not left "model answering".
 		await clock.advance(5 * MINUTE);
 		expect(seen.status()).toContain("(5m quiet, between steps)");
 	});
@@ -497,7 +452,6 @@ describe("wfc-liveness, the status line (#865)", () => {
 	});
 });
 
-/* What a surface hands the pane's `ui.render` hook. */
 const PANE_PROPS = {
 	title: "Subagents",
 	isFocused: false,
@@ -509,7 +463,6 @@ const PANE_PROPS = {
 
 const SURFACES = ["terminal", "desktop"] as const;
 
-/** The founder typing `/liveness` at a fullscreen terminal. */
 const runLiveness = ($: Engine) =>
 	$.command.run({
 		command: "liveness",
@@ -530,7 +483,6 @@ const mountPane = (
 		props: PANE_PROPS,
 	});
 
-/** Each agent row's shown text, in the pane's order. */
 const rowTexts = async (ui: { findAll: Mounted["findAll"] }) =>
 	(await ui.findAll({ type: "Box" }))
 		.filter((box) => box.key?.startsWith("agent:"))
@@ -618,8 +570,6 @@ describe("wfc-liveness, the pane (#866)", () => {
 
 	test("a record an older load saved, with no step count, counts on from a reload", async ($, on) => {
 		const { clock, list } = world(on);
-		/* The host's store, beneath the mod, holding a record as #865's
-		 * module saved it: no `steps`, no `phaseSince`. */
 		const store = new Map<string, unknown>([
 			[
 				"records",

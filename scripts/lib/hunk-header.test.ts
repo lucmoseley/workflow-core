@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * hunk-header.test.ts — a hunk header: its new side, which the mutation
- * hold turns into Stryker's line ranges and the code-standards checker into
- * a citation's changed lines (#2379), and both sides read and rewritten, as
- * commit-paths renumbers a cut patch's hunks (#2486).
- *
- * In-process over a pure parser: no repo and no git, the header lines being
- * the whole input. A break lets the mutation hold mutate lines the commit did
- * not change, the checker attribute a citation's change to the wrong line, or
- * a --patch commit apply a hunk at the wrong line.
- */
-
 import { describe, expect, it } from "vitest";
 import { formatHeader, parseHeader, parseNewSide } from "./hunk-header.js";
 

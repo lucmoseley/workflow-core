@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-held-ticket.js — Stop hook. Refuses a turn ending `result:` or with no
- * status marker while the session holds the arbiter claim on an unfinished
- * build unit: an open, unparked, ungated `kind:ticket` with an unticked,
- * unwaived criterion (lib/held-unit.js).
- */
 
 const { logError, readClaimedIssues } = require("./lib/arbiter-store");
 const {
@@ -28,8 +22,6 @@ const {
 const HELD_TICKET_PREFIX = ".held-ticket-nagged-";
 
 /**
- * Whether the tripwire's hand-off governs: the reading is at or past it, or
- * its one block is spent. Null where the transcript will not read.
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
  * @returns {boolean|null}
@@ -80,7 +72,6 @@ function judge({ sessionId: sid, payload }) {
 	if (name !== "" && name !== "result:") return;
 	if (countCompactions(sid) >= COMPACTION_BACKSTOP) return;
 	if (isPastTripwire(payload, sid) !== false) return;
-	/* A session claims the one issue it works, so one read. */
 	const deadline = Date.now() + stopGuard.READ_BUDGET_MS;
 	let units;
 	try {
@@ -90,7 +81,6 @@ function judge({ sessionId: sid, payload }) {
 			return isUnfinishedUnitIn(tracker, n, { timeout });
 		});
 	} catch (err) {
-		/* Fails open: a unit read short may be finished. */
 		logError("guard-held-ticket read", err);
 		return;
 	}

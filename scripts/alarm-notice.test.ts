@@ -1,12 +1,5 @@
 // @vitest-environment node
 
-/*
- * scripts/alarm-notice.js (#4939), the program: its config read, its
- * environment and its fetch adapter, against a local server standing in for
- * GitHub's API, in a throwaway checkout holding its own config. The judging
- * is lib/alarm-notice.test.ts's.
- */
-
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";

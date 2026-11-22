@@ -167,17 +167,9 @@ const { isUnder, relativeUnder } = require("./is-under.js");
 
 const HOST_SETTINGS = ".claude/settings.json";
 
-/* The value-taking flags of `git commit`, so a message or an author never
- * reads as a pathspec word. NOT shell-words.js's gitValueFlags("commit"),
- * which guard-commit-form judges by: `--trailer` is missing here and
- * `-S`/`--gpg-sign` is added. */
 const COMMIT_VALUE_FLAGS =
 	"-m --message -F --file -c --reedit-message -C --reuse-message --fixup --squash --author --date --cleanup -t --template -S --gpg-sign --pathspec-from-file";
 
-/* The four surfaces checker-registrations.test.ts accepts as a caller,
- * mirrored exactly — a wider list here would clear a checker the test still
- * fails. Not lib/registrations.js's CALLER_HOOKS: the core's test reads
- * commit-msg too. */
 const CALLER_HOOKS = [
 	"pre-commit",
 	"prepare-commit-msg",
@@ -191,41 +183,33 @@ const WHY =
 	"Why this is a refusal and not a warning: a repo-wide registry invariant is false for EVERY session while the split is open, not just for yours, so no session can obtain a whole-suite certificate at any price until it closes (mantahostels#2664, mantahostels#2671).";
 
 /**
- * @typedef {object} Repo one commit's reads, repo-root-relative paths, each
- *   null where git or the disk could not tell
- * @property {(spec: string) => string[] | null} lsCached `ls-files --cached`
- *   names under a pathspec, from the repo root
- * @property {(spec: string) => string[] | null} lsOthers untracked, unignored
+ * @typedef {object} Repo
+ * @property {(spec: string) => string[] | null} lsCached
+ * @property {(spec: string) => string[] | null} lsOthers
  * @property {(spec: string) => string[] | null} stagedDeletions
- * @property {() => string[] | null} staged the index's whole path list
- * @property {(rel: string) => boolean | null} headNames HEAD's tree names it
+ * @property {() => string[] | null} staged
+ * @property {(rel: string) => boolean | null} headNames
  * @property {(rel: string) => string | null} headShow
  * @property {(rel: string) => boolean | null} indexNames
  * @property {(rel: string) => string | null} indexShow
  * @property {(rel: string) => boolean} exists
  * @property {(rel: string) => boolean} isFile
- * @property {(rel: string) => string | null} read the disk copy; null absent
- *   or unreadable
- * @property {(rel: string) => string[]} list a directory's file names
+ * @property {(rel: string) => string | null} read
+ * @property {(rel: string) => string[]} list
  */
 
 /**
  * @typedef {object} RegistryPorts
  * @property {(dir: string) => { root: string | null, midSequence: boolean }}
- *   place the top level of the tree `dir` is in, null where git cannot say,
- *   and whether a merge, rebase, cherry-pick, revert or am is in progress
+ *   place
  * @property {(tree: string, root: string) => Repo} repo
  * @property {(dir: string, patch: string) => Map<string, string | null> | null}
- *   patchBodies each file a commit-paths.js --patch file touches, absolute,
- *   to its bytes once the patch is applied to HEAD, null where it deletes the
- *   file; null where git cannot apply it
+ *   patchBodies
  * @property {(args: { repo: Repo, root: string, landing: string[],
  *   readLanding: ((rel: string) => string | null) | null }) =>
  *   { broken: NeedleBreak[] } | { failOpen: string }} needleDrift
- *   lib/needle-corpus.js's, `readLanding` the View's
- * @property {() => string | null} pluginNeedles the plugin's own
- *   scripts/guard-fire-needles.json
- * @property {string} pluginScripts the plugin's scripts/ directory, resolved
+ * @property {() => string | null} pluginNeedles
+ * @property {string} pluginScripts
  * @typedef {{ arriving: boolean, key: string, id: string, text: string }}
  *   NeedleBreak
  * @typedef {import("./kit-context.js").KitContext & RegistryPorts} RegistryContext
@@ -268,17 +252,13 @@ function decide(command, ctx) {
 	return { deny: ctx.corePaths(`${refusal.replace(/\n\n$/, "")}\n\n${WHY}`) };
 }
 
-/**
- * A `git commit`'s pathspec words, raw, and whether it carries one or `-a`.
- * @param {string[]} args
- */
+/** @param {string[]} args */
 function readCommit(args) {
 	let hasPathspec = false;
 	let hasAll = false;
 	/** @type {string[]} */
 	const words = [];
 	scanFlags(COMMIT_VALUE_FLAGS, args, (kind, flag, value) => {
-		/* A file of paths is a pathspec this guard cannot read — see LIMITS. */
 		if (
 			(kind === "opt" || kind === "dangling") &&
 			flag === "--pathspec-from-file"
@@ -296,10 +276,6 @@ function readCommit(args) {
 }
 
 /**
- * A `node …/commit-paths.js … -- <paths>` call, the commit form CLAUDE.md
- * requires: it runs no `git` the walk sees, so it is judged as the pathspec
- * commit it makes (#1727). `--tree` commits nothing, and an option
- * commit-paths.js would refuse leaves the call unjudged.
  * @param {string[]} words
  * @param {string} cwd
  * @param {string[]} spans
@@ -314,7 +290,6 @@ function judgeCommitPaths(words, cwd, spans, ctx) {
 }
 
 /**
- * One commit-paths.js call's arguments, as judgeCommitPaths answers.
  * @param {string[]} args
  * @param {string} cwd
  * @param {string[]} spans
@@ -366,21 +341,14 @@ function judgeCommitPathsRun(args, cwd, spans, ctx) {
 
 /**
  * @typedef {object} CommitSpec
- * @property {string[]} words the pathspec words, raw
+ * @property {string[]} words
  * @property {boolean} hasPathspec
- * @property {boolean} hasAll `-a`/`--all`, which stages every tracked file's
- *   working-tree copy on its way in (mantahostels#2734)
- * @property {boolean} literalPaths a commit-paths.js commit: each word is a
- *   literal path, and an untracked file it names lands too, intent-added on
- *   the way in
- * @property {Map<string, string | null>} [patch] a --patch commit's files,
- *   absolute, to the bytes it commits: HEAD's copy with the patch applied,
- *   never the working tree's (#2894)
+ * @property {boolean} hasAll
+ * @property {boolean} literalPaths
+ * @property {Map<string, string | null>} [patch]
  */
 
 /**
- * The refusal paragraphs for one commit running in `dir`; "" where it may
- * land.
  * @param {string} dir
  * @param {CommitSpec} spec
  * @param {RegistryContext} ctx
@@ -388,7 +356,6 @@ function judgeCommitPathsRun(args, cwd, spans, ctx) {
  */
 function judgeCommit(dir, spec, ctx, at) {
 	const { root, midSequence } = ctx.place(dir);
-	/* Every verdict stands down mid-sequence — see LIMITS. */
 	if (midSequence) return "";
 	if (root === null) {
 		ctx.log(
@@ -428,20 +395,14 @@ function judgeCommit(dir, spec, ctx, at) {
 }
 
 /**
- * One landing path's paragraph, if it is a member; a new guard judged is
- * added to `reported`, so the hook-list limb does not name it twice.
  * @param {string} p
  * @param {View} view
- * @param {Set<string>} reported accumulator: each new guard judged is added
+ * @param {Set<string>} reported
  */
 function judgePath(p, view, reported) {
 	const { dir, ctx } = view;
 	const base = p.replace(/^scripts\//, "");
-	/* A member already in HEAD was wired, or was already failing, before this
-	 * commit — so only its REMOVAL is judged (mantahostels#2685). */
 	const inHead = view.repo.headNames(p);
-	/* A break must not read as "new", which is the branch that can REFUSE
-	 * (mantahostels#2702). */
 	if (inHead === null) {
 		ctx.log(
 			`git could not read HEAD's tree for ${p} in ${dir} — that path was left unjudged and the commit allowed unchecked`,
@@ -450,8 +411,6 @@ function judgePath(p, view, reported) {
 	}
 	if (inHead) {
 		const kept = view.landingExists(p);
-		/* Absence is what DENIES on the removal limb, so a break reads as
-		 * still present. */
 		if (kept === null)
 			ctx.log(
 				`git could not read the index entry for ${p} in ${dir} — that path was left unjudged and the commit allowed unchecked`,
@@ -459,8 +418,6 @@ function judgePath(p, view, reported) {
 		if (kept !== false || JS_TEST_FILE.test(p) || !isChecker(p)) return "";
 		return judgeCheckerRemoval(base, view);
 	}
-	/* A JS test file, check-<name>.test.js or guard-<name>.spec.js alike, is
-	 * no member. */
 	if (JS_TEST_FILE.test(p)) return "";
 	if (isChecker(p)) return judgeChecker(base, view);
 	if (!/^scripts\/guard-.*\.(sh|js)$/.test(p)) return "";
@@ -472,8 +429,6 @@ function judgePath(p, view, reported) {
 const isChecker = (p) => /^scripts\/check-.*\.js$/.test(p);
 
 /**
- * What the commit lands, repo-root-relative: the paths a pathspec names, or
- * the whole index for a bare one. Null where the index could not be read.
  * @param {LandingAt} at
  * @returns {string[] | null}
  */
@@ -496,9 +451,6 @@ function landingPaths(at) {
  */
 
 /**
- * The paths a commit lands, and for a --patch commit the bytes of each path
- * the patch alone carries, repo-relative. A whole path named as well lands
- * its disk copy, commit-paths.js adding it after the patch.
  * @param {LandingAt & { root: string }} at
  * @returns {{ landing: string[] | null,
  *   overlay: Map<string, string | null> | null }}
@@ -528,12 +480,7 @@ function landingOf(at) {
 	};
 }
 
-/**
- * @typedef {"index" | "worktree" | "patch"} LandsFrom the copy a commit
- *   lands: the INDEX for a bare commit, the working tree for a pathspec one
- *   and for `-a` (mantahostels#2734), HEAD plus the patch for a --patch one
- *   (#2894)
- */
+/** @typedef {"index" | "worktree" | "patch"} LandsFrom */
 
 /**
  * @param {CommitSpec} spec
@@ -546,7 +493,6 @@ function landsFromOf(spec, overlay) {
 }
 
 /**
- * `repo` with each path in `overlay` read as the bytes the commit takes.
  * @param {Repo} repo
  * @param {Map<string, string | null>} overlay
  * @returns {Repo}
@@ -563,14 +509,11 @@ function patchedRepo(repo, overlay) {
 }
 
 /**
- * The paths one pathspec word lands.
- * @param {string} word raw
+ * @param {string} word
  * @param {LandingAt} at
  * @returns {string[]}
  */
 function wordPaths(word, { dir, spec, repo, ctx, spans }) {
-	/* An unexpanded $VAR or a command substitution is dropped rather than
-	 * guessed at (mantahostels#103 §6). */
 	const lit = literal(word, spans);
 	if (!lit.known || !lit.text) return [];
 	const abs = lit.text.startsWith("/") ? lit.text : `${dir}/${lit.text}`;
@@ -582,8 +525,6 @@ function wordPaths(word, { dir, spec, repo, ctx, spans }) {
 		);
 		return [];
 	}
-	/* commit-paths.js intent-adds an untracked, unignored FILE and refuses a
-	 * directory holding one, so only a file's name is added here. */
 	if (spec.literalPaths && listed.length === 0 && repo.isFile(abs)) {
 		const others = repo.lsOthers(pathspec);
 		if (others === null)
@@ -592,8 +533,6 @@ function wordPaths(word, { dir, spec, repo, ctx, spans }) {
 			);
 		else listed = others;
 	}
-	/* A path already `git rm`d is out of the index, so ls-files never names
-	 * it — while the commit still lands its removal (mantahostels#2685). */
 	const deleted = repo.stagedDeletions(pathspec);
 	if (deleted === null)
 		ctx.log(
@@ -603,22 +542,14 @@ function wordPaths(word, { dir, spec, repo, ctx, spans }) {
 }
 
 /**
- * @typedef {object} Registries the file each registry is judged against in
- *   this commit: the core's own where the tree after it carries one, else
- *   the host's
+ * @typedef {object} Registries
  * @property {string} hookReg
  * @property {string} checkerReg
  * @property {string} needleReg
- * @property {string} regFile the file that registers the repo's hooks: the
- *   core's self-plugin file, else a host's .claude/settings.json
+ * @property {string} regFile
  */
 
 /**
- * The tree AS IT WILL BE AFTER the commit, never the working tree: a wiring
- * line sitting uncommitted in a file this commit does not name is exactly the
- * split being refused. A landing path is read from the copy the commit takes,
- * `landsFrom`, the patch's bytes already overlaid on `repo`; any other path
- * from HEAD.
  * @param {{ dir: string, root: string, repo: Repo, landing: string[],
  *   landsFrom: LandsFrom, ctx: RegistryContext }} at
  */
@@ -632,8 +563,10 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 	const landingExists = (rel) =>
 		bare ? repo.indexNames(rel) : repo.exists(rel);
 
-	/** The landing copy's bytes: null absent, undefined unreadable.
-	 * @param {string} rel @returns {string | null | undefined} */
+	/**
+	 * @param {string} rel
+	 * @returns {string | null | undefined}
+	 */
 	const landingBody = (rel) => {
 		if (bare) {
 			const named = repo.indexNames(rel);
@@ -645,9 +578,6 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 		return repo.read(rel) ?? undefined;
 	};
 
-	/** landingBody as needleDrift reads it: an unreadable copy THROWS, which
-	 * fails the scan open, never reads as dropped (mantahostels#2685). Null
-	 * for a worktree commit, whose disk copy needleDrift reads itself. */
 	const readLanding =
 		landsFrom === "worktree"
 			? null
@@ -660,8 +590,10 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 					return body;
 				};
 
-	/** HEAD's bytes: null absent, undefined unreadable.
-	 * @param {string} rel @returns {string | null | undefined} */
+	/**
+	 * @param {string} rel
+	 * @returns {string | null | undefined}
+	 */
 	const headBody = (rel) => {
 		const named = repo.headNames(rel);
 		if (named === null) return;
@@ -669,14 +601,10 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 		return repo.headShow(rel) ?? undefined;
 	};
 
-	/** The bytes the tree after this commit holds.
-	 * @param {string} rel */
+	/** @param {string} rel */
 	const willBody = (rel) => (inLanding(rel) ? landingBody(rel) : headBody(rel));
 
 	/**
-	 * Will the tree after this commit hold `lit` in `rel`? A break answers
-	 * YES, which allows: on the ADDED limbs that reads as "the wiring is
-	 * there". A git FAILURE is not an absence (mantahostels#2671 review).
 	 * @param {string} rel
 	 * @param {string} lit
 	 */
@@ -708,10 +636,6 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 	};
 
 	/**
-	 * Like willHold, but its UNKNOWN answer is NO: on a limb where holding the
-	 * literal is what DENIES — a stale allowlist entry, a stale needle — a YES
-	 * on an unreadable file refuses, which is the one direction this guard may
-	 * not take (mantahostels#2685).
 	 * @param {string} rel
 	 * @param {string} lit
 	 */
@@ -733,12 +657,7 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 		return repo.headShow(rel)?.includes(lit) ?? false;
 	};
 
-	/**
-	 * Will `rel` exist at all after this commit? One this commit DELETES
-	 * reads as absent (mantahostels#2685). Absence here is what DENIES ("no
-	 * sibling test"), so a break answers YES.
-	 * @param {string} rel
-	 */
+	/** @param {string} rel */
 	const willExist = (rel) => {
 		if (inLanding(rel)) {
 			const kept = landingExists(rel);
@@ -756,8 +675,7 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 		return true;
 	};
 
-	/** Will the repo carry `rel` after this commit? A break reads as carried,
-	 * leaving the fail-open to willHold. @param {string} rel */
+	/** @param {string} rel */
 	const willCarry = (rel) =>
 		(inLanding(rel) ? landingExists(rel) : repo.headNames(rel)) !== false;
 
@@ -765,8 +683,6 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 	let regs = null;
 	const registries = () => {
 		if (regs) return regs;
-		/* Carried before the commit counts too, so a commit deleting it is
-		 * still judged against it. */
 		const regFile =
 			willCarry(SELF_PLUGIN_HOOKS) ||
 			repo.headNames(SELF_PLUGIN_HOOKS) !== false
@@ -786,7 +702,7 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 		return regs;
 	};
 
-	/** @type {HostFacts | null | undefined} undefined unread, null unknown */
+	/** @type {HostFacts | null | undefined} */
 	let host;
 	const readHostFacts = () => {
 		if (host === undefined) host = readHost(willBody, dir, log);
@@ -816,16 +732,12 @@ function commitView({ dir, root, repo, landing, landsFrom, ctx }) {
 /** @typedef {ReturnType<typeof commitView>} View */
 
 /**
- * @typedef {object} HostFacts the host registry after this commit, read by
- *   key as check-registrations.js reads it (#1670)
+ * @typedef {object} HostFacts
  * @property {Set<string>} registeredElsewhere
  * @property {Set<string>} calledElsewhere
- * @property {string[]} ids every hooks row's id
- * @property {Set<string>} events `<event>\x1f<matcher>` per hooks row,
- *   matcher "" for none
- * @property {Map<string, boolean>} pinned each scripts/<file> the
- *   settings.json this commit leaves runs: whether every registration of it is
- *   pinned, by lib/registrations.js's own isPinnedBy
+ * @property {string[]} ids
+ * @property {Set<string>} events
+ * @property {Map<string, boolean>} pinned
  */
 
 /**
@@ -857,8 +769,6 @@ function readHost(willBody, dir, log) {
 	/** @param {unknown} o */
 	const keys = (o) =>
 		o && typeof o === "object" && !Array.isArray(o) ? Object.keys(o) : [];
-	/* A row without a string id is one check-registrations.js reports; it
-	 * pins nothing here. */
 	const rows = /** @type {import("./registrations.js").Row[]} */ (
 		(Array.isArray(j.hooks) ? j.hooks : []).filter(
 			(/** @type {unknown} */ r) =>
@@ -893,9 +803,6 @@ function readHost(willBody, dir, log) {
 const isHost = (rel) => rel.startsWith(".claude/");
 
 /**
- * Does the registry `reg` allowlist `file` after this commit — a host one in
- * registeredElsewhere or calledElsewhere, the core's test file by its quoted
- * name? Unknown reads as yes.
  * @param {View} view
  * @param {string} reg
  * @param {"registeredElsewhere" | "calledElsewhere"} key
@@ -908,12 +815,6 @@ function isAllowlisted(view, reg, key, file) {
 }
 
 /**
- * Does the registry `reg` pin scripts/`file` after this commit? Every row of
- * the core's table spells its id `id: "scripts/…`. A host row: where
- * settings.json runs it, exactly as the checker judges; where nothing runs
- * it the checker asks for no row, and the refusal already says it is not
- * registered, so any row whose id names the file is taken as the one meant.
- * Unknown reads as yes.
  * @param {View} view
  * @param {string} reg
  * @param {string} file
@@ -928,8 +829,6 @@ function isPinned(view, reg, file) {
 }
 
 /**
- * Does the plugin's own needles file key `key`? An unreadable file reads as
- * yes, logged, so a broken plugin copy never refuses a host's core guard.
  * @param {View} view
  * @param {string} key
  */
@@ -945,10 +844,8 @@ function hasCoreNeedle(view, key) {
 }
 
 /**
- * The refusal line for scripts/`file` having no sibling test after this
- * commit, or "".
  * @param {View} view
- * @param {string} file its basename
+ * @param {string} file
  */
 function siblingFault(view, file) {
 	const names = spellSiblingTestsIfUntested(file, (p) => view.willExist(p));
@@ -958,9 +855,8 @@ function siblingFault(view, file) {
 }
 
 /**
- * The sentence saying what asserts a refusal's demands.
  * @param {string} reg
- * @param {string} core the core's tests and their verb
+ * @param {string} core
  */
 function wholeRepo(reg, core) {
 	return isHost(reg)
@@ -968,10 +864,7 @@ function wholeRepo(reg, core) {
 		: `${core} the same over the whole repository, so from this commit until the wiring one every session's full suite goes red on a file it never touched.`;
 }
 
-/**
- * The caller surfaces on disk, the hooks one being the registration file.
- * @param {View} view
- */
+/** @param {View} view */
 function callerSurfaces(view) {
 	const { repo } = view;
 	const out = CALLER_HOOKS.map((h) => `.husky/${h}`).filter((p) =>
@@ -994,15 +887,11 @@ function callerSurfaces(view) {
 }
 
 /**
- * One new scripts/check-*.js.
- * @param {string} file its basename
+ * @param {string} file
  * @param {View} view
  */
 function judgeChecker(file, view) {
 	const { checkerReg, regFile } = view.registries();
-	/* The allowlist escape, taken first: with it, the checker needs no caller.
-	 * Else the disk finds the candidates and the tree after the commit judges
-	 * them — see LIMITS. */
 	const wired =
 		isAllowlisted(view, checkerReg, "calledElsewhere", file) ||
 		callerSurfaces(view).some((cand) => {
@@ -1035,8 +924,7 @@ Name the wiring in the same commit — the hook, workflow or script that calls i
 }
 
 /**
- * One new scripts/guard-*.{sh,js}.
- * @param {string} file its basename
+ * @param {string} file
  * @param {View} view
  */
 function judgeGuard(file, view) {
@@ -1047,8 +935,6 @@ function judgeGuard(file, view) {
 		? `a \`registeredElsewhere\` entry to ${hookReg}, keyed by the file name with its reason,`
 		: "a commented REGISTERED_ELSEWHERE entry to scripts/hook-registrations.test.ts";
 	let missing = "";
-	/* The allowlist escape covers the registration limb alone: a guard
-	 * another script invokes still needs its sibling test. */
 	if (!isAllowlisted(view, hookReg, "registeredElsewhere", file)) {
 		if (!view.willHold(regFile, `scripts/${file}`))
 			missing += `  - not registered: ${regFile} does not run it after this commit\n`;
@@ -1070,16 +956,12 @@ Land the registration, the ${pin}, the needle entry and the sibling test in the 
 }
 
 /**
- * One scripts/check-*.js this commit DELETES.
- * @param {string} file its basename
+ * @param {string} file
  * @param {View} view
  */
 function judgeCheckerRemoval(file, view) {
 	const { checkerReg } = view.registries();
 	const host = isHost(checkerReg);
-	/* The object-key spelling, not a bare quoted name: a prose mention of the
-	 * checker in that file must not read as an allowlist entry
-	 * (mantahostels#2685). Unknown reads as gone. */
 	const stays = host
 		? (view.readHostFacts()?.calledElsewhere.has(file) ?? false)
 		: view.willSurelyHold(checkerReg, `"${file}":`);
@@ -1100,9 +982,6 @@ Drop that entry in the SAME commit as the deletion.
 }
 
 /**
- * The registrations a settings file holds, keyed by scripts/lib/guard-fires.js
- * so this guard and count-guard-fires.test.ts key a registration identically
- * (mantahostels#2685); `{ error }` where it does not parse.
  * @param {string} text
  * @returns {{ event: string, matcher: string, key: string }[] | { error: string }}
  */
@@ -1121,9 +1000,6 @@ function registrationsIn(text) {
 /** @typedef {{ event: string, matcher: string, key: string }} Registration */
 
 /**
- * A registration file whose hook list moved: each (event, matcher, key)
- * triple newly run, no longer run, or moved. `reported` holds the guards
- * judgeGuard already named, so a new guard is not named twice.
  * @param {Set<string>} reported
  * @param {View} view
  */
@@ -1140,8 +1016,6 @@ function judgeHookList(reported, view) {
 	const judged = (/** @type {Registration} */ r) =>
 		r.key !== "" && !reported.has(r.key.split(" ")[0] ?? "");
 	const changed = now.filter((r) => judged(r) && !beforeTriples.has(triple(r)));
-	/* A script registered on two events reaches a limb twice; the reader
-	 * wants it once. */
 	const added = new Set(
 		changed
 			.filter((r) => !beforeKeys.has(r.key) && !isCounted(r, view))
@@ -1155,8 +1029,6 @@ function judgeHookList(reported, view) {
 					`  - scripts/${r.key}, now on ${r.event} with matcher ${r.matcher || "<none>"}`,
 			),
 	);
-	/* Still registered somewhere, so nothing has gone stale: an event or
-	 * matcher move is the added limb's to report, once. */
 	const removed = new Set(
 		before
 			.filter((r) => judged(r) && !nowKeys.has(r.key) && isStale(r, view))
@@ -1182,8 +1054,6 @@ function judgeHookList(reported, view) {
 }
 
 /**
- * The registration file's hooks after this commit and at HEAD; null, logged
- * where it is a fault, where either cannot be read.
  * @param {View} view
  * @returns {{ now: Registration[], before: Registration[] } | null}
  */
@@ -1192,8 +1062,6 @@ function readHookLists(view) {
 	const { regFile } = view.registries();
 	const unchecked = "its hook-list change was allowed unchecked";
 	const body = view.landingBody(regFile);
-	/* A bare commit DELETING the file has no after-copy to diff: nothing here
-	 * can say which hooks survive it. */
 	const bare = view.landsFrom === "index";
 	if (bare && body === null) return null;
 	if (bare && body === undefined) {
@@ -1231,12 +1099,6 @@ function readHookLists(view) {
 }
 
 /**
- * A newly run registration both registries carry after this commit.
- * `"scripts/<name>` open-ended, not the whole key quoted: the test matches an
- * id that is any SUBSTRING of the command line, so a row naming the script
- * alone already pins a registration carrying arguments (mantahostels#2685). A
- * host may register a core guard, whose needles stay the plugin's own:
- * count-guard-fires.js refuses a host key the core already holds.
  * @param {Registration} r
  * @param {View} view
  */
@@ -1249,11 +1111,6 @@ function isCounted(r, view) {
 }
 
 /**
- * A registration whose event or matcher alone moved: both registries already
- * key it, so neither drifts, but the table pins both. The table lands, or it
- * already SPELLS the new event and the new matcher somewhere — loose on
- * purpose, since a table updated in an earlier commit leaves the suite green
- * (mantahostels#2685).
  * @param {Registration} r
  * @param {View} view
  */
@@ -1274,8 +1131,6 @@ function isMoveCovered(r, view) {
 }
 
 /**
- * A registration no longer run that either registry still carries after this
- * commit. Unknown reads as gone.
  * @param {Registration} r
  * @param {View} view
  */
@@ -1287,19 +1142,9 @@ function isStale(r, view) {
 	return view.willSurelyHold(hookReg, `"scripts/${r.key}"`);
 }
 
-/**
- * A commit that edits text scripts/guard-fire-needles.json keys a needle on,
- * without moving the needle (mantahostels#2708) — nothing above sees it, since
- * a guard's printed words are no registration. The predicate is
- * count-guard-fires.test.ts's own, through lib/needle-corpus.js, narrowed to
- * the literals THIS commit breaks; a literal already missing beforehand
- * belongs to whoever broke it.
- * @param {View} view
- */
+/** @param {View} view */
 function judgeNeedleText(view) {
 	const { root, ctx, landing } = view;
-	/* The common case — a commit landing nothing the corpus reads — reads no
-	 * corpus at all. */
 	if (!landing.some((p) => isUnder(p, CORPUS_DIRS))) return "";
 	const drift = ctx.needleDrift({
 		repo: view.repo,
@@ -1334,10 +1179,7 @@ function judgeNeedleText(view) {
 	return `${out}\n\nscripts/count-guard-fires.test.ts asserts every needle is text this repo still prints, so the suite goes red on the mismatch for everyone until the two agree.\n\n`;
 }
 
-/**
- * Appended where a registry refusal named a host file.
- * @param {View} view
- */
+/** @param {View} view */
 function hostTail(view) {
 	const { hookReg, checkerReg, needleReg } = view.registries();
 	if (!isHost(hookReg) && !isHost(checkerReg) && !isHost(needleReg)) return "";

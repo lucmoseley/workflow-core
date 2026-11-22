@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-unclosed-launches.js — name each open `takes:implement` ticket whose
- * latest refill-loop launch committed and ended without closing it
- * (lib/unclosed-launch.js, #3782).
- *
- * Usage:  node scripts/check-unclosed-launches.js [--json]
- *
- * WARN, never FAIL: a ticket here may hold work still to do. A parked ticket is
- * left out: its question is what it waits on. A tracker that will not read, or a
- * damaged state, is a WARN rather than a SKIP or BROKEN, as in
- * check-idle-efforts.js.
- *
- * LOCAL ONLY. It reads the loop's state under ~/.claude, which a stopped loop
- * leaves readable.
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), reads the loop's state and each launch's tracker, and names the tickets above.
- * JUSTIFIED: fail-safe — such a ticket otherwise waits unreported at its rank, as #3609 did for three days.
- * DEFEAT:    none needed — it never blocks.
- */
 
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
@@ -31,7 +12,6 @@ const { unclosedLaunches } = require("./lib/unclosed-launch.js");
 const IMPLEMENT_LABEL = takesLabel("implement");
 
 /**
- * Open issues of `repo` by number.
  * @param {string} repo
  * @returns {Map<number, {number: number, title: string, labels: {name: string}[]}>}
  */
@@ -49,7 +29,6 @@ function readOpen(repo) {
 }
 
 /**
- * `root`'s tracker and its open issues, or null having said why it has none.
  * @param {string} root
  * @param {import("./lib/check").Ctx} ctx
  */

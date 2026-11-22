@@ -1,23 +1,5 @@
 // @vitest-environment node
-/*
- * Every child a session start launches to outlive its session goes through
- * the outliving launch (#4706): lib/user-scope.js's spawnOutliving or
- * lib/detach.sh's `outlive`. Detached any other way, it is born in the
- * session's scope under its id, and a short session's end kills it mid-run —
- * or, outside the scope by some other route, it runs unbounded.
- *
- * The walk is lib/hook-code.js's over the SessionStart registrations. It
- * reads each file lexically, comment lines skipped:
- *   JS — a `detached: true` spawn whose child is `.unref()`ed within
- *     UNREF_REACH lines;
- *   shell — `setsid`, `nohup`, `disown`, lib/detach.sh's `detach`, or a
- *     command backgrounded with a lone `&`.
- * Residual: a child spawned without `detached`, or unref'd further off than
- * UNREF_REACH, is unseen; so is a launch through a path no edge reads.
- *
- * full-sweep-only: reads every script a SessionStart registration reaches,
- * a set no literal here can name.
- */
+// full-sweep-only: #4707
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -32,7 +14,6 @@ const COMMENT_LINE = /^\s*(?:\/\/|\/?\*|#)/;
 const SHELL_DETACH =
 	/(?:^|[;&|]\s*|\|\|\s*|then\s+)(?:setsid|nohup|disown|detach)\b|(?<![&>|])&\s*(?:$|[;)#])/;
 const JS_DETACH = /\bdetached:\s*true\b/;
-/* A guess: a spawn call and its unref sit within this many lines. */
 const UNREF_REACH = 15;
 
 const PRIMITIVE = new Set([
@@ -40,14 +21,8 @@ const PRIMITIVE = new Set([
 	"scripts/lib/user-scope.js",
 ]);
 
-/* The one launch left in the session: it moves the session into its scope
- * (#4341), so it must run in the session's own cgroup. */
 const IN_SESSION = 'detach node "$here/session-scope.js"';
 
-/*
- * Libraries the walk reaches only because a session-start script shares
- * them, whose detached launch runs from elsewhere (#4706). Each names its count of detach sites, so a new one fails.
- */
 const NOT_AT_SESSION_START: Record<string, { why: string; sites: number }> = {
 	"scripts/lib/refill-repos.js": {
 		why: "startDetachedIn, the refill loop's children",
@@ -59,7 +34,6 @@ const NOT_AT_SESSION_START: Record<string, { why: string; sites: number }> = {
 	},
 };
 
-/** Each launch in `rel` that detaches a child nothing waits on. */
 function readDetachSites(rel: string): string[] {
 	const lines = fs.readFileSync(path.join(ROOT, rel), "utf8").split("\n");
 	const sites: string[] = [];
@@ -102,8 +76,6 @@ describe("a session start's outliving children", () => {
 		]);
 	});
 
-	/* An entry whose launch has gone, or that a session start no longer
-	 * reaches, would hide the next one. */
 	it("names in NOT_AT_SESSION_START only libraries reached, at their count of sites", () => {
 		for (const [rel, { sites }] of Object.entries(NOT_AT_SESSION_START)) {
 			expect(code).toContain(rel);

@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the adopter-config reader: every key's default and derivation, the
- * unknown-key warning and unknown-contract throw, the path helpers, and the
- * output and exit code of each verb a hook or skill calls (mantahostels#3516's
- * contract; #2).
- *
- * It runs in-process against a temp host root minted per test. `vi` only spies
- * on stderr, where the config's warnings land; nothing is mocked.
- * exitUnlessModule and the `module` verb are the two spawns: their skip line
- * is a writeFd to a real fd, and #418 was that line lost to a pipe, which no
- * in-process run reproduces.
- *
- * Breaking it lets a stale config be half-read, a `.husky/pre-commit` gate
- * that takes its command from the `command` verb skip or run the wrong one,
- * or a skill's `module`/`retro-count` gate misfire, in every adopter at once.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -48,8 +32,6 @@ const {
 	faultsOn,
 } = require("./workflow-core-config.js");
 
-/* The default paths each reader falls back to, spelled here rather than
- * imported. */
 const LADDER_DEFAULT = "docs/capacity-procurement-ladder.md";
 const CYCLE_LOG_DEFAULT = "docs/cycle-log.md";
 const BRAND_SHEET_DEFAULT = "docs/brand-sheet.md";
@@ -596,7 +578,6 @@ describe("readConfig — the known-key list (#1534)", () => {
 		const returned = Object.keys(defaults);
 		const readElsewhere = ["mods", "stepsOwed", "walkedTo"];
 		const keys = [
-			/* testCanary is read under `commands`, never a key of its own. */
 			...returned.filter(
 				(k) => !["file", "warnings", "faults", "testCanary"].includes(k),
 			),
@@ -604,7 +585,6 @@ describe("readConfig — the known-key list (#1534)", () => {
 		];
 		writeConfig(
 			dir,
-			/* Only an unread contract throws; any other value is a malformed fault. */
 			JSON.stringify(
 				Object.fromEntries(
 					keys.map((k) => [k, k === "contract" ? defaults.contract : null]),
@@ -1229,7 +1209,6 @@ describe("ladderPath (#401)", () => {
 	});
 });
 
-/** A run of `script` with the host's own module list, the suite default dropped. */
 const hostRun = (script: string, args: string[] = []) =>
 	runInProcess(script, args, {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, WFC_MODULES: undefined },

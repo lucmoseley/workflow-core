@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * doc-map-gate-fake.ts held to lib/doc-map-gate-ports.js (base §G7, #5155):
- * one list of scenes, each run through lib/doc-map-gate.js twice — over the
- * production ports in a real repo, its git state built to match, and over the
- * fake serving the scene. Both must give the same exit, the same stderr and the
- * same checker calls. The checker scripts are stubs in the repo's own
- * scripts/, so the real side crosses git and the node spawns for real.
- *
- * Loosen it and a module case on the fake can pass a gate whose real git reads
- * answer otherwise, and the core's branch cases stop proving anything about
- * the hook.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,7 +12,6 @@ import { defineTemplate, mkScratchDir } from "./git-fixture";
 
 const MAP = "docs/doc-map.md";
 
-/** A repo whose one commit holds the map and a note. */
 const seeded = defineTemplate((root) => {
 	const git = (...args: string[]) => execFileSync("git", args, { cwd: root });
 	git("init", "-q", ".");
@@ -44,7 +31,6 @@ afterEach(() => {
 });
 
 interface RealScene {
-	/** Brings the seeded repo to the scene's git state. */
 	arrange: (git: (...args: string[]) => void, root: string) => void;
 	scene: GateScene;
 }
@@ -56,7 +42,6 @@ const faults = (status: number, stdout: string, stderr = "") => ({
 	stderr,
 });
 
-/** Writes the stub checkers the scene's answers call for. */
 function stubCheckers(root: string, scene: GateScene) {
 	const scripts = path.join(root, "scripts");
 	fs.mkdirSync(scripts, { recursive: true });
@@ -81,7 +66,6 @@ process.exit(${nf.status});
 	);
 }
 
-/** The gate over the production ports, in a seeded repo arranged as `real`. */
 function overRealPorts(real: RealScene, allowDelete = false) {
 	const root = mkScratchDir("doc-map-gate-contract-");
 	temps.push(root);
@@ -103,7 +87,6 @@ function overRealPorts(real: RealScene, allowDelete = false) {
 		const log = path.join(root, "calls.log");
 		const logged = readText(log);
 		if (logged.state === "unreadable") throw new Error(logged.message);
-		// No log is a run that called no checker.
 		const calls = (logged.state === "read" ? logged.data : "")
 			.split("\n")
 			.filter(Boolean)
@@ -114,7 +97,6 @@ function overRealPorts(real: RealScene, allowDelete = false) {
 	}
 }
 
-/** The gate over the fake, its calls in the stub log's shape. */
 function overFake(scene: GateScene, allowDelete = false) {
 	const { ports, calls } = fakeGatePorts(scene);
 	const verdict = runDocMapGate(ports, { allowDelete });

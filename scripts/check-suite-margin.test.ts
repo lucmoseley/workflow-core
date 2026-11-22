@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-suite-margin.js names the latest green whole vitest
- * suite, or the latest green run of any of its shards, over its target —
- * sha, duration, target, ceiling, machine reading and slowest files — and any
- * file at the target in a red run since, with that run's sha (#4291); reads
- * OK on one under it, and on a part-suite or red certificate beside one; reads
- * nothing judged as unjudged, never OK; and exits 0 on a breach (#1797, the
- * report-only ruling).
- *
- * Loosen a case and a suite over its target goes unreported until a push
- * gate is killed at the ceiling, or a slow run starts refusing.
- */
 
 import fs from "node:fs";
 import os from "node:os";

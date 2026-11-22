@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * write-secret.js writes one secret into the secrets file, outside every
- * working tree (#640, #3202).
- *
- * Every CLI case drives the script from a throwaway git repo, in-process bar
- * the spawns through keptSpawn, the value on piped stdin, or for the
- * hidden-prompt cases on a fake terminal, and XDG_CONFIG_HOME on a throwaway
- * directory, and reads back only what the founder sees: the exit, the printed lines, the file's
- * bytes and mode. Every run is checked for the value leaking into stdout or
- * stderr.
- *
- * It is the route the founder hands a secret over by: loosen a case and a key
- * leaks into a terminal a session reads, lands where a commit or a stray
- * `.env` write reaches it, or mangles the file's other entries.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -88,7 +73,6 @@ const run = (
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
-/** The store's directory, owner-only as the script requires (#3539). */
 const makeStoreDir = () => {
 	fs.mkdirSync(path.dirname(store()), { recursive: true, mode: 0o700 });
 	return path.dirname(store());
@@ -188,8 +172,6 @@ describe("write-secret", () => {
 		);
 	});
 
-	/* Runs the script with each named stream's reader gone before it is given
-	 * the value, so its first write to one meets a closed pipe. */
 	const runWithReaderGone = async (gone: ("stdout" | "stderr")[]) => {
 		const child = keptSpawn("fd").spawn(process.execPath, [SCRIPT, "K"], {
 			cwd: host,
@@ -523,9 +505,6 @@ describe("write-secret", () => {
 		},
 	);
 
-	/* A fake terminal on process.stdin carries the typed bytes, so the program
-	 * runs in-process rather than a pty spawn per case. It is a stream, where
-	 * read-hidden.test.ts's emitter is not, to hold them until the prompt reads. */
 	const typeAtPrompt = async (bytes: number[]) => {
 		const tty = Object.assign(new PassThrough(), {
 			isTTY: true,
@@ -709,7 +688,6 @@ describe("write-secret", () => {
 		"refuses by name with exit 1 where the file's directory has mode %i (%s), so no search (#3822)",
 		(mode) => {
 			const dir = makeStoreDir();
-			/* At mode 600 the sweep can list this aside but not lstat it. */
 			fs.writeFileSync(path.join(dir, "secrets.env.999999.abcd.tmp"), "A=1\n");
 			fs.chmodSync(dir, mode);
 			try {
@@ -748,7 +726,6 @@ describe("write-secret", () => {
 		]);
 	});
 
-	/** One real `node` run per name, all started together. */
 	const runConcurrently = (names: string[]) =>
 		Promise.all(
 			names.map(
@@ -769,10 +746,6 @@ describe("write-secret", () => {
 			),
 		);
 
-	/* 8 rounds of 4 runs lost a key before the lock (#3539's close), a count
-	 * chosen there, not a measured minimum. The case measured 0.6-1.6 s
-	 * across 16 runs beside ~10 sessions; 60 s is a margin chosen for a loaded
-	 * machine, not measured (#3666). */
 	it("keeps every key when runs write at once (#3539)", async () => {
 		const names = ["K1", "K2", "K3", "K4"];
 		for (let round = 0; round < 8; round++) {
@@ -814,9 +787,6 @@ describe("write-secret", () => {
 		]);
 	});
 
-	/* A value past any pipe buffer (64 KiB on Linux), sent as a first part and,
-	 * after a pause no reader waits out, the rest: the pipe runs dry between, so
-	 * a non-blocking read meets EAGAIN. */
 	const PipedBytes = 4 << 20;
 	const FirstPart = 1 << 20;
 	const DryMs = 200;
@@ -830,7 +800,6 @@ describe("write-secret", () => {
 				stdio: ["pipe", "ignore", "ignore"],
 			});
 			child.on("close", resolve);
-			// The run refused early; its status says so.
 			child.stdin.on("error", noop);
 			child.stdin.write(big.slice(0, FirstPart));
 			setTimeout(() => child.stdin.end(`${big.slice(FirstPart)}\n`), DryMs);
@@ -916,24 +885,12 @@ describe("write-secret", () => {
 		).toBe(SECRET);
 	});
 
-	/*
-	 * lib/private-group.test.ts judges the databases' text case by case; the
-	 * cases here cross write-secret's own reads once, so they fake the
-	 * databases by spy, not by a seam the script reads: any path or variable
-	 * pointing it elsewhere would let the environment vouch for a group
-	 * (#3676, #3716).
-	 */
 	const me = os.userInfo();
 	interface UserDb {
 		group?: string;
 		nsswitch?: string;
 		userdb?: Record<string, string[]>;
 	}
-	/**
-	 * Serves the user databases, by default as the user's private group under
-	 * lookups reading only the files, every userdb directory absent unless
-	 * named; every other read as is.
-	 */
 	const fakeUserDb = ({
 		group = `${me.username}:x:${me.gid}:\n`,
 		nsswitch = "passwd: files\ngroup: files\n",
@@ -1004,8 +961,6 @@ describe("write-secret", () => {
 		expect(fs.readdirSync(shared)).toEqual([]);
 	});
 
-	/* An access ACL granting a named user write, set as its raw xattr: no
-	 * `setfacl` is on every host. Its group bits then show the ACL's mask. */
 	const grantByAcl = (dir: string, uid: number) => {
 		execFileSync("python3", [
 			"-c",
@@ -1021,7 +976,6 @@ describe("write-secret", () => {
 		]);
 	};
 
-	/* An `ls` first on PATH that claims to be GNU's and marks no ACL. */
 	const fakeLsFirst = () => {
 		const bin = path.join(config, "bin");
 		fs.mkdirSync(bin);
@@ -1052,9 +1006,6 @@ describe("write-secret", () => {
 		},
 	);
 
-	/* Reports `under` and every path below it as of statfs type `type`, or
-	 * throws EACCES where `type` is null. Spied, as a test cannot mount CIFS,
-	 * 9p or FUSE: mounting needs root. */
 	const fakeMount = (under: string, type: number | null) => {
 		const real = fs.statfsSync;
 		vi.spyOn(fs, "statfsSync").mockImplementation(((
@@ -1074,6 +1025,7 @@ describe("write-secret", () => {
 
 	it.each<[string, number]>([
 		["CIFS", 0xff_53_4d_42],
+		["CIFS", 0xff_53_4d_42 | 0],
 		["SMB2", 0xfe_53_4d_42],
 		["9p (WSL's drvfs)", 0x01_02_19_97],
 		["FUSE", 0x65_73_55_46],
@@ -1132,10 +1084,7 @@ describe("write-secret", () => {
 
 	const NfsAcl =
 		"carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
-	/* Reports every path under `config` as on NFS. */
 	const fakeNfs = () => fakeMount(config, 0x69_69);
-	/* A directory carrying an ACL entry for another user that its mask, the
-	 * group bits, keeps from writing. */
 	const maskedAclDir = (dir: string) => {
 		fs.mkdirSync(dir, { recursive: true });
 		grantByAcl(dir, me.uid + 1);
@@ -1195,11 +1144,8 @@ describe("write-secret", () => {
 		).toBe(SECRET);
 	});
 
-	/* Where write-secret.js runs `ls` from. */
 	const FixedLs = ["/usr/bin/ls", "/bin/ls"];
 
-	/* Hides every fixed-path `ls`, as on a host with none. Spied, as a test
-	 * cannot remove root's own `ls`. */
 	const noTrustedLs = () => {
 		const real = fs.statSync;
 		vi.spyOn(fs, "statSync").mockImplementation(((
@@ -1225,11 +1171,6 @@ describe("write-secret", () => {
 		},
 	);
 
-	/* Has root's own `ls` answer `--version` as `version`, every other call
-	 * reaching the host's `ls`. Spied, as a test cannot swap root's `ls`, and
-	 * write-secret.js takes no variable naming another: it runs `ls` only from
-	 * a fixed root-owned path, so no environment can feed it a lying one
-	 * (#3715). write-secret.js binds execFileSync at load, which `run` repeats. */
 	const lsVersion = (version: string) => {
 		const cp = require("node:child_process");
 		const real = cp.execFileSync;
@@ -1363,9 +1304,6 @@ describe("write-secret", () => {
 
 	it("refuses with exit 1 where the mount ignores modes, so the written file would be loose, the file untouched (#3539)", () => {
 		seed("A=1\n");
-		/* A mount that ignores modes, as vfat: chmod is a no-op and a new file
-		 * is 0644.
-		 * Spied, as a test cannot mount one: mounting needs root. */
 		const writeFileSync = fs.writeFileSync;
 		vi.spyOn(fs, "chmodSync").mockImplementation(noop);
 		vi.spyOn(fs, "writeFileSync").mockImplementation((p, data, options) =>
@@ -1414,7 +1352,6 @@ describe("write-secret", () => {
 	);
 
 	const StaleCopy = "OLD_KEY=stale-copy-value\n";
-	/** Above Linux's 2^22 pid ceiling, so no process ever holds it. */
 	const DeadPid = 4_194_305;
 
 	const aside = (pid: number, tag = "0a1b2c3d") =>

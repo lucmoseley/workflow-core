@@ -1,13 +1,3 @@
-/*
- * refill-goal.js — the refill loop's one loop-wide goal (#3864, spec #3596). Its
- * issues rank first in every served repo's frontier read. A topic's refs are the
- * set confirmed when it was resolved, and stay as stored until the next `set`.
- * A `drain` or `unblock` is stored as its one ref and worked out again by every
- * frontier read (#3866).
- *
- * A CORE: it reads nothing but its arguments.
- */
-
 const path = require("node:path");
 const { refKey } = require("./issue-ref.js");
 const { buildNotice, isNotice } = require("./refill-notice.js");
@@ -15,33 +5,25 @@ const { buildNotice, isNotice } = require("./refill-notice.js");
 /** @typedef {import("./refill-notice.js").Notice} Notice */
 
 /**
- * An issue the goal names; `repo`, its checkout's directory name.
  * @typedef {{repo: string, number: number}} GoalRef
- * @typedef {{repo: string|null, number: number}} AskedRef a ref as typed, `repo`
- *   null for a bare `#N`
+ * @typedef {{repo: string|null, number: number}} AskedRef
  * @typedef {"issues"|"drain"|"unblock"|"topic"} GoalForm
- * @typedef {{form: "issues", refs: AskedRef[]}|{form: "drain"|"unblock", ref: AskedRef}}
- *   AskedGoal a typed goal: a walk names one ref
+ * @typedef {{form: "issues", refs: AskedRef[]}|{form: "drain"|"unblock", ref: AskedRef}} AskedGoal
  * @typedef {object} Goal
  * @property {GoalForm} form
- * @property {string} text as typed
+ * @property {string} text
  * @property {GoalRef[]} refs
- * @property {number} setAt ms; 0 where unset
- * @typedef {{state: string}|{unread: string}} IssueRead an issue's state, or why
- *   it would not read
+ * @property {number} setAt
+ * @typedef {{state: string}|{unread: string}} IssueRead
  * @typedef {{repo: string|null, number: number, title: string|null}} GoalMember
- *   an open issue the goal names; `repo`, its `owner/name`
- * @typedef {{members: GoalMember[]}} ShortlistGoal what one checkout's shortlist
- *   found of the goal
- * @typedef {object} GoalRead what one tick's frontier read found of the goal
- * @property {number} setAt the goal it read
+ * @typedef {{members: GoalMember[]}} ShortlistGoal
+ * @typedef {object} GoalRead
+ * @property {number} setAt
  * @property {GoalMember[]} set
  * @property {number} takeable
  * @property {number} running
- * @property {boolean} complete whether every shortlist that could name a member
- *   read, without which an empty set finishes nothing
- * @typedef {Omit<GoalRead, "complete"> & {readAt: number, doneAt: number|null}}
- *   GoalProgress the last read's counts, kept in the loop's state
+ * @property {boolean} complete
+ * @typedef {Omit<GoalRead, "complete"> & {readAt: number, doneAt: number|null}} GoalProgress
  */
 
 /** @type {readonly GoalForm[]} */
@@ -58,8 +40,6 @@ const parseStrings = (raw) =>
 const buildRefText = ({ repo, number }) => `${repo ?? ""}#${number}`;
 
 /**
- * Each ref of a comma- or space-separated list: `N`, `#N` or `<repo>#N`. Null
- * where a word is none of them, or there are no words.
  * @param {string} text
  * @returns {AskedRef[]|null}
  */
@@ -72,15 +52,9 @@ function parseAskedRefs(text) {
 	return refs.length > 0 && refs.length === words.length ? refs : null;
 }
 
-/**
- * The ticked roots the loop serves, and why each other ticked root is not.
- * @typedef {ReturnType<typeof import("./refill-loop.js").scopeRoots>} Served
- */
+/** @typedef {ReturnType<typeof import("./refill-loop.js").scopeRoots>} Served */
 
 /**
- * The refs in `served`'s repos, or why one is refused: a bare `#N` needs exactly
- * one repo served, and a named repo must be ticked and served — the set the
- * panel counts "on".
  * @param {AskedRef[]} asked
  * @param {Served} served
  * @returns {GoalRef[]|Notice}
@@ -115,9 +89,8 @@ function qualifyRefs(asked, { roots, dropped }) {
 }
 
 /**
- * A goal as typed: `drain <ref>`, `unblock <ref>`, or a list of refs.
  * @param {string} text
- * @returns {AskedGoal|null} null where it is none of them
+ * @returns {AskedGoal|null}
  */
 function parseGoalForm(text) {
 	const walk = text.trim().match(/^(drain|unblock)\s+(\S+)$/);
@@ -129,12 +102,11 @@ function parseGoalForm(text) {
 	return ref && more.length === 0 ? { form, ref } : null;
 }
 
-/** @param {string} typed what `parseGoalForm` could not read */
+/** @param {string} typed */
 const buildGoalRefusal = (typed) =>
 	`--goal takes issue refs, #N or <dir>#N, or drain or unblock with one: ${typed}`;
 
 /**
- * `qualifyRefs`, each ref then read as an open issue.
  * @param {AskedRef[]} asked
  * @param {Served} served
  * @param {(ref: GoalRef) => IssueRead} readIssue
@@ -159,9 +131,6 @@ function qualifyOpenRefs(asked, served, readIssue) {
 }
 
 /**
- * The `--goal` a shortlist in the checkout at `root` takes, null for none. A
- * `drain` goes to every checkout, as a child may be in another repo from its
- * parent. An `unblock` goes to its ref's own, whose blocker walk crosses repos.
  * @param {Goal|null} goal
  * @param {string} root
  * @returns {string|null}
@@ -179,11 +148,8 @@ function buildShortlistGoal(goal, root) {
 }
 
 /**
- * The members the shortlists name, once each, and how many of those are on the
- * merged frontier or held by a live session.
  * @param {Goal|null} goal
  * @param {{root: string, repo: string|null, goalSet: ShortlistGoal|null, running: number[]}[]} reads
- *   the shortlists that read
  * @param {{failed: number, frontier: {root: string, number: number}[]}} merged
  * @returns {GoalRead|null}
  */
@@ -217,9 +183,6 @@ function buildGoalRead(goal, reads, { failed, frontier }) {
 }
 
 /**
- * The state's goal progress after a frontier read. A goal finishes at the first
- * complete read with no open issue, keeps that time while none reopens, and
- * revives at the first read with one.
  * @param {GoalProgress|null} before
  * @param {GoalRead|null} read
  * @param {number} now
@@ -238,8 +201,6 @@ function buildGoalProgress(before, read, now) {
 }
 
 /**
- * `status --json`'s goal: as stored, with the last read's set and counts, null
- * until a read reaches it.
  * @param {Goal|null} goal
  * @param {GoalProgress|null} progress
  */
@@ -258,7 +219,6 @@ function buildGoalStatus(goal, progress) {
 }
 
 /**
- * `progress`, where it is this goal's.
  * @param {Goal|null} goal
  * @param {GoalProgress|null} progress
  * @returns {GoalProgress|null}
@@ -267,7 +227,6 @@ const goalProgressOf = (goal, progress) =>
 	goal !== null && progress?.setAt === goal.setAt ? progress : null;
 
 /**
- * Whether two goals say the same, whenever each was set.
  * @param {Goal|null} a
  * @param {Pick<Goal, "form" | "text" | "refs">} b
  */
@@ -278,9 +237,8 @@ const isSameGoal = (a, b) =>
 	a.refs.map(buildRefText).join() === b.refs.map(buildRefText).join();
 
 /**
- * What the goal has come to, nothing until a read reaches it.
  * @param {{set: GoalMember[]|null, takeable: number|null, running: number|null,
- *   doneAt: number|null}|null} progress `GoalProgress`, or `buildGoalStatus`'s goal
+ *   doneAt: number|null}|null} progress
  * @param {(at: number) => string} [showTime]
  */
 function buildProgressText(
@@ -296,14 +254,14 @@ function buildProgressText(
 
 /**
  * @param {Goal|null} goal
- * @param {GoalProgress|null} [progress] the state's, where the caller read it
+ * @param {GoalProgress|null} [progress]
  */
 const buildGoalLine = (goal, progress = null) =>
 	`goal:      ${goal ? `${goal.form} "${goal.text}": ${goal.refs.map(buildRefText).join(", ")}${buildProgressText(goalProgressOf(goal, progress))}` : "none"}`;
 
 /**
  * @param {unknown} raw
- * @returns {GoalRef[]|null} null where any ref is garbled
+ * @returns {GoalRef[]|null}
  */
 function parseRefs(raw) {
 	if (!Array.isArray(raw)) return null;
@@ -323,8 +281,6 @@ const isGoalMember = (raw) =>
 	(typeof raw.title === "string" || raw.title === null);
 
 /**
- * The state file's goal progress: none where it is absent or garbled, which the
- * next frontier read rewrites.
  * @param {unknown} raw
  * @returns {GoalProgress|null}
  */
@@ -349,10 +305,7 @@ function parseGoalProgress(raw) {
 }
 
 /**
- * The control file's goal: none where it is absent, garbled or names no issue.
- * Fails open (#3864): a garbled goal costs its ranking, where stopping the loop
- * as control-damaged would cost every launch. readControlChecked logs it.
- * @param {Record<string, unknown>} scope the raw scope
+ * @param {Record<string, unknown>} scope
  * @returns {Goal|null}
  */
 function parseGoal({ goal }) {

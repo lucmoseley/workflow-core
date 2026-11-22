@@ -1,29 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-surface-contract.js — does the helper surface still offer every export
- * the last release promised adopters? (#463, spec #457)
- *
- * Compares scripts/lib/helper-surface.json at HEAD against the same file at the
- * last release tag (lib/release-tags.js, the tag release-plugin.js
- * judges a major bump against). An added entry point or export passes whatever
- * the version. A removed one — and a rename, which reads as a removal — FAILs
- * unless plugin.json's version is a major bump over that tag AND
- * migrations/v<version>.md exists. The note's shape is release-plugin.js's to
- * refuse, not this checker's. A listed command's argv contract is held the
- * same way (#655): a dropped command, flag, positional value or exit code, or
- * a positional renamed or moved, is a removal. A changed exit-code MEANING,
- * and a newly required flag or positional, pass unseen: the manifest marks
- * neither.
- *
- * THE MANIFEST IS THE SURFACE. That each listed name is really exported is
- * helper-surface.test.ts's to prove.
- *
- * READS COMMITS ONLY, as release-plugin.js does: a working-tree read would
- * judge a half-written manifest. Commit an edit before checking it.
- *
- * NEEDS THE TAGS FETCHED. A checkout with none reads as "no release yet" and
- * SKIPs, so the CI step fetches them first.
- */
 
 const { hostRoot } = require("./lib/host-root.js");
 const { runCheck } = require("./lib/check");
@@ -43,7 +18,7 @@ const MANIFEST = "scripts/lib/helper-surface.json";
 /**
  * @param {Ctx} ctx
  * @param {string} text
- * @param {string} label named in a BROKEN
+ * @param {string} label
  * @returns {EntryPoints}
  */
 function entryPointsOf(ctx, text, label) {
@@ -67,10 +42,9 @@ function entryPointsOf(ctx, text, label) {
 }
 
 /**
- * The manifest's `commands`, none where it lists none (#655).
  * @param {Ctx} ctx
  * @param {string} text
- * @param {string} label named in a BROKEN
+ * @param {string} label
  * @returns {Commands}
  */
 function commandsOf(ctx, text, label) {
@@ -95,7 +69,6 @@ function commandsOf(ctx, text, label) {
 }
 
 /**
- * One dropped surface part; `name` null where the whole file went.
  * @param {string} file
  * @param {string | null} name
  * @param {string} what
@@ -109,8 +82,6 @@ const removal = (file, name, what) => ({
 });
 
 /**
- * What `current` dropped of the argv contract `before` promised: a command, a
- * positional at its place, a positional value, a flag, an exit code.
  * @param {Commands} before
  * @param {Commands} current
  * @returns {Removal[]}
@@ -150,8 +121,6 @@ function removedCommandParts(before, current) {
 }
 
 /**
- * The plugin's version, BROKEN where plugin.json is not JSON or the version
- * is not X.Y.Z.
  * @param {Ctx} ctx
  * @param {string} pluginText
  * @returns {string}
@@ -171,8 +140,6 @@ function pluginVersion(ctx, pluginText) {
 }
 
 /**
- * What `current` dropped of the entry points `before` promised: a file, or a
- * name it exported.
  * @param {Record<string, string[]>} before
  * @param {Record<string, string[]>} current
  * @returns {Removal[]}
@@ -209,7 +176,6 @@ runCheck({
 				ctx.broken(`git cannot read ${args.at(-1)} — ${caught(e).message}`);
 			}
 		};
-		/** The file at `rev`, or null where `rev` has none. */
 		const readAt = (/** @type {string} */ rev, /** @type {string} */ rel) =>
 			git(["ls-tree", "--name-only", rev, "--", rel]) === ""
 				? null

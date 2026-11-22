@@ -1,14 +1,3 @@
-/*
- * materialise-plugin.js — the `claude plugin marketplace add` → `plugin
- * install` → `plugin update` sequence that turns a url-sourced pin into an
- * actual installed plugin, shared between init-adopter.js's bootstrap step
- * (#75) and upgrade.js's re-materialise-on-upgrade step (#91, #103) (#102).
- *
- * Non-fatal by design: a failure is reported through the caller's own `out`,
- * never thrown, so a session with no `claude` on PATH, or a source it can't
- * reach, is one hand-run command short of loading rather than broken.
- */
-
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -16,30 +5,12 @@ const { cutAt } = require("./cut-at.js");
 const { resolveConfigDir } = require("./plugin-state.js");
 const { caught } = require("./caught.js");
 
-/* A slow or black-holed `claude plugin` fetch has no ceiling of its own
- * (#135) — this bounds all three of materialisePlugin's calls alike. A first
- * guess, and stated as one: room for a real git clone over a slow link,
- * nothing measured against. */
+// guess, #135
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
- * A child process against the ADOPTER's tree, not this one's.
- *
- * CLAUDE_PROJECT_DIR IS OVERRIDDEN, not inherited. lib/host-root.js returns it
- * unconditionally, so a child inheriting this session's value would read and
- * WRITE the core's own tree — `check-guard-registry.js --review` refuses
- * `--root` and would re-anchor the core's registry while reporting the
- * adopter's hooks as anchored (#5).
- *
- * CLAUDE_CONFIG_DIR IS SET EXPLICITLY TOO (#117), never left to an implicit
- * `...process.env` spread. With no `configDir`, `resolveConfigDir()`
- * (`plugin-state.js`) returns exactly what the child would have inherited
- * before (#117).
- * The isolation #117 actually wants is a caller passing `configDir`
- * explicitly — a release smoke test pointed at a throwaway directory, never
- * the default.
  * @param {string} root
- * @param {[string, ...string[]]} args the binary, then its arguments
+ * @param {[string, ...string[]]} args
  * @param {{quiet?: boolean, configDir?: string, timeoutMs?: number}} [opts]
  */
 function run(root, args, { quiet = false, configDir, timeoutMs } = {}) {
@@ -64,27 +35,6 @@ function installFailure(err) {
 }
 
 /**
- * A cross-scope ref conflict the CLI is about to refuse, caught before
- * spending three calls on it (#258). A `--scope project add` is refused only
- * where the SAME name is already declared at USER scope
- * (`<configDir>/settings.json`'s own `extraKnownMarketplaces`, no `--scope`
- * flag) with a ref that differs from the one being added — no ref at all
- * counts as its own distinct value here, so declaring one where user scope
- * has none conflicts exactly as two different refs would. A same-scope ref
- * rotation (project → project, any ref to any other ref, ref to no-ref or
- * back) succeeds every time; so does a `--scope project` add under a name a
- * DIFFERENT project last touched, however stale
- * `plugins/known_marketplaces.json`'s cache of that looks. So this reads
- * user scope's settings file alone, never the cache.
- * Non-fatal to read: a missing or unparseable user-scope file, or a name it
- * doesn't declare, means no predicted conflict.
- * Only meaningful for a url-shaped `addSource` (`<url>#<ref>`, the syntax
- * `init-adopter.js` and `reconcile-plugin.js` both build); a directory
- * source carries no ref and never matches the `#` probe below.
- * A user-scope declaration of a LOCAL kind (`directory`, `file`) is refused
- * too, on the same settings file alone (#342), but no ref
- * edit repairs it, so it comes back as `existingKind` rather than as a ref
- * conflict.
  * @param {string} configDir
  * @param {string} marketplaceName
  * @param {string} addSource
@@ -113,20 +63,12 @@ function predictedRefConflict(configDir, marketplaceName, addSource) {
 	if (!entry || typeof entry !== "object") return null;
 	if (entry.source === "directory" || entry.source === "file")
 		return { existingKind: entry.source, wantedRef, settingsPath };
-	/* A `ref` key present but not a string is malformed data this function
-	 * cannot interpret, never the genuine "tracks the default branch" state a
-	 * missing key means. */
 	if ("ref" in entry && typeof entry.ref !== "string") return null;
 	const existingRef = typeof entry.ref === "string" ? entry.ref : null;
 	return existingRef === wantedRef ? null : { existingRef, wantedRef };
 }
 
 /**
- * The core explanation shared by `materialisePlugin`'s own refusal message
- * and the SessionStart reporter's read-only prediction of the same conflict
- * (#318), repair included — each caller appends only its own close
- * (`materialisePlugin`'s "THEN run" the commands it already built, the
- * reporter's pointer to the commands above them).
  * @param {string} marketplaceName
  * @param {NonNullable<ReturnType<typeof predictedRefConflict>>} conflict
  */
@@ -275,18 +217,12 @@ function materialisePlugin({
 }
 
 /**
- * The three commands `materialisePlugin` ran, joined for a fix-by-hand message.
  * @param {{marketplaceAdd: string[], pluginInstall: string[], pluginUpdate: string[]}} result
  */
 function fixByHand(result) {
 	return `${result.marketplaceAdd.join(" ")} && ${result.pluginInstall.join(" ")} && ${result.pluginUpdate.join(" ")}`;
 }
 
-/* `predictedRefConflict` is exported for `check-plugin-gap.js` (#318, the
- * SessionStart reporter's own read of the same conflict) and for this file's
- * own unit tests; `materialisePlugin` is the only real caller that acts on
- * it. `refConflictExplanation` is exported for the same reporter, so the two
- * messages share their core clause rather than drifting apart (#318). */
 module.exports = {
 	run,
 	installFailure,

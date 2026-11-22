@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The check-interop-latency core (#3564), in process, its ports filled by the
- * test: two slow policy queries read DEGRADED and write one record, one slow
- * then one fast reads OK as §9's vsock stall, a fast first query is the only
- * one made, and the evidence parsers keep each `hvs_probe` failure's order
- * and count interop calls alone. Loosen a case and a degraded bridge reads as
- * load again, or a vsock stall raises a false alarm at session start.
- */
 import { describe, expect, it } from "vitest";
 
 interface Reading {
@@ -131,8 +123,6 @@ describe("judgeBridge", () => {
 });
 
 describe("countHvsProbeFailures", () => {
-	/* An arm64 trace as dmesg prints it: the failure line, then `Call trace:`
-	 * on its own line and one frame a line (this machine's 28 Oct boot). */
 	const trace = (order: number, frame: string) => [
 		`[ 100.000000] kworker/0:3: page allocation failure: order:${order}, mode:0xdc0(GFP_KERNEL|__GFP_ZERO), nodemask=(null),cpuset=/,mems_allowed=0`,
 		"[ 100.000001] Workqueue: hv_pri_chan vmbus_add_channel_work",

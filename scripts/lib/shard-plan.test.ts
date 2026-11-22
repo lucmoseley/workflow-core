@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/shard-plan.js, and the sequencer that hands it vitest's files (#2413).
- *
- * Loosen it and a sharded Actions run drops a file or runs one twice, since
- * each shard job computes the plan alone; or puts the heavy files back on one
- * shard, whose job then overruns the 3 min verdict.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -83,7 +76,6 @@ describe("secondsByFile", () => {
 describe("the sequencer", () => {
 	let root: string | null = null;
 	const roots: string[] = [];
-	/* A CI shard runs this suite with its own timings named (ci.yml). */
 	beforeEach(() => {
 		vi.stubEnv("WFC_SHARD_TIMINGS", "");
 	});
@@ -105,8 +97,6 @@ describe("the sequencer", () => {
 		);
 	const names = (list: TestSpecification[]) =>
 		list.map((s) => path.relative(root ?? "", s.moduleId));
-	/** The dataset `WFC_SHARD_TIMINGS` names, as a CI shard or the lander
-	 * names one (#4574, #4579). */
 	const writeDataset = (rows: string) => {
 		const at = path.join(root ?? "", "timings.csv");
 		fs.writeFileSync(at, `file,seconds,tests,status\n${rows}`);

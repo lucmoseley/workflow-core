@@ -1,30 +1,13 @@
-/*
- * hook-limits.js — the harness's limits on what a hook hands the session
- * (#1746).
- *
- * READ BY LINE TOO: lib/injector-margin.js and lib/rule-emission.js read a
- * revision's or a planted copy without running it, through limitIn(). Keep
- * each a `const NAME = <n>;` line at column zero.
- */
-
 const { escapeRe } = require("./regex-group.js");
 
-/* additionalContext over this many characters is persisted to a file and the
- * session handed a ~2 KB preview (mantahostels#1762). Read out of the shipped
- * binary by mantahostels#1868, so it models a consumer the repo
- * does not own and can move unnoticed. */
+// measured 10,000 in the shipped binary, lucmoseley/mantahostels#1868
 const HOOK_PERSIST_CHARS = 10_000;
 
-/* The bytes of rule text one hook delivery may carry: 40% of
- * HOOK_PERSIST_CHARS. The 40% is a judgement, not a measurement: it leaves
- * room for the guard's own warn text and for a second hook on the same event. */
+// guess, 40% of HOOK_PERSIST_CHARS, lucmoseley/mantahostels#1804
 const RULE_CAP = 4000;
 
 /**
- * The integer a `const <name> = <n>;` line at column zero of `source`
- * assigns, or null where none does. Biome writes `<n>` with numeric
- * separators, so `10_000` reads as 10000.
- * @param {string} source a hook-limits.js text
+ * @param {string} source
  * @param {string} name
  * @returns {number | null}
  */

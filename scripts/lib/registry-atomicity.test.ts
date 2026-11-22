@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * lib/registry-atomicity.js, the guard-registry-atomicity core (#2794), in
- * process: does a commit land a member of a repo-wide registry without the
- * wiring that registers it?
- *
- * THE LOAD-BEARING CASE IS "the wiring exists but is not in this commit" — a
- * caller line sitting uncommitted in a file the pathspec does not name, which a
- * guard reading the working tree alone would clear (mantahostels#2664).
- *
- * The fixture is a whole small repo rather than a command string: every verdict
- * here is a question about HEAD, the pathspec and the working tree together, so
- * the core runs on lib/registry-atomicity-host.js's real git and disk reads
- * (base §X11 condition 2). Loosen a case and a member lands without its
- * wiring, turning the whole-repo registry tests red for every session until the
- * second commit; widen it and a commit carrying both is refused.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -43,7 +27,6 @@ function git(cwd: string, ...args: string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8" });
 }
 
-/** A hooks file running exactly the hook scripts named. */
 const hooksFileFor = (scripts: string[]) =>
 	`${JSON.stringify(
 		{
@@ -60,10 +43,6 @@ const hooksFileFor = (scripts: string[]) =>
 		2,
 	)}\n`;
 
-/**
- * A hooks file registering each entry on the event and matcher it names, so
- * a case can move a registration without changing which script runs (mantahostels#2685).
- */
 const hooksFileOf = (
 	regs: { event?: string; matcher?: string | null; script: string }[],
 ) => {
@@ -81,11 +60,6 @@ const hooksFileOf = (
 	return `${JSON.stringify({ hooks }, null, 2)}\n`;
 };
 
-/**
- * A repo already holding one wired guard, one wired checker and the four
- * registry files — so every case below is about what CHANGES, never about a
- * repo that was broken to begin with.
- */
 const template = defineTemplate((root) => {
 	const hooks = path.join(root, "no-hooks");
 	fs.mkdirSync(hooks);
@@ -135,14 +109,12 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** Write a file into the fixture repo and give git its name, so a pathspec reaches it. */
 function add(rel: string, body: string): void {
 	fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
 	fs.writeFileSync(path.join(repo, rel), body);
 	git(repo, "add", "-N", "--", rel);
 }
 
-/** Run `body` with a caller directory the host's listing throws on. */
 function withUnlistableCallers(body: () => void): void {
 	const at = path.join(repo, ".github", "workflows");
 	fs.mkdirSync(at, { recursive: true });
@@ -154,16 +126,13 @@ function withUnlistableCallers(body: () => void): void {
 	}
 }
 
-/** Edit a tracked file WITHOUT staging it, so only a pathspec naming it lands. */
 function edit(rel: string, body: string): void {
 	fs.writeFileSync(path.join(repo, rel), body);
 }
 
-/** The three core registries that run, pin and count a hook. */
 const CORE_HOOK_FILES =
 	"self-plugin/hooks/hooks.json scripts/hook-registrations.test.ts scripts/guard-fire-needles.json";
 
-/** Register scripts/$script beside guard-existing.sh in all of CORE_HOOK_FILES, unstaged. */
 function wireCoreHook(script: string): void {
 	edit(
 		"self-plugin/hooks/hooks.json",
@@ -188,7 +157,6 @@ function wireCoreHook(script: string): void {
 	);
 }
 
-/** The no-caller line of a checker refusal, naming $surface as the hooks file. */
 const buildNoCallerLine = (surface: string) =>
 	`no caller: nothing in .husky/, .github/workflows/, ${surface} or another scripts/ file names it`;
 
@@ -201,11 +169,6 @@ let faults: string[] = [];
 
 type Repo = Record<string, (rel: string) => unknown>;
 
-/**
- * The core on `command`, run in `cwd` as the entry runs it: the kit's walk
- * ports over the environment `env` adds to, and the host's real reads, each
- * commit's Repo passed through `wrap`.
- */
 function run(
 	command: string,
 	cwd = repo,
@@ -217,7 +180,6 @@ function run(
 		repo: (tree: string, root: string) => Repo;
 	};
 	for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
-	/* Built on first use, as lib/kit-context.js's lazyTreeClass builds it. */
 	let classify:
 		| ((dir: string) => import("./git-tree.js").TreeClass)
 		| undefined;
@@ -247,14 +209,11 @@ function run(
 
 const readFaultReasons = () => faults.map((f) => f.split("\t")[0]);
 
-/** A Repo whose HEAD cannot answer for `rel` alone: the answer a broken tree
- * object under it gives (mantahostels#2702). */
 const headUnknown = (rel: string) => (r: Repo) => ({
 	...r,
 	headNames: (p: string) => (p === rel ? null : r.headNames(p)),
 });
 
-/** The loose-object file backing $rev, made writable so a case can break it. */
 function looseObject(rev: string): string {
 	const sha = git(repo, "rev-parse", rev).trim();
 	const at = path.join(repo, ".git", "objects", sha.slice(0, 2), sha.slice(2));
@@ -276,8 +235,6 @@ describe("a new checker", () => {
 		expect(v.reason).toContain("scripts/check-new.{test,spec}.");
 	});
 
-	/* The core takes every form siblingTests names, as the suite's own
-	 * registry tests do (#3387). */
 	it("counts a .spec.ts sibling as its test", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.spec.ts", "// covered\n");
@@ -600,11 +557,6 @@ describe("a repo judged against its host registries (#1456)", () => {
 		matcher,
 	});
 
-	/**
-	 * Drop the core's registries and self-plugin file from HEAD, as an
-	 * adopter's repo has them, register its hooks in .claude/settings.json and
-	 * seed the host's registries.
-	 */
 	function adopter({ seeded = true } = {}): void {
 		git(repo, "rm", "-q", "--", ...core, "self-plugin/hooks/hooks.json");
 		add(".claude/settings.json", hooksFileFor(["scripts/guard-existing.sh"]));
@@ -857,7 +809,6 @@ describe("a repo judged against its host registries (#1456)", () => {
 	});
 
 	describe("each host key read on its own object, as check-registrations.js reads it (#1670)", () => {
-		/** A new guard with everything but its `hooks` row and the escape. */
 		function guardShortOfItsRow(over: Record<string, unknown>): void {
 			adopter();
 			add("scripts/guard-new.sh", "#!/usr/bin/env bash\n");
@@ -1102,14 +1053,10 @@ describe("a repo judged against its host registries (#1456)", () => {
 	});
 });
 
-/* The commit form CLAUDE.md requires runs no `git` the hook can see, and
- * intent-adds an untracked path itself — so a guard reading only `git commit`
- * segments, or only the index's names, lets the split land through it. */
 describe("a commit-paths.js commit (#1727)", () => {
 	const viaScript = (paths: string) =>
 		`node scripts/commit-paths.js -m "x" -- ${paths}`;
 
-	/** Write a file git does not know yet, as commit-paths.js finds it. */
 	const untracked = (rel: string, body: string) =>
 		fs.writeFileSync(path.join(repo, rel), body);
 
@@ -1170,7 +1117,6 @@ describe("a commit-paths.js commit (#1727)", () => {
 		);
 	});
 
-	/** A --patch file creating each path, as `git diff HEAD` cuts it, the paths left untracked. */
 	const patchCreating = (rels: string[]) => {
 		git(repo, "add", "-N", "--", ...rels);
 		fs.writeFileSync(
@@ -1203,9 +1149,6 @@ describe("a commit-paths.js commit (#1727)", () => {
 		).toBe(false);
 	});
 
-	/** scripts/wire.sh committed, then edited twice, a line apart: `echo a` to
-	 * `echo b`, and a caller of check-new.js added. Two hunks, as two sessions
-	 * leave them. */
 	const twoHunkWire = () => {
 		fs.writeFileSync(
 			path.join(repo, "scripts", "wire.sh"),
@@ -1219,7 +1162,6 @@ describe("a commit-paths.js commit (#1727)", () => {
 		);
 	};
 
-	/** Keep only the hunk of p.diff's wire.sh section that does not add the caller. */
 	const dropCallerHunk = () => {
 		const at = path.join(repo, "p.diff");
 		fs.writeFileSync(
@@ -1367,17 +1309,11 @@ describe("the index route", () => {
 		expect(v.reason).toContain("scripts/check-new.js");
 	});
 
-	/* mantahostels#2734: a bare commit takes the INDEX copy of every path it lands, so the
-	 * working-tree bytes it was judged on before are the wrong ones in both
-	 * directions — they acquit a commit landing the split, and they refuse one
-	 * that does not. */
 	const bare = 'git commit -m "x"';
 
 	it("refuses when the wiring is on disk but left out of the index", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.test.ts", "// covered\n");
-		// Staged with an unrelated edit, so the path lands while the index copy
-		// still carries no allowlist entry.
 		edit(
 			"scripts/checker-registrations.test.ts",
 			"const CALLED_ELSEWHERE = {};\n// touched\n",
@@ -1422,8 +1358,6 @@ describe("the index route", () => {
 	});
 
 	it("reads the sibling test out of the index, not off the disk", () => {
-		// The sibling is in HEAD, and this commit drops it while leaving it on
-		// disk — the only way a landing path can be absent from the index.
 		add("scripts/check-new.test.ts", "// covered\n");
 		git(repo, "add", "--", "scripts/check-new.test.ts");
 		git(repo, "commit", "-qm", "a sibling test, no checker yet");
@@ -1501,17 +1435,9 @@ describe("the index route", () => {
 		expect(run(bare, path.join(repo, ".husky")).denied).toBe(false);
 	});
 
-	/* `-a` stages every tracked file's WORKING-TREE copy on its way in, so it
-	 * lands that copy and not the index's — the index read would judge stale
-	 * bytes, and here it would judge them into a false denial (mantahostels#2734).
-	 *
-	 * The guard-commit-form core denies `-a` before this guard is reached, so
-	 * this case pins the reasoning rather than a reachable verdict. */
 	it("reads the working tree for -a, which lands it", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.test.ts", "// covered\n");
-		// An unrelated edit, so the path lands while the index copy carries no
-		// allowlist entry.
 		edit(
 			"scripts/checker-registrations.test.ts",
 			"const CALLED_ELSEWHERE = {};\n// touched\n",
@@ -1524,7 +1450,6 @@ describe("the index route", () => {
 			"scripts/check-new.test.ts",
 			"scripts/checker-registrations.test.ts",
 		);
-		// The wiring is on disk and out of the index; `-a` will stage it.
 		edit(
 			"scripts/checker-registrations.test.ts",
 			'const CALLED_ELSEWHERE = { "check-new.js": "hand-only (#1)" };\n',
@@ -1533,9 +1458,6 @@ describe("the index route", () => {
 		expect(run('git commit --all -m "x"').denied).toBe(false);
 	});
 
-	/* The positive twin of "reads the sibling test out of the index": the same
-	 * staged deletion, put back, so a landingExists that named nothing at all
-	 * would still deny here. */
 	it("takes the sibling test the index does carry", () => {
 		add("scripts/check-new.test.ts", "// covered\n");
 		git(repo, "add", "--", "scripts/check-new.test.ts");
@@ -1555,9 +1477,6 @@ describe("the index route", () => {
 		expect(run(bare).denied).toBe(false);
 	});
 
-	/* The positive twin of the needle case: the same staged rewording, with the
-	 * needle moved to match, so an indexShow returning null for everything would
-	 * still deny here. */
 	it("allows the staged reword whose needle moves with it", () => {
 		const printer = path.join(repo, "scripts", "guard-existing.sh");
 		const needles = (text: string) =>
@@ -1587,9 +1506,6 @@ describe("the index route", () => {
 		expect(run(bare).denied).toBe(false);
 	});
 
-	/* `git rm --cached` leaves the file on disk, so only the index shows the
-	 * removal. A pathspec commit naming the same path re-stages the working-tree
-	 * copy and lands nothing at all (see LIMITS). */
 	it("sees a checker dropped with git rm --cached", () => {
 		fs.writeFileSync(
 			path.join(repo, "scripts", "checker-registrations.test.ts"),
@@ -1604,9 +1520,6 @@ describe("the index route", () => {
 });
 
 describe("what the review of mantahostels#2671 found", () => {
-	/* `reported` was filled by both limbs, so a new checker ALSO registered
-	 * as a hooks.json hook skipped judgeHookList entirely and its missing
-	 * needle went unasked-for. */
 	it("still demands a needle for a new checker wired as a hook", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.test.ts", "// covered\n");
@@ -1628,11 +1541,6 @@ describe("what the review of mantahostels#2671 found", () => {
 		expect(v.reason).toContain("scripts/check-new.js");
 	});
 
-	/* A git failure is not an absence. An unreadable HEAD must ALLOW and
-	 * record, never deny — this guard's one forbidden direction.
-	 *
-	 * IT COVERS NO BRANCH, and is kept as the end-to-end control; the branches
-	 * are reached by "fail-opens no broken object reaches" below. */
 	it("allows when the object store is unreadable", () => {
 		add("scripts/guard-new.sh", "#!/usr/bin/env bash\n");
 		add("scripts/guard-new.test.ts", "// covered\n");
@@ -1648,12 +1556,7 @@ describe("what the review of mantahostels#2671 found", () => {
 			"scripts/guard-fire-needles.json",
 			`${JSON.stringify({ guards: { "guard-new.sh": { needles: [] } } }, null, 2)}\n`,
 		);
-		// Break the whole object store, leaving the ref itself intact.
 		fs.chmodSync(path.join(repo, ".git", "objects"), 0o000);
-		/* Either route allows. git 2.43 resolves the repo and the core allows;
-		 * a newer git (the CI runner's) reads unreadable objects as
-		 * no repo, so the tree classifier throws, which lib/guard-entry.js
-		 * allows unchecked (#2527). */
 		try {
 			let verdict: Verdict | undefined;
 			try {
@@ -1703,9 +1606,6 @@ describe("its row fails closed (#4128)", () => {
 });
 
 describe("what the review of mantahostels#2671 left open (mantahostels#2685)", () => {
-	/* The script's NAME is unchanged, so a name diff saw nothing — while
-	 * hook-registrations.test.ts pins the matcher against the id and goes red
-	 * from this commit until the table catches up. */
 	it("refuses a registration whose matcher moves with the pin table left behind", () => {
 		edit(
 			"self-plugin/hooks/hooks.json",
@@ -1739,8 +1639,6 @@ describe("what the review of mantahostels#2671 left open (mantahostels#2685)", (
 		).toBe(false);
 	});
 
-	/* The event moves, which is what "pins every registration in the file"
-	 * reads — it matches on event and id together. */
 	it("refuses a registration whose event moves with the pin table left behind", () => {
 		edit(
 			"self-plugin/hooks/hooks.json",
@@ -1754,9 +1652,6 @@ describe("what the review of mantahostels#2671 left open (mantahostels#2685)", (
 		expect(v.reason).toContain("PostToolUse");
 	});
 
-	/* A second registration of the SAME script, told apart by its argument
-	 * alone. guardKey carries the argument, so this is a new key with no needle
-	 * entry — count-guard-fires.test.ts's `unkeyed` drift. */
 	it("refuses a second registration told apart only by its arguments, naming it as newly run", () => {
 		edit(
 			"self-plugin/hooks/hooks.json",
@@ -1805,9 +1700,6 @@ describe("what the review of mantahostels#2671 left open (mantahostels#2685)", (
 		).toBe(false);
 	});
 
-	/* The pin table was updated in an EARLIER commit, so the suite is green the
-	 * moment this settings-only commit lands. Demanding the table land too would
-	 * refuse it — the forbidden direction. */
 	it("allows a matcher move whose new value the pin table already spells", () => {
 		fs.writeFileSync(
 			path.join(repo, "scripts", "hook-registrations.test.ts"),
@@ -1830,10 +1722,6 @@ describe("what the review of mantahostels#2671 left open (mantahostels#2685)", (
 		expect(run(commit("self-plugin/hooks/hooks.json")).denied).toBe(false);
 	});
 
-	/* The test matches an id that is any SUBSTRING of the command
-	 * line, so a row naming the script alone already pins a registration carrying
-	 * arguments. Only the needle entry, which is keyed on the arguments, is
-	 * genuinely owed here. */
 	it("takes a pin row naming the script alone for an argument-keyed registration", () => {
 		edit(
 			"self-plugin/hooks/hooks.json",
@@ -1862,8 +1750,6 @@ describe("what the review of mantahostels#2671 left open (mantahostels#2685)", (
 		).toBe(false);
 	});
 
-	/* An unparseable hooks.json must ALLOW. Read as an empty
-	 * registration list it would instead read every hook at HEAD as removed. */
 	it("allows a hooks.json it cannot parse, rather than reading it as empty", () => {
 		edit("self-plugin/hooks/hooks.json", "{ not json\n");
 		expect(run(commit("self-plugin/hooks/hooks.json")).denied).toBe(false);
@@ -1872,8 +1758,6 @@ describe("what the review of mantahostels#2671 left open (mantahostels#2685)", (
 		]);
 	});
 
-	/* guard-fires.js keys any scripts/<name>, so a hook wearing neither .sh
-	 * nor .js still demands a needle entry. */
 	it("refuses a newly run hook script wearing neither .sh nor .js, naming the script", () => {
 		edit(
 			"self-plugin/hooks/hooks.json",
@@ -1890,7 +1774,6 @@ describe("what the review of mantahostels#2671 left open (mantahostels#2685)", (
 });
 
 describe("a checker this commit deletes (mantahostels#2685)", () => {
-	/** Put a CALLED_ELSEWHERE entry for check-existing.js into HEAD. */
 	function allowlistAtHead(): void {
 		fs.writeFileSync(
 			path.join(repo, "scripts", "checker-registrations.test.ts"),
@@ -1915,8 +1798,6 @@ describe("a checker this commit deletes (mantahostels#2685)", () => {
 		expect(v.reason).toContain("scripts/check-existing.js");
 	});
 
-	/* `git rm` takes the path out of the index, so ls-files never names it — the
-	 * staged-deletion list is what keeps it in the landing set. */
 	it("is refused on the git rm route too", () => {
 		allowlistAtHead();
 		git(repo, "rm", "-q", "--", "scripts/check-existing.js");
@@ -1939,9 +1820,6 @@ describe("a checker this commit deletes (mantahostels#2685)", () => {
 		).toBe(false);
 	});
 
-	/* willExist reads a landing path off the DISK, so a sibling test this commit
-	 * deletes is absent rather than present — the case where a checker comes back
-	 * and its test does not. */
 	it("demands the sibling test when a re-added checker's test goes in the same commit", () => {
 		git(repo, "rm", "-q", "--", "scripts/check-existing.js");
 		git(repo, "commit", "-qm", "drop it", "--", "scripts/check-existing.js");
@@ -1954,8 +1832,6 @@ describe("a checker this commit deletes (mantahostels#2685)", () => {
 		expect(v.reason).toContain("no sibling test");
 	});
 
-	/* Rename detection reports one R entry naming the NEW path only,
-	 * so the old member's disappearance is invisible without --no-renames. */
 	it("is refused when a rename carries it away from its allowlist entry", () => {
 		allowlistAtHead();
 		git(repo, "mv", "scripts/check-existing.js", "scripts/check-renamed.js");
@@ -1964,12 +1840,6 @@ describe("a checker this commit deletes (mantahostels#2685)", () => {
 		expect(v.reason).toContain("CALLED_ELSEWHERE entry stays behind");
 	});
 
-	/* On this limb, HOLDING the literal is what denies — so an
-	 * unreadable registry must read as absent and allow, the opposite of
-	 * willHold's fail-open.
-	 *
-	 * The blob is corrupted rather than chmod'd: a chmod on .git/objects does
-	 * not reach the branch. */
 	it("allows the deletion when the allowlist blob is corrupt", () => {
 		allowlistAtHead();
 		fs.writeFileSync(
@@ -2002,11 +1872,6 @@ describe("a checker this commit deletes (mantahostels#2685)", () => {
 });
 
 describe("what a broken HEAD does (mantahostels#2702)", () => {
-	/* `cat-file -e "HEAD:<path>"` cannot tell a break from an absence: it
-	 * exits 128 for BOTH a path HEAD does not name and an unreadable object
-	 * store, while its exit 1 means a tree entry whose blob is gone. */
-
-	/** Commit $rel at HEAD with none of the wiring a new member would need. */
 	function unwiredAtHead(rel: string, body: string): void {
 		fs.writeFileSync(path.join(repo, rel), body);
 		git(repo, "add", "--", rel);
@@ -2015,16 +1880,9 @@ describe("what a broken HEAD does (mantahostels#2702)", () => {
 
 	it("allows a member whose HEAD blob is gone, rather than judging it new", () => {
 		unwiredAtHead("scripts/check-orphan.js", "// no caller, no sibling\n");
-		// The tree still names it, so it is not new — but the object behind the
-		// entry is gone.
 		fs.rmSync(looseObject("HEAD:scripts/check-orphan.js"));
 		edit("scripts/check-orphan.js", "// touched\n");
 		expect(run(commit("scripts/check-orphan.js")).denied).toBe(false);
-		// Allowed because the path READS as an existing member, not because
-		// something failed open — which is what an always-broken read would give.
-		// The needle-drift scan's own fail-open is filtered out: that limb reads
-		// HEAD's copy of every landing corpus file and legitimately gives up on
-		// this broken blob (mantahostels#2708).
 		expect(
 			readFaultReasons().filter((r) => !r.includes("needle-drift")),
 		).toEqual([]);
@@ -2046,8 +1904,6 @@ describe("what a broken HEAD does (mantahostels#2702)", () => {
 
 	it("leaves a member unjudged when HEAD's tree cannot be read at all", () => {
 		unwiredAtHead("scripts/check-orphan.js", "// no caller, no sibling\n");
-		// The scripts/ subtree, not the blob: every HEAD read under it now fails,
-		// which is `cat-file -e`'s exit 128 — the same code a plain absence gives.
 		fs.writeFileSync(looseObject("HEAD:scripts"), "not a git object");
 		edit("scripts/check-orphan.js", "// touched\n");
 		expect(run(commit("scripts/check-orphan.js")).denied).toBe(false);
@@ -2057,8 +1913,6 @@ describe("what a broken HEAD does (mantahostels#2702)", () => {
 	});
 
 	it("treats a wiring file it cannot read at HEAD as present", () => {
-		// The hooks.json read alone, so the MEMBER's own read still succeeds and
-		// the break lands inside that requirement.
 		add("scripts/guard-new.sh", "#!/usr/bin/env bash\n");
 		add("scripts/guard-new.test.ts", "// covered\n");
 		add(
@@ -2084,9 +1938,6 @@ describe("what a broken HEAD does (mantahostels#2702)", () => {
 		]);
 	});
 
-	/* ls-tree's pathspec is CWD-RELATIVE where `cat-file -e HEAD:<path>` was not,
-	 * so without --full-tree every HEAD path read from a subdirectory came back
-	 * absent — and on this site absent means NEW, which refuses. */
 	it("reads HEAD the same way from a subdirectory", () => {
 		edit("scripts/check-existing.js", "// touched\n");
 		expect(
@@ -2104,18 +1955,12 @@ describe("what a broken HEAD does (mantahostels#2702)", () => {
 });
 
 describe("judgeHookList's HEAD-side fail-opens (mantahostels#2702)", () => {
-	/* All three allow, so the VERDICT alone cannot tell them apart — reversing one
-	 * leaves the next to catch it. Each case therefore pins the recorded reason. */
-
-	/** A hooks.json change that refuses on its own: a hook dropped, its needle left. */
 	const dropWithNeedleLeftBehind = () => {
 		edit("self-plugin/hooks/hooks.json", hooksFileFor([]));
 		return commit("self-plugin/hooks/hooks.json");
 	};
 
 	it("allows, saying so, when HEAD's hooks.json cannot be shown", () => {
-		// The blob is corrupted rather than removed: HEAD's tree still names the
-		// path, so judgeHookList is reached and `git show` is what fails.
 		fs.writeFileSync(
 			looseObject("HEAD:self-plugin/hooks/hooks.json"),
 			"not a git object",
@@ -2134,8 +1979,6 @@ describe("judgeHookList's HEAD-side fail-opens (mantahostels#2702)", () => {
 		);
 		git(repo, "add", "--", "self-plugin/hooks/hooks.json");
 		git(repo, "commit", "-qm", "no hooks at HEAD");
-		// guard-other.sh is in no needle registry, so without the fail-open this
-		// addition is refused.
 		edit(
 			"self-plugin/hooks/hooks.json",
 			hooksFileFor(["scripts/guard-existing.sh", "scripts/guard-other.sh"]),
@@ -2148,26 +1991,7 @@ describe("judgeHookList's HEAD-side fail-opens (mantahostels#2702)", () => {
 	});
 });
 
-/*
- * Every fail-open branch a broken OBJECT cannot reach. A chmod-000 object store
- * proves nothing — git answers from a cached ref or the pack index either way,
- * and where it does fail it fails for `git ls-files` too, so `landing` comes
- * back empty and judgeCommit returns before any of these branches run.
- *
- * The seam here is a WFC_GIT stub that fails ONE git call, so a branch can be
- * reached without breaking the reads around it. Each case pins the RECORDED
- * REASON as well as the verdict: an allow is what most of these branches
- * produce, so the verdict alone cannot tell one reversed fix from another. The
- * pin is a ONE-element list, so a second fail-open firing alongside fails too.
- */
 describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
-	/**
-	 * A `git` at WFC_GIT that exits 128 when its arguments carry `subcommand` — and
-	 * `want` too, where one is given — and runs the real git otherwise.
-	 *
-	 * The match is over the whole argument list rather than positional, so a
-	 * subcommand name arriving as a VALUE would match too.
-	 */
 	function gitShim(subcommand: string, want = ""): Record<string, string> {
 		const shim = writeFaultyGit(
 			{ every: want ? [subcommand, want] : [subcommand] },
@@ -2177,8 +2001,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		return { WFC_GIT: shim.git };
 	}
 
-	/* willHold's working-tree limb: the copy this commit takes is on disk but
-	 * unreadable, so the read answers "absent" — which on this limb DENIES. */
 	it("treats a landing wiring file it cannot read as holding the wiring", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.test.ts", "// covered\n");
@@ -2203,9 +2025,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		}
 	});
 
-	/* willHold's HEAD limb: HEAD's tree still names the file, so ls-tree
-	 * succeeds and `git show` is what fails. No shim — a corrupt blob reaches
-	 * this one on its own. */
 	it("treats a wiring file HEAD names but cannot show as holding the wiring", () => {
 		add("scripts/guard-new.sh", "#!/usr/bin/env bash\n");
 		add("scripts/guard-new.test.ts", "// covered\n");
@@ -2232,9 +2051,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		]);
 	});
 
-	/* willExist: the sibling test is neither landing nor readable at HEAD, and
-	 * absence here is what denies. The shim breaks the sibling's own ls-tree
-	 * alone, so the member's read still answers "new" and the case is judged. */
 	it("treats a sibling test it cannot look up at HEAD as present", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/wire.sh", "#!/usr/bin/env bash\nnode scripts/check-new.js\n");
@@ -2250,8 +2066,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		]);
 	});
 
-	/* willSurelyHold: the mirror direction — HOLDING the allowlist entry is
-	 * what denies a deletion, so an unreadable registry must read as absent. */
 	it("reads an allowlist it cannot look up at HEAD as no longer naming the member", () => {
 		fs.writeFileSync(
 			path.join(repo, "scripts", "checker-registrations.test.ts"),
@@ -2278,9 +2092,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		]);
 	});
 
-	/* The landing computation itself. A pathspec word git cannot expand leaves
-	 * `landing` empty, so nothing is judged at all — the new checker in this case
-	 * is refused without the shim. */
 	it("leaves a pathspec word unjudged when git cannot list what it names", () => {
 		add("scripts/check-new.js", "// new\n");
 		const v = run(commit("scripts/check-new.js"), repo, gitShim("ls-files"));
@@ -2290,11 +2101,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		]);
 	});
 
-	/* The staged-deletion read is a SECOND source of landing paths, so its
-	 * failure narrows the commit rather than emptying it: what ls-files did name
-	 * is still judged, and the new checker is still refused — refused with the
-	 * fail-open removed too, that limb changing no control flow, so the reason is
-	 * the whole case. */
 	it("records the staged deletions it could not read, and judges the rest", () => {
 		add("scripts/check-new.js", "// new\n");
 		const v = run(
@@ -2308,9 +2114,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		]);
 	});
 
-	/* The index route has one source of landing paths and no second, so the same
-	 * break allows the whole commit — which it would with the fail-open removed
-	 * too, an empty `landing` returning early, so the reason is the whole case. */
 	it("allows a bare commit whose staged path list cannot be read", () => {
 		fs.writeFileSync(path.join(repo, "scripts", "check-new.js"), "// new\n");
 		git(repo, "add", "--", "scripts/check-new.js");
@@ -2321,8 +2124,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		]);
 	});
 
-	/* Without a top level every path this guard reads is unresolvable, so the
-	 * commit is allowed before any of the limbs above run. */
 	it("allows a commit whose repository top level cannot be resolved", () => {
 		add("scripts/check-new.js", "// new\n");
 		const v = run(
@@ -2336,8 +2137,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		]);
 	});
 
-	/* indexNames' unknown answer on the wiring limb: a git break is not an absence, so
-	 * the requirement reads as met and the commit is allowed. */
 	it("treats a wiring file it cannot look up in the index as holding the wiring", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.test.ts", "// covered\n");
@@ -2360,9 +2159,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		);
 	});
 
-	/* judgeHookList's HEAD-side extractor failure. Its working-tree twin is
-	 * pinned by "allows a hooks.json it cannot parse" above, and mantahostels#2702 covers
-	 * `git show` failing rather than the JSON being unparseable. */
 	it("allows a hook-list change whose HEAD hooks.json cannot be parsed", () => {
 		fs.writeFileSync(
 			path.join(repo, "self-plugin", "hooks", "hooks.json"),
@@ -2370,7 +2166,6 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 		);
 		git(repo, "add", "--", "self-plugin/hooks/hooks.json");
 		git(repo, "commit", "-qm", "unparseable settings at HEAD");
-		// A hook dropped with its needle left behind: refused on its own.
 		edit("self-plugin/hooks/hooks.json", hooksFileFor([]));
 		const v = run(commit("self-plugin/hooks/hooks.json"));
 		expect(v.denied).toBe(false);
@@ -2381,14 +2176,12 @@ describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 });
 
 describe("a needle keyed on wording that moved (mantahostels#2708)", () => {
-	/** Key the fixture's registry on one literal of guard-existing.sh's. */
 	const keyOn = (text: string) =>
 		edit(
 			"scripts/guard-fire-needles.json",
 			`${JSON.stringify({ guards: { "guard-existing.sh": { needles: [{ id: "n1", kind: "deny", text }] } } }, null, 2)}\n`,
 		);
 
-	/** Commit that keying, so HEAD carries it and the guard prints it. */
 	const atHead = (text: string) => {
 		keyOn(text);
 		edit(
@@ -2415,7 +2208,6 @@ describe("a needle keyed on wording that moved (mantahostels#2708)", () => {
 	});
 
 	it("denies it even where the needle is corrected on disk but left out of the pathspec", () => {
-		// Reading the registry from the working tree acquits this.
 		atHead("the OLD wording");
 		edit(
 			"scripts/guard-existing.sh",
@@ -2438,7 +2230,6 @@ describe("a needle keyed on wording that moved (mantahostels#2708)", () => {
 		).toBe(false);
 	});
 
-	/** p.diff cut from the working tree's edits to `rels`, the tree then put back to HEAD. */
 	const patchOf = (...rels: string[]) => {
 		fs.writeFileSync(
 			path.join(repo, "p.diff"),
@@ -2504,8 +2295,6 @@ describe("a needle keyed on wording that moved (mantahostels#2708)", () => {
 			"scripts/guard-existing.sh",
 			"#!/usr/bin/env bash\ndeny 'the NEW wording'\n",
 		);
-		// The rewording is on disk but unlanded, and README.md is outside every
-		// corpus directory, so the scan never runs.
 		add("README.md", "unrelated\n");
 		expect(run(commit("README.md")).denied).toBe(false);
 		expect(readFaultReasons()).toEqual([]);

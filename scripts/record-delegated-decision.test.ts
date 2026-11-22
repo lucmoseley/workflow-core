@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * record-delegated-decision.js, driven through its command line (#2002).
- *
- * GitHub is a stub `gh` (WFC_GH) keeping fixture issue acme/widgets#534's
- * comments in a file, with levers that fail the post or drop its URL, so a
- * re-run sees what the first run posted; the config and ledger sit in a
- * throwaway repository.
- *
- * WHAT BREAKING IT COSTS: a decision posted twice, or missing from the ledger
- * the morning review issue lists from, so the founder never sees it.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -32,10 +21,6 @@ const stub = (name: string) => path.join(sb.dir, "gh", name);
 const ledger = () =>
 	path.join(sb.repo, ".claude", "tmp", "markers", "delegated-decisions.jsonl");
 
-/**
- * `gh` over #534's comments. Levers: `comment-fails` fails the post;
- * `no-url` posts but prints nothing.
- */
 const STUB = `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
@@ -224,8 +209,6 @@ describe("a failed write", () => {
 		vi.useRealTimers();
 		expect(rerun.status).toBe(0);
 		expect(readPosted()).toHaveLength(1);
-		// Stamped when appended, not with the comment's 01:00, so a review filed
-		// between the two does not swallow the line (#3827).
 		expect(readLedger()).toEqual([expect.objectContaining({ at: appended })]);
 	});
 

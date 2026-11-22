@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * lib/issue-phase-scope.js, the guard-issue-phase-scope core (#2798), in
- * process: it denies a `gh issue create` whose title names a roadmap card
- * outside Phase 0 that the founder has not called (mantahostels#1613).
- *
- * A deny is only defensible while it cannot wedge sanctioned work, so every
- * allow-case below is a shape that would otherwise be a false positive: a
- * Phase-0 card, a called card, a title with no card prefix at all, a card the
- * roadmap does not know, and a command that merely mentions `gh issue create`.
- * Do not thin them out.
- *
- * The roadmap and the register are FIXTURES, not the real files: a test that
- * read `docs/reference-roadmap.html` would change its verdict every time a
- * card moved phase, and would go green for the wrong reason once every card
- * was called. The entry's own cases — the JSON it prints, the hook line, the
- * failure policy — are guard-issue-phase-scope.test.ts's.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -36,7 +19,6 @@ const { treePorts } = require("./guard-host-ports.js") as {
 let dir: string;
 let faults: string[];
 
-/** A roadmap holding one Phase-0 card and two Phase-1 cards. */
 const ROADMAP = [
 	'<p class="docmeta">v9.99 · updated 1 January 2026, 00:00</p>',
 	"const ITEMS = [",
@@ -107,8 +89,6 @@ afterEach(() => {
 
 describe("the creates it denies", () => {
 	it("denies a Phase-1 card nobody has called", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(
 			verdict(
 				'gh issue create --title "search-core — which filters ship" --label takes:triage',
@@ -119,24 +99,18 @@ describe("the creates it denies", () => {
 	it("denies every uncalled Phase-1 card, not just the first, naming the card", () => {
 		const call = 'gh issue create --title "privacy-ops — Art. 34 re-read"';
 		expect(verdict(call)).toBe("deny");
-		// The refusal must name THIS card: the pin below is written against
-		// search-core, so a deny that named it would pass unnoticed here.
 		expect(reason(call)).toMatch(
 			/^This opens an issue for `privacy-ops`, a \*\*Phase 1\*\*/,
 		);
 	});
 
 	it("judges gh by its basename, so a path-spelled call is no escape", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(
 			verdict('/usr/bin/gh issue create --title "search-core — a thing"'),
 		).toBe("deny");
 	});
 
 	it("denies the REST spelling of the same creation", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(
 			verdict(
 				'gh api --method POST repos/o/r/issues -f title="search-core — a thing"',
@@ -145,8 +119,6 @@ describe("the creates it denies", () => {
 	});
 
 	it("denies a REST creation that names no method, gh defaulting to POST", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(
 			verdict('gh api repos/o/r/issues -f title="search-core — a thing"'),
 		).toBe("deny");
@@ -166,15 +138,10 @@ describe("the creates it denies", () => {
 			"title quoted whole and no method, gh defaulting to POST",
 		],
 	])("denies a REST creation — %s — %s", (command) => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it". A quoted
-		// field name reads back through its span, so it is judged (#3421).
 		expect(verdict(command)).toBe("deny");
 	});
 
 	it("denies through the short -t spelling of the title", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(verdict('gh issue create -t "search-core — a thing"')).toBe("deny");
 	});
 
@@ -183,11 +150,7 @@ describe("the creates it denies", () => {
 		expect(r).toContain("search-core");
 		expect(r).toContain("Phase 1");
 		expect(r).toContain("docs/called-cards.md");
-		// The one instruction that must survive any rewording: the session is
-		// told not to grant itself the permission it was just refused.
 		expect(r).toMatch(/Never add the row to unblock yourself/);
-		// @CMD@ is spliced with the segment as unmask renders it, quoted
-		// spans elided.
 		expect(r).toContain('has not called: gh issue create --title "…"');
 	});
 });
@@ -225,8 +188,6 @@ describe("the creates it allows", () => {
 	});
 
 	it("allows a prefix that is not a card id's shape, so no pattern is built from it", () => {
-		// `search.core` would match `search-core` as a pattern: the id's shape
-		// is what keeps the roadmap lookup literal.
 		expect(verdict('gh issue create --title "search.core — a thing"')).toBe(
 			"allow",
 		);
@@ -245,7 +206,6 @@ describe("the creates it allows", () => {
 	});
 
 	it("allows a hyphen-separated title, which cannot be split without guessing", () => {
-		// `seed-listings - x` has no unambiguous split: card ids contain hyphens.
 		expect(verdict('gh issue create --title "search-core - a thing"')).toBe(
 			"allow",
 		);
@@ -299,26 +259,17 @@ describe("what the register does and does not license", () => {
 		);
 		const other = 'gh issue create --title "privacy-ops — a thing"';
 		expect(verdict(other)).toBe("deny");
-		// The refusal must name privacy-ops: a deny still naming search-core would
-		// mean the register was not read at all, which is what this test denies.
 		expect(reason(other)).toContain("privacy-ops");
 	});
 
 	it("ignores a row after the end marker", () => {
 		writeFixtures(`${register()}- \`search-core\` — after the end\n`);
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(verdict('gh issue create --title "search-core — a thing"')).toBe(
 			"deny",
 		);
 	});
 
 	it("ignores a row outside the markers, so the format example is not a licence", () => {
-		// The register's own prose shows `- \`search-core\`` as the row format,
-		// outside the markers. Reading it would call the very card the fixture is
-		// there to protect, and every deny case above would pass for that reason.
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(verdict('gh issue create --title "search-core — a thing"')).toBe(
 			"deny",
 		);
@@ -326,10 +277,7 @@ describe("what the register does and does not license", () => {
 });
 
 describe("the wrapper spellings it follows", () => {
-	// Without these, prefixing one word escapes the whole guard.
 	it("follows env, command, exec, nohup and nice -n", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		for (const w of ["env", "command", "exec", "nohup", "nice -n 5"])
 			expect(
 				verdict(`${w} gh issue create --title "search-core — a thing"`),
@@ -337,8 +285,6 @@ describe("the wrapper spellings it follows", () => {
 	});
 
 	it("follows timeout past its duration argument", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(
 			verdict('timeout 60 gh issue create --title "search-core — a thing"'),
 		).toBe("deny");
@@ -358,16 +304,12 @@ describe("the wrapper spellings it follows", () => {
 
 describe("the title spellings it still reads as a card", () => {
 	it("trims the prefix, so a doubled space is not an escape", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(
 			verdict('gh issue create --title "search-core  — a doubled space"'),
 		).toBe("deny");
 	});
 
 	it("reads an en dash as well as an em dash, and an unspaced em dash", () => {
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(verdict('gh issue create --title "search-core – a thing"')).toBe(
 			"deny",
 		);
@@ -377,10 +319,6 @@ describe("the title spellings it still reads as a card", () => {
 	});
 
 	it("judges a readable title even when another argument is not", () => {
-		// The title is the guard's only input. Failing open on an unrelated
-		// expansion would walk a deniable creation through.
-		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
-		// escape — by "names the card, its phase, and who may call it".
 		expect(verdict('gh issue create --title "search-core — a thing" $_')).toBe(
 			"deny",
 		);
@@ -396,8 +334,6 @@ describe("what it fails open on, and records", () => {
 	});
 
 	it("allows and records a title whose card prefix reads but whose rest does not", () => {
-		// The visible text names a card, but a title not read whole is not
-		// judged.
 		expect(verdict('gh issue create --title "search-core — $X"')).toBe("allow");
 		expect(readFaults()).toEqual([
 			"could not read the --title of a gh issue create — create allowed unchecked",
@@ -451,8 +387,6 @@ describe("what it fails open on, and records", () => {
 	});
 
 	it("allows and records a REST field whose own name is hidden", () => {
-		// The name decides whether the value matters, so a field whose name will
-		// not read could be the title and cannot be told from any other.
 		expect(verdict('gh api --method POST repos/o/r/issues -f "$FIELD"')).toBe(
 			"allow",
 		);
@@ -494,8 +428,6 @@ describe("what it fails open on, and records", () => {
 	});
 
 	it("records nothing for a gh call that is not a creation (#3426)", () => {
-		// The roadmap check waits until the command is known to be a create;
-		// ahead of that, every `gh` call in the repo would write a fail-open record.
 		fs.rmSync(at("docs/reference-roadmap.html"));
 		expect(verdict("gh issue list --state open")).toBe("allow");
 		expect(verdict("gh pr view 5")).toBe("allow");
@@ -508,8 +440,6 @@ describe("what it fails open on, and records", () => {
 		const tree = () => {
 			throw new Error("tree down");
 		};
-		// The REST creation still asks, so the dispatcher's fail-closed path
-		// still reaches it.
 		expect(() =>
 			run('gh api repos/o/r/issues -f title="search-core — a thing"', {
 				tree,
@@ -549,7 +479,6 @@ describe("a creation from a session in its own worktree (#4242)", () => {
 		split = splitCheckout(path.join(sb.dir, "split"));
 	});
 
-	/** Write the fixtures into `tree`, its register calling `called`. */
 	const fixturesIn = (tree: string, ...called: string[]) => {
 		fs.mkdirSync(path.join(tree, "docs"), { recursive: true });
 		fs.writeFileSync(path.join(tree, "docs/reference-roadmap.html"), ROADMAP);

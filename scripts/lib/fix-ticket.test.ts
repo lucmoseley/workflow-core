@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The queue lander's fix tickets (#4485, spec #4458; #4950, spec #4947),
- * filed, updated and closed through fake file-issue.js and gh calls.
- *
- * Loosen it and a dropped queue ref's work can go unrecorded, land under a
- * closed ticket no map offers, or be filed twice; a branch dropped again can
- * get a second ticket or leave its ticket naming an old drop, a closed cited
- * ticket can be reopened by an update, or a filing fault can read as a
- * loader's file path.
- */
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
@@ -17,8 +7,7 @@ import { dropTicketFiler } from "./fix-ticket.js";
 import { parseGateRefusal } from "./lander-git.js";
 import type { Drop } from "./queue-lander.js";
 
-// Required, not imported: an ESM import of filing-refused.js would load a
-// second copy of FilingRefusedError, which fix-ticket.js's throw is not.
+// #5529
 const { FilingRefusedError } = createRequire(__filename)("./filing-refused.js");
 
 const flag = (args: string[], name: string) => args[args.indexOf(name) + 1];
@@ -40,11 +29,6 @@ const HELD = [{ ref: DROP.ref, sha: A }];
 const OWN_BODY = `## Acceptance criteria\n\n- [ ] ${buildDropAcceptance(DROP)}\n- [ ] Added by hand.\n`;
 
 describe("dropTicketFiler", () => {
-	/**
-	 * A filer over the member's commit `subjects`, newest first, with `units`
-	 * the open tickets under each parent, and file-issue exiting `status`, or
-	 * refusing only a `--parent` filing with `refuseParent`.
-	 */
 	function dropFiler(
 		subjects: string[],
 		states: Record<number, "open" | "closed"> = {},
@@ -423,9 +407,6 @@ describe("dropTicketFiler", () => {
 		const red = { kind: "red" as const, name: "wt-1", iso };
 
 		f.said({ cause: { ...red, files: [], typecheck } });
-		/* The lander names files and the type-check both only on a
-		 * collision's whole-suite step, a member red on files being confirmed
-		 * on those files alone; a red holding both still reads so. */
 		const collision = {
 			kind: "collision" as const,
 			name: "wt-1",

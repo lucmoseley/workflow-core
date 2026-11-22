@@ -1,59 +1,3 @@
-/*
- * main-checkout-write.js — the dispatcher core that refuses a write to the
- * main checkout's tracked tree once it is cut over (#4248, spec #4229), and
- * from a session in a linked worktree whether it is cut over or not (#4697).
- *
- * DENY, not warn (mantahostels#103).
- *
- * A session whose cwd is the main checkout keeps writing there until the
- * cutover.
- *
- * WHAT IT REFUSES, from a linked-worktree session or with the main checkout
- * cut over (lib/cutover.js): a Write, Edit or NotebookEdit path, or a Bash
- * write, move or delete by any spelling lib/shell-parse.js's writeTargets reads,
- * resolving into the main checkout's own tree — not into a linked worktree
- * under it, not under `.git` — at a path git does not ignore, tracked or not;
- * and a git command that writes the main checkout's index, `HEAD` or files
- * (`WRITERS`), save a restore of named tracked files to HEAD (`RESTORES`),
- * which only removes dirt and which the refusal names as the way out of it;
- * and an interpreter lib/shell-words.js's programSource reads run from a
- * directory in
- * that tree whose program is no existing file — `python3 -`, `node -e`,
- * `bash -c`, a piped or heredoc-fed program, through any wrapper lib/
- * shell-words.js's unwrap strips, in any directory the walk says its run
- * may stand in (a `cd` that may not have run or failed, `env -C`, a
- * `flock -c` string's `cd`) — since what it writes lives in another
- * language's strings and cannot be read (#4469). That refusal is a guess
- * that the program writes, taken because its way out — `cd` into the
- * session's worktree and run it there — costs nothing. `python3 -m` names no
- * file, so is refused too, as is a valued flag programSource does not list
- * whose value is no file (#4479).
- *
- * GITIGNORED STORES STAY WRITABLE: claims, markers, ledgers and scratch under
- * `.claude/` are what every session shares, and git ignores them.
- *
- * LIMITS
- *  - A target writeTargets does not read — `dd of=`, a script file writing
- *    on the session's behalf, an inline interpreter run from outside the
- *    main checkout naming a path in it — or one it cannot resolve is not
- *    seen; so is a command run outside Claude Code; an interpreter whose cwd
- *    the walk loses (`cd "$X"`, `pushd`, `env -C $X`), recorded;
- *    one run from a gitignored
- *    directory under the main checkout, which may still write `../` into
- *    its tree; and one behind a launcher unwrap does not strip (`uv run`).
- *    Once it is cut over, the pre-commit limb holds a commit made by any
- *    route; before, a worktree session's commit there by a route this does
- *    not read is held by nothing.
- *  - A `git` that cannot answer for the path allows the write, recorded
- *    (mantahostels#103 §6); one that cannot read the upstream leaves only the
- *    worktree refusal standing, recorded.
- *  - A worktree session is told by the payload's cwd, so one whose shell
- *    has `cd`'d into the main checkout writes there unrefused before the
- *    cutover. Its stores then key by the main checkout, and the turn-end
- *    reads judge it, until it `cd`s back before the turn ends (#4697).
- *  - No override: this binds agent sessions only (mantahostels#109).
- */
-
 const path = require("node:path");
 const { buildCutCommand, readCutOver } = require("./cutover.js");
 const { denyText } = require("./guard-verdict.js");
@@ -63,7 +7,6 @@ const { absolute, literal, programSource } = require("./shell-words.js");
 const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
-/* git verbs that write a work tree's index, HEAD or files. */
 const WRITERS = [
 	"add",
 	"am",
@@ -97,33 +40,24 @@ const READ_ONLY = {
 };
 
 /**
- * A source naming HEAD, the only tree a restore here may take a file back to.
  * @param {string | undefined} s
  */
 const atHead = (s) => s === "HEAD" || s === "@";
 
 /**
- * A pathspec naming one file: no `.`, directory, glob, pathspec magic or
- * quoted word the parser leaves unread (`\u0001`), so a restore cannot sweep
- * a tree's dirt wholesale.
  * @param {string} p
- * @param {string} tree the directory git resolves `p` against
+ * @param {string} tree
  * @param {StatKindOf} statKind
  */
 function namesOneFile(p, tree, statKind) {
 	if (p === "" || p.startsWith(":") || p.includes("\u0001") || /[*?[]/.test(p))
 		return false;
-	/* A deleted tracked file is the one file a restore brings back. A fault
-	 * cannot tell a file from a directory, so the word does not earn the
-	 * restore exemption (#4229 review). */
 	return ["file", "other", "absent"].includes(statKind(path.resolve(tree, p)));
 }
 
 /**
- * The source a `git restore` word names, or null where the word names none;
- * `-s` may close a cluster (`-Ws HEAD`) or carry its value (`-sHEAD`).
  * @param {string} w
- * @param {() => string | undefined} next the following word, consumed
+ * @param {() => string | undefined} next
  * @returns {string | undefined | null}
  */
 function restoreSource(w, next) {
@@ -135,10 +69,6 @@ function restoreSource(w, next) {
 }
 
 /**
- * What follows the first `s` of a short-option cluster, as `/^-[^-]*?s(.*)$/`
- * reads it, or null: that `s` lies after the word's last line break, as `.`
- * crosses none, and no `-` comes before it. Read by index: the regex
- * would re-read the tail from every `s` (#4109).
  * @param {string} w
  * @returns {string | null}
  */
@@ -149,10 +79,6 @@ function shortClusterRest(w) {
 }
 
 /**
- * Taking named tracked files back to HEAD: the one write that only removes
- * dirt from the main checkout, so the refusal names it as the way out
- * (#4449). The source must be HEAD by name — a bare restore takes the index,
- * which may hold a staged write.
  * @type {Record<string, (args: string[], tree: string, statKind: StatKindOf) => boolean>}
  */
 const RESTORES = {
@@ -199,7 +125,6 @@ class GitUnanswered extends Error {}
  */
 
 /**
- * The nearest directory at or above `p`.
  * @param {string} p
  * @param {StatKindOf} statKind
  */
@@ -214,11 +139,9 @@ function existingDir(p, statKind) {
 }
 
 /**
- * `p` relative to the main checkout where a write to it is refused, else
- * null; "." for the main checkout itself where `dir` allows it.
- * @param {string} p absolute
+ * @param {string} p
  * @param {CoreContext} ctx
- * @param {boolean} [dir] `p` is a working directory, not a target
+ * @param {boolean} [dir]
  * @returns {string | null}
  */
 function refusedPath(p, ctx, dir = false) {
@@ -241,8 +164,6 @@ function refusedPath(p, ctx, dir = false) {
 }
 
 /**
- * The main-checkout directory an interpreter runs in, relative, where its
- * program is no existing file, else null.
  * @param {import("./shell-parse.js").Command} cmd
  * @param {string[]} spans
  * @param {CoreContext} ctx
@@ -260,10 +181,8 @@ function interpreterDir(cmd, spans, ctx) {
 }
 
 /**
- * The main-checkout directory one unwrap run's interpreter runs in, as
- * interpreterDir answers it.
- * @param {string[]} words the run's words, read through literal
- * @param {string} cwd the directory the run stands in; "" where unknown
+ * @param {string[]} words
+ * @param {string} cwd
  * @param {CoreContext} ctx
  * @returns {string | null}
  */
@@ -284,8 +203,6 @@ function runDir(words, cwd, ctx) {
 }
 
 /**
- * What a refused call writes: a file, by path; a git command that writes; or
- * an interpreter whose program is no file, run in a main-checkout directory.
  * @typedef {{ kind: "rel", rel: string } | { kind: "git", git: string }
  *   | { kind: "interp", interp: string, dir: string }} Write
  */
@@ -335,15 +252,11 @@ function findWrite(subject, ctx) {
 }
 
 /**
- * A write's refusal parts: its opening clause, the command text it quotes,
- * the route into the session's own worktree `own`, and the way a dirtied
- * file goes back, empty where its kind has none.
  * @typedef {{ what: string, cmd: (subject: string) => string,
  *   inOwn: (own: string) => string, back: (root: string) => string }} Refusal
  */
 
 /**
- * Each write kind's refusal.
  * @type {{ [K in Write["kind"]]: (w: Extract<Write, { kind: K }>) => Refusal }}
  */
 const REFUSALS = {
@@ -373,8 +286,6 @@ const REFUSALS = {
  * @returns {Refusal}
  */
 const refusalOf = (w) =>
-	/* tsc cannot match a mapped-type entry to the union member it is keyed
-	 * on, so the lookup is widened to the whole union. */
 	/** @type {(w: Write) => Refusal} */ (REFUSALS[w.kind])(w);
 
 /**
@@ -385,15 +296,10 @@ function route(w, ctx) {
 	const own = ctx.tree().root;
 	if (own !== ctx.root)
 		return `Your session's worktree is ${own}: ${refusalOf(w).inOwn(own)}`;
-	/* The payload's cwd, not the session's launch directory: a session cut
-	 * into a worktree that has since `cd`'d into the main checkout lands here
-	 * too, so the text sends it to a worktree it may already have. */
 	return `This session's working directory is the main checkout. \`cd\` into your own worktree under ${path.join(ctx.root, WORKTREES)}/ where you have one; where you have none, cut one with ${buildCutCommand(ctx.scriptPath)}, which prints its path. Work and commit there.`;
 }
 
 /**
- * Why the main checkout takes no write from this session, or null where it
- * takes them.
  * @param {CoreContext} ctx
  * @returns {string | null}
  */

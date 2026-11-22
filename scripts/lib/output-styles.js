@@ -1,15 +1,3 @@
-/*
- * output-styles.js — the names an `outputStyle` setting can resolve to, read
- * the way the harness reads them (#1944).
- *
- * A style's name is its frontmatter `name:`, else its filename without `.md`.
- * A PLUGIN's style is namespaced `<plugin>:<name>` (Claude Code 2.1.302's
- * plugin output-style loader), so an adopter, which gets the core's style from
- * the plugin, names it `workflow-core:Core voice`; workflow-core itself reads
- * the same file as a project style and names it `Core voice`. A setting
- * matching no name loads no style, silently.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -17,7 +5,6 @@ const { requiredGroup } = require("./regex-group.js");
 
 const CORE_STYLE = "Core voice";
 
-/** The harness's built-in styles, which no file declares (Claude Code 2.1.302). */
 const BUILT_IN_STYLES = [
 	"default",
 	"Concise",
@@ -27,18 +14,11 @@ const BUILT_IN_STYLES = [
 ];
 
 const OPEN_RE = /^---\r?\n/m;
-/* A `name:` line's value less its outer blanks; a value of blanks alone is
- * its last blank. Each blank run is read once. */
 const NAME_LINE_RE =
 	/^name:(?:[ \t]*(?=[^ \t\n\r\u2028\u2029])|[ \t]*(?=[ \t]$))((?:[ \t]*[^ \t\n\r\u2028\u2029])+|[ \t])[ \t]*\r?$/m;
 const CLOSE_RE = /^---/m;
 
-/**
- * The frontmatter `name:` value, or "" where there is none. Only the first
- * `---` line can open it and only the first `name:` line after it can name
- * it: a later one has no closing `---` where the first had none.
- * @param {string} text
- */
+/** @param {string} text */
 function frontmatterName(text) {
 	const open = OPEN_RE.exec(text);
 	if (!open) return "";
@@ -51,7 +31,6 @@ function frontmatterName(text) {
 }
 
 /**
- * The style names a directory of `.md` files declares.
  * @param {string} dir
  * @returns {string[]}
  */
@@ -79,7 +58,6 @@ function readStylesIn(dir) {
 const namespaced = (plugin, style) => `${plugin}:${style}`;
 
 /**
- * The plugin a namespaced style name belongs to.
  * @param {string} name
  * @returns {string|null}
  */
@@ -89,7 +67,6 @@ const pluginOf = (name) => {
 };
 
 /**
- * The namespaced names of the styles a plugin tree ships.
  * @param {string} pluginRoot
  * @returns {{plugin: string, styles: string[]}}
  */

@@ -125,8 +125,6 @@ const {
 } = require("./lib/guard-triggers.js");
 const { manifestAt } = require("./lib/guard-cores.js");
 const { coreHost } = require("./lib/workflow-core-config.js");
-/* Shared, never copied: it refuses an ISO spelling that parses but sorts
- * wrong (mantahostels#1896). */
 const { parseSince } = require("./count-guard-fires.js");
 const rateTable = require("./lib/guard-deny-rates.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -155,18 +153,6 @@ const CLI = {
 	},
 };
 
-/* AN ADOPTER'S HOOKS AND GUARDS LIVE IN THE PLUGIN, not the host (#954): its
- * `hooks/hooks.json` registers them and its `scripts/` holds their source and
- * the needles. So the host answers only `.claude/settings.json` and the
- * transcript directory; the rest is read from beside this script. At the core
- * the host is the core, whose self-plugin file registers its hooks.
- *
- * `WFC_LOST_DENY_ROOT` stands one tree in for both, so it is read as a core:
- * the seam `main()`'s exit-2 branches needed to be reachable from a CLI test
- * at all (mantahostels#3307).
- * Deliberately its own var rather than layering over `lib/hook-block.js`'s
- * `WFC_REPO_ROOT`: a suite redirecting hook counters through that var for an
- * unrelated test should not also redirect this script's reads. */
 const OVERRIDE = process.env.WFC_LOST_DENY_ROOT
 	? path.resolve(process.env.WFC_LOST_DENY_ROOT)
 	: null;
@@ -176,28 +162,12 @@ const FAILURE_TYPES = new Set(["hook_cancelled", "hook_non_blocking_error"]);
 const CORE_MANIFEST = manifestAt(CORE);
 const CORE_HOST = coreHost(HOST);
 
-/**
- * The basename a `guardKey` opens with: everything before its first space.
- * @param {string} key
- */
+/** @param {string} key */
 const basenameOf = (key) => cutAt(key, " ")[0];
 
 /**
- * Every needle of each guard IN THE TABLE, keyed by basename — deny-kind
- * needles ALONGSIDE warn and inject, despite the name: `scanTranscript`
- * filters to `kind === "deny"` for the deny count and takes any kind for the
- * "spoke on this call at all" count, so both need the full list here.
- *
- * The needle registry is keyed by `guardKey` — basename plus the arguments that
- * tell two registrations apart — and this collapses to the basename, matching
- * `triggerTable`: a deny is a deny whichever registration printed it. A
- * dispatcher needle goes to the core it names, `triggerTable`'s row for it.
- *
- * NARROWED BY THE TRIGGER TABLE, not by `denyCapable` (mantahostels#3350): the table is
- * already the scope's population.
- *
  * @param {Record<string, any>} needles
- * @param {Map<string, unknown>} triggers the scope's guards, keyed by basename
+ * @param {Map<string, unknown>} triggers
  * @returns {Map<string, Needle[]>}
  */
 function denyNeedlesByGuard(needles, triggers) {
@@ -214,8 +184,7 @@ function denyNeedlesByGuard(needles, triggers) {
 }
 
 /**
- * Add one call id to a per-guard set, creating the set on first sight.
- * @param {Map<string, Set<string>>} into accumulator: `id` is added to `guard`'s set
+ * @param {Map<string, Set<string>>} into
  * @param {string} guard
  * @param {string} id
  */
@@ -229,27 +198,6 @@ function addCall(into, guard, id) {
 }
 
 /**
- * A record's identity for "one tool call" — every distinct one it carries.
- * Almost always one id: the attachment's `toolUseID` where the harness gave
- * one, else every `tool_use_id` a deny route's own `tool_result` content
- * blocks carry — the harness's own per-call ids, not this record's.
- *
- * The record's own `uuid` identifies the JSONL LINE, not a call, and is only
- * the LAST resort here, once no `tool_use_id` is available at all. Two
- * deny-route records for one call (a retry, or a split write) carry two
- * different uuids but the same `tool_use_id`.
- *
- * MORE THAN ONE ID: a record whose single message carries several
- * `tool_result` blocks (parallel tool calls, more than one denied) returns
- * every one of them.
- *
- * THE FALLBACK, NOT THE ATTRIBUTION (mantahostels#3311). `fireSpans` tags each span
- * with the `tool_use_id` its own `tool_result` block carried, so
- * `scanTranscript` credits a matched span to that one call rather than to every
- * id this returns. What is left here is the case no span names: a deny result
- * with no `tool_use_id` at all, where the record's uuid is the only identity
- * available.
- *
  * @param {TranscriptRecord} record
  * @returns {string[]}
  */
@@ -271,8 +219,6 @@ function callIds(record) {
 }
 
 /**
- * Is this record inside the window? A record with no timestamp is excluded from
- * a windowed run and counted as undated rather than guessed either way.
  * @param {string | null} at
  * @param {{since: string | null, until: string | null}} window
  * @returns {"keep" | "before" | "after" | "undated"}
@@ -286,23 +232,18 @@ function windowVerdict(at, window) {
 }
 
 /**
- * Wilson score interval for a proportion, as percentages. `null` with no
- * observations — a rate over an empty population is unknown, not zero.
- *
  * @param {number} hits
  * @param {number} n
  * @returns {{pct: number, lowPct: number, highPct: number} | null}
  */
 function wilson(hits, n) {
 	if (!n) return null;
-	// z for a two-sided 95% interval.
 	const z = 1.959_964;
 	const p = hits / n;
 	const d = 1 + (z * z) / n;
 	const centre = p + (z * z) / (2 * n);
 	const spread = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n));
-	/** 10 places: past any real figure, short of the arithmetic's own dust.
-	 * @param {number} x */
+	/** @param {number} x */
 	const round = (x) => Number(Math.min(100, Math.max(0, x * 100)).toFixed(10));
 	return {
 		pct: round(p),
@@ -312,31 +253,9 @@ function wilson(hits, n) {
 }
 
 /**
- * The `--failures` bucket one hook-failure record falls in (mantahostels#3356).
- *
- * EVERY TOOL-CALL EVENT IS SPLIT, not just `PreToolUse`. The buckets are defined
- * to hold exactly what the LOST count would credit to a guard on that event, so
- * a share taken over them RECONCILES with the tables above rather than merely
- * resembling them — counted in records, where a dispatcher record is one
- * record in its bucket and one loss for each core it ran (#3424).
- *
- *   <event>, unattributed — no readable guard name, or no `toolUseID` to pin it
- *     to a call. Exactly what the LOST count drops.
- *   <event>, unregistered — a guard name no registration on that event mentions.
- *   PreToolUse, deny-capable / PreToolUse, non-deny — the two mantahostels#3287 and mantahostels#3350
- *     measured.
- *   PostToolUse, guard named — the one class there is: nothing on that event can
- *     deny, so there is no split to make.
- *
- * An event that fires on no tool call keeps its bare name: there is no guard
- * table to sort it against, and inventing one would read as a measurement.
- *
- * `classify` null means the caller wants no split at all.
- *
- * @param {TranscriptRecord["attachment"]} a the record's `attachment`
- * @param {Map<string, Map<string, boolean>> | null} classify event -> (guard
- *   basename -> deny-capable), over every registered guard of that event
- * @param {{failures: Map<string, number>}} acc accumulator: the record's bucket is counted in failures
+ * @param {TranscriptRecord["attachment"]} a
+ * @param {Map<string, Map<string, boolean>> | null} classify
+ * @param {{failures: Map<string, number>}} acc
  */
 function bucketFailure(a, classify, acc) {
 	const event =
@@ -353,11 +272,9 @@ function bucketFailure(a, classify, acc) {
  */
 
 /**
- * The bucket of a failure record on an event that fires on tool calls — the
- * split `bucketFailure`'s docstring lists.
- * @param {TranscriptRecord["attachment"]} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a
  * @param {string} event
- * @param {Map<string, boolean>} guards guard basename -> deny-capable
+ * @param {Map<string, boolean>} guards
  * @returns {string}
  */
 function guardBucket(a, event, guards) {
@@ -369,10 +286,7 @@ function guardBucket(a, event, guards) {
 }
 
 /**
- * The guard basename a failure record names and the call id it is pinned to,
- * each `""` where absent — a record missing either is unattributed, in the
- * `--failures` split and the `--union` count alike.
- * @param {TranscriptRecord["attachment"]} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a
  * @returns {{named: string, pinned: string}}
  */
 function attribution(a) {
@@ -386,8 +300,7 @@ function attribution(a) {
 }
 
 /**
- * One tool's `--union` counts, created on first sight.
- * @param {Map<string, UnionEntry>} into accumulator: a fresh entry is set for a tool first seen
+ * @param {Map<string, UnionEntry>} into
  * @param {string} tool
  * @returns {UnionEntry}
  */
@@ -406,18 +319,10 @@ function unionEntry(into, tool) {
 	return entry;
 }
 
-/**
- * @typedef {{calls: Set<string>, blocks: number, records: number,
- *   idless: number, failed: Map<string, number>}} UnionEntry
- *   `calls`: ids routed to any guard; `blocks`: the same before the dedupe;
- *   `records`: failure records naming no guard; `idless`: those with no call
- *   id; `failed`: the records the rest carry, per call id.
- */
+/** @typedef {{calls: Set<string>, blocks: number, records: number, idless: number, failed: Map<string, number>}} UnionEntry */
 
 /**
- * The tool a failure record's `hookName` names — `"PostToolUse:Bash"` → `Bash`
- * — or `"(no tool)"` where it names none for this event.
- * @param {TranscriptRecord["attachment"]} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a
  * @param {string} event
  * @returns {string}
  */
@@ -428,33 +333,14 @@ function hookTool(a, event) {
 		: "(no tool)";
 }
 
-/**
- * `event` is the hook event the LOST count reads; `classify` is
- * `bucketFailure`'s guard tables, or null where the caller wants no
- * `--failures` split; `union` takes the `--union` counts.
- * @typedef {{window: {since: string | null, until: string | null},
- *   event?: string, classify?: Map<string, Map<string, boolean>> | null,
- *   union?: boolean}} ScanOptions
- */
+/** @typedef {{window: {since: string | null, until: string | null}, event?: string, classify?: Map<string, Map<string, boolean>> | null, union?: boolean}} ScanOptions */
+
+/** @typedef {{lost: Map<string, number>, denyCalls: Map<string, Set<string>>, anyCalls: Map<string, Set<string>>, population: Map<string, number>, lostCalls: Set<string>, failures: Map<string, number>, union: Map<string, UnionEntry>, undated: number, unresolved: number, first: string | null, last: string | null, skipped: number}} ScanAcc */
 
 /**
- * @typedef {{lost: Map<string, number>, denyCalls: Map<string, Set<string>>,
- *   anyCalls: Map<string, Set<string>>, population: Map<string, number>,
- *   lostCalls: Set<string>, failures: Map<string, number>,
- *   union: Map<string, UnionEntry>, undated: number, unresolved: number,
- *   first: string | null, last: string | null, skipped: number}} ScanAcc
- *   `unresolved`: dispatcher failure records whose call is not in their
- *   transcript
- */
-
-/**
- * One transcript's contribution to all three counts.
- *
  * @param {string} text
- * @param {ScanAcc} acc accumulator: the transcript's counts are added
- * @param {ScanOptions & {tier: "main" | "subagent",
- *   triggers: Map<string, import("./lib/guard-triggers.js").Trigger>,
- *   needles: Map<string, Needle[]>}} options
+ * @param {ScanAcc} acc
+ * @param {ScanOptions & {tier: "main" | "subagent", triggers: Map<string, import("./lib/guard-triggers.js").Trigger>, needles: Map<string, Needle[]>}} options
  */
 function scanTranscript(text, acc, options) {
 	const { tier, triggers, needles, window } = options;
@@ -463,8 +349,6 @@ function scanTranscript(text, acc, options) {
 	const union = options.union ?? false;
 	const stats = { skipped: 0 };
 	const records = [...mainChainRecords(text, tier, stats)];
-	/* Every call, in the window or not, so a call made before the window
-	 * still resolves a dispatcher loss inside it. */
 	const calls = new Map(
 		records.flatMap(toolCalls).flatMap((c) => (c.id ? [[c.id, c]] : [])),
 	);
@@ -476,7 +360,6 @@ function scanTranscript(text, acc, options) {
 		if (verdict === "undated") acc.undated++;
 		if (verdict !== "keep") continue;
 
-		// LOST.
 		const loss = countFailure(record?.attachment, at, acc, {
 			event,
 			classify,
@@ -485,12 +368,8 @@ function scanTranscript(text, acc, options) {
 		});
 		if (loss) dispatched.push(loss);
 
-		// DENY EVENTS. A guard speaks through the harness's own records only, so
-		// the mention-contaminated `cli` route is refused here as it is in
-		// `subjectsFor` — a `cat` of a guard is not a deny.
 		countDenyEvents(record, needles, acc);
 
-		// TRUE POPULATION.
 		countPopulation(record, acc, { triggers, union });
 	}
 	acc.skipped += stats.skipped;
@@ -498,12 +377,10 @@ function scanTranscript(text, acc, options) {
 }
 
 /**
- * One killed dispatcher call's loss, credited to each core of `triggers` that
- * routes it.
- * @param {ScanAcc} acc accumulator: the cores' losses, or `unresolved`, are counted
+ * @param {ScanAcc} acc
  * @param {Map<string, import("./lib/guard-triggers.js").Trigger>} triggers
  * @param {Map<string, ToolCall>} calls
- * @param {{id: string, at: string | null}} loss the record's `toolUseID` and timestamp
+ * @param {{id: string, at: string | null}} loss
  */
 function creditCores(acc, triggers, calls, { id, at }) {
 	const call = calls.get(id);
@@ -517,16 +394,11 @@ function creditCores(acc, triggers, calls, { id, at }) {
 }
 
 /**
- * One hook-failure record's share of the LOST count, the `--failures` split
- * and the `--union` count; nothing for a record that is no hook failure.
- * @param {TranscriptRecord["attachment"] | undefined} a the record's `attachment`
- * @param {string | null} at the record's timestamp
- * @param {ScanAcc} acc accumulator: the failure's counts are added
- * @param {{event: string, classify: Map<string, Map<string, boolean>> | null,
- *   union: boolean,
- *   triggers: Map<string, import("./lib/guard-triggers.js").Trigger>}} ctx
- * @returns {{id: string, at: string | null} | null} a dispatcher loss, for
- *   `creditCores` once the transcript has been read
+ * @param {TranscriptRecord["attachment"] | undefined} a
+ * @param {string | null} at
+ * @param {ScanAcc} acc
+ * @param {{event: string, classify: Map<string, Map<string, boolean>> | null, union: boolean, triggers: Map<string, import("./lib/guard-triggers.js").Trigger>}} ctx
+ * @returns {{id: string, at: string | null} | null}
  */
 function countFailure(a, at, acc, ctx) {
 	if (!a || !FAILURE_TYPES.has(a.type)) return null;
@@ -548,11 +420,9 @@ function countFailure(a, at, acc, ctx) {
 }
 
 /**
- * A failure record naming no guard, or pinned to no call, into its tool's
- * `--union` counts.
- * @param {TranscriptRecord["attachment"]} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a
  * @param {string} event
- * @param {ScanAcc} acc accumulator: the failure is counted in its tool's union entry
+ * @param {ScanAcc} acc
  */
 function countUnionFailure(a, event, acc) {
 	const { named, pinned } = attribution(a);
@@ -564,11 +434,10 @@ function countUnionFailure(a, event, acc) {
 }
 
 /**
- * One lost record credited to its guard and call, widening the losses' span.
- * @param {ScanAcc} acc accumulator: lost, lostCalls, first and last are updated
+ * @param {ScanAcc} acc
  * @param {string} guard
- * @param {string} id the call's `toolUseID`
- * @param {string | null} at the record's timestamp
+ * @param {string} id
+ * @param {string | null} at
  */
 function recordLoss(acc, guard, id, at) {
 	acc.lost.set(guard, (acc.lost.get(guard) || 0) + 1);
@@ -579,15 +448,13 @@ function recordLoss(acc, guard, id, at) {
 }
 
 /**
- * One record's DENY EVENTS: each needle-matched span credited to its calls.
  * @param {TranscriptRecord} record
  * @param {Map<string, Needle[]>} needles
- * @param {ScanAcc} acc accumulator: matched call ids are added to anyCalls and denyCalls
+ * @param {ScanAcc} acc
  */
 function countDenyEvents(record, needles, acc) {
 	const spans = fireSpans(record).filter((s) => s.route !== "cli");
 	if (spans.length === 0) return;
-	/* Attributed per span, not per record — `callIds`'s docstring. */
 	const fallback = callIds(record);
 	for (const [guard, list] of needles) {
 		for (const span of spans) {
@@ -600,7 +467,6 @@ function countDenyEvents(record, needles, acc) {
 }
 
 /**
- * Whether a span matched any of a guard's needles, and any `deny` one.
  * @param {string} text
  * @param {Needle[]} list
  * @returns {{any: boolean, deny: boolean}}
@@ -617,7 +483,7 @@ function spanMatch(text, list) {
 }
 
 /**
- * @param {Map<string, Set<string>>} into accumulator: each id is added to `guard`'s set
+ * @param {Map<string, Set<string>>} into
  * @param {string} guard
  * @param {string[]} ids
  */
@@ -626,12 +492,9 @@ function addCalls(into, guard, ids) {
 }
 
 /**
- * One assistant record's TRUE POPULATION: each `tool_use` block credited to
- * every guard it routes to, and to its tool's `--union` calls.
  * @param {TranscriptRecord} record
- * @param {ScanAcc} acc accumulator: population and the union calls are counted
- * @param {{triggers: Map<string, import("./lib/guard-triggers.js").Trigger>,
- *   union: boolean}} ctx
+ * @param {ScanAcc} acc
+ * @param {{triggers: Map<string, import("./lib/guard-triggers.js").Trigger>, union: boolean}} ctx
  */
 function countPopulation(record, acc, ctx) {
 	if (record?.type !== "assistant") return;
@@ -644,9 +507,6 @@ function countPopulation(record, acc, ctx) {
 		for (const guard of routed)
 			acc.population.set(guard, (acc.population.get(guard) || 0) + 1);
 		if (!ctx.union || routed.length === 0) continue;
-		// A block with no id counts once, keyed off its line and place in it. Two
-		// id-less blocks at one index on lines with no string uuid would
-		// collapse to one call.
 		const uuid = typeof record.uuid === "string" ? record.uuid : "";
 		const id = call.id ?? `${uuid}#${i}`;
 		const entry = unionEntry(acc.union, call.name);
@@ -660,7 +520,6 @@ function countPopulation(record, acc, ctx) {
  */
 
 /**
- * An assistant record's `tool_use` blocks as calls; none for any other record.
  * @param {TranscriptRecord} record
  * @returns {ToolCall[]}
  */
@@ -671,8 +530,6 @@ function toolCalls(record) {
 }
 
 /**
- * A `tool_use` block's tool name and Bash command, each `""` where absent, and
- * its id, null where absent.
  * @param {TranscriptBlock} block
  * @returns {ToolCall}
  */
@@ -699,7 +556,6 @@ function routedGuards(triggers, call) {
 	return routed;
 }
 
-/** A fresh, empty accumulator. */
 function freshAcc() {
 	return {
 		lost: new Map(),
@@ -708,7 +564,7 @@ function freshAcc() {
 		population: new Map(),
 		lostCalls: new Set(),
 		failures: new Map(),
-		/** @type {Map<string, UnionEntry>} keyed by tool */
+		/** @type {Map<string, UnionEntry>} */
 		union: new Map(),
 		undated: 0,
 		unresolved: 0,
@@ -719,18 +575,12 @@ function freshAcc() {
 }
 
 /**
- * Sweep the corpus and roll the three counts up per guard.
- *
  * @param {Array<{file: string, tier: "main" | "subagent"}>} files
  * @param {Map<string, import("./lib/guard-triggers.js").Trigger>} triggers
  * @param {Map<string, Needle[]>} needles
  * @param {ScanOptions} options
  */
 function scan(files, triggers, needles, options) {
-	// Refused, not defaulted, and refused HERE rather than only in `main`: an
-	// event outside the set matches no failure record, so a caller passing one
-	// would read a measured zero out of a count that was never taken. Same rule
-	// as `triggerTable`'s.
 	if (options.event && !EVENTS.has(options.event))
 		throw new Error(
 			`unknown event ${JSON.stringify(options.event)} — one of ${[...EVENTS].join(", ")}`,
@@ -754,9 +604,6 @@ function scan(files, triggers, needles, options) {
 }
 
 /**
- * Lost records as a percentage of the population: null where the population
- * could not be read, zero where it read as no calls.
- *
  * @param {number} lost
  * @param {number|null} population
  * @returns {number|null}
@@ -768,13 +615,6 @@ function lossPercent(lost, population) {
 }
 
 /**
- * The report's rows, sorted by expected escaped denies.
- *
- * A guard whose trigger cannot be read has a null population and a null rate —
- * never a zero, which would read as "measured, and it never denies". Same for
- * a guard with no `kind: "deny"` needle registered at all: with none to match,
- * a 0-of-N deny count is not a measurement, so the rate is null there too.
- *
  * @param {Map<string, import("./lib/guard-triggers.js").Trigger>} triggers
  * @param {ReturnType<typeof scan>["acc"]} acc
  * @param {Map<string, Needle[]>} needles
@@ -787,7 +627,6 @@ function rows(triggers, acc, needles) {
 }
 
 /**
- * One guard's report row — `rows`' docstring says what its nulls mean.
  * @param {string} guard
  * @param {import("./lib/guard-triggers.js").Trigger} trigger
  * @param {ReturnType<typeof scan>["acc"]} acc
@@ -810,9 +649,7 @@ function guardRow(guard, trigger, acc, needles) {
 		spoke,
 		population,
 		unknown: trigger.unknown,
-		// A guard that cannot deny is reported apart from one that can but has
-		// no needle registered (mantahostels#3350): the first is a property of the guard and
-		// nothing to fix, the second is a hole in the needle registry.
+		// lucmoseley/mantahostels#3350
 		cannotDeny: !trigger.denyCapable,
 		noDenyNeedle: population !== null && trigger.denyCapable && !hasDenyNeedle,
 		// Lost records over true invocations — the per-invocation loss rate
@@ -835,16 +672,11 @@ function guardRow(guard, trigger, acc, needles) {
 }
 
 /**
- * `rows`' order: most expected escaped denies first, a null rate ahead of all.
  * @param {ReturnType<typeof guardRow>} a
  * @param {ReturnType<typeof guardRow>} b
  * @returns {number}
  */
 function byExpectedEscapes(a, b) {
-	// Two nulls would otherwise subtract Infinity from Infinity — NaN, which
-	// the spec coerces to +0, silently pinning the pair to whatever order
-	// they happened to be inserted in rather than a chosen one. Break the
-	// tie on the guard name instead.
 	if (a.expected === null && b.expected === null)
 		return byCodeUnit(a.guard, b.guard);
 	return (
@@ -854,14 +686,6 @@ function byExpectedEscapes(a, b) {
 }
 
 /**
- * Guards this run found deny-capable that `lib/guard-deny-rates.js` has no
- * pinned row for — the staleness signal.
- *
- * SCOPE-BLIND (mantahostels#3350): a non-deny row is skipped rather than reported stale.
- * That table pins DENY rates, so a guard that cannot deny is correctly absent
- * from it, and naming it here would be a false alarm on every `--scope nondeny`
- * run.
- *
  * @param {Map<string, import("./lib/guard-triggers.js").Trigger>} triggers
  * @returns {string[]}
  */
@@ -872,20 +696,7 @@ function unpinned(triggers) {
 		.sort();
 }
 
-/**
- * The `--failures` buckets that HAVE a true tool-call denominator, and the
- * ticket that gave each one (mantahostels#3356).
- *
- * A LANDED FACT ABOUT THIS REPO, not a derivation: a bucket joins this set when
- * a run of this script over it has been landed as data, so adding a row here
- * without landing that run overstates the share it prints.
- *
- * `SessionStart` is deliberately absent though mantahostels#2288 reports it honestly: its
- * base is sessions, not tool calls, and folding it in here would answer a
- * looser question than the one this share asks (mantahostels#3350's Correction 6).
- *
- * @type {ReadonlyMap<string, string>}
- */
+/** @type {ReadonlyMap<string, string>} */
 const TRUE_DENOMINATOR = new Map([
 	["PreToolUse, deny-capable", "mantahostels#3287"],
 	["PreToolUse, non-deny", "mantahostels#3350"],
@@ -894,17 +705,8 @@ const TRUE_DENOMINATOR = new Map([
 ]);
 
 /**
- * The share of a sweep's hook failures that sits on a true tool-call
- * denominator, and the buckets behind it — the figure and the arithmetic BOTH
- * report, so the text and the JSON cannot state different numbers (mantahostels#3356).
- *
- * `pct` is null over an empty sweep: a share of nothing is unknown, not zero,
- * the same rule `wilson` and the deny-rate column already follow.
- *
  * @param {Map<string, number>} failures
- * @returns {{rows: Array<{bucket: string, records: number, pct: number | null,
- *   ticket: string | null}>, total: number, covered: number,
- *   pct: number | null}}
+ * @returns {{rows: Array<{bucket: string, records: number, pct: number | null, ticket: string | null}>, total: number, covered: number, pct: number | null}}
  */
 function failureShare(failures) {
 	const sorted = [...failures].sort(
@@ -931,8 +733,6 @@ function failureShare(failures) {
 }
 
 /**
- * The hook-failure census as the report prints it.
- *
  * @param {Map<string, number>} failures
  * @returns {string}
  */
@@ -965,18 +765,9 @@ function renderFailures(failures) {
 }
 
 /**
- * The `--union` report (mantahostels#3372), per tool and in total.
- *
- * A RECORD IS OUTSIDE THE BASE where its call id is not among its tool's routed
- * calls, or where it carries no id to look up — either way no registered guard
- * can be shown to have been at risk on it, so it is counted in `outside` and
- * kept out of `failurePct`'s numerator. A tool with no routed calls has a null
- * rate, not a division by zero.
- *
  * @param {Map<string, UnionEntry>} union
  * @returns {{rows: Array<UnionRow & {tool: string}>, total: UnionRow}}
- * @typedef {{calls: number, blocks: number, records: number, failedCalls: number,
- *   inUnion: number, outside: number, failurePct: number | null}} UnionRow
+ * @typedef {{calls: number, blocks: number, records: number, failedCalls: number, inUnion: number, outside: number, failurePct: number | null}} UnionRow
  */
 function unionShare(union) {
 	const toolRows = [...union.keys()].sort().map((tool) => {
@@ -1017,7 +808,6 @@ function unionShare(union) {
 }
 
 /**
- * The `--union` report as text.
  * @param {ReturnType<typeof unionShare>} u
  * @param {string} event
  * @returns {string}
@@ -1118,7 +908,6 @@ function buildRowLine(r) {
 }
 
 /**
- * The deny-rate cell: the rate and its interval, or why there is none.
  * @param {ReturnType<typeof rows>[number]} r
  * @returns {string}
  */
@@ -1132,7 +921,6 @@ function rateCell(r) {
 }
 
 /**
- * The expected-escaped cell: the estimate and its interval, or why there is none.
  * @param {ReturnType<typeof rows>[number]} r
  * @returns {string}
  */
@@ -1144,11 +932,8 @@ function expectedCell(r) {
 }
 
 /**
- * The expected escaped denies summed over every rated row, and the count of
- * rows left out of that sum on each side of the deny-capable line.
  * @param {ReturnType<typeof rows>} data
- * @returns {{total: number, low: number, high: number, uncounted: number,
- *   nonDeny: number}}
+ * @returns {{total: number, low: number, high: number, uncounted: number, nonDeny: number}}
  */
 function escapedTotals(data) {
 	let total = 0;
@@ -1162,9 +947,6 @@ function escapedTotals(data) {
 			r.expectedLow === null ||
 			r.expectedHigh === null
 		) {
-			// A guard that cannot deny is not an uncounted deny: it contributes no
-			// escaped denies to be a floor UNDER, so folding it into that warning
-			// would report the total as understated when it is not (mantahostels#3350).
 			if (r.cannotDeny) nonDeny++;
 			else uncounted++;
 		} else {
@@ -1177,10 +959,8 @@ function escapedTotals(data) {
 }
 
 /**
- * The report's closing warnings: guards with no pinned rate, and transcripts
- * that could not be read.
  * @param {Parameters<typeof render>[1]} corpus
- * @returns {string[]} their lines
+ * @returns {string[]}
  */
 function corpusWarnings(corpus) {
 	/** @type {string[]} */
@@ -1214,9 +994,6 @@ function corpusWarnings(corpus) {
 }
 
 /**
- * Reads and parses one JSON file, folding a missing file or bad JSON into one
- * sentence rather than the stack trace an unguarded `JSON.parse` would print —
- * the same shape `--dir` and `--since` already refuse in.
  * @param {string} file
  * @returns {{ok: true, value: any} | {ok: false, error: string}}
  */
@@ -1242,7 +1019,7 @@ function readJson(file) {
 
 /**
  * @param {string[]} argv
- * @returns {number} exit code
+ * @returns {number}
  */
 function main(argv) {
 	const { flags } = parseOrExit(argv, CLI);
@@ -1264,8 +1041,6 @@ function main(argv) {
 	if (!sources) return 2;
 	const settings = mergeHooks(sources);
 	const scriptsDir = path.join(CORE, "scripts");
-	/* HOST's settings.json is read above, so an adopter's own guard is
-	 * registered here and must be found where the reporter finds it (#1815). */
 	const dirs = guardDirs(CORE, HOST);
 	const triggers = triggerTable(settings, dirs, {
 		scope,
@@ -1342,7 +1117,6 @@ function main(argv) {
 }
 
 /**
- * The `--since`/`--until` window, or null once a bad date has been reported.
  * @param {import("./lib/cli-args").Parsed["flags"]} flags
  * @param {(s: string) => void} err
  * @returns {{since: string|null, until: string|null} | null}
@@ -1364,12 +1138,9 @@ function parseWindow(flags, err) {
 }
 
 /**
- * The run's `--scope` and `--event`, or null once a refused combination has
- * been reported.
  * @param {import("./lib/cli-args").Parsed["flags"]} flags
  * @param {(s: string) => void} err
- * @returns {{scope: "deny" | "nondeny" | "all",
- *   event: "PreToolUse" | "PostToolUse"} | null}
+ * @returns {{scope: "deny" | "nondeny" | "all", event: "PreToolUse" | "PostToolUse"} | null}
  */
 function scopeAndEvent(flags, err) {
 	const scopeArg = flagValue(flags, "--scope");
@@ -1388,9 +1159,7 @@ function scopeAndEvent(flags, err) {
 	const event = /** @type {"PreToolUse" | "PostToolUse"} */ (
 		eventArg ?? DENY_EVENT
 	);
-	// `--scope` defaults to `deny`, which `triggerTable` refuses off
-	// `PreToolUse`; taking `all` where the user named no scope keeps `--event
-	// PostToolUse` usable on its own, and an explicit scope still refuses (mantahostels#3356).
+	// lucmoseley/mantahostels#3356
 	const scope = /** @type {"deny" | "nondeny" | "all"} */ (
 		scopeArg ?? (event === DENY_EVENT ? "deny" : "all")
 	);
@@ -1401,8 +1170,6 @@ function scopeAndEvent(flags, err) {
 		return null;
 	}
 
-	// A narrower scope would union a subset of the event's guards and print it
-	// as "ANY" of them.
 	if (flags["--union"] && scope !== "all") {
 		err(
 			`--union needs --scope all: --scope ${scope} unions only part of the ${event} guards.`,
@@ -1413,9 +1180,6 @@ function scopeAndEvent(flags, err) {
 }
 
 /**
- * The files registering HOST's hooks (`readHostHookSources`), read for
- * `mergeHooks`, or null once an unreadable file — or, at an adopter, the
- * absence of both — has been reported.
  * @param {(s: string) => void} err
  * @returns {ReturnType<typeof readHostHookSources> | null}
  */
@@ -1435,14 +1199,8 @@ function readHookSourcesOrNull(err) {
 }
 
 /**
- * The `--failures` split, built at `all` scope over EVERY tool-call event
- * whatever this run reports on, so the census is the same population every
- * time (mantahostels#3356).
- *
- * Keyed as a failure record names its hook, so a dispatcher core folds into
- * the dispatcher, which can deny where any of its cores can (#3424).
  * @param {ReturnType<typeof mergeHooks>} settings
- * @param {string[]} dirs `lib/deny-capable.js` `guardDirs`
+ * @param {string[]} dirs
  * @returns {Map<string, Map<string, boolean>>}
  */
 function failureClassifier(settings, dirs) {

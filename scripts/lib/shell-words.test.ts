@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * In-process cases for scripts/lib/shell-words.js, the guard parser's word
- * helpers in Node (#2785). Each reads its command through walkCommands, so
- * the words arrive masked, with the parse's spans.
- */
 
 import { describe, expect, it } from "vitest";
 import type { Command } from "./shell-parse.js";
@@ -25,7 +20,6 @@ import {
 	unwrap,
 } from "./shell-words.js";
 
-/** `fn`'s answer for each command the walk hands over. */
 const each = <T>(
 	command: string,
 	fn: (cmd: Command, spans: string[]) => T,
@@ -41,14 +35,12 @@ const each = <T>(
 	return out;
 };
 
-/** The one command's answer, for a command string running one. */
 const one = <T>(command: string, fn: (cmd: Command, spans: string[]) => T) => {
 	const all = each(command, fn);
 	expect(all).toHaveLength(1);
 	return all[0] as T;
 };
 
-/** Each word read back through literal, bracketed. */
 const bracket = (words: string[], spans: string[]) =>
 	words.map((w) => `[${literal(w, spans).text}]`).join("");
 
@@ -119,8 +111,6 @@ describe("programSource (#3456, #4479)", () => {
 });
 
 describe("ghWords (#772)", () => {
-	/** What ghWords answered for each command: its words read back, `none`
-	 * where it answered null. */
 	const read = (command: string) =>
 		each(command, (c, spans) => {
 			const [r] = ghWords(c.words, spans);
@@ -136,12 +126,9 @@ describe("ghWords (#772)", () => {
 		["timeout 60 gh workflow run ci.yml", "[workflow][run][ci.yml]"],
 		["timeout -s KILL 5 gh api /x", "[api][/x]"],
 		["watch -n 2 gh run list", "[run][list]"],
-		// watch's -C is --no-color: it takes no value (#3376).
 		["watch -C -d gh run list", "[run][list]"],
-		// watch runs one word through `sh -c`, so it is split back (#3376).
 		["watch -n 2 -- 'gh run list'", "[run][list]"],
 		["env A=1 nohup gh api /x", "[api][/x]"],
-		// An expansion in a flag leaves literal unknown; it is still a flag.
 		["gh --repo=$R workflow run ci.yml", "[workflow][run][ci.yml]"],
 		["gh -R$R pr create", "[pr][create]"],
 	])("reads %s from its command word on", (command, words) => {
@@ -168,7 +155,6 @@ describe("ghWords (#772)", () => {
 		]);
 	});
 
-	/** The repo ghWords kept, as `text`, `?text` where unknown, or `none`. */
 	const repoOf = (command: string) =>
 		one(command, (c, spans) => {
 			const r = ghWords(c.words, spans)[0]?.repo;
@@ -182,18 +168,15 @@ describe("ghWords (#772)", () => {
 		["gh -Ro/r pr create", "o/r"],
 		["gh -R o/r --repo=p/q pr create", "p/q"],
 		["gh pr create", "none"],
-		// An empty value names none: gh falls back to GH_REPO (#4268).
 		["gh --repo= pr create", "none"],
 		[`gh -R "" pr create`, "none"],
 		["gh -R o/r --repo= pr create", "none"],
-		// Quoted or escaped, the flag reads as the unquoted one (#4268).
 		[`gh "--repo=o/r" pr create`, "o/r"],
 		[`gh '-Ro/r' pr create`, "o/r"],
 		[`gh -R"o/r" pr create`, "o/r"],
 		[`gh "-R"o/r pr create`, "o/r"],
 		["gh \\-Ro/r pr list", "o/r"],
 		["gh -R 'o/r' pr create", "o/r"],
-		// An expansion in it, quoted or not, stays unknown.
 		["gh --repo=$R pr create", "?$R"],
 		[`gh "--repo=$R" pr create`, "?$R"],
 		[`gh "-R$R" pr create`, "?$R"],
@@ -208,7 +191,6 @@ describe("ghWords (#772)", () => {
 });
 
 describe("gitWords (#2383)", () => {
-	/** The subcommand, then each word after it read back; `none` for null. */
 	const read = (command: string) =>
 		each(command, (c, spans) => {
 			const [r] = gitWords(c.words, spans);
@@ -260,7 +242,6 @@ describe("gitWords (#2383)", () => {
 });
 
 describe("stepGitOptions (#5076)", () => {
-	/** The subcommand's index, then each option and its next word read back. */
 	const step = (command: string) =>
 		each(command, (c, spans) => {
 			const seen: string[] = [];
@@ -345,9 +326,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		["setsid nice -n 5 ionice -c 3 npm test", ["npm", "test"]],
 		["stdbuf -o L xargs -n 1 rm", ["rm"]],
 		["sudo -u root -g wheel npm test", ["npm", "test"]],
-		// `-S` splits only under env; to sudo it is a flag taking nothing.
 		["sudo -S npm test", ["npm", "test"]],
-		// The wrapper's own `-C DIR` is swept (#1731).
 		["env -C /x git push", ["git", "push"]],
 		["command time npm test", ["npm", "test"]],
 	])("strips the wrappers off %s", (command, words) => {
@@ -702,8 +681,6 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		expect(watched).toEqual([true, true]);
 	});
 
-	/** Each run's words, env and directories read through literal, `|` apart,
-	 * each directory with how it holds, its chain flags and any group depth. */
 	const read = (command: string) =>
 		one(command, (c, spans) =>
 			unwrap(c.words, spans).map((r) =>
@@ -843,7 +820,6 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 });
 
 describe("findStarts (#2060)", () => {
-	/** The start points of the one `find`, read back through literal. */
 	const starts = (command: string) =>
 		one(command, (c, spans) =>
 			findStarts(c.words.slice(1), spans).map((w) => literal(w, spans).text),
@@ -901,8 +877,6 @@ describe("commitPathsArgs (#1727, #2022)", () => {
 		"npm run commit-paths.js",
 		"node -r",
 		"node",
-		// A node flag taking a value outside the list leaves the value in the
-		// script's place: the named residual.
 		"node --title t scripts/commit-paths.js -m x",
 	])("answers nothing for %s", (command) => {
 		expect(args(command)).toBeNull();
@@ -910,7 +884,6 @@ describe("commitPathsArgs (#1727, #2022)", () => {
 });
 
 describe("commitPathsParse (#2147, #2383)", () => {
-	/** The parse, every word read back through literal. */
 	const parse = (argv: string) =>
 		one(`node scripts/commit-paths.js ${argv}`, (c, spans) => {
 			const [a] = commitPathsArgs(c.words, spans);
@@ -966,7 +939,6 @@ describe("commitPathsParse (#2147, #2383)", () => {
 });
 
 describe("scanFlags", () => {
-	/** Every event the scan emits, as `kind|name|value`. */
 	const scan = (spec: string, ...words: string[]) => {
 		const out: string[] = [];
 		scanFlags(spec, words, (kind, name, value) => {
@@ -1003,9 +975,6 @@ describe("scanFlags", () => {
 	});
 
 	it("skips a value-taking flag's value in pairs", () => {
-		// Without the pair-skip a masked `--comment "…"` has its value read as the
-		// next argument, and a guard looking for an issue number judges the wrong
-		// word.
 		expect(scan("-c --comment", "--comment", "-r", "12")).toEqual([
 			"opt|--comment|-r",
 			"arg||12",
@@ -1028,25 +997,21 @@ describe("scanFlags", () => {
 	});
 
 	it("reads a short flag's value attached, with or without the =", () => {
-		// gh's flag reader (pflag) takes `-l=x` as x, not as =x.
 		expect(scan("-l", "-ltakes:human")).toEqual(["opt|-l|takes:human"]);
 		expect(scan("-l", "-l=takes:human")).toEqual(["opt|-l|takes:human"]);
 		expect(scan("-l", "-l", "takes:human")).toEqual(["opt|-l|takes:human"]);
 	});
 
 	it("walks a short-flag bundle letter by letter", () => {
-		// `git pull -qr` is a rebase: the r is a flag in its own right.
 		expect(scan("-s -X", "-qr")).toEqual(["flag|-q|", "flag|-r|"]);
 	});
 
 	it("lets a value-taking letter take the rest of its bundle", () => {
-		// This is what stops the r inside `-Xtheirs` reading as `git pull -r`.
 		expect(scan("-s -X", "-Xtheirs")).toEqual(["opt|-X|theirs"]);
 		expect(scan("-s -X", "-s", "recursive")).toEqual(["opt|-s|recursive"]);
 	});
 
 	it("gives an optional-value letter its stuck value and never the next word", () => {
-		// `git merge -S --no-verify` signs with the default key AND skips hooks.
 		expect(scan("-S?", "-Skey", "--no-verify")).toEqual([
 			"opt|-S|key",
 			"flag|--no-verify|",
@@ -1068,14 +1033,10 @@ describe("scanFlags", () => {
 	});
 
 	it("calls a lone - a flag, not a bare word", () => {
-		// `--body-file -` reads the body from stdin. Read as a bare word it would
-		// become the guard-issue-close core's issue number.
 		expect(scan("-c", "-", "12")).toEqual(["flag|-|", "arg||12"]);
 	});
 
 	it("calls every word after a bare -- an arg, however it is spelled", () => {
-		// mantahostels#495. git and gh both stop reading options at `--`, so a flag-shaped
-		// word past it is a pathspec.
 		expect(scan("-m", "-m", "msg", "--", "-weird-file", "--all", "-")).toEqual([
 			"opt|-m|msg",
 			"flag|--|",
@@ -1086,9 +1047,6 @@ describe("scanFlags", () => {
 	});
 
 	it("does not end the options on a -- that is a flag's value", () => {
-		// Both git's parse-options and pflag hand the next word to a value-taking
-		// flag whatever it is, so this `--` is the comment, not the separator, and
-		// `-x` after it is still an option.
 		expect(scan("-c --comment", "--comment", "--", "-x")).toEqual([
 			"opt|--comment|--",
 			"flag|-x|",

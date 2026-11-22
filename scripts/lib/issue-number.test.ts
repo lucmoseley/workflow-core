@@ -1,8 +1,3 @@
-/*
- * lib/issue-number.js, the one reader of an issue-number argument (#3372).
- * Loosen it and every script taking one passes a non-number into a gh call.
- */
-
 import { describe, expect, it } from "vitest";
 import { parseIssueNumber, parseIssueNumbers } from "./issue-number.js";
 

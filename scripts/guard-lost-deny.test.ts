@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * guard-lost-deny.js tells a session, at Stop, that a deny-capable guard was
- * killed at its timeout and failed open on one of its tool calls — naming the
- * guard, the call and a replay command, once per call — and stays silent where
- * nothing deny-capable was lost (mantahostels#2299).
- *
- * Black-box: the guard is driven end to end with a Stop payload on stdin and
- * its repo root pointed at a throwaway directory, so the counters, the seen
- * set and the breadcrumbs it mints never land in the shared tree. The core it
- * reads the guards from (WFC_SCRIPT_ROOT) is that same directory, except where
- * a test splits the two to stand in for an adopter (#1017) or points it at
- * this repo to read the real guards (#1815). `replay` still spawns the lost
- * guards themselves for real.
- *
- * It runs at every `Stop` and is the only reporter a session hears while it
- * can still act: break it and a tool call that escaped a killed deny guard
- * proceeds with nothing said; loosen the dedupe or the worth-a-turn test and
- * it blocks turns for nothing.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -28,12 +9,8 @@ import { runInProcess } from "./lib/run-in-process";
 import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
 import { buildBashCall, buildToolCall } from "./lib/transcript-testkit";
 
-/* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 
-/* The nagged counter lives under gr_markers_dir (.claude/tmp/markers), not
- * the throwaway root itself — hook-block.js's counterPath (mantahostels#3515 F8,
- * issue #2). */
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
 const GUARD = path.join(__dirname, "guard-lost-deny.js");
@@ -42,7 +19,6 @@ let dir: string;
 let core: string;
 let sid: string;
 
-/** A guard file in the core — deny-capable where it prints a deny verdict. */
 const guardFile = (name: string, denies: boolean) => {
 	const body = denies
 		? '#!/usr/bin/env bash\nprintf \'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"because"}}\'\n'
@@ -53,28 +29,23 @@ const guardFile = (name: string, denies: boolean) => {
 	return file;
 };
 
-/** Past a Linux pipe's 64 KiB: 300 of 300 spawns of a guard that reads nothing
- * raised EPIPE at this size, where 200 bytes raised it on 25 of 300. */
+// #3794 measured 300/300 spawns EPIPE
 const PAST_THE_PIPE_BYTES = 2_000_000;
 
-/** The core's guard-branch.sh, written with this script body. */
 const branchGuard = (body: string) => {
 	const guard = path.join(core, "scripts", "guard-branch.sh");
 	fs.writeFileSync(guard, `#!/usr/bin/env bash\n${body}`);
 	fs.chmodSync(guard, 0o755);
 };
 
-/** A deny-capable guard-branch.sh that echoes the payload it is handed. */
 const echoGuard = () =>
 	branchGuard(
 		'cat\necho \'{"permissionDecision":"deny"} is what makes this deny-capable\' >/dev/null\n',
 	);
 
-/** The payload echoGuard printed during a replay. */
 const sentPayload = (stdout: string) =>
 	JSON.parse(stdout.split("=== guard-branch.sh ===\n")[1].split("\nexit ")[0]);
 
-/** The attachment record the harness writes when a hook is killed. */
 const killed = (over: object = {}) => ({
 	type: "attachment",
 	timestamp: "2026-08-31T07:02:03.606Z",
@@ -91,7 +62,6 @@ const killed = (over: object = {}) => ({
 	},
 });
 
-/** A Bash call carrying the session id the replayed hook payload must echo. */
 const fileCall = (command: string, id: string) =>
 	buildBashCall(command, id, { sessionId: "session-in-the-file" });
 
@@ -104,15 +74,9 @@ const transcript = (records: object[]): string => {
 	return file;
 };
 
-/** The half-written final line a transcript still being appended to ends on. */
 const halfWritten = (file: string) =>
 	fs.appendFileSync(file, '{"type":"attach');
 
-/**
- * The guard's verdict on this session's transcript, run as an interactive
- * session unless `over.job` says otherwise; with no `over.message`, the guard
- * reads the turn's text from the transcript.
- */
 const run = (over: Partial<StopRun> = {}) => {
 	const block = readStopGuardBlock(GUARD, {
 		dir,
@@ -125,7 +89,6 @@ const run = (over: Partial<StopRun> = {}) => {
 	return { blocked: block !== null, reason: block?.reason ?? "" };
 };
 
-/** The `replay` subcommand, a CLI rather than a Stop run. */
 const replay = (...argv: string[]) =>
 	runInProcess(GUARD, ["replay", ...argv], {
 		stdin: "",
@@ -139,7 +102,6 @@ const replay = (...argv: string[]) =>
 		},
 	});
 
-/** The last breadcrumb this guard wrote for this session. */
 const readCrumb = () => {
 	const file = path.join(
 		hookRecord.recordsDir(dir),
@@ -161,8 +123,6 @@ const readSeen = () =>
 		.split("\n")
 		.filter(Boolean);
 
-/* A package.json makes the core a checkout, so the replay command it prints
- * stays `scripts/…` rather than an install's absolute path. */
 const makeCore = (root: string) => {
 	fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
 	fs.writeFileSync(path.join(root, "package.json"), "{}\n");
@@ -261,8 +221,7 @@ describe("what it reports", () => {
 });
 
 describe("whether the loss was worth a turn", () => {
-	/* Rows no live guard carries, so a fold that deletes a guard's entry
-	 * script leaves these cases standing (#3272). */
+	// #3272
 	const priced = () => {
 		const rates = path.join(dir, "deny-rates.json");
 		fs.writeFileSync(
@@ -294,7 +253,6 @@ describe("whether the loss was worth a turn", () => {
 		return run({ env: { WFC_SCRIPT_ROOT: core, WFC_DENY_RATES: rates } });
 	};
 
-	/** One killed call of `guard`, on tool call `id`. */
 	const lost = (guard: string, id: string) => [
 		fileCall("git push", id),
 		killed({ toolUseID: id, command: `$CLAUDE_PROJECT_DIR/scripts/${guard}` }),
@@ -399,13 +357,11 @@ describe("a killed dispatcher call, priced as the cores it admitted — #3272", 
 		path.join(repo, "scripts", "lib", "guard-cores.json"),
 	);
 	const close = { name: "Bash", input: { command: "gh issue close 5" } };
-	/** The cores able to deny that run on `gh issue close 5`, live. */
 	const admitted: string[] = denyingCoresOn(
 		{ tool_name: close.name, tool_input: close.input },
 		{ disabled: () => false, moduleOn: () => true },
 	);
 
-	/** A killed guard-dispatch.js on `call`, priced from `rates` by core. */
 	const lostDispatch = (
 		call: { name: string; input: Record<string, unknown> },
 		rates: Record<string, number>,
@@ -429,7 +385,6 @@ describe("a killed dispatcher call, priced as the cores it admitted — #3272", 
 		return run({ env: { WFC_SCRIPT_ROOT: repo, WFC_DENY_RATES: table } });
 	};
 
-	/** Every admitted core at 0%, `over` replacing some. */
 	const zeroed = (over: Record<string, number> = {}) => ({
 		...Object.fromEntries(admitted.map((c) => [c, 0])),
 		...over,
@@ -597,7 +552,6 @@ describe("the deny-capable set", () => {
 			["--triggers", "--scope", "all"],
 			{ env: { ...process.env, WFC_LOST_DENY_ROOT: repo } },
 		);
-		// A core's row stands for the dispatcher, the script a failure record names.
 		const rows = Object.values(
 			Object.groupBy(
 				JSON.parse(census.stdout) as {
@@ -684,8 +638,6 @@ describe("the dedupe", () => {
 		expect(run().blocked).toBe(false);
 	});
 
-	/* blockStop stops emitting after MAX_BLOCKS turns. A set written before the
-	 * block rather than after would mark this loss told and drop it for ever. */
 	it("marks nothing seen on a turn where the block did not go out", () => {
 		oneLoss();
 		fs.writeFileSync(
@@ -869,7 +821,6 @@ describe("in an adopter, whose repo holds none of the guards — #1017", () => {
 
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain("guard-branch.sh");
-		/* The seen set stays with the session's repo. */
 		expect(readSeen()).toEqual(["toolu_A"]);
 	});
 
@@ -884,7 +835,6 @@ describe("in an adopter, whose repo holds none of the guards — #1017", () => {
 		expect(run().blocked).toBe(false);
 	});
 
-	/** An adopter's own guard, in the session repo's scripts/. */
 	const ownGuard = (name: string, body: string) =>
 		fs.writeFileSync(path.join(dir, "scripts", name), body);
 	const lostOwn = (name: string) =>

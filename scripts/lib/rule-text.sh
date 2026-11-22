@@ -51,23 +51,15 @@ source "$_RT_HERE/guard-root.sh"
 # shellcheck source=scripts/lib/script-path.sh
 source "$_RT_HERE/script-path.sh" 2>/dev/null
 
-# Resolved once, at source, so no call forks (#653).
+# #653
 _RT_CORE_DIR="$(cd "$_RT_HERE/../.." && pwd)/docs/agents/rules"
 
-# The HOST repo's root, through the one seam (#1). `$_RT_HERE`
-# stays for finding guard-root.sh itself, a sibling that ships with this file —
-# but never for the store, which belongs to the host: two levels up from here is
-# the PLUGIN root in a plugin install, where the session found an empty rule
-# store and fell back to the plugin's own copy (finding F24 of the adoption dry
-# run).
+# #1
 rt_root() {
   gr_root
 }
 
-# The store directory in force, read at call time so a test can set it per case.
-# The host's own store first, then the CORE's: an adopter never copies the
-# fragments, so a guard firing there prints its rule out of the plugin root
-# (#5). Keep it in step with lib/rule-text.js's rulesDir().
+# #5
 rt_dir() {
   if [[ -n "${WFC_RULES_DIR:-}" ]]; then
     rt_resolve "$WFC_RULES_DIR"
@@ -78,14 +70,8 @@ rt_dir() {
   fi
 }
 
-# $1 made absolute and normalised LEXICALLY, symlinks untouched — what Node's
-# path.resolve does, so rt_dirs dedupes and names the layers rulesDirs() would.
-# Pure bash: GNU `realpath -ms` is no portable spelling of it.
 rt_resolve() {
   local p="$1" part
-  # rt_-prefixed: a sourcing file checked with shellcheck's -x flattens the
-  # two files' namespaces, so a bare `out` here could read as a caller's
-  # unrelated scalar local (SC2178/SC2128).
   local -a parts rt_out=()
   [[ "$p" == /* ]] || p="$PWD/$p"
   IFS=/ read -ra parts <<<"$p"
@@ -100,13 +86,10 @@ rt_resolve() {
   printf '/%s' "${rt_out[*]}"
 }
 
-# The CORE's own store, beside this file: the plugin root's in an adopter.
 rt_core_dir() {
   printf '%s' "$_RT_CORE_DIR"
 }
 
-# The CORE's layer as rt_dirs takes it — lib/rule-text.js's coreLayer(). Prints
-# nothing under an override naming no fallback.
 rt_core_layer() {
   if [[ -n "${WFC_RULES_DIR:-}" ]]; then
     [[ -n "${WFC_RULES_FALLBACK_DIR:-}" ]] || return 0
@@ -116,11 +99,7 @@ rt_core_layer() {
   fi
 }
 
-# Every store an id is looked up in, one per line, first match winning: rt_dir,
-# then the CORE's — layered, not either/or, so an adopter that generates one
-# fragment of its own still prints every core guard's rule (#97). Under the
-# override the core layer is WFC_RULES_FALLBACK_DIR alone, never implied. Keep
-# it in step with lib/rule-text.js's rulesDirs().
+# #97
 rt_dirs() {
   local primary core
   primary="$(rt_dir)"
@@ -130,11 +109,7 @@ rt_dirs() {
   return 0
 }
 
-# Every rule id the stores hold, one per line, sorted bytewise as Node's sort()
-# is. An absent layer is an empty store; one that exists but cannot be listed —
-# unreadable, or a file — returns 1, as ruleIds() throws (mantahostels#103). One
-# accepted divergence: a readable but unsearchable layer (0400) refuses here,
-# where readdirSync lists it.
+# lucmoseley/mantahostels#103
 rule_ids() {
   local dir f id
   local -a ids=()
@@ -155,15 +130,10 @@ rule_ids() {
   printf '%s\n' "${ids[@]}" | LC_ALL=C sort -u
 }
 
-# $1 with ONE leading `rule:` removed. Called before the grammar runs and before
-# anything is joined onto a path, so `rule:../outside` becomes `../outside` and
-# is refused as an id rather than resolved as one.
 rt_bare_id() {
   printf '%s' "${1#rule:}"
 }
 
-# rule-text.js's readFragment: sets the caller's `body` to fragment $1's own text
-# and `layer` to the store holding it, or returns 1 saying why not.
 _rt_read() {
   local given="${1:-}" id dir file known
   layer=
@@ -189,11 +159,7 @@ _rt_read() {
       "${known:-The store holds no fragments.}" >&2
     return 1
   fi
-  # Command substitution already strips every trailing newline; printf puts none
-  # back, so the two accessors agree byte for byte.
   body="$(<"$file")"
-  # An empty fragment is the failure this store exists to prevent, arriving by
-  # the one route the id check cannot see.
   if [[ -z "${body//[[:space:]]/}" ]]; then
     printf 'rule-text: the fragment for rule id "%s" (%s) is empty. A guard printing it would deny a session and state no rule.\n' \
       "$id" "$file" >&2
@@ -201,9 +167,6 @@ _rt_read() {
   fi
 }
 
-# rule-text.js's expandIncludes: each `{rule:<id>}` in $1 becomes that fragment's
-# own text, one level deep. Built left to right, so an included text is never
-# read again.
 _RT_INCLUDE_RE='\{rule:([a-z0-9]+(-[a-z0-9]+)*)\}'
 _rt_expand_includes() {
   local rest="$1" out='' pre whole inc body layer
@@ -230,16 +193,12 @@ rule_text() {
   if [[ "$body" == *"{rule:"* ]]; then
     body="$(_rt_expand_includes "$body")" || return 1
   fi
-  # A fragment names core scripts as `scripts/x`; an install serves them
-  # through the plugin root (#343), as rule-text.js does.
+  # #343
   local text="$body"
   if declare -F resolve_script_paths >/dev/null; then
     text="$(printf '%s' "$body" | resolve_script_paths | expand_paste_paths "$(rt_root)")"
   fi
-  # A core fragment's bare `#N` is qualified in an install (#416), through the
-  # JS qualifier itself so the twins cannot drift — at the price of one node
-  # start per fragment printed there. Where node fails, the text prints
-  # unqualified rather than not at all.
+  # #416
   local qualified
   if declare -F sp_in_checkout >/dev/null && ! sp_in_checkout &&
     [[ "$layer" == "$(rt_core_layer)" ]] &&
@@ -251,10 +210,7 @@ rule_text() {
   printf '%s' "$text"
 }
 
-# rule_or_path <id> <lead-in> <tail> — rule fragment <id>'s text, else
-# "<lead-in> <its path><tail>", for a nag that must still point somewhere
-# when the store is unreadable (#3439). It logs the miss through the caller's
-# gl_log where one is defined.
+# #3439
 rule_or_path() {
   local text where
   text="$(rule_text "$1" 2>/dev/null)"
@@ -267,11 +223,7 @@ rule_or_path() {
   printf '%s %s%s' "$2" "$where" "$3"
 }
 
-# rule-text.js's expandCommands (#742): `{command:<name>}` becomes the host's
-# declared commands.<name>, and a line naming one it does not declare is
-# dropped whole. Built left to right, so a command holding the placeholder's own
-# spelling is never expanded again. A config that does not parse declares
-# nothing, and _wfc_jq says so on stderr.
+# #742
 _RT_COMMAND_RE='\{command:([a-z_]+)\}'
 _rt_expand_commands() {
   if ! declare -F wfc_command >/dev/null 2>&1; then
@@ -296,7 +248,6 @@ _rt_expand_commands() {
   printf '%s' "$out"
 }
 
-# Run directly rather than sourced: the CLI form, where the refusal exits.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   set -euo pipefail
   if [[ "${1:-}" == "--ids" ]]; then
@@ -312,13 +263,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     printf '\n'
     exit 0
   fi
-  # A list: resolve every id before printing any of them, so one unknown id
-  # anywhere in the list can never leave a prior fragment on stdout looking
-  # like a complete, successful answer.
-  # Ids are passed on AS GIVEN, so `rule_text` is the one place a `rule:` prefix
-  # is stripped: baring them here too would strip twice, letting `rule:rule:x`
-  # through on this path alone. The heading bares the id it already accepted, so
-  # a list mixing the two spellings matches what `--ids` enumerates.
   ids=("$@")
   bodies=()
   for id in "${ids[@]}"; do

@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/check-guard-registry.js: #2617's refusal met by a pathspec commit, and `--taking`.
- *
- * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
- * loosen a case and a rule can claim **Enforced** while its guard is missing
- * or unwired.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from check-guard-registry.test.ts, whose cost was pre-existing (#4294).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -29,8 +19,6 @@ afterEach(removeTemps);
 describe("--against HEAD refuses the commit that expires an anchor (#2617)", () => {
 	const { stagingRepo, claims, gate, review, readHookLine } = anchorExpiryKit();
 
-	/* A `git commit -- <paths>` through .husky/pre-commit's own line: the hook
-	 * reads a private index holding just those paths' working-tree bytes. */
 	function hookCommitter(root: string, locks: unknown[] = []) {
 		const hook = path.join(root, ".git", "hooks", "pre-commit");
 		fs.writeFileSync(hook, `#!/bin/sh\n${readHookLine()}\n`, { mode: 0o755 });
@@ -89,7 +77,6 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
-	/* The way out --review prints where it keeps a --taking path's claim. */
 	const keptClaim = (out: string, why: string) => {
 		expect(out).toContain(
 			`not taking scripts/lib/deny.sh — ${why}, so any claim on it stands; commit it by pathspec and re-run the --review line that commit's refusal prints`,
@@ -154,15 +141,12 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
-	/* A committed, anchored .husky/ hook: the arbiter watches no such path, so
-	 * no session's claim ever covers it. */
 	const hookRel = ".husky/prepare-commit-msg";
 	function hookedRepo() {
 		const repo = stagingRepo();
 		const hook = path.join(repo.root, hookRel);
 		fs.mkdirSync(path.dirname(hook), { recursive: true });
 		fs.writeFileSync(hook, "#!/bin/sh\nexit 0\n");
-		/* Staged before its review: a guard outside the index has no digest (#4517). */
 		repo.git("add", "--", hookRel);
 		review(repo.root, [hookRel]);
 		repo.git("add", "--", ANCHORS);

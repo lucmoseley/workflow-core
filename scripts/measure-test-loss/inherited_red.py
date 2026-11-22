@@ -1,9 +1,3 @@
-"""Session red runs that fail only on files the lander's red full suite also failed on, inside the
-lander's red stretches. These reds are inherited from a red tip, not made by the session's own work.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I inherited_red.py <markers-dir>
-Stretches are those red_main.py prints for the lander (hard-coded below, UTC)."""
-
 import json
 import os
 import sys

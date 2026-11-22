@@ -1,10 +1,3 @@
-/*
- * registry-atomicity-host.js — the production ports the dispatcher wires into
- * the guard-registry-atomicity core, lib/registry-atomicity.js (#2794, #3226). Every git read
- * carries the hook's git timeout, and a timed-out read answers as an erroring
- * one: null, which the core reads as "git could not tell".
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -21,9 +14,8 @@ const lines = (out) =>
 	out === null ? null : out.split("\n").filter((l) => l !== "");
 
 /**
- * One commit's reads.
- * @param {string} tree the directory the commit runs in
- * @param {string} root its top level
+ * @param {string} tree
+ * @param {string} root
  * @returns {import("./registry-atomicity.js").Repo}
  */
 function openRepo(tree, root) {
@@ -66,13 +58,8 @@ function openRepo(tree, root) {
 					spec,
 				]),
 			),
-		/* --no-renames: a rename is one R entry naming the new path only,
-		 * which hides the old member's disappearance (mantahostels#2685). */
 		staged: () =>
 			lines(at(["diff", "--cached", "--name-only", "--no-renames"])),
-		/* ls-tree, never `cat-file -e`, which exits 128 for an ordinary absence
-		 * and for a break alike (mantahostels#2702). --full-tree: the names are
-		 * the root's wherever the commit runs. */
 		headNames: (rel) => {
 			if (head === undefined)
 				head = listing([
@@ -98,26 +85,17 @@ function openRepo(tree, root) {
 				]);
 			return index === null ? null : index.has(rel);
 		},
-		/* `:<path>` is the stage-0 entry, its path read from the top of the
-		 * working tree, so a root-relative path is right from a subdirectory. */
 		indexShow: (rel) => at(["show", `:${rel}`]),
 		exists: (rel) => fs.existsSync(abs(rel)),
 		isFile: (rel) =>
 			fs.statSync(abs(rel), { throwIfNoEntry: false })?.isFile() ?? false,
-		/* Null where it will not read: callers read only paths `exists` or the
-		 * disk listing has shown, so the core
-		 * reads null as unreadable, logs it and allows, its stated fail-open
-		 * (mantahostels#103 §6, #4132). */
 		read: (rel) => {
 			try {
 				return fs.readFileSync(abs(rel), "utf8");
 			} catch {
-				/* The core's logged allow, above. */
 				return null;
 			}
 		},
-		/* A directory that is not there holds no caller; any other read error
-		 * throws, and the row refuses the commit (#4128). */
 		list: (rel) => {
 			try {
 				return fs.readdirSync(abs(rel));
@@ -131,10 +109,6 @@ function openRepo(tree, root) {
 }
 
 /**
- * lib/needle-corpus.js's drift over the copy this commit lands, through the
- * core's `readLanding`; HEAD is read through the commit's own Repo, the
- * listing first, since `show` cannot tell an absent path from a broken object
- * store (mantahostels#2702).
  * @param {{ repo: import("./registry-atomicity.js").Repo, root: string,
  *   landing: string[], readLanding: ((rel: string) => string | null) | null }} at
  */
@@ -160,10 +134,8 @@ function drift({ repo, root, landing, readLanding }) {
 }
 
 /**
- * The core's patchBodies: the patch applied to HEAD in a private index, the
- * shared one untouched, as commit-paths.js builds the commit (#2894).
  * @param {string} dir
- * @param {string} file the patch, as the command names it
+ * @param {string} file
  * @returns {Map<string, string | null> | null}
  */
 function patchBodies(dir, file) {
@@ -199,8 +171,6 @@ function pluginScripts() {
 	try {
 		return fs.realpathSync(path.join(__dirname, ".."));
 	} catch {
-		/* Only a refusal's or a record's text names it, so a placeholder costs
-		 * a path the reader cannot paste, never a verdict (mantahostels#103 §6). */
 		return "<plugin root>/scripts";
 	}
 }
@@ -210,9 +180,6 @@ function pluginScripts() {
  */
 function buildHostPorts() {
 	return {
-		/* A cwd git cannot place — inside `.git`, say — has no top level, and
-		 * the core then allows, logged. Two rev-parses where one would do,
-		 * each git-tree.js's shared reader (#2883): one more spawn a commit. */
 		place: (dir) => {
 			const root = readTopLevel(dir);
 			const gitdir = root ? readGitDir(dir) : null;
@@ -238,8 +205,6 @@ function buildHostPorts() {
 					"utf8",
 				);
 			} catch {
-				/* Null, which the core logs and allows on as a needle present
-				 * (mantahostels#103 §6). */
 				return null;
 			}
 		},

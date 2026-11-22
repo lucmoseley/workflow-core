@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-issue-body core of guard-dispatch.js refuses a raw issue-body
- * write (mantahostels#132). These are its boundary cases, the dispatcher
- * entry run on it alone on a harness-shaped payload: each exit, and the rule
- * store and the script-path resolver crossed for real. Which command is
- * refused, and why, is lib/issue-body-write.test.ts's; the entry's payload
- * faults and the throw policy are guard-dispatch's own tests' (#2798, #3225).
- * The core calls no gh and reads no file of its own, so there is no other
- * adapter to cross.
- *
- * CLAUDE_PROJECT_DIR is a temp project, so the fail-open log lands in the
- * temp CLAUDE_CONFIG_DIR and never the founder's.
- *
- * Make it allow a whole-body `gh issue edit` and a parallel session's edit is
- * silently erased; make it deny on a fault and every `gh` call is wedged.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -39,7 +23,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The core's hookSpecificOutput for `command`, run in `cwd`. */
 const emission = (
 	command: string,
 	{ env = {}, cwd = dir }: { env?: NodeJS.ProcessEnv; cwd?: string } = {},

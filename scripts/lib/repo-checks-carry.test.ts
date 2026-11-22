@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * repo-checks-carry.test.ts — the clobbers window (#1551) and re-scan list
- * (#1600) one daily repo-checks reading carries to the next. Loosen one and a
- * window skips the days a BROKEN reading never examined, or an unfixed
- * clobber on an issue nobody edits again drops out once the window passes it.
- *
- * Each case folds a run of readings through `carriedArgs` and `carriedNext`
- * as the runner does, in memory. The file round trip and the argv the runner
- * launches with are scripts/repo-checks.test.ts's.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -19,12 +9,10 @@ const CLOBBERS = REPO_CHECKS.find((e: { id: string }) => e.id === "clobbers");
 
 interface Reading {
 	at: string;
-	/** Absent: the gate SKIPped clobbers, so nothing was launched. */
 	outcome?: string;
 	keys?: string[];
 }
 
-/** The argv clobbers took at each reading it was launched in. */
 function fold(readings: Reading[]): string[][] {
 	let kept = { lastStarts: {}, rescans: {} };
 	const argvs: string[][] = [];

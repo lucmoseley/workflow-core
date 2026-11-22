@@ -4,14 +4,11 @@ from collections import Counter
 
 import pytest
 
-# Above pid_max, so no live process owns it.
 GONE = 99_999_999
 
 
 @pytest.fixture
 def oracle(monkeypatch):
-    # The module reads its sample count and gap off argv at import: its input,
-    # set as setenv sets an env var, not a collaborator replaced.
     monkeypatch.setattr(sys, "argv", ["bench_agents_oracle.py"])
     sys.modules.pop("bench_agents_oracle", None)
     yield importlib.import_module("bench_agents_oracle")

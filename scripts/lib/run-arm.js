@@ -1,21 +1,3 @@
-/*
- * run-arm.js — the core of scripts/run-arm-test.js, the before/after test's
- * runner (#2045, `docs/research/startup-load-before-after-test.md` D2–D5;
- * core and shell, #5149). The program's header says what each subcommand
- * does; this module does it on the ports it is handed and returns the exit
- * status, and the shell wires the production adapters. It reads and writes
- * its files in place — the plan, the launch records, the arms'
- * `.claude.json`, the transcripts — since a test crosses them for real in
- * its temp dir.
- *
- * Its lines go out through `out` and `err` as they happen: `run` loops for
- * hours, and its log of each pair started, held or stopped is read while it
- * runs.
- *
- * IN NO §N3 FAMILY, DELIBERATELY: it gates nothing and files no issue, and it
- * writes outside the repo.
- */
-
 const fs = require("node:fs");
 const { scriptPath } = require("./script-path.js");
 const path = require("node:path");
@@ -61,45 +43,33 @@ const {
 } = require("./arm-claude.js");
 
 const SCRIPTS = path.join(__dirname, "..");
-/** `WFC_ARM_TASKS_CLI` stands a test's stub in for the task builder. */
 const armTasksCli = (/** @type {NodeJS.ProcessEnv} */ env) =>
 	env.WFC_ARM_TASKS_CLI || path.join(SCRIPTS, "arm-tasks.js");
-/** `WFC_ADMISSION_CLI` stands a test's stub in for the admission check. */
 const admissionCli = (/** @type {NodeJS.ProcessEnv} */ env) =>
 	env.WFC_ADMISSION_CLI || path.join(SCRIPTS, "admission.js");
 const SCORER = path.join(SCRIPTS, "score-session-breaches.js");
-/** `A=<rev>@<config dir>`, as `--arm` takes it. */
 const ARM_SPEC = /^([^=]+)=([^@]+)@(.+)$/;
-/** What `run` says to do once every run started has ended. */
 const RERUN = "run again to start the pairs left";
-/** {@link RERUN}, once a failure stopped its pairs. */
 const RERUN_LEFT = `clear the failure above and ${RERUN}`;
-/** D4's design target: a 30% drop. */
+// guess, #2045
 const DEFAULT_DROP = 0.3;
-/** One run per arm; a running cap under it would hold every pair for ever. */
 const PAIR_SIZE = 2;
-/**
- * D5: at most 2 pairs, 4 sessions, at a time; raise it only where the
- * founder's own sessions are off the machine (#2046).
- */
+// guess, #2046
 const DEFAULT_MAX_RUNNING = 4;
-/**
- * A run still going this long is stopped and recorded `hung` (#2046): three
- * times the pilot's longest run, 29.7 minutes, above F11's p75 of 40.
- */
+// measured longest pilot run 29.7 min, x3, #2046
 const DEFAULT_CEILING_MIN = 90;
-/** #2046: F11's p75 is the floor, so a slow run is never cut short as hung. */
+// measured F11 p75 40 min, #2046
 const MIN_CEILING_MIN = 40;
-/** D6: about 6 sessions an hour, so a pair every 20 minutes. */
+// guess, #2046
 const DEFAULT_PACE_MIN = 20;
 const MS_PER_MIN = 60_000;
-/** A guess: a pass is a few `claude agents` calls, and pairs start 20 minutes apart. */
+// guess, #2046
 const DEFAULT_POLL_SEC = 60;
-/** Untraced, a guess: what one pair's two builds and its passes' calls add to the whole-run limit. */
+// guess, #3495
 const PAIR_ALLOWANCE_MIN = 10;
-/** Untraced, a guess: a stop failing three times running will not pass on a fourth. */
+// guess, #3495
 const STOP_TRIES = 3;
-/** A build, scorer or acceptance check reads a whole sandbox or transcript. */
+// guess, #2045
 const READ_TIMEOUT_MS = 900_000;
 
 /** @type {import("./cli-args").CliSpec} */
@@ -159,16 +129,13 @@ const CLI = {
  * @typedef {Arm & { id: string, pair: number, task: string, run: number, sandbox: string }} Run
  * @typedef {{ path: string, version: string }} Cli
  * @typedef {{ seed: number, cli: Cli, runs: Run[] }} Plan
- * @typedef {Run & { repo: string, job: string, launchedAt: string, hung?: string, limited?: string }} LaunchRecord `hung` is when the ceiling stopped it, `limited` when `run`'s whole-run limit did
+ * @typedef {Run & { repo: string, job: string, launchedAt: string, hung?: string, limited?: string }} LaunchRecord
  * @typedef {{ sessionId: string, state: string, kind: string }} Job
- * @typedef {Map<string, Job> | null} JobStates null where the listing cannot be read
+ * @typedef {Map<string, Job> | null} JobStates
  * @typedef {{ score: number, versions: string[], assistantMessages: number, stop: Record<string, number>, deny: Record<string, number>, families: { concision: number, environment: number } } | { error: string }} Score
  */
 
-/**
- * mulberry32, a seeded generator.
- * @param {number} seed
- */
+/** @param {number} seed */
 function seeded(seed) {
 	let s = seed >>> 0;
 	return () => {
@@ -218,10 +185,7 @@ function buildPlan({ tasks, runs, arms, seed, root }) {
 	return { seed, runs: out };
 }
 
-/**
- * @param {string} spec `A=<rev>@<config dir>`
- * @returns {Arm | null}
- */
+/** @param {string} spec @returns {Arm | null} */
 function parseArm(spec) {
 	const m = ARM_SPEC.exec(spec);
 	if (!m) return null;
@@ -232,10 +196,7 @@ function parseArm(spec) {
 	};
 }
 
-/**
- * Why no pair may start through the plan's CLI, or null where it is there.
- * @param {Cli | undefined} cli
- */
+/** @param {Cli | undefined} cli */
 function cliGone(cli) {
 	if (!cli)
 		return "plan.json records no CLI to start pairs on; plan again under a new --root";
@@ -268,12 +229,7 @@ function launchedFiles(root) {
 		.map((f) => path.join(dir, f));
 }
 
-/**
- * Mark `dir` trusted in the config dir's `.claude.json`, written atomically so
- * a session reading it never sees half a file.
- * @param {string} configDir
- * @param {string} dir
- */
+/** @param {string} configDir @param {string} dir */
 function trust(configDir, dir) {
 	const file = path.join(configDir, ".claude.json");
 	const state = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -285,21 +241,10 @@ function trust(configDir, dir) {
 	writeFileAtomic(file, JSON.stringify(state, null, 2));
 }
 
-/**
- * Whether `run` stopped `rec` and marked it, at the ceiling or its limit.
- * @param {LaunchRecord} rec
- */
+/** @param {LaunchRecord} rec */
 const stoppedByRun = (rec) => Boolean(rec.hung || rec.limited);
 
-/**
- * Whether a launched run has ended: done, failed or stopped, `blocked` on a
- * question, which nobody answers in either arm (#2045), or stopped at the
- * ceiling (#2046) or `run`'s limit (#3495). A
- * run whose job the listing does not show counts as running, so an
- * unreadable listing never admits another pair.
- * @param {LaunchRecord} rec
- * @param {Map<string, JobStates>} states
- */
+/** @param {LaunchRecord} rec @param {Map<string, JobStates>} states */
 function ended(rec, states) {
 	if (stoppedByRun(rec)) return true;
 	const job = states.get(rec.configDir)?.get(rec.job);
@@ -308,8 +253,6 @@ function ended(rec, states) {
 }
 
 /**
- * A minute or second flag as milliseconds, or null where it is not a number
- * at least `min`.
  * @param {import("./cli-args").Parsed["flags"]} flags
  * @param {string} name
  * @param {{ fallback: number, unitMs: number, min: number }} spec
@@ -320,7 +263,6 @@ function durationFlag(flags, name, { fallback, unitMs, min }) {
 }
 
 /**
- * A whole-number flag, or null where it is not an integer at least `min`.
  * @param {import("./cli-args").Parsed["flags"]} flags
  * @param {string} name
  * @param {{ fallback: number, min: number }} spec
@@ -330,10 +272,7 @@ function countFlag(flags, name, { fallback, min }) {
 	return Number.isInteger(n) && n >= min ? n : null;
 }
 
-/**
- * `run`'s flags, or the refusal where one is missing or malformed.
- * @param {import("./cli-args").Parsed["flags"]} flags
- */
+/** @param {import("./cli-args").Parsed["flags"]} flags */
 function runOptions(flags) {
 	const root = flagValue(flags, "--root");
 	const issues = flagValue(flags, "--issues");
@@ -376,12 +315,6 @@ function runOptions(flags) {
 }
 
 /**
- * `run`'s default whole-run limit, in minutes: the longest a plan of `pairs`
- * takes where admission never holds it. Under the least `--max-running`, one
- * pair at a time, each pair starts within the pace, or the ceiling and a poll
- * of the one before ending, whichever is later; running more at once only
- * shortens it. Each pair also gets PAIR_ALLOWANCE_MIN for its builds and the
- * passes' calls.
  * @param {number} pairs
  * @param {{ ceilingMs: number, paceMs: number, pollMs: number }} o
  */
@@ -391,10 +324,7 @@ const derivedLimitMin = (pairs, { ceilingMs, paceMs, pollMs }) =>
 	) +
 	pairs * PAIR_ALLOWANCE_MIN;
 
-/**
- * A transcript's first to last timestamp, or null where it has fewer than two.
- * @param {string} file
- */
+/** @param {string} file */
 function readWallMs(file) {
 	let first = Number.POSITIVE_INFINITY;
 	let last = Number.NEGATIVE_INFINITY;
@@ -407,10 +337,7 @@ function readWallMs(file) {
 	return last > first ? last - first : null;
 }
 
-/**
- * The CLI version most scored runs ran on.
- * @param {string[][]} versionsPerRun
- */
+/** @param {string[][]} versionsPerRun */
 function modalVersion(versionsPerRun) {
 	/** @type {Map<string, number>} */
 	const counts = new Map();
@@ -430,9 +357,6 @@ const FAMILIES = /** @type {const} */ ([
 ]);
 
 /**
- * One run's score split into D3's families: `inventory` and `jobDir`, the
- * two near-constant guards (F8), then `moved`, `mixed` and `kept` by `breach-score-rule.js`, and
- * `unattributed` a deny no guard's needle names.
  * @param {{ stop: Record<string, number>, deny: Record<string, number> }} score
  * @returns {Record<(typeof FAMILIES)[number], number>}
  */
@@ -460,7 +384,6 @@ function familiesOf({ stop, deny }) {
 }
 
 /**
- * D3's primary analysis and cross-check on one score per run.
  * @param {import("./arm-stats.js").Scored[]} scored
  * @param {string} baseline
  */
@@ -474,11 +397,7 @@ function compare(scored, baseline) {
 	};
 }
 
-/**
- * `--periods`' first pairs, ascending, with pair 1 first; null where one is
- * not a whole number above 1.
- * @param {string | undefined} value
- */
+/** @param {string | undefined} value */
 function parsePeriods(value) {
 	if (value === undefined) return [1];
 	const starts = value.split(",").map(Number);
@@ -498,7 +417,6 @@ const countByArm = (rows, p) =>
 	);
 
 /**
- * #2241's split by period, every count over the scored runs.
  * @param {{ row: ReturnType<typeof readRun>, score: number, environment: number }[]} scored
  * @param {number[]} starts
  * @param {string} baseline
@@ -548,21 +466,15 @@ function byPeriod(scored, starts, baseline) {
 
 /**
  * @typedef {object} Ports
- * @property {NodeJS.ProcessEnv} env  the environment every child reads; `run`
- *   forgets the starting session's id on it
- * @property {typeof import("./child-spawn.js").spawnRaw} claude  each `claude` call
+ * @property {NodeJS.ProcessEnv} env
+ * @property {typeof import("./child-spawn.js").spawnRaw} claude
  * @property {(cli: string, args: string[], opts: { env: NodeJS.ProcessEnv, timeout: number }) => { status: number | null, stdout: string, stderr: string }} node
- *   a Node program run to its end: the builder, admission, the scorer and the
- *   acceptance check
- * @property {() => number} clock  `run`'s monotonic clock, in ms, so a
- *   wall-clock step neither fires the limit early nor holds it off
- * @property {() => number} now  the wall clock, in epoch ms, which the launch
- *   records stamp and the ceiling and pace read
- * @property {(ms: number) => void} sleep  `run`'s wait between passes
+ * @property {() => number} clock
+ * @property {() => number} now
+ * @property {(ms: number) => void} sleep
  * @property {(text: string) => void} out
  * @property {(text: string) => void} err
- * @property {() => string} hostRoot  the repo whose guard registry the warn
- *   measure reads
+ * @property {() => string} hostRoot
  */
 
 /**
@@ -574,13 +486,7 @@ function refuse(p, msg) {
 	return 2;
 }
 
-/**
- * `claudeBin(p.env)` found on PATH and followed through every link to its
- * versioned binary, with the version that binary reports; the reason where
- * none answers.
- * @param {Ports} p
- * @returns {Cli | string}
- */
+/** @param {Ports} p @returns {Cli | string} */
 function resolveCli(p) {
 	const name = claudeBin(p.env);
 	const candidates = name.includes("/")
@@ -648,8 +554,6 @@ function plan(p, { flags, lists }) {
 }
 
 /**
- * Build one run's sandbox and ready it for a `--bg` job: its env file, and
- * its repo trusted in the arm's config dir.
  * @param {Ports} p
  * @param {Run} run
  * @param {{ issues: string, nodeModules: string }} opts
@@ -689,7 +593,6 @@ function prepare(p, run, { issues, nodeModules }) {
 	try {
 		task = JSON.parse(built.stdout);
 	} catch {
-		// A builder that exits 0 without its record is a builder bug (#2045).
 		return {
 			ok: false,
 			why: `the builder printed no task record: ${built.stdout.slice(0, CHILD_ERROR_CHARS)}`,
@@ -706,12 +609,7 @@ function prepare(p, run, { issues, nodeModules }) {
 	return { ok: true, repo, prompt: task.prompt };
 }
 
-/**
- * Free session slots by `admission.js`, or 0 with the reason where it cannot
- * say (#2045).
- * @param {Ports} p
- * @returns {{ slots: number, why?: string }}
- */
+/** @param {Ports} p @returns {{ slots: number, why?: string }} */
 function readAdmissionSlots(p) {
 	const r = p.node(admissionCli(p.env), ["--json"], {
 		env: p.env,
@@ -732,7 +630,6 @@ function readAdmissionSlots(p) {
 }
 
 /**
- * Every launched record's job, read once per config dir.
  * @param {Ports} p
  * @param {LaunchRecord[]} recs
  * @param {string} bin
@@ -748,8 +645,6 @@ function readStatesByConfigDir(p, recs, bin) {
 }
 
 /**
- * Why a pair of `size` cannot start now, or null where it can: the running
- * cap first, then admission.
  * @param {Ports} p
  * @param {string} root
  * @param {{ size: number, bin: string, maxRunning?: number }} pair
@@ -767,12 +662,9 @@ function heldBack(p, root, { size, bin, maxRunning = DEFAULT_MAX_RUNNING }) {
 }
 
 /**
- * Build both of a pair's sandboxes, then start both; neither starts when
- * either build fails. Whether every member started.
  * @param {Ports} p
  * @param {Run[]} members
  * @param {{ dir: string, opts: { issues: string, nodeModules: string }, bin: string }} into
- *   `dir` the `launched` dir
  */
 function launchPair(p, members, { dir, opts, bin }) {
 	/** @type {{ run: Run, ready: { repo: string, prompt: string } }[]} */
@@ -852,9 +744,6 @@ function launch(p, { flags, positionals }) {
 }
 
 /**
- * Stop `rec`'s job and stamp its record with `mark`, the time, so it reads
- * ended from then on. Null where the stop held, a job the daemon no longer
- * holds being already stopped; else why it failed.
  * @param {Ports} p
  * @param {LaunchRecord} rec
  * @param {{ root: string, bin: string, mark: "hung" | "limited" }} how
@@ -873,9 +762,6 @@ function stopAndMark(p, rec, { root, bin, mark }) {
 }
 
 /**
- * Stop each run the listing shows still going past `ceilingMs`, and record it
- * `hung`. A run the listing does not
- * show is left: an unreadable listing stops nothing.
  * @param {Ports} p
  * @param {string} root
  * @param {number} ceilingMs
@@ -900,8 +786,6 @@ function reapHung(p, root, ceilingMs, bin) {
 }
 
 /**
- * `--limit-min` as milliseconds, derived from the plan where absent, said on
- * stdout; the refusal where it is not a number at least 0.
  * @param {Ports} p
  * @param {import("./cli-args").Parsed["flags"]} flags
  * @param {Plan} plan
@@ -923,10 +807,6 @@ function runLimitMs(p, flags, { runs }, o) {
 }
 
 /**
- * Stop every launched run not yet ended, the unlisted included, since an
- * unreadable listing must not leave one going, trying a failed stop again
- * after a poll up to STOP_TRIES times. Say what is left and return `run`'s
- * exit status: `failed`, a failure that had stopped further pairs, else 1.
  * @param {Ports} p
  * @param {string} root
  * @param {string} bin
@@ -957,14 +837,7 @@ function stopAtLimit(p, root, bin, { limitMs, pollMs, failed }) {
 	return failed || 1;
 }
 
-/**
- * Where the plan's CLI is gone, so nothing can list or stop a run: name each
- * launched run not recorded ended with the `claude stop` that ends it, and
- * return `run`'s exit status; else null.
- * @param {Ports} p
- * @param {Cli | undefined} cli
- * @param {string} root
- */
+/** @param {Ports} p @param {Cli | undefined} cli @param {string} root */
 function refuseGoneCli(p, cli, root) {
 	const gone = cliGone(cli);
 	if (!gone) return null;
@@ -972,16 +845,9 @@ function refuseGoneCli(p, cli, root) {
 	return refuse(p, gone);
 }
 
-/**
- * Name each launched run not recorded ended with the `claude stop` that ends
- * it, and each record that will not parse by its file, since it cannot name
- * its own run.
- * @param {Ports} p
- * @param {string} root
- */
+/** @param {Ports} p @param {string} root */
 function nameStillGoing(p, root) {
 	for (const file of launchedFiles(root)) {
-		// Unparsed, it is named by its file below (#3506).
 		/** @type {LaunchRecord | undefined} */
 		const rec = orFallback(
 			() => JSON.parse(fs.readFileSync(file, "utf8")),
@@ -1000,12 +866,7 @@ function nameStillGoing(p, root) {
 	}
 }
 
-/**
- * Say how `run` ended once every run started has, and return its exit
- * status: `failed`, the failure that stopped further pairs, or 0.
- * @param {Ports} p
- * @param {number} failed
- */
+/** @param {Ports} p @param {number} failed */
 function reportEnd(p, failed) {
 	if (failed === 0) {
 		p.out("every pair started and every run ended\n");
@@ -1016,7 +877,6 @@ function reportEnd(p, failed) {
 }
 
 /**
- * `done` where every launched run has ended, else `wait`.
  * @param {Ports} p
  * @param {string} root
  * @param {string} bin
@@ -1029,8 +889,6 @@ function allEnded(p, root, bin) {
 }
 
 /**
- * A pass of `run` once a failure stops further pairs: stop the hung, and
- * `done` once every run started has ended.
  * @param {Ports} p
  * @param {string} bin
  * @param {Exclude<ReturnType<typeof runOptions>, string>} o
@@ -1041,9 +899,6 @@ function drainPass(p, bin, o) {
 }
 
 /**
- * One pass of `run`: stop the hung, then start the next pair where the pace
- * and `launch`'s own checks allow. `done` once every pair has started and
- * every run ended; a number is the exit status of a failure.
  * @param {Ports} p
  * @param {Plan} plan
  * @param {Exclude<ReturnType<typeof runOptions>, string>} o
@@ -1076,16 +931,10 @@ function runPass(p, { cli, runs }, o) {
 		: 1;
 }
 
-/**
- * `run`'s options, plan and whole-run limit, or the refusal where a flag is
- * missing or malformed.
- * @param {Ports} p
- * @param {import("./cli-args").Parsed["flags"]} flags
- */
+/** @param {Ports} p @param {import("./cli-args").Parsed["flags"]} flags */
 function runSetup(p, flags) {
 	const o = runOptions(flags);
 	if (typeof o === "string") return o;
-	// Every child the loop spawns reads this environment, the launches included.
 	forgetSession(p.env);
 	const planned = readPlan(o.root);
 	fs.mkdirSync(path.join(o.root, "launched"), { recursive: true });
@@ -1095,8 +944,6 @@ function runSetup(p, flags) {
 }
 
 /**
- * Log why `step` holds a pair where the reason differs from `lastHeld`, and
- * return the reason, or "" where it holds none.
  * @param {Ports} p
  * @param {ReturnType<typeof runPass>} step
  * @param {string} lastHeld
@@ -1107,11 +954,7 @@ function logHeld(p, step, lastHeld) {
 	return held;
 }
 
-/**
- * `run`, naming each run left going where its loop throws (#3506).
- * @param {Ports} p
- * @param {import("./cli-args").Parsed} parsed
- */
+/** @param {Ports} p @param {import("./cli-args").Parsed} parsed */
 function runAll(p, parsed) {
 	const setup = runSetup(p, parsed.flags);
 	if (typeof setup === "string") return refuse(p, setup);
@@ -1137,7 +980,6 @@ function runAll(p, parsed) {
 function runLoop(p, { o, planned, limitMs }) {
 	const startedAt = p.clock();
 	let lastHeld = "";
-	/** The failure's exit status once one stops further pairs, else 0. */
 	let failed = 0;
 	for (;;) {
 		const exit = refuseGoneCli(p, planned.cli, o.root);
@@ -1163,12 +1005,7 @@ function runLoop(p, { o, planned, limitMs }) {
 	}
 }
 
-/**
- * Whether the launcher's own seat is still signed in, so the arms' logins
- * did not sign it out; null where `claude auth status` cannot say
- * (#2045).
- * @param {Ports} p
- */
+/** @param {Ports} p */
 function liveSeatSignedIn(p) {
 	const r = p.claude(claudeBin(p.env), ["auth", "status"], {
 		env: p.env,
@@ -1185,13 +1022,10 @@ function liveSeatSignedIn(p) {
  * @param {Ports} p
  * @param {string} cmd
  * @param {string[]} args
- * @returns {{ status: number | null, json: any, err?: string }} `any`: each caller's JSON has its own shape, the scorer's rows or the accept verdict
+ * @returns {{ status: number | null, json: any, err?: string }}
  */
 function runJson(p, cmd, args) {
 	const r = p.node(cmd, args, { env: p.env, timeout: READ_TIMEOUT_MS });
-	// A crash or a refusal leaves the run reported, not scored (#2045). Exit 2
-	// is a refusal even where JSON was printed first, as the scorer prints it
-	// before refusing an unclassed Stop guard (#3761).
 	const refused = { status: r.status, json: null, err: r.stderr.trim() };
 	if (r.status === 2) return refused;
 	try {
@@ -1202,11 +1036,10 @@ function runJson(p, cmd, args) {
 }
 
 /**
- * One launched run's row.
  * @param {Ports} p
  * @param {LaunchRecord} rec
  * @param {Map<string, JobStates>} states
- * @param {import("./guard-fires").Subject[]} subjects the registered guards, for the warn measure
+ * @param {import("./guard-fires").Subject[]} subjects
  */
 function readRun(p, rec, states, subjects) {
 	const job = states.get(rec.configDir)?.get(rec.job);
@@ -1235,7 +1068,6 @@ function readRun(p, rec, states, subjects) {
 		wallMs: null,
 		secondary: null,
 	};
-	// A run cut off at `run`'s limit did an arbitrary share of its work, so it is no measure of its arm.
 	if (!row.ended || rec.limited || !row.transcriptInArmDir) return row;
 	row.spendUsd = sessionSpendUsd(transcript);
 	row.tokens = sessionTokens(transcript);
@@ -1282,9 +1114,6 @@ function report(p, { flags }) {
 			`--ceiling-min takes minutes, at least ${MIN_CEILING_MIN}, got ${flagValue(flags, "--ceiling-min")}\n${usage}`,
 		);
 	const recs = readLaunched(path.resolve(root));
-	// PATH's CLI, not the plan's: reading starts no run, so its version
-	// splits none, and the report still reads once an update removes the
-	// plan's binary.
 	const states = readStatesByConfigDir(p, recs, claudeBin(p.env));
 	const subjects = readRegisteredGuardSubjects(p.hostRoot());
 	const rows = recs.map((r) => readRun(p, r, states, subjects));
@@ -1332,16 +1161,11 @@ function report(p, { flags }) {
 			meanVar(scored.filter((s) => s.arm === a).map((s) => s.score)),
 		]),
 	);
-	/** Runs that ended on a question or at the ceiling; they did less work, so a gap here confounds the breach means. */
 	const blockedByArm = countByArm(rows, (r) => r.state === "blocked");
 	const hungByArm = countByArm(rows, (r) => r.state === "hung");
 	const within = withinTask(scored);
 	const m0 = byArm[baseline]?.mean ?? 0;
-	/**
-	 * A geometric comparison of `pick`'s value over the runs where it is above
-	 * 0, naming each run left out: no value, or one with no logarithm.
-	 * @param {(s: (typeof onVersion)[number]) => number | null} pick
-	 */
+	/** @param {(s: (typeof onVersion)[number]) => number | null} pick */
 	const compareGeo = (pick) => {
 		const kept = onVersion.flatMap((s) => {
 			const v = pick(s);
@@ -1412,9 +1236,7 @@ function report(p, { flags }) {
 						(s) => s.row.arm === a && typeof s.row.accept === "boolean",
 					).length,
 					spendUsd: perArm(a, (s) => s.row.spendUsd),
-					/** D3: a demanded step, reported beside the score, never in it. */
 					concision: perArm(a, (s) => s.concision),
-					/** D3's lexical measures (#2175): reported, never tested. */
 					...summariseSecondary(
 						onVersion.flatMap((s) =>
 							s.row.arm === a && s.row.secondary ? [s.row.secondary] : [],
@@ -1433,7 +1255,6 @@ function report(p, { flags }) {
 				baseline,
 			),
 		},
-		/** Not pre-registered, so exploratory. */
 		speed: {
 			hungAtCeiling: onVersion
 				.filter((s) => s.row.state === "hung")

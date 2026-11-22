@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * lib/scratch-overwrite.js, a PreToolUse dispatcher core (#2789), refuses the
- * first `Write` that replaces a `.claude/tmp/` file the writing session never
- * wrote, and lets the same call re-sent through (#1167, refuse-once since
- * #1728). The "A again" case is what the per-session record buys — remove the
- * record check and it refuses.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * production record (lib/scratch-overwrite-host.js) in a temp repo. Each case
- * then performs the write itself as the harness would, unless the core
- * refused it, so the next call sees the file.
- *
- * Break it and one session overwrites a neighbour's `.claude/tmp/` scratch
- * unrefused, with no claim or version to recover it from.
- *
- * The seam-2 case (#4242) runs it from a linked worktree of a main checkout:
- * the session's record is the host's store, kept at the main checkout.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -45,9 +27,6 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/* Runs the core on one `Write`, then does the write itself as the harness
- * would unless the core refused it. Returns the refusal's reason, or null.
- * `payload`, given, replaces the default `Write` payload whole. */
 function write(session: string, target: string, payload?: object) {
 	const r = runCore(
 		"guard-scratch-overwrite",
@@ -214,8 +193,6 @@ describe("the cases a mutant must not survive (#2789)", () => {
 	);
 
 	it("lets the write through unrecorded, recorded, where the record has no home", () => {
-		/* markersDir throws only on an unresolvable root, which no sandbox
-		 * reaches, so the port is faked. */
 		const core = require("./scratch-overwrite.js") as {
 			decide: (s: string, ctx: Record<string, unknown>) => unknown;
 		};

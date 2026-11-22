@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * The two dispatch rules lib/dispatch-rules.js detects (#2013); the hook's
- * splice of each fragment is tested in ../guard-dispatch-rewrite.test.ts.
- */
 
 import { describe, expect, it } from "vitest";
 import { tierDeparture, untrackedSearch } from "./dispatch-rules";

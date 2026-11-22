@@ -1,29 +1,3 @@
-/*
- * latest-timings.js — the per-file timings file a local reader uses: the
- * lander's sharded runs pack by it and the run-cost report judges growth
- * against it (#4579). It is the newest green suite run's, as CI's shards read
- * theirs at run time (#4574), kept in a cache every checkout of the repository
- * shares through the git common dir.
- *
- * ONE FILE PER SOURCE RUN, NEVER REWRITTEN: `<run>.csv`. A caller that hands
- * one path to several runs, as the lander does its shards minutes apart, so
- * gives them one dataset though another checkout refreshes the cache between
- * them. The newest KEPT stay.
- *
- * CHECKED AT MOST ONCE PER CHECK_MS, by the first reader after it; a failed
- * or abandoned check is retried RETRY_MS later. The attempt is stamped
- * before the check, so readers at once do not all fetch. A check lists the
- * runs and downloads only a run not yet held: about 10 s for one.
- *
- * NO FILE ONCE THE LAST PASSED CHECK IS STALE_MS OLD: #4579's bound of a day
- * behind the newest green run. The lander then splits by file count and the
- * run-cost report reads no record.
- *
- * WFC_SHARD_TIMINGS, WHERE SET, IS THE FILE: a CI shard's own (#4574), or a
- * test's. Under `CI` without it nothing is fetched: only a shard reads
- * timings there.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -31,23 +5,20 @@ const { gitCommonDir } = require("./git.js");
 const { readNewestRun, readSuiteRepo, toCsv } = require("./suite-timings.js");
 
 const HOUR_MS = 60 * 60 * 1000;
-/* A guess inside STALE_MS: four checks a day, each a listing and at most one
- * download. */
+// guess, #4579
 const CHECK_MS = 6 * HOUR_MS;
-/* A guess: GitHub's outages mostly clear within the hour. */
+// guess, #4579
 const RETRY_MS = HOUR_MS / 2;
+// #4579
 const STALE_MS = 24 * HOUR_MS;
-/* Untraced: more than the refreshes one lander batch can straddle. */
+// guess, #4579
 const KEPT = 5;
-/* The last check begun, and the last that passed, by their mtimes. */
 const ATTEMPTED = "attempted";
 const PASSED = "passed";
 const HELD = /^(\d+)\.csv$/;
 
 /**
  * @typedef {{ file: string|null, failed: string|null }} Timings
- *   `file` the newest held timings, null where none is; `failed` why this
- *   read's check failed, null where it passed or none was due
  * @typedef {(root: string, now: number, held: (run: number) => boolean) =>
  *   ReturnType<typeof readNewestRun>} Fetch
  */
@@ -57,7 +28,6 @@ const fetchNewest = (root, now, held) =>
 	readNewestRun(readSuiteRepo(root), now, root, held);
 
 /**
- * The run ids `dir` holds, newest first.
  * @param {string} dir
  * @returns {number[]}
  */
@@ -76,7 +46,6 @@ function readHeldRuns(dir) {
 }
 
 /**
- * When `name`'s stamp in `dir` was last set, or null where it never was.
  * @param {string} dir
  * @param {string} name
  * @returns {number|null}
@@ -90,7 +59,6 @@ function readStamp(dir, name) {
 }
 
 /**
- * Sets `name`'s stamp in `dir` to `now`.
  * @param {string} dir
  * @param {string} name
  * @param {number} now
@@ -104,8 +72,6 @@ function writeStamp(dir, name, now) {
 }
 
 /**
- * Whether a check is due — the last pass CHECK_MS old, and the last attempt
- * RETRY_MS — stamping the attempt where it is.
  * @param {string} dir
  * @param {number} now
  */
@@ -119,8 +85,6 @@ function claimDueCheck(dir, now) {
 }
 
 /**
- * The newest run's file written into `dir` where not yet held, and all but
- * the newest KEPT dropped, and the pass stamped.
  * @param {string} dir
  * @param {string} root
  * @param {number} now
@@ -145,9 +109,8 @@ function refresh(dir, root, now, fetch) {
 }
 
 /**
- * The timings file a local reader in `root` uses. Never throws.
  * @param {string} root
- * @param {{ now?: number, fetch?: Fetch }} [seams] a test's clock and GitHub
+ * @param {{ now?: number, fetch?: Fetch }} [seams]
  * @returns {Timings}
  */
 function latestTimings(root, { now = Date.now(), fetch = fetchNewest } = {}) {

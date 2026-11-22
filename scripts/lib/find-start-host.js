@@ -1,9 +1,3 @@
-/*
- * find-start-host.js — the production ports the dispatcher wires into the
- * guard-root-find core, lib/find-start.js (#2801, #3227): the plugin's own
- * root, resolved physical (symlinks followed).
- */
-
 const fs = require("node:fs");
 const { coreRoot } = require("./script-path.js");
 
@@ -14,8 +8,6 @@ function buildHostPorts() {
 			try {
 				return fs.realpathSync(coreRoot());
 			} catch {
-				/* Null, which the core logs and allows on: its refusal names
-				 * the root, so it cannot be written without one (mantahostels#103 §6). */
 				return null;
 			}
 		},

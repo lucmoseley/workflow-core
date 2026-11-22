@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Holds the readers of a fresh `claude --bg <flags> -- <prompt>` and of
- * `claude rm <id>` (#4343) — lib/seat-claude.js's verdict, which
- * guard-main-checkout-job.js acts on, and the job id lib/bg-launch-id.sh reads
- * for start-session.sh to attach to and lib/bg-launch-id.js for
- * dispatch-sessions.js to record — to one case list, run against the installed
- * harness's recorded answers (scripts/fixtures/bg-launch.json, re-recorded by
- * `node scripts/record-claude-responses.js`), against lib/bg-launch-fake.ts,
- * which those programs' and run-arm-test.js's suites' `claude` stubs print, and, on the
- * founder's machine, against the real `claude` where a call is free. Breaking
- * it costs the relaunch out of the main checkout: an answer the guard
- * misreads leaves two jobs on one prompt, or the original unremoved, an id
- * start-session.sh misreads attaches to no job, and one dispatch-sessions.js
- * misreads records a launch pick-next.js cannot find alive.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -48,16 +33,12 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** `claude <args>` as guard-main-checkout-job.js runs it, on a stub whose
- * body is `lines`, or on `bin`. */
 const runOn = (args: string[], lines: string[], bin?: string) =>
 	runClaude(args, {
 		env: buildSeatEnv(process.env, dir),
 		bin: bin ?? writeClaudeStub(path.join(dir, "claude"), lines, 9),
 	});
 
-/** The job id start-session.sh reads off a launch's stdout, held equal to
- * the one the dispatcher's lib/bg-launch-id.js reads. */
 const readLaunchId = (stdout: string) => {
 	const id = spawnSync(
 		"bash",
@@ -68,8 +49,6 @@ const readLaunchId = (stdout: string) => {
 	return id;
 };
 
-/* Each kind's marking flag and, where its program fixes it, the flag's
- * place; `positional` carries none. */
 const launchCases: {
 	kind: LaunchKind;
 	flag?: string;
@@ -127,14 +106,12 @@ describe.each(launchCases)(
 	},
 );
 
-/* A name after the id may hold a hex run of its own. */
 it("reads the job id, not a hex run in the name after it", () => {
 	expect(
 		readLaunchId(`backgrounded · ${FAKE_ID} · Overflow · /wayfinder deadbeef`),
 	).toBe(FAKE_ID);
 });
 
-/* A launch on a terminal colours its id. */
 it("reads a job id between colour escapes", () => {
 	expect(
 		readLaunchId(
@@ -163,12 +140,6 @@ describe.each(removalCases)("the $kind removal", ({ kind, ok }) => {
 	});
 });
 
-/*
- * The free call, against the installed `claude` on the case's own empty
- * config dir: a removal of an id no daemon issued (§G7.2). The launch and a
- * live removal have no live case: each starts or ends a session.
- */
-// Residual: off the founder's machine this skips, and the fixture goes unchecked.
 it.skipIf(claudeLiveSkipReason())(
 	"the installed claude refuses a removal of no job, naming the id",
 	() => {

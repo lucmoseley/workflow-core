@@ -50,29 +50,18 @@ const { QUOTED, literal } = require("./shell-words.js");
 const { suiteLaunchKind } = require("./suite-launch.js");
 const { caught } = require("./caught.js");
 
-/**
- * suiteLaunchKind's ports. An `npm-vitest` verdict never reads them: the
- * runners and queue-run.js judge node and python words alone.
- * @type {import("./suite-launch.js").LaunchPorts}
- */
+/** @type {import("./suite-launch.js").LaunchPorts} */
 const LAUNCH_PORTS = { runners: () => [], isWrapperScript: () => true };
 
 /**
  * @typedef {({ deny?: string, note?: string, why?: string, unread?: string })} Verdict
- *   lib/unasked-rerun.js's `judge` answer
  * @typedef {object} UnaskedPorts
  * @property {(input: { sessionId: string, cwd: string, command: string }, tree: string) => Verdict} judge
- *   whether the run is an unasked re-run of `tree`, the session's; latches
- *   and logs a refusal itself
  * @typedef {import("./kit-context.js").KitContext & UnaskedPorts & { session: string }
  *   & Pick<import("./core-contract.js").CoreContext, "tree">} UnaskedContext
- *   `session` the payload's, "" where it carries none; `tree` the session's,
- *   whose HEAD and own work are judged (#4242)
  */
 
 /**
- * The first segment launching a bare vitest run, masked, and the directory
- * it runs in ("" where the walk cannot know it); null where none does.
  * @param {string} command
  * @param {import("./shell-parse.js").WalkPorts} ports
  * @returns {{ segment: string, cwd: string } | null}
@@ -99,8 +88,6 @@ function bareSegment(command, ports) {
 					.slice(launch.taken)
 					.some((w) => w !== "--" && literal(w, spans).text !== "--queue");
 			});
-			/* Residual: the run's first directory alone, every move taken as made
-			 * (#5075). */
 			if (bare) found = { segment: cmd.segment, cwd: bare.dirs()[0] };
 		},
 		ports,
@@ -152,10 +139,7 @@ function decide(command, ctx) {
 	return { deny: `${out.deny}\n\n${unaskedRule(ctx)}` };
 }
 
-/**
- * The rule's fragment.
- * @param {UnaskedContext} ctx
- */
+/** @param {UnaskedContext} ctx */
 const unaskedRule = (ctx) =>
 	ruleOrFallback(
 		ctx,

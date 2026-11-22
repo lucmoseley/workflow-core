@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/caught.js's contract (#1329): each field narrowed from whatever was
- * thrown, so a handler reading one never throws itself, a thrown `null`
- * included. The fs and child-process cases throw for real rather than build
- * the error by hand, so a Node change to either shape fails here.
- */
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -17,7 +11,6 @@ import {
 	parseErrorText,
 } from "./caught.js";
 
-/** What `fn` threw. */
 function thrownBy(fn: () => unknown): unknown {
 	try {
 		fn();

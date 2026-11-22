@@ -40,8 +40,6 @@ import { buildBashCall, buildToolCall } from "./lib/transcript-testkit";
 
 const SCRIPT = path.resolve(__dirname, "lost-deny-rates.js");
 
-/** Every temp dir a case makes, removed once the file is done: afterAll, not
- * afterEach, because `corpusDir` is made once and read by every case. */
 const made: string[] = [];
 const tempDir = (prefix: string) => {
 	const d = mkdtempSync(join(tmpdir(), prefix));
@@ -69,7 +67,6 @@ const SETTINGS = {
 	},
 };
 
-/** SETTINGS with denier.sh's trigger made unreadable. */
 const JUNK_SETTINGS = {
 	hooks: {
 		PreToolUse: [
@@ -94,17 +91,10 @@ const NEEDLES = {
 	},
 };
 
-/** A registry whose denier.sh entry carries no `kind: "deny"` needle at all. */
 const WARN_ONLY_NEEDLES = {
 	guards: { "denier.sh": { needles: [{ id: "w", kind: "warn", text: "x" }] } },
 };
 
-/**
- * A `WFC_LOST_DENY_ROOT` tree for a run of the script itself, read as a core:
- * `settings` as `self-plugin/hooks/hooks.json`, four fixture guards under `scripts/` (denier.sh
- * writes a deny verdict; the rest cannot deny), and `needles` as
- * `scripts/guard-fire-needles.json` — omitted where `needles` is null.
- */
 function fixtureRoot(settings: unknown, needles: unknown = NEEDLES) {
 	const root = tempDir("ldr-fixture-");
 	writeSelfPlugin(root, settings);
@@ -136,13 +126,8 @@ function addGuard(root: string, name: string, body: string) {
 	writeFileSync(join(root, "scripts", name), `#!/bin/bash\n${body}\n`);
 }
 
-/** The default fixture: SETTINGS routes denier.sh alone, NEEDLES' needles. */
 const ROOT = fixtureRoot(SETTINGS);
 
-/**
- * Run the script against `root` over a one-transcript corpus of `records`. A
- * string record is written as the raw line it is — a malformed line, say.
- */
 function cli(root: string, records: unknown[], ...args: string[]) {
 	const dir = tempDir("ldr-cli-corpus-");
 	writeFileSync(
@@ -184,11 +169,6 @@ interface Row {
 	expectedHigh: number | null;
 }
 
-/**
- * A `--json` run over `records` against `root` (ROOT by default), exit 0
- * asserted: its corpus block, its rows, and one guard's row by name
- * (denier.sh by default).
- */
 function reportAt(root: string, records: unknown[], ...args: string[]) {
 	const r = cli(root, records, "--json", ...args);
 	expect(r.status).toBe(0);
@@ -204,7 +184,6 @@ function reportAt(root: string, records: unknown[], ...args: string[]) {
 const report = (records: unknown[], ...args: string[]) =>
 	reportAt(ROOT, records, ...args);
 
-/** The text report of a run against `root`, exit 0 asserted. */
 function text(root: string, records: unknown[], ...args: string[]) {
 	const r = cli(root, records, ...args);
 	expect(r.status).toBe(0);
@@ -224,9 +203,6 @@ function lostRecord(guard: string, toolUseID: string, at: string) {
 	};
 }
 
-/* CARRIES A `tool_use_id` BY DEFAULT (mantahostels#3311) — the path a real transcript takes,
- * the harness naming the call on every `tool_result` it writes. Pass `null`
- * where the uuid fallback IS the subject. */
 function denyRecord(
 	uuid: string,
 	resultText: string,
@@ -250,9 +226,6 @@ function denyRecord(
 	};
 }
 
-/** A record whose message carries several tool_results — parallel calls, more
- * than one denied — rather than `denyRecord`'s single one. A part with a null
- * `toolUseId` carries none. */
 function multiDenyRecord(
 	uuid: string,
 	parts: Array<{ toolUseId: string | null; text: string }>,
@@ -277,7 +250,6 @@ const callRecord = (command: string, at = "2026-09-01T00:00:00.000Z") =>
 	buildBashCall(command, "t1", { timestamp: at });
 
 describe("the deny rate's Wilson interval, as a row reports it", () => {
-	/** `n` routed calls, `hits` denies — each on a call of its own. */
 	function sample(hits: number, n: number) {
 		const records: unknown[] = [];
 		for (let i = 0; i < n; i++) records.push(callRecord(`git log -${i}`));
@@ -303,7 +275,6 @@ describe("the deny rate's Wilson interval, as a row reports it", () => {
 	});
 
 	it("reproduces a published census row to two decimals", () => {
-		// guard-issue-close.js: 255 denies in 16,057 calls, 1.588% [1.41-1.79].
 		const row = report(sample(255, 16_057)).row();
 		expect(row).toMatchObject({ denies: 255, population: 16_057 });
 		expect(row.ratePct).toBeCloseTo(1.588, 3);
@@ -393,8 +364,6 @@ describe("the needle registry, as a run reads it", () => {
 	});
 
 	it("gives a guard outside the scope's trigger table no row and no count", () => {
-		// NEEDLES carries warner.sh too; SETTINGS routes only denier.sh, so the
-		// table is the filter and the needle registry is not (mantahostels#3350).
 		const r = cli(
 			fixtureRoot(SETTINGS),
 			[callRecord("git status"), denyRecord("u1", "never read")],
@@ -493,8 +462,6 @@ describe("deny events — one per CALL", () => {
 	});
 
 	it("counts a call the harness named on its tool_result, not the record's uuid — mantahostels#3311", () => {
-		// Two deny-route records for one call — a retry, or a split write — carry
-		// two uuids and one tool_use_id; a third names a call of its own.
 		const { row } = report([
 			denyRecord("u1", "REFUSED", "2026-09-01T00:00:00.000Z", "tu1"),
 			denyRecord("u2", "REFUSED again", "2026-09-01T00:00:00.000Z", "tu1"),
@@ -526,8 +493,6 @@ describe("deny events — one per CALL", () => {
 	});
 
 	it("credits an id-less denied result to every call id its record carries, never only the first — mantahostels#3307", () => {
-		// The fallback no span names: the record's own ids, all of them, before
-		// its uuid.
 		const { row } = report([
 			multiDenyRecord("u1", [
 				{ toolUseId: "tu1", text: "allowed" },
@@ -635,8 +600,6 @@ describe("the rows", () => {
 	});
 
 	it("sorts an unknown guard first, so it cannot be read past", () => {
-		// aaa-denier.sh has a real expected figure and sorts first by name;
-		// denier.sh's unreadable trigger still puts it ahead.
 		const root = fixtureRoot(
 			{
 				hooks: {
@@ -669,11 +632,7 @@ describe("the rows", () => {
 		]);
 	});
 
-	it("orders two guards with no expected figure alphabetically, never NaN-unspecified", () => {
-		// Registered in REVERSE-alphabetical order, deliberately: a comparator
-		// that returns NaN for a null/null tie leaves insertion order untouched,
-		// which would pass here by accident if the guards were registered
-		// alphabetically to begin with.
+	it("orders two guards with no expected figure, registered in reverse, alphabetically — never NaN-unspecified", () => {
 		const root = fixtureRoot({
 			hooks: {
 				PreToolUse: [
@@ -749,7 +708,6 @@ describe("the text report", () => {
 		);
 		expect(out).toContain("n/a (cannot deny)");
 		expect(out).not.toContain("unknown (no deny needle)");
-		// The escaped-deny total is not a floor because of this row.
 		expect(out).toContain("cannot deny at all");
 		expect(out).not.toContain("have NO RATE");
 	});
@@ -759,7 +717,6 @@ describe("the text report", () => {
 	});
 
 	it("prints a non-deny guard's loss % off its true population (mantahostels#3350)", () => {
-		// Four calls reach the guard; one of them lost it.
 		const records = [
 			...["npm a", "npm b", "npm c", "npm d"].map((c) => callRecord(c)),
 			{
@@ -790,7 +747,6 @@ describe("the text report", () => {
 });
 
 describe("the staleness check against lib/guard-deny-rates.js", () => {
-	/** `name` registered alone under `scope`, its source `body`. */
 	function unpinnedFor(name: string, body: string, scope: string) {
 		const root = fixtureRoot(
 			{
@@ -804,7 +760,6 @@ describe("the staleness check against lib/guard-deny-rates.js", () => {
 		);
 		addGuard(root, name, body);
 		const { corpus, rows } = reportAt(root, [], "--scope", scope);
-		// The guard is in the table, so a silence below is a verdict on it.
 		expect(rows.map((r) => r.guard)).toEqual([name]);
 		return corpus.unpinned;
 	}
@@ -839,11 +794,6 @@ describe("the staleness check against lib/guard-deny-rates.js", () => {
 });
 
 describe("a dispatcher's cores, each its own guard — #3424", () => {
-	/**
-	 * A tree whose one PreToolUse registration is the dispatcher, running two
-	 * deny-capable cores — `core-git` on `git` commands, `core-any` on every
-	 * Bash and Read call — and `core-warn`, which cannot deny.
-	 */
 	function dispatcherRoot() {
 		const root = fixtureRoot(
 			{
@@ -1015,8 +965,6 @@ describe("a dispatcher's cores, each its own guard — #3424", () => {
 });
 
 describe("a transcript it could not open", () => {
-	/** A corpus of one readable transcript holding a loss and one shut to its
-	 * reader. */
 	function shutRun(...args: string[]) {
 		const dir = tempDir("ldr-shut-corpus-");
 		writeFileSync(
@@ -1155,8 +1103,6 @@ describe("main — the CLI surface", () => {
 	});
 
 	it("refuses an unreadable --scope, naming the value, rather than falling back to deny", () => {
-		// "warn" is the prose name for this population and NOT the token, which is
-		// exactly the typo a silent default would hide (mantahostels#3350).
 		const { status, stderr } = run("--dir", corpusDir, "--scope", "warn");
 		expect(status).toBe(2);
 		expect(stderr).toContain("--scope warn is not one of");
@@ -1236,13 +1182,8 @@ describe("WFC_LOST_DENY_ROOT — readJson's exit-2 branches (mantahostels#3307)"
 	});
 });
 
-/*
- * #954: an adopter's settings register no guard of the plugin's, which come
- * from the plugin's `hooks/hooks.json` beside this script. Read off this
- * checkout's own plugin tree, so these cases break if `guard-dispatch.js`
- * leaves `hooks/hooks.json` or its `guard-wait-loop` core leaves
- * `scripts/lib/guard-cores.json`.
- */
+// code-edges loads: ../hooks/hooks.json
+// code-edges loads: lib/guard-cores.json
 describe("in an adopter whose hooks come from the plugin", () => {
 	function runInHost(host: string, ...args: string[]) {
 		return runInProcess(SCRIPT, args, {
@@ -1291,7 +1232,6 @@ describe("skipped malformed lines — mantahostels#3307", () => {
 	it("reports a nonzero skip count on a transcript with a malformed line", () => {
 		const { corpus, row } = report(["garbage line", callRecord("git status")]);
 		expect(corpus.skipped).toBe(1);
-		// The rest of the file still counts.
 		expect(row().population).toBe(1);
 	});
 
@@ -1330,8 +1270,6 @@ describe("--event PostToolUse (mantahostels#3356)", () => {
 	}
 
 	it("counts a PostToolUse loss the PreToolUse run ignores", () => {
-		// warner.sh registered on both events, so each run has its row: the loss
-		// belongs to the PostToolUse one alone.
 		const root = fixtureRoot(
 			{ hooks: { PreToolUse: [gh], PostToolUse: [gh] } },
 			{},
@@ -1409,7 +1347,6 @@ describe("the --failures split (mantahostels#3356)", () => {
 		attachment: { type: "hook_cancelled", ...attachment },
 	});
 
-	/** Each bucket's record count, off a `--failures --json` run. */
 	function buckets(attachments: Record<string, unknown>[]) {
 		const r = cli(root, attachments.map(failure), "--json", "--failures");
 		expect(r.status).toBe(0);
@@ -1446,7 +1383,6 @@ describe("the --failures split (mantahostels#3356)", () => {
 	});
 
 	it("calls a record with no guard name or no call id unattributed", () => {
-		// Exactly what the LOST count drops.
 		expect(
 			buckets([
 				{ hookEvent: "PreToolUse", toolUseID: "tu1" },
@@ -1497,9 +1433,6 @@ describe("the --failures split (mantahostels#3356)", () => {
 		);
 
 	it("counts only the buckets a landed run gave a true denominator", () => {
-		// 35 of 105: SessionStart's base is sessions, not tool calls; Stop has no
-		// base at all; a PostToolUse record naming no guard has the --union base
-		// (mantahostels#3372), and a PreToolUse one still has none.
 		const r = cli(root, census(), "--json", "--failures");
 		expect(r.status).toBe(0);
 		expect(r.json().failures).toMatchObject({
@@ -1616,8 +1549,6 @@ describe("main — --event and --failures (mantahostels#3356)", () => {
 				.map((r) => JSON.stringify(r))
 				.join("\n")}\n`,
 		);
-		// A `deny`-scoped run reports neither of these records as lost, and still
-		// sees both in the census.
 		const { failures } = run("--dir", dir, "--json", "--failures").json();
 		expect(
 			Object.fromEntries(
@@ -1641,8 +1572,6 @@ describe("main — --event and --failures (mantahostels#3356)", () => {
 				...(toolUseID ? { toolUseID } : {}),
 			},
 		});
-		// A WebFetch call, which the scan-injection core alone routes, so each
-		// dispatcher record is one core's loss.
 		const fetch = (id: string) =>
 			buildToolCall("WebFetch", { url: "https://example.com" }, id);
 		writeFileSync(
@@ -1675,7 +1604,6 @@ describe("main — --event and --failures (mantahostels#3356)", () => {
 		);
 		expect(named.records).toBe(2);
 		expect(lost).toBe(named.records);
-		// The two named records, plus the nameless one --union gives a base (mantahostels#3372).
 		expect(out.failures.covered).toBe(3);
 	});
 
@@ -1718,8 +1646,6 @@ describe("--union — the nameless records' deduped base (mantahostels#3372)", (
 		},
 	};
 
-	// Not transcript-testkit's buildBashCall: these arrays mix Bash with Read
-	// and Write calls, and one builder over every tool keeps each a tool list.
 	function call(id: string, name: string, command = "") {
 		return {
 			type: "assistant",
@@ -1762,7 +1688,6 @@ describe("--union — the nameless records' deduped base (mantahostels#3372)", (
 
 	const unionRoot = fixtureRoot(unionSettings);
 
-	/** A `--union` run of the script over `records`, as JSON. */
 	function unionRun(records: unknown[]) {
 		const r = cli(
 			unionRoot,

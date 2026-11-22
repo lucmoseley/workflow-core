@@ -1,45 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-landing-pool.js — counts an event every workflow-core checkout on
- * this machine logs, so a gate measuring shared code reads every repo that
- * runs it, not workflow-core alone (#5159).
- *
- * Usage:
- *   node scripts/measure-landing-pool.js stays --since <ISO> --carrying <sha> [--json]
- *   node scripts/measure-landing-pool.js reaps --since <ISO> [--json]
- *
- * THE POOL (`stays`): each main checkout under $HOME carrying a
- * `.claude/workflow-core.json`, its stays and green runs
- * counted under each lander run that ran `<sha>` (#5174). A run whose
- * started line names its code counts where that code carries `<sha>`: a
- * commit that has it as an ancestor, or a release tag carrying it. The log is
- * read back to the run in force at `--since`. A run whose line names no code
- * falls back on the checkout's own: workflow-core where `<sha>` is on its `origin/main`, an adopter from the
- * time its pin first carried `<sha>` without break: the committer time of the
- * oldest `.claude/settings.json` revision in the unbroken run of carrying pins
- * ending at HEAD, or the file's mtime where only its uncommitted pin carries
- * it. A stay or green run counts only where every run it spans counts.
- *
- * Pool only what adopters' own runs can show: a gate on a workflow-core
- * test file reads workflow-core's batches alone, as no adopter suite holds it.
- *
- * `stays`: each checkout's stays judged against its own target, 3 times its
- * own green suite's p50 (lib/time-to-land.js judgeTimeToLand), then pooled as
- * counts: stays and stays over target summed, the exact binomial count taken
- * at the pooled n. Raw times are never pooled, as each repo's suite differs.
- * A checkout with no green run in its window has no target; its stays are
- * named and left out of the pool.
- *
- * `reaps`: every main checkout under $HOME carrying a config, whatever its
- * modules or pin: the disk is the machine's, and the refill loop's reaper
- * runs its own code in each. Rows of `wfc-reaped-worktrees.jsonl` in each
- * checkout's git common dir after `--since`.
- *
- * CORE-ONLY: it reads workflow-core's release tags, which an adopter's clone
- * lacks (lib/plugin-tree.js leaves `measure-` scripts behind). Joins no §N3
- * family: it answers a gate's question and gates nothing. Exits 0 on a
- * reading, 2 on a usage error or outside workflow-core.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -91,9 +50,6 @@ const CLI = {
 
 /**
  * @typedef {{from: number|null, pin: string|null} | {why: string}} Fallback
- *   what a lander run naming no code is judged by: `from` the time the
- *   checkout began running the sha, null for workflow-core, whose `--since`
- *   is the sha's arrival on its own `main`; `why` it did not
  * @typedef {{name: string, root: string, fallback: Fallback}} Member
  * @typedef {{name: string, why: string}} LeftOut
  */
@@ -105,13 +61,10 @@ const iso = (t) => new Date(t).toISOString();
  * @typedef {{carries: boolean} | {unread: string}} Carry
  */
 
-/* Required on first use, past the core check: the release leaves it behind. */
 const releaseTags = () => require("./lib/release-tags.js");
 
 /**
- * Whether a pin's ref carries `sha`: lib/release-tags.js
- * readTagCarry, a ref this clone lacks read as unread.
- * @param {string} core workflow-core's checkout
+ * @param {string} core
  * @param {string} sha
  * @returns {(ref: string) => Carry}
  */
@@ -132,8 +85,6 @@ function buildTagCarrier(core, sha) {
 }
 
 /**
- * Whether the code a lander's started line names carries `sha`. A code this
- * clone lacks does not.
  * @param {string} core
  * @param {string} sha
  * @param {(ref: string) => Carry} carry
@@ -157,14 +108,20 @@ function buildCodeCarrier(core, sha, carry) {
 	};
 }
 
-/** @param {unknown} settings @returns {string|null} the pin's tag or ref */
+/**
+ * @param {unknown} settings
+ * @returns {string|null}
+ */
 const pinRef = (settings) =>
 	findPin(
 		/** @type {import("./lib/plugin-state").AdopterSettings|null} */ (settings),
 		PLUGIN,
 	)?.ref ?? null;
 
-/** @param {string|null} text @returns {unknown} null where it is no JSON */
+/**
+ * @param {string|null} text
+ * @returns {unknown}
+ */
 function parseJsonOrNull(text) {
 	try {
 		return text === null ? null : JSON.parse(text);
@@ -174,12 +131,9 @@ function parseJsonOrNull(text) {
 }
 
 /**
- * Since when adopter `root`'s pin has carried the sha without break, or why
- * it is left out. A revision whose pin is absent, unreadable or not carrying
- * ends the run.
  * @param {string} root
  * @param {(ref: string) => Carry} carry
- * @returns {{from: number, pin: string} | {why: string}} `from` in ms
+ * @returns {{from: number, pin: string} | {why: string}}
  */
 function readCarriedSince(root, carry) {
 	const file = path.join(root, SETTINGS);
@@ -200,7 +154,6 @@ function readCarriedSince(root, carry) {
 	);
 	for (const line of log.split("\n").filter(Boolean)) {
 		const [rev, ct] = line.split(" ");
-		/* null where the revision deleted the file. */
 		const ref = pinRef(
 			parseJsonOrNull(gitOrNull(["show", `${rev}:${SETTINGS}`], { cwd: root })),
 		);
@@ -212,10 +165,9 @@ function readCarriedSince(root, carry) {
 }
 
 /**
- * The checkouts under `home`, each with its fallback.
  * @param {string} home
  * @param {(ref: string) => Carry} carry
- * @param {string} sha full
+ * @param {string} sha
  * @returns {Member[]}
  */
 function readPool(home, carry, sha) {
@@ -234,8 +186,6 @@ function readPool(home, carry, sha) {
 }
 
 /**
- * The time a lander run naming no code counts from under `f`: -Infinity for
- * workflow-core, null where no such run counts.
  * @param {Fallback} f
  * @returns {number|null}
  */
@@ -243,9 +193,6 @@ const unnamedFrom = (f) =>
 	"from" in f ? (f.from ?? Number.NEGATIVE_INFINITY) : null;
 
 /**
- * The stamped lines of the lander log at `file` from the run in force at
- * `since`: the log is read back past `since` a day, then twice as far each
- * time, until a started line at or before `since` is in, or the whole log is.
  * @param {string} file
  * @param {number} since
  * @returns {import("./lib/time-to-land.js").LanderEvent[]}
@@ -265,13 +212,10 @@ function readRunsSince(file, since) {
 }
 
 /**
- * Whether a span of a checkout's log ran the sha: every lander run it spans
- * does, by its named code or else the checkout's fallback.
  * @param {import("./lib/time-to-land.js").LanderEvent[]} events
  * @param {Fallback} fallback
  * @param {(code: string) => boolean} codeCarries
  * @returns {{admit: (from: number, to: number) => boolean, carried: number}}
- *   `carried` the runs whose named code carries the sha
  */
 function buildAdmission(events, fallback, codeCarries) {
 	const runs = events
@@ -409,8 +353,6 @@ function countReaps(home, since) {
 }
 
 /**
- * A `--since` still ahead reads 0: #5054's gate is set
- * before the reaps it counts begin.
  * @param {string} home
  * @param {string} since
  * @returns {{data: object, lines: string[]}|string}
@@ -427,12 +369,10 @@ const refuse = (text) => {
 };
 
 /**
- * A `stays` reading over the pool running `ref`, or why there
- * is none.
  * @param {string|undefined} command
  * @param {string|true|undefined} ref
  * @param {string} home
- * @param {string} since an ISO time
+ * @param {string} since
  * @returns {{data: object, lines: string[]}|string}
  */
 function readPooled(command, ref, home, since) {

@@ -1,35 +1,4 @@
 // @vitest-environment node
-/*
- * record-divergence.js writes one row per refused `git pull` and rejected `git
- * push` (#289), and divergence-report.js reads them back across every repo at
- * once.
- *
- * THE RECORDER'S BOUNDARY SET (base §X11, #2797): each exit, each input
- * channel, and each production adapter crossed once for real — git in a temp
- * repo, the pushed ref through lib/landing-refs.js, `ps` real and at WFC_PS,
- * the clock real and at WFC_NOW, the log directory written. Which calls are
- * refusals, and the row's every field, are lib/divergence-row.test.ts's.
- *
- * Run in process through lib/run-in-process.js (base §X3), which reproduces
- * the boundary pinned here — nothing on either stream and exit 0, whatever
- * happens.
- *
- * Every case gets its own CLAUDE_CONFIG_DIR, because that is where the log
- * lands and an unset one would append to the founder's live record — and the
- * report reads EVERY config dir the machine has, so a leak here would be read
- * back by a later case as a real refusal.
- *
- * What each case needs is a specific ahead/behind against a real `origin/main`,
- * so lib/git-fixture.ts builds one template per shape the file uses, and each
- * case copies its shape under its own name, the repo name being on the row
- * (base §X8 (1), #2512). The bare origin sits inside the work tree as
- * `origin.git`, so one template directory carries both and the relink repoints
- * the remote URL at the copy's own origin.
- *
- * The recorder is a PostToolUse hook on every `git` call in `.claude/settings.json`
- * and the plugin's: loosen a case and the refusal counts go wrong or silent, and
- * any reconcile recipe (#290) is aimed at a cause the record misstates.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -47,11 +16,6 @@ const REPORT = path.resolve(__dirname, "divergence-report.js");
 let scratch: string;
 let config: string;
 
-/**
- * `git init` plus the identity a commit needs. The env below carries one too,
- * but a runner with no global user.email fails on the config route, which is
- * what every sibling fixture sets (lib/git-fixture.ts's initGitRepo).
- */
 const initRepo = (at: string, ...extra: string[]) => {
 	git(path.dirname(at), "init", "--initial-branch=main", ...extra, at);
 	git(at, "config", "user.email", "test@example.com");
@@ -72,17 +36,10 @@ const git = (cwd: string, ...args: string[]) =>
 		},
 	});
 
-/**
- * A work tree at `work` pushed to its own `origin.git`, with `ahead` commits of
- * its own and `behind` commits already fetched into `origin/main` — the
- * divergence a refusal is recorded against.
- */
 const buildShape = (work: string, ahead: number, behind: number) => {
 	const origin = path.join(work, "origin.git");
 	initRepo(work);
 	initRepo(origin, "--bare");
-	// Built and pushed rather than cloned from empty: cloning an empty origin
-	// warns on stderr on every fixture.
 	git(work, "remote", "add", "origin", origin);
 	git(work, "commit", "--allow-empty", "--no-verify", "-m", "base");
 	git(work, "push", "--quiet", "-u", "origin", "main");
@@ -105,15 +62,12 @@ const buildShape = (work: string, ahead: number, behind: number) => {
 			fs.rmSync(other, { recursive: true, force: true });
 		}
 		git(work, "fetch", "--quiet", "origin");
-		// It names the template's origin, which the relink does not reach and
-		// the leak check refuses; nothing here reads it (#2512).
 		fs.rmSync(path.join(work, ".git", "FETCH_HEAD"));
 	}
 	for (let i = 0; i < ahead; i++)
 		git(work, "commit", "--allow-empty", "--no-verify", "-m", `mine${i}`);
 };
 
-/** Every [ahead, behind] a case below asks `repoWith` for. */
 const SHAPES = [
 	[0, 0],
 	[0, 1],
@@ -136,10 +90,6 @@ const shapes = defineTemplate(
 const repoWith = (name: string, ahead: number, behind: number) =>
 	shapes.instantiate(path.join(scratch, name), `${ahead}/${behind}`);
 
-/**
- * Run the recorder on `stdin` as fd 0. Nothing on either stream and exit 0,
- * on every call.
- */
 const run = ({
 	stdin,
 	env = {},
@@ -154,15 +104,12 @@ const run = ({
 		cwd: scratch,
 		env: { ...process.env, CLAUDE_CONFIG_DIR: config, ...env },
 	});
-	// A PostToolUse hook's stdout is context handed to the session, on every
-	// git call.
 	expect(r.stdout).toBe("");
 	expect(r.stderr).toBe("");
 	expect(r.status).toBe(0);
 	return r;
 };
 
-/** The recorder on a Bash payload: `command` run in `cwd`, answered `response`. */
 const fire = (
 	cwd: string,
 	command: string,
@@ -179,7 +126,6 @@ const fire = (
 		env,
 	});
 
-/** Every row written so far, across every project directory. */
 const readRows = () => {
 	const projects = path.join(config, "projects");
 	if (!fs.existsSync(projects)) return [];
@@ -214,8 +160,6 @@ afterEach(() => {
 
 describe("record-divergence.js", () => {
 	it("records a refused ff-only pull with the divergence that caused it", () => {
-		// Real git, the real pushed ref, the real `ps`, the real clock and the
-		// real log directory, each crossed once.
 		const work = repoWith("diverged", 2, 3);
 		fire(work, "git pull --ff-only", FF_REFUSAL);
 
@@ -299,8 +243,6 @@ describe("record-divergence.js", () => {
 	});
 
 	it("files a `git -C` refusal under the repo it was refused in", () => {
-		// Level, so a row misfiled here would read `level` — a state at which a
-		// fast-forward cannot be refused at all.
 		const here = repoWith("session-repo", 0, 0);
 		const there = repoWith("elsewhere", 2, 3);
 		fire(here, `git -C ${there} pull --ff-only`, FF_REFUSAL);
@@ -316,10 +258,6 @@ describe("record-divergence.js", () => {
 
 	it("drops the row where the `-C` path does not resolve", () => {
 		const here = repoWith("unresolved-C", 1, 1);
-		// #289 counts refusals per repo. Filing this under the session's own repo
-		// would invent an observation there and hide one wherever it really
-		// happened; the count is a lower bound instead. The variable is set in
-		// the hook's environment, which is not the shell the command ran in.
 		fire(here, "git -C $WORKTREE pull --ff-only", FF_REFUSAL, {
 			WORKTREE: here,
 		});
@@ -356,8 +294,6 @@ describe("record-divergence.js", () => {
 	});
 
 	it("logs and allows where its core throws", () => {
-		// A copy of the entry beside a core that throws; every other lib is the
-		// real one, linked.
 		const work = repoWith("threw", 1, 1);
 		const at = path.join(scratch, "broken");
 		const lib = path.join(at, "scripts", "lib");
@@ -492,8 +428,6 @@ describe("record-divergence.js", () => {
 });
 
 describe("divergence-report.js", () => {
-	/* One sandbox pointed at three times over, so a real plan's log cannot leak
-	 * in and the deduplication is exercised at the same time. */
 	const env = () => ({
 		...process.env,
 		CLAUDE_CONFIG_DIR: config,

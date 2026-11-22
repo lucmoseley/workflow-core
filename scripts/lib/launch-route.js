@@ -1,12 +1,3 @@
-/*
- * launch-route.js — the wrapper flags `scripts/run-vitest.js` consumes, the
- * one place a launch's route is decided from them (#1498), and the refusals
- * of a launch whose runner flags npm swallowed (#2284) and of one handing
- * vitest `--no-cache` (#4790). A module of
- * its own so the route table is tested through its export rather than one
- * exported for the test (#1633).
- */
-
 const { shellQuote } = require("./sh-quote.js");
 const { RETEST_FLAG } = require("./test-pass-marker.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
@@ -23,43 +14,15 @@ const {
 
 const QUEUE_FLAG = "--queue";
 
-/* `--isolated`: run the suite against a frozen worktree (mantahostels#2169);
- * why, above run-vitest.js's `openWorktree`. */
 const ISOLATED_FLAG = "--isolated";
 
-/*
- * `--shared`: THE ESCAPE FROM `--full`'S ISOLATION BELOW (mantahostels#2278), from an
- * escalated default's (mantahostels#3208), and from the narrowed default's overlay
- * worktree (#812).
- */
 const SHARED_FLAG = "--shared";
 
-/*
- * `--full`: THE ESCAPE FROM THE TOUCHED DEFAULT.
- *
- * A session that types `--full=<cause>` gets the isolated whole-suite path
- * unconditionally, a bare `--full` being refused (below); full-shaped argv
- * without it is a touched run (#2930).
- */
 const FULL_FLAG = "--full";
 
-/*
- * `--full=<cause>` (#182): THE ONLY SPELLING THAT NAMES A REASON. A bare
- * `--full` REFUSES in run-vitest.js, naming the values in `FULL_CAUSES`.
- *
- * One word, so the cause cannot drift away from its flag (#182). The stripper
- * that consumes the flag before vitest sees argv and the detector that decides
- * `fullFlag` both match this prefix, and the two must change together: a word
- * only the stripper matches silently narrows a full run, and one only the
- * detector matches hands vitest an argv it does not understand.
- */
 const FULL_PREFIX = "--full=";
 
 /**
- * The word in argv that spells `--full`, bare or with a cause — or null.
- * Matched before any flag is stripped: only the raw word can say whether a
- * cause was named.
- *
  * @param {string[]} argv
  * @returns {string|null}
  */
@@ -67,18 +30,8 @@ function fullFlagWord(argv) {
 	return argv.find((w) => w === FULL_FLAG || w.startsWith(FULL_PREFIX)) ?? null;
 }
 
-/* `--fresh`: run every selected file, whatever the pass store holds
- * (#4790). */
 const FRESH_FLAG = "--fresh";
 
-/**
- * The wrapper flags run-vitest.js consumes, none of which reaches vitest.
- * `--full=<cause>` is matched by prefix, the rest by the whole word.
- *
- * THE ONE LIST (#188): the guard-suite-concurrency core's plain-`--full` limb
- * requires `stripWrapperFlags` rather than keeping a copy, so a flag added
- * here reaches it unedited.
- */
 const WRAPPER_FLAGS = new Set([
 	QUEUE_FLAG,
 	ISOLATED_FLAG,
@@ -88,9 +41,6 @@ const WRAPPER_FLAGS = new Set([
 ]);
 
 /**
- * argv with the wrapper flags removed: what `isFullRunArgv` judges and what
- * vitest is handed.
- *
  * @param {string[]} argv
  * @returns {string[]}
  */
@@ -100,27 +50,9 @@ function stripWrapperFlags(argv) {
 	);
 }
 
-/* Vitest's own name-filter flags: present, a run is narrowed to a subset of
- * a file's tests and is not full-shaped even where argv names no file.
- * `-t`/`--testNamePattern` only — `--changed` is checked separately via
- * `changedFlag`, which also accepts `--changed=<ref>`. */
 const NAME_FILTER_FLAGS = new Set(["-t", "--testNamePattern"]);
 
 /**
- * Whether `argv` (already stripped of `--queue`, `--isolated`, `--shared` and
- * `--full`, bare or with a cause) is FULL-SHAPED — no `--changed`, `--adopt`
- * or `--retest`, no name filter, no test file named.
- * Under `--full` this is the scope mantahostels#2278 isolates by default;
- * bare, it is a touched run (#2930).
- *
- * BEYOND THOSE FLAGS, ONLY A WORD SHAPED LIKE A TEST FILE DISQUALIFIES IT,
- * matched with the same `JS_TEST_FILE` regex vitest-collected.js's
- * `vitestList` filters vitest's own listing through.
- * A bare positional that is NOT test-file-shaped — a flag's own value, an
- * unrecognized flag — leaves the run full rather than narrowed: a wrong
- * "full" costs a needless worktree, a wrong "narrowed" costs exactly the
- * dirty-tree read mantahostels#2278 exists to stop.
- *
  * @param {string[]} argv
  * @returns {boolean}
  */
@@ -138,31 +70,16 @@ function isFullRunArgv(argv) {
 
 /**
  * @typedef {object} LaunchRoute
- * @property {string[]} rest argv stripped of the wrapper flags
- * @property {"full"|"touched"|"changed"|"named"} kind the launch's
- *   shape, which the run and the probe dispatch on and the queue-exit log
- *   names: `touched` is bare argv (#2930)
- * @property {Tree} tree the route intended
- * @property {Tree} fallback where the launch runs once its overlay will not
- *   build; `tree` itself on every other route
+ * @property {string[]} rest
+ * @property {"full"|"touched"|"changed"|"named"} kind
+ * @property {Tree} tree
+ * @property {Tree} fallback
  * @property {"full"|"diff"|"own"|"changed"|"adopt"|"retest"|"named"} source
- *   what the selection is taken from: the whole suite, the diff against the
- *   default's base, the session's own work, `--changed`'s diff, the adopted
- *   path list, the tests `--retest` names, or a named file or filter
- * @property {string|null} sessionId the id the route was decided with
+ * @property {string|null} sessionId
  */
 
 /**
- * Where a launch runs and what it selects from, decided once for the run, the
- * queue probe and its re-check (#1498). Execution may still fall back: an
- * overlay that will not build runs on `fallback` instead, and the probe reads
- * the route intended.
- *
- * A session id overlays a touched run, `--isolated` or not, and a bare
- * `--changed` or a `--retest` unless `--isolated` was typed (#812, #1217,
- * #1860). `--shared` beats every other flag.
- *
- * @param {string[]} argv the raw argv, `--full` already vetted
+ * @param {string[]} argv
  * @param {string|null} sessionId
  * @returns {LaunchRoute}
  */
@@ -197,10 +114,6 @@ function launchRoute(argv, sessionId) {
 }
 
 /**
- * Whether the launch is a touched run (#2935): a `touched` kind, a `--retest`,
- * or one bounded to the test files it names. It never takes or waits for the
- * whole-suite slot, however many files it resolves to, and waits only on the
- * memory rung for its file count.
  * @param {Pick<LaunchRoute, "kind"|"source"|"rest">} route
  */
 const isTouchedRun = (route) =>
@@ -232,31 +145,10 @@ function routeSource({ overlaid, fullShaped, full, changed, rest }) {
 	return adoptFlag(rest) ? "adopt" : "named";
 }
 
-/*
- * NPM TAKES A RUNNER FLAG WRITTEN BEFORE `--` AS ITS OWN CONFIG (#2284).
- * `npm run test --queue` sets `npm_config_queue=true` in the script's
- * environment and passes no argument; a word after the flag
- * (`--changed HEAD~1`) arrives as a bare positional. The variable is read only
- * to refuse: a later npm that passes the flag through, or rejects it, needs
- * nothing here. One that drops it silently turns run-vitest.test.ts's
- * `npm run` case red.
- *
- * Residual: an `.npmrc` or exported `npm_config_<flag>` naming one of these
- * reaches every launch too, so each refuses until it goes.
- */
-/* The flags whose following words are their value. */
 const VALUED_FLAGS = new Set([CHANGED_FLAG, RETEST_FLAG, ADOPT_FLAG]);
 const RUNNER_FLAGS = [...WRAPPER_FLAGS, ...VALUED_FLAGS];
 
 /**
- * The refusal for a launch whose runner flags npm swallowed, naming the
- * command that passes them — or null where it swallowed none.
- *
- * The command puts the swallowed flags first and then the argv words the
- * script itself did not bake in, which is where a flag's value landed. Where
- * two swallowed flags each take words, npm lost which word was whose, so the
- * command names a placeholder after each and lists the words apart.
- *
  * @param {string[]} argv
  * @param {NodeJS.ProcessEnv} env
  * @returns {string|null}
@@ -298,13 +190,9 @@ function npmSwallowedRefusal(argv, env) {
 	);
 }
 
-/* Vitest's own flag, which would leave the pass store skipping files. */
 const NO_CACHE_FLAG = "--no-cache";
 
 /**
- * The refusal for a launch handing vitest `--no-cache`, which would take it
- * as its own option while the pass store still skipped files (#4790) — or
- * null where argv carries none.
  * @param {string[]} argv
  * @returns {string|null}
  */
@@ -315,12 +203,8 @@ function noCacheRefusal(argv) {
 }
 
 /**
- * Whether a launch looks its files up in the pass store (#4790): never where
- * it asks every file to run — a typed full run, a retest, `--fresh` — nor
- * under the verdict probe, whose variable fails the canary a pass was stored
- * for without it (lib/verdict-probe.js, #5296).
  * @param {Pick<LaunchRoute, "kind"|"source">} route
- * @param {string[]} argv the launch's own words, wrapper flags included
+ * @param {string[]} argv
  * @param {NodeJS.ProcessEnv} [env]
  */
 const isPassStoreLaunch = (route, argv, env = process.env) =>

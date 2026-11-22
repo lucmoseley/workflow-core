@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * round-marker.test.ts — the one spelling of the `❓ **Qn**` marker, pinned.
- *
- * The spelling is shared (#218), so what needs pinning is the spelling itself:
- * the anchoring, the optional space and the digits. The cases run in-process on
- * plain strings, plus a read of both guards' source to show neither declares a
- * regex of its own. Both are Stop hooks in `.claude/settings.json`. Loosen a
- * case here and a turn silently changes hands between guard-priced-options.js
- * and guard-jev-advisory.js — read by both, or by neither.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -79,12 +69,6 @@ describe("Q_MARKER", () => {
 });
 
 describe("the guards that share it", () => {
-	/* AC1 of #218: neither guard has grown a second spelling back.
-	 *
-	 * The paths are written out rather than looped over, so that
-	 * scripts/generate-test-read-edges.js — a lexical extractor — records both
-	 * guards as read here and test:changed selects this file when either one
-	 * changes. */
 	const readOwnMarkerDeclarations = (file: string) =>
 		fs
 			.readFileSync(file, "utf8")

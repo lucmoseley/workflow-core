@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/doc-map-gate.js, the pre-commit doc-map gate's core (mantahostels#390, #5155), over
- * doc-map-gate-fake.ts. doc-map-gate.contract.test.ts holds that fake to the
- * production ports; doc-map-gate-program.test.ts keeps the program's boundary
- * set.
- *
- * Loosen a case and a commit leaving docs/doc-map.md dangling, deleted or
- * hand-edited lands unrefused, or one inheriting a red map is refused for
- * faults it did not cause.
- */
 
 import { describe, expect, it } from "vitest";
 import { runDocMapGate } from "./doc-map-gate.js";
@@ -38,7 +28,6 @@ describe("a readable index", () => {
 		expect(calls).toHaveLength(1);
 	});
 
-	// BROKEN (2) and FAIL (1) stay distinguishable to the committer.
 	it("refuses with the checker's own exit code, its report replayed first", () => {
 		const { exit, stderr } = gate(
 			failing({ check: { status: 2, report: REPORT } }),
@@ -88,8 +77,6 @@ describe("a readable index", () => {
 		expect(stderr).toContain("could not tell inherited doc-map faults");
 	});
 
-	/* HEAD's extraction holds no map: no baseline, so refuse rather than read
-	 * the missing baseline as "nothing inherited". newFaults would pass. */
 	it("fails closed when HEAD holds no baseline to compare against", () => {
 		const { exit, stderr, calls } = gate(
 			failing({
@@ -116,8 +103,6 @@ describe("a readable index", () => {
 		expect(stderr).toContain("no readable HEAD baseline for the doc-map check");
 	});
 
-	/* mantahostels#1193: the checker reads a path with no git identity, so the gate asks
-	 * git and passes the verdict down. Only diff's 1 is dirty. */
 	it("passes --map-dirty to the held and staged runs when the map differs from HEAD, never to the baseline", () => {
 		const { calls } = gate(failing({ mapDiffStatus: 1 }));
 		expect(calls.map((c) => c.args.includes("--map-dirty"))).toEqual([
@@ -136,9 +121,6 @@ describe("a readable index", () => {
 			).toBe(false);
 	});
 
-	/* mantahostels#1922: --root moves the filesystem reads, and the pool delta is an index
-	 * read, so the baseline runs under HEAD's own index and the staged side under
-	 * this commit's. */
 	it("runs the baseline under HEAD's index over HEAD's tree, and the staged side under this one", () => {
 		const { calls } = gate(failing());
 		expect(calls.map((c) => c.json)).toEqual([false, true, true]);
@@ -150,7 +132,6 @@ describe("a readable index", () => {
 		expect(calls[2].args).toEqual(["--root", "/fake/tmp2/tree", "--json"]);
 	});
 
-	// The old shell block read it only under an untracked block, too (#5155).
 	it("reads HEAD's map only for a report holding an untracked block", () => {
 		expect(
 			gate(
@@ -168,7 +149,6 @@ describe("a readable index", () => {
 		).toBe(1);
 	});
 
-	// A run let through on inheritance still owes the untracked replay.
 	it("judges the untracked blocks after a pass on inheritance", () => {
 		const { exit, stderr } = gate({
 			check: {
@@ -188,8 +168,6 @@ describe("a readable index", () => {
 });
 
 describe("an unreadable index", () => {
-	/* The checker would call a map-less extraction BROKEN: apparatus, not a
-	 * finding, so warn and pass and leave it to the sweeps. */
 	it("skips with a warning, never running the checker, when the map is in neither HEAD nor the index", () => {
 		const { exit, stderr, calls } = gate(
 			failing({
@@ -209,8 +187,6 @@ describe("an unreadable index", () => {
 		expect(calls).toEqual([]);
 	});
 
-	/* mantahostels#2902: a staged deletion of the map took the skip line and landed. The
-	 * map's deletion is the fault, not apparatus missing. */
 	it("refuses a staged deletion of the map, before the checker runs", () => {
 		const { exit, stderr, calls } = gate(
 			failing({ mapInIndex: false, deletion: { ok: true, deleted: true } }),
@@ -236,7 +212,6 @@ describe("an unreadable index", () => {
 		);
 	});
 
-	// The other cause of an unreadable index must still warn and pass (mantahostels#2911).
 	it("warns and passes when git cannot say whether the map is deleted", () => {
 		const { exit, stderr } = gate(
 			failing({ extracts: false, deletion: { ok: false, deleted: false } }),

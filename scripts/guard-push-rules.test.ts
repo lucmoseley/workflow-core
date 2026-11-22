@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-push-rules core of guard-dispatch.js states the push rules before
- * a push rather than after one (mantahostels#1648, spec mantahostels#1762),
- * with the review warn ahead of them (#1163). These are its boundary cases,
- * the dispatcher entry run on it alone: the payload, the host's own files, the
- * rule store, the latch and the review adapter, end to end. Which push is
- * handed which rule is lib/push-rules.test.ts's; each premise's read is
- * lib/push-rules-host.test.ts's; the adapter's answers are
- * push-review-owed.test.ts's (#2785); the entry's payload faults and the
- * throw policy are guard-dispatch's own tests' (#3226).
- *
- * It runs as a core of the `PreToolUse` dispatcher and is the only route by which the push
- * rules reach a session before it pushes: break it and a session pushes
- * unattested or unreviewed commits unwarned; make it deny and every push is
- * wedged.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -36,11 +20,8 @@ const { readRuleCap } = require("./lib/rule-emission") as {
 	readRuleCap: () => number;
 };
 
-/* push-cadence's headline. */
 const CADENCE = "PUSH YOUR QUEUE REF ONCE THE TESTS YOU TOUCHED PASS";
 
-/** The whole hook output for `command` run in `cwd`. Null where it said
- *  nothing. */
 const emission = (
 	at: { shared: string; config: string },
 	command: string,
@@ -80,7 +61,6 @@ describe("the push rules, end to end", () => {
 		fs.writeFileSync(path.join(at.shared, rel), body);
 	};
 
-	/** A host meeting every rule's premise (#742). */
 	const fullHost = () => {
 		write(
 			".claude/workflow-core.json",
@@ -111,7 +91,6 @@ describe("the push rules, end to end", () => {
 		expect(ctx.indexOf(CADENCE)).toBeLessThan(
 			ctx.indexOf("IS TESTED BY THE QUEUE LANDER"),
 		);
-		// The cap is BYTES, and the fragments are multibyte.
 		expect(Buffer.byteLength(ctx, "utf8")).toBeLessThan(readRuleCap());
 	});
 
@@ -171,7 +150,6 @@ describe("the push rules, end to end", () => {
 	});
 
 	it("says nothing and logs when the payload carries no session", () => {
-		// No session id is no latch key, so an injection would repeat on every call.
 		const r = runDispatchCore(
 			CORE,
 			buildBashPayload("git push origin main", null),
@@ -221,9 +199,6 @@ describe("the review warn, end to end (#1163)", () => {
 		expect(emission(f, "git push origin main", { session: ME })).toBeNull();
 	});
 
-	/* An unresolved push target is `git -C ""`, which git runs where the
-	 * session stands: its review is read over the session's tree's HEAD, never
-	 * the main checkout's (#4242). */
 	const unresolvedFromWorktree = () =>
 		emission(f, 'git -C "$W" push origin main', {
 			session: ME,

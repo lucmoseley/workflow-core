@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that the similar-title corpus reads open issues live on every call and
- * closed titles off the cache: written by a cold call, left alone within the
- * refresh interval, merged from the issues updated since its stamp once past
- * it, and treated as absent where it does not parse (#2755).
- *
- * readTrackerTitles, with its gh reads injected, over a temp-dir cache file.
- * Breaking one costs either the duplicate check its newest candidates or every
- * filing the 30-85 s whole-tracker pull the cache exists to spare.
- */
 
 import fs from "node:fs";
 import os from "node:os";

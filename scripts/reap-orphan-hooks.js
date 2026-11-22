@@ -1,52 +1,4 @@
 #!/usr/bin/env node
-/*
- * reap-orphan-hooks.js — kill every hook run that outlived its hook timeout
- * with no parent left to wait on it, together with its group, and log each
- * kill (#2922).
- *
- * Usage:  npm run reap:orphan-hooks  [--notify] [--json]
- *
- * WHY A KILL AND NOT A REPORT, unlike check-orphan-wait-loops.js: an orphaned
- * hook run has nothing waiting on its answer, while every hook call
- * machine-wide may be blocking behind it (docs/environment.md §7).
- *
- * The signature, what a kill takes and why: lib/orphan-hooks.js.
- *
- * AND EVERY PROCESS OF A SUITE RUN WHOSE WRAPPER IS GONE (#3528): a SIGKILLed
- * run-vitest.js runs no handler, so its reparented workers live on until a
- * sweep from outside it (lib/suite-ceiling.js's sweepOrphanedRuns) finds them.
- * Those kills are named in the session, never logged.
- *
- * AND EVERY PROCESS WHOSE CLAUDE SESSION HAS ENDED (#4342), reparented to an
- * init: the judgement is lib/ended-sessions.js's.
- *
- * IT ALSO RUNS WITH NO SESSION OPEN, every few minutes, from a user timer
- * (start-orphan-sweep-timer.js). A session start's run names the logged
- * kills no start in its checkout has named yet.
- *
- * THE REGISTRY IS THE RUNNING HOOKS — the self-plugin's at the core, the
- * plugin's plus the host's settings at an adopter (lib/core-hooks.js) — read
- * fresh each run.
- *
- * EVERY KILL IS LOGGED, one JSON line in `.orphan-hook-reaps.jsonl` under the
- * canonical checkout's .claude/tmp/markers (lib/orphan-hooks.js's killReaps
- * writes its fields). Lines are kept
- * RETAIN_MS. An unwritable log costs the
- * line, never the kill, and the report then says the write failed.
- *
- * WFC_PROC REPLACES /proc (lib/proc-root.js). A run against it names
- * what it would kill and kills and logs nothing — unless WFC_REAP_FAKE_ROOT
- * is `kill`, which a test sets to cross the real kill and log against a fake
- * root that links in only its own orphan (#3057).
- *
- * DEGRADES TO SILENCE: no /proc, a hidepid root that lists pids of which not
- * one reads, or an unreadable uptime leave through ctx.skip(). An unparseable
- * hook file is the apparatus failing, and is BROKEN.
- *
- * RESIDUAL: a machine with no systemd user manager has no timer, so there it
- * runs at session start alone. A hook's child running a different script,
- * orphaned with its own parent gone, is not matched while its session lives.
- */
 
 const { runCheck } = require("./lib/check");
 const { ignoreFailure, parseErrorText } = require("./lib/caught.js");
@@ -81,18 +33,15 @@ const {
 	sweepOrphanedRuns,
 } = require("./lib/suite-ceiling.js");
 
-/* 30 days, chosen and not measured: a month of incident traces, the span
- * queue-exit-log.js keeps for the same kind of record. */
+// #2922 guess
 const RETAIN_MS = 30 * DAY_MS;
 
 /**
  * @typedef {{ tag: string, heading: (n: number) => string, trace: string,
- *   what: (r: import("./lib/orphan-hooks.js").Reap) => string }} Part how one
- *   part's kills read: `what` is a kill's own words, after its pid
+ *   what: (r: import("./lib/orphan-hooks.js").Reap) => string }} Part
  */
 
 /**
- * Name each of one part's kills as a finding and in the session.
  * @param {import("./lib/check").Ctx} ctx
  * @param {Array<import("./lib/orphan-hooks.js").Reap & { errors: string[], logged: boolean }>} done
  * @param {Part} part
@@ -121,8 +70,8 @@ function report(ctx, done, part, { fixture, logFile }) {
 }
 
 /**
- * Where a part's kills were recorded: "logged" only for lines written.
- * @param {Array<{ logged: boolean }>} done @param {string|null} logFile
+ * @param {Array<{ logged: boolean }>} done
+ * @param {string|null} logFile
  */
 function buildKilledLine(done, logFile) {
 	if (logFile === null)
@@ -135,8 +84,6 @@ function buildKilledLine(done, logFile) {
 }
 
 /**
- * One kill's line appended to `log`, its directory made first, which a fresh
- * machine's `~/.local/state` lacks (#4706); false where it was not written.
  * @param {string|null} log
  * @param {Record<string, unknown> & { at: string }} entry
  */
@@ -150,16 +97,11 @@ function appendLog(log, entry) {
 	return appendRetained(log, entry, RETAIN_MS);
 }
 
-/* Under a canonical checkout's markers: the `at` of the newest session kill
- * a session start there has named. */
 const SHOWN_STAMP = ".orphan-session-reaps-shown";
 
 /**
- * The machine log's session kills a session start in `canonical` has not yet
- * named — the timer's, made with no session open — and the stamp that marks
- * them named, and why the log could not be read where it could not; null
- * where no checkout holds a stamp.
- * @param {string|null} canonical @param {string} log
+ * @param {string|null} canonical
+ * @param {string} log
  */
 function unseenSessionKills(canonical, log) {
 	if (canonical === null) return null;
@@ -170,7 +112,6 @@ function unseenSessionKills(canonical, log) {
 	try {
 		read = readJsonl(log);
 	} catch (err) {
-		/* Warned, not stamped, so the next start reads it again (#4706). */
 		return { rows: [], stamp, unreadable: `${log}: ${parseErrorText(err)}` };
 	}
 	const rows = (read?.rows ?? []).filter(
@@ -180,8 +121,6 @@ function unseenSessionKills(canonical, log) {
 }
 
 /**
- * Name the timer's kills since this checkout's last session start, then
- * stamp them named.
  * @param {import("./lib/check").Ctx} ctx
  * @param {{ rows: Record<string, unknown>[], stamp: string, unreadable: string|null }} unseen
  */
@@ -210,7 +149,6 @@ function reportUnseen(ctx, { rows, stamp, unreadable }) {
 			.map((r) => String(r.at))
 			.sort()
 			.at(-1) ?? "";
-	// An unwritable stamp names them again next start, never loses one.
 	ignoreFailure(() => {
 		fs.mkdirSync(path.dirname(stamp), { recursive: true });
 		writeFileAtomic(stamp, `${newest}\n`);
@@ -267,7 +205,6 @@ runCheck({
 						log: (entry) => appendLog(log, entry),
 					});
 		const at = { fixture, logFile };
-		/* Read before this run's own kills, which it names itself. */
 		const unseen =
 			fixture || !ctx.notify || !process.env.CLAUDE_CODE_SESSION_ID
 				? null

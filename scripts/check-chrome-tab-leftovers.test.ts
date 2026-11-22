@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * check-chrome-tab-leftovers.js, driven through its command line on fixture
- * transcripts under temporary seats and a fixture Chrome child store (#5385).
- *
- * The rows are hand-built in the Claude in Chrome extension's wording
- * (lib/chrome-rows-fake.ts); a rewording in the extension is caught only by
- * a live run. Each case runs under a temporary seat and project root, never
- * the real ones. Loosening a case lets a leftover tab pass the daily core
- * gate unreported.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -90,7 +80,6 @@ const result = (sessionId: string, ...texts: string[]) => ({
 	sessionId,
 });
 
-/** A transcript under `seat`, last written at `at`. */
 function transcript(
 	sessionId: string,
 	rows: object[],
@@ -104,7 +93,6 @@ function transcript(
 	fs.utimesSync(file, t, t);
 }
 
-/** A Chrome child whose last Tab Context lists `tabs`. */
 const child = (
 	tabs: [number, string, string?][],
 	opts: Parameters<typeof transcript>[2] = {},

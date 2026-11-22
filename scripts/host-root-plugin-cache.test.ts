@@ -1,48 +1,4 @@
 // @vitest-environment node
-/*
- * The host-root seam under a plugin install (#1): pins that every rooted
- * script, loaded from a plugin cache, resolves and reads the host repository
- * and never the cache.
- *
- * Breaking it ships adopters a core whose scripts read the plugin cache's tree
- * as if it were theirs — its rule store, its origin remote, its arbiter state —
- * with no error, since the cache answers as a repository.
- *
- * THE SHAPE IT REPRODUCES. The core's files are copied to a plugin-cache-shaped
- * path OUTSIDE the host repository, and that cache is itself made a git
- * repository — the trap. A script that roots at its own location then resolves
- * the CACHE and every host read lands there; a script that goes through the seam
- * resolves the host, because the working directory is the host and
- * CLAUDE_PROJECT_DIR is unset. Both limbs of the seam are exercised: unset, and
- * set to a symlink with a trailing slash.
- *
- * WHY A GIT REPOSITORY AT THE CACHE (finding F23). A cache that IS a repository
- * fails SILENTLY, answering with the wrong tree, so that is what this fixture
- * builds.
- *
- * THE GENERIC ASSERTION. Every JS or TS script that requires the seam is
- * loaded in a child process whose `fs` reads are recorded, with the working
- * directory at the host. Nothing it reads may sit inside the cache unless it
- * sits under the cache's own `scripts/` — a core file shipping beside the
- * caller, which is what `__dirname` is still for. Its subprocesses are recorded
- * too, and a `git` aimed anywhere inside the cache — by `cwd` or by `-C` — is a
- * stray even under `scripts/`: F23's fault is a git that asks the cache's
- * repository, whichever of its directories it asks from.
- *
- * WHAT IT DOES NOT ASSERT: that the script RUNS against the fixture host. Some
- * do real work at require time and fail on a host that has no settings.json and
- * no ledger, which is a fact about the fixture and not about rooting. The probe
- * therefore writes its record to a FILE rather than stdout, so a script's own
- * output cannot corrupt it.
- *
- * ITS BOUND. Reads made while the script loads and runs to its own exit, through
- * `readFileSync`, `existsSync`, `readdirSync`, `statSync` and `realpathSync`, and
- * subprocesses started through `child_process`'s sync and callback forms. Unseen:
- * `fs.promises` and the callback `fs` forms, a function body the run never
- * calls, and what a subprocess reads on its own. Shell `gr_root` callers are
- * covered for F23 and F24 only, and Python callers not at all — the byte
- * identity of the three halves is `host-root-byte-identity.test.ts`'s.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -56,23 +12,14 @@ import { isJsExt } from "./lib/test-kind.js";
 const REPO = path.resolve(__dirname, "..");
 
 let tmp: string;
-/** The plugin cache: the core's files, outside the host, in their own repo. */
 let cache: string;
-/** The adopter's repository. */
 let host: string;
-/** A symlink to the host, for the dereference limb. */
 let hostLink: string;
 let probe: string;
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" });
 
-/**
- * The environment a plugin-installed script meets: no CLAUDE_PROJECT_DIR, and a
- * HOME of its own. HOME is redirected because several of these scripts sweep
- * the machine's own Claude transcript corpus, which is gigabytes here and is
- * not this fixture's subject.
- */
 const hostEnv = (extra: NodeJS.ProcessEnv = {}) => {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
@@ -81,10 +28,6 @@ const hostEnv = (extra: NodeJS.ProcessEnv = {}) => {
 	};
 	if (!("CLAUDE_PROJECT_DIR" in extra)) delete env.CLAUDE_PROJECT_DIR;
 	delete env.WFC_REPO_ROOT;
-	/* The suite's setup file defaults WFC_RULES_DIR to THIS checkout's store, so
-	 * that a guard run against a throwaway fixture host still finds one. Here the
-	 * resolution IS the subject — F24 asks which tree the store came from — and an
-	 * inherited override would answer for it. */
 	delete env.WFC_RULES_DIR;
 	return env;
 };
@@ -102,8 +45,6 @@ beforeAll(() => {
 	git(cache, "init", "-q");
 	git(cache, "config", "user.email", "cache@example.invalid");
 	git(cache, "config", "user.name", "Cache");
-	/* A plugin install has no node_modules of its own; the suite's requires still
-	 * need to resolve, so the real tree is linked rather than copied. */
 	fs.symlinkSync(
 		path.join(REPO, "node_modules"),
 		path.join(cache, "node_modules"),
@@ -191,8 +132,6 @@ afterAll(() => {
 	if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/** Is `rel` a JS/TS script that requires or imports the seam, and no
- * apparatus check-host-root.js leaves unscanned? */
 const isSeamCaller = (rel: string): boolean => {
 	if (!isJsExt(path.extname(rel)) || isApparatus(rel)) return false;
 	const text = fs.readFileSync(path.join(REPO, rel), "utf8");
@@ -201,12 +140,6 @@ const isSeamCaller = (rel: string): boolean => {
 	);
 };
 
-/**
- * Every script that goes through the JS seam, repo-relative — enumerated from
- * the checkout rather than the cache because `it.each` is read at COLLECTION
- * time, before `beforeAll` has built anything. The cache is a copy of this
- * tree, so the two lists are the same list.
- */
 const rootedScripts = (): string[] => {
 	const out: string[] = [];
 	const walk = (dir: string) => {
@@ -267,8 +200,6 @@ describe("the seam, from a plugin cache outside the host", () => {
 	});
 
 	it("falls open to the working directory where no repository answers, never to the cache", () => {
-		/* With the cwd outside any repository, a seam that fell back to its own
-		 * location would name the cache. */
 		const nowhere = path.join(tmp, "nowhere");
 		fs.mkdirSync(nowhere, { recursive: true });
 		const r = spawnSync(
@@ -341,7 +272,6 @@ describe("the findings the seam closes", () => {
 				encoding: "utf8",
 			},
 		);
-		/* The remote read is what is under test; what `gh` then does is not. */
 		expect(r.stderr).not.toContain("could not read owner/name");
 	});
 
@@ -369,7 +299,6 @@ describe("every rooted script, loaded from the cache against the host", () => {
 		expect(rootedScripts().length).toBeGreaterThan(20);
 	});
 
-	/** Load `script` under the probe from the host, and return its record. */
 	const probeRun = (script: string) => {
 		const record = path.join(
 			tmp,
@@ -398,7 +327,6 @@ describe("every rooted script, loaded from the cache against the host", () => {
 	const within = (p: string, dir: string) =>
 		p === dir || p.startsWith(`${dir}${path.sep}`);
 
-	/** Reads inside the cache but outside what ships beside the caller. */
 	const strayReads = (reads: string[]) =>
 		reads
 			.map((p) => path.resolve(host, p))
@@ -406,25 +334,11 @@ describe("every rooted script, loaded from the cache against the host", () => {
 			.filter(
 				(p) =>
 					!within(p, path.join(cache, "scripts")) &&
-					/* Module resolution realpaths the core's own dependencies. */
 					!within(p, path.join(cache, "node_modules")) &&
-					/* The plugin's own hook manifest and rule-text store are
-					 * core-owned, not host content: the registry reads the
-					 * manifest to know how an adopter's guards are wired, and a
-					 * guard reads the store to print the text behind a deny (#5).
-					 * Neither exists in a host repo at all — and the store
-					 * alone, not all of docs/agents, whose prose a script must
-					 * still read from the host. */
 					p !== path.join(cache, "hooks", "hooks.json") &&
-					/* The core's own manifest: its version says which guards the
-					 * core ships (check-main-checkout-cutover.js, #4688). */
 					p !== path.join(cache, ".claude-plugin", "plugin.json") &&
-					/* The base standards: every repo reads them from the plugin,
-					 * in place, and writes only its local file (#3451). */
 					p !== path.join(cache, "docs", "code-standards-base.md") &&
 					!within(p, path.join(cache, "docs", "agents", "rules")) &&
-					/* script-path.js's checkout-or-install probe, which asks
-					 * where the core sits, never what the host holds (#343). */
 					p !== path.join(cache, "package.json"),
 			);
 
@@ -451,10 +365,6 @@ try { cp.spawnSync("git", ["status"], { cwd: __dirname, stdio: "ignore" }); } ca
 		"%s reads no host content from inside the plugin cache",
 		(rel) => {
 			const { reads, gits } = probeRun(path.join(cache, rel));
-			/* THE POSITIVE CONTROL. `strays` is derived from `reads`, so a probe that
-			 * silently recorded nothing — a patch that stopped taking, a script that
-			 * exits before its first read — would pass every case below while proving
-			 * nothing at all. */
 			expect(
 				reads.length,
 				`${rel} recorded no reads, so the case that follows proves nothing`,

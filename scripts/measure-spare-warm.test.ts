@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins how the spare-warm harness finds a new bg-spare spawn in the daemon
- * logs and times the host-and-spare pair's RSS to a plateau, reporting `gone`
- * or `timeout` rather than a figure it never reached.
- *
- * The program is driven end to end, in-process through lib/run-in-process.js's
- * `runInProcessAsync`, against a fake `/proc` (WFC_PROC) and fake daemon logs
- * under fake config dirs (mantahostels#2588), and read through its `--json`
- * reading or its printed one. Every case goes through `--watch`, never a
- * helper the program keeps to itself (#1369, §G6: nothing is exported only for
- * its tests). Nothing here launches a session or reads the real process tree:
- * `--probe` is a founder call, and a test that could fire one would spend an
- * allowance nobody asked it to, so it is driven only against a stub `claude`
- * (WFC_CLAUDE_BIN), for its launch-auth check (#2236).
- *
- * Its reading sets `WFC_DISPATCH_STAGGER_SECONDS` in `dispatch-sessions.js`:
- * a figure timed short lets the next member's admission miss memory the
- * previous launch is still taking, on a machine that freezes past 10 GB.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -34,7 +15,6 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "measure-spare-warm.js");
 
-/** How often the program samples, as its header documents it. */
 const SAMPLE_MS = 250;
 
 let dir: string;
@@ -52,15 +32,10 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The environment an in-process run needs to see the fakes above. */
 function runEnv(): Record<string, string | undefined> {
 	return {
 		...process.env,
 		WFC_PROC: procRoot,
-		/* CLAUDE_CONFIG_DIR too, and it is the load-bearing one: `sessionDirs`
-		 * always puts THIS session's own config dir first, whatever the three
-		 * WFC_ vars say (lib/arbiter-core.js). Without it every case here also
-		 * reads the machine's live daemon.log, and a real spawn lands mid-test. */
 		CLAUDE_CONFIG_DIR: path.join(dir, "a"),
 		WFC_CLAUDE_CONFIG_A: path.join(dir, "a"),
 		WFC_CLAUDE_CONFIG_B: path.join(dir, "b"),
@@ -68,7 +43,6 @@ function runEnv(): Record<string, string | undefined> {
 	};
 }
 
-/** A fake `/proc/<pid>/statm`, whose second field is resident pages. */
 function statm(pid: number, mb: number) {
 	fs.mkdirSync(path.join(procRoot, String(pid)), { recursive: true });
 	fs.writeFileSync(
@@ -77,9 +51,6 @@ function statm(pid: number, mb: number) {
 	);
 }
 
-/** A fake `/proc/<pid>/stat`, whose fourth field is the parent pid. The comm
- * field carries a space and a `)` on purpose: the parser must read past the
- * LAST `)`, not the first. */
 function stat(pid: number, ppid: number) {
 	fs.mkdirSync(path.join(procRoot, String(pid)), { recursive: true });
 	fs.writeFileSync(
@@ -90,11 +61,9 @@ function stat(pid: number, ppid: number) {
 
 const logA = () => path.join(dir, "a", "daemon.log");
 
-/** The daemon's refill line, stamped now unless told otherwise. */
 const buildSpawnLine = (pid: number, at = new Date().toISOString()) =>
 	`[${at}] [bg] bg spare spawned host pid=${pid}\n`;
 
-/** One `--watch --json` run, with its reading parsed where it printed one. */
 async function watch(timeoutSeconds: number) {
 	const r = await runInProcessAsync(
 		SCRIPT,
@@ -115,8 +84,6 @@ describe("the daemon-log spawn line (mantahostels#2588)", () => {
 				),
 			200,
 		);
-		/* No such process in the fake tree, so the reading ends `gone` at once —
-		 * what is pinned is which spawn it read. */
 		const { reading } = await watch(4);
 		expect(reading.pid).toBe(2_699_405);
 		expect(reading.spawnedAt).toBe("2026-09-02T09:33:04.883Z");
@@ -162,9 +129,6 @@ describe("finding the next spawn (mantahostels#2588)", () => {
 		expect(reading.log).toBe(other);
 	});
 
-	/* Giving up at the deadline is "exits 1 and says so where no spare was
-	 * spawned in the window", under the script itself below. */
-
 	it("re-baselines a truncated log instead of throwing", async () => {
 		fs.writeFileSync(logA(), "x".repeat(5000));
 		setTimeout(() => fs.writeFileSync(logA(), ""), 150);
@@ -189,8 +153,6 @@ describe("timing the plateau (mantahostels#2588)", () => {
 		expect(r.status).toBe(0);
 		expect(r.reading.verdict).toBe("plateau");
 		expect(r.reading.plateauMb).toBe(50);
-		// The RSS never moved, so the plateau began at the first sample — about a
-		// second after the spawn this case back-dated.
 		expect(r.reading.secondsToPlateau).toBeGreaterThanOrEqual(0.9);
 		expect(r.reading.secondsToPlateau).toBeLessThan(2.5);
 	});
@@ -237,16 +199,11 @@ describe("timing the plateau (mantahostels#2588)", () => {
 	});
 });
 
-/* mantahostels#2588. Timing the logged host alone reports a plateau before the memory
- * lands, and would set the stagger far too short. That the host and its
- * bg-spare child are summed is "reports the pair's plateau", under the script
- * itself below. */
 describe("the pair, not the logged process (mantahostels#2588)", () => {
 	it("counts a child that appears after the first sample", async () => {
 		fs.writeFileSync(logA(), "");
 		statm(1100, 90);
 		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(1100)), 50);
-		// The fork lands two samples into the timing, exactly as a real one does.
 		setTimeout(
 			() => {
 				statm(1101, 300);
@@ -281,7 +238,6 @@ describe("the pair, not the logged process (mantahostels#2588)", () => {
 	});
 });
 
-/* mantahostels#2588. A spawn line can straddle two reads. */
 describe("a spawn line split across two reads (mantahostels#2588)", () => {
 	it("carries the unterminated half forward and matches the joined line", async () => {
 		fs.writeFileSync(logA(), "");
@@ -306,7 +262,6 @@ describe("a spawn line split across two reads (mantahostels#2588)", () => {
 			{ env: runEnv() },
 		);
 		expect(r.status).toBe(1);
-		// The other config dir has no log, so only this one was being read.
 		fs.rmSync(log);
 		const r2 = await runInProcessAsync(
 			SCRIPT,
@@ -318,9 +273,6 @@ describe("a spawn line split across two reads (mantahostels#2588)", () => {
 	});
 });
 
-/* mantahostels#2588. `--probe` is never driven here against a real `claude` — it
- * would spend a real allowance — so only the paths that reach a verdict
- * without one are. */
 describe("the script itself (mantahostels#2588)", () => {
 	it("refuses --watch and --probe together, and refuses neither, each with usage on stderr", async () => {
 		fs.writeFileSync(logA(), "");
@@ -347,7 +299,6 @@ describe("the script itself (mantahostels#2588)", () => {
 		}
 	});
 
-	/* #1346: a bare trailing --prompt crashed in spawn with a TypeError rather than refusing. */
 	it("refuses a --prompt with no value before any probe launches", async () => {
 		fs.writeFileSync(logA(), "");
 		const r = await runInProcessAsync(SCRIPT, ["--probe", "--prompt"], {
@@ -407,7 +358,6 @@ describe("the script itself (mantahostels#2588)", () => {
 		expect(r.reading.mode).toBe("watch");
 		expect(r.reading.verdict).toBe("plateau");
 		expect(r.reading.plateauMb).toBe(400);
-		// Never a probe binary on a watch: nothing was launched.
 		expect(r.reading.probeBin).toBeNull();
 	});
 });
@@ -445,8 +395,6 @@ describe("the probe's auth (#2236)", () => {
 		expect(fs.existsSync(bgCalls())).toBe(false);
 	});
 
-	/* Crosses the real clock (§X9): nothing spawns a spare, so the watch
-	 * runs out its 1 s window and the run ends on exit 1. */
 	it.each(ADMITTED_AUTH)("launches the probe on %s", async (_name, env) => {
 		const r = await probe(env);
 		expect(r.status).toBe(1);

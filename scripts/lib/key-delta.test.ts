@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins spec #1510's delta gate where it lives (#1725): a key set, never a
- * count (mantahostels#2483), and the outcome tests both repo-checks readers
- * sort a job by.
- *
- * Loosen one and the daily notify line drops a key that was gained, or
- * reprints a whole backlog nobody drains.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -17,7 +9,6 @@ const {
 	judgeKeys,
 } = require("./key-delta.js");
 
-/** `delivered: null` is nothing delivered yet, so a completed outcome's every key reads as gained. */
 const judge = (keys: string[], delivered: string[] | null, outcome = "FAIL") =>
 	judgeKeys(
 		{ outcome, keys },

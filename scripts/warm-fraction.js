@@ -1,31 +1,4 @@
 #!/usr/bin/env node
-/*
- * warm-fraction.js — reports the warm fraction of the frontier across the real
- * selection runs `pick-next.js` has recorded, which is what mantahostels#385's 60-80%
- * saving claim actually rests on (mantahostels#789, the live ticket; mantahostels#628 closed it).
- *
- * The arithmetic is one line:
- *
- *     run-level saving = warm fraction x per-ticket band-read cost
- *
- * mantahostels#611 measured the right-hand term. The warm fraction is an upper bound on the
- * saving rather than the saving itself; the report's own AGAINST block says why.
- *
- * IT REFUSES A VERDICT UNDER 10 RUNS, which is what mantahostels#628 asked for — and refuses
- * the `covered` fraction separately, under 10 runs a pre-warming build wrote,
- * since that figure rests on those alone (mantahostels#1054). ONCE THE LOG SPANS THE
- * PRE-WARMING SPLIT, IT REFUSES A DIFFERENT WAY REGARDLESS OF RUN COUNT: the
- * whole-log pooled fraction averages two mechanisms, so no verdict is quoted
- * off it at all, and a COVERED BOUND — which only ever refutes, never confirms
- * — is quoted off the after side instead (mantahostels#1327). It reports the window's SPAN
- * as well as its endpoints, because churn is what cools a ticket and a sample's
- * length bounds how much of it the sample can have seen (mantahostels#789).
- *
- * Usage: node scripts/warm-fraction.js [--json] [--runs]
- *
- * Always exits 0: a log that cannot be read at all reads as one not yet
- * written, which is the normal state before the first run.
- */
 
 const log = require("./lib/warm-fraction-log");
 const { writeFd } = require("./lib/write-fd.js");
@@ -33,8 +6,6 @@ const { scriptPath } = require("./lib/script-path.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 
-// Overridable like `pick-next.js`'s, so the log can be read from a throwaway
-// tree rather than only from this one.
 const REPO_ROOT = process.env.WFC_REPO_ROOT || hostRoot();
 const { flags } = parseOrExit(process.argv.slice(2), {
 	usage: `usage: node ${scriptPath("warm-fraction.js")} [--json] [--runs]`,
@@ -45,12 +16,10 @@ const showRuns = flags["--runs"] === true;
 
 const CLAIM = log.CLAIM;
 
-/** @param {number|null} f A fraction, or null where there is nothing to report. */
+/** @param {number|null} f */
 const pct = (f) => (f === null ? "—" : `${(f * 100).toFixed(1)}%`);
 
-// 48 hours before days: a first guess, and stated as one. Both windows a reader
-// compares against are named in hours (mantahostels#789's 25) and days (its fortnight), so
-// the cutover sits above the first and well below the second.
+// lucmoseley/mantahostels#789 guess: above its 25 h window, well below its fortnight
 const SPAN_HOURS_MAX = 48;
 
 /** @param {number|null|undefined} ms */
@@ -65,24 +34,15 @@ const span = (ms) => {
 const { runs, malformed } = log.readRuns(REPO_ROOT);
 const s = log.summarise(runs);
 const { distinct, usable } = log.partition(runs);
-// The two reasons a line is not in the figures, kept apart: already counted, or
-// nothing to count.
 const kept = new Set(distinct);
 const counted = new Set(usable);
 const verdict = log.verdictOn(s);
-// The covered fraction is gated on its own sample, not on `pooled`'s (mantahostels#1054).
 const covered = log.coveredVerdictOn(s);
 const split = log.splitAtProvisional(runs);
-// Un-pooled (mantahostels#1327): `covered` read on the AFTER side alone, and the bound it
-// puts on mantahostels#385's saving. `verdict`/`coveredVerdict` above still pool across
-// the split where one exists — callers reading a verdict off a split log want
-// this one.
 const afterCoveredVerdict =
 	split.splitAt === null ? null : log.coveredVerdictOn(split.after);
 const boundVerdict =
 	split.splitAt === null ? null : log.boundVerdictOn(split.after);
-// What the text report actually asserts as the mantahostels#385 headline, so a `--json`
-// caller reading `verdict` instead cannot hit the fault this ticket fixes.
 const headlineVerdict =
 	split.splitAt === null
 		? { basis: "pooled", ...verdict }
@@ -142,12 +102,6 @@ writeFd(
 		`  per-run mean  ${pct(s.mean)}${s.ci95 === null ? "" : ` ± ${(s.ci95 * 100).toFixed(1)} points (95%)`}\n` +
 		`  per-run range ${pct(s.min)} – ${pct(s.max)}\n`,
 );
-/*
- * The pre-warming figure (mantahostels#1001), kept apart from `pooled` above and printed
- * only where some run recorded one. `pooled` is band-read warmth, which is what
- * mantahostels#385's claim is judged on; this is the share of the frontier a band read can
- * SKIP, which is what pre-warming moved.
- */
 if (s.runsWithProvisional)
 	writeFd(
 		1,
@@ -221,7 +175,6 @@ writeFd(
 		"  so a narrower denominator can be recomputed from the log rather than re-run.\n",
 );
 
-/** Runs a build boundary cannot place, which shrinks both sides silently. */
 const undatedNote = split.undated
 	? `\n  ${split.undated} run(s) carry an unreadable instant and sit on NEITHER side —\n` +
 		"  a build boundary can only be judged in time."
@@ -237,7 +190,7 @@ if (split.splitAt === null)
 else {
 	/**
 	 * @param {string} label
-	 * @param {ReturnType<typeof log.summarise>} x One side of the pre-warming split.
+	 * @param {ReturnType<typeof log.summarise>} x
 	 */
 	const side = (label, x) =>
 		`  ${label.padEnd(7)} pooled ${pct(x.pooled)}   covered ${pct(x.pooledCovered)}   ` +
@@ -259,10 +212,7 @@ else {
 	);
 }
 
-/**
- * The share of cold entries `cause` explains, as `pct` prints it.
- * @param {string} cause one of the log's CAUSES
- */
+/** @param {string} cause */
 const causePct = (cause) => {
 	const share = s.causeShare[cause];
 	if (share === undefined) throw new Error(`the summary has no ${cause} share`);
@@ -291,13 +241,6 @@ writeFd(
 );
 
 if (boundVerdict !== null) {
-	// Guarded on `boundVerdict` rather than `split.splitAt`, the same condition
-	// by its ternary above, so the verdict below is known to be present.
-	// `pooled` averages two regimes either side of the pre-warming build
-	// (mantahostels#1054); quoting one number across that boundary is the fault mantahostels#789
-	// found and mantahostels#1327 fixes. `covered`, not `pooled`, is the fraction that
-	// bounds the saving, and it is read on the AFTER side only, never pooled
-	// across the split either.
 	writeFd(
 		1,
 		"  UNINTERPRETABLE — `pooled` above averages before and after pre-warming\n" +
@@ -338,7 +281,6 @@ else {
 		`  ${verdict.state.toUpperCase()} — measured ${pct(verdict.point)} (95% band ${pct(verdict.low)} – ${pct(verdict.high)})\n` +
 			`  against ${CLAIM.source}'s ${pct(CLAIM.low)} – ${pct(CLAIM.high)}.\n`,
 	);
-	// mantahostels#628's fourth criterion.
 	if (verdict.side === "below")
 		writeFd(
 			1,

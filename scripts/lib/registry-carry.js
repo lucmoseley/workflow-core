@@ -1,21 +1,3 @@
-/*
- * registry-carry.js — a guard-registry row carried across a merge (#4514).
- *
- * A row the merge leaves stale, fresh on both parents, where no file of its
- * merged-tree closure changed on both sides since the merge base, is
- * re-anchored to the merged tree's digest in the merge commit: each side's
- * author re-read the row's prose against their own change, and no file holds
- * two changes that one reader never saw together. Both-sides-changed is judged
- * per file, by blob id at the base and at each parent. A clean textual merge of
- * one file is two changes all the same. A row HEAD holds none of, a guard the
- * merged-in side adds, is judged the same way on that side's freshness alone
- * (#4801). Residual: nobody read that row against HEAD's own changes to its
- * closure. Every other stale row is refused.
- *
- * Every git failure carries nothing, bar a MERGE_HEAD git will not read, which
- * is BROKEN.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -26,16 +8,11 @@ const { buildAnchorsText, parseRows } = require("./registry-anchors-file.js");
 const CARRIED_KINDS = new Set(["UNANCHORED", "STALE-PROSE"]);
 
 /**
- * @typedef {{ theirs: string[], lands: boolean }} Merge `lands`: an index edit
- *   reaches the merge commit, as under pre-commit. `git merge` writes its tree
- *   before pre-merge-commit runs, and `git commit` reads its index before
- *   prepare-commit-msg does (git 2.43): both hooks set
- *   WFC_INDEX_FROZEN.
+ * @typedef {{ theirs: string[], lands: boolean }} Merge
  * @typedef {{ guard: string, digest: string }} Carried
  * @typedef {{ guard: string, why: string }} Kept
  * @typedef {{ kind: string, guard: string, digest?: string, hashes?: string[] }} Row
- * @typedef {Row & { digest: string, hashes: string[] }} Candidate a row of a
- *   kind a merge carries, its digest and closure read
+ * @typedef {Row & { digest: string, hashes: string[] }} Candidate
  */
 
 /** @param {Row} w @returns {w is Candidate} */
@@ -65,9 +42,6 @@ function git(root, args, input) {
 }
 
 /**
- * The merge this commit makes, or null where it makes none. BROKEN as
- * `readMergeHeadLines` is.
- *
  * @param {string} root
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {Merge | null}
@@ -81,9 +55,6 @@ function readMerge(root, env = process.env) {
 }
 
 /**
- * The paths among `inputs` whose blob differs between the two sides `git diff`
- * takes: two revs, or `--cached` and a rev for the index against it.
- *
  * @param {string} root
  * @param {[string, string]} sides
  * @param {string[]} inputs
@@ -106,20 +77,16 @@ function changedSince(root, sides, inputs) {
 }
 
 /**
- * `rows` less each one a file of whose closure both sides changed since
- * `base`, which goes to `kept`. A string where git could not answer.
- *
  * @param {string} root
  * @param {{ base: string, theirs: string }} revs
  * @param {Candidate[]} rows
- * @param {Kept[]} kept accumulator: each row dropped, with why
+ * @param {Kept[]} kept
  * @returns {Candidate[] | string}
  */
 function dropBothChanged(root, { base, theirs }, rows, kept) {
 	const inputs = [...new Set(rows.flatMap((w) => w.hashes))];
 	const ours = changedSince(root, [base, "HEAD"], inputs);
 	const them = changedSince(root, [base, theirs], inputs);
-	/* An index matching neither parent is the merge commit's own change, which nobody read. */
 	const notOurs = changedSince(root, ["--cached", "HEAD"], inputs);
 	const notTheirs = changedSince(root, ["--cached", theirs], inputs);
 	const failed = ours.error ?? them.error ?? notOurs.error ?? notTheirs.error;
@@ -142,16 +109,11 @@ function dropBothChanged(root, { base, theirs }, rows, kept) {
 }
 
 /**
- * Which of a merge's stale rows carry, and why each other one does not.
- *
  * @param {string} root
  * @param {Merge} merge
- * @param {Row[]} stale the rows the merged index adds stale
+ * @param {Row[]} stale
  * @param {{ oursStale: Set<string> | null, readTheirsFresh: (rev: string) => Set<string> | null }} parents
- *   the rows HEAD holds stale, and a read of those fresh on theirs; null where
- *   unread
- * @returns {{ carried: Carried[], kept: Kept[], none: string | null }} `none`:
- *   why no row could carry, where none could
+ * @returns {{ carried: Carried[], kept: Kept[], none: string | null }}
  */
 function judgeCarry(root, merge, stale, { oursStale, readTheirsFresh }) {
 	const nothing = (/** @type {string} */ why) => ({
@@ -197,14 +159,10 @@ function judgeCarry(root, merge, stale, { oursStale, readTheirsFresh }) {
 }
 
 /**
- * Write the carried rows into the anchors file, in the index and in the
- * working tree. The working copy is patched row by row where it differs from
- * the index, so an unstaged edit to it survives.
- *
  * @param {string} root
- * @param {string} rel the anchors file
+ * @param {string} rel
  * @param {Carried[]} carried
- * @returns {string | null} why the write failed, else null
+ * @returns {string | null}
  */
 function writeCarried(root, rel, carried) {
 	const listed = git(root, [

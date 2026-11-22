@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * guard-lost-verdict.js hands back a suite run's verdict where the call's
- * output lost its pass/fail line (#1575). These are its boundary cases: the
- * lines hooks/hooks.json registers on PostToolUse and PostToolUseFailure,
- * run by bash as the harness runs them, on a harness-shaped payload — the
- * wiring, each exit, the fail-open record, and the run record, the logs and
- * the clock crossed for real. Which run's verdict is handed over, and when,
- * is lib/lost-verdict.test.ts's (#2799).
- *
- * Break a line and a cut verdict goes unreported, so the session re-runs the
- * suite to read it.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -40,7 +28,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** A finished run in this session's record, inside the call. */
 function record(text: string) {
 	const log = path.join(dirPath(dir), "own.log");
 	fs.mkdirSync(path.dirname(log), { recursive: true });

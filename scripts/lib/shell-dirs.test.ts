@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Cases for scripts/lib/shell-dirs.js, the directory model the walk's `cd`s
- * and a run's chdirs both step (#5074), at its own interface: moves handed in
- * classified and resolved. Every guard core that follows a `cd`, a wrapper's
- * directory or a `-c` string's `cd` reads this model, so a case broken here
- * misplaces each of their checks.
- */
 
 import { describe, expect, it } from "vitest";
 import type { Dirs, Move } from "./shell-dirs.js";
@@ -93,8 +86,6 @@ describe("stepDirs", () => {
 	});
 
 	it("settles only a chain opened as deep as its end or deeper (#5095)", () => {
-		/* `cd /nope && { cd /no2 && true; git x; }`: x runs only where /nope
-		 * was made, maybe where /no2 was not. */
 		const nested = [
 			to("/nope", "if-dir", { chained: true }),
 			to("/no2", "if-dir", { chained: true, depth: 1 }),
@@ -135,18 +126,14 @@ describe("stepDirs", () => {
 
 describe("dirsAfter", () => {
 	it("holds a cd sure for its && chain, else as it would alone (#4863)", () => {
-		/* `cd /nope && git x`: x runs only where the move was made. */
 		expect(
 			standAfter(["/h"], to("/nope", "if-dir", { chained: true })),
 		).toEqual(["/nope"]);
-		/* `cd /nope && git x; git y`: the chain has ended at y. */
 		expect(standAfter(["/h"], to("/nope", "if-dir"))).toEqual(["/nope", "/h"]);
-		/* `true && cd /a; git x`, or one inside `if`: it may not have run. */
 		expect(standAfter(["/h"], to("/a", "maybe"))).toEqual(["/a", "/h"]);
 	});
 
 	it("settles a chain where a move ends it, out of reach of the moves after (#5082)", () => {
-		/* `cd /nope && cd b; git x`: b ran only where /nope was made. */
 		expect(
 			standAfter(
 				["/h"],
@@ -154,7 +141,6 @@ describe("dirsAfter", () => {
 				to("b", "if-dir", { settles: 0 }),
 			),
 		).toEqual(["/nope/b", "/nope", "/h"]);
-		/* `cd /nope && true; cd b; git x`: b ran wherever the chain left it. */
 		expect(
 			standAfter(
 				["/h"],
@@ -165,7 +151,6 @@ describe("dirsAfter", () => {
 	});
 
 	it("settles only the chains a subshell's move opened, at a chain end inside it (#5102)", () => {
-		/* `cd /nope && (cd /a && true; git x)`: x runs only where /nope was made. */
 		expect(
 			standAfter(
 				["/h"],

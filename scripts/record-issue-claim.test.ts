@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * record-issue-claim.js claims an issue in the arbiter when a session assigns
- * itself with `gh issue edit <n> --add-assignee @me` (mantahostels#646).
- * These are its boundary cases: the line hooks/hooks.json registers, run by
- * bash as the harness runs it, on a harness-shaped payload — the wiring, the
- * session id's two channels, the fail-open record, and the arbiter's claim
- * store and git crossed for real. Which edit claims what is
- * lib/issue-claim-hook.test.ts's (#2799).
- *
- * Break the line and a self-assigned issue goes unrecorded, so /pick-next
- * keeps it in everyone's shortlist and a second session takes it up.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
