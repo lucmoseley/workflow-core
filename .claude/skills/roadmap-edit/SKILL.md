@@ -181,8 +181,7 @@ never skip them.
    its owning card slug or issue and that the item is discharged; a deleted
    one names its owner in the commit message. Grep for the declaration;
    none found, nothing owed. Carry any edit into step 8's pathspec.
-   **Unenforced** (mantahostels#3184): a lexical gate would fire on every
-   already-disposed "no card covers" line as loudly as on a live one.
+   **Unenforced** (mantahostels#3184).
 
 4. **Apply the model/effort (`m`) and note (`mn`) fields correctly**, per
    [`FIELDS.md`](FIELDS.md).
