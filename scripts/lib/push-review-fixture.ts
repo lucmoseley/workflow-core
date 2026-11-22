@@ -1,9 +1,3 @@
-/*
- * The fixture lib/push-review.js's adapter is driven over (#2785): a repo, a
- * linked worktree, a session start point, and helpers to commit code billed to
- * a session and to write its review marker.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -34,7 +28,6 @@ const { reviewOwed } = require("./push-review.js") as {
 const ARBITER = path.resolve(__dirname, "..", "session-arbiter.js");
 export const ME = "review-under-test";
 
-/** Lines past code-signal.sh's review floor. */
 export const PAST_FLOOR =
 	readShellConst(path.join(__dirname, "code-signal.sh"), "CODE_THRESHOLD") + 1;
 
@@ -43,10 +36,8 @@ export const code = (lines: number) =>
 		"",
 	);
 
-/* Built once and copied (mantahostels#2016); `wt` detached. */
 const template = defineTemplate(trioTemplate({ worktree: "detach" }));
 
-/** Registers the per-test fixture; read its fields inside a test. */
 export function reviewFixture() {
 	const f = {
 		dir: "",
@@ -70,7 +61,6 @@ export function reviewFixture() {
 		f.logs = [];
 		vi.stubEnv("CLAUDE_PROJECT_DIR", f.shared);
 		vi.stubEnv("CLAUDE_CONFIG_DIR", f.config);
-		/* What concision-backstop.sh's `start` records: the start point. */
 		f.base = git(f.shared, "rev-parse", "HEAD").trim();
 		fs.mkdirSync(markers(), { recursive: true });
 		fs.writeFileSync(path.join(markers(), `.concision-base-${ME}`), f.base);
@@ -93,8 +83,6 @@ export function reviewFixture() {
 		git(tree, "commit", "-qm", rel, "--", rel);
 	};
 
-	/** Credit `rel` to `sid`'s write ledger, as post-write.js does after a tool
-	 * write, run in `tree` so the line names it (#4457). */
 	const recordWrite = (rel: string, sid = ME, tree = f.shared) =>
 		execFileSync("node", [ARBITER, "record", rel, sid], {
 			env: arbiterEnv(),
@@ -104,7 +92,6 @@ export function reviewFixture() {
 	return {
 		f,
 		git,
-		/** A second, independent copy of the template, for the caller to remove. */
 		freshCopy: () => {
 			const fresh = mkScratchDir("push-review-fresh-");
 			try {
@@ -116,18 +103,15 @@ export function reviewFixture() {
 			return fresh;
 		},
 		commitFile,
-		/** Commit `rel` in `tree`, credited to `sid`'s write ledger. */
 		commitBy: (rel: string, body: string, sid = ME, tree = f.shared) => {
 			commitFile(rel, body, tree);
 			recordWrite(rel, sid, tree);
 		},
 		recordWrite,
-		/** Commit `rel` billed to `sid` by the commit ledger alone (#2390). */
 		commitUnwritten: (rel: string, sid: string) => {
 			commitFile(rel, code(PAST_FLOOR));
 			ledgerHead(f.shared, arbiterEnv(sid));
 		},
-		/** Name `tree`'s HEAD in `sid`'s commit ledger, as post-commit does. */
 		ledgerHead: (sid: string, tree = f.shared) =>
 			ledgerHead(tree, arbiterEnv(sid)),
 		marker: (body: string) =>

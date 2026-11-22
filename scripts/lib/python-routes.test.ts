@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which local route rows python-routes.js holds `pythonRoutes` to, and
- * that each disagreement is named (#1863). Pure text in, findings out, so no
- * repository is needed; check-code-standards.test.ts pins the wiring.
- *
- * Loosen a case and `pythonRoutes` can drift from the table unreported, so
- * the swallowed-error gate judges a test file as a program, or a program as
- * nothing. Loosen the core's own routing case and pytest collects a file base
- * §X never binds (#3810).
- */
 
 import fs from "node:fs";
 import path from "node:path";

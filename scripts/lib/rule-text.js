@@ -45,51 +45,25 @@ const {
 const { caught, ignoreFailure, orFallback } = require("./caught.js");
 const { trimEndRun } = require("./trim-run.js");
 
-/** The store's home, relative to the repo root. */
 const RULES_DIR = "docs/agents/rules";
 
-/**
- * Kebab-case, lowercase, no dots and no slashes.
- *
- * The grammar is the whole path-traversal defence: an id is joined onto the
- * store directory, so `../../etc/passwd` must be refused as an id rather than
- * resolved as a path.
- */
 const RULE_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/*
- * The spelling ids are QUOTED in — scripts/lib/tracker-inject-text.js's per-command
- * index, docs/agents/guard-registry.md §Gotchas, every guard's deny text. It is no part of the id,
- * and it is the only spelling a session is ever shown (mantahostels#2707).
- */
 const RULE_ID_PREFIX = "rule:";
 
-/* rule-text.sh's _RT_COMMAND_RE. */
 const COMMAND_PLACEHOLDER = /\{command:([a-z_]+)\}/g;
 
-/* rule-text.sh's _RT_INCLUDE_RE. */
 const RULE_INCLUDE = /\{rule:([a-z0-9]+(?:-[a-z0-9]+)*)\}/g;
 
-/**
- * `id` with ONE leading `rule:` removed — so `rule:rule:x` bares to `rule:x`,
- * which the grammar then refuses.
- *
- * @param {string} id
- * @returns {string}
- */
+/** @param {string} id @returns {string} */
 function bareRuleId(id) {
 	return id.startsWith(RULE_ID_PREFIX) ? id.slice(RULE_ID_PREFIX.length) : id;
 }
 
-/** Fragments carry this suffix; nothing else in the directory is a fragment. */
 const FRAGMENT_EXT = ".txt";
 
-/* The generator's record of what it rendered, beside the fragments so that
- * WFC_RULES_DIR redirects both together (mantahostels#2493). Spelled here and nowhere
- * else, so the generator writing it and the gate reading it cannot disagree. */
 const MANIFEST_NAME = "manifest.json";
 
-/** The CORE's own store: the plugin root's in an adopter, this repo's here. */
 const CORE_RULES = path.join(__dirname, "..", "..", RULES_DIR);
 
 /** @type {{ dir: string, fallback: string | undefined } | null} */
@@ -98,9 +72,6 @@ let pinned = null;
 const overrideDir = () => (pinned ? pinned.dir : process.env.WFC_RULES_DIR);
 
 /**
- * `read`'s result with the store at `dir` and its core layer at `fallback`,
- * as WFC_RULES_DIR and WFC_RULES_FALLBACK_DIR would set them.
- *
  * @template T
  * @param {string | undefined} dir
  * @param {string | undefined} fallback
@@ -137,25 +108,16 @@ function withHostRootSpelling(spelling, read) {
 	}
 }
 
-/**
- * The store directory in force: the override, else the host repo's own, else
- * the CORE's, which is where an adopter's fragments live — so a guard firing
- * there prints its rule rather than handing over an id and no text (#5).
- * @param {string} [root] the host root, where the caller already resolved it:
- *   a hook whose own bounded root read timed out would otherwise re-run it
- *   unbounded here (#3142)
- * @returns {string} absolute path
- */
+/** @param {string} [root] @returns {string} */
 function rulesDir(root) {
 	const override = overrideDir();
 	if (override) return path.resolve(override);
 	const host = path.join(root ?? hostRoot(), RULES_DIR);
-	/* A directory, as rt_dir's `-d` asks: a FILE there falls through (#101). */
 	if (fs.statSync(host, { throwIfNoEntry: false })?.isDirectory()) return host;
 	return CORE_RULES;
 }
 
-/** @returns {string | null} absolute path of the CORE's layer, as rulesDirs() takes it */
+/** @returns {string | null} */
 function coreLayer() {
 	if (!overrideDir()) return CORE_RULES;
 	const fallback = pinned
@@ -164,24 +126,14 @@ function coreLayer() {
 	return fallback ? path.resolve(fallback) : null;
 }
 
-/**
- * Every store an id is looked up in, first match winning: rulesDir(), then the
- * CORE's. LAYERED, not either/or (#97): an adopter that generates one fragment
- * of its own still reads every core guard's fragment out of the plugin root —
- * choosing its store wholesale left every core `rule_text <id>` refusing there.
- *
- * Under the override the core layer is WFC_RULES_FALLBACK_DIR alone, never
- * implied: a test's throwaway store must not inherit the live one.
- * @param {string} [root] as rulesDir takes it
- * @returns {string[]} absolute paths
- */
+/** @param {string} [root] @returns {string[]} */
 function rulesDirs(root) {
 	const primary = rulesDir(root);
 	const second = coreLayer();
 	return !second || second === primary ? [primary] : [primary, second];
 }
 
-/** @returns {string} absolute path of the manifest in the store in force */
+/** @returns {string} */
 function manifestPath() {
 	return path.join(rulesDir(), MANIFEST_NAME);
 }
@@ -194,24 +146,12 @@ function readStoreEntries(dir) {
 	try {
 		return fs.readdirSync(dir, { withFileTypes: true });
 	} catch (e) {
-		/* ENOENT alone is an empty store. Anything else — EACCES, a store that is
-		 * a file, a device error — is a directory this module could not READ, and
-		 * answering [] for it makes every trigger look orphaned and blames the
-		 * document. Callers let it escape: a checker reports BROKEN, and a guard
-		 * fails open in the house style (mantahostels#103). */
 		if (caught(e).code !== "ENOENT") throw e;
 		return [];
 	}
 }
 
-/**
- * Every rule id the stores hold, one layer over the next, sorted.
- *
- * A missing store directory is an empty store, not an error.
- *
- * @param {string} [root] as rulesDir takes it
- * @returns {string[]}
- */
+/** @param {string} [root] @returns {string[]} */
 function readRuleIds(root) {
 	/** @type {Set<string>} */
 	const ids = new Set();
@@ -224,13 +164,7 @@ function readRuleIds(root) {
 	return [...ids].sort();
 }
 
-/**
- * The fragment file `id` resolves to — the first layer holding it — or the
- * primary layer's path where none does, which is what a refusal names.
- * @param {string} bare an id the grammar has accepted
- * @param {string} [root] as rulesDir takes it
- * @returns {string} absolute path
- */
+/** @param {string} bare @param {string} [root] @returns {string} */
 function fragmentPath(bare, root) {
 	const name = `${bare}${FRAGMENT_EXT}`;
 	for (const dir of rulesDirs(root)) {
@@ -240,10 +174,6 @@ function fragmentPath(bare, root) {
 	return path.join(rulesDir(root), name);
 }
 
-/**
- * An id no fragment answers to. `brief` is the message without what the store
- * does hold, which a hook's refusal carries in its place (#3449).
- */
 class RuleMissing extends Error {
 	/** @override */
 	name = "RuleMissing";
@@ -259,13 +189,9 @@ class RuleMissing extends Error {
 }
 
 /**
- * A fragment's own text, trailing newlines trimmed, and the file it came from.
- *
  * @param {string} id
  * @param {string} host
  * @returns {{ file: string, body: string }}
- * @throws {Error} on a malformed id, an id no fragment answers to, or a
- *   fragment holding nothing but whitespace; the missing id's is a RuleMissing
  */
 function readFragment(id, host) {
 	const bare = typeof id === "string" ? bareRuleId(id) : "";
@@ -288,8 +214,6 @@ function readFragment(id, host) {
 		throw new RuleMissing(`${brief} ${held}`, { cause: e, brief });
 	}
 	const body = trimEndRun(text, "\n");
-	/* An empty fragment is the failure this module exists to prevent, arriving by
-	 * the one route the id check cannot see. */
 	if (!body.trim())
 		throw new Error(
 			`rule-text: the fragment for rule id "${bare}" (${file}) is empty. ` +
@@ -298,19 +222,7 @@ function readFragment(id, host) {
 	return { file, body };
 }
 
-/**
- * Each `{rule:<id>}` in `body` replaced by that fragment's own text, so a
- * sentence a guard prints alone and a longer rule both hold lives in one file.
- * One level deep: no fragment needs more, and a cycle then cannot arise.
- *
- * The citation qualifying below reads the outer fragment's layer, so a core
- * sentence included by a host's own fragment keeps its `#N` bare in an install.
- *
- * @param {string} body
- * @param {string} host
- * @returns {string}
- * @throws {Error} on a nested include, or anything readFragment throws on
- */
+/** @param {string} body @param {string} host @returns {string} */
 function expandIncludes(body, host) {
 	return body.replace(RULE_INCLUDE, (_, inc) => {
 		const included = readFragment(inc, host).body;
@@ -338,14 +250,10 @@ function expandIncludes(body, host) {
 function readRuleText(id, root) {
 	const host = root ?? hostRoot();
 	const { file, body } = readFragment(id, host);
-	/* A fragment names core scripts as `scripts/x`; an install serves them
-	 * through the plugin root (#343). */
 	const resolved = expandPastePaths(
 		resolveScriptPaths(expandIncludes(body, host)),
 		pinnedHostRoot ?? host,
 	);
-	/* A core fragment's bare `#N` is the core's issue, which an install's host
-	 * reads as its own (#416). The host's own fragments cite its own tracker. */
 	return expandCommands(
 		!inCheckout() && path.dirname(file) === coreLayer()
 			? qualifyProse(resolved)
@@ -354,18 +262,7 @@ function readRuleText(id, root) {
 	);
 }
 
-/**
- * `{command:<name>}` becomes the host's declared `commands.<name>`, and a
- * line naming one it does not declare is dropped whole (#742). Last, so a
- * host's own `scripts/x` is never rewritten to the plugin root.
- *
- * A config that cannot be read declares nothing, as wfc_command answers there,
- * and says so on stderr — a recipe missing a line costs less than a rule not
- * stated at all.
- * @param {string} text
- * @param {string} root the host root the config is read under
- * @returns {string}
- */
+/** @param {string} text @param {string} root @returns {string} */
 function expandCommands(text, root) {
 	if (!text.includes("{command:")) return text;
 	/** @type {Record<string, string|null>} */
@@ -391,15 +288,7 @@ function expandCommands(text, root) {
 	return kept.join("\n");
 }
 
-/**
- * The paragraph of a rule opening with `head`, for a Stop guard printing one
- * paragraph of a longer rule in its refusal. IT NEVER THROWS:
- * where the paragraph cannot be read it answers the command that reads the
- * rule, never a paraphrase, which would be a second copy to drift.
- * @param {string} id
- * @param {string} head the paragraph's opening words
- * @returns {string}
- */
+/** @param {string} id @param {string} head @returns {string} */
 function readRuleParagraph(id, head) {
 	const paragraph = orFallback(
 		() =>
@@ -412,25 +301,12 @@ function readRuleParagraph(id, head) {
 	return `The rule could not be read here: run \`${scriptPath("lib/rule-text.sh")} ${bareRuleId(id)}\` and follow the paragraph opening ${head}.`;
 }
 
-/**
- * The command that prints rule `id` in full, resolved for an install (#343).
- * @param {string} id
- * @returns {string}
- */
+/** @param {string} id @returns {string} */
 function rulePointer(id) {
 	return `The full rule: \`${scriptPath("lib/rule-text.sh")} ${bareRuleId(id)}\`.`;
 }
 
-/**
- * A rule-fragment lookup over `root`, as lib/tracker-inject-text.js's
- * codeReviewParts takes one: readRuleText's answer, or "" where it throws, so
- * the text module's fallback stands in (#3514). A caller that must report the
- * fallback tests for "" itself: the hook logs review-dispatch-shape's,
- * check-injector-margin.js prints every one, and check-context-budget.js,
- * which only counts bytes, reports none.
- * @param {string} root
- * @returns {(id: string) => string}
- */
+/** @param {string} root @returns {(id: string) => string} */
 const fragmentLookup = (root) => (id) => {
 	try {
 		return readRuleText(id, root);
@@ -451,13 +327,11 @@ const fragmentLookup = (root) => (id) => {
  * @returns {string}
  */
 function readRuleTextOr(id, lead, label, hostDir) {
-	/* Read once for both: a failed root read is never memoised (#3142). */
 	let root = hostDir;
 	try {
 		root ??= hostRoot();
 		return readRuleText(id, root);
 	} catch (err) {
-		// A log that cannot be written must not break the guard.
 		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
 				`${label} rule-text ${bareRuleId(id)}`,
@@ -470,11 +344,7 @@ function readRuleTextOr(id, lead, label, hostDir) {
 	}
 }
 
-/**
- * @param {string} lead
- * @param {string} id a bare rule id
- * @returns {string}
- */
+/** @param {string} lead @param {string} id @returns {string} */
 const fallbackLine = (lead, id) =>
 	`${lead}; the rule could not be read from ${docPath(`agents/rules/${id}.txt`)}. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.`;
 

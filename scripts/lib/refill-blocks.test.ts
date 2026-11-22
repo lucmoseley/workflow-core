@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's acts on blocked and resumed-idle launches (#2848),
- * through actOnBlocks and actOnIdle with a fake BlockIo that records each
- * call; the limit-blocked ones' are refill-limits.test.ts's, bar the
- * kill-recovery and cwd cases that span every cause's route.
- * refill-loop-run.test.ts drives the program's own BlockIo end to end.
- *
- * Loosen one and the loop stops, resumes, holds, parks or hands off a session
- * when it should not, fails to when it should, acts at the wrong count or
- * time, or misreports what it did.
- */
 import { describe, expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
 import { RESUME_CAP } from "./block-act.js";
@@ -63,12 +52,10 @@ import { judgedLaunches } from "./refill-loop.js";
 type Cause = import("./block-cause.js").Cause;
 type SwapHold = import("./admission.js").SwapHold;
 
-/** The resume step's state write, which no case here reads. */
 const unrecorded = () => undefined;
 
 const ids = (ls: Launch[]) => ls.map((l) => l.jobId);
 
-/** Seat `seat`'s reading: open, or its 5-hour bar full. */
 const sized = (seat: string, full: boolean) => ({
 	seat,
 	week: 10,
@@ -342,7 +329,6 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 	});
 	const resuming = (over = {}): Launch =>
 		record({ jobId: "p", parked: true, block: block("transient"), ...over });
-	/** Resumes made, the last `ago` minutes back, the next due `dueIn`. */
 	const tried = (tries: number, ago: number, dueIn: number, over = {}) => ({
 		tries,
 		triedAt: NOW - ago * MIN,
@@ -409,8 +395,6 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			},
 		);
 		expect(out[0]).toMatchObject({ jobId: "p", relaunchedAt: NOW });
-		/* The fallback keeps the slot its session held: no new date for the
-		 * unproven cap (#4684). */
 		expect(out[0]).not.toHaveProperty("slotTakenAt");
 		expect(out[0]).toMatchObject({ sessionId: "s", resumes: { tries: 2 } });
 		expect(out[0]).not.toHaveProperty("copiedFrom");
@@ -550,7 +534,6 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			blocks([typed], blocked, "away", {
 				io: { readTimeline: () => timeline },
 			}).calls.includes("resume p");
-		// Half the prompt clears the head it shares with IDLE_PROMPT.
 		expect(
 			fellBack([
 				row(NOW - MIN, `${API_PROMPT.slice(0, API_PROMPT.length / 2)}…`),
@@ -664,9 +647,6 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 	const listed = [agent("job42", "working")];
 	const typed = (tries: number, ago: number) =>
 		record({ idleResumes: { tries, triedAt: NOW - ago * MIN } });
-	/* A reader that says `first` on its first call and `then` after: a turn
-	 * or a job's end landing mid-tick, between the table's read and the
-	 * hand-off's own. */
 	const landing = <T>(first: T, then: T) => {
 		let n = 0;
 		return () => (n++ === 0 ? first : then);
@@ -756,8 +736,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 	});
 
 	describe("one a boot resumed, its resume writing no restart row (#3880)", () => {
-		/* Minutes: past block-act.js's 5 of idle wait; past that wait and its
-		 * two typed resumes' 5 each. */
+		// guess, #3880
 		const PastWait = 6 * MIN;
 		const PastTries = 16 * MIN;
 		const bootResumed = (over: Record<string, unknown> = {}) =>
@@ -988,7 +967,6 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			availableMb: 1900,
 		};
 		const restartedAt = NOW - 2 * MIN;
-		/* #2978's detector reads the launch resumed-idle off these. */
 		const restarted: Partial<BlockIo> = {
 			idleSince: () =>
 				resumedIdleSince({
@@ -1126,7 +1104,6 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(r).toEqual({ out: held(), calls: [] });
 		});
 
-		/* The tick's resume step over everything resumableOf finds due. */
 		const resumeDue = (
 			launches: Launch[],
 			{
@@ -1380,7 +1357,6 @@ describe("unparkAnswered (#3940)", () => {
 	});
 	const touched = { file: "/t", mtimeMs: NOW + MIN };
 
-	/** The unparks and log of one sweep over `markers`, reading `over`'s answers. */
 	const sweep = (
 		markers: ReturnType<typeof marker>[] | null,
 		over: Partial<BlockIo> = {},
@@ -1905,7 +1881,6 @@ describe("queueBootKilled (#3880)", () => {
 		},
 	);
 
-	/** The prompts `launches` are resumed with through the tick's step. */
 	const resumedWith = (launches: Launch[]) => {
 		const prompts: string[] = [];
 		const { io } = fakeIo({
@@ -2482,8 +2457,6 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 			limitHeld,
 			...over,
 		});
-	/** actOnLimits over `l`, `seats` read, those in `full` full, its io's
-	 * calls and stamps. */
 	const limits = (l: Launch, seats: string[], full: string[] = []) => {
 		const { io, calls, started } = fakeIo({
 			writeLaunch: (x) => {
@@ -2783,23 +2756,14 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 });
 
 describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
-	/* Distinct from record()'s root, so a route that resumes from `l.root`
-	 * fails; and a later tick's read is another still, so one that resumes a
-	 * held or started record from a fresh read, not the cwd it stored, fails. */
 	const Own = "/home/u/.claude/worktrees/implement-42";
 	const Later = "/home/u/.claude/worktrees/elsewhere";
-	/* The launch's own seat, the one that goes full, and the seat a move
-	 * lands on. */
 	const OwnSeat = "/home/u/.claude3";
 	const SpareSeat = "/home/u/.claude2";
-	/** A launch as the state file gives it back; one never written fails the
-	 * case. */
 	const roundTrip = (l: Launch | undefined): Launch => {
 		expect(l).toBeDefined();
 		return JSON.parse(JSON.stringify(l));
 	};
-	/** A BlockIo whose resumeTargetOf reads `cwd`, and the cwd each resume,
-	 * move and adoption was handed. */
 	function cwdIo(cwd: string, over: Partial<BlockIo> = {}) {
 		const cwds: string[] = [];
 		const { io, calls, started } = fakeIo({
@@ -2836,8 +2800,6 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 		io,
 		swapHold: NO_HOLD,
 	});
-	/** The resume step over `l` on a later tick, and the launches it recorded
-	 * before its launcher ran. */
 	function stepOn(l: Launch) {
 		const { io, cwds } = cwdIo(Later);
 		const seen = tick(io, [agent("other", "working")]);
@@ -2848,8 +2810,6 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 		});
 		return { cwds, written };
 	}
-	/** The resume step over `l`, then over the record it wrote before its
-	 * launcher ran, as a kill would leave it (#4157). */
 	function expectStepFromOwn(l: Launch) {
 		const { cwds, written } = stepOn(roundTrip(l));
 		expect(cwds).toEqual([`resume ${Own}`]);
@@ -2858,8 +2818,6 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 			`resume ${Own}`,
 		]);
 	}
-	/** actOnLimits over `l`, those of its seats in `full` full; one not held
-	 * is listed blocked, so live. */
 	function limits(
 		l: Launch,
 		cwd: string,
@@ -2888,7 +2846,6 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 			block: { cause: "LIMIT", since: NOW - 5 * MIN },
 			...over,
 		});
-	/** settleStartedResumes over the record `started` left, read back. */
 	const settledCwds = (started: Launch | undefined) => {
 		const { io, cwds } = cwdIo(Later, {
 			jobStateOf: () => ({ state: "stopped" }),
@@ -3072,7 +3029,6 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 	it("neither stops nor copies a session that took a prompt since its stop, and counts the resume arrived", () => {
 		const cases: [Launch, Agents][] = [
 			[typedUnseen(), blocked],
-			/* Held stopped between tries; a resume is due, by stop and --bg --resume. */
 			[
 				resuming({
 					resumes: {
@@ -3093,7 +3049,6 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 			expect(logs(calls)).toContain(
 				"design-vault /implement 42's session took a turn since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived",
 			);
-			/* Resumed, the listing reads it working: nothing more is owed. */
 			const working = [agent("p", "working")];
 			expect(
 				acts(blocks(out, working, "normal", { now: NOW + MIN }).calls),
@@ -3115,7 +3070,6 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 		at: new Date(ms).toISOString(),
 		state,
 	});
-	/* The loop's own reading (refill-tick.js) over a transcript and timeline. */
 	const reading = (rows: unknown, timeline: unknown) => ({
 		io: {
 			isResumedSinceStop: (_: unknown, since?: number) =>
@@ -3168,7 +3122,6 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 		const unknown = reading(null, null);
 		const Held =
 			"design-vault /implement 42's transcript shows no API-error stop, and its timeline is unread or the loop holds no time for the stop, so whether its session took a turn since cannot be told: it is neither stopped nor copied this try";
-		/* The typed resume's fallback is that same try: held, none added. */
 		const again = blocks([typedUnseen()], blocked, "normal", unknown);
 		expect(acts(again.calls)).toEqual([]);
 		expect(logs(again.calls)).toEqual([Held]);

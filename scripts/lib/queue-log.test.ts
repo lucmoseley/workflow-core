@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/queue-log.js's readers (#4485, spec #4458): time in queue, depth,
- * each waiting ref's start, percentiles and the 7-day baselines, off canned
- * queue logs.
- *
- * Loosen it and a ref's time in queue starts at a later push than its
- * oldest pending one, a ref pushed again stops ageing, a ref pushed again
- * after its take is dropped from the depth, pushes and takes skew the depth,
- * or the baselines the queue alert's limits rest on read the wrong week.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +19,6 @@ const row = (min: number, event: Event, name: string, sha: string) => ({
 	sha,
 });
 
-/** The baseline at NOW of `rows`, in minutes. */
 const minutes = (rows: ReturnType<typeof row>[]) => {
 	const b = queueBaseline(rows, NOW);
 	const min = (ms: number | null) => (ms === null ? null : ms / MIN);
@@ -101,8 +90,6 @@ describe("time in queue and depth", () => {
 	});
 
 	it("samples the depth at each land or drop alone, the ref leaving counted", () => {
-		/* One land with one ref waiting, then nine pushes and their takes:
-		 * sampled at every event, the p90 would be 9. */
 		const names = Array.from({ length: 9 }, (_, i) => `r${i}`);
 		const rows = [
 			row(100, "enqueue", "x", A),
@@ -116,7 +103,6 @@ describe("time in queue and depth", () => {
 
 describe("percentiles", () => {
 	it("are nearest-rank, each a value the log holds", () => {
-		/* Four refs waiting 7, 1, 4 and 3 min. */
 		const rows = [7, 1, 4, 3].flatMap((wait, i) => [
 			row(100 - 10 * i, "enqueue", `r${i}`, A),
 			row(100 - 10 * i - wait, "land", `r${i}`, A),
@@ -129,8 +115,6 @@ describe("percentiles", () => {
 
 describe("queueBaseline", () => {
 	it("reads p50, p90 and the depth p90 exactly off a small log", () => {
-		/* Five refs pushed a minute apart, then landed after 10, 20, 30, 40
-		 * and 50 min: depths 5 down to 1 at the lands. */
 		const rows = [10, 20, 30, 40, 50].flatMap((wait, i) => [
 			row(120 - i, "enqueue", `r${i}`, A),
 			row(120 - i - wait, "land", `r${i}`, A),
@@ -160,7 +144,6 @@ describe("queueBaseline", () => {
 		);
 		expect(b.spans).toBe(1);
 		expect(b.p90Ms).toBe((week + 5 - 30) * MIN);
-		/* The one land in the window: `long`'s, with it alone waiting. */
 		expect(b.depthP90).toBe(1);
 	});
 

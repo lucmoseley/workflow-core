@@ -90,8 +90,6 @@ const { replaceEnv, takeWrites, toText } = require("./process-globals.js");
 
 const NODE_MODULES = `${path.sep}node_modules${path.sep}`;
 
-/* Thrown by the patched process.exit so the stack unwinds to us rather than
- * ending the vitest worker. */
 class ExitSignal extends Error {
 	/** @param {number} code */
 	constructor(code) {
@@ -100,85 +98,16 @@ class ExitSignal extends Error {
 	}
 }
 
-/* Guards the shared-process constraint above: two live calls would interleave
- * their captured output and restore each other's globals.
- *
- * Kept on globalThis, not in a module-level `let`. The constraint is on the
- * PROCESS, and this file is loaded twice in a vitest worker — once as CJS by a
- * script under test, once through vite's transform by the test importing it —
- * so a module-level flag guards only the copy that set it.
- *
- * Holds a claim object, `{ startedAt, restore }`, not a bare boolean. A call
- * whose own `await` never settles within its caller's timeout (vitest's own
- * test timeout does not cancel the promise — `await main()` keeps running
- * after the test that started it has already been marked failed) would
- * otherwise hold this true forever, throwing REENTRANT_MESSAGE at every case
- * after it rather than only at a genuinely concurrent one (mantahostels#2254). A claim
- * older than `staleMs` is instead taken over: the incoming call runs the
- * stale claim's own `restore` itself, synchronously, immediately before
- * installing its own — so the real `process.exit` (`pick-next.js` calls it
- * inside `main()`, not only in its require.main tail) is live for only the
- * instant between, with no `await` in between for an abandoned call's own
- * late call to reach.
- *
- * NOT closed by this, while the abandoned call is still running:
- *
- *   - Its own writes and its own `process.exit` reach whatever patches are
- *     CURRENTLY installed — the call that took it over, if one has — so its
- *     output can land in the new holder's captured stdout/stderr, and an
- *     abandoned `process.exit` can overwrite the new holder's reported exit
- *     status and cut off its later writes (`mutatePatches`' `state.exited`
- *     check, shared by both).
- *   - If it outlives the call that took it over from it too, once that
- *     second call finishes and restores, the abandoned script is left
- *     running against unpatched globals — a real `process.exit` from then on
- *     ends the vitest worker. */
 const CLAIM = Symbol.for("wfc.run-in-process.claim");
 
 /** @typedef {{ startedAt: number, restore: () => string[] }} Claim */
 
-/** The global the claim sits on, typed for that one slot. */
 const slot = /** @type {{ [CLAIM]?: Claim | null }} */ (globalThis);
 
-/* Clearance added on top of TEST_TIMEOUT_MS below, against vitest's own
- * timeout-enforcement latency — unmeasured. */
+// guess, lucmoseley/mantahostels#2267
 const MARGIN_MS = 5000;
 
-/* How stale an abandoned claim must be before a new call may take it over.
- * Measured the same way on both sides of the comparison: how long the
- * EXISTING claim has been held, read at the moment the incoming call checks
- * it — not how long the incoming call waited to arrive, which is the same
- * figure only where the incoming call starts checking immediately (this
- * file's own "refuses a re-entrant call" case, and a real `it.concurrent`
- * misuse that arrives promptly).
- *
- * A claim can only be genuinely abandoned — its holder's `await` left
- * pending forever rather than merely slow — once vitest itself has given up
- * on the enclosing test, at `TEST_TIMEOUT_MS` (scripts/lib/test-ceiling.js,
- * currently 90_000ms) after that test began. A call cannot start any EARLIER
- * than the test's own first tick — it runs inside that test — so if
- * `staleMs >= TEST_TIMEOUT_MS`, `Date.now() - claim.startedAt` cannot reach
- * `staleMs` before vitest has already marked the test failed: the test's own
- * deadline (its start plus `TEST_TIMEOUT_MS`) falls no later than the
- * claim's. mantahostels#2267 re-derives DEFAULT_STALE_MS on this basis.
- *
- * `TEST_TIMEOUT_MS` also feeds `hookTimeout`, but this derivation reasons
- * about a TEST's own deadline only — every call site installs a claim from
- * inside a test body, never a hook, so that is the deadline that governs.
- * Safe only as long as the two knobs share one value, as they do today.
- *
- * THE TRADE: a takeover before the ceiling has passed risks silently
- * absorbing a still-live call's writes and its real `process.exit` into
- * whoever takes it over (`CLAIM`'s NOT-closed list) — corruption with no
- * error at all. Waiting until the ceiling has passed instead means every
- * runInProcess/runInProcessAsync call in the same worker throws
- * REENTRANT_MESSAGE — loudly, immediately, not a hang — for up to
- * `MARGIN_MS` after a genuine abandonment (the claim was already at least
- * `TEST_TIMEOUT_MS` old the instant the test died), cascading through
- * however many later tests share that worker until the claim goes stale.
- *
- * Overridable per call (RunOptions.staleMs) so a test can
- * shrink it and run fast rather than waiting seconds. */
+// lucmoseley/mantahostels#2267
 const DEFAULT_STALE_MS = TEST_TIMEOUT_MS + MARGIN_MS;
 
 const REENTRANT_MESSAGE =
@@ -187,21 +116,7 @@ const REENTRANT_MESSAGE =
 	"output. Run the " +
 	"cases sequentially.";
 
-/**
- * Throws REENTRANT_MESSAGE for a claim younger than `staleMs`. Takes over
- * and clears an older one, returning whatever its own `restore` could not
- * put back — the caller folds this into its own `restoreFailures`, so a
- * taken-over claim's unrestored globals are not silently dropped. `[]`
- * where nothing is claimed.
- *
- * Clears the slot BEFORE running the stale claim's `restore`, not after: a
- * throw out of a direct-assignment restore step (unguarded — see
- * `snapshotPatches`' own restore) must not leave the stale claim standing
- * forever, refusing every call after it exactly as the bug this fixes did.
- *
- * @param {number} staleMs
- * @returns {string[]}
- */
+/** @param {number} staleMs @returns {string[]} */
 function takeOverStaleClaim(staleMs) {
 	const existing = slot[CLAIM];
 	if (!existing) return [];
@@ -211,12 +126,7 @@ function takeOverStaleClaim(staleMs) {
 	return existing.restore();
 }
 
-/**
- * Installs a fresh claim, its `restore` to be filled in once the caller has
- * one to give it.
- *
- * @returns {Claim}
- */
+/** @returns {Claim} */
 function installClaim() {
 	/** @type {Claim} */
 	const claim = { startedAt: Date.now(), restore: () => [] };
@@ -224,37 +134,16 @@ function installClaim() {
 	return claim;
 }
 
-/**
- * Whether `claim` is still the live holder, not taken over as stale.
- *
- * @param {Claim} claim
- */
+/** @param {Claim} claim */
 const isHolder = (claim) => slot[CLAIM] === claim;
 
-/**
- * Releases `claim`, but only where it is still the live holder — a claim a
- * later call has already taken over as stale must not restore or clear on
- * its own late settle, which would revert the new holder's patches out from
- * under it while it is still running.
- *
- * @param {Claim} claim
- * @param {() => string[]} restore
- * @returns {string[]}
- */
+/** @param {Claim} claim @param {() => string[]} restore @returns {string[]} */
 function releaseClaim(claim, restore) {
 	if (!isHolder(claim)) return [];
 	slot[CLAIM] = null;
 	return restore();
 }
 
-/**
- * Drops every cached first-party module, so the next require re-executes it and
- * module-level state starts empty.
- *
- * Not "everything under this repo": several suites run a checker out of a
- * fixture COPY of the tree in a temp directory, and leaving that copy's
- * libraries cached would carry one case's state into the next.
- */
 function purgeCallerModules() {
 	for (const key of Object.keys(require.cache)) {
 		if (key === __filename) continue;
@@ -262,11 +151,6 @@ function purgeCallerModules() {
 	}
 }
 
-/* The async_hooks types that keep a process alive until they close, and
- * report closing through `destroy`: libuv handles, timers, and fs requests.
- * Others — a crypto job, a stream's end-of-stream listener — report `destroy`
- * only on garbage collection, so would read as open long after they finished.
- * A PROMISE is never counted, only followed to attribute what it creates. */
 const KEEPS_ALIVE = new Set([
 	"Timeout",
 	"Immediate",
@@ -283,29 +167,12 @@ const KEEPS_ALIVE = new Set([
 	"SIGNALWRAP",
 ]);
 
-/* Unmeasured guess: how long an async call's own handles get to close once
- * main() has settled — a child process's handle closes a few ticks after its
- * exit callback. A resource still open after it and SETTLE_TURNS is refused. */
+// guess, #2782
 const SETTLE_MS = 200;
 
-/* Measured on Node 24.18 (#4108): a closed `fs.watch` handle reports
- * `destroy` on the second loop turn after its close. Given past the deadline
- * too, so a turn stalled over SETTLE_MS on a loaded machine cannot report a
- * handle already closed as one left open. Residual: the other KEEPS_ALIVE
- * types, and other Node versions, are unmeasured. */
+// measured 2nd loop turn on Node 24.18, #4108
 const SETTLE_TURNS = 2;
 
-/**
- * Tracks the async resources a call creates (#2782), through `async_hooks`.
- * A resource is the call's where it was created while the call's own code
- * ran synchronously, or by, or inside, a resource that is already the call's.
- * So a socket the vitest worker's own server accepts during an `await` is
- * not, and a promise continuation inside `main()` is.
- *
- * `attributing` is turned off once the call's own code is no longer on the
- * stack (the async form's await) and again once the call has settled, so the
- * harness's own continuation is not counted as the script's.
- */
 function trackResources() {
 	/** @type {Set<number>} */
 	const owned = new Set();
@@ -331,7 +198,6 @@ function trackResources() {
 		})
 		.enable();
 
-	/** What the call created that is still open and would hold a real process. */
 	const held = () =>
 		[...live.values()].filter(
 			({ resource }) =>
@@ -340,7 +206,6 @@ function trackResources() {
 
 	return {
 		flags,
-		/** Waits, up to SETTLE_MS and SETTLE_TURNS turns past it, for the call's own resources to close. */
 		async settle() {
 			flags.attributing = false;
 			const deadline = Date.now() + SETTLE_MS;
@@ -348,7 +213,7 @@ function trackResources() {
 			while (held().length > 0 && (Date.now() < deadline || lateTurns-- > 0))
 				await new Promise((resolve) => setImmediate(resolve));
 		},
-		/** @returns {string[]} `<type> x<n>` per type still held */
+		/** @returns {string[]} */
 		leaked() {
 			const counts = new Map();
 			for (const { type } of held())
@@ -361,13 +226,7 @@ function trackResources() {
 	};
 }
 
-/**
- * Refuses a call that did not end the process (`state.exited` null) and left
- * ref'd resources of its own open (header item 6).
- *
- * @param {string} script
- * @param {string[]} leaked
- */
+/** @param {string} script @param {string[]} leaked */
 function refuseLeaks(script, leaked) {
 	if (leaked.length > 0)
 		throw new Error(
@@ -377,13 +236,7 @@ function refuseLeaks(script, leaked) {
 		);
 }
 
-/**
- * A stream that appends to the capture buffer instead of reaching a fd. Its
- * write callback fires synchronously, so console output keeps its position
- * relative to the fd writes around it.
- *
- * @param {(text: string) => void} append
- */
+/** @param {(text: string) => void} append */
 const sink = (append) =>
 	new Writable({
 		write(chunk, enc, cb) {
@@ -392,23 +245,10 @@ const sink = (append) =>
 		},
 	});
 
-/* An exit status is 8 bits on the way out of a real process. Nothing in this
- * repo exits above 2; the mask is here so the first script that does is not
- * reported a code no shell could have seen. The double modulo is for the
- * negative case, where JS's own % answers -1 rather than 255. */
 /** @type {(code: unknown) => number} */
 const exitCodeOf = (code) => (((Number(code ?? 0) | 0) % 256) + 256) % 256;
 
-/*
- * Runs a restore step, never letting its failure skip the ones after it, and
- * never swallowing it either: what went wrong comes back on the result's
- * `restoreFailures`, so a caller is not left guessing why a later call in the
- * same worker behaves oddly.
- */
-/**
- * @param {() => void} step
- * @param {string[]} failures accumulator: the step's failure is pushed here
- */
+/** @param {() => void} step @param {string[]} failures */
 const attempt = (step, failures) => {
 	try {
 		step();
@@ -418,14 +258,6 @@ const attempt = (step, failures) => {
 };
 
 /**
- * Removes every process listener registered since the snapshot. Only the ones
- * the call added: a listener the vitest worker had before is left alone. Each
- * removal is guarded on its own, so one throwing store cannot leave the rest of
- * the sweep unrun.
- *
- * `Function` here, and `any` at the removal, hold whatever the runtime handed
- * back from `process.rawListeners` — per-event, and unknowable from here.
- *
  * @param {Map<string | symbol, Set<Function>>} saved
  * @param {string[]} failures
  */
@@ -442,20 +274,6 @@ function dropAddedListeners(saved, failures) {
 }
 
 /**
- * What node does with an uncaught throw out of the entry point: hand it to the
- * process's uncaughtException listeners, and only print the stack and exit 1
- * where there are none. Every checker
- * requires lib/check.js, whose listener reports the crash as BROKEN and exits
- * 2, so swallowing this would report a checker's own crash as a plain failure.
- *
- * Only the listeners this call registered are called. Reaching the ones the
- * vitest worker installed for itself would report the script's crash as the
- * test process crashing.
- *
- * `end` hears the two outcomes where node ends the process — no listener, and
- * a listener that throws — and not a listener that returns, after which a
- * real process runs on.
- *
  * @param {unknown} e
  * @param {Map<string | symbol, Set<Function>>} saved
  * @param {(text: string) => void} write
@@ -477,8 +295,6 @@ function crash(e, saved, write, end) {
 		return exitCodeOf(process.exitCode);
 	} catch (inner) {
 		if (inner instanceof ExitSignal) return inner.code;
-		/* Node calls no later listener and exits 7 — "Internal Exception Handler
-		 * Run-Time Failure" — where the handler itself throws. */
 		write(
 			`${(inner instanceof Error && inner.stack) || caught(inner).message}\n`,
 		);
@@ -488,23 +304,14 @@ function crash(e, saved, write, end) {
 }
 
 /**
- * What an entry point's own catch does with whatever escaped `entry.load` or
- * the call it made into the script: an `ExitSignal` wins outright, a swallowed
- * exit is left as it was (a real process was already gone by the time the
- * script's own catch ran), and anything else goes to node's own uncaught-throw
- * handling via `crash`. Shared so `runInProcess`'s one call site and
- * `runInProcessAsync`'s two — load and `main()` — treat an escape identically.
- *
  * @param {unknown} e
- * @param {CaptureState} state accumulator: a crash's report is appended to `stderr`; `exited` is read, and set where the crash ends the process
+ * @param {CaptureState} state
  * @param {Map<string | symbol, Set<Function>>} listeners
- * @returns {number | null} the status to record, or null to leave `state.status` as it was
+ * @returns {number | null}
  */
 function statusOfEscape(e, state, listeners) {
 	if (e instanceof ExitSignal) return e.code;
 	if (state.exited !== null) {
-		/* The script caught its own exit and threw something else. A real
-		 * process was already gone by then. */
 		return null;
 	}
 	return crash(
@@ -521,24 +328,15 @@ function statusOfEscape(e, state, listeners) {
 
 /**
  * @typedef {object} RunOptions
- * @property {string}   [cwd]  working directory for the call (default: unchanged)
- * @property {Record<string, string | undefined>} [env] full environment,
- *           replacing this one
- * @property {string | Buffer} [stdin] what the script reads off fd 0
- * @property {number} [staleMs] how long another call's claim must have been
- *           held before this call takes it over instead of refusing as
- *           re-entrant (default: DEFAULT_STALE_MS, `TEST_TIMEOUT_MS + MARGIN_MS`)
- *
+ * @property {string}   [cwd]
+ * @property {Record<string, string | undefined>} [env]
+ * @property {string | Buffer} [stdin]
+ * @property {number} [staleMs]
  * @typedef {object} RunResult
- * @property {number} status  the exit code the script would have exited with
- * @property {string} stdout  everything written to fd 1
- * @property {string} stderr  everything written to fd 2
- * @property {string[]} restoreFailures  what could not be put back afterwards;
- *           empty on every ordinary run
- *
- * `exited` is the code the process ended on — by `process.exit`, or by a
- * throw node dies of — and null while a real process would still be running.
- *
+ * @property {number} status
+ * @property {string} stdout
+ * @property {string} stderr
+ * @property {string[]} restoreFailures
  * @typedef {{ stdout: string, stderr: string, status: number, exited: number | null }} CaptureState
  */
 
@@ -560,11 +358,6 @@ function statusOfEscape(e, state, listeners) {
  */
 
 /**
- * Captures every process-global both entry points patch, and builds how to put
- * them back — before either entry point mutates anything, so the restore it
- * returns is good even where `mutatePatches` below throws partway through
- * (`process.chdir` on a directory a caller's test has already removed, say).
- *
  * @returns {{ saved: Saved, listeners: Map<string | symbol, Set<Function>>, restore: () => string[] }}
  */
 function snapshotPatches() {
@@ -592,17 +385,11 @@ function snapshotPatches() {
 	const restore = () => {
 		/** @type {string[]} */
 		const restoreFailures = [];
-		/* Each restore stands alone. chdir throws where the test has already
-		 * removed its temp directory, and replaceEnv is the caller's data — either
-		 * one thrown from a bare sequence would leave process.exit and console
-		 * patched for the rest of the worker's life. */
 		process.argv = saved.argv;
 		process.exit = saved.exit;
 		process.uptime = saved.uptime;
 		process.exitCode = saved.exitCode;
 		process.mainModule = saved.mainModule;
-		/* `any`, as on the patches: fs's overloaded functions take no plain
-		 * assignment back without a cast. */
 		/** @type {any} */ (fs).writeSync = saved.writeSync;
 		/** @type {any} */ (fs).readFileSync = saved.readFileSync;
 		/** @type {any} */ (fs).readSync = saved.readSync;
@@ -622,20 +409,9 @@ function snapshotPatches() {
 }
 
 /**
- * Applies the patches both entry points capture output and exit through, onto
- * a snapshot `snapshotPatches` already took. Shared so the sync and async
- * paths capture identically — only how each drives the entry module's code
- * differs, which lives in their own functions below.
- *
- * Does not touch `process.mainModule`: that is set once the caller has built
- * the entry module, and the two entry points set it at different points in
- * the sequence (see `runInProcessAsync`'s header), so it stays theirs to set.
- *
  * @param {{ saved: Saved }} snapshot
  * @param {{ script: string, args: string[], options: RunOptions }} run
- * @param {CaptureState} state accumulator: `stdout`/`stderr`/`exited` are
- *   written by the patches below as the script runs; `status` is the caller's
- *   to set, once the load or the call it makes has returned
+ * @param {CaptureState} state
  */
 function mutatePatches({ saved }, { script, args, options }, state) {
 	if (options.env) replaceEnv(options.env);
@@ -644,33 +420,19 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	process.exitCode = undefined;
 	const startedAt = saved.uptime();
 	process.uptime = () => saved.uptime() - startedAt;
-	/* `any`: process.exit is typed `never`-returning, which no arrow that
-	 * throws satisfies without a cast. */
 	process.exit = /** @type {any} */ (
 		(/** @type {number} */ code) => {
-			/* The FIRST call wins. A catch-all that swallows this throw and then
-			 * exits itself — runCheck's does — would otherwise overwrite the code
-			 * the script had already ended on. */
 			if (state.exited === null)
 				state.exited = exitCodeOf(code ?? process.exitCode);
 			throw new ExitSignal(state.exited);
 		}
 	);
-	/* What the script writes after its exit is dropped. The restore
-	 * `takeWrites` returns is not kept: the snapshot's own puts these back. */
 	takeWrites((fd, text) => {
 		if (state.exited !== null) return;
 		if (fd === 1) state.stdout += text;
 		else state.stderr += text;
 	});
 
-	/* Only fd 0: everything else has to keep reading the real filesystem, the
-	 * script's own fixture included. The worker's real fd 0 is never reached:
-	 * lib/read-fd.js would wait out its EAGAIN ceiling on an idle one (#4072).
-	 * The `any`s, as on lib/process-globals.js's writeSync patch: neither
-	 * function's overloads can be assigned one arrow without a cast, and each
-	 * argument is whatever the script passes, handed on to the real function
-	 * untouched off fd 0. */
 	const stdin = Buffer.from(options.stdin ?? "");
 	/** @type {any} */ (fs).readFileSync = (
 		/** @type {fs.PathOrFileDescriptor} */ target,
@@ -696,10 +458,6 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 		return n;
 	};
 
-	/* console is patched as well as the stream beneath it because the vitest
-	 * worker swaps in a console of its own that reports to the runner rather
-	 * than writing through process.stdout — so patching the stream alone
-	 * loses every console.log the script makes. */
 	globalThis.console = new Console({
 		stdout: sink((text) => {
 			if (state.exited === null) state.stdout += text;
@@ -710,15 +468,8 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	});
 }
 
-/**
- * Builds the module object a script loads into as its own `module` —
- * identity, not a copy, so a `require.main === module` guard inside the
- * script can compare against it.
- * @param {string} script
- */
+/** @param {string} script */
 function buildEntry(script) {
-	/* `any`: `filename`, `paths` and `_nodeModulePaths` are node internals
-	 * the Module type does not declare. */
 	const entry = /** @type {any} */ (new Module(script, undefined));
 	entry.filename = script;
 	entry.paths = /** @type {any} */ (Module)._nodeModulePaths(
@@ -732,19 +483,14 @@ function buildEntry(script) {
  * @property {string} script
  * @property {CaptureState} state
  * @property {Map<string | symbol, Set<Function>>} listeners
- * @property {any} entry  `any`, as at `buildEntry`: node internals the
- *   Module type does not declare. The module `buildEntry` made, already patched in
+ * @property {any} entry
  * @property {Claim} claim
- * @property {ReturnType<typeof trackResources>} resources  what the call has created
+ * @property {ReturnType<typeof trackResources>} resources
  * @property {string[]} takeoverFailures
  */
 
 /**
- * Everything both entry points do before they drive the script. A throw
- * partway through releases the claim before it escapes, so nothing is left
- * patched.
- *
- * @param {string} script  already resolved
+ * @param {string} script
  * @param {string[]} args
  * @param {RunOptions} options
  * @returns {Call}
@@ -756,8 +502,6 @@ function beginCall(script, args, options) {
 	/** @type {CaptureState} */
 	const state = { stdout: "", stderr: "", status: 0, exited: null };
 	const claim = installClaim();
-	/* After the snapshot: its first read of process.stdout makes the stream's
-	 * handle in a plain node host, which is the host's, not the script's. */
 	const snapshot = snapshotPatches();
 	const resources = trackResources();
 	claim.restore = snapshot.restore;
@@ -782,15 +526,7 @@ function beginCall(script, args, options) {
 	}
 }
 
-/**
- * The leak
- * check (#2782) runs only where the call still held the claim — one taken
- * over shared the process with the call that took it, so what it sees change
- * is not its own — and did not end the process.
- *
- * @param {Call} call
- * @returns {RunResult}
- */
+/** @param {Call} call @returns {RunResult} */
 function releaseAndReport(call) {
 	const { script, state, claim, resources, takeoverFailures } = call;
 	if (state.exited !== null) state.status = state.exited;
@@ -809,13 +545,7 @@ function releaseAndReport(call) {
 	};
 }
 
-/**
- * Records what escaped the script — a load, or the call made into it — as
- * its status.
- *
- * @param {Call} call
- * @param {unknown} e
- */
+/** @param {Call} call @param {unknown} e */
 function recordEscape(call, e) {
 	const status = statusOfEscape(e, call.state, call.listeners);
 	if (status !== null) call.state.status = status;
@@ -924,8 +654,6 @@ function runInProcess(scriptPath, args = [], options = {}) {
 async function runInProcessAsync(scriptPath, args = [], options = {}) {
 	const script = path.resolve(scriptPath);
 
-	/* Before anything is claimed, patched or loaded — see this function's own
-	 * header for why. */
 	if (!fs.readFileSync(script, "utf8").includes("require.main"))
 		throw new Error(
 			`runInProcessAsync: ${script} carries no "require.main" guard, so its ` +
@@ -936,9 +664,6 @@ async function runInProcessAsync(scriptPath, args = [], options = {}) {
 
 	const call = beginCall(script, args, options);
 	try {
-		/* process.mainModule is deliberately NOT entry yet — see header. A throw
-		 * here (a syntax error, or a top-level statement outside the
-		 * require.main guard) gets the same treatment `runInProcess` gives it. */
 		try {
 			call.entry.load(script);
 		} catch (e) {

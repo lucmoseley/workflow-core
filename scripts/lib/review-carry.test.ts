@@ -1,9 +1,3 @@
-/*
- * What one morning review hands the next, from fixture review bodies (#3831).
- * Break it and a repo that did not read loses its closes and decisions, or lists
- * them twice.
- */
-
 import { describe, expect, it } from "vitest";
 
 const {

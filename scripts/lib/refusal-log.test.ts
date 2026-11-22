@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * refusal-log.test.ts — the refusal limbs' log writer (#1101, #1753). A plain temp directory stands in for a repo root,
- * named `mantahostels` so the line's repo field is checkable; the writer
- * needs no git.
- *
- * The `Stop` hook guard-priced-options.js writes these logs and the
- * close-check and round-check reporters count them, so a loosened case lets a
- * lost or misnamed line skew either reading.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

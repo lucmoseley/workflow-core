@@ -65,7 +65,6 @@ The founder's personal copies on this laptop of what the plugin ships, kept so t
 - `scripts/idle-maxworkers-bench.sh` — times this repo's own suite.
 - The suite-size drift check — ships with `scripts`, but the repo-checks registry runs it here alone: it re-measures a memory-ladder constant taken on this repo's suite.
 - `scripts/snapshot-memory.sh` — this repo's one-off memory backup.
-- `scripts/cut-mantahostels.js` — mantahostels' one-time cutover.
 - `scripts/typecheck-mods.js` — type-checks this repo's own mods.
 - `.claude/skills/new-repo` — creates repos under the founder's account.
 - The `scripts/measure-*`, `bench_*`, `probe-*` and `sample_*` instruments not listed under "Ships in the plugin" — they re-derive figures only this repo's documents hold.

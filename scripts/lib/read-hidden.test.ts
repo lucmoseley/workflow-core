@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/read-hidden.js reads one line with echo off (#640). A fake terminal
- * stands in for the real one, to control how input splits across reads;
- * `test_write_secret_tty.py` drives the same read through a real pty.
- *
- * `write-secret.js` reads a founder's credential through it in a hand-over;
- * loosen a case and a stray escape byte or dropped key alters the stored secret, a
- * Ctrl-C writes a half-typed one to `.env`, or the rest of a pasted key reaches
- * the shell and its history, or the tail of one typed after a bad byte does.
- */
 
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -17,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readHidden } from "./read-hidden.js";
 import { requiredGroup } from "./regex-group";
 
-/** read-hidden.js's window, read from its source, as §G6 keeps it unexported. */
 const SETTLE_LINE = /^const SETTLE_MS = (\d+);$/m;
 const settleLine = SETTLE_LINE.exec(
 	fs.readFileSync(path.join(__dirname, "read-hidden.js"), "utf8"),
@@ -40,16 +29,15 @@ const fakeTty = () =>
 		},
 	});
 
-/** A read on a fake terminal, given `chunks`. */
 const reading = (...chunks: (string | Buffer)[]) => {
 	const input = fakeTty();
-	// @ts-expect-error — the fake carries only what readHidden calls
-	const line: Promise<string> = readHidden(input);
+	const line: Promise<string> = readHidden(
+		input as unknown as Parameters<typeof readHidden>[0],
+	);
 	for (const chunk of chunks) input.emit("data", chunk);
 	return { input, line };
 };
 
-/** What the read came to once the terminal settles, as the value or the reason. */
 const settled = async (line: Promise<string>) => {
 	const outcome = line.catch((e: Error) => `rejected: ${e.message}`);
 	await vi.runAllTimersAsync();

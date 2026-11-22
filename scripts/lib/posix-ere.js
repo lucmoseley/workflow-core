@@ -1,26 +1,3 @@
-/*
- * posix-ere.js — a POSIX extended regex as bash's `=~` compiles it, glibc's
- * regcomp with REG_EXTENDED, turned into a JavaScript RegExp (#2790).
- *
- * WHY. pgrep and pkill compile their pattern with that regcomp too, so a guard
- * judging whether a pattern selects some text must read it the way they do.
- * A JavaScript RegExp built from the pattern as written disagrees on bracket
- * expressions (`[[:alpha:]]`, a backslash inside brackets, a leading `]`),
- * on `\<` and `\>`, on intervals and on a quantifier with nothing to repeat.
- *
- * A CORE: no I/O. `compileEre` answers null where glibc refuses the pattern —
- * pgrep then exits 2 and selects nothing — and a RegExp otherwise; `.`
- * matches a newline, as it does without REG_NEWLINE.
- *
- * LIMITS
- *  - The locale is read as C: `[[:alpha:]]` and `\w` are ASCII, and a range
- *    is ordered by code point. Under a UTF-8 locale glibc's classes also take
- *    non-ASCII letters.
- *  - `[=c=]` and `[.c.]` take one character; a multi-character collating
- *    element is refused, as the C locale refuses it.
- */
-
-/** The bracket classes glibc's regcomp knows, as JavaScript class bodies. */
 const CLASSES = {
 	alpha: "A-Za-z",
 	digit: "0-9",
@@ -36,7 +13,6 @@ const CLASSES = {
 	xdigit: "0-9A-Fa-f",
 };
 
-/** A GNU escape outside brackets, as JavaScript writes it. */
 const GNU_ESCAPES = {
 	"<": "\\b(?=\\w)",
 	">": "\\b(?<=\\w)",
@@ -57,8 +33,6 @@ const classChar = (cp) => `\\u{${cp.toString(16)}}`;
 const literalChar = (c) => c.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&");
 
 /**
- * The bracket expression opening at `pattern[at]` (its `[`): the JavaScript
- * class and the index after its `]`; null where glibc refuses it.
  * @param {string} pattern
  * @param {number} at
  * @returns {{ js: string, end: number } | null}
@@ -67,7 +41,6 @@ function bracket(pattern, at) {
 	const negate = pattern[at + 1] === "^";
 	let i = at + (negate ? 2 : 1);
 	let body = "";
-	/* A `]` first in the list is a member, not the close. */
 	let first = true;
 	while (first || pattern[i] !== "]") {
 		if (i >= pattern.length) return null;
@@ -81,8 +54,6 @@ function bracket(pattern, at) {
 }
 
 /**
- * One member of a bracket list at `pattern[i]` — a class, a character or a
- * range — as JavaScript class text; null where glibc refuses it.
  * @param {string} pattern
  * @param {number} i
  * @returns {{ js: string, end: number } | null}
@@ -100,8 +71,6 @@ function bracketItem(pattern, i) {
 }
 
 /**
- * One bracket element at `pattern[i]`: a character's code point, or a class's
- * body; null where glibc refuses it.
  * @param {string} pattern
  * @param {number} i
  * @returns {{ cp: number, end: number } | { cls: string, end: number } | null}
@@ -129,8 +98,6 @@ function element(pattern, i) {
 }
 
 /**
- * An interval at `pattern[at]` (its `{`): the JavaScript quantifier and the
- * index after its `}`; null where glibc refuses it.
  * @param {string} pattern
  * @param {number} at
  * @returns {{ js: string, end: number } | null}
@@ -149,9 +116,6 @@ function interval(pattern, at) {
 }
 
 /**
- * A translation under way: `atom` is where the last atom began in `out`, -1
- * where a quantifier has nothing to repeat, and `quantified` whether that atom
- * already carries one; `open` holds where each open group began.
  * @typedef {{ out: string, atom: number, quantified: boolean, groups: number,
  *   open: number[] }} Translation
  */
@@ -172,7 +136,6 @@ function pushAtom(t, js) {
  */
 function quantify(t, q) {
 	if (t.atom < 0) return false;
-	/* glibc repeats a repeat: `a**` and `a{1}{2}` compile. */
 	if (t.quantified)
 		t.out = `${t.out.slice(0, t.atom)}(?:${t.out.slice(t.atom)})`;
 	t.out += q;
@@ -192,9 +155,6 @@ function escapeAtom(t, next, icase) {
 		if (Number(next) > t.groups) return false;
 		pushAtom(t, `\\${next}`);
 	} else if (icase && /[a-z]/.test(next) && !(next in GNU_ESCAPES))
-		/* glibc folds the subject to upper case under REG_ICASE but leaves
-		 * an escaped letter as written, so `\d` matches neither d nor D
-		 * and `\D` matches both. */
 		pushAtom(t, "(?!)");
 	else
 		pushAtom(
@@ -206,8 +166,6 @@ function escapeAtom(t, next, icase) {
 }
 
 /**
- * A group, an alternation, an anchor or `.`: false where `c` is none of them,
- * an unmatched `)` among them, glibc reading that as a literal.
  * @param {Translation} t
  * @param {string} c
  */
@@ -230,8 +188,6 @@ function operator(t, c) {
 }
 
 /**
- * The token at `pattern[i]` translated: the index after it, or -1 where
- * glibc refuses it.
  * @param {Translation} t
  * @param {string} pattern
  * @param {number} i
@@ -261,8 +217,6 @@ function step(t, pattern, i, icase) {
 }
 
 /**
- * The pattern as a JavaScript RegExp, or null where glibc's regcomp refuses
- * it.
  * @param {string} pattern
  * @param {{ icase?: boolean }} [opts]
  * @returns {RegExp | null}

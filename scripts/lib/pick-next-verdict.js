@@ -1,14 +1,3 @@
-/*
- * pick-next-verdict.js — each open issue's verdict in scripts/pick-next.js:
- * the sort levels it ranks on (mantahostels#106, #2001, #2664, #3222) and why it is
- * held out of the frontier, earliest-applicable first (mantahostels#105); and the
- * frontier those verdicts rank into.
- *
- * Every read is done in pick-next.js and handed in through `enrichIssue`'s
- * context: the blocker graph, the timelines, the claims, the ledger, the goal
- * set and the clock, a function so each age is read when it is computed.
- */
-
 const blockerGraph = require("./blocker-graph.js");
 const { isRouteStep } = require("./decision-labels.js");
 const { compareLevels, WAITING_LABEL } = require("./frontier-order.js");
@@ -23,33 +12,21 @@ const { takesLabel, takesOf } = require("./takes-label.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
 /**
- * What the GitHub listing gives.
  * @typedef {object} RawIssue
  * @property {number} number
  * @property {string} state
  * @property {string} title
  * @property {string} url
- * @property {string} createdAt ISO 8601, GitHub's `created_at`
+ * @property {string} createdAt
  * @property {string[]} assignees
  * @property {string[]} labels
  * @property {string} body
  * @property {string|null} parent
- * @property {number} openSubIssues its open children in every repo, by its
- *   sub_issues_summary
- * @property {string|null} repo the repo it lives in, `owner/name`
+ * @property {number} openSubIssues
+ * @property {string|null} repo
  */
 
 /**
- * That, plus everything pick-next.js's `main` hangs on it before anything
- * reads one.
- *
- * EVERY FIELD IS OPTIONAL HERE, AND REQUIRED IN `Issue` BELOW, so a read placed
- * before the field is assigned does not compile (mantahostels#1637).
- *
- * IT DOES NOT CATCH ALL OF THEM. A field only used for its truthiness is not
- * protected, `undefined` being falsy like `false`: that is the booleans, the
- * two `unknown`s, and `urgency`/`urgentVia`/`wait`/`gate`/`gateOn`, whose types
- * already admit a falsy value.
  * @typedef {object} Enrichment
  * @property {string[]} [paths]
  * @property {import("./blocker-graph").Edge[]} [blockedBy]
@@ -57,17 +34,17 @@ const { URGENT_LABEL } = require("./urgent-label.js");
  * @property {ReturnType<typeof blockerGraph.proseOf> & {unparsed: ReturnType<typeof import("./prose-blockers.js").unparsedBlockersOf>}} [proseBlocked]
  * @property {{label: string, native: boolean}[]} [openBlockers]
  * @property {number} [reach]
- * @property {ReturnType<typeof labelAge>|null} [urgency] the issue's own `urgent`'s age, null where the label is off
- * @property {import("./blocker-graph").Via|null} [urgentVia] the held issue whose `urgent` it inherits, null where none does
- * @property {import("./blocker-graph").Via|null} [bugVia] the held `bug` it inherits, null where none does
- * @property {import("./blocker-graph").Via|null} [goalVia] the held goal-set member it inherits, null where none does
+ * @property {ReturnType<typeof labelAge>|null} [urgency]
+ * @property {import("./blocker-graph").Via|null} [urgentVia]
+ * @property {import("./blocker-graph").Via|null} [bugVia]
+ * @property {import("./blocker-graph").Via|null} [goalVia]
  * @property {number} [depth]
  * @property {number} [closes]
  * @property {boolean} [bug]
  * @property {boolean} [urgent]
  * @property {ReturnType<typeof waitFrom>|null} [wait]
  * @property {number} [stallDays]
- * @property {ReturnType<typeof labelAge>|null} [parked] `parked`'s age, null where the label is off
+ * @property {ReturnType<typeof labelAge>|null} [parked]
  * @property {boolean} [goal]
  * @property {number} [collision]
  * @property {boolean} [asksQuestions]
@@ -79,68 +56,26 @@ const { URGENT_LABEL } = require("./urgent-label.js");
  * @property {boolean} [gateHolds]
  * @property {boolean} [gateOnHolds]
  * @property {string|null} [excluded]
- * @property {ExclusionCategory|null} [exclusionCategory] the tally's bucket for `excluded`
- * @property {import("./dispatch-ledger").DispatchRecord} [dispatchRec] the ledger entry holding it (#752)
+ * @property {ExclusionCategory|null} [exclusionCategory]
+ * @property {import("./dispatch-ledger").DispatchRecord} [dispatchRec]
  * @property {boolean} [dispatchHeld]
  * @property {boolean} [assignedUnclaimed]
  */
 
-/**
- * Mid-enrichment: whatever `main` has assigned so far, nothing promised.
- * @typedef {RawIssue & Enrichment} Enriching
- */
+/** @typedef {RawIssue & Enrichment} Enriching */
 
 /**
- * The first three fields resolved, the rest still pending. The passes that read
- * a blocker before the rest of enrichment has run take this rather than
- * `Enriching`.
  * @typedef {Enriching &
  *   Required<Pick<Enrichment, "blockedBy" | "depsUnknown" | "proseBlocked">>
  * } DepsResolved
  */
 
-/**
- * Post-enrichment, which is what everything downstream of `main`'s enrichment
- * block reads.
- *
- * `paths` stays optional: `annotatePaths` (lib/pick-next-collisions.js)
- * returns it, on copies of the frontier and the in-flight set only, well
- * below `enrichIssue`. So does `dispatchRec`, absent wherever no ledger entry
- * holds the issue.
- * @typedef {RawIssue & Required<Omit<Enrichment, "paths" | "dispatchRec">> & {paths?: string[], dispatchRec?: import("./dispatch-ledger").DispatchRecord}} Issue
- */
+/** @typedef {RawIssue & Required<Omit<Enrichment, "paths" | "dispatchRec">> & {paths?: string[], dispatchRec?: import("./dispatch-ledger").DispatchRecord}} Issue */
 
-/*
- * `waiting:external` — the action has been taken and now sits with someone
- * outside the project, so nobody here can move it (mantahostels#243).
- *
- * ESCALATES WITH AGE, NEVER DEMOTES. Sinking a waiting issue would make a stall
- * quieter the longer it ran, which is the failure mantahostels#85 (no working channel to
- * an outside partner) already suffered. So a wait at the threshold below climbs, and
- * one under it ranks exactly as it would with no label at all.
- *
- * 7 DAYS — the first of the three actions the evidence puts a date on, from
- * the wait-threshold research mantahostels#956 re-derived (75%, 65-85%, that 7
- * beats both 3 and 14), replacing the 14-day guess mantahostels#259 set;
- * docs/agents/triage-labels.md owns the figure. The research's later points — switch channel at
- * 21 days, non-responsive at 45 — need no threshold of their own: escalating is
- * a prompt to look rather than the action itself, and rank goes on climbing
- * with age past this one. A threshold rather than a curve because at most three
- * issues can carry this label, so a curve would tune invisible differences.
- *
- * Rejected — 14, which the same research also supports: its closest structural
- * match puts the modal first chase at 1-2 weeks, and a desk the adopter must
- * return to for the price-comparison consent makes being logged a nuisance an
- * asymmetric cost. 7 survives that because what fires here is the
- * receipt-confirmation chase the research separates out — a factual question an
- * inbox answers without deciding anything — not the decision chase.
- */
+// guess, lucmoseley/mantahostels#956
 const WAITING_STALL_DAYS = 7;
 
 /**
- * PROSE SELF-GATES (mantahostels#1289): `i`'s `**Blocked on**` references as
- * the graph judged them — this repo's against every open issue, already
- * fetched, at no extra call — and the marker lines that name no number.
  * @param {import("./blocker-graph").Graph} graph
  * @param {{number: number, body: string}} i
  */
@@ -152,17 +87,13 @@ function proseBlockedOf(graph, i) {
 }
 
 /**
- * Each issue's inherited tiers and chain depth (#3222), read at selection
- * time and never written onto it. A `bug`, an `urgent` and a goal-set member
- * pass on from any issue held out, as a blocker or as a parent (#3250).
  * @param {import("./blocker-graph").Graph} graph
  * @param {Map<number, RawIssue>} byNumber
- * @param {Set<number>} goalRanked the issues the goal tier ranks on
+ * @param {Set<number>} goalRanked
  */
 function inheritanceOf(graph, byNumber, goalRanked) {
 	/** @param {number} n @param {string} label */
 	const has = (n, label) => byNumber.get(n)?.labels.includes(label) === true;
-	// In compareLevels' order: depth runs to the first of these an issue holds.
 	return blockerGraph.inheritance(graph, {
 		bug: (n) => has(n, "bug"),
 		urgent: (n) => has(n, URGENT_LABEL),
@@ -171,8 +102,6 @@ function inheritanceOf(graph, byNumber, goalRanked) {
 }
 
 /**
- * The tier levels an issue ranks on: its own joined with what it inherits,
- * a `bug` urgent too (#2664).
  * @param {{bug: boolean, urgent: boolean, goal: boolean}} own
  * @param {ReturnType<ReturnType<typeof inheritanceOf>>} held
  */
@@ -187,14 +116,8 @@ function tiersOf(own, held) {
 }
 
 /**
- * The wait reads the same timeline for the same reason `urgent` does: a
- * hand-written date in the body rots, and nothing updates it when the wait
- * resets.
- *
- * An unreadable start leaves the wait unranked rather than assumed stalled: the
- * worst case is a stall keeping the rank it has today and printing `?`.
  * @param {{ok: boolean, events?: any[], error?: any}} timeline
- * @param {number} now ms since the epoch
+ * @param {number} now
  * @returns {{unknown: true, unrecorded: boolean, error: any, ageDays?: undefined, appliedAt?: undefined, appliedBy?: undefined, stalled?: undefined}
  *   | {unknown?: false, error?: undefined, ageDays: number, appliedAt: string, appliedBy: string, stalled: boolean}}
  */
@@ -206,9 +129,6 @@ function waitFrom(timeline, now) {
 }
 
 /**
- * The WAIT cell: whole days since `waiting:external` went on, `!` marking the
- * wait past the threshold — the only one the sort reads. `?` is the label on
- * with its start unreadable, which leaves the rank untouched.
  * @param {{wait: ReturnType<typeof waitFrom>|null}} issue
  * @returns {string}
  */
@@ -233,41 +153,20 @@ function groupOf(issue, mapNumbers, specNumbers) {
 	return `child of #${parent}`;
 }
 
-/*
- * Collision estimate — the collision sort level (mantahostels#106), and its
- * weakest ruling (70%, band 55-82%). A `wayfinder:grilling` or `:research`
- * ticket resolves by writing a comment and closing an issue, touching no repo
- * file, so it cannot collide with a parallel session on `doc-map.md` or the
- * roadmap pair. Everything else is assumed to write. This reads labels applied
- * for other reasons — mantahostels#96 ruled out a label declaring what a
- * session will touch, because that is a promise agents break.
- */
 const COMMENT_ONLY = ["wayfinder:grilling", "wayfinder:research"];
 /** @param {RawIssue} issue */
 const collisionOf = (issue) =>
 	issue.labels.some((l) => COMMENT_ONLY.includes(l)) ? 0 : 1;
 
-/*
- * Ticket type — #2001. A ticket that asks the founder questions ranks first,
- * so its round lands while the founder is present rather than behind a long
- * implement run. Untyped means no `wayfinder:` label at all: a `wayfinder:map`
- * asks nothing by itself. Every case needs `takes:wayfinder`, since a `takes:`
- * value overrides a type label that disagrees with it
- * (docs/agents/triage-labels.md §`takes:`).
- * Residual: labels are all it reads, so a ticket that asks questions without
- * one of these labels ranks as one that asks none.
- */
 const QUESTION_TYPES = ["wayfinder:grilling", "wayfinder:prototype"];
 const WAYFINDER_LABEL = takesLabel("wayfinder");
 /** @param {RawIssue} issue */
 const isQuestionType = (issue) =>
 	issue.labels.includes(WAYFINDER_LABEL) &&
 	(issue.labels.some((l) => QUESTION_TYPES.includes(l)) ||
-		// The type alone, not isDecisionTicket: takes:wayfinder is required above.
 		!isRouteStep(issue.labels));
 
 /**
- * What `enrichIssue` reads besides the issue itself.
  * @typedef {object} EnrichContext
  * @property {import("./blocker-graph").Graph} blockers
  * @property {Map<number, import("./label-age.js").Timeline|undefined>} timelineByIssue
@@ -279,14 +178,10 @@ const isQuestionType = (issue) =>
  * @property {{held: Map<number, {label: string, sessionId: string, kept: boolean}>}} parentHeld
  * @property {{byIssue: Map<number, import("./dispatch-ledger").DispatchRecord[]>}} dispatched
  * @property {Map<number, number>} openChildren
- * @property {Set<number>} goalRanked the issues the goal tier ranks on
- * @property {() => number} now the clock, ms since the epoch
+ * @property {Set<number>} goalRanked
+ * @property {() => number} now
  */
 
-/**
- * The open tally's buckets for an exclusion, in the tally's own order (#591).
- * Each limb of `exclusionOf` names its own (#4381).
- */
 const EXCLUSION_CATEGORIES = /** @type {const} */ ([
 	"degraded",
 	"blocked",
@@ -297,15 +192,9 @@ const EXCLUSION_CATEGORIES = /** @type {const} */ ([
 ]);
 /** @typedef {typeof EXCLUSION_CATEGORIES[number]} ExclusionCategory */
 
-/* A `takes:to-spec` map is itself the work, its children sitting beside the
- * spec it files (#4767); `takes:children` and `takes:wayfinder` children are
- * the work, so those stay held.
- * Residual: a to-spec map is offered beside a runnable child of its own. */
 const TO_SPEC_LABEL = takesLabel("to-spec");
 
 /**
- * Why an issue is held out of the frontier, earliest-applicable first, or
- * null where nothing holds it.
  * @param {DepsResolved} i
  * @param {EnrichContext} ctx
  * @param {{openBlockers: {label: string, native: boolean}[], dispatchReason: string|null, resolved: ReturnType<typeof resolveGate>}} facts
@@ -314,8 +203,6 @@ const TO_SPEC_LABEL = takesLabel("to-spec");
 function exclusionOf(i, ctx, facts) {
 	const { openBlockers, dispatchReason, resolved } = facts;
 	const { claims, parentHeld, listed, openChildren } = ctx;
-	// `gateHolds`/`gateOnHolds` already prove non-null and non-malformed;
-	// these locals carry that proof where the flag alone cannot.
 	const gate = resolved.gate;
 	const gateOn = resolved.gateOn;
 	if (i.depsUnknown)
@@ -382,8 +269,6 @@ function enrichIssue(i, ctx) {
 		},
 		held,
 	);
-	// Null unless the label is on: absence of a wait, distinct from a wait
-	// whose start could not be read.
 	const wait =
 		i.labels.includes(WAITING_LABEL) && timeline
 			? waitFrom(timeline, ctx.now())
@@ -394,11 +279,6 @@ function enrichIssue(i, ctx) {
 			: null;
 	const takes = takesOf(i.labels);
 	const resolved = resolveGate(i.body);
-	/*
-	 * Computed before the chain so the flag below can say whether THIS limb
-	 * is the one that fired. An issue that is also blocked or claimed keeps
-	 * that reason, and is reported there rather than in two blocks at once.
-	 */
 	const dispatchRec = holdingDispatch(ctx.dispatched, i.number, takes);
 	const dispatchReason = dispatchRec
 		? `dispatched ${dispatchAge(dispatchRec, ctx.now())}`
@@ -422,8 +302,6 @@ function enrichIssue(i, ctx) {
 		bug: tiers.bug,
 		urgent: tiers.urgent,
 		wait,
-		// The one number the sort reads: 0 for everything that is not a stalled
-		// wait, an unreadable age included.
 		stallDays: wait && !wait.unknown && wait.stalled ? wait.ageDays : 0,
 		parked,
 		goal: tiers.goal,
@@ -440,19 +318,12 @@ function enrichIssue(i, ctx) {
 		excluded,
 		exclusionCategory: exclusion?.category ?? null,
 		dispatchHeld: exclusion?.category === "already dispatched",
-		// Assigned, but no live session recorded a claim: fail open, and say so
-		// under the shortlist rather than silently. Excluded issues are left out —
-		// this run is not offering them.
 		assignedUnclaimed:
 			i.assignees.length > 0 && !ctx.claims.held.has(i.number) && !excluded,
 	};
 }
 
-/**
- * The maps and the specs among `issues`, by their labels: the two kinds the
- * verdict's grouping and the parent-claim test read.
- * @param {RawIssue[]} issues
- */
+/** @param {RawIssue[]} issues */
 function kindSetsOf(issues) {
 	const numbersWith = (/** @type {string} */ label) =>
 		new Set(
@@ -465,8 +336,6 @@ function kindSetsOf(issues) {
 }
 
 /**
- * Every issue's verdict, and the inheritance each passes on, worked out once
- * over the whole set first.
  * @param {DepsResolved[]} withDeps
  * @param {Map<number, RawIssue>} byNumber
  * @param {Omit<EnrichContext, "inherit">} ctx
@@ -478,8 +347,6 @@ function enrichAll(withDeps, byNumber, ctx) {
 }
 
 /**
- * The frontier: every issue nothing holds out, in sort-level order, then by
- * number.
  * @template {Issue} I
  * @param {I[]} enriched
  * @returns {I[]}

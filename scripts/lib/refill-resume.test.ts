@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's resume of a stopped session (lib/refill-resume.js) against
- * lib/resume-io-fake.ts, which resume-io.contract.test.ts holds to the
- * production adapter: what the resume launches and with which key, how it
- * judges the job the launcher named, what a copy is handed, and what a move to
- * another seat or onto a key stops where it fails.
- *
- * Loosen one and a resume can bill the plan for a key's session, count a job
- * still stopped or another session's as resumed, leave a failed move's resume
- * starting, or run a move's job on a key unrecorded.
- */
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FAKE_COPY } from "./bg-resume-fake";
@@ -38,8 +27,6 @@ const PROMPT = "carry on";
 const LAUNCH = { root: ROOT, issues: [7], seat: SEAT };
 const IDS = { sessionId: SESSION, cwd: ROOT };
 
-/** The resume steps over the fake serving `picks`, its env `env`, else
- * fakeResumeIo's bare PATH. */
 function fakeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 	const fake = fakeResumeIo(picks, env);
 	return { ...fake, steps: resumeSteps(fake.io) };
@@ -93,8 +80,6 @@ beforeEach(() => {
 
 describe("resumeStopped", () => {
 	const argvs = (calls: unknown[][]) => calls.map(([argv]) => argv);
-	// A wake in place relaunches on the saved flags, so a job saved on a
-	// routed-away model would wake on it after `off` (#4992).
 	it("names the standard model on the wake of a job saved on a routed-away one, burn mode off", () => {
 		const { steps, callsTo, lines } = fakeIo({
 			readJobRecord: "savedRoutedAway",
@@ -376,8 +361,6 @@ describe("resumeOwnId (#4098)", () => {
 		expect(lines.join("\n")).not.toContain("no saved launch flags");
 	});
 
-	// A session launched under burn mode saved a routed-away spelling; resumed
-	// as saved, it came back on that model after `off` (#4992).
 	it("resumes a routed-away launch on the standard row's model once burn mode is off", () => {
 		const flags = ["--model", "test-sonnet-0", "--name", "n"];
 		const { steps, callsTo, lines } = fakeIo({
@@ -492,8 +475,6 @@ describe("moveSession (#3734, #3736)", () => {
 		expect(callsTo("moveIssueClaim")).toEqual([]);
 	});
 
-	/** The name a move onto `target` gives, its transcript read as `name`: a
-	 * headless launch's on a key, a `--bg` launch's `-n` on a plan seat. */
 	const movedName = (
 		name: Picks["sessionName"],
 		target: object = keyTarget,

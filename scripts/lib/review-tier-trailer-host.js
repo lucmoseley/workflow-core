@@ -1,12 +1,3 @@
-/*
- * review-tier-trailer-host.js — lib/review-tier-trailer.js's production
- * ports: git over the committing repo in `cwd`, the message file, this
- * session's stamp in the git directory, the review hold run in-process on
- * the same repo, and the fail-open log. A ports file of its own, so the
- * core's module cases cross these adapters over real git in a temp repo
- * (#5153, #2733).
- */
-
 const fs = require("node:fs");
 const { readText } = require("./file-read.js");
 const { spawnGitSync } = require("./git.js");
@@ -24,7 +15,10 @@ const { ignoreFailure, orFallback } = require("./caught.js");
 function buildTrailerPorts({ cwd, env }) {
 	/** @param {string[]} args */
 	const run = (args) => spawnGitSync(args, { cwd, env, encoding: "utf8" });
-	/** @param {string[]} args @returns {string} "" where git fails */
+	/**
+	 * @param {string[]} args
+	 * @returns {string}
+	 */
 	const out = (args) => {
 		const r = run(args);
 		return r.status === 0 ? String(r.stdout) : "";

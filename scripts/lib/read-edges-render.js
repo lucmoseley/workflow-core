@@ -1,11 +1,3 @@
-/*
- * read-edges-render.js — renders docs/test-read-edges.json's bytes from the
- * disk, the index or what a commit of named paths will carry. The generator
- * (generate-test-read-edges.js) writes and checks them; the test wrapper's
- * selection and manifest freshening read them. What an edge means:
- * lib/test-read-edges.js's header (#557, #998).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -28,12 +20,7 @@ const NOTE =
 
 const INDEX_LINE = /^(\d+) ([0-9a-f]+) \d\t(.+)$/s;
 
-/**
- * Whether the repo has a commit yet. A git failure throws rather than reading
- * as no HEAD, which would drop every tracked path from the index render.
- *
- * @param {string} root
- */
+/** @param {string} root */
 function hasHead(root) {
 	const r = gitOutcome(["rev-parse", "--verify", "-q", "HEAD"], [1], root);
 	if (!r.ok) throw new Error(`git rev-parse HEAD: ${r.why}`);
@@ -41,12 +28,8 @@ function hasHead(root) {
 }
 
 /**
- * Whether an index path is an intent-to-add entry (`git add -N`), which
- * `ls-files` lists but no commit carries (#3243). The staged diff omits a new
- * one and calls one over a HEAD path deleted.
- *
  * @param {string} root
- * @param {Map<string, string>} [head]  HEAD's blob ids, where already read
+ * @param {Map<string, string>} [head]
  * @returns {(file: string) => boolean}
  */
 function readIsIntentToAdd(root, head) {
@@ -68,12 +51,7 @@ function readIsIntentToAdd(root, head) {
 		staged.get(file) === "D" || (!staged.has(file) && !headIds.has(file));
 }
 
-/**
- * Blob ids by path, from `ls-files -s` (the index). A gitlink has no blob to
- * read, so it is left out, as is an intent-to-add entry.
- *
- * @param {string} root
- */
+/** @param {string} root */
 function readIndexBlobIds(root) {
 	const isIntentToAdd = readIsIntentToAdd(root);
 	/** @type {Map<string, string>} */
@@ -90,10 +68,8 @@ function readIndexBlobIds(root) {
 }
 
 /**
- * Blob ids by path, from `ls-tree -r <rev>`, gitlinks left out as above.
- *
  * @param {string} root
- * @param {string} [rev]  a commit or tree
+ * @param {string} [rev]
  */
 function readTreeBlobIds(root, rev = "HEAD") {
 	/** @type {Map<string, string>} */
@@ -104,11 +80,6 @@ function readTreeBlobIds(root, rev = "HEAD") {
 }
 
 /**
- * A tree of blobs, overlaid by `disk` — paths read from the working tree
- * instead. Every tracked script is fetched in one `cat-file --batch` on first
- * read, tests and nearly every helper among them; any other helper, one blob
- * at a time.
- *
  * @param {string} root
  * @param {Map<string, string>} oidByPath
  * @param {Set<string>} [disk]
@@ -126,8 +97,7 @@ function blobTree(root, oidByPath, disk = new Set()) {
 			{
 				cwd: root,
 				timeout: GIT_TIMEOUT_MS,
-				/* Every script blob at once: 17.3 MB on 23 Oct 2026, so 256 MiB
-				 * keeps about fifteen times that. */
+				// measured 17.3 MB, x15, #2493
 				maxBuffer: 1 << 28,
 			},
 		);
@@ -135,8 +105,6 @@ function blobTree(root, oidByPath, disk = new Set()) {
 		const byPath = new Map();
 		for (const [i, [p, o]] of scripts.entries()) {
 			const object = objects[i];
-			/* A blob read as empty drops its test's edges and passes the gate
-			 * falsely, so an unreadable one refuses the render instead. */
 			if (object?.type !== "blob")
 				throw new Error(
 					`git cat-file --batch: ${o} ${object?.type ?? "missing"}`,
@@ -159,26 +127,12 @@ function blobTree(root, oidByPath, disk = new Set()) {
 	};
 }
 
-/**
- * The tree the index holds — on a pathspec commit, git's temporary index
- * (`GIT_INDEX_FILE`), which is HEAD plus the named paths: exactly what the
- * commit will carry, so neither a neighbour's deletion nor a neighbour's
- * unstaged edit on disk moves the verdict (#557).
- *
- * @param {string} root
- */
+/** @param {string} root */
 const readIndexTree = (root) => blobTree(root, readIndexBlobIds(root));
 
 /**
- * What `git commit -- <only>` will carry, rendered before the commit: HEAD,
- * with each named path taken from disk or, where the disk has lost it, dropped.
- * A named intent-to-add entry over a HEAD path is dropped too, as the bare
- * commit whose refused `--check` named these paths deletes it (#3419). A
- * pathspec commit naming that path carries its disk bytes instead, so its own
- * `--check` refuses rather than passing falsely.
- *
  * @param {string} root
- * @param {string[]} only  file paths, as the commit names them
+ * @param {string[]} only
  */
 function readCommitTree(root, only) {
 	const head = readTreeBlobIds(root);
@@ -199,9 +153,6 @@ function readCommitTree(root, only) {
 }
 
 /**
- * The tree `render` reads: the commit or tree `at`, else what a commit of
- * `only` will carry, else the index, else the disk.
- *
  * @param {string} root
  * @param {{ index: boolean, only: string[] | undefined, at: string | undefined }} source
  */
@@ -215,8 +166,6 @@ function readTreeFor(root, { index, only, at }) {
 /**
  * @param {string} root
  * @param {{ index?: boolean, only?: string[], at?: string, sites?: boolean }} [opts]
- *   read the index, what a commit of `only` will carry, or the commit or tree
- *   `at`, rather than the disk; `sites` also finds each test's unseen reads
  */
 function render(root, { index = false, only, at, sites = false } = {}) {
 	const tree = readTreeFor(root, { index, only, at });
@@ -241,10 +190,7 @@ function render(root, { index = false, only, at, sites = false } = {}) {
 	};
 }
 
-/**
- * The manifest's bytes for `edges`, as every writer of it spells them.
- * @param {Record<string, string[]>} edges
- */
+/** @param {Record<string, string[]>} edges */
 const buildManifestText = (edges) =>
 	`${JSON.stringify({ $note: NOTE, edges }, null, "\t")}\n`;
 

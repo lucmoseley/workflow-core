@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/pip-install.js, the guard-pip-install core (#5232), in process: the
- * Python install boundary, the twin of lib/npm-install.js's checks 1 and 2.
- *
- * The floors are lib/package-vetting.js's.
- *
- * NOTHING HERE TOUCHES THE NETWORK OR THE DISK.
- */
 
 import { describe, expect, it } from "vitest";
 import { kitContextFake } from "./kit-context-fake";
@@ -66,7 +58,6 @@ const FILES: Record<string, string> = {
 
 interface Over {
 	files?: Record<string, string | Error>;
-	/** git's answer; null where it fails. */
 	listed?: string[] | null;
 	allow?: boolean;
 	now?: () => number;
@@ -165,16 +156,12 @@ describe("what it does not judge", () => {
 	});
 
 	it.each([
-		// Declared in requirements.txt, read through its hash continuation.
 		"pip install requests",
-		// PEP 503: case, `_` and `.` fold into one name.
 		"pip install PILLOW",
 		"pip install 'jinja2>=3'",
 		"pip install JINJA2",
-		// pyproject.toml's three tables.
 		"pip install httpx mkdocs ruff",
 		"uv add 'pytest-cov[toml]>=5'",
-		// requirements/dev.in, which git's pathspec reaches.
 		"uv pip install pytest",
 	])("allows a declared package: `%s`", (command) => {
 		expect(allows(command, { created: "404" })).toBe(true);
@@ -466,7 +453,6 @@ ${ESCAPE}`,
 		"/abs/path",
 		"../sibling",
 	])("refuses the unvettable spec `%s`, in full", (spec) => {
-		/* The refusal echoes the command with its quoted span masked. */
 		expect(denial(`pip install ${BIN} '${spec}'`)).toBe(
 			`This install names a spec the registry cannot be asked about, so its legitimacy is unverifiable: \`${spec}\`
 

@@ -1,9 +1,3 @@
-/*
- * pick-next's last-run snapshot, read for why an issue went unlaunched
- * (#2693). Break it and every stuck-urgent line in the morning review reads
- * "pick-next does not say why", or names a reason from another tracker.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

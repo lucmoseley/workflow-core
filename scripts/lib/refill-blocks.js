@@ -1,10 +1,3 @@
-/*
- * refill-blocks.js — the refill loop's blocked and resumed-idle launches
- * (#2848, spec #2695): their block and resume records, the act
- * lib/block-act.js's table returns for each, and each act done through the
- * I/O the program passes in (BlockIo).
- */
-
 const { isTerminalAgent } = require("./agent-liveness.js");
 const { blockCause, hasEndedUnblocked } = require("./block-cause.js");
 const { newestMarkerListing } = require("./parked.js");
@@ -55,118 +48,68 @@ const {
 	settleStartedLimit,
 } = require("./refill-limits.js");
 
-/* #2359's "within one tick": a typed line reaches the timeline at once
- * (#2354 F8), so a minute is ample; untraced. */
+// guess, #2359
 const ATTACH_VERDICT_MS = 60 * 1000;
 const ATTACH_ROUTE = "typing into the live session";
 const FALLBACK_ROUTE = "stop and --bg --resume";
-/* The hand-offs of a stopped resumed-idle session tried before the loop gives
- * up on posting it and finishes the launch; untraced. */
+// guess, #2707
 const HAND_OFF_TRIES = 3;
-/* The resumes of a session stopped under the swap hold that fail before the
- * loop hands it off instead: untraced (#3093). */
+// guess, #3093
 const SWAP_RESUME_TRIES = 3;
-/* A finished session drops off the listing; one just launched may not be on
- * it yet, so a launch younger than this is never judged finished. Untraced. */
+// guess, #2012
 const LISTING_GRACE_MS = 2 * 60 * 1000;
 
 /**
  * @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch
  * @typedef {LoopLaunch & {jobId: string}} JobLaunch
  * @typedef {{seat: string, jobId: string, root: string, sessionId?: string,
- *   keyVar?: string}} SessionRef  the session a port reads or acts on, a
- *   loop launch's or one the loop did not launch: its seat, job, checkout,
- *   full id where known, and the overflow key it runs on, if any
+ *   keyVar?: string}} SessionRef
  * @typedef {JobLaunch & {block: import("./block-act.js").Block}} BlockedLaunch
  * @typedef {import("./block-act.js").Act} Act
- * @typedef {{id: string, issue: number|null}} HoldRef  a repo hold a park is
- *   attached to
+ * @typedef {{id: string, issue: number|null}} HoldRef
  * @typedef {{act: Act, whyEnded?: string, limitParks?: number,
- *   hold?: HoldRef}} ParkWhy  `act`, stop-and-park,
- *   park-at-morning or attach-to-hold; `limitParks`, a limit-cap park's count in
- *   a row, for the marker
+ *   hold?: HoldRef}} ParkWhy
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
  * @typedef {import("./refill-limits.js").LimitHeld} LimitHeld
  * @typedef {import("./refill-limits.js").LimitAct} LimitAct
  * @typedef {import("./refill-limits.js").MoveTarget} MoveTarget
  * @typedef {{tries: number, triedAt: number, nextAt: number,
- *   attachAt?: number, heldAt?: number}} Resumes  a launch's resumes after an
- *   API error, kept across spells so the cap is the session's (#2705)
- * @typedef {{tries: number, triedAt: number}} IdleResumes  its typed
- *   resumes while resumed-idle (#2659), cleared once it takes a turn
+ *   attachAt?: number, heldAt?: number}} Resumes
+ * @typedef {{tries: number, triedAt: number}} IdleResumes
  * @typedef {{at: number, sessionId: string, cwd: string, tries: number,
- *   resumeStartedAt?: number, resumeTo?: string}} StepHeld  a stopped session
- *   due back through the tick's resume step: when, the session and directory
- *   its resume runs in, and the resumes since tried that failed.
- *   `resumeStartedAt`, when the step ran `--bg --resume` on it, on record
- *   before the launcher runs and gone with the hold (#4157); `resumeTo`, the
- *   seat that resume moved it to (#5293)
+ *   resumeStartedAt?: number, resumeTo?: string}} StepHeld
  * @typedef {{
  *   swapHeld: StepHeld,
  *   holdCleared: StepHeld & {hold: string},
  *   bootKilled: Omit<StepHeld, "sessionId"> & {sessionId: string|null,
  *     flags?: string[]},
- * }} StepPayloads  each step-resume cause's record (STEP_CAUSES).
- *   `swapHeld`, a resumed-idle session the loop stopped under the swap hold
- *   (#3093), `at` the stop, its session read before it. `holdCleared`, a
- *   session parked on a repo hold since cleared (#3863): `at`, when it
- *   parked, and `hold`, that hold's id. `bootKilled`, a session a restart
- *   killed mid-work (#3880): `at`, when it was launched, which sets its turn
- *   among the resumes; `sessionId`, null unread; `flags`, its job's saved
- *   launch flags, read on the tick it is queued, before any resume removes its
- *   job record (#4098)
+ * }} StepPayloads
  * @typedef {keyof StepPayloads} StepCause
  * @typedef {(l: SessionRef, row: AgentRecord, name: string) =>
- *   import("./block-cause.js").Reading} CauseOf  `name`, how a log line
- *   names the session
+ *   import("./block-cause.js").Reading} CauseOf
  * @typedef {{root: string, job: import("./parked.js").ParkJob|null,
- *   limitParks?: number, cause?: string}} ParkRecord  what a park marker
- *   records: the seat, job and cwd a normal-mode loop resumes (#3709), a
- *   limit-cap park's count in a row (#3804) and the block's cause
- * @typedef {{sessionId: string|null, cwd: string, flags?: string[]}}
- *   ResumeTarget  a job's full session id, null unread, the directory its
- *   resume runs in, and the launch flags its job record saved, where it saved
- *   any (#4098)
- * @typedef {ResumeTarget & {sessionId: string}} StoppedTarget  what a
- *   stopped session's `--bg --resume` runs under
+ *   limitParks?: number, cause?: string}} ParkRecord
+ * @typedef {{sessionId: string|null, cwd: string, flags?: string[]}} ResumeTarget
+ * @typedef {ResumeTarget & {sessionId: string}} StoppedTarget
  * @typedef {(root: string, sessionId: string) =>
- *   NonNullable<LoopLaunch["actsBefore"]>} ReadActsBefore  the acts a session
- *   made before a new launch row wakes it, which are not that launch's (#3942)
+ *   NonNullable<LoopLaunch["actsBefore"]>} ReadActsBefore
  * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo,
  *   swapHold: import("./admission.js").SwapHold, barred?: boolean,
- *   net?: NetGate}} Tick  a
- *   tick's listing, null unread; its clock; the program's I/O; the swap hold
- *   (#2690) as read this tick; whether launching is barred, by a pause or a
- *   live launch hold (#4354); its network gate (netGateOf)
+ *   net?: NetGate}} Tick
  * @typedef {{seat: string, sessionId: string, cwd: string,
- *   copyJobId: string, tries: number}} Unretired  a copy's original whose job
- *   would not stop or leave the job store (#4646): its seat, session and cwd,
- *   the copy it left, and the retirements tried
- * @typedef {{unretired?: Unretired[]}} HasUnretired  a launch or an outside
- *   session's record, either of which carries its copies' unretired originals
+ *   copyJobId: string, tries: number}} Unretired
+ * @typedef {{unretired?: Unretired[]}} HasUnretired
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: true, why: string,
- *   unretired?: Unretired}} Resumed  a
- *   `--bg --resume`: why it failed, else the job it runs on as, its full
- *   session id, null unread, and whether that job is a copy (#2963), with the
- *   reason the harness gave for it (#4098) and its original where that would
- *   not retire, rather than the one woken in place
+ *   unretired?: Unretired}} Resumed
  * @typedef {Extract<Resumed, {failed: null}>|{unread: string}|null} Adopted
- *   the job a resume started, woken in place or a copy handed what the session
- *   held; why the job store could not tell, or null where it holds neither
  * @typedef {{kind: "api", route: string, again: boolean}|
- *   (LimitAct & {held: LimitHeld})} StartedAct  the act a resume was made for:
- *   an API-error fallBack, told by `route`, `again` its typed resume's
- *   fallback; or a limit act, `held` its hold as the stop leaves it
- * @typedef {{at: number, sessionId: string, cwd: string, act: StartedAct}}
- *   ResumeStarted  a stop and `--bg --resume` of `sessionId` from `cwd` the
- *   loop made at `at` (#4180)
+ *   (LimitAct & {held: LimitHeld})} StartedAct
+ * @typedef {{at: number, sessionId: string, cwd: string, act: StartedAct}} ResumeStarted
  */
 
 /**
- * A launch's step-resume record, its `cause` naming its STEP_CAUSES row; one
- * cause's alone where `C` names it.
  * @template {StepCause} [C=StepCause]
  * @typedef {{[K in C]: {cause: K} & StepPayloads[K]}[C]} StepResume
  */
@@ -174,125 +117,65 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
 /** @typedef {JobLaunch & {stepResume: StepResume}} SteppedLaunch */
 
 /**
- * The program's reads for the acts on blocked and resumed-idle launches. A
- * port that writes or spawns goes in BlockActs, where a dry tick answers it.
  * @typedef {object} BlockReads
- * @property {(l: SessionRef) => ResumeTarget} resumeTargetOf  read before
- *   its stop, which may rewrite the job record
- * @property {(root: string) => string|null} admitResume  the dispatcher's
- *   per-member memory, load and session-ceiling re-read, in the member's
- *   checkout `root`: null where it admits one more session, else why not
- * @property {(l: SessionRef) => {state?: unknown, detail?: unknown}|null}
- *   jobStateOf  its job's state.json, null unread
- * @property {(l: SessionRef) => unknown[]|null} readTimeline  its job's
- *   timeline rows, null unread
- * @property {(l: JobLaunch) => import("./block-cause.js").IdleReading}
- *   idleSince  lib/block-cause.js's resumedIdleSince on its records
- * @property {(l: SessionRef) => import("./block-cause.js").IdleReading}
- *   syntheticStopOf  lib/block-cause.js's syntheticStopAt on its records
+ * @property {(l: SessionRef) => ResumeTarget} resumeTargetOf
+ * @property {(root: string) => string|null} admitResume
+ * @property {(l: SessionRef) => {state?: unknown, detail?: unknown}|null} jobStateOf
+ * @property {(l: SessionRef) => unknown[]|null} readTimeline
+ * @property {(l: JobLaunch) => import("./block-cause.js").IdleReading} idleSince
+ * @property {(l: SessionRef) => import("./block-cause.js").IdleReading} syntheticStopOf
  * @property {(l: SessionRef, at: number) => boolean} hasTurnedSince
- *   lib/block-cause.js's hasTurnedSince on its transcript, false unread
  * @property {(l: SessionRef, at: number) => boolean|null} hasRepliedSince
- *   lib/block-cause.js's hasRepliedSince on its transcript, null unread
- * @property {(seat: string, jobId: string) => string|null} readJobCwd  the cwd
- *   job `jobId`'s record on `seat` names, null where it names none
- * @property {(root: string) => import("./parked.js").ParkMarkerRead[]|null}
- *   readParkMarkers  those in `root`'s checkout, null where they will not read
+ * @property {(seat: string, jobId: string) => string|null} readJobCwd
+ * @property {(root: string) => import("./parked.js").ParkMarkerRead[]|null} readParkMarkers
  * @property {(marker: import("./parked.js").ParkMarkerRead) =>
- *   {file: string, mtimeMs: number}|null} findParkTranscript  its session's newest
- *   transcript, null where none is found
- * @property {(file: string, who: string) => Record<string, unknown>[]|null}
- *   readMainChain  that transcript's main-chain rows, null where it will not read
- * @property {(l: LoopLaunch) => object} progressOf  a finishing launch's
- *   progress fields, logged
+ *   {file: string, mtimeMs: number}|null} findParkTranscript
+ * @property {(file: string, who: string) => Record<string, unknown>[]|null} readMainChain
+ * @property {(l: LoopLaunch) => object} progressOf
  * @property {ReadActsBefore} readActsBefore
- * @property {() => string|null} probeNetwork  lib/net-probe.js's: null where
- *   the API host is reachable, else why not
- * @property {(l: SessionRef, since?: number) => boolean|null}
- *   isResumedSinceStop  whether its session took a turn after its API-error
- *   stop, first read at `since`: lib/block-cause.js's isResumedSinceApiStop,
- *   null where neither its transcript nor its timeline can tell
+ * @property {() => string|null} probeNetwork
+ * @property {(l: SessionRef, since?: number) => boolean|null} isResumedSinceStop
  * @property {() => import("./refill-outside.js").Outside[]} readOutside
- *   lib/refill-outside.js's records, none where its file is absent or will
- *   not read
  * @property {() => {jobs: import("./reaped-jobs.js").ReapedJob[],
- *   read: string[]}} readReaped  lib/reaped-jobs.js's journal, none where
- *   it will not read, and the keys of the entries the loop has read
+ *   read: string[]}} readReaped
  * @property {(l: SessionRef) => boolean|null} hasFounderTypedSinceStop
- *   lib/block-cause.js's hasFounderTypedSinceApiStop on its transcript, null
- *   unread
  * @property {(line: string) => void} log
  */
 
 /**
- * The program's writes and child processes for those acts. Each returns why it
- * failed, or null once done, unless said otherwise.
  * @typedef {object} BlockActs
  * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string},
- *   since: number, move?: MoveTarget) => Adopted} adoptResumed  the job a
- *   resume of its session on `l`'s seat started from `since`, `move` the
- *   target of a move onto that seat
+ *   since: number, move?: MoveTarget) => Adopted} adoptResumed
  * @property {(seat: string, jobId: string) =>
- *   import("./claude-stop.js").StopOutcome} stop  `claude stop` on a seat's
- *   job (lib/claude-stop.js's stopOn)
- * @property {(l: SessionRef, prompt: string) => string|null} type  type
- *   `prompt` into the live session
+ *   import("./claude-stop.js").StopOutcome} stop
+ * @property {(l: SessionRef, prompt: string) => string|null} type
  * @property {(l: SessionRef & {issues?: number[]}, prompt: string,
  *   target: ResumeTarget & {sessionId: string}) => Resumed} resumeStopped
- *   `claude --bg --resume` of the stopped job, moving its claims on `issues`
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
- *   {sessionId: string}) => Resumed} resumeOwnId  `claude --bg --resume` of
- *   a job a restart killed, its record removed first so it keeps its id
- *   (#4098)
- * @property {(l: LoopLaunch) => void} writeLaunch  write the state file with
- *   `l` in place of the launch it was: a resume's stamp before its stop, and its
- *   outcome after (#4180)
- * @property {() => void} stagger  the dispatcher's pause between one launch
- *   and the next member's re-read
+ *   {sessionId: string}) => Resumed} resumeOwnId
+ * @property {(l: LoopLaunch) => void} writeLaunch
+ * @property {() => void} stagger
  * @property {(l: JobLaunch, target: MoveTarget, prompt: string, ids: ResumeTarget &
- *   {sessionId: string}) => Resumed} moveSession  the stopped session carried
- *   to `target` and resumed there, on an overflow seat recorded as a launch on
- *   its key with its allowance
- * @property {(seat: string, sessionId: string, cwd: string) => string|null}
- *   removeJobRecord  `claude rm` of any job record for it on `seat`, which
- *   keeps transcripts
- * @property {(seat: string, sessionId: string, cwd: string) => string|null}
- *   retireJob  its own job on `seat` stopped and its record removed, unless
- *   that record names another session (lib/refill-resume.js's retireJob)
- * @property {(l: LoopLaunch, until?: number) => boolean} writeLedgerHold  a
- *   dispatch-ledger row on its issues, held past the window to `until` where
- *   given; whether it was written
+ *   {sessionId: string}) => Resumed} moveSession
+ * @property {(seat: string, sessionId: string, cwd: string) => string|null} removeJobRecord
+ * @property {(seat: string, sessionId: string, cwd: string) => string|null} retireJob
+ * @property {(l: LoopLaunch, until?: number) => boolean} writeLedgerHold
  * @property {(l: JobLaunch, lockout: import("./block-cause.js").Lockout,
- *   now: number) => {hold: HoldRef}|{why: string}}
- *   holdLockedOut  attach its locked-out session to its checkout's probe
- *   hold, raised where none stands: the hold, else why not
+ *   now: number) => {hold: HoldRef}|{why: string}} holdLockedOut
  * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
- *   each of its issues the `parked` label would not go on, with why
  * @property {(sessionId: string, numbers: number[], record: ParkRecord) =>
- *   string|null} recordParked  add `numbers` to the session's `.parked-`
- *   marker in `record.root` (lib/parked.js), with the rest of `record`; null,
- *   else why not, which may carry a stack
+ *   string|null} recordParked
  * @property {(root: string, sessionId: string, issues: number[]) => string|null} unparkSession
- *   take the `parked` label and marker off its issues, as its session has gone back
- * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
- *   issues, a failure logged
- * @property {(root: string, args: string[]) => {failed: string|null, out: string}}
- *   postHandOff  `rescue-sessions.js` run with `args` in `root`'s checkout
- * @property {(ledger: {jobId: string, root: string}) => boolean} release  the
- *   dispatch-ledger hold of job `jobId`; whether it went
- * @property {(records: import("./refill-outside.js").Outside[]) => void}
- *   writeOutside  lib/refill-outside.js's records, in place of its file's
- * @property {(keys: string[]) => void} writeReapedRead  the keys of the
- *   journal entries the loop has read
+ * @property {(l: LoopLaunch, body: string) => void} comment
+ * @property {(root: string, args: string[]) => {failed: string|null, out: string}} postHandOff
+ * @property {(ledger: {jobId: string, root: string}) => boolean} release
+ * @property {(records: import("./refill-outside.js").Outside[]) => void} writeOutside
+ * @property {(keys: string[]) => void} writeReapedRead
  */
 
 /** @typedef {BlockReads & BlockActs} BlockIo */
 
-/**
- * `rescue-sessions.js hand-off` of `l`'s stopped session, `l.sessionId`
- * standing in for a job record that is gone (#3988).
- * @param {JobLaunch} l
- */
+/** @param {JobLaunch} l */
 const buildHandOffArgs = (l) => [
 	"hand-off",
 	"--from",
@@ -322,17 +205,10 @@ const buildChildLine = (label, ran) =>
  */
 const isStepResumeFor = (l, cause) => l.stepResume?.cause === cause;
 
-/**
- * @typedef {{admit: (name: string) => boolean, waitedLine: () => string|null}}
- *   NetGate  a tick's one network probe (#4815): `admit`, whether a due
- *   resume named `name` may go ahead; and the
- *   log line naming each that waited, null where none did
- */
+/** @typedef {{admit: (name: string) => boolean, waitedLine: () => string|null}} NetGate */
 
 /**
- * Tick `seen`'s NetGate, made on the first ask and kept on `seen`, so one
- * probe serves the tick.
- * @param {Tick} seen accumulator: the gate is kept on its `net`
+ * @param {Tick} seen
  * @returns {NetGate}
  */
 function netGateOf(seen) {
@@ -357,26 +233,19 @@ function netGateOf(seen) {
 }
 
 /**
- * Whether tick `seen` may set the session named `name` running: launching
- * unbarred and the network up (netGateOf, which logs a resume it holds back).
  * @param {string} name
  * @param {Tick} seen
  */
 const isRunAdmitted = (name, seen) =>
 	!seen.barred && netGateOf(seen).admit(name);
 
-/**
- * Log the due resumes tick `seen` held back for the network, once a tick
- * (#4815).
- * @param {Tick} seen
- */
+/** @param {Tick} seen */
 function logNetWaits(seen) {
 	const line = seen.net?.waitedLine();
 	if (line) seen.io.log(line);
 }
 
 /**
- * `l`'s block with its resume record, as lib/block-act.js reads it.
  * @param {LoopLaunch & {block: import("./block-act.js").Block}} l
  * @returns {import("./block-act.js").Block}
  */
@@ -389,24 +258,10 @@ const blockOf = (l) => ({
 	typing: l.resumes?.attachAt !== undefined,
 });
 
-/**
- * When the loop's next resume of a launch it resumes after an API error is
- * due.
- * @param {LoopLaunch & {block: import("./block-act.js").Block}} l
- */
+/** @param {LoopLaunch & {block: import("./block-act.js").Block}} l */
 const nextResumeAt = (l) => resumeDueAt(blockOf(l));
 
 /**
- * The launches with `parked` read off the listing alone, whether or not the
- * `parked` label is on its issues, and each parked one's `block`: its cause
- * this tick, and since when it has been parked, kept across a change of cause.
- * A parked session is neither finished nor working: it waits in its own thread
- * for the founder's answer (#1995 stories 52, 55). Off an unread listing, for an
- * unlisted launch, for one whose row carries no `state`, or for a held one
- * (isHeld) whose session has ended, each keeps what the last read said; one held under the swap hold whose session
- * the listing shows live again is no longer held (#3093), as one due back off a
- * cleared repo hold, its founder's answer having woken it (#3863), or off a
- * restart, its harness having brought it back (#3880).
  * @param {LoopLaunch[]} launches
  * @param {AgentRecord[]|null} agents
  * @param {CauseOf} causeOf
@@ -421,8 +276,6 @@ function markParked(launches, agents, causeOf, now) {
 		if (l.finishedAt !== null || jobId === null || !row) return l;
 		if (isHeld(l) && isTerminalAgent(row)) return l;
 		const ref = { ...l, jobId };
-		/* causeOf reads a row carrying no `state` UNKNOWN, and logs why
-		 * (#3200). */
 		if (row.state == null) {
 			causeOf(ref, row, launchName(l));
 			return l;
@@ -439,8 +292,6 @@ function markParked(launches, agents, causeOf, now) {
 }
 
 /**
- * The block a cause `reading` read first at `since` makes: its cause, and
- * an API_ERROR's kind or the bar a LIMIT's text names.
  * @param {import("./block-cause.js").Reading} reading
  * @param {number} since
  * @returns {import("./block-act.js").Block}
@@ -455,11 +306,7 @@ const buildBlock = (reading, since) => ({
 });
 
 /**
- * The launches the table acts on this tick, each with its act: those the
- * listing shows blocked, and the held ones (isHeld) whatever it shows, bar
- * the limit-blocked, whose act waits on the seats (actOnLimits). None off an
- * unread listing, which cannot tell a live session from a stopped one.
- * @param {LoopLaunch[]} launches markParked's, off `seen`'s listing
+ * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
  * @returns {{l: BlockedLaunch, act: Act}[]}
@@ -481,8 +328,6 @@ function blockedActs(launches, mode, { agents, now }) {
 }
 
 /**
- * A resume record after a try made at `now`, `typed` where it went into the
- * live session, so the next tick checks it arrived.
  * @param {{tries: number}|undefined} was
  * @param {number} now
  * @param {boolean} typed
@@ -494,9 +339,6 @@ const nextTry = (was, now, typed) => ({
 });
 
 /**
- * `l` after a resume made at `now`: one more try, the next due on the
- * schedule; `attachAt` where it was typed into the live session; `heldAt`
- * kept where it failed, its session being stopped still.
  * @template {LoopLaunch} L
  * @param {L} l
  * @param {number} now
@@ -517,7 +359,6 @@ function afterResume(l, now, { typed, failed }) {
 }
 
 /**
- * `l` after a typed resume of its resumed-idle session at `now`.
  * @template {LoopLaunch} L
  * @param {L} l
  * @param {number} now
@@ -529,12 +370,9 @@ const afterIdleResume = (l, now) => ({
 });
 
 /**
- * Whether a resume typed at `attachAt` arrived (#2354 F8): the timeline has a
- * row after it whose detail is the typed prompt, or the start of it, a long
- * detail being cut short.
- * @param {number} attachAt ms
+ * @param {number} attachAt
  * @param {string} prompt
- * @param {unknown[]|null} timeline  the job's timeline rows, null unread
+ * @param {unknown[]|null} timeline
  */
 function isResumeArrived(attachAt, prompt, timeline) {
 	return (timeline ?? []).some((r) => {
@@ -551,7 +389,6 @@ function isResumeArrived(attachAt, prompt, timeline) {
 }
 
 /**
- * `l` with its resumed-idle episode ended.
  * @template {LoopLaunch} L
  * @param {L} l
  */
@@ -567,8 +404,6 @@ function endedIdle(l) {
 }
 
 /**
- * Whether `l`, resumed after a restart killed it, has left the listing with no turn
- * since, past the listing's grace.
  * @param {LoopLaunch} l
  * @param {Tick} seen
  */
@@ -581,9 +416,6 @@ const isDeadAfterBootResume = (l, { agents, now, io }) =>
 	!io.hasTurnedSince(l, l.bootResumedAt);
 
 /**
- * Whether `l`, resumed after a restart killed it, still reads working with no turn
- * since: the harness writes no restart row for a resume, so resumedIdleSince cannot
- * see it (#3880).
  * @param {JobLaunch} l
  * @param {BlockIo} io
  * @returns {l is JobLaunch & {bootResumedAt: number}}
@@ -594,10 +426,6 @@ const isIdleSinceBootResume = (l, io) =>
 	io.jobStateOf(l)?.state === "working";
 
 /**
- * `l`'s resumed-idle reading off its job store and transcript: "turned"
- * where it took a turn after the loop's last typed resume (#2978), "ended"
- * where its job no longer reads idle, "unread" where its records will not
- * read, else when it went idle, for one resumed after a restart its resume.
  * @param {JobLaunch} l
  * @param {BlockIo} io
  * @returns {"turned"|"ended"|"unread"|number}
@@ -611,15 +439,6 @@ function idleReading(l, io) {
 }
 
 /**
- * The resumed-idle launches (#2659) and the RESUMED_IDLE row's act on each:
- * every actionable launch the loop does not resume after an API error nor
- * hold stopped under the swap hold, whose
- * job `idleSince` reads resumed-idle off the job store and transcript alone,
- * never the listing. Each launch read resumed-idle is returned with its
- * `idleSince` set, kept from the first such reading; one read taking a turn
- * again, an `api-request` or assistant row after the loop's last typed
- * resume included (#2978), with that and its `idleResumes` cleared; one
- * whose records will not read, unchanged (#2847).
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
@@ -641,8 +460,6 @@ function idleActs(launches, mode, { now, io, swapHold }) {
 		if (since === "unread") return l;
 		if (typeof since === "string") return endedIdle(l);
 		const idle = { ...l, idleSince: l.idleSince ?? since };
-		/* From the loop's own typed resume where later, so each gets its
-		 * window. */
 		/** @type {import("./block-act.js").Block} */
 		const block = {
 			cause: "RESUMED_IDLE",
@@ -657,10 +474,8 @@ function idleActs(launches, mode, { now, io, swapHold }) {
 }
 
 /**
- * The loop log's line for a resume after an API error, or one that could not
- * be made.
- * @param {LoopLaunch} l  afterResume's
- * @param {string} route  how it went in
+ * @param {LoopLaunch} l
+ * @param {string} route
  * @param {string|null} failed
  */
 function buildResumeLine(l, route, failed) {
@@ -670,9 +485,7 @@ function buildResumeLine(l, route, failed) {
 }
 
 /**
- * The loop log's line for a typed resume of a resumed-idle session, or one
- * that could not be made.
- * @param {LoopLaunch} l  afterIdleResume's
+ * @param {LoopLaunch} l
  * @param {string|null} failed
  */
 const buildIdleResumeLine = (l, failed) =>
@@ -685,16 +498,9 @@ const buildIdleResumeLine = (l, failed) =>
 const isAwayPark = (l) => l.parkedAway === true && l.jobId !== null;
 
 /**
- * `launches` once normal mode is live, each stopped for a park in away mode with
- * its dispatch-ledger row released, so its ticket reaches the frontier now and
- * not at the window's end (#3872). A park made in normal mode keeps the window:
- * its session was stopped at a block with the founder there, and an instant
- * relaunch would meet the same block. A release that fails, the ledger
- * unwritable, is logged and tried again next tick.
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
- * @param {string[]} served the checkouts this tick can resume in; another's
- *   row waits, as nothing would take its ticket up
+ * @param {string[]} served
  * @param {Pick<BlockIo, "release"|"log">} io
  * @returns {LoopLaunch[]}
  */
@@ -714,9 +520,6 @@ function releaseAwayParks(launches, mode, served, io) {
 }
 
 /**
- * Attach locked-out `l` to its checkout's probe hold, raised where none stands,
- * then stop and park it there, its issues labelled and in its marker for the
- * hold's resume step (#4228).
  * @param {BlockedLaunch} l
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
@@ -736,7 +539,6 @@ function parkLockedOut(l, mode, seen) {
 }
 
 /**
- * `l` with its session marked stopped at `now` until its next resume.
  * @template {LoopLaunch} L
  * @param {L} l
  * @param {number} now
@@ -746,8 +548,6 @@ const withHeld = (l, now) =>
 	l.resumes ? { ...l, resumes: { ...l.resumes, heldAt: now } } : l;
 
 /**
- * Stop `l`'s resuming session until its next resume (#2359). `l`, marked
- * held once stopped.
  * @param {BlockedLaunch} l
  * @param {Tick} seen
  * @returns {LoopLaunch}
@@ -763,9 +563,6 @@ function holdForResume(l, { now, io }) {
 }
 
 /**
- * Stop `l`'s job, then `claude --bg --resume <full id> "<API_PROMPT>"`
- * (#2354 F6). The resume's
- * outcome; `fromSessionId`, the session it resumed.
  * @param {JobLaunch} l
  * @param {Extract<StartedAct, {kind: "api"}>} act
  * @param {Tick} seen
@@ -784,10 +581,8 @@ function relaunchResume(l, act, { now, io }) {
 }
 
 /**
- * One resume, or one that could not be made, logged and commented on `l`'s
- * issues.
- * @param {LoopLaunch} l  after the try
- * @param {string} line  its cause's line
+ * @param {LoopLaunch} l
+ * @param {string} line
  * @param {BlockIo} io
  */
 function reportResume(l, line, io) {
@@ -796,8 +591,6 @@ function reportResume(l, line, io) {
 }
 
 /**
- * `l` after a resume by stop and `--bg --resume` at `now`: a try of its own,
- * or, the fallback of a typed one, that same try, held where it failed.
  * @param {JobLaunch} l
  * @param {number} now
  * @param {{failed: boolean, again: boolean}} how
@@ -808,12 +601,9 @@ function afterFallBack(l, now, { failed, again }) {
 }
 
 /**
- * `l` after a fallback not made at `now`, whether its session took a turn
- * since the stop being unknown: counted as afterFallBack counts one made, its
- * session left as it was, stopped or live (#4873).
  * @param {JobLaunch} l
  * @param {number} now
- * @param {boolean} again  as fallBack's
+ * @param {boolean} again
  * @returns {LoopLaunch}
  */
 function afterTurnUnknown(l, now, again) {
@@ -823,15 +613,9 @@ function afterTurnUnknown(l, now, again) {
 }
 
 /**
- * Resume `l`'s API-error stop by stop and `--bg --resume`, never off an
- * unread listing ("doubt never stops a session"), nor where its session took a
- * prompt since the stop or that cannot be told (isTakenSinceStop). One whose
- * resume failed is held, its `heldAt` set, for the next on the schedule.
  * @param {JobLaunch} l
  * @param {Tick} seen
- * @param {{route: string, again: boolean}} how  how the resume is told in
- *   the log and comment; whether it is the fallback of a typed resume
- *   already made, and so the same try
+ * @param {{route: string, again: boolean}} how
  * @returns {LoopLaunch}
  */
 function fallBack(l, seen, { route, again }) {
@@ -857,11 +641,10 @@ function fallBack(l, seen, { route, again }) {
 }
 
 /**
- * `l` after fallBack's resume `r` at `now`, reported.
  * @param {JobLaunch} l
  * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
  * @param {{now: number, io: BlockIo}} seen
- * @param {{route: string, again: boolean}} how  as fallBack's
+ * @param {{route: string, again: boolean}} how
  * @returns {LoopLaunch}
  */
 function settleFallBack(l, r, { now, io }, { route, again }) {
@@ -880,10 +663,6 @@ function settleFallBack(l, r, { now, io }, { route, again }) {
 }
 
 /**
- * The launches with each API-error resume typed a tick ago checked (#2359's
- * route): where its line never reached the timeline, the same try falls back
- * to stop and `--bg --resume`, once the network is up (#4815). None off an unread listing, which could not
- * tell the session's state, the fallback being a stop.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  */
@@ -908,9 +687,6 @@ function settleTyped(launches, seen) {
 }
 
 /**
- * A resume typed into `l`'s session at `attachAt`, judged (#2354 F8):
- * `pending` inside the verdict window, `arrived` where the timeline shows it,
- * else `unseen`, for its fallback.
  * @param {number} attachAt
  * @param {SessionRef} l
  * @param {{now: number, io: BlockIo}} seen
@@ -924,11 +700,6 @@ function typedVerdict(attachAt, l, { now, io }) {
 }
 
 /**
- * Whether `l`'s session, told as `name`, took a turn since its API-error
- * stop, first read at `since`: the founder's own resume, or a typed one the
- * arrival check missed. A stop and relaunch then would make two sessions of
- * one (#4815), so the resume counts as arrived. Null where that cannot be
- * told, logged (#4873).
  * @param {SessionRef} l
  * @param {string} name
  * @param {BlockIo} io
@@ -949,7 +720,6 @@ function isTakenSinceStop(l, name, io, since) {
 }
 
 /**
- * Whether `l`'s session is live, or the listing unread.
  * @param {JobLaunch} l
  * @param {AgentRecord[]|null} agents
  */
@@ -957,9 +727,6 @@ const isLiveIn = (l, agents) =>
 	!agents || agents.some((a) => a.id === l.jobId && !isTerminalAgent(a));
 
 /**
- * Resume `l`'s API-error stop (#2705): typed into its session where it is
- * live or the listing is unread; else, or where the typing failed, by
- * fallBack. Never while the network is down (#4815).
  * @param {JobLaunch} l
  * @param {Tick} seen
  * @returns {LoopLaunch}
@@ -979,8 +746,6 @@ function makeResume(l, seen) {
 }
 
 /**
- * The prompt that resumes `l`: `plain`, unless a restart killed it on a block the
- * loop could not read and it has taken no turn since (#3980).
  * @param {LoopLaunch} l
  * @param {string} plain
  */
@@ -988,10 +753,6 @@ const resumePromptOf = (l, plain) =>
 	l.blockUnread ? BOOT_UNREAD_PROMPT : plain;
 
 /**
- * Type the resume into `l`'s resumed-idle session (#2978): never a stop, so
- * an unread listing types too. A try that could not be typed still counts,
- * so a session the loop cannot reach is handed off on the table's schedule;
- * a later tick reads the transcript for its turn (idleActs).
  * @param {JobLaunch} l
  * @param {Tick} seen
  * @returns {LoopLaunch}
@@ -1005,7 +766,6 @@ function typeIdleResume(l, { agents, now, io }) {
 	return tried;
 }
 
-/** Why idleSpared spares a launch, by its idleReading. */
 const SPARED_WHY = {
 	turned: "it took a turn after its resume",
 	ended: "its job is no longer idle",
@@ -1013,11 +773,6 @@ const SPARED_WHY = {
 };
 
 /**
- * `l` where its records, read again just before a stop, no longer read
- * resumed-idle (#2979): an `api-request` or assistant row after the loop's
- * last resume, or a job no longer working, ends the episode (endedIdle), and
- * records that will not read stop nothing ("doubt never stops a session"),
- * each logged. Null where it still reads idle.
  * @param {JobLaunch} l
  * @param {BlockIo} io
  * @returns {LoopLaunch|null}
@@ -1030,19 +785,9 @@ function idleSpared(l, io) {
 }
 
 /**
- * Stop `b`'s resumed-idle session, still idle after its typed resumes, and
- * hand its issues to a fresh launch (#2659): `io.postHandOff`, which posts
- * its snapshot as a `**Hand-off:**` comment on each and releases its claim.
- * Its launch is finished and its dispatch-ledger hold released (#2744), so
- * the next tick may relaunch its issues within the ledger's hour; a failed
- * hand-off is retried on the next tick, the session left stopped, up to
- * HAND_OFF_TRIES. One given up keeps its hold, as its claim may still stand
- * and no snapshot was posted, so its issues wait out the hour. Never off an
- * unread listing ("doubt never stops a session"), nor where idleSpared
- * spares it.
  * @param {JobLaunch} b
  * @param {Tick} seen
- * @param {boolean} [stopped]  its stop already held, on a retried hand-off
+ * @param {boolean} [stopped]
  * @returns {LoopLaunch}
  */
 function handOff(b, { agents, now, io }, stopped = false) {
@@ -1083,13 +828,6 @@ function handOff(b, { agents, now, io }, stopped = false) {
 }
 
 /**
- * Stop `b`'s resumed-idle session under the swap hold until it clears
- * (#3093, #3084). Its resume target is read first, the stop being free to
- * rewrite the job record; one with no session id is not stopped, as nothing
- * could resume it. A stop that fails, a job not found included, is logged
- * and never held, so the next tick tries again; never off an unread listing,
- * nor where idleSpared spares it. Its typed resumes are kept across the
- * hold, so one idle by its own fault still meets its hand-off.
  * @param {BlockedLaunch} b
  * @param {Tick} seen
  * @returns {LoopLaunch}
@@ -1122,13 +860,6 @@ function holdIdle(b, { agents, now, io, swapHold }) {
 }
 
 /**
- * The resume step's handling of one cause: `what`, the launch as its lines
- * name it; `why`, what brings it back; `prompt`, what its resume types;
- * `isParked`, whether it waits parked, so its resume unparks it;
- * `watchesTurn`, whether the launch is watched from its resume for a turn
- * (isIdleSinceBootResume); `resume`, its `--bg --resume`; `status`, its state
- * in `status`, under `kind`; `isUnsettled`, whether `status` lists it past its
- * launch window.
  * @template {StepCause} C
  * @typedef {{kind: string, isUnsettled: boolean,
  *   what: (l: LoopLaunch, held: StepResume<C>) => string,
@@ -1206,13 +937,11 @@ const buildStepStatus = (held) => stepCauseOf(held).status(held);
  */
 const stepKindOf = (held) => stepCauseOf(held).kind;
 
-/* The step kinds `status` lists past its launch window. */
 const UNSETTLED_STEP_KINDS = Object.values(STEP_CAUSES)
 	.filter((row) => row.isUnsettled)
 	.map((row) => row.kind);
 
 /**
- * `held`'s row with `l` and its hold bound, for the resume step.
  * @template {StepCause} C
  * @param {StepResume<C>} held
  * @param {JobLaunch} l
@@ -1234,12 +963,7 @@ function bindStepCause(held, l) {
 	};
 }
 
-/**
- * What the resume step needs of `l`: its cause's handling with its hold bound,
- * `rest`, `l` off its hold; `withStarted`, `l` with its hold's resume stamped
- * `at`, and the seat `to` it moved to, where it moved.
- * @param {SteppedLaunch} l
- */
+/** @param {SteppedLaunch} l */
 function stepResumeOf(l) {
 	const held = l.stepResume;
 	const { stepResume: _, ...rest } = l;
@@ -1262,13 +986,6 @@ function stepResumeOf(l) {
 }
 
 /**
- * The sessions due back through the tick's resume step, for its decision to pace
- * (#3855): those stopped under the swap hold, those parked on a cleared repo hold
- * (#3863) and those a restart killed (#3880), none while the swap hold stands, and
- * none off an unread listing, as one live again is not yet told from one still
- * stopped. A parked one is marked `parked`, for the decision to carry to the
- * seat the founder last typed on (#5293), but not one on an overflow key: a
- * move from a key onto a plan seat is untried, so it resumes where it parked.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  * @returns {import("./refill-decide.js").HeldResume[]}
@@ -1295,9 +1012,6 @@ function resumableOf(launches, { agents, io, swapHold }) {
 }
 
 /**
- * `l` after its step resume `r` of session `from` at `at`, on seat `to`: one a
- * restart killed is watched from the resume for a turn, however many holds it
- * meets on the way (isIdleSinceBootResume).
  * @param {JobLaunch} l
  * @param {ReturnType<typeof stepResumeOf>} step
  * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} r
@@ -1313,8 +1027,6 @@ function afterStepResume(l, { rest, watchesTurn }, r, { at, to }) {
 }
 
 /**
- * Take `parked` off a step-resumed session parked on a repo hold; logged where
- * it stays.
  * @param {JobLaunch} l
  * @param {string} sessionId
  * @param {ReturnType<typeof stepResumeOf>} step
@@ -1327,11 +1039,6 @@ function unparkStepped(l, sessionId, { isParked, what }, io) {
 }
 
 /**
- * `l` tracking the job its last step resume started, woken in place or a copy,
- * where a kill came between that resume and the state write that would have
- * recorded it (#4157); null where it carries no such resume or no job is found,
- * so the step resumes it.
- * Where the job store will not tell, that is logged and the step resumes it too.
  * @param {SteppedLaunch} l
  * @param {Tick} seen
  * @returns {LoopLaunch|null}
@@ -1366,12 +1073,6 @@ function adoptUnrecordedCopy(l, seen) {
 }
 
 /**
- * Resume `l`: `claude --bg --resume` of its session with its cause's prompt,
- * carried first to seat `to`, where the decision picked one other than its own
- * (#5293). One whose resume fails stays held for
- * the next tick, and after SWAP_RESUME_TRIES failures is handed off instead.
- * One parked on a repo hold no longer waits on the founder either way, so its
- * `parked` label and marker go.
  * @param {SteppedLaunch} l
  * @param {Tick} seen
  * @param {string} [to]
@@ -1417,9 +1118,6 @@ function resumeStepHeld(l, seen, to) {
 }
 
 /**
- * lib/block-cause.js's hasEndedUnblocked for `marker`'s session. A transcript
- * untouched since the park is not read, so a tick costs a stat per waiting park.
- * No transcript, or one that will not read, is false: the label stays (#3940).
  * @param {import("./parked.js").ParkMarkerRead} marker
  * @param {BlockIo} io
  */
@@ -1431,13 +1129,6 @@ function hasParkEndedUnblocked(marker, io) {
 }
 
 /**
- * Take `parked` off what each park marker in `roots` holds, where its session is
- * no longer running and took a turn since the park that left it unblocked: a `!`
- * answer fires no hook, so that turn is the only sign the question was answered
- * (#3940). Off the markers, not the launches, so a session reopened by `claude
- * attach`, one no loop launched and a failed label write are all met on a later
- * tick. An issue a newer park holds waits on that park's session. Off an unread
- * listing, nothing.
  * @param {string[]} roots
  * @param {Pick<Tick, "agents"|"io">} seen
  */
@@ -1464,7 +1155,6 @@ function unparkAnswered(roots, { agents, io }) {
 }
 
 /**
- * Unpark `issues` for session `sessionId`, logged.
  * @param {string} root
  * @param {string} sessionId
  * @param {number[]} issues
@@ -1481,19 +1171,11 @@ function unparkAndLog(root, sessionId, issues, io) {
 }
 
 /**
- * The tick's one resume step (#3855): each of the decision's resumes, in its
- * order, past the dispatcher's per-member re-read, as a stopped session is
- * charged nothing by admission and so counts as new draw. The first the re-read
- * refuses waits for a later tick with all behind it, charged no try, so none
- * overtakes it, and `waiting` holds the tick's launches back behind it; all
- * wait once a stop lands. As in the dispatcher, the next re-read, a resume's or
- * a launch's, waits out a started session's spare.
  * @param {import("./refill-decide.js").HeldResume[]} resumes
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  * @param {{isStopped: () => boolean,
- *   record: (launches: LoopLaunch[]) => void}} step  `record` writes the state
- *   with `launches`, before each resume's launcher runs and after it (#4157)
+ *   record: (launches: LoopLaunch[]) => void}} step
  * @returns {{launches: LoopLaunch[], started: number, waiting: boolean}}
  */
 function resumeHeldLaunches(resumes, launches, seen, { isStopped, record }) {
@@ -1532,8 +1214,6 @@ function resumeHeldLaunches(resumes, launches, seen, { isStopped, record }) {
 }
 
 /**
- * The launch record for a session the loop never launched (#3709), off the park
- * marker that lists its issues, counting only the acts it makes from here (#3942).
  * @param {string} job
  * @param {import("./parked.js").ParkMarkerRead} marker
  * @param {import("./repo-holds.js").LiftedHold} hold
@@ -1554,9 +1234,6 @@ const buildMarkerLaunch = (job, marker, hold, readActsBefore) => ({
 });
 
 /**
- * The launch due back for job `job`, parked on lifted hold `hold`, off the park
- * marker that lists its issues: `from`, its launch record, made unfinished again
- * until the resume step takes it.
  * @param {string} job
  * @param {import("./parked.js").ParkMarkerRead} marker
  * @param {import("./repo-holds.js").LiftedHold} hold
@@ -1591,15 +1268,6 @@ function buildClearedLaunch(job, marker, hold, from) {
 }
 
 /**
- * One session parked on a lifted hold, judged: whether it is settled, and its launch
- * where the resume step is to take it. Only a marker listing its issues reads as
- * still parked: the founder's answer empties it (unpark-on-prompt.js), as does a
- * resume to a copy. A session listed live with no block is awake already, and one
- * handed off, or whose ticket another live launch holds, has been replaced. One
- * blocked, in a normal-mode loop that leaves its round waiting, is stopped first,
- * as `--bg --resume` takes a stopped job; a stop that fails is tried next tick.
- * RESIDUAL: a park the loop could not label has no marker, so it is left alone, its
- * ticket coming back through the ledger's window.
  * @param {string} job
  * @param {import("./repo-holds.js").LiftedHold} hold
  * @param {{launches: LoopLaunch[],
@@ -1658,11 +1326,6 @@ function judgeClearedJob(job, hold, { launches, markers }, { agents, io }) {
 }
 
 /**
- * The launches with each session parked on a lifted repo hold queued for the resume
- * step, and each one due back whose founder has since answered it finished (#3863):
- * `settled` says what of each hold the caller may drop once the state is written, a
- * crash before then reading it again and queuing none twice. Nothing is judged off an
- * unread listing or marker directory.
  * @param {LoopLaunch[]} launches
  * @param {import("./repo-holds.js").LiftedHold[]} lifted
  * @param {Tick} seen
@@ -1714,14 +1377,9 @@ function queueLifted(launches, lifted, seen) {
 	return { launches: next, settled };
 }
 
-/* The job states of a session that ended on its own before the restart. Not
- * `failed`, which a killed job may read, and a failed resume costs only its tries;
- * an unread record is resumed for the same reason. */
 const ENDED_JOB_STATES = new Set(["done", "stopped"]);
 
 /**
- * Whether the saved state alone leaves `l` one a restart may have killed: not
- * already held or being handed off and not waiting on the founder (#3983).
  * @param {LoopLaunch} l
  * @returns {l is JobLaunch}
  */
@@ -1732,7 +1390,6 @@ const isBootKillCandidate = (l) =>
 	!(l.parked && isFounderWait(l.block?.cause));
 
 /**
- * Whether `l`'s job record reads it ended on its own (ENDED_JOB_STATES).
  * @param {JobLaunch} l
  * @param {Pick<BlockReads, "jobStateOf">} io
  */
@@ -1742,9 +1399,6 @@ const hasJobEnded = (l, io) => {
 };
 
 /**
- * Whether `l`'s session was at work when a restart killed it: a candidate not
- * listed live, not ended on its own between the last tick and the restart, and not
- * launched since it (#3971).
  * @param {LoopLaunch} l
  * @param {Tick} seen
  * @param {number} bootedAt
@@ -1756,14 +1410,10 @@ function isBootKillable(l, { agents, io }, bootedAt) {
 }
 
 /**
- * The launches on the first tick after a boot, with each its restart killed queued
- * for the resume step by session id, keeping its context and claim (#3880). One
- * with no session id to resume by meets its hand-off at that step, so a pause holds
- * it too.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
- * @param {number} bootedAt when `boot-resume` saw the restart
- * @param {(l: LoopLaunch) => boolean} [isSpared] left as it is, though killable
+ * @param {number} bootedAt
+ * @param {(l: LoopLaunch) => boolean} [isSpared]
  * @returns {LoopLaunch[]}
  */
 function queueBootKilled(launches, seen, bootedAt, isSpared = () => false) {
@@ -1792,13 +1442,10 @@ function queueBootKilled(launches, seen, bootedAt, isSpared = () => false) {
 
 /**
  * @typedef {{mode: "away"|"normal", resume: (l: BlockedLaunch, seen: Tick)
- *   => LoopLaunch, hold: (l: BlockedLaunch, seen: Tick) => LoopLaunch}}
- *   ActHow  `resume` and `hold`, the acts of those names for the cause
+ *   => LoopLaunch, hold: (l: BlockedLaunch, seen: Tick) => LoopLaunch}} ActHow
  */
 
 /**
- * Each act's handler, for blocked and resumed-idle launches alike; `wait` and
- * `none` have none.
  * @type {Partial<Record<Act, (l: BlockedLaunch, seen: Tick, how: ActHow) =>
  *   LoopLaunch>>}
  */
@@ -1813,12 +1460,9 @@ const ACTS = {
 	"handoff-relaunch": (l, seen) => handOff(l, seen),
 };
 
-/* The acts that set a session running, which spends allowance, so a barred
- * tick leaves them for the tick after the resume (#3856). */
 const RUNNING_ACTS = new Set(["resume", "handoff-relaunch"]);
 
 /**
- * Each of `acts` done through ACTS, by job id.
  * @param {{l: BlockedLaunch, act: Act}[]} acts
  * @param {Tick} seen
  * @param {ActHow} how
@@ -1835,7 +1479,6 @@ function actedOn(acts, seen, how) {
 }
 
 /**
- * The launches with each launch in `acted` put in, by job id.
  * @param {LoopLaunch[]} launches
  * @param {Map<string, LoopLaunch>} acted
  */
@@ -1843,10 +1486,7 @@ const withActed = (launches, acted) =>
 	launches.map((l) => (l.jobId && acted.get(l.jobId)) || l);
 
 /**
- * The tick's acts on blocked launches: each typed resume checked, then the
- * table's act on each (blockedActs). A barred tick checks none, as a failed
- * check falls back to a resume.
- * @param {LoopLaunch[]} launches markParked's, off `seen`'s listing
+ * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
  */
@@ -1860,12 +1500,6 @@ function actOnBlocks(launches, mode, seen) {
 }
 
 /**
- * The launches with each resume a kill left out of the state settled (#4180):
- * one carrying `resumeStarted` gets the outcome its act would have given it,
- * the job the resume started where the job store holds one, else a failed try,
- * which its act's own schedule tries again. Where the store will not tell, the
- * try counts failed too, and says why, as #4157's step resumes it. `settled`,
- * whether any was.
  * @param {LoopLaunch[]} launches
  * @param {BlockIo} io
  * @returns {{launches: LoopLaunch[], settled: boolean}}
@@ -1882,10 +1516,7 @@ function settleStartedResumes(launches, io) {
 }
 
 /**
- * `l` after the resume `started`, which a kill left with no outcome on record:
- * the job it started tracked; else, where `l`'s own job reads stopped, a failed
- * try; else the kill came before the stop, and `l` is left to its act.
- * @param {JobLaunch} l  as it was before the stop
+ * @param {JobLaunch} l
  * @param {ResumeStarted} started
  * @param {BlockIo} io
  * @returns {LoopLaunch}
@@ -1917,10 +1548,6 @@ function settleStarted(l, { at, sessionId, cwd, act }, io) {
 }
 
 /**
- * The tick's acts on resumed-idle launches (#2659), read off the job store
- * and transcripts whether or not the listing read: each owed hand-off
- * retried, each typed resume checked, then the RESUMED_IDLE row's act, its
- * block made up for the act and so not kept.
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
@@ -1946,10 +1573,6 @@ function actOnIdle(launches, mode, seen) {
 }
 
 /**
- * The why of launch `key`'s UNKNOWN reading where it is news to log, else
- * null: once for each why, forgotten once a cause reads (#3200). Updates
- * `logged`, the loop's record, one entry per launch the loop process has seen
- * unread.
  * @param {Map<string, string>} logged
  * @param {string} key
  * @param {import("./block-cause.js").Reading} reading
@@ -1965,10 +1588,7 @@ function unknownNews(logged, key, reading) {
 	return reading.why;
 }
 
-/**
- * The job record's fields the classifier reads, for an UNKNOWN's log line.
- * @param {unknown} job
- */
+/** @param {unknown} job */
 function jobShape(job) {
 	if (typeof job !== "object" || job === null) return job;
 	const rec = /** @type {Record<string, unknown>} */ (job);
@@ -1987,13 +1607,9 @@ function jobShape(job) {
 }
 
 /**
- * The loop's CauseOf: a parked launch's block cause (lib/block-cause.js) from
- * its listing row, its job record and its transcript's user and assistant
- * rows; an unread transcript reads UNKNOWN and acts on nothing (#2358 F9).
  * @param {{readJob: (l: SessionRef) => unknown,
  *   readTail: (l: SessionRef, job: unknown) => Record<string, unknown>[]|null,
- *   log: (line: string) => void}} io  the job record, null unread; its
- *   transcript's rows, null unread
+ *   log: (line: string) => void}} io
  * @returns {CauseOf}
  */
 function causeReader(io) {

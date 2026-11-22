@@ -1,44 +1,3 @@
-/*
- * read-audit-preload.js — records what a test process really reads of the
- * checkout under test (#4916), for the pass store (lib/pass-store.js) to key
- * a test file's row on. lib/read-audit.js puts it on `NODE_OPTIONS` for a
- * suite run, so every vitest worker and every Node child a test spawns with
- * the environment it inherited loads it first.
- *
- * WHAT IT RECORDS, each path under `WFC_READ_AUDIT_ROOT` and outside every
- * `node_modules`: a file's content read through `fs`; a directory's listing,
- * keyed on the names it returned; a probe with what it found; a recursive walk or copy of a tree; and every child
- * process spawned, sync or not, with its program, the file that name runs
- * as found and with links followed, its arguments, working directory and
- * what lib/read-audit-provenance.js finds it is, and any checkout path the test writes down an untraced child's input pipe
- * once it runs. Each real git, and the git guard, is handed an event log of
- * the audit's, in which git names every process it starts
- * (lib/read-audit-git-events.js).
- * A worker thread started is recorded too, as a start alone: one started
- * from a string, or handed an environment of its own, loads no preload.
- *
- * A STUB OR A SHELL IT CANNOT SEE INSIDE RUNS UNDER `strace` (#4966), where
- * lib/read-audit.js found one that works: a program in the temporary
- * directory, where a test writes its stubs, a program file of the
- * checkout's own, or `sh`, `bash` or `dash`, run in the checkout or handed
- * a path there — by an argument, an environment variable or the input of a
- * sync spawn (lib/read-audit-handed.js). No other program is traced: a
- * traced process that is killed stays until its tracer reaps it, which a
- * test of what a real program leaves running would see. A test timing
- * or signalling its child sets `WFC_READ_AUDIT_UNTRACED=1` in that child's
- * environment (#4982), which runs it untraced, so it doubts where it is in
- * reach.
- *
- * ATTRIBUTION is by process: vitest's forks pool gives every test file a
- * process of its own, which `claim` names; `WFC_READ_AUDIT_OWNER`, the first
- * audited process's pid, charges every child's reads to the file it
- * claimed. Each process appends its log, `<dir>/<owner>.<pid>.jsonl`; a process that
- * cannot open one leaves none, which lib/read-audit.js reads as a doubt.
- *
- * It never throws into the code it watches: a fault in a hook marks the
- * log, which reads as a doubt too.
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -64,12 +23,8 @@ const {
 } = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
-/* Loaded by `--import`, which sends the main script through the ESM loader;
- * that refuses an extension it does not know, where plain node runs it as
- * CommonJS. */
 /** @typedef {{ format?: string }} LoadContext */
 /** @typedef {(url: string, context: LoadContext) => unknown} NextLoad */
-/* Node 22.15's sync hooks; this @types/node predates them. */
 const { registerHooks } =
 	/** @type {{ registerHooks: (h: { load: (url: string, context: LoadContext, next: NextLoad) => unknown }) => void }} */ (
 		/** @type {unknown} */ (require("node:module"))
@@ -89,20 +44,14 @@ const DIR = process.env.WFC_READ_AUDIT;
 const ROOT = process.env.WFC_READ_AUDIT_ROOT;
 const STRACE = process.env.WFC_READ_AUDIT_STRACE;
 
-/* The variable naming the lookups a spawner hands its child (#5160). */
 const SETTLED = "WFC_READ_AUDIT_SETTLED";
 
-/* The global the audit's api hangs on, for vitest.setup.ts to claim with. */
 const scope =
 	/** @type {{ __wfcReadAudit?: { claim: (file: string) => void, settle: () => void } }} */ (
 		/** @type {unknown} */ (globalThis)
 	);
 
-/**
- * An `fs` function's argument or result, of whatever type that function
- * takes; also Node's internal spawn bindings, which carry no types.
- * @typedef {any} Untyped
- */
+/** @typedef {any} Untyped */
 
 if (DIR && ROOT && !scope.__wfcReadAudit) install();
 
@@ -111,14 +60,10 @@ function install() {
 	const root = /** @type {string} */ (ROOT);
 	const owner = process.env.WFC_READ_AUDIT_OWNER ?? String(process.pid);
 	process.env.WFC_READ_AUDIT_OWNER = owner;
-	/* Appended as each read happens, not at exit: vitest stops a worker
-	 * without one. */
 	let log;
 	try {
 		log = fs.openSync(path.join(dir, `${owner}.${process.pid}.jsonl`), "a");
 	} catch {
-		// No log, which the audit's reader doubts: never a throw into the
-		// process this watches (#4916).
 		return;
 	}
 	const fd = log;
@@ -132,7 +77,6 @@ function install() {
 		fs.writeSync(fd, `${line}\n`);
 	};
 	add({ k: "self", owner, pid: process.pid });
-	// A log that will not take it leaves its reads short already (#4916).
 	const fault = () => ignoreFailure(() => add({ k: "fault" }));
 	/**
 	 * @param {unknown} p
@@ -145,12 +89,7 @@ function install() {
 			return path.resolve(decodeURIComponent(p.pathname));
 		return null;
 	};
-	/**
-	 * `p` repo-relative where it names a path under the root outside every
-	 * `node_modules`, as spelt or, standing outside the root, with its links
-	 * followed; else null.
-	 * @param {unknown} p
-	 */
+	/** @param {unknown} p */
 	const rel = (p) => {
 		const abs = absOf(p);
 		if (abs === null) return null;
@@ -167,13 +106,10 @@ function install() {
 		try {
 			f();
 		} catch {
-			// A hook that faults drops its record and marks the log, which the
-			// reader doubts, sooner than throw into the code it watches (#4916).
 			fault();
 		}
 	};
 
-	/** What stands at `abs` now, through the `statSync` this does not wrap. */
 	const kindAt = (/** @type {string} */ abs) => pathKind(abs, realStatSync);
 
 	/** @param {unknown} p */
@@ -185,7 +121,7 @@ function install() {
 
 	/**
 	 * @param {unknown} p
-	 * @param {unknown} names what the listing returned, or undefined on a fault
+	 * @param {unknown} names
 	 */
 	const list = (p, names) =>
 		guard(() => {
@@ -220,12 +156,6 @@ function install() {
 
 	/** @type {import("./read-audit-handed.js").Settled} */
 	const settled = readSettled(process.env[SETTLED]);
-	/* A path this process links, moves or removes moves where a settled one
-	 * lands only where it is that path or beneath it, as spelt or with its
-	 * links followed, or where its own lookup followed a link, whose hops
-	 * the lookup does not keep (#5050); a child's go unseen. Every other
-	 * lookup stands (#5132). The paths are the call's first two words,
-	 * which over-counts a link's target and a copy's source. */
 	const unsettle = (/** @type {Untyped[]} */ args) => {
 		const changed = args.slice(0, 2).flatMap((arg) => {
 			const abs = absOf(arg);
@@ -245,8 +175,6 @@ function install() {
 	};
 
 	/**
-	 * Wrap `obj[name]`, calling `on(args, result)` once it returns or settles,
-	 * with no result where it threw or failed.
 	 * @param {Untyped} obj
 	 * @param {string} name
 	 * @param {(args: Untyped[], result?: Untyped) => void} on
@@ -321,7 +249,6 @@ function install() {
 			opts && typeof opts === "object" && opts.cwd ? opts.cwd : process.cwd(),
 		);
 	};
-	/** A directory handle lists what its reads return; one is all names. */
 	/** @param {Untyped[]} a */
 	const opendir = (a) => tree(a[0]);
 
@@ -349,7 +276,6 @@ function install() {
 	wrap(fs, "opendirSync", opendir, "sync");
 	wrap(fs, "opendir", opendir, "callback");
 	wrap(fs.promises, "opendir", opendir, "promise");
-	/* A directory the test mints is its own scratch, not the checkout. */
 	/** @param {Untyped[]} _a @param {Untyped} [out] */
 	const minted = (_a, out) =>
 		guard(() => {
@@ -385,7 +311,6 @@ function install() {
 	};
 	require("node:module").syncBuiltinESMExports();
 
-	/* Children: the bindings every spawn API reaches, sync and async. */
 	const isAudited = (/** @type {unknown} */ envPairs) =>
 		Array.isArray(envPairs) &&
 		envPairs.includes(`WFC_READ_AUDIT=${dir}`) &&
@@ -396,7 +321,6 @@ function install() {
 				e.startsWith("NODE_OPTIONS=") &&
 				e.includes(SELF),
 		);
-	/** The directories on the `PATH` a child was handed. */
 	const pathDirs = (/** @type {unknown} */ envPairs) => {
 		const pairs = Array.isArray(envPairs) ? envPairs : [];
 		const at = pairs.find(
@@ -415,10 +339,6 @@ function install() {
 		}
 	};
 	/**
-	 * The file a child's program name runs: a name holding a slash off its
-	 * working directory, a bare one the first executable file on its `PATH`.
-	 * Its path as found, then with links followed; empty where none stands
-	 * there.
 	 * @param {string} file
 	 * @param {string} cwd
 	 * @param {unknown} envPairs
@@ -430,7 +350,6 @@ function install() {
 		const hit = tries.find((abs) => kindAt(abs) === "file" && isRunnable(abs));
 		return hit === undefined ? [] : [hit, realRealpathSync(hit)];
 	};
-	/** `abs` with its links followed where it stands, else as given. */
 	const realOrAsIs = (/** @type {string} */ abs) => {
 		try {
 			return realRealpathSync(abs);
@@ -438,7 +357,6 @@ function install() {
 			return abs;
 		}
 	};
-	/** A child's working directory, its links followed where it stands. */
 	const cwdOf = (/** @type {Untyped} */ opts) =>
 		realOrAsIs(
 			path.resolve(typeof opts?.cwd === "string" ? opts.cwd : process.cwd()),
@@ -451,7 +369,6 @@ function install() {
 			return false;
 		}
 	};
-	/** Whether the file starts as the kernel runs one: a `#!` line, or ELF. */
 	const isProgram = (/** @type {string} */ abs) => {
 		const head = Buffer.alloc(4);
 		const at = realOpenSync(abs, "r");
@@ -462,10 +379,6 @@ function install() {
 		}
 		return head.toString("latin1", 0, 2) === "#!" || head.equals(ELF);
 	};
-	/**
-	 * Whether this process already runs under one of this audit's tracers,
-	 * which follows every child it spawns; a second tracer would be refused.
-	 */
 	const isUnderTracer = () => {
 		const status = realReadFileSync("/proc/self/status", "utf8");
 		const tracer = /^TracerPid:\t(\d+)$/m.exec(status)?.[1];
@@ -476,15 +389,11 @@ function install() {
 	let traces = 0;
 	const argvOf = (/** @type {Untyped} */ opts) =>
 		Array.isArray(opts?.args) ? opts.args.map(String) : [];
-	/* A child a test ran under a TMPDIR of its own still holds the suite's
-	 * stubs (#5072). */
 	const ownTmp = realRealpathSync(os.tmpdir());
 	const tmps = [...new Set([process.env.WFC_READ_AUDIT_TMP ?? ownTmp, ownTmp])];
 	const verdictOf = buildVerdictOf({ root, tmps, realpath: realRealpathSync });
 	/** @typedef {import("./read-audit-provenance.js").Provenance} Provenance */
 	/**
-	 * What the child the test asked for is, for every test that weighs it
-	 * and for its record.
 	 * @param {Untyped} opts
 	 * @param {string[]} bin
 	 * @returns {Provenance}
@@ -498,26 +407,16 @@ function install() {
 			audited: isAudited(opts?.envPairs),
 			standing,
 		});
-	/* A guarded git is never traced: the guard logs a call on this
-	 * repository, and the reader weighs its hands where it logged none
-	 * (#5015). */
 	const isUntraceable = (/** @type {Provenance} */ prov) =>
 		prov.guarded || prov.auditedNode;
 	const handed = buildHanded(root);
 	const guardDir = rel(path.dirname(GUARD));
-	/* The environment every child of this run inherits untouched, as the
-	 * suite's setup left it: `settle` writes it down and names the file for
-	 * the processes below. */
 	let standing = readStanding(process.env.WFC_READ_AUDIT_STANDING);
 	const isOwner = owner === String(process.pid);
-	/** A variable's value as weighed: this preload left off `NODE_OPTIONS`. */
 	const namedText = (
 		/** @type {string} */ name,
 		/** @type {string} */ value,
 	) => (name === "NODE_OPTIONS" ? value.split(SELF).join("") : value);
-	/* A value moved off the standing one still answers, from the cache, the
-	 * words it shares with it: a stub directory put before the standing
-	 * `PATH` is looked up afresh, and the rest is not (#5139). */
 	const settlingOf = (/** @type {string} */ name) => {
 		const value = standing[name];
 		if (value === undefined) return;
@@ -529,11 +428,6 @@ function install() {
 		return at;
 	};
 	/**
-	 * The checkout paths a variable's value names, less what the audit and
-	 * the program lookup put there themselves: the root this audit was told,
-	 * the lookups it hands a child, this preload on `NODE_OPTIONS`, and on
-	 * `PATH` the git guard, which logs its own reads, and every
-	 * `node_modules`, which the audit leaves out.
 	 * @param {string} name
 	 * @param {string} value
 	 * @param {Named} named
@@ -549,9 +443,6 @@ function install() {
 	/** @typedef {import("./read-audit-handed.js").Hand} Hand */
 	/** @typedef {ReturnType<ReturnType<typeof buildHanded>["from"]>} Named */
 	/**
-	 * Real git, and the guard that runs it, is weighed only on the variables
-	 * git reads a path from itself (#4982, #5015): what it runs, which
-	 * inherits the rest, its own event log names (`gitEventsOf`).
 	 * @param {Untyped} opts
 	 * @param {Named} named
 	 * @param {Provenance} prov
@@ -573,10 +464,8 @@ function install() {
 		});
 	};
 	/**
-	 * A sync spawn's `input`; what is written to an async child's pipe later
-	 * `watchInput` weighs.
 	 * @param {Untyped} opts
-	 * @param {string} base the directory it resolves a relative path against
+	 * @param {string} base
 	 * @returns {Hand[]}
 	 */
 	const stdinHands = (opts, base) => {
@@ -586,13 +475,8 @@ function install() {
 		return p.length === 0 ? [] : [{ by: "stdin", p }];
 	};
 	/**
-	 * A git no guard logs, whose directory — its own, or where its `-C`
-	 * words move it — lies under the root with no repository of its own
-	 * between: it reads the checkout's (#4982, #4997). `init` and `clone`
-	 * look for none, but one asked for `--help` does, through `git help`.
-	 * `--git-dir` and `GIT_DIR` name it, weighed as a word and a variable.
 	 * @param {Untyped} opts
-	 * @param {string[]} words its words after the program
+	 * @param {string[]} words
 	 * @param {GitOptions} git
 	 * @returns {Hand[]}
 	 */
@@ -603,8 +487,8 @@ function install() {
 		return repoHandAt(realOrAsIs(asked.at), asked.bare);
 	};
 	/**
-	 * @param {string} at where the git looks for its repository, real path
-	 * @param {boolean} bare whether that directory is the repository itself
+	 * @param {string} at
+	 * @param {boolean} bare
 	 * @returns {Hand[]}
 	 */
 	const repoHandAt = (at, bare) => {
@@ -618,8 +502,6 @@ function install() {
 		return [{ by: "repo", p: ["."] }];
 	};
 	/**
-	 * What hands a child paths in the checkout; none for a Node child that
-	 * logs its own reads.
 	 * @param {Untyped} opts
 	 * @param {Provenance} prov
 	 * @returns {Hand[]}
@@ -645,8 +527,6 @@ function install() {
 		];
 	};
 	/**
-	 * Whether a child stands in the checkout, runs a file there or is handed
-	 * a path there.
 	 * @param {string} cwd
 	 * @param {Hand[]} hands
 	 * @param {Provenance} prov
@@ -654,8 +534,6 @@ function install() {
 	const isInReach = (cwd, hands, prov) =>
 		relativeUnder(root, cwd) !== null || hands.length > 0 || prov.ours;
 	/**
-	 * Whether the tracer can run a child in its place: a shell, a stub, or a
-	 * program file of the checkout's own.
 	 * @param {Untyped} opts
 	 * @param {string[]} bin
 	 * @param {Provenance} prov
@@ -663,27 +541,15 @@ function install() {
 	const isTraceable = (opts, bin, prov) => {
 		const file = String(opts?.file ?? "");
 		const argv = argvOf(opts);
-		/* A child launching the tracer on a program of its own would be
-		 * refused it under this one (#4982). */
 		if (argv.includes(String(STRACE))) return false;
-		/* The tracer runs the program by its name, as the spawn would: only a
-		 * name the spawn passes as the program's own first word, found as a
-		 * file the kernel runs with no shell's help. */
 		if (opts?.envPairs?.includes?.("WFC_READ_AUDIT_UNTRACED=1")) return false;
 		if (argv[0] !== file || bin.length === 0 || !isProgram(String(bin[1])))
 			return false;
 		if (!SHELLS.has(path.basename(file)) && !prov.stub && !prov.ours)
 			return false;
-		/* The tracer would hold a fourth descriptor, a channel among them,
-		 * open past the child: only the two outputs are kept from it. */
 		return !(Array.isArray(opts?.stdio) && opts.stdio.length > 3);
 	};
-	/**
-	 * How a child's reads will be seen: `within` where a tracer already
-	 * follows this process, the trace file's name where this runs it under
-	 * one of its own, else null.
-	 * @typedef {{within: true}|{trace: string}|null} Route
-	 */
+	/** @typedef {{within: true}|{trace: string}|null} Route */
 	/**
 	 * @param {Untyped} opts
 	 * @param {Hand[]} hands
@@ -700,13 +566,6 @@ function install() {
 	};
 	let gitLogs = 0;
 	/**
-	 * Where a git child logs each process it starts — a hook, an alias, a
-	 * helper, a pager, each of which inherits every variable — on git's own
-	 * event target (`GIT_TRACE2_EVENT`, git's api-trace2) (#4997): a file of
-	 * this audit's, handed on; the one it already names, where that is this
-	 * audit's (a git a hook ran); null where it names one of its own, so what
-	 * it ran goes unlogged. No `events` for a child that is no real git and
-	 * no guard.
 	 * @param {Untyped} opts
 	 * @param {Provenance} prov
 	 * @returns {{opts: Untyped, events?: string|null}}
@@ -727,16 +586,9 @@ function install() {
 	let handings = 0;
 	let handedText = "";
 	let handedFile = "";
-	/** Whether a test may write at `at`: under the checkout or a temporary
-	 * directory, as lib/read-audit-provenance.js has it. */
 	const isWritable = (/** @type {string} */ at) =>
 		[root, ...tmps].some((under) => relativeUnder(under, at) !== null);
 	/**
-	 * Hand an audited child this process's settled lookups of paths no test
-	 * may write (#5160). A lookup a test can move, by a link another
-	 * process makes, the child makes afresh. The file this process was
-	 * handed is never passed on: its lookups may be ones this process
-	 * dropped since.
 	 * @param {Untyped} opts
 	 * @returns {Untyped}
 	 */
@@ -762,9 +614,6 @@ function install() {
 		return { ...opts, envPairs: [...pairs, `${SETTLED}=${handedFile}`] };
 	};
 	/**
-	 * `bin` is the spawn's program as `binOf` found it, and `prov` what that
-	 * program is, each once, for every test that weighs it and for its
-	 * record; `prov` is null where finding either faulted.
 	 * @typedef {{opts: Untyped, bin: string[], prov: Provenance|null,
 	 *   route: Route, hands: Hand[], events?: string|null}} Spawn
 	 */
@@ -773,16 +622,12 @@ function install() {
 	 * @returns {Spawn}
 	 */
 	const buildTracedSpawn = (asked) => {
-		/* A `binOf` that throws leaves `bin` empty, as for no file at all: its
-		 * record is still kept, in a log the fault marks a doubt (#5009). */
 		/** @type {string[]} */
 		let bin = [];
 		/** @type {Provenance|null} */
 		let prov = null;
 		let within = false;
 		try {
-			/* A tracer already following this process follows the child too,
-			 * and would take the hands' lookups for reads of its own. */
 			within = Boolean(STRACE) && isUnderTracer();
 			bin = binOf(String(asked?.file ?? ""), cwdOf(asked), asked?.envPairs);
 			prov = provenanceOf(asked, bin);
@@ -809,8 +654,6 @@ function install() {
 				events,
 			};
 		} catch {
-			// The child runs as the test spawned it, untraced, and the log is
-			// marked, which the reader doubts (#4966).
 			fault();
 			return {
 				opts: asked,
@@ -822,10 +665,7 @@ function install() {
 		}
 	};
 	/**
-	 * Weigh what the test writes to an untraced child's input pipe once it
-	 * runs, which no spawn option holds (#4997): each write with the end of
-	 * the one before, so a path split across two is still whole.
-	 * @param {Untyped} handle the pipe's end this process writes
+	 * @param {Untyped} handle
 	 * @param {number} pid
 	 * @param {string} cwd
 	 */
@@ -847,8 +687,6 @@ function install() {
 				/** @type {Untyped} */ data,
 				/** @type {unknown[]} */ ...rest
 			) {
-				/* `writev` takes each chunk with its encoding after it, unless
-				 * all are buffers. */
 				if (name === "writev") weigh(rest[0] ? data : data.filter(isEven));
 				else weigh([data]);
 				return write.call(this, req, data, ...rest);
@@ -856,11 +694,6 @@ function install() {
 		}
 	};
 	/**
-	 * Watch every pipe to an async child where nothing else sees its reads:
-	 * no tracer follows it and it is no Node child keeping a log of its own;
-	 * a guarded git is watched (#5015). A stream the test
-	 * handed it whole (`wrap`) on a descriptor it may read carries what the
-	 * audit cannot read: a doubt.
 	 * @param {Untyped} asked
 	 * @param {number|undefined} pid
 	 * @param {Spawn} spawned
@@ -878,8 +711,8 @@ function install() {
 		});
 
 	/**
-	 * @param {Untyped} entry one of a spawn's `stdio`
-	 * @param {number} descriptor its number in the child
+	 * @param {Untyped} entry
+	 * @param {number} descriptor
 	 * @param {number} pid
 	 * @param {string} cwd
 	 */
@@ -889,9 +722,6 @@ function install() {
 		if (entry?.type === "wrap" && !isOutput) add({ k: "piped", pid, p: null });
 	};
 	/**
-	 * Append to a git child's event log, where it wrote one, that the git
-	 * the test killed has exited: a git killed by a signal logs no end of
-	 * its own.
 	 * @param {string|null|undefined} events
 	 * @param {unknown} pid
 	 */
@@ -903,7 +733,6 @@ function install() {
 			try {
 				at = realOpenSync(path.join(dir, events), flags);
 			} catch {
-				// A git that wrote no log is doubted for that by the reader (#4997).
 				return;
 			}
 			try {
@@ -913,12 +742,7 @@ function install() {
 			}
 		});
 	/**
-	 * Mark an async git child's log once it exits, where the test killed it
-	 * through its handle while it still ran git. Exited on its own, a git
-	 * logs its end; one that ran `git help` became `man` under the same
-	 * pid, which no mark may vouch for.
-	 * @param {Untyped} handle the child's process handle: Node calls only
-	 *   the handle's own `kill` and `onexit`, so they are wrapped in place
+	 * @param {Untyped} handle
 	 * @param {string|null|undefined} events
 	 */
 	const markOnKill = (handle, events) =>
@@ -935,17 +759,16 @@ function install() {
 				if (killedGit) markExited(events, handle.pid);
 			});
 		});
-	/** @param {unknown} pid whether that process runs a binary named git */
+	/** @param {unknown} pid */
 	const isGitNow = (pid) => {
 		try {
 			return path.basename(realRealpathSync(`/proc/${pid}/exe`)) === "git";
 		} catch {
-			// Gone, or not ours to read: no mark, so its open log doubts (#4997).
 			return false;
 		}
 	};
 	/**
-	 * @param {Untyped} opts as the test spawned it
+	 * @param {Untyped} opts
 	 * @param {number|undefined} pid
 	 * @param {Spawn} spawned
 	 */
@@ -957,7 +780,6 @@ function install() {
 				bin,
 				args: argvOf(opts).slice(1),
 				cwd: cwdOf(opts),
-				/* Null where finding it faulted, in a log the fault marks a doubt. */
 				prov,
 				pid: pid ?? null,
 				...(hands.length > 0 ? { hands } : {}),
@@ -965,14 +787,7 @@ function install() {
 				...route,
 			});
 		});
-	/**
-	 * Wait out the copying of a traced child's outputs it shares with this
-	 * process, so that this process's next write lands after them, as it
-	 * would untraced (#5218). An output this process reads through a pipe
-	 * of its own owes no order: a sync spawn already waits for its end, and
-	 * an async one's exit may come before its data.
-	 * @param {Spawn} spawned
-	 */
+	/** @param {Spawn} spawned */
 	const awaitOutput = ({ opts, route }) =>
 		guard(() => {
 			if (!route || !("trace" in route)) return;
@@ -985,9 +800,7 @@ function install() {
 				awaitCopied(path.join(dir, route.trace), shared, fifoIo);
 		});
 	/**
-	 * Run `before` ahead of an async child's exit reaching its listeners.
-	 * @param {Untyped} handle the child's process handle: Node calls only
-	 *   the handle's own `onexit`, so it is wrapped in place
+	 * @param {Untyped} handle
 	 * @param {() => void} before
 	 */
 	const wrapOnExit = (handle, before) => {
@@ -1012,8 +825,6 @@ function install() {
 		};
 		const Process = bindings("process_wrap").Process;
 		const asyncSpawn = Process.prototype.spawn;
-		/* Node through 24.18 hands the handle one options object; 24.22 hands
-		 * it positional `file, args, cwd, envPairs, stdio, …`. */
 		Process.prototype.spawn = function (/** @type {Untyped[]} */ ...args) {
 			const [first, argv, cwd, envPairs, stdio] = args;
 			const positional = typeof first === "string";
@@ -1036,24 +847,19 @@ function install() {
 			return err;
 		};
 	} catch {
-		// A Node whose spawn bindings will not patch runs its children
-		// unlogged: the log is marked, which the reader doubts (#4916).
 		fault();
 	} finally {
 		process.noDeprecation = quiet;
 	}
 
 	const api = {
-		/** @param {string} file the test file this process runs */
+		/** @param {string} file */
 		claim(file) {
 			guard(() => {
 				const r = rel(file);
 				add({ k: "claim", file: r ?? String(file) });
 			});
 		},
-		/* Only the owner writes the file the reader weighs its git calls
-		 * against: a vitest a test runs under the same owner settles its own
-		 * environment, which is the test's (#5017). */
 		settle() {
 			guard(() => {
 				standing = { ...process.env };
@@ -1070,8 +876,6 @@ function install() {
 }
 
 /**
- * The environment a suite's setup settled, off the file it wrote; none
- * where it wrote none or the file will not read.
  * @param {string|undefined} file
  * @returns {Record<string, string|undefined>}
  */
@@ -1080,14 +884,11 @@ function readStanding(file) {
 	try {
 		return parseStanding(fs.readFileSync(file, "utf8")).env;
 	} catch {
-		// No file to read is no settled environment (#4982).
 		return {};
 	}
 }
 
 /**
- * The lookups a spawner handed this process, off the file it wrote; none
- * where it handed none or the file will not read.
  * @param {string|undefined} file
  * @returns {import("./read-audit-handed.js").Settled}
  */
@@ -1104,24 +905,21 @@ function readSettled(file) {
 			),
 		);
 	} catch {
-		// Nothing handed is every lookup made afresh (#5160).
 		return new Map();
 	}
 }
 
-/** @param {string} file its size in bytes, 0 where none stands */
+/** @param {string} file */
 function sizeOf(file) {
 	try {
 		return fs.statSync(file).size;
 	} catch {
-		// No git call logged yet (#5017).
 		return 0;
 	}
 }
 
 const SHELLS = new Set(["sh", "bash", "dash"]);
 
-/* A pipe handle's writes, as Node's stream code calls them. */
 const PIPE_WRITES = [
 	"writeBuffer",
 	"writev",
@@ -1134,10 +932,7 @@ const PIPE_WRITES = [
 const isEven = (/** @type {unknown} */ _, /** @type {number} */ i) =>
 	i % 2 === 0;
 
-/**
- * A chunk as text: a string as it is, bytes as Latin-1, one character each.
- * @param {unknown} chunk
- */
+/** @param {unknown} chunk */
 function textOf(chunk) {
 	if (typeof chunk === "string") return chunk;
 	if (!ArrayBuffer.isView(chunk)) return "";
@@ -1147,7 +942,7 @@ function textOf(chunk) {
 
 const ELF = Buffer.from("\x7fELF", "latin1");
 
-/** @param {Untyped} opts whether a child's program is named git */
+/** @param {Untyped} opts */
 function isGitFile(opts) {
 	return path.basename(String(opts?.file ?? "")) === "git";
 }
@@ -1155,15 +950,10 @@ function isGitFile(opts) {
 /**
  * @typedef {{moved: string, baseOfValue: Map<number, string>,
  *   bare: string|null, namesGitDir: boolean, sub: number}} GitOptions
- *   what a git call's options before its subcommand do: the directory each
- *   `-C` moves it to in turn (git(1), `-C`), `moved` where they end; each
- *   `-C` value's place with the directory it is read against; where
- *   `--bare` stood, the directory the `-C` words before it reached;
- *   whether `--git-dir` names its repository; the subcommand's place
  */
 
 /**
- * @param {string[]} words the call's words after the program
+ * @param {string[]} words
  * @param {string} cwd
  * @returns {GitOptions}
  */
@@ -1186,11 +976,7 @@ function readGitOptions(words, cwd) {
 }
 
 /**
- * Where a git call finds its repository: the directory it looks up from,
- * its own moved by each `-C` before the subcommand, or under `--bare` the
- * repository itself (git sets `GIT_DIR` there); null where it looks for
- * none.
- * @param {string[]} words the call's words after the program
+ * @param {string[]} words
  * @param {GitOptions} git
  * @returns {{at: string, bare: boolean}|null}
  */
@@ -1200,8 +986,6 @@ function gitDirOf(words, { moved, bare, namesGitDir, sub }) {
 }
 
 /**
- * Whether the subcommand at `at` makes a repository rather than look for
- * one: an `init` or a `clone` not asked for `--help`.
  * @param {string[]} words
  * @param {number} at
  */

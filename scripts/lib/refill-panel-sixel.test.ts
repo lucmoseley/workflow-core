@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The panel's controls as Sixel (#3885, spec #3596 story 76): each state's image,
- * decoded back to pixels, holds WinUI's geometry. Broken, a switch misreads its state
- * or stops fitting its four cells.
- */
 import { describe, expect, it } from "vitest";
 
 const { buildControlImage } = require("./refill-panel-sixel.js");
@@ -20,7 +15,6 @@ interface Picture {
 
 const HEAD = new RegExp(`^${ESC}P0;1;0q"1;1;(\\d+);(\\d+)`);
 
-/** Paints one colour's sixels across a band. */
 function paintLine(
 	painted: Picture["painted"],
 	{ top, sixels, colour }: { top: number; sixels: string; colour?: string },
@@ -35,7 +29,6 @@ function paintLine(
 	}
 }
 
-/** Reads a DCS image back, as a terminal would. */
 function decode(sixel: string): Picture {
 	const head = HEAD.exec(sixel);
 	if (!head || !sixel.endsWith(`${ESC}\\`))
@@ -65,7 +58,6 @@ function decode(sixel: string): Picture {
 	return { width, height, registers: palette.size, painted };
 }
 
-/** Each run of solid `colour` along a row, as [start, end). */
 function runs(line: (string | undefined)[], colour: string | undefined) {
 	const found: [number, number][] = [];
 	let start = -1;

@@ -1,51 +1,28 @@
-/*
- * review-hold.js — the pre-commit hold on a declared sensitive path (#1622,
- * spec #1612 §The hold): its core. scripts/review-hold-gate.js is its entry,
- * lib/review-hold-host.js its production ports, git over the committing
- * repo. The core does no I/O but through its ports, and returns the exit and
- * the whole of stderr.
- *
- * IMPLICIT, JUSTIFIED, DEFEAT and LIMITS: scripts/review-hold-gate.js's
- * header.
- */
-
 const { markerFault, refusal, stampValue } = require("./review-hold-marker.js");
 
-/** One stderr line's details are cut to this, as guard-log.sh cuts them. */
+// #5153
 const DETAIL_MAX = 300;
 
 /**
  * @typedef {object} HoldPorts
- * @property {string} sessionId CLAUDE_CODE_SESSION_ID, empty in the founder's
- *   own terminal
- * @property {string} pluginRoot WFC_PLUGIN_ROOT, empty in a checkout
- * @property {() => string} gitDir the absolute git directory; throws where git
- *   will not name it
- * @property {(gitDir: string) => string} route the commit route at pre-commit
- * @property {(gitDir: string) => string | null} stampPath this session's
- *   stamp, null with no session
- * @property {(stamp: string) => void} removeStamp throws where it stays
- * @property {(gitDir: string) => void} sweepStamps throws where it fails
- * @property {() => string[]} stagedPaths every path the commit changes,
- *   renames read as a delete and an add
- * @property {() => string} writeTree the tree the commit carries
- * @property {(paths: string[]) => string[]} unreplayed of `paths`, those whose
- *   staged change is not the one CHERRY_PICK_HEAD made; throws where it
- *   cannot compare
- * @property {(paths: string[], gitDir: string) => string[]} offMergedSides of
- *   `paths`, those whose staged bytes are no merged-in side's, all of them
- *   where the sides cannot be read; throws where it cannot compare
+ * @property {string} sessionId
+ * @property {string} pluginRoot
+ * @property {() => string} gitDir
+ * @property {(gitDir: string) => string} route
+ * @property {(gitDir: string) => string | null} stampPath
+ * @property {(stamp: string) => void} removeStamp
+ * @property {(gitDir: string) => void} sweepStamps
+ * @property {() => string[]} stagedPaths
+ * @property {() => string} writeTree
+ * @property {(paths: string[]) => string[]} unreplayed
+ * @property {(paths: string[], gitDir: string) => string[]} offMergedSides
  * @property {(paths: string[]) => { judged: boolean, areas: string[], fault: string }} heldAreas
- *   lib/sensitive-paths.js's heldAreas over HEAD's and the staged declaration
- * @property {() => string} markerPath this session's `.codereview-pass-<sid>`;
- *   throws where the markers directory will not resolve
- * @property {(marker: string) => string | null} readMarker null where absent
- * @property {(stamp: string, text: string) => void} writeStamp throws on a
- *   failed write
- * @property {(stamp: string) => void} dropStamp removes it, never throwing
- * @property {() => string} ruleText the review-hold rule, or the line saying
- *   how to restore it
- * @property {(what: string, detail?: string) => void} log the fail-open log
+ * @property {() => string} markerPath
+ * @property {(marker: string) => string | null} readMarker
+ * @property {(stamp: string, text: string) => void} writeStamp
+ * @property {(stamp: string) => void} dropStamp
+ * @property {() => string} ruleText
+ * @property {(what: string, detail?: string) => void} log
  */
 
 /**
@@ -105,7 +82,7 @@ function orUnchecked(read, what) {
 
 /**
  * @param {HoldPorts} ports
- * @param {string[]} said accumulator: each stderr line is pushed here
+ * @param {string[]} said
  * @returns {Outcome}
  */
 function judge(ports, said) {
@@ -178,8 +155,6 @@ function judge(ports, said) {
 }
 
 /**
- * Removes this session's stamp, so a stamp a later gate's refusal stranded
- * stands behind no commit the hold does not pass, and sweeps dead sessions'.
  * @param {HoldPorts} ports
  * @param {string} gitDir
  */
@@ -202,10 +177,9 @@ function clearStamp(ports, gitDir) {
 }
 
 /**
- * Writes the stamp; a stamp unwritten costs `lost`, never the pass.
  * @param {HoldPorts} ports
  * @param {{ stamp: string, text: string, lost: string }} write
- * @param {string[]} said accumulator: the failure line is pushed here
+ * @param {string[]} said
  */
 function writeStamp(ports, { stamp, text, lost }, said) {
 	try {

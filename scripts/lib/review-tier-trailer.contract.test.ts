@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The equivalence contract for the review-tier trailer (#5208, spec #5207
- * seam 3): scripts/review-tier-trailer.js's PROGRAM, run in-process as
- * .husky/prepare-commit-msg's dispatcher row runs it, gives the same exit
- * code, stdout and stderr, and leaves the same message file and stamp, as
- * the same program spawned as `node review-tier-trailer.js <args>` over an
- * identical fixture.
- *
- * Every case compares the two runs, never a hand-written expectation.
- *
- * Breaking it costs the licence for the trailer row: a trailer whose
- * in-process run drifts from its spawned one writes, strips or refuses
- * differently at commit.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,10 +25,6 @@ interface Fixture {
 	stamp: string;
 }
 
-/**
- * A repo with `f.txt` staged, its message file holding `message` and, where
- * `stamped`, this session's hold stamp on the staged tree.
- */
 function fixture(message: string, stamped: boolean): Fixture {
 	const dir = fs.realpathSync(mkScratchDir("review-tier-trailer-contract-"));
 	dirs.push(dir);

@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for registrations.js's hook half: how a `hooks` row's `covers` reads
- * the matcher registered, through core-hooks' `isToolCovered` (#4917).
- *
- * The rows and registrations are literals, because the shapes under test — a
- * wildcard matcher, an absent one, one that will not compile — are ones no
- * adopter's registry holds today. A loosened case lets check-registrations.js
- * report false drift on a wildcard row, or crash on a broken matcher.
- */
 
 import { describe, expect, it } from "vitest";
 import { hookFaults } from "./registrations.js";

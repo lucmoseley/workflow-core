@@ -1,11 +1,3 @@
-/*
- * refill-block-core.js — what the refill loop's acts on blocked launches share
- * across causes (#4295): the launch predicates, the stop, the park and the
- * relaunch record, for lib/refill-blocks.js and lib/refill-limits.js. Its own
- * module because refill-blocks.js requires refill-limits.js, so the limit
- * module requiring these from refill-blocks.js would be a require cycle.
- */
-
 const path = require("node:path");
 const { buildLimitCapText, isAtLimitCap } = require("./refill-decide.js");
 const { seatIdOf } = require("./refill-seats.js");
@@ -29,11 +21,7 @@ const { ledgerJobOf } = require("./refill-state.js");
  * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md §F1). */
 const PARKED_STATE = "blocked";
 
-/**
- * The dispatch-ledger row `l` holds its issues by: a copy's is its first
- * job's (#2963).
- * @param {JobLaunch} l
- */
+/** @param {JobLaunch} l */
 const ledgerOf = (l) => ({ jobId: ledgerJobOf(l), root: l.root });
 
 /** @param {number} ms */
@@ -43,32 +31,24 @@ const iso = (ms) => new Date(ms).toISOString();
 const launchName = (l) => `${path.basename(l.root)} ${l.prompt}`;
 
 /**
- * Whether `l` is unfinished and tied to a job. A launch with no job id is never
- * judged, so it never finishes and is not live.
  * @param {LoopLaunch} l
  * @returns {l is JobLaunch}
  */
 const isLive = (l) => l.finishedAt === null && l.jobId !== null;
 
 /**
- * Whether the loop may act on `l`'s session: live and not stopped already for
- * a park.
  * @param {LoopLaunch} l
  * @returns {l is JobLaunch}
  */
 const isActionable = (l) => isLive(l) && l.parkStopped === undefined;
 
-/**
- * Whether `l` waits on the loop's resumes after a transient API stop.
- * @param {LoopLaunch} l
- */
+/** @param {LoopLaunch} l */
 const isResuming = (l) =>
 	l.block?.cause === "API_ERROR" &&
 	l.block.sub === "transient" &&
 	l.parkStopped === undefined;
 
 /**
- * Whether `l`'s stopped session waits on the tick's resume step.
  * @template {LoopLaunch} L
  * @param {L} l
  * @returns {l is L & {stepResume: StepResume}}
@@ -76,39 +56,27 @@ const isResuming = (l) =>
 const isStepResume = (l) => l.stepResume !== undefined;
 
 /**
- * Whether the loop stopped `l`'s session on its seat's limit (#3735).
  * @param {LoopLaunch} l
  * @returns {l is LoopLaunch & {limitHeld: LimitHeld}}
  */
 const isLimitHeld = (l) => l.limitHeld !== undefined;
 
-/**
- * Whether the loop stopped `l`'s session to wait for its next resume, for
- * the swap hold to clear (#3093) or for a seat with room (#3735): the launch
- * stays unfinished until a resume takes, it parks or it is handed off.
- * @param {LoopLaunch} l
- */
+/** @param {LoopLaunch} l */
 const isHeld = (l) =>
 	(isResuming(l) && l.resumes?.heldAt !== undefined) ||
 	isStepResume(l) ||
 	isLimitHeld(l);
 
-/**
- * The job ids the listing shows blocked.
- * @param {AgentRecord[]} agents
- */
+/** @param {AgentRecord[]} agents */
 const blockedIdsOf = (agents) =>
 	new Set(agents.filter((a) => a.state === PARKED_STATE).map((a) => a.id));
 
 /**
- * The loop log's line for a park it stopped, or could not; `brief`, the
- * issue comment's, each reason cut to its first line, never a stack (#3670).
  * @param {BlockedLaunch & {act?: Act, whyEnded?: string,
- *   hold?: ParkWhy["hold"]}} l  `whyEnded`, why a held session's wait ended
+ *   hold?: ParkWhy["hold"]}} l
  * @param {"away"|"normal"} mode
  * @param {{failed: string|null, unlabelled: {n: number, why: string}[],
- *   unmarkedWhy?: string|null}} outcome  `unmarkedWhy`, why the labelled issues are
- *   not in the session's marker
+ *   unmarkedWhy?: string|null}} outcome
  * @param {{brief?: boolean}} [opts]
  */
 function buildParkStopLine(
@@ -148,9 +116,6 @@ function labelledOf(l, unlabelled) {
 }
 
 /**
- * Add `l`'s labelled issues to its session's `.parked-` marker, so the
- * founder's typing there takes the label off (unpark-on-prompt.js, #3584);
- * null once recorded or with none labelled, else why not.
  * @param {LoopLaunch} l
  * @param {number[]} labelled
  * @param {number|undefined} limitParks
@@ -169,20 +134,13 @@ function markLabelled(l, labelled, limitParks, io) {
 	});
 }
 
-/**
- * The park's closing words on the issue: where this limit-cap park ends the
- * loop's relaunches, says so (#3804).
- * @param {number|undefined} limitParks
- */
+/** @param {number|undefined} limitParks */
 const buildRelaunchEndText = (limitParks) =>
 	isAtLimitCap(limitParks)
 		? ` The loop will not relaunch it: ${buildLimitCapText(limitParks)}.`
 		: "";
 
 /**
- * `claude stop` on `l`'s job; null once stopped, else why not. A job the loop
- * already stopped to wait for its next resume (isHeld) may be gone, so a
- * stop that finds no job is that stop, not a failure.
  * @param {JobLaunch} l
  * @param {BlockIo} io
  */
@@ -193,10 +151,6 @@ function stopJob(l, io) {
 }
 
 /**
- * Park `l`, its session stopped: label its issues `parked`, record them in its
- * session's marker and comment its cause on them, since a stopped session's own
- * words may not say why it waits (#2846). `l`, marked `parkStopped`, and
- * `parkedAway` in away mode.
  * @param {BlockedLaunch} l
  * @param {ParkWhy} why
  * @param {"away"|"normal"} mode
@@ -216,8 +170,6 @@ function parkOnceStopped(l, why, mode, { now, io }) {
 		l,
 		`Refill loop: ${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.${why.hold ? " The loop resumes it once the hold clears." : ""}${outcome.unmarkedWhy ? "" : buildRelaunchEndText(why.limitParks)}`,
 	);
-	/* A park on a hold comes back through the hold's resume step, so its ledger
-	 * row is not released for a fresh launch to race it (#4228). */
 	return {
 		...l,
 		parkStopped: now,
@@ -226,7 +178,6 @@ function parkOnceStopped(l, why, mode, { now, io }) {
 }
 
 /**
- * Stop `l`'s park and, where the stop held, park it (parkOnceStopped).
  * @param {BlockedLaunch} l
  * @param {ParkWhy} why
  * @param {"away"|"normal"} mode
@@ -245,14 +196,6 @@ function stopPark(l, why, mode, seen) {
 }
 
 /**
- * `l` after a resume that restarted its job at `now`: `relaunchedAt` set,
- * from which it has the listing's grace, and `slotTakenAt` where the resume
- * took a slot, from which the unproven cap counts it (#4684). Where the job is a copy, `l` tracks
- * the copy's job and session id, its dispatch-ledger hold still the job
- * first launched (#2963), and `fromSessionId`, the session it resumed, kept
- * among its past ones for actsOf (#2969), with any original whose job would
- * not retire (withUnretired); a job woken in place keeps both, and a headless
- * resume keeps its session under the new run's job id (#4580).
  * @param {JobLaunch} l
  * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} resumed
  * @param {number} now
@@ -285,9 +228,6 @@ function relaunched(l, resumed, now, { tookSlot }) {
 }
 
 /**
- * `l` with copy `r`'s original, where its job would not retire, added to
- * those a later tick retries (lib/refill-retire.js, #4646): a launch, or an
- * outside session's record (#4829).
  * @template {import("./refill-blocks.js").HasUnretired} L
  * @param {L} l
  * @param {Extract<Resumed, {failed: null}>} r
@@ -298,11 +238,7 @@ const withUnretired = (l, r) =>
 		? { ...l, unretired: [...(l.unretired ?? []), r.unretired] }
 		: l;
 
-/**
- * How resume `r` started its job: woken in place, or as a copy with the
- * reason the harness gave (#4098).
- * @param {Extract<Resumed, {failed: null}>} r
- */
+/** @param {Extract<Resumed, {failed: null}>} r */
 const buildResumedHow = (r) =>
 	r.copy ? `as its copy ${r.jobId} (${r.why})` : "woken in place";
 module.exports = {

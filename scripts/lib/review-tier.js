@@ -1,41 +1,3 @@
-/*
- * review-tier.js — the dispatcher core that hands a session the review tier
- * its change owes when it loads the code-review skill on a change touching a
- * declared sensitive path, and tells an adopter that has declared none that no
- * review can escalate (#1619, spec #1612 §Detection moments, §Skill-load lines
- * for the rollout, §Staged-review mode). Its production ports, git, the
- * session's start point and write ledger and the host's declaration, are
- * lib/review-tier-host.js.
- *
- * A CORE OF ITS OWN BESIDE guard-review-rules, NOT A PART OF IT, and ahead of
- * it in lib/guard-cores.json: the joined context puts the tier first, so a
- * long areas list pushes the review rules, not the tier, past the preview
- * (#1619), as inject-tracker-docs.js's typed route does.
- *
- * IMPLICIT: on a Skill call naming `code-review`, matches the staged paths and the paths this session changed since its base, in the session's tree — the linked worktree of the root's repository the session runs in, else the root — against the declared sensitive paths (lib/sensitive-paths.js), with each area a change to the declaration narrows from HEAD's or the session base's; where an area matched or any globless area is declared, injects the tier owed, each area's focus, examples and `live` flag, the focus and attack Artefact paths, the escalated-review rules, the focused and attacker run briefs and the records to write (#1621); where `sensitivePaths` is absent, injects one line saying so.
- * JUSTIFIED: fail-safe — a change to a sensitive path reviewed at the standard tier misses the defects that cost money or leak data, and the vendored skill cannot carry the tier (spec #1612).
- * DEFEAT: any array value of `sensitivePaths`, `[]` included, silences the undeclared line; `scripts/clear-rule-latch.sh` clears the fragments' latch; listing `inject-review-tier` under the host's `disabled` silences it whole.
- *
- * THE AREAS RIDE IN THE PRELUDE, UNLATCHED, because they change with the diff:
- * a second review in one session is told its own areas. The rules after them
- * are fragments, latched once a session.
- *
- * LIMITS
- *  - Paths since the session base count only where this session wrote them
- *    or its own commits touched them, lib/code-signal.sh's attribution over
- *    `writes --committed` (mantahostels#114, #2390). Staged paths count
- *    whoever staged them: the staged state is what the commit carries.
- *  - The session's tree alone is matched (#4242).
- *    A worktree outside the root adds its staged paths only (#2386). The
- *    declaration read is the root's in any worktree.
- *  - It fires on the Skill TOOL only, as guard-review-rules does. A typed
- *    `/code-review` reaches it through scripts/inject-tracker-docs.js, which
- *    runs this core alone (`guard-dispatch.js --only inject-review-tier`) on
- *    a Skill payload of its own making (#1697).
- *  - It FAILS OPEN on anything it cannot resolve, and the fail-open is
- *    RECORDED (mantahostels#147).
- */
-
 const path = require("node:path");
 const { matchSensitivePaths, withNarrowing } = require("./sensitive-paths.js");
 const { reviewSuffix } = require("./review-suffix.js");
@@ -54,22 +16,11 @@ const { linkedTreeOrRoot } = require("./tree-or.js");
  *   billed: (sid: string, tree: string) => string[] | null,
  *   declared: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
  *   declaredAt: (tree: string, rev: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
- * }} TierPorts git's absolute common dir of a directory, null where git
- *   will not say; a tree's staged paths, null where git will not say; the
- *   session's start point, placed on that tree's HEAD, null where none is
- *   recorded or git cannot place it, throwing where git overran; a tree's paths changed since a commit, untracked ones
- *   included, null where git will not say; the paths in a tree the
- *   session wrote or its own commits touched, null where its write ledger
- *   will not read; and the host's
- *   `sensitivePaths`, throwing where its config will not read; and those at
- *   a revision, undefined where it holds no copy or names no commit, throwing
- *   where it will not read
+ * }} TierPorts
  * @typedef {import("./core-contract.js").CoreContext & TierPorts} TierContext
  */
 
-/** The paths listed per area are capped because the prelude is not: a long
- * list would push the fragments after it off this call. 3 is a first guess,
- * never measured against the cap. */
+// guess, #1699
 const PATHS_LISTED_MAX = 3;
 
 /**
@@ -78,11 +29,8 @@ const PATHS_LISTED_MAX = 3;
  * @returns {import("./core-contract.js").CoreDecision}
  */
 function decide(skill, ctx) {
-	/* The names guard-review-rules matches, and for its reasons (#201). */
 	if (skill === "code-review:code-review") return null;
 	if (skill !== "code-review" && !skill.endsWith(":code-review")) return null;
-	/* guard-review-rules refuses this call (#1165), so a tier here would ride
-	 * a refusal; the namespaced retry is told. */
 	if (
 		skill === "code-review" &&
 		!ctx.isFile(
@@ -91,13 +39,9 @@ function decide(skill, ctx) {
 	)
 		return null;
 
-	/* The host's tree for the session's directory (#4242): its own where a
-	 * linked worktree of the root's repository (#2386, #4493, spec #1612
-	 * §Detection moments). */
 	const tree = linkedTreeOrRoot(ctx);
 	const base = sessionBaseIn(tree, ctx);
 	const paths = [...stagedIn(tree, ctx), ...ownChanges(tree, base, ctx)];
-	/* A config warning is the config reader's to report, not this core's. */
 	let declared;
 	try {
 		declared = ctx.declared(tree);
@@ -114,8 +58,6 @@ function decide(skill, ctx) {
 		{ tree, base, ctx },
 	);
 
-	/* Unlatched, so every review is told until the key exists (spec #1612
-	 * §Solution). */
 	if (match.state === "absent" && match.matched.length === 0) {
 		const line = ruleOrFallback(
 			ctx,
@@ -127,8 +69,6 @@ function decide(skill, ctx) {
 	const globless = match.globless.length > 0;
 	if (match.matched.length === 0 && !globless) return null;
 
-	/* Suffixed as guard-review-rules suffixes the two axes' paths, so
-	 * concurrent reviews write apart (mantahostels#3458). */
 	const suffix = ctx.session ? reviewSuffix(ctx.session) : "";
 	const prelude = `Sensitive paths declared in \`.claude/workflow-core.json\`:
 ${areaLines(match).join("\n")}
@@ -139,14 +79,10 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
 }
 
 /**
- * `match` plus each area a change to the declaration narrows from HEAD's or
- * the session base's (lib/sensitive-paths.js's withNarrowing), as the Stop
- * nag reads it. A copy that will not read is logged and narrows nothing.
  * @param {Match} match
  * @param {import("./workflow-core-config.js").SensitivePath[] | undefined} declared
  * @param {string[]} paths
- * @param {{ tree: string, base: string | null, ctx: TierContext }} at the
- *   tree the declaration is read in, and the session base
+ * @param {{ tree: string, base: string | null, ctx: TierContext }} at
  * @returns {Match}
  */
 function narrowedSince(match, declared, paths, { tree, base, ctx }) {
@@ -168,17 +104,9 @@ function narrowedSince(match, declared, paths, { tree, base, ctx }) {
 }
 
 /**
- * The escalated review's decision: the prelude, then its fragments, highest
- * priority first.
- *
- * Each branch spells its ids out because check-guard-registry.js counts a
- * fragment as printed, and sums its bytes against the cap, only from a literal
- * `injectRules: [...]` (lib/rule-emission.js): an id held in a variable is
- * invisible to it (#1699). Residual: each new optional fragment doubles the
- * branches; review-tier.test.ts pins that they agree.
  * @param {string} prelude
- * @param {boolean} notLive some area is not live
- * @param {boolean} globless some area is declared with no globs
+ * @param {boolean} notLive
+ * @param {boolean} globless
  */
 function tierDecision(prelude, notLive, globless) {
 	if (notLive && globless)
@@ -227,7 +155,6 @@ function tierDecision(prelude, notLive, globless) {
 }
 
 /**
- * A tree's staged paths, none where git will not list them (#3446).
  * @param {string} tree
  * @param {TierContext} ctx
  */
@@ -241,8 +168,6 @@ function stagedIn(tree, ctx) {
 }
 
 /**
- * This session's base placed on its tree's HEAD, or null where none is
- * recorded or git overran, the overrun logged (#3446).
  * @param {string} tree
  * @param {TierContext} ctx
  * @returns {string | null}
@@ -260,15 +185,11 @@ function sessionBaseIn(tree, ctx) {
 }
 
 /**
- * This session's own changes since `base` in its tree, or none where there is
- * no base or the write ledger will not read: unattributable, they are billed
- * to nobody.
  * @param {string} tree
  * @param {string | null} base
  * @param {TierContext} ctx
  */
 function ownChanges(tree, base, ctx) {
-	/* No base yet is a session that has recorded none, not a fault. */
 	if (base === null || !ctx.session) return [];
 	const ledger = ctx.billed(ctx.session, tree);
 	if (ledger === null) {
@@ -278,7 +199,6 @@ function ownChanges(tree, base, ctx) {
 		return [];
 	}
 	const changed = ctx.changedSince(tree, base);
-	/* git would not list them: the fail-open is recorded (#3446). */
 	if (changed === null) {
 		ctx.log(
 			`git diff or ls-files failed in ${tree} — this session's unstaged changes there left unmatched`,
@@ -289,10 +209,7 @@ function ownChanges(tree, base, ctx) {
 	return changed.filter((p) => mine.has(p));
 }
 
-/**
- * One line per matched area under the tier, then one per globless area.
- * @param {Match} match
- */
+/** @param {Match} match */
 function areaLines(match) {
 	/** @param {Match["matched"][number] | Match["globless"][number]} a */
 	const area = (a) => {

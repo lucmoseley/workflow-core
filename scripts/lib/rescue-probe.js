@@ -1,13 +1,3 @@
-/*
- * rescue-probe.js — the core of `rescue-sessions.js probe` (#620, #5157):
- * whether one named session is frozen, off two samples of the oracle, its
- * transcripts, its job record and its process tree.
- *
- * The oracle, the clock's sleep, `gh` and /proc arrive as RescuePorts
- * (lib/rescue-jobs.js), so a module case samples a fake and waits no real
- * interval. Takeover samples through `sampleHolder` too.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { isTerminalAgent, listedAgents } = require("./agent-liveness");
@@ -35,18 +25,7 @@ const { trimEndRun } = require("./trim-run.js");
 /** @typedef {import("./tracker-ops.js").BufferedIo} BufferedIo */
 /** @typedef {import("./gh.js").GhRun} GhRun */
 
-/*
- * The probe's thresholds (#620). EACH IS A GUESS UNTIL MEASURED — no wrong
- * verdict has been traced to one yet, and the first that is should move it.
- *
- * The interval is the watch cadence docs/agents/guard-registry.md §Subagent dispatch uses. The CPU
- * floor is what a non-helper descendant must spend between samples to read as
- * working. The session's own CPU is left out: idle, it passes any floor
- * (#620). The helper
- * patterns name the children that live for the whole session and tick whether
- * or not a turn is running, matched on argv; a helper's own children are
- * excluded with it. No live session here had one to match against.
- */
+// guess, #620
 const PROBE_INTERVAL_S = 120;
 const PROBE_CPU_FLOOR_S = 0.5;
 const HELPER_ARGV = [
@@ -54,34 +33,6 @@ const HELPER_ARGV = [
 	/@modelcontextprotocol\//,
 	/language-server|tsserver/i,
 ];
-
-/*
- * ── probe: is one named session frozen? (#620, spec #617) ──────────────────
- *
- * Read-only. Two samples PROBE_INTERVAL_S apart, then one verdict, first
- * match winning — except GHOST, read off the first sample alone (#1989):
- *
- *   GHOST    9  its job record reads "working", no plan lists a process for
- *               it, and it never wrote a transcript, past the grace window —
- *               lib/hung-jobs.js's GHOST-JOB test
- *   UNKNOWN  3  the oracle, the transcript or /proc would not read at either
- *               sample — doubt never reads as frozen
- *   ENDED    4  listed by no plan, or listed in a terminal state
- *   LIMITED 10  oracle state blocked, its job record's detail a session,
- *               weekly or model limit message — stuck until a typed message
- *               after the reset (#2158, #2380)
- *   ASKING   5  oracle state needs_input/blocked, or the turn ended on
- *               `needs input:`
- *   DONE     6  the turn ended on `result:` with nothing in flight
- *   SLOW     7  a transcript changed size, `inFlight` shows work, or a
- *               non-helper descendant spent PROBE_CPU_FLOOR_S of CPU
- *   FROZEN   8  none of the above — a turn ended on `waiting:` with nothing
- *               left running lands here, the lost wake
- *   (bad invocation or nothing to probe: 2, on stderr)
- *
- * SIZE, NOT MTIME, as watch-artefact.js: a touch without an append is not
- * progress, and a size that falls is a rewrite, which is.
- */
 
 const PROBE_EXIT = {
 	UNKNOWN: 3,
@@ -94,12 +45,10 @@ const PROBE_EXIT = {
 	LIMITED: 10,
 };
 
-/* The unit of /proc/<pid>/stat's CPU fields: USER_HZ, which Linux fixes at
- * 100 whatever the kernel's own tick rate (`getconf CLK_TCK`). */
+// https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
 const CLK_TCK = 100;
 
-/* How much of a transcript's tail is read for its last turn. A guess: room
- * for one long final message and the tool results before it. */
+// guess, #620
 const TAIL_BYTES = 512 * 1024;
 
 /**
@@ -120,7 +69,6 @@ const TAIL_BYTES = 512 * 1024;
  */
 
 /**
- * Whether `sessionId` names `id` — the full id, or its 8-character short form.
  * @param {string} sessionId
  * @param {string} id
  */
@@ -128,8 +76,6 @@ const idMatches = (sessionId, id) =>
 	sessionId === id || (id.length === 8 && sessionId.startsWith(id));
 
 /**
- * The holder's row, or null with why the listing would not read.
- *
  * @param {Listing} listing
  * @param {string} sessionId
  */
@@ -139,9 +85,6 @@ function findHolder(listing, sessionId) {
 }
 
 /**
- * The main transcript's path: the job's `linkScanPath` where its state reads
- * and names this session, else `<dir>/projects/<any>/<sessionId>.jsonl`. Null
- * where neither exists.
  * @param {string} dir
  * @param {string} sessionId
  */
@@ -162,8 +105,6 @@ function readTranscriptOf(dir, sessionId) {
 }
 
 /**
- * Every subagent transcript's size, from the `.jsonl` files under the
- * session's own `<sessionId>/` directory beside its main transcript.
  * @param {string} mainTranscript
  * @param {string} sessionId
  */
@@ -189,17 +130,10 @@ function subagentSizes(mainTranscript, sessionId) {
 	return out;
 }
 
-/**
- * The status marker the session's last turn ended on — `needs input:`,
- * `result:`, `waiting:` — or where the turn has not ended, "tool call", its last
- * assistant entry being one, or "prompt", a user prompt after it going
- * unanswered. "" where it ended on no marker.
- * @param {string} transcript
- */
+/** @param {string} transcript */
 function readLastTurnMarker(transcript) {
 	const { governingMarker } = require("./status-marker");
 	const tail = readTail(transcript, TAIL_BYTES);
-	// takeSample has already stat'd it, so an unreadable transcript is UNKNOWN there.
 	if (tail.state !== "read") return "";
 	for (const j of /** @type {TranscriptRecord[]} */ (
 		parseJsonl(tail.data.text).rows
@@ -218,11 +152,7 @@ function readLastTurnMarker(transcript) {
 	return "";
 }
 
-/**
- * A transcript entry that is a person's prompt — not a tool result, and not an
- * injected `<system-reminder>` or hook payload, which open with a tag.
- * @param {TranscriptRecord} j
- */
+/** @param {TranscriptRecord} j */
 function isUserPrompt(j) {
 	if (j.type !== "user") return false;
 	const c = j.message?.content;
@@ -233,10 +163,7 @@ function isUserPrompt(j) {
 	);
 }
 
-/**
- * `/proc/<pid>/stat`'s parent, CPU ticks and start time.
- * @param {string[] | null} f the line's fields
- */
+/** @param {string[] | null} f */
 function parseProcStat(f) {
 	if (!f) return null;
 	const ppid = Number(f[FIELD.ppid]);
@@ -246,11 +173,8 @@ function parseProcStat(f) {
 }
 
 /**
- * The CPU ticks of `pid` and of each of its descendants, keyed `pid:start` so
- * a reused pid is a new process — a HELPER_ARGV match and its whole subtree
- * left out and only counted. Null where /proc or `pid` itself will not read.
  * @param {number} pid
- * @param {string} root  /proc, or the fake a module case points it at
+ * @param {string} root
  */
 function readProcTree(pid, root) {
 	let entries;
@@ -277,14 +201,11 @@ function readProcTree(pid, root) {
 }
 
 /**
- * One /proc entry as a row, or null where it exited between the listing and
- * the read or its stat will not parse.
  * @param {string} root
  * @param {string} e
  * @returns {ProcRow | null}
  */
 function readProcRow(root, e) {
-	/* Unread where it exited between the listing and the read. */
 	const parsed = parseProcStat(readStatFields(e, root));
 	if (!parsed) return null;
 	return { pid: Number(e), argv: readProcArgv(root, e), ...parsed };
@@ -303,7 +224,6 @@ function readProcArgv(root, e) {
 			.split("\0")
 			.join(" ");
 	} catch {
-		// Exited after its stat read: an empty argv matches no helper, so its CPU counts.
 		return "";
 	}
 }
@@ -333,7 +253,6 @@ function descendantsOf(children, pid) {
 }
 
 /**
- * A live holder's process tree, or null where its row records no pid.
  * @param {AgentRecord} row
  * @param {string} root
  */
@@ -342,14 +261,10 @@ function readLiveProcTree(row, root) {
 }
 
 /**
- * One sample of everything the verdict reads, off a listing already taken.
- * /proc is read only for a holder that is listed and not terminal: an ended
- * session's pid proves nothing either way.
- *
  * @param {Listing} listing
  * @param {string[]} dirs
  * @param {string} sessionId
- * @param {string} root  /proc
+ * @param {string} root
  * @returns {ProbeSample}
  */
 function takeSample(listing, dirs, sessionId, root) {
@@ -372,13 +287,6 @@ function takeSample(listing, dirs, sessionId, root) {
 }
 
 /**
- * The plan holding the session's transcript, with its job record where that
- * record names the session.
- *
- * The listing names no plan (#3512), so the session's own is the plan
- * holding its transcript, and where two do, the one whose job record names
- * it — a record under the same short id may be another session's (#1146).
- *
  * @param {string[]} dirs
  * @param {string} sessionId
  */
@@ -395,11 +303,7 @@ function readSessionRecords(dirs, sessionId) {
 	return records;
 }
 
-/**
- * The transcript's size, or null where there is none or it will not stat —
- * which probeVerdict reads as UNKNOWN.
- * @param {string | null} transcript
- */
+/** @param {string | null} transcript */
 function readTranscriptSize(transcript) {
 	if (!transcript) return null;
 	try {
@@ -409,11 +313,7 @@ function readTranscriptSize(transcript) {
 	}
 }
 
-/**
- * The job record's in-flight counts, or null where it carries none.
- * @param {any} state the job record's `state`, read off disk unvalidated —
- *   `any` as the probe's record type gives it; every field is coerced here
- */
+/** @param {any} state */
 function inFlightOf(state) {
 	const f = state?.inFlight;
 	return f && typeof f === "object"
@@ -421,10 +321,7 @@ function inFlightOf(state) {
 		: null;
 }
 
-/**
- * The job record's limit message, or null where its detail is anything else.
- * @param {any} state the job record's `state`, as inFlightOf's
- */
+/** @param {any} state */
 function limitOf(state) {
 	const detail = typeof state?.detail === "string" ? state.detail : "";
 	return LIMIT_MESSAGE.test(detail) ? detail : null;
@@ -433,9 +330,6 @@ function limitOf(state) {
 /** @typedef {Exclude<keyof typeof PROBE_EXIT, "GHOST">} SampledVerdict */
 
 /**
- * The verdict two samples make, with the evidence lines behind it. First
- * match wins, in the order of the table above.
- *
  * @param {ProbeSample} before
  * @param {ProbeSample} after
  * @returns {{verdict: SampledVerdict, why: string, evidence: string[]}}
@@ -482,9 +376,6 @@ function probeVerdict(before, after) {
 }
 
 /**
- * Why a listed, live session that is neither asking nor done reads SLOW, or
- * null where nothing moved between the samples.
- *
  * @param {ProbeSample} before
  * @param {ProbeSample} after
  * @param {{grownSubs: Array<[string, number]>, busy: number}} measured
@@ -502,7 +393,6 @@ function slowWhy(before, after, { grownSubs, busy }, inFlight) {
 }
 
 /**
- * The inputs one sample could not read, each as an evidence clause.
  * @param {ProbeSample} s
  * @param {string} at
  */
@@ -515,14 +405,10 @@ function unreadableInputs(s, at) {
 	return out;
 }
 
-/** `, on plan <dir>`, or nothing where no plan holds the session's records. */
 const onPlan = (/** @type {string | null | undefined} */ dir) =>
 	dir ? `, on plan ${dir}` : "";
 
 /**
- * The evidence lines two samples give, with the subagent transcripts that
- * grew and the descendants' CPU ticks the verdict reads.
- *
  * @param {ProbeSample} before
  * @param {ProbeSample} after
  */
@@ -569,13 +455,10 @@ function probeEvidence(before, after) {
 }
 
 /**
- * The session `--issue`/`--session` names, as its full id — or a refusal.
- *
  * @param {ParsedArgs} args
  * @param {string[]} dirs
  * @param {Listing} listing
- * @param {{cmd: string, ports: RescuePorts}} how  `cmd`, the verb a refusal
- *   names: "probe" or "take over"
+ * @param {{cmd: string, ports: RescuePorts}} how
  * @returns {{sessionId: string, issue: number | null} | {refuse: string}}
  */
 function resolveHolder(args, dirs, listing, { cmd, ports }) {
@@ -611,8 +494,6 @@ function resolveHolder(args, dirs, listing, { cmd, ports }) {
 }
 
 /**
- * The one other session holding a claim on `issue` — or, where none does, the
- * one other job whose intent names it (#1989). Else a refusal.
  * @param {number | null} issue
  * @param {string} me
  * @param {string} cmd
@@ -640,13 +521,9 @@ function holderOfIssue(issue, me, cmd, dirs) {
 	return { sessionId: holder, issue };
 }
 
-/* A launch intent's command and the issue list straight after it, so
- * `/implement 1878 — RESUMED from session 3` names 1878 and not 3. */
 const INTENT_ISSUES = /^\/[\w:-]+\s+([#\d\s,]+)/;
 
 /**
- * The session ids of every job on `dirs`, other than this one, still in a
- * STUCK_STATES state and whose intent names `issue`.
  * @param {number} issue
  * @param {string} me
  * @param {string[]} dirs
@@ -665,8 +542,6 @@ function jobsNaming(issue, me, dirs) {
 }
 
 /**
- * Every job on plan `dir`: none where it has no jobs/ (#1989). Any other
- * failure to read is doubt, and throws.
  * @param {string} dir
  * @returns {Job[]}
  */
@@ -680,9 +555,6 @@ function readJobsOn(dir) {
 }
 
 /**
- * Every full session id `id` widens to — off the issue-claim store, each
- * plan's job records and transcripts, and the listing, in that order — with
- * the issues the matching claims hold.
  * @param {string} id
  * @param {string[]} dirs
  * @param {Listing} listing
@@ -709,7 +581,7 @@ function readSessionsMatching(id, dirs, listing) {
 }
 
 /**
- * @param {Set<string>} full accumulator: each listed session id matching `id` is added
+ * @param {Set<string>} full
  * @param {string} id
  * @param {Listing} listing
  */
@@ -719,9 +591,7 @@ function addListedMatches(full, id, listing) {
 }
 
 /**
- * The one open ticket among the several `sessionId` holds claims on — or a
- * refusal naming them.
- * @param {string} id  the id as given
+ * @param {string} id
  * @param {string} sessionId
  * @param {Set<number>} held
  * @param {{cmd: string, gh: GhRun}} how
@@ -751,9 +621,6 @@ function onlyOpenClaim(id, sessionId, held, { cmd, gh }) {
 }
 
 /**
- * Which of `issues` the tracker reads as open (#648): a closed ticket's claim
- * is stale, and never the one a takeover adopts. Where any read fails, why —
- * doubt never picks a ticket.
  * @param {number[]} issues
  * @param {GhRun} gh
  * @returns {{open: number[]} | {why: string}}
@@ -772,21 +639,12 @@ function openIssues(issues, gh) {
 	}
 }
 
-/**
- * @typedef {{dir: string, rec: any, row: AgentRecord | undefined}} GhostJob
- *   the ghost's plan, its job record — `any`, as `readOwnJob` parses it off disk,
- *   printed as found — and its oracle row where one lists it
- */
+/** @typedef {{dir: string, rec: any, row: AgentRecord | undefined}} GhostJob */
 
 /**
- * The GHOST verdict off one sample, or null where the session is not one:
- * lib/hung-jobs.js's GHOST-JOB test, plus no transcript — a session that wrote
- * one took a turn, so the two samples judge it. A listing that would not
- * read is doubt, not absence.
  * @param {Listing} listing
  * @param {ProbeSample} sample
- * @param {{dirs: string[], sessionId: string, now: number}} holder  its
- *   plans, its session, and the epoch ms its record's age is taken at
+ * @param {{dirs: string[], sessionId: string, now: number}} holder
  * @returns {{verdict: "GHOST", why: string, evidence: string[], ghost: GhostJob} | null}
  */
 function ghostVerdict(listing, sample, { dirs, sessionId, now }) {
@@ -817,8 +675,6 @@ function ghostVerdict(listing, sample, { dirs, sessionId, now }) {
 }
 
 /**
- * Resolve the named holder and take the two samples. Dies on a bad invocation
- * or a refusal from resolveHolder, before anything is sampled.
  * @param {BufferedIo} io
  * @param {ParsedArgs} args
  * @param {string} cmd
@@ -832,9 +688,6 @@ async function sampleHolder(io, args, cmd, ports) {
 		die(io, "--interval takes a positive number of seconds");
 	const dirs = sessionDirs().filter((d) => fs.existsSync(d));
 
-	// One listing names every plan's sessions (#3512). Its self-test stands
-	// (#3525): the probe reads a holder missing from it as ended, so a listing
-	// that omits this session leaves every probe and takeover UNKNOWN.
 	const oracle = { run: ports.oracle };
 	const first = listedAgents(oracle);
 	const who = resolveHolder(args, dirs, first, { cmd, ports });
@@ -857,7 +710,6 @@ async function sampleHolder(io, args, cmd, ports) {
 }
 
 /**
- * The verdict line and its evidence, as probe prints them.
  * @param {{verdict: string, why: string, evidence: string[],
  *   who: {sessionId: string, issue: number | null}}} v
  */
@@ -876,7 +728,6 @@ async function probeHolder(io, args, ports) {
 }
 
 /**
- * `probe`'s outcome. A throw is doubt, never a bad invocation: UNKNOWN.
  * @param {ParsedArgs} args
  * @param {RescuePorts} ports
  * @returns {Promise<Outcome>}

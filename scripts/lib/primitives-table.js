@@ -1,38 +1,3 @@
-/*
- * primitives-table.js — the check-primitives core (#3451): parses the
- * primitives tables in the code standards base and a repo's local file,
- * judges every path and § id they name, and builds the count line. The
- * release build reads the base's paths through parseBasePaths, to refuse one
- * the release does not ship (#4156) or a table it cannot read (#4189).
- *
- * A CORE (base §T7): every read comes in through the ports below.
- *
- *   read(side)               the side's standards text, null where absent
- *   exists(side, rel)        whether `rel` names a file or directory at the
- *                            side's root: the plugin root for `base`, the
- *                            host root for `local`, as base §0 reads line pins
- *   countBreaches(checks)    resolves to the findings each check program
- *                            `{ side, rel }` reports over the whole tree, or
- *                            why it could not be read, in `checks`' order; all
- *                            are asked for in one call, so the adapter sets
- *                            how many run at once
- *   readNewHeresies()        the `**Filed:**` figure on the last closed *Heresy
- *                            sweep due* issue, or why it could not be read
- *
- * A TABLE is the first Markdown table under a `## Primitives` heading whose
- * header row is COLUMNS exactly. A side with no such heading has no rows; a
- * heading with no such table is a finding.
- *
- * A COUNT IS A NUMBER OR A REASON, never a 0 standing in for one it could not
- * read (#3365), save a local row whose check SKIPs on an out-of-reach subject,
- * which adds a silent 0 (parseBreaches, #4149).
- *
- * A ROW CHANGE is keyed by the row's Job cell: a Job only one side of a commit
- * holds was added or removed, and a changed cell under the same Job is a
- * rewrite (#3465). Residual: a Job cell reworded
- * reads as a removal and an addition, two entries to reverse.
- */
-
 const { requiredGroup } = require("./regex-group.js");
 
 const COLUMNS = ["Job", "Primitive", "Exemplar", "Rule", "Enforcing check"];
@@ -42,8 +7,6 @@ const STANDARDS_DOCS = {
 	local: "docs/code-standards.md",
 };
 
-/* The Enforcing check cell's one non-path value: the row is a criterion
- * `/code-review`'s Standards axis judges, and no program enforces it. */
 const AXIS_CRITERION = "Standards axis criterion";
 
 const HEADING = /^##\s+Primitives\s*$/;
@@ -59,8 +22,7 @@ const BACKTICKED = /`([^`]+)`/g;
 /** @typedef {{ side: Side, line: number, job: string, message: string }} Finding */
 /**
  * @typedef {{ change: "added" | "removed" | "rewritten", job: string,
- *   primitive: string, cells: string[] }} RowChange `cells` names the
- *   columns a rewrite changed, and is empty otherwise
+ *   primitive: string, cells: string[] }} RowChange
  */
 /** @typedef {{ count: number } | { unknown: string }} Count */
 /**
@@ -85,8 +47,6 @@ const cellsOf = (line) =>
 const isTableLine = (line) => line.trim().startsWith("|");
 
 /**
- * The side's rows, or the reason its table cannot be read; no rows where the
- * text has no primitives heading.
  * @param {Side} side
  * @param {string} text
  * @returns {{ rows: Row[] } | { unreadable: string }}
@@ -118,10 +78,7 @@ function parseTable(side, text) {
 	return { rows };
 }
 
-/**
- * Every § id a heading in `text` defines: `## §G — …` and `### §G1 · …`.
- * @param {string} text
- */
+/** @param {string} text */
 function sectionIds(text) {
 	const ids = new Set();
 	for (const line of text.split("\n")) {
@@ -171,8 +128,6 @@ function pathFaults(row, cell, { noun, empty, fix }, exists) {
 }
 
 /**
- * The cells whose backticked paths are judged: the Exemplar, and the Enforcing
- * check where a program enforces the row.
  * @param {Row} row
  * @returns {{ cell: string, words: { noun: string, empty: string, fix: string } }[]}
  */
@@ -201,7 +156,7 @@ const pathCells = (row) => [
 
 /**
  * @param {Row} row
- * @param {Set<string>} ids the ids this row's side may cite
+ * @param {Set<string>} ids
  * @param {Ports["exists"]} exists
  * @returns {Finding[]}
  */
@@ -228,8 +183,6 @@ function judgeRow(row, ids, exists) {
 }
 
 /**
- * Sum the breaches every program-enforced row's check reports, each distinct
- * check counted once.
  * @param {Row[]} rows
  * @param {Ports["countBreaches"]} countBreaches
  * @returns {Promise<Count>}
@@ -257,19 +210,6 @@ async function sumBreaches(rows, countBreaches) {
 }
 
 /**
- * The FAIL findings in what a check printed under `--json`. A breach is
- * FAIL-severity only: a WARN, such as check-host-root's stale-allowlist note,
- * is about the check, not a caller off the primitive, and --warn caps the
- * outcome, never a finding's severity.
- *
- * A SKIP with a findings array adds 0 whatever it holds, as runCheck counts an
- * unfinished run's findings 0 (#4149); one with none stays unknown.
- * check-host-root SKIPs in any repo shipping no plugin, and one such row must
- * not blank the total (#4119).
- * Residual: every base row's check SKIPs only on an absent subject, but an
- * adopter's local row whose check SKIPs because its subject is out of reach,
- * such as GitHub being down (§N4), also adds 0, with its reason dropped.
- *
  * @param {string} stdout
  * @param {number | null} status
  * @returns {Count}
@@ -302,8 +242,6 @@ const buildCountLine = ({ enforced, breaches, heresies }) =>
 	`primitives: ${shown(enforced, "enforced")}, ${shown(breaches, "open breaches")}, ${shown(heresies, "new heresies since the last sweep")}`;
 
 /**
- * With findings, no OK line is printed to carry the count line, so it goes
- * beside them.
  * @param {{ rows: number, line: string | null, findings: number }} judged
  * @returns {{ okLine: string, extraLine: string | null }}
  */
@@ -316,9 +254,6 @@ function primitivesOutcome({ rows, line, findings }) {
 }
 
 /**
- * Each finding as the line it prints, the file it is recorded against, and
- * whether it gates. A base row's fault in an adopter is the plugin's to fix,
- * so it warns there; every other finding fails.
  * @param {Finding[]} findings
  * @param {boolean} inAdopter
  * @returns {{ message: string, file: string, gates: boolean }[]}
@@ -338,8 +273,6 @@ function buildFindingReports(findings, inAdopter) {
 }
 
 /**
- * Both sides' rows, with a finding and a reason for each side whose table
- * cannot be read.
  * @param {string} baseText
  * @param {string | null} localText
  */
@@ -365,7 +298,6 @@ function parseTables(baseText, localText) {
 }
 
 /**
- * A local row naming a base row's job, as a finding; null for any other row.
  * @param {Row} row
  * @param {Map<string, Row>} baseJobs
  * @returns {Finding | null}
@@ -381,8 +313,6 @@ function twinFinding(row, baseJobs) {
 }
 
 /**
- * Judge both tables, by stat calls alone. `unreadable` names each side whose
- * table would not parse, for countPrimitives.
  * @param {Pick<Ports, "read" | "exists">} ports
  * @returns {{ rows: Row[], findings: Finding[], broken: string | null,
  *   unreadable: string[] }}
@@ -463,9 +393,6 @@ const buildRowChange = (change, { job, primitive }, cells = []) => ({
 });
 
 /**
- * The rows one commit added, removed or rewrote between two texts of a side's
- * standards file, null for a text the file was absent from; or why either
- * text's table would not read.
  * @param {Side} side
  * @param {string | null} before
  * @param {string | null} after
@@ -496,9 +423,6 @@ function rowChanges(side, before, after) {
 }
 
 /**
- * Every backticked path the base table's Exemplar and Enforcing check cells
- * name, or why the table cannot be read, which the release build refuses
- * rather than judge no row (#4189).
  * @param {string} baseText
  * @returns {{ paths: { line: number, rel: string }[] } | { unreadable: string }}
  */

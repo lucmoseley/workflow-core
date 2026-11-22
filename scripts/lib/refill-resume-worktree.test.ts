@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * A resume reopens its session's recorded worktree, uncommitted work intact
- * (#4229 story 7, #4319): lib/refill-resume.js's readResumeTarget then
- * resumeStopped over the production adapter, with a real git worktree and
- * `claude` stubbed at WFC_CLAUDE_BIN to log the cwd it ran in.
- *
- * Loosen it and a session cut into its own worktree resumes in the main
- * checkout, away from its branch and its uncommitted edits.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -37,8 +28,6 @@ afterEach(() => {
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 
-/** A checkout at `root` with one commit, and a worktree cut from it at `wt`
- * holding an edit to a tracked file and an untracked one. */
 function cutWorktree(root: string, wt: string) {
 	fs.mkdirSync(root);
 	git(root, "init", "-q", "-b", "main");

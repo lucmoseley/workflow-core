@@ -1,8 +1,3 @@
-/*
- * The panel's raw input (#3873, #3883, #3948): which bytes are clicks and which are keys,
- * across chunks. Broken, a click presses nothing, or a stray sequence types into or
- * cancels a goal being edited.
- */
 import { describe, expect, it } from "vitest";
 
 const { ESC, createInputReader } = require("./refill-panel-input.js");

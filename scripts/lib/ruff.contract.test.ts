@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Holds ruff-testkit.ts's failing stub to the real ruff (§G7, #3825): each case
- * runs `ruff format --check` over a blob and an empty one, against both, and
- * checks exit and a stderr that says something. Loosened, check-format-staged's
- * stub cases stay green on CI while a new ruff exits differently on a broken
- * config or a syntax error, and the gate blames the wrong party.
- *
- * Red on the real side after a ruff upgrade: run the case's command by hand,
- * then fix readRuffToolFault in check-format-staged.js or the stub's body.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

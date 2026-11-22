@@ -1,10 +1,3 @@
-/*
- * The fixtures lib/refill-blocks.js's and lib/refill-limits.js's module tests
- * share (#4295). Its BlockIo double, every act succeeding and recording its
- * call, has no contract test (§G7): tsc holds it to the port's shape,
- * refill-loop-run.test.ts drives the real BlockIo end to end, and the ports it
- * is built on (agents-stop, bg-resume, resume-io) carry their own contracts.
- */
 import { COPY_WHY } from "./bg-resume-fake";
 import { actOnBlocks, logNetWaits } from "./refill-blocks.js";
 
@@ -39,16 +32,10 @@ export const agent = (id: string, state: string) => ({
 	state,
 });
 
-/** A BlockIo whose every act succeeds unless `over` says otherwise, and its
- * `calls`. */
 export function fakeIo(over: Partial<BlockIo> = {}) {
 	const calls: string[] = [];
-	/* Each launch writeLaunch wrote, its resume on record (#4180). */
 	const started: Launch[] = [];
-	/* lib/refill-outside.js's records, as its file would hold them. */
 	let outside: Outside[] = [];
-	/* lib/reaped-jobs.js's journal, entries pushed by a test, and the loop's
-	 * keys of the entries the loop has read. */
 	const reaped: ReapedJob[] = [];
 	let read: string[] = [];
 	const io: BlockIo = {

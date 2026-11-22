@@ -1,12 +1,3 @@
-/*
- * refill-retire.js — the refill loop's retry of a copy's original whose job
- * would not retire when the copy started (#4646). lib/refill-resume.js's
- * settleCopy stops the original's job and removes its row so one row of the
- * work is left to revive (#4098); one refused, as by a busy daemon, rides on
- * the launch the copy runs as, or the outside session's record (#4829), and
- * each tick tries it again.
- */
-
 const { shortJobId } = require("./job-paths.js");
 const { launchName } = require("./refill-block-core.js");
 
@@ -15,15 +6,13 @@ const { launchName } = require("./refill-block-core.js");
 /** @typedef {import("./refill-blocks.js").HasUnretired} HasUnretired */
 /** @typedef {import("./refill-blocks.js").BlockIo} BlockIo */
 
-/* The retirements of a copy's original tried, settleCopy's first among them,
- * before the loop gives up and comments; untraced. */
+// guess, #4646
 const RETIRE_TRIES = 3;
 
 /**
- * What to do by hand about original `original` of copy `u` once out of tries.
  * @param {Unretired} u
- * @param {string} original  its short job id
- * @param {string} failed  the last refusal
+ * @param {string} original
+ * @param {string} failed
  */
 const buildGiveUpFix = (u, original, failed) =>
 	`two rows of this session are live in \`claude agents\` on ${u.seat}: original job ${original} and its copy ${u.copyJobId}. The original would not retire after ${RETIRE_TRIES} tries (${failed}); stop and remove it by hand (\`claude stop ${original}\`, then \`claude rm ${original}\`) so only the copy is revived.`;
@@ -42,14 +31,11 @@ function retireOriginals(launches, io) {
 }
 
 /**
- * `r` with each of its copy's unretired originals tried again, those retired
- * or out of tries dropped (retireOriginal); `r` itself where it has none.
  * @template {HasUnretired} R
  * @param {R} r
- * @param {string} name  whose copy it is, for the log
+ * @param {string} name
  * @param {Pick<BlockIo, "retireJob"|"log">} io
  * @param {(u: Unretired, original: string, failed: string) => void} giveUp
- *   told of an original out of tries
  * @returns {R}
  */
 function withRetried(r, name, io, giveUp) {
@@ -62,8 +48,6 @@ function withRetried(r, name, io, giveUp) {
 }
 
 /**
- * Original `u` of `name`'s copy tried again: nothing once retired, else `u`
- * with the try counted, or nothing once out of tries, `giveUp` told.
  * @param {Unretired} u
  * @param {string} name
  * @param {Pick<BlockIo, "retireJob"|"log">} io

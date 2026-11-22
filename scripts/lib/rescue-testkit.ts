@@ -1,19 +1,3 @@
-/*
- * rescue-testkit.ts — shared fixtures for the `rescue-sessions.js` probe and takeover suites
- * (#647): the fake `claude` oracle, the plan listings it serves, the fake
- * `/proc`, and the holder's transcript. Each suite still writes its own holder
- * and its own assertions.
- *
- * The fake `claude` lists a plan's `agents.json`, its rows held to the
- * harness's field names (lib/agents-stop-fake.ts); a `fail` file makes the
- * listing fail. On `stop` it runs the caller's `onStop` lines, fails where
- * `stop-fails` exists, swaps in `agents-after-stop.json`, then answers with
- * the harness's recorded stop.
- *
- * The fake `gh` serves ticket <n> open, or closed where `closed-<n>` exists in
- * the sandbox; `gh-fails` there fails every call.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { buildStopBranch } from "./agents-stop-fake";
@@ -30,9 +14,6 @@ export const SID = "abcd1234-0000-4000-8000-000000000001";
 export const SHORT = SID.slice(0, 8);
 export const PID = 4242;
 
-/** The exit codes rescue-sessions.js documents above PROBE_EXIT, restated
- * rather than read from it: the skill branches on these numbers, so a
- * renumbering must fail here. */
 export const EXIT: Record<string, number> = {
 	REFUSED: 2,
 	UNKNOWN: 3,
@@ -45,8 +26,6 @@ export const EXIT: Record<string, number> = {
 	LIMITED: 10,
 };
 
-/** The lines a session blocked at its seat's limit carries (#2128), or at a
- * model's own (#2380). */
 export const SESSION_LIMIT_LINE =
 	"You've hit your session limit · resets 8:30pm (Asia/Singapore)";
 export const WEEKLY_LIMIT_LINE =
@@ -74,7 +53,6 @@ const assistant = (content: object[]) =>
 	JSON.stringify({ type: "assistant", message: { content } });
 export const said = (text: string) => assistant([{ type: "text", text }]);
 
-/** freshSandbox's setUp: a tracker for the scripts' `gh` reads to name. */
 export const withTracker = (s: Sandbox) => {
 	fs.mkdirSync(path.join(s.repo, ".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -90,15 +68,11 @@ export interface Run {
 }
 
 export function rescueKit(sb: Sandbox) {
-	/** A plan's config dir; `.claude` is the sandbox's own, `sb.home`. */
 	const plan = (name = ".claude") => path.join(sb.dir, "home", name);
 	const procRoot = () => path.join(sb.dir, "proc");
 	const transcript = (dir = plan()) =>
 		path.join(dir, "projects", "p", `${SID}.jsonl`);
 
-	/* The `agents` branch is hand-written, not buildAgentsBranch's: a takeover
-	 * case needs the listing to change once a stop takes, so it is read off
-	 * disk each call. Its rows still pass through `listed`. */
 	const fakeClaude = (onStop: string[] = []) =>
 		writeClaudeStub(path.join(sb.dir, "claude"), [
 			'd="$CLAUDE_CONFIG_DIR"',
@@ -114,7 +88,6 @@ export function rescueKit(sb: Sandbox) {
 			"fi",
 		]);
 
-	/** What `dir` lists; this session ("sandbox") always, for the self-test. */
 	const lists = (rows: Row[], dir = plan(), file = "agents.json") => {
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(
@@ -148,7 +121,6 @@ export function rescueKit(sb: Sandbox) {
 		fs.writeFileSync(transcript(dir), `${lines.join("\n")}\n`);
 	};
 
-	/** The holder's `state.json` on `dir`, pointing at its transcript there. */
 	const jobState = (fields: object, dir = plan()) => {
 		const d = path.join(dir, "jobs", SHORT);
 		fs.mkdirSync(d, { recursive: true });
@@ -162,11 +134,6 @@ export function rescueKit(sb: Sandbox) {
 		);
 	};
 
-	/**
-	 * A job that never started (#1989): its record still `working` /
-	 * `starting…` an hour on — past GHOST_AFTER_MINUTES' 30 — no transcript, and `rows` listed beside a live
-	 * neighbour — whose pid keeps the listing's shape readable.
-	 */
 	const ghostJob = (
 		intent: string,
 		rows: Row[] = [holderRow({ pid: undefined })],
@@ -185,7 +152,6 @@ export function rescueKit(sb: Sandbox) {
 		});
 	};
 
-	/** `before`: shell lines run ahead of the serving, e.g. to log a call. */
 	const fakeGh = (before: string[] = []) =>
 		stubGhScript(
 			sb.dir,
@@ -202,10 +168,6 @@ export function rescueKit(sb: Sandbox) {
 			].join("\n"),
 		).env;
 
-	/**
-	 * `rescue-sessions.js <sub> …args` at a 0.05 s probe interval, against the
-	 * fake oracle, /proc and `gh`, through `runInProcessAsync`.
-	 */
 	const run = (
 		sub: string,
 		args: string[],

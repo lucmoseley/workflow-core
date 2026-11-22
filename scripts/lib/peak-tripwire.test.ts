@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The peak tripwire (#5367) through its public API, the journal's incidents,
- * the run store and the clock injected: no case reads the real journal. Break
- * it and a kill under the peak charge leaves part-suites on it, a ladder-only
- * kill or another process's kill sends them back for nothing, or a blind
- * journal leaves the peak charge running unwatched.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const wire = require("./peak-tripwire.js");
 
 const T0 = Date.parse("2026-11-17T03:00:00Z");
-/* peak-tripwire.js's journal throttle. */
 const CHECK_MS = 30 * 1000;
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -64,7 +56,6 @@ const incidents =
 		why: null,
 	});
 
-/** A run file live from `from` to `to`, admitted on `mode`. */
 function runFile(mode: string | undefined, from: number, to: number) {
 	return {
 		session: `s-${mode}`,

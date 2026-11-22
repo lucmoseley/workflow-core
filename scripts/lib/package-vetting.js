@@ -1,54 +1,18 @@
-/*
- * package-vetting.js — what the two install cores share when they vet a new
- * package against its registry: lib/npm-install.js against npm, and
- * lib/pip-install.js against PyPI (#5232).
- *
- * Each core reads its own commands and asks its own registry.
- *
- * THE THRESHOLDS, and what in them is a judgement.
- *
- *   MIN_AGE_DAYS=180, MIN_DOWNLOADS=1000 per month.
- *
- * Neither is a measurement; both are chosen for margin (mantahostels#1767).
- * The margin over mantahostels' own dependencies is on mantahostels#1803.
- *
- * THE ESCAPE, `allowNewPackage`, is `WFC_ALLOW_NEW_PACKAGE` in the HOOK's
- * environment, never a leading assignment on the command, which is read but
- * not honoured: an escape a session can spell for itself is not a deny
- * (mantahostels#109). It stands down the registry check alone.
- *
- * WHAT THIS DOES NOT COVER (mantahostels#1767): a legitimate package LATER
- * COMPROMISED. Nothing here is a substitute for a committed lockfile.
- */
-
 const { ruleOrFallback } = require("./guard-verdict.js");
 
+// guess, lucmoseley/mantahostels#1767
 const MIN_AGE_DAYS = 180;
 const MIN_DOWNLOADS = 1000;
 
-/* THE WALL-CLOCK BUDGET, in seconds. The dispatcher's 60 s timeout is not a
- * verdict: a hook killed at the ceiling refuses through `"onFailure":
- * "block"`, naming nothing it checked. So a core stops asking its registry at
- * 30 s and refuses on what it could not check, saying which.
- *
- * 30 s, not 40: the budget is tested BEFORE each package and one package costs
- * up to 20 s of registry calls (each core's host), so a 40 s budget could
- * start a package at 39 s and finish at 59 s — inside the ceiling only by luck
- * (mantahostels#1803's review, H4). The 30 s run from the dispatcher's start,
- * not the core's, so the cores ahead of it spend from them, and 30 + 20
- * leaves 10 s for the output write. */
+// guess, lucmoseley/mantahostels#1803
 const BUDGET_S = 30;
 
 /**
  * @typedef {{ missing: true } | { status: number | null, stdout: string }} Call
- *   a registry call: `missing` where its program could not be started, else
- *   its exit status (null where it was killed) and stdout
  * @typedef {object} VettingPorts
- * @property {() => number} now the clock, in epoch milliseconds
- * @property {() => number} startedAt when the dispatcher started, in epoch
- *   milliseconds; the budget runs from it
- * @property {boolean} allowNewPackage `WFC_ALLOW_NEW_PACKAGE` set in the
- *   hook's own environment
+ * @property {() => number} now
+ * @property {() => number} startedAt
+ * @property {boolean} allowNewPackage
  * @typedef {import("./guard-verdict.js").RulePorts & VettingPorts} VettingContext
  * @typedef {"missing" | "young" | "thin" | "budget" | "unreachable"} Refusal
  * @typedef {{ kind: "ok" } | { kind: Refusal, n: string }} RegistryVerdict
@@ -64,7 +28,7 @@ const seconds = (ms) => Math.floor(ms / 1000);
 
 /**
  * @param {string} text
- * @returns {unknown} the parsed value, or null where it is not JSON
+ * @returns {unknown}
  */
 function jsonOf(text) {
 	try {
@@ -75,9 +39,7 @@ function jsonOf(text) {
 }
 
 /**
- * The age verdict of a package first published at `created`: unreachable
- * where that is no date, young under the floor, else ok.
- * @param {unknown} created an ISO date string
+ * @param {unknown} created
  * @param {VettingContext} ctx
  * @returns {RegistryVerdict}
  */
@@ -85,14 +47,11 @@ function ageOf(created, ctx) {
 	if (typeof created !== "string" || !created) return UNREACHABLE;
 	const epochMs = Date.parse(created);
 	if (Number.isNaN(epochMs)) return UNREACHABLE;
-	/* Whole seconds each side and a division truncating towards zero. */
 	const days = Math.trunc((seconds(ctx.now()) - seconds(epochMs)) / 86_400);
 	return days < MIN_AGE_DAYS ? { kind: "young", n: String(days) } : OK;
 }
 
 /**
- * The downloads verdict of last month's figure: unreachable where it is no
- * whole number, thin under the floor, else ok.
  * @param {unknown} dl
  * @returns {RegistryVerdict}
  */
@@ -103,20 +62,13 @@ function downloadsOf(dl) {
 	return Number(figure) < MIN_DOWNLOADS ? { kind: "thin", n: figure } : OK;
 }
 
-/* ----------------------------------------------------------------------- */
-/* The refusals.                                                           */
-/* ----------------------------------------------------------------------- */
-
 /** @param {VettingContext} ctx */
 const escapeNote = (ctx) =>
 	`The escape is \`WFC_ALLOW_NEW_PACKAGE=1\` in the environment Claude Code itself
 was started in — NOT on this command line, which is read but never honoured: ${ruleOrFallback(ctx, "self-spelt-escape", "an escape a session can spell for itself is not a deny")} Otherwise ask the
 founder to run the install from their own terminal, which sees no hook.`;
 
-/**
- * The rule a refusal prints whole (#5232).
- * @param {VettingContext} ctx
- */
+/** @param {VettingContext} ctx */
 const vettedRule = (ctx) =>
 	ruleOrFallback(
 		ctx,
@@ -125,12 +77,7 @@ const vettedRule = (ctx) =>
 	);
 
 /**
- * The legitimacy refusals. Each core passes its registry's two phrases whole,
- * so the fire needles keyed on them (scripts/guard-fire-needles.json) stay
- * literal in that core's own file.
- * @param {{ exists: string, unreached: string }} on `exists`: "exists on
- *   <the registry>"; `unreached`: "<The registry> could not be reached to
- *   check"
+ * @param {{ exists: string, unreached: string }} on
  * @returns {Record<Refusal, (name: string, n: string, ctx: VettingContext) => string>}
  */
 function registryTexts(on) {
@@ -177,9 +124,8 @@ ${escapeNote(ctx)}`,
 }
 
 /**
- * The refusal of a spec the registry cannot be asked about.
  * @param {string} spec
- * @param {string} kinds the spellings that bypass the registry, in prose
+ * @param {string} kinds
  * @param {VettingContext} ctx
  */
 const unvettableText = (spec, kinds, ctx) =>
@@ -194,12 +140,9 @@ ${vettedRule(ctx)}
 ${escapeNote(ctx)}`;
 
 /**
- * The refusal for the first new package the registry does not vouch for, or
- * null where every one clears. The budget is tested BEFORE each package.
  * @param {string[]} fresh
  * @param {VettingContext} ctx
- * @param {(name: string) => RegistryVerdict} verdictOf one package's
- *   registry verdict
+ * @param {(name: string) => RegistryVerdict} verdictOf
  * @param {ReturnType<typeof registryTexts>} texts
  * @returns {string | null}
  */

@@ -1,8 +1,3 @@
-/*
- * The refill loop's fixtures its pure-core tests share (#2012, #3370): a
- * clock, three checkout roots, a scope in each mode, a launch record and a
- * state file.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { FULL } from "./refill-decide.js";
@@ -22,7 +17,6 @@ interface FixtureGoal {
 	setAt: number;
 }
 
-/** An `issues` goal naming `refs`, each `[repo, number]`. */
 export const issuesGoal = (...refs: [string, number][]): FixtureGoal => ({
 	form: "issues",
 	text: refs.map(([repo, number]) => `${repo}#${number}`).join(","),
@@ -41,7 +35,6 @@ export const away = (repos: string[], goal: FixtureGoal | null = null) => ({
 	goal,
 });
 
-/** A main checkout in `home` carrying a workflow-core config; its root. */
 export function writeCheckout(
 	home: string,
 	name: string,
@@ -72,7 +65,6 @@ export function record(over: Record<string, unknown> = {}) {
 
 export type Launch = import("./refill-loop.js").LoopLaunch;
 
-/** A frontier row of `root`'s issue `number`, ranked on no tier. */
 export const row = (
 	root: string,
 	number: number,
@@ -95,7 +87,6 @@ export const row = (
 	...over,
 });
 
-/** A plan seat's reading off its two bars, each null where unread. */
 export const seat = (
 	name: string,
 	week: number | null,
@@ -112,11 +103,6 @@ export const seat = (
 	weekRead: { percent: null, atMs: null },
 });
 
-/**
- * A state file held in memory: each transition lands on the last write, and
- * each write is pushed to `writes`; one handing its state back unchanged
- * writes nothing, as lib/refill-state.js's updateState.
- */
 export function stateFileFake(initial: LoopState, writes: LoopState[]) {
 	let onDisk = initial;
 	return (transition: Transition) => {

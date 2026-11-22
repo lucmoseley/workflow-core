@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/queue-owning-session.js's owning-session read (#4950, spec #4947), at its own seam: a
- * fixture worktree under a sandbox host, job records under a sandbox config
- * dir, and oracle listings handed in.
- *
- * Loosen it and the queue lander defers a drop for good behind a session
- * that ended, lost its worktree or was never there, or tickets a drop its
- * owning session is still fixing; or a listing that would not read stops
- * the lander's run instead of reading as stopped.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -40,7 +30,6 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/** A job record naming `sessionId` with `cwd`. */
 const job = (sessionId: string, cwd: string) => {
 	const dir = path.join(seat, "jobs", sessionId.slice(0, 8));
 	fs.mkdirSync(dir, { recursive: true });
@@ -50,7 +39,6 @@ const job = (sessionId: string, cwd: string) => {
 	);
 };
 
-/** A listing of `sessions`, each with its cwd, `terminal` among them ended. */
 const listing = (
 	sessions: Record<string, string>,
 	terminal: string[] = [],
@@ -63,7 +51,6 @@ const listing = (
 	cwds: new Map(Object.entries(sessions)),
 });
 
-/** The read of `queue/wt-1` over the sandbox, with `listed` the oracle's. */
 const read = (
 	listed: () => ListedSessions,
 	worktrees: () => string[] | null = () => [tree],

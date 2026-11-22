@@ -1,19 +1,3 @@
-/*
- * The harness every pick-next test file runs `scripts/pick-next.js` in: a stub
- * `gh` (WFC_GH) serving each case's fixture, so no network, no auth and no
- * dependence on this repo's own issue state, which is the thing the script
- * reports on and so cannot also be its fixture; and a hermetic machine, home,
- * claim store and tree.
- *
- * `run()` goes through `runInProcessAsync` (mantahostels#1944), which patches process
- * globals for the duration of one call — no `it.concurrent` or
- * `describe.concurrent` in a file that calls it, and none of its `it()`s may
- * overlap. Vitest runs a file's tests sequentially by default; these files
- * rely on that rather than opting out of concurrency themselves.
- *
- * A file calls `installPickNextHarness()` once at its top. `kit` holds the
- * per-case state its tests set before a run.
- */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -35,82 +19,31 @@ import { writePsStub } from "./ps-stub";
 import { runInProcessAsync } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 
-/** Each case's state as `beforeEach` resets it. */
 const kitDefaults = () => ({
 	dir: "",
-	/*
-	 * The machine admission measures (mantahostels#384). Hermetic by default, like the tree
-	 * below: a quiet box with nothing of ours running, so no test reads the real
-	 * `/proc/meminfo` or the sessions that happen to be live while it runs.
-	 */
 	psOut: "",
 	psFails: false,
 	memAvailableKb: (4096 * 1024) as number | null,
-	/** Replaces the whole `/proc/meminfo` where set. */
 	meminfoText: null as string | null,
-	/** load1 for the stand-in `/proc/loadavg`, against a ceiling of 48 (#830). */
 	load1: 0.5,
-	/** WFC_SESSION_CEILING (#2141); off unless set, so the runner's core count never holds a slot. */
 	sessionCeiling: "0",
-	/** The tree the path annotation resolves backticked tokens against. */
 	repoRoot: null as string | null,
-	/*
-	 * The sessions `claude agents --json` lists. This run's own session is always
-	 * one of them — the shared reader refuses a list that omits it — so the count
-	 * admission prints is one fewer than the length here.
-	 *
-	 * An entry may carry `@<pid>` to say which pid that session is, so its
-	 * processes are paired with it (mantahostels#1295).
-	 */
 	oracleSessions: ["self"] as string[],
 	oracleFails: false,
-	/** Session id -> the display name `claude agents --json` reports, where it has one. */
 	oracleNames: {} as Record<string, string>,
-	/*
-	 * The listed sessions the oracle reports FINISHED but still resident — the
-	 * reclaimable pool. Members must also appear in `oracleSessions`; this only
-	 * says which of them carry `kind: background` / `state: done`.
-	 */
 	oracleFinished: [] as string[],
-	/* Pair PSS in kB by pid, written under the stub /proc. */
 	procPssKb: {} as Record<string, number>,
-	/* Each pid's cwd, a `cwd` symlink under the stub /proc: a `bg-spare` in its
-	 * claim socket's directory is an idle spare (#2502). */
 	procCwds: {} as Record<string, string>,
-	/** Settable to "", as a cron run or a subshell that does not propagate it leaves it. */
 	oracleSelfId: "self",
-	/*
-	 * The arbiter's issue-claim store (mantahostels#645), in a throwaway CLAUDE_CONFIG_DIR.
-	 *
-	 * Both vars are set on every run, claims or none: without them the store
-	 * resolves to the founder's real ~/.claude keyed on this very repo, and the
-	 * suite would read whichever issues live sessions happen to be holding.
-	 *
-	 * CLAUDE_PROJECT_DIR names the SAME tree WFC_REPO_ROOT pins, unless a test
-	 * asks otherwise.
-	 */
 	claimsRepo: null as string | null,
-	/*
-	 * Production sets NEITHER variable — the Bash tool's environment leaves
-	 * CLAUDE_PROJECT_DIR unset (measured at mantahostels#741; .claude/skills/pick-next/SKILL.md), and
-	 * nothing sets WFC_REPO_ROOT at all — so the store falls back to `git
-	 * rev-parse` of the working directory. Opt in to that shape with
-	 * `noProjectDir`, and say from where with `runCwd`.
-	 *
-	 * mantahostels#183 is NOT authority for this, though it reads as though it were: it is the
-	 * cd-to-a-variable-path guard ticket, and it records the near-opposite — Claude
-	 * Code injects both variables per tool invocation, so hooks DO receive them.
-	 */
 	noProjectDir: false,
 	runCwd: null as string | null,
 });
 
 export const kit = kitDefaults();
 
-/** The case's `HOME`: it holds no checkout but those a case plants (#4330). */
 export const kitHome = () => path.join(kit.dir, "home");
 
-/* WITA, UTC+8 with no DST: the clock a date gate is written and read on. */
 export const WITA_OFFSET_MS = 8 * 3_600_000;
 
 const SCRIPT = path.resolve(__dirname, "..", "pick-next.js");
@@ -123,118 +56,66 @@ export interface Issue {
 	labels?: string[];
 	assignees?: string[];
 	parent?: number | null;
-	/** A full parent URL, for a parent in another repo; wins over `parent`. */
 	parentUrl?: string;
 	repoUrl?: string;
 	pull_request?: object;
 	summaryBlockedBy?: number;
-	/** Its `sub_issues_summary` open count, children in every repo (#3658). */
 	openSubIssues?: number;
 }
 
 export interface Fixture {
 	issues: Issue[];
-	/** issue number -> its canonical blocked_by list; `repo` names another */
 	deps?: Record<
 		number,
 		{ number: number; state: "open" | "closed"; repo?: string }[]
 	>;
-	/** `owner/name#n` in another repo -> its blocked_by list (#2427) */
 	foreignDeps?: Record<
 		string,
 		{ number: number; state: "open" | "closed"; repo?: string }[]
 	>;
-	/** issue number -> timeline events */
 	timeline?: Record<
 		number,
 		{ label: string; created_at: string; actor: string }[]
 	>;
-	/** issue numbers whose blocked_by call always fails */
 	failDeps?: number[];
-	/** issue numbers whose timeline call always fails */
 	failTimeline?: number[];
-	/** issue numbers whose blocked_by call fails once, then succeeds */
 	failDepsOnce?: number[];
-	/** the batched GraphQL blockers read itself fails, every time */
 	failGraphql?: boolean;
-	/** it fails once, then succeeds */
 	failGraphqlOnce?: boolean;
-	/** it exits 0 having printed `empty` nothing, or `noRepo` answers gh's
-	 *  missing repository: a null `repository` and its NOT_FOUND error */
 	graphqlAnswers?: "empty" | "noRepo";
-	/** the issues list call itself fails */
 	failList?: boolean;
-	/** The repo read's `open_issues_count`; the fixture's issue count by default. */
 	openCount?: number;
-	/**
-	 * Issue number -> the session id whose arbiter claim records it (mantahostels#645). An
-	 * assignee excludes only where one of these names a session the oracle lists,
-	 * so a fixture that assigns without claiming is the fail-open case.
-	 */
 	claims?: Record<number, string>;
-	/** Drops one extra, unparsable record into the issue-claims store (mantahostels#1186). */
 	corruptClaim?: boolean;
-	/**
-	 * Repo path -> the session id whose arbiter claim holds it, for the
-	 * substrate-conflict graph (mantahostels#1002). Liveness is the same oracle the issue
-	 * claims use, so a path claimed by a session `oracleSessions` omits is a
-	 * finished session's leftover and holds nothing up.
-	 */
 	heldFiles?: Record<string, string>;
-	/**
-	 * Extra file-claim locks, keyed by an arbitrary label (not the repo path,
-	 * which `heldFiles` already keys on): for the stranded-claim count (mantahostels#1206),
-	 * which needs a claim whose age and holder are set independently of the
-	 * fresh, listed-holder claims `heldFiles` writes.
-	 */
 	staleFiles?: Record<
 		string,
 		{ path: string; sessionId: string; hoursAgo: number }
 	>;
-	/**
-	 * Issue number -> what its `issues/<n>/parent` answers, for a parent in
-	 * another repo (#2310); an issue it omits answers GitHub's 404.
-	 */
 	parents?: Record<number, { url: string; labels: string[] }>;
-	/** Issue number -> its `issues/<n>/sub_issues` rows, `repo` naming another (#3658). */
 	subIssues?: Record<
 		number,
 		Array<{ number: number; state: string; repo?: string }>
 	>;
-	/** Issue numbers whose sub_issues call always fails. */
 	failSubIssues?: number[];
-	/** Issue numbers whose sub_issues call exits 0 printing nothing. */
 	emptySubIssues?: number[];
-	/**
-	 * Lines in `.pick-next/dispatched.jsonl`, the ledger
-	 * `scripts/dispatch-sessions.js` appends to as it launches (mantahostels#1528).
-	 * `hoursAgo` defaults to 0.5, inside the 1-hour window the launcher drops on.
-	 */
 	dispatched?: Array<{
 		issues: number[];
 		prompt?: string;
 		hoursAgo?: number;
-		/** The launched job's own short id (mantahostels#3488) — absent reproduces a
-		 * pre-mantahostels#3488 entry, which `dispatchLiveness` reads as unknown. */
 		jobId?: string;
-		/** Follows the entry with a release row for its `jobId` (#2744). */
 		released?: boolean;
 	}>;
-	/** Makes the ledger path a directory, so the read throws EISDIR (mantahostels#1528). */
 	dispatchLedgerUnreadable?: boolean;
 }
 
-/* The stub `gh`'s files in each test's sandbox, named once for the handler and the test. */
 const FIXTURE_FILE = "fixture.json";
 const CALL_LOG_FILE = "calls.log";
 export const CALL_LOG = () => path.join(kit.dir, CALL_LOG_FILE);
 
-/** The calls other than the batched blockers read, whose query text names
- *  `labels` and `issue` as fields it reads. */
 export const restCalls = (calls: string[]) =>
 	calls.filter((c) => !c.startsWith("api graphql "));
 
-/** Every GraphQL call is a `query`, never a `mutation`. */
 export const expectGraphqlReadsOnly = (calls: string[]) => {
 	for (const call of calls.filter((c) => c.startsWith("api graphql "))) {
 		expect(call).toMatch(/ -f query=query\(/);
@@ -242,17 +123,6 @@ export const expectGraphqlReadsOnly = (calls: string[]) => {
 	}
 };
 
-/*
- * The `gh` every run calls: one stub server for the whole file (#2878), so a
- * call costs a bash start rather than a node start. Each run names its own
- * sandbox in GH_STUB_DIR, where the handler reads the fixture and keeps its
- * call log and retry counts.
- *
- * It routes by path and counts retries across calls, which the shared gh
- * fake's answers, each a function of one call, cannot, so each REST answer
- * goes through `asRecorded`, which holds it to the fixture gh.contract.test.ts
- * holds to the real gh.
- */
 const GH_HANDLER = `const fs = require("node:fs");
 const path = require("node:path");
 const fx = JSON.parse(fs.readFileSync(path.join(env.GH_STUB_DIR, ${JSON.stringify(FIXTURE_FILE)}), "utf8"));
@@ -348,14 +218,11 @@ die("unexpected path: " + p);
 
 let ghServer: GhStubServer;
 
-/** Points the stub server at `fx` for this run. */
 const stubGh = (fx: Fixture) => {
 	fs.writeFileSync(path.join(kit.dir, FIXTURE_FILE), JSON.stringify(fx));
 	return stubGhScript(kit.dir, ghServer.script);
 };
-/** A `ps` line as the real one prints it: comm, then the full argv. */
 const buildPsLine = (comm: string, args: string) => `${comm} ${args}`;
-/** The two processes one live session is (docs/environment.md). */
 export const sessionProcs = (id: string, exe = "claude") => [
 	buildPsLine(
 		"2.1.233",
@@ -364,7 +231,6 @@ export const sessionProcs = (id: string, exe = "claude") => [
 	buildPsLine("2.1.233", `${exe} bg-spare --bg-spare /tmp/${id}.claim.sock`),
 ];
 export const roots: string[] = [];
-/** One `git init` per file, copied into each case's tree (base §X8 (1)). */
 let repoTemplate: string;
 export const stubRepo = (files: string[]) => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pick-next-repo-"));
@@ -377,21 +243,15 @@ export const stubRepo = (files: string[]) => {
 	if (files.length > 0) spawnSync("git", ["add", "-A"], { cwd: root });
 	kit.repoRoot = root;
 };
-/** A directory that is no git repository at all, so `git ls-files` fails. */
 export const stubBrokenRepo = () => {
 	kit.repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pick-next-norepo-"));
 	roots.push(kit.repoRoot);
 };
-/* The draw the admission cases' arithmetic is written at, declared in each
- * fixture repo, so a re-measured DEFAULT_SESSION_DRAW moves none of them
- * (#2231). */
+// #2231
 export const FIXTURE_DRAW = { sessionMeanMb: 429, sessionSigmaMb: 154 };
-/* A working session's pair, above FIXTURE_DRAW's mean. */
 export const WORKING_PAIR_KB = 640 * 1024;
-/* The one spare pair admission reserves where no pair is idle (#2223):
- * `IDLE_PAIR_MB` in lib/admission.js. */
+// #2223
 export const IDLE_PAIR_MB = 106;
-/** A fake `claude` whose `agents --json` lists `oracleSessions`. */
 const stubOracle = () => {
 	const bin = path.join(kit.dir, "claude");
 	fs.writeFileSync(
@@ -409,8 +269,6 @@ const stubOracle = () => {
 				return {
 					sessionId: id,
 					...(pid ? { pid: Number(pid) } : {}),
-					/* In the fixture repo, which declares no draw, so each is
-					 * charged the default and no problem is printed (#2221). */
 					...(kit.repoRoot ? { cwd: kit.repoRoot } : {}),
 					...(kit.oracleNames[id] ? { name: kit.oracleNames[id] } : {}),
 					/*
@@ -444,8 +302,6 @@ const stubClaims = (fx: Fixture) => {
 		projectSlug(repo),
 		"issue-claims",
 	);
-	// Cleared, not merely topped up: a test that runs twice in one sandbox would
-	// otherwise carry the first run's claims into the second.
 	fs.rmSync(claimsDir, { recursive: true, force: true });
 	fs.mkdirSync(claimsDir, { recursive: true });
 	for (const [n, sessionId] of Object.entries(fx.claims ?? {}))
@@ -483,11 +339,6 @@ const stubClaims = (fx: Fixture) => {
 	return { CLAUDE_CONFIG_DIR: home, CLAUDE_PROJECT_DIR: repo };
 };
 
-/**
- * One dispatched job's own local `state.json`, under the same throwaway
- * `CLAUDE_CONFIG_DIR` `stubClaims` points every run at (mantahostels#3488) — the path
- * `dispatchLiveness` reads via `lib/hung-jobs.js#readJobs`.
- */
 export const writeJobState = (
 	jobId: string,
 	rec: { state: string; sessionId?: string },
@@ -498,11 +349,6 @@ export const writeJobState = (
 	fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify(rec));
 };
 
-/**
- * The launcher's dispatch ledger, under the tree WFC_REPO_ROOT names — the
- * same directory the write-set cache and the warm-fraction log live in, so a
- * test that sets no `dispatched` leaves it genuinely absent.
- */
 const stubDispatchLedger = (fx: Fixture) => {
 	const root = kit.repoRoot ?? kit.dir;
 	const file = path.join(
@@ -513,8 +359,6 @@ const stubDispatchLedger = (fx: Fixture) => {
 		".pick-next",
 		"dispatched.jsonl",
 	);
-	// The LEDGER ONLY: `.pick-next/` also holds the write-set cache and the
-	// last-run snapshot, and clearing the directory would empty both.
 	fs.rmSync(file, { recursive: true, force: true });
 	if (fx.dispatchLedgerUnreadable) {
 		fs.mkdirSync(file, { recursive: true });
@@ -545,7 +389,6 @@ const stubDispatchLedger = (fx: Fixture) => {
 	);
 };
 
-/** A fake `ps` printing `psOut`, and a `/proc/meminfo` holding `memAvailableKb`. */
 const stubMachine = () => {
 	const ps = writePsStub(kit.dir, kit.psOut ? kit.psOut.split("\n") : [], {
 		fails: kit.psFails,
@@ -560,13 +403,6 @@ const stubMachine = () => {
 					: `MemAvailable: ${kit.memAvailableKb} kB\n`
 			}`,
 	);
-	/*
-	 * A directory with no numbered subdirs, so `daemonSpareOverheadMb`'s
-	 * `readPssKb(pid)` reads never resolve against this host's real /proc — a
-	 * fixture pid (111, say) could otherwise coincide with a live process here
-	 * and read a real smaps_rollup, making the reservation figure non-hermetic
-	 * (mantahostels#1295).
-	 */
 	const proc = path.join(kit.dir, "proc");
 	fs.mkdirSync(proc, { recursive: true });
 	for (const [pid, kb] of Object.entries(kit.procPssKb))
@@ -582,17 +418,10 @@ const stubMachine = () => {
 		WFC_LOADAVG: loadavg,
 		WFC_LOAD_CEILING: "48",
 		WFC_SESSION_CEILING: kit.sessionCeiling,
-		// The suite queue's dir, so no live lander's marker here holds memory (#2416).
 		TMPDIR: kit.dir,
 	};
 };
 
-/*
- * `ownRepo` drops the `--repo` flag, so the run reads as this tree's own
- * repository. The write-set cache is keyed on the tree alone, so it serves only
- * that case — see "skips the store entirely against another repository" in
- * pick-next-output.test.ts.
- */
 export const run = async (
 	fx: Fixture,
 	args: string[] = [],
@@ -615,13 +444,6 @@ export const run = async (
 		...stubOracle(),
 		...stubClaims(fx),
 		...(kit.repoRoot ? { WFC_REPO_ROOT: kit.repoRoot } : {}),
-		/*
-		 * Off for run cost and determinism, not for correctness: mantahostels#1960 removed the
-		 * plain aged-cache hit `readListing()` served, so nothing in this seam can
-		 * answer a second call with a first call's cached success (mantahostels#1946). One test in
-		 * pick-next-claims.test.ts opts back in: "reflects a live failure on the
-		 * second read rather than the first read's cached success".
-		 */
 		WFC_ORACLE_CACHE: opts.oracleCache ? "1" : "0",
 		...opts.env,
 	};
@@ -635,7 +457,6 @@ export const run = async (
 		status: r.status,
 		out,
 		json: () => JSON.parse(r.stdout || "{}"),
-		/** The frontier's issue numbers, in printed order. */
 		order: () =>
 			(out.split("\nEXCLUDED", 1)[0]?.match(/^#(\d+) /gm) ?? []).map((s) =>
 				Number(s.slice(1)),
@@ -650,7 +471,6 @@ export const run = async (
 export const daysAgo = (n: number) =>
 	new Date(Date.now() - n * 86_400_000).toISOString();
 
-/** Registers the stub server, the git template and each case's sandbox. */
 export function installPickNextHarness() {
 	beforeAll(async () => {
 		ghServer = await serveGhStub(GH_HANDLER);
@@ -666,7 +486,6 @@ export function installPickNextHarness() {
 	beforeEach(() => {
 		Object.assign(kit, kitDefaults());
 		kit.dir = fs.mkdtempSync(path.join(os.tmpdir(), "pick-next-test-"));
-		// Hermetic by default: an empty tree tracks no file, so no body resolves.
 		stubRepo([]);
 	});
 	afterEach(() => {

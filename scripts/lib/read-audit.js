@@ -1,59 +1,3 @@
-/*
- * read-audit.js — the runtime read audit the pass store keys a test file's
- * row on (#4916). A path a test builds at run time — a directory listing, a
- * helper's default root — is invisible to the lexical reach.
- *
- * `install` arms it for one suite run, from vitest's globalSetup: a log
- * directory, and lib/read-audit-preload.js on `NODE_OPTIONS`, which every
- * worker and every Node child inheriting the environment loads, and names it
- * the `strace` to run a stub or a shell under, where one works here. The git
- * guard (lib/host-git-guard/git) logs each git call on this checkout's
- * repository, word for word.
- *
- * A DIRECTORY A TEST MINTS (`mkdtemp`) under the root is its own scratch:
- * no read under it is a read of the checkout.
- *
- * A GIT CALL ON THIS REPOSITORY is a read `fs` never sees, from a test's
- * scratch as from anywhere else under the root: lib/read-audit-git.js keeps
- * it to run again or doubts it.
- *
- * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
- * another file, or holds a read the audit cannot see, reads as `doubt`. What
- * cannot be seen:
- * - any other git call on this repository, a worktree of it outside the root
- *   included, and a git call handed a path in the checkout, which the guard
- *   logs only where the call's own repository is this one;
- * - a Node child that left no log, or one spawned without the audit on;
- * - a worker thread: one started from a string, or handed an environment of
- *   its own, loads no preload;
- * - any other child — a shell, Python, a binary, a stub a test wrote — run
- *   from a directory under the root, or handed a path there by an argument,
- *   an environment variable, a sync spawn's input or a write to its pipe
- *   once it runs, however spelt (#4982, #4997), where no `strace` traced
- *   it. The preload traces a stub and a
- *   shell (#4966): its reads are the paths its file calls named, and only
- *   what lib/read-audit-trace.js cannot bound is a doubt. Untraced, a
- *   shell or Python child handed a checkout script to run, from outside
- *   the root, is unseen (#4790). A checkout file run as the program itself
- *   is judged by its `#!` line: a Node one's reads are in the log it left,
- *   and any other's are unseen, a shell script's among them (#4790,
- *   `Program`). The git guard alone is a read (`Program`), and the git it
- *   runs is judged as any git child. One of lib/read-audit-provenance.js's
- *   `BLIND` is seen, which reads nothing of its directory, its environment
- *   or its input (#4932);
- * - a process an untraced git child started that is not git again — a
- *   hook, an alias, a helper — off the event log git kept for it
- *   (lib/read-audit-git-events.js, #4997);
- * - a symlink, socket or other non-file, non-directory path;
- * - a link a child process makes on an absolute path, spelt as a
- *   variable's standing value spells it, once a child was spawned with it:
- *   the preload looks those up again, whatever value the variable is
- *   handed, only after its own process links, moves or removes a path
- *   (#5050, #5139), and a Node child, through any child between, starts
- *   from its spawner's lookups of paths outside the checkout and every
- *   temporary directory (#5160).
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -88,15 +32,9 @@ const NO_TRACER =
  * @typedef {{files: string[], absent: string[], dirs: string[],
  *   lists: Record<string, string>, trees: string[], scripts: string[],
  *   git: GitCall[]}} Reads
- *   repo-relative: files read or probed, paths probed and found absent,
- *   directories probed, each listed directory with its listing's id, trees
- *   walked or copied whole, the scripts a shell child ran, and the git calls
- *   it made here
  * @typedef {{reads: Reads} | {doubt: string}} Audit
  */
 /**
- * One log line, of the kinds the preload writes and a trace reads as; a
- * line of any other kind is a doubt.
  * @typedef {{k: "self", owner: string, pid: number}
  *   | {k: "fault"}
  *   | {k: "claim", file: string}
@@ -108,26 +46,16 @@ const NO_TRACER =
  *   | PipedEntry
  *   | ChildEntry} Entry
  * @typedef {{k: "piped", pid: number, p: string[]|null}} PipedEntry
- *   the paths a test wrote to an untraced child's pipe, or none for a
- *   stream handed whole
  * @typedef {import("./read-audit-provenance.js").Provenance} Provenance
  * @typedef {{k: "child", file: string, bin: string[], args: string[],
  *   cwd: string, prov: Provenance, pid: number|null, hands?: Hand[],
  *   events?: string|null, within?: true, trace?: string}} ChildEntry
- *   a spawn: its program's name and file (lib/read-audit-provenance.js's
- *   `Spawned`), its words after the program, its directory, what the
- *   preload found it is, and how its reads are seen
  */
 
 /**
- * Arm the audit for a run over `root`: set the environment every worker
- * inherits. Returns the log directory, or null where this process is itself
- * under an audit (a test's nested run), whose logs are its owner's.
  * @param {string} root
- * @param {NodeJS.ProcessEnv} [env] accumulator: `WFC_READ_AUDIT`,
- *   `WFC_READ_AUDIT_ROOT`, `WFC_READ_AUDIT_TMP`, `WFC_READ_AUDIT_STRACE` and `NODE_OPTIONS` are
- *   filled here
- * @param {{write(s: string): unknown}} [err] told where no tracer works
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {{write(s: string): unknown}} [err]
  * @returns {string|null}
  */
 function install(root, env = process.env, err = process.stderr) {
@@ -145,8 +73,6 @@ function install(root, env = process.env, err = process.stderr) {
 		delete env.WFC_READ_AUDIT_STRACE;
 		err.write(NO_TRACER);
 	}
-	/* `--import`, not `--require`: a require'd preload resolves through the
-	 * working directory's package.json, which a test may break on purpose. */
 	env.NODE_OPTIONS = [
 		env.NODE_OPTIONS,
 		`--import=${JSON.stringify(pathToFileURL(PRELOAD).href)}`,
@@ -156,29 +82,19 @@ function install(root, env = process.env, err = process.stderr) {
 	return dir;
 }
 
-/**
- * Remove the log directory. Never throws.
- * @param {string|null} dir
- */
+/** @param {string|null} dir */
 function remove(dir) {
 	if (!dir) return;
-	// What will not go now goes at a later run's sweep, once stale (#5046).
 	ignoreFailure(() => fs.rmSync(dir, { recursive: true, force: true }));
 }
 
-/* A log directory's name: the prefix, the pid of the run that made it, and
- * mkdtemp's suffix. */
 const PREFIX = "wfc-read-audit-";
 const LOG_DIR_NAME = new RegExp(`^${escapeRe(PREFIX)}(\\d+)-`);
 
-/* How long a dead run's directory stands untouched before it is stale: a pid
- * from another pid namespace sharing the tmpdir reads as dead here. The hour
- * #5046 named, a guess, unmeasured. */
+// guess, #5046
 const STALE_MS = 60 * 60 * 1000;
 
 /**
- * Remove each log directory in `tmp` a killed run left: its pid dead and
- * the directory untouched for `STALE_MS` (#5046). Never throws.
  * @param {string} tmp
  * @param {number} [now]
  */
@@ -187,7 +103,6 @@ function sweep(tmp, now = Date.now()) {
 	try {
 		names = fs.readdirSync(tmp);
 	} catch {
-		// No tmpdir listing, nothing to sweep: the run arms as before.
 		return;
 	}
 	for (const name of names) {
@@ -201,12 +116,9 @@ function sweep(tmp, now = Date.now()) {
 }
 
 /**
- * Each audited test file's reads, off the logs in `dir`. A file absent from
- * the result was never claimed by a process of its own.
  * @param {string} dir
- * @param {string} root the root the audit was armed over
- * @param {import("./read-audit-trace.js").Clock} [clock] the wait for a
- *   trace to settle
+ * @param {string} root
+ * @param {import("./read-audit-trace.js").Clock} [clock]
  * @returns {Map<string, Audit>}
  */
 function readAudits(dir, root, clock) {
@@ -241,8 +153,6 @@ function readAudits(dir, root, clock) {
  * @typedef {import("./read-audit-paths.js").Standing} Standing
  * @typedef {{logs: Map<number, Entry[]>, git: GitRecord[],
  *   standing: Standing}} Owner
- *   one owner's logs, by process; the git calls the guard logged for it;
- *   and what its suite's setup settled
  */
 /**
  * @param {string} dir
@@ -272,10 +182,8 @@ function readOwners(dir) {
 		if (standing) at(String(standing[1])).standing = parseStanding(text());
 		const log = /^(\d+)\.(\d+)\.jsonl$/.exec(name);
 		if (!log) continue;
-		/* A line that will not parse is a read that may be lost: a fault. */
 		const { rows, bad } = parseJsonl(text());
 		if (bad.length > 0) rows.push({ k: "fault" });
-		/* A kind outside `Entry`'s is doubted where it is taken. */
 		at(String(log[1])).logs.set(Number(log[2]), /** @type {Entry[]} */ (rows));
 	}
 	return owners;
@@ -284,9 +192,8 @@ function readOwners(dir) {
 /** @typedef {import("./read-audit-git.js").GitRecord} GitRecord */
 
 /**
- * One owner's reads, or the doubt that voids them.
  * @param {Owner} owner
- * @param {string} root real path
+ * @param {string} root
  * @param {Readers} readers
  * @returns {Audit}
  */
@@ -315,19 +222,14 @@ function judge({ logs, git, standing }, root, readers) {
 /**
  * @typedef {{trace: ReturnType<typeof buildTraceReader>,
  *   gitEvents: ReturnType<typeof buildGitEventsReader>}} Readers
- *   a traced child's reads, and what a git child ran
  */
 
 /**
  * @typedef {{root: string, isScratch: (p: string) => boolean,
  *   recorded: Set<number>, spelt: (word: string) => string[]}} Scope
- *   one owner's judging: the root's real path, a test's scratch, the pids
- *   of the git calls the guard recorded, and the repo-relative paths a word
- *   spells by the root's absolute name (lib/read-audit-handed.js)
  */
 
 /**
- * The reads one owner's log entries add up to.
  * @param {Map<number, Entry[]>} logs
  * @param {Scope} scope
  * @param {Readers} readers
@@ -344,7 +246,6 @@ function buildCollector(logs, scope, readers) {
 	const scripts = new Set();
 	/** @type {Map<number, ChildEntry>} */
 	const children = new Map();
-	/* What `judge` weighs before it takes any line. */
 	const weighed = () => null;
 	/** @type {{[K in Entry["k"]]: (e: Extract<Entry, {k: K}>) => string|null}} */
 	const takers = {
@@ -410,7 +311,7 @@ function buildCollector(logs, scope, readers) {
 	return {
 		take,
 		/**
-		 * @param {GitCall[]} git the owner's git calls, `gitCallsOf`'
+		 * @param {GitCall[]} git
 		 * @returns {Audit}
 		 */
 		finish(git) {
@@ -439,16 +340,13 @@ function buildCollector(logs, scope, readers) {
 	};
 }
 
-/* Programs that run their first non-option argument as a script. */
 const SHELL_RUNNERS = new Set(["bash", "sh"]);
 const PYTHON_RUNNERS = new Set(["python3", "python"]);
 
 /**
- * Why a spawned child leaves its file's reads unknown, or null where its
- * reads are seen.
  * @param {ChildEntry} e
- * @param {Program|null} program the checkout file it ran as its program
- * @param {Map<number, Entry[]>} logs the owner's logs
+ * @param {Program|null} program
+ * @param {Map<number, Entry[]>} logs
  * @param {Scope} scope
  * @returns {string|null}
  */
@@ -462,15 +360,11 @@ function childDoubt(e, program, logs, scope) {
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
 	}
 	if (prov.guarded) return guardedDoubt(e, scope);
-	/* A tracer already following the process that spawned it follows it too. */
 	if (e.within) return null;
 	return unseenDoubt(e, program, root, isScratch);
 }
 
 /**
- * Why a git call the guard ran leaves its file's reads unknown, or null.
- * One it kept no record of is judged on what handed it the
- * checkout, as any other child (#5015).
  * @param {ChildEntry} e
  * @param {Scope} scope
  * @returns {string|null}
@@ -488,12 +382,9 @@ function guardedDoubt(e, { isScratch, recorded, spelt }) {
 }
 
 /**
- * Why a child nothing logs or traces leaves its file's reads unknown, or
- * null where it read nothing of the checkout beside the git guard a git
- * call ran through.
  * @param {ChildEntry} e
- * @param {Program|null} program the checkout file it ran as its program
- * @param {string} root real path
+ * @param {Program|null} program
+ * @param {string} root
  * @param {(p: string) => boolean} isScratch
  * @returns {string|null}
  */
@@ -528,12 +419,8 @@ function unseenDoubt(e, program, root, isScratch) {
 /** @typedef {import("./read-audit-handed.js").Hand} Hand */
 
 /**
- * The first thing that handed a child a checkout path it may read unseen:
- * not the script a runner was handed to run, which is a read; not a path in
- * a test's scratch; not a standing variable handed to a program that reads
- * none.
  * @param {ChildEntry} e
- * @param {string|null} script the argument `scriptOf` found
+ * @param {string|null} script
  * @param {(p: string) => boolean} isScratch
  * @returns {Hand|undefined}
  */
@@ -549,13 +436,9 @@ function handOf(e, script, isScratch) {
 }
 
 /**
- * Why what a test wrote to an untraced child's input pipe once it ran
- * leaves its file's reads unknown (#4997), or null where the child reads
- * none of its input or the paths are the test's own scratch.
  * @param {PipedEntry} e
- * @param {ChildEntry|undefined} child the child it was written to
- * @param {Scope} scope a recorded git's run again vouches for what its
- *   input fed it
+ * @param {ChildEntry|undefined} child
+ * @param {Scope} scope
  * @returns {string|null}
  */
 function pipedDoubt(e, child, { isScratch, recorded }) {
@@ -570,9 +453,6 @@ function pipedDoubt(e, child, { isScratch, recorded }) {
 }
 
 /**
- * Why what a git child ran leaves its file's reads unknown, off the event
- * log its spawn handed it (lib/read-audit-git-events.js), or null where it
- * ran only git, or never started.
  * @param {ChildEntry} e
  * @param {Readers["gitEvents"]} readEvents
  * @returns {string|null}
@@ -590,10 +470,7 @@ const handedBy = (/** @type {Hand} */ hand) => {
 	return hand.by === "stdin" ? " on its standard input" : "";
 };
 
-/**
- * A child as a doubt quotes it.
- * @param {ChildEntry} e
- */
+/** @param {ChildEntry} e */
 function shownChild(e) {
 	const args = /** @type {string[]} */ (e.args ?? []);
 	return `${path.basename(String(e.file))} ${args.join(" ")}`.slice(
@@ -603,11 +480,9 @@ function shownChild(e) {
 }
 
 /**
- * The checkout script a runner child was handed to run from a file. Null
- * where it was handed none, or a program inline.
  * @param {ChildEntry} e
- * @param {string} root real path
- * @returns {string|null} the argument as given
+ * @param {string} root
+ * @returns {string|null}
  */
 function scriptOf(e, root) {
 	const file = String(e.file);
@@ -625,25 +500,11 @@ function scriptOf(e, root) {
 		: null;
 }
 
-/**
- * @typedef {{script: string, runs: "shell"|"node"|"guard"|"other"}} Program
- *   a checkout file a child ran as its program, repo-relative, and what runs
- *   it: a shell or Node where its `#!` line names one and the lexical reach
- *   reads the file as that language, so keys what it loads; else `other`,
- *   Python and a binary among them, whose reads no reach holds; `guard`,
- *   the git guard, which reads of the checkout only where a git directory
- *   stands, its own repository's and the call's (`rev-parse
- *   --git-common-dir`, in a child nothing logs): a path, which no tracked
- *   file's content moves. A shell script's reads are a trace's alone: the reach
- *   holds its loads, never what it opens beside itself
- */
+/** @typedef {{script: string, runs: "shell"|"node"|"guard"|"other"}} Program */
 
 /**
- * The checkout file a child ran as its program, outside a test's scratch
- * (#4790); null where its program is no such file. One run through a link
- * is `other`: a script finds its own directory by the path it was run as.
  * @param {ChildEntry} e
- * @param {string} root real path
+ * @param {string} root
  * @param {(p: string) => boolean} isScratch
  * @returns {Program|null}
  */
@@ -669,12 +530,9 @@ function readProgram(e, root, isScratch) {
 }
 
 /**
- * The checkout scripts a child whose reads are seen ran, repo-relative, as
- * reads: the one a runner was handed, and the child's own program, any but
- * one whose reads no reach holds.
  * @param {ChildEntry} e
- * @param {Program|null} program the checkout file it ran as its program
- * @param {string} root real path
+ * @param {Program|null} program
+ * @param {string} root
  * @returns {string[]}
  */
 function childReads(e, program, root) {

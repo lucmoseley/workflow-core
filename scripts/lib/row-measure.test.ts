@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/row-measure.js (#5029): the row counts the read-audit measurement
- * prints, against a hand count on seeded stores and markers, and the
- * kept-run hand-off between the tree watch and the measurement. A wrong
- * count here misreports what a read-audit change costs the pass store.
- *
- * The judge is crossed with a stand-in reader, whose pass store writes the
- * lines a case seeds: the real reader needs a whole audited suite run.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -37,15 +28,11 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/** A sink for what a call says, where the case does not read it. */
 const quiet = { write: () => true };
 
 const line = (...rows: object[]) =>
 	JSON.stringify({ format: 18, at: "x", sha: "y", tree: null, files: rows });
 
-/* A stand-in reader: its audit reads `audits.json` from the log directory,
- * and its pass store writes the run's `shards`, each a path under the store
- * and its lines, and says which run it recorded. */
 function fakeReader() {
 	const lib = path.join(tmp, "reader", "scripts", "lib");
 	fs.mkdirSync(lib, { recursive: true });
@@ -105,7 +92,6 @@ describe("buildJudge", () => {
 				},
 			),
 		);
-		// Hand count: a, e and g hold a keyed pass; b a voiding row, c a fail, f none.
 		expect([...judge.read().rows].sort()).toEqual(["a", "e", "g"]);
 		judge.dispose();
 	});
@@ -162,7 +148,6 @@ describe("namedRunWeights", () => {
 			since,
 			new Set([runKey(ownRun)]),
 		);
-		// Hand count: the first and fifth markers are named, dated in the window and not the measurement's.
 		expect(runs).toBe(2);
 		expect(Object.fromEntries(weights)).toEqual({ a: 2, b: 1, c: 0 });
 	});

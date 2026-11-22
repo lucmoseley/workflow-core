@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The single-instance pidfile lock (#2402).
- *
- * Loosen it and two landers, or two refill loops, run at once, or a dead
- * holder's pidfile locks every later start out.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -34,8 +28,6 @@ const buildOwnRecord = () => ({
 });
 const readRecord = () => JSON.parse(fs.readFileSync(file, "utf8"));
 
-/* The lock pins the real /proc, so WFC_PROC's fake cannot reach it, and these
- * reads fail only in a race no test can time: the spy is the one seam. */
 function failRead(failing: string, then?: () => void) {
 	const read = fs.readFileSync;
 	vi.spyOn(fs, "readFileSync").mockImplementation(((

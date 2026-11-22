@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's overflow seats (#2611, spec #2570) past their reading:
- * an overflow seat on a plan seat's dir picked as its own seat (#3693), and
- * the dry run's line naming the key a launch bills, and a headless launch
- * judged finished by its absence from the listing, its acts read by the
- * session id it carried from launch. The readings themselves are
- * seat-reading.test.ts's; the finish reads the real headless store under the
- * setup's WFC_REFILL_DIR.
- *
- * Loosen one and a launch bills the wrong key, a shared dir's two seats are
- * taken as one, or an overflow launch never counts toward the no-progress
- * pause.
- */
 import fs from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { readLiveAgents } from "./headless-runs.js";

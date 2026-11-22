@@ -207,6 +207,11 @@ describe("a test's direct reads under __dirname", () => {
 		const src = `import type { H } from "./lib/helper.ts";\nconst h = require("./lib/helper.ts");\npath.join(__dirname, "x");`;
 		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([helper]);
 	});
+
+	it("keeps the edge when the only import( is a typeof type query (#5533)", () => {
+		const src = `const h = require_("./lib/helper.ts") as typeof import("./lib/helper.ts");\npath.join(__dirname, "x");`;
+		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([helper]);
+	});
 });
 
 describe("a test's direct reads under a directory-class call (#157)", () => {

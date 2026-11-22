@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's state file (#4232): its parse, its one writer, and each
- * named transition as a pure function. Loosen one and a write in a tick
- * overwrites an earlier one, or a field a transition does not own is lost.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -30,7 +25,6 @@ import { loopStateOf } from "./refill-state-testkit";
 const launch = (over: Record<string, unknown> = {}) =>
 	loopStateOf({ launches: [record(over)] }).launches[0];
 
-/* Every field parseState returns, each set off its default. */
 const FULL: LoopState = loopStateOf({
 	launches: [record()],
 	lastTick: { at: NOW, summary: "a tick", skipped: [], idle: null },
@@ -71,7 +65,6 @@ const tickOwned = {
 	sameBootRestart: undefined,
 };
 
-/* Each transition with the fields it names; every other must pass through. */
 const TRANSITIONS: [string, Transition, (keyof LoopState)[]][] = [
 	["runHeld", runHeld(NOW, "boot-b"), ["stopped", "heldAt", "bootId"]],
 	["runForgotten", runForgotten(), ["heldAt"]],
@@ -344,8 +337,6 @@ describe("the state file", () => {
 		expect(fs.existsSync(path.join(dir, REFILL_STATE_FILE))).toBe(false);
 	});
 
-	/* The tick reads its state through readState, so a damaged file ticks on
-	 * these defaults (#3380). */
 	it("reads a damaged file as the defaults, logging it", () => {
 		const file = path.join(dir, REFILL_STATE_FILE);
 		fs.writeFileSync(file, "{");

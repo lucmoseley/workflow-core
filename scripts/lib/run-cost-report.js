@@ -49,15 +49,13 @@ const { parseCsv } = require("./suite-timings.js");
 const { writeFd } = require("./write-fd.js");
 const { ignoreFailure } = require("./caught.js");
 
-/* 10 s of a file's own wall time: the founder's ruling at #1797 Q4 (A). */
+// guess, #1797
 const BUDGET_SECONDS = 10;
 
-/* 2.5x: the p90 slowest/fastest spread across CI sweeps (#4283), so growth
- * past it is not run-to-run noise. */
+// measured p90 spread 2.5x, #4283
 const GROWTH_BAND = 2.5;
 
-/* A guess, never measured: a tracker slower than this costs the line its
- * ticket, which then reads unknown, never the run its end. */
+// guess, #4289
 const TICKET_TIMEOUT_MS = 20_000;
 
 const PREFIX = "RUN COST:";
@@ -66,21 +64,16 @@ const GB = 1024 ** 3;
 
 /**
  * @typedef {object} ReportInput
- * @property {Readonly<Record<string, number>>} timings each test file the run
- *   timed, repo-relative, to its figure
- * @property {readonly { file: string, atBase: boolean }[]} changed the test
- *   files new or changed against `base`; `atBase` false is a new file
- * @property {string} base the ref the run's diff is taken against
- * @property {number|null} load the 1-minute load average, null where unknown
- * @property {number|null} availableBytes available memory, null where unknown
- * @property {"seconds"|"worker-seconds"} [unit] worker-seconds for pytest,
- *   whose per-file figure is summed across xdist workers (#1797)
- * @property {CiRecord|null} record the CI record, null where none was read
- * @property {string|null} [stale] why the record was not refreshed, null
- *   where it was or none was due
- * @property {boolean} ci judging under `CI`: grown files and the summary only
- * @property {TicketFinder} findTicket the open tickets naming a file: a seam
- *   beside `WFC_GH`, so the in-process cases spawn no gh
+ * @property {Readonly<Record<string, number>>} timings
+ * @property {readonly { file: string, atBase: boolean }[]} changed
+ * @property {string} base
+ * @property {number|null} load
+ * @property {number|null} availableBytes
+ * @property {"seconds"|"worker-seconds"} [unit]
+ * @property {CiRecord|null} record
+ * @property {string|null} [stale]
+ * @property {boolean} ci
+ * @property {TicketFinder} findTicket
  */
 
 /**
@@ -115,8 +108,6 @@ function linesFor({
 	ci,
 	findTicket,
 }) {
-	/* A file the run selected only as a reader of the diff is not in `changed`,
-	 * so it is never named. */
 	const timed = changed.flatMap(({ file, atBase }) => {
 		const seconds = timings[file];
 		if (seconds === undefined) return [];
@@ -174,12 +165,9 @@ function buildFailOpenLine(error) {
 }
 
 /**
- * Which of `files` are new or changed against `base`, committed, uncommitted
- * or untracked, and whether each was present at `base`. Null where git would
- * not answer.
  * @param {string} root
  * @param {string} base
- * @param {readonly string[]} files repo-relative
+ * @param {readonly string[]} files
  * @returns {{ file: string, atBase: boolean }[]|null}
  */
 function readChangedAgainst(root, base, files) {
@@ -199,9 +187,6 @@ function readChangedAgainst(root, base, files) {
 }
 
 /**
- * The CI record, null where none is held or it holds no row: CI's shard
- * writes an empty one where it read no run (#4574). A failed refresh still
- * reads the last one held, a day at most (#4579).
  * @param {string} root
  * @param {TimingsSeams} timings
  * @returns {{ record: CiRecord|null, stale: string|null }}
@@ -227,19 +212,10 @@ function readCiRecord(root, timings) {
 	};
 }
 
-/* Over 40 times the 23 issues open on 2026-11-17 (#5294's review); an issue
- * past it costs its file the ticket, never the run its end. */
+// measured 23 open issues, x40, #5294
 const OPEN_ISSUE_LIMIT = 1000;
 
-/**
- * The open issues whose title names `file`'s basename, in the tracker `gh`
- * reads from `root`, oldest first. The open issues are listed once a report,
- * on the first file asked about: one search per file spent a minute of the
- * search API's 30-a-minute limit for each 30 files over budget, past a gate's
- * suite ceiling on a wide run (#5296).
- * @param {string} root
- * @returns {TicketFinder}
- */
+/** @param {string} root @returns {TicketFinder} */
 const openTicketFinder = (root) => {
 	/** @type {{ rows: { number: number, title: string }[] } | { failed: string } | undefined} */
 	let open;
@@ -247,7 +223,6 @@ const openTicketFinder = (root) => {
 		open ??= listOpenIssues(root);
 		if ("failed" in open) return open;
 		const name = path.basename(file);
-		/* The whole name, so `old.test.ts` never matches `bold.test.tsx`. */
 		const named = new RegExp(
 			`(?:^|[^\\w.-])${escapeRe(name)}(?![\\w-]|\\.\\w)`,
 		);
@@ -281,7 +256,6 @@ function listOpenIssues(root) {
 			),
 		};
 	} catch (error) {
-		/* Fails open (mantahostels#2255). */
 		return { failed: parseErrLine(error) };
 	}
 }
@@ -290,11 +264,7 @@ function listOpenIssues(root) {
  * @typedef {{ platform?: string, loadavg?: () => number[], freemem?: () => number }} MachineSeams
  */
 
-/**
- * The 1-minute load average and available memory. Windows has no load
- * average, and Node reports it there as 0, so that reads unknown.
- * @param {MachineSeams} seams
- */
+/** @param {MachineSeams} seams */
 function machineState({
 	platform = process.platform,
 	loadavg = os.loadavg,
@@ -309,8 +279,6 @@ function machineState({
 }
 
 /**
- * A decoded timings value as a map of repo-relative path to seconds, or the
- * reason it is not one.
  * @param {unknown} parsed
  * @param {string} root
  * @returns {{ timings: Record<string, number> } | { bad: string }}
@@ -329,15 +297,9 @@ function timingsFrom(parsed, root) {
 }
 
 /**
- * The report for a run that timed `raw`, a decoded map of test file to its
- * figure, against the base the narrowed default run resolves in `root`. What
- * a runner calls once its suite has finished. Never throws.
  * @param {string} root
  * @param {unknown} raw
  * @param {{ unit?: ReportInput["unit"], machine?: MachineSeams, findTicket?: TicketFinder, timings?: TimingsSeams }} [options]
- *   `machine`, `findTicket` and `timings` are a test's fakes for the
- *   platform, load and memory, for the tracker, and for the CI record's
- *   clock and GitHub
  * @returns {string[]}
  */
 function reportForRun(
@@ -375,26 +337,16 @@ function reportForRun(
 			...machineState(machine),
 		});
 	} catch (error) {
-		/* Fails open by design (mantahostels#2255): the report must never cost a
-		 * suite its green. */
 		return [buildFailOpenLine(error)];
 	}
 }
 
-/**
- * The report for the timings file at `file`, decoded and read against `root`.
- * The one reader of a timings file, for the program entry and the vitest
- * runner alike. Never throws.
- * @param {string} root
- * @param {string} file
- * @returns {string[]}
- */
+/** @param {string} root @param {string} file @returns {string[]} */
 function reportForFile(root, file) {
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
 	} catch (error) {
-		/* Fails open (mantahostels#2255): an unreadable file is one line. */
 		return [buildFailOpenLine(error)];
 	}
 	/** @type {unknown} */
@@ -402,17 +354,12 @@ function reportForFile(root, file) {
 	try {
 		parsed = JSON.parse(text);
 	} catch (error) {
-		/* Fails open (mantahostels#2255): malformed input is one line. */
 		return [buildFailOpenLine(`the timings are not JSON (${String(error)})`)];
 	}
 	return reportForRun(root, parsed);
 }
 
-/**
- * The program entry's lines for argv. Never throws.
- * @param {string[]} argv
- * @returns {string[]}
- */
+/** @param {string[]} argv @returns {string[]} */
 function readProgramLines(argv) {
 	const [file] = argv;
 	if (argv.length !== 1 || file === undefined)
@@ -426,8 +373,6 @@ function readProgramLines(argv) {
 
 if (require.main === module) {
 	const lines = readProgramLines(process.argv.slice(2));
-	// A closed or stalled pipe loses the report, never the exit 0
-	// (mantahostels#2255).
 	ignoreFailure(() => {
 		if (lines.length > 0) writeFd(1, `${lines.join("\n")}\n`);
 	});

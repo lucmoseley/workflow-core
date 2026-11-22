@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's file reads (#3380, #3389). Loosen one and a damaged state
- * file stops the loop or goes unlogged, or a damaged control reads as a loop
- * nobody started.
- */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

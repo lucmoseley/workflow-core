@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * rescue-takeover.test.ts — lib/rescue-takeover.js's takeover, the core
- * behind `rescue-sessions.js takeover` (#621, spec #617), in-process on
- * lib/rescue-core-kit.ts's fake ports (#5157). Breaking it costs the promise
- * the takeover makes: a session is never stopped without its ticket being
- * adopted, and a ticket is never adopted from a session that is still
- * running. rescue-sessions-takeover.test.ts keeps the program's own cases.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -54,8 +46,6 @@ const {
 const snapshotDir = () =>
 	path.join(sb.repo, ".claude", "tmp", "rescue", `${N}-${SHORT}`);
 
-/* Every `gh` call and stop, in order; a comment logs who holds the claim as
- * it posts, a stop whether the snapshot was already on disk. */
 let log: string[] = [];
 let posted = "";
 beforeEach(() => {
@@ -65,11 +55,6 @@ beforeEach(() => {
 const readLog = () => log;
 const readComment = () => posted;
 
-/**
- * A holder whose turn ended on `waiting:` with nothing running — FROZEN —
- * claiming #621, with a job record naming its intent, and a stop that the
- * oracle then reads as `stopped`.
- */
 const frozenHolder = () => {
 	lists([holderRow()]);
 	lists([holderRow({ state: "stopped" })], plan(), true);
@@ -280,11 +265,8 @@ describe("takeover: the success path", () => {
 		const two = plan(".claude2");
 		const storeDir = sb.stateDir();
 		fs.renameSync(plan(), two);
-		// The holder's records move to the second plan; the arbiter store stays
-		// in the first, where every plan's sessions write it (#2400).
 		fs.mkdirSync(path.dirname(storeDir), { recursive: true });
 		fs.renameSync(path.join(two, path.relative(plan(), storeDir)), storeDir);
-		// A union oracle: both plans list the holder, and its stop.
 		lists([holderRow()], two);
 		lists([holderRow({ state: "stopped" })], two, true);
 		lists([holderRow()]);
@@ -335,10 +317,6 @@ describe("takeover: the success path", () => {
 });
 
 describe("takeover: an ENDED holder still listed is stopped too (#623)", () => {
-	/**
-	 * Listed in `state`, its host running; the stop unlists it and, unless
-	 * `hostSurvives`, ends the host.
-	 */
 	const endedListed = (state = "done", hostSurvives = false) => {
 		frozenHolder();
 		lists([holderRow({ state })]);
@@ -596,7 +574,6 @@ describe("takeover --despite: the founder overrules SLOW or ASKING (#622)", () =
 
 /* #1989 */
 describe("takeover: a GHOST is stopped and handed back for re-dispatch", () => {
-	/** A sonnet ghost with no advisor, its own launch `minutes` back on the fake clock. */
 	const launchedAgo = (minutes: number) => {
 		ghostJob(`/implement ${N}`);
 		jobState({

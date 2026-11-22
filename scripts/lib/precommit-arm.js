@@ -1,11 +1,4 @@
-/*
- * precommit-arm.js — whether a pre-commit dispatcher row's arm arms on a
- * commit's staged paths (#5172): the one rule lib/precommit-dispatch.js runs
- * and the equivalence contract's fixtures are held to (#5195).
- */
-
 /**
- * Whether `arm` arms on `staged`, `list` being its computed list's paths.
  * @param {import("./precommit-dispatch.js").Arm} arm
  * @param {import("./precommit-dispatch.js").StagedEntry[]} staged
  * @param {string[]} list

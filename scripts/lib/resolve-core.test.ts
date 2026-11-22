@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * `resolveCore` finds the core an adopter imports from in its fixed lookup
- * order, fails naming what is missing, warns on an install off its pin, and
- * run as a script hands its argv to a core script (#461, #552).
- *
- * `env` is passed explicitly and carries `CLAUDE_CONFIG_DIR`, so no case reads
- * this machine's registry or its own WORKFLOW_CORE_* variables.
- *
- * The file is FROZEN and copied once into every adopter's tree, so a
- * regression a loosened case lets through cannot be re-synced away: an
- * adopter's checks and npm scripts resolve the wrong core, or die without
- * naming the pin.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -23,17 +10,12 @@ import { shellQuote } from "./sh-quote.js";
 
 const fixture = adopterFixtures("wfc-resolve-core-");
 
-/** A fresh directory beside `root`, inside the fixture's throwaway tree. */
 function siblingDir(root: string, name: string) {
 	const dir = path.join(path.dirname(root), name);
 	fs.mkdirSync(dir, { recursive: true });
 	return dir;
 }
 
-/**
- * The resolver run as a git hook runs it: its own process, in `cwd`, with no
- * harness variable — `~/.claude` is a home directory linked to `configDir`.
- */
 function resolveInPlainShell(
 	cwd: string,
 	configDir: string,
@@ -72,7 +54,6 @@ function initRepo(root: string) {
 	);
 }
 
-/** `root` made a git checkout, and a linked worktree of it beside it. */
 function linkedWorktree(root: string) {
 	initRepo(root);
 	const worktree = path.join(path.dirname(root), "wt");
@@ -358,7 +339,6 @@ describe("resolveCore's stale-install warning (#461)", () => {
 
 describe("resolve-core.js run as a script (#552)", () => {
 	const self = path.join(__dirname, "resolve-core.js");
-	/** Runs the resolver's script form in `cwd` with only `env` set. */
 	function run(cwd: string, env: Record<string, string>, args: string[]) {
 		return keptSpawn("fd").spawnSync(process.execPath, [self, ...args], {
 			cwd,
@@ -400,5 +380,19 @@ describe("resolve-core.js run as a script (#552)", () => {
 		const r = run(root, { CLAUDE_CONFIG_DIR: configDir }, []);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("name the core script to run");
+	});
+});
+
+describe("resolve-core.js before the core is found (#457)", () => {
+	it("requires node builtins only", () => {
+		const source = fs.readFileSync(
+			path.join(__dirname, "resolve-core.js"),
+			"utf8",
+		);
+		const required = [...source.matchAll(/require\(\s*["']([^"']+)["']/g)].map(
+			(m) => m[1],
+		);
+		expect(required.length).toBeGreaterThan(0);
+		expect(required.filter((id) => !id?.startsWith("node:"))).toEqual([]);
 	});
 });

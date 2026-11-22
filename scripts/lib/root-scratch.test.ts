@@ -1,29 +1,4 @@
 // @vitest-environment node
-/*
- * lib/root-scratch.js, a PreToolUse dispatcher core (#2789), answers one
- * question about a tool call: does it write a dot-prefixed file at the repo
- * root that git neither ignores nor tracks? Since mantahostels#2436 a yes
- * REFUSES the call.
- *
- * THE FIRE CASES ARE mantahostels#2321's OWN CORPUS, verbatim where it quoted a command —
- * `.claim<n>.tmp` and the loop-wrapped `.c2226.out` above all. Neither is
- * decorative, so do not thin them out.
- *
- * THE SILENT CASES ARE THE FALSE-POSITIVE SURFACE. The last block pins the two
- * legitimate root writes as REFUSED, each alongside the escape the refusal hands
- * it. Do not soften either into a silence.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over real
- * git: the core reads git, so the cases share one real repository, built once,
- * which no case writes. The hook line, stdin and the stdout a refusal needs
- * are scripts/guard-dispatch.test.ts's boundary set.
- *
- * Loosen a fire case and untracked dot-files pile up at the repo root again;
- * widen it and a read or an ignored write is refused.
- *
- * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
- * the root, the `.gitignore` and the index judged are the worktree's.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -49,31 +24,22 @@ beforeAll(() => {
 	repo = path.join(dir, "repo");
 	fs.mkdirSync(repo, { recursive: true });
 	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: repo });
-	/* A gitignored root marker is the same shape as a stray, and `.gitignore`
-	 * is the only thing telling them apart. This repo writes no root marker, so
-	 * these marker-shaped exclusions stand in for an adopter's. */
 	fs.writeFileSync(
 		path.join(repo, ".gitignore"),
 		[
 			".claude/tmp/",
 			".codereview-nagged-*",
 			".sweep-autofire",
-			/* Suffix-constrained, and so the shape a prefix-only match gets wrong:
-			 * the synthetic name has to keep its `.html` to be claimed (mantahostels#2398). */
 			".roadmap-baseline*.html",
 			".card-close-baseline*.html",
 			".concision-pass-*",
 			".codereview-pass-*",
-			/* The guard tier's breadcrumbs, which mantahostels#3380 names as the exemption the
-			 * file-tool limb must not break. */
 			".hook-ran-*",
 			".rule-injected-*",
 			"",
 		].join("\n"),
 	);
 	fs.writeFileSync(path.join(repo, ".mcp.json"), "{}\n");
-	/* A TRACKED root dotfile whose name is the shape a variable builds: the
-	 * tracked limb has to be asked as a glob to see it (mantahostels#2398's review). */
 	fs.writeFileSync(path.join(repo, ".envrc.dev"), "\n");
 	execFileSync("git", ["add", ".gitignore", ".mcp.json", ".envrc.dev"], {
 		cwd: repo,
@@ -88,13 +54,10 @@ beforeAll(() => {
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 interface Verdict {
-	/* The refusal's prose, or null where the core allowed the call. */
 	refusal: string | null;
 }
 
 const refusalOf = (output: CoreRun["output"]) =>
-	/* An `additionalContext` would mean the emission regressed to a warn, and
-	 * reads as null. */
 	output?.permissionDecision === "deny"
 		? (output.permissionDecisionReason ?? null)
 		: null;
@@ -145,8 +108,6 @@ describe("the lines its refusal takes from the rule store (#4129)", () => {
 	});
 });
 
-/* A file-tool payload: NotebookEdit carries `notebook_path`, the other two
- * `file_path`. */
 function runTool(tool: "Write" | "Edit" | "NotebookEdit", target: string) {
 	const { output } = runCore(
 		"guard-root-scratch",
@@ -191,7 +152,6 @@ describe("a Write, Edit or NotebookEdit into a repo-root dotfile (mantahostels#3
 		expect(refusal).toContain(
 			`${repo}/.claude/tmp/concision-design-review-3094.md`,
 		);
-		/* The Bash recipe would be the wrong spelling for a file tool. */
 		expect(refusal).not.toContain("… >");
 		expect(refusal).toContain("| dd of=.concision-design-review-3094.md");
 	});
@@ -259,8 +219,7 @@ describe("a redirect into a repo-root dotfile", () => {
 			"for c in a b; do node scripts/$c.js > .a2357.$c.json; done",
 			"built from a loop variable — #2372 ruled the bet worth taking",
 		],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell brace expansion under test, not a JS placeholder
-		["node scripts/x.js > .a2357.${c}.json", "a braced expansion"],
+		[`node scripts/x.js > .a2357.${"$"}{c}.json`, "a braced expansion"],
 		[
 			'node scripts/x.js > ".a$(date +%s).out"',
 			"a QUOTED command substitution",
@@ -285,8 +244,6 @@ describe("a redirect into a repo-root dotfile", () => {
 		(command) => {
 			const { refusal } = run(command);
 			expect(refusal).toContain(".i2340.out");
-			/* Built from the normalised name, so neither spelling can produce a
-			 * `.claude/tmp//.i2340.out`. */
 			expect(refusal).toContain("\n    .claude/tmp/i2340.out\n");
 			expect(refusal).not.toContain("//");
 		},
@@ -298,16 +255,11 @@ describe("a redirect into a repo-root dotfile", () => {
 	});
 
 	it("normalises `/./` on the JUDGED path only, never on the original", () => {
-		/* The fold that turns `./.foo` into `.foo` would, run on the original,
-		 * delete a `.` from inside a span the placeholder stands for (mantahostels#2398's
-		 * review). */
 		const { refusal } = run(`echo x > "${repo}/.a$(cat /./f).out"`);
 		expect(refusal).toContain("\n    .claude/tmp/a$(cat /./f).out\n");
 	});
 
 	it("suggests the spelling the session WROTE, not the synthetic name", () => {
-		/* `X` is a judging device. Advising `.claude/tmp/a2357.X.json` would tell
-		 * the session to write a file it never meant to (mantahostels#2398). */
 		const { refusal } = run(
 			"for c in a b; do node scripts/$c.js > .a2357.$c.json; done",
 		);
@@ -329,8 +281,6 @@ describe("a redirect into a repo-root dotfile", () => {
 	])(
 		"fences a target so the markdown still closes — %s",
 		(command, longest: number) => {
-			/* An inline span fenced by no more backticks than it contains closes
-			 * early and swallows the rest of the refusal (mantahostels#2398's review). */
 			const { refusal } = run(command);
 			const target = command.slice(command.indexOf('"') + 1, -1);
 			const fence = "`".repeat(longest + 1);
@@ -395,10 +345,6 @@ describe("what it stays silent on", () => {
 		['[[ "$a" > .i2340.out ]]', "a string comparison inside a conditional"],
 		["node scripts/x.js < .i2340.out", "a read, not a write"],
 		["gh issue view 2340", "no redirect at all"],
-		/* UNQUOTED, the flattener splits a substitution into a segment of its own
-		 * before any word reaches the redirect walker, so the target arrives as
-		 * the fragment `.a$` and no synthetic name can be built from it. Quoted,
-		 * the span survives and both fire — the two cases above. */
 		["node scripts/x.js > .a$(date +%s).out", "a bare command substitution"],
 		["node scripts/x.js > .a`date +%s`.out", "a bare backtick substitution"],
 	])("%s — %s", (command) => {
@@ -407,12 +353,7 @@ describe("what it stays silent on", () => {
 
 	it.each([
 		['node scripts/x.js > ".envrc.$e"', "a plain variable"],
-		/* `.envrc.$e` is judged as `.envrc.X`, which nothing tracks, so the
-		 * tracked limb asks git as `.envrc.*`. A nested span left stranded would
-		 * make that `.envrc.*]}`, matching nothing — the one place the strand
-		 * shows. */
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell brace expansion under test, not a JS placeholder
-		['node scripts/x.js > ".envrc.${b[${c}]}"', "a nested expansion"],
+		[`node scripts/x.js > ".envrc.\${b[\${c}]}"`, "a nested expansion"],
 	])(
 		"stays silent where a TRACKED file matches the variable-built name — %s",
 		(command) => {
@@ -453,30 +394,14 @@ describe("what it stays silent on", () => {
 	});
 });
 
-/*
- * THE PRICE OF THE DENY (mantahostels#2436). Both of mantahostels#2340's false
- * positives are legitimate root writes, and both are REFUSED. The escape is
- * asserted here beside each refusal.
- */
 describe("the two legitimate root writes the deny now refuses", () => {
 	it("refuses a mutation test's throwaway config file, and names the escape", () => {
-		/* From mantahostels#2340's corpus run verbatim: a `markdownlint` mutation arm created
-		 * the file, ran one test and deleted it again. It recurs by policy —
-		 * AGENTS.md requires mutation-testing every guarantee, and
-		 * `markdown-tooling-declined.test.ts` is a guarantee about root config
-		 * files. */
 		const { refusal } = run("echo '{}' > .markdownlintrc");
 		expect(refusal).not.toBeNull();
-		/* THE ESCAPE MUST NAME THIS STRAY, not merely exist. The surrounding
-		 * sentence is static text present for any input, so asserting on it alone
-		 * would pass whatever the guard put in the recipe. */
 		expect(refusal).toContain("| dd of=.markdownlintrc");
 	});
 
 	it("refuses a tsconfig whose relative paths only resolve at the root, offering the dd escape and the .claude/tmp spelling", () => {
-		/* `extends` and `include` resolve against the config file's own directory,
-		 * so `.claude/tmp/` is not a substitute here — the escape is, and the
-		 * refusal names this shape explicitly. */
 		const { refusal } = run(
 			"cat > .tsconfig-checkjs.tmp.json <<'EOF'\n{}\nEOF",
 		);
@@ -486,24 +411,13 @@ describe("the two legitimate root writes the deny now refuses", () => {
 	});
 });
 
-/*
- * NO LATCH, AND ITS ABSENCE IS A GUARANTEE (mantahostels#2436). mantahostels#2401 (ruled at mantahostels#2377)
- * bounded the WARN to
- * one full delivery per `(agent, session)`; a latched DENY would allow every
- * stray after the first. These cases exist so a later ticket reinstating the
- * latch for quietness has to delete them and say why.
- */
 describe("the once-a-session bound, deliberately gone", () => {
-	/* The marker mantahostels#2401 wrote. An id typo would pass every case below by writing
-	 * some OTHER file, so the name is asserted and not just its absence. */
 	const marker = ".rule-injected-warn.root-scratch-main-mine";
 
 	it("refuses a second stray in the same session in full, naming that stray and its sanctioned spelling", () => {
 		expect(denies("echo x > .i2401.out")).toBe(true);
 		const { refusal } = run("echo x > .claim2401.out");
 		expect(refusal).not.toBeNull();
-		/* Not merely non-null: the second refusal names its OWN stray and its own
-		 * sanctioned spelling, which a latch replayed from the first could not. */
 		expect(refusal).toContain(".claim2401.out");
 		expect(refusal).toContain("\n    .claude/tmp/claim2401.out\n");
 	});
@@ -520,21 +434,12 @@ describe("the once-a-session bound, deliberately gone", () => {
 		expect(fs.existsSync(path.join(repo, ".claude/tmp/markers", marker))).toBe(
 			false,
 		);
-		/* And nothing else of that shape either: a marker under a different id
-		 * would still be a stray by this guard's own definition. */
 		expect(
 			fs.readdirSync(repo).filter((f) => f.startsWith(".rule-injected")),
 		).toEqual([]);
 	});
 });
 
-/*
- * The context-budget scan's DEAD-LATCH rule must raise nothing for this
- * guard, which has no latch to call dead (mantahostels#2436, mantahostels#2446).
- * Against the REAL repo, not a fixture: the scan is lexical, so only a
- * real-tree case can see a latch-shaped word in this core's own comments land
- * as a finding.
- */
 describe("the context-budget scan against this core as it stands (mantahostels#2446)", () => {
 	it("raises no DEAD-LATCH for it", () => {
 		const root = path.resolve(__dirname, "..", "..");
