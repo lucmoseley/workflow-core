@@ -68,4 +68,18 @@ function readOrNull(tree, rel) {
 	}
 }
 
-module.exports = { readBytes, readOrNull, readTail, readText };
+/**
+ * @param {Pick<import("./guard-host-ports.js").TreePorts, "readText">} tree
+ * @param {string} rel
+ * @returns {FileRead<string>}
+ */
+function readTreeText(tree, rel) {
+	try {
+		const data = tree.readText(rel);
+		return data === null ? { state: "absent" } : { state: "read", data };
+	} catch (error) {
+		return { state: "unreadable", error, message: caught(error).message };
+	}
+}
+
+module.exports = { readBytes, readOrNull, readTail, readText, readTreeText };

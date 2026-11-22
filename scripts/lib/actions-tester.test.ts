@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	adopterTester,
 	type Job,
@@ -13,6 +13,7 @@ import {
 } from "./actions-tester.js";
 import { RECORDED_SHAPES } from "./gh-fake.js";
 import { stubGhScript } from "./gh-stub.js";
+import { defineTemplate } from "./git-fixture";
 import { markersDir } from "./marker-root.js";
 import { noop } from "./noop.js";
 import type { Placement } from "./queue-lander.js";
@@ -1795,54 +1796,72 @@ it("records each whole run it judges, green or red, its suite seconds summed acr
 	]);
 });
 
-it("pushes, lists and dispatches the adopter's core-owned lander workflows through the live adapters (#5511)", async () => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-tester-"));
+const adopterRepo = defineTemplate((dir) => {
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 	git("init", "-q");
-	git("remote", "add", "origin", tmp);
-	fs.writeFileSync(path.join(tmp, "a.test.ts"), "");
+	git("remote", "add", "origin", dir);
+	fs.writeFileSync(path.join(dir, "a.test.ts"), "");
 	git("add", ".");
 	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a");
-	const sha = git("rev-parse", "HEAD");
-	const argvLog = path.join(tmp, "argv.log");
-	vi.stubEnv(
-		"WFC_GH",
-		stubGhScript(
-			tmp,
-			`#!/usr/bin/env node
-const fs = require("node:fs");
-${RECORDED_SHAPES}
-const argv = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(argvLog)}, argv.join(" ") + "\\n");
-if (argv[0] === "workflow") { process.stderr.write("HTTP 403: Resource not accessible by integration"); process.exit(1); }
-if (argv[1] === "list") process.stdout.write(asRecorded("runList", [${JSON.stringify(run(5, "success"))}].map((r) => ({ ...r, headSha: ${JSON.stringify(sha)} }))));
-else process.stdout.write(asRecorded("runJobs", { jobs: [{ name: "Vitest (1/1)", conclusion: "success" }, { name: "Suite passed", conclusion: "success" }] }));
-`,
-		).gh,
-	);
-	const asked: unknown[][] = [];
-	const tester = adopterTester({
-		root: tmp,
-		fallback: {
-			verdict: async (...a: unknown[]) => {
-				asked.push(a);
-				return { kind: "green" };
+});
+
+describe("the adopter tester's live adapters", () => {
+	let repo: string;
+	beforeEach(() => {
+		repo = adopterRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "adopter-tester-")),
+		);
+		tmp = repo;
+	});
+
+	it("pushes, lists and dispatches the adopter's core-owned lander workflows through the live adapters (#5511)", async () => {
+		const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+			cwd: repo,
+			encoding: "utf8",
+		}).trim();
+		const argvLog = path.join(repo, "argv.log");
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				repo,
+				`#!/usr/bin/env node
+	const fs = require("node:fs");
+	${RECORDED_SHAPES}
+	const argv = process.argv.slice(2);
+	fs.appendFileSync(${JSON.stringify(argvLog)}, argv.join(" ") + "\\n");
+	if (argv[0] === "workflow") { process.stderr.write("HTTP 403: Resource not accessible by integration"); process.exit(1); }
+	if (argv[1] === "list") process.stdout.write(asRecorded("runList", [${JSON.stringify(run(5, "success"))}].map((r) => ({ ...r, headSha: ${JSON.stringify(sha)} }))));
+	else process.stdout.write(asRecorded("runJobs", { jobs: [{ name: "Vitest (1/1)", conclusion: "success" }, { name: "Suite passed", conclusion: "success" }] }));
+	`,
+			).gh,
+		);
+		const asked: unknown[][] = [];
+		const tester = adopterTester({
+			root: repo,
+			fallback: {
+				verdict: async (...a: unknown[]) => {
+					asked.push(a);
+					return { kind: "green" };
+				},
 			},
-		},
-		say: noop,
-		record: noop,
-		...clock(),
+			say: noop,
+			record: noop,
+			...clock(),
+		});
+		expect(await tester.verdict(BATCH0, sha)).toEqual({
+			kind: "green",
+			run: 5,
+		});
+		expect(await tester.verdict(ISO1, sha, ["a.test.ts"])).toEqual({
+			kind: "green",
+		});
+		const argv = fs.readFileSync(argvLog, "utf8");
+		expect(argv).toContain(
+			"run list --workflow workflow-core-lander.yml --branch lander/batch-0",
+		);
+		expect(argv).toContain("workflow run workflow-core-named-rerun.yml");
+		expect(argv).not.toMatch(/scheduled-checks\.yml| named-rerun\.yml/);
+		expect(asked).toEqual([[ISO1, sha, ["a.test.ts"], false]]);
 	});
-	expect(await tester.verdict(BATCH0, sha)).toEqual({ kind: "green", run: 5 });
-	expect(await tester.verdict(ISO1, sha, ["a.test.ts"])).toEqual({
-		kind: "green",
-	});
-	const argv = fs.readFileSync(argvLog, "utf8");
-	expect(argv).toContain(
-		"run list --workflow workflow-core-lander.yml --branch lander/batch-0",
-	);
-	expect(argv).toContain("workflow run workflow-core-named-rerun.yml");
-	expect(argv).not.toMatch(/scheduled-checks\.yml| named-rerun\.yml/);
-	expect(asked).toEqual([[ISO1, sha, ["a.test.ts"], false]]);
 });

@@ -1059,19 +1059,18 @@ function buildRepoPress({ status, presses }, name) {
 	return { on, argv: ["set", on ? "--tick" : "--untick", name] };
 }
 
+const CLEAN_FLIP_KEPT_LINE = /^(warning|error):/;
+
 /**
  * @param {boolean} on
  * @param {RunResult} result
  * @returns {BurnReport}
  */
 function buildBurnReport(on, { code, stdout, stderr }) {
-	const lines =
-		code === 0 && !stderr.trim()
-			? []
-			: `${stderr}\n${stdout}`
-					.split("\n")
-					.map((l) => l.trimEnd())
-					.filter(Boolean);
+	const lines = `${stderr}\n${stdout}`
+		.split("\n")
+		.map((l) => l.trimEnd())
+		.filter((l) => (code === 0 ? CLEAN_FLIP_KEPT_LINE.test(l) : Boolean(l)));
 	return { on, code, lines };
 }
 

@@ -170,7 +170,7 @@ const unsetCommands = () =>
  * @property {number} [sessionMeanMb]
  * @property {number} [sessionSigmaMb]
  * @property {number} [gateSeatMb]
- * @property {LandingTester} [landingTester]
+ * @property {LandingTester} landingTester
  * @property {number} [fullTestShards]
  * @property {Ci} [ci]
  * @property {FounderNotice} [founderNotice]
@@ -413,6 +413,25 @@ function readKey(cfg, key, isValid, want) {
 	}
 	return v;
 }
+
+/**
+ * @param {Pick<Config, "commands" | "fullTestShards">} config
+ * @returns {number}
+ */
+const wholeRunShardCount = ({ commands, fullTestShards }) =>
+	(commands.full_test ?? commands.test) ? (fullTestShards ?? 1) : 1;
+
+/**
+ * @param {RawConfig} cfg
+ * @returns {LandingTester}
+ */
+const readLandingTester = (cfg) =>
+	readKey(
+		cfg,
+		"landingTester",
+		isLandingTester,
+		`one of ${LANDING_TESTERS.join(", ")}`,
+	) ?? "auto";
 
 /**
  * @param {RawConfig} cfg
@@ -798,12 +817,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		isPositiveInt,
 		"a positive integer",
 	);
-	const landingTester = readKey(
-		cfg,
-		"landingTester",
-		isLandingTester,
-		`one of ${LANDING_TESTERS.join(", ")}`,
-	);
+	const landingTester = readLandingTester(cfg);
 	const ci = readKey(
 		cfg,
 		"ci",
@@ -1362,6 +1376,7 @@ module.exports = {
 	coreHost,
 	hostRoot,
 	readConfig,
+	wholeRunShardCount,
 	resolveKey,
 	resolveCorpus,
 	requireKey,

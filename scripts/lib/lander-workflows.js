@@ -11,6 +11,7 @@ const {
 	SUITE_PASSED_JOB,
 	shardJobName,
 } = require("./lander-job-names.js");
+const { wholeRunShardCount } = require("./workflow-core-config.js");
 
 const LANDER_SUITE_WORKFLOW = `.github/workflows/${ADOPTER_WORKFLOWS.suite}`;
 const LANDER_NAMED_WORKFLOW = `.github/workflows/${ADOPTER_WORKFLOWS.named}`;
@@ -26,12 +27,6 @@ const DEFAULT_RUNNER = "ubuntu-24.04-arm";
  * @typedef {Pick<import("./workflow-core-config.js").Config,
  *   "commands" | "fullTestShards" | "ci">} LanderConfig
  */
-
-/**
- * @param {LanderConfig} config
- */
-const groupCount = ({ commands, fullTestShards }) =>
-	(commands.full_test ?? commands.test) ? (fullTestShards ?? 1) : 1;
 
 /**
  * @param {LanderConfig} config
@@ -56,7 +51,7 @@ const header = (
  * @returns {string}
  */
 function renderSuiteWorkflow(config) {
-	const n = groupCount(config);
+	const n = wholeRunShardCount(config);
 	const ids = Array.from({ length: n }, (_, i) => `shard-${i + 1}`);
 	const shards = ids
 		.map(

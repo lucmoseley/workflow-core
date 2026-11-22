@@ -25,7 +25,7 @@ const { chargeMb: launchChargeMb } = require("./launch-charge.js");
 const { readLiveCharged } = require("./suite-queue.js");
 const { LANDER_ROLE, suiteSlot } = require("./suite-slot.js");
 const { LANDER_WORKTREE } = require("./worktree-dirs.js");
-const { readConfig } = require("./workflow-core-config.js");
+const { readConfig, wholeRunShardCount } = require("./workflow-core-config.js");
 const { latestTimings } = require("./latest-timings.js");
 const { LANDER_RUN } = require("./session-id.js");
 const { voidProof } = require("./verdict-probe.js");
@@ -263,7 +263,7 @@ function readRunsAt(dir, pytest, files, timings) {
 	};
 	const whole = full_test ?? test;
 	if (!whole) return routesPython ? [[wholePython]] : [];
-	const shards = config.fullTestShards ?? 1;
+	const shards = wholeRunShardCount(config);
 	const packedBy = shards > 1 ? timings(dir) : null;
 	const env = packedBy === null ? {} : { env: { WFC_SHARD_TIMINGS: packedBy } };
 	return Array.from({ length: shards }, (_, i) => {

@@ -1,9 +1,9 @@
 // @vitest-environment node
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import {
 	GROUP_STEP,
@@ -24,6 +24,8 @@ import { parseJob, type Workflow } from "./workflow-yaml-testkit";
 const SCRIPT = path.resolve(__dirname, "..", "lander-ci.js");
 const PATHS = [LANDER_SUITE_WORKFLOW, LANDER_NAMED_WORKFLOW];
 const expr = (e: string) => `\${{ ${e} }}`;
+
+const repoTemplate = defineTemplate(emptyRepoTemplate);
 
 let tmp: string;
 let root: string;
@@ -236,7 +238,7 @@ process.exit(red ? 1 : 0);
 		});
 	};
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: root });
+		repoTemplate.instantiate(root);
 		write(root, "run.js", fakeRunner);
 		write(root, "a.check.js", "");
 		write(root, "red.check.js", "");

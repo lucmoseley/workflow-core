@@ -112,6 +112,7 @@ describe("readConfig — defaults", () => {
 			capacityLadder: undefined,
 			refillLoop: true,
 			refillPanel: false,
+			landingTester: "auto",
 			polled: [],
 			alwaysLoaded: undefined,
 			warnings: [],
@@ -643,7 +644,7 @@ describe("readConfig — each simple key's valid, malformed and absent value (#1
 			"actions",
 			"remote",
 			"one of auto, local, actions",
-			undefined,
+			"auto",
 		],
 		[
 			"founderNotice",

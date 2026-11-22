@@ -186,56 +186,20 @@ function bringCoreDocs(ctx) {
 	});
 }
 
-/** @param {Context} ctx */
-function bringCi(ctx) {
-	const { root, dryRun, out } = ctx;
-	let cfg;
-	try {
-		cfg = readConfig({ root, quiet: true });
-	} catch (err) {
-		out(`skipped ${CI_WORKFLOW}: ${caught(err).message}`);
-		return [];
-	}
-	const fault = cfg.faults.find((f) => f.key === "ci");
-	if (fault) {
-		out(`skipped ${CI_WORKFLOW}: ${fault.text}`);
-		return [];
-	}
-	const { ci } = cfg;
-	const existing = readIfPresent(path.join(root, CI_WORKFLOW));
-	if (existing !== null && !isCoreCi(existing)) {
-		out(
-			`skipped ${CI_WORKFLOW} — it does not open on the CORE-OWNED marker, so the core did not write it`,
-		);
-		return [];
-	}
-	if (ci)
-		return bringFile(ctx, { rel: CI_WORKFLOW, body: renderCiWorkflow(ci) });
-	if (existing === null) return [];
-	if (dryRun) {
-		out(`would   remove ${CI_WORKFLOW}`);
-		return [];
-	}
-	fs.rmSync(path.join(root, CI_WORKFLOW));
-	out(
-		`removed ${CI_WORKFLOW} — .claude/workflow-core.json carries no "ci" key`,
-	);
-	return [CI_WORKFLOW];
-}
+/**
+ * @typedef {object} Workflows
+ * @property {string[]} paths
+ * @property {string[]} faultKeys
+ * @property {(cfg: import("./workflow-core-config.js").Config) => {write: {rel: string, body: string}[]} | {remove: string} | "leave"} want
+ */
 
-const LANDER_KEYS = [
-	"landingTester",
-	"fullTestShards",
-	"ci",
-	"commands",
-	"commands.full_test",
-	"commands.test",
-];
-
-/** @param {Context} ctx */
-function bringLanderWorkflows(ctx) {
+/**
+ * @param {Context} ctx
+ * @param {Workflows} workflows
+ * @returns {string[]}
+ */
+function bringWorkflows(ctx, { paths, faultKeys, want }) {
 	const { root, dryRun, out } = ctx;
-	const paths = [LANDER_SUITE_WORKFLOW, LANDER_NAMED_WORKFLOW];
 	let cfg;
 	try {
 		cfg = readConfig({ root, quiet: true });
@@ -243,34 +207,71 @@ function bringLanderWorkflows(ctx) {
 		out(`skipped ${paths.join(", ")}: ${caught(err).message}`);
 		return [];
 	}
-	const fault = cfg.faults.find((f) => LANDER_KEYS.includes(f.key));
+	const fault = cfg.faults.find((f) => faultKeys.includes(f.key));
 	if (fault) {
 		out(`skipped ${paths.join(", ")}: ${fault.text}`);
 		return [];
 	}
-	const tester = cfg.landingTester ?? "auto";
-	if (tester === "actions") return [];
-	return renderLanderWorkflows(cfg).flatMap(({ rel, body }) => {
+	const wanted = want(cfg);
+	if (wanted === "leave") return [];
+	/** @param {string} rel @returns {string|null|false} */
+	const coreCopy = (rel) => {
 		const existing = readIfPresent(path.join(root, rel));
-		if (existing !== null && !isCoreCi(existing)) {
-			out(
-				`skipped ${rel} — it does not open on the CORE-OWNED marker, so the core did not write it`,
-			);
-			return [];
-		}
-		if (tester === "auto") return bringFile(ctx, { rel, body });
-		if (existing === null) return [];
+		if (existing === null || isCoreCi(existing)) return existing;
+		out(
+			`skipped ${rel} — it does not open on the CORE-OWNED marker, so the core did not write it`,
+		);
+		return false;
+	};
+	if ("write" in wanted)
+		return wanted.write.flatMap((file) =>
+			coreCopy(file.rel) === false ? [] : bringFile(ctx, file),
+		);
+	return paths.flatMap((rel) => {
+		const existing = coreCopy(rel);
+		if (existing === false || existing === null) return [];
 		if (dryRun) {
 			out(`would   remove ${rel}`);
 			return [];
 		}
 		fs.rmSync(path.join(root, rel));
-		out(
-			`removed ${rel} — .claude/workflow-core.json pins "landingTester": "local"`,
-		);
+		out(`removed ${rel} — .claude/workflow-core.json ${wanted.remove}`);
 		return [rel];
 	});
 }
+
+/** @param {Context} ctx */
+const bringCi = (ctx) =>
+	bringWorkflows(ctx, {
+		paths: [CI_WORKFLOW],
+		faultKeys: ["ci"],
+		want: ({ ci }) =>
+			ci
+				? { write: [{ rel: CI_WORKFLOW, body: renderCiWorkflow(ci) }] }
+				: { remove: 'carries no "ci" key' },
+	});
+
+/** @param {Context} ctx */
+const bringLanderWorkflows = (ctx) =>
+	bringWorkflows(ctx, {
+		paths: [LANDER_SUITE_WORKFLOW, LANDER_NAMED_WORKFLOW],
+		faultKeys: [
+			"landingTester",
+			"fullTestShards",
+			"ci",
+			"commands",
+			"commands.full_test",
+			"commands.test",
+		],
+		want: (cfg) => {
+			const { landingTester } = cfg;
+			if (landingTester === "auto")
+				return { write: renderLanderWorkflows(cfg) };
+			if (landingTester === "local")
+				return { remove: 'pins "landingTester": "local"' };
+			return "leave";
+		},
+	});
 
 /** @param {Context} ctx */
 function bringRules(ctx) {
