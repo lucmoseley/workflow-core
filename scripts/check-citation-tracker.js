@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-citation-tracker.js — a citation of THIS repo's tracker is bare `#N`.
- * `mantahostels#N` names the INHERITED tracker, a different set of issues (#162).
- *
- * Usage:
- *   node check-citation-tracker.js [--json] [--warn] [--all]
- *   (no arguments: the staged diff is read out of git)
- *
- * The test itself — the pre-rewrite use count, and what it misses — is
- * lib/citation-tracker.js's, shared with lib/citation-write.js (#2015).
- *
- * STAGED, AND ADDED LINES ONLY. The ~13,000 citations already in the tree are
- * not this gate's business — it is prospective, exactly like the branch and
- * commit-form guards. `--all` scans the whole working tree instead, which is
- * what the audit route wants.
- *
- * IT NO-OPS IN AN ADOPTER REPO. `ec8654cd` is this repo's own history; where it
- * does not resolve there is no inherited tracker to confuse ours with, and the
- * check skips rather than refusing every citation it sees.
- *
- * IMPLICIT:  on every commit, refuses a newly-added citation that names the inherited tracker for a number that tracker never used.
- * JUSTIFIED: fail-safe — a git that cannot run is BROKEN rather than green. A baseline commit that is genuinely absent is a SKIP, that being an adopter's repo rather than a failure.
- * DEFEAT:    --warn caps findings below the gating line; a `citation-exempt: <why>` comment drops one line, and nothing validates the reason it gives; an owner-qualified `lucmoseley/mantahostels#N` passes unjudged, so a mis-copy spelled with that prefix gets through; WFC_CITATION_TRACKER_OFF stands the gate down for one commit.
- */
 
 const { runCheck } = require("./lib/check.js");
 const { gitOutcome } = require("./lib/git.js");
@@ -41,16 +17,6 @@ const { requiredGroup } = require("./lib/regex-group");
 const DEFEAT = "WFC_CITATION_TRACKER_OFF";
 
 /**
- * The lines this commit ADDS, by file.
- *
- * `-U0` so no context line is read as an addition, and `--no-color`/
- * `--no-ext-diff` so a session's own git config cannot change what is parsed.
- *
- * THE FILE HEADER IS READ ONLY OUTSIDE A HUNK. A `+++ ` test applied to hunk
- * body lines swallows an added line that itself begins `++ ` — markdown and
- * diff-quoting prose both produce them — and takes the rest of that hunk with
- * it. `diff --git ` resets, so a header is never missed either.
- *
  * @param {string} diff
  * @returns {{file: string, line: string}[]}
  */
@@ -77,16 +43,7 @@ function parseAddedLines(diff) {
 	return out;
 }
 
-/**
- * Every tracked citation, in the same shape `parseAddedLines` returns — so `--all`
- * and the staged route share one judging loop.
- *
- * `:(top)` rather than `.`, so a run from a subdirectory still scans the whole
- * repository. The row is split on the LAST colon before the line number, since
- * a path may hold one.
- *
- * @returns {{ ok: true, out: {file: string, line: string}[] } | { ok: false, why: string }}
- */
+/** @returns {{ ok: true, out: {file: string, line: string}[] } | { ok: false, why: string }} */
 function readEveryLine() {
 	const r = gitOutcome(
 		["grep", "-n", "-E", `${PREFIX}#[0-9]+`, "--", ":(top)"],
@@ -107,12 +64,6 @@ function readEveryLine() {
 	return { ok: true, out: lines };
 }
 
-/*
- * The rule this checker prints, through `readRuleTextOr` (mantahostels#1649's
- * split): `readRuleText` throws on an unreadable store, and a throw here would
- * report BROKEN — "the checker cannot do its job" — over a fault that has
- * nothing to do with the commit's diff.
- */
 function readCitationRule() {
 	return readRuleTextOr(
 		"citation-tracker",
@@ -122,9 +73,6 @@ function readCitationRule() {
 }
 
 /**
- * The lines judged: every tracked line under --all, else the staged diff's
- * added lines.
- *
  * @param {Ctx} ctx
  * @param {boolean} all
  * @returns {{file: string, line: string}[]}
@@ -150,9 +98,6 @@ function readSubjectLines(ctx, all) {
 }
 
 /**
- * Fails each inherited-tracker citation on one line whose number the
- * inherited tracker never used.
- *
  * @param {Ctx} ctx
  * @param {{file: string, line: string}} at
  * @param {Set<number>} inherited
@@ -182,7 +127,6 @@ const SPEC = {
 				`${DEFEAT} is set — the citation gate stood down for this commit.`,
 			);
 
-		/* A SKIP on apparatus would report a checker that never ran as a pass. */
 		const baseline = readBaselineCommit();
 		if (!baseline.ok)
 			return ctx.broken(

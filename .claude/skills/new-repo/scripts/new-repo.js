@@ -135,7 +135,7 @@ const report = (step, status, detail) => {
 /**
  * @typedef {{name: string, repo: string, prefix: string, idea: string,
  *   oneLiner: string, title: string, corpus: string[], specUrl: string|null,
- *   source: string|null}}
+ *   source: string|null}} Inputs
  */
 
 /**

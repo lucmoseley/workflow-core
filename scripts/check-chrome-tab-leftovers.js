@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-chrome-tab-leftovers.js — which Chrome children left a tab open in
- * the founder's Chrome that neither a hold nor a give-up explains (#5385)?
- *
- * Usage:
- *   node check-chrome-tab-leftovers.js [--since <days>] [--turnaround] [--json] [--warn]
- *
- * lib/chrome-child-census.js reads and classes every child on the machine.
- * Each unexplained child is one WARN finding, keyed
- * `UNEXPLAINED-TAB<TAB>sessionId<TAB>seat<TAB>title (url); …`.
- * Held and given-up children are counted on their own lines, not findings.
- *
- * THE WINDOW is the transcripts written in the last `--since` days (30 by
- * default; repo-checks.js passes its widening window), never before the
- * store's first recorded launch: an older child ran under a launcher that
- * kept no record, #5349's census. A session whose earlier transcript fell
- * outside the window is read from its later one alone.
- *
- * `--turnaround` prints, from the closed log, each held tab's time from
- * `heldSince` to its close and what closed it, one line each: the evidence
- * for revisiting the hold. It is hand-run only.
- */
 
 const { now, runCheck } = require("./lib/check.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -46,7 +24,6 @@ function turnaround(ctx) {
 /** @param {Ctx} ctx */
 async function run(ctx) {
 	if (ctx.has("--turnaround")) return turnaround(ctx);
-	/* Untraced: an ad-hoc run looks back a month. */
 	const days = ctx.numberValue("--since", 30, "positive");
 	const firstLaunch = readFirstLaunch();
 	if (firstLaunch === null)

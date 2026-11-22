@@ -1,59 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-band-drift.js — watch for agents narrowing their price bands across
- * the board, the evasion no per-turn guard can see.
- *
- * Usage:  node scripts/check-band-drift.js  [--days <n>] [--json] [--write]
- *         npm run status -- --only band-drift [--write]
- *
- * WHAT IT IS FOR (#472 limb C, specified at #486, built at #487). The close-
- * rivals limb of scripts/guard-priced-options.js refuses a question whose top
- * two rivals sit close. One way round it is to write narrower bands in general,
- * so that fewer pairs overlap — invisible turn by turn, visible only as a
- * shift across many sessions. This reads the last 14 days of rival questions
- * and compares two readings with BAND_BASELINE:
- *   - the share of questions whose top-two gap is 26-30 points that have
- *     overlapping bands — the band where narrowing takes a pair out of scope;
- *   - the median band half-width of the top option.
- * The same limb refuses a question whose top figure is `LOW_TOP` or less
- * (#2228, #2519), and the way round that is writing 70, the first step that
- * passes.
- * A third reading, over priced questions of every shape, compares with
- * TOP_BASELINE the share of tops at `LOW_TOP` + 5 or more that sit at exactly
- * `LOW_TOP` + 5 (#2260, #4536). Conditioning on passing tops means a refusal
- * that removes mass below the line moves nothing; the share rises only where
- * mass piles onto the first passing step (docs/practice/llm-evaluation.md
- * §Bunching at a threshold).
- *
- * ONE PARSER. Every question is read by the guard's own exported `rivalPair`
- * and `topOf`, so a drift report reflects agents' behaviour, never a gap
- * between two parsers.
- *
- * A CHECKER THAT FILES, where every other filer is a scheduled `report-*`
- * script: the corpus is machine-local, so no CI runner could read it, and
- * `npm run status` is the one surface that runs here. It files only under
- * `--write` (`npm run status -- --write`): a check run writes nothing to the
- * tracker (#4449), and says what it would have filed.
- *
- * FILES, NEVER FAILS. Either band reading below half its baseline files or
- * refreshes one tracking issue (under --write) through lib/tracking-issue.js,
- * the top-figure
- * share above 1.5 times its baseline another, and the run WARNs. Nothing here
- * is a FAIL: drift is the founder's to judge. scripts/check-cleared-trackers.js
- * reports each issue once its readings recover.
- *
- * TOO FEW QUESTIONS FILES NOTHING. Under MIN_BAND_SAMPLE questions in the
- * 26-30 band, or MIN_TOP_SAMPLE passing tops, the share is noise (#487, #2260).
- *
- * AN UNREADABLE CORPUS IS A SKIP, never "no drift": the transcripts live under
- * the config seats, outside the repo (lib/check.js's subject-vs-apparatus
- * split). A seat that is simply absent is skipped quietly; a CI runner has
- * none at all and reports SKIP.
- *
- * IMPLICIT:  on `npm run status -- --write`, reads 14 days of session transcripts across every seat and files or refreshes one tracking issue when price bands have narrowed by more than half, and another when top figures bunch at 70 by more than half again among tops of 70 or more.
- * JUSTIFIED: fail-safe — band-narrowing spreads across sessions, so no per-turn guard sees it; a run that cannot read the corpus or holds too few questions files nothing rather than guessing.
- * DEFEAT:    --days <n> moves the window on a hand run, and editing lib/band-baseline.js's BAND_BASELINE or TOP_BASELINE moves the thresholds; its comment forbids that without a re-measurement, and nothing enforces it.
- */
 
 const fs = require("node:fs");
 
@@ -73,28 +18,19 @@ const { splitQuestions } = require("./lib/round-marker");
 const { caught } = require("./lib/caught.js");
 const { takesLabel } = require("./lib/takes-label");
 
-/* "Below half its baseline" (#472 limb C). */
 const FLOOR_RATIO = 0.5;
-/* "More than half again", #472 limb C's distance from baseline rising (#2228). */
 const CEILING_RATIO = 1.5;
-/* The first top figure the low-top test passes as agents price, in steps of 5
- * (#2229). */
 const FIRST_PASSING_TOP = LOW_TOP + 5;
 
 const DEFAULT_DAYS = 14;
-/* The five points past the close-gap floor: pairs the floor no longer catches,
- * so only overlapping bands keep them in the limb's scope, and narrowing takes
- * them out. #472's table read this band at 17% overlapping and the next at 0%. */
+// measured 17% overlapping in this band and 0% in the next, #472
 const GAP_BAND = /** @type {const} */ ([CLOSE_GAP + 1, CLOSE_GAP + 5]);
 
-/* The ceiling on one transcript read: the largest transcript on this machine is
- * 12 MB (mantahostels#1731), and a file over this is counted, never read. */
+// measured 12 MB largest transcript, lucmoseley/mantahostels#1731
 const FILE_LIMIT = 256 * 1024 * 1024;
 
 const TITLE =
 	"Price bands are narrowing — the close-rivals guard may be priced around";
-/* The lookup label as well as the disposition: a narrowing is calibration or
- * evasion, and telling them apart is a decision. */
 const LABEL = takesLabel("wayfinder");
 const TOP_TITLE = `Top figures are bunching at ${FIRST_PASSING_TOP} — the low-top test may be priced around`;
 
@@ -115,13 +51,9 @@ const TOP_TITLE = `Top figures are bunching at ${FIRST_PASSING_TOP} — the low-
  */
 
 /**
- * Every question block in the assistant, non-sidechain records of one
- * top-level transcript sent at or after `cutoff`. Only lines carrying a round
- * marker are parsed; `seen` drops a record a resumed session copied in.
- *
  * @param {string} text
  * @param {number} cutoff
- * @param {Set<string>} seen accumulator: each yielded record's uuid is added
+ * @param {Set<string>} seen
  * @returns {Generator<import("./lib/round-marker").QuestionBlock>}
  */
 function* questionsIn(text, cutoff, seen) {
@@ -139,8 +71,6 @@ function* questionsIn(text, cutoff, seen) {
 }
 
 /**
- * An assistant record sent at or after `cutoff` and not already in `seen`.
- *
  * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @param {number} cutoff
  * @param {Set<string>} seen
@@ -166,8 +96,6 @@ function recordTexts(content) {
 }
 
 /**
- * Read the window across every seat.
- *
  * @param {{ days?: number, at?: number }} [opts]
  * @returns {Reading}
  */
@@ -201,19 +129,14 @@ function measure({ days = DEFAULT_DAYS, at = now() } = {}) {
 }
 
 /**
- * One transcript's text, or null where it is outside the window, over
- * FILE_LIMIT or unreadable — the last two counted in `r.skippedFiles`.
- *
  * @param {string} file
  * @param {number} cutoff
- * @param {Reading} r accumulator: skippedFiles counts a file over the limit or unreadable
+ * @param {Reading} r
  * @returns {string | null}
  */
 function readWindowFile(file, cutoff, r) {
 	try {
 		const st = fs.statSync(file);
-		/* mtime first: a file last written before the window holds nothing
-		 * inside it. Each record's own timestamp decides membership. */
 		if (!st.isFile() || st.mtimeMs < cutoff) return null;
 		if (st.size > FILE_LIMIT) {
 			r.skippedFiles++;
@@ -221,15 +144,13 @@ function readWindowFile(file, cutoff, r) {
 		}
 		return fs.readFileSync(file, "utf8");
 	} catch (e) {
-		/* Gone since the listing is no file to read; anything else went unread. */
 		if (caught(e).code !== "ENOENT") r.skippedFiles++;
 		return null;
 	}
 }
 
 /**
- * @param {Reading} r accumulator: a priced block's top is counted, and a rival
- *   pair counted with its half-width pushed
+ * @param {Reading} r
  * @param {import("./lib/round-marker").QuestionBlock} block
  */
 function tallyBlock(r, block) {
@@ -262,12 +183,7 @@ function median(xs) {
 	return (lower + upper) / 2;
 }
 
-/**
- * The band reading: the overlap share in GAP_BAND and the top option's median
- * half-width, each low where it is under half its baseline.
- *
- * @param {Reading} r
- */
+/** @param {Reading} r */
 function bandReading(r) {
 	const share = r.band ? r.overlapping / r.band : null;
 	const halfWidth = median(r.halfWidths);
@@ -280,12 +196,7 @@ function bandReading(r) {
 	return { share, halfWidth, floors, shareLow, halfWidthLow };
 }
 
-/**
- * The top-figure reading: the share of passing tops at FIRST_PASSING_TOP
- * against CEILING_RATIO times its baseline.
- *
- * @param {Reading} r
- */
+/** @param {Reading} r */
 function topReading(r) {
 	const share = r.passingTops ? r.atFirstPassingTop / r.passingTops : null;
 	const baseline = TOP_BASELINE.atLine / TOP_BASELINE.passingTops;
@@ -297,8 +208,6 @@ const pct = (/** @type {number} */ x) =>
 	`${(x * 100).toFixed(1).replace(/\.0$/, "")}%`;
 
 /**
- * The one-line reading both the OK line and the issue body carry.
- *
  * @param {Reading} r
  * @param {ReturnType<typeof bandReading>} v
  * @param {number} [days]
@@ -320,8 +229,6 @@ function summary(r, v, days = DEFAULT_DAYS) {
 }
 
 /**
- * The one-line top-figure reading both the OK line and its issue body carry.
- *
  * @param {Reading} r
  * @param {ReturnType<typeof topReading>} v
  * @param {number} [days]
@@ -415,9 +322,6 @@ const TOP_WATCH = {
 };
 
 /**
- * What a watch's reading says: `unread` where no seat could be listed,
- * `insufficient` under its minimum sample, else `drift` or `steady`.
- *
  * @param {Watch} watch
  * @param {Reading} r
  * @param {number} days
@@ -461,10 +365,6 @@ function buildIssueBody(a) {
 }
 
 /**
- * Whether a watch's tracked condition still holds, for scripts/check-cleared-
- * trackers.js. Throws where the reading cannot judge it — no seat listed, or
- * too small a sample — so the tracker reads unreadable, never cleared.
- *
  * @param {Watch} watch
  * @returns {() => { held: boolean, detail: string }}
  */
@@ -478,8 +378,6 @@ const conditionOf = (watch) => () => {
 };
 
 /**
- * File or refresh one tracking issue, off the baseline's own window only.
- *
  * @param {{ title: string, body: string }} issue
  * @param {number} days
  * @param {boolean} write

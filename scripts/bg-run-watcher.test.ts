@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * bg-run-watcher.test.ts — scripts/bg-run.sh's detached watcher (mantahostels#2691),
- * the kill log's default location, the launch log (mantahostels#2763), the suite
- * ceiling's backstop (#2704) and a run whose root moved between launch and
- * check. Split from bg-run.test.ts, whose header says what the wrapper sells
- * and why a loosened case costs (#2413).
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from bg-run.test.ts, whose cost was pre-existing (#2413).
- */
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
@@ -63,16 +53,12 @@ import { shellQuote } from "./lib/sh-quote.js";
 bgRunRoot();
 
 describe("the detached watcher (mantahostels#2691) — a kill recorded with no `check` ever called", () => {
-	/* A kill line carries the `started` of whichever run's directory the
-	 * recorder read, so this is what tells a kill of the OLD run from one
-	 * falsely recorded against the run that replaced it. */
 	function startedEpoch(name: string) {
 		return runFile(name, "started");
 	}
 
 	const watcherAlive = (token: string) => readWatcherPids(token).length > 0;
 
-	/* The kill lines for `name`, once the watcher has written one. */
 	async function killedOnce(name: string) {
 		const readOwnKillLines = () =>
 			readKillLines().filter((l) => l.name === name);
@@ -80,9 +66,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		return readOwnKillLines();
 	}
 
-	/* The publish waits for the watcher (#2110), but only up to
-	 * WATCH_READY_S, so a kill on publish alone, or after a fixed sleep a
-	 * loaded machine overruns, can still land with no watcher (#2106). */
 	async function untilWatched(name: string) {
 		await untilPublished(name);
 		const token = runFile(name, "token");
@@ -111,15 +94,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	it("does not poison a reused name's new run when the old run's watcher outlives it", async ({
 		skip,
 	}) => {
-		/* The old watcher polls $dir by PATH, not by the run it was launched
-		 * for. `run <name>` on a name still alive republishes $dir out from
-		 * under it (mantahostels#2691) — without the run-token guard in cmd_watch,
-		 * the old watcher would eventually see its own (by-then-dead) parent
-		 * gone, find the NEW run's dir with no `status`, and record a false
-		 * kill for a run that never died. FAST's whole-second beat, not
-		 * QUICK_BEAT: the guard is reached only when the old watcher sleeps
-		 * through the republish, and a quarter-second beat wakes it inside
-		 * the republish to record the old run's true kill instead (#5143). */
 		const first = spawn(SCRIPT, ["run", "reused", "sleep", KILLED_LIFETIME_S], {
 			env: env(),
 		});
@@ -128,11 +102,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		expectMidCommand("reused", first.pid);
 		first.kill("SIGKILL");
 
-		/* Republish immediately with a run that stays alive for the whole
-		 * window below — no `status` file for the old watcher's inner
-		 * check (cmd_watch's second `status` test) to catch instead, so this actually
-		 * exercises the run-token guard and not the belt-and-braces
-		 * one next to it. */
 		const go = join(root, "go");
 		const firstToken = runFile("reused", "token");
 		const second = spawn(
@@ -147,24 +116,18 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			republished("reused", firstToken),
 		);
 
-		/* Its parent is dead, so the old watcher's next pass records or meets
-		 * the run-token guard, and either exits it (#5143). */
 		await waitFor("the old watcher to exit", () => !watcherAlive(firstToken));
 
-		/* Filtering by NAME alone read the old run's own kill — perfectly
-		 * true, and recorded whenever that watcher woke in the gap between
-		 * the SIGKILL and the republish — as the false one this case hunts
-		 * (mantahostels#3147). */
 		const secondStarted = startedEpoch("reused");
 		if (secondStarted === "" || secondStarted === firstStarted) {
-			writeFileSync(go, ""); // skipping leaves nobody to await its exit
-			skip(); // the two launches shared a second: the case below owns that
+			writeFileSync(go, "");
+			skip();
 		}
 		const lines = readKillLines().filter(
 			(l) => l.name === "reused" && l.started_epoch === secondStarted,
 		);
 		expect(lines).toHaveLength(0);
-		expect(check("reused").status).toBe(2); // RUNNING
+		expect(check("reused").status).toBe(2);
 
 		const exited = new Promise((resolve) => second.on("exit", resolve));
 		writeFileSync(go, "");
@@ -172,15 +135,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	});
 
 	it("tells the two runs apart when the relaunch shares the old run's launch second (mantahostels#3147)", async () => {
-		/* `started` is whole seconds: relaunch inside the same second and a
-		 * guard comparing it read the NEW run's directory as the one it was
-		 * launched for, and recorded a kill against a run that was alive.
-		 *
-		 * WFC_BG_NOW pins the clock, so the two `started` files match without
-		 * catching a second boundary (#1337). And the relaunch publishes BEFORE the
-		 * kill: killed first, the old watcher could wake before the
-		 * republish and record the old run's own true kill, which shares
-		 * this name and `started` and so reads as the false one. */
 		const pinnedClockEnv = env({ ...QUICK_BEAT, WFC_BG_NOW: "1700000000" });
 
 		const { pid: firstPid } = spawnDetached(
@@ -207,9 +161,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			expectMidCommand("samesec", firstPid);
 			process.kill(-firstPid, "SIGKILL");
 
-			/* Gone means it reached the run-token guard. The relaunch must still
-			 * be running then, or the watcher left on its `status` file instead
-			 * and the guard went untested. */
 			await waitFor("the old watcher to exit", () => !watcherAlive(firstToken));
 			expect(existsSync(join(root, "samesec", "status"))).toBe(false);
 			expect(readKillLines().filter((l) => l.name === "samesec")).toHaveLength(
@@ -226,10 +177,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	});
 
 	it("records nothing against a relaunch that republishes between the old watcher's token check and its record (#1352)", async () => {
-		/* WFC_BG_WATCH_GATE holds the old watcher in that gap, so the republish
-		 * lands there every time. Only the
-		 * old run carries the gate; the relaunch's own watcher must record its
-		 * kill unhindered, which is the dedup slot the race would otherwise take. */
 		const gate = join(root, "gate");
 		const { pid: firstPid } = spawnDetached(
 			["run", "gapped", "sleep", KILLED_LIFETIME_S],
@@ -278,12 +225,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	});
 
 	it("records SIGTERM as the signal, distinct from an uncatchable SIGKILL's 'unknown'", async () => {
-		/* TERM must reach the wrapper AND the wrapped `sleep`, not the wrapper
-		 * alone: bash defers a trap while blocked in a foreground wait() for
-		 * an external command, running it only once that command returns
-		 * (cmd_run's own toucher comment has why the command stays
-		 * foreground). A group-wide signal — the production shape the
-		 * file's header describes — hits both at once. */
 		const { pid } = spawnDetached(
 			["run", "termed", "sh", "-c", `echo up; sleep ${KILLED_LIFETIME_S}`],
 			env(QUICK_BEAT),
@@ -299,10 +240,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	});
 
 	it("reports DONE, not KILLED, when TERM reaches the wrapper alone and the command finishes before the deferred trap runs (mantahostels#2747)", async () => {
-		/* No `detached`/negative-pid kill here — the point of this test is a
-		 * TERM that reaches ONLY this process, never the wrapped `sleep`,
-		 * which is exactly the shape that stays pending in bash until the
-		 * foreground wait() unblocks on its own. */
 		const go = join(root, "go");
 		const child = spawn(
 			SCRIPT,
@@ -344,10 +281,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	});
 
 	it("reports DONE with no kill record when a whole-tree TERM is caught by the wrapped command, which exits by choice (mantahostels#2749)", async () => {
-		/* The documented gap itself (mantahostels#2749): a wrapped command that installs
-		 * its own TERM trap and exits 0 rather than dying by TERM's default
-		 * disposition reads as DONE, because on_signal's only discriminator is
-		 * the wrapped command's exit code against 128+signum. */
 		const { child, pid } = spawnDetached(
 			[
 				"run",
@@ -376,10 +309,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	});
 
 	it("reads a whole-tree TERM as KILLED when the trapping command follows the 128+signum convention (mantahostels#2749)", async () => {
-		/* The convention that keeps scripts/run-vitest.js's own TERM/HUP trap
-		 * from hitting the gap above: exit at exactly 128+signum instead of
-		 * choosing an unrelated code, so on_signal's discriminator reads it as
-		 * a real kill. */
 		const { pid } = spawnDetached(
 			[
 				"run",
@@ -401,17 +330,12 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		expect(existsSync(join(root, "conventional", ".signal"))).toBe(true);
 		expect(existsSync(join(root, "conventional", "status"))).toBe(false);
 
-		/* The watcher's own liveness poll can see the wrapper gone well before
-		 * `check`'s independent beat-staleness reading would. */
 		const got = await untilVerdict("conventional");
 		expect(got.stdout).toContain("KILLED");
 		expect(got.stdout).not.toContain("DONE");
 	});
 
 	it("records a kill landing the moment the run publishes, its watcher's fork held late (#2110)", async () => {
-		/* Crosses the real clock: the kill is a real group SIGKILL. The 1 s
-		 * hold is #2106's reproduction, far longer than the kill takes to land
-		 * after the publish. */
 		const { pid } = spawnDetached(
 			["run", "late", "sleep", KILLED_LIFETIME_S],
 			env({ ...QUICK_BEAT, WFC_BG_WATCH_FORK_DELAY_S: "1" }),
@@ -428,8 +352,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		);
 		const kills = readKillLines().filter((l) => l.name === "late");
 		expect(kills).toHaveLength(1);
-		/* The launch line is written before the publish (#2276), so the kill
-		 * has its launch. */
 		expect(
 			readJsonLines(join(root, "launches.jsonl"))
 				.filter((l) => l.name === "late")
@@ -438,8 +360,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	});
 
 	it("publishes without its watcher once WATCH_READY_S runs out, the run itself unaffected, its launch line watcher_ready false (#2110, #2276)", () => {
-		/* Crosses the real clock: the ceiling under test is the shipped
-		 * wall-clock wait. */
 		const got = run(["run", "unready", "true"], {
 			WFC_BG_WATCH_FORK_DELAY_S: "1",
 			WFC_BG_WATCH_READY_S: "0.2",
@@ -458,11 +378,6 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 });
 
 describe("the kill log's default location (mantahostels#2691) — outside the job-scoped run_root()", () => {
-	/* kill_log_path() asks git about SCRIPT_DIR — resolved from the running
-	 * script's own path, not the caller's cwd — so redirecting which repo it
-	 * asks about means running a COPY of bg-run.sh from inside a throwaway
-	 * repo, never the real checkout (see env()'s own comment above for why
-	 * it must not touch the real log). */
 	let repo: string;
 	let script: string;
 
@@ -516,12 +431,6 @@ describe("the kill log's default location (mantahostels#2691) — outside the jo
 	});
 
 	it("falls back to run_root()/kills.jsonl when git cannot answer at all", () => {
-		/* Shadows `git` alone, not the whole PATH — the script still needs
-		 * date/sed/grep/awk/mv, so blanking PATH entirely would break the
-		 * run rather than isolate kill_log_path()'s fail-open branch. A decoy
-		 * `git` ahead of the real one on PATH exits 1 unconditionally,
-		 * matching what an absent binary or an unreadable common dir looks
-		 * like to `markerPath()`'s precedent in sweep-budget.js. */
 		const fakeBin = join(repo, "fakebin");
 		mkdirSync(fakeBin);
 		writeFileSync(join(fakeBin, "git"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
@@ -637,9 +546,6 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 	});
 
 	it("still runs the command when the log genuinely cannot be written", () => {
-		/* record_launch()'s own `mkdir -p` creates a missing directory, so an
-		 * absent path is NOT unwritable. A regular file standing where the
-		 * parent directory must be is: both the mkdir and the append fail. */
 		const blocker = join(root, "blocker");
 		writeFileSync(blocker, "");
 		const ran = run(["run", "unlogged", "sh", "-c", "exit 3"], {
@@ -656,16 +562,8 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	const { DEADLINE_ENV } = require("./lib/suite-ceiling.js");
 	const { monotonicMs } = require("./lib/clock.js");
 
-	/* The clock the runners write the deadline on, in whole seconds. */
 	const monoS = () => Math.floor(monotonicMs() / 1000);
 
-	/* A runner that wedged past its deadline: it starts a plain child and a
-	 * group outside its own tree, as a SIGKILLed runner's orphaned vitest is,
-	 * writes `<deadline> <pgid>` with the deadline `ago` seconds past, prints
-	 * its report, then waits. `spawnDelayS` holds it that long first, as a
-	 * queued runner's spawn is held; absent, it starts at once. A deadline
-	 * further back than the host's uptime would be negative, which the watcher
-	 * never reads, so it throws: a wider past pins WFC_BG_MONO instead (#5138). */
 	const wedged = (name: string, ago: number, spawnDelayS = 0) => {
 		const deadline = monoS() - ago;
 		if (deadline < 0)
@@ -692,9 +590,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	const readPid = (file: string) =>
 		Number(readFileSync(join(root, file), "utf8"));
 
-	/* The watcher's passes as polls.log records them: a `nap` line per pass
-	 * that read a deadline, a `mono-unread` per pass that could not read the
-	 * clock to judge it. */
 	const pollLines = (line: RegExp) => {
 		const read = readText(join(root, "polls.log"));
 		if (read.state === "unreadable") throw read.error;
@@ -703,14 +598,11 @@ describe("the suite ceiling's backstop (#2704)", () => {
 			: [];
 	};
 
-	/* A command line that holds until the watcher has logged three passes
-	 * matching `line`. */
 	const untilThreePasses = (line: string) =>
 		shWaitFor(
 			`[ "$(cat ${shellQuote(`${root}/polls.log`)} 2>/dev/null | grep -c ${shellQuote(line)})" -ge 3 ]`,
 		);
 
-	/* The watcher polls each heartbeat, so these cross the real clock. */
 	it("kills the named group and the wrapped tree, and check reads a finished, failed ceiling kill", async () => {
 		const child = spawn(SCRIPT, wedged("wedged", 1), {
 			env: env({ ...QUICK_BEAT, WFC_BG_CEILING_GRACE_S: "0" }),
@@ -742,8 +634,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("still polls when a late spawn's deadline file lands three polls after launch, and kills the run (#4774)", async () => {
-		/* Pins the late file's kill, not the absence of a wall-clock bound:
-		 * no test can wait out an hours-long one. */
 		const child = spawn(SCRIPT, wedged("late", 1, QUICK_THREE_BEATS_S), {
 			env: env({ ...QUICK_BEAT, WFC_BG_CEILING_GRACE_S: "0" }),
 		});
@@ -756,7 +646,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		expect(check("late").stdout).toMatch(
 			/^DONE exit=137 ceiling-kill: bg-run killed it 0s past its suite deadline$/m,
 		);
-		/* The watcher records after the kill, so after the `status` it causes. */
 		const kills = join(root, "kills.jsonl");
 		await waitFor(
 			"the kill record",
@@ -766,8 +655,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("spares a group whose leader started before the launch, a recycled pid", async () => {
-		/* Started 3 s before the launch: past the one second the start-time
-		 * check allows for rounding. */
 		const elder = spawn("sleep", [KILLED_LIFETIME_S], {
 			detached: true,
 			stdio: "ignore",
@@ -808,7 +695,7 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("holds the grace at 60 s when the environment asks for more", async () => {
-		const graceCapS = 60; // bg-run.sh's CEILING_GRACE_S
+		const graceCapS = 60;
 		const child = spawn(SCRIPT, wedged("stretched", 0), {
 			env: env({
 				...QUICK_BEAT,
@@ -829,10 +716,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("polls at most every 5 s and never past the kill's due time, whatever the heartbeat (#2680)", async () => {
-		/* A deadline 8 s ahead and a heartbeat far past the test's bound: a
-		 * watcher sleeping the heartbeat would never reach the kill. The first
-		 * poll, before the deadline file exists, sleeps the 5 s cap; the next
-		 * finds the kill under 5 s off and sleeps only that long. */
 		const child = spawn(SCRIPT, wedged("slowbeat", -8), {
 			env: env({ WFC_BG_CEILING_GRACE_S: "0", WFC_BG_HEARTBEAT_S: "600" }),
 		});
@@ -853,10 +736,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("never kills a run whose deadline the wall clock has passed but the monotonic clock has not (#2886)", () => {
-		/* A host suspend steps the wall clock forward on resume while no
-		 * monotonic time passes: the wall clock is pinned a day on, the
-		 * monotonic one a second short of the deadline. The command outlives
-		 * three passes that read the deadline, any of which would kill it. */
 		const got = run(
 			[
 				"run",
@@ -880,9 +759,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("logs once, never per poll, when the monotonic clock will not read (#3160)", () => {
-		/* A deadline long past, but no monotonic reading to compare it with.
-		 * The poll log counts the failed reads, so the single line is shown
-		 * to have outlived at least two of them. */
 		const got = run(
 			[
 				"run",
@@ -911,7 +787,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("never kills a command that writes no deadline file", () => {
-		/* A pass with no deadline leaves no polls.log line to count. */
 		const got = run(
 			[
 				"run",
@@ -961,22 +836,12 @@ describe("what it refuses to answer", () => {
 	});
 });
 
-/*
- * The root a run was launched into is recorded and read back (mantahostels#2916).
- *
- * run_root() is resolved twice — once by `run`, once by every later `check` —
- * from environment the script does not own. When the two disagree the run was
- * reported `no run named <x>`, which is indistinguishable from never having
- * launched it.
- */
 describe("a run whose root moved between launch and check", () => {
 	it("is found under the root it was launched into, not the one check resolves", () => {
 		const launchRoot = join(root, "launch-root");
 		run(["run", "moved", "sh", "-c", "exit 7"], {
 			WFC_BG_ROOT: launchRoot,
 		});
-		/* No WFC_BG_ROOT override, so this check resolves `root` — a
-		 * different directory, which holds no run of that name. */
 		const got = check("moved");
 		expect(got.stderr).not.toContain("no run named");
 		expect(got.stdout).toContain("DONE exit=7");
@@ -993,10 +858,6 @@ describe("a run whose root moved between launch and check", () => {
 	});
 
 	it("prefers a run in the resolved root over the pinned one", () => {
-		/* Same name, two roots, and only the old one carries a launch line —
-		 * so the two lookups genuinely disagree and the ordering is
-		 * observable. A directory in the resolved root with no launch line of
-		 * its own is what a lost or unwritable log leaves behind. */
 		run(["run", "twice", "sh", "-c", "exit 7"], {
 			WFC_BG_ROOT: join(root, "old-root"),
 		});
@@ -1020,10 +881,6 @@ describe("a run whose root moved between launch and check", () => {
 	});
 
 	it("reads the launch line for THIS name, not merely the newest one", () => {
-		/* Two names, two roots, and a stale directory of the first name
-		 * sitting in the second name's root. A lookup that took the last line
-		 * in the log rather than the last line FOR THIS NAME would answer out
-		 * of `late-root` and report exit=1. */
 		run(["run", "wanted", "sh", "-c", "exit 5"], {
 			WFC_BG_ROOT: join(root, "early-root"),
 		});
@@ -1041,10 +898,6 @@ describe("a run whose root moved between launch and check", () => {
 	});
 
 	it("takes the newest launch line when one name carries several", () => {
-		/* `run <name>` on a live name republishes the directory, so a name can
-		 * appear more than once in the log and the newest is the one a check
-		 * means. The older root keeps a directory, so a lookup taking the
-		 * FIRST matching line would answer exit=5 out of it. */
 		run(["run", "twice-pinned", "sh", "-c", "exit 5"], {
 			WFC_BG_ROOT: join(root, "first-root"),
 		});
@@ -1055,9 +908,6 @@ describe("a run whose root moved between launch and check", () => {
 	});
 
 	it("says the launch line's root is gone too, rather than just 'no run'", () => {
-		/* A job dir dies with its job (mantahostels#2691), so a pinned root can vanish.
-		 * That is a different story from a name never launched, and the
-		 * message has to tell them apart. */
 		const launchRoot = join(root, "doomed-root");
 		run(["run", "vanished", "sh", "-c", "exit 0"], {
 			WFC_BG_ROOT: launchRoot,
@@ -1073,9 +923,6 @@ describe("a run whose root moved between launch and check", () => {
 	});
 
 	it("re-resolves on every poll, so a directory landing late in the pinned root is found", () => {
-		/* The retry window exists for a directory that has not been published
-		 * yet. A lookup resolved once, before the loop, would still be
-		 * pointing at the fresh root when the pinned one fills. */
 		const launchRoot = join(root, "late-pinned-root");
 		run(["run", "late", "sh", "-c", "exit 0"], {
 			WFC_BG_ROOT: launchRoot,

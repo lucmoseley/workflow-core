@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins how check-ci-status.js reads CI's verdict — off the newest run that
- * carries one, red reported once with its failing step and commit range, and
- * never an all-clear where CI cannot be seen (mantahostels#143, mantahostels#945).
- *
- * Every test here drives the real script the way the SessionStart hook does,
- * with `gh` replaced by a stub that prints canned `gh run list --json` output.
- *
- * §X3 DEPARTURE: the cases below run the script IN THIS PROCESS
- * (scripts/lib/run-in-process.js), not as a subprocess, because ~115 ms of node
- * startup per case was the suite's largest single term (mantahostels#1907). Both halves
- * §X3 asks for still hold — the exit code and the message are asserted off a
- * real run of the real script. What is not exercised is the process
- * boundary itself: the shebang, which node's module wrapper strips, and a
- * crash killing a process of its own. Sites that need the boundary keep their
- * spawn and say why where they stand.
- *
- * It runs at every SessionStart and behind `npm run check:ci` before a push,
- * the only place a red sweep reaches a session: loosen a case and `main` can
- * sit red unannounced, or a session is sent hunting the wrong commits.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -38,28 +17,16 @@ const SCRIPT = path.join(__dirname, "check-ci-status.js");
 
 const sb = freshSandbox();
 
-/*
- * A repo of this suite's own, pointed at through WFC_REPO_DIR.
- *
- * NOT this repo's history, for two reasons that each break a test on their own:
- * a parallel session commits mid-run and moves HEAD under the assertions, and
- * `actions/checkout` clones at depth 1 in CI, where `HEAD~3` is not a revision
- * at all.
- */
 const RANGE_REPO = fs.mkdtempSync(path.join(os.tmpdir(), "ci-status-range-"));
 
-/** Where mantahostels#1816's autofire writes its cooldown, for the repo `check()` points at. */
 const AUTOFIRE_MARKER = path.join(RANGE_REPO, ".git", ".sweep-autofire");
 
-/** Newest first: SHAS[0] is that repo's HEAD, SHAS[n] is n commits back. */
 const SHAS: string[] = (() => {
 	const g = (args: string[]) =>
 		execFileSync("git", args, { encoding: "utf8", cwd: RANGE_REPO }).trim();
 	g(["init", "-q", "-b", "main"]);
 	g(["config", "user.email", "t@example.invalid"]);
 	g(["config", "user.name", "Test"]);
-	// The sweep workflow the core's own tree carries, or every sweep case below
-	// would read as an adopter without one (#403).
 	fs.mkdirSync(path.join(RANGE_REPO, ".github", "workflows"), {
 		recursive: true,
 	});
@@ -67,8 +34,6 @@ const SHAS: string[] = (() => {
 		path.join(RANGE_REPO, ".github", "workflows", "scheduled-checks.yml"),
 		"",
 	);
-	// 16 commits: enough to sit either side of commit-range's long-form
-	// threshold of 8 without the tests depending on how deep this repo is.
 	for (let i = 0; i <= 16; i++) {
 		fs.writeFileSync(path.join(RANGE_REPO, `f${i}.txt`), String(i));
 		g(["add", "-A"]);
@@ -79,40 +44,26 @@ const SHAS: string[] = (() => {
 
 const back = (n: number) => SHAS[n];
 
-/*
- * A clone of that repo parked three commits back, so a run at RANGE_REPO's tip
- * is NEWER than this HEAD — the only way to reach the "behind" branch of the
- * coverage line, RANGE_REPO's own HEAD being the tip.
- */
 const BEHIND_REPO = fs.mkdtempSync(path.join(os.tmpdir(), "ci-status-behind-"));
 execFileSync("git", ["clone", "-q", RANGE_REPO, BEHIND_REPO]);
 execFileSync("git", ["-C", BEHIND_REPO, "checkout", "-q", "--detach", SHAS[3]]);
 
-/** The HEAD the script will read: the script asks git for it directly, so a
- *  test that wants "the failure is on your own HEAD" has to use this exact sha. */
 const HEAD = back(0);
 
 const OTHER = "0123456789abcdef0123456789abcdef01234567";
 
 let runsFile: string;
-/* The script makes four different gh calls, each with its own fixture file,
- * dispatched on the argument that identifies the call. A fixture left unwritten makes `cat` fail, which is how a test models gh
- * refusing that one query. */
 let sweepsFile: string;
 let workflowsFile: string;
 let jobsFile: string;
-/* `gh issue list`, the red-suite tracking-issue lookup (#532), and the
- * arguments it was called with. */
 let issuesFile: string;
 let issueArgsFile: string;
-/* Every gh call's arguments, one call a line. */
 let ghArgsFile: string;
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const notify: any = createRequire(__filename)("./lib/notify-report.js");
+const notify = createRequire(__filename)(
+	"./lib/notify-report.js",
+) as typeof import("./lib/notify-report.js");
 
-/** A function, not a captured path: see the note on Sandbox in arbiter-testkit.
- *  It sits beside the persisted reports (mantahostels#1975). */
 const stampPath = () => path.join(notify.base(), "ci-status.notified");
 
 interface Run {
@@ -127,7 +78,6 @@ interface Run {
 	displayTitle?: string;
 }
 
-/** One run, with everything but the interesting fields defaulted. */
 function run_(over: Partial<Run> = {}): Run {
 	return {
 		databaseId: 100,
@@ -154,9 +104,6 @@ beforeEach(() => {
 		fs.writeFileSync(f, "[]");
 	fs.rmSync(jobsFile, { force: true });
 	fs.rmSync(issueArgsFile, { force: true });
-	/* The autofire cooldown is a file in the repo's git dir (mantahostels#1816), so without
-	 * this one case's firing silences every case after it and the order of the
-	 * file decides what is tested. */
 	fs.rmSync(AUTOFIRE_MARKER, { force: true, recursive: true });
 	vi.stubEnv(
 		"WFC_GH",
@@ -178,15 +125,12 @@ beforeEach(() => {
 const setRuns = (runs: Run[]) =>
 	fs.writeFileSync(runsFile, JSON.stringify(runs));
 
-/** The `gh run list --workflow scheduled-checks.yml` ledger. */
 const setSweeps = (runs: Partial<Run>[]) =>
 	fs.writeFileSync(sweepsFile, JSON.stringify(runs.map((r) => run_(r))));
 
-/** The `gh workflow list --all` response. */
 const setWorkflows = (rows: { name: string; state: string; path: string }[]) =>
 	fs.writeFileSync(workflowsFile, JSON.stringify(rows));
 
-/* --write as the hook passes it; `bare` runs without. */
 const check = (args: string[], env: Record<string, string> = {}) =>
 	bare([...args, "--write"], env);
 const bare = (args: string[], env: Record<string, string> = {}) =>
@@ -195,12 +139,8 @@ const bare = (args: string[], env: Record<string, string> = {}) =>
 		cwd: sb.repo,
 	});
 
-/* A clock the script reads instead of the real one. Without it, whether the
- * escape hatch prints would depend on what time of day the suite runs at. */
 const at = (iso: string) => ({ WFC_NOW: iso });
 
-/* 09:30 UTC: the next sweep is 15:00, 5h30m off — past the two-hour threshold,
- * so the hatch is offered. 13:30 UTC: the same sweep is 1h30m off, so it is not. */
 const HATCH_TIME = "2026-08-20T09:30:00Z";
 const SWEEP_SOON = "2026-08-20T13:30:00Z";
 
@@ -233,17 +173,12 @@ describe("a red run on the branch is reported (mantahostels#143)", () => {
 	});
 
 	it("reports a conclusion it does not recognise, rather than passing it", () => {
-		// The script lists the GOOD conclusions, so a string GitHub adds later
-		// surfaces instead of being read as a pass.
 		setRuns([run_({ databaseId: 200, conclusion: "some_new_verdict" })]);
 
 		expect(check(["--notify"]).stdout).toContain("some_new_verdict");
 	});
 
 	it("reports a cancelled run nothing superseded as unverified, not as red", () => {
-		// A run a human cancels with no newer run behind it means nothing took
-		// over: that commit was never tested. Saying "red" would send the reader
-		// looking for a test failure that does not exist.
 		setRuns([run_({ databaseId: 200, conclusion: "cancelled" })]);
 
 		const r = check(["--notify"]);
@@ -255,9 +190,6 @@ describe("a red run on the branch is reported (mantahostels#143)", () => {
 
 describe("a cancelled run superseded by a newer one carries no verdict", () => {
 	it("says nothing when a newer run of the same workflow took over", () => {
-		// The cancelled run is the NEWEST completed one, so the pre-existing
-		// "newest completed sha" logic would land on it and report. Only dropping
-		// it as superseded falls back to the green run behind it.
 		setRuns([
 			run_({
 				databaseId: 202,
@@ -297,9 +229,6 @@ describe("a cancelled run superseded by a newer one carries no verdict", () => {
 	});
 
 	it("passes over a superseded sha rather than reading it as all-clear", () => {
-		// The trap this closes: the newest sha's only run was cancelled and a newer
-		// run followed it, so judging that sha alone would report green over the
-		// real failure one commit back.
 		setRuns([
 			run_({
 				databaseId: 202,
@@ -327,10 +256,6 @@ describe("a cancelled run superseded by a newer one carries no verdict", () => {
 	});
 
 	it("SKIPs rather than passing when nothing in the window carries a verdict", () => {
-		// Every completed run superseded means no verdict was seen at all — and
-		// RUN_WINDOW's run list is the whole window, so a red run can sit just
-		// outside it. OK here would print nothing under --notify and claim
-		// all-clear over a failure this never looked at.
 		setRuns([
 			run_({
 				databaseId: 202,
@@ -386,8 +311,6 @@ describe("an unverified run is labelled as one wherever it surfaces", () => {
 	});
 
 	it("says so when suppressing a repeat, rather than calling it red", () => {
-		// The suppressed-repeat line returns before the red/unfinished split is
-		// computed.
 		setRuns([run_({ databaseId: 200, conclusion: "cancelled" })]);
 		check(["--notify"]);
 
@@ -416,8 +339,6 @@ describe("only the newest COMPLETED sha is judged (mantahostels#143)", () => {
 	});
 
 	it("still reports the last push's failure while the new push is queued", () => {
-		// Taking the newest sha outright would read the queued runs as all-clear
-		// over a real failure.
 		setRuns([
 			run_({
 				databaseId: 300,
@@ -484,10 +405,6 @@ describe("--notify reports each failure once (mantahostels#143)", () => {
 	});
 
 	it("writes no stamp when the report itself could not be written", () => {
-		// The ordering is observable because the script reports with fs.writeSync,
-		// which throws ENOSPC on /dev/full and takes the process down with it —
-		// console.log would swallow the same error and this test would pass either
-		// way. Stamping first would suppress this failure for good.
 		setRuns([run_({ databaseId: 200, conclusion: "failure" })]);
 		const full = fs.openSync("/dev/full", "w");
 
@@ -514,11 +431,6 @@ describe("--notify reports each failure once (mantahostels#143)", () => {
 		expect(fs.existsSync(stampPath())).toBe(false);
 	});
 
-	/*
-	 * The producer's stdout is not the delivery under persist mode, so
-	 * suppressing on its own stamp would bury a report the reader never got the
-	 * chance to show (mantahostels#1975).
-	 */
 	describe("under persist mode", () => {
 		const persist = () => check(["--notify"], { WFC_NOTIFY_PERSIST: "1" });
 
@@ -530,8 +442,8 @@ describe("--notify reports each failure once (mantahostels#143)", () => {
 			for (const _ of [1, 2]) {
 				expect(persist().status).toBe(0);
 				const report = notify.readReport("ci-status");
-				expect(report.outcome).toBe("FAIL");
-				expect(report.text).toContain("CI is red");
+				expect(report?.outcome).toBe("FAIL");
+				expect(report?.text).toContain("CI is red");
 			}
 		});
 
@@ -541,7 +453,7 @@ describe("--notify reports each failure once (mantahostels#143)", () => {
 			persist();
 
 			expect(fs.existsSync(stampPath())).toBe(false);
-			expect(notify.readReport("ci-status").stamp).toBe("max:200");
+			expect(notify.readReport("ci-status")?.stamp).toBe("max:200");
 		});
 	});
 
@@ -572,20 +484,15 @@ describe("a check that cannot see CI never claims all-clear (mantahostels#143)",
 		expect(r.status).toBe(0);
 	});
 
-	// Human-readable output is on stderr; stdout carries machine readers only.
 	it("says SKIP rather than OK when GitHub is unreachable, run by hand", () => {
 		stubGhScript(sb.dir, GH_FAILING_SCRIPT);
 
 		const r = check([]);
 		expect(r.stderr).toContain("SKIP");
 		expect(r.stderr).not.toContain("OK:");
-		// an environment fact, not a repo fault: never gates
 		expect(r.status).toBe(0);
 	});
 
-	/* Run by hand, a BROKEN check exits 2. Every --notify outcome exits 0 (mantahostels#155,
-	 * the checker family's exit-code and severity model), and --notify is how
-	 * SessionStart invokes it, so a session start is never blocked. */
 	it("says BROKEN, not SKIP, when gh fails with no reason given", () => {
 		stubGhScript(sb.dir, "#!/bin/sh\nexit 1\n");
 
@@ -596,14 +503,7 @@ describe("a check that cannot see CI never claims all-clear (mantahostels#143)",
 		expect(r.status).toBe(2);
 	});
 
-	/* mantahostels#2134: a gh call that trips its own 8000ms timeout throws ETIMEDOUT, which
-	 * carries no UNREACHABLE phrase — parseGhFailureReason() reads that as apparatus
-	 * (BROKEN), never as GitHub down (SKIP). */
 	it("says BROKEN, not SKIP, when a gh call times out (mantahostels#2134)", () => {
-		// 12s: past the script's own 8000ms timeout, short of the 90_000 ms
-		// testTimeout default, so no per-test override is needed — and if the
-		// mutation under test (removing that 8000ms bound) lands, this case fails
-		// on the assertions below rather than on vitest's own timeout.
 		stubGhScript(sb.dir, "#!/bin/sh\nsleep 12\n");
 
 		const r = check([]);
@@ -629,15 +529,6 @@ describe("a check that cannot see CI never claims all-clear (mantahostels#143)",
 		expect(r.stdout).not.toContain("OK:");
 	});
 
-	/* Pins the header's "EVERY gh() CALL … PASSES timeout: 8000 AT MOST"
-	 * claim: the case above only stubs the timeout path for one of the five
-	 * call sites. Comments are stripped first so the header's own sentence
-	 * can't match itself.
-	 *
-	 * Every call site now routes its timeout through ghTimeout() (mantahostels#2177,
-	 * following mantahostels#2134) rather than a bare literal, so this checks for that
-	 * routing — `ghTimeout()`'s own ceiling of 8000 is pinned separately
-	 * below, where a mutation to it is actually reachable. */
 	it("gives every gh() call site a timeout routed through ghTimeout() (mantahostels#2134, mantahostels#2177)", () => {
 		const src = fs
 			.readFileSync(SCRIPT, "utf8")
@@ -651,9 +542,6 @@ describe("a check that cannot see CI never claims all-clear (mantahostels#143)",
 		}
 	});
 
-	/* ghTimeout()'s own ceiling — the guarantee mantahostels#2134 pinned by literal grep
-	 * before mantahostels#2177 made every call site's timeout a computed value instead of
-	 * a literal one. */
 	it("never gives a single gh() call more than 8000ms (mantahostels#2134)", () => {
 		const src = fs.readFileSync(SCRIPT, "utf8");
 		const fn = /function ghTimeout\(deadline\) \{([\s\S]*?)\n\}/.exec(src);
@@ -682,15 +570,10 @@ describe("run by hand, it is a check with an exit code (mantahostels#143)", () =
 	it("ignores the stamp, so a hand run always answers", () => {
 		setRuns([run_({ databaseId: 200, conclusion: "failure" })]);
 
-		check(["--notify"]); // reports and stamps
-		expect(check([]).status).toBe(1); // asked again, answers again
+		check(["--notify"]);
+		expect(check([]).status).toBe(1);
 	});
 });
-
-/* Everything below is mantahostels#945: a red now accuses a RANGE, because one scheduled
- * sweep (mantahostels#3490's four-a-day cron, dropped from mantahostels#2166's six) covers every
- * commit since the last one and there is usually no run for your own sha at
- * all. */
 
 interface Step {
 	name: string;
@@ -708,9 +591,6 @@ function stubRunsAndJobs(jobs: Job[]) {
 
 describe("the verdict is read off `conclusion`, never off `status` (mantahostels#945)", () => {
 	it("reports a run that has concluded while its status still says in_progress", () => {
-		// GitHub leaves `status` at in_progress for up to ~20 minutes after every
-		// job has finished. Filtering on it drops the red this exists to report and
-		// falls back to an older, greener run.
 		setRuns([
 			run_({
 				databaseId: 200,
@@ -782,8 +662,6 @@ describe("the failing step is named, not just the workflow (mantahostels#945)", 
 	});
 
 	it("falls back to the job name when no step reached a verdict", () => {
-		// A runner that vanished, or a job-level timeout: nothing inside it failed,
-		// but naming the job is still a narrowing.
 		setRuns([run_({ databaseId: 200, conclusion: "failure" })]);
 		stubRunsAndJobs([{ name: "Python", conclusion: "failure", steps: [] }]);
 
@@ -791,8 +669,6 @@ describe("the failing step is named, not just the workflow (mantahostels#945)", 
 	});
 
 	it("says so rather than dying when the step list cannot be read", () => {
-		// The red is already established by then; losing the step name has to
-		// degrade the report, not take the check down.
 		setRuns([run_({ databaseId: 200, conclusion: "failure" })]);
 
 		const r = check(["--notify"]);
@@ -802,11 +678,11 @@ describe("the failing step is named, not just the workflow (mantahostels#945)", 
 	});
 });
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const redSuite: any = createRequire(__filename)("./report-red-suite.js");
+const redSuite = createRequire(__filename)(
+	"./report-red-suite.js",
+) as typeof import("./report-red-suite.js");
 
 describe("a red run says whether an open issue already covers it (#532)", () => {
-	/** A red sweep, as the branch query lists it. */
 	const redSweep = (over: Partial<Run> = {}) =>
 		setRuns([
 			run_({
@@ -816,7 +692,6 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 				...over,
 			}),
 		]);
-	/** The sweep's jobs with its suite job concluding `suite`. */
 	const suiteJobFailed = (suite = "failure") =>
 		stubRunsAndJobs([
 			{
@@ -869,7 +744,6 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 		const reading = path.join(gitDir, ".repo-checks.json");
 		const stamp = path.join(gitDir, ".red-suite-fallback");
 		const log = path.join(gitDir, ".red-suite-fallback.log");
-		/* Functions, not captured paths: the sandbox moves per case. */
 		const core = () => path.join(sb.dir, "fallback-core");
 		const launchedFile = () => path.join(sb.dir, "filer-launched");
 		const readAt = "2026-10-23T09:00:00Z";
@@ -893,8 +767,6 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 						: [],
 				}),
 			);
-		/** Waits for the detached stub filer to have run. 5 s is a guess, far
-		 * past a node start; 50 ms polls a guess too. */
 		const filerRan = () => {
 			const until = Date.now() + 5000;
 			while (
@@ -906,8 +778,6 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 			}
 			return fs.existsSync(launchedFile());
 		};
-		/* The delivery stamp cleared first, or a second run is silent on the red
-		 * the first one reported. */
 		const checkAt = (iso: string) => {
 			fs.rmSync(stampPath(), { force: true });
 			return check(["--notify"], { ...at(iso), WFC_SCRIPT_ROOT: core() });
@@ -1090,8 +960,6 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 	});
 
 	it("says none will be filed where the filer reads the suite job as no verdict", () => {
-		// `stale` is red to this checker and verdict-less to the filer, whose
-		// reading is the one that decides whether an issue appears.
 		redSweep();
 		suiteJobFailed("stale");
 
@@ -1175,8 +1043,6 @@ describe("the commit range back to the last green run (mantahostels#945)", () =>
 	});
 
 	it("takes the last green of the SAME workflow, not of any workflow", () => {
-		// Another workflow's green says nothing about this one; pairing them names
-		// a range whose ends were never both tested by the thing that went red.
 		const bad = back(0);
 		setRuns([
 			run_({
@@ -1208,8 +1074,6 @@ describe("the commit range back to the last green run (mantahostels#945)", () =>
 	});
 
 	it("says there is nothing to bisect when the range is empty", () => {
-		// Green then red on the same tree: no commit is to blame, so sending the
-		// reader to a bisect would find nothing.
 		setRuns([
 			run_({
 				databaseId: 300,
@@ -1362,8 +1226,6 @@ describe("the bisect is offered only where it could tell you something (mantahos
 		]);
 
 	it("does not offer one for a single commit, which the range already names", () => {
-		// A bisect over one commit spends ~25 minutes of Actions time (mantahostels#947's
-		// measurement) to reprint the sha two lines above it.
 		redOver(back(1), back(0));
 
 		const out = check(["--notify"]).stdout;
@@ -1388,8 +1250,6 @@ describe("the bisect is offered only where it could tell you something (mantahos
 	});
 
 	it("still offers one when the range itself could not be read", () => {
-		// The runner has the history this clone is missing, so the bisect can
-		// answer a question this machine cannot.
 		redOver(OTHER, back(0));
 
 		const out = check(["--notify"]).stdout;
@@ -1527,8 +1387,6 @@ describe("the trigger is named alongside the verdict (mantahostels#945)", () => 
 
 describe("a workflow that does not verify the tree cannot key the report (mantahostels#945)", () => {
 	it("does not let a newer bisect run report green over a red sweep", () => {
-		// Firing the very bisect this report recommends creates a newer run at a
-		// newer sha.
 		setRuns([
 			run_({
 				databaseId: 400,
@@ -1573,7 +1431,6 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 	});
 
 	it("does not aim a bisect at a red issue-card-drift, which never ran the suite", () => {
-		// A weekly report on the tracker, not on the tree.
 		setRuns([
 			run_({
 				databaseId: 400,
@@ -1599,8 +1456,6 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 	it.each(["Named rerun", "Landing quiet 14h", "Queue ref waiting 2h"])(
 		"reports green off CI over a newer red %s at main's sha (#4676)",
 		(workflowName) => {
-			// Named rerun carries main's sha over a queue tree it tested; the two
-			// alarms go red on a stalled queue.
 			setRuns([
 				run_({
 					databaseId: 400,
@@ -1683,8 +1538,6 @@ describe("a workflow that does not verify the tree cannot key the report (mantah
 
 describe("the green path says what the last sweep actually covered (mantahostels#976)", () => {
 	it("names the run, its trigger and its age instead of a bare sha", () => {
-		// A bare sha cannot be told apart from a sweep that ran eight hours before
-		// the session started — the complaint at mantahostels#949.
 		setRuns([
 			run_({
 				databaseId: 200,
@@ -1705,7 +1558,6 @@ describe("the green path says what the last sweep actually covered (mantahostels
 
 		const out = check([], at(HATCH_TIME)).stderr;
 		expect(out).toContain("5 commit(s) after this run, which it never tested");
-		// The summary line carries it too, so --json and the last line agree.
 		expect(out).toContain("5 commit(s) behind your HEAD");
 	});
 
@@ -1718,8 +1570,6 @@ describe("the green path says what the last sweep actually covered (mantahostels
 	});
 
 	it("stays silent at session start even when HEAD is uncovered (mantahostels#949 decision 2)", () => {
-		// The SessionStart hook keeps exactly one meaning: something is red. A
-		// coverage report there would fire at nearly every session start (mantahostels#905).
 		setRuns([run_({ databaseId: 200, headSha: back(3) })]);
 
 		const r = check(["--notify"], at(HATCH_TIME));
@@ -1755,8 +1605,6 @@ describe("how long HEAD stays untested is reported, never offered (mantahostels#
 	});
 
 	it("holds the same sweep schedule the workflow it points at does", () => {
-		// The script keeps the hours as a constant rather than parsing the
-		// workflow, so this is what stops the two drifting apart silently.
 		const workflow = fs.readFileSync(
 			path.join(
 				__dirname,
@@ -1789,8 +1637,6 @@ describe("how long HEAD stays untested is reported, never offered (mantahostels#
 
 describe("the green report's edges (mantahostels#976)", () => {
 	it("rolls over to the next day's first sweep after the last one of today", () => {
-		// 22:00 UTC is past 21:00, the last sweep of the day, so the next is
-		// 03:00 tomorrow — the only reason nextSweepAfter() walks two days.
 		setRuns([run_({ databaseId: 200, headSha: back(3) })]);
 
 		const out = check([], at("2026-08-20T22:00:00Z")).stderr;
@@ -1822,8 +1668,6 @@ describe("the green report's edges (mantahostels#976)", () => {
 	});
 
 	it("tells you to fetch when the run is AHEAD of your HEAD", () => {
-		// A neighbour pushed and the sweep tested their commit, not yours. Chasing
-		// it without fetching means reading a range this clone does not have.
 		setRuns([run_({ databaseId: 200, headSha: back(0) })]);
 
 		const r = runInProcess(SCRIPT, [], {
@@ -1832,13 +1676,10 @@ describe("the green report's edges (mantahostels#976)", () => {
 		});
 		expect(r.stderr).toContain("3 commit(s) behind this run");
 		expect(r.stderr).toContain("Fetch before chasing it");
-		// Behind is not uncovered, so nothing is reported as untested.
 		expect(r.stderr).not.toContain("Nothing has tested HEAD");
 	});
 
 	it("withholds the untested report when it cannot tell what HEAD is", () => {
-		// The run's sha is not in this clone at all, so `ahead` is unknown — which
-		// is not the same as uncovered, and must not be claimed as one.
 		setRuns([run_({ databaseId: 200, headSha: OTHER })]);
 
 		const out = check([], at(HATCH_TIME)).stderr;
@@ -1847,9 +1688,6 @@ describe("the green report's edges (mantahostels#976)", () => {
 	});
 
 	it("does not read a broken git as a covered HEAD", () => {
-		/* WFC_REPO_DIR pointed at somewhere that is not a repo, so `git
-		 * rev-parse HEAD` fails and coverage is UNKNOWN. Saying "on your HEAD"
-		 * here would be a claim nothing checked. */
 		const notARepo = fs.mkdtempSync(
 			path.join(os.tmpdir(), "ci-status-norepo-"),
 		);
@@ -1865,28 +1703,17 @@ describe("the green report's edges (mantahostels#976)", () => {
 	});
 
 	it("refuses to run on an injected clock it cannot parse, naming WFC_NOW", () => {
-		// Falling back to the wall clock would make a typo here a report that
-		// passes or fails by time of day.
 		setRuns([run_({ databaseId: 200, headSha: back(3) })]);
 
 		const r = check([], at("half past tuesday"));
 		expect(r.stderr).toContain("WFC_NOW is not a date");
-		expect(r.status).toBe(2); // BROKEN: the checker, not its subject
+		expect(r.status).toBe(2);
 	});
 });
 
-/* Everything below is mantahostels#1024: a sweep that never fired at all. Conclusions carry
- * no recency, so a schedule that stopped reads to the checks above exactly as a
- * clean night does. */
-
-/* 21:30 UTC. The four slots inside the preceding 24 hours are 03:00, 09:00,
- * 15:00 and 21:00 of the same day (mantahostels#3490's cadence). The grace is 5h (mantahostels#1816)
- * and the gap is now 6h, so the grace clears within a single gap: three of
- * them are judgeable at this clock and 21:00, the newest, is still inside it. */
 const SWEEP_NOW = "2026-08-21T21:30:00Z";
 const slot = (hm: string) => `2026-08-21T${hm}:00Z`;
 
-/** A sweep run that started at `hm`, with a sha HEAD has moved 3 commits past. */
 const sweepAt = (hm: string, over: Partial<Run> = {}) => ({
 	workflowName: "scheduled-checks",
 	event: "schedule",
@@ -1927,8 +1754,6 @@ describe("a scheduled sweep that never fired is reported (mantahostels#1024)", (
 	});
 
 	it("tells 3 of 3 from a partial miss, which need opposite responses", () => {
-		// Nothing at all in the window, but a run the day before: the schedule has
-		// stopped, rather than one queued run being dropped.
 		setSweeps([sweepAt("03:00", { createdAt: "2026-08-20T03:00:00Z" })]);
 
 		expect(check(["--notify"], at(SWEEP_NOW)).stdout).toContain(
@@ -1964,8 +1789,6 @@ describe("the grace period, and a run that was merely late (mantahostels#1024)",
 		setWorkflows(ACTIVE);
 	});
 
-	/* Every slot before 15:00 filled, back past the window's opening edge, so
-	 * 15:00 is the only slot whose judgement is in question. */
 	const filledBefore15 = () =>
 		setSweeps([
 			sweepAt("21:00", { createdAt: "2026-08-20T21:00:00Z" }),
@@ -1974,8 +1797,6 @@ describe("the grace period, and a run that was merely late (mantahostels#1024)",
 		]);
 
 	it("says nothing about a slot that has only just passed", () => {
-		// 15:00 is 30 minutes old at this clock — inside the 5h grace. A queued
-		// run that has not started yet is late, not a fault.
 		filledBefore15();
 
 		const r = check(["--notify"], at("2026-08-21T15:30:00Z"));
@@ -1983,7 +1804,6 @@ describe("the grace period, and a run that was merely late (mantahostels#1024)",
 	});
 
 	it("holds a slot two hours past unjudged", () => {
-		// The 5h grace at mantahostels#1816, pinned.
 		filledBefore15();
 
 		expect(
@@ -2000,7 +1820,6 @@ describe("the grace period, and a run that was merely late (mantahostels#1024)",
 	});
 
 	it("counts a late run as having filled its slot, not as a miss", () => {
-		// A run past the grace still belongs to the slot it was queued for (mantahostels#1024).
 		setSweeps([
 			sweepAt("03:00"),
 			sweepAt("09:37"),
@@ -2012,12 +1831,6 @@ describe("the grace period, and a run that was merely late (mantahostels#1024)",
 	});
 
 	it("counts one late by almost a whole slot as having filled its slot too", () => {
-		// The grace says when an EMPTY slot may be judged; it is not a deadline a
-		// run has to meet. 08:59 is 5h59m past 03:00 — the most a run can be and
-		// still be attributed to its own slot, since anything later belongs to the
-		// next one. mantahostels#1024 wrote this for a run LATER than the 5h grace, which the
-		// old 4h cadence made unreachable by construction (mantahostels#2166) — the 6h
-		// cadence (mantahostels#3490) keeps it reachable instead.
 		setSweeps([
 			sweepAt("08:59"),
 			sweepAt("09:00"),
@@ -2029,17 +1842,12 @@ describe("the grace period, and a run that was merely late (mantahostels#1024)",
 	});
 
 	it("judges only the last 24h, not every slot since the last green", () => {
-		// A week away would otherwise print dozens of missed slots at session
-		// start.
 		setSweeps([sweepAt("03:00", { createdAt: "2026-08-14T03:00:00Z" })]);
 
 		expect(check(["--notify"], at(SWEEP_NOW)).stdout).toContain("3 of 3 slots");
 	});
 
 	it("judges all four slots once the newest clears the grace", () => {
-		// SWEEP_NOW is 30 min into a 6h gap, so the case above judges three slots;
-		// 02:30 the next day is 5h30m in, so 21:00 has aged past the 5h grace and
-		// all four are judged (mantahostels#3490, re-derived against the new 6h gap).
 		setSweeps([sweepAt("03:00", { createdAt: "2026-08-14T03:00:00Z" })]);
 
 		expect(check(["--notify"], at("2026-08-22T02:30:00Z")).stdout).toContain(
@@ -2070,8 +1878,6 @@ describe("a workflow GitHub has disabled outright (mantahostels#1024)", () => {
 	});
 
 	it("does not also report the slots that stopping it caused to be missed", () => {
-		// They are the same fault, and the advice differs completely: firing one by
-		// hand does nothing about a workflow that will never fire again.
 		setWorkflows([
 			{
 				name: "scheduled-checks",
@@ -2140,8 +1946,6 @@ describe("a missed slot reports the miss and offers no firing (mantahostels#2203
 	});
 
 	it("says the newest sweep is red there, and which step broke", () => {
-		// A reader at a missed slot reaches for a firing, and the red is what
-		// makes firing it buy nothing.
 		setSweeps([
 			sweepAt("03:00"),
 			sweepAt("09:00", { conclusion: "failure", databaseId: 900 }),
@@ -2173,7 +1977,6 @@ describe("an established red sweep is reported (mantahostels#2203)", () => {
 		]);
 	});
 
-	/** Every slot filled, so only the newest sweep's verdict is in play. */
 	const allFour = (over: Partial<Run> = {}) =>
 		setSweeps([
 			sweepAt("03:00"),
@@ -2252,8 +2055,6 @@ describe("an established red sweep is reported (mantahostels#2203)", () => {
 	});
 
 	it("says so when the run names no failing step at all", () => {
-		// A job list with nothing failing in it: the red is real, the narrowing
-		// is not available, and inventing one would send the reader hunting.
 		allFour({ conclusion: "failure", databaseId: 900 });
 		stubRunsAndJobs([]);
 
@@ -2263,8 +2064,6 @@ describe("an established red sweep is reported (mantahostels#2203)", () => {
 	});
 
 	it("still names the red when GitHub has disabled the workflow", () => {
-		// The disabled report says nothing about the last verdict, so the red is
-		// new information there rather than a repeat.
 		setWorkflows([
 			{
 				name: "scheduled-checks",
@@ -2280,7 +2079,6 @@ describe("an established red sweep is reported (mantahostels#2203)", () => {
 	});
 
 	it("prints it once when a missed slot has already said it", () => {
-		// Both sites carry it, and the green-CI path runs through both.
 		setSweeps([
 			sweepAt("03:00"),
 			sweepAt("09:00", { conclusion: "failure", databaseId: 900 }),
@@ -2330,7 +2128,6 @@ describe("the sweep ledger prints on demand even when healthy (mantahostels#1024
 	});
 
 	it("judges no slot when the workflow has never run at all", () => {
-		// Indistinguishable from a workflow added an hour ago.
 		setSweeps([]);
 
 		const out = check([], at(SWEEP_NOW)).stderr;
@@ -2392,10 +2189,6 @@ describe("what a missed sweep does to the exit code (mantahostels#1024)", () => 
 
 describe("a window that straddles midnight names the day (mantahostels#1024)", () => {
 	it("dates a missed slot that fell yesterday, so the list reads in order", () => {
-		// At 09:30 the window opens at 09:30 the previous day, so 15:00 and 21:00
-		// are yesterday's and 03:00 and 09:00 are today's — the newest still
-		// inside the 5h grace. Bare times read `21:00 UTC, 03:00 UTC` —
-		// chronological, and indistinguishable from a misprint.
 		setRuns([run_({ databaseId: 200, headSha: back(3) })]);
 		setWorkflows(ACTIVE);
 		setSweeps([sweepAt("15:00", { createdAt: "2026-08-20T15:00:00Z" })]);
@@ -2412,11 +2205,6 @@ describe("what fills a slot, and what merely covers the tree (mantahostels#1024)
 	});
 
 	it("does not let a hand-fired sweep fill the slot it was fired over", () => {
-		// A hand-fired sweep tests HEAD, never the tree the dropped slot would
-		// have tested, so counting it would erase the miss.
-		// Fired AFTER the slot it would otherwise be credited to: that is the
-		// case that discriminates, since a dispatch before the miss leaves the
-		// miss visible either way.
 		setSweeps([
 			sweepAt("03:00"),
 			sweepAt("09:00"),
@@ -2471,8 +2259,6 @@ describe("what fills a slot, and what merely covers the tree (mantahostels#1024)
 	});
 
 	it("does not let a push run fill a slot either (#1994)", () => {
-		// Every push to a `lander/batch-*` ref runs this workflow (#4556), so a
-		// push run landing just after a slot is the ordinary case, not a rare one.
 		setSweeps([
 			sweepAt("03:00"),
 			sweepAt("09:00"),
@@ -2499,9 +2285,6 @@ describe("the ledger says what it could not see (mantahostels#1024)", () => {
 	beforeEach(() => setRuns([run_({ databaseId: 200, headSha: back(3) })]));
 
 	it("does not count a slot still inside its grace as one that failed to fire", () => {
-		// 15:00 is 30 minutes old here, inside the 5h grace: three slots are
-		// judgeable and all three fired. Counting the fourth would report a false
-		// miss against a healthy schedule.
 		setWorkflows(ACTIVE);
 		setSweeps([
 			sweepAt("21:00", { createdAt: "2026-08-20T21:00:00Z" }),
@@ -2515,7 +2298,6 @@ describe("the ledger says what it could not see (mantahostels#1024)", () => {
 	});
 
 	it("says so when it could not read whether a workflow is disabled", () => {
-		// Printing a clean ledger alone would hide that half the detector is blind.
 		fs.rmSync(workflowsFile);
 		setSweeps([
 			sweepAt("03:00"),
@@ -2589,7 +2371,6 @@ describe("every `gh workflow` line says who can actually run it (mantahostels#10
 	});
 });
 
-/* mantahostels#1816: a stale verdict is refreshed rather than reported. */
 describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 	beforeEach(() => {
 		setRuns([run_({ databaseId: 200, headSha: back(3) })]);
@@ -2597,7 +2378,6 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 	});
 
 	it("fires one when the newest sweep is older than the schedule allows", () => {
-		// 12h30m at this clock, well past the 8h threshold.
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
 
 		expect(check(["--notify"], at(SWEEP_NOW)).stdout).toContain(
@@ -2631,7 +2411,6 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 	});
 
 	it("says nothing while the newest sweep is inside the window", () => {
-		// All four slots fired, so the newest is 30m old.
 		setSweeps([
 			sweepAt("03:00"),
 			sweepAt("09:00"),
@@ -2645,8 +2424,6 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 	});
 
 	it("withholds it when the newest sweep already covered HEAD", () => {
-		// A sweep over a tree nothing has changed buys nothing, however stale it
-		// reads (mantahostels#949).
 		setSweeps([sweepAt("03:00"), sweepAt("09:00", { headSha: back(0) })]);
 
 		expect(check(["--notify"], at(SWEEP_NOW)).stdout).not.toContain(
@@ -2690,7 +2467,6 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 	});
 
 	it("fires nothing on the on-demand form, and offers nothing either", () => {
-		// Without --notify a reader is at the keyboard, so autofire stays out of it.
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
 
 		const r = check([], at(SWEEP_NOW));
@@ -2701,9 +2477,6 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 	});
 
 	it("fires on a schedule with no missed slot at all, the overnight case", () => {
-		/* The production path autofire exists for: every judgeable slot fired, so
-		 * the ledger is silent, and the newest verdict is still 10h old — past
-		 * the 8h threshold. */
 		setSweeps([
 			sweepAt("21:00", { createdAt: "2026-08-20T21:00:00Z" }),
 			sweepAt("03:00"),
@@ -2727,8 +2500,6 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 
 	it("stops at the daily cap, however many sessions start", () => {
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
-		// Clocks 21 minutes apart, well past the 2-minute cooldown, so it clears
-		// every time and only the cap can stop it. Same UTC day throughout.
 		const clocks = [
 			"2026-08-21T21:30:00Z",
 			"2026-08-21T21:51:00Z",
@@ -2740,14 +2511,11 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 			);
 
 		const overCap = check(["--notify"], at("2026-08-21T22:33:00Z")).stdout;
-		// The count is BOTH routes' (mantahostels#2202), so the wording does not say
-		// `automatic` — a hand-fire could be any of the three.
 		expect(overCap).toContain("3 sweeps already fired today");
 		expect(overCap).not.toContain("Fired one automatically");
 	});
 
 	it("does not wedge on a marker dated in the future", () => {
-		// A clock skew, or any WFC_NOW run, leaves one — and nothing ages it out.
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
 		fs.writeFileSync(
 			AUTOFIRE_MARKER,
@@ -2760,7 +2528,6 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 	});
 
 	it("fires nothing when the cooldown cannot be read, and says which", () => {
-		// Fails CLOSED: an uncapped fire is the failure mode mantahostels#1816 ruled out.
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
 		fs.mkdirSync(AUTOFIRE_MARKER);
 
@@ -2772,8 +2539,6 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 
 	it("says so when GitHub refuses the dispatch, rather than dying", () => {
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
-		// A gh that answers the queries and refuses `workflow run` — the shape a
-		// PAT that lost `Actions: write` takes (mantahostels#948, mantahostels#1069).
 		vi.stubEnv(
 			"WFC_GH",
 			stubGhScript(
@@ -2792,13 +2557,11 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 
 		const r = check(["--notify"], at(SWEEP_NOW));
 		expect(r.stdout).toContain("Could not fire one automatically");
-		expect(r.status).toBe(0); // a session start is never blocked by this
+		expect(r.status).toBe(0);
 	});
 });
 
 describe("an adopter whose tree has no sweep workflow is never judged on one (#403)", () => {
-	/* RANGE_REPO with the workflow deleted in a commit of its own: its past runs
-	 * are still on GitHub. */
 	const noSweepRepo = fs.mkdtempSync(
 		path.join(os.tmpdir(), "ci-status-nosweep-"),
 	);
@@ -2823,7 +2586,6 @@ describe("an adopter whose tree has no sweep workflow is never judged on one (#4
 	beforeEach(() => {
 		fs.rmSync(marker, { force: true });
 		setRuns([run_({ databaseId: 200, headSha: back(3) })]);
-		// Stale and with missed slots.
 		setSweeps([sweepAt("03:00")]);
 	});
 
@@ -2885,19 +2647,11 @@ describe("an adopter whose tree has no sweep workflow is never judged on one (#4
 	});
 });
 
-/* mantahostels#2177: the SUM of a --notify run's gh() calls is budgeted, not just each
- * call on its own (mantahostels#2134). */
 describe("aggregate gh() latency under --notify is budgeted (mantahostels#2177)", () => {
 	it("skips a later gh() call once the budget is spent, rather than firing it on a near-zero timeout", () => {
 		setRuns([run_({ databaseId: 200, headSha: back(3) })]);
 		setWorkflows(ACTIVE);
-		// A stale sweep, which the unbudgeted code would both report and fire an
-		// autofire over — proving the later calls were skipped, not merely fast.
 		setSweeps([sweepAt("03:00"), sweepAt("09:00")]);
-		/* Sleeps only on the branch query (the fallback arm below): 500ms clears
-		 * comfortably inside the 1300ms budget's own timeout for that one call,
-		 * but leaves under NOTIFY_BUDGET_FLOOR_MS (1000ms) of the 1300ms budget
-		 * for what follows. */
 		vi.stubEnv(
 			"WFC_GH",
 			stubGhScript(
@@ -2917,10 +2671,7 @@ describe("aggregate gh() latency under --notify is budgeted (mantahostels#2177)"
 			...at(SWEEP_NOW),
 			WFC_NOTIFY_BUDGET_MS: "1300",
 		});
-		// The branch query itself still succeeds and is reported normally.
 		expect(r.status).toBe(0);
-		// readSweepRuns()/readInactiveWorkflows(), skipped for budget, never see
-		// the stale sweep, so neither the staleness line nor an autofire prints.
 		expect(r.stdout).not.toContain("Newest sweep is");
 		expect(r.stdout).not.toContain("Fired one automatically");
 	});
@@ -2948,16 +2699,10 @@ describe("aggregate gh() latency under --notify is budgeted (mantahostels#2177)"
 			...at(SWEEP_NOW),
 			WFC_NOTIFY_BUDGET_MS: "1300",
 		});
-		// Not gated on --notify: readSweepRuns() still ran and read the missed
-		// slot this setSweeps() leaves — a budget-skipped call would have
-		// reported the ledger as unreadable instead.
 		expect(r.stdout + r.stderr).toContain("Scheduled sweeps missing");
 	});
 
 	it("holds NOTIFY_BUDGET_MS under the SessionStart hook's own timeout", () => {
-		// The hook that fires --notify — self-plugin/hooks/hooks.json's own
-		// figure, not re-derived, so a change there is caught here rather than
-		// silently leaving the budget too tight or, worse, too loose to matter.
 		const registration = JSON.parse(
 			fs.readFileSync(
 				path.join(__dirname, "..", "self-plugin", "hooks", "hooks.json"),

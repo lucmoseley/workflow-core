@@ -43,12 +43,7 @@ const { extractTree, git, indexTree } = require("./lib/check");
 const { listTree } = require("./lib/git-objects");
 const { caught } = require("./lib/caught.js");
 
-/**
- * The paths this commit adds, modifies or retypes. --no-renames, so a
- * rename's new path reads as an add. Node's default 1 MB buffer holds some
- * 20,000 paths.
- * @returns {string[]}
- */
+/** @returns {string[]} */
 function readStagedPaths() {
 	return git(
 		[
@@ -65,18 +60,13 @@ function readStagedPaths() {
 		.filter(Boolean);
 }
 
-/* The launch's own exits, apart from Biome's 0 and 1: the mount failing,
- * and sh's "cannot execute" and "not found". */
 const MOUNT_FAILED = 125;
 const NOT_STARTED = new Set([126, 127]);
 
 /**
- * How to run `biome check`: mounted, as the header says, or plain Biome
- * where the repo has no node_modules, the tree carries its own, or the host
- * cannot mount: off Linux, silently; on Linux, saying so.
  * @param {string} tree
  * @param {NodeJS.ProcessEnv} env
- * @param {string[]} check `biome check`'s arguments
+ * @param {string[]} check
  * @returns {{ command: string, args: string[] }}
  */
 function buildBiomeLaunch(tree, env, check) {
@@ -100,8 +90,6 @@ function buildBiomeLaunch(tree, env, check) {
 		"sh",
 		source,
 	];
-	/* `unshare` refused exits 1, as Biome's findings do, so the host is
-	 * probed in a namespace that dies with the probe. */
 	const probe = spawnSync("unshare", [...mount, "true"], {
 		cwd: tree,
 		env,
@@ -116,7 +104,7 @@ function buildBiomeLaunch(tree, env, check) {
 	return plain;
 }
 
-/** @returns {number} the exit code */
+/** @returns {number} */
 function main() {
 	const paths = readStagedPaths();
 	if (paths.length === 0) return 0;
@@ -127,17 +115,10 @@ function main() {
 		fs.mkdirSync(tree);
 		const sha = indexTree(path.join(work, "index"));
 		extractTree(sha, tree);
-		/* An intent-to-add entry is listed as added, but write-tree leaves it
-		 * out of the tree, as the commit does. Judged on the tree, not the
-		 * disk, so a path the extraction failed to write reaches Biome and
-		 * fails there. */
 		const inTree = new Set(listTree(sha, []).map((e) => e.path));
 		const present = paths.filter((p) => inTree.has(p));
 		if (present.length === 0) return 0;
 
-		/* A git repo of its own, as biome.json's vcs settings expect: outside
-		 * one, Biome refuses an empty or absent .gitignore. Off the hook's
-		 * GIT_* variables, which name the real repo and its index. */
 		const env = Object.fromEntries(
 			Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")),
 		);

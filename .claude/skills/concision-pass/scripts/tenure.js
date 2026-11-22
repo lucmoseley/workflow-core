@@ -195,6 +195,7 @@ function pickaxe(needle, pathspec) {
 	);
 }
 
+/** @param {string} text @param {number} offset */
 const lineOf = (text, offset) => text.slice(0, offset).split("\n").length;
 
 /**
@@ -391,6 +392,7 @@ function identifierRulingAxis(pathspec, identifier) {
 	return { state: "found", identifier, commits, messageRegex: re, frequency };
 }
 
+/** @param {string} needle */
 function ghAxis(needle) {
 	const term = `"${needle.replace(/"/g, " ")}"`;
 	const res = settle(() =>

@@ -114,18 +114,13 @@ function testFile(): string | undefined {
 }
 
 const SYNC = ["execFileSync", "spawnSync", "execSync"] as const;
-// execFile/spawn/exec each carry a util.promisify.custom symbol on the
-// exported function so `promisify(execFile)` resolves to `{stdout, stderr}`
-// instead of a bare string (scripts/lib/gh.js, scripts/measure-ci-billing.js
-// both call promisify on these). A patched function that does not copy the
-// symbol silently changes what the census run measures.
 const PROMISIFIED = ["execFile", "spawn", "exec"] as const;
 const promisifyCustom = Symbol.for("nodejs.util.promisify.custom");
+const patchable = cp as unknown as Record<string, unknown>;
 
 for (const name of SYNC) {
 	const orig = cp[name] as (...a: unknown[]) => unknown;
-	// @ts-expect-error -- census-only monkey-patch, narrowed by isGit() above
-	cp[name] = function patched(cmd: unknown, ...rest: unknown[]) {
+	patchable[name] = function patched(cmd: unknown, ...rest: unknown[]) {
 		if (isGit(cmd, Array.isArray(rest[0]))) record(testFile());
 		return orig.call(cp, cmd, ...rest);
 	};
@@ -142,8 +137,7 @@ for (const name of PROMISIFIED) {
 	if (orig[promisifyCustom]) {
 		(patched as typeof orig)[promisifyCustom] = orig[promisifyCustom];
 	}
-	// @ts-expect-error -- census-only monkey-patch, narrowed by isGit() above
-	cp[name] = patched;
+	patchable[name] = patched;
 }
 
 afterAll(() => {
@@ -151,10 +145,6 @@ afterAll(() => {
 	try {
 		fs.appendFileSync(LOG, `${buf.join("\n")}\n`);
 	} catch (e) {
-		// A census that cannot log costs the census, never the suite — but
-		// print it: this is the exact failure shape (RIP_CENSUS_LOG's relative
-		// path under a chdir'd cwd) mantahostels#2181 was filed to diagnose, and a swallow
-		// with nothing printed reads as a true zero rather than a broken run.
 		process.stderr.write(`git-spawn-wrapper: flush to ${LOG} failed: ${e}\n`);
 	}
 	buf = [];

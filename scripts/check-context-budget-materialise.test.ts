@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-context-budget.js's `--against` pathspec list, which
- * lib/context-budget-pathspecs.js builds, misses no file the plain run reads.
- *
- * check-context-budget.js's `--against` measures blob-fetched trees built from
- * its own pathspec list, and a file the plain run reads that the list leaves
- * out under-counts BOTH sides alike, so a commit crossing a cap passes the
- * pre-commit gate unrefused (#1014, mantahostels#1786). Asserted here as one
- * equality instead of one fixture per input: the figures over HEAD's
- * materialised pathspecs are the figures over HEAD's whole tree (#1120).
- *
- * THIS REPO'S REAL HEAD, NOT A FIXTURE: an input nobody thought of is one no
- * fixture carries. HEAD, never the working tree, so a neighbour's dirty file
- * cannot flake it.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -23,12 +8,11 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
-const { materialisePathspecs } =
-	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module, as its own test loads it
-	require("./lib/context-budget-pathspecs") as any;
+const { materialisePathspecs } = require("./lib/context-budget-pathspecs") as {
+	materialisePathspecs: (ctx: object, rev: string) => string[];
+};
 const REPO = path.resolve(__dirname, "..");
 
-/** HEAD's whole tree, extracted as lib/check.js's `tree` materialiser does. */
 function extractHead(dir: string) {
 	const tar = path.join(dir, "tree.tar");
 	execFileSync("git", ["archive", "--format=tar", "-o", tar, "HEAD"], {
@@ -38,12 +22,6 @@ function extractHead(dir: string) {
 	fs.rmSync(tar);
 }
 
-/**
- * The paths `blobs` fetches for `pathspecs` — what `git ls-tree` lists under
- * them, gitlinks aside — copied out of `whole`, symlinks kept as symlinks. The
- * fetch itself is pinned end to end in lib/check.test.ts's `--against with the
- * blobs materialisation`; this case is about which paths the list names.
- */
 function copyListed(whole: string, dir: string, pathspecs: string[]) {
 	const listing = execFileSync(
 		"git",
@@ -61,18 +39,12 @@ function copyListed(whole: string, dir: string, pathspecs: string[]) {
 	}
 }
 
-/* What each cap is judged on, without the rows' paths. */
 function figures(root: string) {
 	const r = runInProcess(SCRIPT, ["--root", root, "--json"], {
 		env: {
 			...process.env,
-			/* vitest.setup.ts's every-module default would stand in for a missing
-			 * `.claude/workflow-core.json`, which is #1014's fault. */
 			WFC_MODULES: undefined,
-			/* The live-core fallback would stand in for a missing text module, read
-			 * off the working tree. */
 			WFC_TRACKER_TEXT_FILE: path.join(root, "no-such-text-module.js"),
-			/* The ledger's closed-ticket lookup would reach the live tracker. */
 			WFC_GH: path.join(root, "no-such-gh"),
 		},
 	});
@@ -112,7 +84,6 @@ describe("--against's materialised trees", () => {
 				throw new Error(m);
 			},
 		};
-		/* The hook wiring the list derives from is read off the host (#3334). */
 		vi.stubEnv("CLAUDE_PROJECT_DIR", REPO);
 		copyListed(whole, fetched, materialisePathspecs(ctx, "HEAD"));
 

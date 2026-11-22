@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which sites check-clock-copies.js finds reading WFC_NOW outside
- * lib/clock.js's now(), over the whole tree, and that its refusal names the
- * clock and its exemplar (#3457).
- *
- * Fabricated programs in a throwaway directory, never this checkout, so a
- * case's sites are only its own.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here lets the
- * next program's own clock, with its own answer for a malformed pin, land.
- */
 
 import fs from "node:fs";
 import os from "node:os";

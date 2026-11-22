@@ -469,8 +469,6 @@
 			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/alarm-notice.test.ts",
-			"scripts/check-code-standards.test.ts",
-			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-digest-render.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
@@ -2968,7 +2966,6 @@
 		],
 		"docs/code-standards-base.md": [
 			"scripts/answer-review-reversals.test.ts",
-			"scripts/check-code-standards.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/lib/checker-run.contract.test.ts",
@@ -2985,7 +2982,6 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
-			"scripts/check-code-standards.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -3792,7 +3788,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-adopter-boundary.test.ts",
-			"scripts/check-code-standards.test.ts",
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
@@ -4675,6 +4670,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-cleared-trackers.js": [
+			"scripts/check-ci-status.test.ts",
 			"scripts/check-cleared-trackers.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/gated-checks.test.ts",
@@ -7774,14 +7770,12 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/code-standards-anchors.json": [
-			"scripts/check-code-standards.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/code-standards-base-anchors.json": [
-			"scripts/check-code-standards.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -26154,7 +26148,6 @@
 		],
 		"scripts/lib/guard-cores.json": [
 			"scripts/adopter-landing.test.ts",
-			"scripts/check-code-standards.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -28860,9 +28853,7 @@
 			"scripts/admission.test.ts",
 			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
-			"scripts/check-always-loaded-pass.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
-			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-contract-live.test.ts",
 			"scripts/check-digest-render.test.ts",
@@ -35505,7 +35496,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/notify-report.js": [
-			"scripts/check-ci-status.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-ghost-jobs.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -48824,8 +48814,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/run-in-process.js": [
-			"scripts/check-code-standards.test.ts",
-			"scripts/check-digest-render.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-husky-shim.test.ts",
 			"scripts/check-test-spawn.test.ts",
@@ -61634,7 +61622,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/release-contains.js": [
-			"scripts/check-code-standards.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -62044,7 +62031,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/report-red-suite.js": [
-			"scripts/check-ci-status.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -62437,7 +62423,6 @@
 		],
 		"scripts/run-pytest.js": [
 			"scripts/admission.test.ts",
-			"scripts/bisect-step.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -63758,7 +63743,6 @@
 		"self-plugin/hooks/hooks.json": [
 			"scripts/adopter-landing.test.ts",
 			"scripts/check-ci-status.test.ts",
-			"scripts/check-code-standards.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -64020,7 +64004,6 @@
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
-			"scripts/check-context-budget.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",

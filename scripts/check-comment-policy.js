@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-comment-policy.js — the comment-policy gate's shell over the
- * permitted kinds (#5455), judged by lib/comment-policy.js (#5477, #5490).
- *
- * Usage:
- *   node check-comment-policy.js [--root <dir>] [--all] [--against <rev>] [--json] [--warn]
- *
- * lib/precommit-gates.js runs it under `--against HEAD` while the `comments`
- * module is on, so a commit is charged only the comments it adds: an edited
- * comment is new, a moved one is not, and a renamed file keeps the comments
- * it brought.
- *
- * IMPLICIT:  with the comments module on, refuses a commit adding a comment to a JS, TS, Python or shell file that fits no permitted kind, or a suppression of a rule off the style-only list, naming the file and line.
- * JUSTIFIED: fail-safe — the fix is deleting or reshaping the comment the commit itself adds.
- * DEFEAT:    --warn caps findings below the gating line; the module off stands the gate down.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
@@ -43,11 +26,8 @@ const SUPPORT = [
 	"pyproject.toml",
 	"tsconfig.json",
 ];
-/* The direct requirements: an `.in` file, or `requirements.txt` where it is
- * hand-written; a compiled lock such as requirements-dev.txt names every
- * transitive package. */
-const REQUIREMENTS = /^requirements(?:[\w.-]*\.in|\.txt)$/;
-/* A guess at what a terminal line shows of a comment beside its path. */
+const DIRECT_REQUIREMENTS = /^requirements(?:[\w.-]*\.in|\.txt)$/;
+// guess, #5490
 const EXCERPT_MAX = 80;
 
 /**
@@ -61,7 +41,6 @@ const readOr = (root, rel) => {
 };
 
 /**
- * The tree's files, as a materialised side holds them.
  * @param {Ctx} ctx
  * @param {string} root
  * @param {boolean} walked
@@ -105,12 +84,11 @@ const PACKAGE_KEYS = [
 ];
 
 /**
- * The names each requirements file's lines open with.
  * @param {string} root
  */
 function readRequirementDeps(root) {
 	const files = fs.existsSync(root)
-		? fs.readdirSync(root).filter((n) => REQUIREMENTS.test(n))
+		? fs.readdirSync(root).filter((n) => DIRECT_REQUIREMENTS.test(n))
 		: [];
 	return files.flatMap((name) =>
 		[
@@ -120,7 +98,6 @@ function readRequirementDeps(root) {
 }
 
 /**
- * Every dependency name the tree's manifests declare.
  * @param {string} root
  */
 function readManifestDeps(root) {
@@ -141,7 +118,6 @@ function readManifestDeps(root) {
 }
 
 /**
- * The facts every file's verdict shares.
  * @param {string} root
  */
 function readTreeFacts(root) {
@@ -164,7 +140,6 @@ function readTreeFacts(root) {
 }
 
 /**
- * The paths the commit changes, and each rename's source.
  * @param {Ctx} ctx
  */
 function readChangedPaths(ctx) {
@@ -197,7 +172,6 @@ function readChangedPaths(ctx) {
 const changed = new WeakMap();
 
 /**
- * The commit's changed paths, read once a run for both sides and the settle.
  * @param {Ctx} ctx
  */
 const changedOnce = (ctx) => {
@@ -209,8 +183,6 @@ const changedOnce = (ctx) => {
 };
 
 /**
- * What a side materialises: the changed code paths, each rename's source,
- * and the files the verdicts read.
  * @param {Ctx} ctx
  * @param {string} rev
  */
@@ -218,7 +190,7 @@ function sidePaths(ctx, rev) {
 	const { paths, renames } = changedOnce(ctx);
 	const requirements = listTree(rev, [], { recursive: false })
 		.map((e) => e.path)
-		.filter((p) => REQUIREMENTS.test(p));
+		.filter((p) => DIRECT_REQUIREMENTS.test(p));
 	const code = [...paths, ...renames.values()].filter((p) => CODE_FILE.test(p));
 	return [...SUPPORT, ...requirements, ...code];
 }
@@ -230,7 +202,6 @@ const identity = (item) => {
 };
 
 /**
- * The added breaches less those a renamed file brought from its source.
  * @param {Ctx} ctx
  * @param {import("./lib/check").FaultItem[]} added
  * @param {{ baseline: Record<string, unknown> | undefined }} sides
@@ -308,7 +279,6 @@ const factsFor = (tree, rel, lang) => ({
 });
 
 /**
- * Record one file's breaches; returns how many.
  * @param {Ctx} ctx
  * @param {string} rel
  * @param {string} text
@@ -333,7 +303,6 @@ function judgeFile(ctx, rel, text, facts) {
 }
 
 /**
- * The per-file counts, most first.
  * @param {Ctx} ctx
  * @param {Map<string, number>} perFile
  */

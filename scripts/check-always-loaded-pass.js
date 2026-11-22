@@ -1,35 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-always-loaded-pass.js — reports when the always-loaded pool is due a
- * concision pass (mantahostels#2500, the mechanism limb of mantahostels#2457's decision C3).
- *
- * Usage:
- *   node check-always-loaded-pass.js [--record <file>] [--root <dir>]
- *                                    [--headroom <bytes>] [--notify] [--json]
- *   (defaults: docs/always-loaded-passes.json, the repo root)
- *
- * WHY IT EXISTS. A pass over the pool pays back in tokens rather than in
- * readability, and recurringly (mantahostels#1085, mantahostels#619).
- *
- * TWO TRIGGERS, WHICHEVER COMES FIRST:
- *   1. CALENDAR — a month since the recorded pass.
- *   2. HEADROOM — the pool within MARGIN_BYTES of check-context-budget.js's cap.
- *
- * REPORT-ONLY. No FINDING here is ever a FAIL: the one severity that gates is
- * deliberately unreachable, so a pass this reports as due can never refuse a
- * commit. It is not a promise that the process always exits 0 — a BROKEN still
- * exits 2, as the alphabet requires, and what keeps that harmless is the
- * wiring: `npm run status`, which reports rather than gates.
- *
- * THE RECORD IS DURABLE, and that is the whole reason it is a committed
- * sidecar: a `.concision-pass-<sid>` marker is swept by
- * scripts/session-arbiter.js prune-markers, so a monthly cadence read off one
- * would reset itself.
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), compares the recorded always-loaded-pool concision pass against a calendar month and the pool's remaining headroom, and injects a report when either says a pass is due.
- * JUSTIFIED: fail-safe — nothing else fires the pass, and its payback is recurring, so an unreported month is money spent every month thereafter.
- * DEFEAT:    none; the report is silent while no trigger fires.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -45,40 +14,18 @@ const { FULL_SHA } = require("./lib/commit-sha.js");
 
 const RECORD_FILE = "docs/always-loaded-passes.json";
 
-/* The name reported in every message — never joined onto `root`. */
 const BUDGET_SCRIPT = "scripts/check-context-budget.js";
 
-/* Where BUDGET_SCRIPT is actually SPAWNED from: the core's own copy, beside
- * this file, so a plugin install finds it wherever it is installed rather than
- * looking for it in the host's own (core-less) scripts/ (#36). `WFC_BUDGET_SCRIPT_FILE`
- * is the test-injection seam (`lib/host-root.js`'s header convention) — the
- * suite points this at a fixture script instead of writing one under --root. */
 const BUDGET_SCRIPT_FILE =
 	process.env.WFC_BUDGET_SCRIPT_FILE ||
 	path.join(__dirname, "check-context-budget.js");
 
-/* One calendar month, and a second one before the report changes its wording.
- * Calendar months rather than a day count so the due date lands on the same
- * day of the month a pass was run, which is what a reader can check by eye. */
 const PERIOD_MONTHS = 1;
 const OVERDUE_MONTHS = 2;
 
-/*
- * The headroom below which the pool is reported as tight, in bytes: the median
- * growth of a commit that grows the pool, so the pool is tight exactly when it
- * can no longer absorb one more addition of the size this repo writes.
- *
- * Both readings behind it are on mantahostels#2500. RE-MEASURE rather than adjust by feel,
- * on a cap change as well as on drift — and enumerate the commits with
- * `git rev-list --full-history HEAD -- <the pool files>`, never `git log --`, whose
- * history simplification hides two thirds of them and is what produced this
- * ticket's first, wrong figure.
- */
+// measured median growth of a pool-growing commit, lucmoseley/mantahostels#2500
 const MARGIN_BYTES = 268;
 
-/* Reported as scope, and excluded from it, per mantahostels#1085: the pool is what
- * check-context-budget.js counts under POOL, and docs/doc-map.md is not in it
- * until a ruling lifts its exclusion. */
 const SCOPE_TAIL = "this repo's own skill, command and agent descriptions";
 const EXCLUDED = "docs/doc-map.md";
 
@@ -88,12 +35,6 @@ const isDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isSha = (s) => typeof s === "string" && FULL_SHA.test(s);
 
 /**
- * `date` advanced by `months`, as a YYYY-MM-DD string.
- *
- * Day-of-month overflow is left to Date's own normalisation: 31 January plus a
- * month is 3 March, which is later than a reader would guess but never
- * earlier, so the report can only be late rather than premature.
- *
  * @param {string} date
  * @param {number} months
  */
@@ -104,19 +45,6 @@ function addMonths(date, months) {
 }
 
 /**
- * The pool's remaining headroom and its cap, read from the checker that owns
- * both — never re-derived here, which would leave two definitions of the pool
- * to drift apart.
- *
- * SPAWNED, not required: the figures are what a run computes, and
- * check-context-budget.js exports only its pathspecs.
- *
- * BROKEN, never null, on every failure: that script is tracked, and it is what
- * this checker reads the pool WITH, so its silence is apparatus rather than
- * subject (scripts/lib/check.js's header). Answering "no pass is due" because
- * the reading apparatus broke is the one failure this checker exists to
- * prevent.
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {{ headroom: number, cap: number }}
@@ -131,9 +59,6 @@ function readBudget(ctx, root) {
 		);
 	} catch (e) {
 		const err = caught(e);
-		/* Exit 1 is how that checker reports a cap breach and exit 2 how it
-		 * reports its own BROKEN; both print the envelope, so read stdout before
-		 * treating a non-zero exit as no answer. */
 		out = String(err.stdout ?? "");
 		if (!out.trim())
 			ctx.broken(
@@ -157,11 +82,6 @@ function readBudget(ctx, root) {
 }
 
 /**
- * The recorded pass, or null where the `passes` array is empty.
- *
- * The file is tracked, so anything wrong with its bytes is BROKEN rather than a
- * finding.
- *
  * @param {Ctx} ctx
  * @param {string} file
  */
@@ -216,16 +136,12 @@ function sayLine(ctx, label, msg) {
 }
 
 /**
- * The headroom the trigger turns on, and the cap it is quoted against.
- *
  * @param {Ctx} ctx
  * @param {string} root
  * @returns {{ headroom: number, cap: number | null }}
  */
 function resolveHeadroom(ctx, root) {
 	const override = ctx.value("--headroom");
-	/* An overridden headroom has no cap to quote: the seam supplies the one
-	 * number the trigger turns on and nothing else. */
 	if (override === null) return readBudget(ctx, root);
 	const n = Number(override);
 	if (!Number.isFinite(n))
@@ -261,8 +177,6 @@ function triggerWhy({
 }
 
 /**
- * The due report's detail lines.
- *
  * @param {Ctx} ctx
  * @param {{ why: string, last: Pass | null, due: string | null, headroom: number, cap: number | null, root: string, file: string }} r
  */
@@ -298,14 +212,10 @@ const SPEC = {
 	name: "always-loaded-pass",
 	usage:
 		"node check-always-loaded-pass.js [--record <file>] [--root <dir>] [--headroom <bytes>] [--notify] [--json]",
-	/* --headroom is the test seam: the live figure moves with every commit, so
-	 * a test asserting the headroom trigger cannot read it from this repo. */
 	valueFlags: ["--record", "--root", "--headroom"],
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
 		const file = path.resolve(root, ctx.value("--record", RECORD_FILE));
-		// An adopter that keeps no pool-pass record has no cadence to hold (#2,
-		// #33); a --record naming a missing file is still BROKEN below.
 		if (!ctx.has("--record") && !fs.existsSync(file))
 			ctx.skip(
 				`this repo has no ${RECORD_FILE} — no pool-pass cadence to check`,
@@ -319,24 +229,16 @@ const SPEC = {
 		const due = last ? addMonths(last.date, PERIOD_MONTHS) : null;
 		const overdueFrom = last ? addMonths(last.date, OVERDUE_MONTHS) : null;
 
-		/* Both triggers are evaluated, both are reported: which one fired tells
-		 * the reader whether the pass is cadence or pressure, and they answer
-		 * differently about how much there is to cut. */
 		const calendar = due !== null && today >= due;
 		const tight = headroom < MARGIN_BYTES;
 		const overdue = overdueFrom !== null && today >= overdueFrom;
 
-		/* Under --notify a passing run is not news, so the detail lines are
-		 * withheld with the finding — check.js already withholds the summary. */
 		/** @type {(label: string, msg: string) => void} */
 		const ok = ctx.notify
 			? noop
 			: (/** @type {string} */ label, /** @type {string} */ msg) =>
 					sayLine(ctx, label, msg);
 
-		/* The trigger sentence is built once and printed in the report: check.js
-		 * prints a finding's TAG and the run's count, never the message, so a
-		 * reason that lives only in the finding reaches nobody. */
 		const why = triggerWhy({
 			last,
 			calendar,
@@ -382,8 +284,6 @@ const SPEC = {
 };
 
 /**
- * Whole days from `from` to `to`, both YYYY-MM-DD.
- *
  * @param {string} from
  * @param {string} to
  */

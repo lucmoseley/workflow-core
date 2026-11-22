@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * bg-run.test.ts — the one guarantee scripts/bg-run.sh sells: a killed run and
- * a finished run are told apart, by a signal the job itself writes.
- *
- * The kill arm SIGKILLs the wrapper, which is what the harness does to a
- * background job (mantahostels#1900) — the toucher dies with it, the status file is never
- * written, and `check` has only the stale beat to go on.
- *
- * A `--full` or `--queue` suite run is wrapped in bg-run.sh, and the
- * `PreToolUse` guards lib/bg-job.js and lib/suite-background.js point
- * sessions at its `check`: loosen a case and a suite the harness killed
- * half-way reads as finished, its partial greens taken for a result.
- *
- * The fixture is scripts/lib/bg-run-testkit.ts's. The detached watcher, the
- * kill log's location, the launch log, the suite ceiling's backstop and a
- * moved root are pinned in bg-run-watcher.test.ts: two files so a sharded
- * run can put them on different shards (#2413).
- */
 
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -151,9 +133,6 @@ describe("a run still going", () => {
 	});
 });
 
-/* What `wait` and the missing-directory retry did, so a case counts the polls
- * rather than timing them (base §X9): each `wait` poll's cmd_check exit code
- * in order, and how many retries found no directory. */
 function readPolls(): { wait: string[]; missing: number } {
 	const at = join(root, "polls.log");
 	const lines = existsSync(at)
@@ -165,8 +144,6 @@ function readPolls(): { wait: string[]; missing: number } {
 	};
 }
 
-/* `wait` polled while RUNNING (exit 2), then stopped at the first `verdict`
- * rather than sleeping on to its ceiling. */
 function expectPolledUntil(verdict: string) {
 	const seen = readPolls().wait;
 	expect(new Set(seen.slice(0, -1))).toEqual(new Set(["2"]));
@@ -200,16 +177,7 @@ describe("inline output", () => {
 	});
 });
 
-/* Async `spawn` throughout this block, not the `run()`/`spawnSync` helper: a
- * blocking `wait` call has to run concurrently with the test killing or
- * finishing the job it is watching, which `spawnSync` — blocking this whole
- * process's event loop — cannot do. Each verdict is asserted on stdout's
- * FIRST LINE, not the whole blob: the inlined job output shares that stream,
- * so a job whose own text happens to contain "DONE" or "KILLED" would
- * otherwise pass a `toContain` check that never looked at the verdict. */
 describe("wait", () => {
-	/* A fifth of FAST's poll, for a case whose wait is the next poll after
-	 * the run's verdict changes (#5143): a guess, not a measurement. */
 	const quickPoll = { WFC_BG_WAIT_POLL_S: "0.2" };
 
 	function wait(
@@ -270,8 +238,6 @@ describe("wait", () => {
 		expect(got.status).toBe(0);
 		expect(parseFirstLine(got.stdout)).toContain("DONE exit=0");
 		expect(got.stdout).toContain("late-output");
-		/* Polled while RUNNING, then stopped at the first DONE rather than
-		 * sleeping on to the ceiling. */
 		expectPolledUntil("0");
 	});
 
@@ -304,8 +270,6 @@ describe("wait", () => {
 		const got = await waiting;
 		expect(got.status).toBe(1);
 		expect(parseFirstLine(got.stdout)).toContain("KILLED");
-		/* Polled while RUNNING through the staleness window, then stopped at
-		 * the first KILLED rather than sleeping on to the ceiling. */
 		expectPolledUntil("1");
 	});
 
@@ -316,7 +280,6 @@ describe("wait", () => {
 	});
 });
 
-/* MISSING_S's retries at bg-run.sh's defaults: 2 s of 0.1 s polls. */
 const DEFAULT_MISSING_POLLS = Math.round(2 / 0.1);
 
 describe("the run-directory creation race", () => {
@@ -326,18 +289,10 @@ describe("the run-directory creation race", () => {
 		expect(got.stderr).not.toContain("no run named");
 		expect(got.status).not.toBe(3);
 		expect(got.stdout).toContain("RUNNING");
-		/* Proves this actually retried rather than happening to win a race
-		 * against a slow spawn: a check that returned before the directory
-		 * could possibly exist would pass this assertion for the wrong
-		 * reason. */
 		expect(readPolls().missing).toBeGreaterThan(0);
 	});
 
 	it("gives an actual 'run' the same grace, not just a fabricated directory", () => {
-		/* `run ... &` immediately followed by `check`/`wait` on the same name.
-		 * cmd_run's own rm -rf + mv is fast, so this cannot force the loss the
-		 * way createDirLate can — but it proves the fix holds against the
-		 * actual code path, not just the simulation above. */
 		const child = spawn(
 			SCRIPT,
 			["run", "reallive", "sleep", KILLED_LIFETIME_S],
@@ -350,9 +305,6 @@ describe("the run-directory creation race", () => {
 	});
 
 	it("waits out a publish held past MISSING_S for a slow watcher, at the production defaults (#2688)", () => {
-		/* A 3 s fork delay holds the publish past MISSING_S's 2 s default. On
-		 * the real clock at the defaults, since the defect is how the two
-		 * defaults relate, WATCH_READY_S above MISSING_S. */
 		const { pid } = spawnDetached(
 			["run", "held", "sleep", KILLED_LIFETIME_S],
 			env({ WFC_BG_WATCH_FORK_DELAY_S: "3" }),
@@ -363,8 +315,7 @@ describe("the run-directory creation race", () => {
 				["check", "held"],
 			);
 			expect(got.stderr).not.toContain("no run named");
-			expect(got.status).toBe(2); // RUNNING
-			/* Past MISSING_S's own retries, so the held-publish wait answered. */
+			expect(got.status).toBe(2);
 			expect(readPolls().missing).toBeGreaterThan(DEFAULT_MISSING_POLLS);
 		} finally {
 			process.kill(-pid, "SIGKILL");
@@ -378,8 +329,6 @@ describe("the run-directory creation race", () => {
 			env({ WFC_BG_WATCH_FORK_DELAY_S: "3" }),
 		);
 		try {
-			/* A check that beats the re-run's start reads the first run's DONE
-			 * directory. Its status file stays gone from then on. */
 			await waitFor(
 				"the re-run to move the first run aside",
 				() => !existsSync(join(root, "moved", "status")),
@@ -395,7 +344,7 @@ describe("the run-directory creation race", () => {
 				...BOUNDED,
 			});
 			expect(got.stderr).not.toContain("no run named");
-			expect(got.status).toBe(2); // RUNNING
+			expect(got.status).toBe(2);
 		} finally {
 			process.kill(-pid, "SIGKILL");
 		}
@@ -426,8 +375,6 @@ describe("the run-directory creation race", () => {
 		);
 		expect(got.status).toBe(3);
 		expect(got.stderr).toContain("no run named");
-		/* The held-publish wait logs retries of its own, so one entered would
-		 * push the count past MISSING_S's. */
 		expect(readPolls().missing).toBeLessThanOrEqual(DEFAULT_MISSING_POLLS);
 	});
 
@@ -441,9 +388,6 @@ describe("the run-directory creation race", () => {
 		const got = check("well-and-truly-never", tight);
 		expect(got.status).toBe(3);
 		expect(got.stderr).toContain("no run named");
-		/* It retried rather than failing at once, and stopped at the window:
-		 * each retry sleeps its poll of the window first, so no machine fits
-		 * one more. */
 		const { missing } = readPolls();
 		expect(missing).toBeGreaterThan(0);
 		expect(missing).toBeLessThanOrEqual(Math.round(windowS / pollS));
@@ -459,10 +403,6 @@ describe("the run-directory creation race", () => {
 
 describe("a relaunch whose old directory is written mid-delete (#1355)", () => {
 	it("still publishes and runs when the old run's watcher writes into it", () => {
-		/* A stub `rm` ahead of the real one on PATH (base §N7's route for an
-		 * exempt tool) plays the old watcher: on any directory holding a
-		 * `token` it deletes for real, then puts back `.kill-recorded` and
-		 * exits 1, as a `mkdir` landing after rm read the listing leaves it. */
 		expect(run(["run", "relaunched", "true"]).status).toBe(0);
 		const bin = join(root, "bin");
 		mkdirSync(bin);
@@ -492,9 +432,6 @@ for a in "\${marked[@]}"; do mkdir -p "$a/.kill-recorded"; done
 });
 
 describe("a check overlapping a same-name re-run (#3097)", () => {
-	/* WFC_BG_CHECK_GATE holds the check at `<gate>.<try>` after each try's
-	 * token read and at `<gate>.record` before its kill record; each case
-	 * opens up front the gates it does not hold at. */
 	const gate = () => join(root, "gate");
 	const openGate = (point: string) => writeFileSync(`${gate()}.${point}`, "");
 	const atGate = (point: string) =>
@@ -524,13 +461,10 @@ describe("a check overlapping a same-name re-run (#3097)", () => {
 		return { child, exited };
 	}
 
-	/* cmd_run's own rename to the grave, made by the case inside a gate. */
 	const toGrave = (name: string, n: number) =>
 		renameSync(join(root, name), join(root, `.grave-${name}-${n}`));
 
 	it("answers for the re-run, recording no kill, when the old directory goes to its grave mid-read", async () => {
-		/* A read that went on from the rename would find no beat and call the
-		 * old run killed. */
 		expect(
 			run(["run", "regraved", "sh", "-c", "echo first-output; exit 7"]).status,
 		).toBe(7);
@@ -632,13 +566,6 @@ describe("a check overlapping a same-name re-run (#3097)", () => {
 
 describe("the beat-write race (mantahostels#2666)", () => {
 	it("still reports 'KILLED before the first beat' when beat is genuinely absent", () => {
-		/* The positive half: proves the string this whole ticket is about is
-		 * still reachable at all, so the test below (which only proves the
-		 * string is ABSENT) cannot pass vacuously against a `cmd_check` that
-		 * had the branch deleted outright. A directory with `out` but no
-		 * `beat` — what a killed-before-first-beat run leaves — built directly
-		 * rather than via `run`, since the fix means `run` itself can no
-		 * longer produce this state. */
 		const dir = join(root, "no-beat-yet");
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "out"), "");
@@ -648,17 +575,6 @@ describe("the beat-write race (mantahostels#2666)", () => {
 	});
 
 	it("never reports 'KILLED before the first beat' for a run barely started", async () => {
-		/* cmd_run builds beat/out in a sibling .tmp directory and `mv -T`s
-		 * it into place, the same pattern createDirLate uses above, so the run
-		 * directory cannot appear to another process without beat/out already
-		 * in it — there is no window left to force the way the mkdir race
-		 * above can be forced. Hammering `check` across the publish is the
-		 * only way left to exercise the real code path. One `check` straddles
-		 * the publish by construction: the run is spawned only once that check
-		 * has logged a miss, so it is still retrying when the directory lands,
-		 * however slowly either starts (#2674). Its exit 2 proves it read the
-		 * published run, without which this would pass whether or not the fix
-		 * holds. */
 		const straddler = spawn(SCRIPT, ["check", "beat-race"], {
 			env: env(WIDE_MISSING),
 		});
@@ -699,10 +615,6 @@ describe("what the toucher must not change about the command (mantahostels#2662)
 	});
 
 	it("releases the caller's output pipe when the command returns, not a heartbeat later (#4303)", () => {
-		/* The real process boundary is the subject: a reader of `run`'s pipe
-		 * waits for every holder to close it, and the toucher's orphaned
-		 * `sleep` was one. A heartbeat far past the bound makes a held pipe a
-		 * timeout rather than a slower pass. */
 		const got = spawnSync(SCRIPT, ["run", "piped", "true"], {
 			env: env({ WFC_BG_HEARTBEAT_S: "600" }),
 			encoding: "utf8",
@@ -717,10 +629,6 @@ describe("what the toucher must not change about the command (mantahostels#2662)
 describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 	it("counts a grandchild the wrapped command forks, not just its own launcher", async () => {
 		const name = "forked-worker";
-		/* The worker script is its own process, launched by `sh -c` backgrounding
-		 * it — a grandchild of bg-run.sh, not a direct child. It holds ~20MB in a
-		 * shell variable so its RSS is unmistakable against a launcher (`sh`
-		 * itself) too small to explain the total on its own. */
 		const workerPath = join(root, "worker.sh");
 		writeFileSync(
 			workerPath,
@@ -745,11 +653,7 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 
 		proc.kill("SIGKILL");
 
-		/* Direct-children-only counts just `sh`, a few MB at most — nowhere
-		 * near the ~20MB the worker script grandchild alone is holding. */
 		expect(rssKb).toBeGreaterThan(15_000);
-		/* A two-process tree sits nowhere near the default 500-visit cap, so
-		 * the sample is complete, not a partial figure standing in for one. */
 		expect(memContent).toMatch(/rss_truncated=false/);
 	});
 
@@ -763,9 +667,6 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 			SCRIPT,
 			["run", name, "sh", "-c", `${shellQuote(workerPath)} & wait`],
 			{
-				/* Cap at 1: `sh` itself is the only visit the walk gets, so the
-				 * worker script grandchild is never reached — the cap fires on a
-				 * tree two levels deep, not one it can't otherwise walk. */
 				env: env({ ...QUICK_BEAT, WFC_BG_MAX_DESCENDANTS: "1" }),
 			},
 		);
@@ -797,7 +698,6 @@ describe("the kill record (mantahostels#2662)", () => {
 				env: env(QUICK_BEAT),
 			},
 		);
-		/* Killed once the first memory sample lands, one heartbeat in. */
 		await waitFor(
 			"the first memory sample",
 			() => runFile("recorded", "mem") !== "",
@@ -823,12 +723,6 @@ describe("the kill record (mantahostels#2662)", () => {
 		expect(rec.signal).toBe("unknown");
 	});
 
-	/* A real spawned child races the detached watcher (mantahostels#2691), which polls
-	 * independently and — in every test in this file that waits before
-	 * calling `check` — wins the dedup slot first. What actually needs
-	 * proving — that a real wall-clock delay before `check` is the ONLY
-	 * caller does not leak into elapsed_s — needs no watcher in the race at
-	 * all, which only a hand-built dir gives. */
 	it("records elapsed_s against the beat's death time, not against whenever check happens to run", async () => {
 		const dir = join(root, "late-checked");
 		mkdirSync(dir, { recursive: true });
@@ -839,8 +733,6 @@ describe("the kill record (mantahostels#2662)", () => {
 		writeFileSync(join(dir, "beat"), "");
 		utimesSync(join(dir, "beat"), died, died);
 
-		/* The launch is backdated 600 s, so a computation against check's own
-		 * clock reads ~600, not 3. */
 		check("late-checked");
 		const rec = readKillLines().find((l) => l.name === "late-checked");
 		expect(rec).toBeDefined();
@@ -864,7 +756,6 @@ describe("the kill record (mantahostels#2662)", () => {
 		expect(Number(rec.death_epoch)).toBeGreaterThanOrEqual(
 			Number(rec.started_epoch),
 		);
-		/* Not the reading clock: untilVerdict's check reads seconds ahead of now. */
 		expect(Number(rec.death_epoch)).toBeLessThanOrEqual(
 			Math.floor(Date.now() / 1000),
 		);
@@ -874,13 +765,6 @@ describe("the kill record (mantahostels#2662)", () => {
 		expect(rec.heartbeat_s).toBe(Number(FAST.WFC_BG_HEARTBEAT_S));
 	});
 
-	/* The ordering itself, off the real clock: a ticking WFC_BG_NOW puts the
-	 * launch a minute ahead of the filesystem's clock and reads later on every
-	 * call within the launching process, so a `beat` made by a plain write, or
-	 * stamped from a clock read before `started`'s, dates before `started`;
-	 * one stamped after cannot (#2674). HEARTBEAT_S outlasts the test, so the
-	 * toucher's first re-touch, which restamps `beat` from the filesystem
-	 * clock, never comes; `check`'s own clock is pinned past STALE_S. */
 	it("never dates a death before its launch, for a run killed before its first re-touch (#2674)", async () => {
 		const launched = Math.floor(Date.now() / 1000) + 60;
 		const { pid } = spawnDetached(
@@ -910,11 +794,6 @@ describe("the kill record (mantahostels#2662)", () => {
 		}
 	});
 
-	/* The test above cannot see `check`'s own stale-beat call: the detached
-	 * watcher always records first in that shape, and takes the dedup slot.
-	 * A hand-built dir with a beat aged past WFC_BG_STALE_S reaches `check`
-	 * directly, and its mtime is a value we chose, so the death epoch can be
-	 * asserted exactly rather than bounded. */
 	it("takes the death epoch from the beat's mtime on check's own stale-beat path", () => {
 		const dir = join(root, "stale-by-hand");
 		mkdirSync(dir, { recursive: true });
@@ -935,10 +814,6 @@ describe("the kill record (mantahostels#2662)", () => {
 		expect(Number(rec.elapsed_s)).toBe(died - launched);
 	});
 
-	/* Two ways of being wrong that the pair above cannot see on its own: a
-	 * death epoch sourced from the clock while claiming the beat, and one
-	 * that is empty or zero — `Number("")` is 0, so a finiteness check alone
-	 * passes on a field that was never written. */
 	it("falls back to the recorder's own clock, saying so, where there was no beat to read", () => {
 		const before = Math.floor(Date.now() / 1000);
 		const dir = join(root, "no-beat-epochs");
@@ -953,8 +828,6 @@ describe("the kill record (mantahostels#2662)", () => {
 		expect(Number(rec.death_epoch)).toBeLessThanOrEqual(
 			Math.floor(Date.now() / 1000),
 		);
-		/* no `started` file either, so both the launch epoch and the elapsed
-		 * time say they are unknown rather than guessing */
 		expect(rec.started_epoch).toBe("unknown");
 		expect(rec.elapsed_s).toBe("unknown");
 	});
@@ -996,8 +869,6 @@ describe("the kill record (mantahostels#2662)", () => {
 		expect(lines[0].queue_state).toBe("passed");
 	});
 
-	/* The line is waitForGate's own, so a change to its wording fails here
-	 * rather than leaving the refusal read as "waiting" (#2421). */
 	it.each([
 		["memory-limb", { limb: "memory", mb: 900, rungMb: 3250 }],
 		["count-limb", { limb: "count" }],

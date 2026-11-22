@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Runs with a stub `gh` injected via WFC_GH, for the same reason the drain
- * CLI's tests do: the script reports on this repo's capture comments and so
- * cannot also be its fixture. WFC_CAPTURE_STATE puts the state file in the
- * test's own directory.
- *
- * The behaviour pinned here is mantahostels#679's: AGE, not count. A day that
- * captures six facts is a productive day; a fortnight with two uncollected is
- * the failure. Plus the split mantahostels#679 did not anticipate — the
- * `--notify` path reads the state file and never calls gh, the live scan
- * costing 20s against a 15s hook.
- *
- * It reports through `npm run status` and is the only thing that ever names an
- * escaped capture: loosen a case and a fact that reached no document sits
- * unreported, or a productive day reads as a backlog.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -24,8 +8,6 @@ import { STALE_CAPTURE_DAYS } from "./lib/captures";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
-/** The marker a capture comment opens with (mantahostels#640), restated so a
- * change to it fails here. */
 const MARKER = "**Captured fact:**";
 
 const SCRIPT = path.resolve(__dirname, "check-capture-drain.js");
@@ -38,12 +20,10 @@ interface Comment {
 	age: number;
 	body: string;
 	reactions?: Record<string, number>;
-	/** a literal created_at, for timestamps `age` cannot express */
 	rawCreatedAt?: string;
 }
 interface Fixture {
 	comments: Comment[];
-	/** each entry is one page, so multi-page --slurp is exercised */
 	pages?: Comment[][];
 	unreachable?: boolean;
 	broken?: boolean;
@@ -118,7 +98,6 @@ const run = (
 	};
 };
 
-/** A state file as --refresh would have left it, `hoursAgo` old. */
 const writeState = (undrained: Comment[], hoursAgo = 0) =>
 	fs.writeFileSync(
 		STATE(),
@@ -169,7 +148,7 @@ describe("the age threshold", () => {
 		expect(r.out).toContain("UNDRAINED CAPTURES");
 		expect(r.out).toContain("#678");
 		expect(r.out).toMatch(new RegExp(`${STALE_CAPTURE_DAYS + 5} days`));
-		expect(r.status).toBe(0); // WARN: real, deliberately not gating
+		expect(r.status).toBe(0);
 	});
 
 	it("stays silent while every undrained capture is under it", () => {
@@ -180,7 +159,6 @@ describe("the age threshold", () => {
 	});
 
 	it("does not fire exactly on the threshold, only past it", () => {
-		// Pins the boundary itself: `> days`, not `>=`.
 		const r = run({ comments: [capture(1, 679, STALE_CAPTURE_DAYS)] }, [
 			"--days",
 			String(STALE_CAPTURE_DAYS + 0.001),
@@ -189,7 +167,6 @@ describe("the age threshold", () => {
 	});
 
 	it("does not fire on a busy day — six captures, all fresh", () => {
-		// Count would fire here; age is what mantahostels#679 chose, and this is why.
 		const r = run({
 			comments: [1, 2, 3, 4, 5, 6].map((i) => capture(i, 679, 0)),
 		});
@@ -230,8 +207,6 @@ describe("the age threshold", () => {
 
 describe("the paginated read", () => {
 	it("finds a capture that only appears on a later page", () => {
-		// The live corpus is 12 pages; a one-page stub would never exercise
-		// --slurp's flattening or the sort that puts the oldest first.
 		const r = run({
 			comments: [],
 			pages: [[capture(1, 679, 1)], [capture(2, 678, 40)]],
@@ -244,8 +219,6 @@ describe("the paginated read", () => {
 
 describe("a timestamp GitHub did not give us", () => {
 	it("reports an unparseable created_at rather than silently ignoring it", () => {
-		// NaN compares false against every threshold, which would read as "not
-		// overdue" and disable the check without a word.
 		const r = run({
 			comments: [{ ...capture(1, 678, 0), rawCreatedAt: "not a date" }],
 		});
@@ -284,7 +257,6 @@ describe("the session-start path", () => {
 	});
 
 	it("ages the stored capture itself, so a day-old state still reports", () => {
-		// The state records createdAt, not ageDays, which is what makes this work.
 		writeState([capture(1, 678, 30)], 20);
 		expect(run({ comments: [] }, ["--notify"]).stdout).toContain(
 			"UNDRAINED CAPTURES",
@@ -308,15 +280,12 @@ describe("--refresh", () => {
 		expect(state.captureCount).toBe(2);
 		expect(state.undrainedCount).toBe(1);
 		expect(state.undrained[0].issue).toBe(678);
-		// createdAt, never a computed age — a stale state must still age right.
 		expect(state.undrained[0].createdAt).toBeTruthy();
 		expect(state.undrained[0].ageDays).toBeUndefined();
 		expect(r.out).not.toContain("UNDRAINED CAPTURES");
 	});
 
 	it("makes one paginated call to the repo-wide comments endpoint", () => {
-		// Pins the call itself: a wrong endpoint, a dropped --paginate, or a
-		// per-issue fan-out would all otherwise stay green.
 		const r = run({ comments: [capture(1, 679, 1)] }, ["--refresh"]);
 		expect(r.calls()).toHaveLength(1);
 		expect(r.calls()[0]).toContain("repos/{owner}/{repo}/issues/comments");
