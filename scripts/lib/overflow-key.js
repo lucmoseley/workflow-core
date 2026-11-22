@@ -1,4 +1,3 @@
-// #4392
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");

@@ -1,79 +1,14 @@
 #!/usr/bin/env node
-/*
- * watch-artefact.js — one backgrounded call that watches a subagent's artefact
- * and exits exactly when the abandon rule says to act (#539, spec #535): two
- * consecutive checks with no growth. Its exit is the background-job
- * notification that wakes the parent.
- *
- * Usage:
- *   node scripts/watch-artefact.js <path> <interval-seconds> [ceiling-seconds]
- *     [--first-write <seconds>] [--log <agent-log>]
- *   node scripts/watch-artefact.js --no-artefact <interval-seconds>
- *     [ceiling-seconds] --log <agent-log>
- *
- * The interval, ceiling and first-write deadline accept fractions. The first check is the baseline;
- * each later one compares the size with the check before it. Prints one start
- * line to stderr, then exactly one verdict line to stdout, and exits on it:
- *
- *   STALLED  3  two consecutive checks saw no change, the file present at
- *               one of them at least
- *   MISSING  4  never present by the first check at or past the first-write
- *               deadline, or absent at two consecutive checks once seen
- *   CEILING  5  the ceiling came before a stall
- *   DONE     6  the agent's log reads stopped: it has finished, whether or
- *               not the artefact grew
- *   (bad invocation, or a path that cannot be stat'd: 2, on stderr; a crash: 1)
- *
- * Last growth on the verdict line is the check that saw it, not the write
- * itself.
- *
- * THE FIRST-WRITE DEADLINE, 600 S BY DEFAULT, IS MEASURED (#4034, its figures
- * there). Until the file is first seen, no check counts toward any verdict. A
- * deadline under two intervals is raised to two, so a never-seen file is
- * absent at two checks at least. Residual: about 0.5% of live agents first
- * write after 600 s and still draw MISSING; a wrong path, or an agent that
- * never starts, reads MISSING only at the deadline.
- *
- * SIZE, NOT MTIME: a touch without an append is not progress. A size that
- * FALLS counts as progress — a rewrite is the agent working, not stalled.
- *
- * THE DEFAULT CEILING, 60 MINUTES, IS A GUESS: room above the ~18-minute
- * median wait in https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/waiting-stall-forensics.md §5, never measured
- * against a watch. It bounds the loop, which lives inside this script where
- * neither lib/wait-loop.js nor check-orphan-wait-loops.js sees it.
- *
- * A check lands on each whole interval from the start, so a slow wake does not
- * drift the ones after it. The ceiling is not a check: a shortened last
- * interval would compare unequal windows, so reaching it reports CEILING
- * unjudged.
- *
- * GIVEN THE AGENT'S OWN LOG (`--log`, the launch result's `output_file`),
- * EVERY CHECK READS IT AHEAD OF THE GROWTH TEST (lib/subagent-log-state.js).
- * A log reading stopped is DONE (#5496); the log is also read between
- * checks, every LOG_POLL_MS or a quarter interval if shorter, so the wait
- * after an agent finishes is seconds, not two intervals. A call in flight
- * counts as growth (#5421), so an agent waiting on a long tool call or model
- * turn never draws STALLED or MISSING, and a hung one draws CEILING. A log
- * that will not read is judged on growth alone, said once on stderr. Without
- * a log, it cannot tell a stalled agent from a finished one.
- *
- * `--no-artefact` WAITS ON THE LOG ALONE (#5515): DONE once it reads stopped,
- * CEILING at the ceiling, 530 s by default, never STALLED or MISSING.
- *
- * Joins no §N3 family: it is a tool an agent runs, not a check, guard,
- * generator or reporter, and its exit codes are its verdicts.
- */
-
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { readSubagentLogState } = require("./lib/subagent-log-state.js");
 
+// guess (#539): above the ~18-minute median wait in the waiting-stall forensics note
 const DEFAULT_CEILING_S = 3600;
+// measured (#4034): about 0.5% of live agents first write later
 const DEFAULT_FIRST_WRITE_S = 600;
-// guess (#5515): 10 s under rule:job-holds-turn's `timeout 540`
-const LOG_ONLY_DEFAULT_CEILING_S = 530;
 // #5496: guess
 const LOG_POLL_MS = 5000;
 
@@ -96,7 +31,7 @@ const LOG_ONLY_ADVICE = {
 };
 
 const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>] [--log <agent-log>]
-       node ${__filename} --no-artefact <interval-seconds> [ceiling-seconds] --log <agent-log>`;
+       node ${__filename} --no-artefact <interval-seconds> <ceiling-seconds> --log <agent-log>`;
 
 /**
  * @param {string} message
@@ -213,15 +148,12 @@ function readArgs() {
 		if (flags["--first-write"] !== undefined)
 			refuse("--no-artefact has no first write to wait on");
 		const [rawInterval, rawCeiling] = positionals;
+		if (rawCeiling === undefined) refuse("--no-artefact needs a ceiling");
 		return {
 			logOnly: true,
 			log,
 			intervalMs: parseSeconds(rawInterval, "interval") * 1000,
-			ceilingMs: parseOptionalMs(
-				rawCeiling,
-				"ceiling",
-				LOG_ONLY_DEFAULT_CEILING_S,
-			),
+			ceilingMs: parseSeconds(rawCeiling, "ceiling") * 1000,
 		};
 	}
 	const [file, rawInterval, rawCeiling] = positionals;
