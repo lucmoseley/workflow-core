@@ -39,7 +39,7 @@ fi
 
 if [ -n "$route_file" ]; then
   IFS= read -r route <"$route_file"
-  export route
+  : "$route"
   rm -f "$route_file"
   wfc_local_hook_refuse_missing .husky/commit-msg.local \
     "commit-msg: .husky/commit-msg.local calls a script this repo does not have:"

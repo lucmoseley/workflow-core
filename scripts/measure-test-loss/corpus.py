@@ -67,8 +67,8 @@ def transcripts(roots, t_start, tally, subagents=True):
                     yield repo, p
 
 
-def run_scanner(doc, scan_file, subagents=True):
-    ap = argparse.ArgumentParser(description=doc.splitlines()[0])
+def run_scanner(description, scan_file, subagents=True):
+    ap = argparse.ArgumentParser(description=description.splitlines()[0])
     ap.add_argument("out", help="JSONL file the rows are written to")
     ap.add_argument("roots", nargs="*", help="projects dirs (default: every seat's)")
     ap.add_argument(
