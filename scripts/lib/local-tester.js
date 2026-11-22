@@ -226,6 +226,13 @@ function rerunsOf(files, test, python) {
 }
 
 /**
+ * @param {Pick<import("./workflow-core-config.js").Config, "commands" | "fullTestShards">} config
+ * @returns {number}
+ */
+const wholeRunGroups = ({ commands, fullTestShards }) =>
+	(commands.full_test ?? commands.test) ? (fullTestShards ?? 1) : 1;
+
+/**
  * @param {string} dir
  * @param {string} pytest
  * @param {string[]} files
@@ -263,7 +270,7 @@ function readRunsAt(dir, pytest, files, timings) {
 	};
 	const whole = full_test ?? test;
 	if (!whole) return routesPython ? [[wholePython]] : [];
-	const shards = config.fullTestShards ?? 1;
+	const shards = wholeRunGroups(config);
 	const packedBy = shards > 1 ? timings(dir) : null;
 	const env = packedBy === null ? {} : { env: { WFC_SHARD_TIMINGS: packedBy } };
 	return Array.from({ length: shards }, (_, i) => {
@@ -636,4 +643,5 @@ module.exports = {
 	readRunsAt,
 	readWholeRuns,
 	recordRun,
+	wholeRunGroups,
 };

@@ -13,6 +13,7 @@ import {
 } from "./actions-tester.js";
 import { RECORDED_SHAPES } from "./gh-fake.js";
 import { stubGhScript } from "./gh-stub.js";
+import { defineTemplate } from "./git-fixture";
 import { markersDir } from "./marker-root.js";
 import { noop } from "./noop.js";
 import type { Placement } from "./queue-lander.js";
@@ -1795,16 +1796,24 @@ it("records each whole run it judges, green or red, its suite seconds summed acr
 	]);
 });
 
-it("pushes, lists and dispatches the adopter's core-owned lander workflows through the live adapters (#5511)", async () => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-tester-"));
+const adopterRepo = defineTemplate((dir) => {
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 	git("init", "-q");
-	git("remote", "add", "origin", tmp);
-	fs.writeFileSync(path.join(tmp, "a.test.ts"), "");
+	git("remote", "add", "origin", dir);
+	fs.writeFileSync(path.join(dir, "a.test.ts"), "");
 	git("add", ".");
 	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a");
-	const sha = git("rev-parse", "HEAD");
+});
+
+it("pushes, lists and dispatches the adopter's core-owned lander workflows through the live adapters (#5511)", async () => {
+	tmp = adopterRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "adopter-tester-")),
+	);
+	const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: tmp,
+		encoding: "utf8",
+	}).trim();
 	const argvLog = path.join(tmp, "argv.log");
 	vi.stubEnv(
 		"WFC_GH",

@@ -4,14 +4,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { buildLanderDeps } from "./queue-lander-deps.js";
 
 let root: string;
 
+const repoTemplate = defineTemplate((dir) =>
+	execFileSync("git", ["init", "-q"], { cwd: dir }),
+);
+
 beforeEach(() => {
 	vi.stubEnv("WFC_MODULES", undefined);
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "lander-deps-test-"));
-	execFileSync("git", ["init", "-q"], { cwd: root });
+	root = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "lander-deps-test-")),
+	);
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 

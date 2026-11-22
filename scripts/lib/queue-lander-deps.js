@@ -78,7 +78,7 @@ function readMedianRun(root) {
  * @returns {import("./queue-lander.js").QueueTester}
  */
 function configuredTester(root, admit, say) {
-	const pinned = readConfig({ root, quiet: true }).landingTester ?? "auto";
+	const pinned = readConfig({ root, quiet: true }).landingTester;
 	if (pinned === "actions") {
 		say("tester: actions, as landingTester pins it");
 		return queueTester({ root });
