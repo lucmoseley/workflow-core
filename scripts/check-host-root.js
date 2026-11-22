@@ -168,11 +168,13 @@ const ROOT_CALLS = [
 	String.raw`hostRoot\(\)`,
 	String.raw`sessionTree\([^()]*\)`,
 ];
+const HOOK_PWD_READ = String.raw`process\.env\.PWD\b`;
 const HOOK_ROOT_CALLS = [
 	String.raw`process\.cwd\(\)`,
-	String.raw`process\.env\.PWD\b`,
+	HOOK_PWD_READ,
 	String.raw`[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*\??\.cwd\b(?![\w$(])`,
 ];
+const HOOK_ROOT_ANY = new RegExp(String.raw`\bcwd\b|\b${HOOK_PWD_READ}`);
 /** @param {string[]} calls */
 const buildJsRootCall = (calls) =>
 	new RegExp(String.raw`[^;\n]*\b(?:${calls.join("|")})`, "y");
@@ -183,7 +185,6 @@ const JS_DESTRUCTURE =
 const JS_CWD_KEY =
 	/(?:^|,)\s*cwd(?:\s*:\s*([A-Za-z_$][\w$]*))?\s*(?:=[^,]*)?(?=,|$)/;
 const JS_CWD_DEFAULT = /[(,]\s*([A-Za-z_$][\w$]*)\s*=\s*process\.cwd\(\)/g;
-const HOOK_ROOT_ANY = /\bcwd\b|\bprocess\.env\.PWD\b/;
 
 const JS_CORE_CONST = new RegExp(
 	String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:${buildPathCall("join")}${CORE_LITERAL}|["'\x60](?:scripts|\.husky)/)`,

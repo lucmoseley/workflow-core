@@ -192,7 +192,7 @@ The fixes, best first: the test drives the program end to end through `run-in-pr
 
 Three kinds of export are not test-only:
 
-- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:512` does — *"module.exports = { main };"*.
+- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:426` does — *"module.exports = { main };"*.
 - **Test support.** A testkit, harness, fixture, stub or fake module, named for what it is, and anything under a `fixtures/` directory. `scripts/lib/precommit-gate-harness.js`, the machinery the `.husky/pre-commit` gate suites share, is one.
 - **A module built ahead of its caller**, whose opening comment is the directive `Unbuilt caller: <caller> (#N)`, naming the caller and the open issue that builds it.
 
@@ -202,7 +202,7 @@ Three kinds of export are not test-only:
 
 **Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise an open issue names the caller that will supply one, and the seam cites it as a bare `#N` (K5).
 
-`scripts/lib/suite-queue.js:606` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:179` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
+`scripts/lib/suite-queue.js:606` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:21` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
 
 Where neither fits, remove the seam: create the dependency in place, and let the test reach it another way, through a temp directory, the real clock, or a binary stubbed at its §N7 var (#1374).
 
@@ -232,7 +232,7 @@ The unasked-rerun guard asks whether certificates attest a commit, so its verdic
 
 **Program, library and hook module.** §N9 holds what a function is passed; this holds the state it reaches without being passed: Fowler's Global Data smell, and the other half of his Mutable Data smell (#1308, #1821). That state is a module-scope `let`, a module-scope object, array, Map or Set, or `process.env`. It is written by one function, or only by functions whose names say what each does to it, so a reader finds every write from the declaration. Another module never writes it directly, only through one of those functions. `process.env` has no declaration, so each variable counts as state of its own, and a write through a general setter such as `setEnv` is its caller's. The breach is a second writer named for something else.
 
-`scripts/lib/suite-handoff.js:203-222` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:145-157` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:389`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
+`scripts/lib/suite-handoff.js:203-222` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:145-157` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:167`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
 
 The fixes, best first: return the value, so the caller holds it; pass it in, so the write shows at the call site, where §N9 holds a program to it; or move each write into a function named for it, declared beside the state (Fowler's Encapsulate Variable).
 
@@ -387,7 +387,7 @@ A filename prefix selects a contract. Where the repo has families for a program'
 
 *House, Node programs only*: a `report-*` files through `createIssue` in `scripts/lib/tracking-issue.js`, directly or through its `fileOrRefresh`, never a `gh issue create` of its own (lucmoseley/mantahostels#2762).
 
-The prefix selects a family only under `scripts/`. A skill's own scripts join none by name, so citing §N3 or §N4 against one on the strength of a coincidental prefix is a false finding (mantahostels#1189) — `.claude/skills/concision-pass/scripts/check-facts.js:12` answers to its own three-code alphabet. §G4 still binds it.
+The prefix selects a family only under `scripts/`. A skill's own scripts join none by name, so citing §N3 or §N4 against one on the strength of a coincidental prefix is a false finding (mantahostels#1189) — `.claude/skills/concision-pass/scripts/check-facts.js:13` answers to its own three-code alphabet. §G4 still binds it.
 
 ### §N4 · One place owns process exit, and the body returns a result — **hard**
 

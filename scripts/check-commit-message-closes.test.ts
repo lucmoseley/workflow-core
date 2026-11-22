@@ -5,6 +5,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const { main } = require("./check-commit-message-closes.js") as {
 	main: (argv: string[]) => { code: number; stderr: string };
@@ -94,5 +95,16 @@ describe("as the hooks run it", () => {
 	])("reads a #N line as git records it on %s (#3075)", (_, editor, code) => {
 		vi.stubEnv("GIT_EDITOR", editor as string);
 		expect(scan("#3 Fixes #12 do a thing\n").code).toBe(code);
+	});
+
+	it("refuses an unknown flag with its usage and exit 2, not a stack trace", () => {
+		const r = runInProcess(
+			path.join(__dirname, "check-commit-message-closes.js"),
+			["--bogus"],
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("unknown flag: --bogus");
+		expect(r.stderr).toContain("usage: node check-commit-message-closes.js");
+		expect(r.stderr).not.toContain("    at ");
 	});
 });
