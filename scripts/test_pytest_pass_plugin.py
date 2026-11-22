@@ -313,23 +313,38 @@ def test_a_report_it_cannot_time_never_raises_and_times_nothing(
 
     assert json.loads(out.read_text())["fileSeconds"] == {}
     told = capsys.readouterr().err.splitlines()
-    assert [line for line in told if line.startswith("TIMINGS SHORT")] == [
-        "TIMINGS SHORT (#1884) — a test phase went untimed: float() argument must "
-        "be a string or a real number, not 'NoneType'"
-    ]
+    timings = [line for line in told if line.startswith("TIMINGS SHORT (#1884)")]
+    assert len(timings) == 2
+    assert len(set(timings)) == 2
+
+
+def test_a_cause_repeated_on_every_phase_is_told_once(monkeypatch, capsys):
+    monkeypatch.setattr(plugin, "_file_seconds", {})
+    for _ in range(3):
+        plugin.pytest_runtest_logreport(FakePhaseReport("scripts/test_a.py::t", None))
+
+    assert len(capsys.readouterr().err.splitlines()) == 1
 
 
 def test_a_stage_it_cannot_read_leaves_the_test_where_it_was_and_says_so(
     tmp_path, monkeypatch, capsys
 ):
-    monkeypatch.setattr(plugin, "_inflight", {"test_a.py::one": "setup"})
+    monkeypatch.setattr(plugin, "_inflight", {})
     monkeypatch.setattr(plugin, "_file_seconds", {})
-    plugin.pytest_runtest_logreport(FakePhaseReport("test_a.py::one", 0.1))
+    out = tmp_path / "inflight.json"
+    monkeypatch.setenv("WFC_PYTEST_INFLIGHT_OUT", str(out))
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    plugin.pytest_runtest_logstart("test_a.py::one", None)
+    stageless = FakePhaseReport("test_a.py::one", 0.1)
+    plugin.pytest_runtest_logreport(stageless)
 
-    assert plugin._inflight == {"test_a.py::one": "setup"}
-    assert capsys.readouterr().err == (
+    assert json.loads(out.read_text())["open"] == [
+        {"nodeid": "test_a.py::one", "stage": "setup"}
+    ]
+    told = capsys.readouterr().err.splitlines()
+    assert len(told) == 1
+    assert told[0].startswith(
         "IN-FLIGHT STAGE UNTRACKED — a test's stage went unrecorded: "
-        "'FakePhaseReport' object has no attribute 'when'\n"
     )
 
 

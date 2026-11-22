@@ -173,8 +173,8 @@ class _ReportedAs(contextlib.AbstractContextManager):
 
 def _told_once(headline):
     def write_line(line):
-        if headline not in _told:
-            _told.add(headline)
+        if line not in _told:
+            _told.add(line)
             print(line, file=sys.stderr, flush=True)
 
     return _ReportedAs(write_line, headline)
