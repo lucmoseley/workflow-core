@@ -466,8 +466,8 @@ function shStep(st, i) {
 	}
 	if (c === "\\") return i + 2;
 	if (c === "'" || c === '"') return shQuoteEnd(source, i);
-	if (source.startsWith("<<", i) && source.charAt(i + 2) !== "<")
-		return shHeredoc(st, i);
+	if (source.startsWith("<<<", i)) return i + 3;
+	if (source.startsWith("<<", i)) return shHeredoc(st, i);
 	return i + 1;
 }
 
