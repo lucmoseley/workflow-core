@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the overflow view (#4583) on a fixture run store holding a session in
- * each state: the three sections, each key driven through scripted stdin, a
- * reply resuming the session under a fake `claude` with the key reaching it
- * through the apiKeyHelper alone and refused off the run's seat, a stop
- * through the real stop routing, and the list and an open thread following
- * the store without a restart.
- *
- * Loosen one and the founder misses a run waiting on him, answers a session
- * still working, or a reply leaks the key into the session's environment.
- */
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -35,6 +24,7 @@ const SCRIPT = path.join(__dirname, "overflow-view.js");
 const KEY = "sk-fake-overflow-0123456789";
 const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
 const ESC = "\x1b";
+const ANSI_ESCAPE = new RegExp(`${ESC}\\[[0-9;?]*[A-Za-z]`, "g");
 const DOWN = `${ESC}[B`;
 const LEFT = `${ESC}[D`;
 const ENTER = "\r";
@@ -117,7 +107,6 @@ beforeEach(() => {
 	vi.stubEnv("WFC_REFILL_DIR", refill);
 	vi.stubEnv("WFC_CLAUDE_BIN", path.join(tmp, "claude"));
 	vi.stubEnv("WFC_SECRETS_FILE", secrets);
-	/* In the parent too, so the child's lacking it proves the unset. */
 	vi.stubEnv(KEY_VAR, KEY);
 	writeRun(
 		AWAITING,
@@ -141,7 +130,6 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/* `close` stops the view's poll. */
 function openTerminal(over: Partial<Parameters<typeof openViewer>[0]> = {}) {
 	const stdin = Object.assign(new EventEmitter(), {
 		setRawMode: vi.fn(),
@@ -177,8 +165,7 @@ function openTerminal(over: Partial<Parameters<typeof openViewer>[0]> = {}) {
 	});
 	const frame = () =>
 		(writes.findLast((w) => w.startsWith(`${ESC}[H`)) ?? "")
-			// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escapes
-			.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
+			.replace(ANSI_ESCAPE, "")
 			.split("\r\n")
 			.map((l) => l.trimEnd());
 	const type = (...chunks: string[]) => {
@@ -331,7 +318,6 @@ describe("a reply", () => {
 			t.frame().at(-2) ?? "",
 		);
 		expect(sent).not.toBeNull();
-		/* Marked, so the tick's allowance stop leaves it (#4174). */
 		expect(
 			JSON.parse(
 				fs.readFileSync(
@@ -388,7 +374,6 @@ describe("the seat gate", () => {
 });
 
 describe("a stop", () => {
-	/* A `sleep` is the run, so the stop's signal reaches nothing else. */
 	it("ends the run's process group through the stop routing", async () => {
 		const child = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
 		const pid = child.pid as number;

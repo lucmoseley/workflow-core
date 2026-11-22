@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * start-lander.js — start a detached queue lander (scripts/queue-lander.js)
- * where none runs and a `queue/<name>` ref waits on the remote (#2405, spec
- * #2261; #4458) or the drop record holds an open drop with no fix ticket
- * (#4950).
- *
- *   node scripts/start-lander.js [--tester <command>] [--launched-by <name>]
- *
- * The lander's output is appended to `.lander.log` in the canonical
- * checkout's markers directory. Each script that launches it appends this
- * script's own output there too, so its started line, naming the launching
- * session (#2478) and the commit the lander's code is from (#5174), opens
- * the run. The refill loop's supervision
- * (supervise-landing.js, #2692), which runs as no session, names itself with
- * `--launched-by`.
- *
- * Joins no §N3 family: it gates nothing and is no hook.
- *
- * Exit codes: 0 started or skipped; 1 on a throw, an unreadable remote among
- * them; 2 on a command line it refuses.
- */
-
 const path = require("node:path");
 const { parseErrorText } = require("./lib/caught.js");
 const { listedAgents } = require("./lib/agent-liveness.js");
@@ -71,9 +49,6 @@ function main(argv = process.argv.slice(2)) {
 				.queue.map((q) => queueBranch(q.name)),
 		owed: () => readOwedDrops(queueLanderFiles(root).drops).map((d) => d.ref),
 		spawnRun: () => {
-			/* Named before the spawn, so the started line opens the run's log.
-			 * Self-test waived: a session-start launch runs before its session
-			 * lists (#2478). */
 			by =
 				flagValue(parsed.flags, "--launched-by") ??
 				launcherName(() => listedAgents({ requireSelf: false }));

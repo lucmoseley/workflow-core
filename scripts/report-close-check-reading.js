@@ -1,60 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-close-check-reading.js — the week-one reading of the close-rivals
- * check: whether refusing every close rival question once (#1061), outside
- * the session ceiling (#1067), has stopped the founder typing his own
- * separation prompt (spec #1091).
- *
- * FILES ONE ISSUE, ONCE (#1104). A plain run at the reading point files the
- * reading as TITLE, `takes:wayfinder`; before it, and on `--dry-run`, it
- * prints the figures so far and files nothing. Once its issue exists, open or
- * closed, it never files again (lib/log-reading.js's `buildFiler`), and a
- * plain run returns on reading its record, before any log or transcript
- * (#3326): it then prints no ladder line and exits 0 on a log or baseline
- * that will not read, which only `--dry-run` still reports.
- *
- * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh,
- * because the log and the transcripts are machine-local and no CI runner can
- * read them. A plain run walks them at most daily, and never beside another
- * run's walk (#3220, buildFiler's `readDaily`).
- *
- * WORKFLOW-CORE ONLY. In an adopter it prints a SKIP and exits 0, as
- * scripts/report-retro-due.js does: one reading covers every adopter.
- *
- * CORPUS. The close-check log (`lib/close-check-log.js`) in the markers
- * directory of every adopter on this laptop (lib/refill-repos.js's
- * readAdopterCheckouts, refillLoop ignored: the guard is not module-gated, #2115);
- * and every seat's transcripts, for the founder's replies.
- *
- * THE READING POINT, lib/log-reading.js's POINT_FIGURES. A repo is live from
- * its first log line, and the clock starts when the first one is (#2115). The
- * point is the clock's days after that or the target's refused-then-answered
- * question, whichever is later, and at most the ceiling's days after the
- * clock, whatever the count. Under the target the reading is thin; a repo
- * with no log line at the ceiling is named unread.
- *
- * REFUSED-THEN-ANSWERED: a `passed-after-refusal` event followed in its
- * session's transcript by a founder message, which is its reply. That is the
- * denominator, not the close rounds that reach him as at baseline, because a
- * separated question is no longer close when it does (#1068's captured fact).
- * Counted per question, as the spec has it.
- *
- * THE STOCK PROMPT is matched by STOCK_PROMPT. Every other reply after a
- * counted question is listed for the session that takes the reading to
- * classify, so the stock-only rate is a floor on the prompt rate.
- *
- * THE RESEARCH LADDER (#2010; spec #1995 §The research ladder) is read in its
- * own window: LADDER_DAYS from its first refusal or the first re-send
- * logging its `rungs`, whichever is sooner. Its success line is the
- * founder's prompts after a still-caught re-send falling to LADDER_LINE or
- * less; it is printed with the reading, on `--dry-run` after the reading has
- * filed too, never filed, and fires nothing above.
- *
- * Exit 0 whether or not it files, SKIP included; exit 2 for a log or baseline
- * that will not read, `gh` refusing, an unreadable WFC_NOW, or a command line
- * lib/cli-args.js refuses. A transcript that will not read leaves its
- * questions unanswered, and the run says how many.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -98,42 +42,27 @@ const USAGE = `usage: node ${scriptPath("report-close-check-reading.js")} [--dry
 const TITLE =
 	"Close-check reading: has refusing close questions once stopped the separation prompts?";
 
-/* #1068 Q4's four failure lines. */
+// #1068
 const UNTOOLED_LINE = 0.3;
 const PROMPT_LINE = 0.16;
 const CAP_SPENT_LINE = 0.1;
 const HARMFUL_FOURTH_LINE = 2;
 
-/* The close limb's own per-session cap of blocks (#1067). */
+// #1067
 const CAP_SLOTS = limbOf(CLOSE_RIVALS_PREFIX).cap;
 
-/* The stock prompt is a family of wordings ("are there any checks or research
- * you can do", "are there really no checks or research"), not #1091's one
- * sentence (#1096). Words may be split by any punctuation. A "no" just ahead
- * of the family, outside "really no", turns checks down ("No more checks or
- * research — go with A"). Lexical, so a decline worded otherwise ("I do not
- * want any more checks or research") still matches and a request opening "are
- * there no more…" does not. The lookahead first, so the lookbehind is read at
- * the family's first word alone, never at every character of a long run (#3383). */
+// #1096
 const STOCK_PROMPT =
 	/\b(?=further|more|any|really|truly)(?<!(?<!\b(?:really|truly)\W+)\bno\W+)(?:further|more|any|(?:really|truly)\W+no)\W+(?:checks?\W+(?:and|or)\W+research|research\W+(?:and|or)\W+checks?)\b/i;
 
 const BASELINE = "docs/data/close-rounds-2026-10-09/answered-close-rounds.json";
 
-/* #1905's two weeks and its 10% line, against #1894's rate. Both were taken
- * on close re-sends alone, but the success line counts every still-caught
- * re-send, low-top ones included (#2328), so it leaves unmeasured whether a
- * low-top re-send draws the prompt at the close rate: a pooled share under the
- * line can hide a low-top share over it, and the reverse. A window that
- * straddles #2328 also mixes lines that log a low-top-only re-send as not
- * still caught (`close-check-log.js`). */
+// #1905 #1894 #2328
 const LADDER_DAYS = 14;
 const LADDER_LINE = 0.1;
 const LADDER_BASELINE =
 	"about 19% of still-close re-sends (7 of the 8 traced prompts followed one, #1894), close re-sends alone, so low-top re-sends have none";
 
-/* Floating-point slack on a line's share times a count, which can land just
- * either side of a whole number and move the line by a whole reply. */
 const FLOAT_SLACK = 1e-9;
 
 /** @type {Record<import("./lib/research-ladder").Rung, string>} */
@@ -152,11 +81,7 @@ const RUNG_LABEL = {
  */
 
 /**
- * The baseline prompt rate: rounds the founder answered, and those his next
- * message was a separation prompt after (#1096).
- *
  * @returns {Baseline}
- * @throws where the dataset will not read
  */
 function readBaseline() {
 	const data = JSON.parse(
@@ -174,7 +99,6 @@ function readBaseline() {
  * @param {string} kind
  */
 const listed = (a, kind) => {
-	/* A question left out of the passing send logs no pair of its own. */
 	const pair = a.event.pair ?? a.event.refusedPair;
 	const priced = pair
 		? `, ${[pair.top, pair.runnerUp].map((b) => `(${b.letter}) ${b.figure}% (${b.low}% - ${b.high}%)`).join(" against ")}`
@@ -185,7 +109,6 @@ const listed = (a, kind) => {
 const { readFiledAs, publish, readDaily } = buildFiler({
 	title: TITLE,
 	label: takesLabel("wayfinder"),
-	/* Named outside every marker sweep family, as the close-check log is. */
 	record: ".close-check-reading-filed",
 	script: "report-close-check-reading.js",
 	buildIssueBody: (reading) =>
@@ -208,11 +131,9 @@ const afterRefusal = (a) => a.event.kind === "passed-after-refusal";
 const isStock = (a) => STOCK_PROMPT.test(a.reply.text);
 
 /**
- * Reads each live repo's close-check log, then the baseline.
- * @param {Map<string, string>} roots repo name → working directory
+ * @param {Map<string, string>} roots
  * @returns {{ events: LoggedEvent[], live: Map<string, number>,
- *   base: Baseline } | string} the logs, or the
- *   message the read failed with
+ *   base: Baseline } | string}
  */
 function readCloseLogs(roots) {
 	try {
@@ -239,7 +160,6 @@ const buildPointSentence = (point) =>
 		: `Reading point: ${minute(point.ceiling)} at the latest (${POINT_FIGURES.ceilingDays} days after the first repo went live); earlier once ${POINT_FIGURES.countTarget} refused questions are answered.`;
 
 /**
- * The repos with no log line by the ceiling, once it has passed.
  * @param {import("./lib/log-reading").Point} point
  * @param {{ nowMs: number, live: Map<string, number>, repos: string[] }} at
  * @returns {string[]}
@@ -255,13 +175,10 @@ function buildUnreadLines(point, { nowMs, live, repos }) {
 }
 
 /**
- * The counts the four failure lines read, over the counted window.
  * @param {LoggedEvent[]} counted
  * @param {Answered[]} replied
  */
 function tally(counted, replied) {
-	/* A refused question the passing send left out logs `stillClose` null: it
-	 * counts as answered (line 2) but was never re-sent (line 1). */
 	const resends = counted.filter(
 		(e) =>
 			e.kind === "passed-after-refusal" && typeof e.stillClose === "boolean",
@@ -298,8 +215,7 @@ function tally(counted, replied) {
 /** @typedef {ReturnType<typeof tally>} Tally */
 
 /**
- * The warnings that the reading is thin or partly unread.
- * @param {number} n refused-then-answered questions
+ * @param {number} n
  * @param {Baseline} base
  * @param {number} unreadSessions
  * @returns {string[]}
@@ -423,8 +339,8 @@ function buildClassifyLines({ others, atCapOthers }) {
 }
 
 /**
- * @param {LoggedEvent[]} events every logged event, unwindowed
- * @param {Answered[]} answers every refused-then-answered question, unwindowed
+ * @param {LoggedEvent[]} events
+ * @param {Answered[]} answers
  * @param {number} nowMs
  * @returns {string[]}
  */
@@ -466,7 +382,6 @@ function buildLadderReadingLines(events, answers, nowMs) {
 	);
 	const stock = replied.filter(isStock).length;
 	const others = replied.filter((a) => !isStock(a));
-	/* "10% or less": missed only above the line, so the first count past it. */
 	const needed =
 		Math.floor(LADDER_LINE * replied.length + FLOAT_SLACK) + 1 - stock;
 	/** @type {Verdict} */
@@ -532,14 +447,12 @@ function main() {
 }
 
 /**
- * Walk the corpus and publish the reading.
- *
  * @param {{ nowMs: number, dryRun: boolean, filed: string | null,
  *   seats: string[] }} run
  */
 function readAndPublish({ nowMs, dryRun, filed, seats }) {
 	const { files } = readSeatTranscripts(seats);
-	/** @type {Map<string, string>} session id → transcript */
+	/** @type {Map<string, string>} */
 	const transcripts = new Map(
 		files.map((f) => [path.basename(f, ".jsonl"), f]),
 	);

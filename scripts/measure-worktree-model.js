@@ -1,45 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-worktree-model.js — #4229's done check (#4253): over a window,
- * whether the main checkout stayed what the worktree model makes it, and what
- * an `Edit` on a tracked file and a landing merge cost.
- *
- *   node scripts/measure-worktree-model.js --since <iso> [--until <iso>] [--json]
- *
- * THE FOUR ZERO-CHECKS, read from the main checkout's git and the loop logs:
- *   1. commits on `main` not on `origin/main`, reached from every sha `main`'s
- *      reflog held in the window;
- *   2. `main` level with `origin/main` within one pass — each `origin/main`
- *      move starts a levelling pass (queue-lander.js), so main must reach the move
- *      before `origin/main` moves again;
- *   3. no `reconcile-*` merge — in any registered worktree's HEAD reflog, any
- *      reconcile branch's reflog, or any merge subject in the window — and no
- *      levelling report for this checkout that left main unmoved, from the
- *      lander's and the refill loop's logs;
- *   4. no tracked dirt — `git status` now, and no tracked file whose mtime
- *      falls in the window outside the paths a levelling fast-forward changed.
- *
- * THE TWO COSTS, read from every seat's transcripts of this repo
- * (lib/project-dirs.js): each `Edit` call on a path tracked at origin/main
- * that did not error, from the assistant record that made it to the result;
- * and each landing route call that merged, from its start to the merge
- * commit's committer time — its fetch, the merge and the pre-merge-commit
- * gates, not its push — an upper bound on the gates' time, to the second. A
- * hand `git merge` is not read: its output does not say whether it made a
- * commit.
- *
- * THE LANDING RATES, from the same calls, a week: lands that merged a moved
- * origin/main first, against #4229's predicted 491 to 587, and lands whose
- * push was no fast-forward of the queue ref (#4446), against #4166's race
- * window.
- *
- * A reaped worktree's HEAD reflog is gone, so check 3's reflog half sees only
- * the worktrees still registered; the merge-subject half sees every merge.
- *
- * In no family (§N3): it gates nothing and files nothing. The report goes to
- * stderr, `--json` to stdout. Exit 0 every zero-check held, 1 one failed, 2 a
- * usage error or a failed read.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -91,8 +50,6 @@ const git = (args, cwd, input) =>
 	);
 
 /**
- * A git command whose exit 1 means "no": exit 0 is true, 1 false, and any
- * other failure — a timeout, no git — is thrown.
  * @param {string[]} args
  * @param {string} cwd
  * @returns {boolean}
@@ -122,7 +79,7 @@ function readReflog(ref, cwd) {
 	);
 }
 
-/** @param {string} out NUL-separated git output */
+/** @param {string} out */
 const parseNulList = (out) => out.split("\0").filter(Boolean);
 
 /**
@@ -135,11 +92,7 @@ const readLines = (file) =>
 		crlfDelay: Number.POSITIVE_INFINITY,
 	});
 
-/**
- * A transcript's records, and how many non-blank lines would not parse — a
- * live transcript's torn last line among them.
- * @param {string} file
- */
+/** @param {string} file */
 async function readRecords(file) {
 	/** @type {import("./lib/transcript.js").TranscriptRecord[]} */
 	const records = [];
@@ -156,7 +109,6 @@ async function readRecords(file) {
 }
 
 /**
- * Checks 1 and 2.
  * @param {string} root
  * @param {Window} w
  */
@@ -199,7 +151,6 @@ function readMain(root, w) {
 }
 
 /**
- * Check 3's git half, one entry per commit however many places name it.
  * @param {string} root
  * @param {Window} w
  */
@@ -242,7 +193,6 @@ function readReconcile(root, w) {
 }
 
 /**
- * Check 3's log half.
  * @param {string} root
  * @param {Window} w
  */
@@ -263,10 +213,8 @@ async function readRefusals(root, w) {
 }
 
 /**
- * Check 4. One `git status` gives both the tracked dirt and the untracked
- * count; a rename's entry carries its source as a second field.
  * @param {string} root
- * @param {ReflogRow[]} all main's whole reflog
+ * @param {ReflogRow[]} all
  * @param {Window} w
  */
 function readDirt(root, all, w) {
@@ -294,7 +242,6 @@ function readDirt(root, all, w) {
 			const mtime = fs.lstatSync(path.join(root, p)).mtimeMs;
 			return mtime >= w.since && mtime < w.until;
 		} catch (err) {
-			/* A deleted tracked file is already in `dirty`. */
 			if (caught(err).code === "ENOENT") return false;
 			throw err;
 		}
@@ -307,8 +254,6 @@ function readDirt(root, all, w) {
  */
 
 /**
- * File one tool call under the cost it measures, if any.
- * accumulator: pushes onto and counts into `spans`.
  * @param {string} root
  * @param {import("./lib/worktree-model-reading.js").ToolSpan} span
  * @param {Spans} spans
@@ -325,8 +270,6 @@ function fileSpan(root, span, spans) {
 }
 
 /**
- * Each landing merge's time to its commit, and its whole call; a sha git no
- * longer holds is counted apart.
  * @param {string} root
  * @param {Spans["merges"]} merges
  */
@@ -350,7 +293,6 @@ function readMergeCosts(root, merges) {
 }
 
 /**
- * The two costs, from every transcript written in the window.
  * @param {string} root
  * @param {Window} w
  */

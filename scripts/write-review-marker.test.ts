@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * write-review-marker.js, driven through its command line in a sandbox repo
- * (#2040). Every refusal also asserts that no marker was written.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -63,7 +59,6 @@ const marker = () =>
 	path.join(repo, ".claude", "tmp", "markers", `.codereview-pass-${SID}`);
 const readMarkerText = () => fs.readFileSync(marker(), "utf8");
 
-/** The tree `commit-paths.js --tree <args>` prints in the repo. */
 const readTree = (args: string[], cwd = repo) => {
 	const r = runInProcess(COMMIT_PATHS, ["--tree", ...args], {
 		cwd,
@@ -87,7 +82,6 @@ const artefact = (
 	);
 };
 
-/** A tiered review's flags, with no paths. */
 const tiered = (tier: string) => [
 	"--base",
 	"HEAD",
@@ -219,10 +213,6 @@ describe("a review that left both artefacts", () => {
 		);
 	});
 
-	/**
-	 * Write the marker for a.js, left to a patch, and the new file at `added`,
-	 * named in `--paths` as `paths`; the tree commit-paths prints for that commit.
-	 */
 	const patchedRun = (added: string, paths: string) => {
 		artefact("standards");
 		artefact("spec");
@@ -283,7 +273,6 @@ describe("a review that left both artefacts", () => {
 });
 
 describe("mid-merge (#4426)", () => {
-	/** A merge of `side`, which writes b.js, left uncommitted; a.js this branch's. */
 	const startMerge = (theirs = "b.js", text = "theirs\n") => {
 		git("checkout", "-q", "-b", "side");
 		fs.writeFileSync(path.join(repo, theirs), text);
@@ -325,7 +314,6 @@ describe("mid-merge (#4426)", () => {
 	});
 
 	it("refuses while a conflict is unresolved", () => {
-		// the conflict stops the merge
 		ignoreFailure(() => startMerge("a.js", "theirs\n"));
 		expect(git("rev-parse", "-q", "--verify", "MERGE_HEAD")).toMatch(
 			/^[0-9a-f]{40}$/,
@@ -564,7 +552,6 @@ describe("a session a refill-loop resume carried to a new id (#4101)", () => {
 			JSON.stringify({ launches }),
 		);
 	};
-	/** The liveness oracle, listing exactly `rows` — or failing, given null. */
 	const oracle = (rows: Row[] | null) => {
 		const bin = path.join(repo, ".claude", "claude-agents");
 		fs.mkdirSync(path.dirname(bin), { recursive: true });

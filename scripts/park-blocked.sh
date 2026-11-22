@@ -1,42 +1,4 @@
 #!/usr/bin/env bash
-# park-blocked.sh — parks a ticket blocked on the founder or on an
-# outside party.
-#
-# Usage:
-#   park-blocked.sh <issue> takes:wayfinder|waiting:external|keep "<why>"
-#
-# Apply the label, post the comment, leave a local `.parked-blocked-<sid>`
-# record, release the issue claim, then print the wait-for-your-own-work step
-# (#1179 Q1 (A)).
-# A `takes:*` value REPLACES the issue's existing one; `waiting:external` is
-# ADDED alongside it (blocked on an outside party, the
-# command still applies once unblocked) — the two labels are different
-# categories, not two spellings of one (docs/agents/triage-labels.md §`takes:`
-# vs `waiting:`).
-#
-# `waiting:external` refuses unless something the shortlist skips on already
-# holds the issue (lib/issue-hold.js): an open blocked-by edge, an open
-# `**Blocked on**` issue, or a holding `**Gated until:**` or `**Gated on:**`
-# line (#3263, #3293). The comment this script posts goes through a child
-# `gh` the tracker-rules hook never sees, so this refusal is where the rule
-# binds.
-#
-# `keep` (#1020) is the founder's errand already filed: it writes no label,
-# and refuses unless the issue carries `takes:human` alone and a non-empty
-# `**Outside Claude Code:**` line.
-#
-# THIS SCRIPT REFUSES `takes:human` ITSELF (#140).
-# `scripts/guard-dispatch.js` (its `guard-issue-create-label` core) (mantahostels#3555) denies a
-# `gh issue edit --add-label takes:human` on an issue whose body carries no
-# `**Outside Claude Code:**` line — but it is a `PreToolUse` hook on the Bash
-# TOOL CALL, so it sees the command this session types
-# (`scripts/park-blocked.sh …`) and never a `gh` call this script shells
-# out to underneath it, so the refusal has to live here.
-#
-# INJECTION POINT: WFC_GH (the `gh` binary).
-#
-# EXIT CODES: 0 parked; 2 usage error; 3 a precondition refused, changing
-# nothing.
 
 set -uo pipefail
 
@@ -58,33 +20,22 @@ usage: park-blocked.sh <issue> takes:wayfinder|waiting:external|keep "<why>"
 EOF
 }
 
-# --- small helpers -----------------------------------------------------------
-
 refuse() {
   printf 'REFUSED: %s\n' "$1" >&2
   exit 3
 }
 
-# Repo-relative issue references need no owner/repo flag: `gh` resolves the
-# current repo from cwd.
 gh_issue_comment() {
   local issue="$1" body="$2"
   "$GH" issue comment "$issue" --body "$body"
 }
 
-# The issue's takes: labels, one per line.
 takes_labels() {
   local issue="$1"
   "$GH" issue view "$issue" --json labels --jq \
     '.labels[].name | select(startswith("takes:"))' 2>/dev/null
 }
 
-# Writes/overwrites this session's local blocked record, which
-# guard-session-ceiling.js reads without gh (#53). Every soft
-# failure warns to stderr, same as apply_label_and_stop's other best-effort
-# steps: a parked session whose record is MISSING hears the ceiling guard's
-# wind-up text, not silence, and has its release refused on a unit it started
-# — a real residual.
 write_blocked_record() {
   local issue="$1" label="$2"
   local dir
@@ -110,11 +61,6 @@ release_issue_claim() {
   node "$ARBITER" release-issue "$issue"
 }
 
-# --- parking ------------------------------------------------------------------
-#
-# $1 = issue, $2 = label (a takes: value | waiting:external | "" for keep),
-# $3 = why (comment body). An empty $2 comments, releases and records without
-# touching a label at all.
 apply_label_and_stop() {
   local issue="$1" label="$2" why="$3"
   if [[ -z "$label" ]]; then

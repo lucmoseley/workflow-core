@@ -178,9 +178,6 @@ const {
 	removeIsolated,
 	sweepIsolated,
 } = require("./lib/isolated-worktree.js");
-/* The working-tree reads and the path quoting, shared with
- * scripts/guard-uncommitted-work.js so the two refusals name the same set
- * (mantahostels#2196). */
 const {
 	REFUSAL_NAMED_MAX,
 	isLinkedWorktree,
@@ -201,27 +198,10 @@ const {
 	npmSwallowedRefusal,
 } = require("./lib/launch-route.js");
 
-/*
- * How long the suite may show NO sign of life before it is treated as parked.
- *
- * The threshold is the longest gap between two test or hook events, so it is
- * bounded by the slowest single test, not the slowest file. Five minutes is
- * about 6x the longest test #1115 measured — a margin, not derived from it —
- * and hooks were never timed.
- */
+// #1115 guess: about 6x the longest test measured there
 const STALL_MS = 300_000;
 const STALL_ENV = "WFC_TEST_STALL_MS";
 
-/**
- * The silence threshold, from the environment where it is a non-negative
- * number.
- *
- * ZERO DISABLES THE WATCHDOG, for the one case that legitimately wants none: a
- * debugger attached to a worker, where a paused process is the point. The
- * suite ceiling still holds.
- * A value that is not a number is IGNORED rather than obeyed as zero — a typo
- * must not silently remove the protection.
- */
 function stallMs() {
 	const raw = process.env[STALL_ENV];
 	if (raw === undefined || raw === "") return STALL_MS;
@@ -238,7 +218,6 @@ function stallMs() {
  * in the plugin cache, not the tree whose suite this runs. */
 const TREE_ROOT = worktreeRoot();
 
-/** HEAD, or "unknown" where git will not answer — never thrown. */
 /** @param {string} root */
 function readHeadSha(root) {
 	try {
@@ -261,11 +240,6 @@ function readHeadSha(root) {
  */
 
 /**
- * Open the log stream for this run, or null where it cannot be opened — a
- * store this wrapper cannot write to must degrade to "no log", never to a
- * suite that fails to run. The failure is still reported: §N5, fail open and
- * say so.
- *
  * @param {string} file
  * @param {{ fs?: WrapperFs }} [options]
  * @returns {{ stream: ReturnType<WrapperFs["createWriteStream"]>|null, error: unknown }}
@@ -280,10 +254,6 @@ function openLog(file, { fs: fsImpl = fs } = {}) {
 }
 
 /**
- * What a killed run prints.
- *
- * IT NAMES THE MECHANISM, not just the timeout. A reader meeting "timed out"
- * looks for a slow test and tunes workers or memory.
  * @param {{ module: string, stage: string }[]} rows
  * @param {number} ms
  * @param {string} root
@@ -320,12 +290,9 @@ function buildStallReport(rows, ms, root) {
 }
 
 /**
- * What a run killed at the suite ceiling prints (#2696): the ceiling, how long
- * the run held the machine and at what load, the files in flight, the files
- * never started, and how many finished.
  * @param {InflightRecord} record
  * @param {{ ceiling: number, elapsed: number, root: string,
- *   machine: ReturnType<typeof cpuDelta> }} run
+ *    machine: ReturnType<typeof cpuDelta> }} run
  */
 function buildCeilingReport(record, { ceiling, elapsed, root, machine }) {
 	const rel = (/** @type {string} */ m) => path.relative(root, m);
@@ -365,8 +332,6 @@ function buildCeilingReport(record, { ceiling, elapsed, root, machine }) {
 }
 
 /**
- * The scheduled files neither finished nor in flight; null where no schedule
- * was recorded.
  * @param {InflightRecord} record
  * @returns {string[]|null}
  */
@@ -380,16 +345,12 @@ function neverStarted(record) {
 }
 
 /**
- * `argv`'s plan, looked up in the pass store (#4790), or the exit code of a
- * launch that ends here: a failed narrowing and a bare `uncached:` pragma
- * refuse it, and one whose every file was cached runs nothing. An
- * `emptyOnly` launch with a file still to run requeues.
  * @param {string[]} argv
  * @param {() => ReturnType<typeof expandChanged>} expand
  * @param {{ root: string, launch: LauncherLaunch, out: Writer, err: Writer,
- *   session: string|null, emptyOnly: boolean, execFn?: ExecFn }} run
+ *    session: string|null, emptyOnly: boolean, execFn?: ExecFn }} run
  * @returns {{ code: Promise<number>, looked?: undefined }
- *   | { code: null, looked: LookedPlan }}
+ *    | { code: null, looked: LookedPlan }}
  */
 function planRun(argv, expand, run) {
 	const { launch, err } = run;
@@ -410,19 +371,15 @@ function planRun(argv, expand, run) {
 	if (looked.notice) err.write(`${looked.notice}\n`);
 	if (looked.allCached)
 		return { code: Promise.resolve(finishAllCached(looked, run)) };
-	/* Past a lookup that cached not all, or a plan with files, one runs. */
 	const leftToRun = looked.cached !== null || (plan?.files.length ?? 0) > 0;
 	if (run.emptyOnly && leftToRun) return { code: Promise.resolve(REQUEUE) };
 	return { code: null, looked };
 }
 
 /**
- * A launch whose every file a recorded pass attested (#4790): nothing is
- * spawned or queued, its banner names each file's source, and its
- * certificate is written as a narrowed run's.
  * @param {LookedPlan} looked
  * @param {{ root: string, launch: LauncherLaunch, out: Writer,
- *   session: string|null, execFn?: ExecFn }} run
+ *    session: string|null, execFn?: ExecFn }} run
  * @returns {number}
  */
 function finishAllCached(looked, { root, launch, out, session, execFn }) {
@@ -447,16 +404,7 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
 	return 0;
 }
 
-/**
- * The environment `runOnce` hands vitest: the parent's own, the in-flight
- * file, and the launch record the certificate is written from.
- * `cached` is the pass store's hand-off (#4790): this run's alone, so an
- * inherited one never reaches a run that looked nothing up.
- * `startMark` the run's start on the change-time clock (lib/tree-drift.js's
- * `markStart`), null where none was taken. `tmpRoot` the run's `TMPDIR`.
- * `memoryFile` the run's memory record (lib/run-memory.js).
- * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null, tmpRoot: string|null, memoryFile: string }} run
- */
+/** @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null, tmpRoot: string|null, memoryFile: string }} run */
 function vitestEnv({
 	inflightFile,
 	timingsFile,
@@ -468,10 +416,6 @@ function vitestEnv({
 	tmpRoot,
 	memoryFile,
 }) {
-	/* The deadline file is this run's alone: a runner a test drives inside
-	 * vitest would otherwise overwrite it, then remove it, disarming bg-run's
-	 * backstop (#2704). A runner a test drives must queue as its own launch,
-	 * never inside this run's seat (#2918). */
 	const {
 		[DEADLINE_ENV]: _deadline,
 		[SEAT_ENV]: _seat,
@@ -494,28 +438,13 @@ function vitestEnv({
 		...(process.stdout.isTTY ? { FORCE_COLOR: "1" } : {}),
 		...(tmpRoot === null ? {} : { TMPDIR: tmpRoot }),
 		[runMemory.MEMORY_ENV]: memoryFile,
-		/* Taken before vitest reads its config, which a run keys rows on too
-		 * (#5018); an inherited one, earlier still, stands where none is. */
 		...(startMark === null ? {} : { [START_MARK_ENV]: String(startMark) }),
 	};
 }
 
-/**
- * The launch record's fields the launcher sets: built once in `main`, then
- * overridden by the route that knows better — `runIsolated` and the overlays
- * set `isolated`.
- * `slotFree`: `isTouchedRun`'s reading of the route, a run that never takes
- * the whole-suite slot and whose workers are capped at its files; the child's
- * record does not carry it.
- * `passStore` is whether the launch looks its files up in the pass store
- * (#4790); a full run never does, whatever it says.
- * @typedef {Partial<Omit<import("./lib/suite-handoff.js").Launch, "admissible"|"changedPaths">> & { slotFree?: boolean, passStore?: boolean }} LauncherLaunch
- */
+/** @typedef {Partial<Omit<import("./lib/suite-handoff.js").Launch, "admissible"|"changedPaths">> & { slotFree?: boolean, passStore?: boolean }} LauncherLaunch */
 
 /**
- * The run-cost report for the timings the in-flight reporter left at `file`,
- * then the file removed. An absent file is a run that timed nothing — vitest
- * died before its end, or a config without the reporter — and prints nothing.
  * @param {string} root
  * @param {string} file
  * @param {Writer} err
@@ -531,11 +460,7 @@ function readRunCostLines(root, file, err) {
 }
 
 /**
- * The admission weight a run carries in its launch record (#2931), weighed
- * once a launch: the test files `plan` selects, else those `argv` resolves to
- * in its own repo's suite, and whether that count takes the whole-suite slot,
- * which a touched run never does (#2935).
- * @param {string[]} argv the launch's argv, its wrapper flags stripped
+ * @param {string[]} argv
  * @param {ReturnType<typeof expandChanged>} plan
  * @param {{ root: string, execFn?: ExecFn, slotFree?: boolean, err?: Writer }} options
  * @returns {import("./lib/suite-handoff.js").CarriedWeight}
@@ -555,8 +480,6 @@ function launchWeight(
 }
 
 /**
- * `launchWeight` over a queued launch's probe; uncounted where the probe
- * failed, and so whole unless it is a touched run.
  * @param {ReturnType<typeof probeSelection>} probe
  * @param {string[]} rest
  * @param {{ root?: string, execFn?: ExecFn, slotFree?: boolean, err?: Writer }} options
@@ -573,9 +496,6 @@ function probedWeight(
 }
 
 /**
- * The `--maxWorkers` a touched run of `files` test files forks (#2935): one
- * per file below a whole suite's workers, and none added at or above them,
- * where the config's own count stands. Never where the argv sets its own.
  * @param {LauncherLaunch} launch
  * @param {string[]} runArgv
  * @returns {string[]}
@@ -585,14 +505,10 @@ function touchedWorkers(launch, runArgv) {
 	if (!launch.slotFree || typeof files !== "number") return [];
 	if (files >= WHOLE_SUITE_WORKERS) return [];
 	if (runArgv.some((w) => /^--maxWorkers(=|$)/.test(w))) return [];
-	/* An empty selection runs on a filter matching nothing, and vitest
-	 * refuses `--maxWorkers=0`. */
 	return [`--maxWorkers=${Math.max(files, 1)}`];
 }
 
 /**
- * The repo's tracked test files vitest collects, or null where git or vitest
- * will not list them.
  * @param {string} root
  * @param {ExecFn} execFn
  * @param {Writer} err
@@ -615,7 +531,6 @@ function readSuiteFiles(root, execFn, err) {
 			? readVitestCollected(root, listed.split("\0").filter(Boolean), execFn)
 			: null;
 	} catch (error) {
-		/* Null charges the run the whole slot: the over-charging direction. */
 		err.write(
 			`run-vitest: the suite could not be listed (${error}) — this run is weighed whole (#2931).\n`,
 		);
@@ -624,7 +539,6 @@ function readSuiteFiles(root, execFn, err) {
 }
 
 /**
- * `options` with `fields` laid over its launch record.
  * @template {{ launch?: LauncherLaunch }} T
  * @param {T} options
  * @param {LauncherLaunch} fields
@@ -635,32 +549,21 @@ function withLaunch(options, fields) {
 }
 
 /**
- * `bin` lets a real subprocess test point at a stand-in executable instead of
- * paying for a real vitest invocation to prove the pipe survives a real,
- * slow-reading `head`.
- *
- * The default `inflightFile` and `timingsFile` are paths of this run's own,
- * never the repo-root one: part-suites run beside a whole suite, and one
- * shared name means a neighbour's run end deletes the rows this run's stall
- * would be named from.
- *
  * @param {string[]} argv
  * @param {{ spawnFn?: typeof import("node:child_process").spawn, root?: string, fs?: WrapperFs, bin?: string, stall?: number, ceiling?: number, inflightFile?: string, timingsFile?: string,
- *   expand?: typeof expandChanged, out?: { write: (s: string) => unknown },
- *   execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
- *   launch?: LauncherLaunch, onSpawn?: (charge?: import("./lib/suite-queue.js").SpawnCharge) => void, emptyOnly?: boolean,
- *   escalationRequeues?: boolean, session?: string|null,
- *   admission?: PartAdmission|null,
- *   readAdmission?: ((words: string[]) => PartAdmission|null)|null,
- *   yieldCpu?: (child: { pid?: number }, options: { err: Writer }) => unknown,
- *   killCarrier?: typeof killPid }} [options]
+ *    expand?: typeof expandChanged, out?: { write: (s: string) => unknown },
+ *    execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
+ *    launch?: LauncherLaunch, onSpawn?: (charge?: import("./lib/suite-queue.js").SpawnCharge) => void, emptyOnly?: boolean,
+ *    escalationRequeues?: boolean, session?: string|null,
+ *    admission?: PartAdmission|null,
+ *    readAdmission?: ((words: string[]) => PartAdmission|null)|null,
+ *    yieldCpu?: (child: { pid?: number }, options: { err: Writer }) => unknown,
+ *    killCarrier?: typeof killPid }} [options]
  * @returns {Promise<number>}
  */
 function runOnce(
 	argv = process.argv.slice(2),
 	{
-		/* spawn's last overload, the one this file calls, is spawnInRunScope's
-		 * own signature; the cast keeps the piped `stdout` non-null. */
 		spawnFn = /** @type {typeof import("node:child_process").spawn} */ (
 			spawnInRunScope
 		),
@@ -674,30 +577,18 @@ function runOnce(
 		expand = expandChanged,
 		out = process.stdout,
 		launch = {},
-		// Called once vitest is spawned, so a `--queue` run can tell the waiters
-		// behind it that it is now visible to the guard.
 		onSpawn = noop,
-		// Set only on a run that left the queue early (#1158): it may run an
-		// empty selection and nothing else, the gate being shut.
 		emptyOnly = false,
-		/* A queued part-suite's (#2931): a plan that now takes the whole slot
-		 * queues again, whole, rather than run beside a held one. */
 		escalationRequeues = false,
-		/* Whose run record the finished run joins (#1575); none is kept
-		 * without one. */
 		session = idSeam.fromEnv(),
 		yieldCpu = yieldToWhole,
 		err = process.stderr,
-		/* What SIGKILLs the run's carriers, here and in `releaseRunsAndWorktrees`. */
 		killCarrier = killPid,
 		admission: admitted = null,
 		readAdmission = null,
 		...expandOptions
 	} = {},
 ) {
-	/* Consumed here, never passed on: vitest is handed the union as an explicit
-	 * file list instead. A null plan is an argv with no selection flag or a
-	 * `--changed` run's unreadable manifest, both of which run argv unchanged. */
 	const planned = planRun(
 		argv,
 		() => expand(argv, { root, bin, err, ...expandOptions }),
@@ -742,19 +633,12 @@ function runOnce(
 		});
 		return Promise.resolve(0);
 	}
-	/* An empty selection runs too, on a filter matching nothing, so the
-	 * reporter's end hook fires and the marker is written (#189 §6). */
 	const runArgv = plan ? plan.argv : argv;
 
 	const target = repoRoot(root) || root;
 	const sha = readHeadSha(root);
 	const file = logPath(target, sha, new Date(), process.pid);
 	const opened = openLog(file, { fs: fsImpl });
-	/* Reassigned to null on a late write failure (ENOSPC, EIO — anything past
-	 * the open itself), which createWriteStream reports asynchronously through
-	 * `error` rather than throwing. Unhandled, that `error` event is a fatal
-	 * uncaughtException; handled, it is the same "no log" degradation as a
-	 * failed open. */
 	let stream = opened.stream;
 	if (opened.error)
 		err.write(
@@ -774,19 +658,12 @@ function runOnce(
 	});
 
 	const startedAt = new Date();
-	/* Spans are read off the monotonic clock, which a host suspend does not
-	 * advance; the wall clock steps forward on resume (#2829). */
 	const startedAtMono = performance.now();
-	/* A previous run in this process may have left one; this run's report
-	 * must read only its own. */
 	timings.clear(timingsFile, err);
 	const dropCached = () => {
 		if (cached) fs.rmSync(cachedFile, { force: true });
 	};
 	return new Promise((resolve) => {
-		/* A signal to this process would otherwise leave the group running:
-		 * the handlers exit, and the exit kills every group still held. Armed
-		 * before the spawn, so no signal lands between it and them. */
 		armSignals();
 		heldRuns.set(inflightFile, killCarrier);
 		const tmpRoot = openRunRoot(err);
@@ -806,7 +683,6 @@ function runOnce(
 		};
 		const memory = takeWrapperMemory() ?? runMemory.startSampler(runLaunch);
 		memory.setLaunch(runLaunch);
-		/* A group of its own, so a kill reaches every worker vitest forks. */
 		const child = spawnFn(
 			bin,
 			["run", ...touchedWorkers(weighed, runArgv), ...runArgv],
@@ -832,23 +708,14 @@ function runOnce(
 		const spawnedAt = Date.now();
 		const spawnedAtMono = performance.now();
 		const machineStart = sampleCpu();
-		/* A run admitted on its own peak is charged that peak as it climbs
-		 * (#5366). */
 		onSpawn(admission?.mode === "peak" ? { chargeMb: admission.p99Mb } : {});
 
-		// ENOENT, EACCES: spawn reports these through an `error` event on an
-		// async child, same shape as spawnSync's `.error` in run-pytest.js.
-		// A real ChildProcess always has `.on`; the only caller that would not is
-		// a test double built wrong, and that should throw rather than hide it.
 		child.on("error", (error) => {
 			err.write(`vitest could not be run from ${bin}: ${error}\n`);
 		});
 
-		/* Set while the watchdog is armed; cleared once it kills or the child
-		 * closes, so a resolved run leaves no timer holding the event loop open. */
 		/** @type {ReturnType<typeof setTimeout>|null} */
 		let watchdog = null;
-		/* Which trigger killed the run, once one has. */
 		/** @type {"stall"|"ceiling"|null} */
 		let killedFor = null;
 		/** @type {ReturnType<typeof setTimeout>|null} */
@@ -859,8 +726,6 @@ function runOnce(
 			if (watchdog) clearTimeout(watchdog);
 			watchdog = null;
 		};
-		/* When the current silence began: the last output chunk, or the last
-		 * heartbeat the in-flight reporter left on its file (#1149). */
 		let since = 0;
 		const arm = (from = Date.now()) => {
 			if (!stall || killedFor) return;
@@ -868,8 +733,6 @@ function runOnce(
 			since = from;
 			const left = stall - (Date.now() - from);
 			watchdog = setTimeout(killUnlessBeat, Math.max(0, Math.min(stall, left)));
-			/* The timer must not by itself keep this process alive — a run that
-			 * finishes with the watchdog armed should exit at once. */
 			watchdog.unref?.();
 		};
 		/** @param {string} report */
@@ -877,28 +740,20 @@ function runOnce(
 			err.write(report);
 			if (stream) stream.write(report);
 		};
-		/* SIGKILL, not SIGTERM: the parent may be wedged waiting on a worker
-		 * that cannot be asked to stop. */
 		const kill = (/** @type {"stall"|"ceiling"} */ why) => {
 			killedFor = why;
 			disarm();
 			const unkilled = child.pid ? killGroup(child.pid) : null;
 			if (unkilled) err.write(groupUnkilled("vitest", unkilled));
 			child.kill("SIGKILL");
-			/* `close` needs stdio EOF as well as exit, which a descendant that
-			 * left the group can withhold; settling on a timer keeps the report
-			 * from hanging on it. */
 			giveUp = setTimeout(() => {
-				/* Ref'd pipes a descendant holds open would keep this process
-				 * alive past its own verdict. */
 				child.stdout.destroy();
 				child.stderr.destroy();
 				settle(null);
 			}, SETTLE_MS);
 			giveUp.unref?.();
 		};
-		/** What either kill's fail record carries.
-		 * @param {InflightRecord} record */
+		/** @param {InflightRecord} record */
 		const killed = (record) => ({
 			sha,
 			at: new Date().toISOString(),
@@ -909,14 +764,9 @@ function runOnce(
 			memory: memory.current(),
 			...markerAdmission(admission),
 			...(idSeam.isLanderRun() ? { lander: true } : {}),
-			/* So gate kills count apart from bare ones (#5321). */
 			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
-			/* A killed run writes no scope, and an escalated whole run's argv
-			 * names no `--full=`; the margin check reads this (#3237). */
 			...(weighed.full ? { full: weighed.full } : {}),
 		});
-		/* Read only when the timer fires, so a heartbeat costs the wrapper one
-		 * stat per threshold rather than one per test. */
 		const killUnlessBeat = () => {
 			const beat = inflight.lastBeat(inflightFile);
 			if (beat > since) return arm(beat);
@@ -969,28 +819,21 @@ function runOnce(
 		 */
 		const forward = (childStream, sink) => {
 			childStream.on("data", (chunk) => {
-				/* Any byte is progress. */
 				arm();
 				sink.write(chunk);
 				if (stream) stream.write(chunk);
 			});
 		};
 		arm();
-		/* vitest's own bytes go to the real streams; `out` and `err` carry
-		 * only the wrapper's messages (#3175). */
 		forward(child.stdout, process.stdout);
 		forward(child.stderr, process.stderr);
 
 		/** @type {string|null} */
 		let capped = null;
-		/* On exit, not close: a process left in the scope can hold vitest's
-		 * pipes open, and `close` waits on them. */
 		const endScope = () => {
 			capped ??= endRunScope(child);
 		};
 		child.on("exit", endScope);
-		/* A worker reparented to init, out of the group and of any scope
-		 * (#3494). */
 		child.on("exit", (_code, signal) => {
 			if (!signal) return;
 			const unkilled = killCarrying(inflight.INFLIGHT_ENV, inflightFile, {
@@ -1012,9 +855,6 @@ function runOnce(
 			held.release();
 			endScope();
 			if (capped) announce(capped);
-			/* After the suite's summary and into the log, so the teed record
-			 * keeps it. A stalled or killed run never reaches the reporter's
-			 * run end, so it leaves no timings and prints nothing here. */
 			const report = readRunCostLines(root, timingsFile, err).join("\n");
 			if (report) {
 				out.write(`${report}\n`);
@@ -1022,16 +862,7 @@ function runOnce(
 			}
 			const finish = () => {
 				if (stream) {
-					// A log nobody knows exists is never re-read, so announce it
-					// (mantahostels#1942).
-					// Relative to `target` (the canonical checkout `file` was built
-					// under), not `root` — a worktree's own root differs from the
-					// canonical checkout, and `path.relative(root, file)` would print
-					// a confusing `../` chain there instead of a short path.
 					process.stdout.write(`TEST LOG: ${path.relative(target, file)}\n`);
-					/* The line above is the one a `grep` or `head` on the
-					 * output drops; this record is how
-					 * scripts/guard-lost-verdict.js finds the log then. */
 					const run = {
 						log: file,
 						pid: process.pid,
@@ -1045,14 +876,9 @@ function runOnce(
 					reap(dirPath(target), { fs: fsImpl });
 				}
 				inflight.clearFile(inflightFile);
-				/* A killed run must never be able to exit 0. A negative code is
-				 * the errno of a child that never spawned, -2 for ENOENT: passed
-				 * on, it reads as REQUEUE or REQUEUE_WHOLE and re-queues the run
-				 * for ever (#3140). */
+				// #3140
 				resolve(killedFor || capped || code === null || code < 0 ? 1 : code);
 			};
-			/* On `close`, not `end`'s callback, which fires at `finish`, before
-			 * the fd is closed: a caller handed the code must find the log shut. */
 			if (stream) {
 				stream.once("close", finish);
 				stream.end();
@@ -1063,7 +889,6 @@ function runOnce(
 }
 
 /**
- * What the run file records of an admission: its mode and the whole of it.
  * @param {PartAdmission|null} admission
  * @returns {{ mode?: PartAdmission["mode"], admission?: PartAdmission }}
  */
@@ -1074,10 +899,6 @@ const admissionFields = (admission) =>
 const markerAdmission = (admission) => (admission ? { admission } : {});
 
 /**
- * A part-suite's admission: the queue's, as it heard it, else, where no queue
- * did, read once by
- * `readAdmission`, none for a whole run or the lander's, which the gate never
- * charges on its peak.
  * @param {PartAdmission|null} admitted
  * @param {((words: string[]) => PartAdmission|null)|null} readAdmission
  * @param {{ wholeSlot?: boolean }} weighed
@@ -1091,12 +912,6 @@ function admissionOf(admitted, readAdmission, weighed, words) {
 }
 
 /**
- * How the gate judges a part-suite the guard admitted unqueued (#5366), read
- * once as it starts, for its records alone: the guard's own reading ran in
- * the hook's process. Read off the words alone, as the guard read them, with
- * no resolved weight: a bare touched run it judged `unsized` reads so here
- * too. Residual: memory moved between the two reads may judge it otherwise
- * than the guard did.
  * @param {string[]} words
  * @returns {PartAdmission | null}
  */
@@ -1111,8 +926,6 @@ function readDirectAdmission(words) {
 	return heard;
 }
 
-/* The memory record the wrapper opened as it started, before its queue wait
- * and its selection, so a wrapper killed there still leaves its pid (#5183). */
 /** @type {import("./lib/run-memory.js").Sampler|null} */
 let wrapperMemory = null;
 
@@ -1134,26 +947,14 @@ function takeWrapperMemory() {
 	return taken;
 }
 
-/* Isolated worktrees `releaseRunsAndWorktrees` removes on a signal, since a `.finally()`
- * does not run on a signal and a leaked worktree is a whole checkout
- * (mantahostels#2034, mantahostels#2169). */
 /** @type {Set<{ root: string, dir: string }>} */
 const heldWorktrees = new Set();
-/* Each live run's in-flight file, whose carriers `releaseRunsAndWorktrees`
- * kills on a signal (#3494), and its run's kill. */
 /** @type {Map<string, typeof killPid>} */
 const heldRuns = new Map();
-/* Each live run's temp root, which `releaseRunsAndWorktrees` removes on a
- * signal. */
 /** @type {Set<string>} */
 const heldRoots = new Set();
 
 /**
- * A temp root for one vitest child, its `TMPDIR`. vitest's own process makes
- * its cache dir at `<tmpdir>/<nanoid>` and removes it only in `close()`, which
- * a killed run never reaches (#5108); under this root, the wrapper removes it
- * however the run ends, and the next wrapper start sweeps a SIGKILLed
- * wrapper's. Null where the root will not make.
  * @param {Writer} err
  * @returns {string|null}
  */
@@ -1171,7 +972,7 @@ function openRunRoot(err) {
 }
 
 /**
- * @param {string|null} root `openRunRoot`'s
+ * @param {string|null} root
  * @param {Writer} err
  */
 function dropRunRoot(root, err) {
@@ -1180,59 +981,35 @@ function dropRunRoot(root, err) {
 	try {
 		removeRunRoot(root);
 	} catch (error) {
-		/* Reported, never thrown: the run's verdict stands without it, and
-		 * `sweepDeadRunRoots` takes the root once this wrapper is dead (#5108). */
 		err.write(
 			`run-vitest: ${root} would not go (${caught(error).message}); a wrapper start removes it an hour after this wrapper exits\n`,
 		);
 	}
 }
 
-/**
- * What a signal to this process takes down before its queue seats leave:
- * each live run's carriers, temp root and isolated worktree. Each removal is best
- * effort, and one that throws must not strand the rest.
- *
- * @returns {void}
- */
+/** @returns {void} */
 function releaseRunsAndWorktrees() {
 	for (const [file, kill] of heldRuns) {
 		const unkilled = killCarrying(inflight.INFLIGHT_ENV, file, { kill });
 		if (!unkilled) continue;
-		// A lost line must not strand the removals below (#3585).
 		ignoreFailure(() => writeFd(2, carrierUnkilled(unkilled)));
 	}
-	// A lost line must not strand the removals below (#3585).
 	for (const root of heldRoots)
 		dropRunRoot(root, { write: (s) => ignoreFailure(() => writeFd(2, s)) });
-	// Reported inside removeIsolated.
 	for (const held of heldWorktrees)
 		ignoreFailure(() => removeIsolated(held.root, held.dir));
 }
 
-/**
- * Take this process's runs and worktrees down if it is terminated rather
- * than resolved: a promise `.finally()` does not run on a signal
- * (mantahostels#2034). Idempotent, and shared with the queue seats' handler.
- *
- * @returns {void}
- */
+/** @returns {void} */
 function armSignals() {
 	armSeatSignals({ cleanup: releaseRunsAndWorktrees });
 }
 
-/* What an `emptyOnly` run resolves to where its selection is not empty: a
- * commit landed between the re-check and the run, so it queues again. */
 const REQUEUE = -1;
 
-/* What a queued part-suite whose plan takes the whole slot resolves to: it
- * re-joins whole (#2931). */
 const REQUEUE_WHOLE = -2;
 
 /**
- * The refusal for argv carrying more than one selection flag, naming them —
- * or null where it carries one at most (#2764).
- *
  * @param {string[]} argv
  * @returns {string|null}
  */
@@ -1244,10 +1021,7 @@ function selectionClashRefusal(argv) {
 }
 
 /**
- * The refusal text for a `--full` launch naming no reason, or one outside
- * `FULL_CAUSES` (#182's acceptance criteria).
- *
- * @param {string} word the offending word, exactly as argv carried it
+ * @param {string} word
  * @returns {string}
  */
 function fullCauseRefusal(word) {
@@ -1263,14 +1037,6 @@ function fullCauseRefusal(word) {
 }
 
 /**
- * Records a refused `--full` launch to the fail store (#182's acceptance
- * criterion: "A refused launch leaves a record that can be counted"), so the
- * refusal rate is measurable — without it, a session routing around the
- * flag is invisible.
- *
- * NEVER THROWS, NEVER BLOCKS THE REFUSAL ON IT: a store this cannot write to
- * costs the count, never the refusal message the session actually needs.
- *
  * @param {string} root
  * @param {string} word
  * @param {string[]} argv
@@ -1293,8 +1059,6 @@ function recordFullRefusal(root, word, argv) {
 }
 
 /**
- * `options` carrying the id `route` was decided with, which an overlay
- * attributes its files by.
  * @template {{ sessionId?: string }} T
  * @param {LaunchRoute} route
  * @param {T} options
@@ -1304,28 +1068,10 @@ function withSession(route, options) {
 	return route.sessionId ? { ...options, sessionId: route.sessionId } : options;
 }
 
-/*
- * mantahostels#3208: THE DEFAULT'S BASE is `merge-base(HEAD, <start ref>)`,
- * the start ref being lib/landing-refs.js's `VERIFIED_REF`: what a touched
- * run selects from, and what a typed `--full` and a bare `--changed` record.
- * IT IS NEVER FETCHED: a stale remote ref only widens the selection where
- * the merge-base still resolves against it. WHERE IT DOES NOT EXIST OR THE
- * MERGE-BASE CANNOT BE RESOLVED, the base falls back to `HEAD` instead —
- * which NARROWS the selection to uncommitted work alone.
- */
-
-/**
- * The base a default run records, against which its failures are classed as
- * already red (#3646, #3660): the default's merge-base, null where it fell
- * back to `HEAD`, which holds the session's own commits, so a failure already
- * red there may be its own.
- * @param {string} base
- */
+/** @param {string} base */
 const committedBase = (base) => (base === "HEAD" ? null : base);
 
 /**
- * The default's base read in `root`, `committedBase`'s: what a typed `--full`
- * and a bare `--changed` record, so the two cannot disagree.
  * @param {string} root
  * @param {ExecFn} execFn
  */
@@ -1333,11 +1079,6 @@ const readCommittedBase = (root, execFn) =>
 	committedBase(readDefaultChangedBase(root, execFn));
 
 /**
- * The base a run records: the default's, set when it planned, or a bare
- * `--changed`'s, set on its route, `committedBase`'s either way (#3660,
- * #3678); else its plan's, an explicit `--changed <ref>`'s; a typed
- * `--full`'s, the default's read in the tree the run starts in, so a commit
- * made while it queued moves it (#3646).
  * @param {LauncherLaunch} launch
  * @param {ReturnType<typeof expandChanged>} plan
  * @param {string} root
@@ -1352,7 +1093,6 @@ function readRunBase(launch, plan, root, execFn = execFileSync) {
 }
 
 /**
- * Refuses a narrowing that failed (#2698), resolving 1 with nothing run.
  * @param {{ err?: { write: (s: string) => unknown } }} options
  * @param {unknown} cause
  * @returns {Promise<number>}
@@ -1369,16 +1109,13 @@ function refuseNarrowing(options, cause) {
 }
 
 /**
- * The options every route's run takes.
  * @typedef {Parameters<typeof runOnce>[1] & Parameters<typeof runIsolated>[1] &
- *   { renderEdges?: () => Record<string, string[]>,
- *     commitLedger?: import("./lib/own-work.js").CommitLedger,
- *     claimFn?: import("./lib/manifest-freshen.js").ClaimFn }} RouteOptions
+ *    { renderEdges?: () => Record<string, string[]>,
+ *      commitLedger?: import("./lib/own-work.js").CommitLedger,
+ *      claimFn?: import("./lib/manifest-freshen.js").ClaimFn }} RouteOptions
  */
 
 /**
- * Run `route` on its tree: the overlay where it builds, else the
- * `route.fallback` it names.
  * @param {LaunchRoute} route
  * @param {{ overlay: () => Promise<number>|null, worktree: () => Promise<number>, shared: () => Promise<number> }} runs
  * @returns {Promise<number>}
@@ -1392,9 +1129,6 @@ async function onTree(route, runs) {
 }
 
 /**
- * `readOwnWork` at `at`, where it leaves a neighbour's commit out — else null
- * (#1216).
- *
  * @param {string} at
  * @param {string} base
  * @param {RouteOptions} options
@@ -1404,8 +1138,6 @@ function readOwnWorkAt(at, base, options) {
 }
 
 /**
- * `readOwnPaths` at `at` with the launch's session and seams.
- *
  * @param {string} at
  * @param {string} base
  * @param {RouteOptions} options
@@ -1414,13 +1146,9 @@ function readOwnPathsAt(at, base, options) {
 	return readOwnPaths(at, base, ownOptions(options));
 }
 
-/**
- * The launch's session and seams, as the own-work reads take them.
- * @param {RouteOptions} options
- */
+/** @param {RouteOptions} options */
 function ownOptions(options) {
 	return {
-		/* `||`, not `??`: the suite stubs the id to "", which is no session. */
 		sessionId: options.sessionId || idSeam.fromEnv(),
 		execFn: options.execFn ?? execFileSync,
 		...(options.commitLedger ? { ledger: options.commitLedger } : {}),
@@ -1428,15 +1156,11 @@ function ownOptions(options) {
 }
 
 /**
- * Bare argv (#2930): run the session's touched
- * tests on the tree `route` names. It never escalates.
- *
  * @param {LaunchRoute} route
  * @param {RouteOptions} options
  * @returns {Promise<number>}
  */
 function runTouched(route, options) {
-	/* `runOnce` hands its own root, so the plan is made in the tree it runs. */
 	/** @type {typeof expandChanged} */
 	const expand = (_argv, o = {}) =>
 		planTouched(route.rest, o.root ?? options.root ?? TREE_ROOT, opts);
@@ -1449,12 +1173,6 @@ function runTouched(route, options) {
 }
 
 /**
- * The touched-test plan in the tree at `at`: the session's own changed paths
- * since the launch's touched base, resolved by `selectTouched`, as the plan
- * `runOnce` hands vitest. Admissible never: the lander is the full gate.
- *
- * Throws `SelectionFailed` where the diff or the own-work read fails (#2698).
- *
  * @param {string[]} rest
  * @param {string} at
  * @param {RouteOptions & { ownWork?: OwnSet|null }} options
@@ -1520,20 +1238,6 @@ function isolatedRefusal(mine) {
 }
 
 /**
- * The two argv shapes that would quietly defeat the freeze, or null where the
- * argv is fine (mantahostels#2169).
- *
- * A BARE `--changed` SELECTS NOTHING IN A FROZEN WORKTREE, and exits 0 saying
- * so. `readChangedPaths` diffs the working tree against HEAD, and vitest's own
- * `--changed` does the same; in a tree checked out at HEAD both are empty by
- * construction. The run then prints its banner and returns 0 without spawning —
- * a no-op that reads as a certificate. `--changed <ref>` is unaffected and stays allowed.
- *
- * AN ABSOLUTE PATH INTO THE CANONICAL CHECKOUT reads its live files from
- * inside a run advertised as frozen. It is the form a session pastes out of a
- * failure report, so it is refused rather than rewritten: rewriting would
- * silently run a different file from the one asked for.
- *
  * @param {string[]} argv
  * @param {string} root
  * @returns {string|null}
@@ -1564,11 +1268,6 @@ function isolatedArgvRefusal(argv, root) {
 }
 
 /**
- * The sweep and the dirty-set attribution both worktree routes start from.
- * Null where git would not say which tracked files are dirty.
- *
- * `withQuotes` is the overlay's: it counts the selection ledger (#1220).
- *
  * @param {string} root
  * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, sessionId?: string, ledger?: Ledger, alive?: (pid: number) => boolean, withQuotes?: boolean }} options
  * @returns {{ mine: string[], theirs: string[], quoted: string[] }|null}
@@ -1588,11 +1287,6 @@ function sweepAndAttribute(
 	sweepIsolated(root, { execFn, worktreeFs, err, ...(alive ? { alive } : {}) });
 	const status = readTrackedStatus(root, execFn);
 	if (status === null) return null;
-	/* A null untracked read is not fatal the way the tracked one is: it can
-	 * only be the narrower failure, and attributing no new file from it is the
-	 * same degradation as an unreadable ledger — `--isolated` refuses less, and
-	 * the overlay reads HEAD without that file, the conservative miss
-	 * `withOverlay` names. */
 	return attributeDirty(status.dirty, {
 		...(sessionId ? { sessionId } : {}),
 		...(ledger ? { ledger } : {}),
@@ -1604,31 +1298,7 @@ function sweepAndAttribute(
 	});
 }
 
-/*
- * `--isolated`: RUN THE SUITE AGAINST A FROZEN TREE (mantahostels#2169).
- *
- * A DETACHED WORKTREE AT HEAD IS IMMUNE BY CONSTRUCTION, for its tracked
- * content. Nothing but this run writes into it and its HEAD cannot move, so
- * `headMovedDuringRun` is false. `readLinkedPaths` is the named exception —
- * live, gitignored content symlinked in from the canonical checkout, mutable
- * by a neighbour for as long as this run holds it (mantahostels#2213).
- * mantahostels#2169 shows the certificate machinery follows the run into the
- * worktree.
- *
- * mantahostels#2278 makes this the default for a full run, `--shared` the
- * escape. Readings: `docs/environment.md` §6.
- */
 /**
- * The worktree both routes run in, with a teardown that takes it down once
- * however many exits reach it.
- *
- * It takes a `worktreeFs` of its OWN, never `runOnce`'s `WrapperFs`. That one
- * is the log's — a stub whose `createWriteStream` buffers into memory — and it
- * carries no `symlinkSync` at all, so sharing the option would either widen the
- * log's stub or narrow this one to what it happens to expose. A caller passing
- * `fs` stubs the LOG and still gets the real filesystem for the worktree, a
- * real `git worktree add` needing a real directory.
- *
  * @param {{ root?: string, execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, pid?: number }} options
  * @returns {{ dir: string, teardown: () => void, error: null }|{ dir: null, teardown: null, error: string }}
  */
@@ -1643,8 +1313,6 @@ function openWorktree({
 	if (made.error !== null)
 		return { dir: null, teardown: null, error: made.error };
 	const dir = made.dir;
-	/* Held from here, so a kill — which no teardown reaches — still takes it
-	 * down. `armSignals` is idempotent and shared with the queue seats. */
 	const held = { root, dir };
 	armSignals();
 	heldWorktrees.add(held);
@@ -1659,9 +1327,6 @@ function openWorktree({
 }
 
 /**
- * The `--isolated` path: refuse or warn on the tree's state, build the frozen
- * worktree, run there, and take it down on both the green and the red path.
- *
  * @param {string[]} argv
  * @param {Parameters<typeof runOnce>[1] & { execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, pid?: number, sessionId?: string, ledger?: Ledger, alive?: (pid: number) => boolean }} [options]
  * @returns {Promise<number>}
@@ -1703,16 +1368,9 @@ function runIsolated(argv, options = {}) {
 		return Promise.resolve(1);
 	}
 	const { dir, teardown } = made;
-	/* `readHeadSha(dir)`, never `readHeadSha(root)`: a neighbour can commit between the
-	 * `worktree add` and this line, and naming the canonical HEAD would print a
-	 * sha this run is NOT frozen at (mantahostels#2169). */
 	out.write(
 		`--isolated: running in a detached worktree at ${path.relative(root, dir)}, frozen at ${readHeadSha(dir)}\n`,
 	);
-	/* `root` is the ONLY override. Everything the wrapper derives from it —
-	 * `bin`, the child's cwd, the drift snapshot the globalSetup takes — follows
-	 * to the worktree, while `repoRoot()` keeps the log and the marker store in
-	 * the canonical checkout. */
 	return runThenTeardown(
 		() =>
 			runOnce(argv, {
@@ -1724,8 +1382,6 @@ function runIsolated(argv, options = {}) {
 }
 
 /**
- * `run`, with `teardown` after it settles or where it throws before it can.
- *
  * @param {() => Promise<number>} run
  * @param {() => void} teardown
  * @returns {Promise<number>}
@@ -1740,12 +1396,6 @@ function runThenTeardown(run, teardown) {
 }
 
 /**
- * `npm run test:changed` with a session id (#1217): the bare run's overlay,
- * so its diff against HEAD is the session's own uncommitted files and a
- * neighbour's edit neither selects a reader nor is read. A certificate made after a
- * commit therefore selects nothing from it; `npm run test` tests that. A
- * `--retest` takes the same overlay (#1860), and so does a touched run (#2930).
- *
  * @param {LaunchRoute} route
  * @param {RouteOptions} options
  * @returns {Promise<number>|null}
@@ -1771,10 +1421,6 @@ function overlayLabel(route) {
 }
 
 /**
- * Build the overlay worktree and hand it to `run`, which owns its teardown.
- * Null where it cannot be built, said on `err` under `label`, naming the
- * `route.fallback` the caller runs on instead.
- *
  * @param {LaunchRoute} route
  * @param {RouteOptions} options
  * @param {string} label
@@ -1826,11 +1472,7 @@ function withOverlay(route, options, label, run) {
 	return run(dir, teardown);
 }
 
-/**
- * The first `REFUSAL_NAMED_MAX` of `paths`, and a count of the rest.
- *
- * @param {string[]} paths
- */
+/** @param {string[]} paths */
 function namedList(paths) {
 	const rest = paths.length - REFUSAL_NAMED_MAX;
 	return (
@@ -1840,12 +1482,8 @@ function namedList(paths) {
 }
 
 /**
- * The overlay's read-edge manifest brought up to date before the run is
- * planned (`manifest-freshen.js`, #1860), so the plan selects its readers
- * and names it among the paths the certificate attests.
- *
- * @param {string} dir the overlay
- * @param {string} home the working tree the run was launched in
+ * @param {string} dir
+ * @param {string} home
  * @param {RouteOptions} options
  */
 function freshenOverlay(dir, home, options) {
@@ -1853,7 +1491,6 @@ function freshenOverlay(dir, home, options) {
 	try {
 		rendered = (options.renderEdges ?? (() => liveEdges(dir)))();
 	} catch {
-		/* The plan renders again and its banner says why it cannot (#998). */
 		return;
 	}
 	freshenManifest(rendered, {
@@ -1867,15 +1504,9 @@ function freshenOverlay(dir, home, options) {
 }
 
 /** @typedef {import("./lib/own-selection.js").OwnSet} OwnSet */
-/** @typedef {OwnSet & { label: string }} ProbeSet what the probe says it read */
+/** @typedef {OwnSet & { label: string }} ProbeSet */
 
 /**
- * The path set an overlaid run will select from, read in the working tree with
- * `ownSelection` (#1221), so a probe never counts a file the
- * overlay leaves out, nor misses an own new file it carries. Null where the
- * route selects from anything but the session's own work, or where the set
- * will not read, said on `err`: the probe then reads the working tree's diff.
- *
  * @param {LaunchRoute} route
  * @param {RouteOptions} options
  * @returns {ProbeSet|null}
@@ -1884,10 +1515,7 @@ function ownProbeSet(route, options) {
 	const { root = TREE_ROOT, err = process.stderr } = options;
 	if (route.source !== "own") return null;
 	const isDefault = route.kind === "touched";
-	/* The commit's changes over HEAD are read by the plan itself: an empty
-	 * one is named as the diff against HEAD. */
 	if (isDefault && options.launch?.touchedBase === "head") return null;
-	/* An own source is only ever decided with a session id. */
 	const sessionId = /** @type {string} */ (route.sessionId);
 	if (isDefault) {
 		const set = ownDefaultWork(root, sessionId, options);
@@ -1910,24 +1538,9 @@ function ownProbeSet(route, options) {
 }
 
 /**
- * What a narrowed run's EMPTY selection was taken from — `the diff against
- * <base>`, the session's own work, or the adopted path list — or null where the
- * run is full, escalates, selects anything, or the probe fails. Judged in the
- * working tree before a `--queue` run joins the queue (#1016), so a run with
- * nothing to test never waits for a slot, and again during the wait where
- * `buildQueueRecheck` lets it (#1158).
- *
- * The run itself still re-selects in its own tree, overlay or worktree, and
- * writes its marker there — so a non-empty `--queue` run pays for the
- * selection twice, once here and once after the gate. Where the overlay then
- * fails to build, the run takes `route.fallback` unqueued, the gate's backstop
- * still counting it.
- *
- * Throws `SelectionFailed` where the selection itself fails.
- *
  * @param {LaunchRoute} route
  * @param {RouteOptions} options
- * @param {ProbeSet|null} [own] the re-check's, already read
+ * @param {ProbeSet|null} [own]
  * @returns {string|null}
  */
 function emptySelectionSource(route, options, own) {
@@ -1935,11 +1548,6 @@ function emptySelectionSource(route, options, own) {
 }
 
 /**
- * `emptySelectionSource`'s probe, with the plan it read: null for an
- * escalation, an unreadable manifest or an argv with no selection to expand.
- * `probed` is false where the probe itself failed, so no plan can weigh the
- * run (#2931).
- *
  * @param {LaunchRoute} route
  * @param {RouteOptions} options
  * @param {ProbeSet|null} [own]
@@ -1970,16 +1578,12 @@ function probeSelection(route, options, own) {
 }
 
 /**
- * A queued launch whose probe selects nothing to run, run outside the queue.
- * One the pass store cached whole looks the store up again in its own tree,
- * which may differ from the probe's: one left with a file to run joins the
- * queue for it (#4790).
- * @param {string} source what the probe found empty, for the skip line
+ * @param {string} source
  * @param {boolean} allCached
  * @param {{ options: { out?: Writer, err?: Writer },
- *   logExit: ReturnType<typeof queueExitLogger>,
- *   run: (extra?: { emptyOnly?: boolean }) => Promise<number>,
- *   queued: () => Promise<number> }} exits
+ *    logExit: ReturnType<typeof queueExitLogger>,
+ *    run: (extra?: { emptyOnly?: boolean }) => Promise<number>,
+ *    queued: () => Promise<number> }} exits
  */
 async function leaveQueue(
 	source,
@@ -1998,8 +1602,6 @@ async function leaveQueue(
 }
 
 /**
- * A queued launch's probe with what the pass store caches taken out (#4790),
- * so the weight it queues on counts only the files it will run.
  * @param {ReturnType<typeof probeSelection>} probe
  * @param {string[]} rest
  * @param {LauncherLaunch} launch
@@ -2022,10 +1624,6 @@ function lookupProbe(probe, rest, launch, root = TREE_ROOT) {
 }
 
 /**
- * The selection `emptySelectionSource` judges, quietly: null for an
- * escalation or an unreadable manifest, which the run after the gate prints
- * itself. Throws `SelectionFailed` where the selection fails (#2698).
- *
  * @param {LaunchRoute} route
  * @param {string} root
  * @param {RouteOptions & { ownWork?: ProbeSet }} options
@@ -2040,31 +1638,10 @@ function probedPlan(route, root, options) {
 	});
 }
 
-/* A changed path the manifest cannot vouch for: source and shell a test
- * imports or spawns, a test itself, or a root vitest reruns everything on. */
 const MAY_SELECT =
 	/\.(?:[cm]?[jt]sx?|sh)$|(?:^|\/)(?:package(?:-lock)?\.json|tsconfig[^/]*\.json|vitest\.config\.[^/]+)$/;
 
 /**
- * Build a queued run's re-check (#1158): called on every poll, it answers
- * what the selection has emptied against since it was built, else null.
- *
- * #1016's probe runs once, before the queue. A selection then empties during
- * the wait when a push moves the default's base or a commit clears what
- * `--changed` read.
- *
- * THE PROBE IS SLOW UNDER LOAD, so it is never re-run on a timer. Each
- * poll reads only HEAD and the start ref; on a move, the paths the run would
- * select from are listed — its own set where it has one (#1221) — and only
- * where none of them could select a test — `MAY_SELECT`, or a key in the
- * committed read-edge manifest — does the full probe confirm. A selection
- * that fails throws `SelectionFailed`;
- * every other failure keeps the run waiting and says so once. A missing
- * start ref reads as an empty tip, not a failure.
- *
- * Residual: a moved diff that still touches code waits out the queue even
- * where its selection is empty; only the probe could tell, at its full cost.
- *
  * @param {LaunchRoute} route
  * @param {Parameters<typeof emptySelectionSource>[1]} options
  * @returns {() => string|null}
@@ -2116,10 +1693,6 @@ function buildQueueRecheck(route, options) {
 }
 
 /**
- * `buildQueueRecheck`'s answer once the tips have moved: what the selection
- * has emptied against, else null. Throws where the paths cannot be read, and
- * `SelectionFailed` where the selection fails.
- *
  * @param {LaunchRoute} route
  * @param {Parameters<typeof emptySelectionSource>[1]} options
  * @returns {string|null}
@@ -2139,8 +1712,6 @@ function emptiedSince(route, options) {
 }
 
 /**
- * The ref a touched launch's paths are diffed from: HEAD where it selects
- * from the commit's changes over HEAD, else the default's base.
  * @param {RouteOptions} options
  * @param {string} root
  * @param {ExecFn} execFn
@@ -2151,9 +1722,6 @@ const readTouchedRef = (options, root, execFn) =>
 		: readDefaultChangedBase(root, execFn);
 
 /**
- * The queue wait's outcome, or `"refused"` once the re-check's selection
- * fails.
- *
  * @param {() => Promise<import("./lib/suite-queue.js").WaitOutcome>} wait
  * @param {{ err?: { write: (s: string) => unknown } }} options
  * @param {() => void} onRefused
@@ -2170,8 +1738,6 @@ async function waitOrRefuse(wait, options, onRefused) {
 }
 
 /**
- * Whether a `--full` word is refused for naming no cause, or one outside
- * `FULL_CAUSES` (#182) — saying so, and recording it, where it is.
  * @param {string} fullWord
  * @param {string[]} argv
  * @param {{ err?: { write: (s: string) => unknown }, root?: string }} options
@@ -2209,7 +1775,6 @@ function queueLogFile(options) {
  */
 
 /**
- * Run the launch on the tree `route` names.
  * @param {LaunchRoute} route
  * @param {RunOptions} opts
  * @returns {Promise<number>}
@@ -2224,18 +1789,11 @@ function runByRoute(route, opts) {
 	});
 }
 
-/**
- * Whether the route is a bare `--changed`, one naming no ref.
- * @param {LaunchRoute} route
- */
+/** @param {LaunchRoute} route */
 const isBareChanged = (route) =>
 	route.kind === "changed" && !changedFlag(route.rest)?.ref;
 
 /**
- * A bare `--changed` selects over uncommitted files, diffed against `HEAD`,
- * but records the default's base, `committedBase`'s (#3678). An explicit
- * `--changed <ref>` records its plan's.
- *
  * @param {LaunchRoute} route
  * @param {RunOptions} opts
  * @returns {RunOptions}
@@ -2249,13 +1807,6 @@ function withChangedBase(route, opts) {
 }
 
 /**
- * A bare `--changed` whose selection is empty names the command that tests
- * the session's unpushed commits (#2182): it diffs against HEAD, so a certificate
- * made after a commit selects nothing from it.
- *
- * Residual: a selection that is not empty leaves those commits out unsaid,
- * and so does one where `readOwnPaths` cannot read the range or the ledger.
- *
  * @param {LaunchRoute} route
  * @param {RunOptions} opts
  * @returns {RunOptions}
@@ -2288,10 +1839,6 @@ function buildCommittedNote(route, opts) {
 }
 
 /**
- * The note naming the neighbour commits an explicit `--changed <ref>`'s range
- * takes on (#2182), or null where it takes none on or the ledger cannot say.
- * Never a refusal: taking one on is the flag's job (#1216).
- *
  * @param {LaunchRoute} route
  * @param {RunOptions} opts
  * @returns {string|null}
@@ -2305,25 +1852,11 @@ function buildNeighbourRangeNote(route, opts) {
 	return `NEIGHBOURS' COMMITS TAKEN ON — \`--changed ${ref}\` takes on ${own.dropped.length} neighbour commit(s) in its range, whose reds are theirs: ${own.dropped.map(shortSha).join(", ")}. For your own unpushed commits and uncommitted files alone, run \`${readDeclaredCommand("test", { root })}\` (#2182).\n`;
 }
 
-/**
- * The `--queue` line for a selection that reaches no test file (#1016).
- * @param {string} emptySource
- */
+/** @param {string} emptySource */
 const buildQueueSkipLine = (emptySource) =>
 	`--queue: ${emptySource} reaches no test file, so this run skips the queue (#1016).\n`;
 
 /**
- * A part-suite inside a held seat (#2918): no turn in its own queue, the
- * seat having waited once for the loop, and the memory rung alone holds it,
- * refusing at the bound. Its turn waits only on an older waiter in the other
- * queue the climb charge holds (#4766), so a loop of runs in one seat yields
- * to a `tsc` between runs. Its marker carries the admitted and spawned stamps, so no two
- * launches pass the rung on one reading before either shows in `ps` (#2622),
- * and the memoryHeld stamp, so a younger part-suite passes it while the rung
- * holds it (#3058).
- * Only a wait that held it, or a refusal, is an exit line, of kind `seat`:
- * the alarm keeps counting a rung wait (#2911).
- *
  * @param {{ options: import("./lib/suite-queue.js").QueuedLaunchOptions & { loadHold?: () => Promise<boolean>, err?: { write: (s: string) => unknown }, queueLog?: string|null, root?: string }, words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight, kind: import("./lib/suite-queue.js").PartKind, session: string|null, run: (extra?: { escalationRequeues?: boolean, onSpawn?: (charge?: import("./lib/suite-queue.js").SpawnCharge) => void, admission?: PartAdmission }) => Promise<number>, queued: () => Promise<number>, requeueWhole: () => Promise<number> }} seat
  * @returns {Promise<number>}
  */
@@ -2429,30 +1962,18 @@ async function runSeated({
  * @returns {Promise<number>}
  */
 function main(argv = process.argv.slice(2), options = {}) {
-	/* `--full` is refused BEFORE anything is stripped (#182): a bare `--full`,
-	 * or one naming a cause outside `FULL_CAUSES`, must never reach `rest` or
-	 * run anything. */
 	const fullWord = fullFlagWord(argv);
 	if (fullWord && refusesFullCause(fullWord, argv, options))
 		return Promise.resolve(1);
-	/* All four flags are consumed here and none reaches vitest, which rejects
-	 * an unknown one. Stripping them before `expandChanged` also keeps
-	 * `--isolated --changed <ref>` admissible (mantahostels#2146): isolation
-	 * freezes what the suite reads, it does not narrow what it selects.
-	 * `||`, not `??`: the suite stubs the id to "", which is no session. */
 	const route = launchRoute(argv, options.sessionId || idSeam.fromEnv());
 	const { rest } = route;
 	const fullFlag = route.kind === "full";
-	/* The launcher's half of the record, threaded to every run below so the
-	 * marker carries it whichever path the launch takes (#182). */
 	const launch = {
 		isolated: false,
 		viaChanged: isChangedOnlyArgv(rest),
 		touched: route.kind === "touched",
-		/* Judged once, here, so the probe, the plan and the record agree. */
 		touchedBase: route.kind === "touched" ? readTouchedBase() : null,
 		slotFree: isTouchedRun(route),
-		/* "flag" for a typed `--full` (mantahostels#3207). */
 		full: fullFlag ? "flag" : null,
 		fullCause: fullCauseOf(fullWord),
 		argv,
@@ -2463,8 +1984,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 	if (ranged) (options.out ?? process.stdout).write(ranged);
 	const run = (extra = {}) => runByRoute(route, { ...runOptions, ...extra });
 	if (!argv.includes(QUEUE_FLAG)) return run();
-	/* Built before the first probe, so a push during that probe is a move the
-	 * re-check sees (#1158). */
 	const recheck = fullFlag ? () => null : buildQueueRecheck(route, runOptions);
 	/** @type {ReturnType<typeof probeSelection>} */
 	let probe;
@@ -2477,8 +1996,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 	}
 	const looked = lookupProbe(probe, rest, launch, options.root);
 	const emptySource = looked.probe.source;
-	/* The queue, the gate and the `ps` weighers all read this one weight
-	 * (#2931). */
 	let weight = probedWeight(looked.probe, looked.argv, {
 		...options,
 		slotFree: launch.slotFree,
@@ -2488,7 +2005,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 		runOptions.launch = { ...launch, ...weight };
 	};
 	reweigh(weight);
-	/* The lane it queues in, were it a part-suite (#5367). */
 	const partKind = partLaneOf(partKindOfRoute(route));
 	const logFile = queueLogFile(options);
 	const logExit = queueExitLogger({
@@ -2506,8 +2022,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 	};
 	/** @returns {Promise<number>} */
 	const queued = async () => {
-		/* A part-suite takes no slot, as the gate never holds it at the count
-		 * cap (#2558). */
 		const part = !weight.wholeSlot;
 		const seat = queueSeat({
 			queue: options,
@@ -2519,14 +2033,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 		runOptions.onSpawn = seat.spawned;
 		/** @type {PartAdmission | undefined} */
 		let admission;
-		/* The marker is HELD until the run finishes, not dropped when the wait
-		 * ends. Dropped at launch, a waiter could take this run's slot in the gap
-		 * before vitest is up far enough for the guard to see it. Held, queued
-		 * runs fill at most WHOLE_SUITE_MAX slots, and the gate holds unqueued
-		 * ones. A run that LEAVES holds no slot, so it drops its marker
-		 * at once and runs `emptyOnly`. */
-		/* The worktree is built AFTER the gate opens, so its frozen sha is the
-		 * one the run actually starts from rather than the one the wait began at. */
 		try {
 			const outcome = await waitOrRefuse(
 				() =>
@@ -2557,8 +2063,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 				(options.err ?? process.stderr).write(
 					"--queue: the selection now takes the whole-suite slot it was admitted without — joining the queue again, whole (#2931).\n",
 				);
-				/* Residual: re-admitted, it re-plans, and a plan narrowed again runs
-				 * charged whole — the over-charging direction. */
 				return requeueWhole();
 			}
 			const code = await run({ emptyOnly: true });
@@ -2591,9 +2095,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 }
 
 if (require.main === module) {
-	/* Refused before the load hold, so a launch npm half-swallowed, or one
-	 * vitest would be handed a selection flag or `--no-cache` raw, never
-	 * waits for a slot it would then misuse (#2284, #2764, #4790). */
 	const argv = process.argv.slice(2);
 	const refusal =
 		npmSwallowedRefusal(argv, process.env) ??
@@ -2605,20 +2106,12 @@ if (require.main === module) {
 	} else {
 		sweepAtStart();
 		sweepDeadRunRoots("vitest");
-		/* The audit's install-time sweep, in vitest's process, reaches only
-		 * this run's own root, so a dead run's audit logs on the real temp
-		 * root are swept here (#5108). */
 		readAudit.sweep(os.tmpdir());
 		openWrapperMemory(argv);
 		holdForLoad()
 			.then((go) =>
 				go
-					? // WFC_RUN_VITEST_BIN is test-only: a real subprocess test needs to run
-						// THIS file for real, as a child process, to prove the pipe survives —
-						// which is outside a JS test's reach unless the stand-in executable is
-						// named through the environment rather than an argument this entry point
-						// never sees.
-						main(process.argv.slice(2), {
+					? main(process.argv.slice(2), {
 							loadHold: () => holdForLoad(),
 							readAdmission: readDirectAdmission,
 							...(process.env.WFC_RUN_VITEST_BIN
@@ -2627,10 +2120,7 @@ if (require.main === module) {
 						})
 					: 1,
 			)
-			// `process.exitCode`, never `process.exit()`: stdout is a pipe here, so
-			// writes to it are queued rather than synchronous, and exit() tears the
-			// process down before a piped `| head` or `| grep` has drained that
-			// queue (mantahostels#1943).
+			// process.exit can cut a pending stdout write on a pipe short: https://nodejs.org/api/process.html#processexit
 			.then((code) => {
 				takeWrapperMemory()?.discard();
 				process.exitCode = code;

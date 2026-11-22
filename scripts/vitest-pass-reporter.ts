@@ -23,11 +23,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
-/*
- * What a failing module or test with no id of its own is recorded as. Named
- * rather than inlined because a store reader meets these strings and cannot ask
- * the code what they meant.
- */
 const UNKNOWN_MODULE = "(unknown module)";
 const UNNAMED_TEST = "(unnamed test)";
 
@@ -58,21 +53,13 @@ const scopeUnrecorded = (failure: unknown, cached: string[]): string =>
 const cachedFiles = (cached: ReturnType<typeof readCachedHandoff>): string[] =>
 	cached ? cached.map((c: { file: string }) => c.file) : [];
 
-/**
- * Who writes the marker for a run that selected NOTHING (#189 §6). Vitest
- * 4.1 runs globalSetup only on its way to running files, so with zero
- * specifications the teardown that stamps every other marker never fires;
- * the reporter, which does fire, runs both halves itself — the start
- * snapshot and the end-of-run write, back to back, since no run lies
- * between them.
- */
+// `vitest` runs globalSetup only on its way to running files, so an empty selection gets no teardown.
 async function writeEmptyRunMarker(root?: string) {
 	const watch = await import("./vitest-tree-watch");
 	watch.setup({ config: { root } });
 	watch.runTeardown();
 }
 
-/** The two `ModuleNode` fields the closure walk reads. */
 interface ModuleNodeLike {
 	file?: string | null;
 	importedModules: Iterable<ModuleNodeLike>;
@@ -97,7 +84,6 @@ interface TestModuleLike {
 			>;
 		};
 	};
-	/* Module-level errors: an import or collection that failed outside any test. */
 	errors?: () => readonly unknown[];
 	children: {
 		allTests: () => Iterable<{
@@ -107,11 +93,6 @@ interface TestModuleLike {
 	};
 }
 
-/**
- * Adds every in-repo, non-`node_modules` file the import graph reaches from
- * `start` to `closure`, breadth first.
- * @param closure accumulator: each reached file's repo path is added
- */
 function addImportClosure(
 	start: ModuleNodeLike | undefined,
 	closure: Set<string>,
@@ -133,7 +114,6 @@ function addImportClosure(
 	}
 }
 
-/* The run's test tally, and WHICH files failed, not just how many (mantahostels#1942). */
 function countTests(testModules: TestModuleLike[]) {
 	let tests = 0;
 	let passed = 0;
@@ -150,7 +130,6 @@ function countTests(testModules: TestModuleLike[]) {
 				failed++;
 				const file = module.moduleId ?? UNKNOWN_MODULE;
 				const names = failures.get(file) ?? [];
-				// Never skipped: dropping it would leave `tests: []`.
 				names.push(test.name || UNNAMED_TEST);
 				failures.set(file, names);
 			}
@@ -159,25 +138,14 @@ function countTests(testModules: TestModuleLike[]) {
 	return { tests, passed, skipped, failed, failures };
 }
 
-/* `describeRun`'s `full`/`fullCause` pair, or nothing where the launch names no full reason. */
 function fullRunFields(launch: import("./lib/suite-handoff.js").Launch) {
 	if (launch.full === null) return {};
 	return {
 		full: launch.full,
-		// Why the SESSION typed `--full=<cause>` (#182) — a second
-		// vocabulary from `full`'s own, so this is only ever set
-		// beside `full: "flag"`; an escalation's cause is the
-		// escalation itself, already named in `full`, and carries
-		// `fullCause: null`.
 		fullCause: launch.fullCause,
 	};
 }
 
-/**
- * Each file's own outcome — a fail where any test failed or the file errored
- * outside a test — and the in-repo files its graph reaches, the file left
- * out. A file run under two pools merges its two walks.
- */
 function fileVerdicts(
 	testModules: TestModuleLike[],
 	paths: { inside: (file: string) => boolean; rel: (file: string) => string },
@@ -222,25 +190,13 @@ export default class TestPassReporter {
 		globTestSpecifications?: () => Promise<{ moduleId: string }[]>;
 	} | null = null;
 
-	/* `performance.now()` at the run's start: the marker's `durationMs` is a
-	 * monotonic span, so a host suspend mid-run is not counted (#2829). */
 	private runStartedAtMono: number | null = null;
 
 	onInit(vitest: unknown) {
 		this.vitest = vitest as typeof this.vitest;
 	}
 
-	/*
-	 * The run's start, for the marker's `startedAt` and `durationMs` (mantahostels#1953). Here and not in
-	 * globalSetup's `setup`, which fires once per PROCESS — in watch mode that
-	 * would time the whole session rather than the run the marker describes.
-	 *
-	 * The CPU counters are read at the same instant and for the same reason: the
-	 * marker's `machine` block is a DELTA across the run, so it needs a bracket
-	 * at each end, and a bracket taken per-process would describe the watch
-	 * session rather than the run. `sampleCpu()` returns null rather than
-	 * throwing wherever `/proc` will not answer, so this cannot fail a run.
-	 */
+	// `vitest` fires globalSetup's `setup` once per process, `onTestRunStart` once per run.
 	onTestRunStart() {
 		this.runStartedAtMono = performance.now();
 		fillRunReport({ startedAtMs: Date.now(), machineStart: sampleCpu() });
@@ -251,12 +207,6 @@ export default class TestPassReporter {
 		unhandledErrors: readonly unknown[] = [],
 		reason?: string,
 	) {
-		/*
-		 * The closing half of both brackets, taken here because this fires per RUN
-		 * and the marker's teardown fires per PROCESS — `markerFrom`'s
-		 * `finishedAtMs` note owns the reasoning. First in this method, so a later
-		 * throw cannot cost the reading.
-		 */
 		fillRunReport({
 			endedAtMs: Date.now(),
 			elapsedMs:
@@ -282,7 +232,6 @@ export default class TestPassReporter {
 			failure = error;
 		}
 
-		// A broken pipe at the end of a green run is not a red run.
 		ignoreFailure(() => {
 			fillRunReport({ scope });
 			const line = failure
@@ -291,11 +240,6 @@ export default class TestPassReporter {
 			if (line) process.stdout.write(`${line}\n`);
 		});
 
-		/*
-		 * What the verdict depended on (#189), after the scope because a full
-		 * scope needs no walk. A failure records nothing — the marker then
-		 * attests its own sha alone — and says so.
-		 */
 		let attestation = null;
 		let closureFailure: unknown = null;
 		try {
@@ -330,31 +274,6 @@ export default class TestPassReporter {
 		}
 	}
 
-	/**
-	 * The paths the verdict depended on: `"*"` for a full run
-	 * (`fullAttestationOf`); otherwise the
-	 * selected tests, their transitive imports off vitest's module graph, the
-	 * documents the manifest maps to those tests, and the dependency-graph
-	 * roots — repo-relative, sorted, deduplicated — with the selected tests
-	 * themselves, the diff the selection was computed from, the base it was
-	 * diffed against, each test's own imports and the roots apart (#1860),
-	 * beside it. A run that selected nothing (#189 §6)
-	 * reduces to the roots: the instruments the selection trusted.
-	 *
-	 * THE GRAPH SEES LITTLE IN THIS REPO. Its tests reach their subjects
-	 * through `createRequire`, which Vite's transform never records, so for
-	 * most of them the walk yields the test file and `vitest.setup.ts` and the
-	 * manifest supplies the subject — the same two sources, in the same
-	 * proportion, that selected the run (mantahostels#2095). Verified live, not
-	 * only against the fake graph the tests drive: a narrowed `npm run test` on
-	 * this checkout stamped a 161-path closure through this walk (#189).
-	 *
-	 * The files the launcher's pass store cached fold in as selected tests
-	 * whose imports are their source rows' reads (#4790).
-	 *
-	 * Throws where the manifest cannot be read or is malformed: a closure missing its
-	 * manifest half would attest a sha it never read.
-	 */
 	private describeAttestation(
 		testModules: TestModuleLike[],
 		scope: { modulesRun: number; modulesTotal: number } | null,
@@ -367,8 +286,6 @@ export default class TestPassReporter {
 			path.relative(root, file).split(path.sep).join("/");
 		const inside = (file: string) => relativeUnder(root, file) !== null;
 		const closure = new Set<string>();
-		// Per test as well as in union (#1860), so the judge can void one test
-		// without the rest; a file run under two pools merges its two walks.
 		const imports = new Map<string, Set<string>>();
 		for (const module of testModules) {
 			if (!module.moduleId) continue;
@@ -387,11 +304,6 @@ export default class TestPassReporter {
 		const selected = new Set(imports.keys());
 		for (const doc of docsOfTests(readDocsByTest(root), selected))
 			closure.add(doc);
-		/* `CLOSURE_ROOTS`, with the vitest config file resolved off the
-		 * instance: a sibling `vite.config.*` it did not load is outside the
-		 * closure. NOT THE MANIFEST (#799, #795): it matters only through the
-		 * documents it maps to the run's tests, so `holdsAt` re-reads it at
-		 * the sha judged, off the `selected` list recorded beside the closure. */
 		const roots = new Set<string>(CLOSURE_ROOTS);
 		const configFile = this.vitest?.vite?.config?.configFile;
 		if (configFile && inside(configFile)) roots.add(rel(configFile));
@@ -424,7 +336,6 @@ export default class TestPassReporter {
 				files: this.describeFiles(testModules, unhandledErrors.length, reason),
 			});
 		} catch (error) {
-			// A broken pipe at the end of a green run is not a red run.
 			ignoreFailure(() =>
 				process.stdout.write(
 					`FILE RESULTS UNRECORDED (#4790) — no file of this run can be skipped on its result later: ${error}\n`,
@@ -433,13 +344,6 @@ export default class TestPassReporter {
 		}
 	}
 
-	/**
-	 * The config file
-	 * and its `setupFiles` closure every file's verdict rests on, and whether
-	 * the per-file verdicts can be trusted at all: not where the run was
-	 * interrupted, errored outside its files, or ran part of a file — a name
-	 * filter, a bail, or a snapshot update.
-	 */
 	private describeFiles(
 		testModules: TestModuleLike[],
 		unhandled: number,
@@ -486,8 +390,6 @@ export default class TestPassReporter {
 		const pattern = this.vitest?.config?.testNamePattern;
 		const shard = this.vitest?.config?.shard;
 		const specs = (await this.vitest?.globTestSpecifications?.()) ?? [];
-		// One entry per file PER POOL on both sides, so the same file can appear
-		// twice; count distinct module ids or a full run reads as run > total.
 		const distinct = (ids: (string | undefined)[]) =>
 			new Set(ids.filter(Boolean)).size;
 
@@ -500,15 +402,8 @@ export default class TestPassReporter {
 			failed,
 			nameFilter: pattern ? String(pattern) : null,
 			fileFilters: [...(this.vitest?.filenamePattern ?? [])],
-			// `--changed` narrows through the module graph and leaves
-			// `filenamePattern` EMPTY, so without this the marker records a run
-			// narrowed to 3 of 228 files and cannot say by what (mantahostels#2031).
 			changed: this.vitest?.config?.changed ?? null,
-			// vitest shards after `globTestSpecifications`, so a `--shard` run
-			// reads `modulesRun` below `modulesTotal`; this says which shard (#3090).
 			...(shard ? { shard: { index: shard.index, count: shard.count } } : {}),
-			// The launch's own facts, which only the launcher knows
-			// (`lib/suite-handoff.js` says what each means).
 			...(launch.admissible ? { admissible: true } : {}),
 			...(launch.viaChanged ? { viaChanged: true } : {}),
 			...(launch.touched ? { touched: true } : {}),
@@ -519,8 +414,6 @@ export default class TestPassReporter {
 			...(launch.leftOut ? { leftOut: launch.leftOut } : {}),
 			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
 			...fullRunFields(launch),
-			// Absent rather than empty on a green run: a reader testing for the key
-			// is asking "did anything fail", and [] would answer yes-but-nothing.
 			...(failures.size > 0
 				? {
 						failures: [...failures].map(([file, names]) => ({
@@ -529,9 +422,6 @@ export default class TestPassReporter {
 						})),
 					}
 				: {}),
-			// On a red, the unhandled errors plus the files that errored outside any
-			// test (`Scope.errors`): a red with any is never read as already red on
-			// its base (#3633), its cause being unnamed.
 			...(failures.size > 0 || errors > 0 ? { errors } : {}),
 		};
 	}

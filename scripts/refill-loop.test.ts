@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's commands (#2012) against a sandboxed WFC_REFILL_DIR:
- * `start` on a running loop rather than starting a second, `stop`
- * asking the loop to end, `set` pausing and resuming it (#3856), and the command
- * line. Driven in process, bar a command that must wait on a lock this test
- * frees; a command that spawns the real detached loop is refill-loop-run.test.ts's.
- *
- * The running loop is a second process whose command line names the script,
- * holding the pidfile: liveness is read off /proc, which only another process
- * can stand in for.
- *
- * Loosen one and `start` can spawn a second loop beside a running one, or
- * `stop` fail to reach it.
- */
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -61,7 +47,6 @@ const commandEnv = (extra: Record<string, string> = {}) => ({
 const runEnv = (extra: Record<string, string>, ...argv: string[]) =>
 	runInProcessAsync(SCRIPT, argv, { cwd: dir, env: commandEnv(extra) });
 const run = (...argv: string[]) => runEnv({}, ...argv);
-/* The commands' one clock read, pinned so a written time asserts exactly. */
 const AT = "2026-11-10T09:00:00.000Z";
 const AT_MS = Date.parse(AT);
 const LATER = new Date(AT_MS + 60 * 60_000).toISOString();
@@ -203,7 +188,6 @@ describe("start ensures a process runs (#3868)", () => {
 			"issue view 500 *": printed(JSON.stringify({ state: "CLOSED" })),
 			"issue view *": printed(JSON.stringify({ state: "OPEN" })),
 		}).env;
-	/* From the core checkout, which writeStored leaves unticked. */
 	const start = (...argv: string[]) =>
 		runEnv({ ...stubbedGh(), CLAUDE_PROJECT_DIR: core }, "start", ...argv);
 	const noProcessStarted = () =>
@@ -470,7 +454,6 @@ describe("stop and status", () => {
 		await run("start");
 		const r = await run("stop");
 		expect(r.stdout).toContain("stop requested");
-		/* #2126: a dispatch or the review in flight holds the exit for minutes. */
 		expect(r.stdout).toContain(
 			"exits when the tick in flight ends, or where none is, at the tick this stop wakes; a dispatch or the morning review can hold a tick for minutes",
 		);
@@ -480,7 +463,6 @@ describe("stop and status", () => {
 		);
 	});
 
-	/* The budget reads the listing. */
 	const listNoSessionOnTheKey = () =>
 		writeClaudeStub(path.join(dir, "no-claude"), [
 			buildAgentsBranch([buildJobRow("a-neighbour", "working")]),
@@ -492,7 +474,6 @@ describe("stop and status", () => {
 			path.join(dir, ".claude", "refill-seats"),
 			`${path.join(dir, ".claude3")}\n~/.claude3 api key=WFC_TEST_KEY grant=200 cycle-day=20\n`,
 		);
-		// Grant 200 over mean 4 fits 50.
 		writeCostTable(dir, { meanUsd: 4 });
 		listNoSessionOnTheKey();
 	};
@@ -696,7 +677,6 @@ describe("stop and status", () => {
 	});
 
 	describe("the seats: line off fixture seats (#3733)", () => {
-		/* ~/.claude2 reads the default week ceiling, so it is passed over. */
 		const Week = ceilingsOf({}).week;
 		const seats = () => [".claude2", ".claude3"].map((n) => path.join(dir, n));
 		const markerPath = () => path.join(dir, "typed-marker");
@@ -849,7 +829,6 @@ describe("set (#3856)", () => {
 		);
 	const paused = { by: "founder", at: 7 };
 
-	/* A live process the lock names as its holder; kill it to free the lock. */
 	function holdLock() {
 		const holder = spawnIdle();
 		lockHolder = holder;
@@ -868,8 +847,6 @@ describe("set (#3856)", () => {
 		);
 		return new Promise<number | null>((resolve) => child.on("close", resolve));
 	}
-	/* A guess: long enough for a spawned command to reach the lock; a command
-	 * that had not would pass the "still waiting" checks without testing them. */
 	const settle = () => new Promise((r) => setTimeout(r, 500));
 
 	it("pauses, writing only the pause, touching the wake and printing it", async () => {
@@ -895,7 +872,6 @@ describe("set (#3856)", () => {
 		const { noProgressFrom: _n, ...kept } = plainControl;
 		expect(rest).toEqual(kept);
 		expect(noProgressFrom).toBe(AT_MS);
-		/* The pidfile's holder is the one process: nothing started a second. */
 		expect(r.stdout).not.toContain("refill loop started");
 		expect(fs.readFileSync(path.join(dir, ".refill-loop.pid"), "utf8")).toBe(
 			String(fakeLoop?.pid),
@@ -1620,7 +1596,6 @@ describe("the goal (#3864)", () => {
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({ noProgressFrom: 1, seats: [], scope }),
 		);
-	/* 404 is unknown and 500 closed; any other issue is open. */
 	const fakeGh = () =>
 		stubGhRoutes(dir, {
 			"issue view 404 *": {

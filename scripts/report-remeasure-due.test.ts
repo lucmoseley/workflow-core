@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * report-remeasure-due.test.ts — the re-measure trigger (#1625). Break it
- * and the founder is asked to re-measure on a wrong count, or asked twice.
- *
- * Driven end to end through `runInProcess` against a throwaway root, with
- * `gh` and the issue-body writer stubbed as files the script spawns. The gh
- * stub answers the GraphQL search per repo, filtered by the query's
- * `updated:` window and paged by cursor, each ticket carrying its first 100
- * comments, REST for the rest, and commit search per repo; it logs its argv, so a case reads what
- * reached the tracker.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -23,7 +12,6 @@ import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "report-remeasure-due.js");
-/* What the program files under, and the day its count starts. */
 const TITLE = "Re-measure focused against identical review runs";
 const LABEL = "takes:wayfinder";
 const FLOOR = "2026-10-14";
@@ -31,8 +19,6 @@ const NOW = "2026-11-20T09:00:00Z";
 const OWN = "o/wfc";
 const CORPUS = [OWN, "o/fleet", "o/manta", "o/books"];
 
-/* The gh stub, served once per file (#2877): each call reads its fixture's
- * DATA_FILE, under the root GH_STUB_DIR names. */
 const DATA_FILE = "data.json";
 const ARGV_LOG = "gh-argv.log";
 const HANDLER = [
@@ -85,7 +71,6 @@ afterEach(() => {
 const sha = (kind: string, n: number) => `${kind}${String(n).padStart(8, "0")}`;
 const TIER_LINE =
 	"**Review tier:** escalated — secret handling; not mission-critical, because no scan rule changed.";
-/** One landed record, `n` naming its shas, over its disposition lines. */
 const record = (
 	n: number,
 	disposed = ["FIXED: a leak in the log line"],
@@ -108,20 +93,13 @@ interface Hit {
 
 function fixture(opts: {
 	hits: Record<string, Hit[]>;
-	/** Issues `gh issue list` serves, for an issue already filed. */
 	issues?: unknown[];
-	/** A window spanning more days than this reports more than the cap;
-	 * null, never. */
 	wideDays?: number | null;
-	/** Every search reports one hit more than it serves. */
 	short?: boolean;
-	/** What commit search finds in each repo. */
 	commits?: Record<string, { sha: string; message: string }[]>;
 	commitsFail?: boolean;
-	/** Every commit search reports one hit more than it serves. */
 	commitsShort?: boolean;
 	createFails?: boolean;
-	/** The filed issue's body as the run finds it; absent, empty. */
 	body?: string;
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "remeasure-"));
@@ -167,9 +145,7 @@ function fixture(opts: {
 		gh,
 		issueBody,
 		config: path.join(root, "config"),
-		/** Replaces what the search serves, for hits built after the root. */
 		setHits: (hits: Record<string, Hit[]>) => writeData({ hits }),
-		/** Replaces what commit search finds, for shas built after the root. */
 		setCommits: (commits: Record<string, { sha: string; message: string }[]>) =>
 			writeData({ commits }),
 		calls: (): string[][] =>
@@ -210,22 +186,18 @@ const searches = (fx: ReturnType<typeof fixture>) =>
 		.filter((c) => c[1] === "graphql")
 		.map((c) => c.find((x) => x.startsWith("q=")) ?? "");
 
-/** A ticket holding one counted record per `ns`, its tier declared first. */
 const ticket = (number: number, ns: number[], extra: string[] = []): Hit => ({
 	number,
 	updated: "2026-11-01",
 	comments: [TIER_LINE, ...ns.map((n) => record(n)), ...extra],
 });
 
-/* A checkout of quote.ts: `base` seeds it, `refs/pre-fix` is the staged
- * pre-fix tree, and tags l1..l5 are five landed commits. */
 const checkoutTemplate = defineTemplate((dir) => {
 	const hooks = path.join(dir, ".hooks");
 	fs.mkdirSync(hooks);
 	initGitRepo(dir, hooks);
 	const git = (...a: string[]) =>
 		execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim();
-	/** Stages `text` as quote.ts. */
 	const stage = (text: string) => {
 		fs.writeFileSync(path.join(dir, "quote.ts"), text);
 		git("add", "quote.ts");
@@ -252,7 +224,6 @@ const checkoutTemplate = defineTemplate((dir) => {
 const gitIn = (cwd: string, ...a: string[]) =>
 	execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
 
-/** Gives `code` a bare `origin` whose `main` holds its HEAD. */
 function pushToNewOrigin(code: string) {
 	const origin = `${code}-origin.git`;
 	execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
@@ -262,7 +233,6 @@ function pushToNewOrigin(code: string) {
 	});
 }
 
-/** That checkout under `fx`'s home, tracking OWN; reads a rev in it. */
 function checkout(fx: ReturnType<typeof fixture>) {
 	const code = checkoutTemplate.instantiate(path.join(fx.root, "code"));
 	pushToNewOrigin(code);
@@ -276,12 +246,6 @@ function checkout(fx: ReturnType<typeof fixture>) {
 const buildUnrecordedFault = (landed: string | undefined) =>
 	`o/manta@${landed} changes the sensitive area secrets and carries neither a Review-Tier: trailer nor a **Review findings:** record, so nothing answers for it until a record names it as landed, or its message cites that record's ticket within the record's base..landed; \`scripts/lib/rule-text.sh review-tier-records\` gives the record's form`;
 
-/**
- * A checkout under `fx`'s home tracking o/manta, which declares lib/secret.js
- * sensitive, holding one commit per `commits` entry, dated after the trailer
- * landed unless it says otherwise, all on its `origin`'s `main`; returns their
- * shas.
- */
 function trailerCheckout(
 	fx: ReturnType<typeof fixture>,
 	commits: {
@@ -337,7 +301,6 @@ function trailerCheckout(
 	return shas;
 }
 
-/** The issue already filed, so a count below the threshold reaches its body. */
 const FILED = [
 	{
 		number: 77,
@@ -348,9 +311,7 @@ const FILED = [
 	},
 ];
 const STANDARD_TIER = "**Review tier:** standard — no sensitive path.";
-/* Past the record form's 7-hex minimum, as a sha is cited in a ticket. */
 const SHORT_SHA = 9;
-/** The issue's body as an earlier run left it, counting `n`. */
 const buildFiledBody = (n: number) =>
 	`${n} commits on adopter-declared sensitive paths, as last read.`;
 const buildEscapeTicket = (escaped: string, number = 1): Hit => ({
@@ -369,7 +330,6 @@ const buildMantaFindings = (
 		`**Review findings:** base ${base}, reviewed ${"e".repeat(40)}, landed ${landed}, paths lib/secret.js`,
 		...disposed.map((d) => `- ${d}`),
 	].join("\n");
-/** A record on o/manta#9, of `tier`. */
 const buildMantaRecord = (
 	base: string,
 	landed: string,
@@ -387,7 +347,6 @@ const buildMantaRow = (
 	escaped: number,
 ) =>
 	`- o/manta#9: landed ${landed}, base ${base}, tree ${"e".repeat(40)}, paths lib/secret.js; ${fixed} fixed or ticketed, ${escaped} escaped`;
-/** A seed, a commit citing #9, then the tip: what a two-commit ticket lands. */
 const TWO_COMMIT_TICKET = [
 	{ file: "app/page.tsx" },
 	{ file: "lib/secret.js", message: "first of the ticket (#9)" },
@@ -395,13 +354,10 @@ const TWO_COMMIT_TICKET = [
 ];
 const DELETE_RECORD =
 	"edit the old comment to delete that record's **Review findings:** head and its list";
-/** What every remedy for a fault on one record ends with (#4007). */
 const SAME_REVIEW = `Of the same review means under a counted tier, sharing its reviewed tree, or its base, paths and landed sha, and holding all its FIXED and TICKETED lines. Where none can be posted, as a standard review owes none or a correction changes its tree and its base or paths, ${DELETE_RECORD}`;
-/** The report on the ticket `where`, its record's landed sha `landed`. */
 const buildNoTierFault = (where: string, landed: string, under: string) =>
 	`NO TIER: ${where} has a record, landed ${landed}, under ${under}, so its defects count nowhere until it is corrected: post a record of the same review under a \`**Review tier:**\` line of escalated or mission-critical where the review ran at one, as \`scripts/lib/rule-text.sh review-tier-records\` says. ${SAME_REVIEW}`;
 
-/* The records as filed, each with a note its paths swallowed. */
 const NOTED_RECORDS = {
 	3817: "**Review findings:** base fa86cc9ed7c333202bc6b4e5c4939f1934f45641, reviewed 22018e4b7e5113b0a141a9db4f82a6203cf45fe3, landed 88a44510b, paths scripts/lib/read-hidden.js scripts/lib/read-hidden.test.ts scripts/test_write_secret_tty.py scripts/write-secret.js. scripts/write-secret.test.ts and docs/test-read-edges.json joined with the fixes.",
 	3826: "**Review findings:** base `88a44510be20f03e872e02ed3b05e0b496d58577`, reviewed `98f36d9c9a871ecd5c577b1f7b08856bd0e1b398`, landed `6a459da0c`, paths `scripts/lib/read-hidden.js,scripts/lib/read-hidden.test.ts,scripts/test_write_secret_tty.py`. Landed names the commit queued on `landing`, not yet on `main`.",
@@ -641,7 +597,6 @@ describe("the re-measure trigger", () => {
 		);
 	});
 
-	/** A record of `n` with one line in its list and two past its counts line. */
 	const buildCutOffRecord = (n: number, paths?: string) =>
 		`${record(n, ["FIXED: a leak"], sha("c", n), paths)}\n- FIXED: a lock (Standards)\n- TICKETED #9: a race (Standards)`;
 	const buildCutOffFault = (issue: number, n: number) =>
@@ -762,7 +717,6 @@ describe("the re-measure trigger", () => {
 						[],
 						[noted, record(15, undefined, undefined, "lib/pricing/quote.ts")],
 					),
-					/* A draft naming the landed tree, its correction the pinned one. */
 					ticket(
 						3,
 						[],
@@ -774,7 +728,6 @@ describe("the re-measure trigger", () => {
 							record(16, undefined, undefined, "b.ts a.ts"),
 						],
 					),
-					/* Another commit from the same base, over other paths. */
 					ticket(4, [], [record(17, undefined, undefined, "b.ts"), stray]),
 				],
 			},
@@ -806,8 +759,6 @@ describe("the re-measure trigger", () => {
 				`**Review findings:** base ${base}, reviewed ${reviewed}, landed ${l}${paths}`,
 				`- ${disposed} (Focus)`,
 			].join("\n");
-		/* On this repo's own tracker, which the count skips but this report
-		 * still reads (#3576). */
 		fx.setHits({
 			[OWN]: [
 				{
@@ -1314,7 +1265,6 @@ describe("the re-measure trigger", () => {
 		const gone = "f".repeat(40);
 		const fx = fixture({ hits: { "o/fleet": [buildEscapeTicket(gone)] } });
 		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
-		/* The probe of `gone` finds no commit; the --git-dir read after it fails. */
 		const seen = path.join(fx.root, "probe-seen");
 		const stub = path.join(fx.root, "git-stub.sh");
 		fs.writeFileSync(
@@ -1621,8 +1571,7 @@ exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
 		]);
 	});
 
-	// #1926: a start-point replay narrows to these paths.
-	it("counts a record naming its reviewed paths beside ones naming none, and lists the paths", () => {
+	it("counts a record naming its reviewed paths beside ones naming none, and lists the paths (#1926)", () => {
 		const fx = fixture({
 			hits: {
 				"o/fleet": [
@@ -1646,7 +1595,6 @@ exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
 		);
 	});
 
-	/** record(15) re-reviewed: base and tree of 16, naming quote.ts. */
 	const withPaths = record(15, undefined, undefined, "`lib/pricing/quote.ts`")
 		.replace(sha("b", 15), sha("b", 16))
 		.replace(sha("e", 15), sha("e", 16));
@@ -1687,7 +1635,6 @@ exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
 		tree?: number;
 		landed?: number;
 	}
-	/** A record over a.ts, its shas those of 15 unless named. */
 	const reviewOf = (
 		disposed: string[],
 		{ base = 15, tree = 15, landed = 15 }: ReviewShas = {},
@@ -1702,7 +1649,6 @@ exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
 		`- o/fleet#1: landed ${sha("c", landed)}, base ${sha("b", base)}, tree ${sha("e", tree)}, paths a.ts; ${fixed} fixed or ticketed, 0 escaped`;
 	const threeLines = ["FIXED: a leak", "FIXED: a lock", "TICKETED #9: a race"];
 	const cutOffReview = `${reviewOf(["FIXED: a leak"])}\n- FIXED: a lock (Standards)\n- TICKETED #9: a race (Standards)`;
-	/** Runs a ticket reaching the threshold, returning what it reported and filed. */
 	const fileTicket = (others: number, comments: string[]) => {
 		const fx = fixture({
 			hits: { "o/fleet": [ticket(1, range(1, others), comments)] },
@@ -1817,8 +1763,6 @@ exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
 			hits: {
 				"o/fleet": [
 					ticket(1, range(1, 13), [
-						// Record 14's counts line cut and record 15's header indented after
-						// a blank line, so only the header itself ends 14's list.
 						`${spaced.replace(/\nStandards 1.*$/, "")}\n\n  ${wrapped}`,
 					]),
 				],
@@ -1940,7 +1884,6 @@ describe("a record that loses defects or credits false ones (#3907)", () => {
 		updated: "2026-11-01",
 		comments,
 	});
-	/** The filed issue's first line and the stderr, the record's ticket on o/fleet. */
 	const read = (...comments: string[]) => {
 		const fx = fixture({
 			hits: { "o/fleet": [buildFleetHit(...comments)] },

@@ -1,11 +1,3 @@
-"""Tests for scripts/lib/host_root.py's git route: it asks git through WFC_GIT,
-as scripts/lib/git.js does, so a test can feed it a stub (#4262).
-
-A `stub_bin` git answering for two empty temp dirs, not a real repo: the stub's
-answer alone can name the main checkout, so a pass proves the call reached it.
-Loosen it and host_root can drift back to the real git, past every test that
-means to stub it."""
-
 import sys
 from pathlib import Path
 
@@ -72,8 +64,6 @@ def test_a_declared_root_that_will_not_resolve_is_kept_as_spelt_and_said(
     def refuse(self, strict=False):
         raise PermissionError("refused")
 
-    # An existing path that will not resolve must change between the exists
-    # check and resolve's own walk, a race no fixture can time.
     monkeypatch.setattr(host_root_module.Path, "resolve", refuse)
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
 

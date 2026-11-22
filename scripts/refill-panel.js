@@ -1,35 +1,4 @@
 #!/usr/bin/env node
-/*
- * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, #3879, #3881, #3883, #3884, #3887, #3948, #3958, #4065, spec #3596): a terminal program with no Claude process that shows the Refill
- * loop switch and its status block, and pauses or resumes the loop on a click;
- * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
- * which flips burn mode on a click; the Goal switch and its field, which clear or
- * replace the goal, free text through one `claude -p` and a confirm press; and a tick box per checkout, which sets whether the loop serves it.
- * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
- *
- *   node scripts/refill-panel.js <agents-view-pid> [windows-terminal|tmux]
- *   node scripts/refill-panel.js --print [--columns <n> [--rows <n>]]
- *
- * `--print` reads status once and prints, as plain text, the screen a pane shows
- * (#4114): at `--columns`, every row unless `--rows` cuts it, or else at each running
- * panel's own size.
- *
- * The route names the split that opened it (lib/refill-panel-routes.js), which is how a
- * click or Esc hands focus back to the agents pane; run by hand, there is none to name.
- * After Alt+→ the keys work every control: ↑↓, space and Esc. The wheel scrolls a pane too short for the rows.
- *
- * Joins no §N3 family: it gates nothing and is no hook.
- *
- * It reads `refill-loop.js status --json` on a poll and after every press, and
- * writes only by running `refill-loop.js set` and `burn-mode.sh`. It exits when the given pid is
- * gone, and on Ctrl+C. A SIGKILL runs no code, so it leaves the terminal to the
- * pane closing with the process.
- *
- * Exit codes: 0 on either exit or a pid already gone, or a print; 1 with no terminal,
- * on a crash, or on a print whose status read failed or that finds no panel to size
- * it by; 2 on a command line it refuses; 128 plus a catchable signal's number.
- */
 
 const { execFile } = require("node:child_process");
 const path = require("node:path");
@@ -60,15 +29,10 @@ Shows the refill loop, away mode, burn mode, the goal and the repos it can serve
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
 const BURN_PROGRAM = path.join(__dirname, "burn-mode.sh");
-/* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js),
- * and far past burn-mode.sh's few short writes, whose timeout reads as a failed flip. */
 const READ_TIMEOUT_MS = 30_000;
-/* A `set --resume` with no process fetches the loop's code first (#3861); killed
- * mid-fetch, it would leave the loop unpaused with no process. */
+// #3861
 const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
-/* Untraced, a first guess: nothing waits on it, and it need only outlast a slow cmd.exe. */
 const FOCUS_TIMEOUT_MS = 10_000;
-/* Run by hand, the panel has no way to name the pane to go to. */
 const FOCUS_NOT_MOVED = { code: 0, stdout: "", stderr: "" };
 
 /**
@@ -91,7 +55,6 @@ const runCommand = (file, argv, timeout, env) =>
 	});
 
 /**
- * Run the loop's `args`, as the panel.
  * @param {string[]} args
  * @param {NodeJS.ProcessEnv} env
  */

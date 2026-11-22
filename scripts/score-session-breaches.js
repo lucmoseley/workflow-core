@@ -1,33 +1,4 @@
 #!/usr/bin/env node
-/*
- * score-session-breaches.js — the before/after test's per-session score, read
- * off each main-session transcript in an arm's projects directory (#2042).
- *
- *   node scripts/score-session-breaches.js (--dir <projects dir> | --file <transcript>) [--json]
- *
- * With `lib/breach-score-rule.js`, which holds the classes, this is the
- * PRE-REGISTERED SCORING RULE (`docs/research/startup-load-before-after-test.md`
- * D3), committed before any run.
- *
- * Score = breach-class Stop refusals + every PreToolUse deny not of the
- * environment class, from the main transcript only:
- *
- *   A STOP REFUSAL is one `hook_blocking_error` attachment on `hookEvent:
- *     "Stop"`, deduped on its `toolUseID` plus the first 200 characters of its
- *     text (D3, by way of F2). Its "Stop hook feedback" user copy is never read. The guard is the
- *     script `blockingError.command` names.
- *   A PRETOOLUSE DENY is an `is_error` tool_result opening
- *     `PreToolUse:<Tool> hook error: `, deduped on its `tool_use_id`. Its guard
- *     comes from `guard-fire-needles.json`, on the deny route.
- *
- * A Stop guard with no class stops the scan (exit 2).
- *
- * Families reported beside the score: `inventory` and `jobDir`, which count
- * in it; `concision`, a demanded step, which does not.
- *
- * IN NO §N3 FAMILY, DELIBERATELY: it gates nothing, runs from a prompt, writes
- * no file and files no issue.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -59,14 +30,10 @@ const {
 	guardNameOf,
 } = require("./lib/breach-score-rule.js");
 
-/** F2: the prefix the harness gives a denied call's error result. */
 const DENY_HEAD = /^PreToolUse:\S+ hook error: /;
-/** D3, by way of F2: a Stop refusal dedupes on its text's first 200 characters. */
 const STOP_KEY_CHARS = 200;
 
 /**
- * Each guard `root` registers that has a deny needle, by name, with those
- * needles; a dispatcher's needle names its `core`.
  * @param {string} root
  * @returns {{name: string, needles: import("./lib/guard-fires").Needle[]}[]}
  */
@@ -82,11 +49,7 @@ function readDenyingGuards(root) {
 	return [...byName].map(([name, needles]) => ({ name, needles }));
 }
 
-/**
- * The guards whose deny needles a refusal's text carries, read against this
- * repo's own registry; a dispatcher's needle names its `core`.
- * @returns {(text: string) => string[]}
- */
+/** @returns {(text: string) => string[]} */
 function buildDenyAttributor() {
 	const guards = readDenyingGuards(hostRoot());
 	return (text) =>
@@ -95,18 +58,12 @@ function buildDenyAttributor() {
 			.map((g) => g.name);
 }
 
-/**
- * @param {Record<string, number>} counts accumulator: `key`'s count is raised
- * @param {string} key
- */
+/** @param {Record<string, number>} counts @param {string} key */
 const bump = (counts, key) => {
 	counts[key] = (counts[key] || 0) + 1;
 };
 
-/**
- * @param {unknown} c a tool_result's content
- * @returns {string}
- */
+/** @param {unknown} c @returns {string} */
 function parseResultText(c) {
 	if (typeof c === "string") return c;
 	if (!Array.isArray(c)) return "";
@@ -119,8 +76,6 @@ function parseResultText(c) {
  */
 
 /**
- * The Stop refusal and PreToolUse denies one record carries, each with the
- * key it dedupes on.
  * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @returns {Refusal[]}
  */
@@ -160,10 +115,7 @@ function refusalsIn(record) {
  *   families: {inventory: number, jobDir: number, concision: number, environment: number}}} Tally
  */
 
-/**
- * @param {Tally} t accumulator: the refusal is counted into it
- * @param {string} guard
- */
+/** @param {Tally} t @param {string} guard */
 function countStop(t, guard) {
 	const cls = STOP_CLASS[guard];
 	if (cls === "breach") {
@@ -175,10 +127,7 @@ function countStop(t, guard) {
 	else bump(t.unclassified, guard || "(no command)");
 }
 
-/**
- * @param {Tally} t accumulator: the deny is counted into it
- * @param {string[]} guards
- */
+/** @param {Tally} t @param {string[]} guards */
 function countDeny(t, guards) {
 	if (guards.some((g) => ENVIRONMENT_DENY.has(g))) {
 		t.families.environment++;

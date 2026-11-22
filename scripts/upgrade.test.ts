@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/upgrade-walk.js's walk of an adopter from its pinned tag to the installed
- * one: each migration note's residue applied once, its refusals, the hook,
- * session-rule and .gitignore re-rendering, and that no path calls `claude`.
- *
- * Each test builds a fake adopter and plugin root in a temp dir and calls
- * upgrade() directly, with a logging `claude` stub where a call would show.
- *
- * upgrade runs in every adopter on every bump, so breaking it miswrites an
- * adopter's settings or hooks, or advances `walkedTo` past a note whose
- * Verify failed (#6; each later limb cites its own ticket on its describe).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,7 +23,6 @@ let made: string[] = [];
 
 const CORE_IGNORE_BLOCK = (withIgnoreBlock("") as string).trimEnd();
 
-// Progress lines are not what these cases read.
 const quiet = noop;
 
 const write = (base: string, rel: string, body: string) => {
@@ -47,8 +34,6 @@ const writeJson = (base: string, rel: string, body: unknown) =>
 	write(base, rel, JSON.stringify(body));
 const readJson = (base: string, rel: string) =>
 	JSON.parse(fs.readFileSync(path.join(base, rel), "utf8"));
-/* The marketplace entry alone: every run merges the core's other settings
- * keys in (#1501), so the file's bytes move where the pin must not. */
 const pinOf = () =>
 	readJson(root, ".claude/settings.json").extraKnownMarketplaces.wc;
 
@@ -79,8 +64,6 @@ ${verify}
 \`\`\`
 `;
 
-/* Pins the adopter at `fromTag` under a plugin released at the tag of
- * `notePath`, one of this repo's own notes, so a walk reads it as shipped. */
 const walkRealNote = (notePath: string, fromTag: string) => {
 	const tag = path.basename(notePath, ".md");
 	writeJson(pluginRoot, ".claude-plugin/plugin.json", {
@@ -177,8 +160,6 @@ describe("upgrade", () => {
 		expect(config.contract).toBe(2);
 		expect(config.walkedTo).toBe("v2.0.0");
 
-		/* The block's lines are the core's own, whatever the note names: every
-		 * run brings it current, and the residue key only says so (#1501). */
 		const ignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
 		expect(ignore).not.toContain("*.wfc-local");
 		expect(ignore).toContain(CORE_IGNORE_BLOCK);
@@ -724,8 +705,6 @@ describe("upgrade", () => {
 			"v2.0.0",
 		);
 
-		// The founder's ordinary consent act: advance the pin to match what is
-		// now installed, without the walk having caught up.
 		writeJson(root, ".claude/settings.json", {
 			enabledPlugins: { "workflow-core@wc": true },
 			extraKnownMarketplaces: {
@@ -1042,7 +1021,6 @@ describe("upgrade", () => {
 
 	describe("a hand-moved pin's skipped notes are probed, not assumed (#284)", () => {
 		const contractIs7 = `node -e "process.exit(require('./.claude/workflow-core.json').contract === 7 ? 0 : 1)"`;
-		// No config yet reads as no contract.
 		const readContract = () =>
 			orFallback(
 				() => readJson(root, ".claude/workflow-core.json").contract,
@@ -1101,7 +1079,6 @@ describe("upgrade", () => {
 			write(
 				pluginRoot,
 				"migrations/v1.5.0.md",
-				/* Killed by a signal, so node reports no numeric exit status. */
 				note("v1.5.0", { contract: 7 }, "kill -TERM $$"),
 			);
 
@@ -1139,7 +1116,6 @@ describe("upgrade", () => {
 });
 
 describe("upgrade() calls claude on no path (#217, #230)", () => {
-	/** A logging `claude` stub on WFC_CLAUDE_BIN — returns its argv log's path. */
 	const stubClaude = () => {
 		const stub = fs.mkdtempSync(path.join(os.tmpdir(), "upgrade-claude-"));
 		made.push(stub);
@@ -1189,8 +1165,6 @@ describe("upgrade() calls claude on no path (#217, #230)", () => {
 });
 
 describe("turning the adopter's hooks into shims on every run (#104, #1839)", () => {
-	/* A hook bootstrap or an upgrade wrote before #1839: it names its plugin
-	 * on a root line, so it is the core's to rewrite. */
 	const legacy = (rootLine: string) =>
 		`#!/usr/bin/env sh\n# header\n${rootLine}\nexport WFC_PLUGIN_ROOT\n\nold body\n`;
 	const read = (name: string) =>
@@ -1330,8 +1304,6 @@ describe("re-rendering the adopter's session rules on a bump (#654)", () => {
 			...extra,
 		});
 
-	/* The install registry the provenance sha is read from, pointed away from
-	 * the real one so no test reads this machine's installs. */
 	let configDir: string;
 	beforeEach(() => {
 		configDir = fs.mkdtempSync(path.join(os.tmpdir(), "upgrade-cfg-"));
@@ -1567,8 +1539,6 @@ describe("the .gitignore block reaching an existing adopter (#773)", () => {
 	});
 });
 
-/* The CLI, spawned the way an adopter's session types it: its plugin root
- * defaults to the core it ships in, never the adopter root (#5286). */
 describe("upgrade.js through the resolve-core.js runner (#5286)", () => {
 	it("walks with the resolved core, not the adopter root", () => {
 		const core = path.resolve(__dirname, "..");

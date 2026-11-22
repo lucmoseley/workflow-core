@@ -72,8 +72,6 @@ def test_drops_synthetic_modelless_and_non_assistant_turns(tmp_path):
 
 
 def test_survives_a_half_written_or_non_object_line(tmp_path):
-    """A transcript is being appended to while this runs, so the last line may be
-    partial — and a line may legally be a bare JSON value rather than an object."""
     path = write_transcript(
         tmp_path,
         [

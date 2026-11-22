@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The `takes:` retagger moves a routing label only where an issue's children
- * have made it false, and leaves every other issue alone (mantahostels#1632,
- * mantahostels#1663; cross-repo children #778).
- *
- * Runs with a stub `gh` injected via WFC_GH: no network, no auth, and no
- * dependence on this repo's own issue state. The stub answers `gh api …` from a
- * fixture and logs every `gh issue edit …`, which is what these tests assert on.
- *
- * `scripts/session-start-sweeps.sh` runs it detached at every session start,
- * output unread: loosen a case and a live container is silently retagged off
- * its children, or a discharged one sits on the `/pick-next` frontier with
- * nothing to type.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -42,22 +28,9 @@ interface Issue {
 	state?: string;
 	pull_request?: object;
 	repository_url?: string;
-	/** Overrides the URL `parent` builds, for a parent in another repo. */
 	parent_issue_url?: string;
 }
 
-/**
- * Stub `gh` serving `issues` as one --slurp page, logging each `issue edit`,
- * and answering `issue view --json labels` from `viewLabels` — what the script
- * reads back when an edit fails.
- *
- * `children` answers the per-issue `/sub_issues` call that rule (b) and each
- * rule (a) candidate make: a number absent from it returns no sub-issue at
- * all — so a rule (a) candidate absent from it is stale — `"fail"` returns an
- * HTTP error the way an unreadable parent does, and `"unreachable"` returns
- * the one failure lib/gh.js classifies as an environment fact rather than a
- * fault.
- */
 const stubGh = (
 	issues: Issue[],
 	{
@@ -138,7 +111,6 @@ afterEach(() => {
 
 describe("retire-stale-containers", () => {
 	it("retags a container whose last child has closed", () => {
-		/* mantahostels#10's only child mantahostels#11 is closed, so it is absent from the open list. */
 		const stub = stubGh([{ number: 10, labels: ["takes:children"] }]);
 		const r = run([], stub);
 
@@ -269,7 +241,6 @@ describe("retire-stale-containers", () => {
 		]);
 	});
 
-	/* Rule (b) — mantahostels#1663, the duplicate-ticketing fix. */
 	describe("a ticketed takes:to-tickets spec", () => {
 		it("is retagged takes:children while a ticket is still open", () => {
 			const stub = stubGh([{ number: 20, labels: ["takes:to-tickets"] }], {
@@ -281,7 +252,6 @@ describe("retire-stale-containers", () => {
 			expect(readEdits(stub.editLog)).toBe(
 				"issue edit 20 --add-label takes:children --remove-label takes:to-tickets",
 			);
-			// The report names the issue, the direction and the reason.
 			expect(r.out).toContain("#20 t20");
 			expect(r.out).toContain(
 				"takes:to-tickets → takes:children — its tickets",
@@ -289,10 +259,7 @@ describe("retire-stale-containers", () => {
 			expect(r.out).toContain("Retagged 1 routing label(s)");
 		});
 
-		/* Both takes: values at once is already a MANY-TAKES FAIL elsewhere; this
-		 * sweep must not add a second pair to it. */
 		it("stands off an issue also carrying takes:children", () => {
-			/* mantahostels#21 open keeps rule (a) off it too, so any edit here is rule (b)'s. */
 			const stub = stubGh(
 				[
 					{ number: 20, labels: ["takes:to-tickets", "takes:children"] },
@@ -352,7 +319,7 @@ describe("retire-stale-containers", () => {
 			});
 			const r = run([], stub);
 
-			expect(r.status).toBe(0); // WARN, not a gate
+			expect(r.status).toBe(0);
 			expect(readEdits(stub.editLog)).toBe("");
 			expect(r.out).toContain("CHILDREN-UNREADABLE");
 		});
@@ -371,7 +338,7 @@ describe("retire-stale-containers", () => {
 			);
 			const r = run([], stub);
 
-			expect(r.status).toBe(1); // FAIL wins over WARN
+			expect(r.status).toBe(1);
 			expect(r.out).toContain("RETAG-FAILED");
 			expect(r.out).toContain("CHILDREN-UNREADABLE");
 			expect(r.out).toMatch(
@@ -418,8 +385,6 @@ describe("retire-stale-containers", () => {
 			expect(r.out).not.toContain("RETAG-FAILED");
 		});
 
-		/* An unreachable GitHub SKIPs the run — and the SKIP line must not claim
-		 * nothing was retagged, since rule (a) has already written by then. */
 		it("SKIPs without denying the rule (a) retags already made", () => {
 			const stub = stubGh(
 				[
@@ -506,7 +471,6 @@ describe("retire-stale-containers", () => {
 		});
 	});
 
-	/* The open-issue list holds this repo's issues alone (#778). */
 	describe("children in another repository", () => {
 		it("leaves a container whose only open child is in another repo", () => {
 			const stub = stubGh([{ number: 17, labels: ["takes:children"] }], {
@@ -556,7 +520,7 @@ describe("retire-stale-containers", () => {
 			});
 			const r = run([], stub);
 
-			expect(r.status).toBe(0); // WARN, not a gate
+			expect(r.status).toBe(0);
 			expect(readEdits(stub.editLog)).toBe("");
 			expect(r.out).toContain("CHILDREN-UNREADABLE");
 			expect(r.out).toContain("takes:children left as it stands");

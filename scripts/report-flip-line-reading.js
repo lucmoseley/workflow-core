@@ -1,45 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-flip-line-reading.js — the one-shot reading of #2228's flip line:
- * whether the close-rivals limb's low-top test, refusing a round whose top
- * option is `LOW_TOP` or less, should move down a step (#2331, spec #2260,
- * as #2519 leaves it).
- *
- * FILES ONE ISSUE, ONCE. A plain run at the reading point files the reading
- * as TITLE, `takes:wayfinder`; before it, and on `--dry-run`, it prints the
- * figures so far and files nothing. Once its issue exists, open or closed, it
- * never files again (lib/log-reading.js's `buildFiler`).
- *
- * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh,
- * WORKFLOW-CORE ONLY, over every adopter's close-check log, at most daily on a
- * plain run (#3220, buildFiler's `readDaily`).
- *
- * THE READING POINT, lib/log-reading.js's point rule with FIGURES. A repo is
- * live from its first low-top refusal (`trigger` `low-top` or `both`). The
- * clock starts when the QUORUMth repo is; the point is 7 days after that or
- * the 60th low-top re-send, whichever is later, and at most 21 days after the
- * first repo went live. The 60 is untraced (#2260 §Values). The spec's "all
- * three repos" is QUORUM, three of however many adopters this laptop holds.
- *
- * A LOW-TOP RE-SEND is a `passed-after-refusal` the passing send carried,
- * whose question's last `refused` line before it was low-top alone: one both
- * tests caught is a close refusal too, which #2227 F7's 30% already reads.
- * Line 1 counts low-top-alone refusals likewise, as #2229's forecast counts
- * rounds no other limb catches.
- *
- * THE TWO READINGS, from #2228's flip line as #2519 leaves it:
- *   1. low-top refusals a day, against #2229's forecast at 65 or less; it
- *      moves nothing;
- *   2. the share of low-top re-sends whose top option changed, against #2227
- *      F7's 30% after a close refusal; under it, move the line down to
- *      `LOW_TOP` - 5.
- *
- * Exit 0 whether or not it files, SKIP included; exit 2 for a log that will
- * not read, `gh` refusing, an unreadable WFC_NOW, or a command line
- * lib/cli-args.js refuses. Exit 2 fails no build, as no build runs it: the
- * launcher discards the code, and a hand run needs to see a log it could not
- * read.
- */
 
 const { writeFd } = require("./lib/write-fd.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -80,12 +39,11 @@ const FIGURES = {
 	quorum: QUORUM,
 };
 
-/* #2229's forecast at 65 or less (its X = 70 row), and #2227 F7's flip share
- * after a close refusal. */
+// #2229 guess: its forecast at a low-top line of 65 or less
 const FORECAST_PER_DAY = 15.5;
+// #2227 measured F7 flip share 30% after a close refusal
 const FLIP_LINE = 0.3;
 const FLIP_PCT = Math.round(FLIP_LINE * 100);
-/* The line #2228's flip line moves the test down to. */
 const LOWER_LINE = LOW_TOP - 5;
 
 const TITLE = `Flip-line reading: should the low-top line of ${LOW_TOP} move to ${LOWER_LINE}?`;
@@ -98,7 +56,6 @@ const TITLE = `Flip-line reading: should the low-top line of ${LOW_TOP} move to 
 const { readFiledAs, publish, readDaily } = buildFiler({
 	title: TITLE,
 	label: takesLabel("wayfinder"),
-	/* Named outside every marker sweep family, as the close-check log is. */
 	record: ".flip-line-reading-filed",
 	script: "report-flip-line-reading.js",
 	buildIssueBody: (reading) =>
@@ -123,8 +80,7 @@ const isLowTopAlone = (e) => e.trigger === "low-top";
 const questionKey = (e) => `${e.repo} ${e.session} ${e.round}`;
 
 /**
- * Each repo's first low-top refusal.
- * @param {LoggedEvent[]} refusals the low-top `refused` lines
+ * @param {LoggedEvent[]} refusals
  * @returns {Map<string, number>}
  */
 function lowTopLive(refusals) {
@@ -138,7 +94,6 @@ function lowTopLive(refusals) {
 }
 
 /**
- * The re-sends of questions last refused low-top alone, oldest first.
  * @param {LoggedEvent[]} events
  * @returns {LoggedEvent[]}
  */
@@ -154,7 +109,6 @@ function lowTopResends(events) {
 		if (e.kind === "refused") lastRefused.set(questionKey(e), e);
 		else if (
 			e.kind === "passed-after-refusal" &&
-			/* Null where the passing send left the question out (close-check-log.js). */
 			typeof e.stillClose === "boolean"
 		) {
 			const refused = lastRefused.get(questionKey(e));
@@ -165,7 +119,7 @@ function lowTopResends(events) {
 }
 
 /**
- * @param {LoggedEvent[]} refusals every low-top refusal in the window
+ * @param {LoggedEvent[]} refusals
  * @param {number} days
  */
 function buildRateLine(refusals, days) {
@@ -231,11 +185,7 @@ function main() {
 	readDaily(run, () => readAndPublish(run));
 }
 
-/**
- * Walk the logs and publish the reading.
- *
- * @param {{ nowMs: number, dryRun: boolean, filed: string | null }} run
- */
+/** @param {{ nowMs: number, dryRun: boolean, filed: string | null }} run */
 function readAndPublish({ nowMs, dryRun, filed }) {
 	const roots = readAdopterRoots();
 

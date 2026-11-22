@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The peak tripwire's CLI (#5367), run in-process against a temp host whose
- * markers hold the state file, so no case touches this repo's tripwire or
- * reads the journal. Break it and a re-arm leaves the old kill behind the
- * cursor to trip it again, or `status` hides the kill a session must read.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

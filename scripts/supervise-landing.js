@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-/*
- * supervise-landing.js — one supervision pass over the landing queue of the
- * checkout it runs in (#2692, ruled at #2672), which the refill loop runs in
- * every served or launched-in checkout each tick: lib/landing-stall.js reads
- * the queue and decides. Where no queue lander runs and a queue ref waits or
- * a drop is owed a decision, it starts one through start-lander.js, the one launcher; where `main` has not
- * moved for STALL_MS with a queue ref waiting, it files or refreshes the
- * stall ticket (lib/stall-ticket.js), which it closes once `main` moves. It
- * files and closes the queue alert (lib/queue-alert.js), and the alarm ticket
- * while an off-machine queue alarm fires (lib/alarm-ticket.js, #4772).
- *
- *   node scripts/supervise-landing.js [--tester <command>]
- *
- * `--tester` is the started lander's, as start-lander.js passes it on.
- *
- * Prints nothing where the queue needs nothing. Joins no §N3 family: it
- * gates nothing and is no hook.
- *
- * Exit codes: 0 on a pass; 1 on a throw, an alarm read that failed, an
- * unreadable remote or queue log, a failed start or a refused filing among
- * them; 2 on a command line it refuses.
- */
-
 const { alarmTicketTender } = require("./lib/alarm-ticket.js");
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
@@ -57,8 +34,7 @@ function main(argv = process.argv.slice(2)) {
 		return 1;
 	}
 	const deps = liveQueueDeps(root);
-	/* First and off the queue's reads, so a broken queue, when the alarms
-	 * matter most, cannot skip them (#4772). */
+	// #4772
 	const alarmsRead = tendAlarms(root, deps);
 	const queue = readQueue(root, now());
 	const { start, ticket } = supervision(queue);
@@ -80,11 +56,9 @@ function main(argv = process.argv.slice(2)) {
 }
 
 /**
- * The alarm ticket's pass. An unread alarm is named and leaves the ticket as
- * it stands; the pass goes on, and fails at its end (#4772).
  * @param {string} root
  * @param {import("./lib/queue-issue.js").QueueIssueDeps} deps
- * @returns {boolean} whether the alarms read
+ * @returns {boolean}
  */
 function tendAlarms(root, deps) {
 	let alarms;
@@ -100,8 +74,6 @@ function tendAlarms(root, deps) {
 }
 
 /**
- * start-lander.js in `root`, naming the refill loop its launcher; its line is
- * printed and appended to the lander's log.
  * @param {string} root
  * @param {string|undefined} tester
  */

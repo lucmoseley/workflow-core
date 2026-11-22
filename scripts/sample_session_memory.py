@@ -1,42 +1,4 @@
 #!/usr/bin/env python3
-"""sample_session_memory.py — sample each live Claude session's memory, with every process it starts.
-
-Prices what a session costs, repo by repo (#333).
-
-Every --interval seconds, for each session `claude agents --json` lists:
-
-  own   PSS of the session's pair, paired as admission's `sessionPairPids`
-        pairs it: the session process and every `claude` process sharing its
-        `/spare/` socket id (`docs/environment.md` §5). A session with no
-        such socket is its own process alone. Where a half has exited or will
-        not read, admission credits the session nothing, so its row is not
-        written for that sample.
-  desc  PSS of every descendant of the session process: hooks, suites,
-        builds, `gh`, `git`. Admission's session draw is own + desc (#2139).
-        A process that detaches (`setsid`, a daemonised sweep) reparents out
-        of the tree and is not counted; a nested listed session is left, with
-        its subtree, to its own row, as admission's `descendantsPssKb` leaves
-        it (#2231). A live gate seat's holder and its subtree are left out
-        too, as admission prices the seat on its own (#5274, spec #5273 §3):
-        a process whose environ names a gate-seat marker in WFC_GATE_SEAT is
-        under the seat only where that marker parses, its holder pid is
-        alive, and the holder is the process's ancestor.
-
-A descendant is tracked as an instance, keyed (session, pid, start time) so a
-recycled pid is a new instance, from its first sample to its last. Instances
-whose peak reaches --min-proc-mb are written out when they end; `analyse`
-reads those as spikes. A spike is read only at sample instants, so its peak
-is a floor and a process shorter than one interval may be missed outright.
-
-`claude agents --json` is re-read every --agents-every seconds, not every
-sample: one call holds ~240 MB for ~1 s, which at every sample would itself be a
-load on the machine being measured. A session that starts and ends between two
-reads is missed.
-
-`run` appends to <out-dir>/{samples,sessions,procs}.csv, so a killed run can be
-restarted into the same directory, and exits by itself after --duration
-(default 24 h).
-"""
 
 import argparse
 import csv
@@ -82,19 +44,12 @@ INTERPRETERS = {"node", "bash", "sh", "npx", "npm", "uv"}
 SUBCOMMAND_TOOLS = {"git", "gh", "claude", "npm", "npx"}
 VALUE_FLAGS = {"-C", "-c", "-R", "--repo", "--prefix"}
 HOME = os.path.expanduser("~")
-# DUPLICATED BY HAND from scripts/lib/gate-seat.js's GATE_ENV and
-# lib/proc-stat.js's ANCESTOR_MAX_HOPS: move both, or neither.
+# #5274
 GATE_ENV = "WFC_GATE_SEAT"
 ANCESTOR_MAX_HOPS = 64
 
 
 def command_key(argv):
-    """Name a command for the spike table: the thing that ran, not its flags.
-
-    `node scripts/check-reachability.js --x` -> `node check-reachability.js`,
-    `python3 -m pytest -n 2` -> `python3 -m pytest`, `git -C x status` ->
-    `git status`, `bash -c <script>` -> `bash -c`.
-    """
     if not argv:
         return "?"
     head = os.path.basename(argv[0])
@@ -128,7 +83,6 @@ def command_key(argv):
 
 
 def repo_of(cwd):
-    """The repo a session belongs to: the first path segment under $HOME."""
     rel = relative_under(HOME, cwd) if cwd else None
     if rel:
         return rel.split(os.sep, 1)[0]
@@ -136,7 +90,6 @@ def repo_of(cwd):
 
 
 def percentile(values, p):
-    """Nearest-rank percentile, so every figure reported is a real sample."""
     if not values:
         return None
     ordered = sorted(values)
@@ -144,13 +97,10 @@ def percentile(values, p):
     return ordered[int(rank) - 1]
 
 
-# --- /proc readers -----------------------------------------------------------
-# The real /proc, never WFC_PROC's fake: the sampler measures this machine
-# (#3608).
+# #3608
 
 
 def read_proc_table():
-    """pid -> (ppid, starttime) for every process readable now."""
     table = {}
     for name in os.listdir("/proc"):
         if not name.isdigit():
@@ -170,8 +120,6 @@ def read_proc_table():
 
 
 def pss_kb(pid):
-    """Proportional set size in kB, or None for a process gone since the table
-    was read — it has no memory left to count (#1274)."""
     try:
         with open(f"/proc/{pid}/smaps_rollup") as f:
             for line in f:
@@ -198,8 +146,6 @@ def cmdline(pid):
 
 
 def environ_var(pid, name):
-    """`name`'s value in `pid`'s environ, or None where it is unset or the
-    environ will not read (gone, or another user's)."""
     try:
         with open(f"/proc/{pid}/environ", "rb") as f:
             raw = f.read()
@@ -217,7 +163,6 @@ def environ_var(pid, name):
 
 
 def read_marker(path):
-    """A suite-queue marker's record, or None where it will not read or parse."""
     try:
         with open(path) as f:
             record = json.load(f)
@@ -230,12 +175,8 @@ def read_marker(path):
     return record if isinstance(record, dict) else None
 
 
+# #5274
 def ancestors(pid, procs):
-    """`pid`'s ancestors off the proc table, nearest first, as
-    lib/proc-stat.js's readAncestorsOf walks them.
-
-    The walk is DUPLICATED BY HAND from scripts/lib/proc-stat.js's
-    readAncestorsOf: move both, or neither (#5274)."""
     chain, seen = [], {pid}
     at = procs.get(pid, (0, 0))[0]
     while at > 0 and at not in seen and len(chain) < ANCESTOR_MAX_HOPS:
@@ -245,12 +186,8 @@ def ancestors(pid, procs):
     return chain
 
 
+# #5274
 def live_holder(record, procs):
-    """The marker's holder pid where it is alive and not reused, as
-    suite-queue.js's isMarkerStale judges it; else None.
-
-    The staleness rule is DUPLICATED BY HAND from scripts/lib/suite-queue.js's
-    isMarkerStale: move both, or neither (#5274)."""
     pid = record.get("pid")
     if not isinstance(pid, int) or isinstance(pid, bool) or pid not in procs:
         return None
@@ -260,15 +197,8 @@ def live_holder(record, procs):
     return pid
 
 
+# #5274
 def gate_seat_pids(candidates, procs, var_of=environ_var, marker_of=read_marker):
-    """The holder pids of the live gate seats `candidates` run under: a
-    candidate carrying GATE_ENV is under its seat only where the marker it
-    names parses, its holder is alive, and the holder is the candidate's
-    ancestor, as suite-queue.js's heldMarker confirms it. A candidate carrying
-    the variable outside the holder's tree confirms nothing.
-
-    The confirmation is DUPLICATED BY HAND from scripts/lib/suite-queue.js's
-    heldMarker: move both, or neither (#5274)."""
     holders, seats = {}, set()
     for pid in candidates:
         path = var_of(pid, GATE_ENV)
@@ -292,12 +222,8 @@ def meminfo():
     return values["MemAvailable"], values["SwapTotal"] - values["SwapFree"]
 
 
+# #2231
 def descendants(root, children, stops):
-    """Every pid under `root`, less each pid in `stops` and its subtree: a
-    listed session's, and a live gate seat's holder's.
-
-    The stop is DUPLICATED BY HAND from scripts/lib/admission.js's
-    descendantsPssKb: move both, or neither (#2231)."""
     out, stack = [], list(children.get(root, ()))
     while stack:
         pid = stack.pop()
@@ -309,9 +235,6 @@ def descendants(root, children, stops):
 
 
 def pair_pss_kb(pair, procs, pss_of=pss_kb):
-    """The summed PSS of a session's pair, each half a (pid, start time), or
-    None where a half has exited, been replaced under its pid, or will not
-    read — as admission's `sessionsPssKb` stops at an unreadable half."""
     total = 0
     for pid, start in pair:
         pss = pss_of(pid) if procs.get(pid, (None, None))[1] == start else None
@@ -322,16 +245,13 @@ def pair_pss_kb(pair, procs, pss_of=pss_kb):
 
 
 def list_sessions():
-    """The `claude agents --json` sessions, or None where the oracle will not
-    answer — the caller then keeps its previous list rather than dropping all
-    (#1274)."""
     try:
         listed = json.loads(
             subprocess.run(
                 [bin_path("claude"), "agents", "--json"],
                 capture_output=True,
                 text=True,
-                # A guess, never measured: well past the ~1 s a call takes.
+                # #333 guess
                 timeout=30,
             ).stdout
         )
@@ -341,9 +261,6 @@ def list_sessions():
     if not isinstance(listed, list):
         return None
     return [s for s in listed if isinstance(s, dict) and isinstance(s.get("pid"), int)]
-
-
-# --- run ---------------------------------------------------------------------
 
 
 def open_csv(path, header):
@@ -379,10 +296,9 @@ def run(args):
 
     me = os.getpid()
     min_proc_kb = args.min_proc_mb * 1024
-    # Monotonic for the schedule: WSL2's wall clock jumps after host sleep.
     deadline = time.monotonic() + args.duration
-    sessions = {}  # pid -> {"id", "repo", "state", "start", "pair"}
-    instances = {}  # (session, pid, start) -> dict
+    sessions = {}
+    instances = {}
     next_agents = 0.0
 
     def flush_instance(key, inst):
@@ -407,8 +323,6 @@ def run(args):
         if tick >= next_agents:
             listed = list_sessions()
             if listed is not None:
-                # Read at each listing, not each sample: a claimed pair's
-                # pids are fixed for the session's life.
                 sockets = {
                     pid: sock
                     for pid in procs
@@ -503,15 +417,7 @@ def run(args):
         f.close()
 
 
-# --- analyse -----------------------------------------------------------------
-
-
 def read_rows(path, int_fields, tally):
-    """Rows whose integer fields all parse — a run killed mid-write leaves a
-    torn last line, which is dropped rather than failing the whole read.
-    `tally` is the caller's accumulator: each dropped row is counted into it
-    under the file's name, for `analyse` to print (#1274). Falls back to
-    `<path>.gz`, the form a dataset lands in under `docs/data/`."""
     rows = []
     opener = (
         open
@@ -544,10 +450,6 @@ def summarise(values_kb):
 
 
 def analyse_rows(session_rows, proc_rows, spike_mb):
-    """Per repo: session+descendants and own-alone distributions, over every
-    session sample and over `working` ones alone — a finished session idling
-    resident would otherwise pull the medians down — and the spike table:
-    every tracked process instance whose peak reached spike_mb."""
     by_repo = defaultdict(
         lambda: {
             "total": [],
@@ -600,10 +502,8 @@ def analyse_rows(session_rows, proc_rows, spike_mb):
     return result
 
 
-# `agent-liveness.js`'s TERMINAL_STATES: a session admission never charges.
 TERMINAL_STATES = {"done", "failed", "stopped"}
-# The aggregate's p95, ruled at #2221. DUPLICATED BY HAND as DRAW_Z in
-# scripts/lib/admission-figures.js, which admits on it: move both, or neither.
+# #2221
 DRAW_Z = 1.645
 
 
@@ -612,9 +512,6 @@ def draw_kb(row):
 
 
 def aggregate_rows(session_rows, mean_mb, sd_mb):
-    """The check on the aggregate draw (#2221): per count N of live sessions
-    at one sample instant, how many instants had it, the measured p95 of their
-    summed draw, and the N·mean + z·sd·√N admission charges for them."""
     ticks = defaultdict(list)
     for row in session_rows:
         if row.get("state") in TERMINAL_STATES:
@@ -711,20 +608,22 @@ def print_summary(label, summary):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(
+        description="sample_session_memory.py — sample each live Claude session's memory, with every process it starts."
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
     run_parser = sub.add_parser("run")
     run_parser.add_argument("out")
-    # One day: the span #333 asked to price.
+    # #333
     run_parser.add_argument("--duration", type=float, default=24 * 3600)
     # Measured at #333's review.
     run_parser.add_argument("--interval", type=float, default=2)
-    # Guesses, never measured.
+    # #333 guess
     run_parser.add_argument("--agents-every", type=float, default=60)
     run_parser.add_argument("--min-proc-mb", type=float, default=10)
     analyse_parser = sub.add_parser("analyse")
     analyse_parser.add_argument("out")
-    # A guess, never measured.
+    # #333 guess
     analyse_parser.add_argument("--spike-mb", type=float, default=100)
     args = parser.parse_args(argv)
     (run if args.cmd == "run" else analyse)(args)

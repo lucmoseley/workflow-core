@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the pre-commit hold on a declared sensitive path (#1622, spec #1612
- * §The hold): a session's commit touching a declared glob, in its linked
- * worktree or the main checkout, is refused until its `.codereview-pass-<sid>`
- * marker records an escalated tier, every matched area and the exact tree the
- * commit carries (#4383). Break it and unreviewed sensitive code reaches
- * `landing` with the session's next land, or every session commit on a
- * declared path is refused with no way out, a land's merge of neighbours'
- * reviewed commits among them.
- *
- * Its branch cases stage paths in a throwaway repo and run the hold's and the
- * trailer's cores in-process on their production ports, so every git read
- * crosses real git without a hook's spawns (#5153, §X11). The boundary set
- * stays real `git commit`s, merges and cherry-picks through hooks running the
- * live entries, because the hook routes and the index git builds for a
- * pathspec, --patch or linked-worktree commit no in-process call reproduces.
- * `tree=` comes from `commit-paths.js --tree`, or mid-merge from the index, as
- * write-review-marker.js takes it for a session, so a drift between that
- * computation and the hook's fails here; the Stop backstop and push guard read
- * the same marker, so they are run on it too.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -47,7 +26,6 @@ const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
 const WRITE_MARKER = path.resolve(__dirname, "write-review-marker.js");
 const SID = "session-under-test";
-/** code-signal.sh's review floor: a change over it owes a review. */
 const CODE_THRESHOLD = readShellConst(
 	path.join(__dirname, "lib", "code-signal.sh"),
 	"CODE_THRESHOLD",
@@ -69,8 +47,6 @@ const quietEnv = () => {
 		...process.env,
 		CLAUDE_CODE_SESSION_ID: "",
 		CLAUDE_CONFIG_DIR: scratch,
-		// Off: commit-paths runs the mutation hold before the lock on these
-		// sensitive paths (#1910), and the fixture has no Stryker.
 		WFC_MODULES: process.env.WFC_MODULES?.split(",")
 			.filter((m) => m !== "mutation")
 			.join(","),
@@ -93,11 +69,6 @@ const write = (rel: string, text: string, root = repo) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
 	fs.writeFileSync(path.join(root, rel), text);
 };
-/**
- * Runs `call` with concision-marker.sh sourced and `args` as its positional
- * parameters. `env` is laid over `quietEnv()`, so it adds or overrides
- * variables and never drops the isolation; with no `input`, stdin is empty.
- */
 const runMarkerLib = (
 	call: string,
 	args: string[],
@@ -114,10 +85,6 @@ const runMarkerLib = (
 		},
 	);
 
-/**
- * Any git command under the fixture's hooks, as a session runs it; `env` is
- * laid over the rest, after GIT_REFLOG_ACTION is cleared.
- */
 const hookedGit = (
 	args: string[],
 	{
@@ -141,18 +108,12 @@ const hookedGit = (
 	});
 };
 
-/** A pathspec commit, as commit-paths.js makes; with no paths, the index as staged. */
 const commit = (paths: string[], opts: Parameters<typeof hookedGit>[1] = {}) =>
 	hookedGit(
 		["commit", "-qm", "land", ...(paths.length > 0 ? ["--", ...paths] : [])],
 		opts,
 	);
 
-/**
- * `call` with the process environment a hook would hand this repo: hostRoot()
- * reads the process's CLAUDE_PROJECT_DIR, `projectDir` or unset, and the
- * fail-open log its CLAUDE_CONFIG_DIR, so both are stubbed for the call.
- */
 const inProcess = <T>(call: () => T, projectDir?: string): T => {
 	vi.stubEnv("CLAUDE_PROJECT_DIR", projectDir);
 	vi.stubEnv("CLAUDE_CONFIG_DIR", scratch);
@@ -163,10 +124,6 @@ const inProcess = <T>(call: () => T, projectDir?: string): T => {
 	}
 };
 
-/**
- * The hold over `paths`, staged, in-process over the checkout `cwd`.
- * `projectDir` is the harness's CLAUDE_PROJECT_DIR, unset where absent.
- */
 const hold = (
 	paths: string[],
 	{
@@ -187,7 +144,6 @@ const hold = (
 	return inProcess(() => runHold(buildHoldPorts({ cwd, env })), projectDir);
 };
 
-/** What `commit-paths.js --tree` prints, the tree review-hold.txt names. */
 const treeOf = (args: string[], cwd = repo) => {
 	const r = runInProcess(COMMIT_PATHS, ["--tree", ...args], {
 		cwd,
@@ -211,10 +167,6 @@ const mark = (
 	);
 };
 
-/**
- * Commits a five-line SECRET, edits its first and last lines, and returns a
- * patch holding the first hunk alone.
- */
 const halfPatch = () => {
 	write(SECRET, "line 1\nline 2\nline 3\nline 4\nline 5\n");
 	git("commit", "-qam", "five lines");
@@ -225,7 +177,6 @@ const halfPatch = () => {
 	return patch;
 };
 
-/** A `commit-paths.js --patch` commit, this file's pre-commit hook wired. */
 const commitPatch = (patch: string, whole: string[]) =>
 	runInProcess(
 		COMMIT_PATHS,
@@ -248,11 +199,6 @@ const commitPatch = (patch: string, whole: string[]) =>
 		},
 	);
 
-/**
- * write-review-marker.js's marker for halfPatch's SECRET hunk plus PRICE
- * whole, after leaving the review artefacts it demands; their suffix is
- * SID's first eight characters, as lib/review-suffix.sh cuts it.
- */
 const writeMarker = (patch: string) => {
 	leaveArtefacts();
 	return runInProcess(
@@ -277,7 +223,6 @@ const writeMarker = (patch: string) => {
 
 const commitCount = () => git("rev-list", "--count", "HEAD");
 
-/** Leaves the artefacts an escalated review owes, suffixed as SID's. */
 const leaveArtefacts = (dir = path.join(repo, ".claude", "tmp")) => {
 	fs.mkdirSync(dir, { recursive: true });
 	for (const axis of ["standards", "spec", "focus"])
@@ -287,7 +232,6 @@ const leaveArtefacts = (dir = path.join(repo, ".claude", "tmp")) => {
 		);
 };
 
-/** A refusal in `cwd` naming `areas`, its HEAD still `before` commits deep. */
 const refusedIn = (
 	r: { status: number | null; stderr: string },
 	cwd: string,
@@ -312,7 +256,6 @@ const expectRefused = (
 	expect(commitCount()).toBe(commits);
 };
 
-/** The hold rule's text, as the refusal prints it between blank lines. */
 const RULE = fs
 	.readFileSync(
 		path.resolve(__dirname, "..", "docs/agents/rules/review-hold.txt"),
@@ -320,10 +263,6 @@ const RULE = fs
 	)
 	.replace(/\n+$/, "");
 
-/**
- * The refusal is built here from its parts, never by the core's own
- * refusal().
- */
 const expectHeld = (
 	r: { status: number | null; stderr: string },
 	{
@@ -357,9 +296,7 @@ const expectHeld = (
 	});
 };
 
-/** The seeded repo and its hooks directory, built once and copied per case. */
 const fixture = defineTemplate((root) => {
-	// Points git() and write() at the template; beforeEach points them back.
 	repo = path.join(root, "repo");
 	fs.mkdirSync(repo);
 	git("init", "-q", "-b", "main");
@@ -612,7 +549,6 @@ describe("review-hold-gate.js — the declaration it reads", () => {
 		},
 	);
 
-	/** The staged declaration's read fault the refusal names. */
 	const stagedFaultOf = (stderr: string) =>
 		/^ {2}The staged \.claude\/workflow-core\.json will not read, and a review would land it broken, so correct it first: (.*)$/m.exec(
 			stderr,
@@ -671,10 +607,6 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 			env: hookEnv(),
 		});
 
-	/**
-	 * A commit on a side branch writing `theirs` over each path, and one on main
-	 * writing `mine` over `conflicting`; returns the side commit.
-	 */
 	const divergedPick = (paths: string[], conflicting: string[]) => {
 		git("checkout", "-qb", "side");
 		for (const p of paths) write(p, "theirs\n");
@@ -689,7 +621,6 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 		}
 		return pick;
 	};
-	/** Starts the pick unhooked, stopping on its conflict. */
 	const stopOnConflict = (pick: string) =>
 		expect(
 			spawnSync("git", ["cherry-pick", pick], {
@@ -861,7 +792,6 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 
 describe("review-hold-gate.js — a merge's landed bytes pass, anything added is held (#4383)", () => {
 	let wt: string;
-	/** A git command in the worktree, under the fixture's hooks, the shared tree its markers' host as the harness sets it. */
 	const inWt = (args: string[], env: Record<string, string> = {}) =>
 		hookedGit(args, { cwd: wt, projectDir: repo, env });
 	const wtCount = () => git("-C", wt, "rev-list", "--count", "HEAD");
@@ -872,11 +802,6 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		git("-C", wt, "add", "--", rel);
 	};
 
-	/**
-	 * `main` gains a neighbour's commit writing `theirs` over each of `landed`,
-	 * pushed to `origin/landing` where `push`; the worktree, cut before it,
-	 * commits `mine` over each of `own`.
-	 */
 	const diverge = (landed: string[], own: string[], push = true) => {
 		git("worktree", "add", "-q", "--detach", wt, "HEAD");
 		for (const p of landed) write(p, "theirs\n");
@@ -899,7 +824,6 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		);
 	});
 
-	/** A merge held on SECRET alone, PLAIN landed and PRICE this worktree's, with the review's artefacts left. */
 	const heldMerge = () => {
 		diverge([PLAIN], [PRICE]);
 		inWt(["merge", "--no-commit", "origin/landing"]);
@@ -1112,8 +1036,6 @@ describe("review-hold-gate.js — passes", () => {
 	it("passes a commit whose stamp it cannot write, saying what the commit lands without", () => {
 		write(PLAIN, "new\n");
 		git("add", "--", PLAIN);
-		/* A directory where the stamp goes, which neither a remove nor a write
-		 * of the file can clear. */
 		const stampAt = reviewTierStamp(path.join(repo, ".git"), SID) as string;
 		fs.mkdirSync(path.join(stampAt, "held"), { recursive: true });
 		expect(hold([])).toEqual({
@@ -1149,7 +1071,6 @@ describe("review-hold-gate.js — the marker's other readers", () => {
 		expect(r.status).toBe(0);
 	};
 	type Author = "this session" | "a neighbour";
-	/** Write `rel`, recorded as this session's own edit or left a neighbour's. */
 	const writeAs = (by: Author, rel: string, body: string) =>
 		by === "this session" ? authored(rel, body) : write(rel, body);
 	const stopNag = (root = repo) => {
@@ -1175,9 +1096,6 @@ describe("review-hold-gate.js — the marker's other readers", () => {
 				tool_name: "Bash",
 				tool_input: { command: "git push origin main" },
 			}),
-			// Lifted to the dispatcher's entry budget, which still cuts it: an
-			// overrun of the live 6 s answers no warning, which the assertions
-			// would misread.
 			env: {
 				...hookEnv(),
 				WFC_PUSH_REVIEW_TIMEOUT_MS: String(ENTRY_BUDGET_MS.PreToolUse),
@@ -1187,7 +1105,6 @@ describe("review-hold-gate.js — the marker's other readers", () => {
 			? (JSON.parse(r.stdout).hookSpecificOutput?.additionalContext ?? "")
 			: "";
 	};
-	/** Records this session's start point, as concision-backstop.sh's `start` does. */
 	const startHere = () => {
 		const start = git("rev-parse", "HEAD");
 		fs.mkdirSync(path.dirname(marker()), { recursive: true });
@@ -1208,22 +1125,12 @@ describe("review-hold-gate.js — the marker's other readers", () => {
 			base,
 		);
 
-	/*
-	 * #1745 F1: a staged review diffs HEAD, so its marker's `base=` is HEAD and
-	 * vouches for nothing committed before it.
-	 */
 	describe("a staged-review marker, after an earlier commit", () => {
-		/**
-		 * Start, commit `lib/earlier.ts` (as this session, or as a neighbour),
-		 * change a sensitive path; returns the start point.
-		 */
 		const session = (earlierBy: Author) => {
 			const start = startHere();
 			writeAs(earlierBy, "lib/earlier.ts", code);
-			// What commit-paths.js does for a new file.
 			git("add", "-N", "lib/earlier.ts");
 			expect(commit(["lib/earlier.ts"]).status).toBe(0);
-			// What post-commit does; an unledgered commit is nobody's (#3108).
 			if (earlierBy === "this session")
 				ledgerHead(repo, { ...hookEnv(), CLAUDE_CODE_SESSION_ID: SID });
 			authored(PRICE, code);
@@ -1257,7 +1164,6 @@ describe("review-hold-gate.js — the marker's other readers", () => {
 			expect(pushWarn()).not.toContain("no code review covers");
 		});
 
-		// #1840 F1: without paths= nothing bounds what a staged review vouches for.
 		it("leaves the Stop nag owed where base= is HEAD, the earlier commit is a neighbour's and the marker has no paths=", () => {
 			session("a neighbour");
 			mark({ tier: "escalated", areas: "money", tree: treeOf(["--", PRICE]) });
@@ -1280,13 +1186,8 @@ describe("review-hold-gate.js — the marker's other readers", () => {
 		});
 	});
 
-	/*
-	 * #1769: a staged review diffs only the commit's paths, so its marker's
-	 * `paths=` bounds what it vouches for.
-	 */
 	describe("a staged-review marker, with session code outside its commit", () => {
 		const otherFile = "lib/other.ts";
-		/** With `nagFirst`, the Stop nag fires before the marker is written. */
 		const holdThenCommit = (otherBy: Author, { nagFirst = false } = {}) => {
 			startHere();
 			writeAs(otherBy, otherFile, code);
@@ -1337,7 +1238,6 @@ describe("review-hold-gate.js — the marker's other readers", () => {
 
 		it("passes the Stop nag and the push warning where paths= names the file too", () => {
 			holdThenCommit("this session");
-			// A whole-session review after the commit: no hold reads its tree=.
 			mark(
 				{
 					tier: "escalated",
@@ -1418,7 +1318,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 	});
 
 	describe("a tree that moves under the later gates (#3905)", () => {
-		/** The hold, then a later gate during which a neighbour stages `rel`. */
 		const neighbourStages = (rel: string, text: string) => {
 			const abs = path.join(repo, rel);
 			fs.writeFileSync(
@@ -1495,7 +1394,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 				SID,
 			) as string;
 
-		/** write-review-marker.js from the worktree, for SECRET; `env` over quietEnv(). */
 		const writeWtMarker = (env: NodeJS.ProcessEnv = {}) =>
 			runInProcess(
 				WRITE_MARKER,
@@ -1544,8 +1442,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			expect(readWtTrailer()).toContain("escalated");
 		});
 
-		// The harness sets CLAUDE_PROJECT_DIR to the shared tree on every Bash
-		// call, so the marker the writer leaves there is the one the gate reads.
 		it("trails a commit whose marker write-review-marker.js wrote from the worktree, the host's tree unchanged", () => {
 			const base = git("-C", wt, "rev-parse", "HEAD");
 			write(SECRET, "new\n", wt);
@@ -1565,8 +1461,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			expect(fs.existsSync(stamp())).toBe(false);
 		});
 
-		// A shell with the variable unset: the hook takes its host from
-		// hook-root.sh, so writer and hold meet in the shared tree's store.
 		it("trails a commit with CLAUDE_PROJECT_DIR unset, the artefacts and the marker in the shared tree (#3830)", () => {
 			fs.writeFileSync(
 				path.join(hooks, "pre-commit"),
@@ -1609,7 +1503,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 		});
 	});
 
-	/** The hold then the trailer, in-process; `holding: false` runs the trailer alone. */
 	const trailOn = (
 		paths: string[],
 		text: string,
@@ -1635,7 +1528,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 		});
 		return { ...r, text: () => fs.readFileSync(msg, "utf8") };
 	};
-	/** The message's `Review-Tier:` values, one per line. */
 	const trailerValues = (text: string) =>
 		text
 			.split("\n")
@@ -1681,8 +1573,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 		git("add", "--", SECRET);
 		const tree = git("write-tree");
 		mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
-		/* git writes the trailer through a file beside the message, which a
-		 * read-only directory refuses. */
 		const dir = path.join(scratch, "sealed");
 		fs.mkdirSync(dir);
 		const msg = path.join(dir, "msg");
@@ -1701,7 +1591,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			fs.chmodSync(dir, 0o755);
 		}
 		expect(r.status).toBe(0);
-		/* git names why where its version says one; CI's says nothing. */
 		expect(r.stderr).toMatch(
 			/^prepare-commit-msg: git could not write the trailer, so this commit lands with no Review-Tier: trailer( \(.+\))?\.\n$/s,
 		);
@@ -1885,7 +1774,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 
 	describe("a stamp in the shared tree, with a neighbour committing (#3906)", () => {
 		const Neighbour = "neighbour-session";
-		/** The hold as session SID runs it on a private index, its commit still to come. */
 		const privateEnv = () => ({
 			...quietEnv(),
 			CLAUDE_CODE_SESSION_ID: SID,

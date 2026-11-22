@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * How the npm-run-hints scan reads a file's text, and the hints a script
- * prints at an install-shaped root (#1289). The scan over the shipped tree
- * itself is `npm-run-hints-scan.test.ts` (#1900).
- *
- * Loosen a case and the scan can pass a hint an adopter cannot run, or a
- * guard can print `npm run` at an install where npm finds no such script.
- */
 
 import fs from "node:fs";
 import os from "node:os";

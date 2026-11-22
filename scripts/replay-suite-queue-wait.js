@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-/*
- * replay-suite-queue-wait.js — the command line of lib/suite-queue-replay.js
- * (#3060): what held each queued test run over a window, for a firing of the
- * queue-wait alarm to answer by limb. The alarm's issue body prints the
- * command over its own window.
- *
- * IN NO FAMILY (code-standards §N3, §G4): it files nothing and gates nothing;
- * it prints a reading on demand and exits 0, or 2 on a bad argument.
- */
 
 const os = require("node:os");
 const { scriptPath } = require("./lib/script-path.js");
@@ -34,7 +25,7 @@ const USAGE = `usage: node ${scriptPath("replay-suite-queue-wait.js")} --since <
 
 /**
  * @param {string | undefined} s
- * @returns {number | null} null where `s` is no time
+ * @returns {number | null}
  */
 function parseUtc(s) {
 	const t = Date.parse(s ?? "");
@@ -51,7 +42,6 @@ function refuse(message) {
 }
 
 /**
- * The memwatch logs the flags name, else memwatch's own.
  * @param {Parameters<typeof flagValue>[0]} flags
  * @param {Record<string, string[]>} lists
  */

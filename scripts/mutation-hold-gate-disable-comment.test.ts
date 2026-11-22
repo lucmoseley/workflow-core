@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the mutation hold's disable-comment check (#1909): which `Stryker
- * disable` comments a commit is charged for, read where Stryker 10's
- * instrumenter reads them.
- *
- * Driven through real `git commit`s in mutation-hold-testkit.ts's fixture
- * repo, so each case runs scripts/mutation-hold-gate.js and its Babel comment
- * read, scripts/lib/stryker-comments.js, for real. A file apart from
- * mutation-hold-gate.test.ts so that neither caps a CI job (#4943).
- *
- * Over the run-cost budget (base §X8 (5)): most of its cost is the Babel child
- * each case starts (#4943's profile), and that child is the subject, since
- * what it reads is the host Babel config's own parse, which no seeded comment
- * list reproduces.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -43,7 +28,6 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 mutationHoldFixture();
 
-/** A `git cat-file --batch` asked for `object` fails; every other call runs. */
 const batchRefuses = (object: string) => ({
 	WFC_GIT: writeFaultyGit(
 		{ words: ["cat-file", "--batch"] },
@@ -55,7 +39,6 @@ const batchRefuses = (object: string) => ({
 });
 
 describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
-	/** SEED with `comment` added above line 2, the fee guard. */
 	const HangingBabel =
 		"await new Promise(() => setInterval(() => {}, 1000));\nexport default {};\n";
 	const HangTimeout = { WFC_MUTATION_COMMENTS_TIMEOUT_MS: "300" };
@@ -517,7 +500,6 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		expect(readRuns()).toEqual([]);
 	});
 
-	/** HEAD holding `open` above fee and `close` between fee and tax, landed unheld. */
 	const landRegion = (open: string, close: string) => {
 		write(
 			MONEY,
@@ -676,9 +658,6 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		landHostConfig();
 		disableAbove("// Stryker disable next-line all");
 		report([]);
-		// A real hang on the real clock: the child's timeout is a spawnSync
-		// option, reached by no fake timer. The read never ends, so any timeout
-		// times out; 300 ms keeps the wait short.
 		const r = commit([MONEY], { extra: HangTimeout });
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(
@@ -720,8 +699,6 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		git("commit", "-qm", "a directory at the file's path, landed unheld");
 		fs.rmSync(path.join(repo, MONEY), { recursive: true });
 		disableAbove("// Stryker disable next-line all");
-		// Staged by hand: `commit -- lib/money.js` alone commits only the
-		// directory's deletion, leaving the new file untracked and unheld.
 		git("add", "-A");
 		const r = commit([]);
 		expect(r.status).toBe(1);

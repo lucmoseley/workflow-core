@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The run's private temp root (#5083): the globalSetup makes it in vitest's
- * own process, the workers' setup file points `TMPDIR` at it, and teardown
- * removes it with whatever a test left. Loosen a case and fixtures stay in
- * `/tmp`, or the wrapper's hand-off files move into a root the run deletes.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,8 +21,6 @@ describe("this worker", () => {
 		expect(defaultQueueDir()).toBe(path.join(root, "wfc-suite-queue"));
 	});
 
-	/* Only a run run-vitest.js launched hands these over, and that run's
-	 * vitest process sits in the wrapper's own root (#5108). */
 	it.runIf(process.env[INFLIGHT_ENV])(
 		"reads the wrapper's hand-off files under the real temp root",
 		() => {

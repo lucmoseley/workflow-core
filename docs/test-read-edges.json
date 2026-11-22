@@ -78,7 +78,6 @@
 		],
 		".agents/vendored-skill-edits.json": [
 			"scripts/check-vendored-skills.test.ts",
-			"scripts/npx-bare-name.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts"
 		],
 		".agents/vendored-upstream-pass.json": [
@@ -223,14 +222,12 @@
 			"scripts/lib/stop-guard.test.ts",
 			"scripts/lib/walk-and-commit.test.ts",
 			"scripts/link-config-dirs.test.ts",
-			"scripts/name-issue-session.test.ts",
 			"scripts/pick-retro-sessions.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/reap-orphan-hooks.test.ts",
 			"scripts/release-plugin.test.ts",
-			"scripts/replay-notify-reports.test.ts",
 			"scripts/run-pinned-guards.test.ts",
 			"scripts/score-session-breaches.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -500,7 +497,6 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/run-vitest.test.ts",
 			"scripts/status-report.test.ts",
-			"scripts/steps-owed.test.ts",
 			"scripts/tooling-matrix.test.ts",
 			"scripts/upgrade.test.ts"
 		],
@@ -779,8 +775,7 @@
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
-			"scripts/pre-applypatch-gate.test.ts",
-			"scripts/prepare-commit-msg-gate.test.ts"
+			"scripts/pre-applypatch-gate.test.ts"
 		],
 		".husky/pre-commit": [
 			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
@@ -934,8 +929,6 @@
 			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
-			"scripts/pre-applypatch-gate.test.ts",
-			"scripts/pre-merge-commit-gate.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
 			"scripts/prepare-commit-msg-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
@@ -1054,7 +1047,6 @@
 			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/log-queue-push.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
-			"scripts/npx-bare-name.test.ts",
 			"scripts/pick-next-output.test.ts",
 			"scripts/pre-applypatch-gate.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
@@ -1144,11 +1136,6 @@
 		],
 		"docs/agents/dependabot.md": [
 			"scripts/generate-rule-fragments.test.ts"
-		],
-		"docs/agents/guard-authoring.md": [
-			"scripts/pre-applypatch-gate.test.ts",
-			"scripts/pre-merge-commit-gate.test.ts",
-			"scripts/prepare-commit-msg-gate.test.ts"
 		],
 		"docs/agents/guard-registry.md": [
 			"scripts/check-guard-registry.test.ts"
@@ -3262,9 +3249,6 @@
 			"scripts/check-context-budget.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts"
 		],
-		"docs/research/startup-load-before-after-test.md": [
-			"scripts/score-session-breaches.test.ts"
-		],
 		"docs/test-read-edges.json": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
@@ -3410,7 +3394,6 @@
 			"scripts/lost-deny-rates.test.ts",
 			"scripts/practice-guard.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/reconcile-plugin.test.ts",
 			"scripts/record-acts.test.ts",
 			"scripts/record-issue-claim.test.ts",
 			"scripts/release-issue-claim.test.ts",
@@ -3815,7 +3798,6 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pick-next-claims.test.ts",
-			"scripts/reap-finished-sessions.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-arm-test.test.ts"
 		],
@@ -6419,7 +6401,6 @@
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/status-report.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-primitives.test.ts": [
@@ -8160,7 +8141,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/measure-spare-warm.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/refill-loop-run.test.ts",
@@ -8381,10 +8361,7 @@
 		"scripts/fixtures/claude-attach.json": [
 			"scripts/lib/claude-attach.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run-holds.test.ts",
-			"scripts/refill-loop-run-recovery.test.ts",
-			"scripts/refill-loop-run.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/claude-plugin.json": [
 			"scripts/init-adopter.test.ts",
@@ -10284,7 +10261,6 @@
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
-			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/refill-loop-run-outside.test.ts",
@@ -11681,7 +11657,6 @@
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
-			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-status-load.test.ts",
 			"scripts/refill-panel-open.test.ts",
@@ -15136,6 +15111,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -15171,6 +15147,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -15435,6 +15412,7 @@
 			"scripts/park-blocked.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/pretest-reap.test.ts",
 			"scripts/queue-lander.test.ts",
@@ -17006,6 +16984,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -17277,6 +17256,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -17945,6 +17925,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
@@ -21875,6 +21856,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -22076,6 +22058,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -22134,6 +22117,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -25479,6 +25463,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -28369,6 +28354,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
@@ -30319,6 +30305,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/pretest-reap.test.ts",
 			"scripts/queue-lander.test.ts",
@@ -30747,7 +30734,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/wayfinder-frontier.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/issue-gate.test.ts": [
@@ -34655,6 +34641,7 @@
 			"scripts/lib/touched-tests.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -35711,9 +35698,9 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
-			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/replay-notify-reports.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -36329,6 +36316,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -37689,6 +37677,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -39799,8 +39788,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/status-report.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/primitives-table.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -40372,7 +40360,6 @@
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
-			"scripts/reap-finished-sessions.test.ts",
 			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-arm-test.test.ts",
@@ -42582,7 +42569,6 @@
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
-			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -50914,6 +50900,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
@@ -57552,7 +57539,6 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/refill-loop-usage-probe.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/usage-probe.test.ts": [
@@ -58037,7 +58023,6 @@
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
-			"scripts/reconcile-plugin.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -59873,8 +59858,7 @@
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/windows-script-tooling-declined.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/measure-advisor/scan_advisor.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -60699,7 +60683,6 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/npm-run-hints.test.ts": [
@@ -60861,8 +60844,7 @@
 			"scripts/pick-next.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/tooling-matrix.test.ts",
-			"scripts/warm-fraction.test.ts"
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/pick-next.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -62100,7 +62082,6 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/report-doc-map-budget.test.ts",
-			"scripts/report-roadmap-ceilings.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/report-doc-map-budget.test.ts": [
@@ -62642,8 +62623,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
-			"scripts/vitest-inflight-reporter.test.ts",
-			"scripts/vitest-tree-watch.test.ts"
+			"scripts/vitest-inflight-reporter.test.ts"
 		],
 		"scripts/run-vitest.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -63982,7 +63962,6 @@
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-orphan-hooks.test.ts",
-			"scripts/reconcile-plugin.test.ts",
 			"scripts/record-acts.test.ts",
 			"scripts/record-issue-claim.test.ts",
 			"scripts/release-issue-claim.test.ts",
@@ -64135,8 +64114,7 @@
 			"scripts/lib/touched-tests.test.ts",
 			"scripts/lib/verdict-probe.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
-			"scripts/run-vitest.test.ts",
-			"scripts/vitest-tree-watch.test.ts"
+			"scripts/run-vitest.test.ts"
 		],
 		"vitest.setup.test.ts": [
 			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",

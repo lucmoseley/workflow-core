@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * scan-injection.js, the injection scanner's `--file` measurement path
- * (mantahostels#1806): one line per file that fires, EXEMPT or UNREAD, exit 0,
- * and a usage error exit 2. Spawned, as a human runs it. The patterns and
- * their severity are lib/injection-scan.test.ts's.
- *
- * Loosen a case and the standing noise figure is measured on the wrong files,
- * or a file it could not read passes for a clean one.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +7,6 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "scan-injection.js");
 
-/** Long enough to clear the 20-char floor, and inert. */
 const FILLER = "Ordinary prose about hostels in Ostria, at length. ";
 
 let dir: string;

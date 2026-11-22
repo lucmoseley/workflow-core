@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the pre-commit hold on a surviving mutant (#1906, spec #1871): with the
- * `mutation` module on, a commit changing a line on a declared sensitive path
- * is refused while a mutant StrykerJS plants on that line survives or has no
- * covering test. Break it and money or personal-data code lands with a test
- * gap nothing sees, or a commit is charged for mutants on lines it never
- * touched.
- *
- * Driven through real `git commit`s in mutation-hold-testkit.ts's fixture
- * repo. The disable-comment cases (#1909) are
- * mutation-hold-gate-disable-comment.test.ts's, a file of their own so that
- * neither file caps a CI job (#4943).
- *
- * The same seam drives commit-paths' pre-lock run of the hold (#1910): loosen
- * those cases and a cold run of minutes holds the index lock against every
- * neighbour, a lint finding waits behind it, or a change the pre-lock run
- * never saw lands on its green.
- */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -480,7 +462,6 @@ describe("mutation-hold-gate.js — the shared cache", () => {
 			trees.map(
 				(cwd) =>
 					new Promise<number | null>((resolve) => {
-						// Async, not commit()'s spawnSync: the two must run at once.
 						const child = spawn("git", commitArgs([MONEY]), {
 							cwd,
 							env: env(),
@@ -616,7 +597,6 @@ describe("mutation-hold-gate.js — which commits are held", () => {
 		changeLine2();
 		git("add", MONEY);
 		report([{ line: 2, status: "Survived" }]);
-		// No pathspec: git refuses a partial commit mid-cherry-pick.
 		expectLanded(commit([]));
 		expect(readRuns()).toEqual([]);
 	});
@@ -627,7 +607,6 @@ describe("mutation-hold-gate.js — which commits are held", () => {
 		git("commit", "-qam", "side");
 		const side = git("rev-parse", "HEAD");
 		git("checkout", "-q", "main");
-		// Diverged, or git reduces the side branch to the merge's only parent.
 		write("app/other.js", "main\n");
 		git("add", "app/other.js");
 		git("commit", "-qm", "main moves");
@@ -740,7 +719,6 @@ describe("mutation-hold-gate.js — its own faults", () => {
 		[
 			"no throwaway worktree",
 			() => {
-				// A file where the worktrees' directory goes.
 				write(".claude/worktrees", "");
 				return { paths: [MONEY] };
 			},
@@ -806,7 +784,6 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 			? fs.readFileSync(log, "utf8").split("\n").filter(Boolean).length
 			: 0;
 	};
-	/** Declares a commit-gated test, logging each run, and puts the live test gate in the hook. */
 	const declareTest = () => {
 		fs.writeFileSync(
 			path.join(stubDir, "test.sh"),
@@ -1093,7 +1070,6 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 	});
 
 	it("speaks as seed, never the hook, where its cache will not read or write back (#2250)", () => {
-		// A directory where the cache goes: unreadable, and no rename lands on it.
 		fs.mkdirSync(cache());
 		report([{ line: 2, status: "Survived" }]);
 		const r = seed();
@@ -1105,8 +1081,6 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 	});
 
 	it("prints a fault of no gate's own as 'failed', so nothing was seeded (#2250)", () => {
-		// A spy, as no fixture or stub reaches a plain error inside seed's run:
-		// every fault its own reads raise is a HoldFaultError.
 		const real = fs.writeFileSync;
 		const spy = vi
 			.spyOn(fs, "writeFileSync")

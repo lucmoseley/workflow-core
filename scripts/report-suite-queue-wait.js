@@ -1,49 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-suite-queue-wait.js — the daily queue-wait alarm (#1219), to the
- * rulings on #1157: the figure is total `--queue` wait in a rolling 24 h,
- * summed over every queued run, and at LIMIT_H or more it files or refreshes
- * one standing `takes:wayfinder` issue.
- *
- * THE LIMIT IS FIXED IN HOURS (#1157 Q6). It changes only by a ruling in
- * workflow-core, which the `/wayfinder` session taking its own filed issue may
- * make; it does not scale with suite size or session count, since a limit that
- * rose with the suite would hide the decay that led to five cut-maps.
- *
- * WAIT IS CLIPPED TO THE WINDOW: a line logs its exit time and its wait, so
- * the wait is read as [at - waitS, at], and only the part inside the window
- * counts. The 14-day series clips to each UTC day the same way. `waitS` is
- * awake seconds (`monotonicMs`), so a host sleep counts as no wait.
- *
- * ONE STANDING ISSUE (#1157 Q8), through lib/tracking-issue.js, matched on its
- * title alone because the session that takes it may relabel it. Under the
- * limit nothing is filed or touched, open issue included (#1219's first
- * criterion). While the issue is open, each reading at or over the limit
- * refreshes its body. Once it is closed, only a window starting after the
- * close files again, so a backlog the closing session already saw cannot
- * re-file it. The close is read from the plain issue listing, not search,
- * whose index can lag a fresh close. Residual: a retitled open issue is not
- * found, and the next breach files a second.
- *
- * AT MOST HOURLY, through lib/periodic-reading.js: STAMP, beside the log,
- * holds the last reading's time; a run within the hour of it reads nothing.
- * LOCK keeps two session starts from both reading and both filing.
- *
- * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh,
- * because the log is machine-local and no CI runner can read it.
- *
- * EVERY REPO DECLARING `commands.test` (#1454), whatever its runner; where none
- * is declared it prints a SKIP and exits 0. It files in the host's own tracker. Outside workflow-core
- * the body's core citations are qualified `workflow-core#N` (#396), and its
- * candidate questions route to the host's own `/wayfinder`, not workflow-core's
- * map.
- *
- * FAILS OPEN, RECORDED (#1219's criteria). An unreadable config, log or
- * stamp, a `gh` failure or anything else thrown exits 0 after one line in the arbiter's error log, which
- * `npm run check:guard-errors` reports. The stamp is already written by then,
- * so the retry is the next hourly reading. A log that does not exist yet is
- * no wait, not a failure.
- */
 
 const path = require("node:path");
 const { scriptPath } = require("./lib/script-path.js");
@@ -72,7 +27,6 @@ const LABEL = takesLabel("wayfinder");
 const LIMIT_H = 2;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
-/* The body's breakdown, as #1157 Q7 (A) ruled it. */
 const SERIES_DAYS = 14;
 const TOP_SESSIONS = 5;
 const KINDS = ["bare", "changed", "full", "named", "other", "seat"];
@@ -80,7 +34,6 @@ const STAMP = ".suite-queue-wait-read";
 const LOCK = ".suite-queue-wait-read.lock";
 const WHERE = "report-suite-queue-wait";
 
-/* The body's host-dependent parts (#1454). */
 const HOST_TEXT = {
 	core: {
 		ruling: "a ruling, which the session that takes this issue may make",
@@ -115,11 +68,8 @@ const HOST_TEXT = {
  */
 
 /**
- * The log's lines, oldest first, and how many would not parse.
- *
  * @param {string} file
  * @returns {{ exits: QueueExit[], unparsed: number }}
- * @throws where the log exists and will not read
  */
 function readExits(file) {
 	let read;
@@ -145,8 +95,6 @@ function readExits(file) {
 }
 
 /**
- * Seconds of `exit`'s wait inside [from, to).
- *
  * @param {QueueExit} exit
  * @param {number} from
  * @param {number} to
@@ -158,9 +106,6 @@ function waitWithin(exit, from, to) {
 }
 
 /**
- * Add each exit's wait inside [from, to) to its group's tally. A run counts
- * where its wait touches the span, a zero wait where it exited inside it.
- *
  * @param {QueueExit[]} exits
  * @param {number} from
  * @param {number} to
@@ -183,8 +128,6 @@ function tally(exits, from, to, groupOf) {
 }
 
 /**
- * Every exit's runs and wait inside [from, to), whichever group it falls in.
- *
  * @param {QueueExit[]} exits
  * @param {number} from
  * @param {number} to
@@ -205,14 +148,10 @@ const minute = (t) =>
 	`${new Date(t).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 /**
- * The reading over the 24 h ending `nowMs`, and the issue body that carries it.
- * A run that skipped the queue (#1221) never queued, so it is counted on its
- * own line and nowhere else.
- *
  * @param {QueueExit[]} logged
  * @param {number} nowMs
  * @param {number} unparsed
- * @param {boolean} core whether the host is workflow-core
+ * @param {boolean} core
  * @returns {{ waitS: number, body: string }}
  */
 function reading(logged, nowMs, unparsed, core) {
@@ -296,13 +235,11 @@ function reading(logged, nowMs, unparsed, core) {
 }
 
 /**
- * Read the window and file, refresh or do nothing.
- *
  * @param {string} logFile
  * @param {number} nowMs
  * @param {boolean} dryRun
  * @param {boolean} core
- * @returns {string} what happened, for the run to print
+ * @returns {string}
  */
 function readAndFile(logFile, nowMs, dryRun, core) {
 	const { exits, unparsed } = readExits(logFile);
@@ -310,7 +247,6 @@ function readAndFile(logFile, nowMs, dryRun, core) {
 	const figure = `${hours(waitS)} h of queue wait in the last 24 h, against the ${LIMIT_H} h limit`;
 	if (dryRun) return `${body}\n\nDry run: ${figure}; nothing filed.`;
 	if (waitS < LIMIT_H * 3600) return `${figure}; nothing filed.`;
-	/* Newest first, so an open issue outranks every closed one. */
 	const latest = findTrackingIssue({ title: TITLE }, "all");
 	const closed = latest?.closedAt ? Date.parse(latest.closedAt) : null;
 	if (closed !== null && closed > nowMs - DAY_MS)

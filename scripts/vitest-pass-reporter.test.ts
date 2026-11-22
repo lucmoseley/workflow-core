@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The reporter driven against stub Vitest shapes, so what it hands the teardown
- * can be asserted without a suite run to produce it.
- *
- * The invariant asserted hardest is mantahostels#1230's: a scope it cannot read records
- * NOTHING and never throws, because throwing out of `onTestRunEnd` would redden
- * a suite that has already passed.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -17,11 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
 import TestPassReporter from "./vitest-pass-reporter.js";
 
-/*
- * Reached the way the reporter reaches it. An ESM `import` of this CommonJS
- * module gets a SEPARATE instance under Vite, so the verdict the reporter sets
- * would be invisible here and every assertion would read null.
- */
 const { readMarkers, readFailures } = createRequire(import.meta.url)(
 	"./lib/test-pass-marker.js",
 );
@@ -51,7 +38,6 @@ const ctx = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** Whatever the reporter wrote to stdout during `body`. */
 async function captured(body: () => Promise<void>) {
 	const original = process.stdout.write.bind(process.stdout);
 	const out: string[] = [];
@@ -67,7 +53,6 @@ async function captured(body: () => Promise<void>) {
 	return out.join("");
 }
 
-/** `body` run with stderr's writes handed to `write` — a red marker write prints its recipe there. */
 async function withStderr(
 	write: (chunk: string) => boolean,
 	body: () => Promise<string>,
@@ -88,7 +73,6 @@ const run = async (
 	errors: unknown[] = [],
 ) => reporter.onTestRunEnd(modules, errors, reason);
 
-/* The filter run-vitest.js hands vitest where a selection is empty. */
 const EMPTY_SELECTION_FILTER = "wfc-empty-selection";
 
 beforeEach(() => {
@@ -175,10 +159,6 @@ describe("the scope the reporter records (mantahostels#1230)", () => {
 		expect(scope.fileFilters).toEqual(["a.test.ts"]);
 	});
 
-	/*
-	 * mantahostels#2038: `--changed` narrows through the module graph and leaves
-	 * `filenamePattern` empty, so `scope.changed` is the only record of it.
-	 */
 	it("carries the --changed ref off the vitest config, which no path filter records", async () => {
 		const r = new TestPassReporter();
 		r.onInit(
@@ -188,10 +168,6 @@ describe("the scope the reporter records (mantahostels#1230)", () => {
 		expect(takeRunReport().scope.changed).toBe("HEAD~1");
 	});
 
-	/*
-	 * `npm run test:changed` (package.json) runs bare `--changed`, which vitest
-	 * reads as `config.changed === true` rather than a ref string.
-	 */
 	it("carries a bare --changed flag as true, not just a ref string", async () => {
 		const r = new TestPassReporter();
 		r.onInit(ctx({ config: { testNamePattern: undefined, changed: true } }));
@@ -206,10 +182,6 @@ describe("the scope the reporter records (mantahostels#1230)", () => {
 		expect(takeRunReport().scope.changed).toBeNull();
 	});
 
-	/*
-	 * #3090: a `--shard` run reads `modulesRun` below `modulesTotal`, so the
-	 * margin check needs this field to find the lander's shards.
-	 */
 	it("carries the --shard index and count off the vitest config", async () => {
 		const r = new TestPassReporter();
 		r.onInit(
@@ -323,12 +295,7 @@ describe("a scope the reporter cannot read", () => {
 	});
 });
 
-/*
- * WHICH files failed (mantahostels#1942), kept on disk so a session that piped the
- * suite's output through `tail` need not re-run it for the names.
- */
 describe("the failing files the reporter records (mantahostels#1942)", () => {
-	/** A module whose failing tests carry names, which `module_` omits. */
 	const named = (moduleId: string, tests: [string, State][]) => ({
 		moduleId,
 		children: {
@@ -399,8 +366,6 @@ describe("the failing files the reporter records (mantahostels#1942)", () => {
 		expect(takeRunReport().scope?.errors).toBe(2);
 	});
 
-	// `lib/unasked-rerun-io.js`'s `isClassable` keys on `errors === 0`: without
-	// this write every red reads as unclassable (#3633).
 	it("writes errors: 0 on a red with no module or unhandled error", async () => {
 		const reporter = new TestPassReporter();
 		reporter.onInit(ctx());
@@ -411,10 +376,6 @@ describe("the failing files the reporter records (mantahostels#1942)", () => {
 		expect(takeRunReport().scope?.errors).toBe(0);
 	});
 
-	/*
-	 * Absent, not empty. A reader asks "did anything fail" by testing the key, and
-	 * an empty array answers yes-but-nothing — the shape that invites a bug.
-	 */
 	it("writes no failures key at all on a green run", async () => {
 		const reporter = new TestPassReporter();
 		reporter.onInit(ctx());
@@ -425,9 +386,6 @@ describe("the failing files the reporter records (mantahostels#1942)", () => {
 		expect(takeRunReport().scope).not.toHaveProperty("failures");
 	});
 
-	/* The reporter's own standing rule: it must never turn a passing suite red,
-	 * so a module with no id is recorded under a placeholder rather than thrown
-	 * on. */
 	it("records a failing module with no id rather than throwing", async () => {
 		const reporter = new TestPassReporter();
 		reporter.onInit(ctx());
@@ -456,11 +414,6 @@ describe("the failing files the reporter records (mantahostels#1942)", () => {
 	});
 });
 
-/*
- * mantahostels#1953. globalSetup's `setup` fires once per PROCESS, so a start stamped there
- * timed a whole watch session — hours — rather than the re-run the marker
- * describes. `onTestRunStart` fires per run.
- */
 describe("the run's start", () => {
 	it("is stamped when a run begins", () => {
 		const before = Date.now();
@@ -655,11 +608,6 @@ describe("which command started the run (mantahostels#2303)", () => {
 	});
 });
 
-/*
- * #189: what the verdict depended on, handed over in the run report beside the scope.
- * The module graph is faked at the two fields the walk reads; the manifest is
- * a real file under a scratch root.
- */
 describe("the closure the reporter records (#189)", () => {
 	let root: string;
 	const dirs: string[] = [];
@@ -677,7 +625,6 @@ describe("the closure the reporter records (#189)", () => {
 		importedModules,
 	});
 
-	/** A root holding a manifest, and a project whose graph answers from `graph`. */
 	function scratch(
 		edges: Record<string, string[]>,
 		graph: Record<string, Node> = {},
@@ -703,12 +650,6 @@ describe("the closure the reporter records (#189)", () => {
 		return { withProject };
 	}
 
-	/**
-	 * `scratch`'s root made a committed repository, the tree an empty run's
-	 * marker is written against. A run of NO modules writes the marker itself
-	 * (#189 §6), into the store of the vitest root it was handed — this
-	 * checkout's where none is — so every empty run below takes one.
-	 */
 	function scratchRepo(edges: Record<string, string[]> = {}) {
 		const made = scratch(edges);
 		const git = (...args: string[]) =>
@@ -797,7 +738,6 @@ describe("the closure the reporter records (#189)", () => {
 			selected: ["a.test.ts"],
 			changedPaths: ["lib/helper.ts"],
 			base: "b".repeat(40),
-			/* The same closure split by test, so a diff voids only its readers (#1860). */
 			imports: { "a.test.ts": ["lib/helper.ts"] },
 			roots: ["package.json", "vitest.config.ts"],
 		});
@@ -942,10 +882,6 @@ describe("the closure the reporter records (#189)", () => {
 		});
 	});
 
-	/*
-	 * Vitest 4.1 skips globalSetup when it has no file to run, so the teardown
-	 * that writes every other marker never fires for an empty selection.
-	 */
 	it("writes the marker itself for a run vitest gave no globalSetup (#189 §6)", async () => {
 		scratchRepo();
 		const r = new TestPassReporter();
@@ -978,10 +914,6 @@ describe("the closure the reporter records (#189)", () => {
 		expect(takeRunReport().outcome).toBe(true);
 	});
 
-	/*
-	 * The store's own append swallows its file errors, so the one throw left
-	 * is the recovery recipe a red write prints to stderr.
-	 */
 	it("says so, rather than throwing, where the empty-run write throws", async () => {
 		scratchRepo();
 		const r = new TestPassReporter();

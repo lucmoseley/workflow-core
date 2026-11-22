@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-points-per-usd.js — re-derive the bar points per dollar behind the
- * capped launch (`lib/allowance.js#POINTS_PER_USD`, #370, #380).
- *
- * Usage: node scripts/measure-points-per-usd.js [--config-dir <dir>]...
- *
- * Per seat and bar, the `cachedUsageUtilization` percent divided by that
- * seat's list-price spend across EVERY project inside the bar's window: from
- * `resets_at` minus 5 hours or 7 days, to the reading's own `fetchedAtMs`.
- * Priced at `lib/session-spend.js#LIST_PRICES`; requests on a model outside
- * it are counted, not priced, and overstate the rate.
- *
- * A project directory symlinked into another seat's is skipped and counted:
- * its transcripts cannot be told apart by seat, so they are charged once, to
- * the seat that holds them.
- *
- * A session the launch record marks overflow is left out: it bills a key, so no
- * bar moved for it (#3696). Exits 1 where that record will not read; it is
- * read only where the seat file declares an overflow seat (#4393).
- *
- * Prints only: the rates are updated by hand. Exits 0 where at least one rate
- * printed, 1 where none could. Seats: `lib/seat-args.js`.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -34,7 +11,6 @@ const { parseOrCode } = require("./lib/cli-args");
 const { fileSpend, LIST_PRICES } = require("./lib/session-spend");
 
 const HOUR_MS = 60 * 60 * 1000;
-/** The 5-hour and weekly all-models windows `docs/effort-guide.md` names per seat. */
 const SPANS = /** @type {const} */ ({
 	session: 5 * HOUR_MS,
 	weekly_all: 7 * 24 * HOUR_MS,
@@ -50,7 +26,6 @@ function readNamesIn(dir) {
 	try {
 		return fs.readdirSync(dir);
 	} catch {
-		// Absent: a session with no subagents has no `subagents/` directory.
 		return [];
 	}
 }
@@ -63,21 +38,15 @@ function writtenSince(file, fromMs) {
 	try {
 		return fs.statSync(file).mtimeMs >= fromMs;
 	} catch {
-		// Deleted between the listing and the stat: nothing left to price.
 		return false;
 	}
 }
 
 /**
- * Every main and subagent transcript the seat itself holds, last written at or
- * after `fromMs` (an older file cannot hold a record inside the window), and
- * how many project directories were links into another seat's. Overflow
- * sessions are left out.
  * @param {string} seat
  * @param {number} fromMs
  * @param {OverflowLookup} overflowLaunchOf
- * @returns {{ files: string[], linked: number } | null} null where the seat's
- *   `projects/` cannot be read
+ * @returns {{ files: string[], linked: number } | null}
  */
 function readTranscriptsSince(seat, fromMs, overflowLaunchOf) {
 	const root = path.join(seat, "projects");
@@ -107,8 +76,6 @@ function readTranscriptsSince(seat, fromMs, overflowLaunchOf) {
 }
 
 /**
- * One project directory's plan sessions' main transcripts, each followed by its
- * subagents', last written at or after `fromMs`.
  * @param {string} dir
  * @param {number} fromMs
  * @param {OverflowLookup} overflowLaunchOf
@@ -140,8 +107,6 @@ const formatAge = (ms) =>
 		: `${Math.round(ms / HOUR_MS)} h`;
 
 /**
- * List-price spend across `files` inside the window, and the requests on a
- * model with no list price.
  * @param {string[]} files
  * @param {{ fromMs: number, toMs: number }} window
  */
@@ -157,9 +122,8 @@ function spendIn(files, window) {
 }
 
 /**
- * Print one seat's rate for one bar.
  * @param {{ seat: string, bar: keyof typeof SPANS, bars: ReturnType<typeof readAllowance>, now: number, overflowLaunchOf: OverflowLookup }} reading
- * @returns {boolean} whether a rate printed — spend above zero
+ * @returns {boolean}
  */
 function printBar({ seat, bar, bars, now, overflowLaunchOf }) {
 	const { percent, resetsAt, fetchedAtMs } = bars[bar];

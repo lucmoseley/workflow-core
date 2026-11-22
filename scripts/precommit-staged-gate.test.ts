@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-commit Biome gate, exercised end to end: `npm run check:staged`.
- *
- * Biome exits 1 when every staged path is one its config ignores — and `docs/`
- * and `public/` are ignored deliberately, so `--no-errors-on-unmatched` keeps a
- * documentation-only commit passing (mantahostels#298).
- *
- * So the cases below run the REAL command string out of package.json, against
- * the REAL biome.json, in a throwaway git repo — the shared tree's index is
- * repo-global (mantahostels#63) and must never be staged into by a test.
- *
- * It is a hard gate in `.husky/pre-commit`: loosen a case and a documentation-
- * only commit is refused, or a staged file Biome covers lands unchecked.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -34,11 +20,6 @@ afterEach(() => {
 		fs.rmSync(t, { recursive: true, force: true });
 });
 
-/**
- * A git repo of its own, carrying this repo's Biome config verbatim,
- * committed: the command reads the index's copy, and a staged one would be a
- * path Biome checks.
- */
 function fixture(files: Record<string, string>): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-"));
 	temps.push(root);
@@ -46,7 +27,6 @@ function fixture(files: Record<string, string>): string {
 	execFileSync("git", ["config", "user.email", "t@t"], { cwd: root });
 	execFileSync("git", ["config", "user.name", "t"], { cwd: root });
 	writeCheckerDelegates(root, ["biome-staged.js"]);
-	// biome.json sets vcs.useIgnoreFile, which wants the file to exist.
 	fs.writeFileSync(path.join(root, ".gitignore"), "");
 	fs.copyFileSync(path.join(ROOT, "biome.json"), path.join(root, "biome.json"));
 	execFileSync("git", ["add", "--", ".gitignore", "biome.json"], { cwd: root });
@@ -64,7 +44,6 @@ function stage(root: string, files: Record<string, string>): void {
 	}
 }
 
-/** Runs the command as .husky/pre-commit does: PATH-prefixed, via the shell. */
 function run(
 	cwd: string,
 	command: string,
@@ -91,27 +70,13 @@ function run(
 	}
 }
 
-// A formatting diagnostic, so no lint rule has to stay enabled for it.
 const BADLY_FORMATTED = "export function f() {\n  return 'x';\n}\n";
 const WELL_FORMATTED = 'export function f() {\n\treturn "x";\n}\n';
 
-/*
- * One file per ignored path, and every extension one Biome HANDLES.
- *
- * A `.md` here would prove nothing: Biome has no markdown support, so a staged
- * `docs/note.md` matches nothing whatever the config says, and the case passes
- * just as well with `!docs` deleted.
- *
- * The content is badly formatted for the same reason: if one of these paths
- * stopped being ignored, Biome would have a real diagnostic to report and the
- * cases below would fail rather than quietly keep passing.
- */
 const IGNORED_PATHS: Record<string, string> = {
 	"docs/gen.js": BADLY_FORMATTED,
 	"public/app.js": BADLY_FORMATTED,
 	".claude/worktrees/agent-abc123/gen.js": BADLY_FORMATTED,
-	// Claude Code rewrites `settings.json` two-space on any settings change, so
-	// pinning its format would fail the gate for whoever next commits one.
 	".claude/settings.json": '{\n  "a": 1\n}\n',
 	"skills-lock.json": '{\n  "a": 1\n}\n',
 };
@@ -136,8 +101,6 @@ describe("the pre-commit Biome gate", () => {
 		expect(output).toContain("No files were processed");
 	});
 
-	// The control for the two above: the same bytes at a path Biome covers do
-	// fail.
 	it("still reports a staged file Biome does cover", () => {
 		const repo = fixture({
 			...IGNORED_PATHS,
@@ -149,11 +112,6 @@ describe("the pre-commit Biome gate", () => {
 		expect(output).toContain("scripts/bad.ts");
 	});
 
-	// mantahostels#1138: Biome re-includes only at the breadth of the exclusion it follows.
-	// `!.claude/**` then `.claude/**` works; `!.claude/**` then
-	// `.claude/skills/*/scripts/**` is silently ignored, as is any re-include
-	// under the directory-form `!.claude`. So covering the skill scripts meant
-	// widening to everything under `.claude/` bar the exclusions above.
 	it("covers a skill's own scripts under .claude", () => {
 		const repo = fixture({
 			".claude/skills/roadmap-edit/scripts/gen.js": BADLY_FORMATTED,
@@ -173,8 +131,6 @@ describe("the pre-commit Biome gate", () => {
 		expect(code).toBe(0);
 	});
 
-	// An adopter's `biome check --staged` script is inferred as the plugin's
-	// biome-staged.js, which its hook shim reaches through WFC_PLUGIN_ROOT.
 	function runAdopted(
 		repo: string,
 		env: Record<string, string> = {},
@@ -193,9 +149,6 @@ describe("the pre-commit Biome gate", () => {
 		return run(repo, command, { WFC_PLUGIN_ROOT: ROOT, ...env });
 	}
 
-	// A main checkout's hook PATH names its bin relatively, as husky's own does;
-	// Biome runs in the extracted tree, where that relative entry finds nothing
-	// unless resolved first.
 	function runRelative(repo: string): { code: number; output: string } {
 		fs.mkdirSync(path.join(repo, "node_modules", ".bin"), { recursive: true });
 		fs.symlinkSync(
@@ -249,8 +202,6 @@ describe("the pre-commit Biome gate", () => {
 		expect(output).toContain("scripts/mine.ts");
 	});
 
-	// Biome's project rules read the files a staged one imports, so the whole
-	// index is extracted, not the staged paths alone.
 	it("reads an unstaged tracked file a staged one imports", () => {
 		const repo = fixture({
 			"scripts/b.ts": 'import { a } from "./a.ts";\n\nexport const b = a;\n',
@@ -266,8 +217,6 @@ describe("the pre-commit Biome gate", () => {
 		expect(output).toContain("noImportCycles");
 	});
 
-	// A worktree's node_modules links a dependency store outside it, and Biome
-	// ignores a dependency whose real path lies outside its project (#4639).
 	function outOfTreeStoreRepo(): string {
 		const store = fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-store-"));
 		temps.push(store);
@@ -311,8 +260,6 @@ describe("the pre-commit Biome gate", () => {
 		"noDeprecatedImports",
 	];
 
-	// Skipped where the host refuses a mount in an unprivileged user
-	// namespace, as AppArmor's userns restriction does.
 	const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-mount-"));
 	temps.push(probeDir);
 	const canMount =
@@ -339,12 +286,10 @@ describe("the pre-commit Biome gate", () => {
 			{ mode: 0o755 },
 		);
 
-		// run() keeps stderr only on a failing exit, and this one passes.
 		const { code, output } = run(repo, `${CHECK_STAGED} 2>&1`, {
 			PATH: `${bin}:${path.join(ROOT, "node_modules", ".bin")}:${process.env.PATH}`,
 		});
 		expect(output).toContain("could not mount node_modules");
-		// The rule's diagnostic header, `lint/<group>/<rule> `, not the notice.
 		for (const rule of NodeModulesRules)
 			expect(output).not.toContain(`/${rule} `);
 		expect(code).toBe(0);
@@ -365,7 +310,6 @@ describe("the pre-commit Biome gate", () => {
 			"utf8",
 		);
 
-		// The adopter's declared command (#2); this repo declares check:staged.
 		expect(hook).toContain(
 			`${coreCall("node", "scripts/lib/workflow-core-config.js")} command check_staged`,
 		);

@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-/*
- * typecheck-mods.js — `npm run typecheck`'s mod passes (#854, #865, #946):
- * `tsc -p` over the delivery and liveness mods and the plugin's entry module,
- * each against Claude Code's own type declarations.
- *
- * THOSE DECLARATIONS ARE NEVER TRACKED (#1960). Claude Code is proprietary and
- * the file carries no grant to redistribute it, so each mod's
- * `.claude-plugin/types/claude-code/index.d.ts` is gitignored and copied here,
- * before the passes, from the newest `plugin-authoring` skill Claude Code has
- * unpacked on this machine — `<temp root>/claude-<uid>/bundled-skills/
- * <version>/<hash>/plugin-authoring/types/claude-code.d.ts`, the temp root
- * being CLAUDE_CODE_TMPDIR, else os.tmpdir(), as Claude Code 2.1.302 resolves
- * its own. A copy older than that skill is replaced. The engine writes no such
- * file for a `@skills-dir` mod (#851).
- *
- * WARNS AND SKIPS a pass whose declarations exist neither in the mod nor in any
- * unpacked skill — CI's runner, and a machine whose Claude Code has not yet
- * unpacked `plugin-authoring` (a session invoking that skill unpacks it). The
- * passes are then unrun, said so on stderr, and the exit is 0.
- *
- * IN NO `scripts/` FAMILY (§N3): it gates, which no `generate-*` does, on
- * tsc's own verdict and output, which runCheck's alphabet would only rename.
- */
-
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -31,31 +7,29 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { compareVersions } = require("./lib/compare-versions.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-/* npm runs a script from the package root; a pre-commit run there is the
- * commit's own worktree, which CLAUDE_PROJECT_DIR would name wrongly. */
 const ROOT = process.cwd();
 const DELIVERY = ".claude/skills/wfc-delivery";
 const LIVENESS = ".claude/skills/wfc-liveness";
 const ENGINE_TYPES = ".claude-plugin/types/claude-code/index.d.ts";
-/* Each tsconfig, and the mod whose engine types it reads: hooks/tsconfig.json
- * includes the liveness mod's. */
 const PASSES = [
 	{ project: DELIVERY, mod: DELIVERY },
 	{ project: LIVENESS, mod: LIVENESS },
 	{ project: "hooks", mod: LIVENESS },
 ];
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
-/* The declarations' first line, as every build since 2.1.289 writes it. */
 const WRITTEN_BY = /^\/\/ Written by Claude Code (\d+\.\d+\.\d+)\./;
 
-/** @param {string} a @param {string} b both matching VERSION */
+/**
+ * @param {string} a
+ * @param {string} b
+ */
 function compareVersionText(a, b) {
 	const parts = (/** @type {string} */ v) =>
 		(VERSION.exec(v) ?? []).slice(1).map(Number);
 	return compareVersions(parts(a), parts(b));
 }
 
-/** @param {string} dir a directory's entries; none where it does not exist */
+/** @param {string} dir */
 function readEntries(dir) {
 	try {
 		return fs.readdirSync(dir);
@@ -66,8 +40,6 @@ function readEntries(dir) {
 }
 
 /**
- * The newest unpacked `plugin-authoring` declarations under `skillsDir`, or
- * null where none is unpacked.
  * @param {string} skillsDir
  * @returns {{ file: string, version: string } | null}
  */
@@ -93,8 +65,6 @@ function newestSkillTypes(skillsDir) {
 }
 
 /**
- * Brings `mod`'s engine types up to `source`, where it holds none or an older
- * copy. True where the mod then holds declarations.
  * @param {string} mod
  * @param {{ file: string, version: string } | null} source
  */
@@ -119,15 +89,11 @@ function main() {
 	const ready = new Map();
 	for (const { mod } of PASSES)
 		if (!ready.has(mod)) ready.set(mod, syncEngineTypes(mod, source));
-	/* The 7.0 compiler by the one path its package exports, its package.json;
-	 * `typescript/bin/tsc` is exported by neither TypeScript here (#4892). */
 	const tsc = path.join(
 		path.dirname(require.resolve("@typescript/native/package.json")),
 		"bin",
 		"tsc",
 	);
-	/* package.json's config.tscCheckers, which npm hands its scripts; a run
-	 * outside npm takes 7.0's own default. */
 	const checkers = process.env.npm_package_config_tscCheckers;
 	let failed = false;
 	for (const { project, mod } of PASSES) {

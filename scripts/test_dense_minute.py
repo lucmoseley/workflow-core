@@ -1,12 +1,3 @@
-"""Tests for scripts/dense_minute.py — the per-minute counts the throughput readout reads.
-
-Each case writes literal transcript records through conftest's `corpus`
-fixture, which points every seat at a temp dir, so no case reads a real
-session. Loosen a case and the
-readout misstates a block's hook timeouts, its Bash round-trip or the
-test-run refusals its stop rule counts.
-"""
-
 import json
 import os
 import subprocess
@@ -17,7 +8,7 @@ from pathlib import Path
 
 import dense_minute as d
 
-T0 = 1_800_000_000  # a whole minute
+T0 = 1_800_000_000
 REPO = Path(__file__).resolve().parent.parent
 
 

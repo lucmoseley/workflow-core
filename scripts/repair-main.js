@@ -1,36 +1,4 @@
 #!/usr/bin/env node
-/*
- * repair-main.js — restore a shared `main` that cannot be read, the one sanctioned
- * route to write it (#3198, spec #3597). Run by a session; the refill loop never
- * runs it. A `node` script because the founder's ruling chose one. Auto mode drops
- * `Bash(node *)` and no narrow rule names this script, so the classifier judges each
- * run. It refused none of 20 on a broken `main` in scratch clones (#3924). Residual:
- * the shared tree is unmeasured and verdicts vary, so a refusal stays possible, which
- * leaves `main` for the founder.
- *
- * Joins no §N3 family: it writes a ref, and exits 1 on a refusal its caller reads.
- *
- * Its proofs sit here with no core, as each is a question only real git answers,
- * which a port would only relay.
- *
- * Any failed proof refuses before the write:
- *  1. The ref file exists and `git rev-parse --verify` fails on it. A readable
- *     `main`, at whatever commit, is never touched.
- *  2. The shared tree has `main` checked out, as `git read-tree HEAD` would
- *     otherwise load another branch into its index.
- *  3. The target is the newest reflog entry whose new sha is an ancestor of
- *     `origin/main`.
- *  4. The ref file and `.git/index` are copied under `.claude/tmp/` first.
- *
- * THE REF IS WRITTEN BY HAND, as git itself refuses to lock a broken ref: `git
- * update-ref` answers "reference broken" (measured on git 2.43.0). It keeps git's
- * own protocol, a `.lock` file renamed over the ref, and proof 1 is re-read under
- * that lock, so of two sessions repairing at once the second refuses a `main` the
- * first has restored.
- *
- * Exit codes: 0; 1 on a refusal, or where the index would not rebuild after the
- * write, which the output says; 2 on a command line it refuses.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -66,17 +34,12 @@ const NOT_BROKEN = {
 	unknown: `git did not answer on \`main\`, which proves nothing. ${RERUN}`,
 };
 
-/* `<old sha> <new sha> <who> <when>\t<message>`, the message optional. */
 const REFLOG_LINE =
 	/^[0-9a-f]+ (?<sha>[0-9a-f]{40}|[0-9a-f]{64}) [^\t]+(?:\t(?<message>.*))?$/;
 
-/** Refused; its message says what failed. */
 class Refusal extends Error {}
 
-/**
- * @typedef {{sha: string|null, shown: string}} ReflogEntry  a torn line names no
- *   sha, and is shown whole, as it may be all that is left of a commit
- */
+/** @typedef {{sha: string|null, shown: string}} ReflogEntry */
 
 /** @param {string} line */
 const say = (line) => writeFd(1, `${line}\n`);
@@ -88,8 +51,6 @@ function requireBroken(commonDir) {
 }
 
 /**
- * `main`'s reflog, oldest first, read as a file: a reflog command resolves the
- * broken ref first.
  * @param {string} commonDir
  * @returns {ReflogEntry[]}
  */
@@ -118,8 +79,6 @@ function readReflog(commonDir) {
 }
 
 /**
- * What `origin/main` names: a reflog entry it holds is one the lander
- * verified.
  * @param {string} commonDir
  * @returns {string[]}
  */
@@ -132,10 +91,8 @@ function readOriginShas(commonDir) {
 	return [r.sha];
 }
 
+// #3198
 /**
- * Whether `sha` is an ancestor of an origin ref. Any exit but 0 is no proof: 1 is
- * not an ancestor, and past that git has lost the sha or it is a deletion's zeros
- * (#3198). A git cut off refuses, as it says nothing of the sha.
  * @param {string} commonDir
  * @param {string} sha
  * @param {string[]} origins
@@ -156,7 +113,6 @@ function isPushed(commonDir, sha, origins) {
 }
 
 /**
- * The newest entry an origin ref holds, and the entries newer than it.
  * @param {string} commonDir
  * @param {ReflogEntry[]} entries
  * @param {string[]} origins
@@ -174,12 +130,10 @@ function findTarget(commonDir, entries, origins) {
 }
 
 /**
- * Copy the damaged ref and the index into a directory of this run's own, so a
- * second repair in one session keeps the first's.
  * @param {string} commonDir
- * @param {string} root  the shared tree
+ * @param {string} root
  * @param {string} session
- * @returns {string} the directory
+ * @returns {string}
  */
 function writeBackup(commonDir, root, session) {
 	const sessionDir = path.join(root, ".claude", "tmp", `git-repair-${session}`);
@@ -192,13 +146,11 @@ function writeBackup(commonDir, root, session) {
 }
 
 /**
- * Take git's lock on the ref, prove it still broken under that lock, back up, and
- * rename the target into place.
  * @param {string} commonDir
- * @param {string} root  the shared tree
+ * @param {string} root
  * @param {string} session
  * @param {string} sha
- * @returns {string} the backup directory
+ * @returns {string}
  */
 function replaceBrokenRef(commonDir, root, session, sha) {
 	const ref = path.join(commonDir, MAIN_REF);
@@ -227,10 +179,7 @@ function replaceBrokenRef(commonDir, root, session, sha) {
 	}
 }
 
-/**
- * The entries the repair stepped over, for the caller to file.
- * @param {ReflogEntry[]} newer
- */
+/** @param {ReflogEntry[]} newer */
 function sayNewer(newer) {
 	if (newer.length === 0) {
 		say("No reflog entry is newer than the target.");
@@ -243,7 +192,6 @@ function sayNewer(newer) {
 }
 
 /**
- * Prove it all, write, and rebuild the index.
  * @param {string} session
  * @returns {0|1}
  */

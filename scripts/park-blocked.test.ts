@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * park-blocked.test.ts — parking a blocked ticket (#1200, #1222), end to end.
- * Driven by argv with a stubbed `gh` and the real `session-arbiter.js`
- * against a throwaway store — `scripts/lib/arbiter-testkit.ts`'s
- * `freshSandbox()` — so a claim released here exercises the real claim store.
- * Breaking it lets a parked ticket keep the wrong `takes:` label, or its
- * claim, unseen: no `PreToolUse` guard sees the `gh` calls this script makes.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,7 +28,6 @@ function arbiterEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 	};
 }
 
-/** The real arbiter's stdout for `args`; a non-zero exit fails the case. */
 function arbiter(...args: string[]): string {
 	const r = runInProcess(ARBITER, args, {
 		cwd: sb.repo,
@@ -47,7 +38,6 @@ function arbiter(...args: string[]): string {
 	return r.stdout;
 }
 
-/** Claim the issue for SID through the real arbiter, so a release is seen. */
 function claimIssue(issue: number) {
 	arbiter("claim-issue", String(issue));
 }
@@ -61,11 +51,6 @@ function heldIssue(issue: number): boolean {
 let ghCallsFile: string;
 let ghBin: string;
 
-/** A `gh` stub answering `issue view --json labels|body`, `issue comment`,
- * `issue edit`, `repo view`, and `api` reads of the blocked-by edges, of the
- * open list (#9 and every `states` entry that is open) and of each `states`
- * issue. A failing read — every `api` read, or each whose path ends in
- * `failPath` — serves the recorded not-found. */
 function stubGh(
 	opts: {
 		labels?: string[];
@@ -92,7 +77,6 @@ function stubGh(
 		routes[`*${failPath}`] = GH_NOT_FOUND;
 		routes[`*${failPath}?*`] = GH_NOT_FOUND;
 	}
-	// A failure set above keeps its key.
 	routes["*/dependencies/blocked_by"] ??= page("blockedByPage", edges);
 	routes["*/issues?*"] ??= page(
 		"issuesPage",
@@ -238,8 +222,6 @@ describe("parking", () => {
 		expect(heldIssue(9)).toBe(false);
 	});
 
-	/* guard-session-ceiling.js reads this record by name, so a rename on one
-	   side alone would leave a parked session hearing the wind-up band. */
 	it("leaves the .parked-blocked record the ceiling guard reads", () => {
 		const r = run(["9", "takes:wayfinder", "why"]);
 		expect(r.code).toBe(0);
@@ -284,8 +266,6 @@ describe("parking", () => {
 		expect(ghCalls()).toEqual([]);
 	});
 
-	/* #1020: a founder errand already filed keeps its takes:human rather than
-	   being relabelled takes:wayfinder. */
 	const errand =
 		"**Outside Claude Code:** pay the invoice\n**Close when:** it is paid";
 
@@ -356,7 +336,6 @@ describe("waiting:external needs a gate", () => {
 
 	it.each([
 		["a Gated on line", { body: gateOn }],
-		/* #3293: as the shortlist and check-issue-labels.js hold on it. */
 		["a Gated on line with no basis", { body: gateOn.split("\n")[0] }],
 		["an open native blocker", { edges: [{ state: "open" }] }],
 		[

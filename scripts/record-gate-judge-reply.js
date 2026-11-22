@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/*
- * record-gate-judge-reply.js — re-records scripts/fixtures/gate-judge-reply.json,
- * the installed harness's side of the gate judge's launch (#4964): the
- * `result` row claude-child.js's `judge` mode prints, which lib/gate-judge.js
- * reads and lib/gate-judge-fake.ts serves to the suites, and what a second
- * call under the same flags was seen to load and leave behind — its tools,
- * MCP servers, slash commands, plugins, hook events and transcripts.
- *
- *   node scripts/record-gate-judge-reply.js
- *
- * Both calls go on this session's own seat and spend one short Haiku turn
- * each. Run it by hand after a harness upgrade, then `npm run test --
- * scripts/lib/gate-judge.contract.test.ts`.
- *
- * In no family (§N3): it writes a fixture, but spends turns to do it, so it
- * is no `generate-*` a gate may run.
- */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -36,21 +19,16 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const FIXTURE = path.join(__dirname, "fixtures", "gate-judge-reply.json");
 const LAUNCHER = path.join(__dirname, "claude-child.js");
-/* Written for the recording: a wait on data and a basis that restates it. */
 const BODY =
 	"Re-check the queue depth once 300 landings have been logged.\n\n**Gate basis:** the ticket asks for 300 landings.\n";
-/* A guess: one short Haiku turn has taken 5 to 8 s. */
+// #4964 guess
 const WAIT_MS = 120_000;
-/* What the fixture carries in place of the run's own ids. */
 const SYNTHETIC = {
 	session_id: "5e551011-0000-4000-8000-000000000000",
 	uuid: "0e5017ed-0000-4000-8000-000000000000",
 };
 
-/**
- * The files in `dir`, none where it does not exist.
- * @param {string} dir
- */
+/** @param {string} dir */
 function readEntries(dir) {
 	try {
 		return fs.readdirSync(dir, { recursive: true }).map(String);
@@ -59,7 +37,6 @@ function readEntries(dir) {
 	}
 }
 
-/** The `result` row of one call in the judge mode. */
 function recordResult() {
 	const r = spawnSync(
 		process.execPath,
@@ -79,10 +56,6 @@ function recordResult() {
 	return { ...row, ...SYNTHETIC };
 }
 
-/**
- * What a call under the judge mode's flags loads and leaves, read off its
- * event stream and the seat's transcript store.
- */
 function recordObserved() {
 	const seat = configDir();
 	const env = buildSeatEnv(process.env, seat);
@@ -101,8 +74,6 @@ function recordObserved() {
 		});
 		if (r.status !== 0)
 			throw new Error(`the observed call exited ${r.status}: ${r.stderr}`);
-		/* The harness leaves the directory's project folder, holding an empty
-		 * `memory`. */
 		const project = path.join(
 			seat,
 			"projects",
@@ -121,7 +92,6 @@ function recordObserved() {
 			tools: init.tools,
 			mcpServers: init.mcp_servers.length,
 			slashCommands: init.slash_commands.length,
-			/* A builtin plugin ships in the binary and carries no hook. */
 			plugins: init.plugins
 				.filter((p) => p.path !== "builtin")
 				.map((p) => p.name),
