@@ -64,15 +64,18 @@ const commitIn = (
 
 const DRIVER = path.resolve(__dirname, "merge-registry-anchors.js");
 
-/* A sandboxed config dir: a land a neighbour beats files a divergence row
- * there, never in the founder's live log. */
-const ENV = () => ({
-	...process.env,
-	CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
-	CLAUDE_PROJECT_DIR: main,
-	WFC_NPM: npmStub,
-	WFC_MODULES: "",
-});
+/* #5501 */
+const ENV = (): NodeJS.ProcessEnv => {
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
+		CLAUDE_PROJECT_DIR: main,
+		WFC_NPM: npmStub,
+		WFC_MODULES: "",
+	};
+	delete env.CLAUDE_JOB_DIR;
+	return env;
+};
 
 const run = (cwd: string, ...args: string[]) =>
 	runInProcess(SCRIPT, args, { cwd, env: ENV() });
@@ -662,6 +665,23 @@ it("lands a worktree: merges the moved origin/main, the merge commit running pre
 	expect(fs.readFileSync(path.join(markers(), ".lander.log"), "utf8")).toBe(
 		`${started}\n`,
 	);
+});
+
+it("tells a background job to end on `result:` naming its pushed commits as queued, not to wait (#5501)", () => {
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	commitIn(dir, { "mine.txt": "m" }, "mine");
+
+	const r = runInProcess(SCRIPT, ["land"], {
+		cwd: dir,
+		env: { ...ENV(), CLAUDE_JOB_DIR: path.join(tmp, "job") },
+	});
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toContain(
+		"It has not landed: the queue lander moves main to it once the full suite passes. In a background job, end on `result:`, naming these commits as queued for the lander, not on main; a drop goes to the lander's own `Fix queue/<name>` ticket. Wait with `node scripts/landing-status.js --wait` only where your next step needs them on main.",
+	);
+	expect(r.stderr).not.toContain("Wait on its outcome");
 });
 
 it("pushes a worktree already ahead of origin/main with no merge, and lands nothing where HEAD is on main or its queue ref", () => {

@@ -13,5 +13,5 @@ moves it to the background at 120 s; 540 s leaves the call room under that
   Several agents: one wait each, in turn.
 - a long Bash job: `scripts/bg-run.sh run <name> <command>` with
   `run_in_background`, then `scripts/bg-run.sh wait <name> 540`.
-- a landing: `timeout 540 node scripts/landing-status.js --wait`, until it
-  reads landed or dropped.
+- queued commits: no wait; end on `result:`, naming them queued for the
+  lander, not on `main` (#5501).
