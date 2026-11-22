@@ -1,32 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-gate-switches.js — refuses a commit while the tracked tree holds what a
- * gate guards but that gate's switch is off (#1506, ruled at #1410 Q1 (A)).
- *
- * Usage:
- *   node check-gate-switches.js [--json] [--warn]
- *
- * A gate over a missing document checks nothing, so a new repo starts with
- * none of these modules and no commands — but only because this refuses the first commit
- * after the subject lands. The four subjects, found by lib/gate-subjects.js,
- * which init-adopter.js and /new-repo read too:
- *
- *   a test file                         commands.test undeclared
- *   docs/reference-roadmap.html         module "roadmap" off
- *   the manual, or a doc-map §B entry   module "governance" off
- *   the brand sheet plus app/           module "site" off
- *
- * WHOLE TREE, NOT THE STAGED PATHS: a repo that adopted before this shipped
- * holds its subjects already, and a staged-only form would never see them.
- * The switches are read from the working copy's config, where the gates
- * they arm read it; a config committed with one off is refused at the first
- * commit made from it.
- *
- * IMPLICIT:  on every commit, refuses one while a tracked test file, roadmap, manual, §B entry or brand sheet with app/ sits in the tree with its gate's switch off.
- * JUSTIFIED: fail-safe — a config that will not read, or a git that cannot list the index, is BROKEN rather than green.
- * DEFEAT:    --warn caps findings below the gating line, and pre-commit never passes it; WFC_MODULES, a test-injection point, replaces the declared modules.
- */
-
 const { runCheck } = require("./lib/check.js");
 const config = require("./lib/workflow-core-config.js");
 const { readIndexSubjects } = require("./lib/gate-subjects.js");
@@ -36,14 +8,11 @@ const { corePath } = require("./lib/script-path.js");
 /** @typedef {import("./lib/check").Ctx} Ctx */
 /**
  * @typedef {{on: (cfg: ReturnType<typeof config.readConfig>) => boolean,
- *   gate: string, fix: string}} Switch whether the host has set it, the line
- *   saying it is off, and the config edit that sets it
+ *   gate: string, fix: string}} Switch
  */
 
 const INIT = corePath("scripts/init-adopter.js");
 
-/* A guess, not a measurement: enough paths to recognise what was found,
- * few enough that the refusal's first line stays one line. */
 const SHOWN = 3;
 
 /** @param {string[]} found */
@@ -64,10 +33,7 @@ const moduleSwitch = (m) => ({
 	fix: `add "${m}" to "modules"`,
 });
 
-/**
- * A test file's switch is the command that runs it (#1410 row 4).
- * @type {Switch}
- */
+/** @type {Switch} */
 const TEST_SWITCH = {
 	on: (cfg) => Boolean(cfg.commands.test),
 	gate: config.buildCommandUndeclaredLine("test"),

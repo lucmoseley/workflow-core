@@ -92,8 +92,6 @@ const {
 	record,
 } = require("./lib/dispatch-ledger");
 
-/* The oracle READ is the lib's, so this script cannot drift onto its own argv,
- * timeout, parse or binary (mantahostels#1374, mantahostels#1400). */
 const {
 	claudeBin,
 	isTerminalAgent,
@@ -104,30 +102,6 @@ const {
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
 /**
- * Issue numbers named by a live session, mapped to the session name carrying
- * each. Takes the integers from a session's name prefix — the part before the
- * first colon, which is where `/implement 833` puts its issue numbers.
- *
- * `requireSelf: false` waives the lib's self-test, the exemption mantahostels#535 keeps
- * opt-in. That test protects a reader whose judgement is an ABSENCE — a session
- * missing from a short list reads dead. This gate's judgement is a PRESENCE: it
- * refuses only on finding a wanted issue, so a short list can merely make it
- * catch less. Under the strict default, a list that omitted this session while
- * naming a real duplicate would silence the whole limb and permit the launch
- * (mantahostels#1400).
- *
- * TWO RESIDUALS THE WAIVER CARRIES. The list arrives with no caveat attached,
- * so a blind live limb is silent here. And the self-test also screens out a
- * STALE listing, so a presence-judging reader can over-report: a session the
- * oracle still names after it died would refuse a legitimate dispatch.
- *
- * The calling session is never its own duplicate (#1989): a rescuer titled
- * after the ticket it re-dispatches would otherwise refuse that dispatch. It is
- * matched by session id, or by job id against `$CLAUDE_JOB_DIR`'s basename.
- *
- * `listed` is the same read in heldIssues' shape, the calling session left
- * out, so the claim limb never refuses on this session's own claim; `names`
- * maps a session id to its name.
  * @returns {{ok: false, error: string} | {ok: true, issues: Map<number, string>, listed: {ids: Set<string>, terminal: Set<string>}, names: Map<string, string>}}
  */
 function liveIssues() {
@@ -152,8 +126,6 @@ function liveIssues() {
 }
 
 /**
- * The issues a session's name claims: its part before the first `:`, past any
- * overflow prefix (#4985).
  * @param {string} name
  * @returns {number[]}
  */
@@ -168,7 +140,6 @@ function nameIssues(name) {
 }
 
 /**
- * Whether a listed agent is the session running this check.
  * @param {{sessionId: string, id?: string}} agent
  */
 function isCallingSession(agent) {
@@ -180,8 +151,6 @@ function isCallingSession(agent) {
 }
 
 /**
- * A launch prompt as the ledger limb reads it: the command it runs and the
- * issues it names.
  * @param {string} prompt
  */
 function memberOf(prompt) {
@@ -189,17 +158,12 @@ function memberOf(prompt) {
 }
 
 /**
- * One refused issue. `prompt` is the ledger entry's own, on a `ledger` hit
- * alone: it is what scopes the hit to the members running the same command.
  * @typedef {{issue: number, via: string, detail: string, prompt?: string, heldUntil?: string}} Duplicate
  */
 
 /**
- * The verdict on a proposed set.
- * @param {number[]} wanted issue numbers about to be launched
+ * @param {number[]} wanted
  * @param {{windowHours?: number, prompts?: string[]}} [opts]
- *   `prompts` is the set's launch prompts, one per member, which is where the
- *   ledger limb reads each member's command (#752).
  * @returns {{duplicates: Duplicate[], warnings: string[]}}
  */
 function review(wanted, opts = {}) {
@@ -208,10 +172,6 @@ function review(wanted, opts = {}) {
 	const warnings = /** @type {string[]} */ ([]);
 	const seen = new Set();
 
-	/*
-	 * LIVE FIRST, because it holds an issue against every command: an issue it
-	 * names is flagged once, and the ledger limb below has nothing to add to it.
-	 */
 	const live = liveIssues();
 	if (live.ok) {
 		const hits = liveDuplicates(wanted, live.issues);
@@ -225,10 +185,6 @@ function review(wanted, opts = {}) {
 		);
 	}
 
-	/*
-	 * Without `opts.prompts` every member's command is unreadable, so a bare
-	 * issue list holds on the issue alone.
-	 */
 	const members =
 		opts.prompts && opts.prompts.length > 0
 			? opts.prompts.map(memberOf)
@@ -249,9 +205,8 @@ function review(wanted, opts = {}) {
 }
 
 /**
- * The live limb's hits, each issue once.
  * @param {number[]} wanted
- * @param {Map<number, string>} running issue → the session name running it
+ * @param {Map<number, string>} running
  * @returns {Duplicate[]}
  */
 function liveDuplicates(wanted, running) {
@@ -270,7 +225,6 @@ function liveDuplicates(wanted, running) {
 }
 
 /**
- * A session for a reader, named as the live limb names one.
  * @param {Map<string, string>} names
  * @param {string} sessionId
  */
@@ -278,11 +232,10 @@ const sessionLabel = (names, sessionId) =>
 	`session \`${holderName(names, sessionId)}\``;
 
 /**
- * The claim limb's hits, each issue once, skipping one the live limb caught.
  * @param {number[]} wanted
  * @param {{listed: {ids: Set<string>, terminal: Set<string>}, names: Map<string, string>}} live
- * @param {Duplicate[]} caught the live limb's hits
- * @param {string[]} warnings accumulator: a line for each claim not read
+ * @param {Duplicate[]} caught
+ * @param {string[]} warnings
  * @returns {Duplicate[]}
  */
 function claimDuplicates(wanted, live, caught, warnings) {
@@ -304,11 +257,9 @@ function claimDuplicates(wanted, live, caught, warnings) {
 }
 
 /**
- * Member `n`'s claim hit: its own claim, else its parent map's; null where
- * neither stands or was read.
  * @param {number} n
  * @param {{live: {listed: {ids: Set<string>, terminal: Set<string>}, names: Map<string, string>}, hostHeld: ReturnType<typeof heldIssues>, childRepo: string|null}} ctx
- * @param {string[]} warnings accumulator: a line for each claim not read
+ * @param {string[]} warnings
  * @returns {Duplicate|null}
  */
 function claimHitOf(n, { live, hostHeld, childRepo }, warnings) {
@@ -334,8 +285,6 @@ function claimHitOf(n, { live, hostHeld, childRepo }, warnings) {
 }
 
 /**
- * Issue `n`'s `issues/<n>/parent` payload, null where it has none, or
- * `{error}` where the call failed.
  * @param {number} n
  * @returns {Parameters<typeof parentVerdictOf>[1]}
  */
@@ -349,11 +298,8 @@ function readParentOfIssue(n) {
 }
 
 /**
- * The ledger limb's hits: a recent entry naming a wanted issue the live limb
- * did not, for a member running the entry's command — once per issue and
- * command.
  * @param {number[]} wanted
- * @param {DispatchRecord[]} entries the ledger's entries that hold
+ * @param {DispatchRecord[]} entries
  * @param {{members: {command: string | null, issues: number[]}[], seen: Set<number>}} set
  * @returns {Duplicate[]}
  */
@@ -382,12 +328,9 @@ function ledgerDuplicates(wanted, entries, { members, seen }) {
 }
 
 /**
- * Which members of a proposed set carry a duplicate (mantahostels#1337 follow-up). A
- * ledger hit drops only the members running its entry's command (#752); any
- * other hit drops every member naming the issue.
- * @param {string[]} prompts one launch prompt per member, in dispatch order
+ * @param {string[]} prompts
  * @param {{issue: number, via?: string, prompt?: string, heldUntil?: string}[]} duplicates
- * @returns {number[]} zero-based indices of the members to drop
+ * @returns {number[]}
  */
 function dropIndices(prompts, duplicates) {
 	const out = /** @type {number[]} */ ([]);
@@ -409,7 +352,6 @@ function dropIndices(prompts, duplicates) {
 
 /** @typedef {(value: string) => Partial<Args>} SetFlag */
 
-/** Each value flag, and the fields its value sets. */
 const VALUE_FLAGS = new Map(
 	/** @type {[string, SetFlag][]} */ ([
 		[
@@ -437,7 +379,6 @@ function parseArgs(argv) {
 	let out = {
 		record: false,
 		issues: /** @type {number[]} */ ([]),
-		/* A caller passing a single flat list gets one member. */
 		prompts: /** @type {string[]} */ ([]),
 		dropIndexOut: "",
 		model: "",
@@ -466,8 +407,6 @@ function parseArgs(argv) {
 	return out;
 }
 
-/* --record is the non-checking subcommand §N4 permits: it writes the ledger and
- * checks nothing, so it exits on its own path and never enters runCheck. */
 /** @param {{issues: number[], model: string, prompt: string, jobId: string, seatReason: string, overflowKey: string, allowanceUsd: number, sessionId: string}} opts */
 function recordMain(opts) {
 	if (
@@ -501,10 +440,9 @@ function recordMain(opts) {
 }
 
 /**
- * Says the duplicates, and what happens to them, under the FAIL each carries.
  * @param {Ctx} ctx
  * @param {Duplicate[]} duplicates
- * @param {boolean} partial whether only some members are dropped
+ * @param {boolean} partial
  */
 function sayDuplicates(ctx, duplicates, partial) {
 	if (duplicates.length > 0) {
@@ -557,8 +495,6 @@ const USAGE =
 
 function main() {
 	const opts = parseArgs(process.argv.slice(2));
-	/* A numberless prompt still records, as `issues: []`: the row refuses no
-	 * later launch, but it is what ties an overflow run to its key (#4585). */
 	if (opts?.record) recordMain(opts);
 
 	runCheck({
@@ -571,8 +507,6 @@ function main() {
 			"--window-hours",
 			"--drop-index-out",
 		],
-		/* `any` until this file is opted in: lib/check.js exports `Ctx` for
-		 * its type (mantahostels#1463), so this becomes an import type then. */
 		/** @param {any} ctx */
 		run(ctx) {
 			if (!opts || opts.issues.length === 0)
@@ -583,13 +517,11 @@ function main() {
 				prompts: opts.prompts,
 			});
 
-			/* WARN, not FAIL: WARN exits 0, so the launch is permitted. */
 			for (const w of warnings) {
 				ctx.warn("unreadable-source", `${w}.`, { source: w });
 				ctx.say(`WARNING: ${w}.`);
 			}
 
-			/* Say REFUSED only where refusing is what happens. */
 			const drop = opts.dropIndexOut
 				? dropIndices(opts.prompts, duplicates)
 				: [];
@@ -600,15 +532,8 @@ function main() {
 
 			sayDuplicates(ctx, duplicates, partial);
 
-			/* Written before the outcome is returned so a FAIL still carries it.
-			 * An unwritable path WARNs
-			 * rather than failing: the caller's own fallback is to launch nothing,
-			 * which is the safe direction. */
 			if (opts.dropIndexOut) writeDropIndex(ctx, opts.dropIndexOut, drop);
 
-			/* count is stated rather than inferred: runCheck counts WARN findings
-			 * when there are no FAILs, so a fail-open run with no duplicate at all
-			 * would otherwise summarise as "1 already-dispatched issue(s)". */
 			return {
 				okLine: "no issue in this set is already dispatched",
 				noun: "already-dispatched issue(s)",

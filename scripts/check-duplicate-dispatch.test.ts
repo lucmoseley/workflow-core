@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The duplicate-dispatch gate (mantahostels#1337) — the check that stops a `/pick-next`
- * batch launching an issue that is already running.
- *
- * Every gate case runs the program as scripts/dispatch-sessions.js does, through
- * run-in-process, against a stub `claude` at WFC_CLAUDE_BIN, so the oracle is
- * read through `lib/agent-liveness.js` throughout — its sessionId filter, its
- * empty-list refusal and the `requireSelf` waiver included (mantahostels#1400).
- * The launch-prompt parsing cases call lib/dispatch-ledger.js, the program's
- * own module, directly.
- *
- * scripts/dispatch-sessions.js runs it before every `/pick-next` launch, so
- * loosening a case lets a resumed set relaunch issues already running —
- * duplicate sessions contending on files the live ones are mid-write on.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -46,40 +31,21 @@ function writeLedger(lines: object[]) {
 	);
 }
 
-/** The ledger's one row, parsed. */
 const readLedgerRow = () =>
 	JSON.parse(fs.readFileSync(ledger.ledgerPath(root), "utf8").trim());
 
-/** A stub `claude`, injected at WFC_CLAUDE_BIN, answering `agents --json` as
- * `answer`. */
 const stubListing = (answer: AgentsAnswer) =>
 	writeClaudeStub(path.join(root, "claude"), [buildAgentsBranch(answer)]);
 
-/**
- * The stub reporting these sessions. Each record carries a `sessionId`: the
- * lib drops one without it (mantahostels#1400).
- */
 const stubOracle = (names: string[]) =>
 	stubListing(
 		names.map((name, i) => buildListedRow({ sessionId: `s${i}`, name })),
 	);
 
-/** A stub `claude` that will not run, so the live limb goes blind. */
 const stubOracleDown = () => stubListing(null);
 
-/*
- * One session, naming no issue — what an otherwise idle machine reports, and
- * what isolates the ledger limb. NOT an empty list: a running daemon lists at
- * least the session the read ran in, so the lib refuses `[]` rather than
- * reading it as "nothing is running" (mantahostels#1400).
- */
 const idle = ["Idle harness: nothing running"];
 
-/**
- * A stub `gh` answering `issues/<n>/parent` from `parents`: a parent map's
- * URL, `{url, labels}` for a parent of another kind, or "fail" for an HTTP
- * error. An issue it omits has no parent, answered as GitHub does, a 404.
- */
 function stubParents(
 	parents: Record<number, string | { url: string; labels: string[] }> = {},
 ) {
@@ -100,16 +66,13 @@ process.stdout.write(JSON.stringify({ url, labels: labels.map((name) => ({ name 
 	).gh;
 }
 
-/** The `issues/<n>/parent` calls the gate made. */
 const readParentCalls = () =>
 	fs.existsSync(path.join(root, "gh-calls"))
 		? fs.readFileSync(path.join(root, "gh-calls"), "utf8").trim().split("\n")
 		: [];
 
-/** The throwaway config dir every run's claim store lives under. */
 const configDir = () => path.join(root, "config");
 
-/** An arbiter claim by `sessionId` on `issue`, in `checkout`'s store. */
 const writeClaim = (checkout: string, issue: number, sessionId: string) =>
 	writeIssueClaim(configDir(), checkout, issue, sessionId);
 
@@ -129,10 +92,6 @@ function runCli(args: string[], env: Record<string, string> = {}) {
 	});
 }
 
-/**
- * The gate's verdict on a set, as its report says it: each refused issue with
- * the limb that caught it, and each warning line.
- */
 function verdict(issues: string, extra: string[] = []) {
 	const r = runCli(["--issues", issues, ...extra]);
 	const out = `${r.stdout}${r.stderr}`;
@@ -388,8 +347,7 @@ describe("the live limb — catches a launch made outside this script", () => {
 		expect(r.hits).toEqual([]);
 	});
 
-	/* #1989: a rescuer titled after the ticket it re-dispatches. */
-	it("never counts the calling session, by session id or by job dir", () => {
+	it("never counts the calling session, by session id or by job dir (#1989)", () => {
 		stubListing([
 			buildListedRow({
 				sessionId: "me-1",
@@ -507,7 +465,6 @@ describe("the claim limb — refuses an issue a live session holds, directly or 
 		const there = path.join(home, "there");
 		writeCheckout(there, "o/there");
 		writeClaim(there, 7, "holder");
-		/* The same number in this repo's store is not that parent. */
 		writeClaim(root, 7, "ended");
 		stubParents({ 21: "https://api.github.com/repos/o/there/issues/7" });
 		const r = runCli(["--issues", "21"], { HOME: home });
@@ -685,7 +642,6 @@ describe("recording a launch", () => {
 	});
 });
 
-/* Black-box, per docs/code-standards-base.md §X3. */
 describe("the CLI — §N4's outcome alphabet", () => {
 	it("exits 0 and says so when nothing in the set is dispatched", () => {
 		stubOracle(idle);
@@ -710,9 +666,7 @@ describe("the CLI — §N4's outcome alphabet", () => {
 
 	it("reads the oracle through WFC_CLAUDE_BIN, ignoring a `claude` on PATH (mantahostels#1374)", () => {
 		stubOracle(["Implement 972: something"]);
-		/* A PATH `claude` reporting nothing. A run still resolving the bare name
-		 * would read this one and wave mantahostels#972 through. */
-		const shadow = path.join(root, "shadow"); // under root, so afterEach takes it
+		const shadow = path.join(root, "shadow");
 		fs.mkdirSync(shadow);
 		writeClaudeStub(path.join(shadow, "claude"), [buildAgentsBranch([])]);
 		const r = runCli(["--issues", "972"], {
@@ -847,9 +801,6 @@ describe("the CLI — §N4's outcome alphabet", () => {
 		});
 	});
 
-	/* mantahostels#3488: the launched job's own id, distinct from `session` (the launcher's
-	 * own id) — the field pick-next.js reads to say whether that launch is
-	 * still alive. */
 	it("--record with --job-id writes the launched job's own id", () => {
 		stubOracle(idle);
 		runCli([
@@ -965,7 +916,6 @@ describe("the CLI — §N4's outcome alphabet", () => {
 	});
 
 	describe("naming which member to drop, not just which issue is a duplicate", () => {
-		/** The indices the launcher is told to drop from `prompts`, one member a line. */
 		function dropped(prompts: string[]) {
 			const out = path.join(root, "drop");
 			runCli(["--issues", prompts.join("\n"), "--drop-index-out", out]);
@@ -974,7 +924,6 @@ describe("the CLI — §N4's outcome alphabet", () => {
 		const at = () => new Date().toISOString();
 
 		it("drops a whole member when any one of its issues is a duplicate", () => {
-			/* One session covers both issues, so half of it cannot be launched. */
 			stubOracle(idle);
 			writeLedger([{ ts: at(), issues: [353], prompt: "/implement 353" }]);
 			expect(dropped(["/implement 341 353", "/implement 366"])).toEqual(["0"]);

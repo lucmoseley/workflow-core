@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * check-gate-switches.js refuses a commit while the tracked tree holds a gate's
- * subject and that gate's switch is off (#1506). Each case commits through a
- * real git hook in a throwaway repo, so what is proven is the refusal of a
- * commit, not only an exit code. Loosen one and a repo's tests, roadmap,
- * manual or site pages sit ungated while every commit passes.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -30,7 +23,6 @@ const write = (file: string, body: string) => {
 	fs.writeFileSync(path.join(dir, file), body);
 };
 
-/** `modules` and `commands` as the host declares them; no file where null. */
 const configure = (cfg: { modules?: string[]; test?: string } | null) => {
 	if (cfg === null) return fs.rmSync(path.join(dir, CONFIG), { force: true });
 	write(

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/check-guard-registry.js carrying a row across a merge
- * (#4514): stale on the merged index, fresh on both parents, and no file of
- * its closure changed on both sides since the merge base. A row only the
- * merged-in side holds is carried on that side's freshness (#4801).
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -69,7 +63,6 @@ const copy = templateOf(() =>
 	),
 );
 
-/** A fixture with `side` branched off its base, and git hooks off until hooks() turns them on. */
 function mergeRepo() {
 	const root = copy();
 	const git = (...args: string[]) =>
@@ -78,7 +71,6 @@ function mergeRepo() {
 		spawnSync("git", args, { cwd: root, encoding: "utf8", env: env(root) });
 	git("branch", "-M", "main");
 	git("branch", "side");
-	/* The anchors file's merge driver, as .gitattributes wires it (#4171). */
 	fs.writeFileSync(
 		path.join(root, ".git", "info", "attributes"),
 		`${ANCHORS} merge=registry-anchors\n`,
@@ -88,7 +80,6 @@ function mergeRepo() {
 		"merge.registry-anchors.driver",
 		`node ${JSON.stringify(path.join(__dirname, "merge-registry-anchors.js"))} %O %A %B`,
 	);
-	/** A commit on `branch` writing `files`, re-anchoring the guard unless `stale`. */
 	const change = (
 		branch: string,
 		files: Record<string, string>,
@@ -102,7 +93,6 @@ function mergeRepo() {
 		git("commit", "-qm", `${branch} change`);
 		git("checkout", "-q", "main");
 	};
-	/** The gate wired as .husky wires it, pre-commit and pre-merge-commit both. */
 	const hooks = () => {
 		const dir = path.join(root, ".git", "hooks");
 		const gate =
@@ -192,9 +182,6 @@ describe("a merge carries a row whose sides changed different files of its closu
 		);
 		expect(r.stderr).toContain(`STALE-PROSE  ${GUARD}`);
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(before);
-		/* The queue lander's fix ticket keeps these lines however long the
-		 * remedy after them (#4800): reword one here and lib/lander-git.js's
-		 * patterns follow. */
 		const remedy = Array.from({ length: 41 }, (_, i) => `remedy ${i}`);
 		const kept = parseGateRefusal([r.stderr, ...remedy].join("\n"));
 		expect(kept).toContain(
@@ -283,7 +270,6 @@ describe("a merge carries a row whose sides changed different files of its closu
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(theirs);
 	});
 
-	/** `side` adds a guard of its own over lib/a.sh, anchored fresh there, as #4696's member did. */
 	const sideAddsGuard = (
 		{ root, git }: ReturnType<typeof mergeRepo>,
 		libA?: string,
@@ -304,7 +290,6 @@ describe("a merge carries a row whose sides changed different files of its closu
 			path.join(root, SELF_PLUGIN_HOOKS),
 			hooksWiring(GUARD, ADDED),
 		);
-		/* --review skips a guard git's index does not hold. */
 		git("add", "-A");
 		reviewIn(root, [GUARD, ADDED], ownClaims(root));
 		git("add", "-A");

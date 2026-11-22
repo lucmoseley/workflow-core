@@ -193,7 +193,6 @@
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-context-budget.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/check-output-style.test.ts",
@@ -742,7 +741,6 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/husky-script-refs.test.ts",
@@ -763,7 +761,6 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/husky-script-refs.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -803,7 +800,6 @@
 			"scripts/check-comment-policy.test.ts",
 			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-format-staged.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/check-guard-registry-reads.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-host-root-test-isolation.test.ts",
@@ -912,7 +908,6 @@
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/adopter-landing.test.ts",
 			"scripts/check-format-staged.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/husky-script-refs.test.ts",
@@ -8868,7 +8863,6 @@
 		],
 		"scripts/guard-dispatch.js": [
 			"scripts/check-context-budget-session-cap.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-guard-test-isolation.test.ts",
 			"scripts/check-host-root.test.ts",
@@ -10470,7 +10464,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/agent-liveness.js": [
-			"scripts/check-duplicate-dispatch.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -62617,7 +62610,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/self-plugin-canary.sh": [
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/hook-code-root.test.ts",
 			"scripts/hook-registrations.test.ts",
@@ -63578,7 +63570,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/vitest-pass-reporter.ts": [
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
@@ -63622,7 +63613,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/vitest-tree-watch.ts": [
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
@@ -64037,7 +64027,6 @@
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/check-verdict-proof.test.ts",
 			"scripts/claude-child.test.ts",
