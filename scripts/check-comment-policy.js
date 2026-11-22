@@ -21,6 +21,7 @@ const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { listTree } = require("./lib/git-objects.js");
+const { readAttributeExcluded } = require("./lib/git-attributes.js");
 const {
 	CODE_FILE,
 	depsPattern,
@@ -193,7 +194,20 @@ function readChangedPaths(ctx) {
 	return { paths, renames };
 }
 
-/** @type {WeakMap<Ctx, ReturnType<typeof readChangedPaths>>} */
+/**
+ * @param {ReturnType<typeof readChangedPaths>} read
+ * @param {string} head
+ */
+function dropAttributeExcluded({ paths, renames }, head) {
+	const excluded = readAttributeExcluded(
+		paths,
+		head ? { source: head } : { cached: true },
+	);
+	for (const p of excluded) renames.delete(p);
+	return { paths: paths.filter((p) => !excluded.has(p)), renames };
+}
+
+/** @type {WeakMap<Ctx, ReturnType<typeof dropAttributeExcluded>>} */
 const changed = new WeakMap();
 
 /**
@@ -203,7 +217,10 @@ const changed = new WeakMap();
 const changedOnce = (ctx) => {
 	const known = changed.get(ctx);
 	if (known) return known;
-	const read = readChangedPaths(ctx);
+	const read = dropAttributeExcluded(
+		readChangedPaths(ctx),
+		ctx.value("--head", ""),
+	);
 	changed.set(ctx, read);
 	return read;
 };
@@ -273,7 +290,12 @@ const SPEC = {
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
 		let judged = 0;
-		for (const rel of readTreeFiles(ctx, root, ctx.has("--root"))) {
+		const files = readTreeFiles(ctx, root, ctx.has("--root"));
+		const excluded = fs.existsSync(path.join(root, ".git"))
+			? readAttributeExcluded(files, { cwd: root })
+			: new Set();
+		for (const rel of files) {
+			if (excluded.has(rel)) continue;
 			const text = readOr(root, rel);
 			const lang = text === null ? null : langOf(rel, text);
 			if (text === null || lang === null) continue;

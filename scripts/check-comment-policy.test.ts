@@ -103,6 +103,28 @@ describe("check-comment-policy", () => {
 		expect(r.out).toContain("1 code file(s), every comment a permitted kind.");
 	});
 
+	const attributes =
+		"vendor/** linguist-vendored\ngen/** linguist-generated\nvendor/keep/** -linguist-vendored\n";
+	const stray = "const a = 1;\n// a stray note\n";
+
+	it.each([
+		["the host root", []],
+		["--root", ["--root", "."]],
+	])(
+		"--all skips what .gitattributes marks vendored or generated, from %s",
+		(_, args) => {
+			write(".gitattributes", attributes);
+			for (const rel of ["vendor/a.js", "gen/b.js", "vendor/keep/c.js"])
+				write(rel, stray);
+			git("add", "-A");
+			const r = run(...args, "--all");
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("vendor/keep/c.js");
+			expect(r.out).not.toContain("vendor/a.js");
+			expect(r.out).not.toContain("gen/b.js");
+		},
+	);
+
 	it("passes a tree whose every comment is a permitted kind", () => {
 		write("scripts/ok.js", "// #12\nconst a = 1;\n");
 		git("add", "-A");
@@ -213,6 +235,21 @@ describe("check-comment-policy", () => {
 			);
 			git("add", "-A");
 			expect(run("--against", "HEAD").status).toBe(0);
+		});
+
+		it("charges no comment added to a vendored or generated file", () => {
+			write(".gitattributes", attributes);
+			for (const rel of ["vendor/a.js", "gen/b.js", "vendor/keep/c.js"])
+				write(rel, "const a = 1;\n");
+			commit("attributes");
+			for (const rel of ["vendor/a.js", "gen/b.js", "vendor/keep/c.js"])
+				write(rel, stray);
+			git("add", "-A");
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("vendor/keep/c.js:2");
+			expect(r.out).not.toContain("vendor/a.js");
+			expect(r.out).not.toContain("gen/b.js");
 		});
 	});
 });
