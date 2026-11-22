@@ -5770,7 +5770,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						pid: 5579,
 						sessionId: "mine",
 						renderEdges: () => ({ [EDGES_FILE]: ["manifest.test.ts"] }),
-						extractor: {
+						renderSnapshot: {
 							root: dir,
 							loaded: new Map([[extractorFile, loaded]]),
 						},
@@ -5790,7 +5790,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(got.manifest).toBe("stale\n");
 					expect(got.out).not.toContain("brought up to date");
 					expect(got.err).toContain(
-						`left alone: this run loaded ${extractorFile}`,
+						`left alone: the render code this run loaded (${extractorFile})`,
 					);
 				});
 
@@ -6598,6 +6598,16 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		});
 		return { out: out.join(""), err: err.join(""), claimed };
 	}
+
+	it("snapshots the read-edge extractor among the render code this process loaded (#5579)", () => {
+		const { RENDER_SNAPSHOT } = require("./lib/manifest-freshen.js");
+		expect([...RENDER_SNAPSHOT.loaded.keys()]).toEqual(
+			expect.arrayContaining([
+				"scripts/lib/read-edges-render.js",
+				"scripts/lib/test-read-edges.js",
+			]),
+		);
+	});
 
 	it("writes both copies under the session's claim where the shared copy holds what the overlay was given", () => {
 		const at = trees("stale", "stale");

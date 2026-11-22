@@ -1111,7 +1111,7 @@ function refuseNarrowing(options, cause) {
  *    { renderEdges?: () => Record<string, string[]>,
  *      commitLedger?: import("./lib/own-work.js").CommitLedger,
  *      claimFn?: import("./lib/manifest-freshen.js").ClaimFn,
- *      extractor?: import("./lib/manifest-freshen.js").Extractor }} RouteOptions
+ *      renderSnapshot?: import("./lib/manifest-freshen.js").RenderSnapshot }} RouteOptions
  */
 
 /**
@@ -1491,7 +1491,7 @@ function freshenOverlay(dir, home, options) {
 		home,
 		session: options.sessionId || idSeam.fromEnv(),
 		claimFn: options.claimFn,
-		extractor: options.extractor,
+		snapshot: options.renderSnapshot,
 		out: options.out ?? process.stdout,
 		err: options.err ?? process.stderr,
 	});
