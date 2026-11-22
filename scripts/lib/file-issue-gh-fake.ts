@@ -35,11 +35,12 @@ const ROUTE = String.raw`function routeFileIssueGh(argv, input, fs, dir) {
 		fs.writeFileSync(at("linked"), "");
 		return ok("");
 	}
+	const listed = /^repos\/([^/]+\/[^/]+)\/issues\/\d+\/sub_issues$/.exec(argv[1] ?? "");
 	const read = answerLinkRead(argv, {
 		id: buildJqLines(${NEW_ID}),
-		children: has("linked")
-			? buildChildRows(/^repos\/(.+)\/issues\/\d+\/sub_issues$/.exec(argv[1])?.[1], ${NEW})
-			: ok(""),
+		children: !listed
+			? failed("HTTP 404: Not Found\n")
+			: has("linked") ? buildChildRows(listed[1], ${NEW}) : ok(""),
 	});
 	if (read) return read;
 	if (argv[0] === "api") {
