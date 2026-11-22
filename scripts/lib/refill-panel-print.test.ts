@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The panel's print (#4114): the screen read off a frame, and which running panels it
- * sizes itself by. Broken, a session checking what the founder reads sees another
- * screen than the pane shows, and hands him the check again.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -35,12 +30,11 @@ describe("buildScreenLines", () => {
 	});
 
 	it("shows a frame's rows as the pane would, cut at its margin-less width", () => {
-		const rows = [
+		const rows: Parameters<typeof buildFrame>[0] = [
 			{ text: "Refill loop  [on]", role: "name", pointed: true },
 			{ text: "a row far longer than the pane is wide", role: "secondary" },
 		];
-		// biome-ignore lint/suspicious/noExplicitAny: a Row's other fields are optional
-		const lines = buildScreenLines(buildFrame(rows as any, 20, 10), 10);
+		const lines = buildScreenLines(buildFrame(rows, 20, 10), 10);
 		expect(lines).toEqual(["", "❯ Refill loop  [o…", "  a row far longe…"]);
 	});
 });
@@ -49,7 +43,6 @@ describe("findPanelSizes", () => {
 	let fake: ReturnType<typeof makeProcRoot>;
 	afterEach(() => fake.remove());
 
-	/** A process whose stdout is `tty`. */
 	const withTty = (pid: number, argv: string, tty: string) => {
 		fake.proc(pid, { argv });
 		fs.mkdirSync(path.join(fake.root, String(pid), "fd"));

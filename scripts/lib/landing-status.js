@@ -1,9 +1,3 @@
-/*
- * landing-status.js — where each of a session's commits stands on the landing
- * route: landed on `main`, queued on the session's own queue ref, or pushed
- * to no queue ref at all (#2407, spec #2261; #4485, spec #4458).
- */
-
 const {
 	isAncestor,
 	LANDER_GIT_TIMEOUT_MS,
@@ -14,19 +8,15 @@ const { fetchShared } = require("./checkout-repo.js");
 const { pushedRef, VERIFIED_REF } = require("./landing-refs.js");
 
 /**
- * @typedef {{kind: "landed"} | {kind: "queued"} | {kind: "unpushed"}}
- *   CommitState
+ * @typedef {{kind: "landed"} | {kind: "queued"} | {kind: "unpushed"}} CommitState
  * @typedef {{
  *   pushed: string,
  *   isOn: (ref: string, sha: string) => boolean,
- * }} StatusGit `pushed` is lib/landing-refs.js's pushed ref for the session's
- *   tree
+ * }} StatusGit
  */
 
 /**
- * The state of each commit, in the order given. A commit on neither branch
- * that HEAD no longer holds, such as one an amend replaced, is left out.
- * @param {string[]} commits full shas
+ * @param {string[]} commits
  * @param {StatusGit} git
  * @returns {{sha: string, state: CommitState}[]}
  */
@@ -53,8 +43,7 @@ function stateOf(sha, git) {
 /**
  * @param {{sha: string, state: CommitState}} entry
  * @param {string} subject
- * @param {string|null} queue the session's queue ref, `queue/<name>`, or null
- *   where its tree is no session worktree
+ * @param {string|null} queue
  */
 function buildStateLine({ sha, state }, subject, queue) {
 	const head = `${short(sha)} ${subject}`;
@@ -69,10 +58,8 @@ function buildStateLine({ sha, state }, subject, queue) {
 }
 
 /**
- * Git in `root`, after lib/checkout-repo.js's fetch of `main` and every
- * queue ref. Every read throws where git fails, the fetch included.
  * @param {string} root
- * @param {string} tree the session's tree top level
+ * @param {string} tree
  * @returns {StatusGit & {subjectOf: (sha: string) => string}}
  */
 function fetchedGit(root, tree) {

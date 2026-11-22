@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * marker-root.js / marker-root.sh's own suite, plus the regression guard F8
- * (mantahostels#3515, #2) asks for: a hook-wired script that writes one
- * of the moved per-session markers must land it under `.claude/tmp/markers/`,
- * never bare at the host root.
- *
- * SCOPE: this drives the writers actually touched by F8 —
- * `scripts/lib/hook-block.js`,
- * `scripts/concision-backstop.sh`, `scripts/lib/guard-entry.js`'s rule latch,
- * and `scripts/clear-rule-latch.sh`. It is NOT an exhaustive run of every
- * script `.claude/settings.json` wires — most need a specific transcript or
- * tool-call payload to do anything at all, and that full corpus is future
- * work, not this suite's job.
- *
- * Each writer is spawned for real against a fresh temp repo set as
- * CLAUDE_PROJECT_DIR, and the root is then listed for stray dotfiles.
- *
- * A loosened case lets a hook drop markers at an adopter's repo root again,
- * where only .gitignore hides them and a `git add -A` sweeps them into a
- * commit.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,7 +18,6 @@ afterEach(() => {
 		fs.rmSync(r, { recursive: true, force: true });
 });
 
-/** Every entry directly at `root`, besides `.claude` itself. */
 const readRootDotfiles = (root: string) =>
 	fs
 		.readdirSync(root)
@@ -90,10 +68,6 @@ describe("marker-root.sh", () => {
 	});
 });
 
-/*
- * The regression guard itself: run each writer against a throwaway host root
- * and assert nothing lands as a bare dotfile at the root.
- */
 describe("hook-wired writers leave no marker at the host root (F8)", () => {
 	it("concision-backstop.sh's start mode writes no root dotfile", () => {
 		const root = freshRoot();
@@ -160,10 +134,6 @@ describe("hook-wired writers leave no marker at the host root (F8)", () => {
 		expect(markers).not.toEqual([]);
 	});
 
-	/* SANITY CHECK — proves `readRootDotfiles` itself would have caught a bare
-	 * root marker had one of the writers above left one: not a mutation of
-	 * any writer, just a check that the detector fires on the shape it is
-	 * meant to catch. */
 	it("SANITY CHECK — rootDotfiles catches a marker written at the bare root", () => {
 		const root = freshRoot();
 		fs.writeFileSync(path.join(root, ".t-mutation-check"), "1");

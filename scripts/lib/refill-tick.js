@@ -1,25 +1,3 @@
-/*
- * refill-tick.js — the refill loop's tick adapter (#2012, #2123, spec #1995,
- * #4212): the child processes, files and listings lib/refill-tick-core.js's
- * runTick reads and writes, which owns the tick's step order and its dry-run
- * policy. scripts/refill-loop.js's `run` drives it and its `dry-run` prints
- * one, through the same adapter, the core calling none of its acts. The CLI logs through
- * the same say and log, at the same files (lib/refill-io.js, #3392).
- *
- * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
- * declares (lib/refill-seats.js), else the seat `start` ran on alone. Its
- * overflow seats, read each tick, launch headless `claude -p` under their
- * plan seat's config dir, billed to that plan's API credits, once every plan
- * seat is weekly-full, sized by their budget gate and never probed with
- * `/usage` (#2611, spec #2570; #3701, #4580). Host configuration, not code,
- * because the plugin ships to adopters. Every
- * listing a tick and its reaper read must span them all
- * (scripts/refill-loop.js's LISTING).
- *
- * A failed read inside a tick is logged and the tick carries on with what it
- * has.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
@@ -151,27 +129,19 @@ const { parkedPromptOf } = require("./loop-prompts.js");
 const { files, log, servedRoots } = require("./refill-io.js");
 const { registrationGate } = require("./git-file.js");
 
-/* The probe's ceiling plus node's start, so the probe meets its own ceiling
- * and stops its group before this one kills the wrapper; the 15 s is a guess. */
+// guess, #2306
 const PROBE_CHILD_TIMEOUT_MS = PROBE_TIMEOUT_MS + 15 * 1000;
 
 const SCRIPTS = path.dirname(__dirname);
-/* The checkout the loop's own scripts sit in, workflow-core's, whose tracker
- * spec #1995 files the review on. A plugin install has no config there and
- * runs no review. */
 const REVIEW_ROOT = path.dirname(SCRIPTS);
 const DISPATCHER = path.join(SCRIPTS, "dispatch-sessions.js");
 const reviewRootReads = registrationGate(REVIEW_ROOT, (fault) =>
 	log(`machine children not run: git does not read ${REVIEW_ROOT}, ${fault}`),
 );
 
-/**
- * The spawn options of a child run in checkout `root`.
- * @param {string} root
- */
+/** @param {string} root */
 const inCheckout = (root) => ({ cwd: root, env: buildCheckoutEnv(root) });
 
-/** What the loop may serve now, whatever its scope chose. */
 const readIncluded = () => discoverRepos(homeDir()).included;
 
 const readControl = () => readControlChecked(log);
@@ -188,12 +158,9 @@ function reapFinished(dryRun) {
 }
 
 /**
- * Stop the working jobs with no live process and no transcript past the grace
- * (lib/refill-tick-core.js's stopNeverStarted, #2467): admission charges each a
- * full session until it goes. `spared` go unjudged (#3983).
  * @param {import("./registry-agents.js").RegistryListing} registry
  * @param {Set<string>} spared
- * @returns {string[]} the log lines
+ * @returns {string[]}
  */
 function stopNeverStarted(registry, spared) {
 	const jobs = readJobs()?.filter((j) => !spared.has(j.job)) ?? null;
@@ -203,11 +170,7 @@ function stopNeverStarted(registry, spared) {
 	});
 }
 
-/**
- * Supervise `root`'s landing queue, in that checkout
- * (scripts/supervise-landing.js), logged where it said anything.
- * @param {string} root
- */
+/** @param {string} root */
 function superviseLanding(root) {
 	const r = runChild(
 		process.execPath,
@@ -223,12 +186,7 @@ const levelMain = (root) =>
 		log(`levelling ${root}: not started (${buildErrorText(err)})`),
 	);
 
-/**
- * Start a warm pass over `root` (`session-checkout.js warm`, #4318), detached:
- * the store build for `origin/main`'s lockfile may outlast a tick, and the
- * dispatcher's cuts build none.
- * @param {string} root
- */
+/** @param {string} root */
 const startWarmPass = (root) =>
 	startDetached(
 		`warming the dependency store in ${root}`,
@@ -236,12 +194,7 @@ const startWarmPass = (root) =>
 		root,
 	);
 
-/**
- * Start a reap pass over `root`'s worktrees folder (`session-checkout.js
- * reap`, #4247), detached: removing a store may outlast a tick. Its report goes
- * to the loop's log; its pid lock turns away a pass started while one runs.
- * @param {string} root
- */
+/** @param {string} root */
 const startReapPass = (root) =>
 	startDetached(
 		`reaping worktrees in ${root}`,
@@ -250,13 +203,6 @@ const startReapPass = (root) =>
 	);
 
 /**
- * Run one of the machine's children from the review checkout: what they act on
- * is the machine's, so one checkout runs them. Logged only where it printed or
- * failed. Earlyoom kills (scripts/file-memory-kill-tickets.js, #3094);
- * memwatch's process runaways (scripts/file-process-runaway-tickets.js, #3807);
- * the sweep's slot repair (scripts/repair-sweep-slot.js, #4447). None runs
- * where git would not read the checkout, which is logged once until its
- * reason changes, as each would fail on it every tick (#5209).
  * @param {string} script
  * @param {string} label
  */
@@ -271,12 +217,6 @@ function runMachineChild(script, label) {
 }
 
 /**
- * Admission's free slots, read as the dispatcher's re-read reads them
- * (lib/refill-tick-core.js's FREE_SLOT_ARGS); 0 where it could not judge, so a
- * broken read launches nothing (#2012). `admission` is the verdict behind
- * them, for the concurrency record, or null where it did not read. Read in
- * `root`, core.admissionRoot's pick; with nothing served, in the loop's own
- * directory, where the type-check reserve is 0.
  * @param {string|undefined} root
  * @returns {{slots: number,
  *   admission: import("./admission.js").AdmissionJson | null}}
@@ -288,7 +228,6 @@ function readFreeSlots(root) {
 		root ? inCheckout(root) : {},
 	);
 	try {
-		/* admission.js's own `--json` shape (writeJson), typed, not checked. */
 		/** @type {import("./admission.js").AdmissionJson | {ok: false}} */
 		const verdict = JSON.parse(r.stdout);
 		return verdict.ok
@@ -300,14 +239,7 @@ function readFreeSlots(root) {
 	}
 }
 
-/**
- * A printed `/usage` per seat named, through the dispatcher's own probe
- * (scripts/usage-probe.js, #2306): empty where it found the cache fresh or
- * stopped once it refreshed it, with each probe's outcome. A failed one is
- * logged and leaves that seat unread, so the tick waits on it. Timed out, the
- * wrapper's SIGTERM stops the probe's group too.
- * @param {string[]} seats
- */
+/** @param {string[]} seats */
 function readPrintedUsage(seats) {
 	const usage = new Map();
 	/** @type {import("./seat-reading.js").Probe[]} */
@@ -319,7 +251,6 @@ function readPrintedUsage(seats) {
 			[path.join(SCRIPTS, "usage-probe.js"), "--config-dir", seat],
 			{ timeout: PROBE_CHILD_TIMEOUT_MS },
 		);
-		// Exit 3 is the probe's "none ran, the cache being fresh".
 		if (r.failed && r.status !== 3) log(`/usage on ${seat}: ${r.failed}`);
 		usage.set(seat, r.stdout);
 		const cache = readUsageCache(seat);
@@ -334,18 +265,11 @@ function readPrintedUsage(seats) {
 }
 
 /**
- * Each seat's reading, refreshed and sized for this tick by
- * lib/seat-reading.js's readSizedSeats; with the refreshing probes' outcomes.
- * Seats are sized before any repo is picked, so against the first served
- * checkout, `root` (#2937). Residual: a launch into a later served checkout
- * whose cost table differs is capped by the dispatcher on that table instead.
- * @param {string[]} seats in seat-file order
+ * @param {string[]} seats
  * @param {number} slots
  * @param {string|undefined} root
  * @param {{typedSeat: string|null, sizeAll?: boolean,
- *   tries: {triedAt: Record<string, number>, now: number}}} how  `sizeAll`,
- *   each seat with room sized, for a move; `tries`, when each seat was last
- *   probed
+ *   tries: {triedAt: Record<string, number>, now: number}}} how
  */
 function readSeats(seats, slots, root, { typedSeat, sizeAll = false, tries }) {
 	return seatReading.readSizedSeats(slots, {
@@ -359,9 +283,6 @@ function readSeats(seats, slots, root, { typedSeat, sizeAll = false, tries }) {
 }
 
 /**
- * The probes of each seat due a read for the panel's figures, past the launch
- * walk's own (lib/seat-reading.js's seatsDueRead). A probe writes its own log,
- * under its working directory's slug, so that slug is no sign a session ran.
  * @param {string[]} seats
  * @param {Record<string, number>} triedAt
  */
@@ -377,12 +298,7 @@ function probeDueSeats(seats, triedAt) {
 	return readPrintedUsage(due).probes;
 }
 
-/**
- * Launch one repo's picks through one dispatcher call (lib/refill-batch.js's
- * launchBatch), logged; the records of those it launched and the reasons for
- * those it refused, with each it tried taken off the gate-judgement queue.
- * @param {import("./refill-decide.js").Launch[]} batch
- */
+/** @param {import("./refill-decide.js").Launch[]} batch */
 function launchBatch(batch) {
 	const r = refillBatch.launchBatch(batch, {
 		dispatcher: DISPATCHER,
@@ -402,21 +318,11 @@ function launchBatch(batch) {
 	return { launched: r.launched, refused: r.refused };
 }
 
-/**
- * The session id lib/headless-sessions.js recorded for `jobId` at launch
- * (#2611); undefined for a job it did not launch or a record that will not
- * read, the first listing that shows the job then giving it.
- * @param {string} jobId
- */
+/** @param {string} jobId */
 const readHeadlessSession = (jobId) =>
 	readLogged(log, `headless run ${jobId}`, () => readRun(jobId))?.sessionId;
 
-/**
- * The review runner's finished run, moved aside before it is read so a
- * result written meanwhile is never removed unread; null where none waits
- * or it will not parse, which is logged.
- * @returns {import("./refill-loop.js").ReviewResult|null}
- */
+/** @returns {import("./refill-loop.js").ReviewResult|null} */
 function takeReviewResult() {
 	const taken = `${files.review}.${process.pid}`;
 	try {
@@ -434,14 +340,10 @@ function takeReviewResult() {
 	}
 }
 
-/** Whether a review runner is running now. */
 const isReviewRunning = () =>
 	pidLock(files.reviewPid, REVIEW_RUNNER).holder() !== null;
 
 /**
- * Take the morning review's step (lib/refill-loop.js's reviewStep), returning
- * the date of the last filing. A missing config at REVIEW_ROOT is
- * logged once a day.
  * @param {string|null} lastRunOn
  * @param {number} now
  */
@@ -456,7 +358,6 @@ function runReview(lastRunOn, now) {
 		for (const line of skip.lines) log(line);
 		return skip.runOn;
 	}
-	/* The holder first: a runner writes its result before letting go (#3765). */
 	const running = isReviewRunning();
 	const step = loop.reviewStep({
 		lastRunOn,
@@ -470,11 +371,8 @@ function runReview(lastRunOn, now) {
 }
 
 /**
- * Run a script of this directory detached in `root`, its stderr the loop's
- * log. Fails open (#3765): a failed start is logged and the next tick decides
- * again. A stop leaves a started run to finish.
  * @param {string} label
- * @param {string[]} args the script and its arguments
+ * @param {string[]} args
  * @param {string} [root]
  */
 function startDetached(label, args, root = REVIEW_ROOT) {
@@ -483,10 +381,7 @@ function startDetached(label, args, root = REVIEW_ROOT) {
 	);
 }
 
-/**
- * Start the review runner; its result is logged on the next start.
- * @param {import("./refill-loop.js").ReviewStart} start
- */
+/** @param {import("./refill-loop.js").ReviewStart} start */
 function startReview(start) {
 	startDetached(start.label, [
 		path.join(SCRIPTS, REVIEW_RUNNER),
@@ -495,9 +390,6 @@ function startReview(start) {
 }
 
 /**
- * Start each overflow key's Console read that is due (lib/console-credit.js),
- * detached. The started row is what stops the next tick
- * starting it again.
  * @param {ReturnType<typeof readDeclaredSeats>} declared
  * @param {import("./refill-decide.js").SeatReading[]} plan
  * @param {string|undefined} root
@@ -523,16 +415,12 @@ function startDueConsoleReads(declared, plan, root) {
 }
 
 /**
- * The stores a launch in `root`'s acts are read from: every served repo's and
- * its own.
  * @param {string} root
  * @param {string[]} served
  */
 const actRootsOf = (root, served) => [...new Set([...served, root])];
 
 /**
- * The reader of the acts a session made before a new launch row wakes it, from
- * actRootsOf's stores.
  * @param {string[]} served
  * @returns {import("./refill-blocks.js").ReadActsBefore}
  */
@@ -540,7 +428,6 @@ const buildActsBeforeReader = (served) => (root, sessionId) =>
 	loop.readActsSoFar(sessionId, actRootsOf(root, served), readActsBy);
 
 /**
- * A finishing launch's acts, read from actRootsOf's stores, and logged.
  * @param {import("./refill-loop.js").LoopLaunch} l
  * @param {string[]} served
  */
@@ -551,8 +438,6 @@ function readProgress(l, served) {
 }
 
 /**
- * lib/refill-loop.js's lastActOf over actRootsOf's stores, by checkout, each
- * unread one logged.
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @param {string[]} served
  */
@@ -567,18 +452,13 @@ function readLoopLastActAt(launches, served) {
 	return at;
 }
 
-/** lib/refill-blocks.js's CauseOf on the job record and transcript. */
 const readCause = blocks.causeReader({
 	readJob: (l) => readJobRecordOf(l),
 	readTail: (l, job) => readTranscriptRows(l, job),
 	log,
 });
 
-/**
- * Label `l`'s issues `parked` in its checkout's tracker; each the label would
- * not go on, with why.
- * @param {import("./refill-loop.js").LoopLaunch} l
- */
+/** @param {import("./refill-loop.js").LoopLaunch} l */
 function labelParked(l) {
 	const tracker = resolveKey("tracker", { root: l.root });
 	return l.issues.flatMap((n) => {
@@ -590,12 +470,7 @@ function labelParked(l) {
 	});
 }
 
-/**
- * Add `numbers` to session `sessionId`'s `.parked-` marker with `record`;
- * null once written, else why not. Fails open: an unwritten marker leaves the
- * label for a claim to clear, and the loop line says so (#3584).
- * @type {import("./refill-blocks.js").BlockIo["recordParked"]}
- */
+/** @type {import("./refill-blocks.js").BlockIo["recordParked"]} */
 function recordParked(sessionId, numbers, record) {
 	try {
 		writeParkedBy(
@@ -610,9 +485,6 @@ function recordParked(sessionId, numbers, record) {
 }
 
 /**
- * Comment `body` on each of `l`'s issues in its checkout's tracker. A failure
- * is logged, never thrown: the comment tells the founder what the loop did
- * (#2359), and the act it reports has already happened.
  * @param {import("./refill-loop.js").LoopLaunch} l
  * @param {string} body
  */
@@ -628,11 +500,7 @@ function commentOn(l, body) {
 	}
 }
 
-/**
- * `l`'s job's timeline rows. Null where the file will not read, which
- * reads as the typed resume unseen and falls back to stop and resume, logged.
- * @param {import("./refill-blocks.js").SessionRef} l
- */
+/** @param {import("./refill-blocks.js").SessionRef} l */
 function readTimelineOf(l) {
 	const file = path.join(jobDirPath(l.seat, l.jobId), "timeline.jsonl");
 	let text;
@@ -647,12 +515,9 @@ function readTimelineOf(l) {
 
 const resumeIo = buildResumeIo(log);
 const resume = resumeSteps(resumeIo);
-/** `l`'s job record, whichever route launched it (lib/launch-record.js). */
 const readJobRecordOf = buildLaunchRecordReader(resumeIo);
 
 /**
- * Type `prompt` into `l`'s live session through a pseudo-terminal
- * `claude attach` (#2354 F6). Null once typed, else why not.
  * @param {import("./refill-blocks.js").SessionRef} l
  * @param {string} prompt
  */
@@ -667,19 +532,13 @@ function typeResume(l, prompt) {
 	);
 }
 
-/**
- * lib/refill-outside.js's records, none where the file is absent or is no
- * list (BlockReads' readOutside).
- * @returns {import("./refill-outside.js").Outside[]}
- */
+/** @returns {import("./refill-outside.js").Outside[]} */
 function readOutside() {
 	const raw = readJson(refillPath(OUTSIDE_FILE), log);
 	return Array.isArray(raw) ? raw : [];
 }
 
 /**
- * block-cause.js's isResumedSinceApiStop on `l`'s job record, transcript and
- * timeline (BlockReads' isResumedSinceStop, #4815).
  * @param {import("./refill-blocks.js").SessionRef} l
  * @param {number} [since]
  */
@@ -696,9 +555,6 @@ function isResumedSinceStop(l, since) {
 const writeLaunch = (l) => updateState(launchRecorded(l), log);
 
 /**
- * `state` with the members of the batch a kill cut off that started tracked
- * (lib/refill-batch.js's adoptLaunching, #4180), each gated one's judgement
- * dropped as its launch would have.
  * @param {import("./refill-state.js").LoopState} state
  * @param {string[]} served
  */
@@ -727,12 +583,7 @@ const adoptKilledLaunches = (state, served) =>
 		return launched;
 	});
 
-/**
- * The park markers in `root`'s checkout, null, logged, where they will not read,
- * for the resume step to wait rather than read a parked session as answered
- * (#3863).
- * @param {string} root
- */
+/** @param {string} root */
 function readParkMarkersOrNull(root) {
 	try {
 		return readParkMarkersOrThrow(root);
@@ -744,10 +595,6 @@ function readParkMarkersOrNull(root) {
 }
 
 /**
- * `issues` no longer parked, as its session has gone back (#3863) or ended
- * unblocked (#3940): the label off and out of `sessionId`'s marker, as
- * unpark-on-prompt.js takes them. An issue whose write fails stays in the marker.
- * Null, or what failed.
  * @param {string} root
  * @param {string} sessionId
  * @param {number[]} issues
@@ -764,24 +611,14 @@ function unparkSession(root, sessionId, issues) {
 	}
 }
 
-/**
- * `marker`'s session's newest transcript, found by id on the marker's seat or any
- * configured one, as a move leaves a stale copy and a copy's job record may name
- * the transcript it came from.
- * @param {import("./parked.js").ParkMarkerRead} marker
- */
+/** @param {import("./parked.js").ParkMarkerRead} marker */
 const findParkTranscript = ({ sessionId, job }) =>
 	findNewestTranscript(
 		[...(job ? [job.seat] : []), ...readConfiguredSeats()],
 		sessionId,
 	);
 
-/**
- * `parked` off each closed issue in `served`'s trackers (lib/parked.js's
- * unparkClosed), logged, at one `gh issue list` a tracker a tick, on a tick that
- * launches nothing too. A failure waits for the next tick.
- * @param {string[]} served
- */
+/** @param {string[]} served */
 function tendClosedParks(served) {
 	const trackers = new Set(
 		served.map((root) => resolveKey("tracker", { root })),
@@ -794,15 +631,12 @@ function tendClosedParks(served) {
 			for (const { n, why } of failed)
 				log(`closed ${tracker}#${n}: still labelled parked: ${why}`);
 		} catch (e) {
-			/* Fails open: a label left on a closed issue harms nothing (#3940). */
 			log(`closed parks unread in ${tracker}: ${parseErrLine(e)}`);
 		}
 	}
 }
 
 /**
- * The dispatcher's per-member re-read for a resume, in the member's checkout:
- * null, or why it waits.
  * @param {string} root
  * @returns {string|null}
  */
@@ -814,10 +648,6 @@ const admitResume = (root) =>
 const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
 
 /**
- * `batch` launched (lib/refill-batch.js's launchOrResume): each parked member
- * routed to resume resumed in place (resumeStopped), or carried to the seat
- * its route names (moveSession, #5293), the rest through one dispatcher call
- * (launchBatch).
  * @param {import("./refill-decide.js").Launch[]} batch
  * @param {string[]} served
  */
@@ -840,8 +670,6 @@ const launchOrResume = (batch, served) =>
 	});
 
 /**
- * Every main-chain row of transcript `file`, `who`'s; null, logged where it will
- * not read.
  * @param {string} file
  * @param {string|null} who
  * @returns {Record<string, unknown>[]|null}
@@ -856,8 +684,6 @@ function readMainChain(file, who) {
 }
 
 /**
- * Every main-chain row of `l`'s transcript, at the path its job record
- * `job` names; null, logged where the file will not read.
  * @param {import("./refill-blocks.js").SessionRef} l
  * @param {unknown} job
  * @returns {Record<string, unknown>[]|null}
@@ -867,13 +693,7 @@ function readTranscriptRows(l, job) {
 	return typeof file === "string" ? readMainChain(file, l.jobId) : null;
 }
 
-/**
- * When `l`'s harness restarted it with no turn since, read off its
- * job record and transcript alone (lib/block-cause.js's resumedIdleSince).
- * An unread reading holds its idle count, logged where it holds one: a record
- * that never reads keeps the count until the launch finishes (#2847).
- * @param {import("./refill-loop.js").LoopLaunch & {jobId: string}} l
- */
+/** @param {import("./refill-loop.js").LoopLaunch & {jobId: string}} l */
 function readIdleSince(l) {
 	const job = readJobRecordOf(l);
 	const rows = readTranscriptRows(l, job);
@@ -886,7 +706,6 @@ function readIdleSince(l) {
 }
 
 /**
- * `rescue-sessions.js` run with `args` in `root`'s checkout.
  * @param {string} root
  * @param {string[]} args
  */
@@ -898,8 +717,6 @@ const postHandOff = (root, args) =>
 	);
 
 /**
- * The I/O lib/refill-blocks.js's acts run through, for a tick serving
- * `served`.
  * @param {string[]} served
  * @returns {import("./refill-blocks.js").BlockIo}
  */
@@ -948,8 +765,6 @@ const blockIo = (served) => ({
 		holdLockedOut(l.root, { job: l.jobId, refusal, call }, now, log),
 	labelParked,
 	recordParked,
-	/* A record that will not read is logged and read as none, never fatal to
-	 * the tick (#4704). */
 	readJobCwd: (seat, jobId) =>
 		readLogged(log, `job ${jobId} on ${seat}`, () => readJobCwd(seat, jobId)),
 	readParkMarkers: readParkMarkersOrNull,
@@ -964,17 +779,12 @@ const blockIo = (served) => ({
 	log,
 });
 
-/**
- * What of each lifted hold the written state now carries, dropped.
- * @param {ReturnType<typeof blocks.queueLifted>["settled"]} settled
- */
+/** @param {ReturnType<typeof blocks.queueLifted>["settled"]} settled */
 function dropSettledLifted(settled) {
 	for (const { hold, jobs } of settled) dropLiftedJobs(hold, jobs, log);
 }
 
 /**
- * The control lock's half of a control change: `change` made on a fresh read
- * and written, or the lock's holder where it stayed held past `waitMs`.
  * @param {(c: import("./refill-loop.js").Control) => import("./refill-loop.js").Control|null} change
  * @param {number} waitMs
  * @returns {import("./refill-tick-core.js").ControlWrite|{busy: string}}
@@ -990,11 +800,7 @@ function changeControl(change, waitMs) {
 	return "busy" in written ? { busy: written.busy } : written.done;
 }
 
-/**
- * Give each overflow launch the session id `agents` lists for its job
- * (lib/dispatch-ledger.js's recordListedSessionIds), logging what fails.
- * @param {import("./agent-liveness.js").AgentRecord[]} agents
- */
+/** @param {import("./agent-liveness.js").AgentRecord[]} agents */
 function recordListedOverflowSessions(agents) {
 	try {
 		for (const line of recordListedSessionIds(agents)) log(line);
@@ -1003,15 +809,10 @@ function recordListedOverflowSessions(agents) {
 	}
 }
 
-/* Untraced: another writer holds it for one read and write, and the next tick
- * tries again. */
+// guess, #4188
 const TICK_LOCK_WAIT_MS = 1000;
 
-/**
- * The adapter of lib/refill-tick-core.js's runTick: this module's reads,
- * writes and child processes.
- * @type {import("./refill-tick-core.js").TickIo}
- */
+/** @type {import("./refill-tick-core.js").TickIo} */
 const productionIo = {
 	now: Date.now,
 	log,
@@ -1091,11 +892,7 @@ const productionIo = {
 	appendBreakerEvents: (events) => appendBreakerEvents(events, log),
 };
 
-/**
- * One tick (lib/refill-tick-core.js's runTick): its decision and the start it
- * judged against. Under `dryRun` nothing is reaped, launched or written.
- * @param {{dryRun: boolean}} opts
- */
+/** @param {{dryRun: boolean}} opts */
 function tick({ dryRun }) {
 	const now = Date.now();
 	const control = readControl();

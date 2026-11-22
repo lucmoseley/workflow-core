@@ -1,12 +1,3 @@
-/*
- * rescue-core-kit.ts — the module cases' fixtures for rescue-sessions' cores
- * (#5157), the holder's files on disk as lib/rescue-testkit.ts writes them for
- * the program cases.
- *
- * The clock is the fake's: a probe's sleep between samples and a takeover's
- * confirmation polls advance it and return at once.
- */
-
 import fs from "node:fs";
 import { afterEach, beforeEach } from "vitest";
 import type { Sandbox } from "./arbiter-testkit";
@@ -33,11 +24,9 @@ export function rescueCoreKit(sb: Sandbox) {
 	});
 	afterEach(() => proc.remove());
 
-	/** What `dir` lists, this session first; once stopped where `after`. */
 	const lists = (rows: Row[], dir = plan(), after = false) =>
 		world.lists(dir, rows, after);
 
-	/** Process `pid` under `ppid`, `ticks` of user CPU spent, running `argv`. */
 	const writeProc = (
 		pid: number,
 		ppid: number,
@@ -48,7 +37,6 @@ export function rescueCoreKit(sb: Sandbox) {
 		proc.proc(pid, { ppid, utime: ticks, argv, comm: "x y" });
 	};
 
-	/** `pid` having spent `ticks` of user CPU by now. */
 	const cpuTo = (pid: number, ticks: number) => {
 		const was = argvOf.get(pid);
 		if (!was) throw new Error(`no process ${pid} to spend CPU`);
@@ -58,7 +46,6 @@ export function rescueCoreKit(sb: Sandbox) {
 	const removeProc = (pid: number) =>
 		fs.rmSync(`${proc.root}/${pid}`, { recursive: true, force: true });
 
-	/** files.ghostJob's job that never started, an hour old on the fake clock. */
 	const ghostJob = (
 		intent: string,
 		rows: Row[] = [holderRow({ pid: undefined })],
@@ -70,7 +57,6 @@ export function rescueCoreKit(sb: Sandbox) {
 		]);
 	};
 
-	/** The core behind `sub`, given `argv` as the shell parses it, on the fake ports. */
 	const run = (sub: string, argv: string[]): Promise<Run> => {
 		const entry = ENTRIES[sub];
 		if (!entry) throw new Error(`no core for ${sub}`);

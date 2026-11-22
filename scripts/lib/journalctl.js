@@ -1,27 +1,13 @@
-/*
- * journalctl.js — journalctl runs: a journal read, which check-kernel-stall.js
- * takes its kernel log by (#5304), and the boot list, which places an earlyoom
- * kill's time (#4143) and bounds check-kernel-stall.js's --boot offsets
- * (#5299). WFC_JOURNALCTL injects the binary (§N7). The bounded read under it
- * also serves check-kernel-stall.js's dmesg reader, the same kernel log.
- */
-
 const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 
-/** Per read. Measured at 0.05 s for a 15-hour boot's 542 kernel lines; the rest is margin. */
+// measured 0.05 s for a 15-hour boot's 542 kernel lines, #5304
 const READ_TIMEOUT_MS = 5000;
 
-/**
- * Per read. The largest boot journalctl held on 8 Oct 2026 was 1.93 MB (19,526
- * lines over five days), and the whole earlyoom journal, 11 Sep to 26 Oct 2026,
- * 0.8 MB; this is ~30x the larger, so only a boot of months would overflow it —
- * and an overflow is a failed read, never "clean" or "no kills".
- */
+// measured 1.93 MB for the largest boot's journal, #5304
 const MAX_BUFFER = 64 * 1024 * 1024;
 
 /**
- * `cmd`'s stdout for `args` under the bounds above, or why it failed.
  * @param {string} cmd
  * @param {string[]} args
  * @returns {{stdout: string, why: string|null}}
@@ -42,20 +28,17 @@ function runBoundedRead(cmd, args) {
 }
 
 /**
- * journalctl's stdout for `args`, or why it failed.
  * @param {string[]} args
  */
 const runJournalctl = (args) =>
 	runBoundedRead(process.env.WFC_JOURNALCTL || "journalctl", args);
 
-/** @param {number} ms floored to the second */
+/** @param {number} ms */
 const toSecond = (ms) => Math.floor(ms / 1000) * 1000;
 
-/** @typedef {{id: string, from: number, to: number}} Boot ms */
+/** @typedef {{id: string, from: number, to: number}} Boot */
 
 /**
- * The journal's boots, or why they could not be read. An entry missing its id
- * or a time fails the whole list, never drops a boot.
  * @returns {{boots: Boot[], why: string|null}}
  */
 function readBoots() {
@@ -95,7 +78,6 @@ function readBoots() {
 	return { boots, why: null };
 }
 
-/** /proc's boot_id carries dashes; journalctl's does not. */
 const bootKey = (/** @type {string} */ id) => id.replace(/-/g, "");
 
 module.exports = {

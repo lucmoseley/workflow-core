@@ -1,90 +1,3 @@
-/*
- * plugin-tree.js — renders the plugin as an adopter installs it: a trimmed
- * tree holding only what runs, which a release commit carries (#4).
- *
- * WHAT SHIPS: the plugin manifest, the marketplace manifest (#117),
- * hooks/hooks.json rendered fresh from the self-plugin's hooks file (#2441),
- * the entry module it names (#946), the output styles, the core glossary and doc-map method renders (#5294), scripts/, .claude/skills/, .claude/agents/ (#741),
- * docs/agents (#5), ruff.toml (#106) and migrations/ (#6), with symlinks
- * dereferenced, bar one that loops back into the walk (#3150), and every
- * test, fixture and TypeScript file left out — but
- * VITEST_LOADED, the TypeScript an adopter's vitest config attaches, which only
- * vitest ever loads (#552), and a mod's TypeScript under its hooks/ and types/,
- * which the engine loads from the install cache uncompiled (#933) — its state
- * owner renamed and its `claude-code` imports type-only, both below. A mod is
- * a skill carrying its own .claude-plugin/plugin.json; its copy of the
- * engine's types stays behind, the engine supplying them to an installed
- * plugin, and so do its tsconfig.json and own hooks/hooks.json (#1050).
- * No package.json, so an install runs no `npm ci`.
- * WHAT SHIPS IS JUDGED BY WHETHER IT HOLDS AN ADOPTER TO BEST PRACTICE (#1380).
- * That the adopter does not follow the practice yet, or lacks the setup it
- * needs, is never a reason to leave a file behind, however much bringing the
- * adopter up costs; each entry below gives a merit reason instead.
- * Left out of scripts/ is the core-only class (#440): tools that maintain the
- * core itself and run from no hook, skill or command in an adopter — the
- * measure-, bench_, probe- and sample_ instruments and the release build
- * among them. A class member a shipped code line, skill, command or
- * docs/agents file names ships after all (KEPT); a script comment citing one
- * as a figure's source keeps nothing.
- * The layout under the root mirrors the repo's, which keeps a skill script's
- * `../../../../scripts/` require resolving.
- *
- * NO SHIPPED SCRIPT MAY REQUIRE AN npm PACKAGE — there is no node_modules in
- * the plugin cache. One exception (#933): a shipped file may import
- * `claude-code` where every import of it in the file is `import type`, which
- * the engine erases. `import { type A }` and `export type … from` are refused
- * all the same.
- * A shipped script needing a package loads it from the adopter's own install
- * through lib/host-package.js, and is BROKEN where it is absent (#1380). The
- * scan is lexical and skips comment lines; a specifier built at runtime is
- * unseen.
- *
- * SKILL, COMMAND AND OUTPUT-STYLE BODIES KEEP REPO-RELATIVE PATHS IN THE
- * REPO, where `${CLAUDE_PLUGIN_ROOT}` stays literal (#4). The
- * shipped skill/command copy spells them through the variables the harness
- * substitutes in a plugin: `scripts/x` becomes `${CLAUDE_PLUGIN_ROOT}/scripts/x`,
- * `.claude/skills/x` becomes `${CLAUDE_PLUGIN_ROOT}/.claude/skills/x`, and a
- * `scripts/x` that exists only inside the skill's own directory becomes
- * `${CLAUDE_SKILL_DIR}/scripts/x`. An illustrative `scripts/` example is
- * rewritten too, so a prose example names a path outside it.
- *
- * AN OUTPUT STYLE'S BODY IS NEVER REWRITTEN, kept plain-`scripts/x` (#50's
- * rewrite reversed). The harness substitutes the variable in skill and
- * command bodies (#4) but not inside an output-style body (#64). The shipped
- * style names `scripts/x` and says it is relative to the workflow-core root,
- * which an adopter's `.claude/workflow-core.md` spells absolute (#5294).
- *
- * THE HELPER SURFACE SHIPS WHOLE (#464): every entry point
- * scripts/lib/helper-surface.json lists, and every file it reaches, or the
- * render refuses — lib/surface-closure.js. Judging a Python import needs
- * python3 3.10 or later on the releasing machine (sys.stdlib_module_names).
- *
- * A MOD'S STATE BELONGS TO THE HOST PLUGIN (#903 F8): in the shipped copy of
- * its TypeScript, a `plugin: "<mod>"` state ref names the host plugin instead.
- * The engine reads one contract per plugin, the one plugin.json's `types`
- * names, so the release composes HOST_CONTRACT from every mod's own: each
- * mod's exports, then one `PluginState` key, the host's, holding every mod's
- * members; each shipped mod contract keeps its exports alone (#3251). The
- * source keeps the mod's own name, so it still loads stand-alone in the core.
- * A mod file calling `$.state` with no literal ref to rename, a contract with
- * no key of its mod's name, or a member two mods declare, is a fault.
- *
- * THE STANDARDS BASE PINS ONLY SHIPPED LINES (#961): an adopter reads the
- * base at the plugin root, so a line pin into a file this render leaves behind
- * is a fault. isShipped() is the one answer to "does the release ship this path?".
- *
- * A DOC A SHIPPED FILE NAMES RESOLVES IN AN ADOPTER (#1452): a skill or
- * command body spells a shipped top-level doc through the plugin root, and a top-level
- * `docs/x.md` the core holds, named on a line a session reads or is shown,
- * fails the render unless the release ships it or the host holds its own
- * (HOST_OWNED_DOCS). Comment lines, docstrings and data files are not read.
- *
- * A BARE `#N` SHIPS AS `workflow-core#N` (#396): qualify-citations.js holds
- * what is rewritten and what is left bare. A code line's `#N` outside a
- * same-line `( … )` would print as the adopter's own issue, so it is a fault
- * (#435).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { builtinModules } = require("node:module");
@@ -116,60 +29,32 @@ const { trimStartRun } = require("./trim-run.js");
 const { CORE_DOCS } = require("./core-docs.js");
 
 const PRACTICE_DIR = "docs/practice";
-/* A practice note's closing section, dropped from the shipped copy: what it
- * holds is docs/adopter-boundary.md's `docs/practice` line. */
 const CORE_ONLY_PRACTICE = "\n## In workflow-core\n";
 
 const COPIED = [
 	".claude-plugin/plugin.json",
-	/* `claude plugin marketplace add <url>#<tag>` fetches THAT tag's tree
-	 * looking for this file, refusing "Marketplace file not found" without it —
-	 * even though `main`'s own copy names the tag as the ref (#117). */
 	".claude-plugin/marketplace.json",
 	".claude/output-styles",
-	/* The core's glossary and doc-map method, which core-owned-files.js copies
-	 * into an adopter from here (#5294). */
 	...CORE_DOCS,
-	/* The review axes' agent type (#741). plugin.json's `agents` must list each
-	 * file: a directory string fails the manifest's validation. */
 	".claude/agents",
 	".claude/skills",
 	"scripts",
-	/* The core-owned prose a guard or skill reads AT RUNTIME. An adopter has no
-	 * copy of any of it, so without these a deny hands over a rule id and no
-	 * text, and the tracker rules reach nobody (#5). */
 	"docs/agents",
 	"docs/effort-guide.md",
-	/* The practice notes, which an adopter's Leading-practice gate falls back
-	 * to where its own note is missing or stale, each less its closing
-	 * `## In workflow-core` section (#5294). */
 	PRACTICE_DIR,
-	/* The craft list the shipped practice guard hands over and judges a note's
-	 * slug against, outside PRACTICE_DIR so it is never judged as a note (#5344). */
 	"docs/practice-crafts.md",
-	/* The machine's limits and the guards' figures, which their text sends a
-	 * session to (#1452). */
 	"docs/environment.md",
 	/* #5499 */
 	"docs/environment-incidents.md",
-	/* The standards base, read at runtime: every review route hands it over
-	 * from here, beside the host's own local file, which never ships (#967). */
 	STANDARDS_DOCS.base,
 	"docs/comment-kinds.md",
 	".husky",
-	/* The Python gate's rule set, which .husky/pre-commit hands ruff by
-	 * --config in an adopter carrying none of its own (#106). */
 	"ruff.toml",
-	/* Migration notes an adopter's own `upgrade` walks against its pinned ref —
-	 * without these an adopter never sees a bump past v1, only the mechanism (#6). */
 	MIGRATIONS_DIR,
 	ENTRY,
 ];
-/* The core-only class: header, WHAT SHIPS. Its instruments re-derive figures
- * the core's own documents and configs hold, which an adopter has no copy of. */
 const LEFT_BEHIND_CLASS = /^scripts\/(measure[-_]|bench_|probe-|sample_)/;
 const LEFT_BEHIND = new Set([
-	// the release build, of this plugin, which no adopter releases
 	"scripts/check-surface-contract.js",
 	"scripts/generate-plugin-tree.js",
 	"scripts/lib/plugin-tree.js",
@@ -177,99 +62,57 @@ const LEFT_BEHIND = new Set([
 	"scripts/lib/surface-closure.js",
 	"scripts/release-contains.js",
 	"scripts/release-plugin.js",
-	// times the core's own suite for its own maxWorkers figure (mantahostels#1906)
 	"scripts/idle-maxworkers-bench.sh",
-	// the core's one-off memory-store backup (mantahostels#642)
 	"scripts/snapshot-memory.sh",
-	// type-checks the core's own mods and entry module, from its `npm run typecheck` alone (#2048)
 	"scripts/typecheck-mods.js",
-	// creates repos under the founder's own account; skill and script go together (#691)
 	".claude/skills/new-repo",
 ]);
-/* Class members a shipped file tells its reader to run, so they ship. */
 const KEPT = new Set([
-	// guard-session-ceiling.js's `remeasure`
 	"scripts/measure-turn-band.js",
-	// check-suite-size-drift.js's re-measure line
 	"scripts/bench_suite_concurrency.py",
-	// pick-next's measured-figures.md re-derivation
 	"scripts/measure-bundle-cost.js",
-	// allowance.js's missing-table refusal, and the table core-owned-files.js builds (#1734)
 	"scripts/measure-session-cost.js",
-	// retro-sweep's outcome and ticket-mix reviews (#4796)
 	"scripts/measure-outcome-review.js",
 	"scripts/measure-ticket-mix.js",
 ]);
 /**
- * @param {string} rel repo-relative path
- * @returns {boolean} whether the release leaves it behind
+ * @param {string} rel
+ * @returns {boolean}
  */
 const isLeftBehind = (rel) =>
 	LEFT_BEHIND.has(rel) || (LEFT_BEHIND_CLASS.test(rel) && !KEPT.has(rel));
-/* Docs a host holds its own copy of — init or a module writes it, or a
- * path key in the host's config falls back to it — so a shipped pointer to
- * one resolves in the host's tree (#1452). */
 const HOST_OWNED_DOCS = new Set([
-	// init writes it
 	"docs/doc-map.md",
-	// the roadmap module writes both
 	"docs/roadmap-digest.md",
 	"docs/called-cards.md",
-	// the host's own standards, beside the shipped base (#967)
 	"docs/code-standards.md",
-	// userSettingsSnapshotPath's fallback, read where the host keeps one
 	"docs/claude-user-settings.md",
 ]);
-/* Shipped files that name a core-only doc as data, never as one to read. */
 const DOC_NAMES_AS_DATA = new Set([
-	// its carve-out list matches the paths a session edits
 	"scripts/lib/implement-carveout.js",
-	// SHED_REGISTERS, which a cap refusal names only where the host keeps them
 	"scripts/lib/context-budget-pathspecs.js",
-	// its subject, read only in the core; it SKIPs where the page is absent
 	"scripts/check-adopter-boundary.js",
 ]);
-/* `<shipped file> <doc>` pairs where the file names an unshipped research
- * artefact or ADR that no adopter session must open: cited as evidence, the
- * claim or rule stated where it stands, unless a comment says otherwise
- * (#1673). Keyed by pair, so a new pointer to a new doc, or from a new file,
- * fails the release until judged; one added beside a registered pair passes
- * unseen. */
 const CITED_NOT_READ = new Set([
-	// provenance of a figure or list the tool prints from its own data
 	"scripts/count-guard-fires.js docs/research/always-loaded-shed-candidates.md",
-	// the core's own pool and evidence, given as the example the method rests on
 	".claude/workflow-core.doc-map.md docs/working-contract.md",
 	".claude/workflow-core.doc-map.md docs/research/always-loaded-shed-candidates.md",
 	".claude/workflow-core.doc-map.md docs/research/injected-tracker-docs-shed-candidates.md",
-	// step 4 binds only where the host keeps the register
 	"docs/agents/rules/README.md docs/research/always-loaded-shed-candidates.md",
-	// the provenance of a practice note's tier, stated in the line that cites it
 	"docs/practice/code-refactoring-and-architecture.md docs/research/hexagonal-testing.md",
 ]);
-/* A file read whole as prose, every line of it a pointer a session may follow. */
 const PROSE_FILE = /\.(md|txt)$/;
-/* The reporters and globalSetup that record a certificate; the adopter guide,
- * docs/agents/helper-surface.md, says how an adopter attaches them. */
 const VITEST_LOADED = new Set([
 	"scripts/vitest-pass-reporter.ts",
 	"scripts/vitest-inflight-reporter.ts",
 	"scripts/vitest-tree-watch.ts",
 ]);
-/* A mod's TypeScript, which ships given the mod carries its own manifest and
- * isSkipped finds it no test. */
 const MOD_TS =
 	/^\.claude\/skills\/([^/]+)\/(?:hooks|types)\/(?:[^/]+\/)*[^/]+\.tsx?$/;
-/* A mod's files no adopter runs: its tsconfig names the engine types left
- * behind, and its own hooks.json loads it stand-alone, where an adopter loads
- * it through the entry (#1050). */
 const MOD_STANDALONE_CONFIG =
 	/^\.claude\/skills\/([^/]+)\/(?:tsconfig\.json|hooks\/hooks\.json)$/;
-/* A mod's own `$.state` contract, which its stand-alone manifest names. */
 const MOD_CONTRACT = /^\.claude\/skills\/([^/]+)\/types\/index\.d\.ts$/;
 const HOST_CONTRACT = "types/index.d.ts";
-/* The specifier the engine's own declarations answer to: `declare module
- * "claude-code"`. */
 const ENGINE = "claude-code";
 const TYPE_ONLY_ENGINE = new RegExp(
 	`\\bimport\\s+type\\s+(?:\\{[^}]*\\}|[\\w$]+|\\*\\s+as\\s+[\\w$]+)\\s+from\\s+["']${ENGINE}["']`,
@@ -278,34 +121,25 @@ const TYPE_ONLY_ENGINE = new RegExp(
 const SKIPPED_DIRS = new Set(["__pycache__", "fixtures", "node_modules"]);
 const REWRITTEN = /^\.claude\/skills\/.*\.md$/;
 const SKIPPED_FILE =
-	// The last alternative's name must track precommit-gate-harness.test.ts's
-	// own `fixtureName` literal exactly, or a rename there reopens #65.
 	/\.[cm]?tsx?$|^__precommit-gate-harness-test-fixture-\d+\.js$/;
 
-// biome-ignore lint/suspicious/noTemplateCurlyInString: the variable Claude Code substitutes, not a JS template
-const PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}";
-// biome-ignore lint/suspicious/noTemplateCurlyInString: the variable Claude Code substitutes, not a JS template
-const SKILL_DIR = "${CLAUDE_SKILL_DIR}";
-/** A path segment's left edge: nothing that could make it the tail of a longer path. */
+const shellVar = (/** @type {string} */ name) => `\${${name}}`;
+const PLUGIN_ROOT = shellVar("CLAUDE_PLUGIN_ROOT");
+const SKILL_DIR = shellVar("CLAUDE_SKILL_DIR");
 const EDGE = "(?<![\\w./$}-])";
 const SKILLS_PATH = new RegExp(`${EDGE}\\.claude/skills/`, "g");
 const SCRIPTS_PATH = new RegExp(
 	`${EDGE}(?:\\./)?scripts/([\\w*.-][\\w*./-]*)`,
 	"g",
 );
-/** A top-level `docs/x.md`, or one under `docs/research/` or `docs/adr/`, the
- * shapes a pointer to a core doc takes (#1673). Never a `docs/agents/` path: a
- * vendored skill names the host's own copy there, to write
- * (setup-matt-pocock-skills). */
 const DOC_POINTER = new RegExp(
 	`${EDGE}docs/((?:research/|adr/)?[\\w-]+\\.md)(?![\\w/-])`,
 	"g",
 );
 
 /**
- * @param {string} body a skill or command markdown file
- * @param {{root: string, skillDir: string | null}} at the source root, and the
- *   skill directory the file sits in (null outside a skill)
+ * @param {string} body
+ * @param {{root: string, skillDir: string | null}} at
  * @returns {string}
  */
 function rewriteBody(body, { root, skillDir }) {
@@ -327,8 +161,6 @@ function rewriteBody(body, { root, skillDir }) {
 }
 
 /**
- * Package names a JS source requires or imports, builtins, relative paths and
- * comment lines excluded.
  * @param {string} source
  * @returns {string[]}
  */
@@ -351,9 +183,8 @@ function packageRequires(source) {
 }
 
 /**
- * @param {string} manifest a plugin.json path
- * @returns {string} the plugin name it gives
- * @throws {Error} where it gives none
+ * @param {string} manifest
+ * @returns {string}
  */
 function readPluginName(manifest) {
 	const { name } = JSON.parse(fs.readFileSync(manifest, "utf8"));
@@ -362,12 +193,10 @@ function readPluginName(manifest) {
 }
 
 /**
- * The mod a file of `shape` belongs to — by default a mod's TypeScript file
- * — or null where it is none. Reads the mod's manifest, never the file itself.
  * @param {string} root
  * @param {string} rel
- * @param {RegExp} [shape] capturing the skill's folder name
- * @returns {string | null} the mod's own name
+ * @param {RegExp} [shape]
+ * @returns {string | null}
  */
 function readModOf(root, rel, shape = MOD_TS) {
 	const m = rel.match(shape);
@@ -383,17 +212,14 @@ function readModOf(root, rel, shape = MOD_TS) {
 
 /**
  * @param {string} name
- * @returns {string} a pattern matching `name` in either quote, the quote
- *   captured
+ * @returns {string}
  */
 const quotedName = (name) => `(["'])${escapeRe(name)}\\1`;
 
 /**
- * Where a comment or string starting at `i` ends.
  * @param {string} text
  * @param {number} i
- * @returns {number} the index of its last character, `i` where none starts
- *   there, or -1 where it never ends
+ * @returns {number}
  */
 function skippedTo(text, i) {
 	const two = text.slice(i, i + 2);
@@ -410,11 +236,9 @@ function skippedTo(text, i) {
 }
 
 /**
- * Where the brace block opening at `open` closes, skipping braces in comments
- * and strings.
  * @param {string} text
- * @param {number} open the index of a `{`
- * @returns {number} the index of its `}`, or -1
+ * @param {number} open
+ * @returns {number}
  */
 function closingBrace(text, open) {
 	let depth = 0;
@@ -429,13 +253,9 @@ function closingBrace(text, open) {
 }
 
 /**
- * A mod contract split at its `declare module "claude-code"` block.
- * @param {string} text the contract
- * @param {string} mod the mod's own name
+ * @param {string} text
+ * @param {string} mod
  * @returns {{ exports: string, isState: boolean, members: string | null, isUnterminated?: boolean }}
- *   the text before the block, whether there is one, and the members of its
- *   `PluginState` key named `mod`, or null where it has none or a brace never
- *   closes
  */
 function splitContract(text, mod) {
 	const declare = new RegExp(
@@ -461,7 +281,6 @@ function splitContract(text, mod) {
 }
 
 /**
- * `members` with its comments and nested brace blocks cut, strings kept.
  * @param {string} members
  * @returns {string}
  */
@@ -483,8 +302,8 @@ function topLevelOf(members) {
 /**
  * @param {string} text
  * @param {number} i
- * @param {number} end where skippedTo says what starts at `i` ends
- * @returns {string} a character, a whole string, or a newline for a comment
+ * @param {number} end
+ * @returns {string}
  */
 const pieceAt = (text, i, end) => {
 	if (end === i) return text.charAt(i);
@@ -492,8 +311,8 @@ const pieceAt = (text, i, end) => {
 };
 
 /**
- * @param {string} members a `PluginState` key's members
- * @returns {string[]} the names they declare, nested types' own left out
+ * @param {string} members
+ * @returns {string[]}
  */
 function parseMemberKeys(members) {
 	return topLevelOf(members)
@@ -502,13 +321,10 @@ function parseMemberKeys(members) {
 }
 
 /**
- * @param {string} text a mod's TypeScript
- * @param {string} rel its repo-relative path
- * @param {{ mod: string, host: string }} names the mod's own name, and the
- *   plugin shipping it
- * @returns {{ text: string, faults: string[] }} the text with the host named
- *   as its state owner, a contract with its exports alone, and where the
- *   rename found nothing to rename
+ * @param {string} text
+ * @param {string} rel
+ * @param {{ mod: string, host: string }} names
+ * @returns {{ text: string, faults: string[] }}
  */
 function renameStateOwner(text, rel, { mod, host }) {
 	if (MOD_CONTRACT.test(rel)) {
@@ -541,10 +357,8 @@ function renameStateOwner(text, rel, { mod, host }) {
 }
 
 /**
- * A mod's state contract, split; null where the skill is no mod, carries no
- * contract, or its contract has no `declare module` block and so no state.
  * @param {string} root
- * @param {string} dir a folder under .claude/skills
+ * @param {string} dir
  * @returns {{ rel: string, mod: string, exports: string, members: string | null, isUnterminated?: boolean } | null}
  */
 function readStateContract(root, dir) {
@@ -559,12 +373,11 @@ function readStateContract(root, dir) {
 }
 
 /**
- * Records `rel` as the owner of each key `members` declares.
- * @param {Map<string, string>} ownerOf each key's contract so far
+ * @param {Map<string, string>} ownerOf
  * @param {string} members
  * @param {string} rel
  * @param {string | undefined} host
- * @returns {string[]} a fault for each key another contract already holds
+ * @returns {string[]}
  */
 function claimKeys(ownerOf, members, rel, host) {
 	return parseMemberKeys(members).flatMap((key) => {
@@ -580,8 +393,7 @@ function claimKeys(ownerOf, members, rel, host) {
 
 /**
  * @param {string} root
- * @returns {{ text: string | null, faults: string[] }} null where no mod
- *   declares state
+ * @returns {{ text: string | null, faults: string[] }}
  */
 function composeHostContract(root) {
 	const manifest = path.join(root, ".claude-plugin/plugin.json");
@@ -634,12 +446,8 @@ ${members.join("\n")}
 }
 
 /**
- * Whether the walk drops this entry. Judged by path alone, before any stat of
- * the entry itself: a transient fixture (e.g. the pre-commit gate harness's,
- * written and removed by a parallel test run) must never be touched on disk,
- * or its removal mid-walk throws (#65).
  * @param {string} root
- * @param {string} rel repo-relative path of a file or directory
+ * @param {string} rel
  * @returns {boolean}
  */
 function isSkipped(root, rel) {
@@ -657,10 +465,8 @@ function isSkipped(root, rel) {
 }
 
 /**
- * Whether the release ships `rel`: under a COPIED entry, with no step of the
- * walk down to it dropped. Judges the path, never whether the file exists.
  * @param {string} root
- * @param {string} rel repo-relative path
+ * @param {string} rel
  * @returns {boolean}
  */
 function isShipped(root, rel) {
@@ -677,11 +483,9 @@ function isShipped(root, rel) {
 }
 
 /**
- * The base's line pins into a file the release leaves behind, or into none it
- * can name (#961).
  * @param {string} root
- * @param {string} text the base's text
- * @returns {string[]} one fault naming every such pin, or none
+ * @param {string} text
+ * @returns {string[]}
  */
 function baseLinePinFaults(root, text) {
 	const stranded = parseLinePins(text).flatMap((p) => {
@@ -700,12 +504,9 @@ function baseLinePinFaults(root, text) {
 }
 
 /**
- * The base primitives table's paths the release does not carry, which an
- * adopter's check-primitives would warn on as the plugin's to fix (#4156), or
- * the table's own fault where it cannot be read (#4189).
  * @param {string} root
- * @param {string} text the base's text
- * @returns {string[]} one fault naming every such path, or none
+ * @param {string} text
+ * @returns {string[]}
  */
 function basePrimitivesFaults(root, text) {
 	const parsed = parseBasePaths(text);
@@ -724,8 +525,6 @@ function basePrimitivesFaults(root, text) {
 }
 
 /**
- * The standards base's faults, read once: its line pins and its primitives
- * table. A tree with no base has none.
  * @param {string} root
  * @returns {string[]}
  */
@@ -740,19 +539,13 @@ function baseFaults(root) {
 	];
 }
 
-/**
- * A practice note as it ships: its closing `## In workflow-core` section
- * dropped (#5294).
- * @param {string} body
- */
+/** @param {string} body */
 function dropCoreOnlyPractice(body) {
 	const at = body.indexOf(CORE_ONLY_PRACTICE);
 	return at === -1 ? body : `${body.slice(0, at).trimEnd()}\n`;
 }
 
 /**
- * A citable file's text as the release writes it, before its citations are
- * qualified.
  * @param {string} root
  * @param {string} rel
  * @param {string} body
@@ -790,7 +583,6 @@ const citationFaults = (text, rel) =>
 	);
 
 /**
- * Which lines of a shipped file a session reads or is shown.
  * @param {string} rel
  * @param {string[]} lines
  * @returns {(line: string, i: number) => boolean}
@@ -804,12 +596,9 @@ function buildIsReadableLine(rel, lines) {
 }
 
 /**
- * Pointers a shipped file prints or tells a session to read that name a core
- * doc the release leaves behind and no host holds, so in an adopter they
- * resolve nowhere (#1452).
  * @param {string} root
  * @param {string} rel
- * @param {string} text the file as the release writes it
+ * @param {string} text
  * @returns {string[]}
  */
 function coreDocPointerFaults(root, rel, text) {
@@ -836,11 +625,8 @@ function coreDocPointerFaults(root, rel, text) {
 }
 
 /**
- * The bare-citation faults one file would fail the release on (#1151). None
- * where the release leaves it behind. A mod's state-rename fault is dropped
- * here and left to the release.
  * @param {string} root
- * @param {string} rel repo-relative
+ * @param {string} rel
  * @returns {string[]}
  */
 function bareCitationFaults(root, rel) {
@@ -852,13 +638,13 @@ function bareCitationFaults(root, rel) {
 /**
  * @typedef {object} Walk
  * @property {string} out
- * @property {string[]} faults accumulator: each fault the release would fail on is pushed here
- * @property {Set<string>} walking real paths of the directories being walked
+ * @property {string[]} faults
+ * @property {Set<string>} walking
  */
 
 /**
  * @param {string} root
- * @param {string} rel repo-relative path of a file or directory
+ * @param {string} rel
  * @param {Walk} walk
  */
 function copyEntry(root, rel, walk) {
@@ -878,13 +664,11 @@ function copyEntry(root, rel, walk) {
 
 /**
  * @param {string} root
- * @param {string} rel repo-relative path of a directory
+ * @param {string} rel
  * @param {Walk} walk
  */
 function copyDir(root, rel, walk) {
 	const src = path.join(root, rel);
-	// A directory already on the walk was reached through a looping symlink,
-	// which would recurse until ELOOP (#3150).
 	const real = fs.realpathSync(src);
 	if (walk.walking.has(real)) return;
 	const inner = { ...walk, walking: new Set(walk.walking).add(real) };
@@ -895,7 +679,7 @@ function copyDir(root, rel, walk) {
 
 /**
  * @param {string} root
- * @param {string} rel repo-relative path of a file
+ * @param {string} rel
  * @param {Walk} walk
  * @param {number} mode
  */
@@ -926,11 +710,8 @@ function copyFile(root, rel, { out, faults }, mode) {
 }
 
 /**
- * Renders the plugin tree from `root` into `out`, which must not exist. On any
- * failure no tree is left behind.
  * @param {string} root
  * @param {string} out
- * @throws {Error} naming every fault found
  */
 function buildTree(root, out) {
 	if (fs.existsSync(out)) throw new Error(`${out} already exists`);

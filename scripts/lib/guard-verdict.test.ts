@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/guard-verdict.js, the verdict walk every Node guard core is built from
- * (#2885): the first Stop ends the walk, a refusal splices the
- * segment after the path rewrite, a fail-open is logged, and an unreadable
- * rule is answered by its fallback.
- *
- * In process, with a judge written per case, so each route out of the walk
- * shows without a guard around it. Every Node guard core walks through this
- * module: a case loosened here loosens every core's verdict at once.
- */
 
 import { describe, expect, it } from "vitest";
 import type { Command } from "./shell-parse.js";
@@ -24,7 +14,6 @@ const WALK = {
 	isDir: () => true,
 };
 
-/** Paths rewritten by marking every `@P@`, so the order of the two steps shows. */
 const ctx = { corePaths: (t: string) => t.replaceAll("@P@", "/root") };
 
 describe("walkVerdict", () => {

@@ -1,20 +1,6 @@
-/*
- * push-refs.js — the ref lines git feeds a pre-push hook on stdin, read once
- * for every checker the hook runs (#857), and parsed by one parser for every
- * pre-push gate (#3116).
- *
- * git writes `<local ref> <local sha> <remote ref> <remote sha>` per ref. A
- * delete pushes the all-zero local sha and has no bytes to check; a new branch
- * carries the all-zero remote sha, for the caller to read as "no remote tip".
- */
-
 const ZERO = /^0+$/;
 
-/**
- * Whether `sha` is git's all-zero sha: a deletion's local sha, a new ref's
- * remote one.
- * @param {string} sha
- */
+/** @param {string} sha */
 const isZeroSha = (sha) => ZERO.test(sha);
 
 /**
@@ -22,7 +8,6 @@ const isZeroSha = (sha) => ZERO.test(sha);
  */
 
 /**
- * Each ref line naming a local sha, in order, deletions included.
  * @param {string} stdin
  * @returns {RefLine[]}
  */
@@ -34,10 +19,6 @@ function parseRefLines(stdin) {
 }
 
 /**
- * The pushes git is being asked to make — `{ sha, remoteSha }` per local sha,
- * deletions dropped and repeats collapsed onto the first line that named them.
- * `skipTags` drops a line landing on `refs/tags/` before the collapse, so a
- * branch pushed at the same sha is still returned.
  * @param {string} stdin
  * @param {{ skipTags?: boolean }} [options]
  */

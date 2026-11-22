@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * pool.js (#4311). Break the width and check-primitives starts
- * every breach-count node at once; break the order and a count lands on the
- * wrong check. The staggered delays make later items finish first, so the
- * order assertion proves results go by index, not by finish order.
- */
 
 import { createRequire } from "node:module";
 import { expect, it } from "vitest";

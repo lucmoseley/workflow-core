@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/overflow-budget.js, and lib/overflow-cap.js's per-session cap
- * (#3698) on the same fixtures: a session on the key priced from its transcript,
- * priced again as it grows and counted once; only sessions the launch record
- * marks on the key counted, from any checkout; the exhausted mark from a credit
- * refusal in a transcript; a listed session held, not settled; a resumed copy's
- * shared requests settled once (#4208), its transcript gone or not (#4370);
- * and the CLI's JSON and status line for a fixture seat, every figure read
- * from a fixed cost table in a fixture checkout, and read there from a working
- * directory that is no checkout (#3683, #3695); a shown read reusing the last
- * budget sized until it ages past a shown listing's limit or its ledger, Console
- * log, seat or root changes (#4669).
- *
- * Loosen one and a session's spend goes uncounted or counted twice, a plan
- * session is charged to the key, the CLI reports a figure the gate did not
- * size (#2609), or a session past its allowance runs on unstopped (#3698).
- *
- * Launches are rows in a fixture checkout's dispatch ledger; `claude` is a stub
- * printing a fixture listing.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,14 +19,12 @@ import { SESSION_COST_TABLE } from "./session-spend.js";
 import { shellQuote } from "./sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "overflow-budget.js");
-/* Mean 4; a session 5 in, past u 3, has the tail's expected remainder of 7. */
 const TABLE = {
 	n: 3,
 	meanUsd: 4,
 	quantilesUsd: [1, 3, 10],
 	tailRemainderUsd: 7,
 };
-/* Past any one month's cycle, so the write falls in an earlier one. */
 const TWO_CYCLES_MS = 62 * 24 * 3600 * 1000;
 let tmp: string;
 let home: string;
@@ -92,8 +70,6 @@ function writeListing(agents: object[]) {
 
 const sessionIdOf = (jobId: string) => `${jobId}-0000-4000-8000-000000000000`;
 
-/* An overflow launch's ledger row; `keyVar` another key's where it is not this
- * seat's. Returns the session id. */
 function recordLaunch(
 	jobId: string,
 	{
@@ -131,7 +107,6 @@ function recordLaunch(
 const transcriptOf = (sessionId: string) =>
 	path.join(seatDir, "projects", "-fixture", `${sessionId}.jsonl`);
 
-/* A request costing US$4 per million fresh Opus input tokens. */
 const buildModelTurn = (inputTokens: number, requestId = "r1") => ({
 	type: "assistant",
 	requestId,
@@ -141,7 +116,6 @@ const buildModelTurn = (inputTokens: number, requestId = "r1") => ({
 	},
 });
 
-/* As Claude Code 2.1.312 wrote it (#3692's probes), in a `claude -p` run. */
 const CREDIT_REFUSAL_ROW = {
 	type: "assistant",
 	entrypoint: "sdk-cli",
@@ -435,7 +409,6 @@ describe("a listed session", () => {
 		const id = recordLaunch("0000000d");
 		appendTranscript(id, buildModelTurn(1_250_000));
 		writeListing([{ id: "0000000d", sessionId: id, state: "working" }]);
-		/* spent 5, past u 3: max(4, 5 + 7) = 12 held. */
 		expect(budget()).toMatchObject({
 			running: 1,
 			reservedUsd: 12,
@@ -495,7 +468,6 @@ describe("a shown read (#4669)", () => {
 	const shown = () => shownSeatBudget({ ...seat, dir: seatDir }, root);
 	const keptPath = () =>
 		path.join(refill, ".overflow-ledger", "WFC_TEST_KEY.shown.json");
-	/* A session priced at US$8, then grown to US$12 unpriced. */
 	function growAfterSizing() {
 		const id = recordLaunch("0000000b");
 		appendTranscript(id, buildModelTurn(2_000_000));
@@ -510,7 +482,6 @@ describe("a shown read (#4669)", () => {
 		expect(shown()).toMatchObject({ settledUsd: 12 });
 	});
 
-	/* The kept budget, with `at` or its listing's `runningReadAt` aged. */
 	function ageKept(field: "at" | "runningReadAt", ms: number) {
 		const kept = JSON.parse(fs.readFileSync(keptPath(), "utf8"));
 		const aged = Date.now() - ms;
@@ -640,7 +611,6 @@ describe("a resumed copy's settled spend (#4208)", () => {
 			buildModelTurn(3_000_000, "r2"),
 		);
 		writeListing([{ id: "0000c001", sessionId: parent, state: "working" }]);
-		/* the root held as before: spent 20 + remainder 7. */
 		expect(budget()).toMatchObject({
 			running: 1,
 			settledUsd: 12,
@@ -755,7 +725,6 @@ describe("a running resumed copy (#4369)", () => {
 			buildModelTurn(3_000_000, "r2"),
 		);
 		writeListing([{ id: "0000c002", sessionId: copy, state: "working" }]);
-		/* spent 32, past u 3: share 12 + remainder 7 = 19 held. */
 		expect(budget()).toMatchObject({
 			running: 1,
 			settledUsd: 20,
@@ -813,8 +782,6 @@ describe("the CLI", () => {
 			lastAttemptAt: null,
 			runningReadAt: expect.any(Number),
 		});
-		/* cycle-day=1: whatever the clock, the cycle runs from one 1st at
-		 * local midnight to the next. */
 		const start = new Date(cycleStart);
 		expect([start.getDate(), start.getHours(), start.getMinutes()]).toEqual([
 			1, 0, 0,
@@ -936,7 +903,6 @@ describe("the per-session cap (#3698)", () => {
 			? fs.readFileSync(stops, "utf8").trim().split("\n")
 			: [];
 
-	/* Every call, with the seat it ran under; a stop answers as recorded. */
 	const writeStopStub = (kind: StopKind = "ok") =>
 		writeClaudeStub(stub, [
 			`echo "$CLAUDE_CONFIG_DIR $*" >> ${shellQuote(stops)}`,
@@ -948,7 +914,6 @@ describe("the per-session cap (#3698)", () => {
 		writeStopStub();
 	});
 
-	/* Allowance US$50; at US$4 a million tokens, 15M is US$60, 5M US$20. */
 	it("stops a session past its allowance under its seat's dir, naming spend and allowance", () => {
 		appendTranscript(recordLaunch("0000a001"), buildModelTurn(15_000_000));
 		expect(stopOverAllowance(declared(), [listed("0000a001")])).toEqual([
@@ -958,8 +923,6 @@ describe("the per-session cap (#3698)", () => {
 	});
 
 	it("stops a headless run past its allowance by its process group, never through claude stop (#4580)", () => {
-		/* A `sleep` in a group of its own, orphaned to init so its reaping is
-		 * not this process's. */
 		const pid = startOrphan("sleep", "60");
 		try {
 			expect(readStat(pid)).toMatchObject({ pgrp: pid });
@@ -1031,7 +994,6 @@ describe("the per-session cap (#3698)", () => {
 		expect(readStops()).toHaveLength(2);
 	});
 
-	/* Its transcript repeats US$40 of requests its plan paid before the move. */
 	describe("a session moved onto the key (#3736)", () => {
 		const moved = (jobId: string) => {
 			const id = recordLaunch(jobId, { offKeyUsd: 40 });
@@ -1083,9 +1045,6 @@ describe("the per-session cap (#3698)", () => {
 		});
 	});
 
-	/* A `--bg --resume` copy repeats its parent's main-thread requests up to the
-	 * fork, never the parent's subagents or what the parent spends after it
-	 * (#4195's measurement). */
 	describe("a resumed copy", () => {
 		const subagentOf = (sessionId: string) =>
 			path.join(

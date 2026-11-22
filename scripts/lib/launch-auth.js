@@ -1,39 +1,3 @@
-/*
- * launch-auth.js — refuses a model launch whose auth would bill per token
- * instead of the subscription (#2236, ruled at #2203). `claude -p` takes an
- * ANTHROPIC_API_KEY over the logged-in seat without asking.
- *
- * Every launch site calls launchAuthRefusal() with the binary, environment
- * and working directory its child gets. It reads `claude auth status` under
- * them, which makes no model call, so a project's or seat's `apiKeyHelper`
- * counts. It admits:
- *   - `claude.ai`, a logged-in seat;
- *   - `oauth_token` where CLAUDE_CODE_OAUTH_TOKEN is set and
- *     ANTHROPIC_AUTH_TOKEN is not: both report `oauth_token`, and only the
- *     first bills the subscription;
- *   - on a launch passing `settings` whose `apiKeyHelper` is
- *     lib/overflow-key.js's helper for an overflow seat lib/refill-seats.js
- *     declares on the launch's config dir (#3699), `none` as well: the helper
- *     hands the child its key, and `auth status` does not take `--settings`,
- *     so it reports the dir's own login. `api_key` still refuses there, since
- *     a key already in force outranks the helper. Any other `apiKeyHelper` in
- *     `settings` refuses, whatever the dir reports.
- * A seat file that refuses declares no overflow seat.
- * Everything else refuses: `api_key`, `api_key_helper`, `third_party` (a
- * CLAUDE_CODE_USE_* provider; ANTHROPIC_PROFILE and the rest reach it through
- * `auth status`), `none`, and a status that will not read. ANTHROPIC_BASE_URL
- * refuses before the read, since `auth status` does not report it.
- *
- * KNOWN LIMIT: it judges the environment the launch site hands over. A
- * background supervisor started earlier with a key in its own environment,
- * such as the daemon a `claude --bg` hands its session to, is not seen from
- * the dispatch site.
- *
- *   node scripts/lib/launch-auth.js   checks this process's own launch, for
- *     a shell or spawning caller: exits 0 silent, or 2 printing `REFUSED:`
- *     and why.
- */
-
 const { parseArgs } = require("node:util");
 const { spawnRaw } = require("./child-spawn.js");
 const { claudeBin } = require("./claude-bin.js");
@@ -46,15 +10,13 @@ const {
 } = require("./refill-seats.js");
 const { writeFd } = require("./write-fd.js");
 
-/* Untraced: `auth status` answers in ~0.4 s idle; CLI starts on a loaded
- * machine have taken several seconds. */
+// guess, #2236
 const STATUS_TIMEOUT_MS = 30_000;
 
 const RULE =
 	"a workflow-core model launch bills the subscription seat, never per token (#2236)";
 
-/* A provider flag at one of these reads off; `0` measured, the rest
- * untraced. */
+// guess, #2236
 const OFF = ["0", "false", "no", "off"];
 
 /**
@@ -64,7 +26,6 @@ const OFF = ["0", "false", "no", "off"];
 const isSet = (v) => v !== undefined && v !== "";
 
 /**
- * Why `auth status` could not be read, or its parsed JSON.
  * @param {string} bin
  * @param {NodeJS.ProcessEnv} env
  * @param {string} cwd
@@ -91,9 +52,6 @@ function readAuthStatus(bin, env, cwd, spawn) {
 }
 
 /**
- * The `apiKeyHelper` the launch's `--settings` sets, null where it sets none,
- * or why it cannot be read: `claude` takes a `--settings` that is not JSON as
- * a file path, whose helper this guard would never see (#2570).
  * @param {string|undefined} settings
  * @returns {{helper: unknown}|{why: string}}
  */
@@ -109,8 +67,6 @@ function parseSettingsHelper(settings) {
 }
 
 /**
- * Whether `helper` is lib/overflow-key.js's helper for an overflow seat
- * declared on the launch's config dir.
  * @param {unknown} helper
  * @param {NodeJS.ProcessEnv} env
  */
@@ -160,12 +116,8 @@ function sourceOf(status, env) {
 }
 
 /**
- * Why a model launch of `bin` under `env` in `cwd` would not bill the
- * subscription, or null where it would.
  * @param {{bin: string, env: NodeJS.ProcessEnv, cwd: string,
- *   settings?: string, spawn?: typeof spawnRaw}} launch `settings`: the JSON
- *   the launch passes as `--settings`; `spawn`: the call, where a test runs it
- *   in-process
+ *   settings?: string, spawn?: typeof spawnRaw}} launch
  * @returns {string|null}
  */
 function launchAuthRefusal({ bin, env, cwd, settings, spawn = spawnRaw }) {

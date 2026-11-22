@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/orphan-hooks.js's judgement — which processes are orphaned hook
- * runs and what each kill takes — against synthetic process tables, and its
- * kill against a real orphaned guard whose forked subshell outlives it
- * (#2922).
- *
- * Loosen a case and either a live hook, a deliberately detached sweep or a
- * neighbour's process is SIGKILLed, or a spinning orphan times out every
- * session's hooks unnamed.
- */
 
 import fs from "node:fs";
 import os from "node:os";

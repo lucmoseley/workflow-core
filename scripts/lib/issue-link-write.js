@@ -88,7 +88,6 @@ function judge(parsed, ctx, cmd) {
 }
 
 /**
- * A `gh api` call: a GraphQL link mutation, or a POST at a link endpoint.
  * @param {Parsed} parsed
  * @param {LinkContext} ctx
  * @param {Command} cmd
@@ -129,14 +128,12 @@ function judgeApi(parsed, ctx, cmd) {
 	}
 }
 
-/* gh 2.94's own link flags, which make the same native links. */
 const ISSUE_LINK_FLAGS = {
 	edit: ["--add-blocked-by", "--add-blocking", "--add-sub-issue", "--parent"],
 	create: ["--blocked-by", "--blocking", "--parent"],
 };
 
 /**
- * A `gh issue edit` or `gh issue create` carrying a link flag.
  * @param {LinkContext} ctx
  * @param {Command} cmd
  * @param {"edit" | "create"} verb
@@ -157,16 +154,14 @@ function judgeIssueFlags(ctx, cmd, verb) {
 	);
 }
 
-/* A bare number, since an unquoted `#n` starts a shell comment. */
 const REF_FORMS =
 	"each issue as a bare number or owner/name#n, never a database id";
 
 /**
- * The link command standing in for one gh issue link flag.
  * @param {LinkContext} ctx
  * @param {"edit" | "create"} verb
  * @param {string} flag
- * @param {string} n the edited issue, `<n>` where unread
+ * @param {string} n
  */
 function issueFlagForm(ctx, verb, flag, n) {
 	const filer = `node ${ctx.scriptPath("file-issue.js")}`;
@@ -182,8 +177,6 @@ function issueFlagForm(ctx, verb, flag, n) {
 }
 
 /**
- * The bare number where the endpoint names gh's placeholders, `owner/name#n`
- * where it names a repo, as link-blocker.js reads either.
  * @param {string | null} repo
  * @param {string} n
  */

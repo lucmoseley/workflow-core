@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * lib/recursive-dot-read.js, a PreToolUse dispatcher core (#2791), warns on a
- * recursive `grep`/`rg` rooted at `.`, leading with the same command with the
- * root expanded (mantahostels#2717), and hands over rule:heavy-tree-search on
- * a search over node_modules, .next, .git or build output (#2060).
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * production adapters — real git, the real physical-path port
- * (lib/recursive-dot-read-host.js), the real rule store and latches.
- *
- * EVERY CASE RUNS AGAINST A FIXTURE REPO, not this one. The expansion is
- * computed from the tree at call time, so judging it against the live checkout
- * would rewrite the assertions every time a top-level file was added.
- *
- * Every allow case asserts SILENCE *and an empty log*. Silence alone would
- * pass for the wrong reason: a logged fail-open — a `cwd` the payload never
- * carried, a rewrite that did not render — also says nothing.
- *
- * Break it and a recursive `grep` from `.` walks `node_modules`, `.next` and
- * `.git` unwarned, and a search rooted in one of them goes without the rule;
- * make it deny and a legitimate search is refused.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,12 +14,9 @@ import {
 } from "./guard-core-testkit";
 
 let dir: string;
-/** The fixture repo, resolved through the same symlink flattening the core uses. */
 let repo: string;
 let logs: string[];
 
-/* What the fixture's tree expands to, in git's own order: the first path
- * component of each tracked file, then the untracked non-dot directory. */
 const EXPANSION = ".claude .gitignore CLAUDE.md app newdir";
 
 const git = (...args: string[]) =>
@@ -50,8 +25,6 @@ const git = (...args: string[]) =>
 beforeEach(() => {
 	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dot-read-")));
 	logs = [];
-	/* The prefix carries `.` and `+` deliberately: the root goes into a regex,
-	 * and a root of only word characters would let a broken escaper pass. */
 	repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dot+repo.")));
 
 	fs.mkdirSync(path.join(repo, "app"));
@@ -61,16 +34,11 @@ beforeEach(() => {
 	fs.writeFileSync(path.join(repo, "CLAUDE.md"), "x\n");
 	fs.writeFileSync(path.join(repo, ".gitignore"), "node_modules/\n.cache/\n");
 
-	/* Untracked and unignored: a new directory must survive the expansion, so a
-	 * source tree not yet committed is not silently dropped. */
 	fs.mkdirSync(path.join(repo, "newdir"));
 	fs.writeFileSync(path.join(repo, "newdir", "b.ts"), "x\n");
-	/* Untracked DOT directory — tooling state nobody ignored. Dropped. */
 	fs.mkdirSync(path.join(repo, ".mypy_cache"));
 	fs.writeFileSync(path.join(repo, ".mypy_cache", "c"), "x\n");
-	/* Untracked root scratch. */
 	fs.writeFileSync(path.join(repo, ".scratch.out"), "x\n");
-	/* Ignored outright. */
 	fs.mkdirSync(path.join(repo, "node_modules"));
 	fs.writeFileSync(path.join(repo, "node_modules", "d"), "x\n");
 
@@ -83,9 +51,6 @@ afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });
 });
 
-/*
- * #2060: the rule's whole text must arrive on the trigger.
- */
 const ruleText = fs
 	.readFileSync(
 		path.resolve(__dirname, "../../docs/agents/rules/heavy-tree-search.txt"),
@@ -94,10 +59,8 @@ const ruleText = fs
 	.trim();
 
 interface Options {
-	/** Where the shell stands, as the payload reports it. */
 	cwd?: string;
 	omitCwd?: boolean;
-	/** The payload's `permission_mode`; absent where unset. */
 	permissionMode?: string;
 }
 
@@ -111,9 +74,6 @@ const payloadFor = (command: string, opts: Options) => ({
 		: { permission_mode: opts.permissionMode }),
 });
 
-/** The whole hook output for `command`. Null where it said nothing. The hook's
- * own directory is a tmpdir, NOT the fixture, so the core passes only by
- * reading the payload. */
 const emission = (command: string, opts: Options = {}) => {
 	const r = runCore("guard-recursive-dot-read", payloadFor(command, opts), {
 		root: repo,
@@ -123,7 +83,6 @@ const emission = (command: string, opts: Options = {}) => {
 	return r.output;
 };
 
-/** The warning, asserted to take no decision: the command runs as written. */
 const warning = (command: string, opts: Options = {}) => {
 	const out = emission(command, opts);
 	expect(out).not.toBeNull();
@@ -131,8 +90,6 @@ const warning = (command: string, opts: Options = {}) => {
 	return out?.additionalContext as string;
 };
 
-/** What the core says to `command` under `permissionMode`, rule text and
- * all: the hook's context, or "". It never takes a decision. */
 const saidIn = (
 	command: string,
 	permissionMode: string,
@@ -143,7 +100,6 @@ const saidIn = (
 	return (out?.additionalContext as string | undefined) ?? "";
 };
 
-/** The expanded command the warning leads with — every line of it. */
 const replacement = (context: string) => {
 	const [command, prose] = context.split(
 		"\n\nThat is your search with its root expanded",
@@ -238,7 +194,6 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 			"grep -rn PAT <EXP>\necho done",
 			"a command of two lines, led by both",
 		],
-		/* No path names the root at all (#1731). */
 		["rg PAT", "rg PAT <EXP>", "rg with no path, which searches ."],
 		["grep -rn PAT", "grep -rn PAT <EXP>", "grep -r with no path"],
 		[
@@ -287,7 +242,6 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 		["", "the project directory spelled out in full"],
 		["/", "the same with a trailing slash"],
 	])("grep -rn PAT <root>%s — %s", (suffix) => {
-		/* mantahostels#2717 F2. */
 		expect(replacement(warning(`grep -rn PAT ${repo}${suffix}`))).toBe(
 			`grep -rn PAT ${EXPANSION}`,
 		);
@@ -307,12 +261,10 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 	});
 
 	it("says the rewrite widens an rg search, which skips hidden dirs by default", () => {
-		/* mantahostels#2717 F5. */
 		expect(warning("rg -l PAT .")).toContain("WIDENS");
 	});
 
 	it("leaves out a tracked root file the working tree no longer holds", () => {
-		/* mantahostels#2717 F4. */
 		fs.rmSync(path.join(repo, "CLAUDE.md"));
 		const fix = replacement(warning("grep -rn PAT ."));
 		expect(fix).not.toContain("CLAUDE.md");
@@ -320,7 +272,6 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 	});
 
 	it("leaves out a tracked root symlink whose target is not there", () => {
-		/* mantahostels#2717 F-1. */
 		fs.symlinkSync("nowhere", path.join(repo, "dangling"));
 		git("add", "dangling");
 		const fix = replacement(warning("grep -rn PAT ."));
@@ -380,14 +331,10 @@ describe("a search that does not read the whole project directory passes untouch
 		["pushd app; grep -rn PAT .", "pushd moves it too"],
 		["env -C app grep -rn PAT .", "a launcher's directory too (#5075)"],
 	])("%s — %s", (command) => {
-		/* Firing here would hand back a rewrite naming the ROOT's entries while
-		 * the shell stands in app/, so every path in it is wrong and the
-		 * corrected command fails outright. */
 		expect(emission(command)).toBeNull();
 		expect(logs).toEqual([]);
 	});
 
-	/* Each still walks the heavy trees, so #2060's rule arrives, alone. */
 	it.each([
 		[
 			'grep -rn "a . b" .',
@@ -407,7 +354,6 @@ describe("a search that does not read the whole project directory passes untouch
 	});
 
 	it("allows a . root while the shell stands somewhere else", () => {
-		// There, `.` is not this repo and the guard knows nothing about it.
 		expect(emission("grep -rn PAT .", { cwd: "/tmp" })).toBeNull();
 		expect(logs).toEqual([]);
 	});
@@ -627,7 +573,6 @@ describe("from a linked worktree, the project directory is the session's tree (#
 	let at: { main: string; worktree: string };
 	freshSandbox((sb) => {
 		at = splitCheckout(path.join(sb.dir, "split"));
-		/* Each tree holds a top-level directory the other lacks. */
 		for (const [root, name] of [
 			[at.worktree, "wtonly"],
 			[at.main, "mainonly"],

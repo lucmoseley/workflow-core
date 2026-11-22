@@ -1,15 +1,3 @@
-/*
- * lander-testkit.ts — the sandbox the real-git lander suites stand on: a bare
- * `remote.git` and its clone `work`, `main` on one seed commit, with the
- * tester, tracker and run helpers that drive scripts/queue-lander.js against
- * it.
- *
- * Break it and every lander suite fails at once, or runs against a repo whose
- * `origin` is another case's.
- *
- * The seeded repo is built once per file and copied for each case (#4301):
- * the copy's only path into the template is `origin`'s URL, rewritten.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -21,15 +9,11 @@ import { runInProcessAsync } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
 
 const LANDER = path.resolve(__dirname, "../queue-lander.js");
-/** This checkout: the core a sandbox tree's hook resolves unless a case says otherwise. */
 export const OWN_CORE = path.resolve(__dirname, "../..");
 const RESOLVE_CORE = "scripts/lib/resolve-core.js";
 
-/** The case's sandbox root, fresh for each case once landerSandbox() is called. */
 export let tmp: string;
-/** The clone the lander runs in. */
 export let work: string;
-/** The bare repo `work`'s `origin` names. */
 export let remote: string;
 
 export const git = (cwd: string, ...args: string[]) =>
@@ -51,20 +35,16 @@ const commitIn = (dir: string, message: string) => {
 	return git(dir, "rev-parse", "HEAD");
 };
 
-/** A commit in `work` adding `<message>.txt`, returning its sha. */
 export const commit = (message: string) => commitIn(work, message);
 
 export const markers = () => path.join(work, ".claude", "tmp", "markers");
 
-/** Where the levelling stub records each start, one `<cwd> <args>` line. */
 export const levelled = () => path.join(tmp, "levelled");
 
-/** Where stubTracker records each call it has no arm for, one argv a line. */
 export const unansweredLog = () => path.join(tmp, "unanswered-gh");
 
 const NO_ARM = "stub tracker has no arm for this gh call";
 
-/** The script the lander starts after a move in place of level-main.js. */
 export const levelStub = () => {
 	const stub = path.join(tmp, "level-stub.js");
 	if (!fs.existsSync(stub))
@@ -75,13 +55,6 @@ export const levelStub = () => {
 	return stub;
 };
 
-/**
- * Writes what every adopter's tree carries for the lander to judge it: an
- * empty guard-registry region in CLAUDE.md, without which its registry check
- * holds a batch as stale-base on NO-REGION (#5309), and the core-owned
- * scripts/lib/resolve-core.js, without which no core resolves to run its gate
- * scripts (#5314). A case sets WORKFLOW_CORE_DIR to name the core it finds.
- */
 export const seedAdopterTree = (dir: string) => {
 	fs.writeFileSync(
 		path.join(dir, "CLAUDE.md"),
@@ -96,12 +69,6 @@ export const seedAdopterTree = (dir: string) => {
 	);
 };
 
-/**
- * Register the hooks that build the seeded template once and copy it per case.
- * With `coreHost`, the seed is workflow-core itself, so the lander runs the
- * tree's own gate scripts; else they are the ones the core its
- * resolve-core.js finds ships, WORKFLOW_CORE_DIR naming this checkout (#5314).
- */
 export function landerSandbox({ coreHost = false } = {}): void {
 	let template: string;
 
@@ -148,8 +115,6 @@ export function landerSandbox({ coreHost = false } = {}): void {
 	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 }
 
-/** `work`'s tree made an adopter's, no longer workflow-core itself, so the
- * lander runs the gate scripts of the core its resolve-core.js finds (#5314). */
 export const asAdopter = () => {
 	git(work, "rm", "-rq", ".claude-plugin");
 	commit("adopter");
@@ -165,7 +130,6 @@ export const stubTester = (code: number, failing = "") => {
 	return script;
 };
 
-/** A tester red on `scripts/<name>.test.ts` while `<name>.txt` is in the tree. */
 export const stubRedWhile = (name: string, alongside?: string) => {
 	const script = path.join(tmp, "tester.sh");
 	fs.writeFileSync(
@@ -194,7 +158,6 @@ export const runLander = (
 	});
 };
 
-/** The config `work` reads, naming the stub tracker. */
 export const writeTrackerConfig = () => {
 	fs.mkdirSync(path.join(work, ".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -203,16 +166,6 @@ export const writeTrackerConfig = () => {
 	);
 };
 
-/**
- * A tracker of issues held in a JSON file, served by a gh stub, with the
- * config naming it. Each JSON read it answers goes through `asRecorded`, which
- * holds it to the fixture gh.contract.test.ts holds to the real gh: a list or
- * view answers only the `--json` fields asked for, as gh does. `issue close`
- * and `issue edit` print nothing: every caller discards a write's stdout.
- * A call no arm models — an unknown verb, a flag an arm ignores, or an arm
- * throwing — exits 1 and fails the case from landerSandbox's afterEach,
- * since the lander's fail-open paths can swallow the exit (#4357).
- */
 export const stubTracker = () => {
 	const store = path.join(tmp, "issues.json");
 	const refuseReland = path.join(tmp, "refuse-reland");

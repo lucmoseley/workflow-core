@@ -1,41 +1,3 @@
-/*
- * idle-efforts.js — the idle alarm's core (#3641, spec #3623): one pure
- * function from a reading of every tracker the refill loop could serve to the
- * efforts nothing has launched for 2 days, one line per tracker, and whether it
- * names a stopped loop, a finding of its own (#3892).
- *
- * An effort is an open issue with its descendants. Its last activity is the
- * latest launch of it or any descendant, or its creation where none is later.
- * One whose own or a descendant's launch is still running is not idle. Blocked,
- * gated, `takes:human` and `parked` issues are not counted: each waits on
- * something other than a launch, as does a container all of whose open
- * children do. A parked issue held is counted, from the hold's start: on its
- * session's full seat, as a running loop's state says in either mode, it waits
- * on that seat's reset, up to 7 days (#3680, #3850), and at the limit-cap parks'
- * cap, as its park marker says whatever the loop's mode and whether or not it runs (#3840), on the founder
- * (#3804). So is a launch waiting on a limit, from when it began (#3838). One at
- * the cap, which no reset ends, or on a limit, is named beneath its tracker's
- * line, however old its tracker's oldest (#3809, #3838); a full seat's stays in
- * the count. A stranding is counted once, at its deepest idle issue, never again
- * at each ancestor.
- *
- * The reason printed beside a tracker's oldest is a cap's or limit's hold where
- * it has one, as clearing a probe hold frees neither (#3920); else, in the loop's
- * own row order, a probe hold's on every checkout the loop serves of its tracker
- * (#3898), else its hold's where it is held, else the loop's launch filter
- * (lib/refill-decide.js's buildSkipReason). A row that filter passes waits on
- * rank, unless no served checkout of its tracker has a hold store that reads, or
- * the loop launches no row whatever its rank, in decideTick's own words
- * (buildLoopWait, #3920), which a probe hold's line names beside its own.
- *
- * A damaged loop file, or a hold store that will not read, is a finding of its
- * own, named above the tracker lines (#3918).
- *
- * The shell hands over raw reads, keyed by checkout; buildReadings joins them
- * to the trackers those checkouts file to, and buildFindingRecords picks each
- * tracker's finding code (#3711).
- */
-
 const {
 	buildLimitCapHoldWhy,
 	buildLoopWait,
@@ -51,22 +13,14 @@ const { scriptPath } = require("./script-path.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/* One figure for every route: house, #3588. */
+// guess, #3588
 const IDLE_DAYS = 2;
 const IDLE_MS = IDLE_DAYS * DAY_MS;
 const HUMAN_LABEL = takesLabel("human");
-/* Blockers read inline per issue, lib/link-batch.js's BLOCKERS: 50 issues
- * of 100 labels, 25 blockers and 100 sub-issues stays far under GitHub's
- * 500,000-node cap. A
- * parent holds at most 100 sub-issues, closed ones counted. */
 const QUERY =
 	"query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $endCursor) { pageInfo { hasNextPage endCursor } nodes { number title createdAt body labels(first: 100) { nodes { name } } blockedBy(first: 25) { totalCount nodes { state } } subIssues(first: 100) { nodes { number state repository { nameWithOwner } } } } } } }";
 
-/**
- * A node of QUERY's answer, as parsed: every reader below defaults a missing
- * field rather than checking its shape.
- * @typedef {any} GhJson
- */
+/** @typedef {any} GhJson */
 
 /** @typedef {{repo: string, number: number}} Ref */
 
@@ -74,41 +28,35 @@ const QUERY =
  * @typedef {object} IssueReading
  * @property {number} number
  * @property {string} title
- * @property {number} createdAt ms
+ * @property {number} createdAt
  * @property {string[]} labels
- * @property {boolean} blocked an open native blocker
- * @property {boolean} gated a date gate or a `Gated on:` holding
- * @property {Ref[]} children every sub-issue, closed ones and other repos'
- *   included
+ * @property {boolean} blocked
+ * @property {boolean} gated
+ * @property {Ref[]} children
  */
 
 /**
  * @typedef {object} TrackerReading
- * @property {string} repo `owner/name`
- * @property {boolean} served whether the loop's current scope serves it
- * @property {boolean} probeHeld a probe hold stops launches from every checkout
- *   of it the loop serves
- * @property {boolean} holdsUnread the hold store of every checkout of it the loop
- *   serves would not read
- * @property {string|null} loopWait why the loop serving it launches no row
- *   whatever its rank; null where rank decides or it does not serve it
- * @property {IssueReading[]} issues its open issues
- * @property {string|null} error why its issues would not read
+ * @property {string} repo
+ * @property {boolean} served
+ * @property {boolean} probeHeld
+ * @property {boolean} holdsUnread
+ * @property {string|null} loopWait
+ * @property {IssueReading[]} issues
+ * @property {string|null} error
  */
 
 /**
- * A hold's reason, start, ms, and whether it is at the limit-cap parks' cap or a
- * launch waiting on a limit.
  * @typedef {{why: string, since: number, atCap?: boolean, onLimit?: boolean}} IdleHold
  */
 
 /**
  * @typedef {object} Readings
  * @property {TrackerReading[]} trackers
- * @property {Map<string, number>} launches refKey to its last launch, ms
- * @property {Set<string>} running refKeys of launches still running
- * @property {Map<string, IdleHold>} holds refKeys of the issues held
- * @property {number} now ms
+ * @property {Map<string, number>} launches
+ * @property {Set<string>} running
+ * @property {Map<string, IdleHold>} holds
+ * @property {number} now
  */
 
 /**
@@ -117,74 +65,58 @@ const QUERY =
  * @property {string} title
  * @property {number} idleMs
  * @property {boolean} urgent
- * @property {boolean} heldAtCap it is held at the limit-cap parks' cap
- * @property {boolean} heldOnLimit its launch waits on a limit
- * @property {string|null} skip its hold's or the loop's launch filter's reason,
- *   null where the filter passes the row
+ * @property {boolean} heldAtCap
+ * @property {boolean} heldOnLimit
+ * @property {string|null} skip
  */
 
 /**
  * @typedef {object} TrackerFinding
  * @property {string} repo
  * @property {boolean} served
- * @property {boolean} holdsUnread as TrackerReading's
- * @property {string|null} loopWait as TrackerReading's
+ * @property {boolean} holdsUnread
+ * @property {string|null} loopWait
  * @property {string|null} error
- * @property {Idle[]} idle oldest first
+ * @property {Idle[]} idle
  */
 
 /**
- * One checkout's dispatch ledger, as the shell read it.
  * @typedef {object} LedgerReading
- * @property {string} root the checkout
- * @property {Map<number, number>} launchTimes issue to its last launch, ms
- * @property {number[][]} recent the issues of each launch still in the
- *   ledger's window, so running; none for a limit hold's row, whose session
- *   is stopped, and a stopped loop's left to the alarm (#3785)
+ * @property {string} root
+ * @property {Map<number, number>} launchTimes
+ * @property {number[][]} recent
  */
 
 /**
  * @typedef {object} TrackerRead
- * @property {string} repo `owner/name`
+ * @property {string} repo
  * @property {IssueReading[]} issues
  * @property {string|null} error
- * @property {LedgerReading[]} ledgers its checkouts' ledgers, as far as they
- *   read
- * @property {import("./parked.js").ParkMarkerRead[][]} markers each of its
- *   checkouts' park markers
+ * @property {LedgerReading[]} ledgers
+ * @property {import("./parked.js").ParkMarkerRead[][]} markers
  */
 
 /**
- * The refill loop as read: nothing where it does not run.
  * @typedef {object} LoopReading
- * @property {string[]} served the checkouts its scope serves
- * @property {{root: string, issues: number[]}[]} launches its launches at work
- * @property {import("./refill-state.js").Hold[]} held the issues it holds: parked
- *   rows on a full seat and launches waiting on a limit
- * @property {import("./refill-decide.js").TickHold[]} repoHolds its served
- *   checkouts' open repo holds
- * @property {string|null} loopWait why it launches no row whatever its rank
- * @property {Record<string, import("./refill-decide.js").Pause>} repoPaused its
- *   checkouts' no-progress pauses, by root (#5275)
- * @property {string[]} holdsUnreadRoots its served checkouts whose hold store
- *   would not read, whole or in part
+ * @property {string[]} served
+ * @property {{root: string, issues: number[]}[]} launches
+ * @property {import("./refill-state.js").Hold[]} held
+ * @property {import("./refill-decide.js").TickHold[]} repoHolds
+ * @property {string|null} loopWait
+ * @property {Record<string, import("./refill-decide.js").Pause>} repoPaused
+ * @property {string[]} holdsUnreadRoots
  */
 
 /**
- * A live loop's LoopReading.loopWait: a pause outranks the last tick's reason, as
- * that tick may have settled before it (#3920).
- * @param {import("./refill-decide.js").Pause|null|undefined} paused its control's
- * @param {import("./refill-decide.js").Idle|null|undefined} lastIdle its last
- *   tick's idle reason
+ * @param {import("./refill-decide.js").Pause|null|undefined} paused
+ * @param {import("./refill-decide.js").Idle|null|undefined} lastIdle
  * @returns {string|null}
  */
 const buildLiveLoopWait = (paused, lastIdle) =>
 	paused ? buildPausedWaitText(paused) : buildLoopWait(lastIdle ?? null);
 
 /**
- * A tracker's loop wait: a pause of every checkout the loop serves it from
- * outranks the loop's own wait (#5275); none where it serves none.
- * @param {string[]} served the tracker's served checkouts
+ * @param {string[]} served
  * @param {LoopReading} loop
  * @returns {string|null}
  */
@@ -198,20 +130,14 @@ function buildTrackerWait(served, loop) {
 }
 
 /**
- * A stopped loop's last run, which keys its stop finding: its control's count
- * point, or the last tick's where the control is damaged (#3927).
  * @param {{noProgressFrom: number}|null} control
- * @param {{from: number}|null|undefined} launchCount the state file's
- * @returns {number|null} ms; null where neither reads
+ * @param {{from: number}|null|undefined} launchCount
+ * @returns {number|null}
  */
 const stoppedRunOf = (control, launchCount) =>
 	control?.noProgressFrom ?? launchCount?.from ?? null;
 
 /**
- * A tracker's parked issues held at the limit-cap parks' cap, each to its hold:
- * the loop routes a row on the newest marker in the row's own checkout, so it is
- * held where that marker in any checkout is at the cap, from the latest such
- * start.
  * @param {TrackerRead} t
  * @returns {[string, IdleHold][]}
  */
@@ -239,17 +165,15 @@ const buildLimitCapHolds = ({ repo, issues, markers }) =>
 		});
 
 /**
- * The readings findIdleEfforts judges, joined from checkout roots to the
- * trackers they file to.
  * @param {object} input
- * @param {Map<string, string[]>} input.rootsOf tracker to its checkouts
+ * @param {Map<string, string[]>} input.rootsOf
  * @param {TrackerRead[]} input.trackers
  * @param {LoopReading} input.loop
- * @param {number} input.now ms
+ * @param {number} input.now
  * @returns {Readings}
  */
 function buildReadings({ rootsOf, trackers, loop, now }) {
-	/** The trackers checkout `root` files to. @param {string} root */
+	/** @param {string} root */
 	const reposOf = (root) =>
 		[...rootsOf].filter(([, roots]) => roots.includes(root)).map(([r]) => r);
 	/** @type {Map<string, number>} */
@@ -262,8 +186,6 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 			for (const n of issues) running.add(refKey({ repo, number: n }));
 	};
 	for (const l of loop.launches) markRunning(l.root, l.issues);
-	/* The marker's entries last, so a cap, which no reset ends, names a row over
-	 * the loop's full-seat hold of it. */
 	/** @type {Readings["holds"]} */
 	const holds = new Map([
 		...loop.held.flatMap(({ root, number, why, since, onLimit }) =>
@@ -311,20 +233,14 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 	};
 }
 
-/**
- * Whether an open blocker holds the issue. A list longer than QUERY reads is
- * read as blocked.
- * @param {GhJson} conn
- */
+/** @param {GhJson} conn */
 const isBlocked = (conn) =>
 	(conn?.totalCount ?? 0) > (conn?.nodes ?? []).length ||
 	(conn?.nodes ?? []).some((/** @type {GhJson} */ b) => b?.state === "OPEN");
 
 /**
- * One tracker's open issues from QUERY's answer, its gates judged at `now`.
- * Throws where a page names no issues.
  * @param {GhJson[]} pages
- * @param {number} now ms
+ * @param {number} now
  * @returns {IssueReading[]}
  */
 function parseIssueNodes(pages, now) {
@@ -353,7 +269,7 @@ function parseIssueNodes(pages, now) {
 
 /**
  * @param {IssueReading} i
- * @param {boolean} isHeld whether it is held
+ * @param {boolean} isHeld
  */
 const isExcluded = (i, isHeld) =>
 	i.blocked ||
@@ -362,8 +278,6 @@ const isExcluded = (i, isHeld) =>
 	(i.labels.includes(PARKED_LABEL) && !isHeld);
 
 /**
- * The open children of `key` this reading holds; a closed child, or one in a
- * tracker that would not read, is none.
  * @param {string} key
  * @param {Map<string, IssueReading>} open
  */
@@ -371,12 +285,10 @@ const openChildKeys = (key, open) =>
 	(open.get(key)?.children ?? []).map(refKey).filter((k) => open.has(k));
 
 /**
- * Whether `key` waits on something other than a launch; one the loop holds
- * waits on no child (#3838).
  * @param {string} key
  * @param {Map<string, IssueReading>} open
  * @param {Readings["holds"]} holds
- * @param {Set<string>} seen accumulator: the keys already walked
+ * @param {Set<string>} seen
  * @returns {boolean}
  */
 function isWaiting(key, open, holds, seen = new Set()) {
@@ -393,14 +305,10 @@ function isWaiting(key, open, holds, seen = new Set()) {
 }
 
 /**
- * The latest launch or hold's start of `key` or any descendant, Infinity where
- * one is running, else -Infinity. A hold counts so that a container is not named
- * over a child held under 2 days, parked holds included (#3838). A closed child
- * is read for its own only, its descendants unread.
  * @param {string} key
  * @param {Map<string, IssueReading>} open
  * @param {Readings} readings
- * @param {Set<string>} seen accumulator: the keys already walked
+ * @param {Set<string>} seen
  * @returns {number}
  */
 function lastActivityUnder(key, open, readings, seen = new Set()) {
@@ -420,11 +328,10 @@ function lastActivityUnder(key, open, readings, seen = new Set()) {
 }
 
 /**
- * Whether an open descendant of `key` is itself idle.
  * @param {string} key
  * @param {Map<string, IssueReading>} open
  * @param {Set<string>} idle
- * @param {Set<string>} seen accumulator: the keys already walked
+ * @param {Set<string>} seen
  * @returns {boolean}
  */
 function hasIdleDescendant(key, open, idle, seen = new Set()) {
@@ -436,8 +343,6 @@ function hasIdleDescendant(key, open, idle, seen = new Set()) {
 }
 
 /**
- * A full seat's hold stays under a probe hold's reason: it ends on its reset, so
- * the probe is the one left to act on.
  * @param {TrackerReading} t
  * @param {IssueReading} i
  * @param {IdleHold} [hold]
@@ -455,7 +360,6 @@ function buildRowSkip(t, i, hold) {
 }
 
 /**
- * Every tracker's efforts idle past 2 days.
  * @param {Readings} readings
  * @returns {TrackerFinding[]}
  */
@@ -464,7 +368,7 @@ function findIdleEfforts(readings) {
 	const open = new Map();
 	for (const t of readings.trackers)
 		for (const i of t.issues) open.set(refKey({ repo: t.repo, ...i }), i);
-	/** @type {Map<string, number>} key to its idle time, past 2 days only */
+	/** @type {Map<string, number>} */
 	const idleMs = new Map();
 	for (const [key, i] of open) {
 		if (isWaiting(key, open, readings.holds)) continue;
@@ -504,17 +408,10 @@ const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
 
 const LOOP_STOPPED_TEXT = `The refill loop is not running, so it serves no tracker. node ${scriptPath("refill-loop.js")} start restarts it.`;
 
-/** @param {string} damage a damaged file's line, as its reader words it */
+/** @param {string} damage */
 const buildDamagedText = (damage) => `Refill loop file damaged: ${damage}`;
 
-/**
- * Why a row the launch filter passes has not launched. Rank starvation is this
- * alarm's to name (#3623), and rank holds back nothing the loop does not serve
- * (#3894), nor is it named where no served hold store reads (#3918), though the
- * loop launches there as if no hold were open (lib/repo-holds.js's tendHolds), or
- * where the loop launches no row whatever its rank, which outranks that (#3920).
- * @param {TrackerFinding} f
- */
+/** @param {TrackerFinding} f */
 function buildFilterPassedText(f) {
 	const passed = "none, the launch filter passes it";
 	if (!f.served) return passed;
@@ -528,18 +425,13 @@ function buildFilterPassedText(f) {
 /**
  * @typedef {object} IdleLine
  * @property {string} text
- * @property {boolean} nested beneath the tracker line before it
+ * @property {boolean} nested
  */
 
 /**
- * One line per tracker, beneath it each issue past the threshold held at the
- * limit-cap parks' cap or on a limit that the line does not already name as its
- * oldest, and
- * beneath a tracker the loop does not serve, each `urgent` one; first, a line for
- * each damaged file, then the line that no loop runs.
  * @param {TrackerFinding[]} findings
- * @param {boolean} omitStopLine a loop runs, or its stop was already shown
- * @param {string[]} damaged each damaged file's line
+ * @param {boolean} omitStopLine
+ * @param {string[]} damaged
  * @returns {IdleLine[]}
  */
 function buildIdleLines(findings, omitStopLine, damaged) {
@@ -588,12 +480,9 @@ function buildIdleLines(findings, omitStopLine, damaged) {
  */
 
 /**
- * One record per damaged file being named, one for a stopped loop being named,
- * then one per tracker holding a finding: an unread tracker, or one with efforts
- * idle past the threshold.
  * @param {TrackerFinding[]} findings
  * @param {boolean} stopUnseen
- * @param {string[]} damaged each damaged file's line
+ * @param {string[]} damaged
  * @returns {FindingRecord[]}
  */
 const buildFindingRecords = (findings, stopUnseen, damaged) => [
@@ -631,24 +520,20 @@ const buildFindingRecords = (findings, stopUnseen, damaged) => [
 
 /**
  * @typedef {object} SeenStamp
- * @property {string} day machine-local `YYYY-MM-DD`
+ * @property {string} day
  * @property {string[]} seen
  */
 
-/**
- * A tracker's finding is an idle issue, or its failing to read.
- * @param {TrackerFinding} f
- */
+/** @param {TrackerFinding} f */
 const findingKeys = (f) =>
 	f.error === null
 		? f.idle.map((i) => refKey({ repo: f.repo, number: i.number }))
 		: [`${f.repo.toLowerCase()} unread`];
 
-/** @param {string} damage a damaged file's line */
+/** @param {string} damage */
 const buildDamagedKey = (damage) => `damaged ${damage}`;
 
 /**
- * The findings a delivered stamp records for `day`.
  * @param {string|null} stamp
  * @param {string} day
  * @returns {Set<string>}
@@ -662,16 +547,11 @@ function seenOn(stamp, day) {
 				: [],
 		);
 	} catch {
-		/* Damaged only repeats today's notice (#3644). */
 		return new Set();
 	}
 }
 
 /**
- * What a session start names, once per finding per day: each tracker holding a
- * finding the delivered stamp does not record for `day`, whole, a damaged file
- * it does not record, and a stopped loop it does not record, a run that stops
- * after a restart being a new finding.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
  * @param {string[]} damaged
@@ -703,32 +583,26 @@ function selectUnseen(
 
 /**
  * @typedef {object} IdleNotice
- * @property {string|null} stamp the last delivered signature
+ * @property {string|null} stamp
  * @property {string} day
  * @property {boolean} held
- * @property {number|null} stoppedRun the last run's count point, ms, as
- *   stoppedRunOf reads it
+ * @property {number|null} stoppedRun
  */
 
 /**
  * @typedef {object} IdleReport
- * @property {TrackerFinding[]} unseen the trackers this run names
+ * @property {TrackerFinding[]} unseen
  * @property {boolean} stopUnseen
- * @property {string[]} damagedUnseen the damaged files' lines this run names
- * @property {string[]} lines its text, nested lines indented; empty where it
- *   names none
- * @property {string|null} signature what records this report's findings as shown
- * @property {string|null} stampNow the signature to write now; null where this
- *   start holds the notice or has nothing new to record
+ * @property {string[]} damagedUnseen
+ * @property {string[]} lines
+ * @property {string|null} signature
+ * @property {string|null} stampNow
  */
 
 /**
- * What one run reports and records. A `notice` run, a session start's, names
- * only what its stamp does not record for its day; a plain run names all and
- * records nothing.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
- * @param {string[]} damaged each damaged file's line
+ * @param {string[]} damaged
  * @param {IdleNotice|null} notice
  * @returns {IdleReport}
  */

@@ -1,11 +1,3 @@
-/*
- * The fake of the PyPI ports lib/pip-install-host.js wires into the
- * guard-pip-install core: PyPI's JSON API and pypistats' recent downloads
- * (#5232), in-process and as a WFC_CURL stub. lib/pypi-registry.contract.test.ts
- * holds it to the real services through the real host. The bodies are
- * synthetic in value and the real services' in shape.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
@@ -16,19 +8,10 @@ export interface Http {
 }
 export type Get = { missing: true } | Http;
 
-/**
- * What the fake answers. `created` is the first upload's ISO date or a
- * failure mode: `404` (no such project), `FAIL` (no answer) or `MISSING`
- * (curl will not start). `downloads` is last month's figure, `404` (pypistats
- * has no record), `FAIL` or `MISSING`.
- */
 export interface PyPI {
 	created: string;
 	downloads: number | "404" | "FAIL" | "MISSING";
-	/** Raw PyPI body and code, in place of the ones `created` gives. */
 	pypiOut?: Http;
-	/** The stub's first pypistats call answers this code, empty, as a
-	 * rate-limited burst does; every later one answers `downloads`. */
 	statsFirstCode?: number;
 }
 
@@ -88,12 +71,6 @@ export function statsAnswer(reg: PyPI): Get {
 	};
 }
 
-/**
- * Writes a `curl` stub under `dir` and returns the environment that serves
- * a PyPI's answers through it: the body then `\n<code>`, as the host's `-w`
- * asks, and curl's exit 7 where no answer came. It logs its argv to
- * `$STUB_CALLS`.
- */
 export function writePyPIStub(dir: string) {
 	fs.mkdirSync(dir, { recursive: true });
 	const file = path.join(dir, "curl");

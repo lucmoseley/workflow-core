@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/queue-alert.js (#4485, spec #4458): one alert per crossing of the
- * queue's wait or depth limit, re-armed once back within it, over a canned
- * queue log and a tracker held in memory. Prior art: the landing-stall and
- * stall-ticket tests.
- *
- * Loosen it and every refill-loop tick past a limit files or refreshes a
- * ticket, a second crossing after a return within the limit goes unalerted,
- * or a ticket stays open over a queue that has recovered.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

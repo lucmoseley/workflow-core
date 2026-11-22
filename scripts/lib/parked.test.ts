@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The park marker's limit-cap count (#3804), through its real file, as the marker
- * is the one record that outlives a launch. A count that does not read back
- * lets a ticket burn the cap without bound; one that survives another write
- * holds back a question waiting on the founder. A marker that will not read
- * (#3893) must not read as no hold on the idle alarm, which would hide a
- * limit-cap hold, nor blank the loop's other markers. unparkClosed (#3940) reports
- * a label that stays, for the next tick to retry, and throws on an unread list.
- * moveParkedBy (#3709, #3940) writes the copy's marker before trimming the old
- * one: the other order loses the park on a failed write, so no typing or ending
- * takes the label off. A key that does not read back (#4147) reads an overflow
- * seat's session as the plan seat's on its dir, and charges that seat's cap.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -94,7 +81,6 @@ describe("a park marker's overflow key (#4147)", () => {
 });
 
 describe("a marker that will not read (#3893)", () => {
-	/** Unlocked after `body`, so the tmp dir cleans up. */
 	function withLockedMarker(body: () => void) {
 		writeParkedBy("s1", [7], { root });
 		writeParkedBy("s2", [8], { root });
@@ -128,7 +114,6 @@ describe("a marker that will not read (#3893)", () => {
 
 	it("counts a marker gone between the listing and its read as no park (#3709)", () => {
 		writeParkedBy("s1", [7], { root });
-		/* Listed by readdir, gone to stat and read: the race, held still. */
 		fs.symlinkSync(path.join(root, "gone"), markerFile("s2"));
 		expect(readParkMarkersOrThrow(root)).toMatchObject([
 			{ sessionId: "s1", issues: [7] },

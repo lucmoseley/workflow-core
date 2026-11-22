@@ -1,55 +1,6 @@
-/*
- * read-hidden.js — one line typed at a terminal with echo off, for a founder
- * entering a secret that must never reach the screen or the chat (#640).
- *
- * Raw mode is what turns echo off, so the line discipline's own editing goes
- * with it and is rebuilt here: Enter ends the line, backspace edits it, and an
- * arrow key's whole escape sequence is dropped, which would otherwise leave
- * `[D` inside the value. Ctrl-C and Ctrl-D reject.
- *
- * Bytes are decoded as strict UTF-8 across reads, so a character split
- * between two chunks arrives whole and invalid input rejects rather than
- * becoming U+FFFD (#3675). Backspace removes one code point, never half a
- * surrogate pair; a combining accent or a ZWJ emoji part goes one at a time.
- *
- * NO KEYSTROKE VANISHES INTO THE VALUE (#3817). Any other control character, a
- * tab, Ctrl-U, a NUL, a C1 control such as U+0085 or an ESC outside a complete
- * `ESC [` or `ESC O` sequence, would leave a value other than the one given,
- * unseen. Each rejects, at the line end rather than the key, since rejecting at
- * the key would hand the rest of a value still being typed to the shell.
- * Residual: a format character such as U+200B enters unseen, as refusing that
- * class would refuse a ZWJ emoji (#3904).
- *
- * NOR DOES A BYTE THAT IS NOT UTF-8 END THE READ (#3826). Raw mode holds and all
- * input is discarded to the line end, and no silence ends that wait: a typist's
- * pause outlasts SETTLE_MS, and echo returning then would show the secret's tail
- * and hand it to the shell. Ctrl-C and Ctrl-D count as that line end and report the bad byte,
- * the cause the next attempt in that terminal would meet too.
- *
- * NO BYTE IS LEFT FOR THE SHELL (#3817). Whatever ends the read, raw mode stays
- * on and input is read and thrown away until the terminal has been silent for
- * SETTLE_MS, since a paste arrives in several reads and Node has no `tcflush`.
- * Anything after the line end but one LF after a CR, as Enter or a pasted CRLF
- * gives, rejects: the first line of a pasted key is not the key. Residual: a
- * paste stalling longer than SETTLE_MS stores what came before the stall,
- * replacing any old value, and spills the rest to the shell; after a rejected
- * line it stores nothing and spills the same. `write-secret.js`
- * refuses a PEM header alone, the likeliest such first line.
- *
- * A TERMINAL THAT CLOSES before the read finishes rejects (#3817). A read error
- * is how a closed pty master arrives, and restoring raw mode on it emits
- * another, so the `error` listener stays on for the life of the stream.
- *
- * Each rejection's message is the reason `write-secret.js` prints, and holds
- * nothing of the value.
- */
-
-/* Untraced: long enough that a paste's reads run together, short enough not to
- * matter after Enter at a prompt run by hand. A key typed inside it is refused
- * and re-run. */
+// guess, #3817
 const SETTLE_MS = 500;
 
-/* Unicode's Cc: the C0 controls, DEL and the C1 controls (#3904). */
 const CONTROL = /\p{Cc}/u;
 
 const INTERRUPTED = "interrupted. Re-run to enter the value.";
@@ -64,7 +15,6 @@ const EOF_KEY =
 const CLOSED =
 	"the terminal closed before the read finished. Re-run to enter the value.";
 
-/** Each character that closes the line, and "end" or the rejection it brings. */
 const LINE_ENDS = new Map([
 	["\r", "end"],
 	["\n", "end"],
@@ -72,25 +22,17 @@ const LINE_ENDS = new Map([
 	["\x04", EOF_KEY],
 ]);
 
-/* LINE_ENDS as bytes. None can sit inside a multibyte character in UTF-8 or in
- * the legacy encodings that send invalid UTF-8. */
 const LINE_END_BYTES = new Set(
 	Array.from(LINE_ENDS.keys(), (ch) => ch.charCodeAt(0)),
 );
 
-/* `esc` is 0 outside an escape sequence; 1 after ESC; 2 inside `ESC [` or
- * `ESC O`, which the first byte in @..~ ends. `stray` is set once a key the
- * value cannot carry has been dropped, `notUtf8` once a byte has failed to
- * decode. */
-/** @typedef {{ value: string, esc: 0 | 1 | 2, stray: boolean, notUtf8: boolean }} HiddenLine The line so far. */
+/** @typedef {{ value: string, esc: 0 | 1 | 2, stray: boolean, notUtf8: boolean }} HiddenLine */
 
-/* How the read ended: `why` is the rejection or null, and `lineEnd` the
- * character that ended the line, until any input follows it. */
 /** @typedef {{ why: string | null, lineEnd: string }} Ending */
 
 /**
  * @param {Pick<NodeJS.ReadStream, "setRawMode" | "on" | "removeListener" | "pause" | "resume">} input
- * @returns {Promise<string>} rejects with the reason to print
+ * @returns {Promise<string>}
  */
 function readHidden(input) {
 	return new Promise((resolve, reject) => {
@@ -135,10 +77,10 @@ function readHidden(input) {
 }
 
 /**
- * @param {HiddenLine} line accumulator: the line being read
- * @param {TextDecoder} decoder accumulator: flushed once the line ends
+ * @param {HiddenLine} line
+ * @param {TextDecoder} decoder
  * @param {Buffer} bytes
- * @returns {Ending | null} null while the line is still open
+ * @returns {Ending | null}
  */
 function readChunk(line, decoder, bytes) {
 	const text = line.notUtf8 ? null : decodeStrict(decoder, bytes);
@@ -165,9 +107,9 @@ function readChunk(line, decoder, bytes) {
 }
 
 /**
- * @param {TextDecoder} decoder accumulator: holds a split character for the next read
+ * @param {TextDecoder} decoder
  * @param {Buffer} bytes
- * @returns {string | null} null where the bytes are not valid UTF-8
+ * @returns {string | null}
  */
 function decodeStrict(decoder, bytes) {
 	try {
@@ -178,8 +120,8 @@ function decodeStrict(decoder, bytes) {
 }
 
 /**
- * @param {Ending} ending accumulator: rejected once more than the line end's LF follows
- * @param {string} rest what followed
+ * @param {Ending} ending
+ * @param {string} rest
  */
 function noteFollowing(ending, rest) {
 	if (rest === "") return;
@@ -190,9 +132,8 @@ function noteFollowing(ending, rest) {
 }
 
 /**
- * Ends the decoder's stream.
- * @param {TextDecoder} decoder accumulator: left with nothing held
- * @returns {string} a character standing for an unfinished one it held, else ""
+ * @param {TextDecoder} decoder
+ * @returns {string}
  */
 function flushDecoder(decoder) {
 	try {
@@ -204,10 +145,9 @@ function flushDecoder(decoder) {
 }
 
 /**
- * @param {HiddenLine} line accumulator: the line being read, advanced one character
+ * @param {HiddenLine} line
  * @param {string} ch
- * @returns {string | null} "end" at the line end, the rejection at a key that
- *   ends the read without one, null while the line is still open
+ * @returns {string | null}
  */
 function readChar(line, ch) {
 	const outcome = LINE_ENDS.get(ch);
@@ -222,8 +162,7 @@ function readChar(line, ch) {
 }
 
 /**
- * @param {HiddenLine} line accumulator: its escape state, and `stray` where
- *   `ch` breaks the sequence
+ * @param {HiddenLine} line
  * @param {string} ch
  */
 function advanceEscape(line, ch) {

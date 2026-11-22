@@ -1,74 +1,3 @@
-/*
- * pass-store.js — the per-file pass store (#4790): every vitest run records
- * each file it ran with that file's outcome and the content of every input
- * its verdict rests on, and `npm run test` skips a file whose newest
- * recorded result on identical inputs is a pass.
- *
- * A FILE'S INPUTS are the file; its runtime import closure off vitest's
- * module graph, with every file it or that closure reaches through a relative
- * require, import, `__dirname`-spelled spawn or read, or declared load,
- * read lexically and transitively, since
- * the graph records no `createRequire` load; the documents the read-edge manifest maps to it, spawned
- * scripts' loads included (#1113); the Vitest config, its `setupFiles`
- * closure and what those reach lexically, as the git shim the setup puts on
- * every test's `PATH`; `package.json`, the lockfiles, `tsconfig.json` and
- * `.claude/workflow-core.json`, which the setup exports to every test; a snapshot file beside it; and,
- * as values, the Node version and the architecture, and python3's version
- * where its inputs hold a Python file or a file on its reach runs Python
- * inline. Each path a relative
- * specifier on the way tried before the file it resolved to is an input with
- * the id `absent` (#4814), so a file that appears there and takes the import
- * over voids the row. `globalSetup`'s closure
- * is in no row (#2818: it runs once, outside every file); a test that breaks only through it is the lander's to catch.
- *
- * AND WHAT THE READ AUDIT SAW IT READ (lib/read-audit.js, #4916): a path built
- * at run time — a helper's default root, a listing of the live tree — that no
- * lexical rule can find. Each file it read or probed is an input; each path it
- * found absent is `absent`; each directory it found must still be one; each
- * directory it listed keeps its listing's id, judged on the names git tracks
- * when recorded and on the names standing at lookup; a tree it walked whole
- * stands for every tracked file and listing under it; a script a shell
- * child ran is reached as a spawned script is.
- *
- * THE LOOKUP IS BY CONTENT (lib/content-ids.js, the classifier's judge): the
- * newest result whose every input holds unchanged in the working tree
- * decides, a pass caching the file and a fail running it.
- *
- * EVERY DOUBT RUNS THE FILE. An unreadable store, tree or manifest gives
- * "run" with one notice, and a line that will not parse runs the files it
- * names; a row whose input list is missing or empty never matches; a run
- * that errored outside its files, was interrupted or filtered by name
- * records its failures alone; a spawned Python import the reach cannot
- * place, a JSX or TSX file on the reach, or a load on it the walk cannot
- * read (lib/file-reach.js's `unread`: an inline program's, a JS load of no
- * literal, or a shell load spelled off anything but the script's own
- * directory), or a join off a file's own directory naming a file the walk
- * cannot tell (its `unknown`), records no row for the files it reaches,
- * a test file's own such join aside, which its audit saw; a file the audit
- * holds no reads for, or doubts, records none; an input rewritten while the run ran, or changed and put back since it began (#5018), untracked, gitignored
- * or that will not read records none for the files it reaches: the drift
- * watch sees tracked paths alone, so an untracked or ignored one may hold
- * other content than the run read. A FAILED file that would record none
- * records a voiding row, resting on each of its inputs whose content as the
- * run read it is known: a fail wherever those stand as they did, whatever
- * the rest hold, so no older pass on what may be the same content caches,
- * and no evidence of a red at a commit. A file whose header carries `uncached: <reason>`
- * is never cached; one carrying the pragma with no reason refuses the run.
- *
- * THE STORE is a directory beside the marker stores, in the canonical
- * checkout's `.claude/tmp/markers`, so every worktree shares it: one
- * append-only JSONL shard per test file, a line per run that ran it. A
- * lookup reads only the selected files' shards (#4792).
- * Each shard is appended, pruned and swept under its lock
- * (lib/retained-jsonl.js), on the pass-marker archive's retention.
- *
- * A ROWLESS RUN neither reads nor writes it, nor is audited (`isRowlessRun`): the
- * lander's tester's, and ci.yml's, whose store goes with the runner unread
- * (#5138). Residual: no CI run exercises a test under the audit's preload,
- * `strace` or git event log, so a fault only the audit brings out shows on
- * a local run alone.
- */
-
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -108,11 +37,6 @@ const idSeam = require("./session-id.js");
 
 const STORE = ".test-file-results";
 
-/* The paths every file's verdict rests on beside its own, where they exist:
- * the package files; `tsconfig.json`, which vite's transform reads for every
- * file; and `.claude/workflow-core.json`, which vitest.setup.ts reads through
- * `readConfig` off a root no walk reads, and exports to every test as
- * `WFC_ALWAYS_LOADED` and `WFC_OUTPUT_STYLE`. */
 const RUN_INPUTS = [
 	"package.json",
 	"package-lock.json",
@@ -123,18 +47,13 @@ const RUN_INPUTS = [
 	".claude/workflow-core.json",
 ];
 
-/* The header pragma: `uncached: <reason>`, a reason being a word. */
 const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
-/* The row layout: a run line of another, or none, never caches (#4814),
- * though its red still voids an older pass (#4995). */
 const FORMAT = 19;
 
-/* A content id as every layout since #4814 writes it: a mode and a blob id. */
 const BLOB_ID = /^\d{6} ([0-9a-f]{40}|[0-9a-f]{64})$/;
 
-/* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
 
 /**
@@ -144,34 +63,20 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  *   files: FileResult[], shared: string[], clean: boolean,
  *   steadiness: import("./run-steadiness.js").Steadiness|null,
  *   audits: Map<string, import("./read-audit.js").Audit>|null}} Run
- *   `root` the tree vitest ran in, paths relative to it; `shared` the config
- *   file and its `setupFiles` closure; `clean` false where the run errored
- *   outside its files, was interrupted or filtered by name; `steadiness`
- *   what its tree watch saw (lib/run-steadiness.js), null where none
- *   watched; `audits` each
- *   file's reads as the read audit saw them (lib/read-audit.js), null where
- *   the run was not audited
  * @typedef {{sha: string, at: string, tree: string|null}} Source
  * @typedef {{file: string, source: Source, reads: string[]}} Cached
- *   `reads` the row's input paths, the file's own and the shared ones
  * @typedef {{cached: Cached[], run: string[], refused: string[],
  *   notice: string|null}} Lookup
  * @typedef {{values?: Record<string, string>, rowless?: boolean}} Seams
- *   `values` today's, python3's read off the machine where it names none
  * @typedef {{base: Record<string, string>, python: () => string|null}} Values
- *   today's: the node and arch every row rests on, and python3's version,
- *   read only for a row that rests on it, null where python3 will not answer
  */
 
-/** @param {string} storeRoot the canonical checkout */
+/** @param {string} storeRoot */
 const storeDir = (storeRoot) => path.join(markersDir(storeRoot), STORE);
 
 /**
- * The shard holding `file`'s rows: named by a hash of its path, so any path
- * makes one flat, safe file name. 16 hex digits are 64 bits: two of a repo's
- * few thousand test files share a shard with odds near 1 in 10^12.
  * @param {string} storeRoot
- * @param {string} file repo-relative
+ * @param {string} file
  */
 const shardFile = (storeRoot, file) =>
 	path.join(
@@ -183,7 +88,6 @@ const shardFile = (storeRoot, file) =>
 const currentValues = () => ({ node: process.version, arch: process.arch });
 
 /**
- * Today's values under `seams`.
  * @param {Seams} seams
  * @returns {Values}
  */
@@ -192,21 +96,15 @@ function todayValues(seams) {
 	return { base, python: () => python ?? readPythonVersion() };
 }
 
-/** python3's version, or null where it will not answer. */
 function readPythonVersion() {
 	try {
 		return pythonVersion();
 	} catch {
-		// No python3 that answers is no version: a row that would rest on
-		// one is not recorded, and none recorded under one holds (#4790).
 		return null;
 	}
 }
 
 /**
- * The values a row rests on: one whose reach holds a Python file, walked
- * against python3's stdlib, or runs inline Python, runs under python3, so
- * its version joins node and arch. Null where python3 will not answer.
  * @param {boolean} runsPython
  * @param {Values} today
  * @returns {Record<string, string>|null}
@@ -217,14 +115,10 @@ function rowValues(runsPython, today) {
 	return python === null ? null : { ...today.base, python };
 }
 
-/**
- * Whether `paths` hold a Python file.
- * @param {string[]} paths
- */
+/** @param {string[]} paths */
 const holdsPython = (paths) => paths.some((p) => languageOf(p) === "python");
 
 /**
- * Options for a git in `root` fed `input` on stdin.
  * @param {string} root
  * @param {string} input
  */
@@ -242,7 +136,6 @@ const stdinOptions = (root, input) => ({
 });
 
 /**
- * `git hash-object --stdin-paths` in `root`.
  * @param {string} root
  * @returns {(args: string[], input: string) => string}
  */
@@ -250,8 +143,6 @@ const gitHasher = (root) => (args, input) =>
 	String(execGit(args, stdinOptions(root, input)));
 
 /**
- * The manifest at `root`'s documents for each of `files`. Throws where it
- * cannot be read or is malformed.
  * @param {string} root
  * @param {string[]} files
  * @returns {Map<string, string[]>}
@@ -264,7 +155,6 @@ function readManifestReads(root, files) {
 }
 
 /**
- * A snapshot file beside `file` where one stands, in vitest's default place.
  * @param {string} root
  * @param {string} file
  * @returns {string[]}
@@ -278,28 +168,11 @@ function snapshotOf(root, file) {
 	return fs.existsSync(path.join(root, snap)) ? [snap] : [];
 }
 
-/**
- * @typedef {{edges: string[], shadows: string[], python: boolean}} Reach
- *   repo-relative: the files reached, the paths a specifier on the way tried
- *   before the file it resolved to, and whether a file on the way runs inline
- *   Python
- */
+/** @typedef {{edges: string[], shadows: string[], python: boolean}} Reach */
 
 /**
- * Every in-repo file `file` reaches, transitively, read lexically off the
- * working tree at `root` (lib/code-edges.js's `readRunReach`): the edges
- * vitest's module graph never records, since this repo's tests reach their
- * subjects through `createRequire` and spawns. Memoised across the files of
- * one run. Null where the reach is unknown, which records no row (#4790,
- * #4864): a file on the way will not read, faults, holds a load the walk
- * cannot read or joins a path off its own directory it cannot tell, or
- * `file` is a script that is gone. A test file's own such join is excused
- * (`ownReadsJudged`): the read audit saw its reads. Residual: a test
- * spawning a script with such a Python import, as a third-party package, is
- * never cached, and no notice says so.
  * @param {string} root
- * @returns {(file: string, ownReadsJudged?: boolean) => Reach|null} `file`
- *   left out of `edges`
+ * @returns {(file: string, ownReadsJudged?: boolean) => Reach|null}
  */
 function lexicalReach(root) {
 	const runReach = readRunReach(root);
@@ -311,8 +184,6 @@ function lexicalReach(root) {
 				faulted = true;
 			});
 		} catch {
-			// A file on the way that will not read leaves the reach unknown:
-			// no row is recorded for a file reaching it (#4790).
 			return null;
 		}
 		const unknown = reach.unknown.some(
@@ -331,8 +202,6 @@ function lexicalReach(root) {
 }
 
 /**
- * The input paths beside every file's own: the run's shared inputs and the
- * `RUN_INPUTS` that exist at `root`.
  * @param {string} root
  * @param {string[]} shared
  */
@@ -347,14 +216,9 @@ const sharedInputs = (root, shared) => [
  * @typedef {{listing: (dir: string) => string|null,
  *   isDir: (dir: string) => boolean,
  *   git: (key: string) => string|null}} TreeAt
- *   what a tree answers beyond its files: each directory's listing id, null
- *   where none stands; whether one stands; and a git call's answer, by the
- *   key a row stores it under (lib/read-audit-git.js), null where it cannot
- *   run
  */
 
 /**
- * The working tree at `root`, beyond its files.
  * @param {string} root
  * @returns {TreeAt}
  */
@@ -367,8 +231,6 @@ function buildWorkingAt(root) {
 			try {
 				return listingId(fs.readdirSync(path.join(root, dir)));
 			} catch {
-				// No directory to list is no listing: a row resting on one
-				// there never holds (#4916).
 				return null;
 			}
 		},
@@ -377,7 +239,6 @@ function buildWorkingAt(root) {
 }
 
 /**
- * What `treeish` holds beyond its files, read through `git`.
  * @param {(args: string[]) => string} git
  * @param {string} treeish
  * @returns {TreeAt}
@@ -391,8 +252,6 @@ function buildCommitAt(git, treeish) {
 				.split("\0")
 				.filter(Boolean);
 		} catch {
-			// A path the commit holds no tree at, or a git that will not
-			// answer, is no directory there: the row never holds (#4916).
 			return null;
 		}
 	};
@@ -402,14 +261,11 @@ function buildCommitAt(git, treeish) {
 			return found === null ? null : listingId(found);
 		},
 		isDir: (dir) => names(dir) !== null,
-		/* A commit's tree runs no command: a row resting on one never holds there. */
 		git: () => null,
 	};
 }
 
 /**
- * Whether everything beyond its files a row rests on stands in `at` as it
- * did.
  * @param {{listings?: unknown, dirs?: unknown, git?: unknown}} rested
  * @param {TreeAt} at
  */
@@ -425,8 +281,6 @@ function isTreeHolding({ listings, dirs, git }, at) {
 }
 
 /**
- * Each tracked directory's names at `root`, off git's index: the listing a
- * test may rest on, since an untracked or ignored name is no input.
  * @param {string} root
  * @returns {() => Map<string, Set<string>>}
  */
@@ -452,13 +306,9 @@ function buildTrackedListings(root) {
 }
 
 /**
- * The inputs a file's audited reads add. Null where a listing the test
- * made, or a tree it walked, held a name git does not track, a path under a
- * tree it walked moved while the run ran, or a git call it made answers
- * other than it did for the test.
  * @param {import("./read-audit.js").Reads} reads
  * @param {() => Map<string, Set<string>>} listings
- * @param {TreeAt} working the working tree: its directories and git calls
+ * @param {TreeAt} working
  * @param {(top: string) => boolean} steadyUnder
  * @returns {{files: string[], absent: string[], dirs: string[],
  *   logged: Record<string, string>, listings: Record<string, string>,
@@ -504,10 +354,6 @@ function auditInputs(reads, listings, working, steadyUnder) {
 }
 
 /**
- * What a tree walked or copied whole rests on: every tracked file under
- * `top`, or `top` itself where it is no tracked directory, and every tracked
- * directory's listing under it. Null where a listing on working holds a name
- * git does not track.
  * @param {string} top
  * @param {Map<string, Set<string>>} tracked
  * @param {TreeAt} working
@@ -534,22 +380,12 @@ function treeInputs(top, tracked, working) {
  * @typedef {{logged: Record<string, string>,
  *   listings: Record<string, string>, dirs: string[],
  *   git: Record<string, string>}} Seen
- *   what a file's audit saw it rest on beyond files, each as the working
- *   tree answered it once the run ended: `logged` the listings the test
- *   made, each under the id it got, `listings` those and every listing of a
- *   tree it walked, and each git call's answer, run again
- * @typedef {Reach & {from: string}} Reached the reach of the path `from`
+ * @typedef {Reach & {from: string}} Reached
  * @typedef {FileResult & {direct: string[], reached: Reached[],
  *   probed: string[], seen: Seen|null, whole: boolean}} Gathered
- *   one ran file's inputs as far as they can be told: `direct` the paths
- *   named for it outright, `reached` each reach that read whole, `probed`
- *   the paths its audit found absent, `seen` null where its audit is missing,
- *   in doubt or rests on a listing holding an untracked name; `whole` false
- *   where any of it is unknown
  */
 
 /**
- * One ran file's inputs, as far as they can be told.
  * @param {FileResult} f
  * @param {{run: Run, reads: Map<string, string[]>,
  *   reach: (file: string, ownReadsJudged?: boolean) => Reach|null,
@@ -565,11 +401,6 @@ function gatherInputs(
 	const audited = audit && "reads" in audit ? audit.reads : null;
 	const found = audited && auditInputs(audited, listings, working, steadyUnder);
 	const seen = found && isTreeHolding(found, working) ? found : null;
-	/* A script the manifest says the file reads is reached too, as it
-	 * may spawn it: its own requires are inputs that no import and no
-	 * `__dirname` join names. A read holding no script reaches none.
-	 * The config and setup files run before every file, so what they
-	 * reach, which vite's graph never records, is each file's too. */
 	const spawned = reads.get(f.file) ?? [];
 	const scripts = audited?.scripts ?? [];
 	const roots = [...f.imports, ...spawned, ...run.shared, ...scripts];
@@ -605,22 +436,14 @@ function gatherInputs(
  *   inputs: Record<string, string|null|undefined>,
  *   listings: Record<string, string>, dirs: string[],
  *   git: Record<string, string>}} Row
- *   one file's verdict and what it rests on, as its shard line carries it
  * @typedef {{values: Record<string, string>, shared: Record<string, unknown>,
  *   row: Row}} Recorded
- *   one file's row with the values and shared inputs its run line carries
  * @typedef {{gathered: Gathered[], shared: string[],
  *   ids: Map<string, string|null>, steady: import("./run-steadiness.js").Steady,
  *   isKnown: (p: string) => boolean, isAbsent: (p: string) => boolean}} RunInputs
- *   a run's inputs as read off the tree once it ended: each file's, the
- *   shared ones, every path's content id, the run's steadiness asked once
- *   those were read, and whether a path's content as the run read it is
- *   known, or known to be none
  */
 
 /**
- * The inputs of each of `files` and of the run, with what the tree tells of
- * each path. Throws where the tree or the manifest will not read.
  * @param {Run} run
  * @param {FileResult[]} files
  * @returns {RunInputs}
@@ -660,7 +483,6 @@ function readRunInputs(run, files) {
 		]),
 	];
 	const ids = readWorkingIds(gitHasher(run.root), run.root, tried);
-	/* Asked after the ids, so a change before they were read is seen (#5018). */
 	const steady = readSteady(run.steadiness, run.root, tried);
 	const { isSteady } = steady;
 	return {
@@ -669,16 +491,11 @@ function readRunInputs(run, files) {
 		ids,
 		steady,
 		isKnown: (p) => isSteady(p) && typeof ids.get(p) === "string",
-		/* A path tried before the resolved file must read as no file: one that
-		 * appeared since the reach was read, or a symlink, which no id answers,
-		 * leaves the resolution the run used unknown, as does one that held a
-		 * file while the run ran and is gone now. */
 		isAbsent: (p) => isSteady(p) && ids.has(p) && ids.get(p) === null,
 	};
 }
 
 /**
- * `paths` with each one's content id.
  * @param {string[]} paths
  * @param {Map<string, string|null>} ids
  */
@@ -686,7 +503,6 @@ const idsOf = (paths, ids) =>
 	Object.fromEntries(paths.map((p) => [p, ids.get(p)]));
 
 /**
- * The row of each file whose every input is known.
  * @param {RunInputs} inputs
  * @param {Seams} seams
  * @returns {Recorded[]}
@@ -730,8 +546,6 @@ function buildKnownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
 }
 
 /**
- * A failed file's voiding row, resting on `keyed`: the inputs, logged
- * listings and directories it names, and nothing where it names none.
  * @param {string} file
  * @param {{inputs?: Row["inputs"], listings?: Row["listings"],
  *   dirs?: Row["dirs"]}} [keyed]
@@ -751,17 +565,6 @@ const buildVoidingRow = (
 });
 
 /**
- * A voiding row for each of `failed`, the failed files no known row holds:
- * a red whose inputs are unknown still voids an older pass (#4790). Its row
- * keys every input whose content as the run read it is known, and leaves
- * the rest unkeyed, so it decides wherever those stand as they did,
- * whatever the rest hold. A file reached only through one whose content is
- * unknown is unkeyed too, the run's reach being that file's as it then
- * stood. Beyond files it keys only what the audit logged
- * as the test got it, a listing it made and a directory it found: a git
- * call's answer and a walked tree's listings are read once the run ended,
- * and one that moved since the test read it would key the row off the
- * content the red ran on.
  * @param {Gathered[]} failed
  * @param {RunInputs} inputs
  * @param {Seams} seams
@@ -778,8 +581,6 @@ function buildVoidingRows(failed, inputs, seams) {
 		const absent = [
 			...new Set([...sound.flatMap((r) => r.shadows), ...g.probed]),
 		].filter(isAbsent);
-		/* Where the watch did not see the run through, nothing says what the
-		 * audit logged beyond files stood so while the run ran. */
 		const seen = inputs.steady.known ? g.seen : null;
 		return {
 			values,
@@ -797,8 +598,6 @@ function buildVoidingRows(failed, inputs, seams) {
 }
 
 /**
- * A voiding row for each of `failed` where the tree would not read: it keys
- * nothing, and decides at any content (#4790).
  * @param {FileResult[]} failed
  * @param {Seams} seams
  * @returns {Recorded[]}
@@ -813,10 +612,6 @@ function buildUnkeyedVoidingRows(failed, seams) {
 }
 
 /**
- * A run's rows off its inputs: each file's known row, and a voiding row for
- * each failed file that has none. Where the tree moved after the run's end
- * snapshot, every id was read off content no test saw, so it keys no row
- * and its failures void unkeyed.
  * @param {RunInputs} inputs
  * @param {Seams} seams
  * @returns {Recorded[]}
@@ -836,11 +631,9 @@ function buildRows(inputs, seams) {
 	return [...known, ...buildVoidingRows(failed, inputs, seams)];
 }
 
-/* Set by ci.yml's Vitest job. */
 const ROWLESS_RUN = "WFC_ROWLESS_RUN";
 
 /**
- * Whether this run keeps no rows: the lander or ci.yml started it.
  * @param {Record<string, string|undefined>} [env]
  * @returns {boolean}
  */
@@ -849,11 +642,6 @@ function isRowlessRun(env = process.env) {
 }
 
 /**
- * Append one row per file `run` ran. A run that was not clean — filtered,
- * bailed, interrupted, or erred outside its files — records its failures
- * alone: its passes cannot be trusted, but a fail row only ever makes a file
- * run. Never throws: a store that cannot be written costs the rows, never
- * the run, and says why on `err`. Returns how many rows landed.
  * @param {Run} run
  * @param {{storeRoot: string|null,
  *   err?: {write: (s: string) => unknown}} & Seams} options
@@ -889,8 +677,6 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 				shardFile(storeRoot, row.file),
 				{ ...line, shared, values, files: [row] },
 				ARCHIVE_MS,
-				// The prune drops a line that will not parse, after which rows
-				// older than it decide again, and it may have been a newer fail.
 				{ dropOnBadLine: true },
 			),
 		).length;
@@ -905,8 +691,6 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 }
 
 /**
- * `sweepShards`, a fault said on `err`: the rows have landed by then, and a
- * failed sweep costs only disk.
  * @param {string} storeRoot
  * @param {{write: (s: string) => unknown}} err
  */
@@ -920,21 +704,12 @@ function sweepOrSay(storeRoot, err) {
 	}
 }
 
-/**
- * Delete every shard untouched for a day past the retention: a test file
- * deleted or never run again leaves one, which no append would prune. The
- * day past the retention is the prune's own slack (lib/retained-jsonl.js), so
- * a shard goes no sooner than an append to it would have emptied it.
- * @param {string} storeRoot
- */
+/** @param {string} storeRoot */
 function sweepShards(storeRoot) {
 	sweepRetained(storeDir(storeRoot), Date.now() - ARCHIVE_MS - DAY_MS);
 }
 
 /**
- * The pragma in `file`'s header — its leading comment lines — at `root`:
- * `none`, `reasoned`, or `bare` where it names no reason. An unreadable file
- * reads as reasoned, which runs it.
  * @param {string} root
  * @param {string} file
  * @returns {"none"|"reasoned"|"bare"}
@@ -952,9 +727,7 @@ function readPragma(root, file) {
 }
 
 /**
- * Which of `files` a recorded pass attests on the working tree at `root`.
- * Never throws: every fault runs the files it reaches and says so once.
- * @param {string[]} files repo-relative test files, in plan order
+ * @param {string[]} files
  * @param {{root: string, storeRoot: string|null} & Seams} options
  * @returns {Lookup}
  */
@@ -986,15 +759,9 @@ function lookup(files, { root, storeRoot, ...seams }) {
 	};
 }
 
-/**
- * @typedef {{row: Record<string, unknown>, run: Record<string, unknown>}} Entry
- *   one file's row and the run line holding it
- */
+/** @typedef {{row: Record<string, unknown>, run: Record<string, unknown>}} Entry */
 
 /**
- * The cached files among `candidates`. Throws, naming the cause, where the
- * store, the working tree or the manifest will not read; a line that will
- * not parse runs the files it names, with `notice` saying so.
  * @param {string[]} candidates
  * @param {{root: string, storeRoot: string} & Seams} options
  * @returns {{cached: Cached[], notice: string|null}}
@@ -1036,10 +803,6 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 }
 
 /**
- * Each candidate's recorded rows inside the retention, newest first, and the
- * candidates whose shard holds a line that will not parse: its lost row may
- * be the file's newest, so none of its older rows may decide. Throws where
- * the store will not read; an absent shard holds none.
  * @param {string} storeRoot
  * @param {string[]} candidates
  * @returns {{byFile: Map<string, Entry[]>, unparsed: Set<string>}}
@@ -1060,8 +823,6 @@ function readEntries(storeRoot, candidates) {
 			);
 		}
 		if (read && read.bad.length > 0) unparsed.add(file);
-		/* A shard prunes only when appended, so a file left unrun keeps rows
-		 * past the retention: none of them decides. */
 		const since = Date.now() - ARCHIVE_MS;
 		runs.push(
 			...(read?.rows ?? [])
@@ -1073,9 +834,6 @@ function readEntries(storeRoot, candidates) {
 }
 
 /**
- * A line of another layout naming no row `groupByFile` can read stands as a
- * red on unknown inputs of `file`, whose shard holds it: its outcome may have
- * been a fail (#4995).
  * @param {Record<string, unknown>} line
  * @param {string} file
  * @returns {Record<string, unknown>}
@@ -1092,13 +850,8 @@ function asReadableRun(line, file) {
 }
 
 /**
- * The row of this layout that decides its file among `entries`: the newest
- * that `holds`, or, behind a red of another layout no input proves was on
- * other content, the newest that holds and failed. That red's layout is one
- * this checkout cannot fully read, so it never decides a verdict itself, but
- * no pass older than it stands (#4995).
- * @param {Entry[]} entries newest first
- * @param {Map<string, string|null>} now each read path's content id here
+ * @param {Entry[]} entries
+ * @param {Map<string, string|null>} now
  * @param {(row: Record<string, unknown>, run: Record<string, unknown>) => boolean} holds
  * @returns {Entry|undefined}
  */
@@ -1113,11 +866,6 @@ function findDeciding(entries, now, holds) {
 }
 
 /**
- * Whether some input a row of another layout keys held other content than
- * it does `now`: a blob id that differs, or a file that has gone since. A
- * mode alone, an id of any other shape, or a path the row found absent
- * proves nothing: layouts up to 10 recorded as absent a path the run may yet
- * have read.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
  * @param {Map<string, string|null>} now
@@ -1137,14 +885,14 @@ function isOtherContent(row, run, now) {
 
 /**
  * @param {unknown} id
- * @returns {string|null} the blob id, null where `id` names none
+ * @returns {string|null}
  */
 const parseBlobId = (id) =>
 	typeof id === "string" ? (BLOB_ID.exec(id)?.[1] ?? null) : null;
 
 /**
  * @param {unknown} v
- * @returns {Record<string, unknown>|null} null where `v` is no plain object
+ * @returns {Record<string, unknown>|null}
  */
 const asRecord = (v) =>
 	v && typeof v === "object" && !Array.isArray(v)
@@ -1152,7 +900,6 @@ const asRecord = (v) =>
 		: null;
 
 /**
- * The store's run lines turned into each file's rows, newest first.
  * @param {Record<string, unknown>[]} runs
  * @returns {Map<string, Entry[]>}
  */
@@ -1184,11 +931,7 @@ const cachedFrom = (file, { row, run }) => ({
 	reads: readsOf({ row, run }),
 });
 
-/**
- * The paths a cached file's row read, its `absent` inputs left out: they are
- * no file, so no certificate reader judges them.
- * @param {Entry} entry
- */
+/** @param {Entry} entry */
 function readsOf({ row, run }) {
 	const own = asIds(row.inputs);
 	return [...new Set(entryReads({ row, run }))].filter(
@@ -1196,10 +939,7 @@ function readsOf({ row, run }) {
 	);
 }
 
-/**
- * A recorded row's input paths, its own and its run's shared ones.
- * @param {Entry} entry
- */
+/** @param {Entry} entry */
 const entryReads = ({ row, run }) => [
 	...inputPaths(row.inputs),
 	...inputPaths(run.shared),
@@ -1209,12 +949,6 @@ const entryReads = ({ row, run }) => [
 const inputPaths = (v) => Object.keys(asRecord(v) ?? {});
 
 /**
- * Whether one recorded row's verdict holds now: its file is `file`, it
- * recorded a non-empty input list with every id unchanged, the values it
- * rests on equal today's, it is in this store's `FORMAT`, and every document the manifest now maps to the file is
- * among its inputs. A voiding row, which only ever records a
- * fail, holds wherever every input it keyed stands as recorded, the file's
- * own among them or not.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
  * @param {{file: string, now: Map<string, string|null>,
@@ -1251,7 +985,7 @@ function isRowHolding(row, run, { file, now, values, reads, tree }) {
 
 /**
  * @param {unknown} v
- * @returns {Map<string, string|null>|null} null where `v` is no path-to-id map
+ * @returns {Map<string, string|null>|null}
  */
 function asIds(v) {
 	const ids = asRecord(v);
@@ -1266,7 +1000,6 @@ function asIds(v) {
 }
 
 /**
- * The banner lines naming each cached file with the run it came from.
  * @param {Cached[]} cached
  * @param {number} [nowMs]
  * @returns {string}
@@ -1290,20 +1023,12 @@ function age(ms) {
 	return h < 48 ? `${h} h` : `${Math.round(h / 24)} d`;
 }
 
-/**
- * The refusal for files whose `uncached:` pragma names no reason.
- * @param {string[]} files
- */
+/** @param {string[]} files */
 const buildPragmaRefusal = (files) =>
 	`\nUNCACHED PRAGMA WITH NO REASON — ${files.join(", ")}: \`uncached:\` keeps a file from ever being cached, and must say why, as \`uncached: <reason>\` (#4790). Nothing ran.\n\n`;
 
 /**
- * Write the cached files a run that looked the store up carries for its
- * vitest child — none cached included, which the run's records count — and
- * the environment entry naming them. Null where the file cannot be written,
- * which leaves the cached files out of the certificate: the unattested
- * direction.
- * @param {Cached[]|null} cached null where the run looked nothing up
+ * @param {Cached[]|null} cached
  * @param {string} file
  * @param {{write: (s: string) => unknown}} [err]
  * @returns {Record<string, string>|null}
@@ -1322,8 +1047,6 @@ function writeCachedHandoff(cached, file, err = process.stderr) {
 }
 
 /**
- * The cached files the launcher handed this vitest child, or null where it
- * looked nothing up or the hand-off will not read.
  * @param {Record<string, string|undefined>} [env]
  * @param {{write: (s: string) => unknown}} [err]
  * @returns {Cached[]|null}
@@ -1358,11 +1081,6 @@ const isCached = (c) => {
 };
 
 /**
- * A narrowed run's attestation with its cached files folded in, each as a
- * selected test whose imports are the reads its source row held (#4790).
- * The certificate readers then judge a cached file by content against this
- * run's tree, as they judge one it ran: lookup found every one of those
- * reads unchanged in the tree this run read. A full run's, or one that looked nothing up, is returned as is.
  * @template {import("./test-pass-marker.js").Attestation} A
  * @param {A} attestation
  * @param {Cached[]|null} cached
@@ -1394,11 +1112,6 @@ function foldCached(attestation, cached) {
 }
 
 /**
- * Each of `files`' newest row, recorded before `before`, whose verdict holds
- * at `sha`'s tree by content under this machine's values: the per-file
- * evidence the already-red classifier reads beside the marker stores
- * (#4790). The manifest's reads at `sha` go unasked, the row's own inputs
- * standing for them. Empty on any fault.
  * @param {string[]} files
  * @param {{ storeRoot: string|null, sha: string, before: string,
  *   git: (args: string[]) => string, values?: Record<string, string> }} at
@@ -1425,24 +1138,18 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 				});
 		}
 	} catch {
-		// A store or a commit that will not read is no evidence of a red at
-		// `sha`: the classifier is left the marker stores alone (#4790).
 		return new Map();
 	}
 	return held;
 }
 
 /**
- * The row of `entries` before `before` that decides at `sha`'s tree.
  * @param {string} file
- * @param {Entry[]} entries newest first
+ * @param {Entry[]} entries
  * @param {{ sha: string, before: string, git: (args: string[]) => string,
  *   values: Values }} at
  */
 function heldRow(file, entries, { sha, before, git, values }) {
-	/* A voiding row of this layout says what its file's content failed on
-	 * beside unknown inputs: no evidence of a red at a commit. Another
-	 * layout's only ever voids an older pass. */
 	const earlier = entries.filter(
 		({ row, run }) =>
 			String(run.at) < before &&

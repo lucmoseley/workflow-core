@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * review-agent-type.test.ts — lib/review-agent-type.js and its bash twin
- * lib/review-agent-type.sh name one subagent type for the two review axes on
- * the same host (#741): the bare `code-reviewer` where the host carries its
- * own definition, the plugin's `workflow-core:code-reviewer` where it does
- * not. Disagreeing, a review dispatched from a Skill-loaded route and one
- * from a typed /code-review ask for different agents, and an adopter is
- * refused the bare name as not found. A plain tempdir, not a git repo: gr_root
- * takes CLAUDE_PROJECT_DIR, and nothing here reads git.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -53,8 +43,6 @@ describe("the review subagent type, in both twins (#741)", () => {
 		expect(bash()).toBe("code-reviewer");
 	});
 
-	// `[[ -f ]]` reads a regular file only: a directory of that name defines
-	// no agent.
 	it("is the plugin's where the name is a directory", () => {
 		fs.mkdirSync(path.join(agents(), "code-reviewer.md"), { recursive: true });
 		expect(reviewAgentType(dir)).toBe("workflow-core:code-reviewer");

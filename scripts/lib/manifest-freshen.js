@@ -1,22 +1,3 @@
-/*
- * manifest-freshen.js — the read-edge manifest an overlay run's tree should
- * carry, written before the run is planned wherever the graph that tree
- * renders differs from it (#1860).
- *
- * The plan then selects the manifest's readers and names it among the paths
- * the certificate attests, so the commit gate does not regenerate it after the
- * run.
- *
- * THE WORKING TREE'S COPY IS WRITTEN TOO, so the commit carries it: under the
- * session's own claim, as a script writing a tracked doc must take, and only
- * where that copy still holds what the overlay was given, so a neighbour's
- * uncommitted manifest is never written over. Either refusal leaves that copy
- * alone and says so.
- *
- * A run in the working tree writes nothing: its render reads every
- * uncommitted test there, which the session's commit may not carry.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { claimByArbiter } = require("./script-claim.js");
@@ -24,14 +5,10 @@ const { caught } = require("./caught.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
 const { buildManifestText } = require("./read-edges-render.js");
 
-// A guess, never measured: a claim is one arbiter call, and a slow one leaves
-// the working tree's copy alone, said.
+// guess, #1860
 const CLAIM_TIMEOUT_MS = 5000;
 
 /**
- * A claim taken on `file` for `session`, by the arbiter's own CLI, with the
- * warning it printed where a live neighbour also holds the file (#4249) — or
- * why not.
  * @typedef {(file: string, session: string|null, cwd: string) => import("./script-claim.js").ClaimResult} ClaimFn
  * @type {ClaimFn}
  */
@@ -40,10 +17,6 @@ function claimWithArbiter(file, session, cwd) {
 }
 
 /**
- * The manifest under `dir`: its text, null where there is none, or an Error
- * where it would not read — which leaves the shared copy alone, since nothing
- * then says whose edit it holds.
- *
  * @param {string} dir
  * @returns {string|null|Error}
  */
@@ -58,10 +31,6 @@ function readManifest(dir) {
 }
 
 /**
- * The working tree's manifest written, or why it was left alone: it holds an
- * edit the overlay was not `given`, the claim failed, or the write failed. A
- * claim's warning of a live neighbour goes to `err`, and the write goes ahead.
- *
  * @param {string} home
  * @param {string} text
  * @param {{ given: string|null, session: string|null, claimFn: ClaimFn,
@@ -85,9 +54,6 @@ function writeShared(home, text, { given, session, claimFn, err }) {
 }
 
 /**
- * `rendered` written to the overlay at `root`, then to the working tree at
- * `home` by `writeShared`'s rules — each step said on `out` or `err`.
- *
  * @param {Record<string, string[]>} rendered
  * @param {{ root: string, home: string, session: string|null, claimFn?: ClaimFn,
  *   out: { write: (s: string) => unknown }, err: { write: (s: string) => unknown } }} at

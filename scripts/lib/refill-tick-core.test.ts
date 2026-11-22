@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * The refill tick's core (#4212, #4231) against a fake adapter: the order of
- * its steps, what a kill between two of them leaves the next tick, its
- * dry-run policy, and how it carries a restart's killed launches and a
- * limit-held launch into the state, the idle reason and the tick's record
- * (#4315); the sessions it launched into that record, the room a paused or
- * stopping tick leaves unread, which checkout it reads the free slots in
- * (#4962), which checkout it sizes the seats and a
- * parker's seat in, away mode's return, a paused tick, a launch hold, a full week's wait and
- * the hold notices' agent read (#4282). lib/refill-blocks.js and
- * lib/refill-limits.js decide for real, through refill-blocks-fixture's
- * BlockIo (#4913). Every port records its call, so a case
- * reads the order off one list; the state file is held in memory
- * (stateFileFake), and the control file under its lock (controlFileFake). The
- * fake answers in the ports' shapes but no contract test pins it to the
- * adapter, bar ADMISSION_VERDICT, which admission-verdict.contract.test.ts
- * holds: scripts/refill-loop-run.test.ts runs the real one.
- *
- * Loosen one and a tick can judge launches a kill left out of the state, list
- * before the relief steps, dispatch a batch not yet on record, or a dry run can
- * stop on an absent or damaged control, or write, launch or drop a marker.
- */
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
 import { syntheticStopAt } from "./block-cause.js";
@@ -58,7 +36,6 @@ type Control = import("./refill-loop.js").Control;
 
 const DV = "/home/u/design-vault";
 
-/** A throughput read with nothing in it: every breaker closed, no gate run. */
 const NO_THROUGHPUT = {
 	byRoot: {},
 	commitsOf: () => [],
@@ -66,11 +43,9 @@ const NO_THROUGHPUT = {
 	record: [],
 };
 
-/** Every launch's checkout read as having acted at `at`. */
 const actedAt = (launches: { root: string }[], at: number) =>
 	Object.fromEntries(launches.map((l) => [l.root, at]));
 
-/** Every act's name; tsc holds it to TickActs, so a new act joins the dry-run case. */
 const ACTS = {
 	changeControl: true,
 	reap: true,
@@ -138,10 +113,8 @@ const row = (number: number) => ({
 	labels: ["takes:implement"],
 });
 
-/** Thrown by a port to stand for a SIGKILL landing on that step. */
 class Killed extends Error {}
 
-/** A fake adapter; `over` replaces any port, `block` any of the BlockIo's. */
 function fakeIo(
 	initial: LoopState,
 	over: Partial<TickIo> = {},
@@ -301,7 +274,6 @@ const expectOrder = (calls: string[], a: string, b: string) => {
 	expect(calls.indexOf(a)).toBeLessThan(calls.indexOf(b));
 };
 
-/** `steps` in `calls` in that order, each found after the one before it. */
 const expectSequence = (calls: string[], steps: string[]) => {
 	let from = 0;
 	for (const [i, step] of steps.entries()) {
@@ -311,8 +283,6 @@ const expectSequence = (calls: string[], steps: string[]) => {
 	}
 };
 
-/* The BlockIo calls less the synthetic-stop read, which the judging makes on
- * a dry tick as on a live one (#5324). */
 const blockCalls = (calls: string[]) =>
 	calls.filter(
 		(port) => port.startsWith("blockIo.") && port !== "blockIo.syntheticStopOf",
@@ -326,7 +296,6 @@ const LIMIT_HOLD = {
 	ledgerHeldUntil: NOW + 60 * MIN,
 };
 
-/** A limit hold on SEAT, whose 5-hour bar has reset, so it resumes where a slot is free. */
 const HELD_LAUNCH = record({
 	jobId: "held",
 	issues: [6],
@@ -337,8 +306,6 @@ const HELD_LAUNCH = record({
 	limitHeld: LIMIT_HOLD,
 }) as Launch;
 
-/** A resumed limit hold whose session the listing shows working, so its
- * ledger hold has ended. */
 const ENDED_HOLD = record({
 	jobId: "ended",
 	issues: [4],
@@ -346,7 +313,6 @@ const ENDED_HOLD = record({
 	limitHeld: { ...LIMIT_HOLD, resumedAt: NOW - 30 * MIN },
 }) as Launch;
 
-/** A resume a kill left with no outcome on record (#4180). */
 const KILLED_RESUME = record({
 	jobId: "left",
 	issues: [7],
@@ -358,7 +324,6 @@ const KILLED_RESUME = record({
 	},
 }) as Launch;
 
-/** A park whose session ended unblocked, so its issue is unparked (#3940). */
 const ANSWERED_PARK = {
 	read: {
 		readParkMarkers: () =>
@@ -384,7 +349,6 @@ const ANSWERED_PARK = {
 	} satisfies Partial<BlockIo>,
 };
 
-/** A listed session an API error blocks, its resume due. */
 const API_BLOCKED = record({
 	jobId: "api",
 	issues: [5],
@@ -393,7 +357,6 @@ const API_BLOCKED = record({
 	resumes: { tries: 1, triedAt: NOW - 10 * MIN, nextAt: NOW - 1000 },
 }) as Launch;
 
-/** A listed session resumed and idle since, owed a typed resume (#2659). */
 const RESUMED_IDLE = record({
 	jobId: "idle",
 	issues: [8],
@@ -411,17 +374,12 @@ const listedAs = (...rows: [string, string][]) => ({
 	why: null,
 });
 
-/** The ports under which API_BLOCKED, RESUMED_IDLE and ENDED_HOLD read as they say. */
 const LISTED_BLOCKS: Partial<TickIo> = {
 	readCause: () => ({ cause: "API_ERROR", sub: "transient" }) as never,
 	readListing: () =>
 		listedAs(["api", "blocked"], ["idle", "idle"], ["ended", "working"]),
 };
 
-/**
- * A tick on which every block and limit decision the core makes acts through
- * the BlockIo (#4913).
- */
 const actingTick = (over: Partial<TickIo> = {}) =>
 	fakeIo(
 		stateOf({
@@ -435,7 +393,6 @@ const actingTick = (over: Partial<TickIo> = {}) =>
 		}),
 		{
 			...LISTED_BLOCKS,
-			/* An act just now, so the unproven cap leaves the hold its slot. */
 			readLoopLastActAt: (launches) => actedAt(launches, NOW),
 			readFreeSlots: () => ({ slots: 2, admission: null }),
 			...over,
@@ -579,10 +536,6 @@ describe("the limit acts' holds (#3735, #4323)", () => {
 			"blockIo.release",
 			"readSeats",
 		]);
-		/* Each ended hold's ledger row released, against the launches as they
-		 * stood before this tick, and each session still running given an
-		 * ordinary row in its place: the resumed copy, and the one the
-		 * listing shows working again. */
 		expect(released).toEqual(["held", "ended"]);
 		expect(rows).toEqual(["held-copy", "ended"]);
 	});
@@ -613,7 +566,6 @@ describe("a kill between two steps (#4157, #4180)", () => {
 		});
 		const r = await tickOf(second.io);
 		expect(seenBySettle[0].launching?.batch).toMatchObject([{ issues: [1] }]);
-		/* The adopted launch holds #1, so the tick launches no second copy. */
 		expect(second.calls).not.toContain("launchBatch");
 		expect("idle" in r.decision).toBe(true);
 	});
@@ -632,7 +584,6 @@ describe("a kill between two steps (#4157, #4180)", () => {
 
 describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 	const killed = record({ sessionId: "s-job42", seat: SEAT }) as Launch;
-	/** The block port queueBootKilled reads: no job record, its lines kept. */
 	const bootPorts = (lines: string[]): Partial<BlockIo> => ({
 		log: (line) => lines.push(line),
 		jobStateOf: () => null,
@@ -691,7 +642,6 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 		expect(blockLines).toContain(
 			"design-vault /implement 42, killed by a restart: due back through the resume step",
 		);
-		/* The resume step then takes it the same tick. */
 		expect(calls).toContain("blockIo.resumeOwnId");
 		expect(disk().launches[0]).toMatchObject({ bootResumedAt: NOW });
 		expect(disk().bootedAt).toBeUndefined();
@@ -733,12 +683,9 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 });
 
 describe("the unproven cap through the tick (#4223)", () => {
-	/* Inside the listing's grace, so an empty listing ends none of them. */
 	const running = [1, 2, 3].map((n) =>
 		record({ jobId: `job${n}`, launchedAt: NOW - 30_000 }),
 	);
-	/* A limit hold on each of four seats with room, one resume a seat a tick,
-	 * so the resumes count the slots the cap leaves the limit acts. */
 	const seats = [
 		SEAT,
 		"/home/u/.claude4",
@@ -769,7 +716,6 @@ describe("the unproven cap through the tick (#4223)", () => {
 				}),
 				...over,
 			},
-			/* The cap is the checkout's, so the row waiting is the running ones' (#5275). */
 			{ frontier: [{ ...row(1), root: HELD_LAUNCH.root }] },
 		);
 		const { decision } = await tickOf(io);
@@ -834,7 +780,6 @@ describe("a copy's unretired original through the tick (#4646)", () => {
 			LISTED_BLOCKS,
 		);
 		await tickOf(io);
-		/* Ahead of the block's typed resume. */
 		expectOrder(calls, "blockIo.retireJob", "blockIo.type");
 		expect(disk().launches[0]).not.toHaveProperty("unretired");
 	});
@@ -882,14 +827,12 @@ describe("a limit-held launch through the tick (#3735)", () => {
 
 	it("nets the limit acts' live change into the tick's record (#3778)", async () => {
 		const records: { live: number | null }[] = [];
-		/* The hold's resume on its seat adds one session. */
 		const { io } = fakeIo(
 			stateOf({ launches: [HELD_LAUNCH] }),
 			{
 				readLoopLastActAt: (launches) => actedAt(launches, NOW),
 				readFreeSlots: () => ({
 					slots: 1,
-					/* The run test's fake carries only the fields concurrency.js reads. */
 					admission: ADMISSION_VERDICT as never,
 				}),
 				appendTick: (r) => {
@@ -995,7 +938,6 @@ describe("the room a stopping tick reads (#4071)", () => {
 describe("the seats a tick sizes, in its first served checkout (#2937, #3669, #4147)", () => {
 	const Seat2 = "/home/u/.claude4";
 	const parkedRow = { ...row(5), labels: ["takes:implement", "parked"] };
-	/** A park marker of #5 on Seat2, naming `keyVar` where given. */
 	const parker = (keyVar?: string) => ({
 		issues: [5],
 		sessionId: "s-job5",
@@ -1007,8 +949,6 @@ describe("the seats a tick sizes, in its first served checkout (#2937, #3669, #4
 			...(keyVar ? { keyVar } : {}),
 		},
 	});
-	/** A tick over SEAT, sized, and Seat2 with room and no cap sized yet; each
-	 * checkout the seats were read in, and each cap sized, fitting 1. */
 	const tickOver = async (
 		parkers: ReturnType<typeof parker>[],
 		c = control(),
@@ -1144,8 +1084,6 @@ describe("the dry-run policy (#4212)", () => {
 	it("skips the block and limit acts, judging the launches as read rather than as the dry BlockIo would leave them (#4913)", async () => {
 		const { io, calls, lines } = actingTick();
 		const { decision } = await tickOf(io, control(), true);
-		/* The dry BlockIo answers acts alone, so a call here would be a block
-		 * or limit decision run. */
 		expect(blockCalls(calls)).toEqual([]);
 		expect(lines.join("\n")).not.toContain("a dry run acts on nothing");
 		expect(decision).toMatchObject({ idle: null });
@@ -1172,12 +1110,6 @@ describe("the dry-run policy (#4212)", () => {
 	});
 });
 
-/**
- * The control file under its lock, each change made on its fresh read. No
- * contract test holds it to refill-tick.js's changeControl; the sandbox case
- * "leaves the untick to the next tick while another writer holds the lock"
- * crosses the real lock (#4356).
- */
 const controlFileFake = (initial: Control) => {
 	let onDisk = initial;
 	const changeControl: TickIo["changeControl"] = (change) => {
@@ -1241,7 +1173,6 @@ describe("a paused tick (#3856)", () => {
 	const paused = control({ paused: { by: "founder", at: 7 } });
 
 	it("keeps the housekeeping, launches nothing and makes no slot, usage or cap read", async () => {
-		/* Past any listing grace, and listed nowhere, so judged finished. */
 		const gone = record({
 			root: WFC,
 			seat: SEAT,
@@ -1340,7 +1271,6 @@ describe("the launch walk's seat tries (#4074)", () => {
 	it("hands each walk the state file's tries, the launch walk the move walk's this tick too", async () => {
 		const Other = "/home/u/.claude4";
 		const tried: Record<string, number>[] = [];
-		/* A limit hold, so the limit acts walk the seats it may move to. */
 		const { io } = fakeIo(
 			stateOf({ launches: [HELD_LAUNCH], seatTriedAt: { [Other]: 5 } }),
 			{
@@ -1390,7 +1320,6 @@ describe("the hold notices' agent read (#3871)", () => {
 	const noticedAgents = async (registry: object) => {
 		const seen: unknown[] = [];
 		const { io } = fakeIo(stateOf(), {
-			/* An empty listing reads as unread, as the CLI's does. */
 			readListing: () => ({ agents: null, why: "unread" }),
 			readRegistry: () => registry as never,
 			sendHoldNotices: (_roots, s) => {
@@ -1575,7 +1504,6 @@ describe("an overflow session's listed id (#3701)", () => {
 describe("the parks a tick sweeps (#3950, #3872)", () => {
 	const Other = "/home/u/other";
 
-	/** An answered park in each checkout, and the roots it was taken off in. */
 	const sweep = () => {
 		const swept: string[] = [];
 		const block: Partial<BlockIo> = {
@@ -1645,7 +1573,6 @@ describe("the throughput acts through the tick (#5275)", () => {
 		},
 		record: events,
 	});
-	/* Inside the listing's grace, so an empty listing ends none of them. */
 	const runningFrom = (launchedAt: number) =>
 		record({ root: WFC, jobId: "w1", sessionId: "s-w1", launchedAt });
 	const tickWith = async (running: Launch[]) => {

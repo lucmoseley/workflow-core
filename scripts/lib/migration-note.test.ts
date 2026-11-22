@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins migration-note.js's reading of a migration note: the five sections in
- * order, the residue JSON, the one-line Verify and the typed manual-step
- * bullets.
- *
- * Most fixtures are an inline note with one rule broken. Three tests read the
- * real migrations/, so a shipped note that will not parse fails here before a
- * release refuses it.
- *
- * Breaking it lets upgrade walk an adopter through a note it misreads, with a
- * step cut short or a residue key dropped (#6).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -327,12 +315,10 @@ describe("parseSteps (#248)", () => {
 			parseNote(fs.readFileSync(path.join(__dirname, "../..", note), "utf8"))
 				.sections["Manual steps"];
 		const v119 = readManualSteps("migrations/v1.1.9.md");
-		/* The pre-#425 parser's output — each typed bullet's first line alone.
-		 * Its regex is frozen here, not built from STEP_TYPES, because it models
-		 * the old parser. */
+		const pre425TypedBullet = /^[-*]\s+\[(act|choice|notice)\](.*)$/;
 		const firstLines = v119
 			.split("\n")
-			.map((l) => l.match(/^[-*]\s+\[(act|choice|notice)\]\s*(.*)$/))
+			.map((l) => l.match(pre425TypedBullet))
 			.filter((m) => m !== null)
 			.map((m) => ({ type: m[1], text: m[2].trim() }));
 		const full = parseSteps(v119);

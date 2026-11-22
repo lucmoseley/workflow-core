@@ -1,19 +1,3 @@
-/*
- * guard-core-testkit.ts — one dispatcher core run in process, as the entry
- * runs it, over the production adapters (#2789, #2787): its row from
- * lib/guard-cores.json, its host ports, the real rule store and the latch
- * directory under the case's root.
- *
- * The hook's own directory and environment are the case's, never the test
- * process's: `cwd` stands in for the hook's cwd, `env` for both the shell
- * variables a command expands through and the environment a core reads.
- *
- * `worktree` is the split a session in its own worktree runs under (#4229):
- * the root is the main checkout (#4493), while the hook's cwd, the payload's
- * `cwd` and `CLAUDE_PROJECT_DIR` all name a linked worktree of it, as the
- * harness hands a worktree session (#4168).
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { defineTemplate, trioTemplate } from "./git-fixture";
@@ -24,16 +8,9 @@ import { dispatch, type Output } from "./guard-judge.js";
 import { MARKERS_REL } from "./marker-root.js";
 import { readHookPersistChars } from "./rule-emission.js";
 
-/**
- * The manifest the entry dispatches from, named here so a change to it selects
- * every test running a core through this kit (#4153).
- */
+// #4153
 const MANIFEST = path.join(__dirname, "guard-cores.json");
 
-/**
- * `event`'s cores, a load fault thrown: the dispatcher would answer it with the
- * row's policy, which reads to a test as that core's own allow or deny (#4125).
- */
 export const loadedCores = (event: string) => {
 	const cores = loadCores(event, { manifest: MANIFEST });
 	for (const c of cores)
@@ -41,11 +18,6 @@ export const loadedCores = (event: string) => {
 	return cores;
 };
 
-/**
- * The payload of a `tool` call carrying `input`, as the harness sends it;
- * `top` is laid over its own fields, a `session_id` of undefined leaving the
- * session out.
- */
 export const toolCall = (
 	tool: string,
 	input: Record<string, unknown>,
@@ -59,11 +31,6 @@ export const toolCall = (
 
 const split = defineTemplate(trioTemplate({ worktree: "detach" }));
 
-/**
- * A main checkout and a linked worktree of it, cut detached from its `main` as
- * a session's is, built in `dir`: each holds a committed `a.md`. The caller
- * removes `dir`.
- */
 export const splitCheckout = (dir: string) => {
 	split.instantiate(dir);
 	return {
@@ -80,10 +47,6 @@ export const writeHostConfig = (root: string, config: object) => {
 	);
 };
 
-/**
- * The rule latches written under `root`'s marker store, by file name: where a
- * host-root core's run left its told rules (#4242).
- */
 export const latchesAt = (root: string) => {
 	const dir = path.join(root, MARKERS_REL);
 	return fs.existsSync(dir)
@@ -91,13 +54,6 @@ export const latchesAt = (root: string) => {
 		: [];
 };
 
-/**
- * Where a core run happens: `root` the host root, `env` the whole
- * environment, `worktree`'s one variable aside, so nothing of the test
- * process's leaks in. `worktree` runs it from that linked worktree of `root`:
- * the hook's cwd, the payload's `cwd` unless the payload names one, and
- * `CLAUDE_PROJECT_DIR`. `cwd` stands in for the hook's own.
- */
 export interface CoreRunOptions {
 	root: string;
 	worktree?: string;
@@ -106,16 +62,10 @@ export interface CoreRunOptions {
 }
 
 export interface CoreRun {
-	/** Null where silent. */
 	output: Output | null;
 	logs: string[];
 }
 
-/**
- * Run the `event` core `name` on `payload`.
- * `throwing` makes the row's `decide` throw it, for a core with no real fault a
- * case can provoke to reach its row's failure policy.
- */
 export function runCore(
 	name: string,
 	payload: Record<string, unknown>,
@@ -141,10 +91,6 @@ export function runCore(
 	return dispatchCores(running, payload, where);
 }
 
-/**
- * Every `event` core on `payload`, as the entry runs them, its output the
- * one the hook would print.
- */
 export function runEventCores(
 	payload: Record<string, unknown>,
 	{

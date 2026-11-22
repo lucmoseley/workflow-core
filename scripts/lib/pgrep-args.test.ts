@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/pgrep-args.js reads a pgrep or pkill's arguments as procps-ng does —
- * which word is the pattern, and which flags change how it selects — and
- * whether that pattern selects a given text. lib/self-match.js and
- * lib/paste-self-match.js judge every pgrep and pkill through it, so a misread
- * here is a missed self-kill in both.
- *
- * The signal words are the ones bash's `kill -l` accepts: walked letter by
- * letter, `-TSTP` would read as `-T -S -T -P`, the `-P` swallowing the
- * next word.
- */
 
 import { describe, expect, it } from "vitest";
 import { isSignalWord, pgrepSelects, readPgrepArgs } from "./pgrep-args.js";

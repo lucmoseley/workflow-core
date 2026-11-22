@@ -1,31 +1,4 @@
 // @vitest-environment node
-/*
- * lib/issue-close.js, the guard-issue-close core (#2798), in process: it
- * denies a close that says nothing about what is still outstanding
- * (mantahostels#185), a hand close of a roadmap card's own issue
- * (mantahostels#220), a completed close over unticked acceptance criteria
- * (#1640), one over census rows the ticket's commits expired (#1913), one
- * whose commits are unpushed (#3101), and any close, not-planned included,
- * that leaves a sub-issue open (#3637).
- *
- * A deny is only defensible while it cannot wedge sanctioned work, so every
- * allow-case below is a shape that would otherwise be a false positive — a
- * close that already carries the line, an abandoned issue, a command that
- * merely mentions `gh issue close`. Do not thin them out.
- *
- * gh is the shared fake (§G7), its answers swapped into the fixtures
- * gh.contract.test.ts holds to the real gh, so no case depends on the network
- * or on what a live issue says today. The roadmap, the tracker config and
- * the census read are the real adapters lib/issue-close-host.js builds, over
- * a temp directory and real git; the clock is an injected `now`. The entry's
- * own cases — the JSON it prints, the hook line, the failure policy — are
- * guard-issue-close.test.ts's.
- *
- * Loosen a deny case and an issue closes with its remaining work named
- * nowhere, a card's issue closes past /card-close, or a ticket closes
- * unverified.
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -69,7 +42,6 @@ const { hostAdapters } = require("./guard-host-ports.js") as {
 	hostAdapters: (root: string, log: (what: string) => void) => object;
 };
 
-/** The reads of the tree rooted at `at`, as ctx.tree() hands a core them. */
 const treeAt = (at: string) => () => hostAdapters(at, () => undefined);
 
 const ISSUE_BODY = path.join(__dirname, "fixtures/gh/issue-body.json");
@@ -85,8 +57,6 @@ let faults: string[];
 let calls: string[];
 let clock: number;
 
-/** One issue as `gh issue view --json comments,title,parent,labels,body,subIssues,url`
- *  describes it. `comments` is oldest first. */
 interface Issue {
 	title?: string;
 	comments?: string[];
@@ -96,11 +66,6 @@ interface Issue {
 	subIssues?: { number: number; state: "OPEN" | "CLOSED"; url?: string }[];
 }
 
-/** What gh answers this run's calls. `issue` is every number's, `issues` one
- *  number's over it; `closed` and `missing` the open-check's carriers that
- *  are not open; `fail` a gh that cannot answer, `gqlFail` one that cannot
- *  answer the open-check alone, `absent` one that cannot be started; `slow`
- *  the ms each call costs on the clock. */
 interface Gh {
 	issue?: Issue;
 	issues?: Record<string, Issue>;
@@ -122,7 +87,6 @@ const DEFAULT_ISSUE: Required<Omit<Issue, "parent">> = {
 
 const ISSUES_URL = "https://github.com/acme/tracker/issues/";
 
-/** A fixture's answer with its stdout swapped, for a value the case owns. */
 function answering(stdout: string): string {
 	const at = path.join(dir, `answer-${calls.length}.json`);
 	fs.writeFileSync(at, JSON.stringify({ ...readGhAnswer(ISSUE_BODY), stdout }));
@@ -193,24 +157,17 @@ const verdict = (
 	ports: Record<string, unknown> = {},
 ) => (run(command, setup, ports) ? "deny" : "allow");
 
-/** The refusal `command` earns, as the session reads it. Throws on an allow. */
 const readDenyReason = (command: string, setup: Gh = {}) => {
 	const d = run(command, setup);
 	if (!d) throw new Error(`expected a deny for: ${command}`);
 	return d.deny;
 };
 
-/** The issue's newest comment, the rest of the default issue kept. */
 const newest = (body: string, more: Gh = {}): Gh => ({
 	...more,
 	issue: { ...more.issue, comments: [body] },
 });
 
-/**
- * A roadmap holding the given cards, in the field order the real file uses.
- * The state is read out of a bounded window after the id, so the
- * neighbouring fields have to be there for the window to be exercised at all.
- */
 const writeRoadmap = (cards: [string, string][]) => {
 	const body = cards
 		.map(
@@ -231,9 +188,6 @@ const writeTracker = (config: object) =>
 		JSON.stringify({ contract: 1, ...config }),
 	);
 
-/* The framing lines this guard's refusals open with (mantahostels#2145).
- * Two splice a rule fragment underneath, but different ones, so only the
- * framing line tells a card refusal from an outstanding-line one. */
 const OUTSTANDING = "This close does not say what is still outstanding";
 const CARD_STILL = "and that card is still";
 
@@ -244,9 +198,7 @@ beforeEach(() => {
 	calls = [];
 	clock = 0;
 	fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
-	// The tracker a bare `#N` on an Outstanding line resolves to.
 	writeTracker({ tracker: "acme/tracker" });
-	// A host is a checkout with a pushed ref: the landing read faults without one (#3101).
 	for (const args of [
 		["init", "-q"],
 		["commit", "-q", "--allow-empty", "-m", "seed"],
@@ -264,21 +216,11 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe("the close it denies", () => {
 	it("denies a close whose issue carries no Outstanding line", () => {
-		// exempt (mantahostels#2145): this refusal's text is pinned by "the
-		// outstanding-line refusal carries the whole rule".
 		expect(verdict("gh issue close 12")).toBe("deny");
 	});
 
 	it("denies it however the number is spelled and wherever the flags sit", () => {
-		// `--comment "…"` is blanked to a sentinel by the shared parser, so a
-		// scanner that did not skip the flag's VALUE would read the sentinel as
-		// the issue number and fail open on a judgeable command (mantahostels#477).
-		// exempt (mantahostels#2145): pinned by "the outstanding-line refusal
-		// carries the whole rule" — the same refusal, reached by other spellings.
 		expect(verdict('gh issue close --comment "done" 12')).toBe("deny");
-		// `#12` is judged QUOTED: gh reads a quoted "#12" as issue 12. Unquoted,
-		// bash reads `#12` as a comment, so the close has no argument and gh
-		// closes nothing — that one is allowed, below (#547).
 		expect(verdict('gh issue close "#12"')).toBe("deny");
 		expect(verdict("gh issue close '#12'")).toBe("deny");
 		expect(verdict("gh issue close \\#12")).toBe("deny");
@@ -288,8 +230,6 @@ describe("the close it denies", () => {
 	});
 
 	it("reads a --duplicate-of value as the duplicate, not a second issue closed (#2920)", () => {
-		// The first bare word is the issue, so only a flag ahead of it can
-		// hand the scan its value in the issue's place.
 		expect(verdict("gh issue close 5 --duplicate-of 999")).toBe("deny");
 		expect(verdict("gh issue close --duplicate-of 999 5")).toBe("deny");
 		expect(calls.length).toBeGreaterThan(0);
@@ -297,9 +237,6 @@ describe("the close it denies", () => {
 	});
 
 	it("denies a close hidden behind a chain or a subshell", () => {
-		// exempt (mantahostels#2145): pinned by "the outstanding-line refusal
-		// carries the whole rule"; nothing but a `gh issue close` segment can
-		// reach a deny here.
 		expect(verdict("npm run test && gh issue close 12")).toBe("deny");
 		expect(verdict("(gh issue close 12)")).toBe("deny");
 		expect(verdict("/usr/bin/gh issue close 12")).toBe("deny");
@@ -311,7 +248,6 @@ describe("the close it denies", () => {
 		expect(reason).toContain(
 			"node scripts/resolve-ticket.js <n> --comment-file <file>",
 		);
-		// #1765: the other lines resolve-ticket refuses a comment without.
 		for (const line of [
 			"**Bound:**",
 			"**Values:**",
@@ -367,10 +303,6 @@ describe("the closes it allows", () => {
 	});
 
 	it("still judges a close that names a reason of completed", () => {
-		// The not-planned skip reads the --reason value, so a guard that
-		// skipped on the FLAG alone would hand every session a one-word escape.
-		// exempt (mantahostels#2145): pinned by "the outstanding-line refusal
-		// carries the whole rule".
 		expect(verdict('gh issue close 12 --reason "completed"')).toBe("deny");
 	});
 
@@ -450,8 +382,6 @@ describe("the Outstanding line it reads", () => {
 				lined,
 			),
 		).toBe("deny");
-		// A --comment with no marker line leaves the issue's newest comment to
-		// judge — one naming the marker mid-sentence included.
 		for (const said of ["Closing.", "Closing per the **Outstanding:** rule."])
 			expect(
 				verdict(`gh issue close 12 --comment "${said}"`, lined),
@@ -504,7 +434,6 @@ describe("the Outstanding line it reads", () => {
 		expect(verdict('gh issue close 12 --comment "Closing now."', done)).toBe(
 			"deny",
 		);
-		// Logged, not ended: a later close in the same call is still judged.
 		expect(
 			verdict(
 				'gh issue close 5 --comment "$(cat close.md)"; gh issue close 12',
@@ -514,14 +443,8 @@ describe("the Outstanding line it reads", () => {
 	});
 });
 
-/*
- * The second rule (mantahostels#220). A card's own issue is closed by
- * /card-close, which closes it as its LAST step, after the card is already
- * `done` — so these cases are about a hand close arriving before that.
- */
 describe("the card's issue it refuses to close by hand", () => {
 	const CardTitle = "id-match — Build the hostel ID-matching layer";
-	// A card's own issue: the `<card-id> — <title>` prefix, and no parent.
 	const cardIssue = (state: string, extra: Issue = {}) => {
 		writeRoadmap([["id-match", state]]);
 		return run("gh issue close 12", { issue: { title: CardTitle, ...extra } });
@@ -530,8 +453,6 @@ describe("the card's issue it refuses to close by hand", () => {
 		cardIssue(state, extra)?.deny ?? "allow";
 
 	it("denies a close while the card is still active", () => {
-		// No Outstanding line is supplied, so the OTHER rule would deny this too
-		// — only the framing line says which one did.
 		expect(said("active")).toContain(CARD_STILL);
 	});
 
@@ -541,22 +462,16 @@ describe("the card's issue it refuses to close by hand", () => {
 	});
 
 	it("denies even when the close already says what is outstanding", () => {
-		// The card rule runs first deliberately: /card-close writes the
-		// Outstanding line itself, so answering the other rule here would send
-		// the session to perfect a close it should not be making at all.
 		expect(
 			said("active", { comments: ["## Resolution\n**Outstanding:** none"] }),
 		).toContain(CARD_STILL);
 	});
 
 	it("allows the close once the card is done — /card-close's own last step", () => {
-		// The FIRST rule still applies to a card issue: both bind /card-close's
-		// own step 8, which writes that line itself (mantahostels#281).
 		expect(said("done", { comments: ["**Outstanding:** none"] })).toBe("allow");
 	});
 
 	describe("from a session in a linked worktree (#4242)", () => {
-		/** The session tree's roadmap holding the card at `state`. */
 		const worktreeRoadmap = (state: string) => {
 			const wt = path.join(dir, "wt");
 			fs.mkdirSync(path.join(wt, "docs"), { recursive: true });
@@ -587,16 +502,8 @@ describe("the card's issue it refuses to close by hand", () => {
 		});
 	});
 
-	/*
-	 * The card is the session tree's, the tracker the main checkout's config.
-	 * Through the dispatcher, gh a stub serving the
-	 * card's own issue on another repo, so only the tracker read decides
-	 * whether the card rule stands down.
-	 */
 	describe("the tracker, from a session in a linked worktree (#4274)", () => {
 		let at: { main: string; worktree: string };
-		/* No freshSandbox: its wholesale env restore would cut this file's
-		 * vi.stubEnv calls off from process.env. */
 		beforeEach(() => {
 			at = splitCheckout(path.join(dir, "split"));
 			vi.stubEnv("CLAUDE_PROJECT_DIR", at.worktree);
@@ -634,7 +541,6 @@ describe("the card's issue it refuses to close by hand", () => {
 			declare(at.main, { tracker: "acme/tracker" });
 			const { output, logs } = close();
 			expect(output).toBeNull();
-			/* Judged and allowed, not let through on a fault. */
 			expect(logs).toEqual([]);
 		});
 
@@ -648,15 +554,12 @@ describe("the card's issue it refuses to close by hand", () => {
 	});
 
 	it("allows a child ticket that merely inherited the card's id (mantahostels#275)", () => {
-		// A parent is what tells a child from the card's own issue.
 		expect(
 			said("active", { parent: 145, comments: ["**Outstanding:** none"] }),
 		).toBe("allow");
 	});
 
 	it("allows a wayfinder map that borrowed the card's id (mantahostels#1490)", () => {
-		// A map is unparented exactly as a card's own issue is, so the parent
-		// test cannot tell them apart. A map is never the card's own issue.
 		expect(
 			said("active", {
 				labels: ["takes:children", "wayfinder:map"],
@@ -666,8 +569,6 @@ describe("the card's issue it refuses to close by hand", () => {
 	});
 
 	it("still denies a card issue carrying some other wayfinder label", () => {
-		// The exemption is `wayfinder:map` alone — mantahostels#275 measured the
-		// label FAMILY and rejected it, and this does not reopen that.
 		expect(
 			said("active", {
 				labels: ["wayfinder:task"],
@@ -677,8 +578,6 @@ describe("the card's issue it refuses to close by hand", () => {
 	});
 
 	it("still demands an Outstanding line from an exempted map", () => {
-		// The exemption lifts the card rule only. The first rule binds every
-		// close, and it is the Outstanding refusal that fires.
 		expect(said("active", { labels: ["wayfinder:map"] })).toContain(
 			OUTSTANDING,
 		);
@@ -715,10 +614,6 @@ describe("the card's issue it refuses to close by hand", () => {
 	});
 
 	it("judges each issue in a chain against its own payload", () => {
-		// One tool call can close two issues. A payload cached without its issue
-		// number lets the first close answer for the second: #12 allows on its
-		// Outstanding line, then #34 — a card issue with an active card — is
-		// read as #12 and allowed too.
 		writeRoadmap([["id-match", "active"]]);
 		const reason = readDenyReason("gh issue close 12 && gh issue close 34", {
 			issues: {
@@ -726,7 +621,6 @@ describe("the card's issue it refuses to close by hand", () => {
 				"34": { title: CardTitle, comments: ["**Outstanding:** none"] },
 			},
 		});
-		// It must name #34, not the #12 it was cached against.
 		expect(reason).toContain("/card-close 34");
 	});
 
@@ -739,10 +633,6 @@ describe("the card's issue it refuses to close by hand", () => {
 	});
 });
 
-/*
- * #1640: the criteria refusal resolve-ticket.js makes, held on the hand
- * spelling too and keyed on the criteria section rather than `kind:ticket`.
- */
 describe("the acceptance criteria it reads", () => {
 	const lined = (body: string, labels: string[] = []): Gh => ({
 		issue: { comments: ["Done.\n**Outstanding:** none."], body, labels },
@@ -846,13 +736,10 @@ describe("the acceptance criteria it reads", () => {
 	});
 });
 
-/*
- * #1913: the census refusal resolve-ticket.js makes (#1876), held on the hand
- * spelling too.
- */
 describe("the census rows it reads", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-	const { digestOf } = require("./census-digest") as any;
+	const { digestOf } = require("./census-digest") as {
+		digestOf: (root: string, rel: string) => string | null;
+	};
 	const guardRel = "scripts/guard-one.sh";
 	const lined = newest("Done.\n**Outstanding:** none.");
 
@@ -1020,7 +907,6 @@ describe("the census rows it reads", () => {
 
 	it("fails open, recorded, where the census read runs out of the budget", () => {
 		reword();
-		// The real read, handed no time: its git ceiling passes before git runs.
 		expect(
 			verdict("gh issue close 12", lined, {
 				census: (n: number) => host().census(n, 0, shared),
@@ -1088,7 +974,6 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 
 	beforeEach(() => {
 		vi.stubEnv("WFC_MODULES", undefined);
-		// The port judges by the host it holds, never a session's own (#3327).
 		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
 		writeTracker({ tracker: "acme/tracker", modules: [] });
 		push();
@@ -1156,7 +1041,6 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 
 	describe("from a session in a linked worktree (#4242)", () => {
 		const wt = () => path.join(dir, "wt");
-		/* Cut from the pushed ref, before the main checkout's unpushed commit. */
 		const cut = () =>
 			git("worktree", "add", "-q", "--detach", wt(), "origin/main");
 		const fromWorktree = () =>
@@ -1305,10 +1189,6 @@ describe("a whole-spec review's TICKETED lines (#4492)", () => {
 	});
 });
 
-/*
- * #553: a close naming another repo was judged by THIS repo's issue of the
- * same number — a deny or an allow on the wrong issue.
- */
 describe("the repo a close names", () => {
 	it("asks GitHub for the issue on the repo the close names", () => {
 		for (const command of [
@@ -1334,8 +1214,6 @@ describe("the repo a close names", () => {
 	});
 
 	it("asks again for the same number on another repo", () => {
-		// The payload cache is keyed on the issue; keyed on the number alone,
-		// the second close would be answered from the first repo's issue.
 		expect(
 			verdict(
 				"gh issue close 12 --repo owner/other && gh issue close 12",
@@ -1364,8 +1242,6 @@ describe("the repo a close names", () => {
 	});
 
 	describe("and the card rule", () => {
-		// A card's own issue, its card still active, the Outstanding line
-		// supplied: only the card rule can refuse.
 		const cardClose = (command: string) => {
 			writeRoadmap([["id-match", "active"]]);
 			return verdict(command, {
@@ -1377,8 +1253,6 @@ describe("the repo a close names", () => {
 		};
 
 		it("stands down for an issue on a repo other than the tracker", () => {
-			// This roadmap's cards and /card-close belong to the tracker, so its
-			// refusal would send the session to close the tracker's #12 instead.
 			writeTracker({ tracker: "lucmoseley/workflow-core" });
 			expect(cardClose("gh issue close 12 --repo owner/other")).toBe("allow");
 		});
@@ -1413,13 +1287,7 @@ describe("the repo a close names", () => {
 	});
 });
 
-/*
- * These read the REAL skill file rather than a copy of its close, so step
- * 8's Outstanding line (mantahostels#281) is tested where it lives: a fix
- * that lives in prose is only worth anything while the prose still says it.
- */
 describe("the close /card-close itself runs (mantahostels#281)", () => {
-	/** The bash of step 8, as written, with the issue number substituted in. */
 	const readStepEightClose = () => {
 		const md = fs.readFileSync(
 			path.resolve(__dirname, "../../.claude/skills/card-close/SKILL.md"),
@@ -1433,8 +1301,6 @@ describe("the close /card-close itself runs (mantahostels#281)", () => {
 		return block[1].trim().replaceAll("$ARGUMENTS", "12");
 	};
 
-	// The state step 8 actually meets: the card was marked done in step 4,
-	// and nothing before it has posted a comment carrying the line.
 	const atStepEight = (command: string) => {
 		writeRoadmap([["id-match", "done"]]);
 		return run(command, {
@@ -1450,8 +1316,6 @@ describe("the close /card-close itself runs (mantahostels#281)", () => {
 	});
 
 	it("passes on the line it carries, not on anything already on the issue", () => {
-		// Strip the disposition line back out and the same close is refused —
-		// by the Outstanding rule, the card being `done`.
 		const stripped = readStepEightClose().replace(
 			/\n+\*\*Outstanding:\*\*[^"]*/,
 			"",
@@ -1470,8 +1334,6 @@ describe("the card checks it cannot make", () => {
 	};
 
 	it("records the card unchecked when the roadmap is unreadable", () => {
-		// No roadmap written at all. mantahostels#220 asked for this to be loud
-		// rather than a silent allow.
 		expect(verdict("gh issue close 12", Card)).toBe("allow");
 		expect(faults).toEqual([
 			"could not read the roadmap, so card id-match — card state unchecked",
@@ -1479,7 +1341,6 @@ describe("the card checks it cannot make", () => {
 	});
 
 	it("still reaches the Outstanding verdict when the card was unchecked", () => {
-		// Logged, not ended: an unreadable roadmap says nothing about comments.
 		expect(
 			readDenyReason("gh issue close 12", {
 				issue: { title: "id-match — Build the hostel ID-matching layer" },
@@ -1503,9 +1364,6 @@ describe("the card checks it cannot make", () => {
 	});
 
 	it("records a title that looks like a card id it will not parse", () => {
-		// The pattern is stricter than check-issue-card-drift.js's, which takes
-		// capitals, dots and an en dash. A title in the gap is allowed, so it is
-		// recorded rather than passing as "not a card at all".
 		writeRoadmap([["id-match", "active"]]);
 		expect(
 			verdict("gh issue close 12", {
@@ -1521,8 +1379,6 @@ describe("the card checks it cannot make", () => {
 	});
 
 	it("records one fault, not two, when GitHub is unreachable", () => {
-		// Every rule reads the same payload, so one outage must leave one line —
-		// check-guard-errors.js reports these under `npm run status`.
 		expect(verdict("gh issue close 12", { fail: true })).toBe("allow");
 		expect(faults).toEqual([
 			"could not read comments on #12 — close allowed unchecked",
@@ -1591,8 +1447,6 @@ describe("the fail-opens it records", () => {
 	});
 
 	it("allows and records a close whose issue number it cannot read", () => {
-		// An unexpanded variable: judging it would mean guessing which issue.
-		// Quoted, the parser blanks it and reads it back unexpanded (#547).
 		for (const command of [
 			"gh issue close $ISSUE",
 			'gh issue close "$ISSUE"',
@@ -1606,25 +1460,17 @@ describe("the fail-opens it records", () => {
 	});
 
 	it("allows an unquoted #12 without recording a fault, gh getting no argument", () => {
-		// Bash strips `#12` as a comment, so gh gets no argument and closes
-		// nothing: nothing went unprotected, so no fault is recorded (#547).
 		expect(verdict("gh issue close #12")).toBe("allow");
 		expect(verdict('gh issue close ""')).toBe("allow");
 		expect(faults).toEqual([]);
 	});
 
 	it("records nothing at all on a close it judged", () => {
-		// Every entry in this log claims something went unprotected, so a
-		// verdict the guard actually reached must never appear in it.
 		verdict("gh issue close 12");
 		expect(faults).toEqual([]);
 	});
 });
 
-/*
- * The run budget: each call gets what is left of 30 s, at most 4 s, as its
- * timeout, and a call with under 1 s left is not made but recorded.
- */
 describe("the time budget it runs under", () => {
 	it("hands each gh call what is left of the budget, at most 4 s", () => {
 		const timeouts: number[] = [];
@@ -1664,7 +1510,6 @@ describe("the time budget it runs under", () => {
 	});
 
 	it("makes no gh call with under a second left, and records the close unchecked", () => {
-		// The call starts at 0; every later reading is 29.001 s on.
 		const readings = [0];
 		expect(
 			verdict(
@@ -1680,12 +1525,6 @@ describe("the time budget it runs under", () => {
 	});
 });
 
-/*
- * mantahostels#1649 relocated this guard's rules out of CLAUDE.md and into
- * its refusals (spec mantahostels#1641). Keyed by fragment id, never by a
- * literal copied out of a fragment — a second copy is the drift the store
- * exists to prevent.
- */
 describe("the relocated rules reach the session that trips the guard", () => {
 	it("the outstanding-line refusal carries the whole rule", () => {
 		expect(readDenyReason("gh issue close 12")).toContain(
@@ -1694,8 +1533,6 @@ describe("the relocated rules reach the session that trips the guard", () => {
 	});
 
 	it("the outstanding-line refusal carries the exemption a deny would omit", () => {
-		// A session told only "add the line" would read an abandoned issue as
-		// unclosable. The escape is in the fragment, and this literal anchors it.
 		expect(readDenyReason("gh issue close 12")).toContain(
 			'--reason "not planned"',
 		);
@@ -1718,13 +1555,8 @@ describe("the relocated rules reach the session that trips the guard", () => {
 			},
 		});
 		expect(reason).toContain(readRuleText("card-close-by-hand"));
-		// The per-close facts stay with the guard: a fragment cannot know them.
 		expect(reason).toContain("/card-close 12");
 		expect(reason).toContain("id-match");
-		/* A literal anchor, deliberately: the assertion above reads the fragment
-		 * at test time, so deleting a clause changes both sides at once and
-		 * nothing fails. This escape is the clause a wrongly-refused session
-		 * needs. */
 		expect(reason).toContain('--reason "not planned"');
 	});
 

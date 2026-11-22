@@ -1,23 +1,5 @@
-/*
- * hand-off.js — the `**Hand-off:**` block a background session parking at
- * `needs input:` writes into a comment on its ticket — the round it posts, or
- * its own comment where it points at a standing round or hands the founder an
- * act — so a fresh session picks up from the ticket rather than the stalled
- * conversation (#2391).
- *
- * THE BLOCK. The header `**Hand-off:**`, then one line per field
- * (`HAND_OFF_SHAPE`), each optionally a list item, its name optionally bold.
- * The block runs from the header to the comment's end. Its diff fence closes
- * only on an unindented fence line, which no diff line can be: each opens
- * with a space, `+`, `-`, `@`, `\` or a header word.
- *
- * `buildHandOffComment` writes one for a session that could not: the refill
- * loop's hand-off of a resumed-idle session (#2659), through
- * `rescue-sessions.js hand-off`.
- */
-
 const HEADER = "**Hand-off:**";
-/* GitHub refuses a comment body longer than this (GitHub docs, #2391). */
+// #2391
 const COMMENT_LIMIT = 65_536;
 const FIELDS = /** @type {const} */ ([
 	"Base",
@@ -27,14 +9,11 @@ const FIELDS = /** @type {const} */ ([
 	"Uncommitted",
 ]);
 /** @typedef {typeof FIELDS[number]} Field */
-/* An abbreviated sha at git's default 7 characters, up to a full SHA-1's 40. */
 const SHA = "[0-9a-f]{7,40}";
 const SHA_RE = new RegExp(`^${SHA}$`, "i");
 const FIELD_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	String.raw`^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?(${FIELDS.join("|")}):(?:\*\*)?[ \t]*(.*)$`,
+	String.raw`^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?(${FIELDS.join("|")}):(?:\*\*)?(.*)$`,
 );
-/* The header opening a line: one quoted mid-sentence opens no block. */
 const HEADER_LINE_RE = /^[ \t]*\*\*Hand-off:\*\*/gm;
 const DIFF_OPEN_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*diff[ \t]*$/;
 
@@ -54,8 +33,6 @@ const HAND_OFF_SHAPE = [
  */
 
 /**
- * The fenced `diff` block opening at `lines[at]`, and the index of its closing
- * fence — the last line where none closes it.
  * @param {string[]} lines
  * @param {number} at
  * @param {string} fence
@@ -67,7 +44,6 @@ function diffAt(lines, at, fence) {
 }
 
 /**
- * The block's field lines, each field's first, and its first `diff` fence.
  * @param {string[]} lines
  */
 function scan(lines) {
@@ -93,8 +69,6 @@ function scan(lines) {
 }
 
 /**
- * The block in `body`, parsed — the last line-opening `**Hand-off:**`
- * header's — or null where the body carries none. A field absent reads "".
  * @param {string} body
  * @returns {HandOff|null}
  */
@@ -117,7 +91,6 @@ function parseHandOff(body) {
 }
 
 /**
- * The shas a `Done:` line names.
  * @param {HandOff} h
  * @returns {string[]}
  */
@@ -125,7 +98,6 @@ const doneShas = (h) =>
 	h.fields.Done.match(new RegExp(String.raw`\b${SHA}\b`, "gi")) ?? [];
 
 /**
- * The faults in the `Uncommitted:` files' diff.
  * @param {HandOff} h
  * @returns {string[]}
  */
@@ -142,11 +114,8 @@ function diffFaults(h) {
 }
 
 /**
- * What is wrong with the block in `body`, one clause each — [] where it is
- * well formed.
- * @param {string} body  the comment's body
- * @param {string} [question]  the round's first question number, e.g. "1",
- *   which `Blocked on:` must name; unchecked where absent
+ * @param {string} body
+ * @param {string} [question]
  * @returns {string[]}
  */
 function handOffFaults(body, question) {
@@ -169,7 +138,6 @@ function handOffFaults(body, question) {
 }
 
 /**
- * A fence `text` cannot close: one backtick longer than its longest run.
  * @param {string} text
  */
 const fenceFor = (text) =>
@@ -178,13 +146,8 @@ const fenceFor = (text) =>
 	);
 
 /**
- * A comment ending in a well-formed block, for a session stopped without
- * writing its own: `head`, then the newest lines of `narration` that fit in a
- * `<details>`, then the block. Null where the block alone runs past
- * COMMENT_LIMIT.
  * @param {{head: string, narration: string, base: string, done: string,
  *   left: string, blockedOn: string, files: string[], diff: string}} parts
- *   `files`, the uncommitted ones `diff` (`git diff HEAD` form) carries
  * @returns {string|null}
  */
 function buildHandOffComment(parts) {

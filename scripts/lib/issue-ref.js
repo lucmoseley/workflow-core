@@ -1,18 +1,6 @@
-/*
- * issue-ref.js — an issue named across repos: read off an API URL or out of
- * prose (#3477), keyed, labelled for a reader, and told apart from another
- * repo's (#3256). Its own module so the blocker readers that need only these do not
- * load the claim store parent-claims.js reads. A word of a `gh issue` command is
- * gh-issue-ref.js's to read, not this file's.
- *
- * A CORE: it reads nothing but its arguments.
- */
-
 /** @typedef {{repo: string|null, number: number}} IssueRef */
 
 /**
- * The issue an API issue URL names. `repo` is null where the URL carries no
- * `/repos/<owner>/<name>/` part, read as the candidate's own repo.
  * @param {string|null|undefined} url
  * @returns {IssueRef|null}
  */
@@ -25,7 +13,6 @@ function parseIssueRef(url) {
 }
 
 /**
- * The issue a whole `owner/name#n` string names, or null.
  * @param {unknown} text
  * @returns {{repo: string, number: number} | null}
  */
@@ -35,10 +22,7 @@ function parseQualifiedRef(text) {
 	return m?.[1] && m[2] ? { repo: m[1], number: Number(m[2]) } : null;
 }
 
-/**
- * `owner/name` from a `repository_url`, or null.
- * @param {string|null|undefined} url
- */
+/** @param {string|null|undefined} url */
 function parseRepoOfUrl(url) {
 	const m = url ? String(url).match(/\/repos\/([^/]+\/[^/]+)\/?$/) : null;
 	return m?.[1] ?? null;
@@ -48,8 +32,6 @@ function parseRepoOfUrl(url) {
 const isSameRepo = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 /**
- * Whether `ref` lives in a repo other than `childRepo`. A ref naming no repo
- * is the child's own.
  * @param {IssueRef} ref
  * @param {string|null} childRepo
  */
@@ -57,8 +39,6 @@ const isInOtherRepo = (ref, childRepo) =>
 	!!ref.repo && !isSameRepo(ref.repo, childRepo);
 
 /**
- * How a reader sees `ref` from an issue in `childRepo`: `#n` in the same repo,
- * `owner/name#n` in another.
  * @param {IssueRef} ref
  * @param {string|null} childRepo
  */
@@ -67,19 +47,10 @@ const refLabel = (ref, childRepo) =>
 		? `${ref.repo}#${ref.number}`
 		: `#${ref.number}`;
 
-/**
- * One key per issue across repos, case-folded as GitHub folds a repo name; a
- * ref naming no repo keys as `#n`.
- * @param {IssueRef} ref
- */
+/** @param {IssueRef} ref */
 const refKey = (ref) => `${(ref.repo ?? "").toLowerCase()}#${ref.number}`;
 
 /**
- * How a scan reads a reference. `notAfter` is the characters a reference may
- * not start straight after; `ownerName` admits an `owner/name#n` prefix;
- * `bare` is the character class of a lone `name#n` prefix, or null for none;
- * `wordEnd` refuses a number running on into a word character; `skip` is a
- * span no reference starts inside.
  * @typedef {{notAfter: RegExp|null, ownerName: boolean, bare: RegExp|null,
  *   wordEnd: boolean, skip?: RegExp}} RefForm
  */
@@ -89,12 +60,9 @@ const refKey = (ref) => `${(ref.repo ?? "").toLowerCase()}#${ref.number}`;
  *   name: string|null, number: number}} ScannedRef
  */
 
-/** A section identifier: `§N2`, `§6`. */
 const SECTION = /§[A-Z]?\d+(?:\.\d+)*/g;
 
-/* Each caller's form keeps the quirks of the regex it replaced (#3383). */
 const REF_FORMS = {
-	/** `#12`, `mantahostels#12`. */
 	identifier: {
 		notAfter: /[\w&/]/,
 		ownerName: false,
@@ -102,14 +70,12 @@ const REF_FORMS = {
 		wordEnd: true,
 		skip: SECTION,
 	},
-	/** `#12`, `name#12`, `acme/core#12` in option lines. */
 	citation: {
 		notAfter: /[\w&{$]/,
 		ownerName: true,
 		bare: /[\w-]/,
 		wordEnd: true,
 	},
-	/** `#12` or `owner/name#12` in a `**Blocked on**` list. */
 	blocker: { notAfter: null, ownerName: true, bare: null, wordEnd: false },
 };
 
@@ -117,8 +83,6 @@ const WORD = /\w/;
 const NAME = /[\w.-]/;
 
 /**
- * Where the run of `cls` characters starting at each index ends, the text's
- * length past its last.
  * @param {string} text
  * @param {RegExp} cls
  */
@@ -144,9 +108,6 @@ function endAt(ends, i) {
 }
 
 /**
- * Every issue reference in `text` that `form` admits, leftmost first. Each
- * index is tried once against run ends worked out up front, so the scan is
- * linear however long a run of name characters.
  * @param {string} text
  * @param {RefForm} form
  * @returns {ScannedRef[]}
@@ -156,7 +117,7 @@ function scanIssueRefs(text, form) {
 	const bares = form.bare ? runEnds(text, form.bare) : names;
 	const digits = runEnds(text, /\d/);
 	const skip = form.skip && new RegExp(form.skip.source, "y");
-	/** @param {number} at the end of the number a `#` at `at` opens, or null */
+	/** @param {number} at */
 	const numberEnd = (at) => {
 		if (text.charAt(at) !== "#") return null;
 		const end = endAt(digits, at + 1);
@@ -164,7 +125,6 @@ function scanIssueRefs(text, form) {
 		return form.wordEnd && WORD.test(text.charAt(end)) ? null : end;
 	};
 	/**
-	 * The prefixes the form admits at `at`, in the order they are tried.
 	 * @param {number} at
 	 * @returns {{prefixEnd: number, ownerEnd: number|null}[]}
 	 */

@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/review-comment.js, a PreToolUse dispatcher core (#4492), denies a
- * `gh issue comment` posting a whole-spec review whose TICKETED line names no
- * exception, through the dispatcher's real seam.
- *
- * WHAT BREAKING IT COSTS: a miss lets a first pass ticket fix-here work and
- * retag its spec unseen, as #2570's did; a wrong deny blocks every review
- * comment a /triage session posts.
- */
 
 import fs from "node:fs";
 import os from "node:os";

@@ -1,19 +1,10 @@
-/*
- * open-children.js — the refusal of a close that leaves a sub-issue open
- * (#3637). One module, because guard-issue-close, resolve-ticket.js and
- * promote-spec.js each refuse that close, and three copies would drift.
+/**
+ * @typedef {{ number: string, title: string, url: string, open: boolean }} Child
  */
 
 /**
- * @typedef {{ number: string, title: string, url: string, open: boolean }}
- *   Child `url` its html URL
- */
-
-/**
- * The refusal over `kids`' open ones, cited `#N` beside a parent in its own
- * repository, else `owner/repo#N`; "" where none is open.
  * @param {string} n
- * @param {string} home the parent repository's issues URL, ending `/issues/`
+ * @param {string} home
  * @param {Child[]} kids
  */
 function openChildrenRefusal(n, home, kids) {

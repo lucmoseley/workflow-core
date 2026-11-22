@@ -1,21 +1,12 @@
-/*
- * record-ticket.js — a landing-queue ticket keyed by a record in the markers
- * directory. The tender decides when to close and what to file; this writes
- * the record only once the issue act has succeeded, so an act that throws
- * keeps the old record and the next pass retries it (#4778).
- */
-
 const fs = require("node:fs");
 const { readText } = require("./file-read.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
 
 /**
- * A ticket's record: null where none is, "torn" where `parse` finds none in
- * it or it will not parse. A read failing for any reason but absence throws.
  * @template T
  * @param {string} file
- * @param {(rec: unknown) => T|null} parse null where the record is torn
+ * @param {(rec: unknown) => T|null} parse
  * @returns {T|null|"torn"}
  */
 function readTicketRecord(file, parse) {
@@ -25,7 +16,6 @@ function readTicketRecord(file, parse) {
 	try {
 		return parse(JSON.parse(read.data)) ?? "torn";
 	} catch {
-		/* Torn by a hand edit: the caller names it and drops it (#4485). */
 		return "torn";
 	}
 }
@@ -47,14 +37,12 @@ function readTicketRecord(file, parse) {
  * @template T
  * @param {import("./queue-issue.js").QueueIssueDeps} deps
  * @param {object} spec
- * @param {string} spec.record the record's path
- * @param {(rec: unknown) => T|null} spec.parse null where the record is torn
- * @param {string} spec.noun what its lines and refreshes call the ticket
- * @param {string} spec.subject what a refusal names it filed for
- * @param {string} spec.criterion the criterion its bodies carry, ticked as
- *   it closes
- * @param {string} [spec.tornNote] what a dropped record leaves open, after
- *   the line naming it
+ * @param {string} spec.record
+ * @param {(rec: unknown) => T|null} spec.parse
+ * @param {string} spec.noun
+ * @param {string} spec.subject
+ * @param {string} spec.criterion
+ * @param {string} [spec.tornNote]
  * @returns {RecordTicket<T>}
  */
 function recordTicket(

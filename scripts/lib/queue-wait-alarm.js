@@ -1,14 +1,3 @@
-/*
- * queue-wait-alarm.js — the core of scripts/queue-wait-alarm.js (#4443, #4458):
- * judges the remote's `queue/<name>` refs against QUEUE_BACKSTOP_MS.
- *
- * A ref has waited since its first push after its last deletion, off the
- * ref's activity feed, where GitHub lists that push as a `branch_creation`
- * and the later ones as `push`; a ref with no push in its feed is skipped
- * and named. It keeps no record, so it fails on every run while the limit
- * stands.
- */
-
 const {
 	QUEUE_HEADS,
 	QUEUE_PREFIX,
@@ -18,18 +7,15 @@ const {
 const { formatHoursMin, oldestWaiting } = require("./queue-gauge.js");
 const { QUEUE_ALERT_TITLES, STALL_MS } = require("./queue-tickets.js");
 
-/* GitHub's ceiling for one page of the activity feed. */
+// https://docs.github.com/en/rest/activity/events
 const PUSH_PAGE = 100;
-/* lib/queue-tickets.js's STALL_MS, unmeasured as a backstop: a dead machine
- * raises no alert of its own, so this one fires at the same wait. */
 const QUEUE_BACKSTOP_MS = STALL_MS;
 
 /**
  * @typedef {{timestamp: string, after: string}} Push
- * @typedef {(path: string) => Promise<unknown>} Get the parsed JSON at an
- *   API path under the repo, throwing on any failure
+ * @typedef {(path: string) => Promise<unknown>} Get
  * @typedef {{stalled: boolean, line: string, title?: string,
- *   ticket?: string}} Verdict `title` and `ticket` name a stall's error
+ *   ticket?: string}} Verdict
  */
 
 /** @param {unknown} p @returns {p is Push} */
@@ -43,12 +29,8 @@ const isPush = (p) =>
 	typeof p.after === "string";
 
 /**
- * When `ref` was first pushed since its last deletion, in ms; null where its
- * feed lists no push. Residual: where every one of the PUSH_PAGE entries
- * listed came after that push, the oldest listed stands in for it, which
- * only shortens the wait.
  * @param {Get} get
- * @param {string} ref in full
+ * @param {string} ref
  * @returns {Promise<number|null>}
  */
 async function readFirstPush(get, ref) {
@@ -111,7 +93,7 @@ async function judgeQueue(get, now) {
 
 /**
  * @param {{get: Get, now: number, say: (line: string) => void}} deps
- * @returns {Promise<number>} the exit code
+ * @returns {Promise<number>}
  */
 async function runAlarm({ get, now, say }) {
 	/** @type {Verdict[]} */

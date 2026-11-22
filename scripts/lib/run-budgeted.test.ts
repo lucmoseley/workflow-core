@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the budgeted group runner check-gates.js spends its budget through
- * (#2855, #2928): past the budget the whole group dies, a TERM-trapping grandchild
- * included, and every other end reaches the caller as it happened. Loosen a
- * case and the sweep waits out a check that ignores its TERM.
- *
- * Every case crosses the real clock: what is pinned is a real kill of real
- * processes, which no injected clock reaches.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -25,16 +16,13 @@ const {
 	APPARATUS_PREFIX,
 } = require("./run-budgeted.js");
 
-/* Short, so the file stays inside its budget; the commands under test sleep
- * for 30 s, so a survivor is far past any of these. */
+// guess, #2855
 const BUDGET_MS = 500;
 const KILL_AFTER_MS = 500;
 
-/* A SIGKILLed member still runs until it is next scheduled, so a busy machine
- * gets a moment; a survivor sleeps far past it. The 2 s is a first guess,
- * unmeasured. */
 async function expectGroupDead(pgid: number) {
 	await vi.waitFor(() => expect(isGroupDead(pgid)).toBe(true), {
+		// guess, #2928
 		timeout: 2000,
 	});
 }
@@ -105,9 +93,6 @@ describe("its own failures", () => {
 	});
 });
 
-/* The signal lands just after the command starts, the #2928 window. A runner
- * that arms its handlers late fails this only some runs: 3 in 10 under a
- * whole suite's load, 0 in 10 idle. */
 it("kills a group that ignores the signal, and dies by it, when told to stop (#2928)", async () => {
 	const child = keptSpawn("signal").spawn(
 		process.execPath,
@@ -132,18 +117,13 @@ it("kills a group that ignores the signal, and dies by it, when told to stop (#2
 	await expectGroupDead(pgid);
 });
 
-/* A signalled run's budget and grace: the budget far past the case, so only
- * the signal ends it; the grace long enough that a run ending inside
- * SECOND_SIGNAL_BOUND_MS, half of it, ended on the second signal rather
- * than waiting the grace out. */
+// guess, #5188
 const SIGNALLED_BUDGET_MS = 60_000;
 const SIGNALLED_GRACE_MS = 20_000;
 const SECOND_SIGNAL_BOUND_MS = SIGNALLED_GRACE_MS / 2;
-/* Between two sends, so the runner's listener has run on the first before
- * the second arrives; a first guess, unmeasured. */
+// guess, #5188
 const SIGNAL_GAP_MS = 200;
 
-/** The runner over `script`, signalled once the script echoes its pid. */
 async function signalled(script: string, signals: NodeJS.Signals[]) {
 	const child = keptSpawn("signal").spawn(
 		process.execPath,
@@ -164,8 +144,6 @@ async function signalled(script: string, signals: NodeJS.Signals[]) {
 	const ended = new Promise<NodeJS.Signals | null>((resolve) =>
 		child.on("exit", (_code, signal) => resolve(signal)),
 	);
-	/* Spaced apart: a standard signal does not queue, so two sent at once
-	 * reach the runner as one. */
 	for (const signal of signals) {
 		child.kill(signal);
 		await new Promise((resolve) => setTimeout(resolve, SIGNAL_GAP_MS));

@@ -1,25 +1,13 @@
-/*
- * hex-sha-fixture.ts — commits whose short sha a close comment may misread:
- * one all digits or all letters (#3230), and two sharing one (#3233). FOR
- * TESTS ONLY.
- *
- * About 1 commit in 27 has an all-digit short sha and 1 in 900 an all-letter
- * one, so the commit's date is stepped until its object hashes to one.
- */
-
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 
-/* git's shortest abbreviation, which core.abbrev=auto gives a small repo;
- * each shape spans it, and the odds below are worked for it. */
 const SHORT = 7;
 const SHAPES = {
 	digits: new RegExp(`^\\d{${SHORT}}`),
 	letters: new RegExp(`^[a-f]{${SHORT}}`),
 };
-/* At 1 in 900 a try, 100,000 all miss about 1 time in e^111. */
+// guess, odds of all missing e^-111, #3230
 const TRIES = 100_000;
-/* Any fixed date works: the tree and parent already vary per repo. */
 const FIRST_DATE = 1_700_000_000;
 
 const buildCommitBody = (
@@ -50,10 +38,6 @@ const shaOf = (body: string) =>
 		.update(`commit ${Buffer.byteLength(body)}\0${body}`)
 		.digest("hex");
 
-/**
- * Commits HEAD's tree onto HEAD under `subject` in the repo at `cwd`, its
- * short sha all `shape`, and moves HEAD's branch to it.
- */
 export function hexShaCommit(
 	cwd: string,
 	subject: string,
@@ -72,14 +56,9 @@ export function hexShaCommit(
 	throw new Error(`no all-${shape} short sha in ${TRIES} dates`);
 }
 
-/* Two sets of N dates share a 28-bit prefix about N²/2^28 times: 16,000 a
- * side expects one, and 200,000 all miss about 1 time in e^149. */
+// guess, odds of all missing e^-149, #3233
 const PAIR_TRIES = 200_000;
 
-/**
- * Two commits of HEAD's tree onto HEAD, under `subjects` in order, whose
- * short shas are one, written to the repo at `cwd` with no ref moved.
- */
 export function sharedShortShaCommits(
 	cwd: string,
 	subjects: [string, string],

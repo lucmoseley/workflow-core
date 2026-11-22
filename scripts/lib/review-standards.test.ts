@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * review-standards.test.ts — review-standards.sh with the core root resolved
- * and unresolved: pins that it names the base only under a resolved root, and
- * logs an unresolved root or an absent base rather than going quiet. Broken, a
- * route hands its reviewer a rootless `/docs/code-standards-base.md` and logs
- * nothing, so the review runs without the base unmarked (#947's review). It
- * also pins that the host's GLOSSARY.md is named only where it exists, since a
- * glossary named where none exists sends the reviewer after §G8 findings
- * against nothing (#1373). A
- * resolved root is set through WFC_SCRIPT_ROOT, script-path.sh's own test seam.
- * Unresolved is a state no route's own test can reach: every route needs
- * script-path.sh to load, and loaded it always resolves a root — and an empty
- * WFC_SCRIPT_ROOT falls back to it. So only those cases stub sp_core_root. A
- * plain tempdir, not a git repo: gr_root takes CLAUDE_PROJECT_DIR, and nothing
- * here reads git.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -35,8 +19,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// root "" stubs sp_core_root to print nothing; any other root goes in through
-// WFC_SCRIPT_ROOT, the real seam.
 const run = (root: string, body: string) =>
 	spawnSync(
 		"bash",
@@ -51,8 +33,6 @@ const run = (root: string, body: string) =>
 				WFC_SCRIPT_ROOT: root,
 				LIB,
 				CLAUDE_PROJECT_DIR: dir,
-				// gl_log writes under CLAUDE_CONFIG_DIR; unset, a run appends to the
-				// founder's own log.
 				CLAUDE_CONFIG_DIR: dir,
 			},
 		},
@@ -173,12 +153,6 @@ describe("the base as a session is handed it (#1779)", () => {
 	});
 });
 
-/*
- * lib/review-standards.js is the Node twin the review-rules core reads
- * through its host. Each case runs both on one host and core and holds them
- * to one answer. Its roots are always resolved, so the unresolved cases above
- * have no twin.
- */
 describe("the Node twin keeps step (#2792)", () => {
 	const twin = require("./review-standards.js") as {
 		standardsBase: (core: string) => string;

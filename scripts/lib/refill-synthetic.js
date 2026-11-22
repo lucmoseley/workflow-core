@@ -1,19 +1,3 @@
-/*
- * refill-synthetic.js — the refill loop's resumes of a session the harness
- * ended on its own "No response requested." record (#5322, #5324): its job
- * reads `done`, so no Stop hook ran and nothing wakes it. One judgement serves
- * the loop's own launches and the sessions it did not launch
- * (lib/refill-outside.js), each through a Subject adapter of its record.
- *
- * Arrival is read off the transcript, not the timeline: any turn row after
- * the synthetic record, the founder's typing included, ends the stop.
- *
- * The count is per stop, keyed to the synthetic record's timestamp. A later
- * stop starts afresh only where a model reply came between it and the loop's
- * last resume; one that a resume ran straight into carries the count on, so a
- * job that ends this way on every resume meets the cap.
- */
-
 const { SYNTHETIC_TRIES, blockAct } = require("./block-act.js");
 const { SYNTHETIC_PROMPT } = require("./loop-prompts.js");
 const {
@@ -37,11 +21,7 @@ const { ATTACH_VERDICT_MS, isRunAdmitted } = require("./refill-blocks.js");
  * @typedef {import("./refill-blocks.js").SessionRef} SessionRef
  * @typedef {import("./refill-blocks.js").StoppedTarget} StoppedTarget
  * @typedef {{at: number, tries: number, resumed: number, triedAt?: number,
- *   attachAt?: number, spent?: true}} SyntheticResumes  a session's resumes
- *   of its synthetic stops: `at`, the stop's synthetic record, ms; `tries`,
- *   the resumes made for it, the last at `triedAt`; `attachAt`, a typed one
- *   not yet seen arrive; `spent`, its cap reached and logged; `resumed`, the
- *   resumes made across every stop, for a finished launch's line
+ *   attachAt?: number, spent?: true}} SyntheticResumes
  */
 /**
  * @template T
@@ -50,12 +30,7 @@ const { ATTACH_VERDICT_MS, isRunAdmitted } = require("./refill-blocks.js");
  *   stop: () => string|null,
  *   resume: (target: StoppedTarget, rec: SyntheticResumes) =>
  *     {out: T, how?: string}|string,
- *   report: (line: string) => void}} Subject  one session's record as the
- *   judgement sees it: `admitted`, whether the tick may set it running,
- *   asked only of a due resume; `keep` it with a record; `stop` its job, the why where
- *   that failed; `resume` it stopped, the record it then is and how where
- *   its own log does not say, or the why;
- *   `report` a resume's line where its kind of session reports one
+ *   report: (line: string) => void}} Subject
  */
 
 const ROUTE_TYPED = "typing into the live session";
@@ -63,9 +38,8 @@ const ROUTE_RELAUNCH = "stop and --bg --resume";
 const ROUTE_REAPED = "--bg --resume, the reaper having stopped it";
 
 /**
- * The log line for one resume.
  * @param {string} name
- * @param {SyntheticResumes} rec  after the try
+ * @param {SyntheticResumes} rec
  * @param {string} route
  * @param {string|null} failed
  */
@@ -73,8 +47,6 @@ const buildLine = (name, rec, route, failed) =>
 	`${failed ? "could not resume" : "resumed"} ${name}, whose last turn the harness ended on a synthetic reply at ${iso(rec.at)}, by ${route}, try ${rec.tries} of ${SYNTHETIC_TRIES}${failed ? `: ${failed}` : ""}`;
 
 /**
- * The record of stop `at`: `was` where it is that stop's; else afresh, its
- * count carried where no model reply came since the loop's last resume.
  * @param {SyntheticResumes|undefined} was
  * @param {number} at
  * @param {SessionRef} ref
@@ -90,9 +62,6 @@ function recordOf(was, at, ref, io) {
 }
 
 /**
- * Stop `s`'s job, unless the reaper already did, then `claude --bg --resume`
- * it with the synthetic prompt; `rec` the try it makes or settles. Never off
- * an unread listing, which cannot tell a live job from a stopped one.
  * @template T
  * @param {Subject<T>} s
  * @param {SyntheticResumes} rec
@@ -119,8 +88,6 @@ function relaunch(s, rec, reaped, { agents, io }) {
 }
 
 /**
- * Resume `s`'s stop: typed into its job unless the reaper stopped it, where
- * the typing fails by relaunch.
  * @template T
  * @param {Subject<T>} s
  * @param {SyntheticResumes} rec
@@ -148,11 +115,6 @@ function resume(s, rec, seen) {
 }
 
 /**
- * `s`'s synthetic stop this tick, read at `at`: a typed resume judged once the
- * attach-verdict window passes, arrived where the transcript no longer reads
- * that stop, else the same try relaunched; else the SYNTHETIC_STOP row's act,
- * its give-up logged once. Null where it leaves `s` as it was: its reading
- * unread, a typed resume in flight, or no stop read and none in flight.
  * @template T
  * @param {Subject<T>} s
  * @param {import("./block-cause.js").IdleReading} at
@@ -195,11 +157,7 @@ function judgeStop(s, at, mode, seen) {
 	return resume(s, rec, seen);
 }
 
-/**
- * Whether the loop leaves `l` to other acts: one it resumes after an API
- * error, holds stopped or limit-held, owes a hand-off or a step resume.
- * @param {LoopLaunch} l
- */
+/** @param {LoopLaunch} l */
 const isLeftToOtherActs = (l) =>
 	isResuming(l) ||
 	isHeld(l) ||
@@ -208,16 +166,12 @@ const isLeftToOtherActs = (l) =>
 	l.handOffTries !== undefined;
 
 /**
- * Whether a synthetic stop of `l`'s is this cause's to act on.
  * @param {LoopLaunch} l
  * @returns {l is JobLaunch}
  */
 const isOwnSyntheticStop = (l) => isActionable(l) && !isLeftToOtherActs(l);
 
 /**
- * Whether `l`'s job, gone from the listing, still owes the loop a synthetic
- * stop's resume, so the launch is not judged finished: its typed resume is in
- * flight, or its job reads a stop whose resumes are not spent.
  * @param {LoopLaunch} l
  * @param {import("./refill-blocks.js").BlockIo} io
  */
@@ -230,8 +184,6 @@ function isOwedResume(l, io) {
 }
 
 /**
- * Launch `l` as a Subject: each resume logged and commented on its issues,
- * a relaunch recorded as the launch it becomes.
  * @param {JobLaunch} l
  * @param {Tick} seen
  * @returns {Subject<LoopLaunch>}
@@ -265,8 +217,6 @@ function launchSubject(l, seen) {
 }
 
 /**
- * The tick's acts on the launches the harness ended on a synthetic reply
- * (#5324), each actionable one not left to other acts judged by judgeStop.
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
@@ -280,11 +230,7 @@ function actOnSynthetic(launches, mode, seen) {
 	});
 }
 
-/**
- * The finished-launch line's note of the synthetic stops resumed, empty
- * where there were none.
- * @param {LoopLaunch} l
- */
+/** @param {LoopLaunch} l */
 const buildFinishNote = (l) =>
 	l.synthetic?.resumed
 		? `; resumed ${l.synthetic.resumed} time(s) after the harness ended its turn on a synthetic reply`

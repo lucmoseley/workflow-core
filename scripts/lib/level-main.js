@@ -1,37 +1,3 @@
-/*
- * level-main.js — the levelling step (#4238):
- * the main checkout's `main` follows `origin/main`, the lander-green tip, by a
- * fast-forward and nothing else.
- *
- * ONE PASS fetches `main`, then fast-forwards the main checkout's `main` to
- * `origin/main` where it is behind. It never merges, rebases or resets: a
- * local commit or a blocking edit is reported, never moved or discarded. A
- * failed fetch is reported, and the pass levels against the `origin/main` last
- * fetched. A main checkout not yet cut over (lib/cutover.js) is refused, never
- * moved.
- *
- * A FAST-FORWARD THAT CHANGES THE SELF-PLUGIN CANARY first re-marks every live
- * session for the target's canary (lib/canary-remark.js), and is refused where
- * that canary would still refuse one, naming each. After it, the sessions that
- * started meanwhile are re-marked, and any still refused is named.
- *
- * A REFUSAL NAMES EACH BLOCKING FILE — a tracked edit, staged or not, or an
- * untracked file, at a path the fast-forward changes or at a directory above
- * or below one — with its age (mtime) and its last writer (the write ledger).
- *
- * THE INSTALL runs where `main` is level, after any fast-forward, and the
- * lockfile blob at `HEAD` is not the one `node_modules` was built for, read
- * from a marker inside it. Keyed on the blob, not on the fast-forward's diff,
- * so a failed install is retried on the next pass; built from `HEAD`'s
- * manifests, never the working tree's, so a stray lockfile edit is never
- * installed. It builds into a staging directory under the git dir
- * (lib/npm-ci-staging.js), swapped in by two renames.
- *
- * ONE PASS AT A TIME, under a pidfile in the git dir: the refill loop and the
- * lander both run it (#4229), and two `npm ci` runs at once would spend the
- * memory of two. The holder sweeps the staging directory a killed pass left.
- */
-
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -62,7 +28,6 @@ const {
 
 const BRANCH = "main";
 const UPSTREAM = `origin/${BRANCH}`;
-/* Inside `node_modules`, so it is swapped in with the tree it describes. */
 const MARKER = ".wfc-lockfile-blob";
 const HOLDERS = ["level-main.js", "refill-loop.js"];
 
@@ -105,14 +70,12 @@ const git = (args, cwd) =>
 	);
 
 /**
- * @param {string} out NUL-separated git output
+ * @param {string} out
  * @returns {string[]}
  */
 const parseNulList = (out) => out.split("\0").filter(Boolean);
 
 /**
- * Paths with a tracked edit, staged or not, or an untracked file: what the
- * fast-forward would overwrite. A rename's source counts too.
  * @param {string} root
  * @returns {Set<string>}
  */
@@ -128,8 +91,6 @@ function readEditedPaths(root) {
 }
 
 /**
- * Whether an edit at `edited` stands in the way of a change at `changed`: the
- * same path, or either one a directory holding the other.
  * @param {string} edited
  * @param {string[]} changed
  */
@@ -144,15 +105,12 @@ const clashes = (edited, changed) =>
  * @returns {Blocker}
  */
 function readBlocker(root, rel, now, lastWriter) {
-	/* A deletion is still a blocking edit; it has no age to read. */
 	const st = fs.lstatSync(path.join(root, rel), { throwIfNoEntry: false });
 	const ageMs = st ? Math.max(0, now - st.mtimeMs) : null;
 	return { path: rel, ageMs, writer: lastWriter(rel) };
 }
 
 /**
- * Every edit in the main checkout, each an Orphaned edit: no session works
- * there once it is cut over.
  * @param {string} root
  * @param {number} now
  * @param {LastWriter} lastWriter
@@ -164,24 +122,20 @@ const readOrphanedEdits = (root, now, lastWriter) =>
 		.map((p) => readBlocker(root, p, now, lastWriter));
 
 /**
- * The blob id of `name` at `HEAD`, or null where `HEAD` has none.
  * @param {string} root
  * @param {string} name
  * @returns {string | null}
  */
 function readHeadBlob(root, name) {
 	const out = git(["ls-tree", "-z", "HEAD", "--", name], root);
-	/* `<mode> blob <id>\t<path>` */
 	const id = out.split("\t")[0]?.split(" ")[2];
 	return id || null;
 }
 
 /**
- * A rename, reporting rather than throwing, for a rollback that must not mask
- * the error a caller is already returning.
  * @param {string} from
  * @param {string} to
- * @returns {string | null} why it failed
+ * @returns {string | null}
  */
 function tryRename(from, to) {
 	try {
@@ -193,9 +147,8 @@ function tryRename(from, to) {
 }
 
 /**
- * `rm -rf`, reporting rather than throwing.
  * @param {string} dir
- * @returns {string | null} why it failed
+ * @returns {string | null}
  */
 function tryRemove(dir) {
 	try {
@@ -207,26 +160,22 @@ function tryRemove(dir) {
 }
 
 /**
- * The lockfile blob the tree at `live` was built for, or null where it carries
- * no marker.
  * @param {string} live
  * @returns {string | null}
  */
 function readMarker(live) {
 	const r = readText(path.join(live, MARKER));
 	if (r.state === "read") return r.data.trim();
-	/* No tree, or one no levelling pass built: either way, build. */
 	if (r.state === "absent" || caught(r.error).code === "ENOTDIR") return null;
 	throw r.error;
 }
 
 /**
- * Install `HEAD`'s manifests into `staging`, marked as built for `want`.
  * @param {string} root
  * @param {string} staging
- * @param {string} want the lockfile blob
+ * @param {string} want
  * @param {Install} install
- * @returns {string} the built `node_modules`
+ * @returns {string}
  */
 function buildStaging(root, staging, want, install) {
 	const built = stageInstall(
@@ -247,11 +196,8 @@ function buildStaging(root, staging, want, install) {
 }
 
 /**
- * Rebuild `root`'s `node_modules` from `HEAD`'s manifests where it was built
- * for another lockfile blob, or carries no marker. Never throws: a failure is
- * the result's `error`, and the next pass tries again.
  * @param {string} root
- * @param {string} work this pass's directory under the git dir
+ * @param {string} work
  * @param {Install} install
  * @returns {InstallResult}
  */
@@ -270,7 +216,6 @@ function installIfStale(root, work, install) {
 		installed = true;
 	} catch (err) {
 		errors.push(caught(err).message.trim());
-		/* The swap's second rename failed: put the old tree back. */
 		const back =
 			!fs.existsSync(live) && fs.existsSync(old) ? tryRename(old, live) : null;
 		if (back !== null) {
@@ -288,8 +233,6 @@ function installIfStale(root, work, install) {
 }
 
 /**
- * Which of `local` no last-fetched queue ref's tracking ref holds, as
- * lib/cutover.js's land leaves them queued.
  * @param {string} root
  * @returns {string[]}
  */
@@ -310,8 +253,7 @@ function readUnqueued(root) {
 }
 
 /**
- * The fast-forward half of a pass: what `main` did, no install.
- * @param {string} root the main checkout
+ * @param {string} root
  * @param {{ now: number, lastWriter: LastWriter, work: string,
  *   listSessions?: ListSessions }} how
  * @returns {Moved}
@@ -321,7 +263,6 @@ function forward(root, { now, lastWriter, work, listSessions }) {
 	try {
 		branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], root).trim();
 	} catch (err) {
-		/* `--quiet` exits 1 on a detached HEAD alone; anything else is a fault. */
 		if (caught(err).status !== 1) throw err;
 	}
 	if (branch !== BRANCH) return { status: "off-branch", branch };
@@ -365,10 +306,7 @@ function forward(root, { now, lastWriter, work, listSessions }) {
 }
 
 /**
- * One levelling pass over the main checkout `root`. A pass another holds is
- * `busy`, doing nothing. A git fault outside the fetch and the fast-forward
- * throws.
- * @param {string} root the main checkout
+ * @param {string} root
  * @param {{ install?: Install, lastWriter?: LastWriter,
  *   listSessions?: ListSessions, now: number }} options
  * @returns {Outcome}
@@ -388,7 +326,6 @@ function level(
 		};
 	try {
 		const work = path.join(common, "wfc-level");
-		/* Only a killed pass leaves this, and the lock says none is running. */
 		fs.rmSync(work, { recursive: true, force: true });
 		let fetchError = null;
 		try {
@@ -421,7 +358,6 @@ function level(
 const isAtUpstream = (o) => o.status === "level" || o.status === "forwarded";
 
 /**
- * Whether the fetch and any install went through.
  * @param {Outcome} o
  */
 const isFaultless = (o) =>
@@ -430,9 +366,6 @@ const isFaultless = (o) =>
 	(o.status !== "forwarded" || o.late === null);
 
 /**
- * Whether the pass has nothing to report under `--quiet`: `main` already
- * level, another pass holding the lock, or the checkout not yet cut over,
- * with nothing failed or installed.
  * @param {Outcome} o
  */
 const isRoutine = (o) =>
@@ -441,12 +374,6 @@ const isRoutine = (o) =>
 	["level", "busy", "shared"].includes(o.status);
 
 /**
- * What scripts/level-main.js prints and exits with for one pass: the report
- * under a `levelling <root>` line, which tells one checkout's report from
- * another's in the refill loop's log (scripts/measure-worktree-model.js), or
- * nothing where `quiet` and the pass was routine; exit 0 where `main` sits at
- * `origin/main` with the fetch and any install done and no session left
- * refused by a canary it moved, else 1.
  * @param {string} root
  * @param {Outcome} o
  * @param {{ now: number, quiet: boolean }} how
@@ -461,14 +388,6 @@ function buildReport(root, o, { now, quiet }) {
 }
 
 /**
- * Start a quiet levelling pass over the main checkout at `root`
- * (scripts/level-main.js), detached, as the lander does after it moves
- * `origin/main` and the refill loop's tick does each tick (#4229): an `npm ci`
- * in it may outlast either. Fails open (#3765): a failed start goes to
- * `notStarted`, and the next move or tick starts another; the pass's pid lock
- * turns away one started while one runs. `WFC_LEVEL_MAIN_SCRIPT` names
- * another script to start, the lander suite's seam: a real pass would move
- * the sandbox's `main` under it.
  * @param {string} root
  * @param {(err: unknown) => void} notStarted
  */
@@ -480,14 +399,10 @@ const levelScript = () =>
 	process.env.WFC_LEVEL_MAIN_SCRIPT ||
 	path.join(__dirname, "..", "level-main.js");
 
-/* Room for the `npm ci` the pass runs where the lockfile changed, plus its
- * git steps. Untraced: one minute for the git. */
+// guess, #4521
 const LEVEL_NOW_TIMEOUT_MS = INSTALL_TIMEOUT_MS + 60_000;
 
 /**
- * One levelling pass, waited for, in the environment the detached one gets:
- * where a fresh lander must start on what `main` now holds. What it printed
- * where it failed or another pass held the lock, else null.
  * @param {string} root
  * @returns {string|null}
  */
@@ -504,7 +419,6 @@ function levelNow(root) {
 }
 
 /**
- * An edit in the main checkout's report line: its path, age and last writer.
  * @param {Blocker} b
  * @param {number} now
  * @returns {string}
@@ -513,7 +427,6 @@ const renderBlocker = (b, now) =>
 	`  ${b.path} — ${b.ageMs === null ? "deleted" : `${describeAge(b.ageMs)} old`}; last writer ${b.writer ? `session ${b.writer.sessionId}, ledger written ${describeAge(now - b.writer.at)} ago` : "unknown — no surviving write ledger names it"}`;
 
 /**
- * An age as minutes under an hour, then hours and days.
  * @param {number} ms
  * @returns {string}
  */
@@ -524,8 +437,6 @@ const renderStranded = (s) =>
 	`  session ${s.sessionId} in ${s.projectDir} — ${s.refusal}`;
 
 /**
- * The sessions that started during the canary re-mark, where any is left
- * refused after the fast-forward.
  * @param {Stranding | null} late
  * @returns {string[]}
  */
@@ -542,8 +453,6 @@ function renderLate(late) {
 }
 
 /**
- * The outcome as report lines, the first naming what happened to `main`, each
- * refusal with its way out.
  * @param {Outcome} o
  * @param {number} now
  * @returns {string[]}

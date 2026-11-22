@@ -1,13 +1,3 @@
-/*
- * private-group.js — whether a group is the user's private one, judged from
- * the text of the host's user databases (#3676, #3715).
- *
- * write-secret.js is its caller and does every read, from fixed paths: any
- * path or variable pointing the reads elsewhere would let the environment
- * vouch for a group (#3716).
- */
-
-/** systemd's userdb drop-in directories, each of which must be empty. */
 const USERDB_DROP_INS = [
 	"/etc/userdb",
 	"/run/userdb",
@@ -15,11 +5,9 @@ const USERDB_DROP_INS = [
 	"/usr/local/lib/userdb",
 	"/usr/lib/userdb",
 ];
-/** systemd's userdb service directory, which may hold only QUIET_USERDB. */
 const USERDB_SERVICES = "/run/systemd/userdb";
 const USERDB_DIRS = [...USERDB_DROP_INS, USERDB_SERVICES];
 
-/** systemd's userdb services that name no user beyond NSS's own files. */
 const QUIET_USERDB = new Set([
 	"io.systemd.DropIn",
 	"io.systemd.DynamicUser",
@@ -27,27 +15,19 @@ const QUIET_USERDB = new Set([
 	"io.systemd.NameServiceSwitch",
 ]);
 
-/** A group password field through which no one can `newgrp` in. */
 const NO_GROUP_PASSWORD = new Set(["", "x", "!", "*"]);
 
 /**
- * @typedef {object} UserDb what the host's user databases hold, null where
- *   unreadable
- * @property {string | null} passwd `/etc/passwd`'s text
- * @property {string | null} group `/etc/group`'s text
- * @property {string | null} nsswitch `/etc/nsswitch.conf`'s text
- * @property {Record<string, string[] | null>} userdb each of USERDB_DIRS'
- *   entries, empty where it is absent
+ * @typedef {object} UserDb
+ * @property {string | null} passwd
+ * @property {string | null} group
+ * @property {string | null} nsswitch
+ * @property {Record<string, string[] | null>} userdb
  */
 
 /** @typedef {{ uid: number, gid: number, username: string }} User */
 
 /**
- * Whether `gid` is `me`'s private group: their primary gid in `/etc/passwd`,
- * under the one row naming them, with no other member in `/etc/group` and no
- * other user's primary gid. Only those two files are read, so a host whose
- * user and group lookups can reach another source is judged to have none
- * private.
  * @param {number} gid
  * @param {User} me
  * @param {UserDb} db
@@ -67,8 +47,6 @@ function isPrivateGroup(gid, me, db) {
 		rows.length > 0 &&
 		rows.every(
 			([, password, , members]) =>
-				/* parseDbRows proved a later field, so this holds; it narrows the type
-				 * and keeps a missing field from reading as no password (#3823). */
 				password !== undefined &&
 				NO_GROUP_PASSWORD.has(password) &&
 				members?.split(",").every((m) => m === "" || m === me.username),
@@ -80,14 +58,6 @@ function isPrivateGroup(gid, me, db) {
 }
 
 /**
- * Whether `/etc/passwd` and `/etc/group` are the only sources of users and
- * group members: `nsswitch.conf` names only `files` for each, and for
- * `initgroups` where it is named, or `systemd` too where no userdb record or
- * service beyond dynamic users exists. Any line glibc could read as one of
- * those databases must be in the plain `<db>: <sources>` form, so no looser
- * spelling outranks the one read. A directory service (LDAP, sssd), NIS or a
- * systemd-homed user could hold a member these files never show, and
- * `initgroups` sets each login's groups apart from `group`.
  * @param {UserDb} db
  * @returns {boolean}
  */
@@ -116,11 +86,6 @@ function isFilesOnlyUserSource(db) {
 }
 
 /**
- * The colon-split rows of an `/etc` database's text, or null where it was
- * unreadable, holds a NIS compat row (`+`, `-`), whose entries live
- * elsewhere, a row led by whitespace, whose name glibc reads with it stripped
- * (#3715), or a row whose field at an index in `ids` is not a plain decimal
- * id, which glibc's parse could read as another.
  * @param {string | null} text
  * @param {number[]} ids
  * @returns {string[][] | null}
@@ -139,8 +104,6 @@ function parseDbRows(text, ids) {
 }
 
 /**
- * `text`'s lines less blank ones and those glibc skips as comments; null
- * where it was unreadable.
  * @param {string | null} text
  * @returns {string[] | null}
  */

@@ -1,16 +1,3 @@
-/*
- * The shared gh fake (§G7, #2207): one answer per fixture file under
- * fixtures/gh/, served in-process by `ghFake`, as the WFC_GH stub executable
- * by `ghFakeScript`, as an inline node fake by `ghAnswerNode`, and as
- * serveGhStub's handler by `ghAnswerHandler`. gh.contract.test.ts holds
- * the first two to the real binary on every fixture but a landed write's, and
- * the last two on the logged-out answer alone, since all four serve one GhAnswer. A test names
- * the answer it wants by its fixture path and nothing else — or, where the
- * answer depends on the call, by the computed answer below that builds it.
- * A stub that builds its own JSON answers runs each through `asRecorded`,
- * which holds it to a fixture the contract holds.
- */
-
 import fs from "node:fs";
 import BLOCKED_BY_PAGE from "./fixtures/gh/blocked-by-page.json" with {
 	type: "json",
@@ -69,24 +56,12 @@ import VALIDATION_FAILED from "./fixtures/gh/validation-failed.json" with {
 };
 import { shellQuote } from "./sh-quote.js";
 
-/** What one gh call answers: its exit status and both streams, verbatim. */
 export interface GhAnswer {
 	status: number;
 	stdout: string;
 	stderr: string;
 }
 
-/*
- * The recorded failures a stub serves verbatim: a logged-out gh, a REST read
- * of a missing issue, `issues/<n>/parent` of an issue with none, a GraphQL
- * read of a repository that does not exist, and a request GitHub cannot
- * process (HTTP 422). A 5xx cannot be recorded
- * on demand, so a stub failing a read for any reason serves NOT_FOUND:
- * lib/gh.js reads both as broken and retries both once (#3013). A stub failing
- * a write serves fixtures/gh/issue-create-no-repo.json or
- * issue-comment-not-found.json: lib/gh.js reads those as broken, and a write
- * to a missing target writes nothing, so a live case holds them.
- */
 export const GH_LOGGED_OUT: GhAnswer = LOGGED_OUT;
 export const GH_NOT_FOUND: GhAnswer = NOT_FOUND;
 export const GH_PARENT_NOT_FOUND: GhAnswer = PARENT_NOT_FOUND;
@@ -97,8 +72,6 @@ export function readGhAnswer(fixture: string): GhAnswer {
 	return JSON.parse(fs.readFileSync(fixture, "utf8"));
 }
 
-/** The in-process port: lib/gh.js's `gh(args)`, answering `answer` to every
- *  call. A non-zero status throws what execFileSync throws. */
 export function ghServe({
 	status,
 	stdout,
@@ -115,7 +88,6 @@ export function ghServe({
 
 export const ghFake = (fixture: string) => ghServe(readGhAnswer(fixture));
 
-/** The shell lines that print `answer`, for a stub's own `case` arm. */
 export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
 	return (
 		(stdout ? `printf '%s' ${shellQuote(stdout)}\n` : "") +
@@ -124,12 +96,6 @@ export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
 	);
 }
 
-/**
- * The stub executable answering `answer`, for gh-stub's `stubGhScript`.
- * `onlyIn` answers it only where the stub's working directory is that path,
- * and a logged-out gh anywhere else: for a test that a program asks gh from
- * the directory it should.
- */
 export function buildGhAnswerScript(
 	answer: GhAnswer,
 	{ onlyIn }: { onlyIn?: string } = {},
@@ -140,11 +106,9 @@ export function buildGhAnswerScript(
 	return `#!/bin/sh\n${elsewhere}${ghServeLines(answer)}`;
 }
 
-/** The stub executable answering `fixture`, for gh-stub's `stubGhScript`. */
 export const ghFakeScript = (fixture: string) =>
 	buildGhAnswerScript(readGhAnswer(fixture));
 
-/** `fixture`'s answer as node source calling `out`, `err` and `exit`. */
 function buildAnswerCalls(
 	fixture: string,
 	{ out, err, exit }: { out: string; err: string; exit: string },
@@ -160,25 +124,9 @@ export const ghAnswerNode = (fixture: string) =>
 		exit: "process.exit",
 	});
 
-/** The handler answering `fixture`, for gh-stub's `serveGhStub`. */
 export const ghAnswerHandler = (fixture: string) =>
 	buildAnswerCalls(fixture, { out: "out", err: "err", exit: "exit" });
 
-/*
- * Computed answers (#2873): where the answer depends on the call — a batched
- * GraphQL read, one issue's sub-issues — the fake builds it out of the nodes
- * of a fixture the contract holds to the real call, so its keys and types
- * are gh's and only its values are the test's. A GraphQL one is node source
- * defining one function that returns a GhAnswer, for a stub to embed and
- * print with `serveAnswer`, or for `ghComputed` to load in-process.
- */
-
-/* Declarations a computed source embeds; a stub embedding two repeats them
- * harmlessly. `shaped` keeps exactly the template's keys, `answerOf` errs
- * as gh does on a GraphQL `errors` list: exit 1, each message on stderr.
- * In serveGhStub's handler, print with `serveHandlerAnswer`, which writes
- * through the handler's `out`, `err` and `exit`: `process.exit` there ends
- * the server for every later call. */
 const HELPERS = String.raw`function shaped(template, values) {
 	return Object.fromEntries(Object.keys(template).map((k) => [k, k in values ? values[k] : template[k]]));
 }
@@ -201,14 +149,6 @@ function serveHandlerAnswer(a) {
 	exit(a.status);
 }`;
 
-/**
- * The source of `answerGraphql(argv, closed, missing, missingRepos)`:
- * lib/outstanding-line.js's batched issue read, every cited number an open
- * issue unless `closed` or `missing` lists it, every repository found unless
- * `missingRepos` names its `owner/name` (#984). And of
- * `answerIssueData(argv, data)`: the same read answering `data`, a test's own
- * nodes by alias, with gh's errors entry for each null repository or issue.
- */
 export const GRAPHQL_FAKE = String.raw`${HELPERS}
 function graphqlRepos(argv) {
 	const query = argv.find((a) => a.startsWith("query=")).slice(6);
@@ -254,13 +194,6 @@ function answerGraphql(argv, closed, missing, missingRepos = []) {
 	return answerIssueData(argv, data);
 }`;
 
-/**
- * The source of `answerCited(argv, issues)`: lib/basis-cited-read.js's
- * batched read of the issues a basis cites, each page of comments cut at the
- * query's own `first:` from its `after:` cursor (#5007). `issues` maps
- * `owner/name` to that repo's issues by number, `{body, comments}`;
- * a repo it does not name answers null, as a number its repo lacks does.
- */
 export const CITED_GRAPHQL_FAKE = String.raw`${GRAPHQL_FAKE}
 function answerCited(argv, issues) {
 	const query = argv.find((a) => a.startsWith("query=")).slice(6);
@@ -297,15 +230,6 @@ function answerCited(argv, issues) {
 	return answerIssueData(argv, data);
 }`;
 
-/**
- * The source of `answerLinks(argv, nodeOf)`: lib/link-batch.js's batched read
- * of each issue's state, blockers and sub-issues. `nodeOf(repo, n)` gives
- * issue n of `owner/name` repo as `{state?, blockedBy?, subIssues?}`, each
- * list `{number, state, repo?, title?, body?, labels?}` rows, or null for an
- * issue GitHub cannot resolve. Each list is cut to the query's own `first:`
- * with the full `totalCount`, as GitHub cuts it, and `{owner}/{repo}`
- * resolves to `o/r`, as gh resolves it to a real name.
- */
 export const LINKS_GRAPHQL_FAKE = String.raw`${HELPERS}
 function answerLinks(argv, nodeOf) {
 	const fixture = ${JSON.stringify(GRAPHQL_LINKS)};
@@ -351,18 +275,6 @@ function answerLinks(argv, nodeOf) {
 	return answerOf(fixture, { data: { repository } }, errors);
 }`;
 
-/**
- * The source of `asRecorded(kind, value)`: `value`'s JSON text, refused where
- * it carries a key the recorded answer of `kind` lacks or a type it does not
- * have, for a stub that builds its own JSON answers (#2895). A subset is
- * enough: a stub sends only the keys its reader reads, and a key gh dropped
- * would turn the fixture's live case red. A null on either side passes, as gh
- * sends null for an unset field of any type. Each array element is held to
- * the recorded first element.
- *
- * And of `buildCreateAnswer(repo, number)`: `gh issue create`'s recorded stdout,
- * naming `repo` and `number`.
- */
 export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 	const recorded = {
 		issuesPage: JSON.parse(${JSON.stringify(ISSUES_PAGE.stdout)}),
@@ -426,39 +338,23 @@ function buildCreateAnswer(repo, number) {
 export const ghComputed = <F>(source: string, name: string): F =>
 	new Function(`${source}\nreturn ${name};`)() as F;
 
-/** RECORDED_SHAPES in-process, for a stub that writes its answers from the test. */
 export const asRecorded = ghComputed<(kind: string, value: unknown) => string>(
 	RECORDED_SHAPES,
 	"asRecorded",
 );
 
-/** RECORDED_SHAPES' `buildCreateAnswer` in-process. */
 export const buildCreateAnswer = ghComputed<
 	(repo: string, number: number) => string
 >(RECORDED_SHAPES, "buildCreateAnswer");
 
-/** What one issue's `/sub_issues` answers: its rows, an HTTP error, or the
- *  failure lib/gh.js classifies as unreachable. */
 export type SubIssuesAnswer = unknown[] | "fail" | "unreachable";
 
-/** `gh api …/sub_issues --paginate --slurp`'s answer: one page of `rows`,
- *  held to the recorded page by `asRecorded`. */
 export function subIssuesAnswer(a: SubIssuesAnswer): GhAnswer {
 	if (a === "fail") return SUB_ISSUES_NOT_FOUND;
 	if (a === "unreachable") return LOGGED_OUT;
 	return { ...SUB_ISSUES, stdout: asRecorded("subIssuesPage", [a]) };
 }
 
-/*
- * lib/link-writer.js's sub-issue reads, each by its `--jq` filter — `repo`
- * only where the repo is gh's `{owner}/{repo}`. A new read in the script
- * is one row and its fixture here: every stub serving the script answers it
- * from the row, as buildLinkReadArms in shell and answerLinkRead in node. A test
- * passes an answer by the row's key only where the value matters to it (#3652).
- * Residual: a row answers on its filter alone, so a filter sent to the wrong
- * endpoint still gets an answer offline; only the live contract case sees it.
- * A read with no `--jq`, or sharing a row's filter, cannot be a row as it stands.
- */
 export const LINK_READS = {
 	repo: { jq: ".full_name", answer: REPO_FULL_NAME as GhAnswer },
 	state: { jq: ".state", answer: ISSUE_STATE as GhAnswer },
@@ -470,11 +366,6 @@ export type LinkReadAnswers = Partial<
 	Record<keyof typeof LINK_READS, GhAnswer>
 >;
 
-/**
- * The source of `buildJqLines(...values)`, a `--jq` read printing one value a line,
- * and of `answerLinkRead(argv, answers)`: `argv`'s row of LINK_READS, answering
- * `answers`' entry or else the recorded one, and undefined for any other call.
- */
 export const LINK_READ_FAKE = String.raw`function buildJqLines(...values) {
 	return { status: 0, stdout: values.map((v) => v + "\n").join(""), stderr: "" };
 }
@@ -490,7 +381,6 @@ export const buildJqLines = ghComputed<(...values: unknown[]) => GhAnswer>(
 	"buildJqLines",
 );
 
-/** CITED_GRAPHQL_FAKE in-process, for lib/basis-cited-read.js's gh port. */
 export const answerCited = ghComputed<
 	(argv: string[], issues: Record<string, object>) => GhAnswer
 >(CITED_GRAPHQL_FAKE, "answerCited");

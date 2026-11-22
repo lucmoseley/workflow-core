@@ -1,18 +1,3 @@
-/*
- * project-dirs.js — where transcripts live, across every seat: this repo's, or
- * every repo's under a given seat list.
- *
- * Shared because each seat keeps its own sessions, so a scanner reading one
- * root saw a fraction of the corpus (#375), and one session resumed on another
- * seat was counted twice (#382); a new transcript walk belongs here. The
- * every-repo listing is the retro picker's pool (#960), which reports a seat
- * it could not read (#1054).
- *
- * This repo's sessions write under more than one slug: a session in a linked
- * worktree under `.claude/worktrees/` writes under that worktree's own slug
- * (#4229), so `projectDirs()` returns those beside the main checkout's.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -25,12 +10,7 @@ const { realKey } = require("./deref.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
- * Whether a name under `projects/` is this repo's: the main checkout's slug,
- * or a worktree's under `WORKTREES`. Matched on the spelling, never on
- * `git worktree list`, because a reaped worktree's transcripts stay behind
- * (#4236).
- *
- * @param {string} root the main checkout
+ * @param {string} root
  * @returns {(name: string) => boolean}
  */
 function repoSlugMatcher(root) {
@@ -40,19 +20,10 @@ function repoSlugMatcher(root) {
 }
 
 /**
- * Every seat's projects directories for this repo, deduped by realpath: each
- * seat's main-checkout slug first, in seat order, then each worktree slug.
- *
- * Each seat's `projects/<slug>` is a real directory (#375); the realpath
- * dedupe keeps one symlinked at another seat's from being counted twice. The
- * main slug is returned whether or not it exists, so a caller reports a seat
- * it could not read; a worktree slug only where the seat lists it.
- *
- * @param {string[]} [seats] config dirs
+ * @param {string[]} [seats]
  * @returns {string[]}
  */
 function projectDirs(seats = configDirs()) {
-	/* The main checkout, whose slug this repo's transcripts key on (#4236). */
 	const root = hostRoot();
 	const main = projectSlug(root);
 	const isRepo = repoSlugMatcher(root);
@@ -72,8 +43,6 @@ function projectDirs(seats = configDirs()) {
 		try {
 			names = fs.readdirSync(path.join(seat, "projects"));
 		} catch {
-			/* The main slug above carries this seat's failure to its caller,
-			 * which reports it (#1520). */
 			continue;
 		}
 		for (const name of names.sort())
@@ -83,14 +52,8 @@ function projectDirs(seats = configDirs()) {
 }
 
 /**
- * The directories a one-seat corpus reader reads: `override` alone where
- * given, else those of this repo's on the current seat that exist. A seat
- * whose sessions all ran in worktrees has no main-slug directory, and that
- * is no reason to refuse (#4236); where none exists, the main slug alone, so
- * the reader reports it absent rather than reading an empty corpus.
- *
- * @param {string | undefined} [override] a directory named by flag or env
- * @param {string} [seat] the config dir to read
+ * @param {string | undefined} [override]
+ * @param {string} [seat]
  * @returns {string[]}
  */
 function corpusDirs(override, seat = configDir()) {
@@ -100,12 +63,7 @@ function corpusDirs(override, seat = configDir()) {
 	return present.length > 0 ? present : dirs.slice(0, 1);
 }
 
-/**
- * A copy that cannot be stat'ed ranks below any that can; the caller reads or
- * stats it again and reports that failure itself.
- *
- * @param {string} file
- */
+/** @param {string} file */
 function sizeOf(file) {
 	try {
 		return fs.statSync(file).size;
@@ -115,12 +73,7 @@ function sizeOf(file) {
 }
 
 /**
- * One copy of each transcript name across seats' project directories — the
- * largest, which holds the most of that session. A session resumed on another
- * seat leaves a transcript of the same name under each, so a reader tallying
- * whole files would count it twice. `transcript_corpus.py`'s `one_copy_each()`.
- *
- * @param {string[]} files paths directly under any seat's project directory
+ * @param {string[]} files
  * @returns {string[]}
  */
 function oneCopyEach(files) {
@@ -135,21 +88,15 @@ function oneCopyEach(files) {
 	return [...best.values()].map((b) => b.file);
 }
 
-/** @param {unknown} e  a caught error */
+/** @param {unknown} e */
 const errorTag = (e) => {
 	const { code, message } = caught(e);
 	return code || message;
 };
 
 /**
- * Every `.jsonl` directly under each directory. A directory that does not
- * exist is kept apart from one a read refused, because a machine running
- * fewer seats has no `.claude2`/`.claude3`; each caller words its own refusal
- * (#1520).
- *
  * @param {string[]} dirs
  * @returns {{ found: string[], absent: string[], unreadable: string[] }}
- *   `unreadable` entries read `<dir> (<error code>)`
  */
 function listTranscripts(dirs) {
 	/** @type {string[]} */
@@ -173,18 +120,10 @@ function listTranscripts(dirs) {
 	return { found, absent, unreadable };
 }
 
-/**
- * @typedef {{ listed: number, absent: string[], unreadable: string[] }} SeatListing
- * `listed` counts the seats whose `projects/` could be read; `absent` holds
- * each one that does not exist, `unreadable` each directory a read refused,
- * with its error code.
- */
+/** @typedef {{ listed: number, absent: string[], unreadable: string[] }} SeatListing */
 
 /**
- * Every project directory under each seat's `projects/`, every repo's, deduped
- * by realpath.
- *
- * @param {string[]} seats config dirs
+ * @param {string[]} seats
  * @returns {SeatListing & { dirs: string[] }}
  */
 function readSeatProjectDirs(seats) {
@@ -217,26 +156,19 @@ function readSeatProjectDirs(seats) {
 }
 
 /**
- * Every session's main log under the seats, one copy each (`oneCopyEach`).
- * A subagent's log sits a level down, under `<sessionId>/subagents/`, and is
- * not read.
- *
- * @param {string[]} seats config dirs
+ * @param {string[]} seats
  * @returns {SeatListing & { files: string[] }}
  */
 function readSeatTranscripts(seats) {
 	const { dirs, ...listing } = readSeatProjectDirs(seats);
 	/** @type {string[]} */
 	const files = [];
-	/* Not `listTranscripts`: a slug that is a symlink at a file is skipped
-	 * here, where that would report it unreadable. */
 	for (const dir of dirs) {
 		let names;
 		try {
 			names = fs.readdirSync(dir);
 		} catch (e) {
 			const { code } = caught(e);
-			/* A slug gone since the listing, or a symlink at a file, holds no session. */
 			if (code !== "ENOENT" && code !== "ENOTDIR")
 				listing.unreadable.push(`${dir} (${errorTag(e)})`);
 			continue;
@@ -248,12 +180,9 @@ function readSeatTranscripts(seats) {
 }
 
 /**
- * Whether a session wrote to `seat` since `sinceMs`: a main log under its own
- * projects, a symlinked slug being another seat's.
- *
- * @param {string} seat config dir
+ * @param {string} seat
  * @param {number} sinceMs
- * @param {string} ignoredSlug a slug whose logs are no session's
+ * @param {string} ignoredSlug
  */
 function hasSeatRunSince(seat, sinceMs, ignoredSlug) {
 	const projects = path.join(seat, "projects");
@@ -261,7 +190,6 @@ function hasSeatRunSince(seat, sinceMs, ignoredSlug) {
 	try {
 		slugs = fs.readdirSync(projects, { withFileTypes: true });
 	} catch {
-		// #4060: a seat that will not list falls back to its daily read.
 		return false;
 	}
 	return slugs.some((slug) => {
@@ -271,7 +199,6 @@ function hasSeatRunSince(seat, sinceMs, ignoredSlug) {
 		try {
 			names = fs.readdirSync(dir);
 		} catch {
-			// #4060: as above, for one slug.
 			return false;
 		}
 		return names.some((name) => {

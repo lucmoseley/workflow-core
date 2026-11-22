@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * lib/review-rules.js, a PreToolUse dispatcher core (#2792), hands a session
- * the code-review rules at the Skill call that loads code-review
- * (mantahostels#3451). Every case but the adopter's bare name (#1165) asserts
- * `permissionDecision` is absent as well as the text.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * production ports (lib/review-rules-host.js) and the real rule store. Each
- * case stands up a temp host holding a local `code-review` skill and a
- * separate temp core (`WFC_SCRIPT_ROOT` in the case's env), so which standards
- * text the host gets is set per case rather than read off this checkout. The
- * hook line and stdin are scripts/guard-dispatch.test.ts's boundary set.
- *
- * It runs on every Skill call: break it and a review runs without the rules
- * on where its findings and deviations go; make it deny and code-review
- * cannot load.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -43,7 +26,6 @@ const { buildHostPorts } = require("./review-rules-host.js") as {
 	buildHostPorts: (env: { root: string }) => { installRoot: string };
 };
 
-/** This checkout's root, where the installed core sits. */
 const ROOT = path.resolve(__dirname, "..", "..");
 
 const IDS = [
@@ -54,7 +36,6 @@ const IDS = [
 	"review-ultra-axis",
 ];
 
-/** One per state of the base and the local file (#965); a host gets exactly one. */
 const STANDARDS_IDS = [
 	"review-standards-axis",
 	"review-standards-axis-base",
@@ -62,18 +43,12 @@ const STANDARDS_IDS = [
 	"review-standards-axis-absent",
 ];
 
-/**
- * The longest workflow-core plugin root on the founder's machine, a dry-run
- * install, as an adopter's base path is named whole (#1882).
- */
 const LONGEST_ROOT =
 	"/home/lucmo/.claude3/plugins/cache/workflow-core-dryrun/workflow-core/0.0.1";
 
 let dir: string;
-/** Stands in for the resolved core root, where the base is looked for. */
 let core: string;
 
-/** The core's shape: a project skill that shadows the harness's built-in (#1165). */
 const LOCAL_SKILL = [".claude", "skills", "code-review", "SKILL.md"];
 
 beforeEach(() => {
@@ -97,7 +72,6 @@ afterEach(() => {
 	fs.rmSync(core, { recursive: true, force: true });
 });
 
-/** The core's run on a Skill call, refusals included. */
 const rawRun = (
 	skill: string,
 	payload: Record<string, unknown> = { session_id: "abcdef12-3456" },
@@ -112,45 +86,35 @@ const rawRun = (
 		{ root, env },
 	);
 
-/** The hook output for a Skill call, refusals included. Null where it said nothing. */
 const rawEmission = (...args: Parameters<typeof rawRun>) =>
 	rawRun(...args).output;
 
-/** As rawEmission, asserting the call was not refused. */
 const emission = (...args: Parameters<typeof rawRun>) => {
 	const parsed = rawEmission(...args);
 	expect(parsed?.permissionDecision).toBeUndefined();
 	return parsed;
 };
 
-/** The context handed over, asserting there was one and no refusal. */
 const context = (...args: Parameters<typeof rawRun>) => {
 	const out = emission(...args);
 	expect(out?.additionalContext).toBeTypeOf("string");
 	return out?.additionalContext as string;
 };
 
-/** A host carrying its local docs/code-standards.md. */
 const withStandards = (root = dir) => {
 	fs.mkdirSync(path.join(root, "docs"), { recursive: true });
 	fs.writeFileSync(path.join(root, "docs", "code-standards.md"), "standards\n");
 };
 
-/** A core root carrying the standards base. */
 const withBase = (root = core) => {
 	fs.mkdirSync(path.join(root, "docs"), { recursive: true });
 	fs.writeFileSync(path.join(root, "docs", "code-standards-base.md"), "base\n");
 };
 
-/** A host carrying its GLOSSARY.md, for base §G8 (#1373). */
 const withGlossary = (root = dir) => {
 	fs.writeFileSync(path.join(root, "GLOSSARY.md"), "# Glossary\n");
 };
 
-/**
- * The core's decide on a bare `code-review`, over the production host ports
- * and a log that keeps each record's detail, which the testkit's drops.
- */
 const decidedLogs = () => {
 	const logs: string[] = [];
 	decide(
@@ -179,7 +143,6 @@ describe("loading code-review", () => {
 		expect(ctx).toContain(readRuleText("review-standards-axis"));
 	});
 
-	// The deviations record is owed before the dispatch goes out, so it leads.
 	it("states the deviations record ahead of the dispatch shape", () => {
 		const ctx = context("code-review");
 		expect(ctx.indexOf("RECORD WHERE THE BUILD DEPARTED")).toBeLessThan(
@@ -187,8 +150,6 @@ describe("loading code-review", () => {
 		);
 	});
 
-	// A subagent's Write expands no environment variable (mantahostels#2088), so the prelude
-	// has to carry the literal, session-suffixed paths (mantahostels#2220).
 	it("names this session's two Artefact paths", () => {
 		const ctx = context("code-review");
 		expect(ctx).toContain("`.claude/tmp/review-standards-abcdef12.md`");
@@ -202,8 +163,6 @@ describe("loading code-review", () => {
 		expect(b).toContain("review-spec-22222222.md");
 	});
 
-	// Must match inject-tracker-docs.js and concision-backstop.sh, which strip
-	// before truncating.
 	it("sanitises the session id before truncating it", () => {
 		expect(context("code-review", { session_id: "ab/cd.efgh-99" })).toContain(
 			"review-spec-ab_cd_ef.md",
@@ -215,8 +174,6 @@ describe("loading code-review", () => {
 		expect(emission("code-review")).toBeNull();
 	});
 
-	// The kit keys its latch on the agent as well, so a subagent is told on
-	// its own account.
 	it("tells a subagent under an already-told session", () => {
 		expect(emission("code-review")).not.toBeNull();
 		const sub = context("code-review", {
@@ -227,10 +184,6 @@ describe("loading code-review", () => {
 	});
 });
 
-/*
- * #965: the Standards axis is handed the base at the resolved core root and the
- * host's local file, and a missing one is named in the report's opening line.
- */
 describe("the standards base and local file (#965)", () => {
 	it.each([
 		{
@@ -273,7 +226,6 @@ describe("the standards base and local file (#965)", () => {
 			for (const other of STANDARDS_IDS.filter((i) => i !== id))
 				expect(ctx).not.toContain(readRuleText(other));
 			for (const i of IDS) expect(ctx).toContain(readRuleText(i));
-			// The fragments are static, so the path rides in the prelude.
 			expect(ctx).toContain(
 				`Its standards base: \`${path.join(core, "docs", "code-standards-base.md")}\`.`,
 			);
@@ -300,8 +252,6 @@ describe("the standards base and local file (#965)", () => {
 		},
 	);
 
-	// In an adopter the plugin cache is reached through ~/.claude3 or ~/.claude2,
-	// symlinks onto ~/.claude, and #711's Read rule names only the physical path.
 	it("names the resolved base path in an adopter, never a symlink spelling", () => {
 		const link = path.join(core, "link");
 		fs.symlinkSync(path.join(ROOT, "scripts"), link);
@@ -336,12 +286,7 @@ describe("the host's glossary (#1373)", () => {
 	});
 });
 
-/*
- * Named relative to the host root, the paths cost the same under any
- * checkout, so every rule still fits one envelope (#1729).
- */
 describe("the envelope's size under a long checkout path (#1729)", () => {
-	/** The core's shape: host and core one root, both standards files and a glossary. */
 	const envelopeAt = (root: string) => {
 		fs.mkdirSync(path.join(root, ...LOCAL_SKILL.slice(0, -1)), {
 			recursive: true,
@@ -361,7 +306,6 @@ describe("the envelope's size under a long checkout path (#1729)", () => {
 
 	it("carries every rule and no root path, at the same size as under a short path", () => {
 		const short = path.join(dir, "s");
-		// Longer than the envelope's whole spare room, so a path still counted would overflow it.
 		const long = path.join(dir, ...new Array(10).fill("a".repeat(30)));
 		const atShort = envelopeAt(short);
 		const atLong = envelopeAt(long);
@@ -375,8 +319,6 @@ describe("the envelope's size under a long checkout path (#1729)", () => {
 
 describe("the envelope at the longest adopter base path (#1882)", () => {
 	it("carries every rule, the run-cost line among them, under the cap", () => {
-		// Where the temp core is already longer, the case runs at that longer
-		// path, which is the stricter test.
 		const pad = Math.max(1, LONGEST_ROOT.length - core.length - 1);
 		const root = path.join(core, "p".repeat(pad));
 		withBase(root);
@@ -388,7 +330,6 @@ describe("the envelope at the longest adopter base path (#1882)", () => {
 		expect(ctx).toContain(path.join(root, "docs", "code-standards-base.md"));
 		for (const id of [...IDS, "review-standards-axis"])
 			expect(ctx).toContain(readRuleText(id));
-		/* The prefix the fragment names is the one the report prints. */
 		expect(buildFailOpenLine("x").startsWith(`${RUN_COST_PREFIX} `)).toBe(true);
 		expect(ctx).toContain(
 			`every \`${RUN_COST_PREFIX}\` line your last suite run printed`,
@@ -408,10 +349,6 @@ describe("any other skill", () => {
 	});
 });
 
-/*
- * MUTATION ANCHORS. `toContain(readRuleText(id))` reads the file the core reads, so
- * it moves with a cut to a fragment rather than catching it.
- */
 describe("the fragments carry what the review needs", () => {
 	it.each([
 		["review-dispatch-shape", 'model: "opus"` on every one'],
@@ -455,7 +392,6 @@ describe("the fragments carry what the review needs", () => {
 	});
 });
 
-/* A plugin skill arrives namespaced (#201). */
 describe("a namespaced code-review still gets its rules (#201)", () => {
 	it.each(["workflow-core:code-review", "my-fork:code-review"])(
 		"%s is told, as the bare name is",
@@ -464,17 +400,11 @@ describe("a namespaced code-review still gets its rules (#201)", () => {
 		},
 	);
 
-	/* Anthropic's own pull-request plugin takes this name and is a different
-	 * skill, which is why the exclusion sits before the namespaced arm. */
 	it("still says nothing to Anthropic's own code-review plugin", () => {
 		expect(emission("code-review:code-review")).toBeNull();
 	});
 });
 
-/*
- * #1165: in an adopter a bare `code-review` is the harness's built-in reviewer.
- * Only a project carrying its own skill shadows the built-in.
- */
 describe("a bare code-review in an adopter (#1165)", () => {
 	const makeAdopter = () =>
 		fs.rmSync(path.join(dir, ...LOCAL_SKILL.slice(0, -2)), {
@@ -492,7 +422,6 @@ describe("a bare code-review in an adopter (#1165)", () => {
 		expect(out?.additionalContext).toBeUndefined();
 	});
 
-	// Refused before the latch, so the namespaced retry is still told.
 	it("leaves the rules for the namespaced retry", () => {
 		makeAdopter();
 		rawEmission("code-review");
@@ -514,7 +443,6 @@ describe("a bare code-review in an adopter (#1165)", () => {
 		expect(emission("code-review:code-review")).toBeNull();
 	});
 
-	// The skill directory without its SKILL.md loads nothing, so it shadows nothing.
 	it("is refused where the skill directory holds no SKILL.md", () => {
 		fs.rmSync(path.join(dir, ...LOCAL_SKILL));
 		expect(rawEmission("code-review")?.permissionDecision).toBe("deny");
@@ -547,8 +475,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		);
 	});
 
-	// mantahostels#2220's collision, taken in that one case rather than
-	// injecting nothing.
 	it("leaves the bare names where the payload carries no session id", () => {
 		const { output, logs } = rawRun("code-review", {});
 		expect(output?.permissionDecision).toBeUndefined();

@@ -1,14 +1,3 @@
-/*
- * push-review.js — the review port the guard-push-rules core reads (#2785):
- * whether the code a push carries owes a review no valid marker covers,
- * answered by scripts/push-review-owed.sh, which reads lib/code-signal.sh's
- * one definition of it (#1163).
- *
- * EVERY FAULT IS NO REVIEW OWED, the adapter's own policy: a timeout, a
- * non-zero exit or an answer this file cannot read is logged and answers null,
- * so the Stop nag, which still fires, is where the review is asked for.
- */
-
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { budgetMs } = require("./hook-deadline.js");
@@ -16,23 +5,18 @@ const { capMs } = require("./cap-ms.js");
 
 const SCRIPT = path.join(__dirname, "..", "push-review-owed.sh");
 
-/* A ceiling, not a measurement, cut to what the dispatcher's entry budget
- * leaves (hook-deadline.js): the adapter answered in 0.5-1.3 s a call at
- * load1 20 (#2785's baseline). WFC_PUSH_REVIEW_TIMEOUT_MS lifts it for a test
- * asserting the answer, which an overrun on a loaded machine would drop
- * (#5104). */
+// guess, #2785
 const REVIEW_TIMEOUT_MS = 6000;
 
 /**
  * @typedef {object} ReviewOwed
- * @property {"standard" | "escalated"} tier the tier owed
- * @property {string} files the files named, space-separated
- * @property {string} base the session's start point
- * @property {string} tierLine the sentence naming the tier
- * @property {string} markerMore the sentence naming the marker lines an
- *   escalated change adds, else ""
- * @property {string} passFault why an existing marker was rejected, else ""
- * @property {string} markerScript the marker writer, as a session spells it
+ * @property {"standard" | "escalated"} tier
+ * @property {string} files
+ * @property {string} base
+ * @property {string} tierLine
+ * @property {string} markerMore
+ * @property {string} passFault
+ * @property {string} markerScript
  */
 
 const FIELDS = /** @type {const} */ ([
@@ -46,8 +30,6 @@ const FIELDS = /** @type {const} */ ([
 ]);
 
 /**
- * The adapter's stdout read back: null where it said nothing, undefined where
- * it said something this file cannot read.
  * @param {string} out
  * @returns {ReviewOwed | null | undefined}
  */
@@ -71,8 +53,7 @@ function readOwed(out) {
 
 /**
  * @param {{ sessionId: string, tree: string,
- *   log: (what: string, detail?: string) => void }} o `tree` "" reads the
- *   repo root
+ *   log: (what: string, detail?: string) => void }} o
  * @returns {ReviewOwed | null}
  */
 function reviewOwed({ sessionId, tree, log }) {

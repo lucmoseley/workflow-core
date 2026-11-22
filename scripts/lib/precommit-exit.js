@@ -1,12 +1,3 @@
-/*
- * precommit-exit.js — check-precommit-exit.js's core (#3456, #3808, #4123):
- * which lines of a pre-commit hook's text run a checker and exit 1 on its
- * failure. check-precommit-exit.js's header holds the contract: what a
- * breach and a checker are, and what defeats them.
- *
- * A CORE (base §T7): it performs no I/O. The shell reads each hook file.
- */
-
 const { programSource } = require("./shell-words.js");
 
 const EXIT_ONE = /\|\|\s*exit\s+1\s*(?:;;\s*)?(?:#.*)?$/;
@@ -23,10 +14,7 @@ const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const EXEMPLAR = ".husky/pre-commit";
 const FIX = `pass the checker's own exit code on with \`|| exit "$?"\` (in a block, \`|| { rc=$?; ...; exit "$rc"; }\`), or gate it through staged_gate's \`status\` mode in scripts/lib/precommit-gate.sh, as ${EXEMPLAR}'s check-jsonl-reads.js line does; where the hook reads a probe's or lister's output, its crash exits 2, since a crash's own code may be 1 (base §N4, #3456, #3808).`;
 
-/**
- * A command's words, quotes kept, split on blanks outside quotes.
- * @param {string} text
- */
+/** @param {string} text */
 function wordsOf(text) {
 	/** @type {string[]} */
 	const words = [];
@@ -49,8 +37,6 @@ function wordsOf(text) {
 }
 
 /**
- * Whether the command before a line's `||` runs a checker: the last command
- * after any `;` or `&&`, past its keywords and variable assignments.
  * @param {string} command
  * @returns {boolean}
  */
@@ -85,11 +71,7 @@ function hasBlockExitOne(raw, last, trimmed) {
 	return false;
 }
 
-/**
- * A `case` body's own lines, from the line after its `in` to its `esac`: any
- * nested `case` is cut to its closing line, which may end the arm.
- * @param {string[]} lines trimmed
- */
+/** @param {string[]} lines */
 function ownCaseLines(lines) {
 	/** @type {string[]} */
 	const own = [];
@@ -105,10 +87,7 @@ function ownCaseLines(lines) {
 	return own;
 }
 
-/**
- * Whether a `case` body exits 1 from its own `*)` arm.
- * @param {string[]} lines trimmed, from the line after the `in`
- */
+/** @param {string[]} lines */
 function caseCatchAllExitsOne(lines) {
 	const own = ownCaseLines(lines);
 	const from = own.findIndex((line) => line.startsWith("*)"));
@@ -122,11 +101,9 @@ function caseCatchAllExitsOne(lines) {
 }
 
 /**
- * Whether the variable a checker line's `||` falls back to reaches a `case`
- * whose `*)` arm exits 1, nothing assigning it first.
  * @param {string[]} raw
  * @param {number} last
- * @param {string} fallback the text after the line's `||`
+ * @param {string} fallback
  */
 function hasCatchAllExitOne(raw, last, fallback) {
 	const variable = FALLBACK.exec(fallback)?.[1];
@@ -142,8 +119,6 @@ function hasCatchAllExitOne(raw, last, fallback) {
 }
 
 /**
- * Each checker line in a hook's text that exits 1 on its failure: its first
- * line's 1-based number and its text, whitespace collapsed.
  * @param {string} text
  * @returns {{ line: number, text: string }[]}
  */
@@ -176,7 +151,6 @@ function parseBreaches(text) {
 }
 
 /**
- * Each breach in one hook file, with the message it prints.
  * @param {string} rel
  * @param {string} text
  * @returns {{ line: number, match: string, message: string }[]}
@@ -188,7 +162,6 @@ const judgeHook = (rel, text) =>
 		message: `${rel}:${line} exits 1 on a checker's failure, turning its BROKEN into a finding (\`${match}\`). Fix: ${FIX}`,
 	}));
 
-/** The fix line a run with findings prints beneath them. */
 const FIX_LINE = `Fix: ${FIX}`;
 
 module.exports = { FIX_LINE, judgeHook, parseBreaches };

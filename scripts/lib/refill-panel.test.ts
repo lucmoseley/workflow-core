@@ -1,8 +1,3 @@
-/*
- * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3948, #3958, #4059). Built on the view so every loop state costs one literal rather than a terminal.
- * Broken, the panel reads a press as done, or a stopped loop as on.
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 const {
@@ -46,7 +41,6 @@ const FULL_READINGS = [
 	seatRead("~/.claude2", 100, true),
 ];
 const FULL_SEATS = { readings: FULL_READINGS, next: null };
-/* What the picker says with every plan full and a key that fits a launch. */
 const ON_KEY_SEATS = {
 	readings: FULL_READINGS,
 	next: { seat: "~/.claude2", reason: "overflow" },
@@ -86,7 +80,6 @@ const PAUSED_BY_FOUNDER = {
 	paused: { by: "founder", at: AT },
 	lastTick: PAUSED_TICK,
 };
-/* The pause is written, but the tick now running started before it. */
 const PAUSED_MID_TICK = {
 	...RUNNING,
 	paused: { by: "founder", at: LATER },
@@ -130,17 +123,12 @@ const key = (over: object = {}) => ({
 });
 const STOPPING = { ...RUNNING, stopRequested: true };
 
-/* The block's top row, as a mouse report counts it. */
 const SWITCH_ROW = 2;
-/* Below the switch, a row, its two lines, the plan rows and two rows clear: the settings. */
 const AWAY_ROW = 12;
 const AWAY_INDEX = AWAY_ROW - SWITCH_ROW;
-/* One sibling row below Away (#3596 story 78). */
 const BURN_ROW = 14;
 const BURN_INDEX = BURN_ROW - SWITCH_ROW;
-/* A gap, the heading and two plans, with no status or no seat to draw them. */
 const PLAN_ROWS = 4;
-/* A gap, the heading, one key's row, a gap and the spending state, with a key declared. */
 const CREDIT_ROWS = 5;
 const noop = (): void => undefined;
 
@@ -175,7 +163,6 @@ const buildNote = (reason: string, remedy?: string) => ({
 	box: null,
 	at: LATER,
 });
-/* What `refill-loop.js set --json` prints on a refusal. */
 const buildRefusedStdout = (reason: string, remedy?: string, box?: string) =>
 	JSON.stringify({
 		refused: { reason, remedy: remedy ?? null, box: box ?? null },
@@ -184,16 +171,13 @@ const buildRefusedStdout = (reason: string, remedy?: string, box?: string) =>
 	});
 const rowsOf = (over: object): Row[] => rowsAt(view(over), LATER, WIDE);
 const summary = (rows: Row[]) => rows.map((r) => [r.text, r.role]);
-/* The rows of one section: to the blank row that ends it. */
 const toGap = (rows: Row[]) => {
 	const end = rows.findIndex((r) => r.text === "");
 	return end === -1 ? rows : rows.slice(0, end);
 };
 const focusMoved = async () => ({ code: 0, stdout: "", stderr: "" });
-/* Every row fits. */
 const TALL = 200;
 const WIDE = 200;
-/* A status's row texts at the width the split asks for: what the live pane is drawn at. */
 const textsInSplit = (status: object): string[] => {
 	const [{ args }] = buildRoutes({
 		env: { TMUX: "/tmp/tmux" },
@@ -235,7 +219,6 @@ const panelOver = (
 		columns: () => columns,
 		onChange: noop,
 	});
-/* The rows a panel showing `shown` draws at `at`, `columns` wide, read through its own buildViewRows. */
 function rowsAt(shown: object, at: number, columns: number) {
 	const panel = panelOver(noop, noop, noop, { columns, at });
 	Object.assign(panel.view, shown);
@@ -655,12 +638,10 @@ describe("the panel's rows", () => {
 });
 
 describe("the plan and credit rows", () => {
-	/* A tick that launched: the state the picker's key means launches are on credits. */
 	const Launching = {
 		...RUNNING,
 		lastTick: { at: AT, summary: "launched 2", idle: null, paused: false },
 	};
-	/* The rows from the plan heading down to the settings, blank rows dropped. */
 	const usage = (status: object) => {
 		const rows = rowsOf({ status });
 		const from = rows.findIndex((r: Row) => r.text === "Weekly plan usage");
@@ -679,7 +660,6 @@ describe("the plan and credit rows", () => {
 		["  .claude3  100% used (61m ago)", "secondary"],
 		["  .claude2  100% used (61m ago)", "secondary"],
 	];
-	/* Between the plans and credit heading above and the spend row below. */
 	const keyRows = (status: object) =>
 		usage(status).slice(PlansRoom.length + 1, -1);
 
@@ -1107,7 +1087,6 @@ describe("the plan and credit rows", () => {
 			nextCycleStart: LATER,
 			exhausted: false,
 		});
-		/* One budget through what a tick and what `status --json` each read. */
 		const statusFor = (
 			seat: ReturnType<typeof reading>,
 			b: ReturnType<typeof budget>,
@@ -1464,7 +1443,6 @@ describe("the status reads", () => {
 });
 
 describe("the pending word", () => {
-	/** A panel whose press is made against `before`, reading `after` once it lands. */
 	async function pressed(
 		before: object,
 		after: object,
@@ -1587,7 +1565,6 @@ describe("the Burn mode switch", () => {
 		stderr: `error: still on the burn effort after off:\n  ${Plan}\n`,
 	};
 	const running = (burnMode: object) => ({ ...RUNNING, burnMode });
-	/* From Burn mode to the section gap, less the row under its title. */
 	const burnSection = (rows: Row[]) => {
 		const at = rows.findIndex((r) => r.text.startsWith("Burn mode"));
 		const [title, gap, ...below] = rows.slice(at);
@@ -1600,7 +1577,6 @@ describe("the Burn mode switch", () => {
 		burnSection(rowsAt(panel.view, LATER, WIDE));
 	const answerOk = { code: 0, stdout: "", stderr: "" };
 
-	/** A panel reading `status`, whose flips answer `answers` in turn, the last repeating. */
 	async function panelFlipping(status: object, ...answers: object[]) {
 		const flips: string[][] = [];
 		let current = status;
@@ -2101,7 +2077,6 @@ describe("the Repos section", () => {
 			(r: Row) => r.control?.name === name,
 		);
 
-	/* A panel over `status`; `show` changes what later reads answer. */
 	function repoPanel(status: object, failure?: object) {
 		let shown = status;
 		const calls: string[][] = [];
@@ -2367,8 +2342,6 @@ describe("the Goal section", () => {
 		rowWhere(panel, (r) => r.text.startsWith("Goal"));
 	const fieldRow = (panel: { view: object }) => switchRow(panel) + 2;
 
-	/* A panel whose reads answer `status`, and whose commands answer `answer`. A typed
-	 * topic needs `resolveTopic`; the default answers nothing. */
 	async function goalPanel(
 		status: object,
 		answer: object = {},
@@ -2496,7 +2469,6 @@ describe("the Goal section", () => {
 		it.each(states)("keeps what is below it in place: %s", (_, over) => {
 			const rows = rowsOf({ status: WithGoal, ...over });
 			const at = rows.findIndex((r) => r.text.startsWith("Goal"));
-			/* Heading, gap, field, two caption rows, then the section gap. */
 			expect(rows.slice(at + 5, at + 7).map((r) => r.text)).toEqual(["", ""]);
 		});
 
@@ -3090,7 +3062,6 @@ describe("the Goal section", () => {
 			const frame = buildFrame(editing(`${text}END`, 53), 24, 60);
 			expect(frame).toContain("END");
 			expect(frame).not.toContain("…");
-			/* 20 cells wide, the caret in the last: column 3 + 19. */
 			expect(frame.endsWith(`${ESC}[2;22H${ESC}[?25h`)).toBe(true);
 		});
 
@@ -3250,7 +3221,6 @@ describe("keys and focus", () => {
 	const Escape = { name: "escape" };
 	const Enter = { name: "enter" };
 
-	/* With no `held`, a press's command ends at once; so does a focus return with no `returned`. */
 	async function buildCountingPanel(
 		resolveTopic: unknown = noop,
 		held?: Promise<void>,
@@ -3364,7 +3334,6 @@ describe("keys and focus", () => {
 	});
 
 	describe("a pane shorter than the rows", () => {
-		/* Ends on Burn mode's row, which the mark below takes; the boxes lie well below it. */
 		const Short = BURN_ROW;
 		const Columns = 60;
 		const shortPanel = () =>
@@ -3373,7 +3342,6 @@ describe("keys and focus", () => {
 			buildFrame(rowsAt(panel.view, AT, WIDE), Columns, Short, {
 				scroll: panel.view.scroll,
 			});
-		/* Where the frame draws a row's text, as a mouse report counts it. */
 		const drawnRowOf = (frame: string, text: string) => {
 			const before = frame.slice(0, frame.indexOf(text));
 			return Number(
@@ -3498,7 +3466,6 @@ describe("keys and focus", () => {
 			expect(frameOf(panel)).toContain("❯");
 		});
 
-		/* Scrolled so the field shows above the mark, opened, then scrolled off the top end. */
 		const fieldScrolledOff = async () => {
 			const counted = await shortPanel();
 			const { panel } = counted;

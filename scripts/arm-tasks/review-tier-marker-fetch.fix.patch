@@ -16,10 +16,10 @@ index 8a8592a314274dbe198ca23cd2b6c33ee504401e..e4abe36bd0e132e6dc2e44270aac8032
 -AN AREA NOT MARKED `live` RAISES NO ULTRAREVIEW. If one marked `not live` above now serves real users or money, ask the founder before setting its `live: true`.
 +AN AREA NOT MARKED `live` RAISES NO ULTRAREVIEW. If one now serves real users or money, ask the founder before setting `live: true`.
 diff --git b/docs/test-read-edges.json a/docs/test-read-edges.json
-index 42a39e21edd95867dff77c893f7411869cd332eb..c9200a7f9c3157b5bafbbf8fcd9dfc71bd3158a7 100644
+index 5f4d8e8ebc1b375c7e214b058dc2e763d95e07f1..d2eada62eabc46dcb7b4e931e176ecdd617bd2eb 100644
 --- b/docs/test-read-edges.json
 +++ a/docs/test-read-edges.json
-@@ -36838,6 +36838,7 @@
+@@ -48696,6 +48696,7 @@
  			"scripts/lib/issue-create-label.test.ts",
  			"scripts/lib/project-slug-scan.test.ts",
  			"scripts/lib/resume-io.contract.test.ts",
@@ -28,10 +28,10 @@ index 42a39e21edd95867dff77c893f7411869cd332eb..c9200a7f9c3157b5bafbbf8fcd9dfc71
  			"scripts/lib/script-path-scan.test.ts",
  			"scripts/lib/script-path.test.ts",
 diff --git b/scripts/lib/review-tier.js a/scripts/lib/review-tier.js
-index 934d556b08a3d5cdbd121101465adb002ad8862c..db733576664e2a04f89986ac54d6446e6fc19da2 100644
+index c2ff038a7fb66229251ccda99c97bf23d184650a..8034f2465cc1e161a275ae4843593570832cc29c 100644
 --- b/scripts/lib/review-tier.js
 +++ a/scripts/lib/review-tier.js
-@@ -272,7 +272,7 @@ function areaLines(match) {
+@@ -226,7 +226,7 @@ function areaLines(match) {
  				]
  			: []),
  		...(match.globless.length > 0
@@ -41,27 +41,18 @@ index 934d556b08a3d5cdbd121101465adb002ad8862c..db733576664e2a04f89986ac54d6446e
  	];
  }
 diff --git b/scripts/lib/review-tier.test.ts a/scripts/lib/review-tier.test.ts
-index c04b81226cd74186d1d6ea0879ef0a24422d2668..4f7c62d903a6e39beeb7a7db2388db4483936310 100644
+index 69e832119b7535a579381723087e446746d43a95..e582a16e2f17cfb10d25018cce358bdfe43917db 100644
 --- b/scripts/lib/review-tier.test.ts
 +++ a/scripts/lib/review-tier.test.ts
-@@ -11,7 +11,7 @@
-  * arbiter store, so a path is staged, written and attributed exactly as a
-  * session leaves it, and the cases assert on the injected text. Two groups run
-  * no core: the fragment cases read the fragments, and some run what one names
-- * (a tree pinned by commit-paths.js under the records
-+ * (lib/rule-text.sh, or a tree pinned by commit-paths.js under the records
-  * fragment's Replay, the escalated and hold fragments' `git diff … $t` run
-  * against it) and assert on its output; the branch case reads the core's own
-  * source. Fragments are read from docs/agents/rules/ and the byte cap from
-@@ -41,6 +41,7 @@ const { decide } = require("./review-tier.js") as {
+@@ -26,6 +26,7 @@ const { decide } = require("./review-tier.js") as {
  
  const CORE = path.resolve(__dirname, "review-tier.js");
  const COMMIT_PATHS = path.resolve(__dirname, "..", "commit-paths.js");
 +const RULE_TEXT = path.resolve(__dirname, "rule-text.sh");
  const { RULE_CAP } = require("./hook-limits.js") as { RULE_CAP: number };
  const ME = "abcdef12-3456";
- /**
-@@ -425,7 +426,7 @@ describe("a globless area", () => {
+ const MAX_INSTALL_ROOT = `/Users/${"u".repeat(32)}/.claude-exp-b/plugins/cache/workflow-core/workflow-core/1.10.100`;
+@@ -385,7 +386,7 @@ describe("a globless area", () => {
  		const text = envelope() ?? "";
  		expect(text).not.toContain("Tier owed");
  		expect(text).toContain(
@@ -70,7 +61,7 @@ index c04b81226cd74186d1d6ea0879ef0a24422d2668..4f7c62d903a6e39beeb7a7db2388db44
  		);
  		expect(text).toContain(readFragment("review-tier-globless"));
  		expect(text).toContain(readFragment("review-tier-escalated"));
-@@ -536,7 +537,6 @@ describe("the fragments", () => {
+@@ -488,7 +489,6 @@ describe("the fragments", () => {
  		);
  	});
  
@@ -78,16 +69,11 @@ index c04b81226cd74186d1d6ea0879ef0a24422d2668..4f7c62d903a6e39beeb7a7db2388db44
  	it("ask a yes to name the rule or calculation, and areas= to name the globless areas judged touched (#2082, #2254)", () => {
  		expect(readFragment("review-tier-escalated")).toContain(
  			"a yes names the rule or calculation",
-@@ -546,13 +546,17 @@ describe("the fragments", () => {
+@@ -498,11 +498,14 @@ describe("the fragments", () => {
  		);
  	});
  
--	// #1925: nothing holds a worktree commit, so only these texts get the
--	// marker command into its marker (#2040).
 -	it("send a staged review to the marker command with every flag, in a worktree too", () => {
-+	// #1925, #1948, #4383: a session reads the hold's text only once refused,
-+	// after its review — the tier block must name a command that prints the
-+	// marker command (#2040).
 +	it("hand a staged review a command printing the marker command with every flag, in a worktree too", () => {
  		expect(readFragment("review-tier-escalated")).toContain(
 -			"Marker: every `rule:review-hold` line, worktree too.",
@@ -101,7 +87,7 @@ index c04b81226cd74186d1d6ea0879ef0a24422d2668..4f7c62d903a6e39beeb7a7db2388db44
  		expect(hold).toMatch(
  			/^ {2}node scripts\/write-review-marker\.js .*--paths /m,
  		);
-@@ -770,7 +774,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
+@@ -705,7 +708,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
  		stage(SQL);
  		const text = envelope() ?? "";
  		expect(text.indexOf("Tier owed: escalated.")).toBeLessThan(

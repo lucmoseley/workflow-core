@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/landing-wait.js (#4617): `landing-status.js --wait` exits on landed,
- * dropped or its bound, each named, off a scripted run of readings.
- *
- * Loosen it and a session waits past its landing, calls a dropped ref landed,
- * or blocks past the harness's 15-minute Bash wait.
- */
 import { expect, it } from "vitest";
 import {
 	buildWaitLine,
@@ -24,7 +17,6 @@ const LEDGER = { fault: 1, network: false };
 const A = "a".repeat(40);
 const B = "b".repeat(40);
 
-/** Reads `steps` in order, the last repeating; the clock moves only on sleep. */
 const scripted = (...steps: Step[]) => {
 	let clock = 0;
 	let reads = 0;

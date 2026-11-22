@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The prose self-gate reader (mantahostels#1289). In-process against plain strings — no
- * filesystem, no `gh` — so a regression here is the anchoring regex itself,
- * never a fixture. `judgeProseRefs`' own set-membership test needs no seam
- * either: `openLocal` is a plain `Set`, not a store.
- *
- * `pick-next.js` reads it behind the `/pick-next` skill: loosen a case and the
- * picker offers an issue still blocked in prose, or holds back one that only
- * quotes the marker.
- */
 import { describe, expect, it } from "vitest";
 
 const { judgeProseRefs, proseRefsOf, unparsedBlockersOf } =
@@ -23,12 +13,10 @@ describe("proseRefsOf: the numbers a marker names", () => {
 	});
 
 	it("reads the number off a marker at the head of its own line", () => {
-		// The real shape (mantahostels#832, mantahostels#833, mantahostels#835).
 		expect(named("**Blocked on** #831.")).toEqual([831]);
 	});
 
 	it("ignores the marker quoted mid-sentence as an example, never at a line's head", () => {
-		// mantahostels#1289's own body does exactly this.
 		expect(
 			named(
 				'#832, #833 and #835 each carry "**Blocked on** #831" in the body.',
@@ -62,10 +50,6 @@ describe("proseRefsOf: the numbers a marker names", () => {
 });
 
 describe("unparsedBlockersOf: a marker naming no number", () => {
-	/*
-	 * mantahostels#927's real body, verbatim. The marker opens mid-sentence and names a
-	 * ROADMAP CARD, so it carries no number for the open-issue list to settle.
-	 */
 	const real =
 		"Standalone: cross-cutting data-quality work. **Blocked on the `seed-listings` " +
 		"roadmap card** — the checks are meaningless against an empty listings table.";
@@ -86,8 +70,6 @@ describe("unparsedBlockersOf: a marker naming no number", () => {
 	});
 
 	it("leaves a body quoting the marker as an example alone", () => {
-		// Dropping the line-head anchor is safe because the quoted canonical
-		// form still carries a `#<n>`, and the number test filters it.
 		expect(unparsed("each carry `**Blocked on** #831` in the body")).toEqual(
 			[],
 		);

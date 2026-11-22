@@ -1,13 +1,4 @@
 // @vitest-environment node
-/**
- * Tests for read-audit-git.js (#5078): the guard's record, git's option
- * walk, the key and answer id, which calls run again, and that run again.
- *
- * The bash guard writes the record this module reads, and nothing else ties
- * the two: the parity cases read the guard's own `case` list and variable
- * loop, and run the real guard on PATH in a tmp repository, so a list edited
- * on one side alone fails here rather than voiding pass-store rows unseen.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -26,7 +17,6 @@ import {
 } from "vitest";
 
 const require = createRequire(import.meta.url);
-/** The answer id the guard spells: status, then the sha1 of stdout. */
 const answerOf = (status: number, stdout: string | Buffer) =>
 	`${status}:${createHash("sha1").update(stdout).digest("hex")}`;
 const {
@@ -57,7 +47,6 @@ const scratch = (prefix: string) => {
 	return d;
 };
 
-/** A repository whose one commit holds `sub/<file>`. */
 function repository(file: string) {
 	const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rag-")));
 	const git = (...args: string[]) =>
@@ -70,7 +59,6 @@ function repository(file: string) {
 	return d;
 }
 
-/* Read-only repositories, built once. */
 let repo: string;
 let elsewhere: string;
 beforeAll(() => {
@@ -86,7 +74,6 @@ const ROOT = "/r";
 const Answer = "0:da39a3ee5e6b4b0d3255bfef95601890afd80709";
 const NoStanding = { env: {}, gitAt: 0 };
 
-/** One call's two guard records, begun then answered, as parsed. */
 const records = (
 	args: string[],
 	{ dir = ROOT, steered = "", answer = Answer, env = {}, at = 0 } = {},

@@ -1,12 +1,3 @@
-/*
- * guard-host-ports.js — the production adapters the guard dispatcher
- * (lib/guard-dispatch.js) hands its cores: the host root's shared reads and
- * tree ports, whether a path exists or is a regular file, and the
- * environment; and any other tree's ports where a session works in a linked
- * worktree (#2786, ADR-0010). A module of its own so these ports are tested
- * through the exports the dispatcher calls (base §G6, #4136).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readText: readFileText } = require("./file-read.js");
@@ -21,27 +12,17 @@ const { relativeUnder } = require("./is-under.js");
  *   git: import("./git.js").GitReader,
  *   readText: (rel: string) => string | null,
  *   repoRel: (file: string) => string | null,
- * }} TreePorts one tree's reads: its root; git run there, one call per
- *   distinct argument list; a file's text by its path from the root, null
- *   where it is absent; and a path's spelling under the root
+ * }} TreePorts
  * @typedef {TreePorts & {
  *   exists: (p: string) => boolean,
  *   isFile: (p: string) => boolean,
  *   env: Record<string, string | undefined>,
- * }} CorePorts the dispatcher core contract its production adapters fill
- *   (#2786), the ports a core reads beyond the kit's: the host root's tree
- *   ports — where the shared stores live, claims, markers, ledgers, the rule
- *   store; whether a path exists, and whether it is a regular file; and the
- *   environment the entry was run in
+ * }} CorePorts
  * @typedef {Pick<KitContext, "moduleOn" | "treeClass"> & CorePorts
  *   & Partial<Pick<KitContext, "fallbackCwd" | "vars">>} Adapters
- *   the walk's fallback directory and expansion scope, which test support
- *   fills in place of the hook's; the dispatcher's entry leaves both to the
- *   kit's, lib/host-root.js's sessionDir and the process's environment
  */
 
 /**
- * The adapters every core of one call shares.
  * @param {string} root
  * @param {(what: string, detail?: string) => void} log
  * @returns {Adapters}
@@ -57,7 +38,6 @@ function hostAdapters(root, log) {
 }
 
 /**
- * The reads of the tree rooted at `root`, symlink-resolved.
  * @param {string} root
  * @returns {TreePorts}
  */
@@ -76,12 +56,8 @@ function treePorts(root) {
 }
 
 /**
- * An absolute path's spelling under `root`, null where it is
- * relative or lies outside. A path not under `root` as spelled is retried with
- * its longest existing ancestor's symlinks resolved, so a write spelled
- * through a link to the checkout is still the checkout's (#2553).
  * @param {string} file
- * @param {string} root symlink-resolved
+ * @param {string} root
  * @returns {string | null}
  */
 function repoRel(file, root) {

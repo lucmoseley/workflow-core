@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the write routes' verdict on a gate `check:` (#3487), over real shell
- * as check-gates.test.ts runs it. Loosen a case and a silent check is written again, to hold
- * a met gate unjudged until the sweep's repair judge reaches it.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -13,7 +8,7 @@ import { shellQuote } from "./sh-quote.js";
 
 const { addedCheckVerdict } = require("./gate-check.js");
 
-/* Ample for the one-word `true`, `false`, `echo`, `cat` and `tee` these run. */
+// guess, #3487
 const TIMEOUT_MS = 5000;
 const gate = (check: string) =>
 	`**Gated on:** it lands — check: ${check} — abandon if: it is dropped\n`;
@@ -40,7 +35,6 @@ describe("a check the write adds", () => {
 			});
 	});
 
-	// A real kill: OVER-BUDGET comes only from run-budgeted.js's own timeout.
 	it("warns a check that runs past its budget, and refuses nothing", () => {
 		const { refusals, warnings } = addedCheckVerdict("", gate("sleep 5"), {
 			run: true,

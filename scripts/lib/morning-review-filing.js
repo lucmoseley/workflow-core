@@ -1,111 +1,3 @@
-/*
- * morning-review-filing.js — scripts/file-morning-review.js's core (#5148,
- * spec #5135): the day's morning review issue (#2011, spec #1995 §The morning
- * review issue), read, rendered through lib/morning-review.js and filed. It
- * writes through the `out` and `err` ports as it goes and returns the exit
- * code.
- *
- * Ports (§T7): `now`, `out`, `err` and `gh`; `file`, file-issue.js through
- * lib/file-through.js; `runChecker` and `startChecker`, a core checker's
- * `--json` run, the second left running beside the reads; `answer`,
- * answer-review-reversals.js's answerReversals, run after the filing (#3388)
- * whether it filed, failed or threw. The filesystem, git and journalctl are
- * read in place, and the filing lock and the day's kept reads are written in
- * place:
- * #2733's boundary table gives the filesystem no fake, git runs real in a
- * test's temp directory, and journalctl is reached at WFC_JOURNALCTL, its
- * owned fake held by journalctl.contract.test.ts.
- *
- * The review holds the still-caught delegated decisions, the clear ones
- * counted, the closes since the previous review issue with every one-way close
- * listed, each repo's open stall ticket and off-machine queue alarms firing
- * (lib/queue-alarms.js, #4772), the issues `urgent` for over 7 days, and every
- * open `parked` issue with its age.
- *
- * Files on the tracker it is handed — the loop runs it in workflow-core's —
- * and reads every repo lib/refill-repos.js includes: each one's
- * delegated-decision ledger, its closes (a span 15 minutes behind the window,
- * lib/morning-review.js's CLOSE_SETTLE_MS) with their comments, for the
- * `**Door:**` line, its open stall ticket (lib/stall-ticket.js, #2692), its
- * open `urgent` issues with each one's timeline and pick-next's last run there
- * (#2693), and its open `parked` issues with each one's timeline (#2725), read
- * only: it never writes or removes either label. A repo it cannot read is
- * named in the body, not dropped silently.
- *
- * ONCE A DAY: a review issue titled with today's machine-local date, open or
- * closed, files nothing — a hand run after the founder closed today's would
- * otherwise file a second. A filing holds a machine-wide lock (#3813) from
- * before that look until its issue exists, so a hand run and the loop's run
- * cannot both pass it. The one that finds the lock held files nothing and
- * exits 1, so the loop's next tick retries in case the holder fails.
- *
- * WINDOW (#3813): `since` is where the previous review's window ended, off its
- * body, and `now` is fixed before this run's reads, so no event falls between
- * two reviews however long a filing runs (lib/morning-review.js's
- * windowStart). That file's header gives each source's edge for an event
- * readable after this run's reads (#3827). A repo that does not read, or whose
- * config discovery will not read (#3834), is named in the body with where its
- * events went unread from, and the next review starts that repo there (#3831).
- * So is one carrying such a line that discovery no longer lists, its `.git` or
- * config missing; the review that finds its directory gone, or its start over
- * 30 days old, names what that gives up and ends the line (#3835). A checkout
- * the previous review read counts as one carrying a line from its window's
- * end, so its first absence loses nothing (#3844). Closes that will not read
- * on a second try, or a ledger that will not, cost and carry that kind alone
- * (#3928).
- * Residual: one its owner opted out is neither named nor carried, so a start
- * it carried ends there (#3834). A linked worktree likewise (#3835).
- *
- * Files through file-issue.js, so the `takes:` and known-label refusals bind
- * this script as they bind a session: no hook sees a gh call a script makes.
- * ONCE A DAY above already rules out a second review, so it names the open
- * earlier reviews `--distinct-from` up front: while the founder is away they
- * stay open and would refuse every filing. Refused for any other lookalike,
- * such as the away-mode spec, lib/file-through.js re-runs naming that too.
- *
- * MEMORY KILLS (#3094): the machine's earlyoom kills in the window, by kind,
- * each incident with its ticket — read once from this machine's journal
- * (lib/earlyoom-kills.js), not per repo.
- *
- * PROCESS RUNAWAYS (#3807): memwatch's firings in the window, each episode
- * with what it killed and its ticket, read once from this machine's log
- * (lib/process-runaways.js).
- *
- * PRIMITIVES (#3465): each repo's check-primitives.js count line, and every
- * commit on its default branch since the last review's read touching either
- * standards file, with the file's text either side, which
- * lib/morning-review.js diffs into row changes.
- *
- * CONCURRENCY (#3321): the 24-hour and 7-day readouts of lib/concurrency.js,
- * the core `npm run status` renders from, over the refill loop's tick record
- * and memwatch's minute record.
- *
- * IDLE EFFORTS (#3644, spec #3623): check-idle-efforts.js's `--json`
- * findings, which lib/morning-review.js renders through the lines
- * `npm run status` prints. A plain run, so it spends no session-start stamp.
- *
- * WSL CURRENCY (#4082): check-wsl-currency.js's `--json` lines, in a section
- * of its own, and none where the checker SKIPs: not WSL.
- * Both machine-wide checkers start before the repo reads and run beside them
- * (#4601).
- *
- * KEPT READS (#3765): each repo's count line and each label age, once read,
- * are kept for the day (lib/review-reads.js), so a run killed part way
- * resumes from them. A dry run neither takes nor keeps them (#3813).
- *
- * REPO HOLDS (#3865): each served checkout's open holds, in a section of their
- * own only where one is open. Read apart from readRepo, so a tracker outage,
- * when a hold is likeliest, costs none of them.
- *
- * THROUGHPUT (#5275): each repo the loop serves, its commits, working
- * hours, gate runs and breaker over the window (lib/throughput-reads.js).
- *
- * Exit: the worse of the filing's and the answering's. The filing's is 0 for
- * a filing or a day already filed; 1 where the review issues will not list,
- * the filing lock is held, the filing failed on gh or threw; file-issue.js's
- * own code where it refused.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseErrLine, buildGhReaders, retryingOnceSync } = require("./gh.js");
@@ -141,7 +33,6 @@ const { freshReads, reviewReads } = require("./review-reads.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
 const FILING_LOCK = ".morning-review-filing.pid";
-/* The lock's holder is read off its command line, so the program's name. */
 const LOCK_NAME = "file-morning-review.js";
 const IDLE_SCRIPT = "check-idle-efforts.js";
 const WSL_CURRENCY_SCRIPT = "check-wsl-currency.js";
@@ -168,25 +59,22 @@ const WSL_CURRENCY_SCRIPT = "check-wsl-currency.js";
  */
 
 /**
- * The review's part for a checkout whose config discovery would not read.
  * @param {{root: string, why: string}} faulted
  * @param {string} windowSince
- * @param {{number: number, body: string}[]} reviews newest first
+ * @param {{number: number, body: string}[]} reviews
  */
 function buildFaultedRepo({ root, why }, windowSince, reviews) {
 	const checkout = path.basename(root);
 	const start = carry.buildRepoStart(reviews[0], checkout, windowSince);
-	/* A JSON error quotes the config, newlines and all. */
 	const [line = ""] = why.split("\n");
 	return carry.buildUnreadRepo(checkout, start, checkout, line);
 }
 
 /**
- * One included checkout's ledger and closes, and what of it could not be read.
  * @param {Ctx} ctx
  * @param {string} root
  * @param {string} windowSince
- * @param {{number: number, body: string}[]} reviews newest first
+ * @param {{number: number, body: string}[]} reviews
  * @returns {import("./review-carry.js").RepoRead}
  */
 function readRepo(ctx, root, windowSince, reviews) {
@@ -241,8 +129,6 @@ function readRepo(ctx, root, windowSince, reviews) {
 }
 
 /**
- * A checkout's ledger, or null where it will not read, which is named and
- * carried (#3928). Torn lines are named and lost.
  * @param {string} root
  * @param {string} repo
  * @returns {{entries: import("./morning-review.js").LedgerLine[] | null, unread: Unread[]}}
@@ -266,8 +152,6 @@ function readDecisions(root, repo) {
 }
 
 /**
- * One tracker's closes from `since`, with their comments, or null named as unread
- * where a second try fails too (#3928).
  * @param {Ctx} ctx
  * @param {string} repo
  * @param {string} since
@@ -295,7 +179,7 @@ function readCloses(ctx, repo, since) {
  * @param {Ctx} ctx
  * @param {string} root
  * @param {string} since
- * @param {string | null} cursor the commit an earlier review read to
+ * @param {string | null} cursor
  * @returns {import("./morning-review.js").PrimitivesReading}
  */
 function readPrimitives(ctx, root, since, cursor) {
@@ -338,15 +222,9 @@ function judgeEnvelope(script, r) {
 	return envelope === null ? { why: missing } : { envelope, missing };
 }
 
-/* A `git log` line: full sha, short sha, then the parents. */
 const LOG_LINE = /^([0-9a-f]+) ([0-9a-f]+) ?([0-9a-f]*)/;
 
 /**
- * The table commits that reached the default branch since `cursor`, however old
- * their stamps, whichever branch is checked out; HEAD's where the checkout names
- * no default. With no cursor on it, the commits stamped since `since`, saying
- * why. An adopter's history holds no base file, so its base log is empty. A git
- * failure is the history's `why`, never read as an absent file (base §N5).
  * @param {string} root
  * @param {string} since
  * @param {string | null} cursor
@@ -362,14 +240,14 @@ function readTableHistory(root, since, cursor) {
 				stdio: ["ignore", "pipe", "pipe"],
 			}),
 		);
-	/** The file's text at `rev`, null where the tree there holds none.
-	 * @param {string} rev @param {string} file */
+	/**
+	 * @param {string} rev
+	 * @param {string} file
+	 */
 	const textAt = (rev, file) =>
 		git(["ls-tree", "--name-only", rev, "--", file]).trim() === ""
 			? null
 			: git(["show", `${rev}:${file}`]);
-	/* A "no" from git, against a fault: exit 1, or a commit the repo no longer
-	 * holds, which merge-base exits 128 on (#3827). */
 	/** @param {string[]} args */
 	const gitAnswer = (args) => {
 		try {
@@ -427,8 +305,6 @@ function readTableHistory(root, since, cursor) {
 }
 
 /**
- * The checkouts whose holds the review lists: discovery's, and the loop's
- * ticked repos.
  * @param {string[]} included
  * @param {(line: string) => void} warn
  * @returns {string[]}
@@ -439,8 +315,6 @@ function readHoldRoots(included, warn) {
 }
 
 /**
- * The served repos' throughput over the window (#5275), off the loop's scope
- * and its launches; why not, where the control file is damaged.
  * @param {string} since
  * @param {Date} now
  * @param {(line: string) => void} warn
@@ -460,8 +334,6 @@ function readServedThroughput(since, now, warn) {
 }
 
 /**
- * One checkout's open repo holds, off its local store. What will not read is
- * named in the review and stops nothing else (#3865).
  * @param {string} root
  * @param {number} now
  * @returns {{read: import("./morning-review.js").OpenHold[], unread: Unread[]}}
@@ -496,11 +368,7 @@ function readOpenHolds(root, now) {
 	}
 }
 
-/**
- * The checkout's tracker, or null: one read off a broken origin, which a probe
- * hold reports, costs its holds only their issue's repo name (#3865).
- * @param {string} root
- */
+/** @param {string} root */
 function readHoldTracker(root) {
 	try {
 		return requireKey("tracker", { root });
@@ -510,8 +378,6 @@ function readHoldTracker(root) {
 }
 
 /**
- * One tracker's open stall ticket (lib/stall-ticket.js, #2692); a failed read
- * is unread, leaving the rest of the repo's reading standing.
  * @param {Ctx} ctx
  * @param {string} repo
  * @returns {{read: import("./morning-review.js").OpenIssue[], unread: Unread[]}}
@@ -540,8 +406,6 @@ function readStalls(ctx, repo) {
 }
 
 /**
- * The checkout's off-machine queue alarms firing (lib/queue-alarms.js,
- * #4772); a failed read is unread, as readStalls'.
  * @param {string} root
  * @param {string} repo
  * @returns {{read: import("./queue-alarms.js").FiringAlarm[], unread: Unread[]}}
@@ -558,8 +422,6 @@ function readAlarms(root, repo) {
 }
 
 /**
- * The machine's earlyoom incidents with a kill since `since`, and each one's
- * ticket on the tracker (scripts/file-memory-kill-tickets.js, #3094).
  * @param {Ctx} ctx
  * @param {string} since
  * @returns {import("./morning-review.js").KillReading}
@@ -584,8 +446,6 @@ function readKills(ctx, since) {
 }
 
 /**
- * The machine's process-runaway episodes with a firing since `since`, and each
- * one's ticket on the tracker (scripts/file-process-runaway-tickets.js, #3807).
  * @param {Ctx} ctx
  * @param {string} since
  * @returns {import("./morning-review.js").RunawayReading}
@@ -606,7 +466,6 @@ function readRunaways(ctx, since) {
 }
 
 /**
- * The concurrency readouts over each review window ending `now`.
  * @param {number} now
  * @returns {import("./morning-review.js").ConcurrencyReading}
  */
@@ -648,12 +507,6 @@ async function readWslCurrency(started) {
 }
 
 /**
- * One checkout's open `urgent` issues, each with when its timeline last
- * records the label applied and why pick-next's last run there left it
- * unlaunched (#2693). One whose timeline records no application is aged from
- * its creation, an upper bound (#3760); one whose timeline will not read is
- * unread, never dropped or taken as fresh. Residual: an old issue made urgent
- * yesterday by a route the timeline does not record lists as stuck.
  * @param {Ctx} ctx
  * @param {string} root
  * @param {string} repo
@@ -689,9 +542,6 @@ function readUrgent(ctx, root, repo) {
 }
 
 /**
- * One checkout's open `parked` issues, each with when its timeline last
- * records the label applied (#2725). One whose start will not read is listed
- * with its age unknown, never dropped.
  * @param {Ctx} ctx
  * @param {string} repo
  * @returns {{read: import("./morning-review.js").ParkedIssue[], unread: Unread[]}}
@@ -709,7 +559,6 @@ function readParked(ctx, repo) {
 }
 
 /**
- * One tracker's open issues carrying `label`, or why they did not read.
  * @param {Ctx} ctx
  * @param {string} repo
  * @param {string} label
@@ -738,7 +587,6 @@ function readOpenLabelled(ctx, repo, label) {
 }
 
 /**
- * `label`'s age on issue `number`, off its timeline, kept for the day once read.
  * @param {Ctx} ctx
  * @param {string} repo
  * @param {number} number
@@ -772,10 +620,7 @@ function readTimelineAge(ctx, repo, number, label) {
 	return labelAge(timeline, label, ctx.now.getTime());
 }
 
-/**
- * The line a run that threw ends on, its stack where it has one.
- * @param {unknown} e
- */
+/** @param {unknown} e */
 const buildCrashLine = (e) =>
 	`file-morning-review: ${e instanceof Error ? e.stack : String(e)}\n`;
 
@@ -784,7 +629,6 @@ const buildCrashLine = (e) =>
  * @returns {Promise<number>}
  */
 async function fileMorningReview({ tracker, dryRun, ports }) {
-	/* A filing that throws still answers, and counts as a failure (#3388, #5203). */
 	let filed = 1;
 	try {
 		filed = await fileReview({
@@ -883,8 +727,6 @@ async function renderWindow({
 }
 
 /**
- * Read the window and file its review, unless one carries today's date. The
- * exit code.
  * @param {Ctx} ctx
  * @returns {Promise<number>}
  */

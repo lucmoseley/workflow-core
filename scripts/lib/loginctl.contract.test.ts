@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/loginctl-fake.ts to the real loginctl (§G7, #4594): each case runs
- * a read install-refill-boot-unit.js makes against the fake and the machine's
- * own, checking shape and exit code, never values. Loosened, the installer's
- * tests stay green on the fake while a systemd release prints a Linger
- * read-back the installer misreads, or a failed read it misses.
- *
- * The real side runs where logind answers, never in CI (§G7 item 2):
- * `enable-linger` changes state, so no case runs it.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

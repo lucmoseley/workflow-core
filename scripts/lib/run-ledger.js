@@ -1,41 +1,3 @@
-/*
- * run-ledger.js — one slim JSON line per test run that wrote a pass or fail
- * marker (#2824), kept 30 days, so a run-level reading reaches past the
- * marker archive's 7 days (`ARCHIVE_MS`, `test-pass-marker.js`).
- *
- * THE STORE is `.test-runs.jsonl` beside the marker stores, in the canonical
- * checkout's `.claude/tmp/markers`. `test-pass-marker.js`'s `append` writes
- * the line for every marker. A refused launch (`refused`) ran nothing and
- * gets no line. 30 days lets a 7-day window be read up to three weeks after
- * it closes: chosen, not measured.
- *
- * NEVER THROWS: an unwritable ledger costs the line, never the run or its
- * marker.
- *
- * `startedAt` and `durationMs` are null on a marker that carries none.
- * `treeAtEnd` and `argv`, with `sha`, are what `reruns.py` keys a same-code
- * re-run on; the selected files are left out to keep the line slim.
- *
- * `resolvedFiles` and `wholeSlot` are the admission weight the run carried
- * (#2931): null and false on a marker that carries none.
- *
- * `cachedFiles` and `ranFiles` are the pass store's hits and misses (#4790):
- * cachedFiles null on a run that looked nothing up.
- *
- * `memory` is the run's pids and peak resident memory (lib/run-memory.js,
- * #5183): null on a run the wrapper did not sample.
- *
- * `admission` is how the gate admitted a part-suite (#5366): on its own peak
- * or on the ladder and why. Absent from every other run's line.
- *
- * `kind` and `fullCause` are #2812's rules; `runs.py` reads them, with
- * `verdict`, from here. `kind` is `lander` where the marker carries the
- * lander's mark and its argv a `--full` flag (#4757). `lander` is that mark on
- * every line, so `runs.py` tells the lander's reruns from it; on a line older
- * than the field, `runs.py`'s `lander-rerun` stays a dated inference off
- * `session`.
- */
-
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
@@ -43,6 +5,7 @@ const { gitRead } = require("./dirty-tree.js");
 const { ignoreFailure } = require("./caught.js");
 
 const RUN_LEDGER = ".test-runs.jsonl";
+// guess, #2824
 const RETAIN_MS = 30 * DAY_MS;
 
 /** @typedef {import("./test-pass-marker.js").Marker} Marker */
@@ -65,12 +28,9 @@ const hasFullFlag = (argv) =>
 	argv?.some((a) => a.startsWith("--full")) ?? false;
 
 /**
- * A launch's kind, before any marker: what `kindOf` reads off one, and what
- * the run's memory record names (lib/run-memory.js, #5183).
  * @param {{ argv: string[]|null|undefined, touched: boolean, full: boolean,
  *   lander: boolean, suite?: string, viaChanged?: boolean,
- *   fileFilters?: boolean }} launch `full` whether it ran or asked for the
- *   whole suite
+ *   fileFilters?: boolean }} launch
  * @returns {string}
  */
 function kindOfLaunch({
@@ -124,20 +84,14 @@ function fullCauseOf({ argv, scope }) {
 	return argv?.includes("--full") ? "bare --full" : null;
 }
 
-/**
- * @param {Marker} m
- * @param {boolean} green whether the marker went to the pass store
- */
+/** @param {Marker} m @param {boolean} green */
 function verdictOf(m, green) {
 	if (m.ceilingKill) return "killed";
 	if (m.stalled) return "stalled";
 	return green ? "green" : "red";
 }
 
-/**
- * The ledger line's fields read off the run's scope.
- * @param {Marker["scope"]} scope
- */
+/** @param {Marker["scope"]} scope */
 const scopeFields = (scope) => ({
 	resolvedFiles: scope?.resolvedFiles ?? null,
 	leftOut: scope?.leftOut ?? null,
@@ -175,18 +129,9 @@ function buildLedgerLine(m, { green, root }) {
 	};
 }
 
-/**
- * Silent on a lost line: the run's output is its verdict, read by the
- * session that launched it, and a gap in an analysis log is not that
- * session's to act on.
- * @param {string} root the canonical checkout
- * @param {Marker} marker
- * @param {boolean} green whether the marker went to the pass store
- */
+/** @param {string} root @param {Marker} marker @param {boolean} green */
 function appendLedgerLine(root, marker, green) {
 	if (marker.refused) return;
-	// appendRetained never throws, so only a marker shaped past its typedef
-	// throws here (#2824).
 	ignoreFailure(() =>
 		appendRetained(
 			path.join(markersDir(root), RUN_LEDGER),
@@ -197,16 +142,11 @@ function appendLedgerLine(root, marker, green) {
 }
 
 /**
- * The line of a touched run that selected nothing: it spawns nothing and
- * writes no marker, which no push reads (#2930, #2958).
- *
- * @param {string} root the canonical checkout
- * @param {string} tree the tree the run selected in, whose HEAD it records
+ * @param {string} root
+ * @param {string} tree
  * @param {{ suite: string, sessionId?: string|null, argv: string[],
  *   leftOut: string[],
- *   touchedBase: import("./test-pass-marker.js").TouchedBase }} run `leftOut` the
- *   tests left to the lander (#4967), `touchedBase` the base the selection
- *   took (#5320)
+ *   touchedBase: import("./test-pass-marker.js").TouchedBase }} run
  */
 function appendEmptyTouchedLine(
 	root,

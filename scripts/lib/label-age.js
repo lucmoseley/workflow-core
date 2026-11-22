@@ -1,25 +1,13 @@
-/*
- * label-age.js — when a label was last applied, read off an issue's timeline
- * (#2693).
- */
-
 /**
- * The fields read here off one event of an issue's timeline; a `labeled`
- * event carries all of them.
  * @typedef {{event?: string, label?: {name?: string}, created_at: string,
  *   actor?: {login?: string} | null}} TimelineEvent
  * @typedef {{ok: boolean, events?: TimelineEvent[], error?: string}} Timeline
  */
 
 /**
- * How long `name` has been on, from the most recent `labeled` event carrying
- * it. Unknown where the label's start is unreadable — an unreachable timeline,
- * or, `unrecorded`, a label applied by a route the timeline does not record —
- * which is not the same as the label being absent.
  * @param {Timeline} timeline
  * @param {string} name
- * @param {number} [now] ms since the epoch; the wall clock where absent, so
- *   a caller asserting an age passes its own (§X9)
+ * @param {number} [now]
  * @returns {{unknown: true, unrecorded: boolean, error: string | undefined}|{unknown?: false, ageDays: number, appliedAt: string, appliedBy: string}}
  */
 function labelAge(timeline, name, now = Date.now()) {

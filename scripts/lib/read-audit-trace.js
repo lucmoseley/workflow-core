@@ -1,30 +1,3 @@
-/*
- * read-audit-trace.js — what a child that is no audited Node process read of
- * the checkout, off an `strace` of its file calls (#4966). The read audit
- * (lib/read-audit.js) cannot see inside a stub a test wrote or a shell, so
- * its preload runs each under `strace` and this reads the trace back as the
- * audit's own log entries.
- *
- * THE TRACER IS A DETACHED GRANDCHILD (`-DD`), in a process group of its own:
- * the program stays the direct child the test spawned, under the pid, exit
- * status and signals it would have had; its CPU affinity narrows to one
- * (#5132).
- *
- * EVERY PATH A FILE CALL NAMES IS A READ, a write's target included: as the
- * call spelt it, with its links followed, and as the descriptor the call
- * returned names it. A relative path with no directory beside it resolves
- * against every directory the trace has seen a process stand in or hold
- * open — more reads than were made, never fewer. A directory opened is its
- * whole tree.
- *
- * WHAT A TRACE CANNOT BOUND IS A DOUBT: a process still running once the
- * audit is read, or a trace in which none ever ended; a call on this repository's git directory, whose state no
- * file under the root holds; a path that will not resolve, or one a call
- * found and that is gone since; a socket connected or a datagram addressed,
- * behind which another process may do the reading; a signal sent to a
- * process the trace does not follow.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -35,8 +8,6 @@ const { pathKind } = require("./path-kind.js");
 const { repoPath } = require("./read-audit-paths.js");
 const { sleepSync } = require("./sleep-sync.js");
 
-/* Signals stay in the trace: without them strace writes no line for a
- * process a signal killed. */
 const FLAGS = [
 	"-f",
 	"-DD",
@@ -48,28 +19,14 @@ const FLAGS = [
 	"trace=%file,fchdir,connect,sendto,sendmsg,sendmmsg,kill,tkill,tgkill",
 ];
 
-/* Fixed paths, never names off PATH: a test puts its own stubs there. Where
- * one is missing the trial in `findStrace` fails, and nothing is traced. */
 const SH = "/bin/sh";
 
-/* THE TRACER AND ITS TRACEE SHARE ONE CPU (#5132): every stop wakes the
- * other side, which costs most across CPUs. The CPU is the one the spawning
- * process last ran on. So a traced child and all it starts share one CPU: `nproc` and
- * `os.availableParallelism()` read 1 there, and work it fans out runs in
- * turn. */
 const TASKSET = "/usr/bin/taskset";
 
 /** @type {boolean|undefined} */
 let canPin;
 
-/**
- * The CPU to pin a traced child to: the one this process last ran on, field
- * 39 of `/proc/self/stat`, where `taskset` runs here; else null. That CPU is
- * in this process's own affinity, which the child inherits, so `taskset`
- * cannot refuse it. Checked, not tried: a trial spawn here would be the
- * test's own child to the audit.
- * @returns {string|null}
- */
+/** @returns {string|null} */
 function readPinCpu() {
 	canPin ??= isRunnable(TASKSET);
 	if (!canPin) return null;
@@ -92,20 +49,9 @@ function isRunnable(file) {
 	}
 }
 
-/* The traced side, `$1` and `$2` the pipes its output goes down, either
- * empty: it opens them by name, so the tracer never holds them. */
 const INNER =
 	'a=$1 b=$2; shift 2; [ -z "$a" ] || exec >"$a"; [ -z "$b" ] || exec 2>"$b"; exec "$@"';
 
-/* THE TRACER HOLDS NONE OF THE CHILD'S OUTPUT. It lives until the last
- * process it follows ends, so a pipe it inherited would stay open past a
- * child that left a detached process behind, and the test's spawn would
- * wait on that process. Each output that is a pipe or a socket goes through
- * a named pipe a `cat` copies from, started before the tracer and so not
- * followed; the tracer itself gets /dev/null. No other child is started
- * first: the tracer waits on one of its own before it runs the program,
- * and a stray one ending answers that wait early. `$1` the CPU to pin to
- * or empty, `$2` the tracer, `$3` the trace, the rest the child's words. */
 const OUTER = [
 	"c=$1 s=$2 o=$3; shift 3; a= b=",
 	"if [ -p /dev/fd/1 ] || [ -S /dev/fd/1 ]; then a=$o.1; fi",
@@ -122,7 +68,6 @@ const OUTER = [
 ].join("\n");
 
 /**
- * The words that run `argv` under the tracer, its trace written to `out`.
  * @param {string} strace
  * @param {string} out
  * @param {string[]} argv
@@ -138,12 +83,7 @@ const buildTraceArgv = (strace, out, argv) => [
 	...argv,
 ];
 
-/* How long a spawn's return waits for a traced child's output to be copied
- * out, and how often it looks: guesses, the first far above the scheduling
- * delay of a `cat` on a loaded machine. Only a detached process still
- * holding the output reaches the ceiling.
- * Residual: such a spawn returns 2 s late, and that process's later output
- * can still land after the spawner's next write. */
+// guess, #5218
 const COPY_MS = 2000;
 const COPY_STEP_MS = 5;
 
@@ -152,14 +92,10 @@ const COPY_STEP_MS = 5;
  *   openSync: typeof fs.openSync,
  *   closeSync: typeof fs.closeSync,
  *   unlinkSync: typeof fs.unlinkSync,
- * }} FifoIo file calls no audit hook logs
+ * }} FifoIo
  */
 
 /**
- * Whether the named pipe at `abs` still has its `cat`: opening it to write
- * without blocking finds a reader or fails ENXIO. The open also releases a
- * `cat` still waiting for a writer that will never come, as where the
- * tracer would not start, which then copies nothing and removes the pipe.
  * @param {string} abs
  * @param {FifoIo} io
  */
@@ -176,14 +112,8 @@ function isCopying(abs, io) {
 }
 
 /**
- * Wait until the `cat`s of the child traced to `out` have copied the
- * outputs `fds` names (#5218). With `-DD` the program is the spawn's own
- * child, so the spawn returns on its exit while a `cat` may still hold its
- * last line: a write the spawner makes next to an output it shares would
- * land first, which untraced it never does.
- * @param {string} out the trace `buildTraceArgv` was handed
- * @param {number[]} fds the outputs, 1 and 2, the child shares with its
- *   spawner
+ * @param {string} out
+ * @param {number[]} fds
  * @param {FifoIo} io
  * @param {Clock} [clock]
  */
@@ -197,17 +127,11 @@ function awaitCopied(out, fds, io, clock = REAL_CLOCK) {
 	}
 }
 
-/* How long the trial trace may take: a guess, far above the ~20 ms it takes. */
+// guess, #4966
 const TRIAL_MS = 5000;
 
 /**
- * The `strace` on `env`'s PATH, where a trial run under it in `dir` leaves a
- * trace this module reads; else null — none installed, an old one, or a
- * machine that forbids tracing. Found by walking PATH, not spawned by bare
- * name: the preload hands a child the tracer's path in place of its program,
- * so it needs the file. A system tool the repo does not ship, whose absence
- * the audit's untraced rules cover.
- * @param {string} dir a directory to write the trial trace in, real path
+ * @param {string} dir
  * @param {NodeJS.ProcessEnv} env
  * @returns {string|null}
  */
@@ -233,9 +157,6 @@ function findStrace(dir, env) {
 			got.entries.some((e) => e.p === "trial.probe" && e.s === "absent");
 		return r.status === 1 && saw ? strace : null;
 	} catch {
-		/* Fails open to the untraced rules (#4966): a trial that throws is a
-		 * tracer that does not work here. lib/read-audit.js prints the
-		 * fall-back. */
 		return null;
 	} finally {
 		fs.rmSync(path.join(dir, name), { force: true });
@@ -243,38 +164,28 @@ function findStrace(dir, env) {
 }
 
 /**
- * The directories holding the state of the repository at `root`: its `.git`,
- * and for a linked worktree its git directory and the common one.
- * @param {string} root real path
+ * @param {string} root
  * @returns {string[]}
  */
 function readGitDirs(root) {
 	const dot = path.join(root, ".git");
 	const out = [dot];
-	/* Unreadable is `.git` as a directory, which is itself the whole state;
-	 * absent is no repository. Either way the one entry stands. */
 	const link = readText(dot);
 	const own =
 		link.state === "read" ? /^gitdir: (.*)$/m.exec(link.data)?.[1] : undefined;
 	if (own) {
 		const dir = path.resolve(root, own.trim());
 		out.push(dir);
-		/* A git directory with no `commondir` is its own common one. */
 		const common = readText(path.join(dir, "commondir"));
 		if (common.state === "read")
 			out.push(path.resolve(dir, common.data.trim()));
 	}
-	/* A directory that will not resolve stands nowhere a call could reach by
-	 * another name, so its spelling is the only one to match. */
 	return out.map((dir) => realOf(dir) ?? dir);
 }
 
 /**
- * `abs` with its links followed, the part of it that does not exist kept as
- * spelt; null where it will not resolve, as in a loop of links.
  * @param {string} abs
- * @param {(p: string) => string} [realpath] the audit's preload hands in the
- *   `realpathSync` it does not wrap
+ * @param {(p: string) => string} [realpath]
  * @returns {string|null}
  */
 function realOf(abs, realpath = fs.realpathSync) {
@@ -290,20 +201,14 @@ function realOf(abs, realpath = fs.realpathSync) {
 	}
 }
 
-/* The tracer writes a process's end a moment after the process ends. How
- * long one reading of an audit waits, in all, for traces to settle, and how
- * often it looks: guesses, the first far above the few milliseconds a
- * tracer takes. */
+// guess, #4966
 const SETTLE_MS = 2000;
 const SETTLE_STEP_MS = 10;
 
 const RUNNING = "was still running when its trace was read";
 
-/* A trace no process has ended in: the tracer has written nothing yet, or
- * never followed the child at all. */
 const EMPTY = "left an empty trace";
 
-/* The doubts a trace may yet grow out of, once its tracer catches up. */
 const UNSETTLED = new Set([RUNNING, EMPTY]);
 
 /**
@@ -314,11 +219,8 @@ const UNSETTLED = new Set([RUNNING, EMPTY]);
 const REAL_CLOCK = { now: Date.now, sleep: sleepSync };
 
 /**
- * A reader of the traces in `dir`, for one reading of an audit over `root`:
- * `(name, cwd)` gives the trace `name` of a child started in `cwd` as the
- * audit's log entries, or what in it cannot be bounded.
- * @param {string} dir the audit's log directory
- * @param {string} root the checkout's real path
+ * @param {string} dir
+ * @param {string} root
  * @param {Clock} [clock]
  * @returns {(name: string, cwd: string) =>
  *   {entries: Record<string, unknown>[]} | {doubt: string}}
@@ -339,7 +241,6 @@ function buildTraceReader(dir, root, clock = REAL_CLOCK) {
 }
 
 /**
- * The trace `name` in `dir`, parsed; a doubt where none can be read.
  * @param {string} dir
  * @param {string} name
  * @param {Where} where
@@ -353,7 +254,6 @@ function readTrace(dir, name, where) {
 	return parseTrace(file.data, where);
 }
 
-/* A send that reached nobody: no other process did anything for it. */
 const NO_PEER = /^-1 (ENOENT|ECONNREFUSED|EACCES)\b/;
 
 const UNFINISHED = " <unfinished ...>";
@@ -365,22 +265,14 @@ const READLINKS = new Set(["readlink", "readlinkat"]);
 const SENDS = new Set(["connect", "sendto", "sendmsg", "sendmmsg"]);
 
 /**
- * @typedef {{cwd: string, root: string, gitDirs: string[]}} Where the
- *   directory the child started in, the checkout's real path and
- *   `readGitDirs` of it
+ * @typedef {{cwd: string, root: string, gitDirs: string[]}} Where
  * @typedef {{name: string, args: string, result: string, errno?: string}} Call
  * @typedef {{text: string, from: string|null}} Named
- *   a path a call names, and the directory printed before it, which a
- *   relative one is taken from
  * @typedef {{stood: Set<string>, entries: Map<string, Record<string, unknown>>,
  *   signalled: Set<string>}} Seen
- *   what the calls so far add up to: every directory a process has stood in
- *   or held open, the log entries, and each process sent a signal
  */
 
 /**
- * A trace as the audit's log entries — `probe` and `tree`, repo-relative —
- * or what in it cannot be bounded.
  * @param {string} text
  * @param {Where} where
  * @returns {{entries: Record<string, unknown>[]} | {doubt: string}}
@@ -404,9 +296,6 @@ function parseTrace(text, where) {
 }
 
 /**
- * Each call of the trace as one line, a call a switch of process split
- * joined again, and every process the trace followed; or the doubt where a
- * line will not parse, a process never ended or none is in it.
  * @param {string} text
  * @returns {{calls: string[], pids: Set<string>}|string}
  */
@@ -432,19 +321,14 @@ function parseLines(text) {
 }
 
 /**
- * One line's call where the line ends one: null where it ends none, false
- * where it resumes a call nothing began.
  * @param {string} pid
  * @param {string} body
- * @param {Map<string, string>} pending accumulator: each process's call cut
- *   short
- * @param {Set<string>} live accumulator: the processes seen and not yet
- *   ended
+ * @param {Map<string, string>} pending
+ * @param {Set<string>} live
  * @returns {string|null|false}
  */
 function wholeCall(pid, body, pending, live) {
 	live.add(pid);
-	/* A signal's line, which may fall inside a call cut short. */
 	if (body.startsWith("--- ")) return null;
 	const head = pending.get(pid);
 	pending.delete(pid);
@@ -460,7 +344,7 @@ function wholeCall(pid, body, pending, live) {
 }
 
 /**
- * @param {string} body one whole call, or one its process's end cut short
+ * @param {string} body
  * @returns {Call|null}
  */
 function parseCall(body) {
@@ -474,9 +358,8 @@ function parseCall(body) {
 }
 
 /**
- * Add one call's reads to `seen`; returns the doubt it leaves, or null.
  * @param {string} body
- * @param {Seen} seen accumulator
+ * @param {Seen} seen
  * @param {Where} where
  * @returns {string|null}
  */
@@ -502,20 +385,12 @@ function takeCall(body, seen, where) {
 }
 
 /**
- * Every place a file call's paths may lie, as spelt and with links
- * followed, and whether the call found its one path absent; or the doubt
- * where one cannot be placed. Adds the directories the call stands in or
- * holds to `seen.stood`.
  * @param {Call} call
- * @param {Seen} seen accumulator
+ * @param {Seen} seen
  * @returns {{paths: string[], absent: boolean, guessed: Set<string>}|string}
- *   `guessed` the places a name with no directory beside it does not lie,
- *   where it lies in another: absent there, not gone
  */
 function pathsOf(call, seen) {
 	const { named: strings, held, torn } = pathsIn(call.args);
-	/* A link read prints where it points as a second string: no path the
-	 * call named, and what follows the link is a call of its own. */
 	const named = READLINKS.has(call.name) ? strings.slice(0, 1) : strings;
 	const opened = tokenAt(call.result, call.result.indexOf("<"));
 	if (torn || opened?.cut) return "held a path its trace cut short";
@@ -535,15 +410,11 @@ function pathsOf(call, seen) {
 			missing.flat().flatMap((abs) => [abs, realOf(abs) ?? abs]),
 		),
 		paths: [...new Set([...spelt, .../** @type {string[]} */ (real)])],
-		/* One path named and the call found nothing there: absent then,
-		 * whatever stands there now. */
 		absent: GONE.has(String(call.errno)) && named.length === 1,
 	};
 }
 
 /**
- * The doubt a connect or a send leaves: none where it named no address, as
- * on a socket already connected, or reached nobody.
  * @param {Call} call
  * @returns {string|null}
  */
@@ -553,9 +424,6 @@ function sendDoubt(call) {
 }
 
 /**
- * The process a signal call reached, null where it sent none: the null
- * signal, which only asks whether the process is there, or a call that
- * failed. A group or every process reads as a process no trace follows.
  * @param {Call} call
  * @returns {string|null}
  */
@@ -566,8 +434,6 @@ function signalled(call) {
 }
 
 /**
- * Where a named path may lie: itself, under the directory printed beside it,
- * or under each directory a process has stood in.
  * @param {Named} n
  * @param {string[]} dirs
  * @returns {string[]}
@@ -579,9 +445,6 @@ function resolved(n, dirs) {
 }
 
 /**
- * The log entry for a path a call named, null where it lies outside the
- * checkout or under a `node_modules`. A path the call found and that is
- * absent now reads `gone`, a kind the audit doubts.
  * @param {string} abs
  * @param {string} root
  * @param {Call} call
@@ -599,11 +462,6 @@ function entryOf(abs, root, call, absent) {
 }
 
 /**
- * The paths a call's arguments name — each quoted string outside a list or a
- * struct — and the paths of the descriptors it holds, which are no reads of
- * this call: a process stands in one, or opened it in a call of its own.
- * `torn` where a descriptor's path is cut short or names a deleted file,
- * which no relative path can be taken from.
  * @param {string} args
  * @returns {{named: Named[], held: string[], torn: boolean}}
  */
@@ -626,18 +484,12 @@ function pathsIn(args) {
 	return { named, held, torn };
 }
 
-/**
- * @typedef {{text: string, end: number, cut: boolean, fd: boolean}} Token
- *   `fd` a descriptor's path, not a string; `cut` a string strace shortened,
- *   which is no path, or a descriptor path the line ends inside
- */
+/** @typedef {{text: string, end: number, cut: boolean, fd: boolean}} Token */
 
 /** @type {Record<string, number>} */
 const DEPTH = { "[": 1, "{": 1, "]": -1, "}": -1 };
 
 /**
- * The strings and descriptor paths outside every list and struct, a
- * shortened string left out.
  * @param {string} args
  * @returns {Token[]}
  */
@@ -658,8 +510,6 @@ function parseTokens(args) {
 }
 
 /**
- * The quoted string or descriptor path starting at `i`, null where neither
- * does.
  * @param {string} args
  * @param {number} i
  * @returns {Token|null}
@@ -670,7 +520,6 @@ function tokenAt(args, i) {
 		return { ...s, cut: args.startsWith("...", s.end), fd: false };
 	}
 	if (args[i] !== "<") return null;
-	/* strace prints a descriptor's path after its number, or `AT_FDCWD`. */
 	const before = args.slice(0, i);
 	if (!before.endsWith("AT_FDCWD") && !/\d/.test(before.slice(-1))) return null;
 	const s = decoded(args, i + 1, ">");
@@ -681,13 +530,10 @@ function tokenAt(args, i) {
 const ESCAPES = { n: 10, t: 9, r: 13, v: 11, f: 12, e: 27, a: 7, b: 8 };
 
 /**
- * The text strace printed from `at` up to `stop`, its escapes undone.
  * @param {string} s
  * @param {number} at
- * @param {string} stop the character that ends it, which strace escapes
- *   inside it
- * @returns {{text: string, end: number}} `end` just past `stop`, past the
- *   end of `s` where `stop` never came
+ * @param {string} stop
+ * @returns {{text: string, end: number}}
  */
 function decoded(s, at, stop) {
 	/** @type {number[]} */
@@ -707,9 +553,8 @@ function decoded(s, at, stop) {
 }
 
 /**
- * The byte the escape after a backslash stands for, and its length.
  * @param {string} s
- * @param {number} at just past the backslash
+ * @param {number} at
  */
 function escapeAt(s, at) {
 	const octal = /^[0-7]{1,3}/.exec(s.slice(at, at + 3))?.[0];

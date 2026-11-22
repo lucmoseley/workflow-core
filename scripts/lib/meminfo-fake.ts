@@ -1,9 +1,3 @@
-/*
- * The fake of `/proc/meminfo` a program test points `WFC_MEMINFO` or
- * `MEMWATCH_MEMINFO` at, held to the real file and to lib/meminfo.js's parser
- * by lib/meminfo.contract.test.ts (#3093).
- */
-
 export const MEMINFO_KEYS = [
 	"MemTotal",
 	"MemFree",
@@ -12,8 +6,6 @@ export const MEMINFO_KEYS = [
 	"SwapFree",
 ] as const;
 
-/* Memory outside every process listing, and page cache and reclaimable slab,
- * on memwatch's minute line (#4641, #5090). */
 export const MEMINFO_BREAKDOWN_KEYS = [
 	"AnonPages",
 	"Cached",
@@ -26,17 +18,13 @@ export const MEMINFO_BREAKDOWN_KEYS = [
 	"Unevictable",
 ] as const;
 
-/**
- * A meminfo reporting these readings, in MB, with a 10 GB MemTotal: the
- * machine's cap (docs/environment.md). Each breakdown key given, in kB, adds
- * its line; one left out is absent, as from a kernel that omits it.
- */
+const MACHINE_CAP_MB = 10_240;
+
 export function buildMeminfo(
 	mb: {
 		availableMb: number;
 		swapTotalMb: number;
 		swapFreeMb: number;
-		/** The guest's free memory, none unless given. */
 		freeMb?: number;
 	},
 	breakdownKb: Partial<
@@ -44,7 +32,7 @@ export function buildMeminfo(
 	> = {},
 ) {
 	const kb: Record<(typeof MEMINFO_KEYS)[number], number> = {
-		MemTotal: 10_240 * 1024,
+		MemTotal: MACHINE_CAP_MB * 1024,
 		MemFree: (mb.freeMb ?? 0) * 1024,
 		MemAvailable: mb.availableMb * 1024,
 		SwapTotal: mb.swapTotalMb * 1024,

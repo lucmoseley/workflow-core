@@ -1,19 +1,5 @@
-/*
- * lost-verdict.js — guard-lost-verdict.js's core (#1575):
- * given a finished Bash call that launched the suite, is its pass/fail line
- * missing from the output, and if so, what did the run say?
- *
- * A CORE: it does no I/O. The run record, the log file and the clock arrive
- * as ports; lib/lost-verdict-host.js builds the real ones.
- *
- * WHICH LOG IS THIS CALL'S, never a neighbour's. The output's own `TEST LOG:`
- * line where it survived; else this session's run record (lib/test-log.js),
- * narrowed to runs inside the call, whose start is the payload's
- * `duration_ms` back from now. Those runs must all come from one runner
- * process — one launch — or the answer is not certain and it stays silent.
- */
-
 const path = require("node:path");
+const { stripVTControlCharacters } = require("node:util");
 const { CEILING_LINE } = require("./suite-ceiling.js");
 const { suiteLaunchKind } = require("./suite-launch.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
@@ -21,63 +7,48 @@ const { literal } = require("./shell-words.js");
 
 /**
  * @typedef {object} VerdictPorts
- * @property {Record<string, unknown>} payload the hook payload
- * @property {string} logRoot the canonical checkout, where the runner keeps
- *   its logs and records whichever worktree it ran in
+ * @property {Record<string, unknown>} payload
+ * @property {string} logRoot
  * @property {(session: string) => import("./test-log.js").RunRecord[]} readRuns
- *   this session's run record
- * @property {(file: string) => string} readFile throws where it cannot read
- * @property {() => number} now epoch ms
+ * @property {(file: string) => string} readFile
+ * @property {() => number} now
  * @property {import("./suite-launch.js").LaunchPorts["runners"]} runners
  * @property {import("./suite-launch.js").LaunchPorts["isWrapperScript"]} isWrapperScript
  * @typedef {import("./kit-context.js").KitContext & VerdictPorts} VerdictContext
  */
 
-/* vitest's two summary lines, as it prints them to a pipe. */
 const VERDICT_RE = /^[^\S\n\r\u2028\u2029]*(Test Files|Tests)\s+\d/m;
 const TEST_LOG_RE = /^TEST LOG: (.+)$/gm;
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI colour codes
-const ANSI_RE = /\u001b\[[0-9;]*m/g;
 
-/* The runner's filter, stall and ceiling lines, as written to the log; their
- * first line only, the rest being explanation. */
 const BANNER_LINE_RE = new RegExp(
 	`^(FILTERED RUN|SUITE STALLED|${CEILING_LINE})\\b`,
 );
 const FAIL_RE = /^\s*FAIL\s/;
-/* An empty selection: vitest ran no file, so printed no verdict to lose
- * (#1661). `in 0 of`, since a file that failed to collect also counts 0
- * tests, and its red verdict is lost. Copies the wording of
- * formatFilteredRun in lib/test-pass-marker.js. */
 const EMPTY_RUN_RE = /^FILTERED RUN — ran 0 of 0 tests in 0 of /m;
-/* First guesses, unmeasured: enough to name what failed without the
- * context outgrowing the log it points at. */
+// guess, #1575
 const MAX_FAIL_LINES = 10;
+// guess, #1575
 const MAX_LINE = 300;
-/* A first guess at the hook's own start-up lag, by which `now` trails the
- * call's end; a run of the call starts later than the call by npm's own
- * start-up, which is longer. */
+// guess, #1575
 const WINDOW_SLACK_MS = 5000;
 
-/** @param {string} text */
-const stripAnsi = (text) => text.replace(ANSI_RE, "");
-
 /**
- * The last `TEST LOG:` path the output still holds, or null.
  * @param {string} output
  * @returns {string|null}
  */
 function logFromOutput(output) {
 	let last = null;
-	for (const [, shown] of stripAnsi(output).matchAll(TEST_LOG_RE))
+	for (const [, shown] of stripVTControlCharacters(output).matchAll(
+		TEST_LOG_RE,
+	))
 		if (shown) last = shown.trim();
 	return last;
 }
 
 /**
  * @param {import("./test-log.js").RunRecord[]} runs
- * @param {number} since epoch ms the call began
- * @param {number} now epoch ms
+ * @param {number} since
+ * @param {number} now
  * @returns {{ log: string } | { why: string }}
  */
 function pickRun(runs, since, now) {
@@ -96,14 +67,13 @@ function pickRun(runs, since, now) {
 }
 
 /**
- * The lines of a log that carry its verdict, in the order the log has them.
  * @param {string} text
  * @returns {string[]}
  */
 function parseVerdictLines(text) {
 	const lines = [];
 	let fails = 0;
-	for (const raw of stripAnsi(text).split("\n")) {
+	for (const raw of stripVTControlCharacters(text).split("\n")) {
 		const line = raw.trimEnd();
 		if (FAIL_RE.test(line)) {
 			fails += 1;
@@ -120,7 +90,7 @@ function parseVerdictLines(text) {
 
 /**
  * @param {string[]} lines
- * @param {string} shown the log's path as the session should read it
+ * @param {string} shown
  */
 function buildMessage(lines, shown) {
 	const body =
@@ -157,11 +127,6 @@ function readRecordedLog(payload, ports) {
 }
 
 /**
- * The call's output, or null where the call left none a log line repairs: a
- * backgrounded run has not finished, and a killed or timed-out one lost its
- * output whole. A failed call (PostToolUseFailure) carries its output in
- * `error`.
- *
  * @param {Payload} payload
  * @returns {string|null}
  */
@@ -185,7 +150,8 @@ function callOutput(payload) {
  */
 function judge(payload, ports) {
 	const output = callOutput(payload);
-	if (output === null || VERDICT_RE.test(stripAnsi(output))) return {};
+	if (output === null || VERDICT_RE.test(stripVTControlCharacters(output)))
+		return {};
 	const root = ports.logRoot;
 	const shownLog = logFromOutput(output);
 	const found = shownLog
@@ -198,8 +164,7 @@ function judge(payload, ports) {
 	} catch (error) {
 		return { why: `the run's log is unreadable (${error}): ${found.log}` };
 	}
-	/* Logged, so the #1661 count can tell these apart from lost verdicts. */
-	if (EMPTY_RUN_RE.test(stripAnsi(text)))
+	if (EMPTY_RUN_RE.test(stripVTControlCharacters(text)))
 		return {
 			why: "an empty selection — vitest ran no file, so no verdict was lost",
 		};
@@ -212,9 +177,6 @@ function judge(payload, ports) {
 }
 
 /**
- * How many of the command's segments launch the suite through
- * scripts/run-vitest.js — suite-launch.js's `npm-vitest` and `wrapper` kinds,
- * read after unwrap's wrapper strip. A direct `npx vitest` writes no TEST LOG.
  * @param {string} subject
  * @param {VerdictContext} ctx
  */
@@ -236,7 +198,7 @@ function countLaunches(subject, ctx) {
 }
 
 /**
- * @param {string} subject the command
+ * @param {string} subject
  * @param {VerdictContext} ctx
  * @returns {{ context: string } | null}
  */

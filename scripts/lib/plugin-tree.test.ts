@@ -1,24 +1,5 @@
 // @vitest-environment node
-/*
- * The render against the real core proves the #4 acceptance criteria on what
- * would ship today: no skill or command body spells a repo-relative script
- * path, and nothing shipped needs npm. An output-style body is left
- * repo-relative, since #64 measured the harness never substituting
- * `${CLAUDE_PLUGIN_ROOT}` there.
- *
- * The acceptance cases render the real core, since the guarantee is about what
- * ships today; the refusal and edge cases render a fixture tree under the
- * system temp dir. Two cases (#65) do write into the core: each drops the gate
- * harness's pid-named fixture into its scripts/ and removes it on the way out.
- *
- * full-sweep-only: renders the whole core and reads every file it ships, a
- * set the render decides, so no literal can name them.
- *
- * `release-plugin.js` (`npm run release:plugin`) cuts the tree every adopter
- * installs from this render; loosen a case and a release can ship a script
- * that needs npm, a path that resolves nowhere in the install cache, or a bare
- * citation read against the wrong tracker.
- */
+// full-sweep-only: #1886
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -35,27 +16,20 @@ import { runInProcess } from "./run-in-process.js";
 import { isCollectedTestOrConftest } from "./test-kind.js";
 
 const CORE = path.resolve(__dirname, "../..");
-// Spelled in pieces: a `${…}` literal in a plain string trips Biome's template lint.
 const PLUGIN_ROOT = ["$", "{CLAUDE_PLUGIN_ROOT}"].join("");
 const SKILL_DIR = ["$", "{CLAUDE_SKILL_DIR}"].join("");
 const REPO_RELATIVE_SCRIPT = /(?<![\w./$}-])(?:\.\/)?scripts\/[\w*.-]/;
 const REPO_RELATIVE_SKILL_SCRIPT =
 	/(?<![\w./$}-])\.claude\/skills\/[^\s/`]+\/scripts\//;
-/* The mods' modules and state contracts, which the engine loads from the
- * install cache (#933), and the one contract the release composes from them
- * (#3251). */
 const LIVENESS_MODULE = ".claude/skills/wfc-liveness/hooks/register.tsx";
 const LIVENESS_CONTRACT = ".claude/skills/wfc-liveness/types/index.d.ts";
 const DELIVERY_CONTRACT = ".claude/skills/wfc-delivery/types/index.d.ts";
 const HOST_CONTRACT = "types/index.d.ts";
-/* The reporters and globalSetup an adopter's vitest config attaches, the only
- * TypeScript under scripts/ the release ships (#552). */
 const VITEST_LOADED = [
 	"scripts/vitest-pass-reporter.ts",
 	"scripts/vitest-inflight-reporter.ts",
 	"scripts/vitest-tree-watch.ts",
 ];
-/* The plugin's entry module, which loads both mods (#946). */
 const ENTRY = "hooks/register.ts";
 const SHIPPED_MOD_TS = [
 	".claude/skills/wfc-delivery/hooks/register.ts",
@@ -83,25 +57,18 @@ describe("the tree rendered from the core", () => {
 		buildTree(CORE, out);
 		const shipped = readFiles(out);
 
-		// #1939: MIT's one condition is that the notice travels with every copy.
 		const notices = ".claude/skills/THIRD-PARTY-NOTICES.md";
 		expect(fs.readFileSync(path.join(out, notices), "utf8")).toBe(
 			fs.readFileSync(path.join(CORE, notices), "utf8"),
 		);
 
 		expect(shipped).toContain(".claude-plugin/plugin.json");
-		// #117: a release tag without this can't be `marketplace add`ed by ref.
-		// `buildTree` copies it verbatim, so the ref-pins-the-tag invariant is
-		// release-plugin.test.ts's to prove, against the tag it actually cuts.
 		expect(shipped).toContain(".claude-plugin/marketplace.json");
 		expect(shipped).toContain(".claude/output-styles/core-voice.md");
 		expect(shipped).toContain(".claude/skills/pick-next/SKILL.md");
 		expect(shipped).toContain(".claude/skills/card-close/SKILL.md");
 		expect(shipped).toContain("scripts/session-arbiter.js");
-		// The adopter's ruff gate reads it by --config (#106).
 		expect(shipped).toContain("ruff.toml");
-		// An adopter's Leading-practice gate falls back to the plugin's notes,
-		// each less its lines holding for workflow-core alone (#5294).
 		const notes = shipped.filter((f) => f.startsWith("docs/practice/"));
 		expect(notes).toContain("docs/practice/ci-and-repo-quality-gates.md");
 		for (const note of notes)
@@ -117,14 +84,11 @@ describe("the tree rendered from the core", () => {
 			"no core note carries the section the render drops",
 		).toBe(true);
 		expect(shipped).not.toContain("package.json");
-		// #1380: js-yaml's consumers ship, loading it from the adopter's install.
 		expect(shipped).toContain("scripts/check-workflow-permissions.js");
 		expect(shipped).toContain("scripts/check-skill-frontmatter.js");
 		expect(shipped).toContain("scripts/lib/host-package.js");
-		// #440's core-only class, and its members a shipped file names.
 		expect(shipped).not.toContain("scripts/release-plugin.js");
 		expect(shipped).not.toContain("scripts/measure-burn/scan_burn.py");
-		// #691: an adopter is never offered a command that creates repos.
 		expect(
 			fs.existsSync(
 				path.join(CORE, ".claude/skills/new-repo/scripts/new-repo.js"),
@@ -134,7 +98,6 @@ describe("the tree rendered from the core", () => {
 			shipped.filter((f) => f.startsWith(".claude/skills/new-repo/")),
 		).toEqual([]);
 		expect(shipped).toContain("scripts/measure-turn-band.js");
-		// #1734: the one way an adopter builds the table its launch cap reads.
 		expect(shipped).toContain("scripts/measure-session-cost.js");
 		expect(
 			shipped.filter(
@@ -148,7 +111,6 @@ describe("the tree rendered from the core", () => {
 		expect(fs.readFileSync(path.join(out, "hooks/hooks.json"), "utf8")).toBe(
 			fs.readFileSync(path.join(CORE, "hooks/hooks.json"), "utf8"),
 		);
-		// #2441: the self-plugin is the core's own; its render ships in its place.
 		expect(fs.existsSync(path.join(CORE, "self-plugin"))).toBe(true);
 		expect(shipped.filter((f) => f.startsWith("self-plugin/"))).toEqual([]);
 		const manifest = JSON.parse(
@@ -161,9 +123,8 @@ describe("the tree rendered from the core", () => {
 		);
 
 		const scripts = shipped.filter((f) => f.startsWith("scripts/"));
-		// #4 (the packaging measurement)
+		// measured 59 shipped scripts, #4
 		expect(scripts.length).toBeGreaterThanOrEqual(59);
-		// Byte for byte, bar the citations #396 qualifies.
 		const readExpected = (f: string) => {
 			const source = fs.readFileSync(path.join(CORE, f));
 			const text = source.toString("utf8");
@@ -192,9 +153,6 @@ describe("the tree rendered from the core", () => {
 		expect(repoRelative).toEqual([]);
 	});
 
-	// #741: an adopter's review axes run on the plugin's copy, and the harness
-	// loads an agent only from a manifest `agents` entry naming its file — a
-	// directory string fails the manifest's validation.
 	it("ships every agent definition and lists each in the manifest", () => {
 		const out = path.join(tmp, "out");
 		buildTree(CORE, out);
@@ -212,9 +170,6 @@ describe("the tree rendered from the core", () => {
 		}
 	});
 
-	// #1377: the wrapper follows or replaces the vendored skill's steps by
-	// heading, so a re-vendor that moves one must go red here, not run silently
-	// against a step that is gone.
 	it("ships the architecture-scan wrapper beside the vendored skill, every step heading it names still there", () => {
 		const out = path.join(tmp, "out");
 		buildTree(CORE, out);
@@ -237,7 +192,6 @@ describe("the tree rendered from the core", () => {
 		expect(named.filter((h) => !vendored.includes(h))).toEqual([]);
 	});
 
-	// `$.state` belongs to the host plugin, not the mod (#903 F8).
 	it("ships the mods' modules, and one contract composing their state under workflow-core (#3251)", () => {
 		const out = path.join(tmp, "out");
 		buildTree(CORE, out);
@@ -247,7 +201,6 @@ describe("the tree rendered from the core", () => {
 		expect(
 			shipped.filter((f) => /\/tests\/|\/types\/claude-code\//.test(f)),
 		).toEqual([]);
-		// Neither runs in an adopter (#1050).
 		for (const mod of ["wfc-delivery", "wfc-liveness"]) {
 			expect(shipped).not.toContain(`.claude/skills/${mod}/tsconfig.json`);
 			expect(shipped).not.toContain(`.claude/skills/${mod}/hooks/hooks.json`);
@@ -257,7 +210,6 @@ describe("the tree rendered from the core", () => {
 		expect(module).toContain('plugin: "workflow-core", key: "records"');
 		expect(module).toContain('plugin: "workflow-core", key: "rows"');
 		expect(module).not.toContain('plugin: "wfc-liveness"');
-		// The mod's own name stays where it names the mod, not a state owner.
 		expect(module).toContain('const modName = "wfc-liveness";');
 
 		const contract = fs.readFileSync(path.join(out, HOST_CONTRACT), "utf8");
@@ -271,13 +223,11 @@ describe("the tree rendered from the core", () => {
 			expect(fs.readFileSync(path.join(out, rel), "utf8")).not.toContain(
 				"PluginState",
 			);
-		// The shape #903 validated: no `export {}` after the module block.
 		expect(contract.trimEnd()).toMatch(
 			/declare module "claude-code" \{[\s\S]*\}$/,
 		);
 		expect(contract).not.toMatch(/export \{\s*\}/);
 
-		// The source keeps its own name, so it still loads stand-alone.
 		expect(fs.readFileSync(path.join(CORE, LIVENESS_MODULE), "utf8")).toContain(
 			'plugin: "wfc-liveness"',
 		);
@@ -315,11 +265,6 @@ describe("the tree rendered from the core", () => {
 		expect(shipped).not.toContain(PLUGIN_ROOT);
 	});
 
-	// The ladder ships to every adopter, so this machine's Chrome profile,
-	// accounts and config dirs stay in the machine note (#1070). The scan
-	// covers the three kinds #1070 names, each in the spelling the machine
-	// note uses; the `Default` profile, a Windows path and a bare username
-	// pass unseen.
 	const privateKinds: [RegExp, string][] = [
 		[/\bProfile \d+\b/, 'Chrome "Profile 1"'],
 		[/profile-directory/, '--profile-directory="Default"'],
@@ -347,10 +292,6 @@ describe("the tree rendered from the core", () => {
 		for (const [re, sample] of privateKinds) expect(sample).toMatch(re);
 	});
 
-	// #65: precommit-gate-harness.test.ts's writeCheckerDelegates suite drops a
-	// pid-suffixed fixture into the real scripts/ and removes it in its own
-	// afterEach. A render racing that window must never ship, or even touch,
-	// that file.
 	it("never ships a live pre-commit-gate-harness test fixture", () => {
 		const fixtureName = `__precommit-gate-harness-test-fixture-${process.pid}.js`;
 		const fixturePath = path.join(CORE, "scripts", fixtureName);
@@ -364,9 +305,6 @@ describe("the tree rendered from the core", () => {
 		}
 	});
 
-	// The harness deletes its fixture between the listing that names it and
-	// the render reaching it, so a stat run on the vanished name must never
-	// happen, only a name-based skip.
 	it("skips the fixture by name rather than touching it, even where it is deleted between listing and reaching it", () => {
 		const fixtureName = `__precommit-gate-harness-test-fixture-${process.pid}.js`;
 		const fixturePath = path.join(CORE, "scripts", fixtureName);
@@ -376,8 +314,11 @@ describe("the tree rendered from the core", () => {
 		const spy = vi
 			.spyOn(fs, "readdirSync")
 			.mockImplementation((dir: fs.PathLike, opts?: unknown) => {
-				// biome-ignore lint/suspicious/noExplicitAny: forwarding readdirSync's own overload set
-				const listing = (realReaddirSync as any)(dir, opts);
+				const forward = realReaddirSync as unknown as (
+					dir: fs.PathLike,
+					opts?: unknown,
+				) => ReturnType<typeof fs.readdirSync>;
+				const listing = forward(dir, opts);
 				if (dir === scriptsDir && Array.isArray(listing)) {
 					fs.rmSync(fixturePath, { force: true });
 				}
@@ -394,23 +335,12 @@ describe("the tree rendered from the core", () => {
 	});
 });
 
-/* What the release drops for being test or TypeScript code, not for being
- * core-only: test-kind.js's tests, and a restatement of plugin-tree.js's
- * SKIPPED_DIRS and SKIPPED_FILE, which keep it private. A kind missing here
- * only widens what counts as left behind, so drift turns the scan below red
- * rather than blind. */
 const TS_OR_SKIPPED_DIR = /\.[cm]?tsx?$|^(fixtures|__pycache__|node_modules)$/;
-/** Whether the release leaves `rel` behind as core-only (#440). */
 const isLeftBehind = (root: string, rel: string) =>
 	!isShipped(root, rel) &&
 	!TS_OR_SKIPPED_DIR.test(path.basename(rel)) &&
 	!isCollectedTestOrConftest(path.basename(rel));
 
-/**
- * Every line of a shipped file naming a left-behind script, as
- * `<shipped>:<line> -> <left-behind>`: a script's or .husky hook's code lines,
- * and any line of a skill, command, docs/agents file or hooks.json.
- */
 const readLeftBehindReferences = (root: string, out: string) => {
 	const scripts = path.join(root, "scripts");
 	const behind = fs
@@ -457,27 +387,16 @@ const readLeftBehindReferences = (root: string, out: string) => {
 };
 
 describe("the core-only class (#440)", () => {
-	/* Named, never run, in an adopter: each pair's reference is dead there, or
-	 * true there of a script that runs only in the core. */
 	const namedNotRun = [
-		// Its remedies print only on a repo carrying .claude-plugin/marketplace.json
-		// — the core; an adopter without one SKIPs.
 		"scripts/check-release-pin.js -> scripts/release-plugin.js",
-		// Required past its core-host check, and printed only by a run past it (#4448).
 		"scripts/check-release-lag.js -> scripts/lib/release-tags.js",
 		"scripts/lib/release-lag.js -> scripts/release-plugin.js",
 		"scripts/report-release-due.js -> scripts/lib/release-tags.js",
 		"scripts/report-release-due.js -> scripts/release-plugin.js",
-		// Named to run in a core checkout, the only clone carrying release tags.
 		"docs/agents/adopter-upgrade.md -> scripts/release-contains.js",
-		// Required only where docs/code-standards-base.md exists: the core (#963).
 		"scripts/check-code-standards.js -> scripts/lib/plugin-tree.js",
-		// Required only where docs/adopter-boundary.md exists: the core (#5294).
 		"scripts/check-adopter-boundary.js -> scripts/lib/plugin-tree.js",
-		// Required only where it exists beside it: the core (#1151).
 		"scripts/lib/write-scan.js -> scripts/lib/plugin-tree.js",
-		// release-plugin.js, run in the core, files into each adopter tracker it
-		// is named, so triage-labels.md's census is true there (#1692).
 		"docs/agents/triage-labels.md -> scripts/release-plugin.js",
 	];
 
@@ -487,7 +406,6 @@ describe("the core-only class (#440)", () => {
 		const found = readLeftBehindReferences(CORE, out);
 		const pair = (ref: string) => ref.replace(/:\d+ -> /, " -> ");
 		expect(found.filter((ref) => !namedNotRun.includes(pair(ref)))).toEqual([]);
-		// An excuse whose reference has gone is removed, not left to excuse the next.
 		expect(
 			namedNotRun.filter((p) => !found.some((ref) => pair(ref) === p)),
 		).toEqual([]);
@@ -717,7 +635,6 @@ describe("citation qualification (#396)", () => {
 	it("leaves a shell comment whose #N is no citation alone", () => {
 		const body = [
 			"#!/bin/sh",
-			// Spelled in pieces, as PLUGIN_ROOT above is.
 			[
 				"# $",
 				"{#1} is the argument's length, and $#1 is no issue either.",
@@ -731,9 +648,6 @@ describe("citation qualification (#396)", () => {
 
 	it("writes nothing back to the core, whose citation check still passes", () => {
 		const out = path.join(tmp, "out");
-		/* Byte for byte, not by grepping for a qualified citation: a core file
-		 * may carry one of its own, as retro-sweep's adopter-tracker example
-		 * does (#964). */
 		const read = (f: string) => fs.readFileSync(path.join(CORE, f), "utf8");
 		const shipped = spawnSync("git", ["ls-files"], {
 			cwd: CORE,
@@ -760,8 +674,6 @@ describe("citation qualification (#396)", () => {
 });
 
 describe("a skill body's script paths", () => {
-	/** `body` as the release writes it into skill `s`, which carries
-	 * scripts/local.sh of its own. */
 	const shipped = (body: string) => {
 		const root = path.join(tmp, "src");
 		const tree: Record<string, string> = {
@@ -816,8 +728,6 @@ describe("a skill body's script paths", () => {
 });
 
 describe("a pointer to a core doc (#1452)", () => {
-	/** A source holding a shipped doc, a core-only one and a host-owned one,
-	 * plus `extra`. */
 	const source = (extra: Record<string, string>) => {
 		const root = path.join(tmp, "src");
 		const tree: Record<string, string> = {
@@ -1144,12 +1054,10 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 				[`${modDir}/hooks/lib.ts`]: "export const b = 1;\n",
 				[`${modDir}/types/index.d.ts`]: "export type T = 1;\n",
 				[`${modDir}/hooks/register.test.ts`]: "",
-				// #2869: a .spec. test in a mod ships no more than a .test. one.
 				[`${modDir}/hooks/register.spec.ts`]: "",
 				[`${modDir}/tests/mod.test.ts`]: "",
 				[`${modDir}/.claude-plugin/types/claude-code/index.d.ts`]: "",
 				[`${modDir}/other/x.ts`]: "",
-				// A skill with no mod manifest is no mod.
 				".claude/skills/plain/hooks/a.ts": "",
 				"scripts/x.ts": "",
 			}).filter((f) => /\.tsx?$/.test(f)),

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The gate a session-start reporter reads behind: its lock (#4016).
- *
- * Loosen it and two starts both read and both file, a live reading loses its
- * lock to age, or a dead holder's lock stops the reporter for good.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -57,20 +51,13 @@ describe("periodicReading's lock", () => {
 	});
 
 	it("reads once a round with two takers at one instant over a stale lock", async () => {
-		/* #4016's criterion. */
 		const Rounds = 150;
-		/* Guesses: a round's hold of 15 ms, a gap wide enough that a late taker
-		 * stays in its round, and half a second for both processes to load. */
+		// guess, #4016
 		const HoldMs = 15;
 		const GapMs = 40;
 		const LoadMs = 500;
-		/* Spins only for the last of the wait, so the barrier stays sharp without
-		 * two cores spinning for the whole test. */
 		const SpinMs = 2;
 		const taker = path.join(dir, SCRIPT);
-		/* Each taker waits for its round's instant, then reads for HoldMs behind
-		 * the gate; `inside` is created exclusively, so an overlap cannot pass
-		 * unseen, whatever either clock says. */
 		fs.writeFileSync(
 			taker,
 			`const fs = require("node:fs");

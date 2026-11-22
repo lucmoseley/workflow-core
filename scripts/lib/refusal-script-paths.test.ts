@@ -20,7 +20,6 @@ describe("refusal script paths in an install (#1993)", () => {
 	let root: string;
 
 	beforeEach(() => {
-		/* No package.json, so script-path.js reads it as an install. */
 		root = fs.mkdtempSync(path.join(os.tmpdir(), "refusal-paths-"));
 		vi.stubEnv("WFC_SCRIPT_ROOT", root);
 	});

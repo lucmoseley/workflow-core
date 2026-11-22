@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/net-probe.js's reading of its probe child (#4815): exit 0 is
- * reachable, any other exit is the child's stderr as the reason, and a child
- * that will not start is a reason of its own. Loosen it and a down network
- * reads as up, so the loop spends its resumes into the outage.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,7 +17,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A probe stand-in printing the line `stderr`, if any, and exiting `code`. */
 function probe(code: number, stderr = "") {
 	const file = path.join(dir, "probe");
 	fs.writeFileSync(

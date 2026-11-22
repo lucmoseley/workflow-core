@@ -108,13 +108,6 @@ const { readOrNull } = require("./file-read.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, scanFlags } = require("./shell-words.js");
 
-/* npx rewrites its argv before npm's parser sees it (npm 11.16.0's
- * `bin/npx-cli.js`): it matches each option's key exactly, never as an
- * abbreviation, and puts a `--` before the first word it reads as positional,
- * which ends npm's options there (#491). Every other word is then read by
- * nopt, so the bin is nopt's first positional (#571). Its switches are
- * lib/npm-options.js's Boolean configs plus `browser`, a Boolean that also
- * takes a String. */
 const NPX_SWITCHES = new Set(
 	"browser always-spawn ignore-existing shell-auto-fallback no-install quiet q version v help h".split(
 		" ",
@@ -130,25 +123,16 @@ const NPX_REMOVED = new Set(
 /**
  * @typedef {import("./package-vetting.js").Call} Call
  * @typedef {object} NpmInstallPorts
- * @property {(pkg: string) => Call} npmView `npm view <pkg> time.created --json`
- * @property {(pkg: string) => Call} downloads last month's downloads endpoint
- *   for `pkg`
- * @property {(p: string) => boolean} pathExists an entry at `p`, a dangling
- *   link included
- * @property {(p: string) => string | null} linkTarget the target `p` links
- *   to, null where `p` is absent or no symbolic link
- * @property {() => string} storesDir the host root's dependency-store
- *   directory, absolute
+ * @property {(pkg: string) => Call} npmView
+ * @property {(pkg: string) => Call} downloads
+ * @property {(p: string) => boolean} pathExists
+ * @property {(p: string) => string | null} linkTarget
+ * @property {() => string} storesDir
  * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts
  *   & import("./package-vetting.js").VettingPorts
  *   & Pick<import("./core-contract.js").CoreContext, "tree">} NpmInstallContext
- *   `tree` the session's, whose package.json and `node_modules` are read
  * @typedef {{ deny: string }} Verdict
  */
-
-/* ----------------------------------------------------------------------- */
-/* The refusals.                                                           */
-/* ----------------------------------------------------------------------- */
 
 /**
  * @param {string[]} fresh
@@ -176,10 +160,8 @@ npx tries \`node_modules/.bin\` first and the public registry second, and a thro
 ${fix}`;
 
 /**
- * The fix line check 3 ends on: the owner of the bin, none, or unknown.
  * @param {string} subject
- * @param {string | null | undefined} owner null where no dependency carries
- *   it, undefined where that could not be told
+ * @param {string | null | undefined} owner
  */
 function npxFix(subject, owner) {
 	if (owner === undefined)
@@ -199,7 +181,6 @@ function npxFix(subject, owner) {
 }
 
 /**
- * `@<scope>/<bin>`.
  * @param {string} dep
  * @param {string} bin
  */
@@ -207,17 +188,12 @@ const isScopedAs = (dep, bin) => dep.startsWith("@") && dep.endsWith(`/${bin}`);
 
 /**
  * @param {string} text
- * @param {string} segment masked
+ * @param {string} segment
  * @returns {Verdict}
  */
 const refuse = (text, segment) => ({
-	/* Its texts name no core path, so none is respelt. */
 	deny: spliceCmd(segment, text),
 });
-
-/* ----------------------------------------------------------------------- */
-/* package.json — the set of names this repo already depends on.           */
-/* ----------------------------------------------------------------------- */
 
 const DEP_FIELDS = [
 	"dependencies",
@@ -227,8 +203,6 @@ const DEP_FIELDS = [
 ];
 
 /**
- * Every dependency name, sorted, or null where package.json will not read,
- * logged.
  * @param {NpmInstallContext} ctx
  * @returns {string[] | null}
  */
@@ -248,8 +222,6 @@ function loadDeps(ctx) {
 }
 
 /**
- * The four dependency fields' keys, merged and sorted; null where the text is
- * not JSON or a field is not an object.
  * @param {string} text
  * @returns {string[] | null}
  */
@@ -274,12 +246,6 @@ function depNames(text) {
 }
 
 /**
- * The direct dependency whose installed package.json `bin` names `bin`: an
- * object's keys, or for a string `bin` the package's unscoped name. Null
- * only where every dependency's package.json was read and none names it.
- * Where one is missing or will not parse — a worktree, a partial install —
- * "none" cannot be said, so it falls back to a dependency `@<scope>/<bin>`
- * (#1729), and is undefined where none is one.
  * @param {string} bin
  * @param {string[]} deps
  * @param {NpmInstallContext} ctx
@@ -314,9 +280,6 @@ function binOwner(bin, deps, ctx) {
 }
 
 /**
- * Whether one manifest's `bin` names `bin`: its `name` where it does (null
- * where that is no string), false where it does not, undefined where the
- * manifest will not read as one.
  * @param {string} text
  * @param {string} bin
  * @returns {string | null | false | undefined}
@@ -338,35 +301,19 @@ function carries(text, bin) {
 	return m.name.split("/").at(-1) === bin ? named : false;
 }
 
-/* ----------------------------------------------------------------------- */
-/* Package specs.                                                           */
-/* ----------------------------------------------------------------------- */
-
 const NAME_RE = /^(@[A-Za-z0-9][A-Za-z0-9._-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /**
- * The npm name inside a spec, or null where the spec is not a registry one.
- *
- * Handles `pkg`, `pkg@1.2.3`, `pkg@^1`, `@scope/pkg`, `@scope/pkg@next`.
- * Refuses a path, a URL, a git spec and an alias (`a@npm:b`), none of which
- * the registry can be asked about.
  * @param {string} spec
  * @returns {string | null}
  */
 function specName(spec) {
 	if (spec === "" || spec.startsWith("-")) return null;
-	/* A scope is the only legitimate slash; everything else is a path or a
-	 * URL. */
 	if (spec.includes("/") && !spec.startsWith("@")) return null;
-	/* file:, git:, https:, an npm: alias, the github: shorthand. */
 	if (spec.includes(":")) return null;
-	/* A leading `.` or `~` is a path. A tilde INSIDE the spec is npm's
-	 * approximate-version range — `lodash@~4.17.0` — and denying that as a path
-	 * would refuse an ordinary pinned install (mantahostels#1803's review, H1). */
 	if (spec.startsWith(".") || spec.startsWith("~")) return null;
 	let name;
 	if (spec.startsWith("@")) {
-		/* A trailing `@<version>` stripped; a scope-only spelling untouched. */
 		const rest = spec.slice(1);
 		const at = rest.lastIndexOf("@");
 		name = `@${at >= 0 ? rest.slice(0, at) : rest}`;
@@ -374,16 +321,8 @@ function specName(spec) {
 		const at = spec.indexOf("@");
 		name = at >= 0 ? spec.slice(0, at) : spec;
 	}
-	/* Uppercase is accepted: npm has refused it for NEW names since 2017, but
-	 * the legacy ones are still installable — `JSONStream`, `Base64` — and
-	 * rejecting them here would call a real package a path (mantahostels#1803's
-	 * review, H3). */
 	return NAME_RE.test(name) ? name : null;
 }
-
-/* ----------------------------------------------------------------------- */
-/* The registry.                                                            */
-/* ----------------------------------------------------------------------- */
 
 /** @typedef {import("./package-vetting.js").RegistryVerdict} RegistryVerdict */
 
@@ -393,9 +332,6 @@ const NPM_TEXTS = registryTexts({
 });
 
 /**
- * One package's registry verdict: ok, missing, unreachable, young or thin,
- * with the figure the refusal quotes. Its age is asked first, so a package
- * too young to pass costs no downloads call.
  * @param {string} pkg
  * @param {NpmInstallContext} ctx
  * @returns {RegistryVerdict}
@@ -406,7 +342,6 @@ function registryVerdict(pkg, ctx) {
 }
 
 /**
- * `npm view`'s answer: missing, unreachable, young, or ok to go on.
  * @param {string} pkg
  * @param {NpmInstallContext} ctx
  * @returns {RegistryVerdict}
@@ -427,7 +362,6 @@ function ageVerdict(pkg, ctx) {
 }
 
 /**
- * The downloads endpoint's answer: unreachable, thin, or ok.
  * @param {string} pkg
  * @param {NpmInstallContext} ctx
  * @returns {RegistryVerdict}
@@ -449,14 +383,7 @@ function downloadsVerdict(pkg, ctx) {
 	);
 }
 
-/* ----------------------------------------------------------------------- */
-/* Check 0 — a dependency store is never installed into.                   */
-/* ----------------------------------------------------------------------- */
-
 /**
- * What a canonical npm argv writes: the command where it is one that writes
- * `node_modules` and the project's tree is its target, else undefined, and
- * the `--prefix` it names, "" where none.
  * @param {string[]} canon
  */
 function parseTreeWrite(canon) {
@@ -481,7 +408,6 @@ function parseTreeWrite(canon) {
 }
 
 /**
- * Whether an option word keeps a command off the project's `node_modules`.
  * @param {string} name
  * @param {string} value
  */
@@ -492,10 +418,7 @@ const isTreelessOption = (name, value) =>
 	);
 
 /**
- * The directory npm installs into from `dir`, as npm finds its local prefix:
- * the nearest of `dir` and its ancestors holding a `package.json` or a
- * `node_modules`, else `dir` itself.
- * @param {string} dir absolute
+ * @param {string} dir
  * @param {NpmInstallContext} ctx
  */
 function localPrefix(dir, ctx) {
@@ -510,19 +433,14 @@ function localPrefix(dir, ctx) {
 }
 
 /**
- * The refusal of a command that writes through a `node_modules` linking a
- * dependency store, which every worktree on its lockfile shares
- * (lib/dep-store.js), or null.
  * @param {string[]} canon
- * @param {string} cwd "" where the walk cannot know it
+ * @param {string} cwd
  * @param {State} st
  * @returns {string | null}
  */
 function storeWriteRefusal(canon, cwd, st) {
 	const { command, prefix } = parseTreeWrite(canon);
 	if (command === undefined) return null;
-	/* The unresolved cwd is the header's check-0 residual. pnpm, yarn and bun
-	 * are not read at all. */
 	if (cwd === "") {
 		st.ctx.log(
 			`npm ${command}: where it runs did not resolve — a store link left unchecked`,
@@ -541,14 +459,7 @@ function storeWriteRefusal(canon, cwd, st) {
 To change the dependencies, run the same command with \`--package-lock-only\`, which writes package.json and package-lock.json alone; then \`node ${st.ctx.scriptPath("session-checkout.js")} attach\` points this worktree at the store for its new lockfile, building it once where none exists. A lockfile left unchanged already has its store.`;
 }
 
-/* ----------------------------------------------------------------------- */
-/* `npm install` — checks 1 and 2.                                          */
-/* ----------------------------------------------------------------------- */
-
 /**
- * The install a canonical npm argv makes: its subcommand, its specs, and
- * whether it carries `--ignore-scripts` or asks for help. `--help` and `-h`
- * reach here as `--usage`.
  * @param {string[]} canon
  */
 function readInstall(canon) {
@@ -572,9 +483,6 @@ function readInstall(canon) {
 }
 
 /**
- * What a Boolean option word sets `config` to, or null where it is not that
- * config: `--x`, `--x=true` and `--no-x=false` turn it on; `--x=false`,
- * `--no-x` and `--no-x=true` turn it off.
  * @param {string} config
  * @param {string} name
  * @param {string} value
@@ -593,15 +501,13 @@ function switchOf(config, name, value) {
 }
 
 /**
- * @param {string} segment masked
- * @param {string[]} args the words after `npm`, masked
- * @param {string} cwd where it runs, "" where the walk cannot know it
+ * @param {string} segment
+ * @param {string[]} args
+ * @param {string} cwd
  * @param {State} st
  * @returns {Verdict | null}
  */
 function judgeNpm(segment, args, cwd, st) {
-	/* Only a tree write is judged, and every spelling of one names its
-	 * command. */
 	const named = args.map((w) => w.slice(w.lastIndexOf("=") + 1));
 	if (!named.some((w) => treeCommandOf(w) !== undefined)) return null;
 	const canon = npmCanon(args);
@@ -610,24 +516,15 @@ function judgeNpm(segment, args, cwd, st) {
 	if (!named.some((w) => treeCommandOf(w) === "install")) return null;
 	const { sub, specs, ignore, helping } = readInstall(canon);
 	if (helping || treeCommandOf(sub) !== "install") return null;
-	/* `npm install` from the lockfile: untouched. */
 	if (specs.length === 0) return null;
 
-	/* Sorted first, judged after — so check 1 below really does run before any
-	 * refusal (mantahostels#1803's review, H2). */
 	const deps = st.deps();
 	if (deps === null) return null;
 	const { fresh, unvettable } = sortSpecs(specs, deps);
 	if (fresh.length + unvettable.length === 0) return null;
 
-	/* Check 1, the execution window. It counts the unvettable specs too: a
-	 * tarball's `preinstall` is exactly the thing `--ignore-scripts` shuts. */
 	if (!ignore) return refuse(windowText(fresh, unvettable, st.ctx), segment);
 
-	/* Check 2, legitimacy. The stand-down comes before every refusal it can
-	 * raise, the unvettable spec included — a deny whose text names an escape
-	 * that does not lift it is worse than no escape (mantahostels#1803's
-	 * review, H2). */
 	if (st.ctx.allowNewPackage) return null;
 	const [first] = unvettable;
 	if (first !== undefined)
@@ -650,8 +547,6 @@ function judgeNpm(segment, args, cwd, st) {
 }
 
 /**
- * The specs an install names, sorted: the registry names `deps` does not
- * hold, and the specs the registry cannot be asked about.
  * @param {string[]} specs
  * @param {string[]} deps
  */
@@ -668,13 +563,7 @@ function sortSpecs(specs, deps) {
 	return { fresh, unvettable };
 }
 
-/* ----------------------------------------------------------------------- */
-/* `npx` — check 3.                                                         */
-/* ----------------------------------------------------------------------- */
-
 /**
- * npx's argv as it hands it to npm. A removed option is dropped, and a
- * removed one taking a value drops its value too.
  * @param {string[]} words
  * @returns {string[]}
  */
@@ -691,19 +580,13 @@ function npxPreparse(words) {
 }
 
 /**
- * One npx option word read off `args` into `out`: a shorthand put back on
- * `args` expanded, a removed option dropped with its value, anything else
- * pushed with the next word where npx hands it one.
  * @param {string} word
- * @param {string[]} args accumulator: the words still to read, consumed
- *   and, for a shorthand, refilled
- * @param {string[]} out accumulator: npx's rewritten argv so far
+ * @param {string[]} args
+ * @param {string[]} out
  */
 function npxOption(word, args, out) {
 	const { key, hasV, v, w } = npxKey(word);
 	if (w === null) {
-		/* npx looks a shorthand up by its whole key, so `-DE` is never split
-		 * and takes the next word below (#1972). */
 		const exp = shorthandExact(key);
 		if (exp !== null && !NPX_REMOVED.has(key)) {
 			args.unshift(...exp, ...(hasV ? [v] : []));
@@ -736,8 +619,6 @@ function takesNext(key, next) {
 }
 
 /**
- * An npx option word's dash-stripped key, its `=` value, and the word npx
- * rewrites it to — null where it rewrites none.
  * @param {string} word
  */
 function npxKey(word) {
@@ -756,10 +637,6 @@ function npxKey(word) {
 }
 
 /**
- * The bin an npx argv runs, the packages it names with `--package`, and
- * whether it asks for help. nopt reads a lone `-` as a word, and `package`
- * holds no Boolean, so a bare `--package` is the package `true` and
- * `--no-package` negates its value.
  * @param {string[]} canon
  */
 function readNpx(canon) {
@@ -782,7 +659,6 @@ function readNpx(canon) {
 }
 
 /**
- * The package a `--package` word names, or null where it is none.
  * @param {string} name
  * @param {string} value
  * @returns {string | null}
@@ -795,23 +671,17 @@ function packageOf(name, value) {
 }
 
 /**
- * @param {string} segment masked
- * @param {string[]} args the words after `npx`, masked
+ * @param {string} segment
+ * @param {string[]} args
  * @param {State} st
  * @returns {Verdict | null}
  */
 function judgeNpx(segment, args, st) {
-	/* Quoted spans put back, so `--r"eg"` is `--reg` and `"@biomejs/biome"` is
-	 * judged by its name. An unexpanded `$VAR` keeps its visible text. */
 	const words = args.map((w) => literal(w, st.spans).text);
 	const { bin, pkgs, helping } = readNpx(npmCanon(npxPreparse(words)));
 	if (helping) return null;
-	/* `-p @scope/pkg biome ci .` states the package outright, so every `-p` is
-	 * judged, npm fetching them all (#571); without one the first bare word is
-	 * both the package and the bin. */
 	const named = pkgs.length > 0 ? pkgs : [bin];
 	for (const name of named) {
-		/* No registry name, scoped, a path, or a URL/git spec. */
 		if (
 			name === "" ||
 			name.startsWith("-") ||
@@ -831,17 +701,11 @@ function judgeNpx(segment, args, st) {
 	return null;
 }
 
-/* ----------------------------------------------------------------------- */
-/* The walk.                                                                */
-/* ----------------------------------------------------------------------- */
-
 /**
  * @typedef {object} State
  * @property {NpmInstallContext} ctx
  * @property {string[]} spans
- * @property {() => string[] | null} deps package.json's names, read once;
- *   null where it will not read, logged once, and every verdict needing it
- *   then allows: the command allowed unchecked
+ * @property {() => string[] | null} deps
  */
 
 /**

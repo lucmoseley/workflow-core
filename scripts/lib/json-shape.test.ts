@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * lib/json-shape.js's contract (#4796): each helper narrows an untrusted
- * parsed value to what it claims, and gives null or none for anything else.
- */
 
 import { describe, expect, it } from "vitest";
 import { asObject, objectsIn, stringMembers } from "./json-shape.js";

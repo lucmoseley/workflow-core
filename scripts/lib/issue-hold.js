@@ -1,11 +1,3 @@
-/*
- * issue-hold.js — whether anything pick-next.js skips a ticket on holds it:
- * an active `**Gated until:**` or well-formed `**Gated on:**` line, an open
- * native blocked-by edge, or an open `**Blocked on**` issue (#3263, #3293).
- * `rule:blocked-ticket-gate` names the two a not-ready ticket owes; this
- * accepts all four, as the shortlist does.
- */
-
 const { ghDefaultRepo, ghGetRetrying, ghOpenIssues } = require("./gh");
 const { isGateHolding } = require("./issue-gate");
 const { isInOtherRepo } = require("./issue-ref");
@@ -26,8 +18,6 @@ async function readIssueStrict(ref) {
 }
 
 /**
- * Whether what costs no read holds `iss`: a gate line, or an open
- * `**Blocked on**` issue in `at.ownRepo`.
  * @param {IssueBody} iss
  * @param {ProseAt} at
  */
@@ -40,11 +30,6 @@ async function isHeldWithoutReads(iss, at) {
 }
 
 /**
- * Whether what isHeldWithoutReads leaves holds `iss`: an open native edge,
- * or an open `**Blocked on**` issue in another repo. Every read is strict:
- * an empty answer would read as no blocker. An unreadable `**Blocked on**`
- * issue refuses only where nothing else holds; where lib/blocker-graph.js
- * holds on it, this refuses (#3262).
  * @param {IssueBody} iss
  * @param {ProseAt} at
  * @returns {Promise<Hold>}
@@ -80,7 +65,6 @@ async function readPaidHold(iss, at) {
 }
 
 /**
- * Whether anything the shortlist skips on holds `iss`, paying reads last.
  * @param {IssueBody} iss
  * @param {ProseAt} at
  * @returns {Promise<Hold>}
@@ -91,7 +75,6 @@ async function readHold(iss, at) {
 }
 
 /**
- * readHold for an issue in the current repo.
  * @param {IssueBody} iss
  * @returns {Promise<Hold>}
  */

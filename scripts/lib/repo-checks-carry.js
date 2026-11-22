@@ -1,15 +1,7 @@
-/*
- * repo-checks-carry.js — what one daily repo-checks reading carries to the
- * next: each `since` entry's window start (#1551) and each `rescan` entry's
- * issue numbers (#1600), turned into the arguments a launch takes, and moved
- * forward only by a reading in which that entry completed. No I/O: the runner,
- * scripts/repo-checks.js, reads and writes the files beside its stamp.
- */
-
 const { isCompleted, keysOf } = require("./key-delta");
 const { entryOf } = require("./repo-checks-registry");
 
-/* Spec #1510's first window, the check's own default. */
+// guess, #1510
 const FIRST_SINCE_DAYS = 30;
 const DAY_MS = 24 * 3_600_000;
 
@@ -24,8 +16,6 @@ const DAY_MS = 24 * 3_600_000;
  */
 
 /**
- * The issue numbers a job's keys name: the `#N` field of each.
- *
  * @param {{ keys?: unknown }} job
  * @returns {number[]}
  */
@@ -40,11 +30,6 @@ const issuesOf = (job) =>
 	].sort((a, b) => a - b);
 
 /**
- * The `--since` days for a reading starting at `startMs`: whole days since
- * `last`, rounded up, plus spec #1510's one of overlap. Rounding up alone
- * would not do: the check takes its cutoff from its own clock, up to the
- * run's 30-minute ceiling after `startMs`.
- *
  * @param {unknown} last
  * @param {number} startMs
  */
@@ -63,8 +48,6 @@ function carriedArgs(entry, { lastStarts, rescans, startMs }) {
 	const out = entry.since
 		? ["--since", String(sinceDays(lastStarts[entry.id], startMs))]
 		: [];
-	/* Issue numbers only: the check refuses anything else, and a BROKEN
-	 * reading never rewrites the list that broke it. */
 	const kept = entry.rescan ? rescans[entry.id] : undefined;
 	const issues = Array.isArray(kept)
 		? kept.filter((n) => Number.isInteger(n) && Number(n) > 0)
@@ -74,10 +57,6 @@ function carriedArgs(entry, { lastStarts, rescans, startMs }) {
 }
 
 /**
- * What this reading leaves for the next, one pair per file to write. A file
- * none of whose entries completed has no pair, so the runner leaves it as it
- * was.
- *
  * @param {CarriedJob[]} jobs
  * @param {Kept} kept
  * @returns {Array<["starts" | "rescans", Record<string, unknown>]>}

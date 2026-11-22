@@ -1,8 +1,3 @@
-/*
- * hold-age.js — a repo hold's age as the founder reads it, the one wording
- * `status`, the morning review and the loop panel share (#3860, #4736).
- */
-
 /**
  * @param {number} ms
  */

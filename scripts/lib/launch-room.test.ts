@@ -1,11 +1,3 @@
-/*
- * launch-room.test.ts — a checkout's launch room from its unproven run, pause,
- * breaker and probe holds, each read and spent in one place (#5290).
- * In process, from plain launch records: the module is pure. A break here
- * launches or resumes into a checkout that should be held, or holds one
- * that should launch.
- */
-
 import { describe, expect, it } from "vitest";
 import {
 	BREAKER_OPEN,

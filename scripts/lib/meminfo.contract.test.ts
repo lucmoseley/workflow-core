@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/meminfo-fake.ts, which lib/refill-loop-run-testkit.ts points
- * `WFC_MEMINFO` at, to the real `/proc/meminfo` and to the parser the refill
- * loop reads the swap hold through (lib/admission.js's readSwapHold, over
- * lib/meminfo.js, #3093).
- * The live case reads the real file, a free call. Breaking it costs the
- * loop's swap hold: a fake the parser reads otherwise than the real file
- * passes a refill-loop-run test the loop fails.
- * The breakdown keys feed memwatch's minute line (#4641); their reader's
- * real-file case is in memwatch-pair.test.ts.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

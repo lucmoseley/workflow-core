@@ -1,26 +1,9 @@
-/*
- * line-scan.js — matches made of a head and the rest of its line, found in
- * linear time. A regex that opens a lazy prefix at each line start, or retries
- * a line tail from every head on that line, reads the line once per attempt:
- * quadratic on a line of heads that reach nothing (#3383). Each function here
- * reads each position a fixed number of times.
- *
- * Two engines: lineHeadMatches for a lazy line prefix ending at a keyword,
- * and segmentTailMatches for a head followed by a scan to the segment's end.
- * The two parsers are the run spellings lib/guard-reach.js follows to a
- * guard's dependencies.
- */
-
-/** The commands a guard runs a program by (#4730). */
 const RUNNERS = ["node", "bash", "sh"];
-/** The suffixes a run's program ends in. */
 const PROGRAM_SUFFIXES = [".js", ".sh"];
 
-/** Where `^` matches under the `m` flag: the start, or after a line break. */
 const atLineStart = (/** @type {string} */ text, /** @type {number} */ i) =>
 	i === 0 || "\n\r  ".includes(text[i - 1] ?? "");
 
-/** The end of the whitespace run at `from`. */
 function blankEnd(/** @type {string} */ text, /** @type {number} */ from) {
 	let end = from;
 	while (end < text.length && /\s/.test(text[end] ?? "")) end++;
@@ -28,11 +11,8 @@ function blankEnd(/** @type {string} */ text, /** @type {number} */ from) {
 }
 
 /**
- * An array with one entry per position of `text`, plus one for its end: at a
- * position inside a run of `cls` characters, the start of the last `mark`
- * that begins at or after it within that run; -1 everywhere else.
  * @param {string} text
- * @param {RegExp} cls one character
+ * @param {RegExp} cls
  * @param {string} mark
  */
 function lastMarkInRun(text, cls, mark) {
@@ -47,11 +27,8 @@ function lastMarkInRun(text, cls, mark) {
 }
 
 /**
- * An array with one entry per position of `text`, plus one for its end: the
- * first position at or after it, before the next `\n`, where `endAt` finds a
- * match; -1 where there is none.
  * @param {string} text
- * @param {(i: number) => number} endAt the match's end at `i`, or -1
+ * @param {(i: number) => number} endAt
  */
 function nextOnLine(text, endAt) {
 	const out = new Int32Array(text.length + 1).fill(-1);
@@ -61,28 +38,17 @@ function nextOnLine(text, endAt) {
 }
 
 /**
- * The matches a `gm` regex `^([^#\n]*?)(?:^|<boundary>)<tail>` finds, in
- * order, each as its prefix (the text from the line start to the boundary)
- * and the fields `tailAt` reads off the tail.
- *
- * A prefix may end at `prefixEnd` where, at a line start, the tail opens
- * there, or, before a `boundary` character, just past it. A tail opens only
- * on one of `heads`, so only the positions of those are read: in increasing
- * prefix end, the boundary just before each, then the head itself as a line
- * start. Each head's next position is kept, so no stretch is searched twice.
  * @param {string} text
- * @param {RegExp} boundary one character
- * @param {string[]} heads every tail `tailAt` reads opens with one of these
+ * @param {RegExp} boundary
+ * @param {string[]} heads
  * @template {{end: number}} T
- * @param {(tailStart: number) => T | null} tailAt the tail's end and fields
- *   where it opens at `tailStart`, else null
- * @returns {({prefix: string} & Omit<T, "end">)[]} each match's prefix and
- *   `tailAt`'s fields bar `end`
+ * @param {(tailStart: number) => T | null} tailAt
+ * @returns {({prefix: string} & Omit<T, "end">)[]}
  */
 function lineHeadMatches(text, boundary, heads, tailAt) {
 	const n = text.length;
 	const nextAt = heads.map(() => -1);
-	/** The first head at or after `from`, or -1. @param {number} from */
+	/** @param {number} from */
 	const nextHead = (from) => {
 		let best = -1;
 		heads.forEach((head, k) => {
@@ -94,7 +60,7 @@ function lineHeadMatches(text, boundary, heads, tailAt) {
 		});
 		return best;
 	};
-	/** @param {number} tailStart @param {number} from the line's start @param {number} stop */
+	/** @param {number} tailStart @param {number} from @param {number} stop */
 	const hitAt = (tailStart, from, stop) => {
 		const before = tailStart - 1;
 		const afterBoundary =
@@ -111,7 +77,6 @@ function lineHeadMatches(text, boundary, heads, tailAt) {
 			lineStart++;
 			continue;
 		}
-		// The lazy prefix runs to the next `#` or `\n`, which may end it too.
 		let stop = lineStart;
 		while (stop < n && text[stop] !== "#" && text[stop] !== "\n") stop++;
 		let hit = null;
@@ -132,7 +97,6 @@ function lineHeadMatches(text, boundary, heads, tailAt) {
 	return out;
 }
 
-/** Past the `<runner>\s+"?\$` at `at`, or -1 where it is not there. */
 function afterRunDollar(/** @type {string} */ text, /** @type {number} */ at) {
 	const runner = RUNNERS.find((r) => text.startsWith(r, at));
 	if (!runner) return -1;
@@ -143,8 +107,6 @@ function afterRunDollar(/** @type {string} */ text, /** @type {number} */ at) {
 	return text[argStart] === "$" ? argStart + 1 : -1;
 }
 
-/** Whether `afterRunDollar` finds a run anywhere in `text`, which every
- * match of the two parsers below opens with: most texts have none. */
 function hasRunDollar(/** @type {string} */ text) {
 	return RUNNERS.some((runner) => {
 		for (
@@ -158,17 +120,8 @@ function hasRunDollar(/** @type {string} */ text) {
 }
 
 /**
- * The programs a shell text runs self-relatively: on each line, before any
- * `#`, a `node`, `bash` or `sh` that opens the line or follows one of
- * `\s(|;&`, then blanks, an optional `"` and a `$`, then the first `/<tail>`
- * later on that line, where `<tail>` opens with `[\w-]` and is the longest
- * run of `[\w./-]` characters ending in `.js` or `.sh`. The same matches as
- * `/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$([^\n]*?)\/([\w-][\w./-]*\.(?:js|sh))/gm`,
- * the prefix its group 1, the lead its group 2 and the value its group 3.
  * @param {string} text
- * @returns {{prefix: string, lead: string, value: string}[]} each line's text
- *   before the runner, what lies between the `$` and the `/` (`lib` of
- *   `"$lib/x.sh"`), and the path after the `/`
+ * @returns {{prefix: string, lead: string, value: string}[]}
  */
 function parseProgramRuns(text) {
 	if (!hasRunDollar(text)) return [];
@@ -203,15 +156,8 @@ function parseProgramRuns(text) {
 }
 
 /**
- * The variables a shell text runs as a program: on each line, before any
- * `#`, a runner placed as parseProgramRuns' is, then blanks, an optional
- * `"`, a `$` and a name of `\w` characters, braced or not, followed by the
- * text's end or one of `"\s;|)`. The same matches as
- * `/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm`,
- * the prefix its group 1 and the value its group 2.
  * @param {string} text
- * @returns {{prefix: string, value: string}[]} each line's text before the
- *   runner, and the variable's name
+ * @returns {{prefix: string, value: string}[]}
  */
 function parseProgramVars(text) {
 	if (!hasRunDollar(text)) return [];
@@ -230,27 +176,14 @@ function parseProgramVars(text) {
 }
 
 /**
- * The matches of `head` each followed by `tail`, in the order a `g` regex
- * of the two in sequence finds them. `tail` must be sticky and open with
- * `[^<stops>]*`, and what follows that run must never start at a stop
- * character: then a tail that fails at one position fails at every later
- * position up to the next stop, and that stretch is never read again. As
- * one regex, every head on a line is a fresh start that rescans the line to
- * its end, quadratic on a line of heads that reach no tail.
- *
- * The head must decide its own extent, as one whose every part is greedy
- * and cannot give characters back to a match would: the tail is tried only
- * where the head's first reading ends.
  * @param {string} text
- * @param {RegExp} head global
- * @param {RegExp} tail sticky
- * @param {string} stops the characters `tail`'s opening run excludes
+ * @param {RegExp} head
+ * @param {RegExp} tail
+ * @param {string} stops
  * @returns {{index: number, head: RegExpExecArray, tail: RegExpExecArray}[]}
- *   each match's start, and the head's and the tail's own matches
  */
 function segmentTailMatches(text, head, tail, stops) {
 	const out = [];
-	// The stretch, from a failed tail start to the next stop, known to fail.
 	let dead = { from: -1, to: -1 };
 	head.lastIndex = 0;
 	for (let h = head.exec(text); h; h = head.exec(text)) {
@@ -270,7 +203,6 @@ function segmentTailMatches(text, head, tail, stops) {
 	return out;
 }
 
-/** The first position at or after `from` holding one of `stops`, else the end. */
 function nextStop(
 	/** @type {string} */ text,
 	/** @type {number} */ from,

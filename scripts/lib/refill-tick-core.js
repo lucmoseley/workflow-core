@@ -1,33 +1,3 @@
-/*
- * refill-tick-core.js — the refill loop's tick (#2012, #2123, spec #1995,
- * #4212): its step order, its dry-run policy and its own readings, with no I/O
- * of its own. Every read, write and child process goes through the TickIo port,
- * whose adapter is lib/refill-tick.js: its reads (TickReads) and its acts
- * (TickActs). A dry run takes the same adapter's reads, each act swapped for
- * its dry answer (buildDryIo), and differs in the policy branches here: it
- * previews over no control as over a stopped one, judges no listing by a
- * boot's kills, skips the block and limit acts (SKIPPED_LAUNCH_ACTS), and
- * stops at its decision.
- *
- * A TICK: read founder presence, untick each repo its owner opted out under the
- * control lock (#4188), reap, settle what a kill before the last tick's write
- * left out of the state (#4180), stop each job that never started, tend the
- * served checkouts (their landing queue, the machine's children, the repo
- * holds and the `.git` probe), read the
- * listing, stop each overflow session past its allowance (#3698), send each repo
- * hold's notice, queue the launches a boot killed (#3880), judge the finished
- * launches for progress, act on the blocked and idle ones (lib/refill-blocks.js),
- * queue the sessions parked on each lifted hold (#3863), park each session at
- * its gate-run budget and step each checkout's throughput breaker
- * (lib/refill-budget.js, lib/refill-breaker.js, #5275), read admission and the
- * seats and act on the limit-held launches (#3735), then decide
- * (lib/refill-decide.js), first with an empty frontier, the per-repo
- * shortlists being read only on a tick that could launch. From the decision on,
- * lib/refill-tick-settle.js's settleTick. Then
- * the tick's row is appended to the concurrency record (lib/concurrency.js,
- * #2497).
- */
-
 const { buildErrorText } = require("./caught.js");
 const { buildTickRecord } = require("./concurrency.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
@@ -81,11 +51,6 @@ const { OUTCOME_PREFIX } = require("./usage-probe.js");
 /** @typedef {import("./refill-loop.js").FrontierRead} FrontierRead */
 
 /**
- * `state` with the members of the batch a kill cut off that `adopt` finds
- * started tracked as launches and counted (#4180); as it was where none was in
- * flight.
- * Residual: the kill leaves the dispatcher running, and a member it launches
- * after `adopt` reads the ledger is never tracked.
  * @param {LoopState} state
  * @param {(launching: import("./refill-batch.js").Launching) => LoopLaunch[]} adopt
  * @returns {LoopState}
@@ -105,9 +70,6 @@ function settleLaunching(state, adopt) {
 }
 
 /**
- * A tick whose review root has no workflow-core config: its log lines, one
- * on the due tick and none after, and the date it records, today on that
- * tick so the line is not repeated.
  * @param {{due: boolean, root: string, lastRunOn: string|null,
  *   today: string}} skip
  * @returns {{lines: string[], runOn: string|null}}
@@ -120,23 +82,11 @@ const buildReviewSkip = ({ due, root, lastRunOn, today }) =>
 			}
 		: { lines: [], runOn: lastRunOn };
 
-/**
- * The `admission.js` arguments the loop's free-slot count passes:
- * dispatch-sessions.js's per-member re-read's, so a slot counted is one that
- * re-read admits (#2500), with the allowance limb left to the cap; its test
- * pins them to the script's.
- */
 const FREE_SLOT_ARGS = ["--json", "--launch", "--skip-allowance"];
 
 /**
- * The served checkout the free-slot count is read in, as the dispatcher's
- * re-read runs in its member's: the one whose type-check is charged most,
- * that lump being what admission's reserve holds back (#4956, #4962). The
- * first served wins a tie, one holding no compiler included. Undefined where
- * nothing is served. Residual: a launch bound for a lighter served checkout
- * is counted at the heaviest one's reserve.
  * @param {string[]} served
- * @param {(root: string) => number} peakMbOf a checkout's type-check charge
+ * @param {(root: string) => number} peakMbOf
  * @returns {string|undefined}
  */
 function admissionRoot(served, peakMbOf) {
@@ -152,10 +102,7 @@ function admissionRoot(served, peakMbOf) {
 	return best;
 }
 
-/**
- * The loop log's line for a finished launch.
- * @param {LoopLaunch} l
- */
+/** @param {LoopLaunch} l */
 function buildFinishLine(l) {
 	const read = actsRead(l);
 	const acts = read
@@ -167,10 +114,8 @@ function buildFinishLine(l) {
 }
 
 /**
- * A probed seat's outcome: the outcome line scripts/usage-probe.js writes on
- * stderr, else how its run failed.
  * @param {string} stderr
- * @param {string|null} failed runChild's failure, null on exit 0
+ * @param {string|null} failed
  */
 function parseProbeOutcome(stderr, failed) {
 	const line = stderr.split("\n").find((l) => l.startsWith(OUTCOME_PREFIX));
@@ -180,12 +125,6 @@ function parseProbeOutcome(stderr, failed) {
 }
 
 /**
- * Stop each job that never started (lib/hung-jobs.js's neverStartedJobs,
- * #2467) through `stop(job)`, a `claude stop <short id>` on its seat that
- * answers null or why it failed; the log line for each. Its live processes
- * are lib/registry-agents.js's, which needs no CLI (#2665). Off a registry
- * seat that would not read, or no job store, it stops nothing and says why;
- * a job on a seat with no registry at all is left unjudged.
  * @param {import("./registry-agents.js").RegistryListing} registry
  * @param {Parameters<typeof neverStartedJobs>[0]|null} jobs
  * @param {(job: ReturnType<typeof neverStartedJobs>[number]) => string|null} stop
@@ -204,7 +143,6 @@ function stopNeverStarted(registry, jobs, stop) {
 }
 
 /**
- * The reads, writes and child processes a tick runs through.
  * @typedef {ReturnType<typeof import("./refill-seats.js").readDeclaredSeats>} DeclaredSeats
  * @typedef {import("./refill-blocks.js").BlockIo} BlockIo
  * @typedef {import("./refill-blocks.js").BlockActs} BlockActs
@@ -291,19 +229,16 @@ function stopNeverStarted(registry, jobs, stop) {
  *   dropManagerRestart: (marker: NonNullable<Parameters<typeof withManagerRestart>[1]>) => void,
  *   appendTick: (record: ReturnType<typeof buildTickRecord>) => void,
  *   appendBreakerEvents: (events: import("./refill-breaker.js").BreakerEvent[]) => void,
- * }} TickActs  every write and child process; each has its dry answer in buildDryActs
+ * }} TickActs
  * @typedef {TickReads & TickActs} TickIo
  */
 
 /**
- * The control `change` leaves, made on a fresh read under the control lock and
- * `said` called on what it wrote; `control` where it changes nothing. A dry
- * run writes nothing and goes on over the change previewed.
  * @param {TickIo} io
  * @param {Control|null} control
  * @param {(c: Control) => Control|null} change
  * @param {{what: string, said?: (write: Control, fresh: Control) => void,
- *   dryRun: boolean}} how  `what`, the change's name in the busy line
+ *   dryRun: boolean}} how
  */
 function settleUnderLock(io, control, change, { what, said, dryRun }) {
 	const next = control && change(control);
@@ -319,9 +254,6 @@ function settleUnderLock(io, control, change, { what, said, dryRun }) {
 }
 
 /**
- * The control with each ticked repo its owner has opted out unticked
- * (controlWithoutOptedOut). A busy lock leaves it ticked a tick longer, which
- * serves nothing: scopeRoots drops it meanwhile.
  * @param {TickIo} io
  * @param {boolean} dryRun
  * @param {Control|null} control
@@ -344,10 +276,7 @@ const settleOptedOut = (io, dryRun, control) =>
 		},
 	);
 
-/** The machine's children a tick runs from the review checkout: the incident
- * filers, on its tracker — earlyoom kills (#3094) and memwatch's process
- * runaways (#3807) — and the sweep's slot repair, on its code repo (#4447).
- * @type {[string, string][]} */
+/** @type {[string, string][]} */
 const MACHINE_CHILDREN = [
 	["file-memory-kill-tickets.js", "memory kills"],
 	["file-process-runaway-tickets.js", "process runaways"],
@@ -355,12 +284,6 @@ const MACHINE_CHILDREN = [
 ];
 
 /**
- * What a real tick does for its checkouts ahead of its decision: each landing
- * root with a workflow-core config has its landing queue supervised, its main
- * checkout levelled (#4248), its dependency store warmed for the next cut
- * (#4318) and its worktrees reaped (#4247), a checkout gone
- * since its launch being skipped (#3284); the machine's children run; the
- * repo holds are tended. The served checkouts whose probe failed.
  * @param {TickIo} io
  * @param {string[]} served
  * @param {LoopLaunch[]} launches
@@ -379,10 +302,6 @@ function tendCheckouts(io, served, launches, now) {
 }
 
 /**
- * Stop each overflow session past its allowance (lib/overflow-cap.js,
- * #3698), logged, first giving each overflow launch the session id the listing
- * shows for it (#3701), where the listing read and the seat file declares an
- * overflow seat without fault, paused or stopping alike.
  * @param {TickIo} io
  * @param {DeclaredSeats} declared
  * @param {AgentRecord[]|null} agents
@@ -394,9 +313,6 @@ function capOverflowSessions(io, declared, agents) {
 }
 
 /**
- * The checkouts whose answered parks a tick takes off: `served` and every other
- * it could serve, the idle alarm's set (#3950). Discovery that
- * will not read leaves `served`, logged.
  * @param {TickIo} io
  * @param {string[]} served
  * @returns {string[]}
@@ -411,15 +327,6 @@ function parkSweepRootsOf(io, served) {
 }
 
 /**
- * The tick's acts on its launches: the answered parks taken off, the closed
- * issues' parks cleared (#3940), each copy's unretired original tried again
- * (#4646), the blocked, idle and synthetic-stopped launches acted on, then
- * each away park's ledger row released once normal mode is live, ahead of the
- * shortlist read (#3872).
- * Then each served checkout's broken probe has the parks made meanwhile
- * attached to its hold, the background sessions the loop did not launch are
- * resumed where an API error blocks them (#4815), and the due resumes the
- * network held back are logged.
  * @param {TickIo} io
  * @param {LoopLaunch[]} listed
  * @param {{mode: "normal"|"away", served: string[], broken: string[],
@@ -450,9 +357,6 @@ function actOnLaunches(
 }
 
 /**
- * The tick's throughput acts (#5275): each live session at its gate-run budget
- * parked, then each served checkout's breaker stepped.
- * The launches after the parks, and the launch room each open breaker leaves.
  * @param {TickIo} io
  * @param {LoopLaunch[]} launches
  * @param {{served: string[], seen: Seen, acts: LaunchActs}} tick
@@ -474,9 +378,6 @@ function tendThroughput(io, launches, { served, seen, acts }) {
 }
 
 /**
- * The relief a real tick takes off the registry alone, ahead of the CLI
- * listing (#2665): each job that never started stopped, then the checkouts
- * tended. The served checkouts whose probe failed.
  * @param {TickIo} io
  * @param {{registry: RegistryListing, state: LoopState, served: string[],
  *   now: number}} tick
@@ -488,13 +389,11 @@ function relieve(io, { registry, state, served, now }) {
 }
 
 /**
- * A real tick's acts off its listing: each overflow session past its allowance
- * stopped, then each repo hold's notice and the pause's sent.
  * @param {TickIo} io
  * @param {{declared: DeclaredSeats, agents: AgentRecord[]|null,
  *   registry: RegistryListing, roots: string[],
  *   repoPaused: Record<string, import("./refill-decide.js").Pause>|undefined, barred: boolean,
- *   now: number}} tick  `barred`, whether a pause or a launch hold bars launching
+ *   now: number}} tick
  */
 function actOnListing(
 	io,
@@ -505,8 +404,6 @@ function actOnListing(
 		roots,
 		{
 			agents: noticeAgentsOf(agents, registry),
-			/* A held loop's slots are quiet by intent, as a paused one's are, so
-			 * a hold restarts the quiet-slot count rather than raising it. */
 			isPaused: barred,
 		},
 		now,
@@ -515,12 +412,6 @@ function actOnListing(
 }
 
 /**
- * `read` with what a kill before the last tick's own write left out of it
- * settled (#4180): its cut-off batch's launches adopted, then each resume left
- * with no outcome (lib/refill-blocks.js's settleStartedResumes), ahead of any
- * judging of the launches. Written at once where either changed it, so a stamp
- * later this tick lands on what was settled; what was written is returned, so
- * the tick reads on from the file (#4232).
  * @param {TickIo} io
  * @param {LoopState} read
  * @param {{served: string[], acts: LaunchActs}} tick
@@ -538,8 +429,6 @@ function settleKilled(io, read, { served, acts }) {
 }
 
 /**
- * The tick's listing, an empty one read as nothing live where a boot's killed
- * launches allow it.
  * @param {TickIo} io
  * @param {boolean} dryRun
  * @param {LoopState} state
@@ -554,9 +443,6 @@ function readTickListing(io, dryRun, state, registry) {
 }
 
 /**
- * The listing a hold notice reads: the listing refuses an empty answer, so a
- * registry that read and holds nobody stands in for it, as that is the quiet
- * the notice is for.
  * @param {AgentRecord[]|null} agents
  * @param {RegistryListing} registry
  */
@@ -568,21 +454,10 @@ const noticeAgentsOf = (agents, registry) =>
 		? []
 		: null);
 
-/**
- * Whether a tick's seats are the loop's own list: read off a sound control that
- * names some (#3790).
- * @param {{seats: string[]}|null} parsed
- */
+/** @param {{seats: string[]}|null} parsed */
 const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
 
 /**
- * The limit acts made, and what a tick decides its launches on: the free slots
- * and the seats. A barred tick launches nothing, so it reads none of them, and leaves the limit acts, which need them,
- * for the tick after the resume (#3856); a hold its finishes ended is still
- * released, as that tick's `before` no longer shows it holding. The walks'
- * probe stamps are for this read alone: settleTick writes the tick's own. A
- * limit resume from held takes a slot only where its checkout's launch room
- * lets a resume start, as decideTick's do (#4223, #5290).
  * @param {TickIo} io
  * @param {{control: Control, seatListRead: boolean,
  *   before: LoopLaunch[], judged: LoopLaunch[], seen: Seen, served: string[],
@@ -590,7 +465,6 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
  *   seatTriedAt: Record<string, number>, lastActAt: Record<string, number>,
  *   breakerRoom: Record<string, number>,
  *   holds: import("./refill-decide.js").TickInput["holds"], acts: LaunchActs}} tick
- *   `breakerRoom`, each checkout an open throughput breaker bars (#5275)
  */
 function settleRoom(
 	io,
@@ -694,9 +568,6 @@ function settleRoom(
 }
 
 /**
- * The decision, and the shortlist read's size and time, null where it was not
- * read. A tick launching gate judgements alone may still have slots for the
- * ranking, so it reads the shortlists too.
  * @param {TickIo} io
  * @param {import("./refill-decide.js").TickInput} input
  * @param {import("./refill-loop.js").Scope} scope
@@ -741,8 +612,6 @@ async function decide(io, input, scope) {
 }
 
 /**
- * The stopped sessions due back: none on a barred tick, which resumes none,
- * though a stop still names those it leaves.
  * @param {Control} control
  * @param {LoopLaunch[]} launches
  * @param {Seen} seen
@@ -753,7 +622,6 @@ const dueResumes = (control, launches, seen) =>
 		: blocks.resumableOf(launches, seen);
 
 /**
- * A live tick from its decision on (settleTick); the decision it settled on.
  * @param {TickIo} io
  * @param {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
@@ -801,10 +669,8 @@ function settleDecided(
 		{
 			readControl: io.readControl,
 			launchBatch: (batch) => io.launchBatch(batch, served),
-			/* Outside LaunchActs: a dry tick returns before settleDecided. */
 			resumeHeld: (resumes, held, isStopped, record) =>
 				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
-			/* The raise goes the tick the pause is written, not the next. */
 			writePauses: (pauses) => {
 				const written = io.writePauses(pauses, control.noProgressFrom);
 				if (written) io.sendPauseNotices(written, input.now);
@@ -833,14 +699,10 @@ function settleDecided(
 const doNothing = () => undefined;
 
 /**
- * Every act's answer on a dry run, which does none of them (#4356, #4323).
- * Typed over every act, so a new one cannot reach a dry run live.
  * @param {TickReads} io
  * @returns {TickActs}
  */
 const buildDryActs = (io) => ({
-	/* Unreached: settleUnderLock previews the change over the tick's own
-	 * control, which a fresh read would not carry. */
 	changeControl: () => ({ busy: "a dry run takes no lock" }),
 	reap: io.previewReap,
 	adoptKilledLaunches: (state) => state,
@@ -873,11 +735,7 @@ const buildDryActs = (io) => ({
 
 const DRY_RUN_WHY = "a dry run acts on nothing";
 
-/**
- * Every block act's answer on a dry run: each one not done (#4569). Typed over
- * every block act, so a new one cannot reach a dry `seen.io` live.
- * @type {BlockActs}
- */
+/** @type {BlockActs} */
 const DRY_BLOCK_ACTS = {
 	stop: () => ({
 		ok: false,
@@ -908,8 +766,6 @@ const DRY_BLOCK_ACTS = {
 };
 
 /**
- * The block and limit acts a tick makes on its launches (#4913): the modules'
- * own on a live tick.
  * @typedef {{
  *   settleStartedResumes: typeof blocks.settleStartedResumes,
  *   unparkAnswered: typeof blocks.unparkAnswered,
@@ -933,13 +789,7 @@ const LIVE_LAUNCH_ACTS = {
 	parkOverBudget,
 };
 
-/**
- * A dry tick's: skipped, the launches returned as read. Not previewed through
- * the dry BlockIo, where each resume fails and lib/refill-blocks.js's
- * afterResume stamps a try on it, so the dry decision would judge launches the
- * live tick would not. Typed over every one, so a new act needs its dry answer.
- * @type {LaunchActs}
- */
+/** @type {LaunchActs} */
 const SKIPPED_LAUNCH_ACTS = {
 	settleStartedResumes: (launches) => ({ launches, settled: false }),
 	unparkAnswered: doNothing,
@@ -966,9 +816,6 @@ const buildDryIo = (adapter) => ({
 });
 
 /**
- * The control a tick with no sound control file goes on: a loop nobody
- * started, which a real tick stops, and with no set written a dry run previews
- * every checkout it may serve.
  * @param {TickIo} io
  * @param {boolean} dryRun
  * @param {number} now
@@ -998,8 +845,6 @@ const billingStopsOf = (launches) =>
 	);
 
 /**
- * One tick: its decision and the start it judged against. `opening` is what
- * the tick reads before its first write.
  * @param {TickIo} adapter
  * @param {{dryRun: boolean, now: number, opening: {control: ControlRead,
  *   declared: DeclaredSeats,
@@ -1017,8 +862,6 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	const parsed = settleOptedOut(io, dryRun, stored);
 	const control = parsed ?? buildStandInControl(io, dryRun, now);
 	io.reap();
-	/* A dry run previews the state on disk: the marker is the live tick's to apply
-	 * and drop. */
 	const managerRestart = dryRun ? null : io.readManagerRestart();
 	const served = io.servedRoots(control.scope).roots;
 	const state = withManagerRestart(
@@ -1030,12 +873,8 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	const registry = io.readRegistry();
 	const broken = relieve(io, { registry, state, served, now });
 	const agents = readTickListing(io, dryRun, state, registry);
-	/* Read side by side here anyway, so the undocumented registry the relief
-	 * steps trust is checked against the documented listing every tick. */
 	if (agents)
 		for (const line of buildDriftLines(agents, registry.agents)) io.log(line);
-	/* A pause outranks a launch hold, so the hold is the tick's only where none
-	 * stands. */
 	const launchHold = control.paused
 		? undefined
 		: liveLaunchHold(control.launchHold, now);
@@ -1072,8 +911,6 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		registry,
 		acts,
 	});
-	/* A dry run, a barred tick or a stopping one sets nothing running, and the
-	 * lifted holds keep for a later tick. */
 	const { launches: lifted, settled: liftedSettled } =
 		dryRun || seen.barred || control.stopRequested
 			? { launches: acted, settled: [] }

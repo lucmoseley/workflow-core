@@ -1,17 +1,3 @@
-/*
- * refill-panel.js — what the refill loop's panel draws and what a click or a key
- * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3887, #3948, #3956, #3958, #3968, spec #3596): status JSON and pending presses in, rows
- * out; a click on a row or a key in, a `refill-loop.js` or `burn-mode.sh` argv out, and focus handed back. The
- * panel runs those two for every read and write, and never opens a control or
- * state file, so the loop's validation, lock and wake apply to every loop press.
- *
- * Desired and observed state stay apart. A press is a pending mark beside what
- * the last status read showed, cleared only by a read showing the change or by
- * the command's refusal. An away press, a burn-mode flip, a goal or a repo's tick is
- * whole when its command exits, so any read after that exit shows it, or another writer's
- * reversal.
- */
-
 const path = require("node:path");
 const { caught, orFallback } = require("./caught.js");
 const { localDate } = require("./local-date.js");
@@ -34,48 +20,36 @@ const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
 const { buildSeatLabel, buildSeatName } = require("./refill-seats.js");
 const { buildNotice, buildNoticeText } = require("./refill-notice.js");
 
-/* Where the block starts, 1-based as a mouse report counts. Untraced: one cell
- * of margin round the prototype's layout (#2525 round 9). */
+// guess, #2525
 const TOP_ROW = 2;
 const LEFT_COLUMN = 3;
-/* Untraced, a first guess: Windows' default lines per wheel notch. */
+// guess, #3948
 const WHEEL_ROWS = 3;
 const MORE_ABOVE_MARK = "↑ more";
 const MORE_BELOW_MARK = "↓ more";
 
-/* Untraced, a first guess: fast enough that a change elsewhere shows while the
- * founder looks, and each poll is one short Node process. */
+// guess, #3873
 const POLL_MS = 3000;
 
-/* How long a press's note holds its row before that row's own words return. Untraced:
- * a first guess, long enough to read one line. */
+// guess, #3879
 const NOTE_SHOW_MS = 10_000;
 
-/* How long a resume waits for a read to show its process before the row returns.
- * Untraced: a first guess. */
+// guess, #3875
 const RESUME_SHOW_MS = 30_000;
 
-/* The skill's line on every flip (`.claude/skills/burn-mode/SKILL.md`). */
 const BURN_RESTART_NOTE = "Running sessions keep their effort until restarted";
 
 const AWAY_OFF_WORD = "normal";
 
-/* `status --json` reads a control never written and a damaged one alike, as no
- * mode. */
 const NO_CONTROL_TEXT = "No loop settings to change: run `start`";
 
-/* Holds a frame's text and images back until the whole is written, so the images' being
- * erased and redrawn never shows. */
 const SYNC_ON = `${ESC}[?2026h`;
 const SYNC_OFF = `${ESC}[?2026l`;
 
-/* Two rows in every state, so nothing below the goal moves (#3596 story 55). */
 const GOAL_CAPTION = ["Click to change it", "Enter to save · Esc to cancel"];
 const KEY_HINT = ["↑↓ move · space change", "Esc leave"];
 const POINTER_MARK = "❯";
 
-/* What the waiting row says for a tick's idle reason, whose constants are the log's too
- * (#4004); a reason not here is drawn as itself. */
 /** @type {Map<string, string>} */
 const WAITING_WORDS = new Map([
 	[NO_PLAN_ROOM, "No plan room"],
@@ -88,25 +62,17 @@ const WAITING_WORDS = new Map([
 	[LIMIT_HELD_WAIT, "All plans used up; a session waits"],
 ]);
 
-/* A pulled-in blocker is held only
- * by `refillLoop: false` or no checkout (#2427). */
 const REPOS_NOTE = [
 	"An unticked repo still supplies",
 	"the blockers of served issues",
 ];
 
-/* One row between a title and its first element and between siblings, two
- * between sections (#3596 story 78). */
 const SIBLING_GAP = { text: "", role: /** @type {Role} */ ("secondary") };
 const SECTION_GAP = [SIBLING_GAP, SIBLING_GAP];
 
 /** @typedef {"name"|"value"|"secondary"|"needsYou"} Role */
 
-/**
- * From #2525 round 9 (#3596 lists the grey as untraced; the yellow is the
- * prototype's).
- * @type {Record<Role, {rgb: [number, number, number], bold?: boolean}>}
- */
+/** @type {Record<Role, {rgb: [number, number, number], bold?: boolean}>} */
 const ROLE_STYLES = {
 	name: { rgb: [0xf2, 0xf2, 0xf2], bold: true },
 	value: { rgb: [0xf2, 0xf2, 0xf2] },
@@ -115,7 +81,6 @@ const ROLE_STYLES = {
 };
 
 /**
- * The fields of `refill-loop.js status --json` the panel reads.
  * @typedef {{root: string, number: number}} PauseIssue
  * @typedef {{seat: string, keyVar: string, why: string}
  *   | {seat: null, why: string}
@@ -141,24 +106,11 @@ const ROLE_STYLES = {
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} PanelStatus
  */
 
-/**
- * A press no status read has shown yet. `on` is what it asks for; `landed`,
- * whether its command has exited 0, and when.
- * @typedef {{on: boolean, landed: boolean, landedAt?: number}} Pending
- */
+/** @typedef {{on: boolean, landed: boolean, landedAt?: number}} Pending */
 
-/**
- * What a burn-mode flip left to read, held until the next press: its exit, and
- * stderr then stdout unless it exited 0 with nothing on stderr. `on` is what it
- * asked for.
- * @typedef {{on: boolean, code: number, lines: string[]}} BurnReport
- */
+/** @typedef {{on: boolean, code: number, lines: string[]}} BurnReport */
 
-/**
- * What a press left to read: `set --json`'s refusal or warning, or a topic's failure.
- * `held`, shown until the next goal or repo press.
- * @typedef {import("./refill-notice.js").Notice & {at: number, held?: boolean}} PressNote
- */
+/** @typedef {import("./refill-notice.js").Notice & {at: number, held?: boolean}} PressNote */
 
 /**
  * @template Note
@@ -171,10 +123,6 @@ const ROLE_STYLES = {
  */
 const buildPressState = () => ({ pending: null, note: null });
 
-/**
- * Every control's press state: a new control adds one entry here. A checkout's box
- * joins `repos` on its first press.
- */
 const buildPresses = () => ({
 	loop: buildPressState(),
 	away: buildPressState(),
@@ -190,17 +138,13 @@ function buildPressList({ repos, ...controls }) {
 	return [...Object.values(controls), ...Object.values(repos)];
 }
 
-/**
- * A goal being typed. `caret`, how many characters stand before it.
- * @typedef {{text: string, caret: number}} GoalEdit
- */
+/** @typedef {{text: string, caret: number}} GoalEdit */
 
 /** @typedef {import("./refill-panel-input.js").Key} Key */
 
 /** @typedef {() => ReturnType<Runner>} FocusReturner */
 
 /**
- * A topic on its way to being a goal; `found`, null until its issues are back.
  * @typedef {import("./refill-panel-topic.js").TopicSet} TopicSet
  * @typedef {{text: string, found: TopicSet|null}} GoalResolve
  */
@@ -218,9 +162,6 @@ function buildPressList({ repos, ...controls }) {
  */
 
 /**
- * `detail`, drawn after `text` in regular weight whatever the role. `caret`, where
- * the terminal's cursor stands in `text`, on the row being typed in. `pointed`, the
- * row the keyboard's pointer is on.
  * @typedef {{text: string, role: Role, detail?: string, presses?: "loop",
  *   caret?: number, pointed?: boolean,
  *   control?: {id: "loop"|"away"|"burn"|"goal", state: SwitchState}
@@ -242,11 +183,7 @@ function buildClock(at, now) {
 	return `${localDate(d)} ${time}`;
 }
 
-/**
- * The last tick where its words still hold: a tick that idled on a pause since
- * lifted says nothing about a loop now on.
- * @param {PanelStatus} status
- */
+/** @param {PanelStatus} status */
 const buildCurrentTick = ({ lastTick, paused }) =>
 	lastTick?.paused && !paused ? null : lastTick;
 
@@ -276,17 +213,13 @@ function buildWaitingRowText(status, now) {
 			: `Waiting: a plan resets at ${buildClock(resets, now)}`;
 	}
 	const reason = tick?.idle?.reason;
-	/* Line 1's count already says no slot is free, or `?` where it went unread (#4118). */
 	if (!reason || reason === NO_FREE_SLOT) return "";
-	/* Its detail names each hold, the one thing the founder acts on (#4736). */
 	if (reason === PROBE_HOLD_WAIT)
 		return `Probe hold${tick?.idle?.detail ?? ""}`;
 	return WAITING_WORDS.get(reason) ?? reason;
 }
 
 /**
- * Checkout no-progress pauses read "needs you", dead or alive, naming their
- * issues (#5275).
  * @param {PanelStatus["repoPaused"]} repoPaused
  * @returns {[Row, Row]}
  */
@@ -304,8 +237,6 @@ function buildRepoPausedLines(repoPaused) {
 const hasRepoPauses = (status) => Object.keys(status.repoPaused).length > 0;
 
 /**
- * A founder's pause whose process died reads "needs you": the housekeeping it
- * promised has stopped with it (#3875).
  * @param {NonNullable<PanelStatus["paused"]>} paused
  * @param {PanelStatus} status
  * @param {number} now
@@ -358,28 +289,17 @@ function buildStoppedText(stop, now) {
 const isNoteShowing = (note, now) =>
 	note !== null && (note.held === true || now - note.at < NOTE_SHOW_MS);
 
-/** @param {boolean} on what a pending press asks for */
+/** @param {boolean} on */
 const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
 
 /**
- * The non-negative gap between two figures, or `?` where either is unread (#5158).
- * The figures are read at different moments, so they can cross: the listing can
- * count more mid-turn sessions than admission counts live, and the tick's own
- * launches can take live past the ceiling.
- * Residual: a crossing reads 0, never named.
  * @param {number|null} from
  * @param {number|null} less
  */
 const gapOf = (from, less) =>
 	from === null || less === null ? "?" : Math.max(0, from - less);
 
-/**
- * Line 1 of a launching loop's block: sessions mid-turn, live sessions not mid-turn,
- * and the sessions that fit now. An unread count reads `?`, as unknown is never calm.
- * Then each other seat holding sessions in needs input, with the alias that opens
- * its view, else the seat (#5293), or `?` for them off an unread listing.
- * @param {PanelStatus} status
- */
+/** @param {PanelStatus} status */
 const buildCountText = ({ concurrency: { working, live, ceiling, waiting } }) =>
 	[
 		`${working ?? "?"} working · ${gapOf(live, working)} idle · room for ${gapOf(ceiling, live)}`,
@@ -392,7 +312,6 @@ const buildCountText = ({ concurrency: { working, live, ceiling, waiting } }) =>
 	].join(" · ");
 
 /**
- * Line 1 and line 2 of the loop block, from the observed status alone.
  * @param {PanelStatus} status
  * @param {number} now
  * @returns {[Row, Row]}
@@ -451,20 +370,12 @@ const buildReadKeys = (overflow) =>
 /** @param {PanelStatus["seats"]} seats */
 const isEveryPlanFull = (seats) => seats.readings.every((s) => s.weekFull);
 
-/**
- * Whether nothing can launch on a plan or a key. A key's unread budget could still
- * hold credit (#3875), and until every plan is full the credits are only empty. A key
- * with less left than one launch counts as spent.
- * @param {PanelStatus} status
- */
+/** @param {PanelStatus} status */
 const isAllUsedUp = ({ seats, overflow }) =>
 	isEveryPlanFull(seats) &&
 	overflow.every((key) => !("why" in key) && key.noLaunchLeft);
 
-/**
- * The keys in the plan rows' order, a key on no plan row last.
- * @param {PanelStatus} status
- */
+/** @param {PanelStatus} status */
 function buildKeysInPlanOrder({ seats, overflow }) {
 	const plans = seats.readings.map((reading) => reading.seat);
 	/** @param {OverflowKey} key */
@@ -476,9 +387,6 @@ function buildKeysInPlanOrder({ seats, overflow }) {
 }
 
 /**
- * A key's credit left (#4063), which its heading says, so the row fits the pane (#4104),
- * with the Console reading's age where one anchors it (#4071). `~` only with no reading
- * and no credit refusal: the figure is then the configured grant less the loop's own ledger, which is not what the Console holds.
  * @param {ReadKey} key
  * @param {number} now
  */
@@ -487,14 +395,12 @@ function buildKeyFigure(
 	now,
 ) {
 	const figure = `of $${Math.floor(grantUsd)}`;
-	/* Running runs' reservations can pass a key's credit. */
 	const usd = exhausted ? 0 : Math.floor(Math.max(headroomUsd, 0));
 	if (creditReadAt === null) return `${exhausted ? "" : "~"}$${usd} ${figure}`;
 	return `$${usd} ${figure} (${describeAgo(creditReadAt, now)})`;
 }
 
 /**
- * Why no launch is on credits, every key having read.
  * @param {PanelStatus} status
  * @param {boolean} picksKey
  */
@@ -507,9 +413,7 @@ function buildNotSpendingReason(status, picksKey) {
 }
 
 /**
- * How long ago `at` was, in seconds under a minute: the running count's age stays
- * under two minutes (#4175).
- * @param {number} at ms
+ * @param {number} at
  * @param {number} now
  */
 function describeAgo(at, now) {
@@ -518,8 +422,6 @@ function describeAgo(at, now) {
 }
 
 /**
- * The running count's age, ` (45s ago)`, where the oldest listing a key counted
- * its sessions off is older than one poll (#4175), else nothing.
  * @param {ReadKey[]} keys
  * @param {number} now
  */
@@ -533,12 +435,6 @@ function buildRunningAge(keys, now) {
 }
 
 /**
- * Whether credits are spending (#3958): a session on a key is running, or the seat the
- * picker takes next is a key and the last tick launched rather than idled. Residual:
- * between such a tick's launch and the next status read, this says spending before
- * that session has spent. An unread key
- * could hold running sessions, so it never reads as not spending. A verdict off the
- * running count carries that count's age.
  * @param {PanelStatus} status
  * @param {number} now
  * @returns {{spending: boolean, text: string}}
@@ -565,12 +461,6 @@ function buildSpendState(status, now) {
 }
 
 /**
- * The newest reading and its age, however old, so an old read cannot look current
- * (#4059); a cached bar can hold no fetch time, which reads `age ?` rather than pass as
- * current, short enough for the split's 34 cells (#4124). A week the account does not
- * report has no reading to age, and shows the 0 the picker sizes it on (#3758). A week
- * reset since its last read says so, its 0 being derived rather than read, and drops
- * "ago" to fit those cells (#4106).
  * @param {PanelStatus["seats"]["readings"][number]} reading
  * @param {number} now
  */
@@ -587,7 +477,6 @@ function buildPlanFigure({ week, weekRead }, now) {
 }
 
 /**
- * The seats are named since their order follows the last typed seat.
  * @param {PanelStatus} status
  * @param {number} now
  * @returns {Row[]}
@@ -605,8 +494,6 @@ function buildPlanRows({ seats }, now) {
 }
 
 /**
- * The heading, one row per key (#4063) and whether they are spending, at all times once
- * a key is declared (#3958), so the rows below never move as the figures change.
  * @param {PanelStatus} status
  * @param {number} now
  * @returns {Row[]}
@@ -620,7 +507,6 @@ function buildCreditRows(status, now) {
 		SIBLING_GAP,
 		{ text: "API credits left", role },
 		...buildKeysInPlanOrder(status).map((key) => {
-			/* The dir alone, as the pane is narrow. */
 			const name = buildSeatLabel({ seat: key.seat }).replace("~/", "");
 			return "why" in key
 				? {
@@ -681,9 +567,6 @@ const isLaunching = ({ running, stopRequested, paused }) =>
 	running && !stopRequested && !paused;
 
 /**
- * The switch's state: on only while the loop runs and launches with no checkout
- * paused, since a press then resumes them, and neither word while a press is
- * pending or the status unread.
  * @param {PanelView} view
  * @returns {"on"|"off"|"pending"|"unknown"}
  */
@@ -694,8 +577,6 @@ function buildLoopState({ status, presses }) {
 }
 
 /**
- * The Burn mode switch's state, off the machine as well as this panel's own flip,
- * so a second panel or a restarted one reads a half-flip too.
  * @param {PanelView} view
  * @returns {SwitchState}
  */
@@ -716,7 +597,6 @@ const SWITCH_TEXT = {
 	failed: "[!]",
 };
 
-/* ✓ alone: ✔ and ☑ render as colour emoji in Windows Terminal (#3596). */
 /** @type {Record<BoxState, string>} */
 const BOX_TEXT = {
 	ticked: "[✓]",
@@ -726,7 +606,6 @@ const BOX_TEXT = {
 };
 
 /**
- * The Away switch's state and the words beside it.
  * @param {PanelView} view
  * @returns {{state: "on"|"off"|"pending"|"unknown", words: string}}
  */
@@ -743,8 +622,6 @@ function buildAwayState({ status, presses: { away } }) {
 }
 
 /**
- * The Away row, then its sibling row, which holds what its command said, or why
- * a click does nothing, and is otherwise blank, so nothing below moves.
  * @param {PanelView} view
  * @param {number} now
  * @returns {[Row, Row]}
@@ -769,8 +646,6 @@ function buildAwayRows(view, now) {
 }
 
 /**
- * What the machine says beneath the switch: why it cannot be read, or the plans
- * out of step with it.
  * @param {PanelStatus["burnMode"]|undefined} burnMode
  * @returns {Row[]}
  */
@@ -846,7 +721,6 @@ function buildGoalState({ status, presses }) {
 }
 
 /**
- * The field shows what the last read showed until a read shows otherwise.
  * @param {PanelView} view
  * @param {number} now
  * @returns {Row}
@@ -881,8 +755,6 @@ function buildGoalField({ status, goalEdit, goalResolve }, now) {
 }
 
 /**
- * What a goal press left, in the caption's two rows: the reason, then what to do
- * about it.
  * @param {PressNote} note
  * @returns {Row[]}
  */
@@ -901,8 +773,6 @@ const GOAL_CANCEL_ROW = {
 };
 
 /**
- * The caption's two rows, press rows while a topic is in hand. The first stays blank
- * while it resolves, so a click there cannot meet Save arriving (#3596 story 62).
  * @param {TopicSet|null} found
  * @returns {Row[]}
  */
@@ -920,9 +790,6 @@ function buildTopicPressRows(found) {
 }
 
 /**
- * Stands in the Repos section's place until the confirm or cancel: a click aimed at
- * a box as the set arrives lands on a row that presses nothing, and the boxes the set
- * came from cannot change under it.
  * @param {TopicSet} found
  * @returns {Row[]}
  */
@@ -989,9 +856,6 @@ function buildGoalRows(view, now) {
 }
 
 /**
- * A disabled box is off whatever the control holds: the loop serves no repo it
- * excludes. An opt-out leaves no tick past one tick (#4188); a faulted config
- * keeps its tick, served again once fixed.
  * @param {PanelStatus["repos"][number]} repo
  * @param {Pending|null|undefined} pending
  * @returns {Row[]}
@@ -1025,8 +889,6 @@ function buildRepoRows({ name, ticked, disabled }, pending) {
 }
 
 /**
- * The Repos section, the count off what the loop reads, never a pending press. A
- * refusal takes the gap below its box, so no box moves when it goes.
  * @param {PanelView} view
  * @param {number} now
  * @returns {Row[]}
@@ -1063,8 +925,6 @@ const isFieldOpen = ({ goalEdit, goalResolve }) =>
 	goalEdit !== null || goalResolve !== null;
 
 /**
- * The name the pointer holds a row's control by, which outlasts the row moving; null
- * for a row it skips, a disabled box pressing nothing.
  * @param {Row} row
  * @returns {string|null}
  */
@@ -1094,7 +954,6 @@ function buildUnwrappedRows(view, now) {
 }
 
 /**
- * The key hint goes while a field or topic is open, as the arrows then do not move.
  * @param {PanelView} view
  * @param {number} now
  * @returns {Row[]}
@@ -1135,12 +994,7 @@ function buildUnpointedRows(view, now) {
 	];
 }
 
-/**
- * What a press on the switch does: the argv to run and what it asks for, or
- * null where the press does nothing. A dead loop restarts from its stored
- * settings. No press ever stops the process.
- * @param {PanelView} view
- */
+/** @param {PanelView} view */
 function buildLoopPress({ status, presses }) {
 	if (presses.loop.pending || !status) return null;
 	if (status.paused || hasRepoPauses(status))
@@ -1151,12 +1005,7 @@ function buildLoopPress({ status, presses }) {
 	return null;
 }
 
-/**
- * What a press on the Away switch does, or null where it does nothing: the
- * opposite of what the last read showed, the loop stopped or paused included
- * (#3879, story 41).
- * @param {PanelView} view
- */
+/** @param {PanelView} view */
 function buildAwayPress({ status, presses }) {
 	if (presses.away.pending || !status?.mode) return null;
 	return status.mode === "away"
@@ -1164,13 +1013,7 @@ function buildAwayPress({ status, presses }) {
 		: { argv: ["set", "--away"], on: true };
 }
 
-/**
- * What a press on the Burn mode switch asks for, or null where it does nothing:
- * the opposite of the marker, half-flip or not. The script keeps the marker
- * through a failed flip, so a half-flip reads on and this runs `off`, which
- * restores from the record (#3877).
- * @param {PanelView} view
- */
+/** @param {PanelView} view */
 function buildBurnPress({ status, presses }) {
 	if (presses.burn.pending || !status || status.burnMode.on === null)
 		return null;
@@ -1178,7 +1021,6 @@ function buildBurnPress({ status, presses }) {
 }
 
 /**
- * `edit` after a key that stays in the field.
  * @param {GoalEdit} edit
  * @param {Key} key
  * @returns {GoalEdit}
@@ -1207,7 +1049,6 @@ function buildEditAfter({ text, caret }, key) {
 }
 
 /**
- * What a press on a repo's box asks for, or null.
  * @param {PanelView} view
  * @param {string} name
  */
@@ -1219,7 +1060,7 @@ function buildRepoPress({ status, presses }, name) {
 }
 
 /**
- * @param {boolean} on what the flip asked for
+ * @param {boolean} on
  * @param {RunResult} result
  * @returns {BurnReport}
  */
@@ -1235,8 +1076,6 @@ function buildBurnReport(on, { code, stdout, stderr }) {
 }
 
 /**
- * Whether a read shows a failed flip since finished, by another panel or the
- * skill: the marker where it asked, and every plan in step.
  * @param {BurnReport} report
  * @param {PanelStatus} status
  */
@@ -1244,13 +1083,6 @@ const isBurnReportOutlived = ({ on, code }, { burnMode }) =>
 	code !== 0 && burnMode.on === on && burnMode.disagreeing.length === 0;
 
 /**
- * Whether a read begun after a loop press landed clears it. A pause
- * is taken once a tick has started since it, or at once with no process to take
- * it, since a tick already running finishes first. `set` touches the wake, so
- * that tick follows within seconds of the running one ending. Any other read
- * shows the change, or another writer's reversal of it. A resume's `set` returns
- * once it has spawned any process, ahead of the pidfile, so it waits for a read
- * showing one, for a while.
  * @param {Pending} pending
  * @param {PanelStatus} status
  * @param {number} now
@@ -1265,7 +1097,7 @@ function isLoopPressSettled(pending, status, now) {
 
 /**
  * @param {string} stdout
- * @returns {PanelStatus|string} the status, or why it will not read
+ * @returns {PanelStatus|string}
  */
 function parseStatus(stdout) {
 	try {
@@ -1280,27 +1112,20 @@ function parseStatus(stdout) {
 
 /**
  * @typedef {{code: number, stdout: string, stderr: string}} RunResult
- * @typedef {(argv: string[]) => Promise<RunResult>} Runner runs one script with
- *   `argv`; a command that cannot start resolves as a failure
+ * @typedef {(argv: string[]) => Promise<RunResult>} Runner
  * @typedef {(text: string, repos: import("./refill-panel-topic.js").TickedRepo[],
  *   signal: AbortSignal) => Promise<import("./refill-panel-topic.js").TopicResult>} TopicResolver
  */
 
 /** @param {RunResult} result */
 const buildFailureText = ({ code, stderr }) =>
-	stderr
-		.split("\n")
-		.map((l) => l.trim())
-		.find(Boolean) ?? `exit ${code}`;
+	/\S[^\n]*/.exec(stderr)?.[0].trim() ?? `exit ${code}`;
 
 /**
- * What `set --json` left to show, null for nothing: its refusal, its warning, or
- * where it died before its object, its stderr.
  * @param {RunResult} result
  * @returns {import("./refill-notice.js").Notice|null}
  */
 function buildSetNote(result) {
-	// A command dead before its object falls to its stderr below (#3968).
 	/** @type {{refused?: import("./refill-notice.js").Notice|null,
 	 *   warning?: import("./refill-notice.js").Notice|null}|null} */
 	const said = orFallback(() => JSON.parse(result.stdout), null);
@@ -1311,12 +1136,9 @@ function buildSetNote(result) {
 }
 
 /**
- * The panel's state over an injected runner. Reads never overlap: one asked for
- * during another runs after it, so a press's read starts after its command.
  * @param {{run: Runner, runBurn: Runner, now: () => number,
  *   resolveTopic: TopicResolver, returnFocus: FocusReturner, height: () => number,
- *   columns: () => number, onChange: () => void}} deps `run`, `refill-loop.js`; `runBurn`, `burn-mode.sh`;
- *   `returnFocus`, hands focus to the agents pane; `height`, the terminal's rows; `columns`, its width
+ *   columns: () => number, onChange: () => void}} deps
  */
 function createPanel({
 	run,
@@ -1340,7 +1162,6 @@ function createPanel({
 		scroll: 0,
 	};
 	const buildViewRows = () => buildRows(view, now(), columns());
-	/* Off a focus report, so never set on a terminal that sends none. */
 	let focusGone = false;
 	let returning = false;
 	let reading = false;
@@ -1349,9 +1170,8 @@ function createPanel({
 	let resolveAbort = null;
 
 	/**
-	 * @param {PanelStatus|string} parsed the status, or why it will not read
-	 * @param {Set<Pending>} landedBefore the pending marks whose commands had exited
-	 *   when this read began: a read begun sooner shows the world before the press
+	 * @param {PanelStatus|string} parsed
+	 * @param {Set<Pending>} landedBefore
 	 */
 	function takeRead(parsed, landedBefore) {
 		if (typeof parsed === "string") {
@@ -1420,8 +1240,7 @@ function createPanel({
 	}
 
 	/**
-	 * Holds what a press left, under the box at fault too, whichever control it was.
-	 * @param {PressState<PressNote>} state accumulator: its `note`
+	 * @param {PressState<PressNote>} state
 	 * @param {import("./refill-notice.js").Notice} said
 	 */
 	function takeNote(state, said) {
@@ -1430,10 +1249,7 @@ function createPanel({
 		if (said.box !== null) ensureRepoPress(said.box).note = note;
 	}
 
-	/**
-	 * Takes a note away, with its copy under the box at fault.
-	 * @param {PressState<PressNote>} state accumulator: its `note`
-	 */
+	/** @param {PressState<PressNote>} state */
 	function clearNote(state) {
 		const copy = state.note?.box && view.presses.repos[state.note.box];
 		if (copy) copy.note = null;
@@ -1442,7 +1258,7 @@ function createPanel({
 
 	/**
 	 * @param {{argv: string[], on: boolean}|null} press
-	 * @param {PressState<PressNote>} state accumulator: the control's `pending` and `note`
+	 * @param {PressState<PressNote>} state
 	 */
 	async function runLoopPress(press, state) {
 		if (!press) return;
@@ -1479,7 +1295,6 @@ function createPanel({
 		onChange();
 	}
 
-	/** From the topic in hand where there is one, so a poor set is a small edit. */
 	function beginGoalEdit() {
 		if (!view.status || view.presses.goal.pending) return;
 		const text = view.goalResolve?.text ?? view.status.goal?.text ?? "";
@@ -1489,11 +1304,7 @@ function createPanel({
 		onChange();
 	}
 
-	/**
-	 * The switch clears a goal; with none, it opens the field for one, unless this
-	 * click just closed it.
-	 * @param {boolean} closedEdit
-	 */
+	/** @param {boolean} closedEdit */
 	async function pressGoalSwitch(closedEdit) {
 		if (view.presses.goal.pending) return;
 		if (view.goalResolve) cancelResolve();
@@ -1508,12 +1319,7 @@ function createPanel({
 		);
 	}
 
-	/**
-	 * A fixed form goes to `--goal` as one argument, however it is typed; anything
-	 * else is a topic, stored only on the confirm press (#3596 stories 62, 65). A
-	 * blank field clears the goal, as the switch does (story 53).
-	 * @param {GoalEdit} edit
-	 */
+	/** @param {GoalEdit} edit */
 	async function saveGoal({ text }) {
 		view.goalEdit = null;
 		const typed = text.trim();
@@ -1530,10 +1336,7 @@ function createPanel({
 			);
 	}
 
-	/**
-	 * A failure leaves the old goal, and a result arriving after a cancel is nobody's.
-	 * @param {string} text
-	 */
+	/** @param {string} text */
 	async function resolveGoal(text) {
 		if (!view.status) {
 			takeResolveFailure(view.readError ?? "the loop's status is unread");
@@ -1574,10 +1377,6 @@ function createPanel({
 		};
 	}
 
-	/**
-	 * Each ref carries its repo and the text one argument, so `set` reads them as
-	 * typed. It stays as resolved until the next resolve (#3596 story 64).
-	 */
 	async function saveTopic() {
 		const resolved = view.goalResolve;
 		if (!resolved?.found) return;
@@ -1596,12 +1395,6 @@ function createPanel({
 		);
 	}
 
-	/**
-	 * Skipped where the founder has already gone: a resolve can
-	 * fail long after its Enter, and `move-focus` counts from wherever focus now is, as
-	 * it does for a second return while the first runs. A return that fails leaves the
-	 * pointer showing, as the keys here still work (#3887).
-	 */
 	async function leave() {
 		view.pointer = null;
 		view.focusNote = null;
@@ -1616,23 +1409,15 @@ function createPanel({
 		onChange();
 	}
 
-	/** After a key, focus stays while a field or topic waits on its Enter or Esc. */
 	async function leaveUnlessOpen() {
 		if (!isFieldOpen(view)) await leave();
 	}
 
-	/**
-	 * After a click, focus stays only for typing: a topic waiting on its press does not
-	 * hold it, as Save and Cancel are rows to click (#3596 stories 72, 73).
-	 */
 	async function leaveUnlessTyping() {
 		if (!view.goalEdit) await leave();
 	}
 
 	/**
-	 * Leaves as the press starts, not when its command ends, as the next keystroke will
-	 * not wait for it; a press's refusal therefore draws after focus has gone (#3887). A
-	 * press opens or closes a field before its first await.
 	 * @param {() => Promise<void>} press
 	 * @param {() => Promise<void>} leaveAfter
 	 */
@@ -1685,8 +1470,6 @@ function createPanel({
 	}
 
 	/**
-	 * Moves the window only as far as the row needs, leaving it clear of the mark
-	 * below, where an image would not draw; no row found leaves it.
 	 * @param {Row[]} rows
 	 * @param {number} index
 	 */
@@ -1700,9 +1483,8 @@ function createPanel({
 	}
 
 	/**
-	 * A key that would act on a row out of sight brings it back instead.
 	 * @param {(row: Row) => boolean} isWanted
-	 * @returns {boolean} whether the row had to come back
+	 * @returns {boolean}
 	 */
 	function bringIntoView(isWanted) {
 		const rows = buildViewRows();
@@ -1713,7 +1495,7 @@ function createPanel({
 		return true;
 	}
 
-	/** @param {number} delta rows, negative is up, stopping at either end */
+	/** @param {number} delta */
 	function scrollRows(delta) {
 		const count = buildViewRows().length;
 		const { first } = buildWindow(count, height(), view.scroll);
@@ -1723,10 +1505,9 @@ function createPanel({
 		onChange();
 	}
 
-	/** @param {number} notches negative is up */
+	/** @param {number} notches */
 	const scrollBy = (notches) => scrollRows(notches * WHEEL_ROWS);
 
-	/** The first control showing, which leaves the rows where the reader has them. */
 	function buildFirstPointerKey() {
 		const rows = buildViewRows();
 		const { first, count } = buildWindow(rows.length, height(), view.scroll);
@@ -1734,7 +1515,6 @@ function createPanel({
 		return buildPointerKeys(showing)[0] ?? buildPointerKeys(rows)[0] ?? null;
 	}
 
-	/** Where a terminal reports no focus, the first arrow is what shows the pointer. */
 	function showPointer() {
 		if (view.pointer !== null) return;
 		view.pointer = buildFirstPointerKey();
@@ -1753,7 +1533,7 @@ function createPanel({
 		onChange();
 	}
 
-	/** @param {-1|1} step stops at either end */
+	/** @param {-1|1} step */
 	function movePointer(step) {
 		if (view.pointer === null) view.pointer = buildFirstPointerKey();
 		else {
@@ -1763,7 +1543,6 @@ function createPanel({
 				keys[Math.min(Math.max(at + step, 0), keys.length - 1)] ?? null;
 		}
 		const rows = buildViewRows();
-		/* The last control takes the rows under it along, the key hint among them. */
 		revealRow(
 			rows,
 			view.pointer === buildPointerKeys(rows).at(-1)
@@ -1781,13 +1560,7 @@ function createPanel({
 		);
 	}
 
-	/**
-	 * With no field or topic open, only the arrows, space and Esc do anything (#3596
-	 * stories 74, 75). Space alone: two in one read, or one in a paste, were never a press
-	 * on the pointer's control. Space on a control the wheel took off the pane brings it
-	 * back rather than press it blind.
-	 * @param {Key} key
-	 */
+	/** @param {Key} key */
 	async function pressPointerKey(key) {
 		if ("text" in key) {
 			if (key.text === " " && !key.pasted && view.pointer !== null)
@@ -1806,11 +1579,7 @@ function createPanel({
 		else await pressPointerKey(key);
 	}
 
-	/**
-	 * A click outside the field drops what was typed: the press itself
-	 * still changes one control (#3596 story 61).
-	 * @param {number} terminalRow
-	 */
+	/** @param {number} terminalRow */
 	async function click(terminalRow) {
 		const rows = buildViewRows();
 		const scrollWindow = buildWindow(rows.length, height(), view.scroll);
@@ -1882,18 +1651,13 @@ function createPanel({
 	};
 }
 
-/** @param {number} height the terminal's rows */
+/** @param {number} height */
 const countDrawnRows = (height) => Math.max(height - TOP_ROW + 1, 0);
 
-/**
- * The fewest terminal rows that draw all `rowCount` rows with no scroll mark.
- * @param {number} rowCount
- */
+/** @param {number} rowCount */
 const countUnscrolledHeight = (rowCount) => rowCount + TOP_ROW - 1;
 
 /**
- * The rows a pane shows, read each time as the rows can shrink, or the pane grow, under
- * a scroll. While rows lie below, the pane's last row says so, unless it is the only one.
  * @param {number} rowCount
  * @param {number} height
  * @param {number} scroll
@@ -1912,7 +1676,6 @@ function buildWindow(rowCount, height, scroll) {
 }
 
 /**
- * Which way a click on a terminal row scrolls, where it holds a mark; 0 where it holds none.
  * @param {ReturnType<typeof buildWindow>} scrollWindow
  * @param {number} terminalRow
  * @param {number} height
@@ -1926,7 +1689,6 @@ function findMarkStep({ markAbove, markBelow }, terminalRow, height) {
 const isSaveRow = (row) => row.control?.id === "goalSave";
 
 /**
- * The row a terminal row is showing, so a press and the frame agree (#3948).
  * @param {Row[]} rows
  * @param {number} terminalRow
  * @param {number} height
@@ -1940,22 +1702,19 @@ function findDrawnRow(rows, terminalRow, height, scroll) {
 	return rows[at + first];
 }
 
-/** @param {string} text a command's words, which may carry control characters */
+/** @param {string} text */
 const buildDrawableChars = (text) => [...text.replace(/\p{Cc}+/gu, " ")];
 
 /**
- * Whether a control is drawn as an image, which only a control with a state is.
  * @param {Row["control"]} control
  * @returns {control is Extract<NonNullable<Row["control"]>, {state: unknown}>}
  */
 const isImaged = (control) => control !== undefined && "state" in control;
 
-/** @param {number} columns the terminal's width */
+/** @param {number} columns */
 const countRowCells = (columns) => columns - (LEFT_COLUMN - 1) * 2;
 
 /**
- * `text` as lines of at most `width` cells, broken at spaces, each under the text's own
- * indent. A word longer than a line breaks where the line ends.
  * @param {string} text
  * @param {number} width
  * @returns {string[]}
@@ -1979,12 +1738,9 @@ function buildWrappedLines(text, width) {
 }
 
 /**
- * The rows a pane of `columns` draws: a row longer than a line goes on over further
- * rows, each pressing what it did, the pointer on the first. A row holding an image or a
- * caret stays on its one line, where those are placed, as does a heading with its detail.
  * @param {PanelView} view
  * @param {number} now
- * @param {number} columns the terminal's width
+ * @param {number} columns
  * @returns {Row[]}
  */
 function buildRows(view, now, columns) {
@@ -2001,7 +1757,6 @@ function buildRows(view, now, columns) {
 }
 
 /**
- * `text` on one line of `width` cells: a row never wraps into the one below.
  * @param {string} text
  * @param {number} width
  */
@@ -2013,8 +1768,6 @@ function fitText(text, width) {
 }
 
 /**
- * A row's text with its control's mark blanked to the cells its image covers, and the
- * image; null where the row has no such control, or the image would pass the row's end.
  * @param {Row} row
  * @param {number} width
  * @param {boolean} hovered
@@ -2032,7 +1785,6 @@ function buildImagedRow({ text, control }, width, hovered) {
 }
 
 /**
- * The row a pointer's report rests on, where that row holds an image to grow.
  * @param {Row[]} rows
  * @param {number} terminalRow
  * @param {number} height
@@ -2044,19 +1796,10 @@ const findHoverRow = (rows, terminalRow, height, scroll) => {
 };
 
 /**
- * Ends by erasing below, so a report gone from the rows goes from the screen.
- * Draws only the rows that fit, from the first the scroll shows: past the bottom a
- * terminal stacks them on its last line, where a click would press a row other than
- * the one showing. A mark says where more rows lie. The cursor
- * shows only on a row being typed in, which scrolls to keep it in view.
- *
- * Images go on last, as text and erasing wipe what lies under them. A 20 px image fills
- * four 6 px Sixel bands, so on the pane's last row it would scroll the page (#2525):
- * that row keeps its text control.
  * @param {Row[]} rows
- * @param {number} columns the terminal's width
+ * @param {number} columns
  * @param {number} height
- * @param {{images?: boolean, hoverRow?: number|null, scroll?: number}} [options] `hoverRow`, 1-based
+ * @param {{images?: boolean, hoverRow?: number|null, scroll?: number}} [options]
  */
 function buildFrame(
 	rows,

@@ -1,33 +1,3 @@
-/*
- * jsonl.js — the one JSONL reader (#3452, #3453). Every program reading a
- * JSONL file or text reads it here, so what a torn last line and an
- * unparsable row mean is decided once:
- *
- * - A TORN LAST LINE is the final line, with no newline after it, that does
- *   not parse: a writer that died or is still mid-append. The rows before it
- *   stand, and `torn` says the last of the bad lines is this one.
- * - AN UNPARSABLE ROW is any other non-blank line that does not parse, or
- *   that parses to anything but a JSON object. It is skipped.
- * - A BLANK LINE is no row and no fault.
- *
- * `bad` lists the 1-based number of every line that held no row, a torn one
- * included; `entries` pairs each row with its own.
- *
- * A missing file is null — nothing written yet, told apart from an empty one.
- * Any other read error throws.
- *
- * `keep` is a test on a line's raw text, run before its parse: a line it
- * refuses is never parsed and is neither a row nor a fault. It is for a reader
- * that wants a sliver of a large log, such as one time window.
- *
- * A reader that streams a log line by line, never holding it whole, takes
- * each line's answer from parseJsonlRow.
- *
- * A reader that wants only the newest row of a log, or the newest that
- * passes a test, takes it from readLastJsonlRow, which reads the file's end
- * and never the whole unless no row nearer it passes.
- */
-
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { readTail } = require("./file-read.js");
@@ -38,8 +8,6 @@ const { readTail } = require("./file-read.js");
  */
 
 /**
- * The row on one line: its object, null where the line is blank, undefined
- * where it is no JSON object.
  * @param {string} line
  * @returns {Record<string, unknown> | null | undefined}
  */
@@ -86,11 +54,7 @@ function parseJsonl(text, keep) {
 	return { rows, entries, bad, torn };
 }
 
-/**
- * An unterminated last line that parses to no object is unparsable, not
- * torn.
- * @param {string} line
- */
+/** @param {string} line */
 function isJson(line) {
 	try {
 		JSON.parse(line);
@@ -116,8 +80,7 @@ function readJsonl(file, keep) {
 	return parseJsonl(text, keep);
 }
 
-/* The bytes read from the file's end at first, doubled until a row is found;
- * untraced, set past any row a log here writes. */
+// guess, #4821
 const TAIL_BYTES = 64 * 1024;
 
 /**
@@ -125,9 +88,6 @@ const TAIL_BYTES = 64 * 1024;
  */
 
 /**
- * The last row among `text`'s lines that `match` passes, undefined where none
- * does. Its first line is left out where `partial`, the text starting
- * mid-file.
  * @param {string} text
  * @param {boolean} partial
  * @param {Match} match
@@ -144,9 +104,6 @@ function lastRowOf(text, partial, match) {
 }
 
 /**
- * The file's last row that `match` passes, any row by default, as
- * `readJsonl(file).rows.filter(match).at(-1)` gives it: null where the file is
- * missing, undefined where no row passes.
  * @param {string} file
  * @param {Match} [match]
  * @returns {Record<string, unknown> | null | undefined}

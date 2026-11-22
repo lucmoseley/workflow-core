@@ -1,15 +1,3 @@
-/*
- * queue-lander-deps.js — one queue lander run's dependencies, wired for a
- * checkout: lib/queue-lander.js's runQueueLander over the production adapters
- * (lib/queue-lander-adapters.js), the tester .claude/workflow-core.json's
- * `landingTester` names, the tracker that config names, the owning-session read
- * (lib/queue-owning-session.js), and the guard-code
- * adoption and levelling pass after each move of `main` (#4485, spec #4458).
- *
- * scripts/queue-lander.js runs on it; a test drives the same wiring with its
- * own suite slot handed in as `admit`.
- */
-
 const { queueTester } = require("./actions-tester.js");
 const { baseRedFiler } = require("./base-red-issue.js");
 const { parseErrorText } = require("./caught.js");
@@ -43,19 +31,14 @@ const { readConfig } = require("./workflow-core-config.js");
 /**
  * @typedef {import("./local-tester.js").LocalTesterOptions["admit"]} Admit
  * @typedef {object} LanderWiring
- * @property {string} [tester] a `<command> <sha> [<file>…]` run in place of
- *   the configured tester
- * @property {Admit} [admit] the local tester's suite slot; absent, the
- *   machine's suite gate
+ * @property {string} [tester]
+ * @property {Admit} [admit]
  * @property {(line: string) => void} say
- * @property {RunCode|null} [code] the code this run executes, as the caller
- *   that relaunches on it read it; absent, read here
+ * @property {RunCode|null} [code]
  * @typedef {import("./lander-code.js").RunCode} RunCode
  */
 
 /**
- * The tester `landingTester` names: the Actions one for `actions`, else the
- * local one, taking its suite slot from `admit`.
  * @param {string} root
  * @param {Admit} [admit]
  * @returns {import("./queue-lander.js").QueueTester}
@@ -66,10 +49,6 @@ const configuredTester = (root, admit) =>
 		: localTester({ root, admit });
 
 /**
- * After each move of `main` to `sha`: the guard code's adoption and a
- * levelling pass, detached, as an `npm ci` in it may outlast the next
- * landing. Whether `sha` changed the code this run loaded; a git fault
- * reading that reads as no, reported.
  * @param {string} root
  * @param {(line: string) => void} say
  * @param {RunCode|null} code
@@ -107,7 +86,7 @@ function trackerOf(root) {
 }
 
 /**
- * @param {string} root the canonical checkout
+ * @param {string} root
  * @param {LanderWiring} wiring
  * @returns {import("./queue-lander.js").QueueLanderDeps}
  */
@@ -129,7 +108,6 @@ function buildLanderDeps(
 		ledger: fileLedger(files.ledger),
 		verdicts: verdictLedger(files.verdicts),
 		refused: refusedRecord(files.refused),
-		/* A torn record's aside name is stamped off `now`, WFC_NOW included. */
 		record: pipelineRecord(files.batch, now),
 		drops: dropRecord(files.drops),
 		tracker: trackerOf(root),

@@ -1,46 +1,18 @@
-/*
- * retro-bundles.js — which frontier issues /pick-next launches together as one
- * `/triage` session — the open retro-sweep findings, at most 8 to a session
- * (#1105; the cap and the bundling ruled at #1093 Q1 (D)) — and the model and
- * prompt each bundle launches with (#1195).
- *
- * WHY 8: the #1093 test bundle of 8 findings peaked at 131,725 tokens of
- * context, about 16k a finding, so a bundle crosses the 200,000 notice near
- * 12. The pick-next and retro-sweep SKILL.md files quote it.
- *
- * POOLED ACROSS RUNS, NOT KEYED ON ONE: a finding names its run only in free
- * prose, and a leftover from last week's run costs a session of its own if
- * kept apart. A run alone on the frontier still yields ceil(N/8) bundles.
- *
- * A finding is an issue labelled `takes:triage` and nothing else, whose body
- * carries the `Standalone:` line retro-sweep step 5 files it with. Every
- * other `takes:triage` issue launches singly, as before.
- */
-
 const RETRO_BUNDLE_CAP = 8;
 const RETRO_MARK = /^Standalone: retro-sweep finding\b/m;
 
-/* A copy of launch-models.sh's `triage` row, which owns it, kept so pick-next.js
- * spawns no bash; launch-models.test.ts fails where the two differ (#1195). */
 const RETRO_BUNDLE_MODEL = "opus";
 
-/* The vendored /triage skill has no bundle rule, so the launched session reads
- * this or nothing (#1195). */
 const RETRO_BUNDLE_CLAUSE =
 	"one decision, one round comment and one brief per issue";
 
-/**
- * A bundle's §7 launch prompt.
- * @param {number[]} bundle
- */
+/** @param {number[]} bundle */
 const buildBundlePrompt = (bundle) =>
 	`/triage ${bundle.join(" ")} — ${RETRO_BUNDLE_CLAUSE}`;
 
 /** @typedef {{issues: number[], model: string, prompt: string}} RetroLaunch */
 
 /**
- * Each bundle as pick-next's text and JSON both carry it, so a reader of either
- * launches the same prompt (#1206).
  * @param {number[][]} bundles
  * @returns {RetroLaunch[]}
  */
@@ -58,8 +30,6 @@ const isRetroFinding = (issue) =>
 	RETRO_MARK.test(issue.body);
 
 /**
- * The fewest bundles of at most the cap, balanced so no two differ by more than
- * one member, each in filing order: 9 findings make 5 + 4, not 8 + 1.
  * @param {{number: number, takes: string[], body: string}[]} frontier
  * @returns {number[][]}
  */

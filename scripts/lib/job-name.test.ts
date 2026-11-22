@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/job-name.js's name written onto a job record (#4098): the name and the
- * one source the harness's auto-namer leaves, every other field kept. Loosen
- * it and a resumed copy lists under an auto title, or loses its record.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

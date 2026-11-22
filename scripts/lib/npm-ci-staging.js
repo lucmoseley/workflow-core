@@ -1,34 +1,19 @@
-/*
- * npm-ci-staging.js — a frozen `node_modules` built in a staging directory,
- * for the levelling step (lib/level-main.js) and the checkout's dependency
- * stores (lib/dep-store.js), #4261. Each swaps the result into place by rename:
- * `npm ci` into a live tree deletes it first, and hook code loads from it.
- * `npm ci --ignore-scripts`: docs/practice/dependency-and-release-management.md.
- * The lander's local tester (lib/local-tester.js) installs in place but takes
- * its lockfile name and install timeout from here (#4693).
- */
-
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { npmBin } = require("./npm-bin.js");
 
 const LOCKFILE = "package-lock.json";
-/* What `npm ci` reads besides the lockfile. */
 const MANIFESTS = ["package.json", LOCKFILE, ".npmrc"];
-/* Untraced: room for a cold `npm ci` over a slow link. */
+// guess, #4235
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 
 /**
- * @typedef {(dir: string) => void} Install builds `node_modules` in `dir`,
- *   which holds the manifests; throws where it fails
- * @typedef {(name: string) => Buffer | null} ManifestSource a manifest's
- *   bytes, null where it is absent
+ * @typedef {(dir: string) => void} Install
+ * @typedef {(name: string) => Buffer | null} ManifestSource
  */
 
 /**
- * `npm ci` into `dir`, its output on stderr so a caller's stdout stays its
- * own.
  * @type {Install}
  */
 function npmCi(dir) {
@@ -45,11 +30,10 @@ function npmCi(dir) {
 }
 
 /**
- * Write `source`'s manifests into `staging` and install there.
  * @param {string} staging
  * @param {ManifestSource} source
  * @param {Install} [install]
- * @returns {string} the built `node_modules`
+ * @returns {string}
  */
 function stageInstall(staging, source, install = npmCi) {
 	fs.mkdirSync(staging, { recursive: true });

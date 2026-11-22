@@ -1,32 +1,4 @@
 // @vitest-environment node
-/*
- * The code the refill loop runs (#2361): `start` launching from a loop-owned
- * worktree at the verified tip, and a running loop adopting a newer tip by
- * re-exec under its pid. Against fixture repos: a bare origin, a "main
- * checkout" clone the loop's code comes from, and a second clone commits are
- * pushed from.
- *
- * `start` and `boot-resume` each run once, from a checkout holding the real
- * refill-loop.js and its libs, and the loop spawned is killed as soon as its
- * command line is read. The control commands (#4337) run from such a
- * checkout made stale, each a spawned caller handing off to a second node, so
- * this file runs past its CI record: four real-loop checkouts and their
- * node starts are what proves the hand-off, which no in-process run can.
- *
- * The running loop is otherwise a fixture program at the checkout's
- * scripts/refill-loop.js that requires this module by its absolute path, ticks
- * every 50 ms through adoptIfMoved and afterTick, and holds a pidLock across
- * the re-exec.
- *
- * The ticks and waits cross the real clock: a re-exec is a real process
- * replacing its image, which no injected clock stands in for; the 20 s wait
- * is a ceiling on a hang, never an assertion.
- *
- * Loosen it and the loop runs uncommitted or stale code, re-execs into a tip
- * that does not load, retries a bad tip every tick, re-execs under a gate
- * sweep's children, or a boot starts from a working copy mid-edit or a link
- * left dangling.
- */
 import { type ChildProcess, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -258,7 +230,6 @@ describe("launchProgram", () => {
 	});
 });
 
-/** Push the real loop and its libs, and clone a main checkout of them. */
 function pushRealLoop() {
 	const libs = path.join(dir, "libs");
 	copyLibs(libs, readProgramLibs("refill-loop.js"));
@@ -334,13 +305,9 @@ describe("control commands from a stale checkout (#4337)", () => {
 	let pinned: string;
 
 	const controlFile = () => path.join(state, ".refill-loop-control.json");
-	/* Until the latest time a Date holds, so no writer drops it as lapsed. */
 	const Hold = { holder: "a dispatcher", until: 8.64e15 };
 	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));
 
-	/* The pinned code, then a caller beside it whose control parse predates
-	 * launchHold, whose status is not the loop's, whose argument parser
-	 * exits 2 silently and whose refill-code.js exports nothing. */
 	function plant(
 		install: (where: { scriptsDir: string; codeDir: string }) => string,
 	) {
@@ -636,7 +603,6 @@ describe("the boot link (#3891)", () => {
 	it("keeps the worktrees where it will not move, logging why", async () => {
 		const stale = path.join(codeDir, "stale");
 		fs.mkdirSync(stale, { recursive: true });
-		/* A directory with something in it: no rename lands on it. */
 		fs.mkdirSync(path.join(link(), "x"), { recursive: true });
 		await startLoop();
 		await moreTicks(1);

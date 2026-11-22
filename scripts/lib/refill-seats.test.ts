@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/refill-seats.js, the one reader of `~/.claude/refill-seats`: plan
- * and overflow lines, the malformed lines it refuses by name, and which seat
- * a launch resolves to. The parse is read through readDeclaredSeats() over a
- * seat file in a temp home. The dispatcher's seat gate is
- * lib/dispatch-gates.test.ts's.
- *
- * Loosen one and a mistyped overflow line launches as a plan seat, or the loop
- * and the dispatcher disagree about which seats exist (#2605).
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

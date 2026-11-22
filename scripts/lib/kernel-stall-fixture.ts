@@ -1,7 +1,3 @@
-/*
- * A stalled boot's kernel log, a /proc/config.gz, and a run of
- * check-kernel-stall.js on both, for its tests and contracts (#4081).
- */
 import fs from "node:fs";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
@@ -11,7 +7,6 @@ import { writeSchedClock } from "./sched-clock-fake";
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 
-/** A boot's banner and one stall with its `t`, as `journalctl -k` prints them. */
 export const stallBootLines = (
 	bootMs: number,
 	stallMs: number,
@@ -25,13 +20,11 @@ export const stallBootLines = (
 	),
 ];
 
-/** A gzipped kernel config at `at` naming `hz`. Its path, for WFC_KERNEL_CONFIG. */
 export function writeKernelConfig(at: string, hz: number): string {
 	fs.writeFileSync(at, gzipSync(`CONFIG_HZ_${hz}=y\nCONFIG_HZ=${hz}\n`));
 	return at;
 }
 
-/** The figures --json gives for one large stall stamped now, read under `env`. */
 export function readStallNow(
 	dir: string,
 	env: Record<string, string>,

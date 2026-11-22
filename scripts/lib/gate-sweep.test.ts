@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's gate sweep (#2279): which readings queue a `/triage <n>`
- * judgement, the store surviving a restart, the tick dropping each judgement
- * it tried, the decision core launching a queued one, and the sweep running
- * beside ticks rather than in one. Two cases run real children from stub
- * check-gates.js scripts written to a temp dir: the exit code a real child
- * returns, and a sweep the loop does not wait on.
- *
- * Loosen one and a met gate stays held with nobody summoned to judge it, a
- * judge is launched on every sweep whatever it read, a refused judgement
- * takes a slot every tick, one refused on admission's HOLD waits out
- * JUDGE_EVERY_MS, or one slow `check:` stalls every tick behind it.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -35,8 +22,6 @@ const NOW = Date.parse("2026-10-21T17:00:00Z");
 let dir: string;
 let file: string;
 
-/* Every case but the damaged-store one seeds a sound store, so a logged
- * line is a failure. */
 const throwOnLog = (line: string) => {
 	throw new Error(`unexpected log: ${line}`);
 };
@@ -147,7 +132,6 @@ describe("which readings queue a judgement", () => {
 			dropTried(file, [{ root: WFC, issues: [3223] }], throwOnLog);
 			const next = await sweepOnce(
 				envelope([row(3223, reading, state)]),
-				// Past the bound, so the bound is not what holds it.
 				NOW + JUDGE_EVERY_MS + GATE_SWEEP_MS,
 			);
 			expect(next.store.pending).toEqual([]);
@@ -286,14 +270,12 @@ describe("never inside a tick", () => {
 		sweep.then(() => {
 			done = true;
 		});
-		// Two stand-in ticks, each a full read of the store, while the child is held.
 		for (let tick = 0; tick < 2; tick++) {
 			await new Promise((r) => setImmediate(r));
 			expect(done).toBe(false);
 			expect(readGateStore(file, throwOnLog).pending).toEqual([]);
 		}
 		expect(sweeper.startIfDue([dir], NOW + GATE_SWEEP_MS)).toBeNull();
-		// The loop adopts no new code while this reads true (#2361).
 		expect(sweeper.busy()).toBe(true);
 		fs.writeFileSync(release, "");
 		await sweep;

@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The stall check's judgement of the landing queue, and the refill loop's
- * supervision of it (#2406, #2692, #4458).
- *
- * Loosen it and a stalled or dead queue lander holds every landing back
- * unseen, a lander inside a call is reported dead, the refill loop starts no
- * lander for a waiting ref, or a slow red batch that still moves main, a push
- * onto a main idle for hours, or a machine that was off or asleep, is
- * ticketed as a stall.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,7 +8,6 @@ import { readHeldExit, stallFindings, supervision } from "./landing-stall.js";
 const NOW = Date.parse("2026-10-21T12:00:00Z");
 const Q = "b".repeat(40);
 const MIN = 60 * 1000;
-/* 2 h and five 60 s beats. */
 const STALL_MS = 120 * MIN;
 const STALE_MS = 5 * MIN;
 

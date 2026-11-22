@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/rescue-takeover.js's hand-off, the core behind `rescue-sessions.js
- * hand-off`, the refill loop's takeover of a resumed-idle session it stopped
- * (#2659), in-process on lib/rescue-ports-fake.ts's `gh` (#5157), in a
- * sandbox holding a real git repo and arbiter store.
- * rescue-sessions-hand-off.test.ts keeps one hand-off through the program.
- *
- * Breaking it costs the fresh session its pick-up: a comment read-hand-off.js
- * passes over, a diff carrying a neighbour's file, a known session's claim left
- * standing, or the stopped session's files restored out from under it. Of a job
- * whose record is gone (#3988), it costs the warning that the old session may
- * have been waiting on the founder.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -32,7 +19,6 @@ const N = 621;
 const sb = freshSandbox(withTracker);
 const { plan, writeTranscript, jobState, world, run } = rescueCoreKit(sb);
 
-/** `hand-off` for #621 on the sandbox plan. */
 const handOff = (extra: string[] = [], issues = [N]) =>
 	run("hand-off", [
 		"--from",
@@ -47,17 +33,13 @@ const comments = () =>
 	world().ghCalls.filter(
 		({ args }) => `${args[0]} ${args[1]}` === "issue comment",
 	);
-/** The last comment's body. */
 const posted = () => comments().at(-1)?.input ?? "";
 const commented = () => comments().length > 0;
-/** Each issue commented on, a line each. */
 const commentedOn = () =>
 	comments()
 		.map(({ args }) => `${args[2]}\n`)
 		.join("");
 
-/** A repo whose stopped session left x.js edited and y.js new, beside a
- * neighbour's z.js it never wrote, claiming #621. */
 const stoppedSession = () => {
 	gitRepo(sb);
 	for (const f of ["x.js", "z.js"])

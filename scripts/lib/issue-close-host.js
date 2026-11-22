@@ -1,12 +1,4 @@
-/*
- * issue-close-host.js — the production ports the dispatcher wires into the
- * guard-issue-close core, lib/issue-close.js (#2798, #3225). Every gh call,
- * the census read and the landing read carry the timeout the core hands them,
- * what is left of its run budget and at most 4 s, cut to what the
- * dispatcher's budget leaves (lib/hook-deadline.js). As in the core, what
- * only a close reaches is required inside its port.
- */
-
+const { orFallback } = require("./caught.js");
 const { budgetMs } = require("./hook-deadline.js");
 const { resolveKey } = require("./workflow-core-config.js");
 
@@ -18,15 +10,7 @@ const buildHostPorts = ({ root }) => ({
 	gh: (args, timeoutMs) => require("./gh.js").gh(args, { timeout: timeoutMs }),
 	now: Date.now,
 	tracker: () => {
-		let t;
-		try {
-			t = resolveKey("tracker", { root });
-		} catch {
-			/* A config that cannot be read resolves no tracker, so no close
-			 * reads as naming another repo and every rule still judges it
-			 * (mantahostels#103 §6). */
-			t = undefined;
-		}
+		const t = orFallback(() => resolveKey("tracker", { root }), undefined);
 		return typeof t === "string" && t ? t : undefined;
 	},
 	census: (n, timeoutMs, tree) =>
@@ -47,9 +31,6 @@ const buildHostPorts = ({ root }) => ({
 });
 
 /**
- * `refuse`'s refusal under a git ceiling of `ms`, outOfBudget where it
- * passes. Its wait notice starts at 5 s, past any budget the core hands it, so
- * it never writes to stderr.
  * @param {string} label
  * @param {number} ms
  * @param {(ceiling: import("./git-ceiling.js").GitCeiling) => string} refuse

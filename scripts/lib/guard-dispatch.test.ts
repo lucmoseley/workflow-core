@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * guard-dispatch.js runs every always-on guard of an event as a core of one
- * hook entry, judged and merged by lib/guard-judge.js (#2786). Break the merge and a deny is lost behind another
- * core's allow or a context behind another's; break the gating and a
- * disabled or off-module core speaks; break the failure policy and one broken
- * advisory core silences or blocks the rest.
- *
- * This is the dispatcher's module test, run in process: fixture cores
- * stand in for real ones, over a real rule store, latch directory and git in
- * the case's temp dir. The log is a recorder passed in place of the port.
- * Each real core's branches are its own module test's.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -108,7 +96,7 @@ const core = (
 
 const answers = (d: Decision) => () => d;
 
-/** Over the over-room notice's own length, which a drop still has to fit. */
+// guess, #4126
 const tightCap = 300;
 
 const payload = (over: Record<string, unknown> = {}) => ({
@@ -344,8 +332,7 @@ describe("every enabled core runs, none stopping the rest", () => {
 	});
 });
 
-/* #2733 story 39: no guard's advice is dropped in silence. */
-describe("the persist cap", () => {
+describe("the persist cap (#2733)", () => {
 	const notice = (...names: string[]) =>
 		`Over the hook context cap, these guards' advice was dropped unread: ${names.join(", ")}.`;
 	const said = (cores: Core[], persistChars = tightCap) =>
@@ -485,9 +472,6 @@ describe("the persist cap", () => {
 	});
 });
 
-/* The store read is the host's own, under the root the entry resolved: the
- * declared project dir holds no store, so a read that resolved its own root
- * would find no fragment and refuse. */
 describe("the rule store under the entry's root (#3142)", () => {
 	it.each([
 		["an injecting decision", () => ({ injectRules: ["alpha"] })],
@@ -561,8 +545,6 @@ describe("gating", () => {
 		const cores = [
 			core("a", answers({ injectRules: ["alpha"] }), { module: "site" }),
 		];
-		/* The suite injects its module list through WFC_MODULES, which replaces
-		 * the file's; this case reads the file. */
 		vi.stubEnv("WFC_MODULES", undefined);
 		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 		const config = path.join(dir, ".claude", "workflow-core.json");
@@ -740,10 +722,6 @@ describe("one adapter set a call", () => {
 });
 
 describe("the entry's fail-open record", () => {
-	/* Filed under the root the entry resolved under its git timeout: a second
-	 * root read would re-run a hung git unbounded. Counted through the stub,
-	 * but crossing the real clock: the one read is bounded only by a real
-	 * process timeout. */
 	it("is written off that one root read (#3038)", () => {
 		const calls = path.join(dir, "git-calls");
 		const git = path.join(dir, "slow-git");
@@ -852,7 +830,6 @@ describe("the entry's core load", () => {
 				.map((r) => corePath(r.core))
 				.filter((file) => file in require.cache);
 		expect(skillCall([]).status).toBe(0);
-		/* Internal state: no output shows the load cost this pins (#3141). */
 		expect(loaded(true)).not.toEqual([]);
 		expect(loaded(false)).toEqual([]);
 	});
@@ -880,8 +857,6 @@ describe("the entry's core load", () => {
 		);
 		expect(ran.status).toBe(0);
 		expect(refused).not.toEqual([]);
-		/* Internal state: no output shows the load cost this pins. agent-poll.js
-		 * alone is loaded anyway, by guard-echo-call's lib/echo-chain.js. */
 		expect(refused.filter((file) => file in require.cache)).toEqual([
 			corePath("agent-poll.js"),
 		]);

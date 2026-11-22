@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * The view's environment (#3886). Broken, a loop the panel restarts finds no `claude`
- * and launches nothing, in a pane that looks fine. The width (#3956) sizes the split.
- */
 import { describe, expect, it } from "vitest";
 import { readViewColumns, readViewEnv } from "./refill-panel-view-env.js";
 

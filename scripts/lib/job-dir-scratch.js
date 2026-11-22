@@ -1,91 +1,3 @@
-/*
- * job-dir-scratch.js — the dispatcher core that keeps session scratch out of
- * $CLAUDE_JOB_DIR (mantahostels#2406, mantahostels#2407).
- *
- * WHY A GUARD AND NOT A LINE IN CLAUDE.md. The background-job preamble points
- * every background session at `$CLAUDE_JOB_DIR/tmp`, and it is scoped to
- * background jobs where a pool line countering it is general — so on
- * `CLAUDE.md` §Ground truth's own first limb, "the more specific wins", the
- * preamble won. That ranking opens with "a guard's deny text wins over any
- * file", so moving the rule here settles the contest instead of trying to win
- * it with qualifying bytes.
- *
- * ROUTE (e), NOT (f) (`docs/doc-map.md` §Capture and placement §3). The text
- * is spliced into this core's own verdict through ruleText, so it is retrieved
- * at the moment it bites and costs neither the always-loaded pool nor route
- * (f)'s union ratchet.
- *
- * WHAT IT JUDGES, two limbs and one predicate, then one split.
- *
- *   Bash    — a write by any spelling lib/shell-parse.js's writeTargets reads
- *             (#1827) whose target resolves under the job directory.
- *   Write   — the `file_path` (or NotebookEdit's `notebook_path`) itself, for
- *   /Edit     the same predicate. The preamble hands every background job the
- *             EXPANDED path, which is the spelling those tools can carry.
- *
- *   A write target is first resolved as the shell would land it (#1030): its
- *   `$VAR`s expanded from the command's own earlier assignments, then the
- *   environment (`T=$CLAUDE_JOB_DIR/tmp; cat > $T/x`), and a relative result
- *   joined to each directory the command may stand in after its earlier
- *   `cd`s (`cd <job dir>/tmp && python3 - > x.py`, #5105).
- *
- *   A target is under the job directory on lib/job-dir.js's three limbs: its
- *   text names `CLAUDE_JOB_DIR` at all, or it sits under `$CLAUDE_JOB_DIR` as
- *   the hook sees it, or under the `<config>/jobs/<id>/` shape when that
- *   variable is unset. The third exists because a hook's environment is the
- *   harness's to give, and a rule that goes silent when one variable is
- *   missing is the fail-open the doc-map's own placement test disqualifies.
- *
- *   THE SPLIT (#1139): a target resolving to a file directly in `<job>/tmp/`,
- *   no subfolder between, is REFUSED. Anything else under the job directory —
- *   `<job>/tmp/<dir>/<file>`, or outside `tmp/` altogether — is WARNED. A
- *   command holding one of each is refused.
- *
- *   EXCEPT A CHECKOUT'S OWN `.claude/tmp/` (#3178). The preamble places a
- *   background job's worktree under `<job>/tmp/`, and that worktree's
- *   `.claude/tmp/` is the very target the remedy names, so a file below
- *   `<job>/tmp/<dir>/…/.claude/tmp/` is silent. Read from the text alone: any
- *   folder there passes as a checkout, git or not.
- *
- * WHY A READ IS NOT A BREACH. `cat $CLAUDE_JOB_DIR/tasks/x.output` is how a
- * session reads its own background job's output and is correct. Only a WRITE
- * is read here, which is why the Bash limb walks write targets rather than the
- * command string.
- *
- * WHY THE FLAT FOLDER IS REFUSED AND THE REST ONLY WARNED. The house order is
- * warn first, deny once measured, as the sibling root-scratch core went
- * (mantahostels#2323, mantahostels#2436); #1106 measured this one and found
- * the flat folder holds nearly every breach and almost no legitimate write.
- *
- * THE WARN'S BOUND: ONE FULL WARNING PER (agent, session), THEN SILENCE — the
- * shape mantahostels#2401 ruled for the sibling, on its own latch id. Terminal,
- * not decaying. The refusal is NOT latched: a latched deny would allow every
- * stray after the first, which is why mantahostels#2436 dropped the sibling's.
- *
- * LIMITS
- *  - The Bash limb reads writeTargets' spellings and no others, so `dd of=`, a
- *    heredoc body and a script that writes on the session's behalf are unread,
- *    as at the sibling. Each command is read as lib/shell-words.js's unwrap
- *    strips it (#5012): past a wrapper (`timeout 5 tee …`) and in each command
- *    a `flock -c` or `watch` string runs, bar that string's own redirects,
- *    which unwrap drops. A `sh -c` string is unread.
- *  - A single-source `cp`/`mv` to `$CLAUDE_JOB_DIR/tmp` with no trailing `/` is
- *    judged as a write to the folder itself, and warned rather than refused,
- *    wherever the hook cannot see that folder on disk.
- *  - Unread, so a target built on them is judged as written: a `pushd`, a
- *    `cd -` or a `cd` to an unresolvable path (the directory becomes unknown),
- *    a `cd` inside `{ … }` (the flattener does not scope braces), a variable
- *    from an earlier Bash call or set by `export`/`read`/`for`, and every word
- *    lib/shell-parse.js's resolveWord refuses (`$(…)`, `${VAR:-x}`, a name the
- *    command assigns two different values or assigns after a `||`).
- *  - It guards Claude Code's tools. A command run in a terminal sees no hook.
- *  - A repo script writing its own job-dir path is COMPLIANT and is invisible
- *    here by construction — it never appears in the session's own tool input
- *    (`scripts/bg-run.sh`, `scripts/issue-body.js`). A path a skill hands its
- *    subagents is not that: each subagent writes it through its own tool call,
- *    which this core sees (#1140).
- */
-
 const path = require("node:path");
 const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
@@ -99,29 +11,20 @@ const { isUnder } = require("./is-under.js");
 /**
  * @typedef {import("./core-contract.js").CoreContext} CoreContext
  * @typedef {import("./guard-entry.js").Decision} Decision
- * @typedef {{ flat: string, flatName: string, stray: string }} Found the
- *   offending targets as the caller wrote them: `flat` the first file straight
- *   into the job's own `tmp/`, refused; `stray` the first other, warned
+ * @typedef {{ flat: string, flatName: string, stray: string }} Found
  */
 
-/** What stands in for an unset CLAUDE_JOB_DIR on the Bash limb, so an
- * expansion through it keeps the name in the resolved text. */
 const JOB_DIR_STANDIN = "/CLAUDE_JOB_DIR";
 
 const RULE = "job-dir-scratch";
 
-/**
- * The file's own name where `rel`, a path relative to the job directory, is a
- * file directly in the job's `tmp/`, no subfolder between; null otherwise.
- * @param {string | null} rel
- */
+/** @param {string | null} rel */
 function flatName(rel) {
 	if (rel === null || !rel.startsWith("tmp/")) return null;
 	const name = rel.slice(4);
 	return name && !name.includes("/") ? name : null;
 }
 
-/** A file in the `.claude/tmp/` of a checkout under the job's `tmp/`. */
 const CHECKOUT_SCRATCH_RE = /^tmp\/[^/]+\/(?:.*\/)?\.claude\/tmp\/./s;
 
 /** @param {string | null} rel */
@@ -140,7 +43,6 @@ function decide(subject, ctx) {
 	const live = ctx.env.CLAUDE_JOB_DIR ?? "";
 	/** @param {string} shown @param {string} p @param {string} jobDir */
 	const classify = (shown, p, jobDir) => {
-		/* Folded here, since the `$CLAUDE_JOB_DIR` spelling keeps its `..`. */
 		const raw = jobRel(p, { pwd: ctx.fallbackCwd, jobDir });
 		const rel = raw === null ? null : path.posix.normalize(raw);
 		if (inCheckoutScratch(rel)) return;
@@ -151,8 +53,6 @@ function decide(subject, ctx) {
 		} else if (!found.stray) found.stray = shown;
 	};
 	if (ctx.tool === "Bash") {
-		/* Unset in the hook, the variable would refuse every expansion
-		 * through it, `T=$CLAUDE_JOB_DIR/tmp; cat > $T/x` included. */
 		const jobDir = live || JOB_DIR_STANDIN;
 		const parsed = parseCommand(subject);
 		walkCommands(
@@ -173,7 +73,6 @@ function decide(subject, ctx) {
 			},
 		);
 	} else {
-		/* A file path is a whole target already: only `./` and `//` to fold. */
 		const p = subject.startsWith("/") ? normAbs(subject) : subject;
 		if (isJobDir(p, { pwd: ctx.fallbackCwd, jobDir: live }))
 			classify(subject, p, live);
@@ -195,13 +94,7 @@ function decide(subject, ctx) {
 	};
 }
 
-/**
- * Every write target of each run, resolved from each directory the run may
- * stand in (#5105). An unknown directory is read only where it is the first: a relative target
- * there is judged against the session's own directory, which a later one
- * cannot stand in.
- * @param {import("./shell-parse.js").Command} cmd
- */
+/** @param {import("./shell-parse.js").Command} cmd */
 function* writesFromEveryDir(cmd) {
 	for (const run of cmd.runs()) {
 		const [first, ...rest] = run.dirs();
@@ -212,9 +105,6 @@ function* writesFromEveryDir(cmd) {
 }
 
 /**
- * One word the command writes, and its path as writeTargets resolved it.
- * Where it will not resolve, the text literal still yields is judged, which is
- * all isJobDir's first limb needs.
  * @param {string} word
  * @param {string} resolved
  * @param {{ spans: string[], where: import("./job-dir.js").Where,
@@ -243,8 +133,6 @@ const REMEDY = {
 };
 
 /**
- * The remedy names the session's own checkout's `.claude/tmp/`: in a linked
- * worktree, the worktree's (#4242).
  * @param {Found} found
  * @param {string} rule
  * @param {CoreContext} ctx

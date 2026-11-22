@@ -1,18 +1,15 @@
 // @vitest-environment node
-/*
- * job-paths.js's readJobRecordIn (#4704). Loosen it and an unreadable record
- * reads as no job, so the reaper can judge a resumable session's worktree
- * reapable.
- */
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { isBackgroundJob, readJobDir, readJobRecordAt, readJobRecordIn }: any =
-	createRequire(__filename)("./job-paths.js");
+import {
+	isBackgroundJob,
+	readJobDir,
+	readJobRecordAt,
+	readJobRecordIn,
+} from "./job-paths.js";
 
 let tmp: string;
 

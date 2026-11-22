@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/refill-carry.js, the refill loop's one choice between resuming a
- * stopped session in place and carrying it to another seat (#5302). Loosen
- * it and a session routed to its own seat is moved onto itself, or one
- * routed elsewhere resumes where it parked and holds that seat's slot.
- * Its doubles are hand-rolled: refill-blocks-fixture.ts's fakeIo is a whole
- * BlockIo, whose ports take a JobLaunch these cases have no use for.
- */
 import { describe, expect, it } from "vitest";
 import {
 	adoptOnSeat,

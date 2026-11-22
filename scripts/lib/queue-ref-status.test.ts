@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/queue-ref-status.js through readQueueRefStates, on a fixture checkout
- * whose records, ledger and commits are real, as the main sha is read off
- * git.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -18,7 +13,6 @@ const REF = "refs/heads/queue/alpha";
 
 let root: string;
 let tree: string;
-/** `seed` on main, `member` on it, `merged` the no-ff merge, `later` on member. */
 let seed: string;
 let member: string;
 let merged: string;
@@ -78,7 +72,6 @@ const aBatch = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** The pipeline record holding one batch, the line's head. */
 const batch = (over: Record<string, unknown> = {}) => ({
 	line: [aBatch(over)],
 	search: null,
@@ -88,7 +81,6 @@ const batch = (over: Record<string, unknown> = {}) => ({
 interface Fixture {
 	waiting?: string | null;
 	rows?: ReturnType<typeof row>[];
-	/** The batch record; raw text where a string. */
 	batch?: object | string;
 	drops?: object[] | string;
 	dropped?: { ref: string; sha: string }[];
@@ -335,8 +327,6 @@ describe("a dropped ref", () => {
 		...over,
 	});
 	const open = { ticket: null, state: "open" };
-	/* The cause and evidence, in the words lib/drop-evidence.js gives the
-	 * fix ticket's body. */
 	const why = () =>
 		`\n  dropped because, merged alone onto \`main\` at ${seed}, it conflicts with \`main\` in:\n- \`x\``;
 

@@ -13,7 +13,6 @@ from host_root import host_root
 
 
 def project_slug(path: str) -> str:
-    """Every non-alphanumeric character becomes its own hyphen. Case preserved."""
     return re.sub(r"[^a-zA-Z0-9]", "-", path)
 
 

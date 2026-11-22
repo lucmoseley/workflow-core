@@ -1,18 +1,10 @@
 // @vitest-environment node
-/*
- * hook-shims.js's module cases (#2879), all through `keepShims`. Every port is
- * a fake; keep-hook-shims.test.ts crosses
- * the production ones against a real git repository.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./core-hooks-testkit";
 
 const { keepShims } = require("./hook-shims.js");
 
-/** A hooks file naming each scripts/ file, alternating the two main-checkout
- * prefix spellings: the self-plugin root's and the canary's git common dir. */
 const hooksNaming = (...scripts: string[]) =>
 	JSON.stringify({
 		hooks: {
@@ -78,8 +70,6 @@ function fakePorts(o: {
 	return { ports, disk, calls };
 }
 
-/* Rev "old" (HEAD from 100) names guard-x.sh; the port landed at 200 as rev
- * "new", which names guard-x.js instead. */
 const REFLOG = [
 	{ sha: "new", at: 200 },
 	{ sha: "old", at: 100 },
@@ -94,7 +84,6 @@ const PORTED = {
 };
 const startedAt = (t: number): Listing => ({ agents: [{ startedAt: t }] });
 
-/** PORTED after a run for a session started at 150, which wrote the shim. */
 function shimmed(extra: Partial<Parameters<typeof fakePorts>[0]>) {
 	const first = fakePorts({ ...PORTED, agents: startedAt(150) });
 	keepShims(first.ports);

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The contract lib/push-review-fake.js keeps with lib/push-review.js (#2785,
- * §G7): each answer the fake serves is the shape and verdict the real adapter
- * gives in the situation the answer names. Only the situation's own values —
- * the files, the start point — differ.
- */
 
 import { describe, expect, it } from "vitest";
 import { code, PAST_FLOOR, reviewFixture } from "./push-review-fixture";
@@ -15,7 +9,6 @@ const { ANSWERS } = require("./push-review-fake.js") as {
 
 const { f, commitBy, marker, declareRls, owed } = reviewFixture();
 
-/** An answer less the values its situation sets. */
 const verdict = (o: Record<string, string> | null) =>
 	o && { ...o, files: "<files>", base: "<base>" };
 

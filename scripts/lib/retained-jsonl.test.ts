@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * retained-jsonl.test.ts — the age-pruned logs' append, prune and sweep
- * (#4819). Loosen a case and a writer appending while another prunes loses
- * its line: in the pass store, a newer fail, after which an older pass on the
- * same content skips a file that should run.
- *
- * A neighbour is a lock directory made by hand, and a clock that runs 3 s a
- * read ends the lock's 2 s wait at once; a writer racing a stalled holder is
- * a line appended from inside the holder's own rename or removal.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -99,7 +89,6 @@ describe("appending to a log due a prune", () => {
 	it("takes over a crashed holder's lock and prunes", () => {
 		seed(stale);
 		holdLock();
-		// Past lib/dir-lock.js's 10 s stale age.
 		const t = (Date.now() - 60_000) / 1000;
 		fs.utimesSync(`${log}.lock`, t, t);
 		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);

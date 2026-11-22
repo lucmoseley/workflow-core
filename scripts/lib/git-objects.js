@@ -1,28 +1,11 @@
-/*
- * git-objects.js — `git ls-tree` and `git cat-file --batch`, read into entries
- * and bodies, and one file's text at a revision, a failure thrown BROKEN. No load-time side effects, so a program
- * on a suite launch's path can require it (#2493).
- */
-
 const { spawnGitSync } = require("./git.js");
 const { CHILD_MAX_BUFFER: MAX_BUFFER } = require("./child-buffer.js");
 const { brokenError } = require("./outcome-error.js");
 const { GIT_MODE } = require("./git-mode.js");
 
 /**
- * Each object out of one `git cat-file --batch`, in the order asked: its type
- * and body, null for one git reports missing.
- *
- * With `followSymlinks`, a `<rev>:<path>` through a link inside the tree
- * answers its target's object, and one git will not follow answers git's own
- * `symlink`, `dangling`, `loop` or `notdir` type, its body the link target or
- * the name asked (git-cat-file(1)).
- *
- * FAILS CLOSED: a failed or truncated batch throws BROKEN rather than handing
- * back fewer bodies, which a cap gate would read as bytes shed (mantahostels#1834).
- *
- * @param {string[]} objects shas, or `<rev>:<path>` names
- * @param {string} what what is being fetched, for the refusal
+ * @param {string[]} objects
+ * @param {string} what
  * @param {{ cwd?: string, followSymlinks?: boolean, timeout?: number, maxBuffer?: number }} [opts]
  * @returns {({ type: string, body: Buffer } | null)[]}
  */
@@ -36,8 +19,6 @@ function readObjectBatch(
 		["cat-file", "--batch", ...(followSymlinks ? ["--follow-symlinks"] : [])],
 		{
 			cwd,
-			/* A Buffer, not a string: `encoding: "buffer"` governs stdin too, and
-			 * node refuses it as an input encoding. */
 			input: Buffer.from(`${objects.join("\n")}\n`, "utf8"),
 			encoding: "buffer",
 			maxBuffer,
@@ -60,13 +41,10 @@ function readObjectBatch(
 					"answering fewer objects than it was asked for.",
 			);
 		const header = buf.slice(at, nl).toString("utf8");
-		/* `<name> missing` carries no body; skipping it keeps the cursor on a
-		 * header boundary rather than desyncing every entry after it. */
 		if (header.endsWith(" missing")) {
 			at = nl + 1;
 			return null;
 		}
-		/* `<oid> <type> <size>`, or a followed link's `<type> <size>`. */
 		const fields = header.split(" ");
 		const type = fields.at(-2);
 		const bytes = Number(fields.at(-1));
@@ -79,16 +57,12 @@ function readObjectBatch(
 				`git cat-file answered ${object} with "${header}" while fetching ${what}.`,
 			);
 		const body = buf.slice(nl + 1, nl + 1 + bytes);
-		at = nl + 1 + bytes + 1; // the batch appends a newline after each body
+		at = nl + 1 + bytes + 1;
 		return { type, body };
 	});
 }
 
 /**
- * `git ls-tree` of `pathspecs` at `rev`, run in `cwd`, so each path is
- * relative to it. Recursive, it lists every blob, symlink and gitlink; not, a
- * directory's own entries, trees included.
- *
  * @param {string} rev
  * @param {string[]} pathspecs
  * @param {{ cwd?: string, recursive?: boolean, timeout?: number }} [opts]
@@ -121,9 +95,6 @@ function listTree(rev, pathspecs, { cwd, recursive = true, timeout } = {}) {
 }
 
 /**
- * Whether `rev`, an empty `rev` the index, holds a submodule at `file`: its
- * commit is another repository's, which cat-file reports missing.
- *
  * @param {string} rev
  * @param {string} file
  * @param {string} [cwd]
@@ -148,11 +119,6 @@ function isGitlink(rev, file, cwd, timeout) {
 }
 
 /**
- * The text of repo-relative `file` as `rev` holds it, an empty `rev` the
- * index: null where it holds no such path, undefined where `rev` names no
- * commit (an unborn HEAD included). Throws BROKEN where the path holds no
- * file or git will not answer.
- *
  * @param {string} rev
  * @param {string} file
  * @param {{ cwd?: string, timeout?: number }} [opts]
@@ -175,9 +141,6 @@ function readFileAt(rev, file, { cwd, timeout } = {}) {
 }
 
 /**
- * readFileAt, where `rev` must name a commit: throws BROKEN where it names
- * none, an unborn HEAD included.
- *
  * @param {string} rev
  * @param {string} file
  * @param {{ cwd?: string, timeout?: number }} [opts]

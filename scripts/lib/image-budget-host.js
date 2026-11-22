@@ -1,17 +1,9 @@
-/*
- * image-budget-host.js — the production store lib/image-budget.js counts in
- * (#2787): one `<size>\t<path>` line per Read under
- * ${TMPDIR:-/tmp}/wfc-image-budget/<session>.<agent>, oldest first, and a
- * `.told` sidecar holding `<warned 0|1> <files named gone>`, rewritten on
- * every Read so the two age out together.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { orFallback } = require("./caught.js");
 const { sweepFiles, withDirLock } = require("./dir-lock.js");
 
-/* A judgement: two days outlasts any working session seen here. */
+// guess, two days outlasts any working session seen, #1784
 const SWEEP_AGE_MS = 2 * 24 * 60 * 60 * 1000;
 
 /** @param {string} text */
@@ -37,8 +29,6 @@ function buildHostPorts({ log }) {
 		}
 		sweepFiles(dir, SWEEP_AGE_MS);
 		const store = path.join(dir, name);
-		/* Parallel Reads in one message run this hook concurrently; the append,
-		 * the sums and the sidecar update are one read-modify-write. */
 		return withDirLock(`${store}.dlock`, () => {
 			try {
 				fs.appendFileSync(store, `${entry.size}\t${entry.path}\n`);

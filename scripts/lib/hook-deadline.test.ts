@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * hook-deadline.js caps each git and gh call in the dispatcher's process at
- * what its event's entry budget leaves (#2792, #3268). Module cases with an
- * injected `now`; the clock is module state, so each case reloads the module
- * and the two seams that read it.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -76,7 +70,6 @@ const SELF_HOOKS = path.join(
 );
 const PLUGIN_HOOKS = path.join(__dirname, "..", "..", "hooks", "hooks.json");
 
-/** Half the timeout of each registration in `file` whose command runs `script`. */
 const halfTimeouts = (file: string, script: string) => {
 	const hooks = JSON.parse(fs.readFileSync(file, "utf8")).hooks as Record<
 		string,
@@ -129,8 +122,6 @@ describe("the git and gh seams", () => {
 	});
 
 	it("cut a gh call's timeout to what is left", () => {
-		/* The real clock, crossed: only a spawn's own kill shows the timeout
-		 * child_process got. */
 		const stub = path.join(dir, "gh");
 		fs.writeFileSync(stub, "#!/bin/sh\nsleep 5\n", { mode: 0o755 });
 		vi.stubEnv("WFC_GH", stub);

@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * report-once.js (#861) — a transcript-reading Stop guard names each tool call
- * in one line and tells a session about it once, for ever, marking it told only
- * where the block actually went out.
- *
- * In-process, with the `seen` marker under a temp root, so no case writes this
- * checkout's markers.
- *
- * `guard-lost-deny.js` and `guard-automode-refusal.js` run on it as Stop hooks
- * in `.claude/settings.json`; loosen a case and a session is blocked on the
- * same call every turn, or never told of one it was never shown.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

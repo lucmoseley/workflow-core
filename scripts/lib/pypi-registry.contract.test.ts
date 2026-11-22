@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The PyPI fake's contract (§G7, #5232): one case list run against
- * lib/pip-install-host.js's real curl calls, against lib/pypi-registry-fake.ts's
- * WFC_CURL stub through the same adapter, and against its in-process ports.
- * Each answer gives the same verdict from lib/pip-install.js's `decide` and
- * the same shape in the fields the core reads; values are never compared.
- * Loosened, the guard's tests stay green on a fake while the guard misreads
- * what PyPI or pypistats really answers.
- *
- * Red after an API change: re-run the case's URL by hand, copy what changed
- * into lib/pypi-registry-fake.ts.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,7 +28,6 @@ type Real = "live" | "cut" | "absent";
 
 const PASSING = buildPassingPyPI(Date.now());
 
-/** Port 9, discard, which nothing listens on here. */
 const DEAD = "http://127.0.0.1:9";
 
 const CASES: {
@@ -86,8 +73,6 @@ const CASES: {
 	},
 ];
 
-/** The verdict `decide` gives an install of `pkg` where `port` answers
- * `answer` and the other port passes. */
 function verdictOf(port: Port, pkg: string, answer: Get): string | null {
 	const ctx = kitContextFake({
 		tree: () => ({
@@ -167,11 +152,6 @@ const stubAnswer = (port: Port, c: (typeof CASES)[number]) => {
 const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>
 	port === "pypi" ? pypiAnswer(c.reg) : statsAnswer(c.reg);
 
-// Residual: where the public services do not answer, the live cases skip and
-// the fake's success and 404 answers go unchecked. The probe reads PyPI's
-// cached paths; a made-up name's 404 comes from its origin, which can stall
-// past curl's 8 s while the probe answers (#5402); silenceReason then skips
-// the case on every run while that origin stays silent.
 let liveSkip: { reason: string | undefined } | undefined;
 function liveSkipReason(): string | undefined {
 	for (const url of [URLS.pypi("playwright"), URLS.stats("playwright")])
@@ -180,8 +160,6 @@ function liveSkipReason(): string | undefined {
 	return undefined;
 }
 
-/** Whether curl, outside the adapter, gets an HTTP answer from `url`: any
- * answer, or with `okOnly` a 2xx or 3xx. */
 function isAnswered(url: string, { okOnly = false } = {}): boolean {
 	const { status } = spawnSync(
 		"curl",
@@ -199,8 +177,6 @@ function isAnswered(url: string, { okOnly = false } = {}): boolean {
 	return status === 0;
 }
 
-/** Why a live adapter answer says nothing of the contract, if it does not:
- * it got nothing, and neither does curl asked the same URL directly. */
 function silenceReason(port: Port, pkg: string, real: Get): string | undefined {
 	if ("missing" in real || real.code !== null) return undefined;
 	const url = URLS[port](pkg);
@@ -210,9 +186,7 @@ function silenceReason(port: Port, pkg: string, real: Get): string | undefined {
 describe.each(CASES)("$what", (c) => {
 	it.for(c.ports)(
 		"%s answers alike from the real adapter, the stub and the in-process fake",
-		// At worst 36 s: the two 8 s probes on the first live case, curl's 8 s,
-		// the stats port's 429 retry (1 s wait, 3 s ask) and the 8 s re-ask of
-		// a silent URL. The 4 s over that is a guess.
+		// guess, #5402
 		{ timeout: 40_000 },
 		(port, ctx) => {
 			if (c.real === "live") {
@@ -229,7 +203,6 @@ describe.each(CASES)("$what", (c) => {
 					verdictOf(port, c.pkg, fake),
 				);
 			};
-			// The real answer first: the stub's environment holds to the test's end.
 			const real = realAnswer(port, c);
 			alike(stubAnswer(port, c));
 			const silence =

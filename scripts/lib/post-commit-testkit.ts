@@ -1,17 +1,3 @@
-/*
- * post-commit-testkit.ts — .husky/post-commit's rows driven in this process
- * (#5208, spec #5207): the registry run as scripts/post-commit-dispatch.js
- * runs it, on the real route port, and the programs the rows reach stood in
- * for where a case is about the row's half rather than the program's answer.
- *
- * A stand-in replaces a program's PROGRAM export, or lib/check.js's
- * checkInProcess, in `programs`, the steps' Programs port this kit hands
- * every row it runs; a program no case stood in for runs for real. The
- * stand-ins are dropped after every case.
- *
- * FOR TESTS ONLY.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -25,9 +11,6 @@ const load = createRequire(__filename);
 
 export const SCRIPTS = path.join(__dirname, "..");
 
-/** lib/post-commit-steps.js as the registry's rows hold it: the instance in
- * Node's own require cache, which an ESM import of the file is not, so a
- * case can compare a row's `run` with its step. */
 export const STEPS: typeof import("./post-commit-steps.js") = load(
 	"./post-commit-steps.js",
 );
@@ -45,7 +28,6 @@ export type ProgramIo = Io & { args: string[] };
 
 export const SILENT: Result = { exit: 0, stdout: "", stderr: "" };
 
-/** The programs the rows run through a PROGRAM export. */
 export const PROGRAMS = [
 	"report-new-shared-faults.js",
 	"session-arbiter.js",
@@ -73,17 +55,12 @@ export const programs: Programs = {
 		(checkFake.now ?? load("./check.js").checkInProcess)(spec, argv, opts),
 };
 
-/** Stand `impl` in for `script`'s PROGRAM. */
 export function stubProgram(script: Program, impl: (io: ProgramIo) => Result) {
 	const fake = vi.fn(impl);
 	programFakes.set(script, fake);
 	return fake;
 }
 
-/**
- * Stand `impl` in for lib/check.js's checkInProcess, which the two
- * `--touched-by` rows run their checker through.
- */
 export function stubCheck(
 	impl: (...a: Parameters<CheckInProcess>) => Result | Promise<Result>,
 ) {
@@ -92,7 +69,6 @@ export function stubCheck(
 	return fake;
 }
 
-/** Every program the rows reach, silent: the rows of git alone stay real. */
 export function quietPrograms() {
 	const quiet = Object.fromEntries(
 		PROGRAMS.map((p) => [p, stubProgram(p, () => SILENT)]),
@@ -100,15 +76,12 @@ export function quietPrograms() {
 	return { ...quiet, check: stubCheck(() => SILENT) };
 }
 
-/** A stand-in program writing its argv, one per line, to stdout. */
 export const echoArgv = ({ args }: ProgramIo): Result => ({
 	exit: 0,
 	stdout: args.map((a) => `${a}\n`).join(""),
 	stderr: "",
 });
 
-/** The env a hook's process has: no session unless given one, and the
- * relative GIT_INDEX_FILE git exports into every hook. */
 export function hookEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 	const { CLAUDE_CODE_SESSION_ID: _, ...env } = process.env;
 	return { ...env, GIT_INDEX_FILE: ".git/index", ...extra };
@@ -135,7 +108,6 @@ export function rowOf(id: string) {
 	return row;
 }
 
-/** What a replay leaves in the git dir, one per route-gated sentinel. */
 export const REPLAY_SENTINELS = [
 	["rebase-merge", "dir"],
 	["rebase-apply", "dir"],
@@ -144,18 +116,12 @@ export const REPLAY_SENTINELS = [
 	["BISECT_LOG", "file"],
 ] as const;
 
-/** Leave `sentinel` in `root`'s git dir. */
 export function plantSentinel(root: string, sentinel: string, kind: string) {
 	const at = path.join(root, ".git", sentinel);
 	if (kind === "dir") fs.mkdirSync(at);
 	else fs.writeFileSync(at, "\n");
 }
 
-/**
- * A linked worktree of `repo` (made under `dir`) whose commit of `docs/wt.md`
- * fires a post-commit hook recording the GIT_* variables git hands it;
- * returns the worktree and the caller's env with those variables in it.
- */
 export function linkedCommit(repo: string, dir: string) {
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, {

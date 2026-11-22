@@ -1,13 +1,3 @@
-/**
- * neighbour-dirt.test.ts — `readClaimedElsewhere`'s judgement of whose claim
- * is live (#4902).
- *
- * In-process, on arbiter-testkit's sandbox lock store and sessions registry,
- * so a lock's frozen pid and the registry's live one can disagree on purpose.
- * Broken, `guard-uncommitted-work.js` names a resumed neighbour's file as this
- * session's dirt, with a commit command that puts their bytes under its message.
- */
-
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import {

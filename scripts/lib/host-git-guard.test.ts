@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/host-git-guard/git, the suites' `git` (#3161), refuses a write to the
- * host repository and passes every other call to the real git.
- *
- * A probe of this checkout is an empty `update-ref --stdin`, which would
- * change nothing if it ran.
- * The shim's `argv[0]` is held by commit-paths.test.ts, which reads a git
- * process's command line.
- *
- * Loosen a refusal and a test whose `cwd` misses its fixture writes to the
- * real `.git` again; widen one and a test reading the real repo goes red.
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -47,9 +34,7 @@ const shim = (
 		cwd,
 		encoding: "utf8",
 		env: { ...process.env, ...env },
-		/* 10 s, a guess: far above one git call, so a case whose shim and a
-		 * git on PATH call each other (#3400) fails rather than hangs. It
-		 * crosses the real clock only as that bound, asserting no time. */
+		// guess, #3400
 		timeout: 10_000,
 	});
 
@@ -258,10 +243,6 @@ describe("the host and the real git, unnamed", () => {
 		expect(r.status, r.stderr).toBe(0);
 	});
 
-	/*
-	 * A LOOP HERE NEVER FORKS (#3400): each git below `exec`s, so a regression
-	 * spins one pid.
-	 */
 	const onPath = (dirs: string[], rest = process.env.PATH) => ({
 		WFC_HOST_GIT_DIR: hostCommon,
 		PATH: [...dirs, rest].join(path.delimiter),
@@ -275,7 +256,6 @@ describe("the host and the real git, unnamed", () => {
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout.trim()).toBe(head(host));
 	};
-	/** A git that execs the shim back, as a fake whose real git is `command -v git`. */
 	const callsBack = () => {
 		const fake = path.join(dir, "fake-git");
 		fs.mkdirSync(fake, { recursive: true });
@@ -308,7 +288,6 @@ describe("the host and the real git, unnamed", () => {
 		expectRefused(r, "update-ref");
 	});
 
-	/** The shim as a symlinked PATH's only git, with no bash on that PATH. */
 	const isolated = (args: string[], real = process.env.WFC_HOST_GIT_REAL) => {
 		const bin = path.join(dir, "isolated-bin");
 		fs.mkdirSync(bin, { recursive: true });

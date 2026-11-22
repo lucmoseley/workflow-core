@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's pure readings (#2012) and the repos a tick serves
- * (#2123); a seat's reading and sizing are seat-reading.test.ts's. No fixture
- * touches disk but the read of dispatch-sessions.js that pins the free-slot
- * count's admission flags to the script's, and the acts ledgers the progress
- * cases write in arbiter-testkit's sandbox.
- *
- * Loosen one and a working session can be judged finished and stop the run
- * for no progress, a stop written mid-tick let the rest
- * of the tick's picks launch or one written during the review go unrecorded,
- * or a launch be judged without the session id its listing gave, or by
- * anything but what its own session did, or a job that never started stay
- * listed for good, or a live one be stopped, or an API-error session be judged finished between resumes, resumed twice
- * for one try, or resumed off a listing that would not read, or a gate
- * judgement's record lose the flag that keeps it out of the no-progress run.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -74,9 +58,6 @@ const agent = (id: string, state: string) => ({
 
 type Reading = import("./block-cause.js").Reading;
 
-/** The launches after one listing, every finished one judged with no progress
- * fields unless `progressOf` gives some, every parked one read as `cause`, or
- * as an API_ERROR of kind `sub`. */
 const judged = (
 	launches: Launch[],
 	agents: ReturnType<typeof agent>[] | null,
@@ -365,9 +346,6 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 	const sb = freshSandbox();
 	const other = () => path.join(sb.dir, "other-repo");
 
-	/** The launches after a listing where each has ended, judged by the acts
-	 * ledger across the sandbox's two repos. A job in `idless` is listed with no
-	 * session id. */
 	const judgedByLedger = (launches: Launch[], idless: string[] = []) =>
 		judgedLaunches(
 			launches,
@@ -556,8 +534,6 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 			lastActAt: {},
 		});
 
-	/** Finishes in order, `j<n>` finishing at NOW - 10 + n, those in `idless`
-	 * listed with no session id. */
 	const finishes = (jobs: string[], idless: string[] = []) =>
 		judgedByLedger(
 			jobs.map((j) => ended(j)),
@@ -698,7 +674,6 @@ function settleOnce(
 }
 const logged = (...args: Parameters<typeof settleOnce>) =>
 	settleOnce(...args).line;
-/** The tick's own state write, past each batch it put on record first (#4180). */
 const tickWrite = (writes: Tick["state"][]) => {
 	const written = writes.find((w) => !w.launching && w.lastTick?.at === NOW);
 	if (!written) throw new Error("the tick wrote no state of its own");
@@ -855,9 +830,7 @@ describe("a batch on record before its dispatch (#4180)", () => {
 });
 
 describe("the first overflow launch's record (#3767)", () => {
-	/* The overflow seat on the plan seat's dir, told apart by its key. */
 	const key = "K2";
-	/** When a past launch launched, unless it says otherwise. */
 	const pastAt = NOW - 3_600_000;
 	const planSeat = (dir: string, percent: number, weekFull: boolean) => ({
 		seat: dir,
@@ -1779,7 +1752,6 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		history: [],
 		lastActAt: {},
 	} as Tick["input"];
-	/* One repo per pick, so each is its own dispatcher call. */
 	const pick = (n: number) => ({
 		root: `/r/repo${n}`,
 		issues: [n],
@@ -1788,10 +1760,6 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		seat: "/s",
 		reason: "soonest reset" as const,
 	});
-	/**
-	 * `stop` writes the stop to the control the tick re-reads; a `refused` pick
-	 * is one the dispatcher launched nothing for.
-	 */
 	function settle({
 		stopFirst = false,
 		gone = false,
@@ -2032,7 +2000,6 @@ describe("the checkouts whose landing a tick supervises (#3284)", () => {
 });
 
 describe("when a tick files the morning review (#2017)", () => {
-	/* Local time, as isReviewRunDue reads the hour and date locally. */
 	const at = (hour: number, minute = 0) => new Date(2026, 9, 19, hour, minute);
 
 	it("runs on the first tick at or after 07:00, once that day", () => {
@@ -2339,7 +2306,6 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 	});
 	const resuming = (over = {}): Launch =>
 		record({ jobId: "p", parked: true, block: block("transient"), ...over });
-	/** Resumes made, the last `ago` minutes back, the next due `dueIn`. */
 	const tried = (tries: number, ago: number, dueIn: number, over = {}) => ({
 		tries,
 		triedAt: NOW - ago * MIN,

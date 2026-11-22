@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the census's strict patterns (#2153) and holds the adopter templates to
- * them (#2345). It reads the real templates init-adopter.js renders from, not
- * fixtures, so a residue line added to one fails here. Loosen a case and
- * residue ships into every adopter on its next bump.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -22,7 +16,6 @@ const { testFile, kinds }: { testFile: string; kinds: Kind[] } = JSON.parse(
 	fs.readFileSync(path.join(__dirname, "residue-patterns.json"), "utf8"),
 );
 
-/** Each hit as `<line> <kind> <text>`, line 0 and the entry key for K8. */
 function residueHits(text: string, file: string): string[] {
 	const isTest = new RegExp(testFile).test(file);
 	const hits: string[] = [];
@@ -112,11 +105,6 @@ describe("the strict patterns", () => {
 	});
 });
 
-/*
- * The working rule that bans residue names residue's own words, so its section
- * is blanked, line numbers kept, before a template is held to the patterns
- * (#5383). Every other line stays held.
- */
 const withoutRemovalRule = (text: string) => {
 	let inRule = false;
 	return text

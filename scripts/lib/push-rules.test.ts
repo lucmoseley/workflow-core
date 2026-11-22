@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * lib/push-rules.js, the guard-push-rules core (#2785), in process: which
- * pushes are handed which rules, and when the review warn rides ahead of them.
- */
 
 import { describe, expect, it } from "vitest";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
@@ -60,7 +56,6 @@ const treeClass = fakeTreeClassifier({
 	[LINKED]: "linked",
 });
 
-/** A context of fakes: a host meeting every premise. */
 function harness(over: Over = {}) {
 	const logs: string[] = [];
 	const reviewed: string[] = [];
@@ -86,7 +81,6 @@ function harness(over: Over = {}) {
 	return { ctx, logs, reviewed };
 }
 
-/** The ids a decision hands over: requested, less skipped. */
 const handed = (d: Decision) =>
 	(d?.injectRules ?? []).filter((id) => !(d?.skip ?? []).includes(id));
 
@@ -109,8 +103,6 @@ describe("a push is handed its rules, and refused nothing", () => {
 	});
 
 	it("requests every id this trigger owns, in priority order, and no others", () => {
-		// The cap is per call, so a blanket request would spend it on whatever
-		// the store held; push-cadence first carries the recipe.
 		expect(run("git push origin main")?.injectRules).toEqual(ALL);
 	});
 
@@ -165,7 +157,6 @@ describe("a push whose tree it cannot resolve is handed the rules (#319)", () =>
 });
 
 describe("an assignment before the first || is read, so the push's tree is judged (#328)", () => {
-	// #319's shape: its only `||` comes after `W=`, so W resolves.
 	const shape = (w: string) =>
 		`W=${w} && S=m && case "$S" in *) [ -n "$S" ] || exit 1;; esac && git -C $W push origin "$S":main`;
 
@@ -239,7 +230,6 @@ describe("pushed code no review covers is warned of, never refused (#1163)", () 
 		).toBeUndefined();
 	});
 
-	// #1696: one latch a tier.
 	it("warns again when a range warned of at the standard tier turns escalated, and then no more", () => {
 		const d = run("git push", {
 			answer: "escalated",
@@ -252,7 +242,6 @@ describe("pushed code no review covers is warned of, never refused (#1163)", () 
 			told: ["push-review-warn", "push-review-warn-escalated"],
 		});
 		expect(decide("git push", after.ctx)?.prelude).toBeUndefined();
-		// Told escalated with the marker unchanged: the adapter is not even asked.
 		expect(after.reviewed).toEqual([]);
 	});
 
@@ -265,7 +254,6 @@ describe("pushed code no review covers is warned of, never refused (#1163)", () 
 		).toBeUndefined();
 	});
 
-	// #1840: the marker's checksum beside the latches tells a new marker apart.
 	it.each([
 		["rejected", "push-review-warn", 1],
 		["rejectedEscalated", "push-review-warn-escalated", 2],
@@ -328,11 +316,6 @@ describe("pushed code no review covers is warned of, never refused (#1163)", () 
 	});
 });
 
-/*
- * MUTATION ANCHORS. A row reads the ONE fragment its block names, its
- * whitespace collapsed, so a reflow cannot fail it and a cut clause does
- * (mantahostels#2226).
- */
 const carries = (id: string, clause: string) =>
 	expect(readRuleText(id).replace(/\s+/g, " ")).toContain(clause);
 

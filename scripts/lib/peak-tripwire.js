@@ -1,36 +1,3 @@
-/*
- * peak-tripwire.js — the switch that sends every part-suite back to the
- * ladder once earlyoom kills a test run while a peak-charged run is live
- * (#5367, spec #5366): `armed` lets the gate charge a part-suite on its own
- * measured peak, `tripped` holds it on the ladder until a session that has
- * read the kill re-arms it (scripts/peak-tripwire.js `arm`).
- *
- * THE STATE is one JSON file, TRIPWIRE_FILE in the canonical checkout's
- * markers directory, written atomically. Absent, it reads `armed` (#5362).
- *
- * THE TRIP RULE: a kill in or after the `checkedThrough` cursor's second, the
- * journal's resolution, trips the wire where lib/earlyoom-kills.js's reader
- * joins it to a test run and any run file (lib/run-memory.js) carrying
- * `mode: "peak"` was live at its time: started at or before the kill's second,
- * last sampled no more than the store's slack before it. The run files are
- * machine-wide, so any repo's peak run counts.
- *
- * THROTTLED: the journal is read at most once per CHECK_MS, by the state's
- * `checkedAt`; between checks the gate reads the file alone, so a hook pays no
- * journal read on most calls.
- *
- * BLIND FAILS TO THE LADDER: a journal the reader reports unreadable, or a run
- * store that will not read beside a test-run kill, records `unread` and keeps
- * the cursor; the gate judges part-suites on the ladder until a readable check
- * clears it. A state file that will not parse, or a check that will not
- * write it, falls to the ladder too, as `state-unread`, and only `arm`
- * rewrites a torn file, so a torn trip is never lost to a check. A write
- * that fails persists nothing, so `npm run status` cannot see it: only the
- * guard-error log does.
- *
- * The gate's reads never throw; `arm` throws where the file will not write.
- */
-
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
@@ -42,7 +9,7 @@ const { heldUntil } = require("./run-memory.js");
 const { scriptPath } = require("./script-path.js");
 
 const TRIPWIRE_FILE = "peak-tripwire.json";
-/* Untraced (#5366 §Values). */
+// guess, #5366
 const CHECK_MS = 30 * 1000;
 
 /**
@@ -52,14 +19,13 @@ const CHECK_MS = 30 * 1000;
  *   fileCount: number, repo: string }} LiveRun
  * @typedef {object} Tripwire
  * @property {"armed"|"tripped"} state
- * @property {Trip|null} trip the kill that tripped it
- * @property {LiveRun[]} liveRuns the peak-charged runs live at that kill
+ * @property {Trip|null} trip
+ * @property {LiveRun[]} liveRuns
  * @property {string|null} trippedAt
- * @property {string|null} checkedThrough the journal read through, ISO
- * @property {string|null} checkedAt the last check, readable or not
- * @property {{ at: string, why: string }|null} unread the last check, where
- *   it could not read; cleared by a readable one
- * @property {string|null} armedBy the session that last re-armed it
+ * @property {string|null} checkedThrough
+ * @property {string|null} checkedAt
+ * @property {{ at: string, why: string }|null} unread
+ * @property {string|null} armedBy
  * @property {string|null} armedAt
  * @typedef {{ tripwire: Tripwire, corrupt: string|null }} Read
  * @typedef {{ cause: "tripped"|"journal-unread"|"state-unread", why?: string }} Fallback
@@ -83,15 +49,12 @@ const ARMED = {
 
 const defaultFile = () => path.join(markersDir(hostRoot()), TRIPWIRE_FILE);
 
-/** The commands a session re-arms by. */
 const rearmCommands = () => {
 	const cli = `node ${scriptPath("peak-tripwire.js")}`;
 	return { status: `${cli} status`, arm: `${cli} arm` };
 };
 
 /**
- * The persisted state; `corrupt` says why a file that is there would not
- * read.
  * @param {{ file?: string }} [o]
  * @returns {Read}
  */
@@ -121,7 +84,6 @@ const writeTripwire = (file, t) =>
 	writeFileAtomic(file, `${JSON.stringify(t, null, "\t")}\n`, { mkdir: true });
 
 /**
- * The peak-charged runs live at `atMs`.
  * @param {ReturnType<RunReader>["runs"]} runs
  * @param {number} atMs
  * @returns {LiveRun[]}
@@ -146,7 +108,6 @@ const liveAt = (runs, atMs) =>
 		}));
 
 /**
- * The journal since `since` read for a tripping kill.
  * @param {number} since
  * @param {{ readIncidents: IncidentReader, readRunFiles: RunReader }} ports
  * @returns {{ why: string } | { trip: Trip, liveRuns: LiveRun[] } | null}
@@ -184,8 +145,6 @@ function findTrip(since, { readIncidents, readRunFiles }) {
 }
 
 /**
- * `findTrip`, a reader that throws reading as one that reports itself
- * unreadable, so the check records it blind (`unread`) and keeps the cursor.
  * @param {number} since
  * @param {Parameters<typeof findTrip>[1]} readers
  * @returns {ReturnType<typeof findTrip>}
@@ -199,7 +158,6 @@ function findTripOrWhy(since, readers) {
 }
 
 /**
- * The state after a check at `now`, from `read`, the state as last read.
  * @param {Tripwire} read
  * @param {number} now
  * @param {ReturnType<typeof findTrip>} found
@@ -221,8 +179,6 @@ function afterCheck(read, now, found) {
 }
 
 /**
- * Runs the journal check where CHECK_MS has passed since the last, persisting
- * what it finds; returns the state the gate reads.
  * @param {{ now?: number, file?: string, readIncidents?: IncidentReader,
  *   readRunFiles?: RunReader, log?: Log }} [o]
  * @returns {Read & { checked: boolean }}
@@ -230,7 +186,6 @@ function afterCheck(read, now, found) {
 function checkTripwire({
 	now = Date.now(),
 	file,
-	/* Lazy: most gate calls make no check. */
 	readIncidents = (since) =>
 		require("./earlyoom-kills.js").readIncidents(since),
 	readRunFiles = () => require("./run-memory.js").readRunFiles(),
@@ -248,7 +203,6 @@ function checkTripwire({
 		const since =
 			Date.parse(read.tripwire.checkedThrough ?? "") || now - CHECK_MS;
 		const found = findTripOrWhy(since, { readIncidents, readRunFiles });
-		/* Re-read: another process may have tripped or re-armed it meanwhile. */
 		const latest = readTripwire({ file: target });
 		if (latest.corrupt !== null) return { ...latest, checked: true };
 		if (latest.tripwire.armedAt !== read.tripwire.armedAt)
@@ -273,10 +227,7 @@ function checkTripwire({
 	}
 }
 
-/**
- * The tripping kill and how many peak-charged runs were live at it, one line.
- * @param {Tripwire} t
- */
+/** @param {Tripwire} t */
 function describeTrip(t) {
 	if (t.trip === null) return "no tripping kill recorded";
 	const { trip } = t;
@@ -285,8 +236,6 @@ function describeTrip(t) {
 }
 
 /**
- * The gate's reading: null where part-suites may take the peak charge, else
- * why they fall back to the ladder. Runs the throttled check.
  * @param {Parameters<typeof checkTripwire>[0]} [o]
  * @returns {Fallback|null}
  */
@@ -301,8 +250,6 @@ function gateTripwire(o = {}) {
 }
 
 /**
- * Re-arm, the cursor advanced to `now`, so a kill before this second cannot
- * trip it again. Throws where the file will not write.
  * @param {{ session: string, now?: number, file?: string }} o
  * @returns {Tripwire}
  */

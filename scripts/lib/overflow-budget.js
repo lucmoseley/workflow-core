@@ -1,23 +1,3 @@
-/*
- * overflow-budget.js — how many sessions fit on an overflow seat's key this
- * billing cycle (#2609, spec #2570 §Budget gate), sized by
- * lib/overflow-budget-core.js from the key's Console reading where it has one
- * (lib/console-credit.js).
- *
- * SPEND IS TRANSCRIPTS ALONE (#3695): every read prices again each session on
- * the key whose transcript has grown, into a durable per-key ledger of one row
- * per session beside the refill loop's files. Only the launch record marks a
- * session in the seat's dir as on the key.
- *
- * A SHOWN READ REUSES THE LAST (#4669): every sized budget is kept beside the
- * ledger, and `refill-loop.js status`, which the panel polls every few seconds,
- * takes it while it is no older than a shown listing may be and neither the
- * ledger, the Console log nor the cost table has changed since.
- * Residual: a shown figure leaves out up to DISPLAY_MAX_AGE_MS of transcript
- * growth no other read has priced, and a ledger write landing between a sizing's
- * pricing and its reading of the ledger's time goes unseen until that age.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { isDeepStrictEqual } = require("node:util");
@@ -69,19 +49,11 @@ const { writeFd } = require("./write-fd.js");
  * @typedef {import("./overflow-budget-core.js").Budget} Budget
  * @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup
  * @typedef {Budget & {readFailure: string|null, lastAttemptAt: number|null,
- *   runningReadAt: number|null}} SeatBudget `runningReadAt`, ms, when the
- *   listing that counted `running` was read; null where it carried no time
+ *   runningReadAt: number|null}} SeatBudget
  */
 
-/* The API's refusal for credit, as the harness writes it into a transcript:
- * `isApiErrorMessage` with `error: "billing_error"`, or lib/headless-runs.js's
- * CREDIT_REFUSAL text. The flag keeps out a session merely quoting the words. */
-/* The `entrypoint` an interactive session's transcript rows carry, a `--bg`
- * job's included; a `claude -p` run's carry `sdk-cli` (2.1.319, measured
- * 2026-11-06). */
 const INTERACTIVE_ENTRYPOINT = "cli";
 
-/* The scripts a ledger's lock holder runs; any other's lock reads as stale. */
 const BUDGET_READERS = [
 	"overflow-budget.js",
 	"overflow-view.js",
@@ -97,7 +69,6 @@ const shownFile = (seat) =>
 	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.shown.json`));
 
 /**
- * The key's ledger, by session.
  * @param {OverflowSeat} seat
  * @returns {Map<string, LedgerEntry>}
  */
@@ -109,15 +80,10 @@ function readLedger(seat) {
 }
 
 /**
- * Each session's main transcript under the dir.
- * @param {string} dir a config dir
+ * @param {string} dir
  * @returns {{sessionId: string, file: string}[]}
- * @throws where a project dir will not read: its sessions must not read as free
  */
 function readTranscripts(dir) {
-	/* Loaded here, by a pricing: a reader shown the kept budget, the panel's
-	 * poll among them, lists no transcript and so loads none of the session
-	 * store behind it (#4821). */
 	const { readSeatTranscripts } = require("./project-dirs.js");
 	const { files, unreadable } = readSeatTranscripts([dir]);
 	if (unreadable.length > 0)
@@ -132,10 +98,7 @@ function readTranscripts(dir) {
 const filesBySession = (transcripts) =>
 	new Map(transcripts.map((t) => [t.sessionId, t.file]));
 
-/**
- * The session's transcripts' size, and their latest write.
- * @param {string} mainFile
- */
+/** @param {string} mainFile */
 function readTranscriptStat(mainFile) {
 	const stats = readSessionFiles(mainFile).flatMap((f) => {
 		const stat = fs.statSync(f, { throwIfNoEntry: false });
@@ -148,8 +111,6 @@ function readTranscriptStat(mainFile) {
 }
 
 /**
- * Whether an API error row is a credit refusal of the key: never one from an
- * interactive session (readFileCreditRefusal).
  * @param {Record<string, unknown>} row
  * @param {{content?: unknown}} message
  */
@@ -159,13 +120,8 @@ const isKeyRefusal = (row, message) =>
 		CREDIT_REFUSAL.test(JSON.stringify(message.content ?? "")));
 
 /**
- * When a transcript's latest answer from the API was a credit refusal, or null
- * for none: a model turn since means the key had credit after it, and a
- * synthetic line is no answer. A refusal in an interactive session, a `--bg`
- * job among them, is none: a plan's API credits never cover that route
- * (#4578), so its refusal says nothing of what the key has left.
  * @param {string} file
- * @returns {{at: number}|null} `at` is NaN for a refusal that carries no timestamp
+ * @returns {{at: number}|null}
  */
 function readFileCreditRefusal(file) {
 	/** @type {{at: number}|null} */
@@ -184,9 +140,6 @@ function readFileCreditRefusal(file) {
 }
 
 /**
- * A session's ledger outcome from its transcripts, a subagent's as well as its
- * own. A later line must not carry a refusal into a later cycle, so the mark's
- * time is the refusal's own; one with no timestamp falls to the row's `endedAt`.
  * @param {string} mainFile
  * @returns {Pick<LedgerEntry, "outcome"|"refusedAt">}
  */
@@ -204,14 +157,9 @@ function readRefusalOutcome(mainFile) {
 }
 
 /**
- * Price again each session on the key whose transcript has grown, and what it
- * repeats from its chain (`sharedUsd`), under the ledger's lock: a row a
- * concurrent read dropped could not be priced back once its transcript has
- * gone. A row outlives its transcript.
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
  * @returns {LedgerEntry[]}
- * @throws where a transcript or the ledger cannot be read, written or locked
  */
 function priceSessions(seat, lookup) {
 	fs.mkdirSync(path.dirname(ledgerFile(seat)), { recursive: true });
@@ -266,12 +214,8 @@ function priceSessions(seat, lookup) {
 }
 
 /**
- * What the founder's replies on the key spent, by the session each resumed
- * (#4668), over replyWindowsOf's windows. A request with no timestamp counts
- * as the session's own.
  * @param {OverflowSeat} seat
  * @returns {Map<string, number>}
- * @throws where the run store or a transcript dir cannot be read
  */
 function readReplyUsd(seat) {
 	const windows = replyWindowsOf(
@@ -294,13 +238,10 @@ function readReplyUsd(seat) {
 }
 
 /**
- * The key's sessions the listing holds running, and when it was read.
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
  * @param {() => import("./agent-liveness.js").Listing} readAgents
  * @returns {{sessionIds: string[], readAt: number|null}}
- * @throws where the listing cannot be read: a key's running sessions must not
- *   read as none
  */
 function readRunning(seat, lookup, readAgents) {
 	const listing = readAgents();
@@ -319,11 +260,9 @@ function readRunning(seat, lookup, readAgents) {
 }
 
 /**
- * Running sessions, each at its ledger row's spend and its chain share (#4369).
  * @param {string[]} sessionIds
  * @param {LedgerEntry[]} ledger
- * @param {LedgerEntry[]} chainPriced the ledger, its chain members at their
- *   shares
+ * @param {LedgerEntry[]} chainPriced
  * @returns {RunningRun[]}
  */
 function priceRunning(sessionIds, ledger, chainPriced) {
@@ -337,14 +276,9 @@ function priceRunning(sessionIds, ledger, chainPriced) {
 }
 
 /**
- * Price the seat, then size its budget and keep it for shownSeatBudget; why
- * not where either cannot be read. The cost table is read in `root`, never the
- * working directory's checkout: the loop's daemon runs from the home directory
- * (#3683).
  * @param {OverflowSeat} seat
- * @param {string|undefined} root the checkout whose cost table sizes the seat
- * @param {() => import("./agent-liveness.js").Listing} [readAgents] the
- *   listing's reader, `readAgentsForDisplay` where the budget is only shown
+ * @param {string|undefined} root
+ * @param {() => import("./agent-liveness.js").Listing} [readAgents]
  * @returns {SeatBudget|{why: string}}
  */
 function seatBudget(seat, root, readAgents = readAgentsForBudget) {
@@ -357,10 +291,7 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	return sized.budget;
 }
 
-/**
- * When a file whose change voids a kept budget last changed, ms; 0 for absent.
- * @param {string} file
- */
+/** @param {string} file */
 const readChangedAt = (file) =>
 	fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0;
 
@@ -377,28 +308,18 @@ const inputFilesOf = (seat, root) => [
 
 /**
  * @typedef {{at: number, root: string, seat: OverflowSeat, inputs: number[],
- *   budget: SeatBudget}} KeptBudget `at`, ms, when its sizing began
+ *   budget: SeatBudget}} KeptBudget
  */
 
-/**
- * Keep the budget for shownSeatBudget, unless one sized later is kept already:
- * a slow shown sizing must not write over the tick's newer one.
- * @param {KeptBudget} kept
- */
+/** @param {KeptBudget} kept */
 function keepShown(kept) {
 	const file = shownFile(kept.seat);
 	const held = /** @type {KeptBudget|null} */ (readJsonOutcome(file).value);
 	if ((held?.at ?? 0) > kept.at) return;
-	// Only the next shown read's reuse is lost: not the sizing's failure (#4669).
 	ignoreFailure(() => writeFileAtomic(file, JSON.stringify(kept)));
 }
 
 /**
- * The key's budget for a reader that only shows it: the last one sized, by the
- * tick or a shown read, while neither it nor the listing it counted running
- * sessions off is older than DISPLAY_MAX_AGE_MS, its cycle has not turned, it
- * was sized for this seat and root, and none of its input files has changed
- * since.
  * @param {OverflowSeat} seat
  * @param {string|undefined} root
  * @returns {SeatBudget|{why: string}}
@@ -430,8 +351,6 @@ function shownSeatBudget(seat, root) {
 }
 
 /**
- * seatBudget's sizing, with its input files' change times: each taken before
- * its file is read, the ledger's once its pricing has written it.
  * @param {OverflowSeat} seat
  * @param {string} root
  * @param {() => import("./agent-liveness.js").Listing} readAgents
@@ -508,12 +427,6 @@ function buildBudgetLine(seat, budget) {
 	return `${label}: fits ${budget.fit}; ${headroom}; ${spent}; resets ${budget.freeAgain}${failed}`;
 }
 
-/*
- * CLI mode, for the dispatcher and status. Exit 0 sized, 2 usage, 1 otherwise:
- * a seat file that refuses, a key no overflow seat has, an unreadable table.
- *
- *   [--json] <key var>   the seat's status line, or its Budget as JSON
- */
 /**
  * @param {string[]} args
  * @returns {number}

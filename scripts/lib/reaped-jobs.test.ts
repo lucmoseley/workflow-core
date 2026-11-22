@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/reaped-jobs.js's journal of the jobs the reaper stopped (#5331):
- * each stopped row the loop could resume becomes an entry stamped with its
- * write, and entries past the keep window drop. Loosen it and the loop either
- * misses a reaped session it could resume or reads a journal that only grows.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

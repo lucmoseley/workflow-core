@@ -1,33 +1,3 @@
-/*
- * landing-stall.js — what the session-start stall check and the refill loop's
- * supervision read off the landing queue, and the one read both take (#2406,
- * #2692, #4458): a stalled queue or a dead queue lander.
- *
- * STALLED: a queue ref waits, and has for STALL_MS without `main` moving.
- * `main` last moved at the later of the queue log's newest land row and
- * `main`'s tip's committer time, which no move to that tip can predate: the
- * second covers a `main` pushed by hand. Counting from `main`, not from a
- * queued commit, tells a slow red batch, which moves `main` as it lands
- * passers, from a stuck queue. The clock starts no earlier than the oldest
- * waiting ref's wait (lib/queue-gauge.js), so a push onto a `main` idle for
- * hours is not a stall the moment it lands (#3303), and no earlier than the
- * guest's last boot or resume, as nothing can land while it is down or
- * frozen (#4055). Residual: a machine down or frozen within every 2 h never
- * reports one. WFC_UPTIME_S replaces the guest's uptime, for tests.
- *
- * DEAD: a queue ref waits, the pid the queue lander's heartbeat names is not
- * running, and the heartbeat is absent or older than STALE_MS. A live pid
- * with a stale beat is a lander inside one call, which beats only between
- * them; residual: a hung lander, or a reused pid, reads alive and is caught
- * by the stall alone.
- *
- * HELD: a queue ref waits and the queue lander's newest run end in its log
- * (lib/lander-start.js), within HELD_WINDOW_MS, is an `exit held: …` line
- * (#5436). An end another lander's
- * lock turned away is no run's, and is passed over. A log that will not
- * read is named, and judges nothing else.
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -53,11 +23,9 @@ const { parseErrorText } = require("./caught.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { parseLanderLog, readLogSince } = require("./time-to-land.js");
 
-/* Untraced: five missed beats, so one slow tester tick is never read as a
- * death. */
+// guess, #2406
 const STALE_MS = 5 * HEARTBEAT_MS;
-/* Untraced: a lander runs at each push and refill tick, so where any runs
- * its newest end is well within a day. */
+// guess, #5436
 const HELD_WINDOW_MS = DAY_MS;
 
 /**
@@ -66,21 +34,16 @@ const HELD_WINDOW_MS = DAY_MS;
  *   | {tag: "LANDER-HELD", line: string}
  *   | {tag: "LANDER-LOG-UNREAD", line: string}} StallFinding
  * @typedef {{kind: "held", at: number, reason: string}
- *   | {kind: "none"} | {kind: "unread", fault: string}} HeldRead the lander
- *   log's newest run end: held, `at` in ms and `reason` after `held: `; or
- *   the log unreadable
+ *   | {kind: "none"} | {kind: "unread", fault: string}} HeldRead
  * @typedef {object} QueueReading
  * @property {number} now
- * @property {string|null} main `main`'s sha, null where the remote has none
- * @property {number|null} movedAt when `main` last moved, in ms; null where
- *   the remote has no `main`
+ * @property {string|null} main
+ * @property {number|null} movedAt
  * @property {import("./queue-gauge.js").QueueGauge} gauge
- * @property {number} wokeAt when the guest last booted or resumed, in ms
- * @property {import("./lander-files.js").Heartbeat|null} heartbeat the queue
- *   lander's
+ * @property {number} wokeAt
+ * @property {import("./lander-files.js").Heartbeat|null} heartbeat
  * @property {(pid: number) => boolean} alive
- * @property {number} owed the drops owed a decision: open, with no fix
- *   ticket
+ * @property {number} owed
  * @property {HeldRead} held
  */
 
@@ -130,7 +93,7 @@ const buildUnreadLine = (h) =>
 
 /**
  * @param {readonly import("./time-to-land.js").LanderEvent[]} events
- * @param {number} since ms
+ * @param {number} since
  * @returns {HeldRead}
  */
 function heldExitOf(events, since) {
@@ -143,9 +106,7 @@ function heldExitOf(events, since) {
 }
 
 /**
- * The lander log's newest run end in `root` within HELD_WINDOW_MS of `now`.
- * Never throws: an unreadable log reads as `unread`.
- * @param {string} root the canonical checkout's root
+ * @param {string} root
  * @param {number} now
  * @returns {HeldRead}
  */
@@ -162,13 +123,6 @@ function readHeldExit(root, now) {
 }
 
 /**
- * What the refill loop does about a reading (#2692, ruled at #2672): start
- * the queue lander where none runs and a queue ref waits or a drop is owed
- * a decision (#4950), and file the stall
- * ticket where `main` has not moved with a queue ref waiting and a lander
- * running or dead, since one that fails on every start is restarted each
- * tick and never seen running. No ticket for a lander between runs on a
- * fresh beat.
  * @param {QueueReading} r
  * @returns {{start: boolean, ticket: {waiting: string, movedAt: number}|null}}
  */
@@ -191,8 +145,6 @@ function supervision(r) {
 }
 
 /**
- * When `main` last moved: the later of its tip's committer time and the
- * queue log's newest land row.
  * @param {number} mainAt
  * @param {import("./queue-log.js").LoggedRow[]} rows
  */
@@ -203,9 +155,7 @@ const mainMovedAt = (mainAt, rows) =>
 	);
 
 /**
- * The queue's reading in `root`. Throws where the remote or the queue log
- * cannot be read.
- * @param {string} root the canonical checkout's root
+ * @param {string} root
  * @param {number} now
  * @returns {QueueReading}
  */
@@ -231,7 +181,7 @@ function readQueue(root, now) {
 /**
  * @param {string} root
  * @param {string} sha
- * @returns {number} its committer time, in ms
+ * @returns {number}
  */
 function committedAt(root, sha) {
 	const at =
@@ -241,25 +191,16 @@ function committedAt(root, sha) {
 	return at;
 }
 
-/* When the guest last booted or resumed. */
 const WAKE = ".machine-wake.json";
-/* Untraced: wide of clock slew, and a freeze this short barely moves a 2 h
- * clock. */
+// guess, #4055
 const WAKE_SLACK_MS = 5 * 60 * 1000;
 
 /**
- * When the guest last booted or resumed. Uptime stops while a WSL2 guest is
- * frozen in the host's standby, so `startedAt`, the clock less the uptime,
- * rises by each boot's or freeze's length, and the reading that finds it risen
- * dates the wake. The first reading has only `startedAt`. Where the record
- * cannot be written the answer is `startedAt`, so an unwritable directory
- * never stops the clock.
  * @param {string} file
  * @param {{startedAt: number, now: number}} at
  */
 function recordWake(file, { startedAt, now }) {
 	/** @type {{startedAt?: number, wokeAt?: number}|null} */
-	// Absent, or torn by a hand edit: dated from the uptime alone.
 	const rec = orFallback(() => JSON.parse(fs.readFileSync(file, "utf8")), null);
 	if (
 		typeof rec?.startedAt === "number" &&

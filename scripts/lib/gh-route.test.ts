@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins gh-route.js's judgement of a tree's files, in-process (#4123).
- * check-gh-route.test.ts holds the program's boundary cases. Built on
- * in-memory text and a fake read, so each shape is judged with no tree on
- * disk. Breaking it lets a second `gh` or `claude` route past the
- * pre-commit gate, where a call off WFC_GH reaches the live tracker.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -15,11 +8,8 @@ import { isShipped } from "./plugin-tree.js";
 
 const CORE = path.resolve(__dirname, "../..");
 
-/** A shell or template expansion of `name`, spelt out of plain strings. */
 const sub = (name: string) => ["$", `{${name}}`].join("");
 
-/* Bodies that would breach this checker if written here, held as `.txt` it
- * never reads. */
 const FIXTURE = {
 	"claude-copies.js.txt": path.join(
 		__dirname,
@@ -107,7 +97,6 @@ const FIXTURE = {
 const fixture = (name: keyof typeof FIXTURE) =>
 	fs.readFileSync(FIXTURE[name], "utf8");
 
-/** Judges a tree of path to text, reading each `.sh` path as shell. */
 const judge = (texts: Record<string, string>) => {
 	const files = Object.keys(texts).sort();
 	const result = judgeTree(
@@ -143,7 +132,6 @@ const CLAUDE_FIX = {
 
 const TEXT_ONLY = 'msg="Apply it; gh issue edit 7"\n';
 
-/* Spelt apart, so check-gh-route does not read this test as naming one. */
 const SECOND_GH_VAR = ["WFC", "X", "GH"].join("_");
 
 const tags = (rel: string, kind: "node" | "test" | "shell", source: string) =>
@@ -367,8 +355,6 @@ describe("judgeFile", () => {
 		expect(
 			tags("scripts/lib/gh.js", "node", "const b = process.env.WFC_GH;\n"),
 		).toEqual([]);
-		/* The program text is spelt apart so no lexical check reads it as this
-		 * test's own env write. */
 		const assign = `${["process", "env", "WFC_GH"].join(".")} = "/stub";\n`;
 		expect(tags("scripts/x.js", "node", assign)).toEqual([]);
 	});

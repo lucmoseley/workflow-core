@@ -1,12 +1,3 @@
-/*
- * gh-acts.js — record-acts.js's core (#2799, programme #2733): which acts a
- * Bash call's `gh` steps made — a close, a question round, a `takes:` relabel,
- * a blocked-by edge — each as one acts-ledger line (#2308, #2464, spec #2245).
- *
- * A CORE: it does no I/O. The origin remote, a body file on disk and the
- * ledger arrive as ports; lib/gh-recorder-host.js builds the real ones.
- */
-
 const {
 	apiPath,
 	defaultsToPost,
@@ -28,19 +19,15 @@ const { literal, scanFlags } = require("./shell-words.js");
 
 /**
  * @typedef {object} ActsPorts
- * @property {Record<string, unknown>} payload the hook payload
- * @property {string} envSession CLAUDE_CODE_SESSION_ID, the payload's fallback
- * @property {string} home what a body path's leading `~` expands to
- * @property {(dir: string) => string} originUrl the origin remote's URL of the
- *   repo at `dir`; "" where git cannot answer
- * @property {(path: string) => string | undefined} readFile a body file's
- *   text, undefined where it is absent; throws where it cannot be read
- * @property {(act: string, sessionId: string) => void} recordAct one ledger
- *   line
+ * @property {Record<string, unknown>} payload
+ * @property {string} envSession
+ * @property {string} home
+ * @property {(dir: string) => string} originUrl
+ * @property {(path: string) => string | undefined} readFile
+ * @property {(act: string, sessionId: string) => void} recordAct
  * @typedef {import("./kit-context.js").KitContext & ActsPorts} ActsContext
  */
 
-/* A comment that posts nothing new, or that the hook cannot see. */
 const NO_POST = new Set([
 	"--edit-last",
 	"--delete-last",
@@ -54,17 +41,16 @@ const BLOCKED_BY =
 	/^repos\/([^/]+)\/([^/]+)\/issues\/([0-9]+)\/dependencies\/blocked_by$/;
 
 /**
- * @typedef {object} IssueCall what one `gh issue <sub>` names
- * @property {string} repo the `--repo`'s, else an issue URL's own
+ * @typedef {object} IssueCall
+ * @property {string} repo
  * @property {string[]} issues
- * @property {string[]} takes each `takes:` label added
- * @property {boolean} blocked an `--add-blocked-by` was given
+ * @property {string[]} takes
+ * @property {boolean} blocked
  * @property {boolean} noPost
  * @property {import("./gh-body.js").Body} body
  */
 
 /**
- * Accumulator: it writes one value-taking flag's reading into `call`.
  * @param {IssueCall & { flagRepo: string, sub: string }} call
  * @param {string} name
  * @param {string} value
@@ -84,7 +70,6 @@ function readOpt(call, name, value, env) {
 		bodyFileWord(call.body, value, env);
 }
 
-/* How a refusal's span search and text spell a comment call. */
 const COMMENT_SPELLING = {
 	subcmd: "issue[ \\t\\n\\v\\f\\r]+comment",
 	what: "gh issue comment",
@@ -92,7 +77,7 @@ const COMMENT_SPELLING = {
 
 /**
  * @param {"close" | "comment" | "edit"} sub
- * @param {string[]} args the words after `gh issue <sub>`
+ * @param {string[]} args
  * @param {import("./gh-body.js").BodyEnv} env
  * @returns {IssueCall}
  */
@@ -125,8 +110,7 @@ function readIssueCall(sub, args, env) {
 }
 
 /**
- * A `gh api` blocked-by POST: the issue it adds an edge to, or null.
- * @param {string[]} args the words after `gh api`
+ * @param {string[]} args
  * @param {string[]} spans
  * @param {() => string} cwdRepo
  */
@@ -151,9 +135,8 @@ function blockedByPost(args, spans, cwdRepo) {
 }
 
 /**
- * gh exits 0 on a close of a closed issue, saying so after naming it.
  * @param {string} output
- * @param {string} named `owner/name#n `
+ * @param {string} named
  */
 function isAlreadyClosed(output, named) {
 	const at = output.indexOf(named);
@@ -163,10 +146,9 @@ function isAlreadyClosed(output, named) {
 }
 
 /**
- * The acts one `gh issue <sub>` made.
  * @param {"close" | "comment" | "edit"} sub
  * @param {IssueCall} call
- * @param {string} output what the call printed, for gh's "already closed"
+ * @param {string} output
  * @returns {{ act: string, body?: string }[]}
  */
 function issueActs(sub, call, output) {
@@ -189,7 +171,6 @@ function issueActs(sub, call, output) {
 }
 
 /**
- * The acts one command made, a round's body beside its line.
  * @param {import("./shell-parse.js").Command} cmd
  * @param {{ subject: string, spans: string[], output: string, ctx: ActsContext }} at
  * @returns {{ act: string, body?: string }[]}
@@ -220,10 +201,7 @@ function commandActs({ words, cwd }, { subject, spans, output, ctx }) {
 	return call.repo ? issueActs(sub, call, output) : [];
 }
 
-/**
- * What the call printed: its stdout, then its stderr.
- * @param {Record<string, unknown>} payload
- */
+/** @param {Record<string, unknown>} payload */
 function callOutput(payload) {
 	const r = /** @type {{ stdout?: unknown, stderr?: unknown }} */ (
 		payload.tool_response ?? {}
@@ -233,7 +211,7 @@ function callOutput(payload) {
 }
 
 /**
- * @param {string} subject the command
+ * @param {string} subject
  * @param {ActsContext} ctx
  * @returns {null}
  */

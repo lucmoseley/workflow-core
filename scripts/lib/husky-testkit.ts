@@ -1,17 +1,3 @@
-/*
- * husky-testkit.ts — husky's `.husky/_` shim for a fixture repo, generated as
- * `npm run prepare` generates the checkout's: husky's own install, then
- * install-hooks.js's rewrite of `h` (#3138). The checkout's own `.husky/_` is
- * gitignored and exists only in the shared checkout, so a fixture copying it
- * fails in every linked worktree (#4360).
- *
- * Importing it unsets `HUSKY` and points CLAUDE_CONFIG_DIR at a scratch
- * directory for every case in the importing file, so build the shim inside a
- * case: from a `beforeAll` husky skips the install and `shimDir` throws.
- *
- * FOR TESTS ONLY.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -25,11 +11,6 @@ let repo: string | null = null;
 let generated: string | null = null;
 let configDir: string | null = null;
 
-// Husky's `_/h` exits 0 before any hook runs under an inherited `HUSKY=0`,
-// so every suite that installs the shim runs its `git` calls without it
-// (#4715). The hooks those calls fire log their fail-opens under
-// CLAUDE_CONFIG_DIR, so it points at the file's own scratch directory, never
-// the developer's live log (mantahostels#1452).
 beforeEach(() => {
 	vi.stubEnv("HUSKY", undefined);
 	configDir ??= mkScratchDir("husky-config-");
@@ -55,7 +36,6 @@ function shimDir(): string {
 				stdio: "pipe",
 			});
 		execFileSync("git", ["init", "-q", "."], { cwd: at });
-		// husky prints why it skipped and still exits 0.
 		const said = run([
 			path.join(path.dirname(require.resolve("husky")), "bin.js"),
 		]);
@@ -74,10 +54,6 @@ export function huskyHooks(): string[] {
 		.filter((f) => !/^(h|husky\.sh|\.gitignore)$/.test(f));
 }
 
-/**
- * Writes the shim into `root`'s `.husky/_` and points `root`'s core.hooksPath
- * at it, absolute as install-hooks.js pins it.
- */
 export function installHuskyShim(root: string): void {
 	const underscore = path.join(root, ".husky", "_");
 	fs.cpSync(shimDir(), underscore, { recursive: true });

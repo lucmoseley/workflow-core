@@ -1,22 +1,9 @@
-/*
- * heresy-sweep.js — when the monthly heresy sweep falls due (#3464, spec
- * #3365) and what a finished one filed (#4039), as a pure core over the
- * tracker's due issues.
- *
- * A CORE (base §T7): its one read is the port below.
- *
- *   find(state)   the newest due issue in that state, `closed` or `open`, or
- *                 null where there is none
- */
-
 const { requiredGroup } = require("./regex-group.js");
 
 const SWEEP_TITLE = "Heresy sweep due";
-/* #3365's "once a month", read as 30 days. Untraced. */
+// guess, #3365
 const SWEEP_DAYS = 30;
 const SWEEP_MS = SWEEP_DAYS * 24 * 3_600_000;
-/* Self-reported: nothing reconciles the figure with what the sweep filed, and a
- * later comment quoting the line takes over (#4039). */
 const FILED_LINE = /^\*\*Filed:\*\* (\d+) heres(?:y|ies)\b/m;
 
 /**
@@ -28,10 +15,6 @@ const FILED_LINE = /^\*\*Filed:\*\* (\d+) heres(?:y|ies)\b/m;
 const day = (iso) => iso.slice(0, 10);
 
 /**
- * Due SWEEP_DAYS after the newest closed due issue's close, else after the
- * open one's creation, else at once. The open issue is asked for only where
- * none has closed.
- *
  * @param {(state: "closed" | "open") => DueIssue | null} find
  * @param {number} nowMs
  * @returns {Verdict}
@@ -69,11 +52,8 @@ function judgeSweep(find, nowMs) {
 }
 
 /**
- * The figure on the newest comment carrying a `**Filed:**` line, the skill's
- * close comment; the reason where none does.
- *
- * @param {number} issue the due issue's number
- * @param {{ body: string }[]} comments oldest first, as `gh issue view` lists them
+ * @param {number} issue
+ * @param {{ body: string }[]} comments
  * @returns {import("./primitives-table.js").Count}
  */
 function parseFiledHeresies(issue, comments) {

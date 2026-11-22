@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * guard-main-checkout-write at the hook input contract (#4248): with
- * the session and CLAUDE_PROJECT_DIR in a linked worktree of a main
- * checkout, a write to the main checkout's tracked tree is refused whether
- * or not it is cut over (#4697), naming the worktree; from a session whose
- * cwd is the main checkout, only once it is. The worktree's own files and
- * gitignored stores stay writable. Driven through runCore on the testkit's split
- * checkout, so the dispatcher's root and tree come from a real worktree pair.
- *
- * Loosen it and a session's edit lands uncommitted in the main checkout, which
- * the levelling fast-forward then refuses on.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -303,7 +290,6 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 });
 
 describe("before the cutover, it refuses a worktree session alone (#4697)", () => {
-	/* The shared-tree model: the main checkout's `main` still tracks `landing`. */
 	const beforeCutover = () =>
 		git(at.main, "config", "branch.main.merge", "refs/heads/landing");
 

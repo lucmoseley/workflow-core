@@ -1,45 +1,3 @@
-/*
- * repo-checks-registry.js — every state check and reporter the daily
- * repo-checks run launches, and the gate each passes first (#1548, spec #1510
- * §The list and its gates), and `entryOf`, the one lookup by id, which
- * throws on an id it lacks. Adding a check is one entry. `readHost` and
- * `gateFault` judge an entry's gate against a repo's tree and config, for the
- * daily run and for an adopter's CI job (scripts/adopter-ci.js, #5347).
- *
- * LISTED IN RUN ORDER: the tree checks first, then the machine's Chrome tab
- * census, then the reporters, then the tracker checks, with clobbered bodies
- * last.
- *
- * AN ENTRY:
- *   id      the job name in the merged result. The tracker checks keep the
- *           job names of the weekly workflow #1557 retired.
- *   script  under the core's scripts/, with its arguments.
- *   kind    `check` speaks lib/check.js's `--json` envelope; `reporter` files
- *           or refreshes its own issue and is judged by its exit code alone.
- *   since   passes `--since <days>`: the days since the start of the last
- *           reading in which this entry completed (OK, WARN or FAIL), rounded
- *           up, plus one day of overlap; 30 on a repo's first, so a gap
- *           between runs widens the next window (#1551). A finding on an
- *           issue the window has moved past stays standing only by `rescan`.
- *   rescan  passes `--rescan <n,n,…>`: the issue numbers (`#N`) in the keys of
- *           this entry's last completed reading, so a finding stays reported
- *           until it is fixed (#1600); nothing on a repo's first reading.
- *   ceilingScale  multiplies the runner's per-check ceiling for this entry.
- *   settled the finding tags, each a key's first field, that someone has
- *           already settled — waived, accepted or reviewed. The runner keeps
- *           those keys out of the standing issue and the notify line (#1700).
- *   gate    every limb must hold, or the entry is SKIP and never launched:
- *           `modules` the host config must list, an `input` path that must
- *           exist at the host root, a `tracked` path git must track there,
- *           `tracker` resolving, `config` naming a key the host config must
- *           carry, and `core`, the host being workflow-core itself. The core
- *           keeps every input, so there `input` never holds an entry back: a
- *           missing one is launched and reports its own BROKEN (#1510 story
- *           18, #1722). An input-gated checker that SKIPs on a missing input
- *           goes silent in the core. `tracked` holds no entry back in the
- *           core either, whose own workflows the entry reads in its place.
- */
-
 /**
  * @typedef {{ modules?: string[], input?: string, tracked?: string,
  *   tracker?: true, config?: string, core?: true }} Gate
@@ -122,8 +80,6 @@ const REPO_CHECKS = [
 		kind: "check",
 		gate: { input: "scripts/instruction-surface-anchors.json" },
 	},
-	/* Core-only: the constant it re-measures is the plugin's own, measured on
-	 * this suite. */
 	{
 		id: "suite-size",
 		script: "check-suite-size-drift.js",
@@ -136,8 +92,6 @@ const REPO_CHECKS = [
 		kind: "check",
 		gate: { input: ".github/workflows" },
 	},
-	/* Core-only: the machine's transcripts are read once, from workflow-core's
-	 * checkout, so one tab is never reported by two repos (#5385). */
 	{
 		id: "chrome-tab-leftovers",
 		script: "check-chrome-tab-leftovers.js",
@@ -175,23 +129,18 @@ const REPO_CHECKS = [
 		kind: "reporter",
 		gate: ROADMAP,
 	},
-	/* Core-only: one reading covers every corpus repo (#1625). */
 	{
 		id: "remeasure",
 		script: "report-remeasure-due.js",
 		kind: "reporter",
 		gate: { core: true },
 	},
-	/* Core-only: workflow-core alone cuts a release (#5435). */
 	{
 		id: "release-due",
 		script: "report-release-due.js",
 		kind: "reporter",
 		gate: { core: true },
 	},
-	/* Here rather than in the sweep: the sweep runs on the public code repo,
-	 * whose token cannot reach the private tracker (#1963). Where the shipped
-	 * CI workflow is tracked, the reporter reads its runs (#5383). */
 	{
 		id: "red-suite",
 		script: "report-red-suite.js",
@@ -211,9 +160,6 @@ const REPO_CHECKS = [
 		settled: ["WAIVED", "NO-CRITERIA"],
 		gate: TRACKER,
 	},
-	/* Its cold read took 123 s on 5,278 issues (#5355) and grows with the
-	 * tracker; a later run reads only what changed. Twice the ceiling keeps
-	 * the cold read inside it under load. */
 	{
 		id: "citations",
 		script: "check-issue-citations.js",
@@ -251,15 +197,12 @@ const REPO_CHECKS = [
 		kind: "check",
 		gate: TRACKER,
 	},
-	/* Its own gate SKIPs outside the core (#1963). */
 	{
 		id: "citation-ceiling",
 		script: "check-citation-ceiling.js",
 		kind: "check",
 		gate: TRACKER,
 	},
-	/* `since`, not `--all`, which took 425 s on mantahostels (#1628). A gap
-	 * widens the window towards that, hence twice the usual ceiling. */
 	{
 		id: "clobbers",
 		script: "check-clobbered-bodies.js",
@@ -273,8 +216,6 @@ const REPO_CHECKS = [
 ];
 
 /**
- * The registry entry a job was built from. Every job is, so a miss is a bug.
- *
  * @param {string} id
  * @returns {RepoCheck}
  */
@@ -285,10 +226,6 @@ function entryOf(id) {
 }
 
 /**
- * The repo at `root` as the gates read it. The tracker is resolved on first
- * ask, through `resolveTracker`; a run holding no token passes one that
- * answers null.
- *
  * @param {string} root
  * @param {(root: string) => unknown} [resolveTracker]
  * @returns {Host}
@@ -319,8 +256,6 @@ function readHost(
 }
 
 /**
- * Why `entry` may not run here, or null where every limb of its gate holds.
- *
  * @param {RepoCheck} entry
  * @param {Host} host
  * @returns {string | null}

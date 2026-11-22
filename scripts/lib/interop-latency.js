@@ -1,31 +1,6 @@
-/*
- * interop-latency.js — the check-interop-latency core (#3564): times the
- * WSL↔Windows interop bridge, judges it degraded or not, parses the evidence
- * that names the next incident's cause, and builds the report's text.
- *
- * A CORE (base §T7): every read comes in through the ports below.
- *
- *   query()          one policy query's wall time, `{ s, expired }`, or null
- *                    where the query cannot run at all
- *   readEvidence()   the machine readings an incident record carries
- *   record(entry)    appends that record, and says whether it landed
- *   now()            the record's ISO time
- *
- * DEGRADED NEEDS TWO SLOW QUERIES IN A ROW. The 7 Sep 2026 vsock stall is one
- * ~10 s call and then normal (docs/environment.md §9), so a single slow
- * reading is that stall as often as it is this fault; the degraded bridge of
- * 29 Oct 2026 was slow on every call. A wedged bridge, both queries
- * expiring, reads DEGRADED too, its record saying `expired`.
- */
-
-/**
- * Over this, a query is slow. A guess, and stated as one: healthy queries took
- * 0.03–0.07 s and degraded ones 3.9–7.4 s (#3564), so 1 s sits ~14x above the
- * first and ~4x below the second. Nothing between the two has been measured.
- */
+// guess, #3564
 const DEGRADED_S = 1;
 
-/** What typeperf samples, in this order, for the evidence record. */
 const COUNTERS = [
 	"\\Processor(_Total)\\% Processor Time",
 	"\\Memory\\Available MBytes",
@@ -33,7 +8,6 @@ const COUNTERS = [
 ];
 
 const ALLOC_FAILURE = /page allocation failure: order:(\d+)/;
-/* A stack frame, `hvs_probe+0x214/0x4e8`, never a message naming the probe. */
 const HVS_PROBE_FRAME = /\bhvs_probe\+0x/;
 
 /** @typedef {{ s: number, expired: boolean }} Reading */
@@ -66,15 +40,7 @@ const HVS_PROBE_FRAME = /\bhvs_probe\+0x/;
 /** @param {number} n */
 const finite = (n) => (Number.isFinite(n) ? n : null);
 
-/**
- * One `typeperf <COUNTERS> -sc 1` sample: CPU %, Available MBytes and
- * vmmemWSL's working set in MiB. Its CSV is a header row naming each counter
- * as `\\HOST<counter>`, then the time and one quoted value a counter. Read
- * by header name, since typeperf has twice dropped one column under load
- * (#3564): a counter missing or unparseable is null, the rest still read;
- * a row whose cells do not match the header's reads all null.
- * @param {string} stdout
- */
+/** @param {string} stdout */
 function parseTypeperf(stdout) {
 	const lines = stdout.split(/\r?\n/);
 	/** @param {string | undefined} line */
@@ -82,7 +48,6 @@ function parseTypeperf(stdout) {
 		[...(line ?? "").matchAll(/"([^"]*)"/g)].map((m) => m[1] ?? "").slice(1);
 	const names = cells(lines.find((l) => l.startsWith('"(')));
 	const values = cells(lines.find((l) => /^"\d/.test(l)));
-	/* A row out of step with its header would credit a value to the wrong counter. */
 	const aligned = values.length === names.length;
 	/** @param {string} counter */
 	const read = (counter) => {
@@ -101,11 +66,6 @@ function parseTypeperf(stdout) {
 }
 
 /**
- * The failed ring allocations under `hvs_probe` in a dmesg read, by order:
- * each trace opens on a `page allocation failure: order:N` line and carries
- * one `hvs_probe` frame. Kept apart because the orders name different faults
- * (docs/environment.md §7): order 7 the 23 Oct fragmentation and the vsock
- * stall, order 4 the degraded bridge.
  * @param {string} text
  * @returns {Record<string, number>}
  */
@@ -125,10 +85,7 @@ function countHvsProbeFailures(text) {
 	return byOrder;
 }
 
-/**
- * Interop calls running now: WSL starts each as `/init <win path> <argv0> …`.
- * @param {Iterable<{ argv: string[] }>} procs
- */
+/** @param {Iterable<{ argv: string[] }>} procs */
 const countInterop = (procs) =>
 	[...procs].filter(
 		(p) => p.argv[0] === "/init" && /\.exe$/i.test(p.argv[1] ?? ""),
@@ -160,8 +117,7 @@ const buildWarning = (readings, { logged, logFile, doc }) => [
 
 /**
  * @param {Ports} ports
- * @param {{ logFile: string, doc: string }} names where the record goes, and
- *   the environment doc the warning cites
+ * @param {{ logFile: string, doc: string }} names
  * @returns {Verdict}
  */
 function judgeBridge(ports, { logFile, doc }) {

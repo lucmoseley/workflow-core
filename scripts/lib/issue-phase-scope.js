@@ -91,9 +91,6 @@ const {
 const ROADMAP = "docs/reference-roadmap.html";
 const REGISTER = "docs/called-cards.md";
 
-/* Wrappers that run their argument as a command, followed only in their
- * no-argument forms: `env FOO=1 gh …` and `timeout --signal=X …` stop the
- * walk, which leaves the create unjudged rather than misjudged. */
 const WRAPPERS = [
 	"env",
 	"command",
@@ -105,18 +102,13 @@ const WRAPPERS = [
 	"setsid",
 ];
 
-/* A card id is lower-case, digits and hyphens. Anything else — a sentence, a
- * capital, a slash — is prose that happens to contain a dash. THIS REGEX IS
- * ALSO WHAT MAKES A CARD SAFE to build the roadmap's pattern from: it admits
- * no metacharacter. Relaxing it arms phaseOf — re-check it before you widen
- * it. */
 const CARD_ID = /^[a-z0-9][a-z0-9-]*$/;
 
 /**
- * @typedef {object} Run one call's judging
+ * @typedef {object} Run
  * @property {Parsed} parsed
  * @property {PhaseContext} ctx
- * @property {string} [roadmap] the roadmap's text, read once a call
+ * @property {string} [roadmap]
  */
 
 /**
@@ -130,12 +122,7 @@ function decide(command, ctx) {
 	return walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx) ?? null;
 }
 
-/**
- * The words past every no-argument wrapper: `timeout` takes its duration with
- * it and `nice` its `-n <adjustment>`, which is what makes `timeout 60 gh
- * issue create …` reach the judge rather than stopping on the digits.
- * @param {string[]} words
- */
+/** @param {string[]} words */
 function unwrapped(words) {
 	let ws = words;
 	while (ws.length > 0 && WRAPPERS.includes(commandName(ws[0] ?? ""))) {
@@ -149,7 +136,6 @@ function unwrapped(words) {
 }
 
 /**
- * One command the call runs: `gh issue create` and `gh api` are judged.
  * @param {Run} run
  * @param {Command} cmd
  */
@@ -165,11 +151,6 @@ function judge(run, cmd) {
 }
 
 /**
- * The roadmap is what says a card's phase, and a guard that cannot read its
- * own authority allows the work. Asked only once the command is known to be a
- * creation, or one that may be: asked of every `gh` call, a port fault would
- * refuse plain reads and a missing roadmap would log creations that never were
- * (#3426). Read once per run; an unreadable one ends the run open.
  * @param {Run} run
  * @returns {string}
  */
@@ -186,7 +167,6 @@ function readRoadmapOrOpen(run) {
 }
 
 /**
- * `gh issue create …` — the flag form.
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
@@ -194,32 +174,21 @@ function readRoadmapOrOpen(run) {
 function judgeCreate(run, cmd, args) {
 	/** @type {CreateScan} */
 	const scan = { spans: run.parsed.spans, title: "", unreadable: "" };
-	/* Stopped, the scan met --help: a command that prints documentation and
-	 * files nothing. */
 	const scanned = scanFlags(
 		ISSUE_VALUE_FLAGS.create,
 		args,
 		(kind, name, value) => createWord(scan, kind, name, value),
 	);
 	if (!scanned) return;
-	/* THE TITLE IS JUDGED FIRST, even where some other argument was
-	 * unreadable. The title is the guard's only input: if it read cleanly and
-	 * names an uncalled card, failing open would let `--title "search-core —
-	 * x" $_` walk a deniable creation through on an irrelevant expansion. */
 	if (scan.title) judgeTitle(run, cmd.segment, scan.title);
 	if (scan.unreadable)
 		open(run.ctx, `${scan.unreadable} — create allowed unchecked`);
 }
 
-/**
- * @typedef {{ spans: string[], title: string, unreadable: string }}
- *   CreateScan one create's flag scan: the title it read, and in
- *   `unreadable` the last thing it could not
- */
+/** @typedef {{ spans: string[], title: string, unreadable: string }} CreateScan */
 
 /**
- * One event of a create's flag scan; false stops the scan, on --help.
- * @param {CreateScan} scan accumulator: title and unreadable are set
+ * @param {CreateScan} scan
  * @param {import("./shell-words.js").FlagKind} kind
  * @param {string} name
  * @param {string} value
@@ -240,8 +209,6 @@ function createWord(scan, kind, name, value) {
 }
 
 /**
- * `gh api … repos/<o>/<r>/issues` — the same creation through REST. GraphQL
- * is a documented residual (LIMITS).
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
@@ -252,7 +219,6 @@ function judgeApi(run, cmd, args) {
 	const method = literal(call.method, spans);
 	const endpoint = literal(call.endpoint, spans);
 	if (method.known && !isPost(method.text, call)) return;
-	/* GraphQL is no issue collection, so it leaves here (LIMITS). */
 	if (endpoint.known && !isIssueCollection(endpoint.text)) return;
 	readRoadmapOrOpen(run);
 	if (!method.known || !endpoint.known || call.input)
@@ -260,9 +226,6 @@ function judgeApi(run, cmd, args) {
 			run.ctx,
 			"could not read a gh api issue creation — create allowed unchecked",
 		);
-	/* THE FIELD NAME DECIDES WHETHER THE VALUE MATTERS, so a field name that
-	 * would not read — `-f "$FIELD"` — could be the title and cannot be told
-	 * from any other. */
 	if (call.opaque)
 		open(
 			run.ctx,
@@ -273,7 +236,6 @@ function judgeApi(run, cmd, args) {
 }
 
 /**
- * Whether a read method is a POST, gh's own default where none was given.
  * @param {string} method
  * @param {import("./gh-api-call.js").ApiCall} call
  */
@@ -281,9 +243,6 @@ const isPost = (method, call) =>
 	method ? method.toUpperCase() === "POST" : defaultsToPost(call);
 
 /**
- * The last `title=` field's value, "" where none; a title value it cannot
- * read fails open. Every field name reads, call.opaque having failed open on
- * one that does not.
  * @param {Run} run
  * @param {string[]} fields
  */
@@ -293,7 +252,6 @@ function apiTitle(run, fields) {
 		const { text } = literal(field, run.parsed.spans);
 		if (!text.startsWith("title=")) continue;
 		title = text.slice("title=".length);
-		/* The name read but the VALUE did not, so the card cannot be known. */
 		if (/[$`]/.test(title))
 			open(
 				run.ctx,
@@ -303,13 +261,7 @@ function apiTitle(run, fields) {
 	return title;
 }
 
-/**
- * The card id a title names, or null. The convention is `<card-id> —
- * <subject>` with an EM DASH or an EN DASH; a hyphen is not accepted, because
- * card ids contain hyphens and `seed-listings - x` cannot be split without
- * guessing where the id ends. The prefix is TRIMMED before it is judged.
- * @param {string} title
- */
+/** @param {string} title */
 function cardOf(title) {
 	let at = -1;
 	for (const dash of [" — ", " – ", "—"]) {
@@ -322,8 +274,6 @@ function cardOf(title) {
 }
 
 /**
- * A card's phase digit, null where the roadmap names no such card — the
- * prefix was never a card reference.
  * @param {Run} run
  * @param {string} card
  */
@@ -335,10 +285,7 @@ function phaseOf(run, card) {
 }
 
 /**
- * Whether the founder has called a card. Only rows BETWEEN the two markers
- * are read, so the format example in the register's own prose is not a live
- * row.
- * @param {string} text the register
+ * @param {string} text
  * @param {string} card
  */
 function isCalled(text, card) {
@@ -355,7 +302,6 @@ function isCalled(text, card) {
 }
 
 /**
- * Given a title, decide.
  * @param {Run} run
  * @param {string} segment
  * @param {string} title

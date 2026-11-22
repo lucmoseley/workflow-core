@@ -1,19 +1,3 @@
-/*
- * origin-fallback.js — the origin of an issue that carries no `origin:*`
- * label, by #4627's keyword rules (its §1.1, first match wins), for the
- * weekly ticket-mix review (#4796, #4797). A hand `gh issue create` bypasses
- * file-issue.js's `--origin`, and every issue filed before it has none.
- *
- * A PORT of the trial's `bin/classify.py` `origin()`: the same tests in the
- * same order, the same regexes and the same provenance text (`provenance()`). Its outputs are mapped onto
- * lib/issue-origin.js's fixed list by OUTPUT_MAP below; `unmarked` is no
- * signal at all. Two departures, both outside any regex: the trial's
- * `daily-report-script` is split by its title (a morning review is
- * `morning-review-script`, the other two daily reports are `incident`), and
- * the provenance line's `.` is `[^\n]`, because Python's `.` takes a `\r`
- * and JavaScript's does not.
- */
-
 const { isOrigin } = require("./issue-origin");
 
 const OUTPUT_MAP = /** @type {const} */ ({
@@ -24,8 +8,7 @@ const OUTPUT_MAP = /** @type {const} */ ({
 
 const UNMARKED = "unmarked";
 
-/* bin/classify.py's own cuts (#4627's trial), ported as they stand and not
- * measured here: what `provenance()` and the rules read of an issue. */
+// guess, #4627
 const PRE_CHARS = 600;
 const SECTION_CHARS = 260;
 const SECTIONS_READ = 2;
@@ -41,7 +24,6 @@ const MORNING_HEAD = 60;
  */
 
 /**
- * The provenance line and the lowered provenance text.
  * @param {string} body
  * @returns {{ provLine: string, provText: string }}
  */
@@ -259,7 +241,6 @@ const isWayfinder = (labels) =>
 	[...labels].some((x) => x.startsWith("wayfinder:"));
 
 /**
- * The trial's own class for one issue, before mapping.
  * @param {IssueText} issue
  * @returns {string}
  */
@@ -276,8 +257,6 @@ function trialOrigin(issue) {
 }
 
 /**
- * The origin #4627's keyword rules give an issue, as one of lib/issue-origin.js's
- * ORIGINS, or `unmarked` where no rule matches.
  * @param {IssueText} issue
  * @returns {string}
  */

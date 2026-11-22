@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * asInstall() (#5447) reads a checkout's text as the probe install spells it,
- * and leaves no root or tree behind. A break here mis-prices route (f)'s
- * budgets in scripts/check-context-budget.js. WFC_SCRIPT_ROOT is stubbed
- * empty, so the run starts from a checkout whatever the shell inherited.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

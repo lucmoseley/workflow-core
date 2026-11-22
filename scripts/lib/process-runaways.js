@@ -1,18 +1,3 @@
-/*
- * process-runaways.js — memwatch's process-runaway firings, read from the line
- * ~/memwatch.sh appends for each (#3807): what the runaway filer tickets and the
- * morning review lists.
- *
- * AN EPISODE is the firings sharing a `since`, the pass the count first held
- * memwatch's line, and an `argv`. A group that respawns fires on every pass until
- * the count clears, so one episode can hold many lines; a second group fired on
- * under the same `since` is a second episode, so its argv reaches a ticket.
- *
- * A line torn by a kill mid-write is skipped. An absent log is no firings: the
- * file only exists once something has fired. WFC_RUNAWAY_LOG injects the path
- * (§N7).
- */
-
 const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
@@ -33,7 +18,7 @@ const TITLE_PREFIX = "Process runaway from ";
  * @property {string} ts
  * @property {string} since
  * @property {number} procs
- * @property {string} argv the largest non-Claude group's, "" where none
+ * @property {string} argv
  * @property {number} size
  * @property {{pid: number, kids: number, argv: string}[]} parents
  * @property {number[]} killed
@@ -58,7 +43,6 @@ const isFiring = (r) =>
 	!Number.isNaN(Date.parse(r.ts));
 
 /**
- * The episodes with a firing after `sinceMs`, oldest first, each read whole.
  * @param {number} sinceMs
  * @returns {{episodes: Episode[], why: string|null}}
  */
@@ -88,11 +72,7 @@ function readEpisodes(sinceMs) {
 	};
 }
 
-/**
- * UTC, so a run under another TZ names the episode the same; the hash tells two
- * groups fired on under one `since` apart.
- * @param {Episode} e
- */
+/** @param {Episode} e */
 const buildEpisodeTitle = (e) =>
 	`${TITLE_PREFIX}${utcMinute(new Date(e.since))} UTC (${crypto
 		.createHash("sha1")
@@ -104,11 +84,7 @@ const buildEpisodeTitle = (e) =>
 const countKilled = (firings) =>
 	firings.reduce((sum, f) => sum + f.killed.length, 0);
 
-/**
- * The episode's ticket body, as far as the log has reached: the ticket is filed
- * while a group may still be firing, so a person hears at once.
- * @param {Episode} e
- */
+/** @param {Episode} e */
 function buildEpisodeBody(e) {
 	const killed = countKilled(e.firings);
 	const [first] = e.firings;
@@ -141,10 +117,8 @@ What started this, and whether it could start again. The pids and any later firi
 }
 
 /**
- * The episode tickets on `repo`, by title; throws where the tracker cannot be
- * read.
  * @param {string} repo
- * @param {Parameters<typeof readTicketsByPrefix>[3]} [run] the gh port
+ * @param {Parameters<typeof readTicketsByPrefix>[3]} [run]
  */
 const readEpisodeTickets = (repo, run) =>
 	readTicketsByPrefix(repo, "process runaway tickets", TITLE_PREFIX, run);

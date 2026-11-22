@@ -1,12 +1,4 @@
-/*
- * line-match.js — a longest common subsequence of two line lists, by Myers'
- * linear-space O(ND) diff, for lib/landed-edit.js (#4903). Linear space,
- * since a landed version can sit thousands of edits from the base.
- */
-
 /**
- * For each line of `a`, the index of the line of `b` it matches in one
- * longest common subsequence, or -1 where it has none.
  * @param {readonly string[]} a
  * @param {readonly string[]} b
  * @returns {Int32Array}
@@ -48,17 +40,11 @@ function matchLines(a, b) {
 
 /**
  * @typedef {{xs: Int32Array, ys: Int32Array, fwd: Int32Array, back: Int32Array}} Graph
- *   the two lists as line ids, and each direction's furthest x per diagonal
  * @typedef {{x0: number, x1: number, y0: number, y1: number}} Box
- *   the edit graph of `xs[x0..x1)` against `ys[y0..y1)`
  */
 
 /**
- * The middle snake of `box`, as its start `[x, y]` and end x, in whole-list
- * coordinates (Myers 1986, §4b). Both ranges are non-empty and differ at
- * each end.
- * @param {Graph} g accumulator: its `fwd` and `back` are scratch,
- *   overwritten
+ * @param {Graph} g
  * @param {Box} box
  * @returns {[number, number, number]}
  */
@@ -93,15 +79,10 @@ function middleSnake(g, { x0, x1, y0, y1 }) {
 }
 
 /**
- * One direction's d-path sweep, from its own corner: where a path ends on a
- * diagonal within `reach` of the other direction's and the two overlap, the
- * snake it ended on.
  * @param {{n: number, m: number, delta: number, off: number}} span
  * @param {number} d
- * @param {number} reach -1 where this direction tests no overlap at `d`
+ * @param {number} reach
  * @param {{v: Int32Array, other: Int32Array, same: (x: number, y: number) => boolean}} dir
- *   accumulator: `v` takes this sweep's furthest x per diagonal; `other` is
- *   read
  * @returns {{k: number, start: number, end: number}|null}
  */
 function sweep({ n, m, delta, off }, d, reach, { v, other, same }) {
@@ -120,8 +101,6 @@ function sweep({ n, m, delta, off }, d, reach, { v, other, same }) {
 }
 
 /**
- * `v[i]`, which every index a sweep reads holds: `matchLines` sizes both
- * arrays for the widest diagonal.
  * @param {Int32Array} v
  * @param {number} i
  */

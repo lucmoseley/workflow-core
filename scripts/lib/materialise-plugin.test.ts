@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * materialise-plugin.test.ts — CLAUDE_CONFIG_DIR isolation (#117): a caller
- * passing `configDir` gets it on every `claude` call `materialisePlugin`
- * makes; a caller passing nothing gets exactly what the process env already
- * carries.
- * Also covers `run()`'s timeout on a hung `claude` call (#135), #258's
- * cross-scope ref-conflict short-circuit, and #342's source-kind one.
- *
- * Every `claude` call goes to a stub script in a temp dir that logs its argv
- * and CLAUDE_CONFIG_DIR, so no case touches a real plugin registry.
- *
- * init-adopter.js and reconcile-plugin.js install plugins through this, so a
- * loosened case lets a caller that isolated its config dir rewrite the
- * founder's own plugin registry, or a hung `claude` call hang the session
- * running it.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,10 +12,6 @@ import { shellQuote } from "./sh-quote.js";
 
 let made: string[] = [];
 
-/**
- * A stub `claude` that logs its own argv and CLAUDE_CONFIG_DIR, one line per
- * call, to `log`.
- */
 function stubClaude(log: string) {
 	const stub = fs.mkdtempSync(path.join(os.tmpdir(), "materialise-claude-"));
 	made.push(stub);
@@ -177,7 +157,6 @@ describe("materialisePlugin's CLAUDE_CONFIG_DIR isolation (#117)", () => {
 	});
 });
 
-/** A stub `claude` that never returns. */
 function hungClaude() {
 	const stub = fs.mkdtempSync(path.join(os.tmpdir(), "materialise-claude-"));
 	made.push(stub);
@@ -235,14 +214,6 @@ describe("materialisePlugin's timeout (#135)", () => {
 	});
 });
 
-/*
- * The #258 short-circuit. `claude plugin marketplace add --scope project` is
- * refused only where the SAME name is already declared at USER scope with a
- * differing ref — a same-scope rotation (project → project, any ref to any
- * other ref) always succeeds, however stale `plugins/known_marketplaces.json`
- * looks, because it is a last-write cache shared across every project on the
- * config dir, not the thing the CLI actually checks.
- */
 function configDirWith(entry: unknown, name = "workflow-core") {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "materialise-config-"));
 	made.push(dir);

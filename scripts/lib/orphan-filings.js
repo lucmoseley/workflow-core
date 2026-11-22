@@ -1,15 +1,3 @@
-/*
- * orphan-filings.js — where check-orphaned-edits.js records each triage
- * filing, and how the reaper (lib/worktree-reaper.js) finds a worktree's.
- *
- * A marker per filing in `orphaned-edits-filed/` under the git common dir,
- * which every worktree shares. A linked worktree's marker is named
- * `wt-<worktree key>-<state key>.json`, so its filings are found by the
- * worktree alone (#4439), and records the worktree's dirt as
- * `readWorktreeEdits` read it: the reaper names the issue rather than flagging
- * the worktree a second time only while that dirt is unchanged.
- */
-
 const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -20,10 +8,7 @@ const { shellQuote } = require("./sh-quote.js");
 
 const FILED_DIR = "orphaned-edits-filed";
 
-/* Hex digits of sha256 kept per key. A main-checkout key keeps the 32 its
- * markers were first named with, so none refiles. A worktree's two halves
- * keep 16 each, 64 bits. A title's tag keeps 10, as the main-checkout
- * title's blob does: the marker, not the title, prevents a refile. */
+// #4439
 const FILE_KEY_HEX = 32;
 const WORKTREE_KEY_HEX = 16;
 const TITLE_TAG_HEX = 10;
@@ -31,15 +16,11 @@ const TITLE_TAG_HEX = 10;
 /** @param {string} s */
 const hashOf = (s) => createHash("sha256").update(s).digest("hex");
 
-/** @param {string} label the worktree as `worktreeLabel` names it */
+/** @param {string} label */
 const worktreePrefix = (label) =>
 	`wt-${hashOf(label).slice(0, WORKTREE_KEY_HEX)}-`;
 
-/**
- * @param {{worktree: string|null, state: string}} unit `state` the text the
- *   filing is keyed by: the path and blob of a main-checkout file, or every
- *   orphaned file's of a worktree
- */
+/** @param {{worktree: string|null, state: string}} unit */
 function markerName({ worktree, state }) {
 	if (worktree === null) return `${hashOf(state).slice(0, FILE_KEY_HEX)}.json`;
 	return `${worktreePrefix(worktree)}${hashOf(state).slice(0, WORKTREE_KEY_HEX)}.json`;
@@ -51,11 +32,6 @@ function markerName({ worktree, state }) {
 const stateTag = ({ state }) => hashOf(state).slice(0, TITLE_TAG_HEX);
 
 /**
- * Every path `git status` lists in worktree `dir`, tracked or not, each with
- * its working copy's blob id ("gone" where it has none), sorted; the store
- * link left out, as the reaper leaves it out. Null where git will not
- * answer. The status takes no optional lock, so it never rewrites the index
- * whose age the reaper reads.
  * @param {string} dir
  * @returns {string[]|null}
  */
@@ -95,9 +71,6 @@ function readWorktreeEdits(dir) {
 }
 
 /**
- * The issue last filed for worktree `label` — where `dirt` is given, only
- * one filed while the worktree's dirt was exactly that. Null where none was
- * recorded.
  * @param {string} commonDir
  * @param {string} label
  * @param {string[]} [dirt]
@@ -116,7 +89,6 @@ function readWorktreeFiling(commonDir, label, dirt) {
 	let best = { at: -1, ref: /** @type {string|null} */ (null) };
 	for (const n of names) {
 		const floor = best.at;
-		// Empty or torn: a filing running or killed, which names no issue.
 		const better = orFallback(() => {
 			const m = JSON.parse(fs.readFileSync(path.join(dir, n), "utf8"));
 			if (want !== undefined && (m.dirt ?? []).join("\n") !== want) return null;

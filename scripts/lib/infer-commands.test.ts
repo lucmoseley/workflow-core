@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * lib/infer-commands.js's three judgements of a repo's commands: whether one
- * runs lint-staged, however spelled (#2587); how each `biome check --staged`
- * shape maps to biome-staged.js or is refused, naming the way out (#2731,
- * #2599); and when `inferCommands` finds `node --test` from node's own default
- * patterns (#3170).
- *
- * Module cases over a temp directory, whose `package.json` files' scripts and
- * dependency sections, at the top and in the directories a command names, are
- * what the judgements read; program cases run through run-in-process the
- * `check-staged` program the hook runs, for its exit code and message.
- * Loosen a case and an unsafe `check_staged` passes init and the pre-commit
- * hook, linting or writing a neighbour's worktree bytes (#2583); loosen the
- * node patterns and a repo whose tests node never runs is handed
- * `node --test`.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -68,18 +52,15 @@ describe("whether a command runs lint-staged (#2587)", () => {
 		'npm run "pre"',
 		'concurrently "npm run pre"',
 		"npm run -s pre",
-		// A runner flag after the name (#3153).
 		"npm run pre --silent",
 		"npm --prefix . run pre",
 		"pnpm run --silent pre",
 		"biome check . && yarn run pre",
-		// A missing script's handed words stop at the line's end (#3413).
 		"pnpm run nosuch\nlint-staged",
 		'concurrently "pnpm run nosuch" "lint-staged"',
 		"npm run nosuch lint-staged",
 		"pnpm run nosuch -- lint-staged",
 		'yarn run nosuch "lint-staged"',
-		// A script name quoted in part (#3445).
 		'npm run p"re"',
 	])("counts %j", (command) => {
 		expect(isLintStagedCommand(dir, command)).toBe(true);
@@ -185,7 +166,6 @@ describe("classifyCheckStaged", () => {
 		["biome check --staged", BIOME_STAGED_COMMAND],
 		["npx biome check --staged", BIOME_STAGED_COMMAND],
 		["@biomejs/biome check --staged", BIOME_STAGED_COMMAND],
-		// The shell deletes a backslash-newline (#3422).
 		["biome check \\\n--staged", BIOME_STAGED_COMMAND],
 		[
 			"npx @biomejs/biome check --staged --no-errors-on-unmatched --error-on-warnings",
@@ -370,7 +350,6 @@ describe("classifyCheckStaged", () => {
 			"biome check '--staged'",
 			"biome check \\--staged",
 			"biome 'check' --staged",
-			// A quoted flag that would otherwise map is refused, not unquoted.
 			'biome check --staged "--verbose"',
 		].map((script) => [
 			`quoted or backslashed word: ${JSON.stringify(script)} (#3414)`,
@@ -502,7 +481,6 @@ describe("classifyCheckStaged", () => {
 	it("refuses an explicit command that would map, naming the mapped one", () => {
 		for (const command of [
 			"npm run check:staged",
-			// A runner flag after the name (#3153).
 			"npm run check:staged --silent",
 			"biome check --staged --write --no-errors-on-unmatched",
 		]) {
@@ -677,7 +655,6 @@ describe("classifyCheckStaged", () => {
 		["biome check {--staged,}", UNREAD],
 		["{biome,check} --staged", UNREAD],
 		["biome {check,--staged}", UNREAD],
-		// A $(( whose first ( closes first is a subshell in a substitution.
 		["echo $((cd /; biome check --staged) )", UNREAD],
 		[
 			"biome check --staged <<< x",
@@ -799,8 +776,6 @@ describe("classifyCheckStaged", () => {
 		["a check with no --staged", "biome check --changed"],
 		["an unrelated command", "eslint ."],
 		["an npm run of an unrelated script", "npm run tsc"],
-		// Fail-closed only where the text mentions Biome or a package manager
-		// (#3545, #3851).
 		[
 			"an expansion with no biome and no package manager",
 			"eslint $(git diff --cached)",
@@ -828,35 +803,27 @@ describe("the check-staged CLI on #3545's fail-open shapes", () => {
 	});
 
 	it.each([
-		// A substitution nested in ${…} or $((…)).
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		": ${X:-$(biome check --staged)}",
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		': "${X:-`biome check --staged`}"',
+		// biome-ignore lint/style/noUnusedTemplateLiteral: shell text
+		`: \${X:-$(biome check --staged)}`,
+		`: "\${X:-\`biome check --staged\`}"`,
 		": $(( $(biome check --staged) ))",
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		": ${X:-$(npm run cs)}",
-		// Bash-only syntax, read otherwise by dash.
+		// biome-ignore lint/style/noUnusedTemplateLiteral: shell text
+		`: \${X:-$(npm run cs)}`,
 		": $'#\\' ; biome check --staged #'",
 		"pnpm run cs --{verbose,json}",
-		// An expansion in the check slot, or xargs.
 		"biome $(echo check) --staged",
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		"biome ${C:-check} --staged",
+		// biome-ignore lint/style/noUnusedTemplateLiteral: shell text
+		`biome \${C:-check} --staged`,
 		"echo --staged | xargs biome check",
-		// An expansion in a script name.
 		"npm run cs$X",
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		"npm run c${X}s",
+		// biome-ignore lint/style/noUnusedTemplateLiteral: shell text
+		`npm run c\${X}s`,
 		"node_modules/.bin/$B check --staged",
-		// A quote or backslash splitting the mention, a shell reading stdin, a
-		// hidden command name.
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		': ${X:-$(bi""ome check --staged)}',
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		": ${X:-$(b\\iome check --staged)}",
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		": ${X:-$(npm r\\un cs)}",
+		`: \${X:-$(bi""ome check --staged)}`,
+		// biome-ignore lint/style/noUnusedTemplateLiteral: shell text
+		`: \${X:-$(b\\iome check --staged)}`,
+		// biome-ignore lint/style/noUnusedTemplateLiteral: shell text
+		`: \${X:-$(npm r\\un cs)}`,
 		": $'#\\' ; bi\"\"ome check --staged #'",
 		': $(( $(eval bi""ome check --staged) ))',
 		'printf "biome check --st%sd" age | sh',
@@ -1048,7 +1015,6 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			expect(r.stderr).toContain(
 				`runs it in a, where biome-staged.js, which runs from the work tree's top, cannot follow. ${OWN_FLAGS_WAY_OUT}`,
 			);
-			/* Inside a member `-ws` is that member alone, measured on npm 11.16.0. */
 			expect(run("npm run all -w web")).toMatchObject({
 				status: 0,
 				stderr: "",
@@ -1294,7 +1260,6 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 						workspaces: ["web"],
 						scripts: { "check:staged": command },
 					});
-					/* This run's Node has both, and no other route reaches the older one's. */
 					const was = owner[key as keyof typeof owner];
 					Object.assign(owner, { [key]: undefined });
 					try {
@@ -1387,8 +1352,8 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			["cd web/src && npm run web-cs", IN_WEB],
 			["(cd web; npm run web-cs)", IN_WEB],
 			["npm rum $S", UNREAD],
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			["npm urn c${X}s", UNREAD],
+			// biome-ignore lint/style/noUnusedTemplateLiteral: shell text
+			[`npm urn c\${X}s`, UNREAD],
 			["npm ur cs$X", UNREAD],
 			["npm rum $(echo cs)", UNREAD],
 			["npm $V cs", UNREAD],
@@ -1488,8 +1453,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 		});
 
 		describe("biome-staged.js in a script, a script named for an indirect word and a flag's quoted value (#4042)", () => {
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			const HookRoot = '"${WFC_PLUGIN_ROOT:-.}"/scripts/biome-staged.js';
+			const HookRoot = `"\${WFC_PLUGIN_ROOT:-.}"/scripts/biome-staged.js`;
 			const withScripts = (scripts: object) =>
 				writePackage(".", {
 					scripts,
@@ -1547,18 +1511,15 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 				[`${BIOME_STAGED_COMMAND} | sh`, UNREAD],
 				[`${BIOME_STAGED_COMMAND} && npx eslint $X`, UNREAD],
 				[
-					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-					'node "${WFC_PLUGIN_ROOT:-$(biome check --staged)}"/scripts/biome-staged.js',
+					`node "\${WFC_PLUGIN_ROOT:-$(biome check --staged)}"/scripts/biome-staged.js`,
 					UNREAD,
 				],
 				[`${BIOME_STAGED_COMMAND}x`, UNREAD],
 				[`node ${HookRoot} && biome check --staged`, HoldsMore],
 				[`${BIOME_STAGED_COMMAND} \${X:-$(biome check --staged)}`, UNREAD],
 				[`${BIOME_STAGED_COMMAND} --x=\${X:-\`biome check --staged\`}`, UNREAD],
-				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-				['node "${WFC_PLUGIN_ROOT}"/scripts/biome-staged.js', UNREAD],
-				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-				['node "${WFC_PLUGIN_ROOT:-/other}"/scripts/biome-staged.js', UNREAD],
+				[`node "\${WFC_PLUGIN_ROOT}"/scripts/biome-staged.js`, UNREAD],
+				[`node "\${WFC_PLUGIN_ROOT:-/other}"/scripts/biome-staged.js`, UNREAD],
 			])(
 				"judges a script %j on what else it runs, naming %j",
 				(body, named) => {
@@ -1755,7 +1716,6 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 				);
 			});
 
-			/* Under uid 0, mode 000 stops no read, so this refusal cannot arise. */
 			it.skipIf(process.getuid?.() === 0)(
 				"refuses a directory it cannot read, naming the path, and reads it once readable",
 				() => {

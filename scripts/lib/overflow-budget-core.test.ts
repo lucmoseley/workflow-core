@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/overflow-budget-core.js: budgetOf's cycle on and around the cycle
- * day, settled spend by cycle, reservations at and above Q, Q read from the
- * table, the exhausted mark set by a credit refusal and cleared at the next
- * cycle, and when a spent key frees; and the chain arithmetic over resumed
- * copies.
- *
- * Loosen one and the loop launches on a key past its grant, keeps retrying a
- * spent key, counts a cycle's spend from the wrong day (#2609), or counts a
- * chain's shared requests twice (#4195, #4208, #4370).
- */
 import { describe, expect, it } from "vitest";
 import {
 	budgetOf,
@@ -22,8 +11,6 @@ import {
 	settleChainsOnce,
 } from "./overflow-budget-core.js";
 
-/* Mean 4; a run 0.5 in has an expected remainder of (0.5 + 2.5 + 9.5) / 3,
- * the top point standing at u 3 + tail 7; one 5 in, past u, the tail's 7. */
 const TABLE = {
 	n: 3,
 	meanUsd: 4,
@@ -281,8 +268,6 @@ describe("when a spent key frees", () => {
 });
 
 describe("the chain of resumed copies", () => {
-	/* a ← b ← c, each a `--resume` copy of the one before; d alone. a's move
-	 * onto the key repeats $2 a plan paid. */
 	const parents: Record<string, { copyOf?: string; offKeyUsd?: number }> = {
 		a: { offKeyUsd: 2 },
 		b: { copyOf: "a" },

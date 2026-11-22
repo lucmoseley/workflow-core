@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * parent-claims.js's own suite: whether a live session's claim on an issue's
- * parent map holds the issue too (#2310), and how a holder is named.
- *
- * Each case builds its claim stores in a fresh temp directory, with HOME and
- * CLAUDE_CONFIG_DIR pointed into it, so a parent in another repo is read from
- * a checkout this case wrote and never from the machine's own.
- *
- * pick-next.js reads every candidate's parent through parentVerdictOf: loosen
- * a case here and a ticket under a map still being charted is launched, or a
- * store that would not read hides a ticket with no WARN.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
