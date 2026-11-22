@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, it } from "vitest";
-import { freshSandbox, gitRepo, issueClaims } from "./arbiter-testkit";
+import {
+	freshSandbox,
+	gitRepo,
+	issueClaims,
+	listedClaims,
+} from "./arbiter-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 const { decideClaim, decideRelease } = require("./issue-claim-hook.js") as {
@@ -45,12 +50,7 @@ function ctx({ sessionId = "sess-1", envSession = "", tool = "Bash" }: Call) {
 }
 
 const claims = () =>
-	(
-		issueClaims.listIssueClaims().claims as {
-			issue: number;
-			sessionId: string;
-		}[]
-	)
+	listedClaims()
 		.map((c) => `${c.issue} ${c.sessionId}`)
 		.sort();
 

@@ -10,6 +10,7 @@ import {
 	freshSandbox,
 	gitRepo,
 	issueClaims,
+	listedLocks,
 	live,
 	store,
 } from "./lib/arbiter-testkit";
@@ -305,9 +306,8 @@ describe("a successful resolve", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^Released clean\.md — /m);
 		expect(
-			store
-				.listLocks()
-				.map((l: { path: string }) => l.path)
+			listedLocks()
+				.map((l) => l.path)
 				.sort(),
 		).toEqual(["dirty.md", "other.md"]);
 	});

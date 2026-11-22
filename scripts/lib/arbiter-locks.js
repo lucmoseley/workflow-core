@@ -600,7 +600,7 @@ function isLockAlive(lock, resumed) {
 
 /**
  * @param {string} rel
- * @param {string} exceptClaimId
+ * @param {string|null|undefined} exceptClaimId
  */
 function liveClaimElsewhereOnFile(rel, exceptClaimId) {
 	const file = core.subjectPath(rel);

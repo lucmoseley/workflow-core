@@ -71,9 +71,7 @@ const readLog = () => {
 const stopped = () => readLog().some((e) => e.startsWith("stop "));
 const commented = () => readLog().includes("gh issue comment");
 const readHolders = () =>
-	issueClaims
-		.readIssueClaims(N)
-		.map((e: { record: { sessionId: string } }) => e.record.sessionId);
+	issueClaims.readIssueClaims(N).map((e) => e.record.sessionId);
 
 describe("takeover through the program", () => {
 	it("snapshots, stops, confirms, claims and comments, in that order", async () => {

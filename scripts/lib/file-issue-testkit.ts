@@ -156,9 +156,7 @@ export function fileIssueKit() {
 	const readCreates = () =>
 		readGhCalls().filter((c) => c.startsWith("issue create"));
 	const readClaimants = () =>
-		issueClaims
-			.readIssueClaims(NEW)
-			.map((e: { record: { sessionId: string } }) => e.record.sessionId);
+		issueClaims.readIssueClaims(NEW).map((e) => e.record.sessionId);
 	const readBodySeen = () => fs.readFileSync(at("body-seen"), "utf8");
 	const readLinks = () =>
 		fs.existsSync(at("links"))

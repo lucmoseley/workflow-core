@@ -41,7 +41,7 @@ describe("maskMentions: the quoted spans of a line", () => {
 		);
 	});
 
-	it("masks 300,000 unclosed curly quotes inside a 10 s process timeout (#5559)", () => {
+	it("masks nothing on unclosed curly quotes, inside the scan limit (#5559)", () => {
 		const r = keptSpawn("timeout").spawnSync(
 			process.execPath,
 			[

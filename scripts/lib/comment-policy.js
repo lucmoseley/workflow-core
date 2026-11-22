@@ -28,7 +28,7 @@ const { scanJs } = require("./strip-comments.js");
  *   deps: RegExp | null,
  *   styleOnly: Record<string, string[]>,
  * }} FileFacts `exports` the names the helper surface lists for the file;
- *   `shipped` the file is a surface entry point or command; `adrs` the
+ *   `shipped` the file is a surface entry point, command or copy; `adrs` the
  *   `NNNN` of each `docs/adr/NNNN-*.md`; `deps` matches a manifest
  *   dependency's name
  * @typedef {{ tag: "COMMENT" | "SUPPRESSION" | "ADR-UNRESOLVED",

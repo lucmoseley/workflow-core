@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, assert, beforeEach, vi } from "vitest";
 import { buildAgentsBranch, buildListedRow } from "./agents-stop-fake";
 import { caught } from "./caught.js";
 import { writeClaudeStub } from "./claude-stub";
@@ -13,18 +13,35 @@ import { sleepSync } from "./sleep-sync.js";
 
 const requireLocal = createRequire(import.meta.url);
 
-export const store = requireLocal("./arbiter-store.js");
-export const proc = requireLocal("./arbiter-proc.js");
+export const store: typeof import("./arbiter-store.js") =
+	requireLocal("./arbiter-store.js");
+export const proc: typeof import("./arbiter-proc.js") =
+	requireLocal("./arbiter-proc.js");
 
-export const breaks = requireLocal("./arbiter-breaks.js");
-export const content = requireLocal("./arbiter-content.js");
-export const core = requireLocal("./arbiter-core.js");
-export const issueClaims = requireLocal("./arbiter-issue-claims.js");
-export const ledger = requireLocal("./arbiter-ledger.js");
-export const lockFiles = requireLocal("./arbiter-lock-files.js");
-export const locks = requireLocal("./arbiter-locks.js");
-export const markers = requireLocal("./arbiter-markers.js");
-export const snapshots = requireLocal("./arbiter-snapshots.js");
+export const breaks: typeof import("./arbiter-breaks.js") = requireLocal(
+	"./arbiter-breaks.js",
+);
+export const content: typeof import("./arbiter-content.js") = requireLocal(
+	"./arbiter-content.js",
+);
+export const core: typeof import("./arbiter-core.js") =
+	requireLocal("./arbiter-core.js");
+export const issueClaims: typeof import("./arbiter-issue-claims.js") =
+	requireLocal("./arbiter-issue-claims.js");
+export const ledger: typeof import("./arbiter-ledger.js") = requireLocal(
+	"./arbiter-ledger.js",
+);
+export const lockFiles: typeof import("./arbiter-lock-files.js") = requireLocal(
+	"./arbiter-lock-files.js",
+);
+export const locks: typeof import("./arbiter-locks.js") =
+	requireLocal("./arbiter-locks.js");
+export const markers: typeof import("./arbiter-markers.js") = requireLocal(
+	"./arbiter-markers.js",
+);
+export const snapshots: typeof import("./arbiter-snapshots.js") = requireLocal(
+	"./arbiter-snapshots.js",
+);
 
 export const SCRIPT = path.join(__dirname, "..", "session-arbiter.js");
 
@@ -246,6 +263,21 @@ export const liveHolder = () => ({
 	pid: process.pid,
 	procStart: proc.readProcStartOf(process.pid),
 });
+
+export function listedLocks() {
+	const listed = store.listLocks();
+	assert(listed);
+	return listed.map((l) => {
+		assert(!l.unreadable);
+		return l;
+	});
+}
+
+export function listedClaims() {
+	const listed = issueClaims.listIssueClaims();
+	assert(listed);
+	return listed.claims;
+}
 
 export function putLock(rel: string, fields: object) {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
