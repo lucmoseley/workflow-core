@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The before/after test's score (#2042), run as the command: over a recorded
- * transcript, trimmed from a real session to its refusal,
- * deny and message records; and over hand-built records in the same shapes
- * (`docs/research/startup-load-before-after-test.md` F2) for the edges the
- * recording does not reach. Plus the pre-registration's completeness: every
- * Stop guard registered today is classed. A break here mis-scores every arm
- * of the test, and its rate ratio with it.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -33,10 +24,8 @@ const { readDispatchRows } = require("./lib/guard-cores.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const cliPath = path.join(ROOT, "scripts", "score-session-breaches.js");
-/** The scorer reads its registry from `hostRoot()`; pin it to the root the test reads. */
 const ROOT_ENV = { ...process.env, CLAUDE_PROJECT_DIR: ROOT };
 
-/** A Stop refusal as the harness records it: the attachment, plus the user copy the scorer must not count. */
 const buildStopBlock = (guard: string, toolUseID: string, text: string) => [
 	{
 		type: "attachment",
@@ -279,7 +268,6 @@ describe("the pre-registered classes", () => {
 		expect(readStops().filter((g: string) => !STOP_CLASS[g])).toEqual([]);
 	});
 
-	/** The guards the scorer attributes a deny to, given one deny per registered deny needle. */
 	const readDenyAttributed = () => {
 		const denies = (readRegisteredGuardSubjects(ROOT) as Subject[])
 			.flatMap((s) => s.needles.filter((n) => n.kind === "deny"))

@@ -1,10 +1,3 @@
-/*
- * The rows a Chrome child's stream carries, as the Claude in Chrome extension
- * words them (#4847): what the suites of lib/chrome-child.js and of
- * claude-child.js's Chrome mode feed the tab tally.
- */
-
-/** A stream row carrying one Chrome tool result's text parts. */
 export const buildToolResultRow = (...texts: string[]) => ({
 	type: "user",
 	message: {
@@ -19,8 +12,6 @@ export const buildToolResultRow = (...texts: string[]) => ({
 	},
 });
 
-/** The `Tab Context:` part closing a tool result, listing `tabs` as the
- * group's own. */
 export const buildTabContext = (
 	...tabs: [tabId: number, url: string, title?: string][]
 ) =>

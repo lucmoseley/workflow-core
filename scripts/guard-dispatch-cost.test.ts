@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what one guard-dispatch.js call costs on the common path: the repo
- * modules it loads and the processes it starts (base §G13, #5338). It is the
- * PreToolUse and PostToolUse entry the shipped hooks/hooks.json runs on every
- * Bash, Write, Edit and Read call, so each module or child past what the
- * call needs is paid on nearly every tool call of every session.
- *
- * Program cases (base §X3), run through lib/call-cost-harness.js in
- * lib/hook-cost-testkit.ts's fixture repo. Which cores a tool or an
- * `if` clause selects is guard-dispatch.test.ts's and
- * lib/guard-dispatch.test.ts's; this pins the call's whole cost.
- *
- * The module lists name the core registry's modules (lib/guard-cores.json):
- * a core added to it for these tools moves them.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -37,7 +22,6 @@ afterEach(() => {
 
 type Payload = Record<string, unknown>;
 
-/** One dispatcher call on `payload`, as the harness sends it. */
 const dispatch = (payload: Payload) =>
 	callCost(ENTRY, [], {
 		cwd: fx.repo,
@@ -57,12 +41,9 @@ const write = (rel = "notes.txt", content = "a note\n") => ({
 });
 
 describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
-	// The hot-path entry: the PreToolUse dispatcher line. The common call: a
-	// plain `ls`.
 	it("costs a plain Bash call these modules and starts", () => {
 		const r = dispatch({ hook_event_name: "PreToolUse", ...ls });
-		// The module set and the child list are internals, asserted because
-		// no output shows the start-up cost they guard (base §X6, #1497).
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-dispatch.js",
 			"lib/agent-poll.js",
@@ -179,11 +160,9 @@ describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 		expect(r.children).toEqual([]);
 	});
 
-	// The hot-path entry: the PreToolUse dispatcher line. The common call: a
-	// Write of a plain file, neither a test nor a hot-path program.
 	it("costs a plain Write these modules and starts", () => {
 		const r = dispatch({ hook_event_name: "PreToolUse", ...write() });
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-dispatch.js",
 			"lib/caught.js",
@@ -277,15 +256,12 @@ describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 		]);
 	});
 
-	// The hot-path entry: the PreToolUse dispatcher line. The call: a Write of
-	// an ordinary program, neither a test nor hot-path, which is the write
-	// lib/hot-path-inject.js reads every registration for.
 	it("costs a Write of an ordinary program these modules and starts", () => {
 		const r = dispatch({
 			hook_event_name: "PreToolUse",
 			...write("scripts/tool.js", "module.exports = {};\n"),
 		});
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-dispatch.js",
 			"lib/caught.js",
@@ -391,8 +367,6 @@ describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 });
 
 describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
-	// The hot-path entry: the PostToolUse dispatcher line. The common call: a
-	// plain `ls` that listed the tree.
 	it("costs a plain Bash call these modules and starts", () => {
 		const r = dispatch({
 			hook_event_name: "PostToolUse",
@@ -404,7 +378,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 				isImage: false,
 			},
 		});
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-dispatch.js",
 			"lib/act-line.js",
@@ -550,8 +524,6 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 		]);
 	});
 
-	// The hot-path entry: the PostToolUse dispatcher line. The common call: a
-	// Write of a plain file, the file as written on disk.
 	it("costs a plain Write these modules and starts", () => {
 		const call = write();
 		fs.writeFileSync(call.tool_input.file_path, call.tool_input.content);
@@ -565,7 +537,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 				structuredPatch: [],
 			},
 		});
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"check-host-root.js",
 			"guard-dispatch.js",

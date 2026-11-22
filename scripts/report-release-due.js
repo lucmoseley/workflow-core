@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-release-due.js — the weekly release cut's filer (#5435): files the
- * one *Release cut due* issue once CADENCE_DAYS have passed since the last
- * tag and `origin/main` holds a commit no release carries
- * (lib/release-due.js).
- *
- * Run by the refill loop's gate sweep in each served checkout
- * (lib/gate-sweep.js), so a cut falls due whether or not a session starts,
- * and by the daily repo-checks run; outside workflow-core it SKIPs. While an
- * issue of CUT_TITLE is open, found by title alone, it only rewrites that
- * issue's body, never filing a second — and one filed before the last tag
- * it rewrites to say that cut landed.
- *
- * LOCAL REFS ONLY, no fetch, as check-release-lag.js reads them.
- *
- * Exit 0 whether or not a cut is due. Exit 2 where it cannot judge — no
- * release tag, no `origin/main`, a tag whose source git cannot read — or
- * cannot file, and on a command line lib/cli-args.js refuses.
- */
 
 const { writeFd } = require("./lib/write-fd.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -40,13 +21,10 @@ const { buildStandaloneLine } = require("./lib/standalone-line.js");
 const LABEL = takesLabel("implement");
 
 /**
- * The last tag's reading; throws where there is none to judge.
- *
  * @param {string} root
  * @returns {import("./lib/release-due.js").CutReading}
  */
 function readCut(root) {
-	/* Required past the core check: the release never ships it. */
 	const {
 		readCutTime,
 		readReleaseTags,
@@ -67,11 +45,7 @@ function readCut(root) {
 	return { tag, cutSec: readCutTime(root, tag), commits: reading.commits };
 }
 
-/**
- * Carries no figure that moves between readings.
- *
- * @param {string} tag
- */
+/** @param {string} tag */
 function buildBody(tag) {
 	return [
 		`Filed automatically by \`${scriptPath("report-release-due.js")}\`, from the daily repo-checks run and the refill loop's gate sweep, which rewrite this body while a cut is due. **Edit it by hand and the next run silently overwrites it** — put anything you want kept in a comment.`,
@@ -93,12 +67,7 @@ function buildBody(tag) {
 	].join("\n");
 }
 
-/**
- * For an open ticket filed before the last tag, which that cut answered, so a
- * session the loop launches on it closes it rather than cutting again.
- *
- * @param {string} tag
- */
+/** @param {string} tag */
 function buildLandedBody(tag) {
 	return [
 		`Filed automatically by \`${scriptPath("report-release-due.js")}\`, from the daily repo-checks run and the refill loop's gate sweep. **Edit it by hand and the next run silently overwrites it** — put anything you want kept in a comment.`,
@@ -116,7 +85,7 @@ function buildLandedBody(tag) {
 /**
  * @param {string} root
  * @param {number} nowMs
- * @returns {string} what happened
+ * @returns {string}
  */
 function fileRun(root, nowMs) {
 	const reading = readCut(root);
@@ -128,8 +97,6 @@ function fileRun(root, nowMs) {
 		return `${verdict.why}. ${refresh(open.number, buildLandedBody(reading.tag))}`;
 	}
 	const body = buildBody(reading.tag);
-	/* No PreToolUse hook sees a script's own gh call, so the create guard's
-	 * takes: check is made here. */
 	const refused = takesRefusal([LABEL], body);
 	if (refused) throw new Error(refused);
 	return `${verdict.why}. ${fileOrRefresh({ title: CUT_TITLE, labels: [LABEL], body })}`;

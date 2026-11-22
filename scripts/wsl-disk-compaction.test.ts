@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The wsl-disk-compaction.js program (#5044) at its process boundary: its
- * exit codes on a bad command line, off WSL and with no log, each read
- * crossed through the WFC_PROC and WFC_WSL_COMPACT_LOG seams, so none reaches
- * the hold, the trim or the task. Loosened, the timer's journal and exit stop
- * saying why a night's run did nothing. The run's order is
- * lib/wsl-disk.test.ts's.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

@@ -1,168 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-remeasure-due.js — tells the founder, through one filed issue, once
- * 15 commits on adopter-declared sensitive paths carry known defects, so the
- * focused-against-identical-runs question (#1545) is re-measured on real code
- * (#1625, spec #1612 §The re-measure trigger).
- *
- * A COUNTED COMMIT is a `**Review findings:** base <sha>, reviewed <tree>,
- * landed <sha>[, paths <paths>]` record (docs/agents/rules/review-tier-records.txt) on a
- * corpus ticket whose latest `**Review tier:**` line before it reads
- * escalated or mission-critical, and which has a known defect: a `- FIXED`
- * or `- TICKETED` line among the bullets under it (`- DECLINED`
- * does not count), or an `**Escaped defect:** <sha>` line anywhere in the
- * corpus naming its landed sha or a commit it covers (below). One commit
- * recorded by two reviews, by a short sha or a full one, is counted once, its
- * defects summed, unless the later replaces the earlier (A CORRECTED RECORD,
- * below). A commit a revert on `main` names is not counted, unless that revert
- * was itself reverted: searched in the tracker's repo only once the count
- * reaches the threshold or an issue of TITLE exists to refresh, since dropping
- * one can only lower it (#3395). Residual: an adopter's code
- * repo apart from its tracker is not searched.
- *
- * A RECORD WHOSE LANDED SHA IS NOT ON `origin/main`, once fetched, in the
- * checkout on this machine that tracks the record's repo, is not counted
- * (#3846). One a queue ref holds, fetched with it, is legal and silent, as a close posts it there without waiting for the
- * lander. One on neither, as a dropped or rewritten queue ref can leave it, is
- * reported as OFF
- * MAIN each run until a record of the same review on its ticket names a sha
- * that is on one. A sha that checkout does not hold, mistyped or pruned, is
- * reported as UNJUDGED and not counted until a record of the same review names
- * one that checkout holds, an issue already filed held at its count meanwhile
- * (#3907); a record with no such checkout
- * is counted, unreported. A checkout that cannot fetch is judged at the refs it
- * last fetched, and reported as UNREAD.
- *
- * AN ESCAPE ON A COVERED COMMIT counts once on the first counted record
- * covering it, where no counted commit names it as landed (#3832). A commit
- * carrying a trailer that a counted record covers adds no row of its own, so
- * its escape counts on that record. A revert takes only what it names (#3832):
- * of a covered commit, the escape credited through it, its record standing as
- * its tip is on `main`; of the tip, the record's findings and an escape on the
- * tip, a row standing only on an escape through a commit still there, marked
- * as its tip reverted. An escape no checkout on this machine holds, and no
- * counted commit names, is reported as UNLOCATED, and one on an adopter's commit
- * no counted record covers, a merge or a lower tier's included, as UNCOUNTED,
- * each run until the line is corrected or something answers for it.
- *
- * A COMMIT CARRYING A `Review-Tier:` TRAILER, whose value the review hold
- * builds from its marker (scripts/review-hold-gate.js) and
- * .husky/prepare-commit-msg writes (scripts/review-tier-trailer.js), is
- * counted by it where no counted record covers it, and once where one does (#3664).
- * Its trailer names no defect, so it counts only once an `**Escaped defect:**`
- * line names it, and its tree is the one the commit was made with, which a
- * replay can leave different from the landed commit's, and never the pinned
- * pre-fix tree. Read with `git log` in the checkout on this machine that tracks the
- * record's repo, at `origin/main` once fetched, from TRAILER_FROM, since the
- * lander moves `main` and nothing obliges that checkout's HEAD to hold the
- * commits being judged (#3819); there, a commit that changes a path
- * `sensitivePaths` declares at that ref and carries neither the trailer nor a
- * record is reported as UNRECORDED, each run until a record covers it, a
- * trailer not in its form as UNPARSEABLE, and a checkout git cannot fetch or
- * read as UNREAD. Judged from that fixed instant, not the repo's own first
- * trailer, as a repo whose sessions never write a marker, or an adopter pinned
- * before #3664, would never have one (#3714).
- * A RECORD COVERS ITS TICKET'S COMMITS, so one record owes no twin per commit:
- * its landed sha, and each commit in its `base..landed` whose message cites
- * its ticket, a citation alone reaching a later commit's passing mention and
- * the range alone a neighbour's (#3819). A commit an unparseable record names
- * as landed is reported by that record, never as UNRECORDED too.
- * A record whose range git cannot read there covers only its landed sha, and
- * is reported as UNREAD.
- * Residual: a repo with no such checkout goes unread, a repo whose branch is
- * not `main` reads as UNREAD, an `origin` that is a fork of the tracked repo is
- * judged as it, a record's range spans landing merges so a neighbour's commit
- * there citing its ticket reads as covered, and a commit from the founder's own terminal, which
- * the hold skips, or a linked worktree's whose marker would not pass, is
- * reported.
- *
- * ADOPTER AREAS ONLY (#3431): a commit recorded on this repo's own tracker is
- * never counted, its records still read for the reports below and its
- * `**Escaped defect:**` lines for an adopter's commit.
- *
- * A MENTION IS NO RECORD: a head in a fence, a quoted line, or a backtick or
- * double-quote span counts nothing and sets no tier, read through
- * lib/review-findings.js's maskMentions (#3907).
- *
- * AN UNPARSEABLE RECORD — a `**Review findings:**` under a counted tier that the record form does not match — counts nothing and is
- * reported, remedy included: one line to stderr and to the guard-error log,
- * which is what the daily run keeps, per record each run until it is
- * corrected (#3064). A note after the landed sha, as a record posted before
- * its commit landed carries, is unparseable too (#3541). Not one a parsed
- * record on its ticket supersedes, sharing its `reviewed <tree>`, or its
- * `base` and paths. Residual: two commits a ticket records from one base over
- * the same paths hide each other's unparseable record.
- *
- * A RECORD WITH LOST LINES OR PATHS — `- FIXED` or `- TICKETED` lines, under a
- * counted tier, past a line that ends its list (CUT OFF, #3847) or in another
- * spelling (MISSPELT, #3907), which resolve-ticket.js refuses at a close and a
- * separate `gh issue comment` can still post — counts none of those lines. One
- * under any tier but those counts nothing (NO TIER), and a tier in no known word
- * is reported on its own too (UNKNOWN TIER) until a known one follows it.
- * One whose paths hold an entry its replay changes nothing at, a note after them
- * above all (NOT PATHS), still counts, listed with no paths. Each is reported
- * each run until a later record restates it: one faultless, under a
- * counted tier, with at least as many lines as the earlier held in all, and the same reviewed tree, or the same base, paths and landed sha, as two
- * commits from one base over the same paths are separate reviews here. What the
- * earlier one did count is then dropped rather than summed with the restatement.
- * NO POST CLEARS a record whose review owed none, or one whose correction changes
- * its tree and its base or paths, as that is another review here, summed with it
- * where it names the same landed sha. Each remedy says so, and to delete the record
- * from its comment (#4007). Residual: a deletion silences any fault and drops the
- * record's lines from the count, with only GitHub's edit history to show it.
- *
- * A CORRECTED RECORD REPLACES (#3993): a later faultless record on the ticket,
- * naming the same landed sha and the same reviewed tree, or the same base and
- * paths, stands in place of an earlier one with no fault, whatever either holds,
- * and of one with a fault that it restates. Its defects, base, tree and paths are
- * the row's, and the earlier one's range covers nothing, unless it names no paths
- * and the earlier does: that replay stands, as does the longer landed sha. A later
- * record with a fault replaces nothing, so both count until it is corrected.
- * Residual: a faultless repost holding fewer lines lowers the count, unreported.
- *
- * A RECORD NAMING THE LANDED TREE — a counted commit with a `- FIXED` line
- * whose `reviewed` tree equals its landed commit's on the record's paths, the
- * marker's post-fix `tree=` copied in place of the pin — still counts, and is
- * reported the same way, since a replay finds none of its fixed defects
- * (#3444). A commit that fixed nothing lands its pre-fix tree, so is not
- * judged. Judged in the checkout on this machine that tracks the record's
- * repo; a record posted before PINNED_FROM, one naming no paths, and one
- * with no such checkout go unjudged. One whose diff there fails, a sha it
- * does not hold included, goes unjudged too and is reported as UNJUDGED
- * (#3544).
- * Residual: a session that never took the pin cannot correct its record,
- * which is reported each run.
- *
- * THE SEARCH. Every `corpus` tracker, one GraphQL search a page of 100
- * tickets, each with its comments, for "Review tier", "Review findings" or
- * "Escaped defect" since FLOOR, the day the record formats landed, the second
- * reaching a record on a ticket with no tier line (#3907). A ticket past 100
- * comments has the rest read by REST. A window holding more than search's 1,000-result cap is
- * halved by date until each half fits, a single day past it throwing, and a
- * window whose pages return fewer tickets than its count throws.
- *
- * AT THRESHOLD it files TITLE, `takes:wayfinder`, listing each counted
- * commit; while an issue of that title exists, open or closed, it only
- * rewrites that issue's body, never filing a second, below the threshold too,
- * since a gate reads the count from its first line (#3576). Found by title
- * alone, since the session that takes it may relabel it. Below the threshold
- * it prints nothing but those reports. A run that undercounts — an adopter's
- * checkout UNREAD, or an escape on an adopter's commit that a git failure or a
- * citing record's unread range leaves unplaced — leaves an issue whose first
- * line it would lower, reported as HELD, and the next run retries (#3832). This
- * repo's own tracker holds nothing, its commits never being counted. A record's
- * unread range that no escape rests on holds nothing. Residual: a real drop
- * waits until the read recovers, and a repo with no checkout at all lowers the
- * count, as a corpus tracker this machine never held is no failed read.
- *
- * WORKFLOW-CORE ONLY, by its repo-checks gate: one reading covers the whole
- * corpus, and Actions' token cannot read the private adopter repos.
- *
- * Exit 0 whether or not it files: a `gh` failure, a window that cannot be
- * read whole, an unreadable WFC_NOW, a refused `takes:` label or a failed
- * filing is one line in the arbiter's error log, and the next day's run
- * retries (#1698). Exit 2 only where lib/cli-args.js refuses the command line.
- */
 
 const { writeFd } = require("./lib/write-fd.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -209,17 +45,12 @@ const { readConfig, resolveKey } = require("./lib/workflow-core-config");
 const WHERE = "report-remeasure-due";
 const TITLE = "Re-measure focused against identical review runs";
 const LABEL = takesLabel("wayfinder");
-/* #1556 Q4 (A)'s "about 15", made exact by spec #1612: a judgement of how
- * many commits the comparison needs, not a measurement. */
+// #1612 guess
 const THRESHOLD = 15;
 const FLOOR = "2026-10-14";
-/* The day the rule named the pre-fix tree (#3444). The records before it
- * stand as filed, #3425 charting which of their defects replay. */
 const PINNED_FROM = "2026-10-29";
-/* 591ef1a74's commit time (#3664): no commit before it carries a trailer. */
 const TRAILER_FROM = "2026-10-29T22:57:18+08:00";
-/* GitHub's largest page: GraphQL's, for tickets and each ticket's comments,
- * and REST search's, for reverts. */
+// GitHub's largest page is 100: https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api
 const PAGE = 100;
 const DAY_MS = 86_400_000;
 
@@ -231,24 +62,16 @@ const SEARCH = `query($q: String!, $after: String) {
     nodes { ... on Issue { number comments(first: ${PAGE}) { totalCount nodes { body createdAt } } } }
   }
 }`;
-/* review-hold-gate.js's value: the hold's tier, areas, base, tree and paths. */
 const TRAILER =
 	/^(escalated|mission-critical);\s*areas=[^;]*;\s*base=([0-9a-f]{40});\s*tree=([0-9a-f]{40});\s*paths=(.+)$/;
-/* `git revert`'s own message line, which names the full sha. */
 const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
 const JUDGED_REF = "refs/remotes/origin/main";
-/* An unparseable record's landed clause, a sha anywhere in it: "landed pending
- * (5d3f65283 on `landing`)". Residual: a hex-only word ahead of the sha reads
- * as it, so that commit stays reported as UNRECORDED too. */
 const LANDED_CLAUSE = new RegExp(`\\blanded\\b[^,]*?\\b(${HEX_RUN})\\b`);
 
-/* What a remedy says where no later post can clear a record (#4007). The list goes
- * too: without its head, its lines would read as past the list of a record above. */
 const DELETE_RECORD =
 	"edit the old comment to delete that record's **Review findings:** head and its list";
 const SHARES_REVIEW = "sharing its reviewed tree, or its base and paths";
 
-/* buildBody's first line, whose count a gate reads (#3576). */
 const COUNT_LINE = /^(\d+) commits\b/;
 
 /**
@@ -256,15 +79,11 @@ const COUNT_LINE = /^(\d+) commits\b/;
  * @typedef {import("./lib/review-findings").ReviewRecord} ReviewRecord
  * @typedef {import("./lib/review-findings").Unparsed} Unparsed
  * @typedef {import("./lib/review-findings").RecordFault} RecordFault
- * @typedef {{ records: ReviewRecord[], unparsed: Unparsed[] }} Parsed every
- *   record parsed, of any tier, and the unparseable ones under a counted tier
+ * @typedef {{ records: ReviewRecord[], unparsed: Unparsed[] }} Parsed
  * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD" | "UNLOCATED" | "UNCOUNTED", fault: string }} Unseen
  * @typedef {{ tag: Unseen["tag"] | RecordFault["tag"] | "UNKNOWN TIER" | "LANDED TREE" | "OFF MAIN" | "HELD", fault: string }} Report
- * @typedef {{ isCoveredBy: (r: ReviewRecord, sha: string, message: string, root: string) => boolean,
- *   isRangeLost: (r: ReviewRecord, message: string) => boolean,
- *   rangeFaults: Unseen[] }} RecordCover
- * @typedef {{ isCovered: (sha: string, message: string) => boolean,
- *   isOnCountedRecord: (sha: string, message: string) => boolean }} CommitJudge
+ * @typedef {{ isCoveredBy: (r: ReviewRecord, sha: string, message: string, root: string) => boolean, isRangeLost: (r: ReviewRecord, message: string) => boolean, rangeFaults: Unseen[] }} RecordCover
+ * @typedef {{ isCovered: (sha: string, message: string) => boolean, isOnCountedRecord: (sha: string, message: string) => boolean }} CommitJudge
  * @typedef {{ trackers: string[], own: unknown, parsed: Parsed, cover: RecordCover, home: string }} Reading
  */
 
@@ -287,12 +106,9 @@ function searchPage(q, after) {
 }
 
 /**
- * Every ticket in `repo` the search finds updated from `from` to `to`, with
- * its comments, halving the window while it holds more than the cap.
- *
  * @param {string} repo
- * @param {string} from YYYY-MM-DD
- * @param {string} to YYYY-MM-DD
+ * @param {string} from
+ * @param {string} to
  * @returns {{ issue: number, comments: Comment[] }[]}
  */
 function searchTickets(repo, from, to) {
@@ -343,18 +159,11 @@ const findCommitRow = (commits, r) =>
 	commits.find((c) => c.repo === r.repo && isSameSha(c.landed, r.landed));
 
 /**
- * Takes from `from`, another record of `seen`'s commit, what `seen` lacks: the longer
- * landed sha, and the replay where `seen` names no paths and `from` does.
- *
- * @param {ReviewRecord} seen accumulator: `landed` is written, and `issue`, `base`,
- *   `tree`, `paths` and `posted` where the replay is taken
+ * @param {ReviewRecord} seen
  * @param {ReviewRecord} from
  */
 function takeReplay(seen, from) {
 	if (from.landed.length > seen.landed.length) seen.landed = from.landed;
-	/* The issue, base, tree and paths are one replay, so a record naming paths
-	 * replaces a pathless one's whole, never its paths alone (#2083). Where
-	 * both name paths, `seen` stands. */
 	if (seen.paths === null && from.paths !== null)
 		Object.assign(seen, {
 			issue: from.issue,
@@ -366,10 +175,7 @@ function takeReplay(seen, from) {
 }
 
 /**
- * Folds `r`, a later record of the same commit, into `seen`.
- *
- * @param {ReviewRecord} seen accumulator: `fixed` and `fixes` are written, and what
- *   takeReplay writes
+ * @param {ReviewRecord} seen
  * @param {ReviewRecord} r
  */
 function mergeRecord(seen, r) {
@@ -379,10 +185,6 @@ function mergeRecord(seen, r) {
 }
 
 /**
- * The commits from TRAILER_FROM at a fresh `origin/main` in the checkout under
- * `home` that tracks `repo`, those carrying a trailer as records, and the
- * sensitive ones no record covers; none where no checkout tracks it.
- *
  * @param {string} repo
  * @param {Reading} reading
  * @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }}
@@ -441,19 +243,13 @@ function readTrailers(repo, { parsed, cover, home }) {
 	);
 }
 
-/**
- * Moves JUDGED_REF and the pushed ref to the remote's branches, in a checkout
- * other sessions share.
- *
- * @param {string} root
- */
+/** @param {string} root */
 function fetchJudgedRef(root) {
 	return gitOutcome(
 		[
 			"fetch",
 			"--quiet",
 			"--no-tags",
-			/* A daily reader starts no gc under its neighbours. */
 			"--no-auto-maintenance",
 			"--prune",
 			"origin",
@@ -465,12 +261,7 @@ function fetchJudgedRef(root) {
 	);
 }
 
-/**
- * The header's A RECORD COVERS ITS TICKET'S COMMITS, one per run so a record's
- * range is read, and its fault reported, once.
- *
- * @returns {RecordCover}
- */
+/** @returns {RecordCover} */
 function buildRecordCover() {
 	/** @type {Unseen[]} */
 	const rangeFaults = [];
@@ -479,8 +270,6 @@ function buildRecordCover() {
 	/** @type {Set<ReviewRecord>} */
 	const lost = new Set();
 	/**
-	 * The lookbehind leaves another repo's `mantahostels#9` to that repo.
-	 *
 	 * @param {ReviewRecord} r
 	 * @param {string} message
 	 */
@@ -517,13 +306,10 @@ function buildRecordCover() {
 }
 
 /**
- * Whether a commit is one a record of `repo` covers, or an unparseable
- * record's report already names; and whether a counted record covers it.
- *
  * @param {string} repo
  * @param {Parsed} parsed
  * @param {RecordCover} cover
- * @param {string} root the checkout git reads each record's range in
+ * @param {string} root
  * @returns {CommitJudge}
  */
 function buildCommitJudge(repo, { records, unparsed }, cover, root) {
@@ -549,8 +335,6 @@ function buildCommitJudge(repo, { records, unparsed }, cover, root) {
 }
 
 /**
- * readTrailers's reading of `out`, the `git log` it ran.
- *
  * @param {string} repo
  * @param {string} out
  * @param {import("./lib/workflow-core-config").SensitivePath[] | undefined} declared
@@ -613,11 +397,7 @@ function parseTrailerLog(repo, out, declared, judge) {
 }
 
 /**
- * Appends to `commits` each commit known by its trailer alone, returning the
- * sensitive commits no record or trailer names, and the checkouts unread.
- *
- * @param {ReviewRecord[]} commits accumulator: each trailer commit no counted
- *   record covers is appended
+ * @param {ReviewRecord[]} commits
  * @param {Reading} reading
  * @returns {{ unseen: Unseen[], undercounts: boolean }}
  */
@@ -636,9 +416,6 @@ function addTrailerCommits(commits, reading) {
 }
 
 /**
- * The commit `s` names in the checkout at `root`, its `sha` null where that
- * checkout holds none.
- *
  * @param {string} s
  * @param {string} root
  * @returns {{ ok: true, sha: string | null, message: string } | { ok: false, why: string }}
@@ -653,12 +430,8 @@ function readEscapedCommit(s, root) {
 }
 
 /**
- * Places `s`, an escaped sha no commit names as landed, on the first counted
- * record covering it in the checkouts that hold it.
- *
  * @param {string} s
- * @param {ReviewRecord[]} commits accumulator: the credited commit's `escapes`
- *   gains the sha
+ * @param {ReviewRecord[]} commits
  * @param {{ repo: string, root: string }[]} checkouts
  * @param {Reading} reading
  * @returns {{ isAccountedFor: boolean, faults: Unseen[], undercounts: boolean }}
@@ -703,13 +476,7 @@ function placeEscape(s, commits, checkouts, { parsed, cover, own }) {
 }
 
 /**
- * Credits each escaped sha to the commits naming it as landed, or else as the
- * header's AN ESCAPE ON A COVERED COMMIT says. Across repos, not within one:
- * the line sits on the fixing ticket, which may live in another repo, and a
- * 7-hex prefix colliding is negligible.
- *
- * @param {ReviewRecord[]} commits accumulator: each credited commit's `escapes`
- *   gains the sha
+ * @param {ReviewRecord[]} commits
  * @param {string[]} escaped
  * @param {Reading} reading
  * @returns {{ faults: Unseen[], undercounts: boolean }}
@@ -719,7 +486,7 @@ function creditEscapes(commits, escaped, reading) {
 		const checkout = readCheckoutTracking(repo, reading.home);
 		return "root" in checkout ? [{ repo, root: checkout.root }] : [];
 	});
-	/** @type {Map<string, Unseen>} one report a fault, however often it is named */
+	/** @type {Map<string, Unseen>} */
 	const faults = new Map();
 	let undercounts = false;
 	for (const s of escaped) {
@@ -738,10 +505,6 @@ function creditEscapes(commits, escaped, reading) {
 }
 
 /**
- * Where `c`'s landed sha is, in the checkout under `home`: read after
- * readTrailers's fetch. "unread" where no checkout tracks its repo, "unheld" with
- * its fault where that checkout cannot resolve the sha.
- *
  * @param {ReviewRecord} c
  * @param {string} home
  * @returns {{ at: "main" | "queued" | "off" | "unread" } | { at: "unheld", fault: Report }}
@@ -750,7 +513,7 @@ function readLandedAt(c, home) {
 	const checkout = readCheckoutTracking(c.repo, home);
 	if (!("root" in checkout)) return { at: "unread" };
 	const { root } = checkout;
-	/** @param {string} ref a ref, or a `--glob=` naming several */
+	/** @param {string} ref */
 	const walk = (ref) =>
 		gitOutcome(["rev-list", "--max-count=1", c.landed, "--not", ref], [], root);
 	const onMain = walk(JUDGED_REF);
@@ -771,13 +534,9 @@ function readLandedAt(c, home) {
 }
 
 /**
- * The rows the header's A RECORD WHOSE LANDED SHA IS NOT ON `origin/main` leaves
- * counted, a trailer's row being on it by its reading, and the reports each
- * record owes, that and A RECORD NAMING THE LANDED TREE's.
- *
  * @param {ReviewRecord[]} commits
  * @param {string} home
- * @param {unknown} own this repo's own tracker
+ * @param {unknown} own
  * @returns {{ commits: ReviewRecord[], reports: Report[], undercounts: boolean }}
  */
 function judgeRecords(commits, home, own) {
@@ -826,9 +585,6 @@ function judgeRecords(commits, home, own) {
 }
 
 /**
- * Whether `later`, itself faultless, restates `r`, as the header's A RECORD WITH
- * LOST LINES OR PATHS says.
- *
  * @param {ReviewRecord} later
  * @param {ReviewRecord} r
  */
@@ -839,13 +595,8 @@ const isRestatement = (later, r) =>
 	(isSameSha(later.tree, r.tree) || isSameSha(later.landed, r.landed));
 
 /**
- * One ticket's records as counted, and the reports readRecordFaults owes them, each
- * until a later record restates it, less those A CORRECTED RECORD replaces. Paths
- * that are not paths are dropped, so no replay is limited by them and a correction's
- * replace them.
- *
- * @param {ReviewRecord[]} found in comment order
- * @param {string | null} root the checkout that tracks their repo, if any
+ * @param {ReviewRecord[]} found
+ * @param {string | null} root
  * @returns {{ records: ReviewRecord[], faults: Report[] }}
  */
 function settleRecords(found, root) {
@@ -891,15 +642,10 @@ function settleRecords(found, root) {
 }
 
 /**
- * The counted commits across `trackers`, in corpus order, then by ticket,
- * then those known by their trailer alone; the unparseable records under a
- * counted tier; and the faults of what was read: the cut-off records, the
- * sensitive commits no record or trailer names, then each record's own.
- *
  * @param {string[]} trackers
- * @param {string} today YYYY-MM-DD
+ * @param {string} today
  * @param {string} home
- * @param {unknown} own this repo's own tracker
+ * @param {unknown} own
  * @returns {{ commits: ReviewRecord[], unparsed: Unparsed[], reports: Report[], undercounts: boolean }}
  */
 function countedCommits(trackers, today, home, own) {
@@ -967,10 +713,6 @@ function countedCommits(trackers, today, home, own) {
 }
 
 /**
- * The report the header's A RECORD NAMING THE LANDED TREE owes `c`'s record,
- * judged in the checkout under `home`: UNJUDGED where git fails there (#3544),
- * null where it owes none.
- *
  * @param {ReviewRecord} c
  * @param {string} home
  * @returns {Report | null}
@@ -1005,17 +747,10 @@ function landedTreeReport(c, home) {
 	};
 }
 
-/**
- * The shas the reverts on `repo`'s default branch since FLOOR name, less
- * each whose revert was itself reverted. Commit search reads the default
- * branch alone.
- *
- * @param {string} repo
- */
+/** @param {string} repo */
 function readRevertedShas(repo) {
-	/** @type {Map<string, string[]>} each target to the commits reverting it */
+	/** @type {Map<string, string[]>} */
 	const reverts = new Map();
-	/* A revert postdates its target, which postdates FLOOR. */
 	const q = `"This reverts commit" repo:${repo} committer-date:>=${FLOOR}`;
 	/** @type {{ total_count: number, items: { sha: string, commit: { message: string } }[] }[]} */
 	const pages = ghApiSlurp([
@@ -1074,12 +809,7 @@ function buildBody(commits) {
 	].join("\n");
 }
 
-/**
- * The count on the first line of issue `number`'s body, null where it holds
- * none.
- *
- * @param {number} number
- */
+/** @param {number} number */
 function readFiledCount(number) {
 	const m = COUNT_LINE.exec(
 		gh(["issue", "view", String(number), "--json", "body", "--jq", ".body"]),
@@ -1092,11 +822,8 @@ const remedy = (e) =>
 	parseGhFailureReason(e) === "unreachable" ? `${unreachableRemedy(e)} ` : "";
 
 /**
- * A fault on the filing run (#1698): one line in the arbiter's error log,
- * which `npm run check:guard-errors` reports.
- *
  * @param {string} fault
- * @param {string} next what was left undone and what retries it
+ * @param {string} next
  */
 function failOpen(fault, next) {
 	logError(WHERE, fault);
@@ -1106,20 +833,13 @@ function failOpen(fault, next) {
 	);
 }
 
-/**
- * A fault, or a refresh held: one line to stderr and to the guard-error log.
- *
- * @param {Report} report
- */
+/** @param {Report} report */
 function writeReport({ tag, fault }) {
 	logError(WHERE, fault);
 	writeFd(2, `${tag}: ${fault}\n`);
 }
 
 /**
- * Files the tracking issue at the threshold, or refreshes `existing`, unless
- * the header's AT THRESHOLD holds it.
- *
  * @param {{ number: number } | null} existing
  * @param {ReviewRecord[]} commits
  * @param {boolean} undercounts
@@ -1128,8 +848,6 @@ function fileOrHold(existing, commits, undercounts) {
 	const due = commits.length >= THRESHOLD;
 	if (!existing && !due) return;
 	const text = buildBody(commits);
-	/* No PreToolUse hook sees a script's own gh call, so the create guard's
-	 * takes: check is made here. */
 	const refused = takesRefusal([LABEL], text);
 	if (refused) {
 		failOpen(refused, "Nothing was filed.");
@@ -1156,8 +874,6 @@ function fileOrHold(existing, commits, undercounts) {
 				`Re-measure due: ${commits.length} counted commits. ${did}.\n`,
 			);
 	} catch (e) {
-		/* Not e.message: a failed gh call's message holds its whole argv, the body
-		 * included. */
 		failOpen(
 			`could not file or refresh "${TITLE}" — ${parseErrLine(e)}`,
 			`${remedy(e)}The next day's run retries.`,

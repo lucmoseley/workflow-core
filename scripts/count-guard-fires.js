@@ -1,40 +1,4 @@
 #!/usr/bin/env node
-/*
- * count-guard-fires.js — how many times has each hook the host registers
- * actually fired, read off the transcripts already on disk. The registrations
- * are `lib/core-hooks.js`'s `readHostHookSources`: the core's self-plugin file and
- * the canary its `.claude/settings.json` keeps, or an adopter's
- * `.claude/settings.json` and the plugin's `hooks/hooks.json`.
- *
- *   node scripts/count-guard-fires.js [--dir <path>] [--json] [--mentions] [--since <date>]
- *
- * The retrieval half of `docs/doc-map.md` §Capture and placement route (e)
- * (mantahostels#1246). `--since` (mantahostels#1896) gives §5's ripeness test — a
- * prediction ripens once its subject fires at or after the prediction's date
- * (mantahostels#1886) — a filter to run.
- *
- * `--since` is deliberately strict: it accepts an ISO date or the corpus's own
- * `YYYY-MM-DDTHH:MM:SS.mmmZ` timestamp shape, refusing anything else rather
- * than risk `6d98075c`'s failure elsewhere in this repo — an ISO spelling that
- * parses but sorts nowhere near where it means, reporting a silent wrong
- * answer instead of an error. A fire with no timestamp (`at: null`, possible
- * by construction — `lib/guard-fires.js`) is excluded from a windowed count
- * rather than guessed either way, and the exclusion is reported, not silent.
- *
- * A FIRE PROVES THE TEXT WAS PRINTED, NEVER THAT IT WAS READ (mantahostels#1264). A
- * non-zero count is necessary for a route-(e) shed and is not sufficient.
- *
- * IN NO §N3 FAMILY, DELIBERATELY: it gates nothing, runs from a prompt, writes
- * no file and files no issue. `package.json`'s `report:` namespace is a command
- * grouping, not that family.
- *
- * The needles and the three routes: `scripts/guard-fire-needles.json` and
- * `scripts/lib/guard-fires.js`, which owns every seam here worth reusing. A
- * host keys a guard it registers itself in `.claude/guard-fire-needles.json`,
- * `guards` only (#1267); `mergeNeedles` says what it refuses. So it builds
- * its subjects from `subjectsFor` rather than `readRegisteredGuardSubjects`, which
- * reads the core's needles alone and drops the shed candidates (#2297).
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -81,8 +45,6 @@ const CORE_IS_HOST = fs.realpathSync(CORE) === hostRoot();
 const HOST_NEEDLES = hostNeedlesFile(hostRoot());
 
 /**
- * Straight to the fd, never `console`: node buffers writes to a PIPE and drops
- * whatever is still buffered at `process.exit`, and `--json` exists to be piped.
  * @param {string} text
  */
 const say = (text) => writeFd(1, `${text}\n`);
@@ -91,11 +53,6 @@ const say = (text) => writeFd(1, `${text}\n`);
 const day = (iso) => (iso ? iso.slice(0, 10) : "never");
 
 /**
- * Parse `--since` into the corpus's own timestamp shape
- * (`YYYY-MM-DDTHH:MM:SS.mmmZ`), so the result is comparable to a fire's `at`
- * by plain string ordering — strict per the file header's `6d98075c` note. A
- * non-UTC offset is refused rather than read against the wrong wall clock.
- *
  * @param {string} raw
  * @returns {{ok: true, since: string} | {ok: false, error: string}}
  */
@@ -171,7 +128,6 @@ function parseSince(raw) {
 }
 
 /**
- * Where `at` sits relative to a `--since` boundary.
  * @param {string | null} at
  * @param {string} since
  * @returns {"keep" | "undated" | "before"}
@@ -194,8 +150,6 @@ function readTranscript(file) {
 }
 
 /**
- * Whether a fire or mention falls inside the `--since` window; one carrying
- * no `at` falls outside it.
  * @param {{subject: string, at: string | null}} item
  * @param {string | null} since
  * @returns {boolean}
@@ -206,11 +160,8 @@ function isInWindow(item, since) {
 }
 
 /**
- * Tallies a fire or mention the window left out into `undated` (corpus-wide
- * and per subject) where it carries no `at`; a dated one fell before the
- * boundary and is not counted.
  * @param {{subject: string, at: string | null}} item
- * @param {{count: number, bySubject: Map<string, number>}} undated accumulator: counts the undated item, overall and by subject
+ * @param {{count: number, bySubject: Map<string, number>}} undated
  */
 function tallyIfUndated(item, undated) {
 	if (item.at !== null) return;
@@ -222,7 +173,7 @@ function tallyIfUndated(item, undated) {
 }
 
 /**
- * @param {Map<string, Set<string>>} sessions accumulator: `sessionKey` is added under `key`
+ * @param {Map<string, Set<string>>} sessions
  * @param {string} key
  * @param {string} sessionKey
  */
@@ -243,8 +194,7 @@ function addSession(sessions, key, sessionKey) {
  */
 
 /**
- * One transcript's fires, windowed, into `state`.
- * @param {ScanState} state accumulator: fires, sessions and undatedFires are filled; subjects and since are read
+ * @param {ScanState} state
  * @param {string} text
  * @param {{file: string, tier: "main" | "subagent"}} source
  */
@@ -257,20 +207,13 @@ function scanFires(state, text, { file, tier }) {
 		state.fires.push(f);
 		const sessionKey = sessionKeyFor(file, tier);
 		addSession(state.sessions, f.subject, sessionKey);
-		// Keyed by subject AND needle, alongside the subject-only key above: a
-		// guard printing several rules needs a session count PER RULE, since the
-		// subject-level count already answers a different question (mantahostels#2137).
-		// Both key shapes share this one map — a bare `subject` and a
-		// `subject\tneedle` pair — so only a targeted `.get()` is safe here;
-		// iterating the map's keys would double-count. The `\t` delimiter
-		// assumes no subject or needle id contains one, unenforced.
+		// lucmoseley/mantahostels#2137
 		addSession(state.sessions, `${f.subject}\t${f.needle}`, sessionKey);
 	}
 }
 
 /**
- * One transcript's needle hits that are NOT fires, windowed, into `state`.
- * @param {ScanState} state accumulator: mentions and undatedMentions are filled; subjects and since are read
+ * @param {ScanState} state
  * @param {string} text
  * @param {"main" | "subagent"} tier
  */
@@ -285,19 +228,6 @@ function scanMentions(state, text, tier) {
 }
 
 /**
- * Scan every transcript once, for fires and — under `--mentions` — for the
- * needle hits that are NOT fires.
- *
- * A transcript that will not open is COUNTED AND NAMED rather than skipped
- * silently: it makes a count read low for a reason that is not the guard.
- *
- * `since`, where given, is normalised (`parseSince`'s output) and applied per
- * fire and per mention, never per file — a session spans midnight, so file
- * mtime is the wrong granularity. A fire or mention with no `at` is tallied
- * separately, both corpus-wide and per subject: ripeness is judged per
- * subject, so a global "N undated" cannot say whether the affected subject
- * is the one a reader is checking.
- *
  * @param {Array<{file: string, tier: "main" | "subagent"}>} files
  * @param {import("./lib/guard-fires.js").Subject[]} subjects
  * @param {boolean} wantMentions
@@ -339,8 +269,6 @@ function scan(files, subjects, wantMentions, since = null) {
 }
 
 /**
- * Everything the report shows, as data: `--json` and the human table read it.
- *
  * @param {Record<string, any>} needles
  * @param {Record<string, any>} settings
  * @param {ReturnType<typeof scan>} scanned
@@ -372,13 +300,6 @@ function rows(needles, settings, scanned) {
 
 	const guards = guardKeys(settings).map((key) => ({
 		key,
-		// A hook's `if` holds exactly one permission rule, so a guard narrowed to
-		// several is registered once per rule, and naming the rule is what tells
-		// those registrations apart (mantahostels#2825). Deduping what is left conceals one
-		// case: a guard registered twice on the same event AND narrowing. This
-		// column was the only place that showed — hook-wiring holds the
-		// registration count load-bearing but reports nothing, and the guard
-		// registry's own `if` pass aggregates per script.
 		events: [
 			...new Set(
 				registered
@@ -405,8 +326,6 @@ function rows(needles, settings, scanned) {
 			...of(`cand:${id}`),
 		}),
 	);
-	// A registry flag, never a literal id here: a renamed id must not silently
-	// lose the ordering. Which candidate leads, and why: the registry's leadsWhy.
 	candidates.sort((a, b) => Number(b.leads) - Number(a.leads));
 
 	return { guards, candidates };
@@ -472,20 +391,6 @@ function buildFiredLines(fired, corpus) {
 		const seen = corpus.mentions ? `  ${String(g.mentions).padStart(8)}` : "";
 		out.push(
 			`  ${String(g.total).padStart(5)}  ${String(g.sessions).padStart(8)}${seen}  ${day(g.last)}  ${g.key}  [${g.events.join(", ")}]${g.undated ? `  (+${g.undated} undated, excluded)` : ""}`,
-			// Each needle carries its OWN last fire, not the guard's. A guard
-			// printing several rules gives the LAST FIRE column above a date
-			// belonging to whichever of them fired most recently, and
-			// docs/doc-map.md §Capture and placement §5's ripeness test reads that
-			// column per RULE (mantahostels#2118).
-			//
-			// `undated` here means a counted fire whose record carried no
-			// timestamp — NOT the row's `(+n undated, excluded)`, which is a fire
-			// dropped from a --since window. The counts on this line are keyed by
-			// needle and the undated tally is keyed by subject, so under --since
-			// each is a floor and the row above says by how much (mantahostels#2137).
-			//
-			// The session count here is per needle too (mantahostels#2137); SESSIONS above
-			// is per guard.
 			`         ${Object.entries(g.byNeedle)
 				.sort((a, b) => b[1] - a[1])
 				.map(
@@ -589,11 +494,9 @@ function render(data, corpus) {
 }
 
 /**
- * Refuse a host needles file carrying more than `guards`, or keying a guard
- * the core already keys, naming each fault on stderr.
  * @param {string[]} extra
  * @param {string[]} clashes
- * @returns {boolean} true where the run must stop
+ * @returns {boolean}
  */
 function refuseHostNeedles(extra, clashes) {
 	if (extra.length > 0) {
@@ -615,8 +518,6 @@ function refuseHostNeedles(extra, clashes) {
 }
 
 /**
- * Warn on stderr about each registered hook with no needles entry, and each
- * entry no hook file registers.
  * @param {{unkeyed: string[], stale: string[]}} drift
  * @param {Map<string, string[]>} origins
  * @param {string[]} hostKeys
@@ -624,9 +525,6 @@ function refuseHostNeedles(extra, clashes) {
 function warnDrift(drift, origins, hostKeys) {
 	for (const key of drift.unkeyed) {
 		const from = origins.get(key) ?? [];
-		// A key the plugin registers is the core's to word, as is any key run
-		// from the core's own checkout; one only an adopter registers can only
-		// be worded in the adopter's file.
 		const home =
 			CORE_IS_HOST || from.includes(PLUGIN_HOOKS) ? CORE_NEEDLES : HOST_NEEDLES;
 		writeFd(
@@ -642,8 +540,6 @@ function warnDrift(drift, origins, hostKeys) {
 }
 
 /**
- * The `--since` boundary, null where the flag is absent; a bad one is
- * reported on stderr and comes back not ok.
  * @param {string | undefined} raw
  * @returns {{ok: true, since: string | null} | {ok: false}}
  */
@@ -659,12 +555,10 @@ function parseSinceFlag(raw) {
 
 /**
  * @param {string[]} argv
- * @returns {number} the exit code
+ * @returns {number}
  */
 function main(argv) {
 	const { flags } = parseOrExit(argv, CLI);
-	/* Host content: the settings file and the transcript directory belong to
-	 * the repository being worked on, so both read the host root (#1). */
 	const given = flagValue(flags, "--dir");
 	const dirs = given ? [given] : transcriptDirs();
 	const { needles, hostKeys, clashes, extra } = readNeedles(hostRoot());

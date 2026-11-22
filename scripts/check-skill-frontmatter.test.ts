@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-skill-frontmatter.js FAILs an own skill whose frontmatter a
- * strict YAML parser rejects, naming file, line:column and the quoting fix,
- * and skips a vendored one (#887).
- *
- * check-skill-frontmatter.js against a fabricated skills tree in a throwaway
- * git repo, never this one: the live bodies change with every commit.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here loosens
- * that gate.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,7 +24,6 @@ let hooks: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: root, stdio: "pipe" });
 
-/* No description writes no `description:` line at all, a name-only skill's shape (#2036). */
 const skill = (name: string, description?: string) => {
 	const dir = path.join(root, ".claude", "skills", name);
 	fs.mkdirSync(dir, { recursive: true });
@@ -59,8 +47,6 @@ const QUOTED = `"${UNQUOTED}"`;
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "skill-frontmatter-"));
-	/* An empty hooks dir, so the scratch repo never runs this checkout's
-	 * Husky gates through its absolute core.hooksPath. */
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "skill-frontmatter-hooks-"));
 	git("init", "-q", "-b", "main");
 	git("config", "user.email", "test@example.com");
@@ -155,7 +141,6 @@ describe("check-skill-frontmatter", () => {
 			expect(refused.out).toContain(
 				".claude/skills/s/SKILL.md:3:31 — js-yaml: bad indentation of a mapping entry. Fix: double-quote that value",
 			);
-			/* Repaired in the worktree but not staged: the commit still carries the fault. */
 			skill("s", QUOTED);
 			expect(run("--against", "HEAD").status).toBe(1);
 		});
@@ -182,17 +167,11 @@ describe("check-skill-frontmatter", () => {
 	});
 });
 
-/*
- * The copy an adopter runs (#1380): rendered into a temp directory with no
- * node_modules above it, as the plugin cache is, so js-yaml can come only from
- * the host repo's own install.
- */
 describe("the shipped copy, in an adopter", () => {
 	let cache: string;
 	let plugin: string;
 	beforeAll(() => {
 		cache = fs.mkdtempSync(path.join(os.tmpdir(), "skill-frontmatter-plugin-"));
-		/* buildTree refuses an existing directory. */
 		plugin = path.join(cache, "plugin");
 		buildTree(path.resolve(__dirname, ".."), plugin);
 	});

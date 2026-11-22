@@ -1,16 +1,3 @@
-/*
- * config-json.js — serialises a JSON config file in the layout Biome's
- * formatter prints at its defaults with tab indent (#675): objects expanded
- * one key per line, arrays inline where they fit in 80 columns. Plain
- * `JSON.stringify(v, null, "\t")` expands every array.
- *
- * Mirrors Biome's rules, not a general printer: a tab counts two columns; the
- * trailing comma counts towards the width; an array holding a non-empty object
- * always breaks; a breaking all-number array fills its lines. An adopter
- * whose Biome sets its own `lineWidth`, `indentWidth` or space indent is still
- * refused — both adopters run the defaults with tabs.
- */
-
 const WIDTH = 80;
 const TAB = 2;
 
@@ -33,8 +20,8 @@ function inlineForm(v) {
 /**
  * @param {unknown} v
  * @param {number} depth
- * @param {number} used columns already on the line before `v`
- * @param {number} tail columns that follow `v` on its line
+ * @param {number} used
+ * @param {number} tail
  * @returns {string}
  */
 function printValue(v, depth, used, tail) {
@@ -84,7 +71,7 @@ function printValue(v, depth, used, tail) {
 
 /**
  * @param {unknown} value
- * @returns {string} the file's whole text, trailing newline included
+ * @returns {string}
  */
 function formatConfigJson(value) {
 	return `${printValue(value, 0, 0, 0)}\n`;

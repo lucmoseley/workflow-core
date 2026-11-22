@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * unpark-on-prompt.js takes `parked` off the issues this session parked when
- * the founder types in it (#2000) — driven through hook stdin, the way the
- * harness runs it at UserPromptSubmit.
- *
- * WHAT BREAKING IT COSTS: an answered ticket stays off the frontier until a
- * session happens to claim it; one firing on every prompt spends a GitHub
- * call per prompt.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -49,7 +40,6 @@ function park(...numbers: number[]) {
 	fs.writeFileSync(markerPath(), `${numbers.join("\n")}\n`);
 }
 
-/** Run the hook on `prompt`; `failOn` names an issue whose edit fails. */
 function run({
 	failOn,
 	prompt = "go with (A)",

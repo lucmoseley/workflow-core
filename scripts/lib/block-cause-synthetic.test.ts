@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The synthetic-stop reading (#5322): the shape table of a background job the
- * harness ended on its own "No response requested." record, read beside the
- * block-cause readings.
- *
- * A table over the pure reading, since the refill loop and check-ghost-jobs
- * both act on it. Loosen a case and the loop types into a session the founder
- * already answered, resumes one an API error or limit stopped, or acts on an
- * unread record; tighten one and a stopped session is left for good.
- */
 import { describe, expect, it } from "vitest";
 import { syntheticStopAt } from "./block-cause.js";
 import {

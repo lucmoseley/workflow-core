@@ -127,6 +127,17 @@ tool_gate() {
   fi
 }
 
+with_lines() {
+  wl_list="$1"
+  shift
+  while IFS= read -r wl_line; do
+    [ -z "$wl_line" ] || set -- "$@" "$wl_line"
+  done <<WL_EOF
+$wl_list
+WL_EOF
+  "$@"
+}
+
 declared_cmd() {
   dc_status=0
   # shellcheck disable=SC2034 # read by the hook that sources this file.

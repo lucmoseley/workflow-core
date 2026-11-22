@@ -1,22 +1,11 @@
-/*
- * binary-read.js — reads of the installed Claude Code binary: the file a
- * command name runs, and the text around a literal in it. Its minified names
- * change every release, so a reader anchors on a literal or asks only whether a
- * name is there (check-retry-watchdog.js, #4815).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { orFallback } = require("./caught.js");
 
-/** The binary is read in pieces, as 2.1.310's is 291 MB; the size is a guess. */
+// guess, #5529
 const CHUNK = 16 * 1024 * 1024;
 
-/**
- * The file `bin` runs, as `readlink -f $(which <bin>)` gives it; null where
- * none is found.
- * @param {string} bin
- */
+/** @param {string} bin */
 function binaryOf(bin) {
 	const dirs = bin.includes("/")
 		? [""]
@@ -32,11 +21,9 @@ function binaryOf(bin) {
 }
 
 /**
- * The text around each occurrence of `needle` in the file, with the
- * needle's offset in it.
  * @param {string} file
  * @param {string} needle
- * @param {number} window bytes kept either side of each occurrence
+ * @param {number} window
  * @returns {{ text: string, at: number }[]}
  */
 function readWindowsOf(file, needle, window) {
@@ -50,7 +37,6 @@ function readWindowsOf(file, needle, window) {
 		for (let off = 0; off < size; off += CHUNK) {
 			const n = fs.readSync(fd, buf, 0, buf.length, off);
 			const view = buf.subarray(0, n);
-			/* A hit starting in the overlap is the next chunk's to find. */
 			let i = view.indexOf(want);
 			while (i !== -1 && i < CHUNK) {
 				hits.push(off + i);

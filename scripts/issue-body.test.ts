@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The safe issue-body edit path (mantahostels#131, building mantahostels#128's ruling).
- *
- * Every command but `replace` is checked for idempotence: running it twice
- * must write once, or a change cannot be re-applied onto a concurrent writer's
- * body.
- *
- * The loop is driven against a fake `gh` whose store this test can clobber on
- * cue, so a lost update is reproduced deterministically rather than raced for.
- * The genuinely concurrent version lives in proving-run.test.ts, which owns
- * Tier 2.
- *
- * scripts/issue-body.js is the route the `guard-issue-body` core (a `PreToolUse`
- * hook) sends every body edit through: loosen a case here and one session's
- * issue edit silently erases a concurrent session's.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -39,24 +22,11 @@ import { readJsonl } from "./lib/jsonl.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
-// ---------------------------------------------------------------------------
-// A fake `gh` over one issue body
-// ---------------------------------------------------------------------------
-
 let dir: string;
 let store: string;
 let counter: string;
-/** The fake `gh` below, as written into `dir`. */
 let gh: string;
 
-/**
- * `gh` as this script uses it, plus three levers the real thing does not have:
- * on the edit calls named by STUB_CLOBBER_ON, it writes our body and then
- * immediately overwrites it with STUB_CLOBBER_BODY — a rival session's write,
- * derived from the base we both started from; and STUB_EDIT_FAILS fails any
- * edit at all, for a run that must write nothing; and STUB_LOCK_SEEN keeps a
- * copy of the lock at STUB_LOCK as it stood during the edit.
- */
 const STUB = `#!/usr/bin/env node
 const fs = require("node:fs");
 const store = process.env.STUB_STORE;
@@ -98,7 +68,6 @@ const readEdits = () => Number(fs.readFileSync(counter, "utf8"));
 const readBody = () => fs.readFileSync(store, "utf8");
 
 const SCRIPT = path.join(__dirname, "issue-body.js");
-/** The script, run in process against the fake `gh`. */
 const ib = (...args: string[]) =>
 	runInProcess(SCRIPT, args, { env: process.env });
 
@@ -111,21 +80,14 @@ beforeEach(() => {
 	vi.stubEnv("WFC_GH", gh);
 	vi.stubEnv("STUB_STORE", store);
 	vi.stubEnv("STUB_COUNTER", counter);
-	// Never the real ~/.claude: the lock lands under CLAUDE_CONFIG_DIR, and a
-	// test that wrote there could wedge a live session.
 	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "config"));
 	vi.stubEnv("CLAUDE_JOB_DIR", path.join(dir, "job"));
-	// A gate this suite adds would land in the real session's acts ledger.
 	vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
-
-// ---------------------------------------------------------------------------
-// The transforms
-// ---------------------------------------------------------------------------
 
 describe("every command but replace is idempotent", () => {
 	const cases: [string, string[], string][] = [
@@ -196,7 +158,6 @@ describe("every command but replace is idempotent", () => {
 });
 
 describe("what each command actually does", () => {
-	/** The body `args` leaves behind, from `start`. */
 	const leaves = (start: string, ...args: string[]) => {
 		fs.writeFileSync(store, start);
 		const r = ib(...args);
@@ -204,7 +165,6 @@ describe("what each command actually does", () => {
 		expect(r.status).toBe(0);
 		return readBody();
 	};
-	/** The refusal `args` exits with, having written nothing. */
 	const refusal = (start: string, ...args: string[]) => {
 		fs.writeFileSync(store, start);
 		const r = ib(...args);
@@ -360,10 +320,6 @@ describe("what each command actually does", () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// The loop
-// ---------------------------------------------------------------------------
-
 describe("the write loop", () => {
 	it("writes nothing at all when the change is already present", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n\nENTRY-A\n");
@@ -388,15 +344,7 @@ describe("the write loop", () => {
 		expect(readBody()).toBe("## Log\n\nv0\n");
 	});
 
-	/**
-	 * The two required mutations both fall to this:
-	 *
-	 *   drop the re-fetch check and this ends after write 1, with ENTRY-A gone;
-	 *   re-upload the stale body instead of re-applying and it ends with
-	 *   ENTRY-B gone.
-	 *
-	 * The lost update of mantahostels#128.
-	 */
+	// lucmoseley/mantahostels#128
 	it("repairs a clobber by re-applying onto the rival's body, so both survive", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
 		vi.stubEnv("STUB_CLOBBER_ON", "1");
@@ -429,7 +377,6 @@ describe("the write loop", () => {
 });
 
 describe("the CLI's argument handling, before any gh call (#920)", () => {
-	/** Runs the script against a gh that records being called at all. */
 	const cli = (...args: string[]) => {
 		const called = path.join(dir, "gh-called");
 		vi.stubEnv(
@@ -469,8 +416,6 @@ describe("the CLI's argument handling, before any gh call (#920)", () => {
 });
 
 describe("the CLI", () => {
-	/* Throws on a non-zero exit, carrying status and stderr, as execFileSync
-	 * does: the refusal cases read both off the error. */
 	const run = (...args: string[]) => {
 		const r = runInProcess(path.join(__dirname, "issue-body.js"), args, {
 			env: process.env,
@@ -516,10 +461,7 @@ describe("the CLI", () => {
 		expect(readEdits()).toBe(1);
 	});
 
-	/**
-	 * `replace` is the one operation that cannot be re-applied — a whole-body
-	 * rewrite (mantahostels#133): a retry there is the clobber.
-	 */
+	// lucmoseley/mantahostels#133
 	it("replace refuses on divergence instead of retrying, leaving the parallel edit in place", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
 		vi.stubEnv("STUB_CLOBBER_ON", "all");
@@ -547,11 +489,7 @@ describe("the CLI", () => {
 		expect(readBody()).toBe("wholly new body\n");
 	});
 
-	/**
-	 * mantahostels#1579: a --file that reads empty or whitespace-only is almost always a
-	 * truncated or mis-read source, not a deliberate blank — refuse before any
-	 * write reaches gh at all.
-	 */
+	// lucmoseley/mantahostels#1579
 	it.each(["", "   \n\t \n"])(
 		"replace refuses a --file whose contents are %j, naming the file and editing nothing",
 		(contents) => {
@@ -913,9 +851,7 @@ describe("the model reading of an edit (#4969)", () => {
 	});
 });
 
-/**
- * `append-decision`, the map-line half of resolve-ticket (#531).
- */
+// #531
 describe("append-decision", () => {
 	const mapBody =
 		"## Decisions so far\n\n- #528 — neighbour's line\n\n## Not yet specified\n\nfog\n";
@@ -963,8 +899,6 @@ describe("append-decision", () => {
 
 	it("reports a neighbour's line lost in the write as not landed", () => {
 		fs.writeFileSync(store, mapBody);
-		// A rival writing from a base older than #528's line lands right after
-		// our write; the loop repairs our line, but #528's is gone.
 		vi.stubEnv("STUB_CLOBBER_ON", "1");
 		vi.stubEnv(
 			"STUB_CLOBBER_BODY",
@@ -1016,16 +950,11 @@ describe("append-decision", () => {
 	);
 });
 
-// ---------------------------------------------------------------------------
-// The local write lock
-// ---------------------------------------------------------------------------
-
 describe("the lock is never observable without its holder (mantahostels#139)", () => {
 	const lockDir = () =>
 		path.join(process.env.CLAUDE_CONFIG_DIR as string, "issue-locks");
 	const lockFile = () => path.join(lockDir(), "owner-repo-96.lock");
 
-	/** Older than LOCK_STALE_MS, which is a fixed 60s. */
 	const age = (file: string) => {
 		const when = new Date(Date.now() - 61_000);
 		fs.utimesSync(file, when, when);
@@ -1037,7 +966,6 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 		return ib("append", "96", "--repo", "owner/repo", "--text", "ENTRY-A");
 	};
 
-	/** The lock's content as the fake `gh` saw it mid-write, or null where there was none. */
 	const readSeenMidWrite = () => {
 		const seen = path.join(dir, "lock-seen");
 		return fs.existsSync(seen) ? fs.readFileSync(seen, "utf8") : null;
@@ -1050,7 +978,6 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 	});
 
 	it("names its holder the instant the lock file exists", () => {
-		// A written temp file is linked in, so the lock never exists empty.
 		const r = appendUnder(0);
 		expect(r.status).toBe(0);
 		expect(JSON.parse(readSeenMidWrite() ?? "{}").pid).toBe(process.pid);
@@ -1058,8 +985,6 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 	});
 
 	it("refuses to steal a fresh lock it cannot parse, leaving it in place and writing without it, saying so", () => {
-		// Stealing it would delete a live holder's lock, and both would then
-		// write at once.
 		fs.writeFileSync(lockFile(), "");
 		const r = appendUnder(0);
 		expect(r.stderr).toBe(
@@ -1083,7 +1008,6 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 	});
 
 	it("steals an unparseable lock once it has aged out", () => {
-		// Otherwise a genuinely corrupt lock would wedge every writer forever.
 		fs.writeFileSync(lockFile(), "");
 		age(lockFile());
 
@@ -1099,14 +1023,10 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 		expect(r.stderr).toBe(
 			`issue-body: lock ${lockFile()} is still held by pid ${process.pid} after 0ms; writing without it\n`,
 		);
-		// Never released: it was not this run's to give back.
 		expect(fs.readFileSync(lockFile(), "utf8")).toBe(held);
 	});
 
 	it("refuses a fresh lock whose holder it may not signal (EPERM) (#4020)", () => {
-		// Another user's live process answers EPERM, not ESRCH. The real seam,
-		// pid 1, answers EPERM only to a non-root runner, so the spy forces it.
-		// Any pid but this one's serves: the spy answers it, never the kernel.
 		const foreign = 4_194_303;
 		const realKill = process.kill;
 		const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
@@ -1129,7 +1049,6 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 	});
 
 	it("takes a lock whose holder is gone", () => {
-		// A pid that exited: spawn one and let it finish.
 		const dead = execFileSync("bash", ["-c", 'echo -n "$$"'], {
 			encoding: "utf8",
 		});
@@ -1146,13 +1065,9 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 	it("gives up by the deadline on a stale lock it cannot delete (#586)", () => {
 		fs.writeFileSync(lockFile(), "");
 		age(lockFile());
-		// A real seam cannot reach this branch: a read-only lock directory also
-		// refuses createLock's temp file, which returns before the stale check.
 		const realRm = fs.rmSync;
 		let refusals = 0;
 		const rm = vi.spyOn(fs, "rmSync").mockImplementation((p, opts) => {
-			// After 2000 refusals let it through, so a regression fails the
-			// assertion below instead of hanging the worker.
 			if (p === lockFile() && refusals++ < 2000) {
 				throw Object.assign(new Error("EPERM"), { code: "EPERM" });
 			}
@@ -1160,8 +1075,6 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 		});
 		try {
 			const r = appendUnder(100);
-			// One refusal per 25ms poll inside the 100ms deadline; a retry at
-			// once would spend all 2000.
 			expect(refusals).toBeGreaterThan(0);
 			expect(refusals).toBeLessThan(50);
 			expect(r.stderr).toMatch(
@@ -1180,8 +1093,7 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 
 describe("the gate act (#3301)", () => {
 	const Me = "issue-body-gate-session";
-	// freshSandbox points WFC_GH at its refusing stub; re-point it at the fake
-	// above, which answers issue-body's calls (#3577).
+	// #3577
 	const sb = freshSandbox(() => {
 		vi.stubEnv("WFC_GH", gh);
 	});

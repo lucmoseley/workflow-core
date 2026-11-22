@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/*
- * scan-injection.js — lib/injection-scan.js's patterns run over files, for
- * measurement (mantahostels#1806).
- *
- * Usage:
- *   node scripts/scan-injection.js --file <path>…
- *
- * It exists because mantahostels#1806's first acceptance criterion is a STANDING
- * noise threshold (~1 spurious warn per 20 sessions), not a one-off:
- * re-measuring it has to run the shipped patterns, not a copy of them. The
- * hook path is the PostToolUse dispatcher's core (#2787).
- *
- * One line per file that fires, EXEMPT or UNREAD; exit 0, or 2 on a usage
- * error.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -27,18 +12,13 @@ const CLI = {
 	max: Number.POSITIVE_INFINITY,
 };
 
-/**
- * The `--file` mode: one line per file that fires, EXEMPT or UNREAD.
- * @param {string[]} paths
- */
+/** @param {string[]} paths */
 function scanFiles(paths) {
 	for (const f of paths) {
 		let content = "";
 		try {
 			content = fs.readFileSync(f, "utf8");
 		} catch (e) {
-			/* Named on stderr, never swallowed: a file the run could not read is
-			 * a hole in the noise figure, and a human reads this output. */
 			writeFd(2, `UNREAD ${f}: ${e}\n`);
 			continue;
 		}

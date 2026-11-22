@@ -1,16 +1,9 @@
-/*
- * commit-form-host.js — the production ports the dispatcher wires into the
- * guard-commit-form core, lib/commit-form.js (#2793, #3224). Every git read carries the hook's
- * git timeout, and a timed-out read answers as an erroring one.
- */
-
 const fs = require("node:fs");
 const { closingRefusal } = require("./closing-keyword.js");
 const { gitOrNull, HOOK_GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { readUnpushedRef } = require("./landing-refs.js");
 const { patchFiles, readTopLevel } = require("./git-tree.js");
 
-/* git's empty tree, the base of a diff before the first commit. */
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /**
@@ -20,8 +13,6 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const git = (args) => gitOrNull(args, { timeout: HOOK_GIT_TIMEOUT_MS });
 
 /**
- * git's stdout as lines, or null where git errors. core.quotePath=false, so
- * a non-ASCII path comes out raw.
  * @param {string} dir
  * @param {string[]} args
  */
@@ -81,13 +72,11 @@ function buildHostPorts({ root }) {
 				if (!fs.statSync(file).isFile()) return null;
 				return fs.readFileSync(file, "utf8");
 			} catch {
-				// Any unreadable list is null by the port's contract; the caller logs it (mantahostels#3324).
 				return null;
 			}
 		},
 		pushedHead: (dir) => {
 			const ref = readUnpushedRef({ root, tree: dir });
-			/* --is-ancestor answers through its exit code alone: 0 on, 1 not. */
 			const r = spawnGitSync(
 				["-C", dir, "merge-base", "--is-ancestor", "HEAD", ref],
 				{ timeout: HOOK_GIT_TIMEOUT_MS, stdio: "ignore" },

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * cutover-main-checkout.js's boundary set (§X11, #4346): each exit, argv, a
- * directory no main checkout holds, and the adapters its shell wires crossed
- * for real — the session listing through a `claude` stand-in at
- * WFC_CLAUDE_BIN, the cut through an `npm` stand-in at WFC_NPM, the land
- * pushing to a bare origin, git in a temporary directory. Its branches are
- * lib/cutover.test.ts's.
- *
- * Loosen it and the program reports a cutover it did not make, exits 0 on a
- * refusal, or wires an adapter that never reaches git or the listing.
- */
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -42,13 +31,11 @@ const commitIn = (cwd: string, files: Record<string, string>, msg: string) => {
 	return git(cwd, "rev-parse", "HEAD");
 };
 
-/** The listing `claude agents --json` answers. */
 const listAgents = (rows: Row[]) =>
 	writeClaudeStub(path.join(config, "bin", "claude"), [
 		buildAgentsBranch(rows),
 	]);
 
-/** One session, in `cwd`. */
 const listSessionIn = (cwd: string) =>
 	listAgents([buildListedRow({ name: "live", sessionId: "s-1", cwd })]);
 
@@ -96,8 +83,6 @@ beforeEach(() => {
 	);
 	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
 	git(main, "branch", "-q", "--set-upstream-to=origin/landing", "main");
-	/* A live process whose command line names queue-lander.js holds the lander's
-	 * lock, so the land's lander start finds one running. */
 	landerHolder = spawn("sh", ["-c", "sleep 60", "queue-lander.js"], {
 		stdio: "ignore",
 	});

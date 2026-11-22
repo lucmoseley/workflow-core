@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/divergence-row.js, record-divergence.js's core (#2797), in process:
- * which Bash calls are a refused pull or a rejected push, which repo and ref
- * the divergence is counted in, and the row's exact text. The ports are plain
- * values (base §G7 (5)); the real git, ps, clock and filesystem are crossed
- * once each by record-divergence.test.ts's boundary set.
- *
- * Loosen a case and the refusal counts #289 rests on go wrong or silent, and
- * any reconcile recipe (#290) is aimed at a cause the record misstates.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -37,7 +27,6 @@ const { divergenceRow, landRow } = require("./divergence-row.js") as {
 	landRow: (tree: string, output: string, ports: Ports) => Row | null;
 };
 
-/** A repo the fake git answers for: its counts against each ref it has. */
 interface Repo {
 	top: string;
 	common?: string;
@@ -48,11 +37,6 @@ interface Repo {
 const WORK = "/w/work";
 const NOW = new Date("2026-10-25T01:02:03.987Z");
 
-/**
- * Ports over `repos`, keyed by every directory git answers in. A directory
- * absent from the map is no repository; `dirs` adds plain directories; the
- * pushed ref is `origin/main` unless `pushed` says otherwise.
- */
 function ports(
 	repos: Record<string, Repo>,
 	over: Partial<Ports> & { dirs?: string[]; pushed?: string } = {},
@@ -63,7 +47,6 @@ function ports(
 		Object.values(repos).find((r) => r.top === top);
 	return {
 		disabled: false,
-		/* The payload's cwd as given: which cwd counts is host-root.js's. */
 		sessionDir: (p) => String(p.cwd),
 		isDir: (p) => dirs.has(p) || p === "/hook",
 		toplevel: (dir) => at(dir)?.top ?? null,
@@ -82,7 +65,6 @@ function ports(
 	};
 }
 
-/** One repo at WORK, `ahead`/`behind` against origin/main. */
 const repoAt = (ahead: number, behind: number, top = WORK) => ({
 	[top]: { top, refs: { "origin/main": `${ahead}\t${behind}` } },
 });
@@ -97,7 +79,6 @@ const PUSH_REJECT = {
 		"! [rejected]        main -> main (fetch first)\nUpdates were rejected because the remote contains work",
 };
 
-/** A Bash payload; `cwd` defaults to WORK. */
 const payload = (
 	command: string,
 	response: unknown = FF_REFUSAL,
@@ -200,8 +181,6 @@ describe("divergenceRow", () => {
 	});
 
 	it("files a `git -C` refusal under the repo it was refused in", () => {
-		// Level, so a row misfiled here would read `level` — a state at which a
-		// fast-forward cannot be refused at all.
 		const repos = { ...repoAt(0, 0), ...repoAt(2, 3, "/w/elsewhere") };
 		const row = divergenceRow(
 			payload("git -C /w/elsewhere pull --ff-only"),
@@ -231,9 +210,6 @@ describe("divergenceRow", () => {
 	});
 
 	it("composes repeated `-C`, as git does", () => {
-		// `hop/../nested` reaches the repo only if the two compose: a walker
-		// taking the first `-C` lands in `hop`, one taking the last in
-		// `../nested`, and neither is a repository.
 		const row = divergenceRow(
 			payload("git -C hop -C ../nested pull --ff-only", FF_REFUSAL, "/w"),
 			ports(
@@ -250,9 +226,6 @@ describe("divergenceRow", () => {
 	});
 
 	it("drops the row where the `-C` path does not resolve", () => {
-		// #289 counts refusals per repo. Filing this under the session's own
-		// repo would invent an observation there and hide one wherever it
-		// really happened; the count is a lower bound instead.
 		const p = ports(repoAt(1, 1));
 		expect(
 			divergenceRow(payload("git -C $WORKTREE pull --ff-only"), p),
@@ -313,7 +286,6 @@ describe("divergenceRow", () => {
 	});
 
 	it("finds no git call inside a quoted commit message, where the bash split found one (#2797)", () => {
-		// The bash recorder's split was not quote-aware; the shared parser is.
 		const row = divergenceRow(
 			payload('git commit -m "a && git pull" && true'),
 			ports(repoAt(1, 1)),
@@ -405,9 +377,6 @@ describe("divergenceRow", () => {
 	});
 
 	it("reads a response that is not a string as compact JSON", () => {
-		// `"a":"fetch first"` has no space after the colon only where it is
-		// compact; the marker is the string inside, matched either way, so this
-		// pins that a non-string response is read at all.
 		const row = divergenceRow(
 			payload("git push", { lines: ["x", "fetch first"] }),
 			ports(repoAt(1, 0)),

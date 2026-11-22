@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The scheduled roadmap-ceiling census (mantahostels#3334, landing mantahostels#3188's ruling (C)
- * first limb) — a standing report of every non-done card carrying a field
- * over its word ceiling, on `report-doc-map-budget.js`'s test harness. The two
- * reporters' empty states differ: this one files nothing once every row is
- * capOk-exempt, the budget one files under `takes:wayfinder` (mantahostels#3352).
- *
- * `main` runs through `runInProcess` (§X3).
- * `gh` is stubbed as a real executable injected at WFC_GH (`scripts/lib/gh.js`).
- *
- * The script runs in the daily repo-checks run
- * and files rather than fails: loosen a case here and an over-ceiling card
- * goes unreported, an exempt-only census files noise, or a second issue opens
- * beside the standing one.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -169,9 +154,7 @@ afterEach(() => {
 function fixture(opts: {
 	cards: Parameters<typeof card>[0][];
 	ghIssueList?: unknown;
-	/** The issue's body before the run; absent, an empty one. */
 	existingBody?: string;
-	/** Every `gh` call fails, as a logged-out gh's does. */
 	ghRefuses?: boolean;
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "roadmap-ceilings-"));
@@ -194,7 +177,6 @@ function fixture(opts: {
 	};
 }
 
-/** The `gh` a run calls, its `issue view` answering the body as the run starts. */
 const stubGh = (fx: ReturnType<typeof fixture>) =>
 	stubGhRoutes(
 		fx.root,
@@ -258,9 +240,7 @@ describe("main", () => {
 		expect(calls).toContain("takes:implement");
 	});
 
-	// mantahostels#3352: a capOk row is a ratified floor, not work, so a fully-exempt census
-	// files nothing and never carries takes:human.
-	it("files nothing and touches gh not at all when every over-ceiling row is capOk-exempt", () => {
+	it("files nothing and touches gh not at all when every over-ceiling row is capOk-exempt (lucmoseley/mantahostels#3352)", () => {
 		const fx = fixture({
 			cards: [
 				{
@@ -365,7 +345,6 @@ describe("main", () => {
 		expect(r.output).toContain("cannot parse");
 	});
 
-	// A card over its ceiling with no issue open, so a fall-through would file (#1062).
 	const overFixture = () =>
 		fixture({ cards: [{ id: "over", b: words(ceiling("b") + 5) }] });
 

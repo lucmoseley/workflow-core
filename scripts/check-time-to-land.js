@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-time-to-land.js — is the landing queue's take-to-land time within
- * its target (#4951)? lib/time-to-land.js reads and judges it.
- *
- * Usage:  node scripts/check-time-to-land.js [--since <ISO time>] [--until <ISO time>]
- *                                       [--notify] [--json]
- *
- * `--since` and `--until` set the window in place of the last 7 days, so a
- * change's own stays are read apart from those before it
- * (lib/time-to-land.js THE WINDOW).
- *
- * With no green run it names the window as unjudged and warns of nothing.
- *
- * WARN-ONLY, ALWAYS, as check-suite-margin.js is (#1797).
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), reads the queue log and the tail of the lander's log and warns where as many of the window's queue refs, the last 7 days by default, took over 3 times the green suite's p50 run from first take to land or drop as a queue on its p90 target reaches by chance at most 5% of the time. It refuses nothing.
- * JUSTIFIED: fail-safe — the queue's alerts read a ref's wait against the queue's own past week, so a queue slow every week reads as normal and nothing else holds it to the suite's time.
- * DEFEAT:    none needed — it never blocks.
- */
 
 const { now, runCheck } = require("./lib/check");
 const { landerLog } = require("./lib/lander-start.js");

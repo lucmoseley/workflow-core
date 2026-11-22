@@ -1,26 +1,3 @@
-/*
- * chrome-child-census.js — the leftover census's reader (#5385): every Chrome
- * child on the machine, from every seat's transcripts, the record store, its
- * given-up folder and its closed log, each classed by what its tabs did.
- *
- * A CHILD is any main transcript session that called an
- * `mcp__claude-in-chrome__*` tool, launched by claude-child.js or not. Its
- * seat is the config dir its transcript sits under. Its tally is fed every
- * tool result after its first Chrome call;
- * a closer's resume writes to the same session, in the same file or another,
- * so a session's files are read oldest first into one tally.
- *
- *   running     a record names it and its launcher still runs; not counted
- *   clean       the tally leaves no tab
- *   held        its record has `heldSince`, and no sweep has run since the
- *               hold ended (`heldSince` + HOLD_MS)
- *   given-up    its record is in `given-up/`
- *   unexplained any other leftover
- *
- * ONE READ PER TRANSCRIPT, line by line: a line is parsed only where it names
- * a Chrome tool, or carries a tool result once the session has called one.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const readline = require("node:readline");
@@ -46,8 +23,7 @@ const SESSION_ID = /"sessionId":"([^"]+)"/;
  * @typedef {import("./chrome-child.js").OpenTab} OpenTab
  * @typedef {"running" | "clean" | "held" | "given-up" | "unexplained"} ChildClass
  * @typedef {{sessionId: string, seat: string, left: OpenTab[],
- *   class: ChildClass, recorded: boolean}} Child `recorded`: a launcher
- *   record still names it, so `chrome-close --session` can close it
+ *   class: ChildClass, recorded: boolean}} Child
  * @typedef {{children: Child[], listed: number, absent: string[],
  *   unreadable: string[], lastSweep: string | null}} Census
  */
@@ -78,12 +54,9 @@ const isResultLine = (line, session) =>
 	session?.chrome === true && line.includes('"tool_result"');
 
 /**
- * A reader of one transcript's lines into its session, made on the first row
- * naming one, else on the file's name.
  * @param {string} file
  * @param {string} seat
- * @param {Map<string, Session>} sessions accumulator: each session read is
- *   added or extended here
+ * @param {Map<string, Session>} sessions
  * @returns {(line: string) => void}
  */
 function lineReader(file, seat, sessions) {
@@ -120,8 +93,7 @@ function lineReader(file, seat, sessions) {
 /**
  * @param {string} file
  * @param {string} seat
- * @param {Map<string, Session>} sessions accumulator: each session read is
- *   added or extended here
+ * @param {Map<string, Session>} sessions
  */
 async function readTranscript(file, seat, sessions) {
 	const read = lineReader(file, seat, sessions);
@@ -132,16 +104,13 @@ async function readTranscript(file, seat, sessions) {
 	try {
 		for await (const line of lines) read(line);
 	} catch (e) {
-		/* A transcript gone since the listing holds no session now. */
 		if (caught(e).code !== "ENOENT") throw e;
 	}
 }
 
 /**
- * How a child's tabs ended.
  * @param {{left: OpenTab[], record: ChildRecord | undefined,
  *   givenUp: boolean, lastSweepMs: number, launcherLive: boolean}} seen
- *   `lastSweepMs` is -Infinity where no sweep has run
  * @returns {ChildClass}
  */
 function classify({ left, record, givenUp, lastSweepMs, launcherLive }) {
@@ -154,7 +123,6 @@ function classify({ left, record, givenUp, lastSweepMs, launcherLive }) {
 }
 
 /**
- * Every Chrome child whose transcript was written at or after `fromMs`.
  * @param {number} fromMs
  * @returns {Promise<Census>}
  */
@@ -174,7 +142,6 @@ async function readCensus(fromMs) {
 	dated.sort((a, b) => a.mtimeMs - b.mtimeMs);
 	/** @type {Map<string, Session>} */
 	const sessions = new Map();
-	/* <seat>/projects/<slug>/<id>.jsonl */
 	for (const { file } of dated)
 		await readTranscript(
 			file,
@@ -212,8 +179,6 @@ async function readCensus(fromMs) {
 }
 
 /**
- * Each confirmed close of a held tab, from the closed log: how long the hold
- * ran and what closed it.
  * @returns {{sessionId: string, heldSince: string, closedAt: string,
  *   minutes: number, by: string}[]}
  */

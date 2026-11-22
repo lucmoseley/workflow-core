@@ -1,34 +1,4 @@
 #!/usr/bin/env node
-/*
- * generate-test-read-edges.js — renders docs/test-read-edges.json.
- *
- * Usage:
- *   node scripts/generate-test-read-edges.js [--check] [--root <dir>] [--only <path>...]
- *   node scripts/generate-test-read-edges.js --unseen [--root <dir>]
- *
- * --check  render the index into memory and diff against the manifest the
- *          index holds; exit 1 on a difference, printing what moved. This is
- *          what the pre-commit gate runs, so a stale manifest cannot be
- *          committed — and the index is what the commit carries (#557).
- *          A repo with no manifest in the index, HEAD or --only passes: the
- *          gate applies only where the manifest exists (#4117).
- * --only   render what `git commit -- <path>...` will carry — HEAD plus those
- *          paths from disk — rather than the whole working tree; a named
- *          intent-to-add entry over a HEAD path is dropped, as the bare
- *          commit a refused --check judged drops it. Every positional is
- *          a path, and a positional without --only refuses.
- * --unseen list every read in the tree's tests the selector cannot attribute,
- *          writing nothing (#1881). --check warns about the same reads in the
- *          test files the commit adds or changes, and never refuses on one: an
- *          anchored read the extractor cannot resolve may be a tempdir or
- *          sibling fixture, so it is an inference (base §S4).
- *
- * The write judges the disk; --check judges the index. The two disagree
- * while the tree holds work the commit leaves out, which is what --only is for.
- *
- * The manifest is `generated-only`: never hand-edited. What an edge means and
- * why the pass is lexical: scripts/lib/test-read-edges.js's header.
- */
 
 const fs = require("node:fs");
 const { capture } = require("./lib/check-sink.js");
@@ -44,22 +14,6 @@ const { shellQuote } = require("./lib/sh-quote.js");
 const { scriptPath } = require("./lib/script-path.js");
 
 /**
- * Files this render actually read — every test file `buildManifest` scanned
- * and every one-hop helper it resolved, plus the extractor's and the render's own files —
- * that also carry an uncommitted change right now (mantahostels#2270).
- *
- * Scoped to what was actually READ, not to the render's output: a dirty test
- * file whose edit REMOVES a read literal yields no edge and so is absent from
- * `edges` entirely — the under-population direction mantahostels#2270 warns about.
- *
- * NEVER THROWS, AND A `[]` IS NOT PROOF THE TREE WAS CLEAN: a repo with no
- * HEAD, a wedged git, a dirty tree past `maxBuffer` — every one of those is
- * answered `[]`, same as a genuinely clean tree.
- *
- * WARN, never refuse: dirty is inferred, not a structured fact, and the
- * dirty file may simply be this session's own in-progress work (mantahostels#103 §6's
- * warn-not-deny line).
- *
  * @param {string} root
  * @param {Set<string>} read
  * @returns {string[]}
@@ -88,8 +42,6 @@ function readDirtyContributors(root, read) {
 }
 
 /**
- * The files a commit adds or changes: the `--only` paths, else the index's
- * changes against HEAD, or the whole index before the first commit.
  * @param {string} root
  * @param {string[] | undefined} only
  * @param {Write} write
@@ -107,7 +59,7 @@ function readCommittedFiles(root, only, write) {
 			),
 		);
 	} catch (e) {
-		/* Fails open (#1881), said, so a silence is not read as a clean commit. */
+		// #1881
 		write(
 			2,
 			`${OUT}: unseen-read warning skipped, git could not list the commit's files: ${e instanceof Error ? e.message : e}\n`,
@@ -117,8 +69,6 @@ function readCommittedFiles(root, only, write) {
 }
 
 /**
- * Whether the repo has a manifest to judge. HEAD counts so that a commit
- * deleting the manifest is still refused.
  * @param {string} root
  * @param {string[] | undefined} only
  * @returns {boolean}
@@ -151,13 +101,8 @@ const WAYS_OUT =
 	"line, the issue saying why, to the test's header, leaving its reads to the full run.";
 
 /**
- * The command that makes this commit's manifest fresh: the plain write where
- * the disk renders as this commit does, otherwise the `--only` write for the
- * commit's own paths (#557). Those paths are the index's changes against HEAD:
- * on a pathspec commit, exactly the pathspec.
- *
  * @param {string} root
- * @param {string} text  what the index renders
+ * @param {string} text
  */
 function regenerateCommand(root, text) {
 	const plain = "npm run gen:test-read-edges";
@@ -181,9 +126,8 @@ function regenerateCommand(root, text) {
 
 /**
  * @param {string} root
- * @param {boolean} narrowed  --check or --only was passed too, which a
- *   listing of the working tree cannot honour
- * @returns {number}  1 on a narrowing flag, else 0
+ * @param {boolean} narrowed
+ * @returns {number}
  */
 function listUnseen(root, narrowed) {
 	if (narrowed) {
@@ -207,8 +151,6 @@ function listUnseen(root, narrowed) {
 }
 
 /**
- * Warns about the unseen reads in the test files this commit adds or
- * changes.
  * @param {string} root
  * @param {string[] | undefined} only
  * @param {Record<string, import("./lib/test-read-edges.js").Site[]>} unseen
@@ -240,13 +182,11 @@ const CLI = {
 };
 
 /**
- * argv as the run it asks for, or the exit code of a usage refusal.
  * @param {string[]} argv
  * @returns {number | { root: string, check: boolean, only: string[] | undefined, unseen: boolean }}
  */
 function parseArgs(argv) {
 	const parsed = parseOrCode(argv, CLI);
-	/* A usage refusal is 2 from cli-args; a generator exits 0 or 1 (base §N3). */
 	if (typeof parsed === "number") return parsed === 0 ? 0 : 1;
 	const { flags, positionals } = parsed;
 	if (positionals.length > 0 && !flags["--only"]) {
@@ -272,7 +212,6 @@ function main(argv = process.argv.slice(2)) {
 		only,
 		sites: false,
 	});
-	/* An unresolved `source` is an edge this manifest cannot carry (#657). */
 	for (const w of warnings) writeFd(2, `${OUT}: warning: ${w}\n`);
 	fs.writeFileSync(path.join(root, OUT), text);
 	writeFd(
@@ -292,8 +231,6 @@ function main(argv = process.argv.slice(2)) {
 }
 
 /**
- * --check: 0 where the manifest the index carries is the render of the
- * index, 1 naming each file whose reader set moved where not.
  * @param {string} root
  * @param {string[] | undefined} only
  * @param {Write} write
@@ -309,12 +246,9 @@ function checkAt(root, only, write) {
 	for (const w of warnings) write(2, `${OUT}: warning: ${w}\n`);
 	warnUnseen(root, only, unseen, write);
 
-	/* The manifest the commit carries, not the one on disk. */
 	const have = tree.tracked.has(OUT) ? tree.read(OUT) : "";
 	if (have === text) return 0;
 
-	/* Name the rows that moved, not a diff: the row names which test did it,
-	 * and the fix is the same command without --check. */
 	const before = have ? (JSON.parse(have).edges ?? {}) : {};
 	const keys = new Set([...Object.keys(before), ...Object.keys(edges)]);
 	const moved = [...keys]
@@ -336,11 +270,7 @@ function checkAt(root, only, write) {
 	return 1;
 }
 
-/**
- * The --check run over the repo at `cwd`, as the pre-commit dispatcher runs
- * it in its own process (#5172).
- * @type {import("./lib/precommit-gates.js").Program}
- */
+/** @type {import("./lib/precommit-gates.js").Program} */
 const PROGRAM = ({ cwd }) => capture((write) => checkAt(cwd, undefined, write));
 
 if (require.main === module) process.exit(main());

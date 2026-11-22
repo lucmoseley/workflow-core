@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-wsl-disk.js — say so when the monthly WSL disk compaction (#5044) has
- * gone quiet, on `npm run status`.
- *
- * WARNS where the last success in %LOCALAPPDATA%\wsl-compact.log is over 35
- * days old, the newest run failed, the last one ran untrimmed, the last sparse
- * watch failed, no log exists (the task is not registered), C: has under 40 GB
- * free, the guest's `/` fills over 85% of its virtual disk, fstrim.timer has
- * not fired in 14 days, or the log, C:, the guest disk or the timer will not
- * read (lib/wsl-disk.js's verdict).
- *
- * READS NO INTEROP (lib/wsl-disk-host.js).
- *
- * SKIPS where the kernel release carries no `microsoft`: not WSL. A kernel
- * release that will not read is WARN, never SKIP, which `npm run status` files
- * with the clean ones.
- *
- * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C, WFC_GUEST_ROOT, WFC_SYSTEMCTL, WFC_FSTRIM_DROPIN and WFC_NOW inject
- * each read (§N7).
- */
 
 const { now, runCheck } = require("./lib/check");
 const { judgeDisk } = require("./lib/wsl-disk.js");

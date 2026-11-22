@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins typecheck-mods.js (#1960), run end to end on a fixture tree: the newest
- * unpacked plugin-authoring skill's declarations reach each mod, a mod's
- * newer copy is kept, each pass type-checks against the copy and fails on a
- * type error, and with no skill unpacked every pass is skipped, warned, exit
- * 0. Loosen a case and the typecheck either runs a pass against stale engine
- * types or fails on a machine — CI's — that simply has no skill unpacked.
- *
- * The passes spawn the real tsc, whose verdict is what the program reports, so
- * the file runs five tsc processes and exceeds §X8's 10 s budget under load:
- * a stubbed tsc would leave the copy unproven as something tsc reads.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -85,7 +73,6 @@ describe("typecheck-mods", () => {
 	it("copies the newest unpacked skill into a mod holding none or an older copy, keeps a newer one, and type-checks every pass", () => {
 		unpack("2.1.289");
 		unpack("2.1.296");
-		// A newer build that never unpacked the skill holds no declarations.
 		fs.mkdirSync(
 			path.join(
 				tmp,

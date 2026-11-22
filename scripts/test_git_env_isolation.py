@@ -1,13 +1,3 @@
-"""Pins conftest.py's removal of git's repository-locating variables (#1677),
-and its host-git guard on `PATH` (#3161).
-
-A pytest run started under a linked worktree's exported `GIT_DIR` — a hook,
-`git bisect run` — must not let a test's plain `git init <dir>` mark the
-worktree's main repo bare. Driven through a nested pytest loading the real
-conftest, since the variable has to be set before the session starts; the
-control run loads none, proving the probe still reproduces the bug.
-"""
-
 import json
 import os
 import shutil
@@ -29,10 +19,6 @@ def test_probe():
 
 
 def run_probe(tmp_path, with_conftest):
-    """Runs the probe under a leaked worktree `GIT_DIR`; returns the `GIT_*`
-    names it saw and the scratch repo's `core.bare`."""
-
-    # A CI runner has no global identity (#1692).
     ident = {
         "GIT_AUTHOR_NAME": "t",
         "GIT_AUTHOR_EMAIL": "t@example.com",
@@ -96,7 +82,6 @@ def test_a_leaked_git_dir_leaves_the_main_repo_non_bare(tmp_path):
 
 def test_the_git_on_path_refuses_a_write_to_this_checkout():
     assert shutil.which("git") == str(SCRIPTS.parent / "scripts/lib/host-git-guard/git")
-    # An empty `update-ref --stdin` changes nothing should the guard let it run.
     r = subprocess.run(
         ["git", "update-ref", "--stdin"],
         cwd=SCRIPTS.parent,

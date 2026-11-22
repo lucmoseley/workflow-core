@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-/*
- * steps-owed.js — CLI over lib/steps-owed.js: the only writer of
- * `.claude/workflow-core.json`'s `stepsOwed` field outside `upgrade.js`
- * (the walker, #248). A session works an `act` itself, puts a `choice` to
- * the founder, or prints a `notice` once — then discharges the entry here
- * rather than hand-editing the committed file.
- *
- * Usage:
- *   node scripts/steps-owed.js list
- *   node scripts/steps-owed.js clear   <tag> <act|choice|notice> "<text>"
- *   node scripts/steps-owed.js decline <tag> "<text>"
- *
- * `<tag>` and `<text>` must match the entry exactly, as `list` prints them.
- * `decline` only ever touches a `choice` — it stays in the field marked
- * `declined: true`, never re-surfaced by the reporter but never re-asked
- * either; an `act` or a `notice` is `clear`ed once discharged, `decline`
- * refusing to touch either.
- *
- * Reads and writes the session's own tree, `worktreeRoot()`: the field is in
- * a tracked file, and through `hostRoot()` a linked worktree's discharge
- * lands in the main checkout as an orphaned edit (#5287).
- */
-
 const { writeFd } = require("./lib/write-fd.js");
 const { parseOrCode } = require("./lib/cli-args");
 const { worktreeRoot } = require("./lib/host-root.js");

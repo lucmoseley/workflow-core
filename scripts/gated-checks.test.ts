@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Every gated check, in a host that has not opted in, exits 0 and prints its
- * one skip line (#2; mantahostels#3515 F3, F11, F12, F19, #33) — and, with the
- * opt-in present, does not print it. The host is an empty git repo with no
- * `.claude/workflow-core.json`.
- *
- * A row here is the whole registration: a newly gated check adds one.
- *
- * Loosen a case and a fresh adopter's first run of a check errors over a module
- * it never switched on, or a host that opted in gets a skip line where the
- * check should have run.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -25,13 +13,10 @@ const buildModuleLine = (m: string) =>
 interface Row {
 	script: string;
 	args?: string[];
-	/** The line printed where the host has not opted in. */
 	line: string;
-	/** What opts the host in: its modules, or a path laid out under the root. */
 	optIn: { modules: string[] } | { path: string; dir?: boolean };
 }
 
-/** A check needing several modules names the first, the host having none. */
 const byModule = (
 	script: string,
 	module: string | string[],
@@ -107,8 +92,6 @@ const run = (row: Row, env: Record<string, string | undefined> = {}) => {
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: host,
-			// Never the founder's own ~/.claude: a gh or transcript read is not
-			// what these cases are about.
 			HOME: host,
 			WFC_GH: path.join(host, "no-gh"),
 			WFC_MODULES: undefined,
@@ -137,7 +120,6 @@ describe.each(ROWS)("$script", (row) => {
 			const at = path.join(host, row.optIn.path);
 			fs.mkdirSync(row.optIn.dir ? at : path.dirname(at), { recursive: true });
 			if (!row.optIn.dir) fs.writeFileSync(at, "{}\n");
-			// The layout rows read the module list nowhere; keep the suite default.
 			env = { WFC_MODULES: process.env.WFC_MODULES };
 		}
 		expect(run(row, env).out).not.toContain(row.line);

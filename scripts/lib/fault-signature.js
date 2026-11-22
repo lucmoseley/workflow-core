@@ -1,40 +1,3 @@
-/*
- * fault-signature.js — the fault signature a ticket claiming to stop a fault
- * declares at filing (#4796, #4640).
- *
- * A signature file is JSON:
- *
- *   {"signature": {"kind": "needle", "key": "<guard key>", "needle": "<id>"?}
- *                | {"kind": "regex", "pattern": "<re>", "flags": "i"?,
- *                   "scope": "main" | "subagent" | "both",
- *                   "reads": "output" | "call"?, "tool": "<name>"?},
- *    "prediction": "<plain words>",
- *    "case": {"session": "<session id>", "line": <1-based>, "agent": "<id>"?}}
- *
- * or `{"signature": null, "why": "<why no trace counts it>"}`. A needle's key
- * is a `guards` key of the guard-fire registry, the core's
- * scripts/guard-fire-needles.json with the host's own folded in
- * (lib/guard-fires.js `mergeNeedles`), and carries needles. A regex's `reads`
- * is `output`, left out, for a fault a session is shown — a tool result, a
- * hook's output, Stop hook feedback, a system record — or `call` for one whose
- * only trace is a tool call the session made; `tool` then limits it to one
- * tool's calls, such as `Bash`.
- *
- * The case names the transcript record where the fault surfaces: the output
- * record a needle or an `output` regex reads, the `tool_use` record for a
- * `call` regex. `agent` names a subagent's own log under that session. It is
- * read across every seat, one copy each (lib/project-dirs.js), and a signature
- * that does not match it is refused (#4635).
- *
- * A needle counts as lib/guard-fires.js counts a guard's fires, on both tiers;
- * a regex through its regex route, on the tiers its scope names.
- *
- * A ticket owing a log line carries lib/signature-label.js's label and a
- * SECTION_HEADING body section holding that line less its `issue`, which the ticket itself names:
- * the issue create records it in the same call, so a line lost with its
- * worktree is recovered from the ticket (#4861).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -53,7 +16,6 @@ const { readText } = require("./file-read.js");
 const { parseJsonlRow } = require("./jsonl.js");
 const { escapeRe } = require("./regex-group.js");
 
-/** The append-only log, at a repo's root; `merge=union` in .gitattributes. */
 const SIGNATURE_LOG = "docs/data/outcome-signatures.jsonl";
 
 const SECTION_HEADING = "## Fault signature";
@@ -68,18 +30,15 @@ const REGEX_FLAGS = /^[imsu]*$/;
  * @typedef {{session: string, line: number, agent?: string}} Case
  * @typedef {{signature: Signature, prediction: string, case: Case}
  *   | {signature: null, why: string}} Declared
- * @typedef {Record<string, unknown>} Row  parsed JSON: a signature file, a
- *   log line or a transcript record, each field narrowed where it is read
- * @typedef {ReturnType<typeof readNeedles>["needles"]} Registry  the merged
- *   guard-fire needles
+ * @typedef {Record<string, unknown>} Row
+ * @typedef {ReturnType<typeof readNeedles>["needles"]} Registry
  */
 
 /** @param {unknown} v @returns {v is string} */
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
- * A declared signature checked for shape, or why it is refused.
- * @param {unknown} raw  the parsed file
+ * @param {unknown} raw
  * @param {Registry} registry
  * @returns {{declared: Declared} | {error: string}}
  */
@@ -159,7 +118,7 @@ function checkNeedle(s, registry) {
 /**
  * @param {string} pattern
  * @param {string} flags
- * @returns {RegExp | string} the compiled pattern, or why it does not compile
+ * @returns {RegExp | string}
  */
 function tryCompile(pattern, flags) {
 	try {
@@ -240,7 +199,6 @@ function checkCase(raw) {
 }
 
 /**
- * The guard-fires subject a needle signature counts.
  * @param {{key: string, needle?: string}} sig
  * @param {Registry} registry
  */
@@ -256,8 +214,6 @@ function needleSubject(sig, registry) {
 }
 
 /**
- * Whether a signature reads a file of this tier: a needle reads both, a regex
- * those its scope names.
  * @param {Signature} sig
  * @param {"main" | "subagent"} tier
  */
@@ -269,8 +225,6 @@ function readsTier(sig, tier) {
 const compile = (sig) => new RegExp(sig.pattern, sig.flags ?? "");
 
 /**
- * How many times a signature occurs in one transcript's text: a needle's
- * deduped fires, a regex's matching records. Zero on a tier it does not read.
  * @param {string} text
  * @param {Signature} sig
  * @param {"main" | "subagent"} tier
@@ -287,7 +241,6 @@ function signatureHits(text, sig, tier, registry) {
 }
 
 /**
- * The case's record, read across every seat, or why it cannot be.
  * @param {Case} c
  * @param {string[]} seats
  * @returns {{record: Row, tier: "main" | "subagent", file: string} | {error: string}}
@@ -317,7 +270,6 @@ function readCaseRecord(c, seats) {
 }
 
 /**
- * Whether a signature matches the record that triggered the ticket.
  * @param {Signature} sig
  * @param {{record: Row, tier: "main" | "subagent"}} at
  * @param {Registry} registry
@@ -330,11 +282,8 @@ function matchesCase(sig, { record, tier }, registry) {
 }
 
 /**
- * A signature file read, checked for shape and, where it declares a
- * signature, matched against its case, or why it is refused. Each error names
- * the file and reads whole, for a caller to print as it stands.
  * @param {string} file
- * @param {{root: string, seats?: string[]}} at  `root` keys the host's needles
+ * @param {{root: string, seats?: string[]}} at
  * @returns {{declared: Declared, registry: Registry} | {error: string}}
  */
 function readDeclared(file, { root, seats = configDirs() }) {
@@ -369,10 +318,7 @@ function readDeclared(file, { root, seats = configDirs() }) {
 	return { declared, registry };
 }
 
-/**
- * The line the log keeps for one filing.
- * @param {{issue: string, filedAt: string, declared: Declared, late?: boolean}} at
- */
+/** @param {{issue: string, filedAt: string, declared: Declared, late?: boolean}} at */
 function buildSignatureLine({ issue, filedAt, declared, late }) {
 	const base =
 		declared.signature === null
@@ -388,7 +334,6 @@ function buildSignatureLine({ issue, filedAt, declared, late }) {
 }
 
 /**
- * Appends one line to the log under `root`.
  * @param {string} root
  * @param {Record<string, unknown>} line
  */
@@ -413,7 +358,6 @@ const SECTION = new RegExp(
 );
 
 /**
- * The body with its section, replacing only one already there.
  * @param {string} body
  * @param {Record<string, unknown>} line
  */
@@ -424,9 +368,6 @@ function withSignatureSection(body, line) {
 }
 
 /**
- * The log line a ticket's body section records, with `issue` restored first
- * as buildSignatureLine orders it; null where the section is gone or will not
- * parse.
  * @param {string} issue
  * @param {string} body
  * @returns {Row | null}

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that a removed or renamed helper export, entry point or command-line
- * part fails a minor release and passes only a major one carrying its
- * migration note, while an addition always passes (#463, #655).
- *
- * check-surface-contract.js diffs HEAD's helper-surface manifest against the one
- * at the last release tag, so each case tags a manifest, commits an edit to it
- * and plugin.json, and reads the verdict (#463) — in a throwaway repository,
- * since the checker reads commits and tags, never the working tree.
- *
- * It refuses the cut in `release-plugin.js` and runs as a CI step in
- * `.github/workflows/ci.yml`: loosen a case and a release can silently drop a
- * helper or flag an adopter was promised.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -46,7 +32,6 @@ const release = (tag: string) => {
 	git("tag", "-a", tag, "-m", tag);
 };
 
-/* Sequential: run-in-process.js patches the process globally per call. */
 const check = () => {
 	git("add", "--all");
 	git("commit", "-qm", "edit", "--allow-empty");

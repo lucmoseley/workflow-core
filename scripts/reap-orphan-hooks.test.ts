@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins reap-orphan-hooks.js end to end against a synthetic /proc on
- * WFC_PROC (lib/proc-fake.ts) and the core's real hook registry: it
- * names an orphaned hook run past the ceiling, leaves one inside it alone,
- * kills nothing under a fixture root, degrades to SKIP where /proc or its
- * uptime cannot be read, and is BROKEN on a hook file it cannot parse
- * (#2922).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,7 +28,6 @@ const { ceilingS, invocations } = readRegistry(
 		),
 	).hooks,
 );
-/* A guard the registry runs with no arguments, from some other checkout. */
 const guard = invocations.find(
 	(i) => i.script.startsWith("guard-") && i.args.length === 0,
 );
@@ -58,7 +49,6 @@ function run(
 	cwd?: string,
 ) {
 	return runInProcess(SCRIPT, args, {
-		/* Never the machine's own session-kill log. */
 		env: {
 			...process.env,
 			WFC_SESSION_REAP_LOG: path.join(fixture.root, "session-reaps.jsonl"),
@@ -109,7 +99,6 @@ describe("reap-orphan-hooks", () => {
 
 	it("names a suite run's process whose wrapper is gone, killing nothing under a fixture root (#3528)", () => {
 		fixture.proc(4250, { argv: "node worker.js" });
-		/* Past any pid_max, so no live process has it. */
 		writeEnviron(fixture.root, 4250, ["WFC_INFLIGHT_OWNER=99999999"]);
 
 		const res = run(["--json"]);
@@ -128,7 +117,6 @@ describe("reap-orphan-hooks", () => {
 			"CLAUDE_CODE_SESSION_ID=sess-ended",
 			"CLAUDE_PID=99999999",
 		]);
-		/* The user timer's run: systemd hands it no session. */
 		const env: Record<string, string> = { WFC_PROC: fixture.root };
 		const bare = Object.fromEntries(
 			Object.entries(process.env).filter(([k]) => !k.startsWith("CLAUDE_")),
@@ -204,8 +192,6 @@ describe("reap-orphan-hooks", () => {
 	});
 });
 
-/* The real kill and log, against a fake root that links in only this test's
- * orphan, so no other process on the machine is in its table. */
 describe("a real orphaned guard", () => {
 	let dir: string;
 	let pid = 0;
@@ -214,18 +200,11 @@ describe("a real orphaned guard", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
-	/** `prepare` shapes the checkout first. */
-	function sweepOrphanHook(
-		args = ["--json"],
-		// By default a checkout as git init leaves it.
-		prepare: () => void = noop,
-	) {
+	function sweepOrphanHook(args = ["--json"], prepare: () => void = noop) {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-orphan-hooks-real-"));
 		spawnSync("git", ["init", "-q", dir]);
 		fs.mkdirSync(path.join(dir, ".claude"));
 		prepare();
-		/* Registered, not a guard: any guard-* orphan is reaped by name, so
-		 * orphan-hooks.test.ts's real case would take this one too. */
 		const name = `reap-fixture-${process.pid}.sh`;
 		fs.writeFileSync(
 			path.join(dir, ".claude", "settings.json"),
@@ -241,20 +220,16 @@ describe("a real orphaned guard", () => {
 		fs.mkdirSync(path.dirname(script));
 		fs.writeFileSync(script, "sleep 300\n");
 		pid = startOrphan("bash", script);
-		/* Until the fixture's shell execs, its argv is no hook run's. */
 		expect(
 			waitFor(() => readProcTable("/proc")?.procs.get(pid)?.argv[1] === script),
 		).toBe(true);
 
-		/* A machine up long enough that the orphan is past the ceiling of
-		 * the registry this run reads: an adopter's, not the core's. */
 		const live = readProcTable("/proc")?.procs ?? new Map();
 		const start = live.get(pid)?.startTicks ?? 0;
 		const adopter = readRegistry(readRunningHooks(dir, { quiet: true }));
 		const fake = makeProcRoot(start / USER_HZ + adopter.ceilingS + 1);
 		try {
 			for (const p of live.values()) if (p.pgid === pid) fake.real(p.pid);
-			/* WSL's session /init, read by argv where it is not pid 1. */
 			const ppid = live.get(pid)?.ppid ?? 0;
 			if (ppid > 1) fake.real(ppid);
 
@@ -324,8 +299,6 @@ describe("a real orphaned guard", () => {
 	);
 });
 
-/* The real kill and log of a dead session's process, against a fake root that
- * links in only this test's orphan and its init, so its leader reads gone. */
 describe("a real process of an ended session", () => {
 	let dir: string;
 	let pid = 0;
@@ -334,7 +307,6 @@ describe("a real process of an ended session", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
-	/** `log` may name `<dir>`, this run's temp checkout. */
 	function sweepEndedSession(log: string, args = ["--json"]) {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-ended-session-"));
 		spawnSync("git", ["init", "-q", dir]);
@@ -349,8 +321,6 @@ describe("a real process of an ended session", () => {
 				env: {
 					...process.env,
 					CLAUDE_CODE_SESSION_ID: "sess-real-ended",
-					/* This worker: live to a real sweep elsewhere on the
-					 * machine, gone from the fake root below. */
 					CLAUDE_PID: String(process.pid),
 				},
 			},
@@ -415,7 +385,6 @@ describe("a real process of an ended session", () => {
 		},
 	);
 
-	/* A fresh machine has no ~/.local/state/workflow-core (#4706). */
 	it.runIf(orphansReapToInit())(
 		"makes a missing log directory and writes the line there",
 		() => {
@@ -443,8 +412,6 @@ describe("a real process of an ended session", () => {
 	);
 });
 
-/* The timer kills with no session open; the next session start in a checkout
- * names those kills once, off the machine log. */
 describe("a session start after the timer's kills", () => {
 	let dir: string;
 	afterEach(() => {

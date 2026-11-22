@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * install-refill-boot-unit.js — installs and enables this host's systemd user
- * unit that runs `refill-loop.js boot-resume` at each manager start (#3878), from
- * refill-loop-boot.service.template, turns linger on, and reads both back.
- * Enabled, not started: the unit first runs at the manager's next start. Also
- * the timer that resumes a dead loop (`refill-loop.js watch`, #4139), enabled
- * and started, as a loop can die before the manager next starts.
- *
- * In a checkout the unit names the boot link (lib/refill-code.js), made here
- * where no loop has made it. A plugin install names its own refill-loop.js, so
- * re-runs this after a release bump moves it. Re-running replaces the unit.
- *
- * Joins no §N3 family: an install command, not a checker or a guard.
- *
- * Exit codes: 0; 1 where no code can be pinned, or the read-back or a systemd
- * call fails; 2 on a command line, or a path the unit could not quote.
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -35,12 +17,9 @@ const WATCH_SERVICE = "refill-loop-watch.service";
 const WATCH_TIMER = "refill-loop-watch.timer";
 const USAGE = `usage: node ${scriptPath("install-refill-boot-unit.js")}`;
 
-/* Refused rather than shell-quoted: these sit inside a command string that
- * systemd unquotes first. */
 const PLAIN_PATH = /^[\w./@+-]+$/;
 
 /**
- * An Environment= line, its value escaped for systemd's own expansions.
  * @param {string} name
  * @param {string} value
  */
@@ -53,12 +32,10 @@ function buildEnvironmentLine(name, value) {
 }
 
 /**
- * The unit's text: the installer's own PATH, which holds what systemd's lacks; its seat; and its session-listing wrapper,
- * which a shell alias sets rather than the profile.
  * @param {string} template
  * @param {string} shell
  * @param {string} script
- * @param {string} log the loop's log
+ * @param {string} log
  */
 function buildUnitText(template, shell, script, log) {
 	const environment = [

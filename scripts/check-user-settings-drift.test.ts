@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * check-user-settings-drift.js compares a doc snapshot against a live settings
- * file, exercised against fixtures in a temp directory rather than against this
- * machine's real ~/.claude.
- *
- * Scope: the routed keys (#5032), against the fixture routing file by
- * WFC_MODEL_ROUTING — and where the snapshot is found with no argument (#447); the
- * user-level CLAUDE.md held to the live file through its own fence (#2174); and the
- * machine copies of shipped files and working rules held to this repo (#5344).
- *
- * It warns from `.husky/pre-commit` on every commit, so a loosened case either
- * fires on every mode switch or lets real drift go unsaid.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -22,11 +9,6 @@ import { runInProcess } from "./lib/run-in-process.js";
 const SCRIPT = path.resolve(__dirname, "check-user-settings-drift.js");
 const FIXTURE = path.resolve(__dirname, "fixtures/model-routing/fixture.json");
 
-/**
- * The fixture routing file's writes for each mode (lib/model-table.test.ts
- * names its rows). Every live file below holds the standard ones unless a case
- * says otherwise.
- */
 const STANDARD = {
 	model: "test-haiku-1[1m]",
 	modelSettings: {
@@ -53,7 +35,6 @@ const contract = fs.readFileSync(
 	path.resolve(__dirname, "..", "docs", "working-contract.md"),
 	"utf8",
 );
-/** The working-rule sections a live CLAUDE.md carries, as the contract words them. */
 const ruleSections = [
 	"Removal means gone",
 	"Leading practice",
@@ -64,10 +45,6 @@ const ruleSections = [
 
 let dir: string;
 
-/**
- * A doc with a ```json snapshot block and the status-line block, and no
- * CLAUDE.md block, so it reads as a snapshot predating #2174.
- */
 const doc = (settings: object) =>
 	[
 		"# Snapshot",
@@ -84,7 +61,6 @@ const doc = (settings: object) =>
 		"",
 	].join("\n");
 
-/** Run the checker over a doc/live pair; returns exit status and output. */
 const run = (
 	docSettings: object,
 	liveSettings: object,
@@ -98,8 +74,6 @@ const run = (
 		livePath,
 		JSON.stringify({ ...STANDARD, ...liveSettings }, null, 2),
 	);
-	// The script resolves every file copy from $HOME with no override, so point
-	// HOME at the fixture dir; absent there, each is reported and not compared.
 	const r = runInProcess(SCRIPT, [docPath, livePath], {
 		env: {
 			...process.env,
@@ -262,7 +236,6 @@ describe("machine copies of shipped files, against their repo sources (#5344)", 
 	});
 
 	it("is BROKEN where a live copy is there but unreadable", () => {
-		/* A directory at the copy's path: present, but no file read answers it. */
 		fs.mkdirSync(path.join(dir, ".claude", "practice-crafts.md"), {
 			recursive: true,
 		});
@@ -341,7 +314,6 @@ describe("the working-rule sections of the user-level CLAUDE.md (#5344)", () => 
 		expect(out).toMatch(/CLAUDE\.md is unreadable/);
 	});
 
-	/** A plugin root under the fixture dir, its contract made by `make`. */
 	const pluginWith = (make: (at: string) => void) => {
 		const root = path.join(dir, "plugin");
 		fs.mkdirSync(path.join(root, "docs"), { recursive: true });
@@ -384,7 +356,6 @@ describe("the working-rule sections of the user-level CLAUDE.md (#5344)", () => 
 });
 
 describe("the user-level CLAUDE.md's copy (#2174)", () => {
-	// Fences and headings of its own: a ``` line must not close the block.
 	const notes = [
 		"# Machine notes",
 		"",
@@ -453,7 +424,6 @@ describe("the user-level CLAUDE.md's copy (#2174)", () => {
 });
 
 describe("the snapshot path with no argument (#447)", () => {
-	/** Run with no doc argument, in `dir` as the host root. */
 	const runHost = (config?: object) => {
 		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 		if (config)

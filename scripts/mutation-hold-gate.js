@@ -140,22 +140,18 @@ const USAGE =
 
 /** @typedef {"hook"|"due"|"pre-lock"} Mode */
 
-/** The exit where a mode finds nothing to judge. */
 const IDLE = { hook: 0, due: 1, "pre-lock": 3 };
 
-/* What Stryker can instrument, and the test names its default `mutate`
- * leaves out. */
 const MUTABLE = /\.(c?js|mjs|[cm]?ts|jsx|tsx|html|vue|svelte)$/;
 const TEST_NAME = /(^|\/)__tests__\/|\.([sS]pec|[tT]est)\.[^/]+$/;
 /** @param {string} p */
 const isMutable = (p) => MUTABLE.test(p) && !TEST_NAME.test(p);
 
-/* Stryker's own line on a red initial run, the one exit 1 it shares with a
- * usage error (#1901). */
+/* #1901 */
 const RED_INITIAL = "There were failed tests in the initial test run";
 
-/** @typedef {{start: number, end: number}} LineRange 1-based, inclusive */
-/** @typedef {{at: string, text: string}} Disable `path:line` and the comment */
+/** @typedef {{start: number, end: number}} LineRange */
+/** @typedef {{at: string, text: string}} Disable */
 /** @typedef {import("./lib/hunk-header.js").HunkHeader} HunkHeader */
 /** @typedef {import("./lib/stryker-comments.js").BabelComment} BabelComment */
 /** @typedef {import("./lib/stryker-comments.js").ParseEntry} ParseEntry */
@@ -166,22 +162,16 @@ const REFUSING = new Set(["Survived", "NoCoverage"]);
 const PASSING = new Set(["Killed", "Timeout", "Ignored"]);
 const LEFT_OUT = new Set(["CompileError", "RuntimeError"]);
 
-/* How much of a red run's or a failed run's output the refusal replays: a
- * guess, enough for vitest's failure summary over Stryker's last log lines. */
+/* #1871 guess: vitest's failure summary over Stryker's last log lines */
 const OUTPUT_TAIL_LINES = 40;
-/* A mutated span longer than this is cut, so one line per mutant stays one
- * terminal line beside its path and mutator: a guess. */
+/* #1871 guess: one mutant stays one terminal line */
 const ORIGINAL_MAX = 60;
-/* The setting #1851 measured, its figures in docs/environment.md §6's
- * mutation-hold paragraph. Untraced: no other setting was measured against it. */
+// #1851 guess: the one setting a single cold run tried
 const CONCURRENCY = 2;
 
 const UNPARSEABLE = "could not parse Stryker's JSON report";
 
-/**
- * How a message names its run, so the hook and --seed share one text.
- * @typedef {{prefix: string, tree: string, unjudged: string, refused: string, again: string}} Voice
- */
+/** @typedef {{prefix: string, tree: string, unjudged: string, refused: string, again: string}} Voice */
 /** @type {Voice} */
 const HOOK_VOICE = {
 	prefix: "pre-commit",
@@ -199,60 +189,49 @@ const SEED_VOICE = {
 	again: "seed again",
 };
 
-/* Stryker 10's own discovery order, `{,.}stryker{.conf,.config}.{json,js,mjs,cjs}`
- * (`config-file-formats.js`, #1901). */
+/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/core/src/config/config-file-formats.ts */
 const CONFIG_NAMES = ["", "."].flatMap((dot) =>
 	[".conf", ".config"].flatMap((kind) =>
 		["json", "js", "mjs", "cjs"].map((ext) => `${dot}stryker${kind}.${ext}`),
 	),
 );
-/* The one runner the hold supports (#1871 §Missing tool). */
 const TEST_RUNNER = "vitest";
 const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
-/* What the run gets where the host's config names no value of its own (#5180).
- * The runner's default pool, threads, fails every test calling
- * `process.chdir()`, and kills its workers under a vitest `execArgv` heap flag.
- * Stryker's default `disableTypeChecks` rewrites each matching file into the
- * sandbox with no mode, so none can run as an executable; vitest never
- * type-checks, so the rewrite buys the run nothing. */
+/* `vitest`'s threads pool fails every test calling `process.chdir()` and kills
+ * its workers under an `execArgv` heap flag. Stryker's default
+ * `disableTypeChecks` writes each matching file with no mode:
+ * https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/disable-type-checks.ts */
 const POOL = "forks";
 const DISABLE_TYPE_CHECKS = false;
 
-/* Stryker 10's own directive parser, matched against a comment's text
- * (instrumenter `directive-bookkeeper.js`): group 4 is the reason. Every
- * disable it matches must hold DISABLE_TEXT verbatim. */
+/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/transformers/directive-bookkeeper.ts */
 const DIRECTIVE =
 	/^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
-/* The text every disable DIRECTIVE matches holds: a staged copy without it
- * can be charged nothing, so is never parsed (#4307). */
 const DISABLE_TEXT = "Stryker disable";
 const COMPONENT = /\.(html|vue|svelte)$/;
 const SCRIPT = /(<script\b([^>]*)>)([\s\S]*?)<\/script\s*>/gi;
 const ATTRIBUTE = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
-/* Stryker 10's script types (`parsers/html-parser.js`). */
+/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/html-parser.ts */
 const TSX_SCRIPT_TYPES = ["tsx", "text/tsx"];
 const TS_SCRIPT_TYPES = ["ts", "text/typescript", "typescript"];
 const JS_SCRIPT_TYPES = ["js", "text/javascript", "javascript", "module"];
 const DISABLES_UNREAD = "could not read the added disable comments";
 const STRYKER_COMMENTS = path.join(__dirname, "lib", "stryker-comments.js");
-/* How long the comment read may run: a guess, far past Babel's load and parse
- * of a commit's files, short of a hang anyone waits out. */
+/* #2624 guess: far past Babel's parse, short of a hang */
 const COMMENTS_TIMEOUT_MS = 30_000;
 
 const CACHE_NAME = "wfc-mutation-incremental.json";
 
-/* The version the hold's command-line contract is verified against (#1901),
- * the first whose vitest runner takes a `vitest.pool` (#5180). */
+/* #1901, #5180 */
 const STRYKER_VERSION = "10.1.1";
 const STRYKER_PACKAGES = [
 	"@stryker-mutator/core",
 	`@stryker-mutator/${TEST_RUNNER}-runner`,
 ];
 
-/* The gate's own fault, which fails it open. */
 class HoldFaultError extends Error {
 	/**
-	 * @param {string} fault constant per fault: check-guard-errors.js groups on it
+	 * @param {string} fault
 	 * @param {{detail?: string, cause?: unknown}} [opts]
 	 */
 	constructor(fault, { detail, cause } = {}) {
@@ -270,7 +249,6 @@ const git = (args) =>
 	});
 
 /**
- * `read()`, or a HoldFaultError naming `fault` where it throws.
  * @template T
  * @param {string} fault
  * @param {() => T} read
@@ -291,9 +269,7 @@ function orFault(fault, read) {
 const gitOr = (args, fault) => orFault(fault, () => git(args));
 
 /**
- * Whether the commit route is a replay or a merge. No orFault: commitRoute
- * reads an unreadable marker as none and cannot throw at pre-commit (#5201);
- * a throw anyway reaches faultOf as the generic fault, still failing open.
+ * #5201
  * @param {string} gitDir
  */
 const isSkippedRoute = (gitDir) => {
@@ -302,8 +278,6 @@ const isSkippedRoute = (gitDir) => {
 };
 
 /**
- * The text of `file` at `rev`, an empty `rev` the index, or null where its
- * path is absent or its revision an unborn HEAD.
  * @param {string} rev
  * @param {string} file
  * @param {string} fault
@@ -312,10 +286,7 @@ const readFileOrFault = (rev, file, fault) =>
 	orFault(fault, () => readFileAt(rev, file, { timeout: GIT_TIMEOUT_MS })) ??
 	null;
 
-/**
- * `file`'s staged text; a HoldFaultError where the index holds none.
- * @param {string} file
- */
+/** @param {string} file */
 function readStagedFile(file) {
 	const fault = "could not read a staged file";
 	const text = readFileOrFault("", file, fault);
@@ -327,9 +298,6 @@ function readStagedFile(file) {
 /** @typedef {{root: string, text: string|null}} ConfigCopy */
 
 /**
- * The config `.claude/workflow-core.json` holds at `rev` — `HEAD`, or empty
- * for the index — copied into a scratch root. An absent copy reads as the
- * default.
  * @param {string} work
  * @param {string} rev
  * @returns {ConfigCopy}
@@ -347,9 +315,7 @@ function configCopyAt(work, rev) {
 }
 
 /**
- * Whether a copy turns `mutation` on. A copy that will not read turns it on only where its text
- * lists the module, so a commit switching it on in a broken file still fails
- * open loudly (#2077). Residual: WFC_MODULES is not read for a broken copy.
+ * #2077
  * @param {ConfigCopy} copy
  */
 function isSwitchedOn({ root, text }) {
@@ -373,7 +339,6 @@ function readConfigOf({ root }) {
 }
 
 /**
- * Every hunk of the staged zero-context diff of `file`.
  * @param {string} file
  * @returns {HunkHeader[]}
  */
@@ -398,8 +363,6 @@ function readStagedHunks(file) {
 }
 
 /**
- * The new-side ranges of the hunks adding a line, as Stryker's `mutate`
- * line-range entries.
  * @param {HunkHeader[]} hunks
  * @returns {LineRange[]}
  */
@@ -409,9 +372,7 @@ const addedRanges = (hunks) =>
 		.map((h) => ({ start: h.newStart, end: h.newStart + h.newCount - 1 }));
 
 /**
- * The line HEAD holds where the staged file holds `line`, or null where the
- * commit adds it.
- * @param {HunkHeader[]} hunks the file's, from a zero-context diff
+ * @param {HunkHeader[]} hunks
  * @param {number} line
  */
 function findHeadLine(hunks, line) {
@@ -419,7 +380,6 @@ function findHeadLine(hunks, line) {
 	for (const h of hunks) {
 		const last = h.newStart + h.newCount - 1;
 		if (h.newCount > 0 && h.newStart <= line && line <= last) return null;
-		// A pure deletion's new start is the line it follows.
 		if ((h.newCount > 0 ? last : h.newStart) < line)
 			shift += h.oldCount - h.newCount;
 	}
@@ -427,8 +387,7 @@ function findHeadLine(hunks, line) {
 }
 
 /**
- * Says a fail-open on stderr and writes it to the fail-open log.
- * @param {string} stderrLine after its `pre-commit: ` prefix
+ * @param {string} stderrLine
  * @param {string} logLine
  */
 function reportFailOpen(stderrLine, logLine) {
@@ -437,8 +396,6 @@ function reportFailOpen(stderrLine, logLine) {
 }
 
 /**
- * Says on stderr and in the fail-open log that the disable comments `where`
- * names went unread, and `why`.
  * @param {string} where
  * @param {string} why
  */
@@ -451,10 +408,8 @@ function reportUnread(where, why) {
 }
 
 /**
- * How Stryker parses a `<script>` block, from its attributes, or null where it
- * parses none: Svelte's `parsers/svelte-parser.js` reads `lang`
- * alone; `parsers/html-parser.js`'s `getScriptType` skips a `src` script and
- * reads `type`, else `lang`, skipping a type it does not know.
+ * https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/svelte-parser.ts
+ * https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/html-parser.ts
  * @param {string} file
  * @param {string} attributes
  * @returns {ParseKind | null}
@@ -464,7 +419,6 @@ function scriptKind(file, attributes) {
 	const attrs = new Map(
 		[...attributes.matchAll(ATTRIBUTE)].map((a) => [
 			requiredGroup(a, 1, ATTRIBUTE).toLowerCase(),
-			// An attribute with no value (`<script setup>`) reads as "", as the DOM reads it.
 			a[2] ?? a[3] ?? a[4] ?? "",
 		]),
 	);
@@ -477,7 +431,6 @@ function scriptKind(file, attributes) {
 }
 
 /**
- * How Stryker parses a file that is not a component format.
  * @param {string} file
  * @returns {ParseKind}
  */
@@ -487,11 +440,6 @@ function fileKind(file) {
 }
 
 /**
- * The code Stryker parses in `file`, each piece with how it parses it: the whole
- * file, or each `<script>` block of a component format it parses, padded so
- * its lines keep the file's numbers.
- * Residual: a comment inside a Svelte template expression, which Stryker also
- * mutates, is never read.
  * @param {string} file
  * @param {string} source
  */
@@ -517,9 +465,8 @@ function scriptsOf(file, source) {
 }
 
 /**
- * Every comment in each entry, or the first line of why none was (#2624).
  * @param {string} root
- * @param {string|null} strykerConfig the host's Stryker config, named under `root`
+ * @param {string|null} strykerConfig
  * @param {ParseEntry[]} entries
  * @returns {{files: ReadComments} | {error: string}}
  */
@@ -529,7 +476,7 @@ function readCommentsInChild(root, strykerConfig, entries) {
 	const r = spawnSync(process.execPath, [STRYKER_COMMENTS], {
 		input: JSON.stringify({ root, strykerConfig, entries }),
 		encoding: "utf8",
-		// The result's own fd: a host config may print on stdout (#2727).
+		// #2727
 		stdio: ["pipe", "ignore", "pipe", "pipe"],
 		maxBuffer: CHILD_MAX_BUFFER,
 		timeout,
@@ -547,21 +494,15 @@ function readCommentsInChild(root, strykerConfig, entries) {
 	}
 }
 
-/**
- * The line a comment's directive sits on: its first, or the next where its
- * text opens on the line break DIRECTIVE's `^\s?` lets through.
- * @param {BabelComment} c
- */
+/** @param {BabelComment} c */
 const findDirectiveLine = (c) =>
 	c.loc.start.line + (c.value.startsWith("\n") ? 1 : 0);
 
-/** @typedef {{verb: string, scope: string | undefined, mutators: string[], reason: string | undefined}} ParsedDirective a DIRECTIVE match by part */
-/** @typedef {{comment: BabelComment, directive: ParsedDirective}} Directive a comment and its directive */
+/** @typedef {{verb: string, scope: string | undefined, mutators: string[], reason: string | undefined}} ParsedDirective */
+/** @typedef {{comment: BabelComment, directive: ParsedDirective}} Directive */
 
 /**
- * A comment's Stryker directive by part, its mutators lower-cased, or null
- * where its text holds none.
- * @param {string} text the comment's value
+ * @param {string} text
  * @returns {ParsedDirective | null}
  */
 function parseDirective(text) {
@@ -578,8 +519,6 @@ function parseDirective(text) {
 }
 
 /**
- * The comments holding a `Stryker disable` directive stating no reason after
- * its colon, each with its directive.
  * @param {BabelComment[]} comments
  * @returns {Directive[]}
  */
@@ -593,7 +532,6 @@ const unreasonedIn = (comments) =>
 	});
 
 /**
- * Whether the commit adds a line from `from` to `to`, inclusive.
  * @param {LineRange[]} added
  * @param {number} from
  * @param {number} to
@@ -602,8 +540,6 @@ const hasAddedBetween = (added, from, to) =>
 	added.some((r) => r.start <= to && from <= r.end);
 
 /**
- * Whether Stryker reads a comment's directive: one leading a node no ancestor
- * of which it skips for overlapping no line the commit adds.
  * @param {BabelComment} c
  * @param {LineRange[]} added
  * @returns {c is BabelComment & {leads: number}}
@@ -613,11 +549,8 @@ const isRead = (c, added) =>
 	(c.within ?? []).every(([s, e]) => hasAddedBetween(added, s, e));
 
 /**
- * The line a region directive's reach ends before: the line the first later
- * `restore` comment Stryker reads in its block leads that lifts every mutator
- * it names, as Stryker's bookkeeper lifts them, or the line past its block.
  * @param {Directive} disable
- * @param {BabelComment[]} comments the file's, in source order
+ * @param {BabelComment[]} comments
  * @param {LineRange[]} added
  */
 function regionEnd({ comment: c, directive }, comments, added) {
@@ -638,11 +571,8 @@ function regionEnd({ comment: c, directive }, comments, added) {
 }
 
 /**
- * Whether a disable directive Stryker reads reaches a line the commit adds: a
- * `next-line` one the line of the node its comment leads, a region from there
- * to its regionEnd.
  * @param {Directive} disable
- * @param {BabelComment[]} comments the file's, in source order
+ * @param {BabelComment[]} comments
  * @param {LineRange[]} added
  */
 function hasAddedInReach(disable, comments, added) {
@@ -656,17 +586,10 @@ function hasAddedInReach(disable, comments, added) {
 }
 
 /**
- * The unreasoned `Stryker disable` directives in a staged file the commit
- * answers for (#1909): each whose line the commit adds, or maps to a line
- * where HEAD holds no such directive, since editing an enclosing comment's
- * text or delimiters can turn old text into a directive (#2573, #2624); and
- * each whose reach the commit widens over a line it adds, by adding a line
- * under it or deleting its `restore` (#2727). Where HEAD's copy went unread
- * (`held` null), one whose comment's opening line the commit adds stands in
- * for the HEAD comparison.
- * @param {BabelComment[]} comments the staged file's
+ * #1909, #2573, #2624, #2727
+ * @param {BabelComment[]} comments
  * @param {HunkHeader[]} fileHunks
- * @param {Set<number> | null} held HEAD's unreasoned directive lines
+ * @param {Set<number> | null} held
  */
 function chargedIn(comments, fileHunks, held) {
 	const added = addedRanges(fileHunks);
@@ -685,8 +608,6 @@ function chargedIn(comments, fileHunks, held) {
 }
 
 /**
- * Says on stderr and in the fail-open log that `file`'s copy at HEAD went
- * unread, and `why`.
  * @param {string} file
  * @param {string} why
  */
@@ -698,30 +619,16 @@ function reportDegraded(file, why) {
 }
 
 /**
- * The unreasoned `Stryker disable` comments the commit answers for, by
- * chargedIn. Each staged file holding DISABLE_TEXT, and its HEAD copy, is
- * read through Babel's parser as Stryker reads it, so a `//` inside a string
- * is no comment and a directive on its own line inside a block comment is one
- * (#2366). A git fault reading one file's copy costs that file alone: its
- * staged copy unread, or its HEAD copy read as unparseable (#2727).
- * Residual: any text after the colon passes, `: x` included; one armed in a
- * file the commit adds no line to passes, since that file is not read (and a
- * deletion-only commit runs nothing, #1871 story 30); where HEAD's copy went
- * unread, one armed by any edit but to its comment's opening line passes; a
- * region a later reasoned directive overrides is charged as its own; a file
- * holding no DISABLE_TEXT goes unparsed, so a read that would have failed on
- * it is never reported; and the configs are read from the working tree,
- * Stryker's from the staged one, so an unstaged edit to either parts the two
- * reads.
+ * #2366, #2727
  * @param {string} root
- * @param {string|null} strykerConfig the host's Stryker config the staged tree holds
- * @param {Map<string, HunkHeader[]>} hunks each read file's
+ * @param {string|null} strykerConfig
+ * @param {Map<string, HunkHeader[]>} hunks
  * @returns {Disable[]}
  */
 function unreasonedDisables(root, strykerConfig, hunks) {
 	/** @type {string[]} */
 	const files = [];
-	/** @type {Map<string, string>} why a file's HEAD copy went unread */
+	/** @type {Map<string, string>} */
 	const headUnread = new Map();
 	/** @type {ParseEntry[]} */
 	const entries = [];
@@ -735,7 +642,7 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 		try {
 			staged = readStagedFile(file);
 		} catch (e) {
-			// Fails open for this file alone; Stryker still judges every file (#2727).
+			// #2727
 			reportUnread(file, buildFaultText(e));
 			continue;
 		}
@@ -759,17 +666,14 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 					pieces: scriptsOf(file, head),
 				});
 		} catch (e) {
-			// Fails open to the degraded charge, reported per file below (#2727).
+			// #2727
 			headUnread.set(file, buildFaultText(e));
 		}
 	}
 	if (files.length === 0) return [];
 	const read = readCommentsInChild(root, strykerConfig, entries);
 	if ("error" in read) {
-		// Fails open, logged: the tools the missing-tool check reads are
-		// installed, so only a Stryker laid out unlike STRYKER_VERSION's, a host
-		// config that hangs, or a child that will not run, gets here (#2366,
-		// #2727).
+		// #2366, #2727
 		reportUnread(files.join(", "), read.error);
 		return [];
 	}
@@ -777,9 +681,7 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 	return files.flatMap((file) => {
 		const staged = byId[`:${file}`];
 		if (staged === undefined || "error" in staged) {
-			// Fails open to Stryker's own parse. On a file Stryker cannot parse
-			// either, no mutant is judged green unread (#2366); on one the
-			// working-tree configs alone break, Stryker honours what went unread.
+			// #2366
 			reportUnread(file, staged?.error ?? "no result");
 			return [];
 		}
@@ -807,11 +709,9 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 }
 
 /**
- * The mutated span's source text. A location outside the source is a report
- * that will not read, so the hold fails open on it (#2078, #1871 §Faults).
  * @param {string[]} lines
- * @param {{start: {line: number, column: number}, end: {line: number, column: number}}} loc 1-based, end exclusive
- * @param {string} at the mutant's `path:line:column`, the fault's detail
+ * @param {{start: {line: number, column: number}, end: {line: number, column: number}}} loc
+ * @param {string} at
  */
 function originalOf(lines, loc, at) {
 	const first = lines[loc.start.line - 1];
@@ -841,12 +741,7 @@ function originalOf(lines, loc, at) {
 const tail = (output) =>
 	output.trimEnd().split("\n").slice(-OUTPUT_TAIL_LINES).join("\n");
 
-/**
- * The first of Stryker's own config names `tree` holds at its root, or null:
- * the run's worktree is that tree, so an untracked config is no more seen
- * there than an uncommitted edit to a tracked one.
- * @param {string} tree
- */
+/** @param {string} tree */
 function readHostConfig(tree) {
 	const held = new Set(
 		gitOr(
@@ -866,10 +761,7 @@ function readHostConfig(tree) {
 }
 
 /**
- * The wrapper Stryker is given: the host's config, or the core default, under
- * the options the hold controls. A host config that will not read stops
- * Stryker with HOST_CONFIG_FAULT in its output (#1871 §Faults).
- * @param {string|null} strykerConfig the host's Stryker config, or null for the core default
+ * @param {string|null} strykerConfig
  * @param {object} controlled
  */
 function buildWrapperConfig(strykerConfig, controlled) {
@@ -889,8 +781,6 @@ export default {
 }
 
 /**
- * Seed the run's own copy of the shared incremental file, returning the bytes
- * seeded, or null where there is no cache yet.
  * @param {string} cache
  * @param {string} copy
  * @param {Voice} voice
@@ -901,7 +791,7 @@ function seedCache(cache, copy, voice) {
 		fs.writeFileSync(copy, bytes);
 		return bytes;
 	} catch (e) {
-		// Fails open to a cold run: a cache is speed, never the verdict (#1907).
+		// #1907
 		if (caught(e).code !== "ENOENT")
 			writeFd(
 				2,
@@ -912,8 +802,6 @@ function seedCache(cache, copy, voice) {
 }
 
 /**
- * Write the run's incremental file back over the shared one by rename. A file
- * the run left unchanged, absent or unparseable is not written back.
  * @param {string} copy
  * @param {string} cache
  * @param {Buffer|null} seeded
@@ -924,8 +812,7 @@ function writeBackCache(copy, cache, seeded, voice) {
 	try {
 		bytes = fs.readFileSync(copy);
 	} catch (e) {
-		// Fails open, keeping the shared cache: no copy is a run that wrote none,
-		// as a red initial run does (#1907).
+		// #1907
 		if (caught(e).code !== "ENOENT")
 			writeFd(
 				2,
@@ -938,7 +825,7 @@ function writeBackCache(copy, cache, seeded, voice) {
 		JSON.parse(bytes.toString("utf8"));
 		writeFileAtomic(cache, bytes);
 	} catch (e) {
-		// Fails open, keeping the shared cache whole for the next run (#1907).
+		// #1907
 		writeFd(
 			2,
 			`${voice.prefix}: the mutation hold kept its cache at ${cache} unchanged, as this run's would not ${e instanceof SyntaxError ? "parse" : "write"} (${caught(e).message}).\n`,
@@ -955,14 +842,13 @@ const cachePath = () =>
 	);
 
 /**
- * Stryker over `mutate`, in a throwaway worktree holding `tree`.
  * @param {object} run
- * @param {string} run.root the checkout's top
+ * @param {string} run.root
  * @param {string} run.work
- * @param {string[]} run.mutate Stryker `mutate` entries
+ * @param {string[]} run.mutate
  * @param {string} run.tree
  * @param {Voice} run.voice
- * @returns {{red: string}|{failed: string}|{report: any}} any: Stryker's JSON, read field by field
+ * @returns {{red: string}|{failed: string}|{report: any}}
  */
 function runStryker({ root, work, mutate, tree, voice }) {
 	const reportPath = path.join(work, "mutation-report.json");
@@ -989,7 +875,6 @@ function runStryker({ root, work, mutate, tree, voice }) {
 		tree,
 		`${shellQuote(stryker)} run ${shellQuote(configPath)}`,
 	);
-	// Its results hold whatever the verdict, a refusing one included.
 	writeBackCache(incremental, cache, seeded, voice);
 	if (r.error !== null)
 		throw new HoldFaultError("could not make a throwaway worktree", {
@@ -998,7 +883,6 @@ function runStryker({ root, work, mutate, tree, voice }) {
 	const output = `${r.output}${r.spawnError ? `${r.spawnError.message}\n` : ""}`;
 	const hostFault = output
 		.split("\n")
-		// The last: node replays the throwing source line above the message.
 		.findLast((l) => l.includes(HOST_CONFIG_FAULT));
 	if (r.status !== 0 && hostFault !== undefined)
 		throw new HoldFaultError(HOST_CONFIG_FAULT, {
@@ -1028,7 +912,7 @@ function runStryker({ root, work, mutate, tree, voice }) {
 }
 
 /**
- * @param {any} m a report mutant: Stryker's JSON, each field checked here
+ * @param {any} m
  * @param {string} at
  * @returns {"pass"|"refuse"|"unjudged"}
  */
@@ -1044,14 +928,13 @@ function classify(m, at) {
 }
 
 /**
- * @param {unknown} c a report column, 1-based
+ * @param {unknown} c
  * @returns {c is number}
  */
 const isColumn = (c) => Number.isInteger(c) && /** @type {number} */ (c) >= 1;
 
 /**
- * A column under 1 or none, or an end before its start, slices an empty or
- * wrong span from the source (#2250, #2318).
+ * #2250, #2318
  * @param {{start: {line: number, column?: unknown}, end: {line: number, column?: unknown}}} loc
  */
 const isSpan = ({ start, end }) =>
@@ -1062,7 +945,7 @@ const isSpan = ({ start, end }) =>
 
 /**
  * @param {string} file
- * @param {any} entry the report's `files[file]`: Stryker's JSON, each field checked here
+ * @param {any} entry
  * @param {LineRange[]} rs
  * @returns {{refused: string[], unjudged: string[]}}
  */
@@ -1095,7 +978,7 @@ function judgeFile(file, entry, rs) {
 			throw buildUnparseable();
 		if (!rs.some((r) => loc.start.line >= r.start && loc.end.line <= r.end))
 			continue;
-		// Only an in-range mutant's columns are read, so only its are judged (#2318).
+		// #2318
 		if (!isSpan(loc)) throw buildUnparseable();
 		const at = `${file}:${loc.start.line}:${loc.start.column}`;
 		const verdict = classify(m, at);
@@ -1109,7 +992,7 @@ function judgeFile(file, entry, rs) {
 }
 
 /**
- * @param {any} report Stryker's JSON, each field checked where read
+ * @param {any} report
  * @param {Map<string, LineRange[]>} ranges
  */
 function judge(report, ranges) {
@@ -1128,9 +1011,6 @@ function judge(report, ranges) {
 }
 
 /**
- * The areas the staged paths touch, under the declaration at HEAD or as
- * staged, and the ranges of the lines they add on paths Stryker can mutate,
- * with each such path's hunks.
  * @param {ConfigCopy[]} copies
  * @param {string[]} staged
  */
@@ -1160,7 +1040,6 @@ function readHeldRanges(copies, staged) {
 }
 
 /**
- * The paths Stryker can mutate, saying which it skipped.
  * @param {string[]} paths
  * @param {Voice} voice
  */
@@ -1175,8 +1054,6 @@ function mutableReportingSkips(paths, voice) {
 }
 
 /**
- * The text for a run that judged no mutant: a red initial run, or a Stryker
- * that did not finish.
  * @param {{red: string}|{failed: string}} run
  * @param {Voice} voice
  */
@@ -1189,13 +1066,7 @@ function buildUnjudgedRunText(run, voice) {
 const VERSION_PARTS = /^(\d+)\.(\d+)\.(\d+)/;
 const VERIFIED_PARTS = STRYKER_VERSION.split(".").map(Number);
 
-/**
- * The `version` a package.json's text names where it orders before
- * STRYKER_VERSION, or null. Text that will not parse, or names no
- * `major.minor.patch`, is left to Stryker's own run to refuse, out loud
- * (#5180).
- * @param {string} text
- */
+/** @param {string} text */
 function parseOlderVersion(text) {
 	let version;
 	try {
@@ -1210,11 +1081,7 @@ function parseOlderVersion(text) {
 		: null;
 }
 
-/**
- * The Stryker packages whose package.json is absent, and those it names at a
- * version older than STRYKER_VERSION, each as `name version`.
- * @param {(name: string) => import("./lib/file-read.js").FileRead<string>} manifest
- */
+/** @param {(name: string) => import("./lib/file-read.js").FileRead<string>} manifest */
 function readStrykerInstalls(manifest) {
 	/** @type {string[]} */
 	const absent = [];
@@ -1232,11 +1099,6 @@ function readStrykerInstalls(manifest) {
 }
 
 /**
- * The refusal for the tools the run needs and `root`'s `node_modules` lacks,
- * or holds at a Stryker older than STRYKER_VERSION (#5180), every one in one
- * refusal, or null. Read off each package.json, so no `exports` map hides an
- * install; one that will not read counts as installed, left to Stryker's own
- * run to refuse (#5180).
  * @param {string} root
  * @param {Voice} voice
  */
@@ -1269,7 +1131,7 @@ function missingToolRefusal(root, voice) {
 	return lines.length > 0 ? `${lines.join("\n")}\n` : null;
 }
 
-/** @param {string} body ending in a newline */
+/** @param {string} body */
 function refuse(body) {
 	writeFd(
 		2,
@@ -1278,8 +1140,7 @@ function refuse(body) {
 	return 1;
 }
 
-// Fails open to a pointer: an unreadable rule file must not cost the
-// refusal itself, which is printed whole above it (#1906).
+// #1906
 function readRuleOrPointer() {
 	return readRuleTextOr(
 		"mutation-hold",
@@ -1299,7 +1160,6 @@ function unreasonedRefusal(unreasoned) {
 }
 
 /**
- * The refusal for a run's outcome, or null where it passes.
  * @param {ReturnType<typeof runStryker>} run
  * @param {string[]} areas
  * @param {Map<string, LineRange[]>} ranges
@@ -1335,7 +1195,6 @@ function hold(mode) {
 		).trim();
 		if (isSkippedRoute(gitDir)) return IDLE[mode];
 
-		// --no-renames: a rename onto a sensitive path is a change to it too.
 		const staged = gitOr(
 			["diff", "--cached", "--name-only", "--no-renames", "-z"],
 			"could not list the staged paths",
@@ -1436,8 +1295,7 @@ function seed() {
 		);
 		return 0;
 	} catch (e) {
-		// Not the hook's fail-open: no commit waits on a seed, so its fault is
-		// the run's outcome, printed (#1912).
+		// #1912
 		writeFd(
 			2,
 			`${SEED_VOICE.prefix}: ${faultOf(e).what}, so ${SEED_VOICE.unjudged}.\n`,
@@ -1448,11 +1306,7 @@ function seed() {
 	}
 }
 
-/**
- * `e` as the gate's fault, any other error read as "failed", and the text
- * naming it.
- * @param {unknown} e
- */
+/** @param {unknown} e */
 function faultOf(e) {
 	const fault =
 		e instanceof HoldFaultError
@@ -1467,9 +1321,7 @@ function faultOf(e) {
 }
 
 /**
- * In the hook, every fault of the gate's own fails open, loudly and logged
- * (#1871 §Faults). Before the lock it is left to the hook's run, which fails
- * open on it there, so it is logged once (#1910).
+ * #1871, #1910
  * @param {Mode} mode
  * @param {unknown} e
  */

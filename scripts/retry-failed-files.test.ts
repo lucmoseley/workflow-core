@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * retry-failed-files.js end to end (#4545): it re-runs once the files a
- * Vitest report marks failed and names, last, the files it cleared and the
- * files still failing, which lib/actions-tester.js takes as the batch's
- * flakes (#4558) and failing files.
- *
- * Each case runs the program in a throwaway directory whose `npm test` is a
- * stub that fails the files `STUB_FAIL` names and writes its own report, so
- * no real suite runs. Loosen it and a flake the retry cleared can still be
- * blamed on a batch member, or a real failure it did not clear can be read
- * as cleared, and the lander lands a red tree.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -38,7 +26,6 @@ if (process.env.STUB_EXIT) process.exit(Number(process.env.STUB_EXIT));
 process.exit(files.some((f) => failing.includes(f)) ? 1 : 0);
 `;
 
-/** A directory whose first report marks `failed` failed, named under `under`. */
 function repo(failed: string[], under = ""): { root: string; report: string } {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "retry-failed-"));
 	dir = root;

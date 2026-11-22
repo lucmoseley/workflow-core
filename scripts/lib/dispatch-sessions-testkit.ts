@@ -1,20 +1,3 @@
-/*
- * dispatch-sessions-testkit.ts — the fixture every test driving
- * scripts/dispatch-sessions.js end to end stands on: a stub `claude`, and a
- * throwaway root holding a stub for every oracle the launcher and its gates
- * read (#2423).
- *
- * The stub `claude` is injected at WFC_CLAUDE_BIN (mantahostels#1374).
- * `dispatch-sessions.js` exports it, so one var covers both the launcher and the
- * live oracle of the ledger check it shells out to.
- *
- * Break it and both dispatch suites fail at once, or pass blind: an oracle left
- * unstubbed lets a case launch a real `claude --bg` session, write fake
- * launches to the working dispatch ledger so the next real dispatch is refused
- * as a duplicate, or read the machine's own memory, load and Windows bridge, so
- * the gate cases pin nothing.
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -50,18 +33,11 @@ import {
 	buildUsageCache,
 } from "./usage-probe-fake";
 
-/* The `probeHangs` stub's sleep, which runs out only where the stamp stop
- * failed. It must end before the probe's ceiling, whose kill would pass for
- * the stamp stop; half the ceiling leaves the other half for the stub's work
- * before the sleep, and gives a loaded machine the longest window that rule
- * allows to land the stop. */
 const PROBE_HANG_SECONDS = PROBE_TIMEOUT_MS / 2 / 1000;
 
 export const SCRIPT = path.resolve(__dirname, "..", "dispatch-sessions.js");
 const SCRIPTS_DIR = path.resolve(__dirname, "..");
-/* The helpers whose main is async, which runInProcess cannot await. */
 const ASYNC_MAIN = new Set(["usage-probe.js"]);
-/** The fixture routing file, by WFC_MODEL_ROUTING, for a case judging the routing itself (lib/model-table.test.ts names its rows). */
 export const ROUTING = {
 	WFC_MODEL_ROUTING: path.resolve(
 		__dirname,
@@ -78,13 +54,8 @@ const COMMITTED_COST_TABLE = path.resolve(
 	"docs/data/session-cost-table.json",
 );
 
-/** Must match `CLAUDE_CODE_SESSION_ID` in `baseEnv()` below — the self-test
- * `scripts/lib/agent-liveness.js` runs on every `agents --json` listing. */
 export const SELF_SESSION_ID = "dispatch-sessions-test-self";
 
-/** A self-only listing (admission.js's always-admit-one guarantee applies —
- * see that constant's own header) or one with a neighbour present too (the
- * guarantee does not apply, so a low-memory refusal actually refuses). */
 export function agentsListing(withNeighbour = false): string {
 	const agents = [{ sessionId: SELF_SESSION_ID, pid: 1 }];
 	if (withNeighbour) agents.push({ sessionId: "a-neighbour", pid: 2 });
@@ -93,110 +64,53 @@ export function agentsListing(withNeighbour = false): string {
 
 export interface StubClaudeOptions {
 	week?: string;
-	/** `null` prints no `Current session:` line, as a plan with no 5-hour bar. */
 	session?: string | null;
 	advisorAttaches?: boolean;
 	advisorReason?: string;
-	/** A `claude` that refuses to start, so the launch never happens. */
 	launchFails?: boolean;
-	/** Where to write the stub — defaults to the WFC_CLAUDE_BIN stub path. A
-	 * case exercising the bare-name fallback (mantahostels#1401) stands one on PATH instead,
-	 * named exactly `claude`. */
 	at?: string;
-	/** What `agents --json` answers. Defaults to `agentsListing()`, this
-	 * session alone, which both the duplicate gate's live limb and
-	 * admission.js's session-count re-read (mantahostels#2553) read as "nobody else is
-	 * running" rather than as unparseable. A case driving either with real
-	 * sessions passes a JSON array here. */
 	agentsJson?: string;
-	/** Which launch answer of lib/bg-launch-fake.ts the stub prints, naming
-	 * job `jobId`; `silent` is its unrecorded launch that printed nothing. */
 	launch?: LaunchKind | "silent";
 	jobId?: string;
-	/** Where this stub records its argv — defaults to the shared `dir/argv`.
-	 * A case standing up TWO stubs gives one its own log, so `readArgvLines()` can
-	 * say which of them a call actually reached rather than reading a union of
-	 * both (#275). */
 	argvLog?: string;
-	/** Where each launch call records its environment, one `env` dump
-	 * appended per launch. */
 	envLog?: string;
-	/** How a headless `-p` launch's run behaves (lib/headless-run-fake.ts):
-	 * `end`, its recorded success, by default. */
 	headless?: HeadlessMode;
-	/** The probe rewrites this seat's usage cache, freshly stamped, with these
-	 * bars, after writing its advisor line and before printing its own, as
-	 * #2189 measured. */
 	probeRefreshes?: { configDir: string; session: number; week: number };
-	/** The probe hangs after its refresh, as the real one runs on past it on a
-	 * section nothing reads (#2189); `dir/probe-ended` records one that ran on. */
 	probeHangs?: boolean;
 }
 
-/** Its fields are re-pointed before every test: read them through the handle
- * inside the test body, never at module scope. Its functions read the handle
- * when called, so they may be destructured anywhere. */
 export interface DispatchFixture {
 	dir: string;
-	/** The `origin/main` sha each member's worktree is cut at. */
 	main: string;
-	/** The /proc/meminfo admission.js reads; a refusal case overwrites it. */
 	meminfo: string;
 	loadavg: string;
-	/**
-	 * A stub `claude`. It records every argv it was
-	 * called with, answers the `/usage` probe from the given bars, and writes the
-	 * advisor line into whatever `--debug-file` it was handed — which is the seam
-	 * the real CLI reports advisor attachment through.
-	 */
 	stubClaude: (opts: StubClaudeOptions) => void;
 	stubPath: () => string;
-	/** The env every run needs, plus whatever a case overrides. */
 	baseEnv: (extra?: Record<string, string>) => NodeJS.ProcessEnv;
 	launchArgv: () => string | undefined;
-	/** The directory each launch call ran in, in order. */
 	launchCwds: () => string[];
 	readArgvLines: (f?: string) => string[];
-	/** Each headless `-p` run the stub's fake logged, in order. */
 	readFakeCalls: () => HeadlessCall[];
-	/** A reg.exe that never answers, so the interop probe reads the bridge as
-	 * wedged. */
 	regWedged: () => string;
-	/** A WFC_SCHED_CLOCK directory whose tasks run for `ratio` of the
-	 * 2 CPU-s the machine was busy: 0 reads frozen, 1 running. */
 	schedClock: (ratio: number) => string;
-	/** The dispatcher as a program: scripts/dispatch-sessions.js spawned. */
 	run: (
 		args: string[],
 		extraEnv?: Record<string, string>,
 	) => { stdout: string; stderr: string; code: number };
-	/**
-	 * The dispatcher's core, in this process (#5145): each helper it names run
-	 * through runInProcess on the real program, the interop probe and the
-	 * launch through the production ports, and the stagger recorded rather
-	 * than slept, for `sleepArgs()` to read back. `ports` replaces any of them.
-	 */
 	runCore: (
 		args: string[],
 		extraEnv?: Record<string, string>,
 		ports?: Partial<DispatchPorts>,
 	) => Promise<{ stdout: string; stderr: string; code: number }>;
-	/** runCore under a whole environment and working directory of the
-	 * caller's, as the refill loop's dispatcher call sets them. */
 	runCoreUnder: (
 		args: string[],
 		run: { env: NodeJS.ProcessEnv; cwd: string },
 		ports?: Partial<DispatchPorts>,
 	) => Promise<{ stdout: string; stderr: string; code: number }>;
-	/** The ports runCore runs behind, as scripts/lib/dispatch-sessions-host.contract.test.ts
-	 * holds them to the production ones. */
 	corePorts: () => DispatchPorts;
-	/** Every stagger runCore's dispatch asked for, in seconds, in order. */
 	sleepArgs: () => string[];
 }
 
-/** A `$CLAUDE_CONFIG_DIR/.claude.json` usage cache (#280, #294) — the allowance
- * gate's primary source, and admission.js's per-spawn re-read's only one. */
 export function writeCache(
 	configDir: string,
 	bars: { session?: number; weeklyAll?: number },
@@ -214,10 +128,6 @@ export function writeCache(
 	);
 }
 
-/**
- * Give the fixture's repository a bare origin under `dir`, and the checkout
- * one commit behind its `main`; the `origin/main` sha a worktree is cut at.
- */
 function seedLandingCheckout(dir: string): string {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
@@ -233,7 +143,6 @@ function seedLandingCheckout(dir: string): string {
 	return git("rev-parse", "origin/main");
 }
 
-/** Register the beforeEach/afterEach that build and remove a fresh root. */
 export function dispatchFixture(): DispatchFixture {
 	const fx: DispatchFixture = {
 		dir: "",
@@ -265,52 +174,31 @@ export function dispatchFixture(): DispatchFixture {
 
 	beforeEach(() => {
 		fx.dir = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-sessions-"));
-		/* A repository of its own, so a run launches each session here and
-		 * never from the real repository (#4245). */
 		spawnSync("git", ["init", "-q", fx.dir]);
-		// The per-member re-read (mantahostels#2553) calls `node scripts/admission.js`, which
-		// reads real /proc, `ps` and the reap script unless these four
-		// env vars point it elsewhere (`scripts/lib/admission.js`'s own injection
-		// points). Every case gets a generous, deterministic reading by
-		// default.
 		fx.meminfo = path.join(fx.dir, "meminfo");
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    20000000 kB\n");
 		psEmpty = writePsStub(fx.dir, [], { name: "ps-empty" });
-		// A stubbed row's pid is real on the machine running the case, whose /proc
-		// could otherwise read it as an orphan and drop the session it stands for.
 		procEmpty = writeProcRoot(fx.dir);
 		reapEmpty = path.join(fx.dir, "reap-empty.js");
 		fs.writeFileSync(
 			reapEmpty,
 			"process.stdout.write(JSON.stringify({ reaped: [] }));\n",
 		);
-		// The interop probe (mantahostels#3111) runs before the allowance gate and again before
-		// every spawn. Pointed at a stub that exits 1 at once — exactly what the real
-		// reg.exe does for a key that does not exist — so no case queries the
-		// machine's actual Windows bridge.
 		regHealthy = path.join(fx.dir, "reg-healthy");
 		fs.writeFileSync(regHealthy, "#!/bin/bash\nexit 1\n", { mode: 0o755 });
-		// The duplicate gate asks GitHub for each member's parent (#2310); this
-		// answers every one as an issue with none, so no case reaches GitHub.
 		ghNoParent = path.join(fx.dir, "gh-no-parent");
 		fs.writeFileSync(
 			ghNoParent,
 			"#!/bin/sh\necho 'gh: No parent issue found (HTTP 404)' >&2\nexit 1\n",
 			{ mode: 0o755 },
 		);
-		// The re-read's CPU limb (#830) reads this rather than the live load, so a
-		// busy machine never refuses a case; the load cases overwrite it.
 		fx.loadavg = path.join(fx.dir, "loadavg");
 		fs.writeFileSync(fx.loadavg, buildLoadavgLine(0.5));
-		// The kernel-stall check (#867) reads this rather than the machine's own
-		// kernel log, so a stalled boot never refuses a case.
 		kernelClean = path.join(fx.dir, "kernel-clean.log");
 		fs.writeFileSync(
 			kernelClean,
 			"2026-10-07T23:18:35+08:00 host kernel: Booting Linux on physical CPU 0x0\n",
 		);
-		// Its clock signal (#2779) reads this rather than the machine's own
-		// scheduler, so a frozen clock never refuses a case, and takes no wait.
 		schedRunning = schedClock(1);
 		fx.main = seedLandingCheckout(fx.dir);
 	});
@@ -343,7 +231,6 @@ export function dispatchFixture(): DispatchFixture {
 			"#!/bin/bash",
 			buildAuthStatusBranch(),
 			`printf '%s\\n' "$*" >> ${shellQuote(argvLog)}`,
-			// The probe call carries --debug-file; the launch calls do not.
 			'log=""',
 			'prev=""',
 			'for a in "$@"; do',
@@ -354,7 +241,6 @@ export function dispatchFixture(): DispatchFixture {
 			advisorAttaches
 				? '  printf "[DEBUG] [AdvisorTool] Advisor model: opus\\n" > "$log"'
 				: `  printf '%s' ${shellQuote(advisorReason ? `[DEBUG] [AdvisorTool] ${advisorReason}` : "")} > "$log"`,
-			// Where the probe ran from, and whether its stdin is at EOF at once.
 			`  pwd > ${shellQuote(path.join(fx.dir, "probe-cwd"))}`,
 			`  if read -r -t 5 _; then echo open; else echo "eof $?"; fi > ${shellQuote(path.join(fx.dir, "probe-stdin"))}`,
 			...refresh,
@@ -399,21 +285,9 @@ export function dispatchFixture(): DispatchFixture {
 			...process.env,
 			LC_ALL: "C",
 			WFC_CLAUDE_BIN: stubPath(),
-			/* The launcher records every launch to a ledger (mantahostels#1337). These runs drive
-			 * the real script against a stubbed `claude`, so without redirecting it
-			 * they append fake launches to the working ledger and the next real
-			 * dispatch is refused as a duplicate. */
 			WFC_DISPATCH_ROOT: fx.dir,
-			/* The already-dispatched checker this script calls runs on check.js,
-			 * which writes ::error::/::warning:: annotations to STDOUT under
-			 * GITHUB_ACTIONS, polluting the stdout these cases assert on. */
 			GITHUB_ACTIONS: "",
-			// admission.js's session-count re-read (mantahostels#2553) is always strict about the
-			// self-test (`listedSessionIds`) — the default `agentsJson` above lists
-			// exactly this id, so the re-read sees itself and nobody else.
 			CLAUDE_CODE_SESSION_ID: SELF_SESSION_ID,
-			// admission.js's lander read (#2416) lists the suite queue under the
-			// temp root, which would count the machine's real landers (#2889).
 			TMPDIR: fx.dir,
 			WFC_MEMINFO: fx.meminfo,
 			WFC_PS: psEmpty,
@@ -421,27 +295,14 @@ export function dispatchFixture(): DispatchFixture {
 			WFC_REAP_SCRIPT: reapEmpty,
 			WFC_LOADAVG: fx.loadavg,
 			WFC_LOAD_CEILING: "10",
-			// Isolates the allowance gate's JSON source (#294) from this machine's
-			// real `~/.claude/.claude.json` — absent here, so every case falls back
-			// to the stub `claude -p "/usage"` transcript above.
-			// dispatch-sessions-allowance.test.ts's JSON-path cases override it.
 			CLAUDE_CONFIG_DIR: path.join(fx.dir, "no-such-config"),
-			// The seat kind is read from `$HOME/.claude/refill-seats`, host
-			// configuration this machine's real file must not reach.
 			HOME: fx.dir,
-			// Deterministic tests never wait on the real stagger;
-			// dispatch-sessions-reread.test.ts's stagger cases override it.
 			WFC_DISPATCH_STAGGER_SECONDS: "0",
-			// Never the machine's real switch: with burn mode on, every `--model
-			// sonnet` assertion would read `opus[1m]` instead.
 			WFC_BURN_MARKER: path.join(fx.dir, "burn-mode"),
 			CLAUDE_INTEROP_REG: regHealthy,
 			WFC_KERNEL_LOG: kernelClean,
 			WFC_SCHED_CLOCK: schedRunning,
 			WFC_GH: ghNoParent,
-			// The allowance gate sizes its cap off the committed cost table, read
-			// off the host where unpinned — no checkout under test (#3334).
-			// dispatch-sessions-allowance.test.ts's cap cases override it.
 			WFC_SESSION_COST_TABLE: COMMITTED_COST_TABLE,
 			...extra,
 		};

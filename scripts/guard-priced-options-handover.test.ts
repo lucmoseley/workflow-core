@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The no-round limb's one exemption (#926): a background job's `needs input:`
- * whose only pending item is a founder hand-over closes without a round.
- * Driven through the Stop hook in process, as a background job unless a case
- * says otherwise; the hand-over reading is reached through the turns it lets
- * close.
- *
- * The guard runs at every `Stop` (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`): narrow the exemption and a job handing the founder a
- * paste is refused for want of a round it does not need; widen it and a real
- * question leaves a background job with no round.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -28,7 +16,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/* A fresh session per turn, so no case spends another's block allowance. */
 const stop = (message: string, { job = true } = {}) =>
 	readStopGuardReason(GUARD, {
 		dir,
@@ -108,9 +95,6 @@ describe("a `needs input:` ending in a founder hand-over (#926)", () => {
 	});
 });
 
-/* What counts as a hand-over, read off whether the job may close on it:
- * `closes` is the exemption granted, a refusal is the act or its send-back
- * not read. */
 describe("the hand-over's shape", () => {
 	const ending = (text: string) => stop(`${text}\n\n${MARKER}`);
 	const closes = (text: string) => expect(ending(text)).toBe("");
@@ -142,8 +126,6 @@ describe("the hand-over's shape", () => {
 		refused("! node apply.js\n\n```\nLet me know.");
 	});
 
-	/* One phrasing per `SEND_BACK` alternative, so dropping any one turns its
-	 * own case red. */
 	it.each([
 		"Send the output back here.",
 		"Let me know when it is done.",

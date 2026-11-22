@@ -1,12 +1,3 @@
-/*
- * burn-mode.js — burn mode's state: the one resolver for its marker, and what
- * the switch left on the machine. What each mode writes is the routing file's,
- * through lib/model-table.js's modeSettings.
- *
- * The state is one marker file per MACHINE, beside the settings files it
- * governs. Its presence is the state.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
@@ -17,24 +8,17 @@ const { readPlanDirs } = require("./plan-dirs.js");
 const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
 
-/** The marker file's name, under `~/.claude`. */
 const MARKER = ".burn-mode";
 
 /**
- * Where the marker lives. `WFC_BURN_MARKER` overrides, so a test never
- * touches the machine's real switch; otherwise `~/.claude/.burn-mode`.
- *
  * @param {Record<string, string | undefined>} [env]
  * @returns {string}
- * @throws as lib/machine-marker.js's machineMarkerPath
  */
 function markerPath(env = process.env) {
 	return env.WFC_BURN_MARKER || machineMarkerPath(MARKER, env);
 }
 
 /**
- * Whether burn mode's marker exists now. A marker that cannot be placed (HOME
- * unset or relative) reads as off, as the dispatch remap's does (#4992).
  * @param {Record<string, string | undefined>} env
  * @returns {boolean}
  */
@@ -47,11 +31,8 @@ function isBurnMarkerOn(env) {
 }
 
 /**
- * The plans' settings files, one entry per real file (#187), as the founder
- * names them, and those present that resolve to nothing, skipped: a dangling
- * or looping symlink, or one that will not read.
  * @param {string} home
- * @returns {{files: Map<string, string>, dangling: string[]}} `files`, real path to name
+ * @returns {{files: Map<string, string>, dangling: string[]}}
  */
 function readPlanFiles(home) {
 	const homeReal = fs.realpathSync(home);
@@ -82,12 +63,9 @@ function isPresent(file) {
 }
 
 /**
- * How one plan's settings depart from a mode's writes: its `model`, and each
- * `modelSettings` effort the mode writes; one fault where the file will not
- * parse (#3877), since the script's own jq fails on it too.
- * @param {string} file the real settings path
- * @param {boolean} burn which mode to judge by
- * @returns {{model: string, faults: string[]}} the model it holds, "" for none
+ * @param {string} file
+ * @param {boolean} burn
+ * @returns {{model: string, faults: string[]}}
  */
 function readPlanFaults(file, burn) {
 	const want = modeSettings(burn);
@@ -113,11 +91,6 @@ function readPlanFaults(file, burn) {
 }
 
 /**
- * Burn mode as the script left it, read off the machine so every reader sees a
- * half-flip however long ago it happened: a plan disagrees where it departs
- * from the current mode's writes. `on` is null, with `error`, where the marker
- * cannot be placed, the plans cannot be listed or the routing file will not
- * load.
  * @param {Record<string, string | undefined>} [env]
  * @returns {{on: boolean|null, disagreeing: string[], error: string|null}}
  */
@@ -139,20 +112,6 @@ module.exports = {
 	readBurnState,
 };
 
-/*
- * CLI mode.
- *
- *   marker            prints the marker's path; 2 where HOME is unset
- *   plans [--quiet]   prints each plan's settings file, real and NUL-ended,
- *                     warning of each that resolves to nothing unless quiet;
- *                     2 where HOME will not list
- *   report [--burn]   prints each plan with its model and how it departs from
- *                     the mode's writes; 1 where any departs, 2 where the
- *                     plans will not list or the routing file will not load
- *
- * stdout is always a pipe here, so it is written synchronously before the
- * exit — process.stdout.write can be cut off by process.exit on a pipe.
- */
 if (require.main === module) {
 	try {
 		const { values, positionals } = parseArgs({

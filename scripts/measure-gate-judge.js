@@ -1,45 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-gate-judge.js — the gate judge (lib/gate-judge.js, #4964) held to
- * account: its rates on the labelled set, and its reading of every issue body
- * in the tracker.
- *
- *   node scripts/measure-gate-judge.js validate [--part held-out|development]
- *        [--runs <n>] [--jobs <n>] [--bound-ms <n>] [--dir <dir>]
- *   node scripts/measure-gate-judge.js corpus --dir <dir> [--jobs <n>] [--bound-ms <n>]
- *   node scripts/measure-gate-judge.js tally --dir <dir>
- *
- * validate  runs each case of one part of scripts/fixtures/gate-judge-cases.json
- *           `--runs` times (3: the plugin-evals default,
- *           docs/practice/llm-agent-design.md) and prints, each with its count
- *           and Wilson 95% interval over cases: the hit rate on waits, the
- *           false-flag rate on non-waits, the share of restated and asserted
- *           bases flagged, the false-refusal rate on derived and inherited
- *           ones, the share of cases whose runs agree and the share of replies
- *           with a dropped quote. A case counts by the majority of its runs.
- *           An inherited basis naming no other issue is refused by rule and
- *           counted apart. `--dir` names the rows' directory, a fresh one
- *           under .claude/tmp unless given; one that holds rows is re-scored.
- *           The held-out part is run against a frozen prompt; re-run it after
- *           a prompt change and compare by the prompt's printed hash.
- * corpus    fetches every issue body, open and closed, into <dir>/all.json
- *           and sends each through the judge once, appending to
- *           <dir>/results-*.jsonl. Re-run, it takes up where it stopped. Run
- *           it detached (scripts/bg-run.sh). <dir> is scratch: the corpus is
- *           never committed.
- * tally     prints the corpus run's counts and latency, and writes the lists
- *           to classify by hand beside the results.
- * worker    judgeAll's own child, one per job: not for the command line.
- *
- * A row stores the model's reply as given, so a re-run of `tally`, or of
- * `validate --dir`, re-scores it under the code's present checks at no call.
- *
- * Every call spends a Haiku turn on this session's seat, each a child of
- * about 260 MB for about 6 s (measured on 2.1.322); `--jobs` is how many run
- * at once, 2 unless given, to be sized from MemAvailable at the time.
- *
- * In no family (§N3): it measures, gates nothing and files nothing.
- */
 
 const { spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
@@ -70,15 +29,10 @@ const USAGE = [
 ].join("\n");
 
 const CASES = path.join(__dirname, "fixtures", "gate-judge-cases.json");
-/* Under the create guard's 60 s hook limit, so the latency measured is not cut
- * short of what a route could ever wait. */
 const MEASURING_BOUND_MS = 55_000;
-/* A guess that fits any machine able to run a suite. */
 const DEFAULT_JOBS = 2;
 const DEFAULT_RUNS = 3;
-/* GitHub's list ceiling here is far over the tracker's ~5,000 issues. */
 const CORPUS_LIMIT = 20_000;
-/* A guess: often enough to show a detached run is alive. */
 const PROGRESS_MS = 60_000;
 
 /**
@@ -91,12 +45,11 @@ const out = (text) => writeFd(1, `${text}\n`);
 
 /**
  * @param {string} file
- * @returns {Record<string, unknown>[]} none where the file is absent
+ * @returns {Record<string, unknown>[]}
  */
 const readRows = (file) => readJsonl(file)?.rows ?? [];
 
 /**
- * Every row `dir` holds, the last written for each key.
  * @param {string} dir
  * @returns {Row[]}
  */
@@ -118,7 +71,6 @@ const harnessVersion = () =>
 	).trim() || "an unknown harness";
 
 /**
- * The worker: each item of `--in` not yet in `--out`, judged and appended.
  * @param {string} inFile
  * @param {string} outFile
  * @param {number} boundMs
@@ -141,13 +93,9 @@ function runWorker(inFile, outFile, boundMs) {
 }
 
 /**
- * `items` through `jobs` workers at once, into `<dir>/results-<i>.jsonl`. An
- * item the directory already holds a row for, a fallen-back call included, is
- * not sent again.
- *
  * @param {Item[]} items
  * @param {{dir: string, jobs: number, boundMs: number}} opts
- * @returns {Promise<Row[]>} every row the directory now holds for `items`
+ * @returns {Promise<Row[]>}
  */
 async function judgeAll(items, { dir, jobs, boundMs }) {
 	fs.mkdirSync(dir, { recursive: true });
@@ -259,7 +207,7 @@ async function validate({ part, runs, jobs, boundMs, dir: given }) {
 	/**
 	 * @param {string} title
 	 * @param {string[]} groups
-	 * @param {boolean} wantFlagged whether a flag is the right answer
+	 * @param {boolean} wantFlagged
 	 */
 	const line = (title, groups, wantFlagged) => {
 		const of = scored.filter((c) => groups.includes(c.group) && c.ran > 0);
@@ -321,8 +269,6 @@ async function validate({ part, runs, jobs, boundMs, dir: given }) {
 }
 
 /**
- * The corpus: every issue body, fetched into `<dir>/all.json` the first time
- * and read from there after.
  * @param {string} dir
  * @returns {{number: number, state: string, body: string}[]}
  */

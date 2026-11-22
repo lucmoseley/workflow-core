@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins measure-implement-carveout's window: an unparseable `--since` or
- * `--until` is refused, exit 2, before any figure is printed, and a valid one
- * still filters (#1521).
- *
- * Break it and a mistyped bound prints every session's figures under a
- * Window line naming the bound, so the carve-out rate is read against the
- * wrong population.
- *
- * Driven end to end through lib/run-in-process.js against a throwaway `--dir`
- * holding one /implement session, never the real seats.
- */
 
 import fs from "node:fs";
 import os from "node:os";

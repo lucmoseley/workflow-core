@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * guard-dispatch.js is the one PreToolUse entry, and the one PostToolUse
- * entry, the always-on guards run from as cores (#2786, #2787). These are its
- * boundary cases, the entry run in process (base §X3): each exit path, the
- * payload on stdin and the env it reads, the real fs, git, rule store and
- * host config. The missing-node fail-open and the crash the registration's
- * `onFailure` refuses on keep the hook line the harness runs. The merge and
- * failure rules are lib/guard-dispatch.test.ts's; each core's branches its
- * own test's.
- *
- * Break it and every backgrounded job, test write, citation, tracker call and
- * review goes untold; make it crash and, being `onFailure: "block"`, it refuses
- * every Bash, write and Skill call in the session.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -58,9 +44,6 @@ afterEach(() => {
 
 type Payload = Record<string, unknown>;
 
-/* The hook line runs the entry through the main checkout's shim, found from
- * the self-plugin root the harness sets (#4701), from the pinned guard code
- * (#4227): here `project` is both, the code through a link beside it. */
 const lineEnvAt = (project: string) => {
 	const code = path.join(project, ".guard-code");
 	if (!fs.existsSync(`${code}.current`))
@@ -138,8 +121,6 @@ describe("the registration", () => {
 		expect(unrecorded).toEqual([]);
 	});
 
-	/* Every PostToolUse core fails open, and a PostToolUse exit cannot undo a
-	 * call that already ran, so the entry carries no onFailure (#2787). */
 	it("is one PostToolUse entry over its cores' tools, open at 15 s", () => {
 		const groups = readRegistered("PostToolUse");
 		expect(groups.map((g) => g.matcher)).toEqual([
@@ -185,9 +166,6 @@ describe("each exit path", () => {
 	});
 
 	describe("over a planted manifest", () => {
-		/* The entry, the kit, its core loader and the manifest reader copied,
-		 * every other require pointed at the real lib, so the kit reads the
-		 * planted manifest and core modules beside its copy. */
 		const plantKit = (files: Record<string, string>) => {
 			const at = path.join(dir, "planted");
 			const lib = path.join(at, "scripts", "lib");
@@ -320,8 +298,6 @@ describe("each input channel", () => {
 	});
 
 	it("refuses through the shim where stdin will not read, logged (#4132)", () => {
-		// A directory as fd 0, so every read of it fails EISDIR; an in-process
-		// run takes stdin as a string.
 		const fd = fs.openSync(dir, "r");
 		try {
 			const r = spawnSync("/bin/bash", ["-c", LINES[0] ?? ""], {
@@ -355,9 +331,6 @@ describe("each input channel", () => {
 });
 
 describe("the real adapters, crossed once", () => {
-	// The harness sends CLAUDE_PROJECT_DIR physical and the path as the model
-	// spelled it, measured on Claude Code 2.1.308 (#2553): here the project dir
-	// is the symlink and the path spelled through it.
 	it("joins a test write's rules and a citation's notice, read through git and the file on disk", () => {
 		const repo = path.join(dir, "repo");
 		fs.mkdirSync(repo);
@@ -404,7 +377,6 @@ describe("the host's disabled list, read off its config (#2786)", () => {
 			JSON.stringify({ contract: CONTRACT, disabled }),
 		);
 	};
-	/* Two cores speak to it: the background-job and the tracker rules. */
 	const call = (session: string) =>
 		bash(
 			{ command: "gh issue close 1 --comment x", run_in_background: true },
@@ -662,7 +634,6 @@ describe("the Agent dispatch cores through the hook line (#2791)", () => {
 		tool_input: { description: "do a thing", ...input },
 		...extra,
 	});
-	/* The session's own switch never reaches the case. */
 	const quiet = { CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "0" };
 
 	it("hands back the rewritten input on an allow, the artefact's directory made and burn mode read from the env's marker", () => {

@@ -1,70 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-ticket-mix.js — the counting half of retro-sweep's weekly ticket-mix
- * review (spec #4796 §Ticket-mix review, #4797). The model assigns titles to
- * kinds; this script does every count, limit and trigger.
- *
- * IN NO §N3 FAMILY: it gates nothing, writes no file and files no issue (the
- * retro files the candidates).
- *
- * INPUT. One tracker snapshot per repo (`--issues <owner/name>=<file>`, the
- * array `gh issue list --json number,title,body,state,closedAt,labels,createdAt`
- * writes, the retro's step-2 snapshot); the week (`--week-start`,
- * `--week-end`: an issue counts where `start <= createdAt < end`); the run
- * record (`--runs`, docs/data/retro-runs.jsonl) and the kept list of kinds
- * (`--kinds`, docs/data/ticket-kinds.json: `[{id, meaning, firstSeen}]`).
- *
- * TWO USES.
- *   Count (no `--assigned`): the week's total; per-origin counts, from the
- *   `origin:*` label or, without one, lib/origin-fallback.js's keyword rules,
- *   with how many took each route; title templates, Drain-style masked
- *   (MASKS); each kept kind's prior weekly counts and control limit; the
- *   prior weekly totals and whether this week's total moved sharply.
- *   Triggers (`--assigned <file>`, `{"<owner/name>#<n>": "<kind id>"}` from
- *   the model's batch assignment, after it appended any new kind to the kept
- *   list): everything above, plus each kind's count, share and triggers, the
- *   candidates, the watch kinds and the run line's `kinds` object.
- *
- * POINTS. A kind's prior points are the run record's weekly lines that carry
- * `kinds` and whose `week.start` is before this week's, in week order: a kind
- * missing from such a line is 0 there; a line without `kinds` is no point.
- * The totals' points are those lines' `ticketMixStep.total`.
- *
- * LIMITS (CONSTANTS). Under XMR_FROM points, the c-chart: mean ± 3 × √mean.
- * From XMR_FROM points on, XmR: mean ± 2.66 × the mean moving range. A share
- * is a proportion, so under XMR_FROM points its limit is the p-chart's,
- * p̄ ± 3 × √(p̄(1 − p̄) / n) with n this week's total, p̄ the prior shares'
- * mean; from XMR_FROM points on, XmR over the shares. No points, no limit.
- *
- * TRIGGERS, each held unless the kind has FLOOR or more tickets this week:
- *   new-kind    the kind's `firstSeen`, the UTC date of the run that added
- *               it, is after the week's start date: added this week, this
- *               run included. Dates are compared, never instants, so a run
- *               late in its UTC day still counts the kind it adds;
- *   over-limit  its count is over its upper limit, or, where this week's
- *               total moved sharply (outside the totals' own limits either
- *               way), its share is over its share's upper limit;
- *   trend       its last TREND_POINTS weekly points, this week the last, each
- *               rise on the one before (Nelson's rule 3, rising side). Under TREND_POINTS
- *               points its direction is `watch-only`, never a trigger;
- *   level       the Pareto level: kinds ranked by count, those that reach
- *               PARETO_SHARE of the week's total, at most PARETO_MAX, steady
- *               or not.
- * A kind is a candidate on any trigger. A watch kind is one whose trigger
- * the floor held, or one at the floor whose direction is still `watch-only`.
- *
- * FLIP. `flip.due` once the run record holds FLIP_RUNS weekly lines that
- * carry `ticketMixStep`, this run counted where `--this-run` is given (pass
- * it before the run line is appended, never after). The retro searches the
- * tracker for an existing flip check before filing one, its body naming
- * `flip.bar`.
- *
- * Exit 0 done; 1 a file will not read, an issue has no `createdAt`, or an
- * assignment names a kind off the kept list, each named on stderr and never
- * counted as zero; 1 also where a run line will not parse or carries counts
- * with no readable week, each named on stderr after the report, which counts
- * without it; 2 a command line lib/cli-args.js or the week refuses.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -81,37 +15,21 @@ const { classifyOrigin } = require("./lib/origin-fallback");
 const { writeFd } = require("./lib/write-fd.js");
 
 const CONSTANTS = /** @type {const} */ ({
-	/* Spec #4796: every trigger waits for 10 tickets of the kind in a week. */
 	FLOOR: 10,
 	SIGMAS: 3,
-	/* XmR's 3 / d2 (d2 = 1.128 for a moving range of 2). */
 	XMR_FACTOR: 2.66,
-	/* Spec: XmR replaces the c-chart once 20–25 weekly points exist. */
 	XMR_FROM: 20,
-	/* Spec: a trend of 6 weeks running. */
 	TREND_POINTS: 6,
-	/* The Pareto level trigger's cut: Pareto analysis's 80/20 convention, the
-	 * few kinds that make up 80% of the whole (Juran's "vital few"). */
 	PARETO_SHARE: 0.8,
-	/* A guess, and stated as one: no source sets how many steady kinds the
-	 * level trigger names. */
 	PARETO_MAX: 3,
-	/* Spec: the flip check after 4 weekly runs with the step. */
 	FLIP_RUNS: 4,
-	/* Templates the human-readable output lists; --json lists all. A guess,
-	 * and stated as one: a screenful, never measured against a week's spread. */
 	TEMPLATES_SHOWN: 30,
 });
 
 const DEFAULT_KINDS = "docs/data/ticket-kinds.json";
-/** The flip check's bar: the review drops to on-demand where it holds
- * (#4796 §Ticket-mix review). */
 const DROP_BAR =
 	"fewer than 2 of the tickets it filed closed with a landed commit";
 
-/* Drain-style masks, applied in this order: refs and branches before paths,
- * which would take their `/`; shas before numbers, which would take their
- * digits. Backticks are dropped first. */
 const MASKS = /** @type {const} */ ([
 	[/\b[\w.-]+\/[\w.-]+#\d+\b|#\d+\b/g, "<issue>"],
 	[/\b(?:refs|q)\/[^\s`'"()<>,;]+|\bimplement-[\w.-]+/g, "<branch>"],
@@ -169,7 +87,6 @@ function readJson(file, what) {
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 /**
- * Each point less the one before it.
  * @param {number[]} xs
  * @returns {number[]}
  */
@@ -248,7 +165,6 @@ function shareLimits(xs, total) {
  * @param {string} title
  */
 function template(title) {
-	/* Code quoting is no part of a template. */
 	let t = title.replaceAll("`", "");
 	for (const [re, token] of MASKS) t = t.replace(re, token);
 	return t.replace(/\s+/g, " ").trim();
@@ -262,7 +178,6 @@ const isoMs = (s) =>
 	/^\d{4}-\d{2}-\d{2}/.test(s) ? Date.parse(s) : Number.NaN;
 
 /**
- * Each `--issues` snapshot, as the week's issues with their refs.
  * @param {Snapshot[]} snapshots
  * @param {{start: number, end: number}} week
  * @returns {{ref: string, repo: string, issue: Issue}[]}
@@ -295,8 +210,6 @@ function readWeek(snapshots, week) {
 }
 
 /**
- * The run record's weekly lines before this week, in week order, how many
- * weekly lines carry the step, and each line read as nothing, named.
  * @param {string} file
  * @param {number} weekStart
  * @returns {{prior: RunPoint[], stepRuns: number, bad: string[]}}
@@ -335,9 +248,6 @@ function readRuns(file, weekStart) {
 }
 
 /**
- * One run line: whether it is a weekly line carrying the step, and its
- * ticket-mix point where it has one; null for a non-weekly line, "no week"
- * for counts with no readable `week.start`.
  * @param {Record<string, unknown>} line
  * @returns {{step: boolean, point: RunPoint | null} | null | "no week"}
  */
@@ -356,8 +266,6 @@ function readRunLine(line) {
 const numberOr = (v) => (typeof v === "number" ? v : undefined);
 
 /**
- * A run line's `kinds`, each kind's count and share kept where it is a
- * number; null where the line carries none.
  * @param {unknown} v
  * @returns {RunPoint["kinds"]}
  */
@@ -406,10 +314,7 @@ function readAssigned(file) {
 	return /** @type {Record<string, string>} */ (data);
 }
 
-/**
- * Per-origin counts and the route each took.
- * @param {{issue: Issue}[]} week
- */
+/** @param {{issue: Issue}[]} week */
 function countOrigins(week) {
 	/** @type {Map<string, {origin: string, count: number, label: number, fallback: number}>} */
 	const by = new Map();
@@ -446,7 +351,7 @@ function countTemplates(week) {
 }
 
 /**
- * @param {number[]} series prior points then this week
+ * @param {number[]} series
  * @returns {"watch-only" | "up" | "down" | "none"}
  */
 function direction(series) {
@@ -459,7 +364,7 @@ function direction(series) {
 
 /**
  * @typedef {{ start: number, end: number, startIso: string, endIso: string }} Week
- * @typedef {{ repo: string, file: string }} Snapshot  one `--issues`
+ * @typedef {{ repo: string, file: string }} Snapshot
  * @typedef {{ issues: Snapshot[], week: Week, runs: string, kinds: string,
  *   assigned: string | null, thisRun: boolean }} Options
  */
@@ -634,8 +539,7 @@ function buildTriggers({
 }
 
 /**
- * Whether a kind's `firstSeen` date is after the week's start date.
- * @param {string | null} firstSeen  YYYY-MM-DD
+ * @param {string | null} firstSeen
  * @param {Week} window
  */
 function isNewKind(firstSeen, window) {
@@ -755,7 +659,6 @@ function render(r) {
 }
 
 /**
- * Each `--issues <owner/name>=<file>`, or the first that is not one.
  * @param {string[]} specs
  * @returns {Snapshot[] | string}
  */

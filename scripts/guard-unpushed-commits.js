@@ -1,48 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-unpushed-commits.js — Stop hook. Warns a session that its own commits
- * sit on HEAD and not on the ref it pushes to (lib/landing-refs.js), while it can
- * still push them (#766).
- *
- * WHY. A push sends every unpushed commit, whoever made it, so a session that
- * leaves its commits for another to push is relying on a later session that
- * may never come. `.husky/post-commit`'s unpushed count speaks
- * mid-session, when a non-zero count is expected (mantahostels#316); this
- * speaks at the end.
- *
- * WARN, NEVER REFUSE, AND IT STILL BLOCKS. An automatic push would publish
- * past a neighbour's red. So the guard only speaks, and a Stop hook has no
- * other channel to the model than a block's `reason` (docs/agents/guard-authoring.md §Which channel reaches the
- * model). The block says it is a warning, and the re-stop passes: each commit
- * is warned about once for ever, in `.unpushed-seen-`, with `.unpushed-nagged-`
- * as the loop bound.
- *
- * ATTRIBUTION is the commit ledger `.husky/post-commit` writes
- * (`lib/arbiter-ledger.js`'s `recordCommit`): git records no session on a
- * commit, and every session commits as the same author. A neighbour's
- * unpushed commit is in no ledger of this session's, so it is never named.
- * A commit made with no session id, or mid-replay, is in none at all.
- *
- * THE LEDGER IS READ AT THE MAIN WORKTREE, where post-commit writes it, and
- * not at this session's project directory: a session started in a linked
- * worktree would otherwise read a store nothing writes.
- *
- * ONLY COMMITS ON HEAD COUNT. One not reachable from HEAD — a worktree commit
- * never fast-forwarded, or a rewound one — is not what a push would send.
- *
- * A WORKTREE SESSION'S HEAD IS READ, THEN THE MAIN CHECKOUT'S (#4272): the
- * commit ledger names no tree, so a commit the session made there from a `cd`
- * is ledgered all the same. The main checkout's read counts as pushed what
- * the session's own pushed ref holds, so a main checkout fast-forwarded onto
- * the session's pushed branch is not warned of.
- *
- * A `waiting:` TURN IS PASSED OVER, and marks nothing seen, so the warning
- * lands on the turn that ends the work rather than on the hand-off before it —
- * but only where a launch in the transcript is still out, as
- * guard-uncommitted-work.js rules it (mantahostels#2567): the word alone would
- * be an exemption a session could type.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -65,8 +21,7 @@ const REPO_ROOT = hookBlock.repoRoot();
 
 const SEEN_PREFIX = ".unpushed-seen-";
 
-/* How many commits the warning names; the rest are counted. A first guess,
- * unmeasured: 30 Sep's backlog, the case that raised #766, was 8. */
+// #766 guess
 const NAMED_MAX = 10;
 
 /** @param {string} sid */
@@ -75,8 +30,6 @@ function seenPath(sid) {
 }
 
 /**
- * The commits already warned about. Unreadable reads as none, so a commit is
- * warned about again rather than never.
  * @param {string} sid
  * @returns {Set<string>}
  */
@@ -95,14 +48,12 @@ function readSeen(sid) {
  * @param {Set<string>} seen
  */
 function writeSeen(sid, seen) {
-	// The block has gone out; the cost is one repeat, bounded by the counter.
 	ignoreFailure(() =>
 		fs.writeFileSync(seenPath(sid), `${[...seen].join("\n")}\n`),
 	);
 }
 
 /**
- * This session's commit ledger, read under the main worktree.
  * @param {string} sid
  * @returns {string[]|null}
  */
@@ -112,12 +63,9 @@ function readCommitLedger(sid) {
 }
 
 /**
- * This session's commits on HEAD and not on the ref it pushes to, newest first, and
- * the ref's name — or null where there is nothing to say or git would not
- * answer.
  * @param {string} sid
- * @param {string} tree the checkout whose HEAD is read
- * @param {string[]} [pushedElsewhere] further refs whose commits count as pushed
+ * @param {string} tree
+ * @param {string[]} [pushedElsewhere]
  * @returns {{ref: string, commits: string[]}|null}
  */
 function readUnpushedMine(sid, tree, pushedElsewhere = []) {
@@ -135,8 +83,6 @@ function readUnpushedMine(sid, tree, pushedElsewhere = []) {
 }
 
 /**
- * Is the turn a `waiting:` hand-off resting on a launch still out? Anything
- * unreadable answers no, so the warning goes out rather than being deferred.
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
  */
@@ -156,13 +102,9 @@ function handingOff(payload, sid) {
 	}
 }
 
-/** The push: the land step's, of the session's queue ref. */
 const PUSH_STEP = `The push is your own act (\`rule:push-cadence\`): land it with \`node ${scriptPath("session-checkout.js")} land\`, which pushes your queue ref.`;
 
-/**
- * `dir` with its symlinks resolved, or as given where it does not resolve.
- * @param {string} dir
- */
+/** @param {string} dir */
 function resolved(dir) {
 	try {
 		return fs.realpathSync(dir);
@@ -172,9 +114,8 @@ function resolved(dir) {
 }
 
 /**
- * One checkout's paragraph of the warning: the count and the commits.
  * @param {{tree: string, ref: string, commits: string[]}} found
- * @param {boolean} own whether `tree` is the session's own, named by no label
+ * @param {boolean} own
  */
 function describeUnpushed({ tree, ref, commits }, own) {
 	const where = own ? "" : ` in the main checkout (${tree})`;
@@ -194,15 +135,11 @@ function describeUnpushed({ tree, ref, commits }, own) {
 }
 
 /**
- * This session's unpushed commits in its own tree, then in the main checkout,
- * each commit under the first checkout that reaches it.
  * @param {string} sid
- * @param {string} tree the session's checkout
+ * @param {string} tree
  * @returns {{tree: string, ref: string, commits: string[]}[]}
  */
 function readUnpushedEach(sid, tree) {
-	/* `sessionTree` resolves symlinks and the host root need not, so the two
-	 * are compared resolved. */
 	const host = resolved(REPO_ROOT);
 	const sessionRef = readUnpushedRef({ root: REPO_ROOT, tree });
 	const found = [];

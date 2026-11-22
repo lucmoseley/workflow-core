@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * list-sessions.js — every plan's sessions on this machine, read-only (#4224).
- * `claude agents --json` lists only its own CLAUDE_CONFIG_DIR's.
- *
- *   node scripts/list-sessions.js [--json]
- *
- * One row per session: its config dir, name (else id), state and kind. Each
- * `sessionDirs()` dir that exists is read alone (lib/agent-liveness.js,
- * `readEverySeat`), then the live headless runs, each under the seat it runs
- * on. A dir or store that will not read is printed with its reason, and the
- * exit is 1; every other dir still prints.
- *
- * A session moved between seats shows under each dir that lists it.
- *
- * `--json` prints `{rows, failures}`: each row `{configDir, sessionId, id,
- * name, state, kind, cwd}`, each failure `{configDir, why}`, `configDir`
- * null for the headless-run store.
- *
- * Joins no §N3 family: it gates nothing and is no hook. No core either: it
- * decides nothing but which stream a line goes to and the exit, which the
- * suite pins through the program itself.
- */
 
 const { readEverySeat } = require("./lib/agent-liveness.js");
 const { scriptPath } = require("./lib/script-path.js");

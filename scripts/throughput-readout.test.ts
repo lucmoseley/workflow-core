@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * throughput-readout.test.ts — the throughput readout's command line
- * (#5196, #5205). Break it and a source that would not read passes as a quiet
- * window, or a bad argument prints a reading over nothing. The bands
- * themselves are pinned in lib/throughput-readout.test.ts, which hands the
- * core plain records; the reads of each source are reached only from here.
- *
- * Each case runs the command in-process against a throwaway directory, its
- * `gh` stubbed at WFC_GH, its python at WFC_PYTHON where a case feeds
- * dense_minute.py's output, and every seat, record and log pointed into that
- * directory, so nothing reaches the network or this machine's records.
- *
- * Its wall time tracks the machine's load, each case but one running
- * dense_minute.py for real: 3.7 s at load 7.5, 11.0 s at load 18 (#5196).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -38,7 +23,6 @@ const T0 = Date.parse(SINCE);
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const REPO = "owner/tracker";
-/* The minute log's span and the session count on each of its lines. */
 const WINDOW_HOURS = 48;
 const SESSIONS = 3;
 
@@ -112,8 +96,6 @@ function run(
 	);
 }
 
-/* A checkout whose one close is built then reverted, the revert naming its
- * target by its body line or by its subject alone. */
 function buildRevertedCheckout(bodyLine: boolean) {
 	return (code: string) => {
 		initGitRepo(code, "/dev/null");
@@ -166,15 +148,11 @@ it.each([
 			counted: 0,
 			thin: false,
 		});
-		/* The load edges scale per core, 2 a core the lowest; load 1 is under
-		 * it on any host. */
 		expect(out.load[0].band).toBe(`<${2 * os.cpus().length}`);
 	},
 );
 
 it("reads the limb, queue share and session split off a tick, a queue exit, a dispatch row and two job records", () => {
-	/* The writers stamp the wall clock, and the tick and run writers prune
-	 * lines a month old, so the window sits about now (#5205). */
 	const now = Date.now();
 	const h = now - (now % HOUR);
 	const since = h - 24 * HOUR;
@@ -182,8 +160,6 @@ it("reads the limb, queue share and session split off a tick, a queue exit, a di
 	const markers = markersDir(dir);
 	fs.mkdirSync(refillDir(), { recursive: true });
 	vi.stubEnv("WFC_REFILL_DIR", refillDir());
-	/* The loop's live count overrides the minute line's while the tick is
-	 * fresh, its first 16 minutes of the hour: a mean of ~3.5 there, band 4. */
 	appendTick({
 		at: at(h - 2 * HOUR),
 		live: SESSIONS + 2,
@@ -230,8 +206,6 @@ it("reads the limb, queue share and session split off a tick, a queue exit, a di
 		launchedAt: h - 10 * HOUR,
 	});
 	const seat = seatDir();
-	/* A finished job's record keeps updating: its life ends at its first
-	 * terminal state, 2 h after it started, not at its last update. */
 	writeJobRecord(jobDirPath(seat, "sent"), "implement", {
 		createdAt: at(h - 10 * HOUR),
 		firstTerminalAt: at(h - 8 * HOUR),
@@ -264,8 +238,6 @@ it("reads the limb, queue share and session split off a tick, a queue exit, a di
 		none: 0,
 	});
 	expect(band.hours).toBe(WINDOW_HOURS - 1);
-	/* toBeCloseTo's default 2 digits would pass 0, a queue reader that read
-	 * nothing, against this ~0.0012. */
 	expect(band.queueShare).toBeCloseTo(
 		(10 * 60) / (SESSIONS * (WINDOW_HOURS - 1) * 3600),
 		8,
@@ -292,8 +264,6 @@ it("reads each minute's Bash round-trips and hook-timeout refusals off dense_min
 	expect(b.refusalsPerHour).toBeCloseTo(2 / WINDOW_HOURS);
 });
 
-/* #5196: an unreadable log crashed the readout; the missing-log case below is
- * its positive pair. */
 it("names a minute log that will not read with the hours it lacks and still exits 0 (#5196)", () => {
 	fs.mkdirSync(path.join(dir, "minute.jsonl"));
 	const r = run(["--since", SINCE, "--until", UNTIL]);

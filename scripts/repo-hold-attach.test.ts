@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Two sessions meeting one founder act (#3858), each step as a session makes
- * it: the round guard's refusal, the hold CLI, then the second session's ending
- * through the real Stop hooks.
- *
- * WHAT BREAKING IT COSTS: an attached ending refused means the founder gets the
- * round the hold exists to spare him; one let through unattached ends a job with
- * its question asked nowhere; one left unlabelled is relaunched every refill.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -52,7 +43,6 @@ const raise = () =>
 		raiser,
 	);
 
-/** A job's round post, as the dispatcher judges it. */
 const postRound = (ticket: number, job: string, session: string) =>
 	runCore(
 		"guard-round-holds",
@@ -64,7 +54,6 @@ const postRound = (ticket: number, job: string, session: string) =>
 		{ root: dir, env: { CLAUDE_JOB_DIR: job } },
 	).output?.permissionDecisionReason ?? "";
 
-/** The ending `attach` prints, as the session fills it in. */
 const buildEnding = (attachOutput: string) =>
 	`Parked on the open hold.\n\n${attachOutput
 		.slice(attachOutput.indexOf("waits on you:"))
@@ -91,7 +80,6 @@ const buildIssue = (comments: unknown[]) => ({
 	comments: { nodes: comments },
 });
 
-/** Serve #12's round and, where `handOff`, #31's hand-off from every call. */
 function serve(handOff = true) {
 	fs.writeFileSync(
 		path.join(dir, "response.json"),

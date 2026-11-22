@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that every anchored rule region is a fragment on disk byte for byte with
- * a trigger, that `--check` refuses a source edit left unrendered or a malformed
- * anchor pair, that an absent source is skipped aloud, and that the
- * pre-commit dispatcher's row arms `--check` on the generator's own source
- * list and refuses the commit it arms on (#3118, #5172).
- *
- * generate-rule-fragments.js renders docs/agents/rules/<id>.txt from an anchor
- * pair in the document that authors the rule (mantahostels#2493, spec mantahostels#2457 §T2).
- *
- * The store's own copy is asserted against the live document, not against a
- * fixture: a fixture would let the two drift and still pass.
- *
- * `--check` is a hard pre-commit gate: a false pass lets a rule's
- * authored text and the fragment a guard hands sessions drift apart, so a
- * session is handed a rule the documents no longer state.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -38,11 +21,9 @@ const check = () =>
 		env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
 	});
 
-/** The generator run over `dir` as the host repo. */
 const runOver = (dir: string, args: string[] = []) =>
 	runInProcess(GEN, args, { env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
 
-/** A scratch host repo, removed once `fn` returns. */
 function scratch<T>(fn: (dir: string) => T): T {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rule-frag-"));
 	try {
@@ -52,11 +33,9 @@ function scratch<T>(fn: (dir: string) => T): T {
 	}
 }
 
-/** The committed manifest's rules: id → the source anchoring it. */
 const readCommitted = (): Record<string, { source: string; trigger: string }> =>
 	JSON.parse(fs.readFileSync(path.join(ROOT, MANIFEST), "utf8")).rules;
 
-/** Every source the generator scans, as it names them when each is absent. */
 const sourcesSkipped = () =>
 	scratch((dir) =>
 		[...runOver(dir).stdout.matchAll(/SKIP (\S+) \(absent/g)].map((m) =>
@@ -86,7 +65,6 @@ describe("the committed store matches its anchored source", () => {
 			for (const id of Object.keys(rules)) {
 				const read = (root: string) =>
 					fs.readFileSync(path.join(root, STORE, `${id}.txt`), "utf8");
-				// Trailing newlines are what both accessors trim; nothing else may differ.
 				expect(read(dir).replace(/\n+$/, "")).toBe(
 					read(ROOT).replace(/\n+$/, ""),
 				);
@@ -101,9 +79,6 @@ describe("--check refuses a source edit that was not re-rendered", () => {
 		const file = path.join(ROOT, rel);
 		const before = fs.readFileSync(file, "utf8");
 		try {
-			// Stand in for an edit to the anchored region: the two sides disagree
-			// either way, and mutating the generated copy leaves the authored
-			// document untouched for every other session sharing this tree.
 			fs.writeFileSync(
 				file,
 				`${before}| \`takes:invented\` | not a value | — |\n`,
@@ -120,7 +95,6 @@ describe("--check refuses a source edit that was not re-rendered", () => {
 });
 
 describe("a malformed anchor pair refuses rather than rendering half a rule", () => {
-	/** A repo whose first source holds `body` alone, checked by the generator. */
 	const checkOver = (body: string) =>
 		scratch((dir) => {
 			const [first] = sourcesSkipped();
@@ -207,8 +181,6 @@ describe("a span inside a region (#4155)", () => {
 	});
 });
 
-/* An adopter need not carry every source: fantasy-books has no
- * triage-labels.md, and a throw there refused every commit its gate saw. */
 describe("an absent source is skipped aloud, never thrown on", () => {
 	it("passes --check in a repo holding neither source nor a store, naming each skip", () => {
 		scratch((dir) => {
@@ -221,7 +193,6 @@ describe("an absent source is skipped aloud, never thrown on", () => {
 			);
 			expect(sources.size).toBeGreaterThan(0);
 			for (const s of sources) expect(r.stdout).toContain(`SKIP ${s}`);
-			// Rendered into the host's own store, not the core's fallback one.
 			expect(fs.existsSync(path.join(dir, MANIFEST))).toBe(true);
 		});
 	});
@@ -239,10 +210,9 @@ describe("the source list", () => {
 describe("the pre-commit row (#3118, #5172)", () => {
 	const temps = registerTempCleanup(afterEach);
 	const row = GATES.find((g) => g.id === "rule-fragments");
-	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module
-	const { PROGRAM, SOURCES } = require(GEN) as any;
+	const { PROGRAM, SOURCES } =
+		require("./generate-rule-fragments.js") as typeof import("./generate-rule-fragments.js");
 
-	/** Whether the dispatcher arms the row on a commit staging `staged`. */
 	async function arms(staged: Record<string, string>): Promise<boolean> {
 		if (!row || !("computed" in row.arm)) throw new Error("no computed row");
 		const name = row.arm.computed;
@@ -262,7 +232,6 @@ describe("the pre-commit row (#3118, #5172)", () => {
 		return ran;
 	}
 
-	/** Every source and the committed store, as the core holds them. */
 	const committed = () =>
 		Object.fromEntries(
 			[

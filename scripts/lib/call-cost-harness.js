@@ -1,36 +1,3 @@
-/*
- * call-cost-harness.js — what one call of a hot-path program costs: the repo
- * modules it loads and the child processes it starts (base §G13 (5), #5335).
- *
- * FOR TESTS ONLY, as lib/run-in-process.js is. A pin asserts both lists with
- * exact equality, so any growth fails the run naming what grew; no timing
- * figure is ever read (mantahostels#2255).
- *
- *   callCost / callCostAsync  a Node program, run in-process through
- *       runInProcess / runInProcessAsync with their options unchanged.
- *   shellCallCost             a shell program.
- *   call_cost (call_cost_harness.py)  the Python half, for pytest.
- *
- * A child is recorded as the executable's basename and its first argument,
- * joined by a space. An absolute first argument is shown relative to the
- * scripts root, else to the call's cwd, else as its basename, so a pin holds
- * no machine path. The shell half follows a `node run-budgeted.js` start with
- * the command it runs, as one entry (#5361).
- *
- * Every call throws where the program exits other than `expectStatus`
- * (default 0) or writes stderr without `allowStderr`.
- *
- * BLIND SPOT (Node): children are counted by replacing each process-starting
- * function on the shared `node:child_process` export for the call's duration.
- * runInProcess purges repo modules before the call, so a repo module that
- * destructures a starter at load binds the recorder; a node_modules package
- * cached before the call that bound one earlier is not seen.
- *
- * BLIND SPOT (shell): only watched binaries started by the program itself are
- * recorded — a shim marks the environment it hands on, so a node child's own
- * `git` call is that child's cost, pinned by its own Node pin.
- */
-
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -47,9 +14,8 @@ const { shellQuote } = require("./sh-quote.js");
 
 /**
  * @typedef {object} CostOptions
- * @property {number} [expectStatus] the exit the call must end on (default 0)
- * @property {boolean} [allowStderr] whether stderr may carry text
- *
+ * @property {number} [expectStatus]
+ * @property {boolean} [allowStderr]
  * @typedef {RunResult & { modules: string[], children: string[] }} CostResult
  */
 
@@ -96,11 +62,8 @@ function shownArg(arg, root, cwd) {
 }
 
 /**
- * A shell-string start (exec, execSync, or a spawn with no argv) is split on
- * whitespace.
- *
  * @param {string} route
- * @param {unknown[]} argv the starter's own arguments
+ * @param {unknown[]} argv
  * @param {string} root
  * @param {string} cwd
  */
@@ -129,10 +92,7 @@ function childOf(route, argv, root, cwd) {
 }
 
 /**
- * Replaces every starter on `node:child_process` with a recorder that
- * forwards to the original, and returns the function putting them back.
- *
- * @param {string[]} children accumulator: each start is pushed here, in order
+ * @param {string[]} children
  * @param {string} root
  * @param {string} cwd
  */
@@ -143,8 +103,6 @@ function recordStarts(children, root, cwd) {
 	const saved = new Map(
 		STARTERS.map((route) => [route, /** @type {Function} */ (cp[route])]),
 	);
-	/* Node's exec starts through the exported execFile, so a start made
-	 * inside another starter is that starter's own. */
 	let depth = 0;
 	/**
 	 * @param {string} route
@@ -259,8 +217,6 @@ const RUN_BUDGETED_NAME = "run-budgeted.js";
 const INNER = "WFC_CALL_COST_INNER";
 
 /**
- * Where `name` resolves on `PATH`, or null.
- *
  * @param {string} name
  * @param {string} pathVar
  */
@@ -283,10 +239,6 @@ function isExecutable(file) {
 }
 
 /**
- * One shim-recorded start as `basename firstArg`; a `node run-budgeted.js`
- * start carries on with the command it runs, so the pin names the checker
- * and still shows the bounding wrapper's own start (#5361).
- *
  * @param {string} name
  * @param {string[]} args
  * @param {string} root
@@ -305,12 +257,7 @@ function shellChildOf(name, args, root, cwd) {
 		: shown;
 }
 
-/**
- * The shim log's starts: each a count, the binary, then that many arguments,
- * every field NUL-terminated so an argument may hold any other byte.
- *
- * @param {string} log
- */
+/** @param {string} log */
 function* loggedStarts(log) {
 	const fields = log.split("\0");
 	for (let i = 0; i + 1 < fields.length; ) {
@@ -326,20 +273,15 @@ function* loggedStarts(log) {
 /**
  * @typedef {object} ShellOptions
  * @property {string} [cwd]
- * @property {Record<string, string | undefined>} [env] full environment
+ * @property {Record<string, string | undefined>} [env]
  * @property {string} [stdin]
- * @property {string[]} [watch] binaries beyond node, python3, git and gh
+ * @property {string[]} [watch]
  * @property {number} [expectStatus]
  * @property {boolean} [allowStderr]
- *
  * @typedef {{ status: number, stdout: string, stderr: string, children: string[] }} ShellCostResult
  */
 
 /**
- * Runs a shell program as a real process with a forwarding shim per watched
- * binary first on PATH, and returns its exit, output and the watched
- * binaries it started, in order.
- *
  * @param {string} scriptPath
  * @param {string[]} [args]
  * @param {ShellOptions} [options]

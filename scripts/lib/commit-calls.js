@@ -1,19 +1,3 @@
-/*
- * commit-calls.js — the commit calls one Bash command made, read as the
- * guards read them (#2383).
- *
- * COUNTED: a `git commit`, and a `commit-paths.js` call by any path that would
- * commit — never a `--tree` pin, nor one commit-paths.js refuses unread: one
- * with no message or two, or `--help`.
- *
- * LIMITS: a commit inside a heredoc body or a `bash -c` string is not seen.
- * Where the walk splits a command bash would not — a heredoc's terminator
- * followed by `)`, a quote never closed — the message word is cut short and
- * the caller reads it off the command itself, and a later commit in that
- * command is not seen. A commit spelt through an alias (`git -c alias.ci=commit
- * ci`) is not seen: gitWords expands no alias, which only walkGit does.
- */
-
 const {
 	asWritten,
 	parseCommand,
@@ -29,12 +13,7 @@ const {
 	scanFlags,
 } = require("./shell-words.js");
 
-/**
- * @typedef {{ call: string, flag: "m" | "F" | "-", word: string }} CommitCall
- *   the call as written; `m` and the message word as written, `F` and the
- *   message file's path, or `-` and "" where neither was given or the path
- *   holds an expansion
- */
+/** @typedef {{ call: string, flag: "m" | "F" | "-", word: string }} CommitCall */
 
 /**
  * @param {string} command
@@ -58,8 +37,6 @@ function commitCalls(command) {
 }
 
 /**
- * Each commit one command's words make, by its message flag and word: null
- * for a commit carrying neither `-m` nor `-F`.
  * @param {string[]} words
  * @param {string[]} spans
  * @returns {({ flag: string, word: string } | null)[]}
@@ -76,7 +53,6 @@ function commitMessages(words, spans) {
 		if (git.sub !== "commit") continue;
 		/** @type {{ flag: string, word: string } | null} */
 		let msg = null;
-		/* The first message flag wins. */
 		scanFlags(gitValueFlags("commit"), git.args, (kind, name, value) => {
 			if (msg !== null || kind !== "opt") return;
 			if (name === "-m" || name === "--message")
@@ -90,7 +66,7 @@ function commitMessages(words, spans) {
 }
 
 /**
- * @param {string} call the segment as written
+ * @param {string} call
  * @param {{ flag: string, word: string } | null} msg
  * @param {string[]} spans
  * @returns {CommitCall}

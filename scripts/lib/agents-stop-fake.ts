@@ -1,10 +1,3 @@
-/*
- * The fake of the launcher's `claude agents --json` and `claude stop`: the
- * installed harness's recorded responses (scripts/fixtures/agents-stop.json,
- * re-recorded by `node scripts/record-claude-responses.js`), as the branches
- * of a bash `claude` stub (#2988).
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { buildJobIdWord } from "./claude-stub";
@@ -32,11 +25,8 @@ export const recorded: {
 	),
 );
 
-/** Whether `row` is a job's waiting on a permission prompt. */
 export const isPermissionRow = (row: Row) => row.status === "waiting";
 
-/* The recorded row printing the most fields, a waiting row's `waitingFor`
- * aside: a just-launched row lacks `pid` and `status`. */
 const fullest = recorded.rows
 	.filter((row) => !isPermissionRow(row))
 	.reduce((a, b) => (Object.keys(b).length > Object.keys(a).length ? b : a));
@@ -44,11 +34,6 @@ const printed = new Set(recorded.rows.flatMap((row) => Object.keys(row)));
 const pairOf = (row: Row) => `${row.status}/${row.state}`;
 const pairs = new Set(recorded.rows.map(pairOf));
 
-/**
- * A listing row of the recording's shape with `over`'s values, less `omit`'s
- * fields. A field the harness never printed throws, as does one it never left
- * out, and a status and state it never printed together.
- */
 export function buildListedRow(over: Row, omit: string[] = []): Row {
 	for (const key of Object.keys(over))
 		if (!printed.has(key))
@@ -63,11 +48,6 @@ export function buildListedRow(over: Row, omit: string[] = []): Row {
 	return row;
 }
 
-/**
- * A row of a shape no recording holds, as given: a `failed` or `stopped`
- * state, a status and state never seen together, a field left out. Only its
- * field names are held to the harness's.
- */
 export function buildUnrecordedRow(row: Row): Row {
 	for (const key of Object.keys(row))
 		if (!printed.has(key))
@@ -75,7 +55,6 @@ export function buildUnrecordedRow(row: Row): Row {
 	return row;
 }
 
-/** Job `id`'s listing row in `state`: `busy` while working, else `idle`. */
 export const buildJobRow = (id: string, state: string, over: Row = {}): Row =>
 	buildListedRow({
 		id,
@@ -86,18 +65,12 @@ export const buildJobRow = (id: string, state: string, over: Row = {}): Row =>
 		...over,
 	});
 
-/** Job `id` blocked on a permission prompt, as the listing shows it. */
 export const buildPermissionRow = (id: string): Row =>
 	buildJobRow(id, "blocked", {
 		status: "waiting",
 		waitingFor: "permission prompt",
 	});
 
-/**
- * One `agents --json` answer: the rows printed; a failure, exit 1 where null,
- * after printing `rows` where given; text no harness prints; a hang; or a
- * hang that first starts two children, appending each pid to the file named.
- */
 export type AgentsAnswer =
 	| Row[]
 	| null
@@ -106,8 +79,6 @@ export type AgentsAnswer =
 	| "hang"
 	| { hangsWithChildren: string };
 
-/* Seconds a hung answer sleeps: past agent-liveness.js's default 20 s retry
- * cap, so the cap fires first. */
 const HANG_S = 30;
 
 const printRows = (rows: Row[]) =>
@@ -115,7 +86,6 @@ const printRows = (rows: Row[]) =>
 
 const buildListingAnswer = (answer: AgentsAnswer): string => {
 	if (answer === null) return "exit 1";
-	/* `exec`, so the cap's signal reaches the sleep, not a shell it outlives. */
 	if (answer === "hang") return `exec sleep ${HANG_S}`;
 	if (Array.isArray(answer)) return `${printRows(answer)}; exit 0`;
 	if ("exit" in answer)
@@ -129,11 +99,6 @@ const buildListingAnswer = (answer: AgentsAnswer): string => {
 	return `${child}; ${child}; wait; exit 0`;
 };
 
-/**
- * The `agents` branch: answers as `answer`, or, where `bySeat` maps the
- * call's CLAUDE_CONFIG_DIR, as that seat's answer. Where `callLog` is given,
- * it first appends the call's argv to that file.
- */
 export function buildAgentsBranch(
 	answer: AgentsAnswer,
 	bySeat: Record<string, AgentsAnswer> = {},
@@ -155,13 +120,11 @@ export function buildAgentsBranch(
 		.join("\n");
 }
 
-/* Stop answers no daemon gives on demand, so none is recorded. */
 const noJob = recorded.stops.noJob;
 const FAULTS = {
 	busy: "echo 'daemon socket is busy' >&2; exit 1",
 	warnedNoJob: `echo 'warning: daemon slow to answer' >&2; printf '%s' ${buildJobIdWord(noJob.stderr, noJob.id)} >&2; exit ${noJob.status}`,
 	killed: "echo 'going down' >&2; kill -KILL $$",
-	/* The no-job answer before 2.1.326, still read as no job (#5329). */
 	oldNoJob: `printf '%s' ${buildJobIdWord(`No job matching '${noJob.id}'. Run 'claude agents' to list running sessions.\n`, noJob.id)} >&2; exit ${noJob.status}`,
 };
 
@@ -176,13 +139,6 @@ const buildAnswer = (answer: StopAnswer) => {
 	return `printf '%s' ${buildJobIdWord(r.stdout, r.id)}; printf '%s' ${buildJobIdWord(r.stderr, r.id)} >&2; exit ${r.status}`;
 };
 
-/**
- * The `stop` branch: appends its argv to `log` and, where `envLog` is given,
- * the seat it ran on and the session identity it inherited
- * (`<CLAUDE_CONFIG_DIR> <CLAUDE_CODE_SESSION_ID> <CLAUDE_JOB_DIR>`, `none` for
- * an unset one), then answers job `$2`: as `answer`, or, where `answer` maps
- * seats to answers, as its seat's, a seat it leaves out answering `ok`.
- */
 export function buildStopBranch(
 	log: string,
 	answer: StopAnswer | Record<string, StopAnswer> = "ok",

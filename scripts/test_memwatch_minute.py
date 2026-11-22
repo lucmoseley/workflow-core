@@ -1,8 +1,3 @@
-"""Tests for scripts/lib/memwatch_minute.py — the reader of
-memwatch's minute log (#4791). Loosen one and a caller acts on a torn line, a
-null Windows reading or a line whose time it cannot read.
-"""
-
 import json
 import sys
 from pathlib import Path

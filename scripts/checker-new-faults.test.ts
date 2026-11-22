@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which of a checker's faults count as added by this commit rather than
- * inherited from HEAD, per profile, and that the profiles match the envelopes
- * the real checkers emit.
- *
- * checker-new-faults.js (mantahostels#1688, mantahostels#1753, mantahostels#1797) — the direction test behind the
- * two whole-repo pre-commit gates and the doc-map one.
- *
- * Each gate's own suite stubs this script, so this file alone pins its
- * verdicts. Each case writes the two envelopes to a temp directory and runs
- * the script in process over them.
- *
- * Those gates refuse commits in `.husky/pre-commit` on its verdict: loosen a
- * case and a commit adding a fault passes with a warning, or a bystander's
- * commit is refused over a fault someone else left on `main`.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,7 +20,6 @@ afterEach(() => {
 		fs.rmSync(t, { recursive: true, force: true });
 });
 
-/** Writes the two envelopes to a throwaway dir and runs the script over them. */
 function run(
 	profile: string,
 	staged: unknown,
@@ -60,7 +43,6 @@ function run(
 	return { code: r.status, out: r.stdout, err: r.stderr };
 }
 
-/** A check-guard-registry.js FAIL finding, as the live checker emits one. */
 const regFail = (over: Record<string, unknown> = {}) => ({
 	severity: "FAIL",
 	tag: "UNPRINTED-RULE",
@@ -73,7 +55,6 @@ const regFail = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** A STALE-PROSE warning, whose message and detail carry the moving anchors. */
 const regStale = (anchored: string, now: string) => ({
 	severity: "WARN",
 	tag: "STALE-PROSE",
@@ -84,7 +65,6 @@ const regStale = (anchored: string, now: string) => ({
 	detail: `the guard or a library its digest hashes changed since the last review (anchored ${anchored}, now ${now})`,
 });
 
-/** A REPRINTED warning, which the gate never refuses. */
 const regReprinted = () => ({
 	severity: "WARN",
 	tag: "REPRINTED",
@@ -149,8 +129,6 @@ describe("checker-new-faults, guard-registry", () => {
 	});
 
 	it("passes a commit that changes only a stale-prose anchor hash", () => {
-		// Every anchor moves whenever its guard is edited, so comparing the whole
-		// JSON value would call an untouched warning new and refuse a bystander.
 		const { code, out } = run(
 			"guard-registry",
 			{ findings: [regFail(), regStale("b75160cf", "7c36bffb")] },
@@ -200,8 +178,6 @@ describe("checker-new-faults, guard-registry", () => {
 	});
 
 	it("does not read a fault as new because an edit above moved its line", () => {
-		// A FAIL's message is `${file}:${line} — ${detail}`, so the line moving
-		// moves the message with it.
 		const at = (line: number) =>
 			regFail({
 				line,
@@ -232,7 +208,6 @@ describe("checker-new-faults, guard-registry", () => {
 });
 
 describe("checker-new-faults, guard-test-isolation", () => {
-	/** A check-guard-test-isolation.js FAIL finding, as the checker emits one. */
 	const isoFail = (file: string, guards: string[]) => ({
 		severity: "FAIL",
 		tag: "GUARD-TEST-ISOLATION",
@@ -272,11 +247,6 @@ describe("checker-new-faults, guard-test-isolation", () => {
 });
 
 describe("checker-new-faults, doc-map", () => {
-	/*
-	 * The other envelope shape (mantahostels#1688): faults are the TOP-LEVEL
-	 * lists, one per fault kind, holding plain paths or whole objects and
-	 * carrying no severity of their own.
-	 */
 	const doc = (staged: unknown, baseline: unknown) =>
 		run("doc-map", staged, baseline);
 
@@ -307,8 +277,6 @@ describe("checker-new-faults, doc-map", () => {
 	});
 
 	it("passes a commit that REPAIRS a fault and adds none", () => {
-		// The gate only asks this when the checker failed, so a partial repair
-		// still leaves faults on the report — they must not be read as new.
 		const { code } = doc({ dead: ["b.md"] }, { dead: ["a.md", "b.md"] });
 
 		expect(code).toBe(0);
@@ -337,9 +305,6 @@ describe("checker-new-faults, doc-map", () => {
 	});
 
 	it("ignores `findings`", () => {
-		// Here that key is the severity envelope, not the item list: a repair
-		// turns "3 tracked file(s)…" into "2 tracked file(s)…", an object the
-		// baseline cannot hold — comparing it would refuse the repair.
 		const { code } = doc(
 			{ findings: [{ severity: "FAIL", message: "2 tracked file(s):" }] },
 			{ findings: [{ severity: "FAIL", message: "3 tracked file(s):" }] },
@@ -348,15 +313,6 @@ describe("checker-new-faults, doc-map", () => {
 		expect(code).toBe(0);
 	});
 
-	/*
-	 * mantahostels#1785: `untracked` and `untrackedRoutes` are WARN-only in check-doc-map.js
-	 * itself, always (mantahostels#1193, mantahostels#1403) — a register row or route naming a file
-	 * that merely has not been committed yet, normal mid-ticket state. Without
-	 * this exclusion the profile's missing `gating` predicate would still
-	 * refuse a commit adding one of these the moment the doc map ALSO carried
-	 * any unrelated, already-inherited FAIL — the direction gate is blind to
-	 * severity, so a WARN-only list left in reads as gate material regardless.
-	 */
 	it("ignores `untracked`, which is WARN-only in the checker itself", () => {
 		const { code } = doc(
 			{ untracked: ["a.md"], dead: ["old.md"] },
@@ -375,10 +331,6 @@ describe("checker-new-faults, doc-map", () => {
 		expect(code).toBe(0);
 	});
 
-	/*
-	 * mantahostels#2594: `keys` is lib/check.js's envelope FRAME — the deduplicated key line
-	 * of every finding, WARN ones included — rather than any checker's payload.
-	 */
 	it("ignores `keys`, lib/check.js's envelope frame rather than a fault list", () => {
 		const { code } = doc(
 			{ keys: ["UNCOVERED-GRACE\tdocs/fresh.md"], dead: ["old.md"] },
@@ -388,15 +340,6 @@ describe("checker-new-faults, doc-map", () => {
 		expect(code).toBe(0);
 	});
 
-	/*
-	 * This profile's `keys` predicate is NEGATIVE, so any array lib/check.js
-	 * ever grows on the envelope frame is gate material by default unless
-	 * named. Read off ENVELOPE_FRAME_KEYS rather than hand-listing today's
-	 * members, so this test needs no edit the day the frame does. It cannot see
-	 * a key added to the frame that never joins that Set — lib/check.test.ts
-	 * pins that lib/check.js's own `finish()` throws before writing an envelope
-	 * carrying one.
-	 */
 	it("ignores every key in lib/check.js's envelope frame, not just the ones named by hand", () => {
 		for (const key of ENVELOPE_FRAME_KEYS) {
 			const { code } = doc(
@@ -422,9 +365,6 @@ describe("checker-new-faults, doc-map", () => {
 	});
 
 	it("refuses on a new FAIL-severity list even where no severity is on the item, naming the list and the item", () => {
-		// No `gating` on this profile, deliberately: it cannot see which keys
-		// FAILed, so every list is compared and the caller establishes that
-		// something failed at all.
 		const { code, out } = doc({ uncovered: ["fresh.md"] }, { uncovered: [] });
 
 		expect(code).toBe(1);
@@ -433,7 +373,6 @@ describe("checker-new-faults, doc-map", () => {
 });
 
 describe("checker-new-faults, website-copy", () => {
-	/** A check-website-copy.js FAIL finding, as the checker emits one. */
 	const tell = (over: Record<string, unknown> = {}) => ({
 		severity: "FAIL",
 		tag: "AI-VOCAB",
@@ -466,8 +405,6 @@ describe("checker-new-faults, website-copy", () => {
 	});
 
 	it("does not read a tell as new because an edit above moved its line", () => {
-		// `context` is excluded from the identity too: a rewrite of the
-		// neighbouring sentence changes it without touching the tell.
 		const { code } = run(
 			"website-copy",
 			{
@@ -510,8 +447,6 @@ describe("checker-new-faults, website-copy", () => {
 	});
 
 	it("reads one of two identical tells being removed as unchanged", () => {
-		// Both share an identity, deliberately: what refuses a commit is
-		// INTRODUCING a tell, and the file still carries this one.
 		const { code } = run(
 			"website-copy",
 			{ findings: [tell()] },
@@ -523,13 +458,6 @@ describe("checker-new-faults, website-copy", () => {
 });
 
 describe("checker-new-faults, context-budget", () => {
-	/*
-	 * The measured profile (mantahostels#1834): the two over-cap findings are WARN and still
-	 * gate. Tags are imported
-	 * rather than spelled, so these fixtures follow a rename of the tag VALUE
-	 * instead of quietly ceasing to exercise the predicate (mantahostels#1938).
-	 */
-	/* The live caps, so a fixture is never tagged over a cap it sits under. */
 	const { pool: poolCap, injection: injectionCap } = liveCaps();
 
 	const overPool = (total: number) => ({
@@ -549,7 +477,6 @@ describe("checker-new-faults, context-budget", () => {
 		over: total - injectionCap,
 		message: `injected tracker docs are ${total} B, over the cap`,
 	});
-	/** An `admissibility` item: the mantahostels#1177 prompt's reading, and never a fault. */
 	const admis = (bytes: number) => ({
 		surface: "pool-files",
 		bytes,
@@ -612,8 +539,6 @@ describe("checker-new-faults, context-budget", () => {
 	});
 
 	it("never gates on `admissibility`, which is a note", () => {
-		// The mantahostels#1177 prompt fires on a pool that GREW without breaching anything,
-		// so both totals are derived to stay under the cap when it is re-priced.
 		const { code } = run(
 			"context-budget",
 			{ admissibility: [admis(poolCap - 2000)] },
@@ -650,17 +575,6 @@ describe("checker-new-faults, context-budget", () => {
 });
 
 describe("checker-new-faults fails closed", () => {
-	/*
-	 * A WRITE that fails is the one place a partial list could escape (mantahostels#2314):
-	 * an uncaught throw from the write exits 1, which the direction verdict
-	 * (lib/precommit-gate-verdicts.js) reads as a complete fault list.
-	 *
-	 * stdout goes to /dev/full, whose every write returns ENOSPC. Closing the fd
-	 * instead (`>&-`) does NOT work — node reopens 0, 1 and 2 on /dev/null when
-	 * it finds them closed, so the write succeeds and the case measures nothing.
-	 * A real spawn through `sh`: runInProcess patches writeSync, so the fd this
-	 * case turns on is not the one the script would see.
-	 */
 	it("exits 2 rather than 1 when it cannot write the fault list", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "checker-new-faults-"));
 		temps.push(dir);
@@ -729,14 +643,6 @@ describe("checker-new-faults fails closed", () => {
 });
 
 describe("the profiles against the real checkers", () => {
-	/*
-	 * The live `--json` envelope, whatever the checker's exit code. Safe over
-	 * runInProcess only because `extra` never carries `--against`: that flag
-	 * routes through lib/check.js's reread(), which gives a grandchild
-	 * stdio: "inherit" on stderr and bypasses the seam's captured output
-	 * (run-in-process.js's exemption 7) — a future caller passing it here
-	 * would silently under-report.
-	 */
 	const envelope = (checker: string, extra: string[] = []) => {
 		const r = runInProcess(
 			path.join(__dirname, checker),
@@ -783,10 +689,6 @@ describe("the profiles against the real checkers", () => {
 	});
 
 	it("reads a grown pool total off the real envelope as a new fault", () => {
-		/*
-		 * The live tree may be under both caps, so the envelope alone exercises
-		 * only the inherited direction.
-		 */
 		const live = JSON.parse(envelope("check-context-budget.js"));
 		const at = (total: number) => ({
 			...live,
@@ -815,9 +717,6 @@ describe("the profiles against the real checkers", () => {
 		spawnSync("tar", ["-xf", tar, "-C", dir]);
 		fs.rmSync(tar);
 
-		/* FAILs only: a staleness warning gates too (#2617), and a neighbour's
-		 * dirty edit to any library a guard hashes makes one the live tree has
-		 * and HEAD does not. */
 		const failsOf = (raw: string) => {
 			const e = JSON.parse(raw);
 			return {

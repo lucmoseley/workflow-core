@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that the Stop backstop accepts only a pass marker that covers the
- * range this session changed (mantahostels#139). Loosen a case and a pass
- * over one commit excuses the session's later, unreviewed ones. The fixture
- * and the two-session setup: concision-backstop.test.ts's header.
- *
- * Over base §X8 (5)'s 10 s budget: each case spawns the hook for real, 0.3-0.5 s
- * a run (#4308's profile), and the logic under test is bash with no in-process seam.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -30,7 +21,6 @@ import {
 backstopFixture();
 
 describe("pass markers — the mantahostels#139 change", () => {
-	// #1803: a missing review marker is the normal case, not an error.
 	it("writes nothing to stderr on a nagging Stop with no review marker on disk", () => {
 		write("scripts/mine.ts", `${BIG_CODE}\n`);
 		record("scripts/mine.ts", ME);
@@ -44,7 +34,6 @@ describe("pass markers — the mantahostels#139 change", () => {
 		expect(r.stderr).toBe("");
 	});
 
-	/** The base the hook recorded at SessionStart, which markers must match. */
 	const readRecordedBase = () =>
 		fs
 			.readFileSync(path.join(markersDir(), `.concision-base-${ME}`), "utf8")
@@ -55,14 +44,11 @@ describe("pass markers — the mantahostels#139 change", () => {
 		fs.writeFileSync(path.join(markersDir(), name), body);
 	};
 
-	/** A session that changed code it owns — the code signal's precondition. */
 	const changedCode = () => {
 		write("scripts/mine.ts", `${BIG_CODE}\n`);
 		record("scripts/mine.ts", ME);
 	};
 
-	// mantahostels#1071 — a two-axis review costs ~2M tokens of one shared weekly
-	// allowance, so a diff this small buys less than it spends.
 	it("stays silent for a code change below the churn threshold", () => {
 		write("scripts/tiny.ts", "export const x = 1;\n");
 		record("scripts/tiny.ts", ME);
@@ -77,21 +63,13 @@ describe("pass markers — the mantahostels#139 change", () => {
 		expect(run("stop")).toContain("code-review");
 	});
 
-	// mantahostels#958 — the nag is the only route by which the pin reaches this review.
-	// Moved off Fable to Opus 5.5 at high, through the code-reviewer agent type
-	// (#350, #363); this fixture host has no definition of its own, so it gets
-	// the plugin's spelling (#741).
 	it("pins the review axes to the code-reviewer type on opus, backticks intact", () => {
 		changedCode();
 
 		const reason = run("stop");
-		// Anchored on the phrase that follows it: the nag carries a second model
-		// pin (mantahostels#2614), so the anchor ties the literal to the reviewer's
-		// sentence rather than to whichever pin matches first.
 		expect(reason).toContain('`model: "opus"` on every one');
 		expect(reason).toContain("`workflow-core:code-reviewer`");
 		expect(reason).not.toContain('"fable"');
-		// Without this the axes run one after the other in one context.
 		expect(reason).toContain("SINGLE message");
 	});
 
@@ -106,8 +84,6 @@ describe("pass markers — the mantahostels#139 change", () => {
 	});
 
 	it("fires when the marker reviewed a narrower range than the session changed", () => {
-		// A fixed point AHEAD of the session's base, past code the session
-		// committed, covers less than the session wrote.
 		changedCode();
 		git("add", "scripts/mine.ts");
 		git("commit", "-q", "-m", "mine");
@@ -234,8 +210,6 @@ describe("pass markers — the mantahostels#139 change", () => {
 		expect(run("stop")).toContain("it has no paths= line");
 	});
 
-	// #1925: a staged review's marker on a session's first commit has base= at
-	// the start point, so only its tree= tells it from a whole-session review.
 	it("rejects a marker at the session's base= that has tree= and no paths=, naming the missing paths= line", () => {
 		changedCode();
 		marker(
@@ -296,8 +270,6 @@ describe("pass markers — the mantahostels#139 change", () => {
 	});
 
 	it("rejects a branch name, which would resolve to wherever it later moved", () => {
-		// The skills are handed "a commit SHA, branch name, tag, main, HEAD~5" as a
-		// legal fixed point, so base=main is a plausible thing to be written.
 		changedCode();
 		marker(`.codereview-pass-${ME}`, "base=main\nfindings=0\n");
 
@@ -327,9 +299,6 @@ describe("pass markers — the mantahostels#139 change", () => {
 	});
 
 	it("rejects the baseline file path the roadmap route compares against, still naming concision-pass as owed", () => {
-		// mantahostels#334: `roadmap-edit` diffs card word counts against
-		// `.roadmap-baseline-<sid>.html`, so that path is what a caller has to
-		// hand. The marker takes the session's start sha instead.
 		write("docs/mine.md", PARAGRAPH);
 		record("docs/mine.md", ME);
 		marker(
@@ -341,7 +310,6 @@ describe("pass markers — the mantahostels#139 change", () => {
 	});
 
 	it("names a malformed findings= rather than reporting no pass at all", () => {
-		// mantahostels#402 — the ticket for a nag that said no pass had run when one had.
 		changedCode();
 		marker(
 			`.codereview-pass-${ME}`,
@@ -352,8 +320,6 @@ describe("pass markers — the mantahostels#139 change", () => {
 		expect(reason).toContain(`.codereview-pass-${ME}`);
 		expect(reason).toContain("rejected");
 		expect(reason).toContain("not a number");
-		// Quoted as the session typed it: the value the validator compares is
-		// whitespace-stripped.
 		expect(reason).toContain("2 cuts applied");
 	});
 
@@ -398,8 +364,6 @@ describe("pass markers — the mantahostels#139 change", () => {
 	});
 
 	it("tells the session the marker command, with the base to pass", () => {
-		// The reason string is where a session learns the command, so a silent
-		// change would leave every session recording against the wrong base.
 		changedCode();
 
 		const reason = run("stop");

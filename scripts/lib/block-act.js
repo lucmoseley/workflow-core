@@ -1,63 +1,37 @@
-/*
- * block-act.js — what the refill loop does with a blocked launch, by cause and
- * mode (#2699, spec #2695). Pure: the caller does the act it gets back.
- */
-
 const { REVIEW_HOUR } = require("./review-hour.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
 const MIN_MS = 60 * 1000;
-/* A transient API stop's resumes, at about these offsets from the stop, then
- * every RESUME_EVERY_MS: untraced (#2359, chosen to land inside the prompt
- * cache's hour). */
+// guess, #2359
 const LAST_RESUME_OFFSET_MS = 30 * MIN_MS;
 const RESUME_OFFSETS_MS = [
 	...[1, 5, 15].map((m) => m * MIN_MS),
 	LAST_RESUME_OFFSET_MS,
 ];
 const RESUME_EVERY_MS = 30 * MIN_MS;
-/* Untraced (#2359): a guard against a loop that never ends. A limit hold's
- * failed resumes (#3790) and a limit-blocked launch's resumes in a row that
- * bought no reply (#3792) reuse the figure, which on the 30-minute backoff
- * outlasts a 5-hour limit. */
+// guess, #2359
 const RESUME_CAP = 16;
-/* How long a limit hold may last: the weekly window's 7 days
- * (measure-points-per-usd.js), the longest one reset can keep a seat shut, and
- * a day for the seat to read open with a slot free. Untraced (#3793, delegated).
- * Residual: a seat that refills or stays out of slots past that day parks the
- * hold, and a normal-mode loop routes its ticket back. */
+// guess, #3793
 const LIMIT_HOLD_BOUND_DAYS = 8;
 const HOLD_BOUND_WHY = `held on its limit past the ${LIMIT_HOLD_BOUND_DAYS}-day bound`;
-/* A resume starts a retry cycle that reads blocked again about 3 min 13 s
- * later where the API is still down (#2354 F8); a session is held only past
- * it, so none is stopped mid-cycle. Rounded up. */
+// 3 min 13 s measured, #2354
 const RETRY_CYCLE_MS = 4 * MIN_MS;
-/* How long a resumed-idle session waits from its restart row before the
- * loop types a resume — house: #2659. */
+// guess, #2659
 const RESUMED_IDLE_MS = 5 * MIN_MS;
-/* How long it waits from each typed resume before the next act: untraced
- * (#2978, reusing RESUMED_IDLE_MS's figure). */
+// guess, #2978
 const IDLE_RETYPE_MS = 5 * MIN_MS;
-/* The typed resumes a resumed-idle session gets before its hand-off:
- * untraced (#2978, delegated). */
+// guess, #2978
 const IDLE_TRIES = 2;
-/* How long a job the harness ended on a synthetic reply sits before the loop
- * acts, so the founder may type in first: untraced (#5322). */
+// guess, #5322
 const SYNTHETIC_QUIET_MS = 5 * MIN_MS;
-/* The resumes one synthetic stop gets: untraced (#5322, IDLE_TRIES's figure). */
+// guess, #5322
 const SYNTHETIC_TRIES = 2;
 
 /**
  * @typedef {import("./block-cause.js").Cause} Cause
  * @typedef {"stop-and-park"|"park-at-morning"|"resume"|"hold"
  *   |"resume-in-place"|"move"|"handoff-relaunch"|"attach-to-hold"|"wait"
- *   |"none"} Act  `attach-to-hold`, attach a locked-out session to its
- *   checkout's probe hold, raising it where none stands, then stop and park it
- *   there (#4228); `hold`, stop the
- *   session until its next resume is due, a resumed-idle one until the swap
- *   hold clears, or a limit-blocked one until a seat has room for it;
- *   `resume-in-place`, a limit-blocked one back on its own seat; `move`, one
- *   onto the other seat the move pick walks to, under its own session id
+ *   |"none"} Act
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
  *   billing?: true,
  *   bar?: import("./block-cause.js").LimitBar, since: number, tries?: number, nextAt?: number, triedAt?: number,
@@ -65,26 +39,11 @@ const SYNTHETIC_TRIES = 2;
  *   movePick?: Pick<import("./refill-limits.js").MoveTarget, "seat"|"keyVar">|null,
  *   slotFree?: boolean,
  *   dryResumes?: number, heldAt?: number,
- *   lockout?: import("./block-cause.js").Lockout}} Block  `since`,
- *   the first tick that
- *   read this cause, ms, or for RESUMED_IDLE the later of the harness's
- *   restart row and the loop's last resume, for SYNTHETIC_STOP of the
- *   synthetic record and the loop's last resume; `sub`, an API_ERROR's kind;
- *   `bar`, the bar a LIMIT's text names; `lockout`, a LOCKED_OUT's refusal;
- *   `tries`, the resumes made for the launch so far, the last at `triedAt`,
- *   and `nextAt`, when the next is due; `held`, its session stopped until
- *   then; `typing`, a typed resume not yet seen arrive; `swapHeld`, the swap
- *   hold (#2690) binding this tick; for a LIMIT, `seat`, its session's seat,
- *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to, an
- *   overflow seat with its key var, as it shares a plan seat's dir (#3736),
- *   `slotFree`, whether admission has a slot for one held stopped,
- *   `tries`, this hold's failed resumes and moves alone, `dryResumes`, those in
- *   a row that took and bought no reply, and `heldAt`, when this hold began
+ *   lockout?: import("./block-cause.js").Lockout}} Block
  * @typedef {(block: Block, now: number) => Act} Rule
  */
 
 /**
- * Resume `k`'s offset from the stop, 0-based.
  * @param {number} k
  * @returns {number}
  */
@@ -92,20 +51,13 @@ const resumeOffset = (k) =>
 	RESUME_OFFSETS_MS[k] ?? resumeOffset(k - 1) + RESUME_EVERY_MS;
 
 /**
- * When the resume after `tries` resumes is due, the last made at `at`: each
- * gap is the step between two offsets, so a spell that never clears meets
- * them all from its stop, and a session that clears and fails again keeps
- * backing off.
- * @param {number} tries  made so far, at least 1
- * @param {number} at  ms
+ * @param {number} tries
+ * @param {number} at
  */
 const nextTryAt = (tries, at) =>
 	at + resumeOffset(tries) - resumeOffset(tries - 1);
 
-/**
- * The first REVIEW_HOUR after `since`, machine-local.
- * @param {number} since ms
- */
+/** @param {number} since */
 function morningAfter(since) {
 	const d = new Date(since);
 	d.setHours(REVIEW_HOUR, 0, 0, 0);
@@ -123,8 +75,6 @@ const leave = () => "none";
 const attachToHold = () => "attach-to-hold";
 
 /**
- * Whether a resumed session blocked again before its next try is stopped
- * until then (#2359: between tries it holds no memory and no slot).
  * @param {Block} block
  * @param {number} now
  */
@@ -135,7 +85,6 @@ const isHoldDue = (block, now) =>
 	now - block.triedAt >= RETRY_CYCLE_MS;
 
 /**
- * A transient stop's act once its next try is due.
  * @param {Block} block
  * @returns {Act}
  */
@@ -144,19 +93,10 @@ function dueAct(block) {
 	return block.typing ? "wait" : "resume";
 }
 
-/**
- * When a transient API stop's next resume is due: the first on the first tick
- * that reads the stop, the harness having spent its own retries, about 3 min,
- * by then (#2359).
- * @param {Block} block
- */
+/** @param {Block} block */
 const resumeDueAt = (block) => Math.max(block.nextAt ?? 0, block.since);
 
 /**
- * An auth or invalid_request stop parks at once: a resume cannot fix it. A
- * transient one resumes on the schedule, held stopped between tries, and
- * parks at the cap or, away, at the morning review; never relaunched fresh
- * (#2359).
  * @param {boolean} away
  * @returns {Rule}
  */
@@ -167,16 +107,7 @@ const apiError = (away) => (block, now) => {
 	return dueAct(block);
 };
 
-/**
- * A resumed-idle session is resumed by typing once its restart row has
- * waited the window, and typed into once more after another window with no
- * turn; one still idle after that is handed off to a fresh launch, since the
- * fault is the session's own (#2659, #2978). Under the swap hold it is
- * stopped at once until the hold clears, its host's restart having retaken
- * the memory the hold is short of, or handed off where its typed resumes are
- * spent (#3093).
- * @type {Rule}
- */
+/** @type {Rule} */
 const resumedIdle = (block, now) => {
 	const tries = block.tries ?? 0;
 	if (block.swapHeld) return tries < IDLE_TRIES ? "hold" : "handoff-relaunch";
@@ -185,37 +116,24 @@ const resumedIdle = (block, now) => {
 	return tries < IDLE_TRIES ? "resume" : "handoff-relaunch";
 };
 
-/**
- * A job the harness ended on a synthetic reply is resumed once the stop, or
- * the loop's last resume of it, has sat the quiet window, up to its cap per
- * stop; at the cap the loop leaves it, for check-ghost-jobs to report
- * (#5322).
- * @type {Rule}
- */
+/** @type {Rule} */
 const syntheticStop = (block, now) => {
 	if (block.typing || now - block.since < SYNTHETIC_QUIET_MS) return "wait";
 	return (block.tries ?? 0) < SYNTHETIC_TRIES ? "resume" : "none";
 };
 
-/**
- * When a limit hold begun at `heldAt` reaches LIMIT_HOLD_BOUND_DAYS.
- * @param {number} heldAt ms
- */
+/** @param {number} heldAt */
 const holdBoundAt = (heldAt) => heldAt + LIMIT_HOLD_BOUND_DAYS * DAY_MS;
 
 /**
- * Whether a limit hold begun at `heldAt` has outlasted its bound.
- * @param {number} heldAt ms
- * @param {number} now ms
+ * @param {number} heldAt
+ * @param {number} now
  */
 const isHeldPastBound = (heldAt, now) => now >= holdBoundAt(heldAt);
 
 /**
- * Whether a limit-blocked session can leave its hold now: the move pick walks
- * to a seat, one held stopped only into a free slot, as it holds none (#3735).
- * `nextAt` spaces out the tries of one whose limit the seat's bars do not show.
  * @param {Block} block
- * @param {number} now ms
+ * @param {number} now
  */
 const isFreeToGo = (block, now) =>
 	Boolean(block.seat) &&
@@ -224,13 +142,8 @@ const isFreeToGo = (block, now) =>
 	(!block.held || Boolean(block.slotFree));
 
 /**
- * The park's line for a limit-blocked session at a cap, the first it reached in
- * this order, or undefined where it is at none: one held whose resumes failed
- * to the cap (#3790), one, held or live, whose resumes took and re-blocked with
- * no reply to the cap (#3792), and one held past the bound that cannot resume
- * now, tried or not (#3793). The table and the line both read it (#3800).
  * @param {Block} block
- * @param {number} now ms
+ * @param {number} now
  * @returns {string|undefined}
  */
 function buildLimitParkWhy(block, now) {
@@ -244,11 +157,7 @@ function buildLimitParkWhy(block, now) {
 	return isHeldPastBound(block.heldAt, now) ? HOLD_BOUND_WHY : undefined;
 }
 
-/**
- * Whether the move pick is the session's own plan seat, not another seat or
- * an overflow key on its dir.
- * @param {Block} block
- */
+/** @param {Block} block */
 const isOwnSeat = ({ movePick, seat }) =>
 	movePick?.seat === seat && !movePick?.keyVar;
 
@@ -260,16 +169,7 @@ const limit = (block, now) => {
 	return block.held ? "wait" : "hold";
 };
 
-/**
- * Away-mode QUESTION: #2355. Normal-mode QUESTION and PERMISSION wait until
- * answered, so they stay in needs input: #3621; residual: each holds a launch
- * slot until then, admission's memory gate bounding the count. PERMISSION as
- * a question: #2360. API_ERROR: #2359. LIMIT: #2125, #3735. UNKNOWN: #2358 F9.
- * RESUMED_IDLE: #2659, #2978. SYNTHETIC_STOP: #5322. LOCKED_OUT: #4228, in either mode, as no answer
- * of the founder's mends it. `isFounderWait`, a block that waits on the founder, in a
- * thread his answer resumes (#3584).
- * @type {Record<Cause, {away: Rule, normal: Rule, isFounderWait: boolean}>}
- */
+/** @type {Record<Cause, {away: Rule, normal: Rule, isFounderWait: boolean}>} */
 const TABLE = {
 	QUESTION: { away: stopAtOnce, normal: waitForAnswer, isFounderWait: true },
 	PERMISSION: { away: stopAtOnce, normal: waitForAnswer, isFounderWait: true },
@@ -298,17 +198,14 @@ const TABLE = {
 	UNKNOWN: { away: leave, normal: leave, isFounderWait: false },
 };
 
-/**
- * Whether a block of this cause waits on the founder.
- * @param {Cause|undefined} cause
- */
+/** @param {Cause|undefined} cause */
 const isFounderWait = (cause) =>
 	cause !== undefined && TABLE[cause].isFounderWait;
 
 /**
  * @param {Block} block
  * @param {"away"|"normal"} mode
- * @param {number} now ms
+ * @param {number} now
  * @returns {Act}
  */
 const blockAct = (block, mode, now) => TABLE[block.cause][mode](block, now);

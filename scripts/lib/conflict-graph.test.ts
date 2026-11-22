@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the substrate-conflict graph: which candidates share a file, which a
- * live session's claims rule out, and the disjoint set it proposes
- * (mantahostels#1002; terminal holders, #637).
- *
- * The graph is pure apart from readHeldFiles(), which reads the arbiter's claim
- * store — pointed at a throwaway CLAUDE_CONFIG_DIR here, never the founder's,
- * which would make the suite report on whatever live sessions happen to hold.
- *
- * pick-next.js prints this graph for /pick-next, so a loosened case lets it
- * launch two tickets that write one file side by side, or hold back one that
- * nothing blocks.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -66,7 +53,6 @@ describe("which candidates cannot run alongside which", () => {
 		const g = build([cand(1, ["CLAUDE.md"]), cand(2, ["CLAUDE.md"])]);
 		expect(g.conflicts).toEqual([]);
 		expect(g.stampSharing.pairs).toBe(1);
-		// And so both run: a stamp disqualifies nobody (mantahostels#1281).
 		expect(g.proposed).toEqual([1, 2]);
 	});
 
@@ -75,7 +61,6 @@ describe("which candidates cannot run alongside which", () => {
 			cand(1, ["docs/doc-map.md", "scripts/a.js"]),
 			cand(2, ["docs/doc-map.md", "scripts/a.js"]),
 		]);
-		// The conflict names only the file that disqualifies, never the stamp.
 		expect(g.conflicts).toEqual([{ a: 1, b: 2, paths: ["scripts/a.js"] }]);
 		expect(g.stampSharing.pairs).toBe(0);
 		expect(g.proposed).toEqual([1]);
@@ -156,7 +141,6 @@ describe("the proposed disjoint set", () => {
 	});
 
 	it("does not let a dropped candidate reserve the paths it never gets to write", () => {
-		// mantahostels#2 loses `a.js` to mantahostels#1 and is out — so its `b.js` is free, and mantahostels#3 takes it.
 		const g = build([
 			cand(1, ["a.js"]),
 			cand(2, ["a.js", "b.js"]),
@@ -220,12 +204,6 @@ describe("the merge test's mechanical limbs", () => {
 	});
 
 	it("cannot admit a grep-derived candidate, which never carries a size (mantahostels#1001)", () => {
-		/*
-		 * The merge test admits on size alone, never on source, so the invariant
-		 * keeping a prediction out of it is `provisional` meaning `sizeBand: null`
-		 * without exception — `write-set-predict.js` carries no size forward for
-		 * exactly this reason.
-		 */
 		const g = build([
 			{ number: 1, writeSet: ["scripts/a.js"], source: "grep", sizeBand: null },
 			cand(2, ["scripts/a.js"], "small"),
@@ -435,8 +413,6 @@ describe("reading the live file claims", () => {
 	});
 
 	it("reports an unreadable store rather than an empty frontier of claims", () => {
-		// A locks directory that is a file, so readdir fails with something other
-		// than ENOENT.
 		const state = path.join(
 			dir,
 			"projects",
@@ -474,7 +450,7 @@ describe("reading the live file claims", () => {
 					ids: new Set(["finished"]),
 					names: new Map([["finished", "Implement 2734"]]),
 				},
-				new Set([1, 2, 3]), // 2734 is not among this run's open issues
+				new Set([1, 2, 3]),
 			);
 			expect(held.files).toEqual([]);
 		});
@@ -492,8 +468,6 @@ describe("reading the live file claims", () => {
 		});
 
 		it("still drops a claim whose session the oracle does not list, issue open or not", () => {
-			// The mantahostels#2694 shape: absent from `claude agents --json` altogether. The
-			// liveness check gates before the issue check ever runs.
 			lock("scripts/bg-run.sh", "gone");
 			arbiter.claimIssue(2694, { sessionId: "gone" });
 			const held = graph.readHeldFiles({ ids: new Set() }, new Set([2694]));
@@ -512,16 +486,12 @@ describe("reading the live file claims", () => {
 		});
 
 		it("keeps a claim where its holder has a stale record on a closed issue AND a live one still open — first-writer-wins over the two must not strand it", () => {
-			// claimIssue writes one file per (issue, session) and never clears an
-			// earlier one, so a session moving from mantahostels#100 (closed, never released)
-			// onto mantahostels#200 (open) holds both records. Whichever readdirSync happens to
-			// return first must not decide this.
 			lock("scripts/live.js", "busy");
 			arbiter.claimIssue(100, { sessionId: "busy" });
 			arbiter.claimIssue(200, { sessionId: "busy" });
 			const held = graph.readHeldFiles(
 				{ ids: new Set(["busy"]) },
-				new Set([200]), // only mantahostels#200 is open; mantahostels#100 has closed
+				new Set([200]),
 			);
 			expect(held.files.map((f: { path: string }) => f.path)).toEqual([
 				"scripts/live.js",
@@ -534,15 +504,13 @@ describe("reading the live file claims", () => {
 			arbiter.claimIssue(101, { sessionId: "done" });
 			const held = graph.readHeldFiles(
 				{ ids: new Set(["done"]) },
-				new Set([200]), // neither 100 nor 101 is open
+				new Set([200]),
 			);
 			expect(held.files).toEqual([]);
 		});
 
 		it("reports why where the issue-claims store itself could not be read, rather than skipping silently", () => {
 			lock("scripts/live.js", "alive");
-			// A directory in place of the issue-claims store forces a non-ENOENT
-			// readdir failure.
 			const issueClaimsDir = path.join(
 				dir,
 				"projects",
@@ -555,7 +523,6 @@ describe("reading the live file claims", () => {
 				{ ids: new Set(["alive"]) },
 				new Set([1]),
 			);
-			// Fails open: the claim is still shown as held...
 			expect(held.files.map((f: { path: string }) => f.path)).toEqual([
 				"scripts/live.js",
 			]);

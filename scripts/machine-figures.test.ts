@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The machine-figures SessionStart hook prints the machine's live figures in
- * one line, and names a read that fails rather than printing it as 0 (#5340).
- * The machine rules carry no figures, so this line is the only place a
- * session learns them: a 0 printed for a failed read would pass for a real
- * figure. Each read is fed through its own seam, so each failure is tried
- * alone.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -17,7 +9,6 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 
 const HOOK = path.resolve(__dirname, "machine-figures.sh");
 
-/** A 10,240 MiB machine with 2,048 MiB of swap. */
 const MEMINFO = buildMeminfo({
 	availableMb: 5000,
 	swapTotalMb: 2048,
@@ -35,15 +26,11 @@ afterEach(() => {
 });
 
 interface Stubs {
-	/** What `uname -m` prints, or null for a `uname` that fails. */
 	uname?: string | null;
-	/** What `nproc` prints, or null for an `nproc` that fails. */
 	nproc?: string | null;
-	/** The meminfo file's text, or null for no file. */
 	meminfo?: string | null;
 }
 
-/** The hook's output under stubbed `uname`/`nproc` and a fixture meminfo. */
 const figures = ({
 	uname = "aarch64",
 	nproc = "8",
@@ -94,17 +81,10 @@ describe("the machine-figures line", () => {
 	});
 });
 
-/* The production adapter behind the seams (base §G7): the real `uname`,
- * `nproc` and /proc/meminfo, which cost nothing to call. Skipped where there
- * is no /proc/meminfo, as off Linux the hook names it unreadable, which the
- * stub cases already cover. */
 describe.runIf(fs.existsSync("/proc/meminfo"))(
 	"the real binaries and meminfo",
 	() => {
 		it("give the line this machine's own figures", () => {
-			/* Through bash as the hook is, since a traced run pins its bash
-			 * children to one CPU (lib/read-audit-trace.js), and nproc counts
-			 * the CPUs its process may use. */
 			const real = (cmd: string) =>
 				spawnSync("bash", ["-c", cmd], { encoding: "utf8" }).stdout.trim();
 			const meminfo = fs.readFileSync("/proc/meminfo", "utf8");

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins pretest-reap.js: it reaps finished sessions only when memory is short of
- * the rung the starting suite needs, never refuses the suite on any failure,
- * and is wired as both npm pre-scripts (mantahostels#1840, #633).
- *
- * The script is run end to end through runInProcess (#1369: nothing is
- * exported for its tests), with its three outside reads pointed at fixtures by
- * the env seams it already has. So no test here reads this machine's memory
- * or stops a real session.
- *
- * It runs before every `npm run test`: loosen a case and a suite is hard-blocked
- * by a failing pre-script, or a short session stops to ask the founder for
- * memory the reap would have freed.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -25,15 +11,12 @@ import { EARLYOOM_FLOOR_MB } from "./lib/suite-ladder.js";
 
 const SCRIPT = path.join(__dirname, "pretest-reap.js");
 
-/** Rung n's resting MB, n whole suites of WHOLE_SUITE_WORKERS, read out of
- * admission.js rather than copied (mantahostels#2715). */
 const rungMb = (n: number) => suiteRungMb(n * WHOLE_SUITE_WORKERS);
 const R1 = rungMb(1);
 const R2 = rungMb(2);
 const R3 = rungMb(3);
 const ONE = `the ${R1} MB one-suite rung`;
 
-/* A process line admission.js counts as one running vitest suite. */
 const VITEST = "node /r/node_modules/.bin/vitest run";
 
 let dir: string;
@@ -49,16 +32,10 @@ let totalLine = "";
 const buildMeminfoLine = (mb: number) =>
 	`${totalLine}MemAvailable: ${mb * 1024} kB\n`;
 
-/**
- * Run the script with `mbs[0]` MB available before the reap and `mbs[1]` (or
- * `mbs[0]` again) after it. `suites: null` makes `ps` fail; `reaper: "throws"`
- * makes the stub reaper die with a stack on stderr.
- */
 function run(opts: {
 	mbs?: number[];
 	unreadable?: boolean;
 	suites?: number | null;
-	/** Further `ps` lines beside the `suites` whole ones. */
 	ps?: string[];
 	reaper?: "throws";
 }) {
@@ -136,8 +113,6 @@ describe("pretest-reap.js", () => {
 		expect(r.code).toBe(0);
 	});
 
-	/* The reaper's stack goes to its own stderr; only the first line of the
-	 * error (execFileSync's "Command failed") reaches the suite's output. */
 	it("runs the suite anyway when the reaper throws", () => {
 		const r = run({ mbs: [R1 - 1500], reaper: "throws" });
 		expect(r.reaps).toBe(1);
@@ -146,7 +121,6 @@ describe("pretest-reap.js", () => {
 		expect(r.code).toBe(0);
 	});
 
-	/* Rung n + 1 for n running: its own figure reaps just under, stays silent at it. */
 	it.each([
 		[0, 1, ONE],
 		[1, 2, `the ${R2} MB rung for suite 2 of 3`],
@@ -167,7 +141,6 @@ describe("pretest-reap.js", () => {
 		},
 	);
 
-	/* Past the cap the guard's extrapolated rung: ~527 MB a worker past 9. */
 	it("judges a suite past the cap against the rung for its workers", () => {
 		const r = run({ mbs: [10_499, 10_499], suites: 3 });
 		expect(r.reaps).toBe(1);
@@ -183,7 +156,6 @@ describe("pretest-reap.js", () => {
 		expect(above.lines).toEqual([]);
 	});
 
-	/* 16 Nov's ~13150 MB rung on a 9930 MB machine (#5310). */
 	it("clamps a rung past MemTotal less earlyoom's line, and says so", () => {
 		totalLine = "MemTotal: 10168320 kB\n";
 		const ceiling = 9930 - EARLYOOM_FLOOR_MB;
@@ -196,7 +168,6 @@ describe("pretest-reap.js", () => {
 		expect(at.reaps).toBe(0);
 	});
 
-	/* A running 1-file run weighs 1 worker, not a whole suite (#2560). */
 	it("judges a whole launch beside one running 1-file run against the 3,650 MB rung", () => {
 		const ps = [
 			"node /r/node_modules/.bin/vitest run --passWithNoTests a.test.ts",
@@ -234,8 +205,6 @@ describe("pretest-reap.js", () => {
 	});
 });
 
-/* npm fires `pre<name>` for script `<name>` and no other, so each npm suite
- * command needs its own pre-script to reap on its way in (#633). */
 describe("package.json wiring (#633)", () => {
 	const pkg = JSON.parse(
 		fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf8"),
@@ -248,8 +217,6 @@ describe("package.json wiring (#633)", () => {
 		},
 	);
 
-	/* The reap belongs in the pre-script: chained into `test:changed` itself,
-	 * a reap failure would fail the run. */
 	it("leaves `test:changed` itself the plain `--changed` run", () => {
 		expect(pkg.scripts["test:changed"]).toMatch(
 			/node scripts\/run-vitest\.js --changed$/,

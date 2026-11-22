@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * lib/check-sh-rules.js, the guard-check-sh core (#2800), in process: which
- * commands are the shell gate, so are handed the two shellcheck rules before
- * they run (mantahostels#1805, spec mantahostels#1762), and which are the full
- * run, so are also handed the changed-paths route (#1015).
- *
- * The core names ids and nothing else; the rule texts, their order in the
- * envelope, the cap, the latch and the store fault are the kit's, and
- * guard-check-sh.test.ts's boundary set. That file also pins the fragments'
- * operative clauses.
- *
- * Break it and a session runs `npm run check:sh` without the rules, where a
- * missing binary's silent exit reads as a clean gate; make it deny and every
- * shell-gate run is wedged.
- */
 
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -35,9 +20,6 @@ const ctx = kitContextFake({ cwd: "/repo", moduleOn: () => true });
 const TWO = {
 	injectRules: ["shellcheck-not-installed", "shellcheck-source-directive"],
 };
-/* The full run's: the missing binary first, the directive second — whether
- * the run means anything at all comes before how to read what it found —
- * then the cheaper route. */
 const THREE = {
 	injectRules: [
 		"shellcheck-not-installed",

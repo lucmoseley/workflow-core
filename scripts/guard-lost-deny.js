@@ -1,54 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-lost-deny.js — Stop hook. Tells a session that a DENY-CAPABLE guard was
- * killed mid-call and failed open, while that session is still alive to re-check
- * the act that escaped. That happens only below Claude Code 2.1.295 or on a
- * registration without `onFailure: "block"` (#2670).
- *
- * WHY IT EXISTS (mantahostels#2299). A guard cancelled at its timeout fails open
- * silently: the tool call it was judging simply proceeds, and nothing in the
- * session says so.
- *
- * WHAT IS LEFT TO IT (#2670). Every deny-capable registration the plugin ships
- * carries `"onFailure": "block"`, so on Claude Code 2.1.295 and later the
- * harness refuses the call instead and writes no `hook_cancelled` record. A
- * registration without the field is an adopter's own.
- *
- * WHY Stop AND NOT SessionStart OR PreToolUse (censuses at mantahostels#2299). A
- * SessionStart reporter runs where the failure volume is and is itself
- * cancelled there, and it reaches a session before its loss has happened, not
- * one that could still act. A PreToolUse reporter would add one more shell to
- * the fan-out that causes the burst in the first place (mantahostels#2287).
- *
- * THE DENY-CAPABLE SET IS DERIVED, NEVER LISTED. `lib/deny-capable.js` reads
- * each guard's own source for a route to a refusal, so a guard added later
- * joins the set with no edit here.
- *
- * IT SPEAKS BY BLOCKING. A Stop hook has no other channel to the model — an
- * exit-0 hook reaches the transcript and the user, never the session — so a
- * report that is never read is no report.
- * The block is bounded twice over: once per tool call for ever, and at most
- * MAX_BLOCKS turns per session. Demanding nothing of the turn makes it a
- * REPORTING guard (docs/agents/guard-authoring.md), which is why the first
- * bound is a `seen` set of toolUseIDs and not a counter.
- *
- * EACH GUARD IT NAMES CARRIES ITS MEASURED DENY RATE (mantahostels#3261). A
- * replay costs a second turn, and the rate is what tells a session whether to
- * spend it. `lib/guard-deny-rates.js` holds the figures, the cut and
- * their provenance.
- *
- * IT HAS A SECOND MODE, WHICH IS NOT A HOOK. `replay <transcript> <toolUseID>`
- * is run by hand, from the command line the block prints, and exits 2 where it
- * cannot act — no arguments, an unreadable transcript, a tool call that lost no
- * deny-capable guard. The `guard-*` contract, failing open and exiting 0 on a
- * fault it catches, is the hook path's and is untouched; this is the shape §N4 sanctions for `check-*`, a
- * non-checking subcommand exiting on its own path.
- *
- * ONE RESIDUAL, UNREACHABLE TODAY. Past 16 MB `lib/session-transcript.js` reads
- * the last 8 MB only, so a cancellation inside that tail whose `tool_use` record
- * sits before it is named but not described, and `replay` cannot rebuild its
- * payload.
- */
 
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
@@ -68,43 +18,24 @@ const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
 
 /**
- * The slice of the Stop payload this guard reads.
  * @typedef {{session_id?: string, hook_event_name?: string,
  *   transcript_path?: string, stop_hook_active?: unknown}} Payload
  */
 
 /**
- * One lost hook, as the harness records it.
  * @typedef {{toolUseID: string, guard: string, type: string,
  *   durationMs: number|null, timeoutMs: number|null,
- *   exitCode: number|null, pricedAs: string[]}} Loss `pricedAs` names
- *   what the loss is priced as: the guard, or the dispatcher's cores (#3272)
+ *   exitCode: number|null, pricedAs: string[]}} Loss
  */
 
-/** The two attachment types that say a hook did not complete. */
 const FAILURE_TYPES = new Set(["hook_cancelled", "hook_non_blocking_error"]);
 
-/*
- * ONLY A PreToolUse LOSS IS AN ESCAPED DENY. A deny is a PreToolUse verdict; a deny-capable script also
- * wired somewhere else has no permission authority on that other event, so
- * reporting one would be a false alarm and `replay` would fabricate a payload
- * for an authority it never had.
- */
 const DENY_EVENT = "PreToolUse";
 
-/** Tool calls already reported, one id per line (lib/report-once.js). */
 const SEEN_PREFIX = ".lost-deny-seen-";
 
 /**
- * Every deny-capable guard killed in this transcript, newest last.
- *
- * `stats`, where a caller passes one, gets `stats.skipped` incremented per line
- * that would not parse (mantahostels#3311), and a loss recorded on such a line is silently
- * absent from this list. It is rare, and it does NOT heal — the corruption is
- * persistent (`lib/transcript.js` `mainChainRecords`), so the count is a limit
- * on this reading and never something a later Stop makes good.
- *
- * @param {string} text the transcript
+ * @param {string} text
  * @param {"main" | "subagent"} tier
  * @param {PriceOf} priceOf
  * @param {{skipped: number}} [stats]
@@ -121,7 +52,6 @@ function lossesIn(text, tier, priceOf, stats) {
 }
 
 /**
- * One record's loss of a deny-capable guard, or null where it records none.
  * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @param {PriceOf} priceOf
  * @returns {Loss | null}
@@ -132,8 +62,6 @@ function lossOf(record, priceOf) {
 	if (typeof a.command !== "string" || !a.command) return null;
 	if (typeof a.toolUseID !== "string" || !a.toolUseID) return null;
 	if (a.hookEvent !== DENY_EVENT) return null;
-	/* The harness writes the exec form's `args` into `.command` already
-	 * (measured at mantahostels#2059), so there is no second field to pass. */
 	const guard = guardKey(a.command);
 	if (!guard) return null;
 	const pricedAs = priceOf(guard, a.toolUseID);
@@ -150,8 +78,6 @@ function lossOf(record, priceOf) {
 }
 
 /**
- * A guard key's script file: its first word, as guardKey writes it.
- *
  * @param {string} key
  */
 function guardName(key) {
@@ -160,16 +86,11 @@ function guardName(key) {
 }
 
 /**
- * What a guard lost on a call is priced as, [] where it could not have denied
- * it. guardKey appends the arguments that distinguish two registrations of
- * one script; the file is the first word. The dispatcher is priced as the
- * cores able to deny that it ran on the call, none where it ran none, and as
- * itself where the transcript no longer holds the call (#3272).
  * @typedef {(guard: string, toolUseID: string) => string[]} PriceOf
  *
  * @param {string[]} dirs
  * @param {Map<string, {name: string, input: unknown}>} calls
- * @param {string} root the session's repo, whose config disables cores
+ * @param {string} root
  * @returns {PriceOf}
  */
 function priceIn(dirs, calls, root) {
@@ -188,12 +109,6 @@ function priceIn(dirs, calls, root) {
 }
 
 /**
- * Every tool call in this transcript, by its id.
- *
- * `stats` is `lossesIn`'s, and for the same reason: a call recorded on an
- * unparseable line is absent from this map, and `replay` reports that as "not a
- * tool call in this file" unless it is told to say otherwise (mantahostels#3311).
- *
  * @param {string} text
  * @param {"main" | "subagent"} tier
  * @param {{skipped: number}} [stats]
@@ -218,9 +133,6 @@ function toolCallsIn(text, tier, stats) {
 }
 
 /**
- * How one guard came to be lost, in the words its record supports. A cancelled
- * hook was killed mid-call; a `hook_non_blocking_error` one RAN and exited
- * non-zero, which is a different fact and reads wrongly as "killed".
  * @param {Loss} l
  * @returns {string}
  */
@@ -233,8 +145,7 @@ function howItWent(l) {
 }
 
 /**
- * One line pricing what a call lost.
- * @param {string} lost a guard's key, or a core's name
+ * @param {string} lost
  * @returns {string}
  */
 function describeLost(lost) {
@@ -244,13 +155,10 @@ function describeLost(lost) {
 }
 
 /**
- * The block's text: one stanza per tool call, each naming the guards lost on it
- * and the command that re-runs them against the same payload.
- *
  * @param {Loss[]} fresh
  * @param {Map<string, {name: string, input: unknown}>} calls
  * @param {string} transcript
- * @param {number} [skipped] unparseable lines in the read this list came from
+ * @param {number} [skipped]
  * @returns {string}
  */
 function reportFor(fresh, calls, transcript, skipped = 0) {
@@ -309,13 +217,9 @@ function reportFor(fresh, calls, transcript, skipped = 0) {
 }
 
 /**
- * EVERY PATH BELOW FAILS OPEN AND LEAVES A BREADCRUMB (mantahostels#1731). The two
- * paths that do not appear here — an unparseable payload and a missing session
- * id — are `lib/stop-guard.js`'s, and crumb the same vocabulary from there.
- *
  * @param {{sessionId: string, payload: Payload, root: string,
  *   note: (outcome: string, payload?: Payload) => void}} ctx
- * @returns {boolean} whether a block was emitted
+ * @returns {boolean}
  */
 function review({ sessionId: sid, payload, root, note }) {
 	const file = sessionTranscript.resolve(payload, sid);
@@ -349,17 +253,12 @@ function review({ sessionId: sid, payload, root, note }) {
 		return false;
 	}
 	if (losses.length === 0) {
-		/* Read the transcript and found no lost deny — a verdict, not a failure
-		 * to reach one. Spelled `no-finding` rather than `empty-message`, which in
-		 * every other guard means there was no text to read at all (mantahostels#2545). */
+		// lucmoseley/mantahostels#2545
 		note("no-finding", payload);
 		return false;
 	}
 	note("message", payload);
 
-	/* Already continuing because some Stop hook blocked: a second demand on the
-	 * same turn teaches neither. Tested after the read so that every invocation
-	 * leaves exactly one breadcrumb. */
 	if (payload?.stop_hook_active === true) return false;
 
 	return reportOnce({
@@ -378,7 +277,6 @@ function review({ sessionId: sid, payload, root, note }) {
 }
 
 /**
- * The transcript's session id: the last one any main-chain record carries, or "".
  * @param {string} text
  * @param {"main" | "subagent"} tier
  * @returns {string}
@@ -392,31 +290,24 @@ function lastSessionId(text, tier) {
 }
 
 /**
- * Run one lost guard on the reconstructed payload, printing what it said.
- * @param {string} guard the guard's key, as `guardKey` gives it
+ * @param {string} guard
  * @param {string} payload
- * @param {string[]} dirs where to find it, as `guardDirs` gives them
- * @returns {boolean} whether it denied the call
+ * @param {string[]} dirs
+ * @returns {boolean}
  */
 function replayGuard(guard, payload, dirs) {
 	const name = guardName(guard);
 	const args = guard.split(" ").slice(1);
 	process.stdout.write(`\n=== ${guard} ===\n`);
-	/* `lossesIn` admitted it on reading it there, so only a file removed since
-	 * lands here. */
 	const script = guardPath(name, dirs);
 	if (!script) {
 		process.stdout.write("could not run it: the file is gone\n");
 		return false;
 	}
-	/* guardKey throws the `node` prefix away with the rest of the wrapper, so
-	 * a .js guard spawned on its own path would need an exec bit it has no
-	 * reason to carry. */
 	const [bin, argv] = name.endsWith(".js")
 		? [process.execPath, [script, ...args]]
 		: [script, args];
-	/* A `DENIES-BY: exit 2` guard may exit before it reads the payload: it
-	 * ran, and its status stands (#3794). */
+	// #3794
 	const run = withoutLateEpipe(
 		spawnSync(bin, argv, { input: payload, encoding: "utf8" }),
 	);
@@ -429,9 +320,7 @@ function replayGuard(guard, payload, dirs) {
 	process.stdout.write(
 		run.status === null ? `killed by ${run.signal}\n` : `exit ${run.status}\n`,
 	);
-	/* A PreToolUse deny is a JSON verdict on stdout or Claude Code's blocking
-	 * exit 2, which the harness reads as a refusal whatever the guard meant by
-	 * it — `DENIES-BY: exit 2` guards rely on it (lib/deny-capable.js, #3580). */
+	// #3580
 	return (
 		run.status === 2 ||
 		/"permissionDecision"\s*:\s*"deny"/.test(run.stdout || "")
@@ -439,21 +328,8 @@ function replayGuard(guard, payload, dirs) {
 }
 
 /**
- * Re-run every deny-capable guard that was killed on one tool call, against the
- * payload the harness would have handed it.
- *
- * THE PAYLOAD IS RECONSTRUCTED, NOT REPLAYED FROM A RECORDING: the harness keeps
- * no copy of what it piped into a hook, so this rebuilds the four fields the
- * PreToolUse guards read (`lib/guard-entry.js`) out of the tool_use
- * record and the transcript's own session id. A guard reading a field outside
- * that set sees it empty and, by its own fail-open contract, allows.
- *
- * THE GUARDS RUN FOR REAL, side effects and all — a rule-injection latch, a poll
- * counter. That is the point: the verdict is what was lost, and a guard that
- * only pretended to run would be the same silence again.
- *
- * @param {string[]} argv `[transcriptPath, toolUseID]`
- * @returns {number} an exit code
+ * @param {string[]} argv
+ * @returns {number}
  */
 function replay(argv) {
 	const [file, toolUseID] = argv;
@@ -478,9 +354,6 @@ function replay(argv) {
 	const dirs = guardDirs(coreRoot(), root);
 	const tier = isSubagentTranscript(file) ? "subagent" : "main";
 	const stats = { skipped: 0 };
-	/* Both "not found" exits below are indistinguishable from "found nothing"
-	 * unless the incomplete read is named, and the reader's next move differs:
-	 * read the file at that line, rather than hunt a mistyped id (mantahostels#3311). */
 	const partial = () =>
 		stats.skipped
 			? ` (${stats.skipped} line(s) of it would not parse and were skipped, so the call may be there and unreadable.)`
@@ -493,8 +366,6 @@ function replay(argv) {
 		);
 		return 2;
 	}
-	/* Reset: the two reads walk the same text, so an unreset counter would have
-	 * `partial()` report every skipped line twice. */
 	stats.skipped = 0;
 	const guards = [
 		...new Set(
@@ -531,8 +402,7 @@ function replay(argv) {
 	return 0;
 }
 
-/* cli-args-exempt: the hook path takes no argv and must fail open, where a
- * parseOrExit refusal exits 2, a Stop block; `replay` checks its own two. */
+// cli-args-exempt: #1017
 if (require.main === module) {
 	if (process.argv[2] === "replay")
 		process.exitCode = replay(process.argv.slice(3));

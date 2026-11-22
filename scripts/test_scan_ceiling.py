@@ -62,9 +62,6 @@ def utc(s):
     return dt.datetime.fromisoformat(s).replace(tzinfo=dt.timezone.utc)
 
 
-# --- classification -------------------------------------------------------
-
-
 def test_session_window_exhaustion_is_a_ceiling_event():
     ev = classify(rec("You've hit your session limit · resets 1pm (Asia/Singapore)"))
     assert ev is not None
@@ -83,11 +80,6 @@ def test_progress_saved_suffix_does_not_change_the_kind():
 
 
 def test_request_rejected_429_is_not_an_exhausted_allowance():
-    """A throughput rejection carries no reset time and frees up in seconds.
-
-    Counting it as ceiling time would book minutes of blockage for a retry that
-    succeeds on the next request.
-    """
     ev = classify(
         rec(
             "API Error: Request rejected (429) · This request would "
@@ -120,11 +112,6 @@ def test_an_ordinary_assistant_turn_is_not_a_ceiling_event():
 
 
 def test_a_weekly_limit_message_is_recognised_as_its_own_kind():
-    """The weekly counter is a different ceiling from the rolling 5-hour one.
-
-    Nothing in this machine's corpus matches, and a run says so — but the
-    classifier must not silently fold a weekly exhaustion into the session row.
-    """
     ev = classify(
         rec(
             "Claude usage limit reached. Your weekly limit will "
@@ -132,9 +119,6 @@ def test_a_weekly_limit_message_is_recognised_as_its_own_kind():
         )
     )
     assert ev["kind"] == "weekly-exhausted"
-
-
-# --- reset resolution -----------------------------------------------------
 
 
 def test_reset_time_resolves_to_the_next_occurrence_of_that_local_time():
@@ -150,7 +134,6 @@ def test_a_reset_time_with_minutes_resolves_to_that_minute():
 
 
 def test_a_reset_past_local_midnight_rolls_to_the_next_day():
-    """21:57 Singapore, resetting at 00:20, is 2h23m away — not 21h37m ago."""
     at = utc("2026-08-07T13:57:08")
     assert sc.reset_at("resets 12:20am (Asia/Singapore)", at) == utc(
         "2026-08-07T16:20:00"
@@ -158,7 +141,7 @@ def test_a_reset_past_local_midnight_rolls_to_the_next_day():
 
 
 def test_noon_and_midnight_are_not_confused():
-    at = utc("2026-08-07T02:00:00")  # 10:00 Singapore
+    at = utc("2026-08-07T02:00:00")
     assert sc.reset_at("resets 12pm (Asia/Singapore)", at) == utc("2026-08-07T04:00:00")
 
 
@@ -166,15 +149,7 @@ def test_a_message_with_no_reset_time_yields_none():
     assert sc.reset_at("Please try again later.", utc("2026-08-07T02:00:00")) is None
 
 
-# --- episodes -------------------------------------------------------------
-
-
 def test_events_sharing_a_reset_instant_are_one_episode_across_sessions():
-    """Six sessions blocked by one exhausted window is one episode, not six.
-
-    Summing per-session blockage instead would multiply one 2-hour outage by
-    however many sessions happened to be running into it.
-    """
     evs = [
         classify(
             rec(
@@ -201,13 +176,6 @@ def test_events_sharing_a_reset_instant_are_one_episode_across_sessions():
 
 
 def test_an_episode_records_each_session_s_last_retry():
-    """Resumption is measured from a session's *last* retry, not its first.
-
-    A session keeps retrying into a spent window, and a turn that lands seconds
-    after the first refusal is an in-flight request, not the allowance coming
-    back. Timing from the first event scores those as early resumptions and so
-    invents a failover that is not there.
-    """
     evs = [
         classify(
             rec(
@@ -265,15 +233,11 @@ def test_an_event_with_no_reset_time_starts_no_episode():
 
 
 def test_duplicate_records_of_one_request_are_counted_once():
-    """A transcript repeats one record across its content blocks."""
     dup = rec(
         "You've hit your session limit · resets 1pm (Asia/Singapore)", rid="req_x"
     )
     evs = sc.dedupe([classify(dup), classify(dup)])
     assert len(evs) == 1
-
-
-# --- interval union -------------------------------------------------------
 
 
 def test_overlapping_episodes_are_not_double_counted():
@@ -289,19 +253,10 @@ def test_disjoint_episodes_add_up():
 
 
 def test_union_splits_an_interval_across_the_day_boundary():
-    """A block running past local midnight belongs to both days, split at the line.
-
-    22:00 to 01:30 Singapore, which is 14:00-17:30 UTC — the split is at the
-    local line, not UTC's, because "how much of the day was lost" is a question
-    about the founder's day.
-    """
     per_day = sc.blocked_by_day(
         [(utc("2026-08-13T14:00:00"), utc("2026-08-13T17:30:00"))]
     )
     assert per_day == {"2026-08-13": 120.0, "2026-08-14": 90.0}
-
-
-# --- reading a transcript -------------------------------------------------
 
 
 def test_events_are_read_out_of_a_transcript_file(tmp_path):
@@ -326,15 +281,7 @@ def test_events_are_read_out_of_a_transcript_file(tmp_path):
     assert tally["unparsed lines"] == 1
 
 
-# --- blocked time against the working day ---------------------------------
-
-
 def test_blocked_time_outside_the_working_day_is_not_counted_as_lost():
-    """A block at 04:00 with nobody at the keyboard costs nothing.
-
-    Wall-clock blockage and lost working time are different figures, and
-    quoting the first as the second is what would overprice spillover capacity.
-    """
     spans = {"2026-08-13": (utc("2026-08-13T01:00:00"), utc("2026-08-13T09:00:00"))}
     overnight = [(utc("2026-08-12T19:00:00"), utc("2026-08-13T00:30:00"))]
     assert sc.overlap_minutes(overnight, spans) == 0
@@ -357,18 +304,12 @@ def test_active_spans_are_the_days_first_and_last_turn():
     )
 
 
-# --- burst rate -----------------------------------------------------------
-
-
 def test_the_five_hour_burst_is_summed_over_the_window_ending_at_the_event():
-    """The window that binds is rolling and 5 hours wide, so the figure that
-    matters at an exhaustion is what was spent in the 5 hours before it — not
-    what the calendar day totalled."""
     series = [
-        (utc("2026-08-13T00:00:00"), 100.0),  # 6h before: outside
-        (utc("2026-08-13T02:00:00"), 10.0),  # inside
+        (utc("2026-08-13T00:00:00"), 100.0),
+        (utc("2026-08-13T02:00:00"), 10.0),
         (utc("2026-08-13T06:30:00"), 1.0),
-    ]  # after the event
+    ]
     assert sc.window_cost(series, utc("2026-08-13T06:00:00"), hours=5) == 10.0
 
 
@@ -401,9 +342,6 @@ def test_a_session_is_owned_by_the_seat_holding_it_unless_it_is_on_two(seat_root
     owner = sc.account_owner()
     assert sc.owner_of("solo", owner) == "plan A"
     assert sc.owner_of("both", owner) is None
-
-
-# --- pricing each cache write at its own TTL (#1209) --------------------------
 
 
 def write_rec(rid, cw, split=None, top=None):
@@ -440,7 +378,6 @@ def test_the_daily_cost_prices_each_cache_write_at_its_ttl_rate(seat_roots):
                     },
                 ),
                 write_rec("b", 1_000_000),
-                # A top-level 0 wins over the nested 1-hour value, as scan_burn reads it.
                 write_rec(
                     "c",
                     2_000_000,
@@ -457,9 +394,6 @@ def test_the_daily_cost_prices_each_cache_write_at_its_ttl_rate(seat_roots):
     assert sc.activity(Counter()).cost_by_day["2026-08-13"] == pytest.approx(
         30 + 18.75 * 3 + reads
     )
-
-
-# --- leaving overflow sessions out of the plan's cost (#3696) -----------------
 
 
 def test_an_overflow_session_costs_the_plan_nothing_but_still_counts_as_working(

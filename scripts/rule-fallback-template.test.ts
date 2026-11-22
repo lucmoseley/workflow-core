@@ -1,22 +1,5 @@
 // @vitest-environment node
-/*
- * The line a guard says in place of a rule fragment its store cannot give
- * (#3018): every one, Node core or bash guard, keeps one template —
- * `<lead>; the rule could not be read from docs/agents/rules/<id>.txt. Restore
- * that file …` — names a fragment that exists, and says the same words
- * wherever two guards fall back for the same id. A drifted one can send the
- * refused session to a fragment that does not exist.
- *
- * Held by a test as well as built by one helper: the bash guards cannot call
- * a Node builder, so each spells the line itself.
- *
- * readRuleTextOr, and a kit core's ruleOrFallback, build the same line from a
- * lead their caller passes, so each literal call is read as the line it
- * answers (#3136, #3146).
- *
- * full-sweep-only: it reads every script and library under scripts/, found by
- * listing the directories, so no literal path names what it reads.
- */
+// full-sweep-only: #3018
 
 import fs from "node:fs";
 import path from "node:path";
@@ -35,7 +18,6 @@ const sources = [
 		.map((f) => `scripts/lib/${f}`),
 ];
 
-/* Every checker and library that may build the line from a lead. */
 const callers = [
 	...fs
 		.readdirSync(path.join(ROOT, "scripts"))
@@ -53,8 +35,6 @@ const callers = [
 const LEAD_CALL =
 	/\b(?:readRuleTextOr\(|ruleOrFallback\(\s*[\w.]+\s*,)\s*"([a-z0-9-]+)",\s*"((?:[^"\\]|\\.)*)"/g;
 
-/* Each lead-building call as the line it answers, or, for a call whose id or
- * lead is no literal, null in their place. */
 const leadCalls = callers.flatMap((file) => {
 	const text = fs.readFileSync(path.join(ROOT, file), "utf8");
 	const calls =
@@ -76,12 +56,9 @@ const leadCalls = callers.flatMap((file) => {
 	];
 });
 
-/* A shell double-quoted string's escapes read, so a bash copy compares with
- * a Node one. */
 const shellRead = (line: string, file: string) =>
 	file.endsWith(".sh") ? line.replace(/\\([`$"\\])/g, "$1") : line;
 
-/* The path a fallback names: literal, or spelt for an install by docPath. */
 const RULE_FILE = String.raw`(?:docs/|\$\{(?:ctx\.)?docPath\(["\`])agents/rules/(\$\{id\}|[a-z0-9-]+)\.txt(?:["\`]\)\})?`;
 const TEMPLATE = new RegExp(
 	String.raw`\S; the rule could not be read from ${RULE_FILE}\. Restore that file\b`,
@@ -100,8 +77,6 @@ const fallbacks = sources.flatMap((file) =>
 );
 
 describe("a guard's rule fallback (#3018)", () => {
-	/* The Node cores build theirs through the two builders (#3146), so the
-	 * scan finds at least those; a scan that lost a directory finds neither. */
 	it("is found at all, so the scan below is not vacuous", () => {
 		expect(fallbacks.map(({ file }) => file)).toEqual(
 			expect.arrayContaining([
@@ -126,8 +101,6 @@ describe("a guard's rule fallback (#3018)", () => {
 		).toBe(true);
 	});
 
-	/* A checker under scripts/ and a kit core under scripts/lib/, so a
-	 * listing that lost either directory fails here (#3146). */
 	it("is found at the lead-building calls too, so that scan is not vacuous", () => {
 		expect(leadCalls.map(({ file }) => file)).toEqual(
 			expect.arrayContaining([

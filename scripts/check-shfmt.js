@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-shfmt.js — shfmt over the tracked shell, for CI and by hand (#1332).
- *
- * Usage:
- *   node scripts/check-shfmt.js [--write] [<path>…]
- *
- * Checks by default, failing on each file shfmt would change; --write
- * rewrites them instead. No paths means every tracked shell file, as
- * lib/formatters.js's shellFiles() picks them (#1828).
- * A missing shfmt or an unreadable path is BROKEN (#1354).
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -23,10 +12,7 @@ const { caught } = require("./lib/caught.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
-/**
- * The paths named on the command line, else every tracked shell file.
- * @param {Ctx} ctx
- */
+/** @param {Ctx} ctx */
 function readTargetFiles(ctx) {
 	if (ctx.args.length > 0) return ctx.args;
 	try {

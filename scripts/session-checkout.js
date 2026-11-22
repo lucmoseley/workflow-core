@@ -1,51 +1,4 @@
 #!/usr/bin/env node
-/*
- * session-checkout.js — the command launchers and sessions call for a session
- * worktree (#4229); the lifecycle itself is lib/session-checkout.js.
- *
- *   node scripts/session-checkout.js cut <session-name>
- *     prints the new worktree's path on stdout; the reaper leaves it while
- *     the session that cut it lives
- *   node scripts/session-checkout.js launch-dir [--no-build] [--into <worktree>] <prompt>
- *     prints the directory a session launched on <prompt> starts in: a
- *     worktree cut for it; with --into, that existing session worktree, refused where a live
- *     process still works in it; with --no-build, a cut or attach finding no
- *     dependency store refuses rather than build one
- *   node scripts/session-checkout.js warm
- *     builds the dependency store for origin/main's lockfile where none
- *     stands, leaving a live builder to finish
- *   node scripts/session-checkout.js attach [<worktree>]
- *     re-points the worktree's node_modules at the store for its lockfile;
- *     the current directory's worktree where none is named
- *   node scripts/session-checkout.js relink
- *     where the current directory's worktree links a store its lockfile no
- *     longer keys, re-points it at the store standing for that lockfile, or
- *     refuses naming attach where none stands; silent where nothing changed
- *   node scripts/session-checkout.js land
- *     merges origin/main into the current directory's worktree and pushes
- *     HEAD to its queue ref, queue/<worktree name>, saying on stderr what it
- *     did and how to read the outcome, and warning where a test its work
- *     touches has no local pass (lib/push-coverage.js); refused, it says why
- *     and what to do before landing again
- *   node scripts/session-checkout.js reap
- *     removes landed, clean worktrees no session can resume and none
- *     finished in the last 3 days, stray directories and unlinked dependency
- *     stores, saying on stderr what it removed and naming each stranded
- *     worktree it may not remove
- *   node scripts/session-checkout.js reopen <job-id>
- *     re-adds the job's worktree at the sha the reaper recorded where it was
- *     removed, then runs `claude attach <job-id>` on the job's seat
- *
- * Exit 0 done, 1 refused or failed (why on stderr), 2 a usage error. A reap
- * that could not remove something it should have exits 1; one that finds
- * stranded work exits 0. A reopen exits as `claude attach` does.
- *
- * IT JOINS NO FAMILY (§G4, §N3): it gates nothing (no `check-*`), no Claude
- * Code hook runs it (no `guard-*`), and git hooks run `relink` only as a helper
- * whose exit they ignore; it generates no file (no `generate-*`) and files no
- * issue (no `report-*`).
- */
-
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { isBackgroundJob } = require("./lib/job-paths.js");
@@ -101,8 +54,6 @@ const CLI = {
 };
 
 /**
- * A reap pass's report lines, each stranded worktree and unregistered
- * checkout with its way out.
  * @param {Exclude<ReturnType<typeof reap>, { busy: number | null }>} r
  * @returns {string[]}
  */
@@ -166,18 +117,13 @@ function renderLandHandOff(env) {
 		: `Wait on its outcome with ${wait}, run in the background (\`run_in_background\`): it exits the moment the lander lands or drops it, so no timer is guessed.`;
 }
 
-/** What a warm pass did to its store, as a suffix to the store's path. */
 const WARMED = {
 	built: ", built now",
 	standing: "",
 	building: ", which another process is building",
 };
 
-/**
- * Each command's run, saying what it did; a refusal throws.
- * @type {Record<string, (named: string | undefined,
- *   flags: Record<string, string | true>) => number | void>}
- */
+/** @type {Record<string, (named: string | undefined, flags: Record<string, string | true>) => number | void>} */
 const RUN = {
 	cut: (named) => {
 		if (named === undefined) throw new Error("cut names no session");
@@ -229,7 +175,6 @@ const RUN = {
 				? `session checkout: pushed ${made.head} to ${made.queue}${made.merged ? `, ${VERIFIED_REF} merged in first` : ""}\n${made.lander}\nIt has not landed: the queue lander moves main to it once the full suite passes. ${renderLandHandOff(process.env)}\n`
 				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on ${VERIFIED_REF} or ${REMOTE}/${made.queue} already\n`,
 		);
-		/* Here, as in land(), so no other command loads the pass store. */
 		const { buildCoverageWarning } = require("./lib/push-coverage.js");
 		const warning = made.coverage && buildCoverageWarning(made.coverage);
 		if (warning) writeFd(2, `session checkout: ${warning}\n`);

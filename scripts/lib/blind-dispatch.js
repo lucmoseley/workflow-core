@@ -1,75 +1,20 @@
-/*
- * blind-dispatch.js — the dispatcher core that makes a blind dispatch state
- * that its git snapshot names no answer (#1783).
- *
- * Every subagent but Explore and Plan starts with a git snapshot taken at
- * dispatch — branch, `git status` entries, the five latest commit subjects — and
- * no dispatch can drop it. A subject naming an item under test, or its expected
- * score, ends that item's blindness for the run. The rule and the recipe for a
- * run with no snapshot are docs/agents/blind-dispatch.md's.
- *
- * What it does to an Agent dispatch whose prompt or description says "blind"
- * ("blind spot" excepted):
- *   * refuses it, printing the snapshot the subagent would read, unless the
- *     prompt carries a `Blind-checked: <sha>` line naming the current HEAD;
- *   * refuses one whose line names an older commit, printing the subjects
- *     landed since;
- *   * refuses a blind fork outright, a fork inheriting the dispatcher's whole
- *     context;
- *   * passes Explore and Plan, and every dispatch where
- *     CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS is on — the recipe's child.
- *
- * Why a refusal rather than an injected rule: injected text reaches the session
- * with the dispatch's result, after the subagent already holds its snapshot,
- * and blind scorers go out in parallel fan-outs, all leaking before any of them
- * returns (docs/doc-map.md §Capture and placement, step 3). The trigger is the
- * word, an inference, so the escape is one line in the prompt rather than a
- * wedge (mantahostels#103).
- *
- * LIMITS
- *  - A blind dispatch that never says "blind" is not seen, and a prompt using
- *    the word in another sense is refused once. Neither rate is measured.
- *  - The line is the dispatcher's word that it read the snapshot; nothing checks
- *    that it did, or judged it right.
- *  - The line pins HEAD alone: a new untracked file, or another branch at the
- *    same commit, still passes it.
- *  - The `includeGitInstructions` setting hides the snapshot too, but a hook
- *    cannot read a session's settings, so that child is still asked for the
- *    line. The recipe uses the environment variable for this reason.
- *  - An unborn branch passes: no commit subject can leak, though its status
- *    entries still do. A cwd outside any repository passes too, logged: the
- *    session's tree is unknown there.
- *  - It passes, unrecorded, wherever git cannot say what HEAD is
- *    (mantahostels#147); a branch, log or status git cannot give prints empty.
- */
-
 const { readCommit } = require("./commit-sha.js");
 const { textOf } = require("./guard-entry.js");
 const { trimEndRun } = require("./trim-run.js");
 
-/**
- * How many subjects or status entries a refusal prints before counting the
- * rest. A guess, never measured: enough to judge by, short of flooding.
- */
+// guess, #5529
 const MAX_LINES = 20;
 
-/**
- * "blind", "blinded", "blindness", but not "blind spot(s)", tried per line as
- * grep reads. The space class is PCRE's ASCII `\s` within a line: JS's would
- * also take Unicode spaces.
- */
 const BLIND = /\bblind(?:ed|ness)?\b(?![ \t\r\f\v-]+spots?\b)/i;
 
-/** The last `Blind-checked: <sha>` line's sha. */
 const CHECKED = /^[ \t\r\f\v]*Blind-checked:[ \t\r\f\v]*([0-9a-fA-F]{7,40})/;
 
-/** The recipe's child, and everything it dispatches, starts with no snapshot. */
 const GIT_OFF = /^(?:1|true|yes|on)$/i;
 
 const FORK =
 	"A fork inherits this session's whole context, so it is never blind: it knows everything you know about the answer. Dispatch the blind work as a fresh subagent (any type but fork), under the rule in docs/agents/blind-dispatch.md (#1783).";
 
-/** A command's output as `$(…)` keeps it: trailing newlines dropped. @param {string} s */
+/** @param {string} s */
 const chomp = (s) => trimEndRun(s, "\n");
 
 /**
@@ -78,7 +23,6 @@ const chomp = (s) => trimEndRun(s, "\n");
  */
 
 /**
- * The full sha `rev` names, or "" where it names none or git would not say.
  * @param {import("./git.js").GitReader} read
  * @param {string} rev
  */
@@ -104,10 +48,6 @@ function decide(prompt, ctx) {
 }
 
 /**
- * A blind dispatch judged against the git snapshot of the session's tree —
- * its linked worktree where it works in one, never the host checkout (#4242)
- * — read from the payload's cwd as the subagent's own snapshot is, else from
- * the tree's root.
  * @param {string} prompt
  * @param {Ctx} ctx
  * @returns {Decision}
@@ -159,10 +99,7 @@ function judge(prompt, ctx) {
 	};
 }
 
-/**
- * `git status --short`, indented, capped at MAX_LINES with the rest counted.
- * @param {string} status
- */
+/** @param {string} status */
 function statusBlock(status) {
 	if (!status) return "  (clean)";
 	const entries = status.split("\n");

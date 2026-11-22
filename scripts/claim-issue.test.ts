@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that a ticket a live session holds is refused with nothing written,
- * that a finished or stopped holder's ticket is claimed, and that two racing
- * sessions never both succeed.
- *
- * claim-issue.js, driven through its command line (#530; the seam ruled on
- * #500, Q1 (A)).
- *
- * Breaking it costs the one guarantee the script exists for — that two
- * sessions never both hold a ticket — so each refusal also asserts that
- * nothing was written: no record, no assignment. It is the claim step
- * `docs/agents/issue-tracker.md` and the rescue-sessions skill send every
- * session through, so a loosened case puts two sessions on one ticket.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -40,7 +26,6 @@ const sb = freshSandbox((s) => {
 	);
 });
 
-/** Serve `body` for `gh api <apiPath>`. */
 const serve = (apiPath: string, body: object) => {
 	const dir = path.join(sb.dir, "api");
 	fs.mkdirSync(dir, { recursive: true });
@@ -69,11 +54,6 @@ const parent = {
 	parent_issue_url: null,
 };
 
-/**
- * The `gh` stub: `api <path>` answers from serve()'s files, `issue edit`
- * fails only where `assign-fails` exists — a label removal also where
- * `unpark-fails` does — and every argv is logged.
- */
 const ghStub = () =>
 	stubGhScript(
 		sb.dir,
@@ -93,7 +73,6 @@ const ghStub = () =>
 
 type Row = string | { sessionId: string; kind: string; state: string };
 
-/** The liveness oracle, listing exactly `rows` — or failing, given null. */
 const oracle = (rows: Row[] | null) => {
 	const bin = path.join(sb.dir, "claude-agents");
 	fs.writeFileSync(
@@ -140,7 +119,6 @@ const readRecords = () =>
 		.map((e: { record: { sessionId: string } }) => e.record.sessionId)
 		.sort();
 
-/** A record on #530 by `sessionId`, as the arbiter itself writes one. */
 const heldBy = (sessionId: string) =>
 	issueClaims.claimIssue(530, { sessionId });
 
@@ -222,7 +200,6 @@ describe("a ticket another session holds", () => {
 
 	it("counts a record stamped after liveness was read as live, though the oracle did not list it", () => {
 		setUp();
-		// The holder's session started after this claim's oracle answered.
 		fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
 		fs.writeFileSync(
 			store.paths.issueClaim(530, "sess-new"),
@@ -275,8 +252,6 @@ describe("two live sessions racing for one ticket", () => {
 				process.execPath,
 				[SCRIPT, "530"],
 				{
-					// Held long enough that the two reads certainly overlap without the
-					// mutex; with it, the second waits well inside MUTEX_WAIT_MS.
 					env: {
 						...env,
 						CLAUDE_PROJECT_DIR: sb.repo,
@@ -297,9 +272,6 @@ describe("two live sessions racing for one ticket", () => {
 		const live = ["sess-a", "sess-b"];
 		for (let round = 0; round < 3; round++) {
 			fs.rmSync(store.paths.issueClaimsDir(), { recursive: true, force: true });
-			// Every env built before the first spawn: envFor rewrites the oracle and
-			// gh stub binaries, and a rewrite while a child execs one fails it with
-			// ETXTBSY (#1590).
 			const envs = live.map((s) => envFor(s, live));
 			const [a, b] = await Promise.all(envs.map(spawnClaim));
 			expect([a.code, b.code].sort()).toEqual([0, 2]);
@@ -480,7 +452,6 @@ describe("a gh read that does not answer", () => {
 	});
 });
 
-/* #2000: a fresh session answering a parked ticket's round clears the park. */
 describe("claiming a parked ticket", () => {
 	const parked = () =>
 		serve(

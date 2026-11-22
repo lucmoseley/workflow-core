@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-/*
- * merge-registry-anchors.js — git's merge driver for
- * `.claude/guard-registry-anchors.json` (#4171), so a merge, revert or
- * cherry-pick never stops on a conflict there:
- *
- *   node <abs>/scripts/merge-registry-anchors.js %O %A %B
- *
- * Writes lib/registry-anchors-merge.js's per-row merge over %A and exits 0.
- * A row both sides moved keeps %A's digest, which the guard-registry gate at
- * `pre-merge-commit` and pre-push then names stale, owing its `--review`.
- *
- * Where a side is not a JSON object of digests, it falls back to git's own
- * text merge, markers and all, and exits 1, a conflict.
- *
- * In no family (§N3): its exits are git's merge-driver alphabet, not runCheck's.
- */
 
 const fs = require("node:fs");
 const { parseArgs } = require("node:util");
@@ -34,7 +18,6 @@ if (values.help) {
 const [base, ours, theirs] = positionals;
 if (base === undefined || ours === undefined || theirs === undefined) {
 	writeFd(2, `merge-registry-anchors: ${USAGE}`);
-	/* Above 128, git fails the merge rather than calling the file conflicted. */
 	process.exit(129);
 }
 /** @param {string} file */
@@ -59,7 +42,6 @@ const text = spawnGitSync(
 	],
 	{ encoding: "utf8" },
 );
-/* merge-file exits with its conflict count, and negative (above 127) on an error. */
 if (text.status === null || text.status > 127) {
 	writeFd(
 		2,

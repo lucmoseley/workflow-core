@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/agent-liveness.js's and lib/block-cause.js's reads of `claude
- * agents --json` (#3005) and lib/claude-stop.js's read of `claude stop`
- * (#2988) to one case list, run against the installed harness's recorded
- * responses (scripts/fixtures/agents-stop.json, re-recorded by
- * `node scripts/record-claude-responses.js`), against
- * lib/agents-stop-fake.ts, which the refill-loop-run suites' `claude` stub
- * prints, and, on the founder's machine, against the real `claude` where a
- * call is free. Breaking it costs the refill loop's judging of its launches: a
- * row the fake shapes as the harness never would passes a test the loop
- * fails, and a no-job answer the stop misreads stops on the wrong seat or
- * not at all.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -52,12 +39,9 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A `claude` whose body is `lines`. */
 const claudeOf = (...lines: string[]) =>
 	writeClaudeStub(path.join(dir, "claude"), lines, 9);
 
-/** The reader's listing off a `claude` at `bin`, each record less the seat
- * the reader names on it (#5293), which no row the CLI prints carries. */
 const readListing = (bin: string) => {
 	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	const listing = listedAgents({ requireSelf: false });
@@ -68,8 +52,6 @@ const readListing = (bin: string) => {
 	});
 };
 
-/** `row` read back unchanged through the listing, with the reaper's and the
- * liveness verdicts its state calls for. */
 const expectReadAlike = (row: Row) => {
 	const [read] = readListing(claudeOf(buildAgentsBranch([row])));
 	expect(read).toEqual(row);
@@ -89,9 +71,6 @@ it("records the working, done and blocked rows the verdicts are held on, and a w
 	expect(recorded.rows.some(isPermissionRow)).toBe(true);
 });
 
-/* A job record and transcript block-cause.js reads QUESTION off, so the
- * reading turns on the row alone: QUESTION, or PERMISSION off a waiting
- * row. */
 const QUESTION_JOB = {
 	state: "blocked",
 	tempo: "blocked",
@@ -104,8 +83,6 @@ describe.each(recorded.rows.filter((r) => r.state === "blocked"))(
 	"a recorded blocked row",
 	(row) => {
 		it("reads as its fake does to block-cause.js", () => {
-			/* As lib/refill-loop-run-testkit.ts builds it, so the fields block-cause.js
-			 * reads are the fake's own, not copied from the recording. */
 			const waiting = isPermissionRow(row);
 			const fake = waiting
 				? buildPermissionRow("job7")
@@ -163,7 +140,6 @@ it("holds an unrecorded row to the harness's field names alone", () => {
 	);
 });
 
-/* The fake's listing answers no recording holds. */
 describe("the fake's listing answers", () => {
 	it("fails with the exit status it is given", () => {
 		vi.stubEnv("WFC_CLAUDE_BIN", claudeOf(buildAgentsBranch({ exit: 4 })));
@@ -238,8 +214,6 @@ describe.each(stopCases)("the $kind stop", ({ kind, outcome }) => {
 	});
 });
 
-/* The fake's unrecorded answers, no daemon giving them on demand: held to
- * the verdict lib/claude-stop.js owes each, with no recorded side. */
 describe.each([
 	{ answer: "busy", outcome: { ok: false, noJob: false, timedOut: false } },
 	{
@@ -263,13 +237,6 @@ describe.each([
 	});
 });
 
-/*
- * The free call, against the installed `claude` on the case's own config dir:
- * a stop of an id no daemon issued (§G7.2). The listing has no live case: under the suite's own
- * CLAUDE_CONFIG_DIR (#838) no daemon lists a session, and the live seat is
- * the one #838 keeps every test out of.
- */
-// Residual: off the founder's machine this skips, and the fixture goes unchecked.
 it.skipIf(claudeLiveSkipReason())(
 	"the installed claude answers a stop of no job as the recording does",
 	() => {

@@ -1,19 +1,10 @@
 #!/usr/bin/env bash
-# machine-figures.sh — SessionStart: one line giving this machine's
-# architecture, cores, total memory and total swap, read live, so a session
-# reasons about the machine it runs on rather than one an instruction file
-# describes (#5340). A read that fails is named as unreadable, never printed
-# as 0.
-#
-# WFC_MEMINFO replaces /proc/meminfo with a fixture, the seam lib/proc-root.js
-# names; WFC_UNAME and WFC_NPROC name the `uname` and `nproc` to run.
 set -uo pipefail
 
 arch=$("${WFC_UNAME:-uname}" -m 2>/dev/null) || arch=
 cores=$("${WFC_NPROC:-nproc}" 2>/dev/null) || cores=
 meminfo=${WFC_MEMINFO:-/proc/meminfo}
 
-# The named meminfo field in MiB, or empty where the file or the field is unreadable.
 mib() {
   awk -v f="$1:" '$1 == f && $2 ~ /^[0-9]+$/ && $3 == "kB" { printf "%d", $2 / 1024; found = 1; exit } END { exit !found }' "$meminfo" 2>/dev/null
 }

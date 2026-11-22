@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/*
- * record-typecheck-red.js — .husky/pre-commit's hand-off of a RED type-check:
- * the output on stdin, the command as its argument (#3824).
- *
- * IT JOINS NO FAMILY (§G4, §N3): it gates nothing, so it is no `check-*`, and it
- * is not a hook, so it is no `guard-*`.
- *
- * A RECORD THAT DOES NOT LAND IS SAID ON STDERR, and exits 0, as the gate that
- * calls it reports and never refuses. No session id records nothing.
- */
 
 const { readFdAll } = require("./lib/read-fd.js");
 const { caught } = require("./lib/caught.js");

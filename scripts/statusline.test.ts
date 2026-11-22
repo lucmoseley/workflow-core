@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The status line carries burn mode only as its restart warning, while this
- * session's model is out of step with the marker (#4062): the refill panel
- * cannot know a session's boot state, and shows the plain on and off itself.
- *
- * The script is machine-level, at ~/.claude/statusline.sh, so what runs here
- * is its reference copy in docs/claude-user-settings.md; `npm run
- * check:settings` holds it to the live file. A miss here shows a burn mode
- * flip as nothing, leaves a session on the wrong model unwarned, or spends a
- * node start on every render of every session.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,6 +15,8 @@ import {
 } from "vitest";
 import { copyBlockPattern } from "./lib/settings-copy";
 import { shellQuote } from "./lib/sh-quote.js";
+
+const SGR = new RegExp(`${"\x1b"}\\[[0-9;]*m`, "g");
 
 const DOC = path.resolve(__dirname, "..", "docs", "claude-user-settings.md");
 
@@ -44,7 +35,6 @@ beforeAll(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "statusline-"));
 	script = path.join(dir, "statusline.sh");
 	fs.writeFileSync(script, `${found[1]}\n`, { mode: 0o755 });
-	// A checkout with scripts/burn-mode.sh, so the workflow-core gate opens.
 	repo = path.join(dir, "repo");
 	fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
 	fs.writeFileSync(path.join(repo, "scripts", "burn-mode.sh"), "");
@@ -69,7 +59,6 @@ afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** One render, colour codes stripped. */
 const render = (projectDir = repo) => {
 	const out = execFileSync("bash", [script], {
 		input: JSON.stringify({
@@ -83,8 +72,7 @@ const render = (projectDir = repo) => {
 		},
 		encoding: "utf8",
 	});
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escapes are what is stripped.
-	return out.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
+	return out.replace(SGR, "").trimEnd();
 };
 
 const CONTEXT = " Ctx: 0/200,000 tok (0.0%)";

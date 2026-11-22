@@ -95,7 +95,6 @@ const LOG_ONLY_ADVICE = {
 	DONE: "the agent has stopped; read its report",
 };
 
-// This file's own path, which in an adopter is the plugin's, not `scripts/`.
 const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>] [--log <agent-log>]
        node ${__filename} --no-artefact <interval-seconds> [ceiling-seconds] --log <agent-log>`;
 
@@ -111,7 +110,7 @@ function refuse(message) {
 /**
  * @param {string | undefined} raw
  * @param {string} name
- * @returns {number} seconds, positive and finite
+ * @returns {number}
  */
 function parseSeconds(raw, name) {
 	const n = Number(raw);
@@ -122,7 +121,7 @@ function parseSeconds(raw, name) {
 
 /**
  * @param {string} file
- * @returns {number | null} the size in bytes, or null where the file is absent
+ * @returns {number | null}
  */
 function readSizeOf(file) {
 	let stat;
@@ -140,11 +139,10 @@ function readSizeOf(file) {
 /** @param {number} ms */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** The verdict state over successive checks of one file's size. */
 class SizeTrack {
 	/**
-	 * @param {number | null} baseline the size at the start, null where absent
-	 * @param {number} firstWriteMs how long a never-seen file is waited on
+	 * @param {number | null} baseline
+	 * @param {number} firstWriteMs
 	 */
 	constructor(baseline, firstWriteMs) {
 		this.size = baseline;
@@ -185,8 +183,8 @@ class SizeTrack {
 /**
  * @param {string | true | undefined} raw
  * @param {string} name
- * @param {number} fallback seconds, where the argument is not given
- * @returns {number} milliseconds
+ * @param {number} fallback
+ * @returns {number}
  */
 const parseOptionalMs = (raw, name, fallback) =>
 	(raw === undefined ? fallback : parseSeconds(String(raw), name)) * 1000;
@@ -349,7 +347,6 @@ async function main() {
 
 module.exports = { main };
 
-// Exit 1, a code no verdict uses, so a crash never reads as one.
 if (require.main === module)
 	main().catch((/** @type {any} */ err) => {
 		writeFd(2, `watch-artefact: ${err?.stack ?? err}\n`);

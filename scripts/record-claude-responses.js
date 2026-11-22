@@ -1,57 +1,4 @@
 #!/usr/bin/env node
-/*
- * record-claude-responses.js — re-records the installed launcher's responses
- * the refill loop reads, as fixtures:
- *   - scripts/fixtures/bg-resume.json: the four `claude --bg --resume <session
- *     id> "<prompt>"` responses lib/bg-resume.js parses (#2968), of a job
- *     still running, which starts a copy, of a stopped one, which wakes in
- *     place, of one whose job directory is gone, which continues under its
- *     own id (#3773), and of one whose job `claude rm` removed, resumed with
- *     its name and model, which continues under its own id with that name
- *     (#4098);
- *   - scripts/fixtures/agents-stop.json: the job's `claude agents --json` rows
- *     as it works, once settled, while a second job waits on its question
- *     (#3005) and while a third waits on a permission prompt (#3008), which
- *     lib/agent-liveness.js and lib/block-cause.js read, and
- *     `claude stop`'s answers to that job and to an id no daemon holds, which
- *     lib/claude-stop.js reads (#2988);
- *   - scripts/fixtures/bg-launch.json: the answers of a fresh `claude --bg
- *     <flags> -- <prompt>` launch, which guard-main-checkout-job.js reads, of a
- *     promptless named one, which start-session.sh reads, of one whose prompt
- *     follows its flags, as dispatch-sessions.js and run-arm-test.js launch,
- *     and of a named one of those, dispatch-sessions.js's overflow launch,
- *     and `claude rm`'s answers to a live job and to an id no daemon
- *     holds, which guard-main-checkout-job.js reads (#4343);
- *   - scripts/fixtures/claude-attach.json: `claude attach`'s exit off a
- *     terminal, and pty_type.py's, which the refill loop's typed resume
- *     reads, typing at it on one (#3014), both at the job waiting on its
- *     question;
- *   - scripts/fixtures/usage-probe.json: the bar lines `claude -p "/usage"`
- *     prints and the seat cache it rewrites, which lib/usage-probe.js,
- *     lib/allowance.js and lib/seat-utilisation.js read (#3266, #3282), off one
- *     probe of this session's seat run as lib/usage-probe.js runs it, to its
- *     end; a seat listing no session bar keeps the previous recording's
- *     (lib/session-bar-carry.js).
- *
- * Run it by hand after a harness upgrade, from a session worktree with its
- * edits committed, then `npm
- * run test -- scripts/lib/bg-resume.contract.test.ts
- * scripts/lib/bg-launch.contract.test.ts scripts/lib/agents-stop.contract.test.ts
- * scripts/lib/claude-attach.contract.test.ts
- * scripts/lib/usage-probe.contract.test.ts`.
- * It launches one throwaway Haiku session and resumes it
- * while it works, then again once stopped, then once more with its job
- * directory deleted, then with its job removed and its name and model passed,
- * launches a second told to ask one question and a third
- * told to run one command it must ask leave for, then a fourth and a fifth
- * with the prompt after their flags, the fifth named, removes that third with
- * `claude rm`, and stops every other job it started, so it spends up to ten short turns. The command never
- * runs: the prompt is never answered. The `/usage` probe spends no turn, but
- * first waits up to two minutes for the seat's cache to age into a refresh.
- *
- * In no family (§N3): it writes a fixture, but makes live sessions to do it,
- * so it is no `generate-*` a gate may run.
- */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -94,13 +41,10 @@ const LAUNCH_FIXTURE = path.join(__dirname, "fixtures", "bg-launch.json");
 const ATTACH_FIXTURE = path.join(__dirname, "fixtures", "claude-attach.json");
 const USAGE_FIXTURE = path.join(__dirname, "fixtures", "usage-probe.json");
 const RECORDED_BY = "node scripts/record-claude-responses.js";
-/* An 8-hex job id no daemon issued, for `claude stop`'s and `claude rm`'s
- * NO_JOB_ANSWER. */
 const NO_JOB = "00000000";
-/* A guess: one such Haiku turn took about 25 s here, under load. */
+// #2968 measured ~25 s a Haiku turn
 const WAIT_MS = 180_000;
-/* A guess: lib/reaper.js stops a done job within a tick, so the poll is
- * short enough not to miss the done row before it goes. */
+// #2968 guess
 const POLL_MS = 1000;
 
 /**
@@ -115,8 +59,6 @@ function claude(args, timeout) {
 
 /** @typedef {{sessionId: string, state: string} & Record<string, unknown>} Row */
 
-/* What the fixture carries in place of this machine's values (§G7.3): each
- * of the job's identity, place and time. */
 const SYNTHETIC = {
 	id: "5e55101d",
 	sessionId: "5e55101d-0000-4000-8000-000000000000",
@@ -124,7 +66,6 @@ const SYNTHETIC = {
 	name: "a recorded session",
 	pid: 4242,
 	startedAt: 1_700_000_000_000,
-	/* The copy's job id, as `id` is the original's. */
 	copyId: "5e55c0b1",
 	removedId: "5e55de1e",
 	idleId: "5e551d1e",
@@ -136,15 +77,10 @@ const SYNTHETIC = {
 const shapeOf = (row) =>
 	`${row.state}/${row.status}/${Object.keys(row).sort().join()}`;
 
-/**
- * Every row of a recorded job the listing printed, one per distinct shape.
- * @type {Map<string, Row>}
- */
+/** @type {Map<string, Row>} */
 const shapes = new Map();
 
 /**
- * The listing's row for job `id`, its shape kept in `shapes` where it is
- * job `kept`'s.
  * @param {string} id
  * @param {string} kept
  * @returns {Row|undefined}
@@ -162,10 +98,7 @@ function listRowKeepingShape(id, kept) {
 	return row;
 }
 
-/**
- * `row` with SYNTHETIC's values; a field whose type changed throws.
- * @param {Row} row
- */
+/** @param {Row} row */
 function synthetic(row) {
 	return Object.fromEntries(
 		Object.entries(row).map(([key, value]) => {
@@ -179,10 +112,8 @@ function synthetic(row) {
 }
 
 /**
- * Poll the listing until job `id`'s row, undefined once it has gone, meets
- * `done`; throws `fails` after WAIT_MS.
  * @param {string} id
- * @param {string} kept  the job whose row shapes are kept
+ * @param {string} kept
  * @param {(row: Row|undefined) => boolean} done
  * @param {string} fails
  * @returns {Promise<Row|undefined>}
@@ -191,8 +122,6 @@ const until = (id, kept, done, fails) =>
 	pollUntil(() => listRowKeepingShape(id, kept), done, `job ${id} ${fails}`);
 
 /**
- * Poll `probe` until its answer meets `done`, and return that answer; throws
- * `fails` after WAIT_MS.
  * @template T
  * @param {() => T} probe
  * @param {(answer: T) => boolean} done
@@ -210,8 +139,6 @@ async function pollUntil(probe, done, fails) {
 }
 
 /**
- * Until job `id` has gone or no longer reads working: done, stopped, or
- * reaped.
  * @param {string} id
  * @param {string} kept
  */
@@ -219,7 +146,6 @@ const settled = (id, kept) =>
 	until(id, kept, (row) => row?.state !== "working", "still working");
 
 /**
- * Job `id`'s first row whose state `done` accepts.
  * @param {string} id
  * @param {(state: string) => boolean} done
  * @param {string} fails
@@ -236,17 +162,10 @@ const OWN_ID_NAME = "a-recorded-resume";
 const NAMED_NAME = "Overflow · a-recorded-launch";
 
 /**
- * Stop job `original`, remove it with `claude rm`, and resume `sessionId` with
- * a name and model (#4098): the 2.1.319 binary copies a resume carrying flags
- * only while a job record exists, so this one continues under its own id,
- * which must take the name; another answer throws.
  * @param {string} sessionId
  * @param {string} original
  */
 async function resumeRemoved(sessionId, original) {
-	/* The listing drops a job's row for a moment as it starts, which settled
-	 * reads as ended; one stopped while still working stays present to the
-	 * daemon a moment, which a resume reads as running, and copies. */
 	await untilRecord(
 		original,
 		(rec) => rec?.state !== "working",
@@ -272,7 +191,6 @@ async function resumeRemoved(sessionId, original) {
 }
 
 /**
- * Until job `id`'s record on this seat meets `done`.
  * @param {string} id
  * @param {(rec: {state?: unknown, name?: unknown}|null) => boolean} done
  * @param {string} fails
@@ -281,8 +199,6 @@ const untilRecord = (id, done, fails) =>
 	pollUntil(() => readJobRecord(configDir(), id), done, `job ${id} ${fails}`);
 
 /**
- * `claude --bg --model haiku [...flags] -- <prompt>`, and the job id it
- * started.
  * @param {string} prompt
  * @param {string[]} [flags]
  */
@@ -290,8 +206,6 @@ const launch = (prompt, flags = []) =>
 	launchArgv(["--bg", "--model", "haiku", ...flags, "--", prompt]);
 
 /**
- * `launched`'s record, its job id swapped for `id`: that launch's line names
- * no session.
  * @param {ReturnType<typeof launchArgv>} launched
  * @param {string} id
  */
@@ -303,10 +217,7 @@ const syntheticLaunch = (launched, id) => ({
 	stderr: launched.stderr.replaceAll(launched.id, id),
 });
 
-/**
- * `claude <argv>`, a launch, and the job id it started.
- * @param {string[]} argv
- */
+/** @param {string[]} argv */
 function launchArgv(argv) {
 	const launched = claude(argv);
 	const id = /backgrounded · ([\w-]+)/.exec(launched.stdout)?.[1];
@@ -318,9 +229,6 @@ function launchArgv(argv) {
 }
 
 /**
- * One resume of `sessionId`, its job `original`, with `flags`, which starts a
- * copy where `copy` holds and wakes `original` in place where it does not;
- * another answer throws, since the fixture's ids would be the wrong ones.
  * @param {string} sessionId
  * @param {string} original
  * @param {boolean} copy
@@ -345,17 +253,8 @@ function resume(sessionId, original, copy, flags = []) {
 	};
 }
 
-/**
- * `claude attach <id>` off a terminal, then typed at through pty_type.py as
- * the refill loop types its resume; each one's exit. pty_type.py exits 0 once
- * the line is written, taken or not: the loop checks the session's timeline
- * for it, so the contract judges the exit alone.
- * @param {string} id
- */
+/** @param {string} id */
 function attachExits(id) {
-	/* The typed attach's bound as a hang guard: off a terminal no draw or
-	 * typed line is waited on, so only `claude attach`'s start-up runs, which
-	 * that bound's margin covers. */
 	const offTerminal = claude(["attach", id], ATTACH_TIMEOUT_MS);
 	const [file, args, opts] = buildTypedAttach(id, SCRIPTED_PROMPT);
 	const onTerminal = spawnSync(file, args, { ...opts, encoding: "utf8" });
@@ -366,10 +265,7 @@ function attachExits(id) {
 	};
 }
 
-/**
- * `claude stop` on each of `ids`, every one tried; why each that failed did.
- * @param {string[]} ids
- */
+/** @param {string[]} ids */
 function stopAll(ids) {
 	const failed = [];
 	for (const id of ids) {
@@ -379,12 +275,7 @@ function stopAll(ids) {
 	return failed;
 }
 
-/**
- * The shapes of the fixture's rows that `rows` hold none of: a shape the
- * listing printed last run and not this one, which the contract no longer
- * holds the fake to.
- * @param {Row[]} rows
- */
+/** @param {Row[]} rows */
 function lostShapes(rows) {
 	const now = new Set(rows.map(shapeOf));
 	try {
@@ -392,10 +283,6 @@ function lostShapes(rows) {
 		return [...new Set(before.rows.map(shapeOf))].filter((s) => !now.has(s));
 	} catch (e) {
 		const c = caught(e);
-		/* No fixture yet is a first recording, with no shape to lose. Any
-		 * other failure warns rather than throws (#3014): the lost-shape
-		 * check is advisory, and throwing would discard a recording its live
-		 * sessions already paid for. */
 		if (c.code !== "ENOENT")
 			writeFd(
 				2,
@@ -405,20 +292,14 @@ function lostShapes(rows) {
 	}
 }
 
-/* The probe rewrites the cache only once its stamp is 58-117 s old (#2189),
- * so a stamp past the band's top makes the recorded refresh certain. */
 const USAGE_REFRESH_AGE_MS = 120_000;
-/* The cached bars lib/allowance.js and lib/seat-utilisation.js read (#3282). */
 const USAGE_KINDS = ["session", "weekly_all", "weekly_scoped"];
-/* What the fixture carries in place of the seat's account and stamp. The
- * bars' percents and reset times stay real: the reset text's format is what
- * lib/allowance.js parses. */
 const SYNTHETIC_USAGE = {
 	accountUuid: "5e55acc0-0000-4000-8000-000000000000",
 	fetchedAtMs: 1_700_000_000_000,
 };
 
-/** The seat's `cachedUsageUtilization`, raw. @param {string} seat */
+/** @param {string} seat */
 function readUsageCacheOf(seat) {
 	const cache = JSON.parse(
 		fs.readFileSync(path.join(seat, ".claude.json"), "utf8"),
@@ -428,11 +309,8 @@ function readUsageCacheOf(seat) {
 	return cache;
 }
 
-/** One `/usage` probe of this session's seat, run to its end once the
- * cache is old enough to refresh, as the fixture records it. */
 async function recordUsage() {
 	const seat = configDir();
-	/* Re-read after each wait: another session's probe may refresh it. */
 	for (
 		let ageMs = Date.now() - readUsageCacheOf(seat).fetchedAtMs;
 		ageMs < USAGE_REFRESH_AGE_MS;
@@ -467,7 +345,6 @@ async function recordUsage() {
 	};
 }
 
-/** The usage-probe fixture this run replaces; null where none is tracked. */
 function previousRecording() {
 	const read = readText(USAGE_FIXTURE);
 	if (read.state === "absent") return null;
@@ -484,7 +361,6 @@ function writeFixture(file, recorded) {
 	writeFd(1, `recorded ${file}\n`);
 }
 
-/** The session worktree the recorder runs in. */
 function launchCwd() {
 	const tree = sessionTree({ cwd: process.cwd() });
 	if (tree === null || mainCheckout(tree) === tree)
@@ -545,8 +421,6 @@ async function main() {
 		);
 		const attached = attachExits(asker);
 		const rows = [...shapes.values()];
-		/* The contract's finished and terminal cases need a done row, and
-		 * lib/block-cause.js's a blocked one and a waiting one. */
 		for (const state of ["working", "done", "blocked"])
 			if (!rows.some((r) => r.state === state))
 				throw new Error(
@@ -590,7 +464,6 @@ async function main() {
 				2,
 				`the listing showed none of these recorded shapes this run: ${lost.join("; ")}\n`,
 			);
-		/* The job ids, and the session's name its launch line prints. */
 		const syntheticText = (/** @type {string} */ text) =>
 			text
 				.replaceAll(copy.startedAs, SYNTHETIC.copyId)
@@ -658,15 +531,12 @@ async function main() {
 			},
 		});
 	} finally {
-		/* A job reaped or already stopped answers NO_JOB_ANSWER. */
 		const unstopped = stopAll(started).filter(
 			(why) => !NO_JOB_ANSWER.test(why),
 		);
 		if (unstopped.length > 0)
 			writeFd(2, `still running, stop by hand: ${unstopped.join("; ")}\n`);
 	}
-	/* Last, once every job is stopped, so its wait or a failure costs no
-	 * other fixture. */
 	const usage = carrySessionBar(
 		{ recordedBy: RECORDED_BY, harness, ...(await recordUsage()) },
 		previousRecording(),

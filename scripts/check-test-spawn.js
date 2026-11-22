@@ -1,31 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-test-spawn.js — a test runs the Node program under test through
- * lib/run-in-process.js, not a spawn of `node`, unless it spawns through
- * lib/kept-spawn.js with a typed reason (base §X3's house clause, #3458, #5483).
- *
- * Usage:
- *   node check-test-spawn.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
- *
- * `.husky/pre-commit` runs it over the whole tree. Not in the scheduled sweeps.
- *
- * A SPAWN is one call of spawnSync, spawn, execFileSync or execFile whose
- * program is `"node"` or `process.execPath`, of execSync or exec on a command
- * string starting `node `, or of fork, in a test file (lib/test-kind.js) under
- * scripts/ or .claude/skills/. A call whose node words lib/shell-words.js's
- * `programSource` reads as `inline` runs inline code, not a program, and is
- * not one. Its identity is the file and the call's first line, whitespace collapsed, with
- * a count among identical lines (lib/fault-profiles.js's `test-spawn`
- * profile): an edit to that line reads as a new spawn, and moving it does not.
- *
- * THE STATED REASON is the call itself spelled `keptSpawn("<reason>").<fn>(`,
- * outside a comment or string, the reason one of lib/kept-spawn.js's REASONS.
- * Any other spelling states none.
- *
- * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses any spawn of `node` in the tree not called through `keptSpawn("<reason>")`, naming the file, line, run-in-process.js and kept-spawn.js.
- * JUSTIFIED: fail-safe — a spawn pays node's startup on every case (mantahostels#1907).
- * DEFEAT:    `keptSpawn` with a listed reason that is not the true one, or the name `keptSpawn` bound to something else; --warn caps findings below the gating line; a program named through a variable, a helper or a testkit; a spawn inside a template literal, or behind an env prefix in a command string; a spawn swapped for another whose first line reads the same; a test file outside scripts/ and .claude/skills/.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -49,7 +22,6 @@ const SPAWN = new RegExp(
 	].join("|"),
 	"g",
 );
-/* The helper call ending right before a spawn: `keptSpawn("fd").`. */
 const HELPER = /\bkeptSpawn\(\s*["'`](\w*)["'`]\s*\)\s*\.\s*$/;
 
 const WHY = "spawns node on the program under test";
@@ -72,7 +44,6 @@ function parseSource(source) {
 			const nl = source.indexOf("\n", at);
 			return nl === -1 ? source.length : nl;
 		},
-		/** The offset past the bracket closing the one at `open`. */
 		closeOf(/** @type {number} */ open) {
 			let depth = 0;
 			for (let i = open; i < source.length; i++) {
@@ -87,11 +58,8 @@ function parseSource(source) {
 }
 
 /**
- * The words a spawn hands node: its argv array's entries, or the words after
- * `node` in a command string.
- *
- * @param {string} args the call's parenthesised arguments
- * @param {boolean} isArgv whether the call takes an argv array
+ * @param {string} args
+ * @param {boolean} isArgv
  */
 function nodeWords(args, isArgv) {
 	if (!isArgv)
@@ -103,8 +71,6 @@ function nodeWords(args, isArgv) {
 }
 
 /**
- * Each spawn in a test file's source that states no reason.
- *
  * @param {string} source
  * @returns {{ line: number, call: string }[]}
  */

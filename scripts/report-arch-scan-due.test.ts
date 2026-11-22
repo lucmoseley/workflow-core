@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * report-arch-scan-due.test.ts — the architecture-scan counter (#1362, #1378,
- * spec #1348 Part 2). Break it and a scan fires on test or data churn, a
- * renamed file counts its whole body as growth, the close step resets a
- * threshold by the wrong factor, or the daily run files a second scan while
- * one is in flight, refiles a due issue closed without a scan, reads twice a
- * day, or fails a session start.
- *
- * Driven end to end through `runInProcess` (§X3) against a throwaway git repo
- * per case, its commits dated by hand, so the window each starting point opens
- * is exact. `gh` is a fake reached through WFC_GH, serving issue listings from
- * files and logging its argv, and the body writer one reached through
- * WFC_ISSUE_BODY, so every case reads what would have reached the tracker.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -27,10 +13,7 @@ import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-arch-scan-due.js");
-/* Inside the default window, which opens 2026-09-21T00:00Z. */
 const IN = "2026-10-01T12:00:00Z";
-/* The issue title and the stamp and lock names the script uses, restated so a
- * rename fails here rather than passing unseen. */
 const TITLE = "Architecture scan due";
 const STAMP = ".arch-scan-read";
 const LOCK = ".arch-scan-read.lock";
@@ -121,7 +104,6 @@ const git = (root: string, args: string[], date = IN) =>
 const lines = (n: number, tag = "x") =>
 	Array.from({ length: n }, (_, i) => `${tag}${i}\n`).join("");
 
-/** Appends `add` lines to each file, creating it where absent; returns the sha. */
 function commit(r: Repo, add: Record<string, number>, date = IN): string {
 	for (const [p, n] of Object.entries(add)) {
 		const file = path.join(r.root, p);
@@ -133,7 +115,6 @@ function commit(r: Repo, add: Record<string, number>, date = IN): string {
 	return git(r.root, ["rev-parse", "HEAD"]);
 }
 
-/** `dir` is where the run starts. */
 function run(r: Repo, args: string[], at = NOW, dir = r.root) {
 	const out = runInProcess(SCRIPT, args, {
 		cwd: dir,
@@ -155,13 +136,11 @@ function run(r: Repo, args: string[], at = NOW, dir = r.root) {
 const read = (f: string) =>
 	fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "";
 const ghCalls = (r: Repo) => read(r.argvLog);
-/** Each `gh issue create` call whole, its multi-line body included. */
 const readCreates = (r: Repo) =>
 	ghCalls(r)
 		.split(/\n(?=issue (?:list|view|create|edit) )/)
 		.filter((l) => l.startsWith("issue create"));
 
-/** The dry run's hot-file rows, as `commits net path`. */
 const hotRows = (stdout: string) =>
 	[...stdout.matchAll(/^ +(\d+) commits +([+-]\d+) {2}(.+)$/gm)].map(
 		(m) => `${m[1]} ${m[2]} ${m[3]}`,
@@ -237,7 +216,6 @@ describe("--dry-run, which files are hot", () => {
 		];
 		for (let i = 0; i < 6; i++)
 			commit(r, Object.fromEntries(ignored.map((p) => [p, 1])));
-		/* Eleven code files, the nth committed n times, so file 1 is cut. */
 		const code = [
 			"k1.js",
 			"k2.mjs",
@@ -304,8 +282,6 @@ describe("--dry-run, which files are hot", () => {
 });
 
 describe("--dry-run, where the window starts and ends", () => {
-	/* +1 before every start, +2 after the seed's, +4 after the default's,
-	 * +8 after the scan's head. */
 	function history(record?: object[]) {
 		const r = repo({ record });
 		commit(r, { "a.js": 1 }, "2026-09-10T00:00:00Z");
@@ -657,7 +633,6 @@ describe("the daily filing run", () => {
 		map: "o/r#7",
 		nextThreshold: 5000,
 	};
-	/** A closed due issue, #100. */
 	function closedDue(r: Repo, createdAt: string, closedAt: string) {
 		fs.writeFileSync(
 			r.issues.closed,

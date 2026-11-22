@@ -1,15 +1,3 @@
-/*
- * breadcrumb-testkit.ts — read back the Stop-guard breadcrumbs `hook-record.js`
- * wrote under a test's root: every `PREFIX` file in `recordsDir`, line by line,
- * sorted by each line's own guard and session rather than by the file name it
- * landed in (#1367). Unlike `check-stop-guard-outcomes.js` it matches the guard
- * name as written, never normalised.
- *
- * A `null` session reads hook-record.js's "unknown-session", restated here
- * because the module keeps it private: rename it there and those reads come
- * back empty.
- */
-
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -25,11 +13,6 @@ interface Breadcrumb {
 	[field: string]: unknown;
 }
 
-/**
- * Every line one guard recorded for one session, oldest first; a `null`
- * session reads the lines kept for payloads naming none. A torn line is
- * skipped, as the real reader counts and skips it.
- */
 export function readBreadcrumbs(
 	root: string,
 	guard: string,
@@ -40,7 +23,6 @@ export function readBreadcrumbs(
 	try {
 		names = fs.readdirSync(dir);
 	} catch (e) {
-		// Absent means no record was ever written; any other failure is one.
 		if (caught(e).code === "ENOENT") return [];
 		throw e;
 	}
@@ -53,7 +35,6 @@ export function readBreadcrumbs(
 		);
 }
 
-/** One breadcrumb file's lines for `guard` and `session`, in file order. */
 function readFileBreadcrumbs(
 	file: string,
 	guard: string,
@@ -62,7 +43,6 @@ function readFileBreadcrumbs(
 	const out: Breadcrumb[] = [];
 	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
 		if (!line.trim()) continue;
-		// A torn line, which the real reader also skips.
 		const parsed = orFallback(() => JSON.parse(line), undefined);
 		if (parsed?.guard === guard && parsed.session === session) out.push(parsed);
 	}

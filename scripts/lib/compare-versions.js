@@ -1,11 +1,4 @@
-/*
- * compare-versions.js — the one version comparer (#4091). Each caller parses
- * and shape-checks its own versions; this only orders the parts.
- */
-
 /**
- * Negative where `a` is the earlier version, positive where later, 0 where
- * equal: numeric by component, a missing component reading 0.
  * @param {number[]} a
  * @param {number[]} b
  */

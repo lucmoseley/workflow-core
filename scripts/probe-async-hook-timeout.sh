@@ -25,22 +25,17 @@
 # hook surviving because no ceiling is enforced anywhere — is not this finding.
 set -euo pipefail
 
-# Each tick is one second the hook survived.
 CEILING=${CEILING:-5}
 HOLD=${HOLD:-30}
 TICKS=${TICKS:-40}
 MODEL=${MODEL:-claude-haiku-4-5-20251001}
-# Slack over the ceiling before a survival counts as one: enough to absorb the
-# harness's own overshoot (mantahostels#2287).
-SLACK=${SLACK:-8}
+SLACK=${SLACK:-8} # lucmoseley/mantahostels#2287 guess
 
 if [[ "$TICKS" -le "$HOLD" ]]; then
   echo "TICKS ($TICKS) must exceed HOLD ($HOLD), or the hook ends before the session does" >&2
   exit 2
 fi
 
-# Each arm is a billed `claude -p` turn: refuse one off the subscription
-# (lib/launch-auth.js, #2236).
 node "$(dirname "$0")/lib/launch-auth.js" || exit 2
 
 probe=$(mktemp -d "${TMPDIR:-/tmp}/async-hook-probe.XXXXXX")
@@ -59,9 +54,6 @@ sleep $HOLD
 EOF
 chmod +x "$probe/tick.sh" "$probe/hold.sh"
 
-# $1: "true" to wire the ticking hook async, which also wires the hold hook.
-# Prints the arm's tick count — the seconds the hook survived. Exits 2 if the
-# session itself did not run.
 run_arm() {
   local async=$1 hold="" status ticks
   [[ "$async" = true ]] && hold=",
@@ -88,8 +80,8 @@ EOF
     echo "the ${async}-wired arm's own \`claude -p\` exited $status — nothing was measured" >&2
     exit 2
   fi
-  # grep -c prints 0 AND exits 1 on no match, so the fallback is on the
-  # assignment.
+  # `grep -c` prints 0 and exits 1 on no match:
+  # https://www.gnu.org/software/grep/manual/grep.html#Exit-Status
   ticks=$(grep -c '^TICK' "$probe/tick.log" 2>/dev/null) || ticks=0
   echo "$ticks"
 }

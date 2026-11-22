@@ -1,107 +1,3 @@
-/*
- * file-reach.js — the files one script reaches, read lexically (#4259):
- * `fileReach`, which lib/code-edges.js's `readRunReach` reads each file of
- * a run through. Its `importerSearch` parameter and the `pySearch` it hands
- * back are the one place sys.path crosses this module's interface
- * (code-edges.js's AN IMPORTED MODULE). Each reach also names the paths a
- * specifier tried before its target (`shadows`, #4814), the data files a
- * script reads off its own directory (`reads`), each load the walk cannot
- * read (`unread`, #4790) and each join off its own directory naming a file
- * it cannot tell (`unknown`), on which the store records no row:
- *   JS and TypeScript, comment lines skipped — a relative
- *     `require`/`from`/`import()` specifier, resolved as node resolves it, or
- *     as vitest does an extensionless `.ts`;
- *     `<path>.join|resolve(<base>, <part>, …)` off `__dirname` naming a file
- *     that exists, an edge where it is code and a read where not, the
- *     spelling of check.js's notify-report.js (#459), doc-map-generator.js's
- *     session-arbiter.js spawn (#460) and guard-cores.js's manifest: a base
- *     `__dirname` or a `const` bound to such a join, at any depth
- *     (pretool-guard-testkit.ts's `CHECKOUT`), each part a literal or a
- *     `const` bound to one; such a join off such a base with any other part
- *     is unknown, a file in the tree the walk cannot tell. And each script a
- *     `code-edges loads: <path> [<key>]` comment line declares, off the
- *     file's directory: the path itself, or with a key, a JSON manifest,
- *     read, and every script its key's values name, as guard-core-load.js
- *     requires each `core` of guard-cores.json; a declared path or value
- *     naming no file is unread. A `require(`/`import(` of anything but one
- *     quoted literal, or a `const` bound to one, to such a join or to
- *     `process.env.X` (the caller's), is unread, unless a keyed line
- *     explains it: its argument, through one `const`, reads the key as a
- *     property (`corePath(row.core)`). Residual: a declaration is the
- *     file's word for what its key's loads load, and corePath's own
- *     directory argument is taken to be the declaring file's; code-edges'
- *     live-repo tests hold each declaration in the repo to files that exist
- *     and to a load it explains, a keyless one only to a target its file's
- *     code still spells, not a later caller passing corePath another
- *     directory.
- *   shell, a `.sh` file or one with no extension and a shell `#!` line,
- *     cut into simple commands (lib/shell-script-lexer.js) — every word
- *     naming a code path, or holding one as a blank-separated token, as a
- *     message spelling a command does, and every load: a file sourced or `.`-read, run
- *     through an interpreter or by its path, behind a wrapper such as `exec`
- *     or a function running its arguments, named by node's `--require`, or
- *     loaded by an inline node program as `require(process.argv[N])` off an
- *     argument. A load's word is read as a path built from literals, the
- *     file's own path and directory (`${BASH_SOURCE[0]}`, `%/*`, `dirname`,
- *     `basename`, `cd … && pwd`), an inherited variable's `${X:-default}` as
- *     its default, and variables the file assigns one such path in every
- *     assignment, read where the word stands, so an `unset` after it clears
- *     nothing (#460, #4790). A load word that is one value the caller hands
- *     in, whole — an argument, or an inherited variable or its default
- *     command name, or a variable a `# code-edges caller: <name>…` line
- *     says holds a program found off `PATH` (host-git-guard/git's real git)
- *     — is the caller's to name. `$0` is the file itself in a script with
- *     no extension, as a git hook, which is executed, never sourced; a
- *     `source` of one is unread. A load word built any other way
- *     is unread, never dropped (#4790): off `$0` in any other script, which
- *     in a sourced file is its caller, off an argument or an inherited
- *     variable, or off the working directory; so is a program on stdin or in a heredoc, a shell's
- *     `-c` command, and a module an interpreter finds on its own search path
- *     (`python3 -m`). Residual: a `caller:` line is the file's word for
- *     every value its variable takes, a later assignment included; the
- *     live-repo tests hold each in the repo to a load it explains. A
- *     caller's load is read only where the
- *     caller spells it in a way this walk reads (the JS residual below), and
- *     a function running its arguments is read only where an interpreter
- *     names them, as `hb node x.js`, not `hb "$script"`.
- *   Python — `import X.Y` or `from X import Z` (#465, #4864): X searched as
- *     CPython would, on the importer's directory and each sys.path entry the
- *     file adds before the import through a literal `insert(0, …)` or
- *     `append(…)` of a path built from `__file__`, literals and names it
- *     assigned from them; then each dotted part, and each `Z` that is a
- *     submodule, in the package found. Read in lexical order; an indented
- *     sys.path edit may never have run, so a module found on its entry
- *     settles nothing, and an indented import, or one on a one-line compound
- *     statement's body, is placed again on the file's final search path.
- *
- * FOREIGN: a Python import the walk cannot place — a module neither stdlib
- * (python3's own sys.stdlib_module_names, so 3.10 or later) nor on that
- * search path, a dotted part it cannot find, an import whose search meets an
- * entry the walk cannot read before it is placed (a builtin module never
- * meets one, and a stdlib one only an entry appended after the stdlib's), an
- * import statement it cannot parse, or a file ending inside an open bracket —
- * is handed to the caller's `fault`, as is a JSX or TSX file.
- *
- * WHOLE PATHS: a join of a parameter is one the walk declines to read, by
- * design (#4790), so a module whose files a test's reach must hold spells
- * each path whole off `__dirname`, its key beside it: adopter-skeleton.js's
- * templates, pretool-guard-testkit.ts's hooks files, and lander-on-push.js's
- * lander script, which guard-entry.js's Launch takes by its absolute path.
- *
- * INLINE CODE: a spawn of python, node, perl or ruby handed its program
- * inline (`-c`, `-e`, `-p`, `--eval`, `--print`) or on stdin (`-`), in JS,
- * TypeScript or Python, is unread unless its program is one plain literal,
- * its escapes undone, loading only builtin modules; in a shell script the
- * program must be single-quoted, and node's `require(process.argv[N])` of
- * an argument read as a path is an edge, as it is in JS and TypeScript
- * where the spawn writes its argument list out and the argument is a
- * `__dirname` join, itself or through a `const` (claimed-bash-write-host.js's
- * ledger writer). Residual: in JS and TypeScript, a spawn handing a shell
- * its command (`bash -c`), through which tests run any command, an
- * interpreter named by a variable, and a script spawned by a path not
- * spelled off `__dirname`.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -126,9 +22,6 @@ const {
 	substitutionAt,
 } = require("./shell-script-lexer.js");
 /**
- * The language of the code `file` holds, by its extension, or null where it
- * holds none a script may load or spawn. A JSX or TSX source is code whose
- * loads the walk never parses.
  * @param {string} file
  * @returns {"js"|"jsx"|"sh"|"python"|null}
  */
@@ -140,17 +33,11 @@ function languageOf(file) {
 	return null;
 }
 /**
- * @typedef {"node"|"python"|"other"|"shell"} InterpreterKind how an
- *   interpreter takes a program: its flags, and how its inline program loads
+ * @typedef {"node"|"python"|"other"|"shell"} InterpreterKind
  * @typedef {{name: string, test: RegExp, kind: InterpreterKind,
- *   language: "js"|"python"|"sh"|null}} InterpreterRow an interpreter by its
- *   program's name (`name` an alternation, `test` it whole), and the
- *   language of a script whose `#!` line names it, null for one the walk
- *   does not read
+ *   language: "js"|"python"|"sh"|null}} InterpreterRow
  */
 
-/* Every interpreter a script may run a file or a program through: the one
- * table the `#!` line, the shell walk and the inline-program reader read. */
 /** @type {InterpreterRow[]} */
 const INTERPRETERS = [
 	["node(?:js)?", "node", "js"],
@@ -165,14 +52,11 @@ const INTERPRETERS = [
 }));
 
 /**
- * The interpreter `name` is, as a program's name, if any.
  * @param {string} name
  */
 const interpreterNamed = (name) => INTERPRETERS.find((i) => i.test.test(name));
 
 /**
- * The interpreter the `#!` line of a script's `text` names, if it names one
- * of `INTERPRETERS`.
  * @param {string} text
  * @returns {InterpreterRow|undefined}
  */
@@ -188,8 +72,6 @@ function parseShebang(text) {
 }
 
 /**
- * The language of a script by its extension, or for a file with none, as a
- * git hook, by its `#!` line.
  * @param {string} file
  * @param {string} text
  * @returns {"js"|"jsx"|"sh"|"python"|null}
@@ -201,48 +83,31 @@ function scriptLanguage(file, text) {
 }
 
 /**
- * Whether `file` is code a script may load or spawn, walked or not.
  * @param {string} file
  */
 const isCodeFile = (file) => languageOf(file) !== null;
 
 /**
- * Whether `file`'s name has no extension, as a git hook's, so its `#!` line
- * names its language.
  * @param {string} file
  */
 const isExtensionless = (file) => !path.basename(file).includes(".");
 
 /**
- * Whether the shell script at `file` is one only ever executed by its path,
- * never sourced, so its `$0` is itself: one with no extension, which its
- * `#!` line names the language of, as a git hook. A `source` of one is
- * unread (`load`).
  * @param {string} file
  */
 const isExecutedScript = (file) => isExtensionless(file);
 
 /**
- * Whether the file at `file` may be a script `fileReach` walks: code by its
- * extension, or a file with none.
- * @param {string} file absolute
+ * @param {string} file
  */
 const isScript = (file) =>
 	isCodeFile(file) || (isExtensionless(file) && isFile(file));
-/* Every literal module specifier: `require(…)`, `require.resolve(…)`,
- * `from "…"`, `import(…)` and a bare `import "…"`. plugin-tree.js's package
- * scan reads the same. */
 const JS_SPEC =
 	/\brequire(?:\.resolve)?\(\s*["']([^"']+)["']\s*\)|\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\bimport\s+["']([^"']+)["']/g;
-/* A relative specifier a test loads straight through `createRequire(…)(…)`,
- * which no `require(` precedes. Out of `JS_SPEC`: the package scan must not
- * read a lazy optional load as a dependency. */
 const CREATE_REQUIRE_SPEC =
 	/\bcreateRequire\([^()]*(?:\([^()]*\)[^()]*)?\)\(\s*["'](\.[^"']*)["']\s*(?:,\s*)?\)/g;
 
 /**
- * The specifier a `JS_SPEC` match captured: each of its four branches has one
- * group, and exactly one branch takes part.
  * @param {RegExpMatchArray} m
  * @returns {string}
  */
@@ -253,51 +118,25 @@ function jsSpecifier(m) {
 	return spec;
 }
 
-/* A join's opening, through any binding of node's path module:
- * `path.join(`, `nodePath.resolve(`; group 1 is the method. `parseJoin` reads
- * its arguments. */
 const PATH_JOIN = /\b[A-Za-z_$][\w$]*\.(join|resolve)\(/g;
 const PATH_JOIN_HEAD = /^[A-Za-z_$][\w$]*\.(join|resolve)\(/;
-/* A load call, `require(` or `import(`, not another object's method; a
- * spread (`...require(x)`) is one. */
 const LOAD_CALL = /(?:(?<![\w$.])|(?<=\.\.\.))(?:require|import)\s*\(/g;
-/* A load argument the walk reads: one quoted literal, which `JS_SPEC` reads. */
 const LOAD_LITERAL = /^(["'])[^"'\\]*\1$/;
-/* A `const` binding whose value a load of it reads beside a path
- * `joinedPath` reads: a quoted literal, or `process.env.X`, a module the
- * caller names. */
 const LOAD_CONST_VALUE = /^(?:["'][^"'\\]*["']|process\.env\.\w+)$/;
-/* A file's declaration of what its loads that name no literal load: a path,
- * off the file's directory, of a script; or of a JSON manifest and the key
- * whose every value, at any depth, names a script off the same directory. */
 const LOADS_PRAGMA = pragmaLine(String.raw`\/\/|\/?\*`, LOADS_BODY);
 const SH_LOADS_PRAGMA = pragmaLine("#", LOADS_BODY);
 const PY_IMPORT =
 	/^\s*(?:from\s+([\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
-/* Any statement that may load a module or run a file's code, read with its
- * strings blanked: one `PY_IMPORT` does not match is a load the walk cannot
- * parse. Beside the `import` keyword, `__import__`, importlib's
- * `import_module`, `spec_from_file_location`, `exec_module` and loaders,
- * runpy's `run_path` and `run_module`, and `exec` of read source. */
 const PY_LOAD =
 	/\bimport\b|\b(?:__import__|import_module|spec_from_file_location|spec_from_loader|exec_module|load_module|SourceFileLoader|run_path|run_module|exec|execfile)\s*\(/;
-/* A one-line string in either quote, escapes skipped: Python's, and a JS
- * literal's other than a template. */
 const ONE_LINE_STRING = String.raw`"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'`;
-/* A triple-quoted block, a one-line string or a comment, whichever starts
- * first, so a quote inside a comment opens nothing. */
 const PY_LEXEME = new RegExp(
 	String.raw`("""|''')[\s\S]*?\1|${ONE_LINE_STRING}|#[^\n]*`,
 	"g",
 );
 const PY_STRING = new RegExp(ONE_LINE_STRING, "g");
-/* A compound statement's header with its body on the same line, read with
- * strings blanked: `try: import x`, `if X: import y`. A colon in the header
- * itself cuts it early, leaving a body the walk then faults. */
 const PY_COMPOUND =
 	/^\s*(?:(?:try|else|finally)\s*|(?:if|elif|while|for|with|except|def|class|match|case|async\s+(?:def|for|with))\b[^:]*):(?=\s*\S)/;
-/* Any statement that changes sys.path; SYS_PATH_ADD is the shape of one
- * the walk reads, `insert(0, …)` (group 1) or `append(…)` (group 2). */
 const SYS_PATH_EDIT =
 	/\bsys\.path\s*(?:\.\s*(?:insert|append|extend|pop|remove|clear)\b|\[[^\]]*\]\s*=|\+=|=(?!=))|\bdel\s+sys\.path\b/;
 const SYS_PATH_ADD =
@@ -320,11 +159,6 @@ const parseCodeLines = (text, comment) =>
 	text.split("\n").filter((line) => !comment.test(line));
 
 /**
- * The paths node tries, in order, for a relative specifier, with vitest's
- * `.ts` for a `.js` specifier naming a `.ts` source. Residual: node's
- * `.node`, a directory's `package.json` "main", and vite's `.mjs`, `.mts`,
- * `.jsx`, `.tsx` and `index.ts` are not tried, so a file appearing there is
- * neither an edge nor a shadow.
  * @param {string} abs
  */
 const candidatesOf = (abs) => [
@@ -341,10 +175,6 @@ const isFile = (c) =>
 	fs.statSync(c, { throwIfNoEntry: false })?.isFile() ?? false;
 
 /**
- * The file node would load for a relative specifier, or vitest would where a
- * `.js` specifier names a `.ts` source — the bare join where none exists, so
- * a miss names the path as written — and the candidates tried before it,
- * none where nothing resolved.
  * @param {string} abs
  * @returns {{target: string, tried: string[]}}
  */
@@ -357,22 +187,17 @@ function resolutionOf(abs) {
 }
 
 /**
- * @typedef {{version: string, builtins: Set<string>, stdlib: Set<string>}}
- *   Python this machine's python3: its version, the modules compiled into it,
- *   which no sys.path entry can shadow, and its stdlib's module names
+ * @typedef {{version: string, builtins: Set<string>, stdlib: Set<string>}} Python
  */
 
-/* readPython's spawn's answer: the version, then two name lists. */
 const PYTHON_ANSWER = /^(\S+)\n(.*)\n(.*)\n$/;
 /** @type {Python | null} */
 let python = null;
 /**
- * This machine's python3, read once a process.
  * @returns {Python}
  */
 function readPython() {
 	if (python) return python;
-	/* Builtin modules only, so the walk's own spawn loads no file. */
 	const r = spawnSync(
 		"python3",
 		[
@@ -396,33 +221,20 @@ function readPython() {
 	return python;
 }
 
-/** This machine's python3 version, as `major.minor.micro.level.serial`. */
 const pythonVersion = () => readPython().version;
 
 /**
- * @typedef {{edges: string[], shadows: string[]}} Found absolute: the files
- *   reached, and the paths tried on the way before the file each resolved to
+ * @typedef {{edges: string[], shadows: string[]}} Found
  * @typedef {{edges: string[], shadows: string[], reads: string[],
- *   unread: string[], unknown: string[], python: boolean}} Reach absolute:
- *   the files reached, the paths tried on the way before the file each
- *   resolved to, the data files it reads off its own directory, each load
- *   the walk cannot read, each join off its own directory naming a file the
- *   walk cannot tell (`jsReach`), and whether the file runs an inline
- *   Python program
- * @typedef {Reach & {pySearch: PyEntry[] | null}} FileReach with sys.path
- *   as a Python file leaves it, settled: one order whatever order a run's
- *   files were read in, so a path handed round them only ever gains
- *   entries; null for any other file
+ *   unread: string[], unknown: string[], python: boolean}} Reach
+ * @typedef {Reach & {pySearch: PyEntry[] | null}} FileReach
  */
 
 /**
- * What the script at `file`, holding `text`, reaches.
- * @param {string} file absolute
+ * @param {string} file
  * @param {string} text
  * @param {(msg: string) => void} fault
- * @param {PyEntry[] | null} importerSearch for a Python file, the
- *   `pySearch` the other files of its script's run left; null reads it on
- *   its own directory and edits alone, as a script run on its own
+ * @param {PyEntry[] | null} importerSearch
  * @returns {FileReach}
  */
 function fileReach(file, text, fault, importerSearch) {
@@ -463,10 +275,8 @@ function fileReach(file, text, fault, importerSearch) {
 }
 
 /**
- * Each relative `require`, import or `createRequire(…)(…)` specifier in
- * `code`, joined to `dir`.
  * @param {string} dir
- * @param {string} code comment lines already cut
+ * @param {string} code
  * @returns {string[]}
  */
 function relativeSpecifiers(dir, code) {
@@ -482,15 +292,9 @@ function relativeSpecifiers(dir, code) {
 }
 
 /**
- * A JS or TypeScript file's reach: its relative specifiers' targets and the
- * paths each tried before the file it resolved to (#4814), a file appearing
- * at one would take the import over; each existing file a join `joinedPath`
- * reads names, walked where it is code and read as data where not; the
- * scripts its `code-edges loads:` lines declare; and each load whose
- * argument the walk cannot read, unread unless a declaration explains it.
- * @param {string} file absolute
+ * @param {string} file
  * @param {string} text
- * @param {string} code comment lines already cut
+ * @param {string} code
  * @returns {Found & {reads: string[], unread: string[], unknown: string[]}}
  */
 function jsReach(file, text, code) {
@@ -535,12 +339,8 @@ function jsReach(file, text, code) {
 }
 
 /**
- * The loads `code` makes of an argument the walk cannot read: anything but
- * one quoted literal, or a name the file binds by `const` to a value
- * `LOAD_CONST_VALUE` or `joinedPath` reads. Each with its argument read
- * through one such binding, which a declaration may explain.
- * @param {string} file absolute
- * @param {string} code comment lines already cut
+ * @param {string} file
+ * @param {string} code
  * @returns {{arg: string, said: string}[]}
  */
 function unreadLoads(file, code) {
@@ -562,11 +362,8 @@ function unreadLoads(file, code) {
 }
 
 /**
- * Whether offset `i` falls in a string or a comment, not in a template's
- * `${…}`, which is code: headless-run-fake.ts writes a script whose require
- * path is such a join, and a load there is code like any other.
  * @param {string} code
- * @param {[number, number][]} spans `inertSpans`'s
+ * @param {[number, number][]} spans
  * @param {number} i
  */
 function isProse(code, spans, i) {
@@ -587,9 +384,6 @@ function isProse(code, spans, i) {
 }
 
 /**
- * Whether a load's argument `arg` reads the property `key`, as
- * `corePath(row.core)` reads `core`: the load a `code-edges loads:
- * <manifest> <key>` line explains.
  * @param {string} arg
  * @param {string} key
  */
@@ -597,9 +391,7 @@ const isKeyRead = (arg, key) =>
 	new RegExp(String.raw`\.${escapeRe(key)}(?![\w$])`).test(arg);
 
 /**
- * Whether `name` is bound by `const` in `code`, in every binding of it, to a
- * value `LOAD_CONST_VALUE` or `joinedPath` reads.
- * @param {string} file absolute
+ * @param {string} file
  * @param {string} code
  * @param {string} name
  */
@@ -614,8 +406,6 @@ function isReadConst(file, code, name) {
 }
 
 /**
- * The one-line value of every `const` binding `name` in `code`; none where
- * `name` is no identifier.
  * @param {string} code
  * @param {string} name
  * @returns {string[]}
@@ -630,8 +420,6 @@ function constValues(code, name) {
 }
 
 /**
- * `expr` read through one `const` binding where it is a name `code` binds
- * to one value, else itself.
  * @param {string} code
  * @param {string} expr
  */
@@ -642,8 +430,6 @@ function constOrSelf(code, expr) {
 }
 
 /**
- * `expr` read as one whole `PATH_JOIN` call: its method and its arguments,
- * trimmed; null for any other expression.
  * @param {string} expr
  * @returns {{method: string, args: string[]} | null}
  */
@@ -659,18 +445,10 @@ function parseJoin(expr) {
 }
 
 /**
- * The absolute path `expr` names off `file`'s directory: `__dirname`, or a
- * `PATH_JOIN` off such a path of literals and names bound by `const` to one
- * literal, itself or through `const` bindings, each one value
- * (`CHECKOUT = path.resolve(__dirname, "..")`, then
- * `path.join(CHECKOUT, "scripts", "x.js")`); null for any other, as a join
- * off a temporary directory or of a parameter. `jsReach` holds a join off
- * such a path that is not itself one unread: it names a file in the tree the
- * walk cannot tell.
- * @param {string} file absolute
+ * @param {string} file
  * @param {string} code
  * @param {string} expr
- * @param {Set<string>} [through] the names already read, so a cycle ends
+ * @param {Set<string>} [through]
  * @returns {string | null}
  */
 function joinedPath(file, code, expr, through = new Set()) {
@@ -692,17 +470,11 @@ function joinedPath(file, code, expr, through = new Set()) {
 
 /**
  * @typedef {{keys: string[], edges: string[], reads: string[],
- *   unread: string[]}} Declared a file's `code-edges loads:` lines: the
- *   manifest keys whose loads they explain, the scripts and manifests they
- *   name, and each declaration the walk cannot hold to a file
+ *   unread: string[]}} Declared
  */
 
 /**
- * The loads `text`'s `code-edges loads:` lines declare: each script named,
- * and for a JSON manifest, the manifest as a read and every script its key's
- * values name, the loads reading that key explained. A declared path or
- * value that is no file, or a manifest that will not parse, is unread.
- * @param {string} file absolute
+ * @param {string} file
  * @param {string} text
  * @returns {Declared}
  */
@@ -738,8 +510,6 @@ function declaredLoads(file, text) {
 }
 
 /**
- * Every string value under `key`, at any depth, of the JSON at `file`; null
- * where it will not read or parse.
  * @param {string} file
  * @param {string} key
  * @returns {string[] | null}
@@ -768,28 +538,20 @@ function readManifestValues(file, key) {
 }
 
 /**
- * @typedef {{dir: string | null, maybe: boolean, tail: boolean}} PyEntry one
- *   sys.path entry: a null `dir` is one the walk cannot read; `maybe` marks
- *   one an indented statement added, which may never have run; `tail` one
- *   appended, so searched after the stdlib's own entries.
+ * @typedef {{dir: string | null, maybe: boolean, tail: boolean}} PyEntry
  * @typedef {{own: PyEntry[], shared: PyEntry[], handed: boolean,
  *   names: Map<string, string>}} PyScope
- *   sys.path as the file has left it, twice: `own`, led by its own
- *   directory, and `shared`, the path the files of its script's run hand
- *   round, where each entry this file added may never have run. Its imports
- *   are placed on `shared` too where the caller `handed` one in.
  * @typedef {{file: string, dir: string, scope: PyScope, reach: Found,
  *   fault: (msg: string) => void}} PyWalk
  * @typedef {{text: string, indented: boolean}} PyStatement
  */
 
 /**
- * @param {string} file absolute
+ * @param {string} file
  * @param {string} text
  * @param {(msg: string) => void} fault
  * @param {PyEntry[] | null} importerSearch
- * @returns {Found & {pySearch: PyEntry[]}} with sys.path as the file leaves
- *   it: its importer's with its own edits, or its own where it has none
+ * @returns {Found & {pySearch: PyEntry[]}}
  */
 function pyReach(file, text, fault, importerSearch) {
 	const walk = pyWalkOf(file, fault, importerSearch);
@@ -800,8 +562,6 @@ function pyReach(file, text, fault, importerSearch) {
 		if (imp) {
 			const targets = pyImportTargets(imp);
 			for (const target of targets) placePyImport(walk, target);
-			/* A function's import runs when it is called, perhaps after a
-			 * later sys.path edit: place it on the final search path too. */
 			if (statement.indented) deferred.push(...targets);
 		} else if (PY_LOAD.test(blankPyStrings(statement.text)))
 			walk.fault(
@@ -815,8 +575,6 @@ function pyReach(file, text, fault, importerSearch) {
 }
 
 /**
- * What a finished walk found, each path once, since two search paths sharing
- * an entry find the same file twice, and the sys.path it leaves.
  * @param {PyWalk} walk
  * @returns {Found & {pySearch: PyEntry[]}}
  */
@@ -827,10 +585,10 @@ const pyWalkFound = (walk) => ({
 });
 
 /**
- * @param {string} file absolute
+ * @param {string} file
  * @param {(msg: string) => void} fault
  * @param {PyEntry[] | null} importerSearch
- * @returns {PyWalk} the walk of `file` at its start
+ * @returns {PyWalk}
  */
 function pyWalkOf(file, fault, importerSearch) {
 	const dir = path.dirname(file);
@@ -847,7 +605,6 @@ function pyWalkOf(file, fault, importerSearch) {
 			names: new Map(),
 		},
 		reach: { edges: [], shadows: [] },
-		/* An indented import is placed twice, so one fault can come twice. */
 		fault: (msg) => {
 			if (!faulted.has(msg)) fault(msg);
 			faulted.add(msg);
@@ -856,13 +613,6 @@ function pyWalkOf(file, fault, importerSearch) {
 }
 
 /**
- * A handed-on `search` in the one order every walk of the same entries
- * gives: the inserted entries that may never have run, by directory, then
- * the entries that did run as they stand, then the appended ones, by
- * directory; each directory once in its group, and nothing past an entry
- * the walk cannot read. No entry that may never have run settles a search,
- * so their order moves no placement, and a path a caller hands round the
- * files of one run only ever gains entries.
  * @param {PyEntry[]} search
  * @returns {PyEntry[]}
  */
@@ -870,7 +620,6 @@ function settledPySearch(search) {
 	const group = (/** @type {(e: PyEntry) => boolean} */ keep) => [
 		...new Map(search.filter(keep).map((e) => [e.dir, e])).values(),
 	];
-	/* By code unit: a locale's collation calls distinct paths equal. */
 	const byDir = (/** @type {PyEntry} */ a, /** @type {PyEntry} */ b) =>
 		Number((a.dir ?? "") > (b.dir ?? "")) -
 		Number((a.dir ?? "") < (b.dir ?? ""));
@@ -884,8 +633,6 @@ function settledPySearch(search) {
 }
 
 /**
- * `text` with each one-line string's body blanked to spaces, quotes and
- * length kept, so an index into it is one into `text`.
  * @param {string} text
  */
 const blankPyStrings = (text) =>
@@ -895,10 +642,7 @@ const blankPyStrings = (text) =>
 	);
 
 /**
- * Records `NAME = <path expression>` in the scope, or forgets NAME where the
- * value is no path the walk reads.
- * @param {PyWalk} walk accumulator: its scope's `names` gains or loses the
- *   name
+ * @param {PyWalk} walk
  * @param {string} text
  */
 function bindPyName(walk, text) {
@@ -911,11 +655,6 @@ function bindPyName(walk, text) {
 }
 
 /**
- * The file's logical statements in order: strings' triple-quoted blocks and
- * comments cut, bracketed and backslash continuations joined, `;` split, a
- * one-line compound statement's body split from its header, each marked
- * where it is indented or such a body. A file ending inside an open bracket
- * faults: its last statement is not read whole.
  * @param {string} text
  * @param {(msg: string) => void} fault
  * @returns {PyStatement[]}
@@ -958,8 +697,6 @@ function pyStatements(text, fault) {
 }
 
 /**
- * A `PY_LEXEME` as `pyStatements` reads it: a comment goes, a triple-quoted
- * block stands as an empty string, and a one-line string stays.
  * @param {string} m
  */
 function cutPyLexeme(m) {
@@ -968,11 +705,7 @@ function cutPyLexeme(m) {
 }
 
 /**
- * Applies one sys.path edit to the scope: a literal `insert(0, …)` or
- * `append(…)` whose path `evalPyPath` reads, or else an entry the walk
- * cannot read at the front.
- * @param {PyWalk} walk accumulator: its scope's `own` and `shared` gain
- *   the entry
+ * @param {PyWalk} walk
  * @param {PyStatement} statement
  */
 function editSysPath(walk, statement) {
@@ -982,17 +715,12 @@ function editSysPath(walk, statement) {
 		: null;
 	const tail = m?.[2] !== undefined;
 	const entry = { dir, maybe: statement.indented, tail };
-	/* On the path the run's files share, another file's import may run
-	 * before this edit, and this file's after another's: it settles nothing. */
 	const put = tail ? "push" : "unshift";
 	walk.scope.own[put](entry);
 	walk.scope.shared[put]({ ...entry, maybe: true });
 }
 
 /**
- * The absolute path a Python path expression spells, or null where it is
- * built from anything but `__file__`, string literals, the names this file
- * assigned from them, and `Path`, `os.path` and `str` over those.
  * @param {string} expr
  * @param {PyWalk} walk
  * @returns {string | null}
@@ -1013,15 +741,13 @@ function evalPyPath(expr, walk) {
 	}
 }
 
-/** Python's join: an absolute part restarts the path. */
 const pyJoin = (/** @type {string[]} */ parts) =>
 	parts.reduce((a, b) => (path.isAbsolute(b) ? b : path.join(a, b)));
 
-/** Recursive descent over `evalPyPath`'s tokens; throws on any other shape. */
 class PyPathParser {
 	/**
 	 * @param {string[]} tokens
-	 * @param {PyWalk} walk its file and the names it assigned
+	 * @param {PyWalk} walk
 	 */
 	constructor(tokens, walk) {
 		this.tokens = tokens;
@@ -1048,7 +774,7 @@ class PyPathParser {
 		if (this.take() !== t) throw new Error(`wants ${t}`);
 	}
 
-	/** A whole expression: terms joined by pathlib's `/`. @returns {string} */
+	/** @returns {string} */
 	pathExpr() {
 		let v = this.term();
 		while (this.peek() === "/") {
@@ -1084,7 +810,7 @@ class PyPathParser {
 		return dot === -1 ? v : this.attrs(v, t.slice(dot + 1));
 	}
 
-	/** @param {string} name one of `PY_PATH_CALLS` */
+	/** @param {string} name */
 	call(name) {
 		this.expect("(");
 		/** @type {string[]} */
@@ -1099,7 +825,7 @@ class PyPathParser {
 
 	/**
 	 * @param {string} v
-	 * @param {string} chain dotted attributes, the last perhaps `resolve()`
+	 * @param {string} chain
 	 */
 	attrs(v, chain) {
 		const parts = chain.split(".");
@@ -1117,7 +843,7 @@ class PyPathParser {
 }
 
 /**
- * @param {string} name one of `PY_PATH_CALLS`
+ * @param {string} name
  * @param {string[]} args
  * @returns {string}
  */
@@ -1127,20 +853,15 @@ function pyPathCall(name, args) {
 	if (name === "os.path.join" || name === "Path") return pyJoin(args);
 	if (args.length !== 1) throw new Error(`${name} takes one path`);
 	if (name === "os.path.dirname") return path.dirname(first);
-	/* str, and abspath over an absolute path, leave it naming the same file. */
 	if (!path.isAbsolute(first)) throw new Error(`${name} of a relative path`);
 	return first;
 }
 
 /**
  * @typedef {{dots: number, parts: string[], names: string[]}} PyImportTarget
- *   `import a.b` is parts [a, b]; `from a.b import x` adds names [x], each
- *   perhaps a submodule; `dots` counts a relative import's leading dots.
  */
 
 /**
- * The names a comma-separated Python import list carries, each cut at its
- * first space so `x as y` reads as `x`.
  * @param {string} list
  * @returns {string[]}
  */
@@ -1152,13 +873,10 @@ function pyNames(list) {
 }
 
 /**
- * The modules one import statement names.
- * @param {RegExpMatchArray} m a `PY_IMPORT` match
+ * @param {RegExpMatchArray} m
  * @returns {PyImportTarget[]}
  */
 function pyImportTargets(m) {
-	/* Group 1 is the `from` branch, which always carries group 2; group
-	 * 3 is the bare `import` branch. */
 	const [, from, fromNames, bareNames] = m;
 	if (from === undefined) {
 		if (bareNames === undefined)
@@ -1182,9 +900,6 @@ function pyImportTargets(m) {
 }
 
 /**
- * What a module name finds in one directory, package first as CPython's
- * FileFinder tries them: the file, the candidates tried before it, and a
- * namespace directory (one with no __init__.py) where no file stands.
  * @param {string} dir
  * @param {string} name
  * @returns {{found: string | null, tried: string[], namespace: string | null}}
@@ -1214,22 +929,12 @@ const isDir = (c) =>
 	fs.statSync(c, { throwIfNoEntry: false })?.isDirectory() ?? false;
 
 /**
- * @typedef {{dir: string, maybe: boolean}} PyDir a directory a name is
- *   looked for in, `maybe` where a module found in it settles nothing, the
- *   sys.path entry above it being one that may never have been added
- * @typedef {{dirs: PyDir[], namespace: boolean}} PyPlace where an import's
- *   next part is looked for: a regular package's directory; for a namespace
- *   package (`namespace`) its directory under every entry searched, standing
- *   or not, since one that appears joins the package; none below a plain
- *   module
+ * @typedef {{dir: string, maybe: boolean}} PyDir
+ * @typedef {{dirs: PyDir[], namespace: boolean}} PyPlace
  * @typedef {{kind: "placed", places: PyPlace[]} | {kind: "absent"}
- *   | {kind: "opaque", tail: boolean}} PyTopPlacement where the search for a
- *   top-level module ended: found, on no entry, or at an entry the walk
- *   cannot read, `tail` where that entry was appended
+ *   | {kind: "opaque", tail: boolean}} PyTopPlacement
  * @typedef {{name: string, isPart: boolean, at: PyPlace,
- *   namespace: boolean}} PyMiss a dotted part, or a from-imported name,
- *   `descend` found no file for, the place it looked in, and whether a
- *   namespace directory stands there under that name
+ *   namespace: boolean}} PyMiss
  */
 
 /** @param {string} found */
@@ -1241,11 +946,7 @@ const placeOf = (found) => ({
 });
 
 /**
- * Places a name in `dirs` as CPython's PathFinder does, pushing each file
- * it may load and the candidates tried before the one that settles it.
- * Where no regular module or package settles the name and a namespace
- * directory of that name stands, the namespace package is one more place.
- * @param {Found} reach accumulator: gains the files and shadows
+ * @param {Found} reach
  * @param {PyDir[]} dirs
  * @param {string} name
  * @returns {{places: PyPlace[], settled: boolean}}
@@ -1273,17 +974,13 @@ function placePyPart(reach, dirs, name) {
 }
 
 /**
- * Each path an import is placed on.
  * @param {PyScope} scope
  */
 const pySearches = ({ own, shared, handed }) =>
 	handed ? [own, shared] : [own];
 
 /**
- * Pushes the files one import loads onto the walk's reach, placed on each of
- * the scope's search paths, or faults an import the walk cannot place: one
- * no path holds, or one whose search on either meets what it cannot read.
- * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
+ * @param {PyWalk} walk
  * @param {PyImportTarget} target
  */
 function placePyImport(walk, target) {
@@ -1305,8 +1002,6 @@ function placePyImport(walk, target) {
 	}
 	for (const placed of placements) {
 		if (placed.kind !== "opaque") continue;
-		/* A builtin module is found before sys.path is searched, and a
-		 * stdlib one before an entry appended after the stdlib's. */
 		const { builtins, stdlib } = readPython();
 		if (!builtins.has(top) && !(placed.tail && stdlib.has(top)))
 			walk.fault(`imports ${top} after a sys.path edit the walk cannot read`);
@@ -1321,9 +1016,7 @@ function placePyImport(walk, target) {
 }
 
 /**
- * Walks an absolute import's parts below each place its top-level module was
- * found, faulting a part or name the import cannot be served without.
- * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
+ * @param {PyWalk} walk
  * @param {PyImportTarget} target
  * @param {PyPlace[]} places
  */
@@ -1340,25 +1033,16 @@ function descendPlaced(walk, target, places) {
 }
 
 /**
- * A name a regular package lacks may be an attribute its __init__.py
- * defines; a namespace package defines none.
  * @param {PyMiss} miss
  */
 const isFaultingMiss = (miss) =>
 	miss.isPart || (miss.at.namespace && !miss.namespace);
 
 /**
- * Walks an import's parts down from `at`, through each place a part may
- * stand, then its from-imported names in the package the parts leave it in,
- * pushing each file found and the paths tried before it. Each place may be
- * the one Python takes, so what any of them lacks is missed. A part ends the
- * descent where no file stands for it, as does one below a plain module,
- * whose names are no submodules.
- * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
+ * @param {PyWalk} walk
  * @param {PyPlace} at
- * @param {{parts: string[], names: string[]}} below the parts under `at`
- *   and the names from-imported at the last
- * @returns {PyMiss[]} each part or name with no file
+ * @param {{parts: string[], names: string[]}} below
+ * @returns {PyMiss[]}
  */
 function descend(walk, at, { parts, names }) {
 	const [part, ...rest] = parts;
@@ -1378,12 +1062,7 @@ function descend(walk, at, { parts, names }) {
 }
 
 /**
- * A relative import's target missing from the tree is no fault: it stays an
- * edge, so surface-closure.js reports it unshipped. The one fault is a
- * module of a run importing from a namespace package, which spans a
- * directory under every sys.path entry: which of them are its own the walk
- * cannot tell from the one the module stands in.
- * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
+ * @param {PyWalk} walk
  * @param {PyImportTarget} target
  */
 function placeRelativePyImport(walk, { dots, parts, names }) {
@@ -1401,11 +1080,9 @@ function placeRelativePyImport(walk, { dots, parts, names }) {
 }
 
 /**
- * Places a top-level module on one search path, up to the first entry the
- * walk cannot read.
  * @param {PyEntry[]} search
  * @param {string} top
- * @param {Found} reach accumulator: gains the files and shadows
+ * @param {Found} reach
  * @returns {PyTopPlacement}
  */
 function placePyTop(search, top, reach) {
@@ -1424,37 +1101,22 @@ function placePyTop(search, top, reach) {
 	return places.length > 0 ? { kind: "placed", places } : { kind: "absent" };
 }
 
-/* The interpreters whose inline programs are read, every one but a shell
- * (the residual in the header), and the flag that hands one its program: `-c`, `-e` or `-p` closing any bundle of single-letter
- * flags (python3's `-c` and `-Ic`, node's `-pe`, perl's `-lane`),
- * `--eval`, `--print`, or `-` for a program on stdin. */
 const INTERPRETER = INTERPRETERS.filter((i) => i.kind !== "shell")
 	.map((i) => i.name)
 	.join("|");
 const INLINE_FLAG = "-[A-Za-z]*[cep]|--eval|--print|-";
-/* A literal an argument list may hold, and one read whole as a program: a
- * template only where it interpolates nothing and escapes nothing. */
 const ARG_LITERAL = String.raw`(?:${ONE_LINE_STRING}|\x60[^\x60]*\x60)`;
 const PLAIN_LITERAL = String.raw`${ONE_LINE_STRING}|\x60[^\x60$\\]*\x60`;
 const PLAIN_LITERAL_WHOLE = new RegExp(`^(?:${PLAIN_LITERAL})$`);
-/* An interpreter handed its program inline in an argument list:
- * `"python3", ["-c", code]`, `process.execPath, ["-e", code]`,
- * `[sys.executable, "-c", code]`, or `"-"` for a program on stdin. Group 1
- * names the interpreter, group 2 the flag; group 3 is the program, where one
- * plain literal is the whole argument. */
 const INLINE_ARGV = new RegExp(
 	String.raw`(["'\x60](?:${INTERPRETER})["'\x60]|process\.execPath|sys\.executable)\s*,\s*(?:\[\s*)?(?:${ARG_LITERAL}\s*,\s*)*?["'\x60](${INLINE_FLAG})["'\x60]\s*(?:,\s*(${PLAIN_LITERAL})\s*(?=[,\])]))?`,
 	"g",
 );
-/* The same handed to a shell as one command string: `execSync("python3 -c …")`;
- * group 1 names the interpreter. */
 const INLINE_COMMAND = new RegExp(
 	String.raw`\bexec(?:Sync)?\(\s*["'\x60][^"'\x60]*?\b(${INTERPRETER})\s+(?:-\S+\s+)*?(?:${INLINE_FLAG})(?=[\s"'\x60])`,
 	"g",
 );
-/* A node program's load of a path handed to it as an argument. */
 const ARGV_REQUIRE = /\brequire\(\s*process\.argv\[(\d+)\]\s*\)/g;
-/* The escapes a literal program may hold that `literalBody` undoes. */
 const LITERAL_ESCAPES = new Map([
 	["n", "\n"],
 	["t", "\t"],
@@ -1466,15 +1128,11 @@ const LITERAL_ESCAPES = new Map([
 
 /**
  * @typedef {"python"|"node"|"other"} Interpreter
- * @typedef {{unread: boolean, argv: number[]}} ProgramLoads whether a
- *   program loads a file it does not name to the walk, and the indexes of
- *   the arguments it loads by path
+ * @typedef {{unread: boolean, argv: number[]}} ProgramLoads
  */
 
 /**
- * A literal program's text, its escapes undone, or null where it holds one
- * `LITERAL_ESCAPES` does not name.
- * @param {string} literal quotes included
+ * @param {string} literal
  * @returns {string | null}
  */
 function literalBody(literal) {
@@ -1488,9 +1146,6 @@ function literalBody(literal) {
 }
 
 /**
- * The builtin module names of this machine's python3, or null where it
- * cannot list them: a walk for edges alone, as surface-closure.js's, never
- * needs python3 for a shell script's inline program.
  * @returns {Set<string> | null}
  */
 function readPythonBuiltins() {
@@ -1502,11 +1157,8 @@ function readPythonBuiltins() {
 }
 
 /**
- * What an inline `program` for `interpreter` loads: every load of a program
- * not read is unread; a read one's load is unread unless it is a builtin
- * module, or for node a `require(process.argv[N])`.
  * @param {Interpreter} interpreter
- * @param {string | null} program its text
+ * @param {string | null} program
  * @returns {ProgramLoads}
  */
 function programLoads(interpreter, program) {
@@ -1541,14 +1193,8 @@ function programLoads(interpreter, program) {
 }
 
 /**
- * The inline programs a JS, TypeScript or Python file spawns: one whose
- * loads no walk reads is unread. Node's `require(process.argv[N])` of an
- * argument is an edge where the spawn's argument list is written out and
- * that argument is a path `joinedPath` reads;
- * any other load of an argument is unread. A program held in a `const` is
- * read as its literal.
- * @param {string} file absolute
- * @param {string} code comment lines already cut
+ * @param {string} file
+ * @param {string} code
  * @returns {{edges: string[], unread: string[], python: boolean}}
  */
 function inlineSpawns(file, code) {
@@ -1582,10 +1228,6 @@ function inlineSpawns(file, code) {
 }
 
 /**
- * The argument list an `INLINE_ARGV` match opens, where it opens one after
- * its interpreter: the program after `flag`, a plain literal itself or
- * through a `const`, and the arguments after it as written; null where the
- * list will not read.
  * @param {string} code
  * @param {RegExpMatchArray} m
  * @param {string} flag
@@ -1613,7 +1255,7 @@ function argvList(code, m, flag) {
 }
 
 /**
- * @param {string} head an interpreter as written
+ * @param {string} head
  * @returns {Interpreter}
  */
 function interpreterOf(head) {
@@ -1623,25 +1265,15 @@ function interpreterOf(head) {
 	return kind === "node" || kind === "python" ? kind : "other";
 }
 
-/* ---------------------------------------------------------------- shell */
-
 /**
  * @typedef {import("./shell-script-lexer.js").ShWord} ShWord
  * @typedef {import("./shell-script-lexer.js").ShCommand} ShCommand
- * @typedef {"caller"|"bare"|"array"|"value"} ShBindingKind a value the
- *   caller hands in (`isCallerWord`), a literal name, as `true`, an array's
- *   literal elements, or any other
+ * @typedef {"caller"|"bare"|"array"|"value"} ShBindingKind
  * @typedef {{name: string, at: number, value: string | null,
- *   kind: ShBindingKind}} ShBinding a variable's assignment: its value an
- *   absolute path or null for any other
+ *   kind: ShBindingKind}} ShBinding
  */
 
-/* Matches nothing: a flag kind an interpreter lacks. */
 const NONE = /(?!)/;
-/* Per interpreter kind: the flag closing a bundle that hands it its program
- * inline; a flag whose next word it loads; one naming a module it finds on
- * its own search path, which the walk cannot place; and one taking a value
- * that is no load. */
 const SH_FLAGS = {
 	node: {
 		inline: /^(?:-[A-Za-z]*[ep]|--eval|--print)$/,
@@ -1669,13 +1301,9 @@ const SH_FLAGS = {
 		value: /^[-+]o$/,
 	},
 };
-/* Commands whose arguments name an interpreter without running it. */
 const SH_NAMING_HEAD =
 	/^(?:echo|printf|type|hash|which|pgrep|pkill|grep|die|warn)$/;
-/* A flag that runs no program. */
 const SH_INFO_FLAG = /^(?:-v|-V|--version|-h|--help)$/;
-/* Commands that run the command their own arguments spell, and the flags
- * of each that take a value; `command -v` and `-V` only name one. */
 const SH_WRAPPERS = new Map([
 	["exec", /^-a$/],
 	["command", NONE],
@@ -1688,8 +1316,6 @@ const SH_WRAPPERS = new Map([
 	["stdbuf", NONE],
 	["xargs", /^(?:-[IndPLsaE]|--max-args|--delimiter|--replace)$/],
 ]);
-/* Commands that bind a name to a value the walk does not read: every name
- * after them, or the first. */
 const SH_REBINDS = new Map([
 	["read", "all"],
 	["mapfile", "all"],
@@ -1697,51 +1323,27 @@ const SH_REBINDS = new Map([
 	["for", "first"],
 	["select", "first"],
 ]);
-/* Commands that declare names; `local X` alone binds no value, as an
- * assignment follows. */
 const SH_DECLARES = /^(?:local|export|readonly|declare|typeset)$/;
-/* `[[ "$X" == "${BASH_SOURCE[0]}" ]]`, whose `&& X=.` names the directory
- * `.` where the script was run by a bare name: the directory itself. */
 const SH_BARE_NAME_TEST = /^\[\[ "\$(\w+)" == "\$\{BASH_SOURCE\[0\]\}" \]\]$/;
-/* A word that is one parameter whole: positional (group 3), or a variable
- * (group 1 or 4) with perhaps a default (group 2). */
 const SH_ONE_PARAMETER =
 	/^"?\$(?:\{(?:[@*]|\d+|(\w+)(?::?-([^}]*))?)\}|([@*]|\d)|(\w+))"?$/;
-/* `$PWD/` before a variable; the script's own path, `${BASH_SOURCE[0]}`, or
- * a variable (group 1 or 3), perhaps cut to its directory by `%/*` (group
- * 2). */
 const SH_PARAMETER =
 	/^\$\{?PWD\}?\/(?=\$)|^\$\{(\w+)(?:\[0\])?(%\/\*)?\}|^\$(\w+)(?!\w)/;
-/* A blank-separated token inside a word holding blanks, as a message's,
- * its enclosing quotes, brackets and trailing punctuation cut. */
 const SH_TOKEN = /[^\s]+/g;
 const SH_TOKEN_OPEN = /^["'`(]+/;
 const SH_TOKEN_CLOSE = "\"'`),.;:";
-/* `# code-edges caller: <name>…`: variables a script assigns a program it
- * finds off `PATH`, as host-git-guard/git finds the real git, whose load is
- * the caller's to name, as a bare command name's is. */
 const SH_CALLER_PRAGMA = pragmaLine("#", CALLER_BODY);
-/* `${X:-default}` or `${X-default}`: an inherited X reads as its default,
- * the value where the caller sets none. */
 const SH_DEFAULTED = /^\$\{(\w+):?-/;
 
 /**
  * @typedef {{file: string, executed: boolean,
  *   bindings: Map<string, ShBinding[]>, unsets: Map<string, number[]>,
- *   callers: Set<string>}} ShScope a script's variables: whether it is one
- *   only ever executed (`isExecutedScript`), so its `$0` is itself, every
- *   assignment of each, where each is unset, and those its
- *   `code-edges caller:` lines say hold a value the caller names
- * @typedef {{scope: ShScope, reach: Reach, said: string}} ShRun one
- *   command's walk: the script's variables, the reach it adds to, and the
- *   command as written, which an unread load names
+ *   callers: Set<string>}} ShScope
+ * @typedef {{scope: ShScope, reach: Reach, said: string}} ShRun
  */
 
 /**
- * A shell script's reach: each word of a command that reads as a code path,
- * and each file a command loads (`shLoads`). A load word the walk cannot
- * read as a path is unread.
- * @param {string} file absolute
+ * @param {string} file
  * @param {string} code
  * @returns {FileReach}
  */
@@ -1773,9 +1375,6 @@ function shReach(file, code) {
 }
 
 /**
- * The code paths a word names: itself where it reads as one, and, where it
- * holds blanks, each token inside it, as a path a message spells
- * (`refuse "… node $SELF_DIR/issue-body.js …"`).
  * @param {ShWord} word
  * @param {ShScope} scope
  * @returns {string[]}
@@ -1789,7 +1388,6 @@ function codePathsIn(word, scope) {
 				return { text, at: word.at + (m.index ?? 0) };
 			})
 		: [];
-	/* A token holding a bracket is a piece of a `$(…)`, no path of its own. */
 	const paths = tokens.filter(
 		(t) => isCodeFile(t.text) && !/[()]/.test(t.text),
 	);
@@ -1800,9 +1398,7 @@ function codePathsIn(word, scope) {
 }
 
 /**
- * Every variable binding in `commands`, each value read on the bindings
- * written before it.
- * @param {string} file absolute
+ * @param {string} file
  * @param {ShCommand[]} commands
  * @param {string} code
  * @returns {ShScope}
@@ -1821,7 +1417,6 @@ function shScope(file, commands, code) {
 		),
 	};
 	for (const command of commands) {
-		/* A command after `then` or `do` binds as one standing alone. */
 		const words = command.words.slice(
 			Math.max(
 				0,
@@ -1840,8 +1435,6 @@ function shScope(file, commands, code) {
 }
 
 /**
- * The names a `read`, `mapfile`, `for` or `select` binds to values the walk
- * does not read.
  * @param {string} head
  * @param {ShWord[]} rest
  * @returns {ShWord[]}
@@ -1856,7 +1449,7 @@ function reboundNames(head, rest) {
 
 /**
  * @template T
- * @param {Map<string, T[]>} map accumulator: `key`'s list gains `value`
+ * @param {Map<string, T[]>} map
  * @param {string} key
  * @param {T} value
  */
@@ -1865,13 +1458,12 @@ function pushTo(map, key, value) {
 }
 
 /**
- * @param {ShScope} scope accumulator: the name gains the binding
+ * @param {ShScope} scope
  * @param {ShBinding} binding
  */
 const bind = (scope, binding) => pushTo(scope.bindings, binding.name, binding);
 
 /**
- * A binding whose value the walk does not read.
  * @param {string} name
  * @param {number} at
  * @returns {ShBinding}
@@ -1884,9 +1476,7 @@ const unknownBinding = (name, at) => ({
 });
 
 /**
- * The assignment words a command opens with, or that a declaration such as
- * `local` or `export` holds.
- * @param {ShWord[]} command its words from its head
+ * @param {ShWord[]} command
  * @returns {ShWord[]}
  */
 function assignmentWords(command) {
@@ -1902,9 +1492,7 @@ function assignmentWords(command) {
 }
 
 /**
- * Records one assignment word's binding, its value read on the bindings so
- * far: an element or an array binds no one path.
- * @param {ShScope} scope accumulator: the name gains the binding
+ * @param {ShScope} scope
  * @param {ShCommand} command
  * @param {ShWord} word
  */
@@ -1933,7 +1521,6 @@ function bindAssignment(scope, command, word) {
 }
 
 /**
- * The kind of an assignment's value.
  * @param {string} text
  * @param {ShScope} scope
  * @returns {ShBindingKind}
@@ -1944,7 +1531,6 @@ function bindingKind(text, scope) {
 }
 
 /**
- * Whether `command`, `X=.`, follows `[[ "$X" == "${BASH_SOURCE[0]}" ]] &&`.
  * @param {ShCommand} command
  * @param {string} name
  */
@@ -1954,10 +1540,6 @@ function isBareNameFallback(command, name) {
 }
 
 /**
- * Whether `text` is one value the caller hands in, whole: an argument, all
- * of them, or a variable the script never assigns, bare or with a command
- * name as its default, or one it assigns only such a value. The caller names
- * such a load, and its own walk reads it where it spells it.
  * @param {string} text
  * @param {ShScope} scope
  * @returns {boolean}
@@ -1972,9 +1554,6 @@ function isCallerWord(text, scope) {
 }
 
 /**
- * Whether a command's head names a command off PATH rather than a file: a
- * variable every assignment of which is a literal name, as `found=true`, or
- * the caller's.
  * @param {string} text
  * @param {ShScope} scope
  */
@@ -1989,8 +1568,6 @@ function isCommandName(text, scope) {
 }
 
 /**
- * Whether `text` is `"${X[@]}"` of an array the script assigns only
- * literal elements, whose loads are read where they are written.
  * @param {string} text
  * @param {ShScope} scope
  */
@@ -2001,9 +1578,6 @@ function isLiteralArray(text, scope) {
 }
 
 /**
- * A variable's value at `at`: the one path every assignment of it names,
- * where no `unset` before `at` cleared it; null otherwise, and for a name
- * the script never assigns, as an inherited one.
  * @param {ShScope} scope
  * @param {string} name
  * @param {number} at
@@ -2017,12 +1591,6 @@ function shLookup(scope, name, at) {
 }
 
 /**
- * A shell word read as an absolute path, or null where any part of it is
- * not: a literal, the script's own path or directory, a variable `shLookup`
- * resolves, `${X%/*}`, an inherited `${X:-default}` as its default, or
- * `$(cd <path> && pwd)`, `$(dirname <path>)` or `$(basename <path>)`.
- * `$PWD/` before a variable adds nothing, as the absolute directory it would
- * make of a relative one is the walk's.
  * @param {ShWord} word
  * @param {ShScope} scope
  * @returns {string | null}
@@ -2036,7 +1604,7 @@ function shPath(word, scope) {
 
 /**
  * @param {string} text
- * @param {number} at the word's offset, where its variables are read
+ * @param {number} at
  * @param {ShScope} scope
  * @returns {string | null}
  */
@@ -2058,11 +1626,8 @@ function shWordValue(text, at, scope) {
 }
 
 /**
- * The value of the word part opening `rest`, and its length; null where the
- * walk cannot read it.
  * @param {string} rest
- * @param {boolean} quoted inside a double quote, where `'` and globs are
- *   literal
+ * @param {boolean} quoted
  * @param {number} at
  * @param {ShScope} scope
  * @returns {{value: string, length: number} | null}
@@ -2086,8 +1651,6 @@ function shPiece(rest, quoted, at, scope) {
 }
 
 /**
- * `${X:-default}` opening `rest`: X's value where the script assigns it,
- * else its default.
  * @param {string} rest
  * @param {number} at
  * @param {ShScope} scope
@@ -2105,7 +1668,6 @@ function shDefaulted(rest, at, scope) {
 }
 
 /**
- * A parameter opening `rest` (`SH_PARAMETER`).
  * @param {string} rest
  * @param {number} at
  * @param {ShScope} scope
@@ -2126,9 +1688,7 @@ function shParameter(rest, at, scope) {
 }
 
 /**
- * A `$(…)` substitution's output read as a path: `cd <path> && pwd`,
- * `dirname <path>` or `basename <path>`; null for any other.
- * @param {ShCommand[]} commands its commands, redirections left out
+ * @param {ShCommand[]} commands
  * @param {number} at
  * @param {ShScope} scope
  * @returns {string | null}
@@ -2148,12 +1708,9 @@ function shSubstitution(commands, at, scope) {
 }
 
 /**
- * Adds what one command loads to `reach`: a file sourced or `.`-read, run
- * through an interpreter or by its path. A path read becomes an edge, or a
- * shadow where no file stands there yet.
  * @param {ShCommand} command
  * @param {ShScope} scope
- * @param {Reach} reach accumulator: gains the command's loads
+ * @param {Reach} reach
  */
 function shLoads(command, scope, reach) {
 	const words = runWords(command.words, scope);
@@ -2170,9 +1727,7 @@ function shLoads(command, scope, reach) {
 		);
 		return;
 	}
-	/* An array's elements are a command only where an interpreter heads them. */
 	if (command.array) return;
-	/* A function running its arguments, as `hook_bound node x.js`. */
 	const nested = args.findIndex((w) => interpreterNamed(w.text));
 	const nestedKind = interpreterNamed(args[nested]?.text ?? "")?.kind;
 	if (nestedKind && !SH_NAMING_HEAD.test(head.text))
@@ -2189,10 +1744,7 @@ function shLoads(command, scope, reach) {
 }
 
 /**
- * Adds the file `word` names to the run's reach: unread where the walk
- * cannot read it as a path and it is not one the caller hands in whole, or
- * where it is sourced and its walk reads its `$0` as itself.
- * @param {ShRun} run accumulator: its reach gains the load
+ * @param {ShRun} run
  * @param {ShWord} word
  * @param {{sourced?: boolean}} [how]
  */
@@ -2209,11 +1761,6 @@ function load(run, word, { sourced = false } = {}) {
 }
 
 /**
- * A command's words from the one it runs: leading assignments, reserved
- * words, an array of literal elements, whose own loads are read at its
- * elements, and wrappers such as `exec` or `env` with their flags cut.
- * None for `command -v`, which names a command and runs none, or a
- * compound command's head.
  * @param {ShWord[]} words
  * @param {ShScope} scope
  * @returns {ShWord[]}
@@ -2235,12 +1782,10 @@ function runWords(words, scope) {
 }
 
 /**
- * Where the command a wrapper runs starts: after its flags, a flag's value,
- * `env`'s assignments and `timeout`'s duration.
  * @param {ShWord[]} words
- * @param {number} k the word after the wrapper
- * @param {RegExp} valued its flags taking a value
- * @param {boolean} timed whether a duration comes before the command
+ * @param {number} k
+ * @param {RegExp} valued
+ * @param {boolean} timed
  */
 function wrappedAt(words, k, valued, timed) {
 	let at = k;
@@ -2252,10 +1797,7 @@ function wrappedAt(words, k, valued, timed) {
 }
 
 /**
- * Adds what one interpreter run loads: its script, a file a flag names, or
- * an inline program's loads. A program on stdin, a module off the
- * interpreter's search path and a shell's inline command are unread.
- * @param {ShRun} run accumulator: its reach gains the run's loads
+ * @param {ShRun} run
  * @param {InterpreterKind} kind
  * @param {ShWord[]} args
  */
@@ -2292,7 +1834,7 @@ const splitJoinedFlag = (flags) => (word) => {
 };
 
 /**
- * @param {ShRun} run accumulator: its reach gains the run as unread
+ * @param {ShRun} run
  */
 const unreadProgram = (run) =>
 	run.reach.unread.push(
@@ -2300,8 +1842,6 @@ const unreadProgram = (run) =>
 	);
 
 /**
- * The script an interpreter's argument `k` names: itself where it is no
- * flag, the word after a `--`.
  * @param {ShWord[]} args
  * @param {number} k
  */
@@ -2312,12 +1852,10 @@ function scriptWord(args, k) {
 }
 
 /**
- * How many words a flag's value takes after it: one where the flag takes a
- * value, which is a load where the flag loads it and it reads as a path.
- * @param {ShRun} run accumulator: its reach gains a flag's load
+ * @param {ShRun} run
  * @param {{load: RegExp, value: RegExp}} flags
  * @param {ShWord[]} args
- * @param {number} k the flag's index
+ * @param {number} k
  */
 function shFlagValue(run, flags, args, k) {
 	const flag = args[k]?.text ?? "";
@@ -2333,12 +1871,9 @@ function shFlagValue(run, flags, args, k) {
 }
 
 /**
- * Adds an inline program's loads: node's `require(process.argv[N])` of an
- * argument read as a path; any other load but a builtin module's is unread.
- * Only a single-quoted program is read, as the shell leaves it as written.
- * @param {ShRun} run accumulator: its reach gains the program's loads
+ * @param {ShRun} run
  * @param {Interpreter} kind
- * @param {ShWord[]} words the program, then its arguments
+ * @param {ShWord[]} words
  */
 function shInlineProgram(run, kind, words) {
 	const [program, ...args] = words;

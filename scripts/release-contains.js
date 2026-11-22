@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * release-contains.js — which releases carry a commit (#797).
- *
- * Usage:
- *   node scripts/release-contains.js <sha>
- *
- * `git tag --contains <sha>` CANNOT ANSWER THIS: release-plugin.js cuts every
- * release as a root commit, so no `main` commit is in any tag's history and
- * the answer is always empty. Each release commit's message names its source
- * instead (lib/release-tags.js's `buildReleaseMessage`), and a release carries
- * `<sha>` where `<sha>` is an ancestor of that source.
- *
- * Joins no §N3 family: it answers a question and gates nothing. Exits 0 where
- * some release carries `<sha>`, 1 where none does, 2 where it cannot ask —
- * a usage error, a `<sha>` that names no commit here, or git failing. A tag
- * whose message carries no rendered-from line, or whose source this clone
- * lacks, is named and counted as not carrying it.
- */
 
 const { parseOrCode } = require("./lib/cli-args");
 const { readReleaseTags, readTagCarry } = require("./lib/release-tags.js");
@@ -24,7 +6,6 @@ const { caught } = require("./lib/caught.js");
 const { commitSha } = require("./lib/commit-sha.js");
 
 /**
- * Splits the release tags into those carrying `sha` and those it cannot read.
  * @param {string} sha
  * @param {string[]} tags
  */

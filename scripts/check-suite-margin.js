@@ -1,41 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-suite-margin.js — did the latest green whole vitest suite finish
- * under the target it is held to?
- *
- * Usage:
- *   node check-suite-margin.js [--store <pass-marker file>]
- *     [--fail-store <fail-marker file>] [--notify] [--json]
- *
- * A lone whole suite is aimed at `TARGET_MS` (`scripts/lib/suite-ceiling.js`);
- * the ceiling is the backstop that kills a runaway run and turns the push gate
- * red (#2667). So where the latest green whole suite (#2729, #2770; shards
- * #3090) took `TARGET_MS` or longer, this
- * names its sha, its duration against the target and the ceiling, the machine
- * reading across the run and its slowest files.
- *
- * THE LATEST GREEN RUN AND EVERY CEILING KILL AFTER IT (#3237) — or, where the
- * whole suite runs as `--shard=k/n` shards (`fullTestShards`, #2996), the
- * same for each shard, since each runs under its own ceiling.
- *
- * A WHOLE SUITE IS `scope.full` SET AND EVERY MODULE RUN (`isFullRun`); A
- * SHARD IS `scope.full` SET, NARROWED BY NOTHING ELSE (`isUnnarrowedScope`).
- *
- * A RED RUN'S SLOWEST FILES TOO (#4291), any scope, since the earliest
- * green run judged: a red suite has no green run to show them.
- * Residual: a red run narrowed to a few files under load can name a file
- * that a whole run times under the target, and a slow file seen only in
- * green part-suites is never named.
- *
- * IT NAMES THE RUN THAT ARMS THE GROWTH BUDGET (#5137): the latest lone whole
- * suite, green under the target, while BUDGET_ARMED_BY is unset.
- *
- * WARN-ONLY, ALWAYS (#1797).
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), says when the latest green whole vitest suite, or any of its latest green shards, took the target scripts/lib/suite-ceiling.js sets or longer, or was killed at the ceiling since, with its sha, machine reading and slowest files; names a file at the target in a red run since, with its sha; names a suite or shard with no run to judge; and names the lone whole suite under the target that arms the growth budget. It refuses nothing.
- * JUSTIFIED: fail-safe — a suite over its target is otherwise silent until a push gate is killed at the ceiling.
- * DEFEAT:    convenience — --store and --fail-store read other marker files on a hand run.
- */
 
 const { runCheck } = require("./lib/check.js");
 const {
@@ -68,14 +31,6 @@ const {
 const secs = (ms) => `${Math.round(ms / 1000)} s`;
 
 /**
- * The runs the margin is judged on, in the shape of the latest green run —
- * the whole suite, or its shards at that count — or of the latest kill where
- * nothing is green; a kill never sets it, so a hand run killed between the
- * lander's shards hides none of them. For each slot, the whole suite or each
- * shard, that is its latest green run and every kill after it. A green run
- * older than the last of another shape describes a suite the lander no longer
- * runs. A slot with no run
- * is named in `unjudged`, never dropped silently.
  * @param {Marker[]} markers
  * @param {Marker[]} failures
  * @returns {{runs: TimedMarker[], unjudged: string[]}}
@@ -113,8 +68,6 @@ function latestRuns(markers, failures) {
 /** @typedef {{file: string, seconds: number, sha: string, at: string|null}} SlowRedFile */
 
 /**
- * Each file at or over the target in a red run newer than `since`, or in any
- * red run, undated included, where `since` is null; at its newest reading.
  * @param {Marker[]} failures
  * @param {string|null} since
  * @returns {SlowRedFile[]}
@@ -162,7 +115,6 @@ function machineLine(machine) {
 }
 
 /**
- * A kill's files in flight, or a green run's slowest.
  * @param {Marker} m
  * @returns {string[]}
  */
@@ -185,7 +137,6 @@ function buildFileLines(m) {
 }
 
 /**
- * Warns on one run over the target and says its detail.
  * @param {import("./lib/check.js").Ctx} ctx
  * @param {TimedMarker} marker
  * @param {string} target
@@ -221,9 +172,6 @@ function reportBreach(ctx, marker, target) {
 }
 
 /**
- * Warns on each slot with no run to judge — the whole suite where nothing is
- * recorded, or each shard. An unjudged slot
- * may be the one over the target, so it never reads OK.
  * @param {import("./lib/check.js").Ctx} ctx
  * @param {boolean} noRun
  * @param {string[]} shards
@@ -252,7 +200,6 @@ function warnUnjudged(ctx, noRun, shards) {
 }
 
 /**
- * Warns on one red-run file at or over the target.
  * @param {import("./lib/check.js").Ctx} ctx
  * @param {SlowRedFile} f
  * @param {string} target
@@ -271,10 +218,9 @@ function reportSlowFile(ctx, f, target) {
 }
 
 /**
- * The run BUDGET_ARMED_BY is to record (#5137). Every whole suite is cold, the pass store being off for full runs.
  * @param {Marker[]} markers
  * @param {Marker[]} failures
- * @returns {string} the sentence, or "" where there is none
+ * @returns {string}
  */
 function armText(markers, failures) {
 	if (BUDGET_ARMED_BY !== null) return "";
@@ -295,8 +241,6 @@ runCheck({
 		const failures = failStore ? readStoreFile(failStore) : readFailures();
 		const { runs, unjudged } = latestRuns(markers, failures);
 		const target = `the ${secs(TARGET_MS)} target (the ${secs(CEILING_MS)} ceiling is the backstop)`;
-		/* The earliest judged green run: a shard's green names only its own
-		 * files, so a red between two shards' greens stays in. */
 		const since = runs
 			.filter((m) => !m.ceilingKill)
 			.map((m) => m.at ?? "")

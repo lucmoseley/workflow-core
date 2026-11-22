@@ -1,28 +1,3 @@
-/*
- * citation-findings-cache.js — check-issue-citations.js's read of the tracker
- * (#5355): every surface once, then only what changed since the last run.
- *
- * The cold read is REST, the issues list and the repo-wide comments list in
- * parallel, 100 rows a page, so no single request grows with the tracker. Every later
- * run reads only the issues and comments updated since the cache's stamp, and
- * carries every other surface's findings from the cache.
- *
- * ONLY FINDINGS ARE CACHED, per surface: an issue's body, or one comment by
- * its REST id. A surface that changed is rescanned whole; one that did not
- * cannot have changed its findings. Three changes reach no `since` read: a
- * deleted comment, a deleted issue and an issue transferred out. So every
- * cached finding the since read did not touch is probed by its own id each
- * run, and a 404, a 410 or a row from another repo drops it. Residual: an issue transferred IN keeps
- * its comments' old `updated_at`, so they go unscanned until the next cold
- * read.
- *
- * The cache carries the scanner's version, a hash of its source: a changed
- * rule rescans everything rather than reporting under the old one.
- *
- * Shared by every worktree and written by rename. Last writer wins: every
- * write is a whole cache.
- */
-
 const path = require("node:path");
 const {
 	assertOpenRead,
@@ -49,15 +24,15 @@ const { writeFd } = require("./write-fd.js");
  * @typedef {{title: string, url: string, body?: Finding, comments: Record<string, Finding>}} Entry
  * @typedef {{version: string, stamp: string, fullStamp: string, issues: Record<string, Entry>}} Cache
  * @typedef {object} Scanner
- * @property {string} version changes whenever what a scan finds could change
- * @property {(text: string) => Finding|null} body a body's findings
- * @property {(text: string) => Finding|null} comment a comment's findings
+ * @property {string} version
+ * @property {(text: string) => Finding|null} body
+ * @property {(text: string) => Finding|null} comment
  * @typedef {object} Deps
  * @property {string} file
  * @property {() => Promise<{issues: IssueRow[], comments: CommentRow[]}>} readAll
  * @property {(since: string) => {issues: IssueRow[], comments: CommentRow[]}} readSince
- * @property {(n: string) => IssueRow|null} probeIssue null where it is gone
- * @property {(id: string) => CommentRow|null} probeComment null where it is gone
+ * @property {(n: string) => IssueRow|null} probeIssue
+ * @property {(id: string) => CommentRow|null} probeComment
  * @property {(text: string) => void} warn
  */
 
@@ -72,7 +47,7 @@ function buildGhDeps(repo) {
 			throw e;
 		}
 	};
-	/** @param {string[]} fields `-f` query fields */
+	/** @param {string[]} fields */
 	const listQuery = (fields) => [
 		"-X",
 		"GET",
@@ -112,7 +87,6 @@ function buildGhDeps(repo) {
 		}),
 		probeIssue: (n) => {
 			const row = probe(`repos/${repo}/issues/${n}`);
-			// A transferred issue redirects to its new repo, which gh follows.
 			return row?.repository_url?.endsWith(`/repos/${repo}`) ? row : null;
 		},
 		probeComment: (id) => probe(`repos/${repo}/issues/comments/${id}`),
@@ -121,8 +95,6 @@ function buildGhDeps(repo) {
 }
 
 /**
- * The cache at `deps.file`, or null where it is absent, unusable or from
- * another scanner version — saying so where a file is there but unusable.
  * @param {Deps} deps
  * @param {string} version
  * @returns {Cache|null}
@@ -158,12 +130,11 @@ function writeCache(deps, cache) {
 	try {
 		writeFileAtomic(deps.file, JSON.stringify(cache), { mkdir: true });
 	} catch (e) {
-		// The cache only saves time: the next run reads the whole tracker.
 		deps.warn(`could not write the citation cache (${parseErrLine(e)}).`);
 	}
 }
 
-/** The issue number a comment row sits on. @param {CommentRow} c */
+/** @param {CommentRow} c */
 function commentIssue(c) {
 	const n = /\/issues\/(\d+)$/.exec(c.issue_url)?.[1];
 	if (!n) throw new Error(`a comment row names no issue: ${c.issue_url}`);
@@ -171,7 +142,7 @@ function commentIssue(c) {
 }
 
 /**
- * @param {Record<string, Entry>} issues accumulator: the row's entry is set
+ * @param {Record<string, Entry>} issues
  * @param {IssueRow} row
  * @param {Scanner} scan
  */
@@ -187,8 +158,7 @@ function rescanIssue(issues, row, scan) {
 }
 
 /**
- * @param {Record<string, Entry>} issues accumulator: the comment's finding
- *   is set or dropped on its issue's entry
+ * @param {Record<string, Entry>} issues
  * @param {CommentRow} row
  * @param {Scanner} scan
  */
@@ -211,7 +181,6 @@ const prune = (issues) =>
 	Object.fromEntries(Object.entries(issues).filter(([, e]) => hasFinding(e)));
 
 /**
- * The whole tracker scanned: the cold read.
  * @param {Deps} deps
  * @param {Scanner} scan
  */
@@ -221,7 +190,6 @@ async function scanAll(deps, scan) {
 	/** @type {Record<string, Entry>} */
 	const issues = {};
 	for (const row of rows) rescanIssue(issues, row, scan);
-	// A comment on a pull request has no issue row to land on.
 	for (const c of all.comments)
 		if (issues[commentIssue(c)]) rescanComment(issues, c, scan);
 	return {
@@ -231,8 +199,6 @@ async function scanAll(deps, scan) {
 }
 
 /**
- * `cache`'s findings with every surface changed since its stamp rescanned,
- * and every other one probed for still existing.
  * @param {Deps} deps
  * @param {Scanner} scan
  * @param {Cache} cache
@@ -268,13 +234,10 @@ function scanSince(deps, scan, cache, since) {
 }
 
 /**
- * An issue holding a finding the since read did not return — untouched, or
- * reached only through a comment: dropped where it is gone, transferred or a
- * pull request, else given its current title.
  * @param {Deps} deps
- * @param {Record<string, Entry>} issues accumulator
+ * @param {Record<string, Entry>} issues
  * @param {string} n
- * @param {Entry} entry `issues[n]`, retitled in place
+ * @param {Entry} entry
  */
 function refreshUnread(deps, issues, n, entry) {
 	const row = deps.probeIssue(n);
@@ -286,8 +249,6 @@ function refreshUnread(deps, issues, n, entry) {
 }
 
 /**
- * Every issue holding a finding, keyed by number, and what this run read.
- * Throws where a read fails; the cache is then left as it was.
  * @param {string} repo
  * @param {Scanner} scan
  * @returns {Promise<{issues: Record<string, Entry>, read: {full: boolean, issues: number, comments: number, since?: string, fullStamp: string}}>}

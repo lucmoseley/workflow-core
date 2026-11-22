@@ -1,8 +1,3 @@
-/*
- * The shared fixture and drivers for the concision-backstop.sh test files,
- * split by subject so no one file runs past the per-file limit (#4308).
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -20,7 +15,6 @@ export const INJECTOR = path.resolve(__dirname, "..", "inject-tracker-docs.js");
 export const ME = "session-under-test";
 export const OTHER = "parallel-session";
 
-/* A function, not a hoisted const: `repo` is reassigned per test. */
 export const markersDir = () => path.join(repo, ".claude", "tmp", "markers");
 
 export let dir: string;
@@ -34,16 +28,9 @@ export const env = () => ({
 	...process.env,
 	CLAUDE_PROJECT_DIR: repo,
 	CLAUDE_CONFIG_DIR: cfg,
-	// The /implement marker the backstop reads lives under TMPDIR, so it is
-	// pointed at this test's scratch directory — otherwise a real session's
-	// marker in the host's /tmp could decide the outcome.
 	TMPDIR: dir,
 });
 
-/**
- * Reserve the marker inject-tracker-docs.js writes when `/implement` fires, at
- * the path and with the sanitising the backstop reads back.
- */
 export const implementRan = (sid = ME) => {
 	const d = path.join(dir, `wfc-tracker-inject-${process.getuid?.() ?? 0}`);
 	fs.mkdirSync(d, { recursive: true });
@@ -53,20 +40,12 @@ export const implementRan = (sid = ME) => {
 	);
 };
 
-/**
- * A path in this repo's arbiter store — asked of the arbiter rather than
- * rebuilt, so a change to its slugging cannot leave the test chmodding or
- * reading a path nothing writes.
- */
-// biome-ignore lint/suspicious/noExplicitAny: the store is untyped CommonJS.
-export const storePath = (pick: (store: any) => string) => {
-	// The store, not the CLI: session-arbiter.js exports only a subcommand
-	// runner (mantahostels#158), never the store's functions.
-	return withStubbedEnv(
-		{ CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: cfg },
-		() => pick(createRequire(__filename)("./arbiter-store.js")),
+type ArbiterStore = typeof import("./arbiter-store.js");
+
+export const storePath = (pick: (store: ArbiterStore) => string) =>
+	withStubbedEnv({ CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: cfg }, () =>
+		pick(createRequire(__filename)("./arbiter-store.js") as ArbiterStore),
 	);
-};
 
 export const ledgerFor = (sid: string) => storePath((s) => s.paths.ledger(sid));
 
@@ -76,12 +55,9 @@ const arbiter = (args: string[], e: NodeJS.ProcessEnv, cwd?: string) => {
 		throw new Error(`session-arbiter.js ${args[0]}: ${r.stderr}`);
 };
 
-/** Note in the ledger that `sid` wrote `rel` — what PostToolUse does for
- * real, in `cwd` where it names the session's worktree. */
 export const record = (rel: string, sid: string, cwd?: string) =>
 	arbiter(["record", rel, sid], env(), cwd);
 
-/** Note HEAD in `sid`'s commit ledger — what post-commit does for real. */
 export const ledgerHeadOf = (sid: string) =>
 	ledgerHead(repo, { ...env(), CLAUDE_CODE_SESSION_ID: sid });
 
@@ -93,27 +69,16 @@ export const write = (rel: string, body: string) => {
 export const gitAt = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 
-/*
- * THE FIXTURE IS BUILT ONCE AND COPIED, via scripts/lib/git-fixture.ts (mantahostels#2068),
- * rather than rebuilt per test. One template, not mantahostels#2048's pre-built
- * variants: the git calls left per test are ones the test bodies make, not
- * repo construction (mantahostels#2076).
- */
 const buildTemplate = (root: string) => {
 	const repoDir = path.join(root, "repo");
 	fs.mkdirSync(repoDir, { recursive: true });
 	gitAt(repoDir, "init", "-q", "-b", "main", ".");
 	gitAt(repoDir, "config", "user.email", "test@example.com");
 	gitAt(repoDir, "config", "user.name", "test");
-	// core.hooksPath is absolute in this checkout, so a scratch repo would
-	// otherwise run the real Husky gates (mantahostels#100's finding). relink() rewrites
-	// this template-relative path in .git/config on every instantiate() call.
 	gitAt(repoDir, "config", "core.hooksPath", path.join(root, "no-hooks"));
 	fs.writeFileSync(path.join(repoDir, "seed.md"), "seed\n");
 	gitAt(repoDir, "add", "seed.md");
 	gitAt(repoDir, "commit", "-qm", "init");
-	// The SessionStart run every case starts from, made once here (#4308): it
-	// writes only ME's base marker, which the copy carries.
 	const r = spawnSync(BACKSTOP, ["start"], {
 		cwd: repoDir,
 		encoding: "utf8",
@@ -130,7 +95,6 @@ const buildTemplate = (root: string) => {
 
 export const template = defineTemplate(buildTemplate);
 
-/** Runs the hook in `mode`, as Claude Code would, returning the whole result. */
 export const spawnBackstop = (
 	mode: "start" | "stop",
 	sid = ME,
@@ -147,7 +111,6 @@ export const spawnBackstop = (
 	return r;
 };
 
-/** Runs the hook in `mode`, as Claude Code would, returning its block reason. */
 export const run = (
 	mode: "start" | "stop",
 	sid = ME,
@@ -158,7 +121,6 @@ export const run = (
 	return JSON.parse(r.stdout).reason as string;
 };
 
-/** A Stop whose payload names `cwd`, the hook run from `from`; its block reason. */
 export const stopIn = (cwd: string, from = cwd) => {
 	const r = spawnSync(BACKSTOP, ["stop"], {
 		cwd: from,
@@ -170,21 +132,15 @@ export const stopIn = (cwd: string, from = cwd) => {
 	return r.stdout?.trim() ? (JSON.parse(r.stdout).reason as string) : null;
 };
 
-/** 60 words — comfortably over the script's THRESHOLD of 50. */
 export const PARAGRAPH = `${Array.from({ length: 60 }, (_, i) => `word${i}`).join(" ")}\n`;
 
-/** A code change big enough to clear CODE_THRESHOLD, the churn gate at mantahostels#1071. */
 export const BIG_CODE = Array.from(
 	{ length: 30 },
 	(_, i) => `export const x${i} = ${i};`,
 ).join("\n");
 
-/** Each case's fresh copy of the template, removed after it. */
 export const backstopFixture = () => {
 	beforeEach(() => {
-		// realpath: the repo root the arbiter derives comes from `git rev-parse`,
-		// which resolves symlinks, so an unresolved tmpdir would slug to a different
-		// project directory and the ledger would be written where nothing reads it.
 		dir = mkScratchDir("backstop-");
 		repo = path.join(dir, "repo");
 		cfg = path.join(dir, "config");

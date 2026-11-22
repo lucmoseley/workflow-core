@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * Pins where a superseded §B figure counts as still live, which files and
- * lines are exempt or anchored out, and when the needle data is BROKEN
- * (mantahostels#707, mantahostels#861).
- *
- * check-superseded-values.js enumerates the repo with `git ls-files`, so it is
- * exercised inside a throwaway repository rather than against this one — a
- * fixture pinned to this repo's own docs/ tree would go red on every doc added.
- *
- * Findings never gate, so a test asserting a hit also asserts exit 0. The
- * --broken-only block at the end is the exception: its subject is the exit code.
- *
- * The scan reports in the daily repo-checks run with the `governance` module on,
- * and `--broken-only` is a hard gate in `.husky/pre-commit`: loosen a case and a
- * corrected figure keeps circulating unreported, or a `Supersedes` bullet with
- * no needle lands unscanned.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,24 +23,14 @@ const track = (file: string, body: string) => {
 
 const DATA = "docs/doc-map-superseded.json";
 
-/** Untracked, which is how the checker reads the data file in most tests. */
 const write = (file: string, body: string) => {
 	fs.mkdirSync(path.join(repo, path.dirname(file)), { recursive: true });
 	fs.writeFileSync(path.join(repo, file), body);
 };
 
-/** A Section A register row: path, role, class, update route, consumes. */
 const row = (p: string, cls: string) =>
 	`| \`${p}\` | a doc | \`${cls}\` | Direct | — |`;
 
-/**
- * The map as the script parses it: a Section A register giving each file its
- * authority class, then Section B entries carrying `Supersedes` bullets.
- *
- * One `binary-asset` row is always present — the script treats a Section A
- * that parses no row as unreadable, since without the register the scan cannot
- * tell a binary asset from prose.
- */
 const mapDoc = (rows: string[], entries: string[]) =>
 	[
 		"# Doc map",
@@ -77,7 +50,6 @@ const mapDoc = (rows: string[], entries: string[]) =>
 		"",
 	].join("\n");
 
-/** A Section B entry with a single `Supersedes` bullet. */
 const entry = (
 	id: string,
 	title: string,
@@ -98,11 +70,6 @@ interface Needle {
 	scanned: boolean;
 }
 
-/*
- * The checker reads needles from the data file alone (#707), so the map and
- * its data file are written together: each entry's needles are the values its
- * `Supersedes` bullet bolds, scanned, unless `needles` names that entry's list.
- */
 const writeMap = (
 	rows: string[],
 	entries: string[],
@@ -124,7 +91,6 @@ const writeMap = (
 	else fs.rmSync(path.join(repo, DATA), { force: true });
 };
 
-/** An entry's legitimate-hits allowlist, patched into the data file. */
 const allow = (id: string, allowlist: unknown[]) => {
 	const file = path.join(repo, "docs/doc-map-superseded.json");
 	const data = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -155,8 +121,7 @@ afterEach(() => {
 });
 
 describe("check-superseded-values", () => {
-	// A fresh adopter's day-one state: an empty §B and an empty sidecar
-	// (mantahostels#3515 F11).
+	// lucmoseley/mantahostels#3515
 	it("accepts an empty sidecar beside a map with no Supersedes bullet", () => {
 		track(MAP, mapDoc([row(MAP, "source-of-truth")], []));
 		track(DATA, "{}\n");
@@ -182,10 +147,7 @@ describe("check-superseded-values", () => {
 		expect(r.out).toContain("B1");
 	});
 
-	/* #743 ruled the roadmap's done-logs allowlist-eligible — a `log:` field
-	 * quoting the figure it recorded is the record of the supersession, not a
-	 * stale copy — and #744 anchors them by content, because the file is one
-	 * long line per card and a line pin rots on every card inserted above. */
+	// lucmoseley/mantahostels#743
 	it("suppresses a hit by content anchor, and follows the line as it moves", () => {
 		track(
 			"docs/roadmap.html",
@@ -202,7 +164,6 @@ describe("check-superseded-values", () => {
 		expect(before.hits[0].line).toBe(1);
 		expect(before.allowed).toBe(1);
 
-		// A card inserted above: a line pin would now suppress the wrong line.
 		track(
 			"docs/roadmap.html",
 			'b:"a new card $18"\nb:"live text $18"\nlog:"pitch settled — $18 basis gone"\n',
@@ -262,8 +223,6 @@ describe("check-superseded-values", () => {
 	});
 
 	it("drives the exemption off the class, not the path", () => {
-		// An archive path classed free-edit is still scanned: the exemption
-		// follows the register, not what the filename suggests.
 		track("docs/archive/sync-reports/old-run.md", "still reads $18\n");
 		writeMap(
 			[row("docs/archive/sync-reports/old-run.md", "free-edit"), row(MAP, "s")],
@@ -314,9 +273,7 @@ describe("check-superseded-values", () => {
 		expect(check().out).toContain(`${MAP}:`);
 	});
 
-	/* #2399: a §A cell is copied verbatim out of docs/doc-map-classes.json by
-	 * the generator, so scanning both copies makes one sentence need two
-	 * allowlist rows. */
+	// lucmoseley/mantahostels#2399
 	it("does not report a generated Section A table row, but does report its source", () => {
 		writeMap(
 			[row(MAP, "source-of-truth")],
@@ -489,9 +446,6 @@ describe("check-superseded-values", () => {
 	});
 
 	it("keeps a collision-hazard bullet that says which twin is superseded", () => {
-		// The real B6 bullet closes "Only the concentration one is superseded". The
-		// fixture mirrors that wording deliberately — drop it and this collapses
-		// into the test above, which is why that one passed while B6 did not.
 		track("docs/notes.md", "37% of members disagree\n");
 		writeMap(
 			[row("docs/notes.md", "free-edit"), row(MAP, "s")],
@@ -563,11 +517,7 @@ describe("check-superseded-values", () => {
 		expect(r.out).toMatch(/BROKEN/);
 	});
 
-	/*
-	 * #268 bug 1 (the bugs this checker inherited from the copy it was made
-	 * from). `git ls-files` states repo-relative paths, so the map is recognised
-	 * as itself only once the CLI argument is in that same form.
-	 */
+	// lucmoseley/mantahostels#268
 	it("skips Section B when the map is named by a non-canonical path", () => {
 		writeMap([row(MAP, "s")], [entry("B1", "AOV", "retail-only **$18** AOV.")]);
 
@@ -579,15 +529,11 @@ describe("check-superseded-values", () => {
 		);
 	});
 
-	/*
-	 * #268 bug 3. The exempt count is counted against the Section A matchers, not
-	 * as the scan's shortfall, which also swept in the self-excluded files.
-	 */
+	// lucmoseley/mantahostels#268
 	it("counts as exempt only what Section A exempts, not its own source", () => {
 		track("scripts/check-superseded-values.js", "// quotes $18\n");
 		writeMap([row(MAP, "s")], [entry("B1", "AOV", "**$18** AOV.")]);
 
-		// docs/history.bin is the one binary-asset row every fixture map carries.
 		expect(json().exempt).toBe(1);
 		expect(check().out).toContain("(1 exempt by class, 0 hit(s) allowlisted)");
 	});
@@ -604,13 +550,7 @@ describe("check-superseded-values", () => {
 	});
 });
 
-/*
- * Needles come from doc-map-superseded.json and from nowhere else (#707), so
- * these write it directly, over whatever writeMap derived from the map.
- * The file is untracked in most of them deliberately — the checker reads it
- * from disk; the exemption test tracks it, because that is the state in which
- * a needle could self-report.
- */
+// lucmoseley/mantahostels#707
 describe("the needle data file", () => {
 	it("greps the needle the file states, not the one the prose bolds", () => {
 		track("docs/notes.md", "the average order is $18 or $45\n");
@@ -682,12 +622,7 @@ describe("the needle data file", () => {
 		expect(j.hits).toMatchObject([{ file: "docs/notes.md" }]);
 	});
 
-	/*
-	 * The allowlist (#707). Some superseded values can never be fixed — a
-	 * compliance document's history row records the figure it replaced, and §9 of
-	 * those documents says rows are never edited — so without a suppression they
-	 * report forever.
-	 */
+	// lucmoseley/mantahostels#707
 	it("suppresses an allowlisted line and counts it", () => {
 		track("docs/notes.md", "history: was $18\nstill priced at $18\n");
 		writeMap(
@@ -709,9 +644,7 @@ describe("the needle data file", () => {
 		expect(check().out).toContain("1 hit(s) allowlisted");
 	});
 
-	/* The line-pin diagnostic (#847), shared with check-retired-vocabulary.js
-	 * through the resolver: a pin whose line has stopped carrying the needle
-	 * suppresses nothing, and must not stay silent about it. */
+	// lucmoseley/mantahostels#847
 	it("names a line pin whose line no longer carries the needle", () => {
 		track("docs/notes.md", "a row inserted above\nhistory: was $18\n");
 		writeMap(
@@ -731,7 +664,6 @@ describe("the needle data file", () => {
 		expect(j.pinNotes).toMatchObject([
 			{ entry: "B1", file: "docs/notes.md", line: 1 },
 		]);
-		// The hit the pin has stopped covering reports under its own name.
 		expect(j.hits).toMatchObject([{ file: "docs/notes.md", line: 2 }]);
 		expect(check().out).toContain("line pin(s)");
 	});
@@ -754,10 +686,6 @@ describe("the needle data file", () => {
 		expect(json().pinNotes).toEqual([]);
 	});
 
-	/* A pin is judged by what would in fact have hit its line, not by the raw
-	 * pattern: "Velmora" alone is an address, and only a line also carrying a
-	 * word from the entry's heading is a hit. So a pin on the address line
-	 * covers nothing and is named. */
 	it("judges a pin on a non-numeric needle by the heading-word filter", () => {
 		track("docs/notes.md", "Velmora Beach Road\nVelmora as the pilot node\n");
 		writeMap(
@@ -778,8 +706,6 @@ describe("the needle data file", () => {
 		expect(j.hits).toMatchObject([{ file: "docs/notes.md", line: 2 }]);
 	});
 
-	/* A non-numeric needle is scanned in prose only — in data a name is a key —
-	 * so a pin on one in a data file was never suppressing a hit either. */
 	it("names a pin on a prose-only needle sitting in a data file", () => {
 		track("docs/data.json", '{ "node": "Velmora pilot node" }\n');
 		writeMap(
@@ -842,12 +768,6 @@ describe("the needle data file", () => {
 		expect(j.allowed).toBe(1);
 	});
 
-	/*
-	 * The hazard of the data file being the source and the prose not one: an
-	 * entry whose bullet never reached the data file is scanned by nothing while
-	 * the summary still counts as though it were.
-	 */
-	/** B6 supersedes something and has no data key; B1 is otherwise sound. */
 	const writeUncovered = () => {
 		writeMap(
 			[],
@@ -875,9 +795,6 @@ describe("the needle data file", () => {
 		fs.rmSync(path.join(repo, DATA));
 		const r = check();
 		expect(r.status).toBe(2);
-		/* The message, not just the exit code: the uncovered-entry assertion below
-		 * also exits 2 here, and the two remedies differ — restore the file,
-		 * versus add one entry's key to it. */
 		expect(r.out).toContain("doc-map-superseded.json");
 		expect(r.out).toContain("is missing");
 	});
@@ -891,7 +808,7 @@ describe("the needle data file", () => {
 		expect(r.out).toMatch(/^OK:/m);
 	});
 
-	// A day-one map (#395 Q1).
+	// #395
 	it("skips by name on a §B with no entry, even with no Section A row", () => {
 		track(
 			MAP,
@@ -941,16 +858,12 @@ describe("the needle data file", () => {
 	});
 });
 
-/*
- * The mode .husky/pre-commit gates on (#861).
- */
+// lucmoseley/mantahostels#861
 describe("--broken-only", () => {
 	const writeData = (body: string) =>
 		fs.writeFileSync(path.join(repo, DATA), body);
 
 	it("is BROKEN where an entry carries a Supersedes bullet with no key", () => {
-		/* Two entries, one keyed: an empty file is BROKEN a step earlier, so the
-		 * uncovered-entry branch needs a data file that is otherwise sound. */
 		writeMap(
 			[],
 			[
@@ -968,8 +881,6 @@ describe("--broken-only", () => {
 		expect(r.out).toContain("B1");
 	});
 
-	/* The guarantee the hook rests on: a stale value live in the tree is a WARN
-	 * finding, and this mode must not see it at all. */
 	it("never gates on a live stale value, and does not scan for one", () => {
 		track("docs/notes.md", "the average order is $18\n");
 		writeMap(

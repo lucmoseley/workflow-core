@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/*
- * overflow-sessions.js — which of the session ids on stdin, one a line, the
- * launch record marks overflow, printed one a line (#3696). The route to
- * readDeclaredOverflowLookup for a reader not in Node: scripts/measure-burn/scan_burn.py.
- *
- * Exit 0; 1 with why on stderr where a ledger will not read; 2 on a usage error.
- * Joins no §N3 family: its one reader takes any non-zero as a refusal.
- */
 
 const { caught } = require("./lib/caught.js");
 const { scriptPath } = require("./lib/script-path.js");

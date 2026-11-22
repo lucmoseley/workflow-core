@@ -1,18 +1,5 @@
 // @vitest-environment node
 
-/*
- * check-sh-changed.test.ts — check-sh-changed.sh, the `check:sh:changed` script
- * (#1015), shellchecks only the shell files that differ from HEAD. A red case
- * here fails CI's Vitest step.
- *
- * Scope cases stub shellcheck as an argv recorder on PATH, because CI's Vitest
- * step has no shellcheck on PATH (ci.yml fetches it for its own step only).
- *
- * It is the in-session route sessions use in place of the full `check:sh`:
- * loosen a case and a changed shell file goes unchecked while the run reads
- * green, or its flags drift from `check:sh`'s.
- */
-
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -43,7 +30,6 @@ function fixture() {
 	fs.writeFileSync(path.join(root, "README.md"), "x\n");
 	git("add", ".");
 	git("commit", "-qm", "init");
-	// The stub is itself shell, by its shebang; untracked, it would be checked.
 	fs.appendFileSync(path.join(root, ".git", "info", "exclude"), "stub-bin/\n");
 	const bin = path.join(root, "stub-bin");
 	fs.mkdirSync(bin);
@@ -68,7 +54,6 @@ function run(root: string, searchPath: string) {
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
-/** The paths the stub was handed, flags dropped. Null where it never ran. */
 const readCheckedArgs = (root: string) => {
 	const f = path.join(root, ARGS_FILE);
 	if (!fs.existsSync(f)) return null;
@@ -97,7 +82,6 @@ describe("which files it hands shellcheck", () => {
 		const pkg = JSON.parse(
 			fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
 		);
-		// The binary is the LAST `shellcheck` word, the lock's name coming first.
 		const words: string[] = pkg.scripts["check:sh"].split(/\s+/);
 		const at = words.lastIndexOf("shellcheck");
 		const flags = words.slice(at + 1, at + 4);
@@ -203,8 +187,6 @@ describe("when nothing is checked", () => {
 
 	it("fails, not passes, when shellcheck is absent, with exit 127 and a pointer to the shellcheck-not-installed rule", () => {
 		const { root, bin } = fixture();
-		// Built up rather than subtracted from PATH: ~/.local/bin holds both
-		// shellcheck and tools the script needs (precommit-actionlint-gate.test.ts).
 		for (const cmd of ["git", "sort", "dirname", "node"]) {
 			fs.symlinkSync(commandPath(cmd), path.join(bin, cmd));
 		}
@@ -220,7 +202,6 @@ it.skipIf(!HAS_SHELLCHECK)(
 	"reports a warning planted in the changed file",
 	() => {
 		const { root } = fixture();
-		// SC2154 is warning-tier: a variable referenced but never assigned.
 		fs.appendFileSync(
 			path.join(root, "scripts", "a.sh"),
 			'echo "$never_set"\n',

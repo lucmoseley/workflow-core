@@ -1,24 +1,11 @@
-/*
- * arm-stats.js — the before/after test's statistics (#2045, #2046,
- * `docs/research/startup-load-before-after-test.md` D3–D4): the main run's
- * size, its Poisson regression and Mann–Whitney cross-check, and #2241's
- * within-task comparisons of acceptance, wall time and spend.
- */
-
-/**
- * Guesses, not measurements: IRLS on a Poisson log link converges in under 10
- * passes on the pilot's data, and a pivot this small means the strata are
- * collinear, not merely ill-conditioned.
- */
+// guess, #5529
 const MAX_IRLS_PASSES = 100;
 const IRLS_STEP_TOLERANCE = 1e-10;
 const SINGULAR_PIVOT = 1e-12;
-/** Guesses: the incomplete gamma's series and continued fraction settle well inside these at any df a report meets. */
+// guess, #5529
 const MAX_GAMMA_TERMS = 500;
 const GAMMA_TOLERANCE = 1e-14;
-/** Numerical Recipes 5.2's FPMIN for the modified Lentz method: near the smallest double, so a zero denominator becomes finite. */
 const TINY = 1e-300;
-/** Two-sided alpha 0.05 and 80% power, D4's design. */
 const Z_ALPHA = 1.959_964;
 const Z_POWER = 0.841_621;
 
@@ -35,12 +22,7 @@ function meanVar(xs) {
 	return { n, mean, variance };
 }
 
-/**
- * Runs per arm for a two-sided test of rate ratio `1 - drop`, D3's Poisson
- * model scaled by the dispersion (variance / mean):
- * n = (zα + zβ)² · φ · (1/m0 + 1/m1) / ln(1 − d)².
- * @param {{ m0: number, dispersion: number, drop: number }} opts
- */
+/** @param {{ m0: number, dispersion: number, drop: number }} opts */
 function runsPerArm({ m0, dispersion, drop }) {
 	if (m0 <= 0) return Number.POSITIVE_INFINITY;
 	const m1 = m0 * (1 - drop);
@@ -50,11 +32,7 @@ function runsPerArm({ m0, dispersion, drop }) {
 	);
 }
 
-/**
- * Variance pooled over every (task, arm) cell, weighted by its degrees of
- * freedom, so a gap between tasks is not counted as noise.
- * @param {Scored[]} scored
- */
+/** @param {Scored[]} scored */
 function withinTask(scored) {
 	/** @type {Map<string, number[]>} */
 	const cells = new Map();
@@ -74,10 +52,7 @@ function withinTask(scored) {
 	return { pooled, df, dispersion: grand > 0 ? pooled / grand : 0 };
 }
 
-/**
- * The standard normal CDF, by Abramowitz and Stegun 7.1.26 (error < 1.5e-7).
- * @param {number} z
- */
+/** @param {number} z */
 function normalCdf(z) {
 	const x = Math.abs(z) / Math.SQRT2;
 	const t = 1 / (1 + 0.327_591_1 * x);
@@ -94,7 +69,6 @@ function normalCdf(z) {
 /** @param {number} z */
 const twoSidedP = (z) => 2 * (1 - normalCdf(Math.abs(z)));
 
-/** Lanczos's coefficients for g = 7, n = 9. */
 const LANCZOS = /** @type {const} */ ([
 	0.999_999_999_999_809_9, 676.520_368_121_885_1, -1259.139_216_722_402_8,
 	771.323_428_777_653_1, -176.615_029_162_140_6, 12.507_343_278_686_905,
@@ -102,10 +76,7 @@ const LANCZOS = /** @type {const} */ ([
 	1.505_632_735_149_311_6e-7,
 ]);
 
-/**
- * ln Γ(x) for x > 0, by Lanczos.
- * @param {number} x
- */
+/** @param {number} x */
 function lnGamma(x) {
 	const z = x - 1;
 	const [c0, ...rest] = LANCZOS;
@@ -118,9 +89,6 @@ function lnGamma(x) {
 }
 
 /**
- * The chi-square survival function, P(X ≥ x) on `df` degrees of freedom: the
- * regularised upper incomplete gamma Q(df/2, x/2), by its series below
- * a + 1 and its continued fraction above (Numerical Recipes 6.2).
  * @param {number} x
  * @param {number} df
  */
@@ -171,7 +139,6 @@ const dot = (u, v) => u.reduce((acc, x, i) => acc + x * (v[i] ?? 0), 0);
 const matVec = (m, v) => m.map((row) => dot(row, v));
 
 /**
- * Xᵀ diag(w) X.
  * @param {number[][]} xs
  * @param {number[]} w
  */
@@ -188,8 +155,7 @@ function weightedGram(xs, w) {
 }
 
 /**
- * Subtract `f` times `src` from `dst`, in place.
- * @param {number[]} dst accumulator: rewritten in place
+ * @param {number[]} dst
  * @param {number[]} src
  * @param {number} f
  */
@@ -199,7 +165,6 @@ function subtractRow(dst, src, f) {
 }
 
 /**
- * The row at or below `c` with the largest entry in column `c`.
  * @param {number[][]} a
  * @param {number} c
  */
@@ -210,11 +175,7 @@ function pivotIndex(a, c) {
 	return p;
 }
 
-/**
- * The inverse of a small symmetric positive-definite matrix, by Gauss–Jordan
- * with partial pivoting.
- * @param {number[][]} m
- */
+/** @param {number[][]} m */
 function invert(m) {
 	const n = m.length;
 	const a = m.map((row, i) => [
@@ -243,8 +204,6 @@ const transpose = (xs, k) =>
 	Array.from({ length: k }, (_, j) => xs.map((x) => x[j] ?? 0));
 
 /**
- * A Poisson GLM's coefficients by IRLS, and the
- * fitted means.
  * @param {number[][]} xs
  * @param {number[]} ys
  * @param {number[]} start
@@ -269,8 +228,7 @@ function fitPoisson(xs, ys, start) {
 }
 
 /**
- * Why `scored` gives no arm ratio, or null where it does.
- * @param {Scored[]} rows the runs of tasks scoring above 0
+ * @param {Scored[]} rows
  * @param {string[]} arms
  */
 function noRatio(rows, arms) {
@@ -280,8 +238,6 @@ function noRatio(rows, arms) {
 }
 
 /**
- * The design matrix of arm on task strata: column 0 is 1 for `treated`, then
- * one indicator column per task.
  * @param {Scored[]} rows
  * @param {string[]} tasks
  * @param {string} treated
@@ -293,11 +249,9 @@ const armDesign = (rows, tasks, treated) =>
 	]);
 
 /**
- * The arm coefficient's HC0 sandwich standard error,
- * (XᵀWX)⁻¹ Xᵀ diag(e²) X (XᵀWX)⁻¹ at row 0.
  * @param {number[][]} xs
- * @param {number[]} w the fit's weights: the Poisson means, or 1 for least squares
- * @param {number[]} e the residuals
+ * @param {number[]} w
+ * @param {number[]} e
  */
 function armSe(xs, w, e) {
 	const bread = invert(weightedGram(xs, w));
@@ -310,7 +264,6 @@ function armSe(xs, w, e) {
 }
 
 /**
- * An arm effect on the log scale as its ratio, interval and p.
  * @param {number} b
  * @param {number} se
  */
@@ -322,8 +275,6 @@ const ratioOf = (b, se) => ({
 });
 
 /**
- * The arm compared against `baseline`, or why there is none: the rows must
- * carry exactly two arms, `baseline` one of them.
  * @param {{ arm: string }[]} rows
  * @param {string} baseline
  * @returns {{ arms: string[], treated: string } | { error: string }}
@@ -337,11 +288,8 @@ function twoArms(rows, baseline) {
 }
 
 /**
- * D3's primary analysis: a Poisson regression of score on arm with each task
- * a fixed stratum, and session-level robust (sandwich, HC0) standard errors.
- * A task scoring 0 in every run is dropped: its stratum's estimate runs to −∞.
  * @param {Scored[]} scored
- * @param {string} baseline the arm the rate ratio is read against
+ * @param {string} baseline
  */
 function poissonArm(scored, baseline) {
 	const pair = twoArms(scored, baseline);
@@ -381,9 +329,7 @@ function poissonArm(scored, baseline) {
 }
 
 /**
- * #2241's within-task ratio of geometric means: least squares of ln(value)
- * on arm with task strata, HC0 errors.
- * @param {Scored[]} scored `score` is the value compared, a wall time or a spend, each above 0
+ * @param {Scored[]} scored
  * @param {string} baseline
  */
 function geoMeanRatio(scored, baseline) {
@@ -414,11 +360,6 @@ function geoMeanRatio(scored, baseline) {
 }
 
 /**
- * #2241's acceptance comparison: the Mantel–Haenszel odds ratio of passing in
- * the treated arm against `baseline` over task strata, with the Robins–
- * Breslow–Greenland interval and the Cochran–Mantel–Haenszel test without
- * continuity correction, as statsmodels' StratifiedTable gives them. A
- * stratum of one run carries nothing and is left out.
  * @param {{ task: string, arm: string, pass: boolean }[]} judged
  * @param {string} baseline
  */
@@ -426,7 +367,6 @@ function mantelHaenszel(judged, baseline) {
 	const pair = twoArms(judged, baseline);
 	if ("error" in pair) return pair;
 	const { treated } = pair;
-	/** Sums over strata in Robins–Breslow–Greenland's R, Q, PR, PQ + QR and QS, then the CMH test's observed, expected and variance. */
 	const t = { r: 0, q: 0, pr: 0, psqr: 0, qs: 0, obs: 0, exp: 0, v: 0 };
 	for (const task of new Set(judged.map((s) => s.task))) {
 		const cell = (/** @type {string} */ arm, /** @type {boolean} */ pass) =>
@@ -465,11 +405,7 @@ function mantelHaenszel(judged, baseline) {
 	};
 }
 
-/**
- * #2241's arm × period check, post hoc: Cochran's Q over each period's log
- * rate ratio weighted by its inverse variance, on k − 1 df.
- * @param {{ rateRatio: number, logSe: number }[]} fits one per period
- */
+/** @param {{ rateRatio: number, logSe: number }[]} fits */
 function heterogeneity(fits) {
 	const points = fits.map((f) => ({
 		w: 1 / f.logSe ** 2,
@@ -489,8 +425,6 @@ const geoMean = (xs) =>
 		: null;
 
 /**
- * #2241's comparison of a positive per-run value, a wall time or a spend:
- * each arm's geometric mean, their within-task ratio, and Mann–Whitney.
  * @param {Scored[]} values
  * @param {string} baseline
  */
@@ -509,8 +443,6 @@ function geoComparison(values, baseline) {
 }
 
 /**
- * D3's cross-check: Mann–Whitney U on the score per session, two-sided, by the
- * normal approximation with the tie correction.
  * @param {number[]} a
  * @param {number[]} b
  */

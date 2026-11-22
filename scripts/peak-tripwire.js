@@ -1,25 +1,4 @@
 #!/usr/bin/env node
-/*
- * peak-tripwire.js — read and re-arm the peak tripwire (lib/peak-tripwire.js,
- * #5367): the switch that holds every part-suite on the ladder once earlyoom
- * kills a test run while a peak-charged run is live.
- *
- *   node scripts/peak-tripwire.js status
- *   node scripts/peak-tripwire.js arm [--session <id>]
- *
- * `status` prints the persisted state, the tripping kill, the peak-charged
- * runs live at it and the last check; it reads no journal. `arm` re-arms it
- * and advances the journal cursor to now, so the kill read cannot trip it
- * again: run it once you have read the kill. The arming session is
- * `--session`, else the environment's (lib/session-id.js); `arm` refuses
- * without one.
- *
- * Exit codes: 0 done; 1 the state file would not write; 2 a command line it
- * refuses.
- *
- * In no family: it gates nothing and files nothing, so neither `check-*`'s
- * alphabet nor `report-*`'s exit 0 fits.
- */
 
 const { parseOrCode, flagValue } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");

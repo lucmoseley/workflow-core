@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which test-to-document read edges the manifest records, that it renders
- * stably, and that `--check` judges the index a commit carries and fails on any
- * edge gained or lost (mantahostels#2031, #557, mantahostels#2270).
- *
- * The generator needs a real `git ls-files`, so the fixture is a throwaway
- * repo rather than a stubbed tree.
- *
- * --check is the pre-commit gate. Its false pass is the expensive one: it ships
- * a manifest that omits a reader, and the omitted test then sits unrun behind a
- * filtered certificate that looks identical to a real one.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -50,9 +38,6 @@ const readManifest = () =>
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "read-edges-"));
 	git("init", "-q");
-	// A repo-local identity, matching initGitRepo (scripts/lib/git-fixture.ts):
-	// a runner with no global user.name fails every commit below with
-	// "empty ident name" (mantahostels#2310).
 	git("config", "user.email", "test@example.com");
 	git("config", "user.name", "test");
 	write(DOC, "a tracked document\n");
@@ -214,8 +199,6 @@ describe("generate-test-read-edges.js", () => {
 	});
 });
 
-/* A tracked test file missing from disk: a neighbour's `git rm` in flight, or a
- * cut's deletions before its commit (#557). */
 describe("a tracked test file missing from disk (#557)", () => {
 	const goneTest = "scripts/gone.test.ts";
 
@@ -236,8 +219,6 @@ describe("a tracked test file missing from disk (#557)", () => {
 		expect(readManifest()[DOC]).toEqual(["scripts/reader.test.ts"]);
 	});
 
-	/* The gate reads the index, so a test the index still holds keeps its edges
-	 * and a neighbour's deletion never reaches this commit's verdict. */
 	describe("the pre-commit --check on a pathspec commit", () => {
 		beforeEach(() => {
 			write(
@@ -249,8 +230,6 @@ describe("a tracked test file missing from disk (#557)", () => {
 			git("rm", "-q", goneTest);
 		});
 
-		/* A real commit, because git's temporary pathspec index — HEAD plus the
-		 * named paths — exists only inside one; no fixture can stage it. */
 		const commit = (...paths: string[]) =>
 			spawnSync("git", ["commit", "-q", "-m", "x", "--", ...paths], {
 				cwd: dir,
@@ -273,8 +252,6 @@ describe("a tracked test file missing from disk (#557)", () => {
 			expect(r.stderr).toContain(`${DOC}: 1 -> 2 reader(s)`);
 		});
 
-		/* The plain write renders the disk, which has lost `goneTest` while this
-		 * commit still carries it, so following that advice never converged. */
 		it("names a regenerate that converges, and the commit then lands", () => {
 			write("scripts/late.test.ts", `process.cwd(); read("${DOC}");`);
 			git("add", "scripts/late.test.ts");

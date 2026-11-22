@@ -1,14 +1,3 @@
-/*
- * The fake of the `claude plugin` calls lib/materialise-plugin.js and
- * lib/core-context-cost.js make (#5146): `marketplace add`, `install`,
- * `update` and `details`. Held to the installed harness's recorded answers
- * (scripts/fixtures/claude-plugin.json, re-recorded by
- * `node scripts/record-claude-plugin.js`) by lib/claude-plugin.contract.test.ts.
- *
- * A node stub, not lib/claude-stub.ts's bash one: its side effects are JSON
- * edits, and it is asked no `auth status`.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 
@@ -35,18 +24,10 @@ export const recorded: {
 );
 
 export interface PluginFake {
-	/** Where each call's argv is appended, one line per call. */
 	log?: string;
-	/** Opens each logged line with the call's CLAUDE_CONFIG_DIR and a space. */
 	logConfigDir?: boolean;
-	/** Every call answers as the recorded refusal, `marketplace add` naming
-	 * its own source where the recording names its absent path. */
 	refuse?: boolean;
-	/** The figure `details` prints in place of the recorded one, as `2,273`. */
 	alwaysOn?: string;
-	/** Values for the row `install` writes. `place`, where given, is linked at
-	 * the row's installPath, standing in for the clone the install lands
-	 * there; that clone is unheld. */
 	install?: { version?: string; gitCommitSha?: string; place?: string };
 }
 
@@ -119,7 +100,6 @@ process.stderr.write("claude-plugin-fake: unfaked call: " + args.join(" ") + "\\
 process.exit(1);
 `;
 
-/** The absent path the recorded refusal names, record-claude-plugin.js's. */
 export const REFUSED_PATH = "/synthetic/absent";
 
 export const refusalOf = (source: string) =>

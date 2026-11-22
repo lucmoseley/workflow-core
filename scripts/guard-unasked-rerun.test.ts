@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-unasked-rerun core of guard-dispatch.js — the refuse-once re-run
- * guard (#815, spec #810) — driven through the dispatcher entry run on it
- * alone: a payload on stdin, the allow or deny read back. These are its
- * boundary cases (§X11, #2800): each exit, each payload field and env var it
- * reads, the judge, rule store and error log crossed for real. Which command
- * reaches the judge, and what each answer becomes, is
- * lib/unasked-rerun-guard.test.ts's; what the judge answers is
- * lib/unasked-rerun.test.ts's; the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#3227).
- *
- * Each case copies a throwaway git repository with its own marker store, so
- * the refusal is the real judge's over real git.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -43,8 +29,6 @@ const gitIn = (cwd: string, ...args: string[]) =>
 		stdio: ["ignore", "pipe", "ignore"],
 	}).trim();
 
-/* HEAD a commit past origin/main touching a.js, built once and copied per
- * case (§X8 (1)); the case writes the certificate attesting it. */
 const template = defineTemplate((root) => {
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
 	gitIn(root, "init", "-q", "-b", "main");
@@ -59,7 +43,6 @@ const template = defineTemplate((root) => {
 	gitIn(root, "commit", "-q", "-m", "c");
 });
 
-/** One admissible narrowed certificate named RUN-A attesting HEAD's a.js. */
 function attestHead() {
 	const sha = gitIn(project, "rev-parse", "HEAD");
 	const certificate = {
@@ -89,7 +72,6 @@ function attestHead() {
 	return sha;
 }
 
-/** The hook output for `command`, or null; exit 0 and a quiet stderr asserted. */
 const emission = (
 	command: string,
 	{
@@ -125,8 +107,6 @@ afterEach(() => {
 describe("the guard, end to end", () => {
 	it("refuses the first bare run over an attested HEAD as JSON on exit 0, carrying the judge's text and the whole rule, then lets the same command through", () => {
 		const sha = attestHead();
-		/* The payload's cwd stands below the tree's top; the cd, resolved
-		 * against the real tree, carries the run to it. */
 		const command = `cd ${project} && npm run test`;
 		const below = path.join(project, ".claude");
 		const out = emission(command, { cwd: below });
@@ -136,8 +116,6 @@ describe("the guard, end to end", () => {
 			`certificates already attest what this run would test at HEAD ${sha.slice(0, 12)}, so it can only repeat their verdict`,
 		);
 		expect(reason).toContain("RUN-A");
-		/* The fragment's paths resolve against the host root, so its opening
-		 * line is matched rather than the test process's own reading. */
 		expect(reason).toContain(
 			"this refuses once a session.\n\nAN UNASKED RE-RUN IS REFUSED ONCE A SESSION",
 		);

@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-suite-budget.js — is the whole suite's summed per-file CI time, each
- * file at its median over the last three sweeps, over the budget a cold lone
- * whole suite at its target allows (#5137)?
- *
- * Usage:
- *   node check-suite-budget.js [--reports <dir>] [--json]
- *
- * Reads each sweep's vitest reports (`scripts/lib/sweep-reports.js`, where
- * `--reports <dir>` names sweeps already downloaded). What is summed, and what
- * refuses, is `scripts/lib/suite-budget.js`'s; the budget and the record that
- * arms it are SUITE_BUDGET_MS and BUDGET_ARMED_BY in
- * `scripts/lib/suite-ceiling.js`.
- *
- * IT REFUSES IN THE SCHEDULED SWEEP ALONE, on recorded medians.
- *
- * FEWER THAN THREE SWEEPS READABLE IS A SKIP THAT SAYS IT JUDGED NOTHING,
- * never an OK.
- *
- * IMPLICIT:  in the scheduled sweep (scheduled-checks.yml), sums each test file's median CI time over its last three sweeps, downloading those sweeps' vitest reports, and turns the sweep red where the sum is over the budget scripts/lib/suite-ceiling.js sets and that budget is armed; unarmed, it reports.
- * JUSTIFIED: fail-safe — an unrefused budget lets growth move the 180 s target (#2729) further off unseen (#5131).
- * DEFEAT:    convenience — --reports judges sweeps already downloaded, with no gh call.
- */
 
 const { runCheck } = require("./lib/check.js");
 const { SWEEPS_JUDGED, judgedNothing } = require("./lib/file-ci-time.js");

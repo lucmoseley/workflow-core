@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-commit dispatcher through the real hook line (#5172): the
- * `node …/precommit-dispatch.js "$@" || exit "$?"` line of .husky/pre-commit,
- * under hook-bound.sh's wrapper as the hook runs it, over a throwaway repo
- * whose every registry row is a stub checker (WFC_SCRIPT_ROOT). It proves
- * what only the process can: the code the hook exits with, the `--gates=`
- * pass-through, a row's report reaching the hook's own streams, and a
- * dispatcher that cannot start refusing the commit.
- *
- * The core's policy over stub rows is scripts/lib/precommit-dispatch.test.ts.
- *
- * Breaking it costs the hook's own contract: a dispatcher whose exit the
- * hook drops lets every red gate's commit through.
- */
 
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,14 +21,6 @@ const temps = registerTempCleanup();
 
 const LINE = `${coreCall("node", "scripts/precommit-dispatch.js")} "$@" || exit "$?"`;
 
-/*
- * One stub per row, a checker and a program at once: it logs its load, then acts as STUB_ACT names it —
- * `fail` FAILs where the commit stages `red`, `broken` is BROKEN, `throw`
- * will not load, `signal` signals the dispatcher, `hang` signals it twice and
- * never returns, `scratch` makes a scratch directory and waits on a child
- * that writes the dispatcher's pid to `ready` before it sleeps, removing the
- * directory in a `finally` — else passes.
- */
 const STUB = `const fs = require("node:fs");
 const path = require("node:path");
 const check = require(${JSON.stringify(path.join(ROOT, "scripts", "lib", "check.js"))});
@@ -95,7 +73,6 @@ module.exports = { SPEC, PROGRAM };
 if (require.main === module) check.runCheck(SPEC);
 `;
 
-/** A core holding a stub for every row, and a repo staging `staged`. */
 function fixture(staged: Record<string, string>) {
 	const { root } = stagedRepo("precommit-dispatch-", temps, {}, {});
 	const core = path.join(root, ".stub-core");
@@ -123,7 +100,6 @@ interface HookOpts {
 	env?: Record<string, string>;
 }
 
-/** The hook line's command over a fresh fixture, and where it logs. */
 function hookCall(staged: Record<string, string>, opts: HookOpts) {
 	const { root, core } = fixture(staged);
 	if (opts.config) {
@@ -134,8 +110,6 @@ function hookCall(staged: Record<string, string>, opts: HookOpts) {
 		);
 	}
 	const log = path.join(root, "load.log");
-	/* The suite pins the pool through WFC_ALWAYS_LOADED; a case declaring its
-	 * own config drops it, so the config is what the dispatcher reads. */
 	const { WFC_ALWAYS_LOADED: _pool, ...inherited } = process.env;
 	return {
 		root,
@@ -162,7 +136,6 @@ function hookCall(staged: Record<string, string>, opts: HookOpts) {
 	};
 }
 
-/** What the fixture holds once the hook is done: scratch left, rows loaded. */
 function left(root: string, log: string) {
 	const scratch = fs.readdirSync(root).filter((n) => n.startsWith("scratch-"));
 	const loaded = fs.existsSync(log)
@@ -182,20 +155,12 @@ function hook(staged: Record<string, string>, opts: HookOpts = {}) {
 	};
 }
 
-/**
- * The hook, its process group sent `signal` once the stub row `id` holds its
- * scratch, as a Ctrl-C reaches every process in the terminal's foreground
- * group; answered once the dispatcher, in a group of its own, has exited.
- */
-/* Every row before the signalled one runs first, each a Node load; a first
- * guess at a loaded machine's worst, unmeasured. */
 const READY_MS = 20_000;
 
 async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	const { root, log, args, options } = hookCall(SCRIPT, {
 		act: `${id}:scratch`,
 	});
-	// A signal, sent to the hook's process group mid-row.
 	const sh = spawn("sh", args, {
 		...options,
 		detached: true,
@@ -205,7 +170,6 @@ async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	sh.stderr.on("data", (d) => {
 		err += d;
 	});
-	/* Closed once every holder is gone, the dispatcher outliving the shell. */
 	const closed = new Promise((resolve) => sh.stderr.on("close", resolve));
 	const ended = new Promise<{ code: number | null; signal: string | null }>(
 		(resolve) => sh.on("exit", (code, sig) => resolve({ code, signal: sig })),
@@ -218,8 +182,6 @@ async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	const dispatcher = Number(fs.readFileSync(ready, "utf8"));
 	process.kill(-(sh.pid ?? 0), signal);
 	const shell = await ended;
-	/* The first guess at a slow machine's exit, unmeasured; a dispatcher that
-	 * waits out its row's 30 s sleep is far past it. */
 	await vi.waitFor(() => expect(isDead(dispatcher)).toBe(true), {
 		timeout: 10_000,
 		interval: 50,
@@ -228,7 +190,6 @@ async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	return { shell, err, ...left(root, log) };
 }
 
-/** Staged `p` arms these rows, by each row's own arm. */
 const SCRIPT = { "scripts/a.js": "x\n" };
 const armedBy = (p: string, sets: string[]) =>
 	GATES.filter(
@@ -243,13 +204,6 @@ describe("the hook's dispatcher line", () => {
 		expect(HOOK.split("\n").filter((l) => l === LINE)).toHaveLength(1);
 	});
 
-	/* A row's check called from the hook as well, with the row's own
-	 * arguments, runs twice, its second process paying the startup the
-	 * dispatcher exists to share (#5194). Another mode of the same script,
-	 * such as check-vendored-skills.js --covered, is a different check. */
-	/* The non-comment lines of `text` calling `row`'s script with exactly its
-	 * args: a further argument word makes another mode, anything else (an
-	 * operator, a redirection, a closing quote, the line's end) does not. */
 	const callsOfRow = (row: GateRow, text: string) => {
 		const call = new RegExp(
 			`${escapeRe([row.script, ...row.args].join(" "))}(?![\\w./-]|\\s+[^\\s|&;<>)\\\\])`,
@@ -340,7 +294,6 @@ describe("the hook's dispatcher line", () => {
 	});
 
 	it("exits 1 on a member's FAIL, its report on stderr, and loads nothing after", () => {
-		/* An --against row, whose report names each fault the commit adds. */
 		const at = ALL.findIndex((id) =>
 			GATES.some(
 				(g) => g.script === `scripts/${id}.js` && g.args[0] === "--against",
@@ -406,8 +359,6 @@ describe("the hook's dispatcher line", () => {
 		);
 		const r = await hookSignalled(ALL[at] ?? "", "SIGINT");
 		expect(at).toBeGreaterThan(-1);
-		/* The shell takes the group's SIGINT itself, so its own death is the
-		 * hook's code; the dispatcher's 128 + n is the case above's. */
 		expect(r.shell.signal ?? r.shell.code).toBe(
 			r.shell.signal ? "SIGINT" : 128 + 2,
 		);

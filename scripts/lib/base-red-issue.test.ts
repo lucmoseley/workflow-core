@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The queue lander's one base-red ticket (#4485, spec #4458).
- *
- * Loosen it and each red base files a second ticket, or the ticket stops
- * naming the `main` sha and files that are red there.
- */
 import { expect, it } from "vitest";
 import { baseRedFiler } from "./base-red-issue.js";
 

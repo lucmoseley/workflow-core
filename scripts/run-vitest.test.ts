@@ -1,36 +1,4 @@
 // @vitest-environment node
-/*
- * The `npm run test` wrapper that tees the suite's stdout/stderr to a durable
- * log (mantahostels#1943), and decides what vitest is handed and when: the
- * `--changed` selection over the read graph (mantahostels#2095), the queue
- * for a suite slot (mantahostels#2024), the stall watchdog, `--isolated`,
- * `--adopt` (#1213), and whether a filtered run is admissible
- * (mantahostels#2146, mantahostels#2207).
- *
- * `spawnFn` is a fake EventEmitter-based child, so every case here asserts
- * what the wrapper does with a run's output rather than paying for a real
- * vitest invocation.
- *
- * SO THIS FILE DOES NOT REACH ITS OWN SUBJECT through
- * `scripts/lib/run-in-process.js`, which §X3 asks a `scripts/` test to use: the
- * wrapper's whole subject IS what it does with a child's streams, which a
- * black-box run cannot observe. The ONE place that seam is used is the
- * attribution case below, which runs a DIFFERENT script — the ledger's writer.
- * What the wrapper delegates to its libraries is asserted through their
- * exports where a whole run would only obscure it: lib/changed-selection.js
- * (the selection and its base, mantahostels#3208),
- * lib/own-selection.js (`attributeDirty`, `ownSelection`) and
- * lib/isolated-worktree.js. Everything of the wrapper's own goes through
- * `main` (#1371). The npm-swallowed-flag cases launch it through a real
- * `npm run` instead, since npm's own handling of a flag written before `--` is
- * the subject (#2284).
- *
- * Every `npm run test` and `npm run test:changed` runs through it, and the
- * certificate it leaves is what the unasked-rerun guard reads: loosen a case
- * and a run that tested less than it says attests the work, a red run's
- * failure text is lost to a pipe, or suites pile
- * onto the memory-capped machine instead of queueing.
- */
 
 import { spawn as realSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -80,29 +48,20 @@ const { START_MARK_ENV } = require("./lib/tree-drift.js");
 const { MEMORY_ENV } = require("./lib/run-memory.js");
 const { DEADLINE_ENV, sweepAtStart } = require("./lib/suite-ceiling.js");
 
-/* The wrapper's own flags and the filter an empty selection runs under,
- * spelled as a caller types them. */
 const SHARED_FLAG = "--shared";
-/* A whole suite on the shared tree: the route the cases below that are about
- * the runner's own plumbing launch, a bare run being a touched one. */
 const WHOLE = [SHARED_FLAG, "--full=coverage"];
 const FULL_FLAG = "--full";
 const EMPTY_SELECTION_FILTER = "wfc-empty-selection";
 
-/** The checkout, so the live manifest can be read from where it actually is. */
 const REPO_ROOT = path.resolve(__dirname, "..");
-/* A guess: the ceiling on a case that waits for a real child process, well
- * past the few seconds one takes on a loaded machine. */
 const REAL_CHILD_TIMEOUT_MS = 20_000;
 
 const dirs: string[] = [];
 
-/** A read-graph render that fails, as git refusing to list the tree would. */
 const renderFails = () => {
 	throw new Error("render failed");
 };
 
-/* The one-commit repo every `repo()` hands out, built once and copied (#5144). */
 const repoTemplate = defineTemplate((dir) => {
 	for (const args of [
 		["init", "-q"],
@@ -113,15 +72,12 @@ const repoTemplate = defineTemplate((dir) => {
 		require("node:child_process").execFileSync("git", args, { cwd: dir });
 });
 
-/** A git repo with one commit, so `readHeadSha` and `repoRoot` both answer. */
 function repo() {
 	const dir = mkDirOutsideRepo("runvitest-");
 	dirs.push(dir);
 	return repoTemplate.instantiate(dir);
 }
 
-/** `dir` declaring `commands`, which a message naming one reads off the root
- * the wrapper was handed (#3334). */
 function declaringCommands(dir: string, commands: Record<string, string>) {
 	fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -136,13 +92,11 @@ function declaringCommands(dir: string, commands: Record<string, string>) {
 	return dir;
 }
 
-/** A whole-slot bound's worth of test files (#2931). */
 const WHOLE_SLOT_TESTS = Array.from(
 	{ length: WHOLE_SLOT_BOUND },
 	(_, i) => `t/f${i}.test.ts`,
 );
 
-/** `dir`, a `repo()` by default, tracking WHOLE_SLOT_TESTS. */
 function wholeRepo(dir = repo()) {
 	fs.mkdirSync(path.join(dir, "t"));
 	for (const file of WHOLE_SLOT_TESTS)
@@ -155,9 +109,6 @@ function wholeRepo(dir = repo()) {
 	return dir;
 }
 
-/* A session running this suite exports its id, which would route every bare
- * run below into its overlay worktree; a case wanting one passes `sessionId`
- * itself. */
 beforeEach(() => {
 	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
 });
@@ -174,7 +125,6 @@ const readJsonl = (file: string) =>
 		.filter(Boolean)
 		.map((l) => JSON.parse(l));
 
-/** A queue directory of its own, cleaned up with the rest. */
 function qdir() {
 	const d = mkScratchDir("queue-");
 	dirs.push(d);
@@ -185,18 +135,15 @@ interface FakeChildOptions {
 	stdoutChunks?: string[];
 	stderrChunks?: string[];
 	code?: number | null;
-	/* Emitted before close, as Node does for a child that never spawns. */
 	error?: Error;
 	signal?: NodeJS.Signals;
 }
 
-/** An `err` or `out` that keeps what is written to it. */
 function sink() {
 	const text: string[] = [];
 	return { text, write: (s: string) => text.push(s) };
 }
 
-/** Stands in for the vitest child: emits output, then closes. */
 function fakeChild({
 	stdoutChunks = [],
 	stderrChunks = [],
@@ -222,7 +169,6 @@ function fakeChild({
 	return child;
 }
 
-/** A child that never closes until it is killed, recording the signals sent to it. */
 function parkedChild() {
 	const child = new EventEmitter() as EventEmitter & {
 		stdout: PassThrough;
@@ -235,8 +181,6 @@ function parkedChild() {
 	child.signals = [];
 	child.kill = (signal = "SIGTERM") => {
 		child.signals.push(signal);
-		/* A real SIGKILL closes the child; the fake must too, or `main`
-		 * never resolves and no assertion after it is reached. */
 		child.stdout.end();
 		child.stderr.end();
 		child.emit("close", null);
@@ -256,11 +200,6 @@ function spawnReturning(opts: FakeChildOptions) {
 	};
 }
 
-/**
- * A minimal fs stub whose write stream buffers into `chunks`. The stream is
- * an EventEmitter, matching a real `fs.WriteStream` closely enough for
- * `stream?.on?.("error", …)` to attach for real rather than silently no-op.
- */
 function fakeFs(base: typeof fs = fs) {
 	const written: Record<string, Buffer[]> = {};
 	const streams: EventEmitter[] = [];
@@ -328,15 +267,11 @@ describe("the exit code", () => {
 				fs: io,
 				err: said,
 			});
-			// Synchronous window before the fake child's queued microtask fires:
-			// createWriteStream has already run, the real stream a late ENOSPC or
-			// EIO would break has not been asked to do anything yet.
 			io.streams[0]?.emit("error", new Error("ENOSPC"));
 			await expect(result).resolves.toBe(5);
 			expect(stdout.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
 				"TEST LOG:",
 			);
-			// §N5: fail open, and say so — the failure is not silent.
 			expect(said.text.join("")).toContain("ENOSPC");
 		} finally {
 			stdout.mockRestore();
@@ -475,7 +410,6 @@ describe("what it hands vitest", () => {
 });
 
 describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", () => {
-	/** Swallows the wrapper's own progress lines. */
 	const quiet = { write: () => true };
 
 	const run = async (argv: string[], extra: Record<string, unknown>) => {
@@ -487,9 +421,6 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 				root: repo(),
 				fs: fakeFs(),
 				out: quiet,
-				// A queue directory of its own: unset, `queueSeat` and `readTurn` fall
-				// back to the real `os.tmpdir()` and queue for real behind whatever
-				// a genuine `--queue` run on this machine left there (mantahostels#2033).
 				queueDir: qdir(),
 				...extra,
 			});
@@ -524,7 +455,6 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 		expect(calls).toHaveLength(1);
 	});
 
-	/* A whole suite run past the bound would run beside another (#2714). */
 	it("refuses a whole suite, spawning nothing, once the timeout is reached on the count cap", async () => {
 		const queueLog = path.join(qdir(), "exits.jsonl");
 		const said: string[] = [];
@@ -567,8 +497,6 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 		]);
 	});
 
-	/* A part-suite takes no whole-suite slot (#2558), so the count cap at the
-	 * bound runs it anyway. */
 	it("runs a part-suite anyway once the timeout is reached on the count cap", async () => {
 		const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
 			gate: () => ({ limb: "count" }),
@@ -578,8 +506,6 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 		expect(calls).toHaveLength(1);
 	});
 
-	/* Where the memory rung holds it, the suite would land short of its rung,
-	 * where earlyoom kills live sessions (#2421). */
 	it("refuses, spawning nothing and leaving the queue, once the timeout is reached on the memory rung", async () => {
 		const queueDir = qdir();
 		const queueLog = path.join(queueDir, "exits.jsonl");
@@ -657,7 +583,6 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 
 	describe("inside a `queue-run.js --seat` seat (#2918)", () => {
 		const { queueSeat } = require("./lib/suite-queue.js");
-		/** A spawned part seat held by pid 20, this process's parent. */
 		const seated = (extra: Record<string, unknown> = {}) => {
 			const queueDir = qdir();
 			const held = queueSeat({
@@ -686,8 +611,6 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 			expect(fs.existsSync(o.queueLog)).toBe(false);
 		});
 
-		/* A launch admitted and unspawned holds every other turn, so no two
-		 * pass the rung on one `ps` reading (#2622). */
 		it("stamps its marker admitted before it spawns", async () => {
 			const o = seated({ gate: () => false });
 			let stamped: unknown;
@@ -775,8 +698,6 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 			]);
 		});
 
-		/** A `tsc` waiter in the sibling queue, joined at `at`, stamped
-		 * climbHeld, beside a seat in a suite queue named as the gate names it. */
 		const beside = (at: number) => {
 			const queueDir = path.join(qdir(), "wfc-suite-queue");
 			fs.mkdirSync(queueDir);
@@ -904,8 +825,6 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 });
 
 describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)", () => {
-	/* Held to the end of the run, not dropped at launch: dropped early, the next
-	 * waiter takes its turn during the gap before vitest is visible to the gate. */
 	it("holds its place until the run finishes", async () => {
 		const queueDir = qdir();
 		const { spawnFn: inner } = spawnReturning({ code: 0 });
@@ -937,10 +856,6 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 describe("a waiter that is KILLED, not resolved (mantahostels#2034)", {
 	timeout: REAL_CHILD_TIMEOUT_MS,
 }, () => {
-	/*
-	 * No injected fake reaches a real signal: Node runs no pending `.finally()`
-	 * on SIGTERM, so only a killed process shows whether its marker goes.
-	 */
 	it("logs its exit when it is SIGTERMed mid-wait", async () => {
 		const queueDir = fs.mkdtempSync(path.join(os.tmpdir(), "killq-"));
 		dirs.push(queueDir);
@@ -994,23 +909,13 @@ describe("a waiter that is KILLED, not resolved (mantahostels#2034)", {
 describe("a real subprocess, piped and read slowly", {
 	timeout: REAL_CHILD_TIMEOUT_MS,
 }, () => {
-	/*
-	 * No injected fake can stand in for whether THIS process's own stdout — a
-	 * real pipe here, exactly as `| head` or `| grep` gives it in production —
-	 * survives run-vitest.js exiting. `WFC_RUN_VITEST_BIN` points the real
-	 * script at a stand-in "vitest" rather than paying for a real suite.
-	 */
 	it("delivers every byte before the process exits, even where the reader lags behind", async () => {
-		// No git repo needed: `CLAUDE_PROJECT_DIR` below makes this temp dir the
-		// host root the child resolves, and `repoRoot()` answers null outside a
-		// git tree, so the log store lands here too.
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runvitest-real-"));
 		dirs.push(dir);
 		const bin = path.join(dir, "fake-vitest.js");
 		const body = Array.from({ length: 4000 }, (_, i) =>
 			`line ${i}`.padEnd(120, "x"),
 		).join("\n");
-		// `exitCode`, not `exit()`, so the stand-in cannot drop its own tail.
 		fs.writeFileSync(
 			bin,
 			[
@@ -1025,34 +930,21 @@ describe("a real subprocess, piped and read slowly", {
 
 		const child = realSpawn(
 			process.execPath,
-			// `--shared`: a whole run is isolated by default (mantahostels#2278),
-			// wanting a worktree, which a non-git temp root cannot give.
 			[path.join(__dirname, "run-vitest.js"), ...WHOLE],
 			{
 				env: {
 					...process.env,
 					WFC_RUN_VITEST_BIN: bin,
-					// #154: against the real root, the child's log would evict a real
-					// suite's output from the live store.
 					CLAUDE_PROJECT_DIR: dir,
 				},
 				stdio: ["ignore", "pipe", "ignore"],
 			},
 		);
 
-		// `close` is registered first: a buggy `exit()` closes the child inside
-		// the 300ms pause below, and an EventEmitter never replays a fired event,
-		// so a later listener would show the truncation as a timeout.
 		const closed = new Promise<number | null>((resolve) => {
 			child.on("close", resolve);
 		});
 
-		// A slow reader: pause immediately, so run-vitest.js's own writes queue
-		// up against this process's end of the pipe exactly as they would
-		// behind a slow `| head` — then only start draining well after the
-		// child has had time to exit, if it were going to exit early.
-		// Attaching a `data` listener puts a stream into flowing mode by
-		// itself — `pause()` has to come AFTER, or it is immediately undone.
 		let received = "";
 		child.stdout.on("data", (chunk: Buffer) => {
 			received += chunk.toString();
@@ -1062,22 +954,14 @@ describe("a real subprocess, piped and read slowly", {
 		child.stdout.resume();
 
 		const code = await closed;
-		// Whatever Node still had queued for delivery at 'close' finishes
-		// arriving on this same tick's microtasks/immediates.
 		await new Promise((r) => setImmediate(r));
 
 		expect(code).toBe(7);
 		expect(received).toContain("MARKER_END_OF_OUTPUT");
 		expect(received).toContain("TEST LOG:");
-		// Both limbs: the count alone misses a second write site reaching the
-		// live store, the live-store check alone a child that wrote no log.
 		expect(
 			fs.readdirSync(dirPath(dir)).filter((n) => n.endsWith(".log")),
 		).toHaveLength(1);
-		// Keyed on this child's pid, never a before/after count: a neighbour
-		// suite writing or reaping mid-case would flake the count.
-		// An isolated worktree has no log store at all, which is the same
-		// evidence as an empty one.
 		const liveStore = fs.existsSync(dirPath(REPO_ROOT))
 			? fs.readdirSync(dirPath(REPO_ROOT))
 			: [];
@@ -1170,14 +1054,9 @@ describe("a runner flag npm swallowed, launched through `npm run` (#2284)", {
 	});
 });
 
-/*
- * The stall watchdog (mantahostels#1910's follow-on). The fault cannot be reproduced in
- * process, so the child is a fake that emits nothing and never closes.
- */
 describe("the stall watchdog", () => {
 	const { readFailures } = require("./lib/test-pass-marker.js");
 
-	/** Runs `main` against a parked child with a 20 ms ceiling. */
 	async function parked(root: string, inflightFile?: string) {
 		const child = parkedChild();
 		const err = sink();
@@ -1249,9 +1128,6 @@ describe("the stall watchdog", () => {
 		const child = parkedChild();
 		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-		/* 25 ms beats against a 400 ms ceiling, run for four of them — 16x, wide
-		 * enough that ordinary scheduling jitter cannot read as a stall. Not
-		 * derived from concurrent-suite contention, which mantahostels#2015 now rules out. */
 		const beat = setInterval(() => child.stdout.write("."), 25);
 		const run = main(WHOLE, { spawnFn: () => child, root, stall: 400 });
 		await new Promise((r) => setTimeout(r, 120));
@@ -1268,8 +1144,6 @@ describe("the stall watchdog", () => {
 		expect(code).toBe(0);
 	});
 
-	/* A killed child normally reports code null, which the wrapper already fails
-	 * on; this pins the separate limb. */
 	it("fails a stalled run even where the child reports success", async () => {
 		const root = repo();
 		const child = parkedChild();
@@ -1293,8 +1167,6 @@ describe("the stall watchdog", () => {
 		expect(code).toBe(1);
 	});
 
-	/** Runs `main` against a parked child whose in-flight record is touched
-	 * every 25 ms for `beatFor` ms, then left alone. */
 	function beating(stall: number, beatFor: number) {
 		const root = repo();
 		const at = path.join(root, "run.inflight.json");
@@ -1322,9 +1194,6 @@ describe("the stall watchdog", () => {
 		return { child, run, done };
 	}
 
-	/* #1149: a long file prints nothing until it ends, so the reporter's beats
-	 * on the in-flight record must hold the watchdog off on their own. Same 16x
-	 * margin as the output case above. */
 	it("does not fire while the in-flight record keeps being touched", async () => {
 		const { child, run, done } = beating(400, 1200);
 		await new Promise((r) => setTimeout(r, 1200));
@@ -1399,7 +1268,6 @@ describe("the stall watchdog", () => {
 			inflight: [{ module: slow, stage: "running its tests" }],
 			finished: [done],
 		});
-		/* No scope, so no reader of reds takes it for a verdict on a file. */
 		expect(reds[0].scope).toBeUndefined();
 	});
 
@@ -1424,15 +1292,9 @@ describe("the stall watchdog", () => {
 
 describe("the stall ceiling from the environment", () => {
 	const stallEnv = "WFC_TEST_STALL_MS";
-	/* The ceiling an unset, empty or unreadable variable leaves in force. */
 	const defaultMs = 300_000;
-	/* What the last `killedAfter` printed to stderr. */
 	let said = "";
 
-	/**
-	 * `main` against a parked child, its ceiling read from the variable alone,
-	 * on a fake clock: whether the child is killed `ms` after it spawned.
-	 */
 	async function killedAfter(ms: number) {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 		const err = sink();
@@ -1468,9 +1330,6 @@ describe("the stall ceiling from the environment", () => {
 
 	it("defaults where the variable is unset or empty", async () => {
 		for (const value of [undefined, ""]) {
-			// Stubbing undefined deletes WFC_TEST_STALL_MS, so an ambient value —
-			// the bench runs every suite at 0 (#1603) — cannot leak into the
-			// unset case.
 			vi.stubEnv(stallEnv, value);
 			expect(await killedAfter(defaultMs - 1)).toBe(false);
 			expect(await killedAfter(defaultMs)).toBe(true);
@@ -1483,7 +1342,6 @@ describe("the stall ceiling from the environment", () => {
 		expect(await killedAfter(1000)).toBe(true);
 	});
 
-	/* The suite ceiling, which zero never disables, is what ends this run. */
 	it("takes zero, which disables the watchdog", async () => {
 		vi.stubEnv(stallEnv, "0");
 		await killedAfter(defaultMs * 10);
@@ -1491,8 +1349,6 @@ describe("the stall ceiling from the environment", () => {
 		expect(said).toContain("SUITE CEILING");
 	});
 
-	/* A typo must not read as zero: that would silently remove the protection
-	 * rather than the ceiling the author was reaching for. */
 	it("ignores a value that is not a number, rather than disarming", async () => {
 		for (const value of ["five minutes", "-1"]) {
 			vi.stubEnv(stallEnv, value);
@@ -1502,10 +1358,6 @@ describe("the stall ceiling from the environment", () => {
 	});
 });
 
-/*
- * The suite ceiling (#2696, ruled at #2667): every run is killed a fixed time
- * after vitest spawns, whatever its output, with its whole process group.
- */
 describe("the suite ceiling", () => {
 	const { readFailures } = require("./lib/test-pass-marker.js");
 	const {
@@ -1514,7 +1366,6 @@ describe("the suite ceiling", () => {
 		CEILING_MS,
 	} = require("./lib/suite-ceiling.js");
 
-	/** `main` against `child`, its output captured; resolves on its exit. */
 	async function run(
 		root: string,
 		child: ReturnType<typeof parkedChild>,
@@ -1536,7 +1387,6 @@ describe("the suite ceiling", () => {
 		}
 	}
 
-	/** A parked child that prints a dot every 5 ms until it is killed. */
 	function printingChild() {
 		const child = parkedChild();
 		const dots = setInterval(() => child.stdout.write("."), 5);
@@ -1637,7 +1487,6 @@ describe("the suite ceiling", () => {
 		expect(typeof reds[0].startedAt).toBe("string");
 		expect(typeof reds[0].durationMs).toBe("number");
 		expect(reds[0].argv).toEqual(expect.any(Array));
-		/* Linux's /proc answers; elsewhere the reading is left off. */
 		expect(reds[0].machine).toMatchObject({ load1: expect.anything() });
 	});
 
@@ -1658,7 +1507,6 @@ describe("the suite ceiling", () => {
 		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 		const child = parkedChild();
-		/* A descendant outside the group holds the pipes: no `close`. */
 		child.kill = (signal = "SIGTERM") => {
 			child.signals.push(signal);
 			return true;
@@ -1709,8 +1557,6 @@ describe("the suite ceiling", () => {
 	});
 
 	describe("from the environment", () => {
-		/** Whether a silent child is killed `ms` after it spawned, the
-		 * watchdog off and the ceiling read from the environment alone. */
 		async function killedAfter(ms: number) {
 			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 			const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
@@ -1750,7 +1596,6 @@ describe("the suite ceiling", () => {
 			expect(await killedAfter(1000)).toBe(true);
 		});
 
-		/* Nothing may raise the ceiling or turn it off (#2667). */
 		it.each([String(CEILING_MS * 2), "0", "fourteen minutes", "-1"])(
 			"keeps the ceiling in force against %s",
 			async (value) => {
@@ -1761,12 +1606,7 @@ describe("the suite ceiling", () => {
 		);
 	});
 
-	/* These cross the real clock: what is pinned is a real kill of a real
-	 * process group, which no fake clock reaches. */
 	describe("on real processes", { timeout: REAL_CHILD_TIMEOUT_MS }, () => {
-		/** A stand-in vitest: a shell that starts a sleeping grandchild in its
-		 * own group, records both pids and the deadline file, then prints until
-		 * it is killed. */
 		function standIn(dir: string, deadlineFile: string) {
 			const bin = path.join(dir, "fake-vitest.sh");
 			fs.writeFileSync(
@@ -1775,7 +1615,6 @@ describe("the suite ceiling", () => {
 					"#!/bin/sh",
 					`sleep 300 & echo $! > ${shellQuote(`${dir}/grandchild`)}`,
 					`echo $$ > ${shellQuote(`${dir}/child`)}`,
-					/* The runner writes the deadline just after the spawn. */
 					`while [ ! -s ${shellQuote(deadlineFile)} ]; do sleep 0.01; done`,
 					`cp ${shellQuote(deadlineFile)} ${shellQuote(`${dir}/deadline-seen`)}`,
 					`touch ${shellQuote(`${dir}/ready`)}`,
@@ -1796,8 +1635,6 @@ describe("the suite ceiling", () => {
 			const bin = standIn(root, deadlineFile);
 			let code: number;
 			try {
-				/* The ceiling is long enough for the shell to start its grandchild
-				 * first; `ready` proves it did before the kill. */
 				code = await main(WHOLE, {
 					root,
 					bin,
@@ -1810,7 +1647,6 @@ describe("the suite ceiling", () => {
 				stderr.mockRestore();
 				stdout.mockRestore();
 			}
-			/* Fails rather than hangs where the kill beat the shell's start. */
 			expect(fs.existsSync(path.join(root, "ready"))).toBe(true);
 
 			const child = Number(fs.readFileSync(path.join(root, "child"), "utf8"));
@@ -1826,8 +1662,6 @@ describe("the suite ceiling", () => {
 			expect(pgid).toBe(child);
 			expect(Number.isInteger(deadline)).toBe(true);
 			expect(fs.existsSync(deadlineFile)).toBe(false);
-			/* Killed, though reaping an orphan can trail the kill; how long
-			 * that takes under load is unmeasured, so 10 s is a guess. */
 			const by = Date.now() + 10_000;
 			while (!(isDead(child) && isDead(grandchild)) && Date.now() < by)
 				await new Promise((r) => setTimeout(r, 50));
@@ -1836,24 +1670,15 @@ describe("the suite ceiling", () => {
 	});
 });
 
-/* #3494: where no user scope is made, a worker that left vitest's group and
- * hangs in a synchronous call outlives the group kill, reparented to init,
- * unless the run's environ sweep finds it. A plain spawn is the path
- * spawnInRunScope falls back to when the user manager does not answer. */
 describe("a reparented worker with no user scope", {
 	timeout: REAL_CHILD_TIMEOUT_MS,
 }, () => {
-	/** A stand-in vitest that starts such a worker, records both pids, then
-	 * parks silent. */
 	function standIn(root: string) {
 		const bin = path.join(root, "fake-vitest.sh");
 		fs.writeFileSync(
 			bin,
 			[
 				"#!/bin/sh",
-				/* Not the group's leader, so setsid execs in place: $! is the
-				 * worker, in a session and group of its own. Off vitest's
-				 * pipes, so the run settles without waiting on it. */
 				`setsid sleep 300 </dev/null >/dev/null 2>&1 & echo $! > ${shellQuote(`${root}/worker.tmp`)}`,
 				`echo $$ > ${shellQuote(`${root}/child`)}`,
 				`mv ${shellQuote(`${root}/worker.tmp`)} ${shellQuote(`${root}/worker`)}`,
@@ -1868,9 +1693,6 @@ describe("a reparented worker with no user scope", {
 	const pidIn = (root: string, name: string) =>
 		Number(fs.readFileSync(path.join(root, name), "utf8"));
 
-	/** Whether `pid` died within 10 s, SIGKILLed here where it did not.
-	 * Reaping an orphan can trail the kill; 10 s and its 50 ms poll are
-	 * guesses. */
 	async function diedWithin(pid: number) {
 		const by = Date.now() + 10_000;
 		while (!isDead(pid) && Date.now() < by)
@@ -1891,7 +1713,6 @@ describe("a reparented worker with no user scope", {
 				root,
 				bin,
 				spawnFn: realSpawn,
-				/* A guess: long enough for the shell to start the worker. */
 				stall: 1000,
 				expand: () => null,
 				inflightFile: path.join(root, "run.inflight.json"),
@@ -1905,16 +1726,12 @@ describe("a reparented worker with no user scope", {
 		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
 	});
 
-	/** The temp dir `launchWrapper`'s wrapper runs on. */
 	function wrapperTmp(root: string) {
 		const at = path.join(root, "wrapper-tmp");
 		fs.mkdirSync(at, { recursive: true });
 		return at;
 	}
 
-	/** The wrapper in a process of its own over the stand-in, with
-	 * `killCarrierSource` as its carrier kill where given, resolved once the
-	 * worker has started; `stderr` collects what the wrapper writes there. */
 	async function launchWrapper(root: string, killCarrierSource = "") {
 		const wrapper = realSpawn(
 			process.execPath,
@@ -1945,7 +1762,6 @@ describe("a reparented worker with no user scope", {
 			stderr += String(chunk);
 		});
 		const ready = path.join(root, "worker");
-		/* As long as the stall case's guess allows the shell to start. */
 		const by = Date.now() + 10_000;
 		while (!fs.existsSync(ready) && Date.now() < by)
 			await new Promise((r) => setTimeout(r, 50));
@@ -1959,14 +1775,10 @@ describe("a reparented worker with no user scope", {
 		};
 	}
 
-	/* A harness kill of the wrapper: vitest leads a group of its own, so the
-	 * harness's group kill never reaches it, and only the wrapper's own
-	 * signal handler can. */
 	it("kills it when the wrapper is SIGTERMed", async () => {
 		const root = repo();
 		await (await launchWrapper(root)).kill("SIGTERM");
 		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
-		/* The run's temp root, vitest's cache dir in it, goes too (#5108). */
 		expect(
 			fs
 				.readdirSync(wrapperTmp(root))
@@ -1976,7 +1788,6 @@ describe("a reparented worker with no user scope", {
 
 	it("names a carrier kill that fails on a SIGTERM (#3528)", async () => {
 		const root = repo();
-		/* Refuses every carrier kill; the group kill is not the port's. */
 		const wrapper = await launchWrapper(
 			root,
 			`() => { throw Object.assign(new Error("EPERM"), { code: "EPERM" }); }`,
@@ -1991,8 +1802,6 @@ describe("a reparented worker with no user scope", {
 		);
 	});
 
-	/* A SIGKILL runs no handler: the next run's start sweep, which the next
-	 * session start's reaper shares, is what reaches it. */
 	it("leaves it to the next run's sweep when the wrapper is SIGKILLed (#3528)", async () => {
 		const root = repo();
 		await (await launchWrapper(root)).kill("SIGKILL");
@@ -2004,8 +1813,6 @@ describe("a reparented worker with no user scope", {
 					said += s;
 				},
 			},
-			/* Only this case's, and a neighbour's sweep may have beaten it to
-			 * them: either way they are gone. */
 			kill: (pid: number, signal: NodeJS.Signals) => {
 				if (!ours.has(pid))
 					throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
@@ -2042,7 +1849,6 @@ it("names what the start sweep killed and what it could not (#3528)", () => {
 });
 
 describe("the per-run in-flight file", () => {
-	/** Captures the env the wrapper hands its child. */
 	function envFrom(root: string) {
 		let seen: Record<string, string> | null = null;
 		const child = new EventEmitter() as EventEmitter & {
@@ -2074,9 +1880,6 @@ describe("the per-run in-flight file", () => {
 		return run;
 	}
 
-	/* One shared filename would let a neighbour's run end delete the rows a
-	 * parked run's report is built from — the contended case the watchdog is
-	 * for. */
 	it("names a file of this run's own for the reporter to write", async () => {
 		const inflight = require("./lib/test-inflight.js");
 
@@ -2099,8 +1902,6 @@ describe("the per-run in-flight file", () => {
 });
 
 describe("vitest's own temp dir (#5108)", () => {
-	/* vitest's process makes `<tmpdir>/<nanoid>` holding `client/` and
-	 * `ssr/`, and removes it only in its own `close()`. */
 	it("goes with a run killed before vitest's close, and never lands in the real temp dir", async () => {
 		const root = repo();
 		const real = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-own-tmp-"));
@@ -2137,7 +1938,6 @@ describe("vitest's own temp dir (#5108)", () => {
 	});
 });
 
-/** A git and vitest whose answers change when `move()` is called. */
 const world = (
 	before: { changed: string[]; selects: string[] },
 	after: { changed: string[]; selects: string[] },
@@ -2163,11 +1963,6 @@ const world = (
 	};
 };
 
-/**
- * A git and vitest whose diff empties when `move()` is called. Pre-queue
- * probe: a test. Re-check: none. The run's own selection, after a
- * neighbour's commit: a test again.
- */
 const refillWorld = () => {
 	let listed = 0;
 	let moved = false;
@@ -2186,11 +1981,6 @@ const refillWorld = () => {
 	};
 };
 
-/**
- * A git and vitest where `push()` moves `pushed`, origin/main by default. HEAD
- * never moves, so only a read of that ref sees the push; the diff and listing
- * answer by merge-base, so only a fresh one empties them.
- */
 const pushWorld = (ref = "origin/main") => {
 	let pushed = false;
 	const diffs: Record<string, string> = {
@@ -2211,7 +2001,6 @@ const pushWorld = (ref = "origin/main") => {
 	const fn = (_file: string, args: string[]) => {
 		const answer = answers.get(args[0] ?? "");
 		if (answer) return answer(args);
-		/* `vitest list --changed <base>`. */
 		return args.includes("staleBase") ? "a.test.ts\n" : "\n";
 	};
 	return {
@@ -2224,29 +2013,20 @@ const pushWorld = (ref = "origin/main") => {
 
 describe("the run-cost report after the suite's summary (#1883)", () => {
 	const { TIMINGS_ENV } = require("./lib/test-file-timings.js");
-	/* Pinned on the report's side by `run-cost-report.test.ts`. */
 	const costPrefix = "RUN COST:";
 
-	/* Built once and only read: the wrapper diffs it and writes nothing to it.
-	 * `old` and `reader` are committed beside a CI record holding `reader` at
-	 * 5 s; `old` is then edited and `new` left untracked, so `reader` is a file
-	 * the run only selected as a reader. */
 	let tree: string;
 	let ghDir: string;
-	/* A tracker with no open ticket, so the pre-existing file's lookup never
-	 * reaches the real one. */
 	let ghStub: string;
 	beforeAll(() => {
 		ghDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-cost-gh-"));
 		ghStub = stubGhScript(ghDir, "#!/bin/sh\necho '[]'\n").gh;
 		tree = repo();
-		/* Kept past each case's cleanup. */
 		dirs.pop();
 		const git = (...args: string[]) =>
 			require("node:child_process").spawnSync("git", args, { cwd: tree });
 		fs.writeFileSync(path.join(tree, "old.test.ts"), "// old\n");
 		fs.writeFileSync(path.join(tree, "reader.test.ts"), "// reader\n");
-		/* The CI record, named as a CI shard names its own (#4579). */
 		fs.writeFileSync(
 			path.join(ghDir, "timings.csv"),
 			"# run: 41\n# sha: a21957804bab\nfile,seconds,tests,status\nreader.test.ts,5.00,1,passed\n",
@@ -2261,9 +2041,6 @@ describe("the run-cost report after the suite's summary (#1883)", () => {
 		fs.rmSync(ghDir, { recursive: true, force: true });
 	});
 
-	/** A child that leaves `written` where the wrapper names the timings
-	 * file, as the in-flight reporter does at the run's end — the seam the
-	 * figures come in through, never a real slow file (§X9). */
 	function spawnTiming(written: string | null, code: number) {
 		return (
 			_bin: string,
@@ -2372,13 +2149,8 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		PACKAGE_JSON,
 	} = require("./lib/changed-selection.js");
 	const { isFullRun, EDGES_FILE } = require("./lib/test-pass-marker.js");
-	/** The full-suite cost the package.json warning quotes. */
 	const fullSuiteCost = /~\d+s wall run/;
 
-	/**
-	 * A stand-in for the two commands the expansion shells out to: `git diff`
-	 * answers with `changed`, `vitest list` with `selects`.
-	 */
 	function exec({
 		changed = [] as string[],
 		selects = [] as string[],
@@ -2393,7 +2165,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		return { fn, calls };
 	}
 
-	/** The expansion under test, wired to a fake git, vitest and manifest. */
 	const plan = (
 		argv: string[],
 		edges: Record<string, string[]>,
@@ -2689,11 +2460,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 	});
 
 	it("selects the live manifest's readers of a tracked document — not 0, and not the whole suite", () => {
-		/* The MANIFEST's path is spelled out, so the extractor records this file
-		   as the reader of it that it really is — an edge reached through a
-		   constant is the indirect read the lexical pass cannot see. The
-		   DOCUMENT is looked up rather than named, so no false edge is recorded
-		   for a file this test never opens (mantahostels#2095). */
 		expect(EDGES_FILE).toBe("docs/test-read-edges.json");
 
 		const edges = JSON.parse(
@@ -2713,9 +2479,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		);
 		expect(got.files).toEqual(edges[doc]);
 		expect(got.files.length).toBeGreaterThan(0);
-		/* The toEqual above already pins plan(); this pins the manifest, whose
-		   most-read document must not be read by every reader. Bounded by the
-		   manifest, not a literal, which that document's growth tripped (#564). */
 		const distinctReaders = new Set(Object.values(edges).flat());
 		expect(got.files.length).toBeLessThan(distinctReaders.size);
 	});
@@ -2786,7 +2549,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 	});
 
 	describe("under --queue, selected before the queue is joined (#1016)", () => {
-		/** One launch, with the queue's writes and the gate's reads counted. */
 		const launch = async (
 			argv: string[],
 			{
@@ -2859,9 +2621,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				EMPTY_SELECTION_FILTER,
 			]);
 			expect(queued.args).toEqual(unqueued.args);
-			// The same child but for the launch's own argv, which names --queue,
-			// the start mark each launch takes of its own (#5018), and the temp
-			// root each makes of its own (#5108), and its memory record (#5183).
 			const readLaunchSansArgv = (env: Record<string, string>) => {
 				const { argv: _argv, ...recorded } = readLaunch(env);
 				const rest = Object.fromEntries(
@@ -2903,7 +2662,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 					selects: ["a.test.ts"],
 				});
 				expect(got.joined, source).toHaveBeenCalledTimes(1);
-				/* A `--retest` is a touched run, its one file one worker (#2935). */
 				expect(got.args, source).toEqual([
 					"run",
 					...(source === "retest" ? ["--maxWorkers=1"] : []),
@@ -2914,9 +2672,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			}
 		});
 
-		/* The gate prices a named run by the workers its files can occupy, so
-		 * its poll must carry the files, or a one-file run waits for a whole
-		 * suite's rung (#2558). */
 		it("queues a run naming its own test files, the gate asked about those files", async () => {
 			const gateRead = vi.fn((_command: string) => null);
 			const got = await launch(["--queue", "a.test.ts", "-t", "two words"], {
@@ -2980,12 +2735,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		});
 
 		describe("and re-checked while it waits (#1158)", () => {
-			/**
-			 * A `--queue --changed` launch that waits two polls at a closed gate,
-			 * the world moving at the first unless `still`. Answers what it said
-			 * and how many vitest listings it made: the pre-queue probe and the
-			 * run's own selection are two, so a third is the re-check's.
-			 */
 			const queued = async (
 				w: ReturnType<typeof world>,
 				{ edges = {}, still = false } = {},
@@ -3207,9 +2956,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				]);
 			});
 
-			/* The bare run is a touched one (#2930), whose stale base reaches
-			 * `a.test.ts` only through the read graph, and whose emptied
-			 * selection spawns nothing. */
 			it("leaves on the bare run, before the gate opens, once a push moves origin/main to a base the diff empties against (#2408)", async () => {
 				const root = repo();
 				fs.writeFileSync(path.join(root, "a.test.ts"), "");
@@ -3257,7 +3003,6 @@ describe("whether a filtered run is admissible (mantahostels#2146, mantahostels#
 	const { expandChanged } = require("./lib/changed-selection.js");
 	const { EDGES_FILE } = require("./lib/test-pass-marker.js");
 
-	/** Fake `git diff` and `vitest list`, both answering with one test file. */
 	const exec = () => (_file: string, args: string[]) =>
 		`${(args[0] === "diff" ? ["docs/thing.md"] : ["a.test.ts"]).join("\n")}\n`;
 
@@ -3278,7 +3023,6 @@ describe("whether a filtered run is admissible (mantahostels#2146, mantahostels#
 	it("hands the diff the selection was computed from back to the caller, and the base it diffed against (#189 §7)", () => {
 		const got = plan(["--changed"], true);
 		expect(got.changed).toEqual(["docs/thing.md"]);
-		/* The stub's rev-parse answers no sha, so the ref stands as named. */
 		expect(got.base).toBe("HEAD");
 		expect(plan(["--changed", "e".repeat(40)], true).base).toBe("e".repeat(40));
 	});
@@ -3314,14 +3058,10 @@ describe("whether a filtered run is admissible (mantahostels#2146, mantahostels#
 		}
 	});
 
-	/* A positional is not an exception to the rule above: `changedFlag` reads it
-	 * as --changed's ref, matching vitest, so it never reaches this test. */
 	it("refuses a flag that narrows nothing, rather than maintaining a safe list", () => {
 		expect(plan(["--changed", "--reporter=dot"], true).admissible).toBe(false);
 	});
 
-	/* Every case above injects the render, so without this the default wire
-	 * would survive being replaced by one that never throws. */
 	it("renders the real read graph by default, and a tree git cannot list attests nothing", () => {
 		const got = expandChanged(["--changed"], {
 			root: fs.mkdtempSync(path.join(os.tmpdir(), "no-manifest-")),
@@ -3333,8 +3073,6 @@ describe("whether a filtered run is admissible (mantahostels#2146, mantahostels#
 		expect(got.admissible).toBe(false);
 	});
 
-	/* #959's refusal (#981): a neighbour stages a document an unedited test
-	 * already names, so the tree renders an edge the committed manifest lacks. */
 	it("selects an unedited test through an edge only the live render holds, and stays admissible (#998)", () => {
 		const dir = repo();
 		const { render } = require("./lib/read-edges-render.js");
@@ -3357,7 +3095,6 @@ describe("whether a filtered run is admissible (mantahostels#2146, mantahostels#
 		const got = expandChanged(["--changed"], {
 			root: dir,
 			bin: path.join(dir, "node_modules", ".bin", "vitest"),
-			/* Real git; vitest's own graph selects nothing. */
 			execFn: (file: string, args: string[], opts: unknown) =>
 				file === "git"
 					? require("node:child_process").execFileSync(file, args, opts)
@@ -3384,7 +3121,6 @@ describe("whether a filtered run is admissible (mantahostels#2146, mantahostels#
 		expect(got.banner).not.toContain("--full=<cause>");
 	});
 
-	/** The env the wrapper hands vitest for a plan of the given verdict. */
 	async function envFor(admissible: boolean | null) {
 		let seen: Record<string, string> | null = null;
 		const child = new EventEmitter() as EventEmitter & {
@@ -3438,7 +3174,6 @@ describe("whether a filtered run is admissible (mantahostels#2146, mantahostels#
 	});
 });
 
-/** `body` run under an outer run's launch record, as a nested launch inherits it. */
 async function underOuterLaunch<T>(
 	launch: Record<string, unknown>,
 	body: () => Promise<T>,
@@ -3447,7 +3182,6 @@ async function underOuterLaunch<T>(
 	return await body();
 }
 
-/** The env `main` hands the vitest child for `argv`. */
 async function childEnv(argv: string[], extra: Record<string, unknown> = {}) {
 	let seen: Record<string, string> | null = null;
 	const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
@@ -3473,10 +3207,6 @@ async function childEnv(argv: string[], extra: Record<string, unknown> = {}) {
 	return seen as unknown as Record<string, string>;
 }
 
-/*
- * How the child is told it is reading a frozen `--isolated` worktree
- * (mantahostels#2187) — the marker fields themselves are `markerFrom`'s to test.
- */
 describe("--isolated's env flag on the spawned child (mantahostels#2187)", () => {
 	it("sets the flag on a run in the frozen worktree", async () => {
 		expect(readLaunch(await childEnv(["--full=coverage"])).isolated).toBe(true);
@@ -3491,10 +3221,6 @@ describe("--isolated's env flag on the spawned child (mantahostels#2187)", () =>
 	});
 });
 
-/*
- * Why a full run was full (mantahostels#3207). Every reason but a typed
- * `--full`'s is the default flip's (mantahostels#3154).
- */
 describe("--full's reason on the spawned child (mantahostels#3207)", () => {
 	it("sets flag where the session typed --full itself", async () => {
 		expect(
@@ -3510,12 +3236,7 @@ describe("--full's reason on the spawned child (mantahostels#3207)", () => {
 	});
 });
 
-/*
- * The DENOMINATOR flag (mantahostels#2303): which command started the run, as against
- * `admissible`'s verdict on whether it may stand in for a whole-suite one.
- */
 describe("the test:changed route flag on the spawned child (mantahostels#2303)", () => {
-	/** The env the wrapper hands vitest for this argv and this expansion. */
 	async function envFor(
 		argv: string[],
 		expand: () => Record<string, unknown> | null,
@@ -3535,9 +3256,6 @@ describe("the test:changed route flag on the spawned child (mantahostels#2303)",
 		await main([SHARED_FLAG, ...argv], {
 			root: repo(),
 			expand,
-			/* The injected seam rather than a spy on the real stream: a spy
-			 * survives a rejecting `main` and leaves the rest of this file
-			 * writing into a mock. */
 			out: { write: () => true },
 			spawnFn: (
 				_bin: string,
@@ -3600,9 +3318,6 @@ describe("the test:changed route flag on the spawned child (mantahostels#2303)",
 			readLaunch(await envFor(["--changed", "-t", "spawn"], planned(false)))
 				.viaChanged,
 		).toBe(false);
-		/* A path AFTER the ref is the narrowing. A path in the ref's own slot is
-		 * the ref — `--changed a.test.ts` asks for the diff since a commit-ish
-		 * spelled that way, in vitest's parse and in this launcher's. */
 		expect(
 			readLaunch(
 				await envFor(["--changed", "HEAD~1", "a.test.ts"], planned(false)),
@@ -3611,10 +3326,6 @@ describe("the test:changed route flag on the spawned child (mantahostels#2303)",
 	});
 });
 
-/*
- * Each field is set by a different caller on the way to the spawn, so a route
- * that drops one shows here and nowhere a single-field case looks.
- */
 describe("the launch record each route hands the child (#1596)", () => {
 	it("hands the child every field an explicit --changed run sets, the plan's diff and base included", async () => {
 		const plan = () => ({
@@ -3645,8 +3356,6 @@ describe("the launch record each route hands the child (#1596)", () => {
 		});
 	});
 
-	/* A bare `--changed` plans against `HEAD`, which holds the session's own
-	 * commits, so it records the default's base instead (#3678). */
 	it.each([
 		["the merge-base where one resolved", true, "merge-base-sha"],
 		["no base on the HEAD fallback", false, null],
@@ -3693,9 +3402,6 @@ describe("the launch record each route hands the child (#1596)", () => {
 		});
 	});
 
-	/* A full red is classed against its base (#3646), so both whole-suite
-	 * routes carry the one their launch resolved — and none where it fell
-	 * back to `HEAD`, as the case above does with no pushed ref. */
 	it("hands the child the resolved base on a typed --full (#3646)", async () => {
 		const env = await childEnv([SHARED_FLAG, "--full=coverage"], {
 			execFn: fakeExec({ hasOrigin: true }),
@@ -3707,7 +3413,6 @@ describe("the launch record each route hands the child (#1596)", () => {
 		});
 	});
 
-	/* A full run is weighed against its own repo's suite, never the core's. */
 	it.each([
 		["a small repo's", repo, false],
 		["a whole-slot repo's", wholeRepo, true],
@@ -3724,7 +3429,6 @@ describe("the launch record each route hands the child (#1596)", () => {
 				resolvedFiles: wholeSlot ? WHOLE_SLOT_BOUND : 0,
 				wholeSlot,
 			});
-			/* Only a run outside the whole slot may yield its CPU (#2955). */
 			expect(yieldCpu).toHaveBeenCalledTimes(wholeSlot ? 0 : 1);
 		},
 	);
@@ -3793,17 +3497,10 @@ describe("the launch record each route hands the child (#1596)", () => {
 
 describe("the package.json bail-out, narrowed for an allow-listed key set (mantahostels#2160)", () => {
 	const { expandChanged, PACKAGE_JSON } = require("./lib/changed-selection.js");
-	/** The full-suite cost the package.json warning quotes. */
 	const fullSuiteCost = /~\d+s wall run/;
 
-	/** Where the scratch config is written in these cases. */
 	const probePath = "/tmp/wfc-vitest-probe-test.mts";
 
-	/**
-	 * The three commands the expansion can shell out to: `git diff` answers with
-	 * `changed`, `git show` with the OLD side of the manifest under test, and
-	 * `vitest list` with `selects`.
-	 */
 	function exec({
 		changed = [] as string[],
 		selects = [] as string[],
@@ -3823,7 +3520,6 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 		return { fn, calls };
 	}
 
-	/** The working tree's own package.json, and the scratch config's writes. */
 	function files(
 		now: unknown,
 		{ readThrows = false, writeThrows = false } = {},
@@ -3847,7 +3543,6 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 		};
 	}
 
-	/** The expansion under test, wired to a fake git, vitest, tree and manifest. */
 	const plan = (
 		io: ReturnType<typeof exec>,
 		fsImpl: ReturnType<typeof files>,
@@ -3864,7 +3559,6 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 			err: { write: () => true },
 		});
 
-	/** A `scripts`-only edit: the shape mantahostels#2099 measured at 236 of 236 files. */
 	const scriptsOnly = () => ({
 		io: exec({
 			changed: [PACKAGE_JSON],
@@ -3874,9 +3568,6 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 		fs: files({ name: "m", scripts: { test: "new" } }),
 	});
 
-	/**
-	 * A diff whose only package.json change is `key`, and the plan it produces.
-	 */
 	const withKey = (key: string, value: unknown = { added: true }) => {
 		const io = exec({
 			changed: [PACKAGE_JSON],
@@ -3887,13 +3578,9 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 		return { got: plan(io, fsImpl), io, fs: fsImpl };
 	};
 
-	/** The `vitest list` call the probe made. */
 	const listCall = (io: ReturnType<typeof exec>) =>
 		io.calls.find((c) => c[1] === "list") as string[];
 
-	/* The keys it narrows on, and keys it must not: a widening to any key in the
-	 * second list fails here. A widening to a key named in neither passes, so a
-	 * key added to the allow-list is added to the first list too. */
 	it.each([
 		"scripts",
 		"comments",
@@ -3945,7 +3632,6 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 		expect(source).toContain("{vitest,vite}.config.");
 	});
 
-	/** The scratch config a `scripts`-only probe writes, wherever it is put. */
 	const written = (probeConfig?: string) => {
 		const { io, fs: fsImpl } = scriptsOnly();
 		expandChanged(["--changed"], {
@@ -3972,7 +3658,6 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 		expect(written("/tmp/x/probe.mts")["/tmp/x/probe.mts"]).toContain(
 			'"../../repo/vitest.config.ts"',
 		);
-		/* A bare `vitest.config.ts` would resolve as a PACKAGE specifier. */
 		expect(written("/repo/probe.mts")["/repo/probe.mts"]).toContain(
 			'"./vitest.config.ts"',
 		);
@@ -4167,7 +3852,6 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 	});
 });
 
-/** `lines` as a listing prints them, or a throw of `message` where `failed`. */
 const listingOf = (lines: string[], failed: boolean, message: string) => {
 	if (failed) throw new Error(message);
 	return lines.length > 0 ? `${lines.join("\n")}\n` : "\n";
@@ -4226,25 +3910,10 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		sweepIsolated,
 	} = require("./lib/isolated-worktree.js");
 	const isolatedFlag = "--isolated";
-	/* Where the throwaway worktrees go, as lib/isolated-worktree.js puts them. */
 	const worktreeDir = path.join(".claude", "worktrees");
 	const { repoRoot } = require("./lib/test-pass-marker.js");
 	const arbiterProc = require("./lib/arbiter-proc.js");
 
-	/**
-	 * `initGitRepo` (scripts/lib/git-fixture.ts) plus the one thing an isolated
-	 * run needs from a real checkout: a `node_modules` for `createIsolated` to
-	 * link. A file inside it, so a symlink that got REPLACED by a copy would be
-	 * visible. Built once per worker and copied out (mantahostels#2197) rather than
-	 * `git init` per call, matching the 13 other files already on this helper.
-	 * Two things about the copy are untested by the helper's own suite:
-	 * these tests go on to `git worktree add` inside the instance themselves,
-	 * after instantiate()'s own leak check has already run, so that check has
-	 * never been exercised against a worktree created this way; and
-	 * `node_modules` here is a real directory inside a copied template, also
-	 * new. Both are unproblematic so far, but neither has been exercised
-	 * against a leak.
-	 */
 	const repoWithDepsTemplate = defineTemplate((dir) => {
 		const hooks = path.join(dir, "no-hooks");
 		fs.mkdirSync(hooks);
@@ -4256,16 +3925,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 	});
 
 	function repoWithDeps() {
-		// mkScratchDir realpaths its base, which repoRoot() below needs:
-		// it resolves via `git rev-parse`, which resolves symlinks, so a path
-		// reached through one would mismatch it.
 		const instance = mkScratchDir("runvitest-deps-");
 		dirs.push(instance);
 		repoWithDepsTemplate.instantiate(instance);
 		return path.join(instance, "repo");
 	}
 
-	/** A ledger stub: what this session wrote, and who else holds a claim. */
 	function ledgerOf(written: string[] | null, locks: unknown[] = []) {
 		return {
 			readWritesBy: () => written,
@@ -4307,7 +3972,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			expect(code).toBe(0);
 			expect(seen.cwd).toBe(worktreeOf(dir, 4242));
-			// Through the symlink: the run resolves the canonical checkout's deps.
 			expect(seen.existed).toBe(true);
 			const head = require("node:child_process")
 				.execFileSync("git", ["rev-parse", "HEAD"], {
@@ -4346,15 +4010,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			const made = createIsolated(dir, { pid: 4244 });
 			expect(made.error).toBe(null);
 			removeIsolated(dir, made.dir, { err: sink() });
-			// This assertion does not discriminate the unlink-first ordering
-			// (mantahostels#2169).
 			expect(
 				fs.existsSync(path.join(dir, "node_modules", ".bin", "vitest")),
 			).toBe(true);
 			expect(fs.existsSync(made.dir)).toBe(false);
 		});
 
-		/** `dir` with `links` committed as its `worktreeLinks`, and each of `onDisk` written untracked. */
 		function declaring(dir: string, links: string[], onDisk: string[]) {
 			fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 			fs.writeFileSync(
@@ -4394,15 +4055,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 		it("unlinks no declared path that resolves through another link, so the canonical link it names survives teardown (#1767)", () => {
 			const dir = repoWithDeps();
-			// A venv's interpreter is itself a symlink in the canonical checkout.
 			declaring(dir, ["venv"], ["venv/bin/python3.12"]);
 			const python = path.join(dir, "venv/bin/python");
 			fs.symlinkSync("python3.12", python);
 			const made = createIsolated(dir, { pid: 4267 });
 			expect(made.error).toBe(null);
 			if (made.dir === null) return;
-			// The suite rewrites its own copy of the config, so teardown's list
-			// names a path inside the linked venv ahead of the link itself.
 			fs.writeFileSync(
 				path.join(made.dir, ".claude/workflow-core.json"),
 				JSON.stringify({ worktreeLinks: ["venv/bin/python", "venv"] }),
@@ -4428,9 +4086,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		it("is rooted at the canonical checkout, not the worktree", () => {
 			const dir = repoWithDeps();
 			const made = createIsolated(dir, { pid: 4245 });
-			// `repoRoot` resolves the parent of the COMMON git dir, so a certificate
-			// written from inside the worktree lands in the store a later push
-			// reads.
 			expect(repoRoot(made.dir)).toBe(dir);
 			expect(repoRoot(made.dir)).not.toBe(made.dir);
 			removeIsolated(dir, made.dir, { err: sink() });
@@ -4466,17 +4121,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			);
 
 			expect(isolated.headMovedDuringRun).toBe(false);
-			// The same commit, watched from the shared tree, DOES move HEAD.
 			expect(shared.headMovedDuringRun).toBe(true);
 			expect(isolated.sha).not.toBe(shared.sha);
 			removeIsolated(dir, made.dir, { err: sink() });
 		});
 
 		it("hands the child the worktree's own globalSetup, not the canonical one", async () => {
-			// AC 3 turns on `scripts/vitest-tree-watch.ts` resolving its ROOT from
-			// the WORKTREE copy of itself. The certificate assertions above hand-build
-			// their snapshots and would pass even if the child were handed the
-			// canonical root, so this pins the wiring they assume (mantahostels#2169).
 			const dir = repoWithDeps();
 			fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
 			fs.writeFileSync(path.join(dir, "scripts", "vitest-tree-watch.ts"), "");
@@ -4494,9 +4144,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				spawnFn: (bin: string, _a: string[], opts: { cwd: string }) => {
 					seen.cwd = opts.cwd;
 					seen.bin = bin;
-					// vitest resolves `globalSetup` against its own root, which is the
-					// cwd it was spawned in — so this is the file it would load, and
-					// `ROOT = resolve(dirname(thatFile), "..")` is the worktree.
 					const watch = path.join(opts.cwd, "scripts", "vitest-tree-watch.ts");
 					expect(fs.existsSync(watch)).toBe(true);
 					expect(path.resolve(path.dirname(watch), "..")).toBe(opts.cwd);
@@ -4511,10 +4158,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("names the sha it is frozen at, not the tip a neighbour just moved", async () => {
-			// THE WINDOW IS BETWEEN `worktree add` AND THE BANNER, so the neighbour
-			// has to commit there — moving canonical HEAD from a `spawnFn` is too
-			// late, and a test written that way passes with the bug in (mantahostels#2169
-			// review's mutation run).
 			const dir = repoWithDeps();
 			const out = sink();
 			const frozen = gitIn(dir, ["rev-parse", "HEAD"]).trim();
@@ -4587,9 +4230,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				root: dir,
 				pid: 4248,
 				sessionId: "mine",
-				// A NON-EMPTY ledger that does not hold `theirs.txt`: an empty one
-				// short-circuits into the unnamed-session branch and would prove
-				// only the fallback (mantahostels#2169).
 				ledger: ledgerOf(["something-else.ts"]),
 				out: sink(),
 				err,
@@ -4606,9 +4246,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("refuses over a file this session CREATED and never committed, naming it", async () => {
-			// `git status -uno` drops an untracked file, so without the separate
-			// untracked read `--isolated` runs straight past a file this session
-			// created — no refusal, not even the neighbour warning (mantahostels#2169).
 			const dir = repoWithDeps();
 			fs.writeFileSync(path.join(dir, "brand-new.test.ts"), "//\n");
 
@@ -4634,8 +4271,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("still ignores untracked scratch this session never wrote", async () => {
-			// The other half: this tree carries hundreds of untracked files, so an
-			// untracked path enters the refusal only through the write ledger.
 			const dir = repoWithDeps();
 			fs.writeFileSync(path.join(dir, "someone-elses-scratch.md"), "x\n");
 			let spawned = false;
@@ -4767,24 +4402,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			).toEqual(["landed.ts"]);
 		});
 
-		/*
-		 * lib/claimed-bash-write.js credits an uncontended CODE target at
-		 * `PreToolUse` (mantahostels#2778), so a path that reached the tree by `sed -i` or a
-		 * redirect is `mine` and refuses under `--isolated` rather than warning
-		 * as `theirs`.
-		 *
-		 * Through the REAL hook entry and the REAL store, because a stub ledger
-		 * could not tell the two apart: what needs pinning is that the writer
-		 * and this reader agree on where the ledger lives and how it spells a
-		 * path. The entry goes through `runInProcess` (§X3), whose `env` option
-		 * covers that call. The hand-rolled environment wrap below covers what
-		 * the seam cannot: `attributeDirty` is a plain function call in this
-		 * process, and the store resolves its paths off those two variables at
-		 * call time.
-		 */
-		/* The CODE-glob gate that picks which targets are credited is pinned in
-		 * lib/claimed-bash-write.test.ts; what is driven here is the ledger the
-		 * core writes and this function reads. */
 		it("bills a credited Bash-route code write to `mine` (mantahostels#2778)", () => {
 			const home = fs.realpathSync(
 				fs.mkdtempSync(path.join(os.tmpdir(), "runvitest-credit-")),
@@ -4811,8 +4428,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					}),
 				},
 			);
-			// Crediting refuses nothing and prints nothing, so a non-zero exit
-			// or a word on stdout is a fault in the fixture, not a verdict.
 			expect(credited.status).toBe(0);
 			expect(credited.stdout).toBe("");
 			vi.stubEnv("CLAUDE_PROJECT_DIR", projectDir);
@@ -4971,8 +4586,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(err.text.join("")).toContain("REFUSED");
 		});
 
-		/** An `--isolated` launch of `argv` in a fresh repo: what it said, and
-		 * whether it spawned. */
 		async function launched(argv: (dir: string) => string[]) {
 			const dir = repoWithDeps();
 			let spawned = false;
@@ -5042,9 +4655,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("clears debris named for THIS process's own pid", () => {
-			// A pid is not an identity over time (mantahostels#2034). Sparing it would fail
-			// `git worktree add` on an existing path and refuse the suite outright
-			// — over a directory a dead predecessor left (mantahostels#2169).
 			const dir = repoWithDeps();
 			const own = createIsolated(dir, { pid: process.pid });
 			expect(own.error).toBe(null);
@@ -5056,8 +4666,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("drops the git record of a worktree whose directory is gone", () => {
-			// readdirSync cannot see this case at all, so without the prune the
-			// entry stands in `git worktree list` for ever (mantahostels#2169).
 			const dir = repoWithDeps();
 			const made = createIsolated(dir, { pid: 4253 });
 			fs.rmSync(made.dir, { recursive: true, force: true });
@@ -5480,8 +5088,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				["the queue", ["--queue", SHARED_FLAG, "--changed"]],
 			] as const;
 
-			/* The failure is met before the route matters, so each failure is
-			 * driven once and each route with one failure. */
 			const cases = [
 				...failures.map((f) => [routes[0], f] as const),
 				...routes.slice(1).map((r) => [r, failures[0]] as const),
@@ -5602,11 +5208,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			const headText = "committed\n";
 			const sharedLinks = new Set(["node_modules"]);
 
-			/**
-			 * A checkout dirty in every way a shared tree is: the session's own
-			 * edit, deletion and new file; a file it once wrote that a live
-			 * neighbour now holds; and an orphan nobody's ledger names.
-			 */
 			function dirtyCheckout({ linked = false } = {}) {
 				const checkout = repoWithDeps();
 				const files = ["mine.txt", "gone.txt", "held.txt", "orphan.txt"];
@@ -5623,7 +5224,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				return dir;
 			}
 
-			/** A session's own worktree of `checkout` (#4229), its artefacts linked in. */
 			function linkedWorktreeOf(checkout: string) {
 				const wt = path.join(path.dirname(checkout), "session-wt");
 				gitIn(checkout, ["worktree", "add", "-q", "--detach", wt]);
@@ -5638,7 +5238,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				return wt;
 			}
 
-			/** The neighbour's claim sits in `dir`, the tree read (#4457). */
 			const ledger = (dir: string) =>
 				ledgerOf(
 					["mine.txt", "gone.txt", "brand-new.test.ts", "held.txt"],
@@ -5654,7 +5253,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					],
 				);
 
-			/** Real git throughout, bar a missing origin and vitest's listing. */
 			const execFn = (file: string, args: string[], opts: unknown) => {
 				if (args[0] === "rev-parse" && args.includes("origin/main"))
 					throw new Error("unknown revision or path");
@@ -5662,7 +5260,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				return require("node:child_process").execFileSync(file, args, opts);
 			};
 
-			/** What the spawned run could read, captured while its tree exists. */
 			async function runSeeing(
 				dir: string,
 				argv: string[],
@@ -5697,7 +5294,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 							.split("\n")
 							.filter(Boolean)
 							.map((line) => line.slice(3))
-							// The fixture leaves the linked-in artefacts unignored.
 							.filter((p) => !sharedLinks.has(p))
 							.sort();
 						const contents = new Map(
@@ -5801,8 +5397,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(fs.existsSync(worktreeOf(dir, 5402))).toBe(false);
 			});
 
-			/* Most runs take this route, so the report must diff the overlay,
-			 * where the session's new test file is untracked (#1883). */
 			it("names the session's new test file in the run-cost report", async () => {
 				vi.stubEnv("CI", "");
 				const { TIMINGS_ENV } = require("./lib/test-file-timings.js");
@@ -5854,7 +5448,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					root: dir,
 					pid: 5409,
 					sessionId: "mine",
-					// `rm-gone.txt` as lib/claimed-bash-write.js notes an `rm`.
 					ledger: {
 						...ledgerOf(["new.test.ts"]),
 						readSelectsBy: () => [
@@ -6000,7 +5593,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			it("links no shared artefact the checkout lacks, so a walk over its tree does not throw (#822)", async () => {
 				const dir = dirtyCheckout();
 				fs.rmSync(path.join(dir, "node_modules"), { recursive: true });
-				// A member the checkout has, so the skip is shown sparing the rest.
 				const config = ".claude/workflow-core.json";
 				fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 				fs.writeFileSync(
@@ -6015,7 +5607,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					pid: 5412,
 					sessionId: "mine",
 					spawnFn: (_bin: string, _a: string[], opts: { cwd: string }) => {
-						// `lstat`, not `exists`: a dangling link must count as an entry.
 						seen.deps =
 							fs.lstatSync(path.join(opts.cwd, "node_modules"), {
 								throwIfNoEntry: false,
@@ -6083,8 +5674,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(fs.existsSync(worktreeOf(dir, 5413))).toBe(false);
 				});
 
-				/* Probed on one reader, it reads the whole bound's worth in the
-				 * overlay, where `runOnce` weighs it again (#2931). */
 				it("re-queues whole a queued run whose overlay plan takes the whole slot (#2931)", async () => {
 					const dir = wholeRepo(dirtyCheckout());
 					const joined = vi.fn();
@@ -6252,10 +5841,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 	});
 
 	describe("own work only: a run leaves a neighbour's commits to its own certificate (#1216)", () => {
-		/**
-		 * Three unpushed commits past `origin/main`: the launcher's, a
-		 * neighbour's, and one in no ledger.
-		 */
 		function ownRange(dir: string) {
 			const commit = (f: string, text: string) => {
 				fs.writeFileSync(path.join(dir, f), text);
@@ -6271,9 +5856,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			return { base, mine, theirs, loose };
 		}
 
-		/* `ownRange` over a fresh `repo()` or `repoWithDeps()` is the same
-		 * history in every case, so each is built once and copied, its shas
-		 * recorded at build (#5144). */
 		const ranges: Record<string, ReturnType<typeof ownRange>> = {};
 		const ownRangeTemplate = defineTemplate({
 			plain: (at) => {
@@ -6286,7 +5868,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			},
 		});
 
-		/** A `repo()` (`plain`) or `repoWithDeps()` (`deps`) past `ownRange`. */
 		function withOwnRange(variant: "plain" | "deps") {
 			const at =
 				variant === "plain"
@@ -6309,13 +5890,10 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				),
 		});
 
-		/** Real git; `vitest list` answers `<x>.test.js` for each `<x>.js` it
-		 * is asked about, by `related` config or by `--changed <ref>`. */
 		const execFn = (file: string, args: string[], opts: { cwd: string }) => {
 			if (args[0] !== "list")
 				return require("node:child_process").execFileSync(file, args, opts);
 			const changed = args.indexOf("--changed");
-			/* A bare `--changed` is followed by a flag, and diffs against HEAD. */
 			const ref = args[changed + 1];
 			const asked: string[] =
 				changed === -1
@@ -6447,8 +6025,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		describe("the queue's probes, on the run's own set (#1221)", () => {
-			/** Past `origin/main`: an own commit no test reads, then a neighbour's
-			 * one a test imports. */
 			function untestedOwnRange(dir: string) {
 				const commit = (f: string) => {
 					fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
@@ -6464,11 +6040,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				return { base, mine, theirs, commit };
 			}
 
-			/**
-			 * What the pre-queue probe answers, read off a queued launch at an open
-			 * gate: null where it joined the queue, else what it says reaches no
-			 * test file.
-			 */
 			const probe = async (
 				dir: string,
 				argv: string[],
@@ -6496,7 +6067,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				);
 			};
 
-			/** A queued launch that must never reach the queue. */
 			async function queuedLaunch(
 				dir: string,
 				argv: string[],
@@ -6557,7 +6127,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 		});
 
-		/* The shared route's cases are the launch record's own (#3660). */
 		it.each([["a bare --changed's overlay", ["--changed"], 0]])(
 			"records the merge-base on %s, and no base on the HEAD fallback (#3660, #3678)",
 			async (_route, argv, failedAdds) => {
@@ -6591,8 +6160,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 	});
 
 	describe("what the refusal says, by how many files it names", () => {
-		/** The refusal a full run prints over `paths`, each this session's own
-		 * new file. */
 		async function isolatedRefusal(paths: string[]) {
 			const dir = repoWithDeps();
 			for (const p of paths) fs.writeFileSync(path.join(dir, p), "new\n");
@@ -6621,10 +6188,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(text).not.toContain("git commit -m");
 		});
 
-		/* The cap itself, not a count that happens to sit above it. The Stop
-		 * guard truncates at the same shared number and pins the same boundary,
-		 * so a caller left on a private literal fails here the moment that
-		 * number moves (mantahostels#2231). */
 		it("names every path at exactly the cap, and truncates one past it", async () => {
 			const at = Array.from(
 				{ length: REFUSAL_NAMED_MAX },
@@ -6637,9 +6200,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("never offers `-uno` as the recovery, which hides its untracked half", async () => {
-			// The set this refusal counts includes untracked paths (attributeDirty's
-			// `untracked` arm), so the one flag that drops them cannot recover it —
-			// a truncated refusal would be unrecoverable by its own recipe (mantahostels#2196).
 			const many = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
 			const text = await isolatedRefusal(many);
 			expect(text).toContain("git status --porcelain`");
@@ -6647,9 +6207,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("prints the whole commit recipe for a set it can name, quoted", async () => {
-			// The positive half of the rule above: without it the recipe branch
-			// could be deleted outright and only the negative assertion would stay
-			// green (mantahostels#2169).
 			const text = await isolatedRefusal(["a.ts", "one two.ts"]);
 			expect(text).toContain(
 				`git commit -m "<why, in plain language>" -- a.ts 'one two.ts'`,
@@ -6661,8 +6218,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 describe("`--adopt`, the adoption run (#1213)", () => {
 	const { expandChanged } = require("./lib/changed-selection.js");
 
-	/** A fake fs keeping what the probe writes, and a fake git/vitest whose
-	 * `vitest list` answers one test file. */
 	function harness(edges: Record<string, string[]> = {}) {
 		const written = new Map<string, string>();
 		const calls: string[][] = [];
@@ -6797,8 +6352,6 @@ describe("`--adopt`, the adoption run (#1213)", () => {
 		expect(args).not.toContain("--adopt");
 	});
 
-	/** One `main` launch of an adoption, queued or not, with what it spawned,
-	 * whether it joined the queue and what it wrote to stderr. */
 	async function adoptLaunch(
 		argv: string[],
 		loadEdges: () => Record<string, string[]>,
@@ -7063,8 +6616,6 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 });
 
 describe("the bare run takes only the touched tests (#2930)", () => {
-	/* `lib/a.js` imported by `lib/a.test.ts` and by a helper `lib/h.js`, which
-	 * `lib/chain.test.ts` imports; `package.json` a dependency-graph root. */
 	function touchedRepo() {
 		const dir = repo();
 		const files: Record<string, string> = {
@@ -7143,8 +6694,6 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		expect(out).not.toContain("ESCALATED");
 	});
 
-	/* min(resolved files, whole-suite workers): the flag is added below 5,
-	 * where the config's own 5 would fork idle workers (#2935). */
 	it.each([
 		[["lib/a.test.ts", "lib/chain.test.ts"], ["--maxWorkers=2"]],
 		[Array.from({ length: 5 }, (_, i) => `lib/t${i}.test.ts`), []],
@@ -7206,8 +6755,6 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		const Checker = "scripts/check-instruction-surface.test.ts";
 		const Reader = "lib/reader.test.ts";
 		const edges = () => ({ [Anchors]: [Checker, Reader] });
-		/** `touchedRepo()` with the anchors file, its checker test and a
-		 * reader, the anchors file then regenerated. */
 		function regenerated() {
 			const dir = touchedRepo();
 			fs.mkdirSync(path.join(dir, "scripts"));
@@ -7240,7 +6787,6 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			fs.writeFileSync(path.join(dir, "vitest.config.ts"), "export {};\n");
 			const { execFileSync } = require("node:child_process");
 			const { code, out, spawned } = await launch(dir, edges, [], {
-				/* vitest's own listing, collecting the reader and not the checker. */
 				execFn: (cmd: string, args: string[], opts: object) =>
 					args[0] === "list" ? `${Reader}\n` : execFileSync(cmd, args, opts),
 			});
@@ -7285,8 +6831,6 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 	});
 
 	describe("selects from HEAD only inside a live commit-gate seat (#5320, #5273)", () => {
-		/** `touchedRepo()` with verified main at its tip, then `lib/a.js`
-		 * committed as own work and `lib/chain.test.ts` edited. */
 		function branch() {
 			const dir = touchedRepo();
 			const git = (...args: string[]) =>
@@ -7300,8 +6844,6 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			fs.appendFileSync(path.join(dir, "lib/chain.test.ts"), "// edit\n");
 			return dir;
 		}
-		/** A temp root whose suite queue holds one spawned gate seat,
-		 * `holder`'s. */
 		function tempRoot(holder: number) {
 			const tmp = tmpRootWithMarkers(
 				qdir(),
@@ -7372,8 +6914,6 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 
 		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
 			const dir = branch();
-			/* A live seat this process is not under: its holder is a child, its
-			 * 30 s any span that outlives the case, which kills it. */
 			const stranger = realSpawn("sleep", ["30"], { stdio: "ignore" });
 			onTestFinished(() => {
 				stranger.kill();

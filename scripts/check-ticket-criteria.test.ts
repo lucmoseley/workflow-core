@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which closed tickets the report names for unticked acceptance criteria,
- * which section it reads them from, and when a waiver or an exclusion keeps a
- * ticket from failing. No ticket found: neither the first commit nor the file's
- * history names one.
- *
- * Every case runs with a stub `gh` injected via WFC_GH: no
- * network, no auth, and no dependence on this repo's actual issue state —
- * which is the thing the script reports on and so cannot also be its fixture.
- *
- * The section-scoping cases are not hypothetical. Real ticket bodies quote
- * ledger items containing bracketed text, and a "Blocked by" list is one line
- * away from parsing as a task list.
- *
- * It runs daily as the `criteria` entry of the repo-checks run,
- * read back at `npm run status`: loosen a case and a ticket closed with criteria
- * nobody verified passes unreported, or a reasonless waiver silences a box.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -37,7 +19,6 @@ interface Issue {
 	stateReason?: string;
 }
 
-/** Write a stub `gh` returning the given closed-issue list. */
 const stubGh = (closed: Issue[], { failing = false } = {}) => {
 	const fixture = path.join(dir, "closed.json");
 	fs.writeFileSync(
@@ -121,8 +102,6 @@ describe("detection", () => {
 
 describe("section scoping", () => {
 	it("ignores task items outside the acceptance-criteria section", () => {
-		// The "Blocked by" list is the real trap: it sits in every ticket
-		// /to-tickets publishes, and renders as a task list on some trackers.
 		const body =
 			"## What to build\n\n- [ ] not a criterion, quoted prose\n\n## Acceptance criteria\n\n- [x] done\n\n## Blocked by\n\n- [ ] #51\n";
 		const r = run([], stubGh([ticket(55, body)]));
@@ -213,8 +192,6 @@ describe("exclusions", () => {
 	});
 
 	it("ignores an unlabelled issue that carries no criteria section", () => {
-		// A roadmap card's issue, or a wayfinder decision ticket. Neither takes
-		// `kind:ticket` and neither is expected to carry criteria.
 		const r = run(
 			[],
 			stubGh([{ number: 33, body: "A decision.", labels: [] }]),

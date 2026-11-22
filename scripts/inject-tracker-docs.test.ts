@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The boundary set of scripts/inject-tracker-docs.js, the UserPromptSubmit
- * and SessionStart hook entry (#5151). Every routing, rule-text
- * and de-duplication branch is a module case on the core,
- * scripts/lib/inject-tracker-docs.test.ts. Broken, every tracker command a
- * session types may arrive without its rules, or twice, or hang its prompt.
- */
-
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -28,7 +20,6 @@ const TAKES_GH_TIMEOUT_S = readJsConst(
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-entry-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
-/* `gh` and the tier hook are pointed at nothing unless a case sets them. */
 const ENV = {
 	...process.env,
 	CLAUDE_PROJECT_DIR: ROOT,
@@ -39,11 +30,9 @@ const ENV = {
 	WFC_REVIEW_TIER_HOOK: path.join(SCRATCH, "no-tier-hook"),
 };
 
-/** The entry run in-process on `stdin`. */
 const entry = (stdin: string, env: Record<string, string> = {}) =>
 	runInProcess(HOOK, [], { stdin, env: { ...ENV, ...env } });
 
-/** The context a hook output hands the session. */
 const contextOf = (stdout: string): string =>
 	JSON.parse(stdout).hookSpecificOutput.additionalContext;
 
@@ -92,12 +81,9 @@ describe("the entry's input channels", () => {
 });
 
 describe("the entry's fail-open (§N5, §X11 item 4)", () => {
-	/* Root searches any directory, so the stat would not throw. */
 	it.skipIf(process.getuid?.() === 0)(
 		"exits 0 printing nothing, the core's throw logged, where the marker directory cannot be searched",
 		() => {
-			/* Its search permission taken, the core's stat of the session's
-			 * marker throws EACCES, past every catch of its own. */
 			const tmp = fs.mkdtempSync(path.join(SCRATCH, "unsearchable-"));
 			const fire = (session: string) =>
 				entry(
@@ -137,7 +123,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 			["SessionStart", "UserPromptSubmit"].map(
 				(event) =>
 					new Promise<string>((resolve) => {
-						// Two processes at once: only real processes can race the marker (§X3).
 						execFile(HOOK, { env: ENV }, (_err, stdout) =>
 							resolve(stdout),
 						).stdin?.end(
@@ -162,7 +147,6 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 		);
 		const fire = (env: Record<string, string>) =>
 			new Promise<string>((resolve) => {
-				// The kill of a real hung gh child, which only a process shows.
 				execFile(HOOK, { env: { ...ENV, ...env } }, (_err, stdout) =>
 					resolve(stdout),
 				).stdin?.end(
@@ -172,9 +156,7 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 					}),
 				);
 			});
-		// §X9: a kill of a real hung gh, through a 1 s give-up so load cannot eat
-		// the margin (#2268); a hook that never gave up outruns the case's 15 s.
-		// Residual: a hook ignoring the seam falls back to 4 s and passes too.
+		// #2268
 		const hung = await fire({ WFC_GH: slow.gh, WFC_TAKES_GH_TIMEOUT_S: "1" });
 		expect(contextOf(hung)).toBe(contextOf(await fire({})));
 	}, 15_000);

@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * rescue-sessions-takeover.test.ts — `rescue-sessions.js takeover` through
- * its command line (#621, spec #617): the boundary set lib/rescue-takeover.js's
- * module cases (lib/rescue-takeover.test.ts) leave to the program (#5157) — a
- * takeover across the real oracle adapter, `claude stop`, `gh` and WFC_PROC,
- * a GHOST stopped through them, and the --despite refusals lib/cli-args.js
- * shares with the core, each through the shell's exit.
- *
- * Fixtures: scripts/lib/rescue-testkit.ts. The real script runs in a sandbox
- * holding a real arbiter store, against the kit's fake `claude` oracle, fake
- * `gh` and fabricated `/proc`, so no live session can be stopped by a test.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -39,7 +27,6 @@ const events = () => path.join(sb.dir, "events");
 const snapshotDir = () =>
 	path.join(sb.repo, ".claude", "tmp", "rescue", `${N}-${SHORT}`);
 
-/** Every `gh` call logged; a comment logs who holds the claim as it posts. */
 const ghBefore = () => [
 	`echo "gh $1 $2" >> ${shellQuote(events())}`,
 	'if [ "$1 $2" = "issue comment" ]; then',
@@ -50,11 +37,6 @@ const ghBefore = () => [
 	"fi",
 ];
 
-/**
- * A holder whose turn ended on `waiting:` with nothing running — FROZEN —
- * claiming #621, with a job record naming its intent, and a stop that the
- * oracle then reads as `stopped`.
- */
 const frozenHolder = () => {
 	lists([holderRow()]);
 	lists([holderRow({ state: "stopped" })], plan(), "agents-after-stop.json");
@@ -70,7 +52,6 @@ const frozenHolder = () => {
 	issueClaims.claimIssue(N, { sessionId: SID });
 };
 
-/** The stop is logged with whether the snapshot was already on disk. */
 const takeover = (args: string[] = ["--issue", String(N)]) =>
 	run("takeover", args, {
 		ghBefore: ghBefore(),
@@ -131,7 +112,6 @@ describe("takeover through the program", () => {
 		frozenHolder();
 		for (const [extra, why] of [
 			[[], "--despite needs --reason"],
-			/* lib/cli-args.js refuses a valueless flag before takeover runs. */
 			[["--reason"], "--reason needs a value"],
 			[["--reason", " "], "--despite needs --reason"],
 		] as const) {
@@ -150,7 +130,7 @@ describe("takeover through the program", () => {
 	});
 
 	/* #1989 */
-	it("keeps its record, stops it and prints the re-dispatch, adopting nothing", async () => {
+	it("keeps its record, stops it and prints the re-dispatch, adopting nothing (#1989)", async () => {
 		ghostJob(`/implement ${N}`);
 		lists([], plan(), "agents-after-stop.json");
 		const r = await takeover();

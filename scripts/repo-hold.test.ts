@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The repo hold's CLI (#3857), run as sessions and the founder run it. The real tick's side of a hold is
- * refill-loop-run-holds.test.ts's.
- *
- * WHAT BREAKING IT COSTS: a hold listed from one worktree and not another gets
- * the founder a second copy of the same question; a lift that fails leaves a
- * hold nothing else may end.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -41,7 +33,6 @@ const initCheckout = (root: string) => {
 	git(root, ...COMMIT);
 };
 
-/* The store sits outside it, so no case's write reaches the template. */
 const template = defineTemplate((root) => {
 	const main = path.join(root, "checkout");
 	initCheckout(main);

@@ -1,36 +1,27 @@
 // @vitest-environment node
-/*
- * Pins the commit range a red sweep accuses: every commit and its files, a
- * reason rather than a throw when the range cannot be read, and the bisect
- * advice (mantahostels#945, on the attribution ruling at mantahostels#907).
- *
- * A throwaway repo per test, where the history has to be known exactly. Never
- * this repo's own — a parallel session moves HEAD mid-run, and CI clones at
- * depth 1, where an ancestor is not a revision at all.
- *
- * check-ci-status.js (a session-start hook in .claude/settings.json) and
- * report-red-suite.js (the red-sweep job in scheduled-checks.yml) both print
- * this range, so a loosened case lets a red sweep name the wrong commits, or
- * throw and report nothing.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	buildBisectAdvice,
+	countRange,
+	readRange,
+	renderRange,
+} from "./commit-range.js";
 import { writeFaultyGit } from "./git-fault-fake";
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const range: any = createRequire(__filename)("./commit-range.js");
+type Read = ReturnType<typeof readRange>;
+type Listed = Extract<Read, { ok: true }>;
+type Refused = Extract<Read, { ok: false }>;
 
 let dir: string;
 
 const git = (args: string[], cwd = dir) =>
 	execFileSync("git", args, { encoding: "utf8", cwd }).trim();
 
-/** Commit `files` (path → contents) under `subject`; return the full sha. */
 function commit(subject: string, files: Record<string, string>) {
 	for (const [p, body] of Object.entries(files)) {
 		fs.mkdirSync(path.dirname(path.join(dir, p)), { recursive: true });
@@ -54,7 +45,7 @@ describe("readRange names every commit and the files it touched (mantahostels#94
 		commit("second", { "b.txt": "1", "c/d.txt": "1" });
 		const bad = commit("third", { "a.txt": "2" });
 
-		const r = range.readRange({ good, bad, cwd: dir });
+		const r = readRange({ good, bad, cwd: dir }) as Listed;
 		expect(r.ok).toBe(true);
 		expect(r.count).toBe(2);
 		expect(r.commits.map((c: { subject: string }) => c.subject)).toEqual([
@@ -66,12 +57,10 @@ describe("readRange names every commit and the files it touched (mantahostels#94
 	});
 
 	it("reads a subject containing a tab without splitting the record", () => {
-		// The separators are %x1f/%x00 rather than a tab because a tab is legal in
-		// a subject.
 		const good = commit("base", { "a.txt": "1" });
 		const bad = commit("has\ta tab in it", { "a.txt": "2" });
 
-		const r = range.readRange({ good, bad, cwd: dir });
+		const r = readRange({ good, bad, cwd: dir }) as Listed;
 		expect(r.commits[0].subject).toBe("has\ta tab in it");
 		expect(r.commits[0].files).toEqual(["a.txt"]);
 	});
@@ -79,7 +68,7 @@ describe("readRange names every commit and the files it touched (mantahostels#94
 	it("counts an empty range as zero rather than failing", () => {
 		const sha = commit("only", { "a.txt": "1" });
 
-		const r = range.readRange({ good: sha, bad: sha, cwd: dir });
+		const r = readRange({ good: sha, bad: sha, cwd: dir }) as Listed;
 		expect(r).toMatchObject({ ok: true, count: 0, commits: [] });
 	});
 
@@ -88,15 +77,13 @@ describe("readRange names every commit and the files it touched (mantahostels#94
 		let bad = good;
 		for (let i = 1; i <= 5; i++) bad = commit(`c${i}`, { "a.txt": String(i) });
 
-		const r = range.readRange({ good, bad, cwd: dir, maxListed: 2 });
+		const r = readRange({ good, bad, cwd: dir, maxListed: 2 }) as Listed;
 		expect(r.count).toBe(5);
 		expect(r.commits).toHaveLength(2);
 		expect(r.truncated).toBe(3);
 	});
 
 	it("attributes a merge's files to the merge, not to each parent twice", () => {
-		// --first-parent: without it a merge prints no files at all under
-		// --name-only, so the range would under-report what it changed.
 		const good = commit("base", { "a.txt": "1" });
 		git(["checkout", "-q", "-b", "side"]);
 		commit("side work", { "side.txt": "1" });
@@ -105,7 +92,7 @@ describe("readRange names every commit and the files it touched (mantahostels#94
 		git(["merge", "--no-ff", "-m", "merge side", "side"]);
 		const bad = git(["rev-parse", "HEAD"]);
 
-		const r = range.readRange({ good, bad, cwd: dir });
+		const r = readRange({ good, bad, cwd: dir }) as Listed;
 		expect(r.ok).toBe(true);
 		expect(r.commits[0].subject).toBe("merge side");
 		expect(r.commits[0].files).toEqual(["side.txt"]);
@@ -117,7 +104,7 @@ describe("a range it cannot read is a reason, never a throw (mantahostels#945)",
 		const bad = commit("only", { "a.txt": "1" });
 		const absent = "0123456789abcdef0123456789abcdef01234567";
 
-		const r = range.readRange({ good: absent, bad, cwd: dir });
+		const r = readRange({ good: absent, bad, cwd: dir }) as Refused;
 		expect(r.ok).toBe(false);
 		expect(r.reason).toContain("0123456");
 		expect(r.reason).toContain("good end");
@@ -132,7 +119,7 @@ describe("a range it cannot read is a reason, never a throw (mantahostels#945)",
 			{ under: dir },
 		);
 		vi.stubEnv("WFC_GIT", faulty.git);
-		const r = range.readRange({ good: bad, bad, cwd: dir });
+		const r = readRange({ good: bad, bad, cwd: dir }) as Refused;
 		expect(r.ok).toBe(false);
 		expect(r.reason).toContain("git would not resolve");
 		expect(r.reason).toContain("index file corrupt");
@@ -146,13 +133,13 @@ describe("a range it cannot read is a reason, never a throw (mantahostels#945)",
 		const bad = commit("unrelated", { "z.txt": "1" });
 		const good = git(["rev-parse", "main"]);
 
-		const r = range.readRange({ good, bad, cwd: dir });
+		const r = readRange({ good, bad, cwd: dir }) as Refused;
 		expect(r.ok).toBe(false);
 		expect(r.reason).toContain("not an ancestor");
 	});
 
 	it("says there is no range when an end is missing altogether", () => {
-		expect(range.readRange({ good: "", bad: "abc", cwd: dir }).ok).toBe(false);
+		expect(readRange({ good: "", bad: "abc", cwd: dir }).ok).toBe(false);
 	});
 });
 
@@ -167,12 +154,10 @@ describe("renderRange gives a reader the narrowing lines (mantahostels#945)", ()
 	const opts = { good: "g".repeat(40), bad: "b".repeat(40) };
 
 	it("lists each commit's files in full while the range is short", () => {
-		const out = range
-			.renderRange(
-				{ ok: true, count: 2, commits: commits(2), truncated: 0 },
-				opts,
-			)
-			.join("\n");
+		const out = renderRange(
+			{ ok: true, count: 2, commits: commits(2), truncated: 0 },
+			opts,
+		).join("\n");
 
 		expect(out).toContain("2 commit(s) since the last green run");
 		expect(out).toContain("abc0  subject 0");
@@ -181,12 +166,10 @@ describe("renderRange gives a reader the narrowing lines (mantahostels#945)", ()
 	});
 
 	it("switches to a per-commit count and an aggregate once it is long", () => {
-		const out = range
-			.renderRange(
-				{ ok: true, count: 12, commits: commits(12, 3), truncated: 0 },
-				opts,
-			)
-			.join("\n");
+		const out = renderRange(
+			{ ok: true, count: 12, commits: commits(12, 3), truncated: 0 },
+			opts,
+		).join("\n");
 
 		expect(out).toContain("(3 file(s))");
 		expect(out).toContain("Most-touched files in the range:");
@@ -194,30 +177,29 @@ describe("renderRange gives a reader the narrowing lines (mantahostels#945)", ()
 	});
 
 	it("says plainly that no commit is to blame when the range is empty", () => {
-		const out = range
-			.renderRange({ ok: true, count: 0, commits: [], truncated: 0 }, opts)
-			.join("\n");
+		const out = renderRange(
+			{ ok: true, count: 0, commits: [], truncated: 0 },
+			opts,
+		).join("\n");
 
 		expect(out).toContain("No commits between the last green run");
 		expect(out).toContain("flakiness");
 	});
 
 	it("hands over the command for the commits it did not list", () => {
-		const out = range
-			.renderRange(
-				{ ok: true, count: 200, commits: commits(2), truncated: 198 },
-				opts,
-			)
-			.join("\n");
+		const out = renderRange(
+			{ ok: true, count: 200, commits: commits(2), truncated: 198 },
+			opts,
+		).join("\n");
 
 		expect(out).toContain("and 198 more");
 		expect(out).toContain("git log --oneline");
 	});
 
 	it("passes an unreadable range's reason through instead of a list", () => {
-		const out = range
-			.renderRange({ ok: false, reason: "no such commit" }, opts)
-			.join("\n");
+		const out = renderRange({ ok: false, reason: "no such commit" }, opts).join(
+			"\n",
+		);
 
 		expect(out).toBe("Commit range unavailable: no such commit.");
 	});
@@ -229,28 +211,22 @@ describe("countRange counts without paying for the file lists (mantahostels#945)
 		commit("second", { "b.txt": "1" });
 		const bad = commit("third", { "c.txt": "1" });
 
-		expect(range.countRange({ good, bad, cwd: dir })).toBe(2);
-		expect(range.countRange({ good: bad, bad, cwd: dir })).toBe(0);
+		expect(countRange({ good, bad, cwd: dir })).toBe(2);
+		expect(countRange({ good: bad, bad, cwd: dir })).toBe(0);
 	});
 
 	it("returns null for a pair that is not one line of history", () => {
-		// null must not be confused with zero.
 		const bad = commit("only", { "a.txt": "1" });
 
-		expect(
-			range.countRange({ good: "0".repeat(40), bad, cwd: dir }),
-		).toBeNull();
-		expect(range.countRange({ good: "", bad, cwd: dir })).toBeNull();
+		expect(countRange({ good: "0".repeat(40), bad, cwd: dir })).toBeNull();
+		expect(countRange({ good: "", bad, cwd: dir })).toBeNull();
 	});
 });
 
 describe("buildBisectAdvice offers a bisect only where it would help (mantahostels#945)", () => {
 	const ends = { good: "g".repeat(40), bad: "b".repeat(40) };
 	const at = (count: number) =>
-		range.buildBisectAdvice(
-			{ ok: true, count, commits: [], truncated: 0 },
-			ends,
-		);
+		buildBisectAdvice({ ok: true, count, commits: [], truncated: 0 }, ends);
 
 	it("says nothing at zero or one commit, which need no search", () => {
 		expect(at(0)).toEqual([]);
@@ -275,19 +251,18 @@ describe("buildBisectAdvice offers a bisect only where it would help (mantahoste
 
 	it("aims the command at the code repo where a repo flag is given (#1963)", () => {
 		expect(
-			range
-				.buildBisectAdvice(
-					{ ok: true, count: 4, commits: [], truncated: 0 },
-					{ ...ends, repoFlag: " --repo o/code" },
-				)
-				.join("\n"),
+			buildBisectAdvice(
+				{ ok: true, count: 4, commits: [], truncated: 0 },
+				{ ...ends, repoFlag: " --repo o/code" },
+			).join("\n"),
 		).toContain(`-f bad=${ends.bad} --repo o/code`);
 	});
 
 	it("still offers one when the range could not be read at all", () => {
-		const out = range
-			.buildBisectAdvice({ ok: false, reason: "no such commit" }, ends)
-			.join("\n");
+		const out = buildBisectAdvice(
+			{ ok: false, reason: "no such commit" },
+			ends,
+		).join("\n");
 		expect(out).toContain("gh workflow run bisect.yml");
 	});
 

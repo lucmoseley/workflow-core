@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * arbiter-content.js's own suite: the git-blob pins, the prior-version ring a
- * holder recovers from, and the comparison that reports a clobber, whole-file
- * and per region (mantahostels#295, mantahostels#438). Each test runs in a fresh
- * sandbox with its own `git init`: the pins are real refs over real blobs, and
- * neither may land in this repo. Loosening it lets a clobbered file go
- * unreported or unrecoverable.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -28,8 +20,6 @@ import {
 const sb = freshSandbox();
 
 describe("content identity — what the file held when its claimant last touched it (mantahostels#295)", () => {
-	// A claim records the file's git blob id, so a write by any route is detected
-	// AND recoverable.
 	const rel = "scripts/evidence-audit.py";
 	const abs = () => path.join(sb.repo, rel);
 	const write = (text: string) => {
@@ -41,7 +31,6 @@ describe("content identity — what the file held when its claimant last touched
 		gitRepo(sb);
 	});
 
-	/** Claim the path and record what it holds, as the PostToolUse recorder does. */
 	const claimAndRecord = (sessionId: string, text: string) => {
 		const me = live(sb, sessionId);
 		write(text);
@@ -52,7 +41,6 @@ describe("content identity — what the file held when its claimant last touched
 	const readLock = () => core.readRecord(store.paths.lock(rel));
 
 	it("records the blob on the claim, and an unrecorded claim reads as unknown", () => {
-		// No blob is a question never asked, not a clobber.
 		const unrecorded = locks.newLock({ path: rel });
 		expect(unrecorded.blob).toBeNull();
 		expect(store.contentState(rel, unrecorded).state).toBe("unknown");
@@ -63,8 +51,6 @@ describe("content identity — what the file held when its claimant last touched
 	});
 
 	it("pins the blob so `git gc --prune=now` cannot drop it", () => {
-		// Detection alone was never the ask: the overwritten content has to be
-		// GETTABLE. A loose object nothing references is gc's to delete.
 		const { blob } = claimAndRecord("alice", "the content to survive\n");
 		expect(
 			execFileSync(
@@ -91,8 +77,6 @@ describe("content identity — what the file held when its claimant last touched
 		const { blob } = claimAndRecord("alice", "alice's work\n");
 		expect(store.contentState(rel, readLock()).state).toBe("same");
 
-		// The clobber, by the shape the incident took: a whole-file write from
-		// outside this session entirely.
 		write("restored from a backup\n");
 
 		const seen = store.contentState(rel, readLock());
@@ -107,27 +91,19 @@ describe("content identity — what the file held when its claimant last touched
 	});
 
 	it("says nothing when the claimant refreshed its own file — the 42% class", () => {
-		// The measured dominant shape: a session Bash-writing a path it holds, a
-		// version-stamp `sed -i` most often. Without the post-Bash refresh every one
-		// of those reports as a clobber, and the detector lands below the ~15%
-		// precision under which mantahostels#185 bars a content-reading detector.
 		const { me } = claimAndRecord("alice", "v1.35\n");
-		write("v1.36\n"); // the sed
-		store.recordContent(rel, me); // the PostToolUse Bash refresh
+		write("v1.36\n");
+		store.recordContent(rel, me);
 		expect(store.contentState(rel, readLock()).state).toBe("same");
 	});
 
 	it("treats a deletion as a change, not as an unanswerable question", () => {
-		// hash-object cannot report a missing file: git exits non-zero, which reads
-		// as "could not answer" everywhere else in this module.
 		claimAndRecord("alice", "here\n");
 		fs.rmSync(abs());
 		expect(store.contentState(rel, readLock()).state).toBe("changed");
 	});
 
 	it("refuses to record against a claim another session holds, leaving the claim with its holder", () => {
-		// Identity, not liveness: a lock carrying someone else's id is not ours to
-		// write to, whatever the state of its holder.
 		claimAndRecord("alice", "alice's\n");
 		expect(store.recordContent(rel, live(sb, "bob"))).toBeNull();
 		expect(readLock().sessionId).toBe("alice");
@@ -145,10 +121,6 @@ describe("content identity — what the file held when its claimant last touched
 	});
 
 	it("records nothing outside a repository, so the claim stays unknown rather than wrong", () => {
-		// `git hash-object` needs no repository — it is a pure hash, so the COMPARE
-		// survives one that is gone. Writing the blob and pinning it do need one,
-		// and a blob that was never pinned is not recoverable, so reporting an id
-		// for it would be a recovery instruction that fails.
 		fs.rmSync(path.join(sb.repo, ".git"), { recursive: true, force: true });
 		write("content\n");
 		const me = live(sb, "alice");
@@ -157,9 +129,6 @@ describe("content identity — what the file held when its claimant last touched
 		expect(store.contentState(rel, readLock()).state).toBe("unknown");
 	});
 
-	// claimId is a randomUUID, but a hand-written lock's is not ours to trust,
-	// and it is being handed to git as a ref name. Each row is one git accepts,
-	// so only the arbiter's own check refuses it.
 	it.each(["a/b", "-d", undefined])(
 		"pins nothing under a claim id that is not a safe ref name (%s)",
 		(claimId) => {
@@ -205,9 +174,6 @@ describe("content identity — what the file held when its claimant last touched
 		});
 
 		it("deletes nothing when the lock store cannot be read", () => {
-			// A live pin and an orphan are indistinguishable without the lock store,
-			// and dropping a live one destroys exactly the content this keeps
-			// recoverable (mantahostels#174).
 			claimAndRecord("alice", "held\n");
 			const before = readRefs();
 			fs.rmSync(store.paths.locksDir(), { recursive: true, force: true });
@@ -232,7 +198,6 @@ describe("content identity — what the file held when its claimant last touched
 				const t = (Date.now() - ageMs) / 1000;
 				fs.utimesSync(lockFile(name), t, t);
 			};
-			// 10 minutes is STALE_REF_LOCK_MS in lib/arbiter-sweep.js.
 			const past = 10 * 60 * 1000 + 60_000;
 
 			it("removes an aged lock and prunes its ref with the rest", () => {
@@ -272,8 +237,6 @@ describe("content identity — what the file held when its claimant last touched
 			it("logs a refused batch rather than swallowing it", () => {
 				claimAndRecord("alice", "held\n");
 				pin("dead-1");
-				// A packed-refs lock is outside the arbiter's namespace, so it stays,
-				// and deleting a packed ref needs it.
 				execFileSync("git", ["pack-refs", "--all"], { cwd: sb.repo });
 				fs.writeFileSync(path.join(sb.repo, ".git", "packed-refs.lock"), "");
 
@@ -302,8 +265,6 @@ describe("content identity — what the file held when its claimant last touched
 		const commit = () => commitAll(sb);
 
 		it("hands the caller the content state, and the blob id read before the drop", () => {
-			// Clean to git and still clobbered: the claimant's bytes were committed,
-			// then replaced and committed by someone else.
 			const { me, blob } = claimAndRecord("alice", "alice's work\n");
 			commit();
 			write("restored from a backup\n");
@@ -314,7 +275,6 @@ describe("content identity — what the file held when its claimant last touched
 			expect(r.content.state).toBe("changed");
 			expect(r.content.was).toBe(blob);
 
-			// The pin is gone, but the object survives as loose until git prunes it.
 			expect(
 				execFileSync("git", ["cat-file", "-p", r.content.was], {
 					cwd: sb.repo,
@@ -332,25 +292,21 @@ describe("content identity — what the file held when its claimant last touched
 		it("reports unknown, never changed, on a claim never recorded", () => {
 			const me = live(sb, "alice");
 			write("alice's work\n");
-			store.acquire(rel, me); // claimed, never recorded: blob is null
+			store.acquire(rel, me);
 			commit();
 			expect(store.release(rel, me).content.state).toBe("unknown");
 		});
 
 		it("hands the caller the content state on a dirty refusal too (mantahostels#337)", () => {
-			// The commoner clobber shape: a neighbour's `cp` or `git restore` leaves the
-			// tree dirty, so the release refuses before it ever compares content — and
-			// tells the session to commit, which commits the neighbour's bytes (mantahostels#63).
 			const { me, blob } = claimAndRecord("alice", "alice's work\n");
 			commit();
-			write("restored from a backup\n"); // the clobber, left uncommitted
+			write("restored from a backup\n");
 
 			const r = store.release(rel, me);
 			expect(r.verdict).toBe("dirty");
 			expect(r.content.state).toBe("changed");
 			expect(r.content.was).toBe(blob);
 
-			// The claim stands, so its pin stands: recovery is still available later.
 			expect(
 				execFileSync(
 					"git",
@@ -367,8 +323,6 @@ describe("content identity — what the file held when its claimant last touched
 		});
 
 		it("reads a dirty file its own claimant edited as unchanged, not clobbered", () => {
-			// The ordinary dirty release — the session's own unfinished edit, refreshed
-			// into the pin by the post-Bash recorder. Nothing to report.
 			const { me } = claimAndRecord("alice", "alice's work\n");
 			commit();
 			write("alice's next edit\n");
@@ -379,9 +333,6 @@ describe("content identity — what the file held when its claimant last touched
 
 	describe("updateIfUnchanged — the rewrite that cannot clobber a replacement", () => {
 		it("puts back a lock that is not the one it read, rather than overwriting it", () => {
-			// A plain read-modify-write would let a third session claim the path
-			// between the read and the write, and the write would then replace that
-			// session's live lock with our stale one.
 			store.acquire(rel, live(sb, "alice"));
 			const r = locks.updateIfUnchanged(
 				rel,
@@ -397,10 +348,6 @@ describe("content identity — what the file held when its claimant last touched
 });
 
 describe("the versions a claim has held — the holder's own clobber (mantahostels#438)", () => {
-	// mantahostels#329's residual: a `cp` the HOLDER runs is trusted by the post-Bash refresh,
-	// which re-pins the clobbered bytes, and no detector was built because the HEAD
-	// test that separates it from a `sed -i` fires on legitimate mutation cycles at
-	// ~1.4% precision. So the claim keeps the shas it has held instead.
 	const rel = "scripts/evidence-audit.py";
 	const abs = () => path.join(sb.repo, rel);
 	const write = (text: string) => {
@@ -413,7 +360,6 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		gitRepo(sb);
 	});
 
-	/** Write the file and refresh the claim's record, as the post-Bash hook does. */
 	const revise = (me: object, text: string) => {
 		write(text);
 		return store.recordContent(rel, me);
@@ -431,8 +377,6 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		const me = claiming("alice");
 		const first = readLock().blob;
 
-		// The clobber that reports nothing: the holder's own `cp` from a backup,
-		// followed by the refresh that trusts it.
 		revise(me, "restored from a backup\n");
 
 		expect(readLock().blob).not.toBe(first);
@@ -451,7 +395,6 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		const me = claiming("alice");
 		for (let i = 2; i <= 40; i++) revise(me, `v${i}\n`);
 		expect(readLock().priorBlobs.length).toBe(content.PRIOR_BLOBS_MAX);
-		// Newest first: the cap evicts the oldest, never the version just replaced.
 		expect(
 			execFileSync("git", ["cat-file", "-p", readLock().priorBlobs[0].sha], {
 				cwd: sb.repo,
@@ -461,8 +404,6 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 	});
 
 	it("drops a refresh that changed nothing, so identical entries cannot evict", () => {
-		// The post-Bash refresh fires on EVERY Bash call, so most re-record the same
-		// sha. Without this the cap fills with copies of one version.
 		const me = claiming("alice");
 		for (let i = 0; i < 20; i++) store.recordContent(rel, me);
 		expect(readLock().priorBlobs).toEqual([]);
@@ -486,16 +427,13 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 	});
 
 	it("marks a version git has pruned as gone rather than as a recovery instruction", () => {
-		// Only the CURRENT version is pinned — a prior lives on git's two-week
-		// default and then stops being gettable. Printing its sha as a `cat-file`
-		// line after that is an instruction that fails.
 		const me = claiming("alice");
 		revise(me, "v2\n");
 		execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
 
 		const seen = store.claimVersions(rel);
-		expect(seen.versions[0].gone).toBe(false); // pinned
-		expect(seen.versions[1].gone).toBe(true); // swept
+		expect(seen.versions[0].gone).toBe(false);
+		expect(seen.versions[1].gone).toBe(true);
 	});
 
 	it("reports no versions where nothing holds the path", () => {
@@ -504,12 +442,6 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 	});
 });
 
-/*
- * Region-scoped content identity (mantahostels#970). Without it the clobber detector fires
- * on every interleaved write to docs/doc-map.md the moment two sessions can
- * hold it at once — and the recovery it advises would destroy the neighbour's
- * work, which is the opposite of what mantahostels#295 built it for.
- */
 describe("content identity on a region claim", () => {
 	const docMap = "docs/doc-map.md";
 	const body = (first: string, second: string) =>
@@ -579,8 +511,6 @@ describe("content identity on a region claim", () => {
 	});
 
 	it("refreshes every region the session holds when handed the bare path", () => {
-		// The PostToolUse write hook knows only the file, so a fan-out here is what
-		// keeps the detector alive on a region-claiming session.
 		registerSession(sb, "alice", process.pid);
 		const me = store.identify("alice");
 		store.acquire(`${docMap}#B1`, me);

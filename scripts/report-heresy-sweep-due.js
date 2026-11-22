@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-heresy-sweep-due.js — the monthly heresy sweep's filer (#3464, spec
- * #3365): files the one *Heresy sweep due* issue the `heresy-sweep` skill
- * works.
- *
- *   (no flag)  the daily filing run, launched detached at every session start
- *              by scripts/session-start-sweeps.sh, in every repo. At most one
- *              reading a day. When a sweep is due it files or refreshes the
- *              one due issue, found by title alone, so a retitled one is not
- *              found and the next due reading files a second.
- *   --dry-run  print the last sweep, the next due date and why; write nothing.
- *
- * The filing run always exits 0: a `gh` or git failure is
- * one line in the arbiter's error log, which `npm run check:guard-errors`
- * reports, and the next day's reading retries. `--dry-run` exits 2 on one,
- * and on a refused command line.
- */
 
 const { writeFd } = require("./lib/write-fd.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -34,8 +17,6 @@ const USAGE = `usage: node ${scriptPath("report-heresy-sweep-due.js")} [--dry-ru
 /** @typedef {import("./lib/heresy-sweep").Verdict} Verdict */
 
 /**
- * The tracker's verdict at `nowMs`.
- *
  * @param {number} nowMs
  * @returns {Verdict}
  */
@@ -47,12 +28,7 @@ function readVerdict(nowMs) {
 	);
 }
 
-/**
- * Carries no date of the reading's own, so a reading that finds nothing
- * changed leaves the body as it stands.
- *
- * @param {Verdict} verdict
- */
+/** @param {Verdict} verdict */
 function buildBody(verdict) {
 	return [
 		"Filed automatically by `scripts/report-heresy-sweep-due.js`, which reads this repo once a day at session start and rewrites this body at each reading while a sweep is due. **Edit it by hand and the next reading silently overwrites it** — put anything you want kept in a comment.",
@@ -71,7 +47,7 @@ function buildBody(verdict) {
 	].join("\n");
 }
 
-/** @param {number} nowMs @returns {string} what happened, for the run to print */
+/** @param {number} nowMs @returns {string} */
 function fileRun(nowMs) {
 	const verdict = readVerdict(nowMs);
 	const figure = `Last sweep: ${verdict.last}; ${verdict.why}`;

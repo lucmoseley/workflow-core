@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * `session-checkout.js reap` against real git (#4247): a bare origin carrying
- * `main`, a main checkout cloned from it, and worktrees cut by
- * the module itself, each linked to a dependency store `npm` (a stub) built.
- *
- * Loosen it and cleanup loses work: a worktree with uncommitted or unlanded
- * commits, or one a live or resumable session still needs, is removed, or a
- * store is pulled from under a worktree or a build in flight. Tighten it and
- * the worktrees folder grows without bound and stranded work goes unnamed.
- *
- * Every case but the young one runs with the clock at least an hour on, past
- * the window a fresh cut or store is left alone in; only `Date` is faked, so git
- * and the processes it spawns keep real time. The reopen cases stand a
- * stub on `WFC_CLAUDE_BIN` for `claude attach`, logging its seat and argv.
- *
- * Every case cuts real worktrees off a real bare origin, seam 1's fixture
- * (#4229), so the file runs at about the 10 s budget (base §X8 (5)).
- */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -83,7 +65,6 @@ const worktrees = () => path.join(main, ".claude", "worktrees");
 const worktree = (name: string) => path.join(worktrees(), name);
 const stores = () => path.join(worktrees(), ".dep-stores");
 
-/** Cut worktree `name`, held for session `holder` where given. */
 const cut = (name: string, holder = "") => {
 	const r = run(["cut", name], { CLAUDE_CODE_SESSION_ID: holder });
 	expect(r.status, r.stderr).toBe(0);
@@ -106,8 +87,6 @@ const registered = () =>
 		.filter((l) => l.startsWith("worktree "))
 		.map((l) => l.slice("worktree ".length));
 
-/** A job record on the seat whose session's cwd is `cwd`, in `state`,
- * last written at `updatedAt` where given. */
 const recordJob = (
 	id: string,
 	cwd: string,
@@ -135,7 +114,6 @@ const reapedRecord = () =>
 		"wfc-reaped-worktrees.jsonl",
 	);
 
-/** A live process whose command line carries `marker`, with `cwd`. */
 const holdProcess = (cwd: string, marker = "held") => {
 	const child = spawn("sh", ["-c", "sleep 60", marker], {
 		cwd,
@@ -145,7 +123,6 @@ const holdProcess = (cwd: string, marker = "held") => {
 	return child.pid as number;
 };
 
-/** A pid no process holds: an exited child, already reaped. */
 const deadPid = () => spawnSync("true").pid;
 
 beforeEach(() => {
@@ -186,7 +163,6 @@ it("removes landed, clean worktrees of finished sessions, then the store none li
 	const store = path.dirname(
 		fs.realpathSync(path.join(landed, "node_modules")),
 	);
-	/* The landed work moves origin/main's lockfile off the store's. */
 	commitIn(landed, "package-lock.json", "lock-2\n");
 	git(landed, "push", "-q", "origin", "HEAD:main");
 	recordJob("j1", landed, "done", Date.now() - 4 * DAY);
@@ -256,7 +232,6 @@ it("reports a dead session's dirty or unlanded worktree with its idle time and l
 	expect(fs.readFileSync(path.join(dirty, "half.txt"), "utf8")).toBe(
 		"half done",
 	);
-	/* Both still link the store, so it stays. */
 	expect(fs.readdirSync(stores())).toHaveLength(1);
 });
 
@@ -674,7 +649,6 @@ describe("reopen", () => {
 		recordJob("abc123", tree, "done", Date.now() - 4 * DAY);
 		expect(reap().status).toBe(0);
 		expect(fs.existsSync(tree)).toBe(false);
-		/* The record, not origin/main, names the sha. */
 		const later = cut("later-work");
 		commitIn(later, "later.txt", "after the reap");
 		git(later, "push", "-q", "origin", "HEAD:main");

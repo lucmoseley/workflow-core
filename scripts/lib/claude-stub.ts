@@ -1,28 +1,15 @@
-/*
- * The bash `claude` stub every port fake's lines run in (#3030), and what
- * those fakes and their contracts share. Many port fakes share it, so it is
- * no `<port>-fake`: a test writing it imports no fake, and so reads no
- * port's fixture it does not use.
- */
-
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { buildAuthStatusBranch } from "./auth-status-fake";
 import { LIVE_CALL_TIMEOUT_MS } from "./headless-options.js";
 import { shellQuote } from "./sh-quote.js";
 
-/** `text` as one sh word, every `id` in it spliced as "$2": a recorded
- * answer to `claude <verb> <id>`. */
 export const buildJobIdWord = (text: string, id: string) =>
 	text.split(id).map(shellQuote).join('"$2"');
 
-/** The stub's `--version` branch, printing `version` in the harness's form. */
 export const buildVersionBranch = (version: string) =>
 	`if [ "$1" = "--version" ]; then echo ${shellQuote(`${version} (Claude Code)`)}; exit 0; fi`;
 
-/** Write a bash `claude` stub at `bin` answering `auth status`
- * (lib/launch-auth.js), then running `lines` in turn, then exiting
- * `fallThroughExit`. */
 export function writeClaudeStub(
 	bin: string,
 	lines: string[],
@@ -42,8 +29,6 @@ export function writeClaudeStub(
 	return bin;
 }
 
-/** Why a contract's live `claude` case skips here, or undefined where it
- * runs (§G7.2). */
 export function claudeLiveSkipReason(): string | undefined {
 	if (process.env.CI)
 		return "CI: the live claude case runs on the founder's machine only";
@@ -54,9 +39,6 @@ export function claudeLiveSkipReason(): string | undefined {
 	return status === 0 ? undefined : "no claude on PATH";
 }
 
-/** The stub's `--bg` branch, a launch or a resume: runs the shell
- * `onLaunch`, prints file `out` and, where given, file `err` to stderr, then
- * exits 0 (#4413). */
 export function buildBgBranch({
 	out,
 	err,

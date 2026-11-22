@@ -32,27 +32,16 @@ const { keepRun } = require("./lib/row-measure.js");
 const { caught } = require("./lib/caught.js");
 const { readRunAdmission, readRunMemory } = require("./lib/run-memory.js");
 
-/*
- * The tree under test: vitest's own root, handed to `setup`. Never this file's
- * location, which in a plugin install is the plugin cache (#552). The cwd
- * stands in where `setup` never ran, as for a test driving the teardown.
- */
 let treeRoot = process.cwd();
 
-/* The run's watch (lib/run-steadiness.js), null where `setup` never ran. */
 let watch: import("./lib/run-steadiness.js").Watch | null = null;
 
-/* The read audit's log directory (#4916), null where this run is unaudited:
- * a test's nested run, whose reads its owner's audit holds, or a rowless
- * one (lib/pass-store.js). */
 let auditDir: string | null = null;
 
 function armAudit() {
 	auditDir = isRowlessRun() ? null : readAudit.install(treeRoot);
 }
 
-/* `recorded`, the run this teardown handed the pass store, is kept beside
- * the logs under lib/row-measure.js's switch (#5029). */
 function disarmAudit(recorded: Record<string, unknown> | null) {
 	keepRun(auditDir, recorded);
 	readAudit.remove(auditDir);
@@ -70,10 +59,6 @@ export function teardown() {
 	runTeardown();
 }
 
-/**
- * The run's per-file rows in the pass store (#4790), off the marker's sha,
- * time and tree, and the run's steadiness.
- */
 function recordFiles(
 	marker: { sha: string; at?: string; treeAtEnd?: string },
 	files: { results: unknown[]; shared: string[]; clean: boolean } | null,
@@ -103,10 +88,6 @@ function recordFiles(
 	return run;
 }
 
-/**
- * The read audit's per-file reads (#4916), null where this run was not
- * audited or its logs will not read.
- */
 function readAuditsOrNone() {
 	if (auditDir === null) return null;
 	try {
@@ -119,59 +100,29 @@ function readAuditsOrNone() {
 	}
 }
 
-/*
- * `teardown` split out so a test can point the marker write at a sandbox
- * instead of this checkout's own store — vitest calls `teardown()` bare, so
- * that export stays zero-arg and this is the only way in (mantahostels#2182).
- *
- * `runTeardown` is exported and `rootOverride` is unguarded: any caller, not
- * only a test, can redirect the marker write away from the store
- * `attestationOf` actually reads.
- */
+// `vitest` calls `teardown()` with no arguments.
 export function runTeardown(rootOverride?: string | null) {
 	const { before, after, drifted, steadiness } = (
 		watch ?? unwatchedRun(treeRoot)
 	).close();
 
-	// stderr, so it survives a reporter writing the summary to stdout.
 	const moved = format(drifted);
 	if (moved) process.stderr.write(`${moved}\n`);
 
-	/*
-	 * The marker the pre-push hook reads (mantahostels#987). Written here rather than in the
-	 * reporter because this is where the tree findings are — and only on a
-	 * verdict the reporter actually left, so a run whose result was never
-	 * observed records nothing rather than a false certificate.
-	 *
-	 * `after.head` is HEAD as it stood when the suite finished, which is the sha
-	 * a push straight afterwards carries.
-	 */
-	// The one take CLEARS the whole report, so the two branches below share
-	// its result — a second take would come back empty.
 	const { outcome, ...report } = takeRunReport();
 	const launch = readLaunch();
-	// A function, so a run with no verdict asks git nothing.
 	const buildMarkerRun = () => ({
 		...report,
 		isolated: launch.isolated,
 		argv: launch.argv,
 		memory: readRunMemory(),
 		admission: readRunAdmission(),
-		// Taken in treeRoot — the worktree this process is actually running
-		// against, frozen or shared — and AFTER the run, unlike every other
-		// tree field (mantahostels#2187's own point: they all describe the start).
 		treeAtEnd: endOfRunTreeIdentity(treeRoot),
 	});
 
-	// The canonical checkout of treeRoot, so an isolated worktree's run lands in the
-	// shared store. `rootOverride` exists only so a test can point the write at a
-	// sandbox instead of this checkout's own store.
 	const root = rootOverride ?? repoRoot(treeRoot);
 
 	let recorded: Record<string, unknown> | null = null;
-	/* A run that hit its scope's task cap fails, however green (#3401); the
-	 * wrapper names the cap. Read here, inside the scope, which the manager
-	 * collects once the run's last process exits. */
 	const capped = outcome === true && hasOwnScopeHitCap();
 	if (outcome === true && after && !capped) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
@@ -179,37 +130,16 @@ export function runTeardown(rootOverride?: string | null) {
 		recorded = recordFiles(marker, report.files, { steadiness, root });
 	}
 
-	/*
-	 * The red half (mantahostels#1942), carrying the failing names in `scope.failures`. It
-	 * gates nothing: no certificate is recorded here, and `attestationOf` reads
-	 * the certificate store alone, so a red sha attests nothing.
-	 *
-	 * `outcome === false` and not `!== true`: a null outcome means the reporter
-	 * never ran, so nothing observed the result and there is nothing to attest,
-	 * red or green.
-	 */
 	if (outcome === false && after) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		const written = recordFailure(marker, { root });
 		recorded = recordFiles(marker, report.files, { steadiness, root });
-		/*
-		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
-		 * nobody opens, and the whole point is that a session which piped the run
-		 * through `tail` still gets the names. stderr, beside the drift findings
-		 * above, because the reporter owns stdout.
-		 *
-		 * Never on a `rootOverride` run (mantahostels#2182): the recipe below names the real
-		 * checkout's `FAIL_STORE`, which a sandboxed write never touched — printing
-		 * it there is a false claim about where the names actually landed.
-		 */
 		if (written && rootOverride == null)
 			process.stderr.write(
 				`\n  The failing test names are recorded in ${storePath(root, FAIL_STORE)}, so this run\n` +
 					"  need not be repeated to recover them. This run's line, names only:\n" +
 					`    ${failureRecoveryCommand(root, marker)}\n`,
 			);
-		/* Whose failures these are, off the record, so no run is repeated to
-		 * find out (#3624). */
 		const owners = readAlreadyRedLines(marker, root);
 		if (owners.length > 0) process.stderr.write(`\n${owners.join("\n")}\n`);
 	}

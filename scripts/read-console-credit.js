@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/*
- * read-console-credit.js — read one overflow key's credit from the Console's
- * Billing page through a Chrome child on its plan seat, and log the result beside
- * the key's ledger (#4071, lib/console-credit.js).
- *
- *   node scripts/read-console-credit.js <overflow key var>
- *
- * The refill loop starts it detached on lib/console-credit.js's cadence; run by
- * hand it reads at once. The child works from `/`, so no repo's hooks reach it.
- *
- * Exit 0 with the reading on stdout; 1 with why on stderr, the why also logged;
- * 2 on a usage error or a seat that is no overflow key.
- * Joins no §N3 family: nothing reads the code, as the loop reads the log.
- */
 
 const path = require("node:path");
 const { parseArgs } = require("node:util");
@@ -34,7 +20,7 @@ const { CHILD_ERROR_CHARS } = require("./lib/child-buffer.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-/* A guess: past claude-child.js's own limit, so that limit is what kills the child. */
+// #4071 guess
 const CHILD_TIMEOUT_MS = CHROME_TIMEOUT_MS_A_PAGE + 30_000;
 const PROMPT_FILE = path.join(__dirname, "lib", "console-credit-prompt.txt");
 
@@ -84,7 +70,6 @@ const DEFAULT_DEPS = { runChild: runChromeChild };
  * @returns {number}
  */
 function main(args, deps = DEFAULT_DEPS) {
-	// An unknown flag: no positionals, so the usage line below answers it.
 	/** @type {string[]} */
 	const positionals = orFallback(
 		() => parseArgs({ args, allowPositionals: true }).positionals,

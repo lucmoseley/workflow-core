@@ -1,29 +1,4 @@
-/*
- * breach-score-rule.js — the before/after test's pre-registered scoring
- * classes (#2042, `docs/research/startup-load-before-after-test.md` D3), read
- * by `score-session-breaches.js`. Committed before any run: a change here
- * after the first run voids the comparison, as the report re-scores each
- * transcript, save for two changes that leave every score as it was. One
- * renames a guard and keeps a row for the name its transcripts carry. The
- * other adds the row this scorer's test demands for a Stop guard neither arm's
- * revision registers (#3745; #2046 ran 9599acf98 and d487f10bf): the guard
- * fired in neither arm, and `countStop` scores only a fire it finds. It can
- * fire in a later run, but a run from a newer base S (D2) is a new comparison.
- * A guard only arm B registers can fire in that arm, so this does not cover it:
- * D3 classes it a breach in advance if it refuses a wrong act.
- *
- * Every table names a guard as the scorer attributes it: a core the dispatcher
- * runs by its `lib/guard-cores.json` row `name` (#2943), any other guard by
- * its script's file name less its `.js` or `.sh` (#3440).
- */
-
-/**
- * `breach` refuses a
- * wrong act and is scored; `notice` is a length notice, failed-open machinery,
- * the classifier, or a screen-only flag, and is not; `concision` is a demanded
- * step, reported as its own family.
- * @type {Readonly<Record<string, "breach" | "notice" | "concision">>}
- */
+/** @type {Readonly<Record<string, "breach" | "notice" | "concision">>} */
 const STOP_CLASS = {
 	"guard-inventory": "breach",
 	"guard-priced-options": "breach",
@@ -45,24 +20,11 @@ const STOP_CLASS = {
 	"concision-backstop": "concision",
 };
 
-/** Denies the machine caused, not the session (#2042). */
 const ENVIRONMENT_DENY = new Set(["guard-suite-concurrency"]);
 
-/** The two near-constant families (D3), each reported on its own. */
 const INVENTORY = "guard-inventory";
 const JOB_DIR = "guard-job-dir-scratch";
 
-/**
- * D3's by-family split (#2046):
- * each guard whose rule text the cut moved out of the always-loaded load —
- * read off the arm A → arm B diff of `CLAUDE.md` and the user-level
- * `CLAUDE.md` — so arm B meets that rule first at the guard. The `guard-npm-install` core
- * is here whole for the bare-`npx` limb (call binaries by path), which named
- * no guard: its `--ignore-scripts` and new-package limbs follow `AGENTS.md`,
- * which neither arm loads, so they are counted as moved too, a small
- * over-count. A moved guard no refusal is ever attributed to is left out, as
- * it scores nothing (#2946). Every other scored guard is `kept`.
- */
 const MOVED = new Set([
 	"guard-agent-poll",
 	"guard-branch",
@@ -81,21 +43,11 @@ const MOVED = new Set([
 	"guard-wait-loop",
 ]);
 
-/**
- * Guards printing one rule the cut moved and one it kept: the priced-options
- * guard's status-marker limb left with the background-wait rule, while its
- * question-round shape stays in the voice.
- */
 const MIXED = new Set(["guard-priced-options"]);
 
-/**
- * A registration key's guard, as every table here names one that is no
- * dispatcher core.
- * @param {string} key
- */
+/** @param {string} key */
 const guardNameOf = (key) => key.replace(/ .*/s, "").replace(/\.(js|sh)$/, "");
 
-/** How the scorer keys a deny by its guards. */
 const DENY_GUARD_JOIN = "+";
 const UNATTRIBUTED = "(unattributed)";
 

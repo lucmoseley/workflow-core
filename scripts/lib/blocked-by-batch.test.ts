@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins blocked-by-batch.js: many issues' native blockers in one GraphQL call,
- * a failed or empty batch read as every issue's readiness unknown and never as
- * no blockers, one retry of the batch, and the REST read an issue takes alone
- * where the batch answers it null or past the inner page (#2685).
- *
- * In process against a WFC_GH stub served from one long-lived process for the
- * whole file (#2878): the batch's query is answered by gh-fake's
- * answerLinks and each REST page by asRecorded, both held to the real gh
- * by gh.contract.test.ts.
- *
- * Breaking it lets `/pick-next` launch a blocked issue: a batch failure read
- * as an empty blocker list, or a 26th blocker past the batch's page unseen.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -42,15 +28,10 @@ interface Row {
 	state: "open" | "closed";
 }
 interface Fixture {
-	/** issue -> its blockers, in the batch and on REST alike */
 	deps?: Record<number, Row[]>;
-	/** issues the batch answers null, so each takes the REST read */
 	nullInBatch?: number[];
-	/** issues whose REST read fails on its first try only */
 	failRestOnce?: number[];
-	/** the batch fails on every try, or on its first only */
 	failBatch?: "always" | "once";
-	/** the batch exits 0 printing nothing, or names no repository */
 	batchAnswers?: "empty" | "noRepo";
 }
 
@@ -100,7 +81,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** Each issue's read, by number, and the gh calls made, in order. */
 async function read(numbers: number[], fx: Fixture) {
 	fs.writeFileSync(path.join(dir, "fixture.json"), JSON.stringify(fx));
 	const reads = await blockedByMany(
@@ -135,8 +115,6 @@ describe("blockedByMany (#2685)", () => {
 	});
 
 	it("reads the full blocker list of an issue past the batch's inner page, and only that issue's", async () => {
-		// The batch reads 25 blockers per issue; #1's 26th, the only open one,
-		// is past that page, so only the REST read can see it.
 		const many = Array.from({ length: 26 }, (_, k) => ({
 			number: 100 + k,
 			state: k === 25 ? ("open" as const) : ("closed" as const),

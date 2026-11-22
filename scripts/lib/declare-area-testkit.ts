@@ -1,8 +1,3 @@
-/*
- * One sensitive area declared in a tree's working copy, for the suites that
- * read `sensitivePaths` through a real hook or adapter.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 

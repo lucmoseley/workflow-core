@@ -19,6 +19,7 @@ import {
 import {
 	buildIsolatedEnv,
 	type Gate,
+	type HeldRun,
 	type Lander,
 	SELF,
 	writeHostRepo,
@@ -135,6 +136,7 @@ interface Machine {
 	sessionCeiling?: string;
 	landers?: Lander[];
 	gates?: Gate[];
+	heldRuns?: HeldRun[];
 	states?: Record<string, string>;
 	windowsMb?: number;
 	queueUnreadable?: boolean;
@@ -162,6 +164,7 @@ const machineEnv = (m: Machine = {}) => {
 		sessionCeiling = "0",
 		landers = [],
 		gates = [],
+		heldRuns = [],
 		states = {},
 		windowsMb,
 	} = m;
@@ -179,7 +182,7 @@ const machineEnv = (m: Machine = {}) => {
 		);
 	return {
 		MEMWATCH_MINUTE_LOG: minuteLog,
-		...buildIsolatedEnv(dir, { landers, gates }),
+		...buildIsolatedEnv(dir, { landers, gates, heldRuns }),
 		WFC_MEMINFO: meminfo(mb),
 		WFC_PS: ps(psLines, { fails: psFails }),
 		WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
@@ -538,6 +541,57 @@ describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
 				`− ${PAIR} pool − ${WHOLE_LANDER.chargeMb} lander − 1800 gate seat − ${FLOOR} floor`,
 			),
 		);
+	});
+});
+
+describe("the held-run reserve (#5555)", () => {
+	const Suite = 3000;
+	const room = Suite + HELD + PAIR;
+
+	it("refuses a session that fits without the reserve while a held run's charge would not fit beside it", () => {
+		const machine = { mb: room, sessions: [SELF, GROWN], pss: GROWN_PSS };
+		const without = run(machine).json;
+		expect(without.slots).toBeGreaterThan(0);
+		const { json } = run({
+			...machine,
+			heldRuns: [{ pid: process.pid, chargeMb: Suite }],
+		});
+		expect(json.heldRunMb).toBe(Suite);
+		expect(json.budgetMb).toBe(without.budgetMb - Suite);
+		expect(json.slots).toBe(0);
+		expect(json.reason).toMatch(
+			new RegExp(
+				`holding ${Suite} MB for the queued test run the memory rung holds`,
+			),
+		);
+	});
+
+	it("still admits a session that fits beside the held run's charge", () => {
+		const { json } = run({
+			mb: room + Suite,
+			sessions: [SELF, GROWN],
+			pss: GROWN_PSS,
+			heldRuns: [{ pid: process.pid, chargeMb: Suite }],
+		});
+		expect(json.heldRunMb).toBe(Suite);
+		expect(json.slots).toBeGreaterThan(0);
+	});
+
+	it("holds the room the run's rung needs where it is more than its charge", () => {
+		const { json } = run({
+			mb: room + 4000,
+			heldRuns: [{ pid: process.pid, chargeMb: 1929, rungMb: 3350 }],
+		});
+		expect(json.heldRunMb).toBe(3350 - HELD);
+	});
+
+	it("prints the reserve in the slot arithmetic", () => {
+		const { stdout } = run({
+			mb: room + 4000,
+			heldRuns: [{ pid: process.pid, chargeMb: Suite }],
+			json: false,
+		});
+		expect(stdout).toMatch(new RegExp(`− ${Suite} held run − ${FLOOR} floor`));
 	});
 });
 
@@ -1726,7 +1780,10 @@ describe("buildWindowsLine (#4956)", () => {
 describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	afterEach(() => vi.unstubAllEnvs());
 
-	const machine = (m: Machine = {}) => {
+	const machine = (
+		m: Machine = {},
+		heldRuns: { pid: number; chargeMb: number; rungMb?: number }[] = [],
+	) => {
 		for (const [k, v] of Object.entries({
 			...machineEnv(m),
 			WFC_ORACLE_CACHE: "0",
@@ -1738,6 +1795,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			reserves: {
 				landers: readLiveLanders(),
 				gates: readLiveGateSeats(),
+				heldRuns,
 				testsHeld: 0,
 			},
 		});
@@ -1745,6 +1803,17 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	};
 	const idleSpare =
 		"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock";
+
+	it("holds one held-run reserve, the largest of each run's charge and its rung less the floor and margin, never a sum (#5555)", () => {
+		const without = machine({ mb: 9000 }).admission;
+		const { admission } = machine({ mb: 9000 }, [
+			{ pid: 1, chargeMb: 1929, rungMb: 3350 },
+			{ pid: 2, chargeMb: 1200 },
+		]);
+		expect(Number(without.budgetMb) - Number(admission.budgetMb)).toBe(
+			3350 - HELD,
+		);
+	});
 
 	it("counts live sessions off the listing, never an orphaned host `ps` still shows", () => {
 		const host = (id: string) =>

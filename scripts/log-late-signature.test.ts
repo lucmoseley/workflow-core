@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the late-signature backstop (#4796): a late line is logged only where
- * its signature matches its case, read across seats, and carries late: true;
- * its ticket is marked first, and --restore appends the line a ticket's body
- * records unchanged (#4861).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -44,7 +38,6 @@ beforeEach(() => {
 			},
 		})}\n`,
 	);
-	/* The ticket's body lives in `body`; an edit rewrites it and logs its argv. */
 	fs.writeFileSync(at("body"), "The lander drops refs.\n");
 	ghEnv = stubGhHandler(
 		dir,

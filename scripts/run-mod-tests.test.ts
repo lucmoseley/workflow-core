@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-push mod-test gate (#857) driven as git drives it: ref lines on
- * stdin, over real repositories, with `claude` a stub at WFC_CLAUDE_BIN that
- * records each run and answers as 2.1.289's runner does. The hook's own
- * wiring is spawned, not run in-process, because it is a shell file.
- *
- * It is a hard gate in `.husky/pre-push`, which refuses on its exit 2: loosen
- * a case here and a push carrying a broken delivery mod reaches adopters, or a
- * missing or too-old `claude` refuses every push that touches the mod.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -42,7 +32,6 @@ const git = (dir: string, ...args: string[]) =>
 		stdio: ["ignore", "pipe", "ignore"],
 	}).trim();
 
-/** A repository whose published `origin/main` already holds the mod. */
 function repo() {
 	const dir = tmp("modtests-");
 	git(dir, "init", "-q", "-b", "main");
@@ -204,7 +193,6 @@ describe("run-mod-tests (#857)", () => {
 	});
 
 	describe("the README's test floor (#901)", () => {
-		/** A failing mod whose README, committed with it, states 2.1.293. */
 		function failingWithFloor() {
 			const { dir, root } = repo();
 			fs.writeFileSync(
@@ -300,7 +288,6 @@ describe("run-mod-tests (#857)", () => {
 });
 
 describe("run-mod-tests --all, the sweep's run (#1854)", () => {
-	/** A repository holding both mods, the delivery one carrying `extra`. */
 	function bothMods(...extra: string[]) {
 		const { dir } = repo();
 		commitTouching(
@@ -363,8 +350,6 @@ describe("run-mod-tests --all, the sweep's run (#1854)", () => {
 });
 
 describe(".husky/pre-push's wiring (#857)", () => {
-	/* The hook resolves its checkers under the repository's own root, so a
-	 * stub there exiting `code` stands in for the mod gate. */
 	function hookWith(code: number) {
 		const { dir } = repo();
 		fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });

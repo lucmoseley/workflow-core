@@ -1,47 +1,3 @@
-/*
- * census-digest.js — the digest a census row anchors a guard by, and which
- * of those rows a ticket's commits expired (#1876), read by both close routes
- * before a completed close (#1913).
- *
- * THE DIGEST HASHES WHAT CAN CHANGE WHAT THE GUARD PRINTS, not the file.
- * Shell is hashed as shfmt's minified print, and
- * JavaScript as TypeScript's reprint with comments removed: both drop
- * comments and layout and keep every string, heredoc and template literal
- * byte for byte. Any other extension, and shell shfmt cannot parse, hashes
- * its raw bytes.
- *
- * A GUARD'S DIGEST ALSO HASHES EACH RULE FILE ITS CODE NAMES (#1914, #3011):
- * each rule fetch reads docs/agents/rules/<id>.txt at run time, so a reworded
- * fragment changes what the guard prints with its code untouched. A Node
- * core's names are its direct accessor calls and its injectRules ids; an
- * injectRules value that is no literal id array is BROKEN, quoting it.
- *
- * A NODE GUARD WRAPPER'S DIGEST ALSO HASHES THE CORE AND HOST PORTS IT
- * COMPOSES (#3129): each `./lib/<name>.js` its literal require binds `decide`
- * or `buildHostPorts` from (lib/guard-entry.js's composition root), code and
- * rule files both, an absent one hashing as a marker. A dispatched
- * core's digest hashes the host ports lib/guard-cores.json binds it to (#3167)
- * the same way.
- *
- * A CORE IN lib/ ALSO HASHES EACH LIB BESIDE IT IT REQUIRES (#4667), code
- * and rule files both, as a wrapper does its core, KIT_LIBS aside.
- *
- * DEEPER LIBS FOLD THEIR RULE FILES, NOT THEIR CODE (#3167): every lib the
- * guard, its composed libs and its host reach through relative requires adds
- * the rule files it names. The cores share KIT_LIBS, so folding deeper code
- * would expire most rows on an edit to any of them.
- * Residual: KIT_LIBS is kept by hand. A newly shared, often-edited helper
- * left off it expires every core requiring it on each edit.
- * Residual: a deeper lib's non-literal ids, an id a sourced lib names, and
- * one built at run time, are unread. A manifest edit
- * alone rebinding a core's host to an existing lib is unread at a ticket's
- * close, though the census run still reads it.
- *
- * Residual: the reprint belongs to the pinned shfmt and typescript, so a bump
- * that changes either's printing expires every row of that language at once.
- * A shebang survives the minify; a `# shellcheck` directive does not.
- */
-
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { createRequire } = require("node:module");
@@ -62,38 +18,19 @@ const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
 
-/* Matches guard-registry-anchors.json's width. */
 const DIGEST_HEX_LENGTH = 16;
 
-/*
- * scripts/, not docs/: this is an anchor
- * store scripts read and check-instruction-surface.js writes, not a document
- * anybody reads whole. It
- * also keeps it out of the doc-map's mapped scope, where a new tracked document
- * cannot land without its §A row in the same commit.
- */
 const DEFAULT_ANCHORS = "scripts/instruction-surface-anchors.json";
 
 /** @typedef {{ disk?: boolean, ceiling?: import("./git-ceiling.js").GitCeiling }} CensusReadOpts */
 
-/** A formatter the digest needs is not installed, or an injectRules value
- * will not read: BROKEN, never a crash. */
 class DigestUnavailable extends Error {}
 
-/* ~10x the largest guard in the set, so a runaway is bounded and nothing real
- * is ever truncated. A ticket's `git log --name-only` over the guards is a
- * few hundred bytes a commit, and a commit's `diff-tree` path list tens of
- * bytes a path, both far under it too, as are the tree listing and blob
- * batches (#3167); an overflow throws, never reading as an absent path. */
+// guess, #3167
 const GIT_MAX_BUFFER = 8 * 1024 * 1024;
 
-/* The directory beside a Node guard its composed libs sit in. */
 const LIB_DIR = "lib";
-/* The bindings a wrapper hands lib/guard-entry.js's run, which make the lib
- * it requires them from a composed one. */
 const COMPOSED_BINDINGS = ["decide", "buildHostPorts"];
-/* Libs never folded as composed: they print no guard's text and are edited
- * near weekly. */
 const KIT_LIBS = new Set([
 	"guard-entry.js",
 	"shell-parse.js",
@@ -104,23 +41,16 @@ const KIT_LIBS = new Set([
  *   ceiling: import("./git-ceiling.js").GitCeiling }} Snapshot
  */
 
-/* Keyed by commit and by blob id, neither of which ever changes, so a pass
- * over every row lists each tree once and reads and scans each file once. */
 /** @type {Map<string, Map<string, string>>} */
 const treeByCommit = new Map();
 /** @type {Map<string, Buffer>} */
 const bytesByBlob = new Map();
 /** @type {Map<string, string[]>} */
 const ruleFilesByBlob = new Map();
-/* A reprint keys on its extension too, which picks the printer. */
 /** @type {Map<string, string | Buffer>} */
 const codeByBlobAndExt = new Map();
 
 /**
- * `rev`'s tree as each tracked path's blob id. `tree` is null where git
- * answers that `root` is no repo or `rev` no commit, every path then reading
- * from disk unless `disk` is false; any other failure throws.
- *
  * @param {string} root
  * @param {string} rev
  * @param {CensusReadOpts} [opts]
@@ -145,8 +75,6 @@ function readSnapshot(root, rev, { disk = true, ceiling = NO_CEILING } = {}) {
 		try {
 			return { ok: true, out: git(args, `git rev-parse ${rev}`) };
 		} catch (e) {
-			/* An exit status is git's own answer; anything else (the ceiling, a
-			 * missing binary) is no answer, and never reads as an absent tree. */
 			const { status, message } = caught(e);
 			if (typeof status !== "number") throw e;
 			return noMatch.includes(status)
@@ -174,9 +102,6 @@ function readSnapshot(root, rev, { disk = true, ceiling = NO_CEILING } = {}) {
 }
 
 /**
- * Reads every one of `rels` tracked in `snap` and not yet read, in one
- * `cat-file --batch`.
- *
  * @param {Snapshot} snap
  * @param {Iterable<string>} rels
  */
@@ -184,13 +109,9 @@ function prefetch(snap, rels) {
 	prefetchAcross([[snap, rels]]);
 }
 
-/**
- * prefetch over several snapshots of one repo in one batch.
- *
- * @param {[Snapshot, Iterable<string>][]} reads
- */
+/** @param {[Snapshot, Iterable<string>][]} reads */
 function prefetchAcross(reads) {
-	/** @type {Map<string, string>} oid → the first path naming it */
+	/** @type {Map<string, string>} */
 	const unread = new Map();
 	for (const [snap, rels] of reads)
 		for (const rel of rels) {
@@ -212,7 +133,6 @@ function prefetchAcross(reads) {
 			what,
 		)
 	);
-	/* Each object is `<oid> <type> <size>\n<bytes>\n`. */
 	let at = 0;
 	while (at < out.length) {
 		const eol = out.indexOf(0x0a, at);
@@ -227,8 +147,6 @@ function prefetchAcross(reads) {
 }
 
 /**
- * `rel`'s bytes in `snap`, as readCommittedBytes reads them.
- *
  * @param {Snapshot} snap
  * @param {string} rel
  * @returns {Buffer | null}
@@ -248,10 +166,6 @@ function readAt(snap, rel) {
 }
 
 /**
- * The rule files the lib at `rel` names, read from its reprint, or none
- * where it is absent or names no emission. A non-literal injectRules is no
- * BROKEN here: rule-emission.js's own scans spell the key.
- *
  * @param {Snapshot} snap
  * @param {string} rel
  * @returns {string[]}
@@ -262,7 +176,6 @@ function readLibRuleFiles(snap, rel) {
 	if (cached !== undefined) return cached;
 	const bytes = readAt(snap, rel);
 	if (bytes === null) return [];
-	/* Only the reprint's ids count, and a lib naming no emission has none. */
 	const files = namesAnEmission(bytes.toString("utf8"))
 		? ruleFilesIn(rel, String(readCode(snap, rel)))
 		: [];
@@ -270,7 +183,6 @@ function readLibRuleFiles(snap, rel) {
 	return files;
 }
 
-/** What a digest walks from a guard: its relative `.js` requires. */
 const REACH = {
 	follow: /** @type {const} */ (["require"]),
 	keep: (/** @type {import("./guard-reach.js").Edge} */ e) =>
@@ -278,7 +190,6 @@ const REACH = {
 };
 
 /**
- * Each path's text in `snap`, or null where absent.
  * @param {Snapshot} snap
  * @param {string[]} rels
  */
@@ -287,9 +198,6 @@ function readTexts(snap, rels) {
 }
 
 /**
- * The rule files every lib `starts` reach through relative requires names,
- * `starts`' own excluded: each level's unread files read in one batch.
- *
  * @param {Snapshot} snap
  * @param {string[]} starts
  * @returns {string[]}
@@ -311,13 +219,7 @@ function readDeeperRuleFiles(snap, starts) {
 	return [...files].sort();
 }
 
-/**
- * Reads every file each snapshot's guards' digests reach — each guard, its
- * host, every lib reached through relative requires and the rule files they
- * name — in one batch per require level across every snapshot (#3411).
- *
- * @param {[Snapshot, string[]][]} reads each snapshot with its guards
- */
+/** @param {[Snapshot, string[]][]} reads */
 function prefetchReach(reads) {
 	prefetchAcross(reads.map(([snap, rels]) => [snap, [...rels, MANIFEST_REL]]));
 	const starts = reads.map(([snap, rels]) => [
@@ -353,9 +255,6 @@ function snapAt(reads, i) {
 }
 
 /**
- * The host lib guard-cores.json binds the dispatched core at `rel` to in
- * `snap`, as a list of none or one.
- *
  * @param {Snapshot} snap
  * @param {string} rel
  * @returns {string[]}
@@ -368,8 +267,6 @@ function readHosts(snap, rel) {
 }
 
 /**
- * The dispatch manifest in `snap`, or null where it has none.
- *
  * @param {Snapshot} snap
  * @returns {import("./guard-cores.js").Manifest | null}
  */
@@ -387,15 +284,6 @@ function readManifestAt(snap) {
 }
 
 /**
- * A tracked path's bytes AT `rev`, falling back to disk where git cannot answer.
- *
- * The fallback is what lets a non-git fixture — and a path git has not been
- * told about yet — still be measured, at the cost that an uncommitted path
- * reads as committed. `disk: false` refuses it, for a rev that is a past
- * commit, where an absent path means added there rather than unknown.
- * `ceiling` runs the read inside a lib/git-ceiling.js ceiling, whose passing
- * is thrown, never read as an absent path (#2210).
- *
  * @param {string} root
  * @param {string} rel
  * @param {string} [rev]
@@ -409,10 +297,6 @@ function readCommittedBytes(root, rel, rev = "HEAD", opts = {}) {
 /** @type {any} */
 let typescript;
 
-/**
- * typescript from the working directory's node_modules first, then the
- * plugin's, as loadShfmt resolves shfmt. Throws where neither has it.
- */
 function loadTypescript() {
 	if (typescript) return typescript;
 	for (const from of [path.join(process.cwd(), "package.json"), __filename]) {
@@ -442,7 +326,7 @@ function codeOf(rel, bytes) {
 		try {
 			return format(bytes.toString("utf8"), rel, { minify: true });
 		} catch {
-			return bytes; // unparseable: any edit to it is worth naming
+			return bytes;
 		}
 	}
 	if (rel.endsWith(".js")) {
@@ -461,8 +345,6 @@ function codeOf(rel, bytes) {
 }
 
 /**
- * `rel`'s code in `snap`, as codeOf gives it, or null where it is absent.
- *
  * @param {Snapshot} snap
  * @param {string} rel
  * @returns {string | Buffer | null}
@@ -481,10 +363,8 @@ function readCode(snap, rel) {
 }
 
 /**
- * The rule files a guard's code prints from, sorted.
- *
  * @param {string} rel
- * @param {string | Buffer} code codeOf's answer
+ * @param {string | Buffer} code
  * @returns {string[]}
  */
 function ruleFilesOf(rel, code) {
@@ -494,8 +374,6 @@ function ruleFilesOf(rel, code) {
 }
 
 /**
- * ruleFilesOf for a Node core.
- *
  * @param {string} rel
  * @param {string} code
  * @returns {string[]}
@@ -510,8 +388,6 @@ function jsRuleFilesOf(rel, code) {
 }
 
 /**
- * The rule files the code of `rel` names, sorted.
- *
  * @param {string} rel
  * @param {string} code
  * @returns {string[]}
@@ -521,11 +397,8 @@ function ruleFilesIn(rel, code) {
 }
 
 /**
- * The libs a Node guard composes: a wrapper's core and host ports it hands
- * guard-entry's run, or each non-kit lib beside a core in lib/ it requires.
- *
  * @param {string} rel
- * @param {string | Buffer} code codeOf's answer
+ * @param {string | Buffer} code
  * @returns {string[]}
  */
 function composedLibsOf(rel, code) {
@@ -548,12 +421,7 @@ const isNonKitLib = (edge) => !KIT_LIBS.has(path.posix.basename(edge.to));
 const bindsComposition = (edge) =>
 	COMPOSED_BINDINGS.some((b) => edge.bindings?.includes(b));
 
-/**
- * The directory a Node guard at `rel` composes its libs from — its own where
- * it sits in lib/, else the lib/ beside it — or null for any other guard.
- *
- * @param {string} rel
- */
+/** @param {string} rel */
 function libDirOf(rel) {
 	if (!rel.endsWith(".js")) return null;
 	const dir = path.posix.dirname(rel);
@@ -563,10 +431,6 @@ function libDirOf(rel) {
 }
 
 /**
- * `rel`'s code in `snap`, each lib it composes or its manifest host with that
- * lib's code (null where absent), and the rule files all of them and their
- * deeper libs name, `rel`'s own first; null where `rel` is gone.
- *
  * @param {Snapshot} snap
  * @param {string} rel
  * @returns {{ code: string | Buffer, libs: Map<string, string | Buffer | null>, ruleFiles: string[] } | null}
@@ -574,7 +438,7 @@ function libDirOf(rel) {
 function readInputs(snap, rel) {
 	const code = readCode(snap, rel);
 	if (code === null) return null;
-	/* Appended, never re-sorted: a lib-less row keeps its pre-#3129 digest. */
+	// #3129
 	const ruleFiles = new Set(ruleFilesOf(rel, code));
 	const libs = rel.endsWith(".js")
 		? readComposed(snap, rel, code, ruleFiles)
@@ -584,14 +448,10 @@ function readInputs(snap, rel) {
 }
 
 /**
- * The libs the Node guard at `rel` composes or its manifest host, each with
- * its code (null where absent), adding to `ruleFiles` theirs and their deeper
- * libs'.
- *
  * @param {Snapshot} snap
  * @param {string} rel
- * @param {string | Buffer} code `rel`'s, as codeOf gives it
- * @param {Set<string>} ruleFiles accumulator: the digest's rule files
+ * @param {string | Buffer} code
+ * @param {Set<string>} ruleFiles
  * @returns {Map<string, string | Buffer | null>}
  */
 function readComposed(snap, rel, code, ruleFiles) {
@@ -613,13 +473,10 @@ function readComposed(snap, rel, code, ruleFiles) {
 }
 
 /**
- * The census digest of `rel` at `rev`, DIGEST_HEX_LENGTH hex characters, or
- * null where it is gone.
- *
  * @param {string} root
  * @param {string} rel
  * @param {string} [rev]
- * @param {CensusReadOpts} [opts] as readCommittedBytes takes it
+ * @param {CensusReadOpts} [opts]
  * @returns {string | null}
  */
 function digestOf(root, rel, rev, opts) {
@@ -627,8 +484,6 @@ function digestOf(root, rel, rev, opts) {
 }
 
 /**
- * digestOf in `snap`.
- *
  * @param {Snapshot} snap
  * @param {string} rel
  * @returns {string | null}
@@ -639,24 +494,17 @@ function digestAt(snap, rel) {
 	const hash = crypto.createHash("sha256").update(inputs.code);
 	for (const [lib, code] of inputs.libs)
 		hash.update(`\0${lib}\0`).update(code ?? "\0absent");
-	/* A guard naming no rule file hashes as it did before #1914. A named file
-	 * that is absent hashes as a marker, not BROKEN: the guard then prints its
-	 * fallback, and adding the file moves the digest. */
+	// #1914
 	for (const file of inputs.ruleFiles)
 		hash.update(`\0${file}\0`).update(readAt(snap, file) ?? "\0absent");
 	return hash.digest("hex").slice(0, DIGEST_HEX_LENGTH);
 }
 
 /**
- * The anchored guards among `rels` that a change to `file` can expire: the
- * guard itself, or the guards composing it or naming it as a rule file at
- * `rev`. The readers are read once, on the first rule file or lib asked
- * about.
- *
  * @param {string} root
  * @param {string[]} rels
  * @param {string} [rev]
- * @param {CensusReadOpts} [opts] as readCommittedBytes takes it
+ * @param {CensusReadOpts} [opts]
  * @returns {(file: string) => string[]}
  */
 function guardsChangedBy(root, rels, rev, opts) {
@@ -664,8 +512,6 @@ function guardsChangedBy(root, rels, rev, opts) {
 }
 
 /**
- * guardsChangedBy in the snapshot `snapOf` gives.
- *
  * @param {() => Snapshot} snapOf
  * @param {string[]} rels
  * @returns {(file: string) => string[]}
@@ -683,9 +529,6 @@ function guardsChangedAt(snapOf, rels) {
 }
 
 /**
- * Which of `rels` compose each lib or name each rule file in `snap`: the
- * guards a commit to that file expires.
- *
  * @param {Snapshot} snap
  * @param {string[]} rels
  * @returns {Map<string, string[]>}
@@ -706,18 +549,10 @@ function inputReaders(snap, rels) {
 }
 
 /**
- * The anchored guards that commits on HEAD citing `#n` changed the digest of,
- * and that HEAD still leaves unanchored — the rows the ticket owes a
- * re-measure, a commit to a lib a guard composes or a rule file it names at
- * HEAD among them. A cite is lib/qualify-citations.js's bareCitationGrep. A
- * row a neighbour expired again
- * after the ticket re-anchored it is still named here.
- *
  * @param {string} root
- * @param {Record<string, { digest: string }>} guards the baseline's rows
+ * @param {Record<string, { digest: string }>} guards
  * @param {number} n
- * @param {Pick<CensusReadOpts, "ceiling">} [opts] every git read inside
- *   `ceiling`, so a caller with a time budget gets CeilingPassed, not a hang
+ * @param {Pick<CensusReadOpts, "ceiling">} [opts]
  * @returns {string[]}
  */
 function readRowsExpiredByTicket(
@@ -741,9 +576,7 @@ function readRowsExpiredByTicket(
 				`git ${args[0]}`,
 			),
 		);
-	/* Messages first, then the files of the commits that matched: a pathspec on
-	 * the history walk diffs every commit's tree, and the guard-issue-close core runs
-	 * this inside a 4 s budget (#1913). */
+	// #1913
 	const shas = git([
 		"log",
 		"-E",
@@ -772,7 +605,6 @@ function readRowsExpiredByTicket(
 		return head;
 	};
 	const guardsOf = guardsChangedAt(headSnap, rels);
-	/* Each commit's guards with its parent's and its own snapshot. */
 	const commits = log
 		.split("\0")
 		.slice(1)
@@ -809,10 +641,7 @@ function readRowsExpiredByTicket(
 	);
 }
 
-/**
- * Whether `file` is a `.js` in a lib/ directory, where a composed lib sits.
- * @param {string} file
- */
+/** @param {string} file */
 function isLibFile(file) {
 	return (
 		file.endsWith(".js") &&
@@ -820,33 +649,20 @@ function isLibFile(file) {
 	);
 }
 
-/**
- * The directories `rels`' Node guards can compose a lib from: each libDirOf,
- * and the manifest's where a core's host sits.
- *
- * @param {string[]} rels
- */
+/** @param {string[]} rels */
 function libDirsOf(rels) {
 	const dirs = rels.map(libDirOf).filter((dir) => dir !== null);
 	if (dirs.length > 0) dirs.push(path.posix.dirname(MANIFEST_REL));
 	return [...new Set(dirs)];
 }
 
-/**
- * A `**Census:**` line with something after it.
- * @param {string} text
- */
+/** @param {string} text */
 const hasCensusLine = (text) => hasLine(text, "Census", "\\S");
 
 /**
- * readRowsExpiredByTicket over the repo's own anchors file as HEAD holds it, so
- * an uncommitted copy neither refuses a close nor excuses one
- * (#3521). A repo with none has no census to owe. Throws where git, the file or
- * a formatter cannot answer.
- *
  * @param {string} root
  * @param {number} n
- * @param {Pick<CensusReadOpts, "ceiling">} [opts] as readRowsExpiredByTicket takes it
+ * @param {Pick<CensusReadOpts, "ceiling">} [opts]
  * @returns {string[]}
  */
 function readExpiredRows(root, n, opts) {
@@ -860,8 +676,6 @@ function readExpiredRows(root, n, opts) {
 }
 
 /**
- * The refusal both close routes print over `rows`, escape included.
- *
  * @param {number} n
  * @param {string[]} rows
  */

@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * generate-effort-guide-routing.js — renders docs/effort-guide.md's routing
- * block, between its `routing:begin` and `routing:end` markers, from the
- * routing file lib/model-table.js loads (#5033). Everything outside the
- * markers is the guide's own prose and is kept byte for byte.
- *
- * --check     render and compare without writing; exit 1 on drift.
- * --guide     the guide to render into; the session's own docs/effort-guide.md
- *             by default. WFC_MODEL_ROUTING names another routing file.
- * --no-claim  skip the claim below; for tests, which write throwaway guides.
- *
- * A write claims the guide first, as the claim hook would on a Write, and
- * leaves the claim for the commit landing it to give back. Fails open: a
- * refused claim costs the record and nothing else.
- *
- * Exit 2 where the guide or the routing file cannot be read, or the guide
- * carries no marker pair.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -77,8 +59,7 @@ function renderBlock() {
 /**
  * @param {string} text
  * @param {string} block
- * @returns {string | null} the guide with its block replaced, or null where it
- *   carries no marker pair
+ * @returns {string | null}
  */
 function renderGuide(text, block) {
 	const start = text.indexOf("<!-- routing:begin");
@@ -110,7 +91,6 @@ function main(argv) {
 }
 
 /**
- * Renders `guide`'s routing block, or with `check` compares it.
  * @param {string} guide
  * @param {{ check: boolean, claim: boolean }} opts
  * @param {import("./lib/write-fd.js").Write} write
@@ -157,11 +137,7 @@ function render(guide, { check, claim }, write) {
 	return 0;
 }
 
-/**
- * The --check run over the guide of the repo at `cwd`, as the pre-commit
- * dispatcher runs it in its own process (#5172).
- * @type {import("./lib/precommit-gates.js").Program}
- */
+/** @type {import("./lib/precommit-gates.js").Program} */
 const PROGRAM = ({ cwd }) =>
 	capture((write) =>
 		render(path.join(cwd, DEFAULT_GUIDE), { check: true, claim: false }, write),
