@@ -181,6 +181,7 @@ npm run gen:doc-map-section-a
 | `docs/agents/adopter-upgrade.md` | Adopter upgrade — agent guide | `source-of-truth` | Direct | — |
 | `docs/agents/autonomy-ceiling.md` | Autonomy ceiling — agent guide | `source-of-truth` | Direct, and only on a founder ruling — the line is not an agent's to move | `CLAUDE.md` (§Conventions: the write-scope rule that bars R3, and the *driven session* the definition serves) |
 | `docs/agents/blind-dispatch.md` | Blind dispatch — agent guide | `source-of-truth` | Direct | — |
+| `docs/agents/config-keys.md` | Config keys — adopter guide: what `.claude/workflow-core.json` keys mean where their type does not say | `source-of-truth` | Direct | — |
 | `docs/agents/dependabot.md` | Dependabot — agent guide | `source-of-truth` | Direct | — |
 | `docs/agents/domain.md` | Domain — agent guide | `source-of-truth` | Direct | — |
 | `docs/agents/guard-authoring.md` | Settled at mantahostels#1239, which refused a generator; surface 7, the fire-needles entry, added at mantahostels#1418 | `source-of-truth` | Direct | `scripts/hook-registrations.test.ts` (the wiring evidence it quotes) · `scripts/guard-fire-needles.json` (surface 7) · `scripts/check-guard-registry.js` (the gate on surface 8) · `docs/effort-guide.md` (a rule region outside the always-loaded pool) |
@@ -321,6 +322,9 @@ None registered.
 
 ### C3 · What does an adopter get, write itself, or lack?
 - **Read:** `docs/adopter-boundary.md`.
+
+### C4 · What does a key in `.claude/workflow-core.json` mean, and what happens where it is absent or wrong?
+- **Read:** `docs/agents/config-keys.md`, then the `ConfigBase` typedef in `scripts/lib/workflow-core-config.js` for the full key list.
 
 ## The propagation pass
 

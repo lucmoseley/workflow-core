@@ -1031,6 +1031,15 @@
 		"consumes": null,
 		"reader": "agent"
 	},
+	"docs/agents/config-keys.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Config keys — adopter guide: what `.claude/workflow-core.json` keys mean where their type does not say",
+		"route": "Direct",
+		"consumes": null,
+		"reader": "agent"
+	},
 	"docs/agents/dependabot.md": {
 		"section": "Agent-skill configuration",
 		"class": "source-of-truth",
