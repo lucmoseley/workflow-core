@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * verify-persist-replay.js's own refusals (mantahostels#1977): an `--only` key it
- * does not know must stop the run, never select nothing and print the success
- * line over an empty table.
- *
- * Run as a child `node`, the way it is hand-run, rooted in a throwaway repo
- * whose settings wire the two producers the live one does. Only the refusals
- * are reached here: a run that gets past them launches every persisting
- * producer for real, the reaper stopping sessions among them. What the
- * harness makes of those runs is lib/persist-replay.test.ts's.
- */
 
 import fs from "node:fs";
 import os from "node:os";

@@ -1,14 +1,3 @@
-"""The pytest half of the suite marker (mantahostels#1256).
-
-Driven against fakes rather than a nested pytest run: every field the plugin
-reads — the stats dict, the ini settings, the command-line options — is plain
-data.
-
-`scripts/run-pytest.js` loads the plugin on every `npm run test:py`, and the
-unasked-rerun guard reads the marker it writes: loosen a case and a failing or
-partial Python run is recorded as a certificate over the whole corpus.
-"""
-
 import json
 import subprocess
 import sys
@@ -89,8 +78,6 @@ def test_counts_one_module_per_distinct_nodeid_prefix(tmp_path):
 
 
 def test_counts_a_module_skipped_whole_as_run(tmp_path):
-    """A `pytestmark` skip reports at setup and never at call, so a call-only
-    filter drops the module and a full run reads as partial."""
     reporter = FakeTerminalReporter(
         {
             "passed": [FakeReport("scripts/test_a.py::test_one")],
@@ -123,7 +110,6 @@ def test_errors_count_as_failures(tmp_path):
 
 
 def test_ignores_entries_that_name_no_test(tmp_path):
-    """`stats` also holds warnings, which carry no nodeid at all."""
     reporter = FakeTerminalReporter(
         {"passed": [FakeReport("scripts/test_a.py::test_one"), object()]}
     )
@@ -131,15 +117,13 @@ def test_ignores_entries_that_name_no_test(tmp_path):
 
 
 def test_the_denominator_is_recursive(tmp_path):
-    """A flat glob would miss every module in a subdirectory, and every full
-    run would read as partial."""
     corpus(tmp_path, "test_a.py", "measure-one/test_b.py", "deep/deeper/test_c.py")
     reporter = FakeTerminalReporter({})
     assert plugin.describe_run(reporter, fake_config(tmp_path))["modulesTotal"] == 3
 
 
 def test_the_denominator_counts_both_of_pytests_default_names(tmp_path):
-    """#3810: pytest.ini leaves python_files unset, so `*_test.py` is collected."""
+    # #3810
     corpus(tmp_path, "test_a.py", "b_test.py", "deep/c_test.py")
     reporter = FakeTerminalReporter({})
     assert plugin.describe_run(reporter, fake_config(tmp_path))["modulesTotal"] == 3
@@ -175,8 +159,6 @@ def test_a_path_argument_beyond_the_testpaths_is_a_file_filter(tmp_path):
 
 @pytest.mark.parametrize("exitstatus,expected", [(0, True), (1, False), (5, False)])
 def test_only_exit_zero_is_green(tmp_path, monkeypatch, exitstatus, expected):
-    """Exit 5 is "no tests collected": a run that collected nothing attests
-    nothing."""
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
     plugin.pytest_terminal_summary(
@@ -192,14 +174,17 @@ def test_writes_nothing_when_no_wrapper_is_listening(tmp_path, monkeypatch):
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_a_scope_it_cannot_read_records_the_verdict_and_no_scope(tmp_path, monkeypatch):
+@pytest.mark.parametrize("error", [ValueError, RuntimeError])
+def test_a_scope_it_cannot_read_records_the_verdict_and_no_scope(
+    tmp_path, monkeypatch, error
+):
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
     broken = types.SimpleNamespace(
         rootpath=tmp_path,
         args=[],
         option=types.SimpleNamespace(keyword="", markexpr=""),
-        getini=lambda name: (_ for _ in ()).throw(ValueError("no such ini")),
+        getini=lambda name: (_ for _ in ()).throw(error("no such ini")),
     )
     reporter = FakeTerminalReporter({})
 
@@ -219,8 +204,6 @@ def test_an_unwritable_hand_off_never_raises(tmp_path, monkeypatch):
 
 
 def test_a_deselected_item_is_a_filter_even_though_every_module_ran(tmp_path):
-    """`--deselect` leaves every module collected, so module count alone reads
-    the run as full while tests nobody ran are missing from it."""
     reporter = FakeTerminalReporter(
         {
             "passed": [FakeReport("scripts/test_a.py::test_one")],
@@ -234,9 +217,6 @@ def test_a_deselected_item_is_a_filter_even_though_every_module_ran(tmp_path):
 
 
 def test_a_testpath_named_any_other_way_is_not_read_as_a_filter(tmp_path):
-    """pytest rewrites testpaths into `config.args`, so a string compare would
-    call an ordinary full run filtered as soon as the ini gains a trailing
-    slash, a glob or a second entry."""
     corpus(tmp_path, "test_a.py")
     scope = plugin.describe_run(
         FakeTerminalReporter({}),
@@ -254,8 +234,6 @@ def test_the_denominator_skips_directories_pytest_never_collects_from(tmp_path):
 
 
 def test_collect_only_writes_no_verdict(tmp_path, monkeypatch):
-    """It exits 0 having run nothing, and that certificate would be offered at the
-    next push as the most recent green run."""
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
     config = fake_config(corpus(tmp_path))
@@ -271,8 +249,6 @@ def test_an_unserialisable_scope_never_reaches_pytest_as_an_internalerror(
 ):
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
-    # A path argument reaches `fileFilters` as given, so a Path, which pytest
-    # never passes but nothing stops, leaves the scope unserialisable.
     config = fake_config(tmp_path, args=(Path("scripts/test_a.py"),))
 
     plugin.pytest_terminal_summary(FakeTerminalReporter({}), 0, config)
@@ -290,8 +266,6 @@ def test_a_non_numeric_exit_status_never_reaches_pytest_either(tmp_path, monkeyp
 def test_sums_each_files_setup_call_and_teardown_into_the_hand_off(
     tmp_path, monkeypatch
 ):
-    """Keyed absolute so the wrapper can make it relative to its own root
-    (#1884)."""
     monkeypatch.setattr(plugin, "_file_seconds", {})
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
@@ -327,15 +301,13 @@ def test_a_report_it_cannot_time_never_raises_and_times_nothing(tmp_path, monkey
     assert json.loads(out.read_text())["fileSeconds"] == {}
 
 
+@pytest.mark.parametrize("error", [ValueError, RuntimeError])
 def test_timings_it_cannot_read_hand_over_null_and_keep_the_verdict(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, error
 ):
-    """Null is what the wrapper turns into one fail-open line; the cause is
-    printed here, since that line cannot know it."""
-
     class Unprintable:
         def __str__(self):
-            raise ValueError("no rootpath")
+            raise error("no rootpath")
 
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
@@ -356,7 +328,6 @@ def test_timings_it_cannot_read_hand_over_null_and_keep_the_verdict(
 def test_keeps_the_tests_in_flight_oldest_first_and_counts_the_finished(
     tmp_path, monkeypatch
 ):
-    """What the wrapper's suite-ceiling report names (#2702)."""
     monkeypatch.setattr(plugin, "_inflight", {})
     monkeypatch.setattr(plugin, "_finished", 0)
     monkeypatch.setattr(plugin, "_collected", None)
@@ -402,15 +373,6 @@ def test_an_unwritable_in_flight_file_never_raises(tmp_path, monkeypatch):
 
 
 def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):
-    """The one case that runs pytest for real.
-
-    Everything else here drives the plugin's functions directly, and the JS side
-    drives an injected spawn — so `-p pytest_pass_plugin`, the PYTHONPATH entry,
-    the env var reaching the child and `pytest_terminal_summary` firing ONCE in
-    the xdist controller are all otherwise asserted as arguments rather than as
-    behaviour. Break any of them and the only symptom is a marker that never
-    appears, which reads exactly like "you did not run the suite".
-    """
     (tmp_path / "test_tiny.py").write_text(
         "def test_one():\n    assert True\n\n\ndef test_two():\n    assert True\n"
     )
@@ -442,7 +404,6 @@ def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):
     assert written["scope"]["nameFilter"] is None
     assert written["scope"]["fileFilters"] == []
     assert list(written["fileSeconds"]) == [str(tmp_path / "test_tiny.py")]
-    # The controller hears both tests finish, which a worker's own count would not.
     assert json.loads(inflight.read_text()) == {
         "open": [],
         "finished": 2,

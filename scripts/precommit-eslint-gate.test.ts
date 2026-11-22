@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-commit ESLint gate (mantahostels#1133), exercised as the shell it is.
- *
- * `.husky/pre-commit` runs ESLint only when the commit stages an `app/` or
- * `lib/` `.ts`/`.tsx` file or a `scripts/` `.js`/`.ts` one (#4642), hands it
- * exactly those paths, and fails the commit when ESLint exits non-zero.
- *
- * The gate is HARD-FAILING, unlike the tsc gate directly above it in the hook,
- * because ESLint takes explicit paths and so never reads a parallel session's
- * half-written file — the shared-tree hazard that forced tsc to warn-only at
- * mantahostels#1062.
- *
- * ESLint itself is stubbed as a script on PATH, so both exit codes are ours to
- * drive and no case depends on the repo's real findings. The CI half, `ci.yml`'s
- * Lint and tests job, is read from the file and pinned too.
- *
- * Both halves are hard gates: loosen a case and an ESLint finding in `app/` or
- * `lib/` — the product's own code — lands on `main` unrefused.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,13 +17,8 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
-// Anchored on --no-error-on-unmatched-pattern, not on --max-warnings 0: the
-// cutter must survive a mutation to the flag the cases below assert, or
-// removing that flag would break every case by throwing rather than by
-// failing the one that guards it.
 const gateFragment = () => cutGateFragment("--no-error-on-unmatched-pattern");
 
-/** Where the stub records the argv it was handed, one path per line. */
 const ARGS_FILE = "eslint-args.txt";
 
 /**
@@ -65,8 +41,6 @@ function fixture(opts: {
 	);
 	fs.chmodSync(stub, 0o755);
 
-	// The gate runs only where the adopter declares `commands.lint` (#2), which
-	// it asks the real config reader.
 	copyRequireClosure(root, ROOT, [
 		"scripts/lib/workflow-core-config.js",
 		"scripts/lib/host-root.js",
@@ -89,10 +63,6 @@ function runGate(
 	let code = 0;
 	let output = "";
 	try {
-		// A trailing no-op stands in for the rest of the hook, which really does
-		// continue past this gate. Without it the fragment's own exit status is
-		// ESLint's, and the `|| { … exit 1; }` block could be deleted with every
-		// case still green.
 		output = execFileSync("sh", ["-c", `${LIB}\n${fragment}\n:\n`], {
 			cwd: repo.root,
 			encoding: "utf8",
@@ -115,7 +85,6 @@ function runGate(
 	return { code, output, args };
 }
 
-/** A file ESLint would match, and one it would not, for the scope cases. */
 const INSIDE = "app/page.tsx";
 const OUTSIDE = "hooks/thing.ts";
 
@@ -123,8 +92,6 @@ describe("the pre-commit ESLint gate", () => {
 	it("does not run ESLint when the commit stages nothing under app/, lib/ or scripts/", () => {
 		const repo = fixture({
 			staged: { [OUTSIDE]: "export const a = 1;\n", "docs/x.md": "# x\n" },
-			// Red, so a gate that fired anyway would fail the case rather than
-			// passing by luck.
 			eslintExit: 1,
 		});
 		const { code, args } = runGate(repo);
@@ -197,11 +164,6 @@ describe("the pre-commit ESLint gate", () => {
 	});
 
 	it("drops a deletion from a commit that ALSO stages a live in-scope file", () => {
-		// The case above is passed by a gate whose guard `if` filters deletions
-		// but whose path list does not, because nothing fires it at all. This one
-		// forces the gate open with a live file, so the deletion can only be kept
-		// out by the --diff-filter on the path list itself. Without it ESLint is
-		// handed a path with no file behind it (mantahostels#1133).
 		const gone = "lib/review-strip/gone.ts";
 		const repo = fixture({ staged: {}, eslintExit: 0 });
 		fs.mkdirSync(path.join(repo.root, "lib", "review-strip"), {
@@ -229,14 +191,10 @@ describe("the pre-commit ESLint gate", () => {
 		expect(gateFragment()).toContain("--max-warnings 0");
 	});
 
-	// A staged path no config block takes, a scripts/ test file among them, is
-	// a warning to ESLint, which --max-warnings 0 would turn into a refusal.
 	it("carries --no-warn-ignored, without which a scripts/ test file refuses the commit", () => {
 		expect(gateFragment()).toContain("--no-warn-ignored");
 	});
 
-	// Two spellings of one scope: widening eslint.config.mjs alone would leave a
-	// gate that silently never fires on the new directory.
 	it("scopes to the same directories eslint.config.mjs declares", () => {
 		const config = fs.readFileSync(
 			path.join(ROOT, "eslint.config.mjs"),
@@ -273,7 +231,6 @@ describe("the CI half of the same gate", () => {
 	);
 
 	it("runs ESLint in the existing Lint and tests job", () => {
-		// A step, not a job: Actions bills a one-minute minimum per job.
 		expect(ci).toContain("run: npm run check:eslint");
 		expect(ci.split("jobs:")[1]).toMatch(/- name: ESLint/);
 	});
@@ -294,8 +251,6 @@ describe("the npm script both halves lean on", () => {
 			fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
 		);
 		expect(pkg.scripts["check:eslint"]).toContain("--max-warnings 0");
-		// `npm run lint` must route through it, or the by-hand command and the
-		// gate would disagree about what counts as a finding.
 		expect(pkg.scripts.lint).toContain("check:eslint");
 	});
 });

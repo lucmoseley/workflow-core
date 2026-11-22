@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * mark-presence.js records the founder's typed prompts for the refill loop
- * (#2004) — driven through hook stdin, the way the harness runs it at
- * UserPromptSubmit.
- *
- * WHAT BREAKING IT COSTS: a dispatched launch counted as his typing keeps a
- * slot idle for 30 minutes after every launch; a typed prompt missed lets the
- * loop take the slot he would have used; a script's typed line counted as his
- * spends the away reminder where he never sees it (#4844); a reminder missed
- * leaves away mode on for hours after he is back, his questions going to
- * issues (#4846).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -42,11 +30,6 @@ function config(c: object) {
 	);
 }
 
-/**
- * A background job whose launch prompt was `intent`, recorded with `template`
- * (`bg` a dispatcher's, `claude` the agents view's, null none); returns its
- * dir.
- */
 function buildJob(intent: string, template: string | null = "bg") {
 	const jobDir = path.join(dir, "job");
 	fs.mkdirSync(jobDir, { recursive: true });
@@ -93,7 +76,6 @@ function runHook(
 	return r.stdout;
 }
 
-/** A prompt the hook must answer in silence. */
 function run(...args: Parameters<typeof runHook>) {
 	expect(runHook(...args)).toBe("");
 }
@@ -165,8 +147,6 @@ describe("a prompt nobody typed", () => {
 		expect(isMarked()).toBe(false);
 	});
 
-	/* record-claude-responses.js's attach step: its question job, typed into
-	 * through `claude attach` and pty_type.py. */
 	it("writes nothing for the line record-claude-responses.js types into its question job (#4844)", () => {
 		run(SCRIPTED_PROMPT, { jobDir: buildJob(ASK) });
 		expect(isMarked()).toBe(false);

@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * park-on-round.js — Stop hook. Labels `parked` the issue a background job's
- * `needs input:` ending posted its question round on, where this session
- * claims it, so no picker relaunches the ticket while the round waits on the
- * founder (#2000, spec #1995). A park on a repo hold the job is attached to
- * posts no round: it labels the cited issues this session claims (#3858).
- *
- * THE CONDITION is guard-inventory.js's own (#1066), read through its
- * `parkTargets`: an ending that guard would refuse parks nothing, and the
- * re-sent ending parks once it passes.
- *
- * IN NO §N3 FAMILY: it refuses nothing and checks nothing — it writes a
- * label.
- *
- * FAILS OPEN (lib/stop-guard.js): an unreadable claim store, tracker or
- * GitHub parks nothing, and a failed label write leaves the issue unmarked. An
- * unreadable dispatch ledger writes no job, so its park goes afresh (#4147).
- */
 
 const { parkTargets } = require("./guard-inventory");
 const { readOverflowLookup } = require("./lib/dispatch-ledger");
@@ -26,9 +8,6 @@ const stopGuard = require("./lib/stop-guard");
 const { trackerOf } = require("./lib/outstanding-line");
 
 /**
- * The seat and job this session runs in, with the cwd its job record names,
- * for a normal-mode loop to resume it from (#3773), and the overflow key its
- * launch record names (#4147). Null where that ledger will not read.
  * @param {string} sessionId
  * @returns {import("./lib/parked").ParkJob|null}
  */
@@ -39,7 +18,7 @@ function readOwnJob(sessionId) {
 	try {
 		launch = readOverflowLookup()({ jobId: job.jobId, sessionId });
 	} catch {
-		/* Fail safe (#4147): a job naming no key reads as a plan seat's. */
+		/* #4147 */
 		return null;
 	}
 	return {

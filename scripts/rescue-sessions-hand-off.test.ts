@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * `rescue-sessions.js hand-off`, the refill loop's takeover of a resumed-idle
- * session it stopped (#2659), driven through its command line in a sandbox
- * holding a real git repo and arbiter store, against a fake `gh`: the one
- * hand-off the program keeps (#5157), the core's branches being
- * lib/rescue-hand-off.test.ts's.
- *
- * Breaking it costs the fresh session its pick-up: a comment read-hand-off.js
- * passes over, a diff carrying a neighbour's file, a known session's claim left
- * standing, or the stopped session's files restored out from under it. Of a job
- * whose record is gone (#3988), it costs the warning that the old session may
- * have been waiting on the founder.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -43,7 +30,6 @@ const { plan, writeTranscript, jobState } = rescueKit(sb);
 
 const commentFile = () => path.join(sb.dir, "comment.md");
 
-/** `hand-off` for #621 on the sandbox plan, `gh` saving the comment body. */
 const handOff = (extra: string[] = [], issues = [N]) => {
 	const { env } = stubGhScript(
 		sb.dir,
@@ -67,8 +53,6 @@ const handOff = (extra: string[] = [], issues = [N]) => {
 	);
 };
 
-/** A repo whose stopped session left x.js edited and y.js new, beside a
- * neighbour's z.js it never wrote, claiming #621. */
 const stoppedSession = () => {
 	gitRepo(sb);
 	for (const f of ["x.js", "z.js"])

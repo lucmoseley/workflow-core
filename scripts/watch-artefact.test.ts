@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * watch-artefact.test.ts — the watcher's verdicts, read the way the parent
- * session reads them: the stdout verdict line and the exit code (#539).
- *
- * The timeline starts when the watcher prints its start line, which follows
- * its baseline, so every event lands half an interval from the nearest check. A case that fails only under heavy load is that margin
- * running out, not the verdict changing.
- *
- * Each verdict case crosses the real clock at 0.5 s checks, a few seconds
- * apiece, so the file runs over the 10 s budget: the checks are the subject,
- * and a faked clock would not exercise the watcher's own sleep and stat.
- *
- * A parent session abandons a subagent on `STALLED` or `MISSING`, as the
- * `pick-next` and `concision-pass` skills direct: loosen a case and a working
- * agent is abandoned, or a stalled one is waited on until the ceiling.
- */
 
 import { spawnSync } from "node:child_process";
 import {
@@ -37,8 +21,6 @@ const POLL_GUARD = join(__dirname, "guard-dispatch.js");
 
 const EXIT = { USAGE: 2, STALLED: 3, MISSING: 4, CEILING: 5, DONE: 6 };
 
-/** The check interval, in seconds — a guess at a margin wide enough that a
- * check and a write do not race on a loaded machine, never measured. */
 const INTERVAL_S = 0.5;
 const CHUNK = "0123456789";
 
@@ -54,10 +36,6 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-/**
- * Runs the watcher, and once it has taken its baseline calls each step at its
- * offset in intervals.
- */
 function watch(
 	args: string[],
 	steps: [at: number, act: () => void][] = [],
@@ -92,8 +70,6 @@ const grow = () => appendFileSync(artefact, CHUNK);
 describe("verdicts", () => {
 	it("stalls after exactly two checks without growth, one being not enough", async () => {
 		writeFileSync(artefact, "");
-		// Checks at 1..5 intervals: grow, idle, grow, idle, idle. One idle
-		// check stalling would stop at size 10; three would see the 5.5 write.
 		const r = await watch(
 			[artefact, String(INTERVAL_S)],
 			[
@@ -137,8 +113,6 @@ describe("verdicts", () => {
 	});
 
 	it("draws no MISSING from an agent whose first write lands late but inside the deadline (#4034)", async () => {
-		// Scaled: 0.5 s checks stand for 120 s ones, so the 3.5-interval write is
-		// a first write at 7 minutes against the default's 10.
 		const r = await watch(
 			[artefact, String(INTERVAL_S), "--first-write", String(5 * INTERVAL_S)],
 			[[3.5, grow]],
@@ -227,7 +201,6 @@ describe("reading the agent's own log (#5421)", () => {
 		writeFileSync(artefact, CHUNK);
 	});
 
-	/* Four checks with no growth before the ceiling: two would stall. */
 	const CeilingS = 4.5 * INTERVAL_S;
 	const watchLog = () =>
 		watch([artefact, String(INTERVAL_S), String(CeilingS), "--log", log]);
@@ -406,7 +379,6 @@ describe("a bad invocation", () => {
 });
 
 describe("the poll guard (guard-dispatch.js's guard-agent-poll core)", () => {
-	/** Feeds the guard one Bash call, with its state and fail-open log private. */
 	const pollGuard = (command: string) =>
 		spawnSync(POLL_GUARD, [], {
 			encoding: "utf8",

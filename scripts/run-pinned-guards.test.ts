@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * run-pinned-guards.js runs the guard entry from the pinned guard code (#4227): its
- * refusals where that code is missing or throws, and the hook line run end to
- * end over the 3 Nov case.
- *
- * Break it and a working copy's edit reaches the hooks again, or a load fault
- * refuses every call with no repair the founder can paste.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -28,7 +20,6 @@ const THROWS = "throw new SyntaxError(\"Unexpected token '}'\");\n";
 let dir: string;
 let link: string;
 
-/* A guard code worktree `name` whose entry is `entry` and whose kit is `kit`. */
 function code(name: string, entry: string, kit = ""): string {
 	const at = path.join(dir, ".guard-code", name);
 	fs.mkdirSync(path.join(at, "scripts", "lib"), { recursive: true });
@@ -131,8 +122,6 @@ describe("the hook line", () => {
 		);
 	});
 
-	/* The 3 Nov case (#4203): one uncommitted syntax error in the main
-	 * checkout's shell-parse.js refused every guarded call in every session. */
 	it("leaves the guards working past a syntax error in the main checkout's shell-parse.js", () => {
 		const main = path.join(dir, "main");
 		fs.cpSync(path.join(CHECKOUT, "scripts"), path.join(main, "scripts"), {

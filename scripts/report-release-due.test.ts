@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The weekly release cut's filer (#5435) over a throwaway core clone, with
- * `gh` and the issue-body writer stubbed. Break it and the cut ticket is filed
- * before a cut is allowed, with nothing to release, twice over, or never, or
- * a ticket a landed cut answered is left asking for a cut.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -40,8 +34,6 @@ const git = (args: string[], at = 0): string => {
 	}).trim();
 };
 
-/** A core clone under `root`: v1.0.0 rendered from main's first commit and
- * tagged at T0, then `ahead` commits on origin/main. */
 const buildCore =
 	(ahead: number, name = "workflow-core") =>
 	(root: string) => {

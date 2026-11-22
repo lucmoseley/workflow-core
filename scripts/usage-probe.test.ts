@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the probe CLI as the refill loop's stale-seat read calls it (#2306):
- * `--config-dir` names the seat, even an empty one (#2095), a fresh cache runs
- * no `claude`, and a stale one hands the probe's printed bars to stdout. The
- * dispatcher's own route through it is pinned in dispatch-sessions-allowance.test.ts.
- * Break it and the loop reads a seat it never probed, or probes one it need
- * not.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -53,7 +45,6 @@ function cache(fetchedAtMs: number): void {
 function run(configDir = seat, env: NodeJS.ProcessEnv = {}) {
 	return runInProcessAsync(SCRIPT, ["--config-dir", configDir], {
 		env: { ...process.env, ...env, WFC_CLAUDE_BIN: path.join(dir, "claude") },
-		// An empty seat reads `.claude.json` against the cwd: keep it off the repo's.
 		cwd: dir,
 	});
 }
@@ -81,12 +72,10 @@ describe("the usage probe CLI (#2306)", () => {
 	});
 
 	it("keeps an empty --config-dir set over CLAUDE_CONFIG_DIR's seat (#2095, #3355)", async () => {
-		// A fresh cache on CLAUDE_CONFIG_DIR's seat: falling through to it would exit 3.
 		cache(Date.now());
 		const r = await run("", { CLAUDE_CONFIG_DIR: seat });
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("usage probe: finished\n");
-		// Raw, since readCalls' trim would eat the leading space an empty seat prints.
 		expect(fs.readFileSync(argv, "utf8")).toBe(
 			" -p /usage --permission-mode manual\n",
 		);

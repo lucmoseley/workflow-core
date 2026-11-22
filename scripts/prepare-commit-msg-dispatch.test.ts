@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * .husky/prepare-commit-msg's dispatcher (#5208, spec #5207):
- * lib/prepare-commit-msg-rows.js run through lib/precommit-dispatch.js by
- * scripts/prepare-commit-msg-dispatch.js.
- *
- * The missing-dispatcher refusal is prepare-commit-msg-gate.test.ts's, with
- * the hook's other boundary cases.
- *
- * Over the 10 s budget (base §X8 (5)): its nine hook cases are each a real
- * git operation firing the real hook, 0.5–1 s apiece, which is the boundary
- * under test; the row cases build a real repo for the route markers at
- * ~0.25 s each.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,8 +22,6 @@ afterEach(() => {
 		fs.rmSync(d, { recursive: true, force: true });
 });
 
-/** A stub program the dispatcher loads in-process: logs its name, exits
- * `exit`, saying `stderr`. */
 const programStub = (log: string, name: string, exit = 0, stderr = "") =>
 	`const fs = require("node:fs");\nmodule.exports = { PROGRAM: () => { fs.appendFileSync(${JSON.stringify(log)}, ${JSON.stringify(`${name}\n`)}); return { exit: ${exit}, stdout: "", stderr: ${JSON.stringify(stderr)} }; } };\n`;
 
@@ -46,11 +31,8 @@ interface Repo {
 	log: string;
 	env: NodeJS.ProcessEnv;
 	git: (...a: string[]) => string;
-	/** Every step's name that ran, in order. */
 	ran: () => string[];
-	/** Rewrites the stub `pre-commit`: logs, exits `code`, stamps only on 0. */
 	precommitExits: (code: number) => void;
-	/** Puts a stub program at `rel` under the root. */
 	stub: (rel: string, name: string, exit?: number, stderr?: string) => void;
 }
 
@@ -118,7 +100,6 @@ function repo(): Repo {
 	};
 }
 
-/** Runs git in `r`, its hooks firing; the exit code and stderr. */
 function attempt(r: Repo, ...args: string[]) {
 	const out = spawnSync("git", args, {
 		cwd: r.root,
@@ -128,8 +109,6 @@ function attempt(r: Repo, ...args: string[]) {
 	return { code: out.status, stderr: out.stderr };
 }
 
-/** A `side` branch adding `rel`, `r` left on `main` one commit ahead, and
- * the steps' log cleared of the commits making them. */
 function sideCommit(r: Repo, rel: string, body = "side\n"): string {
 	r.git("checkout", "-qb", "side");
 	fs.writeFileSync(path.join(r.root, rel), body);
@@ -143,7 +122,6 @@ function sideCommit(r: Repo, rel: string, body = "side\n"): string {
 	return sha;
 }
 
-/** A scanner at a WFC_GITLEAKS path: prints a line, exits `code`. */
 function scanner(r: Repo, code: number): string {
 	const bin = path.join(r.root, "stub-gitleaks");
 	fs.writeFileSync(
@@ -325,7 +303,6 @@ describe("the real hook, under real git", () => {
 });
 
 describe("the rows, in-process", () => {
-	/** The dispatcher's run in `r` on message `body`; its code and output. */
 	async function run(r: Repo, body: string | null, env = r.env) {
 		let file = "";
 		if (body !== null) {
@@ -345,7 +322,6 @@ describe("the rows, in-process", () => {
 		);
 		return { code, out };
 	}
-	/** Stages `f.txt`, and where `stamped` writes pre-commit's stamp on it. */
 	const stage = (r: Repo, stamped: boolean) => {
 		fs.writeFileSync(path.join(r.root, "f.txt"), "f\n");
 		r.git("add", "--", "f.txt");
@@ -355,7 +331,6 @@ describe("the rows, in-process", () => {
 				`${r.git("write-tree")}\n`,
 			);
 	};
-	/** Lays `marker` in the git directory, so the route reads as its own. */
 	const marker = (r: Repo, rel: string) => {
 		const abs = path.join(r.gitDir, rel);
 		if (rel.endsWith("/")) fs.mkdirSync(abs, { recursive: true });

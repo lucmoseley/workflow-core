@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * measure-ticket-mix.test.ts — the ticket-mix counting script (#4797, spec
- * #4796 §Testing Decisions Seam 3). Break it and the weekly review counts an
- * origin or a template wrongly, sets a kind's limit wrongly, fires a trigger
- * under the 10-ticket floor or on a trend it cannot yet read, misses the
- * Pareto level, or judges a kind on count alone when the week's total moved.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -63,7 +56,6 @@ const weekly = (weeksBack: number, extra: Line): Line => {
 	};
 };
 
-/** Weekly lines, oldest first. */
 const history = (id: string, counts: number[], totals?: number[]) =>
 	counts.map((c, i) =>
 		weekly(counts.length - i, {
@@ -413,7 +405,6 @@ describe("triggers", () => {
 			kinds: [kind("a"), kind("rest")],
 			assigned: { ...assign(hot, "a"), ...assign(rest, "rest") },
 		};
-		/* Limits wide enough that 12 is under them: only the trend can fire. */
 		const six = run({ ...base, runs: history("a", [7, 8, 9, 10, 11]) });
 		expect(rowOf(six, "a").direction).toBe("up");
 		expect(rowOf(six, "a").triggers).toEqual(["trend"]);
@@ -444,7 +435,6 @@ describe("triggers", () => {
 			all.push(...list);
 			assigned = { ...assigned, ...assign(list, id) };
 		}
-		/* Each kind steady at its own size for 6 weeks: no limit, no trend. */
 		const runs = Array.from({ length: 6 }, (_, w) =>
 			weekly(6 - w, {
 				kinds: Object.fromEntries(
@@ -473,8 +463,6 @@ describe("triggers", () => {
 	});
 
 	it("compares share as well as count only when the week's total moved sharply", () => {
-		/* Prior: total 100 a week, the kind 20 of it (share 0.2); count limit
-		 * 20 + 3√20 ≈ 33.4, totals' limits 70–130. */
 		const runs = history("a", [20, 20, 20, 20], [100, 100, 100, 100]);
 		const week = (kindCount: number, total: number) => {
 			const hot = issues(1, kindCount);
@@ -486,13 +474,10 @@ describe("triggers", () => {
 				assigned: { ...assign(hot, "a"), ...assign(rest, "rest") },
 			});
 		};
-		/* Total 50 is under 70: share 0.4 is over the p-chart limit
-		 * 0.2 + 3√(0.16/50) ≈ 0.37 while the count 20 is under its own. */
 		const sharp = week(20, 50);
 		expect(sharp.json.totals.sharp).toBe(true);
 		expect(rowOf(sharp, "a").over).toEqual({ count: false, share: true });
 		expect(rowOf(sharp, "a").triggers).toContain("over-limit");
-		/* Total 75 is inside 70–130: share 0.4 is not compared. */
 		const steady = week(30, 75);
 		expect(steady.json.totals.sharp).toBe(false);
 		expect(rowOf(steady, "a").over).toEqual({ count: false, share: false });

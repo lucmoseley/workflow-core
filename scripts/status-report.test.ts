@@ -1,19 +1,5 @@
 // @vitest-environment node
-/*
- * Pins that npm run status prints the primitives count line on a clean run
- * (#4120). Black-box over a fixture core, reached through WFC_SCRIPT_ROOT, so
- * the run's figures are the fixture's and this repo's whole-tree counts, a
- * minute's work, are never taken. Breaking it hides the one line the founder
- * reads to tell whether the primitives are holding (#3365 story 28).
- *
- * The line is built in "lib/primitives-table.js", reached through
- * "check-primitives.js"; naming both here selects this test when either changes.
- *
- * It also pins the read-only default (#4449): a bare run passes no checker
- * `--write`, so history-trim, one of WRITERS, appends nothing to its watch
- * file, and `--write` reaches it. The other writers' bare runs are held
- * silent by their own tests (check-band-drift, check-orphaned-edits).
- */
+// full-sweep-only: #5528
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -55,7 +41,6 @@ const write = (rel: string, body: string) => {
 	fs.writeFileSync(path.join(core, rel), body);
 };
 
-/** A clean core and one closed sweep, with the env that reaches them. */
 const buildCleanCoreEnv = () => {
 	write("docs/code-standards-base.md", BASE);
 	write("scripts/lib/write-fd.js", "");

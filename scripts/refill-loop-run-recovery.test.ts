@@ -1,34 +1,5 @@
 // @vitest-environment node
-/*
- * The refill loop's `run` driven end to end through a restart: the host's
- * restart, boot-resume, the restart's kills, and the resume of a session an
- * API error held. Split from scripts/refill-loop-run.test.ts toward the 60 s
- * per-file limit (#4389); the holds' cases are
- * scripts/refill-loop-run-holds.test.ts's (#4602). Its sandbox is
- * lib/refill-loop-run-testkit.ts's.
- *
- * The testkit's `claude` stub types through lib/claude-attach-fake.ts, which
- * answers from "scripts/fixtures/claude-attach.json": a re-recording selects
- * this file.
- *
- * Loosen it and a fault in the program's own wiring, of its libs, children
- * and exits, passes unseen (#2851).
- *
- * Why each case stays a full tick: refill-loop-run.test.ts's header keys the
- * codes (A, E, S, F, R).
- * - host restart (#2707): types after 5 min A; stops under the swap hold A;
- *   a cleared swap hold resumes A, a refused re-read A (admission --launch),
- *   a session handed off A (rescue-sessions.js).
- * - boot-resume (#3878): restarts E, no second loop E, exits 1 E; watch
- *   (#4139): restarts the unit A (systemctl), a launch in flight S, exits 1
- *   E; no lock (#4083): exits 1 E S, names the holder S, `start` exits 1 E.
- * - restart's kills (#3880): resumed by id A, a copy a kill beat S R, set
- *   off by boot-resume R; the manager's restart (#3971) A ×3; a resumed
- *   session typed A, handed off A; a job no transcript backs A.
- * - API error (#2705): types into the live session A (attach, pty_type.py);
- *   judged by state.json A; the copy tracked as the job A; pass markers
- *   moved A.
- */
+// full-sweep-only: #5528
 import { type spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -81,8 +52,6 @@ import {
 
 refillSandbox();
 
-/* Swap under a quarter free and MemAvailable under the hold's line (#2690),
- * or neither. */
 const MEMINFO_HOLD = buildMeminfo({
 	availableMb: 1024,
 	swapTotalMb: 2048,
@@ -98,11 +67,6 @@ describe("a session its host restarted that never takes a turn (#2707, #2978)", 
 	const jobDir = () => path.join(seat, "jobs", Job);
 	const transcript = () => at("transcript.jsonl");
 
-	/** A launch whose job reads `working` and whose transcript holds the
-	 * harness's stopped-shell restart row `minutes` old after its last turn,
-	 * an attachment row after it; the file itself written just now, so only
-	 * the row's own time can age it. `idleResumes` as given; the hand-off stubbed to record its call and
-	 * exit `handOffExit`. */
 	const seed = (minutes: number, idleResumes?: object, handOffExit = 0) => {
 		fs.writeFileSync(
 			path.join(repo, ".claude", "workflow-core.json"),
@@ -213,8 +177,6 @@ process.exit(${handOffExit});\n`,
 		fakeResumeClaude(Job, [LISTED, workingRow]);
 		const r = await oneTick(IdleRun);
 		expect(r.status).toBe(0);
-		/* Every call a stop, never a typed resume: the stub's listing still
-		 * shows the job working after it, so a second tick may stop it again. */
 		const calls = readLines(at("calls"));
 		expect(calls.length).toBeGreaterThan(0);
 		expect(new Set(calls)).toEqual(new Set([`stop ${Job}`]));
@@ -240,8 +202,6 @@ process.exit(${handOffExit});\n`,
 					l.stepResume?.cause === "swapHeld",
 			);
 
-		/** The seeded launch, plus one per id in `more`, stopped under the hold,
-		 * each `ages` entry minutes ago, in the same order. */
 		const seedHeld = (ages: number[], more: string[] = []) => {
 			seed(30);
 			const state = readState();
@@ -263,8 +223,6 @@ process.exit(${handOffExit});\n`,
 			fakeResumeClaude(Job, [LISTED]);
 		};
 
-		/** One loop run with `slots` free, asked to stop once `isDone` holds,
-		 * the control's stop of the run before it cleared. */
 		const tickUntil = async (slots: number, isDone: () => boolean) => {
 			const control = at(".refill-loop-control.json");
 			fs.writeFileSync(
@@ -301,9 +259,6 @@ process.exit(${handOffExit});\n`,
 
 		it("waits on a resume the per-member re-read refuses, its tries untouched", async () => {
 			seedHeld([10]);
-			/* The tick's own read finds a slot for the resume and one for a launch;
-			 * the re-read before the resume, with --launch as the dispatcher's, finds
-			 * none. */
 			stub(
 				"admission.js",
 				`const fs = require("node:fs");
@@ -424,7 +379,6 @@ describe("boot-resume after a restart (#3878)", () => {
 
 	it("exits 1, logging why, where the loop's code will not launch", async () => {
 		writeControl();
-		/* A checkout, so launchProgram wants a verified ref this one lacks. */
 		spawnSync("git", ["init", "-q", at("code")]);
 		expect((await command("boot-resume")).status).toBe(1);
 		expect(readLog()).toMatch(/boot resume: not resumed: no \S+ in /);
@@ -476,8 +430,6 @@ describe("boot-resume after a restart (#3878)", () => {
 	});
 
 	describe("where the spawned loop holds no lock (#4083)", () => {
-		/* Node loads this into the spawned `run` alone: the command under test runs
-		 * in process, and a holder's own argv has no `run`. */
 		const commandWithPreload = (source: string, ...argv: string[]) => {
 			const preload = at("preload.js");
 			fs.writeFileSync(
@@ -494,7 +446,6 @@ describe("boot-resume after a restart (#3878)", () => {
 			});
 		};
 		const Dies = "process.exit(0);";
-		/* Plants a live holder, so the loop then loses the lock to it. */
 		const buildLosingPreload = () => `
 			const holder = require("node:child_process").spawn(
 				process.execPath,
@@ -552,9 +503,6 @@ describe("the launches a restart killed (#3880)", () => {
 	const stateFile = () => at(".refill-loop-state.json");
 	const readState = () => JSON.parse(fs.readFileSync(stateFile(), "utf8"));
 	const readCalls = () => readLines(at("calls"));
-	/* The loop runs from the sandbox's copy of scripts/, which spells the
-	 * prompt's claim-issue.js absolute; no job record saved launch flags, so
-	 * the resume carries the loop's model (#4098). */
 	const buildResumeArgs = (job: string) =>
 		`--bg --resume s-${job} --model ${MODEL} ${BOOT_PROMPT.replace("scripts/claim-issue.js", `${scripts}/claim-issue.js`)}`;
 	const readKilled = () =>
@@ -582,7 +530,6 @@ describe("the launches a restart killed (#3880)", () => {
 			JSON.stringify({ launches, ...(booted ? { bootedAt: Date.now() } : {}) }),
 		);
 
-	/* The hand-off, recorded. */
 	const stubHandOff = () => {
 		stub(
 			"rescue-sessions.js",
@@ -590,8 +537,6 @@ describe("the launches a restart killed (#3880)", () => {
 		);
 	};
 
-	/** One loop run with `slots` free, asked to stop once it has written a tick
-	 * and `isDone` holds, the last run's stop cleared first. */
 	const tickWith = async (
 		slots: number,
 		isDone: () => boolean = () => true,
@@ -622,7 +567,6 @@ describe("the launches a restart killed (#3880)", () => {
 			buildLaunch("job9", 9, 20),
 		]);
 		fakeResumeClaude("job8", [LISTED]);
-		/* Over every tick's slots, so admission alone paces them. */
 		stub(
 			"allowance.js",
 			"process.stdout.write(JSON.stringify({ cap: { launch: 9 } }));\n",
@@ -668,8 +612,6 @@ describe("the launches a restart killed (#3880)", () => {
 			cwd: repo,
 			createdAt: "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
 		});
-		/* The copy started, then the loop killed before it reads the launcher's
-		 * answer: a real SIGKILL, as the gap is a process's death. */
 		fakeResumeClaude(
 			"job8",
 			[LISTED],
@@ -741,7 +683,6 @@ describe("the launches a restart killed (#3880)", () => {
 				JSON.stringify({ launches: [buildLaunch("job7", 7, 10)], bootId }),
 			);
 
-		/* job7's process is this test's own: the registry proves it alive. */
 		const writeLiveRegistry = () => {
 			fs.mkdirSync(path.join(seat, "sessions"), { recursive: true });
 			fs.writeFileSync(
@@ -818,10 +759,8 @@ describe("the launches a restart killed (#3880)", () => {
 
 	describe("a resumed session", () => {
 		const jobDir = () => path.join(seat, "jobs", "job7");
-		/* Minutes: past block-act.js's 5 of idle wait. */
 		const PastWait = 6;
 
-		/** Job7 listed working, resumed `minutes` ago, its last turn before that. */
 		const seedResumed = (
 			minutes: number,
 			listing: Row[] = [LISTED, buildJobRow("job7", "working")],
@@ -888,7 +827,6 @@ describe("the launches a restart killed (#3880)", () => {
 	});
 
 	describe("a job no transcript backs (#3983)", () => {
-		/* Working, past the grace, with no process and no transcript. */
 		const writeNeverStarted = (job: string) => {
 			const store = path.join(seat, "jobs", job);
 			fs.mkdirSync(store, { recursive: true });
@@ -924,7 +862,6 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(stopped.stdout).toMatch(/stopped never-started job job7 on /);
 			expect(readKilled()).toEqual(["job7"]);
 
-			/* What a real stop leaves on the record, which the stop stub does not write. */
 			const record = path.join(seat, "jobs", "job7", "state.json");
 			fs.writeFileSync(
 				record,
@@ -980,9 +917,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 	const jobDir = () => path.join(seat, "jobs", Job);
 	const ApiRun = "run with an API-error launch";
 
-	/** A normal-mode loop holding one launch blocked on an API error for
-	 * 2 min, its job record and transcript reading API_ERROR transient, with
-	 * `resumes` as given. */
 	const seed = (resumes?: object, launchFields: object = {}) => {
 		fs.writeFileSync(
 			path.join(repo, ".claude", "workflow-core.json"),
@@ -1041,7 +975,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		...over,
 	});
 
-	/* A held session whose next resume is due, by stop and `--bg --resume`. */
 	const heldDue = tried({
 		nextAt: Date.now() - 1000,
 		heldAt: Date.now() - 60 * 1000,

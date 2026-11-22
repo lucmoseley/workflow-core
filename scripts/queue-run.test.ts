@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * queue-run.js (#1776): the suite queue for `node --test`, pytest and the
- * other non-vitest runners. The gate, the turn, the spawn and the signals are
- * injected, those being shapes a real process cannot stage without a loaded
- * machine (§X3); the markers and the exit log are real files in a scratch
- * directory, and the classifier is the real lib/suite-launch.js. Two cases
- * run the program itself: a refusal, which queues nothing, and a `--tsc`
- * launch nested in its own command (#3404).
- * In the world, a wrong verdict runs a fourth suite past the cap, strands a
- * waiter's marker so later waiters queue behind nothing, or leaves its wait
- * out of the daily queue-wait figure.
- */
 import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -37,8 +25,6 @@ const { gateRepoName, readGatePids } = require("./lib/gate-seat.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
 
 const dirs: string[] = [];
-/* A run inside a gate seat's tree (a commit's pre-lock run) hands it
- * WFC_GATE_SEAT, which would read every launch here as already seated. */
 beforeEach(() => {
 	vi.stubEnv("WFC_GATE_SEAT", undefined);
 });
@@ -73,11 +59,9 @@ const fixture = () => {
 		queueDir: dir,
 		queueLog: log,
 		sessionId: "s1",
-		/* The highest compiler's, whatever store the run's own tree links. */
 		tscPeakMb: TSC_PEAK_MB,
 		gate: () => false,
 		turn: () => true,
-		// A wait that never polls again: the gate's first answer is final.
 		sleepFn: () => new Promise(noop),
 		out: { write: () => true },
 		err: { write: (s: string) => err.push(s) },
@@ -191,10 +175,6 @@ describe("queue-run.js", () => {
 		expect(f.readMarkers()).toEqual([]);
 	});
 
-	/* A wait still held at the bound refuses: one the memory rung holds would
-	 * land short of its rung, where earlyoom kills live sessions (#2421), and
-	 * one the count cap or the turn holds would run beside another whole suite
-	 * (#2714). */
 	it.each([
 		{
 			held: "memory rung",
@@ -397,8 +377,6 @@ describe("queue-run.js", () => {
 		);
 	});
 	describe("a command naming its test files, a part-suite (#5274, spec #5273 §7)", () => {
-		/* The weight the queue's poll asks the gate with, and the marker it
-		 * joins with, for `command`. */
 		const joinOf = async (command: string[]) => {
 			const f = fixture();
 			const weights: unknown[] = [];
@@ -460,7 +438,6 @@ describe("queue-run.js", () => {
 
 	describe("--gate, a commit gate's seat in the whole-suite slot (#5274)", () => {
 		const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
-		/* git's empty tree; the record carries whatever sha it is given. */
 		const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 		const gateRun = ["--gate", "--tree", emptyTree, "--", "bash test/all.sh"];
 		const gateOptions = (f: ReturnType<typeof fixture>, extra: object = {}) => {
@@ -525,9 +502,6 @@ describe("queue-run.js", () => {
 			]);
 		});
 
-		/* A host sleep steps the wall clock on resume and leaves CLOCK_MONOTONIC
-		 * where it was. The two clocks are spied, not injected: what is under test is the
-		 * default clock, which an injected `monoClock` would replace (§X2). */
 		it("records its wait and run on the monotonic clock, counting no host sleep (#5446), and its run's wall time beside it (#5471)", async () => {
 			let wallMs = Date.now();
 			let monoMs = 1_000_000;
@@ -645,8 +619,6 @@ describe("queue-run.js", () => {
 				runS,
 				peakTreeMb,
 			});
-			/* Seats a gate while a whole suite holds the slot, its record
-			 * `runs`, and returns its marker and whether it started. */
 			const seatBeside = async (runs: object[]) => {
 				const f = fixture();
 				fs.writeFileSync(
@@ -870,9 +842,6 @@ describe("queue-run.js", () => {
 			expect(await done).toBe(0);
 		});
 
-		/* A nested --gate once spawned its joined words as one program name and
-		 * died ENOENT (#5296); its pair, the unnested gate, is "joins whole, as
-		 * role gate" above. */
 		it("runs a --gate launch inside a gate seat's tree as the one shell string a gate's command is", async () => {
 			const f = fixture();
 			const outer = path.join(f.dir, "wfc-suite-queue-20.json");
@@ -951,9 +920,6 @@ describe("queue-run.js", () => {
 		});
 
 		describe("off the real /proc and config reads (#5303)", () => {
-			/* The suite's own checkout declares its runner; the commit happens in
-			 * a fixture repo the pre-commit hook points CLAUDE_PROJECT_DIR at,
-			 * which declares none. */
 			const world = () => {
 				const base = mkScratchDir("gate-ancestor-");
 				dirs.push(base);
@@ -1095,7 +1061,6 @@ describe("queue-run.js", () => {
 			vi.stubEnv("WFC_TSC_SLOT", undefined);
 		});
 
-		/** The machine the real gate reads: `ps` lines and MemAvailable. */
 		const machine = (dir: string, lines: string[], mb: number) => {
 			vi.stubEnv("WFC_PS", writePsStub(dir, lines, { name: "ps-tsc" }));
 			const meminfo = path.join(dir, "meminfo");
@@ -1103,8 +1068,6 @@ describe("queue-run.js", () => {
 			vi.stubEnv("WFC_MEMINFO", meminfo);
 		};
 
-		/** The fixture's options less its injected turn and gate, so the
-		 * slot's own queue and gate decide. */
 		const own = (f: ReturnType<typeof fixture>, extra: object = {}) => {
 			const { turn: _turn, gate: _gate, ...rest } = f.options(extra);
 			return rest;
@@ -1249,7 +1212,6 @@ describe("queue-run.js", () => {
 			it("exits 75 at once, never sleeping a poll, where a rival is admitted on the same poll", async () => {
 				const f = fixture();
 				machine(f.dir, ["bash -l"], 9000);
-				// The rival's admission lands between this waiter's turn and its own.
 				const turn = () => {
 					fs.writeFileSync(
 						path.join(f.dir, "wfc-suite-queue-999999.json"),
@@ -1275,8 +1237,6 @@ describe("queue-run.js", () => {
 				expect(await code).toBe(0);
 			});
 
-			/* A suite admitted and not yet up is a draw MemAvailable does not
-			 * count yet (#3203). */
 			it("exits 75 while a suite is starting, and runs once it is up", async () => {
 				const f = fixture();
 				machine(f.dir, ["bash -l"], 9000);
@@ -1408,7 +1368,6 @@ describe("queue-run.js", () => {
 				const f = fixture();
 				machine(f.dir, ["bash -l"], 9000);
 				const outer = marker(f.dir, 20);
-				/* 40 → 30 → 20: the launch is 40, the slot's holder 20. */
 				const code = main(
 					typecheck,
 					own(f, {
@@ -1452,8 +1411,7 @@ describe("queue-run.js", () => {
 					[PROGRAM, "--tsc", "--", "sh", "-c", inner],
 					{
 						encoding: "utf8",
-						/* A deadlock never exits; the bound fails it rather than hang
-						 * the suite. 20 s is far above the ~0.5 s a pass takes. */
+						// #1776 measured ~0.5 s a pass
 						timeout: 20_000,
 						env: {
 							...env,

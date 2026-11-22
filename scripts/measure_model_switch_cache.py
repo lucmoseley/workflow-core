@@ -30,16 +30,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 import transcript_corpus as tc
 
-# Claude Code writes a model as a full id (`claude-opus-5`) or, in some
-# sessions, as the bare alias the founder typed (`opus`). A turn either side of
-# an alias boundary may be the same model under two spellings, so an event
-# whose two models share a family and one of whose sides is a bare alias is
-# reported as ALIAS? rather than counted as a settled switch.
 ALIASES = {"opus", "sonnet", "fable", "haiku"}
 
 
 def family(model):
-    """The model family a spelling names — `claude-opus-5` and `opus` are both opus."""
     for name in ALIASES:
         if name in model:
             return name
@@ -94,7 +88,6 @@ def turns(path, tally):
 
 
 def switches(seq):
-    """Every model change in one transcript, with the turns either side."""
     out = []
     for i in range(1, len(seq)):
         if seq[i]["model"] != seq[i - 1]["model"]:
@@ -113,13 +106,6 @@ def switches(seq):
 
 
 def reconciles(event):
-    """Does the next turn read back exactly what the switch turn wrote?
-
-    Exactly means the write, plus whatever the switch turn itself read — the
-    small fixed preamble block, where that was already cached against the
-    destination model. A re-write that reconciles is a one-off: the new cache
-    is built once and read normally thereafter.
-    """
     nxt = event["next"]
     if not nxt:
         return None
@@ -127,8 +113,6 @@ def reconciles(event):
 
 
 def corpus(project_dir=None):
-    """(path, "session" | "subagent") under `project_dir`, or under every seat
-    root, one copy of each session, where it is None."""
     return [
         (p, "subagent" if is_sub else "session") for p, is_sub in tc.files(project_dir)
     ]
@@ -157,9 +141,6 @@ def main():
             event["kind"] = kind
             events.append(event)
         for i in range(1, len(seq)):
-            # The ordinary-turn baseline is cache HITS only: a turn that read
-            # nothing is either a switch or a cold start, neither of which is
-            # the steady state being compared against.
             if seq[i]["model"] == seq[i - 1]["model"] and seq[i]["read"] > 0:
                 steady_writes.append(seq[i]["write"])
 

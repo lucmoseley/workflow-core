@@ -1,64 +1,4 @@
 #!/usr/bin/env node
-/*
- * session-scope.js — put this Claude session in a cgroup scope of its own,
- * killed whole once the session's process ends (#4341, decided at #4335).
- *
- * A session's processes all sit in WSL's root-owned `/non-systemd`, so a
- * descendant that outlives the session (a vitest fork worker whose main a
- * `spawnSync` timeout killed, a `setsid` child) is reparented to `/init` and
- * runs on unseen (#4333). Every process forked inside
- * a cgroup is born in it and cannot leave a delegated one, `setsid` and double
- * forks included, and `cgroup.kill` ends them all (#4334, probes P5, P6).
- *
- * ADOPTION. The session's process is `CLAUDE_PID` (a daemon `bg-spare`, or the
- * `claude` of a terminal session). The user manager's `StartTransientUnit`
- * with `PIDs` moves it, though it sits outside the manager's subtree (#4334
- * P14). A move takes only the pids it names, so it names every process of the
- * session found then: the leader's descendants, and every process whose
- * environ carries `CLAUDE_PID=<leader>`, which reaches the detached jobs of
- * this same hook phase that have already been reparented to `/init`. Pass
- * follows pass until none finds a process left behind, and then any job the
- * outliving launch started that a pass pulled in is moved back out (lib's
- * attachThenRelease). A session born inside another's scope (a nested
- * `claude`, or a spare of a daemon a session started) moves to a scope of its
- * own the same way.
- *
- * ITS OWN SLICE. The scope sits in `wfc-sessions.slice`, not `app.slice`,
- * so CFS weighs every session together against the lander's scope as one
- * sibling, as #2956 had it, not each session as a sibling of its own.
- *
- * THE BOUND. The scope is made with lib's MEMORY_BOUND, so a runaway child
- * is OOM-killed inside its own session before earlyoom's machine-wide line
- * is reached (#4590). The user manager takes its `OOMPolicy` only at
- * creation, so a scope made before the bound stays unbound.
- *
- * THE KILL. A scope outlives its first process (#4334 P5), and a session can
- * end with no SessionEnd (`claude stop` kills `bg-spare` and its pty host,
- * probed on #4341), and `/clear` fires SessionEnd while the process lives on.
- * So the kill keys on the leader's exit, not on a hook: a watcher, started as
- * a transient user service and so outside the scope, polls the leader's pid
- * and start time and, once they no longer match a live process, kills the
- * scope (lib/session-scope.js's WATCH, which says what it keeps). The watcher
- * is inline shell, not a file, because the worktree that holds this script is
- * often removed as its session ends.
- *
- * WHAT LEAVES THE SCOPE: only a command started under the user manager, which
- * `systemd-run --user` does — the lander's scope (#2956) and each test run's
- * capped one (#3401), each bounded on its own. The session-end sweep (#4342)
- * catches a scope whose watcher died.
- *
- * NO FAMILY (§N3): a detached job of a SessionStart launcher, not itself a
- * hook, a gate, a generator or a filer.
- *
- * Fails open: where the user manager does not answer, or `CLAUDE_PID` names
- * no live session process, it moves nothing, says why on stderr, which the
- * detaching launcher discards, and logs it to the guard-errors log, which
- * `npm run check:guard-errors` reports at the next session start.
- *
- * Usage: node scripts/session-scope.js
- * Exit codes: 0 always.
- */
-
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -88,9 +28,9 @@ const {
 const { writeFd } = require("./lib/write-fd.js");
 
 /**
- * @param {string} proc @param {number} pid
- * @returns {string|null} the cgroup path of the v2 hierarchy's line,
- *   `hierarchy-ID:controller-list:cgroup-path` with ID 0 and no controllers
+ * @param {string} proc
+ * @param {number} pid
+ * @returns {string|null}
  */
 function readCgroup(proc, pid) {
 	try {
@@ -126,7 +66,7 @@ function run(cmd, args) {
 /** @param {number[]} pids */
 const pidArgs = (pids) => [String(pids.length), ...pids.map(String)];
 
-/** @param {string[]} args a Manager method and its signature and values */
+/** @param {string[]} args */
 const busCall = (args) =>
 	run(busctl(), [
 		"--user",
@@ -138,10 +78,9 @@ const busCall = (args) =>
 	]);
 
 /**
- * Start the watcher that kills `unit` once `leader`, started at `startTicks`,
- * has ended. `--expand-environment=no` keeps systemd from reading the
- * shell's own `$` words as its environment variables.
- * @param {string} unit @param {number} leader @param {number} startTicks
+ * @param {string} unit
+ * @param {number} leader
+ * @param {number} startTicks
  */
 function startWatcher(unit, leader, startTicks) {
 	return run(systemdRun(), [
@@ -149,10 +88,7 @@ function startWatcher(unit, leader, startTicks) {
 		"--quiet",
 		"--collect",
 		"--expand-environment=no",
-		/* 0, the session process's own value, so earlyoom ranks this 1 MiB `sh`
-		 * by its size, near last; the manager's default of 200 made it the first
-		 * kill (#4848). Residual: a watcher killed anyway leaves its scope to the
-		 * orphan sweep (#4342) and logs no `peaked at` line. */
+		// #4848
 		"--property=OOMScoreAdjust=0",
 		`--unit=${watcherOf(unit)}`,
 		`--description=Kill ${unit} once session ${String(leader)} ends`,
@@ -171,7 +107,7 @@ const UNCONTAINED =
 
 /**
  * @param {NodeJS.ProcessEnv} env
- * @returns {{ ok: boolean, line: string }} what it did, in one line
+ * @returns {{ ok: boolean, line: string }}
  */
 function adopt(env) {
 	const proc = procRoot();
@@ -187,7 +123,6 @@ function adopt(env) {
 	const unit = unitOf(leader, self.startTicks);
 	const home = readCgroup(proc, leader);
 	if (home?.endsWith(`/${unit}`)) {
-		/* A resume, `/clear` or compaction: the scope stands; its watcher may not. */
 		if (
 			run(systemctl(), ["--user", "is-active", "--quiet", watcherOf(unit)]).ok
 		)
@@ -245,7 +180,7 @@ function adopt(env) {
 	});
 	const watch = startWatcher(unit, leader, self.startTicks);
 	if (!watch.ok) {
-		/* The move cannot be undone: `/non-systemd` takes no pid back (#4334 P1). */
+		// #4334
 		return fault(
 			`no session watcher for ${unit} (${watch.err}): ${UNCONTAINED}`,
 		);

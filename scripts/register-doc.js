@@ -99,20 +99,11 @@ const {
 } = require("./lib/doc-map");
 const { caught } = require("./lib/caught.js");
 
-/* Read from the renderer that must agree with them, never a second copy (mantahostels#1863). */
+// lucmoseley/mantahostels#1863
 const VALID_CLASSES = DOC_CLASSES;
 const VALID_READERS = DOC_READERS;
 
-/**
- * §A subsections whose files cannot carry an obligation, so a registration into
- * one owes no orphan check (mantahostels#3198). The set is mantahostels#3195's skip list.
- *
- * Stated as an EXEMPTION and never an inclusion list, deliberately: a
- * subsection minted after this was written triggers by default rather than
- * being silently exempt until somebody remembers to add it.
- *
- * `docs/doc-map.md` §A's preamble cites this name, never the list (mantahostels#3198).
- */
+// lucmoseley/mantahostels#3198
 const ORPHAN_CHECK_EXEMPT = new Set([
 	"Skills & settings",
 	"Agent-skill configuration",
@@ -123,7 +114,7 @@ const ORPHAN_CHECK_EXEMPT = new Set([
 
 /**
  * @param {unknown} consumes
- * @returns {string | null} an error, or null when the shape is valid
+ * @returns {string | null}
  */
 function consumesShapeError(consumes) {
 	if (!Array.isArray(consumes) || consumes.length === 0)
@@ -136,9 +127,9 @@ function consumesShapeError(consumes) {
 }
 
 /**
- * @param {unknown} el one `--consumes` element
- * @param {string} where its name in an error
- * @returns {string | null} an error, or null when the element is valid
+ * @param {unknown} el
+ * @param {string} where
+ * @returns {string | null}
  */
 function consumesElementError(el, where) {
 	if (typeof el !== "object" || el === null || Array.isArray(el))
@@ -165,12 +156,8 @@ function consumesElementError(el, where) {
 	return refSpellingError(e.kind, e.ref, where);
 }
 
+// lucmoseley/mantahostels#2535
 /**
- * Two `ref` spellings are a shape fault rather than a resolution one, so
- * they are refused here rather than at the next commit: an `issue` is a
- * bare number, and a `glob` ends in `*` or `/` — `citationMatcher`'s
- * vocabulary, not a glob engine, so `scripts/*.test.ts` resolves to
- * nothing whatever the tree holds (mantahostels#2535 review, F2).
  * @param {string} kind
  * @param {string} ref
  * @param {string} where
@@ -186,7 +173,7 @@ function refSpellingError(kind, ref, where) {
 
 /**
  * @param {string} role
- * @returns {string | null} an error, or null when the role may be written
+ * @returns {string | null}
  */
 function roleError(role) {
 	if (!role) return "--role is empty";
@@ -200,7 +187,7 @@ function roleError(role) {
 
 /**
  * @param {string} route
- * @returns {string | null} an error, or null when the route may be written
+ * @returns {string | null}
  */
 function routeError(route) {
 	if (!route) return "--route is empty";
@@ -209,11 +196,8 @@ function routeError(route) {
 	return null;
 }
 
+// lucmoseley/mantahostels#2500
 /**
- * WRITE FORM, in the header: tabs, matching the bytes already committed —
- * docs/ is outside biome's `includes`, so nothing re-indents this file
- * afterwards and a two-space write re-diffs all 2,700 lines on every
- * registration (mantahostels#2500).
  * @param {string} dataFile
  * @param {Record<string, unknown>} sidecar
  */
@@ -253,8 +237,6 @@ const CLI = {
 	max: 1,
 };
 
-/* Every flag that only means something at registration, so --role or --route
- * beside any of them is a registration rather than a field-only update. */
 const REGISTRATION_FLAGS = [
 	"--class",
 	"--section",
@@ -263,14 +245,10 @@ const REGISTRATION_FLAGS = [
 	"--reader",
 ];
 
+// lucmoseley/mantahostels#1848 lucmoseley/mantahostels#3376
 /**
- * A value-taking flag whose value is missing swallows the NEXT token as its
- * value — `--section --new-section` registered a subsection literally named
- * "--new-section", silently (mantahostels#1848 review, S1). cli-args refuses
- * a declared flag there and a missing last value (mantahostels#3376 review,
- * F2); an undeclared `--x` it takes as the value, so that is refused here.
  * @param {(name: string) => string | null} value
- * @returns {boolean} whether every value is present
+ * @returns {boolean}
  */
 function hasEveryValue(value) {
 	for (const name of VALUE_FLAGS) {
@@ -347,7 +325,6 @@ function classAndSection(docPath, value) {
 }
 
 /**
- * Names the fault on stderr where `reader` does not fit `docPath`.
  * @param {string} docPath
  * @param {string | null} reader
  * @returns {boolean}
@@ -369,11 +346,8 @@ function isReaderFit(docPath, reader) {
 }
 
 /**
- * `--consumes` takes the typed-reference grammar (mantahostels#2419) as a JSON array —
- * the same shape the sidecar stores, so a registration writes it directly
- * rather than as a free string a later session would have to convert.
  * @param {string | null} consumesRaw
- * @returns {{ consumes: unknown } | number} the parsed value, or an exit code
+ * @returns {{ consumes: unknown } | number}
  */
 function readConsumes(consumesRaw) {
 	if (consumesRaw === null) return { consumes: null };
@@ -397,17 +371,12 @@ function readConsumes(consumesRaw) {
 /**
  * @param {string} section
  * @param {Set<string>} knownSections
- * @param {boolean} newSection whether --new-section was passed
+ * @param {boolean} newSection
  * @returns {string | null}
  */
 function unknownSectionError(section, knownSections, newSection) {
 	if (knownSections.has(section)) return null;
-	/*
-	 * A spelling differing from a live one only in case or spacing is a
-	 * duplicate subsection whichever way it was meant, so --new-section does
-	 * not override this one — it exists to mint a genuinely new heading
-	 * (mantahostels#1848 review, S4).
-	 */
+	// lucmoseley/mantahostels#1848
 	const fold = (/** @type {string} */ v) =>
 		v.trim().toLowerCase().replace(/\s+/g, " ");
 	const nearMiss = [...knownSections].find((k) => fold(k) === fold(section));
@@ -431,21 +400,7 @@ function unknownSectionError(section, knownSections, newSection) {
  * @param {boolean} isNewSection
  */
 function printOrphanPrompts(docPath, section, isNewSection) {
-	/*
-	 * The registration-time orphan trigger (mantahostels#3198, closing the roadmap-audit
-	 * sweep mantahostels#3182).
-	 *
-	 * It PROMPTS and never judges. mantahostels#3184 rejected a standing automated check
-	 * because the expensive half is ruling out restatements, which no script
-	 * can do — that rejection reaches verdicts, not reminders, and a false
-	 * positive here costs one read.
-	 *
-	 * Named residual, three shapes. A key written by direct edit never sees
-	 * the line; so does a bulk write; and so does a RE-SECTIONING, which
-	 * main()'s already-registered check refuses and sends to the direct route
-	 * in terms, exempt-to-obligation-bearing included. Catching all three
-	 * needs the check-doc-map.js assertion mantahostels#3198 deferred.
-	 */
+	// lucmoseley/mantahostels#3198
 	if (isNewSection) {
 		console.log(
 			`\n"${section}" is a new §A subsection. Can a file under it carry an ` +
@@ -541,18 +496,6 @@ function main(argv) {
 		return refuse(1);
 	}
 
-	/*
-	 * RESIDUAL (mantahostels#1848 review): this catches the second typo, never the first. A misspelling
-	 * admitted through --new-section — or written as the first key, which the
-	 * empty-sidecar skip in unknownSectionError lets past unchecked — becomes a
-	 * "known" spelling.
-	 * Only a fixed subsection list would close that, and the list is not settled
-	 * until the generator tickets land.
-	 *
-	 * Non-strings are dropped rather than joining the set: an entry missing a
-	 * section would otherwise put `undefined` in it, refusing every spelling
-	 * and printing a blank line in `unknownSectionError`'s list.
-	 */
 	const knownSections = new Set(
 		Object.values(sidecar)
 			.map((entry) => /** @type {{ section?: unknown }} */ (entry)?.section)
@@ -581,12 +524,6 @@ function main(argv) {
 	writeSidecar(dataFile, sidecar);
 	console.log(`registered ${docPath} as ${cls} under "${section}"`);
 
-	/*
-	 * On NEWNESS, never on the flag alone: --new-section passed alongside a
-	 * heading §A already carries is accepted (unknownSectionError only ever
-	 * refuses an unknown one), and firing on the flag would then call a live
-	 * heading new.
-	 */
 	printOrphanPrompts(
 		docPath,
 		section,
@@ -596,9 +533,6 @@ function main(argv) {
 }
 
 /**
- * Claims `docs/doc-map-classes.json#A:<path>` and reads the sidecar under it,
- * per the header's claim rule. Returns an exit code where the sidecar will not
- * read.
  * @param {string} docPath
  * @param {(name: string) => string | null} value
  * @param {(name: string) => boolean} flag
@@ -619,9 +553,7 @@ function claimAndRead(docPath, value, flag) {
 		return code;
 	};
 
-	/* The sidecar in the session's own tree, through the one seam (#1, #4438),
-	 * never `path.join(__dirname, "..")` — in a plugin install that is the plugin
-	 * root, and the register looked for the adopter's sidecar inside the plugin. */
+	// #4438
 	const dataFile =
 		value("--data-file") || path.join(worktreeRoot(), SIDECAR_PATH);
 	try {
@@ -636,9 +568,6 @@ function claimAndRead(docPath, value, flag) {
 }
 
 /**
- * `--role` and/or `--route` alone: sets one or both fields of an
- * already-registered key and touches nothing else. No orphan check — the
- * registration that admitted the key already owed it.
  * @param {string} docPath
  * @param {{role: string | null, route: string | null}} fields
  * @param {(name: string) => string | null} value

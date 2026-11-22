@@ -30,8 +30,6 @@ interface ModuleLike {
 }
 
 export default class TestInflightReporter {
-	/* vitest's own config root, not process.cwd(): a run started from elsewhere
-	 * must still write beside the checkout run-vitest.js reads from. */
 	private root: string = process.cwd();
 
 	private timings = createTimings();
@@ -41,8 +39,6 @@ export default class TestInflightReporter {
 		if (typeof root === "string" && root) this.root = root;
 	}
 
-	/* The schedule, so a ceiling kill can name the files never started
-	 * (#2696). */
 	onTestRunStart(specifications: readonly ModuleLike[] = []) {
 		inflight.begin(this.root);
 		inflight.schedule(
@@ -66,8 +62,6 @@ export default class TestInflightReporter {
 		this.timings.end(module?.moduleId, performance.now());
 	}
 
-	/* Signs of life inside a module, so a long file reads as slow rather than
-	 * parked (#1149). */
 	onTestCaseReady() {
 		inflight.beat(this.root);
 	}
@@ -84,8 +78,6 @@ export default class TestInflightReporter {
 		inflight.beat(this.root);
 	}
 
-	/* A run that ENDS has nothing parked, so the record is dropped rather than
-	 * left empty. */
 	onTestRunEnd() {
 		inflight.clear(this.root);
 		this.timings.save(process.env[TIMINGS_ENV]);
@@ -97,8 +89,6 @@ export default class TestInflightReporter {
 				})),
 			});
 		} catch (error) {
-			/* Fails open (mantahostels#2255): the marker then names no slow
-			 * file, so check-suite-margin.js (#2770) has none to show. */
 			process.stderr.write(
 				`slowest files not handed to the pass marker (${String(error)})\n`,
 			);

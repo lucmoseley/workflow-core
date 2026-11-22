@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The priced-options rule is written twice: the guard-registry rule in
- * .claude/output-styles/core-voice.md, and the founder-worded paste
- * scripts/inject-tracker-docs.js hands the tracker commands, worded differently
- * on purpose (#51). A shared clause dropped or reworded in one copy fails here;
- * a clause added to one alone does not. The working contract's adopter copies
- * are pinned in adopter-rule-copies.test.ts.
- *
- * It reads the real copies, not fixtures, and runs each one's spelled-out shape
- * through `guard-priced-options.js` itself, and its round marker through
- * `lib/round-marker.js`, which the guard reads it by, so a copy is judged by
- * what the guard actually enforces.
- *
- * Loosen a case and the copies drift apart unseen: a tracker command is handed
- * a round shape the `Stop` guard then refuses, spending its block budget.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -54,10 +38,6 @@ const houseRule = readContractLine(
 	"- **Only a house decision reaches the founder",
 );
 
-/* Each variable is pinned for the reason scripts/lib/inject-tracker-docs.test.ts's
- * `runRaw` gives beside it. The project and config dirs are an empty scratch dir,
- * a host naming no output style, so the whole shape is pasted rather than Core
- * voice's pointer (#2039). */
 const injected = (() => {
 	const { stdout: out } = runInProcess(HOOK, [], {
 		stdin: JSON.stringify({
@@ -79,7 +59,6 @@ const injected = (() => {
 	return ctx.slice(at);
 })();
 
-/** The pasted template: its `(A)` line through its `Relation:` line. */
 const template = (() => {
 	const lines = injected.split("\n");
 	const from = lines.findIndex((l) => l.startsWith("(A) "));
@@ -118,8 +97,6 @@ describe.each(copies)("the $name copy", ({ text, relation }) => {
 		const passed = guard(round(figure));
 		expect(passed.status).toBe(0);
 		expect(passed.stdout.trim()).toBe("");
-		/* The same round with the figure gone is refused, so the pass above is
-		 * the figure read as priced. */
 		expect(JSON.parse(guard(round("Because.")).stdout).reason).toMatch(/\bQ1:/);
 	});
 
@@ -144,7 +121,6 @@ describe.each(copies)("the $name copy", ({ text, relation }) => {
 	});
 });
 
-/** The guard's verdict on `text` as a turn's last message. */
 const guard = (text: string, { job = false } = {}) => {
 	const env: NodeJS.ProcessEnv = { ...process.env, WFC_REPO_ROOT: SCRATCH };
 	if (job) env.CLAUDE_JOB_DIR = SCRATCH;
@@ -159,7 +135,6 @@ const guard = (text: string, { job = false } = {}) => {
 	});
 };
 
-/** The round the guard's `needs input:`-without-round refusal prints. */
 const refusalRound = (() => {
 	const res = guard("Done.\n\nneeds input: whether to push.", { job: true });
 	const reason: string = JSON.parse(res.stdout).reason;
@@ -177,8 +152,6 @@ describe("the copies together", () => {
 });
 
 describe("the pasted template, filled in as a round", () => {
-	/* `rivals` as sessions write it: the placeholder's "or: independent" would
-	 * spare the pair the close-rivals check (#572). */
 	const fill = (body: string) =>
 		body
 			.replace(/^Relation: .*$/m, "Relation: rivals")
@@ -221,7 +194,6 @@ describe("the house-decision rule", () => {
 		expect(houseRule).toContain("a clarifying one included");
 	});
 
-	/* Case-blind: the fragment starts a sentence where the contract runs on. */
 	it("prints, in its refusal, each delegated-decision clause the contract's bullet binds (#2091)", () => {
 		const contract = houseRule.toLowerCase();
 		const refusal = readRuleText("house-decision").toLowerCase();
@@ -242,7 +214,6 @@ describe("the house-decision rule", () => {
 		);
 		expect(injected).not.toContain("Measure before you price");
 		expect(injected).not.toContain("throwaway prototype");
-		/* The words it points by lead to the fragment the rule cites. */
 		expect(readRuleText("house-decision")).toContain(
 			"Ask only what research leaves open, and name that gap.",
 		);
@@ -274,7 +245,6 @@ describe("the founder hand-over rule (#597)", () => {
 		expect(entry).toContain("`rule:founder-handover`");
 	});
 
-	/* Whole but for the secret line, whose paths the accessor spells in (#643). */
 	const printedWhole = (text: string) => {
 		const pieces = fragment.trim().split(/^.*\{host-root\}.*$/m);
 		expect(pieces).toHaveLength(2);

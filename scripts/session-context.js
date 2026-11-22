@@ -42,27 +42,9 @@ const {
 const { errMessage } = require("./lib/check.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
 
-/*
- * 200,000 tokens, derived at mantahostels#1094.
- *
- * Continuing a member in-bundle costs `T x C` where C is the context already
- * standing; running it in a fresh session costs `(T + O) x 110k` — 110k being
- * the median mean context-per-turn of a single-member session, and O the
- * orientation turns a fresh session re-pays. Break-even is `C = 110k x
- * (1 + O/T)`. At the measured T of 12-30 turns for a `small` member, and
- * O ~ 15, the band runs 165k-250k; 200k sits inside it.
- *
- * ⚠ O IS AN ESTIMATE, NOT A MEASUREMENT, and it alone sets the band's width:
- * at O = 8 the band closes to 139k-183k and 200k sits above it. Re-derive
- * before treating 200k as anything firmer than the right order of magnitude.
- *
- * WHY THE CAP IS NOT UNDERCUT BY THE 206k MEDIAN PEAK of a five-member bundle:
- * this is read at member boundaries, where the median five-member bundle sits
- * at 165k. The 206k is a mid-member peak, which nothing here samples.
- */
+// lucmoseley/mantahostels#1094 measured a break-even band of 165k-250k; its orientation-turn count is a guess
 const CAP = 200_000;
 
-/** Human text goes to stderr, machine output to stdout (§N6). */
 const out = (/** @type {string} */ text) => writeFd(1, `${text}\n`);
 
 /**
@@ -122,11 +104,7 @@ function main(argv) {
 	return 0;
 }
 
-/**
- * The session's transcript and its last standing context, or a die.
- *
- * @param {string} sessionId
- */
+/** @param {string} sessionId */
 function readStanding(sessionId) {
 	const root = configDir();
 	const file = findTranscript(root, sessionId);

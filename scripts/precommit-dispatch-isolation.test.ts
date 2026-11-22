@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-commit dispatcher's members share one process (#5172), so a member
- * that leaves state behind changes what every later member sees. This runs
- * the whole member set twice in one process, through the entry's real
- * loader, and holds the second pass to the first: the same output, and the
- * process's argv, exit code, working directory and environment as they were.
- * A member calling process.exit throws here instead.
- *
- * Every row runs, armed or not, and none stops the run: each is set to
- * `always` and `warn` for the pass, since a red would end it early and leave
- * the rows after it unproven. It runs in a throwaway repo, never this one.
- * It is the only proof a member is safe to share the process: loosening it
- * lets a leaking member reach every commit's later gates unseen.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,12 +7,9 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { dispatch } from "./lib/precommit-dispatch.js";
-import { factsAt } from "./lib/precommit-dispatch-ports.js";
+import { computed, factsAt, load } from "./lib/precommit-dispatch-ports.js";
 import { buildRepoPorts } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
-
-// biome-ignore lint/suspicious/noExplicitAny: CommonJS module
-const { computed, load } = require("./lib/precommit-dispatch-ports.js") as any;
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -37,7 +20,6 @@ afterEach(() => {
 const git = (repo: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 
-/** A repo with one commit, and a change staged on paths most rows arm on. */
 const STAGED = defineTemplate((repo) => {
 	git(repo, "init", "-q");
 	git(repo, "config", "user.email", "fixture@example.invalid");
@@ -62,8 +44,6 @@ function fixture(): string {
 	return STAGED.instantiate(path.join(parent, "repo"));
 }
 
-/* What differs between two runs by design: the random name of each tree a
- * row materialises under the temp directory, and a stack frame's position. */
 const TMP = new RegExp(
 	`${os.tmpdir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/[^\\s'"]+`,
 	"g",
@@ -71,7 +51,6 @@ const TMP = new RegExp(
 const settle = (t: string) =>
 	t.replace(TMP, "<tmp>").replace(/^\s+at .*\n/gm, "");
 
-/** One pass of every row, its output and the process state it left. */
 async function pass(repo: string) {
 	let out = "";
 	const exit = await dispatch({
@@ -84,7 +63,7 @@ async function pass(repo: string) {
 		ports: buildRepoPorts(repo, {
 			fact: factsAt(repo, () => undefined),
 			computed,
-			load,
+			load: load as Parameters<typeof dispatch>[0]["ports"]["load"],
 			write: (fd: number, text: string) => {
 				out += `[${fd}] ${text}`;
 			},
@@ -127,6 +106,4 @@ it("runs every member twice in one process as it runs once, leaving the process 
 	} finally {
 		process.chdir(was);
 	}
-	/* Two passes over every member row, each a full dispatcher run: one took
-	 * 22.8 s at load 2 (#5171), so about 46 s, with 2.6x headroom for load. */
 }, 120_000);

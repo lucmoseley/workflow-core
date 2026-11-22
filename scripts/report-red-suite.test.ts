@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The red-suite reporter (mantahostels#2030, the ticket that stopped a red scheduled sweep
- * filing nothing).
- *
- * `gh` is stubbed as a real executable injected at WFC_GH — the named seam
- * scripts/lib/gh.js documents — which records its own argv and answers each
- * subcommand from a file the fixture writes.
- *
- * The fixture is a real throwaway git repo with real commits, because the body
- * carries a commit range that scripts/lib/commit-range.js reads with git.
- *
- * It runs from the daily repo-checks run, the only report a red full suite
- * makes (#1963): loosen a case and a breakage sits on `main` unfiled, or every
- * reading files a duplicate.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,7 +11,6 @@ import { shellQuote } from "./lib/sh-quote.js";
 const SCRIPT = path.join(__dirname, "report-red-suite.js");
 const TITLE = "The scheduled full-suite run is red on main";
 const SUITE_JOB = "Full suite";
-/* The one job of the shipped CI workflow (lib/adopter-ci.js). */
 const CI_JOB = "Tests and guards";
 const CI_URL = "https://github.com/o/code/actions/runs/777";
 const RED_URL = "https://github.com/o/code/actions/runs/12345";
@@ -44,38 +28,21 @@ interface Fixture {
 	ghCalls: () => string[][];
 }
 
-/** One sweep as `gh run list` returns it, plus the suite job's own verdict. */
 interface Sweep {
 	databaseId: number;
 	headSha?: string;
 	url?: string;
 	createdAt?: string;
-	/** null means the run carries no `Full suite` job at all. */
 	suite: string | null;
 }
 
-/**
- * A repo with `commits` commits, declaring `o/code` its code repo, and a `gh`
- * stub answering:
- *   issue list --state open  → `openIssues`
- *   issue list --state closed → `closedIssues`
- *   issue view → `issue` (body and comments)
- *   run list --workflow scheduled-checks.yml → `sweeps`, by default one red
- *     sweep of the newest commit
- *   run list --workflow workflow-core-ci.yml → `ciRuns`
- *   run view <id> → that run's jobs
- *   issue create / issue comment → a URL
- */
 function fixture(opts: {
 	commits?: number;
 	openIssues?: unknown;
 	closedIssues?: unknown;
 	issue?: { body: string; comments: { body: string }[] };
-	/** Newest first, exactly as `gh run list` orders them. */
 	sweeps?: Sweep[];
-	/** The shipped CI workflow's runs, `suite` its one job's verdict. */
 	ciRuns?: Sweep[];
-	/** The workflow files the repo tracks; the sweep's alone by default. */
 	tracks?: string[];
 }): Fixture {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "red-suite-"));
@@ -134,7 +101,6 @@ function fixture(opts: {
 		path.join(root, "issueView.json"),
 		JSON.stringify(opts.issue ?? { body: "", comments: [] }),
 	);
-	// One file per run, so `gh run view <id>` answers for that run alone.
 	for (const s of sweeps)
 		fs.writeFileSync(
 			path.join(root, `jobs-${s.databaseId}.json`),
@@ -160,9 +126,6 @@ function fixture(opts: {
 		ghStub,
 		[
 			"#!/bin/sh",
-			// One RECORD per call, opened by a marker line and carrying one argument
-			// per line. A separator character was tried first and dropped: `\\x1f`
-			// is not portable in /bin/sh's printf, which wrote it literally.
 			`{ echo '===CALL==='; for a in "$@"; do echo "$a"; done; } >> ${shellQuote(argvLog)}`,
 			'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
 			'  case " $* " in *" closed "*) list=closedList ;; *) list=issueList ;; esac',
@@ -204,18 +167,15 @@ function fixture(opts: {
 	};
 }
 
-/** The one `gh issue <sub>` call the run made, or undefined where it made none. */
 const callOf = (f: Fixture, sub: string) =>
 	f.ghCalls().find((c) => c[0] === "issue" && c[1] === sub);
 
-/** The script's stdout; throws where it exits non-zero, as execFileSync does. */
 const run = (f: Fixture) => {
 	const r = runInProcess(SCRIPT, [], { cwd: f.root, env: f.env });
 	if (r.status !== 0) throw new Error(`exit ${r.status}: ${r.stderr}`);
 	return r.stdout;
 };
 
-/** `ciStillRed()`'s result, called out of process against a fixture. */
 const sweepStillRedOf = (f: Fixture) =>
 	JSON.parse(
 		execFileSync(
@@ -232,7 +192,7 @@ describe("filing", () => {
 	it("files one issue carrying the run URL, the head sha and the commit range", () => {
 		const f = fixture({
 			commits: 3,
-			sweeps: [], // filled below, once the shas exist
+			sweeps: [],
 		});
 		fs.writeFileSync(
 			path.join(f.root, "runList.json"),
@@ -304,7 +264,6 @@ describe("filing", () => {
 
 	it("exits NON-zero when gh refuses, rather than filing nothing quietly", () => {
 		const f = fixture({ commits: 2 });
-		// The stub answers `issue list` from a file; remove it and gh exits 1.
 		fs.rmSync(path.join(f.root, "issueList.json"));
 		expect(() => run(f)).toThrow();
 	});
@@ -351,7 +310,6 @@ describe("which job's verdict counts", () => {
 			path.join(f.root, "runList.json"),
 			JSON.stringify([
 				{ databaseId: 9, headSha: f.shas[2], url: "u9", createdAt: "d9" },
-				// The run is red, but only because `documents` failed.
 				{ databaseId: 8, headSha: f.shas[1], url: "u8", createdAt: "d8" },
 				{ databaseId: 7, headSha: f.shas[0], url: "u7", createdAt: "d7" },
 			]),
@@ -423,7 +381,6 @@ describe("which job's verdict counts", () => {
 			path.join(f.root, "jobs-8.json"),
 			JSON.stringify([
 				{ name: "Full suite / Python", conclusion: "success" },
-				// No `conclusion` at all: the job is still running.
 				{ name: "Full suite / Lint and tests" },
 			]),
 		);
@@ -434,7 +391,6 @@ describe("which job's verdict counts", () => {
 			]),
 		);
 		const result = sweepStillRedOf(f);
-		// The newest sweep carries no verdict yet, so the older green one judges.
 		expect(result.held).toBe(false);
 		expect(result.detail).toContain("d7");
 	});
@@ -689,7 +645,6 @@ describe("ciStillRed", () => {
 	});
 
 	it("clears on a green suite under a red RUN — the filer's own distinction", () => {
-		// jobs-1.json carries a failing `documents` job alongside the green suite.
 		const f = fixture({ commits: 1, sweeps: [sweep(1, "success")] });
 		fs.writeFileSync(
 			path.join(f.root, "jobs-1.json"),
@@ -724,7 +679,6 @@ describe("ciStillRed", () => {
 	});
 });
 
-// No open issue, so any fall-through to the default action would file (#1051).
 describe("the command line", () => {
 	const runWith = (f: Fixture, args: string[]) => {
 		const r = runInProcess(SCRIPT, args, { cwd: f.root, env: f.env });

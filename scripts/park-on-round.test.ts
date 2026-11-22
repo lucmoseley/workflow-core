@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * park-on-round.js labels `parked` the issue a background job's `needs
- * input:` ending posted its round on, only where this session claims it
- * (#2000) — driven through hook stdin, the way the harness runs it at Stop.
- *
- * GitHub is a stub `gh` (WFC_GH) serving one GraphQL answer and logging each
- * call; the claim store, config and markers sit in a throwaway directory.
- *
- * WHAT BREAKING IT COSTS: a parked ticket left unlabelled is relaunched every
- * refill, each relaunch re-asking the round; one labelled wrongly drops off
- * the frontier until a claim clears it.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -29,7 +17,6 @@ let dir: string;
 let sid: string;
 let gh: string;
 
-/** Serve one GraphQL `data` object for every call, logging each; `issue edit` fails where `failEdit`. */
 function serve(data: unknown, failEdit = false) {
 	fs.writeFileSync(path.join(dir, "response.json"), JSON.stringify({ data }));
 	gh = stubGhScript(
@@ -63,7 +50,6 @@ function issue(comments: unknown[]) {
 	return { __typename: "Issue", state: "OPEN", comments: { nodes: comments } };
 }
 
-/** Record `session`'s arbiter claim on issue `n`, in the store the hook reads. */
 function claim(n: number, session = sid) {
 	const r = runInProcess(
 		path.join(__dirname, "session-arbiter.js"),
@@ -88,7 +74,6 @@ function writeJobRecord(jobDir: string, record: Record<string, string>) {
 	fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify(record));
 }
 
-/** Run the hook, as a background job unless `job` is false (an interactive session), a string naming its job dir; it never blocks. */
 function run(message: string, job: boolean | string = true) {
 	expect(
 		readStopGuardBlock(HOOK, { dir, sid, message, job, env: { WFC_GH: gh } }),
@@ -177,7 +162,6 @@ describe("a round posted on an issue this session claims", () => {
 	it("labels the issue where the transcript will not read and the job began after the round (#3951)", () => {
 		claim(31);
 		const config = path.join(dir, "config");
-		/* A directory is found by the session-id lookup and throws at the read. */
 		fs.mkdirSync(path.join(config, "projects", "p", `${sid}.jsonl`), {
 			recursive: true,
 		});

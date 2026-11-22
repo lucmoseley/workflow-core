@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * throughput-readout.js — the throughput readout's command line (#5196):
- * total `COMPLETED` closes per hour over a window, banded by concurrent
- * sessions and by load1, beside the readings that judge admission's limits.
- *
- * THE READING IS NEVER A TARGET (#3212): no session, loop or filing rule aims
- * at it.
- *
- * IN NO FAMILY (code-standards §N3, §G4): it files nothing and gates nothing;
- * it prints a reading and exits 0, or 2 on a bad argument. A source
- * that will not read is named with the hours it lacks, never a failure. It
- * runs nowhere at session start: the transcript scan and the day-by-day
- * close fetch take minutes.
- *
- * Closes are fetched one UTC day at a time across the owner's repos, so the
- * 1,000-result search cap cannot truncate the window silently.
- */
-
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -70,19 +52,16 @@ const USAGE = `usage: node ${scriptPath("throughput-readout.js")} --since <utc> 
 
 const DAY_MS = 864e5;
 
-/* Untraced: how far before the window the commit log is read, so a close's
- * commits landed before it are joined. */
+// #5196 guess
 const COMMIT_LOOKBACK_MS = 30 * DAY_MS;
-/* Untraced: the transcript scan read a day of every seat in ~1 min at load
- * 6; the cap allows a month at load 30. */
+// #5196 measured a day of every seat scanned in ~1 min at load 6
 const DENSE_TIMEOUT_MS = 60 * 60_000;
 const REVERTS = /This reverts commit ([0-9a-f]{40})/;
-/* A revert whose body line was edited out names its target by subject. */
 const REVERT_SUBJECT = /^Revert "(.+)"$/;
 
 /**
  * @param {string | undefined} s
- * @returns {number | null} null where `s` is no time
+ * @returns {number | null}
  */
 function parseUtc(s) {
 	const t = Date.parse(s ?? "");
@@ -98,10 +77,7 @@ function refuse(message) {
 	return 2;
 }
 
-/**
- * `<left>=<right>` split at its last `=`; null where either side is empty.
- * @param {string} spec
- */
+/** @param {string} spec */
 function parsePair(spec) {
 	const i = spec.lastIndexOf("=");
 	return i < 1 || i === spec.length - 1
@@ -110,7 +86,6 @@ function parsePair(spec) {
 }
 
 /**
- * Each UTC day the window touches, `YYYY-MM-DD`.
  * @param {number} since
  * @param {number} until
  */
@@ -128,11 +103,9 @@ function daysOf(since, until) {
 }
 
 /**
- * One day's `COMPLETED` closes across `owner`'s repos.
  * @param {string} owner
  * @param {string} date
- * @returns {{ day: import("./lib/throughput-readout.js").DayRow,
- *   closes: import("./lib/throughput-readout.js").CloseRow[] }}
+ * @returns {{ day: import("./lib/throughput-readout.js").DayRow, closes: import("./lib/throughput-readout.js").CloseRow[] }}
  */
 function fetchDay(owner, date) {
 	/** @type {unknown} */
@@ -182,7 +155,6 @@ function fetchDay(owner, date) {
 }
 
 /**
- * One searched issue as a close; none where gh's row lacks a field.
  * @param {unknown} r
  * @returns {import("./lib/throughput-readout.js").CloseRow[]}
  */
@@ -201,8 +173,6 @@ function parseCloseRow(r) {
 }
 
 /**
- * The commits on `dir`'s default branch since `from`, each citing `repo`'s
- * issues; null where git would not read it.
  * @param {string} repo
  * @param {string} dir
  * @param {number} from
@@ -244,9 +214,6 @@ function readCommits(repo, dir, from) {
 }
 
 /**
- * Each job on every seat whose life touches the window: from its creation to
- * its first terminal state, else its record's last update; a finished job's
- * record keeps updating after it ends. Null where no seat's job store would read.
  * @param {string[]} seats
  * @param {number} since
  */
@@ -259,8 +226,6 @@ function readJobs(seats, since) {
 		try {
 			ids = fs.readdirSync(jobStorePath(seat));
 		} catch {
-			/* A seat with no job store holds no job; the readout names a
-			 * window where none read at all (#5196). */
 			continue;
 		}
 		read = true;
@@ -273,8 +238,6 @@ function readJobs(seats, since) {
 }
 
 /**
- * One job's life and template; null where its record is absent, torn or
- * carries no time.
  * @param {string} seat
  * @param {string} id
  * @returns {import("./lib/throughput-readout.js").JobRow | null}
@@ -295,8 +258,6 @@ function readJobRow(seat, id) {
 }
 
 /**
- * dense_minute.py's per-minute Bash round-trips and hook-timeout refusals
- * over the window; null, and why, where it gave none.
  * @param {number} since
  * @param {number} until
  */
@@ -328,11 +289,6 @@ function readTranscripts(since, until) {
 	return { rows, why: null };
 }
 
-/**
- * The minute log's load1 and session count per line, and the refill tick
- * record's rows, through concurrency.js's readers; each null where it is
- * missing or would not read (the tick record, only where it would not read).
- */
 function readAdmissionRecords() {
 	const { ticks, unreadable } = readTicks();
 	return {
@@ -355,8 +311,6 @@ function readAdmissionRecords() {
 }
 
 /**
- * The queue's wait spans over the window; null, and why, where the
- * queue-exit log is absent or a log the replay reads would not read.
  * @param {string} markers
  * @param {number} since
  * @param {number} until
@@ -372,8 +326,6 @@ function readQueue(markers, since, until) {
 			until,
 		});
 	} catch (e) {
-		/* An errno failure is a log that would not read, named as lacking
-		 * (#5196); anything else is a fault and throws. */
 		const { code } = caught(e);
 		if (!code) throw e;
 		return {
@@ -392,7 +344,6 @@ const num = (x, dp = 2) => (x === null ? "—" : x.toFixed(dp));
 const pct = (x) => (x === null ? "—" : `${(x * 100).toFixed(0)}%`);
 
 /**
- * One band dimension's table, an era at a time.
  * @param {string} title
  * @param {import("./lib/throughput-readout.js").Band[]} bands
  */
@@ -435,10 +386,7 @@ function renderBands(title, bands) {
 	return lines;
 }
 
-/**
- * The readout as text.
- * @param {import("./lib/throughput-readout.js").Readout} r
- */
+/** @param {import("./lib/throughput-readout.js").Readout} r */
 function render(r) {
 	const out = [
 		`Throughput readout, ${r.since} to ${r.until} UTC — a reading, never a target (#3212).`,
@@ -484,8 +432,6 @@ function render(r) {
  */
 
 /**
- * `<label>=<right>` pairs off a list flag, or the refusal of the first that
- * `check` rejects.
  * @template T
  * @param {string[] | undefined} specs
  * @param {(p: { left: string, right: string }) => T | null} check
@@ -504,10 +450,8 @@ function parsePairs(specs, check, shape) {
 }
 
 /**
- * The owner whose closes count and the marker stores, from the flags or this
- * checkout; a checkout for its tracker is added where none was given.
  * @param {Record<string, string | true>} flags
- * @param {{ repo: string, dir: string }[]} checkouts  accumulator
+ * @param {{ repo: string, dir: string }[]} checkouts
  * @returns {{ owner: string, markers: string } | 2}
  */
 function homeOf(flags, checkouts) {
@@ -529,7 +473,6 @@ function homeOf(flags, checkouts) {
 }
 
 /**
- * The options argv gives, defaults resolved, or the exit code of a refusal.
  * @param {string[]} argv
  * @returns {Options | 0 | 2}
  */
@@ -582,8 +525,6 @@ function readArgs(argv) {
 }
 
 /**
- * pick-next's dispatch log's job ids: none where it is absent, as no session
- * was dispatched; null where it would not read.
  * @param {string} markers
  * @returns {string[] | null}
  */
@@ -592,7 +533,6 @@ function readDispatched(markers) {
 	try {
 		read = readJsonl(path.join(markers, ".pick-next", "dispatched.jsonl"));
 	} catch {
-		/* The readout names the dispatch log's hours as lacking (#5196). */
 		return null;
 	}
 	return (read?.rows ?? []).flatMap((x) =>
@@ -600,10 +540,7 @@ function readDispatched(markers) {
 	);
 }
 
-/**
- * Every source read over the window.
- * @param {Options} o
- */
+/** @param {Options} o */
 function readRecords(o) {
 	const fetched = daysOf(o.since, o.until).map((d) => fetchDay(o.owner, d));
 	/** @type {import("./lib/throughput-readout.js").CommitRow[]} */

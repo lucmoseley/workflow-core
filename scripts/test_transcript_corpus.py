@@ -1,13 +1,3 @@
-"""Tests for scripts/lib/transcript_corpus.py's seat set, which must match
-scripts/lib/arbiter-core.js's `sessionDirs()` (#379), or a scanner silently drops
-the sessions of every seat it does not read — and for its shared reader, whose
-counts every scanner prints, so a miscount here misreports all of them (#1297) —
-and for `jlen`, whose byte count sizes every bucket the scanners report.
-
-Every case points CLAUDE_CONFIG_DIR and the seat variables at a temp home, or
-reads a temp transcript, so no case reads this machine's real seats.
-"""
-
 import os
 import subprocess
 import sys
@@ -90,7 +80,6 @@ def test_the_reader_yields_objects_and_counts_every_line_it_skips(tmp_path, caps
     p.write_text('{"a": 1}\nnot json\n\n[1, 2]\n{"b": 2}\n')
     tally = Counter()
     assert list(tc.records(str(p), tally)) == [{"a": 1}, {"b": 2}]
-    # A blank line is no record, so no skip; a JSON array is not an object.
     assert tally == {"unparsed lines": 2}
     assert capsys.readouterr().err == ""
 
@@ -155,7 +144,6 @@ def test_a_copy_gone_since_the_listing_loses_the_largest_copy_vote(seat_roots, c
     roots = seat_roots(2)
     kept = roots[0] / "s.jsonl"
     kept.write_text("{}\n")
-    # The same session on the second seat, listed but its target gone.
     gone = roots[1] / "s.jsonl"
     gone.symlink_to(roots[1] / "missing")
     assert list(tc.one_copy_each()) == [(str(kept), False, "s")]
@@ -208,7 +196,7 @@ def test_a_worktree_slug_is_a_root_beside_the_main_checkouts(
 def test_a_worktree_sessions_transcript_is_read_with_no_main_slug_dir(
     home, monkeypatch, tmp_path
 ):
-    # #4236: a seat whose sessions all ran in worktrees has no main-slug dir.
+    # #4236
     main = tmp_path / "main"
     main.mkdir()
     git = ["git", "-C", str(main)]

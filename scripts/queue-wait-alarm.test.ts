@@ -1,14 +1,5 @@
 // @vitest-environment node
 
-/*
- * scripts/queue-wait-alarm.js, its core lib/queue-wait-alarm.js and
- * .github/workflows/queue-wait.yml (#4443, #4485), with GitHub's activity and
- * ref endpoints stubbed. Break this and the one stall alarm that outlives
- * the machine stays green through a stall, a queue ref pushed again stops
- * ageing, or the workflow's run page names a threshold the check no longer
- * applies.
- */
-
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -23,10 +14,8 @@ const MIN = 60_000;
 const NOW = Date.parse("2026-11-05T12:00:00Z");
 const ago = (min: number) => new Date(NOW - min * MIN).toISOString();
 
-/* Each queue ref's activity feed, newest first, minutes ago. */
 type Activity = [number, "push" | "branch_creation" | "branch_deletion"];
 
-/* A queue ref first pushed `min` ago and pushed again since. */
 const created = (min: number): Activity[] => [
 	[1, "push"],
 	[min, "branch_creation"],
@@ -130,8 +119,6 @@ describe("lib/queue-wait-alarm.js", () => {
 	});
 });
 
-/* Crosses a real socket: the script's own fetch adapter and environment,
- * against a local server standing in for GitHub's API. */
 const throughFetch = async (api: (p: string) => Promise<unknown>) => {
 	const seen: string[] = [];
 	const server = http.createServer(async (req, res) => {
@@ -169,8 +156,6 @@ describe("queue-wait-alarm.js through fetch", () => {
 		expect(out.seen).toContain("/git/matching-refs/heads/queue/ Bearer tok");
 	});
 
-	/* The program reads the real clock, which NOW is behind: any ref the
-	 * stub lists has waited past the backstop. */
 	it("exits 1 on a stalled queue ref", async () => {
 		const out = await throughFetch(stub([created(121)]));
 		expect(out.status).toBe(1);

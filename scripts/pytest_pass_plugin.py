@@ -1,31 +1,4 @@
-"""The half of the suite marker that knows what pytest did (mantahostels#1256).
-
-Without it attestation read certificates only vitest wrote, so a sha with
-only a vitest certificate looked fully attested. This plugin records pytest's
-verdict and scope; the node wrapper
-`scripts/run-pytest.js` holds the tree findings and writes the marker.
-
-`pytest_terminal_summary` is the seam, not `pytest_sessionfinish`: under `-n 2`
-(pytest-xdist) it fires ONCE, in the controller, and is handed the exit status,
-the stats and the config together. `pytest_sessionfinish` runs in the workers too
-and cannot see the run as a whole.
-
-The hand-off is a JSON file named by WFC_PYTEST_SCOPE_OUT rather than a shared
-variable: pytest is a separate process from the node wrapper. No env var means
-nobody is listening, and the plugin does nothing at all.
-
-It also hands over each test file's worker-seconds, for the run-cost report the
-wrapper prints (#1884): its tests' setup, call and teardown summed across xdist
-workers, never one file's wall time, since xdist splits a file.
-
-And where WFC_PYTEST_INFLIGHT_OUT names a file, it keeps there the tests in
-flight with their stage, how many finished and how many were collected, for
-the wrapper's suite-ceiling report (#2702).
-
-IT MUST NEVER TURN A PASSING SUITE RED. Every read is wrapped; a failure records
-the verdict with no scope, which reads as unknown.
-"""
-
+import contextlib
 import fnmatch
 import json
 import os
@@ -33,15 +6,10 @@ from pathlib import Path
 
 import pytest
 
-#: Report keys whose entries name a test that actually ran, in the order an
-#: outcome takes precedence: a module skipped at setup and a test that failed
-#: both matter more than a passing setup phase for the same nodeid.
 _OUTCOME_KEYS = ("failed", "error", "skipped", "passed")
 
 _file_seconds = {}
 
-#: Each test in flight against the phase it is in, insertion-ordered so the
-#: report lists the oldest first.
 _inflight = {}
 _finished = 0
 _collected = None
@@ -50,12 +18,6 @@ _NEXT_STAGE = {"setup": "call", "call": "teardown"}
 
 
 def _nodeid_outcomes(terminalreporter):
-    """One outcome per test id, across every phase.
-
-    NOT FILTERED TO ``when == "call"``. A module skipped whole by ``pytestmark``
-    never reaches the call phase, so a call-only count drops the module from the
-    run entirely.
-    """
     outcomes = {}
     for key in _OUTCOME_KEYS:
         for report in terminalreporter.stats.get(key, []):
@@ -66,12 +28,6 @@ def _nodeid_outcomes(terminalreporter):
 
 
 def _excluded(config, path, root):
-    """Is this file somewhere pytest itself would never collect from?
-
-    `Path.glob` descends into dot-directories and knows nothing of
-    `norecursedirs`, so a `.venv` or a vendored `node_modules` under `scripts/`
-    would inflate the denominator and leave every full run reading as partial.
-    """
     patterns = config.getini("norecursedirs") or []
     return any(
         fnmatch.fnmatch(part, pattern)
@@ -81,13 +37,6 @@ def _excluded(config, path, root):
 
 
 def _corpus_size(config):
-    """Every test module on disk, run or not — the denominator vitest gets from
-    ``globTestSpecifications()``.
-
-    RECURSIVE, DELIBERATELY: modules sit in subdirectories of ``scripts/``, so
-    a flat glob undercounts and every full run reads as partial. Cheaper than
-    collecting the run twice with ``--collect-only``.
-    """
     root = Path(str(config.rootpath))
     testpaths = config.getini("testpaths") or ["."]
     patterns = config.getini("python_files")
@@ -103,26 +52,12 @@ def _corpus_size(config):
 
 
 def _expand(root, entry):
-    """A testpath as resolved paths. Globbed only where it is a glob: `glob`
-    matches nothing that does not exist, and `Path.glob(".")` raises outright."""
     if any(c in entry for c in "*?["):
         return [match.resolve() for match in root.glob(entry)]
     return [(root / entry).resolve()]
 
 
 def _filters(config, deselected=0):
-    """What narrowed the run: ``-k``, ``-m``, ``--deselect`` and any path
-    argument that is not just the configured testpaths.
-
-    ``--deselect`` HAS TO BE COUNTED HERE. A deselected item leaves every module
-    collected, so module count alone reads the run as full while tests nobody
-    ran are missing from it — the one narrowing that fails open.
-
-    Path arguments are compared RESOLVED, not as strings: pytest glob-expands
-    testpaths into ``config.args`` and rewrites them relative to the invocation
-    directory, so a string compare calls an ordinary full run filtered as soon as
-    ``pytest.ini`` gains a second testpath, a glob, or a trailing slash.
-    """
     name = " ".join(
         f"{flag} {value}"
         for flag, value in (
@@ -159,31 +94,20 @@ def describe_run(terminalreporter, config):
 
 
 def pytest_runtest_logreport(report):
-    """Under xdist this fires in the controller for every report a worker
-    sends.
-
-    Residual: a phase it cannot time is left out, so its file reads cheaper."""
-    try:
+    with contextlib.suppress(Exception):
         file = report.nodeid.split("::")[0]
         _file_seconds[file] = _file_seconds.get(file, 0.0) + float(report.duration)
-    except Exception:  # noqa: BLE001 - a report hook that raises is an INTERNALERROR (#1884)
-        pass
-    try:
+    with contextlib.suppress(Exception):
         if report.nodeid in _inflight and report.when in _NEXT_STAGE:
             _inflight[report.nodeid] = _NEXT_STAGE[report.when]
             _write_inflight()
-    except Exception:  # noqa: BLE001 - a report hook that raises is an INTERNALERROR (#2702)
-        pass
 
 
 def _write_inflight():
-    """Atomic, so the wrapper never reads a half-written file. Workers skip it:
-    under xdist they fire the same hooks for their own tests, and the controller
-    already hears every one of them."""
     out = os.environ.get("WFC_PYTEST_INFLIGHT_OUT")
     if not out or os.environ.get("PYTEST_XDIST_WORKER"):
         return
-    try:
+    with contextlib.suppress(Exception):
         part = f"{out}.part"
         Path(part).write_text(
             json.dumps(
@@ -199,13 +123,9 @@ def _write_inflight():
             encoding="utf-8",
         )
         os.replace(part, out)
-    except Exception:  # noqa: BLE001 - a lost in-flight list costs the kill report its names, never the run (#2702)
-        pass
 
 
 def pytest_collection_finish(session):
-    """The count without xdist; under it the controller collects nothing and
-    hears each worker's list below instead."""
     global _collected
     _collected = len(session.items)
     _write_inflight()
@@ -213,7 +133,6 @@ def pytest_collection_finish(session):
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_xdist_node_collection_finished(node, ids):
-    """Every worker collects the whole run, so the first list is the count."""
     global _collected
     if _collected is None:
         _collected = len(ids)
@@ -239,15 +158,9 @@ def file_seconds(config):
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     out = os.environ.get("WFC_PYTEST_SCOPE_OUT")
-    # `--collect-only` exits 0 having run nothing. A certificate for it would
-    # be offered at the next push as the most recent green run.
     if not out or getattr(config.option, "collectonly", False):
         return
-    # Only exit code 0 is green. 5 (no tests collected) is not: a run that
-    # collected nothing attests nothing.
-    # Everything from here is inside a catch: this hook runs on a suite that has
-    # already passed, and an exception here is reported as INTERNALERROR, exit 3.
-    try:
+    with contextlib.suppress(Exception):
         result = {"passed": int(exitstatus) == 0, "scope": None}
         try:
             result["scope"] = describe_run(terminalreporter, config)
@@ -262,5 +175,3 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             terminalreporter.write_line(f"TIMINGS UNRECORDED (#1884): {error}")
             result["fileSeconds"] = None
         Path(out).write_text(json.dumps(result), encoding="utf-8")
-    except Exception:  # noqa: BLE001 - a passed suite must not exit 3 over its marker (mantahostels#1256)
-        pass

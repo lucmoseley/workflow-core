@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * overflow-sessions.js end to end (#3696): which ids on stdin the launch record
- * marks overflow, whichever checkout's ledger recorded them.
- *
- * `HOME` is a temp dir per test, so no live ledger is read. Break this and
- * scan_burn.py books a key's spend as plan burn with no error.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * steps-owed.test.ts — the CLI over lib/steps-owed.js (#248): the only
- * discharge route for `stepsOwed` outside the walker.
- *
- * Runs in-process against a temp project dir holding its own
- * `.claude/workflow-core.json`, so no case touches this repo's owed steps.
- * Loosen it and a migration's manual step is cleared without a match and lost,
- * or can never be discharged and is reported as owed at every session start.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -20,8 +11,6 @@ import { appendStepsOwed, readStepsOwed } from "./lib/steps-owed.js";
 
 const SCRIPT = path.join(__dirname, "steps-owed.js");
 
-/* A main checkout: `worktreeRoot()` resolves through git, so the
- * linked-worktree case needs a real repository. */
 const linkedTemplate = defineTemplate((dir) => {
 	const hooks = path.join(dir, ".no-hooks");
 	fs.mkdirSync(hooks);
@@ -93,13 +82,9 @@ describe("steps-owed.js CLI", () => {
 		expect(r.stderr).toContain("one of act/choice/notice");
 	});
 
-	/* The negative of "clear discharges a matching entry": the same discharge,
-	 * run from a linked worktree. */
 	it("clear in a linked worktree writes that tree and leaves the main checkout clean (#5287)", () => {
 		linkedTemplate.instantiate(root);
 		const tree = cutWorktree(root);
-		/* The harness names the main checkout as the project even for a
-		 * session in a linked worktree. */
 		const r = runInProcess(SCRIPT, ["clear", "v2.0.0", "act", "do a thing"], {
 			cwd: tree,
 			env: { ...process.env, CLAUDE_PROJECT_DIR: root },

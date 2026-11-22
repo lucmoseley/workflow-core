@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * measure-landing-pool.js (#5159), run for real over a fixture home: a
- * workflow-core checkout with two release tags, an adopter whose pin moved
- * to the carrying tag partway through its logs, three pinned below it, two
- * of them served by landers whose code carries it (#5174), one such run
- * begun before the window behind 4 MB of log.
- *
- * Loosen it and a gate counts an adopter's stays from before its pin ran
- * the measured code, counts a repo that does not run it, misses a
- * pinned-below adopter's stays under a lander running it, or judges an
- * adopter's stays against workflow-core's suite time.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -22,7 +10,6 @@ import { runInProcess } from "./lib/run-in-process.js";
 const SCRIPT = path.resolve(__dirname, "measure-landing-pool.js");
 const S = 1000;
 const NOW = Date.now();
-/* The pool's window opens 10 hours back; the adopter's pin carries from 5. */
 const SINCE = NOW - 10 * 3600 * S;
 const CARRIED = NOW - 5 * 3600 * S;
 const iso = (t: number) => new Date(t).toISOString();
@@ -112,7 +99,6 @@ const stays = (end: number, lengths: number[]) =>
 		.map((r) => JSON.stringify(r))
 		.join("\n");
 
-/* Every case only reads the fixture. */
 beforeAll(() => {
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "landing-pool-"));
 	core = checkout("workflow-core");
@@ -129,8 +115,6 @@ beforeAll(() => {
 	release("v2.2.0", before);
 	release("v2.3.0", measured);
 
-	/* workflow-core: a 100 s green run, so a 300 s target, and 10 stays, 1 of
-	 * them over it. */
 	write(
 		path.join(markers(core), ".lander.log"),
 		`${green(NOW - 2 * 3600 * S, 100, "c1").join("\n")}\n`,
@@ -140,9 +124,6 @@ beforeAll(() => {
 		`${stays(NOW - 600 * S, [400, 200, 200, 200, 200, 200, 200, 200, 200, 200])}\n`,
 	);
 
-	/* lodge: pinned below the code until CARRIED. A 10 s green run, so a 30 s
-	 * target: its 2 stays of 40 s are over it though under workflow-core's. Its
-	 * 900 s stay before CARRIED is another release's. */
 	const lodge = checkout("lodge");
 	pin(lodge, "v2.2.0", SINCE - 3600 * S);
 	pin(lodge, "v2.3.0", CARRIED);

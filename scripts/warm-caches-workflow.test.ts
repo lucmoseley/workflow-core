@@ -1,12 +1,5 @@
 // @vitest-environment node
 
-/*
- * .github/workflows/warm-caches.yml's Node matrix against every job that calls
- * .github/actions/node-deps (#4661). node-deps keys its cache on the Node
- * major, so a caller on a major the matrix lacks misses on every batch until a
- * scheduled main run saves its entry.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { expect, it } from "vitest";

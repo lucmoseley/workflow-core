@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/start-session.sh against real git (#4241): a bare origin carrying
- * `main`, one commit ahead of a main checkout cloned from it, with the real
- * scripts/session-checkout.js cutting. `npm`, `claude` and `reg.exe` are
- * stubs; the `claude` stub records each call's cwd and argv, and its `--bg`
- * prints the recorded promptless launch (lib/bg-launch-fake.ts).
- *
- * Loosen it and a hand-started session opens in the main checkout, in a
- * worktree no dispatched session would have, or as no job at all.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -37,8 +27,6 @@ const stub = (name: string, body: string) => {
 	return file;
 };
 
-/** The `claude` stub: `--bg` prints the recorded launch of JOB_ID, or,
- * where `bgFault` is given, prints it and exits `faultStatus`. */
 const claudeStub = (bgFault?: string, faultStatus = 0) =>
 	writeClaudeStub(
 		path.join(tmp, "claude"),
@@ -69,7 +57,6 @@ const run = (args: string[], env: Record<string, string> = {}) =>
 		},
 	});
 
-/** Each `claude` call as [cwd, ...argv], or [] where none was made. */
 const readCalls = () =>
 	fs.existsSync(calls)
 		? fs
@@ -204,7 +191,6 @@ it("exits 1 pointing at the agents view when the launch prints no job id", () =>
 	expect(readCalls()).toHaveLength(1);
 });
 
-/* Crosses the real clock: the probe's wedge is `timeout` expiring, at its 1 s floor. */
 it("exits 5 on a wedged interop bridge before cutting anything", () => {
 	const r = run(["brisk-otter"], {
 		CLAUDE_INTEROP_REG: writeReg(tmp, [30]),

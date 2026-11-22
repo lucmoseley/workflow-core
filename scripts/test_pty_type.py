@@ -1,15 +1,3 @@
-"""Tests for pty_type.py (#2705), against a stand-in command on a real
-pseudo-terminal.
-
-The stand-in prompts, refuses to read unless stdin is a terminal, reads raw
-bytes as a TUI does, and writes each chunk it read and the line a lone Enter
-submitted to a file: what `claude attach` needs, without a daemon. Drop the
-terminal check and the test no longer proves a TTY was given; loosen the chunk
-check and a resume Claude Code takes as an unsent paste passes (#4659 F7);
-loosen the rest and the refill loop's typed resume can fail while reporting
-success, so no fallback to stop and resume runs.
-"""
-
 import json
 import subprocess
 import sys
@@ -61,8 +49,6 @@ def test_a_command_that_exits_without_drawing_is_a_failure():
 
 
 def test_a_command_gone_before_its_sigterm_is_taken_as_exited():
-    # A fresh interpreter, as pty.fork in pytest's threaded process risks a
-    # deadlocked child.
     driver = (
         "import os, sys; sys.path.insert(0, sys.argv[1]); import pty_type\n"
         "def kill(pid, sig): raise ProcessLookupError('no such process')\n"

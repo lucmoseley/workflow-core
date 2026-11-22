@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * report-round-check-reading.test.ts — the reading of the under-researched-
- * round check (#1711, spec #1701, rulings #1684 and #1691). Break it and the reading
- * lands on the wrong day, pools a repo against another's baseline, judges a
- * failure line or the flip the wrong way, or files its issue early or twice.
- *
- * Each case builds a scratch home of three seats and three git-initialised
- * repos, writes a fixture baseline, transcripts and round-check logs into
- * them, and runs the script in-process with `gh` stubbed, because the real
- * corpus is machine-local and the real issue must never be filed by a test.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,7 +15,6 @@ import { seatDirs } from "./lib/seat-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-round-check-reading.js");
-/* Restated so a rename fails here rather than passing unseen. */
 const TITLE =
 	"Round-check reading: has sending under-researched rounds back once cut the founder's send-backs?";
 const SECOND_TITLE =
@@ -34,14 +22,12 @@ const SECOND_TITLE =
 const FILED = ".round-check-reading-filed";
 const SECOND_FILED = ".round-check-reading-2-filed";
 const CLASSED = "docs/data/round-check-reading-2026-11-02";
-/* Spelt whole, so the read-graph pass sees this test read it. */
 const REAL_CLASSED = path.join(
 	__dirname,
 	"..",
 	"docs/data/round-check-reading-2026-11-02/classes.json",
 );
 const DATA = "docs/data/round-sendbacks-2026-10-14";
-/* Spelt whole, not off DATA, so the read-graph pass sees this test read it. */
 const REAL_BASELINE = path.join(
 	__dirname,
 	"..",
@@ -62,8 +48,6 @@ let seats: string[];
 let systmp: string;
 let roots: Record<Repo, string>;
 
-/** `n` baseline rows for one repo on one side of the 10-call line, `sent` of
- *  them classed (b), the rest (a). */
 const rows = (repo: string, n: number, sent: number, tools: number) =>
 	Array.from({ length: n }, (_, i) => ({
 		repo,
@@ -72,10 +56,6 @@ const rows = (repo: string, n: number, sent: number, tools: number) =>
 		class: i < sent ? "b" : "a",
 	}));
 
-/* workflow-core 20% below 10 calls and 10% at 10 or more; mantahostels 50%
- * and 10%; fantasy-books has rows at 10 or more only. A close row and a (d)
- * row show which rows the rates leave out; the (d) row at 11 calls is the
- * one first draft of 71 at 10–12. */
 const FIXTURE_BASELINE = {
 	rows: [
 		...rows("workflow-core", 20, 4, 3),
@@ -130,8 +110,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
-/** A session's transcript under the repo's slug, founder replies at the
- *  given times. */
 const session = (
 	repo: Repo,
 	id: string,
@@ -166,7 +144,6 @@ const session = (
 	);
 };
 
-/** One round-check log line, through the guard's own writer. */
 const log = (
 	repo: Repo,
 	at: number,
@@ -193,10 +170,8 @@ interface Spec {
 	answered?: boolean;
 }
 
-/** Default tool calls before a round's first send, by kind. */
 const DEFAULT_CALLS = { refused: 4, cap: 4, unrefused: 15 };
 
-/** The log lines of round `i` sent at `at`. */
 const logRound = (
 	{ repo, id, i, at }: { repo: Repo; id: string; i: number; at: number },
 	spec: Spec,
@@ -227,9 +202,6 @@ const logRound = (
 	});
 };
 
-/** `n` rounds of one kind in their own session, the i-th sent at
- *  `start + i h` and, unless `answered` is false, replied to a minute later
- *  with `texts[i]` (a bare accept where none). Returns each reply's key. */
 const rounds = (repo: Repo, id: string, n: number, spec: Spec) => {
 	const { start = T0 + HOUR, texts = [], answered = true } = spec;
 	const replies = [];
@@ -267,14 +239,12 @@ const run = (
 		},
 	);
 
-/** A --classes file giving each key its class. */
 const classesFile = (classes: Record<string, Cls | string>) => {
 	const file = path.join(home, "classes.json");
 	fs.writeFileSync(file, JSON.stringify(classes));
 	return file;
 };
 
-/** A dry run's stdout at `now`, exit 0 asserted. */
 const read = (now = T0 + 8 * DAY, classes?: Record<string, string>) => {
 	const args = ["--dry-run"];
 	if (classes) args.push("--classes", classesFile(classes));
@@ -286,12 +256,9 @@ const read = (now = T0 + 8 * DAY, classes?: Record<string, string>) => {
 const REMEDY =
 	/Correct the file named above.*then re-run `node scripts\/report-round-check-reading\.js --dry-run`/;
 
-/** Each key classed `cls`. */
 const all = (keys: string[], cls: Cls) =>
 	Object.fromEntries(keys.map((k) => [k, cls]));
 
-/** 40 bare-accepted refused-then-answered workflow-core rounds: a reached
- *  reading at T0 + 7 days, where every line holds. */
 const healthy = () =>
 	rounds("workflow-core", "wc-refused", 40, { kind: "refused" });
 
@@ -416,7 +383,6 @@ describe("matching each repo to its own baseline", () => {
 		expect(out).toContain(
 			"   - mantahostels: 10 round(s), 0 of 10 (0%); baseline 5 of 10 (50%)",
 		);
-		/* (30 × 20% + 10 × 50%) ÷ 40 = 27.5%, halved for the line. */
 		expect(out).toContain(
 			"Pooled over mantahostels, workflow-core: 0 of 40 (0%). Repo-matched baseline 27.5%; line at half, 13.8%: holds.",
 		);
@@ -425,7 +391,6 @@ describe("matching each repo to its own baseline", () => {
 	it("weights each repo's baseline by its replies (a)–(c), so a (d) reply moves neither the rate nor the baseline", () => {
 		const wc = rounds("workflow-core", "wc", 30, { kind: "refused" });
 		rounds("mantahostels", "m", 10, { kind: "refused" });
-		/* (20 × 20% + 10 × 50%) ÷ 30 = 30.0%, halved for the line. */
 		expect(read(T0 + 8 * DAY, all(wc.slice(0, 10), "d"))).toContain(
 			"Pooled over mantahostels, workflow-core: 0 of 30 (0%). Repo-matched baseline 30.0%; line at half, 15.0%: holds.",
 		);
@@ -449,7 +414,6 @@ describe("matching each repo to its own baseline", () => {
 
 	it("counts a round once whatever its questions, and none for a question left out of the passing send or with no count", () => {
 		healthy();
-		/* Two questions passing at one Stop make one round. */
 		rounds("mantahostels", "m-two", 10, {
 			kind: "unrefused",
 			extra: { round: "2" },
@@ -498,7 +462,6 @@ describe("the four failure lines, each firing alone", () => {
 
 	it("line 1 fires at half the repo-matched baseline, once its replies are classed", () => {
 		const keys = healthy();
-		/* 4 of 40 is 10%, half of workflow-core's 20%. */
 		const out = read(undefined, all(keys.slice(0, 4), "b"));
 		expect(out).toMatch(/line at half, 10\.0%: FIRES — re-put the mechanism/);
 		expect(out).toMatch(/Fired: line 1\./);
@@ -597,7 +560,6 @@ describe("r and the flip", () => {
 	it("reports r and 10.8 ÷ r, and puts the flip where the limb works and the rate at 10 or more calls is within its band", () => {
 		const keys = healthy();
 		const ten = rounds("workflow-core", "wc-ten", 20, { kind: "unrefused" });
-		/* 2 of 40 against 20%: r = 0.75, price 14.4. 2 of 20 at 10+: on its 10%. */
 		const out = read(undefined, {
 			...all(keys.slice(0, 2), "b"),
 			...all(ten.slice(0, 2), "b"),
@@ -674,7 +636,6 @@ describe("classing", () => {
 				.readFileSync(file, "utf8")
 				.replaceAll('"repo":"workflow-core"', '"repo":"mantahostels"'),
 		);
-		/* The close reporter's whole read of a log, so both reporters name it. */
 		const { events } = readLogs(
 			new Map([["workflow-core", roots["workflow-core"]]]),
 			(r: string) => logPath(r, ROUND_CHECK_LOG),

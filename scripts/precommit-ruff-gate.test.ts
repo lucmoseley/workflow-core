@@ -1,21 +1,5 @@
 // @vitest-environment node
 
-/*
- * The pre-commit ruff gate (mantahostels#1135), exercised as the shell it is.
- *
- * `.husky/pre-commit` runs only when the commit stages a `.py` file, calls
- * scripts/check-ruff-introduced.js, and fails the commit when a path's staged
- * blob carries a finding its HEAD blob lacks (#122). How the checker judges
- * that is scripts/check-ruff-introduced.test.ts's; this suite owns the shell.
- *
- * ruff itself is stubbed on PATH by lib/ruff-testkit.ts, so every finding is
- * ours to place; one block runs the real ruff where it is installed. The config
- * an adopter's gate reads (#106) and the CI half in `ci.yml` are pinned too.
- *
- * Both halves are hard gates: loosen a case and a Python finding a commit
- * introduces lands unrefused, or the gate refuses findings the commit inherited.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -45,26 +29,13 @@ import {
 
 const temps = registerTempCleanup();
 
-// Anchored on the checker's name, not on any flag or message: the cutter must
-// survive a mutation to anything the cases below assert, or removing one would
-// break every case by throwing rather than by failing the single case that
-// guards it.
 const ANCHOR = "check-ruff-introduced.js";
 const gateFragment = () => cutGateFragment(ANCHOR);
 const CHECKER = "scripts/check-ruff-introduced.js";
-/** Where the gate reads the plugin's ruff config from (#1354). */
 const CONFIG_READER = "lib/formatters.js";
 
-/** Where the stub records the argv it was handed, one path per line. */
 const ARGS_FILE = "ruff-args.txt";
 
-/**
- * What an isolated fixture's PATH must hold: the commands the cut fragment
- * and the library's arming read shell out to, `node` for the missing-ruff
- * probe, plus `sh` itself —
- * execFileSync resolves the shell against the CHILD's PATH, so omitting it
- * fails the spawn with no output at all rather than failing the gate.
- */
 const NEEDED = ["sh", "node", ...LIB_COMMANDS];
 
 /**
@@ -139,18 +110,7 @@ function runGate(
 } {
 	let code = 0;
 	let output = "";
-	// A trailing no-op stands in for the rest of the hook, which really does
-	// continue past this gate. Without it the fragment's own exit status is
-	// ruff's, and the `|| { … exit 1; }` block could be deleted with every case
-	// still green.
-	// `exec 2>&1` because every message this gate prints goes to stderr, which
-	// execFileSync surfaces only on a non-zero exit — the warn-and-pass case
-	// would otherwise assert against an empty string and pass whatever the hook
-	// printed.
 	const script = `exec 2>&1\n${LIB}\n${gateFragment()}\n:\n`;
-	// An isolated fixture withheld the stub, so its bin holds only the NEEDED
-	// commands and must stand ALONE as PATH — appending the real one would hand
-	// the fragment the machine's own ruff back.
 	const search = repo.isolated
 		? repo.bin
 		: `${repo.bin}${path.delimiter}${process.env.PATH ?? ""}`;
@@ -158,10 +118,6 @@ function runGate(
 		output = execFileSync("sh", ["-c", script], {
 			cwd: repo.root,
 			encoding: "utf8",
-			// Pinned, never inherited: a WFC_PLUGIN_ROOT leaking in from the
-			// session would hand every case the adopter branch (#106), a
-			// CLAUDE_PROJECT_DIR would read this repo's config rather than the
-			// fixture's, and a WFC_RUFF would bypass the stub.
 			env: {
 				...process.env,
 				PATH: search,
@@ -180,7 +136,6 @@ function runGate(
 	return { code, output, args: calls.flat(), invoked: calls.length > 0 };
 }
 
-/** ci.yml, read once — two describes below assert against it. */
 const CI = fs.readFileSync(
 	path.join(ROOT, ".github", "workflows", "ci.yml"),
 	"utf8",
@@ -196,8 +151,6 @@ describe("the pre-commit ruff gate", () => {
 	it("does not run ruff when the commit stages no Python file", () => {
 		const repo = fixture({
 			staged: { [OUTSIDE]: "const a = 1;\n", "docs/x.md": "# x\n" },
-			// Red, so a gate that fired anyway would fail the case rather than
-			// passing by luck.
 			ruffExit: 1,
 		});
 		const { code, invoked } = runGate(repo);
@@ -213,9 +166,6 @@ describe("the pre-commit ruff gate", () => {
 	});
 
 	it("fires on a .py ANYWHERE, not only under scripts/", () => {
-		// Every tracked .py sits under scripts/ today, so a gate anchored on
-		// `^scripts/.*\.py$` would pass every case here while silently never
-		// firing on the first Python file added anywhere else.
 		const elsewhere = "tools/one_off.py";
 		const repo = fixture({ staged: { [elsewhere]: BODY }, ruffExit: 0 });
 		expect(runGate(repo).args).toContain(elsewhere);
@@ -257,8 +207,6 @@ describe("the pre-commit ruff gate", () => {
 	});
 
 	it("passes a one-line addition to a file whose findings predate the commit", () => {
-		// The added line sits ABOVE the finding, so a line-keyed comparison
-		// would read the moved finding as new.
 		const repo = fixture({
 			committed: { [PY]: `${OLD}${BODY}` },
 			staged: { [PY]: `# one more line\n${OLD}${BODY}` },
@@ -279,11 +227,6 @@ describe("the pre-commit ruff gate", () => {
 	});
 
 	it("reads the commit's staged paths, NOT the whole tree", () => {
-		// This is the only case pinning scoped-not-whole-tree. Every other
-		// fixture's only tracked .py IS its staged one, so judging every tracked
-		// path leaves them all green — and a whole-tree run in the shared tree
-		// fails this commit on a parallel session's half-written script
-		// (mantahostels#1135).
 		const tracked = "scripts/untouched.py";
 		const repo = fixture({ staged: {}, ruffExit: 0 });
 		fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
@@ -301,16 +244,9 @@ describe("the pre-commit ruff gate", () => {
 	});
 
 	it("drops a deletion from a commit that ALSO stages a live .py", () => {
-		// A commit staging only a deletion never opens the gate at all, so that
-		// case would pass with no --diff-filter on the path list. Forcing the
-		// gate open with a live file is what makes the filter load-bearing:
-		// without it ruff is handed a path with no file behind it.
 		const gone = "scripts/gone.py";
 		const repo = fixture({ staged: {}, ruffExit: 0 });
 		fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
-		// Deliberately unlike BODY. Two identical short files read to git as one
-		// RENAME rather than a delete plus an add, and a rename stages no
-		// deletion at all — so the case would pass with the filter gone.
 		fs.writeFileSync(
 			path.join(repo.root, gone),
 			`# gone\n${"# distinct\n".repeat(12)}print(1)\n`,
@@ -319,7 +255,6 @@ describe("the pre-commit ruff gate", () => {
 		repo.git("commit", "-qm", "add");
 		repo.git("rm", "-q", "--", gone);
 
-		// `git rm` took the now-empty scripts/ with it.
 		fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(repo.root, PY), BODY);
 		repo.git("add", "--", PY);
@@ -330,8 +265,6 @@ describe("the pre-commit ruff gate", () => {
 		expect(code).toBe(0);
 	});
 
-	// The checker lints the staged blob, so a path gone from the worktree is
-	// still in the commit and still judged (#1504's review).
 	it("lints a staged .py the worktree no longer holds", () => {
 		const repo = fixture({ staged: { [PY]: BODY }, ruffExit: 0 });
 		fs.rmSync(path.join(repo.root, PY));
@@ -341,11 +274,6 @@ describe("the pre-commit ruff gate", () => {
 	});
 
 	it("drops a path the commit UNTRACKS but leaves on disk", () => {
-		// armed_live's A/M match on the path list, and the only case that can
-		// see it: `git rm --cached` stages a deletion while the file stays in the
-		// worktree, which ruff's `--index` read would keep. Without the
-		// filter ruff is handed a script this commit is REMOVING from the repo,
-		// and a finding in it blocks the removal.
 		const untracked = "scripts/retired.py";
 		const repo = fixture({ staged: {}, ruffExit: 0 });
 		fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
@@ -415,9 +343,6 @@ describe("the pre-commit ruff gate", () => {
 	});
 
 	it("says nothing about a missing binary on a commit staging no Python", () => {
-		// `stub: false` is what makes this a test. With the stub present the
-		// SKIPPED branch is unreachable whatever the gate does, so the case would
-		// stay green with the whole file-set condition deleted.
 		const repo = fixture({
 			staged: { [OUTSIDE]: "const a = 1;\n" },
 			stub: false,
@@ -426,9 +351,6 @@ describe("the pre-commit ruff gate", () => {
 	});
 
 	it("hands ruff no rule selection, matching check:py", () => {
-		// ruff.toml holds the rule set, so neither half carries a --select; a
-		// rule flag on one side without the other is exactly the divergence this
-		// pins.
 		const pkg = JSON.parse(
 			fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
 		);
@@ -441,8 +363,6 @@ describe("the pre-commit ruff gate", () => {
 		});
 		for (const a of runGate(repo).args)
 			expect(a).not.toMatch(/^--(extend-)?(select|ignore|fixable)\b/);
-		// The plugin's --config and nothing else between the checker and the
-		// `|| { … }` failure block.
 		const invocation =
 			/node "\$\{WFC_PLUGIN_ROOT:-\.\}"\/scripts\/check-ruff-introduced\.js ([^|]*)\|\| \{/.exec(
 				gateFragment(),
@@ -452,8 +372,7 @@ describe("the pre-commit ruff gate", () => {
 			"the gate no longer invokes the checker on a `||` line",
 		).not.toBeNull();
 		expect((invocation as RegExpExecArray)[1].trim()).toBe(
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-			'${ruff_cfg:+--config "$ruff_cfg"}',
+			`\${ruff_cfg:+--config "$ruff_cfg"}`,
 		);
 	});
 
@@ -463,7 +382,6 @@ describe("the pre-commit ruff gate", () => {
 });
 
 describe("the ruff config an adopter's gate reads (#106)", () => {
-	/** A plugin root holding a ruff.toml and the gate's scripts, as a release tree does. */
 	function plugin(): string {
 		const { root } = newRepo("ruff-plugin-", temps);
 		fs.writeFileSync(path.join(root, "ruff.toml"), '[lint]\nselect = ["F"]\n');
@@ -513,7 +431,6 @@ describe("the ruff config an adopter's gate reads (#106)", () => {
 });
 
 describe.skipIf(!REAL_RUFF)("with the real ruff", () => {
-	/** A fixture whose PATH reaches the machine's ruff, not the stub. */
 	function real(opts: {
 		committed?: Record<string, string>;
 		staged: Record<string, string>;
@@ -547,9 +464,6 @@ describe.skipIf(!REAL_RUFF)("with the real ruff", () => {
 });
 
 describe("the CI half of the same gate", () => {
-	// Bounded by the step's own trailing blank line, not by the next `- name:`:
-	// the comment block introducing the step AFTER this one sits between the two,
-	// and swallowing it would let this step's assertions read a neighbour's prose.
 	const step = (): string => {
 		const m = /- name: Ruff\n((?:.*\n)*?)\n/.exec(CI);
 		expect(m, "the Ruff step no longer parses out of ci.yml").not.toBeNull();
@@ -557,31 +471,20 @@ describe("the CI half of the same gate", () => {
 	};
 
 	it("runs the same npm script the local by-hand route does", () => {
-		// The pre-commit gate reads only the paths a commit names, so this step is
-		// the only thing that ever re-checks a file a neighbouring commit changed
-		// under it.
 		expect(step()).toContain("npm run check:py");
 	});
 
 	it("hard-fails, carrying no continue-on-error and no absent-binary escape", () => {
-		// Deliberately unlike the pre-commit half, which warns and passes: a
-		// runner that has run the pip install has ruff, so a missing binary there
-		// is a broken install, not a fresh machine (mantahostels#1135).
 		expect(step()).not.toContain("continue-on-error");
 		expect(step()).not.toMatch(/command -v ruff/);
 	});
 
 	it("sits in the python job, which already paid for the pip install", () => {
-		// A Ruff job of its own would repeat the checkout and pip install for a
-		// 0.05 s check; it needs no install step only because it is downstream
-		// of that job's `Install dependencies` (mantahostels#1135).
 		const python = CI.slice(CI.indexOf("\n  python:"));
 		expect(python).toContain("- name: Ruff");
 		expect(python).toContain(
 			'python3 -m pip install --require-hashes --only-binary ":all:" -r requirements-dev.txt',
 		);
-		// Ahead of Pytest is not required, but AFTER `Install dependencies` is:
-		// ruff is pinned in requirements-dev.txt like everything else here.
 		expect(python.indexOf("Install dependencies")).toBeLessThan(
 			python.indexOf("- name: Ruff"),
 		);
@@ -595,32 +498,21 @@ describe("the ruff adoption's own invariants", () => {
 	);
 
 	it("pins ruff exactly, as every other Python dependency here is pinned", () => {
-		// scripts/test_requirements_pinned.py fails when a pin and the installed
-		// version disagree, and the supply-chain auditor credits a version only
-		// from an `==` in the requirements-dev.txt compiled from this file
-		// (mantahostels#930). A range here would silently drop ruff out of both.
 		expect(requirements).toMatch(/^ruff==\d+\.\d+\.\d+$/m);
 	});
 
 	it("configures ruff in ruff.toml, the one place the rule set lives", () => {
 		const cfg = fs.readFileSync(path.join(ROOT, "ruff.toml"), "utf8");
-		// Parsed loosely rather than with a TOML reader: the assertion is that the
-		// select is stated HERE, so neither gate needs a --select of its own.
 		const select = /select\s*=\s*\[([^\]]*)\]/.exec(cfg);
 		expect(select, "ruff.toml no longer states a lint select").not.toBeNull();
 		const codes = (select as RegExpExecArray)[1]
 			.split(",")
 			.map((c) => c.trim().replace(/"/g, ""))
 			.filter(Boolean);
-		// F is the whole reason ruff is here: it is what found the 20 undefined
-		// names in measure-context-buckets/extract.py that pytest never could.
 		expect(codes).toContain("F");
 	});
 
 	it("gates `ruff format` beside the lint, in the hook and in CI (#1332)", () => {
-		// The formatter mantahostels#1135 declined and #1315 Q3 adopted. The hook
-		// reaches it through check-format-staged.js, whose own suite owns how;
-		// CI's Ruff step runs check:py, so the format check rides that one script.
 		const hook = fs.readFileSync(
 			path.join(ROOT, ".husky", "pre-commit"),
 			"utf8",

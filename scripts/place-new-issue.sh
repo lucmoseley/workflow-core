@@ -40,7 +40,6 @@
 
 set -uo pipefail
 
-# This script's directory without a `dirname` fork; `.` where run by a bare name.
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 
@@ -50,16 +49,11 @@ jqr() { printf '%s' "$payload" | jq -r "$1" 2>/dev/null || true; }
 
 [[ "$(jqr '.tool_name // ""')" == "Bash" ]] || exit 0
 
-# Command position only — start of line, or after a separator. A substring match
-# also fires on a command that merely *mentions* the string (a grep for it, a
-# heredoc, a jq payload containing it), which is noise on a hook that runs on
-# every Bash call.
 cmd="$(jqr '.tool_input.command // ""')"
 CREATE_RE='(^|[;&|({]|&&|\|\|)[[:space:]]*gh[[:space:]]+issue[[:space:]]+create'
 [[ "${cmd//$'\n'/;}" =~ $CREATE_RE ]] || exit 0
 
-# The injection, with the core's scripts and docs/agents files spelled at the
-# plugin root in an install, where a bare `scripts/x` resolves nowhere (#1010).
+# #1010
 # shellcheck source=scripts/lib/script-path.sh
 source "${BASH_SOURCE[0]%/*}/lib/script-path.sh" 2>/dev/null
 post_context() {
@@ -68,28 +62,13 @@ post_context() {
   jq -nc --arg c "$c" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $c}}'
 }
 
-# Field name has changed across versions; accept either, and fall back to the
-# whole payload — all that is wanted from it is the created issue's URL.
 out="$(jqr '(.tool_output // .tool_response // .) | tostring')"
 
-# Defined up here because the no-number branch runs before the label asks and
-# says the same things. `link_generic` is `link` with the child number left a
-# placeholder, that branch having none to fill in.
 orphan_why="an issue with no parent sits outside every map, so /wayfinder's frontier query never offers it."
 takes_field="the field that says which command opens it"
 link_generic="To link once you have the number: scripts/link-sub-issue.sh <parent> <child> — it resolves the database id, POSTs it as a number and verifies from the parent side. "
 takes_values="takes:wayfinder (/wayfinder — an open question whose resolution is a decision), takes:to-spec (/to-spec — a chunk large enough to need a spec before tickets), takes:to-tickets (/to-tickets — a spec ready to break into tickets), takes:implement (/implement — a specified unit of work), takes:triage (/triage — disposition not yet decided), takes:human (done outside Claude Code entirely), takes:children (a container — open a child instead)"
 
-# EVERY issue the call created, not just the first. Space-separated, creation
-# order preserved, duplicates dropped.
-#
-# Deduplicated in bash rather than with awk or sort: awk is one more binary this
-# hook would have to find on PATH, and sort would reorder, losing which issue was
-# created first — the one the placement paragraph names.
-#
-# One trailing character is captured because it decides: `/issues/313#issuecom…`
-# is a comment permalink, so `gh issue create && gh issue comment 313` would
-# otherwise report mantahostels#313 as created here and nag for its label.
 created_all=""
 while read -r m; do
   case "$m" in *'#') continue ;; esac
@@ -101,25 +80,13 @@ while read -r m; do
 done < <(printf '%s' "$out" | grep -oE '/issues/[0-9]+.?')
 created="${created_all%% *}"
 
-# Sets `place`; never exits, or the label asks below go with the placement one.
-# Read before the no-number branch as well as after, or that branch repeats the
-# placement ask for every create in the prompt.
 prompt_id="$(jqr '.prompt_id // .session_id // ""')"
 marker="${TMPDIR:-/tmp}/place-new-issue.${prompt_id:-none}"
 place=1
 [[ -n "$prompt_id" && -e "$marker" ]] && place=0
 : >"$marker" 2>/dev/null || true
 
-# A BACKGROUNDED CREATE CARRIES NO NUMBER (mantahostels#437 and mantahostels#442, the two issues
-# this hook let through unlabelled). The number is read from the tool output
-# above, but a `run_in_background` Bash call's output is the harness's "Command
-# running in background with ID: …" stub, so no issue URL reaches this event.
-# Backgrounding every `gh` call was the standing advice until #523; this branch
-# still asks a session that backgrounds a create.
-#
-# Gated on the job stub, not merely on the absence of a number: a create that
-# failed, or `gh issue create --help`, also yields no URL, and nagging there
-# sends the reader after a number nothing minted.
+# lucmoseley/mantahostels#437, lucmoseley/mantahostels#442
 BG_RE='Command running in background|Output is being written to'
 if [[ -z "$created" && "$out" =~ $BG_RE ]]; then
   ask="You ran \`gh issue create\`, but this hook cannot see which issue it made: the call was backgrounded, so its output is the job stub rather than the issue URL. Read the number from the job's output file, then give it a takes: label — ${takes_field}. Pick one: ${takes_values}."
@@ -128,24 +95,19 @@ if [[ -z "$created" && "$out" =~ $BG_RE ]]; then
   exit 0
 fi
 
-# Everything below names `$created`, so it has nothing to say without one.
 [[ -n "$created" ]] || exit 0
 
-# The session's own issue is the leading candidate parent. name-issue-session.sh
-# has already written the name as "<Verb> <n>: <title>" — background jobs onto
-# the job record, interactive sessions onto the pid-keyed registry entry that
-# claims this session id.
 name=""
 if [[ -n "${CLAUDE_JOB_DIR:-}" && -f "$CLAUDE_JOB_DIR/state.json" ]]; then
   name="$(jq -r '.name // ""' "$CLAUDE_JOB_DIR/state.json" 2>/dev/null || true)"
 fi
 if [[ -z "$name" ]]; then
   sid="$(jqr '.session_id // ""')"
-  # The registry name-issue-session.sh wrote, under CLAUDE_CONFIG_DIR (#2095).
+  # #2095
   # shellcheck source=scripts/lib/guard-root.sh
   if [[ -n "$sid" ]] && source "$here/lib/guard-root.sh" 2>/dev/null; then
+    cfg=""
     gr_config_dir cfg
-    # shellcheck disable=SC2154 # gr_config_dir assigns cfg through printf -v
     for f in "$cfg"/sessions/*.json; do
       [[ -r "$f" ]] || continue
       n="$(jq -r --arg s "$sid" 'if .sessionId == $s then (.name // "") else "" end' "$f" 2>/dev/null || true)"
@@ -160,17 +122,7 @@ session_issue="$(printf '%s' "$name" | grep -oE '^[A-Za-z]+ +[0-9]+:' | tr -dc '
 
 link="To link: scripts/link-sub-issue.sh <parent> ${created} — it resolves the database id, POSTs it as a number and verifies from the parent side. Rules: docs/agents/issue-tracker.md, \"Placing a new issue\"."
 
-# --- which labels the new issues take -----------------------------------------
-# A hook that cannot reach GitHub must not stall the session, or claim a label is
-# missing when it never looked.
-#
-# BUDGET. The hook's timeout in self-plugin/hooks/hooks.json is 10s, and being killed on
-# it loses the whole injection — the marker above is already written, so nothing
-# retries. One session lookup at 3s plus MAX_ASK lookups at 2s must stay under
-# that with room for the session-registry scan, which costs one jq per file.
-#
-# MAX_ASK caps the lookups, NOT the asks: issues past it are still named, from
-# the payload alone, at no call each.
+# #5528 guess: a 3s session lookup plus MAX_ASK 2s lookups under the hook's 10s timeout
 MAX_ASK=2
 gh="${WFC_GH:-gh}"
 ghjson() { timeout "$1" "$gh" issue view "$2" --json "$3" 2>/dev/null || true; }
@@ -183,8 +135,6 @@ mine=""
 gh_ok=0
 command -v "$gh" >/dev/null 2>&1 && gh_ok=1
 
-# The session's own labels fix the family EVERY issue in this call joins, so they
-# are read once here rather than once per issue.
 [[ $gh_ok -eq 1 && -n "$session_issue" ]] &&
   mine="$(labels_of "$(ghjson 3 "$session_issue" 'labels')")"
 
@@ -196,8 +146,6 @@ for iss in $created_all; do
     continue
   fi
 
-  # Read below the `gh_ok` block too, so they must survive gh being absent — set
-  # -u is on — and be reset per issue, or one issue's labels answer for the next.
   new_json=""
   new_labels=""
   if [[ $gh_ok -eq 1 ]]; then
@@ -205,27 +153,15 @@ for iss in $created_all; do
     new_title="$(printf '%s' "$new_json" | jq -r '.title // ""' 2>/dev/null || true)"
     new_labels="$(labels_of "$new_json")"
 
-    # A card issue takes no kind: and no wayfinder: type (docs/agents/triage-labels.md).
-    # Em dash only, the form `<card-id> — <title>` that /card-close parses: accepting
-    # ` -- ` as well would read "fix -- see mantahostels#136" as a card and drop the prompt on a
-    # real miss, and a title /card-close cannot parse is not a card issue anyway.
     card_title=0
     [[ "$new_title" =~ ^[a-z0-9][a-z0-9-]*\ —\  ]] && card_title=1
 
-    # Which family, THEN whether the new issue already has a member of it. The
-    # other way round, a `kind:ticket` created under a map reads as labelled and is
-    # never asked for its wayfinder type — silent here, flagged by the weekly check.
     if [[ -n "$new_json" && $card_title -eq 0 && -n "$mine" ]]; then
-      # A spec or brief under a map takes no type — check-issue-labels.js's map
-      # exemption (#578). Both wayfinder: tests hand-copy lib/decision-labels.js
-      # isRouteStep.
+      # #578
       if [[ "$mine" == *"wayfinder:"* && "$new_labels" != *"wayfinder:"* &&
         "$new_labels" != *"kind:spec"* && "$new_labels" != *"kind:brief"* ]]; then
         label="${label:+${label}
 }#${iss} carries no label. Its parent-to-be sits under a wayfinder map (#${session_issue} is labelled: ${mine}), so it needs a wayfinder:<type> — research (AFK, resolved by a /research subagent), prototype (build a rough artefact to react to), grilling (a conversation, the default), or task (manual work that unblocks a decision). pick-next.js sorts an unlabelled grilling ticket as a repo-writer. Apply it: gh issue edit ${iss} --add-label wayfinder:<type>. Rules: docs/agents/triage-labels.md."
-      # `kind:spec`, not any `kind:` — a child of a ticket is not itself required to
-      # be one, and check-issue-labels.js scopes the same way. Asking wider than the
-      # backstop would demand a label nothing checks for.
       elif [[ "$mine" == *"kind:spec"* && "$new_labels" != *"kind:ticket"* ]]; then
         label="${label:+${label}
 }#${iss} carries no label. #${session_issue} is a spec, so a ticket under it takes kind:ticket. Apply it: gh issue edit ${iss} --add-label kind:ticket. Rules: docs/agents/triage-labels.md."
@@ -233,10 +169,7 @@ for iss in $created_all; do
     fi
   fi
 
-  # Unconditional: an issue born outside a map needs a takes: as much as one born
-  # inside it, so this asks whatever the session's own labels are. Advisory only,
-  # never a deny — mantahostels#136 rejected a gate here because the label is not always
-  # knowable at creation. Silent only when the issue already carries one.
+  # lucmoseley/mantahostels#136
   takes_how="Pick one — ${takes_values}. Apply it: gh issue edit ${iss} --add-label takes:<value>. Rules: docs/agents/triage-labels.md."
   if [[ -z "$new_json" ]]; then
     takes="${takes:+${takes}
@@ -259,8 +192,6 @@ else
   text="You created #${created}. Place it before anything else: ${orphan_why} If it was spawned by another issue — split out of it, or surfaced while implementing it — make it that issue's sub-issue. If it carries a roadmap card (a \"<card-id> — …\" title) or is cross-cutting work with no single originator, leave it standalone and say so in its body. ${link}"
 fi
 
-# `${text:+…}` so a suppressed placement paragraph does not leave the injection
-# opening on two blank lines.
 [[ -n "$label" ]] && text="${text:+${text}
 
 }${label}"
@@ -269,8 +200,6 @@ fi
 
 }${takes}"
 
-# Nothing left to say: a later create in the same prompt whose issues already
-# carry their labels.
 [[ -n "$text" ]] || exit 0
 
 post_context "$text"

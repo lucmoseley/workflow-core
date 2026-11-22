@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * replay-suite-queue-wait.test.ts — the replay's command line (#3060). Break
- * it and a bad window prints a reading over nothing, or a good one prints
- * none. The replay itself is pinned in lib/suite-queue-replay.test.ts, which
- * hands it readings; the read of the minute log, and which of its rows count
- * as fresh, is reached only from here.
- */
 
 import fs from "node:fs";
 import os from "node:os";

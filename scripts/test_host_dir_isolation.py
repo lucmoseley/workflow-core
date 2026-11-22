@@ -1,13 +1,3 @@
-"""Pins conftest.py's empty host (#3334).
-
-A test that drops its `CLAUDE_PROJECT_DIR` pin reads an empty temp dir that is
-no repository, whether the run started under a session's live checkout or, as
-in CI, with the variable unset — in process, and in a child spawned on the
-inherited env. Breaking it lets such a test read the live checkout and go red
-only on the founder's machine. Driven through a nested pytest loading the real
-conftest.py, since the variable has to be set before the session starts.
-"""
-
 import json
 import os
 import subprocess
@@ -20,8 +10,6 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parent
 REPO = SCRIPTS.parent
 CONFTEST = SCRIPTS / "conftest.py"
-# The main checkout owning REPO, from `git worktree list`'s first entry rather
-# than host_root()'s own rule (#4482).
 LIVE = str(
     Path(
         subprocess.run(
@@ -56,8 +44,6 @@ def test_probe():
 
 
 def read_host(tmp_path, project_dir, with_conftest=True):
-    """Runs the probe with `CLAUDE_PROJECT_DIR` set to `project_dir`, or unset
-    for None; returns what it read."""
     (tmp_path / "test_probe.py").write_text(PROBE)
     out = tmp_path / "out"
     out.mkdir()

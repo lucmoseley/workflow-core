@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The premise #1149's heartbeat rests on, proved against a real vitest run:
- * per-test events from one worker reach the vitest parent while another worker
- * is parked in a synchronous call, and those events alone hold the stall
- * watchdog off. An in-process fake cannot show it — the parked worker has to be
- * a real process blocking its own event loop.
- *
- * Worker A parks in `Atomics.wait` for longer than the ceiling while worker B
- * runs short async tests until A wakes.
- *
- * The reporter is registered in `vitest.config` for every suite run: break the
- * premise and `run-vitest.js`'s stall watchdog kills a long test file that is
- * still working.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -26,10 +12,6 @@ const timings = require("./lib/test-file-timings.js");
 const { takeRunReport } = require("./lib/suite-handoff.js");
 
 const REPO = path.resolve(__dirname, "..");
-/* The ceiling must outlast the run's own start-up silence (fork, import, first
- * test event), and the park must outlast the ceiling. Margins, not measured
- * under load: quiet, the case takes 8.7 s, and with beats off it is killed at
- * 4.5 s. */
 const STALL = 4000;
 const PARK = 8000;
 
@@ -106,8 +88,6 @@ it("records the files the run scheduled as it starts (#2696)", async () => {
 	expect(inflight.readRecord(file).scheduled).toEqual([a, b]);
 });
 
-/* The run-cost report's figure (#1883): queued to end, on fake timers so
- * the seconds are exact (§X9). */
 it("leaves each file's queued-to-end seconds where the wrapper names a file", async () => {
 	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-span-")));
 	const file = path.join(dir, "timings.json");
@@ -130,7 +110,6 @@ it("leaves each file's queued-to-end seconds where the wrapper names a file", as
 	});
 });
 
-/* The margin check's slowest files (#2770), repo-relative off vitest's root. */
 it("hands the run's slowest files to the pass marker's run report", async () => {
 	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-slow-")));
 	vi.stubEnv(inflight.INFLIGHT_ENV, path.join(dir, "inflight.json"));
@@ -176,8 +155,6 @@ it("keeps a run alive on test events alone while another worker is parked", asyn
 	const end = Number(fs.readFileSync(path.join(dir, "park-end"), "utf8"));
 	expect(said.join("")).not.toContain("SUITE STALLED");
 	expect(code).toBe(0);
-	/* Without these two the case passes vacuously: output inside the window, or
-	 * a window shorter than the ceiling, could have held the watchdog off. */
 	expect(end - start).toBeGreaterThan(STALL);
 	expect(chunks.filter((t) => t > start && t < end)).toEqual([]);
 }, 120_000);

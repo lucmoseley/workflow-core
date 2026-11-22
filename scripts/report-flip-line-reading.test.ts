@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * report-flip-line-reading.test.ts — the one-shot reading of the low-top
- * test's flip line (#2331, spec #2260). Break it and the reading lands on the
- * wrong day, counts the wrong refusals or re-sends, or files its issue early,
- * twice or on a dry run.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -19,7 +13,6 @@ import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-flip-line-reading.js");
-/* Restated so a rename fails here rather than passing unseen. */
 const TITLE = "Flip-line reading: should the low-top line of 65 move to 60?";
 const FILED = ".flip-line-reading-filed";
 
@@ -85,7 +78,6 @@ const ghCalls = () =>
 	fs.existsSync(argvLog) ? fs.readFileSync(argvLog, "utf8") : "";
 const filedRecord = () => path.join(roots["workflow-core"], MARKERS_REL, FILED);
 
-/** One close-check event, through the guard's own writer. */
 const log = (
 	repo: Repo,
 	at: number,
@@ -112,8 +104,6 @@ const lowTopLive = (repos: Repo[], at = T0) => {
 		});
 };
 
-/** `n` low-top questions in workflow-core, the i-th refused at `start + i h`
- *  and re-sent a minute later, the first `flipped` of them with a new top. */
 const resends = (
 	n: number,
 	start: number,
@@ -202,10 +192,8 @@ describe("the reading point", () => {
 		lowTopLive(["workflow-core", "mantahostels", "design-vault"]);
 		resends(20, T0 + DAY, { trigger: "close" });
 		resends(20, T0 + 2 * DAY, { trigger: "both" });
-		/* Written before #2327: no trigger, read as close. */
 		resends(20, T0 + 3 * DAY, { trigger: null, session: "s-old" });
 		resends(60, T0 + 6 * DAY);
-		/* The 60th re-send passes 59 h and a minute after its start. */
 		expect(dry(T0 + 6 * DAY)).toMatch(
 			/Reading point: 2026-11-02 11:01 — the later of 7 days/,
 		);
@@ -228,7 +216,6 @@ describe("the two readings", () => {
 	it("line 1 gives low-top refusals a day against 15.5", () => {
 		quorumLive();
 		resends(17, T0 + DAY);
-		/* 3 live refusals and 17 more, over 10 days. */
 		expect(dry(T0 + 10 * DAY)).toMatch(
 			/1\. Low-top refusals: 20 over 10\.0 days, 2\.0 a day, and 0 the close test caught too\. Forecast 15\.5 a day of rounds no other limb catches \(#2229\)/,
 		);

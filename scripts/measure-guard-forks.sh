@@ -1,30 +1,4 @@
 #!/usr/bin/env bash
-# Exact per-guard child-process count via strace (mantahostels#1985). Read-only: runs the
-# guard against a supplied hook-JSON payload and discards its verdict.
-#
-# strace traces the guard's own process tree directly, so unlike a /proc-walk
-# sampler there is no capture rate to correct — every clone/clone3/vfork/fork
-# the guard or its descendants make is counted. CLONE_THREAD is excluded (a
-# `node` guard's libuv/V8 threads are not new processes).
-#
-# COUNTING DECISIONS (code-review mantahostels#1985, standards axis, §G1):
-#  - The guard is exec'd directly (its own shebang), the way the real hook
-#    launcher runs it — not `bash "$guard"`, which would add the harness's own
-#    `bash` to the trace and mask a non-bash guard's real interpreter.
-#  - A `<unfinished ...>`/`<resumed>` split line (a syscall that blocked, e.g.
-#    on network I/O) still carries the same syscall name and exit value once
-#    reassembled by strace, so no special-casing is needed for it.
-#  - `= -1` excludes a refused syscall (EAGAIN under load, a `git`/`gh`
-#    subprocess denied a resource): it never produced a process.
-#
-# A ONE-REP WARM-UP runs first, discarded, before the timed reps. Several
-# guards (the guard-commit-form core among them) print a rule once per session and
-# latch a marker file on the first sight of that session_id — costing extra
-# forks on rep 1 only. Without the warm-up, "all reps agreed" is evidence the
-# latch had already burned, not evidence of a stable count (mantahostels#1985, spec axis,
-# F1: 114 clones unlatched vs 110 latched, measured on `guard-commit-form`).
-# Reported figures are steady-state, matching the common case in a real
-# session where the latch fires once and stays quiet for the rest of it.
 set -euo pipefail
 
 usage() {
