@@ -4,8 +4,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { caught } from "./lib/caught.js";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { isJsTestFile } from "./lib/test-kind.js";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -70,23 +71,25 @@ function readBareNpxHits(root = ROOT): string[] {
 	return hits.sort();
 }
 
-const probes: string[] = [];
-function probeRepo(files: Record<string, string>): string {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "npx-bare-"));
-	probes.push(dir);
-	execFileSync("git", ["init", "-q"], { cwd: dir });
-	for (const [name, body] of Object.entries(files)) {
-		fs.mkdirSync(path.join(dir, path.dirname(name)), { recursive: true });
-		fs.writeFileSync(path.join(dir, name), body);
-	}
-	execFileSync("git", ["add", "-A"], { cwd: dir });
-	return dir;
-}
+const repoTemplate = defineTemplate(emptyRepoTemplate);
+let probe: string;
 
-afterEach(() => {
-	for (const d of probes.splice(0))
-		fs.rmSync(d, { recursive: true, force: true });
+beforeEach(() => {
+	probe = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "npx-bare-")),
+	);
 });
+
+afterEach(() => fs.rmSync(probe, { recursive: true, force: true }));
+
+function probeRepo(files: Record<string, string>): string {
+	for (const [name, body] of Object.entries(files)) {
+		fs.mkdirSync(path.join(probe, path.dirname(name)), { recursive: true });
+		fs.writeFileSync(path.join(probe, name), body);
+	}
+	execFileSync("git", ["add", "-A"], { cwd: probe });
+	return probe;
+}
 
 describe("no check reaches its binary by bare npx name", () => {
 	it("finds no bare-name invocation on any executable surface", () => {
