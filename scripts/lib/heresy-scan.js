@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./host-root.js");
+const { worktreeRoot } = require("./host-root.js");
 const { blankComments } = require("./strip-comments.js");
 const { isJsTestFile } = require("./test-kind.js");
 
@@ -157,7 +157,7 @@ function heresySpec({
 			pathspecs: () => dirs,
 		},
 		run(/** @type {Ctx} */ ctx) {
-			const root = path.resolve(ctx.value("--root") ?? hostRoot());
+			const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 			const names = readPrograms(root, dirs, include);
 			for (const rel of names) {
 				if (skip.includes(rel)) continue;

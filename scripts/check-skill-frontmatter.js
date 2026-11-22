@@ -81,7 +81,7 @@ const SPEC = {
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
-			ctx.broken(`the host root ${root} does not exist — nothing was parsed`);
+			ctx.broken(`the root ${root} does not exist — nothing was parsed`);
 		const dir = path.join(root, SKILLS_DIR);
 		const names = fs.existsSync(dir) ? fs.readdirSync(dir).sort() : [];
 

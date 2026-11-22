@@ -205,7 +205,7 @@ const SPEC = {
 		const touching = ctx.value("--touching");
 		// #43
 		if (!fs.existsSync(root))
-			ctx.broken(`the host root ${root} does not exist — nothing was measured`);
+			ctx.broken(`the root ${root} does not exist — nothing was measured`);
 
 		if (
 			![SKILLS_DIR, COMMANDS_DIR].some((d) => fs.existsSync(path.join(root, d)))

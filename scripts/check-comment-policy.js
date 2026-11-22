@@ -314,7 +314,7 @@ const SPEC = {
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
-			ctx.broken(`the host root ${root} does not exist — nothing was read`);
+			ctx.broken(`the root ${root} does not exist — nothing was read`);
 		const tree = readTreeFacts(root);
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
