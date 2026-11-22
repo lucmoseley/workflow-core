@@ -505,14 +505,22 @@ describe("write-secret", () => {
 		},
 	);
 
-	const typeAtPrompt = async (bytes: number[]) => {
+	const typeAtPrompt = async (
+		bytes: number[],
+		whilePromptOpen: () => void = noop,
+	) => {
+		let opened = false;
 		const tty = Object.assign(new PassThrough(), {
 			isTTY: true,
-			setRawMode() {
+			setRawMode(raw: boolean) {
+				if (raw && !opened) {
+					opened = true;
+					whilePromptOpen();
+					tty.write(Buffer.from(bytes));
+				}
 				return tty;
 			},
 		});
-		tty.write(Buffer.from(bytes));
 		const real = Object.getOwnPropertyDescriptor(process, "stdin");
 		if (real === undefined) throw new Error("process.stdin has no descriptor");
 		Object.defineProperty(process, "stdin", { value: tty, configurable: true });
@@ -573,6 +581,46 @@ describe("write-secret", () => {
 			expect(read()).toBe("A=1\n");
 		},
 	);
+
+	it.each([
+		[
+			"loosens the store directory's mode",
+			() => fs.chmodSync(path.dirname(store()), 0o755),
+			() =>
+				`its directory ${path.dirname(store())} gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes, then re-run.`,
+		],
+		[
+			"puts the store under a `git init`",
+			() => gitIn(config)("init", "-q"),
+			() =>
+				`it lies in the git working tree at ${config}, so a commit there could take it. Point XDG_CONFIG_HOME at a directory in no working tree, then re-run.`,
+		],
+	])(
+		"refuses with exit 1, the file untouched, where the hidden prompt's wait %s (#3539)",
+		async (_l, change, why) => {
+			seed("A=1\n");
+			const r = await typeAtPrompt([...Buffer.from("v\r")], change);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(`${Prompt}${refused(why())}`);
+			expect(read()).toBe("A=1\n");
+		},
+	);
+
+	it("refuses with exit 1, the target untouched, where the store is swapped for a symlink while the hidden prompt waits", async () => {
+		seed("A=1\n");
+		const target = path.join(config, "elsewhere.env");
+		fs.writeFileSync(target, "B=2\n", { mode: 0o600 });
+		const r = await typeAtPrompt([...Buffer.from("v\r")], () => {
+			fs.rmSync(store());
+			fs.symlinkSync(target, store());
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(
+			`${Prompt}${refused("it could not be written (ELOOP). Check it is a regular file you can write, then re-run.")}`,
+		);
+		expect(fs.lstatSync(store()).isSymbolicLink()).toBe(true);
+		expect(fs.readFileSync(target, "utf8")).toBe("B=2\n");
+	});
 
 	it("refuses an empty value without creating the file", () => {
 		const r = run(["K"], "");
