@@ -388,6 +388,10 @@ export const buildJqLines = ghComputed<(...values: unknown[]) => GhAnswer>(
 	"buildJqLines",
 );
 
+export const buildChildRows = ghComputed<
+	(home: string, ...refs: (number | string)[]) => GhAnswer
+>(LINK_READ_FAKE, "buildChildRows");
+
 export const answerCited = ghComputed<
 	(argv: string[], issues: Record<string, object>) => GhAnswer
 >(CITED_GRAPHQL_FAKE, "answerCited");

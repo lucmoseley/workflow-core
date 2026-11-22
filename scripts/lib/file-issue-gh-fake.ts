@@ -37,7 +37,9 @@ const ROUTE = String.raw`function routeFileIssueGh(argv, input, fs, dir) {
 	}
 	const read = answerLinkRead(argv, {
 		id: buildJqLines(${NEW_ID}),
-		children: has("linked") ? buildChildRows("acme/widgets", ${NEW}) : ok(""),
+		children: has("linked")
+			? buildChildRows(/^repos\/(.+)\/issues\/\d+\/sub_issues$/.exec(argv[1])?.[1], ${NEW})
+			: ok(""),
 	});
 	if (read) return read;
 	if (argv[0] === "api") {

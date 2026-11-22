@@ -10,6 +10,7 @@ import {
 	answerCited,
 	answerLinkRead,
 	asRecorded,
+	buildChildRows,
 	buildCreateAnswer,
 	buildJqLines,
 	CITED_GRAPHQL_FAKE,
@@ -871,7 +872,7 @@ describe("live: link-sub-issue.sh's reads", () => {
 			`#!/bin/sh
 printf '%s\\n' "$*" >> ${shellQuote(log)}
 case "$*" in
-${buildLinkReadArms({ repo: buildJqLines(home), children: buildJqLines(`https://api.github.com/repos/${home}#2327`) })}
+${buildLinkReadArms({ repo: buildJqLines(home), children: buildChildRows(home, 2327) })}
   *"--method POST"*) exit 0 ;;
 esac
 exit 1
