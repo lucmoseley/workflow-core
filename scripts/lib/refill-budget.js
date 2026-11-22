@@ -31,6 +31,8 @@ const CT_RESOLUTION_MS = 1000;
  *   systemicSessions: number, systemicWindowMs: number,
  *   sleepAllowanceS: number}} BudgetRule
  * @typedef {{failStreak: number, counted: number, newest: GateRun|null}} BudgetCount
+ * @typedef {BreakerEvent & {sessions: string[], launchedAt: string}} BudgetParkEvent
+ * @typedef {{ids: Set<string>, launchedAt: number}} LaunchScope
  */
 
 /**
@@ -63,28 +65,30 @@ const neitherFailsNorResets = (run, repoRuns, ids, rule) =>
 	(run.outcome === "ceiling" && isSystemicCeiling(run, repoRuns, ids, rule));
 
 /**
+ * @param {GateRun} run
+ * @param {LaunchScope} launch
+ */
+const isLaunchRun = (run, { ids, launchedAt }) =>
+	run.session !== null &&
+	ids.has(run.session) &&
+	Date.parse(run.at) > launchedAt;
+
+/**
  * @param {GateRun[]} repoRuns
- * @param {{ids: Set<string>, launchedAt: number, landingAt: number|null,
- *   suiteCommand: string}} of
+ * @param {LaunchScope & {landingAt: number|null, suiteCommand: string}} of
  * @param {BudgetRule} [rule]
  * @returns {BudgetCount}
  */
-function countBudget(
-	repoRuns,
-	{ ids, launchedAt, landingAt, suiteCommand },
-	rule = BUDGET_RULE,
-) {
+function countBudget(repoRuns, of, rule = BUDGET_RULE) {
+	const { ids, landingAt, suiteCommand } = of;
 	const counted = repoRuns
-		.filter((r) => {
-			const at = Date.parse(r.at);
-			return (
-				r.session !== null &&
-				ids.has(r.session) &&
+		.filter(
+			(r) =>
+				isLaunchRun(r, of) &&
 				r.command === suiteCommand &&
-				at > launchedAt &&
-				(landingAt === null || at >= landingAt + CT_RESOLUTION_MS)
-			);
-		})
+				(landingAt === null ||
+					Date.parse(r.at) >= landingAt + CT_RESOLUTION_MS),
+		)
 		.filter((r) => !neitherFailsNorResets(r, repoRuns, ids, rule))
 		.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 	const lastPass = counted.findLastIndex((r) => r.outcome === "pass");
@@ -203,18 +207,28 @@ function parkOverBudget(launches, read, seen) {
 			seen,
 		);
 		if (parked === null) return l;
-		events.push({
+		/** @type {BudgetParkEvent} */
+		const event = {
 			at: new Date(seen.now).toISOString(),
 			repo: l.root,
 			event: "budget-park",
 			rate: null,
 			workingHours: 0,
 			session: l.sessionId ?? l.jobId,
+			sessions: [...sessionIdsOf(l)],
+			launchedAt: new Date(l.launchedAt).toISOString(),
 			...(l.issues[0] === undefined ? {} : { ticket: l.issues[0] }),
-		});
+		};
+		events.push(event);
 		return parked;
 	});
 	return { launches: out, events };
 }
 
-module.exports = { BUDGET_RULE, budgetPark, countBudget, parkOverBudget };
+module.exports = {
+	BUDGET_RULE,
+	budgetPark,
+	countBudget,
+	isLaunchRun,
+	parkOverBudget,
+};
