@@ -1,3 +1,5 @@
+const { CHECKOUT_STEP, SETUP_NODE_STEP } = require("./lander-job-names.js");
+
 const CI_WORKFLOW = ".github/workflows/workflow-core-ci.yml";
 
 const CI_MARKER = "# CORE-OWNED.";
@@ -10,43 +12,28 @@ const SETUP_NODE =
 	"actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
 const SEMGREP = "1.182.1";
 
-/**
- * @param {import("./workflow-core-config.js").Ci} ci
- * @returns {string}
- */
-function renderCiWorkflow({
-	runner,
-	timeoutMinutes = DEFAULT_TIMEOUT_MINUTES,
-}) {
-	return `${CI_MARKER} Written by workflow-core's upgrade from the \`ci\` key in
-# .claude/workflow-core.json, and REWRITTEN on every bump. Change the key, not
-# this file. What it runs and why: the plugin's scripts/lib/adopter-ci.js.
-name: workflow-core CI
-
-on:
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-jobs:
-  ci:
-    name: Tests and guards
-    runs-on: ${runner}
-    timeout-minutes: ${timeoutMinutes}
-    env:
+/** @returns {string} */
+const renderJobEnv = () => `    env:
       WORKFLOW_CORE_CHECKOUT: \${{ github.workspace }}/.workflow-core
       WFC_PLUGIN_ROOT: \${{ github.workspace }}/.workflow-core
       CLAUDE_PROJECT_DIR: \${{ github.workspace }}
-    steps:
+`;
+
+/**
+ * @param {{ref?: string}} [tree]
+ * @returns {string}
+ */
+function renderSetupSteps({ ref } = {}) {
+	return `    steps:
       # Full history: the doc-map checks read git log.
-      - uses: ${CHECKOUT} # v4
+      - name: ${CHECKOUT_STEP}
+        uses: ${CHECKOUT} # v4
         with:
-          fetch-depth: 0
+${ref ? `          ref: ${ref}\n` : ""}          fetch-depth: 0
           persist-credentials: false
 
-      - uses: ${SETUP_NODE} # v4
+      - name: ${SETUP_NODE_STEP}
+        uses: ${SETUP_NODE} # v4
         with:
           node-version: 24
 
@@ -84,7 +71,8 @@ jobs:
           console.log(\`ref=v\${ref.replace(/^v/, "")}\`);
           EOF
 
-      - uses: ${CHECKOUT} # v4
+      - name: ${CHECKOUT_STEP}
+        uses: ${CHECKOUT} # v4
         with:
           repository: \${{ steps.core-pin.outputs.repo }}
           ref: \${{ steps.core-pin.outputs.ref }}
@@ -97,7 +85,36 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; fi
           if [ -f requirements-dev.txt ]; then python3 -m pip install --require-hashes --only-binary ":all:" -r requirements-dev.txt; fi
+`;
+}
 
+/**
+ * @param {import("./workflow-core-config.js").Ci} ci
+ * @returns {string}
+ */
+function renderCiWorkflow({
+	runner,
+	timeoutMinutes = DEFAULT_TIMEOUT_MINUTES,
+}) {
+	return `${CI_MARKER} Written by workflow-core's upgrade from the \`ci\` key in
+# .claude/workflow-core.json, and REWRITTEN on every bump. Change the key, not
+# this file. What it runs: the plugin's scripts/lib/adopter-ci.js. Why:
+# lucmoseley/workflow-core-tracker#5343 and lucmoseley/workflow-core-tracker#5347.
+name: workflow-core CI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Tests and guards
+    runs-on: ${runner}
+    timeout-minutes: ${timeoutMinutes}
+${renderJobEnv()}${renderSetupSteps()}
       - name: Commands and shipped checks
         run: node .workflow-core/scripts/adopter-ci.js
 
@@ -114,7 +131,11 @@ jobs:
 const isCoreCi = (text) => text.startsWith(CI_MARKER);
 
 module.exports = {
+	CI_MARKER,
 	CI_WORKFLOW,
+	DEFAULT_TIMEOUT_MINUTES,
 	renderCiWorkflow,
+	renderJobEnv,
+	renderSetupSteps,
 	isCoreCi,
 };

@@ -50,7 +50,7 @@ const TRACKER_SHAPE = /^[\w.-]+\/[\w.-]+$/;
 const OWN_MISSING_LINE = `WARN ${CONFIG_PATH}: no own tracker resolves, so "corpus" is ${UPSTREAM_TRACKER} alone — declare "corpus" or "tracker"`;
 
 const DEPLOYS = /** @type {const} */ (["vercel"]);
-const LANDING_TESTERS = /** @type {const} */ (["local", "actions"]);
+const LANDING_TESTERS = /** @type {const} */ (["auto", "local", "actions"]);
 const CI_RUNNERS = /** @type {const} */ (["ubuntu-slim", "ubuntu-24.04-arm"]);
 // GitHub ends a single-CPU runner's job at 15 minutes: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 const SLIM_MAX_MINUTES = 15;
