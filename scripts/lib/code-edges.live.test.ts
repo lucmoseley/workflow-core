@@ -33,6 +33,17 @@ const QUOTED = /["'`]([^"'`\s]+)["'`]/g;
 /* #5553 measured: the deepest live loader, core-hooks.js, sits 2 imports in. */
 const LOADER_HOPS = 2;
 
+const quoted = (code: string) =>
+	[...code.matchAll(QUOTED)].map((q) =>
+		(q[1] ?? "").replace(/^.*\}/, "").replace(/^\.?\//, ""),
+	);
+
+const quotedPaths = (code: string) =>
+	quoted(code).filter((l) => /[./]/.test(l));
+
+const tailOf = (whole: string) => (l: string) =>
+	whole === l || whole.endsWith(`/${l}`);
+
 function readLoaderSpellings(at: string, text: string, skip: string): string[] {
 	const seen = new Set([at, skip]);
 	let hop = [{ at, text }];
@@ -45,14 +56,26 @@ function readLoaderSpellings(at: string, text: string, skip: string): string[] {
 				.map((e: string) => {
 					seen.add(e);
 					const loaded = fs.readFileSync(e, "utf8");
-					for (const q of codeOf(loaded).matchAll(QUOTED))
-						spellings.push(
-							(q[1] ?? "").replace(/^.*\}/, "").replace(/^\.?\//, ""),
-						);
+					spellings.push(...quotedPaths(codeOf(loaded)));
 					return { at: e, text: loaded };
 				}),
 		);
-	return spellings.filter((l) => /[./]/.test(l));
+	return spellings;
+}
+
+function spellsTarget(at: string, without: string, target: string): boolean {
+	const code = codeOf(without);
+	const fromRoot = path.relative(ROOT, path.resolve(path.dirname(at), target));
+	const words = quoted(code);
+	return (
+		code.includes(target) ||
+		quotedPaths(code).some(tailOf(fromRoot)) ||
+		(quotedPaths(code).some(tailOf(path.dirname(fromRoot))) &&
+			words.includes(path.basename(fromRoot))) ||
+		readLoaderSpellings(at, without, path.join(ROOT, fromRoot)).some(
+			tailOf(fromRoot),
+		)
+	);
 }
 
 it.each(files.map((f) => [f.rel, f]))(
@@ -93,17 +116,15 @@ it.each(
 it.each(
 	declared.filter(([, , l]) => l.kind === "loads" && l.words.length === 1),
 )(
-	"%s names a target its file's code still spells, itself or its directory, or a module it loads within two imports quotes as a path tail",
+	"%s names a target its file's code spells whole, or quotes as a path tail or as its directory and file name, or a module it loads within two imports quotes as a path tail",
 	(_name, { at }, { without, words: [target = ""] }) => {
-		const code = codeOf(without);
-		const spellings = [target, path.dirname(target)].filter((t) => t !== ".");
-		const absolute = path.resolve(path.dirname(at), target);
-		const fromRoot = path.relative(ROOT, absolute);
-		const spelt =
-			spellings.some((t) => code.includes(t)) ||
-			readLoaderSpellings(at, without, absolute).some(
-				(l) => fromRoot === l || fromRoot.endsWith(`/${l}`),
-			);
-		expect(spelt).toBe(true);
+		expect(spellsTarget(at, without, target)).toBe(true);
 	},
 );
+
+it("holds a keyless target spelt only by its shared directory unspelt", () => {
+	const at = DECLARING["scripts/guard-uncommitted-work.test.ts"] ?? "";
+	expect(spellsTarget(at, 'join(ROOT, "lib");\n', "lib/hook-block.js")).toBe(
+		false,
+	);
+});

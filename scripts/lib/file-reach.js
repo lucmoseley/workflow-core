@@ -489,8 +489,7 @@ function declaredLoads(file, text) {
 		const named = path.join(dir, requiredGroup(m, 1, pragma));
 		const key = m[2];
 		if (key === undefined) {
-			if (isFile(named)) out.edges.push(named);
-			else out.unread.push(`${said}, no file`);
+			addKeyless(out, named, said);
 			continue;
 		}
 		const values = readManifestValues(named, key);
@@ -507,6 +506,17 @@ function declaredLoads(file, text) {
 		}
 	}
 	return out;
+}
+
+/**
+ * @param {Declared} out
+ * @param {string} named
+ * @param {string} said
+ */
+function addKeyless(out, named, said) {
+	if (!isFile(named)) out.unread.push(`${said}, no file`);
+	else if (isScript(named)) out.edges.push(named);
+	else out.reads.push(named);
 }
 
 /**
