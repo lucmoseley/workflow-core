@@ -13,6 +13,7 @@ const { formatConfigJson } = require("./config-json.js");
 const { caught, ignoreFailure } = require("./caught.js");
 const { compareVersions } = require("./compare-versions.js");
 const { noop } = require("./noop.js");
+const { rulePointer } = require("./rule-text.js");
 
 /** @param {string} v @returns {[number, number, number]} */
 function semver(v) {
@@ -193,8 +194,8 @@ function upgrade({
 			status: 3,
 			reason:
 				`pin ${pinned} is ahead of the installed plugin ${installed} — ` +
-				`install owes: re-materialise to ${pinned} (full recipe: ` +
-				"scripts/lib/rule-text.sh adopter-materialise-sequence)",
+				`install owes: re-materialise to ${pinned}. ` +
+				rulePointer("adopter-materialise-sequence"),
 		};
 	}
 
