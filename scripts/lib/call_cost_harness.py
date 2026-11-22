@@ -139,29 +139,26 @@ def _record_starts(children: list[str], root: str, cwd: str):
     return restore
 
 
-class _ExitAsPython3(contextlib.AbstractContextManager):
-    code = 0
-
+class _TracebackAsExit(contextlib.AbstractContextManager):
     def __exit__(self, exc_type, error, tb):
-        if isinstance(error, SystemExit):
-            if isinstance(error.code, int):
-                self.code = error.code
-            elif error.code is not None:
-                print(error.code, file=sys.stderr)
-                self.code = 1
-            return True
         if isinstance(error, Exception):
             traceback.print_exception(error)
-            self.code = 1
-            return True
+            raise SystemExit(1) from error
         return False
 
 
 def _invoke(script: str) -> int:
-    outcome = _ExitAsPython3()
-    with outcome:
-        runpy.run_path(script, run_name="__main__")
-    return outcome.code
+    try:
+        with _TracebackAsExit():
+            runpy.run_path(script, run_name="__main__")
+    except SystemExit as ended:
+        if ended.code is None:
+            return 0
+        if isinstance(ended.code, int):
+            return ended.code
+        print(ended.code, file=sys.stderr)
+        return 1
+    return 0
 
 
 def _run(script: str, argv: list[str], *, cwd: str, env, stdin: str | bytes) -> tuple:
