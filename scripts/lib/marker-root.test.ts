@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -95,10 +95,7 @@ describe("marker-root.sh and marker-root.js agree byte for byte", () => {
 		return { sh: sh.stdout, js: js.stdout };
 	};
 	const git = (cwd: string, ...args: string[]) =>
-		spawnSync("git", args, {
-			cwd,
-			encoding: "utf8",
-		});
+		execFileSync("git", args, { cwd, stdio: "ignore" });
 
 	it.each([
 		["a plain directory", (root: string) => root],
@@ -124,7 +121,7 @@ describe("marker-root.sh and marker-root.js agree byte for byte", () => {
 				return path.join(root, "wt");
 			},
 		],
-	])("from %s", (_name, declare) => {
+	])("both name the same markers directory from %s", (_name, declare) => {
 		const got = both(declare(fs.realpathSync(freshRoot())));
 		expect(got.sh).toBe(got.js);
 		expect(got.js).toMatch(/\/\.claude\/tmp\/markers$/);

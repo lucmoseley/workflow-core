@@ -55,6 +55,7 @@ const {
 	admissionFigures,
 	heldFields,
 } = require("./admission-figures.js");
+const { descendantsPssKb } = require("./descendants-pss-kb.js");
 
 /**
  * @typedef {import("./cpu-sample.js").LoadReading} LoadReading
@@ -667,23 +668,6 @@ function sessionsPssKb(ids, { pids, pairs, pssKbOf, children, gateSeatPids }) {
 		);
 	}
 	return { kb, unknown: null, reached, noProcess };
-}
-
-/**
- * @param {string} pid
- * @param {{ children: Map<string, string[]>, stopPids: Set<string>, pssKbOf: (pid: string) => number | null }} tree
- * @param {string[]} reached
- */
-function descendantsPssKb(pid, { children, stopPids, pssKbOf }, reached) {
-	let kb = 0;
-	const queue = [...(children.get(pid) ?? [])];
-	for (let d = queue.shift(); d !== undefined; d = queue.shift()) {
-		if (stopPids.has(d)) continue;
-		reached.push(d);
-		kb += pssKbOf(d) ?? 0;
-		queue.push(...(children.get(d) ?? []));
-	}
-	return kb;
 }
 
 /**
@@ -1636,5 +1620,4 @@ module.exports = {
 	admissionFrom,
 	readCpuSlots,
 	buildSessionCeilingText,
-	descendantsPssKb,
 };

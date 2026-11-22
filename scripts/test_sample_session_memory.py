@@ -296,29 +296,31 @@ const run = {
     req("proc-stat.js").readAncestorsOf(pid, {
       parentOf: (p) => procs[p]?.[0] ?? 0,
     }),
-  held: ({ pid, procs, marker }) => {
+  held: ({ pid, procs, file }) => {
     const ports = {
       alive: (p) => Object.hasOwn(procs, String(p)),
       startTime: (p) => procs[p]?.[1] ?? 0,
     };
-    const held = req("suite-queue.js").heldMarker("SEAT", {
-      env: { SEAT: "/q/gate.json" },
-      queueFs: { readFileSync: () => marker },
+    const suiteQueue = req("suite-queue.js");
+    const held = suiteQueue.heldMarker("SEAT", {
+      env: { SEAT: file },
       pid,
       parentOf: (p) => procs[p]?.[0] ?? 0,
       ...ports,
     });
-    const record = (() => {
-      try { return JSON.parse(marker); } catch { return null; }
-    })();
+    let record = null;
+    try {
+      record = JSON.parse(require("node:fs").readFileSync(file, "utf8"));
+    } catch {}
+    const isRecord = record && typeof record === "object" && !Array.isArray(record);
     return {
-      stale: record ? req("suite-queue.js").isMarkerStale(record, ports) : null,
+      stale: isRecord ? suiteQueue.isMarkerStale(record, ports) : null,
       held: held ? held.record.pid : null,
     };
   },
   descendants: ({ root, children, stops }) => {
     const reached = [];
-    req("admission.js").descendantsPssKb(
+    req("descendants-pss-kb.js").descendantsPssKb(
       String(root),
       {
         children: new Map(Object.entries(children).map(([k, v]) => [k, v.map(String)])),
@@ -392,21 +394,22 @@ HELD_MARKERS = [
 
 
 @pytest.mark.parametrize("candidate", [4, 6])
-def test_marker_staleness_and_the_held_seat_are_is_marker_stale_and_held_marker(
-    candidate,
+def test_marker_staleness_and_the_held_seat_are_is_marker_stale_and_held_markers(
+    candidate, tmp_path
 ):
-    cases = [json.dumps(r) for r in HELD_MARKERS] + ["{torn"]
+    files = []
+    for n, body in enumerate(
+        [json.dumps(r) for r in HELD_MARKERS] + ["{torn", "[3]", "null"]
+    ):
+        files.append(tmp_path / f"gate-{n}.json")
+        files[-1].write_text(body)
     py = []
-    for marker in cases:
-        try:
-            record = json.loads(marker)
-        except ValueError:
-            record = None
+    for file in files:
+        record = m.read_marker(str(file))
         seats = m.gate_seat_pids(
             [candidate],
             HELD_PROCS,
-            var_of=lambda _pid, _name: "/q/gate.json",
-            marker_of=lambda _path, record=record: record,
+            var_of=lambda _pid, _name, file=file: str(file),
         )
         py.append(
             {
@@ -418,7 +421,7 @@ def test_marker_staleness_and_the_held_seat_are_is_marker_stale_and_held_marker(
         )
     js = js_side(
         "held",
-        [{"pid": candidate, "procs": HELD_PROCS, "marker": c} for c in cases],
+        [{"pid": candidate, "procs": HELD_PROCS, "file": str(f)} for f in files],
     )
     assert py == js
 

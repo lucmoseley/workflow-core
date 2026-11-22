@@ -51,9 +51,12 @@ describe("guard-fire-needles.json keys on main-rewind.js's refusals", () => {
 			"main-remote-rewind",
 			(stored: boolean) => remoteRewindRule(ports(stored)),
 		],
-	])("%s, from the rule store and from its fallback", (id, refusal) => {
-		for (const part of textOf(id)) expect(refusal(true)).toContain(part);
-		for (const part of textOf(`${id}-fallback`))
-			expect(refusal(false)).toContain(part);
-	});
+	])(
+		"%s's refusal carries its needle's text, from the rule store and from its fallback",
+		(id, refusal) => {
+			for (const part of textOf(id)) expect(refusal(true)).toContain(part);
+			for (const part of textOf(`${id}-fallback`))
+				expect(refusal(false)).toContain(part);
+		},
+	);
 });
