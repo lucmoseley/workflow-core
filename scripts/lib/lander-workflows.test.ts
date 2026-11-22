@@ -4,10 +4,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { JOB_CONTRACT } from "./actions-tester.js";
 import { keptSpawn } from "./kept-spawn.js";
 import {
-	ADOPTER_WORKFLOWS,
+	GROUP_STEP,
+	NAMED_JOB,
+	RUNNER_STEPS,
+	SHARD_JOB,
+	SUITE_PASSED_JOB,
+} from "./lander-job-names.js";
+import {
 	LANDER_NAMED_WORKFLOW,
 	LANDER_SUITE_WORKFLOW,
 	renderLanderWorkflows,
@@ -174,16 +179,14 @@ describe("the job contract the Actions tester reads", () => {
 
 	it("names each shard job, Suite passed, Named files and the runner-readying steps as the tester matches them", () => {
 		const jobs = Object.values(suite?.jobs ?? {});
-		const shards = jobs.filter((j) => JOB_CONTRACT.shardJob.test(j.name ?? ""));
-		expect(
-			shards.map((j) => j.name?.match(JOB_CONTRACT.shardJob)?.slice(1)),
-		).toEqual([
+		const shards = jobs.filter((j) => SHARD_JOB.test(j.name ?? ""));
+		expect(shards.map((j) => j.name?.match(SHARD_JOB)?.slice(1))).toEqual([
 			["1", "2"],
 			["2", "2"],
 		]);
-		expect(jobs.map((j) => j.name)).toContain(JOB_CONTRACT.suitePassedJob);
+		expect(jobs.map((j) => j.name)).toContain(SUITE_PASSED_JOB);
 		expect(Object.values(named?.jobs ?? {}).map((j) => j.name)).toEqual([
-			JOB_CONTRACT.namedJob,
+			NAMED_JOB,
 		]);
 		for (const job of [...shards, ...Object.values(named?.jobs ?? {})]) {
 			const steps = job.steps ?? [];
@@ -192,19 +195,14 @@ describe("the job contract the Actions tester reads", () => {
 			);
 			expect(readying.length).toBeGreaterThan(0);
 			for (const s of readying)
-				expect(
-					JOB_CONTRACT.runnerSteps.has((s as { name?: string }).name ?? ""),
-				).toBe(true);
+				expect(RUNNER_STEPS.has((s as { name?: string }).name ?? "")).toBe(
+					true,
+				);
 		}
 		for (const job of shards)
 			expect(
 				(job.steps ?? []).map((s) => (s as { name?: string }).name),
-			).toContain(ADOPTER_WORKFLOWS.suiteStep);
-	});
-
-	it("dispatches and reads the workflows at the paths the upgrade writes", () => {
-		expect(path.basename(LANDER_SUITE_WORKFLOW)).toBe(ADOPTER_WORKFLOWS.suite);
-		expect(path.basename(LANDER_NAMED_WORKFLOW)).toBe(ADOPTER_WORKFLOWS.named);
+			).toContain(GROUP_STEP);
 	});
 });
 
@@ -214,7 +212,7 @@ let red = false;
 const named = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const shard = process.argv.find((a) => a.startsWith("--shard="));
 fs.appendFileSync("ran.txt", (shard ?? "whole") + " " + named.join(" ") + "\\n");
-for (const f of named) if (f.includes("red")) { red = true; console.log(" FAIL  " + f + " > it fails"); }
+for (const f of named) if (f.includes("red")) { red = true; console.log(f.endsWith(".py") ? "FAILED " + f + "::test_x - AssertionError" : " FAIL  " + f + " > it fails"); }
 process.exit(red ? 1 : 0);
 `;
 	const lander = (...args: string[]) => {
@@ -246,12 +244,22 @@ process.exit(red ? 1 : 0);
 		expect(r.stderr).toContain("runs 2 group(s), but the config here plans 3");
 	});
 
-	it("runs the named files the tree holds, and a red prints the FAIL line the tester reads", () => {
+	it("runs the named files the tree holds, and a red prints the FAIL or FAILED line the tester reads", () => {
 		config({ commands: { test: "node run.js" } });
-		const r = lander("files", "a.check.js", "red.check.js", "gone.check.js");
+		write(root, "red_test.py", "");
+		const r = lander(
+			"files",
+			"a.check.js",
+			"red.check.js",
+			"red_test.py",
+			"gone.check.js",
+		);
 		expect(r.status).toBe(1);
-		expect(ran()).toEqual(["whole a.check.js red.check.js"]);
-		expect(parseFailingFiles(r.stdout)).toEqual(["red.check.js"]);
+		expect(ran()).toEqual(["whole a.check.js red.check.js red_test.py"]);
+		expect(parseFailingFiles(r.stdout)).toEqual([
+			"red.check.js",
+			"red_test.py",
+		]);
 	});
 
 	it("passes a repo declaring no suite, naming that nothing ran", () => {

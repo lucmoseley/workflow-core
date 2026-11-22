@@ -1,22 +1,19 @@
 const {
 	CI_MARKER,
 	DEFAULT_TIMEOUT_MINUTES,
-	isCoreCi,
 	renderJobEnv,
 	renderSetupSteps,
 } = require("./adopter-ci.js");
+const {
+	ADOPTER_WORKFLOWS,
+	GROUP_STEP,
+	NAMED_JOB,
+	SUITE_PASSED_JOB,
+	shardJobName,
+} = require("./lander-job-names.js");
 
-const LANDER_SUITE_WORKFLOW = ".github/workflows/workflow-core-lander.yml";
-const LANDER_NAMED_WORKFLOW = ".github/workflows/workflow-core-named-rerun.yml";
-
-const GROUP_STEP = "Whole-run group";
-
-/** @type {import("./actions-tester.js").Workflows} */
-const ADOPTER_WORKFLOWS = {
-	suite: "workflow-core-lander.yml",
-	named: "workflow-core-named-rerun.yml",
-	suiteStep: GROUP_STEP,
-};
+const LANDER_SUITE_WORKFLOW = `.github/workflows/${ADOPTER_WORKFLOWS.suite}`;
+const LANDER_NAMED_WORKFLOW = `.github/workflows/${ADOPTER_WORKFLOWS.named}`;
 
 /** @param {string} e */
 const expr = (e) => `\${{ ${e} }}`;
@@ -50,8 +47,8 @@ const header = (
 ) => `${CI_MARKER} Written by workflow-core's upgrade, where the queue lander may test
 # on Actions by run length ("landingTester" absent or "auto" in
 # .claude/workflow-core.json), and REWRITTEN on every bump. ${what}
-# Change the config, not this file. What it runs and why: the plugin's
-# scripts/lib/lander-workflows.js.
+# Change the config, not this file. What it runs: the plugin's
+# scripts/lib/lander-workflows.js. Why: lucmoseley/workflow-core-tracker#5511.
 `;
 
 /**
@@ -64,7 +61,7 @@ function renderSuiteWorkflow(config) {
 	const shards = ids
 		.map(
 			(id, i) => `  ${id}:
-    name: Vitest (${i + 1}/${n})
+    name: ${shardJobName(i + 1, n)}
 ${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps()}
       - name: ${GROUP_STEP}
         run: node .workflow-core/scripts/lander-ci.js group ${i + 1}/${n}
@@ -83,7 +80,7 @@ permissions:
 jobs:
 ${shards}
   passed:
-    name: Suite passed
+    name: ${SUITE_PASSED_JOB}
     needs: [${ids.join(", ")}]
     if: \${{ always() }}
 ${renderJobHead(config)}    steps:
@@ -125,10 +122,10 @@ permissions:
 
 jobs:
   named:
-    name: Named files
+    name: ${NAMED_JOB}
 ${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps({ ref: SHA_INPUT })}
       # Through the environment, never \`\${{ }}\` in \`run:\`.
-      - name: Named files
+      - name: ${NAMED_JOB}
         env:
           FILES: \${{ inputs.files }}
         run: |
@@ -147,9 +144,7 @@ const renderLanderWorkflows = (config) => [
 ];
 
 module.exports = {
-	ADOPTER_WORKFLOWS,
 	LANDER_NAMED_WORKFLOW,
 	LANDER_SUITE_WORKFLOW,
-	isCoreLander: isCoreCi,
 	renderLanderWorkflows,
 };

@@ -1,3 +1,5 @@
+const { CHECKOUT_STEP, SETUP_NODE_STEP } = require("./lander-job-names.js");
+
 /** The workflow's path in the adopter. */
 const CI_WORKFLOW = ".github/workflows/workflow-core-ci.yml";
 
@@ -31,13 +33,13 @@ const renderJobEnv = () => `    env:
 function renderSetupSteps({ ref } = {}) {
 	return `    steps:
       # Full history: the doc-map checks read git log.
-      - name: Run actions/checkout@v4
+      - name: ${CHECKOUT_STEP}
         uses: ${CHECKOUT} # v4
         with:
 ${ref ? `          ref: ${ref}\n` : ""}          fetch-depth: 0
           persist-credentials: false
 
-      - name: Run actions/setup-node@v4
+      - name: ${SETUP_NODE_STEP}
         uses: ${SETUP_NODE} # v4
         with:
           node-version: 24
@@ -76,7 +78,7 @@ ${ref ? `          ref: ${ref}\n` : ""}          fetch-depth: 0
           console.log(\`ref=v\${ref.replace(/^v/, "")}\`);
           EOF
 
-      - name: Run actions/checkout@v4
+      - name: ${CHECKOUT_STEP}
         uses: ${CHECKOUT} # v4
         with:
           repository: \${{ steps.core-pin.outputs.repo }}
@@ -103,7 +105,8 @@ function renderCiWorkflow({
 }) {
 	return `${CI_MARKER} Written by workflow-core's upgrade from the \`ci\` key in
 # .claude/workflow-core.json, and REWRITTEN on every bump. Change the key, not
-# this file. What it runs and why: the plugin's scripts/lib/adopter-ci.js.
+# this file. What it runs: the plugin's scripts/lib/adopter-ci.js. Why:
+# lucmoseley/workflow-core-tracker#5343 and #5347.
 name: workflow-core CI
 
 on:

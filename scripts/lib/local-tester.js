@@ -548,14 +548,12 @@ const localSeconds = (samples) => (samples * TREE_PEAK_SAMPLE_MS) / 1000;
  */
 function readWholeRuns(root) {
 	/** @type {Record<string, unknown>[]} */
-	let rows;
-	try {
-		rows = readJsonl(path.join(root, MARKERS_REL, RUN_RECORD))?.rows ?? [];
-	} catch {
-		rows = [];
-	}
+	const rows = readJsonl(path.join(root, MARKERS_REL, RUN_RECORD))?.rows ?? [];
 	return rows
-		.filter((r) => r.kind === "whole")
+		.filter(
+			(r) =>
+				r.kind === "whole" && (r.verdict === "green" || r.verdict === "red"),
+		)
 		.map((r) => ({
 			tester: /** @type {"local" | "actions"} */ (
 				r.tester === "actions" ? "actions" : "local"

@@ -55,7 +55,6 @@ const { CI_WORKFLOW, renderCiWorkflow, isCoreCi } = require("./adopter-ci.js");
 const {
 	LANDER_NAMED_WORKFLOW,
 	LANDER_SUITE_WORKFLOW,
-	isCoreLander,
 	renderLanderWorkflows,
 } = require("./lander-workflows.js");
 const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
@@ -316,7 +315,7 @@ function bringLanderWorkflows(ctx) {
 	if (tester === "actions") return [];
 	return renderLanderWorkflows(cfg).flatMap(({ rel, body }) => {
 		const existing = readIfPresent(path.join(root, rel));
-		if (existing !== null && !isCoreLander(existing)) {
+		if (existing !== null && !isCoreCi(existing)) {
 			out(
 				`skipped ${rel} — it does not open on the CORE-OWNED marker, so the core did not write it`,
 			);

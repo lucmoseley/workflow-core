@@ -28,7 +28,11 @@ const recorded = (lines: object[]) => {
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(
 		path.join(dir, ".lander-runs.jsonl"),
-		lines.map((l) => `${JSON.stringify({ kind: "whole", ...l })}\n`).join(""),
+		lines
+			.map(
+				(l) => `${JSON.stringify({ kind: "whole", verdict: "green", ...l })}\n`,
+			)
+			.join(""),
 	);
 };
 const times = <T>(n: number, line: T): T[] =>
@@ -71,11 +75,12 @@ it("tests locally where the median is 3 min or under, auto named or absent", () 
 	}
 });
 
-it("tests locally under 5 whole runs, a named run not counted", () => {
+it("tests locally under 5 whole runs, a named run or one with no verdict not counted", () => {
 	config();
 	recorded([
 		...times(4, local(900)),
 		{ kind: "named", tester: "local", suiteSeconds: 900 },
+		{ verdict: "unknown", tester: "local", suiteSeconds: 900 },
 	]);
 	const { kind, lines } = wired();
 	expect(kind).toBe("local");
@@ -113,4 +118,20 @@ it("ignores the record where landingTester pins local or actions", () => {
 		kind: "core-actions",
 		lines: ["tester: actions, as landingTester pins it"],
 	});
+});
+
+it("tests locally where the run record will not read, saying why", () => {
+	config();
+	fs.mkdirSync(
+		path.join(root, ".claude", "tmp", "markers", ".lander-runs.jsonl"),
+		{
+			recursive: true,
+		},
+	);
+	const { kind, lines } = wired();
+	expect(kind).toBe("local");
+	expect(lines).toHaveLength(1);
+	expect(lines[0]).toMatch(
+		/^tester: local, the run record will not read \(.*EISDIR.*\) \(Actions over 180 s\)$/,
+	);
 });

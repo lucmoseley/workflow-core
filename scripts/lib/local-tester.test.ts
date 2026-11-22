@@ -753,15 +753,22 @@ it("appends each run's kind, file count, tree-PSS peak, tester and suite seconds
 	}
 });
 
-it("reads the record's whole runs newest first, a line without a tester the local one's at its samples' span (#5524)", () => {
+it("reads the record's judged whole runs newest first, a line without a tester the local one's at its samples' span (#5524)", () => {
 	const file = path.join(markersDir(work), ".lander-runs.jsonl");
 	fs.writeFileSync(
 		file,
 		[
-			{ kind: "whole", samples: 30 },
-			{ kind: "named", samples: 400 },
-			{ kind: "whole", tester: "actions", suiteSeconds: 500 },
-			{ kind: "whole", tester: "local", samples: 1, suiteSeconds: 90 },
+			{ kind: "whole", verdict: "red", samples: 30 },
+			{ kind: "named", verdict: "green", samples: 400 },
+			{ kind: "whole", verdict: "unknown", samples: 7 },
+			{ kind: "whole", verdict: "green", tester: "actions", suiteSeconds: 500 },
+			{
+				kind: "whole",
+				verdict: "green",
+				tester: "local",
+				samples: 1,
+				suiteSeconds: 90,
+			},
 		]
 			.map((l) => JSON.stringify(l))
 			.join("\n"),

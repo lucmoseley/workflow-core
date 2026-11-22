@@ -4,7 +4,7 @@ const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { readRunsAt } = require("./lib/local-tester.js");
-const { coreRoot } = require("./lib/script-path.js");
+const { coreRoot, scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const SHARD = /^(\d+)\/(\d+)$/;
@@ -54,13 +54,13 @@ function readRuns(root, command, positionals) {
 	if (plan.length === 0) return [];
 	if (plan.length !== n)
 		return `the workflow runs ${n} group(s), but the config here plans ${plan.length} — the next workflow-core upgrade rewrites the workflow to match`;
-	return plan[k - 1] ?? [];
+	return plan.slice(k - 1, k).flat();
 }
 
 /** @param {string[]} [argv] @returns {number} */
 function main(argv = process.argv.slice(2)) {
-	const usage = `usage: node scripts/lander-ci.js group <k>/<n>
-       node scripts/lander-ci.js files <file>…`;
+	const usage = `usage: node ${scriptPath("lander-ci.js")} group <k>/<n>
+       node ${scriptPath("lander-ci.js")} files <file>…`;
 	const parsed = parseOrCode(argv, {
 		usage,
 		commands: {

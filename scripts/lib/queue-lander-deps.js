@@ -66,20 +66,24 @@ const MIN_RUNS = 5;
 
 /**
  * @param {string} root
- * @returns {{median: number|null, runs: number}}
+ * @returns {{median: number|null, runs: number, fault: string|null}}
  */
 function readMedianRun(root) {
-	const seconds = readWholeRuns(root)
+	let whole;
+	try {
+		whole = readWholeRuns(root);
+	} catch (err) {
+		return { median: null, runs: 0, fault: parseErrorText(err) };
+	}
+	const seconds = whole
 		.slice(0, MEDIAN_RUNS)
 		.map((r) => r.suiteSeconds)
 		.sort((a, b) => a - b);
 	const n = seconds.length;
-	if (n < MIN_RUNS) return { median: null, runs: n };
-	const mid = Math.floor(n / 2);
-	/** @param {number} k */
-	const at = (k) => seconds[k] ?? 0;
-	const median = n % 2 === 1 ? at(mid) : (at(mid - 1) + at(mid)) / 2;
-	return { median, runs: n };
+	if (n < MIN_RUNS) return { median: null, runs: n, fault: null };
+	const middle = seconds.slice(Math.floor((n - 1) / 2), Math.floor(n / 2) + 1);
+	const median = middle.reduce((a, b) => a + b, 0) / middle.length;
+	return { median, runs: n, fault: null };
 }
 
 /**
@@ -99,12 +103,12 @@ function configuredTester(root, admit, say) {
 		say("tester: local, as landingTester pins it");
 		return local;
 	}
-	const { median, runs } = readMedianRun(root);
+	const { median, runs, fault } = readMedianRun(root);
 	const onActions = median !== null && median > ACTIONS_OVER_S;
-	const read =
-		median === null
-			? `${runs} whole run(s) recorded, under the ${MIN_RUNS} a median needs`
-			: `the median whole run ${Math.round(median)} s over the newest ${runs}`;
+	let read = `the median whole run ${Math.round(median ?? 0)} s over the newest ${runs}`;
+	if (fault !== null) read = `the run record will not read (${fault})`;
+	else if (median === null)
+		read = `${runs} whole run(s) recorded, under the ${MIN_RUNS} a median needs`;
 	say(
 		`tester: ${onActions ? "actions" : "local"}, ${read} (Actions over ${ACTIONS_OVER_S} s)`,
 	);

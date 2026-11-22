@@ -60,7 +60,13 @@ const { isNetworkFault } = require("./network-fault.js");
 const { readJsonl } = require("./jsonl.js");
 const { SUITE_WORKFLOW } = require("./suite-timings.js");
 const { recordRun } = require("./local-tester.js");
-const { ADOPTER_WORKFLOWS } = require("./lander-workflows.js");
+const {
+	ADOPTER_WORKFLOWS,
+	NAMED_JOB,
+	RUNNER_STEPS,
+	SHARD_JOB,
+	SUITE_PASSED_JOB,
+} = require("./lander-job-names.js");
 const {
 	CLEARED,
 	parseFailingFiles,
@@ -81,10 +87,6 @@ const { writeFd } = require("./write-fd.js");
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 /** @typedef {import("./queue-lander.js").Placement} Placement */
 
-/* ci.yml's matrix names each shard job `Vitest (k/n)`. */
-const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
-/* The aggregate job #2414's ruleset on `main` requires. */
-const SUITE_PASSED_JOB = "Suite passed";
 /* Untraced: GitHub lists a push run within seconds; the rest is room for a
  * slow queue. Past it a run never listed is a red that can drop a member
  * (#4571), so it decides a drop, not only a wait. */
@@ -117,7 +119,6 @@ const ADOPTER_FLAGS = {
 	repeatsGates: false,
 	repeatsSuite: true,
 };
-const NAMED_JOB = "Named files";
 /* Untraced: a runaway's stop, minutes being free on the public repo (#1930). */
 const NAMED_DAILY_CAP = 12;
 /* Untraced: a month, far past the UTC day the cap reads. */
@@ -126,17 +127,6 @@ const NAMED_RECORD_RETAIN_MS = 30 * DAY_MS;
 /* Untraced: as RUN_LIST_LIMIT, deep enough for dispatches a cap of 12 a day
  * can bury a run under. */
 const NAMED_RUN_LIST_LIMIT = 50;
-/* The steps that ready a runner and judge no code. Every later step runs
- * under `!cancelled()`, so a download outage at one still runs the tests, on
- * a runner missing its tools. "Install dependencies" is not one: a broken
- * lockfile is the code's fault. */
-const RUNNER_STEPS = new Set([
-	"Set up job",
-	"Run actions/checkout@v4",
-	"Run actions/setup-node@v4",
-	"Install test tools",
-	"Full history",
-]);
 /* ci.yml's step re-running a lander batch's failed files once, and the lines
  * it ends on naming those it cleared and those still failing
  * (retry-failed-files.js, #4545). */
@@ -976,8 +966,8 @@ function queueTester({
 		},
 		async verdict(place, sha, files = [], again = false) {
 			const v = await ask(place, sha, files, again);
-			const why = offActionsReason(v, fallback !== undefined);
-			if (why !== null && fallback !== undefined) {
+			const why = fallback ? offActionsReason(v) : null;
+			if (fallback && why !== null) {
 				say(
 					`lander: ${placeName(place)} at ${sha.slice(0, SHORT_SHA)} tested locally: ${why}`,
 				);
@@ -1018,12 +1008,10 @@ const adopterTester = (options) =>
 
 /**
  * @param {AskVerdict} v
- * @param {boolean} fallsBack
  * @returns {string|null}
  */
-function offActionsReason(v, fallsBack) {
+function offActionsReason(v) {
 	if (v.kind === "local") return v.reason;
-	if (!fallsBack) return null;
 	if (v.kind === "red" && v.noRun)
 		return `no run was listed at the sha within ${APPEAR_MS / 60_000} min`;
 	if (v.kind === "unknown" && "offActions" in v) return v.reason;
@@ -1192,11 +1180,4 @@ function repushFailure({ reads, branch }, sha) {
 			};
 }
 
-const JOB_CONTRACT = {
-	shardJob: SHARD_JOB,
-	suitePassedJob: SUITE_PASSED_JOB,
-	namedJob: NAMED_JOB,
-	runnerSteps: RUNNER_STEPS,
-};
-
-module.exports = { JOB_CONTRACT, adopterTester, queueTester };
+module.exports = { adopterTester, queueTester };
