@@ -31,8 +31,8 @@
 # `except Exception`/`BaseException`, and E7's E722 a bare `except:`, which
 # BLE001 does not flag: a catch-all names the exceptions it expects, and
 # neither code takes a `noqa` (docs/comment-kinds.md K3). Where any exception
-# must be survived, a context manager catches it: `contextlib.suppress(Exception)`,
-# or one whose `__exit__` reports the error. E4
+# must be survived, a context manager whose `__exit__` reports the error
+# catches it. E4
 # and E7 were left out only as "a formatter's business", but `ruff format` fixes
 # none of what they find: one-line multiple imports (E401), a late import
 # (E402), a lambda bound to a name (E731), `l`/`O`/`I` as a name (E741).

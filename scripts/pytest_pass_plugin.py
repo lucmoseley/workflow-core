@@ -161,7 +161,7 @@ class _ReportedAs(contextlib.AbstractContextManager):
         self._terminalreporter = terminalreporter
         self._headline = headline
 
-    def __exit__(self, exc_type, error, traceback):
+    def __exit__(self, exc_type, error, tb):
         if not isinstance(error, Exception):
             return False
         self._terminalreporter.write_line(f"{self._headline}: {error}")

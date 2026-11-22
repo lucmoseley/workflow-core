@@ -205,10 +205,10 @@ def _invoke(script: str) -> int:
     """Runs `script` as `__main__` and returns its exit as python3 would: a
     `SystemExit`'s code, a non-int one printed as exit 1, and an escaping
     exception's traceback printed as exit 1."""
-    exit_ = _ExitAsPython3()
-    with exit_:
+    outcome = _ExitAsPython3()
+    with outcome:
         runpy.run_path(script, run_name="__main__")
-    return exit_.code
+    return outcome.code
 
 
 def _run(script: str, argv: list[str], *, cwd: str, env, stdin: str | bytes) -> tuple:

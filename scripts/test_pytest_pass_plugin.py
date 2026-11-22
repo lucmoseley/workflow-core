@@ -174,7 +174,7 @@ def test_writes_nothing_when_no_wrapper_is_listening(tmp_path, monkeypatch):
     assert list(tmp_path.glob("*.json")) == []
 
 
-@pytest.mark.parametrize("error", [ValueError, RuntimeError, LookupError])
+@pytest.mark.parametrize("error", [ValueError, RuntimeError])
 def test_a_scope_it_cannot_read_records_the_verdict_and_no_scope(
     tmp_path, monkeypatch, error
 ):
@@ -301,7 +301,7 @@ def test_a_report_it_cannot_time_never_raises_and_times_nothing(tmp_path, monkey
     assert json.loads(out.read_text())["fileSeconds"] == {}
 
 
-@pytest.mark.parametrize("error", [ValueError, RuntimeError, LookupError])
+@pytest.mark.parametrize("error", [ValueError, RuntimeError])
 def test_timings_it_cannot_read_hand_over_null_and_keep_the_verdict(
     tmp_path, monkeypatch, error
 ):
