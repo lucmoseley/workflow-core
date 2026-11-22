@@ -95,6 +95,7 @@ function seedUnprobed(agoMs: number) {
 
 // guess, #2819
 const CEILING_MS = 10_000;
+// guess, #2819
 const POLL_MS = 100;
 const POLLS = CEILING_MS / POLL_MS;
 async function until(done: () => boolean) {
