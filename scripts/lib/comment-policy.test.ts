@@ -284,6 +284,15 @@ describe("what is not a comment", () => {
 		);
 	});
 
+	it("refuses a code-edges line where the walk reads none (#5512)", () => {
+		expect(tags("// code-edges caller: real\nx();\n", "js")).toEqual([
+			"COMMENT@1",
+		]);
+		expect(tags("# code-edges loads: x.py\nx = 1\n", "py")).toEqual([
+			"COMMENT@1",
+		]);
+	});
+
 	it("passes a checker's marker followed by a bare pointer (§X10, §G6)", () => {
 		expect(tags("// full-sweep-only: #5492\nconst a = 1;\n", "js")).toEqual([]);
 		expect(

@@ -6,6 +6,7 @@
  * needs and hands them in.
  */
 
+const { CALLER_BODY, LOADS_BODY } = require("./code-edges-pragmas.js");
 const { SHIM_MARK } = require("./hook-shim.js");
 const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
@@ -675,7 +676,13 @@ const DIRECTIVES = [
 	},
 	{ lang: "sh", re: /^shellcheck\s/, read: readsAsCode },
 	{
-		re: /^code-edges (?:loads: \S+(?: \w+)?|caller: \w+(?:[ \t]+\w+)*)[ \t]*$/,
+		lang: "sh",
+		re: new RegExp(String.raw`^(?:${LOADS_BODY}|${CALLER_BODY})[ \t]*$`),
+		read: readsAsCode,
+	},
+	{
+		lang: "js",
+		re: new RegExp(String.raw`^${LOADS_BODY}[ \t]*$`),
 		read: readsAsCode,
 	},
 	{
