@@ -243,7 +243,7 @@ describe("buildWatchNote — a prompt that names its own artefact (#2013)", () =
 		);
 		expect(note).toContain("hold the turn on `watch .claude/tmp/x.md --job`");
 		expect(note).toContain(
-			"While work remains that does not wait on this agent, run it with `run_in_background` and keep working; only once nothing else is left, run it in the foreground, as `rule:job-holds-turn` says.",
+			"Run it with `run_in_background` while other work remains, in the foreground once idle, as `rule:job-holds-turn` says (#5554).",
 		);
 		expect(note).not.toContain("end the turn");
 	});

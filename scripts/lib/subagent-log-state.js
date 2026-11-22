@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const { caught, orFallback } = require("./caught.js");
-const { readJsonl, readLastJsonlRow } = require("./jsonl.js");
+const { readLastJsonlRow } = require("./jsonl.js");
+const { readPendingTasks } = require("./pending-tasks.js");
 
 /** @typedef {{state: "in-flight" | "paused" | "stopped"} | {state: "unread", why: string}} LogState */
 
@@ -82,67 +83,26 @@ function isMarkedFinished(log) {
 	}
 }
 
-const LAUNCHED =
-	/(?:running in background with ID: |moved to the background \(ID: )([a-z0-9]+)/g;
-const NOTIFIED = /<task-id>([a-z0-9]+)<\/task-id>/g;
-const STOPS = new Set(["TaskStop", "KillShell"]);
-
-/**
- * @param {string} text
- * @param {RegExp} pattern
- */
-const idsIn = (text, pattern) =>
-	[...text.matchAll(pattern)].map((m) => String(m[1]));
-
-/**
- * @param {import("./transcript.js").TranscriptRecord} row
- * @returns {string[]}
- */
-const launchedBy = (row) =>
-	row.type === "user"
-		? blocksTyped(row, "tool_result").flatMap((b) =>
-				idsIn(JSON.stringify(b.content), LAUNCHED),
-			)
-		: [];
-
-/**
- * @param {import("./transcript.js").TranscriptRecord} row
- * @returns {string[]}
- */
-function settledBy(row) {
-	if (row.type === "assistant")
-		return blocksTyped(row, "tool_use")
-			.filter((b) => STOPS.has(String(b.name)))
-			.map((b) => {
-				const input = /** @type {{task_id?: unknown, shell_id?: unknown}} */ (
-					b.input ?? {}
-				);
-				return String(input.task_id ?? input.shell_id ?? "");
-			});
-	return row.type === "user" || row.type === "attachment"
-		? idsIn(JSON.stringify(row), NOTIFIED)
-		: [];
-}
+/** @type {Map<string, {stamp: string, live: boolean}>} */
+const liveByLog = new Map();
 
 /**
  * #5554
  * @param {string} log
- * @returns {boolean}
  */
 function hasLiveChildren(log) {
-	const read = readJsonl(
-		log,
-		(line) =>
-			line.includes("background") ||
-			line.includes("<task-id>") ||
-			[...STOPS].some((name) => line.includes(name)),
+	const stamp = orFallback(() => {
+		const { size, mtimeMs } = fs.statSync(log);
+		return `${size}:${mtimeMs}`;
+	}, "");
+	const known = liveByLog.get(log);
+	if (stamp && known?.stamp === stamp) return known.live;
+	const live = orFallback(
+		() => readPendingTasks(log, { sidechain: true }).pending.length > 0,
+		false,
 	);
-	const live = new Set();
-	for (const row of read?.rows ?? []) {
-		for (const id of launchedBy(row)) live.add(id);
-		for (const id of settledBy(row)) live.delete(id);
-	}
-	return live.size > 0;
+	liveByLog.set(log, { stamp, live });
+	return live;
 }
 
 /** @param {string} log @returns {LogState} */

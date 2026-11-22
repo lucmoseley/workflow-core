@@ -159,7 +159,7 @@ describe("the composed rewrite", () => {
 				const prelude = String(rewrite(input, { job: true })?.prelude);
 				expect(prelude).toMatch(/hold the turn on `node .*watch-artefact\.js/);
 				expect(prelude).toContain(
-					"While work remains that does not wait on this agent, run it with `run_in_background` and keep working; only once nothing else is left, run it in the foreground, as `rule:job-holds-turn` says.",
+					"Run it with `run_in_background` while other work remains, in the foreground once idle, as `rule:job-holds-turn` says (#5554).",
 				);
 				expect(prelude).toContain("A `DONE` means the agent has stopped");
 				expect(prelude).not.toMatch(/end the turn|backgrounded/);
@@ -175,7 +175,7 @@ describe("the composed rewrite", () => {
 				/hold the turn on `node .*watch-artefact\.js --no-artefact 120 530 --log <output_file>`/,
 			);
 			expect(prelude).toContain(
-				"run it with `run_in_background` and keep working; only once nothing else is left, run it in the foreground",
+				"Run it with `run_in_background` while other work remains, in the foreground once idle",
 			);
 			expect(prelude).not.toContain("end the turn");
 		});

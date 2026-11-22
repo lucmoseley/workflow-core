@@ -268,8 +268,24 @@ describe("reading the agent's own log (#5421)", () => {
 	);
 
 	it("never ends DONE or STALLED on an agent paused on background work of its own, reaching the ceiling (#5554)", async () => {
+		const bashCall = record({
+			type: "assistant",
+			isSidechain: true,
+			message: {
+				content: [
+					{
+						type: "tool_use",
+						id: "t1",
+						name: "Bash",
+						input: { command: "npm test", run_in_background: true },
+					},
+				],
+				stop_reason: "tool_use",
+			},
+		});
 		const launched = record({
 			type: "user",
+			isSidechain: true,
 			message: {
 				content: [
 					{
@@ -280,7 +296,7 @@ describe("reading the agent's own log (#5421)", () => {
 				],
 			},
 		});
-		writeFileSync(log, toolCall + launched + turnEnd);
+		writeFileSync(log, bashCall + launched + turnEnd);
 		writeFileSync(join(root, "agent-a1.meta.json"), '{"finished":true}');
 		const r = await watchLog();
 		expect(r.status).toBe(EXIT.CEILING);
