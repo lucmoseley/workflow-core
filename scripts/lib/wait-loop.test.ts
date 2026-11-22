@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * lib/wait-loop.js, a PreToolUse dispatcher core, answers three questions
- * about an opaque shell string: is this an `until`/`while` loop around `sleep`
- * with nothing to stop it (a warn), does it wait more than 15 minutes (a deny,
- * #1288), and does a wait loop gate on machine load (a deny, #5330)?
- *
- * The fire cases are mantahostels#2012's two wedged commands and #5325's two
- * load waits verbatim (mantahostels#2017, #5328 §Testing Decisions). The
- * silent cases are the shapes that would otherwise be false positives — do
- * not thin them out.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * real rule store. The core reads only the command string, so the temp dir is
- * the host root alone. The hook line, stdin and the environment the entry
- * inherits are scripts/guard-dispatch.test.ts's boundary set.
- *
- * Loosen a case here and an unbounded wait loop outlives its session
- * unwarned, a wait past 15 minutes runs unrefused, or a load wait holds out
- * until other sessions stop.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -27,8 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
-/* Their file arguments are the only change from the ticket, which writes
- * `<file>` as a placeholder. */
 const WEDGED_13H =
 	"until grep -q '######## T5' /tmp/tenure.log && ! pgrep -f 'tenure.js' >/dev/null; do sleep 3; done";
 const WEDGED_TSC =
@@ -140,7 +118,6 @@ describe("an unbounded wait loop", () => {
 			"until a; do sleep 1; done; until b; do sleep 2; done; until c; do sleep 3; done",
 		);
 		expect(warning?.match(/has no ceiling/g)).toHaveLength(1);
-		// The FIRST of them: a guard that merely overwrote would name the last.
 		expect(warning).toContain("until a; do sleep 1");
 		expect(warning).not.toContain("until c");
 	});
@@ -195,7 +172,6 @@ describe("what it stays out of the way of", () => {
 	});
 });
 
-/* THE_WAIT is #1286's command verbatim. */
 const THE_WAIT = 'timeout 10104 bash -c "sleep 9984"';
 
 describe("a wait over 15 minutes is refused", () => {
@@ -370,10 +346,7 @@ describe("from a linked worktree, its rule is read from the main checkout's stor
 	freshSandbox((sb) => {
 		at = splitCheckout(path.join(sb.dir, "split"));
 	});
-	/** A rule fragment of `id` reading `text`, in `tree`'s own rule store. */
 	const plantRule = (tree: string, id: string, text: string) => {
-		/* The suite pins every read to the plugin's store (vitest.setup.ts);
-		 * lifted, a checkout's own store is read first. */
 		vi.stubEnv("WFC_RULES_DIR", "");
 		const rules = path.join(tree, "docs", "agents", "rules");
 		fs.mkdirSync(rules, { recursive: true });
@@ -394,9 +367,6 @@ describe("from a linked worktree, its rule is read from the main checkout's stor
 	});
 });
 
-/* #5325's two waits, verbatim from its case session: a capped `for` polling
- * `/proc/loadavg` below 6, the first at 90 rounds (45 minutes) and the second
- * at 28 (14 minutes), then below 8. */
 const LOAD_45M = `for i in $(seq 1 90); do l=$(cut -d' ' -f1 /proc/loadavg); awk "BEGIN{exit !($l < 6)}" && break; sleep 30; done; echo "load at start: $(cut -d' ' -f1 /proc/loadavg)"`;
 const LOAD_14M = `for i in $(seq 1 28); do l=$(cut -d' ' -f1 /proc/loadavg); awk "BEGIN{exit !($l < 8)}" && break; sleep 30; done; l=$(cut -d' ' -f1 /proc/loadavg); echo "load: $l"`;
 const UNTIL_6 = `until [ "$(cut -d. -f1 /proc/loadavg)" -lt 6 ]; do sleep 30; done; npm run test`;

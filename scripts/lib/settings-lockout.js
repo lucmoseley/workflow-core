@@ -1,29 +1,3 @@
-/*
- * settings-lockout.js — whether a session started in an existing worktree
- * would be locked out by that worktree's own `.claude/settings.json` (#4752).
- *
- * The harness reads project settings from the session's cwd, so the
- * canary's PreToolUse line (#4745) runs as the worktree has it. A fresh cut
- * is safe, as `origin/main` holds only lines the lander's suite passed, but
- * a resume or a launch-into reopens a worktree whose own unlanded edit may
- * have broken the line. There every tool call is refused with the harness's
- * `onFailure` error, which names no fix, and the session cannot apply one.
- *
- * A worktree whose PreToolUse lines match `origin/main`'s is admitted
- * unrun. One whose lines differ has each line that meets a Bash call run
- * as the harness would, for a session the self-plugin loaded: a marker is
- * written for a probe session id by the main checkout's own marker writer,
- * then removed. A line that does not allow that call inside its timeout
- * refuses the start, naming the line and the fix. Where `origin/main`'s
- * lines refuse the probe too, the fault is not the worktree's edit, so the
- * start is left to the canary's own refusal, which names its fix.
- *
- * IT FAILS OPEN where it cannot run the probe — a settings file that will
- * not read, no main checkout, no marker written — admitting the start and
- * saying so through `warn` (#4752): a start it refused on its own fault
- * would strand a session the harness would have run.
- */
-
 const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -51,14 +25,11 @@ const { MARKERS_REL, SELF_PLUGIN_PREFIX } = require("./marker-root.js");
 const { writeFd } = require("./write-fd.js");
 
 const SETTINGS = ".claude/settings.json";
-/* The harness's default for a `command` hook (docs/practice/
- * shell-scripting-and-hooks.md §Claude Code hooks). */
+// The harness's default `command` hook timeout (https://code.claude.com/docs/en/hooks)
 const DEFAULT_TIMEOUT_S = 600;
-/* Untraced: the canary answers in milliseconds, and a line slower than
- * this on every tool call strands its session as surely as one that hangs,
- * so a probe waits no longer than this whatever the line's own timeout. */
+// #4752 guess
 const PROBE_CAP_S = 15;
-/* Untraced: a hook has nothing to clean up after a TERM. */
+// #4752 guess
 const KILL_GRACE_MS = 1000;
 const PROBE_CALL = {
 	hook_event_name: "PreToolUse",
@@ -70,25 +41,17 @@ const PROBE_CALL = {
  * @typedef {import("./core-hooks.js").HookEntry} HookEntry
  */
 
-/**
- * Whether a PreToolUse `matcher` meets a Bash call (lib/core-hooks.js's
- * isToolCovered).
- * @param {string | undefined} matcher
- */
+/** @param {string | undefined} matcher */
 function isBashMatched(matcher) {
 	try {
 		return isToolCovered(matcher, "Bash");
 	} catch (e) {
 		if (!(e instanceof MatcherError)) throw e;
-		/* A matcher that will not compile is probed, not skipped (#4752): a
-		 * probe can only find a lockout, so probing too much costs a run of
-		 * the line, and skipping it could miss one. */
 		return true;
 	}
 }
 
 /**
- * The `command` hooks of `settings` a session's first Bash call meets.
  * @param {{ hooks?: import("./core-hooks.js").Hooks }} settings
  * @returns {HookEntry[]}
  */
@@ -99,9 +62,6 @@ function bashLines(settings) {
 }
 
 /**
- * What a hook's exit-0 stdout decides: `deny` where it blocks the call,
- * `unparsed` where it opens as JSON and will not parse, else null —
- * plain text decides nothing.
  * @param {string} stdout
  * @returns {"deny" | "unparsed" | null}
  */
@@ -120,8 +80,6 @@ function decisionOf(stdout) {
 }
 
 /**
- * Why a PreToolUse line's run failed — a timeout, a non-zero exit other
- * than 2, JSON that will not parse — or null where it did not.
  * @param {HookEntry} line
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {{ budgetS: number, saying: string }} run
@@ -139,10 +97,6 @@ function failureOf(line, r, { budgetS, saying }) {
 }
 
 /**
- * Why a PreToolUse line's run, as run-budgeted.js ended it, blocks the call
- * the harness's way (docs/practice/shell-scripting-and-hooks.md §exit codes):
- * exit 2 or a deny on stdout always; a failure only under `onFailure: block`.
- * Null where the call goes on.
  * @param {HookEntry} line
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {number} budgetS
@@ -159,12 +113,8 @@ function blockOf(line, r, budgetS) {
 }
 
 /**
- * `line`'s verdict on a Bash call, run in `dir` for the marked session its
- * `input` names: `blocked` and why, `unrun` and why where run-budgeted.js
- * itself failed, or null where the call goes through.
  * @param {HookEntry} line
  * @param {{ dir: string, env: NodeJS.ProcessEnv, input: string }} probe
- *   `input`, a file holding the hook's stdin
  * @returns {{ blocked: string } | { unrun: string } | null}
  */
 function verdictOf(line, { dir, env, input }) {
@@ -172,8 +122,6 @@ function verdictOf(line, { dir, env, input }) {
 		Number(line.timeout ?? DEFAULT_TIMEOUT_S),
 		PROBE_CAP_S,
 	);
-	/* run-budgeted.js closes the command's stdin, so the shell reopens it on
-	 * the input file, passed as `$0`, before the line runs. */
 	const r = spawnSync(
 		process.execPath,
 		[
@@ -188,17 +136,12 @@ function verdictOf(line, { dir, env, input }) {
 		{ cwd: dir, env, encoding: "utf8" },
 	);
 	if (r.error) return { unrun: r.error.message };
-	/* 125 is also a status the line may exit with itself, which
-	 * run-budgeted.js passes through; only its own prefixed line marks its
-	 * failure. */
 	if (isRunnerFailure(r)) return { unrun: parseFirstLine(r.stderr) };
 	const blocked = blockOf(line, r, budgetS);
 	return blocked === null ? null : { blocked };
 }
 
 /**
- * "blocked" where any of origin/main's `lines` blocks the probe call, else the
- * first that would not run, else null.
  * @param {HookEntry[]} lines
  * @param {{ dir: string, env: NodeJS.ProcessEnv, input: string }} probe
  * @returns {"blocked" | { unrun: string } | null}
@@ -216,7 +159,6 @@ function landedVerdict(lines, probe) {
 }
 
 /**
- * The PreToolUse lines of `text`, parsed, or why they will not read.
  * @param {string} text
  * @returns {{ lines: HookEntry[] } | { why: string }}
  */
@@ -231,10 +173,8 @@ function parseLines(text) {
 }
 
 /**
- * `lines`' first verdict that is not a pass, `unrun` where the probe itself
- * could not run.
  * @param {string} dir
- * @param {string} main the main checkout
+ * @param {string} main
  * @param {{ own: HookEntry[], landed: HookEntry[] | null }} lines
  * @returns {{ line: HookEntry, blocked: string } | { unrun: string } | null}
  */
@@ -297,12 +237,8 @@ function probeLines(dir, main, { own, landed }) {
 }
 
 /**
- * Why a session started in worktree `dir` would be locked out by its own
- * `.claude/settings.json`, as a refusal naming the line and the fix; null
- * where it would not, or where the probe cannot run, which it tells `warn`.
- * @param {string} dir a linked worktree of the repository
- * @param {(line: string) => void} [warn] where an unchecked start is said,
- *   stderr by default
+ * @param {string} dir
+ * @param {(line: string) => void} [warn]
  * @returns {string | null}
  */
 function settingsLockout(dir, warn = (line) => writeFd(2, `${line}\n`)) {

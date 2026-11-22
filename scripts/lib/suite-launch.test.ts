@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Direct tests for scripts/lib/suite-launch.js (#1528): every launch spelling
- * the suite guards share, read through lib/shell-parse.js's walk so a quoted
- * word arrives masked, as it does in a guard. A misread spelling is misjudged
- * by each guard taking its kind: a suite let past the cap or detached
- * unwatched, or a command that launches nothing refused.
- */
 import { describe, expect, it, vi } from "vitest";
 import { PY_COLLECTED_TEST } from "./test-kind";
 
@@ -64,7 +57,6 @@ const ports = {
 	),
 };
 
-/** `kind|script|taken` for each segment of the command, or `none`. */
 const kindOf = (command: string) => {
 	const parsed = parseCommand(command);
 	const out: string[] = [];
@@ -88,7 +80,6 @@ const kindOf = (command: string) => {
 	return out.join("\n");
 };
 
-/** Each launch spelling, and the `kind|script|taken` it reads as. */
 const LAUNCHES: [string, string][] = [
 	["npm test", "npm-vitest|test|2"],
 	["npm run test", "npm-vitest|test|3"],
@@ -99,7 +90,6 @@ const LAUNCHES: [string, string][] = [
 	[`npm run "test"`, "npm-vitest|test|3"],
 	[`npm run 'test:changed' -- --queue`, "npm-vitest|test:changed|3"],
 	[`npm "test"`, "npm-vitest|test|2"],
-	// npm's own aliases, as its cmd-list derefs them (#4032).
 	["npm t", "npm-vitest|test|2"],
 	["npm tst", "npm-vitest|test|2"],
 	["npm rum test", "npm-vitest|test|3"],
@@ -123,7 +113,6 @@ const LAUNCHES: [string, string][] = [
 	[`python3 "scripts/foo.test.py"`, "other||0"],
 	["node scripts/build-site.js", "other||0"],
 	["node /home/u/fb/scripts/build-site.js", "other||0"],
-	// The non-vitest queue (#1776): the command behind it, queued.
 	["node scripts/queue-run.js -- node --test", "other||0|queued"],
 	["node /p/scripts/queue-run.js -- pytest -q", "other||0|queued"],
 	["node scripts/queue-run.js pytest", "other||0|queued"],
@@ -131,7 +120,6 @@ const LAUNCHES: [string, string][] = [
 		"timeout 900 node scripts/queue-run.js -- timeout 600 python3 a.test.py",
 		"other||0|queued",
 	],
-	// An npm script `--queue` cannot reach, not running run-vitest.js.
 	["node scripts/queue-run.js -- npm run test", "other||0|queued"],
 	[
 		"node scripts/queue-run.js -- node scripts/build-site.js",
@@ -139,7 +127,6 @@ const LAUNCHES: [string, string][] = [
 	],
 ];
 
-/** Spellings that launch no suite. */
 const NONES = [
 	"npm run build",
 	"npm run lint",

@@ -1,28 +1,4 @@
 // @vitest-environment node
-/*
- * `npm run test -- --queue`'s wait: the turn order between waiters, the gate
- * poll, and the `(pid, start)` staleness rule and marker walk shared between
- * `readTurn` (which sweeps a stale marker on sight) and
- * check-stale-suite-queue.js (which only reports one). Neither caller tests the
- * rule itself, so a staleness case broken here fails nowhere else
- * (mantahostels#2034).
- *
- * `gateDenies`' limb cases read the real gate in process
- * (lib/suite-concurrency-host.js's `readGate`), its memory and `ps` staged at
- * its own seams, since the limb is the guard's core's to name.
- * Liveness and start time are injected as plain functions, so pid reuse can be
- * staged without a real reused pid; of the staleness cases only `readStartTimeOf`
- * reads a real process.
- * The turn's rule is pure (`turnOf`), so its cases pass values; `readTurn`'s
- * cases write real markers into a temp directory of their own and read them
- * through a seat.
- * That a KILLED waiter drops its marker is the seat's signal handler, its
- * signals emitted on an injected emitter; run-vitest.js's real process tests
- * the exit it takes on a real one.
- * In the world, a wrong verdict lets `npm run test -- --queue` sweep a live
- * suite's marker and start past it on the memory-capped machine, or wait
- * behind a dead one.
- */
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -68,24 +44,19 @@ const { resolvedFileCount, weighFiles } = require("./suite-bounded.js") as {
 	weighFiles: (files: number | null) => { workers: number; part: boolean };
 };
 
-/** A launch's carried weight at `files` resolved test files (#2931). */
 const weighed = (files: number | null) => ({
 	resolvedFiles: files,
 	wholeSlot: !weighFiles(files).part,
 });
-/** A part-suite's carried weight. */
 const PART = weighed(2);
-/** `PEAK_MB` for each queue, which lib/launch-charge.test.ts pins. */
 const SUITE_PEAK_MB = launchChargeMb({ kind: "suite" });
 const TSC_PEAK_MB = launchChargeMb({ kind: "tsc" });
 const TSC7_PEAK_MB = launchChargeMb({ kind: "tsc", major: 7 });
 const TSC5_PEAK_MB = launchChargeMb({ kind: "tsc", major: 5 });
-/** A 200-file named run: past the whole-slot bound, still a touched run. */
 const NAMED_200 = Array.from(
 	{ length: 200 },
 	(_, i) => `scripts/t${i}.test.ts`,
 );
-/** The weight run-vitest.js carries for a touched run, which takes no slot. */
 const TOUCHED_200 = { resolvedFiles: 200, wholeSlot: false };
 
 const dirs: string[] = [];
@@ -95,31 +66,22 @@ afterEach(() => {
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
 });
 
-/** `waitForGate`'s admission for a wait with no queue to stamp (#2742). */
 const noQueue = () => "admitted" as const;
 
-/** A queue directory of its own, cleaned up after each case. */
 function qdir() {
 	const d = mkScratchDir("queue-");
 	dirs.push(d);
 	return d;
 }
 
-/** `pid`'s seat in `queueDir`, its marker joined at `at`. */
 const joined = (queueDir: string, pid: number, at: number, join: object = {}) =>
 	queueSeat({
 		queue: { queueDir, pid, clock: () => at, alive: () => true },
 		join,
 	});
 
-/** A seat's stamps where it joins no marker: what its wait charges and admits. */
 const seatStamps = (queue: object) => queueSeat({ queue, join: false }).stamps;
 
-/**
- * One poll of `pid`'s turn on an open gate, by a seat that joins no marker of
- * its own, so the read writes, stamps and removes none: its exit line's
- * reason and fields.
- */
 async function polled(
 	queue: {
 		queueDir?: string;
@@ -146,7 +108,6 @@ async function polled(
 	return exits[0];
 }
 
-/** Whether `pid`'s turn is open, read as `polled` reads it. */
 const turnOpen = async (queue: Parameters<typeof polled>[0] = {}) =>
 	((await polled(queue)) as { reason: string }).reason === "opened";
 
@@ -176,8 +137,6 @@ describe("isMarkerStale", () => {
 		).toBe(false);
 	});
 
-	/* start: 0 means procfs could not be read when the marker was written —
-	 * judged the same way as absent, never as "definitely reused". */
 	it("does not judge reuse on start: 0, even where the live pid now has a real start time", () => {
 		expect(
 			isMarkerStale(
@@ -214,7 +173,6 @@ describe("readStartTimeOf", () => {
 });
 
 describe("readMarkers", () => {
-	/** A stand-in for `fs`, typed as the slice readMarkers actually calls. */
 	type FsStub = Pick<typeof import("node:fs"), "readdirSync" | "readFileSync">;
 
 	const fsImpl = (files: Record<string, string>): FsStub =>
@@ -251,10 +209,6 @@ describe("readMarkers", () => {
 		expect(markers).toEqual([]);
 	});
 
-	/* readTurn orders on a numeric `at`, so the walk it shares with
-	 * check-stale-suite-queue.js skips a marker without one: one answer to
-	 * "does this marker count at all", not just to "is it stale"
-	 * (mantahostels#2034). */
 	it("skips a marker with a numeric pid and no numeric at", () => {
 		const { markers } = readMarkers(
 			"/q",
@@ -291,7 +245,6 @@ describe("readMarkers", () => {
 });
 
 describe("the queue directory every default reads (#2889)", () => {
-	/* A reader restating the temp root reads none of this queue. */
 	it("is one directory under the temp root, which the root's listing never reaches", async () => {
 		const root = qdir();
 		vi.stubEnv("TMPDIR", root);
@@ -355,7 +308,6 @@ describe("readLiveRoleMarkers (#2416)", () => {
 		expect(fs.readdirSync(queueDir)).toHaveLength(3);
 	});
 
-	/* Positive pair: "names the live markers of one role with their charge, sweeping none". */
 	it("says the queue would not read rather than reading it empty (#5301)", () => {
 		const queueDir = qdir();
 		joined(queueDir, 11, 11, { role: "lander" });
@@ -457,7 +409,6 @@ describe("readTestsHeldOnMemory (#5555)", () => {
 });
 
 describe("heldSeat, a mutation loop's one seat (#2918)", () => {
-	/* 40 → 30 → 20 → 10: the run is 40, its driver 30, the seat 20. */
 	const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 1);
 	const seat = (weight = PART, spawned = true) => {
 		const queueDir = qdir();
@@ -552,14 +503,11 @@ describe("turnOf, the turn's rule (#4260)", () => {
 		it("waits behind a waiter ahead of it that has not spawned, at any slot count", () => {
 			expect(reasons({ ahead: [wholeAhead] })).toEqual(["fifo-whole"]);
 			expect(reasons({ ahead: [partAhead] })).toEqual(["fifo-whole"]);
-			/* The gate counts `ps`, so two waiters admitted before either is
-			 * visible would both read the same free slot (#601). */
 			expect(reasons({ ahead: [wholeAhead], slots: 2 })).toEqual([
 				"fifo-whole",
 			]);
 		});
 
-		// #2680's cap: one whole suite at a time.
 		it("waits while a whole suite ahead of it runs, the slots full", () => {
 			const running = { ...wholeAhead, spawned: true };
 			expect(reasons({ ahead: [running] })).toEqual(["fifo-whole"]);
@@ -799,8 +747,6 @@ describe("turnOf, the turn's rule (#4260)", () => {
 		]);
 	});
 
-	/* An admitted launch is not yet in `ps`, so every other waiter, ahead or
-	 * behind, waits it out (#601). */
 	it("closes every class while another launch is admitted unspawned, after its fifo", () => {
 		for (const waiter of ["whole", "part", "tsc"] as const)
 			expect(turn({ waiter, admissionOpen: true })).toEqual({
@@ -813,7 +759,6 @@ describe("turnOf, the turn's rule (#4260)", () => {
 });
 
 describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
-	/** Everything alive except the pids named. */
 	const deadOnly =
 		(...dead: number[]) =>
 		(pid: number) =>
@@ -893,8 +838,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			});
 		});
 
-		/* An admission yielded on the same poll, so the next poll reads the
-		 * gate denying and never the turn: the pass it counted is stale. */
 		it("carries nothing on an exit other than opened", async () => {
 			const queueDir = qdir();
 			twoPartWaiters(queueDir).stamps.onMemoryHeld(true);
@@ -927,7 +870,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		const HeadFiles = 6;
 		const BehindFiles = 1;
 		const windowsHold = () => ({ limb: "windows" as const, mb: 999 });
-		/** A head held on `headGate`, and a smaller run behind it. */
 		const headHeldOn = async (headGate: () => object | null) => {
 			const queueDir = qdir();
 			const head = joined(queueDir, 11, 0, { weight: weighed(HeadFiles) });
@@ -980,7 +922,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 
 	describe("the rest stamp an older part-suite's wait writes (#4783)", () => {
 		const late = 5 * PART_PASS_AGE_MS;
-		/** A head its memory rung holds on `denial` past the age bound, and a run behind it that fits. */
 		const behindHeadHeldOn = async (denial: object) => {
 			const queueDir = qdir();
 			const head = joined(queueDir, 11, 0, { weight: PART });
@@ -1030,7 +971,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 	});
 
 	describe("a part-suite by the weight its seat joined with (#2931)", () => {
-		/** A whole suite 11 running, and 99 joined behind it at `weight`. */
 		const besideRunning = (weight?: object) => {
 			const queueDir = qdir();
 			joined(queueDir, 11, 11).spawned();
@@ -1038,7 +978,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			return turnOpen({ queueDir, pid: 99 });
 		};
 
-		/* The line is WHOLE_SLOT_BOUND, never the whole suite's worker count. */
 		it.each([
 			[2, "comes", true],
 			[WHOLE_SLOT_BOUND - 1, "comes", true],
@@ -1052,7 +991,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		);
 
 		it("seats a `--changed` run resolving below the bound beside a held slot", async () => {
-			/* `--changed`'s plan selected 40 files; its argv names none. */
 			expect(await besideRunning(weighed(40))).toBe(true);
 		});
 
@@ -1090,7 +1028,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			expect(kindsOf(queueDir)).toEqual({ 11: "named", 22: undefined });
 		});
 
-		/** A named seat 99 joined at `at` behind a touched 11 joined at 0. */
 		const behindTouched = async (at: number) => {
 			const queueDir = qdir();
 			const touched = joined(queueDir, 11, 0, {
@@ -1138,9 +1075,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		expect(fs.readdirSync(queueDir)).toEqual(["wfc-suite-queue-22.json"]);
 	});
 
-	/* Markers are read in directory order, which is lexicographic, so
-	 * `…-100.json` is read before `…-9.json`, and without the tie-break the
-	 * first one read wins (mantahostels#2024). */
 	it("breaks a tied timestamp on pid, so both waiters agree", async () => {
 		const queueDir = qdir();
 		joined(queueDir, 100, 100);
@@ -1182,12 +1116,9 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		expect(fs.readdirSync(queueDir)).toEqual(["wfc-suite-queue-11.json"]);
 	});
 
-	/* A leaked marker whose pid is later reused by an unrelated process
-	 * (mantahostels#2034). */
 	it("treats a reused pid as stale, even though it is alive", async () => {
 		const queueDir = qdir();
 		const mine = joined(queueDir, 11, 100);
-		// A marker claiming a start time that the live process does not have.
 		fs.writeFileSync(
 			path.join(queueDir, "wfc-suite-queue-12.json"),
 			JSON.stringify({ pid: 12, at: 50, start: 999_999_999 }),
@@ -1196,9 +1127,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		expect(fs.readdirSync(queueDir)).toEqual([path.basename(mine.ticket)]);
 	});
 
-	/* Markers written before mantahostels#2034 carry no start time, and procfs may not be
-	 * readable at all. Neither may be read as "stale" — that would sweep live
-	 * waiters. */
 	it("falls back to liveness alone when a marker carries no start time", async () => {
 		const queueDir = qdir();
 		joined(queueDir, 11, 100);
@@ -1210,15 +1138,9 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		expect(fs.readdirSync(queueDir)).toHaveLength(2);
 	});
 
-	/* A start of 0 is what a seat's join writes when procfs cannot be read.
-	 * Without the `> 0` guard the comparison runs against a real start time,
-	 * never matches, and every such waiter is swept as stale. */
 	it("falls back to liveness when a marker records a start time of 0", async () => {
 		const queueDir = qdir();
 		joined(queueDir, 11, 100);
-		/* THIS process's pid, so `readStartTimeOf` returns a real, non-zero tick
-		 * count. A pid with no readable /proc entry returns 0 on both sides of
-		 * the comparison (mantahostels#2034). */
 		fs.writeFileSync(
 			path.join(queueDir, `wfc-suite-queue-${process.pid}.json`),
 			JSON.stringify({ pid: process.pid, at: 50, start: 0 }),
@@ -1227,7 +1149,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		expect(fs.readdirSync(queueDir)).toHaveLength(2);
 	});
 
-	/* The stampede itself: an open gate is not enough to launch on. */
 	it("keeps waiting on an open gate while it is not this waiter's turn", async () => {
 		let turns = 3;
 		const sleepFn = vi.fn(() => Promise.resolve());
@@ -1247,7 +1168,6 @@ describe("two launches whose turns came true on one poll (#2622)", () => {
 	const alive = () => true;
 	const admitted = (seat: Seat) =>
 		JSON.parse(fs.readFileSync(seat.ticket, "utf8")).admitted === true;
-	/** Stamp `seat` admitted as its own admission would, before its re-read. */
 	const stamp = (seat: Seat) => {
 		const record = JSON.parse(fs.readFileSync(seat.ticket, "utf8"));
 		fs.writeFileSync(
@@ -1256,9 +1176,6 @@ describe("two launches whose turns came true on one poll (#2622)", () => {
 		);
 	};
 
-	/** Two joined seats, 11 ahead of 22, 22 joining with `join22`. `hooked`'s
-	 * queue fs runs `between` before every directory read: inside its
-	 * admission, between its stamp and its re-read. */
 	const pair = (hooked?: number, between?: () => void, join22: object = {}) => {
 		const queueDir = qdir();
 		const onReread = {
@@ -1312,10 +1229,6 @@ describe("two launches whose turns came true on one poll (#2622)", () => {
 		expect(seats[11].stamps.admit()).toBe("admitted");
 	});
 
-	/* A whole suite and the part-suite backfilling behind it, freed on one
-	 * poll, with a load hold between each turn and its launch: the re-read
-	 * after the hold settles it, so the admission's contest (pinned above) is
-	 * never reached. A launch spawns once its rival next sleeps. */
 	it("never launches both unspawned", async () => {
 		const seats = pair(undefined, undefined, { weight: PART });
 		const launched: (11 | 22)[] = [];
@@ -1352,9 +1265,6 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		queueDir: string;
 		seat: Seat;
 	}
-	/** The suite queue and the type-check slot's, siblings as under the
-	 * temp root, with a whole suite 11 waiting in one and a `tsc` 22 in the
-	 * other. `hooked`'s queue fs runs `between` before every directory read. */
 	const queues = (hooked?: "suite" | "tsc", between?: () => void) => {
 		const root = qdir();
 		const onReread = {
@@ -1477,9 +1387,6 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		expect(other.seat.stamps.admit()).toBe("admitted");
 	});
 
-	/* Both gates open on one poll, each wait with its own load hold: one
-	 * launches and the other is held until it spawns. A launch spawns once
-	 * its rival next sleeps. */
 	it("never launches both unspawned", async () => {
 		const { suite, tsc } = queues();
 		const launched: Waiter[] = [];
@@ -1508,7 +1415,6 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 });
 
 describe("the queues ordered against each other where the climb decides (#4760)", () => {
-	/** Both queues as siblings under one root, as under the temp root. */
 	const both = () => {
 		const root = qdir();
 		return {
@@ -1670,14 +1576,10 @@ describe("a stamp the climb set, kept while running launches hold the wait (#479
 
 describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	const alive = () => true;
-	/** A process table holding no runner: the machine's own are no fixture's. */
 	const noRunners = () => ({
 		ok: true as const,
 		rows: [{ pid: 1, args: "/sbin/init" }],
 	});
-	/** A suite's gate on a `tsc` climbing to 1,000 MB over three polls, the
-	 * third freeing 700 MB: MemAvailable reads 6,500 MB less what the `tsc` has
-	 * drawn, against a 5,000 MB rung, so a live reading alone admits at once. */
 	const climbingTsc = () => {
 		const polls = [
 			{ tsc: 300, freed: 0 },
@@ -1704,7 +1606,6 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			},
 		};
 	};
-	/** Sibling suite and type-check queues, as under the temp root. */
 	const queues = () => {
 		const root = qdir();
 		return {
@@ -1712,14 +1613,11 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			tscDir: path.join(root, "wfc-tsc-queue"),
 		};
 	};
-	/** A launch `pid` in `queueDir`, admitted and spawned. */
 	const spawnedIn = (queueDir: string, pid: number) => {
 		const seat = joined(queueDir, pid, 0);
 		seat.spawned();
 		return seat;
 	};
-	/** What `queueDir`'s waiter reads its peers have yet to draw, each
-	 * peer's tree reading `mb`. */
 	const climbOf = (
 		queueDir: string,
 		mb: number,
@@ -1881,8 +1779,6 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(climbOf(tscDir, 100)).toBe(SUITE_PEAK_MB - 100);
 	});
 
-	/* 4,000 MB available against the 3,150 MB `tsc` rung, each launch's tree at
-	 * 500 MB. */
 	it("admits a `tsc` beside two small part-suites and holds it beside a whole suite still climbing (#3806)", async () => {
 		const { suiteDir, tscDir } = queues();
 		const waitOnce = async () => {
@@ -1933,7 +1829,6 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(readQueuesClimbMb("all", options)).toBe(
 			SUITE_PEAK_MB - 100 + TSC_PEAK_MB - 100,
 		);
-		/* A spawned suite not yet on `ps` is on no rung (#4111). */
 		expect(readQueuesClimbMb("off-rung", options)).toBe(
 			SUITE_PEAK_MB - 100 + TSC_PEAK_MB - 100,
 		);
@@ -1972,7 +1867,6 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			resolvedFiles: number | null;
 			wholeSlot: boolean;
 		} | null = () => null;
-		/** A process table of `pid: args`, with its parents. */
 		const machine = (
 			rows: Record<number, string>,
 			parents: Record<number, number> = {},
@@ -2336,7 +2230,6 @@ describe("waitForGate's load hold, before the gate's last read (#2622)", () => {
 		expect([await sleeps("ahead"), await sleeps("behind")]).toEqual([0, 1]);
 	});
 
-	/** A part-suite's wait already past its ceiling on the count cap. */
 	const atCeiling = (options: object) => {
 		const said: string[] = [];
 		const outcome = waitForGate({
@@ -2415,7 +2308,6 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 	});
 
 	describe("tracing the limb that holds it (#4359)", () => {
-		/** A wait on `polls`, one a poll, each poll 10 s apart. */
 		const traced = async (polls: object[], traceLimbs: boolean) => {
 			const lines: string[] = [];
 			let now = 0;
@@ -2520,7 +2412,6 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 				waiting: "waiting",
 				traceLimbs: true,
 			});
-			// 120 + 1003 + 2377 ms: 3.5 s prints as 4, the float sum as 3.
 			expect(lines.at(-1)).toBe(
 				"q: gate opened after 4s — held 1s on the count cap, 3s on the memory rung\n",
 			);
@@ -2623,8 +2514,6 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 		expect(heard).toEqual([3350, 2950]);
 	});
 
-	/** A wait on `gateRead`'s reading of the gate, asked about `gateWords`:
-	 * how often it slept. */
 	const sleepsUnder = async (
 		gateRead: (command: string) => { limb: string } | null,
 		gateWords?: string[],
@@ -2709,7 +2598,6 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		climbMb,
 	});
 
-	/** A wait whose clock moves 10 ms a poll, timing out on the third. */
 	const timedWait = async (
 		limbs: (object | null)[],
 		{
@@ -3011,9 +2899,6 @@ describe("gateDenies, the command it asks the gate about (#2558)", () => {
 describe("gateDenies, against the real gate (#2421)", () => {
 	const { readGate } = require("./suite-concurrency-host.js");
 
-	/** The gate's reading with `mb` available and `suites` running, for a
-	 * launch of `words` carrying `weight`, at a root whose workflow-core.json
-	 * holds `config`. */
 	const ask = (
 		mb: number,
 		suites: number,
@@ -3069,8 +2954,6 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		});
 	});
 
-	/* A whole suite's rung is ~3.35 GB, so 4,000 MB passes it alone and fails
-	 * it less a 1,500 MB climb (#3416). */
 	it("charges the climb off MemAvailable, giving the reading itself and the charge apart", () => {
 		expect(ask(4000, 0)).toBeNull();
 		expect(ask(4000, 0, [], { climbMb: 1500 })).toEqual({
@@ -3081,8 +2964,6 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		});
 	});
 
-	/* The queue's turn counts markers alone; an unqueued or stood-down whole
-	 * suite holds the slot through this limb (#2680). */
 	it("names the count limb on a second whole suite, and lets a part-suite through", () => {
 		expect(ask(20_000, 1, ["--changed"])).toEqual({ limb: "count" });
 		expect(ask(20_000, 1, ["scripts/a.test.ts"])).toBeNull();
@@ -3091,7 +2972,6 @@ describe("gateDenies, against the real gate (#2421)", () => {
 	it("admits a touched run while a whole suite holds the slot, a 200-file named run among them (#2935)", () => {
 		expect(ask(20_000, 1, NAMED_200)).toBeNull();
 		expect(ask(20_000, 1, NAMED_200, { weight: TOUCHED_200 })).toBeNull();
-		/* The same 200 files resolved by a run that is not touched take it. */
 		expect(ask(20_000, 1, [], { weight: weighed(200) })).toEqual({
 			limb: "count",
 		});
@@ -3115,8 +2995,6 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		expect(ask(20_000, 0)).toBeNull();
 	});
 
-	/* A module read as off on a config fault, as the guard's own context reads
-	 * it, so the poll keeps the guard's verdict (#3137). */
 	it("judges on through an unreadable config, as the guard does", () => {
 		expect(ask(500, 0, [], { config: "{" })).toMatchObject({ limb: "memory" });
 	});
@@ -3138,9 +3016,6 @@ describe("gateDenies, against the real gate (#2421)", () => {
 describe("the Windows-memory hold, against the real gate (#4557)", () => {
 	const { readGate } = require("./suite-concurrency-host.js");
 
-	/** A suite's wait at a roomy guest, Windows' free memory read off a
-	 * minute log each poll as memwatch leaves it; `frees` is what each sleep
-	 * writes next. */
 	const waitOn = async (
 		first: number,
 		frees: number[],
@@ -3225,9 +3100,6 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 		);
 	});
 
-	/* The two cases below poll a minute apart, not the queue's 10 s: each
-	 * poll spawns the gate's `ps`, which the read audit weighs at ~100 ms a
-	 * spawn, and the hold's spell is timed by the clock, not by polls (#5036). */
 	const minutePolls = 60_000;
 
 	it("runs a wait one spell of the hold has held for its 10-minute maximum, saying so and logging it (#4850)", async () => {
@@ -3244,9 +3116,6 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 	});
 
 	it("starts the maximum afresh once Windows clears between spells (#4850)", async () => {
-		/* Held up to 480 s, then Windows clears for one poll while the queue's
-		 * turn stays shut, twice before the 20-minute bound: no spell reaches
-		 * 10 minutes, so the wait is refused there. */
 		const spell = new Array(480_000 / minutePolls).fill(700);
 		const { outcome, said, exitHeld } = await waitOn(
 			700,
@@ -3417,7 +3286,6 @@ describe("queueSeat, one seat's lifecycle end to end (#4240)", () => {
 			expect(handled).toEqual(["SIGHUP"]);
 			expect(h.exits).toEqual([]);
 			expect(markersIn(dir)).toHaveLength(1);
-			// Past its leave too: the caller still answers for the process.
 			seat.leave();
 			h.emitter.emit("SIGTERM");
 			expect(handled).toEqual(["SIGHUP", "SIGTERM"]);

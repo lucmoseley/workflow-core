@@ -1,36 +1,30 @@
 // @vitest-environment node
-/*
- * lib/stranded-count.js is the ONE OWNER of the stranded-claim threshold and of
- * the actionable subset — which standing claims sit on a file carrying
- * uncommitted work. check-stranded-file-claims.js's --notify line prints those
- * numbers, and pick-next.js's OWED WORK headline will (mantahostels#1206, mantahostels#1780).
- *
- * Cases run against an arbiter sandbox (`freshSandbox`) and a throwaway git
- * repo for the dirty-file subset, never the live claim store or this tree.
- *
- * The stranded-claim line `npm run status` prints is built on these figures; loosen a
- * case and it calls a live holder's claim stranded, inviting a forced release
- * over work in flight, or hides a dead one carrying uncommitted edits.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ListedLock } from "./arbiter-records.js";
 import { freshSandbox } from "./arbiter-testkit";
-
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const mod: any = createRequire(__filename)("./stranded-count.js");
+import {
+	attributeWorktreeDirt,
+	classifyClaims,
+	countStranded,
+	dirtByTree,
+	isDirtyClaim,
+	readDirtyPaths,
+} from "./stranded-count.js";
 
 const sb = freshSandbox();
 
-/** A lock in the shape readLocks() returns, `agedHours` back-dating it. */
-const lock = (p: string, sessionId: string, agedHours = 24) => ({
-	path: p,
-	sessionId,
-	claimedAt: new Date(Date.now() - agedHours * 3_600_000).toISOString(),
-});
+const asLock = (o: object) => o as ListedLock;
+
+const lock = (p: string, sessionId: string, agedHours = 24) =>
+	asLock({
+		path: p,
+		sessionId,
+		claimedAt: new Date(Date.now() - agedHours * 3_600_000).toISOString(),
+	});
 
 function gitRepo() {
 	const git = (...args: string[]) =>
@@ -49,19 +43,17 @@ function gitRepo() {
 	);
 }
 
-/* The one owner of "is this claim stranded". Both readers sort through
- * `classifyClaims`, so a case asserted here is the same case the sweep applies
- * (mantahostels#1780, mantahostels#1800). */
 describe("classifyClaims", () => {
 	const ids = new Set(["live"]);
 
-	/** The one bucket `classifyClaims` sorts a lone lock into. */
 	const bucketOf = (
 		l: object,
 		opts: { hours?: number; terminal?: Set<string> } = {},
 	) => {
-		const r = mod.classifyClaims([l], ids, opts);
-		const hit = Object.keys(r).filter((k) => r[k].includes(l));
+		const claim = asLock(l);
+		const r = classifyClaims([claim], ids, opts);
+		const buckets = Object.entries(r) as [string, ListedLock[]][];
+		const hit = buckets.filter(([, v]) => v.includes(claim)).map(([k]) => k);
 		expect(hit).toHaveLength(1);
 		return hit[0];
 	};
@@ -78,8 +70,8 @@ describe("classifyClaims", () => {
 		const strandedLock = lock("a.md", "dead", 24);
 		const youngLock = lock("b.md", "dead", 2);
 		const liveLock = lock("c.md", "live", 24);
-		const unreadableLock = { path: "d.md", unreadable: true };
-		const r = mod.classifyClaims(
+		const unreadableLock = asLock({ path: "d.md", unreadable: true });
+		const r = classifyClaims(
 			[strandedLock, youngLock, liveLock, unreadableLock],
 			ids,
 		);
@@ -89,22 +81,16 @@ describe("classifyClaims", () => {
 		expect(r.unreadable).toEqual([unreadableLock]);
 	});
 
-	/* The sweep passes its `--hours <n>` override; nothing else does. */
 	it("takes an hours override, defaulting to the derived threshold", () => {
 		const young = lock("a.md", "dead", 2);
 		expect(bucketOf(young, { hours: 1 })).toBe("stranded");
 		expect(bucketOf(young)).toBe("young");
 	});
 
-	/* An unreadable timestamp is reported, not suppressed: the holder is already
-	 * known not to be listed, and the threshold only keeps noise down. */
 	it("calls a claim with an unreadable timestamp stranded", () => {
 		expect(bucketOf({ path: "a.md", sessionId: "dead" })).toBe("stranded");
 	});
 
-	/* mantahostels#2765: the oracle keeps listing a finished-but-unreaped session, so
-	 * `listed` alone is not liveness — a holder in the `finished` pool is judged
-	 * like an unlisted one instead of exempted for ever. */
 	describe("a listed holder the oracle also calls terminal", () => {
 		const terminal = new Set(["live"]);
 
@@ -124,36 +110,33 @@ describe("classifyClaims", () => {
 
 describe("countStranded", () => {
 	it("counts a claim whose holder is not listed and which is past the threshold", () => {
-		const r = mod.countStranded(
+		const r = countStranded(
 			[lock("a.md", "dead", 24), lock("b.md", "live", 24)],
 			new Set(["live"]),
 		);
 		expect(r).toMatchObject({ ok: true, stranded: 1 });
 	});
 
-	/* The threshold's own boundary: mantahostels#1746 derived 12 h. */
 	it("excludes a claim younger than STRANDED_AFTER_HOURS and includes an older one", () => {
 		const ids = new Set(["live"]);
-		expect(mod.countStranded([lock("a.md", "dead", 11)], ids).stranded).toBe(0);
-		expect(mod.countStranded([lock("a.md", "dead", 13)], ids).stranded).toBe(1);
+		expect(countStranded([lock("a.md", "dead", 11)], ids).stranded).toBe(0);
+		expect(countStranded([lock("a.md", "dead", 13)], ids).stranded).toBe(1);
 	});
 
 	it("reports unknown, not zero, where the store or the oracle could not be read", () => {
-		expect(mod.countStranded(null, new Set())).toMatchObject({ ok: false });
-		expect(mod.countStranded([], null)).toMatchObject({ ok: false });
+		expect(countStranded(null, new Set())).toMatchObject({ ok: false });
+		expect(countStranded([], null)).toMatchObject({ ok: false });
 	});
 
-	/* THE CONTRACT pick-next.js's headline depends on: a working tree git would
-	 * not report on is NOT a clean one, so the subset reads unknown. */
 	it("returns carrying null on a dirty set of null, and on no dirty set at all", () => {
 		const locks = [lock("a.md", "dead", 24)];
 		const ids = new Set(["live"]);
-		expect(mod.countStranded(locks, ids, { dirty: null }).carrying).toBeNull();
-		expect(mod.countStranded(locks, ids).carrying).toBeNull();
+		expect(countStranded(locks, ids, { dirty: null }).carrying).toBeNull();
+		expect(countStranded(locks, ids).carrying).toBeNull();
 	});
 
 	it("counts only the stranded claims inside the dirty set", () => {
-		const r = mod.countStranded(
+		const r = countStranded(
 			[lock("a.md", "dead", 24), lock("b.md", "dead", 24)],
 			new Set(["live"]),
 			{ dirty: new Set(["a.md"]) },
@@ -161,11 +144,9 @@ describe("countStranded", () => {
 		expect(r).toMatchObject({ ok: true, stranded: 2, carrying: 1 });
 	});
 
-	/* A dirty file whose claim is NOT stranded — young, or its holder still
-	 * listed — is not owed work, so it must not reach the subset. */
 	it("does not count a dirty file whose claim is live or young", () => {
 		const dirty = new Set(["a.md", "b.md"]);
-		const r = mod.countStranded(
+		const r = countStranded(
 			[lock("a.md", "live", 24), lock("b.md", "dead", 2)],
 			new Set(["live"]),
 			{ dirty },
@@ -173,10 +154,8 @@ describe("countStranded", () => {
 		expect(r).toMatchObject({ stranded: 0, carrying: 0 });
 	});
 
-	/* A region claim spells itself `docs/doc-map.md#B42` and git has never heard
-	 * of it (mantahostels#1747): the subset must match through subjectPath. */
 	it("matches a region claim against the file it names", () => {
-		const r = mod.countStranded(
+		const r = countStranded(
 			[lock("docs/doc-map.md#B42", "dead", 24)],
 			new Set(["live"]),
 			{ dirty: new Set(["docs/doc-map.md"]) },
@@ -189,10 +168,10 @@ describe("countStranded", () => {
 			{ worktree: "/wt/dead", dirty: new Set(["a.md"]) },
 			{ worktree: "/wt/other", dirty: new Set(["b.md"]) },
 		];
-		const r = mod.countStranded(
+		const r = countStranded(
 			[
-				{ ...lock("a.md", "dead", 24), tree: "/wt/dead" },
-				{ ...lock("b.md", "dead", 24), tree: "/wt/dead" },
+				asLock({ ...lock("a.md", "dead", 24), tree: "/wt/dead" }),
+				asLock({ ...lock("b.md", "dead", 24), tree: "/wt/dead" }),
 			],
 			new Set(["live"]),
 			{ dirty: new Set(), found },
@@ -201,8 +180,8 @@ describe("countStranded", () => {
 	});
 
 	it("does not count a worktree claim on a path dirty only in the main checkout (#4457)", () => {
-		const r = mod.countStranded(
-			[{ ...lock("docs/x.md", "dead", 24), tree: "/wt/dead" }],
+		const r = countStranded(
+			[asLock({ ...lock("docs/x.md", "dead", 24), tree: "/wt/dead" })],
 			new Set(["live"]),
 			{ dirty: new Set(["docs/x.md"]), found: [] },
 		);
@@ -210,7 +189,7 @@ describe("countStranded", () => {
 	});
 
 	it("counts a claim whose holder is listed but the oracle calls terminal, past the threshold", () => {
-		const r = mod.countStranded([lock("a.md", "live", 24)], new Set(["live"]), {
+		const r = countStranded([lock("a.md", "live", 24)], new Set(["live"]), {
 			terminal: new Set(["live"]),
 		});
 		expect(r).toMatchObject({ ok: true, stranded: 1 });
@@ -224,42 +203,37 @@ describe("readDirtyPaths", () => {
 		fs.writeFileSync(path.join(sb.repo, "docs", "tracked.md"), "edited\n");
 		fs.writeFileSync(path.join(sb.repo, "docs", "scratch.md"), "new\n");
 
-		const dirty = mod.readDirtyPaths();
-		expect(dirty.has("docs/tracked.md")).toBe(true);
-		// `-uall`, not `-uno`: an abandoned session's findings sit in an untracked
-		// scratch file.
-		expect(dirty.has("docs/scratch.md")).toBe(true);
+		const dirty = readDirtyPaths();
+		expect(dirty?.has("docs/tracked.md")).toBe(true);
+		expect(dirty?.has("docs/scratch.md")).toBe(true);
 	});
 
 	it("is empty, not null, on a clean tree", () => {
 		gitRepo();
-		expect(mod.readDirtyPaths().size).toBe(0);
+		expect(readDirtyPaths()?.size).toBe(0);
 	});
 
-	/* Degrades to unknown, never to clean (mantahostels#1747). */
 	it("returns null where git cannot answer at all", () => {
-		expect(mod.readDirtyPaths()).toBeNull();
+		expect(readDirtyPaths()).toBeNull();
 	});
 });
 
 describe("isDirtyClaim", () => {
-	const dirt = (...paths: string[]) => mod.dirtByTree(new Set(paths), []);
+	const dirt = (...paths: string[]) => dirtByTree(new Set(paths), []);
 
 	it("is false against a dirt map of null", () => {
-		expect(mod.isDirtyClaim(null, { path: "a.md" })).toBe(false);
+		expect(isDirtyClaim(null, { path: "a.md" })).toBe(false);
 	});
 
 	it("judges a region claim by its whole file", () => {
 		expect(
-			mod.isDirtyClaim(dirt("docs/doc-map.md"), {
+			isDirtyClaim(dirt("docs/doc-map.md"), {
 				path: "docs/doc-map.md#B42",
 			}),
 		).toBe(true);
 	});
 });
 
-/* A job store that will not read may hold a dirty worktree's owner, so the
- * worktree count goes unknown while the claim counts still read (#4704). */
 describe("an unreadable job store", () => {
 	it("leaves the claim counts standing and calls the worktree count unknown", () => {
 		const store = path.join(sb.home, "jobs");
@@ -267,15 +241,15 @@ describe("an unreadable job store", () => {
 		fs.chmodSync(store, 0o000);
 		try {
 			const found = [{ worktree: "/wt/dead", dirty: new Set(["a.md"]) }];
-			const attributed = mod.attributeWorktreeDirt(found, {});
+			const attributed = attributeWorktreeDirt(found, {});
 			expect(attributed.unread).toEqual([
 				expect.stringContaining(`${store}: EACCES`),
 			]);
-			const r = mod.countStranded(
-				[lock("a.md", "dead", 24)],
-				new Set(["live"]),
-				{ dirty: new Set(), found, attributed },
-			);
+			const r = countStranded([lock("a.md", "dead", 24)], new Set(["live"]), {
+				dirty: new Set(),
+				found,
+				attributed,
+			});
 			expect(r).toMatchObject({
 				ok: true,
 				stranded: 1,

@@ -50,37 +50,25 @@ const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
-/* A target opening on a variable, then a slash. */
 const VAR_SLASH = /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\//;
-/* Each variable a target names. */
 const VAR_NAME = /\$\{?([A-Za-z_][A-Za-z0-9_]*)/g;
-/* An `rm` command inside a `-c` script: at its start or after a blank, `;`,
- * `&`, `|` or `(`, then a blank. Bash's `[[:space:]]`, spelt out. */
 const RM_IN_SCRIPT = /(^|[ \t\n\v\f\r;&|(])rm[ \t\n\v\f\r]/;
-/* An `export`/`declare`'s `NAME=value` word. */
 const DECLARATION = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
 
 /**
  * @typedef {object} RmPorts
- * @property {() => boolean} isLatchWritable whether the markers directory the
- *   latch is written to can be written
+ * @property {() => boolean} isLatchWritable
  * @typedef {import("./kit-context.js").KitContext & RmPorts} RmContext
- * @typedef {object} Scan what the walk has caught so far: the first target
- *   each limb caught, as the refusal quotes it, and what it has seen
+ * @typedef {object} Scan
  * @property {string} varSlash
  * @property {string} cdGlob
  * @property {string} shellRun
  * @property {boolean} rmSeen
  * @property {boolean} cdSeen
- * @property {Set<string>} declared names an `export`/`declare`/`readonly`
- *   gave a literal value, which the walk's own harvest reads only off a
- *   command's leading assignments
+ * @property {Set<string>} declared
  */
 
-/**
- * A text as a command substitution reads it back: trailing newlines gone.
- * @param {string} s
- */
+/** @param {string} s */
 
 /**
  * @param {string} command
@@ -102,12 +90,7 @@ function decide(command, ctx) {
 	);
 }
 
-/**
- * Walk every command `subject` runs, recording what each limb catches.
- * @param {string} subject
- * @param {RmContext} ctx
- * @returns {Scan}
- */
+/** @param {string} subject @param {RmContext} ctx @returns {Scan} */
 function scan(subject, ctx) {
 	const parsed = parseCommand(subject);
 	/** @type {Scan} */
@@ -135,11 +118,9 @@ function scan(subject, ctx) {
 }
 
 /**
- * One unwrap run's words, judged.
- * @param {string[]} run masked
+ * @param {string[]} run
  * @param {{ seen: Scan, lit: (w: string) => { text: string, known: boolean },
- *   assigned: (name: string) => boolean }} with accumulator: its `seen` is
- *   written
+ *   assigned: (name: string) => boolean }} with
  */
 function judgeRun(run, { seen, lit, assigned }) {
 	if (run.length === 0) return;
@@ -168,10 +149,8 @@ function judgeRun(run, { seen, lit, assigned }) {
 }
 
 /**
- * One `rm`'s words after the command word: the first var-slash and cd-glob
- * targets, options skipped up to a `--`.
- * @param {string[]} args masked
- * @param {Scan} seen accumulator: rmSeen, varSlash and cdGlob are set here
+ * @param {string[]} args
+ * @param {Scan} seen
  * @param {(w: string) => { text: string, known: boolean }} lit
  * @param {(name: string) => boolean} assigned
  */
@@ -205,8 +184,6 @@ function judgeRm(args, seen, lit, assigned) {
 }
 
 /**
- * Whether every `$NAME` in `text` is one the command assigned a resolvable
- * value, or declared one.
  * @param {string} text
  * @param {Scan} seen
  * @param {(name: string) => boolean} assigned
@@ -220,11 +197,8 @@ function allAssigned(text, seen, assigned) {
 }
 
 /**
- * One shell interpreter's words after the command word: the `-c` script, or
- * the script file where it is named by a variable. Only the first positional
- * word is read.
- * @param {string[]} args masked
- * @param {Scan} seen accumulator: shellRun and rmSeen are set through readScript
+ * @param {string[]} args
+ * @param {Scan} seen
  * @param {(w: string) => { text: string, known: boolean }} lit
  */
 function judgeShell(args, seen, lit) {
@@ -238,12 +212,7 @@ function judgeShell(args, seen, lit) {
 	}
 }
 
-/**
- * How a shell reads one word ahead of its script: a `-o`/`+o`, which takes a
- * value; a short-flag run carrying `c`; any other flag; or the script.
- * @param {string} a masked
- * @returns {"value" | "c" | "flag" | "script"}
- */
+/** @param {string} a @returns {"value" | "c" | "flag" | "script"} */
 function shellWord(a) {
 	if (a === "-o" || a === "+o") return "value";
 	if (a.startsWith("--")) return "flag";
@@ -251,13 +220,7 @@ function shellWord(a) {
 	return a.startsWith("-") || a.startsWith("+") ? "flag" : "script";
 }
 
-/**
- * A shell's script word: a `-c` script, which may run an `rm` itself, or a
- * file named by a variable.
- * @param {string} text the word as read
- * @param {boolean} dashC
- * @param {Scan} seen accumulator: shellRun and rmSeen are set here
- */
+/** @param {string} text @param {boolean} dashC @param {Scan} seen */
 function readScript(text, dashC, seen) {
 	if (dashC) {
 		seen.shellRun = "-c";
@@ -266,10 +229,8 @@ function readScript(text, dashC, seen) {
 }
 
 /**
- * The names an `export`/`declare`/`typeset`/`readonly`/`local` gives a value
- * read in full.
- * @param {string[]} args masked
- * @param {Scan} seen accumulator: each name a quoted literal declares joins declared
+ * @param {string[]} args
+ * @param {Scan} seen
  * @param {(w: string) => { text: string, known: boolean }} lit
  */
 function judgeDeclare(args, seen, lit) {
@@ -279,11 +240,7 @@ function judgeDeclare(args, seen, lit) {
 	}
 }
 
-/**
- * The refusal's reason clause, the first limb caught in priority order; null
- * where none was.
- * @param {Scan} seen
- */
+/** @param {Scan} seen */
 function reasonFor({ varSlash, cdGlob, shellRun, rmSeen }) {
 	if (varSlash)
 		return `its target \`${varSlash}\` opens on a variable, and holds one this command never sets, so the check reads it as \`/\` when that variable is empty`;
@@ -294,12 +251,7 @@ function reasonFor({ varSlash, cdGlob, shellRun, rmSeen }) {
 	return null;
 }
 
-/**
- * The refusal: the reason, then the rule, core paths spelled at the plugin
- * root; a CMD placeholder anywhere in it reads as nothing.
- * @param {string} reason
- * @param {RmContext} ctx
- */
+/** @param {string} reason @param {RmContext} ctx */
 function refusalText(reason, ctx) {
 	const rule = ruleOrFallback(
 		ctx,
@@ -307,7 +259,6 @@ function refusalText(reason, ctx) {
 		"An rm Claude Code cannot check is a permission prompt no allow entry clears",
 	);
 	const text = `Refused once: Claude Code's built-in removal check would prompt on this command — ${reason}. Re-send it unchanged and it goes through to that check.\n\n${rule}`;
-	/* No segment: the reason already quotes the target that tripped the check. */
 	return denyText(ctx, "", text);
 }
 

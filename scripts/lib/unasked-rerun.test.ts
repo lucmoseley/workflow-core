@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * lib/unasked-rerun.js's `judge` (#815, spec #810, #2800, #2913): whether a
- * bare test run is an unasked re-run — certificates attest what it would test,
- * or a red run already red on its base stands in for one (#3633), and the
- * session has not been refused before — and what it hands its latch
- * and refusal log on a refusal.
- *
- * Its branches are module cases over lib/unasked-rerun-io-fake.js, each
- * picking the port answers its situation names; the contract test holds
- * those answers to the real adapter. A few cases still run `judge` over the
- * real adapter in a throwaway repository, where the outcome turns on the
- * own-work selection and the certificate library agreeing about one tree.
- * Which command reaches the judge, and what the guard makes of each answer,
- * is lib/unasked-rerun-guard.test.ts's; the hook end to end is
- * guard-unasked-rerun.test.ts's.
- *
- * The "where it cannot judge" cases are the fail-open record: each must answer
- * `why`, which the guard logs, so dropping one hides a judge that allows
- * silently. Loosen a refusal case and a suite that can only repeat a known
- * verdict runs again unasked; loosen a never-refused one and a session's
- * needed run is denied.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -58,7 +36,6 @@ const { BASE, fakeIO, HEAD, NEIGHBOUR } =
 		NEIGHBOUR: string;
 	};
 
-/** The judge on `command` for SID over the picked answers, and what it wrote. */
 function judged(
 	command: string,
 	picks: Record<string, string> = {},
@@ -72,7 +49,6 @@ function judged(
 	return { out, latches: fake.latches, refusals: fake.refusals };
 }
 
-/** The refusal text, asserting the answer is a refusal and nothing else. */
 const refused = (out: Verdict) => {
 	expect(Object.keys(out)).toEqual(["deny"]);
 	return out.deny as string;
@@ -446,8 +422,6 @@ describe("over the real adapter, where selection and certificates must agree on 
 		fx.git("add", "--", "docs", "a.js", "a.test.ts");
 		fx.git("commit", "-q", "-m", "mine");
 		const sha = fx.git("rev-parse", "HEAD");
-		/* A run that ran nothing: the manifest's reader of a.js is attested
-		 * only as the file it cached. */
 		fx.writeStore({
 			...fx.narrowedOn(sha, [], "RUN-K"),
 			...foldCached(

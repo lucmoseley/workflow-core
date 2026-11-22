@@ -89,11 +89,6 @@ const ALLOWED = {
 		reason:
 			"bootstraps a host repo FROM this checkout, so its own tree is the source it copies and the host's is --root (#5)",
 	},
-	"scripts/cut-mantahostels.js": {
-		tags: ["SELF-ROOTED-JS"],
-		reason:
-			"cuts mantahostels over FROM this checkout, which is left behind and never shipped; under --pin its plan reads this checkout's init-adopter.js and hooks.json before the pinned release is installed (#423)",
-	},
 	"scripts/lib/rule-text.js": {
 		tags: ["SELF-ROOTED-JS"],
 		reason:

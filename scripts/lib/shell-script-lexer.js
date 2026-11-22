@@ -1,40 +1,14 @@
-/*
- * shell-script-lexer.js — a whole shell script cut into its simple commands,
- * for lib/file-reach.js's shell reach (#4790): each command's words as
- * written, with their offsets, redirections left out; the commands inside
- * `$(…)`, backticks and `<(…)` as commands of their own; an array's literal
- * elements as a command marked `array`. Comments, heredoc bodies, `case`
- * patterns and `((…))` arithmetic are no commands, and `[[ … ]]` holds its
- * operators as words.
- *
- * Not lib/shell-parse.js, the guard parser: that reads one Bash tool command,
- * fails open on what it cannot read and joins lines around `git` and `gh`;
- * this reads a file, and its caller fails closed on what it cannot.
- *
- * A CORE: it does no I/O and never runs the text.
- */
-
 /**
- * @typedef {{text: string, at: number}} ShWord a word as written, and its
- *   offset in the script
+ * @typedef {{text: string, at: number}} ShWord
  * @typedef {{words: ShWord[], prev: ShCommand | null, joined: string,
- *   array: boolean}} ShCommand a simple command's words, with the command
- *   before it on its list and the operator joining the two; or an array's
- *   elements, which run only where the array does
+ *   array: boolean}} ShCommand
  * @typedef {{command: ShCommand, depth: number, cases: number,
- *   pattern: boolean, test: boolean}} ShList one list's state: its open
- *   command, `(` depth and open `case`s; `pattern` inside a `case` before a
- *   pattern's `)`, `test` inside `[[ … ]]`
+ *   pattern: boolean, test: boolean}} ShList
  */
 
-/* Where a command ends, `(` and `)` aside. */
 const SH_OPERATOR = /&&|\|\||;;&?|;&|\|&|[;&|]/y;
-/* A redirection's operator; a heredoc's is group 1. */
 const SH_REDIRECT = /\d*(?:(<<-?)(?!<)|&>>?|<<<|<>|>>|>&|<&|>\||[<>])(?!\()/y;
-/* The gap before a redirection's target. */
 const SH_BLANKS = /[ \t]*/y;
-/* A word that only opens or closes a compound command, or negates one, so the
- * command proper starts after it. */
 const SH_RESERVED = new Set([
 	"!",
 	"{",
@@ -51,12 +25,8 @@ const SH_RESERVED = new Set([
 	"time",
 	"esac",
 ]);
-/* A variable's assignment: the name, an element's index, then the value
- * from `=` on. */
 const SH_ASSIGN = /^([A-Za-z_]\w*)(\[[^\]]*\])?\+?=/;
-/* An array's assignment up to its `(`: an assignment with no value yet. */
 const SH_ARRAY_OPEN = new RegExp(`${SH_ASSIGN.source}$`);
-/* `name()`'s empty brackets, which define a function. */
 const SH_DEFINITION = /\(\s*\)/y;
 
 /** @returns {ShCommand} */
@@ -67,7 +37,6 @@ const emptyCommand = (/** @type {ShCommand | null} */ prev, joined = "") => ({
 	array: false,
 });
 
-/** A script's commands, read left to right from the cursor `i`. */
 class ShLexer {
 	/** @param {string} code */
 	constructor(code) {
@@ -79,7 +48,6 @@ class ShLexer {
 		this.heredocs = [];
 		/** @type {RegExpExecArray | null} */
 		this.lastMatch = null;
-		/* This lexer's own sticky regexes: one moves `lastIndex` as it reads. */
 		this.re = {
 			operator: new RegExp(SH_OPERATOR),
 			redirect: new RegExp(SH_REDIRECT),
@@ -88,10 +56,7 @@ class ShLexer {
 		};
 	}
 
-	/**
-	 * Reads commands on to `closer` at the list's own depth, or the end.
-	 * @param {string | null} closer
-	 */
+	/** @param {string | null} closer */
 	list(closer) {
 		/** @type {ShList} */
 		const state = {
@@ -112,11 +77,7 @@ class ShLexer {
 		this.end(state, "");
 	}
 
-	/**
-	 * Reads one token at the cursor into `state`.
-	 * @param {ShList} state accumulator: the token's effect on the list
-	 * @param {string} c the character at the cursor
-	 */
+	/** @param {ShList} state @param {string} c */
 	step(state, c) {
 		if (c === " " || c === "\t" || c === "\r") this.i++;
 		else if (this.code.startsWith("\\\n", this.i)) this.i += 2;
@@ -125,11 +86,7 @@ class ShLexer {
 		else this.token(state, c);
 	}
 
-	/**
-	 * Reads one operator, redirection or word at the cursor into `state`.
-	 * @param {ShList} state accumulator: the token's effect on the list
-	 * @param {string} c the character at the cursor
-	 */
+	/** @param {ShList} state @param {string} c */
 	token(state, c) {
 		if (state.test && /[()<>&|]/.test(c)) this.testOperator(state);
 		else if (this.code.startsWith("((", this.i) && isCommandStart(state))
@@ -141,19 +98,14 @@ class ShLexer {
 		else this.addWord(state);
 	}
 
-	/** @param {ShList} state accumulator: the command ends; `;;` opens a
-	 * `case` pattern */
+	/** @param {ShList} state */
 	operator(state) {
 		const op = this.lastMatch?.[0] ?? "";
 		this.end(state, op);
 		state.pattern = state.cases > 0 && /^;[;&]/.test(op);
 	}
 
-	/**
-	 * Ends the open command, if it holds a word, and opens the next.
-	 * @param {ShList} state accumulator: its command is replaced
-	 * @param {string} joined the operator ending it
-	 */
+	/** @param {ShList} state @param {string} joined */
 	end(state, joined) {
 		const { command } = state;
 		if (command.words.length > 0) this.commands.push(command);
@@ -163,7 +115,7 @@ class ShLexer {
 		);
 	}
 
-	/** @param {ShList} state accumulator: a line inside `[[ … ]]` goes on */
+	/** @param {ShList} state */
 	newline(state) {
 		this.i++;
 		if (state.test) return;
@@ -176,19 +128,14 @@ class ShLexer {
 		this.i = eol === -1 ? this.code.length : eol;
 	}
 
-	/** @param {ShList} state accumulator: the operator is a word of the test */
+	/** @param {ShList} state */
 	testOperator(state) {
 		const run = this.code.slice(this.i).match(/^[()<>&|]+/)?.[0] ?? "";
 		state.command.words.push({ text: run, at: this.i });
 		this.i += run.length;
 	}
 
-	/**
-	 * A `|`, `(` or `)` in a `case` pattern: its `)` ends the pattern, whose
-	 * words are no command.
-	 * @param {ShList} state accumulator: leaves the pattern at its `)`
-	 * @param {string} c
-	 */
+	/** @param {ShList} state @param {string} c */
 	patternEnd(state, c) {
 		if (c === ")") {
 			state.command.words = [];
@@ -197,12 +144,7 @@ class ShLexer {
 		this.i++;
 	}
 
-	/**
-	 * A subshell's bracket, or `name()`, which defines a function: its name is
-	 * no command.
-	 * @param {ShList} state accumulator: its depth and command
-	 * @param {string} c
-	 */
+	/** @param {ShList} state @param {string} c */
 	paren(state, c) {
 		if (
 			c === "(" &&
@@ -218,8 +160,6 @@ class ShLexer {
 		this.i++;
 	}
 
-	/** A redirection's target, which is no word of the command; a heredoc's
-	 * delimiter is kept until its line ends. */
 	redirect() {
 		const heredoc = this.lastMatch?.[1];
 		this.sticky(this.re.blanks);
@@ -231,7 +171,7 @@ class ShLexer {
 			});
 	}
 
-	/** @param {ShList} state accumulator: the command gains the word */
+	/** @param {ShList} state */
 	addWord(state) {
 		const word = this.word();
 		if (word === null) {
@@ -253,11 +193,7 @@ class ShLexer {
 		}
 	}
 
-	/**
-	 * Matches sticky `re` at the cursor, moving past a non-empty match.
-	 * @param {RegExp} re accumulator: one of this lexer's own; its lastIndex
-	 *   moves
-	 */
+	/** @param {RegExp} re */
 	sticky(re) {
 		re.lastIndex = this.i;
 		this.lastMatch = re.exec(this.code);
@@ -266,7 +202,6 @@ class ShLexer {
 		return true;
 	}
 
-	/** Moves past the bodies of the heredocs the line just ended opened. */
 	skipHeredocs() {
 		for (const { delimiter, strip } of this.heredocs) {
 			let line = null;
@@ -281,11 +216,7 @@ class ShLexer {
 		this.heredocs = [];
 	}
 
-	/**
-	 * One word at the cursor: quoted runs, substitutions read as commands of
-	 * their own, escapes and bare characters.
-	 * @returns {ShWord | null}
-	 */
+	/** @returns {ShWord | null} */
 	word() {
 		const { code } = this;
 		const at = this.i;
@@ -302,7 +233,6 @@ class ShLexer {
 		return this.i > at ? { text: code.slice(at, this.i), at } : null;
 	}
 
-	/** One quoted run, substitution, escape or character. */
 	part() {
 		const { code } = this;
 		const c = code.charAt(this.i);
@@ -323,11 +253,7 @@ class ShLexer {
 		} else this.i++;
 	}
 
-	/**
-	 * A `"…"` or `${…}` at the cursor, the substitutions and quotes inside it
-	 * read as they open.
-	 * @param {string} close
-	 */
+	/** @param {string} close */
 	enclosed(close) {
 		this.i++;
 		while (this.i < this.code.length && this.code.charAt(this.i) !== close) {
@@ -340,17 +266,12 @@ class ShLexer {
 		this.i++;
 	}
 
-	/**
-	 * The offset after the next `quote` from `from`, or the end.
-	 * @param {string} quote
-	 * @param {number} from
-	 */
+	/** @param {string} quote @param {number} from */
 	closing(quote, from) {
 		const at = this.code.indexOf(quote, from);
 		return at === -1 ? this.code.length : at + 1;
 	}
 
-	/** A `$'…'` run, whose backslash escapes a quote. */
 	ansiQuote() {
 		this.i += 2;
 		while (this.i < this.code.length && this.code.charAt(this.i) !== "'")
@@ -358,7 +279,6 @@ class ShLexer {
 		this.i++;
 	}
 
-	/** A backtick substitution, its body read as commands at their offsets. */
 	backtick() {
 		let end = this.i + 1;
 		while (end < this.code.length && this.code.charAt(end) !== "`")
@@ -370,7 +290,6 @@ class ShLexer {
 		this.i = end + 1;
 	}
 
-	/** An array's elements at its `(`, read as a command of their own. */
 	elements() {
 		/** @type {ShWord[]} */
 		const words = [];
@@ -390,8 +309,6 @@ class ShLexer {
 			this.commands.push({ words, prev: null, joined: "", array: true });
 	}
 
-	/** A parenthesised run at the cursor that holds no command: arithmetic,
-	 * its quotes read whole. */
 	balanced() {
 		let depth = 0;
 		do {
@@ -404,19 +321,11 @@ class ShLexer {
 	}
 }
 
-/**
- * Whether the list's open command holds no word but reserved ones, so a `((`
- * opens arithmetic.
- * @param {ShList} state
- */
+/** @param {ShList} state */
 const isCommandStart = (state) =>
 	state.command.words.every((w) => SH_RESERVED.has(w.text));
 
-/**
- * The simple commands of a shell script, in the order they are written.
- * @param {string} code
- * @returns {ShCommand[]}
- */
+/** @param {string} code @returns {ShCommand[]} */
 function shCommands(code) {
 	const lexer = new ShLexer(code);
 	lexer.list(null);
@@ -425,12 +334,7 @@ function shCommands(code) {
 	);
 }
 
-/**
- * The commands of the `$(…)` that opens `text`, not those of a substitution
- * inside one of their words, and the offset after its `)`.
- * @param {string} text starting `$(`
- * @returns {{commands: ShCommand[], end: number}}
- */
+/** @param {string} text @returns {{commands: ShCommand[], end: number}} */
 function substitutionAt(text) {
 	const lexer = new ShLexer(text);
 	lexer.i = 2;
@@ -446,10 +350,7 @@ function substitutionAt(text) {
 	};
 }
 
-/**
- * The offset after the `${…}` that opens `text`.
- * @param {string} text starting `${`
- */
+/** @param {string} text */
 function braceEnd(text) {
 	const lexer = new ShLexer(text);
 	lexer.part();

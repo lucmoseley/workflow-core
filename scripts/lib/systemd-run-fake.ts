@@ -1,13 +1,3 @@
-/*
- * systemd-run-fake.ts — a stub `systemd-run` for tests of the outliving
- * launch (#4706), injected at WFC_SYSTEMD_RUN (lib/systemd-bins.js) and held
- * to the real one by systemd-run.contract.test.ts (§G7). It records each
- * call's words and the session keys its environment carries, then execs the
- * command after `--` as `--scope` does; with `answers` false every call fails
- * as one with no user manager does.
- *
- * FOR TESTS ONLY.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
@@ -15,21 +5,14 @@ import { shellQuote } from "./sh-quote.js";
 const PROBE = "--user --scope --quiet -- true";
 
 export interface SystemdRunCall {
-	/** Its words up to the command, `--` included. */
 	words: string;
-	/** The command `--` names, and its arguments. */
 	command: string;
-	/** The session keys the call's environment carries, "" where unset. */
 	sid: string;
 	job: string;
 	owner: string;
-	/** Its outliving mark, lib/session-scope.js's OUTLIVES_KEY, "" where unset. */
 	outlives: string;
 }
 
-/**
- * @returns its path, and the calls it has recorded, the probe's left out
- */
 export function writeSystemdRun(dir: string, { answers = true } = {}) {
 	const bin = path.join(dir, "systemd-run");
 	const log = path.join(dir, "systemd-run.calls");

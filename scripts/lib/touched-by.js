@@ -1,35 +1,18 @@
-/*
- * touched-by.js — what a commit changed, and the ceiling every --touched-by
- * git read runs under (#2210, #2375). Its own module so check-guard-registry.js
- * and check-instruction-surface.js share one diff-tree reader and one ceiling
- * (#2616).
- */
-
 const { GIT_MAX_BUFFER } = require("./census-digest.js");
 const { buildGitCeiling } = require("./git-ceiling.js");
 
-/* ~60x the 0.5s the census took over a commit adding two rule files, so only a
- * hang meets it, and short enough that a post-commit hook stalled on one costs
- * a commit half a minute. */
+// #2210 measured 0.5s for the census over a commit adding two rule files; ~60x that
 const TOUCHED_BY_CEILING_MS = 30_000;
 
 /** @returns {import("./git-ceiling.js").GitCeiling} */
 function touchedByCeiling() {
 	return buildGitCeiling({
 		label: "--touched-by",
-		/* The suite's seam: a ceiling short enough to meet in a test. */
 		ms: Number(process.env.WFC_TOUCHED_BY_CEILING_MS) || TOUCHED_BY_CEILING_MS,
 	});
 }
 
 /**
- * The paths `rev` changed against its first parent, each mapped to its
- * diff-tree status letter. The letter, not a disk read, says a file is gone:
- * a disk read would answer from a file `git rm --cached` left behind. A merge
- * commit lists nothing in this form, so a conflict resolved inside a guard
- * there goes unnamed until the daily run. A git fault or CeilingPassed is
- * thrown.
- *
  * @param {string} root
  * @param {string} rev
  * @param {import("./git-ceiling.js").GitCeiling} ceiling

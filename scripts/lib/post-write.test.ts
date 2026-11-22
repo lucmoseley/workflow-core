@@ -234,17 +234,19 @@ describe("post-write — format, then record, in that order", () => {
 				'{"name":"demo"}\n',
 			);
 		};
-		const write = (body: string) => {
+		const write = (body: string, rel = REL) => {
 			fakeBiome(sb, "#!/bin/sh\n");
-			fs.writeFileSync(path.join(sb.repo, REL), body);
-			return run("alice");
+			const file = path.join(sb.repo, rel);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, body);
+			return run("alice", file);
 		};
+		const walkToDocs = (ups: string) =>
+			`const path = require("node:path");\nmodule.exports = path.join(__dirname, ${ups}, "docs");\n`;
 
 		it("names a __dirname walk into docs/, as the commit gate would", () => {
 			shipPlugin();
-			const r = write(
-				'const path = require("node:path");\nmodule.exports = path.join(__dirname, "..", "docs", "x.json");\n',
-			);
+			const r = write(walkToDocs('".."'));
 			expect(context(r)).toMatch(
 				/scripts\/demo\.js:2 .*outside scripts\/\. Use hostRoot\(\)/,
 			);
@@ -263,19 +265,32 @@ describe("post-write — format, then record, in that order", () => {
 			expect(write('console.log("see (#12) for why");\n').output).toBeNull();
 		});
 
-		it.each(["scripts/demo.test.js", "scripts/cut-mantahostels.js"])(
-			"says nothing of %s, which neither gate judges",
-			(rel) => {
-				shipPlugin();
-				fakeBiome(sb, "#!/bin/sh\n");
-				const file = path.join(sb.repo, rel);
-				fs.writeFileSync(
-					file,
-					'const path = require("node:path");\nconsole.log("see #12");\nmodule.exports = path.join(__dirname, "..", "docs");\n',
-				);
-				expect(run("alice", file).output).toBeNull();
-			},
-		);
+		it("says nothing of a test file, which neither gate judges", () => {
+			shipPlugin();
+			const r = write(
+				`console.log("see #12");\n${walkToDocs('".."')}`,
+				"scripts/demo.test.js",
+			);
+			expect(r.output).toBeNull();
+		});
+
+		it("says nothing of a #N printed bare by a file the release leaves behind", () => {
+			shipPlugin();
+			const r = write(
+				'console.log("see #12");\n',
+				"scripts/release-contains.js",
+			);
+			expect(r.output).toBeNull();
+		});
+
+		it("says nothing of a __dirname walk check-host-root.js allowlists, naming the same walk beside it", () => {
+			shipPlugin();
+			const walk = walkToDocs('"..", ".."');
+			expect(write(walk, "scripts/lib/rule-text.js").output).toBeNull();
+			expect(context(write(walk, "scripts/lib/other.js"))).toMatch(
+				/scripts\/lib\/other\.js:2 .*outside scripts\//,
+			);
+		});
 
 		it("says nothing where the repo ships no plugin, which neither rule binds", () => {
 			const r = write('console.log("see #12 for why");\n');

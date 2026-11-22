@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/*
- * test-gate.js — which gate runs the host's tests (#740): one answer, read by
- * .husky/pre-commit, commit-paths.js and check-session-draw.js, so none of
- * them can disagree on who owns a suite.
- *
- * "push" — the lander runs the full suite before main moves, and a commit runs
- * none: where the declared command has a fresh verdict proof
- * (lib/verdict-probe.js, #5294).
- *
- * "commit" — every other declared `commands.test`: pre-commit runs it and a
- * red refuses the commit.
- *
- * No gate — no `commands.test` is declared.
- */
 
 const config = require("./workflow-core-config.js");
 const { worktreeRoot } = require("./host-root.js");
@@ -30,10 +16,7 @@ const { writeFd } = require("./write-fd.js");
  *   proof: import("./verdict-probe.js").ProofState}} TestGate
  */
 
-/**
- * The tree the proof is keyed and probed in: the one being committed.
- * @param {import("./workflow-core-config.js").ConfigOpts} opts
- */
+/** @param {import("./workflow-core-config.js").ConfigOpts} opts */
 const treeOf = (opts) => opts.root ?? worktreeRoot();
 
 /**
@@ -46,11 +29,7 @@ function gateFor(command, proof) {
 	return { gate: proof.state === "fresh" ? "push" : "commit", command, proof };
 }
 
-/**
- * What a proof is keyed on for the tree being committed, and the declared
- * command it is for. Throws where the config cannot be read.
- * @param {import("./workflow-core-config.js").ConfigOpts} opts
- */
+/** @param {import("./workflow-core-config.js").ConfigOpts} opts */
 function proofInputs(opts) {
 	const { commands, testCanary } = config.readConfig(opts);
 	return {
@@ -62,8 +41,6 @@ function proofInputs(opts) {
 }
 
 /**
- * Who owns the host's tests, reading the proof record and never probing.
- * Throws where the config cannot be read.
  * @param {import("./workflow-core-config.js").ConfigOpts} [opts]
  * @returns {TestGate}
  */
@@ -73,9 +50,6 @@ function testGate(opts = {}) {
 }
 
 /**
- * testGate, probing first where the record is stale and a canary is declared:
- * the answer pre-commit and commit-paths' pre-lock run act on. Throws where
- * the config cannot be read.
  * @param {(line: string) => void} say
  * @param {import("./workflow-core-config.js").ConfigOpts} [opts]
  * @returns {TestGate}
@@ -85,10 +59,7 @@ function settleTestGate(say, opts = {}) {
 	return gateFor(at.command, ensureProof({ ...at, say }));
 }
 
-/**
- * The one-line reason the gate asked for does not own the host's tests.
- * @param {TestGate} found
- */
+/** @param {TestGate} found */
 function buildNotGateLine({ gate, command, proof }) {
 	if (command === null) return config.buildCommandUndeclaredLine("test");
 	if (gate === "push")
@@ -96,10 +67,6 @@ function buildNotGateLine({ gate, command, proof }) {
 	return buildStaysLine(proof);
 }
 
-/* `node test-gate.js <commit|push>`: exit 0 where that gate owns the tests,
- * with the command on stdout where one is declared; the SKIP line and exit 1
- * where it does not; BROKEN and exit 2 on a config the reader refuses.
- * Probes first where the proof is stale. pre-commit reads `commit`. */
 if (require.main === module) {
 	const want = process.argv.slice(2).join(" ");
 	if (want !== "commit" && want !== "push") {

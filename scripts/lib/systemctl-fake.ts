@@ -1,33 +1,20 @@
-/*
- * systemctl-fake.ts — a stub `systemctl` for tests of its callers, injected at
- * WFC_SYSTEMCTL (lib/systemd-bins.js) and held to the real one by
- * systemctl.contract.test.ts (§G7, #3970).
- *
- * FOR TESTS ONLY.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
 
 export interface FakeUnit {
-	/** `is-enabled`'s state; a unit without one reads not-found. */
 	enabled?: string;
-	/** `is-active`'s state; a unit without one reads inactive. */
 	active?: string;
-	/** `show`'s properties by name. */
 	properties?: Record<string, string>;
 }
 
 export interface SystemctlAnswers {
 	units?: Record<string, FakeUnit>;
-	/** A verb that fails, with its exit code and stderr. */
 	fails?: Record<string, { exit: number; says?: string }>;
-	/** The cgroup root a unit's ControlGroup property sits under, as
-	 * WFC_CGROUP_ROOT: `kill` empties that cgroup's `cgroup.procs`. */
 	cgroupRoot?: string;
 }
 
-/* systemctl(1): is-enabled exits 0 on these states, 4 on not-found, else 1. */
+/* is-enabled exits 0 on these states, 4 on not-found, else 1: https://www.freedesktop.org/software/systemd/man/latest/systemctl.html */
 const ENABLED_STATES = [
 	"enabled",
 	"enabled-runtime",
@@ -43,8 +30,7 @@ const arms = (entries: [string, string][]) =>
 		.map(([match, body]) => `  ${shellQuote(match)}) ${body};;`)
 		.join("\n");
 
-/* The real one prints a state unless --quiet; and exits 0 only on active, 3 for
- * a loaded unit otherwise, 4 for one not loaded. */
+/* A state prints unless --quiet; is-active exits 0 only on active, 3 for a loaded unit otherwise, 4 for one not loaded: https://www.freedesktop.org/software/systemd/man/latest/systemctl.html */
 const say = (state: string) => `[ -n "$quiet" ] || echo ${shellQuote(state)}`;
 
 function buildScript(
@@ -147,13 +133,6 @@ exit 0
 `;
 }
 
-/**
- * A systemctl in `dir`, appending each call's `systemctl <args>` to
- * `dir/calls`. A verb neither failed nor modelled prints nothing and exits 0,
- * as does `show` for a property it was not given, `-p` attached to its name
- * (`-pName`) included.
- * Its path, for WFC_SYSTEMCTL.
- */
 export function writeSystemctl(
 	dir: string,
 	answers: SystemctlAnswers = {},
@@ -166,7 +145,6 @@ export function writeSystemctl(
 	return bin;
 }
 
-/** The calls the systemctl in `dir` took, oldest first. */
 export function systemctlCalls(dir: string): string[] {
 	const log = path.join(dir, "calls");
 	return fs.existsSync(log)

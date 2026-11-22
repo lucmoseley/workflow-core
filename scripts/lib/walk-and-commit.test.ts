@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * walk-and-commit.test.ts — the reconciler-side wrapper around `upgrade()`
- * (#249). Every case runs against a real, throwaway git repo: the invariant
- * under test — one commit, never pushed, discarding exactly a failing
- * note's writes — is a git-level claim `upgrade.test.ts`'s file-only
- * fixture cannot check.
- *
- * `reconcile-plugin.js` runs it as a SessionEnd hook in `.claude/settings.json`,
- * committing into an adopter's repo unattended; loosen a case and a walk can mix
- * its edits into the founder's uncommitted work, push, or land a commit past a
- * refusing hook.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -83,8 +71,6 @@ function readLog(cwd: string) {
 		.filter(Boolean);
 }
 
-/** Pins the adopter at `ref` and brings its core-owned files current, as init
- * leaves them, so a walk with nothing to do writes nothing. */
 function pinAt(ref: string) {
 	const source = {
 		source: "url",
@@ -163,7 +149,6 @@ describe("walkAndCommit", () => {
 		expect(config.walkedTo).toBe("v2.0.0");
 		expect(config.contract).toBe(2);
 
-		// nothing left dirty
 		expect(git(["status", "--porcelain"], root).trim()).toBe("");
 	});
 
@@ -263,7 +248,6 @@ describe("walkAndCommit", () => {
 		expect(lines.join("\n")).toMatch(/v3\.0\.0 Verify failed/);
 
 		const config = readJson(root, ".claude/workflow-core.json");
-		// v2.0.0's residue landed, v3.0.0's never did
 		expect(config.contract).toBe(2);
 		expect(config.walkedTo).toBe("v2.0.0");
 		expect(git(["status", "--porcelain"], root).trim()).toBe("");
@@ -282,7 +266,6 @@ describe("walkAndCommit", () => {
 
 		const before = readLog(root).length;
 		const r = walkAndCommit({ root, pluginRoot });
-		// nothing verified at all — nothing to commit
 		expect(r.action).toBe("up-to-date");
 		expect(readLog(root)).toHaveLength(before);
 		expect(
@@ -316,8 +299,6 @@ describe("walkAndCommit", () => {
 	});
 
 	it("exit code 3 from upgrade() — install behind pin — is handled, not treated as a crash", () => {
-		// pin ahead of the installed plugin: settings.json already carries v1.0.0
-		// while plugin.json under pluginRoot stays at v1.0.0 too — force the gap
 		pinAt("v2.0.0");
 		commitAll(root, "pin ahead");
 
@@ -340,12 +321,8 @@ describe("walkAndCommit", () => {
 
 	describe("in an adopter whose guard-registry gate refuses an expired anchor (#4078)", () => {
 		const checker = path.join(__dirname, "..", "check-guard-registry.js");
-		/** The checker judges `root`, not the suite's test host. */
 		const checkerEnv = () => ({ ...process.env, CLAUDE_PROJECT_DIR: root });
 
-		/** A tree an older release left: one shim missing and one out of date,
-		 * every shim it has anchored where `anchored`, as init leaves them; and
-		 * the real gate as the pre-commit hook. */
 		function leaveOlderRelease({ anchored }: { anchored: boolean }) {
 			fs.rmSync(path.join(root, ".husky/post-merge"));
 			fs.appendFileSync(path.join(root, ".husky/pre-push"), "# older shim\n");
@@ -366,7 +343,6 @@ describe("walkAndCommit", () => {
 			);
 		}
 
-		/* No live session's claims reach the checker. */
 		beforeEach(() => vi.stubEnv("WFC_ANCHOR_LOCKS", "[]"));
 
 		it("the planted gate refuses a shim edit committed with no re-anchor", () => {

@@ -1,71 +1,30 @@
-/*
- * shell-words.js — the guard parser's word helpers in Node (#2785, programme
- * #2733): given one command's words, masked as lib/shell-parse.js hands them
- * over.
- *
- * A CORE: it does no I/O and reads nothing but its arguments. A word's quoted
- * spans arrive as the `spans` array lib/shell-parse.js's parseCommand records.
- *
- * Each behaviour here carries the ticket that set it.
- *
- * THE LOWER LAYER: lib/shell-parse.js reads its words through this file, the
- * span sentinel and its reader included, so it is required only at the call
- * that parses a `-c` string (#4863), never at load.
- */
-
 const { GIT_VALUED } = require("./git-options.js");
 const { trimEndRun } = require("./trim-run.js");
 
-/**
- * The prefix a blanked quoted span is written as: each outermost span becomes
- * `${QUOTED}<index>\x01`, its text kept at `spans[index]` behind its quote
- * character (mantahostels#183). A `\x01` typed outside every quote is a BARE
- * span, kept as written with no quote, so no typed text reads as a sentinel
- * (#4278).
- */
 const QUOTED = "\x01QSTR\x01";
 
-/** The byte a sentinel opens and closes on. */
 const SENTINEL_BYTE = "\x01";
 
-/** @param {string} recorded a span as recorded */
+/** @param {string} recorded */
 const isBareSpan = (recorded) => !["'", '"'].includes(recorded.charAt(0));
 
 /** @param {string} s */
 const hasExpansion = (s) => s.includes("$") || s.includes("`");
 
-/**
- * A path word as an absolute path: as written where it starts at `/`, else
- * under `pwd`, one leading `./` dropped. Textual: nothing is resolved.
- * @param {string} p
- * @param {string} pwd
- */
+/** @param {string} p @param {string} pwd */
 const absolute = (p, pwd) =>
 	p.startsWith("/") ? p : `${pwd}/${p.replace(/^\.\//, "")}`;
 
-/**
- * Whether a word holds a pathname-expansion character, so an unquoted
- * expansion of it is globbed.
- * @param {string} s
- */
+/** @param {string} s */
 const isGlobPattern = (s) => /[*?[]/.test(s);
 
-/**
- * Whether the shell expands a masked word that literal reads as known: a
- * leading `~`, or a pathname-expansion character outside quotes.
- * @param {string} word masked
- */
+/** @param {string} word */
 const shellExpands = (word) => word.startsWith("~") || isGlobPattern(word);
 
 /**
- * The one walk over a masked text's span sentinels (#2785): `onSpan` is
- * handed the text before each sentinel and the span index read up to its
- * closing `\x01` — null where no index stands there — and answers what to
- * write for it and whether to step past the index.
  * @param {string} text
  * @param {(lit: string, idx: number | null) => { text: string, stepPast: boolean }} onSpan
- * @returns {{ out: string, rest: string }} what the sentinels gave, and the
- *   text after the last
+ * @returns {{ out: string, rest: string }}
  */
 function readSentinels(text, onSpan) {
 	let s = text;
@@ -82,17 +41,12 @@ function readSentinels(text, onSpan) {
 	return { out, rest: s };
 }
 
-/**
- * `s` up to the first `sep`, or all of `s` where it carries none.
- * @param {string} s
- * @param {string} sep
- */
+/** @param {string} s @param {string} sep */
 const beforeFirst = (s, sep) => {
 	const at = s.indexOf(sep);
 	return at < 0 ? s : s.slice(0, at);
 };
 
-/** What a `"…"` span's backslash escapes; any other backslash there stays. */
 const DOUBLE_ESCAPES = '$`"\\\n';
 
 /**
@@ -104,16 +58,7 @@ const DOUBLE_ESCAPES = '$`"\\\n';
 const isEscape = (c, next, double) =>
 	c === "\\" && next !== "" && (!double || DOUBLE_ESCAPES.includes(next));
 
-/**
- * Masked text outside a single-quoted span, read as bash reads it (#3518):
- * `{ text, at, bare }`, `text` with each backslash escape undone — unquoted
- * `\x` is `x`, a `"…"` span's per DOUBLE_ESCAPES — `at` where in `text` its
- * first unescaped `$` or `` ` `` stands, -1 where none does, and `bare`
- * `text` with every quoted or escaped character as `\0`, for braceAt. The
- * masker already dropped an unquoted backslash-newline.
- * @param {string} s
- * @param {boolean} double whether `s` is a `"…"` span's text
- */
+/** @param {string} s @param {boolean} double */
 function parseEscapes(s, double) {
 	let text = "";
 	let bare = "";
@@ -135,14 +80,7 @@ function parseEscapes(s, double) {
 	return { text, at, bare };
 }
 
-/**
- * Where the first brace group bash would expand opens in a word's `bare`
- * reading (#3578): an unquoted `{` not after a `$`, closed by its matching
- * `}`, holding a `,` or `..` at its own depth — `{a,b}`, `{1..3}`. -1 where
- * none does. Any `..` counts, though bash expands only a well-formed
- * sequence, so the error is a word read as unknown.
- * @param {string} bare
- */
+/** @param {string} bare */
 function braceAt(bare) {
 	for (let i = 0; i < bare.length; i++)
 		if (
@@ -154,13 +92,7 @@ function braceAt(bare) {
 	return -1;
 }
 
-/**
- * Whether the `{` at `open` in `bare` is closed and holds a `,` or `..` at
- * its own depth. A `}` closing it before either is literal to bash, which
- * scans on: `{x}y,main}` is `x}y` and `main`.
- * @param {string} bare
- * @param {number} open
- */
+/** @param {string} bare @param {number} open */
 function hasBraceSplit(bare, open) {
 	let depth = 0;
 	let sep = false;
@@ -174,37 +106,18 @@ function hasBraceSplit(bare, open) {
 	return false;
 }
 
-/**
- * A word whose quoted spans were blanked, put back: `{ text, known, head }`,
- * the text as bash reads it, backslash escapes undone (#3518), printed
- * EITHER WAY so a caller can judge on the visible part, `known` false where
- * any of it could not be read — an unescaped `$VAR`, a command substitution,
- * an unquoted brace group bash expands into several words (#3578), or a
- * sentinel naming a span never recorded, which is read on from right after
- * its prefix — and `head` the text before the first of them, so text the
- * shell reads as written (#3441).
- * @param {string} word
- * @param {string[]} spans
- */
+/** @param {string} word @param {string[]} spans */
 function literal(word, spans) {
 	/** @type {string | null} */
 	let head = null;
 	let seen = "";
 	let bare = "";
-	/**
-	 * `text` onto `seen` and its `bare` reading onto `bare`, so the two stay
-	 * index-aligned for braceAt's cut.
-	 * @param {string} text
-	 * @param {string} bareText
-	 */
+	/** @param {string} text @param {string} bareText */
 	const append = (text, bareText) => {
 		seen += text;
 		bare += bareText;
 	};
-	/**
-	 * @param {string} s the text after `seen`
-	 * @param {boolean} double whether it is a `"…"` span's
-	 */
+	/** @param {string} s @param {boolean} double */
 	const readOn = (s, double) => {
 		const r = parseEscapes(s, double);
 		if (head === null && r.at >= 0) head = seen + r.text.slice(0, r.at);
@@ -218,7 +131,6 @@ function literal(word, spans) {
 			return { text: "", stepPast: false };
 		}
 		const span = recorded.slice(1);
-		/* A single-quoted span is literal whatever it holds. */
 		if (isBareSpan(recorded)) readOn(recorded, false);
 		else if (recorded.charAt(0) === "'") append(span, "\0".repeat(span.length));
 		else readOn(span, true);
@@ -226,7 +138,7 @@ function literal(word, spans) {
 	});
 	readOn(rest, false);
 	const brace = braceAt(bare);
-	/* tsc narrows `head` to null, blind to the closures' writes. */
+	// tsc narrows a closure-written variable to its assigned type, blind to the closures' writes: https://github.com/microsoft/TypeScript/issues/9998
 	const exprHead = /** @type {string | null} */ (head);
 	const braceFirst =
 		brace >= 0 && (exprHead === null || brace < exprHead.length);
@@ -238,38 +150,21 @@ function literal(word, spans) {
 	};
 }
 
-/** An assignment word, kept whole by unwrap and leading the harvest. */
 const ASSIGNMENT_RE = /^[A-Za-z_].*=/s;
 
-/**
- * A word's text after its last `/`, as bash's longest-prefix strip to a
- * slash reads a command word.
- * @param {string} w
- */
+/** @param {string} w */
 const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
 
-/**
- * `basename`'s answer for a command word: a trailing `/` stripped first, `/`
- * itself kept.
- * @param {string} w
- */
+/** @param {string} w */
 function commandName(w) {
 	const trimmed = trimEndRun(w, "/");
 	return trimmed === "" && w !== "" ? "/" : afterSlash(trimmed);
 }
 
-/** @param {string} w a command word, read */
+/** @param {string} w */
 const isGhCommand = (w) => commandName(w) === "gh";
 
 /**
- * One interpreter's options (#4479). `program` maps each
- * flag that settles where the program comes from: `inline` its value, as
- * `-c`; `script` a module it names, as python's `-m`; `stdin`, as a shell's
- * `-s`. `valued` takes a value, attached or the next word. `bundles` is
- * whether short options combine, `-uc` and `-Wignore`: node's do not, its
- * `-pe` being one alias. `plus` is whether `+o` spells an option too, as a
- * shell's does. `valued` lists the common flags only, so an unlisted one's
- * value reads as the script.
  * @typedef {"inline" | "script" | "stdin"} ProgramSource
  * @typedef {{ program: Record<string, ProgramSource>, valued: Set<string>,
  *   bundles: boolean, plus: boolean }} InterpreterFlags
@@ -332,18 +227,13 @@ const INTERPRETER_FLAGS = {
 	zsh: SHELL_FLAGS,
 };
 
-/**
- * The flag table an interpreter's command name reads by.
- * @param {string} name
- */
+/** @param {string} name */
 function interpreterFlags(name) {
 	if (/^python([0-9].*)?$/.test(name)) return INTERPRETER_FLAGS.python;
 	return INTERPRETER_FLAGS[name === "nodejs" ? "node" : name];
 }
 
 /**
- * What one option word says: where the program comes from, where a flag in it
- * or a bare `-` settles that, else whether the next word is a flag's value.
  * @param {InterpreterFlags} flags
  * @param {string} word
  * @returns {{ source: ProgramSource } | { takesNext: boolean }}
@@ -364,13 +254,8 @@ function parseOption(flags, word) {
 }
 
 /**
- * Where an interpreter's words take its program from (#3456, #4479):
- * `inline` from an inline-code flag's value, `script` from a file or module
- * named, `stdin` where the options end with no program word, at `-` or with
- * a stdin flag. `script` is the word naming a script, absent for a module.
- * The scan stops at the program, since a flag past it is the program's own.
- * @param {string} interpreter the command name, read
- * @param {string[]} words the words after it
+ * @param {string} interpreter
+ * @param {string[]} words
  * @returns {{ source: ProgramSource, script?: string } | null}
  */
 function programSource(interpreter, words) {
@@ -407,22 +292,18 @@ function scriptAt(words, at) {
 }
 
 /**
- * One wrapper's options, read through scanFlags's word reader (#4046): `values`
- * its spec, the flags taking a value, and `long` every whole long name, each
- * readable by any prefix naming just one. `sudo`'s is from its manual, unmeasured.
  * @typedef {object} WrapperGrammar
  * @property {string} values
  * @property {string[]} long
- * @property {string} [chdir] the short flag naming its working directory
- * @property {boolean} [splits] whether `-S` is a string to split, as `env`'s is
- * @property {number} positionals bare words it reads before the command
- * @property {"sh-string" | "flock-command"} [command] how the words after them
- *   read
+ * @property {string} [chdir]
+ * @property {boolean} [splits]
+ * @property {number} positionals
+ * @property {"sh-string" | "flock-command"} [command]
  */
 
 /**
  * @param {string} values
- * @param {string} flags the long names taking no separate value, space-separated
+ * @param {string} flags
  * @param {Partial<Pick<WrapperGrammar, "chdir" | "splits" | "positionals" | "command">>} [rest]
  * @returns {WrapperGrammar}
  */
@@ -439,7 +320,6 @@ function buildGrammar(values, flags, rest = {}) {
 	};
 }
 
-/** The launcher wrappers unwrap strips, by the name they run under. */
 const WRAPPERS = new Map([
 	[
 		"env",
@@ -510,62 +390,10 @@ const WRAPPERS = new Map([
 ]);
 
 /**
- * Strip the launcher wrappers off one command's words, so each command
- * actually being run stands first (mantahostels#2511, mantahostels#2524,
- * mantahostels#2552): one run `{ words, wrapperWords, chdirs, unread, watched }` per
- * command, the words' own first and each a `-c` string runs after it. A wrapper, its flags
- * and an `env` assignment are read through literal as the shell hands them to it
- * (#4046); the words left stay raw.
- *
- *   words         what is left to judge. Empty where the wrappers ran out of
- *                 words mid-strip; a caller must test that before reading
- *                 words[0]. It is NOT a promise that a command word stands
- *                 first — a malformed `bg-run.sh run` with no name leaves
- *                 `bg-run.sh run` standing.
- *   wrapperWords  the assignments an `env` carried, and those a `-c` string's
- *                 earlier `export`s and the command's own leading ones made,
- *                 which a guard reading an escape from the command string must
- *                 still see — inside an `env` prefix the escape is a WORD, not
- *                 a leading shell assignment the walk has already stepped past.
- *   chdirs        each directory an `env -C`, `sudo -D` or a `-c` string's `cd`
- *                 moved to, in order, with how surely it holds.
- *   unread        each git-reading variable a `-c` string changed in a way
- *                 its reader does not follow.
- *   watched       a `watch` was stripped: the command reruns on a timer.
- *   scripted      its words are a command a `-c` string runs, not the
- *                 command line's own (#4978).
- *
- * `nohup FOO=1 cmd` execs a program literally named `FOO=1` and starts
- * nothing, so an assignment after any other wrapper is the command word and
- * stops the strip. `env` and `sudo` take any word holding a `=` as one, and no
- * flag after the first.
- *
- * `bg-run.sh run <name>` is stripped alongside the launchers: wrapping a suite
- * in the kill detector (mantahostels#1900) changes nothing about what the
- * suite then does. Its job NAME is free text and is never an escape.
- *
- * `sudo` IS STRIPPED, DELIBERATELY: stripping only ever widens what is judged.
- *
- * `watch` (BAR `watch -x`) AND `flock <file> -c` RUN THEIR COMMAND THROUGH
- * `sh -c`, so the words holding it are parsed as a command line
- * (lib/shell-parse.js's parseScript, #4863), its spans appended to `spans`.
- * Each command it runs is a run of its own (#4699), stripped in turn under what
- * its wrappers set.
- *
- * `env -S <string>` IS SPLIT, NOT SKIPPED, as `env` splits it, and read on as
- * `env`'s own words.
- *
- * THE WRAPPER CLASS IS STILL NOT CLOSED (mantahostels#2629). `sh -c "…"` stands
- * as the command word, its payload a blanked span; a heredoc's body never
- * reaches a split; and a launcher outside WRAPPERS, `chrt` and `unshare` among
- * them, stands as the command word.
- * @param {string[]} words masked
- * @param {string[]} spans accumulator: a `-c` string's spans are appended,
- *   never replaced, so every index already in it still reads; each call
- *   appends them again
- * @param {string[]} [judged] wrappers the caller judges itself, left standing
- *   as the command word
- * @returns {[Unwrapped, ...Unwrapped[]]} the runs, in the order they run
+ * @param {string[]} words
+ * @param {string[]} spans
+ * @param {string[]} [judged]
+ * @returns {[Unwrapped, ...Unwrapped[]]}
  */
 function unwrap(words, spans, judged = []) {
 	/** @type {Unwrapped[]} */
@@ -578,12 +406,7 @@ function unwrap(words, spans, judged = []) {
 	return [first, ...later];
 }
 
-/**
- * unwrap over a process's own argv, which holds no span: each run's words read
- * through literal, so a word a `-c` string quotes reads as sh hands it on.
- * @param {string[]} argv
- * @returns {Unwrapped[]}
- */
+/** @param {string[]} argv @returns {Unwrapped[]} */
 function unwrapArgv(argv) {
 	/** @type {string[]} */
 	const spans = [];
@@ -594,46 +417,32 @@ function unwrapArgv(argv) {
 }
 
 /**
- * @typedef {object} Unwrapped one run unwrap answers: a command the words run
+ * @typedef {object} Unwrapped
  * @property {string[]} words
  * @property {string[]} wrapperWords
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
  * @property {boolean} watched
  * @property {boolean} scripted
- * @property {true} [envReset] a `-c` string's later command, behind a wrapper
- *   that may have replaced the environment, while unwrap still strips it
+ * @property {true} [envReset]
  */
 
 /**
  * @typedef {ChdirWord & Pick<import("./shell-dirs.js").Move,
- *   "holds" | "afterFailed" | "chained" | "opensScope" | "depth" | "settles">}
- *   Chdir one directory a run moves to before its command, its move
- *   classified as the directory model reads one: a wrapper's holds "always",
- *   and only a `-c` string's `cd` sets the other five (#5082, #5095, #5102)
+ *   "holds" | "afterFailed" | "chained" | "opensScope" | "depth" | "settles">} Chdir
  */
 
 /**
- * @typedef {object} ChdirWord a chdir's directory word, and what a `-c`
- *   string's `cd` reads it under
- * @property {string} dir as written: a wrapper's read through literal, a
- *   `cd`'s masked
- * @property {boolean} read whether `dir` is text literal read whole, to take
- *   as it stands; false for a `cd`'s masked word and a wrapper's word literal
- *   could not fully read or the shell expands
- * @property {Map<string, string | null>} [vars] a `-c` string's `cd`'s: each
- *   name its script set before it, its assignment word masked, or null where
- *   the script may have changed it in a way not followed
- * @property {boolean} [envReset] a `-c` string's `cd` behind a wrapper that
- *   may replace the environment its script inherits, as resetsEnv reads one
+ * @typedef {object} ChdirWord
+ * @property {string} dir
+ * @property {boolean} read
+ * @property {Map<string, string | null>} [vars]
+ * @property {boolean} [envReset]
  */
 
 /**
- * Strip one run's wrappers.
- * @param {Unwrapped} run as it stands before the strip
+ * @param {Unwrapped} run
  * @param {{ spans: string[], judged: string[], pending: Unwrapped[] }} with
- *   accumulator: its `pending` is written, a `-c` string's later commands
- *   going to its front, and its `spans` appended to
  * @returns {Unwrapped}
  */
 function stripRun(run, { spans, judged, pending }) {
@@ -649,10 +458,7 @@ function stripRun(run, { spans, judged, pending }) {
 	};
 }
 
-/**
- * @param {Strip} st accumulator: its fields are written
- * @param {string[]} spans accumulator: a `-c` string's spans are appended
- */
+/** @param {Strip} st @param {string[]} spans */
 function stripWrappers(st, spans) {
 	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
 		const step = stripOne(st, first, spans);
@@ -661,13 +467,7 @@ function stripWrappers(st, spans) {
 	}
 }
 
-/**
- * Do `words`, a command's words up to a word not yet typed, end where a
- * wrapper unwrap reads takes the script it runs through `sh -c` — `flock
- * <file> -c` or a `watch` with no `-x` — so the next word is that script?
- * @param {string[]} words masked, from the command word on
- * @param {string[]} spans
- */
+/** @param {string[]} words @param {string[]} spans */
 function isScriptNext(words, spans) {
 	const st = buildStrip(buildBareRun(words), [], []);
 	stripWrappers(st, [...spans]);
@@ -675,10 +475,7 @@ function isScriptNext(words, spans) {
 }
 
 /**
- * The script a run standing on `flock <file> -c` or a `watch` with no `-x`
- * hands to `sh -c`, read through literal; null for any other run (#4978).
- * Only the run's own first wrapper is read.
- * @param {string[]} words masked, from the wrapper on
+ * @param {string[]} words
  * @param {string[]} spans
  * @returns {string | null}
  */
@@ -691,9 +488,6 @@ function wrapperScript(words, spans) {
 }
 
 /**
- * A run's own text, masked: the segment holding it, or for a command a `-c`
- * string runs, that command's words alone, so a guard handing back a rewrite
- * never writes past the string's closing quote (#4978).
  * @param {Pick<Unwrapped, "words" | "scripted">} run
  * @param {string} segment
  */
@@ -735,12 +529,7 @@ const buildStrip = (run, judged, pending) => ({
 	pending,
 });
 
-/**
- * Whether a wrapper may hand its command another environment: `sudo`, which
- * resets it by default, or an `env` emptying it or unsetting a name.
- * @param {string} w the wrapper's name
- * @param {string[]} flags its flag words, read
- */
+/** @param {string} w @param {string[]} flags */
 const resetsEnv = (w, flags) =>
 	w === "sudo" ||
 	(w === "env" &&
@@ -749,45 +538,35 @@ const resetsEnv = (w, flags) =>
 		));
 
 /**
- * @typedef {object} Strip unwrap's running state
- * @property {string[]} ws the words still to read
- * @property {string[]} judged wrappers left standing as the command word
- * @property {boolean} inEnv whether the last wrapper was `env` or `sudo`, whose
- *   assignments are words of its own
- * @property {boolean} envReset whether a wrapper stripped may have replaced
- *   the environment
+ * @typedef {object} Strip
+ * @property {string[]} ws
+ * @property {string[]} judged
+ * @property {boolean} inEnv
+ * @property {boolean} envReset
  * @property {string[]} wrapperWords
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
  * @property {boolean} watched
- * @property {Unwrapped[]} pending the runs still to strip
- * @property {boolean} execs a `watch -x` execs its words, through no `sh -c`
- * @property {boolean} awaitsScript the words ran out where a wrapper takes the
- *   script it runs through `sh -c`
- * @property {string | null} script the script the last wrapper ran through
- *   `sh -c`, read through literal
+ * @property {Unwrapped[]} pending
+ * @property {boolean} execs
+ * @property {boolean} awaitsScript
+ * @property {string | null} script
  * @property {boolean} scripted
  */
 
 /**
- * Strip the wrapper `st.ws` opens with: "next" to read on, "done" where the
- * command word stands first, "cut" where the words ran out mid-strip.
- * @param {Strip} st accumulator: its fields are written
- * @param {string} first `st.ws[0]`
- * @param {string[]} spans accumulator: a `-c` string's spans are appended
+ * @param {Strip} st
+ * @param {string} first
+ * @param {string[]} spans
  * @returns {"next" | "done" | "cut"}
  */
 function stripOne(st, first, spans) {
 	const { text } = literal(first, spans);
 	if (st.inEnv && text.includes("=")) {
-		/* Raw where its name is bare, so a guard still reads its value's quoting. */
 		st.wrapperWords.push(ASSIGNMENT_RE.test(first) ? first : text);
 		st.ws = st.ws.slice(1);
 		return "next";
 	}
-	/* An assignment keeps its whole word: the text after the last `/` of
-	 * `A=/x/y` is `y`, which would stop the strip before a later `FOO=1`
-	 * (#1499). */
 	const w = ASSIGNMENT_RE.test(text) ? text : afterSlash(text);
 	if (w === "bg-run.sh") {
 		if (st.ws[1] !== "run" || st.ws.length < 3) return "done";
@@ -812,12 +591,9 @@ function stripOne(st, first, spans) {
 }
 
 /**
- * Stand on the command after a wrapper's flags and positionals. `flock` looks
- * for its `-c` by exact spelling after its file, no cluster or abbreviation.
- * @param {Strip} st accumulator: its `ws`, `wrapperWords`, `chdirs`,
- *   `unread`, `watched` and `pending` are written
+ * @param {Strip} st
  * @param {WrapperGrammar} wrapper
- * @param {string[]} spans accumulator: a `-c` string's spans are appended
+ * @param {string[]} spans
  * @returns {"next" | "cut"}
  */
 function stepAfterFlags(st, wrapper, spans) {
@@ -851,14 +627,7 @@ function stepAfterFlags(st, wrapper, spans) {
 	return "next";
 }
 
-/**
- * Stand on a `sh -c` script's first command, and queue each later one, ahead
- * of any run already pending, under the wrappers stripped so far.
- * @param {Strip} st accumulator: its `ws`, `wrapperWords`, `chdirs`, `unread`
- *   and `pending` are written
- * @param {string} script
- * @param {string[]} spans accumulator: the script's spans are appended
- */
+/** @param {Strip} st @param {string} script @param {string[]} spans */
 function runScript(st, script, spans) {
 	// biome-ignore lint/suspicious/noImportCycles: required at the call, never at load, as shell-parse.js requires this file (#4863).
 	const { parseScript } = require("./shell-parse.js");
@@ -888,8 +657,7 @@ function runScript(st, script, spans) {
 }
 
 /**
- * Sweep the flags off the front of `st.ws`; false where a flag's value ran out.
- * @param {Strip} st accumulator: its `ws` and `chdirs` are written
+ * @param {Strip} st
  * @param {WrapperGrammar} wrapper
  * @param {string[]} spans
  */
@@ -914,19 +682,15 @@ function sweepFlags(st, wrapper, spans) {
 }
 
 /**
- * @typedef {object} WrapperOption one option a wrapper's flag word says
+ * @typedef {object} WrapperOption
  * @property {FlagKind} kind
  * @property {string} name
  * @property {string} value
  */
 
 /**
- * What a flag word says under a wrapper's grammar, how many words after it it
- * took, and whether every word of it reads whole: known to literal, and none
- * the shell expands.
  * @param {WrapperGrammar} wrapper
- * @param {[string, string | undefined]} words the flag word and the word
- *   after it, masked
+ * @param {[string, string | undefined]} words
  * @param {string[]} spans
  */
 function scanWrapperFlag(wrapper, [flag, next], spans) {
@@ -948,12 +712,7 @@ function scanWrapperFlag(wrapper, [flag, next], spans) {
 	return { options, taken, read };
 }
 
-/**
- * The whole name of a long flag spelt as any prefix naming just one; as spelt
- * otherwise, which the tool refuses.
- * @param {string[]} long
- * @param {string} flag with its `--`
- */
+/** @param {string[]} long @param {string} flag */
 function wholeLongName(long, flag) {
 	const spelt = flag.slice(2);
 	if (long.includes(spelt)) return flag;
@@ -962,13 +721,10 @@ function wholeLongName(long, flag) {
 }
 
 /**
- * Keep the directory an option moves to, note a `watch -x` and, under `env`,
- * put a `-S` string's words at the front of `st.ws`; false where its value ran
- * out.
- * @param {Strip} st accumulator: its `ws`, `chdirs` and `execs` are written
+ * @param {Strip} st
  * @param {WrapperGrammar} wrapper
  * @param {WrapperOption} option
- * @param {boolean} read whether literal read the option's words whole
+ * @param {boolean} read
  */
 function takeOption(st, wrapper, { kind, name, value }, read) {
 	if (kind === "dangling") return false;
@@ -982,7 +738,6 @@ function takeOption(st, wrapper, { kind, name, value }, read) {
 	return true;
 }
 
-/** What a backslash in an `env -S` string writes, beside the character itself. */
 const ENV_S_ESCAPES = new Map([
 	["f", "\f"],
 	["n", "\n"],
@@ -991,13 +746,7 @@ const ENV_S_ESCAPES = new Map([
 	["v", "\v"],
 ]);
 
-/**
- * An `env -S` string's words as `env` itself splits them: on any whitespace, its own quotes undone, `\_` a space inside `"…"` and a
- * separator outside, `\c` or a word-opening `#` the end. A `${NAME}` stays as
- * written, for literal to call unknown.
- * @param {string} s
- * @returns {string[]}
- */
+/** @param {string} s @returns {string[]} */
 function splitEnvString(s) {
 	/** @type {EnvSplit} */
 	const split = { words: [], word: null, quote: "" };
@@ -1008,22 +757,19 @@ function splitEnvString(s) {
 }
 
 /**
- * @typedef {object} EnvSplit splitEnvString's running state
+ * @typedef {object} EnvSplit
  * @property {string[]} words
- * @property {string | null} word the word being built, null between words
- * @property {string} quote the quote it stands inside, "" for none
+ * @property {string | null} word
+ * @property {string} quote
  */
 
-/** @param {EnvSplit} split accumulator: its fields are written */
+/** @param {EnvSplit} split */
 function endEnvWord(split) {
 	if (split.word !== null) split.words.push(split.word);
 	split.word = null;
 }
 
-/**
- * @param {EnvSplit} split accumulator: its fields are written
- * @param {string} text
- */
+/** @param {EnvSplit} split @param {string} text */
 function addToEnvWord(split, text) {
 	split.word = (split.word ?? "") + text;
 }
@@ -1051,11 +797,7 @@ function stepEnvChar(split, c, next) {
 	return 1;
 }
 
-/**
- * @param {EnvSplit} split accumulator: its fields are written
- * @param {string} c
- * @param {string} next
- */
+/** @param {EnvSplit} split @param {string} c @param {string} next */
 function stepEnvSingleQuoted(split, c, next) {
 	if (c === "\\" && (next === "'" || next === "\\")) {
 		addToEnvWord(split, next);
@@ -1081,21 +823,9 @@ function stepEnvEscape(split, next) {
 }
 
 /**
- * Does the command carry `name` set to a non-empty value (#1499), as an escape
- * a guard reads off the command string?
- *
- * Read from two sources and no other: the segment's own leading assignments,
- * and the assignments unwrap takes off an `env`. Spelled `env NAME=1 npm run
- * test`, the assignment is an argument to `env`, not a leading one
- * (mantahostels#2511, mantahostels#2524). A word after the command word —
- * `npm run test -- NAME=1` — is a flag value and no escape.
- *
- * the guard-hook-escape core refuses a wider set — empty values, `+=`, `export`,
- * `exec NAME=1` — and reads the two sources itself; this answer would loosen
- * it.
  * @param {string} name
- * @param {string[]} leading a walked Command's `leading`
- * @param {string[]} wrapperWords the `wrapperWords` of the unwrap run judged
+ * @param {string[]} leading
+ * @param {string[]} wrapperWords
  */
 function carriesVar(name, leading, wrapperWords) {
 	return [...leading, ...wrapperWords].some(
@@ -1104,14 +834,9 @@ function carriesVar(name, leading, wrapperWords) {
 }
 
 /**
- * Step git's own options, the words between `git` and its subcommand; the
- * subcommand's index, or past the end where there is none. A word literal
- * knows is an option where its text starts with `-`; a word it cannot read,
- * where its raw word does. A value option also steps over the next word.
- * @param {string[]} ws masked words, `git` first
+ * @param {string[]} ws
  * @param {string[]} spans
  * @param {(option: string, next: string | undefined) => void} [onOption]
- *   handed each option's text and the raw word after it
  */
 function stepGitOptions(ws, spans, onOption) {
 	/** @param {string | undefined} raw @returns {string | null} */
@@ -1130,13 +855,8 @@ function stepGitOptions(ws, spans, onOption) {
 }
 
 /**
- * Each `git` subcommand one command's words run, past any launcher wrapper and
- * git's own options: `{ sub, args }`, the subcommand read through literal and
- * the words after it RAW (#2383), one per unwrap run that is `git` with a
- * subcommand. For a reader judging the command and not the tree it runs
- * against, which takes shell-parse.js's walkGit instead.
- * @param {string[]} words masked
- * @param {string[]} spans accumulator: a `-c` string's spans are appended
+ * @param {string[]} words
+ * @param {string[]} spans
  * @returns {{ sub: string, args: string[] }[]}
  */
 const gitWords = (words, spans) =>
@@ -1146,7 +866,7 @@ const gitWords = (words, spans) =>
 	});
 
 /**
- * @param {string[]} ws one unwrap run's words
+ * @param {string[]} ws
  * @param {string[]} spans
  * @returns {{ sub: string, args: string[] } | null}
  */
@@ -1161,16 +881,8 @@ function gitRunWords(ws, spans) {
 }
 
 /**
- * One command's words from `gh`'s command word on, RAW, each still to be read
- * through literal (#772): `{ args, repo }`, `repo` the `-R`/`--repo` value
- * stepped over, as stepGhFlags reads it. Stepped over first: any launcher
- * wrapper, a path to the binary, and `gh`'s own flags before the command
- * word, of which only `-R`/`--repo` takes a value.
- *
- * One per unwrap run that is `gh`, as dispatchingGhCall reads it, with that run's
- * `wrapperWords`.
- * @param {string[]} words masked
- * @param {string[]} spans accumulator: a `-c` string's spans are appended
+ * @param {string[]} words
+ * @param {string[]} spans
  * @returns {(GhCall & { wrapperWords: string[] })[]}
  */
 const ghWords = (words, spans) =>
@@ -1179,14 +891,7 @@ const ghWords = (words, spans) =>
 		return gh ? [{ ...gh, wrapperWords }] : [];
 	});
 
-/**
- * One unwrap run's `gh` call as ghCall reads it; null also where `--help`/`-h`
- * stands anywhere after the command word: usage prints and dispatches
- * nothing.
- * @param {string[]} ws one unwrap run's words
- * @param {string[]} spans
- * @returns {GhCall | null}
- */
+/** @param {string[]} ws @param {string[]} spans @returns {GhCall | null} */
 function dispatchingGhCall(ws, spans) {
 	const gh = ghCall(ws, spans);
 	return gh && !ws.slice(1).some((w) => isHelpWord(w, spans)) ? gh : null;
@@ -1198,16 +903,7 @@ const isHelpWord = (w, spans) => {
 	return text === "--help" || text === "-h";
 };
 
-/**
- * One unwrap run's `gh` call, `gh`'s own flags stepped; null where the run
- * is no `gh` or a help flag stands among `gh`'s own: usage prints and
- * dispatches nothing. A `--help` after the command word is left in
- * `args`, for a caller whose own flag scan tells a help flag from a flag's
- * value (#5012).
- * @param {string[]} ws one unwrap run's words
- * @param {string[]} spans
- * @returns {GhCall | null}
- */
+/** @param {string[]} ws @param {string[]} spans @returns {GhCall | null} */
 function ghCall(ws, spans) {
 	const [cmd, ...args] = ws;
 	if (cmd === undefined || !isGhCommand(literal(cmd, spans).text)) return null;
@@ -1225,27 +921,12 @@ const isRepoFlag = (w, spans) => {
 	return text === "-R" || text === "--repo";
 };
 
-/**
- * A `-R`/`--repo` value as read: `text` as literal reads it, `known` false
- * where any of it could not be. Read, not raw: an attached value's prefix may
- * sit inside a quoted span or behind an escape, which no raw cut can split
- * (#4268).
- * @typedef {{ text: string, known: boolean }} GhRepo
- */
+/** @typedef {{ text: string, known: boolean }} GhRepo */
+
+/** @typedef {{ args: string[], repo: GhRepo | null }} GhCall */
 
 /**
- * A `gh` command's words past its own flags, RAW, and the repo they named.
- * @typedef {{ args: string[], repo: GhRepo | null }} GhCall
- */
-
-/**
- * Step `gh`'s flags up to the next word not one, keeping the last `-R`/
- * `--repo` value, `repo` where none stands; null where `-R` has none left.
- * An empty value names no repo, as gh then falls back to GH_REPO.
- * Each flag is judged on its literal, so a quoted or escaped one counts;
- * literal's `known` is ignored for that: a flag carrying an expansion
- * (`--repo=$R`) is still a flag to step over.
- * @param {string[]} words raw
+ * @param {string[]} words
  * @param {string[]} spans
  * @param {GhRepo | null} [repo]
  * @returns {GhCall | null}
@@ -1269,19 +950,12 @@ function stepGhFlags(words, spans, repo = null) {
 	return { args, repo: r };
 }
 
-/**
- * A flag word's value, `prefix` cut off its read text; null where that
- * leaves it empty.
- * @param {GhRepo} read
- * @param {string} prefix
- * @returns {GhRepo | null}
- */
+/** @param {GhRepo} read @param {string} prefix @returns {GhRepo | null} */
 function valueAfter({ text, known }, prefix) {
 	const value = text.slice(prefix.length);
 	return known && value === "" ? null : { text: value, known };
 }
 
-/** node's own flags that take the next word, which nodeScriptArgs steps. */
 const NODE_VALUE_FLAGS = [
 	"-r",
 	"--require",
@@ -1290,19 +964,7 @@ const NODE_VALUE_FLAGS = [
 	"--experimental-loader",
 ];
 
-/**
- * Where the command words are a `node …/commit-paths.js` call, the arguments
- * after the script; null otherwise. That call runs no `git` a walk sees, so a
- * guard judging commits reads it here (#1727, #2022).
- *
- * Judged on the visible text: a `"$CLAUDE_PROJECT_DIR"/scripts/commit-paths.js`
- * spelling hides its directory and keeps its basename. Residual: a node flag
- * taking a value outside NODE_VALUE_FLAGS leaves the value in the script's
- * place, and the call is not recognised.
- * @param {string[]} words masked
- * @param {string[]} spans accumulator: a `-c` string's spans are appended
- * @returns {string[][]}
- */
+/** @param {string[]} words @param {string[]} spans @returns {string[][]} */
 const commitPathsArgs = (words, spans) =>
 	unwrap(words, spans).flatMap((run) => {
 		const args = nodeScriptArgs(run.words, spans, "commit-paths.js");
@@ -1310,11 +972,9 @@ const commitPathsArgs = (words, spans) =>
 	});
 
 /**
- * Where one unwrap run's words are a `node …/<script>` call, the arguments
- * after the script; null otherwise. The script is matched by basename.
- * @param {string[]} ws one unwrap run's words
+ * @param {string[]} ws
  * @param {string[]} spans
- * @param {string} script the script's basename
+ * @param {string} script
  * @returns {string[] | null}
  */
 function nodeScriptArgs(ws, spans, script) {
@@ -1336,13 +996,6 @@ function nodeScriptArgs(ws, spans, script) {
 }
 
 /**
- * commitPathsArgs's words split as commit-paths.js's parseArgs splits them
- * (#2147): the words after `--` into `paths`, the `--patch` word into `patch`,
- * the message's `-m` or `-F` into `messageFlag` and its word into `message`
- * (#2383), and `tree` for a `--tree` call. A value is never an option, so
- * `-m --` stays a message. Null where commit-paths.js would refuse the option
- * words: an unknown option, `--help` among them, one missing its value, or a
- * second message or `--patch`. The words stay masked, for literal.
  * @param {string[]} args
  * @param {string[]} spans
  * @returns {CommitPathsCall | null}
@@ -1376,8 +1029,6 @@ function commitPathsParse(args, spans) {
  */
 
 /**
- * Take `value` for option `opt` into `out`; false where commit-paths.js would
- * refuse it — an unknown option, no value left, or a second message or patch.
  * @param {CommitPathsCall} out
  * @param {string} opt
  * @param {string | undefined} value
@@ -1396,18 +1047,9 @@ function takeCommitValue(out, opt, value) {
 	return true;
 }
 
-/** The words that open a `find` expression, beside any starting `-`. */
 const FIND_EXPRESSION_OPENERS = ["(", "\\(", "!", "\\!", ","];
 
-/**
- * A `find`'s start points, masked, for literal to read: the words after its
- * leading options (`-H`, `-L`, `-P`, `-D <opts>`, `-O<n>`, `--`) and before the
- * first word opening an expression — one starting `-`, or `(`, `!`, `,`. Empty
- * means `find` defaults to `.`.
- * @param {string[]} words the words after `find`
- * @param {string[]} spans
- * @returns {string[]}
- */
+/** @param {string[]} words @param {string[]} spans @returns {string[]} */
 function findStarts(words, spans) {
 	const texts = words.map((w) => literal(w, spans).text);
 	const from = skipFindOptions(texts);
@@ -1418,11 +1060,7 @@ function findStarts(words, spans) {
 	return words.slice(from, end === -1 ? undefined : end);
 }
 
-/**
- * The index past `find`'s leading options; `texts.length` where a `-D` runs
- * out of words, which leaves no start point.
- * @param {string[]} texts the words after `find`, read through literal
- */
+/** @param {string[]} texts */
 function skipFindOptions(texts) {
 	let i = 0;
 	for (let w = texts[0]; w !== undefined; w = texts[++i]) {
@@ -1435,39 +1073,10 @@ function skipFindOptions(texts) {
 	return i;
 }
 
-/**
- * @typedef {"opt" | "flag" | "dangling" | "arg"} FlagKind
- *   opt       a value-taking flag, and the value it took
- *   flag      a flag taking no value
- *   dangling  a value-taking flag with no value left to take
- *   arg       a bare word, its name ""
- */
+/** @typedef {"opt" | "flag" | "dangling" | "arg"} FlagKind */
 
+// #4008
 /**
- * Read one command's own arguments and hand `fn` one event per option or bare
- * word (mantahostels#477): `fn(kind, name, value)`. `fn` returning false stops
- * the scan, and scanFlags returns false too; else it returns true.
- *
- * `spec` is the space-separated list of the flags that TAKE A VALUE, short and
- * long together — "-c --comment -R --repo". Every other flag takes none.
- *
- * A BARE `--` ENDS THE OPTIONS: it is emitted as `flag --`, and every word
- * after it is an `arg` however it is spelled, as git and gh (pflag) both parse
- * it (mantahostels#495). A lone `-` is stdin, a `flag`, not a bare word.
- *
- * A `--flag=value` is read as name and value WHATEVER `spec` says.
- *
- * A SHORT-FLAG RUN IS WALKED CHARACTER BY CHARACTER, and a value-taking letter
- * takes the rest of the run: `-qr` is -q then -r, `-Xtheirs` is -X with the
- * value theirs. A leading = on such a value is dropped: pflag takes `-l=x` as
- * x. A SHORT FLAG WHOSE VALUE IS OPTIONAL is listed with a trailing ?, as
- * `-S?`: it takes the rest of its run as a value, but never the next word, and
- * keeps a leading =, as git does.
- *
- * `gitLong`, where given, reads the words as git's own parser does, which pflag
- * does not: it turns a long flag as spelled into its whole name, before `spec`
- * is read, and `--end-of-options` makes every later word an `arg`, a `--`
- * among them (measured on git 2.43.0, #4008).
  * @param {string} spec
  * @param {string[]} words
  * @param {(kind: FlagKind, name: string, value: string) => boolean | undefined | void} fn
@@ -1498,17 +1107,15 @@ const specHas = (spec) => (flag) => ` ${spec} `.includes(` ${flag} `);
 
 /**
  * @typedef {object} ScanCtx
- * @property {(flag: string) => boolean} has whether the spec lists `flag`
- * @property {(flag: string) => string} expandLong a long flag's whole name
- * @property {boolean} endsAtEndOfOptions whether `--end-of-options` ends them
+ * @property {(flag: string) => boolean} has
+ * @property {(flag: string) => string} expandLong
+ * @property {boolean} endsAtEndOfOptions
  * @property {(kind: FlagKind, name: string, value: string) => void} emit
- *   sets `stopped` where the caller stopped the scan
- * @property {boolean} ended past a bare `--`
- * @property {boolean} stopped the caller returned false
+ * @property {boolean} ended
+ * @property {boolean} stopped
  */
 
 /**
- * One word's events: how many words after it it took.
  * @param {string} tok
  * @param {string | undefined} next
  * @param {ScanCtx} ctx
@@ -1530,7 +1137,6 @@ function scanWord(tok, next, ctx) {
 }
 
 /**
- * A `--flag` or `--flag=value`.
  * @param {string} tok
  * @param {string | undefined} next
  * @param {ScanCtx} ctx
@@ -1550,8 +1156,6 @@ function scanLong(tok, next, { has, expandLong, emit }) {
 }
 
 /**
- * One short-flag run, `-` off, letter by letter until a value-taking letter
- * takes the rest.
  * @param {string} run
  * @param {string | undefined} next
  * @param {ScanCtx} ctx
@@ -1568,9 +1172,6 @@ function scanShortRun(run, next, ctx) {
 }
 
 /**
- * A value-taking letter, `val` the rest of its run: an optional-value one
- * (`-S?`) takes that rest alone, `=` kept; a required one drops a leading `=`,
- * else takes the next word.
  * @param {string} name
  * @param {string} val
  * @param {string | undefined} next
@@ -1590,19 +1191,8 @@ function scanValueLetter(name, val, next, { has, emit }) {
 	return 0;
 }
 
-/**
- * The scanFlags spec for `merge`, `rebase` or `commit`, shared by the pull
- * and commit form guards (#302); "" for any other subcommand.
- *
- * Derived from `git <sub> -h`, then each entry measured on git 2.43.0: `git
- * <sub> <flag> --bogus other` reports --bogus as the flag's bad value where the
- * flag swallows the next word. The help text alone misleads twice: `-m` under
- * rebase is --merge and takes nothing, and `-S`, `--gpg-sign`, `--log` and
- * rebase's `-r` print a value but take one only when stuck on. The long
- * optional-value flags are absent because scanFlags reads `--flag=value`
- * unprompted.
- * @param {string} sub
- */
+// #302
+/** @param {string} sub */
 function gitValueFlags(sub) {
 	switch (sub) {
 		case "merge":

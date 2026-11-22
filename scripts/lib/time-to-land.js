@@ -1,38 +1,3 @@
-/*
- * time-to-land.js — how long a queue ref takes from the lander's first take
- * of it to its land or drop, against the green suite's own time, and where a
- * red batch's time goes (#4951).
- *
- * A STAY is one queue ref's time in the lander's hands, read off the queue
- * log (lib/queue-log.js): its first take row since it last left, to its land
- * or drop row. A ref taken again, as an isolation's passer is, keeps its
- * first take.
- *
- * THE GREEN SUITE is a batch's `test-sha <sha>` line in the lander log to the
- * `fast-forward-main <sha>` line at the same sha: one run that passed, paired
- * by sha, so batches under test at once never cross.
- *
- * THE WINDOW runs from a start to an end, by default the
- * lib/queue-log.js BASELINE_MS before now. A stay or green run counts only
- * where it began and ended inside it.
- *
- * THE TARGET: the stays' p90 at or under TARGET_MULTIPLE times the green
- * suite's p50, both over the window, judged by an exact binomial count of
- * the stays over that time (overCountNeeded, #4989).
- *
- * A RED BATCH is replayed off the lander log: each `take-batch` opens a batch
- * in its slot, a `detach` of that slot makes it the search, and each red-path
- * line until the search ends is a step of it, timed to the search's next
- * line. One search runs at a time (lib/queue-lander.js), so its lines cross no
- * other's. A `take-batch` repeating its slot's members at their shas is the
- * same batch. Residual: a red path a restart resumes with no new `detach`
- * joins the batch last tested, and a lander line written before
- * `take-batch` named its slot reads as slot 0; a `test-sha` is the batch's
- * last merged, so a retest after a later batch's merge reads as that batch's;
- * and a `parallel` tester's `isolate-members` and `confirm-members` are asked
- * together, so the pair's time reads on `confirm-members`.
- */
-
 const { readTail } = require("./file-read.js");
 const { LANDER_BATCH_PREFIX, QUEUE_PREFIX } = require("./landing-refs.js");
 const { RED_PATH_KINDS } = require("./queue-lander.js");
@@ -40,17 +5,13 @@ const { BASELINE_MS, percentile } = require("./queue-log.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { escapeRe } = require("./regex-group.js");
 
-/* The stays' p90 over the green suite's p50 (#4951's design comment). */
+// #4951 guess
 const TARGET_MULTIPLE = 3;
-/* The stays' percentile the target holds, so a queue on target has at most
- * OVER_SHARE of its stays over the time. */
 const TARGET_PERCENTILE = 90;
 const OVER_SHARE = 1 - TARGET_PERCENTILE / 100;
-/* The one-sided chance a queue on target is called over: the conventional
- * 5% significance level, chosen at #4989. */
+// #4989 guess: the conventional 5% significance level
 const CHANCE = 0.05;
-/* The first window readLogSince reads, doubled until it reaches past
- * `since`; a guess, never measured against the log's daily growth. */
+// #4951 guess
 const FIRST_WINDOW_BYTES = 4 * 1024 * 1024;
 
 const STAMPED = /^(\d{4}-\d\d-\d\dT[\d:.]+Z) ([a-z-]+)(?: (.*))?$/;
@@ -59,31 +20,25 @@ const FIRST_STAMP = /^(\d{4}-\d\d-\d\dT[\d:.]+Z) /m;
 /**
  * @typedef {import("./queue-log.js").LoggedRow} LoggedRow
  * @typedef {{ref: string, sha: string, event: "land"|"drop", take: number,
- *   at: number, takes: number}} Stay `take` the first take, `at` the land or
- *   drop, in ms
- * @typedef {{t: number, kind: string, rest: string}} LanderEvent a stamped
- *   lander log line: its action kind and the rest of the line
+ *  at: number, takes: number}} Stay
+ * @typedef {{t: number, kind: string, rest: string}} LanderEvent
  * @typedef {{kind: string, t: number, end: number|null}} RedStep
  * @typedef {object} ReplayedBatch
  * @property {number} slot
  * @property {number} take
- * @property {string[]} members queue ref names
- * @property {string[]} shas the members' short shas, in order
- * @property {{sha: string, t: number}[]} tests each `test-sha` of it
- * @property {number|null} detach when it became the search
- * @property {RedStep[]} steps its red-path lines
- * @property {string[]} drops members dropped
+ * @property {string[]} members
+ * @property {string[]} shas
+ * @property {{sha: string, t: number}[]} tests
+ * @property {number|null} detach
+ * @property {RedStep[]} steps
+ * @property {string[]} drops
  * @property {number|null} end
  * @property {"green"|"red-landed"|"dropped"|"rebatched"|"held"|"unmerged"
- *   |"retaken"|"unclosed"|null} outcome
- * @property {number} last its newest line
+ *  |"retaken"|"unclosed"|null} outcome
+ * @property {number} last
  */
 
-/**
- * Each ref's stays, by the order they ended.
- * @param {readonly LoggedRow[]} rows oldest first
- * @returns {Stay[]}
- */
+/** @param {readonly LoggedRow[]} rows @returns {Stay[]} */
 function memberStays(rows) {
 	/** @type {Map<string, {take: number, takes: number}>} */
 	const open = new Map();
@@ -111,14 +66,7 @@ function memberStays(rows) {
 	return stays;
 }
 
-/**
- * The tail of the log at `file` reaching back past `since`, read from its
- * end, the window doubled until it does, as the log grows without bound;
- * empty where absent.
- * @param {string} file
- * @param {number} since ms
- * @returns {string}
- */
+/** @param {string} file @param {number} since @returns {string} */
 function readLogSince(file, since) {
 	for (let want = FIRST_WINDOW_BYTES; ; want *= 2) {
 		const tail = readTail(file, want);
@@ -131,12 +79,7 @@ function readLogSince(file, since) {
 	}
 }
 
-/**
- * The stamped lines of a lander log, in its order; any other line, a
- * child's output among them, is left out.
- * @param {string} text
- * @returns {LanderEvent[]}
- */
+/** @param {string} text @returns {LanderEvent[]} */
 function parseLanderLog(text) {
 	/** @type {LanderEvent[]} */
 	const events = [];
@@ -153,8 +96,6 @@ function parseLanderLog(text) {
 }
 
 /**
- * Each green run's time, `test-sha` to `fast-forward-main` at one sha. A sha
- * a red-path line names is no green run, landed or not.
  * @param {readonly LanderEvent[]} events
  * @returns {{sha: string, from: number, at: number}[]}
  */
@@ -174,31 +115,20 @@ function greenSuiteSpans(events) {
 	return spans;
 }
 
-/* An ISO time with its zone: `Date.parse` reads a bare date as UTC and a
- * zoneless time as local, so either would move the window unseen. */
+// `Date.parse` reads a bare date as UTC and a zoneless time as local. https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/parse
 const ISO_TIME_RE =
 	/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/;
 
-/**
- * Why a `--<name>` value is refused as no ISO time with its zone.
- * @param {string} name
- * @param {string} value
- */
+/** @param {string} name @param {string} value */
 const buildIsoRefusal = (name, value) =>
 	`--${name} takes an ISO time with its zone, such as 2026-11-10T16:13:04Z: ${value}`;
 
-/**
- * @typedef {{since: number, until: number, label: string}} Window ms; `label`
- *   names it in a reading's line
- */
+/** @typedef {{since: number, until: number, label: string}} Window */
 
 /**
- * The window a reading covers.
- * @param {{since?: string|null, until?: string|null}} flags ISO times; the
- *   end is `at` where `until` is absent, the start the BASELINE_MS before the
- *   end where `since` is
- * @param {number} at now, in ms
- * @returns {Window|string} the window, or why the flags give none
+ * @param {{since?: string|null, until?: string|null}} flags
+ * @param {number} at
+ * @returns {Window|string}
  */
 function windowOf(flags, at) {
 	for (const [name, value] of Object.entries(flags))
@@ -228,13 +158,7 @@ function windowOf(flags, at) {
  */
 const isSpanIn = (w, from, to) => from >= w.since && to < w.until;
 
-/**
- * The fewest of `n` stays over the time that a queue on target, each stay
- * over it with OVER_SHARE's chance, reaches at most CHANCE of the time:
- * `n + 1`, never reached, where no count of `n` is that rare.
- * @param {number} n
- * @returns {number}
- */
+/** @param {number} n @returns {number} */
 function overCountNeeded(n) {
 	const odds = Math.log(OVER_SHARE / (1 - OVER_SHARE));
 	let logMass = n * Math.log(1 - OVER_SHARE);
@@ -249,23 +173,22 @@ function overCountNeeded(n) {
 
 /**
  * @typedef {object} Reading
- * @property {number} stays stays that began and ended in the window
- * @property {number|null} overTarget stays longer than targetMs
- * @property {number} overNeeded overCountNeeded of the stays
+ * @property {number} stays
+ * @property {number|null} overTarget
+ * @property {number} overNeeded
  * @property {number|null} p50Ms
  * @property {number|null} p90Ms
- * @property {number} greens green runs that began and ended in the window
+ * @property {number} greens
  * @property {number|null} greenP50Ms
- * @property {number|null} targetMs TARGET_MULTIPLE × greenP50Ms
- * @property {boolean} judged whether the window holds a green run
- * @property {boolean} over whether overTarget reaches overNeeded
+ * @property {number|null} targetMs
+ * @property {boolean} judged
+ * @property {boolean} over
  */
 
-/** @param {number|null} ms @returns {string} whole seconds, `-` for none */
+/** @param {number|null} ms @returns {string} */
 const secs = (ms) => (ms === null ? "-" : String(Math.round(ms / 1000)));
 
 /**
- * The window's stays against the target.
  * @param {readonly Stay[]} stays
  * @param {readonly {from: number, at: number}[]} greens
  * @param {Window} w
@@ -315,8 +238,6 @@ function endStep(b, t) {
 	if (step && step.end === null) step.end = t;
 }
 
-/** The replay's state: every batch, each slot's newest, the live search and
- * the batch last merged. */
 class Replay {
 	constructor() {
 		/** @type {ReplayedBatch[]} */
@@ -342,10 +263,7 @@ class Replay {
 		if (this.search === b) this.search = null;
 	}
 
-	/**
-	 * The newest batch not ended that `is` holds of.
-	 * @param {(b: ReplayedBatch) => boolean} is
-	 */
+	/** @param {(b: ReplayedBatch) => boolean} is */
 	live(is) {
 		return this.batches.findLast((b) => b.end === null && is(b)) ?? null;
 	}
@@ -416,11 +334,7 @@ class Replay {
 		this.search = b;
 	}
 
-	/**
-	 * The search a red-path line belongs to: the one detached, else, a red
-	 * path no `detach` opened, the batch naming its members or last tested.
-	 * @param {LanderEvent} e
-	 */
+	/** @param {LanderEvent} e */
 	searchOf(e) {
 		if (this.search) return this.search;
 		const names = refsIn(e.rest);
@@ -470,11 +384,7 @@ const HANDLERS = {
 	"drop-member": "drop",
 };
 
-/**
- * The batches a lander log's lines tell of, by the order they were taken.
- * @param {readonly LanderEvent[]} events
- * @returns {ReplayedBatch[]}
- */
+/** @param {readonly LanderEvent[]} events @returns {ReplayedBatch[]} */
 function replayBatches(events) {
 	const replay = new Replay();
 	for (const e of events) {

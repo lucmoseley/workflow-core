@@ -1,30 +1,9 @@
-/*
- * ticket-criteria.js — an issue body's acceptance criteria as task-list items,
- * read by check-ticket-criteria.js after a close and by both close routes
- * before one, so the three cannot disagree on what is unmet (#1640); and
- * ticked by the landing-queue closers as they close (#5354).
- */
-
 const { requiredGroup } = require("./regex-group.js");
 
-// `## Acceptance criteria` or a bare `## Acceptance` (#2481). Residual: a
-// trailing colon, `## Acceptance tests` or a bold pseudo-heading reads as none.
 const CRITERIA_HEADING = /^\s{0,3}(#{1,6})\s+acceptance(?:\s+criteria)?\s*$/i;
 const HEADING = /^\s{0,3}(#{1,6})\s+/;
 
-/*
- * The acceptance-criteria section: from its heading to the next heading of the
- * same or higher level.
- *
- * Never widen this to a whole-body scan. Ticket bodies quote ledger items
- * containing bracketed text, and a "Blocked by" list parses as a task list —
- * both would report as unmet criteria.
- */
-/**
- * The criteria section's line range, [from, to).
- * @param {readonly string[]} lines
- * @returns {[number, number]|null}
- */
+/** @param {readonly string[]} lines @returns {[number, number]|null} */
 function criteriaRange(lines) {
 	for (const [start, line] of lines.entries()) {
 		const heading = CRITERIA_HEADING.exec(line);
@@ -47,19 +26,10 @@ function criteriaSection(body) {
 	return range === null ? null : lines.slice(...range).join("\n");
 }
 
-/*
- * `**waived:** <why>` on an unticked criterion: checked, found not met, left
- * unticked on purpose. Reports without failing — the alternative is clearing a
- * red run by ticking something untrue. The reason is required; a bare marker
- * still fails.
- */
 const WAIVER = /\*\*waived:?\*\*\s*(\S.*|)$/i;
 const TASK_ITEM = /^\s*[-*+]\s+\[([ xX])\]\s*(\S.*|)$/;
 
-/**
- * GFM task-list items in a chunk of markdown, as {ticked, waived, text}.
- * @param {string} md
- */
+/** @param {string} md */
 function taskItems(md) {
 	const items = [];
 	for (const line of md.split(/\r?\n/)) {
@@ -76,29 +46,16 @@ function taskItems(md) {
 	return items;
 }
 
-/**
- * A criterion a completed close still owes: unticked and unwaived.
- * @param {{ticked: boolean, waived: boolean}} item
- */
+/** @param {{ticked: boolean, waived: boolean}} item */
 const isUnmet = (item) => !item.ticked && !item.waived;
 
-/**
- * The body's unmet criteria. Empty where it has no criteria section, whatever
- * the issue's labels (#1640).
- * @param {string | null | undefined} body
- */
+/** @param {string | null | undefined} body */
 function unmetCriteria(body) {
 	const section = criteriaSection(body);
 	return section === null ? [] : taskItems(section).filter(isUnmet);
 }
 
-/**
- * The body with the unmet criterion reading `criterion` ticked, each line
- * keeping its own ending.
- * @param {string} body
- * @param {string} criterion the item's text, as taskItems reads it
- * @returns {string}
- */
+/** @param {string} body @param {string} criterion @returns {string} */
 function tickCriteria(body, criterion) {
 	const lines = body.split("\n");
 	const bare = lines.map((l) => l.replace(/\r$/, ""));
@@ -119,13 +76,9 @@ function tickCriteria(body, criterion) {
 }
 
 /**
- * Ticks the open issue's `criterion` through `refresh`, the route its filer
- * writes the body by, for a closer whose close comment states it met
- * (#5354). Run before the close: a close that then throws leaves the issue
- * open and ticked until the next pass retries it.
  * @param {number} n
- * @param {string} body its body as read
- * @param {string} criterion the filer's own criterion
+ * @param {string} body
+ * @param {string} criterion
  * @param {(n: number, body: string) => unknown} refresh
  */
 function tickBeforeClose(n, body, criterion, refresh) {

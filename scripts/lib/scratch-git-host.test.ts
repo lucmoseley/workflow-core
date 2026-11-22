@@ -1,27 +1,14 @@
-/*
- * Tests for lib/scratch-git-host.js's isTracked: git's exit 128 reads as
- * "untracked" only where git says there is no repository (#3396). Break it
- * and lib/scratch-git.js either refuses a tracked script on a git fault, or
- * lets an unguarded script outside any repository write git state, the
- * #3162 incident. The fatal that is not that is driven through
- * git-fault-fake.ts at WFC_GIT (base §N7); the rest cross the real git in a
- * temp directory.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFaultyGit } from "./git-fault-fake";
-
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const lib: any = createRequire(__filename)("./scratch-git-host.js");
+import { buildHostPorts } from "./scratch-git-host.js";
 
 describe("isTracked", () => {
 	let dir: string;
-	const isTracked = (abs: string) => lib.buildHostPorts().isTracked(abs);
+	const isTracked = (abs: string) => buildHostPorts().isTracked(abs);
 
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "scratch-git-host-"));

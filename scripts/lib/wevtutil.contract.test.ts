@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/wevtutil-fake.ts to the real wevtutil.exe (#4081): each side runs
- * check-kernel-stall.js's Windows reader on a large `t` and checks shape and
- * verdict, never values. Loosened, a Windows that prints another stamp reads
- * as uptime unknown and no leap is counted, with the fake's tests still green.
- *
- * The real side runs where wevtutil.exe answers, never in CI: the event log is
- * the founder's machine's.
- *
- * Red on the real side after a Windows update: run readWindowsBoots's query by
- * hand, then fix it or the fake.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,9 +9,8 @@ import { readStallNow } from "./kernel-stall-fixture";
 import { runInProcessAsync } from "./run-in-process.js";
 import { writeWevtutil } from "./wevtutil-fake";
 
-/** check-kernel-stall.js's own read budget. */
 const WEVTUTIL_PROBE_MS = 5000;
-/** The probe and the read in full, with margin on a loaded machine. Untraced. */
+// #4081 guess
 const REAL_CASE_MS = 15_000;
 
 let dir: string;

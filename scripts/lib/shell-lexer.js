@@ -1,65 +1,23 @@
-/*
- * shell-lexer.js — the guard parser's quote lexer (#490, #510), its own module
- * so the parser and the #510 bound test reach one Lexer (#4134).
- *
- * A CORE: it does no I/O and never runs the text.
- */
-
 // biome-ignore lint/suspicious/noImportCycles: shell-words.js requires shell-parse.js only inside runScript, once both have loaded (#4863).
 const { QUOTED, SENTINEL_BYTE } = require("./shell-words.js");
 const { endRun } = require("./trim-run.js");
 
-/** `[[:space:]]`, without JavaScript's wider Unicode `\s`. */
 const SPACE = " \t\n\v\f\r";
 
-/**
- * Does a word start after text `s` — nothing before it, or whitespace or a
- * control operator? A span's closing sentinel byte is neither, so `"a"#b` is
- * one word.
- * @param {string} s
- */
+/** @param {string} s */
 const isWordStart = (s) => s === "" || `${SPACE};&|()`.includes(s.slice(-1));
 
-/**
- * The first of `chars` in `text` at or after `from`, or -1.
- * @param {string} text
- * @param {string} chars
- * @param {number} from
- */
+/** @param {string} text @param {string} chars @param {number} from */
 function indexOfAny(text, chars, from) {
 	for (let j = from; j < text.length; j++)
 		if (chars.includes(text.charAt(j))) return j;
 	return -1;
 }
 
-/**
- * THE LEXER (#490, #510). One left-to-right state machine, as shell lexes,
- * that blanks each outermost quoted span and records its text. Every pass that
- * asks whether a quote is open asks it, so no two can disagree.
- *
- * RESUMABLE: `lex` consumes text and leaves its state behind, so the line join
- * feeds each line once.
- *
- * The first quote opens the span and the other kind is literal inside it; a
- * backslash outside `'…'` escapes the next character; `$'…'` takes backslash
- * escapes after an odd run of `$` only, `$$` being the shell's pid. Inside
- * `"…"`, a `$(` is read to its own close, so the quotes of the command inside
- * close nothing. Inside a `$(…)`, brackets nest, quotes open spans of their
- * own, and a heredoc's body runs from the end of its opener's line to its
- * terminator line. `case` patterns and `#` comments there are not read.
- *
- * `frames` is the stack of open frames, innermost last: S `'…'`, E `$'…'`, D
- * `"…"`, C `$(…)`, H a heredoc body inside a C. Each frame's slot in `depth`,
- * `term` and `dash` is its stack index: a C's bracket depth and the heredoc
- * its line has opened, an H's terminator.
- */
 class Lexer {
-	/** @param {string[]} spans shared with every lexer of one parse, so an index
-	 * any of them writes reads back from one array */
+	/** @param {string[]} spans */
 	constructor(spans) {
 		this.spans = spans;
-		/** Outermost spans opened, never reset, so a caller can tell a new span
-		 * from the one it already judged. */
 		this.opens = 0;
 	}
 
@@ -82,7 +40,6 @@ class Lexer {
 		this.load(new Lexer(this.spans).save());
 	}
 
-	/** The state set aside around a lex that must not move it on. */
 	save() {
 		const {
 			frames,
@@ -132,23 +89,19 @@ class Lexer {
 		this.dash[n] = dash;
 	}
 
-	/** Open the frame a `'` opens after text `p`.
-	 * @param {string} p */
+	/** @param {string} p */
 	single(p) {
 		const dollars = endRun(p, "$").length;
 		this.push(dollars % 2 ? "E" : "S");
 	}
 
-	/** Record `recorded` as a span and return the sentinel standing for it.
-	 * @param {string} recorded */
+	/** @param {string} recorded */
 	recordSpan(recorded) {
 		this.spans.push(recorded);
 		return `${QUOTED}${this.spans.length - 1}${SENTINEL_BYTE}`;
 	}
 
-	/** Close the innermost frame on its closing character; closing the
-	 * outermost records the span and blanks it.
-	 * @param {string} c */
+	/** @param {string} c */
 	pop(c) {
 		this.frames = this.frames.slice(0, -1);
 		if (this.frames) {
@@ -165,12 +118,7 @@ class Lexer {
 		while (i >= 0 && i < text.length) i = this.lexStep(text, i);
 	}
 
-	/**
-	 * Read on from `i` in the innermost frame; where to read on from, or -1
-	 * where the text is used up.
-	 * @param {string} text
-	 * @param {number} i
-	 */
+	/** @param {string} text @param {number} i */
 	lexStep(text, i) {
 		if (this.escaped) return this.lexEscaped(text, i);
 		const f = this.frames.slice(-1);
@@ -190,10 +138,7 @@ class Lexer {
 		}
 	}
 
-	/** The character a backslash escaped. At top level a `\`-newline is no
-	 * break to bash, so both vanish.
-	 * @param {string} text
-	 * @param {number} i */
+	/** @param {string} text @param {number} i */
 	lexEscaped(text, i) {
 		this.escaped = false;
 		const c = text.charAt(i);
@@ -203,13 +148,9 @@ class Lexer {
 		return i + 1;
 	}
 
-	/** Outside every quote.
-	 * @param {string} text
-	 * @param {number} from */
+	/** @param {string} text @param {number} from */
 	lexTop(text, from) {
 		let i = from;
-		/* A `#` opening a word comments out the rest of its line, quotes and a
-		 * trailing `\` included. */
 		if (this.inComment) {
 			const nl = text.indexOf("\n", i);
 			if (nl < 0) return -1;
@@ -233,9 +174,7 @@ class Lexer {
 		return j + 1;
 	}
 
-	/** Open an outermost span on quote `c`, after text `p`.
-	 * @param {string} c
-	 * @param {string} p */
+	/** @param {string} c @param {string} p */
 	openQuote(c, p) {
 		this.prefix = this.out;
 		this.quote = c;
@@ -244,9 +183,7 @@ class Lexer {
 		else this.single(p);
 	}
 
-	/** Inside `'…'`, where nothing but `'` is special.
-	 * @param {string} text
-	 * @param {number} i */
+	/** @param {string} text @param {number} i */
 	lexSingle(text, i) {
 		const j = text.indexOf("'", i);
 		if (j < 0) {
@@ -258,10 +195,7 @@ class Lexer {
 		return j + 1;
 	}
 
-	/** Inside `$'…'` (E) or `"…"` (D).
-	 * @param {string} text
-	 * @param {number} i
-	 * @param {string} f */
+	/** @param {string} text @param {number} i @param {string} f */
 	lexQuoted(text, i, f) {
 		const j = indexOfAny(text, f === "E" ? "'\\" : '"\\$', i);
 		if (j < 0) {
@@ -285,10 +219,7 @@ class Lexer {
 		return k;
 	}
 
-	/** Inside a `$(…)`, whose slot is `n`.
-	 * @param {string} text
-	 * @param {number} i
-	 * @param {number} n */
+	/** @param {string} text @param {number} i @param {number} n */
 	lexSubst(text, i, n) {
 		const j = indexOfAny(text, "()'\"\\<\n", i);
 		if (j < 0) {
@@ -323,22 +254,14 @@ class Lexer {
 		return k;
 	}
 
-	/** A `)` inside a `$(…)`. A C is never outermost, so it closes without
-	 * `pop`.
-	 * @param {number} n */
+	/** @param {number} n */
 	closeSubst(n) {
 		this.depth[n] = (this.depth[n] ?? 0) - 1;
 		if (this.depth[n] === 0) this.frames = this.frames.slice(0, -1);
 	}
 
-	/** After a `<` inside a `$(…)`: a heredoc opener records its terminator
-	 * for the line's end.
-	 * @param {string} text
-	 * @param {number} i
-	 * @param {number} n */
+	/** @param {string} text @param {number} i @param {number} n */
 	lexHeredocOpener(text, i, n) {
-		/* A `<<<` here-string opens no body; its third `<` must not read as
-		 * one. */
 		if (text.startsWith("<<", i)) {
 			this.span += "<<";
 			return i + 2;
@@ -354,9 +277,7 @@ class Lexer {
 		return i + m[0].length;
 	}
 
-	/** A newline inside a `$(…)`: where a heredoc opened on the line it ends,
-	 * its body runs from here to the terminator line.
-	 * @param {number} n */
+	/** @param {number} n */
 	openHeredocBody(n) {
 		const term = this.term[n];
 		if (!term) return;
@@ -365,10 +286,7 @@ class Lexer {
 		this.heredocLine = "";
 	}
 
-	/** Inside a heredoc body, read a line at a time against its terminator.
-	 * @param {string} text
-	 * @param {number} i
-	 * @param {number} n */
+	/** @param {string} text @param {number} i @param {number} n */
 	lexHeredoc(text, i, n) {
 		const j = text.indexOf("\n", i);
 		if (j < 0) {
@@ -385,13 +303,7 @@ class Lexer {
 		return j + 1;
 	}
 
-	/**
-	 * Where the `$(…)` whose text starts at `from` ends, just past its `)`, or
-	 * -1. Read by the C frame, so its quotes, brackets and heredocs nest as they
-	 * did when the span was masked.
-	 * @param {string} text
-	 * @param {number} from
-	 */
+	/** @param {string} text @param {number} from */
 	static substitutionEnd(text, from) {
 		const lx = new Lexer([]);
 		lx.push("C");
@@ -400,16 +312,11 @@ class Lexer {
 		return lx.frames ? -1 : i;
 	}
 
-	/** The quote open where the lexer stands — `\` where a line is still to
-	 * come — or "". */
 	open() {
 		if (this.frames) return this.quote;
 		return this.escaped ? "\\" : "";
 	}
 
-	/** The masked text so far. An UNTERMINATED quote is left alone: the rest
-	 * of the text is literal, each sentinel byte in it recorded as a bare
-	 * span. Call it once per text: each call records those spans again. */
 	masked() {
 		if (!this.frames) return this.out;
 		const tail = this.span.replaceAll(SENTINEL_BYTE, (c) => this.recordSpan(c));

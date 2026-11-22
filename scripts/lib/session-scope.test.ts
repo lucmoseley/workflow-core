@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/session-scope.js (#4341): which processes move with a session, the
- * attach retry, and the watcher script, run for real by `sh` against a fake
- * /proc and cgroup directory with its systemd tools stubbed at WFC_SYSTEMCTL
- * and WFC_BUSCTL.
- */
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -128,11 +122,6 @@ describe("straysOf", () => {
 	});
 });
 
-/*
- * #4749's race, driven through injected cgroup reads: an outliving job's own
- * `systemd-run --scope` execs (its mark appears) and moves it out at each
- * point of the attach.
- */
 describe("attachThenRelease's release", () => {
 	const Home = "/non-systemd";
 	const Scope = "/s/wfc-sessions.slice/wfc-session-500-100.scope";
@@ -223,9 +212,6 @@ describe("attachThenRelease's release", () => {
 		expect(counts).toEqual({ moved: 2, released: 1, kept: [] });
 	});
 
-	/* A job pulled back in runs in the scope until its release, and a child it
-	 * forks there, or a group refused for a pid that exited, is met by a later
-	 * read. */
 	it("releases what a later read finds, and names what it never could", () => {
 		const procs = new Map([[600, { ppid: 1, startTicks: 120 }]]);
 		const cgroup = new Map([[600, Scope]]);
@@ -244,7 +230,6 @@ describe("attachThenRelease's release", () => {
 			release: ({ pids }) => {
 				tries.push(pids);
 				if (tries.length === 1) {
-					/* Refused; meanwhile 600 forks 601, and 602 appears, in the scope. */
 					procs.set(601, { ppid: 600, startTicks: 130 });
 					procs.set(602, { ppid: 1, startTicks: 140 });
 					cgroup.set(601, Scope).set(602, Scope);
@@ -322,11 +307,6 @@ describe("attachThenRelease's attach", () => {
 });
 
 describe("the watcher", () => {
-	/**
-	 * A fake /proc, a scope cgroup at /scope holding `procs`, a systemctl
-	 * (lib/systemctl-fake.ts) that names it and empties it on `kill`, and a
-	 * busctl that logs.
-	 */
 	function fakeMachine(procs: Record<number, string>) {
 		const root = tmp("session-scope-w-");
 		const proc = path.join(root, "proc");
@@ -403,7 +383,6 @@ describe("the watcher", () => {
 		expect(r.stdout).toBe("u.scope peaked at 3072 MiB, oom_kill 2\n");
 	});
 
-	/* Crosses the real clock (§X9), as the test below does. */
 	it("journals the peak it polled while its leader lived, the scope gone since", async () => {
 		const m = fakeMachine({});
 		fs.mkdirSync(path.join(m.proc, "4000"), { recursive: true });
@@ -447,8 +426,6 @@ describe("the watcher", () => {
 		expect(r.stdout).toMatch(/session 4000 ended/);
 	});
 
-	/* Crosses the real clock (§X9): the watcher is a shell loop on `sleep`,
-	 * which no fake clock reaches. */
 	it("waits while its leader lives, and leaves an empty scope alone", async () => {
 		const m = fakeMachine({});
 		fs.mkdirSync(path.join(m.proc, "4000"), { recursive: true });
@@ -461,7 +438,6 @@ describe("the watcher", () => {
 		const exited = new Promise<number | null>((resolve) =>
 			watcher.on("exit", resolve),
 		);
-		/* One look at the live leader: the watcher must still be waiting. */
 		await new Promise((r) => setTimeout(r, 500));
 		expect(watcher.exitCode).toBeNull();
 		fs.rmSync(stat);

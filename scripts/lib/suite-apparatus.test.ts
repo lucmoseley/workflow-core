@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which scripts suite-apparatus.js calls the suite's apparatus, the set
- * check-host-root.js leaves unscanned (#3743). Loosen it and a shipped script
- * leaves the host-root scan; tighten it and a test is judged as shipped code.
- */
 
 import { describe, expect, it } from "vitest";
 import { isApparatus } from "./suite-apparatus";

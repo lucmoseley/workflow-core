@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/suite-ladder.js, in process: docs/environment.md §6's rungs and the
- * suites a `ps -eo args` listing shows running. How each reading moves the
- * suite gate's verdict is lib/suite-concurrency.test.ts's; these pin the
- * figures themselves, so a rung moved without a re-measurement fails here.
- *
- * Move a rung down unmeasured and the gate lets a suite start under the
- * headroom earlyoom kills live sessions to keep.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -54,8 +45,6 @@ const {
 };
 
 describe("suiteRungMb, §6's table (#2558)", () => {
-	/* 794 MB + the dip + ~300 MB, rounded up to 50; past nine workers each
-	 * adds the one-suite dip's share of one, EXTRAPOLATED. */
 	it.each([
 		[1, 1650],
 		[2, 2150],
@@ -80,7 +69,6 @@ describe("suiteRungMb, §6's table (#2558)", () => {
 	});
 });
 
-/** A `ps` listing of `lines`, none carrying a pid. */
 const ps = (lines: string[]) => lines.map((args) => ({ pid: null, args }));
 
 describe("runningSuites, the runs `ps` shows (mantahostels#1906, #2560)", () => {
@@ -147,7 +135,6 @@ describe("runningSuites, the runs `ps` shows (mantahostels#1906, #2560)", () => 
 });
 
 describe("a running run's carried weight (#2931)", () => {
-	/* A `--changed` or full run's runner line names no file. */
 	const bare = "node /r/node_modules/.bin/vitest run";
 
 	it("weighs a runner by the weight its process carries over its words", () => {

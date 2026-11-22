@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The warm-fraction log appends one line per real selection run, reads back
- * past malformed lines, and holds its verdict on mantahostels#385's 60-80% until
- * the band earns one (mantahostels#628, mantahostels#1428).
- *
- * Exercised against a throwaway root: pointing it at this repo would append to
- * the real measurement log.
- *
- * `pick-next.js` appends on every `/pick-next` run; loosen a case and a
- * selection run can fail on a log fault, or the summary confirms or refutes
- * mantahostels#385's claim on a band the runs do not support.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -44,7 +32,6 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** One run, in the shape `pick-next.js` hands over. */
 const run = (warm: number, cold: number, causes: Record<string, number> = {}) =>
 	appendRun(root, {
 		frontier: warm + cold,
@@ -55,7 +42,6 @@ const run = (warm: number, cold: number, causes: Record<string, number> = {}) =>
 	});
 
 describe("the cold causes", () => {
-	/** The record `appendRun` writes for one run whose cold list holds `states`. */
 	const recordFor = (...states: unknown[]) =>
 		appendRun(root, {
 			frontier: states.length,
@@ -129,7 +115,6 @@ describe("appending a run", () => {
 
 	it("reports rather than throws when the log cannot be written", () => {
 		fs.mkdirSync(path.dirname(logPath(root)), { recursive: true });
-		// A directory where the log file goes: every write fails, forever.
 		fs.mkdirSync(logPath(root));
 		const r = appendRun(root, { frontier: 1, warm: [], cold: [] });
 		expect(r.ok).toBe(false);
@@ -299,9 +284,6 @@ describe("summarising", () => {
 				frontier: 10,
 				warm: 7,
 				cold: 3,
-				// A number JSON round-trips as `null` (NaN's JSON form) or omits
-				// entirely; neither is ticket `0`, which `Number(null) === 0`
-				// would otherwise invent.
 				coldNumbers: [
 					{ n: null, state: "unknown" },
 					{ n: undefined, state: "unknown" },
@@ -315,7 +297,6 @@ describe("summarising", () => {
 });
 
 describe("the verdict on mantahostels#385's 60-80%", () => {
-	/** A summary with `n` runs all at fraction `f`, plus an optional band. */
 	const at = (f: number, n = 12, ci95: number | null = 0) => ({
 		enough: n >= 10,
 		usableRuns: n,
@@ -377,8 +358,6 @@ describe("what the log keeps that counts alone cannot recover", () => {
 	});
 
 	it("degrades rather than throwing when handed a cold list of the wrong shape", () => {
-		// `write-set-cache.js` degrades on a wrong-shaped caller; so must this,
-		// since throwing here would fail a selection run to protect a measurement.
 		expect(() =>
 			appendRun(root, { frontier: 1, warm: [], cold: 42 }),
 		).not.toThrow();
@@ -399,7 +378,6 @@ describe("what the log keeps that counts alone cannot recover", () => {
 
 describe("the band", () => {
 	it("uses Student's t, not 1.96, at the run counts this tool actually sees", () => {
-		// Four runs at 0 and 100: sample sd is 0.5774, df = 3, t = 3.182.
 		const s = summarise([
 			{ frontier: 10, warm: 0, cold: 10 },
 			{ frontier: 10, warm: 10, cold: 0 },
@@ -415,7 +393,6 @@ describe("the band", () => {
 			{ frontier: 10, warm: 2, cold: 8 },
 			{ frontier: 10, warm: 8, cold: 2 },
 		]);
-		// The population sd would be 0.3.
 		expect(s.sd).toBeCloseTo(0.424_264_068_7, 6);
 	});
 
@@ -470,7 +447,6 @@ describe("which figure the verdict judges", () => {
 });
 
 describe("collapsing duplicate runs", () => {
-	/** A record in the shape the log stores, with the numbers a dedup needs. */
 	const rec = (
 		timestamp: string,
 		session: string | null,
@@ -503,7 +479,6 @@ describe("collapsing duplicate runs", () => {
 	it("keeps a genuine second re-pick by the same session, whose split has moved", () => {
 		const runs = [
 			rec("2026-08-19T08:14:08.000Z", "s1", { warm: [1], cold: [2, 3, 4] }),
-			// The first run's `put`s warmed two of them.
 			rec("2026-08-19T08:14:50.000Z", "s1", { warm: [1, 2, 3], cold: [4] }),
 		];
 		expect(partition(runs).distinct).toHaveLength(2);
@@ -559,8 +534,6 @@ describe("collapsing duplicate runs", () => {
 	});
 
 	it("keeps a run with no readable timestamp rather than guessing its window", () => {
-		// Both unreadable: a reader that treated a missing time as one instant
-		// would place them in the same window and drop the second.
 		const runs = [
 			rec("nonsense", "s1", { warm: [1, 2], cold: [3, 4] }),
 			rec("nonsense", "s1", { warm: [1, 2], cold: [3, 4] }),
@@ -569,8 +542,6 @@ describe("collapsing duplicate runs", () => {
 	});
 
 	it("keeps two runs over the same tickets whose warm and cold sides swapped", () => {
-		// Same frontier, same counts: a size-keyed reader would call these one
-		// observation, and the crossing is exactly the churn being measured.
 		const runs = [
 			rec("2026-08-19T08:00:00.000Z", "s1", { warm: [1, 2], cold: [3, 4] }),
 			rec("2026-08-19T08:05:00.000Z", "s1", { warm: [3, 4], cold: [1, 2] }),
@@ -612,7 +583,6 @@ describe("collapsing duplicate runs", () => {
 		);
 		const kept = partition(outOfOrder).distinct;
 		expect(kept).toHaveLength(2);
-		// Windows run 0-10 and 20-30, so 10 and 30 go; returned as written.
 		expect(kept.map((r: { at: string }) => r.at)).toEqual([at(0), at(20)]);
 	});
 
@@ -655,7 +625,6 @@ describe("collapsing duplicate runs", () => {
 		const s = summarise([cold, dup, warm]);
 		expect(s.totalRuns).toBe(3);
 		expect(s.usableRuns).toBe(2);
-		// 1+3 warm of 8 frontier, not 2+3 of 12.
 		expect(s.pooled).toBeCloseTo(0.5, 6);
 		expect(s.collapsedRuns).toBe(1);
 	});
@@ -721,7 +690,6 @@ describe("collapsing duplicate runs", () => {
 	});
 
 	it("reads the `puts` field two live log lines carry, so they are not treated as unable to say", () => {
-		// Two runs on the real log carry `puts` rather than `putsSinceLastRun`.
 		const withPuts = (timestamp: string, puts: number) => ({
 			...rec(timestamp, "s1", { warm: [1], cold: [2] }),
 			puts,
@@ -750,8 +718,6 @@ describe("collapsing duplicate runs", () => {
 			rec("2026-08-19T08:09:00.000Z", "s1", { warm: [1], cold: [2], puts: 2 }),
 			rec("2026-08-19T08:14:00.000Z", "s1", { warm: [1], cold: [2], puts: 0 }),
 		];
-		// The third is 14 minutes past the first and so outside its window, but
-		// 5 past the second, which is now the anchor.
 		expect(partition(runs).distinct).toHaveLength(2);
 	});
 
@@ -771,7 +737,6 @@ describe("collapsing duplicate runs", () => {
 });
 
 describe("provisional entries, kept apart from warm (mantahostels#1001)", () => {
-	/** One run with a pre-warmed slice, in the shape `pick-next.js` hands over. */
 	const runWith = (
 		warm: number[],
 		provisional: number[],
@@ -785,10 +750,6 @@ describe("provisional entries, kept apart from warm (mantahostels#1001)", () => 
 		});
 
 	it("counts them on their own line, never inside warm", () => {
-		/*
-		 * Folding them in would drive every line towards 100% and make mantahostels#385's
-		 * 60-80% claim untestable — a prediction is not a band read.
-		 */
 		runWith([1], [2, 3]);
 		const rec = readRuns(root).runs[0];
 		expect(rec.warm).toBe(1);
@@ -810,7 +771,6 @@ describe("provisional entries, kept apart from warm (mantahostels#1001)", () => 
 	});
 
 	it("reads a line predating the field as no provisional tickets, not as a gap", () => {
-		// No run before mantahostels#1001 wrote one, so zero is the truth for those lines.
 		fs.mkdirSync(path.dirname(logPath(root)), { recursive: true });
 		fs.writeFileSync(
 			logPath(root),
@@ -830,12 +790,6 @@ describe("provisional entries, kept apart from warm (mantahostels#1001)", () => 
 	});
 
 	it("keeps two runs distinct when only the provisional membership differs", () => {
-		/*
-		 * A frontier that has grown by one pre-warmed ticket is a second
-		 * observation of the churn, not a second record of the run before it — and
-		 * the warm and cold lists are identical, so the provisional list is the
-		 * only thing that can tell them apart.
-		 */
 		runWith([1], []);
 		runWith([1], [2]);
 		const { distinct: runs, collapsed } = partition(readRuns(root).runs);
@@ -850,18 +804,11 @@ describe("provisional entries, kept apart from warm (mantahostels#1001)", () => 
 	});
 });
 
-/** One line written straight to the log, so its instant and shape are controlled. */
 const raw = (rec: Record<string, unknown>) => {
 	fs.mkdirSync(path.dirname(logPath(root)), { recursive: true });
 	fs.appendFileSync(logPath(root), `${JSON.stringify(rec)}\n`);
 };
 
-/**
- * A run at a chosen minute, with a frontier nothing else shares so the
- * de-duplication window never reaches it — `sharedFrontier` opts out of that,
- * for the one case that needs a duplicate. A `null` `prov` writes no
- * `provisional` key at all, which is how every line predating mantahostels#1001 reads.
- */
 const at = (
 	minute: number,
 	prov: number | null,
@@ -874,8 +821,6 @@ const at = (
 	} = {},
 ) => {
 	const { warm = 1, cold = 1 } = opts;
-	// A shared frontier reuses one base, so two lines key identically and the
-	// de-duplication window can reach them.
 	const base = opts.sharedFrontier ? 0 : minute * 1000;
 	const rec: Record<string, unknown> = {
 		at:
@@ -924,7 +869,6 @@ describe("splitting the log where pre-warming starts (mantahostels#1054)", () =>
 	});
 
 	it("summarises each side apart, so covered is never pooled across the change", () => {
-		// Before: 1 warm of 2. After: 1 warm + 2 provisional of 4.
 		at(1, null);
 		at(2, 2);
 		const split = splitAtProvisional(readRuns(root).runs);
@@ -942,12 +886,6 @@ describe("splitting the log where pre-warming starts (mantahostels#1054)", () =>
 	});
 
 	it("drops duplicates before splitting, so one observation cannot count on both sides", () => {
-		/*
-		 * The pair straddles the boundary: same frontier, minutes apart, nothing
-		 * put between — one line predating the `provisional` field and one
-		 * carrying it empty. Collapsing each side separately would keep the
-		 * second, which would then become the split point off one observation.
-		 */
 		at(1, null, { sharedFrontier: true, puts: 0 });
 		at(3, 0, { sharedFrontier: true, puts: 0 });
 		const split = splitAtProvisional(readRuns(root).runs);
@@ -957,11 +895,6 @@ describe("splitting the log where pre-warming starts (mantahostels#1054)", () =>
 	});
 
 	it("places no run on a side when its instant cannot be read", () => {
-		/*
-		 * A defaulted instant sorted such a line to the epoch, where a pre-warming
-		 * one among them took the split point and left `before` empty — voiding
-		 * the comparison rather than reporting it.
-		 */
 		at(1, null);
 		at(2, null);
 		at(3, 2, { instant: "not-a-date" });
@@ -972,8 +905,6 @@ describe("splitting the log where pre-warming starts (mantahostels#1054)", () =>
 	});
 
 	it("keeps the endpoints and the span reading the same window", () => {
-		// Appended out of order, so file order would print a window the span
-		// beneath it contradicts.
 		at(90, null);
 		at(0, null);
 		const s = summarise(readRuns(root).runs);
@@ -1020,7 +951,6 @@ describe("the covered figure's own verdict floor (mantahostels#1054)", () => {
 });
 
 describe("the covered bound, which only ever refutes (mantahostels#1327)", () => {
-	/** A summary with just what `boundVerdictOn` and `coveredVerdictOn` read. */
 	const summaryAt = (
 		pooledCovered: number | null,
 		runsWithProvisional: number,
@@ -1042,8 +972,6 @@ describe("the covered bound, which only ever refutes (mantahostels#1327)", () =>
 	});
 
 	it("does not refute on a point estimate whose band still reaches the claim", () => {
-		// A midpoint test would refute this; the whole point of taking the band
-		// is that it must not.
 		expect(
 			boundVerdictOn(summaryAt(CLAIM.low - 0.01, MIN_PROVISIONAL_RUNS, 0.05)),
 		).toMatchObject({ state: "inconclusive" });

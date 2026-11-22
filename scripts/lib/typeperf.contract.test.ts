@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/typeperf-fake.ts to the real typeperf.exe (§G7, #2207, #3564):
- * each case runs against the fake and the machine's own typeperf over the
- * interop bridge and checks shape and verdict, never values. Loosened, every
- * check-interop-latency.js test stays green on the fake while a Windows update
- * changes typeperf's CSV and production records every counter as null.
- *
- * The real side runs where typeperf is reachable, never in CI (§G7 item 2):
- * one sample is a free read with no side effect.
- *
- * Red on the real side: run the case's command by hand, then fix
- * lib/interop-latency.js's parseTypeperf or the fake's builder.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -31,7 +18,6 @@ const reachable = (() => {
 		fs.accessSync(REAL, fs.constants.X_OK);
 		return !process.env.CI;
 	} catch {
-		// Not WSL: the real side skips.
 		return false;
 	}
 })();
@@ -39,16 +25,12 @@ const reachable = (() => {
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typeperf-contract-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/* check-interop-latency.js's TYPEPERF_BUDGET_MS, for its reason. */
 const CALL_MS = 15_000;
-/* The call's budget, plus a margin for vitest's own start under load. */
 const CASE_MS = CALL_MS + 5000;
 
 const CASES = [
 	{
 		name: "one sample is one CSV row whose every named counter parseTypeperf reads",
-		/** @param complete whether every counter must be named: the fake's always
-		 * are, while the real typeperf has twice dropped one under load (#3564). */
 		check(bin: string, complete: boolean) {
 			const r = spawnSync(bin, [...COUNTERS, "-sc", "1"], {
 				encoding: "utf8",

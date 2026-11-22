@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The wsl.exe reader (#4082), which must read a format and a bridge the core
- * never sees. Loosened, a wedged wsl.exe hangs `npm run status`, a one-call
- * stall reads as an unread machine, or a failed read loses its reason.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,10 +12,9 @@ const { readInstalled } = require("./wsl-version.js") as {
 	) => { version: string } | { why: string };
 };
 
-/* Far over a bash stub's start under load, a guess. */
+// #4082 guess
 const AMPLE_BUDGET_MS = 10_000;
 
-/* Far under the fake's hang, so every try must expire. */
 const WEDGED_BUDGET_MS = 200;
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wsl-version-"));
@@ -69,7 +63,6 @@ describe("readInstalled", () => {
 	});
 
 	it("gives up on a wedged wsl.exe after three tries at its budget", () => {
-		// §X9: crosses the real clock — the spawn's own timeout is under test.
 		const wedged = path.join(dir, "wedged");
 		const bin = writeWsl(wedged, { hangs: true });
 		expect(readInstalled(bin, WEDGED_BUDGET_MS)).toEqual({

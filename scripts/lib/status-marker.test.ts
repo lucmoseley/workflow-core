@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/status-marker.js's one parse of a message's status markers (#1550),
- * driven directly: the priced-options guard's own tests reach it only through
- * the hook process. Every status limb in that guard reads this parse, so a
- * wrong field here misfiles background jobs while each limb's own logic looks
- * sound.
- */
 
 import { describe, expect, it } from "vitest";
 import { governingMarker, parseStatus } from "./status-marker.js";

@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/tsc-slot.js (#3163): the type-check slot's rung, its count off `ps`,
- * and which words launch `tsc`. Break it and two `tsc` run at once into the
- * 10 GB cap, as #3113's earlyoom kill did, or a launch goes uncounted.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -55,7 +50,6 @@ const TSC_PEAKS_MB = {
 	5: chargeMb({ kind: "tsc", major: 5 }),
 	7: chargeMb({ kind: "tsc", major: 7 }),
 };
-/* What a compiler unread, or a major with no measured peak, is charged. */
 const HIGHEST_PEAK_MB = chargeMb({ kind: "tsc" });
 
 const rung5 = rungMb(TSC_PEAKS_MB[5]);
@@ -64,12 +58,9 @@ const rows = (...args: string[]) => args.map((a) => ({ pid: null, args: a }));
 
 describe("lib/tsc-slot.js", () => {
 	it("prices the rung at the measured 2,045 MB peak above earlyoom's floor and the margin", () => {
-		// 794 + 2045 + 300 = 3139, up to the next 50.
 		expect(rung5).toBe(3150);
 	});
 
-	/* Recorded off `ps` during a 7.0.2 pass on node 24.18 (#4892): the
-	 * launcher, then the same PID as the native compiler after `execve`. */
 	const root = "/r/.claude/worktrees/w/node_modules";
 	const launcher7 = `node ${root}/@typescript/native/bin/tsc -p tsconfig.json --noEmit --checkers 2`;
 	const native7 = `${root}/@typescript/typescript-linux-arm64/lib/tsc -p tsconfig.json --noEmit --checkers 2`;
@@ -94,7 +85,6 @@ describe("lib/tsc-slot.js", () => {
 			{ pid: 8, args: native7 },
 		];
 		expect(tscDenial(pair, 9000)).toEqual({ limb: "count", pids: [7] });
-		// A native compiler of another tree, or other arguments, is its own runner.
 		const other = native7.replace("/w/", "/v/");
 		expect(tscDenial([...pair, { pid: 9, args: other }], 9000)).toEqual({
 			limb: "count",
@@ -150,8 +140,6 @@ describe("lib/tsc-slot.js", () => {
 	});
 
 	it("reads a command memwatch cut inside the native compiler's path as a runner, and no other (#5217)", () => {
-		/* Recorded in ~/memwatch.log, 14 Nov 2026: a 7.0.2 pass's native
-		 * compiler, its command cut at memwatch's column width. */
 		const store =
 			"/home/u/workflow-core/.claude/worktrees/.dep-stores/8a38214acca573b5/node_modules";
 		for (const cut of [
@@ -185,7 +173,6 @@ describe("lib/tsc-slot.js", () => {
 		expect(runnerPeakMb(line(launcher7), major(7))).toBe(TSC_PEAKS_MB[7]);
 		const bin = "node /r/node_modules/.bin/tsc";
 		expect(runnerPeakMb(line(bin), major(5))).toBe(TSC_PEAKS_MB[5]);
-		// A version that will not read, 6.0 among them, is charged the highest.
 		expect(runnerPeakMb(line(bin), major(null))).toBe(HIGHEST_PEAK_MB);
 		expect(runnerPeakMb(line(`${bin}6`), major(6))).toBe(HIGHEST_PEAK_MB);
 	});
@@ -201,7 +188,6 @@ describe("lib/tsc-slot.js", () => {
 			TSC_PEAKS_MB[7],
 		);
 		expect(seen).toEqual(["/proc/42/cwd/node_modules/.bin/tsc"]);
-		// With no PID to read its directory by, the highest.
 		expect(runnerPeakMb({ pid: null, args: relative }, read)).toBe(
 			HIGHEST_PEAK_MB,
 		);
@@ -231,11 +217,9 @@ describe("lib/tsc-slot.js", () => {
 				path.join(dir, "six", "node_modules", ".bin", "tsc"),
 				path.join(dir, "six", "node_modules", ".bin", "tsc6"),
 			);
-			// 6.0, launched as `tsc6`, is charged the highest.
 			expect(launchPeakMb(six, { bin: "tsc6" })).toBe(HIGHEST_PEAK_MB);
 			expect(launchPeakMb(tree("five", "5.9.3"))).toBe(TSC_PEAKS_MB[5]);
 			expect(launchPeakMb(dir)).toBe(HIGHEST_PEAK_MB);
-			// A checkout's own type-check, none where it holds no compiler (#4956).
 			expect(checkoutPeakMb(path.join(dir, "seven", "sub"))).toBe(
 				TSC_PEAKS_MB[7],
 			);
@@ -254,7 +238,6 @@ describe("lib/tsc-slot.js", () => {
 		expect(
 			tscDenial(rows("bash -l"), rung7 - 1, 0, { peakMb: TSC_PEAKS_MB[7] }),
 		).toEqual({ limb: "memory", mb: rung7 - 1, rungMb: rung7 });
-		// The same reading holds a 5.x launch.
 		expect(
 			tscDenial(rows("bash -l"), rung7, 0, { peakMb: TSC_PEAKS_MB[5] }),
 		).toMatchObject({
@@ -275,7 +258,6 @@ describe("lib/tsc-slot.js", () => {
 		for (const runner of [
 			"node /r/node_modules/.bin/tsc --noEmit",
 			"/usr/bin/node /r/node_modules/typescript/bin/tsc -p hooks/tsconfig.json",
-			// A session worktree's cold `tsc`, its `node_modules` a store link (#4245).
 			"node /r/.claude/worktrees/implement-1-3fa9c1/node_modules/.bin/tsc --noEmit",
 		])
 			expect(tscDenial([...decoys, ...rows(runner)], 9000)).toEqual({
@@ -335,7 +317,6 @@ describe("lib/tsc-slot.js", () => {
 		expect(
 			tscDenial(rows("bash -l"), 9000, 100, { windows: windows(750) }),
 		).toBeNull();
-		// The guest rung is named first.
 		expect(
 			tscDenial(rows("bash -l"), rung5 - 1, 0, { windows: windows(10) }),
 		).toMatchObject({

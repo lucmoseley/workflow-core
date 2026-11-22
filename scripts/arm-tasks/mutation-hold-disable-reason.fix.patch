@@ -6,27 +6,9 @@ index fa23d07763e11717cd64c6274c44d1e98554ca79..3fe88f55464afc7bf6e19a1aaff18a46
 -A COMMIT CHANGING A LINE ON A DECLARED SENSITIVE PATH IS HELD WHILE A PLANTED BUG ON THAT LINE SURVIVES EVERY TEST. StrykerJS plants the bugs, its mutants, on the lines the commit adds or changes there, and the hold refuses while it cannot judge them too: tests red on HEAD plus the commit's changes, Stryker or vitest not installed, or Stryker not finishing — fix what the refusal names and commit again. Where it lists mutants, `Survived` means every test still passed with that one in place, `NoCoverage` that no test ran the line at all. Clear each one of two ways. Write a test that fails with that mutant in place — its line names the file, line, column, mutator and what the source was changed to, so no run by hand is needed. Or, where the mutant cannot change behaviour (an unreachable guard, a sort tie-break, display text), put `// Stryker disable next-line <mutator>: <why it cannot change behaviour>` above its line, or wrap a message table in `// Stryker disable <mutators>: <why>` … `// Stryker restore <mutators>`. Mutants on lines this commit did not change are never charged to it, and there is no score to meet (#1851).
 +A COMMIT CHANGING A LINE ON A DECLARED SENSITIVE PATH IS HELD WHILE A PLANTED BUG ON THAT LINE SURVIVES EVERY TEST. StrykerJS plants the bugs, its mutants, on the lines the commit adds or changes there, and the hold refuses while it cannot judge them too: tests red on HEAD plus the commit's changes, Stryker or vitest not installed, or Stryker not finishing — fix what the refusal names and commit again. Where it lists mutants, `Survived` means every test still passed with that one in place, `NoCoverage` that no test ran the line at all. Clear each one of two ways. Write a test that fails with that mutant in place — its line names the file, line, column, mutator and what the source was changed to, so no run by hand is needed. Or, where the mutant cannot change behaviour (an unreachable guard, a sort tie-break, display text), put `// Stryker disable next-line <mutator>: <why it cannot change behaviour>` above its line, or wrap a message table in `// Stryker disable <mutators>: <why>` … `// Stryker restore <mutators>`. A disable comment with no reason after its colon is refused, naming its line, where this commit adds it, turns old text into it, or widens its reach over a line it adds. Mutants on lines this commit did not change are never charged to it, and there is no score to meet (#1851).
 diff --git a/scripts/lib/stryker-comments.js b/scripts/lib/stryker-comments.js
-index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931062237f4 100644
 --- a/scripts/lib/stryker-comments.js
 +++ b/scripts/lib/stryker-comments.js
-@@ -1,14 +1,78 @@
- /*
-- * stryker-comments.js — the host Stryker config, loaded as the mutation hold's
-- * wrapper loads it for Stryker.
-+ * stryker-comments.js — the comments Stryker 10's instrumenter reads in a
-+ * file, parsed as it parses them, for the mutation hold's disable-comment
-+ * check (#2366, #2573, #2624); and the host Stryker config, loaded as the
-+ * hold's wrapper loads it for Stryker.
-+ *
-+ *   node scripts/lib/stryker-comments.js < request.json
-+ *
-+ * is `readComments` over the request on stdin, `{files}` holding its result
-+ * as JSON on fd RESULT_FD, or `{error}` where Babel will not load: not stdout,
-+ * where a host Babel or Stryker config may print (#2727). A child, since the
-+ * instrumenter parses with `parseAsync`, which alone loads a Babel config
-+ * holding top-level await, and the host config is loaded by `import()`.
-  */
- 
+@@ -1,9 +1,50 @@
  const fs = require("node:fs");
 +const { createRequire } = require("node:module");
  const path = require("node:path");
@@ -46,12 +28,7 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931
 +	"extra",
 +]);
 +
-+/* The parser plugins Stryker 10's instrumenter passes Babel
-+ * (`parsers/js-parser.js`, and `ts-parser.js` through its presets), each
-+ * parse a module, as both set or default it. A JS parse takes the host's
-+ * `mutator.plugins` in their place where set. Residual: a host Stryker at
-+ * another version than the hold's STRYKER_VERSION may parse with other
-+ * plugins. */
++// The parser plugins Stryker 10's instrumenter passes Babel: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/js-parser.ts
 +const JS_PLUGINS = [
 +	"doExpressions",
 +	"exportDefaultFrom",
@@ -70,34 +47,24 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931
 +	"decorators-legacy",
 +	"explicitResourceManagement",
 +];
-+/* `ts-parser.js` adds `preset-react`, so JSX, for a TSX parse. */
 +const TSX_PLUGINS = [...TS_PLUGINS, "jsx"];
 +
 +/** @typedef {"js"|"ts"|"tsx"} ParseKind */
 +/**
-+ * Set here: `leads`, the line the node it is a leading comment of starts on,
-+ * since Stryker reads only those, binding a `next-line` directive to that line
-+ * and opening a region there (instrumenter `directive-bookkeeper.js`);
-+ * `within`, the line spans of that node's ancestors, since Stryker reads no
-+ * directive under one overlapping none of its `mutate` ranges
-+ * (`babel-transformer.js` skips its subtree); and `block` and `blockEnd`, the
-+ * piece it sits in and that piece's last line, since each `<script>` block has
-+ * a bookkeeper of its own (`html-transformer.js`).
++ * Stryker reads only leading comments, binding a `next-line` directive to the line its node starts on: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/transformers/directive-bookkeeper.ts
 + * @typedef {{type: string, value: string, start: number, loc: {start: {line: number}, end: {line: number}}, leads?: number, within?: [number, number][], block: number, blockEnd: number}} BabelComment
 + */
 +/** @typedef {{id: string, filename: string, pieces: {code: string, kind: ParseKind}[]}} ParseEntry */
 +/** @typedef {Record<string, {comments: BabelComment[]} | {error: string}>} ReadComments */
  
  /**
-  * The options object a host Stryker config at `file` exports, its default
-@@ -34,4 +98,131 @@ async function loadStrykerConfig(file) {
+  * @param {string} file
+@@ -27,4 +68,114 @@ async function loadStrykerConfig(file) {
  	return base;
  }
  
 -module.exports = { HOST_CONFIG_FAULT, loadStrykerConfig };
 +/**
-+ * Babel's core as the host's Stryker install ships it, beside its
-+ * instrumenter, which parses through it.
 + * @param {string} root
 + * @returns {{parseAsync: (code: string, opts: object) => Promise<{comments: BabelComment[], program: unknown} | null>}}
 + */
@@ -110,12 +77,7 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931
 +	)("@babel/core");
 +}
 +
-+/**
-+ * Set `leads` and `within` on every leading comment under `node`, the
-+ * outermost node's where several share one.
-+ * @param {unknown} node accumulator: its comment objects are written in place
-+ * @param {[number, number][]} within the spans of `node`'s ancestors
-+ */
++/** @param {unknown} node @param {[number, number][]} within */
 +function markLeads(node, within) {
 +	if (typeof node !== "object" || node === null) return;
 +	if (Array.isArray(node)) {
@@ -141,21 +103,13 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931
 +	]);
 +}
 +
-+/**
-+ * markLeads over each child of `node`.
-+ * @param {object} node
-+ * @param {[number, number][]} within
-+ */
++/** @param {object} node @param {[number, number][]} within */
 +function markChildren(node, within) {
 +	for (const [k, v] of Object.entries(node))
 +		if (!NOT_CHILDREN.has(k)) markLeads(v, within);
 +}
 +
 +/**
-+ * Every comment Babel reads in each entry's pieces, keyed by its id, or the
-+ * first line of why it would not: JS under the host's Babel config and
-+ * `mutator.plugins` (`parsers/js-parser.js` passes `filename` and leaves
-+ * config loading on), TypeScript under neither (`ts-parser.js` turns it off).
 + * @param {{root: string, strykerConfig: string|null, entries: ParseEntry[]}} request
 + * @returns {Promise<ReadComments>}
 + */
@@ -210,7 +164,6 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931
 +/** @param {object} result */
 +function answerAndExit(result) {
 +	writeFd(RESULT_FD, JSON.stringify(result));
-+	// A host config's timer or open handle would keep the child past its answer.
 +	process.exit();
 +}
 +
@@ -220,8 +173,7 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931
 +		(e) => answerAndExit({ error: parseErrorFirstLine(e) }),
 +	);
 +
-+// The hold's wrapper imports loadStrykerConfig from ESM by name, which
-+// Node finds only while this stays a literal object.
++// Node finds a CommonJS module's named exports for an ESM import only in a literal `module.exports` object: https://nodejs.org/api/esm.html#commonjs-namespaces
 +module.exports = { HOST_CONFIG_FAULT, RESULT_FD, loadStrykerConfig };
 diff --git a/scripts/mutation-hold-gate-disable-comment.test.ts b/scripts/mutation-hold-gate-disable-comment.test.ts
 index a538d07a98e363a00ce25eaaaed6e8d7dea9da8f..b5df679960da5566a583fa784ada5c9c5bf0fc54 100644

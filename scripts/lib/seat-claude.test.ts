@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/seat-claude.js (#4344): the seat env the relaunch guard and the refill
- * loop's resume hand `claude`, and runClaude's VT-stripped verdict. `claude`
- * is lib/claude-stub.ts's bash stub at the given env's WFC_CLAUDE_BIN in a temp
- * dir, echoing the env it was given in colour; process.env's points nowhere
- * (#3991). Broken, a relaunched or resumed job runs on the caller's seat or
- * under its session id, or runs a binary its env never named.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

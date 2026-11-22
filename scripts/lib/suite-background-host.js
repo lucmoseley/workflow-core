@@ -1,9 +1,3 @@
-/*
- * suite-background-host.js — the production ports lib/suite-background.js
- * reads through the dispatcher (#2790): the host's declared `suiteRunners`,
- * loaded on first use, so a Bash call naming no suite pays nothing.
- */
-
 /**
  * @param {import("./core-contract.js").HostEnv} env
  * @returns {import("./suite-background.js").BackgroundPorts}
@@ -21,7 +15,6 @@ function buildHostPorts({ root, log }) {
 							quiet: true,
 						}).suiteRunners ?? [];
 				} catch {
-					/* Fails open (mantahostels#103 §6): an unreadable config declares no runner. */
 					log(
 						"workflow-core.json unreadable — no declared suite runner counted",
 					);

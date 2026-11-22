@@ -1,10 +1,3 @@
-/*
- * typeperf-fake.ts — a stub Windows `typeperf.exe` for
- * check-interop-latency.js's tests (#3564), injected at WFC_TYPEPERF. Held to
- * the real typeperf by typeperf.contract.test.ts (§G7).
- *
- * FOR TESTS ONLY.
- */
 import fs from "node:fs";
 import path from "node:path";
 
@@ -14,11 +7,6 @@ export interface Sample {
 	vmmemBytes: number;
 }
 
-/**
- * A typeperf.exe in `dir` printing one sample of the three counters it is
- * given in the real one's CRLF CSV, or, `failing`, nothing and exit 1. Its
- * path, for WFC_TYPEPERF.
- */
 export function writeTypeperf(dir: string, sample: Sample | "failing"): string {
 	fs.mkdirSync(dir, { recursive: true });
 	const bin = path.join(dir, "typeperf.exe");

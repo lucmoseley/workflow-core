@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The regression #343 exists for: a guard, lib, hook-wired or shipped
- * top-level script's message that tells a session to RUN a script by a bare
- * path, read over this repo's real scripts (#4705). It sits
- * apart from `script-path.test.ts` so that file's unit cases do not read the
- * scripts tree (#1900).
- *
- * Loosen a case and an adopter's session is handed a `scripts/x` that
- * resolves nowhere in its install.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -24,17 +14,6 @@ const { isShipped } = require("./plugin-tree") as {
 };
 
 describe("messages a shipped script prints", () => {
-	/* Data a test reads, never printed, the recorder fixtures' provenance
-	 * included; the CI command,
-	 * which rewriteRuleCommands spells at the plugin root before printing; and
-	 * the arbiter command claim-warning prints, and the
-	 * bg-run.sh and watcher commands suite-background, agent-poll and
-	 * wait-text say, and the issue-body fallback lead deny passes through,
-	 * which ctx.corePaths spells there; the `byHand` commands guard-entry's
-	 * refusal spells; and the status script npm runs from an adopter's root,
-	 * where init and upgrade copy resolve-core.js (#4151), and the walk
-	 * walk-command.js spells there or, in a source checkout, bare (#5286); and the rule
-	 * trigger generate-rule-fragments writes into the manifest (#4285). */
 	const exempt = [
 		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
@@ -63,9 +42,6 @@ describe("messages a shipped script prints", () => {
 		.readdirSync(__dirname)
 		.filter((f) => /\.(js|sh)$/.test(f));
 
-	/* A Python docstring — a triple-quoted string opening its own line — is
-	 * the file's documentation, read as a comment is, unless the file prints
-	 * more of `__doc__` than its first line. */
 	const PrintsDoc = /__doc__(?!\.splitlines\(\)\[0\])/;
 	function docstringLines(lines: string[]) {
 		const inside = new Set<number>();
@@ -101,9 +77,6 @@ describe("messages a shipped script prints", () => {
 	const resolvesWholeText =
 		/(?:const hookBlock|\{(?!\s*repoRoot\s*\})[^}]*\}) = require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
 
-	/* A lib whose text a session sees only through the lib named beside it,
-	 * which runs a whole-text resolver over it: read as resolved while that
-	 * emitter still holds the resolver. */
 	const EmittedThrough: Record<string, string> = {
 		"tracker-inject-text.js": "inject-tracker-docs.js",
 	};
@@ -129,11 +102,6 @@ describe("messages a shipped script prints", () => {
 		).toEqual([]);
 	});
 
-	/*
-	 * #1110: every script a hook wires, read from the native and the plugin
-	 * manifests. A file whose text leaves through a whole-text resolver is
-	 * exempt — read lexically, as the doc sweep below reads it.
-	 */
 	const wired = [
 		...new Set(
 			["self-plugin/hooks/hooks.json", "hooks/hooks.json"].flatMap(
@@ -145,8 +113,7 @@ describe("messages a shipped script prints", () => {
 			),
 		),
 	];
-	/* A read that found nothing or stopped partway lists far fewer: each list
-	 * held 54 or more at #4285. */
+	// #4285 measured 54 or more per list
 	const ScriptListFloor = 40;
 
 	function bareLinesPastResolver(
@@ -170,12 +137,6 @@ describe("messages a shipped script prints", () => {
 		expect(bareLinesPastResolver(wired, shaped)).toEqual([]);
 	});
 
-	/*
-	 * #4285, #4705: every top-level script the plugin ships — the ones a
-	 * shipped git hook runs from the plugin root and the CLIs a session runs by
-	 * hand. A plain pointer stays unread here: these name source files to read,
-	 * not run.
-	 */
 	const shippedTopLevel = fs
 		.readdirSync(SCRIPTS)
 		.filter(
@@ -198,24 +159,9 @@ describe("messages a shipped script prints", () => {
 		).toEqual([]);
 	});
 
-	/*
-	 * #1010: a skill or a shipped doc named by its checkout path. A skill is
-	 * named by its command, which resolves in any repo. A shipped doc's path
-	 * (#1452) may stay bare where the file's text leaves through an emitter that
-	 * resolves it — hook-block.js, the resolver
-	 * called directly, or a Node core's injected `corePaths` port — read
-	 * lexically, so a file holding the resolver but printing past it is unseen.
-	 * A doc_path call exempts only its own line (#2096).
-	 */
 	const hookFiles = [
 		...guardFiles,
 		...libNames
-			/* The release render, the doc-map classifier, the test read map, the
-			 * primitives tables' file paths, the /implement carve-out list and
-			 * the pre-commit gate registry's staged fixtures hold these paths as
-			 * data, never as a
-			 * pointer printed to a session; main-rewind.js's text reaches one
-			 * only through branch-publish.js's and pull-form.js's corePaths. */
 			.filter(
 				(f) =>
 					![

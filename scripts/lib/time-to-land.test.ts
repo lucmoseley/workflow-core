@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/time-to-land.js (#4951): a queue ref's stay off canned queue rows, the
- * green suite's runs and a red batch's steps off a canned lander log, and the
- * reading against the target.
- *
- * Loosen it and a ref taken again is timed from its last take, two batches
- * under test at once swap their runs, a red batch's steps are charged to the
- * batch beside it, or a slow queue reads as inside its target.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -36,7 +27,6 @@ const row = (s: number, event: Event, name: string, sha = A) => ({
 	sha,
 });
 
-/** A lander log line `s` seconds after NOW. */
 const line = (s: number, text: string) =>
 	`${new Date(NOW + s * S).toISOString()} ${text}`;
 
@@ -206,7 +196,6 @@ describe("the lander log", () => {
 });
 
 describe("the reading against the target", () => {
-	/** `n` stays ended a minute ago, `over` of them `slow` s and the rest 200 s. */
 	const stays = (n: number, over: number, slow: number) =>
 		Array.from({ length: n }, (_, k) => ({
 			ref: `r${k}`,
@@ -218,7 +207,6 @@ describe("the reading against the target", () => {
 		}));
 	const greens = [{ from: NOW - 400 * S, at: NOW - 220 * S }];
 	const target = TARGET_MULTIPLE * 180;
-	/** The default window: the week before `at`. */
 	const week = (at = NOW) => {
 		const w = windowOf({}, at);
 		if (typeof w === "string") throw new Error(w);
@@ -226,9 +214,6 @@ describe("the reading against the target", () => {
 	};
 
 	it("needs the fewest stays over the time that a tenth's chance reaches at most 5% of the time", () => {
-		// P(X >= x | n, 0.1): n=5, x=2 0.0815, x=3 0.0086; n=10, x=3 0.0702,
-		// x=4 0.0128; n=100, x=15 0.0726, x=16 0.0399; n=10000, where 0.9^n
-		// underflows, 1051 (scipy binom.sf).
 		const needed = (n: number) =>
 			judgeTimeToLand(stays(n, 0, 200), greens, week()).overNeeded;
 

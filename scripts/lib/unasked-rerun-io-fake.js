@@ -1,10 +1,3 @@
-/*
- * unasked-rerun-io-fake.js — the one fake of lib/unasked-rerun.js's `JudgeIO`
- * (#2913), for its module cases. Each port serves the answer a test picks by
- * name from ANSWERS, every port defaulting to the first. Held to lib/unasked-rerun-io.js
- * by unasked-rerun-io.contract.test.ts (§G7).
- */
-
 const HEAD = "1111111111111111111111111111111111111111";
 const TIP = "2222222222222222222222222222222222222222";
 const BASE = "3333333333333333333333333333333333333333";
@@ -12,7 +5,6 @@ const NEIGHBOUR = "4444444444444444444444444444444444444444";
 const TREE = "5555555555555555555555555555555555555555";
 const ROOT_GIT_DIR = "/repo/.git";
 
-/** An admissible narrowed certificate on `sha`, named by its `at`. */
 const narrowed = (/** @type {string} */ sha, /** @type {string} */ at) => ({
 	sha,
 	at,
@@ -36,7 +28,6 @@ const narrowed = (/** @type {string} */ sha, /** @type {string} */ at) => ({
 	changedPaths: ["a.js"],
 });
 
-/** A narrowed red run on `sha` whose one failure was already red on its base. */
 const classedRed = (/** @type {string} */ sha, /** @type {string} */ at) => {
 	const run = narrowed(sha, at);
 	return {
@@ -70,9 +61,7 @@ const ANSWERS = {
 	latch: { written: null, unwritable: fault("EACCES") },
 	logRefusal: { written: null, unwritable: fault("EISDIR") },
 	gitDir: {
-		/* The repository root's checkout. */
 		root: { dir: ROOT_GIT_DIR, timedOut: false },
-		/* Another checkout: a linked worktree. */
 		elsewhere: { dir: `${ROOT_GIT_DIR}/worktrees/elsewhere`, timedOut: false },
 		unresolved: { dir: null, timedOut: false },
 		timedOut: { dir: null, timedOut: true },
@@ -90,7 +79,6 @@ const ANSWERS = {
 	ledger: {
 		readable: { readable: true, timedOut: false },
 		unreadable: { readable: false, timedOut: false },
-		/* The store fails open to the cwd, so a path still reads. */
 		timedOut: { readable: true, timedOut: true },
 	},
 	selection: {
@@ -106,7 +94,6 @@ const ANSWERS = {
 			},
 			timedOut: false,
 		},
-		/* An own uncommitted edit, carried in the overlay's commit. */
 		edit: {
 			selection: {
 				base: BASE,
@@ -119,7 +106,6 @@ const ANSWERS = {
 			},
 			timedOut: false,
 		},
-		/* An own commit under a neighbour's, which is left out. */
 		neighbour: {
 			selection: {
 				base: BASE,
@@ -132,7 +118,6 @@ const ANSWERS = {
 			},
 			timedOut: false,
 		},
-		/* An own uncommitted edit, its own commit under a neighbour's. */
 		editUnderNeighbour: {
 			selection: {
 				base: BASE,
@@ -145,7 +130,6 @@ const ANSWERS = {
 			},
 			timedOut: false,
 		},
-		/* Every commit in the range a neighbour's, so the run selects nothing. */
 		allNeighbours: {
 			selection: {
 				base: BASE,
@@ -158,7 +142,6 @@ const ANSWERS = {
 			},
 			timedOut: false,
 		},
-		/* Own commits that could not be told from a neighbour's. */
 		unread: {
 			selection: {
 				base: BASE,
@@ -197,7 +180,6 @@ const ANSWERS = {
 			timedOut: false,
 			redFault: null,
 		},
-		/* The overlay's commit, carrying an own edit, attested by its tree. */
 		attestedEdit: {
 			verdict: {
 				judged: true,
@@ -221,7 +203,6 @@ const ANSWERS = {
 			timedOut: false,
 			redFault: null,
 		},
-		/* A red run whose every failure was already red on its base (#3633). */
 		attestedRed: {
 			verdict: {
 				judged: true,
@@ -242,7 +223,6 @@ const ANSWERS = {
 			timedOut: false,
 			redFault: null,
 		},
-		/* Two such reds, each covering a file the other does not. */
 		attestedTwoReds: {
 			verdict: {
 				judged: true,
@@ -304,7 +284,6 @@ const ANSWERS = {
 			timedOut: false,
 			redFault: null,
 		},
-		/* Nothing attests, and the red store is torn. */
 		unattestedRedFault: {
 			verdict: {
 				judged: true,
@@ -346,15 +325,8 @@ const ANSWERS = {
  * @typedef {{ [P in keyof typeof ANSWERS]?: keyof (typeof ANSWERS)[P] }} Picks
  */
 
-/**
- * A `JudgeIO` serving the picked answers, and what its latch and refusal log
- * were handed.
- *
- * @param {Picks} [picks]
- */
+/** @param {Picks} [picks] */
 function fakeIO(picks = {}) {
-	/* `any`: each port reads its own table's answer type, which one generic
-	 * return over every table cannot name. The contract holds each answer's shape. */
 	/** @type {<P extends keyof typeof ANSWERS>(port: P) => any} */
 	const answer = (port) => {
 		const named = /** @type {Record<string, unknown>} */ (ANSWERS[port]);

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The checker-only files of touched-tests.js against this tree (#4967): each one
- * tracked, and its change alone selecting exactly its checker tests, every
- * one a test vitest collects. A renamed checker test fails here rather than
- * emptying a row's kept set, which would send the file's change back to
- * selecting every reader, or leave a wrong file unchecked until the lander.
- */
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -16,8 +9,6 @@ const { selectTouched } = require("./touched-tests.js");
 
 const ROOT = path.resolve(__dirname, "../..");
 
-/** The touched run of a session whose whole work is `file`, off the
- * committed manifest alone. */
 function selectedBy(file: string): string[] {
 	execFileSync("git", ["ls-files", "--error-unmatch", file], {
 		cwd: ROOT,
