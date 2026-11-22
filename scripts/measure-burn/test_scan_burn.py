@@ -1,23 +1,3 @@
-"""Pins the corrected burn scanner's counting rule and `--audit` verdict, its
-per-TTL cache-write pricing, its `--since`/`--until` windows, and how it reads
-and attributes sessions across seat roots (mantahostels#1420).
-
-Each test builds a synthetic transcript tree and points the seat env at it, so
-nothing here reads the real corpus.
-
-The subject is the counting rule mantahostels#1121 settled and `--audit` guards: **one
-billable unit per `requestId`, each token field the MAX across that request's
-records**. MAX is only the right rule while every within-request disagreement
-is monotonic non-decreasing in every field — that is the invariant these tests
-pin, and the shape the audit must FAIL on is one that breaks it.
-
-CI's pytest step runs this file; the scanner
-gates nothing and is run by hand. Breaking it restates the machine's token burn
-wrong -- the figures https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/burn-measurement-method-correction.md
-carries and `scan_advisor.py` builds on -- and an audit that stops failing lets
-the MAX rule outlive the invariant it rests on unseen.
-"""
-
 import io
 import json
 import os

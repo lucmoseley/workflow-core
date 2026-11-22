@@ -1,22 +1,3 @@
-/*
- * turn-collapse.js — the dead-window self-throttling detector (mantahostels#1404).
- *
- * WHAT IT LOOKS FOR. Deliberate self-throttling — the founder stopping work to
- * avoid crashing at 100% of a weekly allowance — leaves no limit record: the
- * corpus carries no usage percentage and no approaching-limit warning, only the
- * session-limit and 429 records `scan_ceiling.py` already reads (mantahostels#1342). What it
- * does leave is a SHAPE: hard work, then a silence far longer than a night, then
- * hard work again.
- *
- * THE DISCRIMINATOR IS THE GAP, NOT THE DAILY COUNT. The innocent collapses in
- * the daily count are DEEPER than the real one, so no threshold ordering
- * separates them (mantahostels#1362, https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/self-throttling-turn-collapse.md).
- *
- * WHAT IT IS WORTH. Two thresholds fitted after seeing the answer, against ONE
- * event — so this reports and nothing more, and no spend-ladder trigger is wired
- * to it (ruled at mantahostels#1362). Revisit the numbers once a second episode exists.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { ignoreFailure } = require("./caught.js");
@@ -39,12 +20,6 @@ const FLANK_HOURS = 3;
 const TRAILING_DAYS = 7;
 const BUSY_HOURS = 24;
 
-/* The reporting floor, not a detection threshold: gaps this short can never be
- * episodes. 10 is the cut https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/self-throttling-turn-collapse.md
- * enumerated its fourteen candidates at. That table CANNOT be reproduced by a
- * later run — Claude Code rolls transcripts off at about 30 days, so the
- * artefact's July rows are already gone and the candidate count with them.
- * Nothing turns on the exact value. */
 const CANDIDATE_MIN_HOURS = 10;
 
 /** @param {string[]} [seats] @returns {string[]} */

@@ -1,34 +1,4 @@
 #!/usr/bin/env node
-/*
- * session-context.js — how much standing context is this session carrying?
- *
- * mantahostels#1094 caps a dispatch bundle on ACCUMULATED CONTEXT rather than on member
- * count. https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/allowance-burn-measurement.md (mantahostels#830) found spend is
- * `turns x standing context`, so the cost of continuing a bundle is set by how
- * much context the session is already carrying.
- *
- * NOT IN A PREFIX FAMILY, per §N3. It is neither a gate nor a reporter: it
- * answers one question about the calling session and the caller decides what to
- * do, so `check-*`'s five-outcome alphabet would misdescribe a reading as a
- * finding. It borrows only exit 2 for BROKEN.
- *
- * WHERE THE FIGURE COMES FROM. Every assistant message in the session's own
- * transcript carries `message.usage`; fresh input + cache write + cache read is
- * what the model was sent for that turn. The last such record on the main chain
- * is the live figure — `scripts/lib/transcript.js` does the reading.
- *
- * IT UNDER-READS BY ONE TURN. The record describes the request already made, so
- * whatever has landed since — this command's own output included — is not in
- * it. At a member boundary that is the right direction to be wrong in: the
- * reading is a floor.
- *
- * REPORTS ONLY. Nothing is enforced on the cap — the merge rule lives in
- * `.claude/skills/pick-next/SKILL.md`, and mantahostels#506 kept the scripts out of the
- * merge decision deliberately. Exit 0 on a reading, over the cap or under it.
- * Exit 2 ONLY where no figure can be had, which must never be confused with a
- * low one: a session reading an unreadable transcript as 0 tokens would merge
- * on for ever.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");

@@ -2180,13 +2180,10 @@ function trackExport(walk, [head = "", ...rest]) {
 }
 
 /**
- * What one of git's own options says, its value `next` where it takes the next
- * word and spelt on where it is stuck.
  * @param {string} w
  * @param {string} next
- * @param {GitTarget} target accumulator: its tree and aliases are moved
- * @param {{ scope: Scope, dirs: GitDirs }} from `dirs`, an accumulator,
- *   holds the directories read after the `-C`s end
+ * @param {GitTarget} target
+ * @param {{ scope: Scope, dirs: GitDirs }} from
  */
 function stepGitOption(w, next, target, { scope, dirs }) {
 	const { spans } = scope;

@@ -564,14 +564,6 @@ function guardLatchFaults(counts, latched, marked, calls) {
 		} catch {
 			resolves = false;
 		}
-		/* `counts` and `marked` read the EFFECTIVE source (mantahostels#2488), so a
-		 * call or a `latchAfter` in a sourced lib is seen. What
-		 * neither can still say is that the call does not EXIST: an id
-		 * passed as a variable is invisible either way (mantahostels#2283, mantahostels#2378).
-		 * check-context-budget.js hedges both fault messages accordingly
-		 * ("no direct accessor call ... is visible" / "no latchAfter
-		 * decision ... is visible"), pinned in
-		 * check-context-budget-session-cap.test.ts. */
 		const bound = counts.has(id);
 		const isMarked = marked.has(id);
 		const selfBounding = !orphanSplice && !resolves && !bound;
@@ -727,34 +719,8 @@ function directRows(byGuard, acrossGuards) {
  */
 
 /**
- * The route (f) bytes a session can be made to pay through each PreToolUse
- * tool, and the same union taken across every wired guard at once.
- *
  * @param {ReachOptions} [options]
  * @returns {{ cap: number, tools: Record<string, { bytes: number, ids: string[], guards: GuardFigure[] }>, ratchet: { bytes: number, ids: string[] }, overCap: { id: string, bytes: number, guards: string[] }[], direct: { id: string, bytes: number | null, guards: string[], counted: boolean, latched: LatchState }[], latchFaults: { id: string, guard: string, resolves: boolean, bound: boolean, marked: boolean }[], fragmentBytes: Record<string, number> }}
- *   Every tool any PreToolUse matcher names gets an entry, at zero where its
- *   group emits nothing. `overCap` names every fragment a wired guard
- *   reaches that can never be emitted (mantahostels#2054), one entry per id naming every
- *   guard that reaches it. `direct` is the census of every id a wired guard
- *   reaches through a direct `rule_text` call (mantahostels#2055): route (e) delivery, so
- *   no figure above prices it. `counted` marks an id the figures DO carry by
- *   the pre-emptive route, whose direct repeats they still do not. `latched`
- *   reads `bounded` where every direct caller bounds its own repeat through
- *   `ctx.told` (mantahostels#2275) AND that bound correlates with the call it covers,
- *   `ambiguous` where a caller's cannot be correlated, `none` otherwise
- *   (mantahostels#2283). `bytes` is null on an id the store cannot answer for, which a direct call
- *   survives. `latchFaults` names every `ctx.told` bounding nothing —
- *   `resolves: false` for an id no fragment answers to, `bound: false` for one
- *   its own guard makes no visible direct call on, `marked: false` for one its
- *   own guard makes no visible `latchAfter` decision on, so the bound never
- *   comes true — and over WIRED guards only, so a dead latch in an unwired
- *   script is invisible. A guard reaching the store by neither route composes
- *   its own text and is judged on the `marked` limb alone (mantahostels#2446).
- *   `fragmentBytes` is every reachable id's bytes
- *   by either route, over cap or not (mantahostels#2260).
- * @throws {RuleEmissionError} on an unreadable cap source or a malformed
- *   settings shape; and it lets rule-text's own throw escape, so an emission
- *   naming an id with no fragment surfaces there rather than counting as zero.
  */
 function reachableByTool(options = {}) {
 	const root = options.root ?? hostRoot();

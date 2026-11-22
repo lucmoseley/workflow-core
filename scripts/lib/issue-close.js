@@ -1,4 +1,3 @@
-// #2798
 const {
 	deny,
 	open,

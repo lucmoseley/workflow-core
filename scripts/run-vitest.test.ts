@@ -3859,11 +3859,6 @@ const listingOf = (lines: string[], failed: boolean, message: string) => {
 
 type Answer = (args: string[], opts: { cwd: string }) => string;
 
-/**
- * A `git`/`vitest` stand-in answering by the call's first argument from
- * `answers` — a `rev-parse` under the key "origin/main", and only where it
- * names origin/main — and through the real binary for every other call.
- */
 const execAnswering =
 	(answers: Record<string, Answer>) =>
 	(file: string, args: string[], opts: { cwd: string }) => {
@@ -3876,13 +3871,6 @@ const execAnswering =
 		return require("node:child_process").execFileSync(file, args, opts);
 	};
 
-/**
- * A `git`/`vitest` stand-in that answers the calls a selection
- * makes itself — `rev-parse --verify --quiet origin/main`, `merge-base`,
- * `diff --name-only` and `vitest list` — and falls through to the real
- * binary for everything else (worktree add/remove, status, prune),
- * so it composes with a real repo fixture rather than replacing one.
- */
 function fakeExec({
 	hasOrigin = false,
 	mergeBase = "merge-base-sha",

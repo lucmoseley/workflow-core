@@ -801,10 +801,6 @@ describe("a producer cut off mid-run", () => {
 		expect(out).toContain("2026-08-31T09:00:00.000Z");
 	});
 
-	/* mantahostels#2331: the ceiling on an `async` SessionStart entry is not enforced
-	 * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/async-hook-timeout-enforcement.md). So a cancellation has
-	 * one cause, and a reader sent after the timeout number would be sent after
-	 * a number that does nothing. */
 	it("blames the dead process, and never a timeout", () => {
 		deadRun("ghost-jobs", "2026-08-31T09:00:00.000Z");
 

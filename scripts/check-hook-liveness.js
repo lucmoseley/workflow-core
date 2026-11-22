@@ -1279,13 +1279,8 @@ function reportOwnPathFault(ctx, hookPath, fault) {
 
 const REAP_RUN_FILE = "wfc-reap-run.json";
 
-/*
- * How long a reap run may legitimately be open before an unclosed record is
- * read as a death. Neither mode can honestly reach this: the reaper's
- * registration is `async: true`, where the `timeout` is inert
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/async-hook-timeout-enforcement.md), so a live run ends with
- * the session rather than at a ceiling, and a dry one stops nothing at all.
- */
+/* An `async: true` hook's `timeout` is inert:
+ * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/async-hook-timeout-enforcement.md */
 const REAP_INFLIGHT_MS = 300_000;
 
 /**

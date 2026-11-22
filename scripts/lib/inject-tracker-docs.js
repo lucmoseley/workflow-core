@@ -99,23 +99,7 @@ function takesReference(arg) {
 	return { repo: "", issue: bare?.[1] ?? "" };
 }
 
-/* The pair the de-duplication drops: SessionStart reads the command off the
- * job record's `intent`, then the same text arrives as a submitted prompt
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/tracker-injection-frequency.md, mantahostels#1083).
- *
- * The key is the SESSION and the COMMAND, not the prompt: the payload is a
- * function of which command matched and of the first issue's `takes:` label.
- * The marker holds that issue's number, and a firing naming another issue is
- * no duplicate (#1164).
- *
- * Every failure path INJECTS: under-injecting silently drops the tracker
- * rules, which mantahostels#645, mantahostels#646, mantahostels#702 and
- * mantahostels#706 exist to prevent.
- *
- * Residuals. (1) Two session ids differing only in a character the sanitiser
- * strips share one marker. Unobserved: the ids are uuids. (2) Only the window
- * discriminates within a source, so a session that really does re-invoke the
- * same command inside 60 s gets no second copy. 60 is a guess: wide of the pair's observed gap, narrow of a re-typed command. */
+// guess, #1164
 const DEDUPE_WINDOW_S = 60;
 
 // guess, #5151
