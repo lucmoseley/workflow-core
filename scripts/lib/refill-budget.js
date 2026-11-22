@@ -32,6 +32,7 @@ const CT_RESOLUTION_MS = 1000;
  *   sleepAllowanceS: number}} BudgetRule
  * @typedef {{failStreak: number, counted: number, newest: GateRun|null}} BudgetCount
  * @typedef {BreakerEvent & {sessions: string[], launchedAt: string}} BudgetParkEvent
+ * @typedef {{ids: Set<string>, launchedAt: number}} LaunchScope
  */
 
 /**
@@ -65,7 +66,7 @@ const neitherFailsNorResets = (run, repoRuns, ids, rule) =>
 
 /**
  * @param {GateRun} run
- * @param {{ids: Set<string>, launchedAt: number}} launch
+ * @param {LaunchScope} launch
  */
 const isLaunchRun = (run, { ids, launchedAt }) =>
 	run.session !== null &&
@@ -74,20 +75,16 @@ const isLaunchRun = (run, { ids, launchedAt }) =>
 
 /**
  * @param {GateRun[]} repoRuns
- * @param {{ids: Set<string>, launchedAt: number, landingAt: number|null,
- *   suiteCommand: string}} of
+ * @param {LaunchScope & {landingAt: number|null, suiteCommand: string}} of
  * @param {BudgetRule} [rule]
  * @returns {BudgetCount}
  */
-function countBudget(
-	repoRuns,
-	{ ids, launchedAt, landingAt, suiteCommand },
-	rule = BUDGET_RULE,
-) {
+function countBudget(repoRuns, of, rule = BUDGET_RULE) {
+	const { ids, landingAt, suiteCommand } = of;
 	const counted = repoRuns
 		.filter(
 			(r) =>
-				isLaunchRun(r, { ids, launchedAt }) &&
+				isLaunchRun(r, of) &&
 				r.command === suiteCommand &&
 				(landingAt === null ||
 					Date.parse(r.at) >= landingAt + CT_RESOLUTION_MS),

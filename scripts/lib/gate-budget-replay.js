@@ -38,7 +38,7 @@ function withLegacyWallClock(run, rule) {
 /* #5514 */
 /**
  * @param {Park} park
- * @returns {{ids: Set<string>, launchedAt: number}}
+ * @returns {import("./refill-budget.js").LaunchScope}
  */
 const launchOf = (park) => ({
 	ids: new Set(park.sessions ?? [park.session]),
