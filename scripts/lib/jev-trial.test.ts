@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The trial arithmetic, driven as a library (#253): the start line, and where
- * each of #175's two stop limbs — wrong flags and outages — stands.
- *
- * In-process against a temp markers dir, with timestamps built off the
- * committed TRIAL_START, so each case sits exactly either side of a boundary.
- *
- * check-jev-flags.js reports this standing at session start, and the trial
- * decides whether the plain-prose choice guard stays; a loosened case trips or
- * clears the trial on the wrong count.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -18,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const jevTrial = createRequire(__filename)("./jev-trial.js");
 
-/** Where `recordVerdict` appends under `root`. */
 const verdictsPath = (root: string) =>
 	path.join(root, ".claude", "tmp", "markers", ".jev-verdicts.jsonl");
 
@@ -35,7 +23,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The trial's and limb 2's start lines, and limb 2's voided stretch. */
 const TRIAL_START_MS = Date.parse(jevTrial.TRIAL_START);
 const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
 const OUTAGE_VOIDS = jevTrial.stand({
@@ -43,7 +30,6 @@ const OUTAGE_VOIDS = jevTrial.stand({
 	verdicts: new Map(),
 }).outageVoids;
 
-/** Limb 2's void for `ticket`, picked by the ticket its `why` cites. */
 function voidFor(ticket: string) {
 	const found = OUTAGE_VOIDS.find((v: { why: string }) =>
 		v.why.includes(ticket),
@@ -59,12 +45,10 @@ const OUTAGE_VOID_TO_MS = Date.parse(OUTAGE_VOID.to);
 /** #175's limb 1 is measured over the trial's first 20 sessions. */
 const LIMB1_SESSIONS = 20;
 
-/** A timestamp `seconds` after the trial's start line. */
 function sinceStart(seconds: number): string {
 	return new Date(TRIAL_START_MS + seconds * 1000).toISOString();
 }
 
-/** A timestamp `seconds` before it. */
 function beforeStart(seconds: number): string {
 	return new Date(TRIAL_START_MS - seconds * 1000).toISOString();
 }
@@ -76,23 +60,18 @@ interface Line {
 	messageHash?: string;
 }
 
-/** `count` sessions, each holding one `clear` turn, starting after the line. */
-/** A timestamp `seconds` after limb 2's own start line. */
 function afterFix(seconds: number): string {
 	return new Date(OUTAGE_START_MS + seconds * 1000).toISOString();
 }
 
-/** A timestamp `seconds` before it. */
 function beforeFix(seconds: number): string {
 	return new Date(OUTAGE_START_MS - seconds * 1000).toISOString();
 }
 
-/** A timestamp `seconds` after limb 2's billing-wall void opens (#670). */
 function inVoid(seconds: number): string {
 	return new Date(OUTAGE_VOID_FROM_MS + seconds * 1000).toISOString();
 }
 
-/** A timestamp `seconds` after it closes. */
 function afterVoid(seconds: number): string {
 	return new Date(OUTAGE_VOID_TO_MS + seconds * 1000).toISOString();
 }
@@ -141,8 +120,6 @@ describe("the start line", () => {
 	});
 
 	it("does not take limb 2's sessions with it (#285)", () => {
-		/* The trial's line moved once and limb 2's did not, so limb 2 counts
-		 * from its own line whether or not the trial has begun. */
 		const s = stand([
 			{ at: beforeStart(60), session: "between", outcome: "outage" },
 		]);
@@ -162,7 +139,6 @@ describe("the start line", () => {
 });
 
 describe("limb 1 — wrong flags", () => {
-	/** `count` flagged turns, each in its own session, each hash `f<n>`. */
 	function flags(count: number): Line[] {
 		return Array.from({ length: count }, (_, i) => ({
 			at: sinceStart(i + 1),
@@ -236,8 +212,6 @@ describe("limb 1 — wrong flags", () => {
 });
 
 describe("limb 2 — outages", () => {
-	/* Limb 2 counts only sessions after `OUTAGE_START`, so every fixture here
-	 * is stamped past it (#164). */
 	function withOutages(sessions: number, outages: number): Line[] {
 		const lines = Array.from({ length: sessions }, (_, i) => ({
 			at: afterFix(1 + i),
@@ -276,8 +250,6 @@ describe("limb 2 — outages", () => {
 	});
 
 	it("counts an outage before its own start line toward neither side", () => {
-		/* The four #255 diagnosed: struck from the numerator AND from the
-		 * denominator, so they neither trip limb 2 nor dilute it (#164). */
 		const lines: Line[] = [];
 		for (let i = 0; i < 4; i++)
 			lines.push({

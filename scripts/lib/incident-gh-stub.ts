@@ -1,14 +1,3 @@
-/*
- * The stub `gh` the machine incident filers' tests run against (#3094, #3807).
- * Break it and those tests read a tracker no filer ever meets.
- */
-
-/**
- * `gh` over one tracker's incident tickets (`tickets.json`), logging every
- * call to `calls.log`. A create fails while `fail-create` exists, and otherwise appends to `tickets.json`, so a second run
- * sees the first's ticket. The similar-title list holds the tickets among
- * enough unrelated titles that an earlier incident's scores above the cut.
- */
 export const INCIDENT_GH_STUB = `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");

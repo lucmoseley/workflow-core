@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * image-budget.test.ts — the PostToolUse Read core telling an agent which
- * images no longer reach it (#1784).
- *
- * Runs the core in process through the dispatcher, with TMPDIR pointed at a
- * scratch directory, the store's only seam, and budgets small enough to cross
- * in a few Reads. The
- * payload is the stored Read result #1784's probes captured. Loosen the naming
- * cases and an agent is told an image it still sees is gone, or never told of
- * one it lost; loosen the silent ones and every Read carries the notice.
- *
- * The seam-2 case (#4242) reads from a linked worktree of a main checkout:
- * the store is keyed on the session, never on a tree, so the two count as one.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * lib/issue-claim-hook.js, the cores of record-issue-claim.js and
- * release-issue-claim.js (#2799), in process: a session assigning itself with
- * `gh issue edit <n> --add-assignee @me` claims <n> in the arbiter
- * (mantahostels#646), and `gh issue close <n>` drops that claim
- * (mantahostels#706).
- *
- * The ports are the production ones, lib/gh-recorder-host.js's, over the
- * arbiter testkit's sandbox and a real git checkout whose origin names
- * owner/repo: no fake stands in for the claim store or for git.
- *
- * Loosen a claim case and a self-assigned issue goes unrecorded, so
- * /pick-next keeps it in everyone's shortlist and a second session takes it
- * up; loosen a release case and a claim outlives its issue, or another
- * repo's number drops a claim this session is still working.
- */
-
 import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, gitRepo, issueClaims } from "./arbiter-testkit";
@@ -61,7 +44,6 @@ function ctx({ sessionId = "sess-1", envSession = "", tool = "Bash" }: Call) {
 	});
 }
 
-/** Each claim on the store, as `<issue> <session>`, issue order. */
 const claims = () =>
 	(
 		issueClaims.listIssueClaims().claims as {

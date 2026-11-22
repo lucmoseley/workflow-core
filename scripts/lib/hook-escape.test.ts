@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/hook-escape.js, the guard-hook-escape core (#2801), in process: which
- * commands set one of the two git-hook escapes (#916) and are refused, and
- * which only mention one and pass.
- *
- * The walk's ports are values; the rule store is the real one, read in
- * process, so the deny is checked against the fragment it splices rather
- * than a second copy of its text. The production adapters are crossed in
- * guard-hook-escape.test.ts.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -65,7 +54,6 @@ describe("an agent setting a git-hook escape is refused (#916)", () => {
 		"typeset -rx WFC_ALLOW_GATE_INPUT_DELETE=1",
 		"git status && WFC_ALLOW_BRANCH=1 git commit -m x -- a",
 		"cd /tmp && env WFC_ALLOW_GATE_INPUT_DELETE=yes git commit -m x -- a",
-		// Behind a reserved word or an `exec`, which the walker skips (#1013).
 		"{ WFC_ALLOW_BRANCH=1 git commit -m x -- a; }",
 		"git status && { WFC_ALLOW_BRANCH=1 git commit -m x -- a; }",
 		"if true; then WFC_ALLOW_BRANCH=1 git commit -m x -- a; fi",
@@ -77,33 +65,22 @@ describe("an agent setting a git-hook escape is refused (#916)", () => {
 		"time WFC_ALLOW_BRANCH=1 git commit -m x -- a",
 		"WFC_ALLOW_BRANCH=1 exec git commit -m x -- a",
 		"exec WFC_ALLOW_BRANCH=1 git commit -m x -- a",
-		// A multi-line quoted span before the assignment does not hide it.
 		"echo 'a\nb'; WFC_ALLOW_BRANCH=1 git commit -m x -- a",
-		// The other launchers unwrap strips, and the ones it reads by basename.
 		"nohup WFC_ALLOW_BRANCH=1 git commit -m x -- a",
 		"/usr/bin/env WFC_ALLOW_BRANCH=1 git commit -m x -- a",
 		"sudo env WFC_ALLOW_BRANCH=1 git commit -m x -- a",
-		// An `env` whose words run out before any command still carried one.
 		"env WFC_ALLOW_BRANCH=1",
-		// Exported by a launcher-run or path-spelt `export`.
 		"sudo export WFC_ALLOW_BRANCH=1",
 		"/bin/export WFC_ALLOW_BRANCH=1",
-		// A flag word is read `n` first, then `x`, so either order in one word
-		// re-exports; so does a later `-x` word, and `-x` after `-r`.
 		"export -nx WFC_ALLOW_BRANCH",
 		"export -xn WFC_ALLOW_BRANCH",
 		"export -n -x WFC_ALLOW_BRANCH",
 		"declare -r -x WFC_ALLOW_BRANCH=1",
 		"export WFC_ALLOW_BRANCH+=1",
-		// An empty value is an assignment all the same.
 		"WFC_ALLOW_BRANCH= git commit -m x -- a",
-		// An escape-only quoted value still names the escape outside quotes.
 		"echo 'q' && WFC_ALLOW_BRANCH=1 git commit -m x -- a",
-		// A backslash is literal inside single quotes, and outside them it
-		// escapes a quote rather than opening one.
 		"echo 'a\\'; WFC_ALLOW_BRANCH=1 git commit -m x -- a",
 		"echo \\'; WFC_ALLOW_BRANCH=1 git commit -m x -- a",
-		// A quote of the other kind inside a span opens nothing, `\"` included.
 		'echo "it\'s"; WFC_ALLOW_BRANCH=1 git commit -m x -- a',
 		'echo "a \\"it\'s"; WFC_ALLOW_BRANCH=1 git commit -m x -- a',
 	])("%s", (command) => {
@@ -120,58 +97,43 @@ describe("what it does not judge", () => {
 		"grep -rn 'WFC_ALLOW_BRANCH=1' .husky",
 		'echo "WFC_ALLOW_GATE_INPUT_DELETE=1 git commit"',
 		"git log -S WFC_ALLOW_GATE_INPUT_DELETE",
-		// The founder's command written into a multi-line hand-over.
 		"gh issue comment 1 --body 'Run this:\nWFC_ALLOW_BRANCH=1 git commit -m x -- a'",
 		"echo 'x <<EOF\nWFC_ALLOW_BRANCH=1 git commit -m y\nEOF' > a.txt",
 		"cat > a.txt <<'EOF'\nWFC_ALLOW_BRANCH=1 git commit -m y\nEOF",
 		'gh issue comment 1 --body "Run this:\nWFC_ALLOW_BRANCH=1 git commit -m x -- a"',
-		// A quote left open blanks the rest of the subject, over every line.
 		"echo 'x\nWFC_ALLOW_BRANCH=1 git commit -m x -- a",
 		'echo "x\nWFC_ALLOW_BRANCH=1 git commit -m x -- a',
-		// A neighbouring name, and the escape out of this guard's scope.
 		"WFC_ALLOW_BRANCHES=1 git commit -m x -- a",
 		"WFC_ALLOW_NEW_PACKAGE=1 npm install left-pad",
-		// Unsetting, and declaring without exporting.
 		"env -u WFC_ALLOW_BRANCH git commit -m x -- a",
 		"env -u WFC_ALLOW_BRANCH",
 		"unset WFC_ALLOW_BRANCH",
 		"export -n WFC_ALLOW_BRANCH",
 		"declare -r WFC_ALLOW_BRANCH=1",
 		"git commit -m x -- a",
-		// Behind a reserved word or an `exec`, with no escape set (#1013).
 		"{ git commit -m x -- a; }",
 		"time git commit -m x -- a",
 		"exec git commit -m x -- a",
-		// `-a` names the command's argv[0]; it assigns no variable.
 		"exec -a WFC_ALLOW_BRANCH=1 git commit -m x -- a",
-		// An escape-shaped argument after the command word is a flag value.
 		"git commit -m x -- WFC_ALLOW_BRANCH=1",
 		"echo hi WFC_ALLOW_BRANCH=1",
-		// An assignment ends the leading run: what follows is the command.
 		"FOO=1 echo WFC_ALLOW_BRANCH=1",
 		"env FOO=1 echo WFC_ALLOW_BRANCH=1",
-		// A name sharing the escape's tail or head is not the escape.
 		"XWFC_ALLOW_BRANCH=1 git commit -m x -- a",
 		"export XWFC_ALLOW_BRANCH=1",
 		"export WFC_ALLOW_BRANCHX=1",
 		"export WFC_ALLOW_BRANCH_X",
-		// The same, past the mention filter: the walk itself tells them apart.
 		"XWFC_ALLOW_BRANCH=1 git commit; echo WFC_ALLOW_BRANCH",
 		"WFC_ALLOW_BRANCHES=1 git commit; echo WFC_ALLOW_BRANCH",
 		"export WFC_ALLOW_BRANCHES WFC_ALLOW_BRANCH_X; echo WFC_ALLOW_BRANCH",
-		// An escape's name inside another's value assigns nothing.
 		"FOO=WFC_ALLOW_BRANCH=1 git commit -m x -- a",
 		"export FOO=WFC_ALLOW_BRANCH",
-		// A later `-n` word takes the export away again.
 		"export -x -n WFC_ALLOW_BRANCH",
 		"declare -n WFC_ALLOW_BRANCH",
 		"declare WFC_ALLOW_BRANCH=1",
 		"readonly WFC_ALLOW_BRANCH=1",
-		// A backslash outside quotes eats the character it escapes.
 		"echo \\WFC_ALLOW_BRANCH=1",
-		// A `\"` inside double quotes does not close them.
 		'echo "a \\" WFC_ALLOW_BRANCH=1 git"',
-		// A word that only reads `WFC_ALLOW_BRANCH`, spelt with no `=`.
 		"echo $WFC_ALLOW_BRANCH",
 		"export",
 		"sudo",
@@ -233,10 +195,7 @@ describe("from a linked worktree, its rule is read from the main checkout's stor
 	freshSandbox((sb) => {
 		at = splitCheckout(path.join(sb.dir, "split"));
 	});
-	/** A rule fragment of `id` reading `text`, in `tree`'s own rule store. */
 	const plantRule = (tree: string, id: string, text: string) => {
-		/* The suite pins every read to the plugin's store (vitest.setup.ts);
-		 * lifted, a checkout's own store is read first. */
 		vi.stubEnv("WFC_RULES_DIR", "");
 		const rules = path.join(tree, "docs", "agents", "rules");
 		fs.mkdirSync(rules, { recursive: true });

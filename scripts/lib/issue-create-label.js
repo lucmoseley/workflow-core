@@ -194,12 +194,9 @@ const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} LabelPorts
- * @property {(path: string) => string | undefined} readFile a body file's
- *   text, undefined where it is absent; throws where it cannot be read
- * @property {(args: string[], cwd: string) => string} gh gh's stdout, run in
- *   `cwd`; throws where gh fails, cannot be found or outlasts its timeout
- * @property {() => number} now the clock the model reading's shared bound is
- *   spent against, in ms
+ * @property {(path: string) => string | undefined} readFile
+ * @property {(args: string[], cwd: string) => string} gh
+ * @property {() => number} now
  * @typedef {import("./kit-context.js").KitContext & LabelPorts} LabelContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./guard-entry.js").Decision} Decision
@@ -207,12 +204,9 @@ const { trimEndRun } = require("./trim-run.js");
  * @typedef {import("./gh-body.js").BodyEnv} BodyEnv
  */
 
-/* The line a `takes:human` body must carry (mantahostels#2775). */
 const HUMAN_MARKER = "Outside Claude Code:";
 
-/* Fetches a relabel may spend, each bounded by the host's GH_TIMEOUT_MS
- * (lib/issue-create-label-host.js), so a hung gh stays under the hook's 10 s
- * ceiling. */
+// guess, #2796
 const FETCH_CAP = 2;
 
 /** @param {LabelContext} ctx */
@@ -257,16 +251,13 @@ const API_FORM_COST =
 	"Whether GitHub creates the misspelt label or drops it, nothing downstream reads it: /pick-next shows `none` in its TAKES column, and the issue is as unroutable as one carrying no label at all.";
 
 /**
- * @typedef {object} Run one call's judging
+ * @typedef {object} Run
  * @property {Parsed} parsed
  * @property {LabelContext} ctx
- * @property {string} warning the GraphQL warn
- * @property {string[]} checkNotes the check limb's warnings and the model
- *   reading's notes
- * @property {boolean} humanApplied a `takes:human` passed every limb
- * @property {number} leftMs what the gate readings of this call's bodies may
- *   still spend: one bound for them all, so two creates in one command stay
- *   inside the hook's 60 s
+ * @property {string} warning
+ * @property {string[]} checkNotes
+ * @property {boolean} humanApplied
+ * @property {number} leftMs
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./shell-words.js").GhRepo} GhRepo
  */
@@ -288,8 +279,7 @@ function decide(command, ctx) {
 	};
 	const stopped = walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx);
 	if (stopped !== undefined) return stopped;
-	/* A pointer, not the fragment: its 1.8 KB put the Bash tool over route
-	 * (f)'s cap (docs/doc-map.md §Capture and placement). */
+	// #983
 	const pointer = run.humanApplied
 		? `${DELIVERABLE_POINTER_LEAD} ${ctx.scriptPath("lib/rule-text.sh")} founder-deliverable`
 		: "";
@@ -299,7 +289,6 @@ function decide(command, ctx) {
 	return said ? { injectRules: [], prelude: ctx.corePaths(said) } : null;
 }
 
-/** The seven, rendered for a human, in the order the doc's table lists them. */
 const valuesLine = () => TAKES_VALUES.map((v) => `  takes:${v}`).join("\n");
 
 /** @param {LabelContext} ctx */
@@ -307,9 +296,6 @@ const readActsLine = (ctx) =>
 	ruleOrFallback(ctx, "founder-acts", "one of the founder's own acts");
 
 /**
- * Each `gh` the command runs, one per unwrap run as ghCall reads it: `gh
- * issue create`, `gh issue edit` and `gh api` are judged, each in the
- * directory its own moves put it and shown as runText shows it.
  * @param {Run} run
  * @param {Command} cmd
  */
@@ -332,39 +318,32 @@ function judge(run, cmd) {
 	}
 }
 
-/**
- * The repo a `-R`/`--repo` before the subcommand names, as a create or an
- * edit holds it, for its own `-R` to override.
- * @param {GhRepo | null} repo
- */
+/** @param {GhRepo | null} repo */
 const seedRepo = (repo) => ({
 	repo: repo?.known ? repo.text : "",
 	repoHidden: repo !== null && !repo.known,
 });
 
 /**
- * @typedef {object} Creation what a creation route read
+ * @typedef {object} Creation
  * @property {string[]} labels
  * @property {Body} body
- * @property {string} repo the repo it files into, "" for gh's own default
- * @property {boolean} repoHidden which repo it files into cannot be read
+ * @property {string} repo
+ * @property {boolean} repoHidden
  * @property {Route} route
- * @typedef {object} Route how the route spells a fix
- * @property {string} cost what a wrong value costs here
- * @property {string} fix the command up to its labels
- * @property {string} flag how it spells one label: the flag
- * @property {string} key and the value's prefix
- * @property {string} blank why a blank body files anyway, and how to write one
+ * @typedef {object} Route
+ * @property {string} cost
+ * @property {string} fix
+ * @property {string} flag
+ * @property {string} key
+ * @property {string} blank
  */
 
 /**
- * One --label word, which gh lets carry a comma-separated list.
  * @param {Run} run
- * @param {string[]} labels accumulator: each label read is pushed here
+ * @param {string[]} labels
  * @param {string} word
- * @returns {boolean} false where the word's text cannot be recovered, which
- *   is a fail-open rather than a verdict — the hidden text may be the right
- *   label
+ * @returns {boolean}
  */
 function pushLabel(run, labels, word) {
 	const text = captured(word, run.parsed.spans);
@@ -390,7 +369,6 @@ function bodyEnv(run, cmd) {
 }
 
 /**
- * `gh issue create …` — the flag form.
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
@@ -412,8 +390,6 @@ function judgeCreate(run, cmd, args, repo) {
 	};
 	/** @type {CreateScan} */
 	const scan = { run, made, env: bodyEnv(run, cmd), unreadable: "" };
-	/* Stopped, the scan met --help: a command that prints documentation and
-	 * files nothing. */
 	const scanned = scanFlags(
 		ISSUE_VALUE_FLAGS.create,
 		args,
@@ -429,11 +405,7 @@ function judgeCreate(run, cmd, args, repo) {
 		open(run.ctx, `${made.body.fault} — create allowed unchecked`);
 }
 
-/**
- * @typedef {{ run: Run, made: Creation, env: BodyEnv, unreadable: string }}
- *   CreateScan one create's flag scan: what it has read into `made`, and in
- *   `unreadable` what makes the labels unknowable
- */
+/** @typedef {{ run: Run, made: Creation, env: BodyEnv, unreadable: string }} CreateScan */
 
 /** @type {(scan: CreateScan, value: string) => void} */
 const readLabel = (scan, value) => {
@@ -465,7 +437,6 @@ const CREATE_READS = new Map([
 ]);
 
 /**
- * One word of a create's flag scan; false at --help.
  * @param {CreateScan} scan
  * @param {string} kind
  * @param {string} name
@@ -477,18 +448,11 @@ function createWord(scan, kind, name, value) {
 	else if (kind === "dangling" && CREATE_READS.get(name) === readLabel)
 		scan.unreadable = "a gh issue create ends in a --label with no value";
 	else if (kind === "arg" && /[$`]/.test(value))
-		/* A bare word gh issue create has no use for. An expansion here can
-		 * hold the whole argument list — `gh issue create $ARGS` — so the
-		 * labels this scan found say nothing about what will be sent. */
 		scan.unreadable = "could not read the arguments of a gh issue create";
 	return true;
 }
 
 /**
- * The blank-body limb (mantahostels#3443), for every takes: value. Runs
- * before the label verdict, so a blank create is refused for the body even
- * where its label is also wrong, and a takes:human one is never recorded as
- * unreadable first.
  * @param {Run} run
  * @param {string} segment
  * @param {Creation} made
@@ -511,7 +475,7 @@ function judgeBody(run, segment, { body, route }) {
 /**
  * @param {Run} run
  * @param {string} segment
- * @param {string} wrong completes "This files an issue whose body …"
+ * @param {string} wrong
  * @param {Route} route
  * @returns {never}
  */
@@ -526,12 +490,7 @@ ${route.blank}`,
 }
 
 /**
- * The basis limb (#672), read by the wording patterns and the model
- * (lib/gate-judge.js `readGateWrite`), which file-issue.js and issue-body.js
- * share, so the three routes cannot disagree. Only a body this guard read is
- * judged — the GraphQL route, and a hidden body, pass it unjudged.
- * @param {Run} run accumulator: spends `leftMs`,
- *   pushes to `checkNotes`
+ * @param {Run} run
  * @param {string} segment
  * @param {string} text
  */
@@ -559,11 +518,7 @@ It carries ${refusal}`,
 }
 
 /**
- * The check limb (#3487): a `check:` on a gate line that cannot run as a
- * command is refused. One that runs is never run here: guard-dispatch.js's
- * 60 s hook limit, shared by every core, cannot hold check-gates.js's 60 s
- * budget and its kill grace, so it is warned.
- * @param {Run} run accumulator: its warnings go on `checkNotes`
+ * @param {Run} run
  * @param {string} segment
  * @param {string} text
  */
@@ -581,14 +536,6 @@ Nothing filed: ${refusals.join(" ")}`,
 }
 
 /**
- * The verdict, given the labels a creation carries. The fix shown carries
- * `takes:triage` and then the command's own labels, each shell-quoted, so
- * copying it keeps them.
- *
- * EVERY takes: word is checked, not just the first. gh aborts on any label it
- * does not know, so `--label takes:implement --label takes:implememt` files
- * nothing at exit 0 — a scan that stopped at the first valid value would wave
- * through the exact failure this guard exists to make impossible.
  * @param {Run} run
  * @param {string} segment
  * @param {Creation} made
@@ -612,7 +559,7 @@ function judgeLabels(run, segment, made) {
 /**
  * @param {Run} run
  * @param {string} segment
- * @param {string} fix the corrected command to show
+ * @param {string} fix
  * @returns {never}
  */
 function denyMissing(run, segment, fix) {
@@ -634,8 +581,6 @@ Or file, label and place it in one checked call: node ${run.ctx.scriptPath("file
 }
 
 /**
- * gh refuses a label it does not know, the REST API does not, so `cost`
- * differs by route.
  * @param {Run} run
  * @param {string} segment
  * @param {string} value
@@ -685,12 +630,6 @@ ${ruleOrFallback(ctx, "no-command-opens-shape", "No issue sits under takes:human
 Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels#804, mantahostels#2775, mantahostels#3439, mantahostels#3555).`;
 
 /**
- * The `takes:human` limb (mantahostels#2775). Reached only where the create
- * carries a VALID takes:human — a missing or misspelt label is refused first.
- *
- * An unreadable body is REFUSED here, not failed open (#668): the quoted
- * heredoc is a spelling this guard always reads, so every legitimate
- * takes:human create has one that passes.
  * @param {Run} run
  * @param {string} segment
  * @param {Creation} made
@@ -712,9 +651,7 @@ function judgeHumanBody(run, segment, made) {
 /**
  * @param {Run} run
  * @param {string} segment
- * @param {{ wrong: string, cite: string, passing: string }} refusal `wrong`
- *   what the command does wrong; `cite` the refusing ticket, bracketed so the
- *   release build qualifies it; `passing` the spelling that passes
+ * @param {{ wrong: string, cite: string, passing: string }} refusal
  * @returns {never}
  */
 function denyUnreadBody(run, segment, { wrong, cite, passing }) {
@@ -730,12 +667,10 @@ ${humanRule(run.ctx)}`,
 }
 
 /**
- * (#1097, #983)
- * @param {Run} run accumulator: its humanApplied, set where the label passes
+ * @param {Run} run
  * @param {string} segment
  * @param {string} body
- * @param {string} verb "creates a `takes:human` issue" or "applies
- *   `takes:human` to #n"
+ * @param {string} verb
  */
 function judgeHumanText(run, segment, body, verb) {
 	const found = outsideLineFault(body);
@@ -843,10 +778,6 @@ ${deliverableRule(run.ctx)}`,
 }
 
 /**
- * The second-map limb (#717), read by lib/issue-gate.js, which file-issue.js
- * shares. Only a create carrying wayfinder:map spends its one `gh issue
- * list`, run where the create runs so that, with no repo named, gh resolves
- * the same one (#1464).
  * @param {Run} run
  * @param {Command} cmd
  * @param {Creation} made
@@ -886,9 +817,6 @@ ${v.refusal}`,
 }
 
 /**
- * `gh issue edit <n>… --add-label takes:human` — the edit route
- * (mantahostels#3555). The body is read off the command where the edit also
- * writes it, and otherwise fetched, at most FETCH_CAP a command.
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
@@ -903,8 +831,6 @@ function judgeEdit(run, cmd, args, repo) {
 			run.ctx,
 			"could not read which repo a gh issue edit names — takes:human relabel allowed unchecked",
 		);
-	/* The edit writes the body in the same call, so that text is what the
-	 * label lands on — where it can be read. */
 	if (edit.body.given) {
 		if (edit.body.hidden) denyUnreadRelabel(run, cmd.segment);
 		const word = edit.numbers[0];
@@ -921,12 +847,10 @@ function judgeEdit(run, cmd, args, repo) {
 }
 
 /**
- * One issue number of a takes:human relabel: its body fetched and judged,
- * the FETCH_CAP-th and later allowed unchecked.
  * @param {Run} run
  * @param {Command} cmd
- * @param {Edit["repo"]} namedRepo the repo the edit names, if any
- * @param {[number, string]} entry the number's place on the command, and its word
+ * @param {Edit["repo"]} namedRepo
+ * @param {[number, string]} entry
  */
 function judgeEditNumber(run, cmd, namedRepo, [i, word]) {
 	const ref = issueWord(word, run.parsed.spans);
@@ -951,21 +875,20 @@ function judgeEditNumber(run, cmd, namedRepo, [i, word]) {
 	judgeHumanText(run, cmd.segment, text, `${APPLIES_HUMAN}${ref.number}`);
 }
 
-/* A relabel's verb, the issue number following it. */
 const APPLIES_HUMAN = "applies `takes:human` to #";
 
 const UNREAD_NUMBER =
 	"could not read the issue number of a gh issue edit — takes:human relabel allowed unchecked";
 
 /**
- * @typedef {object} Edit what one `gh issue edit`'s flags read
+ * @typedef {object} Edit
  * @property {Run} run
- * @property {string[]} labels the --add-label values
- * @property {string[]} numbers the issue words, as typed
+ * @property {string[]} labels
+ * @property {string[]} numbers
  * @property {Body} body
- * @property {boolean} unreadable an issue word it cannot read
- * @property {string} repo the --repo value, "" where none
- * @property {boolean} repoHidden a --repo it cannot read
+ * @property {boolean} unreadable
+ * @property {string} repo
+ * @property {boolean} repoHidden
  */
 
 /** @type {(edit: Edit, value: string) => void} */
@@ -973,8 +896,6 @@ const editBody = (edit, value) =>
 	bodyWord(edit.body, value, edit.run.parsed.spans);
 /** @type {(edit: Edit, value: string) => void} */
 const editBodyFile = (edit) => {
-	/* The create's file readers are tuned to a create's command shape, so a
-	 * body from a file or stdin is hidden here, and refused. */
 	edit.body.given = true;
 	edit.body.fromFile = true;
 	edit.body.hidden = true;
@@ -1002,7 +923,6 @@ const EDIT_READS = new Map([
 ]);
 
 /**
- * An edit's flags, read; null at --help.
  * @param {Run} run
  * @param {string[]} args
  * @param {GhRepo | null} repo
@@ -1033,14 +953,10 @@ function scanEdit(run, args, repo) {
 }
 
 /**
- * The body of one issue, off the network, asked where the edit runs — or,
- * where that directory does not exist yet at hook time, where the hook does.
- * Null where it cannot be had, which the caller records rather than reads as
- * "the line is absent".
  * @param {Run} run
  * @param {Command} cmd
  * @param {string} number
- * @param {string} repo "" for gh's own default
+ * @param {string} repo
  */
 function fetchBody(run, cmd, number, repo) {
 	const args = ["issue", "view", number];
@@ -1051,15 +967,11 @@ function fetchBody(run, cmd, number, repo) {
 	try {
 		return trimEndRun(ctx.gh(args, dir), "\n");
 	} catch {
-		/* A failed fetch fails open, recorded by the caller (LIMITS;
-		 * mantahostels#103 §6). */
 		return null;
 	}
 }
 
 /**
- * Names only the relabel-alone spelling (#669): guard-issue-body denies every
- * `gh issue edit --body`, a readable one included.
  * @param {Run} run
  * @param {string} segment
  * @returns {never}
@@ -1079,36 +991,18 @@ function denyUnreadRelabel(run, segment) {
 }
 
 /**
- * `gh api … repos/<o>/<r>/issues` — the same creation through the REST
- * endpoint (mantahostels#511), and `gh api graphql` carrying a `createIssue`
- * mutation (mantahostels#519).
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
  */
 function judgeApi(run, cmd, args) {
 	const call = scanApi(args, run.parsed.spans);
-	/* The method and the endpoint are READ BACK, not merely inspected: the
-	 * splitter blanks every quoted span, so judging the blanked word would let
-	 * a pair of quotes around `repos/o/r/issues` walk the creation past the
-	 * deny. */
 	const method = captured(call.method, run.parsed.spans);
 	const endpoint = captured(call.endpoint, run.parsed.spans);
-	/* Either word, read and plainly not a creation, ends the segment whatever
-	 * the other one says — so an unreadable endpoint on a GET, or an
-	 * unreadable method on a call aimed elsewhere, records nothing. gh's own
-	 * default is POST where the call carries a payload, so `gh api
-	 * repos/o/r/issues -f title=x` files an issue with the word POST nowhere
-	 * on the command. */
 	if (method === "" && !defaultsToPost(call)) return;
 	if (method && method.toUpperCase() !== "POST") return;
-	/* GraphQL puts what it writes in the query text rather than in the
-	 * endpoint, so it is judged before the REST test, which would read it as
-	 * neither a creation nor anything else. */
 	if (endpoint !== null && isGraphql(endpoint))
 		return judgeGraphql(run, cmd.segment, call);
-	/* The COLLECTION, never one issue: a POST to `…/issues/<n>/comments` or
-	 * `…/dependencies/blocked_by` creates something that takes no label. */
 	if (endpoint !== null && !isIssueCollection(endpoint)) return;
 	if (method === null || endpoint === null || call.input)
 		return open(
@@ -1120,10 +1014,6 @@ function judgeApi(run, cmd, args) {
 			run.ctx,
 			"could not read a field name on a gh api issue creation — create allowed unchecked",
 		);
-	/* gh exits on a repeated field, `unexpected override existing field`,
-	 * before any request (#3614), so this call files nothing to judge.
-	 * Residual: a gh that stopped refusing would file it unjudged;
-	 * gh-api-call.contract.test.ts goes red on that release. */
 	if (call.fields.filter((f) => isBodyField(f, run.parsed.spans)).length > 1)
 		return;
 	const repo = endpointRepo(endpoint);
@@ -1148,14 +1038,9 @@ function judgeApi(run, cmd, args) {
 }
 
 /**
- * THE FIELD NAME DECIDES, never the value. `-f title="$T"` is the ordinary
- * way to pass a title, and literal fails on the whole word for the one `$` in
- * it — so failing open there would disarm the deny on almost every real
- * creation. The value is only read where the name says it is the labels or
- * the body. A name that does not read has already failed open on call.opaque.
  * @param {Run} run
  * @param {import("./gh-api-call.js").ApiCall} call
- * @param {Creation} made accumulator: the labels and body each field gives
+ * @param {Creation} made
  */
 function readApiFields(run, call, made) {
 	for (const field of call.fields)
@@ -1165,26 +1050,19 @@ function readApiFields(run, call, made) {
 /**
  * @param {Run} run
  * @param {string} field
- * @param {boolean} magic it came on -F or --field
- * @param {Creation} made accumulator: the label or body this field gives
+ * @param {boolean} magic
+ * @param {Creation} made
  */
 function readApiField(run, field, magic, made) {
 	const { text: raw, known } = literal(field, run.parsed.spans);
 	const text = trimEndRun(raw, "\n");
 	if (text.startsWith("body=")) {
-		/* The body, for the body limbs and the takes:human one. On -F, `@file`
-		 * is gh's read-from-disk spelling, what follows it a path rather than
-		 * the text, and `null` sends JSON null: a blank body. On -f, gh sends
-		 * the value as typed. */
 		const value = text.slice("body=".length);
 		made.body.given = true;
 		if (!known || (magic && value.startsWith("@"))) made.body.hidden = true;
 		else made.body.text = magic && value === "null" ? "" : value;
 		return;
 	}
-	/* `labels[]=` is gh's array spelling and the one the endpoint wants; the
-	 * bare name is judged too, so a caller who got the array syntax wrong is
-	 * told about the label rather than about the syntax. */
 	const label = /^labels(\[\])?=/.exec(text);
 	if (!label) return;
 	made.labels.push(text.slice(label[0].length));
@@ -1196,22 +1074,12 @@ function readApiField(run, field, magic, made) {
 }
 
 /**
- * The GraphQL route (mantahostels#519), the weakest of the three: GraphQL
- * takes label NODE IDS (`LA_kwDO…`), not names, so where a mutation carries
- * labelIds the guard cannot tell whether any of them is a `takes:` value, and
- * no reading of the command would tell it. That splits the verdict:
- *   no labelIds at all   the issue is filed with no labels whatever → DENY
- *   labelIds present     opaque ids, or a variable holding them     → WARN
- *   input passed whole   the mutation names no field at all         → WARN
  * @param {Run} run
  * @param {string} segment
  * @param {import("./gh-api-call.js").ApiCall} call
  */
 function judgeGraphql(run, segment, call) {
 	const { query, hidden } = scanGraphql(call.fields, run.parsed.spans);
-	/* No `createIssue` in the query text: nothing is filed, as far as this
-	 * guard can read. Where that text was unreadable the mutation may be in the
-	 * part it cannot see, and that is left in silence — see LIMITS. */
 	const args = mutationArgs(query, "createIssue");
 	if (args === null) return;
 	if (hidden || call.opaque || call.input)
@@ -1220,31 +1088,18 @@ function judgeGraphql(run, segment, call) {
 			segment,
 			"part of the query is out of sight, so the guard cannot see whether it applies a label",
 		);
-	/* The arguments stop at the FIRST `)`, so a bracket inside a string
-	 * literal — `title:"fix (again)"` — cuts them short and a trailing
-	 * `labelIds` falls off the end with it. DENYING ON A TRUNCATED READ WOULD
-	 * REFUSE A CORRECTLY-LABELLED CREATION. An odd number of quote marks is the
-	 * mark of a literal the cut ran through, so it drops to the warn tier.
-	 * Reading to the matching bracket would still not be a faithful parse: the
-	 * whitespace squash has already rewritten the inside of every string
-	 * literal. */
 	if ((args.match(/"/g)?.length ?? 0) % 2)
 		return warnOnce(
 			run,
 			segment,
 			"a bracket inside a string literal cut the mutation's arguments short, so the guard cannot see whether a label follows it",
 		);
-	/* The whole input object arrives as one variable, so the mutation names no
-	 * field at all. A variable INSIDE a braced input is different: every field
-	 * name is still spelled out there, so a labelIds could not hide in one. */
 	if (args.includes("input:$"))
 		return warnOnce(
 			run,
 			segment,
 			"the mutation's input arrives whole as a variable, so the guard can see no field names at all",
 		);
-	/* An empty list applies no label, so it is the missing-label case spelled
-	 * long. */
 	if (!args.includes("labelIds:[]") && args.includes("labelIds:"))
 		return warnOnce(
 			run,
@@ -1255,11 +1110,9 @@ function judgeGraphql(run, segment, call) {
 }
 
 /**
- * The third tier (mantahostels#519), for the one route where the guard can
- * see a creation but not its labels.
- * @param {Run} run accumulator: its warning, set by the first call alone
+ * @param {Run} run
  * @param {string} segment
- * @param {string} cannot what it cannot tell
+ * @param {string} cannot
  */
 function warnOnce(run, segment, cannot) {
 	if (run.warning) return;

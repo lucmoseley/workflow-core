@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * lib/issue-link-write.js, the guard-issue-link core (#5086), in process: it
- * refuses a raw `gh api` blocker or sub-issue link write, REST or GraphQL,
- * and names the link command that checks the link closes no loop. Every
- * allow case is a shape a session needs — a read, a removal, the priority
- * PATCH, the link commands themselves — so do not thin them out.
- *
- * Loosen a deny case and a session can close a loop of open issues that can
- * never close, as on 12 Nov 2026 (#5055); lose an allow case and reading or
- * breaking a loop is wedged. The dispatcher run, failure policy and worktree
- * case go through the testkit at the foot.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -35,7 +23,6 @@ const ports = () =>
 			fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
 	});
 
-/** The refusal's text, or "allow". */
 const said = (command: string) => {
 	const d = decide(command, ports());
 	if (!d) return "allow";

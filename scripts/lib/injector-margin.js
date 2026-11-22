@@ -1,29 +1,3 @@
-/*
- * injector-margin.js — each tracker command's payload length, composed from
- * the copy of lib/tracker-inject-text.js at a root through its own composers,
- * for scripts/check-injector-margin.js (mantahostels#1915).
- *
- * Lengths are in UTF-16 units: the harness slices with String.prototype.length.
- *
- * The copy is evaluated, never required (lib/load-text-module.js), so a staged
- * blob is measured without running anything else of the index. The host's own
- * values are read off the same root, as the hook reads them off its host.
- *
- * Every input sits at the value that makes its payload longest:
- *   - each takes-reading command is handed an issue whose `takes:` label is
- *     the longest command's, an upper bound on the #1164 line; the command
- *     named itself is measured without the line;
- *   - the priced-options part is the whole shape, as a host without Core voice
- *     gets it, never the pointer;
- *   - a probe session id, which mints mantahostels#2220's Artefact-path suffix:
- *     a real payload always carries one.
- * /code-review's rule fragments are read at the root, the module's fallbacks
- * standing in for any absent, and the review tier the hook adds at run time is
- * reserved at RULE_CAP plus the blank line joining it (#1697). Its areas
- * prelude is uncapped, so a host declaring many areas can still cross the
- * threshold; the hook then puts the tier first, inside the preview.
- */
-
 const path = require("node:path");
 const { buildArbiterCommand } = require("./build-arbiter-command.js");
 const { brokenError, skipError } = require("./outcome-error.js");
@@ -43,20 +17,17 @@ const { fragmentLookup, RULES_DIR } = require("./rule-text.js");
 const { PROBE_SESSION_ID } = require("./rendered-injection.js");
 const { CAP_SOURCE } = require("./rule-emission.js");
 
-/* Advisory only: under this much headroom the NEXT rule of any size may not
- * fit — the rule-size range it is derived from is on mantahostels#1915. */
+// guess, lucmoseley/mantahostels#1915
 const TIGHT_HEADROOM_CHARS = 1000;
 
 const PROBE_ISSUE = "1";
 
-/* The fragments /code-review's rules read. */
 const REVIEW_RULES = [
 	"review-dispatch-shape",
 	"review-deviations-read",
 	"review-finding-destination",
 ];
 
-/* Every path a measurement reads at its root, so --index materialises each. */
 const MARGIN_INPUTS = [
 	TRACKER_TEXT,
 	CAP_SOURCE,
@@ -69,11 +40,9 @@ const MARGIN_INPUTS = [
 ];
 
 /**
- * Each command and its payload's length, and the fragments whose fallback
- * stood in.
- * @param {typeof import("./tracker-inject-text.js")} t the evaluated text module
+ * @param {typeof import("./tracker-inject-text.js")} t
  * @param {number} ruleCap
- * @param {string} root the host whose own values are read
+ * @param {string} root
  * @returns {{ sizes: [string, number][], fallbacks: string[] }}
  */
 function measure(t, ruleCap, root) {
@@ -83,7 +52,6 @@ function measure(t, ruleCap, root) {
 	const pricedOptions = t.pricedOptionsWhole(
 		readOutputStylePath({
 			root,
-			// A config fault is the config checker's to report.
 			say: noop,
 		}),
 	);
@@ -126,10 +94,6 @@ function measure(t, ruleCap, root) {
 }
 
 /**
- * The threshold, each command's payload length and the fragments whose
- * fallback stood in, read at `root`. An absent text module is a SKIP: a commit
- * deleting or renaming it has nothing to measure. Anything else unreadable is
- * BROKEN.
  * @param {string} root
  * @returns {{ limit: number } & ReturnType<typeof measure>}
  */

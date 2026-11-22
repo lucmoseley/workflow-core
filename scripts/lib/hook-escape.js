@@ -43,23 +43,13 @@ const { parseCommand, walkCommands } = require("./shell-parse.js");
 
 const ESCAPE_NAMES = "WFC_ALLOW_BRANCH|WFC_ALLOW_GATE_INPUT_DELETE";
 
-/* An escape name standing outside every quote, as a whole word. */
 const MENTION_RE = new RegExp(
 	`(^|[^A-Za-z0-9_])(${ESCAPE_NAMES})([^A-Za-z0-9_]|$)`,
 );
-/* One word assigning an escape (`NAME=…`, `NAME+=…`). */
 const ASSIGNS_RE = new RegExp(`^(${ESCAPE_NAMES})\\+?=`);
-/* One argument of `export`/`declare` naming an escape, value or none. */
 const NAMES_RE = new RegExp(`^(${ESCAPE_NAMES})(\\+?=|$)`);
-/* A quoted span, to its close or the end of the text, or one escaped
- * character: a backslash is literal inside single quotes, escapes the next
- * character inside double quotes, and outside both escapes a quote rather
- * than opening one. */
 const QUOTED_OR_ESCAPED_RE = /'[^']*'?|"(?:\\[\s\S]?|[^"\\])*"?|\\[\s\S]?/g;
-/* What reads an escape's name as an export: `export`, and `declare`/`typeset`
- * under an `x` flag. */
 const EXPORTERS = ["export", "declare", "typeset"];
-/* A word shaped as an assignment, which a leading run is made of. */
 const ASSIGNMENT_RE = /^[A-Za-z_].*=/s;
 
 const FRAMING = "This command sets a git-hook escape: @CMD@";
@@ -88,30 +78,12 @@ function decide(command, ctx) {
 	return refused === null ? null : { deny: refusalText(refused, ctx) };
 }
 
-/**
- * The subject with every quoted span blanked, read quote-aware across
- * newlines. The splitter masks a quoted span per line, so a single-quoted
- * mention running over a line break — the founder's command written into
- * `gh … --body '…'` — would otherwise reach the walk as live words and be
- * refused.
- * @param {string} s
- */
+/** @param {string} s */
 function unquotedText(s) {
 	return s.replace(QUOTED_OR_ESCAPED_RE, " ");
 }
 
-/**
- * Whether one command, or any command a `-c` string in it runs, sets an
- * escape: in its own leading assignments, which the walk strips from `words`;
- * among the assignments an `env` carried; or in
- * the leading run unwrap leaves, which it stops on at once where the words
- * open with one — a word after `exec` is the command to shell, yet `exec
- * NAME=1 git …` is refused all the same — and stops on after `sudo` (`sudo
- * NAME=1 cmd`) and on one inside `env` whose value holds a `/` (`env
- * PATH=/usr/bin NAME=1 cmd`), reading it by basename; or as an
- * `export`/`declare -x` argument.
- * @param {import("./shell-parse.js").Command} cmd
- */
+/** @param {import("./shell-parse.js").Command} cmd */
 function setsEscape({ leading, runs }) {
 	if (leading.some((w) => ASSIGNS_RE.test(w))) return true;
 	return runs().some(
@@ -121,10 +93,7 @@ function setsEscape({ leading, runs }) {
 	);
 }
 
-/**
- * Whether an assignment among the words' leading run sets an escape.
- * @param {string[]} words
- */
+/** @param {string[]} words */
 function leadingSets(words) {
 	for (const w of words) {
 		if (!ASSIGNMENT_RE.test(w)) return false;
@@ -133,11 +102,7 @@ function leadingSets(words) {
 	return false;
 }
 
-/**
- * Whether an `export`, or a `declare`/`typeset` under an `x` flag, names an
- * escape. `export -n` takes the export away.
- * @param {string[]} run the unwrapped words, the command first
- */
+/** @param {string[]} run */
 function exportsEscape(run) {
 	const head = run[0] ?? "";
 	const cmd = head.slice(head.lastIndexOf("/") + 1);
@@ -150,8 +115,6 @@ function exportsEscape(run) {
 }
 
 /**
- * Whether a flag word leaves the names after it exported: its `n` is read
- * first, then its `x`, so a word carrying both exports.
  * @param {string} w
  * @param {boolean} exporting
  */
@@ -159,7 +122,7 @@ const flagExports = (w, exporting) =>
 	w.includes("x") || (exporting && !w.includes("n"));
 
 /**
- * @param {string} segment masked
+ * @param {string} segment
  * @param {HookEscapeContext} ctx
  */
 function refusalText(segment, ctx) {

@@ -1,12 +1,5 @@
-/*
- * hunk-header.js — a diff hunk header, read and written in one place for the
- * mutation hold, the code-standards checker (#2379) and commit-paths'
- * --patch renumbering (#2486).
- */
-
 const { requiredGroup } = require("./regex-group.js");
 
-/* `@@ -old[,count] +new[,count] @@`, a count omitted where it is 1. */
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 /**
@@ -15,12 +8,10 @@ const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
  * @property {number} oldCount
  * @property {number} newStart
  * @property {number} newCount
- * @property {string} rest the text after the closing `@@`, section heading included
+ * @property {string} rest
  */
 
 /**
- * Both sides of a hunk header, or null where `line` is none.
- *
  * @param {string} line
  * @returns {HunkHeader | null}
  */
@@ -37,8 +28,6 @@ function parseHeader(line) {
 }
 
 /**
- * A header's text, a count of 1 omitted as git writes it.
- *
  * @param {HunkHeader} h
  * @returns {string}
  */
@@ -46,17 +35,11 @@ function formatHeader(h) {
 	return `@@ -${formatSide(h.oldStart, h.oldCount)} +${formatSide(h.newStart, h.newCount)} @@${h.rest}`;
 }
 
-/**
- * One side of a header, `<start>[,<count>]`, a count of 1 omitted.
- * @type {(start: number, count: number) => string}
- */
+/** @type {(start: number, count: number) => string} */
 const formatSide = (start, count) =>
 	count === 1 ? `${start}` : `${start},${count}`;
 
 /**
- * The new-side start and line count of a hunk header, or null where `line`
- * is none. A pure deletion's count is 0.
- *
  * @param {string} line
  * @returns {{start: number, count: number} | null}
  */

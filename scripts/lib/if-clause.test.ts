@@ -1,10 +1,3 @@
-/*
- * lib/if-clause.js's clausesAdmit decides which Bash calls reach a
- * dispatcher core narrowed by `if` clauses (#3224). Miss a call the
- * harness's own `if` started the guard on and the fold loses reach; the
- * segment cases are guard-authoring.md's measured splits.
- */
-
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
@@ -44,12 +37,7 @@ describe("clausesAdmit", () => {
 		expect(clausesAdmit(["Bash(git *)"], "Bash", command)).toBe(admitted);
 	});
 
-	// A regex match is synchronous, so only a process timeout can stop a
-	// backtracking one (#2188, CodeQL js/redos): 40 empty quote pairs never
-	// finish when each pair can also read as two bare characters, and finish
-	// in milliseconds when it cannot. 10 s is far above a linear read on any
-	// machine and far below that exponential one.
-	it("reads a long run of quotes with no command after it", () => {
+	it("reads a long run of quotes with no command after it (#2188)", () => {
 		const r = spawnSync(
 			process.execPath,
 			[
@@ -57,6 +45,7 @@ describe("clausesAdmit", () => {
 				`process.exit(require(${JSON.stringify(require.resolve("./if-clause.js"))}).clausesAdmit(["Bash(git *)"], "Bash", process.argv[1]) ? 1 : 0)`,
 				`A=${'""'.repeat(40)}`,
 			],
+			// guess, far above a linear read and below an exponential one, #2188
 			{ timeout: 10_000 },
 		);
 		expect(r.signal).toBeNull();

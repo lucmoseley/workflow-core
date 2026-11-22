@@ -111,10 +111,7 @@
  *    call.
  */
 
-/* The rule readers — ticket-criteria.js, outstanding-line.js,
- * census-digest.js and unlanded-commits.js — are required where a close
- * reaches them, not here: they cost more load than every gh call that closes
- * nothing should pay (#2798's latency gate). */
+// #2798
 const {
 	deny,
 	open,
@@ -132,76 +129,60 @@ const { trimEndRun } = require("./trim-run.js");
 /**
  * @typedef {{ refusal: string } | { outOfBudget: true }} RefusalRead
  * @typedef {object} ClosePorts
- * @property {(args: string[], timeoutMs: number) => string} gh gh's stdout;
- *   throws where gh fails, cannot be found or outlasts `timeoutMs`
- * @property {() => number} now the clock, in ms
- * @property {() => string | undefined} tracker the tracker the config
- *   declares, else the origin remote's; undefined where none resolves
+ * @property {(args: string[], timeoutMs: number) => string} gh
+ * @property {() => number} now
+ * @property {() => string | undefined} tracker
  * @property {(n: number, timeoutMs: number, tree: string) => RefusalRead} census
- *   the census refusal over the rows issue n's commits on `tree`'s HEAD
- *   expired, "" where none is; outOfBudget where the read passed
- *   `timeoutMs`; throws where git, the anchors file or a formatter cannot
- *   answer
  * @property {(n: number, comment: string, timeoutMs: number,
- *   tree: string) => RefusalRead} landing the refusal over issue n's
- *   commits, cited on `tree`'s HEAD or named by sha in `comment`, that the
- *   pushed ref lacks, "" where none is; outOfBudget and throws as census
+ *  tree: string) => RefusalRead} landing
  * @typedef {import("./kit-context.js").KitContext & ClosePorts
- *   & Pick<import("./core-contract.js").CoreContext, "tree">} CloseContext
+ *  & Pick<import("./core-contract.js").CoreContext, "tree">} CloseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision
  */
 
-/* The ms clock lets no call end past the dispatcher's entry budget, counted
- * from the core's own start on its injected clock. The 4 s cap and the 1 s
- * floor are carried unmeasured. */
 const BUDGET_MS = ENTRY_BUDGET_MS.PreToolUse;
+// guess, #2798
 const CALL_MS = 4000;
+// guess, #2798
 const MIN_CALL_MS = 1000;
 
 const ROADMAP = "docs/reference-roadmap.html";
 
+// guess, #2798
+const TITLE_EXCERPT_CHARS = 40;
+
 const SPACE = "[ \\t\\n\\v\\f\\r]";
 
-/* `<card-id> — <title>`, em dash, the convention /card-close step 2 parses.
- * DELIBERATELY STRICTER than check-issue-card-drift.js, which takes
- * [A-Za-z0-9._-] and an en dash or hyphen too: this one denies, so a title it
- * misreads blocks sanctioned work. The looser shape is recorded instead
- * (mantahostels#220), and a hit means the convention has drifted and this
- * pattern needs widening — with isCardOwnIssue in lib/tracker-ops.js,
- * resolve-ticket's copy. */
+// lucmoseley/mantahostels#220
 const CARD_TITLE_RE = /^([a-z0-9][a-z0-9-]*) — /;
 const LOOSE_CARD_TITLE_RE = new RegExp(
 	`^${SPACE}*[A-Za-z0-9._-]+${SPACE}+[—–-]${SPACE}`,
 );
 
-/* Spares the criteria read on the common body with no criteria heading. */
 const CRITERIA_HEADING_RE = new RegExp(
 	`(^|\\n)${SPACE}{0,3}#+${SPACE}+acceptance`,
 );
 
 /**
- * @typedef {object} Issue the fetched payload, `data` undefined where it did
- *   not parse — every field then reads empty
+ * @typedef {object} Issue
  * @property {Record<string, unknown> | undefined} data
- * @typedef {object} Run one call's judging
+ * @typedef {object} Run
  * @property {Parsed} parsed
  * @property {CloseContext} ctx
- * @property {number} start the clock when the call began
- * @property {string} fetched the repo#number `issue` belongs to: one call can
- *   close two issues, and a cache without its key answers the second close
- *   from the first one's payload
- * @property {Issue | null} issue null where the read under `fetched` failed
- * @typedef {object} Close one `gh issue close`, as scanClose read it
+ * @property {number} start
+ * @property {string} fetched
+ * @property {Issue | null} issue
+ * @typedef {object} Close
  * @property {string} segment
- * @property {string} issue the number, as written
+ * @property {string} issue
  * @property {boolean} hasReason
- * @property {string} reason the last --reason value
+ * @property {string} reason
  * @property {boolean} reasonHidden
- * @property {string} repo the `-R`/`--repo` value, "" where none
+ * @property {string} repo
  * @property {boolean} repoHidden
- * @property {string} comment the last --comment, as gh takes it
+ * @property {string} comment
  * @property {boolean} commentHidden
  */
 
@@ -222,16 +203,11 @@ function decide(command, ctx) {
 	return walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx) ?? null;
 }
 
-/**
- * What is left of the run budget for the next call, at most CALL_MS.
- * @param {Run} run
- */
+/** @param {Run} run */
 const callBudget = (run) =>
 	Math.min(CALL_MS, BUDGET_MS - (run.ctx.now() - run.start));
 
 /**
- * One command the call runs: a `gh issue close`, by the command word's
- * basename, is judged.
  * @param {Run} run
  * @param {Command} cmd
  */
@@ -242,38 +218,26 @@ function judge(run, cmd) {
 	const close = scanClose(run, cmd.segment, cmd.words.slice(3));
 	const notPlanned = abandoned(run, close);
 
-	/* Empty only where gh got no positional argument, or an empty or bare-`#`
-	 * one: gh refuses each and closes nothing, so there is no close to judge
-	 * and no fault to record. Bash reading an unquoted `#12` as a comment is
-	 * the usual route (#547). */
 	if (!close.issue) return;
 	if (!/^[0-9]+$/.test(close.issue))
 		open(
 			run.ctx,
 			"could not read the issue number from a gh issue close — close allowed unchecked",
 		);
-	/* Judging it against this repo instead would be a verdict on the wrong
-	 * issue. */
 	if (close.repoHidden)
 		open(
 			run.ctx,
 			"could not read the --repo value of a gh issue close — close allowed unchecked",
 		);
 
-	/* mantahostels#220 runs FIRST. */
 	if (!notPlanned && !elsewhere(run, close)) judgeCard(run, close);
 	judgeTicketedTags(run, close);
 	judgeChildren(run, close, notPlanned);
 	if (notPlanned) return;
 	const criteriaRead = judgeCriteria(run, close);
 	judgeOutstanding(run, close);
-	/* After the Outstanding rule: the census read is the slowest call, and
-	 * running it first could leave the others no budget. */
 	judgeLanding(run, close);
 	judgeCensus(run, close);
-	/* Reached only where the Outstanding rule passed without a fetch of its own
-	 * failing — a failed one ends the call — so this is the outage's one
-	 * record. */
 	if (!criteriaRead)
 		run.ctx.log(
 			`could not read ${close.repo}#${close.issue} — acceptance criteria unchecked`,
@@ -281,10 +245,6 @@ function judge(run, cmd) {
 }
 
 /**
- * Abandoned work owes no disposition. The --reason value is read back, so a
- * `--reason completed` whose --comment says "not planned" is still judged;
- * only where that value cannot be read is the raw command searched for the
- * words, gated on the parsed segment carrying the flag.
  * @param {Run} run
  * @param {Close} close
  */
@@ -296,11 +256,7 @@ function abandoned(run, close) {
 }
 
 /**
- * The first bare word that reads as anything is the issue. The parser blanked
- * a quoted number, and `gh issue close "#12"` closes #12, so the span is read
- * back (#547). A `"$ISSUE"` reads back unexpanded and fails open. `\#12`
- * reaches gh as `#12` too, bash dropping the `\`.
- * @param {Close} close accumulator: issue is set where still empty
+ * @param {Close} close
  * @param {string} text
  */
 function readIssue(close, text) {
@@ -308,7 +264,7 @@ function readIssue(close, text) {
 }
 
 /**
- * @param {Close} close accumulator: hasReason, reason and reasonHidden are set
+ * @param {Close} close
  * @param {string} text
  * @param {boolean} known
  */
@@ -319,7 +275,7 @@ const readReason = (close, text, known) => {
 };
 
 /**
- * @param {Close} close accumulator: repo is set, and repoHidden where unread
+ * @param {Close} close
  * @param {string} text
  * @param {boolean} known
  */
@@ -329,7 +285,7 @@ const readRepo = (close, text, known) => {
 };
 
 /**
- * @param {Close} close accumulator: comment and commentHidden are set
+ * @param {Close} close
  * @param {string} text
  * @param {boolean} known
  */
@@ -338,7 +294,6 @@ const readComment = (close, text, known) => {
 	close.commentHidden = !known;
 };
 
-/** What each value-taking flag sets, its value read back. */
 const CLOSE_READS = new Map([
 	["-r", readReason],
 	["--reason", readReason],
@@ -349,8 +304,6 @@ const CLOSE_READS = new Map([
 ]);
 
 /**
- * Read a `gh issue close` invocation's arguments. A --reason with no value
- * left to take still counts as spelled, its value unread.
  * @param {Run} run
  * @param {string} segment
  * @param {string[]} words
@@ -382,9 +335,6 @@ function scanClose(run, segment, words) {
 }
 
 /**
- * Does this close name a repo other than the tracker, declared or derived
- * from the origin remote? False where it names none, names the tracker, or no
- * tracker resolves.
  * @param {Run} run
  * @param {Close} close
  */
@@ -396,16 +346,7 @@ function elsewhere(run, close) {
 }
 
 /**
- * The issue as GitHub describes it, re-fetched only when the repo#number
- * differs from the last one fetched. Null where GitHub could not be asked,
- * which is a fail-open the caller records rather than a confident answer —
- * and is remembered like an answer, so a hanging gh costs one cut call per
- * run rather than one per rule (#3581).
- *
- * ONE request serves every rule: `title`, `parent`, `body` and `subIssues`
- * ride the comments' read, so the card, children and criteria checks cost no
- * extra call.
- * @param {Run} run accumulator: issue and fetched are set to this read's
+ * @param {Run} run
  * @param {Close} close
  * @returns {Issue | null}
  */
@@ -430,8 +371,6 @@ function fetchIssue(run, close) {
 			left,
 		);
 	} catch {
-		/* gh missing or unreachable: null, a fail-open logged once, by the
-		 * Outstanding rule (LIMITS; mantahostels#103 §6). */
 		return null;
 	}
 	if (!out) return null;
@@ -442,8 +381,6 @@ function fetchIssue(run, close) {
 		const parsed = JSON.parse(out);
 		data = parsed === null ? {} : record(parsed);
 	} catch {
-		/* An answer that is not JSON: no data, which each rule logs as
-		 * unchecked (LIMITS; mantahostels#103 §6). */
 		data = undefined;
 	}
 	run.issue = { data };
@@ -451,7 +388,6 @@ function fetchIssue(run, close) {
 }
 
 /**
- * `v` where it is a JSON object, else undefined.
  * @param {unknown} v
  * @returns {Record<string, unknown> | undefined}
  */
@@ -460,17 +396,11 @@ const record = (v) =>
 		? /** @type {Record<string, unknown>} */ (v)
 		: undefined;
 
-/**
- * A payload field.
- * @param {unknown} v
- */
+/** @param {unknown} v */
 const field = (v) =>
 	v === null || v === undefined || v === false ? "" : String(v);
 
-/**
- * The newest comment's body.
- * @param {Record<string, unknown>} data
- */
+/** @param {Record<string, unknown>} data */
 const newestComment = (data) =>
 	field(
 		Array.isArray(data.comments)
@@ -479,11 +409,6 @@ const newestComment = (data) =>
 	);
 
 /**
- * Is this issue a roadmap card's own issue whose card is not yet `done`?
- * Denies where it is, logs where it cannot tell, and returns otherwise.
- *
- * A title that does not parse is not "cannot tell": most issues here are not
- * cards, so an absent `<card-id> — ` prefix is the ordinary case and means no.
  * @param {Run} run
  * @param {Close} close
  */
@@ -493,7 +418,6 @@ function judgeCard(run, close) {
 }
 
 /**
- * The session tree's working roadmap, null where it cannot be read.
  * @param {import("./guard-host-ports.js").TreePorts} tree
  * @returns {string | null}
  */
@@ -501,7 +425,6 @@ function readRoadmap(tree) {
 	try {
 		return tree.readText(ROADMAP);
 	} catch {
-		/* Unreadable: the card check names it and goes unchecked. */
 		return null;
 	}
 }
@@ -509,28 +432,19 @@ function readRoadmap(tree) {
 /**
  * @param {Run} run
  * @param {Close} close
- * @returns {string} the reason the card went unchecked, "" where it was
- *   checked or is no card
+ * @returns {string}
  */
 function cardFault(run, close) {
-	/* No fault: the Outstanding rule fetches the same payload and records the
-	 * outage itself, and one unreachable GitHub should leave one line. */
 	const data = fetchIssue(run, close)?.data;
 	if (!data) return "";
 	const title = field(data.title);
 	const m = CARD_TITLE_RE.exec(title);
-	/* The 40-character cut is carried unmeasured. */
 	if (!m)
 		return LOOSE_CARD_TITLE_RE.test(title)
-			? `title "${[...title].slice(0, 40).join("")}" looks like a card id this guard will not parse, so it`
+			? `title "${[...title].slice(0, TITLE_EXCERPT_CHARS).join("")}" looks like a card id this guard will not parse, so it`
 			: "";
 	const id = requiredGroup(m, 1, CARD_TITLE_RE);
-	/* A parent means a child ticket that merely inherited the prefix
-	 * (mantahostels#275). */
 	if (field(record(data.parent)?.number)) return "";
-	/* A map borrows the prefix without being the card's issue, and is
-	 * unparented too, so the test above cannot tell it apart
-	 * (mantahostels#1490). */
 	const labels = Array.isArray(data.labels)
 		? data.labels
 				.map((/** @type {unknown} */ l) => field(record(l)?.name))
@@ -539,14 +453,9 @@ function cardFault(run, close) {
 	if (` ${labels} `.includes(" wayfinder:map ")) return "";
 	const roadmap = readRoadmap(run.ctx.tree());
 	if (roadmap === null) return `could not read the roadmap, so card ${id}`;
-	/* Exactly one card, or we cannot say which card this is — /card-close step
-	 * 2 stops on the same test rather than guessing. Every occurrence counts,
-	 * not every line, so a reformatting that joined cards still counts two. */
 	const count = roadmap.split(`id:"${id}",`).length - 1;
 	if (count !== 1) return `${id} names ${count} cards on the roadmap, so it`;
-	/* Fields run id,p,a,kind,state — state lands within ~90 characters of the
-	 * id, so a 200-character window reaches it and stops well short of the
-	 * next card. */
+	// guess, #2798
 	const window =
 		new RegExp(`id:"${id}",[^\\n]{0,200}`, "u").exec(roadmap)?.[0] ?? "";
 	const state = /state:"([a-z]*)"/.exec(window)?.[1] ?? "";
@@ -575,9 +484,6 @@ ${ruleOrFallback(run.ctx, "card-close-by-hand", "A roadmap card's own issue is c
 }
 
 /**
- * Denies a close that leaves a sub-issue open (#3637). An unread issue is the
- * outage judge() records on a completed close, so only a not-planned one,
- * which reaches no later rule, records it here.
  * @param {Run} run
  * @param {Close} close
  * @param {boolean} notPlanned
@@ -623,8 +529,6 @@ ${refusal}`,
 }
 
 /**
- * Denies over unmet criteria (#1640), or returns whether the issue was read:
- * false is the outage judge() records once the Outstanding rule has run.
  * @param {Run} run
  * @param {Close} close
  */
@@ -658,15 +562,11 @@ ${ruleOrFallback(run.ctx, "ticket-criteria-unticked", "Tick each acceptance crit
 }
 
 /**
- * Denies a close whose --comment is a whole-spec review ticketing a finding
- * without naming its exception (#4492). An unreadable --comment passes here;
- * the Outstanding rule logs it on a completed close.
  * @param {Run} run
  * @param {Close} close
  */
 function judgeTicketedTags(run, close) {
 	if (close.commentHidden) return;
-	/* Loaded only for a close: this core sits on every `gh` call. */
 	const { ticketedRefusal } = require("./ticketed-tags.js");
 	const refusal = ticketedRefusal(close.comment);
 	if (refusal)
@@ -680,25 +580,17 @@ ${refusal}`,
 }
 
 /**
- * Denies a close whose Outstanding line is missing or refused (#984), or
- * records a fail-open.
  * @param {Run} run
  * @param {Close} close
  */
 function judgeOutstanding(run, close) {
 	const at = `${close.repo}#${close.issue}`;
-	/* An unreadable --comment may carry the line, so the newest comment is no
-	 * stand-in for it (#990, the wrong refusal of #1082's close). Logged, not
-	 * ended, so a later close in the same call is judged. */
 	if (close.commentHidden) {
 		run.ctx.log(
 			`could not read the --comment of a gh issue close on ${at} — close allowed unchecked`,
 		);
 		return;
 	}
-	/* The close's own --comment counts where it carries a live line, as the
-	 * parser decides, so one quoted in a fence leaves the newest comment to
-	 * judge (#1247). */
 	const {
 		buildRefusalText,
 		hasOutstandingLine,
@@ -753,18 +645,15 @@ In one call, with the comment checked before anything is written: node ${run.ctx
 }
 
 /**
- * @typedef {object} RefusalRule a completed-close rule whose refusal a
- *   budgeted git read gives, escaped by a marker line in the close's own
- *   --comment or else the newest comment
- * @property {string} reader the reader, as a record names it
- * @property {string} unchecked what goes unchecked where it gives no verdict
- * @property {(at: string) => string} reading what it reads, for issue `at`
- * @property {string} line the escape line's marker
+ * @typedef {object} RefusalRule
+ * @property {string} reader
+ * @property {string} unchecked
+ * @property {(at: string) => string} reading
+ * @property {string} line
  * @property {(text: string) => boolean} hasLine
  * @property {(ctx: CloseContext, n: number, comment: string, timeoutMs: number) => RefusalRead} read
- *   `comment` the close's own --comment, else the newest comment
- * @property {string} opening the deny's first line, before the command
- * @property {string} remedy what the re-run waits on
+ * @property {string} opening
+ * @property {string} remedy
  */
 
 /** @type {RefusalRule} */
@@ -804,16 +693,12 @@ const judgeCensus = (run, close) => judgeRefusalRule(run, close, CENSUS_RULE);
 const judgeLanding = (run, close) => judgeRefusalRule(run, close, LANDING_RULE);
 
 /**
- * Denies a completed close `rule` refuses, or records a fail-open. A close
- * naming another repo owes none: the commits cite this one's tracker.
  * @param {Run} run
  * @param {Close} close
  * @param {RefusalRule} rule
  */
 function judgeRefusalRule(run, close, rule) {
 	const at = `${close.repo}#${close.issue}`;
-	/* The Outstanding rule records an unreadable --comment for the whole
-	 * close. */
 	if (close.commentHidden) return;
 	if (elsewhere(run, close)) return;
 	const issue = fetchIssue(run, close);
@@ -827,7 +712,6 @@ function judgeRefusalRule(run, close, rule) {
 	}
 	const noVerdict = () =>
 		run.ctx.log(`${rule.reader} gave no verdict on ${at} — ${rule.unchecked}`);
-	/* Issue 0 is no issue: no reader is asked about it. */
 	const n = Number(close.issue);
 	if (n < 1) return noVerdict();
 	const said = `${close.comment}\n\n${newest}`;
@@ -837,8 +721,6 @@ function judgeRefusalRule(run, close, rule) {
 	try {
 		read = rule.read(run.ctx, n, close.comment || newest, left);
 	} catch {
-		/* A reader that throws gives no verdict, logged and allowed
-		 * (LIMITS; mantahostels#103 §6). */
 		return noVerdict();
 	}
 	if ("outOfBudget" in read) {

@@ -1,12 +1,3 @@
-/*
- * lib/hung-jobs.js — read the local job stores, and pick out a WORKING job
- * that is alive but has gone silent (HUNG-JOB, mantahostels#2588).
- *
- * GHOST-JOB's test (a "working" job with NO live process at all) is here too
- * (#1989), as `ghostTest` and `livenessOf`, and the never-started subset the
- * refill loop stops, as `neverStartedJobs` (#2467).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { findNewestTranscript } = require("./transcript");
@@ -14,21 +5,12 @@ const { configDirs } = require("./arbiter-store");
 const { jobStatePath, jobStorePath, rosterPath } = require("./job-paths.js");
 
 /**
- * @typedef {any} JobState  a job's parsed state.json, as `JSON.parse` returns
- *   it: untyped because the harness owns its schema and each caller narrows
- *   the fields it reads itself
- * @typedef {{seat: string} & ({job: string, unreadable: boolean,
- *   rec?: undefined} | {job: string, rec: JobState, unreadable?: undefined})}
- *   Job
- * @typedef {{state?: string, sessionId?: string, createdAt?: string,
- *   updatedAt?: string, intent?: string, detail?: string, cwd?: string}} JobFields
- *   the state.json fields `findHungJobs` reads
+ * @typedef {any} JobState
+ * @typedef {{seat: string} & ({job: string, unreadable: boolean, rec?: undefined} | {job: string, rec: JobState, unreadable?: undefined})} Job
+ * @typedef {{state?: string, sessionId?: string, createdAt?: string, updatedAt?: string, intent?: string, detail?: string, cwd?: string}} JobFields
  * @typedef {{ids: Set<string>, pids: Map<string, number>}} Listed
  * @typedef {{file: string | null, minutes: number | null}} Silence
- * @typedef {{job: string, store: string, sessionId: string,
- *   intent: string | null, detail: string | null, cwd: string | null,
- *   pid: number | null, minutesQuiet: number, transcript: string | null,
- *   reason: string, rosterPath: string}} HungJob
+ * @typedef {{job: string, store: string, sessionId: string, intent: string | null, detail: string | null, cwd: string | null, pid: number | null, minutesQuiet: number, transcript: string | null, reason: string, rosterPath: string}} HungJob
  */
 
 /*
@@ -42,17 +24,10 @@ const { jobStatePath, jobStorePath, rosterPath } = require("./job-paths.js");
  */
 const HUNG_AFTER_MINUTES = 240;
 
-/*
- * The short window: a job with NO transcript at all never took a turn, so
- * nothing healthy looks like that past half an hour (mantahostels#2588) — the same grace
- * window GHOST-JOB gives a spare still being handed out.
- */
+// guess, lucmoseley/mantahostels#2588
 const GHOST_AFTER_MINUTES = 30;
 
-/**
- * Every seat on this machine, deduped by its `jobs/` directory's realpath.
- * @returns {string[]}
- */
+/** @returns {string[]} */
 function jobSeats() {
 	const out = [];
 	const seen = new Set();
@@ -71,12 +46,9 @@ function jobSeats() {
 	return out;
 }
 
-/** Every `jobs/` directory on this machine, deduped by realpath. */
 const jobStores = () => jobSeats().map(jobStorePath);
 
 /**
- * One job directory's record: `unreadable` where its state.json will not
- * parse to an object, null where it has no state.json to read.
  * @param {string} seat
  * @param {string} job
  * @returns {Job | null}
@@ -99,14 +71,7 @@ function readJob(seat, job) {
 	return { seat, job, rec };
 }
 
-/**
- * Every job record across every store, as an array — or null where not one
- * store would open, which is a different fact from an empty store.
- *
- * A directory with no state.json is skipped in silence: a cleaned job dir is
- * ordinary, and mantahostels#104 forbids reading anything into its absence.
- * @returns {Job[] | null}
- */
+/** @returns {Job[] | null} */
 function readJobs() {
 	/** @type {Job[]} */
 	const jobs = [];
@@ -131,11 +96,6 @@ function readJobs() {
 }
 
 /**
- * How long a session's transcript has gone unwritten, as `{file, minutes}`.
- *
- * `{file: null, minutes: null}` is a transcript that could not be found under
- * any config dir — three plans run here and a job's session may sit under any
- * of them.
  * @param {string} sessionId
  * @returns {Silence}
  */
@@ -150,9 +110,8 @@ function transcriptSilence(sessionId) {
 }
 
 /**
- * Minutes from an ISO timestamp to `now`, or null where it will not parse.
  * @param {unknown} iso
- * @param {number} [now] epoch ms
+ * @param {number} [now]
  * @returns {number | null}
  */
 function minutesSince(iso, now = Date.now()) {
@@ -163,13 +122,8 @@ function minutesSince(iso, now = Date.now()) {
 }
 
 /**
- * A listing's `{ids, pids}` — or `{why}`, where it carries agents but not one
- * pid. `pid` is load-bearing on a field agent-liveness does not guard, so were
- * the oracle to drop or rename it every working job would read as a ghost at
- * once.
  * @param {Array<{sessionId: string, pid?: number}>} agents
- * @returns {(Listed & {why?: undefined})
- *   | {why: string, ids?: undefined, pids?: undefined}}
+ * @returns {(Listed & {why?: undefined}) | {why: string, ids?: undefined, pids?: undefined}}
  */
 function livenessOf(agents) {
 	const ids = new Set(agents.map((a) => a.sessionId));
@@ -184,15 +138,10 @@ function livenessOf(agents) {
 }
 
 /**
- * GHOST-JOB's test (mantahostels#1495) on one WORKING job's record: "live"
- * where the oracle lists its session with a process, "young" inside the grace
- * window, else the ghost's age and why. A MISSING pid, not a missing record, is
- * the signature, so absent from the listing and listed with nothing behind it
- * both count. An unreadable timestamp is a ghost, not suppressed.
  * @param {JobFields & {sessionId: string}} rec
  * @param {Listed} listed
  * @param {number} [minutes]
- * @param {number} [now] epoch ms the age is taken at
+ * @param {number} [now]
  * @returns {"live" | "young" | {age: number | null, reason: string}}
  */
 function ghostTest(
@@ -214,18 +163,9 @@ function ghostTest(
 }
 
 /**
- * The WORKING jobs that never started: no live session behind them, past
- * GHOST-JOB's grace (an unreadable timestamp counts as past it, as
- * `ghostTest` counts it), and with no transcript under any config dir — the
- * transcript is what no running session lacks, so a process the live read
- * missed cannot make a live one qualify. Only a job in a store whose seat's
- * registry was read is judged.
  * @param {Array<{seat: string, job: string, rec?: JobFields}>} jobs
- * @param {{live: Set<string>, seats: string[]}} registry  the session ids
- *   with a live process, and the seats whose registry was read
- *   (lib/registry-agents.js)
- * @returns {Array<{job: string, seat: string, sessionId: string,
- *   intent: string | null, age: number | null}>}
+ * @param {{live: Set<string>, seats: string[]}} registry
+ * @returns {Array<{job: string, seat: string, sessionId: string, intent: string | null, age: number | null}>}
  */
 function neverStartedJobs(jobs, { live, seats }) {
 	const me = process.env.CLAUDE_CODE_SESSION_ID;
@@ -244,35 +184,27 @@ function neverStartedJobs(jobs, { live, seats }) {
 }
 
 /**
- * The session a WORKING job runs, where it names one that is not this very
- * session; null otherwise.
  * @param {JobFields | undefined} rec
- * @param {string | undefined} me  this session's id
+ * @param {string | undefined} me
  * @returns {string | null}
  */
 function workingSessionOf(rec, me) {
 	if (rec?.state !== "working") return null;
 	const sessionId = rec.sessionId;
 	if (typeof sessionId !== "string" || !sessionId) return null;
-	// This very session, which the oracle need not list yet, and which once
-	// listed would read as hung on its own dispatcher's re-read (mantahostels#2598).
 	if (me && sessionId === me) return null;
 	return sessionId;
 }
 
 /**
- * The session a job runs, where the job is WORKING and its session is live
- * and is not this very session; null otherwise.
  * @param {JobFields | undefined} rec
  * @param {Listed} listed
- * @param {string | undefined} me  this session's id
+ * @param {string | undefined} me
  * @returns {string | null}
  */
 function liveWorkingSession(rec, listed, me) {
 	const sessionId = workingSessionOf(rec, me);
 	if (sessionId === null) return null;
-	// Live means the oracle both lists it AND can name a process for it —
-	// anything short of that is GHOST-JOB territory, not this reader's.
 	if (!(listed.ids.has(sessionId) && listed.pids.has(sessionId))) return null;
 	return sessionId;
 }
@@ -307,12 +239,7 @@ function buildHungJob({ job, seat, sessionId, rec, pid, quietFor, silence }) {
 }
 
 /**
- * The WORKING jobs that are alive but silent, off an already-read job list
- * and an already-listed agent set — no oracle call of its own, since
- * its callers already hold a listing (mantahostels#2598).
- *
- * @param {Array<{seat: string, job: string,
- *   unreadable?: boolean, rec?: JobFields}>} jobs
+ * @param {Array<{seat: string, job: string, unreadable?: boolean, rec?: JobFields}>} jobs
  * @param {Listed} listed
  * @param {{hungMinutes?: number, minutes?: number}} [opts]
  * @returns {HungJob[]}
@@ -329,11 +256,6 @@ function findHungJobs(jobs, listed, opts = {}) {
 		if (!rec || sessionId === null) continue;
 
 		const silence = transcriptSilence(sessionId);
-		/*
-		 * SILENCE IS THE WHOLE TEST, and a transcript-less job is aged from
-		 * `createdAt`: `updatedAt` is REWRITTEN while the session runs
-		 * (mantahostels#2588), so it gates neither the silence nor the age.
-		 */
 		const quietFor =
 			silence.minutes === null ? minutesSince(rec.createdAt) : silence.minutes;
 		const window = silence.file ? hungMinutes : ghostMinutes;

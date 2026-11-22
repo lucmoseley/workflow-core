@@ -1,13 +1,3 @@
-/*
- * issue-claim-hook.js — the cores of record-issue-claim.js and
- * release-issue-claim.js (#2799, programme #2733): which issues a Bash call
- * assigns to this session with `gh issue edit <n> --add-assignee @me`, or
- * closes with `gh issue close <n>`.
- *
- * A CORE: it does no I/O. The origin remote and the arbiter's claim store
- * arrive as ports; lib/gh-recorder-host.js builds the real ones.
- */
-
 const {
 	ISSUE_VALUE_FLAGS,
 	issueWord,
@@ -21,24 +11,20 @@ const { literal, scanFlags } = require("./shell-words.js");
 /**
  * @typedef {object} ClaimPorts
  * @property {Record<string, unknown>} payload
- * @property {string} envSession CLAUDE_CODE_SESSION_ID, the payload's fallback
+ * @property {string} envSession
  * @property {string} root
- * @property {(dir: string) => string} originUrl the origin remote's URL of the
- *   repo at `dir`; "" where git cannot answer
+ * @property {(dir: string) => string} originUrl
  * @property {(issue: string, sessionId: string) => void} claimIssue
  * @property {(issue: string, sessionId: string) => void} releaseIssue
  * @typedef {import("./kit-context.js").KitContext & ClaimPorts} ClaimContext
  */
 
 /**
- * The issues one `gh issue <sub>` names: a URL counts only where it names the
- * host repo's own origin. A `--repo` anywhere, EVEN ONE NAMING THIS
- * REPOSITORY, or one left dangling, voids the call.
- * @param {string[]} words the arguments after `gh issue <sub>`
+ * @param {string[]} words
  * @param {string[]} spans
- * @param {string} spec the subcommand's value-taking flags
- * @param {() => string} origin the host repo's own `owner/name`
- * @returns {string[] | null} null where the call is `--repo`-scoped
+ * @param {string} spec
+ * @param {() => string} origin
+ * @returns {string[] | null}
  */
 function localIssues(words, spans, spec, origin) {
 	/** @type {string[]} */
@@ -57,7 +43,6 @@ function localIssues(words, spans, spec, origin) {
 }
 
 /**
- * The issues `subject` hands one of `sub`'s calls, each handed to `act`.
  * @param {string} subject
  * @param {ClaimContext} ctx
  * @param {{ sub: "edit" | "close", wants: (words: string[], spans: string[]) => boolean,
@@ -94,9 +79,7 @@ function eachIssue(subject, ctx, { sub, wants, act }) {
 }
 
 /**
- * record-issue-claim's core: a `gh issue edit` whose `--add-assignee` list
- * holds `@me` claims each issue it names.
- * @param {string} subject the command
+ * @param {string} subject
  * @param {ClaimContext} ctx
  * @returns {null}
  */
@@ -115,9 +98,7 @@ const decideClaim = (subject, ctx) =>
 	});
 
 /**
- * release-issue-claim's core: a `gh issue close` drops this session's claim
- * on each issue it names.
- * @param {string} subject the command
+ * @param {string} subject
  * @param {ClaimContext} ctx
  * @returns {null}
  */

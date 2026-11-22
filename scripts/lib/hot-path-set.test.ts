@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/hot-path-set.js names the programs base §G13 holds as hot-path in a
- * tree, read off its registrations as data (#5335). Break it and the §G13
- * injection stays silent on a write to a program every tool call or commit
- * runs, or speaks on one only a session start runs.
- *
- * Module cases over a planted tree, read through a real file port.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -66,7 +57,6 @@ const derived = () =>
 			false,
 	});
 
-/* Every program a source below may name, planted so each resolves. */
 const PROGRAMS = [
 	"scripts/pre-guard.js",
 	"scripts/post-guard.py",
