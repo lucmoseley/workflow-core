@@ -44,6 +44,58 @@ describe("proseRefsOf: the numbers a marker names", () => {
 		expect(named("**blocked ON** #5")).toEqual([5]);
 	});
 
+	it.each([
+		[
+			"**Blocked on** o/r#5 and #6, x.y/z-w#7",
+			[
+				{ repo: "o/r", number: 5 },
+				{ repo: null, number: 6 },
+				{ repo: "x.y/z-w", number: 7 },
+			],
+		],
+		[
+			"**Blocked on** #12abc/def#3",
+			[
+				{ repo: null, number: 12 },
+				{ repo: "abc/def", number: 3 },
+			],
+		],
+		[
+			"**Blocked on** #5#6",
+			[
+				{ repo: null, number: 5 },
+				{ repo: null, number: 6 },
+			],
+		],
+		[
+			"**Blocked on**#5 AND #6",
+			[
+				{ repo: null, number: 5 },
+				{ repo: null, number: 6 },
+			],
+		],
+		["**Blocked on** #5 , and #6", [{ repo: null, number: 5 }]],
+		["**Blocked on** #5 or #6", [{ repo: null, number: 5 }]],
+		["**Blocked on** a/b/c#4 #9", []],
+		[
+			"**Blocked on** #1\n**Blocked on** #2\r\n**Blocked on** #3",
+			[1, 2, 3].map((number) => ({ repo: null, number })),
+		],
+	])("reads the list in %j up to its first non-reference", (body, refs) => {
+		expect(proseRefsOf(body)).toEqual(refs);
+	});
+
+	it("reads a list of thirty thousand references in one pass (#5559)", () => {
+		const list = Array.from({ length: 30_000 }, (_, i) => `#${i + 1}`);
+		expect(named(`**Blocked on** ${list.join(", ")}`)).toHaveLength(30_000);
+	});
+
+	it("gives up on a long owner-shaped word with no reference after it (#5559)", () => {
+		expect(
+			named(`**Blocked on** ${"a".repeat(100_000)}/${"b".repeat(100_000)}`),
+		).toEqual([]);
+	});
+
 	it("ignores a bare issue mention with no marker", () => {
 		expect(named("see #831 for background")).toEqual([]);
 	});

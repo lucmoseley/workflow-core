@@ -231,6 +231,29 @@ describe("staged_gate", () => {
 		expect(r.output).not.toContain("CHECK-RAN");
 	});
 
+	it("stages each blank-separated path whole", () => {
+		const r = run(
+			`staged_gate demo live status 'docs/a.md\t opt:docs/x.md  docs/b.md' 'node check.js "$sg_dir/a.md" "$sg_dir/b.md"' ""`,
+			{
+				committed: { "check.js": checker(0) },
+				staged: { "docs/a.md": "A\n", "docs/b.md": "B\n" },
+			},
+		);
+
+		expect(r.code).toBe(0);
+		expect(r.output).toContain("ARG A\nARG B");
+	});
+
+	it("keeps a glob-shaped path literal rather than expanding it in the worktree (#5559)", () => {
+		const r = run(call("live", "status").replace("docs/a.md", "docs/*.md"), {
+			committed: { "check.js": checker(0), "docs/a.md": "A\n" },
+		});
+
+		expect(r.code).toBe(0);
+		expect(r.output).toContain("docs/*.md");
+		expect(r.output).not.toContain("CHECK-RAN");
+	});
+
 	it("returns cleanly from a green check rather than tripping sh -e", () => {
 		const r = run(
 			`${call("hold", "status")}\necho REACHED-THE-NEXT-GATE`,
@@ -475,6 +498,13 @@ describe("declared_cmd (#1504)", () => {
 		);
 		expect(code).toBe(0);
 		expect(output).toContain("RUN[touch RAN]");
+	});
+
+	it("exports the command, so a child process of the hook reads it (#5559)", () => {
+		const { output } = run(
+			`if ${reader(0)}; then sh -c 'echo "CHILD[$declared_command]"'; fi`,
+		);
+		expect(output).toContain("CHILD[touch RAN]");
 	});
 
 	it("skips with the reader's own SKIP line on its 1", () => {
