@@ -4,21 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { readText } = require("./file-read.js") as {
-	readText: (
-		file: string,
-	) =>
-		| { state: "absent" }
-		| { state: "read"; data: string }
-		| { state: "unreadable"; error: unknown };
-};
+import type { TreePorts } from "./guard-host-ports.js";
+import { treePorts } from "./guard-host-ports.js";
+
 const { hotPathSet, isHookRegistration } = require("./hot-path-set.js") as {
 	hotPathSet: (
 		root: string,
-		port: {
-			read: (rel: string) => ReturnType<typeof readText>;
-			isFile: (rel: string) => boolean;
-		},
+		port: Pick<TreePorts, "read"> & { isFile: (rel: string) => boolean },
 	) => string[];
 	isHookRegistration: (rel: string) => boolean;
 };
@@ -47,7 +39,7 @@ const entry = (command: string, extra: Record<string, unknown> = {}) => ({
 
 const derived = () =>
 	hotPathSet(root, {
-		read: (rel) => readText(path.join(root, rel)),
+		read: treePorts(root).read,
 		isFile: (rel) =>
 			fs.statSync(path.join(root, rel), { throwIfNoEntry: false })?.isFile() ??
 			false,

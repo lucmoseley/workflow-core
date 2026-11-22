@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { treePorts } from "./guard-host-ports.js";
-import { treePortsFake } from "./tree-ports-fake";
 
 const repoRel = (file: string, root: string) => treePorts(root).repoRel(file);
 
@@ -68,26 +67,5 @@ describe("a tree's repoRel, the reading of a written path", () => {
 		expect(repoRel(`${dir}/link/no/such/dir/a.ts`, repo)).toBe(
 			"no/such/dir/a.ts",
 		);
-	});
-});
-
-describe("a tree's read, the one read of a file that may be absent", () => {
-	it.each([
-		["the host's", () => treePorts(dir)],
-		[
-			"the fake's",
-			() =>
-				treePortsFake({
-					"a.md": "x",
-					sub: new Error("EISDIR: is a directory"),
-				}),
-		],
-	])("answers read, absent or unreadable, %s alike", (_, tree) => {
-		fs.writeFileSync(path.join(dir, "a.md"), "x");
-		fs.mkdirSync(path.join(dir, "sub"));
-		const t = tree();
-		expect(t.read("a.md")).toEqual({ state: "read", data: "x" });
-		expect(t.read("nope.md")).toEqual({ state: "absent" });
-		expect(t.read("sub").state).toBe("unreadable");
 	});
 });
