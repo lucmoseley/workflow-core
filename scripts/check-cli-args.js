@@ -3,7 +3,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { stripComments } = require("./lib/strip-comments.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
@@ -61,7 +61,7 @@ const SPEC = {
 		pathspecs: () => ["scripts"],
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		const dir = path.join(root, "scripts");
 		const names = fs.existsSync(dir)
 			? fs

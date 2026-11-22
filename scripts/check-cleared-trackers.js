@@ -7,7 +7,7 @@ const { raiseGhFailure } = require("./lib/gh");
 const { openTrackingIssue } = require("./lib/tracking-issue");
 const { sectionBRange, sectionBWords } = require("./lib/doc-map");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root");
+const { worktreeRoot } = require("./lib/host-root");
 const { cycleLogPath } = require("./lib/workflow-core-config");
 const {
 	parseRoadmap,
@@ -66,7 +66,7 @@ const TRACKERS = [
 			const logPath = cycleLogPath();
 			const v = cycle.verdict(
 				cycle.parseCycles(
-					fs.readFileSync(path.join(hostRoot(), logPath), "utf8"),
+					fs.readFileSync(path.join(worktreeRoot(), logPath), "utf8"),
 					logPath,
 				),
 				today,

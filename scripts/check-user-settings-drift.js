@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
-const { hostRoot } = require("./lib/host-root");
+const { worktreeRoot } = require("./lib/host-root");
 const { coreRoot } = require("./lib/script-path");
 const { readText } = require("./lib/file-read.js");
 const { requiredGroup } = require("./lib/regex-group");
@@ -183,7 +183,7 @@ function snapshotAt(ctx) {
 	if (refused.length > 0) ctx.broken(refused.join("\n"));
 	return {
 		docPath,
-		docFile: path.join(hostRoot(), docPath),
+		docFile: path.join(worktreeRoot(), docPath),
 		declared: docPath !== USER_SETTINGS_SNAPSHOT_DEFAULT,
 	};
 }

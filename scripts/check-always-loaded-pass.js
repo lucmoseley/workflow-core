@@ -7,7 +7,7 @@ const { execFileSync } = require("node:child_process");
 /** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck, now } = require("./lib/check");
 const { getPoolFiles } = require("./lib/always-loaded-pool");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { noop } = require("./lib/noop.js");
 const { FULL_SHA } = require("./lib/commit-sha.js");
@@ -214,7 +214,7 @@ const SPEC = {
 		"node check-always-loaded-pass.js [--record <file>] [--root <dir>] [--headroom <bytes>] [--notify] [--json]",
 	valueFlags: ["--record", "--root", "--headroom"],
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		const file = path.resolve(root, ctx.value("--record", RECORD_FILE));
 		if (!ctx.has("--record") && !fs.existsSync(file))
 			ctx.skip(

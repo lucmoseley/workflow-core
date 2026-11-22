@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
@@ -200,12 +200,12 @@ const SPEC = {
 		"node check-skill-body-size.js [--root <dir>] [--cap <bytes>] [--touching <rev>] [--json]",
 	valueFlags: ["--root", "--cap", "--touching"],
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		const cap = capOf(ctx);
 		const touching = ctx.value("--touching");
 		// #43
 		if (!fs.existsSync(root))
-			ctx.broken(`the host root ${root} does not exist — nothing was measured`);
+			ctx.broken(`the root ${root} does not exist — nothing was measured`);
 
 		if (
 			![SKILLS_DIR, COMMANDS_DIR].some((d) => fs.existsSync(path.join(root, d)))

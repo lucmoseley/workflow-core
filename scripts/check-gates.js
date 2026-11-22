@@ -8,7 +8,7 @@ const {
 	raiseGhFailure,
 } = require("./lib/gh");
 const { resolveGate } = require("./lib/issue-gate");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const {
 	DEFAULT_TIMEOUT_S,
 	REPAIR_STATES,
@@ -21,7 +21,7 @@ const ROW_LINES = 3;
 // guess, lucmoseley/mantahostels#2656
 const ROW_WIDTH = 160;
 
-const REPO_ROOT = hostRoot();
+const REPO_ROOT = worktreeRoot();
 
 /** @param {string} reading */
 function buildRowLines(reading) {

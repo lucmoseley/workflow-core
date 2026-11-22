@@ -39,11 +39,15 @@ const TIER_MENTION = new RegExp(TIER.source);
 const FORM_HEAD = /\*\*(?:Review findings|Review tier|Escaped defect):\*\*/;
 const FENCE_LINE = /^\s*(?:[-*+]\s+)?(`{3,}(?!`)|~{3,}(?!~))(.*)$/;
 const QUOTE_LINE = /^ {0,3}>/;
-const QUOTED_SPAN = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-move -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	`(?<!\`)(\`+)(?!\`).*?(?<!\`)\\1(?!\`)|"[^"]*"|“[^”]*”|(?<!\\w)'[^']*'(?!\\w)|‘[^’]*’|\`+(?=${FORM_HEAD.source}).*`,
-	"g",
-);
+const FORM_HEAD_AT = new RegExp(FORM_HEAD.source, "y");
+const LINE_END = /[\n\r\u2028\u2029]/g;
+const WORD_CHAR = /\w/;
+const QUOTE_PAIRS = new Map([
+	['"', '"'],
+	["\u201c", "\u201d"],
+	["'", "'"],
+	["\u2018", "\u2019"],
+]);
 const NOT_A_PATH = /[.;:!?)]$|^[a-z]+$/;
 const REVIEWED = new RegExp(REVIEWED_TREE);
 const BASE = new RegExp(`\\bbase\\s+${SHA}`);
@@ -86,6 +90,124 @@ function parseFence(line) {
 }
 
 /**
+ * @param {string} line
+ * @param {number} at
+ */
+function runEnd(line, at) {
+	let end = at;
+	while (line[end] === "`") end++;
+	return end;
+}
+
+/**
+ * @param {string} line
+ * @param {number} at
+ */
+function lineEndFrom(line, at) {
+	LINE_END.lastIndex = at;
+	return LINE_END.exec(line)?.index ?? line.length;
+}
+
+/** @param {string | undefined} ch */
+const isWordChar = (ch) => ch !== undefined && WORD_CHAR.test(ch);
+
+/**
+ * @param {string} line
+ * @returns {{ starts: Map<number, number>, closes: Map<number, number> }}
+ */
+function backtickRuns(line) {
+	/** @type {Array<[number, number]>} */
+	const runs = [];
+	for (let at = line.indexOf("`"); at !== -1; ) {
+		const end = runEnd(line, at);
+		runs.push([at, end - at]);
+		at = line.indexOf("`", end);
+	}
+	const starts = new Map(runs);
+	const closes = new Map();
+	/** @type {Map<number, number>} */
+	const later = new Map();
+	for (const [start, length] of [...runs].reverse()) {
+		const next = later.get(length);
+		if (next !== undefined) closes.set(start, next);
+		later.set(length, start);
+	}
+	return { starts, closes };
+}
+
+/**
+ * @param {string} line
+ * @param {number} at
+ * @param {number} lineEnd
+ * @param {ReturnType<typeof backtickRuns>} runs
+ */
+function backtickSpanEnd(line, at, lineEnd, runs) {
+	const length = runs.starts.get(at) ?? 0;
+	const close = runs.closes.get(at);
+	if (close !== undefined && close < lineEnd) return close + length;
+	FORM_HEAD_AT.lastIndex = at + length;
+	return FORM_HEAD_AT.test(line) ? lineEnd : -1;
+}
+
+/**
+ * @param {string} line
+ * @param {number} at
+ * @param {Set<string>} unclosable
+ */
+function quoteSpanEnd(line, at, unclosable) {
+	const ch = line.charAt(at);
+	const closer = QUOTE_PAIRS.get(ch);
+	if (closer === undefined || unclosable.has(ch)) return -1;
+	const straight = ch === "'";
+	if (straight && isWordChar(line[at - 1])) return -1;
+	const close = line.indexOf(closer, at + 1);
+	if (close === -1) unclosable.add(ch);
+	else if (!straight || !isWordChar(line[close + 1])) return close + 1;
+	return -1;
+}
+
+/**
+ * @param {string} line
+ * @returns {Array<[number, number]>}
+ */
+function quotedSpans(line) {
+	const runs = backtickRuns(line);
+	/** @type {Set<string>} */
+	const unclosable = new Set();
+	/** @type {Array<[number, number]>} */
+	const spans = [];
+	let lineEnd = -1;
+	let at = 0;
+	while (at < line.length) {
+		if (lineEnd < at) lineEnd = lineEndFrom(line, at);
+		const backtick = line[at] === "`";
+		const end = backtick
+			? backtickSpanEnd(line, at, lineEnd, runs)
+			: quoteSpanEnd(line, at, unclosable);
+		if (end === -1) at = backtick ? runEnd(line, at) : at + 1;
+		else {
+			spans.push([at, end]);
+			at = end;
+		}
+	}
+	return spans;
+}
+
+/**
+ * @param {string} line
+ * @param {(span: string) => string} replace
+ */
+function replaceQuotedSpans(line, replace) {
+	let out = "";
+	let kept = 0;
+	for (const [start, end] of quotedSpans(line)) {
+		out += line.slice(kept, start) + replace(line.slice(start, end));
+		kept = end;
+	}
+	return out + line.slice(kept);
+}
+
+/**
  * @param {string} body
  * @param {RegExp} [head]
  */
@@ -105,7 +227,7 @@ function maskMentions(body, head = FORM_HEAD) {
 				return blanked(line);
 			}
 			if (QUOTE_LINE.test(line)) return blanked(line);
-			return line.replace(QUOTED_SPAN, (span) =>
+			return replaceQuotedSpans(line, (span) =>
 				head.test(span) ? blanked(span) : span,
 			);
 		})

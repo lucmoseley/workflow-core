@@ -140,8 +140,8 @@ WL_EOF
 
 declared_cmd() {
   dc_status=0
-  # shellcheck disable=SC2034 # read by the hook that sources this file.
   declared_command="$("$@")" || dc_status=$?
+  export declared_command
   if [ "$dc_status" -ge 2 ]; then
     exit 1
   fi
@@ -275,8 +275,7 @@ staged_gate() {
   sg_status=0
   sg_out=""
 
-  # shellcheck disable=SC2086 # deliberate word-splitting: one path per word.
-  if ! gate_stage_out "$sg_dir" $sg_paths; then
+  if ! with_lines "$(printf '%s\n' "$sg_paths" | tr '[:blank:]' '[\n*]')" gate_stage_out "$sg_dir"; then
     gate_check_deleted "$sg_label"
     gate_skip_missing "$sg_label"
     return 0

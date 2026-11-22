@@ -1,5 +1,4 @@
 const { SPACE } = require("./gh-body.js");
-const { requiredGroup } = require("./regex-group.js");
 const {
 	REF_FORMS,
 	isInOtherRepo,
@@ -7,9 +6,21 @@ const {
 	scanIssueRefs,
 } = require("./issue-ref.js");
 
-const BLOCKED_ON_RE =
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	/^[ \t]{0,3}\*\*Blocked on\*\*[ \t]*((?:(?:[\w.-]+\/[\w.-]+)?#\d+(?:[ \t]*(?:,|and)[ \t]*)?)+)/gim;
+const BLOCKED_ON_HEAD = /^[ \t]{0,3}\*\*Blocked on\*\*[ \t]*/gim;
+const BLOCKED_ON_REF = /(?:[\w.-]+\/[\w.-]+)?#\d+(?:[ \t]*(?:,|and)[ \t]*)?/iy;
+
+/**
+ * @param {string} body
+ */
+function* blockedOnLists(body) {
+	for (const head of body.matchAll(BLOCKED_ON_HEAD)) {
+		const start = head.index + head[0].length;
+		let end = start;
+		BLOCKED_ON_REF.lastIndex = start;
+		while (BLOCKED_ON_REF.test(body)) end = BLOCKED_ON_REF.lastIndex;
+		if (end > start) yield body.slice(start, end);
+	}
+}
 
 /* lucmoseley/mantahostels#927 */
 const BLOCKED_ON_LINE_RE = /\*\*Blocked on\b[^*]*\*\*[^\n]*/gi;
@@ -25,11 +36,8 @@ const NOT_READY_OPENING = new RegExp(
 function proseRefsOf(body) {
 	/** @type {Map<string, import("./issue-ref.js").IssueRef>} */
 	const out = new Map();
-	for (const m of String(body || "").matchAll(BLOCKED_ON_RE))
-		for (const r of scanIssueRefs(
-			requiredGroup(m, 1, BLOCKED_ON_RE),
-			REF_FORMS.blocker,
-		)) {
+	for (const list of blockedOnLists(String(body || "")))
+		for (const r of scanIssueRefs(list, REF_FORMS.blocker)) {
 			const repo = r.owner === null ? null : `${r.owner}/${r.name}`;
 			out.set(refKey({ repo, number: r.number }), { repo, number: r.number });
 		}
