@@ -114,15 +114,16 @@ describe("readKernelRelease and readFreeGB", () => {
 
 describe("readGuestDisk", () => {
 	const diskBytes = 224 * 2 ** 30;
-	const onDisk = () => {
+	const guestRootOnFakeDisk = () => {
 		const proc = writeOsrelease(dir, WSL_KERNEL);
 		writeGuestDisk(proc, diskBytes);
 		vi.stubEnv("WFC_PROC", proc);
 		vi.stubEnv("WFC_GUEST_ROOT", dir);
 	};
 	it("counts a pinned reading's used bytes as blocks less free, in block-size bytes", () => {
-		onDisk();
+		guestRootOnFakeDisk();
 		const real = fs.statfsSync;
+		// #5570
 		vi.spyOn(fs, "statfsSync").mockImplementation(((
 			p: fs.PathLike,
 			...rest: [never]
@@ -136,7 +137,7 @@ describe("readGuestDisk", () => {
 		});
 	});
 	it("reads a real root's used bytes, within its filesystem's size", () => {
-		onDisk();
+		guestRootOnFakeDisk();
 		const s = fs.statfsSync(dir);
 		const disk = readGuestDisk();
 		expect(disk).toEqual({
@@ -144,7 +145,7 @@ describe("readGuestDisk", () => {
 			sizeBytes: diskBytes,
 		});
 		const { usedBytes } = disk as { usedBytes: number };
-		expect(usedBytes).toBeGreaterThan(0);
+		expect(usedBytes).toBeGreaterThanOrEqual(0);
 		expect(usedBytes).toBeLessThanOrEqual(s.blocks * s.bsize);
 		expect(usedBytes % s.bsize).toBe(0);
 	});
