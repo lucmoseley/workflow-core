@@ -40,9 +40,8 @@
  *   * `statusline-setup` and `web-fetch`, which have no tool that can create
  *     a file, and
  *     Explore and Plan, read-only by their own instructions (#565), are exempt
- *     by name (lib/dispatch-artefact.js's EXEMPT_AGENT_TYPES), and so is an
- *     `isolation: "remote"` dispatch, which cannot write a local path. A fork
- *     is not.
+ *     by name (lib/dispatch-artefact.js's EXEMPT_AGENT_TYPES). A fork is
+ *     not.
  *
  * The subject is the dispatch's `prompt`, a field the harness requires of
  * every `Agent` and `Task` call; the core judges the whole `tool_input`.
@@ -73,6 +72,7 @@
  */
 
 const path = require("node:path");
+const { isBackgroundJob } = require("./job-paths.js");
 const { caught } = require("./caught.js");
 const { injectArtefact, buildWatchNote } = require("./dispatch-artefact.js");
 const { tierDeparture, untrackedSearch } = require("./dispatch-rules.js");
@@ -114,7 +114,6 @@ function watchCommand(file) {
 const EMITTED = { injectRules: ["dispatch-tier", "dispatch-search-tracker"] };
 const [TIER_RULE = "", SEARCH_RULE = ""] = EMITTED.injectRules;
 
-/** Told where no artefact is watched: an exempt or remote agent. */
 const END_TURN =
 	"While this agent runs, end the turn: its completion notification wakes this session, so a poll learns nothing.";
 const HOLD_TURN = `This session is a background job: hold the turn on \`${watchCommand(null)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says, until it exits \`DONE\`.`;
@@ -283,7 +282,7 @@ function decide(_prompt, ctx) {
 			burn,
 			home: ctx.env.HOME,
 			inherited,
-			job: Boolean(ctx.env.CLAUDE_JOB_DIR),
+			job: isBackgroundJob(ctx.env),
 			table,
 		});
 	} catch (e) {

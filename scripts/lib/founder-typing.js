@@ -34,7 +34,7 @@
  */
 
 const { isHisJobRecord } = require("./background-start.js");
-const { readJobRecordIn } = require("./job-paths.js");
+const { readJobDir, readJobRecordIn } = require("./job-paths.js");
 const { isPrefixedPrompt } = require("./loop-prompts.js");
 const { isSubagentPayload } = require("./subagent-payload.js");
 
@@ -43,7 +43,7 @@ const HARNESS_PROMPT =
 
 /** @param {string} prompt */
 function isDispatchedLaunchPrompt(prompt) {
-	const jobDir = process.env.CLAUDE_JOB_DIR;
+	const jobDir = readJobDir(process.env);
 	if (!jobDir) return false;
 	/* A missing or torn job record marks nothing a launch (#2004). */
 	const record = readJobRecordIn(jobDir);

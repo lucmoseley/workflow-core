@@ -64,6 +64,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const os = require("node:os");
 const path = require("node:path");
 const { configDir } = require("./lib/config-dir.js");
+const { readJobDir } = require("./lib/job-paths.js");
 
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
 const { gh: ghRun, ghDefaultRepo } = require("./lib/gh");
@@ -415,9 +416,8 @@ function writeBody(issue, repo, body) {
  * @returns {string}
  */
 function rescueTo(issue, suffix, body) {
-	const dir = process.env.CLAUDE_JOB_DIR
-		? path.join(process.env.CLAUDE_JOB_DIR, "tmp")
-		: os.tmpdir();
+	const jobDir = readJobDir(process.env);
+	const dir = jobDir ? path.join(jobDir, "tmp") : os.tmpdir();
 	fs.mkdirSync(dir, { recursive: true });
 	const file = path.join(dir, `issue-${issue}-${suffix}.md`);
 	fs.writeFileSync(file, body);

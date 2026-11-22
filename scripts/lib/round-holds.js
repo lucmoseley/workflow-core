@@ -28,6 +28,7 @@
  * DEFEAT:    re-send the same call: the latch passes it.
  */
 
+const { isBackgroundJob } = require("./job-paths.js");
 const { COMMENT_SPELLING, readIssueCall } = require("./gh-acts.js");
 const { isGh } = require("./gh-issue-ref.js");
 const { refuseOnce } = require("./refuse-once.js");
@@ -110,7 +111,7 @@ function readRounds(subject, ctx) {
  * @returns {import("./guard-entry.js").Decision}
  */
 function decide(command, ctx) {
-	if (!ctx.env.CLAUDE_JOB_DIR) return null;
+	if (!isBackgroundJob(ctx.env)) return null;
 	const rounds = readRounds(command, ctx);
 	const [first] = rounds;
 	if (!first) return null;

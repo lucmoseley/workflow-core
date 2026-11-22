@@ -78,6 +78,7 @@ const { parseErrLine, gh } = require("./lib/gh");
 const { heldIssues } = require("./lib/arbiter-issue-claims");
 const { holderName, parentVerdictOf } = require("./lib/parent-claims");
 const { readHostTracker } = require("./lib/refill-repos");
+const { readJobDir } = require("./lib/job-paths");
 const { fromEnv } = require("./lib/session-id");
 const { OVERFLOW_PREFIX } = require("./lib/model-table");
 
@@ -171,7 +172,7 @@ function nameIssues(name) {
  * @param {{sessionId: string, id?: string}} agent
  */
 function isCallingSession(agent) {
-	const jobDir = process.env.CLAUDE_JOB_DIR;
+	const jobDir = readJobDir(process.env);
 	return (
 		agent.sessionId === fromEnv() ||
 		(!!jobDir && agent.id?.slice(0, 8) === basename(jobDir))
