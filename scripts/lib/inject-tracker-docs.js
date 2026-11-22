@@ -36,6 +36,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { ignoreFailure, orFallback } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const text = require("./tracker-inject-text.js");
 const { trimEndRun, trimStartRun } = require("./trim-run.js");
 const { escapeRe } = require("./regex-group.js");
@@ -232,8 +233,8 @@ function settleMarker(marker, takesIssue, now) {
 	if (!st?.isFile()) return "clear";
 	const stamp = Math.floor(st.mtimeMs / 1000);
 	if (stamp <= now && now - stamp < DEDUPE_WINDOW_S) {
-		const held = orFallback(() => fs.readFileSync(marker.file, "utf8"), null);
-		if (held === takesIssue) return "duplicate";
+		const held = readText(marker.file);
+		if (held.state === "read" && held.data === takesIssue) return "duplicate";
 	}
 	try {
 		fs.rmSync(marker.file, { force: true });

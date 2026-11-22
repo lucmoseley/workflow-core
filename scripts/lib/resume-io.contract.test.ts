@@ -584,6 +584,16 @@ const FAULT_SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			writeHeadlessRun(refill(), "0e0e0e0e", SESSION, { log });
 			return io().readRunAsJob("0e0e0e0e");
 		},
+		stderrUnreadable: () => {
+			const stderr = path.join(dir, "err.log");
+			fs.mkdirSync(stderr);
+			writeHeadlessRun(refill(), "0e0e0e0e", SESSION, {
+				live: false,
+				log: path.join(dir, "out.jsonl"),
+				stderr,
+			});
+			return io().readRunAsJob("0e0e0e0e");
+		},
 	},
 };
 
@@ -625,6 +635,14 @@ describe("the fake answers as the adapter does", () => {
 				FAULT_SITUATIONS.readRunAsJob?.logUnreadable as () => unknown,
 			),
 		).toMatch(/^its log .*out\.jsonl: EISDIR/);
+	});
+
+	it("names the run's stderr where that is what will not read, not its log", () => {
+		expect(
+			thrownMessage(
+				FAULT_SITUATIONS.readRunAsJob?.stderrUnreadable as () => unknown,
+			),
+		).toMatch(/^its stderr .*err\.log: EISDIR/);
 	});
 
 	it.each(FAULT_CASES)(

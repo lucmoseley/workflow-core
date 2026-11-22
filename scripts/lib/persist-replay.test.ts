@@ -438,6 +438,21 @@ describe("parkStamps", () => {
 		expect(stamps.readStamp("ghost-jobs")).toBe("max:1234");
 	});
 
+	it("leaves a stamp that will not read where it is, through park and restore", () => {
+		stamps.recordDelivery("ghost-jobs", "max:1234");
+		const file = stamps.stampFile("ghost-jobs");
+		fs.chmodSync(file, 0o000);
+		try {
+			const restore = replay.parkStamps([{ key: "ghost-jobs" }]);
+			expect(fs.existsSync(file)).toBe(true);
+			restore();
+			expect(fs.existsSync(file)).toBe(true);
+		} finally {
+			fs.chmodSync(file, 0o600);
+		}
+		expect(stamps.readStamp("ghost-jobs")).toBe("max:1234");
+	});
+
 	it("leaves a producer that has never been delivered undelivered", () => {
 		const restore = replay.parkStamps([{ key: "ghost-jobs" }]);
 		restore();

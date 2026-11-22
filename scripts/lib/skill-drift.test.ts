@@ -95,6 +95,37 @@ describe("skillDrift", () => {
 		]);
 	});
 
+	it("names a fork that will not read apart from a missing one", () => {
+		writeConfig({ "pick-next": "1.1.0" });
+		const forkPath = path.join(
+			root,
+			".claude",
+			"skills",
+			"pick-next",
+			"SKILL.md",
+		);
+		fs.mkdirSync(forkPath, { recursive: true });
+		writeSkill(pluginRoot, "pick-next", "core body\n");
+		const [drift] = skillDrift({ root, pluginRoot });
+		expect(drift.drifted).toBe(false);
+		expect(drift.reason).toMatch(
+			new RegExp(`^the fork at ${forkPath} will not read: EISDIR`),
+		);
+	});
+
+	it("names a plugin copy that will not read apart from one it does not ship", () => {
+		writeConfig({ "pick-next": "1.1.0" });
+		writeSkill(root, "pick-next", "fork body\n");
+		fs.mkdirSync(
+			path.join(pluginRoot, ".claude", "skills", "pick-next", "SKILL.md"),
+			{ recursive: true },
+		);
+		const [drift] = skillDrift({ root, pluginRoot });
+		expect(drift.drifted).toBe(false);
+		expect(drift.reason).toContain(`the plugin's "pick-next" skill at`);
+		expect(drift.reason).toContain("will not read: EISDIR");
+	});
+
 	it("returns nothing where the config declares no override", () => {
 		writeConfig({});
 		expect(skillDrift({ root, pluginRoot })).toEqual([]);

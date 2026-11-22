@@ -126,6 +126,7 @@ const deliveryStamp = require("./lib/delivery-stamp");
 const { hostRoot } = require("./lib/host-root.js");
 const { resolveMarketplace } = require("./lib/plugin-state.js");
 const { caught, ignoreFailure, orFallback } = require("./lib/caught.js");
+const { readText } = require("./lib/file-read.js");
 const { parseJsonlRow } = require("./lib/jsonl.js");
 const {
 	flattenHooks,
@@ -1104,10 +1105,15 @@ function readUpstreamManifest(marketplaceDir, rel, sha) {
 		};
 	}
 	const at = path.join(marketplaceDir, relFile);
+	const read = readText(at);
+	if (read.state === "unreadable")
+		return {
+			unverifiable: `${at} will not read: ${read.message}`,
+			unreadable: true,
+		};
 	// Absent upstream, which the comparison below reads as "ships no hooks".
-	const text = orFallback(() => fs.readFileSync(at, "utf8"), null);
 	return {
-		text,
+		text: read.state === "read" ? read.data : null,
 		basis: `${at} (the checkout as it stands, not a pinned commit)`,
 	};
 }
@@ -1400,8 +1406,16 @@ function auditInstall(audit, plugin, entry, scope) {
 		return;
 	}
 	const cachedAt = path.join(entry.installPath, "hooks/hooks.json");
+	const read = readText(cachedAt);
+	if (read.state === "unreadable") {
+		noteUnverifiable(audit, key, {
+			unverifiable: `${cachedAt} will not read: ${read.message}`,
+			unreadable: true,
+		});
+		return;
+	}
 	// Absent from the cache, which is a divergence wherever upstream has one.
-	const cached = orFallback(() => fs.readFileSync(cachedAt, "utf8"), null);
+	const cached = read.state === "read" ? read.data : null;
 	audit.compared++;
 	if (enabledPlugins[key] === true) {
 		collectDroppedHooks(audit.droppedHooks, key, up, {
