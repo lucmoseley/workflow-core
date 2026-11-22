@@ -360,6 +360,7 @@ describe("link-sub-issue.sh", () => {
 	it.each([
 		[["40"], "usage"],
 		[["40", "sixty-three"], "not an issue number"],
+		[["40", "o/r#x"], "child 'o/r#x' is not an issue number or owner/name#n"],
 		[["o/r#40", "63"], "parent 'o/r#40' is not an issue number"],
 	])(
 		"refuses bad arguments, saying what is wrong and posting nothing: %s",
