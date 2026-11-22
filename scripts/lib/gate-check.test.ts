@@ -44,6 +44,16 @@ describe("a check the write adds", () => {
 		expect(warnings.join("\n")).toContain("OVER-BUDGET");
 	});
 
+	it.each(["exit 124", "exit 137"])(
+		"reads `%s` inside the budget as the command's own exit, not over budget",
+		(check) => {
+			const { refusals, warnings } = verdictOf("", gate(check));
+			expect(warnings.join("\n")).not.toContain("OVER-BUDGET");
+			expect(refusals).toHaveLength(1);
+			expect(refusals[0]).toContain("reads as DEAD");
+		},
+	);
+
 	it("judges only the parse where the route cannot run it", () => {
 		expect(verdictOf("", gate("true"), false).refusals).toEqual([]);
 		expect(verdictOf("", gate("true"), false).warnings[0]).toContain(

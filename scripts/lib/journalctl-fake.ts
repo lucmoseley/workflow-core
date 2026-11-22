@@ -47,7 +47,9 @@ export function writeJournalctl(
 	// #4601
 	const timed = lines.flatMap((l) => {
 		const ms = Date.parse(l.split(" ")[0] ?? "");
-		return l && !Number.isNaN(ms) ? [`${ms}\t${l}\n`] : [];
+		return l && !Number.isNaN(ms)
+			? l.split("\n").map((part) => `${ms}\t${part}\n`)
+			: [];
 	});
 	fs.writeFileSync(journal, timed.join(""));
 	const listed =

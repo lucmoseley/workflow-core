@@ -1,16 +1,9 @@
 // @vitest-environment node
 
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const realGh = (process.env.PATH ?? "")
-	.split(path.delimiter)
-	.map((d) => path.join(d, "gh"))
-	.find((f) => fs.existsSync(f));
-
-describe.skipIf(!realGh)("gh api, a field given twice", () => {
+describe("gh api, a field given twice", () => {
 	it.each([
 		["-f", "-f"],
 		["-F", "-F"],
@@ -18,7 +11,7 @@ describe.skipIf(!realGh)("gh api, a field given twice", () => {
 		["-F", "-f"],
 	])("%s then %s exits before any request", (first, second) => {
 		const out = spawnSync(
-			realGh ?? "gh",
+			"gh",
 			[
 				"api",
 				"--method",
@@ -38,6 +31,7 @@ describe.skipIf(!realGh)("gh api, a field given twice", () => {
 				},
 			},
 		);
+		expect(out.error, "gh is not on PATH").toBeUndefined();
 		expect(out.status).not.toBe(0);
 		expect(out.stderr).toContain(
 			'unexpected override existing field under "body"',

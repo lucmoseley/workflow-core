@@ -191,6 +191,25 @@ describe("a merge carries a row whose sides changed different files of its closu
 		expect(kept).toMatch(/\nFAIL: /);
 	});
 
+	it("refuses an octopus merge with no row carried, in a line the queue lander's fix ticket keeps", () => {
+		const { git, tryGit, change, hooks } = mergeRepo();
+		git("branch", "third");
+		change("main", { [LIB_A]: lines("a() { exit 1; }") });
+		change("side", { [LIB_B]: lines("b() { exit 1; }") }, { stale: true });
+		change("third", { "third.txt": lines("third") }, { stale: true });
+		hooks();
+
+		git("merge", "--no-ff", "--no-commit", "side", "third");
+		const r = tryGit("commit", "--no-edit");
+
+		expect(r.status).not.toBe(0);
+		const why =
+			"no row carried across this merge: a merge of 2 heads carries none";
+		expect(r.stderr).toContain(why);
+		const remedy = Array.from({ length: 41 }, (_, i) => `remedy ${i}`);
+		expect(parseGateRefusal([r.stderr, ...remedy].join("\n"))).toContain(why);
+	});
+
 	it("never carries a row whose library the merge commit itself changes, matching neither parent", () => {
 		const { root, git, tryGit, change, hooks } = mergeRepo();
 		change("main", { [LIB_A]: lines("a() { exit 1; }") });
