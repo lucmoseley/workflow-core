@@ -317,7 +317,7 @@ describe("reading the agent's own log (#5421)", () => {
 		expect(r.stderr).toContain(`${log} holds no turn record`);
 	}, 15_000);
 
-	describe("on the log alone, for a dispatch with no artefact (#5515)", () => {
+	describe("on the log alone, for a dispatch with no artefact", () => {
 		const watchLogOnly = (steps: [at: number, act: () => void][] = []) =>
 			watch(
 				["--no-artefact", String(INTERVAL_S), String(CeilingS), "--log", log],

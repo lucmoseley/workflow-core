@@ -57,10 +57,8 @@
  * that will not read is judged on growth alone, said once on stderr. Without
  * a log, it cannot tell a stalled agent from a finished one.
  *
- * `--no-artefact` WAITS ON THE LOG ALONE, for a dispatch with nothing to
- * watch: an exempt type or a remote agent (#5515). It ends DONE once the log
- * reads stopped and CEILING at the ceiling, 530 s by default, and draws no
- * STALLED or MISSING.
+ * `--no-artefact` WAITS ON THE LOG ALONE (#5515): DONE once it reads stopped,
+ * CEILING at the ceiling, 530 s by default, never STALLED or MISSING.
  *
  * Joins no §N3 family: it is a tool an agent runs, not a check, guard,
  * generator or reporter, and its exit codes are its verdicts.
