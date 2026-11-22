@@ -1,17 +1,21 @@
-// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires this file only inside runScript, once both have loaded (#4863).
-const shellWords = require("./shell-words.js");
 const {
 	QUOTED,
 	hasExpansion,
 	isBareSpan,
 	readSentinels,
 	literal,
-	unwrap,
 	commandName,
 	stepGitOptions,
 	isGlobPattern,
 	ASSIGNMENT_RE,
-} = shellWords;
+	WRAPPERS,
+	afterSlash,
+	scanWrapperFlag,
+	splitEnvString,
+	gitRunWords,
+	dispatchingGhCall,
+	nodeScriptArgs,
+} = require("./shell-words.js");
 const { expandTildeWord } = require("./home-path.js");
 const {
 	dirsAfter,
@@ -22,9 +26,7 @@ const {
 	stepDirs,
 } = require("./shell-dirs.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
-// biome-ignore lint/suspicious/noImportCycles: shell-lexer.js requires shell-words.js, which requires this file only inside runScript (#4863).
 const { Lexer, SPACE } = require("./shell-lexer.js");
-// biome-ignore lint/suspicious/noImportCycles: git-alias.js requires shell-words.js, which requires this file only inside runScript (#4863).
 const gitAlias = require("./git-alias.js");
 const {
 	CONFIG_FILE_VARS,
@@ -648,7 +650,7 @@ function isScriptOpen(lx, spans) {
 	if (!/[ \t]$/.test(lx.prefix)) return false;
 	const lines = flatten(lx.prefix).split("\n");
 	const { words, wi, ran } = commandWords(lines.at(-2) ?? "");
-	return ran && shellWords.isScriptNext(words.slice(wi), spans);
+	return ran && isScriptNext(words.slice(wi), spans);
 }
 
 /** @param {string} segment */
@@ -849,7 +851,7 @@ function resolveWord(word, scope) {
  */
 
 /**
- * @typedef {import("./shell-words.js").Unwrapped & {
+ * @typedef {Unwrapped & {
  *   dirs: () => import("./shell-dirs.js").Dirs }} CommandRun
  */
 
@@ -1175,7 +1177,7 @@ function walkCommands(parsed, fn, ports) {
 function commandRuns(words, cwds, { scope, isDir }) {
 	/** @type {[CommandRun, ...CommandRun[]] | undefined} */
 	let runs;
-	/** @param {import("./shell-words.js").Unwrapped} run @returns {CommandRun} */
+	/** @param {Unwrapped} run @returns {CommandRun} */
 	const withDirs = (run) => {
 		/** @type {import("./shell-dirs.js").Dirs | undefined} */
 		let dirs;
@@ -1681,7 +1683,7 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 
 /**
  * @param {Walk} walk
- * @param {Pick<import("./shell-words.js").Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
+ * @param {Pick<Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
  * @param {{ leading: string[], scopes: Map<string, Scope> }} prefix
  * @param {(path: string) => boolean} isDir
  * @returns {(GitTarget & { sub: string, args: string[] }) | null}
@@ -2670,10 +2672,327 @@ function addIntoTarget(src, { base, dpath }, add, ctx) {
 	add("write", tgt, dpath && rsrc ? normAbs(`${dpath}/${basename(rsrc)}`) : "");
 }
 
+/**
+ * @typedef {import("./shell-words.js").Unwrapped} Unwrapped
+ * @typedef {import("./shell-words.js").WrapperGrammar} WrapperGrammar
+ * @typedef {import("./shell-words.js").WrapperOption} WrapperOption
+ */
+
+/**
+ * @param {string[]} words
+ * @param {string[]} spans
+ * @param {string[]} [judged]
+ * @returns {[Unwrapped, ...Unwrapped[]]}
+ */
+function unwrap(words, spans, judged = []) {
+	/** @type {Unwrapped[]} */
+	const pending = [];
+	const first = stripRun(buildBareRun(words), { spans, judged, pending });
+	/** @type {Unwrapped[]} */
+	const later = [];
+	for (let run = pending.shift(); run !== undefined; run = pending.shift())
+		later.push(stripRun(run, { spans, judged, pending }));
+	return [first, ...later];
+}
+
+/** @param {string[]} argv @returns {Unwrapped[]} */
+function unwrapArgv(argv) {
+	/** @type {string[]} */
+	const spans = [];
+	return unwrap(argv, spans).map((run) => ({
+		...run,
+		words: run.words.map((w) => literal(w, spans).text),
+	}));
+}
+
+/**
+ * @param {Unwrapped} run
+ * @param {{ spans: string[], judged: string[], pending: Unwrapped[] }} with
+ * @returns {Unwrapped}
+ */
+function stripRun(run, { spans, judged, pending }) {
+	const st = buildStrip(run, judged, pending);
+	stripWrappers(st, spans);
+	return {
+		words: st.ws,
+		wrapperWords: st.wrapperWords,
+		chdirs: st.chdirs,
+		unread: st.unread,
+		watched: st.watched,
+		scripted: st.scripted,
+	};
+}
+
+/** @param {Strip} st @param {string[]} spans */
+function stripWrappers(st, spans) {
+	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
+		const step = stripOne(st, first, spans);
+		if (step === "cut") st.ws = [];
+		if (step !== "next") break;
+	}
+}
+
+/** @param {string[]} words @param {string[]} spans */
+function isScriptNext(words, spans) {
+	const st = buildStrip(buildBareRun(words), [], []);
+	stripWrappers(st, [...spans]);
+	return st.awaitsScript;
+}
+
+/**
+ * @param {string[]} words
+ * @param {string[]} spans
+ * @returns {string | null}
+ */
+function wrapperScript(words, spans) {
+	const [first] = words;
+	if (first === undefined) return null;
+	const st = buildStrip(buildBareRun(words), [], []);
+	stripOne(st, first, [...spans]);
+	return st.script;
+}
+
+/**
+ * @param {string[]} words
+ * @returns {Unwrapped}
+ */
+const buildBareRun = (words) => ({
+	words,
+	wrapperWords: [],
+	chdirs: [],
+	unread: [],
+	watched: false,
+	scripted: false,
+});
+
+/**
+ * @param {Unwrapped} run
+ * @param {string[]} judged
+ * @param {Unwrapped[]} pending
+ * @returns {Strip}
+ */
+const buildStrip = (run, judged, pending) => ({
+	ws: [...run.words],
+	judged,
+	inEnv: false,
+	envReset: run.envReset ?? false,
+	execs: false,
+	awaitsScript: false,
+	script: null,
+	wrapperWords: [...run.wrapperWords],
+	chdirs: [...run.chdirs],
+	unread: [...run.unread],
+	watched: run.watched,
+	scripted: run.scripted,
+	pending,
+});
+
+/** @param {string} w @param {string[]} flags */
+const resetsEnv = (w, flags) =>
+	w === "sudo" ||
+	(w === "env" &&
+		flags.some(
+			(f) => f === "-" || /^-[^-]*[iu]|^--(?:ignore-env|unset)/.test(f),
+		));
+
+/**
+ * @typedef {object} Strip
+ * @property {string[]} ws
+ * @property {string[]} judged
+ * @property {boolean} inEnv
+ * @property {boolean} envReset
+ * @property {string[]} wrapperWords
+ * @property {Chdir[]} chdirs
+ * @property {string[]} unread
+ * @property {boolean} watched
+ * @property {Unwrapped[]} pending
+ * @property {boolean} execs
+ * @property {boolean} awaitsScript
+ * @property {string | null} script
+ * @property {boolean} scripted
+ */
+
+/**
+ * @param {Strip} st
+ * @param {string} first
+ * @param {string[]} spans
+ * @returns {"next" | "done" | "cut"}
+ */
+function stripOne(st, first, spans) {
+	const { text } = literal(first, spans);
+	if (st.inEnv && text.includes("=")) {
+		st.wrapperWords.push(ASSIGNMENT_RE.test(first) ? first : text);
+		st.ws = st.ws.slice(1);
+		return "next";
+	}
+	const w = ASSIGNMENT_RE.test(text) ? text : afterSlash(text);
+	if (w === "bg-run.sh") {
+		if (st.ws[1] !== "run" || st.ws.length < 3) return "done";
+		st.inEnv = false;
+		st.ws = st.ws.slice(3);
+		return "next";
+	}
+	const wrapper = WRAPPERS.get(w);
+	if (!wrapper || st.judged.includes(w)) return "done";
+	st.inEnv = w === "env" || w === "sudo";
+	st.ws = st.ws.slice(1);
+	const flagged = st.ws;
+	if (!sweepFlags(st, wrapper, spans)) return "cut";
+	const flags = flagged.slice(0, flagged.length - st.ws.length);
+	st.envReset ||= resetsEnv(
+		w,
+		flags.map((f) => literal(f, spans).text),
+	);
+	if (st.ws.length < wrapper.positionals) return "cut";
+	st.ws = st.ws.slice(wrapper.positionals);
+	return stepAfterFlags(st, wrapper, spans);
+}
+
+/**
+ * @param {Strip} st
+ * @param {WrapperGrammar} wrapper
+ * @param {string[]} spans
+ * @returns {"next" | "cut"}
+ */
+function stepAfterFlags(st, wrapper, spans) {
+	const [head, ...tail] = st.ws;
+	/** @param {string[]} ws */
+	const read = (ws) => ws.map((w) => literal(w, spans).text).join(" ");
+	if (wrapper.command === "flock-command" && head !== undefined) {
+		const f = literal(head, spans).text;
+		if (f === "-c" || f === "--command") {
+			const [string] = tail;
+			if (string === undefined) {
+				st.awaitsScript = true;
+				return "cut";
+			}
+			st.script = read([string]);
+			runScript(st, st.script, spans);
+		}
+	}
+	if (wrapper.command === "sh-string") {
+		st.watched = true;
+		if (st.ws.length === 0) {
+			st.awaitsScript = !st.execs;
+			return "cut";
+		}
+		if (!st.execs) {
+			st.script = read(st.ws);
+			runScript(st, st.script, spans);
+		}
+		if (st.ws.length === 0) return "cut";
+	}
+	return "next";
+}
+
+/** @param {Strip} st @param {string} script @param {string[]} spans */
+function runScript(st, script, spans) {
+	/** @type {Unwrapped[]} */
+	const runs = parseScript(script, spans).map((cmd) => ({
+		words: cmd.words,
+		wrapperWords: [...st.wrapperWords, ...cmd.leading],
+		chdirs: [
+			...st.chdirs,
+			...cmd.chdirs.map((cd) => (st.envReset ? { ...cd, envReset: true } : cd)),
+		],
+		unread: [...st.unread, ...cmd.unread],
+		watched: st.watched,
+		scripted: true,
+		...(st.envReset && { envReset: /** @type {const} */ (true) }),
+	}));
+	const [first, ...later] = runs;
+	st.ws = first?.words ?? [];
+	st.scripted = true;
+	if (first)
+		Object.assign(st, {
+			wrapperWords: first.wrapperWords,
+			chdirs: first.chdirs,
+			unread: first.unread,
+		});
+	st.pending.unshift(...later);
+}
+
+/**
+ * @param {Strip} st
+ * @param {WrapperGrammar} wrapper
+ * @param {string[]} spans
+ */
+function sweepFlags(st, wrapper, spans) {
+	for (let raw = st.ws[0]; raw !== undefined; raw = st.ws[0]) {
+		const f = literal(raw, spans).text;
+		if (!f.startsWith("-") || (f === "-" && !wrapper.splits)) break;
+		if (f === "--") {
+			st.ws = st.ws.slice(1);
+			break;
+		}
+		const { options, taken, read } = scanWrapperFlag(
+			wrapper,
+			[raw, st.ws[1]],
+			spans,
+		);
+		st.ws = st.ws.slice(1 + taken);
+		for (const option of options)
+			if (!takeOption(st, wrapper, option, read)) return false;
+	}
+	return true;
+}
+
+/**
+ * @param {Strip} st
+ * @param {WrapperGrammar} wrapper
+ * @param {WrapperOption} option
+ * @param {boolean} read
+ */
+function takeOption(st, wrapper, { kind, name, value }, read) {
+	if (kind === "dangling") return false;
+	if (wrapper.command === "sh-string" && (name === "-x" || name === "--exec"))
+		st.execs = true;
+	if (kind !== "opt") return true;
+	if (wrapper.splits && (name === "-S" || name === "--split-string"))
+		st.ws = [...splitEnvString(value), ...st.ws];
+	else if (name === wrapper.chdir || name === "--chdir")
+		st.chdirs.push({ dir: value, read, holds: "always" });
+	return true;
+}
+
+/**
+ * @param {string[]} words
+ * @param {string[]} spans
+ * @returns {{ sub: string, args: string[] }[]}
+ */
+const gitWords = (words, spans) =>
+	unwrap(words, spans).flatMap((run) => {
+		const git = gitRunWords(run.words, spans);
+		return git ? [git] : [];
+	});
+
+/**
+ * @param {string[]} words
+ * @param {string[]} spans
+ * @returns {(import("./shell-words.js").GhCall & { wrapperWords: string[] })[]}
+ */
+const ghWords = (words, spans) =>
+	unwrap(words, spans).flatMap(({ words: ws, wrapperWords }) => {
+		const gh = dispatchingGhCall(ws, spans);
+		return gh ? [{ ...gh, wrapperWords }] : [];
+	});
+
+/** @param {string[]} words @param {string[]} spans @returns {string[][]} */
+const commitPathsArgs = (words, spans) =>
+	unwrap(words, spans).flatMap((run) => {
+		const args = nodeScriptArgs(run.words, spans, "commit-paths.js");
+		return args ? [args] : [];
+	});
+
 module.exports = {
+	unwrap,
+	unwrapArgv,
+	wrapperScript,
+	gitWords,
+	ghWords,
+	commitPathsArgs,
 	parseCommand,
 	escapeShield,
-	parseScript,
 	walkCommands,
 	TEXT_ONLY_PORTS,
 	unmask,

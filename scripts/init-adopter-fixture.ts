@@ -10,6 +10,7 @@ import { adopt } from "./lib/init-adopter-core.js";
 import { resolveConfigDir } from "./lib/plugin-state.js";
 import { gateTmpdir } from "./lib/precommit-gate-harness.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { withOnlyEnv } from "./lib/scoped-env";
 import { upgrade } from "./lib/upgrade-walk.js";
 
 export const SKELETON_PATHS = skeletonPaths(
@@ -90,26 +91,23 @@ export function adoptWith(
 ) {
 	let stdout = "";
 	let stderr = "";
-	const savedEnv = process.env;
 	const savedCwd = process.cwd();
-	// env-write-exempt: #5540
-	process.env = { ...env };
 	process.chdir(cwd);
 	try {
-		const status = adopt(args, {
-			out: (text) => {
-				stdout += text;
-			},
-			err: (text) => {
-				stderr += text;
-			},
-			runNode: runNodeInProcess,
-		});
+		const status = withOnlyEnv(env, () =>
+			adopt(args, {
+				out: (text) => {
+					stdout += text;
+				},
+				err: (text) => {
+					stderr += text;
+				},
+				runNode: runNodeInProcess,
+			}),
+		);
 		return { status, stdout, stderr };
 	} finally {
 		process.chdir(savedCwd);
-		// env-write-exempt: #5540
-		process.env = savedEnv;
 	}
 }
 

@@ -972,6 +972,23 @@ describe("queue-run.js", () => {
 				expect(await done).toBe(0);
 			});
 
+			it("reads a runner whose checkout or config will not read as no suite, so its gate takes a seat (#5303)", () => {
+				const { isInSuite } = require("./lib/gate-seat.js");
+				const w = world();
+				const loose = mkScratchDir("gate-loose-");
+				dirs.push(loose);
+				w.processAt(20, ["node", "scripts/run-all.js"], w.host);
+				expect(isInSuite({ pid: 40, parentOf })).toBe(true);
+				w.processAt(20, ["node", "scripts/run-all.js"], loose);
+				expect(isInSuite({ pid: 40, parentOf })).toBe(false);
+				fs.writeFileSync(
+					path.join(w.host, ".claude", "workflow-core.json"),
+					"{ torn",
+				);
+				w.processAt(20, ["node", "scripts/run-all.js"], w.host);
+				expect(isInSuite({ pid: 40, parentOf })).toBe(false);
+			});
+
 			it("takes a seat with the gate variable set but no runner above it", async () => {
 				const w = world();
 				w.processAt(20, ["node", "scripts/commit-paths.js"], w.host);

@@ -68,7 +68,7 @@
  * too. A WRAPPER STANDING WHERE THE COMMAND WORD IS LOOKED FOR IS STRIPPED
  * FIRST — `nohup`, `setsid`, `env`, `timeout`, `time`, `command`, `stdbuf`,
  * `nice`, `ionice`, `xargs`, `sudo` and `bg-run.sh run <name>` — by
- * lib/shell-words.js's `unwrap` (mantahostels#2524, mantahostels#2552).
+ * lib/shell-parse.js's `unwrap` (mantahostels#2524, mantahostels#2552).
  * Whether an npm script behind `queue-run.js` runs run-vitest.js is read from
  * the session's tree's package.json, where the launch runs (#4242); the
  * declared runners are the host's.
@@ -100,7 +100,7 @@
  *    wrapper `unwrap` strips, so `sh -c "…"` stands as itself with its
  *    payload a blanked span; a heredoc's body is dropped as data, leaving only
  *    the opener line's own segments. The rest of the residual is `unwrap`'s
- *    own, listed in its header (lib/shell-words.js).
+ *    own, listed in its header (lib/shell-parse.js).
  *  - `stripDetachment` is as LEXICAL as `detaches`: a `&` inside a quoted
  *    string outside a heredoc is rewritten too, and a detachment it cannot see
  *    is left standing.

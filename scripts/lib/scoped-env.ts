@@ -12,3 +12,19 @@ export function withStubbedEnv<T>(
 		for (const [name, value] of held) vi.stubEnv(String(name), value);
 	}
 }
+
+export function withOnlyEnv<T>(
+	vars: Record<string, string | undefined>,
+	fn: () => T,
+): T {
+	const before = new Set(Object.keys(process.env));
+	const unset = Object.fromEntries(
+		[...before].map((name) => [name, undefined]),
+	);
+	try {
+		return withStubbedEnv({ ...unset, ...vars }, fn);
+	} finally {
+		for (const name of Object.keys(process.env))
+			if (!before.has(name)) vi.stubEnv(name, undefined);
+	}
+}

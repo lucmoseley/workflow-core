@@ -17,15 +17,20 @@ diff --git a/scripts/lib/commit-calls.js b/scripts/lib/commit-calls.js
 index 81301c81576df72a3cf5510aa1aac3126d312ab5..8a2d3a3ca0ffecaa6b43b8b93ea22fc6e7202654 100644
 --- a/scripts/lib/commit-calls.js
 +++ b/scripts/lib/commit-calls.js
-@@ -5,6 +5,8 @@ const {
+@@ -1,11 +1,13 @@
+ const {
+ 	asWritten,
++	commitPathsArgs,
+ 	gitWords,
+ 	parseCommand,
+ 	walkCommands,
  	TEXT_ONLY_PORTS,
  } = require("./shell-parse.js");
  const {
-+	commitPathsArgs,
 +	commitPathsParse,
  	gitValueFlags,
- 	gitWords,
  	literal,
+ 	scanFlags,
 @@ -42,6 +44,11 @@ function commitCalls(command) {
  function commitMessages(words, spans) {
  	/** @type {({ flag: string, word: string } | null)[]} */

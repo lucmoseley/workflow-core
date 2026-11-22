@@ -6,7 +6,6 @@ const EXEMPT_MARKERS = /** @type {const} */ ([
 	"citation",
 	"claude-route",
 	"cli-args",
-	"env-write",
 	"gh-route",
 	"git-identity",
 	"isolation",

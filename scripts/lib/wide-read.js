@@ -35,7 +35,7 @@
  * LIMITS
  *  - The Bash narrowings are unanchored, so a `cat` in a later segment
  *    reaches the core, and one behind a launcher is judged as a bare one —
- *    past every wrapper lib/shell-words.js's unwrap strips (`timeout`, `env`,
+ *    past every wrapper lib/shell-parse.js's unwrap strips (`timeout`, `env`,
  *    `nohup`, `sudo` and the rest), and no further: `sh -c "cat …"`, and a
  *    wrapper flag unwrap does not know, leave the dumper unjudged (#3519). A
  *    command holding `cat`, `sed` or `awk` with no space after it never

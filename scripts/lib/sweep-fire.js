@@ -1,5 +1,10 @@
-const { parseCommand, unmask, walkCommands } = require("./shell-parse.js");
-const { ghWords, literal, scanFlags } = require("./shell-words.js");
+const {
+	ghWords,
+	parseCommand,
+	unmask,
+	walkCommands,
+} = require("./shell-parse.js");
+const { literal, scanFlags } = require("./shell-words.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { trimEndRun } = require("./trim-run.js");
 

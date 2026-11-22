@@ -93,7 +93,6 @@ function refConflictExplanation(marketplaceName, conflict) {
 }
 
 /**
- * #103, #117, #135
  * @param {{root: string, claudeBin: string, addSource: string, pluginId: string, configDir?: string, timeoutMs?: number}} at
  * @returns {{ok: true, marketplaceAdd: string[], pluginInstall: string[], pluginUpdate: string[], updateFailed?: string}
  *   | {ok: false, marketplaceAdd: string[], pluginInstall: string[], pluginUpdate: string[], reason: string}}

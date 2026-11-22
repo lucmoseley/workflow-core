@@ -1,8 +1,7 @@
 {
 	"_comment": [
 		"guard-fire-needles.json — the deny/warn text each registered hook prints, keyed by",
-		"the hook's own words rather than its filename (mantahostels#1246). Why the filename does not",
-		"work, and what a fire-shaped span is: scripts/lib/guard-fires.js.",
+		"the hook's own words rather than its filename (mantahostels#1246).",
 		"",
 		"`text` is a literal substring, or an array of substrings ALL of which must be",
 		"present in the same span — used where one clause alone is ambiguous.",
