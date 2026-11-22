@@ -24,7 +24,6 @@ grep -qE '^#!.*\b(bash|sh)\b' <<<"$(head -1 "$guard")" || {
   exit 1
 }
 
-# This script's directory without a `dirname` fork; `.` where run by a bare name.
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # shellcheck source=scripts/lib/guard-root.sh
@@ -43,7 +42,6 @@ trap 'rm -rf "$trace_dir"' EXIT
 
 run_once() {
   local out="$1"
-  # timeout: a guard branching on a live `gh` call must not hang the sweep.
   timeout 30 strace -f -e trace=clone,clone3,vfork,fork,execve -o "$out" -- \
     "$guard" <"$payload_file" >/dev/null 2>"$out.stderr"
   local strace_status=$?
@@ -56,7 +54,6 @@ run_once() {
   return 0
 }
 
-# Warm-up: burns any once-per-session latch this guard prints, discarded.
 run_once "$trace_dir/warmup.out" || echo "measure-guard-forks: warm-up rep failed for $guard" >&2
 
 clone_counts=()
@@ -67,9 +64,7 @@ for ((i = 1; i <= reps; i++)); do
     echo "guard=$guard FAILED (see stderr above)"
     exit 1
   fi
-  # grep -c prints 0 and exits 1 on no match, which -e would take as a fault.
-  # Under pipefail an unreadable trace can also surface as 1, so run_once's
-  # non-empty check is what rules that out.
+  # grep -c prints 0 and exits 1 on no match: https://www.gnu.org/software/grep/manual/grep.html#Exit-Status
   procs=$(grep -E '^\S+ +(clone|clone3|vfork|fork)\(' "$out" | grep -v 'CLONE_THREAD' | grep -vcE '= -1') || (($? == 1))
   execs=$(grep -E '^\S+ +execve\(' "$out" | grep -vcE '= -1') || (($? == 1))
   clone_counts+=("$procs")

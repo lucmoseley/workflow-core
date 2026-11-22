@@ -25,5 +25,4 @@ _wfc_shell_start_warn() {
 		}' <<<"$ps_out"
 }
 _wfc_shell_start_warn
-# Unlike the interop guard's wrapper, nothing calls this again later.
 unset -f _wfc_shell_start_warn
