@@ -412,6 +412,20 @@ describe("the core-only class (#440)", () => {
 		).toEqual([]);
 	});
 
+	it("loads a shipped script excused for naming a left-behind one, reaching its adopter skip (#5630)", () => {
+		const out = path.join(tmp, "out");
+		buildTree(CORE, out);
+		const adopter = path.join(tmp, "adopter");
+		fs.mkdirSync(adopter);
+		const run = runInProcess(
+			path.join(out, "scripts", "report-release-due.js"),
+			[],
+			{ env: { ...process.env, WFC_REPO_ROOT: adopter } },
+		);
+		expect(run.stderr).toContain("SKIP: not workflow-core itself");
+		expect(run.status).toBe(0);
+	});
+
 	it("finds a left-behind script wired into a shipped hook, skill or doc", () => {
 		const root = path.join(tmp, "src");
 		const tree: Record<string, string> = {
