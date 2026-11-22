@@ -10,7 +10,7 @@ const { shellOperands } = require("./shell-operands.js");
 const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { LOADS_BODY, pragmaLine } = require("./code-edges-pragmas.js");
-const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
+const { JS_TEST_FILE, isJsTestFile, isTestKind } = require("./test-kind.js");
 const { isUnder } = require("./is-under.js");
 
 const ROOT_NAMES =
@@ -1684,13 +1684,10 @@ function addReader(byDoc, p, t) {
 	byDoc.set(p, readers);
 }
 
-const TESTKIT = /-testkit\.[cm]?[jt]sx?$/;
-
-/** @param {string} p */
-const forwardsImports = (p) => TESTKIT.test(p) && !isJsTestFile(p);
+/** #5575 @param {string} p */
+const isTestSupport = (p) => isTestKind(p) && !isJsTestFile(p);
 
 /**
- * #5575
  * @param {string} t
  * @param {string} source
  * @param {Set<string>} tracked
@@ -1707,7 +1704,7 @@ function helperReads(t, source, tracked, read) {
 		seen.add(helper);
 		const code = blankComments(read(helper));
 		for (const p of edgesFor(code, tracked, helper)) found.add(p);
-		if (forwardsImports(helper))
+		if (isTestSupport(helper))
 			queue.push(...importedHelpers(code, helper, tracked));
 	}
 	return found;
