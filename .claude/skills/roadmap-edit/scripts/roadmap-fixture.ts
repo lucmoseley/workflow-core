@@ -1,18 +1,3 @@
-/*
- * Test fixture builder for the roadmap-edit scripts.
- *
- * Both scripts parse reference-roadmap.html by slicing out the `const ITEMS`,
- * `const AREAS` and `const PHASES` literals and the docmeta version line, then
- * evaluating only those slices. A fixture therefore has to reproduce that exact
- * shape — the `\n];` array terminator especially, which is what the slicer looks
- * for — but nothing else about the page.
- *
- * Tests use these hermetic fixtures for behaviour. The shape a real roadmap
- * starts from is the adopter template's, which scripts/check-roadmap-pair.test.ts
- * and scripts/init-adopter-subjects.test.ts render through gen-roadmap-digest.js,
- * so a change to that structure still trips something.
- */
-
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
