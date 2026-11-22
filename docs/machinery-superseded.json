@@ -75,12 +75,6 @@
 		],
 		"allowlist": [
 			{
-				"path": "scripts/measure-advisor/scan_advisor.py",
-				"anchors": [
-					"\"~$0.41 a call at 82k context\""
-				]
-			},
-			{
 				"path": "scripts/lib/residue-patterns.test.ts",
 				"anchors": [
 					{
@@ -649,15 +643,6 @@
 					"| §Machine limits, the 1.7 / 2.1 / 2.4 GB gates |",
 					"that count's dip — 589 / 990 / 1271 MB"
 				]
-			},
-			{
-				"path": "scripts/lib/suite-queue-replay.test.ts",
-				"anchors": [
-					{
-						"anchor": "a `tsc` peak of ~1,800 to ~2,500 MB",
-						"needle": "2,500 MB"
-					}
-				]
 			}
 		]
 	},
@@ -832,15 +817,6 @@
 						"needle": "6 hours"
 					}
 				]
-			},
-			{
-				"path": "scripts/lib/latest-timings.test.ts",
-				"anchors": [
-					{
-						"anchor": "checked at most every 6 hours and",
-						"needle": "6 hours"
-					}
-				]
 			}
 		]
 	},
@@ -946,12 +922,6 @@
 				"anchors": [
 					"The old 49.5% displacement figure was two-seat arithmetic and is dead",
 					"the requirement was **49.5%** when both seats ran to 99%"
-				]
-			},
-			{
-				"path": "scripts/guard-jev-advisory.js",
-				"anchors": [
-					"so a p of 0.495 is `clear`"
 				]
 			}
 		]
@@ -1089,15 +1059,6 @@
 				"anchors": [
 					{
 						"anchor": "A review of 200-400 LOC over 60-90 minutes",
-						"needle": "90 minutes"
-					}
-				]
-			},
-			{
-				"path": "scripts/lib/age-text.js",
-				"anchors": [
-					{
-						"anchor": "in ms; 90 minutes where absent",
 						"needle": "90 minutes"
 					}
 				]
@@ -1395,12 +1356,6 @@
 				]
 			},
 			{
-				"path": "scripts/check-citation-tracker.js",
-				"anchors": [
-					"The ~13,000 citations already in the tree"
-				]
-			},
-			{
 				"path": "scripts/lib/image-budget.js",
 				"anchors": [
 					{
@@ -1557,6 +1512,12 @@
 				"path": "scripts/guard-priced-options.test.ts",
 				"anchors": [
 					"(B) Run it four times a day."
+				]
+			},
+			{
+				"path": "scripts/lib/windows-memory.js",
+				"anchors": [
+					"#4852 measured 46% of 52 minutes"
 				]
 			}
 		]
@@ -1826,12 +1787,6 @@
 		],
 		"allowlist": [
 			{
-				"path": "scripts/measure-effort-arms/scan_rework.py",
-				"anchors": [
-					"The 21 days this defaulted to"
-				]
-			},
-			{
 				"path": "docs/agents/rules/waiting-external-vocabulary.txt",
 				"anchors": [
 					"switch channel at 21 days"
@@ -1848,25 +1803,6 @@
 				"anchors": [
 					"the cohort has cleared 21 days — check:",
 					"condition: \"the cohort has cleared 21 days\""
-				]
-			},
-			{
-				"path": "scripts/lib/seat-utilisation.js",
-				"anchors": [
-					"sign of life costs another 14-21 days",
-					"one accidental session costing another 14-21 days"
-				]
-			},
-			{
-				"path": "scripts/lib/seat-utilisation.test.ts",
-				"anchors": [
-					"not cost another 14-21 days"
-				]
-			},
-			{
-				"path": "scripts/lib/pick-next-verdict.js",
-				"anchors": [
-					"21 days, non-responsive at 45"
 				]
 			},
 			{
@@ -1891,12 +1827,6 @@
 				"anchors": [
 					"naming the 21-day bound",
 					"over the 21-day bound"
-				]
-			},
-			{
-				"path": "scripts/report-flip-line-reading.js",
-				"anchors": [
-					"and at most 21 days after the"
 				]
 			},
 			{
@@ -2728,17 +2658,7 @@
 				"scanned": true
 			}
 		],
-		"allowlist": [
-			{
-				"path": "scripts/check-context-budget-session-cap.test.ts",
-				"anchors": [
-					{
-						"anchor": "from 24,900 B to 31,500 B",
-						"needle": "31,500 B"
-					}
-				]
-			}
-		]
+		"allowlist": []
 	},
 	"route-f-ratchet-cap": {
 		"needles": [
