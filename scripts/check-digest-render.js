@@ -9,6 +9,7 @@ const { caught } = require("./lib/caught.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
+// guess, lucmoseley/mantahostels#2890
 const MAX_QUOTED_LINES = 5;
 
 const MAX_RENDER_BYTES = 32 * 1024 * 1024;

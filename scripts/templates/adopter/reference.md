@@ -18,4 +18,6 @@ The repo-health checkers — stranded claims, stale queue markers and git locks,
 
 The core's one page check is `check-website-copy.js`, which refuses a commit staging `app/` that adds a banned tell from the brand sheet's §11. Add any other to `.husky/pre-commit.local`.
 
-A commit-message refusal of this repo's own goes in `.husky/commit-msg.local`, which the core's commit-msg hook sources last, on every route, with the message file as `$1` and the route as `$route`.
+## This repo's own commit-message refusals
+
+A commit-message refusal of this repo's own goes in `.husky/commit-msg.local`, which the core never writes. The core's commit-msg hook sources it last, on every route, in its `sh -e` shell: `$1` is the message file, `$route` names the route so the file can stand down on a replay itself, and any failing command or `exit 1` refuses the commit. A script it names that this repo lacks refuses every commit.

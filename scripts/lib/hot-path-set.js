@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { throwUnreadable } = require("./file-read.js");
+const { dataOrThrow } = require("./file-read.js");
 const { relativeUnder } = require("./is-under.js");
 const { requiredGroup } = require("./regex-group.js");
 const { isRepoPathList } = require("./repo-path.js");
@@ -124,7 +124,7 @@ const namedFiles = (root, port, text) =>
  * @returns {Record<string, unknown> | null}
  */
 function readJson(port, rel) {
-	const text = throwUnreadable(port.read(rel));
+	const text = dataOrThrow(port.read(rel));
 	if (text === null) return null;
 	try {
 		const parsed = JSON.parse(text);
@@ -171,15 +171,14 @@ const registryModules = (root, port) =>
  * @param {string} registry
  */
 const rowsModules = (root, port, registry) =>
-	[
-		...(throwUnreadable(port.read(registry)) ?? "").matchAll(STRING_LITERAL),
-	].map((match) =>
-		inTree(
-			root,
-			port,
-			requiredGroup(match, 2, STRING_LITERAL),
-			path.posix.dirname(registry),
-		),
+	[...(dataOrThrow(port.read(registry)) ?? "").matchAll(STRING_LITERAL)].map(
+		(match) =>
+			inTree(
+				root,
+				port,
+				requiredGroup(match, 2, STRING_LITERAL),
+				path.posix.dirname(registry),
+			),
 	);
 
 /** @param {string} text */
@@ -211,11 +210,7 @@ function hotPathSet(root, port) {
 			perCallCommands(readJson(port, file)),
 		).flatMap((line) => namedFiles(root, port, line)),
 		...COMMIT_HOOKS.flatMap((hook) =>
-			namedFiles(
-				root,
-				port,
-				uncommented(throwUnreadable(port.read(hook)) ?? ""),
-			),
+			namedFiles(root, port, uncommented(dataOrThrow(port.read(hook)) ?? "")),
 		),
 		...registryModules(root, port),
 		...ROWS_REGISTRIES.flatMap((registry) => rowsModules(root, port, registry)),

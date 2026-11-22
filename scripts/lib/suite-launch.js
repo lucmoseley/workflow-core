@@ -1,4 +1,3 @@
-const { throwUnreadable } = require("./file-read.js");
 const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { JS_TEST_FILE, PY_COLLECTED_TEST } = require("./test-kind.js");
 const { unwrapArgv } = require("./shell-words.js");
@@ -271,6 +270,25 @@ function isQueueable(words, ports) {
 const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 
 /**
+ * @param {import("./file-read.js").FileRead<string>} got
+ * @param {(fault: string) => void} say
+ * @returns {Record<string, unknown> | null}
+ */
+function parsePackageScripts(got, say) {
+	if (got.state === "absent") return null;
+	if (got.state === "unreadable") {
+		say("package.json unreadable");
+		return null;
+	}
+	try {
+		return JSON.parse(got.data)?.scripts ?? {};
+	} catch {
+		say("package.json is not JSON");
+		return null;
+	}
+}
+
+/**
  * @param {() => Pick<import("./guard-host-ports.js").TreePorts, "read">} tree
  * @param {(what: string) => void} log
  * @returns {LaunchPorts["isWrapperScript"]}
@@ -279,18 +297,12 @@ function buildIsWrapperScript(tree, log) {
 	/** @type {Record<string, unknown> | null | undefined} */
 	let scripts;
 	return (script) => {
-		if (scripts === undefined) {
-			const got = tree().read("package.json");
-			try {
-				const text = throwUnreadable(got);
-				scripts = text === null ? null : (JSON.parse(text)?.scripts ?? {});
-			} catch {
+		if (scripts === undefined)
+			scripts = parsePackageScripts(tree().read("package.json"), (fault) =>
 				log(
-					`package.json unreadable — \`--queue\` offered without knowing whether \`${script}\` runs run-vitest.js`,
-				);
-				scripts = null;
-			}
-		}
+					`${fault} — \`--queue\` offered without knowing whether \`${script}\` runs run-vitest.js`,
+				),
+			);
 		if (!scripts) return true;
 		const body = scripts[script];
 		return hasWrapperCall(typeof body === "string" ? body : null);

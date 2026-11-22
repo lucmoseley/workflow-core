@@ -2,8 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const regions = require("./doc-map-regions.js");
 const core = require("./arbiter-core.js");
-// biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
-const locksMod = require("./arbiter-locks.js");
+const lockFiles = require("./arbiter-lock-files.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
 /** @typedef {import("./arbiter-records.js").ContentState} ContentState */
@@ -78,7 +77,7 @@ function shiftPrior(lock, sha) {
 function recordContent(rel, me) {
 	const { region } = core.splitSubject(rel);
 	if (region === null && regions.isRegioned(rel)) {
-		const held = locksMod.readHeldBy(me.sessionId);
+		const held = lockFiles.readHeldBy(me.sessionId);
 		if (held === null) return null;
 		const mine = held.filter((s) => {
 			const part = core.splitSubject(s);
@@ -110,7 +109,7 @@ function recordSubjectContent(rel, me) {
 	const sha = pinContent(rel, existing.claimId);
 	if (sha === null) return null;
 
-	const { outcome } = locksMod.updateIfUnchanged(
+	const { outcome } = lockFiles.updateIfUnchanged(
 		rel,
 		(m) => m.claimId === existing.claimId,
 		(m) => ({ ...m, blob: sha, priorBlobs: shiftPrior(m, sha) }),
@@ -157,7 +156,7 @@ function claimVersions(rel) {
 	const read = core.readRecordOrFlag(
 		core.paths.lock(rel),
 		`versions ${rel}`,
-		locksMod.settle,
+		lockFiles.settle,
 	);
 	if (read.unreadable) return read;
 	const lock = read.record;
@@ -178,12 +177,14 @@ function dropContentRef(claimId) {
 	if (ref) core.git(["update-ref", "-d", ref]);
 }
 
-exports.BLOB_REF_PREFIX = BLOB_REF_PREFIX;
-exports.blobExists = blobExists;
-exports.claimVersions = claimVersions;
-exports.contentState = contentState;
-exports.dropContentRef = dropContentRef;
-exports.pinContent = pinContent;
-exports.PRIOR_BLOBS_MAX = PRIOR_BLOBS_MAX;
-exports.recordContent = recordContent;
-exports.readRegionHash = readRegionHash;
+module.exports = {
+	BLOB_REF_PREFIX,
+	blobExists,
+	claimVersions,
+	contentState,
+	dropContentRef,
+	pinContent,
+	PRIOR_BLOBS_MAX,
+	recordContent,
+	readRegionHash,
+};

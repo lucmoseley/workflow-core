@@ -6,6 +6,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { bareCoreRoot } from "./lib/bare-core-fixture";
 import { orFallback } from "./lib/caught.js";
+import { assertionOf } from "./lib/doc-map-assertions.js";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -277,6 +278,7 @@ const markedTemplate = defineTemplate((dir) => {
 interface Finding {
 	severity: string;
 	tag: string;
+	assertion: number;
 }
 
 const check = (repo: string) => {
@@ -292,6 +294,7 @@ const check = (repo: string) => {
 		status: r.status,
 		outcome: json.outcome,
 		tags: (json.findings || []).map((f) => `${f.severity} ${f.tag}`),
+		numbered: (json.findings || []).map((f) => `${f.tag} ${f.assertion}`),
 		out: `${r.stdout}${r.stderr}`,
 	};
 };
@@ -316,14 +319,12 @@ const B4 = (prose: string) =>
 	]);
 
 interface Case {
-	assertion: number;
 	fault: (c: Ctx) => void;
 	expected: string;
 }
 
 const cases: Record<string, Case> = {
 	"UNCOVERED — a tracked in-scope file with no register key, past grace": {
-		assertion: 1,
 		fault: (c) => {
 			c.track("docs/extra.md", "extra\n");
 			c.commit("add extra", PAST_GRACE_HOURS);
@@ -331,7 +332,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL UNCOVERED",
 	},
 	"UNCOVERED-GRACE — the same file inside the grace window": {
-		assertion: 1,
 		fault: (c) => {
 			c.track("docs/extra.md", "extra\n");
 			c.commit("add extra", IN_GRACE_HOURS);
@@ -339,7 +339,6 @@ const cases: Record<string, Case> = {
 		expected: "WARN UNCOVERED-GRACE",
 	},
 	"DEAD-ENTRY — a register row naming no file, past grace": {
-		assertion: 2,
 		fault: (c) => {
 			writeAll(c, { sidecar: ghostSidecar() });
 			c.git("add", "-A");
@@ -348,7 +347,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL DEAD-ENTRY",
 	},
 	"DEAD-ENTRY-GRACE — the same row inside the grace window": {
-		assertion: 2,
 		fault: (c) => {
 			writeAll(c, { sidecar: ghostSidecar() });
 			c.git("add", "-A");
@@ -357,7 +355,6 @@ const cases: Record<string, Case> = {
 		expected: "WARN DEAD-ENTRY-GRACE",
 	},
 	"UNTRACKED-ENTRY — the row's file is on disk but untracked": {
-		assertion: 2,
 		fault: (c) => {
 			writeAll(c, { sidecar: ghostSidecar() });
 			c.git("add", "-A");
@@ -367,7 +364,6 @@ const cases: Record<string, Case> = {
 		expected: "WARN UNTRACKED-ENTRY",
 	},
 	"DEAD-ROUTE — a §C route to a file that does not exist": {
-		assertion: 4,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -378,7 +374,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL DEAD-ROUTE",
 	},
 	"UNTRACKED-ROUTE — a §C route to a file on disk but untracked": {
-		assertion: 4,
 		fault: (c) => {
 			c.write(
 				MAP,
@@ -391,13 +386,11 @@ const cases: Record<string, Case> = {
 		expected: "WARN UNTRACKED-ROUTE",
 	},
 	"DEAD-RESTATEMENT — a restatement path naming no file": {
-		assertion: 5,
 		fault: (c) =>
 			c.writeJson(RESTATEMENTS, { B1: { paths: [{ path: "docs/gone.md" }] } }),
 		expected: "FAIL DEAD-RESTATEMENT",
 	},
 	"DUPLICATE-ENTRY-ID — two `### B1` headings": {
-		assertion: 6,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -406,12 +399,10 @@ const cases: Record<string, Case> = {
 		expected: "FAIL DUPLICATE-ENTRY-ID",
 	},
 	"ROUTE-ID-GAP — §C ids C1, C3": {
-		assertion: 7,
 		fault: (c) => c.write(MAP, c.read(MAP).replace("### C2 ·", "### C3 ·")),
 		expected: "FAIL ROUTE-ID-GAP",
 	},
 	"DUPLICATE-REGISTER-KEY — a key repeated in the sidecar's bytes": {
-		assertion: 8,
 		fault: (c) =>
 			c.write(
 				CLASSES,
@@ -425,7 +416,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL DUPLICATE-REGISTER-KEY",
 	},
 	"STRAY-ENTRY — a `### B4` below §C": {
-		assertion: 9,
 		fault: (c) => {
 			c.write(MAP, `${c.read(MAP)}\n${B4("A figure below §C.")}\n`);
 			c.writeJson(ADMISSIONS, { ...baseAdmissions(), B4: admission(4) });
@@ -433,7 +423,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL STRAY-ENTRY",
 	},
 	"SETTLED-AT-MISSING — an entry with no `Settled at` bullet": {
-		assertion: 10,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -442,7 +431,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL SETTLED-AT-MISSING",
 	},
 	"POINTER-SHAPE — pointer says 1 path, sidecar holds 2, map clean": {
-		assertion: 11,
 		fault: (c) =>
 			c.writeJson(RESTATEMENTS, {
 				B1: { paths: [{ path: "docs/notes.md" }, { path: "docs/guide.md" }] },
@@ -450,7 +438,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL POINTER-SHAPE",
 	},
 	"POINTER-SHAPE — the same fault on a dirty map, softened to WARN": {
-		assertion: 11,
 		fault: (c) => {
 			c.writeJson(RESTATEMENTS, {
 				B1: { paths: [{ path: "docs/notes.md" }, { path: "docs/guide.md" }] },
@@ -460,7 +447,6 @@ const cases: Record<string, Case> = {
 		expected: "WARN POINTER-SHAPE",
 	},
 	"REUSED-ENTRY-ID — a new B2, at the mark": {
-		assertion: 12,
 		fault: (c) => {
 			const B2 = entry("B2", "Gizmo size", "The gizmo size is 4 cm.", [
 				"- **Restated in:** none — nothing restates it.",
@@ -472,12 +458,10 @@ const cases: Record<string, Case> = {
 		expected: "FAIL REUSED-ENTRY-ID",
 	},
 	"HIGH-WATER-MARK — the mark lowered below HEAD's": {
-		assertion: 13,
 		fault: (c) => c.writeJson(HIGH_WATER, { highWaterMark: 1 }),
 		expected: "FAIL HIGH-WATER-MARK",
 	},
 	"NEW-ENTRY-OVER-CAP — a new entry of 301 prose words": {
-		assertion: 14,
 		fault: (c) => {
 			writeAll(c, {
 				sidecar: baseSidecar(),
@@ -489,7 +473,6 @@ const cases: Record<string, Case> = {
 	},
 	"LEDGER-TRIGGER-VERDICT — bytes staged into the pool file docs/working-contract.md with no new ledger entry":
 		{
-			assertion: 16,
 			fault: (c) => {
 				writeAll(c, {
 					sidecar: {
@@ -504,7 +487,6 @@ const cases: Record<string, Case> = {
 			expected: "FAIL LEDGER-TRIGGER-VERDICT",
 		},
 	"LEDGER-ENTRY-OVER-CAP — a non-newest ledger entry over 440 B": {
-		assertion: 15,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -515,7 +497,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL LEDGER-ENTRY-OVER-CAP",
 	},
 	"SECTION-A-DRIFT — a hand-edited §A row": {
-		assertion: 17,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -529,7 +510,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL SECTION-A-DRIFT",
 	},
 	"ROLE-OVER-CAP — a `role` override of 301 words": {
-		assertion: 18,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar["docs/notes.md"].role = words(CAP_WORDS + 1);
@@ -538,7 +518,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL ROLE-OVER-CAP",
 	},
 	"UNKNOWN-CLASS — a class token outside the six": {
-		assertion: 19,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar["docs/notes.md"].class = "bogus";
@@ -548,7 +527,6 @@ const cases: Record<string, Case> = {
 	},
 	"LEDGER-COMPACTION-VERDICT — HEAD's newest entry carried a prediction, its compaction no verdict":
 		{
-			assertion: 20,
 			fault: (c) =>
 				writeAll(c, {
 					sidecar: baseSidecar(),
@@ -561,7 +539,6 @@ const cases: Record<string, Case> = {
 			expected: "FAIL LEDGER-COMPACTION-VERDICT",
 		},
 	"STALE-OVER-CAP-MARKER — a marker on an entry under the cap": {
-		assertion: 21,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -575,7 +552,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL STALE-OVER-CAP-MARKER",
 	},
 	"MALFORMED-OVER-CAP-MARKER — the marker without its bold": {
-		assertion: 23,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -589,7 +565,6 @@ const cases: Record<string, Case> = {
 		expected: "WARN MALFORMED-OVER-CAP-MARKER",
 	},
 	"DEAD-CONSUMES — a `path` reference to no file, map clean": {
-		assertion: 25,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar["docs/guide.html"].consumes = [
@@ -602,7 +577,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL DEAD-CONSUMES",
 	},
 	"DEAD-CONSUMES — a `figure` reference to the removed B2": {
-		assertion: 25,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar["docs/guide.md"].consumes = [{ kind: "figure", ref: "B2" }];
@@ -613,7 +587,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL DEAD-CONSUMES",
 	},
 	"MALFORMED-CONSUMES — an unknown `kind`": {
-		assertion: 25,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar["docs/guide.md"].consumes = [{ kind: "bogus", ref: "x" }];
@@ -622,7 +595,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL MALFORMED-CONSUMES",
 	},
 	"UNTRACKED-CONSUMES — a `path` reference to a file on disk but untracked": {
-		assertion: 25,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar["docs/guide.md"].consumes = [
@@ -636,7 +608,6 @@ const cases: Record<string, Case> = {
 		expected: "WARN UNTRACKED-CONSUMES",
 	},
 	"PAIR-SCOPE — a `with #9:` gloss naming the wrong neighbour": {
-		assertion: 26,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			(sidecar["docs/guide.md"].consumes as Ref[])[1].gloss =
@@ -646,7 +617,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL PAIR-SCOPE",
 	},
 	"LINE-LOCATOR — an `L1` token in a locator": {
-		assertion: 27,
 		fault: (c) =>
 			c.writeJson(RESTATEMENTS, {
 				B1: { paths: [{ path: "docs/notes.md", locator: "L1" }] },
@@ -654,7 +624,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL LINE-LOCATOR",
 	},
 	"LINE-LOCATOR — a `file:line` citation in a gloss": {
-		assertion: 27,
 		fault: (c) =>
 			c.writeJson(RESTATEMENTS, {
 				B1: {
@@ -664,7 +633,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL LINE-LOCATOR",
 	},
 	"DEAD-ANCHOR — a quoted phrase the file does not hold": {
-		assertion: 28,
 		fault: (c) =>
 			c.writeJson(RESTATEMENTS, {
 				B1: {
@@ -676,7 +644,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL DEAD-ANCHOR",
 	},
 	"UNRECORDED-ADMISSION — a new entry with no admission row": {
-		assertion: 29,
 		fault: (c) =>
 			writeAll(c, {
 				sidecar: baseSidecar(),
@@ -685,7 +652,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL UNRECORDED-ADMISSION",
 	},
 	"SIDECAR-NOT-CANONICAL — two-space indentation": {
-		assertion: 30,
 		fault: (c) =>
 			c.write(
 				CLASSES,
@@ -694,7 +660,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL SIDECAR-NOT-CANONICAL",
 	},
 	"MISSING-READER — a `.md` key with no reader": {
-		assertion: 31,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			delete sidecar["docs/notes.md"].reader;
@@ -703,7 +668,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL MISSING-READER",
 	},
 	"UNKNOWN-READER — a reader outside the three": {
-		assertion: 31,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar["docs/notes.md"].reader = "robot";
@@ -712,7 +676,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL UNKNOWN-READER",
 	},
 	"READER-ON-NON-PROSE — a reader on a `.json` key": {
-		assertion: 31,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar[HIGH_WATER].reader = "agent";
@@ -721,7 +684,6 @@ const cases: Record<string, Case> = {
 		expected: "FAIL READER-ON-NON-PROSE",
 	},
 	"PAGE-SOURCE — a page whose source is read by `agent` alone": {
-		assertion: 32,
 		fault: (c) => {
 			const sidecar = baseSidecar();
 			sidecar["docs/guide.md"].reader = "agent";
@@ -733,7 +695,6 @@ const cases: Record<string, Case> = {
 
 const markedCases: Record<string, Case> = {
 	"OVER-CAP-ENTRY-GREW — a marked over-cap entry grows": {
-		assertion: 22,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -742,7 +703,6 @@ const markedCases: Record<string, Case> = {
 		expected: "WARN OVER-CAP-ENTRY-GREW",
 	},
 	"OVER-CAP-MARKER-DROPPED — a marked over-cap entry loses its marker": {
-		assertion: 24,
 		fault: (c) =>
 			c.write(
 				MAP,
@@ -815,14 +775,17 @@ describe("check-doc-map.js against a doc map holding no host string (mantahostel
 		prefix: string,
 		table: Record<string, Case>,
 	) => {
-		for (const [name, { assertion, fault, expected }] of Object.entries(table))
-			it(`reports ${expected} on ${name.split(" — ")[1]}, exiting ${exitFor(expected)} (assertion ${assertion})`, () =>
+		for (const [name, { fault, expected }] of Object.entries(table)) {
+			const tag = expected.split(" ")[1] as string;
+			it(`reports ${expected} on ${name.split(" — ")[1]}, exiting ${exitFor(expected)} (assertion ${assertionOf(tag)})`, () =>
 				withFresh(t, prefix, (c) => {
 					fault(c);
 					const r = check(c.repo);
 					expect(r.tags, r.out).toContain(expected);
+					expect(r.numbered).toContain(`${tag} ${assertionOf(tag)}`);
 					expect(r.status).toBe(exitFor(expected));
 				}));
+		}
 	};
 	run(template, "doc-map-generic-", cases);
 	run(markedTemplate, "doc-map-generic-marked-", markedCases);

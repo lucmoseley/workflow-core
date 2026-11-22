@@ -9,7 +9,9 @@ export const register: Register = (on) => {
 	const runTimeoutMs = 5000;
 	// #849
 	const ciIntervalMs = 10 * 60_000;
+	// guess, #854
 	const ciRunTimeoutMs = 30_000;
+	// guess, #854
 	const maxOffers = 3;
 	const modName = "wfc-delivery";
 	const turnRef = { plugin: "wfc-delivery", key: "isTurnRunning" } as const;

@@ -69,6 +69,7 @@ const MANUAL_VERSION = /roadmap v(\d+)\.(\d+)/;
 const ROADMAP_SHA = /roadmap commit ([0-9a-f]{7,40})/;
 const REPO_SHA = /reviewed against repo at ([0-9a-f]{7,40})/;
 const ROADMAP_VERSION = /v(\d+)\.(\d+) · updated/;
+// guess, lucmoseley/mantahostels#1149
 const MAX_MISSES = 5;
 
 /**

@@ -1,11 +1,9 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-// biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
 const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
-// biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
-const locksMod = require("./arbiter-locks.js");
+const lockFiles = require("./arbiter-lock-files.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").ObservationRecord} ObservationRecord */
@@ -41,7 +39,7 @@ function probeObservation(rel, sessionId) {
 	return core.readRecordOrFlag(
 		core.paths.observation(rel, sessionId),
 		`observation read ${rel}`,
-		locksMod.settle,
+		lockFiles.settle,
 	);
 }
 
@@ -65,7 +63,7 @@ function recordObservation(rel, me, { viaBash = false } = {}) {
 
 	rel = core.subjectPath(rel);
 
-	const lock = locksMod.readOwnLockOnFile(rel, me.sessionId);
+	const lock = lockFiles.readOwnLockOnFile(rel, me.sessionId);
 	if (lock && lock.sessionId === me.sessionId) return null;
 
 	const existing = readObservation(rel, me.sessionId);
@@ -191,12 +189,14 @@ function observedVersions(rel, sessionId) {
 	};
 }
 
-exports.dropObservation = dropObservation;
-exports.OBSERVATION_AGE_MS = OBSERVATION_AGE_MS;
-exports.readObservationEntries = readObservationEntries;
-exports.observationState = observationState;
-exports.readObservedBy = readObservedBy;
-exports.readObservedEntriesBy = readObservedEntriesBy;
-exports.readObservedIds = readObservedIds;
-exports.observedVersions = observedVersions;
-exports.recordObservation = recordObservation;
+module.exports = {
+	dropObservation,
+	OBSERVATION_AGE_MS,
+	readObservationEntries,
+	observationState,
+	readObservedBy,
+	readObservedEntriesBy,
+	readObservedIds,
+	observedVersions,
+	recordObservation,
+};

@@ -29,6 +29,7 @@ const TYPEPERF_BUDGET_MS = 15_000;
 // measured 4 ms for a 30 KB ring, #3564
 const DMESG_TIMEOUT_MS = 5000;
 
+// guess, #3564
 const RETAIN_MS = 30 * DAY_MS;
 
 const LOG = ".interop-degraded.jsonl";

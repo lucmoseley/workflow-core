@@ -1571,8 +1571,11 @@ function targetWarning(g, describedBy, implicitScripts, { anchors, fresh }) {
 	return null;
 }
 
+// measured with REPRINT_COVERAGE: 2 of 8 known reprints, lucmoseley/mantahostels#1032
 const REPRINT_SHINGLE = 5;
+// measured with REPRINT_COVERAGE: 2 of 8 known reprints, lucmoseley/mantahostels#1032
 const REPRINT_MIN_WORDS = 12;
+// measured: 2 of 8 known reprints, no false positive, lucmoseley/mantahostels#1032
 const REPRINT_COVERAGE = 0.6;
 
 const HEREDOC_READ_RE =
