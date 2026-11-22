@@ -211,6 +211,6 @@ function runCore([script, ...args]) {
 	return r.status ?? 1;
 }
 
-module.exports = { resolveCore };
+module.exports = { adopterRoot, resolveCore };
 
 if (require.main === module) process.exitCode = runCore(process.argv.slice(2));

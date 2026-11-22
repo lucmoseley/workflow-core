@@ -13,6 +13,7 @@ let repo: string;
 let repoLink: string;
 let linked: string;
 let linkedLink: string;
+let sep: string;
 
 beforeAll(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-seam-")));
@@ -43,6 +44,14 @@ beforeAll(() => {
 	linkedLink = path.join(tmp, "linked-link");
 	fs.symlinkSync(linked, linkedLink);
 	fs.mkdirSync(path.join(tmp, "nowhere"));
+	sep = path.join(tmp, "sep");
+	execFileSync("git", [
+		"init",
+		"-q",
+		"--separate-git-dir",
+		path.join(tmp, "sep.git"),
+		sep,
+	]);
 });
 
 afterAll(() => {
@@ -159,6 +168,55 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 		const [cwd, declared] = input();
 		const got = readAnswers(cwd, declared);
 		expect(got).toEqual({ js: expected(), sh: expected(), py: expected() });
+	});
+});
+
+describe("mainCheckout() and adopterRoot() name the checkout hostRoot() does", () => {
+	const readCheckouts = (cwd: string) => {
+		const r = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`const [lib, cwd] = process.argv.slice(1);
+process.stdout.write(JSON.stringify({
+  main: require(lib + "/main-checkout.js").mainCheckout(cwd),
+  adopter: require(lib + "/resolve-core.js").adopterRoot(),
+}));`,
+				LIB,
+				cwd,
+			],
+			{ cwd, env: envWith(undefined), encoding: "utf8" },
+		);
+		expect(r.stderr).toBe("");
+		return { ...JSON.parse(r.stdout), ...readAnswers(cwd, undefined) };
+	};
+
+	it.each([
+		["the main checkout's subdirectory", () => path.join(repo, "sub")],
+		["a linked worktree", () => linked],
+		["a linked worktree's subdirectory", () => path.join(linked, "sub")],
+		[
+			"a linked worktree reached through a symlink",
+			() => path.join(linkedLink, "sub"),
+		],
+	])("from %s", (_name, cwdOf) => {
+		expect(readCheckouts(cwdOf())).toEqual({
+			main: repo,
+			adopter: repo,
+			js: repo,
+			sh: repo,
+			py: repo,
+		});
+	});
+
+	it("where the common dir is not named .git, mainCheckout() names none and the rest name the toplevel", () => {
+		expect(readCheckouts(sep)).toEqual({
+			main: null,
+			adopter: sep,
+			js: sep,
+			sh: sep,
+			py: sep,
+		});
 	});
 });
 

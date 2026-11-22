@@ -418,7 +418,19 @@ describe("selfPluginSetup (#2461)", () => {
 	});
 
 	it.each([
+		["the main checkout", () => checkout("main")],
 		["a worktree", () => worktreeOf(checkout("main"))],
+		[
+			"a checkout whose common dir is not named .git",
+			() => {
+				const at = path.join(fs.realpathSync(host), "sep");
+				fs.mkdirSync(at);
+				git(at, "init", "-q", "--separate-git-dir", path.join(host, "sep.git"));
+				git(at, "config", "user.email", "test@example.com");
+				git(at, "config", "user.name", "test");
+				return at;
+			},
+		],
 		["no git checkout", () => host],
 	])("is the line the canary prints from %s", (_, rootOf) => {
 		const root = rootOf();
