@@ -47,14 +47,13 @@
  *
  * GIVEN THE AGENT'S OWN LOG (`--log`, the launch result's `output_file`),
  * EVERY CHECK READS IT AHEAD OF THE GROWTH TEST (lib/subagent-log-state.js).
- * A log reading stopped is DONE (#5496), so an agent that finished without
- * writing its artefact never draws a false STALLED; the log is also read
- * between checks, every LOG_POLL_MS or a quarter interval if shorter, so the
- * wait after an agent finishes is seconds, not two intervals. A call in
- * flight counts as growth (#5421), so an agent waiting on a long tool call or
- * model turn never draws STALLED or MISSING, and a hung one draws CEILING. A
- * log that will not read is judged on growth alone, said once on stderr.
- * Without a log, it cannot tell a stalled agent from a finished one.
+ * A log reading stopped is DONE (#5496); the log is also read between
+ * checks, every LOG_POLL_MS or a quarter interval if shorter, so the wait
+ * after an agent finishes is seconds, not two intervals. A call in flight
+ * counts as growth (#5421), so an agent waiting on a long tool call or model
+ * turn never draws STALLED or MISSING, and a hung one draws CEILING. A log
+ * that will not read is judged on growth alone, said once on stderr. Without
+ * a log, it cannot tell a stalled agent from a finished one.
  *
  * Joins no §N3 family: it is a tool an agent runs, not a check, guard,
  * generator or reporter, and its exit codes are its verdicts.
