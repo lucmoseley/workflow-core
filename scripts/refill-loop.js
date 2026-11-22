@@ -701,8 +701,9 @@ function status({ flags }) {
 		budgetOf,
 		at,
 	});
-	const codeSha =
+	const running =
 		pid === null ? null : refillCode.readRunningCode(pid, files.code);
+	const codeSha = running !== null && "code" in running ? running.code : null;
 	if (flags["--json"]) {
 		say(
 			JSON.stringify(

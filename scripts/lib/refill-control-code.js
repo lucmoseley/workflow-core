@@ -39,18 +39,28 @@ function throughBootLink(file) {
 	return path.join(bootLinkOf(codeDir), ...inTip);
 }
 
-/** @param {number} pid */
+/**
+ * @param {number} pid
+ * @returns {{program: string}|{unread: string}}
+ */
 function readRunningProgram(pid) {
 	try {
-		const arg = fs
+		const argv = fs
 			.readFileSync(`${procRoot()}/${pid}/cmdline`, "utf8")
-			.split("\0")
-			.find((a) => path.basename(a) === PROGRAM_NAME);
+			.split("\0");
+		const arg = argv.find((a) => path.basename(a) === PROGRAM_NAME);
 		return arg
-			? path.resolve(fs.readlinkSync(`${procRoot()}/${pid}/cwd`), arg)
-			: null;
+			? {
+					program: path.resolve(
+						fs.readlinkSync(`${procRoot()}/${pid}/cwd`),
+						arg,
+					),
+				}
+			: {
+					unread: `pid ${pid} runs no ${PROGRAM_NAME}: "${argv.join(" ").trim()}"`,
+				};
 	} catch (err) {
-		if (isGone(err)) return null;
+		if (isGone(err)) return { unread: `pid ${pid} is gone` };
 		throw err;
 	}
 }
@@ -60,8 +70,9 @@ function readRunningProgram(pid) {
  * @param {string} codeDir
  */
 function readControlProgram(pid, codeDir) {
+	const running = pid === null ? null : readRunningProgram(pid);
 	const candidates = [
-		pid === null ? null : readRunningProgram(pid),
+		running !== null && "program" in running ? running.program : null,
 		bootLinkProgram(codeDir),
 	];
 	for (const program of candidates) {

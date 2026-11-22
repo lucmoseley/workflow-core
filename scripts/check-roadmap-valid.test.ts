@@ -322,6 +322,12 @@ describe("check-roadmap-valid", () => {
 			git("rm", "-q", HTML);
 		});
 
+		const expectUnreadableRoadmap = () => {
+			const r = check();
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(`cannot read the staged ${HTML}`);
+		};
+
 		it("SKIPs where the same commit's staged config drops the module", () => {
 			stage(".claude/workflow-core.json", '{ "modules": [] }\n');
 			const r = check();
@@ -329,19 +335,19 @@ describe("check-roadmap-valid", () => {
 			expect(r.stderr).toContain(`SKIP: this commit deletes ${HTML}`);
 		});
 
-		it("stays BROKEN where the staged config keeps the module", () => {
+		it("stays BROKEN, naming the unreadable staged roadmap, where the staged config keeps the module", () => {
 			stage(
 				".claude/workflow-core.json",
 				'{ "modules": ["roadmap", "landing"] }\n',
 			);
-			expect(check().status).toBe(2);
+			expectUnreadableRoadmap();
 		});
 
-		it("stays BROKEN where the staged config is unchanged", () => {
-			expect(check().status).toBe(2);
+		it("stays BROKEN, naming the unreadable staged roadmap, where the staged config is unchanged", () => {
+			expectUnreadableRoadmap();
 		});
 
-		it("stays BROKEN where HEAD's config never listed the module", () => {
+		it("stays BROKEN, naming the unreadable staged roadmap, where HEAD's config never listed the module", () => {
 			stage(".claude/workflow-core.json", '{ "modules": [] }\n');
 			git(
 				"commit",
@@ -351,7 +357,7 @@ describe("check-roadmap-valid", () => {
 				"--",
 				".claude/workflow-core.json",
 			);
-			expect(check().status).toBe(2);
+			expectUnreadableRoadmap();
 		});
 	});
 
