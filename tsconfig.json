@@ -11,8 +11,8 @@
 		// Every .js in the program is checked, rather than opting in file by file
 		// with `// @ts-check` — §N8's terminus (mantahostels#1396, reached at mantahostels#1464, which
 		// removed the pragmas and the ratchet that demanded them). A file that
-		// cannot meet the bar carries `// @ts-nocheck` and owes a reason;
-		// scripts/check-scripts-typecheck.js reports any that does.
+		// cannot meet the bar is converted, never silenced with `// @ts-nocheck`;
+		// scripts/check-scripts-typecheck.js reports any that is.
 		"checkJs": true,
 		"skipLibCheck": true,
 		"strict": true,

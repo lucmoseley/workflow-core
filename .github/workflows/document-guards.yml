@@ -126,9 +126,8 @@ jobs:
         run: node scripts/check-doc-map-markers.js
 
       # Every scripts/ .js that has silenced the type checker with
-      # `// @ts-nocheck`, and whether it said why (mantahostels#1464). --full adds each
-      # file's size and its declared reason to the bare list the SessionStart
-      # hook prints. WARN and never gates.
+      # `// @ts-nocheck` (mantahostels#1464). --full adds each file's size to the
+      # bare list the SessionStart hook prints. WARN and never gates.
       - name: Report which scripts/ files have silenced the type checker
         if: ${{ !cancelled() }}
         run: node scripts/check-scripts-typecheck.js --full
