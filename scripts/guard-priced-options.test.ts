@@ -90,11 +90,6 @@ function transcriptWith(text: string, extra: object[] = []): string {
 	return file;
 }
 
-/*
- * The needs-input check keys off CLAUDE_JOB_DIR, which vitest inherits when the
- * suite is itself run from a background job. Every runner below sets it
- * explicitly.
- */
 /** One channel (mantahostels#2350): `reason` carries the whole correction. */
 type Block = StopBlock;
 

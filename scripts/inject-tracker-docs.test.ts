@@ -32,7 +32,6 @@ afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 const ENV = {
 	...process.env,
 	CLAUDE_PROJECT_DIR: ROOT,
-	CLAUDE_JOB_DIR: "",
 	CLAUDE_CODE_SESSION_ID: "",
 	TMPDIR: SCRATCH,
 	CLAUDE_CONFIG_DIR: SCRATCH,

@@ -68,7 +68,6 @@ const injected = (() => {
 			...process.env,
 			CLAUDE_PROJECT_DIR: SCRATCH,
 			CLAUDE_CONFIG_DIR: SCRATCH,
-			CLAUDE_JOB_DIR: "",
 			CLAUDE_CODE_SESSION_ID: "",
 			TMPDIR: SCRATCH,
 			WFC_GH: "false",
