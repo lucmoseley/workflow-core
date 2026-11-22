@@ -11,8 +11,6 @@
 const { claimByArbiter, releaseByArbiter } = require("./script-claim.js");
 const { writeFd } = require("./write-fd.js");
 
-/** Flags every generator accepts that take a value, so the positional-arg
- * filter skips both the flag and what follows it. */
 const VALUE_FLAGS = ["--data-dir", "--claim-cmd", "--release-cmd"];
 
 /**

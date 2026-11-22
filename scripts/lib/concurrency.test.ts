@@ -1,9 +1,3 @@
-/*
- * concurrency.test.ts — lib/concurrency.js's tick record, readout and status read (#3317).
- * A break here names the wrong limit when the founder asks why only N
- * sessions run.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,15 +20,12 @@ const {
 const T0 = Date.parse("2026-10-28T00:00:00Z");
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
-/* The module's own staleness bound, which a tick past reads as loop off. */
 const STALE_MS = 15 * MIN;
 const iso = (ms: number) => new Date(ms).toISOString();
-/* A live reader a fresh tick must never call. */
 const unread = () => {
 	throw new Error("read admission over a fresh tick");
 };
 
-/* A tick that moved no session after its read, the case nearly every test reads. */
 const record = (
 	tick: Omit<Parameters<typeof buildTickRecord>[0], "liveChange" | "agents">,
 ) => buildTickRecord({ ...tick, liveChange: 0, agents: null });
@@ -101,7 +92,6 @@ describe("readout's time weighting (#3317)", () => {
 				minute(T0 + 4 * MIN, 0),
 			],
 			now: T0 + 5 * MIN,
-			// 2 for 1 min, 6 for 3 min: (2 + 18) / 4.
 			sustained: 5,
 			activeHours: 4 / 60,
 		},
@@ -120,7 +110,6 @@ describe("readout's time weighting (#3317)", () => {
 			name: "ends a line 15 minutes on where the recorder fell silent",
 			minutes: [minute(T0, 4), minute(T0 + 2 * HOUR, 2)],
 			now: T0 + 2 * HOUR + 15 * MIN,
-			// 4 for 15 min, 2 for 15 min.
 			sustained: 3,
 			activeHours: 0.5,
 		},
@@ -259,8 +248,6 @@ describe("the unlisted watch (#3322, #3496, #3507)", () => {
 		unknown,
 		dirs: [],
 	});
-	/** The block over one tick `age` old keeping `kept`, admission read now
-	 * answering `live`. */
 	const block = (age: number, kept: unknown, live: unknown = unread) =>
 		buildBlockText(
 			readout({

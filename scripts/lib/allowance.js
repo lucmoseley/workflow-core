@@ -1,31 +1,11 @@
-/*
- * allowance.js — the shared reader `dispatch-sessions.js`'s gate and
- * `admission.js`'s per-spawn re-read both want (#293, #294).
- *
- * Reads `cachedUsageUtilization.utilization.limits`, through
- * `usage-cache.js`, out of `.claude.json` under `lib/config-dir.js`'s dir, matching
- * `kind: "session"` for the 5-hour bar and `kind: "weekly_all"` for the week
- * bar (#280). Falls back, per bar, to a printed `claude -p "/usage"`
- * transcript when the JSON reading for that bar is not `fresh`.
- *
- * A bar the account does not report reads UNREPORTED, never ABSENT: a source
- * that read fresh named other bars and not this one, as a plan with no
- * 5-hour bar reads (#3758).
- *
- * Returns raw figures and a TRUST verdict, never a ceiling verdict (#293
- * ruling 2): each caller owns its own ceilings and its own refusal text.
- */
-
 const { configDir: defaultConfigDir } = require("./config-dir.js");
 const { hasResetPassed, readUsageCache } = require("./usage-cache.js");
 const { requiredGroup } = require("./regex-group.js");
 
-/** A usage line's share used, as a whole percent. */
 const USED_RE = /(?<![0-9])([0-9]+)% used/;
-/** A usage line's reset time, to the end of the line. */
 const RESETS_RE = /resets (.*)$/;
 
-/** A cached reading older than this is stale (#280 ruling 3). */
+// guess, #280
 const STALE_MS = 5 * 60 * 1000;
 
 /** @typedef {{ percent: number, severity: string | null, resetsAt: string | null, fetchedAtMs: number | null }} RawBar */
@@ -38,8 +18,6 @@ const KINDS = /** @type {const} */ ({
 });
 
 /**
- * Both non-`ok` cache states read as no bar, so `trustOf` calls it ABSENT —
- * never a thrown error, since this runs on the dispatch path (#377 ruling 3).
  * @param {import("./usage-cache.js").UsageCache} cache
  * @param {string} kind
  * @returns {RawBar | null}
@@ -57,9 +35,6 @@ function barFromCache(cache, kind) {
 }
 
 /**
- * Whether a JSON-sourced bar is trustworthy: its cache stamp is under 5
- * minutes old AND its own `resetsAt` has not already passed (#280 ruling 3).
- * A bar with no `fetchedAtMs` at all reads as stale rather than fresh.
  * @param {RawBar | null} bar
  * @param {number} now
  * @returns {"fresh" | "stale" | "absent"}
@@ -73,9 +48,6 @@ function trustOf(bar, now) {
 }
 
 /**
- * The one bar's worth of the printed `claude -p "/usage"` transcript. A
- * live parse reads as FRESH: the text just came off a call that ran seconds
- * ago, so there is no separate age to judge.
  * @param {string} usageText
  * @param {string} textPrefix
  * @returns {RawBar | null}
@@ -97,9 +69,6 @@ function parseBar(usageText, textPrefix) {
 }
 
 /**
- * No automatic retry — reaching `absent` here means something is genuinely
- * wrong, not momentarily absent.
- *
  * @param {{ configDir?: string, usageText?: string, now?: number }} [opts]
  * @returns {{ session: Bar, weekly_all: Bar }}
  */
@@ -126,9 +95,7 @@ function readAllowance(opts = {}) {
 			trust: isUnreported(kind) ? "unreported" : "absent",
 		};
 	};
-	/** Whether a source that read fresh names some other bar but not `kind`.
-	 * A bar listed with no percent is a misread, not an unreported bar.
-	 * @param {"session" | "weekly_all"} kind */
+	/** @param {"session" | "weekly_all"} kind */
 	const isUnreported = (kind) => {
 		const others = Object.values(KINDS).filter((k) => k.kind !== kind);
 		if (
@@ -149,18 +116,11 @@ function readAllowance(opts = {}) {
 	return result;
 }
 
-/**
- * Whether printed `/usage` text carries a week figure.
- * @param {string} usageText
- */
+/** @param {string} usageText */
 const printsWeek = (usageText) =>
 	parseBar(usageText, KINDS.weekly_all.textPrefix) !== null;
 
-/**
- * Whether a reading can size a launch: every bar fresh or one the account
- * does not report, and at least one fresh (#3758).
- * @param {{ session: Bar, weekly_all: Bar }} result
- */
+/** @param {{ session: Bar, weekly_all: Bar }} result */
 function isTrustworthy(result) {
 	const bars = [result.session, result.weekly_all];
 	return (
@@ -170,8 +130,6 @@ function isTrustworthy(result) {
 }
 
 /**
- * The percent a launch is sized on: a fresh bar's own, 0 for a bar the
- * account does not report, and null for a reading that cannot be trusted.
  * @param {Bar} bar
  * @returns {number | null}
  */
@@ -180,12 +138,7 @@ function sizedPercent(bar) {
 	return bar.trust === "fresh" ? bar.percent : null;
 }
 
-/*
- * Bar points per dollar of list-price spend (#370). Updated BY HAND from
- * `scripts/measure-points-per-usd.js`, which prints one rate per seat and bar
- * and writes nothing (#380): each is a single snapshot, and which to trust is
- * a judgement.
- */
+// measured, #380
 const POINTS_PER_USD = /** @type {const} */ ({
 	session: 0.47,
 	weekly_all: 0.054,
@@ -194,7 +147,6 @@ const POINTS_PER_USD = /** @type {const} */ ({
 /** @typedef {"session" | "weekly_all"} BarKey */
 
 /**
- * Whether a bar is at or past its threshold, where the cap applies.
  * @param {BarKey} bar
  * @param {Record<BarKey, number>} readings
  * @param {Record<BarKey, number>} thresholds
@@ -207,28 +159,12 @@ const isWarned = (bar, readings, thresholds) =>
  * @property {BarKey} bar
  * @property {number} reading
  * @property {number} threshold
- * @property {number} runningPoints  projected remaining spend of sessions already running
+ * @property {number} runningPoints
  * @property {number} perSessionPoints
- * @property {number} fits  members that just reach 100% of the bar, at least one under 100%
+ * @property {number} fits
  */
 
 /**
- * How many of `members` launch. Per bar at or past its threshold, headroom is
- * 100 − reading − running sessions' projected spend, and the members that fit
- * are the shortest prefix whose cumulative spend reaches it — X =
- * ceil(headroom / figure), so the allowance is spent to the limit. A bar reading under 100% has room by definition,
- * so it launches at least one even where the running sessions' projection
- * fills the headroom; only a bar at 100% launches none. Both reverse
- * #371's X−1, the ruling recorded there. Residual:
- * the last member under X, and any member on the floor, is projected past
- * 100% and may hit the rate limit mid-work; each dispatch call applies the
- * floor afresh. The products are compared with a tolerance, so a rounding
- * error never buys a member past X. The smaller count across warned bars
- * binds; below both thresholds the whole set launches. The prefix is the set's
- * own order, `/pick-next` §4's, with no skip-ahead (#371 items 3-4).
- * `floored` is true where the launch is the floor's member alone, which the
- * refill loop reads as none (#2425).
- *
  * @param {{ readings: Record<BarKey, number>, thresholds: Record<BarKey, number>, members: number, runningPoints: Record<BarKey, number>, perSessionPoints: Record<BarKey, number> }} opts
  * @returns {{ launch: number, floored: boolean, binding: BarCap | null, warned: BarCap[] }}
  */

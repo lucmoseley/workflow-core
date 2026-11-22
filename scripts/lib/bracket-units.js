@@ -1,9 +1,3 @@
-/*
- * bracket-units.js — a glob-like pattern's characters, each closed `[…]` one
- * unit, read in one pass. The regex `/\[[^\]]*\]|./gs` re-reads the rest of
- * the input from every unclosed `[`, so a run of them costs seconds (#3383).
- */
-
 /**
  * @param {string} pattern
  * @returns {string[]}

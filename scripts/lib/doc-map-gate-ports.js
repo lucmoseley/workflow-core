@@ -1,12 +1,3 @@
-/*
- * doc-map-gate-ports.js — the production adapters of lib/doc-map-gate.js's
- * ports (#5155): git in the hook's cwd and index, and the checker scripts run
- * under this node. lib/doc-map-gate-program.js wires them to the core as the
- * pre-commit dispatcher's doc-map row (#5172). doc-map-gate-fake.ts is the
- * test fake, and doc-map-gate.contract.test.ts holds the two to one verdict
- * (base §G7).
- */
-
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -16,23 +7,15 @@ const { gitBinary, gitSpawnOptions } = require("./git.js");
 const { substituted } = require("./precommit-gate-verdicts.js");
 
 /**
- * A finished child's exit as sh's `$?` reads it: 128 + the signal's number
- * where a signal ended it, so an OOM kill reads 137, never a clean 1.
  * @param {import("node:child_process").SpawnSyncReturns<unknown>} run
- * @param {number} otherwise where neither a status nor a signal is known
+ * @param {number} otherwise
  */
 const shellStatus = (run, otherwise) =>
 	run.status ??
 	(run.signal ? 128 + os.constants.signals[run.signal] : otherwise);
 
-/** The signals sh's trap caught. */
 const HOOK_SIGNALS = new Set(["SIGHUP", "SIGINT", "SIGTERM"]);
 
-/**
- * Thrown where a hook signal ended a child. A signal sent to the hook's process
- * group reaches the gate while spawnSync blocks, and Node's listeners run only
- * once the gate returns, so the child's death is the gate's sign of it.
- */
 class Interrupted extends Error {
 	/** @param {NodeJS.Signals} signal */
 	constructor(signal) {
@@ -42,7 +25,6 @@ class Interrupted extends Error {
 }
 
 /**
- * `run`, unless a hook signal ended it.
  * @template {import("node:child_process").SpawnSyncReturns<unknown>} T
  * @param {T} run
  * @returns {T}
@@ -55,18 +37,14 @@ function uninterrupted(run) {
 
 /**
  * @param {string} scripts
- * @param {string[]} made accumulator: each scratch directory made, for the
- *   caller to remove
- * @param {{ cwd: string, env: NodeJS.ProcessEnv }} host the repo's top, every
- *   child's working directory, and the hook's environment, every child's base
+ * @param {string[]} made
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv }} host
  * @returns {import("./doc-map-gate.js").DocMapGatePorts}
  */
 function realPorts(scripts, made, { cwd, env }) {
 	/**
-	 * git, unmemoised: the gate swaps GIT_INDEX_FILE between reads, which
-	 * lib/git.js's read memo does not key on.
 	 * @param {string[]} args
-	 * @param {Record<string, string>} [extra] added to the hook's own
+	 * @param {Record<string, string>} [extra]
 	 */
 	const git = (args, extra) =>
 		spawnSync(
@@ -80,7 +58,6 @@ function realPorts(scripts, made, { cwd, env }) {
 		);
 
 	/**
-	 * `script` under this node, its stdout (and its stderr where `err`) into `out`.
 	 * @param {string} script
 	 * @param {string[]} args
 	 * @param {string} out
@@ -166,8 +143,6 @@ function realPorts(scripts, made, { cwd, env }) {
 					},
 				),
 			);
-			// No status is a comparison that could not answer, which the verdict
-			// reads as such whatever the code.
 			return {
 				status: shellStatus(run, 2),
 				stdout: run.stdout ?? "",

@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/claude-sessions.sh and lib/claude-sessions.js, the shell and Node
- * twins of lib/claude_sessions.py, by one case list run against both: one
- * session per Claude `bg-pty-host`, less the daemon's unclaimed spare (#1798).
- * The spare's cwd is a lib/proc-fake.ts `cwd` link pointing at its claim
- * socket's directory, as the daemon leaves one, which both twins read through
- * WFC_PROC (#3608) — the Node twin through its production adapter,
- * readProcCwd. One shell case reads the kernel's own link off a live
- * process, since proc.contract.test.ts holds only the Node reader to the
- * kernel. sparePairs, which has no shell twin, runs its own cases below on a
- * stub cwd reader.
- *
- * Break it and record-divergence.js's `sessions` column and the shell-start
- * warning read one high for as long as the daemon runs.
- */
 
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -82,7 +67,6 @@ describe.each([
 	["countSessions", countJs],
 ])("%s", (_name, count) => {
 	it("leaves out a host whose bg-spare still sits in its claim socket's directory (#1798)", () => {
-		// 999_999 has no cwd link, so this child reads as claimed.
 		const rows = [host(10, "a"), child(999_999, 10, "a")];
 		rows.push(host(20, "b"), child(31, 20, "b"));
 		expect(count(rows)).toBe("1");
@@ -118,8 +102,6 @@ describe.each([
 	});
 });
 
-// The shell twin's caller passes a column; the Node twin reads `ps -eo
-// pid=,ppid=,args=` alone.
 describe("wfc_session_count", () => {
 	it("reads argv from the column it is told, past an rss column", () => {
 		expect(countSh(["10 1 524288 claude bg-pty-host --job x"], 4)).toBe("1");
@@ -128,9 +110,7 @@ describe("wfc_session_count", () => {
 	it.skipIf(!fs.existsSync("/proc/self/cwd"))(
 		"compares a live spare's kernel cwd link by inode",
 		() => {
-			// The spare directory's realpath, as the daemon's cwd would read.
 			const real = fs.realpathSync(spareDir);
-			// 60 s only has to outlive this case; the finally kills it sooner.
 			const sleeper = spawn("sleep", ["60"], { cwd: real, stdio: "ignore" });
 			try {
 				const pid = sleeper.pid as number;

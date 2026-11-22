@@ -1,27 +1,7 @@
-/*
- * divergence-row-host.js — the production ports record-divergence.js wires
- * into its core, lib/divergence-row.js (#2797), and the append that files the
- * row it returns.
- *
- * A PRODUCTION ADAPTER (base §T7): it touches git through lib/git.js and
- * lib/git-tree.js, the workflow-core config through lib/landing-refs.js in
- * process, `ps` at WFC_PS, /proc through lib/claude-sessions.js, the
- * filesystem, the env it is handed for WFC_NO_DIVERGENCE_LOG and WFC_PS, and
- * lib/check.js's now() for the clock.
- *
- * Every module past node:fs loads where a refusal first needs it,
- * landing-refs.js and arbiter-core.js the heaviest: a load at the top is paid
- * on every git call (#2899).
- */
-
 const fs = require("node:fs");
 const { ignoreFailure } = require("./caught.js");
 
-/**
- * Git's stdout less trailing newlines, as a shell `$(…)` reads it; null where
- * git would not answer in the hook's ceiling.
- * @param {string[]} args
- */
+/** @param {string[]} args */
 const git = (args) => {
 	const { gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 	const out = gitOrNull(args, { timeout: HOOK_GIT_TIMEOUT_MS });
@@ -29,9 +9,6 @@ const git = (args) => {
 };
 
 /**
- * The session count off `ps` at WFC_PS, null where it will not run or exits
- * non-zero. Bounded as a hook's git read is, the same reason holding: a hook
- * that blocks costs every git call on the machine.
  * @param {string} ps
  * @returns {number | null}
  */
@@ -50,13 +27,7 @@ function sessionsOff(ps) {
 	return countSessions(r.stdout, (pid) => readProcCwd(pid));
 }
 
-/**
- * lib/check.js's clock, loaded where a row first needs it. A WFC_NOW that will
- * not parse is the wall clock, since dropping the row loses the observation
- * (#2797). RESIDUAL: the stamp is durable, so a session exporting WFC_NOW
- * stamps its rows at that time (mantahostels#2161).
- * @returns {Date}
- */
+/** @returns {Date} */
 const clock = () => {
 	const { now } = require("./check.js");
 	try {
@@ -78,8 +49,6 @@ function buildHostPorts(env) {
 			try {
 				return fs.statSync(p).isDirectory();
 			} catch {
-				/* Absent or unreadable alike drop the row: the lower bound
-				 * record-divergence.js's LIMITS name (#2797). */
 				return false;
 			}
 		},
@@ -108,17 +77,10 @@ function buildHostPorts(env) {
 	};
 }
 
-/**
- * Append the row, creating its directory; the core's null writes nothing. A
- * write that fails is silent: an unwritable log directory shows in the row
- * count against the other repo's.
- * @param {import("./divergence-row.js").Row | null} row
- */
+/** @param {import("./divergence-row.js").Row | null} row */
 function appendRow(row) {
 	if (!row) return;
 	const { dir, file, line } = row;
-	/* Silent by design (#289): a refused pull that costs a second failure
-	 * is worse than one observation lost. */
 	ignoreFailure(() => {
 		fs.mkdirSync(dir, { recursive: true });
 		fs.appendFileSync(file, line);

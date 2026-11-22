@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * arbiter-ledger.js's own suite: a ledger is swept only once its session is
- * provably finished, never on age alone, and the commit and selection ledgers
- * answer who made a commit, which paths its commits touched and who quoted a
- * path, and the acts ledger what else a session did (mantahostels#137, #1154,
- * #1220, #2308, #2390).
- *
- * Each case runs in arbiter-testkit's sandbox with sessions registered live or
- * finished by hand and ledgers backdated on disk, so a week's ageing is one
- * `utimes` call rather than a wait.
- *
- * The `Stop` guards that name a session's own uncommitted edits and unpushed
- * commits read these ledgers: loosen a case here and a running session's
- * ledger is swept and its work goes unattributed, or a neighbour's is pinned
- * on it.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,21 +20,13 @@ import { ignoreFailure } from "./caught.js";
 
 const sb = freshSandbox();
 
-/** What the post-write core records on PostToolUse. */
 const record = (rel: string, sessionId: string) =>
 	store.recordWrite(path.join(sb.repo, rel), sessionId);
 
-/** Past LEDGER_AGE_MS (7 days). */
 const backdate = (file: string) => {
 	const when = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
 	fs.utimesSync(file, when, when);
 };
-
-/*
- * mantahostels#137. mtime is a session's LAST write, not its first, and a resumed session
- * keeps its id across a quiet week — so an age-only sweep deleted the ledger of
- * a session that was still running, and `writes` then answered empty for it.
- */
 
 describe("ledger sweep — age alone does not make a ledger dead", () => {
 	const age = (sessionId: string) => backdate(store.paths.ledger(sessionId));
@@ -58,7 +34,6 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 	const exists = (sessionId: string) =>
 		fs.existsSync(store.paths.ledger(sessionId));
 
-	/** A new session's first write, which is what runs the sweep. */
 	let writers = 0;
 	const sweep = () => record("docs/first.md", `first-writer-${writers++}`);
 
@@ -74,8 +49,6 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 	});
 
 	it("still sweeps a finished session's aged ledger", () => {
-		// The directory must stay bounded — sparing everything would trade one
-		// leak for another.
 		record("docs/theirs.md", "bob");
 		finished(sb, "bob");
 		age("bob");
@@ -104,7 +77,6 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 	});
 
 	it("reproduces the reported path: another session's first write sweeps nothing live", () => {
-		// recordWrite fires the sweep whenever ANY session mints its first ledger.
 		record("docs/mine.md", "alice");
 		live(sb, "alice");
 		age("alice");
@@ -115,9 +87,6 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 	});
 
 	it("counts a session whose liveness cannot be proved as live", () => {
-		// identify() treats a missing procStart as not-alive, because a lock minted
-		// on it would wedge a file for good. The costs invert here: keeping a
-		// finished session's ledger only wastes bytes.
 		record("docs/mine.md", "alice");
 		registerSession(sb, "alice", process.pid, { procStart: null });
 		age("alice");
@@ -127,8 +96,6 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 		expect(exists("alice")).toBe(true);
 	});
 
-	// Kept beside arbiter-sweep.test.ts's case for every other family (§X7,
-	// #1372): recordWrite runs this sweep, never pruneAll, so that case misses it.
 	it("deletes nothing when the registry itself cannot be read", () => {
 		record("docs/mine.md", "alice");
 		age("alice");
@@ -143,8 +110,6 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 	});
 
 	it("logs the unreadable registry, so a sweep that stopped is visible", () => {
-		// Otherwise the sweep disables itself for as long as the registry stays
-		// unreadable, with nothing for check-guard-errors to show.
 		record("docs/mine.md", "alice");
 		fs.chmodSync(path.join(sb.home, "sessions"), 0o000);
 		try {
@@ -157,7 +122,6 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 	});
 
 	it("sweeps normally on a machine with no sessions registry", () => {
-		// Absent is not unreadable: nothing was ever registered, so nothing is live.
 		record("docs/ghost.md", "alice");
 		age("alice");
 		fs.rmSync(path.join(sb.home, "sessions"), { recursive: true, force: true });
@@ -232,7 +196,6 @@ describe("readBilledPathsBy — the paths a session wrote or its commits touched
 		git("checkout", "-q", "-");
 		fs.writeFileSync(both, "mine\n");
 		commitFile("scripts/a.js");
-		// Throws on the conflict on docs/both.md, resolved and committed below.
 		ignoreFailure(() => git("merge", "-q", "theirs"));
 		fs.writeFileSync(both, "resolved\n");
 		commitAll(sb, "merge");
@@ -413,12 +376,10 @@ describe("the acts ledger (#2308)", () => {
 	it("is pruned with the commit ledger, sparing a live session", () => {
 		store.recordAct("close owner/repo#1", "alice");
 		store.recordAct("close owner/repo#2", "bob");
-		// bob is registered nowhere, so read as finished.
 		live(sb, "alice");
 		backdate(store.paths.actLedger("alice", sb.repo));
 		backdate(store.paths.actLedger("bob", sb.repo));
 
-		// A third session's first commit runs the commit ledger's sweep.
 		store.recordCommit(commitSha, "carol");
 
 		expect(fs.existsSync(store.paths.actLedger("alice", sb.repo))).toBe(true);

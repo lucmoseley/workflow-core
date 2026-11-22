@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Judges each shape (#5455, #5477, #5490) on judgeSource alone, so a
- * shape's verdict is read without a git repo. A shape that drifts here
- * refuses a permitted comment, or lets prose through, in every adopter's
- * commit once the module is on.
- */
 
 import { describe, expect, it } from "vitest";
 import { depsPattern, judgeSource, langOf } from "./comment-policy.js";

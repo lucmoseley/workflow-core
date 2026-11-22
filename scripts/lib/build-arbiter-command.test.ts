@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * Every guard's recovery line prints through the tag (#3990), so a loosened case
- * hands a session a command its shell splits.
- */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildArbiterCommand } from "./build-arbiter-command.js";
@@ -51,7 +47,6 @@ describe("buildArbiterCommand", () => {
 		);
 	});
 
-	/* No package.json at the root is what an install looks like (script-path.js). */
 	it("spells the arbiter at the plugin root in an install", () => {
 		vi.stubEnv("WFC_SCRIPT_ROOT", "/plugin/cache/core");
 		expect(buildArbiterCommand`list --all`).toBe(

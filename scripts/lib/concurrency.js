@@ -1,30 +1,3 @@
-/*
- * concurrency.js — the record and readout that answer "why only N sessions?"
- * (#2497, spec #3315).
- *
- * TWO RECORDS, EACH WRITTEN WHERE ITS FACT IS KNOWN. The refill loop appends
- * one line per tick to `concurrency.jsonl` beside its other files
- * (lib/refill-dir.js): the live and working counts, the admission ceiling, the binding
- * limit, every other failing limit, the memory figures behind them, and each
- * other seat's sessions in needs input.
- * Sustained concurrency comes from memwatch's minute record instead
- * (docs/environment.md §4, #3214), its `sessions` field, which keeps
- * recording while the loop is off (#3215).
- *
- * TIME-WEIGHTED. A minute line counts until the next one, and a tick's
- * verdict stands until the next tick; a gap past STALE_MS ends either, the
- * recorder or the loop being off. Sustained concurrency averages only the
- * minutes some session works (.claude/workflow-core.glossary.md, Sustained concurrency).
- *
- * THE VERDICT is the first failing limit in a fixed order, the order the
- * checks below run in: loop not running, empty frontier or probe hold, allowance,
- * memory, Windows memory, CPU: gates on the loop and on policy before resource
- * fit (#2497). Every other failing limit follows it as "also".
- *
- * `buildVerdict`, `readout` and `buildBlockText` are pure; the file functions below them
- * never throw.
- */
-
 const path = require("node:path");
 const { heldFields } = require("./admission-figures.js");
 const { caught } = require("./caught.js");
@@ -45,18 +18,14 @@ const { minuteLogPath } = require("./windows-memory.js");
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
-/* A verdict older than this reads as the loop not running; untraced (#2497). */
+// guess, #2497
 const STALE_MS = 15 * MINUTE_MS;
-/* Matched to memwatch's minute record (MEMWATCH_MINUTE_DAYS), so the 7-day
- * review window always has both records. */
 const RETAIN_MS = 28 * DAY_MS;
 
 const LOOP_OFF = "loop not running";
 const WINDOWS_MEMORY = "Windows memory";
-/* Where no limit fails: a slot is free and the loop launches into it. */
 const NONE = "none";
-/* The spread's top bucket; a count at or past it shares one. Untraced
- * (#3315). */
+// guess, #3315
 const SPREAD_CAP = 10;
 
 /** @typedef {{limit: string, why: string}} Failing */
@@ -64,44 +33,27 @@ const SPREAD_CAP = 10;
 /**
  * @typedef {object} TickRecord
  * @property {string} at
- * @property {number|null} live admission's live-session count, the founder's
- *   own session included, plus what the tick started and less what it stopped
- *   after that read (#3770, #3778); one started that dies still counts until
- *   the next tick's read
- * @property {number|null} ceiling admission's live count plus its slots,
- *   which a start or stop does not move
- * @property {number|null} working the tick's agents listing's sessions in
- *   state `working`, the agents view's own count (#4747); null where the
- *   listing went unread
- * @property {Waiting[]|null} [waiting] the listing's sessions in state
- *   `needs_input` on each seat but the one the founder last typed on, every
- *   seat where none is recorded (#5293); null where the listing went unread
+ * @property {number|null} live
+ * @property {number|null} ceiling
+ * @property {number|null} working
+ * @property {Waiting[]|null} [waiting]
  * @property {Failing|null} binding
  * @property {Failing[]} also
  * @property {TickMemory|null} memory
  */
-/**
- * @typedef {{seat: string, count: number, cwd: string|null}} Waiting  a seat
- *   holding sessions in needs input: how many, and the first one's cwd, which
- *   picks the alias that opens that seat's view (lib/seat-aliases.js)
- */
+/** @typedef {{seat: string, count: number, cwd: string|null}} Waiting */
 /** @typedef {import("./admission.js").AdmissionJson} AdmissionJson */
 /** @typedef {ReturnType<typeof buildTickMemory>} TickMemory */
 
 /** @typedef {{ts: string, sessions: number|null, load1?: number|null}} MinuteLine */
 /** @typedef {{dir: string, count: number}} UnlistedDir */
-/** The breakdown's unlisted row; `count` null where it went unread, `unknown`
- * then saying why where known.
- * @typedef {{count: number|null, mb: number|null, unknown?: string|null}} UnlistedRead */
+/** @typedef {{count: number|null, mb: number|null, unknown?: string|null}} UnlistedRead */
 
 /**
- * The memory component holding most of what admission charges besides the
- * free budget.
  * @param {AdmissionJson} a
  * @returns {{name: string, mb: number}}
  */
 function largestHolder(a) {
-	/* A malformed verdict costs its rows, never a throw (#3531). */
 	const m = a.memory ?? {};
 	/** @type {[string, number|null|undefined][]} */
 	const holders = [
@@ -125,9 +77,6 @@ function largestHolder(a) {
 }
 
 /**
- * The loop's and policy's failing limits. A stop ends the loop at this tick's
- * end. The frontier and the allowance are judged only where the decision core
- * judged them: a tick with no free slot reads neither.
  * @param {import("./refill-decide.js").TickInput} input
  * @param {import("./refill-decide.js").Decision} decision
  * @returns {Failing[]}
@@ -168,10 +117,7 @@ function policyFailing(input, decision) {
 }
 
 /**
- * Admission's failing limits: memory where it prices no slot, Windows memory
- * where its charge cost the last slot or its hold is holding a queued test
- * run (#4956), CPU where the load or the session ceiling holds every one.
- * @param {AdmissionJson|null} a null where unread
+ * @param {AdmissionJson|null} a
  * @returns {Failing[]}
  */
 function resourceFailing(a) {
@@ -184,8 +130,6 @@ function resourceFailing(a) {
 		];
 	/** @type {Failing[]} */
 	const out = [];
-	/* A verdict missing a reading binds on it unknown, as unknown is never
-	 * calm (mantahostels#1206). */
 	if (
 		typeof a.slots !== "number" ||
 		typeof a.memorySlots !== "number" ||
@@ -228,11 +172,6 @@ function resourceFailing(a) {
 /** @typedef {"load" | "sessions" | "memory" | "Windows memory" | "none"} Limb */
 
 /**
- * The admission limb a tick record shows binding first: `load` or `sessions`
- * for CPU, read off resourceFailing's reason text, `memory` or
- * `Windows memory`; `none` where admission read and no limb failed. Null
- * where which limb bound is unknown: the tick read no admission, or its CPU
- * reading was missing.
  * @param {TickRecord} t
  * @returns {Limb | null}
  */
@@ -246,7 +185,6 @@ function tickLimb(t) {
 }
 
 /**
- * The limb one failing limit names: undefined where it is no admission limb.
  * @param {Failing} f
  * @param {TickRecord} t
  * @returns {Limb | null | undefined}
@@ -260,14 +198,12 @@ function failingLimb(f, t) {
 }
 
 /**
- * Every limit failing at this tick, in the verdict's order.
  * @param {Tick} tick
  * @returns {Failing[]}
  */
 function failingAt({ input, decision, admission }) {
 	return [
 		...policyFailing(input, decision),
-		/* A barred tick reads no admission, so no resource is known to bind. */
 		...(isLaunchBarred(input, input.now) ? [] : resourceFailing(admission)),
 	];
 }
@@ -277,13 +213,9 @@ function failingAt({ input, decision, admission }) {
  *   decision: import("./refill-decide.js").Decision,
  *   admission: AdmissionJson|null, liveChange: number,
  *   agents: import("./agent-liveness.js").AgentRecord[]|null}} Tick
- *   `liveChange` nets the sessions the tick started and stopped after
- *   reading `admission`; `agents` is the tick's listing
  */
 
 /**
- * Each seat but `typedSeat` holding listed sessions in needs input, in the
- * listing's order (#5293).
  * @param {import("./agent-liveness.js").AgentRecord[]} agents
  * @param {string|null} typedSeat
  * @returns {Waiting[]}
@@ -305,7 +237,6 @@ function waitingOffSeat(agents, typedSeat) {
 }
 
 /**
- * The record line for one tick.
  * @param {Tick} tick
  * @returns {TickRecord}
  */
@@ -329,10 +260,7 @@ function buildTickRecord(tick) {
 	};
 }
 
-/**
- * The memory figures a tick keeps from admission's verdict.
- * @param {AdmissionJson} a
- */
+/** @param {AdmissionJson} a */
 function buildTickMemory(a) {
 	return {
 		availableMb: a.availableMb,
@@ -361,8 +289,6 @@ function buildTickMemory(a) {
 }
 
 /**
- * The breakdown's unlisted row as a tick keeps it (#3322); null where the
- * admission read carried none.
  * @param {(Partial<UnlistedRead> & {dirs?: UnlistedDir[]})|null|undefined} u
  * @returns {UnlistedRead & {dirs: UnlistedDir[]}|null}
  */
@@ -377,7 +303,6 @@ function unlistedOf(u) {
 }
 
 /**
- * The ticks up to `now`, oldest first.
  * @param {TickRecord[]} ticks
  * @param {number} now
  */
@@ -387,12 +312,7 @@ const timedTicks = (ticks, now) =>
 		.filter(({ ms }) => Number.isFinite(ms) && ms <= now)
 		.sort((x, y) => x.ms - y.ms);
 
-/**
- * The verdict standing at `now`: the newest tick's, or the loop off where that is stale.
- * @param {{ticks: TickRecord[], now: number, unreadable?: string[]}} input
- *   `unreadable` names each record that would not read, carried through for the
- *   block to print
- */
+/** @param {{ticks: TickRecord[], now: number, unreadable?: string[]}} input */
 function buildVerdict({ ticks, now, unreadable = [] }) {
 	const last = timedTicks(ticks, now).at(-1);
 	const stale = !last || now - last.ms > STALE_MS;
@@ -413,17 +333,13 @@ function buildVerdict({ ticks, now, unreadable = [] }) {
 }
 
 /**
- * The time-weighted readout over the `windowMs` before `now`.
  * @param {{ticks: TickRecord[], minutes: MinuteLine[]|null, now: number,
- *   windowMs: number, unreadable?: string[]}} input `minutes` null where the
- *   minute record is missing or would not read, so the sustained figure is
- *   unread; `unreadable` names each record that would not read, carried
- *   through for the block to print
+ *   windowMs: number, unreadable?: string[]}} input
  */
 function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 	const from = now - windowMs;
 	const timed = timedTicks(ticks, now);
-	/** The binding limit standing at `ms`. @param {number} ms */
+	/** @param {number} ms */
 	const limitAt = (ms) => {
 		let last = null;
 		for (const x of timed) {
@@ -473,9 +389,8 @@ function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 }
 
 /**
- * `npm run status`'s concurrency block.
  * @param {ReturnType<typeof buildVerdict>} r
- * @param {() => UnlistedRead} readLive admission's unlisted row read now
+ * @param {() => UnlistedRead} readLive
  */
 function buildBlockText(r, readLive) {
 	const t = r.lastTick;
@@ -499,22 +414,13 @@ function buildBlockText(r, readLive) {
 	return lines.join("\n");
 }
 
-/**
- * Why no limit binds: the verdict is judged before the tick's launches, which
- * may have taken every slot it found free (#3770).
- * @param {TickRecord|null|undefined} t
- */
+/** @param {TickRecord|null|undefined} t */
 const buildUnboundText = (t) =>
 	t && t.live !== null && t.ceiling !== null && t.live >= t.ceiling
 		? "the last tick filled the free slots"
 		: "a slot is free; the loop launches next tick";
 
 /**
- * The unlisted watch's line (#3322), null where nothing is unlisted.
- * It reads the newest tick's row while that tick is fresh, else `readLive()`,
- * as the loop is off unless being tested (#3215, #3496). An unread row prints,
- * and so does the reason a
- * counted row's memory went unread (#3509).
  * @param {ReturnType<typeof buildVerdict>} r
  * @param {() => UnlistedRead} readLive
  */
@@ -539,10 +445,8 @@ function concurrencyFiles() {
 }
 
 /**
- * A record's rows, null where it is missing or would not read.
  * @param {string} file
- * @param {string[]} unreadable accumulator: a failed read is named here, so
- *   the block never prints it as an empty record
+ * @param {string[]} unreadable
  * @returns {Record<string, unknown>[]|null}
  */
 function readJsonLines(file, unreadable) {
@@ -557,17 +461,13 @@ function readJsonLines(file, unreadable) {
 function readTicks() {
 	/** @type {string[]} */
 	const unreadable = [];
-	/* No tick recorded is the loop off, which the verdict names. */
 	const ticks = /** @type {TickRecord[]} */ (
 		readJsonLines(concurrencyFiles().record, unreadable) ?? []
 	);
 	return { ticks, unreadable };
 }
 
-/**
- * The minute log's lines, null where it is missing or would not read.
- * @param {string[]} [unreadable] accumulator, as readJsonLines takes it
- */
+/** @param {string[]} [unreadable] */
 function readMinuteLines(unreadable = []) {
 	return /** @type {MinuteLine[]|null} */ (
 		readJsonLines(concurrencyFiles().minutes, unreadable)
@@ -579,29 +479,18 @@ function readRecords() {
 	return { ticks, minutes: readMinuteLines(unreadable), unreadable };
 }
 
-/**
- * The record's newest tick, read from its end, as the panel reads it every few
- * seconds (#4821); null where there is none or the record would not read.
- * @returns {TickRecord|null}
- */
+/** @returns {TickRecord|null} */
 function readNewestTick() {
 	try {
 		return /** @type {TickRecord|null} */ (
 			readLastJsonlRow(concurrencyFiles().record) ?? null
 		);
 	} catch {
-		/* Unread, as the panel shows it; the readout's block names the record
-		 * that would not read (readRecords). */
 		return null;
 	}
 }
 
-/**
- * What `refill-loop.js status --json` carries for the panel. `live`,
- * `ceiling` and `working`, and `waiting`, are null where unread or the
- * newest tick is stale or a stop.
- * @param {number} now
- */
+/** @param {number} now */
 function readConcurrencyStatus(now) {
 	const newest = readNewestTick();
 	const tick =
@@ -619,9 +508,8 @@ function readConcurrencyStatus(now) {
 }
 
 /**
- * Append the tick's record line.
  * @param {TickRecord} record
- * @returns {boolean} whether the line landed
+ * @returns {boolean}
  */
 function appendTick(record) {
 	return appendRetained(concurrencyFiles().record, record, RETAIN_MS);

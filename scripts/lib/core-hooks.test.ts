@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * readRunningHooks is the one answer to "which hooks does this repo run" (spec
- * #2295, seam 1). At the core it is the self-plugin's file then the canary its
- * settings keep (#2473), at an adopter the host's settings merged with the
- * plugin's file. A reader answering from the
- * wrong file attributes fires, liveness and census counts to a registration no
- * session runs; one answering an absent or broken file as empty reports every
- * guard as unregistered.
- *
- * selfPluginSetup is checked against the canary's printed line, its hand-kept
- * shell twin, so the two never name different commands (#2461).
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -148,7 +136,6 @@ describe("readRunningHooks at an adopter host", () => {
 
 	it("names an absent settings file on stderr, and says nothing under quiet (#2462)", () => {
 		write(core, "hooks/hooks.json", { hooks: stop("plugin.sh") });
-		// The whole text taken: a 0-byte answer holds writeFd for its 10 s ceiling.
 		const written = vi
 			.spyOn(fs, "writeSync")
 			.mockImplementation((_fd, data) => Buffer.byteLength(data as string));
@@ -401,7 +388,6 @@ describe("selfPluginSetup (#2461)", () => {
 		return at;
 	}
 
-	/** The command's arguments as bash parses them. */
 	function args(command: string) {
 		return execFileSync(
 			"bash",

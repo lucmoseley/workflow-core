@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Which questions got past the close-rivals check — close ones on an escape
- * line, and every re-send of a refused one (#671 step 3, #4945) — read from
- * fixture transcripts.
- *
- * The fixtures are hand-built transcript lines in a temp dir, read through
- * lib/close-rivals.js's `rivalPair` and lib/round-marker.js's
- * `splitQuestions`, so the audit judges a round exactly as the guard does.
- *
- * audit-escape-lines.js reports this share at session start, and the #671
- * loosening is kept or reversed on it; a loosened case miscounts what got past
- * and tilts that call.
- */
 
 import fs from "node:fs";
 import os from "node:os";

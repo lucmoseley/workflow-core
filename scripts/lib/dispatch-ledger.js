@@ -1,18 +1,3 @@
-/*
- * dispatch-ledger.js — `.pick-next/dispatched.jsonl`, the record
- * scripts/dispatch-sessions.js appends to as each session launches, and the
- * refill loop appends to as it resumes a parked one (#3704), as it stops one on
- * its seat's limit, a row holding past the window until released (#3785), and,
- * as it hands one off or a limit hold ends, a release row (#2744).
- *
- * TWO READERS, ONE SEAM (mantahostels#1528). check-duplicate-dispatch.js drops a set member
- * whose issues are already in here; pick-next.js holds those same issues out of
- * the frontier, so a run never offers work the launcher will then delete. They
- * must agree on the path, the window, what counts as an issue number and what
- * counts as the command (#752), so both read it from here rather than
- * restating it.
- */
-
 const fs = require("node:fs");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
@@ -27,66 +12,32 @@ const {
 	readDeclaredSeats,
 } = require("./refill-seats.js");
 
-/** A prompt's leading `/<skill>`, any `<plugin>:` namespace aside. */
 const COMMAND_RE = /^\s*\/(?:[\w.-]+:)?([\w.-]+)/;
 
-/*
- * THE WINDOW IS A JUDGEMENT, NOT A MEASUREMENT. One hour. mantahostels#1337's six, and the
- * two that replaced it, each hid an issue whose launch had already finished
- * from the re-pick for most of a working session.
- * A legitimate re-dispatch of the same issue inside it takes `--force`.
- */
+// guess, lucmoseley/mantahostels#1337
 const DEFAULT_WINDOW_HOURS = 1;
 
-/**
- * The tree the ledger lives under.
- *
- * WFC_DISPATCH_ROOT redirects the ledger ALONE, leaving WFC_REPO_ROOT to
- * mean what it means everywhere else: `scripts/dispatch-sessions*.test.ts` drive
- * the real launcher against a stubbed `claude`, so without it those runs would
- * append fake launches to the working ledger and refuse the next real dispatch.
- * Every reader resolves it here, so a caller passing its own repo root cannot
- * silently read a different file from the one the launcher wrote (mantahostels#1528).
- * @returns {string}
- */
+/** @returns {string} */
 function ledgerRoot() {
 	return (
 		process.env.WFC_DISPATCH_ROOT || process.env.WFC_REPO_ROOT || hostRoot()
 	);
 }
 
-/** @returns {string} the ledger path — one JSON object per line, append-only. */
+/** @returns {string} */
 function ledgerPath(root = ledgerRoot()) {
 	return path.join(markersDir(root), ".pick-next", "dispatched.jsonl");
 }
 
-/** Leading `-` options, as in `--resume /implement 341` (#4820). */
 const OPTIONS_RE = /^\s*(?:-\S*\s+)*/;
 
-/** A session name's leading word, which stands where a `/<skill>` would. */
 const NAME_WORD_RE = /^[A-Za-z]\S*(?=\s)/;
 
-/** The argument slot: integers up to the first token that is not one. */
 const SLOT_RE = /^[\s,]*((?:#?\d+(?!\w)[\s,]*)*)/;
 
-/** A `#<n>` anywhere in a prompt's prose. */
 const HASH_ISSUE_RE = /(?<![\w&#])#(\d+)\b/g;
 
 /**
- * The issue numbers a launch prompt claims: its argument slot's integers —
- * those after any leading options and its `/<skill>`, a session name's leading
- * word, or nothing — then every `#<n>` in its prose (#4985). Any other digit
- * run is no issue. In `/wayfinder <map> <ticket>` the map is context: two
- * tickets on one map run in parallel (#3217). `/wayfinder <map>` alone claims
- * the map.
- *
- * Residual: a bare number in prose (`Implement the fix for 4881`) claims
- * nothing, and a `#<n>` cited only as context claims its issue.
- *
- * Residual: a running session's NAME carries no `/wayfinder`, so a live ticket
- * session still holds its map against `/wayfinder <map>`, while a map-only
- * session or ledger row does not hold `/wayfinder <map> <ticket>` — only the
- * claim limb's parent-map check refuses that (#2211).
  * @param {string} prompt
  * @returns {number[]}
  */
@@ -102,11 +53,6 @@ function issuesIn(prompt) {
 }
 
 /**
- * The command a launch prompt runs — its leading `/<skill>` token, slash and
- * any `<plugin>:` namespace dropped — or `null` where the prompt opens with
- * none (#752). The skill names the `takes:` values carry, so `/triage 34` and
- * `/workflow-core:triage 34` both read `triage`, which the picker compares with
- * the issue's label.
  * @param {unknown} prompt
  * @returns {string|null}
  */
@@ -125,13 +71,6 @@ const buildHeldText = (rec) =>
 		: "";
 
 /**
- * Whether a ledger entry holds its issues against a launch of `command` (#752).
- * The hold keys on issue AND command, so `/wayfinder 34` after `/triage 34`
- * passes and a second `/triage 34` does not. It FAILS TOWARD THE HOLD: an
- * entry or a launch whose command cannot be read — a hand-written
- * prompt, a flat `--issues 341,353` — holds. A row with `heldUntil` holds against
- * every command: its stopped session has work on the issue, and no live limb
- * sees it (#3785).
  * @param {{prompt?: unknown, heldUntil?: string}|undefined} rec
  * @param {string|null} command
  */
@@ -142,67 +81,39 @@ function entryHolds(rec, command) {
 }
 
 /**
- * One launch line of `.pick-next/dispatched.jsonl`.
- *
- * `session` is the LAUNCHING session — the one that ran dispatch-sessions.js —
- * never the launched job's own session (mantahostels#3488). On a refill-loop
- * resume (#3704) it is null: the loop forgets its session id at start.
- * `jobId` is that job's own short id, the one `claude --bg` prints and
- * `claude stop`/`claude attach` take, or `null` where unknown.
  * @typedef {{ts: string, issues: number[], model: string, prompt: string,
- *            session: string|null, jobId: string|null,
- *            seatReason?: string, heldUntil?: string}} DispatchRecord
- *   `seatReason` is why the launch went on its seat: the refill loop's pick
- *   (lib/refill-decide.js's SeatReason), or `own seat` for a direct
- *   dispatch-sessions.js run (#3732). `heldUntil` holds its issues to that time
- *   for a session stopped with no loop left running (#3785)
+ * session: string|null, jobId: string|null,
+ * seatReason?: string, heldUntil?: string}} DispatchRecord
  */
 
 /**
- * A launch on an overflow seat (#3694), the only mark of a session in a plan
- * dir as overflow. `allowanceUsd` is the key's headroom at launch. `sessionId`
- * is the launched job's own, unlike `session`; null until known. `copyOf` is
- * the session a `--bg --resume` copy continues, whose allowance it shares
- * (#4195). `offKeyUsd` is the spend its transcript carries from before a move
- * put it on the key, which a plan paid (#3736).
  * @typedef {DispatchRecord & {kind: "overflow", keyVar: string,
- *            allowanceUsd: number, sessionId: string|null,
- *            copyOf?: string, offKeyUsd?: number}} OverflowLaunch
+ * allowanceUsd: number, sessionId: string|null,
+ * copyOf?: string, offKeyUsd?: number}} OverflowLaunch
  */
 
 /**
  * @typedef {Pick<OverflowLaunch, "keyVar"|"allowanceUsd"|"sessionId"|"copyOf"|"offKeyUsd">} OverflowFields
  */
 
-/**
- * A launch the refill loop handed off (#2744): `released` is its job id. It
- * ends that launch's hold. It carries no `jobId` or `issues`, so a reader of
- * raw lines never takes it for a launch.
- * @typedef {{ts: string, released: string}} ReleaseRecord
- */
+/** @typedef {{ts: string, released: string}} ReleaseRecord */
 
 /**
- * A session's latest overflow launch, or null for one none records.
  * @typedef {(session: {jobId?: string|null, sessionId?: string|null}) =>
- *   OverflowLaunch|null} OverflowLookup
+ * OverflowLaunch|null} OverflowLookup
  */
 
 /**
- * Whether a row counts whatever the window: a launch before its `heldUntil`,
- * and any release, as one aged out would revive the held launch it ended.
  * @param {DispatchRecord|ReleaseRecord} rec
- * @param {number} now ms
+ * @param {number} now
  */
 const isKeptPastWindow = (rec, now) =>
 	"released" in rec || Date.parse(String(rec.heldUntil)) > now;
 
 /**
- * Every row inside the window or outlasting it, launches and releases alike. A
- * malformed line is skipped rather than failing the read (lib/jsonl.js) — the
- * ledger is append-only and a torn write must not disarm every later check.
  * @param {string|undefined} root
  * @param {number} windowHours
- * @param {number} [now] epoch ms the window ends at
+ * @param {number} [now]
  * @returns {{ok: boolean, rows: (DispatchRecord|ReleaseRecord)[], error?: string}}
  */
 function readCountedRows(root, windowHours, now = Date.now()) {
@@ -212,7 +123,7 @@ function readCountedRows(root, windowHours, now = Date.now()) {
 	} catch (err) {
 		return { ok: false, rows: [], error: String(err) };
 	}
-	if (!read) return { ok: true, rows: [] }; // never launched from here: not a failure
+	if (!read) return { ok: true, rows: [] };
 	const cutoff = now - windowHours * 3600 * 1000;
 	const rows = /** @type {(DispatchRecord|ReleaseRecord)[]} */ ([]);
 	for (const rec of read.rows) {
@@ -232,17 +143,14 @@ function readCountedRows(root, windowHours, now = Date.now()) {
 const isLaunch = (rec) => !("released" in rec);
 
 /**
- * Launches inside the window or held past it that still hold: a launch a later release row
- * names is dropped. Later is by line, the append order, so an in-place resume
- * that keeps a released job's id holds again (#3722).
  * @param {string|undefined} root
  * @param {number} windowHours
- * @param {number} [now] epoch ms the window ends at
+ * @param {number} [now]
  * @returns {{ok: boolean, entries: DispatchRecord[], error?: string}}
  */
 function readRecentEntries(root, windowHours, now = Date.now()) {
 	const { rows, ...read } = readCountedRows(root, windowHours, now);
-	/** @type {Map<string, number>} each job's last release, by line */
+	/** @type {Map<string, number>} */
 	const lastRelease = new Map();
 	rows.forEach((r, i) => {
 		if (!isLaunch(r)) lastRelease.set(r.released, i);
@@ -254,11 +162,6 @@ function readRecentEntries(root, windowHours, now = Date.now()) {
 }
 
 /**
- * The latest launch's time in ms, any age, released or not, or null where
- * this tree never launched — the refill loop's cross-repo tie-break after
- * ticket age (#3385), which reads null as launched longest ago. An unreadable
- * ledger fails open to null too: it only orders full ties, so the cost is that
- * repo winning them (#2003).
  * @param {string} root
  * @returns {number|null}
  */
@@ -274,10 +177,8 @@ function readLastLaunchAt(root) {
 }
 
 /**
- * Every row, any age, released or not.
  * @param {string} root
  * @returns {(DispatchRecord|ReleaseRecord)[]}
- * @throws where the ledger will not read
  */
 function readEveryRow(root) {
 	const { ok, rows, error } = readCountedRows(root, Number.POSITIVE_INFINITY);
@@ -286,10 +187,6 @@ function readEveryRow(root) {
 }
 
 /**
- * Each issue's latest launch from this tree in ms, any age, released or not —
- * the idle alarm's launch log (check-idle-efforts.js); a `heldUntil` row is no
- * launch, written anew after a failed resume (#3838). Throws where it will not
- * read.
  * @param {string} root
  * @returns {Map<number, number>}
  */
@@ -311,10 +208,7 @@ function readLaunchTimes(root) {
 const isOverflowLaunch = (rec) =>
 	/** @type {{kind?: unknown}} */ (rec).kind === "overflow";
 
-/**
- * A launch record's read failure, with its remedy.
- * @param {unknown} err
- */
+/** @param {unknown} err */
 const buildRemediedError = (err) =>
 	new Error(
 		`launch record unreadable: ${caught(err).message} — fix that read and re-run: until then an overflow session cannot be told from a plan one`,
@@ -322,18 +216,8 @@ const buildRemediedError = (err) =>
 	);
 
 /**
- * The one answer to "is this session overflow, on which key, with what
- * allowance" (#3694): a lookup over every overflow launch in `roots`' ledgers,
- * any age, released or not, as credits stay spent. A session's latest such
- * launch, or null for a session none records. A session id also matches a job
- * id by its first 8 digits, as `--bg` prints only the job id (#3692 (e)). Each
- * root holds only its own checkout's launches, so a reading of a key's spend
- * names every checkout (`readEveryOverflowLookup`); the default suits a session
- * asking about itself.
  * @param {string[]} [roots]
  * @returns {OverflowLookup}
- * @throws where a ledger will not read: a plan session and an unread overflow
- *   one must not look alike
  */
 function readOverflowLookup(roots = [ledgerRoot()]) {
 	let launches;
@@ -355,20 +239,12 @@ function readOverflowLookup(roots = [ledgerRoot()]) {
 			.pop() ?? null;
 }
 
-/**
- * Every checkout's ledger root, opted out of the loop or not, `root` first.
- * @param {string} [root]
- */
+/** @param {string} [root] */
 const readEveryLedgerRoot = (root = ledgerRoot()) => [
 	...new Set([root, ...readAdopterCheckouts(homeDir()).included]),
 ];
 
-/**
- * `readOverflowLookup` over every checkout's ledger, for a reading of a key's
- * spend.
- * @param {string} [root] as readEveryLedgerRoot's
- * @throws where a ledger will not read, or the checkouts cannot be listed
- */
+/** @param {string} [root] */
 function readEveryOverflowLookup(root) {
 	let roots;
 	try {
@@ -380,13 +256,9 @@ function readEveryOverflowLookup(root) {
 }
 
 /**
- * `readEveryOverflowLookup` where the seat file declares an overflow seat, or
- * will not read; else a lookup that marks no session overflow, reading no
- * ledger, as a host with no overflow seat has none to tell apart (#4393).
  * @param {import("./refill-seats.js").SeatList} [declared]
- * @param {string} [root] as readEveryLedgerRoot's
+ * @param {string} [root]
  * @returns {OverflowLookup}
- * @throws as `readEveryOverflowLookup`, where it reads
  */
 function readDeclaredOverflowLookup(
 	declared = readDeclaredSeats(),
@@ -398,8 +270,6 @@ function readDeclaredOverflowLookup(
 }
 
 /**
- * What a later row on the same job must repeat, as the lookup answers from
- * the latest row alone.
  * @param {OverflowLaunch} l
  * @returns {Omit<OverflowFields, "sessionId">}
  */
@@ -411,14 +281,9 @@ const overflowFieldsOf = ({ keyVar, allowanceUsd, copyOf, offKeyUsd }) => ({
 });
 
 /**
- * Give each overflow launch recorded with no session id the one `agents` lists
- * for its job, as `--bg` prints only the job id (#3692 (e), #3701): a row
- * repeating the launch's overflow fields with the session id, under no
- * issues, so it holds nothing. What would not read or write, one line each.
  * @param {{id?: string, sessionId: string}[]} agents
  * @param {string[]} [roots]
  * @returns {string[]}
- * @throws where the checkouts cannot be listed
  */
 function recordListedSessionIds(agents, roots = readEveryLedgerRoot()) {
 	const listed = new Map(
@@ -455,13 +320,10 @@ function recordListedSessionIds(agents, roots = readEveryLedgerRoot()) {
 }
 
 /**
- * Append one line. Never throws: a ledger that cannot be written must not
- * stop the launch or hand-off it records (mantahostels#1528); the caller
- * reports the false.
  * @param {string|undefined} root
  * @param {object} rec
- * @param {number} [at] epoch ms of the event, now where absent
- * @returns {boolean} whether it was written
+ * @param {number} [at]
+ * @returns {boolean}
  */
 function append(root, rec, at = Date.now()) {
 	const file = ledgerPath(root);
@@ -479,17 +341,15 @@ function append(root, rec, at = Date.now()) {
 
 /**
  * @param {{jobId: string, root?: string}} entry
- * @returns {boolean} whether it was written
+ * @returns {boolean}
  */
 function release(entry) {
 	return append(entry.root, { released: entry.jobId });
 }
 
 /**
- * `launchedAt` is the launch's epoch ms, from a caller whose own record of the
- * launch reads the same clock; now where absent.
  * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number, overflow?: OverflowFields}} entry
- * @returns {boolean} whether it was written
+ * @returns {boolean}
  */
 function record(entry) {
 	return append(

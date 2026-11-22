@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * lib/config-dir.js's configDir() and lib/guard-root.sh's gr_config_dir name
- * the same config dir (#2095), an empty CLAUDE_CONFIG_DIR counting as set as
- * Claude Code reads it.
- *
- * Three parts, each spawned with a built env: the cases unset HOME, which this
- * worker's own process.env must keep. The third is guard-log.sh's copy, which a
- * guard-log.sh detached from guard-root.sh falls back to. Compared as a file
- * joined under the dir, since the shell spells the empty value `.` where JS
- * keeps "". The shell out-variable is `dir`, name-issue-session.sh's, so a
- * local of that name inside gr_config_dir fails here.
- *
- * A divergence sends the shell guards' arbiter seat and settings reads to a
- * different dir than the JS arbiter writes, silently.
- *
- * configDirFrom runs in-process, as it reads no environment: it pins the
- * null-versus-"" contract reconcile-plugin.js's readConfigDirOf hands it from
- * another process's environ.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

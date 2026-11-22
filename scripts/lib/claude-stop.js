@@ -1,17 +1,3 @@
-/*
- * claude-stop.js — the one `claude stop`: every caller that stops a background
- * job goes through stopOn or stopSession (#2697). `claude stop` keeps the
- * conversation for a later `claude attach`; a kill would not.
- *
- * `claude stop` and the job record are scoped to CLAUDE_CONFIG_DIR, so a job is
- * addressed on a seat. A caller that knows the seat calls stopOn; one that knows
- * only the job and its session calls stopSession, which finds the seat (#1571).
- *
- * A HEADLESS OVERFLOW RUN (lib/headless-runs.js) has no daemon job, so both
- * stop it by its process group instead, wherever its job id is in the run
- * store (#4580).
- */
-
 const fs = require("node:fs");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
@@ -23,37 +9,24 @@ const { buildSeatEnv, runClaude } = require("./seat-claude.js");
  * @typedef {{ok: true, said: string}
  *   | {ok: false, why: string, said: string|null, timedOut: boolean,
  *      noJob: boolean}} StopOutcome
- *   `said` is what the daemon printed — its stdout on success, the last line of
- *   its stderr on failure; `why` adds the exit code to it. `timedOut` marks a
- *   stop killed at STOP_TIMEOUT_MS; `noJob` a daemon holding no job by that id,
- *   NO_JOB_ANSWER, the permanent failure of mantahostels#846.
  */
 
-/** A daemon's answer to a stop of an id it holds no job for: "No job matching"
- * before 2.1.326, "No session matching" from it (#5329). Residual: a stop failing
- * for another cause whose answer carries either phrase reads as no job, which
- * callers taking `ok || noJob` count as stopped. */
+// #5329
 const NO_JOB_ANSWER = /No (?:job|session) matching/;
 
-/** A hang guard, never measured: a stop answers in seconds when well. */
+// guess, #5529
 const STOP_TIMEOUT_MS = 15_000;
 
 /**
- * `sessionId`'s own job record and the seat holding it, from the first of
- * `seats` whose `jobs/<jobId>` record names it; null where none does.
- * `jobId` defaults to shortJobId; a caller holding the registry's own `jobId`
- * passes it.
  * @param {string} sessionId
  * @param {{jobId?: string, seats?: string[]}} [where]
- * @returns {{seat: string, job: any} | null}  `job` untyped, as
- *   readJobRecordAt's: the harness owns its schema
+ * @returns {{seat: string, job: any} | null}
  */
 function readOwnJob(
 	sessionId,
 	{ jobId = shortJobId(sessionId), seats = configDirs() } = {},
 ) {
 	for (const seat of seats) {
-		/* A seat whose record will not read is passed over, not fatal (#4704). */
 		const r = readJobRecordAt(jobDirPath(seat, jobId));
 		const job = r.state === "read" ? r.data : null;
 		if (job?.sessionId === sessionId) return { seat, job };
@@ -62,20 +35,6 @@ function readOwnJob(
 }
 
 /**
- * The seats to address a job on, in order: those whose `jobs/<id>` record names
- * this session, then those with no record of it naming anyone — this seat first
- * among them, configDirs() leading with it. A missing record proves nothing, a
- * job dir being cleaned under a session still running (mantahostels#104).
- *
- * A seat whose record will not read is one with no record of it (#4704).
- *
- * A SEAT WHOSE RECORD NAMES ANOTHER SESSION IS LEFT OUT: the id there belongs to
- * a different job, which the caller never judged.
- *
- * Residual: a seat whose record of a colliding id was cleaned while its job
- * runs is still asked, and would stop that job. Two 8-hex ids colliding with
- * one of them live and recordless is the whole exposure.
- *
  * @param {string} jobId
  * @param {string} sessionId
  * @returns {string[]}
@@ -96,15 +55,7 @@ function readSeatsFor(jobId, sessionId) {
 }
 
 /**
- * Stops a job on the first seat that holds it, readSeatsFor's order.
- *
- * ONLY NO_JOB_ANSWER MOVES ON TO THE NEXT SEAT — the answer of a seat whose
- * daemon has no such job. Any other failure, a timeout above all, is reported
- * from the seat that gave it: retrying a busy daemon elsewhere buys one STOP_TIMEOUT_MS
- * per seat and no memory. A reworded daemon costs the cross-seat retry, and the stop
- * fails as it did before #1571.
- *
- * @param {string} id  the short job id, never the session id
+ * @param {string} id
  * @param {string} sessionId
  * @returns {StopOutcome}
  */
@@ -136,12 +87,10 @@ function stopSession(id, sessionId) {
 }
 
 /**
- * @param {string} seat  a CLAUDE_CONFIG_DIR
- * @param {string} id  the short job id, never the session id
- * @param {string} [bin]  the binary, where the caller pins a CLI version
+ * @param {string} seat
+ * @param {string} id
+ * @param {string} [bin]
  * @param {{ env?: NodeJS.ProcessEnv, spawn?: typeof import("./child-spawn.js").spawnRaw }} [via]
- *   the caller's environment, else this process's, and the call, where a test
- *   runs it in-process
  * @returns {StopOutcome}
  */
 function stopOn(seat, id, bin, { env = process.env, spawn } = {}) {
@@ -154,9 +103,6 @@ function stopOn(seat, id, bin, { env = process.env, spawn } = {}) {
 		spawn,
 	});
 	if (!r.failed) return { ok: true, said: r.stdout.trim() || "ok" };
-	// error.code / status, never `r.failed`: an error's message embeds the
-	// whole argv. What the DAEMON said tells noJob from a timeout. Its LAST line,
-	// per docs/agents/verification.md: the reason prints under any warnings.
 	const said =
 		r.stderr
 			.split("\n")
@@ -176,8 +122,6 @@ function stopOn(seat, id, bin, { env = process.env, spawn } = {}) {
 }
 
 /**
- * The stop of headless run `id`, or null where the run store holds no run by
- * that id. One no longer running is noJob, as a daemon holding no such job.
  * @param {string} id
  * @returns {StopOutcome|null}
  */

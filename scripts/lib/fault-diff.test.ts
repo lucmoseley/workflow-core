@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * lib/fault-diff.js (mantahostels#1753) — the set difference behind every pre-commit
- * direction gate.
- *
- * What is only reachable here
- * is the three parameters mantahostels#1753 added: which keys hold faults, what makes two faults the
- * same fault, and which faults are gate material.
- *
- * In-process on hand-built envelopes and miniature profiles, so each case
- * states its staged and baseline faults exactly; the CLI's crash and
- * short-write paths run a temp script through runInProcess.
- *
- * Every direction gate in .husky/pre-commit decides on this difference, so a
- * loosened case either refuses a bystander's commit over a fault inherited from
- * `main` or lets a commit's own new fault through.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -31,7 +15,6 @@ interface Finding {
 	message: string;
 }
 
-/** The two whole-repo checkers' profile shape, in miniature. */
 const findingsOnly = {
 	keys: (k: string) => k === "findings",
 	identity: (i: Finding) => JSON.stringify([i.severity, i.tag, i.file]),
@@ -99,7 +82,6 @@ describe("newFaults", () => {
 	});
 
 	it("reads the baseline on the same terms, so a WARN cannot excuse a FAIL", () => {
-		// An unfiltered baseline would call this inherited.
 		const staged = { findings: [finding()] };
 		const baseline = { findings: [finding({ severity: "WARN" })] };
 
@@ -151,14 +133,6 @@ describe("newFaults", () => {
 	});
 });
 
-/*
- * A fault that carries a measurement (mantahostels#1834). check-context-budget.js raises one
- * finding per capped surface with the surface's byte total on it, so identity
- * alone gives the wrong answer in both directions: without the total a commit
- * that GROWS an already-over-cap surface reads as inherited and passes, and with
- * it a commit that SHEDS bytes and leaves the surface still over cap reads as a
- * new fault and is refused.
- */
 describe("family and worse, for a fault that carries a measurement", () => {
 	const capped = {
 		keys: (k: string) => k === "findings",
@@ -189,8 +163,6 @@ describe("family and worse, for a fault that carries a measurement", () => {
 		).toEqual([]);
 	});
 
-	/* The one the plain set difference gets wrong, and the reason `worse` exists:
-	 * refusing this would block the shed the gate itself demands. */
 	it("calls a reading that SHED bytes inherited, though it is still over cap", () => {
 		expect(
 			newFaults({ findings: [over(400)] }, { findings: [over(500)] }, capped),
@@ -214,8 +186,6 @@ describe("family and worse, for a fault that carries a measurement", () => {
 		).toEqual(["findings: pool is 10 B"]);
 	});
 
-	/* Both default away: a profile that sets neither is the shape every other
-	 * profile in lib/fault-profiles.js has, and must be untouched by this. */
 	it("falls back to identity when a profile sets neither", () => {
 		const plain = { keys: capped.keys, identity: capped.identity };
 		expect(
@@ -223,7 +193,6 @@ describe("family and worse, for a fault that carries a measurement", () => {
 		).toEqual([`findings: ${JSON.stringify(over(400))}`]);
 	});
 
-	/* `worse` alone would be a silent no-op, the ratchet gone (mantahostels#1834). */
 	it("refuses a profile that sets `worse` without `family`", () => {
 		const lame = {
 			keys: capped.keys,
@@ -236,11 +205,6 @@ describe("family and worse, for a fault that carries a measurement", () => {
 	});
 });
 
-/*
- * `newFaultItems`, the shape `newFaults` is a projection of (mantahostels#1939). lib/check.js
- * needs the ITEM to read its measurement out of the baseline envelope, and the
- * printed line has already lost it.
- */
 describe("newFaultItems, the item behind the line", () => {
 	const capped = {
 		keys: (k: string) => k === "findings",
@@ -285,16 +249,6 @@ describe("newFaultItems, the item behind the line", () => {
 	});
 });
 
-/*
- * A crash mid-list (mantahostels#2314) — runCli routes it to exit 2, never node's
- * default 1, which the direction verdict (lib/precommit-gate-verdicts.js) reads
- * with a non-empty stdout as "this commit adds them".
- *
- * PROVOKED BY WRAPPING fs.writeSync, as the short write below is: fd 1 takes
- * part of the list then throws, and the first fd 2 write throws too, so the
- * diagnostic in runCli's own catch is what crashes. No stdio a caller can hand
- * the script fails on cue mid-list and again on its first diagnostic.
- */
 describe("runCli, a crash mid-list", () => {
 	const dirs: string[] = [];
 	afterEach(() => {
@@ -344,14 +298,6 @@ require(${seam}).runCli("demo", ${JSON.stringify(staged)}, ${JSON.stringify(base
 	});
 });
 
-/*
- * A SHORT WRITE (mantahostels#2329) throws nothing, so writeFd must finish it
- * or the list goes out truncated under exit 1.
- *
- * PROVOKED BY WRAPPING fs.writeSync, not by a real short write, which needs a
- * non-blocking fd 1 that neither vitest nor runInProcess's capture can hand a
- * script.
- */
 describe("runCli, a short write of the fault list", () => {
 	const dirs: string[] = [];
 	afterEach(() => {
@@ -359,7 +305,6 @@ describe("runCli, a short write of the fault list", () => {
 			fs.rmSync(d, { recursive: true, force: true });
 	});
 
-	/** @param accepted bytes fd 1 takes per write; -1 hands each whole write through. */
 	const listWrittenShort = (accepted: number) => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fault-diff-short-"));
 		dirs.push(dir);

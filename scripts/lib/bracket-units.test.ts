@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/bracket-units.js's contract: it splits a pattern into exactly the units
- * the alternation `/\[[^\]]*\]|./gs` would match, in one pass (#3383, #4109).
- * token-shapes.js builds every token regex from these units and
- * infer-commands.js reads a glob by them, so a unit split one character off
- * changes what the secret masker catches.
- */
 
 import { describe, expect, it } from "vitest";
 import { bracketUnits } from "./bracket-units.js";

@@ -1,13 +1,3 @@
-/*
- * The `admission.js --json --launch --skip-allowance` verdict
- * lib/refill-loop-run-testkit.ts's admission stub prints, held to what the real
- * script prints by lib/admission-verdict.contract.test.ts (#3331). Its
- * `satisfies` holds it to every field lib/concurrency.js reads, so dropping
- * one fails typecheck, not the run test's loop; `memory` carries only the
- * rows' recorded figures, so only its presence is held. The stub swaps in its
- * case's `slots`. The live draw is the largest holder, as the run test asserts.
- */
-
 import type { AdmissionJson } from "./admission.js";
 
 export const ADMISSION_VERDICT = {
@@ -24,7 +14,6 @@ export const ADMISSION_VERDICT = {
 	],
 	landerMb: 0,
 	gateMb: 0,
-	/* No `tsc` in the fixture's host, no memwatch and no queued run. */
 	typecheckReserveMb: 0,
 	windowsChargeMb: 0,
 	windowsCapped: false,
@@ -34,8 +23,6 @@ export const ADMISSION_VERDICT = {
 	floorMb: 794,
 	marginMb: 300,
 	memorySlots: 1,
-	/* What admission.js prints in the contract test's fixture: its 0.5
-	 * loadavg (admission-testkit.ts), and no session ceiling set. */
 	load: { overloaded: false, load1: 0.5, ceiling: 24 },
 	cpu: {
 		ceiling: null,

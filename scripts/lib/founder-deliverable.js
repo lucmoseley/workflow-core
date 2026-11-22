@@ -1,15 +1,9 @@
-/*
- * founder-deliverable.js — the founder-deliverable rule as the inventory and
- * ceiling guards print it (#1044): in full, as a stand-in where its fragment
- * cannot be read, or as the pointer a repeat block prints instead.
- */
-
 const { rulePointer, readRuleTextOr } = require("./rule-text.js");
 
 const ID = "founder-deliverable";
 
 /**
- * @param {string} label the guard, as the error log names it
+ * @param {string} label
  * @returns {string}
  */
 const readDeliverableRule = (label) =>

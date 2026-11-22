@@ -1,11 +1,3 @@
-/*
- * comment-policy.js — the comment-policy gate's core (#5490, ruled at
- * #5477): a source file's comments as units, and each unit's verdict
- * against the permitted kinds #5455 lists. Pure: the shell,
- * scripts/check-comment-policy.js, reads the files and the facts a verdict
- * needs and hands them in.
- */
-
 const { CALLER_BODY, LOADS_BODY } = require("./code-edges-pragmas.js");
 const { SHIM_MARK } = require("./hook-shim.js");
 const { escapeRe } = require("./regex-group.js");
@@ -41,7 +33,6 @@ const { scanJs } = require("./strip-comments.js");
  *   line: number, match: string, why: string }} Breach
  */
 
-/** A path that may hold code: a JS, TS, Python or shell extension, or none. */
 const CODE_FILE = /\.(?:[cm]?[jt]sx?|py|sh|bash)$|(?:^|\/)[^/.]+$/;
 
 /** @param {string} rel @param {string} text @returns {Lang | null} */
@@ -63,7 +54,6 @@ function lineStarts(source) {
 }
 
 /**
- * The 1-based line holding `offset`.
  * @param {number[]} starts
  * @param {number} offset
  */
@@ -78,10 +68,7 @@ function lineAt(starts, offset) {
 	return lo + 1;
 }
 
-/**
- * `source` with a leading `#!` line blanked, its length kept.
- * @param {string} source
- */
+/** @param {string} source */
 const blankShebang = (source) =>
 	source.startsWith("#!")
 		? source.replace(/^[^\n]*/, (m) => " ".repeat(m.length))
@@ -92,10 +79,8 @@ const blankShebang = (source) =>
  */
 
 /**
- * Raw comment spans folded into units: own-line line comments on
- * consecutive lines join one unit.
  * @param {string} source
- * @param {Raw[]} raws in source order
+ * @param {Raw[]} raws
  * @param {(raw: Raw) => { jsdoc: boolean, owner: string }} extra
  * @returns {Unit[]}
  */
@@ -150,8 +135,6 @@ function foldUnits(source, raws, extra) {
 }
 
 /**
- * Where the first code character sits: the first non-blank offset outside
- * every comment span.
  * @param {string} source
  * @param {Raw[]} raws
  */
@@ -175,7 +158,6 @@ function firstCodeOffset(source, raws) {
 }
 
 /**
- * The 1-based lines holding nothing but a comment.
  * @param {string[]} lines
  * @param {Raw[]} raws
  * @param {number[]} starts
@@ -199,10 +181,8 @@ function commentLines(lines, raws, starts) {
 }
 
 /**
- * The code line a comment sits on: the line right after `endLine`, past any
- * decorator, or "" where a blank or a comment comes first.
  * @param {string[]} lines
- * @param {number} endLine 1-based
+ * @param {number} endLine
  * @param {Set<number>} commentOnly
  */
 function nextCodeLine(lines, endLine, commentOnly) {
@@ -214,10 +194,7 @@ function nextCodeLine(lines, endLine, commentOnly) {
 	return "";
 }
 
-/**
- * A block comment's inside, its opening and closing stars off.
- * @param {string} text
- */
+/** @param {string} text */
 function trimBlock(text) {
 	let from = 2;
 	while (text.charAt(from) === "*") from++;
@@ -226,7 +203,7 @@ function trimBlock(text) {
 	return text.slice(from, to);
 }
 
-/** @param {string} body a block comment's inside */
+/** @param {string} body */
 const blockLines = (body) =>
 	body.split("\n").map((l) => l.replace(/^\s*\*(?!\/)\s?/, "").trimEnd());
 
@@ -269,8 +246,7 @@ const PY_PREFIX = /^(?:[rRuUbBfF]|[bBfF][rR]|[rR][bBfF])$/;
  */
 
 /**
- * The end of the word at `i`, or of the string it prefixes.
- * @param {PyState} st accumulator: the word's token is pushed onto `st.current`.
+ * @param {PyState} st
  * @param {number} i
  */
 function pyWordEnd(st, i) {
@@ -286,8 +262,7 @@ function pyWordEnd(st, i) {
 }
 
 /**
- * Read the Python token at `i` into `st`, returning where the next starts.
- * @param {PyState} st accumulator: tokens, comments and logical lines grow on it.
+ * @param {PyState} st
  * @param {number} i
  */
 function pyStep(st, i) {
@@ -320,10 +295,7 @@ function pyStep(st, i) {
 	return i + 1;
 }
 
-/**
- * Python's comments, and its tokens grouped into logical lines.
- * @param {string} source
- */
+/** @param {string} source */
 function scanPy(source) {
 	/** @type {PyState} */
 	const st = { source, comments: [], logical: [], current: [], depth: 0 };
@@ -333,7 +305,6 @@ function scanPy(source) {
 }
 
 /**
- * Where the Python string whose quote opens at `i` ends.
  * @param {string} source
  * @param {number} i
  */
@@ -352,11 +323,7 @@ function pyStringEnd(source, i) {
 	return source.length;
 }
 
-/**
- * A Python string literal's text, prefix and quotes off, its common indent
- * removed.
- * @param {string} raw
- */
+/** @param {string} raw */
 function pyStringLines(raw) {
 	const body = raw
 		.replace(/^[A-Za-z]*("""|'''|"|')/, "")
@@ -371,8 +338,6 @@ function pyStringLines(raw) {
 }
 
 /**
- * A Python file's comment units: its `#` comments, and every statement that
- * is a string literal alone, docstrings included.
  * @param {string} source
  * @returns {Unit[]}
  */
@@ -418,7 +383,6 @@ const HEREDOC = /<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|\\?([\w.-]+))/y;
  */
 
 /**
- * Where the shell quote opening at `i` closes.
  * @param {string} source
  * @param {number} i
  */
@@ -453,7 +417,7 @@ function shSubstEnd(source, j) {
 }
 
 /**
- * @param {ShState} st accumulator: the delimiter is pushed onto `st.pending`.
+ * @param {ShState} st
  * @param {number} i
  */
 function shHeredoc(st, i) {
@@ -466,8 +430,7 @@ function shHeredoc(st, i) {
 }
 
 /**
- * Read the shell token at `i` into `st`, returning where the next starts.
- * @param {ShState} st accumulator: comments and pending heredocs grow on it.
+ * @param {ShState} st
  * @param {number} i
  */
 function shStep(st, i) {
@@ -493,8 +456,6 @@ function shStep(st, i) {
 }
 
 /**
- * A shell file's `#` comments as raw spans: a `#` opening a word, outside a
- * quote and a heredoc body.
  * @param {string} source
  * @returns {Raw[]}
  */
@@ -506,7 +467,6 @@ function scanSh(source) {
 }
 
 /**
- * Past each pending heredoc body from `i`, a line's start.
  * @param {string} source
  * @param {number} i
  * @param {{ word: string, tabs: boolean }[]} pending
@@ -518,7 +478,6 @@ function skipHeredocs(source, i, pending) {
 }
 
 /**
- * Past one heredoc body from `at`: the line after its delimiter.
  * @param {string} source
  * @param {number} at
  * @param {{ word: string, tabs: boolean }} doc
@@ -546,7 +505,6 @@ function shUnits(source) {
 /** @type {Record<Lang, (source: string) => Unit[]>} */
 const UNITS = { js: jsUnits, py: pyUnits, sh: shUnits };
 
-/** JSDoc tags checkJs reads as types, and what follows the `{type}` in each. */
 const TYPE_TAGS = new Map([
 	["type", "none"],
 	["satisfies", "none"],
@@ -577,7 +535,6 @@ const TYPE_TAGS = new Map([
 ]);
 
 /**
- * Where the `{…}` opening at `i` closes, braces balanced.
  * @param {string} text
  * @param {number} i
  */
@@ -591,10 +548,8 @@ function braceEnd(text, i) {
 }
 
 /**
- * One JSDoc tag's prose: what a type tag carries past its type and name,
- * or the whole of any other tag.
  * @param {string} name
- * @param {string} body the text after `@name`
+ * @param {string} body
  */
 function tagProse(name, body) {
 	const shape = TYPE_TAGS.get(name);
@@ -615,7 +570,6 @@ function tagProse(name, body) {
 }
 
 /**
- * A JSDoc block's prose, its type tags taken out as code.
  * @param {string[]} lines
  * @returns {string[]}
  */
@@ -648,7 +602,7 @@ const suppresses =
 	});
 const readsAsCode = () => /** @type {const} */ ("code");
 
-/** Each tool directive, in the order they are tried. @type {Directive[]} */
+/** @type {Directive[]} */
 const DIRECTIVES = [
 	{
 		re: /^biome-ignore(?:-all|-start|-end)?\s+([^\s:(]+)/,
@@ -734,9 +688,7 @@ const DIRECTIVES = [
 ];
 
 /**
- * A comment line's tool directive: a suppression naming its tool and rules,
- * `code` for a directive a tool reads and that suppresses nothing, or null.
- * @param {string} text the line, its marker off
+ * @param {string} text
  * @param {Lang} lang
  * @returns {Suppression | "code" | null}
  */
@@ -758,8 +710,6 @@ const splitRules = (list) =>
 		.filter(Boolean);
 
 /**
- * Whether ruff's selector `entry` selects `code`: the same linter letters,
- * and digits the selector's open.
  * @param {string} entry
  * @param {string} rule
  */
@@ -775,7 +725,6 @@ function ruffSelects(entry, rule) {
 }
 
 /**
- * Whether `rule` is on the tool's style-only list.
  * @param {Record<string, string[]>} list
  * @param {string} tool
  * @param {string} rule
@@ -793,11 +742,7 @@ function styleOnly(list, tool, rule) {
 const POINTER =
 	/^(?:(?:[\w.-]+\/[\w.-]+)?#\d+|ADR-\d{4}|RFC\d+(?:§[\d.]+)?|https?:\/\/(?:www\.rfc-editor\.org\/rfc\/|datatracker\.ietf\.org\/doc\/(?:html\/)?|tools\.ietf\.org\/html\/)rfc\d+(?:[#/?.]\S*)?)$/;
 
-/**
- * Whether `text` is pointers alone: `#N`, `owner/repo#N`, `ADR-NNNN`, an RFC
- * or an RFC link, with no prose beside them (#5457).
- * @param {string} text
- */
+/** @param {string} text */
 function barePointers(text) {
 	const tokens = text
 		.replace(/^\(|\)?\.?$/g, "")
@@ -813,7 +758,6 @@ const ISSUE = /(?<![\w&])#\d+|\/[\w.-]+#\d+/;
 const URL = /\bhttps?:\/\/\S/;
 
 /**
- * The export a code line declares, or "".
  * @param {string} line
  * @param {Lang} lang
  */
@@ -828,9 +772,6 @@ function declaredName(line, lang) {
 }
 
 /**
- * Whether the unit is a contract doc on what the plugin ships (K4): on an
- * export the helper surface lists for the file, or the opening comment of a
- * file it ships whole.
  * @param {Unit} unit
  * @param {FileFacts} facts
  */
@@ -841,8 +782,6 @@ function onShippedExport(unit, facts) {
 }
 
 /**
- * A unit's suppressions that name no rule or one off the style-only list,
- * and the lines left once every directive is taken out.
  * @param {Unit} unit
  * @param {FileFacts} facts
  * @returns {{ out: Breach[], prose: string[] }}
@@ -880,7 +819,6 @@ function splitDirectives(unit, facts) {
 }
 
 /**
- * The breach a unit's prose makes, or null where it fits a permitted kind.
  * @param {Unit} unit
  * @param {string[]} prose
  * @param {FileFacts} facts

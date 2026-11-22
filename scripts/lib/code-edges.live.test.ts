@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The live tree's `code-edges loads:` and `code-edges caller:` lines
- * (lib/file-reach.js, #4790): each is a file's word for what a load the walk
- * cannot read loads, which a later edit may leave stale. Each one in the repo
- * must be a line the walk reads, name files that exist, and explain what it
- * declares; break one and the pass store caches a test on an input it never
- * read. A `caller:` line, or a `loads:` line with a key, explains a load the
- * walk would otherwise hold unread. A keyless `loads:` line declares a load
- * the walk cannot see at all (vitest.setup.ts puts the git shim on `PATH`),
- * so its case holds only that the file's code still spells the target or
- * its directory. Which files hold one is code-edges.inventory.live.test.ts's.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -22,8 +10,6 @@ import {
 	readMarkerLines,
 } from "./code-edges-declaring-testkit";
 
-/* The manifest the keyed lines name, read two hops in: guard-core-load.js's
- * declaration, then the cores its `core` values name. */
 const GUARD_CORES = path.join(ROOT, "scripts/lib/guard-cores.json");
 
 const files = Object.entries(DECLARING).map(([rel, at]) => ({
@@ -33,7 +19,6 @@ const files = Object.entries(DECLARING).map(([rel, at]) => ({
 	lines: readMarkerLines(at),
 }));
 
-/* A comment line, which a keyless line's target must be spelled outside. */
 const COMMENT_LINE = /^\s*(?:\/\/|\/?\*|#)/;
 
 it.each(files.map((f) => [f.rel, f]))(

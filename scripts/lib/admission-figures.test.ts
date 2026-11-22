@@ -1,15 +1,7 @@
 // @vitest-environment node
-/*
- * Pins the admission arithmetic both of admission.js's verdicts read (#4263):
- * each rule once, on its figures. Loosen a case and a session can be admitted
- * past the machine's 10 GB cap, which freezes it, or a free slot held shut.
- *
- * A 3700 MB budget fits 4 at 3058, not 5 at 3736.
- */
 import { describe, expect, it } from "vitest";
 import { admissionFigures } from "./admission-figures";
 
-/* earlyoom's kill line, and the margin above it every budget holds free. */
 const FLOOR = 794;
 const HELD = FLOOR + 300;
 
@@ -20,7 +12,6 @@ type Mem = Parameters<typeof admissionFigures>[0];
 const host = { meanMb: 600, sigmaMb: 200, declared: true };
 const figures = (mem: Mem, procs: Procs, readings: Readings = {}) =>
 	admissionFigures(mem, procs, { host, ...readings });
-/* The figures of a memory reading, which every case but one takes. */
 const measured = (mem: Mem, procs: Procs, readings?: Readings) => {
 	const f = figures(mem, procs, readings);
 	if (!f.memRead) throw new Error("memory unread");
@@ -178,7 +169,6 @@ describe("unread readings", () => {
 
 describe("the per-slot pending pair (#2511, #2568)", () => {
 	it("charges each slot past the first its own pair", () => {
-		// 4 at 3058 plus 3 pairs is 3808, 3 at 2370 plus 2 is 2870
 		const f = measured(roomy, one, { launchMb: 250 });
 		expect(f.byMemory).toBe(3);
 		expect(f.needAtMb).toBe(2370 + 2 * 250);
@@ -201,7 +191,6 @@ describe("the lander and gate-seat reserves (#2416, #5274)", () => {
 		expect(f.budgetMb).toBe(4000 - 300 - 700 - 300);
 		expect(f.landerMb).toBe(300);
 		expect(f.gateMb).toBe(700);
-		// 4000 − 1000 fits 3 at 2370, not 4 at 3058
 		expect(f.byMemory).toBe(3);
 	});
 });

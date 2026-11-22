@@ -1,14 +1,3 @@
-/*
- * file-issue's gh fake (#5150): one routing source, served in-process as the
- * core's `gh` port and as the WFC_GH stub the program cases run. It reads
- * the sandbox files a case writes — `issues`, `issues-open`, `list-fails`,
- * `create-silent`, `assign-fails`, `post-err`, `api/` — and logs every argv
- * to `gh-calls`. Its issue-list, issue, sub-issue and label answers go
- * through RECORDED_SHAPES, which gh.contract.test.ts holds to the real gh; an
- * `api/` file on any other path is served as written. lib/link-writer.js's
- * reads answer from LINK_READS.
- */
-
 import fs from "node:fs";
 import {
 	type GhAnswer,
@@ -19,17 +8,9 @@ import {
 } from "./gh-fake";
 import { stubGhScript } from "./gh-stub";
 
-/** The number the create answers — nothing a caller could guess. */
 export const NEW = 561;
-/** The sub-issue id the link reads answer for #NEW. */
 export const NEW_ID = 987_654;
 
-/*
- * `routeFileIssueGh(argv, input, fs, dir)`: the answer to one gh call, its
- * side effects written under `dir`. The similar-title list's open read takes
- * `issues-open`; every other `issue list` takes `issues`. The link reads
- * list #NEW as a child once the POST has landed.
- */
 const ROUTE = String.raw`function routeFileIssueGh(argv, input, fs, dir) {
 	const at = (name) => dir + "/" + name;
 	const has = (name) => fs.existsSync(at(name));

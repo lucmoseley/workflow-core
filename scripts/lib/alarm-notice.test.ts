@@ -1,11 +1,5 @@
 // @vitest-environment node
 
-/*
- * lib/alarm-notice.js (#4939), against lib/alarm-notice-testkit.ts's fake
- * GitHub. Break this and a stall reaches the founder hourly, or never once
- * the machine is down.
- */
-
 import { describe, expect, it } from "vitest";
 import { runNotice } from "./alarm-notice.js";
 import { at, fakeGitHub } from "./alarm-notice-testkit";

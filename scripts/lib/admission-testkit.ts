@@ -1,9 +1,3 @@
-/*
- * The sandbox every test of admission.js runs it in (#3340): each limb
- * admission reads off the machine is a fixture under the test's `dir`, so a
- * limb added here reaches every such test and none reads this machine's own
- * state.
- */
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -21,17 +15,12 @@ export interface Lander {
 	chargeMb: number;
 }
 
-/* A gate seat's marker: its holder pid, where declared its charge, and
- * whether it has spawned its command, running rather than queued. */
 export interface Gate {
 	pid: number;
 	chargeMb?: number;
 	spawned?: boolean;
 }
 
-/* A temp root whose suite queue holds a marker per lander and per gate seat,
- * the root every case's TMPDIR names, so no case reads the machine's own
- * suite queue. */
 export const tmpRootWithMarkers = (
 	dir: string,
 	landers: Lander[],
@@ -53,14 +42,6 @@ export const tmpRootWithMarkers = (
 	return root;
 };
 
-/*
- * A fake `/proc` carrying a `smaps_rollup` per pid in `pss` (kB), a `stat`
- * per pid in `parents`, naming its parent, a `cwd` symlink per pid in
- * `cwds`, and an `environ` per pid in `environs`. A pid with no rollup is the
- * unreadable case the scan falls back to RSS for, and one with no `cwd` the
- * unreadable one the spare test reads as claimed. The default is an empty
- * tree, so no test ever reads the real `/proc`.
- */
 export const writeProcRoot = (
 	dir: string,
 	{
@@ -82,7 +63,6 @@ export const writeProcRoot = (
 	for (const [pid, kb] of Object.entries(pss)) writeSmapsRollup(root, pid, kb);
 	for (const [pid, ppid] of Object.entries(parents)) {
 		fs.mkdirSync(path.join(root, pid), { recursive: true });
-		/* A command name holding a space and a `)`, as a real one may. */
 		fs.writeFileSync(
 			path.join(root, pid, "stat"),
 			buildStatLine(Number(pid), {
@@ -96,12 +76,6 @@ export const writeProcRoot = (
 	return root;
 };
 
-/*
- * A fake reap-finished-sessions.js, so admission tests never touch the real
- * reaper (which would spawn the real oracle, read the real claim store and
- * write the real ~/.claude/wfc-reap-state.json). `reaped` is what it prints
- * under `--dry-run --json`; `fails`/`raw` cover the degraded paths.
- */
 export const writeReapScript = (
 	dir: string,
 	reaped: Array<{ pss: number | null }> | null,
@@ -120,7 +94,6 @@ export const writeReapScript = (
 	return p;
 };
 
-/* A stand-in /proc/loadavg, so no admission test reads the live machine's load. */
 export const writeLoadavg = (dir: string, load1: number | null) => {
 	const p = path.join(dir, "loadavg");
 	if (load1 === null) return path.join(dir, "no-such-loadavg");
@@ -128,8 +101,6 @@ export const writeLoadavg = (dir: string, load1: number | null) => {
 	return p;
 };
 
-/* A repo holding `config`, so each listed session sitting in it is charged
- * that draw. */
 export const writeHostRepo = (dir: string, config: Record<string, unknown>) => {
 	const host = path.join(dir, "host");
 	fs.mkdirSync(path.join(host, ".claude"), { recursive: true });
@@ -141,12 +112,6 @@ export const writeHostRepo = (dir: string, config: Record<string, unknown>) => {
 	return host;
 };
 
-/*
- * The variables that hold a case off this machine's own state — its suite
- * queue, session id, reaper, load, `/proc`, allowance cache and exported
- * ceilings — in one copy, so a new one reaches every case. A case spreads it
- * and overrides what it varies.
- */
 export const buildIsolatedEnv = (
 	dir: string,
 	{
@@ -161,15 +126,10 @@ export const buildIsolatedEnv = (
 ) => ({
 	TMPDIR: tmpRootWithMarkers(dir, landers, gates),
 	CLAUDE_CODE_SESSION_ID: SELF,
-	// Isolates the allowance re-read (#294) from this machine's real
-	// `~/.claude/.claude.json` — a config dir with no cache file at all
-	// reads as ABSENT on both bars, which only warns, never refuses.
 	CLAUDE_CONFIG_DIR: configDir,
 	WFC_REAP_SCRIPT: writeReapScript(dir, []),
 	WFC_LOADAVG: writeLoadavg(dir, 0.5),
 	WFC_PROC: writeProcRoot(dir),
-	// Cleared so a founder's exported override cannot move the ceiling.
 	WFC_LOAD_CEILING: "",
-	// Set so neither the runner's core count nor an override moves it.
 	WFC_SESSION_CEILING: "0",
 });

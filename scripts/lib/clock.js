@@ -30,13 +30,7 @@ const now = (env = process.env) => {
 	return t;
 };
 
-/**
- * CLOCK_MONOTONIC in ms, as `process.hrtime` reads it on Linux: a host
- * suspend neither steps it nor advances it, so a duration read off it is
- * awake time only (#2886, #5446). Every duration a record carries reads this,
- * never a difference of wall-clock stamps.
- * @returns {number}
- */
+/** @returns {number} */
 const monotonicMs = () => Math.floor(Number(process.hrtime.bigint()) / 1e6);
 
 module.exports = { monotonicMs, now };

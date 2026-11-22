@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the one verdict refill-loop.js judges each child by: null on exit 0,
- * else the exit, the error that ended it and the last line printed (#3029).
- * Breaking it misreports why a launch, stop or typed resume failed.
- */
 import { describe, expect, it } from "vitest";
 import {
 	childFailure,

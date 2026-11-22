@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The block-cause classifier (#2699, rules from #2358 F9), one case per rule.
- * Each fixture is a real record's shape: the permission prompt from #2699's
- * live reading (job bd329336, 2.1.309), the model-text question from its
- * scratch job 926a9e02, the transcript rows from #2358's census, and the
- * dialog park from #3252's probe 85411fa1 and 2.1.311's dialog table.
- *
- * The resumed-idle fixtures are Implement 2636's and Implement 2634's
- * transcript tails (#2659) and a harness API retry's.
- *
- * Loosen one and the loop stops a session on a guess, or leaves a
- * permission prompt holding its slot all night, or resumes a session the
- * harness is still retrying.
- */
 import { describe, expect, it } from "vitest";
 import {
 	blockCause,
@@ -24,7 +10,6 @@ import {
 } from "./block-cause.js";
 import { API_PROMPT, HOLD_PROMPT, scriptPrompt } from "./loop-prompts.js";
 
-/** The turn reading alone, the job record unread. */
 const hasTurnSinceApiStop = (
 	rows: unknown,
 	timeline: unknown,
@@ -137,7 +122,6 @@ describe("a question the harness poses (rule 4)", () => {
 });
 
 describe("a session locked out by its guards (#4228)", () => {
-	/* The 3 Nov refusal's shape, read off session 321a3802's transcript. */
 	const Refusal =
 		"guard-anthropic-report could not judge this call, and it fails closed: Lexer is not defined";
 	const call = (id: string, command: string) => ({
@@ -486,10 +470,6 @@ describe("another dialog (rule 8)", () => {
 	});
 
 	it("reads a startup-dialog park UNKNOWN before its first turn and OTHER_DIALOG after (#3252)", () => {
-		/* `claude --bg "/config"` on 2.1.311, its process killed while the
-		 * dialog was open: the listing row after, and the job record the
-		 * startup watchdog wrote. No turn ran, so no transcript was written;
-		 * a resumed session's record keeps its cliVersion and has one. */
 		const parked = {
 			id: "85411fa1",
 			cwd: "/home/lucmo/workflow-core",
@@ -537,8 +517,6 @@ describe("anything it cannot read is UNKNOWN (rules 0 and 10)", () => {
 	});
 
 	it("reads a 2.1.310 parked row, which carries state and no status", () => {
-		/* Implement 3029's row and job, off the refill loop's log of
-		 * 2026-10-25T23:40:10Z (#3200). */
 		const parked = {
 			id: "ddc2263e",
 			cwd: "/home/lucmo/workflow-core",
@@ -601,8 +579,6 @@ describe("anything it cannot read is UNKNOWN (rules 0 and 10)", () => {
 
 describe("a session its host restarted that never takes a turn (#2659, #2978)", () => {
 	const working = { state: "working", tempo: "idle" };
-	/* The two harness restart rows (#2976 F2), as b1bcb905 and 0d30f1bf
-	 * carry them. */
 	const shellStopped = (timestamp: string) => ({
 		type: "user",
 		isSidechain: false,
@@ -747,8 +723,6 @@ describe("a session its host restarted that never takes a turn (#2659, #2978)", 
 		);
 	});
 
-	/* #2976 F3's classes, each trailing with no restart row: 25 Oct's 11
-	 * misfires. */
 	it.each([
 		[
 			"A, a delivery row mid tool call",
@@ -1014,7 +988,6 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 				false,
 			);
 			expect(hasTurnSinceApiStop(rows, [], since)).toBe(false);
-			/* A turn the loop's own resume bought ends on a newer `blocked` row. */
 			expect(
 				hasTurnSinceApiStop(
 					rows,

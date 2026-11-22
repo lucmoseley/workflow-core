@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * arbiter-locks.js's own suite — taking a claim, the two exits from one, and
- * the debris a process killed mid-break leaves behind. Everything that must go
- * through a spawned CLI stays in scripts/session-arbiter.test.ts. Split out at
- * mantahostels#1795; the live-holder and unparseable-lock rulings are
- * mantahostels#348 and mantahostels#1691.
- *
- * Each case runs in arbiter-testkit's sandbox, with locks written straight to
- * disk and holders made live or certainly dead by hand, so a stale, corrupt or
- * half-broken lock is built exactly rather than raced for.
- *
- * The claim registry is what `lib/file-claim.js`, a `PreToolUse` core on
- * every Write and Edit, refuses on: loosen a case here and two sessions hold
- * one file and clobber each other, or a live session's claim is broken.
- */
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -39,10 +24,8 @@ import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
 
-/** arbiter-locks.js's TORN_SETTLE_MS, which §G6 keeps unexported: change the two together. */
 const TORN_SETTLE_MS = 50;
 
-/** Put a lock on disk at `rel`, bypassing acquire. */
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	const p = store.paths.lock(rel);
@@ -74,8 +57,6 @@ describe("acquire — check and take in one operation", () => {
 	});
 
 	it("breaks a dead holder's lock rather than wedging the file forever", () => {
-		// The whole reason mantahostels#104 was a hard prerequisite: mantahostels#103 chose deny, and under
-		// deny an earlyoom kill would otherwise lock a file permanently.
 		store.acquire("docs/doc-map.md", {
 			sessionId: "killed",
 			pid: 4_194_303,
@@ -88,13 +69,8 @@ describe("acquire — check and take in one operation", () => {
 	});
 
 	it("resolves a resumed session to its LIVE entry, not the first match", () => {
-		// Entries are named by pid, so a resumed session leaves two carrying the same
-		// session id (mantahostels#322). Taking the first match handed back a dead pid, and a
-		// lock minted on a dead pid is stale the moment it is written: the next
-		// session breaks it and edits the file under its live holder, with nothing
-		// logged.
-		registerSession(sb, "resumed", 4_194_303, { procStart: "1" }); // the abandoned entry
-		registerSession(sb, "resumed", process.pid); // the live one
+		registerSession(sb, "resumed", 4_194_303, { procStart: "1" });
+		registerSession(sb, "resumed", process.pid);
 
 		const me = store.identify("resumed");
 		expect(me.pid).toBe(process.pid);
@@ -121,8 +97,6 @@ describe("acquire — check and take in one operation", () => {
 	});
 
 	it("an unidentifiable session takes no lock but is still refused a held one", () => {
-		// No sessions entry and no jobs entry: there is no process whose death
-		// could release its claim, so recording one would wedge the file forever.
 		const nobody = store.identify("ghost");
 		expect(nobody.durable).toBe(false);
 
@@ -134,9 +108,6 @@ describe("acquire — check and take in one operation", () => {
 	});
 
 	it("a jobs state file alone does NOT make a claim, or the file wedges for good", () => {
-		// A lock carrying only a state file can be proved dead by nothing: job dirs
-		// outlive their sessions, so `holderAlive` would answer alive for ever and
-		// no later session could take that path (mantahostels#104).
 		const jd = path.join(sb.home, "jobs", "j1");
 		fs.mkdirSync(jd, { recursive: true });
 		fs.writeFileSync(path.join(jd, "state.json"), "{}");
@@ -148,9 +119,6 @@ describe("acquire — check and take in one operation", () => {
 	});
 
 	it("is re-entrant for an unidentifiable session's own live lock, not denied", () => {
-		// A session can lose its registry entry mid-run. It takes no new claims, but
-		// denying it the file its own live lock holds blocks its remaining work for
-		// nothing.
 		put("docs/doc-map.md", { sessionId: "casper", ...liveHolder() });
 		const r = store.acquire("docs/doc-map.md", {
 			sessionId: "casper",
@@ -161,8 +129,6 @@ describe("acquire — check and take in one operation", () => {
 		expect(r.verdict).toBe("reentrant");
 	});
 
-	// A session that can take no claim of its own is still DENIED one (mantahostels#359): what
-	// is unknown here is the HOLDER's liveness, not this session's.
 	const casper = {
 		sessionId: "casper",
 		pid: null,
@@ -217,8 +183,6 @@ describe("acquire — check and take in one operation", () => {
 	it.skipIf(AS_ROOT)(
 		"takes the lock — and says so — when the registry cannot be read at all",
 		() => {
-			// A registry that will not open is no evidence of life, so the write goes
-			// ahead. It can land under a live editor, so it goes in the log (mantahostels#174).
 			registerSession(sb, "resumed", process.pid);
 			put("docs/doc-map.md", { sessionId: "resumed", ...DEAD });
 
@@ -243,8 +207,6 @@ describe("acquire — check and take in one operation", () => {
 });
 
 describe("a lock recording a pid that is no longer the session's", () => {
-	// A session outlives its process: a resumed session keeps its session id under
-	// a new pid (mantahostels#322).
 	it("is retaken with the live pid, not accepted as re-entrant", () => {
 		registerSession(sb, "resumed", process.pid);
 		const me = store.identify("resumed");
@@ -266,17 +228,12 @@ describe("a lock recording a pid that is no longer the session's", () => {
 });
 
 describe("a stale lock whose session id still has a live entry (mantahostels#348)", () => {
-	// A lock freezes pid and procStart at claim time, but a resumed session keeps
-	// its id under a fresh host process. So the recorded pid is genuinely gone while
-	// the holder is genuinely alive, and breaking the lock writes the file under a
-	// live editor — mantahostels#63, the incident where one session's work landed under
-	// another's, reached by a second route.
 	const staleLockFor = (sessionId: string | null) =>
 		put("docs/doc-map.md", { sessionId, ...DEAD });
 
 	it("refuses a neighbour rather than breaking it, recording the neighbour as holder", () => {
-		registerSession(sb, "resumed", DEAD.pid, { procStart: DEAD.procStart }); // abandoned host
-		registerSession(sb, "resumed", process.pid); // the one it resumed onto
+		registerSession(sb, "resumed", DEAD.pid, { procStart: DEAD.procStart });
+		registerSession(sb, "resumed", process.pid);
 		staleLockFor("resumed");
 
 		const r = store.acquire("docs/doc-map.md", durably("bob"));
@@ -294,14 +251,10 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 		const after = JSON.parse(fs.readFileSync(p, "utf8"));
 		expect(after.pid).toBe(process.pid);
 		expect(proc.holderAlive(after)).toBe(true);
-		// The content pin is keyed by claimId (mantahostels#295), so a re-key minting a new one
-		// would strand the blob recording what the file held.
 		expect(after.claimId).toBe(before.claimId);
 	});
 
 	it("breaks it when the id has no registry entry at all", () => {
-		// A pruned registry, or a headless run that registered nothing, is no
-		// evidence of life.
 		staleLockFor("unregistered");
 		expect(store.acquire("docs/doc-map.md", durably("bob")).verdict).toBe(
 			"claimed",
@@ -317,9 +270,6 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 	});
 
 	it("breaks it when the live entry carries no procStart", () => {
-		// entry.procStart only, never a fresh /proc read as a fallback: falling back
-		// compares that read against itself, so a recycled pid reads live and the
-		// lock outlives the session that asked for it.
 		registerSession(sb, "unproveable", process.pid, { procStart: null });
 		staleLockFor("unproveable");
 		expect(store.acquire("docs/doc-map.md", durably("bob")).verdict).toBe(
@@ -335,9 +285,6 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 	});
 
 	it("breaks it — and says so — when the registry cannot be read at all", () => {
-		// An unbreakable lock is the failure mantahostels#104 ruled worse than an over-eager
-		// break. But this break can take a file from a live session, so it goes in
-		// the log (mantahostels#174).
 		if (AS_ROOT) return;
 		registerSession(sb, "resumed", process.pid);
 		staleLockFor("resumed");
@@ -356,11 +303,6 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 	});
 
 	it("leaves the re-pointed lock scoped to a boot, never unscoped", () => {
-		// An unscoped lock is one a reboot can hand to a stranger holding the same
-		// pid. The branch that keeps
-		// the OLD id — this machine refusing to name the current boot — cannot be
-		// reached in-process and is unverified: /proc/sys/kernel/random/boot_id is
-		// readable here and its answer is cached for the run.
 		registerSession(sb, "resumed", process.pid);
 		const p = staleLockFor("resumed");
 
@@ -372,8 +314,6 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 	});
 
 	it("hands back the lock actually on disk when the rewrite loses a race", () => {
-		// The refusal is right either way; what must not happen is a denial naming
-		// the dead pid this session read, when a different holder now has the file.
 		const existing = locksMod.newLock({
 			path: "docs/doc-map.md",
 			sessionId: "resumed",
@@ -398,8 +338,6 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 });
 
 describe("contention this session lost every time", () => {
-	// Driven through acquire() itself with its retry budget set to zero, so the
-	// production call site is what runs.
 	const contend = (rel: string, fields: object) => {
 		registerSession(sb, "a", process.pid);
 		put(rel, fields);
@@ -423,17 +361,7 @@ describe("contention this session lost every time", () => {
 	});
 });
 
-/*
- * mantahostels#1701. Both break sites `continue`, so a break landing on the last retry left
- * the path standing open with no round left to take it — and the write was then
- * reported as claimed with no lock behind it. The budget below is 1, so the
- * single round is spent on the break and the fall-through is what must claim.
- *
- * Mutated: disabling the fall-through create fails the two break cases and
- * nothing else; the live-holder case passes without it.
- */
 describe("a lock broken on the final retry", () => {
-	/** A registered session, with `fields`' lock already on `rel` to contend with. */
 	const claimant = (rel: string, fields: object) => {
 		registerSession(sb, "a", process.pid);
 		put(rel, fields);
@@ -473,19 +401,7 @@ describe("a lock broken on the final retry", () => {
 	});
 });
 
-/*
- * mantahostels#1692.
- *
- * The torn/corrupt discriminator is driven through readLocks' `pause` seam
- * (mantahostels#1711): a callback standing in for the 50 ms wait finishes the record, so
- * the second probe reads what a real writer left and no clock is raced.
- * Mutated: judging on the first probe, and dropping the pause, each fail the
- * settling case and the once-only case; binding the default to a no-op fails
- * the last case alone. Dropping the age gate fails the hour-old case; inverting
- * it fails the settling case.
- */
 describe("readLocks — a record that will not parse", () => {
-	/** As much of a ListedLock as any one case asserts on. */
 	interface Listed {
 		sessionId?: string;
 		unreadable?: boolean;
@@ -499,7 +415,7 @@ describe("readLocks — a record that will not parse", () => {
 
 	it("surfaces it in place, so the readable records beside it survive", () => {
 		put("docs/doc-map.md", { sessionId: "alice", ...liveHolder() });
-		planted("deadbeefcafe0002.json", ""); // the zero-byte shape of mantahostels#1692
+		planted("deadbeefcafe0002.json", "");
 		const locks = store.readLocks();
 		expect(locks).toHaveLength(2);
 		expect(locks.find((l: Listed) => l.sessionId === "alice")).toBeTruthy();
@@ -510,7 +426,7 @@ describe("readLocks — a record that will not parse", () => {
 
 	it("settles: a record finished during the pause is a lock, not a fault", () => {
 		put("docs/doc-map.md", { sessionId: "alice", ...liveHolder() });
-		planted("deadbeefcafe0003.json", '{"path":"docs/PRD.md","sessi'); // mid-write
+		planted("deadbeefcafe0003.json", '{"path":"docs/PRD.md","sessi');
 		const locks = store.readLocks(() =>
 			planted(
 				"deadbeefcafe0003.json",
@@ -537,7 +453,6 @@ describe("readLocks — a record that will not parse", () => {
 
 	// #852.
 	const ageOut = (name: string) => {
-		// A day: far past arbiter-locks.js's one-hour DEBRIS_AGE_MS.
 		const past = (Date.now() - 86_400_000) / 1000;
 		fs.utimesSync(path.join(store.paths.locksDir(), name), past, past);
 	};
@@ -567,8 +482,6 @@ describe("readLocks — a record that will not parse", () => {
 	it("pauses for an aged record whose age cannot be read", () => {
 		planted("deadbeefcafe000b.json", "");
 		ageOut("deadbeefcafe000b.json");
-		// Spied, not chmod-ed: a mode that refuses the stat refuses probeRecord's
-		// read too, and the record would list as "refused" before age is asked.
 		const stat = vi.spyOn(fs, "statSync").mockImplementation(() => {
 			throw Object.assign(new Error("EACCES"), { code: "EACCES" });
 		});
@@ -583,30 +496,24 @@ describe("readLocks — a record that will not parse", () => {
 		expect(pauses).toBe(1);
 	});
 
-	// #841. Counts an internal call, the breach base §X6 allows with a reason:
-	// resolving per record cost ~90 ms on every Bash call, and no return value
-	// shows the count.
 	it("resolves the lock directory once, however many records it judges", () => {
 		put("docs/doc-map.md", { sessionId: "alice", ...liveHolder() });
 		put("docs/PRD.md", { sessionId: "bob", ...liveHolder() });
-		planted("deadbeefcafe0007.json", ""); // torn, so the second pass runs too
+		planted("deadbeefcafe0007.json", "");
 		const spy = vi.spyOn(core.paths, "locksDir");
 		try {
-			// No settle wait, so the torn record stays torn.
 			expect(store.readLocks(noop)).toHaveLength(3);
+			// #841
 			expect(spy).toHaveBeenCalledTimes(1);
 		} finally {
 			spy.mockRestore();
 		}
 	});
 
-	// A lower bound is not a race — Atomics.wait cannot return early, so only
-	// skipping the wait fails this.
 	it("really waits by default, so production settles as well as the seam", () => {
 		planted("deadbeefcafe0006.json", "");
 		const started = Date.now();
 		store.readLocks();
-		// §X9: the default settle is a real Atomics.wait, and this floor is its one proof.
 		expect(Date.now() - started).toBeGreaterThanOrEqual(TORN_SETTLE_MS - 10);
 	});
 });
@@ -622,10 +529,6 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 	};
 
 	it("removes .tmp- and .stale- files old enough to be certainly abandoned", () => {
-		// earlyoom kills mid-syscall at the WSL memory cap, so a claim can die between
-		// writing its temp file and linking it, or between renaming a stale lock
-		// aside and unlinking it. Neither file is ever read again; without a sweep
-		// they accumulate for the life of the machine.
 		const tmp = plant(".tmp-999-deadbeef", 2 * 60 * 60 * 1000);
 		const stale = plant("abc123.json.stale-deadbeef", 2 * 60 * 60 * 1000);
 		locksMod.sweepDebris();
@@ -640,8 +543,6 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 	});
 
 	it("restamps a lock renamed aside, so the sweep cannot take it mid-break", () => {
-		// The judgement runs while the lock sits aside; a sweep landing then must
-		// not take a lock claimed hours ago.
 		const lockPath = put("docs/doc-map.md", { sessionId: "ghost", ...DEAD });
 		const t = new Date(Date.now() - 3 * 60 * 60 * 1000);
 		fs.utimesSync(lockPath, t, t);
@@ -663,18 +564,12 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 	});
 
 	it("clears an old once-per-session marker, so a still-broken guard is re-said", () => {
-		// .said- markers bound sayOnce; left forever, a fault would be said once per
-		// machine lifetime instead of once per session.
 		const said = plant(".said-abcdef0123456789", 2 * 60 * 60 * 1000);
 		locksMod.sweepDebris();
 		expect(fs.existsSync(said)).toBe(false);
 	});
 
 	it("restores a live lock found stranded aside, instead of sweeping it", () => {
-		// A breaker killed between its rename and its re-judge (the hook's own
-		// `timeout 5`, earlyoom) strands what it moved. If that was a live
-		// replacement, the path reads free while its holder works on unprotected —
-		// so the next claim's sweep puts it back before anything judges the path.
 		const lockPath = store.paths.lock("docs/doc-map.md");
 		fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 		fs.writeFileSync(
@@ -699,9 +594,6 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 	});
 
 	it("restores an aside whose holder was RESUMED onto a new process (mantahostels#359)", () => {
-		// The aside records the pid the holder had when it claimed, which a resume
-		// leaves behind. Judged by that pid alone it is debris, and the age sweep
-		// deletes the live claim of a session still editing the file.
 		const lockPath = store.paths.lock("docs/doc-map.md");
 		fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 		const aside = `${lockPath}.stale-cafe03`;
@@ -717,7 +609,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 			),
 		);
 		const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
-		fs.utimesSync(aside, old, old); // old enough for the age sweep to take it
+		fs.utimesSync(aside, old, old);
 		registerSession(sb, "resumed", process.pid);
 
 		locksMod.sweepDebris();
@@ -731,8 +623,6 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 	it.skipIf(AS_ROOT)(
 		"sweeps an aged aside — and says so — on a registry it cannot read",
 		() => {
-			// Housekeeping is otherwise silent, but this sweep can delete a live
-			// session's claim (mantahostels#174).
 			const aside = `${store.paths.lock("docs/doc-map.md")}.stale-cafe04`;
 			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 			fs.writeFileSync(
@@ -781,13 +671,10 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		expect(
 			store.acquire("docs/doc-map.md", store.identify("other")).verdict,
 		).toBe("claimed");
-		expect(fs.existsSync(aside)).toBe(true); // fresh, so the age test leaves it too
+		expect(fs.existsSync(aside)).toBe(true);
 	});
 
 	it("refuses to restore a lock over a path someone else has since taken, leaving the newer lock in place", () => {
-		// The sweep puts a live aside back at its path. rename(2) would REPLACE
-		// whatever now sits there — deleting the live claim of a third session that
-		// took the file in between.
 		const lockPath = put("docs/doc-map.md", { sessionId: "third" });
 		const aside = `${lockPath}.stale-cafe05`;
 		fs.writeFileSync(
@@ -806,7 +693,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		expect(JSON.parse(fs.readFileSync(lockPath, "utf8")).sessionId).toBe(
 			"third",
 		);
-		expect(fs.existsSync(aside)).toBe(true); // a later sweep, or its holder's death
+		expect(fs.existsSync(aside)).toBe(true);
 	});
 
 	it("never touches a real lock, however old", () => {
@@ -821,9 +708,6 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 });
 
 describe("the break path — reached directly, because acquire() cannot be", () => {
-	// acquire() decides a lock is stale, then renames it aside, then re-judges what
-	// it actually moved. The interesting branches need the lock to CHANGE between
-	// those two steps, which no in-process test can arrange from outside acquire().
 	const readAsides = () =>
 		fs
 			.readdirSync(store.paths.locksDir())
@@ -836,19 +720,14 @@ describe("the break path — reached directly, because acquire() cannot be", () 
 			claimId: "c1",
 		});
 		const p = put("docs/doc-map.md", { ...DEAD, claimId: "c1" });
-		// put() mints its own claimId, so re-point the judged lock at what landed.
 		existing.claimId = JSON.parse(fs.readFileSync(p, "utf8")).claimId;
 
 		expect(locksMod.breakStale("docs/doc-map.md", existing)).toBe("freed");
 		expect(fs.existsSync(p)).toBe(false);
-		// The aside must be unlinked, not merely abandoned for the hourly sweep.
 		expect(readAsides()).toEqual([]);
 	});
 
 	it("puts back a lock that turned live between the read and the rename", () => {
-		// The caller judged `existing` stale. By the time the rename lands, the
-		// holder's replacement is a DIFFERENT, live claim. Taking the file here is
-		// the two-holder bug the whole re-judge exists to prevent.
 		const existing = locksMod.newLock({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", { ...liveHolder(), claimId: "fresh" });
 
@@ -859,8 +738,6 @@ describe("the break path — reached directly, because acquire() cannot be", () 
 	});
 
 	it("puts back a lock it cannot read rather than treating it as free", () => {
-		// A torn or truncated lock says NOTHING about whether its holder is alive.
-		// Unlinking it because it would not parse is how a live claim gets dropped.
 		const existing = locksMod.newLock({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", {});
 		fs.writeFileSync(p, "{not json");
@@ -871,9 +748,6 @@ describe("the break path — reached directly, because acquire() cannot be", () 
 	});
 
 	it("frees a lock whose holder is dead even when the claimId has changed", () => {
-		// Re-judging must turn on LIVENESS, not on identity: a dead holder replaced
-		// by another dead holder is still a file nobody is working on, and refusing
-		// to break it would wedge the path until the hourly sweep.
 		const existing = locksMod.newLock({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", { ...DEAD, claimId: "different" });
 
@@ -883,10 +757,6 @@ describe("the break path — reached directly, because acquire() cannot be", () 
 });
 
 describe("a lock record that will never parse (mantahostels#1691)", () => {
-	// readRecord answers null for a torn write and for a corrupt one alike, and
-	// the claim path retried both. Three attempts later it gave up and let the
-	// write proceed with NO lock at all, so a permanently corrupt record made its
-	// path unclaimable for good.
 	const rel = "docs/doc-map-counts.json";
 	const corrupt = (bytes: string) => {
 		fs.mkdirSync(store.paths.locksDir(), { recursive: true });
@@ -902,10 +772,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		fs.existsSync(store.errorLog())
 			? fs.readFileSync(store.errorLog(), "utf8")
 			: "";
-	/**
-	 * Run `before` once, as the break renames the lock aside: acquire() cannot
-	 * arrange a change between its own rename and its re-read.
-	 */
 	const onBreakRename = (before: () => void) => {
 		const lockPath = store.paths.lock(rel);
 		const real = fs.renameSync;
@@ -918,9 +784,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			real(from, to);
 		});
 	};
-	/** Comfortably inside the settle pause, and comfortably past acquire's first probe. */
 	const childDelayMs = 20;
-	/** The child is a bare `node -e`, so it reaches the shared pause by absolute path. */
 	const sleepSyncPath = path.join(__dirname, "sleep-sync.js");
 
 	describe("probeRecord — the two nulls readRecord collapses", () => {
@@ -931,9 +795,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			expect(core.probeRecord(f).state).toBe("unparseable");
 			fs.writeFileSync(f, "{not json");
 			expect(core.probeRecord(f).state).toBe("unparseable");
-			// Valid JSON that is not an object is as unusable as a truncated file:
-			// `lock.pid` on 5 is undefined, so it reads as a holder nobody can
-			// prove dead.
 			fs.writeFileSync(f, "5");
 			expect(core.probeRecord(f).state).toBe("unparseable");
 			fs.writeFileSync(f, '{"a":1}');
@@ -978,7 +839,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		);
 		expect(record?.path).toBe(rel);
 		expect(record?.brokenBy).toBe("a");
-		// Unparseable means nothing is known about whose claim it was.
 		expect(record?.lostBy).toBeNull();
 		expect(readErrors()).toContain("unparseable lock record");
 	});
@@ -995,10 +855,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 	});
 
 	it("still refuses the file when the unparseable record was a TORN write, recording no break and leaving the live lock in place", () => {
-		// The discriminator, and the case the fix must not collapse. A second
-		// process writes a LIVE lock over the corrupt bytes while acquire() is
-		// inside its settle pause — which is what a genuine mid-write looks like —
-		// and the re-read must find it and back off rather than break it.
 		registerSession(sb, "a", process.pid);
 		const p = corrupt("");
 		const good = JSON.stringify(
@@ -1013,18 +869,12 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 				`const fs=require("fs"),{sleepSync:w}=require(${JSON.stringify(sleepSyncPath)});` +
 					`fs.writeFileSync(${JSON.stringify(ready)},"1");` +
 					`while(!fs.existsSync(${JSON.stringify(go)}))w(1);` +
-					// The delay is what makes this test say something. Writing on `go`
-					// races acquire()'s FIRST probe, and a child that wins it is never
-					// unparseable at all — every assertion below then passes with the
-					// discriminator deleted.
 					`w(${childDelayMs});` +
 					`fs.writeFileSync(${JSON.stringify(p)},${JSON.stringify(good)});`,
 			],
 			{ stdio: "ignore" },
 		);
 		try {
-			// Pay node's start-up cost BEFORE the timed window, so the write lands
-			// milliseconds into the pause rather than racing the interpreter.
 			const deadline = Date.now() + 10_000;
 			while (!fs.existsSync(ready) && Date.now() < deadline) sleepSync(1);
 			expect(fs.existsSync(ready)).toBe(true);
@@ -1038,8 +888,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			expect(taken.lock?.sessionId).toBe("mid-write");
 			expect(readBreaks()).toEqual([]);
 			expect(core.readRecord(p)?.sessionId).toBe("mid-write");
-			// And the settle branch is what answered.
-			// §X9: two processes at once: the write lands from a real child mid-pause, so only the clock shows the settle branch answered.
 			expect(elapsed).toBeGreaterThanOrEqual(TORN_SETTLE_MS);
 		} finally {
 			child.kill();
@@ -1047,8 +895,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 	});
 
 	it("puts back a record that turned readable between the judgement and the rename", () => {
-		// The spy lands its good record on the break's own rename, after acquire()
-		// has judged the bytes corrupt.
 		const p = corrupt("{not json");
 		const good = JSON.stringify(
 			locksMod.newLock({ path: rel, ...liveHolder(), claimId: "fresh" }),
@@ -1066,14 +912,9 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 	it.skipIf(AS_ROOT)(
 		"puts back a record it could not READ rather than calling it corrupt (mantahostels#174)",
 		() => {
-			// Dropping a lock the filesystem refused is how a live claim gets
-			// destroyed on no evidence at all. The refusal is on the FILE, not the
-			// directory: rename needs only the directory, so the aside is made and
-			// then cannot be read.
 			const p = corrupt("{not json");
 			const rename = onBreakRename(() => fs.chmodSync(p, 0o000));
 			try {
-				// The restored lock is still sealed, so the next round cannot read it.
 				expect(store.acquire(rel, durably("a")).verdict).toBe("unknown");
 				expect(fs.existsSync(store.paths.lock(rel))).toBe(true);
 			} finally {
@@ -1087,8 +928,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 });
 
 describe("release — the second exit from a claim", () => {
-	// mantahostels#121: process death was the only exit, so a session that had finished with a
-	// file could not say so and blocked everyone else for hours.
 	beforeEach(() => {
 		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
 	});
@@ -1115,8 +954,6 @@ describe("release — the second exit from a claim", () => {
 	});
 
 	it("refuses while the file is dirty, so the next claimant cannot commit the edit", () => {
-		// mantahostels#63, by a new route: one session's pathspec commit taking another session's
-		// working-tree edit in under its own message.
 		const me = live(sb, "alice");
 		store.acquire("docs/doc-map.md", me);
 		fs.writeFileSync(path.join(sb.repo, "docs/doc-map.md"), "half an edit\n");
@@ -1125,8 +962,6 @@ describe("release — the second exit from a claim", () => {
 	});
 
 	it("refuses when git cannot answer, rather than releasing on an unproven clean", () => {
-		// A failed release costs today's behaviour; a wrong one hands the file over
-		// mid-edit (mantahostels#99).
 		const me = live(sb, "alice");
 		store.acquire("docs/doc-map.md", me);
 		fs.rmSync(path.join(sb.repo, ".git"), { recursive: true, force: true });
@@ -1136,8 +971,6 @@ describe("release — the second exit from a claim", () => {
 	});
 
 	it("hands back the content answer on an uncheckable refusal (mantahostels#420)", () => {
-		// With .git/HEAD gone, `status` exits 128 while `hash-object` still answers,
-		// so an ordinary modification is fully knowable on this branch.
 		const me = live(sb, "alice");
 		const file = path.join(sb.repo, "docs/doc-map.md");
 		fs.writeFileSync(file, "alice's work\n");
@@ -1159,9 +992,6 @@ describe("release — the second exit from a claim", () => {
 	});
 
 	it("puts back a lock that is not the one it read, rather than dropping it", () => {
-		// dropIfUnchanged is the shared drop, and release passes it the strictest
-		// possible test: this exact claim, or nothing. Driven directly because
-		// getting there through release() needs the lock to change mid-call.
 		store.acquire("docs/doc-map.md", live(sb, "alice"));
 		const r = locksMod.dropIfUnchanged(
 			"docs/doc-map.md",
@@ -1171,10 +1001,6 @@ describe("release — the second exit from a claim", () => {
 		expect(r.restored).toBe(true);
 		expect(held("docs/doc-map.md")).toBe(true);
 	});
-
-	// Release's own wiring of that branch is UNVERIFIED: reaching it needs a second
-	// session to replace the lock between release's read and its drop, inside one
-	// call, which no in-process test can arrange.
 });
 
 describe("listLocks", () => {
@@ -1212,8 +1038,6 @@ describe("listLocks", () => {
 	it.skipIf(AS_ROOT)(
 		"shows a resumed holder STALE — and says so — on a registry it cannot read",
 		() => {
-			// STALE is read as free, and nothing refuses the Bash-route write that
-			// follows (mantahostels#174).
 			registerSession(sb, "resumed", process.pid);
 			put("docs/resumed.md", { sessionId: "resumed", ...DEAD });
 
@@ -1230,8 +1054,6 @@ describe("listLocks", () => {
 	);
 
 	it("leaves readHeldBy answering without judging liveness at all", () => {
-		// It runs after every Bash call in every session, and a registry walk there
-		// is the cost mantahostels#322 ruled out of a hot path.
 		registerSession(sb, "resumed", process.pid);
 		put("docs/resumed.md", { sessionId: "resumed", ...DEAD });
 		expect(store.readHeldBy("resumed")).toEqual(["docs/resumed.md"]);
@@ -1250,8 +1072,6 @@ describe("readHeldBy — the paths one session holds", () => {
 	});
 
 	it("returns null, not an empty hold, when the store cannot be read", () => {
-		// A caller iterating this must not read a dark store as "holds nothing"
-		// (mantahostels#174).
 		fs.mkdirSync(store.stateDir(), { recursive: true });
 		fs.writeFileSync(store.paths.locksDir(), "not a directory");
 		expect(store.readHeldBy("alice")).toBeNull();
@@ -1261,7 +1081,6 @@ describe("readHeldBy — the paths one session holds", () => {
 describe("whoHolds — the one holder-and-cover query (#1492)", () => {
 	const map = "docs/doc-map.md";
 	const registry = () => core.resumedHolderTest("test", "registry dark");
-	/** A registry that would not open: nobody reads as resumed. */
 	const dark = Object.assign(() => false, { registryUnreadable: () => true });
 	const ask = (subject: string, resumed = registry()) =>
 		store.whoHolds(subject, "bob", resumed);
@@ -1348,13 +1167,9 @@ describe("whoHolds — the one holder-and-cover query (#1492)", () => {
 });
 
 describe("a region claim's cleanliness is its own region's, not the file's (mantahostels#1434)", () => {
-	// The block this fixes: a file-level dirtiness test pinned every region of a
-	// document that is dirty somewhere almost always, so a session that had
-	// committed its own region cleanly could never release it (mantahostels#1404).
 	const rel = "docs/doc-map.md";
 	const abs = () => path.join(sb.repo, rel);
 
-	/** A document with a §A row, §B's preamble and two entries — four regions. */
 	const doc = (b196: string, b197: string, row = "docs/agents/x.md") =>
 		[
 			"# Doc map",
@@ -1409,8 +1224,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	});
 
 	it("still refuses a release while the claimed region itself is dirty", () => {
-		// mantahostels#63's rule, unweakened: your own unfinished edit must not be handed to
-		// the next holder to commit under their message.
 		const me = live(sb, "alice");
 		store.acquire(`${rel}#B196`, me);
 		write(doc("B196, half-rewritten.", "B197 as committed."));
@@ -1418,8 +1231,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	});
 
 	it("ignores a neighbour's insert above, which shifts the region's lines", () => {
-		// The trap the issue named: a naive line-range comparison against HEAD
-		// reports a region dirty for an edit that never touched a byte of it.
 		const me = live(sb, "alice");
 		store.acquire(`${rel}#B197`, me);
 		write(
@@ -1433,9 +1244,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	});
 
 	it("reads the last region as clean, trailing newline and all", () => {
-		// gitRaw, not git: the trim git() applies would strip the file's final
-		// newline from HEAD's copy alone, so the last region would never compare
-		// equal and every release of it would refuse.
 		expect(store.subjectDirty(`${rel}#B197`)).toBe(false);
 	});
 
@@ -1459,9 +1267,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	});
 
 	it("catches a change staged and then reverted in the working tree", () => {
-		// The index is repo-global here, so the next holder's commit would sweep
-		// the staged version in under their own message — mantahostels#63's harm exactly,
-		// invisible to a worktree-versus-HEAD comparison.
 		write(doc("B196, staged but not committed.", "B197 as committed."));
 		stage();
 		write(doc("B196 as committed.", "B197 as committed."));
@@ -1470,9 +1275,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	});
 
 	it("reads a region in NEITHER revision as clean, so its claim can be dropped", () => {
-		// A §A row whose path was renamed and committed: the old key names nothing
-		// on either side, so there are no bytes to hand the next holder and mantahostels#63's
-		// harm cannot happen. Refusing here would wedge the claim permanently.
 		const me = live(sb, "alice");
 		store.acquire(`${rel}#B999`, me);
 		expect(store.subjectDirty(`${rel}#B999`)).toBe(false);
@@ -1480,8 +1282,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	});
 
 	it("falls back to the whole file where there is no HEAD to compare against", () => {
-		// A fresh repo with no commit: git show has nothing to answer with, and a
-		// fallback to the file-level test is the only safe reading.
 		fs.rmSync(path.join(sb.repo, ".git"), { recursive: true, force: true });
 		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
 		expect(store.subjectDirty(`${rel}#B196`)).toBe(true);
@@ -1493,8 +1293,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	});
 
 	describe("the §A generator's release waives that refusal (mantahostels#2428)", () => {
-		// Its own write is what makes §A dirty.
-		/** Rewrite §A's table header, which dirties §A and no other region. */
 		const dirtyA = () =>
 			write(
 				doc("B196 as committed.", "B197 as committed.").replace(

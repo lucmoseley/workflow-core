@@ -1,9 +1,3 @@
-/*
- * changed-selection.js — what a `--changed` or `--adopt` run of
- * `run-vitest.js` hands vitest: the diff, vitest's own import-graph selection
- * of it, and the read graph's runtime readers of the same paths (mantahostels#2095).
- */
-
 const {
 	execProgram,
 	gitBinary,
@@ -26,73 +20,22 @@ const { ignoreFailure, orFallback } = require("./caught.js");
 
 const REGENERATE_EDGES = "Regenerate it: npm run gen:test-read-edges";
 
-/**
- * A selection that could not be computed: its message is the cause, which
- * `run-vitest.js` refuses the run on rather than widening it (#2698).
- */
 class SelectionFailed extends Error {
 	/** @override */
 	name = "SelectionFailed";
 }
 
-/** The read graph the tree at `root` renders now (#998); throws where it will not. */
 const liveEdges = (/** @type {string} */ root) => renderReadEdges(root).edges;
 
-/** The committed read graph at `root`; throws where it is missing or not JSON. */
 const readCommittedEdges = (/** @type {string} */ root) =>
 	JSON.parse(fs.readFileSync(path.join(root, EDGES_FILE), "utf8")).edges ?? {};
 
-/*
- * `--changed` EXPANDED AGAINST THE READ GRAPH (mantahostels#2095).
- *
- * Vitest selects `--changed` on the import graph, so a test that reads a repo
- * document through `readFileSync` is invisible to it (mantahostels#2031).
- *
- * So the flag is consumed here instead of passed through: vitest's own selection
- * is taken with `vitest list --changed --filesOnly`, unioned with the manifest's
- * runtime readers of the same diff, and the result handed to vitest as an
- * explicit file list. That list lands in the certificate's `fileFilters`, so the
- * run is still a NARROWING and still records no full certificate (mantahostels#1230).
- */
-
-/*
- * PACKAGE.JSON IS A VITEST DEPENDENCY-GRAPH ROOT (mantahostels#2132).
- *
- * Vitest invalidates its whole selection on it regardless of what else the
- * commit does (mantahostels#2099), so a `--changed` run over such a diff buys the
- * full wall run without saying so. This warns at the point the diff is read for selection.
- */
 const PACKAGE_JSON = "package.json";
 /* the suite-file-timings note (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/suite-file-timings.md)'s run-one wall clock (mantahostels#2031).
  * **Residual:** one run, not a mean — that document records a 3.7x spread —
  * and nothing watches it for drift as the suite grows. */
 const PACKAGE_JSON_FULL_SUITE_SECONDS = 292;
 
-/*
- * ...AND THE BAIL-OUT IS NARROWED FOR AN ALLOW-LISTED KEY SET (mantahostels#2160).
- *
- * The whole cost above is one glob: `forceRerunTriggers` defaults to
- * `["**\/package.json/**", "**\/{vitest,vite}.config.*\/**"]` and
- * `VitestSpecifications.filterTestsBySource` returns EVERY spec unfiltered the
- * moment a changed path matches it, before any dependency walk. So where the
- * diff's `package.json` hunk changes only keys on the allow-list below,
- * `expandChanged` hands its own `vitest list` probe a `--config` override dropping the
- * package.json trigger and keeping the vitest/vite config one.
- *
- * `scripts` IS ON THE LIST DESPITE NOT BEING INERT — tests assert
- * `pkg.scripts` content directly. It is safe only because `testsReading()`
- * selects docs/test-read-edges.json's `package.json` readers off the run's OWN
- * diff, whatever vitest's selection does; dropping that union would make this
- * unsafe.
- *
- * `dependencies`, `devDependencies` and `overrides` are DELIBERATELY ABSENT and
- * must never be added. Vitest's graph walk excludes node_modules outright, so
- * today's blanket bail-out is the only thing in this repo that gives a
- * dependency VERSION bump any chance of selecting a test.
- *
- * FAIL CLOSED: an unreadable side, unparseable JSON, or one key off the list
- * leaves the run exactly as it was before this existed.
- */
 const PACKAGE_JSON_SAFE_KEYS = new Set([
 	"scripts",
 	"comments",
@@ -103,19 +46,12 @@ const PACKAGE_JSON_SAFE_KEYS = new Set([
 	"browserslist",
 ]);
 
-/* Vitest's own default (`node_modules/vitest/dist/config.cjs:62`), read into
- * the scratch config as the fallback for a real config that sets none of its
- * own — never hardcoded as the narrowed list itself. The scratch config
- * FILTERS whatever `base.test.forceRerunTriggers` actually is at load time,
- * so a trigger `vitest.config.ts` adds later survives the narrowing; only
- * this one glob is ever dropped from it. */
 const VITEST_DEFAULT_FORCE_RERUN_TRIGGERS = [
 	"**/package.json/**",
 	"**/{vitest,vite}.config.*/**",
 ];
 const PACKAGE_JSON_TRIGGER_GLOB = "**/package.json/**";
 
-/* The scratch configs' one spelling of the narrowed trigger list. */
 const NARROWED_TRIGGER_DECLS = [
 	`const fallback = ${JSON.stringify(VITEST_DEFAULT_FORCE_RERUN_TRIGGERS)};`,
 	`const drop = ${JSON.stringify(PACKAGE_JSON_TRIGGER_GLOB)};`,
@@ -124,10 +60,6 @@ const NARROWED_TRIGGERS =
 	"(base.test?.forceRerunTriggers ?? fallback).filter((t) => t !== drop)";
 
 /**
- * The scratch config's own name. Pid-scoped, like `inflightFile`, so two
- * concurrent wrappers never write each other's probe config. `.mts` because
- * vite transpiles a TS config through esbuild, which is what lets it import the
- * repo's own `vitest.config.ts`.
  * @param {string} [tmpDir]
  * @param {number} [pid]
  */
@@ -136,7 +68,6 @@ function probeConfigFile(tmpDir = os.tmpdir(), pid = process.pid) {
 }
 
 /**
- * The real `vitest.config.ts` as an import specifier from `file`'s directory.
  * @param {string} root
  * @param {string} file
  */
@@ -145,22 +76,13 @@ function realConfigSpec(root, file) {
 		.relative(path.dirname(file), path.join(root, "vitest.config.ts"))
 		.split(path.sep)
 		.join("/");
-	/* A bare `vitest.config.ts` would resolve as a PACKAGE specifier. */
 	return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
 /**
- * A path-set probe's scratch config — an adoption's (#1213) or an own-work
- * default's (#1216): the real config, spread for `probeConfigSource`'s
- * reason, with `related` naming the paths. The CLI takes no `--related` on
- * `vitest list`, and vitest's `--changed` is only a way of filling `related`,
- * `forceRerunTriggers` included. Absolute, as vitest compares them to module
- * ids unresolved. `narrowed` drops the package.json trigger as
- * `probeConfigSource` does.
- *
  * @param {string} root
- * @param {string} file where the config will be written
- * @param {string[]} paths repo-relative
+ * @param {string} file
+ * @param {string[]} paths
  * @param {boolean} [narrowed]
  * @returns {string}
  */
@@ -181,15 +103,8 @@ function relatedConfigSource(root, file, paths, narrowed = false) {
 }
 
 /**
- * The scratch config's text.
- *
- * IT SPREADS THE REAL CONFIG. A `--config` override REPLACES the config rather
- * than merging into it, so without the spread the probe would enumerate against
- * the wrong `include`/`exclude` and resolve aliases and return the wrong file
- * list, silently.
- *
  * @param {string} root
- * @param {string} file where the config will be written
+ * @param {string} file
  * @returns {string}
  */
 function probeConfigSource(root, file) {
@@ -217,18 +132,6 @@ function probeConfigSource(root, file) {
  */
 
 /**
- * Which TOP-LEVEL keys the diff changed in `package.json`, or null where that
- * cannot be established.
- *
- * PARSED JSON, NOT A TEXT DIFF: the old side comes from `git show <ref>:…` and
- * the new one from the working tree, and the two are compared key by key. A
- * text diff would have to guess which object a changed line sits in, and a
- * reformat would read as a change to every key.
- *
- * TOTAL BY CONSTRUCTION — it answers null rather than throwing, so a missing
- * file, a wedged git or a half-written working tree costs the narrowing and
- * never the run.
- *
  * @param {string} root
  * @param {string|null} ref
  * @param {ExecFn} execFn
@@ -268,12 +171,6 @@ function changedPackageJsonKeys(root, ref, execFn, fsImpl) {
 }
 
 /**
- * Whether the probe may be narrowed for this diff: `package.json` is in it, and
- * every top-level key it changes is allow-listed. Anything else is false.
- *
- * An empty changed-key set — a whitespace or key-order-only edit — narrows: the
- * parsed document is identical, so no test's reading of it can have moved.
- *
  * @param {string[]} changed
  * @param {{ root: string, ref: string|null, execFn: ExecFn, fs: ExpandFs }} io
  * @returns {boolean}
@@ -286,9 +183,6 @@ function packageJsonNarrowable(changed, { root, ref, execFn, fs: fsImpl }) {
 }
 
 /**
- * Write the probe's scratch config, or null where it cannot be written — an
- * unwritable temp directory costs the narrowing, never the run.
- *
  * @param {string} root
  * @param {string} file
  * @param {ExpandFs} fsImpl
@@ -305,7 +199,7 @@ function writeProbeConfig(root, file, fsImpl) {
 
 /**
  * @param {string[]} changed
- * @param {boolean} [narrowed] whether the bail-out was narrowed for this diff
+ * @param {boolean} [narrowed]
  * @returns {string|null}
  */
 function packageJsonWarning(changed, narrowed = false) {
@@ -324,24 +218,12 @@ function packageJsonWarning(changed, narrowed = false) {
 	);
 }
 
-/* How many added readers the banner names before it counts the rest. An
- * unmeasured first guess. */
+// guess, #5529
 const ADDED_SHOWN_MAX = 12;
 
-/*
- * The file filter a run whose selection is EMPTY is handed (#189 §6, ruled at
- * #151): a name no test file carries, so vitest collects nothing, exits 0 on
- * the `--passWithNoTests` beside it, and still fires the reporter's end hook
- * — which is what writes the marker. Handing vitest an empty list instead
- * would run the whole suite.
- */
 const EMPTY_SELECTION_FILTER = "wfc-empty-selection";
 
 /**
- * The base a narrowed selection diffed from, as a sha where git will resolve
- * the ref and as the ref itself otherwise (#189 §7): `HEAD` moves, and a
- * marker naming a moved ref would diff the wrong range at match time.
- *
  * @param {string} root
  * @param {string|null} ref
  * @param {ExecFn} execFn
@@ -354,11 +236,6 @@ function resolvedBase(root, ref, execFn) {
 }
 
 /**
- * Where `--changed` sits in argv and what ref it was given, or null.
- *
- * The ref is optional and positional, exactly as vitest parses it, so a bare
- * `--changed` followed by another flag takes no value.
- *
  * @param {string[]} argv
  * @returns {{ at: number, span: number, ref: string|null }|null}
  */
@@ -376,14 +253,6 @@ function changedFlag(argv) {
 }
 
 /**
- * Whether argv is `npm run test:changed`'s own argv and nothing else — the
- * flag, its optional ref, no other word.
- *
- * SHARED WITH THE ROUTE FLAG so the gate and the denominator cannot drift
- * apart (mantahostels#2303). `-t`, an added path or a project filter
- * each narrow the run past the diff, so a run carrying one is not the command
- * whose certificate attests its diff and does not belong in its denominator either.
- *
  * @param {string[]} argv
  * @returns {boolean}
  */
@@ -394,22 +263,15 @@ const isChangedOnlyArgv = (argv) => {
 
 const CHANGED_FLAG = "--changed";
 
-/* An adoption run (#1213): a run over the paths of commits whose session has
- * ended, selecting every reader of them. */
 const ADOPT_FLAG = "--adopt";
 
 /**
- * Where `--adopt` sits in argv and the paths it names — every word after it up
- * to the next flag — or null.
- *
  * @param {string[]} argv
  * @returns {{ at: number, span: number, paths: string[] }|null}
  */
 const adoptFlag = (/** @type {string[]} */ argv) => listFlag(argv, ADOPT_FLAG);
 
 /**
- * Where `--retest` sits in argv and the tests it names (#1860).
- *
  * @param {string[]} argv
  * @returns {{ at: number, span: number, paths: string[] }|null}
  */
@@ -428,24 +290,13 @@ function listFlag(argv, flag) {
 	return { at, span: end - at, paths: argv.slice(at + 1, end) };
 }
 
-/**
- * Whether argv is `--adopt` and its paths and nothing else — the adoption
- * run's admissible shape, as `isChangedOnlyArgv` is `test:changed`'s.
- *
- * @param {string[]} argv
- */
+/** @param {string[]} argv */
 const isAdoptOnlyArgv = (argv) => {
 	const flag = adoptFlag(argv);
 	return flag != null && flag.paths.length > 0 && argv.length === flag.span;
 };
 
-/**
- * Whether argv is `--retest` and test files and nothing else — the re-test
- * run's admissible shape (#1860). A word that is not a test file is dropped
- * before vitest, which would read it as a filter matching anything.
- *
- * @param {string[]} argv
- */
+/** @param {string[]} argv */
 const isRetestOnlyArgv = (argv) => {
 	const flag = retestFlag(argv);
 	return (
@@ -459,25 +310,6 @@ const isRetestOnlyArgv = (argv) => {
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 
 /**
- * The paths the diff touches: the working tree against HEAD for a bare
- * `--changed`, against the named ref otherwise.
- *
- * NOT IDENTICAL TO VITEST'S OWN BASE. Vitest reads a bare `--changed` as `git diff --cached` plus
- * `git ls-files --other --modified`, so it counts UNTRACKED files, and reads a
- * ref three-dot. This is two-dot and tracked-only. For selection the
- * divergence is inert: every manifest key is a tracked path, so an untracked
- * file has no edge to miss, and vitest is asked for its own selection
- * separately, on its own base. For the certificate it is one-sided (#189):
- * this list is the marker's `changedPaths`, and `attestationOf` asks every file of
- * the commit's range, added files included, to lie in some run's list — so a
- * commit adding an untracked test stays unattested until a run after it.
- *
- * DELETIONS AND RENAMES ARE KEPT, which is what `--no-renames` buys. A test
- * reading a document that has just been deleted or moved is exactly the test
- * that should re-run, and with rename detection on git prints the destination
- * alone — so the manifest is never asked about the path its readers are
- * recorded under.
- *
  * @param {string} root
  * @param {string|null} ref
  * @param {ExecFn} execFn
@@ -490,7 +322,6 @@ function readChangedPaths(root, ref, execFn) {
 		gitSpawnOptions({
 			cwd: root,
 			encoding: "utf8",
-			/* stderr piped, so a failure's error carries git's own text. */
 			stdio: ["ignore", "pipe", "pipe"],
 			timeout: GIT_TIMEOUT_MS,
 		}),
@@ -506,8 +337,6 @@ const parseNonEmptyLines = (out) =>
 		.filter(Boolean);
 
 /**
- * The paths that differ between two commits, or null where git will not say.
- *
  * @param {string} root
  * @param {string} from
  * @param {string} to
@@ -524,16 +353,6 @@ function readDiffNames(root, from, to, execFn) {
 }
 
 /**
- * Vitest's own import-graph selection for the same flag.
- *
- * It costs a second node process on every `test:changed`, so it is bounded:
- * the timeout throws and the caller fails open to handing `--changed` to
- * vitest as before (mantahostels#2095).
- *
- * `config` is a scratch config narrowing `forceRerunTriggers` for this ONE
- * probe call (mantahostels#2160); the real vitest.config.ts is never touched
- * and no other vitest invocation sees it.
- *
  * @param {{ bin: string, root: string, ref: string|null, execFn: ExecFn,
  *   config?: string|null }} probe
  * @returns {string[]}
@@ -548,9 +367,6 @@ function vitestSelection({ bin, root, ref, execFn, config = null }) {
 }
 
 /**
- * Vitest's import-graph selection for a path set, through a scratch config
- * the caller removes.
- *
  * @param {{ bin: string, root: string, paths: string[], execFn: ExecFn,
  *   config: string, fsImpl: ExpandFs, narrowed?: boolean }} probe
  * @returns {string[]}
@@ -564,27 +380,6 @@ function vitestRelated({ bin, root, paths, execFn, config, fsImpl, narrowed }) {
 }
 
 /**
- * What the run will actually execute, and the line that says so — or null where
- * argv carries none of `--changed`, `--adopt` or `--retest`, or a `--changed`
- * run's read-edge manifest cannot be read. Throws `SelectionFailed` where the
- * diff or vitest's own listing of it fails (#2698), or an adoption's manifest
- * cannot be read (#2715).
- *
- * AN ADOPTION SELECTS FROM ITS NAMED PATHS (#1213), never a diff: they are
- * the run's `changedPaths`, so its certificate attests those paths and no other, and
- * it has no `base`. `package.json` among them is never narrowed, having no
- * ref to compare against.
- *
- * A RE-TEST RUNS ITS NAMED TESTS AND NOTHING ELSE (#1860), with no diff at
- * all: its certificate attests those tests at whatever commit their own reads
- * are unchanged, never for a path, so its `changedPaths` is empty.
- *
- * `ownWork` (#1216) replaces a `--changed <ref>` diff with the resolver's
- * path set over it, selected as an adoption is. Only the bare default and the
- * queue's probes pass it. `carriesUntracked` is the probes' (#1221): the set
- * already holds the session's own new files, and the tree's others are not
- * the session's.
- *
  * @param {string[]} argv
  * @param {{ root?: string, bin?: string, execFn?: ExecFn,
  *   loadEdges?: () => Record<string, string[]>,
@@ -594,7 +389,7 @@ function vitestRelated({ bin, root, paths, execFn, config, fsImpl, narrowed }) {
  *   err?: { write: (s: string) => unknown } }} [options]
  * @returns {{ argv: string[], files: string[], own: string[], added: string[],
  *   admissible: boolean, narrowed: boolean, changed: string[], base: string|null,
- *   banner: string, leftOut?: string[] }|null} `leftOut` a touched plan's alone
+ *   banner: string, leftOut?: string[] }|null}
  */
 function expandChanged(
 	argv,
@@ -618,9 +413,6 @@ function expandChanged(
 	const edges = readSourceEdges(source, loadEdges, readDiff, err);
 	if (edges === null) return null;
 
-	/* Whether the package.json bail-out was narrowed for this run (mantahostels#2160), and
-	 * the scratch config that did it. Held out here so the `finally` can
-	 * clean up whatever was written, on the throwing path as well. */
 	/** @type {Selection} */
 	const sel = { changed: [], own: [], narrowed: false, override: null };
 	try {
@@ -650,7 +442,6 @@ function expandChanged(
 
 	const packageJsonLine = packageJsonWarning(changed, narrowed);
 
-	/* Whether this run's certificate attests its selection (mantahostels#2207). */
 	const rest = [
 		...argv.slice(0, consumed.at),
 		...argv.slice(consumed.at + consumed.span),
@@ -667,20 +458,9 @@ function expandChanged(
 	];
 
 	return {
-		/* --passWithNoTests RIDES WITH THE LIST because vitest sets it implicitly
-		 * for --changed, and this consumes that flag. Without it a union whose
-		 * entries have all since been deleted collects nothing and exits 1 — a
-		 * red suite where the truth is a stale manifest. */
 		argv: [
-			/* THE LIST GOES AHEAD OF A BARE `--`, which `npm run test -- --retest
-			 * a.test.ts -- --queue` leaves in `rest`: vitest reads no word after
-			 * it as a file filter, so a list placed there ran the whole suite
-			 * (#2181). Residual: a path the caller writes after the `--` is still
-			 * no filter. */
 			...rest.slice(0, endOfOptions),
 			"--passWithNoTests",
-			/* A filter matching nothing, never an empty list, which vitest reads
-			 * as the whole suite (#189 §6). */
 			...(files.length > 0 ? files : [EMPTY_SELECTION_FILTER]),
 			...rest.slice(endOfOptions),
 		],
@@ -689,10 +469,7 @@ function expandChanged(
 		added,
 		admissible: isAdmissible,
 		narrowed,
-		/* The diff the selection was computed from, for the marker's
-		 * `changedPaths` (#189). */
 		changed,
-		/* What `changed` was diffed against, for the marker's `base` (#189 §7). */
 		base: flag ? resolvedBase(root, flag.ref, execFn) : null,
 		banner: `${lines.join("\n")}\n`,
 	};
@@ -706,11 +483,6 @@ function expandChanged(
  */
 
 /**
- * The committed read-edge manifest `source` selects with, or null where a
- * `--changed` run's cannot be read. Vitest has no `--adopt` of its own, so an
- * adoption's unreadable manifest cannot fall back to argv unchanged as
- * `--changed` does: it throws `SelectionFailed` (#2715).
- *
  * @param {NonNullable<ReturnType<typeof selectionSource>>} source
  * @param {() => Record<string, string[]>} loadEdges
  * @param {() => string[]} diffOf
@@ -731,9 +503,6 @@ function readSourceEdges({ from }, loadEdges, diffOf, err) {
 }
 
 /**
- * The committed read-edge manifest, or null after saying why it could not be
- * read.
- *
  * @param {() => Record<string, string[]>} loadEdges
  * @param {() => string[]} diffOf
  * @param {{ write: (s: string) => unknown }} err
@@ -743,10 +512,6 @@ function readEdges(loadEdges, diffOf, err) {
 	try {
 		return loadEdges();
 	} catch (error) {
-		/* The diff is not computed yet on this path — the manifest read comes
-		 * first — so the package.json warning runs its own readChangedPaths call,
-		 * un-narrowed (mantahostels#2151). A diff that
-		 * cannot be read either is silently no warning. */
 		ignoreFailure(() => {
 			const warning = packageJsonWarning(diffOf());
 			if (warning) err.write(warning);
@@ -759,11 +524,7 @@ function readEdges(loadEdges, diffOf, err) {
 }
 
 /**
- * Fills `sel` step by step — the diff, then vitest's own selection over it —
- * so a throw part-way leaves the caller what was already known and written
- * (#1389).
- *
- * @param {Selection} sel accumulator: the diff, narrowing, override and vitest's selection are filled in turn
+ * @param {Selection} sel
  * @param {{ diffOf: () => string[],
  *   adopt: { paths: string[] }|null, retest: { paths: string[] }|null,
  *   ref: string|null,
@@ -801,15 +562,13 @@ function fillSelection(sel, { diffOf, adopt, retest, ref, ownWork, probe }) {
 	}
 	if (sel.narrowed) {
 		sel.override = writeProbeConfig(root, probeConfig, fsImpl);
-		/* A config that could not be written narrows nothing, and the
-		 * banner must not say it did. */
 		if (!sel.override) sel.narrowed = false;
 	}
 	sel.own = vitestSelection({ bin, root, ref, execFn, config: sel.override });
 }
 
 /**
- * @param {Selection} sel accumulator: the override and vitest's selection are filled; `changed` is read
+ * @param {Selection} sel
  * @param {{ carriesUntracked?: boolean }} ownWork
  * @param {Probe} probe
  */
@@ -818,8 +577,6 @@ function fillOwnWorkSelection(
 	ownWork,
 	{ bin, root, execFn, probeConfig, fsImpl },
 ) {
-	/* Untracked files too, as vitest's own `--changed` lists them. An
-	 * empty `related` selects nothing, so it is never asked. */
 	const related = [
 		...sel.changed,
 		...(ownWork.carriesUntracked
@@ -846,23 +603,16 @@ function fillOwnWorkSelection(
  */
 function removeScratch(override, fsImpl) {
 	if (!override) return;
-	// A leftover scratch file is cheaper than a run that fails on its cleanup.
 	ignoreFailure(() => fsImpl.unlinkSync(override));
 }
 
 /**
- * Readers come from the committed manifest AND the graph this tree renders
- * now (#998), so an uncommitted edge selects its reader rather
- * than voiding the run. A render that throws leaves the manifest alone to
- * select on, and the run's certificate attests nothing.
- *
  * @param {Record<string, string[]>} edges
  * @param {() => Record<string, string[]>} renderEdges
  * @returns {{ graph: Record<string, string[]>,
  *   rendered: Record<string, string[]>|null }}
  */
 function readGraph(edges, renderEdges) {
-	// Unrendered, the manifest alone selects.
 	/** @type {Record<string, string[]> | null} */
 	const rendered = orFallback(() => renderEdges(), null);
 	/** @type {Record<string, string[]>} */
@@ -873,9 +623,6 @@ function readGraph(edges, renderEdges) {
 }
 
 /**
- * Which changed path pulled an added reader in — without it the reader
- * cannot tell a real runtime read from a manifest gone stale.
- *
  * @param {string[]} changed
  * @param {Record<string, string[]>} graph
  * @param {string} test
@@ -886,10 +633,6 @@ function changedReadsOf(changed, graph, test) {
 }
 
 /**
- * The flag argv's selection is computed from — `--changed`, else `--adopt`,
- * else `--retest` — with the argv shape that makes a run of it admissible, or
- * null where argv carries none.
- *
  * @param {string[]} argv
  * @returns {{ from: SelectionFrom, consumed: { at: number, span: number, paths: string[] },
  *   flag: ReturnType<typeof changedFlag>, adopt: ReturnType<typeof adoptFlag>,
@@ -911,9 +654,6 @@ function selectionSource(argv) {
  */
 
 /**
- * The selection flags in `selectionSource`'s precedence, each with what argv
- * picks through it — the one list `selectionFlagClash` reads too.
- *
  * @type {{ word: string, pick: (argv: string[]) => PickedSelection|null }[]}
  */
 const SELECTION_FLAGS = [
@@ -962,9 +702,6 @@ const SELECTION_FLAGS = [
 ];
 
 /**
- * The selection flags argv carries where it carries more than one, in argv
- * order — or null (#2764).
- *
  * @param {string[]} argv
  * @returns {string[]|null}
  */
@@ -989,8 +726,6 @@ function readDiffOfSource({ adopt, retest, flag }, { ownWork, root, execFn }) {
 }
 
 /**
- * The banner's selection block.
- *
  * @typedef {"diff"|"adopt"|"retest"} SelectionFrom
  * @param {{ files: string[], own: string[], added: string[], from: SelectionFrom }} at
  * @param {(test: string) => string[]} why
@@ -1019,10 +754,6 @@ function buildSelectionLines({ files, own, added, from }, why) {
 }
 
 /**
- * `merge-base(HEAD, <start ref>)`, or `HEAD` where that ref does not exist or
- * the merge-base cannot be resolved (an unrelated history, a wedged git). The
- * start ref is lib/landing-refs.js's `VERIFIED_REF`.
- *
  * @param {string} root
  * @param {ExecFn} execFn
  * @returns {string}

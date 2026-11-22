@@ -1,13 +1,3 @@
-/*
- * file-issue-core.js — scripts/file-issue.js's logic, in-process (#5150):
- * `fileIssue(argv, ports)` returns the exit code and both streams, and
- * scripts/file-issue.js only wires the production ports, writes what comes
- * back and exits. What it refuses, in what order, and the exit codes: that
- * script's header.
- *
- * Every refusal is a returned `{stop}`, never an exit.
- */
-
 const path = require("node:path");
 const { flagValue, parse, CliExit } = require("./cli-args.js");
 const { isRouteStep } = require("./decision-labels.js");
@@ -81,28 +71,15 @@ const SPEC = {
 	},
 };
 
-/*
- * DIRECT I/O, on purpose (#5150): the core reads the config's tracker, the
- * rule-text store, the session id and the arbiter (claim, acts ledger, error
- * log), writes the signature log, and runs a body's gate `check:` commands
- * (gate-check.js `run: true`) itself rather than through ports. Each runs
- * in-process against the test's sandbox, which §X11 condition 2 allows.
- * Residual: a module case still spawns the gate's `check:` commands and the
- * arbiter's liveness oracle, and a filing outside a sandbox writes the real
- * ledger and log.
- */
-
+// #5150
 /**
  * @typedef {object} FileIssuePorts
- * @property {import("./gh.js").GhRun} gh  every tracker read and write
+ * @property {import("./gh.js").GhRun} gh
  * @property {(repo: string, parent: number, child: number) =>
- *   {ok: string, warning?: string} | {error: string}} link  the sub-issue
- *   link, verified from the parent side
+ *   {ok: string, warning?: string} | {error: string}} link
  * @property {(body: string) => {refusal: string|null, advice: string}} judge
- *   lib/gate-judge.js's readGateWrite on the file-issue route
- * @property {(file: string) => string} readBody  `-` is standard input;
- *   throws where it cannot be read
- * @property {() => number} now  the signature line's filed-at clock
+ * @property {(file: string) => string} readBody
+ * @property {() => number} now
  */
 
 /** @typedef {{stop: number}} Stop */
@@ -152,11 +129,6 @@ function buildStreams() {
  *   signatureFile?: string, noFault: boolean}} Opts
  */
 
-/**
- * A throw the core did not mean, carrying what it had written before it: a
- * crash after the create still hands back the `Filed #N` line, so the caller
- * sees the number and does not file a duplicate.
- */
 class FileIssueCrash extends Error {
 	/**
 	 * @param {Outcome} written
@@ -278,7 +250,6 @@ function readOpts(io, { flags, lists }) {
 }
 
 /**
- * The origin and the fault declaration every filing carries (#4796).
  * @param {Streams} io
  * @param {Opts} opts
  * @returns {Stop | null}
@@ -298,7 +269,6 @@ function checkDeclarations(io, { origin, signatureFile, noFault }) {
 }
 
 /**
- * A list flag's issue numbers, refused where any part of a list is not one.
  * @param {Streams} io
  * @param {string} flag
  * @param {string[]} csvs
@@ -342,7 +312,7 @@ function readBody(io, ports, file) {
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {import("./cli-args.js").Parsed} parsed
- * @param {string[]} titles  the `--check` values
+ * @param {string[]} titles
  * @returns {Stop | null}
  */
 function checkTitle(io, ports, { flags, lists }, titles) {
@@ -377,8 +347,6 @@ function run(io, ports, parsed) {
 }
 
 /**
- * Every refusal before the create, in the header's order, and what the
- * create needs.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {import("./cli-args.js").Parsed} parsed
@@ -459,8 +427,6 @@ function fileAndPlace(
 	if (logStop) return logStop;
 
 	const sessionId = fromEnv();
-	// Residual (#2314): a map filed with no session id is held by nobody, so
-	// its children are launchable.
 	const willClaim =
 		opts.assignSelf || (labels.includes(MAP_LABEL) && sessionId !== null);
 	const claimLater = willClaim
@@ -485,10 +451,6 @@ function fileAndPlace(
 }
 
 /**
- * The body as filed, and the signature line it records, its issue left blank
- * until the create gives the number. A body carrying its own Standalone line
- * keeps it, never gaining a second (#1027).
- * Residual: the flag's reason is then dropped even where it differs.
  * @param {FileIssuePorts} ports
  * @param {{body: string, standalone: string | undefined,
  *   declared: import("./fault-signature.js").Declared | null}} at
@@ -505,8 +467,6 @@ function buildFiledBody(ports, { body, standalone, declared }) {
 }
 
 /**
- * The signature file, checked for shape and against its case, or refused;
- * null under --no-fault.
  * @param {Streams} io
  * @param {string|undefined} file
  * @returns {import("./fault-signature.js").Declared | null | Stop}
@@ -520,10 +480,8 @@ function checkSignatureFile(io, file) {
 }
 
 /**
- * The filed ticket's line in the signature log, which the caller commits;
- * nothing under --no-fault.
  * @param {Streams} io
- * @param {Record<string, unknown> | null} pending  the line, its issue blank
+ * @param {Record<string, unknown> | null} pending
  * @param {string} issue
  * @returns {Stop | null}
  */
@@ -546,10 +504,6 @@ function logSignature(io, pending, issue) {
 }
 
 /**
- * The body's own refusals — the `takes:` tests, the basis check and a gate
- * `check:` that prints no reading (#3487) — and the model reading of its
- * waits and bases (#4964), whose faults refuse unless a `**Gate judge
- * override:**` line gives a reason (#4970).
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {string[]} labels
@@ -557,13 +511,11 @@ function logSignature(io, pending, issue) {
  * @returns {Stop | null}
  */
 function checkBody(io, ports, labels, body) {
-	// The template, handed over before the takes:human checks can refuse (#983).
 	if (labels.includes(HUMAN_LABEL))
 		io.raw(`${readRuleText("founder-deliverable")}\n\n`);
 	const takes = takesRefusal(labels, body);
 	if (takes) return io.fail(`${takes} Nothing filed.`, 2);
 
-	// Advice, handed over before the basis check can refuse (#823).
 	const handover = gateRuleHandover("", body, () =>
 		readRuleText("roadmap-gating"),
 	);
@@ -579,8 +531,6 @@ function checkBody(io, ports, labels, body) {
 }
 
 /**
- * Refuses a second `wayfinder:map` while an open one's Destination is
- * unfilled.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {string} repo
@@ -591,7 +541,6 @@ function checkSecondMap(io, ports, repo, labels) {
 	const map = secondMapVerdict(labels, () => listOpenMaps(repo, ports.gh));
 	if (map && "refusal" in map)
 		return io.fail(`${map.refusal} Nothing filed.`, 2);
-	// Fails open, recorded, as the /new-repo spec rules (#713).
 	if (map && "unreadable" in map) {
 		io.warn(`${map.unreadable} — filing without the second-map check.`);
 		require("./arbiter-core.js").logError(
@@ -602,15 +551,11 @@ function checkSecondMap(io, ports, repo, labels) {
 	return null;
 }
 
-/* gh refuses a link past 7 layers ("You can't add more than 7 layers of
- * sub-issues", linkRemedy's case), so no chain holds more ancestors. */
 const MAX_DEPTH = 7;
 
 /** @typedef {ReturnType<typeof readIssue>} Issue */
 
 /**
- * Each ancestor of `issue` in this repository, nearest first: the only ones
- * link-sub-issue.sh can link under. A failed read throws.
  * @param {FileIssuePorts} ports
  * @param {string} repo
  * @param {Issue} issue
@@ -628,8 +573,6 @@ function* readAncestors(ports, repo, issue) {
 }
 
 /**
- * Where a child of closed `issue` goes instead: its nearest open ancestor, or
- * --standalone.
  * @param {FileIssuePorts} ports
  * @param {string} repo
  * @param {Issue} issue
@@ -646,10 +589,6 @@ function openAncestorRemedy(ports, repo, issue) {
 }
 
 /**
- * The issue already passing `urgent` down to a child of open `parent`: the
- * parent, or an ancestor the chain reaches by isPassingDown. Null where none is,
- * or where an ancestor cannot be read, saying so: a hard-coded urgent is only
- * redundant, so this check never blocks filing on a failed read (#3648).
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {string} repo
@@ -672,13 +611,10 @@ function readUrgentCarrier(io, ports, repo, parent) {
 }
 
 /**
- * The --parent issue, refused where it cannot take a child, and the family
- * label it implies.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, number: number, labels: string[]}} at
- * @returns {{parent: Issue, added: string[]} | Stop} the parent, and the
- *   labels it adds to `labels`
+ * @returns {{parent: Issue, added: string[]} | Stop}
  */
 function readParent(io, ports, { repo, number, labels }) {
 	let parent;
@@ -711,9 +647,7 @@ function readParent(io, ports, { repo, number, labels }) {
 		parent.labels.includes("kind:spec") && !labels.includes("kind:ticket")
 			? ["kind:ticket"]
 			: [];
-	// A spec or brief under a map takes no type — place-new-issue.sh's
-	// exemption (#578, #714), hand-copied: nothing keeps the two in step.
-	// `isRouteStep`, not `isDecisionTicket`: the frontier reads the type.
+	// #578, #714
 	if (
 		isRouteStep(parent.labels) &&
 		!isRouteStep(labels) &&
@@ -728,7 +662,6 @@ function readParent(io, ports, { repo, number, labels }) {
 }
 
 /**
- * Refuses any label the tracker does not know.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {string} repo
@@ -759,8 +692,6 @@ function checkKnownLabels(io, ports, repo, labels) {
 }
 
 /**
- * The similar-title list, refused while any listed issue is neither named in
- * --distinct-from nor the --parent.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {string} repo
@@ -772,7 +703,7 @@ function checkSimilar(io, ports, repo, opts) {
 	try {
 		similar = similarTitles(repo, /** @type {string} */ (opts.title), ports.gh);
 	} catch (e) {
-		// Fails open: a gh outage would otherwise stop every filing (#536).
+		// #536
 		io.out(
 			`Could not list similar open issues (${parseErrLine(e)}) — filing without the check.\n`,
 		);
@@ -791,7 +722,6 @@ function checkSimilar(io, ports, repo, opts) {
 }
 
 /**
- * The size-line refusal scripts/file-issue.js's header describes.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, labels: string[], body: string, opts: Opts}} at
@@ -818,9 +748,6 @@ function checkSizeLine(io, ports, { repo, labels, body, opts }) {
 }
 
 /**
- * The issues this session filed in `repo`, each read. An unreadable ledger or
- * issue is passed over, saying so: fails open, as the similar-title list
- * does (#4450).
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {string} repo
@@ -845,7 +772,6 @@ function readOwnFiledIssues(io, ports, repo) {
 }
 
 /**
- * The sub-issues of `parent`. A failed read is passed over, saying so (#4450).
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {string} repo
@@ -873,7 +799,6 @@ function readSiblings(io, ports, repo, parent) {
 }
 
 /**
- * The create, with every label, and the number read back off its URL.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, title: string, labels: string[], filedBody: string}} at
@@ -913,8 +838,6 @@ function create(io, ports, { repo, title, labels, filedBody }) {
 }
 
 /**
- * The link under the parent; a failure exits 1 naming the remedy that fits
- * GitHub's refusal.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, parent: Issue, n: number, claimLater: string}} at
@@ -933,7 +856,6 @@ function linkFiled(io, ports, { repo, parent, n, claimLater }) {
 }
 
 /**
- * How to finish a link GitHub refused.
  * @param {string} error
  * @param {Issue} parent
  * @param {number} n
@@ -941,9 +863,6 @@ function linkFiled(io, ports, { repo, parent, n, claimLater }) {
  */
 function linkRemedy(error, parent, n) {
 	const grand = parent.parentPath?.match(/(?<!\d)(\d+)$/)?.[1];
-	// Both caps are told apart by gh's 422 prose alone, as link-sub-issue.sh
-	// tells the 7-layer one: a reword by GitHub demotes either to the
-	// generic remedy, which still names the finishing link.
 	if (/7 layers/.test(error))
 		return `#${parent.number} is at GitHub's 7-layer cap: give #${n} #${parent.number}'s own parent${grand ? ` — ${scriptPath("link-sub-issue.sh")} ${grand} ${n}` : ""} — and say in its body why it is a peer.`;
 	if (/100 sub-issues/.test(error))
@@ -952,8 +871,6 @@ function linkRemedy(error, parent, n) {
 }
 
 /**
- * --assign-self, or a map filed under a session id: the arbiter record where
- * a session id is set, then @me.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, n: number, sessionId: string|null}} at

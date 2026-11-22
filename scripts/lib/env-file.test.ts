@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/env-file.js's readers for a log masker (#3661, #3821): they read what
- * the secrets file assigns or throw, since a masker handed fewer secrets than
- * the file holds writes the rest bare. Break it and scripts/retro-transcript.js
- * leaks them. Each case writes a real file under a temp dir, at
- * WFC_SECRETS_FILE, as the readers take bytes from nowhere else.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -231,9 +224,6 @@ describe("the secrets file's stored names and values (#3821)", () => {
 		expect(values).toEqual(expect.arrayContaining(["second", "L=second"]));
 	});
 
-	/* These cross the real clock, as the walks expose no count: vitest's timeout
-	 * is what a superlinear walk trips. LONG_RUN squared, some 2.5e11 steps, is
-	 * far past what that timeout allows. */
 	it.each([
 		["openers", 'K="abcdefgh\n'.repeat(LONG_RUN), ["K"], "abcdefgh"],
 		[
@@ -294,11 +284,9 @@ describe("the secrets file's stored names and values (#3821)", () => {
 
 	it("reads a long run of spaces inside a value in linear time", () => {
 		fs.writeFileSync(file, `K=abcd${" ".repeat(2_000_000)}efgh`);
-		/* Crosses the real clock, as no seam counts a regex's backtracking: linear
-		 * here measured 11 ms (8 Nov 2026); quadratic over 2M spaces, unmeasured,
-		 * is some 4e12 steps, so 2000 ms parts the two on any load. */
 		const started = Date.now();
 		expect(readStoredSecrets().names).toEqual(["K"]);
+		// 11 ms measured, #5529
 		expect(Date.now() - started).toBeLessThan(2000);
 	});
 

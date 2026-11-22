@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-/*
- * A stand-in CLI for run-in-process.test.ts and run-in-process.contract.test.ts
- * (mantahostels#1907): one entry per property
- * the seam claims to reproduce, beyond the ones it shares with the async probe
- * through in-process-probe-modes.js. Tracked rather than written to a temp dir per test
- * because the registry purge only reaches modules inside this repo, which is
- * what the `state` mode exists to show.
- *
- * A lookup rather than a switch: `process.exit` is typed `never`, so a case
- * ending in one has an unreachable `break` that the typecheck rejects and a
- * missing one that the linter rejects.
- *
- * Its writes stay a bare `fs.writeSync`, never lib/write-fd.js (#1676): that
- * call on fd 1 and 2 is the route run-in-process.js captures, so it is what
- * the probe exists to exercise.
- */
 
 const fs = require("node:fs");
 const { ignoreFailure } = require("../caught.js");
@@ -51,14 +35,12 @@ const modes = {
 		}
 	},
 	"exit-swallowed": () => {
-		// The one path where the recorded code is the only record of the exit.
 		ignoreFailure(() => {
 			say("before exit");
 			process.exit(6);
 		});
 	},
 	"add-listener": () => {
-		// Only their registration matters: the seam must remove them.
 		process.on("uncaughtException", noop);
 		process.on("SIGUSR2", noop);
 	},

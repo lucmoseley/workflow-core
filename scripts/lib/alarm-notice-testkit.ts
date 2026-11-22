@@ -1,16 +1,8 @@
-/*
- * A fake of GitHub's run-list and issue-comment endpoints for the
- * off-machine alarm relay's tests (#4939), behind lib/actions-api.js's
- * get/post port. A post appends a comment stamped `clock` hours before NOW,
- * so a later relay run reads it back.
- */
-
 export const NOW = Date.parse("2026-11-10T12:00:00Z");
 export const at = (hoursAgo: number) =>
 	new Date(NOW - hoursAgo * 3_600_000).toISOString();
 
 export type Conclusion = "success" | "failure" | "cancelled";
-/* One alarm's finished runs, newest first: [conclusion, hours ago]. */
 export type Runs = [Conclusion, number][];
 export type AlarmFile = "landing-quiet.yml" | "queue-wait.yml";
 export interface Comment {

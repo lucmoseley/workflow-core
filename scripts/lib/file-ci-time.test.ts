@@ -151,7 +151,6 @@ describe("collect", () => {
 	it("reads no more than 8 sweeps", () => {
 		const runs = Array.from({ length: 12 }, (_, i) => String(100 - i));
 		const rows: Record<string, Rows> = {};
-		/* `fresh` is only in the newest, so every older read leaves it short. */
 		for (const [i, run] of runs.entries())
 			rows[run] = i === 0 ? { a: 1, fresh: 1 } : { a: 1 };
 		expect(collect(runs, reader(rows).read).sweeps).toHaveLength(8);

@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/checker-run-fake.ts to the real core checkers (§G7, #5148): each
- * checker run through lib/checker-run.js, the shell's own adapters, under the
- * morning review fixture (its count-free core and served gh), off WSL and, for
- * the WSL check, on a stub WSL too, against the fake's recorded envelope. Shape and verdict, never
- * values: the same keys, each of the same type, and the same outcome.
- * Loosened, lib/morning-review-filing.test.ts stays green on an envelope a
- * checker no longer prints, and the review renders a section from fields
- * nothing fills.
- *
- * Red after a checker's envelope changed: print the real side's envelope
- * and re-record the fake's from it.
- */
 
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -42,7 +29,6 @@ const shapeOf = (envelope: Record<string, unknown>) =>
 			.sort(([a], [b]) => a.localeCompare(b)),
 	);
 
-/** A WSL machine whose installed version reads, for check-wsl-currency.js. */
 const onWsl = () => {
 	const wsl = path.join(sb.dir, "wsl");
 	return {
@@ -87,7 +73,6 @@ it.each([
 		for (const [key, value] of Object.entries({ ...runEnv(), ...env() }))
 			if (value !== undefined && process.env[key] !== value)
 				vi.stubEnv(key, value);
-		// The real side is the shell's own adapter, lib/checker-run.js, which spawns the checker.
 		const real = await run();
 		const realEnvelope = parseEnvelope(real.stdout ?? "");
 		expect(realEnvelope, JSON.stringify(real)).not.toBeNull();

@@ -1,15 +1,3 @@
-/*
- * basis-cited-read.js — bodies' basis faults with the issues a `**Gate
- * basis:**` cites followed one hop (#5007): every cited issue read whole in
- * one batched GraphQL call, its body and every comment, and judged by
- * lib/issue-gate.js, which reads no gh.
- *
- * FAILURE IS THE WHOLE READ, OR ONE REPOSITORY'S — NEVER "NO BASIS". A call
- * that fails, or a repository the answer holds no node for, leaves its
- * issues unread, which the gate library judges on their form alone. Only a
- * number a readable repository holds no issue under reads as no issue.
- */
-
 const { gh } = require("./gh.js");
 const { caught, orFallback } = require("./caught.js");
 const {
@@ -18,9 +6,7 @@ const {
 	wordedBasisFaults,
 } = require("./issue-gate.js");
 
-/* Comments read per page, GitHub's own ceiling for one connection. */
 const COMMENTS_PAGE = 100;
-/* A name GraphQL takes as a literal string; anything else is never sent. */
 const REPO_PART_RE = /^[\w.-]+$/;
 
 /**
@@ -31,10 +17,8 @@ const REPO_PART_RE = /^[\w.-]+$/;
  * @typedef {import("./issue-gate.js").FollowRecord} FollowRecord
  * @typedef {import("./issue-gate.js").BasisWrite} BasisWrite
  * @typedef {(args: string[], opts: {timeout: number}) => string} GhRun
- * @typedef {Wanted & {key: string, ref: string}} Unread a citation left
- *   unread: `key` lower-cased `owner/name#N`, `ref` as the basis wrote it
- * @typedef {any} GhJson GitHub's answer as parsed, every reader defaulting a
- *   missing field
+ * @typedef {Wanted & {key: string, ref: string}} Unread
+ * @typedef {any} GhJson
  */
 
 /** @param {string|null} after */
@@ -42,10 +26,7 @@ const commentsField = (after) =>
 	`comments(first: ${COMMENTS_PAGE}${after ? `, after: ${JSON.stringify(after)}` : ""}) { pageInfo { hasNextPage endCursor } nodes { body } }`;
 
 /**
- * One GraphQL document reading `pages`, aliased by index so any repo
- * spelling is a legal alias. The first page carries the body too.
- *
- * @param {string[]} repos `owner/name`, in alias order
+ * @param {string[]} repos
  * @param {{repo: string, number: number, after: string|null}[]} pages
  */
 function buildQuery(repos, pages) {
@@ -63,9 +44,6 @@ function buildQuery(repos, pages) {
 }
 
 /**
- * Why a gh call failed, never from `err.message`, which repeats the whole
- * query.
- *
  * @param {import("./caught.js").Caught} err
  * @param {number} timeoutMs
  */
@@ -78,9 +56,6 @@ function failedWhy(err, timeoutMs) {
 }
 
 /**
- * The answer's `data`. gh exits non-zero on a partly errored answer, a
- * missing number among them, yet prints the data, which is read first.
- *
  * @param {string} query
  * @param {number} timeoutMs
  * @param {GhRun} run
@@ -105,22 +80,16 @@ function runQuery(query, timeoutMs, run) {
 }
 
 /**
- * @typedef {{repo: string, number: number, after: string|null}} Page one
- *   issue's next page of comments, its first carrying the body
+ * @typedef {{repo: string, number: number, after: string|null}} Page
  * @typedef {{issues: Map<string, CitedIssue|null>,
- *   building: Map<string, CitedIssue>}} Into the issues read so far, and
- *   those with comments still to read
+ *   building: Map<string, CitedIssue>}} Into
  */
 
 /**
- * One page's answer, taken into `into`: the issue's next page where its
- * comments run on, or why its repository went unread.
- *
  * @param {GhJson} data
  * @param {string[]} repos
  * @param {Page} p
- * @param {Into} into accumulator: `into.issues` gains the issue once its
- *   comments are all read, `into.building` holds it until then
+ * @param {Into} into
  * @returns {{next?: Page, why?: string}}
  */
 function takePage(data, repos, p, into) {
@@ -152,15 +121,9 @@ function takePage(data, repos, p, into) {
 }
 
 /**
- * Each wanted issue's body and every comment, by `owner/name#N`
- * lower-cased: null for a number its readable repository holds no issue
- * under, absent where it was not read.
- *
- * @param {Wanted[]} wanted each issue once, its repo lower-cased
- * @param {{timeoutMs: number, run: GhRun}} opts `timeoutMs` bounds the whole
- *   read, its comment pages included; `run`, the gh call
+ * @param {Wanted[]} wanted
+ * @param {{timeoutMs: number, run: GhRun}} opts
  * @returns {{issues: Map<string, CitedIssue|null>, why: string|null, ms: number}}
- *   `why`: what left any issue unread
  */
 function readCitedIssues(wanted, { timeoutMs, run }) {
 	const startedAt = Date.now();
@@ -199,8 +162,6 @@ function readCitedIssues(wanted, { timeoutMs, run }) {
 }
 
 /**
- * The issues a trace of followed bases cites, once each.
- *
  * @param {FollowRecord[]} trace
  * @returns {Unread[]}
  */
@@ -215,15 +176,9 @@ const wantedIn = (trace) => [
 	).values(),
 ];
 
-/* Stands in for the tracker where none resolves, so the citations a body
- * makes are still found; a name never read. */
 const NO_TRACKER = "unresolved/tracker";
 
-/**
- * The tracker a bare `#N` names, or null where none resolves.
- *
- * @param {string|undefined} root the project whose config names it
- */
+/** @param {string|undefined} root */
 function readTracker(root) {
 	try {
 		const t = require("./workflow-core-config.js").resolveKey(
@@ -232,37 +187,20 @@ function readTracker(root) {
 		);
 		return typeof t === "string" && t.includes("/") ? t : null;
 	} catch {
-		// An unreadable config resolves no tracker, which the caller's note
-		// names (#5007): the citations are judged on their form alone.
 		return null;
 	}
 }
 
-/* The cited read's floor, below which nothing is read, and the write
- * routes' bound for it: one batched read of four issues with their comments
- * took 1,633 ms (#5007). Both first guesses. */
+// guess, #5007
 const MIN_CITED_MS = 3000;
 const CITED_BOUND_MS = 10_000;
 
 /**
- * Each body's basis faults, a basis whose only warrant is a cited issue
- * followed one hop (#5007), read within `timeoutMs`. A basis an edit leaves untouched, an
- * event anchor and the body's own number cite nothing.
- *
- * `WFC_GATE_CITED=off` is the suites' seam (vitest.setup.ts): nothing read,
- * every basis judged on its form. It holds only beside VITEST_WORKER_ID
- * (#5011), so a command cannot switch the read off in a hook's environment.
- *
  * @param {BasisWrite[]} bodies
  * @param {{timeoutMs: number, root?: string, env?: NodeJS.ProcessEnv,
- *   gh?: GhRun}} opts `root`, the project whose config names the tracker;
- *   `gh`, the read's gh call, lib/gh.js's by default
+ *   gh?: GhRun}} opts
  * @returns {{faults: WordedFault[][], traces: FollowRecord[][],
- *   unread: Unread[], why: string|null, ms: number}} by body, in order:
- *   `faults`, the whole body's, which an edit's caller holds by
- *   lib/issue-gate.js faultsAdded; `traces`, each followed basis with its cited issues'
- *   verdicts; `unread`, the citations judged on form alone, `why` saying
- *   what left them; `ms`, the read's wall time
+ *   unread: Unread[], why: string|null, ms: number}}
  */
 function readBasisFaults(
 	bodies,
@@ -285,13 +223,11 @@ function readBasisFaults(
 		issues: new Map(),
 		trace,
 	});
-	/* No basis's warrant is an issue reference: an empty read judges alike. */
 	if (trace.length === 0) return collected;
 	const wanted = wantedIn(trace);
 	/** @param {string|null} why */
 	const unreadAll = (why) => ({ issues: new Map(), why, ms: 0 });
 	let read;
-	/* A basis citing only its own issue is judged with nothing to read. */
 	if (wanted.length === 0) read = unreadAll(null);
 	else if (!tracker)
 		read = unreadAll("no tracker resolves from `.claude/workflow-core.json`");
@@ -316,8 +252,6 @@ function readBasisFaults(
 }
 
 /**
- * A body's faults, whole: an edit's untouched bases are judged on their form.
- *
  * @param {BasisWrite} write
  * @param {Follow} follow
  */
@@ -331,10 +265,8 @@ const faultsOf = ({ body, own, before }, follow) =>
 	);
 
 /**
- * The note naming the citations left unread.
- *
- * @param {string} lead what went unread, ahead of why
- * @param {string[]} names the citations
+ * @param {string} lead
+ * @param {string[]} names
  * @param {string|null} why
  */
 const unreadNote = (lead, names, why) =>

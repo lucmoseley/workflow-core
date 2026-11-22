@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * lib/agent-poll.js stops a session waiting by looking (mantahostels#627,
- * widened at mantahostels#659; why, at #845, which overturned
- * mantahostels#2516). The routes into that wait are counted — a ListAgents
- * call, a Read of a background job's output file, a Bash call whose whole
- * command is inert, and the two timed watches that open with a sleep — each
- * with its own allowance inside one rolling five-minute window.
- *
- * Its verdict depends on ACCUMULATED STATE — the third call in five minutes is
- * the one that denies — so every case drives the core over its production
- * ports (lib/agent-poll-host.js) with its own TMPDIR, where the window lives.
- *
- * Module cases call `decide` over the context lib/kit-context.js's kitContext
- * builds. The cases through lib/guard-core-testkit.ts prove the dispatcher
- * row; the Bash boundary set is scripts/guard-agent-poll.test.ts's, the hook
- * line's scripts/guard-dispatch.test.ts's.
- *
- * Loosen a case and a session polls a background job at a full-context turn
- * per look, or a guard that cannot judge starts denying instead of getting out
- * of the way.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -47,14 +26,11 @@ interface Payload {
 
 type Verdict = { deny: string } | { context: string } | null;
 
-/** `d` as the refusal or the note this core answers, thrown on any other. */
 const verdict = (d: CoreDecision): Verdict => {
 	if (d === null || "deny" in d || "context" in d) return d;
 	throw new Error(`neither a deny nor a context: ${JSON.stringify(d)}`);
 };
 
-/** The core's decision on `payload`, over the context lib/guard-entry.js's
- * kitContext builds from it. */
 const judge = (payload: Payload, over: Partial<PollContext> = {}): Verdict =>
 	verdict(
 		decide(payload.session_id ?? "", {
@@ -68,7 +44,6 @@ const judge = (payload: Payload, over: Partial<PollContext> = {}): Verdict =>
 		}),
 	);
 
-/** The shape the guard was first built against: no tool name, no input. */
 const run = (session = "s1") => judge({ session_id: session });
 
 const runTool = (
@@ -84,7 +59,6 @@ const runTool = (
 		tool_input: input,
 	});
 
-/** A background job's output file, in the shape the harness writes. */
 const OUT = "/tmp/claude-1000/proj/sess/tasks/bw0192d7i.output";
 
 const readOf = (file: string, session = "s1") =>
@@ -100,7 +74,6 @@ const expectDeny = (v: Verdict) => {
 	return (v as { deny: string }).deny;
 };
 
-/** An allowed call carrying a warning, and nothing else. */
 const expectWarn = (v: Verdict) => {
 	expect(v).not.toHaveProperty("deny");
 	expect(v).toHaveProperty("context");
@@ -112,7 +85,6 @@ const parseFirstLine = (text: string) => text.split("\n")[0];
 const stateDir = () => path.join(tmp, "wfc-agent-poll");
 const stateFile = (session = "s1") => path.join(stateDir(), session);
 
-/** Nothing recorded at all — the core left without touching its state. */
 const expectNotCounted = (v: Verdict) => {
 	expectSilentAllow(v);
 	expect(fs.existsSync(stateFile())).toBe(false);
@@ -205,7 +177,6 @@ describe("sessions are independent", () => {
 
 describe("it fails open, and says so (mantahostels#103 §6, mantahostels#147)", () => {
 	it("allows when the state dir cannot be created", () => {
-		// A file where the directory should go: mkdir -p cannot win.
 		fs.writeFileSync(stateDir(), "");
 		expectSilentAllow(run());
 		expect(logs.join("\n")).toContain(
@@ -214,7 +185,6 @@ describe("it fails open, and says so (mantahostels#103 §6, mantahostels#147)", 
 	});
 
 	it("allows a window that will not read, and says so rather than counting it empty (#4132)", () => {
-		// A directory where the window file should be: the read fails EISDIR.
 		fs.mkdirSync(stateFile(), { recursive: true });
 		expectSilentAllow(run());
 		expect(logs.join("\n")).toContain(
@@ -438,8 +408,6 @@ describe("the routes share a window but not an allowance", () => {
 	});
 
 	it("does not read a Bash or Read payload with no tool_name as ListAgents", () => {
-		// Folding one into the agents bucket would eventually deny an ordinary
-		// call, quoting a reason about polling at a session that never polled.
 		for (let i = 0; i < 4; i++) {
 			expectNotCounted(runTool("", { command: "npm run build" }));
 			expectNotCounted(runTool("", { file_path: "/etc/hosts" }));
@@ -461,17 +429,10 @@ describe("the routes share a window but not an allowance", () => {
 	});
 });
 
-/*
- * mantahostels#2590. docs/agents/guard-registry.md §Subagent dispatch and
- * docs/agents/rules/killed-background-job.txt each prescribe a two-minute
- * timed watch, and both open with a sleep.
- */
 describe("the two timed watches do not spend each other's allowance (mantahostels#2590)", () => {
 	const artefact = "sleep 120; wc -c .claude/tmp/review-standards-abc.md";
 	const beat = "sleep 120; scripts/bg-run.sh check suite";
 
-	/** Each timed watch's allowance, as the core's header states it: three
-	 * pass silent, the fourth warns. */
 	const sleepAllowance = 3;
 
 	it("lets both watches run their full cadence, interleaved", () => {
@@ -539,11 +500,6 @@ describe("the two timed watches do not spend each other's allowance (mantahostel
 	});
 });
 
-/*
- * #1169. A subagent's payload carries its parent's session_id, so one shared
- * window refused a fork for its siblings' checks; and every text told it to end
- * the turn, which for a subagent ends its work.
- */
 describe("a subagent is counted, and told, as itself (#1169)", () => {
 	const lock = "sleep 5; ls .git/index.lock";
 	const sub = (agent: string) => (command: string) =>
@@ -588,14 +544,11 @@ describe("a subagent is counted, and told, as itself (#1169)", () => {
 		expect(fs.readdirSync(stateDir()).sort()).toEqual(["s1", "s1.aa1"]);
 	});
 
-	/** #1486: the key is agentKey's agent half, made a path segment. */
 	it("keys a subagent by its agent half", () => {
 		expectSilentAllow(sub("x/y")(lock));
 		expect(fs.readdirSync(stateDir())).toEqual(["s1.ax_y"]);
 	});
 
-	/** Each branch's text on the call one past its allowance — the parent's
-	 * where `agent` is absent. */
 	const texts = (agent?: string) => {
 		const call = (tool: string, input: Record<string, unknown>) =>
 			runTool(tool, input, agent ? `s-${agent}` : "s1", agent);
@@ -647,8 +600,6 @@ describe("a subagent is counted, and told, as itself (#1169)", () => {
 		}
 	});
 
-	/** Each branch's text, verbatim: what a session is told past each
-	 * allowance, parent and subagent. */
 	it("says every branch's text byte for byte", () => {
 		expect({ parent: texts(), subagent: texts("a1") }).toEqual({
 			parent: {

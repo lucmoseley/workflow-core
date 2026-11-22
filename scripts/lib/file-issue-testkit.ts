@@ -1,11 +1,3 @@
-/*
- * The sandbox file-issue's tests share (#5150): its program cases, which run
- * scripts/file-issue.js through runInProcess against file-issue's gh fake as
- * the WFC_GH stub, the real link underneath, and its module cases, which call
- * lib/file-issue-core.js's fileIssue with the same gh fake in-process and the
- * link fake.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { vi } from "vitest";
@@ -22,7 +14,6 @@ import { TAKES_VALUES } from "./takes-label";
 
 export const SCRIPT = path.resolve(__dirname, "..", "file-issue.js");
 export const ME = "sess-me";
-/** The signature line's filed-at clock in a module case. */
 export const NOW = Date.parse("2026-11-13T09:00:00.000Z");
 
 export const LABELS = [
@@ -38,7 +29,6 @@ export const LABELS = [
 	"fault-signature",
 ];
 
-/* Every filing's declarations (#4796), added to a call that names none. */
 export const DECLARED = ["--origin", "triage", "--no-fault"];
 const DECLARATION_FLAGS = ["--origin", "--no-fault", "--fault-signature"];
 
@@ -69,15 +59,9 @@ export interface Row {
 	title: string;
 }
 
-/** The issue numbers a similar-title list printed, in its order. */
 export const listed = (stdout: string) =>
 	[...stdout.matchAll(/^ {2}#(\d+) /gm)].map((m) => Number(m[1]));
 
-/*
- * A small tracker, scored for "Generate a sitemap and robots file": #1 11.7,
- * #5 and #6 8.8, #2 8.6 — cut as the fourth — and #3 5.8, under 6. A hundred
- * filler titles make the four shared words rare.
- */
 export const TRACKER: Row[] = [
 	{ number: 1, state: "OPEN", title: "Generate the sitemap and robots file" },
 	{ number: 2, state: "OPEN", title: "Robots file for the sitemap" },
@@ -113,7 +97,6 @@ const declare = (args: string[], bare: boolean) =>
 		? args
 		: [...args, ...DECLARED];
 
-/** The sandbox, its fixtures and both runners; call once per test file. */
 export function fileIssueKit() {
 	const sb = freshSandbox((s) => {
 		fs.mkdirSync(path.join(s.repo, ".claude"), { recursive: true });
@@ -125,7 +108,6 @@ export function fileIssueKit() {
 
 	const at = (name: string) => path.join(sb.dir, name);
 
-	/** Serve `body` for `gh api <apiPath>`. */
 	const serve = (apiPath: string, body: unknown) => {
 		fs.mkdirSync(at("api"), { recursive: true });
 		fs.writeFileSync(
@@ -134,10 +116,6 @@ export function fileIssueKit() {
 		);
 	};
 
-	/**
-	 * Serve `rows` for the similar-title list's `issue list` fetches — the whole
-	 * tracker, and its open rows for `--state open` — with no closed-title cache.
-	 */
 	const serveIssues = (rows: Row[]) => {
 		fs.writeFileSync(at("issues"), JSON.stringify(rows));
 		fs.writeFileSync(
@@ -161,7 +139,6 @@ export function fileIssueKit() {
 
 	const ghStub = () => stubFileIssueGh(sb.dir);
 
-	/** The liveness oracle, listing exactly `ids`. */
 	const oracle = (ids: string[]) => {
 		const bin = at("claude-agents");
 		fs.writeFileSync(
@@ -183,7 +160,6 @@ export function fileIssueKit() {
 			.readIssueClaims(NEW)
 			.map((e: { record: { sessionId: string } }) => e.record.sessionId);
 	const readBodySeen = () => fs.readFileSync(at("body-seen"), "utf8");
-	/** Each link the module cases' link fake was asked for, `<parent> <child>`. */
 	const readLinks = () =>
 		fs.existsSync(at("links"))
 			? fs.readFileSync(at("links"), "utf8").split("\n").filter(Boolean)
@@ -264,10 +240,6 @@ export function fileIssueKit() {
 	};
 }
 
-/*
- * The filing declarations' fixtures (#4796): a session transcript, a
- * --fault-signature file, and the outcome-signature log a filing appends to.
- */
 export function declarationFixtures(kit: ReturnType<typeof fileIssueKit>) {
 	const Session = "11111111-2222-3333-4444-555555555555";
 	const Slug = "-home-u-repo";
@@ -288,7 +260,6 @@ export function declarationFixtures(kit: ReturnType<typeof fileIssueKit>) {
 			],
 		},
 	};
-	/* The call that met the deny, on line 3: a `reads: "call"` case. */
 	const callRecord = {
 		type: "assistant",
 		uuid: "a-call",
@@ -304,7 +275,6 @@ export function declarationFixtures(kit: ReturnType<typeof fileIssueKit>) {
 			],
 		},
 	};
-	/** The session's transcript on the second seat, the case record on line 2. */
 	const seatTranscript = () => {
 		const dir = path.join(
 			path.dirname(kit.sb.home),

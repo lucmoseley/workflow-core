@@ -58,28 +58,20 @@
  *    (mantahostels#147), and takes a taskset affinity it cannot read as a cap,
  *    recorded.
  */
-
 const { escapeShield, parseCommand, unmask } = require("./shell-parse.js");
 const { literal, unwrap, wrapperScript } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
-/* bash arithmetic's constants: the BigInt literal outruns the ES2018 target
- * the type-check holds scripts/ to. */
 const ZERO = BigInt(0);
 const ONE = BigInt(1);
 const TWO = BigInt(2);
 const HUNDRED = BigInt(100);
 
-/* How many shells deep a `-c` string or script is followed. A guess: the
- * incident was two (bg-run.sh, then `bash <script>`), and each level re-runs
- * the split. */
+// guess, #5529
 const MAX_DEPTH = 3;
-/* The largest script read, 256 KB: past every tracked shell file. A 147 KB
- * script scans in 55 ms at load 17 — far inside the hook's 10 s ceiling,
- * every level of MAX_DEPTH included. */
+// 55 ms for 147 KB measured, #5529
 const MAX_SCRIPT_BYTES = 262_144;
 
-/* Shell builtins a busy loop's body may run and still never block. */
 const BUSY_BODY = [
 	":",
 	"true",
@@ -94,10 +86,8 @@ const BUSY_BODY = [
 	"continue",
 ];
 
-/* Reserved words ahead of the command a segment runs. */
 const RESERVED = ["do", "then", "else", "elif", "!", "{", "}", "if", "time"];
 
-/* The words judge acts on; any word ending `.sh` besides. */
 const RELEVANT = [
 	"yes",
 	"stress",
@@ -122,10 +112,8 @@ const SCRIPT_WRAPPERS = ["flock", "watch"];
 
 const CAP_WRAPPERS = ["taskset"];
 
-/* The sinks a piped `yes` is still load into. */
 const SINKS = ["cat", "tee", "dd", "pv"];
 
-/* systemd-run's flags taking their value as a separate word. */
 const QUOTA_VALUE_FLAGS = [
 	"-u",
 	"--unit",
@@ -149,37 +137,28 @@ const QUOTA_VALUE_FLAGS = [
 	"--service-type",
 ];
 
-/* A shell's flags taking their value as a separate word. */
 const SHELL_VALUE_FLAGS = ["-o", "+o", "-O", "+O", "--rcfile", "--init-file"];
 
-/** `[[:space:]]`, as GNU sed's `\s` reads it. */
 const WS = "[ \\t\\n\\v\\f\\r]*";
 
 /**
  * @typedef {object} CpuLoadPorts
- * @property {() => string} coreCount the core count as the environment
- *   gives it: `WFC_CPU_COUNT` where set, else the online count
- * @property {(path: string, maxBytes: number) => string | null} readScript a
- *   script's text; null where it is no readable regular file or is over
- *   `maxBytes`
+ * @property {() => string} coreCount
+ * @property {(path: string, maxBytes: number) => string | null} readScript
  * @typedef {import("./kit-context.js").KitContext & CpuLoadPorts} CpuLoadContext
- * @typedef {object} Scan what every level of the scan reads
+ * @typedef {object} Scan
  * @property {bigint} maxCpus
  * @property {bigint} maxQuota
- * @property {string} base the directory a relative script resolves against
+ * @property {string} base
  * @property {CpuLoadContext} ctx
- * @typedef {{ capped: boolean, runFrom: number }} Cap whether a cap's words
- *   cap, and the index of the command they run
+ * @typedef {{ capped: boolean, runFrom: number }} Cap
  * @typedef {object} Verdict
- * @property {"generator" | "capped" | "multi"} kind a generator outside any
- *   cap; one under a cap; or capped generators whose caps add up past one
- * @property {string} where the command it names
+ * @property {"generator" | "capped" | "multi"} kind
+ * @property {string} where
  */
 
 /**
- * A word's literal text, its trailing newlines dropped as a command
- * substitution drops them.
- * @param {string} word masked
+ * @param {string} word
  * @param {string[]} spans
  */
 function lit(word, spans) {
@@ -190,11 +169,7 @@ function lit(word, spans) {
 /** @param {string} w */
 const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
 
-/**
- * A run of digits as bash arithmetic reads it: 64-bit and wrapping, a leading
- * 0 octal; null where it is an invalid octal, which bash refuses.
- * @param {string} digits
- */
+/** @param {string} digits */
 function arith(digits) {
 	if (digits.length > 1 && digits.startsWith("0")) {
 		if (/[89]/.test(digits)) return null;
@@ -203,17 +178,9 @@ function arith(digits) {
 	return BigInt.asIntN(64, BigInt(digits));
 }
 
-/** The split's shield: every character it acts on. */
 const SPLIT_SHIELD = escapeShield("&|;()<>$");
 
-/**
- * The masked text split one line per segment, each ending
- * `\x05<separator>` but a line's last. An escaped character is a word's
- * (#5114), and a redirection's `&` and `|` are no separators; the two
- * arithmetic headers are spelt as `while true`, any other arithmetic as the
- * `let` it is.
- * @param {string} masked
- */
+/** @param {string} masked */
 function splitLines(masked) {
 	return masked
 		.split("\n")
@@ -239,12 +206,10 @@ function splitLines(masked) {
 		.map(SPLIT_SHIELD.unshield);
 }
 
-/** A line as `read -ra` splits it: on runs of IFS whitespace. @param {string} s */
+/** @param {string} s */
 const ifsWords = (s) => s.split(/[ \t\n]+/).filter((w) => w !== "");
 
 /**
- * One systemd-run word: how far it steps and the property it sets, or where
- * the command they run starts.
  * @param {string[]} words
  * @param {number} i
  * @param {string[]} spans
@@ -263,9 +228,6 @@ function quotaWord(words, i, spans) {
 }
 
 /**
- * The CPUQuota a property sets: undefined where it sets none, null where
- * bash could not read its number. A fraction rounds up: 400.5% is more than
- * four cores.
  * @param {string} v
  * @returns {bigint | null | undefined}
  */
@@ -278,8 +240,6 @@ function quotaOf(v) {
 }
 
 /**
- * The systemd-run words: capped where the last CPUQuota they set is at most
- * the scan's quota.
  * @param {string[]} words
  * @param {string[]} spans
  * @param {Scan} scan
@@ -306,7 +266,6 @@ function cappedQuota(words, spans, scan) {
 }
 
 /**
- * The cores one cpu-list part names; null where it cannot be read.
  * @param {string} part
  * @returns {bigint | null}
  */
@@ -317,16 +276,12 @@ function partCount(part) {
 	const hi = arith(range[2] ?? "");
 	if (lo === null || hi === null || hi < lo) return null;
 	const stride = arith(range[4] ?? "1") ?? ONE;
-	/* A stride wrapped to 0 is bash's division by zero: that sum is dropped,
-	 * the count read on. */
 	if (stride === ZERO) return ZERO;
 	const width = BigInt.asIntN(64, hi - lo);
 	return width / stride + ONE;
 }
 
 /**
- * The cores a taskset affinity names, a cpu list or a hex mask; null where
- * it cannot be read.
  * @param {string} spec
  * @param {boolean} isList
  * @returns {bigint | null}
@@ -335,13 +290,10 @@ function cpuCount(spec, isList) {
 	let n = ZERO;
 	if (!isList) {
 		const mask = spec.replace(/^0x/, "");
-		/* 15 hex digits, 60 bits: a mask shell arithmetic still reads as positive. */
 		if (!/^[0-9a-fA-F]{1,15}$/.test(mask)) return null;
 		for (let m = BigInt(`0x${mask}`); m; m >>= ONE) n += m & ONE;
 		return n;
 	}
-	/* `IFS=, read -ra`: the first line, split on commas, a trailing one
-	 * ending the last field rather than opening an empty one. */
 	const parts = (spec.split("\n")[0] ?? "").split(",");
 	if (parts.at(-1) === "") parts.pop();
 	for (const part of parts) {
@@ -353,8 +305,6 @@ function cpuCount(spec, isList) {
 }
 
 /**
- * The taskset words: capped where they pin to at most half the cores. `-p`
- * re-pins a running process and runs nothing.
  * @param {string[]} words
  * @param {string[]} spans
  * @param {Scan} scan
@@ -380,8 +330,6 @@ function cappedTaskset(words, spans, scan) {
 }
 
 /**
- * Scan other text — a `-c` string, an `eval`'s words, a script — one shell
- * deeper.
  * @param {string} text
  * @param {number} depth
  * @param {string} where
@@ -393,8 +341,7 @@ function scanText(text, depth, where, scan) {
 }
 
 /**
- * Scan the script file a shell runs, named by `word`.
- * @param {string} word masked
+ * @param {string} word
  * @param {string[]} spans
  * @param {number} depth
  * @param {Scan} scan
@@ -405,7 +352,6 @@ function scanScript(word, spans, depth, scan) {
 	const path = shown.startsWith("/") ? shown : `${scan.base}/${shown}`;
 	const text = scan.ctx.readScript(path, MAX_SCRIPT_BYTES);
 	if (text === null) return null;
-	/* As `$(<file)` reads it: no NUL, no trailing newline. */
 	return scanText(
 		trimEndRun(text.replaceAll("\0", ""), "\n"),
 		depth,
@@ -427,7 +373,6 @@ const buildGenerator = (where) => ({ kind: "generator", where });
  */
 
 /**
- * The verdict of the command a cap runs, marked capped where the cap holds.
  * @param {Cap} cap
  * @param {(runFrom: number) => Verdict | null} judgeRest
  * @returns {Verdict | null}
@@ -481,9 +426,6 @@ function judgeEval(at, words, spans, scan) {
 }
 
 /**
- * One shell word ahead of its operand: how far it steps and whether it
- * opens a `-c` string; "check" for `-n`, a syntax check that runs nothing;
- * null for the operand itself.
  * @param {string} w
  * @returns {{ step: number, code: boolean } | "check" | null}
  */
@@ -499,8 +441,6 @@ function shellFlag(w) {
 }
 
 /**
- * Where a shell's operand stands and whether it is a `-c` string; null for a
- * syntax check.
  * @param {string[]} words
  * @param {string[]} spans
  */
@@ -519,11 +459,7 @@ function shellOperand(words, spans) {
 	return { i, code };
 }
 
-/**
- * A shell's words: its `-c` string, the command `bg-run.sh run` starts, or
- * the script it runs.
- * @type {Judge}
- */
+/** @type {Judge} */
 function judgeShell(at, words, spans, scan) {
 	const op = shellOperand(words, spans);
 	if (op === null || op.i >= words.length) return null;
@@ -541,11 +477,7 @@ function judgeShell(at, words, spans, scan) {
 const judgeScript = (at, words, spans, scan) =>
 	scanScript(words[0] ?? "", spans, at.depth + 1, scan);
 
-/**
- * A `flock -c` or `watch` script, scanned as a shell's `-c` string is
- * (#4978).
- * @type {Judge}
- */
+/** @type {Judge} */
 function judgeScriptWrapper(at, words, spans, scan) {
 	const script = wrapperScript(words, spans);
 	if (script === null)
@@ -569,10 +501,8 @@ const JUDGES = new Map([
 ]);
 
 /**
- * The verdict where the command, or what it runs, generates load; null where
- * it does not.
  * @param {At} at
- * @param {string[]} raw the segment's words, masked
+ * @param {string[]} raw
  * @param {string[]} spans
  * @param {Scan} scan
  * @returns {Verdict | null}
@@ -585,7 +515,6 @@ const judge = (at, raw, spans, scan) =>
 	});
 
 /**
- * judge, `judged` the wrappers left standing for a judge of their own.
  * @param {At} at
  * @param {string[]} raw
  * @param {{ spans: string[], scan: Scan, judged: string[] }} with
@@ -610,24 +539,20 @@ const isRelevant = (words) =>
 	});
 
 /**
- * @typedef {object} ScanState one level's walk over its lines
+ * @typedef {object} ScanState
  * @property {string[]} lines
  * @property {string[]} spans
  * @property {number} depth
- * @property {string} suffix ` (in <file>)`, or "" for the command
+ * @property {string} suffix
  * @property {Scan} scan
  * @property {number} caseDepth
- * @property {boolean} pattern whether the line is in a `case` pattern
- * @property {string} prev the last line's separator
- * @property {Verdict | null} capped the lone capped generator so far
- * @property {{ busy: boolean, head: string }[]} frames the open loops
+ * @property {boolean} pattern
+ * @property {string} prev
+ * @property {Verdict | null} capped
+ * @property {{ busy: boolean, head: string }[]} frames
  */
 
-/**
- * A line's separator and words, reserved words ahead of the command taken
- * off.
- * @param {string} line
- */
+/** @param {string} line */
 function readLine(line) {
 	const cut = line.indexOf("\x05");
 	const sep = cut === -1 ? "\n" : line.slice(cut + 1);
@@ -641,9 +566,7 @@ function readLine(line) {
 }
 
 /**
- * True where the line is a `case`'s own: a pattern runs nothing, so it is
- * skipped from `in` or `;;` to its `)`.
- * @param {ScanState} st accumulator: caseDepth, pattern and prev advance here
+ * @param {ScanState} st
  * @param {string[]} words
  * @param {string} sep
  */
@@ -670,10 +593,7 @@ function skipsCase(st, words, sep) {
 }
 
 /**
- * A loop's own word: a header opens a frame, `done` closes one, a busy loop
- * sent to the background its verdict. Undefined where the line is no loop
- * word.
- * @param {ScanState} st accumulator: frames are pushed and popped here
+ * @param {ScanState} st
  * @param {string[]} words
  * @param {string} sep
  * @returns {Verdict | null | undefined}
@@ -703,7 +623,6 @@ function loopWord(st, words, sep) {
 }
 
 /**
- * The command word of the line after a pipe, its reader.
  * @param {string[]} lines
  * @param {number} idx
  */
@@ -716,7 +635,6 @@ function readerAfter(lines, idx) {
 }
 
 /**
- * Where a judged line stands, for its verdict.
  * @param {ScanState} st
  * @param {string[]} words
  * @param {string} sep
@@ -735,10 +653,7 @@ function lineAt(st, words, sep, idx) {
 }
 
 /**
- * One line's verdict, where it settles the scan: a generator, a multi, or a
- * capped generator that adds to another cap. A lone capped one is held on
- * `st`.
- * @param {ScanState} st accumulator: capped is set here
+ * @param {ScanState} st
  * @param {string} line
  * @param {number} idx
  * @returns {Verdict | null}
@@ -764,11 +679,9 @@ function scanLine(st, line, idx) {
 }
 
 /**
- * The verdict for `text`: its first generator or multi, else a lone capped
- * generator, else null.
  * @param {string} text
  * @param {number} depth
- * @param {string} file the script or string it came from; "" for the command
+ * @param {string} file
  * @param {Scan} scan
  * @returns {Verdict | null}
  */

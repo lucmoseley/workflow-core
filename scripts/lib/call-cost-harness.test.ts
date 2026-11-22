@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The pin helper's own tests (base §G13 (5), #5338): a pin built on it cannot
- * pass blind, so each spawn route, each lazy load and each broken call is
- * shown here to be seen.
- */
 
 import childProcess from "node:child_process";
 import fs from "node:fs";

@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * The shared version comparer (#4091). Loosened, a later release reads as
- * older, or a version with an extra component never compares equal.
- */
 import { describe, expect, it } from "vitest";
 
 const { compareVersions } = require("./compare-versions.js") as {
