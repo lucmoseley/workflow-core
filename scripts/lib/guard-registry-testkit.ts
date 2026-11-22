@@ -48,7 +48,7 @@ export const ACTING_ROW = {
 };
 
 export function implicitRows(
-	rows: Record<string, Record<string, string>>,
+	rows: Record<string, Record<string, string | string[]>>,
 ): Record<string, string> {
 	return { [IMPLICIT_MANIFEST]: JSON.stringify(rows) };
 }

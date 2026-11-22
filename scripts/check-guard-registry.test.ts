@@ -4,9 +4,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	ACTING_ROW,
 	asRoot,
 	build,
 	hooksWiring,
+	IMPLICIT_MANIFEST,
 	implicitRows,
 	REAL_SCRIPT,
 	region,
@@ -624,7 +626,7 @@ describe("the live repository", () => {
 	});
 });
 
-describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
+describe("assertion 4 — the hook `if` narrowing (mantahostels#2212, #5541)", () => {
 	function wiringWithIf(script: string, ifField?: string): string {
 		return JSON.stringify({
 			hooks: {
@@ -647,48 +649,47 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 	const guard = "scripts/guard-x.sh";
 	const other = "scripts/guard-other.sh";
 	const rule = "- Rule. **Enforced** (#1): `scripts/guard-x.sh`.";
+	const body = "#!/usr/bin/env bash\nexit 0\n";
 
-	function buildGuardBody(header: string): string {
-		return ["#!/usr/bin/env bash", ...header.split("\n"), "", "exit 0"].join(
-			"\n",
-		);
-	}
+	const rowFor = (script: string, ifs?: string[]) =>
+		implicitRows({ [script]: { ...ACTING_ROW, ...(ifs ? { IF: ifs } : {}) } });
 
-	it("fails a hook narrowed by `if` whose script never says so", () => {
-		const root = build({
-			claude: region(rule),
-			files: {
-				[guard]: buildGuardBody("# PreToolUse guard.\n#\n# LIMITS\n#  - none."),
-				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
-			},
-		});
-		const r = run(root);
+	const undeclared = {
+		claude: region(rule),
+		files: {
+			[guard]: body,
+			...rowFor(guard),
+			[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
+		},
+	};
+
+	it("fails a hook narrowed by `if` whose row's `IF` never says so", () => {
+		const r = run(build(undeclared));
 		expect(r.kinds).toContain("UNDECLARED-IF");
 		expect(r.code).toBe(1);
 	});
 
-	it("passes once the script's header states that narrowing verbatim", () => {
+	it("passes once the row's `IF` states that narrowing verbatim", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n# LIMITS\n#  - Wired with `if: Bash(*git*)` (#2061).",
-				),
+				[guard]: body,
+				...rowFor(guard, ["Bash(*git*)"]),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
 		});
 		const r = run(root);
 		expect(r.kinds).not.toContain("UNDECLARED-IF");
+		expect(r.kinds).not.toContain("STALE-IF");
 		expect(r.kinds).not.toContain("UNWIRED-IF");
 	});
 
-	it("fails a header claiming a narrowing the wiring no longer carries", () => {
+	it("fails a row claiming a narrowing the wiring no longer carries", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n# LIMITS\n#  - Wired with `if: Bash(*git*)` (#2061).",
-				),
+				[guard]: body,
+				...rowFor(guard, ["Bash(*git*)"]),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
 			},
 		});
@@ -699,66 +700,56 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		).toContain("no `if` field at all");
 	});
 
-	it("fails a header stating a DIFFERENT narrowing from the wiring's", () => {
+	it("fails a row stating a DIFFERENT narrowing from the wiring's", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*gh*)` (#2061).",
-				),
+				[guard]: body,
+				...rowFor(guard, ["Bash(*gh*)"]),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
 		});
-		const r = run(root);
-		expect(r.kinds).toEqual(
+		expect(run(root).kinds).toEqual(
 			expect.arrayContaining(["UNDECLARED-IF", "STALE-IF"]),
 		);
 	});
 
-	it("reads the header only — a matcher spelled in the body is code, not a declaration", () => {
+	it("reads no comment — a narrowing stated in the script's header declares nothing", () => {
 		const root = build({
-			claude: region(rule),
+			...undeclared,
 			files: {
-				[guard]: [
-					"#!/usr/bin/env bash",
-					"# PreToolUse guard.",
-					"",
-					'echo "if: Bash(*git*)"',
-				].join("\n"),
-				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
+				...undeclared.files,
+				[guard]:
+					"#!/usr/bin/env bash\n# Wired with `if: Bash(*git*)`.\nexit 0\n",
 			},
 		});
 		expect(run(root).kinds).toContain("UNDECLARED-IF");
 	});
 
-	it("says nothing about a bare hook whose script mentions no narrowing", () => {
+	it("asks no declaration of a narrowed script that holds no row", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody("# PreToolUse guard."),
-				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
+				[guard]: body,
+				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
 		});
 		const r = run(root);
 		expect(r.kinds).not.toContain("UNDECLARED-IF");
-		expect(r.kinds).not.toContain("STALE-IF");
 		expect(r.code).toBe(0);
 	});
 
-	it("names every narrowed script in the run's own report", () => {
+	it("names every narrowed script in the run's own report, read off the wiring", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#  - Wired with `if: Bash(*git*)` (#2061).",
-				),
+				[guard]: body,
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
 		});
 		const r = run(root);
 		expect(r.report).toContain(
-			"Hook `if` narrowings: 1 wired script(s) or dispatcher core(s) run on a narrowed set, " +
-				"0 unreadable emitter(s) skipped on the declared side (mantahostels#2234).",
+			"Hook `if` narrowings: 1 wired script(s) or dispatcher core(s) run on a narrowed set.",
 		);
 		expect(r.json).toMatchObject({
 			ifNarrowings: [{ file: guard, values: ["Bash(*git*)"] }],
@@ -769,9 +760,8 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#  - Wired with `if: Bash(*gh*)` (#2061).",
-				),
+				[guard]: body,
+				...rowFor(guard, ["Bash(*gh*)"]),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
 						PreToolUse: [
@@ -801,29 +791,14 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		expect(r.kinds).not.toContain("UNDECLARED-IF");
 	});
 
-	it("cites the file line the narrowing is stated on, past the shebang", () => {
+	it("matches a clause whole, however it is spelled", () => {
+		const clause = 'Bash(git commit -m "(x)"*)';
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` (#2061).",
-				),
-				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
-			},
-		});
-		expect(
-			run(root).json.findings.find((f) => f.kind === "STALE-IF")?.line,
-		).toBe(4);
-	});
-
-	it("clears a matcher shape the header regex cannot parse, off the wiring's own string", () => {
-		const root = build({
-			claude: region(rule),
-			files: {
-				[guard]: buildGuardBody(
-					'# PreToolUse guard.\n#  - Wired with `if: Bash(git commit -m "(x)"*)`.',
-				),
-				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, 'Bash(git commit -m "(x)"*)'),
+				[guard]: body,
+				...rowFor(guard, [clause]),
+				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, clause),
 			},
 		});
 		const r = run(root);
@@ -831,35 +806,35 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		expect(r.kinds).not.toContain("STALE-IF");
 	});
 
-	it("reports the fault under `wiring:`, not `rule:`", () => {
-		const root = build({
-			claude: region(rule),
-			files: {
-				[guard]: buildGuardBody("# PreToolUse guard."),
-				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
-			},
+	it("files the fault against the manifest, under `wiring:`, naming the script", () => {
+		const r = run(build(undeclared));
+		expect(
+			r.json.findings.find((f) => f.kind === "UNDECLARED-IF"),
+		).toMatchObject({
+			file: IMPLICIT_MANIFEST,
+			rule: `${guard}, wired in ${SELF_PLUGIN_HOOKS}`,
 		});
-		expect(run(root).report).toMatch(
-			/wiring:\s+wired in self-plugin\/hooks\/hooks\.json/,
+		expect(r.report).toMatch(
+			/wiring:\s+scripts\/guard-x\.sh, wired in self-plugin\/hooks\/hooks\.json/,
 		);
+		expect(r.report).toContain("That row's `IF`");
 	});
 
-	it("fails a script dropped from the wiring entirely, its header still stating a narrowing (mantahostels#2234)", () => {
+	it("fails a row stating a narrowing for a script dropped from the wiring entirely (mantahostels#2234)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` (#2061).",
-				),
+				[guard]: body,
+				...rowFor(guard, ["Bash(*git*)"]),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({ hooks: {} }),
 			},
 		});
 		const r = run(root);
 		expect(r.kinds).toContain("UNWIRED-IF");
-		expect(r.report).toContain(`UNWIRED-IF  ${guard}:4`);
+		expect(r.report).toContain(`UNWIRED-IF  ${IMPLICIT_MANIFEST}:1`);
 		const detail = r.json.findings.find((f) => f.kind === "UNWIRED-IF")?.detail;
-		expect(detail).toContain("names this script at all");
-		expect(detail).toContain("Delete the line or wire the script");
+		expect(detail).toContain("names that script at all");
+		expect(detail).toContain("Drop the row's `IF`, or wire the script");
 		expect(r.code).toBe(1);
 	});
 
@@ -867,9 +842,8 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` (#2061).",
-				),
+				[guard]: body,
+				...rowFor(guard, ["Bash(*git*)"]),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
 						PreToolUse: [
@@ -890,17 +864,17 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			},
 		});
 		const r = run(root);
-		expect(r.kinds).toEqual([]);
-		expect(r.code).toBe(0);
+		expect(r.kinds).not.toContain("UNDECLARED-IF");
+		expect(r.kinds).not.toContain("STALE-IF");
+		expect(r.kinds).not.toContain("UNWIRED-IF");
 	});
 
 	it("still faults an exec-form entry that wires some other script (mantahostels#2266)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` (#2061).",
-				),
+				[guard]: body,
+				...rowFor(guard, ["Bash(*git*)"]),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
 						PreToolUse: [
@@ -922,37 +896,24 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		expect(run(root).kinds).toContain("UNWIRED-IF");
 	});
 
-	it("faults a narrowing in a script no rule names and the wiring never mentioned (mantahostels#2234)", () => {
-		const retired = "scripts/guard-retired.sh";
+	it("breaks on a row whose `IF` is not an array of clauses", () => {
 		const root = build({
-			claude: region(
-				"- Rule. **Enforced** (#1): `scripts/guard-other.sh` denies it.",
-			),
+			claude: region(rule),
 			files: {
-				[other]: buildGuardBody("# PreToolUse guard."),
-				[retired]: buildGuardBody(
-					"# Retired guard, kept for reference.\n#  - Wired with `if: Bash(*gh*)` (#2061).",
-				),
-				[SELF_PLUGIN_HOOKS]: wiringWithIf(other),
+				[guard]: body,
+				...implicitRows({ [guard]: { ...ACTING_ROW, IF: "Bash(*git*)" } }),
+				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
 		});
 		const r = run(root);
-		expect(r.kinds).toContain("UNWIRED-IF");
-		expect(r.kinds).not.toContain("UNWIRED");
-		expect(r.report).toContain(`UNWIRED-IF  ${retired}:3`);
-		expect(r.report).toMatch(
-			/wiring:\s+absent from self-plugin\/hooks\/hooks\.json/,
-		);
-		expect(
-			r.json.findings.find((f) => f.kind === "UNWIRED-IF")?.detail,
-		).toContain("Delete the line or wire the script");
-		expect(r.code).toBe(1);
+		expect(r.kinds).not.toContain("UNDECLARED-IF");
+		expect(r.code).toBe(2);
 	});
 
 	describe("a dispatcher core's manifest row (#3244)", () => {
 		const core = "scripts/lib/x.js";
 
-		function dispatched(header: string, ifs?: unknown, wired = true) {
+		function dispatched(ifs?: unknown) {
 			return build({
 				claude: region(`- Rule. **Enforced** (#1): \`${DISPATCH_ENTRY}\`.`),
 				files: {
@@ -968,49 +929,29 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 							},
 						],
 					}),
-					[core]: `/*\n${header}\n */\nmodule.exports = {};\n`,
-					[SELF_PLUGIN_HOOKS]: wired
-						? hooksWiring(DISPATCH_ENTRY)
-						: hooksWiring(),
+					[core]: "module.exports = {};\n",
+					[SELF_PLUGIN_HOOKS]: hooksWiring(DISPATCH_ENTRY),
 				},
 			});
 		}
 
-		it("calls a core's stated `if` unwired where no hook entry runs the dispatcher", () => {
-			const r = run(
-				dispatched(
-					" * Its row narrows it with `if: Bash(git *)`.",
-					["Bash(git *)"],
-					false,
-				),
-			);
-			expect(r.kinds).toContain("UNWIRED-IF");
-			expect(r.code).toBe(1);
-		});
-
 		it("breaks on a row whose `if` is not an array, rather than judging its characters", () => {
-			const r = run(dispatched(" * The x core.", "Bash(git *)"));
+			const r = run(dispatched("Bash(git *)"));
 			expect(r.kinds).not.toContain("UNDECLARED-IF");
 			expect(r.code).toBe(2);
 		});
 
-		it("fails a row's `if` the core's header never states, naming the manifest", () => {
-			const r = run(dispatched(" * The x core.", ["Bash(git *)"]));
-			const finding = r.json.findings.find((f) => f.kind === "UNDECLARED-IF");
-			expect(r.report).toContain("State the narrowing verbatim in that header");
-			expect(finding).toMatchObject({
-				file: core,
-				rule: `wired in ${MANIFEST_REL}`,
-			});
-			expect(r.code).toBe(1);
+		it('breaks on a row whose `denyTiming` is not "delayed"', () => {
+			const root = dispatched(["Bash(git *)"]);
+			const file = path.join(root, MANIFEST_REL);
+			const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+			manifest.PreToolUse[0].denyTiming = "late";
+			fs.writeFileSync(file, JSON.stringify(manifest));
+			expect(run(root).code).toBe(2);
 		});
 
-		it("passes once the core's header states the row's `if`, and calls it neither unwired nor stale", () => {
-			const r = run(
-				dispatched(" * Its row narrows it with `if: Bash(git *)`.", [
-					"Bash(git *)",
-				]),
-			);
+		it("reads a core's narrowing off its row, asking nothing of its source", () => {
+			const r = run(dispatched(["Bash(git *)"]));
 			expect(r.kinds).not.toContain("UNDECLARED-IF");
 			expect(r.kinds).not.toContain("STALE-IF");
 			expect(r.kinds).not.toContain("UNWIRED-IF");
@@ -1018,19 +959,6 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			expect(r.json).toMatchObject({
 				ifNarrowings: [{ file: core, values: ["Bash(git *)"] }],
 			});
-		});
-
-		it("fails a core's header stating a clause its row does not carry", () => {
-			const r = run(
-				dispatched(" * Its row narrows it with `if: Bash(git *)`."),
-			);
-			expect(r.kinds).toContain("STALE-IF");
-			expect(r.kinds).not.toContain("UNWIRED-IF");
-			expect(
-				r.json.findings.find((f) => f.kind === "STALE-IF")?.detail,
-			).toContain(`no entry in ${MANIFEST_REL}`);
-			expect(r.report).toContain("fails the same way");
-			expect(r.code).toBe(1);
 		});
 	});
 });
@@ -1236,20 +1164,6 @@ describe("a rule whose text its guard reprints when it denies (mantahostels#1032
 		expect(reprints(root)).toEqual([]);
 	});
 
-	it("is silent on a guard declaring `deny-timing: delayed` — the deny arrives too late to pay", () => {
-		const root = build({
-			claude: region(rule),
-			files: {
-				"scripts/guard-x.sh": guard(
-					reprintedSentence,
-					"# deny-timing: delayed — the third call is denied, not the first",
-				),
-				[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-x.sh"),
-			},
-		});
-		expect(reprints(root)).toEqual([]);
-	});
-
 	it("is silent where only a path is shared — the live pair mantahostels#964 ruled did not qualify", () => {
 		const root = build({
 			claude: region(
@@ -1362,17 +1276,23 @@ describe("the live delayed-deny guard, mantahostels#964's counter-example", () =
 		"utf8",
 	);
 
+	const liveRow = (
+		JSON.parse(
+			fs.readFileSync(path.join(__dirname, "lib", "guard-cores.json"), "utf8"),
+		) as Record<string, { name: string; denyTiming?: string }[]>
+	).PreToolUse?.find((r) => r.name === "guard-agent-poll");
+
 	const quoted =
 		"A no-op command like `true` re-invokes this session — which is why " +
 		"the loop it is meant to break keeps going.";
 
-	function pollFixture(coreText: string) {
+	function pollFixture(row: object) {
 		return build({
 			claude: region(
 				`- **While something runs in the background, end the turn.** ${quoted} **Enforced** (#627): \`${dispatcher}\`${named}.`,
 			),
 			files: {
-				[core]: coreText,
+				[core]: coreSource,
 				[dispatcher]: "#!/usr/bin/env node\n",
 				"scripts/lib/guard-cores.json": JSON.stringify({
 					PreToolUse: [
@@ -1381,6 +1301,7 @@ describe("the live delayed-deny guard, mantahostels#964's counter-example", () =
 							core: "agent-poll.js",
 							tools: "Read",
 							failure: "closed",
+							...row,
 						},
 					],
 				}),
@@ -1389,21 +1310,17 @@ describe("the live delayed-deny guard, mantahostels#964's counter-example", () =
 		});
 	}
 
-	const pollReprints = (coreText: string) =>
-		run(pollFixture(coreText)).json.warnings.filter(
-			(w) => w.kind === "REPRINTED",
-		);
+	const pollReprints = (row: object) =>
+		run(pollFixture(row)).json.warnings.filter((w) => w.kind === "REPRINTED");
 
-	it("declares its timing on the core, so the dispatcher draws no REPRINTED warning even where the rule quotes its refusal", () => {
+	it("declares its timing on the core's row, so the dispatcher draws no REPRINTED warning even where the rule quotes its refusal", () => {
 		expect(coreSource).toContain(quoted.replace(/`/g, "\\`"));
-		expect(coreSource).toMatch(/^\s*\/\/\s*deny-timing:\s*delayed\b/m);
-		expect(pollReprints(coreSource)).toEqual([]);
+		expect(liveRow?.denyTiming).toBe("delayed");
+		expect(pollReprints({ denyTiming: liveRow?.denyTiming })).toEqual([]);
 	});
 
 	it("would warn on the dispatcher as REPRINTED without the declaration — so the silence above is the declaration's doing", () => {
-		const undeclared = coreSource.replace(/^\/\/\s*deny-timing:.*$/m, "//");
-		expect(undeclared).not.toMatch(/deny-timing:\s*delayed/);
-		const [warning] = pollReprints(undeclared);
+		const [warning] = pollReprints({});
 		expect(warning?.guard).toBe(dispatcher);
 	});
 });

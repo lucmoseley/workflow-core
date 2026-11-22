@@ -2196,6 +2196,18 @@ describe("Section B entries inside Section B", () => {
 		expect(check().out).toContain("B2 — line");
 	});
 
+	it("spells the mover from the plugin and the map the host's own, though the plugin ships one too (#5598)", () => {
+		const plugin = mkScratchDir("plugin-");
+		for (const f of ["scripts/move-stray-doc-map-entries.js", MAP]) {
+			fs.mkdirSync(path.join(plugin, path.dirname(f)), { recursive: true });
+			fs.writeFileSync(path.join(plugin, f), "x\n");
+		}
+		writeMap(baselineRows, withSectionC(["B1"], ["B2"]));
+		expect(check({ WFC_SCRIPT_ROOT: plugin }).out).toContain(
+			`  node ${plugin}/scripts/move-stray-doc-map-entries.js docs/doc-map.md`,
+		);
+	});
+
 	it("routes the fix to relocation, never a rewrite", () => {
 		writeMap(baselineRows, withSectionC(["B1"], ["B2"]));
 		const r = check();
@@ -2498,6 +2510,23 @@ describe("Section B pointer shape", () => {
 		const r = check({}, path.join(dir, "doc-map.md"), "--data-dir", dir);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("B1 — pointer says 3 path(s)");
+	});
+
+	it("names the host's own sidecars in the templates, though the plugin ships them too, the mover case pinning the core half (#5598)", () => {
+		const plugin = mkScratchDir("plugin-");
+		fs.mkdirSync(path.join(plugin, "docs"));
+		for (const f of [RESTATEMENTS, SUPERSEDED])
+			fs.writeFileSync(path.join(plugin, f), "{}\n");
+		fixture(entry("B1", pointer(3)), {
+			B1: { paths: [{ path: "docs/notes.md" }] },
+		});
+		const r = check({ WFC_SCRIPT_ROOT: plugin });
+		expect(r.out).toContain(
+			"- **Restated in:** <n> paths, in `docs/doc-map-restatements.json`.",
+		);
+		expect(r.out).toContain(
+			"- **Supersedes:** see `docs/doc-map-superseded.json`.",
+		);
 	});
 
 	it("prints the three templates when it FAILs", () => {

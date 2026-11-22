@@ -2193,6 +2193,17 @@ describe("the skeleton pathspec", () => {
 		expect(uncovered).toEqual([]);
 	});
 
+	it("lists every docs/ or scripts/ path init writes as the adopter's own as host-owned, and no other (#5598)", () => {
+		const own = initPaths([...MODULES], []).filter((p: string) =>
+			/^(docs|scripts)\//.test(p),
+		);
+		const listed = fs
+			.readFileSync(path.join(__dirname, "lib/host-owned-paths.txt"), "utf8")
+			.split("\n")
+			.filter(Boolean);
+		expect(listed.sort()).toEqual(own.sort());
+	});
+
 	it("takes a new core-owned entry's paths with no other edit (#1540)", () => {
 		const added = { bring: () => [], paths: ["scripts/new-helper.sh"] };
 		expect(initPaths([], [added])).toContain("scripts/new-helper.sh");

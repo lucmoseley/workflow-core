@@ -3203,7 +3203,8 @@
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/file-issue.contract.test.ts",
 			"scripts/lib/morning-review-filing.test.ts",
-			"scripts/lib/residue-patterns.test.ts"
+			"scripts/lib/residue-patterns.test.ts",
+			"scripts/lib/script-path.test.ts"
 		],
 		"docs/doc-map-retired-vocabulary.json": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
@@ -34308,6 +34309,37 @@
 			"scripts/lib/read-audit-provenance.test.ts",
 			"scripts/lib/read-audit.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/host-owned-paths.txt": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-msg-dispatch.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/init-adopter.test.ts",
+			"scripts/lib/anthropic-report.test.ts",
+			"scripts/lib/echo-call.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/install-probe.test.ts",
+			"scripts/lib/issue-create-label.test.ts",
+			"scripts/lib/rule-install-cap.test.ts",
+			"scripts/lib/script-path.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/post-commit-dispatch.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/host-package.js": [
 			"scripts/check-guard-errors.test.ts",

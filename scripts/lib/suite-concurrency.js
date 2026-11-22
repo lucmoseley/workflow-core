@@ -104,14 +104,6 @@
  * FAILS OPEN on anything unreadable — no MemAvailable line, a `ps` that will
  * not run — per mantahostels#103 §6, on the guard-error log.
  *
- * Its manifest row is narrowed to the clauses `Bash(*npm *)`, `Bash(*node *)`,
- * `Bash(*next *)` (mantahostels#2811), `Bash(*python*)` and `Bash(*pytest*)`
- * (#330), and `Bash(*npx *)`, `Bash(*yarn *)`, `Bash(*pnpm *)`, `Bash(*bun *)`,
- * `Bash(*make *)`, `Bash(*cargo *)` and `Bash(*go test*)`, for a host's
- * declared `commands.test` (#2303), and `Bash(*tsc*)` (#3163). The narrowing is
- * best-effort, so the count-cap deny does not rest on it: the core re-reads
- * the command itself.
- *
  * A THROW IS REFUSED, logged: its row fails closed, as a launch it could not
  * judge may run into the memory cap that kills live sessions (#4128). So a
  * broken core refuses every call its `if` admits, launch or not: `node

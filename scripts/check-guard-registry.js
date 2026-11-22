@@ -201,8 +201,6 @@ let listedByGit = false;
 
 const UNOPENED_DIR_RE = /^warning: could not open directory '([^'\n]+)'/gm;
 
-let declaredIfUnreadable = 0;
-
 /**
  * @param {string[]} files
  * @returns {string[]}
@@ -468,31 +466,6 @@ function readDirFiles(/** @type {string} */ dir) {
 	return out;
 }
 
-const HEADER_IF_RE = /\bif:\s*`?([A-Za-z][\w-]*\([^)`\n]*\))/g;
-
-/**
- * @param {string} rel
- * @returns {{ declared: Map<string, number>, header: string }}
- */
-function readDeclaredNarrowings(rel) {
-	/** @type {Map<string, number>} */
-	const declared = new Map();
-	let text;
-	try {
-		text = fs.readFileSync(path.join(root, rel), "utf8");
-	} catch (e) {
-		throw brokenError(`cannot read ${rel}: ${caught(e).message}`);
-	}
-	const head = parseHeaderLines(text);
-	const offset = text.startsWith("#!") ? 2 : 1;
-	for (const [i, line] of head.entries())
-		for (const m of line.matchAll(HEADER_IF_RE)) {
-			const narrowing = requiredGroup(m, 1, HEADER_IF_RE);
-			if (!declared.has(narrowing)) declared.set(narrowing, i + offset);
-		}
-	return { declared, header: head.join("\n") };
-}
-
 /**
  * @returns {{ findings: Finding[], narrowed: Map<string, string[]> }}
  */
@@ -519,17 +492,7 @@ function scanIfNarrowing() {
 		);
 	}
 
-	for (const [rel, actual] of [...reached].sort()) {
-		if (!fs.existsSync(path.join(root, rel))) continue;
-		judgeWiredNarrowing(
-			rel,
-			actual,
-			sourceOf.get(rel) ?? hooksFile(),
-			findings,
-		);
-	}
-
-	findings.push(...unwiredNarrowingFindings(reached));
+	findings.push(...rowNarrowingFindings(reached, sourceOf));
 
 	return {
 		findings,
@@ -555,6 +518,10 @@ function coreNarrowings(wired) {
 			throw brokenError(
 				`${MANIFEST_REL}: row ${row.name}'s \`if\` is not an array of clauses`,
 			);
+		if (row.denyTiming !== undefined && row.denyTiming !== "delayed")
+			throw brokenError(
+				`${MANIFEST_REL}: row ${row.name}'s \`denyTiming\` is not "delayed"`,
+			);
 		const rel = modulePath(row.core);
 		cores.set(rel, new Set([...(cores.get(rel) ?? []), ...clauses]));
 	}
@@ -578,88 +545,85 @@ function wiredNarrowings(entries) {
 }
 
 /**
+ * @param {Map<string, Set<string>>} reached
+ * @param {Map<string, string>} sourceOf
+ * @returns {Finding[]}
+ */
+function rowNarrowingFindings(reached, sourceOf) {
+	/** @type {Finding[]} */
+	const findings = [];
+	const { rows, narrowings } = readImplicitManifest();
+	for (const [rel, actual] of [...reached].sort())
+		if (Object.hasOwn(rows, rel) && fs.existsSync(path.join(root, rel)))
+			findings.push(
+				...judgeRowNarrowing(rel, actual, narrowings.get(rel) ?? [], {
+					source: sourceOf.get(rel) ?? hooksFile(),
+				}),
+			);
+
+	for (const [rel, declared] of [...narrowings].sort())
+		if (declared.length > 0 && !reached.has(rel))
+			findings.push({
+				kind: "UNWIRED-IF",
+				surface: "if-narrowing",
+				file: IMPLICIT_MANIFEST,
+				line: 1,
+				rule: rel,
+				detail:
+					`its row for ${rel} states a narrowing of ${clauseList(declared)}, and no hook entry in ` +
+					`${hooksFile()} names that script at all — so the narrowing binds nothing, and the row's ` +
+					"DEFEAT is computed from a wiring that is gone (mantahostels#102). Drop the row's `IF`, or wire the script",
+			});
+	return findings;
+}
+
+/**
  * @param {string} rel
  * @param {Set<string>} actual
- * @param {string} source
- * @param {Finding[]} findings
+ * @param {string[]} declared
+ * @param {{ source: string }} wiring
+ * @returns {Finding[]}
  */
-function judgeWiredNarrowing(rel, actual, source, findings) {
-	const { declared, header } = readDeclaredNarrowings(rel);
-	const report = (
-		/** @type {string} */ kind,
-		/** @type {number} */ line,
-		/** @type {string} */ detail,
-	) =>
+function judgeRowNarrowing(rel, actual, declared, { source }) {
+	/** @type {Finding[]} */
+	const findings = [];
+	const report = (/** @type {string} */ kind, /** @type {string} */ detail) =>
 		findings.push({
 			kind,
 			surface: "if-narrowing",
-			file: rel,
-			line,
-			rule: `wired in ${source}`,
+			file: IMPLICIT_MANIFEST,
+			line: 1,
+			rule: `${rel}, wired in ${source}`,
 			detail,
 		});
 
 	for (const value of [...actual].sort())
-		if (!header.includes(value))
+		if (!declared.includes(value))
 			report(
 				"UNDECLARED-IF",
-				1,
-				`${source} narrows this script with \`if: ${value}\`, so it is not run on every ` +
-					"matched call — but its own header never says so, leaving any blind spot the " +
-					"header enumerates computed against a wiring that no longer holds (mantahostels#2126)",
+				`${source} narrows ${rel} with \`if: ${value}\`, so it is not run on every matched call — ` +
+					"but its row's `IF` never says so, leaving the row's DEFEAT computed against a wiring " +
+					"that no longer holds (mantahostels#2126)",
 			);
 
-	for (const [value, line] of declared)
-		if (![...actual].some((a) => a.startsWith(value)))
+	for (const value of declared)
+		if (!actual.has(value))
 			report(
 				"STALE-IF",
-				line,
-				`its header states a narrowing of \`if: ${value}\`, and no entry in ${source} ` +
-					`naming this script carries it${staleIfTail(actual)}`,
+				`its row for ${rel} states a narrowing of \`if: ${value}\`, and no entry in ${source} ` +
+					`naming that script carries it${staleIfTail(actual)}`,
 			);
+	return findings;
 }
 
 function staleIfTail(/** @type {Set<string>} */ actual) {
 	if (actual.size > 0)
-		return ` — the wiring narrows with ${[...actual]
-			.map((v) => `\`${v}\``)
-			.join(", ")} instead`;
+		return ` — the wiring narrows with ${clauseList([...actual])} instead`;
 	return ", the wiring carrying no `if` field at all";
 }
 
-/**
- * @param {Map<string, Set<string>>} wired
- * @returns {Finding[]}
- */
-function unwiredNarrowingFindings(wired) {
-	/** @type {Finding[]} */
-	const findings = [];
-	for (const rel of emitterFiles()) {
-		if (wired.has(rel)) continue;
-		/** @type {Map<string, number>} */
-		let declared;
-		try {
-			({ declared } = readDeclaredNarrowings(rel));
-		} catch {
-			declaredIfUnreadable++;
-			continue;
-		}
-		for (const [value, line] of declared)
-			findings.push({
-				kind: "UNWIRED-IF",
-				surface: "if-narrowing",
-				file: rel,
-				line,
-				rule: `absent from ${hooksFile()}`,
-				detail:
-					`its header states a narrowing of \`if: ${value}\`, and no hook entry in ${hooksFile()} ` +
-					"names this script at all — so the narrowing binds nothing, and every blind spot the " +
-					"header enumerates against it is computed from a wiring that is gone (mantahostels#102). Delete " +
-					"the line or wire the script",
-			});
-	}
-	return findings;
-}
+const clauseList = (/** @type {string[]} */ clauses) =>
+	clauses.map((v) => `\`${v}\``).join(", ");
 
 const REFUSING_EVENT = "PreToolUse";
 /** @type {readonly string[]} */
@@ -685,7 +649,6 @@ const {
 	isDep,
 	readOptsIn,
 } = require("./lib/guard-digest.js");
-const { parseHeaderLines } = require("./lib/guard-header.js");
 const { isHookShim, shimAnnotation } = require("./lib/hook-shim.js");
 const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
 const { isUnder, relativeUnder } = require("./lib/is-under.js");
@@ -789,6 +752,7 @@ function addHookTriggers(hooks, add) {
 const ANNOTATION_KEYS = ["IMPLICIT", "JUSTIFIED", "DEFEAT"];
 const JUSTIFICATIONS = ["fail-safe", "convenience"];
 const TREE_KEY = "TREE";
+const IF_KEY = "IF";
 const TREES = ["session", "host", "both", "none"];
 const TREE_EXEMPT = "scripts/guard-dispatch.js";
 
@@ -797,14 +761,26 @@ const JUSTIFIED_RE = new RegExp(
 );
 const TREE_RE = new RegExp(`^(?:${TREES.join("|")})\\s*[—:-]\\s*\\S`);
 
-/** @type {Record<string, Record<string, string>> | undefined} */
-let manifestRows;
+/**
+ * @typedef {{ rows: Record<string, Record<string, string>>,
+ *   narrowings: Map<string, string[]> }} ImplicitManifest
+ */
+
+/** @type {ImplicitManifest | undefined} */
+let implicitManifest;
 
 /**
  * @returns {Record<string, Record<string, string>>}
  */
 function readImplicitRows() {
-	if (manifestRows) return manifestRows;
+	return readImplicitManifest().rows;
+}
+
+/**
+ * @returns {ImplicitManifest}
+ */
+function readImplicitManifest() {
+	if (implicitManifest) return implicitManifest;
 	const read = readText(path.join(root, IMPLICIT_MANIFEST));
 	if (read.state === "unreadable")
 		throw brokenError(`cannot read ${IMPLICIT_MANIFEST}: ${read.message}`);
@@ -820,24 +796,38 @@ function readImplicitRows() {
 		}
 	if (!isRowTable(parsed))
 		throw brokenError(
-			`${IMPLICIT_MANIFEST} is not a JSON object of rows, each an object of strings keyed ${[...ANNOTATION_KEYS, TREE_KEY].join(" / ")}`,
+			`${IMPLICIT_MANIFEST} is not a JSON object of rows, each an object of strings keyed ${[...ANNOTATION_KEYS, TREE_KEY].join(" / ")}, and an \`${IF_KEY}\` array of strings`,
 		);
-	manifestRows = parsed;
-	return parsed;
+	/** @type {ImplicitManifest} */
+	const manifest = { rows: {}, narrowings: new Map() };
+	for (const [rel, { [IF_KEY]: clauses, ...row }] of Object.entries(parsed)) {
+		manifest.rows[rel] = /** @type {Record<string, string>} */ (row);
+		if (clauses) manifest.narrowings.set(rel, clauses);
+	}
+	implicitManifest = manifest;
+	return manifest;
 }
 
 /**
+ * @typedef {Record<string, string | string[]> & { IF?: string[] }} ImplicitRow
+ */
+
+/**
  * @param {unknown} v
- * @returns {v is Record<string, Record<string, string>>}
+ * @returns {v is Record<string, ImplicitRow>}
  */
 function isRowTable(v) {
 	const isPlain = (/** @type {unknown} */ o) =>
 		typeof o === "object" && o !== null && !Array.isArray(o);
+	const isField = (/** @type {string} */ k, /** @type {unknown} */ f) =>
+		k === IF_KEY
+			? Array.isArray(f) && f.every((c) => typeof c === "string")
+			: typeof f === "string";
 	return (
 		isPlain(v) &&
 		Object.values(/** @type {object} */ (v)).every(
 			(row) =>
-				isPlain(row) && Object.values(row).every((s) => typeof s === "string"),
+				isPlain(row) && Object.entries(row).every(([k, f]) => isField(k, f)),
 		)
 	);
 }
@@ -1585,9 +1575,6 @@ const REPRINT_SHINGLE = 5;
 const REPRINT_MIN_WORDS = 12;
 const REPRINT_COVERAGE = 0.6;
 
-const DENY_TIMING_RE =
-	/^[^\S\n\r\u2028\u2029]*(?:#|\/\/)[^\S\n]*deny-timing:[^\S\n]*delayed\b/m;
-
 const HEREDOC_READ_RE =
 	/\bread\b[^\n]*?\s([A-Za-z_]\w*)\s*<<-?\s*(['"]?)([A-Za-z_]\w*)\2(?:\s|$)/;
 const HEREDOC_CAT_RE =
@@ -1733,7 +1720,7 @@ function reprintedSpans(ruleText, denyShingles) {
 }
 
 /**
- * @typedef {{ delayed: boolean, texts: string[], core: string | null }} DenyFile
+ * @typedef {{ texts: string[], core: string | null }} DenyFile
  */
 
 /**
@@ -1749,7 +1736,6 @@ function readDenyFile(rel) {
 	}
 	const node = rel.endsWith(".js");
 	return {
-		delayed: DENY_TIMING_RE.test(source),
 		texts: node ? coreDenyTexts(source) : denyTextsOf(source),
 		core: node ? decideModule(source) : null,
 	};
@@ -1765,10 +1751,12 @@ function denyGroupsOf(rel, ruleText, read) {
 	if (rel === DISPATCH_ENTRY) {
 		const rows = readManifestRows(manifestAt(root));
 		const named = rows.filter((r) => ruleText.includes(`\`${r.name}\``));
-		return (named.length > 0 ? named : rows).map((r) => {
-			const core = read(modulePath(r.core));
-			return core === null ? [] : [core];
-		});
+		return (named.length > 0 ? named : rows)
+			.filter((r) => r.denyTiming !== "delayed")
+			.map((r) => {
+				const core = read(modulePath(r.core));
+				return core === null ? [] : [core];
+			});
 	}
 	const entry = read(rel);
 	if (entry === null) return null;
@@ -1786,9 +1774,7 @@ function denyGroupsOf(rel, ruleText, read) {
 function denyShinglesOf(rel, ruleText, read) {
 	const groups = denyGroupsOf(rel, ruleText, read);
 	if (groups === null) return null;
-	const texts = groups
-		.filter((g) => !g.some((f) => f.delayed))
-		.flatMap((g) => g.flatMap((f) => f.texts));
+	const texts = groups.flatMap((g) => g.flatMap((f) => f.texts));
 	return shinglesOf(
 		normaliseProse(texts.join("\n")).split(" ").filter(Boolean),
 		REPRINT_SHINGLE,
@@ -3567,7 +3553,7 @@ function sayWarnings(ctx, warnings) {
 				"  command, so the document copy may be cuttable — read the deny text, then\n" +
 				"  cut only what it carries, keeping any residual it does not (mantahostels#964).\n" +
 				"  Where the deny is NOT reached on the first trigger, the rule must stay:\n" +
-				"  declare that in the guard with a `# deny-timing: delayed` comment.\n" +
+				`  declare that on the core's row in ${MANIFEST_REL} as \`"denyTiming": "delayed"\`.\n` +
 				"  Warnings only — this never fails the build.\n",
 		);
 }
@@ -3622,16 +3608,13 @@ function sayFindings(
 		);
 	if (ifFindings.length > 0)
 		ctx.say(
-			`  An \`if\` field in ${hooksFile()}, or on a core's row in ${MANIFEST_REL},\n` +
-				"  decides whether the script runs at all, so every blind spot its header enumerates is\n" +
-				"  computed against it. State the narrowing verbatim in that header —\n\n" +
-				"    #  - Wired with `if: Bash(*git*)` (mantahostels#2061; best-effort: <what it costs>)\n\n" +
-				"  — one line where its LIMITS section already runs long, its own paragraph\n" +
-				"  where it does not (docs/agents/guard-authoring.md, surface 4). A header\n" +
-				"  stating a narrowing the wiring no longer carries fails the same way: that\n" +
-				"  is the stale label mantahostels#102 ruled out, pointed at the wiring instead of a rule.\n" +
-				"  UNWIRED-IF is the same fault with no hook entry left to point at: delete\n" +
-				"  the header line, or wire the script (mantahostels#2234).\n",
+			`  An \`if\` field in ${hooksFile()}\n` +
+				"  decides whether the script runs at all, so the DEFEAT its row in\n" +
+				`  ${IMPLICIT_MANIFEST} gives is computed against it. That row's \`${IF_KEY}\`\n` +
+				"  array names every clause the wiring narrows the script with, verbatim, and\n" +
+				"  no other (docs/agents/guard-authoring.md, surface 4). UNWIRED-IF is a row\n" +
+				"  whose `IF` names a script no hook entry runs: drop the `IF`, or wire the\n" +
+				"  script (mantahostels#2234).\n",
 		);
 }
 
@@ -3724,8 +3707,7 @@ const SPEC = {
 				`${implicitJustifications(implicitScripts).join(", ")}:\n` +
 				`Rule-text store: ${fragments.length} fragment(s) in ${RULES_DIR}/, ` +
 				`${triggerRefs.length} trigger(s) naming one.\n` +
-				`Hook \`if\` narrowings: ${narrowed.size} wired script(s) or dispatcher core(s) run on a narrowed set, ` +
-				`${declaredIfUnreadable} unreadable emitter(s) skipped on the declared side (mantahostels#2234).\n` +
+				`Hook \`if\` narrowings: ${narrowed.size} wired script(s) or dispatcher core(s) run on a narrowed set.\n` +
 				[buildIgnoreLine(), ...buildTreeFailureLines()].join("\n"),
 		);
 
@@ -3750,8 +3732,8 @@ const SPEC = {
 			okLine:
 				"every rule in scope states its backing, every claim holds, every wired " +
 				"implicit behaviour says what it does to a session, every relocated " +
-				"rule's fragment and emitter agree, and every hook `if` narrowing is " +
-				"stated in the script it narrows.",
+				"rule's fragment and emitter agree, and every implicit row's `IF` " +
+				"matches the `if` narrowing its script is wired with.",
 			noun:
 				findings.length > 0
 					? "rule(s) or wired script(s) whose stated backing or behaviour is missing or false"

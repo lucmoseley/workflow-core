@@ -1,32 +1,8 @@
 #!/usr/bin/env bash
-# self-plugin-canary.sh — PreToolUse hook, the one hook `.claude/settings.json`
-# keeps: refuses every tool call in a session the self-plugin did not load
-# (#2438, spec #2295).
-#
-# The core's guards register from self-plugin/hooks/hooks.json, which loads
-# only where the wfc-self marketplace is set up on the machine.
-#
-# ALLOWS a call when this input's session has a marker (lib/self-plugin-marker.sh),
-# which scripts/write-self-plugin-marker.sh writes at the self-plugin's
-# SessionStart, and the CLAUDE_PLUGIN_ROOT the marker records is the main
-# checkout's self-plugin (#4712). A subagent's calls carry
-# its parent's session id, so it is covered.
-#
-# FAILS CLOSED, unlike every other guard here (mantahostels#103 §6): an
-# unreadable input, an empty session id, a missing jq, an unresolved root, an
-# unreadable marker or a project dir git names no main checkout for denies, and so does any exit this script did not choose — the EXIT trap turns
-# it into exit 2, which Claude Code treats as a refusal. The deny goes out on
-# stderr, so it needs no jq; no guard-log line is kept.
-#
-# DENIES-BY: exit 2
-#
-# NO SessionStart LIMB: native and plugin hooks of one event run in parallel,
-# so a SessionStart check would race the marker write; the first tool call
-# comes after SessionStart has finished. NO CLOUD EXEMPTION: a cloud session
-# cannot load a repo-declared plugin's hooks (#1892), so it is refused like any
-# unguarded session.
 
 set -uo pipefail
+
+REFUSE_EXIT=2
 
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
@@ -84,7 +60,7 @@ Then restart the session: plugins load only at session start, so this session ca
 
 A cloud session cannot load the self-plugin at all (#1892), so it is always refused here; work this repo from a local session.$quoter_fault
 EOF
-  exit 2
+  exit "$REFUSE_EXIT"
 }
 
 trap refuse EXIT

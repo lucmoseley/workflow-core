@@ -4,7 +4,6 @@ const path = require("node:path");
 const LITERAL_DENY = /\bpermissionDecision\\?"?\s*:\s*\\?"deny\\?"/;
 
 const DENIES_THROUGH_BODY = String.raw`DENIES-THROUGH:[ \t]*((?:lib\/)?[\w.-]+)`;
-const DENIES_BY_EXIT_BODY = String.raw`DENIES-BY:[ \t]*exit 2\b`;
 const MARKER_LEAD = String.raw`^[ \t]*(?:#|\*|\/\/)[ \t]*`;
 
 const DENIES_THROUGH_MARKER = new RegExp(
@@ -12,11 +11,9 @@ const DENIES_THROUGH_MARKER = new RegExp(
 	"m",
 );
 
-const DENIES_BY_EXIT_MARKER = new RegExp(
-	MARKER_LEAD + DENIES_BY_EXIT_BODY,
-	"m",
-);
-const EXIT_2 = /\bexit 2\b/;
+const REFUSE_EXIT_SET = /^[ \t]*(?:readonly[ \t]+)?REFUSE_EXIT=2\b/m;
+const REFUSE_EXIT_TAKEN = /\bexit[ \t]+"?\$\{?REFUSE_EXIT\}?"?(?![\w])/;
+const SHELL_COMMENT_LINE = /^[ \t]*#.*$/gm;
 
 const CORE_DENY =
 	/\bdeny\s*:|(?:^|\})[^{}]*\{(?=[^}]*\bdeny(?:Text)?\b)[^}]*\}\s*=\s*require\(\s*["']\.\/guard-verdict\.js["']/;
@@ -46,10 +43,8 @@ function deniesThrough(text) {
  * @returns {boolean}
  */
 function hasExitDeny(text) {
-	const header = headerOf(text);
-	return (
-		DENIES_BY_EXIT_MARKER.test(header) && EXIT_2.test(text.slice(header.length))
-	);
+	const code = text.replace(SHELL_COMMENT_LINE, "");
+	return REFUSE_EXIT_SET.test(code) && REFUSE_EXIT_TAKEN.test(code);
 }
 
 /**
@@ -145,7 +140,6 @@ function isDenyCapableIn(dirs) {
 }
 
 module.exports = {
-	DENIES_BY_EXIT_BODY,
 	DENIES_THROUGH_BODY,
 	isDenyingCore,
 	guardDirs,
