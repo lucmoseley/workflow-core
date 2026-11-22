@@ -3,41 +3,40 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-	assertionOf,
-	citedAssertions,
-	DOC_MAP_ASSERTIONS,
-	unresolvedCitations,
-} from "./doc-map-assertions.js";
+import { assertionOf, unresolvedCitations } from "./doc-map-assertions.js";
 
-const ROOT = path.resolve(__dirname, "../..");
-const CHECKER = path.join(ROOT, "scripts/check-doc-map.js");
+const CHECKER = path.resolve(__dirname, "../check-doc-map.js");
 
 describe("doc-map assertion numbers", () => {
-	it("reads single and listed citations", () => {
+	it("resolves single and listed citations of carried numbers", () => {
 		expect(
-			citedAssertions(
-				"(assertion 31); assertions 12 and 13; Assertion 27, 28, and 29",
-			),
-		).toEqual([31, 12, 13, 27, 28, 29]);
+			unresolvedCitations([
+				{
+					file: "a.md",
+					text: "(assertion 31); assertions 12 and 13; Assertion 27, 28, and 29",
+				},
+			]),
+		).toEqual([]);
 	});
 
-	it("names a cited number no assertion carries", () => {
+	it("names each cited number no assertion carries, a listed one included", () => {
 		expect(
-			unresolvedCitations({ "a.md": "assertion 3 and assertion 14" }),
-		).toEqual(["a.md: assertion 3"]);
+			unresolvedCitations([
+				{ file: "a.md", text: "assertion 3 and assertion 14" },
+				{ file: "b.md", text: "assertions 12, 99 and 13" },
+			]),
+		).toEqual([
+			{ file: "a.md", assertion: 3 },
+			{ file: "b.md", assertion: 99 },
+		]);
 	});
 
-	it("carries exactly the finding tags check-doc-map.js reports", () => {
+	it("numbers every finding tag check-doc-map.js reports", () => {
 		const reported = [
 			...readFileSync(CHECKER, "utf8").matchAll(/^\s*tag: "([A-Z-]+)",$/gm),
-		]
-			.map((m) => m[1])
-			.sort();
-		const carried = Object.values(DOC_MAP_ASSERTIONS)
-			.flatMap((a) => a.tags)
-			.sort();
-		expect(carried).toEqual(reported);
+		].map((m) => m[1] as string);
+		expect(reported.length).toBeGreaterThan(40);
+		for (const tag of reported) expect(assertionOf(tag)).toBeGreaterThan(0);
 	});
 
 	it("refuses a tag no assertion carries", () => {

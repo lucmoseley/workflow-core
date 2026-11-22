@@ -52,6 +52,10 @@ const DOC_MAP_ASSERTIONS = Object.freeze({
 	},
 	32: { name: "Page source", tags: ["PAGE-SOURCE"] },
 	33: { name: "Live section references", tags: ["DEAD-SECTION-REF"] },
+	34: {
+		name: "Live assertion citations",
+		tags: ["DEAD-ASSERTION-CITATION"],
+	},
 });
 
 const ASSERTION_OF_TAG = new Map(
@@ -72,35 +76,33 @@ function assertionOf(tag) {
 	return n;
 }
 
-const ASSERTION_CITATION = /\bassertions? (\d+(?:(?:,? and |, )\d+)*)/gi;
+const LIST_SEPARATOR = /,? and |, /;
+
+const ASSERTION_CITATION = new RegExp(
+	String.raw`\bassertions? (\d+(?:(?:${LIST_SEPARATOR.source})\d+)*)`,
+	"gi",
+);
 
 /**
  * @param {string} text
  * @returns {number[]}
  */
-function citedAssertions(text) {
+function parseCitedAssertions(text) {
 	return [...text.matchAll(ASSERTION_CITATION)].flatMap((m) =>
-		requiredGroup(m, 1, ASSERTION_CITATION)
-			.split(/,? and |, /)
-			.map(Number),
+		requiredGroup(m, 1, ASSERTION_CITATION).split(LIST_SEPARATOR).map(Number),
 	);
 }
 
 /**
- * @param {Record<string, string>} files
- * @returns {string[]}
+ * @param {{ file: string, text: string }[]} files
+ * @returns {{ file: string, assertion: number }[]}
  */
 function unresolvedCitations(files) {
-	return Object.entries(files).flatMap(([file, text]) =>
-		citedAssertions(text)
+	return files.flatMap(({ file, text }) =>
+		parseCitedAssertions(text)
 			.filter((n) => !(n in DOC_MAP_ASSERTIONS))
-			.map((n) => `${file}: assertion ${n}`),
+			.map((assertion) => ({ file, assertion })),
 	);
 }
 
-module.exports = {
-	DOC_MAP_ASSERTIONS,
-	assertionOf,
-	citedAssertions,
-	unresolvedCitations,
-};
+module.exports = { assertionOf, unresolvedCitations };

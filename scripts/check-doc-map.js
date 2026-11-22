@@ -83,7 +83,10 @@ const {
 	scriptPath,
 } = require("./lib/script-path");
 const { caught } = require("./lib/caught.js");
-const { assertionOf } = require("./lib/doc-map-assertions.js");
+const {
+	assertionOf,
+	unresolvedCitations,
+} = require("./lib/doc-map-assertions.js");
 const { isCoreRepo } = require("./lib/core-repo.js");
 const { withGitReadMemo } = require("./lib/git-read-memo.js");
 
@@ -795,15 +798,17 @@ function checkDeadAnchors(r, restatementData) {
 }
 
 /** @param {Run} r */
-function checkSectionRefs(r) {
-	const { ctx, text, classesJson, allTracked, underRoot } = r;
+function readCitingFiles(r) {
+	const { classesJson, allTracked, underRoot } = r;
 	const refExempt = Object.entries(classesJson)
 		.filter(
 			([, v]) => /** @type {{ class?: unknown }} */ (v)?.class === BINARY_CLASS,
 		)
 		.map(([k]) => sectionAMatcher(k));
 	/** @type {{ file: string, text: string }[]} */
-	const refFiles = [];
+	const sectionCiting = [];
+	/** @type {{ file: string, text: string }[]} */
+	const assertionCiting = [];
 	for (const file of allTracked) {
 		if (isCollectedTestOrConftest(file) || refExempt.some((t) => t(file)))
 			continue;
@@ -813,8 +818,19 @@ function checkSectionRefs(r) {
 		} catch {
 			continue;
 		}
-		if (body.includes("doc-map.md")) refFiles.push({ file, text: body });
+		if (body.includes("doc-map.md")) sectionCiting.push({ file, text: body });
+		if (body.includes("check-doc-map"))
+			assertionCiting.push({ file, text: body });
 	}
+	return { sectionCiting, assertionCiting };
+}
+
+/**
+ * @param {Run} r
+ * @param {{ file: string, text: string }[]} refFiles
+ */
+function checkSectionRefs(r, refFiles) {
+	const { ctx, text } = r;
 	const deadRefs = unresolvedSectionRefs(text, refFiles);
 	reportFault(ctx, {
 		tag: "DEAD-SECTION-REF",
@@ -830,6 +846,25 @@ function checkSectionRefs(r) {
 			"heading before its first sub-heading.",
 	});
 	return deadRefs;
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {{ file: string, text: string }[]} citingFiles
+ */
+function checkAssertionCitations(ctx, citingFiles) {
+	const deadCitations = unresolvedCitations(citingFiles);
+	reportFault(ctx, {
+		tag: "DEAD-ASSERTION-CITATION",
+		msg: `${deadCitations.length} citation(s) of a check-doc-map assertion number no assertion carries:`,
+		key: "assertionCitations",
+		items: deadCitations,
+		line: (d) => `${d.file}: assertion ${d.assertion}`,
+		advice:
+			"Cite a number scripts/lib/doc-map-assertions.js carries, or give " +
+			"the assertion its number there.",
+	});
+	return deadCitations;
 }
 
 /**
@@ -2003,7 +2038,9 @@ function runChecks(ctx) {
 	} = checkRestatements(r);
 	const lineLocators = checkLineLocators(r, { restatementData, figures });
 	const deadAnchors = checkDeadAnchors(r, restatementData);
-	const deadRefs = checkSectionRefs(r);
+	const { sectionCiting, assertionCiting } = readCitingFiles(r);
+	const deadRefs = checkSectionRefs(r, sectionCiting);
+	const deadCitations = checkAssertionCitations(ctx, assertionCiting);
 	const unreached = reportCensus(r, {
 		restatementPaths,
 		figuresRestated,
@@ -2051,7 +2088,7 @@ function runChecks(ctx) {
 			`doc map covers all ${tracked.length} tracked files in scope ` +
 			`(${entries.length} register entries, ${routes.length} question routes ` +
 			"with no id gap, " +
-			"every route path and every §B restatement path live, no line-number locator, every quoted anchor held, every doc-map section reference live; " +
+			"every route path and every §B restatement path live, no line-number locator, every quoted anchor held, every doc-map section reference live, every assertion citation live; " +
 			`${seen.size} distinct §B entry ids, each with a \`Settled at\` bullet ` +
 			"and a sidecar-agreeing pointer; no id at or below the high-water mark reused, and none removed above it; " +
 			`no entry new since HEAD over the ${PROSE_CAP_WORDS}-word prose cap; ` +
@@ -2092,6 +2129,7 @@ function runChecks(ctx) {
 			lineLocators,
 			deadAnchors,
 			sectionRefs: deadRefs,
+			assertionCitations: deadCitations,
 			routeIdFaults,
 			settledMissing,
 			newOverCap,
