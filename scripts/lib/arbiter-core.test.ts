@@ -10,6 +10,7 @@ import {
 	DEAD,
 	durably,
 	freshSandbox,
+	listedLocks,
 	live,
 	locks,
 	markers,
@@ -827,13 +828,9 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 		put("docs/resumed.md", { sessionId: "nextdoor", ...DEAD });
 		liveNextDoor("nextdoor");
 
-		const listed = store.listLocks();
-		assert(listed);
-		expect(
-			listed
-				.filter((l) => !l.unreadable)
-				.find((l) => l.path === "docs/resumed.md")?.alive,
-		).toBe(true);
+		expect(listedLocks().find((l) => l.path === "docs/resumed.md")?.alive).toBe(
+			true,
+		);
 	});
 
 	it("sweeps as before when no neighbour config dir exists at all", () => {
@@ -892,12 +889,8 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 	});
 
 	describe("an unreadable registry, off the sweep path", () => {
-		const aliveOf = (rel: string) => {
-			const listed = store.listLocks();
-			assert(listed);
-			return listed.filter((l) => !l.unreadable).find((l) => l.path === rel)
-				?.alive;
-		};
+		const aliveOf = (rel: string) =>
+			listedLocks().find((l) => l.path === rel)?.alive;
 
 		const sealed = () => {
 			const dir = path.join(sb.dir, "unreadable");

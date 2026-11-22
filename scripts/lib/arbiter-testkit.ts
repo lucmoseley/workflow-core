@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, assert, beforeEach, vi } from "vitest";
 import { buildAgentsBranch, buildListedRow } from "./agents-stop-fake";
 import { caught } from "./caught.js";
 import { writeClaudeStub } from "./claude-stub";
@@ -260,6 +260,21 @@ export const liveHolder = () => ({
 	pid: process.pid,
 	procStart: proc.readProcStartOf(process.pid),
 });
+
+export function listedLocks() {
+	const listed = store.listLocks();
+	assert(listed);
+	return listed.map((l) => {
+		assert(!l.unreadable);
+		return l;
+	});
+}
+
+export function listedClaims() {
+	const listed = issueClaims.listIssueClaims();
+	assert(listed);
+	return listed.claims;
+}
 
 export function putLock(rel: string, fields: object) {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });

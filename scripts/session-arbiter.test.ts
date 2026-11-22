@@ -19,6 +19,7 @@ import {
 	freshSandbox,
 	ghCallCount,
 	gitRepo,
+	listedLocks,
 	live,
 	proc,
 	registerSession,
@@ -94,14 +95,7 @@ const readRefs = () =>
 
 const inRepo = (rel: string) => path.join(sb.repo, rel);
 
-const listedPaths = () => {
-	const listed = store.listLocks();
-	assert(listed);
-	return listed.map((l) => {
-		assert(!l.unreadable);
-		return l.path;
-	});
-};
+const listedPaths = () => listedLocks().map((l) => l.path);
 
 describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	const sandboxOf = (name: string) => path.join(sb.dir, "stubs", name);

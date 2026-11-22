@@ -7,6 +7,7 @@ import {
 	core,
 	finished,
 	freshSandbox,
+	listedLocks,
 	live,
 	noSessions,
 	store,
@@ -30,11 +31,7 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 			cwd: sb.repo,
 			encoding: "utf8",
 		});
-	const locks = () => {
-		const listed = store.listLocks();
-		assert(listed);
-		return listed.map((l) => (l.unreadable ? l.file : l.path));
-	};
+	const locks = () => listedLocks().map((l) => l.path);
 
 	const bashWrote = (sessionId: string, rel: string, text: string) => {
 		const me = live(sb, sessionId);

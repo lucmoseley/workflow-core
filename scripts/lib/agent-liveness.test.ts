@@ -657,7 +657,6 @@ describe("listedSessionIds", () => {
 	it("returns the ids as a Set", () => {
 		fakeClaude(listing("a", "b"));
 		const r = liveness.listedSessionIds();
-		expect(r.why).toBeUndefined();
 		assert(r.why === undefined);
 		expect([...r.ids].sort()).toEqual(["a", "b"]);
 	});
@@ -785,7 +784,6 @@ describe("sweepSessionIds", () => {
 		fakeClaude(listing("other"));
 		expect(liveness.listedSessionIds().ids).toBeUndefined();
 		const r = liveness.sweepSessionIds();
-		expect(r.why).toBeUndefined();
 		assert(r.why === undefined);
 		expect([...r.ids].sort()).toEqual(["me", "other"]);
 	});
@@ -970,10 +968,9 @@ describe("totality", () => {
 
 	it("ignores a positional argument, so a stray caller cannot supply a reader", () => {
 		fakeClaude(listing("a"));
-		const boom = () => {
+		const stray: object = () => {
 			throw new Error("should never run");
 		};
-		const stray: object = boom;
 		expect(liveness.listedAgents(stray).agents).toHaveLength(1);
 		expect([...answeredIds(stray).ids]).toEqual(["a"]);
 		const positional: Record<never, never>[] = ["x"];

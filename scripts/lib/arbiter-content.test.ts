@@ -10,6 +10,7 @@ import {
 	durably,
 	freshSandbox,
 	gitRepo,
+	listedLocks,
 	live,
 	locks,
 	noSessions,
@@ -487,11 +488,7 @@ describe("content identity on a region claim", () => {
 	};
 
 	const heldB1 = () => {
-		const listed = store.listLocks();
-		assert(listed);
-		const lock = listed
-			.filter((l) => !l.unreadable)
-			.find((l) => l.path === `${docMap}#B1`);
+		const lock = listedLocks().find((l) => l.path === `${docMap}#B1`);
 		assert(lock);
 		return lock;
 	};
@@ -529,11 +526,6 @@ describe("content identity on a region claim", () => {
 		store.acquire(`${docMap}#B1`, me);
 		store.acquire(`${docMap}#B2`, me);
 		store.recordContent(docMap, me);
-		const listed = store.listLocks();
-		assert(listed);
-		for (const l of listed) {
-			assert(!l.unreadable);
-			expect(l.blob).toBeTruthy();
-		}
+		for (const l of listedLocks()) expect(l.blob).toBeTruthy();
 	});
 });

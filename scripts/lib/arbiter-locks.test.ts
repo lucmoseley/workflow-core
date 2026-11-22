@@ -11,6 +11,7 @@ import {
 	durably,
 	freshSandbox,
 	gitRepo,
+	listedLocks,
 	live,
 	liveHolder,
 	locks as locksMod,
@@ -937,11 +938,7 @@ describe("release — the second exit from a claim", () => {
 		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
 	});
 
-	const held = (rel: string) => {
-		const listed = store.listLocks();
-		assert(listed);
-		return listed.some((l) => !l.unreadable && l.path === rel);
-	};
+	const held = (rel: string) => listedLocks().some((l) => l.path === rel);
 
 	it("drops the claim, and the next session can then take the file", () => {
 		const me = live(sb, "alice");
@@ -1022,20 +1019,14 @@ describe("listLocks", () => {
 			procStart: "1",
 			durable: true,
 		});
-		const held = store.listLocks();
-		assert(held);
-		const aliveAt = (rel: string) =>
-			held.filter((l) => !l.unreadable).find((l) => l.path === rel)?.alive;
+		const held = listedLocks();
+		const aliveAt = (rel: string) => held.find((l) => l.path === rel)?.alive;
 		expect(aliveAt("docs/a-live.md")).toBe(true);
 		expect(aliveAt("docs/b-dead.md")).toBe(false);
 	});
 
-	const aliveOf = (rel: string) => {
-		const listed = store.listLocks();
-		assert(listed);
-		return listed.filter((l) => !l.unreadable).find((l) => l.path === rel)
-			?.alive;
-	};
+	const aliveOf = (rel: string) =>
+		listedLocks().find((l) => l.path === rel)?.alive;
 
 	it("calls a RESUMED holder's claim live, so `list` cannot print it STALE (mantahostels#359)", () => {
 		registerSession(sb, "resumed", process.pid);
@@ -1315,11 +1306,8 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 					"| Path | Role | Owner |",
 				),
 			);
-		const stillHeld = (subject: string) => {
-			const listed = store.listLocks();
-			assert(listed);
-			return listed.some((l) => !l.unreadable && l.path === subject);
-		};
+		const stillHeld = (subject: string) =>
+			listedLocks().some((l) => l.path === subject);
 
 		it("drops a dirty §A claim under --generator", () => {
 			const me = live(sb, "alice");

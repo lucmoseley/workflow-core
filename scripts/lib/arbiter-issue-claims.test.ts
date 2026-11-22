@@ -72,9 +72,7 @@ describe("issue claims — which session is working which issue (mantahostels#64
 		const listed = store.listIssueClaims();
 		assert(listed);
 		const { claims, why } = listed;
-		expect(claims.map((c: { sessionId: string }) => c.sessionId)).toEqual([
-			"alice",
-		]);
+		expect(claims.map((c) => c.sessionId)).toEqual(["alice"]);
 		expect(why).toMatch(/1 issue-claim record could not be read/);
 	});
 
@@ -231,7 +229,7 @@ describe("issue claims — which session is working which issue (mantahostels#64
 			finished(sb, "bob");
 			store.claimIssue(645, me("bob"));
 			age(645, "bob", 8 * 24 * 60 * 60 * 1000);
-			issueClaims.pruneIssueClaims();
+			issueClaims.pruneIssueClaims(undefined);
 			expect(fs.existsSync(claimFile(645, "bob"))).toBe(true);
 		});
 

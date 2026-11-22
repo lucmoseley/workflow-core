@@ -3,14 +3,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, assert, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	commitAll,
 	core,
 	freshSandbox,
 	gitRepo,
+	listedLocks,
 	live,
-	store,
 } from "./lib/arbiter-testkit";
 import {
 	syntheticDocMap,
@@ -143,16 +143,10 @@ describe("the claim it gives back, against the real arbiter (mantahostels#2428)"
 		writeSidecar(repoData, sidecar);
 	});
 
-	const heldSubjects = () => {
-		const listed = store.listLocks();
-		assert(listed);
-		return listed
-			.map((l) => {
-				assert(!l.unreadable);
-				return l.path;
-			})
+	const heldSubjects = () =>
+		listedLocks()
+			.map((l) => l.path)
 			.filter((p) => p.startsWith("docs/doc-map.md"));
-	};
 
 	const realRun = (...args: string[]) =>
 		runInProcess(SCRIPT, ["--map", repoMap, "--data-file", repoData, ...args]);

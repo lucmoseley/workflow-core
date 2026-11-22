@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { assert, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
 import {
 	AS_ROOT,
@@ -11,6 +11,7 @@ import {
 	freshSandbox,
 	gitRepo,
 	issueClaims,
+	listedClaims,
 } from "./lib/arbiter-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import {
@@ -67,15 +68,10 @@ const fire = (
 		},
 	);
 
-const claims = () => {
-	const listed = issueClaims.listIssueClaims();
-	assert(listed);
-	const rows: {
-		issue: number;
-		sessionId: string;
-	}[] = listed.claims;
-	return rows.map((c) => `${c.issue} ${c.sessionId}`).sort();
-};
+const claims = () =>
+	listedClaims()
+		.map((c) => `${c.issue} ${c.sessionId}`)
+		.sort();
 
 const readFaults = () => readFailOpenLog(sb.home, sb.repo);
 
