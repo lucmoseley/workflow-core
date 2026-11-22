@@ -235,6 +235,7 @@ def main(argv=None):
     ap.add_argument(
         "--horizon",
         type=int,
+        # measured: longest first-rework lag 5.27 days, lucmoseley/mantahostels#1215
         default=5,
         help="days after close in which rework counts (default 5)",
     )
@@ -258,6 +259,7 @@ def main(argv=None):
     ap.add_argument(
         "--control-sample",
         type=int,
+        # guess, lucmoseley/mantahostels#1084
         default=60,
         help="how many control issues to fetch; 0 for all "
         "(default 60 — the full set is a several-minute fetch)",

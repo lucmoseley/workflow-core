@@ -14,23 +14,31 @@ source "$SCRIPT_DIR/lib/atomic-write.sh"
 HEARTBEAT_DEFAULT_S=5
 HEARTBEAT_S="${WFC_BG_HEARTBEAT_S:-$HEARTBEAT_DEFAULT_S}"
 STALE_S="${WFC_BG_STALE_S:-20}"
+# guess: room for a short stack trace, lucmoseley/mantahostels#2572
 INLINE_CAP="${WFC_BG_INLINE_CAP:-4000}"
+# guess, lucmoseley/mantahostels#2572
 WAIT_POLL_S="${WFC_BG_WAIT_POLL_S:-2}"
+# guess, lucmoseley/mantahostels#2609
 MISSING_S="${WFC_BG_MISSING_S:-2}"
+# guess, lucmoseley/mantahostels#2609
 MISSING_POLL_S="${WFC_BG_MISSING_POLL_S:-0.1}"
 MEMINFO="${WFC_BG_MEMINFO:-/proc/meminfo}"
+# guess, lucmoseley/mantahostels#2683
 MAX_DESCENDANTS="${WFC_BG_MAX_DESCENDANTS:-500}"
 CEILING_GRACE_S=60
 if [[ "${WFC_BG_CEILING_GRACE_S:-}" =~ ^[0-9]+$ ]] && [[ "$WFC_BG_CEILING_GRACE_S" -lt "$CEILING_GRACE_S" ]]; then
   CEILING_GRACE_S="$WFC_BG_CEILING_GRACE_S"
 fi
 WATCH_GATE="${WFC_BG_WATCH_GATE:-}"
+# guess, #1352
 GATE_S=10
 CHECK_GATE="${WFC_BG_CHECK_GATE:-}"
 POLL_LOG="${WFC_BG_POLL_LOG:-}"
 NOW="${WFC_BG_NOW:-}"
 MONO="${WFC_BG_MONO:-}"
+# guess, #2110
 WATCH_READY_S="${WFC_BG_WATCH_READY_S:-5}"
+# guess, #2110
 WATCH_READY_POLL_S="${WFC_BG_WATCH_READY_POLL_S:-0.05}"
 WATCH_FORK_DELAY_S="${WFC_BG_WATCH_FORK_DELAY_S:-}"
 TOUCHER_KEEPS_TRAP="${WFC_BG_TOUCHER_KEEPS_TRAP:-}"
@@ -686,6 +694,7 @@ cmd_check() {
 cmd_wait() {
   [[ "$#" -ge 1 ]] || die "wait needs a name"
   local name="$1"
+  # guess: under the Bash tool's 120 s timeout, lucmoseley/mantahostels#2572
   local ceiling="${2:-60}"
   local start
   clock_now
