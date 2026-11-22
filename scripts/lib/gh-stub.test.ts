@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * stubGhRoutes, the route-table gh stub the issue-reader suites share
- * (#3168). Loosen a case and those suites can pass on a call routed to the
- * wrong answer: a field-filtered read served the unfiltered page, a call no
- * route names answered by accident, or a batched blockers read that skips
- * the REST fallback its reader takes on a null issue. It spawns the
- * generated stub, as a suite's WFC_GH call does, and drives the real
- * blocked-by-batch.js reader, so a routing fault shows as the reader sees it.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

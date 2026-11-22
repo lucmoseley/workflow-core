@@ -1,10 +1,3 @@
-/*
- * gate-check.js — running one `**Gated on:**` issue's `check:` command and
- * classifying what came back (mantahostels#1332): check-gates.js runs every
- * open gate's, and the write routes run a gate line's own once before writing
- * it (#3487).
- */
-
 const { spawnSync } = require("node:child_process");
 
 const { brokenError } = require("./check");
@@ -26,19 +19,15 @@ const {
 	readHostTracker,
 } = require("./refill-repos.js");
 
-/* Per check, not per sweep. Wide enough for every reading but mantahostels#2491's, which is
- * meant to come back OVER-BUDGET (check-gates.js's header). */
+// guess, #2656
 const DEFAULT_TIMEOUT_S = 60;
 
-/* A quarter of lib/gh.js's own 256 MB ceiling, which is sized for a whole-tracker
- * GraphQL read: no `check:` command is that. */
+// guess, #2656
 const MAX_BUFFER = 64e6;
 
-/* How long run-budgeted.js waits after its TERM before sending a KILL. A guess,
- * unmeasured: long enough for a check to flush a reading it was writing. */
+// guess, #2855
 const KILL_AFTER_MS = 5000;
 
-/* The states a `check:` that printed no reading comes back in. */
 const REPAIR_STATES = new Set([
 	"NO-OUTPUT",
 	"NOT-A-COMMAND",
@@ -47,17 +36,6 @@ const REPAIR_STATES = new Set([
 ]);
 
 /**
- * The command as written, unwrapped from the backticks the tracker's own
- * examples put round it.
- *
- * ANY SEGMENT THAT OPENS WITH A BACKTICK AND IS NOT EXACTLY ONE PAIR ROUND ONE
- * COMMAND COMES BACK AS A REPAIR, because there is no honest way to run one
- * (mantahostels#2656): where prose trails past the closing backtick, taking the
- * backticked span alone would be a guess at which part was meant. A segment
- * carrying a second pair INSIDE the outer one is worse than a guess: unwrapped
- * and run, the inner pair becomes shell command substitution, so a citation in
- * prose executes.
- *
  * @param {string} raw
  * @returns {{ ok: true, command: string } | { ok: false, why: string }}
  */
@@ -84,11 +62,6 @@ function unwrap(raw) {
  */
 
 /**
- * Run one `check:` command and classify what came back. The exit code is
- * deliberately not read as a verdict (mantahostels#1332): stdout is the reading whatever it
- * was, and the code only distinguishes a command that printed nothing because
- * it died from one that printed nothing because it had nothing to say.
- *
  * @param {string} command
  * @param {number} timeoutMs
  * @param {string} cwd
@@ -96,9 +69,6 @@ function unwrap(raw) {
  * @returns {Reading}
  */
 function runCheckCommand(command, timeoutMs, cwd, env) {
-	/* No `shell: true`: run-budgeted.js runs `sh -c <command>` itself, so the
-	 * command still gets a shell — pipes, `&&` and quoting all work — but the
-	 * process group it signals is the shell's own, not this checker's. */
 	const r = spawnSync(
 		process.execPath,
 		[
@@ -120,15 +90,10 @@ function runCheckCommand(command, timeoutMs, cwd, env) {
 	const out = (r.stdout || "").trim();
 	const err = (r.stderr || "").trim();
 	const code = /** @type {{code?: string} | undefined} */ (r.error)?.code;
-	/* The runner failing is the apparatus failing, not a fact about the gate,
-	 * so it is BROKEN rather than a row saying the command is dead (§N4). */
 	if (isRunnerFailure(r))
 		throw brokenError(
 			`${err.split("\n")[0]}\n        Nothing was read. Run a single check by hand.`,
 		);
-	/* An overrun is the reading being too big to hold, not the command failing —
-	 * and the ceiling is this script's, so it says which constant to raise, the
-	 * way gh.js does for its own. */
 	if (code === "ENOBUFS")
 		return {
 			state: "DEAD",
@@ -144,29 +109,18 @@ function runCheckCommand(command, timeoutMs, cwd, env) {
 	return classifyExit(r, { out, err, timeoutMs });
 }
 
-/**
- * The last line of a command's stderr, or null where it printed none.
- *
- * @param {string} err
- */
+/** @param {string} err */
 function parseLastErrLine(err) {
 	return err ? err.split("\n").pop() || null : null;
 }
 
 /**
- * Classify a `check:` command that ran to an exit or a signal.
- *
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {{ out: string, err: string, timeoutMs: number }} run
  * @returns {Reading}
  */
 function classifyExit(r, { out, err, timeoutMs }) {
 	const budgetS = Math.round(timeoutMs / 1000);
-	/* A signal death is something else killing the check — earlyoom, on this
-	 * machine — and stays DEAD: run-budgeted.js reports its own kills as 124
-	 * and 137, never as a signal. RESIDUAL: a command that exits 124 or 137 on
-	 * its own inside the budget, as `sh -c 'a && b'` does where earlyoom kills
-	 * `a`, reads as over budget, and nothing here can tell them apart. */
 	const overBudget = r.status === TIMEOUT_EXIT || r.status === KILLED_EXIT;
 	if (overBudget)
 		return {
@@ -174,8 +128,6 @@ function classifyExit(r, { out, err, timeoutMs }) {
 			reading: `killed at ${budgetS}s — run it by hand`,
 			detail: out || null,
 		};
-	/* `status` is null where a signal killed it, and `exit null` reads as a bug
-	 * in check-gates.js rather than as what happened to the command. */
 	if (r.status === null && !out)
 		return {
 			state: "DEAD",
@@ -186,9 +138,6 @@ function classifyExit(r, { out, err, timeoutMs }) {
 		return {
 			state: "READING",
 			reading: out,
-			/* Carried, never promoted: a command that prints its reading and exits
-			 * non-zero is common (a `grep` finding nothing to filter), and reading
-			 * the code as a verdict is what mantahostels#1332 forbids. */
 			detail: r.status === 0 ? null : `exit ${r.status}`,
 		};
 	if (r.status !== 0)
@@ -208,9 +157,6 @@ const PRINTING_FIX =
 	'`git merge-base --is-ancestor X origin/main && echo "on main" || echo "not on main"`';
 
 /**
- * The tree a `check:` on `repo`'s issue reads (#3487): the host's where `repo`
- * is unnamed or the host's own tracker, else that repo's checkout.
- *
  * @param {string} [repo]
  * @returns {{root: string, env?: NodeJS.ProcessEnv} | {why: string}}
  */
@@ -224,19 +170,9 @@ function readCheckTree(repo) {
 }
 
 /**
- * What each `check:` on a `**Gated on:**` line the write adds will read as
- * (#3487). A repair state the sweep cannot draw a reading from is refused:
- * NOT-A-COMMAND parsed, NO-OUTPUT or DEAD run once under the sweep's budget.
- * OVER-BUDGET is warned, since a check can be meant to run long
- * (mantahostels#2491), and so is a check `run: false` leaves unrun or the
- * runner could not run. A check on another repo's issue runs in that repo's
- * checkout, and is refused where there is none.
- *
- * @param {string} before the body before the write, "" for a create
- * @param {string} after the body the write leaves
- * @param {{run: boolean, repo?: string, timeoutMs?: number}} opts `run: false`
- *   for a route with no time to spend the budget: the parse alone is judged.
- *   `repo` is the issue's.
+ * @param {string} before
+ * @param {string} after
+ * @param {{run: boolean, repo?: string, timeoutMs?: number}} opts
  * @returns {{refusals: string[], warnings: string[]}}
  */
 function addedCheckVerdict(
@@ -280,14 +216,13 @@ function addedCheckVerdict(
  * @param {string} command
  * @param {{root: string, env?: NodeJS.ProcessEnv}} where
  * @param {number} timeoutMs
- * @param {{refusals: string[], warnings: string[]}} verdict accumulator: the write's
+ * @param {{refusals: string[], warnings: string[]}} verdict
  */
 function judgeRun(command, where, timeoutMs, { refusals, warnings }) {
 	let r;
 	try {
 		r = runCheckCommand(command, timeoutMs, where.root, where.env);
 	} catch (e) {
-		// A runner failure is advice here, so the write goes ahead (#3487).
 		warnings.push(
 			`The \`check:\` \`${command}\` could not be run (${caught(e).message.split("\n")[0]}), so nothing says it prints a reading.`,
 		);
@@ -302,9 +237,9 @@ function judgeRun(command, where, timeoutMs, { refusals, warnings }) {
 }
 
 /**
- * @param {string} command as written
- * @param {string} what what came back, or why it could not run
- * @param {string} state the row check-gates.js would give it
+ * @param {string} command
+ * @param {string} what
+ * @param {string} state
  */
 const buildSilentRefusal = (command, what, state) =>
 	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads as ${state} (${what}), so the gate sweep gets no reading to judge (#3487). Make the command print what it saw, for example ${PRINTING_FIX}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;

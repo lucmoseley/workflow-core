@@ -31,6 +31,11 @@ describe("a test's direct reads", () => {
 		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([DOC]);
 	});
 
+	it("records the path a code-edges loads line names, against the test's own directory, with no anchor", () => {
+		const src = `// code-edges loads: ../${DOC}\nrun();\n`;
+		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([DOC]);
+	});
+
 	it("records nothing when the literal is a tempdir fixture with no anchor", () => {
 		const src = `fs.writeFileSync(path.join(os.tmpdir(), "${DOC}"), body);`;
 		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([]);
@@ -163,6 +168,11 @@ describe("a test's direct reads under __dirname", () => {
 
 	it("keeps the edge when the only static import is type-only (#1223)", () => {
 		const src = `import type { H } from "./lib/helper.ts";\nconst h = require("./lib/helper.ts");\npath.join(__dirname, "x");`;
+		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([helper]);
+	});
+
+	it("keeps the edge when the only import( is a typeof type query (#5533)", () => {
+		const src = `const h = require_("./lib/helper.ts") as typeof import("./lib/helper.ts");\npath.join(__dirname, "x");`;
 		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([helper]);
 	});
 });
@@ -716,6 +726,15 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 			"scripts/zz/lib/one.sh": "",
 		});
 		expect(edges["scripts/zz/lib/one.sh"]).toEqual([T]);
+	});
+
+	it("warns on a code-edges loads line naming no tracked file", () => {
+		const { warnings } = build({
+			"scripts/zz/x.test.ts": "// code-edges loads: gone.json\nrun();\n",
+		});
+		expect(warnings).toEqual([
+			"scripts/zz/x.test.ts: code-edges loads: scripts/zz/gone.json names no tracked file",
+		]);
 	});
 
 	it("still warns where the only -f naming the path is not a test", () => {

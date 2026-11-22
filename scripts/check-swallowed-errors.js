@@ -1,32 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-swallowed-errors.js — base §N5's gate over Python: it refuses an
- * `except` a commit INTRODUCES that neither raises, exits nor hands its error
- * to `fail_open`, narrow catches included, which ruff's BLE001 and E722 never
- * see (#1830, #5487). The walk is scripts/swallowed_errors.py, whose header
- * owns what counts as each.
- *
- * Usage:
- *   node scripts/check-swallowed-errors.js [--all]
- *
- * WHAT IS JUDGED: the program-routed `.py` paths. A path takes the kind of the
- * first `pythonRoutes` row in .claude/workflow-core.json whose glob matches
- * it, git's `:(glob)` pathspec reading, then of base §0's default map
- * (buildIsProgram); only `program` binds §N5.
- *
- * STAGED, the default: each staged program path's blob against its HEAD blob
- * (a staged rename's source, for a renamed path), charging only what the
- * commit adds, as check-ruff-introduced.js does (#122). A breach is keyed by
- * its enclosing function and the clause it catches, never by line, which any
- * edit above it moves; a key the staged blob holds more of than HEAD's is
- * introduced. --all judges every tracked program path's worktree copy and
- * charges every breach: the migration's first run, and an audit.
- *
- * A path that does not parse is passed with a line saying so: ruff's E9
- * refuses that commit. python3 missing is BROKEN, refusing the commit, not
- * the skip the ruff gate allows where a workflow runs ruff (#1563): no
- * adopter's workflow runs this walk, so a skip there would judge nothing.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -53,10 +25,6 @@ const { scriptPath } = require("./lib/script-path.js");
 const WALK = path.join(__dirname, "swallowed_errors.py");
 
 /**
- * The host's `pythonRoutes` rows first, as its local file's route rows come
- * first; then base §0's default map as it reaches Python: under `test/` a
- * test, any other file opening with a shebang a program. A `.py` neither
- * matches binds §G alone, so is not judged.
  * @param {Record<string, PythonKind> | undefined} declared
  * @returns {(p: string, text: string) => boolean}
  */
@@ -107,8 +75,6 @@ function byKey(bs) {
 }
 
 /**
- * Charge each key `now` holds more of than `had`, listing every breach under
- * it; returns how many were charged.
  * @param {Ctx} ctx
  * @param {string} p
  * @param {Breach[]} now
@@ -127,7 +93,6 @@ function charge(ctx, p, now, had) {
 			key: k,
 			introduced: bs.length - old,
 		});
-		// Which of the n is new cannot be told apart, so every one is listed.
 		const note =
 			old > 0 ? ` (${old} of these ${bs.length} were already in HEAD)` : "";
 		ctx.say(`${p}: \`except ${clause}\` in ${fn} swallows its error${note}`);
@@ -139,7 +104,6 @@ function charge(ctx, p, now, had) {
 /** @typedef {{ name: string, text: string }} Source */
 
 /**
- * Every tracked `.py` path, broken if git fails.
  * @param {Ctx} ctx
  * @returns {string[]}
  */
@@ -154,7 +118,6 @@ function readTrackedPython(ctx) {
 /** @typedef {(p: string, text: string) => boolean} IsProgram */
 
 /**
- * Each program path's worktree copy, a path deleted there skipped.
  * @param {string[]} paths
  * @param {IsProgram} isProgram
  * @returns {{ now: Source[], before: Source[] }}
@@ -168,7 +131,6 @@ function worktreeSources(paths, isProgram) {
 }
 
 /**
- * Each program path's staged blob, and its HEAD blob where HEAD has one.
  * @param {Ctx} ctx
  * @param {string[]} paths
  * @param {IsProgram} isProgram

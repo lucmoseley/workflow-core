@@ -1,11 +1,3 @@
-/*
- * The review hold's marker judgement and text, word for word (#1622, #5153):
- * the fault ladder, the stamp's value and the refusal, pinned in-process. The
- * tier and areas faults are compared with concision-marker.sh's
- * marker_tier_fault, which the Stop nag still runs, so the hold and the nag
- * cannot drift apart unseen. A loosened case lets the hold pass a marker that
- * does not clear the commit, or refuse in words the rule file does not match.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";

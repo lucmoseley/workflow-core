@@ -1650,7 +1650,7 @@
 				{
 					"id": "idle-efforts",
 					"kind": "notice",
-					"text": " idle past 2 days"
+					"text": " idle past "
 				},
 				{
 					"id": "idle-efforts-unread",

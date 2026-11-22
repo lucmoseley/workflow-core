@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * body-file.js's port (#4492, #3902): the text, undefined where absent, a
- * throw where unreadable. Break it and lib/gh-body.js reads a fault as a
- * missing body file, or a missing one as a fault, on every guard host.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";

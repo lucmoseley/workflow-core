@@ -49,27 +49,21 @@
 
 const { parseCommand, walkGit } = require("./shell-parse.js");
 
-/** git push's spellings of a push that pushes nothing; -n is --dry-run. */
 const INERT = ["-h", "--help", "-n", "--dry-run"];
 
 const REVIEW_LATCH = "push-review-warn";
 const REVIEW_LATCH_ESCALATED = "push-review-warn-escalated";
-/* The checksum of the marker the last warn saw, beside the latches. */
 const REVIEW_SUM = "sum.push-review-warn";
 
 /**
  * @typedef {import("./push-review.js").ReviewOwed} ReviewOwed
  * @typedef {object} PushPorts
  * @property {(tree: string, session: string) => ReviewOwed | null} reviewOwed
- *   the review owed over `tree`'s HEAD
- * @property {(session: string) => string} markerSum a checksum of the
- *   session's review marker; "" where there is none
- * @property {() => boolean} deploysVercel the host declares a Vercel deploy
+ * @property {(session: string) => string} markerSum
+ * @property {() => boolean} deploysVercel
  * @typedef {import("./kit-context.js").KitContext & PushPorts & {
  *   session: string,
- *   tree: () => Pick<import("./guard-host-ports.js").TreePorts, "root"> }}
- *   PushContext `session` is the payload's session id, raw; "" where it
- *   carries none
+ *   tree: () => Pick<import("./guard-host-ports.js").TreePorts, "root"> }} PushContext
  */
 
 /**
@@ -91,8 +85,6 @@ function decide(command, ctx) {
 		{ subs: ["push"], noun: "push", scope: "repo", strict: true },
 	);
 	if (!pushed) return null;
-	/* Each rule goes only to a host meeting its premise (#742). A push goes to
-	 * the session's queue ref and the lander tests it (#2409, #2929). */
 	return {
 		injectRules: ["push-cadence", "vercel-build-on-push", "ci-status-lag"],
 		skip: [...(ctx.deploysVercel() ? [] : ["vercel-build-on-push"])],
@@ -101,11 +93,7 @@ function decide(command, ctx) {
 }
 
 /**
- * The review warn and its latches, as the injection's prelude; nothing where
- * no warn is owed or this one was already said. The marker and latches are
- * the host's stores; the pushed HEAD is the push's tree, the session's where
- * the walk could not resolve one.
- * @param {string} tree "" where unresolved
+ * @param {string} tree
  * @param {PushContext} ctx
  * @returns {{ prelude?: string, latchAfter?: string,
  *   latchWrites?: { name: string, text: string }[] }}

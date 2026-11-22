@@ -1,18 +1,9 @@
-/*
- * is-under.js — whether a path is one of a set of roots or sits beneath one
- * (#1647), and the same question asked of a root and an absolute path (#4021).
- *
- * A bare `startsWith(root)` is not a substitute: it reads `docsx/a` as under
- * `docs`. Nor is a relative path's leading `..` alone: a file named `..foo`
- * inside the root would read as outside.
- */
-
 const path = require("node:path");
 
 /**
- * @param {string} p relative or absolute, as the roots are
+ * @param {string} p
  * @param {readonly string[]} roots
- * @param {string} [sep] the separator `p` is spelt with
+ * @param {string} [sep]
  * @returns {boolean}
  */
 function isUnder(p, roots, sep = "/") {
@@ -20,10 +11,6 @@ function isUnder(p, roots, sep = "/") {
 }
 
 /**
- * `p` relative to `root`, in the platform's separator, where `p` is `root`
- * (`""`) or sits beneath it; null where it lies outside, another drive
- * included. Strictly beneath is a truthy answer. No I/O: a caller comparing
- * real paths resolves both first.
  * @param {string} root
  * @param {string} p
  * @returns {string | null}

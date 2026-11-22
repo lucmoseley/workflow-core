@@ -1,15 +1,3 @@
-/*
- * alarm-ticket.js — the one ticket the refill loop keeps open while an
- * off-machine queue alarm fires (lib/queue-alarms.js, #4772), filed as
- * lib/queue-issue.js files it, so the next /pick-next takes it first. One
- * per stall.
- *
- * Its body changes only with a new failed run. A record in the markers
- * directory names the `main` sha a ticket was filed at, so a pass with no
- * alarm firing and none on record reads no tracker. Residual: a ticket filed
- * from another checkout of the same repo is closed only by that one.
- */
-
 const path = require("node:path");
 const { ALARM_TITLE: TITLE } = require("./queue-tickets.js");
 const { recordTicket } = require("./record-ticket.js");
@@ -38,10 +26,7 @@ ${alarms.map((a) => `- \`${a.name}\`: run ${a.run}, created ${new Date(a.at).toI
 `;
 }
 
-/**
- * @typedef {{main: string}} AlarmRecord the `main` sha the ticket was filed
- *   at
- */
+/** @typedef {{main: string}} AlarmRecord */
 
 /** @param {unknown} rec @returns {AlarmRecord|null} */
 function parseAlarmRecord(rec) {
@@ -50,9 +35,6 @@ function parseAlarmRecord(rec) {
 }
 
 /**
- * Why the recorded stall's ticket closes this pass, or null where it stays:
- * no alarm fires, or `main` has moved. A torn record names no stall, so its
- * ticket closes only where no alarm fires (#4772).
  * @param {AlarmRecord|"torn"} rec
  * @param {string|null} main
  * @param {boolean} firing
@@ -69,15 +51,10 @@ function buildCloseComment(rec, main, firing) {
 }
 
 /**
- * One supervision pass's act on the alarm ticket: close the recorded stall's,
- * then file or refresh one for the alarms firing. A close that throws keeps
- * the record, so the next pass retries it; a torn record is dropped and named
- * first.
  * @param {import("./queue-issue.js").QueueIssueDeps} deps
- * @param {string} markers the markers directory
+ * @param {string} markers
  * @returns {(pass: {main: string|null,
- *   alarms: import("./queue-alarms.js").FiringAlarm[]}) => string[]} the
- *   lines naming what it did
+ *   alarms: import("./queue-alarms.js").FiringAlarm[]}) => string[]}
  */
 function alarmTicketTender(deps, markers) {
 	const ticket = recordTicket(deps, {

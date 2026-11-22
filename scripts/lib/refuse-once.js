@@ -1,22 +1,15 @@
-/*
- * refuse-once.js — the flow of a dispatcher core that refuses a subject once and
- * passes its re-send (#2801, #3858). It fails open, on the record, where the
- * latch cannot be keyed or written: refused unlatched, the re-send would be
- * refused for ever.
- */
-
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { markersDir } = require("./marker-root.js");
 
-/* 64 bits of the sha1: a file name, and no collision within one session's latches. */
+// guess, #3858
 const LATCH_HEX = 16;
 
 /**
  * @param {object} refusal
- * @param {string} refusal.prefix  the latch name's stem
- * @param {string} refusal.subject  what a re-send repeats
- * @param {string} refusal.passed  what the log says went through unrefused
+ * @param {string} refusal.prefix
+ * @param {string} refusal.subject
+ * @param {string} refusal.passed
  * @param {() => string} refusal.buildDeny
  * @param {import("./kit-context.js").KitContext &
  *   { isLatchWritable: () => boolean }} ctx
@@ -34,12 +27,10 @@ function refuseOnce({ prefix, subject, passed, buildDeny }, ctx) {
 		ctx.log(`latch directory unwritable — ${passed} unrefused`);
 		return null;
 	}
-	/* The kit writes the latch after the refusal is out (mantahostels#2261). */
 	return { deny: buildDeny(), latchWrites: [{ name, text: "" }] };
 }
 
 /**
- * The `isLatchWritable` port's production answer.
  * @param {string} root
  * @returns {boolean}
  */

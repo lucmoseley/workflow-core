@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/alarm-ticket.js's close (#5354): the alarm ticket closes with its
- * criterion ticked. Loosen it and every alarm closed adds a FAIL to the
- * daily criteria check.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

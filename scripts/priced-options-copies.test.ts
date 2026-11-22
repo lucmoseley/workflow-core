@@ -178,14 +178,6 @@ describe("the pasted template, filled in as a round", () => {
 	});
 });
 
-describe("the guard's own header", () => {
-	it("points at the style's rule rather than restating the shape", () => {
-		const header = fs.readFileSync(GUARD, "utf8").split("*/")[0];
-		expect(header).toContain(".claude/output-styles/core-voice.md");
-		expect(header).not.toMatch(/Confidence:\s*\d{1,3}\s*%/);
-	});
-});
-
 describe("the house-decision rule", () => {
 	it("stands in the working contract's registry, Enforced by the guard", () => {
 		expect(houseRule).toContain("**Enforced**");

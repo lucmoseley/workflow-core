@@ -1,31 +1,4 @@
-/*
- * overflow-key.js — an overflow seat's key, for a launch's `apiKeyHelper`
- * (#3699, spec #3691).
- *
- * The launch hands the child `--settings '{"apiKeyHelper": <buildKeyHelper()>}'`,
- * so the key is read from the secrets file each time `claude` calls the
- * helper, and is in neither the caller's environment nor the child's: no Bash
- * call or hook in the session sees it (#2604 (b)). lib/launch-auth.js admits
- * a launch's helper only where it is buildKeyHelper() for an overflow seat
- * declared on the launch's config dir.
- *
- * THE HELPER'S PATH outlives the code that launched it (#4392). Run
- * from one of the refill loop's code worktrees, which the loop removes once
- * it adopts a newer tip (lib/refill-code.js), the helper names this file
- * through the boot link, which always names the worktree the loop last ran.
- * Run from any other linked git worktree, a session's among them (#4425), it
- * names the main checkout's copy.
- * Moving or renaming this file strands every live overflow session, as does
- * removing a plugin version a loop ran from.
- *
- * Residual (#4425): a session launched from a linked worktree runs the main
- * checkout's copy, so one whose command line lags fails its helper.
- *
- *   node scripts/lib/overflow-key.js <key var> <secrets file>
- *     prints the variable's value; a missing file or variable exits 1 naming
- *     the variable and the file, never a value; bad usage exits 2.
- */
-
+// #4392
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
@@ -47,7 +20,6 @@ const { shellQuote } = require("./sh-quote.js");
 const { writeFd } = require("./write-fd.js");
 
 /**
- * The variable's value read through `read`, or why it cannot be.
  * @param {string} keyVar
  * @param {string} file
  * @param {(name: string) => string|null} read
@@ -70,8 +42,6 @@ function readKey(keyVar, file, read) {
 }
 
 /**
- * The secrets file a launch's helper reads `keyVar` from, or why it cannot,
- * checked before the launch since the helper runs only after it.
  * @param {string} keyVar
  * @returns {{file: string}|{why: string}}
  */
@@ -81,14 +51,7 @@ function keyCheck(keyVar) {
 	return "why" in read ? read : { file };
 }
 
-/**
- * The main checkout's copy of `file` where `file` sits in a linked git
- * worktree, read off its `.git` file (`gitdir: <common dir>/worktrees/<name>`)
- * as a hook-path caller (lib/launch-auth.js) spawns no git; null where it
- * sits in a main checkout, a worktree whose common dir names no checkout, a
- * submodule or no checkout.
- * @param {string} file a real path
- */
+/** @param {string} file */
 function throughMainCheckout(file) {
 	const found = readGitFile(path.dirname(file));
 	if (!found) return null;
@@ -98,11 +61,7 @@ function throughMainCheckout(file) {
 	return main && path.join(main, path.relative(found.dir, file));
 }
 
-/**
- * The program a helper names, one no worktree's removal takes with it, and
- * the route that named it.
- * @returns {{program: string, via: "boot link"|"main checkout"|"own path"}}
- */
+/** @returns {{program: string, via: "boot link"|"main checkout"|"own path"}} */
 function helperRoute() {
 	const booted = throughBootLink(__filename);
 	if (booted) return { program: booted, via: "boot link" };
@@ -120,7 +79,6 @@ const buildHelperCommand = (program, keyVar, file) =>
 	[process.execPath, program, keyVar, file].map(shellQuote).join(" ");
 
 /**
- * The `apiKeyHelper` command printing `keyVar` from `file`.
  * @param {string} keyVar
  * @param {string} file
  */
@@ -129,8 +87,6 @@ function buildKeyHelper(keyVar, file) {
 }
 
 /**
- * The `--settings` JSON a launch on `keyVar` passes, or why its key cannot be
- * read.
  * @param {string} keyVar
  * @returns {{settings: string}|{why: string}}
  */
@@ -153,10 +109,6 @@ function buildKeySettings(keyVar) {
 }
 
 /**
- * An overflow launch's `--settings`, and `env` without the variables its
- * child runs without, which `unset` names: any key, which would outrank the
- * helper, and the caller's session id, which would make the child claim to
- * be the caller. Why not where the settings will not build.
  * @param {string} keyVar
  * @param {NodeJS.ProcessEnv} env
  * @returns {{settings: string, unset: string[], env: NodeJS.ProcessEnv}
@@ -174,7 +126,6 @@ function buildOverflowLaunch(keyVar, env) {
 module.exports = { buildKeyHelper, buildOverflowLaunch };
 
 if (require.main === module) {
-	// An unknown option is bad usage, said below.
 	const positionals = orFallback(
 		() => parseArgs({ allowPositionals: true }).positionals,
 		/** @type {string[]} */ ([]),

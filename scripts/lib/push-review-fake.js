@@ -1,17 +1,10 @@
-/*
- * push-review-fake.js — the one fake of lib/push-review.js's port (#2785),
- * for push-rules.js's module cases.
- */
-
 /** @typedef {import("./push-review.js").ReviewOwed} ReviewOwed */
 
 const BASE = "0123456789abcdef0123456789abcdef01234567";
 
 /** @type {Record<"none" | "standard" | "escalated" | "rejected" | "rejectedEscalated", ReviewOwed | null>} */
 const ANSWERS = {
-	/* No code of the session's past the floor, or a marker that covers it. */
 	none: null,
-	/* Code past the floor, no marker. */
 	standard: {
 		tier: "standard",
 		files: "scripts/mine.ts",
@@ -21,7 +14,6 @@ const ANSWERS = {
 		passFault: "",
 		markerScript: "scripts/write-review-marker.js",
 	},
-	/* A declared sensitive path, no marker. */
 	escalated: {
 		tier: "escalated",
 		files: "supabase/migrations/001_rls.sql",
@@ -33,7 +25,6 @@ const ANSWERS = {
 		passFault: "",
 		markerScript: "scripts/write-review-marker.js",
 	},
-	/* Code past the floor, and a marker the validator rejects. */
 	rejected: {
 		tier: "standard",
 		files: "scripts/mine.ts",
@@ -43,7 +34,6 @@ const ANSWERS = {
 		passFault: "its base= is not a 40-hex sha, 'main'",
 		markerScript: "scripts/write-review-marker.js",
 	},
-	/* A declared sensitive path, and a marker at too low a tier for it. */
 	rejectedEscalated: {
 		tier: "escalated",
 		files: "supabase/migrations/001_rls.sql",

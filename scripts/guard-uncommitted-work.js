@@ -1,77 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-uncommitted-work.js — Stop hook. Blocks a turn that ends with this
- * session's own tracked edits still uncommitted in its checkout — its own
- * worktree (#4229), or the main checkout where it still works there — and a
- * `result:` or `needs input:` turn that ends with this session still holding a
- * claim on a file whose changes are all committed (#3565).
- *
- * TWO TREES, ONE KEY. Dirt is read from the session's tree (`sessionTree`, the
- * payload's cwd); the write ledger, claims and observations are the host
- * root's shared stores, keyed by the path in the session's tree
- * (`lib/arbiter-core.js`'s `treeRoot`), so git's spelling is the key. The two
- * trees agree because the harness runs the hook in the payload's cwd, which
- * `treeRoot` reads as the process's own.
- *
- * The uncommitted-work half of the turn-end rule, which this guard enforces,
- * lives in docs/agents/guard-registry.md §Conventions (#2034); the
- * progress-report half is CLAUDE.md's, and nothing checks it (mantahostels#1555).
- * The commit-next order lives only in this guard's refusal (always-loaded
- * shed register R1, #4113).
- *
- * It BLOCKS where mantahostels#908's push warning only warned. That ruling declined to
- * block on a red that may not be the session's own; here the ledger
- * intersection below bills only the session's own writes, and the remedy is
- * one always-available command.
- *
- * IT READS THE OUTGOING MESSAGE ON TWO PATHS: the `waiting:` stand-down below
- * (mantahostels#2567), reached only on a turn with dirt to name, and the
- * clean-claim limb's marker check (#3565). mantahostels#872 — Stop hooks not firing
- * at all in one background session — still reaches this guard.
- *
- * IT WRITES NO `.hook-ran-` BREADCRUMB, and both paths deliberately read the
- * message without minting one: `hookMessage.readMessageFrom` records on every
- * call, and a guard crumbing only the turns those paths reach would read as
- * SILENT in `check-stop-guard-outcomes.js` on every window it crumbed none.
- *
- * A NEIGHBOUR'S DIRT IS SUBTRACTED ON TWO SIGNALS, not one: their live claim
- * (`readClaimedElsewhere`) and their live observation (`readObservedElsewhere`, mantahostels#2282),
- * both in `lib/neighbour-dirt.js` (#615).
- *
- * WHAT IT DOES NOT COVER. The ledger is filled by a `PostToolUse` hook on
- * `Write`/`Edit`/`NotebookEdit`, so a file written from Bash — a `>` redirect,
- * a heredoc, `sed -i`, a generator — mints no entry there (mantahostels#296).
- *
- * ONE SLICE OF THAT IS CREDITED, AND THIS GUARD REFUSES ON IT (mantahostels#2778).
- * lib/claimed-bash-write.js, a dispatcher core, runs at `PreToolUse` on a Bash command,
- * and every write target it resolves LITERALLY that matches
- * lib/code-signal.sh's CODE globs — a `.js/.mjs/.cjs/.ts/.tsx/.jsx/.py/.sh`
- * extension, or anything under `.husky/` — is credited to this session, unless
- * another LIVE session holds a READABLE claim on it. That glob list is OWNED by
- * lib/claimed-bash-write.js's `CODE_EXT`/`CODE_DIR`, whose comment carries
- * the drift cost; read it there rather than trusting this copy.
- *
- * Everything else mints nothing and stays invisible here: a non-code path
- * (`docs/`, a `.md`, a fixture), a target the parser cannot resolve (a `$VAR`,
- * a command substitution, a heredoc body, a write spelling outside the nine it
- * reads), a path a live neighbour holds readably, every path at all where the
- * WHOLE lock store will not read, and every path where the hook payload carried
- * no session id.
- *
- * A neighbour's lock whose own record will not parse is not counted as
- * contention (lib/claim-warning.js's `creditable`), so their file can be
- * billed to you here. And the credit is INTENT, taken at `PreToolUse` before the
- * command runs, so an entry outlives a command a sibling guard denied or that
- * simply failed — after which a neighbour's later UNCLAIMED edit to that path
- * is refused here as your own dirt. concision-backstop.sh drops both by
- * intersecting with `git diff`; this guard intersects with `git status`, which
- * does not.
- *
- * Widening to unattributed dirt is refused: a change attributable to nobody is
- * billed to nobody, because over-billing sends a session to edit files a live
- * neighbour is holding.
- */
-
 const { REFUSAL_NAMED_MAX, readDirtyTracked } = require("./lib/dirty-tree.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { sessionTree } = require("./lib/host-root.js");
@@ -88,20 +15,10 @@ const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
 const { startEntryClock } = require("./lib/hook-deadline.js");
 
-/* Six, not the house default of three (mantahostels#2791). 139 of 385 blocked sessions
- * reached the old cap, and 55% of those were still seeing a CHANGING path set
- * when the counter silenced them — three was too few for this guard
- * specifically.
- *
- * SPELLED OUT RATHER THAN TAKEN FROM `hookBlock.MAX_BLOCKS`: this 6 rests on
- * that measurement, so a future change to the house default must not silently
- * move it. `capSpent` below takes it too, or the early stand-down would silence
- * the guard at three and the raise would do nothing. */
+// lucmoseley/mantahostels#2791 measured 55% of 139 capped sessions still changing paths at cap 3
 const BLOCK_CAP = 6;
 
 /**
- * Read through `hookMessage.readMessageText` for the header's reason. An unreadable
- * transcript answers no message, logged rather than crumbed (#73).
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
  */
@@ -117,46 +34,16 @@ function readEnding(payload, sid) {
 }
 
 /**
- * The `waiting:` STAND-DOWN (mantahostels#2567). docs/agents/guard-registry.md §Conventions makes the one-line
- * `waiting:` hand-off "the exception and the only one" to the rule this guard
- * enforces, and the guard had no exemption for it: most of what it ever
- * blocked was a correct hand-off (censused on mantahostels#2567).
- *
- * IT IS THE LIVE CLAIM THAT EXEMPTS, NOT THE SPELLING (ruled at mantahostels#2567 over an
- * unconditional exemption). A `waiting:` a session merely types is an escape
- * hatch it can learn: write the word, stop, leave the tree dirty. So the
- * stand-down rests on the artefact `lib/pending-tasks.js` reads — a launch in
- * this transcript that nothing has settled — which a session cannot produce
- * without actually backgrounding work. A `waiting:` resting on nothing keeps
- * its block here, and in a background job draws `guard-priced-options.js`'s own
- * mantahostels#2487 refusal naming the real fault; outside one, this is the only thing that
- * catches it.
- *
- * EVERY THROWN PATH DECLINES THE STAND-DOWN, which is the opposite direction
- * to `pending-tasks.js`'s own consumer and deliberate: there the unproven claim
- * costs a missed refusal, here it would cost a session's work left
- * uncommitted.
- *
- * ONE PATH FAILS THE OTHER WAY, and it is `pending-tasks.js`'s own asymmetry
- * reaching through: a launch whose settlement that file cannot recognise stays
- * pending for the rest of the session, and here that is a standing exemption
- * rather than a missed refusal. Nothing detects it.
- *
- * THE MESSAGE IS READ THROUGH `hookMessage.readMessageText`, never `readMessageFrom`, whose
- * breadcrumb this guard must not mint — see the header.
- *
+ * lucmoseley/mantahostels#2567
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
- * @returns {{down: boolean, why: string|null}} `why` is the sentence the block
- *   message carries, and is null unless the turn tried to hand off and failed.
+ * @returns {{down: boolean, why: string|null}}
  */
 function waitingHandoff(payload, sid) {
 	const { transcript, message } = readEnding(payload, sid);
 	if (!message) return { down: false, why: null };
 
 	const { name, payload: said } = governingMarker(message);
-	/* A turn governed by another marker was never claiming to hand off, so there
-	 * is nothing to explain. */
 	if (name !== "waiting:") return { down: false, why: null };
 	if (!said.trim())
 		return {
@@ -181,17 +68,13 @@ function waitingHandoff(payload, sid) {
 }
 
 /**
- * The refusal limb: this session's own tracked edits, still uncommitted.
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
- * @param {string} tree the checkout whose dirt is read
- * @returns {boolean} whether a block was emitted, and so whether stdout is spent
+ * @param {string} tree
+ * @returns {boolean}
  */
 function refuseUncommitted(payload, sid, tree) {
-	/* ATTRIBUTION (mantahostels#114, mantahostels#1555). null is "the ledger could not be read", never
-	 * "wrote nothing" — and both land on silence, because a change attributable
-	 * to nobody is billed to nobody. Without this filter the guard would order a
-	 * session to commit a file it never wrote. */
+	// lucmoseley/mantahostels#114 lucmoseley/mantahostels#1555
 	const written = store.readWritesBy(sid, tree);
 	if (written === null || written.length === 0) return false;
 
@@ -199,20 +82,12 @@ function refuseUncommitted(payload, sid, tree) {
 	if (dirty === null) return false;
 
 	const theirs = readClaimedElsewhere(sid, { tree });
-	/* Already sorted, and unique by construction — see `readDirtyTracked`. */
 	const claimFiltered = dirty.filter(
 		(rel) => written.includes(rel) && !theirs.has(rel),
 	);
-	/* Nothing to name, so nothing `readObservedElsewhere` reads could change the
-	 * answer — and this is what keeps its ~465 ms oracle off the ordinary clean
-	 * turn. */
 	if (claimFiltered.length === 0) return false;
 
-	/* Everything below only assembles a reason `blockStop` would refuse to print
-	 * once the cap is spent (mantahostels#2383). The prefix is written out twice
-	 * deliberately: `hook-block.test.ts` reads it as a literal out of the
-	 * `blockStop` call below, and a shared const would make it unreadable
-	 * there. */
+	// lucmoseley/mantahostels#2383
 	if (
 		hookBlock.capSpent({
 			prefix: ".uncommitted-nagged-",
@@ -222,8 +97,6 @@ function refuseUncommitted(payload, sid, tree) {
 	)
 		return false;
 
-	/* Below the cap check and above the ~465 ms oracle: this costs one transcript
-	 * read, and only on a turn already carrying something to name. */
 	const handoff = waitingHandoff(payload, sid);
 	if (handoff.down) return false;
 
@@ -264,15 +137,11 @@ function refuseUncommitted(payload, sid, tree) {
 }
 
 /**
- * The second limb (#3565): a turn ending `result:` or `needs input:` while
- * this session holds a whole-file claim on a file with no uncommitted change.
- * A `waiting:` turn or one with no marker is passed over: a session between
- * its own writes holds a clean file legitimately (mantahostels#66).
+ * #3565 lucmoseley/mantahostels#66
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
  */
 function refuseHeldClean(payload, sid) {
-	/* The cheap checks first: the claim read costs one `git status` a claim. */
 	if (hookBlock.capSpent({ prefix: ".held-clean-nagged-", sessionId: sid }))
 		return;
 	const { message } = readEnding(payload, sid);
@@ -294,11 +163,7 @@ function refuseHeldClean(payload, sid) {
 	});
 }
 
-/**
- * The whole of this guard's judgement on one turn; `lib/stop-guard.js` owns
- * everything around it.
- * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
- */
+/** @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx */
 function judge({ sessionId: sid, payload }) {
 	const tree = sessionTree(payload);
 	if (tree === null) return;
@@ -307,8 +172,7 @@ function judge({ sessionId: sid, payload }) {
 }
 
 if (require.main === module) {
-	/* The oracle read in `readObservedElsewhere` ends inside this hook's 15 s
-	 * timeout, where the harness's kill would end the turn unjudged (#4115). */
+	// #4115
 	startEntryClock("Stop");
 	stopGuard.onPayload({ review: judge });
 }

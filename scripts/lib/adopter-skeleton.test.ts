@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * adopter-skeleton.js renders each day-one file — config, rules file,
- * CLAUDE.md, husky hooks, settings keys, label plan — with only the lines the
- * adopter's config and modules call for (#5).
- *
- * The renderers are asserted at their own boundary: what a given config puts
- * in the file an adopter reads.
- *
- * init-adopter.js and every plugin bump write these renders into an adopter's
- * repo: loosen a case here and an adopter ships a hook, rule or setting that
- * is wrong for it, in every session it runs.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -76,8 +64,6 @@ describe("the plugin provenance record (#108)", () => {
 	});
 
 	it("renders a known sha with an unknown dirty flag as clean, not as an error", () => {
-		/* readDirectoryGit() keeps a good `rev-parse HEAD` even where the follow-up
-		 * `git status` fails, leaving `dirty: null`. */
 		expect(
 			describePluginRecord({
 				source: "directory",
@@ -135,7 +121,6 @@ describe("the core-owned rules file", () => {
 			pluginRoot: CORE,
 		});
 		expect(text).toContain("reference-roadmap.html");
-		// The suite guard hands it over instead (#2237).
 		expect(text).not.toContain("Prefer targeted runs");
 		expect(text).not.toContain("[roadmap]");
 		expect(text).not.toContain("docs/doc-map.md");
@@ -216,13 +201,10 @@ describe("the core-owned rules file", () => {
 		});
 		const store = fs.readdirSync(path.join(CORE, "docs/agents/rules"));
 		const cited = [...text.matchAll(/`rule:([a-z0-9-]+)`/g)].map((m) => m[1]);
-		/* 2 after #2067's cut; the floor only proves the scan finds ids at all. */
 		expect(cited.length).toBeGreaterThan(0);
 		expect(cited.filter((id) => !store.includes(`${id}.txt`))).toEqual([]);
 	});
 
-	/* The commands #654 and #662 name, pinned exactly: a command added to the
-	 * template should fail here until it is checked as runnable below. */
 	it("spells every core command at the plugin root, and names only scripts the plugin ships (#654)", () => {
 		const text = renderSessionRules({
 			modules: ["roadmap", "governance", "site"],
@@ -247,10 +229,6 @@ describe("the core-owned rules file", () => {
 			expect(fs.existsSync(path.join(CORE, rel)), rel).toBe(true);
 	});
 
-	/* A module line, or the reference's page-check line, reads as a promise
-	 * that a gate runs. Only a backticked script name is seen here, so a check
-	 * named in prose — #744's render check — is pinned in the reference group
-	 * instead. */
 	const render = (modules: Module[]) =>
 		renderSessionRules({
 			modules,
@@ -261,10 +239,7 @@ describe("the core-owned rules file", () => {
 	it("names in each module line only scripts a core hook runs (#744)", () => {
 		const base = new Set(render([]));
 		const moduleLines = render([...MODULES]).filter((line) => !base.has(line));
-		/* The site line's gate moved to the reference at #2067. */
 		const promises = [...moduleLines, ...renderReference(CORE).split("\n")];
-		/* Listed rather than taken from HOOKS, so a change to any hook selects
-		 * this file (base §X10). */
 		const huskyHooks = fs
 			.readdirSync(path.join(CORE, ".husky"))
 			.filter((h) => HOOKS.includes(h));
@@ -278,7 +253,6 @@ describe("the core-owned rules file", () => {
 					.join("\n"),
 			),
 			fs.readFileSync(path.join(CORE, "hooks/hooks.json"), "utf8"),
-			/* The pre-commit dispatcher's rows run as the hook does (#5172). */
 			...GATES.map((g) => g.script),
 		].join("\n");
 		const named = promises.flatMap((line) =>
@@ -325,7 +299,6 @@ describe("the core-owned rules file", () => {
 		])
 			expect(text, gone).not.toContain(gone);
 		expect(text).toContain("`.claude/workflow-core.reference.md`");
-		/* Named literally so a change to the template selects this test. */
 		expect(
 			fs.readFileSync(
 				path.join(CORE, "scripts/templates/adopter/session-rules.md"),
@@ -347,7 +320,6 @@ describe("the reference file (#730)", () => {
 
 	it("names every module the config accepts", () => {
 		const text = renderReference(CORE);
-		/* Named literally so a change to the template selects this test. */
 		expect(
 			fs.readFileSync(
 				path.join(CORE, "scripts/templates/adopter/reference.md"),
@@ -365,7 +337,6 @@ describe("the reference file (#730)", () => {
 });
 
 describe("a rules-file command rewritten for an adopter (#654)", () => {
-	/** The rules file with `founder` substituted in, at `pluginRoot`. */
 	const rules = (founder: string, pluginRoot = "/opt/wfc") =>
 		renderSessionRules({ modules: [], founder, pluginRoot });
 
@@ -419,7 +390,6 @@ describe("a rules-file command rewritten for an adopter (#654)", () => {
 			expect(run(`${command("bg-run\\.sh")} check nosuch`).stderr).toMatch(
 				/no run named nosuch/,
 			);
-			// No package.json here, so no `npm run status` either (#1825).
 			const status = run(`${command("status-report\\.js")} --only git-locks`);
 			expect(status.status, status.stderr).toBe(0);
 			expect(status.stdout).toContain("1 checker(s) run, 1 clean.");
@@ -437,7 +407,6 @@ describe("the day-one code standards (#3466)", () => {
 	const Row =
 		"| Retry a call | `withRetry()` | `scripts/lib/no-such-file.js` | §G1 | none |";
 
-	/** check-primitives.js over a fresh adopter holding `text`. */
 	const checkTable = (text: string) => {
 		const adopter = fs.mkdtempSync(path.join(os.tmpdir(), "day-one-std-"));
 		try {
@@ -486,19 +455,12 @@ describe("the day-one code standards (#3466)", () => {
 });
 
 describe("the day-one doc-map (#662)", () => {
-	/* init writes it once and upgrade never re-renders it, so a core script
-	 * path here — relative or at a versioned plugin root — would not run. */
 	it("names no core script (#2066)", () => {
 		const text = renderDocMap({ project: "demo", date: "2026-01-01" });
 		expect(text).not.toMatch(/scripts\//);
 		expect(text).not.toContain("`.claude/workflow-core.md`");
 	});
 
-	/* The method is the core's, rewritten on every bump in the core-owned
-	 * method file; a copy here would never refresh (#5294). */
-	/* §Capture and placement stays as a heading: its §5 shed ledger is the
-	 * adopter's own, found by that heading (lib/doc-map-regions.js), and the
-	 * method's rules, §1–4, are the core's (#5296). */
 	it("carries no core method section, only the pointer to the core's", () => {
 		const text = renderDocMap({ project: "demo", date: "2026-01-01" });
 		for (const heading of [
@@ -776,9 +738,6 @@ describe("the core hooks an adopter's shims run (#1839)", () => {
 	});
 
 	it("leaves pre-commit's local-gate block reading the adopter's own tree (#437)", () => {
-		/* The load line and the missing-script check both resolve from the
-		 * adopter's repo top; spelled through the plugin root, they would source
-		 * a file that is never there and check the wrong tree. */
 		const block = cutLocalGateBlock(readCoreHook("pre-commit"));
 		expect(block).toContain(". ./.husky/pre-commit.local");
 		expect(block).not.toContain("${WFC_PLUGIN_ROOT:-");
@@ -805,9 +764,6 @@ describe("the core hooks an adopter's shims run (#1839)", () => {
 	});
 
 	it("quotes no plugin root inside a message in any REAL hook (#442)", () => {
-		/* Inside a double-quoted string, the root's own quotes close and reopen
-		 * it, leaving the root unquoted. Spell such a hint
-		 * `\${WFC_PLUGIN_ROOT:+$WFC_PLUGIN_ROOT/}scripts/…`, as pre-commit's does. */
 		const husky = path.join(CORE, ".husky");
 		const hooks = fs
 			.readdirSync(husky)
@@ -858,7 +814,6 @@ describe("the settings keys", () => {
 		expect(out.permissions.deny).toContain("Read(./private/**)");
 		expect(out.permissions.deny).toContain("Bash(gh auth token*)");
 		expect(out.permissions.deny).toContain("Read(./.env)");
-		/* A union, so a second run adds nothing. */
 		expect(new Set(out.permissions.deny).size).toBe(
 			out.permissions.deny.length,
 		);
@@ -938,8 +893,6 @@ describe("the settings keys", () => {
 			plugin: "workflow-core",
 			outputStyle: null,
 		};
-		/* Read through readPluginStyles: `.claude-plugin/plugin.json` and
-		 * `.claude/output-styles/core-voice.md`. */
 		const shipped = readPluginStyles(CORE).styles;
 		expect(shipped).toContain(settingsKeys(at, {}).outputStyle);
 		expect(settingsKeys(at, { outputStyle: "core-voice" }).outputStyle).toBe(
@@ -1006,7 +959,6 @@ describe("the label plan", () => {
 			ciWorkflow: true,
 		})) {
 			expect(label.description.length).toBeGreaterThan(10);
-			// GitHub refuses a label description over 100 characters.
 			expect(label.description.length).toBeLessThanOrEqual(100);
 			expect(label.color).toMatch(/^[0-9a-fA-F]{6}$/);
 		}
@@ -1027,14 +979,6 @@ describe("the tools it probes", () => {
 	});
 });
 
-/**
- * Where a hook carries its quoted plugin root, `"${WFC_PLUGIN_ROOT:-.}"/`,
- * inside a double-quoted string or a heredoc body, by line number.
- * A quote-state scan, as far as the hooks need: comments, single quotes,
- * `$(…)` and backticks (whose quoting starts afresh), `${…}` and heredocs.
- * Residual: a `case` pattern inside `$(…)` closes that frame early, and an
- * arithmetic `<<` reads as a heredoc — neither spelled in any hook today.
- */
 function quotedRootSites(text: string) {
 	const st: QuoteScan = {
 		text,
@@ -1052,7 +996,6 @@ function quotedRootSites(text: string) {
 	return parseHitLines(text, st.hits);
 }
 
-/** quotedRootSites()'s scan state; `i` is the last character consumed. */
 interface QuoteScan {
 	text: string;
 	i: number;
@@ -1062,12 +1005,10 @@ interface QuoteScan {
 }
 
 function upTo(text: string, s: string, from: number) {
-	// An unclosed quote or brace runs to the end, rather than wrapping to 0.
 	const at = text.indexOf(s, from);
 	return at === -1 ? text.length : at;
 }
 
-/** The `}` closing the `${` at `from`, past any nested inside it. */
 function braceEnd(text: string, from: number) {
 	let depth = 0;
 	for (let i = from; i < text.length; i++) {
@@ -1077,7 +1018,6 @@ function braceEnd(text: string, from: number) {
 	return text.length;
 }
 
-/** One character inside a double-quoted string. */
 function scanDoubleQuoted(st: QuoteScan) {
 	const { text, i } = st;
 	const c = text[i];
@@ -1090,7 +1030,6 @@ function scanDoubleQuoted(st: QuoteScan) {
 		st.stack.push("paren");
 		st.i++;
 	} else if (text.startsWith("${", i)) {
-		// Its quoting varies by shell, so a site anywhere inside counts.
 		const end = braceEnd(text, i);
 		const at = text.indexOf(CORE_ROOT, i);
 		if (at !== -1 && at < end)
@@ -1099,7 +1038,6 @@ function scanDoubleQuoted(st: QuoteScan) {
 	}
 }
 
-/** A newline with heredocs pending: their bodies follow it, in order. */
 function scanHeredocBodies(st: QuoteScan) {
 	let pos = st.i + 1;
 	for (const heredoc of st.heredocs) pos = scanHeredocBody(st, pos, heredoc);
@@ -1107,10 +1045,6 @@ function scanHeredocBodies(st: QuoteScan) {
 	st.i = pos - 1;
 }
 
-/**
- * One heredoc's body, from line start `from`; returns the position past its
- * terminator line, or past the text's end.
- */
 function scanHeredocBody(
 	st: QuoteScan,
 	from: number,
@@ -1132,11 +1066,9 @@ function scanHeredocBody(
 const isCommentStart = (text: string, i: number) =>
 	text[i] === "#" && (i === 0 || /[\s;&|(]/.test(text[i - 1]));
 
-/** One character outside any double-quoted string. */
 function scanCode(st: QuoteScan) {
 	const { text, i, stack } = st;
 	const c = text[i];
-	// Never the tail of a `<<<` here-string, which has no body.
 	const heredoc =
 		text[i - 1] !== "<" &&
 		/^<<(-?)\s*(['"]?)(\w+)\2/.exec(text.slice(i, upTo(text, "\n", i)));
@@ -1145,9 +1077,7 @@ function scanCode(st: QuoteScan) {
 	else if (c === '"') stack.push("dq");
 	else if (isCommentStart(text, i)) st.i = upTo(text, "\n", i) - 1;
 	else if (text.startsWith("${", i)) st.i = braceEnd(text, i);
-	// `$(` included: its `$` is inert here.
 	else if (c === "(") stack.push("paren");
-	// A `case` pattern's `)` has no `(` to close, so only a frame's pops one.
 	else if (c === ")" && stack.at(-1) === "paren") stack.pop();
 	else if (c === "`" && stack.at(-1) === "bt") stack.pop();
 	else if (c === "`") stack.push("bt");
@@ -1157,7 +1087,6 @@ function scanCode(st: QuoteScan) {
 	}
 }
 
-/** Each hit's line, counted from 1. */
 function parseHitLines(text: string, hits: QuoteScan["hits"]) {
 	return hits.map(({ at, context }) => ({
 		line: text.slice(0, at).split("\n").length,

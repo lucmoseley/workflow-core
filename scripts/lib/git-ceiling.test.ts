@@ -1,12 +1,3 @@
-/*
- * git-ceiling.test.ts — pins the ceiling every --touched-by git read runs
- * under, and the notice naming a slow run's next read (#2210).
- *
- * The ceiling and the notice are driven by an injected clock; only the kill
- * case crosses the real clock, since the kill is execFileSync's own timeout.
- * Breaking it lets the census step resolve-ticket.js names hang a closing
- * session silently again.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -14,8 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-// Required, not imported: readCommittedBytes tests for this module's own
-// CeilingPassed, which an ESM import of it would load a second copy of.
 const require = createRequire(import.meta.url);
 const { readCommittedBytes } = require("./census-digest.js");
 const { CeilingPassed, buildGitCeiling } = require("./git-ceiling.js");
@@ -58,7 +47,6 @@ describe("buildGitCeiling (#2210)", () => {
 			now: c.now,
 			say: () => undefined,
 		});
-		// A second short, not a millisecond: what is left is the read's real timeout.
 		c.at(TOUCHED_BY_CEILING_MS - 1000);
 		expect(run(ceiling)).toMatch(/\.git/);
 		c.at(TOUCHED_BY_CEILING_MS);
@@ -88,8 +76,6 @@ describe("buildGitCeiling (#2210)", () => {
 	});
 
 	it("kills a read that outlives what is left of the ceiling, naming it", () => {
-		// Crosses the real clock: the kill is execFileSync's own timeout, which
-		// no injected clock reaches.
 		const bin = path.join(dir, "bin");
 		fs.mkdirSync(bin);
 		fs.writeFileSync(path.join(bin, "git"), "#!/bin/sh\nsleep 30\n", {

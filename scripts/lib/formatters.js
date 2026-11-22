@@ -24,7 +24,8 @@
  *                                               or nothing
  *   node scripts/lib/formatters.js skip-flags   `flags:` and the --skip-shell
  *                                               or --skip-python the format
- *                                               gate takes, so the hook tells
+ *                                               gate takes, one a line, so the
+ *                                               hook tells
  *                                               no flag from a crash
  *   node scripts/lib/formatters.js lint-missing `lint:skip` or `lint:refuse`,
  *                                               the ruff lint gate's verdict
@@ -53,26 +54,19 @@ const { HOOK_GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { GIT_MODE } = require("./git-mode.js");
 const { readAttributeExcluded } = require("./git-attributes.js");
 
-/* The shell file set (#1828), which check:sh lints and both formatter routes
- * format: a husky hook, its `.local` companion or a `.sh`/`.bash` file by name, and a file with no
- * extension whose shebang names a shell shellcheck and shfmt both read, zsh
- * not being one. shellFiles() drops what .gitattributes marks vendored or
- * generated, the paths base §0 lets a route row send to "none". */
-/* Both are POSIX ERE too: precommit-gate.sh arms on their union. */
+// #5529
 const SHELL_NAME = /^\.husky\/[^/.]+(\.local)?$|\.(sh|bash)$/;
 const NO_EXTENSION = /(^|\/)[^/.]+$/;
 const SHELL_SHEBANG =
 	/^#!\s*(?:\S*\/)?(?:env\s+(?:-\S+\s+)*)?(?:ba|da|k)?sh(?:\s|$)/;
+
+const BINPRM_BUF_SIZE = 256;
 
 const SHFMT_OPTIONS = { indent: 2, switchCaseIndent: true };
 
 const RUFF = process.env.WFC_RUFF || "ruff";
 const SHFMT_MODULE = process.env.WFC_SHFMT;
 
-/** The one line that installs each formatter in any repo, at the core's pins
- * (package.json, requirements-dev.txt); formatters.test.ts pins them equal.
- * Ruff's carries `--only-binary :all:`, the only form guard-pip-install passes
- * in an adopter that does not declare ruff (#5232). */
 const SHFMT_INSTALL =
 	"npm install --ignore-scripts --save-dev --save-exact @wasm-fmt/shfmt@0.2.7";
 const RUFF_INSTALL = "python3 -m pip install --only-binary :all: ruff==0.16.4";
@@ -97,11 +91,9 @@ function loadShfmt() {
 	return null;
 }
 
-/** A character of a subscript's term: not `]`, a blank, a quote or `$`. */
 const TERM_CHAR = /[^\]\s"'$]/;
 const ARITHMETIC_OPS = "-+*/%";
 
-/** The end of the subscript term at `from`; `from` itself where none opens. */
 function termEnd(/** @type {string} */ s, /** @type {number} */ from) {
 	let end = from;
 	while (end < s.length && TERM_CHAR.test(s.charAt(end))) end++;
@@ -109,13 +101,6 @@ function termEnd(/** @type {string} */ s, /** @type {number} */ from) {
 }
 
 /**
- * The subscripts shfmt printed as arithmetic, `[a - b]`: two or more terms
- * joined by ` <op> `, each its `[`'s index and the text inside the brackets.
- * The same matches as the `g` regex `\[(T+(?: O T+)+)\]`, with T a TERM_CHAR
- * and O one of ARITHMETIC_OPS. A term may hold a `[`, so a subscript that
- * does not close fails for every `[` inside it too, and the search resumes
- * where it failed; as that regex, each `[` is a fresh start that rereads the
- * rest, quadratic on `[a + a` repeated.
  * @param {string} s
  * @returns {{index: number, spaced: string}[]}
  */
@@ -147,7 +132,6 @@ const DECLARATION =
 	/\b(?:declare|local|typeset)((?:[ \t]+-\w+)+)[ \t]+([^;\n|&)]*)/g;
 
 /**
- * The names a `declare`/`local`/`typeset` with `-A` makes associative.
  * @param {string} source
  * @returns {Set<string>}
  */
@@ -164,8 +148,6 @@ function associativeNames(source) {
 }
 
 /**
- * The array a subscript at `at` belongs to: the name before its `[`, or, for
- * a `[k]=v` entry, the nearest `name=(` above it.
  * @param {string} out
  * @param {number} at
  * @returns {string | undefined}
@@ -180,11 +162,6 @@ function subscriptOwner(out, at) {
 }
 
 /**
- * The source as shfmt prints it. Throws on a parse error, with shfmt's message,
- * and where shfmt would respace an unquoted associative-array key: it parses
- * `M[a-b]` as arithmetic and prints `M[a - b]`, a different key (#1332). An
- * indexed array's `w[i+1]` means the same either way, so only arrays the file
- * declares `-A` are checked.
  * @param {ShfmtFormat} format
  * @param {string} source
  * @param {string} file
@@ -211,8 +188,6 @@ function formatShell(format, source, file) {
 }
 
 /**
- * What a check of one shell file finds: null where shfmt leaves it as it is,
- * else the finding, carrying shfmt's output where it parsed.
  * @param {ShfmtFormat} format
  * @param {string} source
  * @param {string} file
@@ -234,8 +209,6 @@ function shellFinding(format, source, file) {
 }
 
 /**
- * A path's opening bytes in the worktree, null where it is no regular file: a
- * symlink's target is judged at its own path.
  * @param {string} p
  * @returns {string | null}
  */
@@ -244,8 +217,7 @@ function readWorktreeHead(p) {
 	try {
 		if (!fs.lstatSync(p).isFile()) return null;
 		fd = fs.openSync(p, "r");
-		// Linux reads 256 bytes for a shebang line (BINPRM_BUF_SIZE, kernel 5.1+).
-		const buf = Buffer.alloc(256);
+		const buf = Buffer.alloc(BINPRM_BUF_SIZE);
 		return buf.toString("utf8", 0, fs.readSync(fd, buf, 0, buf.length, 0));
 	} catch {
 		return null;
@@ -255,9 +227,6 @@ function readWorktreeHead(p) {
 }
 
 /**
- * A head reader over the index: a path's staged blob, null for a staged
- * symlink, whose blob is its target's path. Throws where git cannot list the
- * index.
  * @returns {(p: string) => string | null}
  */
 function indexHead() {
@@ -272,11 +241,8 @@ function indexHead() {
 }
 
 /**
- * The shell files among `paths`, in their order (#1828). Throws where git
- * cannot read the attributes.
- * @param {string[]} paths repo-relative, read from the host root
- * @param {(p: string) => string | null} head a path's opening text, null
- *   where it is no regular file, which drops it
+ * @param {string[]} paths
+ * @param {(p: string) => string | null} head
  * @param {{ cached?: boolean, timeout?: number, cwd?: string }} [read]
  * @returns {string[]}
  */
@@ -296,8 +262,6 @@ function shellFiles(paths, head, { cached = false, timeout, cwd } = {}) {
 }
 
 /**
- * Every tracked shell file, its head read from the worktree. Throws where git
- * fails.
  * @returns {string[]}
  */
 function readTrackedShellFiles() {
@@ -307,13 +271,6 @@ function readTrackedShellFiles() {
 }
 
 /**
- * The plugin's ruff.toml as `--config`, where the working directory has no
- * ruff config of its own (#106). The plugin root is the hook's
- * `WFC_PLUGIN_ROOT`, or the harness's `CLAUDE_PLUGIN_ROOT` on a tool write.
- *
- * Read at the root only: `--config` turns off ruff's per-directory discovery,
- * so a host whose ruff config sits in a subdirectory alone is overridden by
- * the plugin's. Such a host adds a root ruff.toml.
  * @returns {string[]}
  */
 function ruffConfigArgs() {
@@ -335,9 +292,6 @@ function ruffConfigArgs() {
 }
 
 /**
- * The adopter's `ruffExclude` from .claude/workflow-core.json. An unreadable or
- * malformed value fails OPEN on the exclusion alone — every path is read, the
- * stricter reading — and says so through `say` (#122).
  * @param {(line: string) => void} say
  * @returns {string[]}
  */
@@ -361,8 +315,6 @@ function readRuffExcludes(say) {
 }
 
 /**
- * `--force-exclude` plus one `--extend-exclude` per `ruffExclude` pattern, so
- * a host's own `exclude` and its adopter-config exclusions bind every route.
  * @param {(line: string) => void} say
  * @returns {string[]}
  */
@@ -379,7 +331,6 @@ function hasRuff() {
 }
 
 /**
- * The flags the format gate takes in the working directory.
  * @returns {string[]}
  */
 function skipFlags() {
@@ -393,8 +344,6 @@ function skipFlags() {
 }
 
 /**
- * The ruff lint gate's verdict where ruff is missing, its reason written to
- * stderr: skipped only where a workflow runs `ruff check` (#1563).
  * @returns {"skip" | "refuse"}
  */
 function lintMissing() {
@@ -416,8 +365,7 @@ function lintMissing() {
 }
 
 /**
- * The `shell-files` route: one a line; exit 1 where git fails.
- * @param {string} mode "", "--index" or "--tracked"
+ * @param {string} mode
  */
 function printShellFiles(mode) {
 	let files;
@@ -437,25 +385,15 @@ function printShellFiles(mode) {
 	writeFd(1, files.map((f) => `${f}\n`).join(""));
 }
 
-/* The post-write core's spawns run in series under the PostToolUse entry's
- * 15 s (#2787): Biome, then ruff or the attribute read's 3 s git ceiling.
- * Two formatter calls at 5 s and that ceiling leave 2 s for the other cores. */
+// guess, #2787
 const WRITE_FORMAT_TIMEOUT_MS = 5000;
 
 /**
- * Format one file a tool just wrote, if it is shell or Python (#1332): the
- * post-write core's step 1 beside Biome. Run from the host root, which has
- * already been checked to hold the file. Answers `shell` where the file is in
- * the shellcheck set, which post-write answers with its shell-lint-blind fragment,
- * and "" on any other. A missing formatter or an unparseable file leaves the
- * file as written: this is convenience, and .husky/pre-commit's format gate is
- * what refuses.
- * @param {string} file the written path, as the tool named it
+ * @param {string} file
  * @returns {"shell" | ""}
  */
 function formatWritten(file) {
 	const rel = path.relative(process.cwd(), path.resolve(file));
-	// git unreadable: left as written, for the gate to judge.
 	const shell = orFallback(
 		() =>
 			shellFiles([rel], readWorktreeHead, { timeout: HOOK_GIT_TIMEOUT_MS })
@@ -464,7 +402,6 @@ function formatWritten(file) {
 	);
 	if (shell) {
 		const format = loadShfmt();
-		// Unparseable or unreadable: left as written, for the gate to name.
 		ignoreFailure(() => {
 			const source = fs.readFileSync(file, "utf8");
 			const out = format && formatShell(format, source, rel);
@@ -475,14 +412,7 @@ function formatWritten(file) {
 	if (rel.endsWith(".py"))
 		spawnSync(
 			process.env.WFC_RUFF || "ruff",
-			[
-				"format",
-				...ruffConfigArgs(),
-				// A write hook stays silent: the commit gate names an unread exclude.
-				...readRuffExcludeArgs(noop),
-				"--",
-				rel,
-			],
+			["format", ...ruffConfigArgs(), ...readRuffExcludeArgs(noop), "--", rel],
 			{ stdio: "ignore", timeout: WRITE_FORMAT_TIMEOUT_MS },
 		);
 	return "";
@@ -490,7 +420,7 @@ function formatWritten(file) {
 
 if (require.main === module) {
 	const want = process.argv.slice(2).join(" ");
-	if (want === "skip-flags") writeFd(1, `flags:${skipFlags().join(" ")}\n`);
+	if (want === "skip-flags") writeFd(1, `flags:${skipFlags().join("\n")}\n`);
 	else if (want === "lint-missing") writeFd(1, `lint:${lintMissing()}\n`);
 	else if (/^shell-files(?: --index| --tracked)?$/.test(want))
 		printShellFiles(want.slice("shell-files ".length));

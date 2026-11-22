@@ -1,10 +1,3 @@
-/*
- * arm-secondary.js — three of the before/after test's secondary measures,
- * read off one main-session transcript (#2175,
- * `docs/research/startup-load-before-after-test.md` D3 §Secondary). Each is
- * lexical and reported beside the score, never in it.
- */
-
 const { mainChainRecords, parseContentText } = require("./transcript");
 const { needleIn } = require("./guard-fires");
 const { meanVar } = require("./arm-stats.js");
@@ -17,17 +10,11 @@ const {
 } = require("./round-marker.js");
 const { PROFILE_GATES: GATES } = require("./precommit-gates.js");
 
-/** The line husky prints whenever any pre-commit gate exits non-zero. */
 const HUSKY_REFUSAL = "husky - pre-commit script failed";
 
 const UNATTRIBUTED_GATE = "unattributed";
 
-/**
- * Each pre-commit gate's own refusal lines, any one of which names it.
- * Several also print on a pass, so a refusal goes to the gate matched last
- * before husky's line. A refusal whose output the harness cut off names none.
- * @type {readonly {id: string, lines: readonly string[]}[]}
- */
+/** @type {readonly {id: string, lines: readonly string[]}[]} */
 const COMMIT_GATES = [
 	...require("../commit-gate-refusals.json").gates,
 	...GATES.map((g) => ({ id: g.id, lines: g.refusals })),
@@ -49,10 +36,7 @@ const COMMIT_GATES = [
 const blocksOf = (record) =>
 	Array.isArray(record?.message?.content) ? record.message.content : [];
 
-/**
- * What a call acts on, for telling a repeat.
- * @param {{name: string, input: Record<string, unknown>}} use
- */
+/** @param {{name: string, input: Record<string, unknown>}} use */
 function targetOf({ name, input }) {
 	if (typeof input?.command === "string")
 		return `${name} ${input.command.replace(/\s+/g, " ").trim()}`;
@@ -62,11 +46,6 @@ function targetOf({ name, input }) {
 }
 
 /**
- * Warned calls, and those the session acted against: its next call, the
- * first one it issued after seeing the warn, repeats the warned target or
- * draws the same warn again. A call counts once however many warns it drew,
- * and once however many times the transcript writes its record; a warn counts
- * where its text carries a registered guard's `warn` needle.
  * @param {TranscriptRecord[]} records
  * @param {Subject[]} subjects
  */
@@ -76,7 +55,7 @@ function warnsActedAgainst(records, subjects) {
 	);
 	/** @type {{id: string, name: string, input: Record<string, unknown>, message: string}[]} */
 	const uses = [];
-	/** @type {Map<string, Set<string>>} each warned call's warn needle ids */
+	/** @type {Map<string, Set<string>>} */
 	const warned = new Map();
 	for (const r of records) {
 		for (const b of blocksOf(r))
@@ -111,7 +90,6 @@ function warnsActedAgainst(records, subjects) {
 		const ids = warned.get(u.id);
 		if (!ids) return;
 		warnedCalls++;
-		// A sibling in the same message was issued before the warn was seen.
 		const next = uses.slice(i + 1).find((n) => n.message !== u.message);
 		if (!next) return;
 		if (targetOf(next) === targetOf(u)) repeated++;
@@ -138,11 +116,7 @@ function gateBefore(output) {
 	return gate;
 }
 
-/**
- * Pre-commit refusals in Bash results, one per husky line, by the gate that
- * refused each. A Read or a subagent's report quoting the line is no refusal.
- * @param {TranscriptRecord[]} records
- */
+/** @param {TranscriptRecord[]} records */
 function commitGateRefusals(records) {
 	/** @type {Record<string, number>} */
 	const byGate = {};
@@ -161,10 +135,7 @@ function commitGateRefusals(records) {
 	return { total, byGate };
 }
 
-/**
- * The gate behind each husky line in one result, in order.
- * @param {string} text
- */
+/** @param {string} text */
 function refusingGates(text) {
 	const gates = [];
 	let from = 0;
@@ -179,19 +150,12 @@ function refusingGates(text) {
 	return gates;
 }
 
-/** A figure with its band in brackets: `70% (60% - 80%)`. */
 const BANDED = /\d{1,3}\s*%\s*\(\s*\d{1,3}\s*%\s*[-–—]\s*\d{1,3}\s*%\s*\)/g;
-/** A gloss opening straight after an identifier: `#12 (the retry ticket)`. */
 const GLOSS_AFTER = /^\s*\(/;
 const FENCED = /^\s{0,3}```[\s\S]*?^\s{0,3}```/gm;
-/** Code quoted inline, where `#12` is an example rather than a citation. */
 const CODE_SPAN = /`[^`\n]*`/g;
 
-/**
- * The session's last assistant message: the text blocks of the last
- * `message.id` that carried text.
- * @param {TranscriptRecord[]} records
- */
+/** @param {TranscriptRecord[]} records */
 function parseFinalMessage(records) {
 	let id = null;
 	/** @type {string[]} */
@@ -209,12 +173,7 @@ function parseFinalMessage(records) {
 	return parts.length > 0 ? parts.join("\n") : null;
 }
 
-/**
- * The lexical checks on a final message. `pricedOutsideRound` is a lettered
- * option and a Confidence line both above the first `❓ **Qn**` marker;
- * `glossed` counts the identifiers whose first mention opens a bracket.
- * @param {string} message
- */
+/** @param {string} message */
 function finalMessageChecks(message) {
 	const lines = message.replace(FENCED, "").split("\n");
 	const marker = lines.findIndex((l) => Q_MARKER.test(l));
@@ -261,11 +220,7 @@ function secondaryOf(text, subjects) {
 	};
 }
 
-/**
- * One arm's measures over its runs: per-run mean and variance where a count
- * varies by run, totals where a share or a split is what reads.
- * @param {ReturnType<typeof secondaryOf>[]} runs
- */
+/** @param {ReturnType<typeof secondaryOf>[]} runs */
 function summariseSecondary(runs) {
 	const sum = (/** @type {number[]} */ xs) => xs.reduce((a, b) => a + b, 0);
 	/** @type {Record<string, number>} */

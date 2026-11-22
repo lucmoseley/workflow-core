@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-/*
- * arm-gh-stub.js — the `gh` a before/after test sandbox puts first on PATH
- * (#2042). It reaches nothing: every call is logged to `<sandbox>/gh.log`, a
- * write answers success, and a read answers only from a frozen fixture in
- * `<sandbox>/gh-fixtures/`, failing where there is none.
- *
- * `build-arm-sandbox.js task` copies it to `<sandbox>/bin/gh`, so the
- * sandbox root is two levels above this file's own path.
- *
- * A read the stub cannot answer as real `gh` would — a `--jq` filter, a
- * fixture missing — fails rather than printing something plausible.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -45,16 +33,14 @@ function isWrite(argv) {
 	if (cmd !== "api") return verb !== undefined && WRITE_VERBS.has(verb);
 	const method = argv.findIndex((a) => a === "-X" || a === "--method");
 	if (method !== -1) return String(argv[method + 1]).toUpperCase() !== "GET";
-	// A graphql query rides on `-f query=…` like a write; only a mutation is one.
 	if (verb === "graphql")
 		return argv.some((a) => /^query=\s*mutation\b/.test(a));
 	return argv.some((a) => /^(-f|-F|--field|--raw-field|--input)(=|$)/.test(a));
 }
 
 /**
- * The fixture with only the `--json` fields asked for, as `gh` prints them.
  * @param {Record<string, unknown>} issue
- * @param {string} fields comma-separated
+ * @param {string} fields
  */
 function pick(issue, fields) {
 	return Object.fromEntries(
@@ -64,7 +50,7 @@ function pick(issue, fields) {
 
 /**
  * @param {string[]} argv
- * @param {string} root the sandbox root
+ * @param {string} root
  * @returns {{code: number, out: string, err: string}}
  */
 function answer(argv, root) {

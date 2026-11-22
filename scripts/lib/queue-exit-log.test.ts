@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * queue-exit-log.test.ts — the queue-exit store's logger and path (#1215).
- * The four exits themselves are driven through `main` in run-vitest.test.ts;
- * this file holds what the store promises on its own: the 14-day series
- * survives pruning, a failed write never throws, and a worktree's run lands
- * in the canonical checkout's file.
- *
- * Every case writes to a log under the system temp dir, and the worktree case
- * builds a throwaway repo with a real `git worktree`, so the machine's own
- * queue-exit log is never touched.
- *
- * `report-suite-queue-wait.js`, launched at every session start by
- * `session-start-sweeps.sh`, sums this log into the daily queue-wait alarm
- * (#1157); a loosened case lets lines drop or land in a worktree's file, and
- * the alarm under-reads the wait it exists to surface.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -44,7 +28,6 @@ const read = (file: string) =>
 		.map((l) => JSON.parse(l));
 
 describe("queueExitLogger's store (#1215)", () => {
-	/* The logger stamps and prunes off `Date`, so the clock is faked (§X9). */
 	const now = Date.parse("2026-10-10T00:00:00Z");
 	beforeEach(() => {
 		vi.useFakeTimers({ toFake: ["Date"] });

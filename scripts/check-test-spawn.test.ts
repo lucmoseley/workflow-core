@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which test-file spawns check-test-spawn.js counts as spawning the
- * program under test, and which keptSpawn calls it passes.
- *
- * check-test-spawn.js (#3458) against fabricated tests in a throwaway
- * directory, never this one.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here lets a
- * new test spawn node unrefused.
- */
 
 import fs from "node:fs";
 import os from "node:os";

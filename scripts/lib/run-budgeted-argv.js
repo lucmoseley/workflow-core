@@ -1,13 +1,5 @@
-/*
- * run-budgeted-argv.js — run-budgeted.js's command line split into its
- * fields, read by run-budgeted.js and by the pin harness's shell half (#5361).
- *
- *   <budget-ms> <kill-after-ms> <command> [args…]
- *   --hook <hook> [--pausable] <command> [args…]
- */
-
 /**
- * @param {string[]} argv run-budgeted.js's own arguments
+ * @param {string[]} argv
  * @returns {{ hook: string | undefined, pausable: boolean,
  *   budgetRaw: string | undefined, killAfterRaw: string | undefined,
  *   command: string | undefined, args: string[] }}

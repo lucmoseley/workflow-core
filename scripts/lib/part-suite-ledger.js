@@ -1,13 +1,3 @@
-/*
- * part-suite-ledger.js — the part-suite peak (#5366) off the run ledger of
- * the host's canonical checkout, so another repo's suite never sizes this
- * one's runs.
- *
- * CACHED PER PROCESS FOR ONE QUEUE POLL (lib/queue-poll.js).
- *
- * NEVER THROWS. An absent ledger reads as no lines, every bucket thin.
- */
-
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
@@ -43,16 +33,12 @@ function readLedgerLines(file) {
  * @param {string} [root]
  */
 function ledgerPath(root) {
-	/* Lazy: the guard loads this module on every hook call, and reads the
-	 * ledger only for a part-suite. */
 	const { markersDir } = require("./marker-root.js");
 	const { RUN_LEDGER } = require("./run-ledger.js");
 	return path.join(markersDir(root), RUN_LEDGER);
 }
 
 /**
- * The peak a part-suite of `kind` resolving to `files` test files is charged
- * now, null for a thin bucket.
  * @param {{ kind: PartKind, files: number }} run
  * @param {{ root?: string, file?: string, now?: number, ttlMs?: number }} [options]
  * @returns {{ peak: import("./part-suite-peak.js").PartPeak | null } | { why: string }}

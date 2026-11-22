@@ -1,39 +1,3 @@
-/*
- * run-memory.js — what one test run's processes drew (#5183): the wrapper's
- * pid, vitest's main pid and every worker pid it forked, the peak resident
- * memory of each role and of the three summed, and the test file the largest
- * worker ran.
- *
- * THE RUN FILE is one JSON file a run, under the refill loop's directory
- * (lib/refill-dir.js), so the memory-kill filer reads every repo's runs from
- * one place. The wrapper opens it as it starts, before its queue wait or its
- * selection, and rewrites it every sample with `sampledAt`; a run whose
- * wrapper was killed leaves it at its last sample, with no `endedAt`.
- *
- * A PID IS THE RUN'S ONLY WHILE SEEN: `heldUntil` gives the time a pid was
- * last seen in its role, the wrapper's and main's being the last sample, so lib/earlyoom-kills.js never names a run for a later
- * process reusing a pid.
- *
- * A WORKER is a direct child of vitest's main process, or a process that
- * claimed a file (below): one forked and gone between two samples still
- * claims. Each role's peak is the kernel's own high-water mark, VmHWM in
- * `/proc/<pid>/status`, which no sampling gap misses. The sum spans processes
- * no one cgroup holds — the wrapper runs outside vitest's scope, which may not
- * exist (lib/user-scope.js) — so it is VmRSS summed in one sample, and a spike
- * shorter than SAMPLE_MS escapes it.
- *
- * THE WORKER'S FILE: vitest names no worker per file, so each worker claims
- * the file it runs (`claimFile`, from vitest.setup.ts) as `<pid>` in the run
- * file's `.files` directory beside it.
- *
- * A FILE OF ANOTHER SHAPE, with no `workersSeenAt` object, reads as no run:
- * it can bound no pid to its run, and the store keeps files RETAIN_MS across
- * any change of shape (#5253).
- *
- * NEVER THROWS: an unreadable /proc or an unwritable file costs the reading,
- * never the run.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId } = require("./arbiter-proc.js");
@@ -44,30 +8,22 @@ const { procRoot } = require("./proc-root.js");
 const { readParentOf } = require("./proc-stat.js");
 const { refillPath } = require("./refill-dir.js");
 
-/** The run file's path, set on vitest's environment. */
 const MEMORY_ENV = "WFC_RUN_MEMORY";
 const STORE_DIR = ".test-run-memory";
-/* A gate seat's record in the store (lib/gate-seat.js), never a run file. */
 const GATE_FILE_PREFIX = "gate-";
-/* Untraced: about 200 stat reads a sample. */
+// guess, #5183
 const SAMPLE_MS = 1000;
-/* How many sample intervals past its last sighting a pid stays its run's, or
- * its gate seat's (lib/gate-seat.js): two, so one late tick on a loaded
- * machine does not drop a live process. */
+// guess, #5269
 const SLACK_SAMPLES = 2;
-/* Covers lib/incident-tickets.js's 72 h lookback and the incident gap. */
+// guess, #5183
 const RETAIN_MS = 4 * 24 * 60 * 60 * 1000;
-/* A guess: room for a named run's files; a wider selection is named by its
- * count. */
+// guess, #5183
 const FILES_KEPT = 10;
 
 /**
  * @typedef {{ wrapper: number, main: number|null, workers: number[] }} RunPids
  * @typedef {{ wrapper: number, main: number, worker: number, sum: number }} PeaksMiB
  * @typedef {{ pids: RunPids, peaksMiB: PeaksMiB, workerFile: string|null }} RunMemory
- * `mode` and `admission` say how the gate admitted a part-suite (#5366):
- * lib/peak-tripwire.js reads `mode` to tell whether a peak-charged run was
- * live at a kill, and the marker carries `admission` to the run ledger.
  * @typedef {{ session: string|null, kind: string, argv: string[],
  *   files: string[], fileCount: number, repo: string,
  *   mode?: "peak" | "ladder",
@@ -86,10 +42,7 @@ const claimsDir = (file) => `${file}.files`;
 /** @param {number} kb */
 const toMiB = (kb) => Math.round(kb / 1024);
 
-/**
- * VmRSS and VmHWM in kB, or null where the process is gone.
- * @param {string} proc @param {number} pid
- */
+/** @param {string} proc @param {number} pid */
 function readMemKb(proc, pid) {
 	const status = readText(path.join(proc, String(pid), "status"));
 	if (status.state !== "read") return null;
@@ -99,11 +52,7 @@ function readMemKb(proc, pid) {
 	return { rss, hwm: Number.isFinite(hwm) ? hwm : rss };
 }
 
-/**
- * The live direct children of `parent`.
- * @param {string} proc @param {number} parent
- * @returns {number[]}
- */
+/** @param {string} proc @param {number} parent @returns {number[]} */
 function readChildren(proc, parent) {
 	let names;
 	try {
@@ -118,10 +67,7 @@ function readChildren(proc, parent) {
 	);
 }
 
-/**
- * @param {string} file the run file
- * @returns {Map<number, string>}
- */
+/** @param {string} file @returns {Map<number, string>} */
 function readClaims(file) {
 	let names;
 	try {
@@ -139,10 +85,7 @@ function readClaims(file) {
 	);
 }
 
-/**
- * The wrapper's and main's VmHWM, and their VmRSS summed, kB; 0 for one gone.
- * @param {string} proc @param {number} wrapper @param {number|null} main
- */
+/** @param {string} proc @param {number} wrapper @param {number|null} main */
 function sampleOwn(proc, wrapper, main) {
 	const w = readMemKb(proc, wrapper);
 	const m = main === null ? null : readMemKb(proc, main);
@@ -154,13 +97,9 @@ function sampleOwn(proc, wrapper, main) {
 }
 
 /**
- * Lists and stamps the run's workers, folding each live one's VmHWM into
- * `workerHwm`; their VmRSS summed, kB.
  * @param {string} proc
- * @param {RunFile} run accumulator: its `pids.workers` and `workersSeenAt`
- *   gain this sample's workers
+ * @param {RunFile} run
  * @param {{ at: string, claims: Map<number, string>, workerHwm: Map<number, number> }} sampling
- *   `workerHwm` an accumulator: each worker's highest VmHWM, kB
  */
 function sampleWorkers(proc, run, { at, claims, workerHwm }) {
 	const main = run.pids.main;
@@ -172,8 +111,6 @@ function sampleWorkers(proc, run, { at, claims, workerHwm }) {
 	for (const pid of workers) {
 		if (!run.pids.workers.includes(pid)) run.pids.workers.push(pid);
 		const mem = readMemKb(proc, pid);
-		/* A claim outlives its worker: one gone by its first sample is seen
-		 * once, now. */
 		if (mem === null) {
 			run.workersSeenAt[pid] ??= at;
 			continue;
@@ -204,10 +141,7 @@ function removeQuietly(target) {
 	ignoreFailure(() => fs.rmSync(target, { recursive: true, force: true }));
 }
 
-/**
- * Removes run files, and their claims, older than RETAIN_MS.
- * @param {string} dir @param {number} now
- */
+/** @param {string} dir @param {number} now */
 function sweep(dir, now) {
 	let names;
 	try {
@@ -230,7 +164,6 @@ function sweep(dir, now) {
  */
 
 /**
- * Starts sampling one run, writing its file at once.
  * @param {RunLaunch} launch
  * @param {{ wrapper?: number, proc?: string, dir?: string, intervalMs?: number,
  *   now?: () => number, bootId?: string|null }} [options]
@@ -263,7 +196,7 @@ function startSampler(
 		sampledAt: stamp(),
 		workersSeenAt: {},
 	};
-	/** @type {Map<number, number>} each worker's VmHWM, kB, at its last read */
+	/** @type {Map<number, number>} */
 	const workerHwm = new Map();
 	const sample = () => {
 		const at = stamp();
@@ -292,12 +225,10 @@ function startSampler(
 	return {
 		file,
 		sample,
-		/* What the run selected, known once the wrapper has planned it. */
 		setLaunch: (next) => {
 			Object.assign(run, next, { files: next.files.slice(0, FILES_KEPT) });
 			writeRun(file, run);
 		},
-		/* vitest's pid, known only once the run file's path is in its env. */
 		setMain: (pid) => {
 			run.pids.main = pid;
 			writeRun(file, run);
@@ -310,7 +241,6 @@ function startSampler(
 			writeRun(file, run);
 			return memoryOf(run);
 		},
-		/* A wrapper that spawned nothing leaves no run. */
 		discard: () => {
 			end();
 			removeQuietly(file);
@@ -318,12 +248,7 @@ function startSampler(
 	};
 }
 
-/**
- * The run block of the file `MEMORY_ENV` names, for the marker; null where
- * none is set or it will not read.
- * @param {NodeJS.ProcessEnv} [env]
- * @returns {RunMemory|null}
- */
+/** @param {NodeJS.ProcessEnv} [env] @returns {RunMemory|null} */
 function readRunMemory(env = process.env) {
 	const file = env[MEMORY_ENV];
 	if (!file) return null;
@@ -335,8 +260,6 @@ function readRunMemory(env = process.env) {
 }
 
 /**
- * How the gate admitted the run whose file `MEMORY_ENV` names (#5366), for
- * the marker; null where it records none or will not read.
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {import("./part-suite-peak.js").PartAdmission|null}
  */
@@ -351,8 +274,6 @@ function readRunAdmission(env = process.env) {
 }
 
 /**
- * Records, from inside a worker, the test file it now runs, relative to the
- * tree it runs in.
  * @param {string} testPath
  * @param {{ env?: NodeJS.ProcessEnv, pid?: number, cwd?: string }} [options]
  */
@@ -372,9 +293,6 @@ function claimFile(
 }
 
 /**
- * The store's JSON files `named` takes whose parse `shaped` keeps, or why the
- * store would not read: a directory that will not list or a file that will
- * not parse.
  * @template T
  * @param {{ named: (name: string) => boolean,
  *   shaped: (parsed: unknown) => parsed is T, dir?: string }} read
@@ -396,7 +314,6 @@ function readStoreFiles({ named, shaped, dir = storeDir() }) {
 			const parsed = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
 			if (shaped(parsed)) items.push(parsed);
 		} catch (error) {
-			/* A neighbour's sweep took it after the listing. */
 			if (caught(error).code === "ENOENT") continue;
 			return {
 				items: [],
@@ -407,7 +324,6 @@ function readStoreFiles({ named, shaped, dir = storeDir() }) {
 }
 
 /**
- * Whether `parsed` is an object whose `key` holds an object.
  * @template T
  * @param {unknown} parsed
  * @param {string} key
@@ -418,33 +334,21 @@ const holdsObject = (parsed, key) =>
 	key in parsed &&
 	/** @type {Record<string, unknown>} */ (parsed)[key] instanceof Object;
 
-/**
- * The last time, ms, a pid last seen at `seen` can be taken for its record's.
- * @param {number} seen
- * @param {number} lastSample
- * @param {number} sampleMs
- */
+/** @param {number} seen @param {number} lastSample @param {number} sampleMs */
 const seenUntil = (seen, lastSample, sampleMs) =>
 	Math.min(seen, lastSample) + SLACK_SAMPLES * sampleMs;
 
-/**
- * Every run file in the store, or why the store would not read.
- * @param {string} [dir]
- * @returns {{ runs: RunFile[], why: string|null }}
- */
+/** @param {string} [dir] @returns {{ runs: RunFile[], why: string|null }} */
 function readRunFiles(dir = storeDir()) {
 	const { items, why } = readStoreFiles({
 		dir,
 		named: (name) => !name.startsWith(GATE_FILE_PREFIX),
-		/* A file of another shape: see the header (#5253). */
 		shaped: (run) => holdsObject(run, "workersSeenAt"),
 	});
 	return { runs: items, why };
 }
 
 /**
- * The role `pid` held in `run` and the last time, ms, it can be taken for the
- * run's (`seenUntil`); null where it held none.
  * @param {RunFile} run
  * @param {number} pid
  * @returns {{ role: Role, until: number }|null}

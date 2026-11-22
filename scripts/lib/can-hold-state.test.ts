@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * can-hold-state.test.ts — the predicate mantahostels#1997 extracted, asserted directly:
- * a directory may hold state unless a permission bit or a dangling symlink
- * says otherwise, and a pinned directory wins wherever it can hold it.
- *
- * The dangling-symlink branch is included, which no caller's fixtures reach.
- * Each case builds real directories, links and permission bits in a temp dir,
- * because the predicate is a question about the filesystem and a stub would
- * only restate its answer.
- *
- * check-hook-liveness.js, adopter-consent.js and notify-report.js pick their
- * state directory through it: loosen a case here and one of them writes into a
- * directory it cannot use, and its notify stamps or consent records fail to
- * persist.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -54,9 +39,6 @@ describe("canHoldState", () => {
 	});
 
 	it("refuses a path whose absent components run up to an unwritable root", () => {
-		// Answered by the EACCES arm at `/`, not by the walk's fixed-point guard —
-		// that guard is unreachable on any filesystem whose root exists, and is
-		// kept as a non-termination stop rather than as a branch under test.
 		expect(canHoldState(path.join("/", "no-such-root-dir", "x"))).toBe(false);
 	});
 });

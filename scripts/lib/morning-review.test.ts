@@ -1,10 +1,3 @@
-/*
- * The morning review body, rendered from fixtures (#2011). Rendered through
- * renderReview, the export the generator calls, so the body's shape is pinned
- * without gh. Break it and the founder's one daily read lists the wrong
- * window, drops an entry or a one-way close, or is refused at filing.
- */
-
 import { describe, expect, it } from "vitest";
 
 const {
@@ -49,7 +42,6 @@ const MIN = 60 * 1000;
 
 const QUIET_IDLE = { trackers: [], loopRunning: true, damaged: [] };
 
-/** The readout core's 24-hour and 7-day readouts ending at NOW. */
 const concurrencyOver = (ticks: unknown[], minutes: unknown[] | null) => {
 	const r = (windowMs: number) =>
 		readout({ ticks, minutes, now: Date.parse(NOW), windowMs });
@@ -121,8 +113,6 @@ describe("the next run's bookkeeping (#3844, #3934)", () => {
 			history: { why: "git: fatal" },
 		}),
 	];
-	/* No code writes this since #3934, but reviews filed before it stay input:
-	 * parseHistoryCursor walks back through older bodies. */
 	const VisibleFormat = [
 		"## Primitives",
 		"",
@@ -173,7 +163,10 @@ describe("the next run's bookkeeping (#3844, #3934)", () => {
 
 	it.each([
 		["this render", () => render(ReadOneHistory)],
-		["a review filed with the lines visible", () => VisibleFormat],
+		[
+			"a review filed with the lines visible, before #3934",
+			() => VisibleFormat,
+		],
 	])(
 		"reads the history cursor and carried checkouts back off %s",
 		(_, make) => {
@@ -474,15 +467,12 @@ describe("renderReview (#2011)", () => {
 			swapFreeMiB: 0,
 			signals: 1,
 		});
-		/* One kill at the window's start, owed to the previous review. */
 		const edge = {
 			first: SINCE,
 			last: "2026-10-17T07:10:00Z",
 			kills: [at(SINCE, 1), at("2026-10-17T07:10:00Z", 2)],
 			unjoined: "journalctl --list-boots: denied",
 		};
-		/* One after the window's end, read minutes into a filing: the next
-		 * review's (#3813). */
 		const later = {
 			first: "2026-10-18T07:05:00Z",
 			last: "2026-10-18T07:05:00Z",

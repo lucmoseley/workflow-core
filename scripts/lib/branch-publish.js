@@ -1,99 +1,3 @@
-/*
- * branch-publish.js — the dispatcher core that keeps work landing on `main`
- * directly — no branch on the remote, and never a pull request (#764) — and
- * that never merges a Dependabot PR (mantahostels#3351). One core, because
- * both limbs read the same `gh pr` walk. Its production port, the `gh pr view`
- * lookup, is lib/branch-publish-host.js; git reads go through `ctx.git`.
- *
- * DENY, not warn (mantahostels#103): a push's destination ref, a `gh pr
- * create` and a merge of a PR whose author is Dependabot are structured facts,
- * and none has a legitimate use under its rule.
- *
- * WHAT IS DENIED
- *  - `gh pr create` / `gh pr new`, wherever `-R` points.
- *  - `gh api` creating a pull request: a POST to `repos/<o>/<r>/pulls` —
- *    explicit `-X POST`, or no method and a field or `--input`, which gh sends
- *    as POST — or a `graphql` call whose fields carry `createPullRequest`.
- *  - `git push` whose destination is a branch other than `spike/*` or the
- *    session's own queue ref, `main` included, each destination read by
- *    lib/push-dests.js. `--all`, `--branches` and `--mirror` are denied
- *    outright.
- *  - A FORCED push or a deletion whose destination is `main` (#1733): `-f`,
- *    `--force`, `--force-with-lease` or a `+` refspec, and `--delete main` or
- *    `:main` — `heads/main` and git's abbreviations of the two long flags
- *    read the same. It prints docs/agents/rules/main-remote-rewind.txt,
- *    through lib/main-rewind.js.
- *  - `gh pr merge` of a Dependabot PR (#2020): a `dependabot/` branch named on
- *    the command, or a PR whose head branch or author `gh pr view` reads as
- *    Dependabot's.
- *
- * WHAT PASSES: a destination under `spike/` — a data branch kept off `main`
- *   on purpose — or outside `refs/heads/` (a tag, a note); `--tags` with no
- *   refspec; any deletion but of `main` or a ref the lander manages; a
- *   detached HEAD's bare push, which git itself refuses; `--help`,
- *   `--dry-run`.
- *
- * SESSIONS PUSH THEIR OWN QUEUE REFS AND ONLY THE QUEUE LANDER MOVES `main`
- *   (spec #4458): any push to `main` is denied, a forced one or a deletion
- *   included. Every refusal but the Dependabot merge's names the session's
- *   own queue ref, or the launch where it has none.
- *
- * QUEUE REFS (#4458): a session's own queue ref is
- *   `queue/<name>`, `<name>` its worktree's under `.claude/worktrees/` of the
- *   host, read off the session's tree. A push creating or fast-forwarding it
- *   passes. Denied, each refusal naming that own ref: a push to another
- *   session's queue ref, a forced push or a deletion of any queue ref, own
- *   included, and any push or deletion of `lander/*` or `dropped/*`. A session
- *   outside such a worktree, or whose tree git cannot resolve, has no queue
- *   ref: its push of one is denied, naming scripts/start-session.sh, the
- *   launch that cuts a session its worktree. The lander's own pushes — `main`,
- *   `lander/*`, a queue ref's compare-and-delete — run from its process, never
- *   through Claude Code's Bash tool, so none reaches this core.
- *
- * THE FIRST REFUSAL WINS: the
- * push walk runs before the gh walk, and once a refusal stands no later
- * segment is judged, looked up or recorded.
- *
- * LIMITS
- *  - A bare `git push` is judged by the current branch (lib/push-dests.js). A
- *    `remote.<name>.push` refspec or push.default=matching pushes something
- *    else, unseen — and a `+` refspec there forces it.
- *  - It walks every working tree of THIS repo, a linked worktree included
- *    (walkGit's "repo" scope). A push in another repo is not judged; a `gh pr
- *    create` is, whatever repo it targets — a session wanting one elsewhere
- *    runs it outside Claude Code.
- *  - A queue ref is judged by the session's tree, not the pushing one: `git -C`
- *    into a neighbour's worktree pushes the neighbour's commits under the
- *    session's own name, unseen.
- *  - A push whose tree it cannot resolve (`git -C "$W"`, W unset) FAILS OPEN,
- *    recorded by the walker (mantahostels#147). A `graphql` query it cannot
- *    read back (`$(cat q)`, a `@file` field) is allowed unrecorded: nothing
- *    says it creates anything. A refspec it cannot read (`git push origin
- *    "$B"`) is refused, naming the own queue ref: Bash calls share no shell
- *    state, so the name is unknowable here, and no pre-push limb backstops a
- *    queue ref, `lander/*` or `dropped/*` it could reach (#5235).
- *  - A `gh pr merge` naming no `dependabot/` branch costs one `gh pr view`,
- *    under the host's 8 s timeout.
- *    Where the lookup fails — or cannot be aimed: a PR or repo word it
- *    cannot read, a `GH_REPO` override, an unknown directory — the merge is allowed
- *    and recorded. The lookup runs
- *    in the segment's own directory (walkCommands' cwd). A merge through `gh
- *    api` is not read. Adopters get the limb too (#2020).
- *  - Only a segment's own command word is read, after shell-words.js's unwrap
- *    wrappers (`env`, `timeout`, `command`, …), a push included (#1731), and
- *    each command a `flock -c` or `watch` string runs (#4699). A
- *    wrapper's own `-C DIR` is followed, so `env -C /x git push` is judged
- *    against `/x`. `sh -c "…"`, a script, the GitHub web UI and the
- *    founder's terminal are not seen, and Dependabot's PRs are opened by
- *    GitHub itself (docs/agents/dependabot.md governs those).
- *
- * The rules it prints are docs/agents/rules/branch-publish.txt,
- * main-remote-rewind.txt, queue-ref.txt and dependabot-merge.txt. A refusal
- * whose fragment cannot be read still refuses, naming the file
- * (mantahostels#1648's store rule), and logs nothing: an unreadable fragment
- * is check-guard-registry.js's assertion.
- */
-
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const path = require("node:path");
 const {
@@ -125,33 +29,25 @@ const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
  * @typedef {object} BranchPublishPorts
- * @property {(cwd: string, args: string[]) => string | null}
- *   ghLookup `gh args…` run in `cwd`: its stdout, or null where it could not
- *   run, timed out or exited non-zero
- * @typedef {import("./core-contract.js").CoreContext & BranchPublishPorts}
- *   BranchPublishContext
- * @typedef {{ reason: string, segment: string }} Refusal the reason before the
- *   splice, and the segment, masked
+ * @property {(cwd: string, args: string[]) => string | null} ghLookup
+ * @typedef {import("./core-contract.js").CoreContext & BranchPublishPorts} BranchPublishContext
+ * @typedef {{ reason: string, segment: string }} Refusal
  */
 
-/** `gh pr merge`'s value-taking flags, from `gh pr merge --help` on gh 2.95.0. */
 const MERGE_VALUE_FLAGS =
 	"-b --body -F --body-file -t --subject -A --author-email --match-head-commit -R --repo";
 
-/** `gh api`'s value-taking flags, from `gh api --help` on gh 2.95.0. */
 const API_VALUE_FLAGS =
 	"-X --method -f --raw-field -F --field -H --header --input -q --jq -t --template --cache --hostname -p --preview";
 
-/** `gh pr view`'s verdict on whether the PR is Dependabot's. */
 const DEPENDABOT_JQ =
 	'(.headRefName | startswith("dependabot/")) or (.author.login | test("^(app/)?dependabot(\\\\[bot\\\\])?$"))';
 
 const PULLS_RE = /^repos\/[^/]+\/[^/]+\/pulls\/?(\?.*)?$/;
 
 /**
- * A refusal under the publish rule, naming the session's own queue ref.
  * @param {BranchPublishContext} ctx
- * @param {string} what the refusal's opening, "This …"
+ * @param {string} what
  * @param {string} segment
  * @returns {Refusal}
  */
@@ -169,9 +65,8 @@ const refuse = (ctx, what, segment) => ({
 });
 
 /**
- * A forced push or deletion of `main`, refused with the remote-rewind rule.
  * @param {BranchPublishContext} ctx
- * @param {string} what completing "This …"
+ * @param {string} what
  * @param {string} segment
  * @returns {Refusal}
  */
@@ -181,10 +76,8 @@ const mainRewind = (ctx, what, segment) => ({
 });
 
 /**
- * A refusal's reason naming the session's own queue ref, or the launch where
- * it has none, between its opening and `rule`.
  * @param {BranchPublishContext} ctx
- * @param {string} what the refusal's opening, "This …"
+ * @param {string} what
  * @param {string} rule
  * @param {string | null} [own]
  * @returns {string}
@@ -193,9 +86,6 @@ const buildOwnRefReason = (ctx, what, rule, own = sessionQueueRef(ctx)) =>
 	`${what}: @CMD@\n\n${ownRefLine(ctx, own)}\n\n${rule}`;
 
 /**
- * The session's own queue ref, lib/landing-refs.js's answer, or null where
- * its tree is no worktree under the host's `.claude/worktrees/` or git names
- * no tree for it.
  * @param {BranchPublishContext} ctx
  * @returns {string | null}
  */
@@ -204,9 +94,8 @@ function sessionQueueRef(ctx) {
 }
 
 /**
- * A refusal of a lander-managed ref's push or deletion.
  * @param {BranchPublishContext} ctx
- * @param {string} what the refusal's opening, "This …"
+ * @param {string} what
  * @param {string | null} own
  * @param {string} segment
  * @returns {Refusal}
@@ -226,8 +115,6 @@ const queueRefusal = (ctx, what, own, segment) => ({
 });
 
 /**
- * The line naming the session's own queue ref, or the launch where it has
- * none.
  * @param {BranchPublishContext} ctx
  * @param {string | null} own
  */
@@ -256,7 +143,6 @@ function decide(command, ctx) {
 	const parsed = parseCommand(command);
 	/** @type {Refusal | null} */
 	let refused = null;
-	/* What a walk would record after the refusal is a command never run. */
 	/** @type {BranchPublishContext} */
 	const quiet = {
 		...ctx,
@@ -285,23 +171,16 @@ function decide(command, ctx) {
 	return { deny: denyText(ctx, segment, reason) };
 }
 
-// ── THE PUSH ─────────────────────────────────────────────────────────────
-
-/** @param {string} ref as written */
+/** @param {string} ref */
 const isMain = (ref) =>
 	ref === "main" || ref === "heads/main" || ref === "refs/heads/main";
 
 const MANAGED = [QUEUE_PREFIX, LANDER_PREFIX, DROPPED_PREFIX];
 
-/**
- * The branch a ref as written names.
- * @param {string} ref
- */
+/** @param {string} ref */
 const branchNamed = (ref) => ref.replace(/^(refs\/)?heads\//, "");
 
 /**
- * The queue lander's verdict on a push or deletion of `branch`, or undefined
- * where `branch` is none of its refs.
  * @param {BranchPublishContext} ctx
  * @param {string} segment
  * @param {{ branch: string, forced: boolean, deleted: boolean }} push
@@ -347,10 +226,7 @@ function judgeManaged(ctx, segment, { branch, forced, deleted }) {
 		: null;
 }
 
-/**
- * Whether publishing `ref`, a full ref, is allowed.
- * @param {string} ref
- */
+/** @param {string} ref */
 const isAllowedDst = (ref) =>
 	ref.startsWith("refs/heads/spike/") || !ref.startsWith("refs/heads/");
 
@@ -379,7 +255,6 @@ function judgePush(ctx, spans, { segment, tree, args }) {
 }
 
 /**
- * One destination's refusal, or null where it passes.
  * @param {BranchPublishContext} ctx
  * @param {string} segment
  * @param {import("./push-dests.js").PushRow} row
@@ -403,7 +278,7 @@ function judgeRow(ctx, segment, row) {
 /**
  * @param {BranchPublishContext} ctx
  * @param {string} segment
- * @param {string} ref the deleted ref as written
+ * @param {string} ref
  * @returns {Refusal | null}
  */
 function judgeDelete(ctx, segment, ref) {
@@ -421,7 +296,7 @@ function judgeDelete(ctx, segment, ref) {
 /**
  * @param {BranchPublishContext} ctx
  * @param {string} segment
- * @param {import("./push-dests.js").PushRow} row a push
+ * @param {import("./push-dests.js").PushRow} row
  * @returns {Refusal | null}
  */
 function judgeDestination(ctx, segment, { ref, forced, bare }) {
@@ -456,8 +331,6 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
 	);
 }
 
-// ── GH ───────────────────────────────────────────────────────────────────
-
 /**
  * @param {BranchPublishContext} ctx
  * @param {string[]} spans
@@ -473,7 +346,6 @@ function judgeGh(ctx, spans, { segment, words, leading, cwd }) {
 }
 
 /**
- * One `gh` run, as judgeGh answers.
  * @param {BranchPublishContext} ctx
  * @param {string[]} spans
  * @param {import("./shell-words.js").GhCall & { wrapperWords: string[] }} gh
@@ -482,9 +354,6 @@ function judgeGh(ctx, spans, { segment, words, leading, cwd }) {
  */
 function judgeGhRun(ctx, spans, gh, { segment, leading, cwd }) {
 	const repoEnv = carriesVar("GH_REPO", leading, gh.wrapperWords);
-	/* The word as the shell would pass it, so a quoted `"create"` still reads
-	 * as `create`; an expansion it cannot read stays masked and matches
-	 * nothing. */
 	/** @param {string | undefined} w */
 	const lit = (w) => literal(w ?? "", spans).text;
 	const first = lit(gh.args[0]);
@@ -505,15 +374,13 @@ function judgeGhRun(ctx, spans, gh, { segment, leading, cwd }) {
 	});
 }
 
-/** The `gh api` flags that carry a request body. */
 const BODY_FLAGS = ["-f", "--raw-field", "-F", "--field", "--input"];
 
 /**
- * A `gh api` call that opens a pull request.
  * @param {BranchPublishContext} ctx
  * @param {string[]} spans
  * @param {string} segment
- * @param {string[]} args the words after `api`
+ * @param {string[]} args
  * @returns {Refusal | null}
  */
 function judgeApi(ctx, spans, segment, args) {
@@ -538,8 +405,6 @@ function judgeApi(ctx, spans, segment, args) {
 }
 
 /**
- * A `gh api` call's endpoint and method, read through literal, whether it
- * carries a body, and whether a field names `createPullRequest`.
  * @param {string[]} args
  * @param {string[]} spans
  */
@@ -562,16 +427,13 @@ function readApi(args, spans) {
 /**
  * @typedef {object} Merge
  * @property {string} segment
- * @property {import("./shell-words.js").GhRepo | null} repo the `-R` before
- *   `merge`, as stepGhFlags reads it
- * @property {boolean} repoEnv the command carries GH_REPO
- * @property {string} cwd where the command runs; "" where the walk cannot know
- * @property {string[]} args the words after `merge`
+ * @property {import("./shell-words.js").GhRepo | null} repo
+ * @property {boolean} repoEnv
+ * @property {string} cwd
+ * @property {string[]} args
  */
 
 /**
- * A `gh pr merge` of a Dependabot PR: named by its branch, else read through
- * one `gh pr view`. Anything that stops the lookup allows, recorded.
  * @param {BranchPublishContext} ctx
  * @param {string[]} spans
  * @param {Merge} merge

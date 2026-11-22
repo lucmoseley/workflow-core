@@ -1,15 +1,3 @@
-/*
- * rescue-takeover.js — the core of `rescue-sessions.js takeover` (#621) and
- * `hand-off` (#2659), #5157: stop a stuck session and adopt its ticket, or
- * post a stopped job's hand-off and release its claims.
- *
- * Each answers `{status, stdout, stderr}` for the shell to write. The oracle,
- * `claude stop`, `gh`, the clock, the sleep and /proc arrive as RescuePorts
- * (lib/rescue-jobs.js); the arbiter's stores, the filesystem and git are
- * read and written in place. Its lines are held until it returns, so a
- * takeover waiting out its stop confirmation prints nothing meanwhile.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { isTerminalAgent, listedAgents } = require("./agent-liveness");
@@ -44,41 +32,12 @@ const { scriptPath } = require("./script-path.js");
 /** @typedef {import("./gh.js").GhRun} GhRun */
 /** @typedef {import("./rescue-probe.js").GhostJob} GhostJob */
 
-/* How long a stopped session may stay listed as live before takeover gives
- * up on the stop (#621). A GUESS too; `--confirm-within` overrides it. */
+// guess, #621
 const STOP_CONFIRM_CEILING_S = 60;
 
 const HAND_OFF_USAGE =
 	"usage: rescue-sessions.js hand-off --from <config-dir> --job <short id> [--session <id>] --issue <n> [--issue <n>]…";
 
-/*
- * ── takeover: stop a frozen session and adopt its ticket (#621, spec #617) ──
- *
- * The probe, then on FROZEN, LIMITED (#2158) or ENDED — or the SLOW or ASKING verdict
- * `--despite` names, once the founder has ruled it stuck (#622): snapshot ->
- * stop (all but an unlisted ENDED) -> confirm the stop off the listing ->
- * claim -> assign -> comment. Every refusal comes before the snapshot,
- * the first write.
- *
- * ON GHOST (#1989): keep its job record -> stop -> confirm -> print the
- * re-dispatch command. Nothing is claimed, commented or adopted.
- *
- * A LISTED ENDED HOLDER IS STOPPED TOO (#623). Its host runs on until stopped,
- * and the file-claim guard judges a holder by its process alone, so every file
- * it claimed would refuse the successor. Its failure only warns: the ticket
- * claim already reads a terminal holder as ended (#619).
- *
- *   0     taken over
- *   1     re-run or act on the message: the ticket would not read, or a step
- *         failed part-way — the stop, its confirmation, the claim (a third
- *         session's included), the assignment or the comment. An ENDED
- *         holder's stop is the exception: it only warns, exiting 0
- *   2     refused before any write: bad invocation, no holder, self, several
- *         holders or tickets, a closed ticket
- *   3-8   refused on the probe's verdict, with the probe's exit code
- */
-
-/** What to do next, per verdict the takeover refuses on, for `ticket`. */
 const VERDICT_REFUSAL = {
 	UNKNOWN: () =>
 		"Nothing stopped — doubt never stops a session. Re-run takeover; if it stays UNKNOWN, ask the founder, naming the unreadable input above.",
@@ -91,15 +50,11 @@ const VERDICT_REFUSAL = {
 };
 
 /**
- * Re-read the listing until `sessionId` is terminal or unlisted, or
- * `ceilingS` passes. A listing that will not read is not yet a confirmation.
- * `requireGone` accepts only unlisted, with `hostPid`, where known, exited.
  * @param {RescuePorts} ports
  * @param {string} sessionId
  * @param {number} ceilingS
  * @param {{requireGone?: boolean, hostPid?: number | null}} [opts]
- * @returns {Promise<{how: string} | {how: null, why: string | null}>} how
- *   the stop was confirmed, or why the last listing would not read
+ * @returns {Promise<{how: string} | {how: null, why: string | null}>}
  */
 async function confirmStopped(
 	ports,
@@ -122,7 +77,6 @@ async function confirmStopped(
 }
 
 /**
- * Why the stop went unconfirmed: the listing still names it, or would not read.
  * @param {string} short
  * @param {number} ceilingS
  * @param {string | null} why
@@ -133,7 +87,6 @@ const unconfirmedWhy = (short, ceilingS, why) =>
 		: `the oracle still lists ${short} as live ${ceilingS}s after the stop`;
 
 /**
- * How one listing confirms the stop, or null where it does not yet.
  * @param {Listing} listing
  * @param {string} sessionId
  * @param {boolean} requireGone
@@ -148,11 +101,7 @@ function stopConfirmation(listing, sessionId, requireGone, hostRuns) {
 	return null;
 }
 
-/**
- * The dead session's file claims, each marked dirty or clean in the tree its
- * holder wrote it in.
- * @param {string} sessionId
- */
+/** @param {string} sessionId */
 function readFileClaimLines(sessionId) {
 	const store = require("./arbiter-store");
 	const { worktreeLabel } = require("./session-worktrees.js");
@@ -190,7 +139,6 @@ async function takeOver(io, args, ports) {
 	io.out(buildVerdictText(v));
 	if (v.verdict === "GHOST")
 		return stopGhost(io, { who, ghost: v.ghost }, ceiling, ports);
-	/* Out of scope (#2570): a headless run cannot take a typed prompt. */
 	if (after.holder?.row.kind === "headless")
 		io.fail(
 			`${who.sessionId} is a headless overflow run, which takeover does not handle. Stop it with node ${scriptPath("lib/headless-sessions.js")} stop ${after.holder.row.id}. Nothing written.`,
@@ -215,8 +163,6 @@ async function takeOver(io, args, ports) {
 		);
 	const issue = readOpenIssue(io, repo, n, ports.gh);
 
-	// The plan whose records hold the session, or, for one no plan lists, the
-	// plan whose transcript the probe read.
 	const dir =
 		after.holder?.dir ??
 		v.dirs.find((d) => readTranscriptOf(d, who.sessionId) === after.transcript);
@@ -293,8 +239,6 @@ async function takeOver(io, args, ports) {
 }
 
 /**
- * The takeover's own flags, refused before anything is read: this session's
- * id, the stop-confirmation ceiling, and any --despite with its reason.
  * @param {ParsedArgs} args
  * @param {BufferedIo} io
  * @param {NodeJS.ProcessEnv} env
@@ -317,8 +261,6 @@ function takeoverOptions(args, io, env) {
 }
 
 /**
- * Refuse a --despite that names no verdict a founder can overrule, or comes
- * without the --reason that records the ruling — and a --reason without it.
  * @param {ParsedArgs} args
  * @param {BufferedIo} io
  */
@@ -340,7 +282,6 @@ function checkDespite(args, io) {
 }
 
 /**
- * Ticket `n`, read and open — or the takeover fails, nothing written.
  * @param {BufferedIo} io
  * @param {string} repo
  * @param {number} n
@@ -367,8 +308,6 @@ function readOpenIssue(io, repo, n, gh) {
 }
 
 /**
- * The session's job record off `dir`, or one built from the probe where the
- * plan keeps none — its transcript the probe's where the record's is gone.
  * @param {string} dir
  * @param {string} sessionId
  * @param {string} transcript
@@ -396,10 +335,6 @@ function readTakeoverJob(dir, sessionId, transcript, row) {
 }
 
 /**
- * A recordless session's directory: its agents row's, else the checkout its
- * transcript last ran in, else the main checkout, marked a guess (#4464). The
- * guess still gives the commit and artefact readers a directory to read.
- * Residual: a session whose worktree was reaped always gets the guess.
  * @param {string} transcript
  * @param {AgentRecord | undefined} row
  * @returns {{cwd: string, cwdGuessed?: true}}
@@ -412,11 +347,6 @@ function readUnrecordedCwd(transcript, row) {
 }
 
 /**
- * The checkout a transcript last ran in: the git top level of the newest
- * `cwd` its records carry, where that directory still exists — a session
- * launched in the main checkout may have moved into a worktree — else the
- * linked worktree whose project slug names the transcript's directory. Null
- * where neither answers.
  * @param {string} transcript
  * @returns {string | null}
  */
@@ -427,7 +357,6 @@ function readTranscriptCwd(transcript) {
 	const last = readTranscriptRecords(transcript).findLast(
 		(r) => typeof r?.cwd === "string" && r.cwd && fs.existsSync(r.cwd),
 	)?.cwd;
-	// Not a checkout any more: the slug below may still name one.
 	const top = last ? orFallback(() => gitTopLevel(last), null) : null;
 	if (top !== null) return top;
 	const slug = path.basename(path.dirname(transcript));
@@ -440,8 +369,6 @@ function readTranscriptCwd(transcript) {
 }
 
 /**
- * Stop a GHOST, keeping its job record first, and print the command that re-dispatches its intent.
- * Exits 0 once stopped, 1 where the stop or its confirmation fails.
  * @param {BufferedIo} io
  * @param {{who: {sessionId: string, issue: number | null}, ghost: GhostJob}} found
  * @param {number} ceiling
@@ -481,12 +408,9 @@ async function stopGhost(
 }
 
 /**
- * The command that re-launches a ghost's intent as it was launched: its model,
- * and `--no-advisor` where it ran with none. `--force` where its own launch is
- * still held by the dispatch ledger, which would otherwise refuse it.
- * @param {any} rec  the ghost's job record, as `GhostJob` carries it
- * @param {string} kept  where that record was copied
- * @param {number} now  epoch ms the ledger window ends at
+ * @param {any} rec
+ * @param {string} kept
+ * @param {number} now
  */
 function buildRedispatchText(rec, kept, now) {
 	const { shellQuote } = require("./sh-quote.js");
@@ -526,8 +450,7 @@ function buildRedispatchText(rec, kept, now) {
 }
 
 /**
- * `.claude/tmp/rescue/<label>-<short>/`, made.
- * @param {number | string} label  the ticket, or "ghost" where none is known
+ * @param {number | string} label
  * @param {string} short
  */
 function rescueDir(label, short) {
@@ -544,21 +467,17 @@ function rescueDir(label, short) {
 }
 
 /**
- * The id `claude stop` takes: the 8-character form `stop --ids` is given, off
- * the oracle row's own id where it carries one, else the session id's.
  * @param {AgentRecord | undefined} row
  * @param {string} sessionId
  */
 const jobIdOf = (row, sessionId) => shortJobId(row?.id || sessionId);
 
 /**
- * Stop the holder: a live one stops or the takeover fails; a listed ENDED one
- * only warns where it will not; an unlisted ENDED one is left alone.
  * @param {BufferedIo} io
  * @param {{verdict: string, why: string}} v
  * @param {StopTarget} s
  * @param {RescuePorts} ports
- * @returns {Promise<boolean>} whether its file claims stay held
+ * @returns {Promise<boolean>}
  */
 async function stopHolder(io, v, s, ports) {
 	if (v.verdict === "ENDED" && s.row)
@@ -572,12 +491,11 @@ async function stopHolder(io, v, s, ports) {
 }
 
 /**
- * Stop a listed ENDED holder, warning where it will not stop or confirm gone.
  * @param {BufferedIo} io
  * @param {StopTarget} s
  * @param {AgentRecord} row
  * @param {RescuePorts} ports
- * @returns {Promise<boolean>} whether its file claims stay held
+ * @returns {Promise<boolean>}
  */
 async function stopEndedHolder(io, s, row, ports) {
 	const stopped = stopOn(s.dir, s.jobId, undefined, { spawn: ports.claude });
@@ -628,10 +546,9 @@ async function stopLiveHolder(io, s, ports) {
 }
 
 /**
- * Claim ticket `n` for this session — or fail the takeover, naming why.
  * @param {BufferedIo} io
- * @param {{n: number, me: string}} claim  the ticket, for this session
- * @param {StopTarget} s  the stopped session
+ * @param {{n: number, me: string}} claim
+ * @param {StopTarget} s
  * @param {RunOracle | undefined} oracle
  */
 function adoptClaim(io, { n, me }, { sessionId, kept }, oracle) {
@@ -679,13 +596,11 @@ function buildTakeoverComment(t) {
 }
 
 /**
- * Post `comment` on ticket `n`; where that fails, leave it in `out` to post by
- * hand and say so.
  * @param {BufferedIo} io
  * @param {GhRun} gh
  * @param {{repo: string, n: number, out: string}} ticket
  * @param {string} comment
- * @returns {boolean} whether it posted
+ * @returns {boolean}
  */
 function postComment(io, gh, { repo, n, out }, comment) {
 	const { parseErrLine } = require("./gh.js");
@@ -705,12 +620,10 @@ function postComment(io, gh, { repo, n, out }, comment) {
 	}
 }
 
-/** Where the job's directory is the main checkout by default. */
 const GUESSED_CWD =
 	" (a guess: no record names its directory and no checkout git lists matches its transcript — find its worktree with git worktree list)";
 
 /**
- * RESUMPTION.md: what the adopting session reads to continue the work.
  * @param {Job} job
  * @param {{n: number, title: string, out: string, short: string,
  *   sessionId: string, claimsStuck: boolean}} t
@@ -733,13 +646,7 @@ function buildResumptionText(job, t) {
 	].join("\n");
 }
 
-/**
- * Where RESUMPTION.md sends the successor: into the dead session's own
- * worktree, by `cd` or a relaunch there — `--into` takes only a session
- * worktree, so the main checkout gets the `cd` alone, and a guessed one
- * neither.
- * @param {Pick<Job, "cwd" | "cwdGuessed">} job
- */
+/** @param {Pick<Job, "cwd" | "cwdGuessed">} job */
 function buildWhereLine({ cwd, cwdGuessed }) {
 	if (!cwd) return "in this session";
 	if (cwdGuessed) return "in the worktree git worktree list shows it worked in";
@@ -752,27 +659,13 @@ function buildWhereLine({ cwd, cwdGuessed }) {
 		: `where its edits sit: cd ${dir}`;
 }
 
-/**
- * The commits-landed clause of RESUMPTION.md.
- * @param {Job} job
- */
+/** @param {Job} job */
 function buildLandedLine(job) {
 	if (job.commitsLanded === null) return "unreadable (git would not run)";
 	if (job.commitsLanded && job.commitsLanded.length > 0)
 		return job.commitsLanded.join("; ");
 	return "none matched";
 }
-
-/*
- * ── hand-off: the refill loop's takeover of a session it stopped (#2659) ──
- *
- * The loop stops a resumed-idle session that took no turn after its resume,
- * then runs this from the session's checkout. It snapshots the job, posts a
- * `**Hand-off:**` comment on each issue (lib/hand-off.js's buildHandOffComment:
- * the narration's newest lines, the commits landed, the session's own
- * uncommitted diff) and releases the session's arbiter claim on each, for
- * read-hand-off.js. It stops nothing and leaves the tree as it is.
- */
 
 /**
  * @param {BufferedIo} io
@@ -807,10 +700,7 @@ function handOffJob(io, args, ports) {
 		if (!postComment(io, ports.gh, { repo, n, out }, comment)) failed = true;
 		if (found || sessionId) {
 			if (!releaseHandedOff(io, n, sessionId)) failed = true;
-		}
-		// Residual: its claim stays, up to a week, though a dead holder's refuses
-		// no fresh claim (claimIssueExclusive).
-		else io.out(`left: any claim on #${n}, its session id being unknown\n`);
+		} else io.out(`left: any claim on #${n}, its session id being unknown\n`);
 	}
 	return failed ? 1 : 0;
 }
@@ -836,7 +726,6 @@ function parseHandOffArgs(args, io, env) {
 }
 
 /**
- * Release `sessionId`'s claim on #`n`; false where it may still stand.
  * @param {BufferedIo} io
  * @param {number} n
  * @param {string} sessionId
@@ -854,11 +743,8 @@ function releaseHandedOff(io, n, sessionId) {
 }
 
 /**
- * The next step a hand-off gives its fresh session. A session may have stopped on
- * a question it never posted, which only its narration shows (#3980). Residual:
- * the fresh session is trusted to obey this.
  * @param {string} ticket
- * @param {string|null} narrated  where its narration's newest lines are, null none read
+ * @param {string|null} narrated
  */
 const buildHandOffLeft = (ticket, narrated) =>
 	narrated
@@ -869,15 +755,13 @@ const FRESH_PICK_UP =
 	"fresh session picks up from the block below, launched by the next tick free to, which an away-mode loop is not while the ticket is labelled parked.";
 
 /**
- * The opening of a hand-off whose job record is gone.
  * @param {string} short
- * @param {string} sessionId  "" where the launch never learned it
+ * @param {string} sessionId
  */
 const buildRecordlessHead = (short, sessionId) =>
 	`**Refill loop: handed off.** ${sessionId ? `Session ${sessionId}` : "The session"} of job ${short} ended unread: its job record is gone. ${sessionId ? "The loop released its claim; a" : "A"} ${FRESH_PICK_UP}`;
 
 /**
- * Snapshot `found` into `out`, and the hand-off comment of what that read.
  * @param {BufferedIo} io
  * @param {string} dir
  * @param {string} out
@@ -909,9 +793,6 @@ function writeSnapshotBody(io, dir, out, found) {
 }
 
 /**
- * A hand-off comment: its block where the session's uncommitted diff fits in a
- * comment, else a note naming the diff's file in `out`. Exits 1 where git
- * cannot read HEAD, the block's Base.
  * @param {BufferedIo} io
  * @param {{sessionId: string, ticket: string}} session
  * @param {string} out
@@ -957,8 +838,6 @@ function writeHandOffBody(
 }
 
 /**
- * The tree a hand-off reads its Base and diff in: the one the session last
- * wrote in, where its ledger reads, else the main checkout (#4457).
  * @param {string} sessionId
  * @param {string} host
  */
@@ -968,9 +847,6 @@ function handOffTree(sessionId, host) {
 }
 
 /**
- * `file`'s `git diff HEAD`, or for a file git does not track, its diff from
- * nothing, which `git apply` reads alike without the index being touched.
- * Exits 1 where git gives neither.
  * @param {BufferedIo} io
  * @param {string} root
  * @param {string} file
@@ -987,7 +863,6 @@ function readUncommittedDiff(io, root, file) {
 }
 
 /**
- * `takeover`'s outcome. A throw fails it, exit 1, with its stack.
  * @param {ParsedArgs} args
  * @param {RescuePorts} ports
  */

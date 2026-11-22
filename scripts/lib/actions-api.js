@@ -1,22 +1,9 @@
-/*
- * actions-api.js — GitHub's REST API from inside an Actions job, for the
- * checks that run off the machine (#4939). Reads GITHUB_API_URL and
- * GH_TOKEN, as Actions sets them. No `gh`, so a sparse checkout needs no
- * install.
- *
- * A read retries READ_TRIES times, RETRY_MS apart, and throws the last
- * failure: an off-machine alarm that reads one dropped call as an answer is
- * wrong exactly when nobody can look. A write is tried once, as a lost reply
- * to a comment that landed would post it twice.
- */
-
-/* Guesses: one read's tries and the pause between them. */
+// guess, #5529
 const READ_TRIES = 4;
 const RETRY_MS = 2000;
 
 /**
- * @typedef {(path: string) => Promise<unknown>} Get the parsed JSON at a path
- *   under the API root, throwing on any failure
+ * @typedef {(path: string) => Promise<unknown>} Get
  * @typedef {(path: string, body: unknown) => Promise<unknown>} Post
  */
 

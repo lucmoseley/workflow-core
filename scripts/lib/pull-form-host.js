@@ -1,10 +1,3 @@
-/*
- * pull-form-host.js — the production ports the dispatcher wires into the
- * guard-pull-form core, lib/pull-form.js (#2797, #3226). Every git read carries the hook's git
- * timeout, and a timed-out or erroring read answers "" or false, as the
- * bash guard's `|| x=""` did.
- */
-
 const { readCommit } = require("./commit-sha.js");
 const {
 	gitCommonDir,
@@ -17,8 +10,6 @@ const { readMainState } = require("./main-ref.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
- * git's stdout in `dir`, trailing newlines off as a command substitution
- * takes them; "" where git errors.
  * @param {string} dir
  * @param {string[]} args
  */
@@ -41,7 +32,6 @@ const buildHostPorts = ({ root }) => ({
 		return r.ok && r.sha !== null;
 	},
 	readFileAliases: (dir) => {
-		/* Exit 1 is no alias at all; anything else is git not saying. */
 		const r = gitReader(dir, HOOK_GIT_TIMEOUT_MS)(
 			["config", "-z", "--get-regexp", "^alias\\."],
 			[1],

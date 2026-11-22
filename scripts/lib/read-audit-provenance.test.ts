@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * What the read audit finds a spawned child is (#5057), asked of the
- * module itself over a scratch checkout, temporary directory and installed
- * directory: no traced Node process. Loosen a rule and the audit passes a
- * child whose reads it never saw, and the pass store caches its file.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -25,11 +19,6 @@ afterEach(() => {
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
 });
 
-/**
- * A scratch world: `root` the checkout, `tmp` the temporary directory, `own`
- * a second one a test moved its child's TMPDIR to, and `sys` where
- * installed programs stand, each a real path.
- */
 function world({ rootInTmp = false } = {}) {
 	const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rap-")));
 	dirs.push(base);
@@ -43,7 +32,6 @@ function world({ rootInTmp = false } = {}) {
 		tmps: [tmp, own],
 		realpath: fs.realpathSync,
 	});
-	/** A program file at `abs`, as `binOf` finds it: as found, then real. */
 	const program = (abs: string) => {
 		fs.mkdirSync(path.dirname(abs), { recursive: true });
 		fs.writeFileSync(abs, "#!/bin/sh\n", { mode: 0o755 });

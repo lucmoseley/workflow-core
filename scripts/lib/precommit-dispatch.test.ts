@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The git-hook dispatcher's core (#5172), seam 1 of #5171: arming, order,
- * stop-on-first-red, the exit alphabet, the warn policy, crash and load-fault
- * refusal, a caught signal's stop (#5188), and the lander sets, over stub
- * rows and the staged entries real git reads in the test's temp directory.
- *
- * It is the hook's gate stack: loosen a case and a commit a gate refuses
- * lands, or a gate runs on a commit it was never armed for.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,7 +30,6 @@ interface StubRow {
 	};
 	policy: "gate" | "warn";
 	quietPass?: boolean;
-	/** What the stub's runner answers, or how it fails. */
 	result?: { exit: number; stdout?: string; stderr?: string };
 	throws?: "load" | "run";
 }
@@ -53,7 +43,6 @@ afterEach(() => {
 const git = (dir: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-/** One seed commit, built once for the file and copied per repo. */
 const SEEDED = defineTemplate((dir) => {
 	git(dir, "init", "-q", ".");
 	git(dir, "config", "user.email", "test@example.com");
@@ -63,7 +52,6 @@ const SEEDED = defineTemplate((dir) => {
 	git(dir, "commit", "-qm", "init");
 });
 
-/** A repo with `committed` in HEAD and `staged` added to the index. */
 function repo(
 	committed: Record<string, string>,
 	staged: Record<string, string | null>,
@@ -100,7 +88,6 @@ const row = (id: string, more: Partial<StubRow> = {}): StubRow => ({
 	...more,
 });
 
-/** The core over stub rows: what it exits, writes and ran. */
 async function run(
 	rows: StubRow[],
 	opts: {
@@ -108,9 +95,7 @@ async function run(
 		gates?: "all" | "merge" | "batch";
 		computed?: Record<string, string[] | Error>;
 		signalIn?: string;
-		/** Git will not name the staged paths, killed by a signal where "signal". */
 		stagedFails?: "git" | "signal";
-		/** The commit route the route port answers; an Error throws. */
 		route?: string | null | Error;
 		facts?: string[];
 		voice?: { hook: string; noun: string };
@@ -436,9 +421,6 @@ describe("a staged list git will not name", () => {
 	});
 });
 
-/*
- * A hook other than pre-commit (#5207).
- */
 describe("the staged port, read only where a row arms on a path", () => {
 	it("never reads it where every row arms always", async () => {
 		const r = await run([row("a"), row("b")], { stagedFails: "git" });

@@ -1,13 +1,5 @@
-/*
- * python-bin.js — the `python3` to run: WFC_PYTHON, else `python3` (§N7: the
- * tests feed it chosen output, #2102). Read per call, not frozen at load: a suite
- * re-points it between tests.
- */
-
 const pythonBin = () => process.env.WFC_PYTHON || "python3";
 
-/* Each remedy fits its own code alone: reinstalling python cures no fork
- * limit (#3120). A code with no remedy here gets none. */
 const SPAWN_REMEDIES = /** @type {Record<string, string>} */ ({
 	ENOENT:
 		"Install python3 or point WFC_PYTHON at it, then its test deps: " +
@@ -21,8 +13,8 @@ const SPAWN_REMEDIES = /** @type {Record<string, string>} */ ({
 });
 
 /**
- * @param {Error} error a failed spawn of `pythonBin()`, carrying its errno code
- * @returns {string} what to do about it, as a line, or "" where nothing fits
+ * @param {Error} error
+ * @returns {string}
  */
 const pythonSpawnRemedy = (error) => {
 	const remedy =

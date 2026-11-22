@@ -1,15 +1,5 @@
 // @vitest-environment node
-/*
- * Which files in the live tree hold a `code-edges loads:` or
- * `code-edges caller:` line (lib/file-reach.js, #4790): every one must be in
- * the testkit's DECLARING, so code-edges.live.test.ts holds its lines to
- * what they declare. A line is a declaration where `fileReach` reads it as
- * one, its answer for the file changing when the line goes; each file is
- * read as it stands in the working tree, an unstaged edit included.
- *
- * full-sweep-only: the scan greps every tracked file for the marker, a set
- * no literal path names, so this test records no pass-store row.
- */
+// full-sweep-only: #4790
 
 import { execFileSync } from "node:child_process";
 import path from "node:path";

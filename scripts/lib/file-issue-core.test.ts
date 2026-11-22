@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins file-issue's logic in-process (#5150): lib/file-issue-core.js's
- * fileIssue, on file-issue's gh fake and link fake.
- *
- * Breaking a refusal case costs the guarantee file-issue exists for —
- * nothing half-filed — on the route the issue-create guard sends every new
- * ticket down, so a loosened case files tickets that route to nobody or sit
- * unplaced.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -41,7 +32,6 @@ import { readJsonl } from "./jsonl.js";
 import { readRuleText } from "./rule-text";
 import { TRIED_MIN } from "./takes-label";
 
-/* triage-labels.md's founder-act list, as every takes:human refusal prints it (#4155). */
 const ACTS = readRuleText("founder-acts");
 
 const kit = fileIssueKit();
@@ -1119,11 +1109,6 @@ describe("the similar-title list", () => {
 	});
 });
 
-/*
- * #500's measurement, re-run: the 520-title snapshot with each of its 30
- * sampled issues withdrawn in turn, as it was before it was filed, and its
- * title put to --check.
- */
 describe("the #500 dataset", () => {
 	const read = (f: string) =>
 		JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "..", f), "utf8"));

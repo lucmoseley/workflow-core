@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * git-fixture.test.ts — tests of git-fixture.ts, the template-and-copy git
- * repository fixture most guard tests build on (mantahostels#2068, spec
- * mantahostels#2048). Every case runs real git in
- * scratch directories, because what the fixture promises is a working copy
- * isolated from its template; a loosened case here lets that isolation break
- * unseen in every file that builds on it.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -78,7 +70,6 @@ describe("a plain template", () => {
 	});
 });
 
-// #806: vitest.setup.ts's suite-level git config.
 describe("a repo any test makes", () => {
 	it("reports automatic maintenance and auto-gc off", () => {
 		const repo = path.join(root, "repo");
@@ -91,8 +82,6 @@ describe("a repo any test makes", () => {
 });
 
 describe("a template counting its own builds", () => {
-	// A separate describe block, not folded into "a plain template" above: its
-	// build counter must see only this test's own instantiate() calls.
 	let builds = 0;
 	const counted = defineTemplate((dir) => {
 		builds++;
@@ -135,7 +124,6 @@ describe("a template carrying a worktree", () => {
 				.trim()
 				.split("\n"),
 		).toHaveLength(1);
-		// The copy's worktree is genuinely usable, not just present on disk.
 		expect(
 			git(path.join(second, "wt"), "rev-parse", "--is-inside-work-tree").trim(),
 		).toBe("true");
@@ -143,14 +131,6 @@ describe("a template carrying a worktree", () => {
 });
 
 describe("the leak check", () => {
-	// Each template below is used by exactly one test, but is still defined
-	// here at describe scope rather than inside its it(): defineTemplate()
-	// registers an afterAll, and vitest only honours a hook registered while a
-	// suite is being collected — never from inside a running test.
-
-	// A build function that plants its own absolute path in a plain file —
-	// exactly what a non-git absolute-path carrier (an arbiter store, say)
-	// looks like when its caller forgets to list it in extraPaths.
 	const leftoverTemplate = defineTemplate((dir) => {
 		initRepo(path.join(dir, "repo"));
 		fs.writeFileSync(
@@ -169,13 +149,6 @@ describe("the leak check", () => {
 
 	const ordinaryTemplate = defineTemplate((dir) => {
 		initRepo(path.join(dir, "repo"));
-		// Plants the template's own absolute path in the two locations the scan
-		// is supposed to skip. Mutation-sensitive to the objects/ exclusion
-		// regressing — a plain "no throw" case that never wrote there would pass
-		// either way. NOT sensitive to the .git/index exclusion (mantahostels#2068 review,
-		// finding F2): git's index is binary from its first bytes, so
-		// looksBinary() already skips it regardless of isSkippedFromLeakScan();
-		// the write below documents intent but proves nothing about that branch.
 		fs.mkdirSync(path.join(dir, "repo", ".git", "objects", "aa"), {
 			recursive: true,
 		});
@@ -211,19 +184,11 @@ describe("the leak check", () => {
 		expect(() => ordinaryTemplate.instantiate(dest)).not.toThrow();
 	});
 
-	// mantahostels#2155: this template overwrites .git/index with plain text — no NUL byte
-	// — so looksBinary() reads false, and it is the isSkippedFromLeakScan()
-	// exclusion alone, not looksBinary(), that stops the throw: removing the
-	// carve-out fails this test.
 	const textIndexTemplate = defineTemplate((dir) => {
 		initRepo(path.join(dir, "repo"));
 		fs.writeFileSync(path.join(dir, "repo", ".git", "index"), dir);
 	});
 
-	// A non-excluded .git/ file carrying the same kind of text leak, planted the
-	// same way: proves checkForLeak still reaches into .git/ at all, so the case
-	// below is the index carve-out specifically and not some wider skip of the
-	// whole .git/ directory.
 	const gitMarkerTemplate = defineTemplate((dir) => {
 		initRepo(path.join(dir, "repo"));
 		fs.writeFileSync(path.join(dir, "repo", ".git", "MANTA-TEST-MARKER"), dir);
@@ -243,10 +208,6 @@ describe("the leak check", () => {
 });
 
 describe("isSkippedFromLeakScan", () => {
-	// Direct unit tests of the exclusion list, rather than only through
-	// instantiate(): the objects/info/alternates carve-out has no path through
-	// the public API that fails when it regresses, since relink() already
-	// rewrites that file before the scan ever runs (mantahostels#2068 review, finding F3).
 	const rel = (...segments: string[]) => segments.join(path.sep);
 
 	it("skips ordinary pack/loose object data", () => {
@@ -289,10 +250,6 @@ describe("leakCheck: first-only", () => {
 	);
 
 	it('still scans the first instantiation, same as "always" would', () => {
-		// Distinguishes first-only from an off switch: if it skipped the first
-		// scan too, this would pass instead of throwing (mantahostels#2068 review, finding
-		// F1/S1 — the version of this test with no leak on the template itself
-		// cannot tell the two apart, since nothing has leaked yet either way).
 		expect(() =>
 			leftoverFromStart.instantiate(path.join(root, "copy")),
 		).toThrow(/leftover\.json/);
@@ -311,11 +268,6 @@ describe("leakCheck: first-only", () => {
 		const first = path.join(root, "first");
 		expect(() => template.instantiate(first)).not.toThrow();
 
-		// Planted straight into the template after the one scan already ran —
-		// an "always" template would catch this on the next instantiate(); this
-		// one must not, or first-only is silently scanning every time anyway.
-		// The cast is safe: the build fn above set templateDir synchronously
-		// inside the instantiate() call that already returned on the line above.
 		fs.writeFileSync(
 			path.join(templateDir as string, "leftover.json"),
 			JSON.stringify({ root: templateDir }),
@@ -379,10 +331,6 @@ describe("the escape hatch", () => {
 });
 
 describe("copyTemplate", () => {
-	// Unit tests of the retry helper directly (mantahostels#2379), against a real
-	// standalone template rather than one built via defineTemplate: an
-	// injected function stands in for the transient failure, per §X2, rather
-	// than mocking `fs.cpSync` itself.
 	let templateDir: string;
 	let rebuiltDirs: string[];
 
@@ -424,7 +372,6 @@ describe("copyTemplate", () => {
 		).toBe("true");
 	});
 
-	// mantahostels#2392 (the ticket that rebuilds a vanished template).
 	it("rebuilds a vanished template before retrying, and copies from the new one", () => {
 		const dest = path.join(root, "copy");
 		let rebuilds = 0;
@@ -452,9 +399,6 @@ describe("copyTemplate", () => {
 		).toBe("true");
 	});
 
-	// The CI-only failure #124 traced: the template directory the test had just
-	// deleted still read as present on the runner, so the existence fast path
-	// was skipped and the doomed replay ran.
 	it("rebuilds when the template survives the check but the replay fails anyway", () => {
 		const dest = path.join(root, "copy");
 		let rebuilds = 0;
@@ -475,9 +419,6 @@ describe("copyTemplate", () => {
 			},
 		);
 		expect(fs.existsSync(templateDir)).toBe(true);
-		// Three: the first attempt, the replay whose failure is what triggers
-		// the rebuild, and the copy from the rebuilt dir. Two would mean the
-		// existence fast path had fired and the case was not the CI one.
 		expect(calls).toBe(3);
 		expect(rebuilds).toBe(1);
 		expect(source).toBe(rebuilt);
@@ -567,11 +508,6 @@ describe("copyTemplate", () => {
 		).toThrow(/ENOENT, simulated/);
 	});
 
-	// mantahostels#2437: the real `fs.cpSync` throws EACCES on `.git/objects/<xx>` when
-	// retried over a destination that already holds a full copy — git's loose
-	// objects are read-only, and cpSync's open-for-write has no unlink first.
-	// The sweep's other failure, an ENOENT into a destination never written to
-	// before, is a different cause and not fixed here (mantahostels#2460).
 	it("retries over a destination that already holds a full copy, real cpSync", () => {
 		const dest = path.join(root, "copy");
 		let calls = 0;
@@ -588,12 +524,6 @@ describe("copyTemplate", () => {
 });
 
 describe("a template whose directory vanishes between instantiations", () => {
-	// End to end through instantiate(), so the production rebuild closure runs
-	// — the two copyTemplate tests above pass a closure of their own and would
-	// stay green with Template's own reset deleted (mantahostels#2392 review). The marker
-	// file carries the template's absolute path, so relinking it to the
-	// destination proves the copy was relinked against the REBUILT dir rather
-	// than the vanished one.
 	const built: string[] = [];
 	const template = defineTemplate((dir) => {
 		built.push(dir);
@@ -622,13 +552,6 @@ describe("a template whose directory vanishes between instantiations", () => {
 });
 
 describe("a template with objects/info/alternates set", () => {
-	// The same file git itself writes for a `git clone --reference` or a
-	// shared submodule checkout — written directly here rather than via a
-	// real clone, which also litters reflogs with the reference path and
-	// would make this test about reflogs rather than about alternates. It is
-	// the one relink target under .git/objects/ (mantahostels#2068 review), which the
-	// leak scan must still be able to reach even though the rest of
-	// .git/objects/ is skipped outright.
 	const template = defineTemplate((dir) => {
 		initRepo(path.join(dir, "a"));
 		initRepo(path.join(dir, "b"));
@@ -655,10 +578,6 @@ describe("a template with objects/info/alternates set", () => {
 	});
 });
 
-/* mantahostels#3149 moved every fixture root off the CI runner's shared `/tmp`, on the
- * theory something external deleted mid-copy there. It followed the move —
- * `git-fixture.ts`'s `copyTemplate` docstring has the falsification and the
- * candidate list mantahostels#3194 reopened. */
 describe("the scratch base", () => {
 	it("prefers the runner's own per-job temp where it is set", () => {
 		expect(resolveScratchBase({ RUNNER_TEMP: "/w/_temp" }, "/repo")).toBe(
@@ -672,8 +591,6 @@ describe("the scratch base", () => {
 		);
 	});
 
-	/* A relative RUNNER_TEMP would make the base depend on each caller's cwd,
-	 * which the fixtures do change. */
 	it("ignores a relative RUNNER_TEMP rather than joining onto it", () => {
 		expect(resolveScratchBase({ RUNNER_TEMP: "_temp" }, "/repo")).toBe(
 			path.join("/repo", ".claude", "tmp", "git-fixture"),
@@ -693,14 +610,6 @@ describe("the scratch base", () => {
 		expect(scratchBase()).not.toBe(tmp);
 	});
 
-	/* WHY the regrow branch exists: the base is memoised, so a neighbour or
-	 * the 24-hour reaper removing it mid-run would otherwise leave every
-	 * later call ENOENTing. WHAT THIS CASE PROVES is narrower — that
-	 * `mkScratchDir` recreates a base that has gone, on a private one passed
-	 * in. Never the memoised base, which every other file in the run shares
-	 * (mantahostels#3168). The first mint is what makes the removal
-	 * load-bearing: without it the case would pass against a base that had
-	 * simply never existed. */
 	it("recreates the base when something has removed it", () => {
 		const base = path.join(root, "base");
 		expect(fs.existsSync(mkScratchDir("scratch-base-first-", base))).toBe(true);
@@ -734,10 +643,6 @@ describe("mkDirOutsideRepo", () => {
 		}
 	});
 
-	/* `git init`s its own base so "inside a repository" holds regardless of
-	 * where scratchBase() lands — resolveScratchBase's RUNNER_TEMP branch put
-	 * it outside every repository on CI, where this case wrongly reddened
-	 * (mantahostels#3174). */
 	it("refuses a base that sits inside a repository, leaving nothing behind", () => {
 		const base = fs.mkdtempSync(
 			path.join(fs.realpathSync(os.tmpdir()), "outside-repo-inside-"),

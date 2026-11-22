@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/regex-group.js's contract (#1341): the group's string when it took part,
- * a thrown error naming the group and the pattern when it did not — never
- * `undefined`, which is the silent run-on the helper exists to stop.
- * In-process over real `exec` results, since the helper is a pure function and
- * a hand-built match would not prove the engine leaves a group `undefined`.
- */
 
 import { describe, expect, it } from "vitest";
 import { escapeRe, requiredGroup } from "./regex-group.js";

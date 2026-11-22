@@ -1,29 +1,12 @@
-/*
- * dispatch-rules.js — which of the dispatch rules one `Agent` call trips, for
- * `scripts/lib/dispatch-rewrite.js` to print at that call (#2013).
- *
- * Each check returns the line naming what THIS call did, or null. A subagent
- * dispatching a grandchild is judged in the hook, on the payload's `agent_id`.
- */
-
 const { agentTypeOf } = require("./dispatch-artefact.js");
 const { docPath } = require("./script-path.js");
 
-/** The code reviewer, bare or namespaced as an adopter sees it. */
 const REVIEWER = /^(?:[\w-]+:)?code-reviewer$/;
 
 const GUIDE = `${docPath("effort-guide.md")} §Which model each subagent dispatch runs on`;
 
 /**
- * Where a call's named model departs from the effort guide's dispatch routing
- * — `haiku`, with `opus` for its two carve-outs — or null. Under burn mode
- * `opus` goes unjudged: burn mode spends on purpose. A `sonnet` call is named
- * though the model table moves it to Haiku, so the next dispatch names Haiku
- * itself. Legal research, the second carve-out, is invisible from the call, so
- * an `opus` dispatch outside the code reviewer is always named. A call-level
- * `effort` is not judged.
- *
- * @param {Record<string, unknown>} call the tool_input object, before any rewrite
+ * @param {Record<string, unknown>} call
  * @param {boolean} burn
  * @returns {string|null}
  */
@@ -41,11 +24,6 @@ function tierDeparture(call, burn) {
 	return `This dispatch names \`${model}\`, a departure from ${GUIDE} unless it is one of that section's carve-outs.`;
 }
 
-/*
- * "search the repo", and its spellings: a search verb, an optional
- * preposition, then the repo by one of its names. Anchored on the verb, so a
- * prompt that merely mentions the repo is not a search of it.
- */
 const SEARCH =
 	/\b(?:search|grep|sweep|scan)(?:es|ed|ing)?\s+(?:(?:through|across|over|in)\s+)?(?:(?:the|this|whole|entire)\s+)*(?:repo|repository|codebase)\b/i;
 

@@ -1,75 +1,3 @@
-/*
- * repo-holds.js — the repo hold's record and lifecycle (#3857, spec #3597): a
- * per-checkout record that one founder-only act blocks shared state.
- * scripts/repo-hold.js is its CLI; lib/refill-tick.js runs tendHolds each
- * tick. It is the adapter behind that tick's I/O (#3857's "behind the loop's
- * port"), so it holds fs, gh and the clear checks' runs together, tested through
- * the real tick and the CLI as that ticket asks, with no core split out.
- *
- * THE STORE is one file a hold, under the loop's machine-wide directory
- * (lib/refill-dir.js), in a directory keyed on git's common dir. So every
- * worktree of a checkout and the loop read one store, a raise overwrites no
- * other hold, and lib/scratch-sweep.js, which reaps `.claude/tmp/`, cannot age
- * out a hold the founder has yet to answer. Where git will not name the common
- * dir, a linked worktree keys on the one its `.git` file points at (#4402).
- * One that points nowhere keys on its own path, and its store is adopted into
- * the common dir's once the file names one again: the root's own (#4718), and
- * its main checkout's, which reads its registered worktrees (#4880).
- *
- * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
- * lift racing get one winner and one log line, and the sessions parked on the hold
- * outlast it, however it ended, until the tick's resume step has taken each up
- * (#3863). Each lift has a directory of its own, as a fixed id can be lifted twice.
- *
- * THE PROBE (#3860): each tick asks lib/guard-probe.js what fails in each served
- * checkout, its shared `.git` and its guard entry; a test injects that answer.
- * A checkout that fails holds the one `probe` hold its store can hold, under a
- * fixed id, so a raise never makes a second and a torn one is written over. The
- * failing roots are also returned to the tick, which stops launches on them even
- * where no record could be written (#3860). A failure that is no outage raises the
- * hold on its tick. An outage stops launches on its tick and raises the hold only
- * once it has lasted OUTAGE_HOLD_AFTER_MS, on a file of its own beside the holds
- * (#3899). A probe hold's issue is filed once its record stands, and the filing
- * retried each tick; a hand lift of one still failing is raised anew, with a new
- * issue, on the next tick, unless it now fails as an outage younger than the
- * window. While it stands, each loop session that parks there is attached to it
- * (attachProbeParks).
- *
- * A LOCKED-OUT SESSION (#4228), one every call of which its guards refused for
- * want of a guard that could judge it, raises the probe hold where none stands
- * and attaches to it (holdLockedOut). Its first refused call is kept in a
- * replay file beside the hold, written before the hold's issue files, and the
- * hold's clear check has the probe replay each kept call, so a fault the probe's
- * benign `Read` does not touch keeps the hold.
- *
- * RESIDUAL: during an outage's window launches are withheld with no hold to show
- * for it, so `status` reads no hold open, only the log says why, and no notice is
- * sent. A hold rises on the first tick past the window, so a tick's gap later.
- *
- * RESIDUAL: a close that fails on a clear is logged and not retried, there being
- * no hold left to retry it from. The issue's body says what to do.
- *
- * AN ATTACH IS A FILE OF ITS OWN beside the hold's (#3858), never a rewrite of
- * it: a rewrite could resurrect a hold a lift has just unlinked, or lose a
- * neighbour's attach. Its order against removeHold's leaves no stray: an attach
- * writes, then reads the hold; a lift renames the hold, then moves the attach
- * files after it. So either the lift's list finds the file or the attach's read
- * finds no hold and takes its file back. A lift gathers these in a directory
- * beside the store's holds and renames it under `lifted/` whole, so a tick reads
- * only finished lifts. RESIDUAL: a lift that dies part-way leaves its directory
- * there unread, its sessions stranded on the `parked` label as any other park.
- *
- * A HOLD'S NOTICE STATE (#3871; lib/repo-hold-notices.js sends) is a file of its own
- * beside the hold's, as an attach is and for the same reason, and goes under
- * `lifted/` with it, the record outliving the lift until the clear notice is done.
- * When a checkout's probe hold last paged is a file beside its holds that no raise
- * or lift touches, as a probe hold that comes back is a new hold (#4148).
- *
- * fileIncidentIssue and closeIncidentIssue serve lib/pause-notices.js too (#5291),
- * and stay here, as a module of their own would cycle with this one over
- * readTracker and TICK_CALL_TIMEOUT_MS.
- */
-
 const { AsyncLocalStorage } = require("node:async_hooks");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -109,65 +37,50 @@ const { resolveKey } = require("./workflow-core-config.js");
 
 /**
  * @typedef {{command: string} | {issueClosed: number} | {probe: true}} ClearCheck
- *
  * @typedef {object} RepoHold
  * @property {string} id
- * @property {string} checkout  the main checkout's root
- * @property {"probe"|"park"} kind  a `probe` hold alone stops launches
- * @property {string} act  the founder act, in plain words
- * @property {number|null} issue  the issue holding the question, null on a
- *   probe hold whose filing has yet to land
+ * @property {string} checkout
+ * @property {"probe"|"park"} kind
+ * @property {string} act
+ * @property {number|null} issue
  * @property {ClearCheck} clearCheck
  * @property {number} raisedAt
- * @property {string[]} sessions  the job ids of the sessions parked on it: the
- *   raiser's in the record, each attached session's in its own file
- * @property {HoldNotice} notice  off its own file
- *
+ * @property {string[]} sessions
+ * @property {HoldNotice} notice
  * @typedef {object} NoticePhase
- * @property {number} at  when its last dispatch went
- * @property {number} tries  its dispatches
+ * @property {number} at
+ * @property {number} tries
  * @property {"dispatched"|"seen"|"lost"} outcome
- *
  * @typedef {object} HoldNotice
  * @property {NoticePhase|null} raise
  * @property {NoticePhase|null} clear
- * @property {boolean} isUnsetLogged  the log has said the notice is unconfigured
- *
+ * @property {boolean} isUnsetLogged
  * @typedef {(line: string) => void} Log
- *
  * @typedef {object} LiftedHold
  * @property {string} root
- * @property {string} dir  its directory under `lifted/`
+ * @property {string} dir
  * @property {string} id
- * @property {string[]} recordJobs  the job ids its record names
- * @property {string[]} jobs  those and its attach files', the sessions parked on it
- * @property {boolean} isClearNoticeOwed  a raise notice went and its clear is not done
- *
+ * @property {string[]} recordJobs
+ * @property {string[]} jobs
+ * @property {boolean} isClearNoticeOwed
  * @typedef {import("./guard-probe.js").ProbeFailure} ProbeFailure
  * @typedef {import("./block-cause.js").RefusedCall} RefusedCall
- *
- * What a tick asks of a checkout's probe: lib/guard-probe.js's answers.
  * @typedef {object} Probe
  * @property {(root: string) => ProbeFailure|null} readProbeFailure
  * @property {(root: string, call: RefusedCall) => string|null} readReplayFailure
  */
 
-/* Untraced: the budget of one call a tick makes for a hold or its notice, a clear
- * check's command, which may run a slow `git fetch`, and each `gh` the holds and
- * lib/repo-hold-notices.js run, each of which must not hold the tick for long. */
+// guess, #3857
 const TICK_CALL_TIMEOUT_MS = 30_000;
 
-/* How long the runner waits after its TERM before its KILL; a guess, as
- * lib/gate-check.js's is. */
+// guess, #3857
 const CLEAR_CHECK_KILL_AFTER_MS = 5000;
 
-/* The runner itself ends by the budget plus one KILL_AFTER; a second is headroom for
- * its own start and reap, a guess, past which the runner is the one wedged. */
+// guess, #3857
 const CLEAR_CHECK_SPAWN_TIMEOUT_MS =
 	TICK_CALL_TIMEOUT_MS + 2 * CLEAR_CHECK_KILL_AFTER_MS;
 
-/* A guess: few holds open at once, and short enough to type at `lift`. A
- * repeat would overwrite the hold it repeats. */
+// guess, #3857
 const ID_BYTES = 3;
 
 const PROBE_ID = "probe";
@@ -178,17 +91,12 @@ const HOLD_FILE_REMEDY = "lift its id or remove the file";
 
 const LIFTING_PREFIX = "lifting-";
 
-/* How long an outage lasts before it raises a hold, and how long it may go unseen
- * by any tick and still be one outage. Past the longest in the loop's log, about 7
- * minutes across two ticks on 29 Oct 2026 (#3899); the margin, about double, is a
- * guess. */
+// guess, #3899
 const OUTAGE_HOLD_AFTER_MS = 15 * 60_000;
 
 /** @type {HoldNotice} */
 const NO_NOTICE = { raise: null, clear: null, isUnsetLogged: false };
 
-/* A file that will not read cannot say what went, so it sends nothing and owes no
- * clear: a page the founder has had already is the worse fault (#3871). */
 /** @type {NoticePhase} */
 const UNREAD_PHASE = { at: 0, tries: 0, outcome: "lost" };
 
@@ -201,33 +109,20 @@ const UNREAD_NOTICE = {
 
 const ID_PATTERN = new RegExp(`^(?:[0-9a-f]+|${PROBE_ID})$`);
 
-/* A job id, as a file name's tail: no dot, so an attach file never reads as a
- * hold's `.json`. */
 const JOB_PATTERN = /^[0-9A-Za-z_-]+$/;
 
 const PROBE_FILED_WHY =
 	"a probe hold is raised by the refill loop, with no asking session to hold its question (#3860)";
 
-/* A guess: 48 bits of the key's hash, in a directory holding a few checkouts. */
+// guess, #3857
 const STORE_KEY_LENGTH = 12;
 
-/* What a lockout's hold asks repaired. */
 const LOCKOUT_REPAIR = "the guard code the hook line runs, as its refusal says";
 
-/**
- * The checkout a common dir names, symlinks dereferenced; null where it names
- * none.
- * @param {string} common
- */
+/** @param {string} common */
 const checkoutOf = (common) => checkoutOfCommonDir(deref(common));
 
-/**
- * The checkout a command run from `cwd` holds holds in. Where git will not
- * name it, the one the common dir the nearest `.git` file points at names, or
- * else the directory holding that file, so a raise from anywhere in a broken
- * worktree keys where its repair is adopted from (#4880).
- * @param {string} cwd
- */
+/** @param {string} cwd */
 function readCheckout(cwd) {
 	const main = mainCheckout(cwd);
 	if (main !== null) return main;
@@ -241,13 +136,7 @@ function readCheckout(cwd) {
 /** @type {AsyncLocalStorage<Map<string, string>>} */
 const tickStores = new AsyncLocalStorage();
 
-/**
- * The checkout's store: named for a reader, and hashed because two paths can
- * flatten to one name. A broken `.git` that git will not name keys on the
- * common dir it points at, or else on its own path, as a probe hold raised on
- * one must be found once it is repaired (#4402).
- * @param {string} root
- */
+/** @param {string} root */
 function holdsDir(root) {
 	const stores = tickStores.getStore();
 	const known = stores?.get(root);
@@ -285,10 +174,7 @@ function buildStoreDir(root, key) {
 	);
 }
 
-/**
- * One store's move into another, `from` naming what it reads for its fault.
- * @typedef {{from: string, remedy: string, adopt: () => void}} Adoption
- */
+/** @typedef {{from: string, remedy: string, adopt: () => void}} Adoption */
 
 const STORE_REMEDY =
 	"its holds read nowhere until it moves, so repair the directory";
@@ -296,14 +182,10 @@ const STORE_REMEDY =
 const REGISTRY_REMEDY =
 	"a hold its worktree raised while its .git file named nothing reads nowhere until it does, so repair it";
 
-/** @type {Map<string, Map<string, string>>} why each adoption into a store last failed, by that store and then by what it reads, for readHolds */
+/** @type {Map<string, Map<string, string>>} */
 const adoptFaults = new Map();
 
 /**
- * Run each adoption into store `to`, a failure kept for readHolds to report
- * in place of a throw: the tick has no per-root catch, so a throw would stop
- * every checkout's (#4718). A fault whose source this keying no longer reads
- * goes, as a pruned registration's would.
  * @param {string} to
  * @param {Adoption[]} adoptions
  */
@@ -321,12 +203,6 @@ function runAdoptions(to, adoptions) {
 }
 
 /**
- * The adoptions into main checkout `root`'s store `dir` of each store a
- * linked worktree of it keyed on its own `.git` while that file named nothing,
- * taken once the file names `common` again (#4880). Each registration is one adoption, so one that will not
- * read stops none of the others. RESIDUAL: a worktree whose registration is
- * pruned while its file is broken has no registration to name it, and its
- * holds read nowhere.
  * @param {string} root
  * @param {string} common
  * @param {string} dir
@@ -361,19 +237,11 @@ function readWorktreeAdoptions(root, common, dir) {
 	}));
 }
 
-/** Files that belong to a store, not to a hold: the store adopted into keeps its own. */
 const STORE_FILES = new Set([`${PROBE_ID}.paged`, `${PROBE_ID}.outage`]);
 
-/** Each fault code a rename or rmdir gives where a directory stands at its target. */
 const OCCUPIED_CODES = new Set(["EEXIST", "ENOTEMPTY"]);
 
 /**
- * Move store `from`'s entries into store `to` (#4718). A hold whose id `to` already holds stays, with its notice, until
- * that one lifts; the sessions parked on it move to `to`'s at once, as each
- * attach and replay file is named for its job. Any other file overwrites
- * `to`'s, as a raise clears what a lift left behind, save STORE_FILES. A
- * hold's record moves after the files named for it, so a reader of `to` never
- * meets it short of its notice, and names `root`, the checkout `to` serves.
  * @param {string} from
  * @param {string} to
  * @param {string} root
@@ -405,11 +273,6 @@ function adoptStore(from, to, root) {
 }
 
 /**
- * Point hold record `file` at checkout `root` where it names another, in
- * place before it moves, so a death between leaves it to the next adoption
- * already rewritten: a hold raised from a broken worktree runs its clear
- * check and reads its config in the main checkout it now holds (#4880). A
- * torn record or one lifted already is left to its reader.
  * @param {string} file
  * @param {string} name
  * @param {string} root
@@ -433,9 +296,6 @@ function adoptLifted(from, to) {
 }
 
 /**
- * Rename `from` to `to`, over a file there; a directory that finds one there
- * stays, as its name holds a random part and so never meets one but another
- * adopter's. Gone already, another adopter took it (#4718).
  * @param {string} from
  * @param {string} to
  */
@@ -449,8 +309,6 @@ function renameEntry(from, to) {
 }
 
 /**
- * Move file `from` to `to` where `to` is free, else drop it: a link refuses
- * where `to` stands, where a rename would overwrite it (#4718).
  * @param {string} from
  * @param {string} to
  */
@@ -490,10 +348,6 @@ function removeDirIfEmpty(dir) {
 }
 
 /**
- * Run `fn` with each checkout's store resolved once, so a tick's many hold
- * calls fork git for each checkout's common dir once (#4398). A `.git` git will
- * not name keys on its path for the rest of the tick, so one tick's calls all
- * read one store; its repair keys anew on the next tick (#4609).
  * @template T
  * @param {() => T} fn
  * @returns {T}
@@ -515,16 +369,11 @@ const isHoldFileName = (name) => name.endsWith(".json");
  */
 const parseEntryId = (name) => name.split(".")[0] ?? name;
 
-/**
- * A lift's directory name, off the hold's id; parseLiftedId reads the id back.
- * @param {string} id
- */
+/** @param {string} id */
 const buildLiftedName = (id) =>
 	`${id}-${randomBytes(ID_BYTES).toString("hex")}`;
 
-/**
- * @param {string} name  buildLiftedName's
- */
+/** @param {string} name */
 const parseLiftedId = (name) => name.slice(0, name.lastIndexOf("-"));
 
 /**
@@ -533,10 +382,7 @@ const parseLiftedId = (name) => name.slice(0, name.lastIndexOf("-"));
  */
 const holdFile = (root, id) => path.join(holdsDir(root), buildHoldFileName(id));
 
-/**
- * What an attach file's name starts with.
- * @param {string} id
- */
+/** @param {string} id */
 const buildAttachPrefix = (id) => `${id}.attached.`;
 
 /**
@@ -545,7 +391,6 @@ const buildAttachPrefix = (id) => `${id}.attached.`;
 const buildReplayPrefix = (id) => `${id}.replay.`;
 
 /**
- * Remove open hold `id`'s replay files from `dir`, its store.
  * @param {string} dir
  * @param {string} id
  */
@@ -555,16 +400,14 @@ function removeReplays(dir, id) {
 }
 
 /**
- * Hold `id`'s replay files, off the store's listing.
- * @param {string[]} names  the store's file names
+ * @param {string[]} names
  * @param {string} id
  */
 const parseReplayNames = (names, id) =>
 	names.filter((n) => n.startsWith(buildReplayPrefix(id)));
 
 /**
- * The job ids attached to hold `id`, off the store's listing.
- * @param {string[]} names  the store's file names
+ * @param {string[]} names
  * @param {string} id
  */
 const parseAttachedJobs = (names, id) =>
@@ -572,17 +415,10 @@ const parseAttachedJobs = (names, id) =>
 		.filter((n) => n.startsWith(buildAttachPrefix(id)))
 		.map((n) => n.slice(buildAttachPrefix(id).length));
 
-/**
- * A hold's notice file's name; no `.json`, so it never reads as a hold.
- * @param {string} id
- */
+/** @param {string} id */
 const buildNoticeName = (id) => `${id}.notice`;
 
-/**
- * The file naming when `root`'s probe hold last paged; neither a hold's name nor an
- * attach's.
- * @param {string} root
- */
+/** @param {string} root */
 const buildProbePagedFile = (root) =>
 	path.join(holdsDir(root), `${PROBE_ID}.paged`);
 
@@ -598,8 +434,6 @@ const isNoticePhase = (value) => {
 };
 
 /**
- * The notice state in `file`: none where it is gone, UNREAD_NOTICE where it will not
- * read, which readHolds reports.
  * @param {string} file
  * @returns {HoldNotice}
  */
@@ -624,10 +458,8 @@ const writeNotice = (file, notice) =>
 	writeFileAtomic(file, JSON.stringify(notice), { mkdir: true });
 
 /**
- * Whether `value` is a hold, and the one its file is named for: an id off the
- * pattern would make a path out of the store.
  * @param {unknown} value
- * @param {string} name  the file's name
+ * @param {string} name
  * @returns {value is RepoHold}
  */
 function isHold(value, name) {
@@ -654,8 +486,6 @@ function isHold(value, name) {
 }
 
 /**
- * The checkout's open holds, oldest first, and why any of them would not read,
- * each line ending on what clears it.
  * @param {string} root
  * @returns {{holds: RepoHold[], unread: string[]}}
  */
@@ -669,7 +499,6 @@ function readHolds(root) {
 }
 
 /**
- * Store `dir`'s open holds, as readHolds gives them.
  * @param {string} dir
  * @returns {{holds: RepoHold[], unread: string[]}}
  */
@@ -695,7 +524,6 @@ function readStoreHolds(dir) {
 	for (const name of names.filter(isHoldFileName)) {
 		const file = path.join(dir, name);
 		try {
-			/* Null: lifted between the listing and this read. */
 			const read = readHoldFile(file, name);
 			if (read === null) continue;
 			if ("torn" in read) {
@@ -724,10 +552,8 @@ function readStoreHolds(dir) {
 }
 
 /**
- * The hold a record file holds; `{torn}`, why, where it will not parse or is no hold;
- * null where the file is gone. Any other failure throws. Its notice is not read.
  * @param {string} file
- * @param {string} name  the file's name, which the hold's id must match
+ * @param {string} name
  * @returns {{hold: RepoHold}|{torn: string}|null}
  */
 function readHoldFile(file, name) {
@@ -768,11 +594,10 @@ const writeHold = (root, { notice: _, ...record }) =>
 	);
 
 /**
- * Record a new hold and return it.
  * @param {string} root
  * @param {{id?: string, kind: RepoHold["kind"], act: string,
  *   issue: number|null, clearCheck: ClearCheck, session: string|null,
- *   now: number}} raised  `id`, a fixed one in place of a fresh one
+ *   now: number}} raised
  * @returns {RepoHold}
  */
 function raiseHold(
@@ -787,8 +612,6 @@ function raiseHold(
 		now,
 	},
 ) {
-	/* A lift that raced a notice's or a replay's write can leave one behind, for
-	 * a fixed id. */
 	fs.rmSync(path.join(holdsDir(root), buildNoticeName(id)), { force: true });
 	removeReplays(holdsDir(root), id);
 	/** @type {Omit<RepoHold, "notice">} */
@@ -796,7 +619,6 @@ function raiseHold(
 		id,
 		checkout: root,
 		kind,
-		/* One line, as the log and status print it. */
 		act: act.replace(/\s+/g, " ").trim(),
 		issue,
 		clearCheck,
@@ -812,10 +634,6 @@ const buildRaisedLine = (hold) =>
 	`repo hold raised: ${buildHoldRef(hold)}; ${buildIssueText(hold)}; clears on ${buildCheckText(hold.clearCheck)}`;
 
 /**
- * Attach job `job` to open hold `id`, however often it asks: the hold as it now
- * reads and whether this call attached it, or null where no hold is open under
- * that id. A hold with no issue yet comes back with no attach made, as a park
- * would have none to name.
  * @param {string} root
  * @param {string} id
  * @param {string} job
@@ -830,7 +648,6 @@ function attachHold(root, id, job) {
 		fs.writeFileSync(file, "", { flag: "wx" });
 	} catch (err) {
 		const { code } = caught(err);
-		/* ENOENT: no store, so no hold. */
 		if (code === "ENOENT") return null;
 		if (code !== "EEXIST") throw err;
 		isNew = false;
@@ -853,10 +670,6 @@ const buildAttachedLine = (hold, job) =>
 	`repo hold attached: ${buildHoldRef(hold)}; session ${job}; ${hold.sessions.length} attached`;
 
 /**
- * The open hold this background job attached to that `text` names: `hold <id>`
- * and that hold's `#issue`, the attached park's status line (#3858). A raiser is
- * not attached: it parks on its round. Null where it names none, or this is no
- * background job.
  * @param {string} text
  * @returns {RepoHold|null}
  */
@@ -877,8 +690,6 @@ function findOwnHold(text) {
 }
 
 /**
- * End a hold, moving it and its attach files under `lifted/`; false where it was
- * already gone.
  * @param {string} root
  * @param {string} id
  */
@@ -907,7 +718,6 @@ function removeHold(root, id) {
 		try {
 			fs.renameSync(path.join(dir, file), path.join(lifting, file));
 		} catch (err) {
-			/* No notice yet, or the attach took its file back (#3858). */
 			if (caught(err).code !== "ENOENT") throw err;
 		}
 	}
@@ -918,9 +728,6 @@ function removeHold(root, id) {
 }
 
 /**
- * The job ids a lifted hold's record names: none where it is gone or torn, as a
- * damaged record lifts too (#3857), its attach files still naming theirs; null,
- * logged, where it will not read, for a later tick to read again (#3863).
  * @param {string} file
  * @param {Log} log
  * @returns {string[]|null}
@@ -939,9 +746,6 @@ function readLiftedRecordJobs(file, log) {
 }
 
 /**
- * The names in `dir`: none where it is gone, or is no directory, as an open store
- * then logs; none, logged, on any other fault, the lift waiting for a later tick
- * (#3863).
  * @param {string} dir
  * @param {Log} log
  */
@@ -965,8 +769,6 @@ const isClearOwed = ({ raise, clear }) =>
 	(clear === null || clear.outcome === "dispatched");
 
 /**
- * Every lifted hold in `roots`' stores whose sessions the tick has yet to take up
- * or whose clear notice it has yet to finish.
  * @param {string[]} roots
  * @param {Log} log
  * @returns {LiftedHold[]}
@@ -1000,8 +802,6 @@ function readLiftedHolds(roots, log) {
 }
 
 /**
- * Take `settled` off a lifted record kept for its clear notice, so that no later
- * tick judges those sessions again.
  * @param {string} file
  * @param {string[]} settled
  */
@@ -1020,8 +820,6 @@ function dropRecordJobs(file, settled) {
 }
 
 /**
- * The hold a lifted directory's record holds, or null where it is gone or torn. Any
- * other failure throws.
  * @param {LiftedHold} lifted
  * @returns {RepoHold|null}
  */
@@ -1034,12 +832,8 @@ function readLiftedRecord({ dir, id }) {
 }
 
 /**
- * Drop what `settled` names of a lifted hold, and the hold once nothing of it is
- * left and its clear notice is done, which needs the record. A failure is logged
- * and the record kept for the next tick's resume step to read again (#3863), which
- * takes up no session twice (lib/refill-blocks.js's queueLifted).
  * @param {LiftedHold} hold
- * @param {string[]} settled  its job ids the tick has taken up
+ * @param {string[]} settled
  * @param {Log} log
  */
 function dropLiftedJobs(
@@ -1067,10 +861,6 @@ function dropLiftedJobs(
 }
 
 /**
- * Lift a hold by hand, whatever its clear check reads: its log line, or null
- * where no file has that id. A record too damaged to read lifts too, by its bare
- * id, as nothing else could end it (#3857). A probe hold's filed issue closes
- * with it.
  * @param {string} root
  * @param {string} id
  * @returns {string|null}
@@ -1086,10 +876,6 @@ function liftHold(root, id) {
 }
 
 /**
- * Whether a command check passes. Run under run-budgeted.js, which reaps its
- * whole group, as a straggler would outlive a plain spawn's timeout. One that
- * will not start or outlives its time reads as not passing, logged (#3857), so
- * the hold stands and the next tick tries again.
  * @param {RepoHold} hold
  * @param {string} command
  * @param {Log} log
@@ -1124,10 +910,7 @@ function isCommandPassed(hold, command, log) {
 	return run.status === 0;
 }
 
-/**
- * The checkout's tracker, or a throw.
- * @param {string} root
- */
+/** @param {string} root */
 function readTracker(root) {
 	const tracker = resolveKey("tracker", { root });
 	if (typeof tracker !== "string") throw new Error("no tracker configured");
@@ -1135,8 +918,6 @@ function readTracker(root) {
 }
 
 /**
- * Whether the issue reads closed; an unread issue reads as not closed, logged
- * (#3857).
  * @param {RepoHold} hold
  * @param {number} issue
  * @param {Log} log
@@ -1165,8 +946,6 @@ function isIssueClosed(hold, issue, log) {
 }
 
 /**
- * Close a probe hold's filed issue, with `why`: null once closed or where there
- * is none to close, else what failed.
  * @param {RepoHold} hold
  * @param {string} why
  */
@@ -1181,8 +960,7 @@ function closeProbeIssue(hold, why) {
 
 /**
  * @param {RepoHold} hold
- * @param {Probe} probe  the tick's, its one probe of a checkout shared with its
- *   failing-tick raise
+ * @param {Probe} probe
  * @param {Log} log
  */
 function isCheckPassed(hold, probe, log) {
@@ -1202,8 +980,6 @@ function isCheckPassed(hold, probe, log) {
 }
 
 /**
- * The refused calls kept in open hold `id`'s replay files: none where one is
- * gone since the listing, or torn, which keeps no call to replay.
  * @param {string} root
  * @param {string} id
  * @returns {RefusedCall[]}
@@ -1218,15 +994,12 @@ function readHoldReplays(root, id) {
 			const call = JSON.parse(read.data);
 			return typeof call?.tool_name === "string" ? [call] : [];
 		} catch {
-			/* Torn: no call to replay (#4228). */
 			return [];
 		}
 	});
 }
 
 /**
- * Keep `call` beside `root`'s probe hold for its clear check's replay, under
- * job `job`, the first a job asks kept.
  * @param {string} root
  * @param {string} job
  * @param {RefusedCall} call
@@ -1245,9 +1018,6 @@ function keepProbeReplay(root, job, call) {
 }
 
 /**
- * Whether each of `replays` runs through `hold`'s checkout's guard hook line
- * with no refusal for want of a guard that could judge it; each that does not
- * is logged.
  * @param {RepoHold} hold
  * @param {RefusedCall[]} replays
  * @param {Probe} probe
@@ -1262,20 +1032,15 @@ function isEveryReplayPassed(hold, replays, probe, log) {
 	});
 }
 
-/**
- * Each distinct store's root among `roots`: two can be one checkout's.
- * @param {string[]} roots
- */
+/** @param {string[]} roots */
 const readStoreRoots = (roots) => [
 	...new Map(roots.map((root) => [holdsDir(root), root])).values(),
 ];
 
 /**
- * Re-run one hold's clear check, lifting it where it passes. Any throw is logged
- * and costs this hold alone its tick, never the launches (#3857).
  * @param {string} root
  * @param {RepoHold} hold
- * @param {Probe} probe  as isCheckPassed's
+ * @param {Probe} probe
  * @param {Log} log
  */
 function settleHold(root, hold, probe, log) {
@@ -1295,9 +1060,6 @@ function settleHold(root, hold, probe, log) {
 }
 
 /**
- * The checkout's probe hold, read by its fixed name so that a store that will not
- * list still shows it; null where none is there or its record is torn, which the
- * listing logs and a raise writes over (#3860). Any other failure throws.
  * @param {string} root
  * @returns {RepoHold|null}
  */
@@ -1318,11 +1080,6 @@ const buildProbeIssueBody = (root, failure) =>
 **To clear:** repair the checkout. The loop re-runs the probe each tick, lifts its hold the tick it passes and closes this issue. Where \`node scripts/repo-hold.js list\` shows no \`probe\` hold for this checkout and this issue is still open, its close failed: close it.`;
 
 /**
- * The open issue already carrying `title`, or null: a record torn since its
- * filing, or a tick that died between filing and recording, has lost its number,
- * and a second issue would leave this one open for good. Throws where it cannot
- * tell. RESIDUAL: search lags a filing by moments, and only these two rare paths
- * read it, so a second can still slip through.
  * @param {string} root
  * @param {string} title
  * @returns {number|null}
@@ -1349,13 +1106,9 @@ function readOpenIssueTitled(root, title) {
 }
 
 /**
- * File an incident issue titled `title` in `root`'s tracker, or take up the one
- * already open with that title (readOpenIssueTitled).
- * @param {string} root  the checkout file-issue.js runs in
- * @param {{title: string, body: string, why: string}} issue  `why`, why it
- *   stands alone, file-issue.js's `--standalone`
- * @returns {{number: number, isTakenUp: boolean}|string} the issue, else why
- *   not
+ * @param {string} root
+ * @param {{title: string, body: string, why: string}} issue
+ * @returns {{number: number, isTakenUp: boolean}|string}
  */
 function fileIncidentIssue(root, { title, body, why }) {
 	try {
@@ -1381,8 +1134,6 @@ function fileIncidentIssue(root, { title, body, why }) {
 }
 
 /**
- * Close an issue fileIncidentIssue filed, with `comment`: null once closed,
- * else what failed.
  * @param {string} root
  * @param {number} n
  * @param {string} comment
@@ -1408,9 +1159,6 @@ function closeIncidentIssue(root, n, comment) {
 }
 
 /**
- * File the probe hold's issue, or take up the one already open, recording it on
- * the hold. A failure is logged and the hold stands with no issue, for the next
- * tick to retry (#3860).
  * @param {string} root
  * @param {RepoHold} hold
  * @param {string} failure
@@ -1434,14 +1182,7 @@ function fileProbeIssue(root, hold, failure, log) {
 	);
 }
 
-/* The outage window's decision stays beside its fs, with no core, by #3857's ruling
- * for this file: the real tick and the CLI test it. */
-
 /**
- * An outage's start off its file; `now` where none is there or no tick has seen it
- * for the window, so a loop stopped for a day does not raise on one blip (#3899). A
- * torn record, logged, begins it anew, the next tick's write mending it. Any other
- * failure throws.
  * @param {string} file
  * @param {number} now
  * @param {Log} log
@@ -1463,15 +1204,11 @@ function readOutageSince(file, now, log) {
 }
 
 /**
- * When `root`'s outage began, advanced to this tick, or dropped where the tick reads
- * anything else. Its file's name is neither a hold's nor an attach's. A throw is
- * logged and reads as just begun, the tick stopping launches whatever the store took
- * (#3899).
  * @param {string} root
  * @param {ProbeFailure|null} failure
  * @param {number} now
  * @param {Log} log
- * @returns {number} the outage's start, `now` where there is none
+ * @returns {number}
  */
 function tendOutage(root, failure, now, log) {
 	const file = path.join(holdsDir(root), `${PROBE_ID}.outage`);
@@ -1492,13 +1229,8 @@ function tendOutage(root, failure, now, log) {
 }
 
 /**
- * Raise or keep `root`'s probe hold, and file its issue where it has none. Any
- * throw is logged and fails open on the record alone, the caller stopping
- * launches whatever the store took (#3860).
  * @param {string} root
  * @param {{failureText: string, isRaiseDue: boolean, repair?: string}} probed
- *   `isRaiseDue`, whether a hold not yet open may be raised; `repair`, what
- *   the founder repairs, which a raise names
  * @param {number} now
  * @param {Log} log
  */
@@ -1530,12 +1262,7 @@ function keepProbeHold(
 }
 
 /**
- * Attach to each of `broken`'s probe holds every loop session there that has
- * blocked since the hold rose, stopped for its park or not, for the clear's
- * resume step to take up: none can attach itself while its guards refuse every
- * call (#4226). A hold with no issue yet takes none, and the next tick retries.
- * A throw is logged and costs that checkout's attaches.
- * @param {string[]} broken  tendHolds's answer
+ * @param {string[]} broken
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @param {Log} log
  */
@@ -1558,8 +1285,6 @@ function attachProbeParks(broken, launches, log) {
 }
 
 /**
- * Whether live launch `l` in `hold`'s checkout has blocked since the hold rose.
- * A stop for a park keeps its block, so a park-stop reads the same.
  * @param {import("./refill-loop.js").LoopLaunch} l
  * @param {RepoHold} hold
  */
@@ -1574,10 +1299,6 @@ function isBlockedSinceRaise(l, hold) {
 }
 
 /**
- * Raise `root`'s probe hold where none stands, its step `guard lockout:
- * <refusal>`, file its issue where it has none, and attach job `job`, locked out
- * by its guards, keeping `call` for the clear check's replay (#4228). The hold
- * once attached, else why not, which a later tick retries.
  * @param {string} root
  * @param {{job: string, refusal: string, call: RefusedCall|null}} lockout
  * @param {number} now
@@ -1610,22 +1331,16 @@ function holdLockedOut(root, { job, refusal, call }, now, log) {
 }
 
 /**
- * One tick's holds: every open hold's clear check re-run, each that passes
- * lifted, then each served checkout probed. An unreadable store is logged and
- * read as holding no open hold, the tick carrying on (#3857), but for the probe,
- * whose failing roots it returns whatever the store took (#3860).
- * @param {string[]} roots  every checkout whose holds are settled
- * @param {string[]} served  the checkouts probed
+ * @param {string[]} roots
+ * @param {string[]} served
  * @param {number} now
- * @param {{log: Log, probe?: Probe}} with  `log` passed, as lib/refill-tick.js,
- *   which owns the loop's, requires this; `probe` lib/guard-probe.js unless injected
- * @returns {string[]} the served checkouts whose probe failed
+ * @param {{log: Log, probe?: Probe}} with
+ * @returns {string[]}
  */
 function tendHolds(roots, served, now, { log, probe = guardProbe }) {
 	/** @type {Map<string, ProbeFailure|null>} */
 	const probed = new Map();
-	/** One probe a checkout a tick, for its hold's check and its raise alike.
-	 * @type {Probe} */
+	/** @type {Probe} */
 	const tickProbe = {
 		readProbeFailure: (root) => {
 			const known = probed.get(root);
@@ -1656,11 +1371,8 @@ function tendHolds(roots, served, now, { log, probe = guardProbe }) {
 }
 
 /**
- * The open holds a tick decides on: `broken`'s probe, whatever its store took,
- * and each checkout's stored holds; beside them, each checkout whose store would
- * not read, whole or in part, with its lines.
  * @param {string[]} roots
- * @param {string[]} broken  tendHolds's answer
+ * @param {string[]} broken
  * @returns {{holds: import("./refill-decide.js").TickHold[],
  *   unread: {root: string, lines: string[]}[]}}
  */
@@ -1697,15 +1409,11 @@ function buildPhaseText(phase) {
 	return phase.outcome === "seen" ? "sent" : phase.outcome;
 }
 
-/**
- * A hold's notice state, for `status` and the morning review.
- * @param {HoldNotice} notice
- */
+/** @param {HoldNotice} notice */
 const buildNoticeText = ({ raise, clear }) =>
 	`raise ${buildPhaseText(raise)}, clear ${buildPhaseText(clear)}`;
 
 /**
- * What the founder reads of each open hold, and of any store that would not read.
  * @param {string[]} roots
  * @param {number} now
  * @returns {string[]}

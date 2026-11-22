@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/lib/rule-emission.js — the route (f) bytes ONE SESSION can
- * be made to pay through each PreToolUse tool.
- *
- * Every case points WFC_RULES_DIR at a temporary store, so none reads
- * docs/agents/rules/ and a relocation tranche adding a real fragment can never
- * turn these red.
- *
- * Built at mantahostels#2003; the session unit is mantahostels#2046's. The
- * figures feed `check-context-budget.js` and `check-guard-registry.js`, both
- * refusing gates in `.husky/pre-commit`: loosen a case and a commit can wire
- * rule text past the budget unrefused, or a clean commit is refused on a
- * miscount.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -31,12 +17,10 @@ const { readDispatchRows, isCoreFor } = require("./guard-cores.js") as {
 };
 const DISPATCH_ENTRY = "scripts/guard-dispatch.js";
 
-/** One contributing guard, as reachableByTool reports it. */
 interface Guard {
 	file: string;
 	bytes: number;
 	calls: number;
-	/** The distinct rule ids this guard can reach. */
 	ids: string[];
 }
 
@@ -68,8 +52,8 @@ interface Figures {
 	}[];
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-const lib = require("./rule-emission") as any;
+const lib =
+	require("./rule-emission.js") as typeof import("./rule-emission.js");
 
 const CAP_FILE = path.join(__dirname, "hook-limits.js");
 const limits = require("./hook-limits.js") as {
@@ -84,7 +68,6 @@ afterEach(() => {
 		fs.rmSync(t, { recursive: true, force: true });
 });
 
-/** A throwaway fragment store, id → body, returned as its absolute path. */
 function store(fragments: Record<string, string>): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rule-emission-"));
 	temps.push(dir);
@@ -93,7 +76,6 @@ function store(fragments: Record<string, string>): string {
 	return dir;
 }
 
-/** A PreToolUse settings object from `matcher → guard paths`. */
 function buildSettings(wiring: Record<string, string[]>) {
 	return {
 		hooks: {
@@ -108,7 +90,6 @@ function buildSettings(wiring: Record<string, string[]>) {
 	};
 }
 
-/** A core whose only content is its injections, one decision per line. */
 function guard(...calls: string[][]): string {
 	return calls
 		.map(
@@ -118,29 +99,16 @@ function guard(...calls: string[][]): string {
 		.join("");
 }
 
-/**
- * A core that reaches its ids through DIRECT accessor calls instead — the
- * shape a core uses when it splices rule text into wording of its own.
- */
 function directGuard(...ids: string[]): string {
 	return ids
 		.map((id) => `const ${slot(id)} = ctx.ruleText("${id}");\n`)
 		.join("");
 }
 
-/** The constant one id's fetched text lands in, ids carrying hyphens. */
 function slot(id: string): string {
 	return `text_${id.replace(/-/g, "_")}`;
 }
 
-/**
- * The same, with the per-session bound a splicing guard may put on its own
- * repeat (mantahostels#2275).
- *
- * The emission spends the fetched text rather than a literal: the bound is
- * correlated against the emission (mantahostels#2354), and a guard that fetches
- * without emitting is not the shape being modelled.
- */
 function latchedGuard(...ids: string[]): string {
 	return `${directGuard(...ids)}${ids
 		.map(
@@ -150,10 +118,6 @@ function latchedGuard(...ids: string[]): string {
 		.join("")}`;
 }
 
-/**
- * A core with TWO fetches for one id and a bound in front of only one of
- * them — the shape mantahostels#2283 was raised on.
- */
 function twoPathGuard(id: string): string {
 	return [
 		`if (!ctx.told("${id}"))`,
@@ -163,7 +127,6 @@ function twoPathGuard(id: string): string {
 	].join("\n");
 }
 
-/** The module's answer for a whole synthetic repo. */
 function figures(
 	wiring: Record<string, string[]>,
 	sources: Record<string, string>,
@@ -180,11 +143,6 @@ function figures(
 
 const ALONE = "scripts/guard-alone.js";
 
-/**
- * The module's answer for `text` wired alone on Bash. The store answers for
- * every id in `ids` — each one a misreading could invent too — so a misread
- * surfaces as an id, not a throw.
- */
 const alone = (text: string, ids: string[]): Figures =>
 	figures(
 		{ Bash: [ALONE] },
@@ -192,7 +150,6 @@ const alone = (text: string, ids: string[]): Figures =>
 		Object.fromEntries(ids.map((id) => [id, "x"])),
 	);
 
-/** What reachableByTool reads off one guard's injections, wired alone. */
 function reached(
 	text: string,
 	ids: string[],
@@ -202,10 +159,6 @@ function reached(
 	return g ? { calls: g.calls, ids: g.ids } : { calls: 0, ids: [] };
 }
 
-/**
- * The direct census reachableByTool takes of one guard wired alone, as id →
- * how it reads that id's bound.
- */
 function census(
 	text: string,
 	ids: string[],
@@ -214,11 +167,6 @@ function census(
 	return Object.fromEntries(r.direct.map((d) => [d.id, d.latched]));
 }
 
-/**
- * How reachableByTool reads the bound on `id` once `text` is told on it and
- * marked once: `bounded` only where the text holds exactly one fetch site
- * (mantahostels#2283), `ambiguous` for any other count.
- */
 function boundOf(text: string, id: string) {
 	return census(
 		`${text}if (ctx.told("${id}")) return null;\nreturn { context: "", latchAfter: "${id}" };\n`,
@@ -228,7 +176,6 @@ function boundOf(text: string, id: string) {
 
 describe("summing a group", () => {
 	it("adds every guard wired on the tool", () => {
-		// 10 B + 20 B, each a single-fragment call with no join.
 		const r = figures(
 			{ Bash: ["scripts/guard-a.js", "scripts/guard-b.js"] },
 			{
@@ -259,8 +206,6 @@ describe("summing a group", () => {
 
 describe("one guard with more than one call", () => {
 	it("counts both branches, never only the larger", () => {
-		// Mutually exclusive on ONE event, but a session meets many events and the
-		// latch pays each id once: 40, not 30.
 		const r = figures(
 			{ Bash: ["scripts/guard-two.js"] },
 			{ "scripts/guard-two.js": guard(["big"], ["small"]) },
@@ -298,7 +243,6 @@ describe("an id two guards both reach", () => {
 				beta: "b".repeat(20),
 			},
 		);
-		// 100 + 10 + 20, not 110 + 120.
 		expect(r.tools.Bash.bytes).toBe(130);
 		expect(r.tools.Bash.guards.map((g: Guard) => g.bytes).sort()).toEqual([
 			110, 120,
@@ -326,8 +270,6 @@ describe("the ratchet's union across tools", () => {
 	});
 
 	it("counts a match-all matcher, which names no tool and opens no group", () => {
-		/* Accumulating the ratchet from the groups would report this guard at
-		 * 0 B — the deflation a ceiling must never make. */
 		const r = figures(
 			{ "": ["scripts/guard-everywhere.js"] },
 			{ "scripts/guard-everywhere.js": guard(["everywhere"]) },
@@ -338,8 +280,6 @@ describe("the ratchet's union across tools", () => {
 	});
 
 	it("counts a match-all matcher into every tool a neighbour's matcher names", () => {
-		// Claude Code reads "" as match-all; anchoring it literally gives /^()$/,
-		// which would drop the guard from every group.
 		const r = figures(
 			{ "": ["scripts/guard-everywhere.js"], Bash: ["scripts/guard-a.js"] },
 			{
@@ -367,9 +307,6 @@ describe("the ratchet's union across tools", () => {
 
 describe("the cap", () => {
 	it("counts a call over RULE_CAP in full, the deferred tail arriving later", () => {
-		// 6,000 B offered against a 4,000 B ceiling. On ONE event the entry defers
-		// the second fragment whole; unlatched, it lands on the next event, so a
-		// session pays both.
 		const r = figures(
 			{ Bash: ["scripts/guard-fat.js"] },
 			{ "scripts/guard-fat.js": guard(["one", "two"]) },
@@ -380,9 +317,6 @@ describe("the cap", () => {
 	});
 
 	it("reports, rather than throws, a fragment over the cap on its own (mantahostels#2054)", () => {
-		// It can never be emitted whole — offered first, it denies
-		// the tool call outright — but that is the repo's own rule text, not this
-		// module's apparatus, so it is named in `overCap` rather than thrown.
 		const r = figures(
 			{ Bash: ["scripts/guard-huge.js"] },
 			{ "scripts/guard-huge.js": guard(["whale", "minnow"]) },
@@ -391,16 +325,12 @@ describe("the cap", () => {
 		expect(r.overCap).toEqual([
 			{ id: "whale", bytes: 4001, guards: ["scripts/guard-huge.js"] },
 		]);
-		// The unemittable id pays nothing: it is excluded, not silently zeroed —
-		// `minnow` alone reaches the group and the ratchet.
 		expect(r.tools.Bash.bytes).toBe(10);
 		expect(r.tools.Bash.ids).toEqual(["minnow"]);
 		expect(r.ratchet.bytes).toBe(10);
 	});
 
 	it("carries both sides of the cap in fragmentBytes (mantahostels#2260)", () => {
-		// `overCap` answers for `whale` alone, the group's own figures for
-		// `minnow` alone; only this record answers for both.
 		const r = figures(
 			{ Bash: ["scripts/guard-huge.js"] },
 			{ "scripts/guard-huge.js": guard(["whale", "minnow"]) },
@@ -410,9 +340,6 @@ describe("the cap", () => {
 	});
 
 	it("reports an over-cap fragment behind a full call, not just a leading one", () => {
-		// This module resolves every id in the call regardless of position, so a
-		// lazy resolution that stopped at the first over-cap id would still have
-		// to report this one.
 		const r = figures(
 			{ Bash: ["scripts/guard-late.js"] },
 			{ "scripts/guard-late.js": guard(["first", "whale"]) },
@@ -479,14 +406,12 @@ describe("the cap", () => {
 });
 
 describe("a decision's skip", () => {
-	/** A core whose skip sits behind a condition. */
 	function scoped(emitted: string[], skipped: string[]): string {
 		const list = (ids: string[]) => ids.map((id) => `"${id}"`).join(", ");
 		return `return { injectRules: [${list(emitted)}], skip: docsOnly ? [${list(skipped)}] : [] };\n`;
 	}
 
 	it("never lowers the figure: a skip sits behind a condition that may not fire", () => {
-		// A ceiling assumes every skip stays quiet, so all three ids are reachable.
 		const r = figures(
 			{ Bash: ["scripts/guard-free.js"] },
 			{ "scripts/guard-free.js": scoped(["lead", "mid", "tail"], ["mid"]) },
@@ -564,8 +489,6 @@ describe("ruleModule (#449, #2785)", () => {
 
 describe("the join", () => {
 	it("is not counted: how ids fall across deliveries is not statically known", () => {
-		// Three fragments, 60 B — never 64. The 2 B separator is per
-		// delivery, and a session's deliveries are not fixed.
 		const r = figures(
 			{ Bash: ["scripts/guard-three.js"] },
 			{ "scripts/guard-three.js": guard(["a", "b", "c"]) },
@@ -577,7 +500,6 @@ describe("the join", () => {
 
 describe("byte length, not character length", () => {
 	it("counts a multibyte fragment at its byte size", () => {
-		// Eight em dashes, 3 B each in UTF-8: 24 B, not 8.
 		const body = "—".repeat(8);
 		expect(body.length).toBe(8);
 		const r = figures(
@@ -622,7 +544,6 @@ describe("overlapping matchers", () => {
 	});
 
 	it("keeps a `Bash` guard out of the `BashOutput` group", () => {
-		// An unanchored matcher test would charge BashOutput for every Bash guard.
 		const r = figures(
 			{ Bash: ["scripts/guard-a.js"], BashOutput: ["scripts/guard-out.js"] },
 			{
@@ -641,8 +562,6 @@ describe("overlapping matchers", () => {
 			"Write|Edit": ["scripts/guard-we.js"],
 			WriteFile: ["scripts/guard-wf.js"],
 		});
-		/* No matcher at all — the settings shape of an event that takes none —
-		 * covers every tool. */
 		settings.hooks.PreToolUse.push({
 			hooks: [
 				{
@@ -764,10 +683,6 @@ describe("the wired-script pattern", () => {
 });
 
 describe("the exec form's args (mantahostels#2266)", () => {
-	/* `command` is the bare interpreter and the script path sits in `args`, so a
-	 * reader taking `command` alone counts the guard's fragments into no group
-	 * at all — the byte census then reads under the cap because it never saw the
-	 * guard. */
 	const execFormSettings = {
 		hooks: {
 			PreToolUse: [
@@ -847,8 +762,6 @@ describe("reading the injections", () => {
 		});
 	});
 
-	// Without the prefix in the id run, a prefixed id would end the run and
-	// every id after it would vanish (mantahostels#2719).
 	it("bares a `rule:` prefix and does not let it truncate the run", () => {
 		expect(
 			reached(guard(["rule:alpha", "beta"]), ["alpha", "beta", "rule"]),
@@ -862,11 +775,6 @@ describe("reading the injections", () => {
 		});
 	});
 
-	/*
-	 * The optional prefix would otherwise backtrack: on a token the id grammar
-	 * cannot follow, RULE_ARG_RE falls back to matching `rule` alone. The run
-	 * spells the grammar out so such a token never reaches it.
-	 */
 	it("invents no `rule` id from a token the grammar cannot follow", () => {
 		expect(reached(guard(["rule:-x"]), ["rule", "x"])).toEqual({
 			calls: 0,
@@ -900,10 +808,6 @@ describe("reading the injections", () => {
 });
 
 describe("agreement with scripts/lib/hook-wiring.ts", () => {
-	/* The settings are this repo's real ones; the guard sources and the fragment
-	 * store are not. */
-	/* A dispatcher core is wired where its entry is and its row names the
-	 * tool (lib/guard-cores.js). */
 	const rows = new Map(
 		readDispatchRows("PreToolUse").map((r) => [
 			path.join("scripts", "lib", r.core),
@@ -929,11 +833,6 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 
 	function liveSettingsFigures() {
 		const settings = readCoreHooks();
-		/* A line that runs the dispatcher is its cores alone: the pinned-guards
-		 * shim ahead of it is no guard (#4266). Restated from guard-cores.js's
-		 * expandDispatched rather than called, so the wired set is not drawn from
-		 * the code under test. Residual: a real guard put on the dispatcher's line
-		 * escapes this check, as it escapes the lib. */
 		const wired = new Set(
 			(settings.hooks?.PreToolUse ?? [])
 				.flatMap((entry) => entry.hooks ?? [])
@@ -971,7 +870,6 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 	});
 
 	it("counts a guard into every tool hookIsWired says it is wired on", () => {
-		/* A group silently dropped is the under-report a gate exists to catch. */
 		const { settings, wired, figures: liveFigures } = liveSettingsFigures();
 		for (const tool of Object.keys(liveFigures.tools))
 			for (const rel of wired) {
@@ -1010,9 +908,6 @@ describe("a matcher that is not a plain alternation", () => {
 
 describe("the direct-call census (mantahostels#2055)", () => {
 	it("censuses a fragment only a direct call reaches, and counts none of it", () => {
-		// Route (e), not route (f): the guard composes the text itself, on the
-		// branch where it has already fired, so only the session that erred pays
-		// it and the caps are silent about it.
 		const r = figures(
 			{ Bash: ["scripts/guard-refuser.js"] },
 			{ "scripts/guard-refuser.js": directGuard("spliced") },
@@ -1029,16 +924,10 @@ describe("the direct-call census (mantahostels#2055)", () => {
 		]);
 		expect(r.tools.Bash.bytes).toBe(0);
 		expect(r.ratchet.bytes).toBe(0);
-		// Still in fragmentBytes, though no cap prices it: an id can move between
-		// the routes, and a commit adding an injection of this one would
-		// otherwise have no baseline reading to be measured against (mantahostels#2260).
 		expect(r.fragmentBytes).toEqual({ spliced: 700 });
 	});
 
 	it("still lists an id an injection also reaches, flagged rather than dropped", () => {
-		// A core that injects a fragment pre-emptively AND splices the same
-		// fragment into its denial. The figures
-		// buy the once-a-session pre-emission and never the per-denial repeats.
 		const g = `${guard(["both"])}${directGuard("both")}`;
 		const r = figures(
 			{ Bash: ["scripts/guard-two-routes.js"] },
@@ -1058,9 +947,6 @@ describe("the direct-call census (mantahostels#2055)", () => {
 	});
 
 	it("flags on the global union, so a neighbour's pre-emission marks it", () => {
-		// `counted` answers "do the figures above already carry these bytes",
-		// which the ratchet's union settles across every guard and tool — not
-		// this guard alone.
 		const r = figures(
 			{
 				Bash: ["scripts/guard-emitter.js"],
@@ -1081,8 +967,6 @@ describe("the direct-call census (mantahostels#2055)", () => {
 				latched: "none",
 			},
 		]);
-		// The splicer contributes nothing to its OWN tool's figure: a direct call
-		// is not route (f) emission, however another tool's guard reaches the id.
 		expect(r.tools.Write.bytes).toBe(0);
 		expect(r.tools.Bash.bytes).toBe(40);
 	});
@@ -1108,9 +992,6 @@ describe("the direct-call census (mantahostels#2055)", () => {
 	});
 
 	it("reports an unresolvable id at null bytes rather than throwing", () => {
-		// An injection naming a missing fragment denies the tool call, so this module throws on one. A direct call falls back to the
-		// guard's own hardcoded sentence and still fires, so the same id is a
-		// census entry.
 		const r = figures(
 			{ Bash: ["scripts/guard-fallback.js"] },
 			{ "scripts/guard-fallback.js": directGuard("absent") },
@@ -1128,8 +1009,6 @@ describe("the direct-call census (mantahostels#2055)", () => {
 	});
 
 	it("lists a fragment over RULE_CAP that a direct call still delivers", () => {
-		// The one id in two blocks: overCap says it can never be injected, and
-		// the census says the guard's own wording does anyway.
 		const r = figures(
 			{ Bash: ["scripts/guard-huge-both.js"] },
 			{
@@ -1175,13 +1054,11 @@ describe("the direct-call census (mantahostels#2055)", () => {
 				latched: "bounded",
 			},
 		]);
-		// Still route (e): a bound on the repeat moves no figure.
 		expect(r.tools.Bash.bytes).toBe(0);
 		expect(r.ratchet.bytes).toBe(0);
 	});
 
 	it("flags an id latched only where EVERY caller latches it", () => {
-		// One guard's bound says nothing about a neighbour's own firings.
 		const r = figures(
 			{ Bash: ["scripts/guard-bounded.js", "scripts/guard-loose.js"] },
 			{
@@ -1194,8 +1071,6 @@ describe("the direct-call census (mantahostels#2055)", () => {
 	});
 
 	it("censuses a direct call in a lib the wired guard sources (mantahostels#2488)", () => {
-		// The call is the sourcing guard's to make, so it is the sourcing guard the
-		// census names — a relocation into a helper moves no figure.
 		const r = figures(
 			{ Bash: ["scripts/guard-thin.sh"] },
 			{
@@ -1241,8 +1116,6 @@ describe("correlating a bound with the call it covers (mantahostels#2283)", () =
 				latched: "ambiguous",
 			},
 		]);
-		// The bound covers a real call, so it is not a dead latch — just an
-		// uncorrelatable one.
 		expect(r.latchFaults).toEqual([]);
 	});
 
@@ -1310,8 +1183,6 @@ describe("a bound that covers nothing (mantahostels#2283)", () => {
 	});
 
 	it("names a ctx.told its guard never marks, and withdraws the bound", () => {
-		// The question is asked and never made true, so the fragment is paid on
-		// every firing exactly as an unbounded one is.
 		const r = figures(
 			{ Bash: ["scripts/guard-unmarked.js"] },
 			{
@@ -1343,14 +1214,12 @@ describe("a bound that covers nothing (mantahostels#2283)", () => {
 
 describe("counting a guard's direct call sites (mantahostels#2283)", () => {
 	it("counts sites, not distinct ids", () => {
-		// One emission either way, so only the second fetch site withdraws the bound.
 		const fetch = 'const text = ctx.ruleText("split");\n';
 		expect(boundOf(fetch, "split")).toBe("bounded");
 		expect(boundOf(fetch + fetch, "split")).toBe("ambiguous");
 	});
 
 	it("dedupes an id two sites name, keeping the count", () => {
-		// A neighbour id's site never adds to this one's count.
 		expect(census(latchedGuard("one", "two"), ["one", "two"])).toEqual({
 			one: "bounded",
 			two: "bounded",
@@ -1375,8 +1244,6 @@ describe("reading a direct call", () => {
 	});
 
 	it("ignores the shapes that name no literal id", () => {
-		// `declare -F` tests the function exists; `"$1"` builds the id at run
-		// time; `_load_rule_text` and `xrule_text` are different words.
 		const text = [
 			"#!/usr/bin/env bash",
 			"  declare -F rule_text >/dev/null 2>&1",
@@ -1395,7 +1262,6 @@ describe("reading a direct call", () => {
 describe("reading a Node core's direct call, bound and mark (#2905)", () => {
 	const entryPath = "scripts/guard-node.js";
 	const corePath = "scripts/lib/node-core.js";
-	/** A Node entry over a core, wired alone on Bash, read as a census. */
 	const nodeCensus = (core: string, ids: string[]) =>
 		Object.fromEntries(
 			figures(
@@ -1415,7 +1281,6 @@ describe("reading a Node core's direct call, bound and mark (#2905)", () => {
 		`return { injectRules: [], prelude: rule(), latchAfter: "${id}" };\n`;
 
 	it("reads ctx.ruleText as the call, ctx.told as its bound and latchAfter as its mark", () => {
-		// The vitest-wrapper shape.
 		expect(
 			nodeCensus(fetchRule("wrapped") + told("wrapped") + marked("wrapped"), [
 				"wrapped",

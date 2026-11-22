@@ -1,49 +1,24 @@
-/*
- * review-carry.js — what a morning review hands the next one (#3831, spec #1995
- * §The morning review issue). Pure: scripts/file-morning-review.js does every
- * read.
- *
- * A repo that does not read keeps its closes and decisions (#3831): the review
- * prints where its events went unread from, and the next starts that repo there
- * (buildRepoStart), so each lands in the first review to read the repo. Each kind
- * carries alone (#3928): a repo whose closes will not read lists its decisions
- * and prints a `Closes unread` line, so the next review repeats none of them. An
- * `Events unread` line is both kinds from one start. The line
- * outlives the checkout's absence from discovery, to the end buildAbsentRepos
- * gives it (#3835). Each review's closing comment also names the checkouts it
- * read, so one's first absence is carried from that review's window end (#3844).
- *
- * The lines are the only record of a carry, so a filed review's lines must go on
- * reading: their print and their parse both live here.
- */
-
 const { requiredGroup } = require("./regex-group.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
 const UNREAD_LINE =
 	/^(Events|Closes|Decisions) unread since (\S+) in (.+)\.$/gm;
 const READ_LINE = /^Events read in (.+)\.$/gm;
-/* How old a start may grow on a checkout discovery no longer lists. Untraced, a
- * guess: past any repair, and a repo that left workflow-core stops being named. */
+// guess, #3835
 const ABSENT_CARRY_DAYS = 30;
 
 /**
  * @typedef {import("./morning-review.js").RepoReading} RepoReading
  * @typedef {import("./morning-review.js").Unread} Unread
- * @typedef {{closes: boolean, decisions: boolean}} EventKinds which kinds a
- *   carry or its end covers
+ * @typedef {{closes: boolean, decisions: boolean}} EventKinds
  * @typedef {{closes: string, decisions: string, why: string | null}} RepoStart
- *   where each kind of a checkout's events starts, and what of its line would
- *   not read
  * @typedef {{kind: "Events" | "Closes" | "Decisions", checkout: string,
- *   since: string}} UnreadEvents what of a checkout did not read, and where it
- *   starts; `Events` is both kinds
+ *   since: string}} UnreadEvents
  * @typedef {{reading: RepoReading | null, unread: Unread[],
- *   unreadEvents: UnreadEvents[]}} RepoRead one checkout's part of a review
+ *   unreadEvents: UnreadEvents[]}} RepoRead
  */
 
 /**
- * The line the next review reads a carry back from.
  * @param {UnreadEvents} unread
  * @returns {string}
  */
@@ -51,14 +26,12 @@ const renderUnreadLine = ({ kind, since, checkout }) =>
 	`${kind} unread since ${since} in ${checkout}.`;
 
 /**
- * The line naming a checkout this review read, for the next to notice its absence.
  * @param {string} checkout
  * @returns {string}
  */
 const renderReadLine = (checkout) => `Events read in ${checkout}.`;
 
 /**
- * Where a review's body says each kind of a checkout's events went unread from.
  * @param {string} body
  * @param {string} checkout
  * @returns {{closes?: string, decisions?: string}}
@@ -95,11 +68,8 @@ const parseKnownCheckouts = (previous) => {
 };
 
 /**
- * Where each kind of a checkout's events starts: where the previous review says
- * it went unread from, else the window's start. Residual: a line whose time will
- * not read, as after a hand edit, starts at the window's start, and `why` says so.
  * @param {{number: number, body: string} | undefined} previous
- * @param {string} checkout its directory name, which a read of no config still has
+ * @param {string} checkout
  * @param {string} since
  * @returns {RepoStart}
  */
@@ -120,10 +90,6 @@ function buildRepoStart(previous, checkout, since) {
 }
 
 /**
- * Where a checkout's table history went unread from, its commit-time fallback: a
- * review reading either kind read the history too, so the later start (#3928).
- * Residual: a history that failed in such a review, with no cursor before it,
- * starts after what that review missed.
  * @param {RepoStart} start
  * @returns {string}
  */
@@ -131,7 +97,6 @@ const buildHistoryStart = ({ closes, decisions }) =>
 	Date.parse(closes) < Date.parse(decisions) ? decisions : closes;
 
 /**
- * Whether `kinds` are both kinds, from one start, which one line can name.
  * @param {RepoStart} start
  * @param {EventKinds} kinds
  */
@@ -139,7 +104,6 @@ const isOneStart = (start, kinds) =>
 	kinds.closes && kinds.decisions && start.closes === start.decisions;
 
 /**
- * The lines carrying what of a checkout's events this review did not read.
  * @param {string} checkout
  * @param {RepoStart} start
  * @param {EventKinds} unread
@@ -158,7 +122,6 @@ function buildCarryLines(checkout, start, unread) {
 }
 
 /**
- * A buildRepoStart's own fault, as what the review could not read.
  * @param {string} checkout
  * @param {{why: string | null}} start
  * @returns {Unread[]}
@@ -167,10 +130,9 @@ const buildStartFaults = (checkout, { why }) =>
 	why === null ? [] : [{ repo: checkout, why }];
 
 /**
- * A checkout that gave this review nothing: named, with its events carried.
  * @param {string} checkout
  * @param {RepoStart} start
- * @param {string} repo what to name it, its tracker where that read
+ * @param {string} repo
  * @param {string} why
  * @returns {RepoRead}
  */
@@ -184,8 +146,6 @@ const buildUnreadRepo = (checkout, start, repo, why) => ({
 });
 
 /**
- * A checkout whose carry ends, for the kinds `ended` names, naming what that gives
- * up; any other kind stays carried.
  * @param {string} checkout
  * @param {RepoStart} start
  * @param {string} why
@@ -216,16 +176,12 @@ function buildEndedRepo(checkout, start, why, ended) {
 }
 
 /**
- * The review's parts for the checkouts the previous review read or carried and
- * discovery no longer lists (#3835, #3844): each named and carried until its
- * directory is gone or its start is ABSENT_CARRY_DAYS old.
  * @param {object} reading
  * @param {{number: number, body: string} | undefined} reading.previous
- * @param {Set<string>} reading.listed the checkouts discovery answers for
- * @param {string} reading.since the window's start
+ * @param {Set<string>} reading.listed
+ * @param {string} reading.since
  * @param {number} reading.nowMs
  * @param {(checkout: string) => {carried: boolean, why: string} | null} reading.readAbsence
- *   null for a checkout that stays out unnamed
  * @returns {RepoRead[]}
  */
 function buildAbsentRepos({ previous, listed, since, nowMs, readAbsence }) {

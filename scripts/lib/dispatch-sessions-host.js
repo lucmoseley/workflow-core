@@ -1,10 +1,3 @@
-/*
- * dispatch-sessions-host.js — the production ports lib/dispatch-sessions.js
- * runs behind (#5145): each helper as its own node process, the interop probe
- * through its one bash library, and the launch in a process group of its own
- * under its ceiling.
- */
-
 const { spawn, spawnSync } = require("node:child_process");
 const os = require("node:os");
 const path = require("node:path");
@@ -12,9 +5,6 @@ const { ignoreFailure } = require("./caught.js");
 
 const SCRIPTS = path.resolve(__dirname, "..");
 
-/* `claude_interop_wedged` is the probe; a library that will not load leaves
- * it undefined, and that reads healthy (mantahostels#3111). Exit 10 is the
- * wedge, its recovery text on stderr. */
 const INTEROP_SCRIPT = [
 	'source "$1" 2>/dev/null',
 	"declare -F claude_interop_wedged >/dev/null || exit 0",
@@ -23,15 +13,13 @@ const INTEROP_SCRIPT = [
 	"exit 10",
 ].join("\n");
 
-/* Seconds a launch that ignores its TERM gets before the KILL: the `-k 5`
- * the bash dispatcher's `timeout` carried; untraced past that. */
+// guess, #5529
 const KILL_GRACE_SECONDS = 5;
-/* A helper's output, captured whole, where spawnSync's 1 MiB default would cut it short. A guess at a ceiling no
- * helper nears, not a measurement. */
+// guess, #5529
 const HELPER_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
- * @param {string} script relative to scripts/
+ * @param {string} script
  * @param {string[]} args
  * @param {{env: NodeJS.ProcessEnv, cwd: string, stdin?: string}} opts
  */
@@ -51,11 +39,7 @@ function node(script, args, { env, cwd, stdin }) {
 	};
 }
 
-/**
- * The interop probe, run from `library`; anything but its wedge verdict reads
- * healthy.
- * @param {string} [library]
- */
+/** @param {string} [library] */
 function interopProbe(library = path.join(SCRIPTS, "lib", "interop-probe.sh")) {
 	return (/** @type {NodeJS.ProcessEnv} */ env) => {
 		const r = spawnSync("bash", ["-c", INTEROP_SCRIPT, "interop", library], {
@@ -71,10 +55,6 @@ function interopProbe(library = path.join(SCRIPTS, "lib", "interop-probe.sh")) {
 }
 
 /**
- * One launch, stdout and stderr merged in arrival order. At `timeoutS` the
- * launch's whole process group is sent TERM, and KILL after the grace, as
- * `timeout -k` does; a launch that has exited by then is not a timeout, even
- * where something it left holds its output open.
  * @param {string[]} argv
  * @param {{cwd: string, env: NodeJS.ProcessEnv, timeoutS: number}} opts
  * @returns {Promise<{status: number, timedOut: boolean, output: string}>}

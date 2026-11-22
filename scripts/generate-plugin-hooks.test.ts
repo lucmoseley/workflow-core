@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that `hooks/hooks.json` is `self-plugin/hooks/hooks.json`'s hooks with
- * only the `scripts/` prefix rewritten to the plugin root and the marker writer
- * left out, and that the plugin and marketplace pins agree (#4, #946, #2441).
- *
- * The generator is run as a program, in process (§X3), against a throwaway
- * repo, so the fixture proves the one thing a unit cannot: the render writes
- * hooks/hooks.json and nothing else. The two cases against the real core catch
- * a self-plugin edit committed without a re-render, and a version/tag pin that
- * disagree — either ships adopters something other than what the tag names.
- * Its `--check` is a hard gate in `.husky/pre-commit` on a commit touching
- * either file, the generator, its reader or any script. It judges the index,
- * not the working tree (#2901), so the fixture is a git repo and each
- * `--check` case stages what it means the check to see.
- *
- * `onFailure: "block"` sits on exactly the deny-capable `PreToolUse` hooks
- * (#2670), asserted over the real manifest and refused in a fixture either way.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -31,7 +13,6 @@ import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "generate-plugin-hooks.js");
 const CORE = path.resolve(__dirname, "..");
-// Spelled in pieces: a `${…}` literal in a plain string trips Biome's template lint.
 const BARE_PLUGIN_ROOT = ["$", "{CLAUDE_PLUGIN_ROOT}"].join("");
 const PLUGIN_ROOT = `"${BARE_PLUGIN_ROOT}"`;
 
@@ -50,7 +31,6 @@ interface Hook {
 }
 type Hooks = Record<string, Array<{ matcher?: string; hooks: Hook[] }>>;
 
-/** Every hook in `hooks`, in file order, tagged with its event. */
 const flat = (hooks: Hooks) =>
 	Object.entries(hooks).flatMap(([event, groups]) =>
 		groups.flatMap((group) => group.hooks.map((hook) => ({ event, hook }))),
@@ -66,7 +46,6 @@ describe("the committed plugin hook manifest", () => {
 		expect(r.status).toBe(0);
 	});
 
-	// #946: the plugin's entry module, which loads both mods in an adopter.
 	it("names the committed entry module under modules, beside hooks", () => {
 		const manifest = JSON.parse(
 			fs.readFileSync(path.join(CORE, "hooks/hooks.json"), "utf8"),
@@ -130,8 +109,6 @@ describe("the shipped manifest's onFailure", () => {
 		expect(capable.filter(({ hook }) => hook.onFailure !== "block")).toEqual(
 			[],
 		);
-		// Named by hand, so a fault in the derivation the generator shares
-		// cannot pass both sides.
 		expect(
 			hooks.find(
 				({ event, guard }) =>
@@ -166,7 +143,6 @@ describe("renderAt", () => {
 		);
 		return JSON.parse(renderAt(root)).hooks;
 	};
-	/** The command `hook` ships as, rendered from a self-plugin file holding it alone. */
 	const shipped = (hook: Hook): string | undefined =>
 		render({ hooks: { Stop: [{ hooks: [hook] }] } }).Stop[0].hooks[0].command;
 
@@ -282,8 +258,6 @@ describe("a render in a fixture repo", () => {
 		execFileSync("git", ["init", "-q", dir]);
 		fs.mkdirSync(path.join(dir, "self-plugin/hooks"), { recursive: true });
 		fs.mkdirSync(path.join(dir, "scripts"));
-		/* The fixture is a repo that SHIPS a plugin; without the manifest the
-		 * render skips, which is the adopter case (#5). */
 		fs.mkdirSync(path.join(dir, ".claude-plugin"));
 		fs.writeFileSync(
 			path.join(dir, ".claude-plugin", "plugin.json"),
@@ -374,8 +348,6 @@ describe("a render in a fixture repo", () => {
 		try {
 			const tree = path.join(linked, "tree");
 			git("worktree", "add", "-q", "--detach", tree);
-			/* The harness names the main checkout as the project even for a
-			 * session in a linked worktree. */
 			const r = runInProcess(SCRIPT, [], {
 				cwd: tree,
 				env: { ...process.env, CLAUDE_PROJECT_DIR: dir },

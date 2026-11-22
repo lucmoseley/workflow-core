@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * hook-envelope.test.ts — the dispatcher's merged output in each event's own
- * decision control (#2787). Loosen a case and a PostToolUse block reaches the
- * harness as a permission it ignores, or a context goes unsaid.
- */
 import { describe, expect, it } from "vitest";
 
 const { envelope } = require("./hook-envelope.js") as {

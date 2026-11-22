@@ -1,9 +1,3 @@
-/*
- * round-holds-host.js — the production ports the dispatcher wires into the
- * guard-round-holds core, lib/round-holds.js (#3858). lib/repo-holds.js loads
- * only for a round, as this core sits on every `gh` call.
- */
-
 const { readBodyFile } = require("./body-file.js");
 const os = require("node:os");
 const { isMarkersWritable } = require("./refuse-once.js");

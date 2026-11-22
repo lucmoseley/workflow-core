@@ -1,10 +1,3 @@
-/*
- * dispatch-rewrite-host.js — the production ports lib/dispatch-rewrite.js
- * reads through the dispatcher (#2791): a fresh artefact path, its id drawn
- * at random; the making of its directory; and the model the dispatching
- * session runs on, off its transcript's tail (#4992).
- */
-
 const { artefactFile } = require("./dispatch-artefact.js");
 const { makeDir } = require("./guard-entry.js");
 const { caught } = require("./caught.js");
@@ -18,9 +11,7 @@ function buildHostPorts({ root, log = () => undefined }) {
 		/** @param {unknown} description */
 		artefactFile: (description) => artefactFile(root, description),
 		makeDir,
-		/** A lookup that throws reads as a model unknown, logged, so it costs
-		 * the Fable pin and never the rest of the rewrite (#4992).
-		 * @param {string} session */
+		/** @param {string} session */
 		sessionModel: (session) => {
 			if (!session) return "";
 			try {

@@ -1,10 +1,3 @@
-/*
- * review-findings.js — the `**Review findings:**` record's form: what
- * report-remeasure-due.js counts and reports, and what resolve-ticket.js
- * refuses to post, read one way so a close and the report cannot disagree
- * (#3846). The form is docs/agents/rules/review-tier-records.txt's.
- */
-
 const { ghApiSlurp } = require("./gh.js");
 const { readCommit } = require("./commit-sha.js");
 const { gitOutcome, gitReader } = require("./git.js");
@@ -24,63 +17,36 @@ const FINDINGS = new RegExp(
 );
 const TIER = /\*\*Review tier:\*\*\s*[`(]*([^\s`.,;:()\u2013\u2014]*)/g;
 const COUNTED_TIERS = new Set(["escalated", "mission-critical"]);
-/* What the rule lets a session declare, so any other word is reported. */
 const KNOWN_TIERS = new Set([...COUNTED_TIERS, "standard"]);
 const BULLET = /^\s*-\s/;
 const KNOWN = /^\s*-\s*(?:FIXED|TICKETED)\b/;
 const FIXED = /^\s*-\s*FIXED\b/;
-/* A FIXED or TICKETED line in another spelling (#3907), the word's stem and
- * plural among them (#4050): any case right after a list marker, upper case
- * anywhere on a list line or opening a bare one, as "Fixed by the next
- * commit." is prose. A declined line counts 0 however spelt. */
 const LIST_MARKER = "(?:[-*+–—•]|\\d+[.)])";
 const LIST_LINE = new RegExp(`^\\s*${LIST_MARKER}`);
 const SPELLING = "(?:FIX(?:E[DS]|ING)?|TICKET(?:ED|S|ING)?)(?![A-Za-z])";
 const UPPER_WORD = new RegExp(`(?<![A-Za-z])${SPELLING}`);
 const MARKED_SPELLING = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	`^\\s*${LIST_MARKER}\\s*[^A-Za-z]*${SPELLING}`,
+	`^\\s*${LIST_MARKER}[^A-Za-z]*${SPELLING}`,
 	"i",
 );
 const BARE_SPELLING = new RegExp(`^\\s*[*_\`]*${SPELLING}`);
-const DECLINED_SPELLING = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	`^\\s*(?:${LIST_MARKER})?\\s*[^A-Za-z]*declined(?![A-Za-z])`,
-	"i",
-);
+const DECLINED_SPELLING = /^[^A-Za-z]*declined(?![A-Za-z])/i;
 const BLANK = /^\s*$/;
 const INDENTED = /^\s+\S/;
-/* A list ends at the next record, even one bulleted or indented, so its
- * defects are never counted under this one too. */
 const RECORD_START = new RegExp(RECORD_HEAD);
-/* Residual: an unbackticked mention in bold prose under a counted tier is
- * reported, and a record backticked whole is skipped unreported. */
 const RECORD_MENTION = new RegExp(RECORD_HEAD, "g");
 const TIER_MENTION = new RegExp(TIER.source);
 const FORM_HEAD = /\*\*(?:Review findings|Review tier|Escaped defect):\*\*/;
-/* At any indent or behind a list marker, as a fence under a bullet is. Residual:
- * a block indented four spaces with no fence reads as text, a record indented
- * under a list being one. */
-/* Each run is taken whole, never backed into, as a shorter one leaves `(.*)$`
- * the same line break to fail on (#4109). */
 const FENCE_LINE = /^\s*(?:[-*+]\s+)?(`{3,}(?!`)|~{3,}(?!~))(.*)$/;
 const QUOTE_LINE = /^ {0,3}>/;
-/* A closed backtick span, a closed quoted one, its single quote touching no
- * word so an apostrophe opens none, or a backtick opening straight onto a head
- * and never closed. */
 const QUOTED_SPAN = new RegExp(
 	// eslint-disable-next-line regexp/no-super-linear-move -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	`(?<!\`)(\`+)(?!\`).*?(?<!\`)\\1(?!\`)|"[^"]*"|“[^”]*”|(?<!\\w)'[^']*'(?!\\w)|‘[^’]*’|\`+(?=${FORM_HEAD.source}).*`,
 	"g",
 );
-/* What can end a sentence but no path, or a bare lower-case word: read only
- * where git cannot judge the entry, so `Makefile` and a `run.` git names pass.
- * Residual: there, a path-shaped or capitalised stray passes too (#3907). */
 const NOT_A_PATH = /[.;:!?)]$|^[a-z]+$/;
 const REVIEWED = new RegExp(REVIEWED_TREE);
 const BASE = new RegExp(`\\bbase\\s+${SHA}`);
-/* Read from an unparsed mention, which `parseMarks` cuts at its first `\n`, so
- * the run reaches its end unanchored (#3383). */
 const UNPARSED_PATHS = new RegExp(PATHS_CLAUSE);
 const RULE_COMMAND = `\`${scriptPath("lib/rule-text.sh")} review-tier-records\``;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
@@ -91,15 +57,12 @@ const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
  *   tree: string, landed: string, paths: string | null, posted: string,
  *   tier: string, fixed: number, fixes: number, cutOff: number,
  *   misspelt: number, escapes: string[], isTipReverted?: boolean }} ReviewRecord
- *   `issue` null on a commit known by its trailer alone
  * @typedef {{ repo: string, issue: number, line: string }} Unparsed
  * @typedef {{ at: number, tier: string, line: string }
  *   | { at: number, record: RegExpExecArray }
  *   | { at: number, unparsed: string }} Mark
  * @typedef {{ tag: "NO TIER" | "CUT OFF" | "MISSPELT" | "NOT PATHS" | "UNJUDGED",
  *   what: string, fix: string, fixWhereUnowed?: string }} RecordFault
- *   what follows "has a record, landed <sha>,"; what a record of the same review
- *   must be posted with; what a draft may be written as where it owes no record
  */
 
 /** @param {RegExpExecArray} m @param {number} n @param {RegExp} re */
@@ -123,14 +86,8 @@ function parseFence(line) {
 }
 
 /**
- * `body` with every mention of a form blanked, length kept: a fenced block, a
- * quoted line, and a backtick or double-quote span holding the form's head —
- * the record forms' by default. A sha or path backticked in a real record is
- * no mention. Every reading of a review comment goes through this one rule,
- * lib/ticketed-tags.js's included.
- *
  * @param {string} body
- * @param {RegExp} [head] a non-global pattern for the form's head
+ * @param {RegExp} [head]
  */
 function maskMentions(body, head = FORM_HEAD) {
 	/** @type {string | null} */
@@ -156,11 +113,7 @@ function maskMentions(body, head = FORM_HEAD) {
 }
 
 /**
- * The lines under a record: those its list holds, running past blank and
- * indented continuation lines (#1698), and those after the first other line,
- * up to the next record, which no count reads.
- *
- * @param {string} after the text following the record's own line
+ * @param {string} after
  * @returns {{ listed: string[], past: string[] }}
  */
 function parseDispositions(after) {
@@ -195,11 +148,7 @@ const isMisspelt = (line) =>
 		BARE_SPELLING.test(line) ||
 		(LIST_LINE.test(line) && UPPER_WORD.test(line)));
 
-/**
- * A record's reviewed paths, null on one written before #1926.
- *
- * @param {RegExpExecArray} m
- */
+/** @param {RegExpExecArray} m */
 const pathsOf = (m) =>
 	m[4] === undefined ? null : m[4].replace(/`/g, "").trim();
 
@@ -208,11 +157,6 @@ const pathsOf = (m) =>
  */
 
 /**
- * A record's entries: each comma-separated one whole, as the marker's paths=
- * joins them, so a path may hold a space. With no comma, the one entry is
- * also read word by word, as records before that form separated paths by
- * spaces (#3817, #4050).
- *
  * @param {string} paths
  * @returns {PathEntry[]}
  */
@@ -227,13 +171,7 @@ function pathEntriesOf(paths) {
 		.map((whole) => ({ whole, words: [whole] }));
 }
 
-/**
- * Every pathspec a replay reads: each entry whole and each word of it.
- * Residual: in the comma-free form, a word of a spaced path that is itself a
- * path is replayed too.
- *
- * @param {PathEntry[]} entries
- */
+/** @param {PathEntry[]} entries */
 const pathspecsOf = (entries) => [
 	...new Set(entries.flatMap((e) => [e.whole, ...e.words])),
 ];
@@ -277,8 +215,6 @@ function parseMarks(body) {
 }
 
 /**
- * The record `m` matched in a masked comment, under `tier`.
- *
  * @param {{ repo: string, issue: number }} where
  * @param {RegExpExecArray} m
  * @param {string} tier
@@ -304,10 +240,6 @@ function buildRecord(where, m, tier, createdAt) {
 }
 
 /**
- * The records, escaped-defect shas, unparseable records under a counted tier
- * and tier lines in no known word, none known after them, in one ticket's
- * comments, read in order so each record takes the tier last declared above it.
- *
  * @param {string} repo
  * @param {number} issue
  * @param {Comment[]} comments
@@ -355,9 +287,6 @@ function parseIssue(repo, issue, comments) {
 const isSameSha = (a, b) => a.startsWith(b) || b.startsWith(a);
 
 /**
- * Whether two records, or a record and what an unparseable one still names,
- * are one review: by reviewed tree, or by base and paths.
- *
  * @typedef {{ tree: string | null, base: string | null, paths: string | null }} ReviewNames
  * @param {ReviewNames} a
  * @param {ReviewNames} b
@@ -375,8 +304,6 @@ function isSameReview(a, b) {
 }
 
 /**
- * Whether a parsed record on its ticket supersedes `u`.
- *
  * @param {Unparsed} u
  * @param {ReviewRecord[]} records
  */
@@ -393,8 +320,6 @@ function isSuperseded(u, records) {
 }
 
 /**
- * Every comment on `n`, any account's.
- *
  * @param {string} repo
  * @param {number} n
  * @returns {Comment[]}
@@ -408,41 +333,23 @@ function readTicketComments(repo, n) {
 	);
 }
 
-/**
- * Whether `draft` holds anything the parse would read as a record or a tier, so
- * a close with neither reads no comments.
- *
- * @param {string} draft
- */
+/** @param {string} draft */
 const hasRecordMention = (draft) => {
 	const body = maskMentions(draft);
 	return body.search(RECORD_MENTION) !== -1 || TIER_MENTION.test(body);
 };
 
-/**
- * What a record's cut-off lines are, as a close's refusal and the report name them.
- *
- * @param {number} cutOff
- */
+/** @param {number} cutOff */
 const describeCutOff = (cutOff) =>
 	`${cutOff} - FIXED or - TICKETED line${cutOff === 1 ? "" : "s"} past a line that ends its list`;
 
 /**
- * The entries of `r`'s paths that no replay of it could read as a path: each
- * one, a file or a directory, under which neither `base..reviewed` nor
- * `base..landed` changes anything in the checkout at `root`, the second as `paths`
- * also names a file that joined with the fixes. Where git cannot read those, with
- * no checkout or a sha it does not hold, those shaped as a sentence's words: the
- * failure itself is the close's lost-base refusal's and the report's UNJUDGED and
- * UNREAD lines to name (#3907).
- *
  * @param {ReviewRecord & { paths: string }} r
  * @param {string | null} root
  * @returns {string[]}
  */
 function readStrayPaths(r, root) {
 	const entries = pathEntriesOf(r.paths);
-	/* A stray is named as the record spells it. */
 	const byShape = () =>
 		entries.flatMap(({ whole, words }) => {
 			const stray = whole.split(/\s+/).filter((w) => NOT_A_PATH.test(w));
@@ -485,8 +392,6 @@ function readStrayPaths(r, root) {
 }
 
 /**
- * The fault `r`'s paths owe where no replay reads one as a path.
- *
  * @param {ReviewRecord} r
  * @param {string | null} root
  * @returns {RecordFault[]}
@@ -502,18 +407,12 @@ function readPathFaults(r, root) {
 				{
 					tag: "NOT PATHS",
 					what: `whose paths hold ${stray.join(", ")}, no path changed in its replay, so that replay would miss what the runs saw`,
-					/* The marker may name a path the commit left unchanged, as the
-					 * hold takes one (#4050). */
 					fix: `with the marker's paths= less any of ${stray.join(", ")} it names, as no file changes under them in its replay, and no note after them`,
 				},
 			];
 }
 
 /**
- * The fault a record being closed owes on a base the checkout it was reviewed in
- * lacks, mistyped. Not the report's: its other checkout may never have fetched it,
- * and its UNREAD line names a range it walks (#3907).
- *
  * @param {ReviewRecord} r
  * @param {string | null} root
  * @returns {RecordFault[]}
@@ -533,12 +432,8 @@ function readLostBaseFaults(r, root) {
 }
 
 /**
- * What loses `r`'s defects or a replay of it, read one way for a close's refusal
- * and the report. `unknownTiers` reports the tier line itself, this the record
- * under it.
- *
  * @param {ReviewRecord} r
- * @param {string | null} root the checkout that tracks its repo, if any
+ * @param {string | null} root
  * @returns {RecordFault[]}
  */
 function readRecordFaults(r, root) {
@@ -568,17 +463,12 @@ function readRecordFaults(r, root) {
 }
 
 /**
- * The refusal a close comment owes where, posted on a ticket holding `prior`,
- * it would hold a record the report calls UNPARSEABLE, a tier in no known word,
- * or a record readRecordFaults faults; "" where it owes none.
- *
  * @param {number} n
  * @param {Comment[]} prior
  * @param {string} draft
  * @param {string | null} root
  */
 function buildFindingsRefusal(n, prior, draft, root) {
-	/* The repo and the date go into nothing read here. */
 	const all = parseIssue("", n, [
 		...prior,
 		{ body: draft, createdAt: new Date(0).toISOString() },

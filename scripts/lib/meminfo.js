@@ -1,9 +1,3 @@
-/*
- * meminfo.js — the repo's one parser of the meminfo file (#3600). A leaf
- * beside lib/proc-root.js, so the guard path loads none of admission.js to
- * read it.
- */
-
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { meminfoPath } = require("./proc-root.js");
@@ -13,11 +7,7 @@ const { meminfoPath } = require("./proc-root.js");
  * @typedef {{ ok: true, totalKb: number | null, availableKb: number, freeKb: number | null, swapTotalKb: number | null, swapFreeKb: number | null } | { ok: false, error: string }} MeminfoRead
  */
 
-/**
- * MemAvailable, MemFree, MemTotal and swap in kB off ONE read, so figures taken from it
- * cannot disagree.
- * @returns {MeminfoRead}
- */
+/** @returns {MeminfoRead} */
 function readMeminfoKb() {
 	const path = meminfoPath();
 	try {
@@ -44,7 +34,6 @@ function readMeminfoKb() {
 }
 
 /**
- * MemAvailable in MB, from a `readMeminfoKb` read already taken.
  * @param {MeminfoRead} read
  * @returns {MbResult}
  */
@@ -53,16 +42,10 @@ const availableFrom = (read) =>
 		? { ok: true, mb: Math.floor(read.availableKb / 1024) }
 		: { ok: false, error: read.error };
 
-/**
- * MemAvailable, never MemFree — which counts reclaimable cache as spent.
- * @returns {MbResult}
- */
+/** @returns {MbResult} */
 const readAvailableMb = () => availableFrom(readMeminfoKb());
 
-/**
- * MemTotal in MB, null where it cannot be read.
- * @returns {number | null}
- */
+/** @returns {number | null} */
 function readTotalMb() {
 	const read = readMeminfoKb();
 	return read.ok && read.totalKb !== null

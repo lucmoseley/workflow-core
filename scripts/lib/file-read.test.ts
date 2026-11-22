@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * file-read.js's three answers (#3902): absent on ENOENT alone, the contents,
- * or unreadable with the error. A directory stands in for an unreadable file,
- * as EISDIR reads the same under root and in CI.
- *
- * Break one and every guard host reading through it misreads a missing file
- * as a fault, or a fault as a missing file: a latch re-fires, a body file
- * reads as absent, a window counts nothing.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";

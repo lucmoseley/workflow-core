@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The sixteenth refusal (#597): a round option handing the founder an act by
- * placeholder or back-reference instead of its literal text, and its secret
- * ask: a credential the founder supplies without `write-secret.js`, in an
- * option (#1031) or in prose (#1817), or beside a line that leaks it (#2645); and a
- * message sending him away for his steps (#4058). Driven through
- * the guard's Stop entry in process; the permission line the refusal prints is
- * then run, in this checkout and in a simulated plugin install — through bash,
- * because the claim is that the line works as the founder would paste it.
- *
- * The guard runs at every `Stop` (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`): loosen a case and the founder is handed "run the command
- * above" instead of the text to run; break the permission line and the escape
- * the refusal teaches fails when pasted.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -42,16 +27,11 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/**
- * The refusal the guard writes for `message`, or "" where it allows the stop.
- * Interactive unless `job`; `env` is laid over this process's environment.
- */
 const stop = (
 	message: string,
 	{ job = false, env }: { job?: boolean; env?: NodeJS.ProcessEnv } = {},
 ) => readStopGuardReason(GUARD, { dir, sid, message, job, env });
 
-/** A plugin root under `dir` holding `program` and the lib/ files it requires. */
 const installAsPlugin = (program: string) => {
 	const plugin = path.join(dir, "plugin");
 	fs.mkdirSync(path.join(plugin, "scripts", "lib"), { recursive: true });
@@ -63,7 +43,6 @@ const installAsPlugin = (program: string) => {
 	return plugin;
 };
 
-/** A well-formed round whose (A) is `a`. */
 const round = (a: string, { n = 1 } = {}) =>
 	`❓ **Q${n}** — How should it land?\n\nRelation: rivals\n\n` +
 	`(A) ${a}\nConfidence: 80% (70% - 90%). It is cheap.\n\n` +
@@ -108,7 +87,7 @@ describe("a founder-act option", () => {
 		expect(reason).toMatch(/Q1 \(A\): back-reference “/);
 	});
 
-	/* #1981, from #1952. */
+	// #1981
 	it.each([
 		'You make the edit yourself. Open `~/.claude/hooks/browser-profile-guard.sh` and replace lines 22–23 (the `map=` and `open_right=` lines) with the block in issuecomment-6245050985 on #1952. Reply "applied".',
 		'You make the edit yourself. Open `~/.claude/hooks/browser-profile-guard.sh` and replace lines 22–23 with the block in my earlier comment on #1952. Reply "applied".',
@@ -335,7 +314,6 @@ describe("a secret ask in prose (#1817)", () => {
 	it.each([
 		"Open your own terminal, run `nano ~/.hf.env`, type `export HF_TOKEN=` and paste the token straight after it. Then tell me done.",
 		"Install Podman first: you run it or supply the password.",
-		/* Caught on the warning, not on "put it in": the incident's opening. */
 		"Don't paste the key here. Put it in `~/.bfl.env`, then tell me “key added”.",
 	])("is refused, printing the SECRET paragraph's line: %s", (message) => {
 		const text = stop(message);
@@ -477,13 +455,7 @@ describe("a write-secret line after `!` (#2554)", () => {
 		).toBe("");
 	});
 
-	// Were the `!` test to read its negation behind every character, each of
-	// 100,000 blanks ahead of the `!` would re-read the run behind it, minutes
-	// in all; read at the `!` alone, milliseconds (#3383, Sonar S8786). The
-	// two lines after it hold the same for the leak and fed-route reads: a run
-	// of option words ahead of no `.env`, and a run of `<` with no route after
-	// it. Neither leaks or feeds, so the refusal is the `!` one, reached only
-	// past the blanks.
+	// #3383
 	it("reads long runs around a route after `!`, promptly", () => {
 		const message =
 			`Run${" ".repeat(100_000)}! \`cd /srv/host && node /srv/host/scripts/write-secret.js HF_TOKEN\`, then paste the token at its prompt.\n` +
@@ -707,7 +679,6 @@ it("reads a prose ask below a fence left unclosed (#2645)", () => {
 	).toContain("This turn's prose has the founder supply");
 });
 
-/** The permission line as the refusal prints it, `!` stripped. */
 const parsePermissionLine = (reason: string) => {
 	const m = reason.match(/^! (node \S+grant-permission\.js '[^']+')$/m);
 	if (!m) throw new Error(`no permission line in:\n${reason}`);
@@ -758,7 +729,6 @@ describe("the permission line it prints", () => {
 	});
 });
 
-/** The secret line as the refusal prints it. */
 const parseSecretLine = (reason: string) => {
 	const m = reason.match(
 		/^(cd .+ && node .+write-secret\.js AI_GATEWAY_API_KEY)$/m,
@@ -767,7 +737,6 @@ const parseSecretLine = (reason: string) => {
 	return m[1];
 };
 
-/** The post-paste check as the refusal prints it. */
 const parseCheckLine = (reason: string) => {
 	const m = reason.match(
 		/^(grep -cE .*AI_GATEWAY_API_KEY.* "\$\{XDG_CONFIG_HOME:-\$HOME\/\.config\}\/workflow-core\/secrets\.env")$/m,
@@ -783,7 +752,6 @@ describe("the secret line it prints", () => {
 		execFileSync("git", ["init", "-q"], { cwd: h });
 		return h;
 	};
-	/* A home of the test's own, so the secrets file lands in it. */
 	const shellEnv = () => ({
 		...process.env,
 		HOME: path.join(dir, "home"),
@@ -796,7 +764,6 @@ describe("the secret line it prints", () => {
 			path.join(dir, "home", ".config", "workflow-core", "secrets.env"),
 			"utf8",
 		);
-	/* Run from a directory that is not the host, as a new terminal opens. */
 	const paste = (line: string) => {
 		const elsewhere = path.join(dir, "elsewhere");
 		fs.mkdirSync(elsewhere);
@@ -881,7 +848,6 @@ describe("its budget", () => {
 		expect(stop(unpriced, { job: true })).toContain("no Confidence line");
 		expect(stop(marked, { job: true })).toContain(REFUSED);
 		expect(stop(marked, { job: true })).toContain(REFUSED);
-		/* Four blocks spent: the fifth is the filing checks'. */
 		expect(stop(marked, { job: true })).toBe("");
 		expect(stop("Done.", { job: true })).toContain(
 			"carrying neither status marker",

@@ -1,24 +1,13 @@
-/*
- * refill-panel-input.js — the refill loop's panel's raw input stream, read across
- * chunks (#3873, #3883, #3885, #3887, #3948, spec #3596): SGR mouse reports (mode 1006), where a click is
- * a left release in the cell of the left press before it, the press that focused the
- * pane counting as the terminal reports it like any other, a motion report moves
- * the hover and leaves that press alone, and a wheel report drops that press, as the
- * rows move under it; the terminal's answers about what it can draw;
- * the pane gaining and losing focus; and the keys the panel uses, any other sequence dropped.
- */
-
 const ESC = String.fromCharCode(27);
 const INTERRUPT = String.fromCharCode(3);
 
-/** A control sequence's parameter and intermediate bytes (ECMA-48 §5.4). */
+// https://ecma-international.org/publications-and-standards/standards/ecma-48/
 const PARAMS = "[0-?]*[ -/]*";
 const INPUT_TOKEN = new RegExp(
 	[
 		`${ESC}\\[<(?<button>\\d+);(?<column>\\d+);(?<row>\\d+)(?<kind>[Mm])`,
 		`${ESC}\\[(?<csi>${PARAMS}[@-~])`,
 		`${ESC}O(?<ss3>[ -~])`,
-		/* Alt and a key, which no field has a use for. */
 		`${ESC}\\P{Cc}`,
 		`(?<lone>${ESC})`,
 		"(?<text>\\P{Cc}+)",
@@ -30,7 +19,7 @@ const PARTIAL_INPUT = new RegExp(`${ESC}(\\[${PARAMS}|O)?$`);
 const SEQUENCE_TAIL = new RegExp(`^${PARAMS}[@-~]`);
 const LEFT_BUTTON = 0;
 const MOTION_BIT = 32;
-/* Shift, meta and control (xterm ctlseqs §Mouse Tracking), and the wheel's two buttons. */
+// https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Mouse-Tracking
 const MODIFIER_BITS = 4 | 8 | 16;
 /** @type {Record<number, number>} */
 const WHEEL_STEPS = { 64: -1, 65: 1 };
@@ -38,15 +27,11 @@ const PASTE_START = "200~";
 const PASTE_END = "201~";
 const FOCUS_IN = "I";
 const FOCUS_OUT = "O";
-/* A primary device attributes reply, and attribute 4, Sixel graphics (xterm ctlseqs). */
 const DEVICE_ATTRIBUTES = /^\?[\d;]*c$/;
 const SIXEL_ATTRIBUTE = "4";
-/* `CSI 16 t`'s reply, height then width. Only the 10×20 cell fits the controls' images
- * to their cells (lib/refill-panel-sixel.js). */
 const CELL_10_BY_20 = "6;20;10t";
 
 /**
- * A key the panel can use. `pasted`: from a bracketed paste, so no one pressed it.
  * @typedef {{text: string, pasted?: boolean}
  *   | {name: "enter"|"escape"|"backspace"|"delete"|"up"|"down"|"left"|"right"|"home"|"end"}} Key
  */
@@ -91,7 +76,6 @@ const buildWheelStep = (button) =>
 	WHEEL_STEPS[Number(button) & ~MODIFIER_BITS] ?? 0;
 
 /**
- * What a terminal's answer says it can do.
  * @param {string|undefined} csi
  * @returns {("sixel"|"cell10x20")[]}
  */
@@ -101,11 +85,6 @@ function parseCapabilities(csi) {
 	return csi.slice(1, -1).split(";").includes(SIXEL_ATTRIBUTE) ? ["sixel"] : [];
 }
 
-/**
- * `held` says the stream stops on what may start a sequence: `flush` ends the wait, a
- * lone escape then reading as the Esc key, and a part of a sequence dropped with the
- * rest of it. A newline inside a bracketed paste is a space.
- */
 function createInputReader() {
 	let rest = "";
 	let droppingTail = false;
@@ -116,7 +95,7 @@ function createInputReader() {
 
 	/**
 	 * @param {Record<string, string|undefined>} report
-	 * @returns {number[]} the row, where this report ends a click
+	 * @returns {number[]}
 	 */
 	const takeReport = ({ button, column, row, kind }) => {
 		if (isMotion(button)) return [];
@@ -163,9 +142,7 @@ function createInputReader() {
 			)?.csi;
 			return {
 				clicks,
-				/* A button released with no click: a slip off its cell, or not the left one. */
 				missed,
-				/* Net notches, so a burst of reports costs one redraw. */
 				wheel: tokens.reduce(
 					(sum, t) => sum + (t.kind ? buildWheelStep(t.button) : 0),
 					0,

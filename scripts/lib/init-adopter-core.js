@@ -118,8 +118,6 @@ const { execGit, gitOrNull, GIT_TIMEOUT_MS } = require("./git.js");
 /** @typedef {import("./workflow-core-config.js").Command} Command */
 /** @typedef {import("./infer-commands.js").MappedCommand} MappedCommand */
 /**
- * One command, where it came from — `kind` to branch on, `from` to print —
- * or a null command where nothing declares it.
  * @typedef {{command: null} | (MappedCommand & {
  *   kind: "explicit"|"kept"|"inferred", from: string})} SourcedCommand
  */
@@ -130,7 +128,6 @@ const EXPLICIT = "--command";
 const SETTINGS = ".claude/settings.json";
 const { ANCHORS, IMPLICIT_MANIFEST } = require("./registry-anchors-file.js");
 
-/** The doc-map sidecars every adopter carries, each with its day-one text. */
 const SIDECARS = {
 	"docs/doc-map-admissions.json": "{}\n",
 	"docs/doc-map-high-water.json": '{\n\t"highWaterMark": 0\n}\n',
@@ -144,7 +141,6 @@ const SIDECARS = {
  *   reader?: string}} Entry
  */
 
-/** The §A class of every file this writes, by path — the day-one register. */
 /** @type {Record<string, Entry>} */
 const CLASSES = {
 	"CLAUDE.md": {
@@ -211,7 +207,6 @@ for (const s of Object.keys(SIDECARS)) {
 	};
 }
 
-/** The `roadmap` module's own three documents. */
 /** @type {Record<string, Entry>} */
 const ROADMAP_CLASSES = {
 	"docs/reference-roadmap.html": {
@@ -240,7 +235,6 @@ const USAGE = `usage: node ${scriptPath("init-adopter.js")} --founder "<name>" [
   [--marketplace <name>] [--marketplace-ref <tag>] [--no-tracker]
   [--no-plugin-install] [--dry-run] [--config-dir <dir>] [--help]`;
 
-/** The flags `main` reads, by whether one takes a value. */
 const VALUE_FLAGS = new Set([
 	"founder",
 	"root",
@@ -274,11 +268,10 @@ function parse(argv) {
 }
 
 /**
- * Records `arg`, which sits at `argv[i]`, in `parsed`.
  * @param {string} arg
  * @param {{argv: string[], i: number}} at
- * @param {{values: Record<string, string>, flags: Set<string>, categories: Record<string, string>, commands: Record<string, string|null>}} parsed accumulator: the argument lands in its table or flag set
- * @returns {number} the index of the last argument consumed
+ * @param {{values: Record<string, string>, flags: Set<string>, categories: Record<string, string>, commands: Record<string, string|null>}} parsed
+ * @returns {number}
  */
 function takeArg(arg, { argv, i }, parsed) {
 	if (arg === "--category" || arg === "--command") {
@@ -302,7 +295,6 @@ function takeArg(arg, { argv, i }, parsed) {
 }
 
 /**
- * One `--category`/`--command` pair, split for its table.
  * @param {string} arg
  * @param {string} pair
  * @returns {{key: string, value: string}}
@@ -334,7 +326,6 @@ function takeFlag(arg, next) {
 }
 
 /**
- * Whether two paths name one directory, symlinks resolved.
  * @param {string} a
  * @param {string} b
  */
@@ -346,13 +337,9 @@ function sameDir(a, b) {
 	}
 }
 
-/** The date an adopter's documents are stamped with, in the roadmap's format. */
 function stamp() {
 	const now = new Date();
-	/* THE MACHINE'S OWN ZONE, not UTC. The roadmap validator compares the stamp
-	 * against the local day, so a UTC stamp WARNs `STAMP MISDATED` on the
-	 * bootstrap's own first commit wherever the machine is far enough east
-	 * (#5). TZ in the environment overrides it, as it does everywhere else. */
+	// #5
 	const date = now.toLocaleDateString("en-GB", {
 		day: "numeric",
 		month: "long",
@@ -366,14 +353,6 @@ function stamp() {
 }
 
 /**
- * The roadmap's own version line, at the core's major: `vMAJOR.MINOR`, which
- * is the only shape check-digest-version.js reads — the plugin's third
- * component has no place in a document version.
- */
-/**
- * A `.claude-plugin/<file>` manifest, parsed, or `null` where it is missing,
- * unreadable or not an object — the one shape `readManifestVersion` and
- * `readManifestMarketplaceName` both need.
  * @param {string} pluginRoot
  * @param {string} file
  * @returns {Record<string, unknown>|null}
@@ -390,9 +369,6 @@ function readManifest(pluginRoot, file) {
 }
 
 /**
- * The plugin's own declared full version at `pluginRoot` — never defaulted,
- * so a caller that must not guess (a directory bootstrap's `walkedTo`, #252)
- * can tell "the manifest didn't say" from "1.0.0".
  * @param {string} pluginRoot
  * @returns {string|null}
  */
@@ -403,8 +379,7 @@ function readManifestVersion(pluginRoot) {
 
 /**
  * @param {string} pluginRoot
- * @param {string|null} [ref] a url pin, whose tag stands in for a manifest
- *   not yet installed at `pluginRoot` (#736)
+ * @param {string|null} [ref]
  */
 function readCoreVersion(pluginRoot, ref) {
 	const full =
@@ -415,9 +390,6 @@ function readCoreVersion(pluginRoot, ref) {
 }
 
 /**
- * Why `dir` is not the plugin pinned at `ref`, or null where it is: a checkout
- * whose HEAD carries no `ref` tag, or an install whose manifest names another
- * version.
  * @param {string} dir
  * @param {string} ref
  * @returns {string|null}
@@ -443,18 +415,11 @@ function offPin(dir, ref) {
 		: `version ${version ?? "unknown"}, not ${ref}`;
 }
 
-/**
- * `pluginRoot` where its manifest can be read, else the code running: a
- * --plugin-root the install has yet to create answers nothing (#736).
- * @param {string} pluginRoot
- */
+/** @param {string} pluginRoot */
 const readableRoot = (pluginRoot) =>
 	readManifestVersion(pluginRoot) ? pluginRoot : path.join(__dirname, "../..");
 
 /**
- * The plugin copy a url-sourced adopter's hooks and rules file run from where
- * no --plugin-root names one (#736): this repo's own install row, else
- * `fallback`, with a warning where that is off the pin.
  * @param {{root: string, marketplace: string, ref: string, fallback: string,
  *   configDir?: string, out: (line: string) => void}} at
  */
@@ -465,8 +430,6 @@ function installedRoot({ root, marketplace, ref, fallback, configDir, out }) {
 		marketplace,
 		root,
 	);
-	/* The row holds the path of the seat that installed it, which a seat
-	 * sharing `plugins/` through a symlink spells differently (#5140). */
 	const chosen =
 		row &&
 		fs.statSync(row.installPath, { throwIfNoEntry: false })?.isDirectory()
@@ -481,12 +444,6 @@ function installedRoot({ root, marketplace, ref, fallback, configDir, out }) {
 }
 
 /**
- * The marketplace's own declared name — `.claude-plugin/marketplace.json`'s
- * `name` field. `claude plugin marketplace add` registers under THIS name
- * regardless of what a caller believes the marketplace is called, so it is
- * the source of truth the pluginId is built from. Null where the manifest is
- * missing, unreadable or names nothing, so an unusual plugin root skips the
- * check rather than blocking every run (#90).
  * @param {string} pluginRoot
  * @returns {string|null}
  */
@@ -498,14 +455,6 @@ function readManifestMarketplaceName(pluginRoot) {
 /** @typedef {import("./plugin-record.js").PluginSource} PluginSource */
 
 /**
- * The core's ports (§T7): its two streams, and the plugin scripts it runs
- * against the adopter (the registry anchoring, the digest and the doc-map
- * section A generators), the children a module case runs in-process. The
- * lines stream as they are made rather than returning at the end, since the
- * install before them can take two minutes and a stopped run should show how
- * far it got. Everything else is used in place, as #2733's boundary table
- * gives it: the filesystem, real git, env and cwd, gh at WFC_GH, `claude` at
- * WFC_CLAUDE_BIN, and the libraries' own children.
  * @typedef {{
  *   out: (text: string) => void,
  *   err: (text: string) => void,
@@ -525,8 +474,7 @@ class Writer {
 	/**
 	 * @param {string} rel
 	 * @param {string} body
-	 * @param {{once?: boolean, mode?: number}} [opts] `once` leaves an existing
-	 *   file alone.
+	 * @param {{once?: boolean, mode?: number}} [opts]
 	 */
 	write(rel, body, { once = false, mode } = {}) {
 		const at = path.join(this.root, rel);
@@ -550,8 +498,6 @@ class Writer {
 }
 
 /**
- * The `commands` line: each declared command, where it came from, and any
- * note inference left on it.
  * @param {{sourced: Sourced,
  *   kept: Record<string, unknown>|null,
  *   out: (line: string) => void}} at
@@ -571,7 +517,6 @@ function reportCommands({ sourced, kept, out }) {
 }
 
 /**
- * The `corpus` line, or why a kept config does not carry it.
  * @param {{corpus?: string[], kept: Record<string, unknown>|null,
  *   out: (line: string) => void}} at
  */
@@ -584,8 +529,6 @@ function reportCorpus({ corpus, kept, out }) {
 }
 
 /**
- * The install source: a url pin where a marketplace ref is set, else a
- * directory.
  * @param {{pluginRoot: string, marketplaceRef: string|null,
  *   marketplacePath: string|null}} at
  * @returns {PluginSource}
@@ -636,24 +579,10 @@ function init(at) {
 	const version = readCoreVersion(givenRoot, at.marketplaceRef);
 	const roadmap = modules.includes("roadmap");
 
-	/* The install source, resolved before anything is written: the "installed
-	 * …" line and the record (step 4, after materialise settles a url
-	 * source's resolved sha) both describe it. */
 	const source = installSource(at);
 
-	/* A directory-sourced bootstrap's own floor (#252): the full plugin
-	 * version being bootstrapped from, not `version`'s major.minor (that one
-	 * seeds `roadmapMajorPin`, a different pin with a different shape).
-	 * upgrade.js reads this as `walkedTo` so a directory adopter whose plugin
-	 * checkout moves on before its first `upgrade` run still floors at what
-	 * bootstrap actually saw. A url source gets none: it walks from its pin
-	 * instead.
-	 *
-	 * `walkedTo` is omitted rather than written at a guessed floor where the
-	 * manifest is unreadable. */
 	const bootstrapVersion = readManifestVersion(givenRoot);
 
-	/* 1. The config, core-owned only. */
 	w.write(
 		CONFIG_PATH,
 		renderConfig({
@@ -671,30 +600,17 @@ function init(at) {
 		{ once: true },
 	);
 
-	/* 2. The repo-owned half, written once. */
 	w.write("CLAUDE.md", renderClaudeMd({ founder, project, commands }), {
 		once: true,
 	});
 	w.write("AGENTS.md", renderAgentsMd(), { once: true });
-	/* Empty: the core's shims take their rows from the core, and a hook of the
-	 * repo's own adds its row here. */
 	w.write(IMPLICIT_MANIFEST, "{}\n", { once: true });
 
-	/* 3. Materialise the plugin, before declaring it (header, above). Idempotent
-	 * on all three calls: an already-declared marketplace no-ops rather than
-	 * erroring, and an already-installed plugin is caught up by the trailing
-	 * `update` call rather than left at whatever it was (`install` alone
-	 * no-ops there without re-fetching, #103). Non-fatal: a session with no
-	 * `claude` on PATH, or a source it can't reach, leaves
-	 * the repo usable, one hand-run command short of loading. */
+	// lucmoseley/mantahostels#3515
 	const claudeBin = resolveClaudeBin();
 	const pluginId = `workflow-core@${at.marketplace}`;
 	const result = materialiseStep({ at, source, claudeBin, pluginId });
 
-	/* Read fresh here, after materialise above ran (or didn't) — a re-run
-	 * under `--no-plugin-install` still resolves a url source's sha where an
-	 * earlier run already installed it, since this reads what's actually on
-	 * disk rather than gating on this run's own outcome. */
 	const record = readPluginRecord(source, {
 		root,
 		pluginName: "workflow-core",
@@ -706,15 +622,7 @@ function init(at) {
 	const pluginRoot = resolvePluginRoot({ at, source });
 	if (result) reportInstall({ result, pluginId, record, out });
 
-	/* 4. Every core-owned file — the hooks, helpers, rules file, settings
-	 * keys, `.gitignore` block, context-cost row and labels — through the one
-	 * module every upgrade also runs (#1501). After the install, which rewrites
-	 * `.claude/settings.json` (header), and after `record`. The cost row is
-	 * measured only off an install that succeeded, so `--no-plugin-install`
-	 * still makes no `claude` call (#679); a dry run wrote no settings for it
-	 * to read. */
 	if (dryRun) out(`would   add the ${pluginId} row to ${COST_TABLE}`);
-	/* A dry run calls gh not at all, as the tracker step's own does. */
 	/** @type {import("./core-owned-files.js").Labels} */
 	let labels = ghLabels(root);
 	if (!at.tracker) labels = { off: "--no-tracker" };
@@ -739,13 +647,8 @@ function init(at) {
 		});
 	out("set     core.hooksPath to .husky");
 
-	/* The shims' IMPLICIT / JUSTIFIED / DEFEAT rows are the core's
-	 * (lib/hook-shim.js), read and accepted upstream, so the adopter's registry
-	 * records them as anchored rather than failing its first commit on seven
-	 * unread shims. */
 	const anchored = anchorHooks({ root, pluginRoot, dryRun, out, ports });
 
-	/* 7. The roadmap triple, under its module. */
 	if (roadmap)
 		writeRoadmap({
 			w,
@@ -764,38 +667,26 @@ function init(at) {
 		out(`skipped the roadmap triple — module "roadmap" is off`);
 	}
 
-	/* 8. The doc-map: §A over this residue, empty §B, §C and sidecars. Written
-	 * under every module set, because check-doc-map.js is ungated: a repo with
-	 * no doc map fails its first commit. */
 	w.write("docs/doc-map.md", renderDocMap({ project, date: when.date }), {
 		once: true,
 	});
 	for (const [sidecar, seed] of Object.entries(SIDECARS))
 		w.write(sidecar, seed, { once: true });
-	/* The local standards file, under every module set, so a new adopter
-	 * meets its primitives table at adoption (#3466). */
 	w.write("docs/code-standards.md", renderCodeStandards({ project }), {
 		once: true,
 	});
 	writeClassSidecar({ w, root, sidecar: classRows({ roadmap, anchored }) });
 	renderSectionA({ root, pluginRoot, dryRun, out, ports });
 
-	/* 9. The tracker: gh pointed at origin and features probed, nothing
-	 * toggled. Its labels are step 4's. */
 	if (at.tracker) tracker({ root, dryRun, out });
 	else out("skipped the tracker — --no-tracker");
 
-	/* 10. The tools no package install supplies. */
 	reportTools(out);
 
 	out("");
 	out(
 		"Next: commit the skeleton through the full hook stack — that commit IS the test.",
 	);
-	/* INTENT-TO-ADD FIRST. A pathspec commit cannot reach a path git has never
-	 * seen, and every path here is new, so without this git exits 1 having
-	 * committed nothing. */
-	/* A dry run wrote nothing, so it names every path a real run may. */
 	const paths = skeletonPaths(
 		(rel) => dryRun || fs.existsSync(path.join(root, rel)),
 	).join(" ");
@@ -806,22 +697,14 @@ function init(at) {
 
 /** @typedef {(line: string) => void} Out */
 
-/**
- * What a step copying files out of the plugin root carries: the writer, the
- * root it copies from, and where it reports.
- * @typedef {{w: Writer, pluginRoot: string, out: Out}} CopyStep
- */
+/** @typedef {{w: Writer, pluginRoot: string, out: Out}} CopyStep */
 
 /**
- * What a step running a plugin script against the adopter's repo carries:
- * the repo, the plugin root the script lives in, whether this is a dry run,
- * where it reports, and the ports that run it.
  * @typedef {{root: string, pluginRoot: string, dryRun: boolean, out: Out,
  *   ports: Ports}} RunStep
  */
 
 /**
- * Step 3's install, or the line saying why it did not run.
  * @param {{at: {root: string, marketplace: string, pluginInstall: boolean,
  *   dryRun: boolean, configDir?: string, out: Out, ports: Ports},
  *   source: PluginSource,
@@ -839,9 +722,6 @@ function materialiseStep({ at, source, claudeBin, pluginId }) {
 		at.out("skipped materialising the plugin — --no-plugin-install");
 		return null;
 	}
-	/* `#<ref>` is the CLI's own syntax for a non-default branch/tag on a git
-	 * source — with no ref, main's HEAD is what gets cloned and installed,
-	 * whatever `ref` settingsKeys() goes on to declare. */
 	const addSource =
 		source.source === "url" ? `${source.url}#${source.ref}` : source.path;
 	return materialisePlugin({
@@ -854,16 +734,12 @@ function materialiseStep({ at, source, claudeBin, pluginId }) {
 }
 
 /**
- * The plugin root everything below step 3 renders or runs, refused where it
- * does not exist.
  * @param {{at: {root: string, pluginRoot: string, pluginRootGiven: boolean,
  *   marketplace: string, dryRun: boolean, configDir?: string, out: Out},
  *   source: PluginSource}} step
  * @returns {string}
  */
 function resolvePluginRoot({ at, source }) {
-	/* Everything below renders or runs the plugin at this path, which a url
-	 * pin wants to be its installed copy, resolvable only after the install. */
 	const pluginRoot =
 		source.source === "url" && !at.pluginRootGiven
 			? installedRoot({
@@ -883,7 +759,6 @@ function resolvePluginRoot({ at, source }) {
 }
 
 /**
- * What the install did, and the hand-run command where it fell short.
  * @param {{result: ReturnType<typeof materialisePlugin>, pluginId: string,
  *   record: ReturnType<typeof readPluginRecord>, out: Out}} at
  */
@@ -916,7 +791,7 @@ function costMeasurer({ at, result, claudeBin }) {
 
 /**
  * @param {RunStep} at
- * @returns {boolean} false where the anchoring run failed
+ * @returns {boolean}
  */
 function anchorHooks({ root, pluginRoot, dryRun, out, ports }) {
 	const registry = path.join(pluginRoot, "scripts/check-guard-registry.js");
@@ -924,10 +799,6 @@ function anchorHooks({ root, pluginRoot, dryRun, out, ports }) {
 		out(`would  anchor the seven hooks in ${ANCHORS}`);
 		return true;
 	}
-	/* Intent-to-add first: a hook outside the index has no digest (#4517).
-	 * Only the unignored ones, as git refuses to add an ignored path, and
-	 * only for this run: a mark left behind would hide from the gitignore
-	 * check a hook a later ignore line hides from git. */
 	const git = (/** @type {string[]} */ args) =>
 		String(
 			execGit(args, {
@@ -944,17 +815,12 @@ function anchorHooks({ root, pluginRoot, dryRun, out, ports }) {
 			.filter(Boolean);
 		if (hooks.length > 0) git(["add", "-N", "--", ...hooks]);
 		marked = hooks;
-		/* Every dirty file is init's own, written this run in a tree no session
-		 * works yet, so none carries a claim to read (#3339). */
 		ports.runNode(root, registry, ["--review", "--sole-writer"], {
 			quiet: true,
 		});
 		out(`wrote   ${ANCHORS} (the seven hooks anchored)`);
 		return true;
 	} catch (err) {
-		/* Registering an absent file in the class sidecar would fail the
-		 * first commit at check-doc-map.js instead, on a message naming
-		 * neither this step nor its cause. */
 		out(
 			`FAILED anchoring the hooks: ${reason(err)} — the first commit will report seven unread hook headers; clear them with \`node <plugin>/scripts/check-guard-registry.js --review\``,
 		);
@@ -965,8 +831,6 @@ function anchorHooks({ root, pluginRoot, dryRun, out, ports }) {
 }
 
 /**
- * Step 7's roadmap triple: the HTML and called cards written once, the digest
- * rendered from the HTML.
  * @param {CopyStep & RunStep & {project: string, founder: string,
  *   categories: Record<string, string>, version: string, stamp: string}} at
  */
@@ -1001,8 +865,6 @@ function writeRoadmap(at) {
 }
 
 /**
- * The class sidecar's rows for every file this writes, the anchors file left
- * out where anchoring failed.
  * @param {{roadmap: boolean, anchored: boolean}} at
  * @returns {Record<string, object>}
  */
@@ -1027,20 +889,11 @@ function classRows({ roadmap, anchored }) {
 	return sidecar;
 }
 
-/**
- * `docs/doc-map-classes.json`, merged under any kept copy.
- * @param {{w: Writer, root: string, sidecar: Record<string, object>}} at
- */
+/** @param {{w: Writer, root: string, sidecar: Record<string, object>}} at */
 function writeClassSidecar({ w, root, sidecar }) {
-	/* A kept sidecar is the adopter's, but a module switched on since it was
-	 * written brings documents it never registered, and check-doc-map.js
-	 * refuses the commit over them (#730) — so add the rows it lacks, and
-	 * change none it has. */
 	const keptClasses = readKeptJson(root, "docs/doc-map-classes.json");
 	const keptKeys = new Set(Object.keys(keptClasses ?? {}));
 	const merged = { ...sidecar, ...keptClasses };
-	/* The sidecar's canonical bytes: keys sorted, tabs, one trailing newline —
-	 * register-doc.js's write form, which check-doc-map.js gates. */
 	const sorted = Object.fromEntries(
 		Object.keys(merged)
 			.sort()
@@ -1099,18 +952,7 @@ function reportTools(out) {
 		);
 }
 
-/**
- * PATH, except for gitleaks: `WFC_GITLEAKS` overrides it the same way it
- * overrides the hooks' `"${WFC_GITLEAKS:-gitleaks}"` (#239), so this report
- * agrees with them on a var-only machine instead of calling gitleaks missing
- * while the hooks run it happily. An absolute override is checked directly;
- * a bare name is still resolved against PATH. A cwd-relative override (e.g.
- * `./tools/gitleaks`) is neither: it is joined onto every PATH dir here and
- * so reports missing, though the hooks — which exec it directly — would run
- * it. Untested; the shape isn't ruled out, just unhandled.
- *
- * @param {string} tool
- */
+/** @param {string} tool */
 function which(tool) {
 	const target =
 		tool === "gitleaks" ? process.env.WFC_GITLEAKS || "gitleaks" : tool;
@@ -1157,9 +999,6 @@ function tracker({ root, dryRun, out }) {
 }
 
 /**
- * Points gh at the tracker, so a repo copied from another does not leave gh
- * defaulting to the one it came from (design-vault#1, #692), and a bare
- * `gh issue` call reaches the issues where the code repo is apart (#1957).
  * @param {{root: string, repo: string|undefined, dryRun: boolean,
  *   out: Out}} at
  */
@@ -1181,11 +1020,6 @@ function setGhDefaultRepo({ root, repo, dryRun, out }) {
 }
 
 /**
- * A 403 or 410 means the feature is off for the owner, and the skills fall
- * back to the body convention rather than silently losing an edge; any other
- * failure prints gh's own message (#705). The issue probes read an issue that
- * exists, since a brand-new tracker has no #1. The Actions and pulls probes
- * read the code repo, the issue probes the tracker (#1957).
  * @param {{root: string, trackerRepo: string, codeRepo: string, dryRun: boolean,
  *   out: Out}} at
  */
@@ -1241,9 +1075,6 @@ function probeFeatures({ root, trackerRepo, codeRepo, dryRun, out }) {
 }
 
 /**
- * A JSON file already written, raw, or null where there is none. One that
- * EXISTS and does not parse is refused, not read as empty: rewriting it would
- * drop the adopter's own keys behind the founder's back.
  * @param {string} root
  * @param {string} rel
  * @returns {Record<string, any>|null}
@@ -1267,9 +1098,6 @@ function readKeptJson(root, rel) {
 }
 
 /**
- * The corpus --corpus writes: own tracker, workflow-core, then the extras, so a
- * declared list never drops the own tracker (design-vault#8). Throws the
- * refusal; undefined leaves `corpus` undeclared.
  * @param {string} root
  * @param {string|undefined} extras
  * @param {boolean} bare
@@ -1299,10 +1127,6 @@ function fullCorpus(root, extras, bare) {
 }
 
 /**
- * What of the source already declared for `marketplace` a re-run keeps: a url
- * or git source's `ref`, or a directory source's `path` while it is still a
- * directory. Read before the install, whose own rewrite of settings.json drops
- * a `ref`. The url is rebuilt from the core's tracker, as a url source.
  * @param {string} root
  * @param {string} marketplace
  * @returns {{ref: string|null, path: string|null}}
@@ -1330,8 +1154,6 @@ function readKeptSource(root, marketplace) {
 }
 
 /**
- * The whole run: argv parsed and settled against the repo, then the skeleton
- * written.
  * @param {string[]} argv
  * @param {Ports} ports
  * @returns {number}
@@ -1358,10 +1180,7 @@ function adopt(argv, ports) {
 	return settle(parsed, ports);
 }
 
-/**
- * The config already written, or null where none reads.
- * @param {string} root
- */
+/** @param {string} root */
 function readDeclared(root) {
 	try {
 		return readConfig({ root, quiet: true });
@@ -1371,8 +1190,6 @@ function readDeclared(root) {
 }
 
 /**
- * `main` past its usage checks: every argument settled against the repo, then
- * the run itself.
  * @param {ReturnType<typeof parse>} parsed
  * @param {Ports} ports
  * @returns {number}
@@ -1399,8 +1216,6 @@ function settle({ values, flags, categories, commands }, ports) {
 	/** @type {string|undefined} */
 	let named;
 	try {
-		/* Raw rather than through readConfig, whose `modules` WFC_MODULES
-		 * replaces: a suite's injection, not the adopter's choice. */
 		kept = readKeptJson(root, CONFIG_PATH);
 		corpus = fullCorpus(root, values.corpus, flags.has("corpus"));
 		named =
@@ -1417,12 +1232,7 @@ function settle({ values, flags, categories, commands }, ports) {
 		);
 		return 2;
 	}
-	/* Sifted through MODULES rather than cast, so the list is typed as the
-	 * module union the renderers take. */
 	const modules = MODULES.filter((m) => wanted.includes(m));
-	/* Validated here, alongside --founder and --modules, rather than inside
-	 * init(): it is the same class of bad argument, not a failure of the
-	 * materialising step itself (#90). */
 	const { marketplace, refusal } = settleMarketplace(
 		values.marketplace ?? "workflow-core",
 		pluginRoot,
@@ -1437,9 +1247,6 @@ function settle({ values, flags, categories, commands }, ports) {
 		);
 		return 2;
 	}
-	/* A written config is repo-owned and kept, so inferring past it would
-	 * print commands this run never writes. The residual: a test script added
-	 * after the first init is never inferred — declare it in the config. */
 	let inferred;
 	try {
 		inferred = kept ? {} : inferCommands(root);
@@ -1478,11 +1285,6 @@ function settle({ values, flags, categories, commands }, ports) {
 }
 
 /**
- * A first run's modules where --modules names none: each module whose subject
- * the tree already tracks, by the predicate check-gate-switches.js refuses a
- * commit on (#1506). A kept config infers nothing, so a subject landing after
- * the first run is the commit gate's to raise — as is one this could not read
- * the index for, which it warns of rather than refusing the run.
  * @param {string} root
  * @param {Ports["out"]} write
  */
@@ -1500,8 +1302,6 @@ function readInferredModules(root, write) {
 }
 
 /**
- * The modules --modules names, else the kept config's, and those of them no
- * module is called.
  * @param {string|undefined} named
  * @param {Record<string, unknown>|null} kept
  */
@@ -1518,8 +1318,6 @@ function wantedModules(named, kept) {
 }
 
 /**
- * The marketplace the install registers under — the manifest's own name where
- * it declares one — or the refusal where --marketplace names another.
  * @param {string} rawMarketplace
  * @param {string} pluginRoot
  * @returns {{marketplace: string, refusal: string|null}}
@@ -1546,9 +1344,6 @@ function settleMarketplace(rawMarketplace, pluginRoot) {
  * @param {{root: string, pluginRoot: string, marketplace: string}} at
  */
 function isCoreCheckout({ root, pluginRoot, marketplace }) {
-	/* The core's own checkout carries the manifest a session invoking this
-	 * from it resolves as the plugin root, cache copy or not — or the one
-	 * shipped beside this script, whatever --marketplace says (#743). */
 	const rootName = readManifestMarketplaceName(root);
 	return (
 		sameDir(root, pluginRoot) ||
@@ -1561,10 +1356,6 @@ function isCoreCheckout({ root, pluginRoot, marketplace }) {
 }
 
 /**
- * The refusal of a `check_staged` this run declares, by --command or
- * inference, that runs lint-staged (#2587) or a `biome check --staged` that
- * does not map, or maps but was given explicitly (#2731). A kept config's is
- * the release note's and the hook's to migrate.
  * @param {string} root
  * @param {SourcedCommand} checkStaged
  * @returns {string|null}
@@ -1587,8 +1378,6 @@ function checkStagedRefusal(root, checkStaged) {
 }
 
 /**
- * Each command's record, filled from the kept config or inference where no
- * --command names it.
  * @param {{commands: Record<string, string|null>,
  *   kept: Record<string, unknown>|null,
  *   declared: ReturnType<typeof readDeclared>,
@@ -1612,7 +1401,6 @@ function commandSources({ commands, kept, declared, inferred }) {
 }
 
 /**
- * `init`'s arguments, the declared marketplace source read first.
  * @param {{values: Record<string, string>, flags: Set<string>,
  *   categories: Record<string, string>, root: string, pluginRoot: string,
  *   founder: string, modules: Module[], corpus: string[]|undefined,
@@ -1640,9 +1428,6 @@ function initArgs(at) {
 		kept: at.kept,
 		marketplace,
 		marketplaceRef: values["marketplace-ref"] ?? declaredSource.ref,
-		/* The flag alone re-points it: CLAUDE_PLUGIN_ROOT is the cache copy
-		 * the rules file's command runs from, the path this keeps out (#731).
-		 * A relative declared path is judged against cwd, not --root. */
 		marketplacePath: values["plugin-root"] ? null : declaredSource.path,
 		tracker: !flags.has("no-tracker"),
 		pluginInstall: !flags.has("no-plugin-install"),
@@ -1656,15 +1441,10 @@ function initArgs(at) {
 }
 
 /**
- * Every path `init` can write under `modules`, for a caller judging them
- * before they exist: new-repo.js checks a source repo's `.gitignore` against
- * it (#721). new-repo.test.ts fails where `init` writes a path this omits.
  * @param {Module[]} modules
  * @param {import("./core-owned-files.js").Entry[]} [entries]
  */
 function initPaths(modules, entries) {
-	/* A Set: the rules file and settings.json are both CLASSES keys and
-	 * core-owned paths. */
 	return [
 		...new Set([
 			...Object.keys(CLASSES),

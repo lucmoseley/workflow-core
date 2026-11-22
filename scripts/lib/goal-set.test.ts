@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins goal-set.js: the open issues a `drain` goal names, its ref's open
- * descendants through parent links at any depth, the ref in another repo
- * included (#3866, ruling #2524); and `resolveGoal`'s outcome for each goal
- * form (#4382).
- *
- * A core, so its cases call it with seeded issue lists; pick-next.test.ts
- * keeps the runs that cross the goal flag.
- *
- * Breaking it drains the wrong set: a goal that stops a level down, takes in
- * a stranger, or misses a child whose parent lives in another checkout, and
- * the refill loop ranks work nobody named.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -23,7 +10,6 @@ const { openDescendants, resolveGoal } = require("./goal-set.js");
 const { goalRefRepo } = require("./goal-ref-repo.js");
 
 const OWN = "o/r";
-/** An open issue here, its parent the issue `parent` names, or none. */
 const issue = (number: number, parent: number | string | null = null) => ({
 	number,
 	parent:
@@ -76,7 +62,6 @@ describe("resolveGoal (#4382)", () => {
 	afterEach(() => {
 		fs.rmSync(home, { recursive: true, force: true });
 	});
-	/** The production lookup, the run's own checkout `r` under the temp HOME. */
 	const ownCheckout = (ref: { repo: string | null }, own: string | null) =>
 		goalRefRepo(ref, own, path.join(home, "r"));
 
@@ -93,7 +78,6 @@ describe("resolveGoal (#4382)", () => {
 			ranked: [],
 			notice: "--goal names ghost#5: no checkout named ghost",
 		});
-		// This checkout, bare or by its own directory name, drains with no notice.
 		for (const repo of [null, "r"])
 			expect(
 				resolveGoal(

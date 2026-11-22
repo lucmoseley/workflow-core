@@ -1,12 +1,3 @@
-/*
- * lander-on-push.js — start-lander-on-push.js's core (#2785): after a push to
- * a queue ref, `queue/<name>`, start the queue lander detached (#2405, spec
- * #2261; #4458).
- *
- * Each destination is read by lib/push-dests.js. `--all`, `--branches`,
- * `--mirror`, `--delete` and a dry run start nothing, whatever they push.
- */
-
 const path = require("node:path");
 const { isQueueHead } = require("./landing-refs.js");
 const { readPush } = require("./push-dests.js");
@@ -14,8 +5,7 @@ const { parseCommand, walkGit } = require("./shell-parse.js");
 
 /**
  * @typedef {object} LanderPorts
- * @property {(tree: string, src: string) => string} symbolicName `git -C
- *   <tree> rev-parse --symbolic-full-name <src>`, "" where it fails
+ * @property {(tree: string, src: string) => string} symbolicName
  * @typedef {import("./kit-context.js").KitContext & LanderPorts} LanderContext
  */
 

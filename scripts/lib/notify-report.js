@@ -1,28 +1,8 @@
-/*
- * notify-report.js — the on-disk half of persist-and-replay for a slow
- * SessionStart checker (mantahostels#1973, the library mantahostels#1949 specifies).
- *
- * A producer calls openRun()/closeRun() around its work and writeReport() once
- * it finishes; the synchronous reader, `scripts/replay-notify-reports.js`
- * (mantahostels#1976), calls list(), readReport(), readRun(), isCancelled(), ageMs() and
- * isStale().
- *
- * TOTAL DEGRADATION TO A NO-OP, ALWAYS. Every write returns a boolean rather
- * than throwing; every read returns null rather than throwing, on an
- * unwritable directory, a corrupt file or a missing one.
- *
- * ONE DIRECTORY FOR THE MACHINE: the arbiter's pinned store (`stateDir()`,
- * the first seat's, #383), whichever seat the process runs on — or, where it
- * cannot be written, the sorted-first config dir that can (#385).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { ignoreFailure } = require("./caught.js");
 const { configDir } = require("./config-dir.js");
-// Called as `store.stateDir()`, never destructured: a test forcing the
-// fallback spies on this live property.
 const store = require("./arbiter-store.js");
 const {
 	readCurrentBootId,
@@ -38,24 +18,11 @@ const { pinnedOrFirstUsable } = require("./can-hold-state.js");
  * @typedef {{checker: string, outcome: Outcome, text: string, at: string,
  *   durationMs: number|null, stamp: string|null,
  *   stamps: Record<string, string>, owner: string|null,
- *   maxAgeMs: number|null}} Report `stamps`
- *   carries a stamp-name to signature map for a producer whose findings do not
- *   reduce to the single `stamp` field. `owner` is the id of the session whose
- *   start launched the producer (#853), null where none was known. `maxAgeMs`
- *   is how long the replay may still show it, null for DEFAULT_STALE_MS (#1553)
+ *   maxAgeMs: number|null}} Report
  * @typedef {{checker: string, startedAt: string, pid: number,
  *   procStart: string|null, bootId: string|null}} RunRecord
  */
 
-/**
- * The directory every checker's report and run-record files live under. Never
- * throws: a failure resolving it falls back to the running config dir's project
- * directory, keyed on CLAUDE_CONFIG_DIR rather than a bare HOME guess — the
- * arbiter suites re-point it at a sandbox and leave HOME alone.
- *
- * Unmemoised, unlike check-hook-liveness.js's statePath: a long-lived reader
- * then follows a store that becomes writable mid-process.
- */
 function base() {
 	try {
 		const slug = projectSlug(hostRoot());
@@ -76,7 +43,6 @@ function base() {
 }
 
 /**
- * A checker name spelled safely as part of a filename.
  * @param {string} id
  */
 const slug = (id) => String(id).replace(/[^A-Za-z0-9_-]/g, "-");
@@ -89,12 +55,6 @@ const reportFile = (checker) =>
 const runFile = (checker) => path.join(base(), `${slug(checker)}.run.json`);
 
 /**
- * Every checker with a report or an open run record on disk, sorted.
- *
- * THE FILENAME IS THE KEY, not the `checker` field inside the document: the
- * reader needs the name before it can read either file, and `slug` is what
- * put it there. Display the report's own `checker` field rather than this,
- * which carries `slug`'s rewriting of any character a filename could not.
  * @returns {string[]}
  */
 function list() {
@@ -113,9 +73,6 @@ function list() {
 }
 
 /**
- * Write `obj` to `file` atomically: a temp file in the same directory, then a
- * rename, so a reader never observes a truncated or half-written record.
- * Never throws. Returns whether it landed.
  * @param {string} file
  * @param {object} obj
  */
@@ -129,8 +86,6 @@ function atomicWriteJSON(file, obj) {
 }
 
 /**
- * Read one JSON record. `null` for absent, unreadable or torn — a reader mid
- * write, or a directory this process cannot enter — never a throw.
  * @param {string} file
  */
 function readJSON(file) {
@@ -144,29 +99,17 @@ function readJSON(file) {
 		const obj = JSON.parse(text);
 		return obj && typeof obj === "object" ? obj : null;
 	} catch {
-		return null; // torn: another writer is mid-record, or the file is hand-mangled
+		return null;
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Reports
-// ---------------------------------------------------------------------------
-
 /**
- * Persist one finished run. An `OK` outcome with empty `text` still writes a
- * file — the reader needs to tell "ran and had nothing to say" apart from
- * "never ran", and only a present file can say the first.
- * `stamp` and `stamps` are carried, not applied: the reader stamps with them
- * (lib/delivery-stamp.js `recordDelivery`) once it has shown the report.
- * `owner` is what lets `scripts/deliver-to-session.js` hand the report to the
- * session it belongs to (#853); the replay reader ignores it.
- *
  * @param {string} checker
  * @param {{outcome: Outcome, text?: string, finishedAt?: Date|string,
  *   durationMs?: number|null, stamp?: string|null,
  *   stamps?: Record<string, string>, owner?: string|null,
  *   maxAgeMs?: number|null}} entry
- * @returns {boolean} whether the write landed
+ * @returns {boolean}
  */
 function writeReport(
 	checker,
@@ -197,8 +140,6 @@ function writeReport(
 }
 
 /**
- * The last report a checker persisted, or null where there is none — never
- * written, unreadable, or too mangled to trust.
  * @param {string} checker
  * @returns {Report|null}
  */
@@ -220,10 +161,6 @@ function readReport(checker) {
 		durationMs:
 			typeof record.durationMs === "number" ? record.durationMs : null,
 		stamp: typeof record.stamp === "string" ? record.stamp : null,
-		// SANITISED HERE, not at the reader: `covers()` (lib/delivery-stamp.js)
-		// calls `.startsWith` on a signature with no further check, so a mangled
-		// report's `stamps` — an array, a non-string value — would throw there and
-		// take the whole session-start replay down with it.
 		stamps:
 			record.stamps &&
 			typeof record.stamps === "object" &&
@@ -244,8 +181,6 @@ function readReport(checker) {
 }
 
 /**
- * How old `report` is against `now`, in milliseconds — null where its
- * timestamp cannot be parsed at all.
  * @param {Report|null} report
  * @param {number} [now]
  */
@@ -255,24 +190,13 @@ function ageMs(report, now = Date.now()) {
 	return Number.isNaN(t) ? null : Math.max(0, now - t);
 }
 
-/*
- * A first guess, not a measurement. Long enough that an ordinary gap between
- * session starts still shows the last real reading; short enough that a CI
- * verdict from a stale morning is not shown as current in the evening.
- */
+// guess, lucmoseley/mantahostels#1949
 const DEFAULT_STALE_MS = 4 * 60 * 60 * 1000;
 
-/*
- * For a report whose producer may not run again for days, a daily reading or a
- * stopped loop's: long enough that it reaches a session starting days after it
- * (spec #1510 §Staleness, #3772). Untraced.
- */
+// guess, #3772
 const LONG_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Whether `report` is too old to show as current. An unparseable timestamp is
- * treated as stale rather than fresh: never show a bad reading as though it
- * were live.
  * @param {Report|null} report
  * @param {number} [maxAgeMs]
  * @param {number} [now]
@@ -282,13 +206,7 @@ function isStale(report, maxAgeMs = DEFAULT_STALE_MS, now = Date.now()) {
 	return age === null ? true : age > maxAgeMs;
 }
 
-// ---------------------------------------------------------------------------
-// Open-run records
-// ---------------------------------------------------------------------------
-
 /**
- * Mark a checker's run as started, before any slow work. Never throws; a
- * failed open costs a missed cancellation report, never a broken producer.
  * @param {string} checker
  */
 function openRun(checker) {
@@ -303,8 +221,6 @@ function openRun(checker) {
 }
 
 /**
- * Close a checker's run record on normal completion. Idempotent: closing one
- * never opened, or already closed, is not an error.
  * @param {string} checker
  */
 function closeRun(checker) {
@@ -312,7 +228,6 @@ function closeRun(checker) {
 }
 
 /**
- * The open run record for `checker`, or null where none is open.
  * @param {string} checker
  * @returns {RunRecord|null}
  */
@@ -339,14 +254,6 @@ function readRun(checker) {
 }
 
 /**
- * Whether an open run record describes a producer that is no longer running.
- * `null` (nothing open) is not a cancellation — there is no run to have been
- * cut off. Liveness is judged exactly as the arbiter judges a lock's holder
- * (`holderAlive`): the recorded pid must still match a live process carrying
- * the same kernel start-time token AND the same boot, so neither a recycled
- * pid nor a coincident pid/procStart pair surviving a reboot is mistaken for
- * the producer that opened the record — a run file lives under `~/.claude*`
- * and outlives a reboot, unlike the arbiter's own stale-lock sweep.
  * @param {RunRecord|null} run
  */
 function isCancelled(run) {

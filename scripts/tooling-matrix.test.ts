@@ -713,7 +713,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"shellcheck, `-x --severity=style --exclude=SC2016`",
 			/shellcheck -x --severity=style --exclude=SC2016/,
 		],
-		["actionlint", /actionlint \$tool_paths/],
+		["actionlint", /with_lines "\$tool_paths" hook_bound actionlint/],
 		["ruff", /check-ruff-introduced\.js/],
 		["`scripts/check-swallowed-errors.js`", /check-swallowed-errors\.js \|\|/],
 		["`commands.test`", /test-gate\.js commit/],

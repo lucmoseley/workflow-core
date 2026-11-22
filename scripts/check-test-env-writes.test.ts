@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-test-env-writes.js fails a JS test file or `scripts/` `.ts`
- * helper writing `process.env` directly, by any assignment operator or a
- * whole-object write or a delete, and passes `vi.stubEnv`, reads, comparisons
- * and a line an `env-write-kept:` comment keeps (#4019).
- *
- * The checker reads tracked files, so a throwaway git repo holding one test
- * file is the whole fixture. Fixture text names `process.env` through `ENV`,
- * so this file's own lines never read as the assignment they quote.
- *
- * It is a hard gate in .husky/pre-commit and a step in document-guards.yml:
- * loosen a case and a write that outlives its case lands green.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,8 +22,6 @@ const track = (rel: string, body: string) => {
 };
 
 const run = (...args: string[]) => {
-	// Off, not inherited: runCheck's ::error:: annotation, added off this
-	// flag, would otherwise leak into `out` on an Actions run (mantahostels#2427).
 	const r = runInProcess(SCRIPT, args, {
 		cwd: dir,
 		env: { ...process.env, GITHUB_ACTIONS: "" },

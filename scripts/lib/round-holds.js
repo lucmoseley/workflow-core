@@ -37,18 +37,17 @@ const { parseCommand, walkCommands } = require("./shell-parse.js");
 
 /**
  * @typedef {object} RoundHoldPorts
- * @property {string} home what a body path's leading `~` expands to
- * @property {(path: string) => string|undefined} readFile a body file's text,
- *   undefined where it is absent; throws where it cannot be read
+ * @property {string} home
+ * @property {(path: string) => string|undefined} readFile
  * @property {() => boolean} isLatchWritable
- * @property {() => string[]} readHoldLines what `repo-hold.js list` prints
+ * @property {() => string[]} readHoldLines
  * @typedef {import("./kit-context.js").KitContext & RoundHoldPorts &
  *   { env: NodeJS.ProcessEnv }} RoundHoldContext
  */
 
 /**
  * @param {string[]} holdLines
- * @param {string} issue  the issue the round was going to
+ * @param {string} issue
  * @param {RoundHoldContext} ctx
  */
 function buildRefusalText(holdLines, issue, ctx) {

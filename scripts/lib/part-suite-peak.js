@@ -1,36 +1,13 @@
-/*
- * part-suite-peak.js — what a part-suite actually draws (#5366): the rolling
- * p99 process-tree peak of the runs of its kind and file-count bucket, off the
- * run ledger (lib/run-ledger.js). Pure: the caller hands it the ledger's lines.
- *
- * The gate charges a part-suite the rung of this peak in place of the
- * ladder's busy-worker rung (lib/suite-concurrency.js), and, once spawned,
- * its climb on the same figure, stamped on its queue marker as its charge
- * (lib/suite-queue.js `peakMbOf`).
- *
- * A LINE COUNTS only where it carries a `memory` block, a `kind` of `named` or
- * `touched`, and `wholeSlot` false, started inside the window. Red runs count.
- * A kind's lines feed only its own buckets.
- *
- * The peak is `memory.peaksMiB.sum`, MiB, charged as MB: the rung's margin
- * holds the 5% between them.
- *
- * Values, each untraced (#5348's modelling, #5366): the bucket edges, the
- * 7-day window and the 30-sample floor. p99 nearest rank is #5362's delegated
- * decision 1.
- */
-
 const DAY_MS = 24 * 60 * 60 * 1000;
+// guess, #5366
 const WINDOW_MS = 7 * DAY_MS;
 const MIN_SAMPLES = 30;
+// guess, #5362
 const PERCENTILE = 0.99;
 
 /** @typedef {"named" | "touched"} PartKind */
 
 /**
- * The part-suite kind a ledger or queue-exit kind is: null for any other,
- * `--changed`'s or a plain script's, whose runs the ledger records under
- * their own kinds.
  * @param {unknown} kind
  * @returns {PartKind | null}
  */
@@ -38,17 +15,13 @@ const partKindOf = (kind) =>
 	kind === "named" || kind === "touched" ? kind : null;
 
 /**
- * The part-suite kind a launch route is (lib/launch-route.js): its kind's,
- * save an `--adopt` run's, which routes as `named` but the ledger records as
- * `adopt`, so no bucket holds it.
  * @param {{ kind: string, source: string } | null | undefined} route
  * @returns {PartKind | null}
  */
 const partKindOfRoute = (route) =>
 	!route || route.source === "adopt" ? null : partKindOf(route.kind);
 
-/* Inclusive upper edges by resolved file count; the last is the whole-slot
- * bound's last part-suite. */
+// guess, #5366
 const BUCKETS = /** @type {const} */ ([
 	{ label: "1", max: 1 },
 	{ label: "2-4", max: 4 },
@@ -57,7 +30,6 @@ const BUCKETS = /** @type {const} */ ([
 ]);
 
 /**
- * The bucket a resolved file count falls in, or null outside every bucket.
  * @param {number} files
  * @returns {string | null}
  */
@@ -67,8 +39,7 @@ function bucketOf(files) {
 }
 
 /**
- * The nearest-rank percentile `p` of `values`, sorted or not.
- * @param {number[]} values non-empty
+ * @param {number[]} values
  * @param {number} p
  */
 function nearestRank(values, p) {
@@ -84,27 +55,14 @@ function nearestRank(values, p) {
  * @typedef {{ kind: PartKind, p99Mb: number, samples: number, bucket: string }} PartPeak
  */
 
-/**
- * Why a part-suite was judged on the ladder (#5366): its bucket holds too few
- * runs, the ledger would not read, the tripwire holds it there
- * (lib/peak-tripwire.js `Fallback`), a touched run's selection is
- * unresolved, so it has no bucket, or its kind cannot be told
- * (`partKindOfRoute`).
- * @typedef {import("./peak-tripwire.js").Fallback["cause"] | "thin" | "unread" | "unsized" | "untold"} LadderCause
- */
+/** @typedef {import("./peak-tripwire.js").Fallback["cause"] | "thin" | "unread" | "unsized" | "untold"} LadderCause */
 
 /**
- * How a part-suite was admitted, on the ledger line and the queue's exit
- * record: its own peak's rung, or the ladder's and why. `rungMb` is the rung
- * charged and `climbMb` the climb charged beside it.
  * @typedef {{ mode: "peak", kind: PartKind, bucket: string, p99Mb: number, rungMb: number, climbMb: number, samples: number }
  *   | { mode: "ladder", cause: LadderCause, kind?: PartKind, bucket?: string, rungMb: number, climbMb: number }} PartAdmission
  */
 
-/**
- * What a deny or a wait names of a peak charge.
- * @typedef {Pick<Extract<PartAdmission, { mode: "peak" }>, "kind" | "bucket" | "p99Mb" | "samples">} PeakCharge
- */
+/** @typedef {Pick<Extract<PartAdmission, { mode: "peak" }>, "kind" | "bucket" | "p99Mb" | "samples">} PeakCharge */
 
 /**
  * @param {PeakCharge} peak
@@ -113,9 +71,6 @@ const peakClause = ({ kind, bucket, p99Mb, samples }) =>
 	`a ${kind} part-suite of ${bucket} file(s), whose p99 peak over ${samples} runs in ${WINDOW_MS / DAY_MS} days is ${p99Mb} MB (#5366)`;
 
 /**
- * The peak a run of `kind` resolving to `files` test files is charged, off
- * the lines of the 7 days before `now`; null where its bucket holds fewer
- * than MIN_SAMPLES runs or `files` falls in none.
  * @param {readonly LedgerLine[]} lines
  * @param {{ kind: PartKind, files: number, now: number }} run
  * @returns {PartPeak | null}

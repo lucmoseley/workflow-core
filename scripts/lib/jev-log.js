@@ -1,19 +1,3 @@
-/*
- * jev-log.js — where the Jev advisory guard's JSONL log lives, named once.
- *
- * #175's stop condition is counted from this file and from nothing else, and
- * two scripts now need to agree on it: `guard-jev-advisory.js` appends to it
- * (#203) and `check-jev-flags.js` reads it back at session start (#202).
- *
- * ROTATION, not truncation: `LOG_PREVIOUS` is where a full log is moved, so
- * one rotation's worth of history survives. A reader that has not reported
- * everything in the live log must look there too.
- *
- * The outcome vocabulary is NOT here. Each side declares the outcomes it
- * handles, which are different sets: the guard may only write what it can
- * produce, and the reader reports the two that reach the founder's screen.
- */
-
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 
@@ -37,8 +21,6 @@ function previousLogPath(root) {
 }
 
 /**
- * A line's `at` as epoch milliseconds, or null where it carries none that
- * parses.
  * @param {{at?: unknown}} line
  * @returns {number|null}
  */

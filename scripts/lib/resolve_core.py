@@ -1,30 +1,4 @@
-"""resolve_core.py — the Python mirror of scripts/lib/resolve-core.js: finds the
-workflow-core directory an adopter's Python scripts and pytest suite import the
-helper surface from (#457, #465). Like the JS file, an adopter copies it once
-into its own tree and never re-syncs it.
-
-FROZEN, as resolve-core.js is: a change to its lookup, its export or its
-variable names is a major release with a migration note. Standard library only,
-Python 3.10 or later, because it runs before the core is found.
-
-Same lookup, same variables, same messages as resolve-core.js, whose header
-explains each step: WORKFLOW_CORE_DIR, then WORKFLOW_CORE_CHECKOUT, then the
-installed plugin's install row for the adopter root as spelt, else, where the
-root is a checkout's top level, for its main checkout as git spells it, asking
-git only where the root has no row. So a linked worktree resolves through its
-main checkout, and so does a main checkout's root spelt through a symlink or
-with a trailing slash (#4150).
-test_resolve_core.py runs
-both files over the same fixtures and fails on any difference. A value the CLI
-never writes — a non-string ref or install path — fails in both, naming the
-pin, but its message text can differ.
-
-An adopter's conftest.py puts the core's lib on the path before any test
-imports from it:
-
-    sys.path.insert(0, os.path.join(resolve_core(), "scripts", "lib"))
-"""
-
+# #457, #465, #4150
 import json
 import os
 import re
@@ -35,7 +9,6 @@ from collections.abc import Callable, Mapping
 PLUGIN = "workflow-core"
 OVERRIDE = "WORKFLOW_CORE_DIR"
 CHECKOUT = "WORKFLOW_CORE_CHECKOUT"
-# resolve-core.js's TAG_REF; [0-9] because Python's \d also matches non-ASCII digits.
 TAG_REF = re.compile(r"v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
 
 
@@ -64,7 +37,6 @@ def _get(value, key):
 
 
 def _read_git_roots(**options):
-    """resolve-core.js's readGitRoots: (main checkout, top level), or None."""
     try:
         result = subprocess.run(
             [
@@ -92,13 +64,12 @@ def _read_git_roots(**options):
 
 
 def _adopter_root():
-    """resolve-core.js's adopterRoot: the main checkout, even from a linked worktree."""
     roots = _read_git_roots()
     return roots[0] if roots else os.getcwd()
 
 
 def _read_main_checkout(root):
-    """resolve-core.js's readMainCheckout (#4117)."""
+    # #4117
     env = {
         name: value
         for name, value in os.environ.items()
@@ -135,8 +106,6 @@ def resolve_core(
     env: Mapping[str, str] | None = None,
     warn: Callable[[str], None] = _stderr,
 ) -> str:
-    """The core's directory. Raises RuntimeError, naming the pin and what was
-    missing, where no directory is found."""
     if root is None:
         root = _adopter_root()
     if env is None:

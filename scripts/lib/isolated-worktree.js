@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * isolated-worktree.js — the throwaway worktree `run-vitest.js` runs a frozen
- * suite in (mantahostels#2169), and `commit-paths.js` its pre-lock suite
- * (#1760): building it at HEAD, overlaying a session's own files into it
- * (#812) or checking a commit's tree out into it and running a suite there
- * (`runInTree`), and taking it and any leftovers down. Removing a worktree on
- * a KILL, which no `.finally()` reaches, is run-vitest.js's signal handler's
- * job; a `runInTree` run killed leaves its worktree to the next sweep.
- *
- *   node scripts/lib/isolated-worktree.js run [--gate] <command>
- *
- * is `runInTree` over the tree of the index git names in $GIT_INDEX_FILE, as
- * the pre-commit hook's test gate runs it (#1766), `--gate` its commit gate's
- * seat (#5274): the suite's output on
- * stdout, exit 0 green, 3 red, 2 where no worktree could be had, saying why on
- * stderr, and 64 on a usage error — never 1, which is node's own crash.
- */
-
 const { execFileSync, spawnSync } = require("node:child_process");
 const {
 	execGit,
@@ -28,7 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { shellQuote } = require("./sh-quote.js");
-const { caught, ignoreFailure } = require("./caught.js");
+const { caught, ignoreFailure, orFallback } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { writeFd } = require("./write-fd.js");
@@ -38,48 +20,19 @@ const { withMergeParents } = require("./merge-heads.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 
-/*
- * The throwaway worktree goes under `WORKTREES`, which is gitignored AND
- * named in `vitest.config.ts`'s `exclude`, so a suite run in the checkout does
- * not collect this worktree's copy of the corpus alongside its own. Its name
- * is pid-scoped, so two isolated runs never share a directory and a leftover
- * can be matched back to a process that may or may not still exist.
- */
 const ISOLATED_PREFIX = "isolated-";
 
-/*
- * Gitignored, generated artefacts the suite reads that `git worktree add`
- * therefore does not reproduce. `createIsolated` symlinks each one the
- * canonical checkout has into the frozen worktree; `removeIsolated` unlinks
- * each before tearing the worktree down, so the canonical original is never
- * walked. A member belongs here only where every host's suite needs it and
- * the worktree must never hold its own copy: one HEAD tracks is refused as a
- * setup fault, where a host's `worktreeLinks` entry (#1767) keeps the
- * commit's copy instead. `linkArtefacts` makes a member's parent directory
- * first, so it needs no tracked sibling of its own to land.
- */
-const SHARED_ARTEFACTS = [
-	/* The bulk of the checkout — copying it per run would dwarf the worktree's
-	 * own cost, and it's what makes `.bin/vitest` findable at all (mantahostels#2153). */
-	"node_modules",
-];
+const SHARED_ARTEFACTS = ["node_modules"];
 
 /**
- * `SHARED_ARTEFACTS` plus the gitignored paths the host declares its suite
- * reads, as `worktreeLinks` (#1767) — read from the worktree's own config, the
- * one the commit or HEAD carries, so no unsaved edit to the checkout's copy
- * decides what is linked (#1766). The shared ones alone where that config
- * cannot be read: the suite's own read of it reports the fault.
- * @param {string} dir the worktree
+ * @param {string} dir
  * @returns {string[]}
  */
 function readLinkedPaths(dir) {
-	let declared;
-	try {
-		declared = readConfig({ root: dir, quiet: true }).worktreeLinks;
-	} catch {
-		declared = undefined;
-	}
+	const declared = orFallback(
+		() => readConfig({ root: dir, quiet: true }).worktreeLinks,
+		undefined,
+	);
 	return [...SHARED_ARTEFACTS, ...(declared ?? [])];
 }
 
@@ -97,16 +50,6 @@ function readLinkedPaths(dir) {
  */
 
 /**
- * Tear one isolated worktree down.
- *
- * EACH `readLinkedPaths` SYMLINK GOES FIRST, against a teardown that walks
- * one into its canonical target. `git worktree remove --force` does not, so
- * the ordering is unverified belt and braces and the test asserts the outcome
- * — every target survives — rather than the order (mantahostels#2169, mantahostels#2213).
- *
- * Best effort throughout: a teardown failure is reported and never changes the
- * suite's exit code.
- *
  * @param {string} root
  * @param {string} dir
  * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown } }} [options]
@@ -136,9 +79,6 @@ function removeIsolated(
 }
 
 /**
- * Unlink each `readLinkedPaths` symlink in `dir` whose own directory resolves
- * inside it: a declared path under another linked one names a canonical file.
- * Best effort: a link never created, or already gone, is skipped.
  * @param {string} dir
  * @param {WorktreeFs} [worktreeFs]
  */
@@ -156,16 +96,9 @@ function unlinkArtefacts(dir, worktreeFs = fs) {
 }
 
 /**
- * Remove isolated worktrees left by a process that is gone.
- *
- * A run killed with SIGKILL — the stall watchdog's own weapon, and `earlyoom`'s
- * — never reaches its `finally`, and each leak is a whole checkout that
- * `git worktree list` then carries forever. A leftover whose pid is ALIVE is
- * left alone: that is either a run still going or a reused pid.
- *
  * @param {string} root
  * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, alive?: (pid: number) => boolean }} [options]
- * @returns {string[]} the directories removed
+ * @returns {string[]}
  */
 function sweepIsolated(
 	root,
@@ -182,11 +115,6 @@ function sweepIsolated(
 	try {
 		entries = worktreeFs.readdirSync(base);
 	} catch (error) {
-		/* ENOENT is the ordinary case and says nothing: no isolated run has
-		 * happened yet, so there is nothing to sweep. Anything else is the sweep
-		 * going BLIND — the one thing standing between a SIGKILLed run and a
-		 * permanently leaked checkout — and a fail-open nobody is told about is
-		 * indistinguishable from a clean tree (mantahostels#2169). */
 		if (caught(error).code !== "ENOENT")
 			err.write(
 				`isolated worktree: could not read ${base} (${error}) — leftover worktrees are NOT being swept.\n`,
@@ -200,12 +128,7 @@ function sweepIsolated(
 		if (!name.startsWith(ISOLATED_PREFIX)) continue;
 		const pid = Number(name.slice(ISOLATED_PREFIX.length));
 		if (!Number.isInteger(pid) || pid <= 0) continue;
-		/* THIS PROCESS'S OWN NUMBER IS DEBRIS, NOT A LIVE HOLDER. A pid is not an
-		 * identity over time (mantahostels#2034),
-		 * and the one reuse this sweep can resolve for certain is its own: a
-		 * directory named for the pid we are running under was left by a dead
-		 * predecessor, and sparing it would fail `git worktree add` on an existing
-		 * path and refuse the suite outright. */
+		// lucmoseley/mantahostels#2034
 		if (pid !== process.pid && alive(pid)) continue;
 		removeIsolated(root, path.join(base, name), { execFn, worktreeFs, err });
 		removed.push(name);
@@ -215,18 +138,6 @@ function sweepIsolated(
 }
 
 /**
- * Drop git's administrative record of a worktree whose directory is gone.
- *
- * THE DIRECTORY SWEEP ABOVE CANNOT SEE THIS CASE. A leftover cleared by hand,
- * by an `earlyoom` kill mid-teardown or by a `.claude/` sweep leaves
- * `.git/worktrees/<id>/` registered with nothing behind it, so `readdirSync`
- * finds nothing and `git worktree list` carries the entry for ever
- * (mantahostels#2169).
- *
- * `git worktree prune` is safe here and deliberately unscoped: it removes only
- * entries whose working tree is absent, so a live neighbour's worktree is never
- * touched.
- *
  * @param {string} root
  * @param {{ execFn?: ExecFn, err?: { write: (s: string) => unknown } }} [options]
  */
@@ -253,19 +164,6 @@ function pruneWorktreeRegistrations(
 }
 
 /**
- * Create the detached worktree and link in each of `readLinkedPaths` the
- * canonical checkout has and the worktree lacks.
- *
- * `--detach`, never a branch: `docs/agents/guard-registry.md` §Conventions and
- * the guard-branch core of `scripts/guard-dispatch.js` both require it, and a throwaway tree has no use
- * for a ref of its own.
- *
- * Given a `tree`, the worktree holds that tree, in its index and on disk,
- * over HEAD — or, on an unborn branch, over no commit, as its first commit
- * sees it — and no other file (#1760). The unborn one is `--orphan`, whose
- * branch never gets a ref, nothing being committed in it; it needs git 2.42,
- * and an older git, or a branch already named for the worktree, refuses it.
- *
  * @param {string} root
  * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs, pid?: number, err?: { write: (s: string) => unknown }, tree?: string }} [options]
  * @returns {{ dir: string, error: null }|{ dir: null, error: string }}
@@ -299,12 +197,10 @@ function createIsolated(
 		/** @type {string[]} */
 		let add = ["--detach", dir, "HEAD"];
 		if (tree !== undefined) {
-			let born = true;
-			try {
+			const born = orFallback(() => {
 				run(["rev-parse", "--verify", "-q", "HEAD"], root);
-			} catch {
-				born = false;
-			}
+				return true;
+			}, false);
 			add = born
 				? ["--detach", "--no-checkout", dir, "HEAD"]
 				: ["--orphan", dir];
@@ -328,10 +224,6 @@ function createIsolated(
 		}
 	const linkFault = linkArtefacts(root, dir, worktreeFs);
 	if (linkFault !== null) {
-		/* Half a worktree is worse than none: lacking a member the checkout has,
-		 * the run would fail on a missing vitest or a missing declared path,
-		 * and either reads as a suite failure rather than as the setup fault it
-		 * is. */
 		removeIsolated(root, dir, { execFn, worktreeFs, err });
 		return { dir: null, error: linkFault };
 	}
@@ -339,30 +231,18 @@ function createIsolated(
 }
 
 /**
- * Link each of `readLinkedPaths` the checkout at `root` has into the worktree
- * at `dir`.
  * @param {string} root
  * @param {string} dir
  * @param {WorktreeFs} [worktreeFs]
- * @returns {string|null} why a link failed, or null where every one landed
+ * @returns {string|null}
  */
 function linkArtefacts(root, dir, worktreeFs = fs) {
 	for (const artefact of readLinkedPaths(dir)) {
-		/* A checkout lacking a member gets no link for it: a dangling one fails
-		 * any test that stats the tree (#822). `existsSync` follows a link, so a
-		 * source that is itself dangling is skipped too. A checkout with no
-		 * `node_modules` therefore runs with none, failing on a missing vitest as
-		 * the checkout itself would. */
 		if (!worktreeFs.existsSync(path.join(root, artefact))) continue;
 		const target = path.join(dir, artefact);
-		/* A declared path the worktree already holds is the commit's own copy;
-		 * a shared one there is a setup fault, refused below. */
 		if (!SHARED_ARTEFACTS.includes(artefact) && worktreeFs.existsSync(target))
 			continue;
 		try {
-			/* `symlinkSync` makes no parent of its own — a member whose parent is
-			 * absent from a tracked-files-only checkout would ENOENT here without
-			 * this, breaking every isolated run rather than just that member. */
 			worktreeFs.mkdirSync(path.dirname(target), { recursive: true });
 			worktreeFs.symlinkSync(path.join(root, artefact), target, "dir");
 		} catch (error) {
@@ -373,19 +253,11 @@ function linkArtefacts(root, dir, worktreeFs = fs) {
 }
 
 /**
- * Copy each of `paths` from the canonical checkout into the worktree at `dir`,
- * or delete it there where the session deleted it, then stage them all there.
- * A symlink is copied as a link, never followed.
- *
- * STAGED, so a new file counts as tracked inside the worktree: `git stash
- * create`, which takes `treeAtEnd`, and `git diff <base>`, which gives the
- * run's `changedPaths`, both skip an untracked one.
- *
  * @param {string} root
  * @param {string} dir
- * @param {string[]} paths repo-relative
+ * @param {string[]} paths
  * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs }} [options]
- * @returns {string|null} why it stopped, or null where every path landed
+ * @returns {string|null}
  */
 function overlayFiles(
 	root,
@@ -431,30 +303,15 @@ function overlayFiles(
 	return null;
 }
 
-/* The suite queue's runner, a commit gate's seat (#5274). */
 const QUEUE_RUN = path.join(__dirname, "..", "queue-run.js");
 
-/* Inherited, any of these would point git — the worktree's own, or the
- * suite's — back at the caller's index or tree. */
 const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
 
 /**
- * Run `command` through `sh -c`, stdin closed and stderr folded into stdout,
- * in a throwaway worktree holding `tree` over HEAD and no other file but
- * `readLinkedPaths`, so no unsaved edit outside `tree` reaches it (#1760). The
- * worktree goes when the command ends; a leftover is swept first.
- *
- * Under `gate` it runs as a commit gate (#5274): through `queue-run.js
- * --gate`, which waits for the whole-suite slot, runs it under the suite
- * ceiling and records it against `tree`, its own waiting lines on this
- * process's stderr.
  * @param {string} root
  * @param {string} tree
  * @param {string} command
- * @param {{ env?: NodeJS.ProcessEnv, onStart?: () => void, gate?: boolean }} [options] `env`
- *   is the command's environment, less `GIT_REDIRECTS`, which no git call
- *   here sees either, plus `root`'s merge parents, which the worktree's own
- *   git dir lacks (#5334); `onStart` is called once the worktree stands
+ * @param {{ env?: NodeJS.ProcessEnv, onStart?: () => void, gate?: boolean }} [options]
  * @returns {{ error: string }|{ error: null, status: number|null, output: string, spawnError: Error|undefined }}
  */
 function runInTree(

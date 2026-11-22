@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The contract lib/git-fault-fake.ts keeps with the real git (#3067, §G7):
- * each case list runs through a wrapper of every match kind and through git,
- * and the exit code, stdout and stderr must agree. Breaking it costs the
- * suites that fault one git read their tie to git everywhere else: a wrapper
- * that drops an argument or swallows stdin fails their other reads instead.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

@@ -1,26 +1,4 @@
-/*
- * guard-dispatch.js — the dispatcher kit's entry: every always-on guard of
- * one hook event runs as a core inside one Node entry,
- * scripts/guard-dispatch.js (#2786, ADR-0010). The guard dispatcher, not
- * subagent dispatch (lib/dispatch-*.js). A plain call starts one Node process
- * for them, and every deny and every context the cap holds still reaches the
- * session as separate hooks would deliver them. lib/guard-judge.js judges the
- * call and merges what the cores answer.
- *
- * THE CORES are lib/guard-cores.json's, per event, in order: each row names
- * the core (its `name` is what `disabled` lists and the error log names), the
- * module under scripts/lib that holds its `field`, `noun`, `decide` and any
- * `top` (the shape lib/guard-entry.js's `run` takes), the tools it judges as a matcher
- * regex, its failure policy, the module that gates it, if any, the module
- * whose `buildHostPorts({ root, log })` builds the ports of its own, if any, built only
- * where the core runs, and any `if` clauses narrowing the Bash commands it
- * judges, so a call none admits never loads its module (#3224).
- *
- * Anything lib/guard-judge.js's failure policy does not catch, stdin that
- * will not read included (#4132), crashes the entry, and the registration's
- * `"onFailure": "block"` refuses the call; on PostToolUse, which carries
- * none, the crash shows as a hook error and the call stands.
- */
+// ADR-0010
 
 const { caught } = require("./caught.js");
 const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
@@ -41,13 +19,9 @@ const { hostAdapters } = require("./guard-host-ports.js");
 const { dispatch } = require("./guard-judge.js");
 
 /**
- * The hook entry. `only` runs that core alone, for a hook that hands one
- * core a payload of its own making (inject-tracker-docs.js's typed
- * /code-review, #1697); a name no core of the event carries runs none, logged.
  * @param {string} [only]
  */
 function runDispatch(only) {
-	/* Around the whole entry, so the root read shares the cores' memo. */
 	withGitReadMemo(() => runEntry(only));
 }
 
@@ -60,8 +34,6 @@ function runEntry(only) {
 	try {
 		payload = readPayload("call", entryLog);
 	} catch (e) {
-		/* No core can judge without a payload: the FAILURE POLICY's crash
-		 * (#4132). */
 		entryLog(`${caught(e).message} — the entry exits non-zero`);
 		throw e;
 	}
@@ -69,7 +41,6 @@ function runEntry(only) {
 	const event = String(payload.hook_event_name ?? "");
 	startEntryClock(event);
 	const tool = toolOf(payload);
-	/* dispatch judges each core again; this filter only spares the load. */
 	const cores = loadCores(event, {
 		keep: (row) =>
 			isCoreFor(row, tool) &&

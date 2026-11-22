@@ -36,15 +36,8 @@ const { requiredGroup } = require("./regex-group.js");
 
 const ROOT = path.join(__dirname, "..", "..");
 
-/** The live `.husky/pre-commit`. */
 const HOOK = fs.readFileSync(path.join(ROOT, ".husky", "pre-commit"), "utf8");
 
-/**
- * A gate's opening line: `if armed …` (#1504), the shell gate's
- * `if armed_shell` (#1828), or the raw `if git diff --cached …` an adopter's
- * own gate may still spell, each after the `! lander_batch &&` of a gate the
- * lander's Actions run repeats (#4545).
- */
 const LANDER_SKIP = "(?:! lander_batch && )?";
 const GATE_HEAD = new RegExp(
 	`^if ${LANDER_SKIP}(armed |armed_shell;|git diff --cached)`,
@@ -78,8 +71,6 @@ function cutGateFragment(anchor, hook = HOOK) {
 		.slice(0, body + 1)
 		.findLastIndex((l) => GATE_HEAD.test(l));
 	const end = lines.findIndex((l, i) => i > start && l === "fi");
-	// A later gate's head before `end` means the earlier gate's closer was not a
-	// bare `fi` (`fi # …`, `fi;`), so the anchor fell between the two.
 	const strays = lines.slice(body + 1, end).some((l) => GATE_HEAD.test(l));
 	if (start < 0 || (end !== -1 && (end < body || strays)))
 		throw new Error(`${anchor} in .husky/pre-commit sits outside any gate`);
@@ -89,11 +80,8 @@ function cutGateFragment(anchor, hook = HOOK) {
 }
 
 /**
- * A gate's head: its `if` line through the `then` opening its body, newline
- * included, so a suite swapping it for `if true; then\n` drops the path filter
- * whole. Spans lines where a head joins a second condition with `&&` or `||`.
- * @param {string} anchor as `cutGateFragment`'s
- * @param {string} [hook] as `cutGateFragment`'s
+ * @param {string} anchor
+ * @param {string} [hook]
  * @returns {string}
  */
 function gateHead(anchor, hook = HOOK) {
@@ -108,9 +96,8 @@ function gateHead(anchor, hook = HOOK) {
 }
 
 /**
- * The single-quoted ERE a gate's head passes to `armed`, unquoted.
- * @param {string} anchor as `cutGateFragment`'s
- * @param {string} [hook] as `cutGateFragment`'s
+ * @param {string} anchor
+ * @param {string} [hook]
  * @returns {string}
  */
 function armingPattern(anchor, hook = HOOK) {
@@ -123,7 +110,6 @@ function armingPattern(anchor, hook = HOOK) {
 	return requiredGroup(m, 1, re);
 }
 
-/** `scripts/lib/precommit-gate.sh`, which the hook sources (mantahostels#1793). */
 const LIB = fs.readFileSync(
 	path.join(ROOT, "scripts", "lib", "precommit-gate.sh"),
 	"utf8",
@@ -159,7 +145,6 @@ function cutGateScript(anchor, hook = HOOK) {
  * @returns {string[]}
  */
 function registerTempCleanup(
-	// `any`: globalThis declares no `afterEach`; the typeof check below narrows.
 	afterEach = /** @type {any} */ (globalThis).afterEach,
 ) {
 	if (typeof afterEach !== "function")
@@ -178,22 +163,10 @@ function registerTempCleanup(
 /**
  * @typedef {object} TempRepo
  * @property {string} root
- * @property {(...args: string[]) => Buffer} git `git`, bound to `root`. Throws
- *   on a non-zero exit, as execFileSync does.
+ * @property {(...args: string[]) => Buffer} git
  */
 
 /**
- * The repo scripts `fragment` invokes as a runnable — matched on command
- * prefix (`node scripts/x.js`, `bash scripts/x.sh`, `sh scripts/x.sh`), the path
- * spelled bare or through `"${WFC_PLUGIN_ROOT:-.}"/` as the hooks spell it, never
- * a bare `scripts/…` path, so one quoted inside a message string is never
- * reported. Comment lines are stripped first, so a comment naming a script by
- * path is not mistaken for a call.
- *
- * Residual, unverified against any gate today: a call spelled `./scripts/x.sh`,
- * wrapped in double quotes, or run through `npm run` reports as no
- * invocation. None of the live gates use those forms; a future one that does
- * needs this regex widened.
  * @param {string} fragment
  * @returns {string[]}
  */
@@ -259,19 +232,14 @@ function newRepo(prefix, temps) {
 	/** @param {string[]} args */
 	const git = (...args) => execFileSync("git", args, { cwd: root });
 	git("init", "-q", ".");
-	// A repo-local identity: a machine with no global `user.email` cannot commit
-	// at all (mantahostels#953).
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
 	return { root, git };
 }
 
 /**
- * Writes each of `files` under `root`, parent directories made. Nothing is
- * staged: a suite calls it after `stagedRepo` for a tree that disagrees with
- * the index.
  * @param {string} root
- * @param {Record<string, string>} files relative path to body
+ * @param {Record<string, string>} files
  * @returns {void}
  */
 function writeFiles(root, files) {
@@ -282,15 +250,10 @@ function writeFiles(root, files) {
 }
 
 /**
- * A `newRepo` holding `seed.txt` and `committed` at HEAD and `staged` in the
- * index, each path written and `git add`ed, parent directories made.
- *
- * The seed makes HEAD exist when `committed` is empty, so a gate diffing the
- * index against HEAD reads every `staged` path as added.
- * @param {string} prefix as `newRepo`'s
- * @param {string[]} temps as `newRepo`'s
- * @param {Record<string, string>} committed relative path to body
- * @param {Record<string, string>} staged relative path to body
+ * @param {string} prefix
+ * @param {string[]} temps
+ * @param {Record<string, string>} committed
+ * @param {Record<string, string>} staged
  * @returns {TempRepo}
  */
 function stagedRepo(prefix, temps, committed, staged) {
@@ -307,13 +270,6 @@ function stagedRepo(prefix, temps, committed, staged) {
 }
 
 /**
- * The repo at `root`'s own TMPDIR, made on first call, for any run that can
- * reach the shellcheck gate. That gate's lock is
- * `${TMPDIR:-/tmp}/wfc-shellcheck.lock`, which every real commit and `check:sh`
- * run on the machine shares, so under the default a case can wait out
- * serialised.sh's SERIAL_WAIT_S behind a developer's run (#2627, #2648).
- * Inside the git directory, a linked worktree's own included, so no
- * `git status` sees it.
  * @param {string} root
  * @returns {string}
  */

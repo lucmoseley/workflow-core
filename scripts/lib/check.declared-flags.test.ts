@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * Every flag a runCheck script reads is one it declares (#938).
- *
- * runCheck refuses any flag outside the library's own (plus `--root` on a
- * direction-gating spec), the spec's `valueFlags` and its `flags`. A read the spec forgot to declare is
- * therefore a flag nobody can pass: the checker answers it with BROKEN.
- *
- * LEXICAL, per file: a read is a `.has("--x")` or `.value("--x"` literal, or
- * one off `ctx.argv`/`process.argv` by `includes`/`indexOf`, outside a
- * comment. A flag held in a variable is unseen. A file's declared set is
- * every `valueFlags: [...]` and `flags: [...]` literal in it.
- *
- * It reads every real runCheck script on disk rather than a fixture, so a
- * checker added later is held without being listed here. Many of those
- * checkers run in .husky/pre-commit and CI: loosen this and a gate passing a
- * flag its spec forgot answers BROKEN, exit 2, refusing every commit it meets.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -29,10 +12,6 @@ const { stripComments } = require("./strip-comments.js");
 
 const SCRIPTS = path.resolve(__dirname, "..");
 
-/* A checker declaring no flag of its own, asked about one flag at a time, so
- * the library's own acceptance — not a copy of its list — is what a read is
- * judged against. CLAUDE_CONFIG_DIR keeps a probed `--notify` off the real
- * report store. */
 const PROBES = fs.mkdtempSync(path.join(os.tmpdir(), "declared-flags-"));
 afterAll(() => fs.rmSync(PROBES, { recursive: true, force: true }));
 
@@ -53,7 +32,6 @@ const probe = (against: boolean) => {
 };
 
 const taken = new Map<string, boolean>();
-/** Whether runCheck accepts `flag` on a checker that declares none, direction-gating where `against`. */
 const libraryTakes = (flag: string, against: boolean) => {
 	const key = `${against} ${flag}`;
 	if (!taken.has(key)) {
@@ -94,8 +72,6 @@ describe("runCheck scripts declare every flag they read", () => {
 		expect(libraryTakes("--no-such-flag", true)).toBe(false);
 	});
 
-	/* A floor well under the family's size, so a broken glob or stripper that
-	 * finds a handful cannot pass as a clean sweep. */
 	it("finds the family", () => {
 		expect(checkers.length).toBeGreaterThan(60);
 	});

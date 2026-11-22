@@ -1,16 +1,3 @@
-/*
- * lander-files.js — the queue lander's machine-local files under the
- * canonical checkout's markers directory, gitignored, so a worktree's lander
- * shares them with the main tree's: its green ledger (one `<sha> <iso time>`
- * line per sha it lands, which the pre-push gate on `main` reads), its
- * pidfile lock, its heartbeat, and its verdict, batch and drop records (#4485, spec #4458).
- *
- * The ledger's and the heartbeat's times are lib/check.js's clock, as the
- * lander's own rows are (#4860). Residual: a WFC_NOW in the lander's
- * environment pins them all, so the stall check reads a live lander's
- * heartbeat as stale, and a malformed one makes each write throw.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { now } = require("./check.js");
@@ -19,8 +6,7 @@ const { markersDir } = require("./marker-root.js");
 const { pidLock } = require("./pid-lock.js");
 const { readText } = require("./file-read.js");
 
-/* Untraced: a fraction of the stall check's 2 h, so a live lander is never
- * read as dead mid-suite. */
+// guess, #2402
 const HEARTBEAT_MS = 60 * 1000;
 
 /**
@@ -30,9 +16,7 @@ const HEARTBEAT_MS = 60 * 1000;
  * @typedef {{pid: number, at: string, batch: string|null}} Heartbeat
  */
 
-/**
- * @param {string} root the canonical checkout's root
- */
+/** @param {string} root */
 function queueLanderFiles(root) {
 	const dir = markersDir(root);
 	return {
@@ -46,34 +30,25 @@ function queueLanderFiles(root) {
 	};
 }
 
-/** @param {string} root the canonical checkout's root */
+/** @param {string} root */
 const landerLock = (root) =>
 	pidLock(queueLanderFiles(root).pid, "queue-lander.js");
 
-/**
- * A file's text, or null where it does not exist; any other read fault
- * throws, so an unreadable green ledger never reads as holding no sha
- * (#4856).
- * @param {string} file
- */
+/** @param {string} file */
 function readTextOrNull(file) {
 	const r = readText(file);
 	if (r.state === "unreadable") throw r.error;
 	return r.state === "read" ? r.data : null;
 }
 
-/**
- * The shas a green ledger's text holds, in order.
- * @param {string} text
- */
+/** @param {string} text */
 const parseLedgerShas = (text) =>
 	text.split("\n").flatMap((line) => line.split(" ")[0] || []);
 
 /**
  * @param {string} file
  * @returns {Ledger & {readShas: () => string[], remove: (sha: string) => void,
- *   greenAt: (sha: string) => number|null}} with every sha it holds, `remove`
- *   rewriting it without `sha`'s lines, and `greenAt` when `sha` was added
+ *   greenAt: (sha: string) => number|null}}
  */
 function fileLedger(file) {
 	const readShas = () => parseLedgerShas(readTextOrNull(file) ?? "");
@@ -99,9 +74,6 @@ function fileLedger(file) {
 }
 
 /**
- * A beat naming no batch names the one last named, so a verdict's keepalive
- * never puts the sha it asks, a base or bisect step, in the batch's place:
- * the stall ticket's body reads it (#5360).
  * @param {string} file
  * @returns {(batch?: string|null) => void}
  */
@@ -118,8 +90,6 @@ function heartbeatWriter(file) {
 }
 
 /**
- * The heartbeat, or null where it is absent or not a heartbeat; any other
- * read fault throws.
  * @param {string} file
  * @returns {Heartbeat|null}
  */
@@ -132,8 +102,6 @@ function readHeartbeat(file) {
 			? beat
 			: null;
 	} catch {
-		/* Written whole by heartbeatWriter, so unparseable only by a hand
-		 * edit, which no run wrote (#2406). */
 		return null;
 	}
 }

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * private-group.js judges whether a group is the user's private one from the
- * user databases' text (#3676, #3715, #3716). write-secret.js lets a parent
- * directory that group can write pass on it, so a case judged private here
- * that is not lets another user swap the secrets store's directory.
- */
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
@@ -24,7 +18,6 @@ interface Db {
 	nsswitch?: string;
 	userdb?: Record<string, string[] | null>;
 }
-/** The databases as given, every userdb directory absent unless named. */
 const judge = ({
 	group = MY_GROUP,
 	passwd = MY_PASSWD,

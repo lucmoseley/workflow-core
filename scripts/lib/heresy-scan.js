@@ -1,12 +1,3 @@
-/*
- * heresy-scan.js — the whole-tree lexical heresy check's shell (#3555). A
- * finding is keyed by its site's text and occurrence number in the file, so
- * the key survives a line shift above it. A check brings only its site
- * patterns, its opt-out marker, its fix text and its okLine. A lexical check
- * with a walk or report of its own still lists its tree through
- * listTreeFiles and summarises its sites through saySites (#4123).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./host-root.js");
@@ -16,14 +7,11 @@ const { isJsTestFile } = require("./test-kind.js");
 /** @typedef {import("./check").Ctx} Ctx */
 
 const PROGRAM = /\.(?:c|m)?js$/;
-/* A `report-*` program: directly under scripts/, `[^/]+` keeping a
- * subdirectory's file out. */
 const REPORT_PROGRAM = /^scripts\/report-[^/]+$/;
 
 /**
  * @typedef {{ line: number, text: string }} Site
- * @typedef {{ source: string, code: string }} Program  the file's text, and
- *   that text with each comment blanked to spaces, its newlines kept
+ * @typedef {{ source: string, code: string }} Program
  * @typedef {{
  *   tag: string,
  *   sites: (program: Program, rel: string) => Site[],
@@ -35,9 +23,6 @@ const REPORT_PROGRAM = /^scripts\/report-[^/]+$/;
 const collapse = (line) => line.trim().replace(/\s+/g, " ");
 
 /**
- * Each code line `matches` picks, by its index among the blanked lines, but,
- * when `optOut` is given, one whose line or the line above carries it in the
- * raw text.
  * @param {Program} program
  * @param {(line: string, i: number, lines: string[]) => boolean} matches
  * @param {RegExp} [optOut]
@@ -57,7 +42,6 @@ function parseLineSites({ source, code }, matches, optOut) {
 }
 
 /**
- * Each match of the global `re` in the blanked code, its text collapsed.
  * @param {Program} program
  * @param {RegExp} re
  * @returns {Site[]}
@@ -70,13 +54,8 @@ function parseMatchSites({ code }, re) {
 }
 
 /**
- * Every file under each of `dirs`, as a path relative to `root` with `/`
- * separators: each dir's files sorted, the dirs in `dirs`' order. A
- * `node_modules` directory is never entered, and a symlink is never followed
- * or listed.
  * @param {string} root
- * @param {string[]} dirs  relative to `root`, `/`-separated; one that is
- *   missing holds none
+ * @param {string[]} dirs
  * @returns {string[]}
  */
 function listTreeFiles(root, dirs) {
@@ -99,8 +78,6 @@ function listTreeFiles(root, dirs) {
 }
 
 /**
- * Every non-test program under each of `dirs` that `include` takes, sorted
- * across them all.
  * @param {string} root
  * @param {string[]} dirs
  * @param {(rel: string) => boolean} include
@@ -111,8 +88,6 @@ const readPrograms = (root, dirs, include) =>
 		.sort();
 
 /**
- * Where there are findings, say their count, `phrase` and each site on one
- * line, then each of `fixes` on its own.
  * @param {Ctx} ctx
  * @param {string} phrase
  * @param {string[]} fixes
@@ -152,11 +127,6 @@ function failSites(ctx, rel, program, breaches) {
 }
 
 /**
- * The spec of one heresy check over `dirs` in the tree at `--root`, or the
- * host root, for lib/check.js's runCheck or checkInProcess.
- * `include` takes a repo-relative path; `skip` names the primitive's own home,
- * repo-relative. Where `summary` is given, any finding prints two
- * lines: the count, its `phrase` and each site, then its `fix`.
  * @param {{
  *   name: string,
  *   dirs?: string[],
@@ -188,8 +158,6 @@ function heresySpec({
 		},
 		run(/** @type {Ctx} */ ctx) {
 			const root = path.resolve(ctx.value("--root") ?? hostRoot());
-			/* A missing dir is zero programs, not SKIP: a SKIP on the HEAD side of
-			 * --against is BROKEN, which would refuse the first program ever added. */
 			const names = readPrograms(root, dirs, include);
 			for (const rel of names) {
 				if (skip.includes(rel)) continue;

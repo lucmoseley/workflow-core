@@ -1,11 +1,3 @@
-/*
- * overflow-actions.js — what the overflow view (lib/overflow-viewer.js, #4583)
- * does to a session's latest run: reply, resuming it headless with the reply as
- * its next turn on the same seat and key through lib/headless-sessions.js,
- * which hands the key to the child through the `apiKeyHelper` alone; and stop,
- * through lib/claude-stop.js, as the refill tick's does.
- */
-
 const { stopOn } = require("./claude-stop.js");
 const { launch } = require("./headless-sessions.js");
 const { hostRoot } = require("./host-root.js");
@@ -14,14 +6,10 @@ const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
 
 /** @typedef {import("./headless-runs.js").RunRecord} RunRecord */
 
-/* A reply's spend ceiling, as `--max-budget-usd`. Untraced. */
+// guess, #4583
 const REPLY_BUDGET_USD = 15;
 
 /**
- * The headroom for one more run on `run`'s seat, gated as the dispatcher gates
- * a launch (scripts/dispatch-sessions.js): nothing past it. A key the seat file
- * now gives another seat is refused, as that seat's config dir holds no record
- * of the session.
  * @param {RunRecord} run
  * @returns {{usd: number}|{why: string}}
  */
@@ -43,7 +31,6 @@ function readHeadroom(run) {
 }
 
 /**
- * Resume `run`'s session headless with `text` as its next turn.
  * @param {RunRecord} run
  * @param {string} text
  * @param {(run: RunRecord) => {usd: number}|{why: string}} [headroomOf]

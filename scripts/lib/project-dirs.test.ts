@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * project-dirs.test.ts — the seat listings every multi-seat scanner reads.
- * A module test: imports the lib and calls it against throwaway seat trees
- * under the system temp dir, never the real config dirs — those change under
- * every live session, and a case needs symlinked seats and duplicate sessions
- * the real ones may not hold.
- *
- * Break it and scanners miss a seat's sessions, count a symlinked seat or a
- * resumed session twice (#375, #382), or drop a seat without saying (#1054).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

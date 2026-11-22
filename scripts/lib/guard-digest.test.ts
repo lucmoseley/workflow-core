@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * guard-digest.js over fixture trees: a plain directory, read on disk, and a
- * git checkout, whose membership is the index and whose bytes are the disk's
- * (#4508). The digest is what the guard registry anchors a rule's prose to.
- *
- * tree-members.js reads each checkout's index once per process, so every
- * index a case changes is read through a tree no earlier call has seen.
- */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -39,7 +31,6 @@ function writeTree(root: string, files: Record<string, string>) {
 	}
 }
 
-/** A directory no checkout tops, read as it lies on disk. */
 function plainTree(files: Record<string, string>) {
 	const root = fresh("plain");
 	writeTree(root, files);
@@ -255,9 +246,6 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 });
 
 describe("a guard's closure in a git checkout: the index's members, the disk's bytes (#4508)", () => {
-	/* Every probe the closure makes: a hook-local lib shadowing the shared one,
-	 * a sibling shadowing a run target, a require of a lib not in the tree, and
-	 * a scripts/ path a gate stack's header names that no commit carries. */
 	const shadows = [
 		".husky/lib/gate.sh",
 		".husky/scripts/check-valid.js",

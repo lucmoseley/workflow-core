@@ -1,13 +1,6 @@
-/*
- * lib/landing-status.js's commitStates (#2407), on a fake git.
- *
- * Loosen it and a commit on the session's queue ref that reached main reads
- * as queued, or one on the queue ref reads as unpushed.
- */
 import { describe, expect, it } from "vitest";
 import { commitStates } from "./landing-status.js";
 
-/** `onQueue` is the session's queue ref. */
 const fakeGit = ({
 	onMain = [] as string[],
 	onQueue = [] as string[],

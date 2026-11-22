@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The priced-options guard's ceiling policy, driven from priced-options-limbs.js's
- * rows alone (#1474): each group below is a row's prefix with a stand-in
- * reason, so no limb's check runs.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -30,7 +25,6 @@ const group = (tier: Tier): Group => {
 	return { prefix: row.prefix, reasons: [`a ${tier} defect`] };
 };
 
-/* The ceiling counter standing at `spent`. */
 const at = (spent: number) => (max: number) => spent >= max;
 
 const plan = (tiers: Tier[], spent: number) =>
@@ -75,7 +69,6 @@ describe("the outside-ceiling tier", () => {
 	});
 });
 
-/* Points the marker root at a fresh directory, so blockOn's counters start at 0. */
 function useMarkerRoot() {
 	let root: string;
 	beforeEach(() => {
@@ -112,15 +105,12 @@ it("gives every row hook-block.js's default cap", () => {
 describe("the ceiling's notices (#2062)", () => {
 	useMarkerRoot();
 
-	/* Each notice opens on its own sentence, so a reason is known to carry it. */
 	const openers = [
 		"last Stop block of the session",
 		"will not refuse a turn for reply shape alone",
 		"session ceiling is spent: only the",
 	];
 
-	/* The row goes onto LIMBS itself because no caller hands blockOn its rows;
-	 * the fixture's prefix never blocks, so limbOf never looks it up. */
 	const reasonsWith = (row: object) => {
 		const out = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 		LIMBS.push(row);

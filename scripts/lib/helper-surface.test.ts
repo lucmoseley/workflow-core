@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * helper-surface.test.ts — every name the helper-surface manifest promises is
- * one its entry point actually provides (#460), the test fixtures on it
- * load in a plain node process outside the core (#462), and each listed
- * command still reads the argv the manifest promises (#655).
- *
- * The commands run as programs, end to end, since the argv and exit code a
- * real process sees are the contract. Their refusals assert status alone,
- * stderr wording being off the contract.
- *
- * The manifest is what adopters import and run against, so a loosened case
- * lets a release drop or reshape a promised helper or command line and break
- * an adopter's tests or hooks with nothing on this side going red.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -41,9 +27,6 @@ const manifest: {
 const entries = Object.entries(manifest.entryPoints);
 const ofKind = (ext: string) =>
 	entries.filter(([file]) => path.extname(file) === ext);
-// .ts only where vitest alone loads it (#552):
-// the release ships no other TypeScript, so the pre-commit gate harness joins
-// as a .js port (#462).
 const KINDS = [".js", ".sh", ".py", ".ts"];
 
 describe("the helper-surface manifest", () => {
@@ -102,8 +85,6 @@ describe("the helper-surface manifest", () => {
 		},
 	);
 
-	// Its own directory on sys.path, as an adopter's conftest puts it (#465):
-	// the Python helpers import their siblings by bare name.
 	it.each(ofKind(".py"))(
 		"%s defines every name listed once imported, naming any it lacks",
 		(file, names) => {
@@ -124,8 +105,6 @@ describe("the helper-surface manifest", () => {
 		},
 	);
 
-	// Loaded as an adopter's test would: plain node from outside the core, no
-	// TypeScript loader and no vitest, so a fixture needing either fails here.
 	it("serves the gate harness, in-process runner and test ceiling to plain node outside the core, printing its stderr on a failure", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-"));
 		try {
@@ -175,14 +154,6 @@ console.log(JSON.stringify({ ceiling: TEST_TIMEOUT_MS, ran: ran.stdout.trim(), c
 	});
 });
 
-/*
- * Each listed command run as an adopter spawns it: argv built from the
- * manifest's own positionals, in their listed order, and every listed flag
- * given and seen to take effect — so a flag the script stops reading, a
- * positional it reads from another place, or an exit code it stops giving
- * fails here, not merely a deleted file. register-doc.js ignores a flag it
- * does not read, so only its effect proves one is still read.
- */
 describe("the helper-surface commands", () => {
 	const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "hs-command-"));
 	const run = (
@@ -198,14 +169,12 @@ describe("the helper-surface commands", () => {
 				expect([...seen].sort()).toEqual(Object.keys(cmd.exit).sort()),
 		};
 	};
-	/** git in `cwd`, under a fixture identity. */
 	const gitIn =
 		(cwd: string) =>
 		(...args: string[]) =>
 			spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
 				cwd,
 			});
-	/** argv in the manifest's positional order, from values keyed by name. */
 	const argvOf = (cmd: Command, byName: Record<string, string>) =>
 		cmd.positionals.map((p) => byName[p.name]);
 
@@ -224,14 +193,6 @@ describe("the helper-surface commands", () => {
 		);
 	});
 
-	/*
-	 * In a scratch repo with a stand-in vitest, which records the argv
-	 * it was handed and exits with the code it is told to. Bare argv as well
-	 * as the listed flag: an adopter's `test` script passes nothing. Bare argv
-	 * is a touched run, which here selects nothing and exits 0 without
-	 * starting vitest. In-process, `main` alone: the entry point's refusals and load hold stay
-	 * out, as lib/cpu-sample.js asks of any test.
-	 */
 	it(
 		"scripts/run-vitest.js keeps --changed and its exit codes",
 		async () => {
@@ -255,7 +216,6 @@ describe("the helper-surface commands", () => {
 					"init",
 				);
 				const seen = path.join(dir, "argv.json");
-				/* Where run-vitest.js looks for vitest in the tree it runs in. */
 				const bin = path.join(dir, "node_modules", ".bin", "vitest");
 				fs.mkdirSync(path.dirname(bin), { recursive: true });
 				fs.writeFileSync(
@@ -294,12 +254,6 @@ describe("the helper-surface commands", () => {
 		TEST_TIMEOUT_MS,
 	);
 
-	/*
-	 * 5 is pytest's "no tests collected", standing for every failing code.
-	 * The listed flag runs the whole suite, and is never handed on. The
-	 * stand-in python plays no part of
-	 * pytest's own behaviour for a §G7 contract test to hold.
-	 */
 	it(
 		"scripts/run-pytest.js keeps --full and its exit codes",
 		async () => {
@@ -343,7 +297,6 @@ describe("the helper-surface commands", () => {
 				for (const code of [0, 1, 5]) {
 					const full = await launch(["--full"], code);
 					expect(full.slice(0, 2)).toEqual(["-m", "pytest"]);
-					// Read by the runner, never handed on: pytest refuses it.
 					expect(full).not.toContain("--full");
 				}
 				codes.expectListed(cmd);
@@ -354,13 +307,6 @@ describe("the helper-surface commands", () => {
 		TEST_TIMEOUT_MS,
 	);
 
-	/*
-	 * A stand-in `biome` on PATH records the argv it was handed and exits
-	 * with the code it is told to. With no stand-in on PATH, `biome` will not
-	 * start. On PATH, not a §N7 var: the manifest promises a PATH lookup, so
-	 * the lookup is the contract under test, and the stand-in plays no part
-	 * of Biome's own behaviour for a §G7 contract test to hold.
-	 */
 	it("scripts/biome-staged.js hands its argv to biome check, and keeps its exit codes", () => {
 		const cmd = manifest.commands["scripts/biome-staged.js"];
 		expect(cmd.positionals.map((p) => p.name)).toEqual(["biome-args"]);
@@ -377,7 +323,6 @@ describe("the helper-surface commands", () => {
 				`#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\nexit "$BIOME_EXIT"\n`,
 				{ mode: 0o755 },
 			);
-			// git and tar stay reachable; any real biome does not.
 			const noBiome = (process.env.PATH ?? "")
 				.split(path.delimiter)
 				.filter((d) => d && !fs.existsSync(path.join(d, "biome")));
@@ -467,7 +412,6 @@ describe("the helper-surface commands", () => {
 				codes.add(r.status);
 				return r;
 			};
-			// Not a repo yet, so git ls-files fails.
 			expect(list(dir).status).toBe(1);
 			spawnSync("git", ["init", "-q"], { cwd: dir });
 			fs.writeFileSync(path.join(dir, "a.sh"), "echo\n");
@@ -503,7 +447,6 @@ describe("the helper-surface commands", () => {
 				],
 				{ cwd: dir },
 			);
-			// Untracked, so new against the HEAD base a repo with no origin/main takes.
 			fs.writeFileSync(path.join(dir, "a.test.js"), "\n");
 			const codes = exitCodes();
 			const report = (body: string) => {
@@ -560,7 +503,6 @@ describe("the helper-surface commands", () => {
 				"vitest",
 			])
 				put(`node_modules/${p}/package.json`, "{}\n");
-			// A stand-in Stryker writing an empty report and cache.
 			const stub = path.join(dir, "stryker.js");
 			fs.writeFileSync(
 				stub,
@@ -621,7 +563,6 @@ import(pathToFileURL(process.argv[3]).href).then(({ default: c }) => {
 				return abs;
 			};
 			const consumes = [{ kind: "path", ref: "docs/old.md", gloss: "g" }];
-			/* A value for exactly the listed flags; a mismatch fails the test. */
 			const given: Record<string, string | null> = {
 				"--class": "derived",
 				"--section": "New",

@@ -1,7 +1,3 @@
-/*
- * The refill loop's state as its one reader parses it (#4232): `raw` written
- * to a state file of its own and read back through readState.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

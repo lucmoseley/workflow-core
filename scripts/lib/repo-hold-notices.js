@@ -1,35 +1,3 @@
-/*
- * repo-hold-notices.js — a repo hold's phone notice (#3871, spec #3597). The hold and
- * its notice state are lib/repo-holds.js's; lib/refill-tick.js runs tendHoldNotices
- * each tick.
- *
- * It goes out when a `probe` hold exists, or any hold is open while no slot has worked
- * for NOTICE_NO_WORK_MS: one `gh workflow run` on `founderNotice`'s workflow on the
- * raise, and one on the clear only where a raise went. The founder holds this to one
- * page a cause (#3871's comment of 3 Nov). A no-progress pause joins it by his ruling
- * (#4200): lib/pause-notices.js sends its pair through tendPhase.
- *
- * SENT MEANS THE BOT'S COMMENT SEEN ON THE ISSUE: an accepted dispatch can still lose
- * its run. A comment unseen for
- * NOTICE_UNSEEN_MS, with no run of the workflow in flight, earns one more dispatch,
- * then the phase reads lost. Each dispatch is recorded before it runs, so a store that
- * will not write sends nothing rather than a page each tick. A refusal rolls that back
- * for the next tick's retry, save a `gh` that started and never exited: it may have
- * been taken, so it waits on the comment like any other.
- *
- * RESIDUAL: a `gh` exiting non-zero after GitHub took the dispatch retries as refused,
- * and a run that starts between the last read and a second dispatch is not seen; each
- * can page twice.
- *
- * RESIDUAL: a checkout whose config sets no `founderNotice` sends nothing, and here
- * only workflow-core sets it.
- *
- * A PROBE HOLD THAT LIFTS AND COMES BACK is a new hold, as is one raised over a torn
- * record, so the checkout keeps when its probe hold last paged, and a new one's raise
- * waits out PROBE_COOL_DOWN_MS from that page before it goes, if the hold still
- * stands (#4148).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -57,55 +25,41 @@ const { readConfig } = require("./workflow-core-config.js");
  * @typedef {import("./repo-holds.js").LiftedHold} LiftedHold
  * @typedef {import("./repo-holds.js").Log} Log
  * @typedef {"raise"|"clear"} NoticeName
- *
- * @typedef {object} NoticeCause  what a notice is about: a hold, or a pause
- * @property {string} name  how the log names it
- * @property {string} ref  its name with its place, for a dispatch's log line
- * @property {number} issue  the issue to comment on
- * @property {(phase: NoticeName) => string} marker  identifies its comment
- * @property {(phase: NoticeName) => string} message  the comment, marker included
- *
+ * @typedef {object} NoticeCause
+ * @property {string} name
+ * @property {string} ref
+ * @property {number} issue
+ * @property {(phase: NoticeName) => string} marker
+ * @property {(phase: NoticeName) => string} message
  * @typedef {object} NoticeStep
  * @property {NoticeCause} cause
  * @property {NoticeName} phase
- * @property {string} file  the cause's notice file
+ * @property {string} file
  * @property {import("./workflow-core-config.js").FounderNotice} config
- * @property {{file: string, raisedAt: number}|null} paged  a probe hold's
- *   checkout's buildProbePagedFile, with the hold's raise
+ * @property {{file: string, raisedAt: number}|null} paged
  * @property {number} now
  * @property {Log} log
- *
- * @typedef {{raisedAt: number|null, at: number}} ProbePage  the hold that paged,
- *   null where unknown
+ * @typedef {{raisedAt: number|null, at: number}} ProbePage
  */
 
-/* From spec #3597, which marks it untraced. */
+// guess, #3597
 const NOTICE_NO_WORK_MS = 30 * 60_000;
 
-/* A guess: the test runs on #3869 commented within 10 s of their dispatch, so this
- * is a run lost or badly late. */
+// guess, #3869
 const NOTICE_UNSEEN_MS = 15 * 60_000;
 
-/* A guess: the loop's own run window, past which a `gh` that still will not read
- * (a deleted issue, say) is no outage, and a lifted record must not wait on it. */
+// guess, #3871
 const NOTICE_GIVE_UP_MS = 24 * 60 * 60_000;
 
-/* Under the shortest gap between two outages in the loop's log, about 7 h (#4148);
- * where it sits under the gap is a guess. */
+// guess, #4148
 const PROBE_COOL_DOWN_MS = 6 * 60 * 60_000;
 
-/* The founder's limit is one page a cause, so one more try and no further. */
+// guess, #3871
 const NOTICE_MAX_TRIES = 2;
 
-/* A zero-width space after the `@`, which GitHub then reads as no mention. */
 const BROKEN_MENTION = "@​";
 
 /**
- * When a slot last worked, kept for the next tick; null where nothing read, as that
- * says nothing either way. A paused loop's slots are quiet by intent, and a loop that
- * has not ticked for the window has not seen them go quiet, so each starts the count
- * again. A store that will not read or write reads as working now, so a fault pages
- * nobody.
  * @param {{agents: {state?: string, kind?: string}[]|null, isPaused: boolean}} seen
  * @param {number} now
  * @param {Log} log
@@ -130,8 +84,6 @@ function tendLastWorked({ agents, isPaused }, now, log) {
 }
 
 /**
- * The stored time a slot last worked, or null where there is none to trust. A torn
- * record, logged, begins the count anew, the caller's write mending it.
  * @param {string} file
  * @param {number} now
  * @param {Log} log
@@ -153,17 +105,11 @@ function readLastWorked(file, now, log) {
 	}
 }
 
-/**
- * The checkout's notice configuration, or null where it is unset. The reader warns
- * of a malformed value, which reads as unset.
- * @param {string} root
- */
+/** @param {string} root */
 const readNoticeConfig = (root) =>
 	readConfig({ root, quiet: true }).founderNotice ?? null;
 
 /**
- * What identifies this hold's notice among the issue's comments. `raisedAt`, as a
- * probe hold's fixed id comes back on the same issue.
  * @param {RepoHold} hold
  * @param {NoticeName} phase
  */
@@ -171,8 +117,6 @@ const buildNoticeMarker = (hold, phase) =>
 	`repo-hold-notice ${hold.id} ${hold.raisedAt} ${phase}`;
 
 /**
- * What the phone shows, with the marker out of sight. A mention in the text would
- * page whoever it names, so it is broken.
  * @param {string} text
  * @param {string} marker
  */
@@ -181,7 +125,7 @@ const buildNoticeBody = (text, marker) =>
 
 /**
  * @param {RepoHold} hold
- * @param {number} issue  its issue, which stands once a raise is due
+ * @param {number} issue
  * @returns {NoticeCause}
  */
 function buildHoldCause(hold, issue) {
@@ -203,9 +147,6 @@ function buildHoldCause(hold, issue) {
 }
 
 /**
- * The checkout's last probe page, or null where there is none. A torn record, logged,
- * reads as none, as a hold that stops launches unannounced for the window is the
- * worse fault (#4148).
  * @param {string} file
  * @param {Log} log
  * @returns {ProbePage|null}
@@ -227,7 +168,6 @@ function readProbePage(file, log) {
 }
 
 /**
- * Record a probe page, or remove the record where `page` is null.
  * @param {string} file
  * @param {ProbePage|null} page
  */
@@ -238,7 +178,7 @@ const writeProbePage = (file, page) =>
 
 /**
  * @param {RepoHold} hold
- * @param {string} root  its store's
+ * @param {string} root
  * @returns {NoticeStep["paged"]}
  */
 const findPaged = (hold, root) =>
@@ -247,10 +187,8 @@ const findPaged = (hold, root) =>
 		: null;
 
 /**
- * Whether this probe hold's raise waits out the cool-down: another hold of the
- * checkout paged inside it.
  * @param {RepoHold} hold
- * @param {string} file  buildProbePagedFile's
+ * @param {string} file
  * @param {number} now
  * @param {Log} log
  */
@@ -264,11 +202,9 @@ function isProbeCoolingDown(hold, file, now, log) {
 }
 
 /**
- * Dispatch this phase's notice, recorded first, with a probe hold's page; a refusal
- * takes both back.
  * @param {NoticeStep} step
- * @param {HoldNotice} notice  as it stands
- * @param {number} tries  including this one
+ * @param {HoldNotice} notice
+ * @param {number} tries
  */
 function dispatchNotice(
 	{ cause, phase, file, config, paged, now, log },
@@ -302,8 +238,6 @@ function dispatchNotice(
 		);
 		log(`${ref} dispatched on #${cause.issue}, try ${tries}`);
 	} catch (e) {
-		/* Only a child's error, which carries no status, is a gh cut off; anything
-		 * else thrown, a null included, came before any spawn (#4192). */
 		if (!(e instanceof Error) || caught(e).status !== undefined) {
 			writeNotice(file, notice);
 			if (paged !== null) writeProbePage(paged.file, lastPage);
@@ -314,8 +248,6 @@ function dispatchNotice(
 }
 
 /**
- * Whether the issue carries this phase's comment; null, logged, where it will not
- * read, for the next tick to read again.
  * @param {NoticeStep} step
  * @returns {boolean|null}
  */
@@ -343,11 +275,7 @@ function readNoticeSeen({ cause, phase, config, log }) {
 	}
 }
 
-/**
- * Whether a run of the notice workflow is queued or going, so that a late comment
- * may yet land; true where that will not read, as a second page is the worse fault.
- * @param {NoticeStep} step
- */
+/** @param {NoticeStep} step */
 function isNoticeRunInFlight({ cause, phase, config, log }) {
 	try {
 		const runs = /** @type {{status: string}[]} */ (
@@ -373,7 +301,6 @@ function isNoticeRunInFlight({ cause, phase, config, log }) {
 }
 
 /**
- * Close this phase with `outcome`, logged.
  * @param {NoticeStep} step
  * @param {NoticePhase} sent
  * @param {"seen"|"lost"} outcome
@@ -384,10 +311,7 @@ function settlePhase({ cause, phase, file, log }, sent, outcome, line) {
 	log(`${cause.name}: ${phase} notice ${outcome}${line}`);
 }
 
-/**
- * One phase's next act: its first dispatch, else its check on the last.
- * @param {NoticeStep} step
- */
+/** @param {NoticeStep} step */
 function tendPhase(step) {
 	const { cause, file, phase, now } = step;
 	const notice = readNotice(file);
@@ -416,14 +340,11 @@ function tendPhase(step) {
 		);
 		return;
 	}
-	/* Read again, as a run that finished after the read above reads as not in flight. */
 	if (!isNoticeRunInFlight(step) && readNoticeSeen(step) === false)
 		dispatchNotice(step, notice, sent.tries + 1);
 }
 
 /**
- * Log, once a hold, that its notice is off. A clear with nowhere to go is done, or
- * its record would wait on configuration for good.
  * @param {RepoHold} hold
  * @param {NoticeName} phase
  * @param {{file: string, now: number, log: Log}} at
@@ -444,10 +365,8 @@ function noteNoticeUnset(hold, phase, { file, now, log }) {
 }
 
 /**
- * An open hold's raise notice. An issue must stand first: a probe hold whose filing
- * has yet to land retries with it.
  * @param {RepoHold} hold
- * @param {string} root  its store's
+ * @param {string} root
  * @param {{workedAt: number|null, now: number, log: Log}} tick
  */
 function tendRaise(hold, root, { workedAt, now, log }) {
@@ -489,8 +408,6 @@ const giveUpClear = (file, now) =>
 	});
 
 /**
- * A lifted hold's clear notice, where one is owed. A record torn since cannot name
- * its issue, so its clear is given up, logged.
  * @param {LiftedHold} lifted
  * @param {{now: number, log: Log}} tick
  */
@@ -525,9 +442,6 @@ function tendClear(lifted, { now, log }) {
 }
 
 /**
- * One tick's phone notices, off the holds as tendHolds left them, so a clear goes the
- * tick its hold lifts. Any throw is logged and costs that hold alone its tick, never
- * the launches.
  * @param {string[]} roots
  * @param {Parameters<typeof tendLastWorked>[0]} seen
  * @param {number} now

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The equivalence contract for `.husky/post-commit`'s programs (#5208, spec
- * #5207 seam 3): each program the hook's steps run, run in-process through
- * its PROGRAM export or, for the two `--touched-by` checkers, lib/check.js's
- * checkInProcess(), gives the same exit code, stdout and stderr as the same
- * program spawned as `node <script> <args>` over the same fixture.
- *
- * Breaking it costs the licence for the post-commit dispatcher's rows: a
- * program whose in-process run drifts from its spawned one says, or keeps
- * silent, differently after a commit.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -60,7 +49,6 @@ const commit = (repo: string, rel: string, body: string, message = rel) => {
 	return git(repo, "rev-parse", "HEAD");
 };
 
-/** The sandbox repo with one seed commit. */
 const seeded = () => {
 	gitRepo(sb);
 	write(sb.repo, "docs/notes.md", "seed\n");
@@ -86,7 +74,6 @@ const spawnedNode = (
 	return { exit: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
-/** A PROGRAM export's run, as the dispatcher makes it. */
 const program = (script: string, args: string[], cwd: string, env: Env) =>
 	load(path.join(SCRIPTS, script)).PROGRAM({ cwd, env, args }) as Run;
 
@@ -95,7 +82,6 @@ const bothWays = (script: string, args: string[], cwd: string, env: Env) => ({
 	spawned: spawnedNode(path.join(SCRIPTS, script), args, cwd, env),
 });
 
-/** A stub whole-repo checker printing `<root>/envelope.json`, else none. */
 const stubChecker = () => {
 	const file = path.join(sb.dir, "stub-checker.js");
 	fs.writeFileSync(

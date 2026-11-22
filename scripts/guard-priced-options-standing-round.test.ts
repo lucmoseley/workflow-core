@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The no-round limb's pointer (#924): a background job's `needs input:` that
- * names a round still standing in the transcript closes without re-printing
- * it. Every case runs the Stop hook in process, as a background job unless it
- * says otherwise, so each also proves `judge` hands the limb the transcript.
- *
- * The missing-marker refusal's two shapes (#1018) are fed back from its live
- * text, so a reworded refusal that no longer passes fails here.
- *
- * The testkit redirects `CLAUDE_CONFIG_DIR` into the temp directory, so the
- * fail-open log lands there, not in this repo's arbiter state.
- *
- * The guard runs at every `Stop` (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`): break the pointer and a job must re-print a round the
- * founder already has, or closes pointing at one that is not there.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -51,7 +35,6 @@ afterEach(() => {
 const write = (...lines: string[]) => writeTranscript(file, ...lines);
 
 const sid = () => `standing-round-${Math.random().toString(36).slice(2)}`;
-/** The guard's refusal of `message` as a turn's last, or "" where it allows. */
 const stop = (
 	message: string,
 	{
@@ -184,8 +167,6 @@ describe("its fail mode", () => {
 	});
 
 	it("reads the conventional transcript where the payload names none", () => {
-		/* The harness's own path for this session under the redirected config
-		 * directory, keyed on the cwd the hook runs in. */
 		const id = sid();
 		const slug = projectSlug(fs.realpathSync(dir));
 		const conventional = path.join(config, "projects", slug, `${id}.jsonl`);
@@ -237,7 +218,6 @@ describe("the missing-marker refusal teaches both passing shapes (#1018)", () =>
 			.replace(/<[^>]+>/, "which schedule");
 		write(
 			founder("go"),
-			/* so the under-researched-round limb (#1710) passes the round */
 			...researchCalls().map((call) => JSON.stringify(call)),
 			assistant(bare),
 			stopFeedback(),

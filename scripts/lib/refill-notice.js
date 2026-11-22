@@ -1,15 +1,4 @@
-/*
- * refill-notice.js — what `refill-loop.js` refuses or warns of, and what the
- * panel says of a press, as data (#3968,
- * spec #3596): its reason, its remedy and the repo box at fault held apart, so the
- * panel reads `set --json` rather than the prose. Joins no §N3 family: it gates
- * nothing and is no hook.
- */
-
-/**
- * @typedef {{reason: string, remedy: string|null, box: string|null}} Notice
- *   `box`, the directory name of the checkout whose tick box is at fault
- */
+/** @typedef {{reason: string, remedy: string|null, box: string|null}} Notice */
 
 /**
  * @param {string} reason
@@ -30,7 +19,7 @@ const buildNotice = (reason, remedy = null, box = null) => ({
 const isNotice = (value) =>
 	typeof value === "object" && value !== null && "reason" in value;
 
-/** @param {Pick<Notice, "reason"|"remedy">} refusal the words on one line */
+/** @param {Pick<Notice, "reason"|"remedy">} refusal */
 const buildNoticeText = ({ reason, remedy }) =>
 	remedy === null ? reason : `${reason}; ${remedy}`;
 

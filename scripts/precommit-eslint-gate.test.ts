@@ -128,6 +128,15 @@ describe("the pre-commit ESLint gate", () => {
 		},
 	);
 
+	it("hands ESLint a staged path holding a space as one argument (#5542)", () => {
+		const spaced = "scripts/two words.js";
+		const repo = fixture({
+			staged: { [spaced]: "export const a = 1;\n" },
+			eslintExit: 0,
+		});
+		expect(runGate(repo).args).toContain(spaced);
+	});
+
 	it("fails the commit when ESLint exits non-zero", () => {
 		const repo = fixture({
 			staged: { [INSIDE]: "export default function P() { return null; }\n" },

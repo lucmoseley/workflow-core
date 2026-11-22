@@ -1,17 +1,3 @@
-/*
- * issue-tree.js — an issue's parent in its own repository, its sub-issues in
- * every repository (#778), and the title that marks an archive container.
- *
- * `parent_issue_url` carries the parent's repo, and a number alone collides
- * across repos: a local child of design-vault#17 is not a child of this
- * repo's #17. A parent in another repo is therefore null, never a local
- * number. The converse — a local issue's children filed elsewhere — is
- * visible only on its own `/sub_issues`, never on this repo's issue list.
- *
- * Residual: a row missing `repository_url` counts its parent as this repo's,
- * as check-issue-cycles.js does. GitHub's REST issue rows always carry it.
- */
-
 const { gh, ghApiSlurp } = require("./gh");
 
 /**
@@ -30,10 +16,8 @@ function localParentOf(iss) {
 }
 
 /**
- * Every sub-issue of `n` in `repo`, closed ones and other repos' included,
- * across every page — the endpoint defaults to 30. Throws as lib/gh.js does.
  * @param {number} n
- * @param {string} [repo] owner/name, gh's default repo where omitted
+ * @param {string} [repo]
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  * @param {import("./gh.js").GhRun} [run]
  * @returns {any[]}
@@ -41,9 +25,7 @@ function localParentOf(iss) {
 const readSubIssues = (n, repo = "{owner}/{repo}", opts = {}, run = gh) =>
 	ghApiSlurp([`repos/${repo}/issues/${n}/sub_issues`], opts, run);
 
-/** The title that marks `map`'s archival container, which holds no work of its
- *  own: scripts/archive-closed-children.js finds it by this, never by a label.
- *  @param {number} map */
+/** @param {number} map */
 const buildArchiveContainerTitle = (map) =>
 	`Archive: closed children of #${map}`;
 

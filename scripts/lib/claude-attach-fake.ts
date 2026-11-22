@@ -1,11 +1,3 @@
-/*
- * The fake of `claude attach <job>`, which the refill loop types its resume
- * into through pty_type.py (#2354 F6): held to the installed harness's
- * recorded exits (scripts/fixtures/claude-attach.json, re-recorded by
- * `node scripts/record-claude-responses.js`) by
- * lib/claude-attach.contract.test.ts (#3014).
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
@@ -22,14 +14,6 @@ export const recorded: {
 	),
 );
 
-/**
- * The `attach` branch of a bash `claude` stub, logging to `log`. The typed
- * line is taken at once, which the contract does not hold: the loop's
- * timeline check catches a line the harness never takes. The bracketed-paste
- * frame pty_type.py sends is taken off, as the harness's input box does. Off
- * a terminal the fake exits 0, as the recording does, so the tests'
- * `typed <prompt>` log assertions are the check on an attach with no pty.
- */
 export function buildAttachBranch(log: string) {
 	const to = shellQuote(log);
 	return `if [ "$1" = "attach" ]; then

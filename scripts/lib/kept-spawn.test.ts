@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * kept-spawn.js hands back child_process's own spawners for a listed reason,
- * and throws on any other (#5483). Loosen it and a JavaScript test spawns node under a
- * reason check-test-spawn.js never listed.
- */
 
 import childProcess from "node:child_process";
 import { describe, expect, it } from "vitest";

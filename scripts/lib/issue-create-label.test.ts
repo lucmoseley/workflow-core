@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * lib/issue-create-label.js, the guard-issue-create-label core (#2796), in
- * process: it refuses a `gh issue create` that carries no `--label
- * takes:<value>`, and one whose value is outside the closed seven
- * (mantahostels#470, the build; mantahostels#453, the ruling).
- *
- * A deny is only defensible while it cannot wedge sanctioned work, so every
- * allow-case below is a shape that would otherwise be a false positive — a
- * create that already carries the label in one of gh's several spellings, a
- * command that merely mentions `gh issue create`, any other gh subcommand. Do
- * not thin them out.
- *
- * The shared gh fake (§G7) answers the edit route's body fetch
- * (mantahostels#3555) and the second-map limb's map list (#717), from the
- * fixtures gh.contract.test.ts holds to the real gh; every other verdict is
- * read off the command alone.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -69,9 +52,6 @@ let elsewhere: string;
 let faults: string[];
 let calls: string[];
 
-/** What gh answers this run's calls. `body` is every `gh issue view`'s,
- *  `bodies` one number's; `maps` the open-map listing, JSON or raw text;
- *  `fail` a gh that answers not-found, `absent` one that cannot be started. */
 interface Gh {
 	body?: string;
 	bodies?: Record<string, string>;
@@ -122,10 +102,8 @@ const run = (
 		}),
 	);
 
-/* The line every passing takes:human body carries (#983). */
 const CLOSE = "\n**Close when:** the founder confirms it is done";
 const DELIVERABLE = readRuleText("founder-deliverable");
-/* The template's path follows the pointer, resolved per install (#1248). */
 const pointer = (cmd: string) =>
 	`${DELIVERABLE_POINTER_LEAD} ${cmd} founder-deliverable`;
 const POINTER = pointer("scripts/lib/rule-text.sh");
@@ -145,17 +123,10 @@ const verdict = (command: string, cwd = shared, setup: Gh = {}) => {
 	const d = run(command, cwd, setup);
 	if (!d) return "allow";
 	if ("deny" in d) return "deny";
-	// A takes:human that passes is let through carrying a pointer to the
-	// founder-deliverable rule (#983) — an allow, where the pointer is all of it.
 	if (d.prelude === POINTER) return "allow";
-	// The third tier (mantahostels#519): the command is let through, with
-	// prose attached. It is neither a deny nor the silence an allow means, so a
-	// test asserting "allow" must not pass on one.
 	return "warn";
 };
 
-/** The refusal `command` earns, as the session reads it. Throws on an allow. */
-/** A REST create carrying a valid label, waiting for its body field. */
 const REST_CREATE =
 	"gh api --method POST repos/o/r/issues -f title=x -f 'labels[]=takes:implement'";
 
@@ -165,9 +136,6 @@ const readDenyReason = (command: string, setup: Gh = {}) => {
 	return d.deny;
 };
 
-/* The two framing lines this guard's refusals open with (mantahostels#2145). Both splice
- * the same rule fragment and the same seven values underneath, so only these
- * tell a missing-label refusal from a bad-value one. */
 const MISSING = "This creates an issue with no `takes:` label";
 const INVALID =
 	"This creates an issue with a `takes:` label that does not exist";
@@ -225,8 +193,6 @@ describe("the creates it denies", () => {
 	});
 
 	it("denies a takes: value outside the seven", () => {
-		// The typo case mantahostels#470 exists for: a label gh does not know aborts the whole
-		// create and still exits 0, so this looks like success and files nothing.
 		for (const call of [
 			"gh issue create --label takes:implememt",
 			"gh issue create --label takes:research",
@@ -238,10 +204,6 @@ describe("the creates it denies", () => {
 	});
 
 	it("denies a bad value even where a good one is spelled first", () => {
-		// gh aborts on ANY label it does not know, so one valid value alongside a
-		// typo still files nothing at exit 0 — the failure this guard exists to
-		// make impossible. A scan that stopped at the first valid value would
-		// wave it through.
 		const call =
 			"gh issue create --label takes:implement --label takes:implememt";
 		expect(verdict(call)).toBe("deny");
@@ -258,8 +220,6 @@ describe("the creates it denies", () => {
 		}
 	});
 
-	/* #5012: each run ghWords reads is judged as the bare call is, and a
-	 * `-c` string's is shown on its own words. */
 	it.each([
 		["timeout 5 ", "", "timeout 5 gh issue create"],
 		["env ", "", "env gh issue create"],
@@ -354,10 +314,6 @@ describe("the creates it allows", () => {
 	});
 
 	it("allows a comma-separated list carrying the value", () => {
-		// gh takes `--label a,b`, so a guard reading the whole word as one label
-		// would deny a create that is in fact labelled correctly. The value is
-		// deliberately not takes:human, whose own limb (mantahostels#2775) would then decide
-		// this — leaving the comma-splitting this test exists for unasserted.
 		expect(
 			verdict('gh issue create --title "x" --label "kind:ticket,takes:triage"'),
 		).toBe("allow");
@@ -368,14 +324,10 @@ describe("the creates it allows", () => {
 		expect(verdict("gh issue view 12")).toBe("allow");
 		expect(verdict("gh pr create --title x")).toBe("allow");
 		expect(verdict("npm run test")).toBe("allow");
-		// Another program that happens to take the same subcommand pair. Only `gh`
-		// files a GitHub issue, so only `gh` is judged.
 		expect(verdict("./bin/tracker issue create --title x")).toBe("allow");
 	});
 
 	it("says nothing about a command that merely mentions the string", () => {
-		// The PostToolUse hook's known residual (mantahostels#453): a substring match fires on
-		// a command that only quotes the words. This one matches command position.
 		expect(verdict('grep -rn "gh issue create" scripts/')).toBe("allow");
 		expect(verdict('echo "run gh issue create next"')).toBe("allow");
 	});
@@ -396,8 +348,6 @@ describe("the creates it allows", () => {
 	});
 });
 
-/* Each shape is asserted both ways: labelled it passes, unlabelled or misspelt
- * it is still refused. */
 describe("the command shapes the parser once lost the label in (#490)", () => {
 	const buildHeredocCommand = (label: string) =>
 		`gh issue create --title "burn mode's off" ${label} --body "$(cat <<'EOF'\nPlain body.\nEOF\n)"`;
@@ -466,18 +416,14 @@ describe("the command shapes the parser once lost the label in (#490)", () => {
 });
 
 describe("the api spelling of a creation", () => {
-	// The one Bash route the flag-form deny still missed (mantahostels#511): `gh api --method
-	// POST …/issues` files an issue exactly as `gh issue create` does.
 	it("reads the method and endpoint past gh's other spellings (#2796)", () => {
 		const fields = "repos/o/r/issues -f title=x -f body=y";
 		for (const call of [
 			`gh api --method post ${fields}`,
-			// A value flag's value is not the endpoint.
 			`gh api --jq .number ${fields}`,
 		]) {
 			expect(verdict(call)).toBe("deny");
 		}
-		// gh POSTs where the payload comes off --input, which it cannot read.
 		expect(verdict("gh api repos/o/r/issues --input payload.json")).toBe(
 			"allow",
 		);
@@ -486,7 +432,6 @@ describe("the api spelling of a creation", () => {
 		]);
 		for (const call of [
 			`gh api -X GET ${fields}`,
-			// -i takes no value, so the X after it is the method's own flag.
 			`gh api -iX GET ${fields}`,
 		]) {
 			expect(verdict(call)).toBe("allow");
@@ -526,9 +471,6 @@ describe("the api spelling of a creation", () => {
 		expect(readDenyReason(call)).toContain(INVALID);
 	});
 
-	// The `gh api` parser is shared with the guard-issue-body core: an `=`-joined or
-	// -i-bundled method reaches the endpoint test, and an `=`-joined field is not
-	// misread as a nameless one.
 	it("denies a POST whose method is joined by an =, or bundled behind -i", () => {
 		for (const call of [
 			"gh api -X=POST repos/o/r/issues -f title=x",
@@ -553,7 +495,6 @@ describe("the api spelling of a creation", () => {
 	});
 
 	it("denies a POST gh infers from the fields, with no --method at all", () => {
-		// gh's own default: POST where any field was passed, GET otherwise.
 		expect(verdict("gh api repos/o/r/issues -f title=x")).toBe("deny");
 		expect(readDenyReason("gh api repos/o/r/issues -f title=x")).toContain(
 			MISSING,
@@ -561,9 +502,6 @@ describe("the api spelling of a creation", () => {
 	});
 
 	it("denies the endpoint's other spellings, and past a leading flag", () => {
-		// exempt (mantahostels#2145): no `takes:` label is spelled, so the bad-value refusal
-		// cannot fire; the missing-label text is pinned by "denies a create carrying
-		// no labels at all".
 		expect(
 			verdict(
 				"gh api --method POST https://api.github.com/repos/o/r/issues -f title=x",
@@ -577,9 +515,6 @@ describe("the api spelling of a creation", () => {
 	});
 
 	it("denies past ordinary quoting of the method and the endpoint", () => {
-		// The splitter blanks a quoted span, so a guard judging the blanked word
-		// would let a pair of quotes walk the creation past the deny.
-		// exempt (mantahostels#2145): no `takes:` label spelled; missing-label text pinned by "denies a create carrying no labels at all".
 		expect(verdict('gh api --method POST "repos/o/r/issues" -f title=x')).toBe(
 			"deny",
 		);
@@ -590,18 +525,12 @@ describe("the api spelling of a creation", () => {
 	});
 
 	it("denies a creation whose title is in a variable, and says nothing of it", () => {
-		// The FIELD NAME is what the guard reads, so one unexpanded value neither
-		// disarms the deny nor manufactures a fail-open record on a creation
-		// labelled correctly.
-		// exempt (mantahostels#2145): no `takes:` label spelled; missing-label text pinned by "denies a create carrying no labels at all".
 		expect(verdict('gh api --method POST repos/o/r/issues -f title="$T"')).toBe(
 			"deny",
 		);
 	});
 
 	it("allows a labelled creation whose other fields are in variables", () => {
-		// Not takes:human: an unreadable body IS a recorded fail-open under the
-		// mantahostels#2775 limb, which would mask the silence this test asserts.
 		expect(
 			verdict(
 				'gh api --method POST repos/o/r/issues -f title="$T" -f body="$BODY" -f \'labels[]=takes:triage\'',
@@ -627,12 +556,10 @@ describe("the api spelling of a creation", () => {
 
 	it("says nothing about a call that files no issue", () => {
 		for (const call of [
-			// Listing the collection, which is what an unmethoded, fieldless call is.
 			"gh api repos/o/r/issues",
 			"gh api --method GET repos/o/r/issues -f state=open",
 			"gh api --method POST repos/o/r/issues/12/comments -f body=x",
 			"gh api --method POST repos/o/r/issues/132/dependencies/blocked_by -F issue_id=1",
-			// Editing an issue that already exists is the guard-issue-body core's business.
 			"gh api --method PATCH repos/o/r/issues/12 -f state=closed",
 			"gh api --method POST repos/o/r/labels -f name=bug",
 		]) {
@@ -641,10 +568,6 @@ describe("the api spelling of a creation", () => {
 		expect(readFaults()).toEqual([]);
 	});
 
-	// mantahostels#103's fail-open side: the hidden text may carry the right label, so the
-	// guard records that it judged nothing rather than guessing either way. One
-	// case per assertion, because a shape allowed in SILENCE is the failure being
-	// checked for.
 	it.each([
 		["gh api --method POST repos/o/r/issues --input payload.json", "--input"],
 		[
@@ -665,28 +588,22 @@ describe("the api spelling of a creation", () => {
 });
 
 describe("the graphql spelling of a creation (mantahostels#519)", () => {
-	// The last Bash route that files an issue: `gh api graphql` carrying a
-	// `createIssue` mutation. GraphQL takes label NODE IDS, not names, so where
-	// labels are present the guard cannot tell whether any is a `takes:` value.
 	const mutation = (args: string) =>
 		`gh api graphql -f query='mutation{createIssue(input:{${args}}){issue{number}}}'`;
 
 	it("denies a createIssue carrying no labelIds at all", () => {
-		// exempt (mantahostels#2145): no `takes:` label spelled; missing-label text pinned by "denies a create carrying no labels at all".
 		expect(verdict(mutation('repositoryId:"R_x",title:"A thing"'))).toBe(
 			"deny",
 		);
 	});
 
 	it("denies an empty labelIds list, which applies no label either", () => {
-		// exempt (mantahostels#2145): no `takes:` label spelled; missing-label text pinned by "denies a create carrying no labels at all".
 		expect(verdict(mutation('repositoryId:"R_x",title:"t",labelIds:[]'))).toBe(
 			"deny",
 		);
 	});
 
 	it("denies past whitespace, GraphQL ignoring it", () => {
-		// exempt (mantahostels#2145): no `takes:` label spelled; missing-label text pinned by "denies a create carrying no labels at all".
 		expect(
 			verdict(
 				'gh api graphql -f query=\'mutation { createIssue ( input: {repositoryId: "R_x", title: "t"} ) { issue { number } } }\'',
@@ -702,15 +619,11 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 			`gh api https://api.github.com/graphql -f query='mutation{createIssue(input:{title:"t"}){issue{id}}}'`,
 			`npm run check && gh api graphql -f query='mutation{createIssue(input:{title:"t"}){issue{id}}}'`,
 		]) {
-			// exempt (mantahostels#2145): no `takes:` label spelled; missing-label text pinned by "denies a create carrying no labels at all".
 			expect(verdict(call)).toBe("deny");
 		}
 	});
 
 	it("denies a creation whose other input fields are in variables", () => {
-		// Every field NAME is still spelled out inside a braced input, so a
-		// labelIds could not be hiding in one.
-		// exempt (mantahostels#2145): no `takes:` label spelled; missing-label text pinned by "denies a create carrying no labels at all".
 		expect(
 			verdict(
 				"gh api graphql -f query='mutation($t:String!){createIssue(input:{repositoryId:\"R_x\",title:$t}){issue{id}}}' -f t=x",
@@ -731,15 +644,10 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 		]) {
 			expect(out).toContain(v);
 		}
-		// GraphQL wants a node id, which a session cannot type from memory, so the
-		// refusal has to offer a route that does not need one.
 		expect(out).toContain("gh issue create");
 	});
 
 	it("warns rather than denying where labelIds is present but opaque", () => {
-		// The honest limit: `LA_kwDO…` is a node id, and nothing on the command
-		// says which label it names. Denying would refuse a correctly-labelled
-		// creation; allowing in silence would say the guard had checked.
 		expect(
 			verdict(mutation('repositoryId:"R_x",title:"t",labelIds:["LA_kwDOx"]')),
 		).toBe("warn");
@@ -769,20 +677,12 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 	});
 
 	it("keeps the suggested command on its own line in the warning", () => {
-		// A command substitution eats the values list's trailing newline, so
-		// `$(values_line)  $GRAPHQL_FIX` rendered as `takes:children  gh issue
-		// create …` — the fix glued onto the last value, on one unreadable line.
 		const out = said(mutation('title:"t",labelIds:["LA_x"]'));
 		expect(out).toContain("\n  gh issue create");
-		// [ \t]+, not \s+: \s matches a newline, so the loose spelling fires on the
-		// CORRECT output and the test can never go green.
 		expect(out).not.toMatch(/takes:children[ \t]+gh issue create/);
 	});
 
 	it("warns, never denies, where a bracket in a string literal truncates the args", () => {
-		// The arguments are read up to the FIRST `)`, so a bracket inside a title
-		// cuts them short and a trailing labelIds falls off with them. An odd
-		// quote count is the tell.
 		expect(
 			verdict(
 				`gh api graphql -f query='mutation{createIssue(input:{title:"fix (again)",labelIds:["LA_x"]}){issue{id}}}'`,
@@ -791,9 +691,6 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 	});
 
 	it("still denies an unlabelled creation whose title holds no bracket", () => {
-		// The quote-count test must not swallow the ordinary deny: a balanced pair
-		// of quotes around a plain title leaves the args fully read.
-		// exempt (mantahostels#2145): no `takes:` label spelled; missing-label text pinned by "denies a create carrying no labels at all".
 		expect(
 			verdict(
 				`gh api graphql -f query='mutation{createIssue(input:{title:"fix again"}){issue{id}}}'`,
@@ -822,8 +719,6 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 			`gh api graphql -f query='query{repository(owner:"o",name:"r"){issue(number:8){number}}}'`,
 			`gh api graphql -f query='mutation{updateIssue(input:{id:"x",state:CLOSED}){issue{id}}}'`,
 			`gh api graphql -f query='mutation{addComment(input:{subjectId:"x",body:"y"}){clientMutationId}}'`,
-			// The word `createIssue` as a field ALIAS on a read, which is not a call
-			// to it: the guard keys off `createIssue(`, its own opening bracket.
 			`gh api graphql -f query='query{createIssue:repository(owner:"o",name:"r"){name}}'`,
 		]) {
 			expect(verdict(call)).toBe("allow");
@@ -832,12 +727,6 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 	});
 
 	it("stays silent on a query it cannot read at all, and records nothing", () => {
-		// The residual, kept deliberately: an unreadable query MIGHT hide a
-		// createIssue, but a query from a file or a variable is routine here, and
-		// warning on every one would fire almost entirely on read-only queries.
-		// The guard-issue-body core already warns on exactly these commands, so the
-		// opacity is not invisible to the session, and a fail-open record on each
-		// would drown check-guard-errors.js.
 		for (const call of [
 			"gh api graphql -F query=@mutation.graphql",
 			"gh api graphql -f query=@-",
@@ -856,8 +745,6 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 	});
 
 	it("denies an unlabelled createIssue beside a field whose quoted name reads back (#3421)", () => {
-		// exempt (mantahostels#2145): the unlabelled-create deny is pinned by
-		// "denies a create carrying no labels at all".
 		expect(verdict(`${mutation('title:"t"')} -f "K"=v`)).toBe("deny");
 	});
 
@@ -883,10 +770,6 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 	});
 });
 
-/* The `takes:human` limb (mantahostels#2775): the value is the one of the seven with no
- * command and no review loop, so a wrong one is examined by nobody — mantahostels#804 wrote
- * the positive test and nothing checked it. These assert the check, and the
- * fail-opens that keep it from wedging a legitimate create. */
 describe("the takes:human body limb (mantahostels#2775)", () => {
 	const human = "names no act performed outside Claude Code";
 	const unread = "whose body this guard cannot read";
@@ -905,8 +788,6 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 	});
 
 	it("denies a bare marker with no act written after it", () => {
-		// The marker is the sentence's opening, not the sentence. Accepting it
-		// alone would make the check a string anyone pastes past.
 		for (const body of ["Outside Claude Code:", "**Outside Claude Code:** "]) {
 			const call = `gh issue create --title x --label takes:human --body ${JSON.stringify(body)}`;
 			expect(verdict(call)).toBe("deny");
@@ -944,7 +825,6 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 		expect(
 			verdict(`gh issue create --label takes:human --body-file ${bare}`),
 		).toBe("deny");
-		// gh's short spelling of the same flag.
 		expect(verdict(`gh issue create --label takes:human -F ${named}`)).toBe(
 			"allow",
 		);
@@ -969,8 +849,6 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 		const out = readDenyReason(
 			'gh issue create --label takes:human --body "cut three doc lines"',
 		);
-		// A session reaching this refusal is holding the wrong label; the fix is
-		// a different value, not a pasted line. Both re-routes must be on it.
 		expect(out).toContain("takes:implement");
 		expect(out).toContain("takes:wayfinder");
 		expect(out).toContain("**Outside Claude Code:**");
@@ -1040,10 +918,8 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 					),
 				),
 			).toBe("allow");
-			// A double-quoted delimiter is as literal as a single-quoted one.
 			expect(verdict(piped('"BODY"', "cut three doc lines"))).toBe("deny");
 			expect(readFaults()).toEqual([]);
-			// The same refusal the flag form earns, not a different route's.
 			expect(readDenyReason(piped("'BODY'", "cut lines"))).toContain(human);
 		});
 
@@ -1058,7 +934,6 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 					),
 				),
 			).toBe("allow");
-			// Indented, as inside a block.
 			expect(verdict(`  ${piped("'BODY'", "cut lines")}`)).toBe("deny");
 			expect(readFaults()).toEqual([]);
 		});
@@ -1110,20 +985,12 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 
 		it("refuses the shapes whose stdin it cannot tie to the create, recording no fault (#668)", () => {
 			for (const call of [
-				// Two heredoc-fed creates: which body feeds which is not read, only
-				// guessed.
 				`${piped("'BODY'", "cut lines")}\n${piped("'NOTE'", "Outside Claude Code: x", "NOTE")}`,
-				// A filter between the heredoc and gh changes the text gh receives.
 				"grep x <<'BODY' | gh issue create --label takes:human --body-file -\ncut lines\nBODY",
-				// A herestring is not a heredoc.
 				'gh issue create --label takes:human --body-file - <<< "cut lines"',
-				// Never terminated.
 				"cat <<'BODY' | gh issue create --label takes:human --body-file -\ncut lines",
-				// Tab-stripping heredoc, whose terminator the reader does not match.
 				"cat <<-'BODY' | gh issue create --label takes:human --body-file -\n\tcut lines\n\tBODY",
-				// A continued create line: its next line is flags, not body.
 				"cat <<'BODY' | gh issue create --label takes:human --body-file - \\\n--title x\ncut lines\nBODY",
-				// Mismatched delimiter quotes, which bash does not read as `BODY`.
 				"cat <<'BODY\" | gh issue create --label takes:human --body-file -\ncut lines\nBODY",
 			]) {
 				expect(readDenyReason(call)).toContain(unread);
@@ -1153,8 +1020,6 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 	});
 
 	it("gives one refusal, not two, when the label is also missing", () => {
-		// The missing-label fault is the older and larger one, and its refusal
-		// already carries all seven values.
 		const call = 'gh issue create --title x --body "cut three doc lines"';
 		expect(readDenyReason(call)).toContain(MISSING);
 		expect(readDenyReason(call)).not.toContain(human);
@@ -1166,7 +1031,6 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 	const create = "gh issue create --title x --label takes:implement";
 
 	it("denies the 7 Sep shape, naming the file: a missing file piped into --body-file -", () => {
-		// Verbatim but for the title (mantahostels#3443).
 		const call = `cat .claude/tmp/followon-body.md | gh issue create --title "x" --label "Tech & Stack" --label "takes:implement" --body-file - > .claude/tmp/followon-created.out 2>&1 &`;
 		expect(verdict(call)).toBe("deny");
 		const out = readDenyReason(call);
@@ -1295,10 +1159,8 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 		for (const [call, named] of [
 			[`${create} --body-file /no/such/file.md`, "/no/such/file.md"],
 			[`${create} -F missing.md`, "missing.md"],
-			// Resolved against the directory the create runs in, not the hook's.
 			[`cd ${elsewhere} && ${create} --body-file present.md`, "present.md"],
 			[`cat -- missing.md | ${create} --body-file -`, "missing.md"],
-			// A quoted `~` reaches gh unexpanded, so it names a relative path.
 			[`${create} --body-file '~/present.md'`, "~/present.md"],
 		]) {
 			expect(readDenyReason(call)).toContain(
@@ -1309,7 +1171,6 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 		expect(
 			verdict(`cd ${elsewhere} && ${create} --body-file ${shared}/present.md`),
 		).toBe("allow");
-		// A subshell's `cd` and an empty `cd ''` leave the directory where it was.
 		expect(
 			verdict(`(cd ${elsewhere} && true); ${create} --body-file present.md`),
 		).toBe("allow");
@@ -1326,7 +1187,6 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 	});
 
 	it("allows a command that writes the body file and then creates the issue", () => {
-		// The file is absent at hook time only because this same command writes it.
 		for (const call of [
 			`cat > .claude/tmp/followon-body.md <<'BODY'\nwhy\nBODY\ncat .claude/tmp/followon-body.md | ${create} --body-file -`,
 			`cat > new.md <<'BODY'\nwhy\nBODY\n${create} --body-file new.md`,
@@ -1357,7 +1217,6 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 		expect(readDenyReason('gh issue create --title x --body ""')).toContain(
 			blank,
 		);
-		// takes:human is never logged as unreadable on its way to the refusal.
 		expect(
 			verdict("gh issue create --label takes:human --body-file /no/such.md"),
 		).toBe("deny");
@@ -1370,11 +1229,8 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 			`${create} --body-file "$F"`,
 			`cat "$F" | ${create} --body-file -`,
 			`cat $(ls *.md) | ${create} --body-file -`,
-			// No body flag at all: gh itself refuses a non-interactive create.
 			create,
-			// Two creates: which cat feeds which is not read.
 			`cat a.md | ${create} --body-file -\ncat b.md | ${create} --body-file -`,
-			// A filter between the file and gh.
 			`cat missing.md | grep x | ${create} --body-file -`,
 		]) {
 			expect(verdict(call)).toBe("allow");
@@ -1610,11 +1466,6 @@ describe("the second-map limb (#717)", () => {
 
 describe("the flags whose values it skips", () => {
 	it("does not read a value-taking flag's own value as an argument", () => {
-		// The pair-skip (mantahostels#477). Without it the unexpanded $VERSION below is read as
-		// a bare word, the guard cannot tell what will be sent, and a create it
-		// could have judged is allowed unchecked instead.
-		// Not takes:human, whose own limb (mantahostels#2775) would decide this create on its
-		// missing body before the pair-skip was tested at all.
 		expect(
 			verdict("gh issue create --title $VERSION --label takes:triage"),
 		).toBe("allow");
@@ -1629,12 +1480,6 @@ describe("the flags whose values it skips", () => {
 	});
 
 	it("does not credit a --label written after a bare --", () => {
-		// End-of-options (mantahostels#495). gh's flag reader stops at `--` too, so what
-		// follows reaches gh as a positional and no label is ever applied: reading
-		// it as a label would allow a create that files an unlabelled issue.
-		// exempt (mantahostels#2145): the `takes:` word sits past the `--`, so the guard reads
-		// no label at all; the missing-label text is pinned by "denies a create
-		// carrying no labels at all".
 		expect(verdict("gh issue create --title x -- --label takes:human")).toBe(
 			"deny",
 		);
@@ -1650,7 +1495,6 @@ describe("what it fails open on", () => {
 	});
 
 	it("allows and records a label value it cannot read", () => {
-		// An unexpanded variable: judging it would mean guessing the label.
 		expect(verdict('gh issue create --title "x" --label "$LABEL"')).toBe(
 			"allow",
 		);
@@ -1665,19 +1509,12 @@ describe("what it fails open on", () => {
 	});
 
 	it("records nothing at all on a create it judged", () => {
-		// Every entry in this log claims something went unprotected, so a verdict
-		// the guard actually reached must never appear in it.
 		verdict("gh issue create --title x");
 		verdict("gh issue create --title x --label takes:triage");
 		expect(readFaults()).toEqual([]);
 	});
 });
 
-/*
- * mantahostels#1649 relocated the `takes:` label rule out of CLAUDE.md and into these two
- * refusals (spec mantahostels#1641). Keyed by fragment id, never by a literal copied out of
- * the fragment — a second copy is the drift the store exists to prevent.
- */
 describe("the relocated rule reaches the session that trips the guard", () => {
 	it("prints no 'no command opens this' shape (mantahostels#3352, mantahostels#3555)", () => {
 		expect(
@@ -1714,18 +1551,12 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 	});
 
 	it("still lists the seven values, which the fragment deliberately does not", () => {
-		// The values are generated from the live label set, so they stay with the
-		// guard; a fragment naming them would go stale the day one is added.
 		expect(readDenyReason('gh issue create --title "t" --body "b"')).toContain(
 			"takes:to-tickets",
 		);
 	});
 });
 
-/* The barred limb (#140). #131 carried an Outside line that named a
- * PROHIBITION — "which sits outside this repository and no agent may write
- * to" — where the file was writable and no rule barred it. The regex is
- * equivalent to scripts/lib/takes-label.js's BARRED_ACT, unpinned. */
 describe("the barred limb (#140)", () => {
 	const barred = "names a prohibition rather than an act";
 	const create = (line: string) =>
@@ -1765,11 +1596,6 @@ describe("the barred limb (#140)", () => {
 		expect(verdict(create(line))).toBe("allow");
 	});
 
-	/* Every alternative names an AGENT or a SESSION as the barred subject. A
-	   prohibition about the WORLD is usually part of a real errand, and an
-	   earlier draft denied all four of these — the first because it merely
-	   LOCATED something outside the repo, the rest because the prohibition was
-	   someone else's. Found by review, not by reasoning. */
 	it.each([
 		[
 			"a location, not a bar",
@@ -1791,8 +1617,6 @@ describe("the barred limb (#140)", () => {
 		expect(verdict(create(line))).toBe("allow");
 	});
 
-	/* The deny text has to send the reader somewhere, and the two destinations
-	   are the ones mantahostels#2775 names. */
 	it("names both destinations in its refusal", () => {
 		const r = readDenyReason(create("edit it, which no agent may write to"));
 		expect(r).toContain("takes:wayfinder");
@@ -1800,13 +1624,8 @@ describe("the barred limb (#140)", () => {
 	});
 });
 
-/* The repo-file limb (mantahostels#3555, ruled on mantahostels#3503): a takes:human whose Outside line
- * names a repo file as the act's product passed the line check and sat
- * unopened. The regex is equivalent to scripts/lib/takes-label.js's REPO_FILE_ACT, unpinned. */
 describe("the repo-file limb (mantahostels#3555)", () => {
 	const repo = "whose outside act produces a file in this repository";
-	// Single-quoted: inside double quotes a backticked path would be a command
-	// substitution, which the guard rightly cannot read and fails open on.
 	const create = (line: string) =>
 		`gh issue create --title x --label takes:human --body '**Outside Claude Code:** ${line}${CLOSE}'`;
 
@@ -1845,8 +1664,6 @@ describe("the repo-file limb (mantahostels#3555)", () => {
 	it("reads the Outside line only, never the rest of the body", () => {
 		const body =
 			"**Outside Claude Code:** email the hostel.\n\nThe reply is filed to `docs/research/x.md` later.\n\n**Close when:** the reply is filed.";
-		// A quoted heredoc, so the body is read: a double-quoted one holding
-		// backticks is unreadable, and refused on that ground instead (#668).
 		expect(
 			verdict(
 				`cat <<'BODY' | gh issue create --title x --label takes:human --body-file -\n${body}\nBODY`,
@@ -1925,8 +1742,6 @@ describe("the edit route (mantahostels#3555)", () => {
 		);
 	});
 
-	/* #140: the barred limb reaches the relabel route too, which is the shape
-	   #117 came in by — a takes:human applied to an issue already filed. */
 	it("denies it where the Outside line names a prohibition", () => {
 		const barred =
 			"**Outside Claude Code:** edit the status line, which no agent may write to.";
@@ -2131,9 +1946,6 @@ describe("the edit route (mantahostels#3555)", () => {
 	});
 });
 
-/* The Close-when limb (#983): presence only, judged after the four
- * Outside-line tests, on create and on relabel; a pass gets a pointer to the
- * founder-deliverable rule. */
 describe("the Close-when limb (#983)", () => {
 	const noClose = "whose body has no **Close when:** line";
 	const act = "**Outside Claude Code:** email the hostel.";
@@ -2185,7 +1997,6 @@ describe("the Close-when limb (#983)", () => {
 		expect(said(create(`${act}${CLOSE}`))).toBe(POINTER);
 	});
 
-	// WFC_SCRIPT_ROOT stands in for an install: a root with no package.json.
 	it("names the template at the plugin root in an install (#1248)", () => {
 		const plugin = path.join(dir, "plugin");
 		fs.mkdirSync(plugin);
@@ -2202,8 +2013,6 @@ describe("the Close-when limb (#983)", () => {
 	});
 });
 
-/* The founder-act limb (#1097): takes-label.js's
- * NOT-A-FOUNDER-ACT test, through both routes. */
 describe("the founder-act limb (#1097)", () => {
 	const refusalPhrase: Record<string, string> = {
 		"NO-OUTSIDE-ACT": "names no act performed outside Claude Code",
@@ -2271,8 +2080,6 @@ describe("the founder-act limb (#1097)", () => {
 	);
 });
 
-/* A host core reading no store: from a worktree it judges the command alone,
- * and latches nothing in either tree (#4242). */
 describe("a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
 	freshSandbox((sb) => {
@@ -2314,8 +2121,6 @@ describe("the model reading's one bound for a call (#4969)", () => {
 		fs.mkdirSync(config);
 		const fake = judgeFakeEnv(dir, found, config);
 		for (const [k, v] of Object.entries(fake.env)) vi.stubEnv(k, v);
-		/* Each clock read 36 s on: the first reading spends past 35 s of the
-		 * 40 s bound, whatever number of reads it takes. */
 		let t = Date.parse("2026-11-11T00:00:00Z");
 		const clock = () => {
 			t += 36_000;

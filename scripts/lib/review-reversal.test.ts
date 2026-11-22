@@ -1,12 +1,3 @@
-/*
- * A `reverse <n>` comment on the morning review, parsed to the ticket that
- * undoes entry n and the reply answering it (#2017).
- *
- * Requests are read through pendingRequests alone, the export the generator
- * calls, with replies built by buildAckComment, so the marker a reply writes
- * and the one the reader looks for cannot drift apart unnoticed.
- */
-
 import { describe, expect, it } from "vitest";
 
 const {

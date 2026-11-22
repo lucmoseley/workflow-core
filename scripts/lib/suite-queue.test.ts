@@ -21,6 +21,7 @@ const {
 	PART_PASS_AGE_MS,
 	turnOf,
 	readLiveRoleMarkers,
+	readTestsHeldOnMemory,
 	readTestsHeldOnWindows,
 	readQueuesClimbMb,
 	queuedRunnerPeakMb,
@@ -348,6 +349,62 @@ describe("readTestsHeldOnWindows (#4956)", () => {
 				queueDir: path.join(qdir(), "wfc-suite-queue"),
 			}),
 		).toBe(0);
+	});
+});
+
+describe("readTestsHeldOnMemory (#5555)", () => {
+	it("charges each live, unadmitted waiter the memory rung holds, in the suite queue and the type-check slot's, its launch's peak", () => {
+		const root = qdir();
+		const queueDir = path.join(root, "wfc-suite-queue");
+		const tscDir = path.join(root, "wfc-tsc-queue");
+		const rung = joined(queueDir, 11, 11, { chargeMb: 900 }).stamps;
+		rung.onMemoryHeld(true);
+		rung.onMemoryRung(3350);
+		joined(queueDir, 22, 22).stamps.onMemoryHeld(true);
+		joined(queueDir, 33, 33).stamps.onWindowsHeld(true);
+		joined(queueDir, 44, 44, { role: "gate" }).stamps.onMemoryHeld(true);
+		const admitted = joined(queueDir, 55, 55);
+		admitted.stamps.onMemoryHeld(true);
+		admitted.spawned();
+		joined(tscDir, 66, 66).stamps.onMemoryHeld(true);
+		const released = joined(tscDir, 77, 77).stamps;
+		released.onMemoryHeld(true);
+		released.onMemoryHeld(false);
+		expect(
+			readTestsHeldOnMemory({
+				queueDir,
+				alive: (pid: number) => pid !== 22,
+			}),
+		).toEqual([
+			{ pid: 11, chargeMb: 900, rungMb: 3350 },
+			{ pid: 66, chargeMb: launchChargeMb({ kind: "tsc" }) },
+		]);
+	});
+
+	it("holds none where no queue exists", () => {
+		expect(
+			readTestsHeldOnMemory({
+				queueDir: path.join(qdir(), "wfc-suite-queue"),
+			}),
+		).toEqual([]);
+	});
+
+	it("holds none where the queue will not read, its waiters failing open", () => {
+		const queueDir = path.join(qdir(), "wfc-suite-queue");
+		joined(queueDir, 11, 11).stamps.onMemoryHeld(true);
+		const refusing = {
+			...fs,
+			readdirSync: (() => {
+				throw new Error("EACCES");
+			}) as unknown as typeof fs.readdirSync,
+		};
+		expect(
+			readTestsHeldOnMemory({
+				queueDir,
+				queueFs: refusing,
+				alive: () => true,
+			}),
+		).toEqual([]);
 	});
 });
 
@@ -2436,6 +2493,25 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 			onMemoryHeld: (held: boolean) => heard.push(held),
 		});
 		expect(heard).toEqual([true, false]);
+	});
+
+	it("tells its caller the rung a memory hold waits on, each time it changes (#5555)", async () => {
+		const gates = [
+			{ limb: "memory", rungMb: 3350 },
+			{ limb: "memory", rungMb: 3350 },
+			{ limb: "memory", rungMb: 2950 },
+			{ limb: "count" },
+			null,
+		];
+		const heard: number[] = [];
+		await waitForGate({
+			gate: () => gates.shift() ?? null,
+			admit: noQueue,
+			sleepFn: () => Promise.resolve(),
+			out: { write: () => true },
+			onMemoryRung: (rungMb: number) => heard.push(rungMb),
+		});
+		expect(heard).toEqual([3350, 2950]);
 	});
 
 	const sleepsUnder = async (

@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/review-reads.js (#3765): the morning review's slow reads kept for the
- * day. Break it and a filing killed part way starts again from nothing, so
- * on a slow morning it never completes.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -61,7 +56,6 @@ describe("reviewReads (#3765)", () => {
 	});
 
 	describe("what a read of the file prints (#3814)", () => {
-		// The whole text taken: a 0-byte answer holds writeFd for its 10 s ceiling.
 		const spyWrites = () =>
 			vi
 				.spyOn(fs, "writeSync")

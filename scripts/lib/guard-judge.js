@@ -1,39 +1,4 @@
-/*
- * guard-judge.js — the guard dispatcher's judging (#2786, ADR-0010): every
- * core lib/guard-dispatch.js's entry loaded for a call judges its payload,
- * and their answers merge into one hook output. A module apart from that
- * entry, its real caller, so the tests drive it in process (#4470).
- *
- * THE MERGE. Every enabled core runs; none stops the rest. The permission is
- * `deny` where any core refused, with every refusal's reason; every core's
- * context that fits is carried, joined in manifest order, each core's rules
- * fitted into what the entry's HOOK_PERSIST_CHARS leaves (vendor hooks
- * reference §PreToolUse decision control, §Add context for Claude). A guard's
- * own text is never cut: a context or prelude longer than that room is
- * dropped whole, its latches unwritten, and a closing notice names each such
- * core (#4126). A rule fragment over the room is deferred to its next trigger,
- * unlatched and unnamed. The merged context stays inside the cap: the
- * notice's room is set aside where something drops, and the notice naming
- * every core fits HOOK_PERSIST_CHARS. A core's `updatedInput` rides on an
- * `allow`, and reaches the session only where no core refused. On
- * PostToolUse the merge is written in that event's own control: a deny is
- * `decision: "block"` (lib/hook-envelope.js).
- *
- * FAILURE POLICY. A core's throw, or its module's while loading (#4125), gets
- * its row's `failure`: `open` allows, logged; `closed` refuses, but for a
- * core's own throw on the repo not resolving, which allows, logged, as
- * lib/refuse-on-throw.js's entries do. A store fault refuses whatever the
- * policy (mantahostels#1762). There is no per-core time budget: a core does
- * no I/O, and every adapter that spawns carries its own timeout, cut to what
- * the entry's budget leaves (lib/hook-deadline.js): each git and gh call's by
- * lib/git.js and lib/gh.js, the other spawns' by their hosts, and
- * npm-install's registry budget runs from the entry's start. An adapter
- * working in process — the PostToolUse cores' scratch stores and the
- * arbiter's record — carries none: only the entry's timeout bounds a hang
- * there, and it costs every core still to run on that call its say.
- *
- * code-edges loads: guard-cores.json host
- */
+// code-edges loads: guard-cores.json host
 
 const { CORE_FAULT_TEXT } = require("./core-fault.js");
 const { caught } = require("./caught.js");
@@ -56,18 +21,15 @@ const { treePorts } = require("./guard-host-ports.js");
  *   context?: string, updatedInput?: Record<string, unknown> }} Part
  * @typedef {{ permissionDecision?: Permission,
  *   permissionDecisionReason?: string, additionalContext?: string,
- *   updatedInput?: Record<string, unknown> }} Output the merged hook output,
- *   hookEventName aside
+ *   updatedInput?: Record<string, unknown> }} Output
  * @typedef {import("./guard-host-ports.js").TreePorts} TreePorts
  * @typedef {import("./guard-host-ports.js").Adapters} Adapters
  * @typedef {import("./core-contract.js").CoreContext} CoreContext
  */
 
-/** What joins two reasons or two contexts, counted against the persist room. */
 const JOIN = "\n\n";
 
 /**
- * The parts merged into one hook output; null where none says anything.
  * @param {Part[]} parts
  * @returns {Output | null}
  */
@@ -97,21 +59,19 @@ function merge(parts) {
  *   disabled: (name: string) => boolean, persistChars: () => number }} DispatchEnv
  * @typedef {{ latches: Latch[], log: (what: string) => void }} LatchSet
  * @typedef {{ decision: NonNullable<CoreDecision>, name: string,
- *   env: import("./kit-context.js").PortEnv }} Answer a core's decision, not yet
- *   rendered
+ *   env: import("./kit-context.js").PortEnv }} Answer
  * @typedef {{ part?: Part, answer?: Answer }} Judgement
  * @typedef {{ part?: Part, latchSet?: LatchSet, overRoom?: boolean }} Outcome
  * @typedef {{ parts: Part[], latches: LatchSet[], dropped: string[] }} Fitted
  */
 
 /**
- * Run every enabled core on one payload and merge what they answer.
  * @param {Core[]} cores
  * @param {DispatchEnv} env
  * @returns {{ output: Output | null, latches: LatchSet[] }}
  */
 function dispatch(cores, env) {
-	/* post-write's formatter changes files between the reads of its call. */
+	// #4127
 	const scoped =
 		env.payload.hook_event_name === "PostToolUse"
 			? withoutGitReadMemo
@@ -141,8 +101,6 @@ function judgeAndMerge(cores, env) {
 }
 
 /**
- * Enough to name every core with text of its own, as the reserve can push more
- * of them out; none where a silent trial fit drops nothing.
  * @param {Judgement[]} judged
  * @param {() => number} cap
  */
@@ -188,7 +146,6 @@ function fitToCap(judged, cap) {
 }
 
 /**
- * What the entry has left once `used` characters and a separator are spent.
  * @param {number} cap
  * @param {number} used
  */
@@ -208,10 +165,6 @@ const overRoomNotice = (names) =>
 	`Over the hook context cap, these guards' advice was dropped unread: ${names.join(", ")}.`;
 
 /**
- * The session tree's ports for one call, resolved once on first use from the
- * payload's `cwd`, else the hook's own directory; an unresolved tree throws
- * the same fault on every read of the call, from one git call. The host's own
- * ports are reused where the two are one tree.
  * @param {Record<string, unknown>} payload
  * @param {Adapters} adapters
  * @param {string} root
@@ -234,7 +187,6 @@ function lazyTree(payload, adapters, root) {
  * @returns {{ ports: TreePorts } | { fault: Error }}
  */
 function resolveTree(payload, adapters, root) {
-	/* The fallback a core's context carries: test support's where it fills one. */
 	const cwd = sessionDir(payload, adapters.fallbackCwd);
 	const dir = sessionTree({ cwd });
 	if (dir === null) return { fault: new TreeUnresolved(cwd) };
@@ -242,7 +194,6 @@ function resolveTree(payload, adapters, root) {
 }
 
 /**
- * One core judged: the part its fault makes, or its decision to render.
  * @param {Core} core
  * @param {DispatchEnv} env
  * @param {() => TreePorts} tree
@@ -253,7 +204,6 @@ function runCore(core, { payload, root, adapters, logFor }, tree) {
 	if ("loadFault" in core) return { part: thrown(core, core.loadFault, log) };
 	const subject = subjectFor(payload, core);
 	if (subject === null) {
-		/* Fails open, logged (ADR-0010, #2784). */
 		log(
 			`no ${[core.field].flat().join(" or ")} in payload — ${core.noun} allowed unchecked`,
 		);
@@ -277,7 +227,6 @@ function runCore(core, { payload, root, adapters, logFor }, tree) {
 		decision = core.decide(subject, watched.ctx);
 	} catch (e) {
 		if (watched?.isRepoFault(e)) {
-			/* The repo unresolved: no tree is the shared one (mantahostels#147). */
 			log(caught(e).message);
 			return {};
 		}
@@ -289,10 +238,8 @@ function runCore(core, { payload, root, adapters, logFor }, tree) {
 }
 
 /**
- * A core's decision as a part of the merge, with the latches it owes.
  * @param {Answer} answer
- * @param {() => number} room read only where the core speaks, so a call no core
- *   speaks to never loads the cap's reader
+ * @param {() => number} room
  * @returns {Outcome}
  */
 function answered({ decision, name, env }, room) {
@@ -322,7 +269,6 @@ function answered({ decision, name, env }, room) {
 }
 
 /**
- * A core's throw, given its row's policy.
  * @param {Core} core
  * @param {string} msg
  * @param {(what: string) => void} log
@@ -330,7 +276,6 @@ function answered({ decision, name, env }, room) {
  */
 function thrown(core, msg, log) {
 	if (core.failure !== "closed") {
-		/* An advisory core fails open on the record (ADR-0010, #2784). */
 		log(`core threw — allowed unchecked: ${msg}`);
 		return;
 	}

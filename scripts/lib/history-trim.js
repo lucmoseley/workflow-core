@@ -1,32 +1,3 @@
-/*
- * history-trim.js — reading each seat's `~/.claudeN/history.jsonl` for the
- * two numbers that reveal silent trimming: the oldest surviving line's
- * timestamp, and the line count. mantahostels#2617.
- *
- * Per-seat burn attribution (mantahostels#2607, scripts/measure-burn/scan_burn.py) rests
- * entirely on these files. Nothing archives them and no retention cap is
- * documented, so a root that starts dropping lines shrinks the retroactive
- * corpus with no signal at all — and the shrink is unrecoverable. This module
- * is the DETECTOR only, per mantahostels#2607's ruling: an archiver is worth building once
- * trimming is a dated fact rather than a hypothesis.
- *
- * THREE STATES A ROOT CAN BE IN, distinguished from a genuine trim:
- *
- *   ABSENT     no `history.jsonl` at this root at all — a seat that was never
- *              provisioned.
- *   NEW        the file reads fine, but the baseline holds no prior entry for
- *              this root — the first time it has been seen, so there is
- *              nothing to compare against yet.
- *   UNREADABLE the file exists but cannot be read, or every line in it fails
- *              to parse a numeric `timestamp` — a permission error or a
- *              half-written file, not evidence either way.
- *
- * TRIMMED is reported only where a root is none of the above AND its oldest
- * timestamp has moved forward — strictly increased — since the last
- * recording. A falling line count with the same oldest timestamp is not
- * trimming by this signature: a session simply stopped, which is not loss.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -36,8 +7,6 @@ const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 
 /**
- * One root's reading.
- *
  * @typedef {object} RootReading
  * @property {string} dir
  * @property {"absent" | "unreadable" | "ok"} state
@@ -45,12 +14,6 @@ const { markersDir } = require("./marker-root.js");
  * @property {number | null} lineCount
  */
 
-/** A shared ledger in the host's marker store, beside the seat-utilisation
- *  history: the readings are of this machine's seat roots, so one baseline
- *  serves every session on the machine and none on another (#4465).
- *  Residual: a fresh machine starts with no baseline, and a run with
- *  `CLAUDE_PROJECT_DIR` unset in a linked worktree keeps a private ledger
- *  there until #4482. */
 /** @type {() => string} */
 const WATCH_FILE = () =>
 	process.env.WFC_HISTORY_TRIM_WATCH ||
@@ -59,15 +22,10 @@ const WATCH_FILE = () =>
 /** @type {(watchFile: string) => string} */
 const RECORD_STAMP = (watchFile) => `${watchFile}.stamp`;
 
-/** One reading a day, matching seat-utilisation's own throttle: several
- *  `npm run status` runs in one day would each append a reading identical to
- *  the last but for its timestamp, growing the ledger without narrowing when
- *  a trim happened. */
+// guess, #2617
 const RECORD_MIN_AGE_HOURS = 24;
 
 /**
- * Read one root's `history.jsonl`.
- *
  * @param {string} seatDir
  * @returns {RootReading}
  */
@@ -92,19 +50,13 @@ function readRoot(seatDir) {
 		)
 			oldestMs = t;
 	}
-	/* A file that exists, has lines, but yields no parseable timestamp at all
-	 * cannot support the trimming signature — treated as unreadable rather
-	 * than as a root with nothing old in it. An empty file (0 lines) is a
-	 * real, if degenerate, reading: oldestMs null, lineCount 0. */
 	if (lineCount > 0 && oldestMs === null)
 		return { dir, state: "unreadable", oldestMs: null, lineCount: null };
 	return { dir, state: "ok", oldestMs, lineCount };
 }
 
 /**
- * Every seat root's reading.
- *
- * @param {string[]} [dirs] the seat directories, arbiter-store's set by default
+ * @param {string[]} [dirs]
  * @returns {RootReading[]}
  */
 function readRoots(dirs = configDirs()) {
@@ -112,17 +64,6 @@ function readRoots(dirs = configDirs()) {
 }
 
 /**
- * The last recorded reading per root, from the watch file's newest line.
- *
- * NULL AND UNDEFINED ARE NOT THE SAME ANSWER. `null` is "no baseline yet" —
- * ENOENT, or a file with no lines — a legitimate first-ever run. `undefined`
- * is "a baseline exists and could not be read" — a permission error, or a
- * newest line that fails to parse. The second case is this checker's own
- * apparatus failing, never the subject: silently reading it as "no baseline"
- * would re-baseline over
- * whatever trim happened in the gap, the one failure mode this detector
- * exists to catch.
- *
  * @param {string} [watchFile]
  * @returns {Record<string, RootReading> | null | undefined}
  */
@@ -147,8 +88,6 @@ function readBaseline(watchFile = WATCH_FILE()) {
 }
 
 /**
- * Compare this reading against the last recorded one.
- *
  * @param {RootReading[]} current
  * @param {Record<string, RootReading> | null | undefined} baseline
  * @returns {{ dir: string, priorOldestMs: number, newOldestMs: number }[]}
@@ -172,11 +111,6 @@ function trimmedRoots(current, baseline) {
 }
 
 /**
- * Append this reading to the watch file, at most once every
- * RECORD_MIN_AGE_HOURS — the stamp is taken BEFORE the append, so a failed
- * stamp cancels the record rather than leaving the throttle unset on a
- * read-only disk (matching recordReading() in lib/seat-utilisation.js).
- *
  * @param {RootReading[]} roots
  * @param {number} now
  * @param {string} [watchFile]
@@ -184,7 +118,6 @@ function trimmedRoots(current, baseline) {
  */
 function recordReading(roots, now, watchFile = WATCH_FILE()) {
 	const stamp = RECORD_STAMP(watchFile);
-	// No stamp yet, or an unreadable one, reads NaN: a reading is due.
 	const last = orFallback(
 		() => Date.parse(fs.readFileSync(stamp, "utf8").trim()),
 		Number.NaN,

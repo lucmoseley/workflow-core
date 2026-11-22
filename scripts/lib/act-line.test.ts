@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The acts ledger's line format (#3264): each line buildAct and
- * buildCommitAct build, ACT_LINE's verdict on it, and parseAct's split of it.
- * The module is pure, so the cases call it in process and touch no disk.
- *
- * Loosen one and a writer's line is refused by the ledger, a commit line
- * lands in the acts ledger, or the refill loop's progress test misreads a
- * launch's acts.
- *
- * The kinds are listed by hand, not read from act-line.js, so a kind deleted
- * there fails its own case; a kind added there gets none (#3312).
- */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 

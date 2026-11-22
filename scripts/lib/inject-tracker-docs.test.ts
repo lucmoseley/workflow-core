@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Module cases for scripts/lib/inject-tracker-docs.js, the core of the
- * UserPromptSubmit/SessionStart hook that hands vendored skills the project
- * rules their own SKILL.md files do not carry (#5151). The hook's boundary
- * set — its two input channels, an unreadable payload, the concurrent pair and
- * the hung-`gh` kill — is scripts/inject-tracker-docs.test.ts; its production
- * ports are held to the fakes here by inject-tracker-docs-host.contract.test.ts.
- *
- * Coverage is the per-command routing — which command gets which rule — and the
- * de-duplication that stops both wired events injecting the same payload twice
- * (mantahostels#1870, mantahostels#1117).
- *
- * The core is run in-process on one payload at a time, with its de-duplication
- * markers pinned to a scratch dir and its `gh` and review-tier ports faked, so
- * no case reads or writes the host's real state or touches GitHub.
- *
- * Break a case here and a /to-tickets, /triage or /implement session follows
- * its vendored SKILL.md alone, writing prose "Blocked by" sections rather than
- * native dependency links.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -46,25 +26,14 @@ const { TAKES_VALUES } = require("./takes-label") as {
 const { HOOK_PERSIST_CHARS: PERSIST_CHARS } =
 	require("./hook-limits.js") as typeof import("./hook-limits.js");
 
-/* The tight-headroom margin the margin checker prices, read from where it is
- * spelled. Module scope, not local to one describe block: it is reused by an
- * unrelated block below. */
 const { TIGHT_HEADROOM_CHARS } =
 	require("./injector-margin.js") as typeof import("./injector-margin.js");
 
-/**
- * Where the hook keeps its per-session de-duplication markers. Pinned to a
- * scratch dir so a run never reads or writes the host's real state.
- */
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-hook-state-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
 type Ports = import("./inject-tracker-docs.js").Ports;
 
-/* The fakes every case starts from: a `takes:` read that finds no label, as
- * the production adapter answers a failing `gh` (the contract test holds it
- * there), and no review tier, as the adapter answers with no tier hook. */
-/* The module cases' clock (§X9): every marker is stamped and judged by it. */
 const NOW = 1_800_000_000;
 
 const FAKE_PORTS: Ports = {
@@ -74,7 +43,6 @@ const FAKE_PORTS: Ports = {
 	log: logFailOpen,
 };
 
-/** Run `fn` with the environment replaced by `env`, restored after. */
 function withEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
 	const saved = process.env;
 	// env-write-kept: the core reads the whole environment, so each case states it entire; restored in the same synchronous call.
@@ -89,8 +57,6 @@ function withEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
 	}
 }
 
-/** Run the core on one payload, an object or raw text, and return what the
- * hook would print. */
 const runRaw = (
 	payload: object | string,
 	env: Record<string, string> = {},
@@ -102,13 +68,8 @@ const runRaw = (
 			// #448
 			CLAUDE_PROJECT_DIR: ROOT,
 			WFC_OUTPUT_STYLE: undefined,
-			// The de-duplication keys on the payload's session id, falling back to
-			// this variable — which the runner's OWN session exports, so leaving it
-			// set would make every case below the first a suppressed duplicate.
 			CLAUDE_CODE_SESSION_ID: "",
 			TMPDIR: SCRATCH,
-			// A missing standards base is logged under it (#965); unset, a test
-			// run appends to the founder's own log.
 			CLAUDE_CONFIG_DIR: SCRATCH,
 			...env,
 		},
@@ -119,7 +80,6 @@ const runRaw = (
 			),
 	);
 
-/** Run the hook on one payload and return the context it hands the session. */
 const run = (
 	payload: object,
 	env: Record<string, string> = {},
@@ -130,17 +90,6 @@ const run = (
 	return JSON.parse(out).hookSpecificOutput.additionalContext;
 };
 
-/**
- * Since mantahostels#1870 nothing is inlined at all — both tracker documents are pointed at
- * rather than pasted — so the whole context IS the hook's own rules and there is
- * nothing to cut off.
- *
- * The seam asserts that no paste has crept back. A document re-inlined here
- * would put the payload back over the harness's persistence threshold, reaching
- * the session as a preview and a file it rarely opens (the threshold and read
- * rate: mantahostels#1870) — so the paste does not merely cost tokens, it takes every rule
- * below the cut out of sight.
- */
 const rulesHeader = (ctx: string): string => {
 	expect(ctx, "a document has been inlined again").not.toContain("--- BEGIN ");
 	return ctx;
@@ -149,8 +98,6 @@ const rulesHeader = (ctx: string): string => {
 const inject = (prompt: string, event = "UserPromptSubmit"): string =>
 	run({ prompt, hook_event_name: event });
 
-/* A host declaring no output style, so it gets the whole priced-options shape
- * where this repo, under Core voice, gets the pointer (#2039). */
 const BARE_HOST = fs.mkdtempSync(path.join(os.tmpdir(), "inject-bare-host-"));
 afterAll(() => fs.rmSync(BARE_HOST, { recursive: true, force: true }));
 const whole = (prompt: string): string =>
@@ -166,7 +113,6 @@ describe("the priced-options rule (mantahostels#186)", () => {
 
 	it("carries the founder's literal format, both the band and the lettering", () => {
 		const ctx = whole("/wayfinder 186");
-		// Spelled out rather than regex-matched: the shape IS the requirement.
 		expect(ctx).toContain("Confidence: 70% (60% - 80%).");
 		expect(ctx).toContain("(A) <the option, stated in plain words>");
 		expect(ctx).toContain("(B) <the next option>");
@@ -191,15 +137,11 @@ describe("the priced-options rule (mantahostels#186)", () => {
 	it("says the rule has no stakes threshold (mantahostels#570's unpriced yes/no)", () => {
 		const ctx = whole("/wayfinder 186");
 		expect(ctx).toContain("NO STAKES THRESHOLD");
-		// The heading alone is a slogan; the clause is the behavioural content.
 		expect(ctx).toContain("still ships the lettered priced form");
 		expect(ctx).toContain("never omitting the pricing");
 	});
 
 	it("reaches a /wayfinder session started as a background job", () => {
-		// A real SessionStart payload carries NO prompt — the job's opening prompt is
-		// recorded as `intent` on CLAUDE_JOB_DIR/state.json, and reading it is the
-		// whole reason that branch exists. Adding a prompt here skips the branch.
 		const job = fs.mkdtempSync(path.join(os.tmpdir(), "inject-hook-"));
 		try {
 			fs.writeFileSync(
@@ -225,7 +167,6 @@ describe("the priced-options rule (mantahostels#186)", () => {
 					path.join(job, "state.json"),
 					JSON.stringify({ intent: "/wayfinder 186" }),
 				);
-				// No event to read, so the context goes out as plain stdout.
 				expect(runRaw(payload, { CLAUDE_JOB_DIR: job })).toContain(
 					"PRICED OPTIONS",
 				);
@@ -235,8 +176,6 @@ describe("the priced-options rule (mantahostels#186)", () => {
 		},
 	);
 
-	// A subagent's compaction fires SessionStart:compact under its parent's
-	// session id; the prelude names the parent's command and issue (#1785).
 	describe("after a compaction, read off the job's intent", () => {
 		const atCompaction = (agentId?: string) => {
 			const job = fs.mkdtempSync(path.join(os.tmpdir(), "inject-hook-"));
@@ -296,11 +235,6 @@ describe("the priced-options rule (mantahostels#186)", () => {
 	});
 
 	it("reaches every other tracker command too (mantahostels#853)", () => {
-		// Any of these commands can put a choice to the founder, and off this path
-		// the only thing carrying the shape is the Stop guard, which mantahostels#872
-		// saw miss four defective turns silently.
-		// /code-review returns down a separate early branch, so omitting it would
-		// leave the one path that does not share the exit untested.
 		for (const cmd of [
 			"/code-review",
 			"/triage 1",
@@ -373,10 +307,6 @@ describe("the priced-options shape where Core voice loads (#2039)", () => {
 });
 
 describe("the claim rule (mantahostels#270)", () => {
-	// The defect was the rule's own wording: "claim the issue before any other
-	// work … or `--assignee @me` on create" reads as a general option, so a
-	// session filing a spin-off claimed work it would never touch and removed it
-	// from selection.
 	it.each(["/wayfinder 270", "/implement 270", "/triage 270", "/to-spec 270"])(
 		"tells %s to claim only what it is working",
 		(cmd) => {
@@ -394,9 +324,6 @@ describe("the claim rule (mantahostels#270)", () => {
 		expect(rulesHeader(inject("/implement 537"))).toContain(script);
 	});
 
-	// `/to-spec` creates its issue already assigned, which is not the shape
-	// `record-issue-claim.js` watches for, so it was the one command whose
-	// sessions would reliably assign without recording (mantahostels#708).
 	it("tells /to-spec to assign through file-issue, and what a raw assigning create owes", () => {
 		const header = rulesHeader(inject("/to-spec 708"));
 		expect(header).toContain("--assign-self");
@@ -412,31 +339,14 @@ describe("the claim rule (mantahostels#270)", () => {
 });
 
 describe("the research-dispatch rule reaches a dispatching session (mantahostels#918)", () => {
-	/*
-	 * Pasted in the hook's own prose, because a session that misses it does the
-	 * WRONG thing rather than an uninformed one: it tells the subagent to write
-	 * into `docs/research/`, ahead of the concision pass.
-	 *
-	 * /wayfinder ALONE takes it. /implement is the one variant with closing steps
-	 * of its own, and carrying this too would put it over the threshold; its
-	 * tracker pointer names the section instead.
-	 */
 	const payload = () => inject("/wayfinder 918");
 
 	it("carries the scratch path the subagent is told to write to", () => {
-		// The structural half: `.claude/tmp/` is gitignored, and check-doc-map takes
-		// its scope from `git ls-files`, so the file carries no doc-map §A row
-		// (mantahostels#2089, mantahostels#2093).
-		// Asserted as the whole instruction, not the bare path — a bare-path
-		// assertion would pass vacuously against the Artefact line above it.
 		expect(payload()).toContain(
 			"Write your findings to `.claude/tmp/research-<name>.md`",
 		);
 	});
 
-	// The guard added at mantahostels#766 denies a dispatch whose prompt has no Artefact
-	// line, so the pasted block must carry one or this rule's own recipe is
-	// refused at dispatch time.
 	it("carries the Artefact line the dispatch guard requires (mantahostels#766)", () => {
 		expect(payload()).toContain("Artefact: .claude/tmp/research-<name>.md");
 	});
@@ -448,8 +358,6 @@ describe("the research-dispatch rule reaches a dispatching session (mantahostels
 	});
 
 	it("binds however the research was dispatched, not only at close time", () => {
-		// The old heading scoped the rule to closing a wayfinder:research issue, so
-		// a dispatching session never recited it.
 		const p = payload();
 		expect(p).toContain("### Research artefacts");
 		expect(p).toContain("however the research was dispatched");
@@ -458,18 +366,12 @@ describe("the research-dispatch rule reaches a dispatching session (mantahostels
 		);
 	});
 
-	/* The landing half is a pointer, not a paste: it binds AFTER the subagent has
-	 * returned, when the dispatching session can read a file, whereas the dispatch
-	 * half has to be in the prompt at the moment the Agent call is written. */
 	it("points at the posting order rather than pasting it", () => {
 		const p = payload();
 		expect(p).toContain("Posting is the dispatching session's");
 		expect(p).toContain("`docs/agents/issue-tracker.md` §Research artefacts");
 	});
 
-	/* #1789: one sentence, worded as in the owner document, so a /wayfinder
-	 * dispatcher reads the same rule `rule:research-artefact-scratch` hands
-	 * everyone else. */
 	it("carries the owner document's job-sizing sentence word for word", () => {
 		const doc = fs.readFileSync(
 			path.join(ROOT, "docs", "agents", "issue-tracker.md"),
@@ -480,9 +382,6 @@ describe("the research-dispatch rule reaches a dispatching session (mantahostels
 		expect(payload()).toContain(sentence);
 	});
 
-	/* Everything else is spent on a command that does not dispatch research
-	 * itself. mantahostels#2499 gives /implement the `research-artefact-scratch` residue id
-	 * instead of the wayfinder-only pasted block; the other four carry neither. */
 	it.each(["triage", "to-spec", "to-tickets", "card-close"])(
 		"stays out of /%s entirely",
 		(cmd) => {
@@ -499,9 +398,6 @@ describe("the research-dispatch rule reaches a dispatching session (mantahostels
 	});
 });
 
-/* mantahostels#2585, off mantahostels#2577's ruling on the incident mantahostels#2564 records. The clause lives
- * here rather than in `.claude/skills/wayfinder/SKILL.md` because that file's
- * doc-map §A route is Vendored — an edit to it is lost on the next pull. */
 describe("the charting terminal condition reaches /wayfinder alone (mantahostels#2585)", () => {
 	const payload = () => inject("/wayfinder 2585");
 
@@ -512,8 +408,6 @@ describe("the charting terminal condition reaches /wayfinder alone (mantahostels
 		expect(p).toContain(
 			"every ticket you can specify now exists as a child issue",
 		);
-		// "wired" alone is unactionable: a session that fired the edge call has no
-		// evidence it took until it reads the edge back.
 		expect(p).toContain("their blocking edges are wired AND read back");
 		expect(p).toContain(
 			"every `wayfinder:research` ticket this run created is resolved and closed",
@@ -531,17 +425,12 @@ describe("the charting terminal condition reaches /wayfinder alone (mantahostels
 		expect(p).toContain(
 			"What runs next across sessions belongs to `/pick-next` and the frontier query",
 		);
-		// Without this half the clause reads as a gag on naming the order at all.
 		expect(p).toContain("Naming the next ticket in order is reporting");
-		// Without this the clause reads as barring a resolving session from
-		// choosing its own ticket, which SKILL.md's "Work through the map" step 2
-		// requires it to do — the inverse of the harm mantahostels#2577 §2 guards.
 		expect(p).toContain(
 			"Which ticket THIS session resolves is still yours to choose",
 		);
 	});
 
-	/* Every other command pays for the bytes and none of them charts. */
 	it.each([
 		"implement",
 		"triage",
@@ -557,7 +446,6 @@ describe("the charting terminal condition reaches /wayfinder alone (mantahostels
 });
 
 describe("the review-axis Artefact paths are session-scoped (mantahostels#2220)", () => {
-	/** Run the hook for /<cmd> under a given session id. */
 	const withSession = (cmd: string, session: string) =>
 		run({
 			prompt: `/${cmd} 2220`,
@@ -594,9 +482,6 @@ describe("the review-axis Artefact paths are session-scoped (mantahostels#2220)"
 		},
 	);
 
-	// No session id at all — e.g. a payload malformed upstream of this hook —
-	// falls back to the bare name rather than emitting a literal "-undefined"
-	// or an empty-but-hyphenated path.
 	it("falls back to the bare filename with no session id available", () => {
 		const ctx = run({
 			prompt: "/code-review 2220",
@@ -717,17 +602,10 @@ describe("the rules that were already here", () => {
 	it("still gives /code-review the disposition rule alone, without the tracker pointers", () => {
 		const ctx = inject("/code-review");
 		expect(ctx).toContain("EVERY REVIEW FINDING NEEDS A DESTINATION");
-		// It files an issue only where a finding needs one, so the placement and
-		// labelling rules would cost more context than the one rule it is missing.
-		// Both strings below are the CURRENT frame text: a `not.toContain` on
-		// wording the injector has retired passes vacuously.
 		expect(ctx).not.toContain("THE TRACKER RULES ARE NOT BELOW");
 		expect(ctx).not.toContain("Below is this command's index");
 	});
 
-	// The vendored code-review skill does not say how to dispatch its two axes,
-	// so a hook is the only thing carrying it: this one for a typed /code-review,
-	// scripts/lib/review-rules.js for the review /implement loads as a skill.
 	it("tells /code-review how to dispatch its two review axes", () => {
 		expect(inject("/code-review")).toContain("code-reviewer");
 	});
@@ -743,21 +621,11 @@ describe("the rules that were already here", () => {
 	});
 
 	it("does not fire on a bare mention of a command name in prose", () => {
-		// The gate is a word-boundary match on a leading slash, so discussing the
-		// command must not inject the rules into an unrelated session.
 		expect(inject("I was reading about the wayfinder skill today")).toBe("");
 	});
 });
 
-/*
- * mantahostels#1009 — the reviewer-model pin (docs/effort-guide.md) is one value,
- * written once (#1697): docs/agents/rules/review-dispatch-shape.txt, which
- * this hook and scripts/concision-backstop.sh's Stop nag print. The concision
- * pass's own fresh-reader pin, a different value, is spelled in those two and in
- * .claude/skills/concision-pass/SKILL.md §3 (mantahostels#2635).
- */
 describe("the reviewer-model pin (mantahostels#1009)", () => {
-	/** The reviewer `model: "..."` the dispatch fragment pins on both axes. */
 	const readReviewerModel = (): string => {
 		const found = [
 			...readRuleText("review-dispatch-shape").matchAll(
@@ -770,11 +638,6 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 		return found[0];
 	};
 
-	/**
-	 * The concision pass's fresh-reader pin (mantahostels#2614), restated in the
-	 * backstop's code nag and the closing-steps fragment, and drifting the same
-	 * way if only one is edited.
-	 */
 	const concisionModel = (text: string, where: string): string => {
 		const found = [
 			...text.matchAll(/fresh-reader agents on \\?`model: \\?"([^"\\]+)\\?"/g),
@@ -789,8 +652,6 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 		);
 	});
 
-	// #1621 — the escalated tier's briefs defer to the axes' pin, so a reviewer
-	// model change stays the four lockstep edits docs/effort-guide.md names.
 	it.each(["review-focused-run", "review-attacker-run"])(
 		"is named nowhere in the %s brief",
 		(id) => {
@@ -802,12 +663,6 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 		},
 	);
 
-	// mantahostels#2614 — the concision pass judged prose on the reviewer's model because
-	// its dispatch named none and sat beside this one. Both strings now pin it,
-	// and Haiku is the value docs/effort-guide.md's dispatch table names, so
-	// anything else is the drift this exists to catch. The pin rides in
-	// `rule:implement-closing-steps`, which the backstop prints to /implement
-	// sessions alone.
 	it("pins the concision pass's own reader to Haiku, in both strings", () => {
 		const backstop = fs.readFileSync(
 			path.join(ROOT, "scripts", "concision-backstop.sh"),
@@ -822,9 +677,6 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 		).toBe("haiku");
 	});
 
-	// The concision helper matches on wording around its pin, so a second pin
-	// added in a new sentence — the mantahostels#2614 copy-paste shape — would pass
-	// unseen, as would a reviewer pin copied back out of the fragment.
 	it.each([
 		[
 			"concision-backstop.sh",
@@ -864,7 +716,6 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 		);
 	});
 
-	// The same literal count the backstop and the fragment get above.
 	it("carries exactly the one known model literal in that skill file", () => {
 		const skill = fs.readFileSync(
 			path.join(ROOT, ".claude/skills/concision-pass/SKILL.md"),
@@ -875,10 +726,6 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 	});
 });
 
-/*
- * #1618, #1697 — the dispatch sentence and its run count live once, in the
- * fragment, and both scripts print it.
- */
 describe("the review dispatch sentence (#1618, #1697)", () => {
 	const runCount =
 		"two `Agent` tool calls, or three or four on an escalated or mission-critical change";
@@ -943,17 +790,8 @@ describe("a rule store that cannot supply the dispatch shape (#3514)", () => {
 	});
 });
 
-/*
- * #1697 — the dispatcher's inject-review-tier core fires on the Skill tool
- * alone, so a /code-review the founder types reaches it only through this
- * hook's /code-review arm, which runs it alone on a Skill payload of its own
- * making.
- */
 describe("a typed /code-review takes the Skill route's review tier (#1697)", () => {
 	const tierHook = path.join(ROOT, "scripts", "guard-dispatch.js");
-	/* The injector drops a repeat of one session's command inside 60 s, so each
-	 * call takes its own id; the first 8 characters, which name the Artefact
-	 * paths, stay the same. */
 	let calls = 0;
 	const sid = () => `16970000-${++calls}`;
 	const rls = {
@@ -1007,7 +845,6 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 			{ reviewTier: tierPort(hook) },
 		);
 
-	/** What the Skill route injects for the same change. */
 	const readSkillRouteContext = (): string => {
 		const r = runInProcess(tierHook, ["--only", "inject-review-tier"], {
 			stdin: JSON.stringify({
@@ -1081,13 +918,10 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 		expect(typed()).toContain(readRuleText("review-sensitive-undeclared"));
 	});
 
-	// #2386: the tier core reads the worktree from the payload's cwd, which
-	// this hook's own Skill payload must carry.
 	it("reads a change staged in a linked worktree the session works in (#2386)", () => {
 		declare([rls]);
 		const tree = path.join(repo, ".claude", "worktrees", "wt");
 		git("worktree", "add", "-q", "--detach", tree);
-		/* The session's own tree carries the declaration it is judged by (#4242). */
 		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
 		fs.copyFileSync(
 			path.join(repo, ".claude", "workflow-core.json"),
@@ -1117,12 +951,6 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 	});
 });
 
-/*
- * The deviations record (mantahostels#1242). The WRITE half reaches a builder, and the READ
- * half the review. Since mantahostels#3451 both reach /implement's review through
- * scripts/lib/review-rules.js, whose test covers them; a typed /code-review
- * takes the READ half here.
- */
 describe("the deviations record (mantahostels#1242)", () => {
 	it("tells /code-review's Spec axis to read it", () => {
 		const ctx = inject("/code-review");
@@ -1132,9 +960,6 @@ describe("the deviations record (mantahostels#1242)", () => {
 		expect(ctx).toContain("Declared departures");
 	});
 
-	// Cole's source says the reviewer "should not flag" a documented deviation;
-	// mantahostels#1163 ruled that out here, so the injected text must say the record is
-	// reported separately rather than swallowed.
 	it("says the record is never suppressed", () => {
 		expect(inject("/code-review")).toContain("never suppressed");
 	});
@@ -1149,19 +974,6 @@ describe("the deviations record (mantahostels#1242)", () => {
 	});
 });
 
-/*
- * mantahostels#1011 — the Standards axis finds its standards only because this
- * hook names the paths (mantahostels#992): the base at the resolved core root
- * and the host's local docs/code-standards.md.
- *
- * The texts are restated in three places — this hook's `standards`, reached
- * from the /code-review branch, the four `review-standards-axis*` fragments
- * lib/review-rules.js hands a Skill-loaded review, and
- * scripts/concision-backstop.sh's Stop nag. A rename that misses one leaves
- * that route pointing at nothing, silently. This describe holds the hook and
- * one fragment; guard-review-rules.test.ts holds all four fragments, and
- * concision-backstop.test.ts the nag.
- */
 describe("the code-standards pointer (mantahostels#1011)", () => {
 	const standardsDoc = "docs/code-standards.md";
 
@@ -1182,9 +994,6 @@ describe("the code-standards pointer (mantahostels#1011)", () => {
 	});
 });
 
-/*
- * The base is looked for at WFC_SCRIPT_ROOT, the core root this hook resolves.
- */
 describe("the standards base and local file (#965)", () => {
 	let host: string;
 	let core: string;
@@ -1215,8 +1024,6 @@ describe("the standards base and local file (#965)", () => {
 			`Hand the Standards axis, in its prompt, base \`${basePath()}\` and local \`docs/code-standards.md\`.`,
 		);
 		expect(ctx).toContain('"§X2 (base), excepted by local row 2"');
-		// A local file still on the old heading keeps its smells unraised
-		// (mantahostels#994).
 		expect(ctx).toContain('"Smells not raised" (or "Suppressions")');
 		expect(ctx).toContain("`Base unreadable: <path>`");
 		expect(ctx).not.toContain("No standards base");
@@ -1253,7 +1060,6 @@ describe("the standards base and local file (#965)", () => {
 		expect(ctx).toContain(
 			`its report opening \`No standards base or local file: ${basePath()} and docs/code-standards.md are absent.\``,
 		);
-		// #886's line, which this replaces.
 		expect(ctx).not.toContain(
 			"No standards file: docs/code-standards.md is absent.",
 		);
@@ -1294,7 +1100,6 @@ describe("the standards base and local file (#965)", () => {
  * rules reach the session by no other route.
  */
 describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", () => {
-	/** One firing, keyed to a session id the way a real payload is. */
 	const fire = (
 		session: string,
 		prompt: string,
@@ -1306,10 +1111,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 	) =>
 		run({ prompt, hook_event_name: event, session_id: session, ...extra }, env);
 
-	/**
-	 * The marker whose existence suppresses the second firing. Its mtime is the
-	 * firing time, so a case ages one by rewriting that rather than by waiting.
-	 */
 	const marker = (session: string, cmd: string) =>
 		path.join(
 			SCRATCH,
@@ -1317,7 +1118,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 			`${session}.${cmd}`,
 		);
 
-	/** Move a marker's mtime back by `seconds`. */
 	const age = (file: string, seconds: number) => {
 		const t = NOW - seconds;
 		fs.utimesSync(file, t, t);
@@ -1332,7 +1132,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 	});
 
 	it("suppresses in either firing order", () => {
-		// Nothing guarantees which event reaches the hook first.
 		const s = "dup-reversed";
 		expect(fire(s, "/wayfinder 1117", "UserPromptSubmit")).toContain(
 			"PRICED OPTIONS",
@@ -1340,11 +1139,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 		expect(fire(s, "/wayfinder 1117", "SessionStart")).toBe("");
 	});
 
-	// Both sides of the window are pinned: a window of 1 second and a window of an
-	// hour each pass a suite that only ever fires the pair back-to-back. Held a
-	// few seconds off the boundary itself, an mtime being whole seconds — a case
-	// aged to exactly the window lands either side of it depending on where in
-	// the second it ran.
 	it("still suppresses a firing just inside the window", () => {
 		const s = "just-inside";
 		expect(fire(s, "/implement 1117", "SessionStart")).toContain("PRICED");
@@ -1359,9 +1153,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 		expect(fire(s, "/implement 1117")).toContain("PRICED OPTIONS");
 	});
 
-	// A SessionStart on a compaction boundary must NEVER be suppressed: the
-	// payload has just been summarised out of the session's context, so the
-	// session no longer holds it.
 	it.each(["compact", "clear", "resume"])(
 		"never suppresses a SessionStart whose source is %s",
 		(source) => {
@@ -1374,8 +1165,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 	);
 
 	it("records nothing for a firing whose source is exempt", () => {
-		// A marker written by an exempt firing would suppress the ordinary firing
-		// that follows it, which is the under-injection this whole hook guards.
 		const s = "compact-records-nothing";
 		expect(
 			fire(s, "/implement 1117", "SessionStart", {
@@ -1389,8 +1178,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 		const s = "two-commands";
 		expect(fire(s, "/implement 1117")).toContain("PRICED OPTIONS");
 		expect(fire(s, "/wayfinder 1117")).toContain("You invoked /wayfinder");
-		// And the first command is still suppressed: recording the second must not
-		// clear the marker the first wrote.
 		expect(fire(s, "/implement 1117")).toBe("");
 	});
 
@@ -1399,9 +1186,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 		expect(fire("session-two", "/implement 1117")).toContain("PRICED OPTIONS");
 	});
 
-	// The payload is a function of which command matched and nothing else, so the
-	// firing that is dropped carried text byte-identical to the one the session
-	// kept.
 	it("suppresses only a byte-identical payload", () => {
 		const first = fire("identical-a", "/implement 1117", "SessionStart");
 		const second = fire("identical-b", "/implement 1117 with more detail");
@@ -1409,7 +1193,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 	});
 
 	describe("every failure path injects rather than withholding", () => {
-		// A firing that builds no text takes no marker, so the next one injects.
 		it("leaves the marker free where a firing fails before its text exists", () => {
 			const payload = {
 				prompt: "/implement 1117",
@@ -1438,7 +1221,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 		];
 
 		it("injects both times when the payload carries no session id", () => {
-			// Nothing to key on, so the hook cannot tell a duplicate from a repeat.
 			const p = { prompt: "/implement 1117", hook_event_name: "SessionStart" };
 			expect(run(p)).toContain("PRICED OPTIONS");
 			expect(run({ ...p, hook_event_name: "UserPromptSubmit" })).toContain(
@@ -1447,7 +1229,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 		});
 
 		it("injects both times when the marker cannot be written", () => {
-			// TMPDIR pointed at a regular file, so the mkdir fails.
 			const blocked = path.join(SCRATCH, "not-a-dir");
 			fs.writeFileSync(blocked, "");
 			for (const out of twice("unwritable", { TMPDIR: blocked })) {
@@ -1456,9 +1237,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 		});
 
 		it("injects when a marker is dated in the future", () => {
-			// A WSL2 guest clock stepping back after a host suspend leaves markers
-			// ahead of `now`. Read unsigned, the window would call them recent
-			// forever and the command would be dead for the rest of the session.
 			const s = "future-marker";
 			expect(fire(s, "/implement 1117", "SessionStart")).toContain("PRICED");
 			age(marker(s, "implement"), -3600);
@@ -1466,8 +1244,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 		});
 
 		it("keeps a session id from escaping the scratch directory", () => {
-			// The id reaches the filesystem as a path segment. Traversal would put
-			// the marker somewhere the sweep never visits — or over a real file.
 			expect(fire("../../escape", "/implement 1117")).toContain("PRICED");
 			const dir = path.join(
 				SCRATCH,
@@ -1512,8 +1288,6 @@ describe("every command's payload lands whole, under the cut (mantahostels#1870)
 		expect(inject(`/${cmd} 1870`).length).toBeLessThan(PERSIST_CHARS);
 	});
 
-	/* The whole priced-options shape is in no union the budget check sums, so
-	 * this is its only bound (#2039). */
 	it.each(allCommands)(
 		"keeps /%s under it with the whole priced-options shape",
 		(cmd) => {
@@ -1527,9 +1301,6 @@ describe("every command's payload lands whole, under the cut (mantahostels#1870)
 		expect(inject(`/${cmd} 1870`)).toContain(pricedRule);
 	});
 
-	/* The `**Bound:**`, `**Values:**` and `**Practice:**` lines, likewise: mantahostels#1844 could only assert it survived a
-	 * preview. Every command but /code-review can resolve a ticket, and
-	 * resolve-ticket refuses a comment missing any of them (#1801, #2325). */
 	it.each(allCommands.filter((c) => c !== "code-review"))(
 		"delivers the `**Bound:**`, `**Values:**` and `**Practice:**` lines to /%s",
 		(cmd) => {
@@ -1546,15 +1317,6 @@ describe("every command's payload lands whole, under the cut (mantahostels#1870)
 });
 
 describe("the residue index replaces both full-document pointers (mantahostels#2499)", () => {
-	/*
-	 * mantahostels#1870 pointed six commands at both tracker documents in full, measured
-	 * followed 10.2%-38.1% of the time. mantahostels#2497 then routed every rule WITH an
-	 * observable `gh` Bash shape to lib/tracker-rules.js, printed at the call
-	 * that engages it. What mantahostels#2499 does: the two document pointers are gone, and
-	 * what is left of each document — a rule with no such shape — is named in a
-	 * per-command index instead, an id and the moment it binds, fetched with
-	 * `scripts/lib/rule-text.sh <id>` only when that moment arrives.
-	 */
 	const sixCommands = [
 		"wayfinder",
 		"to-spec",
@@ -1564,8 +1326,6 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		"card-close",
 	];
 
-	/* Each command's payload, run once and read by every case below: with no
-	 * session id the hook keeps no marker, so a rerun returns the same bytes. */
 	const payloads = new Map<string, string>();
 	const injected = (cmd: string): string => {
 		let ctx = payloads.get(cmd);
@@ -1583,8 +1343,6 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		expect(ctx).toContain("docs/agents/triage-labels.md");
 	});
 
-	/* mantahostels#1118's line, carried verbatim — part of the measured result, not
-	 * decoration. */
 	it.each(sixCommands)(
 		"carries mantahostels#1118's never-act-from-memory line verbatim on /%s",
 		(cmd) => {
@@ -1594,8 +1352,6 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		},
 	);
 
-	/* Every index entry names an observable trigger — never the rule's own
-	 * content, which lives only in docs/agents/rules/<id>.txt. */
 	it.each(sixCommands)(
 		"names an id and a moment, never a rule's content, on /%s",
 		(cmd) => {
@@ -1606,13 +1362,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		},
 	);
 
-	/*
-	 * Every residue id this ticket added, and which commands' index carries it.
-	 * The list is the per-command assignment, written out here rather than read
-	 * from lib/tracker-inject-text.js's INDEX, the one place it is authored.
-	 */
 	const ruleOwners: Record<string, string[]> = {
-		/* lib/tracker-rules.js prints it on each shape it names (#2023). */
 		"gh-cli-limits": [],
 		"roadmap-gating": ["wayfinder", "implement", "triage"],
 		"card-close-route": ["implement"],
@@ -1636,17 +1386,11 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		},
 	);
 
-	/* Every id named anywhere in the index answers to a real, non-empty
-	 * fragment — the whole point of routing by id rather than pasting text. */
 	it("names only ids docs/agents/rules/ actually answers", () => {
-		/* Through readRuleText, which throws on an id with no fragment, so the
-		 * selector's rule-id pass attributes each fragment (base §X10). */
 		for (const id of Object.keys(ruleOwners))
 			expect(readRuleText(id).trim().length, id).toBeGreaterThan(0);
 	});
 
-	/* THE TWO GUARD-ENFORCED ACTS STAY OUT OF THE INDEX — a session that trips
-	 * either learns it from the guard's own deny, not from a line here. */
 	it.each(sixCommands)(
 		"keeps the two guard-enforced acts out of /%s's index",
 		(cmd) => {
@@ -1656,8 +1400,6 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		},
 	);
 
-	/* THE FOREGROUND LINE REPLACED THE BACKGROUND-EVERY-`gh`-CALL RULE (#523):
-	 * pinned both ways, so neither the retirement nor the paste can regress. */
 	it.each(sixCommands)(
 		"pastes the foreground re-run line, not the background rule, into /%s",
 		(cmd) => {
@@ -1670,9 +1412,6 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		},
 	);
 
-	/* THE FETCH COMMAND ITSELF MUST BE IN THE INJECTED TEXT, not only in a
-	 * comment a session never sees — mantahostels#2499's own body names it: "The index
-	 * tells a session to fetch with `scripts/lib/rule-text.sh <id> [<id>…]`". */
 	it.each(sixCommands)(
 		"names the fetch command in /%s's own payload, not just a comment",
 		(cmd) => {
@@ -1682,11 +1421,6 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		},
 	);
 
-	/* THE PASTED SET IS UNCHANGED (the ticket's own acceptance criterion): the
-	 * header's three overrides, the priced-options shape, /code-review's five
-	 * rules, /implement's opening step and the `**Bound:**` pointer are all
-	 * covered by other describe blocks in this file — this one only re-checks
-	 * that dropping the two document pointers left them alone. */
 	it("still gives /implement its opening step alongside the new index", () => {
 		const ctx = injected("implement");
 		expect(ctx).toContain("`## Parent`");
@@ -1699,19 +1433,12 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		expect(ctx).toContain("THE TRACKER RULES ARE NOT BELOW");
 	});
 
-	/* The margin gate's own binding case — asserted here too, in units
-	 * scripts/check-injector-margin.js already prices, so a regression on this
-	 * one command fails a test rather than only a pre-commit hook. */
 	it("keeps /implement's payload the margin gate's tight headroom under the threshold", () => {
 		expect(injected("implement").length).toBeLessThan(
 			PERSIST_CHARS - TIGHT_HEADROOM_CHARS,
 		);
 	});
 
-	/* Neither pointer reads a repo file, so the payload cannot vary with where
-	 * the hook thinks the repo is — asserted as BYTE EQUALITY against a project
-	 * root that holds only the output style setting, which picks the
-	 * priced-options form (#2039). */
 	it("emits the same bytes whatever project root it is pointed at", () => {
 		const empty = fs.mkdtempSync(path.join(os.tmpdir(), "no-docs-"));
 		fs.mkdirSync(path.join(empty, ".claude"));
@@ -1730,18 +1457,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	});
 });
 
-/*
- * In an adopter the plugin's commands arrive namespaced — `/workflow-core:wayfinder`,
- * the spelling Claude Code's own menu produces for a plugin command. Only this
- * repo, which also holds the commands locally, sees the bare `/wayfinder`.
- *
- * Matching bare-only dropped the entire payload for such a session, silently
- * (#201).
- */
 describe("the plugin namespace on a command is optional (#201)", () => {
-	/* Every entry of the hook's own COMMANDS, `code-review` included — it takes
-	 * an early branch of its own, so a list short of it leaves that branch
-	 * untested for the namespaced spelling. */
 	const namespacedCommands = [
 		"wayfinder",
 		"to-spec",
@@ -1752,9 +1468,6 @@ describe("the plugin namespace on a command is optional (#201)", () => {
 		"code-review",
 	];
 
-	/* The non-empty assertion is inside the loop, not beside it: `inject`
-	 * returns "" on no match, so an equality against the bare spelling alone
-	 * would pass on two empties. */
 	it.each(namespacedCommands)(
 		"injects for /workflow-core:%s exactly as for the bare spelling",
 		(cmd) => {
@@ -1764,14 +1477,10 @@ describe("the plugin namespace on a command is optional (#201)", () => {
 		},
 	);
 
-	/* `workflow-core` is the PLUGIN's name, which whoever ships the plugin sets
-	 * in plugin.json — so a hardcoded prefix would fix this repo and no fork. */
 	it("accepts any plugin name as the prefix, not only workflow-core", () => {
 		expect(inject("/my-fork:implement 201")).toBe(inject("/implement 201"));
 	});
 
-	/* The optional prefix must not have loosened the word boundary the bare
-	 * match already guaranteed. */
 	it("still refuses a command that is only part of a longer word", () => {
 		expect(inject("/workflow-core:implementation 201")).toBe("");
 		expect(inject("read docs/implement-notes")).toBe("");
@@ -1803,7 +1512,6 @@ describe("the tracker frame in a plugin install (#1010)", () => {
 });
 
 describe("a command typed on an issue labelled for another (#1164)", () => {
-	/* The contract test holds this fake to the production adapter. */
 	let label = "";
 	let fake = takesPort(() => label);
 	beforeEach(() => {

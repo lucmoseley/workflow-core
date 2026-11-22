@@ -1,17 +1,3 @@
-/*
- * npm-install-host.js — the production ports the dispatcher wires into the
- * guard-npm-install core, lib/npm-install.js (#2800, #3226).
- *
- * THE SEAMS. WFC_NPM and WFC_CURL name the two registry programs
- * (lib/npm-bin.js, lib/registry-call.js).
- *
- * THE TIMEOUTS. `npm view` gets 12 s and curl 8 s, both its own `--max-time`
- * and the spawn's: 20 s a package, which the core's 30 s budget is sized
- * against under the hook's 60 s ceiling (lib/package-vetting.js). Both are guesses, never measured,
- * carried from the bash guard that set them at #1803: generous beside a
- * registry answer's usual second or so.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -20,13 +6,13 @@ const { npmBin } = require("./npm-bin.js");
 const { call, curlBin } = require("./registry-call.js");
 const { STORES } = require("./worktree-dirs.js");
 
+// guess, lucmoseley/mantahostels#1803
 const NPM_TIMEOUT_MS = 12_000;
+// guess, lucmoseley/mantahostels#1803
 const CURL_MAX_TIME_S = 8;
 
 /**
- * The dependency stores are the host root's; the session tree's package.json
- * and manifests the core reads through its tree ports (#4242).
- * @param {{ root: string }} env `root` is the host root
+ * @param {{ root: string }} env
  * @returns {import("./npm-install.js").NpmInstallPorts
  *   & import("./package-vetting.js").VettingPorts}
  */
@@ -39,8 +25,6 @@ function buildHostPorts({ root }) {
 			try {
 				return fs.readlinkSync(p);
 			} catch (err) {
-				/* Absent, or no link: nothing links there (#4255). Any other
-				 * fault throws, and the entry refuses on the record. */
 				const code = caught(err).code;
 				if (code === "ENOENT" || code === "EINVAL") return null;
 				throw err;

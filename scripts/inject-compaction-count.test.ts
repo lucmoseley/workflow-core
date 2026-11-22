@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * inject-compaction-count.test.ts — the compact-time autocompaction count
- * (#1148), driven as the harness drives it: a PreCompact payload, then a
- * SessionStart:compact one.
- *
- * Both hooks and the ceiling guard's Stop run in process over a transcript
- * written to a temp dir, so the count is read off real `compact_boundary`
- * records and the set the guard settles is the one the hook wrote.
- *
- * The hook is registered on `PreCompact` and `SessionStart` in
- * .claude/settings.json: break a case here and a session is told a wrong
- * compaction count, or none, and judges its own ceiling on it.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -82,7 +69,6 @@ const exec = (script: string, payload: object) => {
 
 const preCompact = (trigger: string) =>
 	exec(HOOK, { hook_event_name: "PreCompact", trigger });
-/** What the model is told after a compaction, or "" for silence. */
 const afterCompact = (source = "compact", extra: object = {}) => {
 	const out = exec(HOOK, {
 		hook_event_name: "SessionStart",
@@ -111,8 +97,6 @@ describe("after an autocompaction", () => {
 		expect(afterCompact()).toContain("autocompacted 1 time.");
 	});
 
-	/* Its boundary reaches the transcript only after the hook has run, so the
-	 * guard's next Stop is where the set swaps the pending key for it. */
 	it("keeps the same count once the ceiling guard's Stop has read the new boundary", () => {
 		writeTranscript([boundary("c1"), usage]);
 		preCompact("auto");
@@ -136,8 +120,6 @@ describe("after an autocompaction", () => {
 	});
 });
 
-/* A subagent's compaction carries its parent's session id, and its agent_id
- * (#1785, #1837). */
 describe("a subagent's compaction leaves the parent's count as it was", () => {
 	const subagentCompacts = () => {
 		const { preCompact: pre, sessionStart: start } = compactPayloads({
@@ -176,8 +158,6 @@ describe("a subagent's compaction leaves the parent's count as it was", () => {
 	});
 });
 
-/* The claim the session took with claim-issue.js, recorded in the sandbox's
- * store as the hook will read it. */
 const claim = (issue: number) => {
 	const vars = Object.entries(sandboxVars());
 	const saved = vars.map(([k]) => [k, process.env[k]] as const);
@@ -196,7 +176,6 @@ const writeStateFile = (issue: number) => {
 	fs.mkdirSync(path.dirname(stateFile(issue)), { recursive: true });
 	fs.writeFileSync(stateFile(issue), "{}");
 };
-/** What the model is told at the `n`th autocompaction. */
 const toldAt = (n: number) => {
 	writeTranscript([
 		...Array.from({ length: n - 1 }, (_, i) => boundary(`c${i}`)),

@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that link-blocker.js makes a blocker link only where it closes no loop
- * of open issues waiting on each other (#5070): a loop-closing link exits 3
- * with nothing POSTed, naming each link, a foreign one by its full
- * reference; a link that closes none resolves the blocker's id itself, POSTs
- * it with -F and verifies in a separate read; a self-link is refused before
- * any read; an unread graph links anyway, warning; `--json` names each
- * failure's reason (#5096); a new edge, and only that, records a block act
- * (#5399). Broken, it lets a
- * loop-closing blocker link through, and every issue in that loop stays open
- * for good.
- *
- * The oracle is a stubbed `gh` at WFC_GH logging each argv; the program runs
- * in-process.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -43,10 +28,8 @@ interface Row {
 }
 
 interface Gh {
-	/** The wait graph's links, by `owner/name#n`; no links where unset. */
 	graph?: Record<string, { blockedBy?: Row[]; subIssues?: Row[] }>;
 	graphFails?: boolean;
-	/** What the blocked issue's canonical list names, once read. */
 	listed?: { number: number; repo: string }[];
 	postFails?: boolean;
 }
@@ -129,8 +112,6 @@ afterEach(() => {
 });
 
 describe("link-blocker.js", () => {
-	/* #5055's shape: o/r#3864 blocked by m/t#4891, which waits on its child
-	 * m/t#4893; the new link makes m/t#4893 blocked by o/r#3864. */
 	const loop: Gh["graph"] = {
 		"o/r#3864": { blockedBy: [{ number: 4891, state: "open", repo: "m/t" }] },
 		"m/t#4891": { subIssues: [{ number: 4893, state: "open", repo: "m/t" }] },

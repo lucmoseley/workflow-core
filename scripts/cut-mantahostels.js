@@ -1,44 +1,4 @@
 #!/usr/bin/env node
-/*
- * cut-mantahostels.js — performs the whole cut that makes mantahostels the
- * core's second adopter, in one commit: its own copies of the machinery are
- * deleted and it runs the agent workflow from a pinned workflow-core release
- * (#423, under the spec #412; ruled #393, #397, #399, #400).
- *
- * Usage:
- *   node scripts/cut-mantahostels.js --pin <tag> [--root <dir>] [--config-dir <dir>]
- *   node scripts/cut-mantahostels.js --plugin-root <dir> [--root <dir>] [--spec <file>]
- *
- * RUN IT FROM A TERMINAL OR A workflow-core SESSION, NEVER FROM INSIDE
- * mantahostels: it refuses while any process's working directory is inside
- * `--root` (default `~/mantahostels`) or one of its worktrees, because a live
- * Manta session would have its hooks swapped underneath it (spec stories 7-8).
- *
- * `--pin` installs the plugin at project scope from the core's git url at that
- * tag, and points the hooks at the install. `--plugin-root` skips the install
- * and uses a directory as the plugin, which is how the cut is proved against a
- * throwaway clone without touching this machine's plugin registry. `--spec`
- * replaces the built-in MANTA spec below, for the test's fixture repo only.
- *
- * WHAT IT DOES, IN ORDER: plans and refuses on anything it cannot do cleanly,
- * writing nothing; prints the rollback recipe; tags `pre-wfc-cut`; makes every
- * edit; runs the plugin's own `init-adopter.js` for the plugin-side writes (the
- * seven hooks, `core.hooksPath`, `.claude/workflow-core.md`, the settings keys,
- * the roadmap digest, doc-map §A); checks the guard registry; commits once,
- * through the plugin-pointed pre-commit stack.
- *
- * THE MANTA-SPECIFIC FACTS ARE IN `MANTA`, and nowhere else. The sets file
- * (`docs/research/wfc-cut-sets.json`, mantahostels' #422 report) supplies what
- * is deleted; MANTA supplies the corrections #423 owns on top of it.
- *
- * Left behind by the release build (lib/plugin-tree.js): it acts on one
- * adopter, once, and ships to none.
- *
- * Joins no §N3 family: it mutates another repository and commits there.
- *
- * EXITS 0 cut committed / 1 refused or failed, naming why and how to recover /
- * 2 the arguments are wrong.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -71,7 +31,7 @@ const {
 	CliExit,
 	flagValue,
 } = require("./lib/cli-args");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 
 const TAG = "pre-wfc-cut";
 const MARKETPLACE = "workflow-core";
@@ -79,42 +39,34 @@ const CORE_URL = `https://github.com/${UPSTREAM_CODE_REPO}.git`;
 
 /**
  * @typedef {{path: string, find: string | {from: string, through: string},
- *   replace: string}} Edit exactly one occurrence of `find` (or of the span
- *   from `from` through `through`) becomes `replace`, else the cut refuses
+ *   replace: string}} Edit
  */
 
 /**
  * @typedef {object} Spec
- * @property {string} setsFile the #422 sets, repo-relative
- * @property {string} claudeMdBase the commit CLAUDE.md's line numbers are read at
+ * @property {string} setsFile
+ * @property {string} claudeMdBase
  * @property {{remove: [number, number][], replace: {line: number, find: string,
  *   with: string}[], insertAfter: {line: number, text: string}[]}} claudeMd
- * @property {string[]} keep paths the sets delete that the cut keeps
- * @property {Record<string, string>} move deleted paths the cut moves instead
- * @property {string[]} deleteAlso paths outside the sets the cut deletes
+ * @property {string[]} keep
+ * @property {Record<string, string>} move
+ * @property {string[]} deleteAlso
  * @property {Edit[]} edits
- * @property {Record<string, string|null>} packageScripts set, or null to drop
- * @property {Record<string, string|null>} packageComments `comments` keys, likewise
- * @property {Record<string, string>} docMapRoles sidecar row → its `role`
- * @property {Record<string, Record<string, string|null>>} register new sidecar rows
- * @property {Record<string, unknown>} config `.claude/workflow-core.json`
- * @property {{from: string, startsWith: string, to: string, heading: string}}
- *   ranking the one paragraph lifted out of a deleted skill before it goes
- * @property {{to: string, anchors: string[], header: string}} localGates the
- *   pre-commit blocks moved into the adopter's own hook file (#434, #437)
- * @property {string[]} regenerate commands re-rendering what the edits staled,
- *   run after init with `$WFC_PLUGIN_ROOT` set
- * @property {string} minPin the lowest release a `--pin` may name
+ * @property {Record<string, string|null>} packageScripts
+ * @property {Record<string, string|null>} packageComments
+ * @property {Record<string, string>} docMapRoles
+ * @property {Record<string, Record<string, string|null>>} register
+ * @property {Record<string, unknown>} config
+ * @property {{from: string, startsWith: string, to: string, heading: string}} ranking
+ * @property {{to: string, anchors: string[], header: string}} localGates
+ * @property {string[]} regenerate
+ * @property {string} minPin
  * @property {string} commitMessage
  */
 
-/* Every fact here is mantahostels' at `bbcfa0259`, or the spec's at the commit
- * it names. */
 /** @type {Spec} */
 const MANTA = {
 	setsFile: "docs/research/wfc-cut-sets.json",
-	/* Spec §Implementation Decisions: "removes lines 16-23, 40, 45-73, 76, 78,
-	 * 83-92, 94-95, 98-148 (at `7c7678c18`)" (#397). */
 	claudeMdBase: "7c7678c18",
 	claudeMd: {
 		remove: [
@@ -148,13 +100,7 @@ const MANTA = {
 		],
 	},
 	keep: [
-		/* check-snapshot-restatements.js reads it by path, and the core never
-		 * ships it (plugin-tree.js LEFT_BEHIND). */
 		"scripts/snapshot-memory.sh",
-		/* The sets keep the vendored helpers but delete what they spawn or
-		 * source: generate-doc-pages.js spawns register-doc.js,
-		 * doc-map-generator.js spawns the arbiter to claim for itself, and
-		 * guard-log.sh sources guard-root.sh. */
 		"scripts/register-doc.js",
 		"scripts/session-arbiter.js",
 		"scripts/lib/agent-liveness.js",
@@ -162,10 +108,7 @@ const MANTA = {
 		"scripts/lib/oracle-cache.js",
 		"scripts/lib/guard-root.sh",
 		"scripts/lib/rule-text.sh",
-		/* precommit-gate-harness.ts reads it from the repo root, to run the
-		 * local gates' blocks as the hook would. */
 		"scripts/lib/precommit-gate.sh",
-		/* The instruction-surface check reads its baseline from the host. */
 		"scripts/instruction-surface-anchors.json",
 	],
 	move: {
@@ -173,7 +116,6 @@ const MANTA = {
 			".claude/guard-registry-anchors.json",
 		"scripts/plugin-context-cost.json": ".claude/plugin-context-cost.json",
 	},
-	/* The sweeps the core already runs (#399). */
 	deleteAlso: [
 		".github/workflows/bisect.yml",
 		".github/workflows/issue-card-drift.yml",
@@ -221,10 +163,6 @@ const MANTA = {
 			replace:
 				'const NODE_SURFACE = [\n\t"scripts/check-website-copy.js",\n\t"scripts/check-website-copy.test.ts",\n];',
 		},
-		/* Two registry rules on core machinery Manta does not run: the suite
-		 * wrapper the packageScripts below replace with plain vitest, and
-		 * `npm run status`, whose script the sets delete. The registry check
-		 * refuses both as unwired. */
 		{
 			path: "docs/environment.md",
 			find: {
@@ -249,16 +187,12 @@ const MANTA = {
 			},
 			replace: "",
 		},
-		/* The local gates' suites read the hook file the gates now live in. */
 		{
 			path: "scripts/lib/precommit-gate-harness.ts",
 			find: '/** The live `.husky/pre-commit`. */\nexport const HOOK = fs.readFileSync(\n\tpath.join(ROOT, ".husky", "pre-commit"),',
 			replace:
 				'/** `.husky/pre-commit.local`, where this repo\'s own gates live (workflow-core#423). */\nexport const HOOK = fs.readFileSync(\n\tpath.join(ROOT, ".husky", "pre-commit.local"),',
 		},
-		/* The retro-edit gate is the core's now, and the core's hook sources the
-		 * local file after every core gate (#437), so the order holds by the
-		 * load point rather than by line. */
 		{
 			path: "scripts/precommit-compliance-version-gate.test.ts",
 			find: 'const RETRO = "scripts/check-append-only-retro-edit.js";\n',
@@ -273,16 +207,13 @@ const MANTA = {
 			replace: "});",
 		},
 	],
-	/* The runners the report says must be rewritten, not dropped: the core's
-	 * wrappers are gone and CI runs without the plugin (#422 census). */
 	packageScripts: {
 		pretest: null,
 		test: "NODE_OPTIONS=--max-old-space-size=2048 vitest run",
 		"test:changed":
 			"NODE_OPTIONS=--max-old-space-size=2048 vitest run --changed",
 		"test:py": "python3 -m pytest -n 2",
-		/* husky v9 rewrites core.hooksPath to `.husky/_` at every install, which
-		 * would undo the layout `init` sets (#422's "For #423"). */
+		/* #422 */
 		prepare: "git config core.hooksPath .husky",
 	},
 	packageComments: {
@@ -291,8 +222,6 @@ const MANTA = {
 		"scripts.prepare":
 			"Pins core.hooksPath to .husky, the layout workflow-core's init sets, whose hooks call the plugin's scripts. husky itself is no longer run: it would reset the path to .husky/_ at every npm install (workflow-core#423).",
 	},
-	/* #446 and #454: the core's doc-map kind map does not name these folders,
-	 * so each row carries its present rendered text itself. */
 	docMapRoles: {
 		"docs/brand-assets/*":
 			"Every file under `docs/brand-assets/` — brand assets",
@@ -372,12 +301,8 @@ const MANTA = {
 			".claude/workflow-core.md",
 		],
 		overrides: { output_style: ".claude/output-styles/manta-voice.md" },
-		/* It sends a session to the core's scripts/run-vitest.js, which Manta
-		 * does not have: its `npm run test` is plain vitest, because CI runs
-		 * without the plugin (#422's census). */
 		disabled: ["guard-vitest-wrapper"],
 	},
-	/* #450: mantahostels keeps that paragraph's text as its ranking file. */
 	ranking: {
 		from: ".claude/skills/pick-next/SKILL.md",
 		startsWith: "**Order by which factory step the work attacks.**",
@@ -400,26 +325,14 @@ const MANTA = {
 			"# JUSTIFIED: fail-safe — each refuses a duplicated compliance history row, a stale generated page or a tax-year breach\n" +
 			"# DEFEAT:    HUSKY=0 and `git -c core.hooksPath=`, as for every gate in .husky/pre-commit\n",
 	},
-	/* The generated doc pages render the sidecar and docs/environment.md, both
-	 * edited above. */
 	regenerate: [
 		"npm run gen:doc-pages",
-		/* #422's report hands the re-anchor to the cut: every guard and pool
-		 * file the core now supplies moved under the census. */
 		'node "$WFC_PLUGIN_ROOT/scripts/check-instruction-surface.js" --rebaseline --no-claim',
-		/* The sets delete the rule manifest and both docs it renders from, and
-		 * its gate refuses a missing manifest, so this writes it back with no
-		 * rules (#423's third clone proof). */
 		'node "$WFC_PLUGIN_ROOT/scripts/generate-rule-fragments.js"',
-		/* The deletions drop test files, so the reader manifest's gate would
-		 * refuse the commit as stale (#423's clone proof, #557). Staged first:
-		 * the generator sees tracked files only, and init's new files are
-		 * readers the commit will carry. As sweeping as the commit's own add,
-		 * and safe for the same reason: plan() refused an unclean tree. */
+		/* #557 */
 		'git add -A && node "$WFC_PLUGIN_ROOT/scripts/generate-test-read-edges.js"',
 	],
-	/* The first release whose doc-map gate passes the cut commit (#604); it
-	 * also carries #446-#452's config keys, which the cut writes. */
+	/* #604 */
 	minPin: "v1.1.19",
 	commitMessage:
 		"Run mantahostels' agent workflow from the pinned workflow-core release and delete its own copies of the machinery, so a fix lands once and reaches both repos (workflow-core#412)\n\n" +
@@ -468,8 +381,6 @@ function git(cwd, args, env) {
 class Refusal extends Error {}
 
 /**
- * Whether release tag `a` precedes `b`; a tag that is not `vX.Y.Z` precedes
- * everything, so a branch name is refused rather than trusted.
  * @param {string} a
  * @param {string} b
  */
@@ -504,11 +415,8 @@ function releaseParts(tag) {
 const tagExists = (root) => git(root, ["tag", "--list", TAG]).trim() === TAG;
 
 /**
- * Every process whose working directory is inside `root` or a worktree of it.
- * Residual (spec story 7): a process it cannot read — another user's — is
- * skipped, and with no `/proc` it sees nothing at all.
  * @param {string} root
- * @returns {string[]} one line per process
+ * @returns {string[]}
  */
 function readProcessesInside(root) {
 	const trees = worktreePaths((args) => git(root, args));
@@ -519,29 +427,23 @@ function readProcessesInside(root) {
 	for (const pid of fs.readdirSync(proc)) {
 		if (!/^\d+$/.test(pid)) continue;
 		const cwd = readProcCwd(pid, proc);
-		if (cwd === null) continue; // another user's process, or one that just exited
+		if (cwd === null) continue;
 		if (!inside(cwd)) continue;
-		let argv0 = "?";
-		try {
-			[argv0] = cutAt(fs.readFileSync(`${proc}/${pid}/cmdline`, "utf8"), "\0");
-		} catch {} // exited between the two reads; the cwd line still names it
+		const argv0 = orFallback(
+			() => cutAt(fs.readFileSync(`${proc}/${pid}/cmdline`, "utf8"), "\0")[0],
+			"?",
+		);
 		hits.push(`pid ${pid} (${argv0}) in ${cwd}`);
 	}
 	return hits;
 }
 
-/**
- * Tracked files at HEAD, repo-relative.
- * @param {string} root
- */
+/** @param {string} root */
 function readTrackedPaths(root) {
 	return git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
 }
 
 /**
- * The `if … fi` block of a hook containing the line that runs `anchor`, with
- * the comment lines directly above it — the same cut the pre-commit gate
- * harness makes, so a gate moves whole.
  * @param {string} hook
  * @param {string} anchor
  */
@@ -559,7 +461,6 @@ function cutBlock(hook, anchor) {
 		throw new Refusal(
 			`the block running \`${anchor}\` has no column-zero if … fi`,
 		);
-	// The comment lines directly above the `if` move with it.
 	const start =
 		lines.slice(0, opens).findLastIndex((l) => !l.startsWith("#")) + 1;
 	return lines.slice(start, end + 1).join("\n");
@@ -597,7 +498,6 @@ function applyEdit(text, change) {
 }
 
 /**
- * CLAUDE.md with the spec's line list applied, numbered at `claudeMdBase`.
  * @param {string} text
  * @param {Spec["claudeMd"]} claudeMdPlan
  */
@@ -623,28 +523,20 @@ function rewriteClaudeMd(text, claudeMdPlan) {
 
 const RELATIVE_IMPORT =
 	/(?:(?:require|import)\(\s*|from\s+)["'](\.{1,2}\/[^"']+)["']/g;
-/* The blanks after an arg sit either side of its comma, never both sides of a
- * missing one, so a long unclosed join is read once (#3605). */
+/* #3605 */
 const DIRNAME_JOIN =
 	/path\.(?:join|resolve)\(\s*__dirname\s*,\s*((?:["'][^"']+["']\s*(?:,\s*)?)+)\)/g;
 const QUOTED = /["']([^"']+)["']/g;
-/* A shell lib sourced from beside the script, in each spelling the hooks use.
- * The indent stops at a line break, the next line's `^` reading on from there,
- * so a long blank stretch is read once (#3383). */
+/* #3383 */
 const SOURCE_BESIDE =
 	/^[^\S\n\r\u2028\u2029]*(?:source|\.)\s+"(?:\$\{BASH_SOURCE\[0\]%\/\*\}|\$here|\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\))\/([^"$]+)"/gm;
 const SCRIPT_PATH =
 	/(?:^|[\s"'}/])(scripts\/[\w./-]+\.(?:js|cjs|mjs|sh|py|ts))/g;
 
 /**
- * References in `text` that resolve to a file the cut deletes and to nothing it
- * keeps: a relative import, a `path.join(__dirname, …)` of literals (a script
- * spawned by path), or a shell `source` beside the file. A target that never
- * existed is not the cut's doing — the patterns also match inside strings and
- * comments.
- * @param {string} from repo-relative path of the importing file
+ * @param {string} from
  * @param {string} text
- * @param {Set<string>} survivors every path the cut leaves tracked
+ * @param {Set<string>} survivors
  * @param {Set<string>} deleted
  */
 function danglingRefs(from, text, survivors, deleted) {
@@ -685,8 +577,6 @@ function danglingRefs(from, text, survivors, deleted) {
 }
 
 /**
- * Whether a sidecar row's key names `p` — the path itself, a folder above it,
- * or a `<folder>/*` row.
  * @param {string} key
  * @param {string} p
  */
@@ -695,10 +585,7 @@ function isCoveredByRow(key, p) {
 	return isUnder(p, [k]);
 }
 
-/**
- * The script paths a hook command or npm script runs, repo-relative.
- * @param {string} command
- */
+/** @param {string} command */
 function scriptPaths(command) {
 	return [...command.matchAll(SCRIPT_PATH)].map((m) =>
 		requiredGroup(m, 1, SCRIPT_PATH),
@@ -706,9 +593,6 @@ function scriptPaths(command) {
 }
 
 /**
- * #400: plugin and native hooks run in parallel, and `updatedInput` is the one
- * field whose merge depends on order. The refusal naming every kept native
- * hook that returns it on a tool a plugin hook also matches, or null.
  * @param {string} root
  * @param {string} pluginRoot
  * @param {{hooks?: Record<string, {matcher?: string, hooks: {command: string}[]}[]>}} settings
@@ -741,8 +625,6 @@ function racesWith(root, pluginRoot, settings, keptHook) {
 }
 
 /**
- * Whether one native hook command races a plugin hook: kept, returning
- * `updatedInput`, and on a tool a plugin hook group also matches.
  * @param {{root: string, command: string, matcher: string|undefined,
  *   pluginGroups: {matcher?: string}[]|undefined,
  *   keptHook: (command: string) => boolean}} at
@@ -755,10 +637,7 @@ function hookRaces({ root, command, matcher, pluginGroups, keptHook }) {
 	);
 }
 
-/**
- * The tools a hook matcher names. Claude Code reads "" and ".*" as every tool.
- * @param {string|undefined} m
- */
+/** @param {string|undefined} m */
 function tools(m) {
 	return new Set(
 		m === undefined || m === "" || m === ".*" ? ["*"] : m.split("|"),
@@ -766,8 +645,6 @@ function tools(m) {
 }
 
 /**
- * Whether the script or the shell libs it sources beside itself return
- * `updatedInput`.
  * @param {string} root
  * @param {string} rel
  */
@@ -785,7 +662,6 @@ function rewrites(root, rel) {
 }
 
 /**
- * Whether any plugin hook group matches a tool `matcher` also matches.
  * @param {{matcher?: string}[]} pluginGroups
  * @param {string|undefined} matcher
  * @returns {boolean}
@@ -800,8 +676,6 @@ function hasSharedTool(pluginGroups, matcher) {
 }
 
 /**
- * Everything the cut will do, computed from the tree before any write, so a
- * refusal leaves mantahostels untouched.
  * @param {string} root
  * @param {string} pluginRoot
  * @param {Spec} spec
@@ -816,8 +690,6 @@ function plan(root, pluginRoot, spec) {
 	const files = readTrackedPaths(root);
 	const all = new Set(files);
 
-	/* A file the sets classify, changed since the report read it, invalidates
-	 * the report's verdict on it (#422). */
 	const classified = new Set([
 		...sets.delete,
 		...sets.replacedByPlugin,
@@ -869,9 +741,6 @@ function plan(root, pluginRoot, spec) {
 	const settings = JSON.parse(
 		fs.readFileSync(path.join(root, ".claude/settings.json"), "utf8"),
 	);
-	/* The report's allowlist, not "its script survives": a kept script can
-	 * still be one the plugin now runs on the same event (spec story 5). A
-	 * command naming no script is not the report's to judge, so it stays. */
 	const keptHook = (/** @type {string} */ command) => {
 		const scripts = scriptPaths(command);
 		return (
@@ -886,9 +755,6 @@ function plan(root, pluginRoot, spec) {
 }
 
 /**
- * Every refusal the cut can name before reading the sets: the checkout's
- * shape, its cleanliness, a prior cut, CLAUDE.md's base, the plugin root and
- * the adopter's formatter.
  * @param {string} root
  * @param {string} pluginRoot
  * @param {Spec} spec
@@ -955,7 +821,6 @@ function write(root, rel, body) {
 }
 
 /**
- * Removes a file, then each parent directory it leaves empty.
  * @param {string} root
  * @param {string} rel
  */
@@ -969,14 +834,12 @@ function remove(root, rel) {
 }
 
 /**
- * Every write the cut makes to mantahostels' own files.
  * @param {string} root
  * @param {Spec} spec
  * @param {ReturnType<typeof plan>} p
  * @param {(line: string) => void} out
  */
 function edit(root, spec, p, out) {
-	/* Read before anything it lives in is deleted or overwritten. */
 	const skill = read(root, spec.ranking.from);
 	const paragraph = skill
 		.split("\n")
@@ -1070,19 +933,12 @@ function deleteAndMove(root, spec, p) {
 	}
 }
 
-/**
- * @typedef {any} ParsedJson One parsed settings, package.json or doc-map
- * sidecar file. `any` because JSON.parse types nothing and each key the cut
- * touches is one the file is known to carry.
- */
+/** @typedef {any} ParsedJson */
 
 /**
- * Drops every settings hook entry `keptHook` refuses, and any group or event
- * left empty.
  * @param {ParsedJson} settings
  * @param {(command: string) => boolean} keptHook
- * @returns {{settings: ParsedJson, dropped: number}} the settings without
- *   them, and how many entries went
+ * @returns {{settings: ParsedJson, dropped: number}}
  */
 function dropUnkeptHooks(settings, keptHook) {
 	if (!settings.hooks) return { settings, dropped: 0 };
@@ -1104,13 +960,10 @@ function dropUnkeptHooks(settings, keptHook) {
 }
 
 /**
- * Drops every package.json script the spec does not set that runs a deleted
- * script.
  * @param {ParsedJson} pkg
  * @param {Spec} spec
  * @param {Set<string>} deleted
- * @returns {{pkg: ParsedJson, droppedScripts: string[]}} the package without
- *   them, and the scripts dropped
+ * @returns {{pkg: ParsedJson, droppedScripts: string[]}}
  */
 function dropDeadScripts(pkg, spec, deleted) {
 	const droppedScripts = [];
@@ -1128,8 +981,6 @@ function dropDeadScripts(pkg, spec, deleted) {
 }
 
 /**
- * The spec's package.json scripts and comments applied, after the comments of
- * scripts no longer present are dropped.
  * @param {ParsedJson} pkg
  * @param {Spec} spec
  * @returns {ParsedJson}
@@ -1146,8 +997,7 @@ function applyPackageSpec(pkg, spec) {
 }
 
 /**
- * Sets each key of `changes` on `target`, deleting it where the value is null.
- * @param {Record<string, unknown>} target accumulator: each key of `changes` is set or deleted here
+ * @param {Record<string, unknown>} target
  * @param {Record<string, unknown>} changes
  */
 function setOrDelete(target, changes) {
@@ -1158,9 +1008,9 @@ function setOrDelete(target, changes) {
 }
 
 /**
- * @param {string} key a package.json comment key
+ * @param {string} key
  * @param {Record<string, unknown>} scripts
- * @returns {boolean} whether it annotates a script no longer present
+ * @returns {boolean}
  */
 function isOrphanScriptComment(key, scripts) {
 	if (!key.startsWith("scripts.")) return false;
@@ -1169,11 +1019,9 @@ function isOrphanScriptComment(key, scripts) {
 }
 
 /**
- * Drops each sidecar row whose every file the cut deleted.
  * @param {ParsedJson} classes
  * @param {ReturnType<typeof plan>} p
- * @returns {{classes: ParsedJson, rowsDropped: string[]}} the sidecar without
- *   them, and the rows dropped
+ * @returns {{classes: ParsedJson, rowsDropped: string[]}}
  */
 function dropDeadRows(classes, p) {
 	const rowsDropped = [];
@@ -1191,8 +1039,7 @@ function dropDeadRows(classes, p) {
 /**
  * @param {ParsedJson} classes
  * @param {Spec} spec
- * @returns {ParsedJson} the sidecar with the spec's roles set and its rows
- *   registered
+ * @returns {ParsedJson}
  */
 function setRolesAndRegister(classes, spec) {
 	const next = { ...classes };
@@ -1218,11 +1065,6 @@ function setRolesAndRegister(classes, spec) {
 }
 
 /**
- * Drops each `path` or `glob` `consumes` reference that resolves in neither
- * the host after the cut nor the plugin root — the files the cut deleted and
- * the plugin does not ship (#423). Judged by the check's own resolver, over the
- * same host-plus-plugin set. A pass of its own, not part of `edit()`: a
- * `--pin` run has no plugin root until the install after `edit()`.
  * @param {string} root
  * @param {string} pluginRoot
  * @param {Set<string>} survivors
@@ -1266,8 +1108,8 @@ function pruneDeadConsumes(root, pluginRoot, survivors, out) {
 
 /**
  * @param {string} root
- * @param {string} prior the hooks path before the cut
- * @param {boolean} pinned whether the cut installs the plugin
+ * @param {string} prior
+ * @param {boolean} pinned
  */
 function recipe(root, prior, pinned) {
 	const quotedRoot = shellQuote(root);
@@ -1300,9 +1142,6 @@ function cut(at) {
 			`--pin ${at.pin} is older than ${spec.minPin}, the first release whose doc-map gate passes the cut (#604)`,
 		);
 	const env = { ...process.env, CLAUDE_PROJECT_DIR: root };
-	/* Planned against the plugin root it will run, which a --pin run only has
-	 * after installing — so a pin run plans against this checkout, the core
-	 * the pin was cut from. */
 	const planRoot = at.pluginRoot ?? path.join(__dirname, "..");
 
 	const inside = readProcessesInside(root);
@@ -1312,10 +1151,10 @@ function cut(at) {
 		);
 	const p = plan(root, planRoot, spec);
 
-	let prior = "";
-	try {
-		prior = git(root, ["config", "--get", "core.hooksPath"]).trim();
-	} catch {} // exit 1 is git's "unset", which `prior = ""` records
+	const prior = orFallback(
+		() => git(root, ["config", "--get", "core.hooksPath"]).trim(),
+		"",
+	);
 	out(recipe(root, prior, Boolean(at.pin)));
 
 	git(root, ["tag", TAG]);
@@ -1350,7 +1189,6 @@ function cut(at) {
 
 	checkRegistry({ root, pluginRoot, env, out });
 
-	/* A sweeping add is safe only because plan() refused an unclean tree. */
 	git(root, ["add", "-A"], env);
 	const commit = spawnGitSync(["commit", "-q", "-F", "-"], {
 		cwd: root,
@@ -1377,8 +1215,6 @@ function cut(at) {
 }
 
 /**
- * A --pin run's install, at project scope, and the path it installed to —
- * refused where the release's hooks race a kept native one.
  * @param {{at: CutAt, p: ReturnType<typeof plan>, pin: string}} step
  * @returns {string}
  */
@@ -1407,17 +1243,12 @@ function installPinned({ at, p, pin }) {
 	out(
 		`installed workflow-core@${MARKETPLACE} ${pin} at project scope → ${pluginRoot}`,
 	);
-	/* The plan read this checkout's hooks; the release is what will load. */
 	const race = racesWith(root, pluginRoot, p.settings, p.keptHook);
 	if (race) throw new Refusal(race);
 	return pluginRoot;
 }
 
-/**
- * The plugin's own init-adopter.js over the cut tree, its lines relayed bar
- * its closing commit recipe.
- * @param {{at: CutAt, pluginRoot: string, env: NodeJS.ProcessEnv}} step
- */
+/** @param {{at: CutAt, pluginRoot: string, env: NodeJS.ProcessEnv}} step */
 function runInit({ at, pluginRoot, env }) {
 	const { root, spec, out } = at;
 	const init = spawnSync(
@@ -1465,11 +1296,7 @@ function regenerate({ at, pluginRoot, env }) {
 	}
 }
 
-/**
- * The adopter's own formatter over the files the cut wrote, so its staged
- * Biome gate reads them as it would have written them.
- * @param {{root: string, written: string[], env: NodeJS.ProcessEnv}} step
- */
+/** @param {{root: string, written: string[], env: NodeJS.ProcessEnv}} step */
 function formatWritten({ root, written, env }) {
 	const biome = spawnSync(
 		path.join(root, "node_modules", ".bin", "biome"),
@@ -1489,8 +1316,6 @@ function formatWritten({ root, written, env }) {
 }
 
 /**
- * The plugin's guard-registry check over the edited CLAUDE.md, its verdict
- * line relayed.
  * @param {{root: string, pluginRoot: string, env: NodeJS.ProcessEnv,
  *   out: (line: string) => void}} step
  */
@@ -1511,10 +1336,7 @@ function checkRegistry({ root, pluginRoot, env, out }) {
 		);
 }
 
-/**
- * What the founder does where the cut stopped before its commit.
- * @param {string} root
- */
+/** @param {string} root */
 function recovery(root) {
 	if (!tagExists(root)) return "Nothing was written.";
 	const quotedRoot = shellQuote(root);

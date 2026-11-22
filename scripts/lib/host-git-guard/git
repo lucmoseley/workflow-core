@@ -1,55 +1,15 @@
 #!/bin/bash
-# host-git-guard/git — the test suites' `git` (#3161). vitest.setup.ts and
-# scripts/conftest.py put this directory first on `PATH`, so every `git` a test
-# or the program under test spawns by name lands here first.
-#
-# REFUSES A WRITE TO THE HOST REPOSITORY: the one holding this file, by its git
-# common dir, which every linked worktree of it shares. There a call runs only
-# when it reads, or writes nothing but new objects, which no ref, index or file
-# reaches; anything else exits 128, git's own fatal status, before git runs. A call in any other repository, or in none, runs untouched.
-#
-# The reads are an allowlist: a subcommand the fast-path `case` below or
-# `ambiguous_reads` does not name is a write. A test that needs another read of
-# the host repo adds it there.
-#
-# `WFC_HOST_GIT_DIR` caches the host's common dir, which the setups set once
-# per worker so a write costs one `rev-parse` here, not two. A spawn that
-# rebuilt its `env` without it still gets the guard. `WFC_HOST_GIT_REAL` is the
-# real git the setups found on the worker's own `PATH`; not `WFC_GIT`, which a
-# test may point at a stub.
-#
-# `/bin/bash`, not `env bash` (#3399): a test that builds a `PATH` of symlinks
-# from `command -v` links this guard as its git, and that `PATH` holds no bash.
-# So the suites run only where `/bin/bash` is bash 4 or later: not macOS's.
-#
-# WHAT IT DOES NOT COVER: git run by absolute path; a spawn whose `env` drops
-# `PATH`; a write that is no git call, such as `: > .git/refs/heads/main`;
-# a subcommand alias; `clone`, and `init` without `--separate-git-dir`.
+# #3399
 
-# The depth: how many calls of this guard enclose this one, itself included,
-# read through the environment. A hook's own git nests a few deep; a git that
-# calls this guard back (#3400) nests without end, a fork per hop where it
-# pipes, so past the ceiling it refuses. 32, a guess: far above any hook's
-# nesting, and the most links such a chain gets.
+# guess, #3400
+max_depth=32
 depth=$((${WFC_HOST_GIT_GUARD_DEPTH:-0} + 1))
-((depth <= 32)) || {
+((depth <= max_depth)) || {
   echo "host-git-guard: entered $depth deep: a git on PATH calls this guard back (#3400)" >&2
   exit 127
 }
 export WFC_HOST_GIT_GUARD_DEPTH=$depth
 
-# The real git: the next on `PATH` AFTER this one, skipping any other
-# checkout's copy of this guard (#3400). One ahead of it may be a fake whose
-# own real git is `command -v git`, this guard, and the two would call each
-# other without end. Where this one is not on `PATH`, the first git that is no
-# guard, the ceiling above bounding a fake there; where the only real git is
-# ahead of it, exit 127. `-ef`, not the path string, so a second spelling of
-# this directory is still skipped; another checkout's copy is known by its
-# directory's name alone.
-#
-# Residual: with two checkouts' copies on `PATH`, the first judges only its
-# own host, so a write to the other's runs unguarded.
-#
 # code-edges caller: real
 real=
 before=
@@ -69,16 +29,13 @@ for d in "${dirs[@]}"; do
   fi
 done
 [[ -n "$mine" ]] || real="$before"
-# Where `PATH` holds no other git, as in such a symlinked `PATH`, the setups'.
 [[ -n "$real" || ! -x "$WFC_HOST_GIT_REAL" || "$WFC_HOST_GIT_REAL" -ef "${BASH_SOURCE[0]}" ]] ||
   real=$WFC_HOST_GIT_REAL
 [[ -n "$real" ]] || {
   echo "host-git-guard: no git on PATH after this one" >&2
-  exit 127 # the shell's status for a command not found
+  exit 127
 }
 
-# git's own options before the subcommand; these take their value as the next
-# word, lib/git-options.js's `GIT_VALUED`.
 i=0
 sub=
 takes=
@@ -99,40 +56,12 @@ for a in "$@"; do
 done
 args=("${@:i+1}")
 
-# THE READ AUDIT (#4916): under a suite run's audit (lib/read-audit.js), a call
-# on this repository — any worktree of it — reads what `fs` never sees, so it
-# is logged against the test that made it, twice: once before git runs, its
-# answer empty, so a call killed mid-way still shows, and once after, with its
-# answer — git's status and the sha1 of its stdout, `<status>:<sha1>`, as
-# `answerOf` spells it — which the pass store requires its own rerun to equal
-# (#4993). Each record carries the variables changing what git answers,
-# lib/read-audit-git.js's `GIT_ANSWER_VARS` spelt again in the loop below,
-# which the audit weighs against the environment the suite's setup settled
-# (#5017). A call whose
-# directory, `-C` and git-dir variables all lie outside the repository's
-# checkouts asks git nothing more; `init` and `clone` make a repository of
-# their own. Only the outermost call: a nested one runs inside a call already
-# judged.
 audit_log=
-# log_call <answer> <word>… — one record, as lib/read-audit-git.js's
-# `parseGitRecords` reads it. `$$` is the pid the test spawned, which tells
-# the audit this call is in a record (#5015).
 log_call() {
   printf '%s\0' "$(($# + 4 + ${#git_env[@]}))" "$steered" "$PWD" "$$" "$1" \
     "${#git_env[@]}" "${git_env[@]}" "${@:2}" >>"$audit_log"
 }
 
-# run — the real git, with the `argv[0]` a `git` found on `PATH` gets, so a
-# process listing off the audit reads as it would without the guard. A `tee`
-# that failed, or a `PATH` holding no `tee` or `sha1sum`, as a symlinked one
-# (#3399), logs no answer, which the audit reads as a call left unanswered.
-# The file `tee` copies stdout into is emptied, not removed, to spare a fork:
-# the audit's log directory goes whole at the run's end. A git a signal ended
-# ends the guard by the same signal.
-#
-# Residual: under the audit the caller's pid is this shell, not git, so a
-# process listing shows bash, and a signal sent to it, a timeout's, leaves git
-# and tee running until their next write to the closed pipe ends them.
 run() {
   if [[ -z "$audit_log" ]] || ! type -P tee sha1sum >/dev/null; then
     exec -a git "$real" "$@"
@@ -188,14 +117,10 @@ case "$sub" in
   init) [[ " ${args[*]} " == *" --separate-git-dir"[\ =]* ]] || run "$@" ;;
 esac
 
-# The host lookup drops a spawn's own `GIT_DIR`, which names its repository,
-# not the one holding this file.
 host="${WFC_HOST_GIT_DIR:-$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
   "$real" -C "${BASH_SOURCE[0]%/*}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)}"
 [[ -n "$host" ]] || run "$@"
 if [[ "$sub" == init ]]; then
-  # `--separate-git-dir` moves the `.git` of the directory it initialises, so
-  # that directory is what must not be the host's top level.
   target=.
   skip=
   for w in "${args[@]}"; do
@@ -217,8 +142,6 @@ else
   [[ "$common" == "$host" ]] || run "$@"
 fi
 
-# ambiguous_reads <word>… — whether a subcommand that both reads and writes is
-# reading here, from the words after it.
 ambiguous_reads() {
   local pos=() flags=() valued=() w skip=''
   case "$sub" in
@@ -229,7 +152,6 @@ ambiguous_reads() {
   for w in "$@"; do
     if [[ -n "$skip" ]]; then
       skip=
-    # After the first word, config's every word is a key or a value: `-1` too.
     elif [[ "$w" == -* && ! ("$sub" == config && ${#pos[@]} -gt 0) ]]; then
       flags+=("$w")
       [[ " ${valued[*]} " == *" $w "* ]] && skip=1
@@ -262,13 +184,10 @@ ambiguous_reads() {
         --get-colorbool -l --list && return 0
       has --unset --unset-all --add --replace-all --rename-section \
         --remove-section -e --edit && return 1
-      # Another file than the repository's own.
       has --global --system -f --file && ! has --local --worktree && return 0
       [[ "${pos[0]}" == get || "${pos[0]}" == list ]] || ((${#pos[@]} == 1))
       ;;
     worktree) [[ "${pos[0]}" == list ]] ;;
-    # These print in place of applying, unless `--apply`, or any abbreviation
-    # of it git accepts, asks for both, or a `--no-` form takes one back.
     apply)
       local f
       for f in "${flags[@]}"; do

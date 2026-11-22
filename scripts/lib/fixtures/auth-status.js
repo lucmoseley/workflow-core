@@ -1,15 +1,3 @@
-/*
- * The fake of `claude auth status --json` (lib/launch-auth.js, #2236): the
- * authMethod the installed harness reports for the environment and working
- * directory it runs under, in the precedence measured on 2.1.312 — a
- * CLAUDE_CODE_USE_* provider, then ANTHROPIC_AUTH_TOKEN, an apiKeyHelper in
- * the project's or seat's settings, ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN,
- * and last the seat's own login, which the fake has unless
- * WFC_FAKE_AUTH_NO_LOGIN is set, when it reports `none`. Held to the real
- * binary by lib/auth-status.contract.test.ts. It exits 1 with no login, as
- * the real binary does.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 

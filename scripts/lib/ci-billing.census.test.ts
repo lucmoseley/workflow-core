@@ -1,31 +1,4 @@
 // @vitest-environment node
-/*
- * The census the CI-cost figures were actually read off, pinned.
- *
- * Every fixture in ci-billing.test.ts was invented, so the whole set stays
- * green through a change that silently alters what the tool reports (mantahostels#675).
- *
- * The fixture here is a slice of the raw responses measure-ci-billing.js cached
- * over 14-18 August 2026 at `--branch all --exclude-event pull_request`,
- * trimmed to the fields the sums read. `commitLog` is that window's real
- * `git log` output, which is where commits-per-push and the docs-only share
- * come from — stored one line per element, because as one string it was a
- * 44,565-character line that `grep … | head` returns whole (#1026).
- *
- * It only catches what this window's data can distinguish: the window holds no
- * skipped and no unfinished job, so the rules covering those are pinned by
- * ci-billing.test.ts alone.
- *
- * Loosen a case and measure-ci-billing.js can drift from the figures the CI
- * trigger and cadence decisions were taken on, so a session re-running it —
- * as scheduled-checks.yml's header says to, to verify a trigger — reads a
- * wrong billed-minutes or push-share figure as a real change. Nothing gates on
- * the script; this test fails CI when red.
- *
- * A FAILURE HERE IS NOT A TEST TO ADJUST. If a change moves one of these
- * numbers, either the change is wrong or the recorded census is — find out
- * which before touching the expectation.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -39,7 +12,6 @@ const {
 
 const fixture = require("../fixtures/ci-census-2026-08-14-18.json");
 
-/** The pipeline measure-ci-billing.js's main() runs, on the fixture's data. */
 const census = () => {
 	const scoped = filterRuns(fixture.runs, fixture.window.excludeEvents);
 	const summary = summarise(
@@ -58,8 +30,6 @@ const census = () => {
 		parseCommitLog(fixture.commitLog.join("\n")),
 		pushShas,
 	);
-	/* The window's first push carries commits made before it opened, which the
-	 * log does not reach, so main() drops it as a floor rather than a count. */
 	return { summary, pushCommits: pushCommitStats(folded.pushes.slice(1)) };
 };
 

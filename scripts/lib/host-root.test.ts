@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins `worktreeRoot()` (#2940): a test run launched inside a linked worktree
- * reads that worktree's files, though `CLAUDE_PROJECT_DIR` may name the shared
- * tree. Pins `resolveCommitHost()` too (#3830): a script answers the
- * host `hook-root.sh` hands a hook, whatever its shell inherited. Pins
- * `sessionTree()` (#4234): a hook input's cwd in a linked worktree names that
- * worktree, though the hook itself runs in the shared tree. The seam's cases read `a.md` through the resolved root,
- * the worktree's copy differing from the shared tree's.
- *
- * The seam's cases are spawned, not required in-process: it reads
- * `CLAUDE_PROJECT_DIR` and memoises on cwd, and the suite's own process must
- * keep both.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -44,7 +31,6 @@ describe("the host seam", () => {
 
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-	/** `a.md` as read through the root `expr` names, evaluated in a child at `cwd`. */
 	const spawnThrough = (
 		expr: string,
 		cwd: string,
@@ -152,8 +138,6 @@ describe("the host seam", () => {
 	});
 
 	describe("adoptHostRoot, one main checkout for the run and its children (#4486)", () => {
-		/** `a.md` through what adoptHostRoot answers, where that is also what
-		 * it leaves in CLAUDE_PROJECT_DIR and is free of symlinks. */
 		const readAdopted = (cwd: string, projectDir: string | undefined) => {
 			const seam = `require(${JSON.stringify(SEAM)})`;
 			return readThrough(
@@ -195,8 +179,6 @@ describe("the host seam", () => {
 	});
 
 	describe("sessionTree, the tree a hook input's cwd names (#4234)", () => {
-		/** `a.md` through the session tree of `input`, from a hook run in the
-		 * shared tree with CLAUDE_PROJECT_DIR on it. */
 		const readFromSession = (input: Record<string, string>) =>
 			readThrough(
 				`require(${JSON.stringify(SEAM)}).sessionTree(${JSON.stringify(input)})`,

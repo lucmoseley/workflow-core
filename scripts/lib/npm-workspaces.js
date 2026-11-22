@@ -1,11 +1,3 @@
-/*
- * npm-workspaces.js — which directories npm's workspace selectors run a script
- * in (#4041), as npm 11.16.0's `get-workspaces.js` and `@npmcli/map-workspaces`
- * find them. A selector replaces the directory a script runs in, so a check_staged
- * reached through one is judged on the wrong `package.json` unless they are read
- * the same way.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { NEEDS_NODE } = require("./biome-allowlist.js");
@@ -14,14 +6,12 @@ const { trimEndRun } = require("./trim-run.js");
 
 /** @typedef {import("./package-reader.js").PackageReader} PackageReader */
 /** @typedef {import("./package-reader.js").PackageTree} PackageTree */
-/** @typedef {{filters: string[], all: boolean, withRoot: boolean,
- *  noAncestors: boolean}} Selection `filters` each `-w`'s value, which outrank
- *  `all`; `all` `-ws`; `withRoot` `-iwr`, which adds the root; `noAncestors`
- *  where `--prefix` or `--no-workspaces` stops npm looking above for a root. */
+/**
+ * @typedef {{filters: string[], all: boolean, withRoot: boolean,
+ *  noAncestors: boolean}} Selection
+ */
 /** @typedef {{dir: string, name: string}} Member */
 
-/* `--no-workspace web` selects web and a bare one selects nothing, as a bare
- * `--workspace` does, inside a member too. */
 const FILTER_FLAGS = new Set(["--workspace", "--no-workspace"]);
 const ALL_FLAGS = new Set(["--workspaces", "--no-workspaces"]);
 const ROOT_FLAGS = new Set([
@@ -30,7 +20,6 @@ const ROOT_FLAGS = new Set([
 ]);
 
 /**
- * Whether a Boolean option is on: `--no-x=false` is, and a null is off.
  * @param {string} flag
  * @param {string|undefined} value
  */
@@ -40,10 +29,8 @@ const isOn = (flag, value) =>
 		: value !== "false" && value !== "null";
 
 /**
- * The selection npm's options make, a Boolean's last spelling winning, or
- * undefined for none.
- * @param {string[]} options npm's, as `npmCanon` writes them
- * @param {string} prefix the directory `--prefix` names, or ""
+ * @param {string[]} options
+ * @param {string} prefix
  * @returns {Selection|undefined}
  */
 function parseSelection(options, prefix) {
@@ -74,30 +61,20 @@ function parseSelection(options, prefix) {
 
 const NODE_MODULES = "node_modules";
 
-/** Whether a workspaces pattern is the directory it is written in, which
- * Node's glob never returns and npm's does.
- * @param {string} pattern */
+/**
+ * @param {string} pattern
+ */
 const isOwnDir = (pattern) =>
 	/^[./]*$/.test(pattern) && !pattern.includes("..");
 
-/* A filter npm answers nothing for, where others answer, selects nothing only if
- * it can be read as no member: a plain name or scoped name, as `./` or `a/..` may
- * reach any, and in a list this read cannot undercount. Node's glob, unlike npm's,
- * takes no symlink past a glob's segment and no `.` in a brace (#4069). */
 const PLAIN_FILTER = /^(?:@[\w.-]+\/)?[\w-][\w.-]*$/;
-/* The run after a wildcard stops at the next one, as a match from there
- * reaches the same `/`: each character is read once (#4109). */
 const MAY_UNDERCOUNT = /\{|\*\*|[*?[][^*?[/\n\r\u2028\u2029]*\//;
 
 /**
- * The directories `patterns` match under `cwd`, none in `node_modules`, which
- * npm ignores: `exclude` only stops the walk descending, as `*` still returns it.
  * @param {string[]} patterns
  * @param {string} cwd
  */
 function globDirs(patterns, cwd) {
-	/* @types/node 20 predates it. Read here, not at load, so a row can stand in a
-	 * Node without it. */
 	const globSync =
 		/** @type {((patterns: string[], options: {cwd: string, exclude: (name: string) => boolean}) => string[])|undefined} */ (
 			/** @type {any} */ (fs).globSync
@@ -116,9 +93,6 @@ function globDirs(patterns, cwd) {
 const countBangs = (word) => word.match(/^!+/)?.[0].length ?? 0;
 
 /**
- * The members `patterns` declare in `dir`. A negated pattern is dropped by a
- * later one it matches, so that later one is kept. npm's glob ends each pattern
- * in a `/`, which takes a symlink to a directory; Node's takes one only without.
  * @param {string} dir
  * @param {string[]} patterns
  * @param {PackageReader} read
@@ -149,9 +123,6 @@ function listMembers(dir, patterns, read) {
 }
 
 /**
- * The workspace root npm works from at `own`, as its `loadLocalPrefix` finds it:
- * the nearest ancestor up to `root` with `own` a member, else `own` where it
- * declares workspaces.
  * @param {string} own
  * @param {boolean} noAncestors
  * @param {PackageTree} tree
@@ -173,9 +144,6 @@ function findWorkspaceRoot(
 }
 
 /**
- * Whether `filter`, written in `from`, selects `member`: by name, by directory,
- * or as the parent of its directory. Node's glob is npm's minimatch with negation
- * off.
  * @param {string} filter
  * @param {Member} member
  * @param {string} from
@@ -196,11 +164,8 @@ function isSelected(filter, member, from) {
 }
 
 /**
- * The directories `selection` runs a script in from `from`, the members it chose
- * among, and whether it may reach more, or none, which makes npm fail. Inside a
- * member, no filter is that member alone; `-iwr` alone at the root runs the root.
  * @param {Selection} selection
- * @param {string} from the directory the run starts in
+ * @param {string} from
  * @param {PackageTree} tree
  * @returns {{dirs: string[], members: string[], unresolved: boolean}}
  */

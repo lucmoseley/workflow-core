@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The guards' own suites drive this end-to-end through their CLIs. What is
- * unreachable from there is exercised here: the transcript path the seam falls
- * back to when the payload names none, and which of its four silent returns a
- * given payload takes (mantahostels#872).
- *
- * The `Stop` guards in .claude/settings.json — guard-priced-options.js and
- * guard-uncommitted-work.js among them — read the outgoing message through
- * this seam, so a loosened case can hand them an empty string, and they pass
- * every turn silently, or misrecord which failure a blind guard took.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,7 +25,6 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** A transcript whose outgoing message is `text`, preceded by a user turn. */
 function transcriptWith(text: string, extra: object[] = []): string {
 	const file = path.join(root, `${SID}.jsonl`);
 	const records = [
@@ -52,17 +39,9 @@ function transcriptWith(text: string, extra: object[] = []): string {
 	return file;
 }
 
-/**
- * The breadcrumb is pointed at the throwaway root, not the real repo. A `null`
- * input is a payload that would not parse.
- */
 const readHookMessage = (input: object | null) =>
 	readMessageFrom(input, { root, guard: GUARD });
 
-/**
- * The last line the breadcrumb recorded for this session; a `null` session
- * reads the record kept for payloads naming none.
- */
 const readLastBreadcrumb = (sessionId: string | null = SID) => {
 	const all = readBreadcrumbs(root, GUARD, sessionId);
 	return all.length > 0 ? all.at(-1) : null;
@@ -72,9 +51,6 @@ const readOutcome = (sessionId: string | null = SID) =>
 	readLastBreadcrumb(sessionId)?.outcome ?? null;
 
 describe("the transcript a payload naming none falls back to", () => {
-	/* From the shared function, not restated: this helper spelled the SLASHES
-	 * ALONE until mantahostels#1982 and so agreed with the bug it was meant to catch. The
-	 * dotted-cwd regression lives in `project-slug.test.ts`. */
 	const slug = () => projectSlug();
 
 	it("reads the root from CLAUDE_CONFIG_DIR when the harness sets one", () => {
@@ -135,7 +111,6 @@ describe("the outgoing text comes off the payload (mantahostels#1273)", () => {
 		const found = readHookMessage({
 			session_id: SID,
 			last_assistant_message: "the payload's text",
-			// A transcript that says something else: reaching it would show.
 			transcript_path: transcriptWith("the transcript's text"),
 		});
 		expect(found).toEqual({ sessionId: SID, message: "the payload's text" });
@@ -244,8 +219,6 @@ describe("readMessageFrom names which failure it took", () => {
 	});
 
 	it("records `unreadable-transcript` when the read itself throws", () => {
-		// A directory where the transcript should be: it exists, so the fallback
-		// is never tried, and readFileSync throws EISDIR.
 		const file = path.join(root, `${SID}.jsonl`);
 		fs.mkdirSync(file);
 		expect(readHookMessage({ session_id: SID, transcript_path: file })).toBe(
@@ -267,7 +240,6 @@ describe("readMessageFrom names which failure it took", () => {
 	});
 
 	it("still returns the message when the breadcrumb cannot be written", () => {
-		// A file where the breadcrumb directory wants to be.
 		fs.writeFileSync(hookRecord.recordsDir(root), "not a directory\n");
 		const found = readHookMessage({
 			session_id: SID,
@@ -298,8 +270,6 @@ describe("readMessageText reads without recording (#73)", () => {
 		).toBe("from the transcript");
 	});
 
-	/* The scan walks records backwards, so a record's blocks must go in as one
-	 * run or they come out reversed (#1533). */
 	it("keeps a record's text blocks in content order", () => {
 		const file = transcriptWith("c", [
 			{
@@ -326,8 +296,6 @@ describe("readMessageText reads without recording (#73)", () => {
 		expect(errors).toHaveLength(1);
 	});
 
-	/* Stubbed rather than read back: `record` defaults its root to the cwd, so
-	 * a regressed `readMessageText` would write where `readBreadcrumbs(root)` never looks. */
 	it("writes no breadcrumb", () => {
 		const real = hookRecord.record;
 		let calls = 0;

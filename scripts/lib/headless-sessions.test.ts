@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/headless-sessions.js through its CLI, as the dispatcher drives it,
- * with lib/headless-run-fake.ts's `-p` fake, held to the binary by its
- * contract, through WFC_CLAUDE_BIN and a fixture secrets file
- * through WFC_SECRETS_FILE: the launch's job id, flags and child environment,
- * the key's route through the apiKeyHelper alone, the refusals by name, the
- * listing's liveness, the group stop, and the end-result reading.
- *
- * Loosen one and an overflow run leaks its key into Bash, outlives its stop,
- * reads as live on a reused pid, or bills a spent key as a success (#2607).
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -119,8 +108,6 @@ const launch = (extra: Record<string, string> = {}, key = KEY_VAR) =>
 		extra,
 	);
 
-/** The `-p` fake every launch here execs (lib/headless-run-fake.ts), in
- * `mode`, its runs logged under fakeOut. */
 const fakeMode = (mode: HeadlessMode) =>
 	writeHeadlessFake(path.join(tmp, "claude-p"), {
 		log: path.join(fakeOut, "calls.jsonl"),
@@ -130,8 +117,7 @@ const fakeMode = (mode: HeadlessMode) =>
 const readSeenOrNull = () =>
 	readHeadlessCalls(path.join(fakeOut, "calls.jsonl")).at(-1) ?? null;
 
-/* A wait on a real process, not a timing assertion: the ceiling and the poll
- * are guesses, generous against a loaded machine. */
+// guess, #2607
 async function until(test: () => boolean | Promise<boolean>, ms = 10_000) {
 	for (const end = Date.now() + ms; Date.now() < end; ) {
 		if (await test()) return;
@@ -144,7 +130,6 @@ const isAlive = (pid: number) => readProcStartOf(pid) !== null;
 const listed = async () => JSON.parse((await cli(["list"])).stdout);
 const flag = (argv: string[], name: string) => argv[argv.indexOf(name) + 1];
 
-/* dispatch-sessions.js's own job-id parse, run on the launch's output. */
 const dispatcherJobId = (stdout: string) =>
 	spawnSync(
 		"bash",
@@ -157,7 +142,6 @@ const dispatcherJobId = (stdout: string) =>
 
 describe("launch", () => {
 	it("prints a job id the dispatcher's parse reads, and spawns claude -p with the run's flags", async () => {
-		/* The XDG route rather than the override, which writes no .gitignore. */
 		const r = await launch({ WFC_SECRETS_FILE: "", XDG_CONFIG_HOME: config });
 		expect(r.status).toBe(0);
 		const jobId = dispatcherJobId(r.stdout);
@@ -171,7 +155,6 @@ describe("launch", () => {
 		expect(flag(seen.argv, "--output-format")).toBe("stream-json");
 		expect(seen.argv).toContain("--verbose");
 		expect(flag(seen.argv, "--max-budget-usd")).toBe("12.5");
-		// Named outright, so burn mode's move of the shared settings `model` never reaches the seat (#4919).
 		expect(flag(seen.argv, "--model")).toBe(overflowModel());
 		expect(flag(seen.argv, "--append-system-prompt")).toContain("needs input:");
 		const sessionId = flag(seen.argv, "--session-id");
@@ -350,8 +333,6 @@ describe("launch", () => {
 });
 
 describe("the launch's auth (#2236)", () => {
-	/* The launch strips the seat's API key and supplies its own, so an
-	 * ANTHROPIC_API_KEY it inherits is admitted on an overflow seat (#2570). */
 	const refused = REFUSED_AUTH.filter(([name]) => name !== "ANTHROPIC_API_KEY");
 
 	it.each(refused)(
@@ -444,8 +425,6 @@ describe("list and stop", () => {
 		expect(await listed()).toEqual([]);
 	});
 
-	/* Crosses the real clock: the escalation is a signal to a real process
-	 * group, so the grace is shortened, never asserted as elapsed time. */
 	it("kills a group that ignores SIGTERM once the grace period passes", async () => {
 		fakeMode("stubborn");
 		const jobId = (await launch()).stdout.split("\n")[0] ?? "";

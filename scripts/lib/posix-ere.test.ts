@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/posix-ere.js reads a pattern as bash's `=~` and pgrep compile it,
- * glibc's regcomp with REG_EXTENDED. Its contract is that compiler: every case
- * below is run through bash's own `=~` in one spawn, and the two must give the
- * same answer — matched, missed, or refused at compile — case-sensitive and
- * under nocasematch.
- *
- * The list is the edges where a JavaScript RegExp built from the pattern as
- * written disagrees with glibc: brackets, GNU escapes, intervals, a quantifier
- * with nothing to repeat, and an unbalanced bracket or paren. Loosen one and
- * lib/self-match.js reads a pattern that kills the session as one that misses
- * it, or refuses a safe one.
- */
 
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -71,7 +58,6 @@ const CASES: [string, string][] = [
 	["BA", "bash"],
 ];
 
-/** bash's answer for each case: 0 matched, 1 missed, 2 refused. */
 function readBashAnswers(icase: boolean): string[] {
 	const input = CASES.map(([p, s]) => `${JSON.stringify([p, s])}`).join("\n");
 	const r = spawnSync(

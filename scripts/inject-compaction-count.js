@@ -1,36 +1,4 @@
 #!/usr/bin/env node
-/*
- * inject-compaction-count.js — PreCompact and SessionStart (`compact`) hook.
- * Tells the model, once per autocompaction, how many times this session has
- * autocompacted (#1148, ruled at #1142 Q1 (A)), and what to do next: below
- * the backstop, re-read its build state file, issue and own git history and
- * carry on; at it, hand off and end (#4410, `lib/compaction-set.js`).
- *
- * IN NO §N3 FAMILY: it refuses nothing and checks nothing, and keeps the
- * guard contract — fails open, exits 0.
- *
- * TWO EVENTS, BECAUSE NEITHER SEES BOTH HALVES. `SessionStart` output reaches
- * the model after a compaction, but its payload has no trigger, and its hooks
- * finish before the new `compact_boundary` reaches the transcript. So
- * `PreCompact`, which carries `trigger`, leaves it in a marker, and
- * `SessionStart:compact` reads and deletes it, staying silent on `manual` as
- * `autocompactions` does.
- *
- * THE NEW COMPACTION ENTERS THE SET AS A `pending:` KEY, which the ceiling
- * guard's next Stop settles against the boundary's own key
- * (`lib/compaction-set.js`), so the set holds the announced count throughout.
- * Earlier boundaries the set lacks — a Stop not yet run since one — are read
- * from the transcript tail first.
- *
- * RESIDUAL: the ordering above is measured, not documented. A harness that
- * wrote the boundary before these hooks ran would count it twice, as a
- * boundary and as a pending key, until the guard's next Stop drops the key.
- *
- * A SUBAGENT'S COMPACTION IS NOT COUNTED (#1785, #1837). Both events carry its
- * parent's session id and its own `agent_id`, which `lib/subagent-payload.js`
- * reads, so the hook stays silent on it.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const hookBlock = require("./lib/hook-block");
@@ -55,7 +23,6 @@ const TRIGGER_PREFIX = ".compaction-trigger-";
 
 /** @param {string} what @param {unknown} err */
 function logFailOpen(what, err) {
-	// A log that cannot be written must not break the hook.
 	ignoreFailure(() =>
 		require("./lib/arbiter-core").logError(
 			`inject-compaction-count ${what}`,
@@ -69,7 +36,6 @@ const triggerFile = (sid) =>
 	path.join(markersDir(hookBlock.repoRoot()), TRIGGER_PREFIX + sid);
 
 /**
- * The trigger PreCompact left, deleted as it is read, or null where none was.
  * @param {string} sid
  * @returns {string | null}
  */
@@ -94,7 +60,7 @@ function takeTrigger(sid) {
 /**
  * @param {{transcript_path?: string}} payload
  * @param {string} sid
- * @returns {string} the model-facing text, or "" for silence
+ * @returns {string}
  */
 function afterCompaction(payload, sid) {
 	const trigger = takeTrigger(sid);
@@ -117,9 +83,7 @@ function afterCompaction(payload, sid) {
 }
 
 /**
- * The issue this session's claim holds, and its build state file where one
- * exists — the re-read the advice names. Of several claims, the newest with a
- * state file is the build unit, else the newest (#4562).
+ * #4562
  * @param {string} sid
  */
 function unitOf(sid) {
@@ -147,7 +111,6 @@ function main(raw) {
 	}
 	const sid = payload?.session_id;
 	if (typeof sid !== "string" || !/^[\w-]+$/.test(sid)) return;
-	/* A subagent's payload: its compaction is not this session's. */
 	if (isSubagentPayload(payload)) return;
 
 	if (payload.hook_event_name === "PreCompact") {

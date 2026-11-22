@@ -1,27 +1,15 @@
-/*
- * grouped-hits.js — the hit report the four superseded-value checkers print.
- * One copy, so the four reports cannot drift apart in layout (#1984).
- */
-
 /** @typedef {import("./check").Ctx} Ctx */
 
 /**
  * @template {{file: string, line: number, text: string}} H
  * @typedef {object} GroupedReport
- * @property {(hit: H) => string[]} keyOf which group a hit joins; groups print
- *   in first-hit order, and a group's finding key is its `tag` and these
- *   parts, tab-joined
- * @property {(groupCount: number) => string} summary the line above the groups
- * @property {(first: H, count: number) => {tag: string, message: string,
- *   data: object, heading: string}} groupFinding the WARN finding and the
- *   heading line for one group, read off its first hit
+ * @property {(hit: H) => string[]} keyOf
+ * @property {(groupCount: number) => string} summary
+ * @property {(first: H, count: number) => {tag: string, message: string, data: object, heading: string}} groupFinding
  * @property {string} footer
  */
 
 /**
- * Print `hits` grouped by `keyOf`, one WARN per group. Prints nothing for no
- * hits.
- *
  * @template {{file: string, line: number, text: string}} H
  * @param {Ctx} ctx
  * @param {H[]} hits

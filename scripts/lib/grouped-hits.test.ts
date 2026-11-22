@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * grouped-hits.js (#1984) — the four superseded-value checkers print their
- * hits through it, so a change here changes all four reports at once.
- * In-process with a recording ctx: the four checkers' own program tests
- * cover the reports end to end.
- */
 import { describe, expect, it } from "vitest";
 
 const { reportGroupedHits } = require("./grouped-hits");

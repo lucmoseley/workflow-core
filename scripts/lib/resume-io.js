@@ -1,10 +1,3 @@
-/*
- * resume-io.js — the production adapter of lib/refill-resume.js's ResumeIo
- * port, which lib/refill-tick.js wires (#4386). Its own module so its
- * contract test, resume-io.contract.test.ts, builds it without loading the
- * tick, and holds lib/resume-io-fake.ts to it (§G7).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught, readLogged } = require("./caught.js");
@@ -47,8 +40,6 @@ const buildResumeIo = (log) => ({
 	findHeadlessRun: findRunSince,
 	readRunAsJob,
 	runClaude,
-	/* A record that will not read is logged and read as none, never fatal to
-	 * the tick (#4704). */
 	readJobRecord: (seat, jobId) =>
 		readLogged(log, `job ${jobId} on ${seat}`, () =>
 			readJobRecord(seat, jobId),

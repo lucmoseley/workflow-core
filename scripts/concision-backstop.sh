@@ -1,55 +1,8 @@
 #!/usr/bin/env bash
-# concision-backstop.sh — catches a session that wrote prose or code and ended
-# without the matching quality pass.
-#
-#   concision-backstop.sh start   (SessionStart) — record the session's base SHA
-#   concision-backstop.sh stop    (Stop)         — fire once per signal if unmet
-#
-# Two independent signals, each fired once per session — the code signal again
-# when its tier turns escalated, and once per rejected marker written:
-#   prose — net words added to non-code files exceeds THRESHOLD → demand the
-#           concision-pass skill. THRESHOLD triggers auditing; it does not
-#           judge bloat — the pass does, and it is cheap on small changes,
-#           which is why the threshold sits low.
-#   code  — code files changed by more than CODE_THRESHOLD lines → demand the
-#           code-review skill, plus a concision pass over the comments and
-#           docstrings the change added. That threshold is about price, not
-#           bloat: a two-axis review costs ~2M tokens, so a trivial diff buys
-#           less than it spends (mantahostels#1071) — except for an /implement session, where
-#           any code change at all fires (IMPLEMENT_THRESHOLD). A written file
-#           matching a declared sensitive glob fires at any size and type.
-#
-# Each nagged marker is written before the block, so there is no loop.
-#
-# ATTRIBUTION (mantahostels#114). Both signals read a diff of a REPO-GLOBAL
-# working tree from inside a session-scoped hook, so without a filter they bill
-# whichever session stops next for whatever every parallel session has been
-# doing. So every candidate path is intersected with this session's own write
-# ledger — the post-write core (scripts/lib/post-write.js) on PostToolUse, stored by
-# scripts/session-arbiter.js — and the paths its own ledgered commits touched
-# (#766, #2390) before anything is counted.
-#
-# A CHANGE ATTRIBUTABLE TO NOBODY IS BILLED TO NOBODY. A file written from Bash
-# (a generator, a formatter, an inline interpreter) reaches no PostToolUse and
-# so appears in the diff unclaimed until this session commits it. It is dropped
-# rather than charged to the session that happens to be stopping. The two
-# error directions are not symmetric: under-billing costs a missed quality
-# pass, whereas over-billing tells a session to go and edit files
-# a live parallel session is holding — the exact collision the file-claim guard
-# exists to refuse. A script that writes a tracked doc already calls the
-# arbiter's `claim`, which records for it.
-#
-# Every failure path exits 0 and prints nothing — breaking a session is worse
-# than missing one. A library that does not load, a missing jq or node, a
-# payload naming no session, and a host or session tree that will not resolve
-# are logged through
-# lib/guard-log.sh, save guard-log.sh itself, which is the log (#4271).
 
 set -uo pipefail
 
 THRESHOLD=50
-# reference-roadmap.html stays in — it is the single biggest prose surface in
-# the repo.
 PROSE=(
   . ':(exclude)*.js' ':(exclude)*.mjs' ':(exclude)*.cjs'
   ':(exclude)*.ts' ':(exclude)*.tsx' ':(exclude)*.jsx'
@@ -59,40 +12,29 @@ PROSE=(
   ':(exclude)public' ':(exclude).husky'
 )
 
-# This script's directory without a `dirname` fork; `.` where run by a bare name.
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # shellcheck source=scripts/lib/guard-root.sh
 source "$here/lib/guard-root.sh"
-# Loaded first, so each library below whose load fails is logged, as is
-# code-signal.sh's cs_fault; absent, each goes unlogged.
 # shellcheck source=scripts/lib/guard-log.sh
 source "$here/lib/guard-log.sh" 2>/dev/null
 declare -F gl_log >/dev/null 2>&1 || gl_log() { :; }
-# skip_nags <why> — log the fail-open and end the hook, nags unsent.
 skip_nags() {
   gl_log "$1 — concision and code-review nags skipped"
   exit 0
 }
-# doc_path, for the three defaults below; absent, they stay bare.
 # shellcheck source=scripts/lib/script-path.sh
 source "$here/lib/script-path.sh" 2>/dev/null ||
   gl_log "lib/script-path.sh did not load — nag paths left bare"
 # shellcheck source=scripts/lib/marker-root.sh
 source "$here/lib/marker-root.sh"
-# The marker rules (#1005).
 # shellcheck source=scripts/lib/concision-marker.sh
 source "$here/lib/concision-marker.sh"
-# The code signal push-review-owed.sh reads too (#1163): its paths, its floor
-# and the /implement marker that lowers it.
 # shellcheck source=scripts/lib/code-signal.sh
 source "$here/lib/code-signal.sh" 2>/dev/null || skip_nags "lib/code-signal.sh did not load"
-# The review dispatch shape and /implement's closing steps; absent, the nag
-# names their paths instead.
 # shellcheck source=scripts/lib/rule-text.sh
 source "$here/lib/rule-text.sh" 2>/dev/null || {
   gl_log "lib/rule-text.sh did not load — nags named their rule fragments' paths"
-  # lib/rule-text.sh's rule_or_path's fallback half, copied: that file did not load.
   rule_or_path() {
     local where
     gl_log "rule:$1 unreadable — nag printed its path instead"
@@ -101,19 +43,12 @@ source "$here/lib/rule-text.sh" 2>/dev/null || {
   }
 }
 
-# The hook's own directory, which gr_session_tree reads where the payload
-# names no cwd, as sessionTree() reads the process's.
 hook_pwd="$PWD"
 host="$(gr_root)"
 cd "$host" 2>/dev/null || skip_nags "host root $host could not be entered"
-# Resolved once, at the host root, so every marker path below is this absolute
-# directory plus a bare filename.
 markers_dir="$(gr_markers_dir)"
 [[ -n "$markers_dir" ]] || skip_nags "no markers directory"
 command -v jq >/dev/null 2>&1 || skip_nags "jq not on PATH"
-# node reads the ledger, and a missing one would leave the ledger empty rather
-# than absent — which reads exactly like a session that wrote nothing, so the
-# backstop would fall silent for good with nothing to show for it.
 command -v node >/dev/null 2>&1 || skip_nags "node not on PATH"
 
 mode="${1:-stop}"
@@ -121,20 +56,15 @@ payload=$(cat)
 sid=$(jq -r '.session_id // empty' <<<"$payload" 2>/dev/null)
 [[ -n "$sid" ]] || skip_nags "payload named no session id"
 
-# Every git read below runs in the session's own tree (#4243): its HEAD is the
-# base, its diff the signal.
+# #4243
 cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null)
 tree="$(gr_session_tree "${cwd:-$hook_pwd}")" || skip_nags "git named no session tree for ${cwd:-$hook_pwd}"
 cd "$tree" 2>/dev/null || skip_nags "session tree $tree could not be entered"
 
-# The two review-axis Artefact paths alone take the shortened suffix; every
-# OTHER $sid use in this file (the marker filenames below) keeps the full id.
-# A failed source leaves them bare (lib/review-suffix.sh's header).
 # shellcheck source=scripts/lib/review-suffix.sh
 source "$here/lib/review-suffix.sh" 2>/dev/null ||
   gl_log "lib/review-suffix.sh did not load — review Artefact paths left unsuffixed"
 review_sfx="$(review_suffix "$sid" 2>/dev/null)"
-# The core's bare `code-reviewer` or an adopter's plugin spelling (#741).
 # shellcheck source=scripts/lib/review-agent-type.sh
 source "$here/lib/review-agent-type.sh" 2>/dev/null ||
   gl_log "lib/review-agent-type.sh did not load — review subagent type defaulted to the plugin's"
@@ -142,12 +72,7 @@ review_type="$(review_agent_type 2>/dev/null)" || review_type="workflow-core:cod
 # shellcheck source=scripts/lib/review-standards.sh
 source "$here/lib/review-standards.sh" 2>/dev/null ||
   gl_log "lib/review-standards.sh did not load — Standards axis handed both standards files unchecked"
-# The default for where review-standards.sh, or the script-path.sh it reads
-# the core root from, did not load, spelt at the plugin root in an install:
-# the reason leaves through no resolver (#2096). The four texts below are
-# lib/tracker-inject-text.js's standardsText word for word, pinned by this
-# script's test (#2097): two copies, as a shell hook reads no JavaScript
-# module without a node process.
+# #2097
 standards_base="$(doc_path code-standards-base.md 2>/dev/null)" || standards_base=docs/code-standards-base.md
 base_shown="$(review_standards_base_shown 2>/dev/null)" && standards_base="$base_shown"
 standards_state="$(review_standards_state 2>/dev/null)" || standards_state=both
@@ -173,47 +98,31 @@ fi
 
 base=$(concision_session_base "$markers_dir" "$sid") || exit 0
 
-# --- attribution (mantahostels#114) ---
-# The paths this session itself wrote or committed.
 mine=$(mktemp 2>/dev/null) || exit 0
 trap 'rm -f "$mine"' EXIT
 if ! node "$here/session-arbiter.js" \
   writes "$sid" --committed >"$mine" 2>/dev/null; then
-  # Non-zero means ATTRIBUTION UNAVAILABLE, never "wrote nothing" (mantahostels#135) — the
-  # distinction the empty-file test below cannot see, which is why the status is
-  # read rather than inferred (mantahostels#137). Both land on silence, for opposite
-  # reasons: with no ledger to intersect, every candidate path is unattributable,
-  # and the rule above bills those to nobody. The fault is not lost with the
-  # nag — the arbiter logs it, and check-guard-errors surfaces it.
+  # lucmoseley/mantahostels#135 lucmoseley/mantahostels#137
   exit 0
 fi
-# Removable without changing the output — an empty ledger already yields an empty
-# match below. It skips the git diffs for read-only sessions, the common case.
 [[ -s "$mine" ]] || exit 0
 
-# quotePath=false on every git command feeding it: attributed_to's header.
 attributed() { attributed_to "$mine"; }
 gitq() { git -c core.quotePath=false "$@"; }
 
-# --- pass markers: scripts/lib/concision-marker.sh ---
 reason=""
 
-# --- prose signal ---
 if [[ ! -f "$markers_dir/.concision-nagged-$sid" ]] && ! pass_valid "$markers_dir/.concision-pass-$sid" "$base"; then
-  # Captured now: the code signal below calls pass_valid again and overwrites it.
   prose_fault="$pass_fault"
   mapfile -t prose_files < <(
     gitq diff --name-only "$base" -- "${PROSE[@]}" 2>/dev/null | attributed
   )
-  # A brand-new document is untracked, so no diff carries it — count it whole.
   mapfile -t untracked < <(
     gitq ls-files --others --exclude-standard -- "${PROSE[@]}" 2>/dev/null | attributed
   )
 
   add=0
   del=0
-  # Guarded: `git diff $base --` with an empty pathspec list diffs the whole
-  # tree, which would restore the misattribution this filter removes.
   if [[ "${#prose_files[@]}" -gt 0 ]]; then
     diff=$(git diff "$base" -- "${prose_files[@]}" 2>/dev/null)
     add=$(printf '%s\n' "$diff" | grep '^+' | grep -v '^+++' | wc -w)
@@ -233,18 +142,11 @@ if [[ ! -f "$markers_dir/.concision-nagged-$sid" ]] && ! pass_valid "$markers_di
     touch "$markers_dir/.concision-nagged-$sid"
     [[ -n "$prose_fault" ]] &&
       reason+="The marker .claude/tmp/markers/.concision-pass-$sid was rejected — $prose_fault — so it counts as no pass. "
-    # The pass runs HERE, in the session that wrote the prose (mantahostels#1143).
-    # Accepted residual: it re-reads this session's own context.
     reason+="This session added roughly $net net words of prose ($files) and has not run a concision pass. Run the concision-pass skill with fixed point $base, then report what was cut. Its closing step, mark-pass.js, writes .claude/tmp/markers/.concision-pass-$sid holding 'base=$base', 'findings=<number of cuts made>' and 'route=in-session'. If every addition is a founder-specified fact, say so, run that closing step with 0 cuts, and finish."
   fi
 fi
 
-# --- code signal ---
-# scripts/lib/code-signal.sh, over the working tree. The latch holds the tier
-# it nagged at, so a change that turns escalated after a standard nag is nagged
-# again (#1696), and the checksum of the marker it saw, so a marker written
-# since and rejected is nagged again, naming why (#1772). A session that writes
-# a marker has answered the nag; only the nag can tell it the answer failed.
+# #1696 #1772
 code_latch="$markers_dir/.codereview-nagged-$sid"
 code_marker="$markers_dir/.codereview-pass-$sid"
 latched_tier="" latched_sum=""
@@ -252,8 +154,7 @@ latched_tier="" latched_sum=""
   IFS= read -r latched_tier
   IFS= read -r latched_sum
 } <"$code_latch"
-# 2>/dev/null before the <: redirections apply left to right, so a missing
-# marker, the normal case, would otherwise print the shell's own error (#1803).
+# #1803
 marker_sum="$(cksum 2>/dev/null <"$code_marker")"
 was_escalated="" new_marker=""
 [[ "$latched_tier" = escalated ]] && was_escalated=1
@@ -263,22 +164,13 @@ if { [[ -z "$was_escalated" ]] || [[ -n "$new_marker" ]]; } &&
   { [[ ! -f "$code_latch" ]] ||
     { [[ "$cs_tier" = escalated ]] && [[ -z "$was_escalated" ]]; } ||
     { [[ -n "$cs_pass_fault" ]] && [[ -n "$new_marker" ]]; }; }; then
-  # An escalated latch stays escalated, so a tier that falls and rises again
-  # is not nagged twice for the rise.
   latch_tier="$cs_tier"
   [[ -n "$was_escalated" ]] && latch_tier=escalated
   printf '%s\n%s\n' "$latch_tier" "$marker_sum" >"$code_latch"
   [[ -n "$reason" ]] && reason+=" ALSO: "
   [[ -n "$cs_pass_fault" ]] &&
     reason+="The marker .claude/tmp/markers/.codereview-pass-$sid was rejected — $cs_pass_fault — so it counts as no review. "
-  # The standards path is restated from docs/agents/rules/review-*.txt,
-  # which reach a review only through the code-review skill (mantahostels#958,
-  # mantahostels#1011, mantahostels#3451). Keep the wordings in step. The dispatch
-  # shape and its model pin are that fragment itself, printed (#1697). Its load,
-  # fallback and "Reviewer type …" lead-in are repeated in
-  # lib/tracker-inject-text.js's /code-review text.
-  # lib/inject-tracker-docs.test.ts finds the concision pass's pin by the
-  # `fresh-reader agents on` before it (mantahostels#2614).
+  # #1697
   dispatch_shape="$(rule_or_path review-dispatch-shape "Dispatch the review runs as" " says.")"
   [[ -n "$cs_implement" ]] &&
     reason+="This session ran /implement, so the two-axis review is mandatory at any diff size — the ${CODE_THRESHOLD}-line churn floor does not apply here (mantahostels#2769). "
@@ -289,9 +181,7 @@ if { [[ -z "$was_escalated" ]] || [[ -n "$new_marker" ]]; } &&
 fi
 
 [[ -n "$reason" ]] || exit 0
-# Either nag in an /implement session prints its closing steps whole, though
-# the code nag restates part: no preloaded text carries them (#2031), and
-# no other gives the prose-file limb or the Door line.
+# #2031
 if [[ -n "$cs_implement" ]]; then
   reason+=" $(rule_or_path implement-closing-steps "This session ran /implement: its closing steps are in" .)"
 fi

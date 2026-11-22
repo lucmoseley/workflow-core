@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The dead-window detector's CLI (mantahostels#1404). `HOME` points at a fixture corpus, so
- * the machine's real transcripts are never read.
- *
- * What is pinned here is the split mantahostels#1362 ruled: the session-start path reads a
- * cached sweep and never walks the corpus.
- *
- * It runs by hand as `npm run check:throttling`, its session-start notice off
- * by default: loosen a case and a session start walks the whole transcript
- * corpus, or a rationed week goes unreported before a cut to the agent bill.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -23,6 +12,7 @@ import { writeSystemdRun } from "./lib/systemd-run-fake";
 
 const SCRIPT = path.resolve(__dirname, "check-self-throttling.js");
 const HOUR = 36e5;
+const EPISODE_HOURS = 29.8;
 
 let dir: string;
 const home = () => path.join(dir, "home");
@@ -37,17 +27,10 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/**
- * `env` overrides go last. `WFC_THROTTLE_NOTICE` is the one most tests set:
- * the session-start notice ships OFF (mantahostels#1404), so a test asserting on what the
- * notice says must turn it on.
- */
 const runEnv = (env: Record<string, string> = {}) => ({
 	...process.env,
 	CLAUDE_PROJECT_DIR: dir,
 	HOME: home(),
-	// The corpus is read from the seat set, not HOME: without these the
-	// run walks the real seats (#379).
 	CLAUDE_CONFIG_DIR: path.join(home(), ".claude"),
 	WFC_CLAUDE_CONFIG_A: "",
 	WFC_CLAUDE_CONFIG_B: "",
@@ -55,21 +38,16 @@ const runEnv = (env: Record<string, string> = {}) => ({
 	WFC_THROTTLE_STATE: state(),
 	WFC_THROTTLE_REFRESH_STAMP: stamp(),
 	WFC_THROTTLE_HISTORY: history(),
-	// "" neutralises an inherited leak (mantahostels#2120): noticeEnabled() only
-	// recognises "1"/"0" and falls through to the built-in default for
-	// anything else, unlike an unset var, which the leak is not.
 	WFC_THROTTLE_NOTICE: "",
 	...env,
 });
 const run = (args: string[], env: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, args, { env: runEnv(env) });
 
-/** Up to 10 s for a detached sweep to land `file`. */
 const waitForFile = async (file: string) => {
 	for (let i = 0; i < 100 && !fs.existsSync(file); i++) await sleep(100);
 };
 
-/** The notice forced on, for the tests that are about what it prints. */
 const LOUD = { WFC_THROTTLE_NOTICE: "1" };
 
 const readHistoryLines = () =>
@@ -80,11 +58,6 @@ const readHistoryLines = () =>
 		.filter(Boolean)
 		.map((l) => JSON.parse(l));
 
-/**
- * A fixture corpus in `$HOME/.claude/projects/`: a fortnight of 12-hour days at
- * 60 turns an hour, with one silence of `gapHours` opening `gapAtHour` hours in.
- * `endsAgo` places the whole corpus so its last turn is that many days back.
- */
 function writeCorpus({
 	gapAtHour,
 	gapHours,
@@ -117,7 +90,6 @@ function writeCorpus({
 	fs.writeFileSync(path.join(project, "s.jsonl"), `${lines.join("\n")}\n`);
 }
 
-/** A silence long and strongly flanked enough to fire, ending `endsAgo` days back. */
 const throttled = (endsAgo = 0) =>
 	writeCorpus({ gapAtHour: 12 * 24 + 6, gapHours: 24, endsAgo });
 
@@ -138,8 +110,6 @@ describe("--refresh", () => {
 	});
 
 	it("is BROKEN when the sweep runs but its state file cannot be written", () => {
-		/* Silence here would leave the session-start path reading a stale file
-		 * for ever, with nothing anywhere saying why. */
 		throttled();
 		fs.mkdirSync(state(), { recursive: true });
 		const r = run(["--refresh"]);
@@ -193,13 +163,6 @@ describe("--notify", () => {
 	});
 
 	it("prints a corrupt cache rather than dying on it", () => {
-		/* `episodes()` cannot produce a null ratio, but the notify path reads a file
-		 * on disk, and a session-start hook must say something rather than throw. */
-		/* Clock-relative, not a fixed ISO date (mantahostels#2184): `--notify` drops any episode
-		 * whose `end` is more than REPORT_WINDOW_DAYS behind the real Date.now(),
-		 * and the script has no WFC_NOW seam to pin that against, unlike
-		 * check-seat-utilisation.js. `29.8 * HOUR` must keep tracking the `hours`
-		 * literal below. */
 		const end = Date.now() - HOUR;
 		fs.writeFileSync(
 			state(),
@@ -207,9 +170,9 @@ describe("--notify", () => {
 				sweptAt: new Date().toISOString(),
 				episodes: [
 					{
-						start: new Date(end - 29.8 * HOUR).toISOString(),
+						start: new Date(end - EPISODE_HOURS * HOUR).toISOString(),
 						end: new Date(end).toISOString(),
-						hours: 29.8,
+						hours: EPISODE_HOURS,
 						beforeRatio: null,
 						afterRatio: null,
 						busyRate: null,
@@ -229,16 +192,11 @@ describe("--notify", () => {
 	});
 
 	it("stamps the kick BEFORE spawning, so a concurrent start can see it", () => {
-		/* The state file is gitignored, so a fresh checkout has none and every
-		 * session start reaches the no-state branch. A stamp written only after
-		 * the 10-19s sweep returns is invisible to the ~200 starts that land
-		 * meanwhile, and each spawns its own walk (mantahostels#1362). */
 		throttled();
 		run(["--notify"]);
 		expect(fs.existsSync(stamp())).toBe(true);
 	});
 
-	/* So a short session's end does not kill the once-a-day walk (#4706). */
 	it("kicks its sweep outside the session's scope, as no session, owned by the starter, capped", async () => {
 		throttled();
 		const fake = writeSystemdRun(fs.mkdtempSync(path.join(dir, "sdr-")));
@@ -276,8 +234,6 @@ describe("--notify", () => {
 	});
 
 	it("sweeps not at all when it cannot write the stamp that throttles it", async () => {
-		/* A read-only or full disk must not sweep: unthrottled is the one
-		 * outcome worse than silent. */
 		throttled();
 		fs.mkdirSync(stamp(), { recursive: true });
 		const r = run(["--notify"]);
@@ -290,7 +246,6 @@ describe("--notify", () => {
 		throttled();
 		fs.writeFileSync(`${stamp()}.claim`, "");
 		expect(run(["--notify"]).status).toBe(0);
-		// The stamp is written before any spawn, so its absence is the proof.
 		expect(fs.existsSync(stamp())).toBe(false);
 	});
 
@@ -322,14 +277,11 @@ describe("--notify", () => {
 		);
 		await Promise.all(starts);
 		await waitForFile(state());
-		// Real time: a second sweep, had one been kicked, lands just after the first.
 		await sleep(1000);
 		expect(readHistoryLines()).toHaveLength(1);
 	});
 
 	it("prints no raw null for a busy rate a corrupt cache left out", () => {
-		// Clock-relative, not a fixed ISO date — see "prints a corrupt cache
-		// rather than dying on it" (mantahostels#2184).
 		const end = Date.now() - HOUR;
 		fs.writeFileSync(
 			state(),
@@ -337,9 +289,9 @@ describe("--notify", () => {
 				sweptAt: new Date().toISOString(),
 				episodes: [
 					{
-						start: new Date(end - 29.8 * HOUR).toISOString(),
+						start: new Date(end - EPISODE_HOURS * HOUR).toISOString(),
 						end: new Date(end).toISOString(),
-						hours: 29.8,
+						hours: EPISODE_HOURS,
 						beforeRatio: 0.82,
 						afterRatio: 0.7,
 						busyRate: null,
@@ -355,8 +307,6 @@ describe("--notify", () => {
 });
 
 describe("one sweep per machine, not per repo root (#2098)", () => {
-	/* The paths left to their defaults, as a real start has them: two repo
-	 * roots under one HOME. */
 	const fromRoot = (root: string, env: Record<string, string> = {}) =>
 		run(["--notify"], {
 			CLAUDE_PROJECT_DIR: root,
@@ -395,9 +345,6 @@ describe("one sweep per machine, not per repo root (#2098)", () => {
 
 describe("the session-start notice, off by default (mantahostels#1404)", () => {
 	it("says nothing at a session start even with a fired episode cached", () => {
-		/* The founder's ruling: nothing acts on this, no capacity has been cut,
-		 * and the one episode it finds is a stop they made themselves. Collect,
-		 * do not announce. */
 		throttled();
 		run(["--refresh"]);
 		expect(readState().episodes).toHaveLength(1);
@@ -408,9 +355,6 @@ describe("the session-start notice, off by default (mantahostels#1404)", () => {
 	});
 
 	it("still sweeps on the silenced path — silencing the notice must not stop the collecting", async () => {
-		/* The load-bearing half of the ruling. The readings are perishable, so a
-		 * silence that also stopped the sweep would quietly throw away the only
-		 * thing mantahostels#1404 was kept for. */
 		throttled();
 		const r = run(["--notify"]);
 		expect(r.stdout).toBe("");
@@ -420,7 +364,6 @@ describe("the session-start notice, off by default (mantahostels#1404)", () => {
 	});
 
 	it("answers in full when asked directly, whatever the session start does", () => {
-		/* `npm run check:throttling` is a question, not an injection. */
 		throttled();
 		const r = run([], { WFC_THROTTLE_NOTICE: "0" });
 		expect(r.status).toBe(0);
@@ -429,14 +372,10 @@ describe("the session-start notice, off by default (mantahostels#1404)", () => {
 	});
 
 	it("does not claim all-clear in --json while it is holding its tongue", () => {
-		/* A suppressed episode must not read as "nothing found" to the next
-		 * reader — the finding is real, only the announcement is gated. */
 		throttled();
 		run(["--refresh"]);
 		const data = JSON.parse(run(["--notify", "--json"]).stdout);
 		expect(data.episodes).toHaveLength(1);
-		// `summary`, not `okLine`: the envelope carries the OK line under that name,
-		// and an `okLine ?? ""` read asserts nothing at all.
 		expect(data.summary).not.toMatch(/no self-throttling/);
 	});
 });
@@ -451,23 +390,20 @@ describe("the reading history", () => {
 	});
 
 	it("keeps an episode after the transcripts behind it have aged out", () => {
-		/* The reason the history exists: `historyFile` in lib/throttle-paths.js. */
 		throttled();
 		run(["--refresh"]);
-		writeCorpus({ gapAtHour: 0, gapHours: 0 }); // the gap ages out of the corpus
+		writeCorpus({ gapAtHour: 0, gapHours: 0 });
 		run(["--refresh"]);
 
-		expect(readState().episodes).toEqual([]); // the live view has lost it
+		expect(readState().episodes).toEqual([]);
 		const lines = readHistoryLines();
 		expect(lines).toHaveLength(2);
-		expect(lines[0].episodes).toHaveLength(1); // the history has not
+		expect(lines[0].episodes).toHaveLength(1);
 		expect(lines[1].episodes).toEqual([]);
 		expect(lines[0].episodes[0].hours).toBeGreaterThanOrEqual(20);
 	});
 
 	it("records the sweep's own timestamp and corpus size, not just its findings", () => {
-		/* A run that found nothing is itself a reading: without it, a gap in the
-		 * history cannot be told from a stretch nobody swept. */
 		throttled();
 		run(["--refresh"]);
 		const [line] = readHistoryLines();
@@ -477,9 +413,6 @@ describe("the reading history", () => {
 	});
 
 	it("records the busy rate and every candidate gap, not only what fired", () => {
-		/* A fire list is not a baseline. The ladder's question is "how busy was
-		 * normal before the cut", so a reading has to carry the rate and the
-		 * near-misses, or a no-fire day records nothing comparable at all. */
 		throttled();
 		run(["--refresh"]);
 		const [line] = readHistoryLines();
@@ -489,7 +422,6 @@ describe("the reading history", () => {
 	});
 
 	it("still carries a busy rate on a day that fired nothing", () => {
-		/* The common case, and the one a fire list loses entirely. */
 		writeCorpus({ gapAtHour: 0, gapHours: 0 });
 		run(["--refresh"]);
 		const [line] = readHistoryLines();
@@ -498,9 +430,6 @@ describe("the reading history", () => {
 	});
 
 	it("names BOTH lost writes when the disk takes neither", () => {
-		/* The ordinary failure — read-only or full — fails both at once. A
-		 * ctx.broken per write reports only the first, and the one it swallowed
-		 * was the unrepairable one. */
 		throttled();
 		fs.mkdirSync(state(), { recursive: true });
 		fs.mkdirSync(history(), { recursive: true });
@@ -512,8 +441,6 @@ describe("the reading history", () => {
 	});
 
 	it("is BROKEN when the sweep runs but the history cannot be appended", () => {
-		/* Louder than the state file's failure, because this is the write no
-		 * later run can make good. */
 		throttled();
 		fs.mkdirSync(history(), { recursive: true });
 		const r = run(["--refresh"]);
@@ -532,10 +459,6 @@ describe("the reading history", () => {
 
 describe("the collector's own health", () => {
 	it("reports a stalled collector on a hand run even with the notice off", () => {
-		/* `--refresh` runs detached with stdio ignored, so its BROKEN reaches
-		 * nobody. With the notice off this is the only place a collection that
-		 * has quietly stopped can surface — read before the live sweep's own
-		 * append would hide it. */
 		throttled();
 		run(["--refresh"]);
 		const old = Date.now() - 96 * HOUR;
@@ -544,7 +467,6 @@ describe("the collector's own health", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(/COLLECTOR STALLED/);
 		expect(r.stderr).toMatch(/96h/);
-		// Ends on a WARN, never OK, so `npm run status` shows it (#2038).
 		expect(r.stderr.trim().split("\n").pop()).toMatch(/^WARN:/);
 	});
 
@@ -563,7 +485,6 @@ describe("the collector's own health", () => {
 	});
 
 	it("does not cry stalled on a fresh checkout that has swept nothing yet", () => {
-		/* No history and no stamp is "not started", not "broken". */
 		throttled();
 		expect(run([]).stderr).not.toMatch(/COLLECTOR STALLED/);
 	});
@@ -575,8 +496,6 @@ describe("the collector's own health", () => {
 	});
 
 	it("announces an ambient override rather than reversing the ruling in silence", () => {
-		/* An exported WFC_THROTTLE_NOTICE would otherwise turn the notice back
-		 * on at every session start with nothing saying it had. */
 		throttled();
 		run(["--refresh"]);
 		const r = run(["--notify"], LOUD);
@@ -592,8 +511,6 @@ describe("the collector's own health", () => {
 	});
 
 	it("is not itself fooled by an ambient WFC_THROTTLE_NOTICE (mantahostels#2120)", () => {
-		// process.env, not `run`'s own env param: pins that the default neutralises
-		// what a test never explicitly set, not only what it overrides.
 		vi.stubEnv("WFC_THROTTLE_NOTICE", "1");
 		throttled();
 		run(["--refresh"]);
@@ -608,17 +525,13 @@ describe("the live sweep", () => {
 		expect(r.status).toBe(0);
 		const data = JSON.parse(r.stdout);
 		expect(data.episodes).toHaveLength(1);
-		// Every candidate gap is reported too, so the reader sees what was rejected.
 		expect(data.candidates.length).toBeGreaterThan(data.episodes.length);
 	});
 
 	it("prints every candidate gap with the test it was rejected on", () => {
-		/* The live run is the answerable one: the ladder points a reader here to see
-		 * what was considered, not only what fired. */
 		throttled();
 		const out = run([]).stderr;
 		expect(out).toMatch(/CANDIDATE GAPS \(\d+\) of 10h or more/);
-		// The nights either side of the fired gap are candidates that did not fire.
 		expect(out.match(/^ {2}20\d\d-/gm)?.length).toBeGreaterThan(1);
 	});
 
@@ -652,8 +565,6 @@ describe("the live sweep", () => {
 });
 
 describe("wiring", () => {
-	/* A piggyback on an existing entry, never a SessionStart hook of its own,
-	 * on CPU cost (mantahostels#1362, mantahostels#1130). */
 	it("is reached at SessionStart through the existing detached launcher", () => {
 		expect(hookIsWired("SessionStart", "session-start-sweeps.sh", "")).toBe(
 			true,
@@ -672,15 +583,7 @@ describe("wiring", () => {
 	});
 });
 
-/*
- * mantahostels#2857 made the episode notice a second reader of gate 2's trial declaration:
- * the chain is the environment override, then a LIVE declared window, then
- * NOTICE_ON_SESSION_START. The failure directions are asymmetric — the notice
- * on outside a trial is noise, and off during one loses a corroborating record
- * on a fortnight that cannot be re-run.
- */
 describe("the trial window as an input to the notice (mantahostels#2857)", () => {
-	/** A ladder declaring a window around `now`, or `null` for none. */
 	const ladder = (start: string, end: string, over: string | null = null) => {
 		const p = path.join(dir, "ladder.md");
 		fs.writeFileSync(
@@ -752,9 +655,6 @@ describe("the trial window as an input to the notice (mantahostels#2857)", () =>
 	});
 
 	it("warns when an export REVERSES a live window, not just the constant, naming the export", () => {
-		/* The mutation this test exists for: compare the override against
-		 * NOTICE_ON_SESSION_START instead of the resolved state and this goes
-		 * silent, because the constant is false and so is the override. */
 		throttled();
 		run(["--refresh"]);
 		const r = run(["--notify"], {
@@ -766,8 +666,6 @@ describe("the trial window as an input to the notice (mantahostels#2857)", () =>
 	});
 
 	it("says nothing extra about a declaration it cannot honour", () => {
-		/* Silent here by ruling (mantahostels#2857 Q3): check-seat-utilisation.js prints the
-		 * loud can't-honour line off the same file at the same session start. */
 		throttled();
 		run(["--refresh"]);
 		const r = run(["--notify"], {

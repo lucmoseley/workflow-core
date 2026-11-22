@@ -1,27 +1,9 @@
-/*
- * git-fault-fake.ts — the fault-injecting `git` a test sets at WFC_GIT
- * (#3067). The wrapper fails, hangs or runs a script body on the argv its
- * `match` names, and `exec`s the real git on every other, so a case breaks one
- * git read and leaves the rest of the program's git real; an `all` match
- * catches every call.
- *
- * Its contract, held by git-fault.contract.test.ts (§G7): an argv the match
- * does not name behaves exactly as the real git does — exit code, stdout and
- * stderr.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { commandPath } from "./command-path-testkit";
 import { shellQuote } from "./sh-quote.js";
 
-/**
- * Which calls fault: `words`, those arguments in a row anywhere in the argv
- * (read off `$*`, so an argument holding a space splits); `every`, each of
- * them anywhere, in any order (read the same way); `first`, the first
- * argument; `argPrefix`, any argument starting with it; `all`, every call.
- */
 export type GitFaultMatch =
 	| { all: true }
 	| { words: string[] }
@@ -29,30 +11,19 @@ export type GitFaultMatch =
 	| { first: string }
 	| { argPrefix: string };
 
-/**
- * What a matched call does: `exit` with that code;
- * `sleep` that many seconds, as the process a timeout kills; or run `script`,
- * an sh body seeing the call's argv and the real git at `$REAL_GIT`, which
- * falls through to the real git where it does not exit. A value the body
- * names goes in through sh-quote.js's `shellQuote`.
- */
 export type GitFaultAction =
 	| { exit: number }
 	| { sleep: number }
 	| { script: string };
 
 export interface FaultyGit {
-	/** The wrapper, for WFC_GIT. */
 	git: string;
-	/** The temp dir holding it, the caller's to remove. */
 	dir: string;
-	/** How many calls the match has caught so far. */
 	hits: () => number;
 }
 
 let realGit: string | undefined;
 
-/** The git on PATH, resolved once, which every unmatched call reaches. */
 export const resolveRealGit = (): string => {
 	realGit ??= commandPath("git");
 	return realGit;
@@ -87,10 +58,6 @@ const actionLines = (action: GitFaultAction): string[] => {
 	return action.script.split("\n").map((l) => `  ${l}`);
 };
 
-/**
- * Write a fault-injecting git into a fresh temp dir under `under` (the system
- * temp dir by default) and return it with its hit count.
- */
 export function writeFaultyGit(
 	match: GitFaultMatch,
 	action: GitFaultAction,

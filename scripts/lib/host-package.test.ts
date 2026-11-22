@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * lib/host-package.js's contract (#1380): the package's exports where the host
- * root or the caller's directory has it installed, and an outcome naming the
- * package, the root and the install command where neither does — never a
- * MODULE_NOT_FOUND throw. That outcome is what turns an adopter's missing
- * js-yaml into a BROKEN gate naming the fix.
- *
- * Real packages under temp roots, the host root set through
- * CLAUDE_PROJECT_DIR, which hostRoot() reads first: the resolution is Node's
- * own, so only real directories prove it.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

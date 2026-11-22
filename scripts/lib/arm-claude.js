@@ -1,12 +1,3 @@
-/*
- * arm-claude.js — the `claude` calls of scripts/run-arm-test.js's core,
- * lib/run-arm.js (#2045, #5149): a run's `--bg` launch in its arm's config
- * dir, and one config dir's job listing. Each goes through the core's
- * `claude` port, and reads the time from its `now`, touching nothing else,
- * so lib/arm-claude.contract.test.ts holds the runner's in-process fake to
- * the production adapter through these same calls.
- */
-
 const path = require("node:path");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { buildSeatEnv, runClaude } = require("./seat-claude.js");
@@ -18,20 +9,12 @@ const { throttleEnv } = require("./throttle-paths.js");
 /** @typedef {import("./run-arm.js").JobStates} JobStates */
 /** @typedef {import("./run-arm.js").Job} Job */
 
-/**
- * `docs/effort-guide.md`'s standing default, named on the launch so both arms
- * run it whatever each config dir's settings say.
- */
 const MODEL = "claude-opus-5-5[1m]";
 const EFFORT = "medium";
-/** Hang guards, not measurements: each call returns in seconds when well. */
+// guess, #5529
 const CALL_TIMEOUT_MS = 120_000;
 
 /**
- * The throttling paths are pinned because an arm's revision may predate #2098,
- * where the sweep's state still defaults per repo root and each sandbox would
- * kick a full transcript sweep of its own.
- *
  * @param {string} sandbox
  * @param {NodeJS.ProcessEnv} env
  */
@@ -46,7 +29,6 @@ function sandboxEnv(sandbox, env) {
 }
 
 /**
- * Start one prepared run as a `claude --bg` job in its arm's config dir.
  * @param {Ports} p
  * @param {Run} run
  * @param {{ repo: string, prompt: string }} ready
@@ -94,10 +76,6 @@ function start(p, run, { repo, prompt }, bin) {
 }
 
 /**
- * Each job's record from `claude agents --json --all` in one config dir,
- * keyed by the job id `--bg` printed. A `--bg` launch ignores `--session-id`
- * (#2045), so the listing is the one map from job to
- * transcript.
  * @param {Ports} p
  * @param {string} configDir
  * @param {string} bin
@@ -115,7 +93,6 @@ function readJobStates(p, configDir, bin) {
 		const rows = JSON.parse(r.stdout);
 		return new Map(rows.map((j) => [j.id, j]));
 	} catch {
-		// An unreadable listing is reported per run as `state unknown` (#2045).
 		return null;
 	}
 }

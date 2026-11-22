@@ -1,17 +1,3 @@
-/*
- * atomic-write.js — the one temp-file-and-rename writer (#2085).
- *
- * rename(2) within one directory is atomic, so a concurrent reader sees the
- * old file or the new one, never a torn write.
- *
- * The aside is `<file>.<pid>.<hex>.tmp`: the pid separates processes, so the
- * 4 random bytes only separate calls within one, and `wx` refuses the rare
- * clash rather than share an aside. A writer killed between the two steps
- * leaves its aside behind. The sweeps of lib/oracle-cache.js,
- * lib/write-set-cache.js and the arbiter's bases, snapshots and prefixed
- * session markers collect it there; anywhere else it stays.
- */
-
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -20,18 +6,15 @@ const { escapeRe } = require("./regex-group.js");
 
 /**
  * @typedef {object} AtomicWriteOptions
- * @property {boolean} [mkdir] create the target's directory first
- * @property {number} [mode] the file's permission bits, applied to the aside
- *   before the rename, so the target never holds the bytes under looser ones
- * @property {(aside: string) => void} [beforeRename] runs on the aside once it
- *   is whole and before the rename
+ * @property {boolean} [mkdir]
+ * @property {number} [mode]
+ * @property {(aside: string) => void} [beforeRename]
  */
 
 /**
- * The aside `file` is written to before its rename.
  * @param {string} file
  * @param {number | string} pid
- * @param {string} tag the call's 8 random hex digits
+ * @param {string} tag
  * @returns {string}
  */
 function asidePath(file, pid, tag) {
@@ -39,8 +22,6 @@ function asidePath(file, pid, tag) {
 }
 
 /**
- * The pid in `name` where it is an aside of the file named `base` in the same
- * directory, writeFileAtomic's 8-hex-digit tag and all, else null.
  * @param {string} base
  * @param {string} name
  * @returns {number | null}
@@ -51,18 +32,11 @@ function asidePid(base, name) {
 	return m ? Number(m[1]) : null;
 }
 
-/**
- * A fresh aside for `file` in this process.
- * @param {string} file
- */
+/** @param {string} file */
 const newAside = (file) =>
 	asidePath(file, process.pid, crypto.randomBytes(4).toString("hex"));
 
 /**
- * Replace `file` with what `write` writes to the fd it is handed, in one step,
- * for output too large to hold whole (#4047). A file it replaces keeps its
- * permission bits. A fault at any step, `write`'s own included, removes the
- * aside and RETHROWS, leaving `file` as it was.
  * @param {string} file
  * @param {(fd: number) => void} write
  */
@@ -79,7 +53,6 @@ function writeStreamAtomic(file, write) {
 		}
 		fs.renameSync(aside, file);
 	} catch (e) {
-		// The write's own fault is the one to report.
 		ignoreFailure(() => fs.rmSync(aside, { force: true }));
 		throw e;
 	}
@@ -87,20 +60,17 @@ function writeStreamAtomic(file, write) {
 
 /**
  * @param {string} file
- * @returns {number | null} its permission bits, or null where none is there
+ * @returns {number | null}
  */
 function statMode(file) {
 	try {
 		return fs.statSync(file).mode & 0o7777;
 	} catch {
-		/* Nothing to replace: the aside keeps the umask's mode. */
 		return null;
 	}
 }
 
 /**
- * Replace `file` with `data` in one step. A fault at any step removes the aside
- * and RETHROWS, leaving `file` as it was.
  * @param {string} file
  * @param {string | Buffer} data
  * @param {AtomicWriteOptions} [options]
@@ -110,12 +80,10 @@ function writeFileAtomic(file, data, options = {}) {
 	const aside = newAside(file);
 	try {
 		fs.writeFileSync(aside, data, { flag: "wx", mode: options.mode });
-		// writeFile's mode is filtered through the umask; chmod is not.
 		if (options.mode !== undefined) fs.chmodSync(aside, options.mode);
 		options.beforeRename?.(aside);
 		fs.renameSync(aside, file);
 	} catch (e) {
-		// The write's own fault is the one to report.
 		ignoreFailure(() => fs.rmSync(aside, { force: true }));
 		throw e;
 	}

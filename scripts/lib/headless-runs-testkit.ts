@@ -1,21 +1,10 @@
-/*
- * headless-runs-testkit.ts — a headless run's `run.json` written straight into
- * a refill dir's store (lib/headless-runs.js), for a suite that needs a
- * run listed live or ended without launching one (#2608).
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { readCurrentBootId, readProcStartOf } from "./arbiter-proc.js";
 
-/** The run store under a refill dir, as lib/headless-runs.js places it. */
 export const headlessStore = (refill: string) =>
 	path.join(refill, ".headless-runs");
 
-/**
- * A run live as this very process, or ended (its start time no longer
- * matches); `over` replaces any record field. Returns the run's directory.
- */
 export function writeHeadlessRun(
 	refill: string,
 	jobId: string,

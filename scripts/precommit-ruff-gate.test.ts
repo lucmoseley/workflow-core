@@ -521,7 +521,7 @@ describe("the ruff adoption's own invariants", () => {
 			fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
 		);
 		expect(hook).toMatch(
-			/^\s*node "\$\{WFC_PLUGIN_ROOT:-\.\}"\/scripts\/check-format-staged\.js/m,
+			/^\s*with_lines "\$fmt_skip" node "\$\{WFC_PLUGIN_ROOT:-\.\}"\/scripts\/check-format-staged\.js/m,
 		);
 		expect(pkg.scripts["check:py"]).toMatch(/\bruff format --check \./);
 		expect(CI).toMatch(/run: npm run check:py/);

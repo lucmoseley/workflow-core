@@ -1,18 +1,3 @@
-/*
- * refill-loop-run-testkit.ts — the sandbox (#2435) the refill-loop `run`
- * suites stand on, split between them by #4389 and #4602:
- * scripts/refill-loop-run.test.ts, scripts/refill-loop-run-recovery.test.ts
- * and scripts/refill-loop-run-holds.test.ts.
- *
- * The program and its lib/ closure are copied into a sandbox `scripts/`, its
- * children stubbed beside it: admission, the allowance cap, the reap, the
- * shortlist, the gate check and the dispatcher are all found from the
- * program's own directory. The copy is no git checkout, so run() adopts no
- * newer code, and the morning review's root is the sandbox, with no config, so
- * no tick files a review on a real tracker.
- *
- * Break it and every suite fails at once, or a run outlives its case (#4140).
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -59,8 +44,6 @@ import {
 import { killCarrying, killPid } from "./suite-ceiling.js";
 import { buildUsageCache } from "./usage-probe-fake";
 
-/* One session, never a waker: an empty listing reads as unread, and a
- * listed waker holds its wake for the 10 s re-check. */
 export const LISTED = buildListedRow({
 	id: "other",
 	sessionId: "other",
@@ -71,11 +54,8 @@ export const LISTED = buildListedRow({
 
 export let dir: string;
 
-/* A run that outlived its stop is left its sandbox: deleting it under the
- * running loop exits the worker, hiding the failure. */
 let outlived = false;
 
-/* The in-process loop a case has not yet seen end. */
 export let liveRun: Promise<unknown> | null = null;
 
 export let scripts: string;
@@ -108,7 +88,6 @@ export const loopEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
 	...over,
 });
 
-/** Takes the API host down for the network probe's stand-in, or back up. */
 export const setOffline = (offline: boolean) =>
 	offline
 		? fs.writeFileSync(at("offline"), "")
@@ -122,18 +101,15 @@ export const readLines = (file: string) =>
 		? fs.readFileSync(file, "utf8").split("\n").filter(Boolean)
 		: [];
 
-/* The stub gh's calls, each tick's own read for closed parks aside. */
 export const readGhActs = () =>
 	readLines(at("gh-calls")).filter(
 		(l) =>
 			!l.startsWith("issue list --repo o/r --state closed --label parked "),
 	);
 
-/** A node stub at `name` in the sandbox scripts/. */
 export const stub = (name: string, body: string) =>
 	fs.writeFileSync(path.join(scripts, name), body);
 
-/* The dispatcher, which the loop runs as an executable: a bash body. */
 export const stubDispatcher = (body: string) =>
 	fs.writeFileSync(
 		path.join(scripts, "dispatch-sessions.js"),
@@ -141,31 +117,22 @@ export const stubDispatcher = (body: string) =>
 		{ mode: 0o755 },
 	);
 
-/* Once per file, not per case: the closure walk is the cost (#4282). Each is
- * named from this directory, so the test selector sees the read (§X10). */
 const SANDBOX_FILES = [
 	...new Set([
 		"../refill-loop.js",
 		...readProgramLibs("refill-loop.js"),
-		/* Read by path: a headless resume's appended contract (#4580). */
 		"headless-contract.md",
-		/* Spawned by path: the resume typed into a live session (#2705). */
 		"../pty_type.py",
-		/* Imported by pty_type.py. */
 		"fail_open.py",
-		/* Spawned by path: a copy's issue claims moved (#2963). */
 		"../session-arbiter.js",
 		...readProgramLibs("session-arbiter.js"),
 	]),
 ];
 
-/** Registers each case's fresh sandbox and its teardown. */
 export function refillSandbox() {
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-loop-run-"));
-		/* The swap hold off, so no run reads the machine's own memory (#3093). */
 		fs.writeFileSync(at("meminfo"), MEMINFO_NO_HOLD);
-		/* The network probe's stand-in: up, unless setOffline took it down. */
 		writeNetProbeFake(at("net-probe"), at("offline"));
 		scripts = at("code/scripts");
 		fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
@@ -178,7 +145,6 @@ export function refillSandbox() {
 		fs.writeFileSync(path.join(repo, ".claude", "workflow-core.json"), "{}\n");
 		seat = at("seat");
 		fs.mkdirSync(seat);
-		// Fresh and low, so no tick probes /usage or waits on a full seat.
 		weekAt(10);
 		fs.writeFileSync(
 			at(".refill-loop-control.json"),
@@ -189,7 +155,6 @@ export function refillSandbox() {
 				scope: { mode: "normal", repos: [repo], goal: null },
 			}),
 		);
-		// Swept just now, so no tick starts a gate sweep.
 		fs.writeFileSync(
 			at(".refill-gate-readings.json"),
 			JSON.stringify({ lastSweepAt: Date.now() }),
@@ -224,9 +189,6 @@ process.stdout.write("started the lander");\n`,
 			"pick-next.js",
 			buildShortlistStub(buildShortlist({ frontier: [buildShortlistRow()] })),
 		);
-		/* What `stop` writes: the control's flag, then a wake line. Not `stop`
-		 * itself, which wakes only a loop whose pid's command line names the
-		 * program, and `run`'s loop runs inside the test worker. */
 		const control = JSON.stringify(at(".refill-loop-control.json"));
 		stub(
 			"request-stop.js",
@@ -241,13 +203,6 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		writeClaudeStub(at("claude"), [buildAgentsBranch([LISTED])]);
 	});
 
-	/*
-	 * Whichever way a case ended, nothing it started outlives it (#4140). An
-	 * in-process loop can only be asked to stop. Any other process's environment
-	 * names the sandbox, a tie no stale pidfile can point at a neighbour; it is read
-	 * again until none is left, as a zombie's environ reads empty. Only then does the
-	 * sandbox go, taking the control file a stop would need.
-	 */
 	afterEach(async () => {
 		const running = liveRun;
 		liveRun = null;
@@ -297,9 +252,7 @@ export const spawnIdleHolder = (env: NodeJS.ProcessEnv) =>
 		{ env, stdio: "ignore" },
 	);
 
-/* A guess: some 30 times a case's 0.7 s run, and well inside the loop's
- * fallback sleep (lib/refill-wake.js's FALLBACK_MS), so a loop still running
- * past it is waiting on that sleep, not ending. */
+// guess, #2435
 export const SETTLE_MS = 20 * 1000;
 
 export const requestStop = () =>
@@ -307,7 +260,6 @@ export const requestStop = () =>
 		path.join(scripts, "request-stop.js"),
 	]);
 
-/** Whether `promise` settles inside SETTLE_MS, with its value where it does. */
 export const within = async <T>(promise: Promise<T>) => {
 	let timer: NodeJS.Timeout | undefined;
 	const late = new Promise<{ done: false }>((resolve) => {
@@ -323,10 +275,6 @@ export const within = async <T>(promise: Promise<T>) => {
 	}
 };
 
-/**
- * `running`'s result, or a throw naming `what` once SETTLE_MS passes first. A
- * run still going is asked to stop once more and given SETTLE_MS again.
- */
 export const settled = async <T>(
 	running: Promise<T>,
 	what: string,
@@ -338,10 +286,9 @@ export const settled = async <T>(
 	throw new Error(`${what}: still running`);
 };
 
-/* A guess: short against a tick, cheap against SETTLE_MS. */
+// guess, #3814
 export const POLL_MS = 50;
 
-/** Resolves once `isDone` holds, or throws `neverMessage` once SETTLE_MS passes. */
 export const polled = async (isDone: () => boolean, neverMessage: string) => {
 	const deadline = Date.now() + SETTLE_MS;
 	while (!isDone()) {
@@ -350,11 +297,9 @@ export const polled = async (isDone: () => boolean, neverMessage: string) => {
 	}
 };
 
-/** Resolves once the stub admission has been asked `n` times. */
 export const ticked = (n: number) =>
 	polled(() => readLines(at("ticks")).length >= n, `tick ${n} never ran`);
 
-/** The plan seat's fresh cache at `week`% of the week. */
 export const weekAt = (week: number) =>
 	fs.writeFileSync(
 		path.join(seat, ".claude.json"),
@@ -372,7 +317,6 @@ export const updateControl = (over: Record<string, unknown>) =>
 		}),
 	);
 
-/** Ledgers job7's launch of #7 just now, the hold a hand-off releases. */
 export const ledgerLaunch = (job: string) => {
 	const file = ledgerPath(repo);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -398,19 +342,11 @@ export const arbiterAs = (sessionId: string, ...args: string[]) =>
 		},
 	}).stdout;
 
-/* What a real wake leaves: the stopped job's own record, running again. */
 export const writesWokenRecord = (jobFile: string, sessionId: string) => {
 	const record = JSON.stringify({ state: "running", sessionId, cwd: repo });
 	return `echo ${shellQuote(record)} > ${shellQuote(jobFile)};`;
 };
 
-/** `claude` for a resume of job `job`: `agents` lists `listing`, or fails
- * where it is null; `attach` records the line typed at it on a terminal
- * (lib/claude-attach-fake.ts); `--bg` prints the launcher's recorded
- * `resumeAs` response, a copy starting as FAKE_COPY (lib/bg-resume-fake.ts);
- * `-p`, a headless resume onto a key, is lib/headless-run-fake.ts's fake in
- * `headless` mode, logging to readHeadlessResumes. `onResume` runs on
- * either. */
 export const fakeResumeClaude = (
 	job: string,
 	listing: Row[] | null,
@@ -443,7 +379,6 @@ export const fakeResumeClaude = (
 	]);
 };
 
-/** Each headless resume fakeResumeClaude's `-p` fake ran, in order. */
 export const readHeadlessResumes = () =>
 	readHeadlessCalls(at("headless.jsonl"));
 
@@ -454,7 +389,6 @@ export const launchState = () => readLoopState().launches[0];
 
 export const readStopped = () => readLoopState().stopped;
 
-/** A blocked job's state.json for job7, its detail and link-scan path given. */
 export const buildBlockedJobRecord = (detail: string, linkScanPath: string) =>
 	JSON.stringify({
 		state: "blocked",
@@ -468,11 +402,8 @@ export const buildBlockedJobRecord = (detail: string, linkScanPath: string) =>
 		linkScanPath,
 	});
 
-/* The served checkout's table, as the tick reads it (#3683): a grant of 2 fits
- * no session, a grant of 200 does. */
 export const writeKeyCostTable = () => writeCostTable(repo, { meanUsd: 4 });
 
-/* The shell a resume stub runs to write FAKE_COPY's job record as `record`. */
 export const writesCopyRecord = (record: string) => {
 	const jobDir = path.join(seat, "jobs", FAKE_COPY);
 	return `mkdir -p ${shellQuote(jobDir)}; echo ${shellQuote(record)} > ${shellQuote(path.join(jobDir, "state.json"))};`;
@@ -489,8 +420,6 @@ export const oneTick = async (
 	return settled(running, what);
 };
 
-/* The stub dispatcher requests a stop, so a started loop ticks, launches and
- * exits: its pidfile goes, after the dispatch that shows it ran. */
 export const untilLoopEnded = () =>
 	polled(
 		() =>

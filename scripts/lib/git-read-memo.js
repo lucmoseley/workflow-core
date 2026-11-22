@@ -1,24 +1,3 @@
-/*
- * git-read-memo.js — one tool call's git reads, each distinct one run once
- * (dispatcher contract 5, #2733; #4127). lib/git.js consults it on every sync
- * spawn, so a core, its host and the libraries under them share it with no port
- * threaded through them. Off, as it is outside withGitReadMemo, every spawn runs.
- *
- * The answer kept is the spawn's own, and each caller gets it in the shape its
- * options ask for. A timed-out answer is replayed only to a caller whose
- * timeout is no longer: a longer one still gets its wait. Git never having
- * started for any other reason is not kept, as the next spawn may start.
- *
- * A subcommand not named a read counts as a write: it runs, and what was kept is
- * dropped, since the reads after it may answer differently.
- *
- * Residual: a write no spawn here carries goes unseen, so the reads after it
- * answer from before it: a file written directly, execGitAsync, or a program
- * spawned past lib/git.js's execProgram. A caller running such writes between
- * reads turns the memo off with withoutGitReadMemo, as PostToolUse's formatter
- * does.
- */
-
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 
@@ -47,10 +26,8 @@ const READS = new Set([
 	"status",
 ]);
 
-/** The global options that take the next argument as their value. */
 const VALUED_GLOBALS = new Set(["-C", "-c"]);
 
-/** The spawn options a replay reproduces. */
 const REPLAYED_OPTIONS = new Set([
 	"cwd",
 	"encoding",
@@ -64,12 +41,7 @@ const REPLAYED_OPTIONS = new Set([
 /** @type {Map<string, Kept> | null} */
 let kept = null;
 
-/**
- * Whether `args` only reads, from its subcommand past git's global options. A
- * spelling this does not know is no read. `--output` is the one option the read
- * subcommands write through.
- * @param {readonly string[]} args
- */
+/** @param {readonly string[]} args */
 function isGitRead(args) {
 	let i = 0;
 	for (let arg = args[i]; arg?.startsWith("-"); arg = args[i])
@@ -91,8 +63,6 @@ function isGitRead(args) {
 }
 
 /**
- * `fn`'s result, every git read it makes sharing one memo: the one already on,
- * or a new one.
  * @template T
  * @param {() => T} fn
  * @returns {T}
@@ -102,7 +72,6 @@ function withGitReadMemo(fn) {
 }
 
 /**
- * `fn`'s result, every git spawn it makes running.
  * @template T
  * @param {() => T} fn
  * @returns {T}
@@ -128,19 +97,13 @@ function withKept(memo, fn) {
 }
 
 /**
- * Where `stdio` sends the child's fd `fd`; "pipe" where it does not say.
  * @param {SpawnOptions["stdio"]} stdio
  * @param {number} fd
  */
 const stdioOf = (stdio, fd) =>
 	(Array.isArray(stdio) ? stdio[fd] : stdio) ?? "pipe";
 
-/**
- * Whether the memo can stand in for this spawn: nothing on stdin, whose content
- * would be part of the question, no output that must reach a stream live, the
- * buffer limit a kept answer was read under, and no option a replay drops.
- * @param {SpawnOptions} opts
- */
+/** @param {SpawnOptions} opts */
 function isReplayable(opts) {
 	/** @param {number} fd */
 	const isCaptured = (fd) => {
@@ -156,7 +119,6 @@ function isReplayable(opts) {
 }
 
 /**
- * `raw` as a spawn under `opts` would have returned it.
  * @param {RawResult} raw
  * @param {SpawnOptions} opts
  * @returns {SpawnResult}
@@ -180,13 +142,9 @@ function shaped(raw, opts) {
 }
 
 /**
- * Put a git spawn to the memo: a read gets its answer, run on a miss, and a write
- * drops what was kept. Null where the memo is off or cannot stand in, for the
- * caller to spawn as it would have.
  * @param {readonly string[]} args
  * @param {SpawnOptions} opts
  * @param {(args: readonly string[], opts: SpawnOptions) => RawResult} spawn
- *   from lib/git.js, the one module that names the binary
  * @returns {SpawnResult | null}
  */
 function consultMemo(args, opts, spawn) {
@@ -220,7 +178,6 @@ function consultMemo(args, opts, spawn) {
 	return shaped(hit.raw, opts);
 }
 
-/** Forget what was kept. */
 function dropKeptReads() {
 	kept?.clear();
 }

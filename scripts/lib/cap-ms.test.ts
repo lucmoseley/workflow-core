@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * cap-ms.test.ts — what a timeout knob may do to its ceiling (#5104).
- *
- * Loosen the fallback cases and an empty or zero knob passes through as a
- * timeout of 0, which child_process reads as none: a spawn with no entry clock
- * started would then run unbounded.
- */
 import { describe, expect, it, vi } from "vitest";
 import { capMs } from "./cap-ms.js";
 

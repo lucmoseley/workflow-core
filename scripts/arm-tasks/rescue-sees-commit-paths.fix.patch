@@ -14,21 +14,10 @@ index dda5ecc9da01040a6af48d00479b27fd726a9912..7f615db1d803b6ef72c2e0f48b26289c
    message against `git log` in a lookback window around the job's death.
    Matched, not merely dated: several sessions land concurrently here, and a
 diff --git a/scripts/lib/commit-calls.js b/scripts/lib/commit-calls.js
-index d50b6f53286ff31e4d31c957f29287387be1b98a..6a6ea45383c8a1fa776102d327ee0b008542bf12 100644
+index 81301c81576df72a3cf5510aa1aac3126d312ab5..8a2d3a3ca0ffecaa6b43b8b93ea22fc6e7202654 100644
 --- a/scripts/lib/commit-calls.js
 +++ b/scripts/lib/commit-calls.js
-@@ -2,7 +2,9 @@
-  * commit-calls.js — the commit calls one Bash command made, read as the
-  * guards read them (#2383).
-  *
-- * COUNTED: a `git commit`.
-+ * COUNTED: a `git commit`, and a `commit-paths.js` call by any path that would
-+ * commit — never a `--tree` pin, nor one commit-paths.js refuses unread: one
-+ * with no message or two, or `--help`.
-  *
-  * LIMITS: a commit inside a heredoc body or a `bash -c` string is not seen.
-  * Where the walk splits a command bash would not — a heredoc's terminator
-@@ -18,6 +20,8 @@ const {
+@@ -5,6 +5,8 @@ const {
  	TEXT_ONLY_PORTS,
  } = require("./shell-parse.js");
  const {
@@ -37,7 +26,7 @@ index d50b6f53286ff31e4d31c957f29287387be1b98a..6a6ea45383c8a1fa776102d327ee0b00
  	gitValueFlags,
  	gitWords,
  	literal,
-@@ -62,6 +66,11 @@ function commitCalls(command) {
+@@ -42,6 +44,11 @@ function commitCalls(command) {
  function commitMessages(words, spans) {
  	/** @type {({ flag: string, word: string } | null)[]} */
  	const msgs = [];

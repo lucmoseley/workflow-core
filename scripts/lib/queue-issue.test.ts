@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The landing queue's one open issue per condition: filed urgent and bug, a
- * label taken off put back on refresh (#2694, ruled at #2672), and a gate a
- * session wrote kept through the refresh, its basis with it (#3636, #5419).
- *
- * Loosen it and a stalled or base-red queue's issue ranks with ordinary work, or
- * loses the gate that would close it.
- */
 import { expect, it } from "vitest";
 import { queueIssueCloser, queueIssueFiler } from "./queue-issue.js";
 

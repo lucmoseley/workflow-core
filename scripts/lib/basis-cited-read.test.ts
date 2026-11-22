@@ -1,14 +1,3 @@
-/*
- * basis-cited-read.test.ts — pins readBasisFaults, the one call answering
- * bodies' basis faults with the issues their bases cite followed one hop
- * (#5007, #5008, #5079), and how gh's answers turn into issues read, null
- * or unread.
- *
- * Each case drives the entry through the shared gh fake (gh-stub's `cited`,
- * gh-fake's `answerCited`), so the real lib/gh.js call runs. Breaking this
- * lets a citation read as "no issue" where it went unread, refusing a write
- * the gate library should judge on its form alone.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,8 +28,6 @@ function tracking(tracker: string) {
 	);
 }
 
-/* `cited` answers the read through the shared fake; `graphql`, given, answers
- * every graphql call in its place. */
 const serving = (
 	cited: Record<string, Record<number, CitedFixture>>,
 	graphql?: GhAnswer,
@@ -65,7 +52,6 @@ const Count =
 
 type Judged = Parameters<typeof readBasisFaults>[0][number];
 
-/** readBasisFaults over `bodies`, the suites' seam opened. */
 const judge = (
 	bodies: Judged[],
 	{ timeoutMs = 20_000, env = {} as Record<string, string> } = {},
@@ -81,7 +67,6 @@ const one = (basis: string, opts: Omit<Judged, "body"> = {}) => {
 	return { ...got, faults: got.faults[0], trace: got.traces[0] };
 };
 
-/** The no-warrant fault a basis takes where each cited issue faults. */
 const faulted = (basis: string, cited: { ref: string; reason: string }[]) => [
 	{ kind: "no-warrant", text: basis, cited, words: basis },
 ];

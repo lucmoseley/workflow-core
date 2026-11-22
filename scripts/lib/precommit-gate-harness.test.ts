@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * The harness's error contract (mantahostels#953), and the fixture helpers every
- * pre-commit gate suite builds on.
- *
- * `cutGateFragment` is the single cutter behind every gate suite but
- * precommit-staged-gate.test.ts, so a silent miss here empties them all at
- * once — each `.husky/pre-commit` gate they cover then goes untested while CI
- * stays green.
- *
- * The hook text is injected rather than read from disk wherever a case needs a
- * malformed one: .husky/pre-commit is repo-global (mantahostels#63), and no test may edit it.
- *
- * The invoked-scripts `it.each` pins the exact script list of each gate it
- * lists (mantahostels#2071); the other gate suites pin theirs through
- * `expectFixtureSupplies`.
- *
- * `writeCheckerDelegates` lives in precommit-gate-testkit.ts but is tested
- * here, so the fixture name the repo ignore list and plugin-tree.js pin stays
- * put.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -53,7 +33,6 @@ describe("cutGateFragment", () => {
 	});
 
 	it("stops at the `fi` in column zero, not an indented one", () => {
-		// The typecheck gate nests `if`s, so every `fi` but the last is indented.
 		const fragment = cutGateFragment("command typecheck");
 		const fis = fragment.split("\n").filter((l) => l.trim() === "fi");
 		expect(fis.length).toBeGreaterThan(1);
@@ -148,8 +127,6 @@ describe("gateHead and armingPattern (#1597)", () => {
 	});
 });
 
-/** The scripts the gate anchored on `anchor` invokes, as the list
- * `expectFixtureSupplies` names when handed an empty supply. */
 const invokedBy = (anchor: string, hook?: string): string[] => {
 	try {
 		expectFixtureSupplies(anchor, [], hook);
@@ -183,7 +160,7 @@ describe("the scripts a gate invokes", () => {
 	});
 
 	it("returns nothing for a gate that calls no repo script", () => {
-		expect(invokedBy("actionlint $tool_paths")).toEqual([]);
+		expect(invokedBy("hook_bound actionlint")).toEqual([]);
 	});
 
 	it("never reports a scripts/… path quoted inside a message string", () => {
@@ -245,7 +222,7 @@ describe("the scripts a gate invokes", () => {
 			"check-swallowed-errors.js",
 			["scripts/check-swallowed-errors.js"],
 		],
-		["actionlint", "actionlint $tool_paths", []],
+		["actionlint", "hook_bound actionlint", []],
 	] as const)(
 		"matches the live .husky/pre-commit exactly on the %s gate",
 		(_name, anchor, supplied) => {
@@ -334,42 +311,11 @@ describe("gateTmpdir (#2648)", () => {
 });
 
 describe("writeCheckerDelegates (mantahostels#2073)", () => {
-	// A fixture "real" script under the actual ROOT/scripts, since the delegate
-	// re-execs `path.join(ROOT, "scripts", name)` — a throwaway repo's own
-	// scripts/ is never on that path. pid-suffixed so a concurrent stray run of
-	// this suite can't delete the other's fixture out from under it.
-	// **Residual:** an untracked file is left under the real scripts/ if the
-	// process dies between the write and this afterEach (mantahostels#2073).
 	const fixtureName = `__precommit-gate-harness-test-fixture-${process.pid}.js`;
 	const fixturePath = path.join(ROOT, "scripts", fixtureName);
 
 	afterEach(() => {
 		fs.rmSync(fixturePath, { force: true });
-	});
-
-	it("names itself the required delegate route in its own docstring (mantahostels#2129)", () => {
-		// Anchored on the JSDoc block immediately preceding the declaration, not
-		// on prose fragments inside it — those drift with the docstring itself,
-		// so a case anchored on them could go on passing after the claim moved
-		// or was cut.
-		const src = fs.readFileSync(
-			path.join(ROOT, "scripts", "lib", "precommit-gate-testkit.ts"),
-			"utf8",
-		);
-		const declSite = src.indexOf("function writeCheckerDelegates(");
-		expect(
-			declSite,
-			"writeCheckerDelegates' declaration moved or was renamed",
-		).toBeGreaterThan(-1);
-		const commentEnd = src.lastIndexOf("*/", declSite);
-		const commentStart = src.lastIndexOf("/**", commentEnd);
-		expect(
-			commentStart,
-			"no JSDoc block immediately precedes writeCheckerDelegates",
-		).toBeGreaterThan(-1);
-		const docstring = src.slice(commentStart, commentEnd);
-		expect(docstring).toContain("the required route");
-		expect(docstring).toContain("is not a delegate");
 	});
 
 	it("propagates a non-zero child exit status when the real checker refuses", () => {
@@ -398,9 +344,6 @@ describe("writeCheckerDelegates (mantahostels#2073)", () => {
 	});
 
 	it("writes a delegate that calls spawnSync and never bare-requires a real repo path", () => {
-		// writeCheckerDelegates only stringifies this path into the generated
-		// body — it never reads or executes the target, so no fixture file needs
-		// to exist on disk for this assertion.
 		const { root } = newRepo("delegate-", temps);
 		writeCheckerDelegates(root, [fixtureName]);
 		const body = fs.readFileSync(

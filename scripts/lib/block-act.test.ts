@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The cause→act table (#2699, #2705, #2707, #3621, spec #2695). The morning
- * cut-off is machine-local, so its cases build local dates.
- *
- * Loosen one and a normal-mode question or permission prompt is stopped before
- * the founder answers it in place, an away-mode park holds its slot until
- * morning, or an API-error session is resumed past its cap or never, or
- * stopped mid-retry, or a resumed-idle one is handed off before its one resume.
- */
 import { describe, expect, it } from "vitest";
 import {
 	blockAct,
@@ -73,7 +64,6 @@ describe("the LIMIT row (#3735)", () => {
 	});
 	const moveSeatOf = ({ seat }: { seat: string | null }) =>
 		seat === null ? null : { seat };
-	/** The block a tick builds from these seats' readings, its seat "own". */
 	const limited = (seats: ReturnType<typeof reading>[], over = {}) => ({
 		cause: "LIMIT" as const,
 		since: NOW - 10 * MIN,

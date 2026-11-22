@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * guard-registry-atomicity in a session's own worktree (#4242): with
- * the session and CLAUDE_PROJECT_DIR in a linked worktree of a main
- * checkout, a commit landing a new checker is judged on the worktree's files,
- * never the main checkout's.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -18,13 +12,11 @@ freshSandbox((sb) => {
 	at = splitCheckout(path.join(sb.dir, "split"));
 });
 
-/** A new unwired checker, written untracked in `root`. */
 const newChecker = (root: string) => {
 	fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
 	fs.writeFileSync(path.join(root, "scripts", "check-new.js"), "// new\n");
 };
 
-/** The core's verdict on committing it by commit-paths.js, run from the worktree. */
 const verdict = () =>
 	runCore(
 		"guard-registry-atomicity",

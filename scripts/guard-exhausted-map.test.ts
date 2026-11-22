@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the Stop guard that refuses to let a session end holding the claim on
- * an exhausted map — open, `takes:wayfinder`, unparked, ungated, no open
- * sub-issue (#3639) — and every exit it lets through.
- *
- * Breaking it either strands the map again, or blocks a session that gave
- * the map a route or never held one.
- *
- * Each case runs the guard through stop-guard-testkit against a sandboxed
- * arbiter store and `gh` served by stubGhRoutes, so a claim and a map's
- * sub-issues are set per case and no real tracker is read.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -60,9 +48,6 @@ const child = (state: string, repo = "acme/widgets") => ({
 	repository_url: `https://api.github.com/repos/${repo}`,
 });
 
-/** The guard's refusal for a session claiming the map, served `routes`;
- *  `message: null` leaves the turn's text unreadable, and `job` runs it as a
- *  background job. */
 const reasonFor = (
 	routes: Record<string, RouteAnswer>,
 	{
@@ -87,8 +72,6 @@ const EXHAUSTED = {
 	[`${AT}/sub_issues`]: subIssuesAnswer([]),
 };
 
-/** The exhausted map with park-on-round.js's round, hand-off included,
- *  posted on it. */
 const ROUND_POSTED = {
 	...EXHAUSTED,
 	graphql: printed(
@@ -144,7 +127,6 @@ describe("a claimed exhausted map", () => {
 			.map((l) => l.trim());
 		expect(branches).toHaveLength(ruleBranches.length);
 		branches.forEach((branch, i) => {
-			/* A branch cut mid-sentence takes a full stop the rule's lacks. */
 			const opening = branch.replace(/\.$/, "");
 			expect(ruleBranches[i]?.slice(0, opening.length)).toBe(opening);
 		});

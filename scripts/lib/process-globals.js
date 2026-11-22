@@ -1,37 +1,16 @@
-/*
- * process-globals.js — a program's process-wide output and environment, swapped
- * so it can run inside another process (#5208): its fd 1 and fd 2 writes
- * handed to a taker rather than printed, and process.env replaced in place.
- *
- * THE TWO ROUTES this repo writes by are both taken: `fs.writeSync` on fd 1
- * and fd 2, which lib/write-fd.js writes through, and
- * `process.stdout.write` / `process.stderr.write`, which console goes
- * through. A `fs.writeSync` is taken as
- * the text its data decodes to, whole.
- */
-
 const fs = require("node:fs");
 
-/* Buffer.isEncoding, not `typeof enc === "string"`: a Writable hands its _write
- * the chunk as a Buffer under the encoding "buffer", which is a string and is
- * not an encoding Buffer.toString will take. */
 /** @type {(chunk: unknown, enc?: unknown) => string} */
 const toText = (chunk, enc) =>
 	typeof chunk === "string"
 		? chunk
-		: // `any`: Buffer.from has no overload taking `unknown`.
-			Buffer.from(/** @type {any} */ (chunk)).toString(
+		: Buffer.from(/** @type {any} */ (chunk)).toString(
 				typeof enc === "string" && Buffer.isEncoding(enc)
 					? /** @type {BufferEncoding} */ (enc)
 					: "utf8",
 			);
 
-/**
- * Replaces process.env in place: a plain object assigned over process.env
- * stops child processes inheriting it natively.
- *
- * @param {Record<string, string | undefined>} env
- */
+/** @param {Record<string, string | undefined>} env */
 function replaceEnv(env) {
 	for (const key of Object.keys(process.env))
 		if (!(key in env)) delete process.env[key];
@@ -41,9 +20,8 @@ function replaceEnv(env) {
 }
 
 /**
- * Hands every fd 1 and fd 2 write to `take` until the returned restore runs.
  * @param {(fd: 1 | 2, text: string) => void} take
- * @returns {() => void} puts back the writers this replaced
+ * @returns {() => void}
  */
 function takeWrites(take) {
 	const real = {
@@ -51,9 +29,6 @@ function takeWrites(take) {
 		stdout: process.stdout.write,
 		stderr: process.stderr.write,
 	};
-	/* `any`: writeSync's overloads cannot be assigned one arrow without a
-	 * cast, and `data` and the rest are whatever the script passes, handed on
-	 * untouched to the real function. */
 	/** @type {any} */ (fs).writeSync = (
 		/** @type {number} */ fd,
 		/** @type {any} */ data,
@@ -64,10 +39,6 @@ function takeWrites(take) {
 		take(fd, text);
 		return Buffer.byteLength(text);
 	};
-	/* The callback forms are honoured because a script that passes one and
-	 * never sees it called can wait forever. The `any`s, as on writeSync's:
-	 * write's overloads take a chunk, an encoding or a callback in either
-	 * second place. */
 	/** @param {1 | 2} fd */
 	const streamWrite = (fd) =>
 		/** @type {any} */ (

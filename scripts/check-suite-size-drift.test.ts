@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which tracked files count as the suite, the WARN-never-gate drift
- * verdict against the ladder's baseline, and the BROKEN verdict when git,
- * vitest's listing or the baseline fails.
- *
- * check-suite-size-drift.js counts the tracked test files vitest would collect
- * and compares that against the count the memory ladder was measured on, so a
- * throwaway git repo holding empty files is the fixture for every case but the
- * real-repo block, which reads the live baseline.
- *
- * What it protects against is silent: the 1/2/3-suite headroom ladder in
- * `docs/environment.md` is derived from a dip measured on a suite of a
- * particular size, and a suite that outgrows it makes the ladder wrong with
- * nothing else having changed (mantahostels#954).
- *
- * It runs in `npm run status` and the daily repo-checks run: loosen a drift case and a grown suite
- * stops prompting a re-measure of a whole-suite ladder, so sessions keep
- * admitting concurrent suites on headroom that no longer holds and the machine
- * freezes under `earlyoom`. While the ladder is stamped a lower bound it reads
- * OK whatever the drift (#5357): loosen that case and it warns for a re-measure
- * no local suite can run, a finding that stands on #2679 for ever.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,11 +13,9 @@ const REPO = path.resolve(__dirname, "..");
 
 let dir: string;
 
-/** git in the fixture repo. */
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-/** THE FIXTURE IS BUILT ONCE AND COPIED (mantahostels#2068), via scripts/lib/git-fixture.ts. */
 const buildTemplate = (root: string) => {
 	execFileSync("git", ["init", "-q"], { cwd: root });
 	execFileSync("git", ["config", "user.email", "t@t"], { cwd: root });
@@ -48,7 +24,6 @@ const buildTemplate = (root: string) => {
 
 const template = defineTemplate(buildTemplate);
 
-/** Track `n` files matching vitest's include, under `prefix`. */
 const addTests = (n: number, prefix = "lib") => {
 	fs.mkdirSync(path.join(dir, prefix), { recursive: true });
 	for (let i = 0; i < n; i++) {
@@ -58,14 +33,12 @@ const addTests = (n: number, prefix = "lib") => {
 	}
 };
 
-/** Track one path verbatim, so include/exclude can be exercised by name. */
 const track = (p: string) => {
 	fs.mkdirSync(path.join(dir, path.dirname(p)), { recursive: true });
 	fs.writeFileSync(path.join(dir, p), "");
 	git("add", "--", p);
 };
 
-/** Run the checker in `where` (the fixture repo by default), streams apart. */
 const runIn = (where: string, ...args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: where,
@@ -144,20 +117,20 @@ describe("the drift verdict (mantahostels#954, the ladder that outgrew its measu
 	});
 
 	it("is OK inside the threshold", () => {
-		addTests(12); // +20% against 10
+		addTests(12);
 		const r = run("--baseline", "10", "--threshold", "25");
 		expect(r.out).toContain("OK");
 	});
 
 	it("WARNs once growth passes the threshold, giving the growth as a percentage", () => {
-		addTests(13); // +30% against 10
+		addTests(13);
 		const r = run("--baseline", "10", "--threshold", "25");
 		expect(r.out).toContain("WARN");
 		expect(r.out).toMatch(/\+30%/);
 	});
 
 	it("WARNs on shrinkage too, which makes the ladder needlessly strict, giving the shrinkage as a percentage", () => {
-		addTests(7); // -30% against 10
+		addTests(7);
 		const r = run("--baseline", "10", "--threshold", "25");
 		expect(r.out).toContain("WARN");
 		expect(r.out).toMatch(/-30%/);

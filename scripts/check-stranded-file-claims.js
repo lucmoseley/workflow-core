@@ -1,55 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-stranded-file-claims.js — report a FILE claim whose holder has plausibly
- * finished. It never breaks one.
- *
- * Usage:  npm run check:file-claims  [--hours <n>] [--notify] [--json]
- *
- * NOT check-stale-claims.js, which reports a GitHub issue ASSIGNEE held over 14
- * days — an unrelated sense of "claim".
- *
- * WHAT IT IS FOR (mantahostels#254 — a claim outliving its session on a pooled host cannot
- * be released). A claim runs from a session's first write until the holder
- * releases it, its own commit lands all its hunks (#2058, #2148), or its process ends. A host that outlives its job leaves the claim
- * standing with nobody behind it, and nothing tells anyone.
- *
- * REPORT-ONLY IS THE WHOLE DESIGN (mantahostels#318 — whether the no-timeout ruling survives
- * the pooled-host finding), not a first phase. mantahostels#318 refused expiry outright: no
- * TTL, no heartbeat, mantahostels#104 stands. This sweep is what bounds the wedge instead.
- *
- * THE ORACLE IS `claude agents --json`, read through lib/agent-liveness.js.
- * Deliberately NOT the arbiter's own liveness test, which `list` uses: that
- * reads pid and procStart frozen into the lock at claim time.
- *
- * DEGRADES TO SILENCE, NEVER TO "DEAD". Every doubt the reader returns as a
- * `why` exits through ctx.skip(), which raises no finding at all.
- *
- * IT REPORTS; A HUMAN DECIDES. Same rule as check-stale-claims.js: a claim held
- * across a slow decision looks identical from the outside to an abandoned one.
- * So WARN, never FAIL — and under --notify every outcome exits 0, as a
- * SessionStart hook must: Claude Code reads a non-zero one as the hook itself
- * being broken (mantahostels#155, the checker family's exit-code and severity model). No
- * hook runs this one now.
- *
- * LOCAL ONLY. It reads the claim store under ~/.claude and asks the local daemon
- * what is running; a CI runner would find neither and report all-clear forever.
- *
- * WHAT --notify SAYS (mantahostels#1747: a notice given
- * once goes silent on a pile that never drains). It prints a STANDING count on
- * every run, and itemises only the claims that carry UNCOMMITTED WORK.
- *
- * A HAND RUN itemises everything standing, annotating which paths are dirty.
- *
- * IT ALSO REPORTS A STRANDED WORKTREE (#4244): a linked worktree carrying
- * uncommitted work whose owning session (lib/session-worktrees.js) is not
- * listed live, untouched past the same threshold, its files listed under that
- * session in both modes. A claim's file counts as carrying work where it is
- * dirty in the main checkout or in a worktree its holder owns.
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports the standing count of file claims whose holder has plausibly finished, itemising those that carry uncommitted work; and each finished session's worktree that carries uncommitted work. It never breaks a claim.
- * JUSTIFIED: fail-safe — a claim outliving its host warns every later writer of that path of a merge conflict that is not there, and nothing else notices. A run that cannot tell live from finished reports nothing rather than calling a claim dead.
- * DEFEAT:    none; --hours <n> moves both reporting thresholds on a hand run.
- */
 
 const {
 	describeAge: describeAgeText,
@@ -73,13 +22,9 @@ const {
 } = require("./lib/stranded-count");
 const { worktreeLabel } = require("./lib/session-worktrees.js");
 
-// The arbiter's module, not its CLI: session-arbiter.js exports only a subcommand runner (mantahostels#158).
 const { readLocks, paths } = require("./lib/arbiter-store");
 
-/**
- * An age with no verb — "11d", "18h" — for a sentence that supplies its own.
- * @param {number | null} hours
- */
+/** @param {number | null} hours */
 function ageOf(hours) {
 	if (hours === null) return "an unreadable time";
 	return describeAgeText(hours * HOUR_MS, { minutesUnder: NEVER });
@@ -96,14 +41,10 @@ const describeAge = (hours) =>
  * @typedef {{path: string, tree?: string, sessionId: string,
  *   pid: number | null, claimedAt: string | null,
  *   hoursHeld: number | null}} Stranded
- *   `tree` the holder's worktree, absent for the main checkout (#4457)
  * @typedef {{file?: string, path?: string, reason: string}} Unreadable
  */
 
 /**
- * `lock.unreadable` distinguishes the two reasons classifyClaims folds
- * into one verdict: a lock file that would not parse at all, or one that
- * parsed but names no session.
  * @param {Lock} lock
  * @returns {Unreadable}
  */
@@ -123,10 +64,7 @@ function unreadableEntry(lock) {
 	};
 }
 
-/**
- * The longest a stranded claim has been held, or null where none is readable.
- * @param {Stranded[]} stranded
- */
+/** @param {Stranded[]} stranded */
 function oldestHours(stranded) {
 	return stranded.reduce(
 		(/** @type {number | null} */ max, s) =>
@@ -138,24 +76,16 @@ function oldestHours(stranded) {
 }
 
 /**
- * The hand run's header, then a WARN per itemised claim and unreadable lock.
  * @param {Ctx} ctx
  * @param {{locks: Lock[], listed: number, stranded: Stranded[],
  *   unreadable: Unreadable[], itemised: Stranded[]}} opts
  */
 function warnFindings(ctx, { locks, listed, stranded, unreadable, itemised }) {
-	// The header rides the findings rather than printing unconditionally: under
-	// --notify say() goes to the session's context, so a clean sweep must be
-	// silent or every run carries a line nobody reads. Dropped there
-	// entirely: the standing-count line below carries the same facts in one.
 	if (!ctx.notify && (stranded.length > 0 || unreadable.length > 0))
 		ctx.say(
 			`Checked ${locks.length} file claim(s) against ${listed} listed session(s).\n`,
 		);
 
-	// WARN only on what is actionable under --notify: the inert majority is a
-	// count, not an alarm — a STALE claim is retaken on sight and wedges
-	// nothing (lib/arbiter-locks.js, breakStale).
 	for (const s of itemised)
 		ctx.warn(
 			"STRANDED-CLAIM",
@@ -177,7 +107,6 @@ function sayUnreadableLocks(ctx, unreadable) {
 }
 
 /**
- * The STRANDED-CLAIM headline and what is known of the tree under it.
  * @param {Ctx} ctx
  * @param {{stranded: Stranded[], hours: number, oldest: number | null,
  *   dirty: Set<string> | null, carrying: Stranded[]}} opts
@@ -192,9 +121,6 @@ function sayStrandedHeadline(
 			oldest === null ? "" : `, oldest ${ageOf(oldest)}`
 		}.`,
 	);
-	// Said in BOTH modes: a hand run that stayed quiet here would print its
-	// list with every `[uncommitted work]` annotation missing, which reads
-	// exactly like a clean tree.
 	if (dirty === null)
 		ctx.say(
 			"  `git status` would not answer, so which of them carry uncommitted work\n" +
@@ -208,7 +134,6 @@ function sayStrandedHeadline(
 }
 
 /**
- * One itemised claim: one line under --notify, two on a hand run.
  * @param {Ctx} ctx
  * @param {Stranded} s
  * @param {(s: Stranded) => boolean} isDirty
@@ -233,14 +158,10 @@ function sayItemised(ctx, { itemised, carrying, isDirty }) {
 		ctx.say(
 			`\n  ${carrying.length} of them carr${carrying.length === 1 ? "ies" : "y"} UNCOMMITTED WORK — left by a session that is not coming back:`,
 		);
-	// One line each under --notify: this lands in every session's context,
-	// where a dozen two-line entries is most of a screen.
 	for (const s of itemised) ctx.say(buildItemLine(ctx, s, isDirty));
 }
 
 /**
- * A finished session's worktree carrying uncommitted work, listed under that
- * session in both modes: every one is work to recover (#4244).
  * @param {Ctx} ctx
  * @param {{trees: WorktreeDirt[], hours: number, root: string,
  *   nameOf: (id: string) => string}} opts
@@ -303,8 +224,6 @@ function sayClosingAdvice(ctx, { itemised, unreadable }) {
 				"  a session that is not coming back — read the diff, then commit or revert it.\n" +
 				"  The claim itself needs no action: it is retaken automatically by the next\n" +
 				"  session that writes the file, once the holder's process is genuinely gone.\n" +
-				// --all, not a bare `list`: the default view prints LIVE claims only
-				// (mantahostels#1814), and a stranded claim is by definition a dead one.
 				`  See what is held: ${buildArbiterCommand`list --all`}\n`,
 		);
 }
@@ -319,12 +238,7 @@ function okLineFor({ stranded, dirty, locks, hours }) {
 	return `${stranded.length} stranded file claim(s) standing, ${dirty === null ? "and whether any carries uncommitted work could not be read." : "none of them carrying uncommitted work."}`;
 }
 
-/**
- * What the run could not read of the worktrees, as a clause for the okLine:
- * empty where it read them all (#4244). Never a finding: a registration whose
- * directory has gone is the usual cause, and the reaper prunes it (#4247).
- * @param {import("./lib/stranded-count").DirtyWorktrees["unreadable"]} unreadable
- */
+/** @param {import("./lib/stranded-count").DirtyWorktrees["unreadable"]} unreadable */
 function unreadWorktrees(unreadable) {
 	if (unreadable === null)
 		return " git would not list the worktrees, so whether one carries a finished session's work is unknown.";
@@ -332,11 +246,7 @@ function unreadWorktrees(unreadable) {
 	return ` ${unreadable.length} registered worktree(s) git would not read went unjudged: ${unreadable.join(", ")}.`;
 }
 
-/**
- * The ok line's note on job stores or records that would not read: a dirty
- * worktree whose owner sits in one is not counted.
- * @param {string[]} unread
- */
+/** @param {string[]} unread */
 function unreadJobs(unread) {
 	if (unread.length === 0) return "";
 	return ` ${unread.length} job store(s) or record(s) would not read, so a dirty worktree's owner may be unknown and the stranded-worktree count short: ${unread.join("; ")}.`;
@@ -354,17 +264,12 @@ runCheck({
 		if (!Number.isFinite(hours) || hours < 0)
 			ctx.usageError("--hours must be a non-negative number.");
 
-		// null is a store that would not open, never an empty one (mantahostels#174) — and the
-		// store lives outside the repo, so it is SKIP, not BROKEN (lib/check.js's
-		// subject/apparatus split).
 		const locks = readLocks();
 		if (locks === null) {
 			ctx.skip(
 				`the file-claim store at ${paths.locksDir()} could not be read, so what is held is unknown — not nothing. See: node ${scriptPath("check-guard-errors.js")}`,
 			);
 		}
-		/* Read before the oracle, so a run with no claim and no dirty worktree
-		 * still spends no oracle call. */
 		const dirtyTrees = readDirtyWorktrees();
 		if (locks.length === 0 && dirtyTrees.found.length === 0) {
 			return {
@@ -373,23 +278,8 @@ runCheck({
 			};
 		}
 
-		/*
-		 * THE STRICT READER, NOT THE SWEEP'S WAIVER (#1390). mantahostels#1924 waived the
-		 * self-test while this was a SessionStart hook, whose starting session the
-		 * daemon had not registered yet (mantahostels#535). Its callers now — `npm run
-		 * status`, `check:file-claims` — run mid-session, where the oracle lists
-		 * its caller, interactive or background (docs/environment.md §Counting live
-		 * sessions), or from a plain terminal, where there is no session to test.
-		 * A caller it omits now means a short list, and
-		 * on a short list a live neighbour's claim would read stranded and, under
-		 * --notify, its dirty file be put to the founder to commit or revert —
-		 * mantahostels#250's hazard. So the self-test refuses, and the claims go unjudged.
-		 * pick-next.js's headline reads the same strict answer.
-		 */
+		// #1390
 		const { ids, why, names, terminal, cwds } = listedSessionIds();
-		// Counted over the records that PARSE. An unreadable one did not go
-		// unjudged for want of the oracle, and readLocks() surfaces those rather
-		// than dropping them (mantahostels#1692), so `locks.length` would fold them in.
 		if (!ids) {
 			ctx.skip(
 				`${why}. ${locks.filter((l) => !l.unreadable).length} file claim(s) and ${dirtyTrees.found.length} dirty worktree(s) went unjudged — none of them is being called stranded on an oracle this run could not read.`,
@@ -397,12 +287,8 @@ runCheck({
 		}
 		const nameOf = (/** @type {string} */ id) => names?.get(id) || id;
 
-		// The classification loop itself lives in lib/stranded-count.js, shared
-		// with pick-next.js's headline count (mantahostels#1800) — this reader keeps only its
-		// own presentation shapes and the dirty-file annotation below.
 		const buckets = classifyClaims(locks, ids, { hours, terminal });
 
-		// Reported by filename and skipped, never allowed to end the run (mantahostels#1692).
 		const unreadable = buckets.unreadable.map(unreadableEntry);
 
 		const stranded = buckets.stranded.map((lock) => ({
@@ -416,13 +302,6 @@ runCheck({
 
 		const young = buckets.young.length;
 
-		/*
-		 * Which of the standing claims sit on a file carrying uncommitted work —
-		 * the only ones a reader can act on. `null` is a working tree git would not
-		 * report on, which is NOT the same as none of them being dirty, and the
-		 * report below says so rather than implying a clean tree. The subject
-		 * matching and its region caveat belong to lib/stranded-count.js (mantahostels#1780).
-		 */
 		const dirty = readDirtyPaths();
 		const attributed = attributeWorktreeDirt(dirtyTrees.found, {
 			cwds,
@@ -464,9 +343,6 @@ runCheck({
 			data: {
 				stranded,
 				strandedCount: stranded.length,
-				// The actionable subset: standing claims on a path with uncommitted
-				// work. Empty where the tree could not be read — `dirtyReadable` is
-				// what tells those two cases apart.
 				carrying,
 				carryingCount: carrying.length,
 				dirtyReadable: dirty !== null,

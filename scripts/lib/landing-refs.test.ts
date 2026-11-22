@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the one choice of which remote ref the "what has been pushed" readers
- * read (#2408, #4458): a session worktree's own `origin/queue/<name>` where
- * it stands, else `origin/main`. Every pushed reader calls it, so a wrong
- * answer moves push coverage, the unpushed count and commit-ledger status
- * onto a ref the session does not push to.
- *
- * A throwaway host per test, never this one.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -31,11 +22,9 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** Run git in `cwd`, quietly. */
 const gitIn = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, stdio: "ignore" });
 
-/** A one-commit repository at `root`, and a session worktree of it. */
 function sessionWorktree(name: string) {
 	gitIn(root, "init", "-q", "-b", "main");
 	gitIn(
@@ -89,7 +78,6 @@ describe("pushedRef", () => {
 });
 
 describe("readUnpushedRef", () => {
-	/** A checkout at `root` on `branch`, whose upstream is `upstream` if any. */
 	function checkout(branch: string, upstream?: string) {
 		const git = (...args: string[]) =>
 			execFileSync("git", args, { cwd: root, stdio: "ignore" });
@@ -146,8 +134,6 @@ describe("ownQueueRef", () => {
 		expect(ownQueueRef(null, "/h")).toBeNull();
 	});
 
-	/* #4856: every caller asks here, so a host or tree reached through a
-	 * symlink names the one ref a land pushes. */
 	it("names the same ref through a symlinked host or tree", () => {
 		const tree = path.join(root, ".claude", "worktrees", "fix-it");
 		fs.mkdirSync(tree, { recursive: true });

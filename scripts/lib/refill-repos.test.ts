@@ -21,7 +21,6 @@ afterEach(() => {
 	fs.rmSync(home, { recursive: true, force: true });
 });
 
-/** A checkout under the fixture home; `git` "file" makes a linked worktree. */
 function checkout(
 	name: string,
 	config: Record<string, unknown> | null,
@@ -83,7 +82,6 @@ describe("discoverRepos (#2003)", () => {
 	});
 });
 
-/** `root` pinned to workflow-core at `ref`, as an adopter's settings pin it. */
 function pin(root: string, ref: string) {
 	fs.writeFileSync(
 		path.join(root, ".claude", "settings.json"),
@@ -106,7 +104,6 @@ describe("readExclusionWhy (#5276)", () => {
 		expect(isOptedOut(old)).toBe(false);
 	});
 
-	/* Positive pair: "leaves out a repo pinned below v3.0.0 whose config lacks landing, keeping its tick". */
 	it("leaves out an old pin whose config will not read, and says why (#5301)", () => {
 		const old = pin(checkout("unread", {}), "v2.3.0");
 		const config = path.join(old, ".claude", "workflow-core.json");

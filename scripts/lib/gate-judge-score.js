@@ -1,8 +1,3 @@
-/*
- * gate-judge-score.js — how measure-gate-judge.js scores the gate judge
- * (lib/gate-judge.js, #4964). No call and no file: the command does both.
- */
-
 const {
 	judgedFaultsAdded,
 	isEitherHeld,
@@ -19,19 +14,13 @@ const {
 /**
  * @typedef {import("./gate-judge.js").JudgedFault} JudgedFault
  * @typedef {{key: string, ms: number, fallback: string|null, reading: unknown}} Row
- *   one call as stored: `reading` as the model gave it, null with `fallback`
  * @typedef {{replied: number, dropped: number, waits: string[],
  *   bases: {basis: string, class: string}[],
  *   model: import("./gate-judge.js").ModelFault[], added: JudgedFault[]}} Judged
- *   `replied`: the quotes the model gave; `dropped`: those the code dropped;
- *   `waits` and `bases`: those kept; `model`: the faults they raise; `added`:
- *   those the patterns do not already raise
  * @typedef {{id: string, label: string, kind: string, text: string, own: number|null}} Case
  */
 
 /**
- * A stored reply read against its body, null where the call fell back.
- *
  * @param {string} body
  * @param {number|null} own
  * @param {Row} row
@@ -58,19 +47,11 @@ function judgeRow(body, own, row) {
 const GATE_OR_BASIS_LINE =
 	/^[ \t]{0,3}\*\*(?:Gated until|Gated on|Gate basis):\*\*.*$/gim;
 
-/**
- * The prose waits the patterns read in `body`, whatever basis it carries.
- * @param {string} body
- */
+/** @param {string} body */
 const patternWaits = (body) =>
 	basisFaults(body.replace(GATE_OR_BASIS_LINE, "")).map((f) => f.text);
 
-/**
- * The group a case is counted in: its label, but an inherited basis naming no
- * issue other than its own is `inherited-unsourced`, which the judge refuses
- * by rule whatever class it reads.
- * @param {Case} c
- */
+/** @param {Case} c */
 function groupOf(c) {
 	const own = c.own ?? undefined;
 	return c.label === "inherited" &&
@@ -80,9 +61,6 @@ function groupOf(c) {
 }
 
 /**
- * Whether a reading flags a case: a wait read, for a wait or non-wait case; a
- * basis refused for its warrant, where a refusal is the right answer; any
- * fault the reading raises, for a derived or sourced inherited basis.
  * @param {string} group
  * @param {Judged} judged
  */
@@ -94,7 +72,6 @@ function isFlagged(group, judged) {
 }
 
 /**
- * The same question put to the patterns alone.
  * @param {string} group
  * @param {Case} c
  */
@@ -108,12 +85,8 @@ function isPatternFlagged(group, c) {
 }
 
 /**
- * One case over its runs. It is flagged by the majority of the runs that
- * replied, and its runs agree only where every one replied and all flag it
- * or none does.
- *
  * @param {Case} c
- * @param {Row[]} rows the case's runs, a fallen-back one included
+ * @param {Row[]} rows
  */
 function scoreCase(c, rows) {
 	const group = groupOf(c);
@@ -139,9 +112,6 @@ function scoreCase(c, rows) {
 const cell = (text) => text.replace(/\|/g, "\\|").replace(/\n/g, " ");
 
 /**
- * One corpus body's two readings side by side, as the rows of the lists to
- * classify by hand.
- *
  * @param {{number: number, state: string}} issue
  * @param {string} body
  * @param {Judged} judged
@@ -178,7 +148,6 @@ function compareReadings(issue, body, judged) {
 }
 
 /**
- * The Wilson 95% interval of `k` in `n`, as shares.
  * @param {number} k
  * @param {number} n
  * @returns {[number, number]}
@@ -194,9 +163,9 @@ function wilson(k, n) {
 }
 
 /**
- * @param {number[]} sorted ascending
+ * @param {number[]} sorted
  * @param {number} q
- * @returns {number} throws on an empty list, which has none
+ * @returns {number}
  */
 function quantile(sorted, q) {
 	const v = sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];

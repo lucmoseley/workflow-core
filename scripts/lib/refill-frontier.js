@@ -1,27 +1,3 @@
-/*
- * refill-frontier.js — the refill loop's one frontier across the checkouts
- * its scope serves (#2003, #2123, spec #1995).
- *
- * pick-next.js runs once per checkout, in that checkout, with the loop's goal
- * as that checkout's `--goal`, and the rows merge through lib/frontier-order.js,
- * whose goal level then ranks goal rows first across every repo. Each shortlist
- * also names the goal's open members it found, which are merged into `goal`. The rows are unfiltered: which `takes:` kinds launch is the
- * loop's call. A checkout whose shortlist fails is returned under `failed`
- * with its error and contributes no rows; the others still merge.
- *
- * A served shortlist also names its PULLED-IN rows (#2427): open issues in
- * other repos that hold one of its issues out through the blocked-by chain
- * and that nothing open holds. A pulled-in repo the scope does not serve has
- * its shortlist read too, and only the pulled-in issues kept, so whatever
- * holds a ticket there (a claim, a gate, a dispatch) still holds it; a served
- * one already ranks the row, and gains the reach. Either way a row's reach
- * counts the served issues it holds out, never its own repo's. It inherits
- * the `bug`, `urgent` and goal tiers of what it holds there, and the longest
- * chain depth (#3222). A pulled-in issue whose repo has no checkout here is
- * returned under `held`, never launched, as is one its own shortlist does
- * not return (claimed or gated).
- */
-
 const path = require("node:path");
 const { readLastLaunchAt } = require("./dispatch-ledger.js");
 const { joinInherited, mergeFrontiers } = require("./frontier-order.js");
@@ -35,13 +11,7 @@ const { FALLBACK_MS } = require("./refill-wake.js");
 
 const PICK_NEXT = path.join(__dirname, "..", "pick-next.js");
 
-/*
- * One checkout's shortlist read at most, after which its whole process group
- * is killed and the checkout is unread for the tick (#2677). It is the loop's
- * fallback wake interval, so a held tick delays the next relief by one
- * cadence at most; reads measured 208.7 s and 276.9 s under load on
- * 23 Oct 2026.
- */
+// measured 208.7 s and 276.9 s under load, #2677
 const SHORTLIST_TIMEOUT_MS = FALLBACK_MS;
 
 /** @typedef {import("./frontier-order.js").RepoFrontier} RepoFrontier */
@@ -51,19 +21,16 @@ const SHORTLIST_TIMEOUT_MS = FALLBACK_MS;
  * @property {string} repo
  * @property {number} number
  * @property {number} reach
- * @property {boolean} bug inherited from what it holds out
+ * @property {boolean} bug
  * @property {boolean} urgent
  * @property {boolean} goal
  * @property {number} depth
- * @property {string[]} holds the served issues it holds out, `owner/name#n`
- * @property {string|null} root the checkout it launches from
- * @property {string|null} held why it is held outside the loop
+ * @property {string[]} holds
+ * @property {string|null} root
+ * @property {string|null} held
  */
 
-/**
- * A pulled-in issue whose own blockers would not read.
- * @typedef {{ref: string, error: string, holds: string[]}} UnreadPull
- */
+/** @typedef {{ref: string, error: string, holds: string[]}} UnreadPull */
 
 /**
  * @typedef {Omit<RepoFrontier, "root" | "lastLaunchAt"> &
@@ -72,10 +39,8 @@ const SHORTLIST_TIMEOUT_MS = FALLBACK_MS;
  */
 
 /**
- * One checkout's shortlist frontier, read with the checkout as its root, its
- * `gh` calls inside the group the cap kills.
  * @param {string} root
- * @param {string|null} goal its `--goal`
+ * @param {string|null} goal
  * @returns {Promise<Shortlist | {error: string}>}
  */
 async function readShortlist(root, goal) {
@@ -98,23 +63,13 @@ async function readShortlist(root, goal) {
 	return parseShortlist(run.stdout);
 }
 
-/**
- * The stderr line naming why a shortlist failed: pick-next's `FAILED:` line,
- * which its closing "do not read this as an empty frontier" line follows,
- * else the last line (#2561).
- * @param {string} stderr
- */
+/** @param {string} stderr */
 function parseFailureLine(stderr) {
 	const lines = stderr.trim().split("\n");
 	return lines.findLast((l) => l.startsWith("FAILED:")) ?? lines.pop() ?? "";
 }
 
-/**
- * Every served shortlist's pulled-in rows, one per issue: its reach summed,
- * its tiers joined, its deepest chain kept, and what it holds named across
- * every served repo that pulled it in.
- * @param {Shortlist[]} served
- */
+/** @param {Shortlist[]} served */
 function pulledAcross(served) {
 	/** @type {Map<string, PulledRow>} */
 	const pulled = new Map();
@@ -130,8 +85,6 @@ function pulledAcross(served) {
 }
 
 /**
- * `row` with what pulled it in added: reach summed, tiers joined, the deeper
- * chain kept.
  * @template {import("./frontier-order.js").Inherited & {reach: number}} R
  * @param {R} row
  * @param {PulledRow} p
@@ -156,9 +109,6 @@ const heldPull = (p, why) => ({
 });
 
 /**
- * The pulled-in issues their own repo's shortlist did not return (claimed or
- * gated), as held entries (#3285).
- * Residual: the reason names the shortlist, not which hold applied.
  * @param {{root: string, result: Shortlist}[]} served
  * @param {Map<string, Map<number, PulledRow>>} pulledByRoot
  * @returns {Held[]}
@@ -208,7 +158,7 @@ async function refillFrontier(roots, goal, readList = readShortlist) {
 			})),
 		),
 	];
-	/** @type {Map<string, Map<number, PulledRow>>} root -> number -> its pull */
+	/** @type {Map<string, Map<number, PulledRow>>} */
 	const pulledByRoot = new Map();
 	for (const p of pulled) {
 		if (!p.root) continue;
@@ -224,9 +174,6 @@ async function refillFrontier(roots, goal, readList = readShortlist) {
 				root,
 				result: {
 					...result,
-					// Its reach, depth and closes count chains in a repo this scope
-					// does not serve, so only what pulled it in ranks it; its own
-					// labels stand.
 					rows: result.rows
 						.filter((r) => pulledByRoot.get(root)?.has(r.number))
 						.map((r) => ({ ...r, reach: 0, depth: 0, closes: 0 })),

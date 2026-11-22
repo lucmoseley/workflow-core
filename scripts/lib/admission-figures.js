@@ -1,9 +1,3 @@
-/*
- * admission-figures.js — the admission arithmetic: from the machine's
- * readings to the slots they admit (#4263). Pure, so its suite reaches every
- * branch in process; `admission.js` does the reading.
- */
-
 const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
 const { windowsUnbackedMb } = require("./windows-memory.js");
 
@@ -21,7 +15,6 @@ const { windowsUnbackedMb } = require("./windows-memory.js");
  * @typedef {import("./windows-memory.js").WindowsRead} WindowsRead
  */
 
-/* The default for a caller that has not read the load: no hold. */
 /** @type {LoadReading} */
 const LOAD_UNREAD = { overloaded: false, load1: null, ceiling: null };
 
@@ -35,29 +28,7 @@ const CPU_UNREAD = {
 	unknown: "not read",
 };
 
-/*
- * THE AGGREGATE DRAW (#2221). Admission prices the live sessions together, not
- * as N copies of one session's p90: sessions do not peak together, so the
- * sum's tail grows with √N. One session's draw is its pair (the session
- * process and its `bg-pty-host`) plus every process it starts, measured as a
- * mean and a standard deviation (`docs/environment.md` §5). k more sessions are
- * admitted while
- *
- *   Σμ + k·μ + z·√(Σσ² + k·σ²) − the live sessions' current PSS
- *     ≤ free − pool reserve − each memory reserve held (`held`)
- *       − type-check reserve
- *       − Windows charge − earlyoom floor − margin + reclaim credit
- *
- * Σ runs over the live sessions `liveDraw` charges, each at its own repo's
- * draw, a waiting session with no process past its cap adding nothing; the bare μ and σ
- * are this host's, whose sessions are the ones admitted. Current PSS counts
- * descendants too, the unit μ is measured in, so the suites μ's sample saw
- * are charged at the rate it saw them. Nothing more is held for suites: the
- * suite gate queues a suite until its ladder rung is free (#2305).
- *
- * An undeclared repo is charged DEFAULT_SESSION_DRAW: the pooled draw across
- * every repo #2231's 45-minute sample saw working.
- */
+// 587 MB mean and 304 MB sigma measured, #2231
 /** @type {{ meanMb: number, sigmaMb: number }} */
 const DEFAULT_SESSION_DRAW = { meanMb: 587, sigmaMb: 304 };
 /** @type {SessionDraw} */
@@ -75,46 +46,20 @@ const NO_LIVE_DRAW = {
 };
 
 /**
- * The readings beside memory and the session count, each read by
- * `admission.js`'s named reader and defaulting to no adjustment for a caller
- * that hasn't read it. `launchMb`, the pending pairs
- * `overhead` reserves for one launch, is charged again for each slot past the
- * first (#2511, #2568); `live` is the live sessions' draw, from `liveDraw`,
- * and `host` this host's session draw, from `readSessionDraw` (#2221);
- * `held`, from `heldReserves`, is what each memory reserve holds back
- * (#5274, #5297);
- * `load` comes from `overloadReading`, and an overload holds
- * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
- * always-admit-one guarantee included in both. `typecheckChargeMb`, from
- * `tsc-slot.js`'s `checkoutPeakMb`, is what one type-check here is charged,
- * which `typecheckReserveFor` holds back; `testsHeld`, from
- * `readTestsHeldOnWindows`, counts the queued test runs the Windows-memory
- * hold is holding, any of which holds every slot (#4956). `windows`, from
- * `readWindowsMemory`, and `guestFreeMb`, the guest's `MemFree`, price the
- * guest free memory Windows cannot back.
  * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, held?: HeldReserve[], launchMb?: number, typecheckChargeMb?: number, testsHeld?: number, windows?: WindowsRead, guestFreeMb?: number | null }} AdmissionReadings
  */
 
-/*
- * THE TYPE-CHECK RESERVE (#4956). The pooled draw carries the suites its sample saw
- * running, a session's mean less the suite-free mean #2231 measured beside it
- * (587 − 440 MB, docs/environment.md §5). A type-check is one lump of
- * `typecheckChargeMb`, which that share covers only once enough sessions run, so
- * admission holds back the lump less the live sessions' shares. Residual: a session on a
- * declared draw is credited the pooled share, unmeasured.
- */
+// 587 − 440 MB measured, #2231
 const SUITE_SHARE_MB = 147;
 
 /**
  * @param {number} typecheckChargeMb
- * @param {number} sessions the live sessions the draw prices
+ * @param {number} sessions
  */
 const typecheckReserveFor = (typecheckChargeMb, sessions) =>
 	Math.max(0, typecheckChargeMb - sessions * SUITE_SHARE_MB);
 
-/* The aggregate's p95, ruled at #2221. DUPLICATED BY HAND as DRAW_Z in
- * scripts/sample_session_memory.py, whose aggregate check models this p95:
- * move both, or neither. */
+// #2221
 const DRAW_Z = 1.645;
 
 /**
@@ -125,9 +70,6 @@ const cpuCapped = (slots, cpu) =>
 	cpu.slots === null ? slots : Math.min(slots, cpu.slots);
 
 /**
- * What the live sessions and `k` more still need at the aggregate's p95, less
- * what the live ones already hold. Negative
- * where the live sessions already hold more than that.
  * @param {LiveDraw} live
  * @param {SessionDraw} host
  * @param {number} k
@@ -142,7 +84,6 @@ function drawNeedFor(live, host, k) {
 }
 
 /**
- * What admits sessions, from `baseMb`, memory less the pool reserve.
  * @param {number} baseMb
  * @param {{ held: HeldReserve[], typecheckReserveMb: number, windowsChargeMb: number, reclaimMb: number }} adjustments
  */
@@ -161,19 +102,13 @@ function sessionBudgetMb(
 	);
 }
 
-/**
- * The per-reserve fields, `landerMb` and the rest, off `held`, which holds
- * every reserve where it comes from `heldReserves`.
- * @param {HeldReserve[]} held
- */
+/** @param {HeldReserve[]} held */
 const heldFields = (held) =>
 	/** @type {Record<HeldField, number>} */ (
 		Object.fromEntries(held.map(({ field, mb }) => [field, mb]))
 	);
 
 /**
- * `drawNeedFor` plus the spare pairs the 2nd to k-th of k launches warm, each
- * `launchMb`: the budget already reserves the 1st's (#2511).
  * @param {LiveDraw} live
  * @param {SessionDraw} host
  * @param {number} k
@@ -184,12 +119,10 @@ function launchNeedFor(live, host, k, launchMb) {
 }
 
 /**
- * How many more of this host's sessions `budgetMb` admits on the aggregate
- * draw: the largest k whose need fits, 0 where none does.
  * @param {number} budgetMb
  * @param {LiveDraw} live
  * @param {SessionDraw} host
- * @param {number} launchMb see `launchNeedFor`
+ * @param {number} launchMb
  */
 function drawSlots(budgetMb, live, host, launchMb) {
 	let k = 0;
@@ -198,9 +131,6 @@ function drawSlots(budgetMb, live, host, launchMb) {
 }
 
 /**
- * Whether the always-admit-one guarantee holds: nothing of ours running and
- * memory admitting none. A zero count no listing vouched for never unlocks it
- * (#2180).
  * @param {SessionCount} procs
  * @param {number} byMemory
  */
@@ -209,20 +139,6 @@ function isGuaranteed(procs, byMemory) {
 }
 
 /**
- * `overhead` FAILS OPEN to no reservation where it cannot be read: it refines
- * the memory/session gate, which already fails closed. `reclaimable` FAILS
- * CLOSED to no credit: crediting memory that never materialises is the
- * over-admission this gate exists to prevent. An unread session count yields
- * no guarantee; unread memory yields no figures, only its error.
- *
- * `byMemory` is the p95 pricing alone, and `memorySlots` lifts it to the
- * guarantee's slot. `freeSlots` and `slots` are those two under the CPU cap,
- * the load hold and the held-tests hold.
- *
- * WINDOWS IS CHARGED ONLY WHAT IT WOULD HAVE TO NEWLY BACK (#4956). The
- * guest's free memory is not resident on Windows, so a session drawing on it
- * grows the VM; one drawing on page cache the VM already holds does not.
- * `windowsCapped` says the charge cost a slot.
  * @param {MbResult} mem
  * @param {LenientProcs | LiveSessionsResult} procs
  * @param {AdmissionReadings} [readings]
@@ -268,8 +184,6 @@ function admissionFigures(
 	const reservedMb = overhead.ok ? overhead.mb : 0;
 	const effectiveMb = Math.max(0, mem.mb - reservedMb);
 	const reclaimedMb = reclaimable.ok ? reclaimable.mb : 0;
-	/* The floor and margin come off what admits sessions and nothing else:
-	 * the suite ladder carries earlyoom's line in its own rungs. */
 	const typecheckReserveMb = typecheckReserveFor(
 		typecheckChargeMb,
 		live.sessions - live.noProcessUncharged,

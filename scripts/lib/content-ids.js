@@ -1,27 +1,12 @@
-/*
- * content-ids.js — the one judge of "same content" (#3624, #4790): whether
- * every path a recorded verdict read holds the content it held then. The
- * already-red classifier asks it of a red run's tree against a base; the pass
- * store (lib/pass-store.js) asks it of a recorded file result against the
- * working tree.
- *
- * A CONTENT ID is a path's mode and blob id, as `git ls-tree` prints them, or
- * null where the path holds no file. Mode is in it because a spawned script
- * runs on its executable bit.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 
-/** @typedef {Map<string, string|null>} ContentIds path to content id, null where absent */
+/** @typedef {Map<string, string|null>} ContentIds */
 
-/* The string content id of a path that holds no file, for a store that
- * keeps ids as strings (#4814). */
 const ABSENT = "absent";
 
 /**
- * `ids` with every path that holds no file read as `ABSENT`.
  * @param {ContentIds} ids
  * @returns {ContentIds}
  */
@@ -29,8 +14,6 @@ const absentAsId = (ids) =>
 	new Map([...ids].map(([p, id]) => [p, id ?? ABSENT]));
 
 /**
- * Whether `paths` is non-empty and each path's id in `now` equals its id in
- * `then`. A path either map does not answer for holds nothing.
  * @param {string[]} paths
  * @param {ContentIds} then
  * @param {ContentIds} now
@@ -44,8 +27,6 @@ function isSameContent(paths, then, now) {
 }
 
 /**
- * Each path's content id in `treeish`, null where the tree holds no file
- * there. Throws where git does.
  * @param {(args: string[]) => string} git
  * @param {string} treeish
  * @param {string[]} paths
@@ -67,12 +48,7 @@ function readTreeIds(git, treeish, paths) {
 }
 
 /**
- * Each path's content id in the working tree at `root`, null where no regular
- * file stands there. A symlink, or a path lstat fails on for any reason but
- * its absence, is left unanswered, holding nothing (#4790). Throws
- * where git does.
  * @param {(args: string[], input: string) => string} hashObjects
- *   `git hash-object --stdin-paths` in `root`
  * @param {string} root
  * @param {string[]} paths
  * @returns {ContentIds}
@@ -109,7 +85,7 @@ function readWorkingIds(hashObjects, root, paths) {
 	return ids;
 }
 
-/* Paths per git call, below any argv limit. Untraced: chosen, not measured. */
+// guess, #5529
 const CHUNK = 500;
 
 /**

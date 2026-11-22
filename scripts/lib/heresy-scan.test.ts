@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * Pins heresy-scan.js's shared tree walk and site summary (#4123). Each
- * check's own test holds its boundary cases.
- */
 
 import fs from "node:fs";
 import os from "node:os";

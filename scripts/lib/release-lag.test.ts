@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/release-lag.js (#4448, #5228): the pin labels, the lag reading and its
- * verdict, and the installs judged against their pins. In-process over a fake git port and literal readings; the
- * program's test crosses real git. Loosened, a lag past the threshold reads
- * WITHIN, an unread lag gives no way out, or an install off its pin reads
- * level.
- */
 import { describe, expect, it } from "vitest";
 import {
 	formatAdopters,

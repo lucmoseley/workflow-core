@@ -1,10 +1,3 @@
-/*
- * path-kind.js — what stands at a path now (#4916): a file, a directory,
- * nothing, or something else. The read audit's preload records it for each
- * probe, through the `statSync` it saved before wrapping `fs`; its reader
- * asks it again of a script a child ran.
- */
-
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 

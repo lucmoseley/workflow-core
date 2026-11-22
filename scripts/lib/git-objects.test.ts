@@ -1,9 +1,3 @@
-/*
- * Tests for lib/git-objects.js's ls-tree and cat-file readers, against a
- * committed fixture tree. Loosen one and a checker or the test-read-edges
- * render reads a short or wrong tree as a whole one.
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -24,12 +18,12 @@ it("installs no process handler on load, so a suite launch's program can require
 });
 
 describe("listTree and readObjectBatch, run in a caller's directory (#2382)", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const lib: any = createRequire(__filename)("./git-objects.js");
+	const lib = createRequire(__filename)(
+		"./git-objects.js",
+	) as typeof import("./git-objects.js");
 	const { isOutcomeError } = createRequire(__filename)("./outcome-error.js");
 	const { GIT_MODE } = createRequire(__filename)("./git-mode.js");
 
-	/** A committed tree, read only: a file, a link to its directory and a link out of the repo. */
 	let root: string;
 	beforeAll(() => {
 		root = fs.mkdtempSync(path.join(os.tmpdir(), "check-lib-tree-"));
@@ -87,7 +81,6 @@ describe("listTree and readObjectBatch, run in a caller's directory (#2382)", ()
 			),
 		).toEqual([
 			["blob", "A body\n"],
-			/* git prints the target alone, not the path left to walk. */
 			["symlink", os.tmpdir()],
 			null,
 			["blob", "A body\n"],
@@ -98,14 +91,14 @@ describe("listTree and readObjectBatch, run in a caller's directory (#2382)", ()
 		const [link] = lib.readObjectBatch(["HEAD:top/in"], "the fixture's link", {
 			cwd: root,
 		});
-		expect([link.type, link.body.toString("utf8")]).toEqual(["blob", "sub"]);
+		expect([link?.type, link?.body.toString("utf8")]).toEqual(["blob", "sub"]);
 	});
 
 	it("answers under a timeout a healthy git meets (#2493)", () => {
 		const opts = { cwd: root, timeout: 30_000 };
 		expect(lib.listTree("HEAD", ["top/sub/"], opts)).toHaveLength(1);
 		expect(
-			lib.readObjectBatch(["HEAD:top/sub/a.md"], "a", opts)[0].body.toString(),
+			lib.readObjectBatch(["HEAD:top/sub/a.md"], "a", opts)[0]?.body.toString(),
 		).toBe("A body\n");
 	});
 
@@ -115,9 +108,6 @@ describe("listTree and readObjectBatch, run in a caller's directory (#2382)", ()
 			mode: 0o755,
 		});
 		vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH}`);
-		/* Crosses the real clock: the guarantee is spawnSync's own kill, which
-		 * no seam reaches. Any timeout under the stub's 30 s sleep fires, and
-		 * 200 ms keeps the case cheap. */
 		const thrown = (fn: () => unknown) => {
 			try {
 				fn();
@@ -127,6 +117,7 @@ describe("listTree and readObjectBatch, run in a caller's directory (#2382)", ()
 			throw new Error("did not throw");
 		};
 		try {
+			// guess, #2493
 			const opts = { cwd: root, timeout: 200 };
 			const listed = thrown(() => lib.listTree("HEAD", [], opts));
 			const batched = thrown(() =>
@@ -143,8 +134,9 @@ describe("listTree and readObjectBatch, run in a caller's directory (#2382)", ()
 });
 
 describe("readFileAt — one file's text at a revision or in the index (#3139)", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const lib: any = createRequire(__filename)("./git-objects.js");
+	const lib = createRequire(__filename)(
+		"./git-objects.js",
+	) as typeof import("./git-objects.js");
 	const { isOutcomeError } = createRequire(__filename)("./outcome-error.js");
 
 	let root: string;

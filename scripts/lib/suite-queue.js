@@ -70,7 +70,7 @@ const MARKER_STAMPS = [
  * @typedef {{ repo: string | null, session: string | null, command: string }} SeatHolder
  * @typedef {import("./part-suite-peak.js").PartKind} PartKind
  * @typedef {{ chargeMb?: number }} SpawnCharge
- * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
+ * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, memoryRungMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
  */
 /** @typedef {"admitted"|"behind"|"ahead"} Admission */
 /**
@@ -494,7 +494,7 @@ function queueJoin({
 
 /**
  * @param {string} file
- * @param {{ spawned?: true } & { [K in MarkerStamp]?: boolean }} fields
+ * @param {{ spawned?: true, memoryRungMb?: number } & { [K in MarkerStamp]?: boolean }} fields
  */
 function stampMarker(file, fields, { queueFs = fs } = {}) {
 	if (!file) return;
@@ -569,7 +569,7 @@ function buildHoldListeners(listen) {
 /**
  * @param {string} file
  * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
- * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
+ * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, onMemoryRung: (rungMb: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
  */
 function queueStamps(file, options = {}) {
 	let climbHeldMb = 0;
@@ -581,6 +581,8 @@ function queueStamps(file, options = {}) {
 		onPeerHeld: (secs) => {
 			peerS = secs;
 		},
+		onMemoryRung: (rungMb) =>
+			stampMarker(file, { memoryRungMb: rungMb }, options),
 		polledHold: () => ({
 			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
 			...(peerS > 0 ? { peerS } : {}),
@@ -616,20 +618,59 @@ function readLiveRoleMarkers(
 }
 
 /**
- * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
- * @returns {number}
+ * #5555
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} options
+ * @returns {{ name: string, record: QueueRecord }[]}
  */
-function readTestsHeldOnWindows({
+function readLiveWaiters({
 	queueDir = defaultQueueDir(),
 	queueFs = fs,
 	alive = pidAlive,
-} = {}) {
-	return [queueDir, ...peerQueueDirs(queueDir)]
-		.flatMap((dir) => readMarkers(dir, queueFs).markers)
+}) {
+	return [
+		{ dir: queueDir, name: QUEUE_NAME },
+		...peerQueueDirs(queueDir).map((dir) => ({
+			dir,
+			name: path.basename(dir),
+		})),
+	].flatMap(({ dir, name }) =>
+		readMarkers(dir, queueFs)
+			.markers.filter(({ record }) => !isMarkerStale(record, { alive }))
+			.map(({ record }) => ({ name, record })),
+	);
+}
+
+/**
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
+ * @returns {number}
+ */
+function readTestsHeldOnWindows(options = {}) {
+	return readLiveWaiters(options).filter(
+		({ record }) => record.windowsHeld === true,
+	).length;
+}
+
+/**
+ * #5555
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
+ * @returns {import("./admission.js").HeldRuns}
+ */
+function readTestsHeldOnMemory(options = {}) {
+	return readLiveWaiters(options)
 		.filter(
-			({ record }) =>
-				record.windowsHeld === true && !isMarkerStale(record, { alive }),
-		).length;
+			({ record: r }) =>
+				r.memoryHeld === true &&
+				r.role === undefined &&
+				r.admitted !== true &&
+				r.spawned !== true,
+		)
+		.map(({ name, record: r }) => ({
+			pid: r.pid,
+			chargeMb: peakMbOf(name, r),
+			...(Number.isFinite(r.memoryRungMb)
+				? { rungMb: Number(r.memoryRungMb) }
+				: {}),
+		}));
 }
 
 const SEAT_ENV = "WFC_SUITE_SEAT";
@@ -1217,7 +1258,7 @@ function changesOnly(listener) {
 }
 
 /**
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onMemoryRung?: (rungMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1242,6 +1283,7 @@ function waitForGate({
 	part = false,
 	onClimbHeld = noop,
 	onPeerHeld = noop,
+	onMemoryRung = noop,
 	onExit = noop,
 	monoClock: clock = monotonicMs,
 	traceLimbs = false,
@@ -1274,6 +1316,14 @@ function waitForGate({
 	);
 	let climbKept = false;
 	let climbHeldMb = 0;
+	/** @type {number | undefined} */
+	let rungHeardMb;
+	/** @param {number} rungMb */
+	const hearRung = (rungMb) => {
+		if (rungMb === rungHeardMb) return;
+		rungHeardMb = rungMb;
+		onMemoryRung(rungMb);
+	};
 	/** @type {number | undefined} */
 	let windowsSince;
 	let spellReleased = false;
@@ -1416,6 +1466,8 @@ function waitForGate({
 			onClimbHeld(heldOn);
 		}
 		hear.onMemoryHeld(denial?.limb === "memory");
+		if (denial?.limb === "memory" && denial.rungMb !== undefined)
+			hearRung(denial.rungMb);
 		hear.onRestHeld(
 			denial?.limb === "memory" && denial.busy === 0 && !denial.climbMb,
 		);
@@ -1656,6 +1708,7 @@ module.exports = {
 	readLiveCharged,
 	readLiveRoleMarkers,
 	readTestsHeldOnWindows,
+	readTestsHeldOnMemory,
 	readQueuesClimbMb,
 	queuedRunnerPeakMb,
 	gateDenies,

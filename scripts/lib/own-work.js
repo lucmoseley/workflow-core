@@ -1,15 +1,3 @@
-/*
- * own-work.js — which of the unpushed range is this session's own work
- * (#1156): the one reading every own-work narrowing takes, so no two of them
- * disagree on what "own" means.
- *
- * #1154'S RULE: a commit is a neighbour's where another session's commit
- * ledger names it and the launcher's does not. Every other commit is the
- * launcher's to test, one in no ledger included, so each known miss
- * over-selects. A review marker's newer base= narrows it by patch (#3108):
- * see readOwnPaths' `byPatch`.
- */
-
 const arbiterLedger = require("./arbiter-ledger.js");
 const { gitRead } = require("./dirty-tree.js");
 const { readPatchIds } = require("./patch-ids.js");
@@ -22,12 +10,7 @@ const { readPatchIds } = require("./patch-ids.js");
  */
 
 /**
- * The commits among `commits` that another session's ledger names and
- * `sessionId`'s does not, each mapped to that session — or null where that
- * cannot be told: no session id, no main worktree git will name, or a ledger
- * that will not read.
- *
- * @param {string[]} commits full shas
+ * @param {string[]} commits
  * @param {string|null|undefined} sessionId
  * @param {{ ledger?: CommitLedger }} [options]
  * @returns {Map<string, string>|null}
@@ -42,9 +25,6 @@ function readNeighbourCommits(
 }
 
 /**
- * `sessionId`'s ledgered commits and the main worktree whose store holds
- * them — or null where either will not read.
- *
  * @param {string|null|undefined} sessionId
  * @param {CommitLedger} ledger
  * @returns {{ root: string, mine: string[] }|null}
@@ -57,15 +37,11 @@ function readOwnLedger(sessionId, ledger) {
 		const mine = ledger.readCommitsBy(sessionId, root);
 		return mine && { root, mine };
 	} catch {
-		/* A store that throws is a ledger that will not read: no narrowing,
-		 * which over-selects. */
 		return null;
 	}
 }
 
 /**
- * readNeighbourCommits' answer, given the launcher's ledger already read.
- *
  * @param {string[]} commits
  * @param {{ root: string, mine: string[] }} own
  * @param {CommitLedger} ledger
@@ -79,7 +55,6 @@ function readOwnersBesides(commits, { root, mine }, ledger) {
 			root,
 		);
 	} catch {
-		/* As readOwnLedger's. */
 		return null;
 	}
 }
@@ -92,28 +67,6 @@ const lines = (out) =>
 		.filter(Boolean);
 
 /**
- * The paths of the tree at `root`'s diff against `base` that this session's
- * own work touches — its own commits in `base..HEAD`, plus its tree's
- * uncommitted tracked files — the neighbours' commits left out, and its own
- * commits kept. Null where the range, the diff or the ledger will not read.
- *
- * EVERY PATH IS ONE THE WHOLE DIFF CARRIES, so a path whose net change since
- * `base` is nil stays out, as it would without narrowing. A merge commit counts
- * against each parent, which over-selects.
- *
- * WHICH UNCOMMITTED FILES ARE THE SESSION'S is the tree's answer, not this
- * one's: an overlay worktree carries only its own (#812), the working tree
- * all of them. `tip` reads that commit in HEAD's place and no uncommitted
- * file at all: the re-run guard passes one carrying exactly what the overlay
- * would, so it reads the run's set from the working tree (#1218).
- *
- * `byPatch` narrows #1154's rule for a caller to whom over-billing is the
- * costly error (#3108): a commit no ledger names is the session's own only
- * where its `git patch-id --stable` matches one of the session's ledgered
- * commits, as a rebase leaves it, and is nobody's otherwise — a pruned ledger's, a pull's, a human's. Test
- * selection keeps the unnarrowed rule, since a missed test is the costlier
- * error there.
- *
  * @param {string} root
  * @param {string} base
  * @param {{ sessionId?: string|null, execFn?: ExecFn, ledger?: CommitLedger,
@@ -172,16 +125,8 @@ function readOwnPaths(
 }
 
 /**
- * The commits among `commits` that no ledger names and whose patch matches
- * none of `mine` (#3108) — or null where git will not read. A commit with no
- * patch, a merge's included, matches nothing.
- *
- * Residual: a ledgered commit git has since collected has no patch to match,
- * and a rebase that resolved a conflict in it changes its patch, so either
- * copy reads as nobody's.
- *
- * @param {string[]} commits full shas no other session's ledger names
- * @param {string[]} mine the launcher's ledgered commits
+ * @param {string[]} commits
+ * @param {string[]} mine
  * @param {string} root
  * @param {ExecFn} [execFn]
  * @returns {string[]|null}
@@ -198,7 +143,6 @@ function readUnmatchedUnledgered(commits, mine, root, execFn) {
 }
 
 /**
- * Each commit's touched paths, out of a `git log --format=%x00%H --name-only`.
  * @param {string} log
  * @returns {Map<string, Set<string>>}
  */
@@ -216,10 +160,9 @@ function pathsByCommit(log) {
 }
 
 /**
- * The uncommitted paths, plus every path a commit not in `notOwn` touched.
- * @param {string} dirty `git diff --name-only` output, or empty
+ * @param {string} dirty
  * @param {Map<string, Set<string>>} touched
- * @param {Set<string>} notOwn the commits that are not the launcher's
+ * @param {Set<string>} notOwn
  * @returns {Set<string>}
  */
 function ownedPaths(dirty, touched, notOwn) {
@@ -230,9 +173,6 @@ function ownedPaths(dirty, touched, notOwn) {
 }
 
 /**
- * `readOwnPaths` where it leaves a neighbour's commit out, the only set that
- * narrows a diff; else null (#1216).
- *
  * @param {string} root
  * @param {string} base
  * @param {Parameters<typeof readOwnPaths>[2]} [options]

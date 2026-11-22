@@ -1,31 +1,14 @@
-/*
- * hook-cost-testkit.ts — the fixture a hot-path pin (base §G13, #5338) runs
- * its program in: a git repo on `main` with one commit pushed to a bare
- * `origin`, a contract-1 `.claude/workflow-core.json`, and an environment
- * holding nothing of the machine's but PATH.
- *
- * Each fixture is a lib/git-fixture.ts template, built once per test file
- * and copied per case: call `defineCostFixture` or `defineCommitFixture` at
- * module scope, and the function it returns in each beforeEach.
- *
- * FOR TESTS ONLY. Remove `dir` in the case's afterEach.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { defineTemplate, mkDirOutsideRepo } from "./git-fixture";
 import { shellQuote } from "./sh-quote.js";
 
-/** The plugin root a hook line runs against: this checkout. */
 const CHECKOUT = path.resolve(__dirname, "..", "..");
 
 export interface CostFixture {
-	/** The temp directory holding everything below. */
 	dir: string;
-	/** The fixture repo. */
 	repo: string;
-	/** The whole environment for a call. */
 	env: Record<string, string | undefined>;
 }
 
@@ -79,7 +62,6 @@ function buildCost(dir: string): void {
 	git("push", "-q", "-u", "origin", "main");
 }
 
-/** Returns a copy of the fixture per call, its prefix naming the temp dir. */
 export function defineCostFixture(): (prefix: string) => CostFixture {
 	const template = defineTemplate(buildCost);
 	return (prefix) => {
@@ -89,22 +71,17 @@ export function defineCostFixture(): (prefix: string) => CostFixture {
 	};
 }
 
-/** The session worktree's name: its branch and its directory's. */
 const WT_NAME = "pin-session";
 
 const SESSION_WT = path.join(".claude", "worktrees", WT_NAME);
 
-/** The session worktree's git dir in the fixture repo `repo`. */
 const wtGitDir = (repo: string) =>
 	path.join(repo, ".git", "worktrees", WT_NAME);
 
-/** The session id an ordinary commit's session carries. */
 const SESSION = "sess-5338";
 
 export interface SessionWorktree {
-	/** The session's linked worktree, under `.claude/worktrees/`. */
 	wt: string;
-	/** Its git dir, under the fixture repo's `.git/worktrees/`. */
 	gitDir: string;
 	git: (...args: string[]) => string;
 }
@@ -112,20 +89,12 @@ export interface SessionWorktree {
 export interface CommitFixture {
 	fx: CostFixture;
 	wt: SessionWorktree;
-	/** The env git hands a hook on this commit, the session's included. */
 	env: Record<string, string | undefined>;
-	/** The message file git hands prepare-commit-msg and commit-msg. */
 	message: string;
-	/** Leaves the stand-down stamp .husky/pre-commit writes on a pass. */
 	stamped: () => void;
-	/** Makes the commit, as git does before post-commit. */
 	committed: () => void;
 }
 
-/**
- * Builds one ordinary commit, part made, into `dir`: a session's worktree
- * with one plain file staged and its message written.
- */
 function buildCommit(dir: string): void {
 	buildCost(dir);
 	const { repo, env } = costFixtureAt(dir);
@@ -136,10 +105,6 @@ function buildCommit(dir: string): void {
 	fs.writeFileSync(path.join(wtGitDir(repo), "COMMIT_EDITMSG"), "Add a note\n");
 }
 
-/**
- * Returns a copy of the commit fixture per call. `claude` is a stub listing
- * this session, so no hook starts the machine's own.
- */
 export function defineCommitFixture(): (prefix: string) => CommitFixture {
 	const template = defineTemplate(buildCommit);
 	return (prefix) => {

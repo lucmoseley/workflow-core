@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-session-id-prose.js — Stop hook. Sends a reply back once where its
- * prose names a session by id rather than by name (#3557).
- *
- * WHY. Core voice §Comprehension: a session is named by its
- * `list-sessions.js` name, never its id or pid, and an id appears only where a command
- * needs it.
- *
- * WHAT IS READ. The outgoing message with every fenced block and code span
- * removed, but for a span holding an id alone: a command carrying an id sits
- * in one. In what is left it finds:
- *   - `session <id>`, the id a full UUID or its 8-hex prefix, whatever the
- *     registry holds;
- *   - a bare full UUID, or a bare 8-hex word, that is the id or the id's
- *     prefix of a session in the sessions registry. A bare UUID the registry
- *     does not know is passed.
- */
-
 const hookBlock = require("./lib/hook-block");
 const stopGuard = require("./lib/stop-guard");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
@@ -30,7 +12,6 @@ const SESSION_WORD = new RegExp(
 	"gi",
 );
 const BARE = new RegExp(String.raw`(?<![\w/-])${ID}(?![\w-])`, "gi");
-/* A span holding an id and nothing else carries no command, so it is prose. */
 const ID_ALONE = new RegExp(String.raw`^\`\s*${ID}\s*\`$`, "i");
 
 /**
@@ -44,7 +25,6 @@ function namedIds(message) {
 	);
 	const bare = [...prose.matchAll(BARE)].map(([, id = ""]) => id);
 	if (bare.length === 0) return [];
-	/* Required here, so a reply with no hex word never loads the arbiter. */
 	const lookup = require("./lib/arbiter-core.js").registryLookup();
 	/** @type {Map<string, string|null>} */
 	const found = new Map();

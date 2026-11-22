@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * gh-stub-server.js through `serveGhStub`'s bash client, as a test's gh call
- * reaches it (#2877). SPAWNED, NOT RUN IN PROCESS (§X3's two-processes shape):
- * the server must answer while the call runs. Its in-process port, `buildHandlerPort`,
- * is held to the served answer by the last case (§G7). Loosen a case and a suite on
- * this stub can pass on a gh call whose arguments, body or exit status never
- * reached its handler.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -160,7 +152,6 @@ it("answers in-process as the served gh does, for the same handler and call (#51
 			stderr: served.stderr,
 		});
 	}
-	/* A thrown handler's stack names where it was compiled, so its first line alone. */
 	const broke = inProcess(["throw"]);
 	const served = call(["throw"]);
 	expect([broke.status, broke.stderr.split("\n")[0]]).toEqual([

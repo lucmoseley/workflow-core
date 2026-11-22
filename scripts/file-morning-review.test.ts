@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * file-morning-review.js, driven through its command line against a stub gh
- * (#2011): its boundary set (§X11, #5148). Each case crosses the production
- * adapters the shell wires: gh at WFC_GH, the real file-issue.js through
- * lib/file-through.js, so its label refusals and similar-title check run on
- * the review issue as on any other, and the three checkers spawned. The
- * core's branches are lib/morning-review-filing.test.ts's. Break it and the
- * loop files no review, or two in a day, or a hand run leaves the founder's
- * `reverse <n>` comments unanswered (#3388).
- *
- * Over the 10 s file budget (§X8 (5)), some 13 s: the two-filings race runs
- * two real processes, and every filing case pays file-issue.js's real start
- * and the checkers' real spawns.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -30,8 +16,7 @@ const { ago, readCreated, refillFile, run, runEnv, seed, stub, wfc } =
 	morningReviewFixture(sb, SCRIPT);
 
 const lockFile = () => refillFile(".morning-review-filing.pid");
-/* A guess: two full filings on a loaded machine, each some 10 s of real node
- * and stub gh starts. */
+// #3813 guess: two filings at some 10 s each on a loaded machine
 const TWO_FILINGS_TIMEOUT_MS = 120_000;
 
 const localDate = (d: Date) =>
@@ -78,7 +63,6 @@ describe("file-morning-review.js (#2011)", () => {
 			/## Memory kills\n\n1 in the window — Claude host 1\.\n\n- `Memory kill incident from [^`]+` — 1 kill: Claude host 1 — #61\n/,
 		);
 		expect(issue.body).toContain("- acme/wfc: `1 torn ledger line(s) skipped`");
-		/* The fixture's .git is no repository: the history fails open to a why. */
 		expect(issue.body).toMatch(
 			/### acme\/wfc\n\n.+\n\nRow changes not read: `git: /,
 		);
@@ -123,7 +107,6 @@ describe("file-morning-review.js (#2011)", () => {
 		const r = await run();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/#5 \([\d.]+\) Morning review — 2000-01-01/);
-		/* file-issue.js reads the tracker's labels once a run: a refused first run reads them twice. */
 		const labelReads = fs
 			.readFileSync(stub("calls.log"), "utf8")
 			.split("\n")
@@ -132,7 +115,7 @@ describe("file-morning-review.js (#2011)", () => {
 	});
 
 	it("files the idle alarm's section, read with the loop stopped (#3644)", async () => {
-		/* The section is "check-idle-efforts.js"'s --json, which the review spawns. */
+		// code-edges loads: check-idle-efforts.js
 		seed([]);
 		fs.writeFileSync(
 			stub("idle.json"),

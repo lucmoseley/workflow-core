@@ -1,24 +1,11 @@
 // @vitest-environment node
-/*
- * registry-agents.js lists live sessions from each seat's registry and job
- * records, with no `claude agents --json` (#2665). The reaper stops what it
- * lists, so these pin what it must NOT list: a reused pid, a garbled entry, a
- * job record naming someone else.
- */
 
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const load = createRequire(__filename);
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { buildDriftLines, readRegistryAgents }: any = load(
-	"./registry-agents.js",
-);
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { readProcStartOf }: any = load("./arbiter-proc.js");
+import { readProcStartOf } from "./arbiter-proc.js";
+import { buildDriftLines, readRegistryAgents } from "./registry-agents.js";
 
 let root = "";
 let seatA = "";
@@ -39,7 +26,6 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** A registry entry on `seat` for this very process, with `over` on top. */
 function entry(seat: string, file: string, over: Record<string, unknown> = {}) {
 	const dir = path.join(seat, "sessions");
 	fs.mkdirSync(dir, { recursive: true });
@@ -94,8 +80,7 @@ describe("registryAgents", () => {
 		job(seatA, "aaaa0001", { sessionId: "s-1", state: "done" });
 		job(seatB, "aaaa0001", { sessionId: "s-2", state: "working" });
 		const states = readRegistryAgents().agents.map(
-			(a: { sessionId: string; state: string; seat: string }) =>
-				`${a.sessionId} ${a.state} ${a.seat}`,
+			(a) => `${a.sessionId} ${a.state} ${a.seat}`,
 		);
 		expect(states.sort()).toEqual([
 			`s-1 done ${seatA}`,

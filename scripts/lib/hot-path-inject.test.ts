@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/hot-path-inject.js hands a session base §G13 the first time it writes
- * a hot-path program or a hook registration (#5335 §Injection). Break it and
- * a session adds a hook entry or a per-call child process with the rule it
- * breaks never in front of it.
- *
- * Boundary cases through the dispatcher (§X11), as the entry runs the core:
- * a planted checkout, the real rule store and the latch under the case's
- * root. Which programs are hot-path is lib/hot-path-set.test.ts's.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

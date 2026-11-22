@@ -1,31 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-automode-refusal.js — Stop hook. Sends a session back when it ends a
- * turn in which the auto-mode classifier refused one of its tool calls, with
- * the founder's rule for what a refusal obliges (#860).
- *
- * WHY Stop. The rule applies at the end of a turn carrying a refusal, which
- * a Stop hook sees. A `PermissionDenied` hook fires on the refusal itself but cannot add
- * context, only `retry: true` (#860 §Out of scope).
- *
- * WHAT COUNTS AS A REFUSAL. A tool result since the last human prompt that is
- * an error and opens with the classifier's denial sentence, or a record the
- * harness tags `toolDenialKind: "automode-blocked"`. A record tagged
- * `automode-unavailable` never counts, whatever its text: it is the classifier
- * giving no verdict, which the harness calls a transient failure of the check
- * and not a judgment (#5422). Residual: a turn ending on one is not sent back,
- * though the call did not run. The sentence is anchored
- * at the start because a tool result merely QUOTING it — a grep over
- * transcripts, a read of this file — is not a refusal. Reading the transcript
- * is safe here, unlike for the outgoing text (docs/agents/guard-authoring.md
- * §Choosing the event): tool results are in the file by Stop.
- *
- * A REPORTING GUARD (docs/agents/guard-authoring.md): it asks the session to
- * say which way it took and does not grade the answer. So it does NOT stand
- * down on `stop_hook_active` the way guard-lost-deny.js does — a turn another
- * Stop hook sent back would otherwise end unshown, the next human prompt
- * starting a new turn. The latch its registry row's DEFEAT names bounds it.
- */
 
 const hookBlock = require("./lib/hook-block");
 const { describeCall, reportOnce } = require("./lib/report-once");
@@ -39,18 +12,14 @@ const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
  * @typedef {{id: string, call: string, reason: string}} Refusal
  */
 
-/** How the harness opens every classifier refusal (#860). */
 const DENIAL =
 	/^\s*(?:Error:\s*)?Permission for this action was denied by the Claude Code auto mode classifier\.(?:\s*Reason:\s*([^\s.][^.]*|)\.)?/;
 
-/** The paragraph of `rule:founder-handover` this guard prints. */
 const PARAGRAPH_HEAD = "AN AUTO-MODE REFUSAL";
 
-/** Tool calls already reported, one id per line (lib/report-once.js). */
 const SEEN_PREFIX = ".automode-refusal-seen-";
 
 /**
- * A tool result's text, whichever of its two shapes the harness wrote.
  * @param {unknown} content
  * @returns {string}
  */
@@ -65,8 +34,6 @@ function parseResultText(content) {
 }
 
 /**
- * A record the person typed — not a tool result, and not the harness's own
- * `isMeta` injection, which is how a Stop hook's feedback arrives.
  * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @returns {boolean}
  */
@@ -80,8 +47,7 @@ function isHumanPrompt(record) {
 }
 
 /**
- * Every auto-mode refusal since the last human prompt, oldest first.
- * @param {string} text the transcript
+ * @param {string} text
  * @param {"main" | "subagent"} tier
  * @returns {Refusal[]}
  */
@@ -108,11 +74,9 @@ function refusalsThisTurn(text, tier) {
 }
 
 /**
- * One content block's refusal, if it is one.
  * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @param {import("./lib/transcript.js").TranscriptBlock} block
- * @param {Map<string, {name?: unknown, input?: unknown}>} uses the tool_use
- *   blocks seen so far, by id
+ * @param {Map<string, {name?: unknown, input?: unknown}>} uses
  * @returns {Refusal | null}
  */
 function refusalOf(record, block, uses) {
@@ -150,11 +114,9 @@ function reportFor(fresh) {
 }
 
 /**
- * Every path fails open and leaves a breadcrumb (mantahostels#1731, on the house
- * rule at mantahostels#103 §6).
  * @param {{sessionId: string, payload: Payload, root: string,
  *   note: (outcome: string, payload?: Payload) => void}} ctx
- * @returns {boolean} whether a block was emitted
+ * @returns {boolean}
  */
 function review({ sessionId: sid, payload, root, note }) {
 	const file = sessionTranscript.resolve(payload, sid);

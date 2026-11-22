@@ -1,25 +1,3 @@
-/*
- * refill-files.js — the refill loop's files, read and written (#2012, spec
- * #1995, #3392); what they hold, lib/refill-loop.js parses.
- *
- * ITS FILES, under lib/refill-dir.js's directory, so `start`, `stop` and `set`
- * never race the loop's own tick:
- *   - control, written by `start`, `stop`, `set`, the tick's opt-out untick and
- *     the loop's own no-progress pause, each read and write under
- *     withControlLock, so no writer loses another's change;
- *   - pidfile, created by the loop exclusively, so a second loop exits;
- *   - the launch's pidfile (#4139), held by a process spawning the loop, which
- *     `watch` reads so as to stand down;
- *   - the review runner's pidfile and result (scripts/refill-review-run.js,
- *     #3765), written by the runner, the result removed by the tick that
- *     reads it;
- *   - the manager-restart marker (#3971), written by `boot-resume` for a loop
- *     still running, removed by the tick that records it.
- * `WFC_REFILL_DIR` moves them all, with the log, the stop-seen stamp
- * check-refill-loop-stop.js writes, and the code directory of worktrees the
- * loop runs from (lib/refill-code.js).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId } = require("./arbiter-proc.js");
@@ -47,31 +25,19 @@ function loopFiles() {
 	};
 }
 
-/**
- * A line as the loop's log holds it: stamped, and ended. The loop's own stdout
- * is that log, so its lines take this too.
- * @param {string} line
- */
+/** @param {string} line */
 const buildLoopLogLine = (line) => `${new Date().toISOString()} ${line}\n`;
 
-/**
- * Appends `line`, stamped, to the loop's log, making its directory where none
- * is. Throws where it will not write.
- * @param {string} line
- */
+/** @param {string} line */
 function appendLoopLog(line) {
 	const file = loopFiles().log;
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	fs.appendFileSync(file, buildLoopLogLine(line));
 }
 
-/* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
 const REVIEW_RUNNER = "refill-review-run.js";
 
 /**
- * The control file, parsed, and why where it exists
- * but is not one. A damaged control is no loop nobody started: the tick stops
- * on it under its own reason (#3389).
  * @param {(line: string) => void} log
  * @returns {import("./refill-loop.js").ControlRead}
  */
@@ -103,15 +69,10 @@ const readControlFile = (log) => readControlChecked(log).control;
 const writeControlFile = (control) => writeJson(loopFiles().control, control);
 
 /**
- * Run `write`, a control writer's read and write, under the one control lock,
- * a holder's being any `refill-loop.js` process; a dead holder's is taken over.
- * Residual: a `start` or `stop` that outlasts the wait writes nothing, so its
- * caller must re-run it (#3856).
  * @template T
  * @param {() => T} write
- * @param {number} [waitMs] the wait, in place of waitForLock's default
- * @returns {{done: T}|{busy: string}} `busy`, why, where a live holder kept the
- *   lock past the wait
+ * @param {number} [waitMs]
+ * @returns {{done: T}|{busy: string}}
  */
 function withControlLock(write, waitMs) {
 	const file = `${loopFiles().control}.lock`;
@@ -129,16 +90,11 @@ function withControlLock(write, waitMs) {
 }
 
 /**
- * Write the checkout no-progress pauses the tick decided (#5275), against a
- * fresh read: a checkout paused since keeps its record, and a resume since moved
- * the count these rest on, so none is written. A lock kept past the wait writes
- * nothing, and the next tick decides the pauses again.
- * @param {Record<string, import("./refill-decide.js").Pause>} pauses by root
- * @param {number} noProgressFrom the count the tick decided them on
+ * @param {Record<string, import("./refill-decide.js").Pause>} pauses
+ * @param {number} noProgressFrom
  * @param {(line: string) => void} log
- * @param {number} [waitMs] withControlLock's
- * @returns {Record<string, import("./refill-decide.js").Pause>|null} the
- *   control's checkout pauses once written, null where none was
+ * @param {number} [waitMs]
+ * @returns {Record<string, import("./refill-decide.js").Pause>|null}
  */
 function writeRepoPauses(pauses, noProgressFrom, log, waitMs) {
 	const written = withControlLock(() => {
@@ -156,11 +112,7 @@ function writeRepoPauses(pauses, noProgressFrom, log, waitMs) {
 	return "done" in written ? written.done : null;
 }
 
-/**
- * @typedef {{bootId: string|null, at: number}} ManagerRestart  what `boot-resume`
- *   leaves a loop that survived the user manager's restart, its own file as that
- *   loop's tick would overwrite a change to the state (#3971)
- */
+/** @typedef {{bootId: string|null, at: number}} ManagerRestart */
 
 /** @param {number} at */
 const writeManagerRestart = (at) =>
@@ -176,8 +128,6 @@ const readManagerRestart = (log) =>
 	);
 
 /**
- * Remove the marker `read` once the state records it, unless a later restart has
- * replaced it since.
  * @param {ManagerRestart} read
  * @param {(line: string) => void} log
  */

@@ -1,47 +1,3 @@
-/*
- * earlyoom-kills.js — earlyoom's kills on this machine, read from its own
- * journal lines, grouped into incidents (#3094, ruled at #3082): what the
- * incident filer tickets and the morning review lists.
- *
- * THE JOURNAL IS THE LOG. Debian's earlyoom.service runs with DynamicUser and
- * ProtectSystem=strict, so a `-N` script could write nowhere uid 1000 reads
- * (#3094); earlyoom already logs each signal as
- *   sending SIGTERM to process 658446 uid 1000 "MainThread": badness 741, VmRSS 983 MiB
- * after a `mem avail: … swap free: …` line, which this pairs with it.
- *
- * A KILL IS ONE PID: earlyoom re-signals a process that outlives SIGTERM, so
- * repeated signals to one pid inside an incident are one kill, keeping the
- * first signal's readings and the count.
- *
- * AN INCIDENT is kills no more than INCIDENT_GAP_MS apart. It is OVER once
- * INCIDENT_GAP_MS has passed since its last kill: before then a later kill may
- * still join it.
- *
- * A HEADLESS RUN is a kill whose pid, boot and time match a run in
- * lib/headless-runs.js's store (#4143): same pid, the boot `journalctl
- * --list-boots` puts the kill in, launched at or before it, the latest such
- * run where two share them. A killed run records no end, so a pid reused
- * after it in the same boot still matches.
- *
- * A TEST RUN is a node kill whose pid was a run's wrapper, vitest main or
- * worker in lib/run-memory.js's run files when it died (#5183): same boot,
- * the run started at or before the kill, the pid seen in its role up to it
- * (`heldUntil`), the latest such run where two share them.
- *
- * A GATE RUN is a kill, of any name, whose pid a gate seat's pid record saw in
- * its command's tree (lib/gate-seat.js, #5269): same boot, the seat spawned at
- * or before the kill, the pid seen up to it (`gateHeldUntil`), the latest
- * such seat where two share them. A headless or test run match, the more
- * specific, wins the kind (`joinRecordedRun`).
- *
- * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
- * as no kills, with `why` set so a caller can say so. A store or boot list
- * that will not read, or a run on a victim's pid that recorded no boot,
- * leaves the kills unjoined, with the incident's
- * `unjoined` saying why. WFC_JOURNALCTL injects
- * the binary (§N7).
- */
-
 const { caught } = require("./caught.js");
 const { readStoredRuns } = require("./headless-runs.js");
 const { heldUntil, readRunFiles } = require("./run-memory.js");
@@ -62,7 +18,7 @@ const {
 const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path.js");
 
-/** Ruled at #3082; untraced. */
+// guess, #3082
 const INCIDENT_GAP_MS = 30 * 60 * 1000;
 
 const LINE = /^(\S+) \S+ earlyoom\[\d+\]: (.*)$/;
@@ -70,14 +26,13 @@ const SIGNAL =
 	/^sending (SIG\w+) to process (\d+) uid (\d+) "(.*)": badness (-?\d+), VmRSS (\d+) MiB$/;
 const READING = /^mem avail:\s*(\d+) of\s*\d+ MiB .*swap free:\s*(\d+) of/;
 
-/** Hosts, pty hosts and spares read as their version (#3082, #4122). */
+/** #3082, #4122 */
 const CLAUDE_HOST = /^\d+\.\d+\.\d+$/;
-/** The daemon, `claude agents` and `claude -p` read `claude` (#4122). */
 const CLAUDE_CLI = /^claude$/;
-/** Every node program's comm is `MainThread`: the refill loop, a test worker, a server (#3759). */
+/** #3759 */
 const NODE_OR_PYTHON = /^(MainThread|node|python3?)$/;
 const TEST_OR_BUILD = /^(npm|npx|tsc|vitest|esbuild|biome|pytest)$/;
-/** Playwright's headless browser and a full one (#5269). */
+/** #5269 */
 const CHROMIUM = /^(headless_shell|chrome|chromium)$/;
 
 const KINDS = /** @type {const} */ ([
@@ -95,18 +50,18 @@ const KINDS = /** @type {const} */ ([
 
 /**
  * @typedef {object} Kill
- * @property {string} at the first signal, ISO
+ * @property {string} at
  * @property {number} pid
  * @property {number} uid
- * @property {string} name comm, as earlyoom printed it
+ * @property {string} name
  * @property {Kind} kind
- * @property {string|null} jobId the headless run's, where the kill is one
- * @property {TestRun|null} testRun the test launch, where the kill is one of its processes
- * @property {GateRun|null} gateRun the gate run, where the kill is one of its processes
+ * @property {string|null} jobId
+ * @property {TestRun|null} testRun
+ * @property {GateRun|null} gateRun
  * @property {number} badness
  * @property {number} rssMiB
- * @property {number|null} availMiB MemAvailable before the first signal
- * @property {number|null} swapFreeMiB SwapFree then
+ * @property {number|null} availMiB
+ * @property {number|null} swapFreeMiB
  * @property {number} signals
  * @typedef {Pick<import("./run-memory.js").RunLaunch, "session"|"kind"|"argv"|"files"|"fileCount"|"repo">
  *   & {role: import("./run-memory.js").Role}} TestRun
@@ -126,8 +81,6 @@ function kindOf(name) {
 }
 
 /**
- * Kills from journalctl's short-iso lines, oldest first, a pid's repeated
- * signals not yet merged.
  * @param {string} text
  * @returns {Kill[]}
  */
@@ -173,7 +126,7 @@ function parseSignals(text) {
 }
 
 /**
- * @param {Kill[]} signals oldest first
+ * @param {Kill[]} signals
  * @returns {Incident[]}
  */
 function groupIncidents(signals) {
@@ -196,7 +149,6 @@ function groupIncidents(signals) {
 const isOver = (i, now) => now - Date.parse(i.last) > INCIDENT_GAP_MS;
 
 /**
- * earlyoom's journal since `sinceMs`.
  * @param {number} sinceMs
  * @returns {{text: string, why: string|null}}
  */
@@ -217,7 +169,6 @@ function readJournal(sinceMs) {
 }
 
 /**
- * The latest-started of `items` recorded in `boot`, or null.
  * @template {{ bootId: string|null, started: number }} T
  * @param {T[]} items
  * @param {import("./journalctl.js").Boot|undefined} boot
@@ -244,9 +195,6 @@ const bootlessNote = (runs) =>
 		: [`${runs.join(", ")} on a victim's pid recorded no boot`];
 
 /**
- * The latest-started of `records` in `boot` whose hold on `k`'s pid spans the
- * kill, with its hold, and those holding it that recorded no boot, as
- * `<label> from <start>`.
  * @template {{ at: string, bootId: string|null }} R
  * @template H
  * @param {Kill} k
@@ -281,8 +229,6 @@ function latestHolding(k, boot, records, { label, holdOf }) {
 }
 
 /**
- * The test run `k`'s pid was part of when it died in `boot`, and the runs on
- * its pid that recorded no boot, by file time.
  * @param {Kill} k
  * @param {import("./journalctl.js").Boot|undefined} boot
  * @param {import("./run-memory.js").RunFile[]} runs
@@ -307,8 +253,6 @@ function findTestRun(k, boot, runs) {
 }
 
 /**
- * The gate run whose tree held `k`'s pid when it died in `boot`, and the
- * seats on its pid that recorded no boot.
  * @param {Kill} k
  * @param {import("./journalctl.js").Boot|undefined} boot
  * @param {import("./gate-seat.js").GatePids[]} seats
@@ -328,10 +272,6 @@ function findGateRun(k, boot, seats) {
 }
 
 /**
- * `k` joined to the test run and the gate run its pid was part of when it
- * died in `boot`: kind `test run` where a test run holds it, the more
- * specific, still naming a gate seat that held it too; else `gate run`; else
- * as it was. With the records on its pid that recorded no boot.
  * @param {Kill} k
  * @param {import("./journalctl.js").Boot|undefined} boot
  * @param {{ runs: import("./run-memory.js").RunFile[],
@@ -419,10 +359,6 @@ function joinRuns(incidents) {
 }
 
 /**
- * The incidents with a kill after `sinceMs`, each read whole: where the
- * first incident read starts within INCIDENT_GAP_MS of the read's start, an
- * earlier kill may belong to it, so the journal is read again from further
- * back. Its first kill names its ticket, so it is never cut.
  * @param {number} sinceMs
  * @returns {{incidents: Incident[], why: string|null}}
  */
@@ -433,7 +369,6 @@ function readIncidents(sinceMs) {
 		if (why !== null) return { incidents: [], why };
 		const all = groupIncidents(parseSignals(text));
 		const head = all[0];
-		/* Each re-read starts strictly earlier, as head.first only moves back. */
 		if (head && Date.parse(head.first) - start < INCIDENT_GAP_MS) {
 			start = Date.parse(head.first) - INCIDENT_GAP_MS;
 			continue;
@@ -445,7 +380,7 @@ function readIncidents(sinceMs) {
 	}
 }
 
-/** @param {Date} d machine-local `HH:MM:SS` */
+/** @param {Date} d */
 const localTime = (d) =>
 	[d.getHours(), d.getMinutes(), d.getSeconds()]
 		.map((v) => String(v).padStart(2, "0"))
@@ -453,10 +388,6 @@ const localTime = (d) =>
 
 const TITLE_PREFIX = "Memory kill incident from ";
 
-/**
- * UTC, so a run under another TZ names the incident the same. Two incidents
- * cannot start in one minute: they are over INCIDENT_GAP_MS apart.
- */
 const incidentTitle = (/** @type {Incident} */ i) =>
 	`${TITLE_PREFIX}${utcMinute(new Date(i.first))} UTC`;
 
@@ -508,8 +439,7 @@ const kindCell = (k) => {
 
 /**
  * @typedef {{ trip: { at: string, pid: number }|null,
- *   rearm: { status: string, arm: string } }} TripwireNote the peak
- *   tripwire's tripping kill and its re-arm commands (lib/peak-tripwire.js)
+ *   rearm: { status: string, arm: string } }} TripwireNote
  */
 
 /**
@@ -520,7 +450,6 @@ const isTrippedBy = (i, trip) =>
 	trip !== null && i.kills.some((k) => k.pid === trip.pid && k.at === trip.at);
 
 /**
- * The incident ticket's body.
  * @param {Incident} i
  * @param {TripwireNote} [tripwire]
  */
@@ -538,8 +467,6 @@ function buildIncidentBody(i, tripwire) {
 				: lo,
 		/** @type {(Kill & {availMiB: number})|null} */ (null),
 	);
-	/* Untraced: ten minutes before the first kill shows the readings leading
-	 * in, one after the last its exit line. */
 	const from = Math.floor(first.getTime() / 1000) - 600;
 	const to = Math.floor(last.getTime() / 1000) + 60;
 	return `## What happened
@@ -570,10 +497,8 @@ ${rearm === null ? "" : `- [ ] The peak tripwire is re-armed (\`${rearm.arm}\`),
 }
 
 /**
- * The incident tickets on `repo`, open or closed, by title; throws where the
- * tracker cannot be read.
  * @param {string} repo
- * @param {Parameters<typeof readTicketsByPrefix>[3]} [run] the gh port
+ * @param {Parameters<typeof readTicketsByPrefix>[3]} [run]
  * @returns {Map<string, number>}
  */
 function readIncidentTickets(repo, run) {

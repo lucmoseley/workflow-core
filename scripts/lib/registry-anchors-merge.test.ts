@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The guard registry's anchors merged per row (#4171). Loosen it and a merge
- * driver drops a row one side added, takes a digest neither side attested
- * over the current side's, or writes bytes `--review` would rewrite.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

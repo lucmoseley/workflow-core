@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * The registry fake's contract (§G7, #2207, #2912): one case list run against
- * lib/npm-install-host.js's real `npm view` and curl calls, against
- * lib/npm-registry-fake.ts's WFC_NPM and WFC_CURL stubs through the same
- * adapter, and against its in-process ports. Each answer gives the same
- * verdict from lib/npm-install.js's `decide` and, where it is JSON, the same
- * keys and types; values are never compared. Loosened, the guard's tests stay
- * green on a fake while the guard misreads what npm or the downloads API
- * really answers.
- *
- * The unreachable case points npm's registry and curl's proxy at a closed
- * local port, and the not-starting case points WFC_NPM and WFC_CURL at no
- * program, so both need no network and run wherever npm and curl do. The
- * other two ask the public registry, and skip, saying so, where it does not
- * answer.
- *
- * Red after an npm or API change: re-run the case's call by hand, copy what
- * changed into lib/npm-registry-fake.ts.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -49,11 +30,8 @@ type Port = "npmView" | "downloads";
 
 const PASSING = buildPassingRegistry(Date.now());
 
-/** The registry the live cases ask, whatever npm's own config names. */
 const PUBLIC_REGISTRY = "https://registry.npmjs.org/";
 
-/** Port 9, discard, which nothing listens on here: a connection to it is
- * refused at once. */
 const DEAD = "http://127.0.0.1:9";
 
 type Real = "live" | "cut" | "absent";
@@ -75,7 +53,6 @@ const CASES: {
 		real: "live",
 	},
 	{
-		// The downloads port is never asked about a name npm does not have.
 		what: "a missing package",
 		pkg: "wfc-contract-no-such-package-7f3a9c",
 		reg: { ...PASSING, created: "E404" },
@@ -101,8 +78,6 @@ const CASES: {
 	},
 ];
 
-/** The verdict `decide` gives an install of `pkg` where `port` answers
- * `answer` and the other port passes. */
 function verdictOf(port: Port, pkg: string, answer: Call): string | null {
 	const ctx = kitContextFake({
 		isDir: () => true,
@@ -180,15 +155,12 @@ const stubAnswer = (port: Port, c: (typeof CASES)[number]) => {
 const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>
 	port === "npmView" ? npmViewAnswer(c.reg) : downloadsAnswer(c.reg);
 
-// Residual: where the public registry does not answer, the live cases skip
-// and the fake's success and E404 answers go unchecked.
 let liveSkip: { reason: string | undefined } | undefined;
 function liveSkipReason(): string | undefined {
 	for (const url of [
 		`${PUBLIC_REGISTRY}-/ping`,
 		"https://api.npmjs.org/downloads/point/last-month/left-pad",
 	]) {
-		// The adapter's own curl limit.
 		const { status } = spawnSync(
 			"curl",
 			["-fsS", "-o", "/dev/null", "--max-time", "8", url],
@@ -202,8 +174,7 @@ function liveSkipReason(): string | undefined {
 describe.each(CASES)("$what", (c) => {
 	it.for(c.ports)(
 		"%s answers alike from the real adapter, the stubs and the in-process fake",
-		// At worst the two 8 s probes on the first live case, then npm's own 12 s
-		// limit and curl's 8 s: 36 s.
+		// guess: two 8 s probes, then npm's 12 s and curl's 8 s, #2912
 		{ timeout: 40_000 },
 		(port, ctx) => {
 			if (c.real === "live") {

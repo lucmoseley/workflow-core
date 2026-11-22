@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * `readPendingTasks` (mantahostels#2487) — the transcript read that tells a live `waiting:` from
- * a stalled one, and names each launch still out (#1201).
- *
- * In-process, over JSONL transcripts written to a temp dir in the record shapes
- * copied from real ones, since the transcript is the only signal the reader has.
- *
- * Its readers are Stop hooks in `.claude/settings.json` —
- * `guard-priced-options.js`, `guard-uncommitted-work.js` and
- * `guard-session-ceiling.js` — so a loosened case either lets a session end on
- * a `waiting:` nothing will wake, or refuses a true one.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -26,9 +14,9 @@ import {
 	SUBAGENT_HANDLE,
 } from "./transcript-testkit";
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { readPendingTasks }: any =
-	createRequire(__filename)("./pending-tasks.js");
+const { readPendingTasks } = createRequire(__filename)(
+	"./pending-tasks.js",
+) as typeof import("./pending-tasks.js");
 
 let dir: string;
 let file: string;
@@ -42,7 +30,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** An assistant turn holding one tool call, the shape the transcript writes. */
 const toolUse = (id: string, name: string, input: unknown = {}) =>
 	JSON.stringify({
 		type: "assistant",
@@ -51,11 +38,6 @@ const toolUse = (id: string, name: string, input: unknown = {}) =>
 const bash = (command: string, id: string, input = {}) =>
 	JSON.stringify(buildBashCall(command, id, { input }));
 
-/**
- * The settlement record, copied from a real transcript: the notification
- * arrives inside a `queue-operation` whose `content` is the whole block as one
- * escaped string.
- */
 const settlement = (id: string, status = "completed") =>
 	JSON.stringify({
 		type: "queue-operation",
@@ -63,10 +45,6 @@ const settlement = (id: string, status = "completed") =>
 		content: `<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n</task-notification>`,
 	});
 
-/**
- * A user turn holding one tool call's result, with the structured
- * `toolUseResult` the harness writes beside it where one is given.
- */
 const toolResult = (
 	id: string,
 	body: string,
@@ -140,8 +118,6 @@ describe("readPendingTasks", () => {
 	});
 
 	it("never reads a launch record as its own settlement", () => {
-		/* The id appears in the launch record's `id` field. Only the
-		 * `<tool-use-id>` tag settles it, so one launch alone stays pending. */
 		write(bash("x", "t1", { run_in_background: true }));
 		expect(readPendingTasks(file).pending).toHaveLength(1);
 	});
@@ -228,8 +204,6 @@ describe("readPendingTasks settles a launch no notification follows (mantahostel
 	});
 
 	it("keeps a background command on the announcement alone", () => {
-		/* The Bash limb never reads the announcement, so a harness rewording it
-		 * cannot turn a Bash launch into a false refusal. */
 		write(bash("x", "t1", { run_in_background: true }), result("t1", handle));
 		expect(readPendingTasks(file).pending).toHaveLength(1);
 		write(
@@ -265,7 +239,6 @@ describe("readPendingTasks settles a launch no notification follows (mantahostel
 });
 
 describe("readPendingTasks counts a call moved to the background at its timeout (#1012)", () => {
-	/* Copied from a real transcript, structured field included. */
 	const moved =
 		"Command did not complete within its 120s timeout and was moved to the background (ID: bfti0ymgk). Output is being written to: …";
 	const overrun = (id: string, body = moved, withTaskId = true) =>
@@ -320,7 +293,6 @@ describe("readPendingTasks counts a call moved to the background at its timeout 
 
 /* #1166 */
 describe("readPendingTasks counts a Skill call that forked into the background", () => {
-	/* The result's text and structured field, as a real transcript wrote them. */
 	const forked =
 		'Skill "code-review" launched (forked execution, running in the background).';
 	const forkedToolUseResult = {
@@ -394,9 +366,6 @@ describe("readPendingTasks counts a Skill call that forked into the background",
 });
 
 describe("readPendingTasks settles a launch a TaskStop stopped (#2754)", () => {
-	/* Copied from the #2754 transcript: the launch result names the handle in
-	 * its text and in `backgroundTaskId`; the stop result names it in a JSON
-	 * string body and in `task_id`. */
 	const launched = (id: string, handle: string, structured = true) =>
 		toolResult(
 			id,

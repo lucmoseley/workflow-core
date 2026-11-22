@@ -1,25 +1,14 @@
-/*
- * issue-body-testkit.ts — a fake `issue-body.js` for a filer's test, the
- * script WFC_ISSUE_BODY names (scripts/lib/tracking-issue.js; #1424).
- */
-
 import fs from "node:fs";
 import path from "node:path";
 
 interface FakeIssueBody {
-	/** The fake writer — what WFC_ISSUE_BODY points at. */
 	script: string;
-	/** The issue's body as last written — what the gh stub's `issue view` answers. */
 	bodyFile: string;
-	/** Each call's argv, space-joined, oldest first; [] before any call. */
 	calls: () => string[];
-	/** Forget the calls so far, so a second run's calls read alone. Throws
-	 * where none was made, so a first run that never wrote cannot pass. */
 	clearCalls: () => void;
 	body: () => string;
 }
 
-/** Write the fake under `dir`, the issue's body starting as `existingBody`. */
 export function fakeIssueBody(dir: string, existingBody = ""): FakeIssueBody {
 	const script = path.join(dir, "issue-body.js");
 	const log = path.join(dir, "issue-body-argv.log");

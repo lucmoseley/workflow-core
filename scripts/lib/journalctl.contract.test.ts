@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/journalctl-fake.ts to the real journalctl (§G7, #2207,
- * #3105): each case runs against the fake and the machine's own journal and
- * checks shape and verdict, never values. A week of the earlyoom journal is
- * read through lib/earlyoom-kills.js's readIncidents, the kernel log through
- * check-kernel-stall.js, each case checking the text the reader was served,
- * and the kernel log's tail in `-o cat`, the output the boot unit's
- * ExecStopPost= logs in.
- * Loosened, every incident-filer and kernel-stall test stays green on the fake
- * while production reads nothing from what a new earlyoom or journalctl
- * prints.
- *
- * The real side runs wherever journalctl does, never in CI (§G7 item 2); there
- * a case that needs journal data skips where its reader's journal holds none.
- *
- * Case 1 is the only net for a drifted mem avail reading that no kill follows.
- *
- * Red on the real side after an earlyoom upgrade: `journalctl -u earlyoom -o
- * short-iso | tail`, then fix earlyoom-kills.js's regex, the fake's builder,
- * or IGNORED below for a line the reader has no use for.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -42,12 +21,8 @@ const { READ_TIMEOUT_MS, readBoots } = require("./journalctl.js");
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 const MIN = 60 * 1000;
-/** An hour ago, to the second, so the fake's journal falls in the window. */
 const T0 = Math.floor((Date.now() - 60 * MIN) / 1000) * 1000;
-/**
- * How far back each side reads: a whole read outruns earlyoom-kills.js's 5 s
- * read timeout under load.
- */
+// guess, #3105
 const WINDOW_MS = 7 * 24 * 60 * MIN;
 
 const FAKE_JOURNAL = [
@@ -64,7 +39,6 @@ const FAKE_KERNEL = [buildKernelLine(T0, "Booting Linux on physical CPU 0x0")];
 const SIGNAL = /^sending SIG\w+ to process (\d+) /;
 const READING = /^mem avail:\s*(\d+)\D.*swap free:\s*(\d+)/;
 const BANNER = /^sending SIG\w+ when mem/;
-/** The lines earlyoom prints that the reader has no use for. */
 const IGNORED = [
 	/^earlyoom v/,
 	/^mem total: /,
@@ -76,15 +50,11 @@ const IGNORED = [
 	/^kill failed: /,
 	/^memory situation has recovered/,
 ];
-/** `<stamp> <host> <ident>: `, the ident mostly `kernel`. */
 const KERNEL = /^\S+ \S+ [^\s:]+: /;
-/** The ident buildKernelLine writes. */
 const KERNEL_IDENT = /^\S+ \S+ kernel: /;
 
-/** earlyoom's own words: the line less its stamp, host and `earlyoom[pid]: `. */
 const message = (line: string) => line.match(/ earlyoom\[\d+\]: (.*)$/)?.[1];
 
-/** A message's shape: its numbers, names and signals blanked. */
 const shape = (msg: string) =>
 	msg
 		.replace(/"[^"]*"/g, '"X"')
@@ -104,26 +74,17 @@ interface Kill {
 }
 interface Side {
 	real: boolean;
-	/** The journal lines readIncidents read, and the kills it read from them. */
 	lines: string[];
 	kills: Kill[];
-	/** What a read with nothing to serve printed. */
 	empty: string;
-	/** check-kernel-stall.js's --json outcome, and the `-k` lines it read. */
 	kernel: { outcome: string; lines: string[] };
-	/** readBoots' reading of `--list-boots -o json`. */
 	boots: { boots: FakeBoot[]; why: string | null };
-	/** The kernel log's last lines in `-o short-iso`, then in `-o cat`. */
 	tail: { short: string[]; cat: string[] };
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "journalctl-contract-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/**
- * A journalctl in `dir` that runs `bin` and keeps each journal read's stdout,
- * and not a `--list-boots` one's. Its path, and a reader of the reads it kept.
- */
 function tap(name: string, bin: string) {
 	const at = path.join(dir, name);
 	const reads = `${at}.reads`;
@@ -174,17 +135,13 @@ function readKernel(bin: string, name: string): Side["kernel"] {
 	};
 }
 
-/* Lines enough to hold a multi-line message and its neighbours. */
+// guess, #4594
 const TAIL_LINES = "5";
 
-/** `-o short-iso` lines as `-o cat` prints them; a multi-line message's later
- * lines lose the indent short-iso gives them and cat does not. */
 const asCat = (short: string[]) =>
 	unindented(short.map((l) => l.replace(KERNEL, "")));
 const unindented = (lines: string[]) => lines.map((l) => l.trimStart());
 
-/** The two reads are a pair unless the kernel logged between them, so a
- * mismatched pair is read once more. */
 function readTail(bin: string): Side["tail"] {
 	const read = (output: string) =>
 		lineList(
@@ -201,10 +158,6 @@ function readTail(bin: string): Side["tail"] {
 		: pair();
 }
 
-/**
- * One side, its earlyoom journal read through `bin` and its kernel log through
- * `kernelBin`; `why` where readIncidents could not read.
- */
 function readSide(
 	name: string,
 	bin: string,
@@ -212,12 +165,9 @@ function readSide(
 ): { side?: Side; why?: string } {
 	const t = tap(name, bin);
 	vi.stubEnv("WFC_JOURNALCTL", t.at);
-	/* The headless run store is not this contract's: an empty one. */
 	vi.stubEnv("WFC_REFILL_DIR", path.join(dir, "refill"));
 	const { incidents, why } = readIncidents(Date.now() - WINDOW_MS);
 	if (why !== null) return { why };
-	/* readIncidents widens its read until it holds every incident whole:
-	 * its last read is the one its kills came from. */
 	const lines = lineList(t.last());
 	readIncidents(Date.now() + 24 * 60 * MIN);
 	return {
@@ -233,7 +183,6 @@ function readSide(
 	};
 }
 
-/** The journal line a kill's first signal was read from; -1 where none. */
 function lineOf(lines: string[], k: Kill): number {
 	return lines.findIndex(
 		(l) =>
@@ -250,10 +199,6 @@ const earlyoomLineCount = (lines: string[]) =>
 
 type Skip = (note?: string) => never;
 
-/**
- * A case has `what` to check: the fake must serve it; a real journal may lack
- * it, rotated away or never logged, and the case skips.
- */
 function holds(side: Side, n: number, what: string, skip: Skip) {
 	if (!side.real) expect(n, what).toBeGreaterThan(0);
 	else if (n === 0) skip(`this journal holds no ${what}`);
@@ -275,8 +220,6 @@ const CASES: Case[] = [
 				buildEarlyoomReadingLine(T0),
 				buildEarlyoomBannerLine(T0),
 			].map((l) => shape(message(l) ?? ""));
-			/* Since earlyoom last started: the journal's past holds what older
-			 * versions printed. */
 			const start = lines.findLastIndex((l) =>
 				/^earlyoom v/.test(message(l) ?? ""),
 			);
@@ -355,10 +298,7 @@ const CASES: Case[] = [
 		name: "the kernel log reads in check-kernel-stall.js, in buildKernelLine's shape",
 		check(side: Side, skip: Skip) {
 			const { kernel } = side;
-			/* A message's later lines come indented under its first. */
 			const stamped = kernel.lines.filter((l) => !/^\s/.test(l));
-			/* Gated on the tail's read, not the reader's: a broken `-k` read
-			 * fails here rather than skipping. */
 			holds(side, side.tail.short.length, "kernel line", skip);
 			expect(kernel.outcome).not.toBe("SKIP");
 			expect(stamped.some((l) => KERNEL_IDENT.test(l))).toBe(true);
@@ -414,9 +354,6 @@ describe.each(CASES)("$name", (c) => {
 		c.check(fake as Side, skip);
 	});
 
-	/* The first runs every real read, each under its reader's 5 s timeout:
-	 * readIncidents' week, its empty read, the kernel log, the boot list and
-	 * the tail's two reads. */
 	it("on the real journal", ({ skip }) => {
 		real ??= readReal();
 		if (!real.side) return skip(real.skip);

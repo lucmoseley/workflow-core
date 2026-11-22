@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/dispatch-gates.js, dispatch-sessions.js's seat, overflow-key,
- * launch-auth and burn-mode gates in one node start (#4321). Driven through
- * its CLI against a `claude` stub answering `auth status`.
- *
- * Loosen one and a mistyped overflow line launches as a plan seat, an overflow
- * launch runs on no key, or a launch bills other than its seat (#2605, #3701,
- * #2236).
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -38,10 +29,6 @@ const file = () => path.join(home, ".claude", "refill-seats");
 const seats = (text: string) => fs.writeFileSync(file(), text);
 const marker = () => path.join(home, "burn-mode");
 const seat = () => path.join(home, ".claude2");
-/**
- * A bare environment: none of the parent's auth or burn marker leaks in. The
- * config dir is the seat's, as dispatch-sessions.js reads its seat from it.
- */
 const gates = (identity: string[], extra: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, ["--", ...identity], {
 		env: {
@@ -219,8 +206,6 @@ describe("burn mode", () => {
 	});
 
 	it("reads off, warning, where the marker's path will not resolve", () => {
-		// A relative HOME: burn-mode.js refuses it, while the seat read still
-		// resolves under the case's cwd, the temp home, never the machine's own.
 		const r = gates([homeClaude()], {
 			WFC_BURN_MARKER: "",
 			HOME: "not-absolute",

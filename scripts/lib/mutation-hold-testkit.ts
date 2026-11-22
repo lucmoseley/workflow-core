@@ -1,13 +1,3 @@
-/*
- * mutation-hold-testkit.ts — the fixture both mutation-hold-gate suites stand
- * on (#1906, #4943): a seeded repo whose pre-commit hook is the live hook's own
- * stamp read, line ending its early gates, test gate and mutation-hold block,
- * with a stub lint gate above that line, against a stub Stryker named by
- * WFC_STRYKER. The report shape is the one #1901 recorded from Stryker 10.0.0.
- *
- * Break it and both suites fail at once, or pass blind against a hook that is
- * not the live one.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -46,10 +36,6 @@ export const SEED = [
 	"",
 ].join("\n");
 
-/**
- * What the hold reads of Stryker: `run <config>`, a red initial run's line and
- * exit 1, a JSON report at the config's path.
- */
 const STUB = `const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -133,7 +119,6 @@ export const write = (rel: string, text: string, root = repo) => {
 	fs.writeFileSync(path.join(root, rel), text);
 };
 
-/** A commit as commit-paths makes one; with no paths, the index as staged. */
 export const commitArgs = (paths: string[]) => [
 	"-c",
 	`core.hooksPath=${hooks}`,
@@ -160,14 +145,8 @@ const TOOLS = [
 	"@stryker-mutator/vitest-runner",
 	"vitest",
 ];
-/** The Stryker version the hold verifies against, and its install line. */
 export const STRYKER_AT = "10.1.1";
 export const INSTALL = `npm install --save-dev @stryker-mutator/core@${STRYKER_AT} @stryker-mutator/vitest-runner@${STRYKER_AT}`;
-/**
- * Install each named package, empty, in `root`'s node_modules, a Stryker one at
- * `version`; with Stryker's core, its instrumenter beside it, whose Babel core
- * is the core's own.
- */
 export const install = (names: string[], root = repo, version = STRYKER_AT) => {
 	for (const n of names)
 		write(
@@ -185,12 +164,10 @@ export const install = (names: string[], root = repo, version = STRYKER_AT) => {
 	);
 	const babel = path.join(root, "node_modules/@babel/core");
 	fs.mkdirSync(path.dirname(babel), { recursive: true });
-	// Reinstalling over a fixture's own install re-links it.
 	fs.rmSync(babel, { force: true });
 	fs.symlinkSync(path.join(ROOT, "node_modules/@babel/core"), babel);
 };
 
-/** A linked worktree on a branch of its own, holding the line-2 change. */
 export const linkedTree = (name: string) => {
 	const dir = path.join(scratch, name);
 	git("worktree", "add", "-q", "-b", name, dir);
@@ -199,13 +176,11 @@ export const linkedTree = (name: string) => {
 	return dir;
 };
 
-/** Land a host Stryker config, unheld, as the base the next commit runs on. */
 export const landHostConfig = () => {
 	git("add", "-A");
 	git("commit", "-qm", "host config");
 };
 
-/** The fixture's hook, carrying the live test gate where `testGate`, which prints a line on every commit declaring no test. */
 export const writeHook = ({ testGate = false } = {}) =>
 	fs.writeFileSync(
 		path.join(hooks, "pre-commit"),
@@ -225,12 +200,10 @@ export const writeHook = ({ testGate = false } = {}) =>
 
 export const commitCount = () => Number(git("rev-list", "--count", "HEAD"));
 
-/** Every fail-open record the gate logged, check-guard-errors.js's input. */
 export const readLog = () => readGuardErrorsLog(scratch);
 
 export const STUB_GIT_REFUSAL =
 	'echo "fatal: stub git will not answer" >&2; exit 128';
-/** A git call holding `words` in a row fails; every other call runs. */
 export const gitRefuses = (
 	words = ["diff", "--cached", "--name-only", "--no-renames", "-z"],
 ) => ({
@@ -274,7 +247,6 @@ export const readRuns = (): Runs[] => {
 interface Mutant {
 	line: number;
 	status: string;
-	/** null leaves the start column out. */
 	col?: number | null;
 	endCol?: number;
 	endLine?: number;
@@ -283,7 +255,6 @@ interface Mutant {
 	static?: boolean;
 	testsCompleted?: number;
 }
-/** `source` is the report's source text, true for the file's own, false for none. */
 export const report = (
 	mutants: Mutant[],
 	{ source = true as boolean | string, file = MONEY } = {},
@@ -323,13 +294,11 @@ export const report = (
 	);
 };
 
-/** The rule the refusal appends, read as the gate reads it. */
 export const RULE = fs.readFileSync(
 	path.join(ROOT, "docs/agents/rules/mutation-hold.txt"),
 	"utf8",
 );
 
-/** Every refusal ends on the whole rule and the closing line (#2077). */
 export const expectRuleAppended = (r: ReturnType<typeof commit>) => {
 	expect(r.stderr).toContain(
 		`${RULE.trim()}\n\npre-commit: the mutation hold refused this commit (rule:mutation-hold). Nothing was committed.`,
@@ -349,7 +318,6 @@ export const expectHeld = (r: ReturnType<typeof commit>) => {
 	expect(commitCount()).toBe(1);
 };
 
-/** Points the fixture's paths at the tree under `root`. */
 const placeAt = (root: string) => {
 	scratch = root;
 	repo = path.join(root, "repo");
@@ -357,7 +325,6 @@ const placeAt = (root: string) => {
 	stubDir = path.join(root, "stub");
 };
 
-/* The seeded repo, hook and stub, built once and copied per case. */
 const fixture = defineTemplate((root) => {
 	placeAt(root);
 	fs.mkdirSync(repo);
@@ -393,7 +360,6 @@ const fixture = defineTemplate((root) => {
 	writeHook();
 });
 
-/** Register the beforeEach/afterEach that copy the template per case and remove it. */
 export const mutationHoldFixture = () => {
 	beforeEach(() => {
 		const root = mkScratchDir("mutation-hold-gate-");

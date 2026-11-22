@@ -1,25 +1,9 @@
-/*
- * load-failure-stop.js — a Stop guard whose own libs will not load blocks the
- * stop once a turn instead of failing open (#2645). A top-level `require` that
- * throws leaves every check unrun, and the registration's `|| true` swallows
- * the crash; so the guard arms this first, before any other `require`, and
- * disarms it once loaded. Node builtins alone: any other lib may be the one
- * missing, lib/read-fd.js and what it loads included, so `fs.readFileSync(0)`
- * stays here where every other program reads through `readFdAll`.
- *
- * It reads stdin itself, the one Stop-guard read outside lib/stop-guard.js,
- * because that lib may be what failed. The re-stop, whose payload carries
- * `stop_hook_active`, passes, so a broken install costs a round a turn; a
- * payload it cannot read allows.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
 /**
- * Arm the block while the guard loads.
- * @param {string} checks what the guard's checks are, for the reason
- * @returns {() => void} disarm, called once every `require` has returned
+ * @param {string} checks
+ * @returns {() => void}
  */
 function armLoadFailureStop(checks) {
 	/** @param {unknown} e */

@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The structured marker mantahostels#689's option (C) turns on: a dispatch prompt is
- * compliant iff it carries a literal `Artefact: <path>` line.
- *
- * Why a literal rather than a free-text detector: mantahostels#689 measured a
- * path-plus-write-verb detector at ~14% precision on its ALLOW side and a bare
- * path-token detector firing on 96.3% of prompts. Presence of a literal is a
- * structured fact, so it can be denied on (mantahostels#103's house rule); an inference
- * cannot. Every case below is therefore about the SHAPE of the line, never
- * about whether the prompt means to write anything.
- *
- * lib/dispatch-rewrite.js, a core guard-dispatch.js runs on `Agent` and
- * `Task`, supplies the line where this says it is missing
- * (#515). A loosened case lets a placeholder or mid-sentence mention pass as
- * the marker, so a dispatch goes out with no artefact to watch and a stalled
- * agent goes unseen.
- */
 import { describe, expect, it } from "vitest";
 import {
 	artefactFile,
@@ -25,19 +8,15 @@ import {
 
 const FILE = "/repo/.claude/tmp/agents/do-a-thing-0badf00d.md";
 const watch = (f: string, job = false) => `watch ${f}${job ? " --job" : ""}`;
-/** The reading instruction #1789 added. */
 const READ_LINE =
 	"Save a long fetched or local source to disk and search it, rather than reading it whole into your context.";
-/** The instructions the supplied line carries beneath it. */
 const ARTEFACT_INSTRUCTIONS = `Append your findings to that file as each one lands; never hold them back for the final report.\n${READ_LINE}`;
 
-/** The prompt an Agent call carrying `prompt` is sent with: null where it is left as written. */
 const given = (prompt: string) =>
 	(injectArtefact({ prompt }, FILE, watch)?.input.prompt as
 		| string
 		| undefined) ?? null;
 
-/** True where the prompt already carries a usable marker, so nothing is supplied. */
 const kept = (prompt: string) => given(prompt) === null;
 
 describe("a usable marker — the shapes that comply", () => {
@@ -74,11 +53,6 @@ describe("a usable marker — the shapes that comply", () => {
 		expect(kept("    Artefact: docs/a.md")).toBe(true);
 	});
 
-	/*
-	 * Spelling is not the thing being enforced. Denying `Artifact:` would refuse
-	 * a dispatch that did exactly what the rule asks, over an s/z-class
-	 * difference, so both spellings and either case pass.
-	 */
 	it("accepts the US spelling and any case", () => {
 		expect(kept("Artifact: docs/a.md")).toBe(true);
 		expect(kept("artefact: docs/a.md")).toBe(true);
@@ -99,11 +73,6 @@ describe("a usable marker — the shapes that do not", () => {
 		expect(kept("Review the diff at docs/a.md and report back.")).toBe(false);
 	});
 
-	/*
-	 * The anchor is the whole point. Without it the marker would fire on prose
-	 * that merely contains the word, which is the 96.3%-of-prompts failure mantahostels#689
-	 * measured on a bare path-token detector.
-	 */
 	it("refuses the word mid-sentence", () => {
 		expect(kept("Write the Artefact: docs/a.md when done")).toBe(false);
 	});
@@ -113,8 +82,6 @@ describe("a usable marker — the shapes that do not", () => {
 		expect(kept("Artefact:   ")).toBe(false);
 	});
 
-	/* An unfilled template is the likeliest way to satisfy the letter and not
-	 * the rule, so the placeholders the deny message itself prints are refused. */
 	it("refuses an unfilled placeholder", () => {
 		expect(kept("Artefact: <path>")).toBe(false);
 		expect(kept("Artefact: <artefact>")).toBe(false);
@@ -135,9 +102,6 @@ describe("the marker's value", () => {
 		expect(kept("**Artefact:** docs/a.md")).toBe(true);
 	});
 
-	/* Trailing prose after the path is common — "…/a.md, appended as you go" —
-	 * and the guard only needs the marker to be present, so the value is taken
-	 * up to the first comma or the end of the line. */
 	it("is the path up to a trailing clause", () => {
 		expect(kept("Artefact: /tmp/a.md, appended as you go")).toBe(true);
 	});
@@ -173,16 +137,12 @@ describe("the prompt given a line", () => {
 		);
 	});
 
-	// An empty marker may head a list; filling it would split the heading from
-	// its items.
 	it("appends rather than fill an empty marker", () => {
 		const out = given("Artefacts:\n- a.md\n- b.md");
 		expect(out?.startsWith("Artefacts:\n- a.md\n- b.md\n")).toBe(true);
 		expect(out).toContain(`\nArtefact: ${FILE}\n${ARTEFACT_INSTRUCTIONS}\n`);
 	});
 
-	// A marker whose value is prose may head a list of inputs; rewriting it
-	// would destroy what the prompt says there.
 	it("appends rather than overwrite a marker whose value is prose", () => {
 		const out = given("Artifacts: the three files below\n- a");
 		expect(out?.startsWith("Artifacts: the three files below\n- a\n")).toBe(
@@ -202,7 +162,6 @@ describe("the reading instruction (#1789)", () => {
 		expect(count(given(prompt))).toBe(1);
 	});
 
-	// Out of scope at #1789: the sentence goes only where the artefact line does.
 	it("adds nothing to a prompt whose marker is already usable", () => {
 		expect(given("Read the chapters.\nArtefact: .claude/tmp/x.md")).toBeNull();
 	});

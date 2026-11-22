@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/git-read-memo.js through lib/git.js's spawns: a read run once a memo, and
- * a replay answering each route as its own spawn would have (#4127). Break this
- * and a guard judges a call on a stale or misshapen git answer, or a host's
- * failure outcome changes under it.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,9 +20,7 @@ const {
 const { withGitReadMemo, withoutGitReadMemo } =
 	require("./git-read-memo.js") as typeof import("./git-read-memo.js");
 
-/* Crossed for real: only a real process timeout shows a kept timeout replayed.
- * The two waits are short and ordered, one shorter than the other; the hang far
- * outlives both; the case's limit allows for a loaded machine. */
+// guess, #4127
 const SHORT_WAIT_MS = 50;
 const LONGER_WAIT_MS = 100;
 const HANG_S = 30;
@@ -228,7 +220,6 @@ describe("one memo's reads", () => {
 });
 
 describe("a replay answers as the caller's own spawn would", () => {
-	/* Each read twice in one memo, the second the replay, against no memo. */
 	const both = <T>(read: () => T) => {
 		const plain = read();
 		const [first, replay] = withGitReadMemo(() => [read(), read()]);

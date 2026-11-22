@@ -1,65 +1,17 @@
-/*
- * qualify-citations.js — a core text's bare `#N` spelled `workflow-core#N`
- * (#396), since in an adopter the same number is an unrelated issue of its own
- * tracker. Two callers: the release build (plugin-tree.js), over every shipped
- * `.md`, the comment lines of a shipped `.js`, `.ts`, `.sh`, `.py` or extensionless
- * `.husky/` hook, a `.py` file's triple-quoted lines (#427), and the bracketed
- * citations on those files' code lines (`.py` excepted, #435); and the
- * rule-text reader, over a core fragment it emits outside the core (#416). The
- * core's own tree stays bare.
- *
- * A CODE LINE'S `#N` IS QUALIFIED ONLY INSIDE A `( … )` CLOSING ON THE SAME
- * LINE (#431 ruling (A)): printed deny text cites that way, and an
- * illustrative example like `#22 (gloss)` is left true. A `(` glued to a word,
- * `$` or `=` opens a call, subshell or array, never prose, so it brackets
- * nothing. Every other `#N` on a code line ships bare, so
- * unbracketedCodeCitations() lists them for the release build to refuse. A
- * line whose previous line is a comment naming BARE_CITATION_OK is neither
- * rewritten nor refused.
- *
- * Left alone on a comment line or in `.md`: a fenced block (`.md` alone), a
- * `#N` inside a backtick or double-quoted span (a backtick span runs on to the
- * next line, up to a blank one; single quotes are apostrophes too often to
- * count; a `"""`, in any file, opens none, being a `.py` docstring's
- * (#427)). Everywhere: one glued to a word, `$`, `{`, `&` or `#`
- * (`mantahostels#N`, `${#1}`), and one above CITATION_CEILING.
- * Residual: a bracket closing on a later line leaves its `#N` bare (the safe
- * way to fail, never a wrong rewrite); a bracketed `#N` that is data rather
- * than text (a `gh --search "(#14)"`) is rewritten too; a JS code line opening
- * with `*` is read as a comment. In `.py`, every triple-quoted string counts,
- * docstring or not, and so does code sharing a line with one; a triple quote
- * inside a single-quoted string or after a trailing `#` flips the state, so the
- * lines up to the next triple quote are read the other way round.
- *
- * Run as a CLI it qualifies stdin as prose — rule-text.sh's route, so the bash
- * twin needs no port of the span rules.
- */
-
 const { requiredGroup } = require("./regex-group.js");
 
 const JS_COMMENT_LINE = /^\s*(\/\/|\/?\*)/;
 const JS_TS_FILE = /\.[cm]?[jt]sx?$/;
 const HASH_COMMENT_LINE = /^\s*#/;
 const BARE_CITATION = /(?<![\w$&{#])#(\d+)(?!\w)/g;
-/**
- * BARE_CITATION of `#n` alone, spelt as git's ERE for `git log -E --grep`, so
- * `mantahostels#n` is another tracker's.
- * @param {number} n
- */
+/** @param {number} n */
 const bareCitationGrep = (n) => `(^|[^[:alnum:]_$&{#])#${n}([^[:alnum:]_]|$)`;
 const QUOTE_OPEN = /"""|[`"“]/g;
 const TRIPLE_QUOTE = /"""|'''/g;
 const FENCE = /^\s*(```|~~~)/;
 const HUSKY_HOOK = /^\.husky\/[^/.]+$/;
 const BARE_CITATION_OK = "bare-citation-ok";
-/*
- * No core issue is numbered above this, so a higher `#N` is another tracker's
- * (`claude-code #82259`) or no citation at all. citation-tracker.js's
- * BAND_MAX is this same number, imported. 10000 (#5356): the tracker went
- * from #728 on 29 Sep to #5360 on 17 Nov 2026 — ~95 issues a day — so this is
- * about seven weeks of headroom; check-citation-ceiling.js's MARGIN covers
- * a faster week.
- */
+// measured ~95 issues a day, #5356
 const CITATION_CEILING = 10_000;
 
 /** @param {string} text */
@@ -71,8 +23,6 @@ const qualifySpan = (text) =>
 const SYNTAX_PAREN_BEFORE = /[\w$=]/;
 
 /**
- * The `[open, close]` index pairs of every prose `( … )` that closes on this
- * line.
  * @param {string} line
  * @returns {[number, number][]}
  */
@@ -93,14 +43,13 @@ function bracketPairs(line) {
 }
 
 /**
- * @param {string} above the line before a code line
+ * @param {string} above
  * @param {(line: string) => boolean} citable
  */
 const excused = (above, citable) =>
 	citable(above) && above.includes(BARE_CITATION_OK);
 
 /**
- * A code line's citations, each marked by whether a same-line bracket holds it.
  * @param {string} line
  * @returns {{index: number, n: string, bracketed: boolean}[]}
  */
@@ -130,22 +79,19 @@ function qualifyCodeLine(line) {
 }
 
 /**
- * The offset just past the double-quoted span `m` opens.
  * @param {string} line
- * @param {RegExpExecArray} m a match of QUOTE_OPEN on a double quote
+ * @param {RegExpExecArray} m
  * @returns {number}
  */
 function quotedEnd(line, m) {
 	const close = line.indexOf(m[0] === "“" ? "”" : '"', m.index + 1);
-	// A double quote left unclosed is prose, never a span.
 	return close < 0 ? m.index + 1 : close + 1;
 }
 
 /**
  * @param {string} line
- * @param {boolean} inSpan whether a backtick span left open on the line
- *   before runs into this one
- * @returns {[string, boolean]} the line, and whether it leaves a span open
+ * @param {boolean} inSpan
+ * @returns {[string, boolean]}
  */
 function qualifyLine(line, inSpan) {
 	let out = "";
@@ -182,8 +128,6 @@ function qualifyLine(line, inSpan) {
 }
 
 /**
- * Which lines of a shipped file carry citations, by extension; null where
- * none are rewritten.
  * @param {string} rel
  * @returns {((line: string) => boolean) | null}
  */
@@ -197,9 +141,6 @@ function buildCitableLineTest(rel) {
 }
 
 /**
- * The indexes of the lines a `.py` triple-quoted string opens, runs through or
- * closes on. A whole-line `#` comment outside one is skipped, so a triple quote
- * in it opens nothing.
  * @param {string[]} lines
  * @returns {Set<number>}
  */
@@ -223,14 +164,14 @@ function parseTripleQuotedLines(lines) {
 
 /**
  * @param {string} rel
- * @returns {boolean} whether the file's code lines carry bracketed citations
+ * @returns {boolean}
  */
 const hasCitableCode = (rel) =>
 	JS_TS_FILE.test(rel) || /\.sh$/.test(rel) || HUSKY_HOOK.test(rel);
 
 /**
- * @param {string} body a shipped file's text
- * @param {string} rel its repo-relative path
+ * @param {string} body
+ * @param {string} rel
  * @returns {string}
  */
 function qualifyCitations(body, rel) {
@@ -250,10 +191,9 @@ function qualifyCitations(body, rel) {
 }
 
 /**
- * Every bare `#N` a code line of a shipped file keeps.
  * @param {string} body
  * @param {string} rel
- * @returns {{line: number, n: string}[]} 1-based line numbers
+ * @returns {{line: number, n: string}[]}
  */
 function unbracketedCodeCitations(body, rel) {
 	const citable = buildCitableLineTest(rel);
@@ -268,7 +208,7 @@ function unbracketedCodeCitations(body, rel) {
 }
 
 /**
- * @param {string} body prose, every line of it citable — a rule fragment
+ * @param {string} body
  * @returns {string}
  */
 function qualifyProse(body) {
@@ -279,9 +219,6 @@ function qualifyProse(body) {
  * @param {string} body
  * @param {(line: string, i: number) => boolean} citable
  * @param {{fences: boolean, code: ((line: string, above: string) => string) | null}} how
- *   `fences`: whether a fence opens a block left alone — prose only, since in
- *   a script it could only ever be a code line; `code`: what a non-citable
- *   line becomes, given the line before it, left as it is without one
  * @returns {string}
  */
 function qualifyLines(body, citable, { fences, code }) {

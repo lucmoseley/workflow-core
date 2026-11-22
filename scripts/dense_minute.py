@@ -1,21 +1,4 @@
 #!/usr/bin/env python3
-"""dense_minute.py — per-minute work rate from every seat's Claude Code transcripts (#3211).
-
-For every tool call in a transcript modified since --since: the minute its
-result landed, its tool name and its round-trip (the result record's timestamp
-less the assistant record's). Per minute it counts:
-
-  calls    tool results
-  active   transcripts with a result in that minute
-  bash     each Bash round-trip, in seconds, each printed as `bash_s` for
-           scripts/throughput-readout.js's median
-  hto      hook-timeout refusals (a blocking hook that timed out)
-  refused  test runs `run-vitest.js` refused at the load ceiling after its
-           5-minute hold
-
-Every repo's transcripts are read, not this repo's alone: the load ceiling is
-the machine's.
-"""
 
 import argparse
 import glob
@@ -35,8 +18,6 @@ LOAD_REFUSAL = "run-vitest: REFUSED — load1 still"
 
 
 def transcripts(since):
-    """Every seat's transcripts, subagents' included, written at or after
-    `since`: one copy per path under its seat's `projects/`, the largest."""
     copies = {}
     seen = set()
     for seat in seats():
@@ -74,8 +55,6 @@ def _text(content):
 
 
 def minutes(files, since, until, tally):
-    """{minute epoch: {calls, active, bash, hto, refused}} over [since, until).
-    Unreadable files and unparsed lines are counted into `tally` (#1274)."""
     out = defaultdict(
         lambda: {"calls": 0, "active": set(), "bash": [], "hto": 0, "refused": 0}
     )
@@ -115,7 +94,9 @@ def median(xs):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(
+        description="Per-minute work rate from every seat's Claude Code transcripts."
+    )
     p.add_argument("--since", type=float, required=True)
     p.add_argument("--until", type=float, default=float("inf"))
     a = p.parse_args(argv)

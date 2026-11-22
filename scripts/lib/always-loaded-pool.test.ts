@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * always-loaded-pool.js's membership (#33): the host's declared `alwaysLoaded`,
- * else the adopter default. Run as the script .husky/pre-commit runs, in a host
- * with the suite's WFC_ALWAYS_LOADED removed, so the config is what is read.
- *
- * .husky/pre-commit triggers the context-budget check on that list: loosen a
- * case here and an adopter's always-loaded file — its own output style, say —
- * grows past the byte cap uncounted and unwarned.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

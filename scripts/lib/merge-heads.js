@@ -1,22 +1,10 @@
-/*
- * merge-heads.js — the commits an unfinished merge is bringing in, read from
- * `$GIT_DIR/MERGE_HEAD` or, before git writes it, the GITHEAD_<sha> exports,
- * and handed by a commit gate to the tree its suite runs in (#5334). Apart
- * from git.js so that a change here re-anchors only the guards that read a
- * merge's sides (#4529).
- */
-
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { execGit } = require("./git.js");
 const { brokenError } = require("./outcome-error.js");
 
 /**
- * The non-empty lines of `$GIT_DIR/MERGE_HEAD`, one per side, none where the
- * file is absent. BROKEN where git will not locate the file or it will not
- * read: only ENOENT is absence, so no failed read quietly becomes HEAD alone
- * (#3184).
- * @param {string} [cwd] the checkout, the process's own where omitted
+ * @param {string} [cwd]
  * @returns {string[]}
  */
 function readMergeHeadLines(cwd) {
@@ -56,13 +44,10 @@ function readMergeHeadLines(cwd) {
 		.filter(Boolean);
 }
 
-/* git exports one per merged head to the hooks a `git merge` runs (its
- * conflict-marker labels), before MERGE_HEAD exists. */
 const SHA_HEX = "[0-9a-f]{40}|[0-9a-f]{64}";
 const GITHEAD_ENV = new RegExp(`^GITHEAD_(${SHA_HEX})$`);
 
 /**
- * The shas `env`'s GITHEAD_<sha> names, as a hook `git merge` runs sees them.
  * @param {NodeJS.ProcessEnv} env
  * @returns {string[]}
  */
@@ -74,9 +59,6 @@ function githeadShas(env) {
 }
 
 /**
- * The commits a merge in flight brings in: MERGE_HEAD's lines, or, in a hook
- * `git merge` runs before writing that file, its GITHEAD_<sha> exports. None
- * where no merge is in flight. BROKEN as `readMergeHeadLines` is.
  * @param {string} [cwd]
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string[]}
@@ -86,14 +68,7 @@ function readMergingHeads(cwd, env = process.env) {
 	return lines.length > 0 ? lines : githeadShas(env);
 }
 
-/*
- * The merge parents a commit gate hands the tree its suite runs in, a
- * throwaway or overlay worktree with no MERGE_HEAD of its own: space-separated
- * shas, empty where the committing checkout has no merge in flight,
- * `UNREAD_PREFIX` and why where its merge state would not read (#5334). An
- * environment variable, not a MERGE_HEAD written into that worktree, which
- * would put every merge-aware guard in play there.
- */
+// #5334
 const MERGE_PARENTS_ENV = "WFC_MERGE_PARENTS";
 
 const UNREAD_PREFIX = "unread: ";
@@ -101,10 +76,6 @@ const UNREAD_PREFIX = "unread: ";
 const SHA = new RegExp(`^(?:${SHA_HEX})$`);
 
 /**
- * `env` with the merge parents of the checkout at `cwd` handed off, or why
- * they would not read, so the child reports that rather than reading its
- * own worktree's lack of a merge as none (#5334). One already handed in
- * `env` is kept: `cwd` is then a worktree the gate built, which has none.
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
  * @returns {NodeJS.ProcessEnv}
@@ -121,10 +92,6 @@ function withMergeParents(cwd, env) {
 }
 
 /**
- * The merge parents a commit made at `cwd` has besides HEAD: those a gate
- * handed off in `env`, else `readMergingHeads`'s. BROKEN as that is, where
- * the gate handed off why they would not read, and where a handed-off value
- * is no list of shas.
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string[]}

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/landing-status.js end to end (#2407), on a fixture remote.
- *
- * Loosen it and a session reports a queued commit as landed, a commit on its
- * own queue ref as unpushed, or claims a state off refs it never fetched.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -51,7 +45,6 @@ const runStatus = (args = ["--session", SESSION], cwd = work) =>
 		},
 	});
 
-/** A canned queue log of `[minutes before NOW, event, queue name, sha]`. */
 const queueLog = (...rows: [number, string, string, string][]) => {
 	const dir = path.join(work, ".claude", "tmp", "markers");
 	fs.mkdirSync(dir, { recursive: true });
@@ -72,7 +65,6 @@ const queueLog = (...rows: [number, string, string, string][]) => {
 
 const markers = () => path.join(work, ".claude", "tmp", "markers");
 
-/** A session worktree `queue/<name>` names, cut off HEAD a day before NOW. */
 const worktree = (name: string) => {
 	const tree = path.join(work, ".claude", "worktrees", name);
 	git(work, "worktree", "add", "-q", "--detach", tree);
@@ -110,7 +102,6 @@ it("reads a landed, a queued and an unpushed commit, after fetching", () => {
 	const queued = commit("queued");
 	const unpushed = commit("unpushed");
 	git(work, "push", "-q", "origin", `${queued}:refs/heads/queue/s`);
-	/* Local tracking ref stale: only a fetch shows the push above. */
 	git(work, "update-ref", "refs/remotes/origin/queue/s", landed);
 	ledger(landed, queued, unpushed);
 
@@ -128,7 +119,6 @@ it("reads a commit as landed once the lander deleted its landed queue ref, the f
 	const tree = worktree("s");
 	const landed = commit("landed");
 	git(work, "push", "-q", "origin", "HEAD:main");
-	/* The tracking ref of a queue ref the lander has since deleted. */
 	git(work, "update-ref", "refs/remotes/origin/queue/s", landed);
 	const unpushed = commit("unpushed");
 	ledger(landed, unpushed);

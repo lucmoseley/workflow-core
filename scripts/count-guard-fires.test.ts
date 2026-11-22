@@ -1,38 +1,4 @@
 // @vitest-environment node
-/*
- * Five guarantees, all about the registry rather than the counting (which is
- * scripts/lib/guard-fires.test.ts's):
- *
- *  1. THE GUARD SET COMES FROM THE CORE'S REGISTRATION, NOT A HAND-LIST. A hook
- *     added there with no needle entry must fail here, or it arrives uncounted
- *     and reads as a guard that never fires — which under route (e) is the
- *     licence to shed its prose.
- *
- *  2. EVERY NEEDLE IS STILL SOMETHING THE REPO PRINTS. A guard reworded without
- *     its needle following is a guard this report silently zeroes.
- *
- *  3. EVERY RULE A GUARD INJECTS HAS A NEEDLE OF ITS OWN, carrying kind
- *     "inject" (mantahostels#2118, mantahostels#2136).
- *
- *  4. EVERY NEEDLE'S kind IS ONE OF THE DEFINED VALUES (mantahostels#2136).
- *
- *  5. EVERY guard-dispatch.js NEEDLE NAMES ITS guard-cores.json ROW in
- *     `core`, and no other guard's needle carries one. Without it every core's
- *     deny scores as the dispatcher's, and the breach score's jobDir family
- *     reads zero (#2943).
- *
- * The registry cases read the core's live registration, through
- * `lib/core-hooks.js` (the self-plugin's file and the settings' canary), and
- * `scripts/guard-fire-needles.json`, since drift between the two is the
- * subject. The CLI block runs the script in process over a temp transcript
- * corpus, and also pins that an unreadable corpus is said out loud rather than
- * counted as zero.
- *
- * The script is run by hand to decide a route-(e) shed (`docs/doc-map.md`
- * §Capture and placement, mantahostels#1246): a miscount sheds a rule's
- * always-loaded text to a guard that does not print it, or keeps text a guard
- * already does.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -46,6 +12,8 @@ const {
 	registryDrift,
 } = require("./lib/guard-fires.js");
 const { readRunningHooks } = require("./lib/core-hooks.js");
+// code-edges loads: ../self-plugin/hooks/hooks.json
+// code-edges loads: ../hooks/hooks.json
 const { rows, scan, parseSince } = require("./count-guard-fires.js");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -55,18 +23,12 @@ const needles = JSON.parse(
 		"utf8",
 	),
 );
-/* readRunningHooks reads "self-plugin/hooks/hooks.json" and ".claude/settings.json". */
 const settings = { hooks: readRunningHooks(ROOT) };
 
 const registeredKeys = [
 	...new Set(registeredGuards(settings).map((r: { key: string }) => r.key)),
 ];
 
-/*
- * The walk itself lives in lib/needle-corpus.js, because
- * the guard-registry-atomicity core judges a commit against this same containment
- * (mantahostels#2708) and a second copy of the walk would drift from this one.
- */
 const { needleDrift } = require("./lib/needle-corpus.js");
 const { readManifest } = require("./lib/guard-cores.js");
 const {
@@ -137,10 +99,6 @@ describe("the guard set is derived from the core's registration", () => {
 	});
 });
 
-/**
- * Every id a dispatcher core returns in `injectRules`, under the entry that
- * prints it.
- */
 function readInjectedRuleIds(): [string, string][] {
 	const out: [string, string][] = [];
 	const manifest = readManifest(
@@ -199,9 +157,6 @@ describe("every rule a guard injects has a needle of its own", () => {
 describe("every needle's kind is one of the defined values", () => {
 	const knownKinds = new Set(["deny", "warn", "notice", "block", "inject"]);
 	const all: [string, string, string][] = [];
-	// A guard's needle is not optional here (candidates' are, and stay
-	// unchecked): a real needle silently missing `kind` reads as the same
-	// fault this describe block exists to catch (mantahostels#2136).
 	for (const [key, entry] of Object.entries<{
 		needles?: Array<{ id: string; kind?: string }>;
 	}>(needles.guards))
@@ -217,10 +172,6 @@ describe("every needle's kind is one of the defined values", () => {
 	});
 });
 
-/*
- * `routes` narrows a needle below its subject's own routes. Nothing else checks
- * it, and a value outside {hook, deny} makes the needle match forever nothing.
- */
 describe("a needle's routes", () => {
 	it("names only routes its subject already allows", () => {
 		for (const subject of subjectsFor(needles, settings))
@@ -236,10 +187,6 @@ describe("a needle's routes", () => {
 	});
 });
 
-/*
- * `core` attributes a dispatcher's fire to the core that printed it; a name no
- * guard-cores.json row carries attributes it to nothing.
- */
 describe("a needle's core", () => {
 	it("names a core the dispatcher runs, on every dispatcher needle", () => {
 		const names = new Set(
@@ -266,9 +213,6 @@ describe("a needle's core", () => {
 });
 
 describe("every needle is text this repo still prints", () => {
-	/* Asked as the commit guard asks it, of a commit landing the whole registry
-	 * over an empty one: every needle is then new, so each one the tree does not
-	 * print comes back broken. */
 	it("leaves no needle keyed on text the tree does not print", () => {
 		const registry = path.join("scripts", "guard-fire-needles.json");
 		const { broken, failOpen } = needleDrift({
@@ -281,16 +225,9 @@ describe("every needle is text this repo still prints", () => {
 	});
 });
 
-/*
- * §X3: the CLI is run end to end through `runInProcess`, never by calling
- * `main`. The corpus is a throwaway directory; the needle registry,
- * hooks.json and — outside a case naming its own host — the self-plugin's
- * file are the repo's real ones.
- */
 describe("the CLI, run as a command", () => {
 	const cliPath = path.join(ROOT, "scripts", "count-guard-fires.js");
 
-	/** `host`, where given, stands in for an adopter's checkout. */
 	const run = (args: string[], host?: string) => {
 		const r = runInProcess(cliPath, args, {
 			cwd: host ?? ROOT,
@@ -307,7 +244,6 @@ describe("the CLI, run as a command", () => {
 		fs.rmSync(corpus, { recursive: true, force: true });
 	});
 
-	/** One transcript holding one denied tool call carrying the commit-form guard's deny. */
 	const withCommitDeny = () =>
 		fs.writeFileSync(
 			path.join(corpus, "s1.jsonl"),
@@ -346,7 +282,6 @@ describe("the CLI, run as a command", () => {
 		expect(out).toContain("CORPUS  0 transcripts");
 		expect(out).toContain("FIRED (0)");
 		expect(out).toContain("guard-dispatch.js");
-		// The caveat travels with the zeroes, never as a separate document.
 		expect(out).toContain("may be a guard working by deterrence");
 	});
 
@@ -381,10 +316,6 @@ describe("the CLI, run as a command", () => {
 		expect(out).toContain("self-plugin-not-loaded 1");
 	});
 
-	/*
-	 * #940: an adopter's settings register almost nothing, its hooks coming
-	 * from the plugin's `hooks/hooks.json` at the plugin root.
-	 */
 	describe("in an adopter whose hooks come from the plugin", () => {
 		let host: string;
 		beforeEach(() => {
@@ -427,7 +358,6 @@ describe("the CLI, run as a command", () => {
 			);
 		});
 
-		/* #1267: a guard the host registers itself is keyed in the host's own file. */
 		describe("with a needles file of its own", () => {
 			const hostNeedles = () =>
 				path.join(host, ".claude", "guard-fire-needles.json");
@@ -547,10 +477,6 @@ describe("the CLI, run as a command", () => {
 		});
 	});
 
-	/*
-	 * mantahostels#2118: the guard-branch core's two limbs, in one transcript. Both
-	 * needles sit under the one guard key, guard-dispatch.js.
-	 */
 	const withBranchDenyAndInjection = () => {
 		const fragment = "THE SHARED WORKING TREE STAYS ON `main`.";
 		fs.writeFileSync(
@@ -585,8 +511,6 @@ describe("the CLI, run as a command", () => {
 		withBranchDenyAndInjection();
 		const { out } = run(["--dir", corpus]);
 		expect(out).toContain("2026-08-29  guard-dispatch.js");
-		// Each needle carries its own date, so docs/doc-map.md §5's ripeness test
-		// can read a RULE rather than whichever of a guard's rules fired last.
 		expect(out).toContain("branch-move 1 across 1 session(s) (2026-08-07)");
 		expect(out).toContain(
 			"branch-shared-tree 1 across 1 session(s) (2026-08-29)",
@@ -602,12 +526,6 @@ describe("the CLI, run as a command", () => {
 		expect(row).toMatch(/^\s+2\s+1\s+2026-08-29\s+guard-dispatch\.js/);
 	});
 
-	/*
-	 * mantahostels#2137: a second SESSION firing only ONE of the guard-branch core's two needles.
-	 * The subject-level SESSIONS column must stay at "how many sessions fired
-	 * this guard at all" (2), while the byNeedle line's session count answers a
-	 * narrower question per rule.
-	 */
 	it("keys the byNeedle session count by needle, distinct from the guard's own SESSIONS column", () => {
 		withBranchDenyAndInjection();
 		const fragment = "THE SHARED WORKING TREE STAYS ON `main`.";
@@ -675,7 +593,6 @@ describe("the CLI, run as a command", () => {
 	});
 
 	it("counts mentions separately under --mentions, so the ratio is reproducible", () => {
-		// The guard's deny text inside a Bash result: the mention trap, not a fire.
 		fs.writeFileSync(
 			path.join(corpus, "s2.jsonl"),
 			`${JSON.stringify({
@@ -694,11 +611,7 @@ describe("the CLI, run as a command", () => {
 		);
 	});
 
-	/*
-	 * mantahostels#1896: `--since` has to actually window the count, not just parse.
-	 */
 	describe("the --since window", () => {
-		/** One transcript with a commit-form deny at `ts` (or none at all, undated). */
 		const withDenyAt = (name: string, ts: string | null) =>
 			fs.writeFileSync(
 				path.join(corpus, name),
@@ -962,8 +875,6 @@ describe("rows", () => {
 	};
 
 	it("leads with the flagged candidate even when the registry lists it last", () => {
-		// The flag has to do the ordering. C4ii happens to be first in the real
-		// registry, so a broken sort still looks right there.
 		const registry = {
 			guards: {},
 			candidates: {
@@ -979,8 +890,6 @@ describe("rows", () => {
 		expect(candidates.map((c: { id: string }) => c.id)).toEqual(["C4ii", "C1"]);
 	});
 
-	// A hook's `if` holds one permission rule, so a guard narrowed to three is
-	// registered three times (mantahostels#2825).
 	const narrowed = {
 		hooks: {
 			PreToolUse: [
@@ -1009,9 +918,6 @@ describe("rows", () => {
 		]);
 	});
 
-	// The pair shares its narrowing as well as its event: an identical `if` is
-	// the case the dedupe exists for, a differing one already reading as two
-	// distinct rows above.
 	it("collapses two registrations that differ in nothing a reader can see", () => {
 		const twice = {
 			hooks: {

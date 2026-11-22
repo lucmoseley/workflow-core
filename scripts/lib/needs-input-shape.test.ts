@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * needs-input-shape.test.ts — the checklist of every piece a `needs input:`
- * ending owes (#4206), and the once-a-turn claim the two Stop guards share.
- *
- * Run in-process on plain strings. Each case points `WFC_REPO_ROOT` and
- * `CLAUDE_PROJECT_DIR` at a temp directory, so the claim markers land there
- * and never in the shared tree; a lapsed claim is seeded by ageing its file's
- * mtime rather than by waiting out the window.
- *
- * WHAT BREAKING IT COSTS: a session refused at `needs input:` goes back to
- * finding the shape one refusal at a time, a turn and a post per piece, or
- * reads the checklist twice, or neither guard prints it.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";

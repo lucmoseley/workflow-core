@@ -1,23 +1,7 @@
-/*
- * npm-options.js — how npm 11.16.0 reads its command line, one file as all of
- * it is re-measured on one npm version: its option parser, `npmCanon`, against
- * its config list (#563, #571), with the exact-match lookups npx makes instead,
- * `shorthandExact` and `boolExact` (#1972), and the command words its cmd-list
- * derefs, `isNpmRun` and `scriptOfNpmCommand` (#3627, #3851).
- * lib/suite-concurrency.js reads with it whether `npm … run <name>` launches a build or a dev server,
- * lib/script-runners.js which script a command runs, and
- * lib/npm-install.js the install and the npx argv it judges.
- *
- * A config a later npm adds is read as a name npm does not know.
- */
-
 /** @param {string} list */
 const words = (list) => list.trim().split(/\s+/);
 
-/* Every npm config that takes the next word as its value. Derived from npm
- * 11.16.0's `@npmcli/config` definitions — each config whose type lacks
- * Boolean, plus `--browser`, which also takes a String — and the `--no-` form
- * of each whose type is a list holding String, which npm still hands a word. */
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const VALUE_FLAGS = new Set(
 	words(`
 --_auth --access --allow-directory
@@ -47,7 +31,7 @@ const VALUE_FLAGS = new Set(
 `),
 );
 
-/* npm 11.16.0's Boolean configs. */
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const BOOL_FLAGS = new Set(
 	words(`
 --all --allow-same-version --allow-scripts-pending --allow-scripts-pin --audit
@@ -70,26 +54,19 @@ const BOOL_FLAGS = new Set(
 );
 
 /**
- * Whether `flag` is a Boolean config matched whole, as npx matches it
- * (#1972).
  * @param {string} flag
  */
 const boolExact = (flag) => BOOL_FLAGS.has(flag);
 
-/* A `--no-` form read as its config, as npm reads it. */
 const isBool = (/** @type {string} */ flag) =>
 	boolExact(flag.replace(/^--no-/, "--"));
 
-/* Every config name, which an abbreviation resolves against. */
 const CONFIG_LIST = [...VALUE_FLAGS, ...BOOL_FLAGS]
 	.filter((f) => !f.startsWith("--no-"))
 	.map((f) => f.slice(2));
 const CONFIGS = new Set(CONFIG_LIST);
 
-/* npm 11.16.0's String configs, which refuse a next word that looks like an
- * option — `--tag --no-ignore-scripts` leaves the flag an option. Every other
- * value config takes any word but a bare `--`, except `--browser` and the
- * `--no-` forms, which take `--` too but never a single-dash word. */
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const STRING_FLAGS = new Set(
 	words(`
 --call --diff-dst-prefix --diff-src-prefix --editor --git --heading
@@ -100,9 +77,7 @@ const STRING_FLAGS = new Set(
 `),
 );
 
-/* npm 11.16.0's configs whose list type takes `null` but no String, which npm
- * reads as their value after `--no-<config>` and, for the Boolean ones, after
- * `--<config>` too. */
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const NULLABLE = new Set(
 	words(`
 access also audit-level before depth expect-result-count expect-results
@@ -112,13 +87,12 @@ which workspaces yes
 `),
 );
 
-/* npm 11.16.0's configs whose list type takes a Number, read the same way. */
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const NUMERIC = new Set(
 	words("depth expect-result-count expires min-release-age which"),
 );
 
-/* npm 11.16.0's literal list-type values, as <config>:<value>, read the same
- * way. `local-address` lists this machine's interfaces and is left out. */
+// https://github.com/npm/cli/tree/v11.16.0/workspaces/config/lib/definitions
 const LITERALS = new Set(
 	words(`
 access:restricted access:public access:private allow-directory:all
@@ -142,8 +116,7 @@ orgs-permission:read-write orgs-permission:no-access
 `),
 );
 
-/* npm 11.16.0's CLI shorthands and what each expands to (`@npmcli/config`'s
- * definitions). A one-letter key may also be glued into a run, as `-DE`. */
+// https://github.com/npm/cli/blob/v11.16.0/workspaces/config/lib/definitions/index.js
 /** @type {Map<string, string>} */
 const SHORTHANDS = new Map([
 	["enjoy-by", "--before"],
@@ -189,8 +162,6 @@ const SHORTHANDS = new Map([
 ]);
 
 /**
- * The one candidate `key` names: itself where it is one, else the only
- * candidate it prefixes — npm's `abbrev`.
  * @param {string} key
  * @param {Iterable<string>} candidates
  * @returns {string | null}
@@ -204,8 +175,6 @@ function uniquePrefix(key, candidates) {
 }
 
 /**
- * What a dash-stripped `key` expands to where it is itself a shorthand, else
- * null — the only lookup npx makes (#1972).
  * @param {string} key
  * @returns {string[] | null}
  */
@@ -215,9 +184,6 @@ function shorthandExact(key) {
 }
 
 /**
- * What a dash-stripped option `key` expands to where npm reads it as a
- * shorthand — nopt's resolveShort, in its order — else null. An exact config
- * name, and an abbreviation of one, are never shorthands.
  * @param {string} key
  * @returns {string[] | null}
  */
@@ -279,20 +245,13 @@ function takes(kind, flag, next) {
 }
 
 /**
- * npm's argv rewritten as nopt reads it, so a scan sees only full
- * `--<config>` spellings, each value joined to its option by `=`:
- * `-cafile ca.pem` and `--cafi ca.pem` are `--cafile=ca.pem`, `-y null` is
- * `--yes=null`, `-d` is `--loglevel=info` (#563). Words after `--` are
- * untouched.
- * @param {string[]} argv the words after `npm`
+ * @param {string[]} argv
  * @returns {string[]}
  */
 const npmCanon = (argv) =>
 	canonFrom(argv.map((value) => ({ value }))).map(({ value }) => value);
 
 /**
- * `npmCanon`'s words, each with the argv word it was read off: a shorthand's
- * expansion, and a value given after `=`, from the word that held them.
  * @template {{value: string}} W
  * @param {W[]} argv
  * @returns {{value: string, from: W}[]}
@@ -311,15 +270,10 @@ function canonFrom(argv) {
 }
 
 /**
- * One option word read off `args` into `canon`: a shorthand put back on
- * `args` expanded, anything else pushed as its full `--<config>`, taking the
- * next word as its value where npm would.
  * @template W
  * @param {{value: string, from: W}} option
- * @param {{value: string, from: W}[]} args accumulator: the words still to read,
- *   its value word taken off the front
- * @param {{value: string, from: W}[]} canon accumulator: the canonical words, this
- *   option's pushed
+ * @param {{value: string, from: W}[]} args
+ * @param {{value: string, from: W}[]} canon
  */
 function canonOption({ value: word, from }, args, canon) {
 	const eqAt = word.indexOf("=");
@@ -333,8 +287,6 @@ function canonOption({ value: word, from }, args, canon) {
 		return;
 	}
 	const { flag, kind } = optionOf(key, eq);
-	/* nopt reads an `=` word as the next argument, under the same look-ahead:
-	 * `--save-dev=pkg` installs `pkg` (#559). */
 	if (eq) args.unshift(fromThisWord(val));
 	const next = args[0];
 	if (next !== undefined && takes(kind, flag, next.value)) {
@@ -344,10 +296,8 @@ function canonOption({ value: word, from }, args, canon) {
 }
 
 /**
- * A dash-stripped key as npm resolves it: its full flag, and whether it takes
- * a value. Each `no-` flips a Boolean, and any makes a value config one.
  * @param {string} given
- * @param {boolean} eq whether the word carried `=`
+ * @param {boolean} eq
  * @returns {{ flag: string, kind: "value" | "bool" }}
  */
 function optionOf(given, eq) {
@@ -369,10 +319,6 @@ function optionOf(given, eq) {
 }
 
 /**
- * npm's argv as it reads it: its options, as `npmCanon` writes them, and its
- * operands in order, each with the argv word that holds it. A value given after
- * `=` to a flag that takes none (`--silent=foo`) is an operand at the end of its
- * word (#559, #4069).
  * @template {{value: string}} W
  * @param {W[]} argv
  * @returns {{options: string[], operands: {value: string, from: W}[]}}
@@ -394,9 +340,6 @@ function parseNpmArgv(argv) {
 const isOption = ({ value }) => value.startsWith("-");
 
 /**
- * Whether `word` is npm's `run` command as npm 11.16.0's cmd-list derefs it:
- * `run`, its aliases `rum`, `urn` and `run-script`, or an abbreviation of
- * one, a camelCase word read as its kebab-case (#3627).
  * @param {string} word
  */
 function isNpmRun(word) {
@@ -407,8 +350,7 @@ function isNpmRun(word) {
 	);
 }
 
-/* Each word npm 11.16.0's cmd-list derefs to a command that runs the script of
- * its name, measured off its `deref`. */
+// https://github.com/npm/cli/blob/v11.16.0/lib/utils/cmd-list.js
 const SCRIPT_COMMANDS = new Map(
 	Object.entries({
 		t: "test",
@@ -428,14 +370,11 @@ const SCRIPT_COMMANDS = new Map(
 );
 
 /**
- * The script `word`, as npm's command, runs with no `run`, or undefined.
  * @param {string} word
  */
 const scriptOfNpmCommand = (word) => SCRIPT_COMMANDS.get(word);
 
-/* Each word npm 11.16.0's cmd-list derefs to a command that writes the
- * project's `node_modules`, measured off its `deref` over every prefix of
- * every command and alias. `audit` writes only as `audit fix`. */
+// https://github.com/npm/cli/blob/v11.16.0/lib/utils/cmd-list.js
 const TREE_COMMANDS = new Map(
 	Object.entries({
 		install: "add i in ins inst insta instal install isnt isnta isntal isntall",
@@ -456,8 +395,6 @@ const TREE_COMMANDS = new Map(
 );
 
 /**
- * The command `word` names where npm's deref makes it one that can write
- * `node_modules`, a camelCase word read as its kebab-case; else undefined.
  * @param {string} word
  */
 const treeCommandOf = (word) =>

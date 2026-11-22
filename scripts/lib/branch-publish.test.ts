@@ -1,24 +1,10 @@
 // @vitest-environment node
-/*
- * lib/branch-publish.js, a PreToolUse dispatcher core (#2792), denies a pull
- * request and a push of any branch but the session's own queue ref or
- * `spike/*` (#764, #4458). The allow-cases below are every shape the rule
- * fragment promises passes.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over real
- * git: a throwaway repo stands in for the shared tree, with a linked worktree
- * on branch `side`, and a stub `gh` (WFC_GH) answers the merge lookup. The
- * hook line, stdin and the stdout a refusal needs are
- * scripts/guard-dispatch.test.ts's boundary set.
- *
- * Loosen a case and a session opens a pull request, publishes a branch or
- * moves `main` past the lander, or a sanctioned push is refused.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderSessionRules } from "./adopter-skeleton.js";
 import { stubGhScript } from "./gh-stub";
 import {
 	defineTemplate,
@@ -29,12 +15,9 @@ import {
 import { runCore } from "./guard-core-testkit";
 import { denyFires } from "./guard-fires-testkit";
 import { buildBashPayload } from "./pretool-guard-testkit";
+import { readRuleText } from "./rule-text";
 import { shellQuote } from "./sh-quote.js";
 
-// biome-ignore lint/suspicious/noExplicitAny: untyped CommonJS helpers
-const { readRuleText } = require("./rule-text") as any;
-// biome-ignore lint/suspicious/noExplicitAny: untyped CommonJS helpers
-const { renderSessionRules } = require("./adopter-skeleton") as any;
 const { loadCores } = require("./guard-core-load.js") as {
 	loadCores: (event: string) => Record<string, unknown>[];
 };
@@ -47,15 +30,12 @@ let logs: string[];
 
 const template = defineTemplate(trioTemplate());
 
-/** The refusal's prose, or null where the core allowed. */
 function denial(
 	command: string,
 	cwd = shared,
 	env: Record<string, string> = {},
 	payload: Record<string, unknown> = buildBashPayload(command, "test"),
 ): string | null {
-	/* The host's lookup runs through lib/gh.js, which reads WFC_GH off the
-	 * process. */
 	if (env.WFC_GH) vi.stubEnv("WFC_GH", env.WFC_GH);
 	const r = runCore("guard-branch-publish", payload, {
 		root: shared,
@@ -109,8 +89,6 @@ describe("a pull request is denied", () => {
 });
 
 describe("a merge of a Dependabot pull request is denied with the Dependabot rule (#2020)", () => {
-	/* The stub answers `gh pr view`'s --jq verdict and logs its cwd and argv,
-	 * so a case can say whether the lookup ran, where, and against which PR. */
 	const ghAnswering = (verdict: string) =>
 		stubGhScript(
 			dir,
@@ -138,7 +116,6 @@ describe("a merge of a Dependabot pull request is denied with the Dependabot rul
 		["gh -Ro/r pr merge 12", "pr view 12 -R o/r --json"],
 		["gh pr -R o/r merge 12", "pr view 12 -R o/r --json"],
 		["gh pr --repo=o/r merge 12", "pr view 12 -R o/r --json"],
-		// Quoted or escaped, the flag reads as the unquoted one (#4268).
 		[`gh "-Ro/r" pr merge 12`, "pr view 12 -R o/r --json"],
 		["gh \\-Ro/r pr merge 12", "pr view 12 -R o/r --json"],
 		[`gh pr "--repo=o/r" merge 12`, "pr view 12 -R o/r --json"],
@@ -176,7 +153,6 @@ describe("a merge of a Dependabot pull request is denied with the Dependabot rul
 	it.each([
 		["gh pr merge 12", "could not be looked up", "exit 1"],
 		["GH_REPO=o/r gh pr merge 12", "GH_REPO override", "echo true"],
-		// An empty --repo after the verb names none, overriding the -R before (#4268).
 		[
 			"GH_REPO=o/r gh -R a/b pr merge 12 --repo=",
 			"GH_REPO override",
@@ -218,11 +194,9 @@ describe("a push of a branch other than main or a queue ref is denied", () => {
 		["git -C ../wt push origin HEAD", "side"],
 		["git push origin feature-x > out.txt 2>&1", "feature-x"],
 		["git push origin feature-x 2>/dev/null", "feature-x"],
-		// Behind a launcher wrapper (#1731).
 		["env X=1 git push origin feature-x", "feature-x"],
 		["timeout 60 git push origin feature-x", "feature-x"],
 		["command git push origin feature-x", "feature-x"],
-		// A later command a -c string runs (#4699).
 		[`env -S 'flock /l -c "true\\ngit push origin feature-x"'`, "feature-x"],
 	])("%s", (command, branch) => {
 		const why = denial(command);
@@ -273,12 +247,10 @@ describe("the sanctioned pushes pass", () => {
 		"git push origin :feature-x",
 		"git push --dry-run origin feature-x",
 		"git push --help",
-		// A redirection is the shell's, never a refspec.
 		"git push origin spike/x 2>&1 | tail -4",
 		"git push origin spike/x > out.txt 2>&1",
 		"git push origin spike/x 2>/dev/null",
 		"git push origin spike/x >out",
-		// A -c string's later line, its closing quote not on the refspec (#4978).
 		'flock /l -c "true\ngit push origin spike/x"',
 		'flock /l -c "true; git push origin spike/x"',
 	])("%s", (command) => {
@@ -296,8 +268,6 @@ describe("the sanctioned pushes pass", () => {
 	});
 });
 
-/* #1733: a force-push or deletion of `main` prints rule:main-remote-rewind.
- * The literal anchor fails if the fragment's force-push sentence is dropped. */
 describe("a force-push or deletion of main is denied with the rewind rule", () => {
 	it.each([
 		["git push --force", "force-pushes `main`"],
@@ -316,7 +286,6 @@ describe("a force-push or deletion of main is denied with the rewind rule", () =
 		["git push origin --dele main", "deletes `main` on the remote"],
 		["git push origin :heads/main", "deletes `main` on the remote"],
 		["git push -f origin HEAD:heads/main", "force-pushes `main`"],
-		// A -c string's later line, newline or `;` (#4978).
 		[
 			'flock /l -c "true\ngit push origin :main"',
 			"deletes `main` on the remote",
@@ -375,7 +344,6 @@ describe("work lands through queue refs, never a push to main (#4485)", () => {
 });
 
 describe("a session pushes its own queue ref (#4458)", () => {
-	/* The session's worktree, cut where session-checkout.js cuts one. */
 	let own: string;
 	const Own = "queue/q1";
 	beforeEach(() => {
@@ -385,7 +353,6 @@ describe("a session pushes its own queue ref (#4458)", () => {
 		});
 	});
 
-	/** The refusal from the session's worktree, which names its own ref. */
 	const refusal = (command: string) => {
 		const why = denial(command, own);
 		expect(why).toContain(`Your session's queue ref is \`${Own}\``);
@@ -528,8 +495,6 @@ describe("a session pushes its own queue ref (#4458)", () => {
 		},
 	);
 
-	/* #4856: the refusals that run before any queue-ref judging name the own
-	 * ref too, and a rewind of `main` reads `main-remote-rewind`. */
 	it.each([
 		["git push --force origin main", "This force-pushes `main`"],
 		["git push origin +HEAD:main", "This force-pushes `main`"],
@@ -679,7 +644,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	});
 
 	it("runs the lookup with exactly the argv the verdict needs", () => {
-		/* printf, not echo: dash's echo would fold the jq's doubled backslashes. */
 		const { env } = stubGhScript(
 			dir,
 			`#!/bin/sh\nprintf '%s\\n' "$*" > ${shellQuote(dir)}/gh-calls\necho true\n`,
@@ -743,7 +707,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			"gh pr create && gh api -X POST repos/o/r/pulls",
 			"This opens a pull request: gh pr create ",
 		],
-		/* The segment keeps the space before `&&`: unmask trims the leading whitespace alone. */
 	])("names the first of two refusals in %s", (command, first) => {
 		expect(denial(command)?.split("\n")[0]).toBe(first);
 	});

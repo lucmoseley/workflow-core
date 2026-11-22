@@ -1,9 +1,3 @@
-/*
- * pid-lock-testkit.ts — a pidfile lock planted for a test: one naming a process
- * that has ended, and one naming a live process running the marked script, with
- * an mtime long past any age test (#4016); and that live process on its own,
- * for a test that writes the pidfile itself.
- */
 import { once } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
@@ -15,33 +9,20 @@ import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const YEAR_MS = 365 * 24 * 3_600_000;
 
-/* The wait for a holder's exec: far above the milliseconds it takes unloaded,
- * and under TEST_TIMEOUT_MS, so a stuck exec fails naming this wait rather than
- * the case. Half the ceiling is a round pick; no measurement gives it. */
+// guess, #4721
 const EXEC_WAIT_MS = TEST_TIMEOUT_MS / 2;
-/* A guess, unmeasured: fine enough to add little to a fast exec. */
+// guess, #4721
 const EXEC_POLL_MS = 10;
 
-/* A guess, unmeasured: how long an orphaned holder outlives its worker. */
+// guess, #4721
 const ORPHAN_POLL_MS = 1000;
-/* The holder's program: it idles, and exits once its parent is gone, so a
- * worker killed before its cleanup leaves no holder behind. Residual: a worker
- * dead before the holder's first line runs leaves it reading the reaper as its
- * parent, and it lives on. */
 const HOLDER_CODE = `const parent = process.ppid; setInterval(() => { if (process.ppid !== parent) process.exit(); }, ${ORPHAN_POLL_MS})`;
 
-/** @param file the lock's path, its directory made where missing */
 export function plantDeadLock(file: string) {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	fs.writeFileSync(file, endedPid());
 }
 
-/**
- * The pid of a live process whose command line carries `script`, killed when
- * the test ends. Its pid is live before its exec lands, and until then that
- * command line reads empty, so a lock asked at once finds no holder (#4721):
- * it is returned once `script` is there.
- */
 export async function liveScriptProcess(script: string) {
 	const proc = keptSpawn("concurrent").spawn(
 		process.execPath,
@@ -54,17 +35,14 @@ export async function liveScriptProcess(script: string) {
 		proc.kill();
 	});
 	const pid = proc.pid as number;
-	/* A holder that dies or never starts fails here, not as the wait's timeout. */
 	const died = once(proc, "exit").then(([code, signal]) => {
 		throw new Error(`the holder exited before its exec (${code ?? signal})`);
 	});
-	// Its kill at the test's end is no failure.
 	died.catch(noop);
 	await Promise.race([
 		died,
 		vi.waitFor(
 			() => {
-				/* Ended: `died` has failed the race, so stop polling. */
 				if (proc.exitCode !== null || proc.signalCode !== null) return;
 				expect(
 					fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0"),
@@ -76,7 +54,6 @@ export async function liveScriptProcess(script: string) {
 	return pid;
 }
 
-/** A year-old lock held by a live process whose command line carries `script`. */
 export async function plantLiveLock(file: string, script: string) {
 	const pid = await liveScriptProcess(script);
 	fs.mkdirSync(path.dirname(file), { recursive: true });

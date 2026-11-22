@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * list-sessions.js prints every plan's sessions, each under its config dir,
- * and names a dir it could not read rather than dropping it (#4224). A fake
- * `claude` on WFC_CLAUDE_BIN answers per CLAUDE_CONFIG_DIR. Broken, a
- * diagnosis reading it misses a session on another plan, or reads a dir that
- * would not answer as one with nothing running (#4200).
- */
 
 import fs from "node:fs";
 import os from "node:os";

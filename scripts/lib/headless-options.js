@@ -1,17 +1,8 @@
-/*
- * headless-options.js — the options `claude --help` lists (#4586), and the
- * hidden ones it takes without listing, which
- * record-headless-run.js records into scripts/fixtures/headless-run.json and
- * the headless-run contract reads off the installed binary.
- */
-
 /**
  * @typedef {"none"|"required"|"optional"|"variadic"} Arity
  * @typedef {{names: string[], value: Arity, flags: string}} HelpOption
- *   `flags` as the binary's own refusals spell it: `-n, --name <name>`
  */
 
-/* `  -n, --name <name>   Set a…`: the names, then at most one placeholder. */
 const OPTION_LINE =
 	/^ {2}(-[\w-]+(?:, -[\w-]+)*)(?: ([<[][^>\]]+[>\]]))?(?: {2,}|$)/;
 
@@ -41,15 +32,9 @@ function parseHelpOptions(help) {
 	return options;
 }
 
-/* The value-taking options this repo passes that `--help` omits
- * (claude-child.js's chrome mode, #4808).
- * Residual: a hidden option taking no value has no missing-value refusal, so
- * it can be neither recorded nor held to the binary. */
 const HIDDEN_FLAGS = ["--max-turns"];
 
 /**
- * The option the binary names in refusing it for its missing value, which is
- * how a hidden one is read: `claude -p <flag>` spends no turn.
  * @param {string} stderr
  * @returns {HelpOption | null}
  */
@@ -58,8 +43,7 @@ function parseMissingValueRefusal(stderr) {
 	return (m && parseHelpOptions(`  ${m[1]}`)[0]) || null;
 }
 
-/* A guess: a free `claude` call answers in well under a second, and a hang
- * should fail or skip. */
+// guess, #4586
 const LIVE_CALL_TIMEOUT_MS = 30_000;
 
 module.exports = {

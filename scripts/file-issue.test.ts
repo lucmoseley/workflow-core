@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * file-issue.js's §X11 boundary set (#5150), run through its command line on
- * file-issue's gh fake as the WFC_GH stub and a sandboxed arbiter store
- * (#533; the seam ruled on #500, Q1 (A)). Each case stays a program case for
- * what only the shell wires: the exit code and streams, argv and --help, the
- * body read from fd 0 and from a file, the real link-writer underneath (a
- * link reported as made is one the parent side listed), the gate judge's
- * spawn and its fallback, the session id from the env, the host clock under
- * WFC_NOW, and the similar-title list's gh failure. The takes: value set is
- * pinned here against each hand copy of it. Every branch — each refusal
- * before the create among them — is pinned in lib/file-issue-core.test.ts.
- *
- * A loosened case lets the shell file a ticket half-made or unplaced on the
- * route the issue-create guard sends every new ticket down.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -230,7 +215,6 @@ describe("a fault signature (#4796)", () => {
 			case: { session: Session, line: 2 },
 			filedAt: "2026-11-13T09:00:00.000Z",
 		});
-		/* The create carries the label and the line less its issue (#4861). */
 		expect(readCreates()[0]).toContain("--label fault-signature");
 		const { issue: _, ...rest } = line;
 		expect(readBodySeen()).toContain(

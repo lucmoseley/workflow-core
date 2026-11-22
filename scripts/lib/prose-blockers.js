@@ -1,30 +1,3 @@
-/*
- * prose-blockers.js — `**Blocked on** #<n>` in an issue body, read and resolved
- * without a second `gh issue view` (mantahostels#1289); and the opening of a
- * not-ready comment, NOT_READY_OPENING.
- *
- * WHY IT EXISTS. GitHub's native dependency edge (`/dependencies/blocked_by`,
- * what `pick-next.js`'s own `blockedBy()` reads) is the readiness source of
- * record. Some issues instead hand-write the same claim in prose, with no
- * native edge to match, and the picker's dependency read never saw it.
- *
- * WHAT IT ANSWERS, AND HOW CHEAPLY. `pick-next.js` already fetches every OPEN
- * issue in one call before this runs. judgeProseRefs judges a reference in the
- * same repo, bare `#<n>` or `owner/name#<n>`, against that set: one NOT in it
- * is closed (or never existed), resolved for free, no second call; one still
- * in it is still blocking, exactly as a native edge would be. One in another
- * repo costs its caller's issue read (#3271).
- */
-
-/*
- * ANCHORED TO THE HEAD OF ITS OWN LINE, same tolerance as `issue-gate.js`'s
- * `**Gated until:**` (`^[ \t]{0,3}`, CommonMark's un-indented-paragraph rule).
- * NOT anchor-free: a body quoting the marker mid-sentence as an example would
- * otherwise gate itself (mantahostels#1289).
- *
- * One or more `#<n>` or `owner/name#<n>` references, comma- or
- * space-separated (#2427).
- */
 const { SPACE } = require("./gh-body.js");
 const { requiredGroup } = require("./regex-group.js");
 const {
@@ -38,32 +11,14 @@ const BLOCKED_ON_RE =
 	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	/^[ \t]{0,3}\*\*Blocked on\*\*[ \t]*((?:(?:[\w.-]+\/[\w.-]+)?#\d+(?:[ \t]*(?:,|and)[ \t]*)?)+)/gim;
 
-/*
- * DELIBERATELY NOT ANCHORED TO THE LINE HEAD, unlike `BLOCKED_ON_RE` above:
- * mantahostels#927's marker opens mid-sentence, so an anchored match misses the very case
- * this exists for. The anchor is what stops a body QUOTING the marker from
- * gating itself, and dropping it is safe here
- * for two reasons: a quotation of the canonical form carries its `#<n>` and so
- * is filtered out by the number test below, and nothing is ever excluded on an
- * unparsed hit — it is printed for a reader to judge.
- *
- * The bold span is `[^*]*` so it cannot run across a later `**` on the line.
- */
+/* lucmoseley/mantahostels#927 */
 const BLOCKED_ON_LINE_RE = /\*\*Blocked on\b[^*]*\*\*[^\n]*/gi;
 
-/*
- * A comment a launched session leaves on a ticket it found not ready, opening
- * `**Blocked` or `**Refused attempt` (#2309, #3111). check-issue-labels.js
- * reads it off the latest comment, lib/tracker-rules.js off a comment being
- * written. Not global, so `.test` keeps no lastIndex.
- */
 const NOT_READY_OPENING = new RegExp(
 	`^${SPACE}*\\*\\*(Blocked|Refused attempt)`,
 );
 
 /**
- * Every issue a `**Blocked on**` marker in `body` names, in marker order,
- * deduped. `repo` is null for a bare `#<n>`: the body's own repo.
  * @param {string} body
  * @returns {import("./issue-ref.js").IssueRef[]}
  */
@@ -81,10 +36,7 @@ function proseRefsOf(body) {
 	return [...out.values()];
 }
 
-/**
- * Every `**Blocked on ...**` line in `body` that names no issue number, trimmed.
- * @param {string} body
- */
+/** @param {string} body */
 function unparsedBlockersOf(body) {
 	const out = [];
 	for (const m of String(body || "").matchAll(BLOCKED_ON_LINE_RE)) {
@@ -100,17 +52,12 @@ function unparsedBlockersOf(body) {
  */
 
 /**
- * `refs` split by state, each list in input order. A reference in `ownRepo`,
- * bare or `owner/name#<n>`, is answered from `openLocal` at no read; one in
- * another repo costs one `readIssue`. What an unreadable one means is its
- * caller's: lib/blocker-graph.js holds on it, check-issue-labels.js warns.
  * @param {import("./issue-ref.js").IssueRef[]} refs
  * @param {object} at
- * @param {Set<number>} at.openLocal every open issue in `ownRepo`
+ * @param {Set<number>} at.openLocal
  * @param {string|null} at.ownRepo
  * @param {ReadIssue} at.readIssue
  * @param {<T, R>(items: T[], fn: (item: T) => Promise<R>) => Promise<R[]>} [at.each]
- *   bounded fan-out, results in input order; unbounded where absent
  */
 async function judgeProseRefs(refs, { openLocal, ownRepo, readIssue, each }) {
 	const fanOut = each ?? ((items, fn) => Promise.all(items.map(fn)));

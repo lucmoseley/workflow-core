@@ -1,29 +1,4 @@
 #!/usr/bin/env node
-/*
- * file-memory-kill-tickets.js — file one `takes:triage` ticket for each
- * earlyoom kill incident that is over (#3094, ruled at #3082): kills no more
- * than 30 min apart, read from earlyoom's journal (lib/earlyoom-kills.js).
- * A kill means admission let memory run out, so each incident has a cause
- * for a session to find.
- *
- *   node scripts/file-memory-kill-tickets.js [--dry-run]
- *
- * Once per incident, through lib/incident-tickets.js. The incident whose kill
- * tripped the peak tripwire (lib/peak-tripwire.js) says so and names the
- * re-arm command (#5367).
- *
- * Reads back LOOKBACK_MS, so a refill loop down for under that files its
- * missed incidents when it returns. An incident not yet over waits for a
- * later tick: a kill may still join it.
- *
- * Joins no §N3 family: it files issues as `report-*` does, but a failed
- * filing exits 1 so the refill loop logs it, as file-morning-review.js does.
- *
- * Prints nothing where there is nothing to file. Exit codes: 0 on a pass, an
- * unreadable journal included (said on stderr: earlyoom's log is subject, not
- * apparatus); 1 where a filing or the tracker read failed; 2 on a command line
- * it refuses.
- */
 
 const path = require("node:path");
 const { scriptPath } = require("./lib/script-path.js");

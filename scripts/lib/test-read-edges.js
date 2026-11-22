@@ -9,6 +9,7 @@ const { parseEdges } = require("./guard-reach.js");
 const { shellOperands } = require("./shell-operands.js");
 const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
+const { LOADS_BODY, pragmaLine } = require("./code-edges-pragmas.js");
 const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
 const { isUnder } = require("./is-under.js");
 
@@ -45,6 +46,8 @@ const ESM_IMPORT =
 	/(?:\b(?:from|import\()|^[ \t]*import)\s*["'`](\.\.?\/[^"'`]+)["'`]/gm;
 
 const TYPE_ONLY = /^[ \t]*(?:import|export)[ \t]+type\b[^;]*;?/gm;
+
+const TYPE_QUERY = /\btypeof\s+import\(\s*["'`][^"'`]+["'`]\s*\)/g;
 
 const EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs"];
 
@@ -132,7 +135,12 @@ function importedHelpers(source, self, tracked, re = IMPORT) {
  * @returns {Set<string>}
  */
 const vitestImports = (source, self, tracked) =>
-	importedHelpers(source.replace(TYPE_ONLY, ""), self, tracked, ESM_IMPORT);
+	importedHelpers(
+		source.replace(TYPE_ONLY, "").replace(TYPE_QUERY, ""),
+		self,
+		tracked,
+		ESM_IMPORT,
+	);
 
 /** @param {string} args @returns {string[]} */
 const literalsIn = (args) =>
@@ -706,9 +714,10 @@ function addPathspecEdges(scan, specs, dir) {
  * @returns {string[]}
  */
 function edgesFor(source, tracked, self) {
+	const declared = declaredReads(source, tracked, self);
 	const root = ANCHOR.test(source);
 	const sibling = DIRNAME.test(source);
-	if (!root && !sibling) return [];
+	if (!root && !sibling) return declared;
 	const imported = sibling ? vitestImports(source, self, tracked) : new Set();
 	/** @type {EdgeScan} */
 	const scan = { tracked, self, root, sibling, imported, found: new Set() };
@@ -717,7 +726,34 @@ function edgesFor(source, tracked, self) {
 	addDirClassEdges(scan, source);
 	addReaddirEdges(scan, source);
 	addListingEdges(scan, source);
+	for (const p of declared) scan.found.add(p);
 	return [...scan.found].sort();
+}
+
+const LOADS_PRAGMA = pragmaLine(String.raw`\/\/|\/?\*`, LOADS_BODY);
+
+/**
+ * @param {string} source
+ * @param {Set<string>} tracked
+ * @param {string} self
+ * @returns {string[]}
+ */
+function declaredReads(source, tracked, self) {
+	return declaredPaths(source, self).filter((p) => tracked.has(p));
+}
+
+/** @param {string} source @param {Set<string>} tracked @param {string} self @returns {string[]} */
+function untrackedLoads(source, tracked, self) {
+	return declaredPaths(source, self)
+		.filter((p) => !tracked.has(p))
+		.map((p) => `${self}: code-edges loads: ${p} names no tracked file`);
+}
+
+/** @param {string} source @param {string} self @returns {string[]} */
+function declaredPaths(source, self) {
+	return [...source.matchAll(LOADS_PRAGMA)]
+		.map((m) => resolveRelative(self, requiredGroup(m, 1, LOADS_PRAGMA)))
+		.filter((p) => p !== self);
 }
 
 const RULE_TEXT_MODULE = "scripts/lib/rule-text.js";
@@ -1826,6 +1862,7 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 	const unseen = {};
 	for (const t of tests) {
 		const source = read(t);
+		warnings.push(...untrackedLoads(source, tracked, t));
 		const found = testReads(t, source, tracked, read);
 		addLaunches(found, t, launchesOnce);
 		addClosure(byClosure, t, closureDepths(t, found, loadsOnce, readsOnce));

@@ -1,16 +1,3 @@
-/*
- * refill-resume.js — the refill loop's resume of a stopped session (#2354 F6,
- * #2963, #3734, #3736, #4147, #4180, #4098): `claude --bg --resume`, the job
- * it started judged and confirmed, a copy handed what the session held and
- * its original's row retired, a session a restart killed resumed under its
- * own id, a move onto another seat or onto an overflow key recorded. A
- * session on an overflow key resumes headless instead
- * (lib/headless-sessions.js, #4580), since the key's credits cover `claude -p`
- * and not a `--bg` job (#4578). Every read, write and child process goes
- * through the ResumeIo port, whose production adapter is lib/resume-io.js's;
- * lib/refill-blocks.js's acts call these through its BlockIo.
- */
-
 const { childFailure } = require("./child-failure.js");
 const { parseResumed } = require("./bg-resume.js");
 const { shortJobId } = require("./job-paths.js");
@@ -31,23 +18,14 @@ const { parseModelFlag, relaunchFlags } = require("./model-table.js");
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
 /**
  * @typedef {Pick<import("./refill-blocks.js").SessionRef, "root"|"seat"|"keyVar">
- *   & {issues: number[]}} Resumable  the session a resume runs on: its
- *   checkout, its seat and any overflow key, and the issues whose claims
- *   follow a copy
+ *   & {issues: number[]}} Resumable
  * @typedef {Omit<Resumable, "issues"> & {issues?: number[]}} StoppedResumable
- *   a stopped session, whose issues one the loop did not launch leaves out:
- *   none, so a copy of it moves no claims (#4825)
  */
 /** @typedef {ReturnType<typeof import("./child-spawn.js").spawnChild>} ChildRun */
 /** @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup */
-/**
- * @typedef {{carried: {from: string, to: string}[]} | {why: string}} Carry
- *   the files job `jobId`'s prompt names in its job directory, copied into
- *   checkout `cwd` (lib/carry-job-files.js), else why one would not copy
- */
+/** @typedef {{carried: {from: string, to: string}[]} | {why: string}} Carry */
 
 /**
- * The reads, writes and child processes a resume runs through.
  * @typedef {{
  *   log: (line: string) => void,
  *   env: () => NodeJS.ProcessEnv,
@@ -81,8 +59,6 @@ const { parseModelFlag, relaunchFlags } = require("./model-table.js");
  */
 
 /**
- * The launch flags job record `rec` saved (`respawnFlags`), null where it
- * saved none.
  * @param {import("./launch-record.js").LaunchRecord|null} rec
  * @returns {string[]|null}
  */
@@ -94,20 +70,14 @@ function savedFlagsOf(rec) {
 		: null;
 }
 
-/* A copy adoptResumed found: the kill took the launcher's note with it. */
 const ADOPTED_WHY = "found after a kill, the harness's reason lost with it";
 
-/**
- * The resume steps over `io`.
- * @param {ResumeIo} io
- */
+/** @param {ResumeIo} io */
 function resumeSteps(io) {
 	const { log } = io;
 	const readLaunchRecord = buildLaunchRecordReader(io);
 
 	/**
-	 * Move each issue claim session `from` holds on `l`'s issues to its copy's
-	 * session `to` (#2963).
 	 * @param {Resumable} l
 	 * @param {string} from
 	 * @param {string} to
@@ -123,8 +93,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * lib/parked.js's moveParkedBy for `l`. Fails open (#3709): a marker left
-	 * names a job a resume then falls back from.
 	 * @param {Resumable} l
 	 * @param {string} from
 	 * @param {{sessionId: string|null, jobId: string, cwd: string}} copy
@@ -146,8 +114,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * lib/move-pass-markers.js's movePassMarkers for `l`. Fails open (#4105): a
-	 * marker left only owes its pass again.
 	 * @param {{root: string}} l
 	 * @param {string} from
 	 * @param {string} to
@@ -162,21 +128,14 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * Mark an overflow session's copy overflow in the dispatch ledger, the only
-	 * such mark a parking session can read (#4147), naming the session it copies
-	 * so the cap prices the two together (#4195). No issues, so the row holds
-	 * nothing: the first job keeps the ledger hold. Fails open, logged:
-	 * unmarked, the copy's own park reads as a plan seat's.
 	 * @param {{root: string, keyVar: string}} on
-	 * @param {string} from the session it copies
+	 * @param {string} from
 	 * @param {{jobId: string, sessionId: string|null}} copy
 	 */
 	function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
 		const failure = `overflow copy ${jobId} of ${from} not marked in the dispatch ledger`;
 		try {
 			const lookup = io.overflowLookup(root);
-			/* Marked already where a kill came after the mark and before the
-			 * state write, and the next step adopts the copy (#4157). */
 			if (lookup({ jobId })) return;
 			const first = lookup({ sessionId: from });
 			if (!first) {
@@ -202,34 +161,22 @@ function resumeSteps(io) {
 		}
 	}
 
-	/**
-	 * What a session moved onto a key carries in its new transcript from
-	 * before the move, which its plan paid (#3736): a copy repeats its parent's
-	 * main-thread requests (#4195), and a job woken in place keeps its whole
-	 * session. Read off the parent's transcript the move put on `seat`.
-	 * @param {{seat: string, from: string, cwd: string, copy: boolean}} moved
-	 */
+	/** @param {{seat: string, from: string, cwd: string, copy: boolean}} moved */
 	function readOffKeyUsd({ seat, from, cwd, copy }) {
 		const file = transcriptPath(seat, cwd, from);
 		return copy ? io.copySpendUsd(file) : io.sessionSpendUsd(file);
 	}
 
 	/**
-	 * Record the job a move onto an overflow seat started as a launch on its
-	 * key, with the allowance it moved with (#3736), so the budget gate
-	 * reserves for it and the allowance stop caps it as any overflow launch.
-	 * No issues, as a copy's: the launch it moved keeps the ledger hold.
 	 * @param {{root: string, keyVar: string}} on
-	 * @param {string} from the session it moved
+	 * @param {string} from
 	 * @param {{jobId: string, sessionId: string|null, allowanceUsd: number,
 	 *   offKeyUsd: number}} run
-	 * @returns {string|null} why it was not recorded, else null
+	 * @returns {string|null}
 	 */
 	function recordMovedOverflow({ root, keyVar }, from, run) {
 		const failure = `moved overflow job ${run.jobId} of ${from} not recorded in the dispatch ledger`;
 		try {
-			/* Recorded already where a kill came after the record and before the
-			 * state write, and the next step adopts the job (#4180). */
 			if (io.overflowLookup(root)({ jobId: run.jobId })) return null;
 			const written = io.recordLaunch({
 				issues: [],
@@ -251,17 +198,11 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * The dispatch-ledger row for job `run`, which a resume of session `from`
-	 * started on `l`'s overflow seat, where it owes one: a move onto the key's
-	 * first launch there, at its allowance (#3736), else a copy's, at its first
-	 * job's. A plan seat's job, or one woken in place on its key, owes none.
 	 * @param {{root: string, seat: string, keyVar?: string}} l
 	 * @param {string} from
 	 * @param {{jobId: string, sessionId: string|null}} run
-	 * @param {{copy: boolean, cwd: string, move?: MoveTarget}} how  `move`, the
-	 *   target of a move onto the key
-	 * @returns {string|null} why a move's job could not be recorded, which stops
-	 *   it, else null
+	 * @param {{copy: boolean, cwd: string, move?: MoveTarget}} how
+	 * @returns {string|null}
 	 */
 	function recordOnKey({ root, seat, keyVar }, from, run, how) {
 		if (!keyVar) return null;
@@ -279,7 +220,6 @@ function resumeSteps(io) {
 						offKeyUsd: readOffKeyUsd({ seat, from, cwd: how.cwd, copy }),
 					});
 		if (!failed) return null;
-		/* Unrecorded, it would run on the key uncapped and unreserved. */
 		const stop = io.stop(seat, run.jobId);
 		return stop.ok || stop.noJob
 			? failed
@@ -287,8 +227,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * The job a resume woke in place, confirmed or found after a kill; on a
-	 * move onto a key, recorded as that key's launch.
 	 * @param {{root: string, seat: string, keyVar?: string}} l
 	 * @param {{sessionId: string, cwd: string}} target
 	 * @param {{jobId: string, sessionId: string|null}} found
@@ -308,9 +246,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * A resume that woke the stopped job itself: confirmed where its
-	 * state.json, which already names its session, reads it no longer stopped;
-	 * on a move onto a key, recorded as that key's launch.
 	 * @param {{root: string, seat: string, keyVar?: string}} l
 	 * @param {{jobId: string, sessionId: string, cwd: string,
 	 *   after: {state?: unknown, sessionId?: unknown}|null}} woken
@@ -326,21 +261,12 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * Hand copy `copy` of session `from` what the session held: on an overflow
-	 * seat its ledger mark, then its issue claims, pass markers and park
-	 * marker, then its name, and retire the original's job row, so one row of
-	 * the work is left to revive (#4098). The mark comes first, so a move's
-	 * copy that will not record, and is stopped, takes nothing from the
-	 * session it leaves held.
 	 * @param {Resumable} l
 	 * @param {string} from
 	 * @param {{jobId: string, sessionId: string|null, cwd: string,
-	 *   why: string}} copy  `why`, the reason the harness gave for the copy
-	 * @param {MoveTarget} [move] a move onto the key, whose allowance the copy,
-	 *   that key's first launch of the session, runs at (#3736)
-	 * @returns {Resumed} failed only where a move's job will not record, and is
-	 *   stopped; `unretired`, the original whose job would not retire, for a
-	 *   later tick's retireOriginals (#4646)
+	 *   why: string}} copy
+	 * @param {MoveTarget} [move]
+	 * @returns {Resumed}
 	 */
 	function settleCopy(l, from, copy, move) {
 		const { jobId, sessionId, why } = copy;
@@ -378,8 +304,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * The name session `sessionId`'s transcript on `seat` carries
-	 * (lib/session-name.js's readSessionName).
 	 * @param {string} seat
 	 * @param {string} cwd
 	 * @param {string} sessionId
@@ -388,8 +312,6 @@ function resumeSteps(io) {
 		io.sessionName(transcriptPath(seat, cwd, sessionId));
 
 	/**
-	 * Give copy `copy` of session `from` the name `from`'s transcript carries,
-	 * which a copy does not take with it (#4098); logged where it will not.
 	 * @param {string} seat
 	 * @param {string} from
 	 * @param {{jobId: string, cwd: string}} copy
@@ -404,11 +326,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * Stop session `sessionId`'s own job on `seat`, the one under its short id,
-	 * and remove its job record (`claude rm`, which keeps transcripts); null
-	 * once no record of it is left, or the record there names another
-	 * session, else why not. A job not confirmed stopped is never removed,
-	 * since `claude rm` drops a live job's row too.
 	 * @param {string} seat
 	 * @param {string} sessionId
 	 * @param {string} cwd
@@ -424,8 +341,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * The name `l`'s session takes moved onto a key: the name its row shows,
-	 * else its prompt; the headless launcher adds the overflow prefix (#4395).
 	 * @param {Resumable & {prompt: string}} l
 	 * @param {{sessionId: string, cwd: string}} ids
 	 */
@@ -439,25 +354,11 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * `claude --bg --resume <full id> "<prompt>"` of `l`'s stopped job, from
-	 * its cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On
-	 * 2.1.310 it wakes a stopped job in place, else starts a copy under a new
-	 * job and session id, which carries the conversation on and takes the issue
-	 * claims (#2963, #2968). The resume counts where the launcher named the
-	 * job it started (lib/bg-resume.js) and that job's state.json does not
-	 * read failed; a later tick judges the resumed turn. A session on an
-	 * overflow key resumes headless instead (resumeHeadless), which refuses a
-	 * cwd whose own settings would lock the resumed session out
-	 * (lib/settings-lockout.js, #4752); a `--bg` one is refused here.
 	 * @param {StoppedResumable} session
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
 	 * @param {{move?: MoveTarget, name?: string, flags?: string[],
 	 *   carried?: Carry}} [moved]
-	 *   `move`, the target of a move onto `l`'s seat, which `l` already names;
-	 *   `name`, the name the resumed job takes, which left out keeps the
-	 *   session's; `flags`, launch flags passed before it; `carried`, its job's
-	 *   files carried already, from a record since removed or on another seat
 	 * @returns {Resumed}
 	 */
 	function resumeStopped(session, prompt, target, moved = {}) {
@@ -469,12 +370,11 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * resumeStopped's launch, once its worktree's settings are cleared.
 	 * @param {StoppedResumable} session
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
 	 * @param {{move?: MoveTarget, name?: string, flags?: string[],
-	 *   carried?: Carry}} [moved] as resumeStopped's
+	 *   carried?: Carry}} [moved]
 	 * @returns {Resumed}
 	 */
 	function startResume(
@@ -484,10 +384,6 @@ function resumeSteps(io) {
 		{ move, name, flags = [], carried } = {},
 	) {
 		const l = { ...session, issues: session.issues ?? [] };
-		/* The job's directory goes with its record, on a copy or a move, so its
-		 * files are carried and the resumed turn told where (#4750). A wake in
-		 * place removes nothing, so a file that will not carry only goes
-		 * unnoted. */
 		const carry =
 			carried ?? io.carryJobFiles(l.seat, shortJobId(sessionId), cwd);
 		if ("why" in carry)
@@ -525,8 +421,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * The flags a resume of `sessionId` launches with: those it was handed, or
-	 * for a wake in place, which is handed none, any `--model` moved off a routed-away model.
 	 * @param {string[]} flags
 	 * @param {string} seat
 	 * @param {string} sessionId
@@ -537,11 +431,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * The `--model` a wake in place of `sessionId` must name, where the model
-	 * its job record saved is one the standard rows route away and burn mode
-	 * is off; none otherwise. A wake in place relaunches on the saved flags, so
-	 * it would bring that model back (#4992); naming a model starts a copy, which settles as
-	 * any copy does.
 	 * @param {string} seat
 	 * @param {string} sessionId
 	 * @returns {string[]}
@@ -561,15 +450,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * Resume `l`'s session, which a restart killed, under its own id (#4098):
-	 * its job's saved launch flags taken from `ids`, as read before any try
-	 * removed its record, else read now, the job stopped and its record
-	 * removed, then started as resumeStopped starts one, with those flags,
-	 * stopped again where it failed. Nothing is stopped where its cwd's own
-	 * settings would lock it out (#4752). The 2.1.319 harness starts a copy of a resume carrying flags only while a job record exists, so one
-	 * removed continues under the session's id with its name and model. A
-	 * record naming another session is left, and the harness copies; a session
-	 * on an overflow key resumes headless, under its id already.
 	 * @param {Resumable} l
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string, flags?: string[]}} ids
@@ -584,8 +464,6 @@ function resumeSteps(io) {
 			cwd: ids.cwd,
 		});
 		if (refusal) return { failed: refusal };
-		/* The saved flags name the model the session launched on; a routed-away
-		 * one comes back on the standard row's once burn mode is off (#4992). */
 		const asSaved = ids.flags ?? resumeFlagsOf(l, ids);
 		const flags = relaunchFlags(asSaved, io.burnOn());
 		if (flags !== asSaved)
@@ -606,9 +484,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * Stop what a failed resume of session `sessionId` on `seat` may still be
-	 * starting under its id, so two live processes never share it; logged
-	 * where it will not stop.
 	 * @param {string} seat
 	 * @param {string} sessionId
 	 */
@@ -621,9 +496,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * The launch flags to resume `ids` under its own id with: those its own job
-	 * record saved (`respawnFlags`); where it saved none, the loop's model and the name
-	 * `ids`'s transcript carries.
 	 * @param {{seat: string}} l
 	 * @param {{sessionId: string, cwd: string}} ids
 	 * @returns {string[]}
@@ -641,12 +513,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * `claude -p --resume <session id> "<prompt>"` of `l`'s session on its
-	 * overflow key, through lib/headless-sessions.js, which hands it the key's
-	 * `--settings` under the seat's dir. The run keeps the session id under a
-	 * job of its own, so it holds the session's claims as a job woken in place
-	 * does; a move onto the key records that job as the key's launch, capped
-	 * at the allowance it moved with.
 	 * @param {Resumable & {keyVar: string}} l
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string, move?: MoveTarget,
@@ -674,8 +540,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * `l`'s full session id, the listing's else its job record's, its job's
-	 * cwd, else its checkout, and the launch flags its job record saved.
 	 * @param {import("./refill-blocks.js").SessionRef} l
 	 * @returns {import("./refill-blocks.js").ResumeTarget}
 	 */
@@ -692,8 +556,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * resumeStopped's launcher run judged: the job it named, woken in place or
-	 * a copy, settled.
 	 * @param {Resumable} l
 	 * @param {ChildRun} r
 	 * @param {{sessionId: string, cwd: string}} target
@@ -726,15 +588,10 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * lib/resumed-copy.js's findResumed for `l`'s seat, past `l`'s earlier
-	 * sessions: a copy found is handed what the session held (#4157, #4180);
-	 * why not, where the job store or a transcript will not read. On an
-	 * overflow key, adoptHeadless.
 	 * @param {Resumable & {pastSessionIds?: string[]}} l
 	 * @param {{sessionId: string, cwd: string}} target
 	 * @param {number} since
-	 * @param {MoveTarget} [move] the target of a move onto `l`'s seat, which
-	 *   `l` already names
+	 * @param {MoveTarget} [move]
 	 * @returns {Adopted}
 	 */
 	function adoptResumed(l, target, since, move) {
@@ -750,13 +607,10 @@ function resumeSteps(io) {
 					move,
 				)
 			: recordWoken(l, target, { jobId, sessionId }, move);
-		/* A move's job that will not record is stopped, so it reads as no job. */
 		return r.failed === null ? r : { unread: r.failed };
 	}
 
 	/**
-	 * adoptResumed on an overflow key: the headless run of the session
-	 * launched since, from the run store.
 	 * @param {Resumable} l
 	 * @param {{sessionId: string, cwd: string}} target
 	 * @param {number} since
@@ -776,9 +630,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * Remove any job record for session `sessionId`'s short id on seat `seat`
-	 * (`claude rm`, which keeps transcripts), the files its prompt names in its
-	 * job directory carried first; null once none is left, else why not.
 	 * @param {string} seat
 	 * @param {string} sessionId
 	 * @param {string} cwd
@@ -796,13 +647,6 @@ function resumeSteps(io) {
 	}
 
 	/**
-	 * Carry `l`'s stopped session to seat `target` and resume it there under
-	 * its own session id (#2159's steps, #3734): its transcript copied, any job
-	 * record for it on `target` removed so its resume keeps the id instead of
-	 * starting a copy, then resumeStopped under `target`, which reads back the
-	 * job's state. A resume that failed may still be starting, so it is
-	 * stopped, and two live processes never share the id; the old seat's
-	 * transcript is left whole, for its next try.
 	 * @param {Resumable & {prompt: string}} l
 	 * @param {MoveTarget} target
 	 * @param {string} prompt

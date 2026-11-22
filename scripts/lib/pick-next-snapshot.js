@@ -1,10 +1,3 @@
-/*
- * pick-next-snapshot.js — the file every pick-next.js run leaves its whole
- * `--json` payload in (its writeRunSnapshot), and the one reader of it outside
- * pick-next: scripts/file-morning-review.js, asking why an issue went
- * unlaunched (#2693).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -16,17 +9,14 @@ const { markersDir } = require("./marker-root.js");
  *   excluded?: Reasoned[], notLaunched?: Reasoned[],
  *   waiting?: {number: number, days: number | null}[],
  *   parked?: {number: number}[],
- *   frontier?: {number: number}[]}} Snapshot the payload fields read here
+ *   frontier?: {number: number}[]}} Snapshot
  */
 
-/** @param {string} root a checkout */
+/** @param {string} root */
 const snapshotFile = (root) =>
 	path.join(markersDir(root), ".pick-next", "last-run.json");
 
 /**
- * The last pick-next run in checkout `root`, as `snapshot`, or null with
- * `why` where it would not read. Null and no `why` where none has run, or
- * the last run read another tracker than `repo` (its `--repo`).
  * @param {string} root
  * @param {string} repo
  * @returns {{snapshot: Snapshot | null, why: string | null}}
@@ -47,11 +37,6 @@ function readSnapshot(root, repo) {
 }
 
 /**
- * Why the snapshot's run left issue `n` unlaunched: its exclusion, else its
- * park, which an away-mode refill loop skips and a normal-mode one resumes
- * first (lib/refill-decide.js; #2722, #3642),
- * else its wait on someone outside, else its not-launched reason, else its
- * place in the launch set. Null where there is no snapshot or it does not list `n`.
  * @param {Snapshot | null} snapshot
  * @param {number} n
  * @returns {string | null}

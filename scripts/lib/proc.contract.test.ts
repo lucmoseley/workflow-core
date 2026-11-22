@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * proc-fake.ts's contract (§G7). For the carried-weight reader (#2948), each
- * case's environment is given to a real `sleep` and written to the fake
- * `/proc`, and `readCarriedWeight` must read the same weight off both. A fake
- * that drifts from the kernel's `environ` keeps every weigher test green while
- * production reads nothing.
- *
- * For the orphan sweeps (#3057), this process, written into a fake root with
- * the fields the real /proc gives it, reads back through lib/proc-table.js
- * exactly as it reads from /proc — and those fields are checked against what
- * Node knows of this process, so a field the parser and the fake both
- * misplace still fails. For the rescue probe (#5157), user CPU ticks land in
- * the field this process's own CPU time fills. For the guest-disk reader
- * (#5430), a fake naming the real root's disk and its size from sysfs reads
- * back as the real /proc does.
- */
 
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -147,8 +131,6 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 		const { live, uptime } = readLive();
 
 		expect(live.ppid).toBe(process.ppid);
-		/* Pins the start-time field and USER_HZ: a second covers the time
-		 * between vitest's spawn of this worker and its first line. */
 		expect(Math.abs(ageSeconds(live, uptime) - process.uptime())).toBeLessThan(
 			2,
 		);
@@ -175,8 +157,7 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 		const ticks = (process.cpuUsage().user / 1e6) * USER_HZ;
 		const real = Number(fields?.[FIELD.utime]);
 
-		/* Both read the same moment. The 5 ticks and 5% are guesses, never
-		 * measured: wide of the two reads' gap, narrow of any other field. */
+		// guess, #5157
 		expect(Math.abs(real - ticks)).toBeLessThan(Math.max(5, ticks * 0.05));
 		const built = parseStatFields(
 			buildStatLine(process.pid, { comm, utime: real, startTicks: 1 }),
@@ -254,10 +235,6 @@ describe.skipIf(!hasProc)("a fake loadavg line (needs Linux /proc)", () => {
 	});
 });
 
-/*
- * Only where / sits on a disk /proc/partitions names: WSL does, while a
- * GitHub runner's /dev/root and a container's overlay do not.
- */
 const realGuest = hasProc ? readGuestDisk() : { why: "no /proc" };
 describe.skipIf("why" in realGuest)(
 	"a fake guest disk (needs / on a named disk)",

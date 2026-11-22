@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what runInProcess does beyond a real process's behaviour, which
- * run-in-process.contract.test.ts holds it to: a fresh module state, every
- * patched global restored, the claim that refuses a concurrent call, and the
- * async entry point's documented divergences.
- *
- * The only tests the seam's own machinery has, so a hole here is a hole under
- * every suite that runs through it (mantahostels#1907).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -58,7 +49,6 @@ describe("runInProcess", () => {
 	});
 
 	it("purges a fixture copy's modules too, not only this repo's", () => {
-		// Several suites run a checker out of a copy of the tree in a temp dir.
 		const dir = tmpdir();
 		fs.writeFileSync(path.join(dir, "state.js"), "module.exports={n:0};\n");
 		const script = path.join(dir, "counter.js");
@@ -163,11 +153,6 @@ describe("runInProcessAsync", () => {
 	});
 
 	it("hands a rejection to a script's own uncaughtException listener instead of its require.main tail (mantahostels#1996)", async () => {
-		// pick-next.js's actual shape: it requires lib/gh.js, which requires
-		// lib/check.js, which installs an uncaughtException listener at require
-		// time. That listener — not the never-invoked
-		// `main().catch((e) => { … process.exit(1) })` tail — is what a rejected
-		// main() reaches here, and it reports BROKEN/exit 2, not FAILED/exit 1.
 		const r = await runInProcessAsync(ASYNC_PROBE, ["reject-with-listener"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("BROKEN:");
@@ -176,8 +161,6 @@ describe("runInProcessAsync", () => {
 	});
 
 	it("refuses a script with no require.main guard, before it can run for real", async () => {
-		// An unconditional top-level call would otherwise fire, unawaited, the moment entry.load reaches it — before
-		// this seam ever looks for an export.
 		await expect(runInProcessAsync(UNGUARDED_PROBE)).rejects.toThrow(
 			/carries no "require.main" guard/,
 		);
@@ -199,14 +182,11 @@ describe("runInProcessAsync", () => {
 	});
 
 	it("cannot make require.main === module true inside main — a documented gap", async () => {
-		// Why this reads false rather than true: run-in-process.js's
-		// runInProcessAsync header.
 		const r = await runInProcessAsync(ASYNC_PROBE, ["entry-module"]);
 		expect(r.stdout).toBe("false\n");
 	});
 
 	it("never lets the script's own require.main-gated tail run main a second time", async () => {
-		// If the auto-invoke also fired, "ran once" would be written twice.
 		const r = await runInProcessAsync(ASYNC_PROBE, ["ran"]);
 		expect(r.stdout).toBe("ran once\n");
 	});
@@ -235,13 +215,8 @@ describe("runInProcessAsync", () => {
 		expect(r.restoreFailures).toEqual([]);
 	});
 
-	// Pins the default against the ceiling it derives from (why: run-in-process.js's
-	// DEFAULT_STALE_MS header). Both sides read scripts/lib/test-ceiling.js, so
-	// a future ceiling change can't leave this behind it.
 	it("reads a claim as live until the test ceiling plus a 5s margin has passed (mantahostels#2254, mantahostels#2262, mantahostels#2267)", async () => {
 		const t0 = Date.now();
-		// No real seam reaches a claim 95 s old: the claim reads Date.now, and
-		// waiting that long would outlast the suite's own ceiling.
 		const clock = vi.spyOn(Date, "now").mockReturnValue(t0);
 		const abandoned = runInProcessAsync(ASYNC_PROBE, ["delay-silent", "50"]);
 		try {
@@ -260,7 +235,6 @@ describe("runInProcessAsync", () => {
 
 	it("still refuses a genuinely concurrent async call regardless of staleMs (mantahostels#2254)", async () => {
 		const first = runInProcessAsync(ASYNC_PROBE, ["delay-silent", "30"]);
-		// The default staleMs applies.
 		await expect(runInProcessAsync(ASYNC_PROBE, ["exit", "0"])).rejects.toThrow(
 			/not re-entrant/,
 		);
@@ -268,9 +242,6 @@ describe("runInProcessAsync", () => {
 	});
 
 	it("takes over a claim abandoned past staleMs, rather than refusing the next call (mantahostels#2254)", async () => {
-		// Simulates what a vitest test timeout leaves behind: nothing here
-		// cancels the promise below, so its claim stays live — held by an
-		// `await` that is still pending.
 		const abandoned = runInProcessAsync(ASYNC_PROBE, ["delay-silent", "50"]);
 		try {
 			await new Promise((resolve) => setTimeout(resolve, 20));
@@ -283,20 +254,13 @@ describe("runInProcessAsync", () => {
 			});
 			expect(r.status).toBe(0);
 		} finally {
-			await abandoned; // let it settle so it cannot leak into a later case
+			await abandoned;
 		}
 	});
 
 	it("does not let an abandoned claim's late settle clobber the call that took it over (mantahostels#2254)", async () => {
-		// "delay-silent" writes nothing itself, so this isolates whether
-		// `abandoned`'s own finally disturbs `takenOver` from whatever
-		// `abandoned`'s script writes while it is still running.
 		const abandoned = runInProcessAsync(ASYNC_PROBE, ["delay-silent", "30"]);
 		await new Promise((resolve) => setTimeout(resolve, 15));
-		// Still running when `abandoned` settles at ~30ms: its own finally
-		// must not restore over these patches out from under it, or
-		// `takenOver`'s own later write is lost to the real fd instead of
-		// being captured.
 		const takenOver = runInProcessAsync(ASYNC_PROBE, ["delay", "120"], {
 			staleMs: 5,
 		});
@@ -306,10 +270,6 @@ describe("runInProcessAsync", () => {
 	});
 
 	it("runs the stale claim's own restore on takeover, not just clears its slot (mantahostels#2254)", async () => {
-		// A takeover that skips this leaves whatever `abandoned` replaced
-		// (env, here) standing as
-		// the baseline every later call, `takenOver` included, restores back
-		// to, rather than the real value from before `abandoned` ran.
 		const originalEnv = { ...process.env };
 		const abandoned = runInProcessAsync(ASYNC_PROBE, ["delay-silent", "30"], {
 			env: { ...process.env, WFC_TAKEOVER_PROBE: "abandoned" },

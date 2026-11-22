@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * findResumed (#4157, #4180): the job a `--bg --resume` started, woken in place
- * or a copy, off a seat's job store and transcripts in a temp seat. Loosen it
- * and the loop adopts a job the resume never started, so the session is never
- * resumed, or misses the job, so it starts a second.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

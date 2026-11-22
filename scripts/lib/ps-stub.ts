@@ -1,9 +1,3 @@
-/*
- * ps-stub.ts — the fake `ps` every test injects at WFC_PS (#1311). The stub
- * ignores its arguments and prints `lines` verbatim, so each suite writes only
- * the process table its case needs, in the column shape its reader asks for.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
@@ -13,11 +7,6 @@ const PS_FAILING_SCRIPT =
 
 const END = "PS_STUB_END";
 
-/**
- * Write a stub `ps` at `dir/name` printing `lines`, one per process, and return
- * its path. `fails: true` substitutes the canonical unreadable-ps stub;
- * `marker` names a file the stub touches.
- */
 export function writePsStub(
 	dir: string,
 	lines: string[],

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * launch.sh hands each hand-launched command the model its kind calls for —
- * Haiku rows, Opus rows, plain Opus for an unmapped kind, and a `--model`
- * override in either direction (mantahostels#1334, mantahostels#1088).
- *
- * launch.sh resolves scripts/dispatch-sessions.js relative to its own
- * location ("$here/dispatch-sessions.js"), not via PATH, so the seam is a
- * sibling stub file rather than a PATH shadow: copy launch.sh into a temp
- * dir alongside a stub dispatch-sessions.js that records its argv, and the
- * real lib/launch-models.sh it sources.
- *
- * It is the launcher a session or the founder runs by hand: break a case here
- * and a launch silently inherits the default model again.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

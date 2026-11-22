@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/branch-move.js, the guard-branch core (#2797), in process: which
- * checkout, switch and worktree commands move the shared tree off `main`
- * (mantahostels#110), which are handed the rule, and which pass. A deny is
- * only defensible while it cannot wedge sanctioned work, so every allow case
- * below is a shape that would otherwise be a false positive; do not thin them
- * out.
- *
- * The tree class, the branch probe and the file probe are fakes passed as
- * values; the rule store is the real one, read in process. The production
- * adapters are crossed in guard-branch.test.ts, and the tree classes' own
- * answers are lib/git-tree.test.ts's.
- */
 
 import { describe, expect, it } from "vitest";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
@@ -33,16 +20,9 @@ const SHARED = "/repo";
 const LINKED = "/repo-wt";
 const ELSEWHERE = "/other";
 
-/* The guard's two framing lines (mantahostels#2145). Both refusals splice the
- * SAME rule fragment underneath, so `toContain(readBranchRule())` cannot tell
- * them apart. */
 const MOVED = "moves the shared working tree off its branch";
 const WORKTREE = "opens a worktree with neither a branch of its own";
 
-/*
- * Keyed by FRAGMENT ID, never by a string literal copied out of the fragment:
- * the rule has one home (mantahostels#1648).
- */
 const readBranchRule = () => readRuleText("branch-shared-tree");
 
 interface Over {
@@ -52,7 +32,6 @@ interface Over {
 	files?: string[];
 	tree?: ReturnType<typeof fakeTreeClassifier>;
 	ruleText?: (id: string) => string;
-	/** `main`'s upstream; the shared-tree model's `landing` unless given. */
 	upstream?: string;
 }
 
@@ -87,7 +66,6 @@ const verdict = (command: string, over: Over = {}) => {
 	return "deny" in d ? "deny" : "rule";
 };
 
-/** The refusal `command` earns. Throws on anything else. */
 const reason = (command: string, over: Over = {}) => {
 	const d = run(command, over);
 	if (!d || !("deny" in d)) throw new Error(`expected a deny for: ${command}`);
@@ -122,10 +100,7 @@ describe("branch moves on the shared tree are denied", () => {
 	});
 
 	it("sees the shared tree through a variable the command assigned (mantahostels#208)", () => {
-		// The assignment happens inside the Bash call, so the hook's environment
-		// never sees it. This moved the shared tree and was allowed through.
 		const command = `WT=${SHARED} && git -C "$WT" checkout -b foo`;
-		// The chain has two segments, so the refusal must name the checkout one.
 		expect(reason(command, { cwd: ELSEWHERE })).toContain(
 			`${MOVED}: git -C "…" checkout -b foo`,
 		);
@@ -192,13 +167,8 @@ describe("file restores move no branch, so they pass", () => {
 	});
 
 	it("returning the tree to main is the repair, not the breach", () => {
-		// The guard protects the invariant "shared tree on main", so the command
-		// that restores it passes — and it is what the pre-commit failure message
-		// tells you to run. mantahostels#100 called every shared-tree branch move
-		// illegitimate; this is the exception.
 		expect(verdict("git checkout main")).toBe("rule");
 		expect(verdict("git switch main")).toBe("rule");
-		// Not a blank cheque: -B rewrites main's ref rather than returning to it.
 		expect(reason("git checkout -B main")).toContain(MOVED);
 	});
 });
@@ -208,11 +178,6 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 		expect(reason("git checkout -b foo")).toContain(readBranchRule());
 	});
 
-	/*
-	 * MUTATION ANCHORS. `toContain(readBranchRule())` proves the fragment
-	 * ARRIVES intact but moves with a mutation to the fragment itself, so each
-	 * clause a session must receive gets one short literal.
-	 */
 	it.each([
 		["#87", "the incident, without which the refusal is a bare assertion"],
 		["STAYS ON `main`", "the invariant itself"],
@@ -276,12 +241,6 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 		expect(verdict(command)).toBe("allow");
 	});
 
-	/*
-	 * THE DENY IS WIDER THAN mantahostels#301'S MEASUREMENT, deliberately: only
-	 * `add <path> main` fails in git; the other two are refused for spelling
-	 * the recipe a way mantahostels#301 did not sanction. Pinned so nobody
-	 * narrows it by accident or widens it further without saying so.
-	 */
 	it.each([
 		["git worktree add /tmp/wt", "exits 0 — DWIMs a branch off the basename"],
 		["git worktree add /tmp/wt HEAD", "exits 0 — detached, just not by flag"],
@@ -311,11 +270,6 @@ describe("once the main checkout is cut over (#4248)", () => {
 	});
 });
 
-/*
- * THE PRE-EMPTIVE LIMB (mantahostels#1647, spec mantahostels#1762): the rule
- * on the sanctioned command, which a refusal can never reach. An injection is
- * not a refusal: each case asserts there is no deny.
- */
 describe("the rule reaches a session BEFORE it trips the guard (mantahostels#1647)", () => {
 	it.each([
 		[
@@ -341,8 +295,6 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 		expect(readBranchRule()).not.toContain("origin/landing");
 	});
 
-	/* MUTATION ANCHORS for the injected copy: the fragment the injection hands
-	 * over carries each clause. */
 	it.each([
 		["STAYS ON `main`", "the invariant itself"],
 		["#87", "the incident behind it"],
@@ -379,7 +331,6 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 	});
 
 	it("a denied command carries the rule in its refusal, not as an injection", () => {
-		// The two limbs are exclusive: a refused session gets one copy, not two.
 		expect(run("git checkout main && git worktree add /tmp/wt3")).toEqual({
 			deny: expect.stringContaining(readBranchRule()),
 		});
@@ -387,10 +338,6 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 });
 
 describe("a refusal whose rule it cannot read still refuses (mantahostels#1648)", () => {
-	/*
-	 * The command is resolved and known bad; only the rule text is missing — so
-	 * it refuses, names the fragment's file, and logs nothing.
-	 */
 	const storeFault = () => {
 		throw new Error("no fragment");
 	};
@@ -433,8 +380,6 @@ describe("trees this guard has no business in", () => {
 	});
 
 	it("fails open on a path it cannot resolve rather than wedging the run", () => {
-		// A worktree spelt through $CLAUDE_JOB_DIR, as the recipe was until #1732,
-		// reaches the hook unexpanded.
 		expect(
 			verdict('cd "$CLAUDE_JOB_DIR/tmp/sync" && git checkout -b foo', {
 				vars: { CLAUDE_JOB_DIR: "/home/u/.claude/jobs/x" },
@@ -450,8 +395,6 @@ describe("trees this guard has no business in", () => {
 	});
 
 	it("will not deny on an assignment that may never have run (mantahostels#208)", () => {
-		// An assignment after a `||` belongs to a branch this guard cannot see
-		// taken, so it is not resolved.
 		expect(
 			verdict(`[ -d ${LINKED} ] || WT=${SHARED} && git -C "$WT" checkout -b x`),
 		).toBe("allow");
@@ -485,7 +428,6 @@ describe("hard cases at the edge of the parser", () => {
 	});
 
 	it("<< inside a quoted string does not open a heredoc", () => {
-		// Otherwise it swallows every line after it, branch move included.
 		expect(reason('echo "a << b"\ngit checkout -b foo')).toContain(
 			`${MOVED}: git checkout -b foo`,
 		);
@@ -497,8 +439,6 @@ describe("hard cases at the edge of the parser", () => {
 	])(
 		"%s does not let the line before swallow the move",
 		(_l, before, after) => {
-			// Shell pairs neither of these, so mantahostels#182's logical-line join
-			// would take the whole command as one segment headed by echo.
 			expect(reason(`${before}\ngit checkout -b evil\n${after}`)).toContain(
 				`${MOVED}: git checkout -b evil`,
 			);
@@ -517,7 +457,6 @@ describe("hard cases at the edge of the parser", () => {
 			"(git checkout -b foo)",
 			"x=$(git checkout -b foo)",
 		]) {
-			// The segment echoed back must be the move, not the wrapper.
 			expect(reason(command)).toContain(`${MOVED}: git checkout -b foo`);
 		}
 	});
@@ -534,7 +473,6 @@ describe("hard cases at the edge of the parser", () => {
 	it("switch's long-form create flags count as branch moves", () => {
 		expect(reason("git switch --create fresh")).toContain(MOVED);
 		expect(reason("git switch --force-create fresh")).toContain(MOVED);
-		// Without --create in the flag list, the "main" exception fired on this.
 		expect(reason("git switch --create main")).toContain(MOVED);
 		expect(reason("git switch -C main")).toContain(MOVED);
 		expect(reason("git switch --orphan main")).toContain(MOVED);
@@ -542,9 +480,6 @@ describe("hard cases at the edge of the parser", () => {
 	});
 
 	it("WFC_ALLOW_BRANCH does not escape this layer", () => {
-		// It escapes the pre-commit block, where the audience is the founder's own
-		// terminal; an escape a session can spell for itself is not a deny
-		// (mantahostels#109).
 		expect(reason("WFC_ALLOW_BRANCH=1 git checkout -b foo")).toContain(MOVED);
 	});
 });
@@ -561,8 +496,6 @@ describe("a branch move it cannot judge is recorded, not just allowed", () => {
 	});
 
 	it("logs a tree git could not answer for (mantahostels#253)", () => {
-		// A `.git` pointing at a gitdir that is gone, or a path git could not
-		// canonicalise: lib/git-tree.js answers `unknown` for both.
 		const tree = fakeTreeClassifier({ ...LAYOUT, "/broken": "unknown" });
 		expect(verdict("git -C /broken checkout -b foo", { tree })).toBe("allow");
 		expect(logsOf("git -C /broken checkout -b foo", { tree })).toEqual([
@@ -571,8 +504,6 @@ describe("a branch move it cannot judge is recorded, not just allowed", () => {
 	});
 
 	it.each([
-		/* Recorded, mantahostels#232's 720-payload fuzz corpus alone put ~720
-		 * identical entries in the log. */
 		["a directory in no repository (mantahostels#253)", "/not-a-repo"],
 		["a directory that does not exist (mantahostels#208)", "/gone"],
 	])(
@@ -588,7 +519,6 @@ describe("a branch move it cannot judge is recorded, not just allowed", () => {
 	});
 
 	it("says nothing about an unresolvable cd carrying no branch move", () => {
-		// Only the commands it was supposed to judge and could not belong in the log.
 		expect(logsOf("cd $TARGET && npm run build")).toEqual([]);
 	});
 });
@@ -636,7 +566,6 @@ describe("an unset variable in the target is the cwd (#310, #325)", () => {
 		expect(reason('W=""; git -C "$W" checkout -b foo')).not.toContain(
 			"is unset in this call",
 		);
-		// The variable led to the `status`, not to the refused checkout.
 		expect(
 			reason('git -C "$UNSET_325" status; git checkout -b foo'),
 		).not.toContain("is unset in this call");

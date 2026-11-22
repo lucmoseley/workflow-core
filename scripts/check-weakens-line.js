@@ -1,62 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-weakens-line.js — refuses a commit that weakens a check unless its
- * message names each weakening on a `Weakens:` line (#2235, ruled at #2203).
- *
- * Usage:
- *   node check-weakens-line.js <message-file> [--json] [--warn]
- *
- * The rule lives in docs/agents/rules/weakens-line.txt and reaches a session
- * only here. .husky/commit-msg runs it: the one hook that sees both the
- * finished message and the commit's index.
- *
- * A WEAKENING is one of four staged changes against HEAD:
- *   - MODULE-OFF   an entry added to `.claude/workflow-core.json`'s
- *                  `disabled`, or dropped from its `modules`. A config new at
- *                  this commit counts every `disabled` entry it carries.
- *   - CI-STEP      a gate command a workflow under `.github/workflows/` runs
- *                  fewer times than it did at HEAD: a `check-*` or `guard-*`
- *                  script, an `npm run check:*` or `npm run test*` script, or
- *                  vitest or pytest. Counted over the file's lines with YAML
- *                  comments and `name:` keys dropped, so a moved step or a
- *                  renamed one is none, and a commented-out one is.
- *   - TEST-SKIP    more skip lines in a test file than HEAD held, the file
- *                  existing at HEAD under this name or the one a rename left.
- *                  A test file new at this commit is never one.
- *   - GUARD-GONE   a guard removed outright (#5378): a row dropped from an
- *                  event of `scripts/lib/guard-cores.json`, or a
- *                  `scripts/guard-*.js` deleted, named by the guard's id (the
- *                  row's name, the script's basename less `.js`). A row
- *                  renamed onto the same core module on the same event, a core
- *                  module renamed under the same row, or a script git pairs as
- *                  a rename is none.
- * And one the environment carries, not the diff:
- *   - STAND-DOWN   a `WFC_<NAME>_OFF` variable set non-empty in the commit's
- *                  environment, the shape a gate's one-commit stand-down takes
- *                  (#2394).
- *
- * NAMED means some `Weakens:` line holds the weakening's name as a whole
- * token, as the refusal prints it: the module or guard, the command, the test
- * file's basename, the variable.
- *
- * NOT SEEN: a step stood down by `if: false` or `continue-on-error`, or
- * narrowed by its arguments, as `npm run test -- --full` becoming
- * `npm run test` (counting whole command lines would refuse every argument
- * edit); a skip removed and another added in one file, which nets to none; a
- * weakening made while resolving a merge conflict, the hook standing a merge
- * down; a gate command reached through a variable or a script that is not a
- * gate's; a skip spelled on the line after its call, or as `ctx.skip()`; a
- * guard core emptied in place, its row and module kept; a dropped row whose
- * core module a new row on its event runs, though that row is another guard;
- * a guard wired from a hooks file that is neither a guard-cores.json row nor a
- * `scripts/guard-*.js`;
- * and an amend, whose diff against HEAD leaves out what the amended commit
- * weakened.
- *
- * IMPLICIT:  on every commit, refuses one whose staged diff turns a module off, drops a CI gate command, adds a skip to an existing test file, removes a guard or runs under a WFC_*_OFF stand-down, until its message names each on a `Weakens:` line; the refusal prints rule:weakens-line.
- * JUSTIFIED: fail-safe — a check weakened inside a large commit goes unseen until it bites (#2203); the fix is one message line.
- * DEFEAT:    --warn caps the finding below the gating line, and the hook never passes it. `--no-verify` skips commit-msg, and HUSKY=0 or core.hooksPath off .husky/_ skip every hook (scripts/lib/commit-form.js's LIMITS). A replay or a merge stands it down in the hook.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -81,7 +23,6 @@ const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const STAND_DOWN = /^WFC_[A-Z0-9_]+_OFF$/;
 const GUARD_SCRIPT = /^scripts\/(guard-[\w-]+)\.js$/;
 
-/* Each alternative's first group is the command's name. */
 const GATE_COMMANDS = [
 	/(?:^|[^\w-])((?:check|guard)-[\w.-]*\w)/g,
 	/\b(npm\s+(?:run\s+)?(?:test|check)(?::[\w:-]*\w)?)(?![\w:-])/g,
@@ -98,9 +39,6 @@ const SKIP_LINES = [
 	/^\s*self\.skipTest\(/,
 ];
 
-/* An unreadable fragment is check-guard-registry.js's assertion, not a reason
- * to call this verdict BROKEN (mantahostels#1649's split, as in
- * check-lockfile-sync.js). */
 function readWeakensRule() {
 	return readRuleTextOr(
 		"weakens-line",
@@ -126,8 +64,6 @@ function git(ctx, args) {
 }
 
 /**
- * The staged paths against HEAD, each with the path HEAD holds it at: null for
- * one this commit adds, the source for a rename.
  * @param {Ctx} ctx
  * @returns {Change[]}
  */
@@ -173,7 +109,6 @@ function readStagedChanges(ctx) {
 }
 
 /**
- * HEAD's and the index's text for one change; null where that side has none.
  * @param {Ctx} ctx
  * @param {Change} change
  * @returns {Sides}
@@ -187,7 +122,6 @@ function readSides(ctx, change) {
 }
 
 /**
- * One side's JSON file, parsed; null where that side has none.
  * @param {Ctx} ctx
  * @param {string | null} text
  * @param {string} side
@@ -258,9 +192,6 @@ function manifestRows(ctx, text, side) {
 }
 
 /**
- * Each row HEAD's manifest runs on an event that the staged one no longer
- * does, less one whose core module a row new to that event still runs: a
- * rename.
  * @param {Ctx} ctx
  * @param {Sides} sides
  * @returns {Weakening[]}
@@ -287,7 +218,6 @@ function coresDropped(ctx, { before, after }) {
 }
 
 /**
- * How many times each gate command appears on a workflow's command lines.
  * @param {string | null} text
  * @returns {Map<string, number>}
  */
@@ -357,10 +287,7 @@ function standDowns(env) {
 		}));
 }
 
-/**
- * The text of each `Weakens:` line among the lines git records.
- * @param {string} message
- */
+/** @param {string} message */
 function parseWeakensLines(message) {
 	return recordedLines(message).flatMap((l) => {
 		const m = WEAKENS_LINE.exec(l);
@@ -403,8 +330,6 @@ function weakenings(ctx, changes) {
 }
 
 /**
- * Whether a `Weakens:` line names `name` as a whole token, so `data.test.ts`
- * never names `a.test.ts`, nor `npm run test:py` `npm run test`.
  * @param {string} line
  * @param {string} name
  */

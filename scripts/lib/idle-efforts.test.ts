@@ -1,12 +1,3 @@
-/*
- * idle-efforts.test.ts — the idle alarm's core (#3641): which efforts count as
- * idle past 2 days, the lines per tracker, and the reading of GitHub's answer,
- * driven through buildReadings, findIdleEfforts, buildIdleLines, buildIdleReport,
- * buildFindingRecords, parseIssueNodes, buildLiveLoopWait and stoppedRunOf from
- * plain readings, since the core is pure. A break here either strands an
- * effort unreported or names one that is moving, which teaches the founder to ignore it.
- */
-
 import { describe, expect, it } from "vitest";
 
 const {
@@ -28,7 +19,6 @@ const {
 	decideTick,
 } = require("./refill-decide.js");
 
-/** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
 
 const NOW = Date.parse("2026-10-29T12:00:00Z");
@@ -915,7 +905,6 @@ describe("parseIssueNodes", () => {
 });
 
 describe("buildIdleReport", () => {
-	/** A session start not held; a null `deliveredStamp` is a day's first. */
 	const NothingNamed = {
 		unseen: [],
 		stopUnseen: false,

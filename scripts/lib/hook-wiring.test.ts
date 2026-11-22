@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for hook-wiring.ts (mantahostels#190): which event, matcher, `if`,
- * args and timeout settings.json gives each registered script.
- *
- * The parsing is exercised against literals, because the interesting inputs —
- * a matcher that nearly matches, a registration with no timeout, a script
- * wired twice — are all shapes the real settings.json does not currently hold.
- *
- * The guards' wiring tests assert through this reader, so a loosened case lets
- * a guard ship unwired or on the wrong event with those tests still green.
- */
-
 import { describe, expect, it } from "vitest";
 import { MatcherError } from "./core-hooks.js";
 import {
@@ -60,7 +48,6 @@ describe("registrationsOf", () => {
 	});
 
 	it("reports a missing timeout as undefined rather than defaulting one", () => {
-		// A hook with no timeout is one the harness runs unbounded.
 		expect(
 			registrationsOf("PreToolUse", "guard-b.sh", settings)[0].timeout,
 		).toBe(undefined);
@@ -75,11 +62,6 @@ describe("registrationsOf", () => {
 	});
 });
 
-/*
- * The exec form (mantahostels#2059): the interpreter is the `command` and the script path
- * is the first `args` entry, with the guard's own argument behind it. Reading
- * `command` alone here finds `node` and no script at all (mantahostels#2266).
- */
 const execFormSettings = {
 	hooks: {
 		Stop: [
@@ -116,8 +98,6 @@ describe("the exec form's args (mantahostels#2266)", () => {
 	});
 
 	it("tells two registrations of one script apart on their argument", () => {
-		// The whole reason args must be read: `stop` and `start` are the only
-		// thing distinguishing these two entries.
 		expect(
 			registrationsOf("Stop", "backstop.sh stop", execFormSettings),
 		).toHaveLength(1);
@@ -140,11 +120,6 @@ describe("the exec form's args (mantahostels#2266)", () => {
 	});
 });
 
-/*
- * The `if` narrowing (mantahostels#2811). The field holds exactly one permission rule, so a
- * guard wanting several is registered once per rule: every copy shares a
- * command line, and `if` is the only thing telling them apart.
- */
 const narrowedSettings = {
 	hooks: {
 		PreToolUse: [
@@ -266,8 +241,6 @@ describe("against the real registration", () => {
 		expect(hookIsWired("PreToolUse", "guard-dispatch.js", "Edit")).toBe(true);
 	});
 
-	/* The Jev advisory guard (#203), in the shape its five Stop siblings use: no
-	 * matcher, and the 15-second timeout every one of them carries. */
 	it("wires guard-jev-advisory.js on Stop, shaped like its siblings", () => {
 		const found = registrationsOf("Stop", "scripts/guard-jev-advisory.js");
 		expect(found).toHaveLength(1);

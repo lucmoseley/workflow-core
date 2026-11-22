@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/burn-mode.js is burn mode's state (#4920): the one resolver for its
- * marker, and readBurnState, what the switch left on each plan against the
- * current mode's writes, a symlinked plan counted once (#187). What each mode
- * writes is ./model-table.test.ts's; here it is the fixture routing file's. burn-mode.sh reads the marker and the plans through
- * the CLI, so it is run here as a program too.
- *
- * The dispatch remap, the launcher and the toggle all find the marker here,
- * and the refill panel reads its state: loosen a case and they disagree on
- * whether burn mode is on, or the panel reports a plan in step that is not.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -24,7 +13,6 @@ const FIXTURE = path.resolve(
 	"../fixtures/model-routing/fixture.json",
 );
 
-/** The fixture routing file's writes for each mode (lib/model-table.test.ts names its rows). */
 const STANDARD = {
 	model: "test-haiku-1[1m]",
 	modelSettings: {

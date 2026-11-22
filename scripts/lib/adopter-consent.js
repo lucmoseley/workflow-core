@@ -1,52 +1,13 @@
-/*
- * adopter-consent.js — a plugin upgrade's accept or decline, on disk (#238,
- * #245). The session records the accept after running the install itself
- * (#5230); a decline is the founder's no.
- *
- * Two records, keyed `<repo>@<tag>` — `repo` is the adopter root the session
- * is running in, `tag` the pin ref being proposed, so two adopters sharing a
- * config dir never satisfy each other's consent and a later tag in the same
- * repo is asked about fresh:
- *
- *   decline          permanent for that repo+tag. Read by
- *                     scripts/check-plugin-gap.js (#243) to silence the
- *                     reporter for a tag the founder already said no to.
- *   pendingConsent    written on a yes. Read and cleared by
- *                     scripts/reconcile-plugin.js (#247) once — and only
- *                     once — its materialise succeeds.
- *
- * NOTHING HERE CAN EXPRESS "accepted and completed". Clearing the pending
- * record on success IS the record of success; there is no third state. A
- * materialise that fails leaves the pending record in place, so the reporter
- * (which only reads decline, never pending) keeps speaking and the next session
- * runs the commands again rather than the gap going silently unclosed.
- *
- * STORAGE is one directory for the machine: the sorted config-dir candidate
- * list, the first this process can write to, so every `~/.claude*`
- * plan on this machine agrees on one directory without talking to each other
- * (lib/can-hold-state.js). A PRODUCTION CALLER PASSES NO `configDir` — the
- * CLI writes through the scan, so a reader that named an explicit dir instead
- * could disagree with it about which plan's directory is "the" one. `configDir`
- * is a TEST-ONLY override, bypassing the scan outright so a test never touches
- * the real registry.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { configDir: runningConfigDir } = require("./config-dir.js");
-// Called as `store.configDirs()`, never destructured: a test forcing the
-// fallback spies on this live property.
 const store = require("./arbiter-store.js");
 const { canHoldState } = require("./can-hold-state.js");
 
-/** Memoised per config-dir set. */
 let baseMemo = { key: "", value: "" };
 
-/**
- * The one directory this consent store's files live under.
- * @param {string} [configDir] an explicit override, bypassing the scan
- */
+/** @param {string} [configDir] */
 function base(configDir) {
 	if (configDir) return path.join(configDir, "adopter-upgrade", "consent");
 	let dirsKey = "";
@@ -54,10 +15,6 @@ function base(configDir) {
 	try {
 		dirsKey = store.configDirs().join("\n");
 	} catch {
-		// A thrown configDirs() leaves dirsKey "" — the same string baseMemo.key
-		// starts at, so without this flag the very first failing call would read
-		// as a cache hit on the unset memo and return "" rather than falling
-		// through to the runningConfigDir() fallback below.
 		scanFailed = true;
 	}
 	if (!scanFailed && baseMemo.key === dirsKey) return baseMemo.value;
@@ -67,11 +24,6 @@ function base(configDir) {
 			.configDirs()
 			.map((cfg) => path.join(cfg, "adopter-upgrade", "consent"))
 			.sort();
-		// Not pinnedOrFirstUsable: consent is machine-wide, so there is no
-		// per-project arbiter store to prefer.
-		// configDirs() always lists the running config dir, so an empty list is a
-		// broken invariant; it lands in the catch's fallback, as a failed scan
-		// does, rather than storing undefined as the base (#1344).
 		const first = dirs[0];
 		if (first === undefined) throw new Error("configDirs() named no directory");
 		value = dirs.find(canHoldState) || first;
@@ -82,7 +34,7 @@ function base(configDir) {
 	return value;
 }
 
-/** A `<repo>@<tag>` key spelled safely as part of a filename. @param {string} s */
+/** @param {string} s */
 const slug = (s) => String(s).replace(/[^A-Za-z0-9_-]/g, "-");
 
 /** @param {string} repo @param {string} tag */
@@ -97,8 +49,8 @@ const pendingFile = (repo, tag, configDir) =>
 	path.join(base(configDir), `${slug(keyOf(repo, tag))}.pending.json`);
 
 /**
- * Write `obj` to `file` atomically. Never throws. Returns whether it landed.
- * @param {string} file @param {object} obj
+ * @param {string} file
+ * @param {object} obj
  */
 function atomicWriteJSON(file, obj) {
 	try {
@@ -109,11 +61,7 @@ function atomicWriteJSON(file, obj) {
 	}
 }
 
-/**
- * Read one JSON record. `null` for absent, unreadable or torn — never a
- * throw.
- * @param {string} file
- */
+/** @param {string} file */
 function readJSON(file) {
 	let text;
 	try {
@@ -130,10 +78,10 @@ function readJSON(file) {
 }
 
 /**
- * Record a permanent decline for `repo`+`tag`. Idempotent.
- * @param {string} repo @param {string} tag
+ * @param {string} repo
+ * @param {string} tag
  * @param {{configDir?: string}} [opts]
- * @returns {boolean} whether the write landed
+ * @returns {boolean}
  */
 function decline(repo, tag, { configDir } = {}) {
 	return atomicWriteJSON(declineFile(repo, tag, configDir), {
@@ -144,8 +92,8 @@ function decline(repo, tag, { configDir } = {}) {
 }
 
 /**
- * Whether `repo`+`tag` carries a decline record.
- * @param {string} repo @param {string} tag
+ * @param {string} repo
+ * @param {string} tag
  * @param {{configDir?: string}} [opts]
  */
 function isDeclined(repo, tag, { configDir } = {}) {
@@ -153,10 +101,10 @@ function isDeclined(repo, tag, { configDir } = {}) {
 }
 
 /**
- * Record a pending consent — the tag is accepted, its walk still owed.
- * @param {string} repo @param {string} tag
+ * @param {string} repo
+ * @param {string} tag
  * @param {{configDir?: string}} [opts]
- * @returns {boolean} whether the write landed
+ * @returns {boolean}
  */
 function setPendingConsent(repo, tag, { configDir } = {}) {
 	return atomicWriteJSON(pendingFile(repo, tag, configDir), {
@@ -167,8 +115,8 @@ function setPendingConsent(repo, tag, { configDir } = {}) {
 }
 
 /**
- * The pending consent for `repo`+`tag`, or null where none is owed.
- * @param {string} repo @param {string} tag
+ * @param {string} repo
+ * @param {string} tag
  * @param {{configDir?: string}} [opts]
  * @returns {{repo: string, tag: string, acceptedAt: string}|null}
  */
@@ -185,12 +133,10 @@ function readPendingConsent(repo, tag, { configDir } = {}) {
 }
 
 /**
- * Consume the pending consent for `repo`+`tag` — called once the materialise
- * that closed it has actually succeeded. Idempotent: clearing one never set,
- * or already cleared, is not an error.
- * @param {string} repo @param {string} tag
+ * @param {string} repo
+ * @param {string} tag
  * @param {{configDir?: string}} [opts]
- * @returns {boolean} whether a record was there to clear
+ * @returns {boolean}
  */
 function clearPendingConsent(repo, tag, { configDir } = {}) {
 	try {

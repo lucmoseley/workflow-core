@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-ugrep-pattern core of guard-dispatch.js warns, once per agent and
- * session and never denying, when a bare `grep` pattern carries a ranged
- * repeat that Claude Code's bundled ugrep may refuse (#1021). These are its
- * boundary cases (§X11), the dispatcher entry run on it alone on a
- * harness-shaped payload — each exit and its stream, the warn latch on disk,
- * the core-path rewrite crossed for real and the fail-open record. Which grep
- * warns, and with which sentence, is lib/ugrep-pattern.test.ts's (#2801); the
- * entry's payload faults and the throw policy are guard-dispatch's own tests'
- * (#3227).
- *
- * CLAUDE_PROJECT_DIR is a temp project, so the latch and any fail-open record
- * land under it and the temp CLAUDE_CONFIG_DIR, never the founder's own state.
- *
- * Break the latch and every grep repeats the note; lose the emission and a
- * refused pattern's exit 2 reads to a session as "no match" again.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -38,8 +21,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The hook's hookSpecificOutput for `command`, or null; exit 0 and a quiet
- *  stderr asserted on every call, and never a permission decision. */
 const emission = (
 	command: string,
 	{
@@ -64,7 +45,6 @@ const emission = (
 	return out?.additionalContext as string | undefined;
 };
 
-/** The warn latch at the path `latchAfter` writes. */
 const latch = (key: string) =>
 	path.join(
 		dir,

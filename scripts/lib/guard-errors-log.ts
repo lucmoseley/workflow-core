@@ -1,11 +1,3 @@
-/*
- * guard-errors-log.ts — every guard-errors.log record gl_log wrote under a
- * test's CLAUDE_CONFIG_DIR, joined (#965).
- *
- * FOR TESTS ONLY. It reads every project directory rather than deriving the
- * one slug lib/guard-log.sh files under, so a case need not restate the slug.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 

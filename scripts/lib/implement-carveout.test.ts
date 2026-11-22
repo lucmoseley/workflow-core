@@ -1,21 +1,11 @@
 // @vitest-environment node
-/*
- * Pins the /implement carve-out measurement matcher: mantahostels#1334's
- * original eight paths, the widened rules and where they stop, and the
- * transcript scan that feeds them.
- *
- * Transcripts are built line by line in the test, so each case holds exactly
- * the command, model and commit it needs, and no real session log is read.
- *
- * Breaking it skews the re-run count of Opus /implement misses, which a
- * too-narrow matcher once inflated twentyfold (mantahostels#2462).
- */
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const carveout: any = createRequire(__filename)("./implement-carveout.js");
+const carveout = createRequire(__filename)(
+	"./implement-carveout.js",
+) as typeof import("./implement-carveout.js");
 
 const ORIGINAL_EIGHT = [
 	"scripts/guard-",
@@ -28,7 +18,6 @@ const ORIGINAL_EIGHT = [
 	"scripts/session-arbiter",
 ];
 
-/** mantahostels#1334's original matcher, reproduced so the widening can be asserted against it. */
 function originalHardCarveOut(paths: string[]): boolean {
 	return paths.some((p) => ORIGINAL_EIGHT.some((h) => p.includes(h)));
 }
@@ -61,10 +50,6 @@ describe("isHardCarveOut — mantahostels#2462's widened rules", () => {
 	const cases: [string, string][] = [
 		["scripts/lib/*", "scripts/lib/guard-log.sh"],
 		["scripts/lib/*", "scripts/lib/arbiter-store.js"],
-		// A scripts/lib/ file naming neither "guard" nor "arbiter" — the
-		// deliberate widening past mantahostels#2462's own literal "scripts/lib/*guard*"
-		// candidate, on the census finding scripts/lib/ holds nothing but
-		// check/guard/arbiter/doc-map support code.
 		["scripts/lib/*", "scripts/lib/doc-map.js"],
 		["scripts/check-*.js", "scripts/check-doc-map.js"],
 		["docs/agents/*", "docs/agents/issue-tracker.md"],
@@ -124,7 +109,6 @@ describe("isAdjacent — unchanged by mantahostels#2462", () => {
 });
 
 describe("the paths a session committed", () => {
-	/** The pathspecs scanSession reads off one session's one commit command. */
 	function committed(commitCmd: string): string[] {
 		return carveout.scanSession(buildAssistantLine("claude-opus-4", commitCmd))
 			.paths;
@@ -149,12 +133,10 @@ describe("the paths a session committed", () => {
 	});
 });
 
-/** One line of a fake transcript. */
 function line(record: Record<string, unknown>): string {
 	return JSON.stringify(record);
 }
 
-/** A user turn carrying the session's `<command-name>` block. */
 function buildCommandLine(command: string, timestamp: string): string {
 	return line({
 		type: "user",
@@ -167,11 +149,6 @@ function buildCommandLine(command: string, timestamp: string): string {
 	});
 }
 
-/**
- * An assistant turn, optionally naming a Bash `git commit` call. Not
- * transcript-testkit's buildBashCall: the tier read needs `message.model`, which it
- * does not set, and a turn with no call at all.
- */
 function buildAssistantLine(model: string, commitCmd?: string): string {
 	const content: unknown[] = [];
 	if (commitCmd)

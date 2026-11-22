@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * scanIssueRefs against the three regexes it replaced (#3477), and how a ref
- * read from an API URL is judged same-repo or foreign.
- */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -21,7 +17,6 @@ const { REF_FORMS, SECTION, scanIssueRefs } = require("./issue-ref.js") as {
 	scanIssueRefs: (text: string, form: object) => ScannedRef[];
 };
 
-/* Each caller's regex as #3383 left it. */
 const ARM_SECONDARY =
 	/(?:(?<![\w.&/-])|(?<=[&/]\w*[.-])|(?<=#\d+[.-])|(?<=§[A-Z]?\d+(?:\.\d+)*(?:-|\.(?!\d)|[A-Za-z_]\w*[.-])))(?:[\w.-]+)?#\d+\b|§[A-Z]?\d+(?:\.\d+)*/g;
 const CLOSE_RIVALS =
@@ -29,7 +24,6 @@ const CLOSE_RIVALS =
 const PROSE_BLOCKERS =
 	/(?:(?:(?<![\w.-])|(?!\d)(?<=#\d+))([\w.-]+\/[\w.-]+))?#(\d+)/g;
 
-/** arm-secondary's identifiers: issue refs and sections, in text order. */
 const armIdentifiers = (text: string) =>
 	[
 		...scanIssueRefs(text, REF_FORMS.identifier),
@@ -38,7 +32,6 @@ const armIdentifiers = (text: string) =>
 		.sort((a, b) => a.index - b.index)
 		.map(({ text: t, index }) => ({ text: t, index }));
 
-/** What a `#n` regex finds, in the scanner's shape. */
 const citeRefs = (text: string, re: RegExp) =>
 	[...text.matchAll(re)].map((m) => {
 		const hash = m[0].lastIndexOf("#");
@@ -93,7 +86,6 @@ const STRUCTURED = [
 	"`#12` (#13) [x#14] owner.name/repo-name#15",
 ];
 
-/* A seeded generator, so a failing input reruns. */
 function rng(seed: number) {
 	let s = seed >>> 0;
 	return () => {
@@ -102,15 +94,14 @@ function rng(seed: number) {
 	};
 }
 
-/* Every character class the forms branch on, plus space and newline. Strings
- * of up to 40 reach three-part prefixes (`a.b/c-d#1`) often; 20,000 of them
- * hit every branch the structured cases name many times over. */
 const ALPHABET = "ab9_.-/#&{$§N1 \n`";
+const RANDOM_STRINGS = 20_000; // guess, #3477
+const RANDOM_MAX_LENGTH = 40; // guess, #3477
 const RANDOM = (() => {
 	const next = rng(3477);
-	return Array.from({ length: 20_000 }, () =>
+	return Array.from({ length: RANDOM_STRINGS }, () =>
 		Array.from(
-			{ length: 1 + Math.floor(next() * 40) },
+			{ length: 1 + Math.floor(next() * RANDOM_MAX_LENGTH) },
 			() => ALPHABET[Math.floor(next() * ALPHABET.length)],
 		).join(""),
 	);
@@ -130,8 +121,6 @@ describe("scanIssueRefs finds what each caller's regex found", () => {
 	}
 });
 
-/* Crosses the real clock on purpose: a quadratic read of 40,000 characters
- * takes 12 s or more (HANG_TIMEOUT_MS's measurement). */
 describe("scanIssueRefs stays linear", () => {
 	it("scans 50,000-character prefix runs in every form before the hang timeout kills it", () => {
 		const child = `

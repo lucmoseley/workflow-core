@@ -1,12 +1,3 @@
-/*
- * The machinery the check-in-process equivalence contract (#5172) shares
- * across its files (#5191): a checker run in-process through lib/check.js's
- * checkInProcess() gives the same exit code, stdout and stderr as the same
- * checker spawned as `node <checker> <args>`, over the same fixture tree.
- *
- * FOR TESTS ONLY.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -37,7 +28,6 @@ export const stage = (repo: string, file: string, body: string) => {
 	git(repo, "add", file);
 };
 
-/** An empty repo with its identity set, built once per file and copied per tree. */
 const EMPTY = defineTemplate((dir) => {
 	git(dir, "init", "-q", ".");
 	git(dir, "config", "user.email", "test@example.com");
@@ -52,14 +42,11 @@ export const fixture = (tree: Tree) => {
 	tree.build(repo);
 	return repo;
 };
-/** Each file's `afterEach`: removes the trees its cases built. */
 export const removeFixtures = () => {
 	for (const d of dirs.splice(0))
 		fs.rmSync(d, { recursive: true, force: true });
 };
 
-/* The fixture is also the run's host (CLAUDE_PROJECT_DIR), as the hook's
- * repo is its own: vitest.setup.ts points the host at an empty non-repo. */
 export const spawned = (script: string, args: string[], repo: string) => {
 	const r = keptSpawn("boundary").spawnSync(
 		process.execPath,
@@ -73,8 +60,6 @@ export const spawned = (script: string, args: string[], repo: string) => {
 	return { exit: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
-/* The fixture is the run's working directory, as the hook's is; chdir is the
- * test's, around the call, never the checker's. */
 const inRepo = async <T>(repo: string, run: () => T | Promise<T>) => {
 	const was = process.cwd();
 	process.chdir(repo);
@@ -96,8 +81,6 @@ export const inProcess = (
 	return inRepo(repo, () => checkInProcess(SPEC, args, { script, sides }));
 };
 
-/* A run with what differs between any two runs taken out: the random name of
- * each materialised tree, and a BROKEN's stack frames. */
 const settled = (r: {
 	exit: number | null;
 	stdout: string;
@@ -137,17 +120,10 @@ const writeAll = (repo: string, files: Files) => {
 	for (const [file, text] of Object.entries(files)) stage(repo, file, text);
 };
 
-/** A tree, and the verdict its spawned run gives where it holds a fault. */
 interface RowTree extends Tree {
 	verdict?: { exit: number; says: RegExp; names: string[] };
 }
 
-/* The trees a row is judged on. Every row: one commit holding its fixture
- * path, the index changing it. A row with a side also: that commit holding a
- * fault besides, the index changing the path alone (the fault inherited) or
- * adding a second fault. An `--against` row passes
- * the inherited fault over and refuses the added one; an `--index` row,
- * having no baseline, refuses both, an added file named among its findings. */
 const treesOf = (row: GateRow): RowTree[] => {
 	const at = pathOf(row);
 	const base = (r: string, held: Files) => {
@@ -203,9 +179,6 @@ const listOf = (row: GateRow) =>
 		? computed(row.arm.computed)
 		: [];
 
-/* Every dispatcher row as the dispatcher runs it (#5172): its args, its sides
- * spawned where the row keeps a `side`, over a tree treesOf builds. A row with
- * a computed arm stages a member of its list, never only a pattern match. */
 const dispatcherRowCase = async (row: GateRow, tree: RowTree) => {
 	const at = pathOf(row);
 	const list = listOf(row);
@@ -223,8 +196,6 @@ const dispatcherRowCase = async (row: GateRow, tree: RowTree) => {
 	const repo = fixture(tree);
 	const file = path.join(SCRIPTS, path.relative("scripts", row.script));
 	const own = spawned(file, row.args, repo);
-	/* A program row: its PROGRAM against its own process shell, in the
-	 * fixture as the dispatcher runs it in the hook's repo. */
 	if (row.kind === "program") {
 		const { PROGRAM } = require(file);
 		await inRepo(repo, () =>

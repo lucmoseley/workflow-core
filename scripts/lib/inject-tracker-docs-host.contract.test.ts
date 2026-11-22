@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Contract of lib/inject-tracker-docs-host.js's two reads against the fakes
- * the core's module cases use (lib/inject-tracker-docs-testkit.ts, §G7): each
- * fixture is answered by the production adapter and by the fake, and the
- * answers must agree.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -22,11 +16,9 @@ const { buildHostPorts } =
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-host-contract-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
-/** The production ports, logging into `logged`. */
 const production = (logged: string[] = []) =>
 	buildHostPorts((what) => logged.push(what));
 
-/** Run `fn` with these variables set over the environment, restored after. */
 function withEnv<T>(env: Record<string, string>, fn: () => T): T {
 	const saved = process.env;
 	// env-write-kept: swapped and restored around one synchronous call, never across a case.
@@ -115,7 +107,6 @@ describe("the review-tier read", () => {
 	git("add", ".");
 	const env = { CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: SCRATCH };
 	let n = 0;
-	/* A fresh session per read: the tier core latches what it has told one. */
 	const query = () => ({
 		payload: JSON.stringify({
 			hook_event_name: "PreToolUse",

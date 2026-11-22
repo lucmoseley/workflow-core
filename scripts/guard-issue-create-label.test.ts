@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-issue-create-label core of guard-dispatch.js refuses an issue
- * create carrying no valid `takes:` label (mantahostels#470, the build;
- * mantahostels#453, the ruling). These are its boundary cases, the dispatcher
- * entry run on it alone on a harness-shaped payload: each exit, the
- * fail-open record on disk, and the fs, the rule store and gh at WFC_GH
- * crossed for real. Which command is refused, and why, is
- * lib/issue-create-label.test.ts's; the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#2796, #3225).
- *
- * CLAUDE_PROJECT_DIR is a temp project, so the fail-open log lands in the
- * temp CLAUDE_CONFIG_DIR and never the founder's.
- *
- * Make it allow an unlabelled create and every issue is filed unrouted; make
- * it deny on a fault and every `gh` call is wedged.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -62,7 +46,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The core's hookSpecificOutput for `command`, run in the temp project. */
 const emission = (
 	command: string,
 	{ env = {} }: { env?: NodeJS.ProcessEnv } = {},
@@ -74,8 +57,6 @@ const emission = (
 		env,
 	});
 
-/** A gh at WFC_GH answering `fixture` with `stdout` swapped in; run outside
- *  `onlyIn`, where given, it answers as a logged-out gh. */
 function ghAnswering(fixture: string, stdout: string, onlyIn?: string) {
 	return stubGhScript(
 		path.join(dir, "gh"),
@@ -155,11 +136,6 @@ describe("each exit", () => {
 		);
 	});
 
-	// Were a gate line's tail a lazy group before its trailing blanks, each of
-	// 100,000 blanks inside it would retry the run to the line's end, a minute
-	// or more; read to the end and back once, milliseconds (#3383). All three
-	// marker lines are read past their blanks: the refusal names the window the
-	// gate line writes and the basis line does not.
 	it("judges a body whose gate lines hold long blank stretches, promptly", () => {
 		const blanks = " ".repeat(100_000);
 		const body =

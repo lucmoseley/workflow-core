@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * THE SPLIT RULE, pinned (mantahostels#1795). arbiter-store.js's header states it; nothing
- * else tests it, because every other suite reaches the families through the
- * facade and so only ever loads them in the facade's own require order.
- *
- * WHAT EACH HALF PROVES. The load probe proves a family module is loadable as
- * the entry point at all and hands back its whole export list either way. It
- * does NOT prove immunity to the cycle hole: a replaced exports object is
- * already whole by the time `require` returns, and the hole is only visible to
- * the sibling that captured the object mid-load, at ITS next call. The static
- * assertions below are what guard that — mutation-tested by rewriting
- * arbiter-content.js's tail as `module.exports = {...}`.
- *
- * Loosen a case here and a family loaded in another order — by a new caller or
- * a reordered require — calls a sibling's function through a half-filled
- * exports object and throws, inside the arbiter every Write and Edit claim
- * goes through.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -29,7 +11,6 @@ const families = fs
 	.filter((f) => /^arbiter-.*\.js$/.test(f) && f !== "arbiter-store.js")
 	.sort();
 
-/** The export names `file` hands back when it is the FIRST module loaded. */
 const keysAlone = (file: string) =>
 	JSON.parse(
 		execFileSync(
@@ -42,7 +23,6 @@ const keysAlone = (file: string) =>
 		),
 	) as string[];
 
-/** The same, with the facade — and so every family — loaded first. */
 const keysAfterFacade = (file: string) =>
 	JSON.parse(
 		execFileSync(
@@ -65,7 +45,6 @@ describe("every family module loads as the entry point", () => {
 		it(`${file} hands back the same exports either way`, () => {
 			const alone = keysAlone(file);
 			expect(alone).toEqual(keysAfterFacade(file));
-			// arbiter-records.js is types only, so its empty list is the right answer.
 			if (file !== "arbiter-records.js")
 				expect(alone.length).toBeGreaterThan(0);
 		});
@@ -117,17 +96,6 @@ describe("the two disciplines that make the cycle safe", () => {
 	});
 });
 
-/*
- * The arbiter runs inside hooks, so nothing it loads may claim the process's
- * exit. lib/check.js's module body installs uncaughtException and
- * unhandledRejection handlers that end in `process.exit` — right for a checker.
- */
-/**
- * What a fresh process holds after loading `entry`: the lib/check.js entries in
- * its require cache, and the crash handlers check.js's module body installs.
- * Both are process-global and neither survives into a vitest worker that has
- * already loaded something, so this can only be asked in a subprocess.
- */
 const crashProbe = (entry: string) =>
 	JSON.parse(
 		execFileSync(
@@ -147,9 +115,6 @@ const crashProbe = (entry: string) =>
 
 describe("check.js never enters the arbiter's require graph", () => {
 	it("sees check.js and its handlers where they ARE loaded", () => {
-		// The positive control. Without it the assertion below passes on a probe
-		// that can no longer find check.js at all — a path regex crossing two
-		// layers of escaping is exactly the thing that breaks silently.
 		expect(crashProbe("check.js")).toEqual({
 			check: 1,
 			uncaught: 1,
@@ -166,17 +131,8 @@ describe("check.js never enters the arbiter's require graph", () => {
 	});
 });
 
-/*
- * The dynamic probe above can only be run on a module that LOADS quietly, and
- * the arbiter's real hook entry — scripts/session-arbiter.js — runs its CLI and
- * calls process.exit on require. So the entry graph is walked statically
- * instead: lexical, and blind to a dynamic or computed require, but it reaches
- * the modules session-arbiter.js pulls beside the facade, any of which could
- * acquire lib/check.js without the facade ever seeing it.
- */
 describe("nothing the hook entry pulls reaches check.js either", () => {
 	const scriptsDir = path.dirname(LIB);
-	/** Every local module reachable from `entry` by a literal relative require. */
 	const readGraph = (entry: string) => {
 		const seen = new Set<string>();
 		const queue = [entry];
@@ -195,7 +151,6 @@ describe("nothing the hook entry pulls reaches check.js either", () => {
 	};
 
 	it("reaches lib/check.js from a checker, and never from the arbiter", () => {
-		// Positive control first, for the reason the probe above has one.
 		expect(readGraph(path.join(scriptsDir, "check-issue-labels.js"))).toContain(
 			path.join(LIB, "check.js"),
 		);

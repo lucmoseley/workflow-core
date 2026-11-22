@@ -1,13 +1,3 @@
-/*
- * lander-records.js — the queue lander's two record files, the pipeline
- * record and the drop record (#4897).
- *
- * A read takes a record any older lander wrote: a field added after a record
- * shipped is optional on read and given its default here, a field no longer
- * written and any unknown field are ignored. No field is made required after it
- * ships, and the files carry no version.
- */
-
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
@@ -20,9 +10,6 @@ const { asObject } = require("./json-shape.js");
  * @typedef {import("./queue-lander.js").Unmerged} Unmerged
  */
 
-/* `isolating` while each member is tested alone on `main`, `serial` while
- * members land one at a time after a collision, `requeued` done without
- * landing, `held` done on its `hold`. */
 const PHASES = Object.freeze(
 	/** @type {const} */ ([
 		"merging",
@@ -37,119 +24,80 @@ const PHASES = Object.freeze(
 
 /**
  * @template T
- * @typedef {{kind: "absent"} | {kind: "torn"} | {kind: "read", value: T}}
- *   RecordRead a record file: absent, torn where it will not parse or is not
- *   the record, or read
+ * @typedef {{kind: "absent"} | {kind: "torn"} | {kind: "read", value: T}} RecordRead
  */
 
 /**
  * @typedef {typeof PHASES[number]} Phase
- * @typedef {QueueRef} Member a batch member, at its snapshot sha
+ * @typedef {QueueRef} Member
  * @typedef {{readonly kind: "base", readonly main: string,
  *   readonly files: readonly string[], readonly ticket: number|null,
  *   readonly retakeAt?: number}
  *   | {readonly kind: "refused", readonly main: string,
- *     readonly sha: string, readonly reason: string}} Hold why a batch
- *   stopped at `main`: red only where `main` is, on `files`, none where the
- *   red named none, with the base-red ticket, and `retakeAt`, in ms, where
- *   no run fired at `main` either; or its push of `sha` refused
- * @typedef {object} Blame what a red batch's isolation runs on
- * @property {readonly string[]} files the failing files `main` passes, none
- *   where the red named none
- * @property {readonly string[]} base the failing files `main` fails too
- * @property {readonly string[]} members the names isolated, in push order
+ *     readonly sha: string, readonly reason: string}} Hold
+ * @typedef {object} Blame
+ * @property {readonly string[]} files
+ * @property {readonly string[]} base
+ * @property {readonly string[]} members
  * @typedef {{readonly name: string, readonly sha: string,
- *   readonly iso: string}} Isolated a member merged alone onto the batch's
- *   `onto` as `iso`
+ *   readonly iso: string}} Isolated
  * @typedef {{readonly name: string, readonly sha: string,
- *   readonly onto: string}} Step a serial step: the member `name` merged
- *   alone onto `onto` as `sha`
+ *   readonly onto: string}} Step
  * @typedef {{readonly landed: readonly string[],
- *   readonly step: Step|null}} Serial the members landed so far, and the
- *   step under test
+ *   readonly step: Step|null}} Serial
  * @typedef {{readonly sha: string, readonly files: readonly string[],
- *   readonly verdict: Exclude<Verdict, {kind: "unknown"}>}} BaseVerdict a
- *   base check's verdict at `main`'s `sha` on `files`, none for the whole
- *   suite
+ *   readonly verdict: Exclude<Verdict, {kind: "unknown"}>}} BaseVerdict
  * @typedef {object} Batch
- * @property {number} slot the k of its `lander/batch-<k>` ref, unique among
- *   the pipeline's batches
- * @property {readonly Member[]} members in push order
- * @property {readonly string[]} deferred the names of members left out, to
- *   be taken again once their deferral no longer holds them
+ * @property {number} slot
+ * @property {readonly Member[]} members
+ * @property {readonly string[]} deferred
  * @property {readonly string[]} dropped
- * @property {string} onto the base its members were merged onto: `main`
- *   for the line's head and a search, else the integration commit of the
- *   batch ahead
- * @property {string|null} integration the commit under test, null while
- *   merging
+ * @property {string} onto
+ * @property {string|null} integration
  * @property {Phase} phase
- * @property {readonly string[]} ahead the members that form the next batch
- *   alone, ahead of newer refs
+ * @property {readonly string[]} ahead
  * @property {Blame|null} blame
  * @property {readonly Isolated[]} isolated
  * @property {Serial|null} serial
  * @property {Hold|null} hold
- * @property {readonly BaseVerdict[]} bases the base checks this batch asked
+ * @property {readonly BaseVerdict[]} bases
  * @typedef {object} Pipeline
- * @property {readonly Batch[]} line the batches in flight, in queue order,
- *   the head first
- * @property {Batch|null} search the red batch whose culprits are sought, or
- *   done held or re-batched, until a take or a new search replaces it
- * @property {number} depth the window: how many batches the line may hold
+ * @property {readonly Batch[]} line
+ * @property {Batch|null} search
+ * @property {number} depth
  * @typedef {object} PipelineRecord
  * @property {() => RecordRead<Pipeline>} read
  * @property {(p: Pipeline) => void} write
- * @property {() => string} quarantine moves the record file aside, beside
- *   it, under a name that sorts by time and never replaces an earlier one,
- *   and returns that path
+ * @property {() => string} quarantine
  * @typedef {{readonly file: string, readonly test: string,
- *   readonly message: string}} QuotedFailure a failing test and its error,
- *   cut to a ticket's length
+ *   readonly message: string}} QuotedFailure
  * @typedef {{readonly noRun?: true,
  *   readonly typecheck?: readonly string[],
  *   readonly runs?: readonly number[],
- *   readonly failures?: readonly QuotedFailure[]}} RedMarks what a cause
- *   keeps of its red beside its files: `noRun` where no CI run fired for
- *   that tree; `typecheck` the type-check's first errors, where it failed;
- *   `runs` the CI runs that were red, where the tester read any; `failures`
- *   the failing tests whose error it read, the first few
+ *   readonly failures?: readonly QuotedFailure[]}} RedMarks
  * @typedef {{readonly kind: "red", readonly name: string,
  *   readonly files: readonly string[], readonly iso: string,
- *   readonly mainRun?: number} & RedMarks}
- *   RedAlone red on `files` twice, none where the red named none, merged
- *   alone onto `main` as `iso`, where `main` passed them, in the CI run
- *   `mainRun` where the tester read one
+ *   readonly mainRun?: number} & RedMarks} RedAlone
  * @typedef {{readonly kind: "collision", readonly name: string,
  *   readonly files: readonly string[], readonly step: string,
- *   readonly after: readonly string[]} & RedMarks} Collision the serial step
- *   `step`, merging it onto `main` after the members `after` landed, red
- *   twice on `files`, none where the red named none, each member having
- *   passed alone
+ *   readonly after: readonly string[]} & RedMarks} Collision
  * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
- *   a dropped ref no drop record entry named
  * @typedef {Exclude<Unmerged, {kind: "stale-base"}> | RedAlone | Collision
  *   | Unrecorded} Cause
  * @typedef {"open" | "settled" | "ticketed"} DropState
- * @typedef {object} Drop a dropped member, as the drop record holds it
- * @property {string} name after `queue/`
+ * @typedef {object} Drop
+ * @property {string} name
  * @property {string} sha
- * @property {string} ref the dropped ref holding it, after `refs/heads/`
- * @property {string} onto the `main` it was merged onto, or, for an entry
- *   written back for a ref none named, `main` when it was
+ * @property {string} ref
+ * @property {string} onto
  * @property {Cause} cause
- * @property {number|null} ticket its branch's fix ticket, which every
- *   ticketed entry of one `name` shares; null until filed
- * @property {number} at when it was dropped, in ms
- * @property {DropState} state `open` until decided; `settled` once `main`
- *   holds its sha or a newer push of its queue ref landed; `ticketed` once
- *   its branch's fix ticket names it
- * @property {number} decidedAt when `state` was decided, in ms
- * @property {string} [settledOn] the `main` sha that held its work when it
- *   was settled
- * @property {string} [filingRefused] why file-issue.js refused its fix
- *   ticket for good, until one is filed
- * @property {number} [reapedAt] when its dropped ref was deleted, in ms
+ * @property {number|null} ticket
+ * @property {number} at
+ * @property {DropState} state
+ * @property {number} decidedAt
+ * @property {string} [settledOn]
+ * @property {string} [filingRefused]
+ * @property {number} [reapedAt]
  * @typedef {object} DropRecord
  * @property {() => Drop[]} read
  * @property {(drops: readonly Drop[]) => void} write
@@ -190,9 +138,6 @@ const isPhase = (p) =>
 	/** @type {readonly string[]} */ (PHASES).includes(p);
 
 /**
- * A green row's verdict: the run that passed it, whole or on its named files
- * alone, and the files its in-job retry cleared, its flakes (#4558), where
- * the row names them.
  * @param {Record<string, unknown>} o
  * @returns {Verdict}
  */
@@ -206,7 +151,6 @@ const parseGreen = (o) => ({
 });
 
 /**
- * A red row's failing tests, each with its error where the row holds one.
  * @param {unknown} list
  * @returns {import("./queue-lander.js").Failure[]}
  */
@@ -240,7 +184,6 @@ function parseVerdict(v) {
 			...(typeof o.run === "number" ? { run: o.run } : {}),
 			...(isStringList(o.jobs) ? { jobs: o.jobs } : {}),
 			...(failures.length > 0 ? { failures } : {}),
-			/* Retried in its own run, so the lander takes no re-run (#4545). */
 			...(o.retried === true ? { retried: true } : {}),
 			...(o.noRun === true ? { noRun: true } : {}),
 			...(isStringList(o.typecheck) ? { typecheck: o.typecheck } : {}),
@@ -320,7 +263,6 @@ const isMember = (m) => {
 };
 
 /**
- * A batch in the current shape, or null where it is none.
  * @param {unknown} parsed
  * @returns {Batch|null}
  */
@@ -419,7 +361,6 @@ const isCause = (u) => {
 const DROP_STATES = ["open", "settled", "ticketed"];
 
 /**
- * A drop in the current shape, or null where it is none.
  * @param {unknown} d
  * @returns {Drop|null}
  */
@@ -461,8 +402,6 @@ function parseDrop(d) {
 }
 
 /**
- * A JSON record file: absent, torn where it will not parse, or its value.
- * Any other read fault throws.
  * @param {string} file
  * @returns {RecordRead<unknown>}
  */
@@ -478,10 +417,8 @@ function readRecordFile(file) {
 }
 
 /**
- * The pipeline record: the batches a run is landing, so the next run
- * resumes them.
  * @param {string} file
- * @param {() => number} [now] the clock a quarantine names its file by, in ms
+ * @param {() => number} [now]
  * @returns {PipelineRecord}
  */
 function pipelineRecord(file, now = Date.now) {
@@ -500,9 +437,7 @@ function pipelineRecord(file, now = Date.now) {
 			for (let n = 0; ; n++) {
 				const aside = n === 0 ? stem : `${stem}-${n}`;
 				try {
-					/* A link refuses an existing name where a rename replaces it
-					 * (#4905). A crash before the unlink leaves the record under
-					 * both names, and the next run moves a second copy aside. */
+					// #4905
 					fs.linkSync(file, aside);
 				} catch (err) {
 					if (caught(err).code === "EEXIST") continue;
@@ -516,7 +451,6 @@ function pipelineRecord(file, now = Date.now) {
 }
 
 /**
- * The drop record's file, a row that is not a drop skipped.
  * @param {string} file
  * @returns {RecordRead<Drop[]>}
  */
@@ -532,10 +466,6 @@ function readDropFile(file) {
 }
 
 /**
- * The drop record: every dropped ref, with its fix ticket, until the queue
- * log's retention after its reap. An absent or torn record reads as none,
- * and the lander writes back the entry of each dropped ref it named from the
- * tracker.
  * @param {string} file
  * @returns {DropRecord}
  */
@@ -551,13 +481,7 @@ function dropRecord(file) {
 	};
 }
 
-/**
- * Whether the drop is owed a decision a lander is started for; a filing
- * refused for good is a person's to clear, and starts none. Narrower
- * than what a running lander decides (lib/queue-lander.js's dropDecision): a
- * ticketed drop's close waits for the run a push starts (spec #4947).
- * @param {Drop} d
- */
+/** @param {Drop} d */
 const isOwedDrop = (d) =>
 	d.state === "open" &&
 	d.ticket === null &&
@@ -565,17 +489,12 @@ const isOwedDrop = (d) =>
 	d.filingRefused === undefined;
 
 /**
- * The drops the record at `file` holds that are owed a decision.
  * @param {string} file
  * @returns {Drop[]}
  */
 const readOwedDrops = (file) => dropRecord(file).read().filter(isOwedDrop);
 
-/**
- * A batch record's red-path fields before any red: a fresh object per call,
- * so no two batches share a list.
- * @returns {Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold" | "bases">}
- */
+/** @returns {Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold" | "bases">} */
 const redPathAtRest = () => ({
 	ahead: [],
 	blame: null,

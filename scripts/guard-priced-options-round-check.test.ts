@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * guard-priced-options-round-check.test.ts — the under-researched-round limb
- * (#1710): a not-close round sent after fewer than `MIN_CALLS` tool calls
- * since the founder last spoke is refused once with `rule:house-decision`, and every
- * not-close question, or refused one the close-rivals limb then took, leaves a
- * line in the round-check log. Where the shape
- * limb is silent, the refusal names the question's shape faults and its
- * re-send is refused on them until fixed (#1730).
- *
- * The guard runs at every `Stop`: loosen a case and a round no research
- * preceded reaches the founder; break the record and a researched round is
- * refused for ever; break the log and #1691's reading (whether the limb
- * works) counts the wrong rounds.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -86,11 +72,8 @@ afterEach(() => {
 const stop = (message: string) =>
 	readStopGuardReason(GUARD, { dir, sid, message, transcript: file });
 
-/* Unstamped: counted since the founder's message, never as following a
- * refusal, whose record carries the wall clock. */
 const calls = (n: number) =>
 	researchCalls(n).map((call) => JSON.stringify(call));
-/* Stamped after any refusal a case has just made. */
 const callAfter = (name = "Bash") =>
 	JSON.stringify({
 		...buildBashCall("ls", "t-after", {
@@ -171,7 +154,7 @@ describe("the threshold", () => {
 		expect(stop(round())).toContain("Q1: 2 tool calls");
 	});
 
-	/* A loop resume lands with origin kind `human`, as he would (#3378). */
+	// #3378
 	it("counts past a refill loop's resume prompt", () => {
 		writeTranscript(
 			file,
@@ -223,7 +206,6 @@ describe("beside the close-rivals limb", () => {
 		const reason = stop(round(1, { close: true }));
 		expect(reason).toContain(CLOSE);
 		expect(reason).not.toContain(UNDER);
-		/* Still close, the re-send is the research-ladder limb's (#2006). */
 		const resent = stop(round(1, { close: true }));
 		expect(resent).toContain(LADDER);
 		expect(resent).not.toContain(UNDER);

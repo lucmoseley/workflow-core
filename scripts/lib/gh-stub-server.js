@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * gh-stub-server.js — one long-lived process answering a test's stateful `gh`
- * stub, so each call costs a bash start, not a node start (#2877).
- * `gh-stub.ts`'s `serveGhStub` starts it; `buildServerClient` writes the bash
- * `gh` each call runs.
- *
- * argv[2] is the handler: a function body called once per gh call with
- * (argv, env, cwd, stdin, out, err, exit, require). `out` and `err` append to
- * the call's streams; `exit(code)` ends the call, as falling off the end ends
- * it with 0, and a thrown error with 1. The port is printed on stdout, and the
- * server exits once its stdin closes.
- *
- * The wire, every field NUL-terminated. A request is cwd, argc, the args, the
- * environment's `K=V` entries, an empty field, then "1" and stdin's text or
- * "0" alone. The answer is the exit status, stdout and stderr.
- *
- * What it does not reproduce: a NUL in stdin is cut there, and one in an
- * answer is refused. `exit` throws, so a handler's own catch-all swallows it;
- * `process` is the server's, so `process.exit` ends every later call. Calls
- * are answered one at a time, so a handler that itself runs gh deadlocks. An
- * environment name bash cannot hold is not forwarded.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./write-fd.js");
@@ -29,14 +7,9 @@ const vm = require("node:vm");
 const { noop } = require("./noop.js");
 const { shellQuote } = require("./sh-quote.js");
 
-/** The client's exit where the server never answered: sysexits' EX_SOFTWARE. */
 const NO_ANSWER = 70;
 
-/**
- * The bash `gh` that hands its call to the server on `port`. It forwards
- * stdin only where an argument names it (`-`, `…@-`).
- * @param {number} port
- */
+/** @param {number} port */
 const buildServerClient = (port) => `#!/bin/bash
 unreachable() { echo ${shellQuote(`gh stub: no answer from the server on port ${port}`)} >&2; exit ${NO_ANSWER}; }
 trap '' PIPE
@@ -57,10 +30,7 @@ printf '%s' "$err" >&2
 exit "$status"
 `;
 
-/**
- * Whether `arg` names stdin, as the client reads it: `-` or `…@-`.
- * @param {string} arg
- */
+/** @param {string} arg */
 const isStdinArg = (arg) => arg === "-" || arg.endsWith("@-");
 
 class Exit {
@@ -70,10 +40,7 @@ class Exit {
 	}
 }
 
-/**
- * The request in `fields`, or null while it is still arriving.
- * @param {string[]} fields
- */
+/** @param {string[]} fields */
 function parseRequest(fields) {
 	if (fields.length < 2) return null;
 	const argc = Number(fields[1]);
@@ -142,7 +109,7 @@ function answer(handler, req) {
 	return `${status}\0${stdout}\0${stderr}\0`;
 }
 
-/** @param {string} source the handler's body */
+/** @param {string} source */
 const compileHandler = (source, filename = "gh-handler.js") =>
 	vm.compileFunction(
 		source,
@@ -151,10 +118,6 @@ const compileHandler = (source, filename = "gh-handler.js") =>
 	);
 
 /**
- * `source` answering in this process as lib/gh.js's `gh(args, opts)` does, for
- * a core's gh port in a module test (#5148), a non-zero status thrown as
- * execFileSync throws it. Stdin is `opts.input`, read only where an argument
- * names it.
  * @param {string} source
  * @param {{env: Record<string, string | undefined>, cwd: string}} at
  * @returns {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string}
@@ -192,7 +155,6 @@ function serve(handlerFile) {
 			const req = parseRequest(text.split("\0").slice(0, -1));
 			if (req) sock.end(answer(handler, req));
 		});
-		// A caller killed mid-call drops only its own connection, never the server.
 		sock.on("error", noop);
 	});
 	server.listen(0, "127.0.0.1", () => {

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * dir-lock.test.ts — the scratch stores' read-modify-write lock (#2787).
- * Loosen a case and a crashed holder's lock blocks every later write for good,
- * a held lock is left behind to stall the next caller, or a store write is
- * skipped for want of the lock where it should go ahead unserialised.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -55,8 +49,6 @@ describe("withDirLock", () => {
 
 	it("runs fn unserialised once the wait runs out, leaving the holder's lock", () => {
 		fs.mkdirSync(lock);
-		// Each read of the clock moves it a second on, so the 2 s wait runs out
-		// in two polls, long before the lock would read as 10 s stale.
 		let t = Date.now();
 		const clock = () => {
 			t += 1000;

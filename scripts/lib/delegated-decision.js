@@ -1,17 +1,3 @@
-/*
- * delegated-decision.js — one delegated decision's entry: the fields it owes,
- * the comment that records it on its ticket, and the ledger line the morning
- * review issue lists it from (#2002; spec #1995 §Delegated decisions).
- *
- * The comment and the ledger line are rendered from the same entry, so the
- * review can never list a call the ticket records differently.
- *
- * THE LEDGER lives in the CANONICAL checkout's markers directory — the parent
- * of the common git dir — so a decision recorded from a throwaway worktree
- * lands where the review generator reads, not in a tree about to be deleted.
- * Where git will not answer, the host root's.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./host-root.js");
@@ -21,10 +7,6 @@ const { repoRoot } = require("./test-pass-marker.js");
 
 const LEDGER = "delegated-decisions.jsonl";
 
-/**
- * The free-text flags, every one required on one line. The three rungs are the
- * research ladder's (#1905): each takes the fact it found, or `none`.
- */
 const TEXT_FLAGS = [
 	"--question",
 	"--taken",
@@ -48,16 +30,10 @@ const FLAGS = /** @type {Record<string, "value">} */ (
 
 /**
  * @typedef {{question: string,
- *   taken: {option: string, figure: number},
- *   runnerUp: {option: string, figure: number},
- *   rungs: {rulings: string, web: string, subagent: string},
- *   stillClose: boolean, reverse: string}} Entry
- * `stillClose` is whether the round is still caught once research is spent:
- * its top two rivals close, or no option likely right — the meaning #2328 gave
- * the close-check log's field of that name. The key keeps its name because
- * ledger lines already written carry it (#2594). Residual: the key reads
- * `stillClose` while the comment prints `Still caught:`, so a search for one
- * misses the other.
+ * taken: {option: string, figure: number},
+ * runnerUp: {option: string, figure: number},
+ * rungs: {rulings: string, web: string, subagent: string},
+ * stillClose: boolean, reverse: string}} Entry
  */
 
 /**
@@ -112,11 +88,7 @@ function entryFrom(flags) {
 	};
 }
 
-/**
- * The comment: a literal `**Delegated decision:**` line, then one line per
- * field.
- * @param {Entry} e
- */
+/** @param {Entry} e */
 const renderComment = (e) =>
 	[
 		"**Delegated decision:**",
@@ -143,9 +115,6 @@ const ledgerPath = () => {
  */
 
 /**
- * The ledger's lines, parsed, and a count of the bad ones — a crashed
- * append's half line among them. A missing ledger holds none; an unreadable
- * one throws.
  * @param {string} file
  * @returns {{lines: LedgerLine[], torn: number}}
  */
@@ -158,17 +127,11 @@ function readLedgerLines(file) {
 	};
 }
 
-/**
- * The ledger in checkout `root`, without creating its markers directory, for
- * the morning review (#2011), which names the torn count rather than drop
- * those decisions silently.
- * @param {string} root
- */
+/** @param {string} root */
 const readLedger = (root) =>
 	readLedgerLines(path.join(root, MARKERS_REL, LEDGER));
 
 /**
- * Whether the ledger holds a line for `commentUrl` already.
  * @param {string} file
  * @param {string} commentUrl
  */

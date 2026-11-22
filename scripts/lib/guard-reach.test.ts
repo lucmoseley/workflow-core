@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/lib/guard-reach.js: the edges one file's text names, and
- * the closure walked over them. The four digests that read it test their own
- * policy over these edges, never the parsing (#4233).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -20,7 +15,6 @@ interface Edge {
 
 const ROOT = path.join(__dirname, "..", "..");
 
-/** The `to` of each edge of `kind` that `text` at `rel` names. */
 const targets = (
 	rel: string,
 	text: string,
@@ -127,11 +121,9 @@ describe("source edges", () => {
 	});
 });
 
-// A regex match is synchronous, so only a process timeout can stop a
-// backtracking one (#2188, #3383). Each text is 240k-660k characters: read
-// linearly it takes under 50 ms, read once per head it
-// is some 10^10 steps, so 10 s leaves a loaded machine 200x headroom and a
-// quadratic read none.
+// measured under 50 ms read linearly, #3383
+const LINEAR_READ_TIMEOUT_MS = 10_000;
+
 describe("a long line of heads that reach nothing", () => {
 	it.each([
 		["source", "source ".repeat(80_000)],
@@ -146,7 +138,7 @@ describe("a long line of heads that reach nothing", () => {
 				`const { parseEdges } = require(${JSON.stringify(require.resolve("./guard-reach.js"))}); parseEdges("scripts/x.sh", require("node:fs").readFileSync(0, "utf8"), { kinds: [process.argv[1]] });`,
 				kind,
 			],
-			{ input: text, timeout: 10_000 },
+			{ input: text, timeout: LINEAR_READ_TIMEOUT_MS },
 		);
 		expect(r.signal).toBeNull();
 		expect(r.status).toBe(0);
@@ -262,8 +254,7 @@ describe("run edges", () => {
 		expect(
 			guard(
 				[
-					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-					'scanner="${WFC_PLUGIN_ROOT:-$here/..}/scripts/closes.sh"',
+					`scanner="\${WFC_PLUGIN_ROOT:-$here/..}/scripts/closes.sh"`,
 					'bash "$scanner" "$1" commit-msg',
 					'sh "$here/trailer.sh"',
 				].join("\n"),
@@ -282,8 +273,7 @@ describe("run edges", () => {
 				[
 					'lib="$(cd "$here" && pwd)/lib"',
 					'sh "$lib/serialised.sh" x',
-					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-					'node "${lib}/a.js"',
+					`node "\${lib}/a.js"`,
 					'bash "$lib"/b.sh',
 				].join("\n"),
 			),
@@ -319,14 +309,11 @@ describe("run edges", () => {
 			targets(
 				"scripts/lib/code-signal.sh",
 				[
-					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-					'_cs_dir="${BASH_SOURCE[0]%/*}"',
+					`_cs_dir="\${BASH_SOURCE[0]%/*}"`,
 					'_cs_dir="$(cd "$_cs_dir" 2>/dev/null && pwd)"',
-					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-					'CS_ARBITER="${_cs_dir%/*}/session-arbiter.js"',
+					`CS_ARBITER="\${_cs_dir%/*}/session-arbiter.js"`,
 					'hooks="$_cs_dir/hooks"',
-					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-					'node "${hooks%/*}/x.js"',
+					`node "\${hooks%/*}/x.js"`,
 					'node "$CS_ARBITER" own-paths',
 				].join("\n"),
 				"run",
@@ -337,17 +324,13 @@ describe("run edges", () => {
 
 	it("reads a run beneath a directory variable built off one assigned before it", () => {
 		expect(
-			guard(
-				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-				'a="$here/lib"\nb="$a/sub"\nsh "$b/x.sh"\nnode "${b%/*}/y.js"',
-			),
+			guard(`a="$here/lib"\nb="$a/sub"\nsh "$b/x.sh"\nnode "\${b%/*}/y.js"`),
 		).toEqual(["scripts/lib/sub/x.sh", "scripts/lib/y.js"]);
 	});
 
 	it("reads a run off the file's own path stripped as its directory", () => {
 		expect(
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-			guard('p="${BASH_SOURCE[0]%/*}/a.js"\nnode "$p"\nnode "${0%/*}/b.js"'),
+			guard(`p="\${BASH_SOURCE[0]%/*}/a.js"\nnode "$p"\nnode "\${0%/*}/b.js"`),
 		).toEqual(["scripts/b.js", "scripts/a.js"]);
 	});
 

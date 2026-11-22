@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/*
- * log-queue-push.js — the pre-push limb of the queue log (#4485, spec
- * #4458): logs each `queue/<name>` update a
- * push to lib/landing-refs.js's remote makes, at push time, for the queue
- * lander to order its batch by (lib/queue-log.js).
- *
- *   node scripts/log-queue-push.js <remote>
- *
- * git feeds `<local ref> <local sha> <remote ref> <remote sha>` per ref on
- * stdin. A deletion logs nothing.
- *
- * IN NO `scripts/` FAMILY (code-standards §N3): it gates nothing and is no
- * hook of Claude Code's. It refuses no push: past a command line it refuses
- * (2), every path exits 0, a fault costing only its row, printed.
- */
 
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");

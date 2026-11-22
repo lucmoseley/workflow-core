@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what each git-hook dispatcher's call costs on one ordinary commit: the
- * repo modules it loads and the processes it starts (base §G13, #5338).
- * .husky/pre-commit, prepare-commit-msg, commit-msg and post-commit each run
- * one on every commit of every session, so a module or a start past what the
- * commit needs is paid on every commit.
- *
- * Program cases (base §X3) through lib/call-cost-harness.js's Node half, in
- * lib/hook-cost-testkit.ts's commit fixture: a session's linked worktree
- * committing one staged plain file. Each case seeds the state git and the
- * hooks before it leave on a real commit and calls its dispatcher with the
- * arguments, PATH and GIT_* variables its hook hands it. Which gates and
- * rows arm is the dispatchers' own suites'; this pins the call's whole cost.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -37,7 +22,6 @@ afterEach(() => {
 	fs.rmSync(c.fx.dir, { recursive: true, force: true });
 });
 
-/** One dispatcher call as its hook makes it, the hook's PATH included. */
 const dispatcher = (name: string, args: string[] = []) =>
 	callCostAsync(path.join(__dirname, name), args, {
 		cwd: c.wt.wt,
@@ -49,12 +33,9 @@ const dispatcher = (name: string, args: string[] = []) =>
 	});
 
 describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
-	// The hot-path entry: .husky/pre-commit's precommit-dispatch.js call. The
-	// common call: the same commit, with no argument, as git passes none.
 	it("costs precommit-dispatch.js these modules and starts", async () => {
 		const r = await dispatcher("precommit-dispatch.js");
-		// The module set and the child list are internals, asserted because
-		// no output shows the start-up cost they guard (base §X6, #1497).
+		// #1497
 		expect(r.modules).toEqual([
 			"check-adopter-boundary.js",
 			"check-citation-tracker.js",
@@ -226,9 +207,6 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 		]);
 	});
 
-	// The hot-path entry: .husky/prepare-commit-msg's dispatcher call. The
-	// common call: the same commit, pre-commit's stamp standing its gates
-	// down.
 	it("costs prepare-commit-msg-dispatch.js these modules and starts", async () => {
 		c.stamped();
 		const r = await dispatcher("prepare-commit-msg-dispatch.js", [
@@ -237,7 +215,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			c.message,
 			"message",
 		]);
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"check-commit-message-closes.js",
 			"lib/caught.js",
@@ -290,11 +268,9 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 		]);
 	});
 
-	// The hot-path entry: .husky/commit-msg's dispatcher call. The common
-	// call: the same commit's message, no `.husky/commit-msg.local`.
 	it("costs commit-msg-dispatch.js these modules and starts", async () => {
 		const r = await dispatcher("commit-msg-dispatch.js", [c.message]);
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"check-commit-message-closes.js",
 			"check-weakens-line.js",
@@ -357,12 +333,10 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 		]);
 	});
 
-	// The hot-path entry: .husky/post-commit's dispatcher call. The common
-	// call: the same commit, made.
 	it("costs post-commit-dispatch.js these modules and starts", async () => {
 		c.committed();
 		const r = await dispatcher("post-commit-dispatch.js");
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"check-guard-registry.js",
 			"check-instruction-surface.js",

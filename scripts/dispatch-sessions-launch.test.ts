@@ -1,29 +1,4 @@
 // @vitest-environment node
-/*
- * Pins how a /pick-next dispatch member is launched: its directory, its model
- * flag, burn mode, the launcher binary, the seat kind and the launch's auth,
- * and the usage refusals.
- *
- * The fixture is scripts/lib/dispatch-sessions-testkit.ts's. The dispatch's
- * cases are split by subject across dispatch-sessions.test.ts (the advisor),
- * -launch (model, burn mode, launcher binary, seat, auth, usage), -allowance,
- * -duplicate, -drop (a set with one member already dispatched), -reread (the
- * per-member re-read, CPU holds, stagger, roster remedy), -overflow, -bridge
- * and -bridge-budget (the interop-bridge probe), so the forks pool runs them
- * side by side and no file holds the suite to its own length (#2413, #4299). The case that breaks the interop-probe library lives in
- * dispatch-sessions-probe-load.test.ts, as it links every file in scripts/lib
- * and so makes its file a reader of each one (#2423).
- *
- * Loosen a test here and a /pick-next set launches on `--model opus` in place
- * of the configured 1M default (mantahostels#1093), through the founder's real
- * CLI, or billed per token rather than to the seat.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
- * The no-build case (#4318) adds two dispatcher runs and a warm pass: it drives
- * the dispatcher against a real origin and a stub `npm`, seam 1's fixture
- * (#4229), which no in-process call reaches.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -275,10 +250,6 @@ describe("the model table (lib/model-table.js, #4919), on the fixture routing fi
 });
 
 describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
-	/* WFC_CLAUDE_BIN unset — every other case sets it deliberately because an
-	 * unset run launches whatever `claude` PATH finds. Here that is made safe by
-	 * putting a stub named exactly `claude` first on PATH, so the fallback is
-	 * exercised without ever touching a real session. */
 	function shadowDir(): string {
 		const shadow = path.join(fx.dir, "shadow");
 		fs.mkdirSync(shadow);
@@ -299,19 +270,12 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		expect(r.stdout).toContain(
 			"would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT claude ",
 		);
-		// Both probe calls (the /usage read and the duplicate gate's `agents
-		// --json`) actually reached the PATH stub, not a real `claude` — proven
-		// by argv content, not merely a file existing.
 		expect(readArgvLines().some((l) => l.includes("-p /usage"))).toBe(true);
 		expect(readArgvLines().some((l) => l.includes("agents --json"))).toBe(true);
 	});
 });
 
 describe("a launch killed from outside (#5145)", () => {
-	/* 137 is also what the ceiling's KILL leaves, but only the ceiling's own
-	 * expiry refuses the call: a launch an outside SIGKILL took, the OOM
-	 * killer's say, fails alone, and admission re-reads memory before the next
-	 * member. */
 	it("reports the kill, records nothing for it, and goes on to the next member", async () => {
 		stubClaude({});
 		const killed = path.join(fx.dir, "killed-claude");
@@ -342,9 +306,6 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 
 	it("ignores a `claude` found on PATH when WFC_CLAUDE_BIN names another", async () => {
 		stubClaude({});
-		/* A launcher still resolving the bare name would record to this stub
-		 * instead. Under `fx.dir`, so afterEach takes it even when an expectation
-		 * below fails. */
 		const shadowDir = path.join(fx.dir, "shadow");
 		fs.mkdirSync(shadowDir);
 		const shadowArgv = path.join(shadowDir, "argv");
@@ -355,7 +316,7 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 		);
 		const r = await fx.runCore(
 			["sonnet", "/implement 341"],
-			// claude-route-exempt: asserts a bare `claude` on PATH goes unread
+			// claude-route-exempt: #3559
 			{ PATH: `${shadowDir}:${process.env.PATH}` },
 		);
 		expect(r.code).toBe(0);
@@ -364,11 +325,6 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 	});
 
 	it("passes the seam down to the duplicate check it shells out to", async () => {
-		// Non-JSON here, on purpose: that is what makes the duplicate check's
-		// warning echo the binary it called, which is what this case proves
-		// reached the stub rather than a real `claude` (mantahostels#2553's per-member
-		// re-read needs a real self-listing, so every OTHER case in this file
-		// gets one from stubClaude()'s default instead).
 		stubClaude({ agentsJson: "" });
 		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);

@@ -32,7 +32,6 @@ if (require.main === module) {
 	).positionals;
 	const chosen = profile === undefined ? undefined : PROFILES[profile];
 	if (!chosen) {
-		/* writeSync, not console: the hook reads this through a pipe (§N6). */
 		fs.writeSync(
 			2,
 			`checker-new-faults: unknown profile ${JSON.stringify(profile ?? "")} — ` +

@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins a commit message file's lines as git records them (#2884, #3075),
- * through recordedLines, run in a fixture repository so
- * `commit.cleanup` is read from config as a hook reads it: `#` lines dropped
- * in `strip` mode alone, and nothing from the scissors line on in `strip` and
- * `scissors` modes, so a `--verbose` diff below it never reaches the subject,
- * closing or `Weakens:` readers.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -25,7 +17,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The lines recorded for `raw`, under `editor` and `cleanup`. */
 function recorded(raw: string, editor: string, cleanup?: string) {
 	if (cleanup !== undefined)
 		spawnSync("git", ["config", "commit.cleanup", cleanup], { cwd: dir });

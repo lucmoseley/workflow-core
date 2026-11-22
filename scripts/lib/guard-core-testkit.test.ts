@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the guard core test kit's `worktree` option (#4234): a core run with it
- * sees the split a session in its own worktree runs under: the root the main
- * checkout, the hook's cwd and `CLAUDE_PROJECT_DIR` a linked worktree of it.
- *
- * Two guards are driven, one per half of the hook's cwd. guard-branch judges
- * the hook's own directory: a branch move is refused in the main checkout and
- * allowed in a linked worktree. inject-review-tier finds a worktree from the
- * payload's `cwd`: a sensitive path staged only there escalates the review.
- * Real git, built by `splitCheckout()`, inside an arbiter sandbox so the
- * review core's store reads stay out of the real one.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -24,14 +11,11 @@ let at: { main: string; worktree: string };
 freshSandbox((sb) => {
 	at = splitCheckout(path.join(sb.dir, "split"));
 	execFileSync("git", ["branch", "-q", "side"], { cwd: at.main });
-	/* Not cut over (lib/cutover.js): guard-branch judges a branch move only in
-	 * the shared tree. */
 	execFileSync("git", ["config", "branch.main.merge", "refs/heads/landing"], {
 		cwd: at.main,
 	});
 });
 
-/** guard-branch's verdict on a branch move; with no `worktree`, run from the main checkout, as the harness declares it. */
 const branchVerdict = (opts: { worktree?: string }) =>
 	runCore("guard-branch", toolCall("Bash", { command: "git checkout side" }), {
 		root: at.main,
@@ -39,7 +23,6 @@ const branchVerdict = (opts: { worktree?: string }) =>
 		...opts,
 	}).output?.permissionDecision;
 
-/** inject-review-tier's text for a code review; with no `worktree`, run from the main checkout, as the harness declares it. */
 const reviewText = (opts: { worktree?: string }) =>
 	runCore("inject-review-tier", toolCall("Skill", { skill: "code-review" }), {
 		root: at.main,
@@ -47,7 +30,6 @@ const reviewText = (opts: { worktree?: string }) =>
 		...opts,
 	}).output?.additionalContext ?? "";
 
-/** The declaration of `db/**` as sensitive, written in `tree`. */
 const declareIn = (tree: string) => {
 	fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -60,7 +42,6 @@ const declareIn = (tree: string) => {
 	);
 };
 
-/** The host's own code-review skill, and `db/a.sql` staged in the worktree. */
 const stageSensitiveInWorktree = () => {
 	const skill = path.join(at.main, ".claude", "skills", "code-review");
 	fs.mkdirSync(skill, { recursive: true });
