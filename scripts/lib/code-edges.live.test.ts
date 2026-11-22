@@ -43,9 +43,9 @@ function readLoaderSpellings(at: string, text: string, skip: string): string[] {
 	for (let depth = 0; depth < LOADER_HOPS; depth++)
 		hop = hop.flatMap((m) =>
 			reach(m.at, m.text)
-				.edges.filter((e) => !seen.has(e) && !e.endsWith(".json"))
-				.filter((e) => fs.existsSync(e) && fs.statSync(e).isFile())
-				.map((e) => {
+				.edges.filter((e: string) => !seen.has(e) && !e.endsWith(".json"))
+				.filter((e: string) => fs.existsSync(e) && fs.statSync(e).isFile())
+				.map((e: string) => {
 					seen.add(e);
 					const loaded = fs.readFileSync(e, "utf8");
 					for (const q of codeOf(loaded).matchAll(QUOTED))
