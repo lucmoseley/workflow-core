@@ -56,8 +56,8 @@ const {
 	gateRunLogPath,
 	gateSeatChargeMb,
 	isInSuite,
+	measuredGatePeak,
 	readGateRunsAt,
-	shortGatePeakMb,
 	readGateSelection,
 	startGatePids,
 } = require("./lib/gate-seat.js");
@@ -422,7 +422,8 @@ function buildGateWait(options, words) {
 			}),
 		);
 	};
-	const shortMb = readShortGateMb(options, holder, err);
+	const peak = readGatePeak(options, holder, err);
+	const shortMb = peak?.short ? peak.peakMb : null;
 	const unbounded = {
 		timeoutMs: Number.POSITIVE_INFINITY,
 		cap: "one whole suite runs at a time (#2680)",
@@ -436,7 +437,11 @@ function buildGateWait(options, words) {
 		queue: options,
 		join:
 			shortMb === null
-				? { ...seat, chargeMb: options.gateChargeMb ?? readGateChargeMb(err) }
+				? {
+						...seat,
+						chargeMb:
+							peak?.peakMb ?? options.gateChargeMb ?? readGateChargeMb(err),
+					}
 				: { ...seat, chargeMb: shortMb, weight: NAMED_FILES_WEIGHT },
 		wait: () =>
 			shortMb === null
@@ -469,20 +474,20 @@ function buildGateWait(options, words) {
  * @param {Options} options
  * @param {{ repo: string | null, command: string }} holder
  * @param {Out} err
- * @returns {number | null}
+ * @returns {import("./lib/gate-seat.js").GatePeak | null}
  */
-function readShortGateMb(options, holder, err) {
+function readGatePeak(options, holder, err) {
 	const file =
 		options.gateLog === undefined ? gateRunLogPath() : options.gateLog;
 	const runs = readGateRunsAt(file);
 	if (runs === null) {
 		if (file !== null)
 			err.write(
-				`${LABEL}: the gate-run record ${file} would not read; this gate waits for the whole-suite slot (#5450).\n`,
+				`${LABEL}: the gate-run record ${file} would not read; this gate waits for the whole-suite slot, charged its configured or default seat (#5450, #5591).\n`,
 			);
 		return null;
 	}
-	return shortGatePeakMb(runs, holder);
+	return measuredGatePeak(runs, holder);
 }
 
 /**
