@@ -10,8 +10,6 @@ import { runInProcess } from "./lib/run-in-process";
 import selectionMarker from "./lib/selection-marker";
 import { readStopGuardBlockWithin } from "./lib/stop-guard-testkit";
 
-// code-edges loads: lib/session-id.js
-
 const GUARD = path.join(__dirname, "guard-selection-sum.js");
 
 let dir: string;

@@ -1,12 +1,58 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { claimByArbiter } = require("./script-claim.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
+const { readText } = require("./file-read.js");
+const { relativeUnder } = require("./is-under.js");
+const { coreRoot } = require("./script-path.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
 const { buildManifestText } = require("./read-edges-render.js");
 
 // guess, #1860
 const CLAIM_TIMEOUT_MS = 5000;
+
+// #5579
+/**
+ * @typedef {{ root: string, loaded: Map<string, string> }} RenderSnapshot
+ */
+
+/** @returns {RenderSnapshot} */
+function readLoadedRender() {
+	const root = coreRoot();
+	/** @type {Map<string, string>} */
+	const loaded = new Map();
+	/** @param {NodeJS.Module | undefined} mod */
+	const walk = (mod) => {
+		const rel = mod && relativeUnder(root, mod.filename);
+		if (!mod || !rel || loaded.has(rel) || rel.includes("node_modules")) return;
+		loaded.set(rel, fs.readFileSync(mod.filename, "utf8"));
+		for (const child of mod.children) walk(child);
+	};
+	walk(require.cache[require.resolve("./read-edges-render.js")]);
+	return { root, loaded };
+}
+
+const RENDER_SNAPSHOT = readLoadedRender();
+
+/** @param {string} p */
+const realOrSelf = (p) => orFallback(() => fs.realpathSync(p), path.resolve(p));
+
+/**
+ * @param {RenderSnapshot} snapshot
+ * @param {string} root
+ * @param {string} home
+ * @returns {string|null}
+ */
+function renderDrift({ root: coreAt, loaded }, root, home) {
+	if (realOrSelf(coreAt) !== realOrSelf(home)) return null;
+	if (loaded.size === 0)
+		return "read-edges-render.js, from outside the core root";
+	for (const [rel, text] of loaded) {
+		const now = readText(path.join(root, rel));
+		if (now.state !== "read" || now.data !== text) return rel;
+	}
+	return null;
+}
 
 /**
  * @typedef {(file: string, session: string|null, cwd: string) => import("./script-claim.js").ClaimResult} ClaimFn
@@ -54,14 +100,39 @@ function writeShared(home, text, { given, session, claimFn, err }) {
 }
 
 /**
- * @param {Record<string, string[]>} rendered
+ * @param {() => Record<string, string[]>} render
  * @param {{ root: string, home: string, session: string|null, claimFn?: ClaimFn,
+ *   snapshot?: RenderSnapshot,
  *   out: { write: (s: string) => unknown }, err: { write: (s: string) => unknown } }} at
  */
 function freshenManifest(
-	rendered,
-	{ root, home, session, claimFn = claimWithArbiter, out, err },
+	render,
+	{
+		root,
+		home,
+		session,
+		claimFn = claimWithArbiter,
+		snapshot = RENDER_SNAPSHOT,
+		out,
+		err,
+	},
 ) {
+	const drift = renderDrift(snapshot, root, home);
+	if (drift) {
+		err.write(
+			`${EDGES_FILE} left alone: the render code this run loaded (${drift}) differs from the tree it renders, so its render is not that tree's. Regenerate it before you commit: npm run gen:test-read-edges (#5579).\n`,
+		);
+		return;
+	}
+	let rendered;
+	try {
+		rendered = render();
+	} catch (error) {
+		err.write(
+			`${EDGES_FILE} not brought up to date before the run (the tree would not render: ${caught(error).message}) — the commit gate will ask for it after your run passes (#1860).\n`,
+		);
+		return;
+	}
 	const text = buildManifestText(rendered);
 	const given = readManifest(root);
 	if (given === text) return;
@@ -92,4 +163,4 @@ function freshenManifest(
 	);
 }
 
-module.exports = { freshenManifest };
+module.exports = { RENDER_SNAPSHOT, freshenManifest };
