@@ -1,15 +1,3 @@
-/*
- * queue-lander-adapters.js — the production adapters lib/queue-lander.js
- * runs on: its git against lib/landing-refs.js's remote, and its verdict
- * ledger and refused record (#4485, spec #4458). lib/lander-records.js holds
- * the pipeline and drop records.
- *
- * A queue ref's push time is the one lib/queue-log.js logged for it at the
- * sha it now holds. A sha with no row, as one pushed from another machine,
- * falls back to its tip's committer time, as the remote, GitHub, tells git
- * no push time.
- */
-
 const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -75,35 +63,19 @@ const REGISTRY_PROFILE = (() => {
 	return profile;
 })();
 
-/* Untraced, a first guess and stated as one: a verdict is read again only
- * for a batch a run resumes, which waits hours, never weeks. */
+// guess, #4485
 const VERDICT_RETAIN_MS = 14 * DAY_MS;
 const DROPPED_HEADS = `refs/heads/${DROPPED_PREFIX}`;
-/* git push's words for a ref the remote itself refused, as a ruleset or a
- * protected branch does: pushed again, it is refused again — save where the
- * refusal is the remote's own fault, which lib/network-fault.js names. */
 const REMOTE_REJECTED = /^ ! \[remote rejected\].*/m;
-/* git push's words for a ref of an atomic push it or the remote refused,
- * naming the ref after `refs/heads/`. */
 const REJECTED_REF = /^ ! \[(?:remote )?rejected\]\s+\S+ -> (\S+) /gm;
-/* Git's words for a loose object a crash left empty or torn, naming its file
- * by its fan-out directory and name. */
 const BROKEN_OBJECT =
 	/(?:object file|stored in) \S*?([0-9a-f]{2})\/([0-9a-f]{38,62})\)? is (?:empty|corrupt)/;
 
-/**
- * @typedef {"merge" | "batch" | "tested" | "all"} GateSet a pre-commit
- *   gate set: the hook's `--gates=<set>`, every gate on `all`
- */
+/** @typedef {"merge" | "batch" | "tested" | "all"} GateSet */
 
-/* Untraced, a first guess: room past the KILL for run-budgeted.js to see its
- * group go and exit. */
+// guess, #5308
 const PIPE_CLOSE_MARGIN_MS = 10_000;
 
-/**
- * A gate set run past its limit, its process group ended: no fault a retry
- * outlasts, as the same gates on the same tree run past it again (#5308).
- */
 class GateTimeout extends Error {}
 
 /**
@@ -120,13 +92,10 @@ class GateTimeout extends Error {}
  * @typedef {{dir: string,
  *   inTree: (args: string[], timeout?: number) => string,
  *   gates: (set: "merge") => void,
- *   gateCopy: (rel: string) => string}} MergeTree a member's merge's
- *   throwaway tree
+ *   gateCopy: (rel: string) => string}} MergeTree
  */
 
 /**
- * The registry checker's --json envelope out of its run over `sha`, null
- * where it skipped, which it says on stderr.
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {string} sha
  * @param {number} timeoutMs
@@ -167,26 +136,13 @@ function readEnvelope(r, sha, timeoutMs) {
 }
 
 /**
- * The queue lander's git, run in `root`. Merges are made in a throwaway
- * worktree, through its merge driver, each running the pre-commit hook's
- * merge gate set and committed with no hook; the batch's set then runs once
- * over them all (#4545). A call that meets a broken loose object removes that object's file
- * and fetches before it throws, so its retry reads the object afresh.
  * @param {string} root
  * @param {object} [options]
- * @param {number} [options.mergeTimeoutMs] each member's merge, its gates
- *   included, and the batch's one gate pass: each at most one commit's whole
- *   gate stack, which #3913's figure was measured on
- * @param {ReadonlyMap<string, Regenerated>} [options.regenerated] the files
- *   each merge renders afresh rather than takes from either side
- * @param {boolean} [options.ciRepeats] where the tester's run repeats the
- *   gates the batch's set leaves out, its `repeatsGates`; else the batch
- *   runs every gate
- * @param {number} [options.gateGraceMs] how long gates past their limit
- *   have after its TERM before the KILL
- * @param {boolean} [options.suiteRepeats] where the tester's whole run is
- *   the declared test command the hook's test gate runs, its
- *   `repeatsSuite`: the batch runs every gate but that one (#5308)
+ * @param {number} [options.mergeTimeoutMs]
+ * @param {ReadonlyMap<string, Regenerated>} [options.regenerated]
+ * @param {boolean} [options.ciRepeats]
+ * @param {number} [options.gateGraceMs]
+ * @param {boolean} [options.suiteRepeats]
  * @returns {QueueGit}
  */
 function queueGit(
@@ -201,10 +157,6 @@ function queueGit(
 ) {
 	const batchSet = batchGateSet(ciRepeats, suiteRepeats);
 	/**
-	 * The copy of a gate script the commit gate runs over the tree at `dir`,
-	 * by its core-relative path: the tree's own where the tree is
-	 * workflow-core, as its hook runs it, else the core the tree's hook shim
-	 * resolves, asked once (#5314).
 	 * @param {string} dir
 	 * @returns {(rel: string) => string}
 	 */
@@ -234,8 +186,6 @@ function queueGit(
 		`+${DROPPED_HEADS}*:refs/remotes/${REMOTE}/${DROPPED_PREFIX}*`,
 	];
 	/**
-	 * `call`'s result; where it meets a broken loose object, that object's
-	 * file is removed and the remote fetched, and it throws a TransientFault.
 	 * @template T
 	 * @param {() => T} call
 	 * @returns {T}
@@ -324,8 +274,6 @@ function queueGit(
 					return judgeWhole(onto, { kind: "merged", sha: lone.sha }, lone);
 				const whole = mergeGated(onto, members, started);
 				if (whole.kind !== "refused" || members.length === 1) return whole;
-				/* The batch's gates refused: the first member they refuse alone,
-				 * else the interaction, named by the last member (#4545). */
 				for (const m of members) {
 					const alone = mergeGated(onto, [m]);
 					if (alone.kind !== "merged") return alone;
@@ -333,10 +281,6 @@ function queueGit(
 				return whole;
 			}),
 		pushMain(sha, leases) {
-			/* A leased ref left as it is goes unsent, so git checks its lease
-			 * against the ref list the remote opened the push with: a ref
-			 * withdrawn between that list and the remote's update of `main`
-			 * still lands, a window of the one push (#5326). */
 			const leasing = leases.flatMap((l) => {
 				const ref = `refs/heads/${queueBranch(l.name)}`;
 				return [`--force-with-lease=${ref}:${l.sha}`, `${l.sha}:${ref}`];
@@ -369,9 +313,6 @@ function queueGit(
 	};
 
 	/**
-	 * `members` merged in order onto `onto` in a throwaway worktree, then the
-	 * batch's gates run once over them all, staged against `onto` (#4545),
-	 * `started` given the merges first where `ciRepeats` (#4573).
 	 * @param {string} onto
 	 * @param {readonly Member[]} members
 	 * @param {(sha: string) => void} [started]
@@ -406,19 +347,10 @@ function queueGit(
 	}
 
 	/**
-	 * `merged` judged on its whole tree's guard-registry faults, not only the
-	 * ones its merges add (#4807): a tree holding a gating one `onto` lacks is
-	 * refused, naming `last`; one whose every such fault `onto` holds too is
-	 * `stale-base`, which stops the line rather than drops a member, since
-	 * `main` must be re-anchored first. A tree its checker SKIPs passes, as a
-	 * SKIP gates nothing (mantahostels#155, #4904). A tree that resolves no
-	 * core is refused, naming `last`; an `onto` that resolves none reads as
-	 * one with no checker (#5314). Any other result passes through.
 	 * @param {string} onto
 	 * @param {MergeResult} merged
 	 * @param {Member} last
-	 * @param {(rel: string) => string} [gateCopy] the gate scripts of the
-	 *   tree that merged it, where one did
+	 * @param {(rel: string) => string} [gateCopy]
 	 * @returns {MergeResult}
 	 */
 	function judgeWhole(onto, merged, last, gateCopy) {
@@ -437,7 +369,6 @@ function queueGit(
 	}
 
 	/**
-	 * judgeWhole's verdict on a merged tree holding gating faults.
 	 * @param {string} onto
 	 * @param {{sha: string, tree: Record<string, unknown>,
 	 *   gating: ReturnType<typeof newFaultItems>}} whole
@@ -467,12 +398,7 @@ function queueGit(
 		};
 	}
 
-	/**
-	 * readRegistry over `onto`, null where its tree resolves no core.
-	 * Residual: every gating fault then counts as the batch's own, so it is
-	 * refused rather than held stale-base on a fault `onto` may share.
-	 * @param {string} onto
-	 */
+	/** @param {string} onto */
 	function readBaseRegistry(onto) {
 		try {
 			return readRegistry(onto);
@@ -483,11 +409,8 @@ function queueGit(
 	}
 
 	/**
-	 * check-guard-registry.js's --json envelope over `sha`'s tree, null where
-	 * the tree carries no checker.
 	 * @param {string} sha
-	 * @param {(rel: string) => string} [gateCopy] `sha`'s gate scripts,
-	 *   already resolved; else resolved in the tree this checks out
+	 * @param {(rel: string) => string} [gateCopy]
 	 * @returns {Record<string, unknown> | null}
 	 */
 	function readRegistry(sha, gateCopy) {
@@ -517,10 +440,6 @@ function queueGit(
 	}
 
 	/**
-	 * The batch's one gate pass over every member's merge `sha` staged against
-	 * `onto`, then back on `sha`, committing what the gates staged, as a
-	 * member's own commit took its hook's edits (#4545). A refusal names
-	 * `last`.
 	 * @param {{onto: string, sha: string, last: Member}} batch
 	 * @param {(args: string[], timeout?: number) => string} inTree
 	 * @param {(set: Exclude<GateSet, "merge">) => void} gates
@@ -548,9 +467,6 @@ function queueGit(
 	}
 
 	/**
-	 * The pre-commit hook git would run in `dir`, on a gate set: `merge`,
-	 * `batch`, `tested`, or every gate on `all`; none where git would run
-	 * none.
 	 * @param {string} dir
 	 * @param {(args: string[]) => string} inTree
 	 * @returns {(set: GateSet) => void}
@@ -564,7 +480,6 @@ function queueGit(
 			try {
 				fs.accessSync(hook, fs.constants.X_OK);
 			} catch {
-				/* Fails open as git does on a hook it cannot run (#4545). */
 				writeFd(
 					2,
 					`queue-lander: ${hook} is not executable, so no gate ran on this merge\n`,
@@ -580,11 +495,6 @@ function queueGit(
 	}
 
 	/**
-	 * `--no-commit`, the merge's gates, then a commit no hook runs on: the
-	 * gates' index, the anchors a merge carries among them (#4514), is what
-	 * it takes. A conflict in regenerated
-	 * files alone, each changed on both sides, is no refusal; one deleted on a
-	 * side is, since a render would undo the deletion.
 	 * @param {Member} m
 	 * @param {MergeTree} tree
 	 */
@@ -618,18 +528,12 @@ function queueGit(
 	}
 
 	/**
-	 * Stages each regenerated file the merge in `dir` holds as its generator
-	 * writes it there: two sides' copies merged as text, or merged cleanly, can
-	 * still disagree with the tree they describe. The generator is the copy the
-	 * commit gate runs (gateCopy), so the gate passes what it writes; one that
-	 * fails is a refusal carrying its output.
 	 * @param {string} dir
 	 * @param {(args: string[]) => string} inTree
 	 * @param {(rel: string) => string} gateCopy
 	 */
 	function regenerate(dir, inTree, gateCopy) {
 		for (const [file, { generator }] of regenerated) {
-			/* Absent: the merge deleted it, and a deletion stands. */
 			if (!fs.existsSync(path.join(dir, file))) continue;
 			execFileSync(process.execPath, [gateCopy(generator)], {
 				cwd: dir,
@@ -642,10 +546,6 @@ function queueGit(
 	}
 
 	/**
-	 * Why `m` did not merge, else null. Gates run past their limit are a
-	 * refusal, said on stderr. A tree resolving no core is a refusal too. Any
-	 * other fault that is no git refusal, a spawn failure or a git step timing
-	 * out among them, throws for the run to retry.
 	 * @param {Member} m
 	 * @param {(args: string[]) => string} inTree
 	 * @param {() => unknown} merge
@@ -667,8 +567,6 @@ function queueGit(
 	}
 
 	/**
-	 * Why `m` did not merge, where its merge threw `err`: a conflict or a
-	 * refusal, else it throws.
 	 * @param {Member} m
 	 * @param {(args: string[]) => string} inTree
 	 * @param {unknown} err
@@ -695,7 +593,6 @@ function queueGit(
 }
 
 /**
- * The refusal of member `name` for the reason `err` gives.
  * @param {string} name
  * @param {Error} err
  * @returns {MergeResult}
@@ -717,12 +614,6 @@ function batchGateSet(ciRepeats, suiteRepeats) {
 }
 
 /**
- * The pre-commit `hook` on gate set `set` in `dir`, through
- * lib/run-budgeted.js, in a process group of its own: past `limitMs` the
- * group gets a TERM, then a KILL `graceMs` later, so a hook holding its TERM
- * till its child ends cannot outlast the limit (#5308). Run past it, it
- * throws a GateTimeout, and where the hook would not start, an Error
- * carrying the spawn's code; any other failure throws as execFileSync's.
  * @param {string} hook
  * @param {GateSet} set
  * @param {{dir: string, limitMs: number, graceMs: number}} limits
@@ -745,8 +636,6 @@ function runHook(hook, set, { dir, limitMs, graceMs }) {
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],
 				maxBuffer: CHILD_MAX_BUFFER,
-				/* A process that left the group outlives its KILL holding the
-				 * pipes open; this timeout closes them. */
 				timeout: limitMs + graceMs + PIPE_CLOSE_MARGIN_MS,
 			},
 		);
@@ -754,16 +643,12 @@ function runHook(hook, set, { dir, limitMs, graceMs }) {
 		const e = caught(err);
 		const r = { status: e.status ?? null, stderr: String(e.stderr ?? "") };
 		if (isRunnerFailure(r))
-			/* The spawn's own code, as EAGAIN, so a fault a retry outlasts is
-			 * retried. */
 			throw Object.assign(
 				new Error(`${hook} did not run: ${parseRefusal(r.stderr)}`, {
 					cause: err,
 				}),
 				{ code: /\bE[A-Z]+\b/.exec(r.stderr)?.[0] },
 			);
-		/* The hook may exit 124 or 137 itself: only one that ran its whole
-		 * limit was run-budgeted.js's kill. */
 		const overran =
 			e.code === "ETIMEDOUT" ||
 			((r.status === TIMEOUT_EXIT || r.status === KILLED_EXIT) &&
@@ -777,12 +662,7 @@ function runHook(hook, set, { dir, limitMs, graceMs }) {
 	}
 }
 
-/**
- * Whether the tree `inTree` runs git in has a merge in progress: none follows
- * a merge of a sha it already holds. Any fault but `--verify`'s exit 1 for an
- * absent ref throws, for mergeFailure to judge.
- * @param {(args: string[]) => string} inTree
- */
+/** @param {(args: string[]) => string} inTree */
 const isMerging = (inTree) => {
 	try {
 		inTree(["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
@@ -794,8 +674,6 @@ const isMerging = (inTree) => {
 };
 
 /**
- * Whether the merge in the tree `inTree` runs git in left `file` conflicted
- * with both sides' copies present, neither side deleting it.
  * @param {(args: string[]) => string} inTree
  * @param {string} file
  */
@@ -809,18 +687,10 @@ const changedOnBothSides = (inTree, file) => {
 	return stages.has("2") && stages.has("3");
 };
 
-/**
- * A ledger row's time in ms, the epoch where it has none readable, so a
- * no-run red of unknown age is asked again rather than trusted (#4572).
- * @param {unknown} at
- */
+/** @param {unknown} at */
 const parseLedgerTime = (at) => Date.parse(String(at)) || 0;
 
 /**
- * The verdict ledger: one JSON line per green or red reached, by sha, the
- * files it ran, the whole suite being none, and its pass, a line naming none
- * the first. The newest line for a sha, file set and pass is its verdict. A
- * line lost to an unwritable file costs a rerun, never a landing.
  * @param {string} file
  * @returns {VerdictLedger}
  */
@@ -855,8 +725,6 @@ function verdictLedger(file) {
 }
 
 /**
- * The refused record: one JSON line per sha the remote refused on `main`,
- * with its refusal.
  * @param {string} file
  * @returns {RefusedRecord}
  */
@@ -879,8 +747,6 @@ function refusedRecord(file) {
 }
 
 /**
- * A row other than a take repeating the newest row its ref holds at that sha
- * is skipped, as a step a crash repeats writes it again.
  * @param {string} root
  * @returns {QueueLanderDeps["logQueue"]}
  */

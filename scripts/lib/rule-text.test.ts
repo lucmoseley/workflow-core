@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for the rule-text store's two accessors — scripts/lib/rule-text.js and
- * scripts/lib/rule-text.sh (mantahostels#1644, spec mantahostels#1641).
- *
- * ONE SEAM, asked of both halves: "what text does rule id X print?". The two
- * accessors are only safe to relocate a rule behind if they answer identically.
- * Every guard and gate that prints a rule — the bash `PreToolUse` hooks and the
- * Node Stop hooks and `.husky/pre-commit` checkers alike — prints it through one
- * of them, so a loosened case lets a session be refused on blank or wrong text.
- *
- * Most cases build a throwaway fragment directory and point WFC_RULES_DIR at
- * it. The rest read docs/agents/rules/ itself — the cases run with no override,
- * which leaves the core's layer in force, and the lint over every live
- * placeholder — and only those can an edit to a real fragment turn red.
- *
- * The CLI's id-list form (mantahostels#2494) has no Node twin to assert parity against,
- * since `rule-text.js` exposes no CLI at all.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -29,8 +11,7 @@ import { shellQuote } from "./sh-quote.js";
 
 const SH = path.join(__dirname, "rule-text.sh");
 
-// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-const lib = require("./rule-text") as any;
+const lib = require("./rule-text.js") as typeof import("./rule-text.js");
 
 const temps: string[] = [];
 
@@ -39,7 +20,6 @@ afterEach(() => {
 		fs.rmSync(t, { recursive: true, force: true });
 });
 
-/** A throwaway store, `id` → fragment body, returned as its absolute path. */
 function store(fragments: Record<string, string>): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-"));
 	temps.push(dir);
@@ -49,7 +29,6 @@ function store(fragments: Record<string, string>): string {
 	return dir;
 }
 
-/** The bash accessor, run as the command form. */
 function sh(dir: string, ...args: string[]) {
 	const r = spawnSync("bash", [SH, ...args], {
 		encoding: "utf8",
@@ -73,8 +52,6 @@ describe("resolving an id to its text", () => {
 		const dir = store({ "commit-pathspec.txt": PATHSPEC });
 		const r = sh(dir, "commit-pathspec");
 		expect(r.code).toBe(0);
-		/* The command form adds the newline a terminal wants; the sourced
-		 * function does not, which is what the parity case below pins. */
 		expect(r.out).toBe(`${lib.readRuleText("commit-pathspec")}\n`);
 	});
 
@@ -136,15 +113,11 @@ describe("refusing loudly on an unknown id", () => {
 			],
 			{ encoding: "utf8", env: { ...process.env, WFC_RULES_DIR: dir } },
 		);
-		/* A guard sources this. An `exit` here would abort the guard mid-hook,
-		 * which is a refusal the session never sees a reason for. */
 		expect(r.stdout).toBe("returned 1\nalive\n");
 	});
 });
 
 describe("refusing an empty fragment", () => {
-	/* The failure the store exists to prevent, and the one route the id check
-	 * cannot see: the id resolves, and the guard denies a session with "". */
 	it("Node throws rather than returning the empty string", () => {
 		store({ "file-claim.txt": "\n\n   \n" });
 		expect(() => lib.readRuleText("file-claim")).toThrow(/is empty/);
@@ -196,9 +169,6 @@ describe("accepting the prefixed spelling the trigger indexes hand out", () => {
 		expect(r.err).toMatch(/no fragment for rule id "nope"/);
 	});
 
-	/* The list path passes ids on AS GIVEN so that `rule_text` strips once and
-	 * only once. Stripping in the loop as well let `rule:rule:x` resolve on this
-	 * path while the single-argument form refused it. */
 	it("the LIST path refuses a double prefix, as the single-argument form does, saying it is not a rule id and printing nothing", () => {
 		const dir = store({
 			"commit-pathspec.txt": PATHSPEC,
@@ -220,8 +190,6 @@ describe("accepting the prefixed spelling the trigger indexes hand out", () => {
 		expect(r.err).toContain('"rule:../outside"');
 	});
 
-	/* Stripping happens BEFORE the grammar and before any path join, so the
-	 * prefix can never smuggle a traversal or a second prefix through. */
 	for (const id of ["rule:../outside", "rule:rule:commit-pathspec"]) {
 		it(`Node refuses ${JSON.stringify(id)}, quoting it as given`, () => {
 			store({ "commit-pathspec.txt": PATHSPEC });
@@ -265,13 +233,12 @@ describe("the id grammar is the path-traversal defence", () => {
 		});
 	}
 
-	/* A non-string never reaches the prefix strip, so it must still be refused as
-	 * an id rather than stringified into one — `String(null)` is "null", which
-	 * the grammar accepts. */
 	for (const id of [null, undefined, 42, {}]) {
 		it(`Node refuses ${JSON.stringify(id) ?? "undefined"} as an id`, () => {
 			store({ "commit-pathspec.txt": PATHSPEC });
-			expect(() => lib.readRuleText(id)).toThrow(/is not a rule id/);
+			expect(() => lib.readRuleText(id as unknown as string)).toThrow(
+				/is not a rule id/,
+			);
 		});
 	}
 
@@ -461,7 +428,6 @@ describe("qualifying a core fragment's citations outside the core (#416)", () =>
 		vi.stubEnv("WFC_RULES_DIR", host);
 		vi.stubEnv("WFC_RULES_FALLBACK_DIR", core);
 	}
-	/** An install: a core root holding no package.json. */
 	function install() {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-install-"));
 		temps.push(root);
@@ -545,7 +511,6 @@ describe("qualifying a core fragment's citations outside the core (#416)", () =>
 });
 
 describe("the twins agree on what they cannot read or spell alike (#101)", () => {
-	/** The bash twin's refusal and exit, with both variables as given. */
 	const shEnv = (
 		env: Record<string, string>,
 		cwd: string,
@@ -577,7 +542,6 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 		const host = store({ "a.txt": "x" });
 		const parent = path.dirname(host);
 		const rel = path.basename(host);
-		// A vitest worker cannot process.chdir, so the Node half runs in a child.
 		const n = spawnSync(
 			"node",
 			[
@@ -637,7 +601,6 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 		},
 	);
 
-	// Bites only where en_US.UTF-8 is installed; without it bash falls back to C.
 	it("both enumerate in byte order, whatever the locale", () => {
 		const dir = store({ "ab.txt": "x", "a-c.txt": "y", "a0.txt": "z" });
 		expect(lib.readRuleIds()).toEqual(["a-c", "a0", "ab"]);
@@ -687,7 +650,6 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 });
 
 describe("{command:<name>} names the host's own command (#742)", () => {
-	/** A host root declaring `commands`, or no config at all for null. */
 	function host(commands: Record<string, string> | null) {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-host-"));
 		temps.push(dir);
@@ -777,8 +739,6 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 	});
 
 	it("puts a command in verbatim, never expanding what it holds", () => {
-		// `&` is bash's replacement back-reference under patsub_replacement, and a
-		// command spelling the placeholder itself must not be expanded again.
 		store({ "recipe.txt": "a {command:test} b {command:lint}" });
 		host({ test: "x && y {command:lint}", lint: "z" });
 		const r = both("recipe");
@@ -881,9 +841,6 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 		expect(readLogged()).toContain("guard-x rule-text a-rule");
 	});
 
-	/* A failed root read is never memoised, so the record re-reading the root
-	 * would spawn git a second time. A subprocess, so no earlier read in this
-	 * one has memoised it. */
 	it("reads the root once for the text and its record (#3142)", () => {
 		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-root-"));
 		temps.push(cwd);

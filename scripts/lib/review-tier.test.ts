@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * lib/review-tier.js, a PreToolUse dispatcher core (#2792), hands a session
- * the review tier its change owes when it loads code-review on a change
- * touching a declared sensitive path (#1619, spec #1612). Break it and a change
- * to code that decides who may read what, or what a guest pays, is reviewed at
- * the tier a typo fix gets.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * production ports (lib/review-tier-host.js): a sandbox git repo with a real
- * arbiter store, so a path is staged, written and attributed exactly as a
- * session leaves it, and the cases assert on the injected text. Two groups run
- * no core: the fragment cases read the fragments, and some run what one names
- * (lib/rule-text.sh, or a tree pinned by commit-paths.js under the records
- * fragment's Replay, the escalated and hold fragments' `git diff … $t` run
- * against it) and assert on its output; the branch case reads the core's own
- * source. Fragments are read from docs/agents/rules/ and the byte cap from
- * hook-limits.js, never copied. The hook line and stdin are
- * scripts/guard-dispatch.test.ts's boundary set. The twin cases (#2971) spawn
- * bash: the twins they hold the core to are bash functions, fed the ledger
- * `session-arbiter.js writes --committed` prints, as the review nags feed them.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -50,13 +29,6 @@ const COMMIT_PATHS = path.resolve(__dirname, "..", "commit-paths.js");
 const RULE_TEXT = path.resolve(__dirname, "rule-text.sh");
 const { RULE_CAP } = require("./hook-limits.js") as { RULE_CAP: number };
 const ME = "abcdef12-3456";
-/**
- * The longest plugin root the budget charges (#2387): a login name at Linux
- * useradd's 32-character cap, under macOS's /Users (1 B longer than /home), a
- * config dir as long as the founder's `.claude-exp-b`, and 1.10.100, a guess at
- * the longest version tag. A CLAUDE_CONFIG_DIR outside the home directory is not
- * charged.
- */
 const MAX_INSTALL_ROOT = `/Users/${"u".repeat(32)}/.claude-exp-b/plugins/cache/workflow-core/workflow-core/1.10.100`;
 const OTHER = "99999999-0000";
 
@@ -75,7 +47,6 @@ const sb = freshSandbox((fresh) => {
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: sb.repo, encoding: "utf8" }).trim();
 
-/** Declares in `tree`, whose own config the core reads (#4242). */
 const declare = (sensitivePaths?: unknown[], tree = sb.repo) => {
 	fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -97,15 +68,12 @@ const stage = (rel: string, tree = sb.repo) => {
 interface SkillCall {
 	skill?: string;
 	sid?: string;
-	/** The payload's cwd; left off, the payload names none. */
 	cwd?: string;
-	/** The host root; left off, the sandbox repo. */
 	project?: string;
 }
 
 let logs: string[] = [];
 
-/** The injected text for a Skill call, or null where the core said nothing. */
 const envelope = ({
 	skill = "code-review",
 	sid = ME,
@@ -255,17 +223,12 @@ describe("an escalated review", () => {
 	});
 });
 
-/** Records HEAD as `sid`'s session base. */
 const recordBase = (sid = ME, sha = git("rev-parse", "HEAD")) => {
 	const markers = path.join(sb.repo, ".claude", "tmp", "markers");
 	fs.mkdirSync(markers, { recursive: true });
 	fs.writeFileSync(path.join(markers, `.concision-base-${sid}`), sha);
 };
 
-/** Records `file` (repo-relative, or absolute) as written by `sid` in the
- * arbiter's write ledger. */
-/* Recorded as a session in `tree` records it: keyed by its path there, the
- * line naming that tree (#4397, #4457). */
 const record = (file: string, sid = ME, tree = sb.repo) =>
 	core.inTree(tree, () => store.recordWrite(path.resolve(tree, file), sid));
 
@@ -287,8 +250,6 @@ describe("a session's own change since its base", () => {
 	});
 });
 
-// #2386: a throwaway worktree keeps CLAUDE_PROJECT_DIR on the shared tree, so
-// the core finds the worktree from the payload's cwd.
 describe("a session in a linked worktree (#2386)", () => {
 	const worktree = (at: string) => {
 		git("worktree", "add", "-q", "--detach", at);
@@ -354,11 +315,6 @@ describe("a session in a linked worktree (#2386)", () => {
 		expect(envelope({ cwd: tree })).toBeNull();
 	});
 
-	/**
-	 * A git that rejects --path-format, as one before 2.31 does, where it runs
-	 * in `at`, and runs every other call for real; installed at WFC_GIT, which
-	 * lib/git.js reads on every call (base §N7).
-	 */
 	const oldGitAt = (at: string) => {
 		vi.stubEnv(
 			"WFC_GIT",
@@ -488,10 +444,6 @@ describe("the byte budget (#1619)", () => {
 		stage("supabase/migrations/001_policies.sql");
 		stage("lib/availability/fan-out.ts");
 		stage("lib/pricing/quote.ts");
-		// An install spells each core path at its plugin root (#1695), so the core
-		// runs on a stand-in install padded to MAX_INSTALL_ROOT's length, its
-		// scripts/ and docs/ linked to this checkout's. It sits under the OS temp
-		// dir, as the fixture's own root runs past that length in a worktree.
 		const temp = mkDirOutsideRepo("install-");
 		const pad = MAX_INSTALL_ROOT.length - temp.length - 1;
 		const root = path.join(temp, "i".repeat(Math.max(pad, 0)));
@@ -512,9 +464,6 @@ describe("the byte budget (#1619)", () => {
 		}
 		expect(installed).toContain(`${root}/`);
 		expect(Buffer.byteLength(installed)).toBeLessThanOrEqual(RULE_CAP);
-		// Nothing deferred: the checkout's envelope, last id included, once the
-		// root is taken back out. A second session, as the first latched every
-		// rule, sharing ME's eight-character Artefact suffix.
 		const checkout = envelope({ sid: `${ME}-2` }) ?? "";
 		expect(checkout).toContain(readFragment("review-tier-not-live"));
 		expect(installed.replaceAll(`${root}/`, "")).toBe(checkout);
@@ -534,7 +483,6 @@ describe("the fragments", () => {
 		expect(readFragment("review-tier-escalated")).toContain(definition);
 	});
 
-	// review-hold-gate.js holds the commit that adds an area's globs (#1612 triage Q2).
 	it("say the commit adding a globless area's globs is held", () => {
 		expect(readFragment("review-tier-globless")).toContain(
 			"That commit is held",
@@ -550,9 +498,6 @@ describe("the fragments", () => {
 		);
 	});
 
-	// #1925, #1948, #4383: a session reads the hold's text only once refused,
-	// after its review — the tier block must name a command that prints the
-	// marker command (#2040).
 	it("hand a staged review a command printing the marker command with every flag, in a worktree too", () => {
 		expect(readFragment("review-tier-escalated")).toContain(
 			"Record it with the marker script, worktree too: `scripts/lib/rule-text.sh review-hold`.",
@@ -566,7 +511,6 @@ describe("the fragments", () => {
 		);
 	});
 
-	// #1625's re-measure checker parses these records off the tracker.
 	it("name the record formats and the pin exactly as the re-measure checker reads them", () => {
 		const records = readFragment("review-tier-records");
 		for (const format of [
@@ -580,8 +524,6 @@ describe("the fragments", () => {
 		}
 	});
 
-	// #2254: commit-paths.js refuses a patched file in its `--` list, which
-	// the runs' diff must name, so the pin spells its list apart.
 	it("spell the pin's path list apart from the diff's", () => {
 		const pinned =
 			"`t=$(node scripts/commit-paths.js --tree [--patch <file>] -- <unpatched paths>)";
@@ -591,7 +533,6 @@ describe("the fragments", () => {
 			"`git diff HEAD $t -- <commit paths>`",
 		);
 	});
-	/** A `git …` command a rule spells, its placeholders filled. */
 	const readSpelled = (
 		id: string,
 		lead: RegExp,
@@ -619,8 +560,6 @@ describe("the fragments", () => {
 			env: { ...process.env },
 		}).stdout.trim();
 
-	// #1926: on the start-point route the pinned tree is HEAD's plus the
-	// reviewed paths, so a neighbour's commit since base= sits in it too.
 	it("replay a start-point review to the runs' diff, not a neighbour's file committed since", () => {
 		write("quote.ts", "price = 1\n");
 		write("tax.ts", "rate = 1\n");
@@ -640,10 +579,8 @@ describe("the fragments", () => {
 		expect(git("diff", "--stat", start, tree)).toContain("app/neighbour.ts");
 	});
 
-	/** quote.ts holding `mid` and `end` far enough apart to be two hunks. */
 	const writeQuote = (mid: string, end: string) =>
 		write("quote.ts", ["a", mid, ..."bcdefgh", end].join("\n"));
-	/** Commits quote.ts and tax.ts, returning HEAD's sha. */
 	const seed = () => {
 		writeQuote("1", "2");
 		write("tax.ts", "rate = 1\n");
@@ -651,7 +588,6 @@ describe("the fragments", () => {
 		git("commit", "-qm", "seed");
 		return git("rev-parse", "HEAD");
 	};
-	/** Edits both of quote.ts's hunks, returning a patch file of the first alone; the second is a neighbour's. */
 	const writeFirstHunkPatch = () => {
 		writeQuote("10", "2");
 		const patch = path.join(sb.dir, "hunk.patch");
@@ -660,9 +596,6 @@ describe("the fragments", () => {
 		return patch;
 	};
 
-	// #2081: the runs diff the pinned tree, so under --patch they see the patch
-	// the commit carries, as the replay does, not the neighbour's hunk beside it.
-	// The pin's `--` list cannot name a patched file, so paths= must.
 	it("replay a staged --patch review to the runs' diff the tier block gives (#2081)", () => {
 		const head = seed();
 		write("tax.ts", "rate = 2\n");
@@ -697,8 +630,6 @@ describe("the fragments", () => {
 	});
 });
 
-// #1748: the branches spell their ids out (#1699), so nothing else keeps them
-// in step.
 describe("the tier block's injectRules branches", () => {
 	it("are the shared ids plus each subset of the optional ones", () => {
 		const lists = emissionMatches(fs.readFileSync(CORE, "utf8")).map((m) =>
@@ -868,11 +799,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		);
 	});
 
-	/*
-	 * The real clock, crossed: only a spawn's own kill sets ETIMEDOUT. A spent
-	 * entry budget cuts every git call to 1 ms (lib/hook-deadline.js), so the
-	 * host's reads overrun at once rather than at HOOK_GIT_TIMEOUT_MS.
-	 */
 	it("answers git overrunning as the core logs it, in the host ports (#3446)", () => {
 		recordBase(ME);
 		const fresh = [
@@ -903,7 +829,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		}
 	});
 
-	// #4049: only a HEAD with no copy reads as declaring nothing.
 	it("logs a HEAD declaration that will not read, and stays at the tier the staged paths owe", () => {
 		write(".claude/workflow-core.json", "{ not json");
 		git("add", ".claude/workflow-core.json");
@@ -962,7 +887,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		);
 	});
 
-	/** decide over a stub context: the ports the kit and the host would give. */
 	const stubCtx = (over: Record<string, unknown>) => ({
 		root: "/r",
 		session: "",
@@ -1038,7 +962,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		).toBeNull();
 	});
 
-	/** The log lines decide writes over a stub context. */
 	const logged = (over: Record<string, unknown>) => {
 		const said: string[] = [];
 		decide(
@@ -1163,14 +1086,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	});
 });
 
-/*
- * #2971: the tier's sessionBase and its changedSince with ownChanges are Node
- * twins of lib/concision-marker.sh's concision_session_base and
- * lib/code-signal.sh's written_paths over `session-arbiter.js writes
- * --committed`, which the Stop and push review nags bill. One area per
- * fixture path, so the area lines name every path the tier
- * billed.
- */
 describe("the session base and billed paths, in both twins (#2971)", () => {
 	const libs = ["concision-marker.sh", "code-signal.sh"].map((f) =>
 		path.resolve(__dirname, f),
@@ -1184,8 +1099,6 @@ describe("the session base and billed paths, in both twins (#2971)", () => {
 		if (sid) store.recordCommit(git("rev-parse", "HEAD"), sid);
 	};
 
-	/** The bash nags' base, then the paths written_paths bills over the
-	 * ledger they read, sorted. */
 	const bashTwin = () => {
 		const out = execFileSync(
 			"bash",
@@ -1209,7 +1122,6 @@ rm -f "$mine"`,
 		return { base, billed };
 	};
 
-	/** The tier's base, then the paths its area lines name, sorted. */
 	const nodeTwin = (paths: string[]) => {
 		declare(paths.map((p) => ({ name: p, description: "d", globs: [p] })));
 		const { buildHostPorts } = require("./review-tier-host.js") as {
@@ -1227,10 +1139,6 @@ rm -f "$mine"`,
 		};
 	};
 
-	/*
-	 * The recorded base is rebased off HEAD's line, so both fall back to the
-	 * merge base.
-	 */
 	const fixture = () => {
 		write(".gitignore", ".claude/tmp/\nignored.js\n");
 		git("add", ".gitignore");

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/lib/precommit-gate.sh — the staged-gate module, against a fake
- * checker (mantahostels#1793).
- *
- * The per-gate suites next door prove each gate's own arming pattern and paths.
- *
- * Every case runs the REAL library text under `sh -e`, as husky runs the hook,
- * in a throwaway git repo — the shared tree's index is repo-global (mantahostels#63) and
- * must never be staged into by a test.
- *
- * `.husky/pre-commit` sources the module and runs every staged gate through
- * it, so a loosened case can let a gate skip the commit it should judge — its
- * finding landing on `main` unrefused — or refuse every commit at once.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,12 +21,6 @@ interface Run {
 	output: string;
 }
 
-/**
- * Runs `script` after the library, in a repo holding one commit.
- *
- * `staged` is written and staged; `dirty` is written AFTER staging, so the
- * index and the working tree disagree on purpose.
- */
 function run(
 	script: string,
 	opts: {
@@ -77,7 +57,6 @@ function run(
 	}
 }
 
-/** A node script that prints its arguments' contents and exits `code`. */
 const checker = (code: number) =>
 	`const fs = require("node:fs");
 console.log("CHECK-RAN");
@@ -103,8 +82,6 @@ exit 3`,
 		expect(fs.existsSync(b)).toBe(false);
 	});
 
-	/* dash runs no EXIT trap on a fatal signal, so without its own trap for the
-	 * signal the hook dies with the directory left (#3923). */
 	it.each([
 		["HUP", 129],
 		["INT", 130],
@@ -123,18 +100,12 @@ echo SURVIVED`,
 		expect(fs.existsSync(dir)).toBe(false);
 	});
 
-	/* The rejected draft was `dir="$(gate_tmpdir)"`, whose body runs in a
-	 * command-substitution subshell: the append to GATE_TMPDIRS is lost there, so
-	 * the trap has nothing to remove and the directory outlives the hook. */
 	it("registers the directory in the caller's shell, not a subshell", () => {
 		const { output } = run(`gate_tmpdir; echo "LIST[$GATE_TMPDIRS]"`);
 
 		expect(output).toMatch(/LIST\[\S+\n\]/);
 	});
 
-	/* `mktemp -d` honours TMPDIR, so a TMPDIR holding a space would split one
-	 * directory into two words if the list were whitespace-separated — `rm -rf`
-	 * on an unrelated path, and the real directory leaked. */
 	it("removes a directory whose path contains a space", () => {
 		const holder = fs.mkdtempSync(path.join(os.tmpdir(), "gate space-"));
 		temps.push(holder);
@@ -181,9 +152,6 @@ if gate_stage_out "$GATE_DIR" docs/gone.md; then echo READABLE; else echo MISSIN
 		expect(output).toContain("MISSING");
 	});
 
-	/* An `opt:` path is one whose ABSENCE the checker reads correctly — the
-	 * superseded gate's needle file, where a truncated copy would reach it as
-	 * corrupt JSON and report the wrong fault. */
 	it("drops an `opt:` path instead of failing, leaving no partial copy", () => {
 		const { output } = run(
 			`gate_tmpdir
@@ -197,9 +165,6 @@ ls "$GATE_DIR"`,
 		expect(output).not.toContain("gone.json");
 	});
 
-	/* The skip line is the only notice anyone gets that a gate stopped gating, so
-	 * it names the paths that actually failed — not the whole list, which would
-	 * send a reader off to check files that are fine. */
 	it("leaves only the paths that failed in GATE_MISSING", () => {
 		const { output } = run(
 			`gate_tmpdir
@@ -255,9 +220,6 @@ describe("staged_gate", () => {
 		expect(run(call("hold", "1"), withChecker(2)).code).toBe(1);
 	});
 
-	/* Apparatus missing is not a finding: the gate warns and passes, leaving it
-	 * to the scheduled sweeps, rather than making a legitimate deletion
-	 * uncommittable. */
 	it("warns and passes when the blob is not in the index, naming the check and the path, without running", () => {
 		const r = run(call("hold", "status"), {
 			committed: { "check.js": checker(1) },
@@ -269,9 +231,6 @@ describe("staged_gate", () => {
 		expect(r.output).not.toContain("CHECK-RAN");
 	});
 
-	/* The green path has to RETURN, not fall off the end of a false test: under
-	 * `sh -e` a function ending on an AND-OR list whose test failed returns 1 and
-	 * aborts the hook, refusing a commit every gate had passed. */
 	it("returns cleanly from a green check rather than tripping sh -e", () => {
 		const r = run(
 			`${call("hold", "status")}\necho REACHED-THE-NEXT-GATE`,
@@ -287,8 +246,6 @@ describe("armed (#1504)", () => {
 	const arms = (pattern: string) =>
 		`if armed ${shellQuote(pattern)}; then echo ARMED; else echo UNARMED; fi`;
 
-	/* git's rename detection reports a `git mv` as one R entry naming the NEW
-	 * path alone; the read takes --no-renames so the old path is back. */
 	it("arms on a file moved OUT of the gate's prefix (mantahostels#2903, #1483)", () => {
 		const { output } = run(`git mv docs/a.md elsewhere.md\n${arms("^docs/")}`, {
 			committed: { "docs/a.md": "a\n" },
@@ -304,8 +261,6 @@ describe("armed (#1504)", () => {
 		expect(output).toContain("UNARMED");
 	});
 
-	/* A bare --name-only renders this path as `"docs/caf\303\251.md"`, which
-	 * no prefix pattern matches. */
 	it("arms on a non-ASCII path under the prefix (mantahostels#2869)", () => {
 		const { output } = run(arms("^docs/"), {
 			staged: { "docs/café.md": "x\n" },
@@ -407,14 +362,9 @@ if tool_gate no-such-linter "fetch it from the release page."; then echo RUN; fi
 			"npm install does not supply it; fetch it from the release page.",
 		);
 		expect(output).not.toContain("RUN");
-		// ci-runs.js knows no such tool, so no CI line is printed.
 		expect(output).not.toMatch(/what this lets through/);
 	});
 
-	/**
-	 * An env whose PATH holds only what the library and ci-runs.js need, and
-	 * whose plugin root is this checkout, where ci-runs.js lives.
-	 */
 	const noShellcheck = (): NodeJS.ProcessEnv => {
 		const bin = fs.mkdtempSync(path.join(os.tmpdir(), "no-shellcheck-"));
 		temps.push(bin);
@@ -529,11 +479,6 @@ describe("declared_cmd (#1504)", () => {
 });
 
 describe("the library and the hook", () => {
-	/* Sourced ABOVE the first gate, not merely somewhere: below one, that gate
-	 * aborts on an undefined command — fail-closed, but it refuses every commit
-	 * in scope with an error nobody would trace back to a source line. Nothing
-	 * else catches it: cutGateScript inlines the library, so every gate suite
-	 * would stay green with the source line deleted outright. */
 	it("is sourced by .husky/pre-commit, above the first gate", () => {
 		const hook = fs.readFileSync(
 			path.join(ROOT, ".husky", "pre-commit"),

@@ -1,17 +1,3 @@
-/*
- * queue-alert.js — the landing queue's alert: for a crossing of a limit
- * lib/queue-gauge.js sets, the oldest waiting ref's wait or the queue's
- * depth, the refill loop files that crossing's ticket, as lib/queue-issue.js
- * files the stall ticket, and closes it once the queue is back within the
- * limit (#4485, spec #4458).
- *
- * ONCE PER CROSSING: a record in the markers directory names the crossings
- * already alerted, so a pass still past a limit files nothing and reads no
- * tracker, and a pass back within it closes the ticket and re-arms it. A
- * torn record is named and dropped, and reads as none alerted, so a crossing
- * still standing is filed again, which refreshes the open ticket.
- */
-
 const path = require("node:path");
 const { scriptPath } = require("./script-path.js");
 const { queueBranch } = require("./landing-refs.js");
@@ -21,7 +7,7 @@ const { recordTicket } = require("./record-ticket.js");
 
 /**
  * @typedef {"age"|"depth"} Crossing
- * @typedef {Record<Crossing, boolean>} AlertRecord the crossings alerted
+ * @typedef {Record<Crossing, boolean>} AlertRecord
  */
 
 const KINDS = /** @type {const} */ (["age", "depth"]);
@@ -31,8 +17,6 @@ const RECORD = ".queue-alert.json";
 const CRITERION = "The cause is fixed, and the queue is back within its limit.";
 
 /**
- * Which crossings fire and which re-arm, from the record and the crossings
- * standing now.
  * @param {AlertRecord} record
  * @param {AlertRecord} crossed
  * @returns {{fire: Crossing[], rearm: Crossing[]}}
@@ -56,7 +40,7 @@ function parseAlertRecord(rec) {
 
 /**
  * @param {Crossing} kind
- * @param {string} line the crossing's line from buildCrossingLines
+ * @param {string} line
  * @param {import("./queue-gauge.js").QueueGauge} g
  */
 const buildAlertBody = (kind, line, g) => `## What to build
@@ -87,14 +71,10 @@ function buildRearmComment(kind, g) {
 }
 
 /**
- * One supervision pass's act on the queue's alerts. Each act's record is
- * written once it succeeds, so a filing or close that throws is retried on
- * the next pass.
  * @param {import("./queue-issue.js").QueueIssueDeps} deps
- * @param {string} markers the markers directory
+ * @param {string} markers
  * @returns {(g: import("./queue-gauge.js").QueueGauge,
- *   c: import("./queue-gauge.js").QueueCrossings) => string[]} the lines
- *   naming what it did
+ *   c: import("./queue-gauge.js").QueueCrossings) => string[]}
  */
 function queueAlertTender(deps, markers) {
 	const ticket = recordTicket(deps, {
@@ -103,9 +83,6 @@ function queueAlertTender(deps, markers) {
 		noun: "queue alert",
 		subject: "the queue's crossing",
 		criterion: CRITERION,
-		/* Fail-open (#4485), as the stall ticket's record: a crossing still standing
-		 * is filed again, and a ticket open over a queue back within its
-		 * limit stays open until its next crossing. */
 		tornNote: "; an open queue alert stays open until its next crossing",
 	});
 	return (g, c) => {

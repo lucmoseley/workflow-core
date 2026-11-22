@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * run-ledger.test.ts — the 30-day test run ledger (#2824), whose `kind` and
- * `fullCause` follow #2812's `runs.py` rules.
- *
- * Every case writes through `record`/`recordFailure` under its own temp root,
- * so this checkout's real ledger is never touched.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -157,7 +150,6 @@ describe("a line's kind, cause and verdict (#2812 runs.py rules)", () => {
 			{ argv: ["--shared", "--full=push-gate"], sessionId: null, lander: true },
 		],
 		["full", { argv: ["--shared", "--full=push-gate"] }],
-		/* A script copying the lander's argv is no lander (#4757). */
 		["full", { argv: ["--full=other", "--shared"], sessionId: null }],
 		[
 			"full",

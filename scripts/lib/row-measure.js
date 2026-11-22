@@ -1,29 +1,3 @@
-/*
- * row-measure.js — the rows a read-audit change costs the pass store (#5029),
- * judged off one set of kept audit logs by two readers.
- *
- * KEEPING A RUN. Where `KEEP_ENV` names a directory, vitest-tree-watch.ts
- * hands `keepRun` its audit log directory and the run it gave the pass
- * store's `record`, and both are copied there before the logs are removed.
- * The directory must lie outside the
- * checkout: every child inherits the variable, and one naming a checkout
- * path is a hand the audit weighs, which skews the very rows being counted.
- * The kept logs hold the run's environment, keys included, so
- * scripts/measure-pass-store-rows.js deletes them once judged.
- *
- * JUDGING. Each reader is a `scripts/lib` directory whose `read-audit.js`
- * reads the logs and whose `pass-store.js` records the run into a scratch
- * store, as the tree watch would have. A row caches where its shard holds a
- * keyed pass for the file: a fail runs it, and a voiding row says only that
- * a fail voids an older pass. The whole scratch store is read, wherever the
- * reader's layout puts its shards.
- *
- * WEIGHTS. A file's weight is how many named runs (`scope.fileFilters` set)
- * selected it in the marker store over `WINDOW_DAYS`, #4916's method, the
- * measurement's own batches aside. An earlier measurement's batches in the
- * window still count.
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -41,27 +15,20 @@ const WINDOW_DAYS = 14;
 
 /**
  * @typedef {Omit<import("./pass-store.js").Run, "audits">} RecordedRun
- *   the run the tree watch handed the pass store, its audits aside
  * @typedef {RecordedRun & {keptMark: bigint|null}} KeptRun
- *   `keptMark` a `markStart` mark taken as the run was kept, null where none
- *   was taken
- * @typedef {{dir: string, run: KeptRun}} Kept one run's logs and its run
+ * @typedef {{dir: string, run: KeptRun}} Kept
  * @typedef {{write: (s: string) => unknown}} Sink
  * @typedef {{rows: Set<string>, audited: Set<string>,
  *   doubts: Map<string, string>, said: string[]}} Judged
- *   the files a reader's store caches, each its audit read, each it doubted
- *   with why, and what its pass store said
  */
 
-/** The kept mark, as JSON carries it. @param {bigint|null} mark */
+/** @param {bigint|null} mark */
 const markOut = (mark) => (mark === null ? null : String(mark));
 
-/** The kept mark JSON carried. @param {unknown} mark */
+/** @param {unknown} mark */
 const markIn = (mark) => (typeof mark === "string" ? BigInt(mark) : null);
 
 /**
- * Copy the audit logs in `dir` and `run` into the directory `KEEP_ENV`
- * names, where it names one. Never throws.
  * @param {string|null} dir
  * @param {RecordedRun|null} run
  * @param {{env?: NodeJS.ProcessEnv, err?: Sink}} [options]
@@ -93,7 +60,6 @@ function keepRun(dir, run, { env = process.env, err = process.stderr } = {}) {
 }
 
 /**
- * Every run kept under `keep`, by its log directory.
  * @param {string} keep
  * @returns {Kept[]}
  */
@@ -119,10 +85,6 @@ function readKept(keep) {
 }
 
 /**
- * The paths the tree has moved on since `run` was kept, or null where it
- * stands as the run left it. A tracked file rewritten, or only touched,
- * since then drops the rows resting on it on both sides with no word said,
- * so the measurement refuses it.
  * @param {KeptRun} run
  * @returns {string[]|null}
  */
@@ -145,7 +107,6 @@ function movedSince(run) {
 }
 
 /**
- * Every file under `dir`, at any depth.
  * @param {string} dir
  * @returns {string[]}
  */
@@ -156,7 +117,6 @@ const filesUnder = (dir) =>
 		.map((e) => path.join(e.parentPath, e.name));
 
 /**
- * The files a shard's text holds a keyed pass for.
  * @param {string} text
  * @returns {string[]}
  */
@@ -172,7 +132,6 @@ const cachingFiles = (text) =>
 		.map((row) => row.file);
 
 /**
- * The files the store under `storeRoot` caches.
  * @param {string} storeRoot
  * @returns {Set<string>}
  */
@@ -183,19 +142,14 @@ const readCachingRows = (storeRoot) =>
 		),
 	);
 
-/**
- * A marker's run, as the kept run's `sha` and `at` name it.
- * @param {{sha?: unknown, at?: unknown}} m
- */
+/** @param {{sha?: unknown, at?: unknown}} m */
 const runKey = (m) => `${m.sha} ${m.at}`;
 
 /**
- * Each of `files` weighted by how many named runs since `since` selected it,
- * the runs `own` names aside.
  * @param {unknown[]} markers
  * @param {string[]} files
- * @param {number} since epoch ms
- * @param {Set<string>} own `runKey`s of the measurement's own batches
+ * @param {number} since
+ * @param {Set<string>} own
  */
 function namedRunWeights(markers, files, since, own) {
 	/** @type {Map<string, number>} */
@@ -210,12 +164,10 @@ function namedRunWeights(markers, files, since, own) {
 }
 
 /**
- * Whether `marker` is a named run dated since `since` that `own` does not
- * name.
  * @param {unknown} marker
  * @param {number} since
  * @param {Set<string>} own
- * @returns {marker is Record<string, any>} a marker line, whose shape test-pass-marker.js owns
+ * @returns {marker is Record<string, any>}
  */
 function isCountedRun(marker, since, own) {
 	if (marker === null || typeof marker !== "object") return false;
@@ -228,7 +180,6 @@ function isCountedRun(marker, since, own) {
 }
 
 /**
- * `files` cut into the fewest near-equal batches of at most `max`.
  * @param {string[]} files
  * @param {number} max
  */
@@ -240,12 +191,7 @@ function batchesOf(files, max) {
 	);
 }
 
-/**
- * A judge over the reader at `lib`, recording each kept run handed to `add`
- * into one scratch store.
- * `dispose` removes the store.
- * @param {string} lib the reader's `scripts/lib`
- */
+/** @param {string} lib */
 function buildJudge(lib) {
 	const { readAudits } = require(path.join(lib, "read-audit.js"));
 	const { record } = require(path.join(lib, "pass-store.js"));
@@ -277,7 +223,6 @@ function buildJudge(lib) {
 }
 
 /**
- * The comparison, as lines to print.
  * @param {{sample: string[], weights: Map<string, number>, runs: number,
  *   against: {name: string} & Judged, ours: {name: string} & Judged}} c
  * @returns {string[]}
@@ -322,7 +267,6 @@ function summarise({ sample, weights, runs, against, ours }) {
 }
 
 /**
- * The command's options off its parsed flags, or the refusal they earn.
  * @param {Record<string, string|true>} flags
  * @param {number} defaultMax
  * @returns {{refusal: string} | {against: string, logs: string|null,

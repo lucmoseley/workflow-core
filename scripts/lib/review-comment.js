@@ -22,11 +22,9 @@ const { parseCommand } = require("./shell-parse.js");
 
 /**
  * @typedef {object} ReviewCommentPorts
- * @property {string} home what a body path's leading `~` expands to
- * @property {(path: string) => string|undefined} readFile a body file's text,
- *   undefined where it is absent; throws where it cannot be read
- * @typedef {import("./kit-context.js").KitContext & ReviewCommentPorts}
- *   ReviewCommentContext
+ * @property {string} home
+ * @property {(path: string) => string|undefined} readFile
+ * @typedef {import("./kit-context.js").KitContext & ReviewCommentPorts} ReviewCommentContext
  */
 
 /**
@@ -57,7 +55,6 @@ function decide(command, ctx) {
 					);
 					return;
 				}
-				/* Loaded only for a comment's body: this core sits on every `gh` call. */
 				const { ticketedRefusal } = require("./ticketed-tags.js");
 				const refusal = ticketedRefusal(call.body.text);
 				if (refusal)

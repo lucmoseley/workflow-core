@@ -1,17 +1,6 @@
-/*
- * registry-anchors-merge.js — the guard registry's anchors file merged per row
- * (#4171), for its git merge driver.
- *
- * A row both sides moved keeps the current side's digest. Neither side's is
- * an attestation of the merged content, so the gate names it stale and its
- * `--review` re-read writes the right one (#4167, #3935).
- */
 const { buildAnchorsText, parseRows } = require("./registry-anchors-file.js");
 
 /**
- * The three-way merge of the file's three texts, or null where one is not a
- * JSON object of digests. A row only one side changed or deleted takes that
- * side; a row both changed keeps `ours`.
  * @param {string} base
  * @param {string} ours
  * @param {string} theirs

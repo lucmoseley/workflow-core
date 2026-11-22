@@ -1,97 +1,39 @@
-/*
- * precommit-gates.js — the pre-commit's Node gates, one row per gate (#4597).
- * Each row is the gate's one registration, read by:
- *
- * - scripts/precommit-dispatch.js, which runs the rows in this order in one
- *   process (#5172), lib/precommit-dispatch.js's header holding the contract.
- * - lib/fault-profiles.js's PROFILES, from a profile row's `identity`.
- * - lib/shared-fault-notices.js's NOTICES, from its `notice`.
- * - lib/arm-secondary.js's refusal table, from its `refusals`; a member with
- *   no profile keeps its lines in scripts/commit-gate-refusals.json.
- * - The row test (precommit-whole-repo-gates.test.ts), the refusal-source
- *   test (lib/arm-secondary.test.ts) and base §0's floor test
- *   (tooling-matrix.test.ts), which iterate PROFILE_GATES.
- *
- * Base §0's floor table is the one edit a new code gate still owes beside its
- * row: that table mixes these gates with gates of other shapes in one curated
- * order, so the floor test requires a row naming each `floor` gate's script
- * rather than rendering it.
- *
- * THE BASELINE MUST EXIST for an `against` gate: lib/check.js resolves
- * HEAD^{tree} before it reads anything, so in a repo with no commit yet the
- * gate is BROKEN, exit 2, refusing the very first commit (mantahostels#1940).
- * Mid-merge, an `against` gate also inherits a fault a merged-in head already
- * on `main` carries (#4582).
- * An `index` gate judges the tree this commit makes, never an untracked or
- * unstaged file outside it, and still refuses a breach HEAD already carries
- * (#3687).
- *
- * `script` and `sources` are spelt from the core root, and `fromCoreRoot` reads
- * them there through coreRoot(), the anchor under which the read-edge
- * extractor attributes them to a test importing this module (base §X10).
- */
-
 const path = require("node:path");
 const { coreRoot } = require("./script-path.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 
-/** A JS test file's name, the arm of every row reading scripts/ tests. */
 const JS_TEST = JS_TEST_FILE.source;
 
-/** A finding's identity where a row names none: one site in one file. */
 const SITE_IDENTITY = ["severity", "tag", "file", "match"];
 
 /**
  * @typedef {string | { text: string, sites?: number }} RefusalLine
  * @typedef {object} MemberGate
- * @property {string} id the gate's refusal-table id, and its fault profile's
- *   where it has one
- * @property {string} script the checker, from the repo root
- * @property {import("./precommit-dispatch.js").Lander} lander the queue
- *   lander's gate sets that run it beside a plain commit (#4545): `every`
- *   both, `merge` the merge set, `batch` the batch set, `none` neither, a
- *   gate the lander's Actions run repeats
- * @property {string[]} args what the dispatcher hands the checker; on a
- *   program row, the arguments under which its script's own process runs
- *   what PROGRAM runs, which check-in-process-armed-rows and
- *   check-in-process-always-rows hold equal
- * @property {import("./precommit-dispatch.js").Arm} arm the staged paths
- *   that run it
- * @property {"gate" | "warn"} policy whether its red refuses the commit
- * @property {"checker" | "program"} kind a lib/check.js checker exporting
- *   its SPEC, or a program exporting its PROGRAM
- * @property {string} [side] why its `--against`/`--index` sides spawn the
- *   checker rather than run in-process, where they do
- * @property {boolean} [quietPass] its pass prints nothing unless it WARNs
- * @property {import("./precommit-dispatch.js").When} [when] the facts that
- *   must hold for it to arm, such as `module:<name>`, a module the host has on
+ * @property {string} id
+ * @property {string} script
+ * @property {import("./precommit-dispatch.js").Lander} lander
+ * @property {string[]} args
+ * @property {import("./precommit-dispatch.js").Arm} arm
+ * @property {"gate" | "warn"} policy
+ * @property {"checker" | "program"} kind
+ * @property {string} [side]
+ * @property {boolean} [quietPass]
+ * @property {import("./precommit-dispatch.js").When} [when]
  * @typedef {(io: { cwd: string, env: NodeJS.ProcessEnv }) =>
- *   import("./precommit-dispatch.js").RowResult} Program a program row's
- *   core: its exit code and output over the repo at `cwd`, never a write to
- *   this process's own state
- * @typedef {object} ProfileFields a whole-repo checker's, its faults
- *   attributed to the commit that adds them
- * @property {string} staged a path whose staging arms it
- * @property {RefusalLine[]} refusals the lines any one of which names the gate
- * @property {string[]} [sources] the files printing `refusals`, where not the
- *   script alone
- * @property {string[]} [identity] the fields naming one fault, where not
- *   SITE_IDENTITY
- * @property {{ scope: string, cite: string, cost: string }} notice the
- *   post-commit fault notice's row
- * @property {boolean} floor whether base §0's floor table names it, it being
- *   a gate that judges code
+ *   import("./precommit-dispatch.js").RowResult} Program
+ * @typedef {object} ProfileFields
+ * @property {string} staged
+ * @property {RefusalLine[]} refusals
+ * @property {string[]} [sources]
+ * @property {string[]} [identity]
+ * @property {{ scope: string, cite: string, cost: string }} notice
+ * @property {boolean} floor
  * @typedef {MemberGate & ProfileFields} ProfileGate
  * @typedef {MemberGate | ProfileGate} PrecommitGate
  */
 
 /** @type {PrecommitGate[]} */
 const GATES = [
-	/*
-	 * Once the main checkout is cut over to the worktree model (#4248), it takes
-	 * no commit at all: its main moves by the levelling step's fast-forward
-	 * alone.
-	 */
 	{
 		id: "main-checkout-commit",
 		script: "scripts/check-main-checkout-commit.js",
@@ -101,20 +43,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * Every parallel-safety rule in CLAUDE.md's guard-registry region states a
-	 * backing that holds — an **Enforced** claim naming a guard that exists and
-	 * is wired — and a commit must not leave a registry anchor expired that HEAD
-	 * did not (#2617): the way out is the `--review` re-anchor, staged with it.
-	 * scripts/ and .husky/ arm it because a guard is a file: deleting
-	 * .husky/pre-commit falsifies an **Enforced** claim without any document
-	 * changing. self-plugin/ holds the wiring an UNWIRED claim is judged
-	 * against.
-	 *
-	 * Identity is `file` + `rule`, which every FAIL kind carries; a staleness
-	 * warning carries neither, and `guard` names its path. lib/fault-profiles.js
-	 * widens its gating to the WARN the checker marks as refusing (#2617).
-	 */
 	{
 		id: "guard-registry",
 		script: "scripts/check-guard-registry.js",
@@ -148,15 +76,6 @@ const GATES = [
 		},
 		floor: false,
 	},
-	/*
-	 * docs/test-read-edges.json lets `--changed` select the tests that READ a
-	 * document rather than import it. It is derived from the test corpus, so a
-	 * commit adding or removing a runtime read makes it stale, and a stale
-	 * manifest fails silently (mantahostels#2031). Armed on test files and the manifest, not on
-	 * docs/: adding a document changes no edge until a test reads it. Neither
-	 * lander set runs it: each lander merge has just written the manifest with
-	 * this generator (lib/regenerated-files.js, #4573).
-	 */
 	{
 		id: "test-read-edges",
 		script: "scripts/generate-test-read-edges.js",
@@ -168,10 +87,6 @@ const GATES = [
 		policy: "gate",
 		kind: "program",
 	},
-	/*
-	 * A session's commit on a declared sensitive path with no escalated review
-	 * of exactly its staged tree (#1622). The program owns its skips.
-	 */
 	{
 		id: "review-hold",
 		script: "scripts/review-hold-gate.js",
@@ -181,10 +96,6 @@ const GATES = [
 		policy: "gate",
 		kind: "program",
 	},
-	/*
-	 * The roadmap HTML and its digest are only correct together; refuse the
-	 * half-staged pair here rather than leaving it to CI.
-	 */
 	{
 		id: "roadmap-pair",
 		script: "scripts/check-roadmap-pair.js",
@@ -194,13 +105,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * The staged roadmap is structurally valid, or it does not get committed
-	 * (mantahostels#698). The checker judges the STAGED blob against HEAD's, so
-	 * an unsaved roadmap edit the commit does not carry stays out of it. Only
-	 * validator ERRORs refuse; WARNINGs and the added/removed card list report
-	 * and pass, a roadmap-edit run that adds a card being ordinary work.
-	 */
 	{
 		id: "roadmap-valid",
 		script: "scripts/check-roadmap-valid.js",
@@ -210,16 +114,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * A citation of this repo's tracker is bare `#N`; `mantahostels#N` names
-	 * the inherited tracker (#162). Unarmed by path: the fault landed in
-	 * shell, JS, TS, JSON and markdown alike, so there is no directory to
-	 * narrow on. Not content-armed either: a pre-filter that fails leaves the
-	 * gate green, which contradicts the checker's own fail-safe annotation.
-	 *
-	 * DEFEAT:    a `citation-exempt: <why>` comment drops one line, and
-	 *            WFC_CITATION_TRACKER_OFF=1 stands the gate down for one commit.
-	 */
 	{
 		id: "citation-tracker",
 		script: "scripts/check-citation-tracker.js",
@@ -229,11 +123,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * A gate's subject tracked while its switch is off (#1506). Unarmed, as it judges the whole
-	 * index: a subject that landed before this shipped is refused at the next
-	 * commit.
-	 */
 	{
 		id: "gate-switches",
 		script: "scripts/check-gate-switches.js",
@@ -243,12 +132,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * A staged lockfile out of step with the staged package.json (#2029). The
-	 * refusal prints the lockfile rule, whose only delivery this is. Unarmed
-	 * here: the checker arms itself on the paths it reads, so the two cannot
-	 * drift (#3434).
-	 */
 	{
 		id: "lockfile-sync",
 		script: "scripts/check-lockfile-sync.js",
@@ -258,10 +141,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * A file added under docs/research/ (#2356): research is posted on its
-	 * issue, never landed in the tree. The refusal prints the rule.
-	 */
 	{
 		id: "research-added",
 		script: "scripts/check-research-added.js",
@@ -271,13 +150,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * A local edit to a vendored skill body is declared, or this commit does
-	 * not land (mantahostels#1809, specified at mantahostels#1826). Armed on a
-	 * vendored path, the manifest or the licence notices (#1939). It reads the
-	 * worktree, not the index: all the vendored files plus the manifest are too
-	 * many paths to stage out one by one.
-	 */
 	{
 		id: "vendored-skills",
 		script: "scripts/check-vendored-skills.js",
@@ -290,16 +162,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * Every command the core registers its own hooks with resolves to a file
-	 * that exists, and is executable where the command runs it directly
-	 * (mantahostels#1898): a hook wired to a missing path fires nothing and
-	 * says nothing. Armed on either registration file or a script, since
-	 * renaming a guard falsifies the wiring without the registration changing.
-	 * The working tree, not the index: whether a hook can run is a property of
-	 * the files on this machine now. Only the self-plugin assertion; its
-	 * siblings read ~/.claude and answer on `npm run status`.
-	 */
 	{
 		id: "hook-liveness",
 		script: "scripts/check-hook-liveness.js",
@@ -312,12 +174,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * hooks/hooks.json is the plugin's copy of the self-plugin's hooks, so an
-	 * edit there without a re-render ships adopters the old hook set (#4,
-	 * #2441). Any script too: one that gains or loses a deny moves its
-	 * onFailure (#2670).
-	 */
 	{
 		id: "plugin-hooks",
 		script: "scripts/generate-plugin-hooks.js",
@@ -330,19 +186,6 @@ const GATES = [
 		policy: "gate",
 		kind: "program",
 	},
-	/*
-	 * A scripts/ test that spawns a guard sourcing lib/guard-log.sh must
-	 * redirect CLAUDE_CONFIG_DIR, or every fail-open it provokes is appended to
-	 * the developer's real guard-errors.log (mantahostels#1452). Armed on every
-	 * scripts/ .ts, since a shared helper can spawn the guard (#837), and on
-	 * shell files, since a guard some test already spawns can start sourcing
-	 * guard-log.sh. Whole-repo and `against`: the finding pairs a test with a
-	 * script, and either half can be the one this commit stages
-	 * (mantahostels#1753, mantahostels#1833).
-	 *
-	 * Identity excludes `guards`, which grows when an unrelated guard starts
-	 * sourcing guard-log.sh.
-	 */
 	{
 		id: "guard-test-isolation",
 		script: "scripts/check-guard-test-isolation.js",
@@ -368,15 +211,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A scripts/ test that spawns a hostRoot()- or gr_root-rooted script must
-	 * redirect CLAUDE_PROJECT_DIR, or the child roots itself in the real repo
-	 * (#160; #3311, a bash checker). Whole-repo and `against` as
-	 * guard-test-isolation's.
-	 *
-	 * Identity excludes `scripts`, which grows when an unrelated script starts
-	 * requiring lib/host-root.js (#160).
-	 */
 	{
 		id: "host-root-test-isolation",
 		script: "scripts/check-host-root-test-isolation.js",
@@ -401,16 +235,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A scripts/ test that raw-inits and raw-commits a git repo gives that repo
-	 * its own identity, or it passes on every developer machine and fails on a
-	 * runner with none (mantahostels#2355). Whole-repo and `against`: the init
-	 * and commit sites can sit anywhere in one file, and a pathspec commit's
-	 * staged-paths-only view could hold one without the other.
-	 *
-	 * Identity excludes `repos`, which grows when a second repo key joins an
-	 * already-faulted file.
-	 */
 	{
 		id: "git-fixture-identity",
 		script: "scripts/check-git-fixture-identity.js",
@@ -432,16 +256,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A JS test sets or unsets an env var through vi.stubEnv, never a direct
-	 * process.env write or delete, which vitest.config.ts's unstubEnvs never
-	 * restores (#4019). Armed on every test vitest collects and every scripts/
-	 * .ts helper; staged here as a helper alone, test-kind.test.ts pinning the
-	 * test-file arm.
-	 *
-	 * The subject is one variable in one test file; `line` is excluded, as an
-	 * edit higher up moves an inherited fault.
-	 */
 	{
 		id: "test-env-writes",
 		script: "scripts/check-test-env-writes.js",
@@ -465,17 +279,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * Every script in the core finds the HOST repository through the one seam
-	 * (#1), never by walking up from its own file: installed as a plugin the
-	 * core sits in the plugin cache, where a self-rooted script reads the
-	 * cache. The mirror fault is gated too — a file shipping WITH the core
-	 * reached through the host root. A repo shipping no plugin SKIPs (#83).
-	 * Whole-repo, since a site is judged against core-path constants other
-	 * modules export (#917).
-	 *
-	 * The subject is the script file; `line` is excluded.
-	 */
 	{
 		id: "host-root",
 		script: "scripts/check-host-root.js",
@@ -499,15 +302,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * The brand sheet's §11 banned tells, on the copy strings under app/
-	 * (mantahostels#858). `against` (mantahostels#1834): a tell HEAD already
-	 * carries reports without blocking a bystander. Repo prose and source
-	 * comments are out of scope.
-	 *
-	 * One banned tell in one file; `line` and `context` are excluded, a rewrite
-	 * of the neighbouring sentence changing the second without the tell.
-	 */
 	{
 		id: "website-copy",
 		script: "scripts/check-website-copy.js",
@@ -525,11 +319,6 @@ const GATES = [
 		},
 		floor: false,
 	},
-	/*
-	 * An own skill whose frontmatter js-yaml rejects, which a strict reader
-	 * drops silently (#887). js-yaml's absence refuses, naming the install
-	 * (#1380). Identity excludes `at`, which a line added above moves.
-	 */
 	{
 		id: "skill-frontmatter",
 		script: "scripts/check-skill-frontmatter.js",
@@ -548,13 +337,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A script header line keeping a caller list by hand, which goes stale on
-	 * every caller edit (#4885). Identity is the line's text and its
-	 * occurrence in the file, never `line`, which a line added above moves, so
-	 * an adopter's inherited lines warn and only a new one refuses. A renamed
-	 * script's lines read as new and refuse.
-	 */
 	{
 		id: "hand-callers",
 		script: "scripts/check-hand-callers.js",
@@ -575,12 +357,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A comment the commit adds that fits no permitted kind (#5490), armed only
-	 * while the host turns the comments module on. Identity is the
-	 * comment's text and its occurrence in the file, never `line`, so a moved
-	 * comment is inherited and an edited one new.
-	 */
 	{
 		id: "comment-policy",
 		script: "scripts/check-comment-policy.js",
@@ -606,13 +382,6 @@ const GATES = [
 		},
 		floor: false,
 	},
-	/*
-	 * A hook, guard or checker of the repo's own left unregistered, untested or
-	 * uncounted (#1456), standing down wherever the repo carries the core's
-	 * registration tests; there it refuses any settings hook but the
-	 * self-plugin canary (#2447). `key` names the member and what it lacks, so
-	 * an adopter's inherited gaps warn and only a new one refuses.
-	 */
 	{
 		id: "registrations",
 		script: "scripts/check-registrations.js",
@@ -642,13 +411,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A script reading its command line without a strict parser, which ignores
-	 * an unknown flag and so runs its side effect on `--help` (#920, #1532).
-	 * `content` is the file's hash, so a commit editing an inherited script
-	 * still on no strict parser refuses: the ratchet that moves each onto one
-	 * when next touched.
-	 */
 	{
 		id: "cli-args",
 		script: "scripts/check-cli-args.js",
@@ -667,12 +429,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A test spawning node on the program under test rather than running it
-	 * through runInProcess, nor through keptSpawn (§X3, #3458, #5483). One spawn
-	 * per finding, at its call's first line and occurrence, never its line
-	 * number.
-	 */
 	{
 		id: "test-spawn",
 		script: "scripts/check-test-spawn.js",
@@ -693,12 +449,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A hand split-and-parse of JSONL rather than lib/jsonl.js (#3452, #3453).
-	 * `match` is the split line's text and its occurrence in the file, so a
-	 * line added above an inherited site leaves it inherited and a second copy
-	 * is new: every `index` gate below keys its sites the same way.
-	 */
 	{
 		id: "jsonl-reads",
 		script: "scripts/check-jsonl-reads.js",
@@ -716,11 +466,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * A `gh` call off lib/gh.js and WFC_GH, or a `claude` call off
-	 * lib/claude-bin.js and WFC_CLAUDE_BIN: a second var, a local spawn, a bare
-	 * shell call or a test's PATH stub (§X2, §N7; #3455, #3559).
-	 */
 	{
 		id: "gh-route",
 		script: "scripts/check-gh-route.js",
@@ -739,7 +484,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/* An arbiter command spelt by hand rather than through buildArbiterCommand (#3990). */
 	{
 		id: "arbiter-commands",
 		script: "scripts/check-arbiter-commands.js",
@@ -758,7 +502,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/* A program reading WFC_NOW itself rather than lib/clock.js's now() (#3457). */
 	{
 		id: "clock-copies",
 		script: "scripts/check-clock-copies.js",
@@ -776,8 +519,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/* A report-* program filing past createIssue (#3454). Only a report-*
-	 * holds the breach, so only staging one arms it. */
 	{
 		id: "report-programs",
 		script: "scripts/check-report-programs.js",
@@ -795,7 +536,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/* A program ending in process.exit writing past writeFd (§N6, #4018). */
 	{
 		id: "program-output",
 		script: "scripts/check-program-output.js",
@@ -815,9 +555,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/* A checker line in .husky/pre-commit or .husky/pre-commit.local exiting 1
-	 * on its failure, which turns its BROKEN into a finding (§N4, #3456). Keyed
-	 * on the line's text, never its number. */
 	{
 		id: "precommit-exit",
 		script: "scripts/check-precommit-exit.js",
@@ -840,14 +577,6 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/*
-	 * docs/agents/rules/<id>.txt is rendered from an anchor pair in the
-	 * document that authors the rule, so an edit inside those anchors makes the
-	 * fragment stale, and the guard delivers a rule the document no longer says
-	 * (mantahostels#2493). Armed on the generator's own source list (#3118) and
-	 * on the generated files; never on scripts/: the generator's own edits are
-	 * caught when it is re-run.
-	 */
 	{
 		id: "rule-fragments",
 		script: "scripts/generate-rule-fragments.js",
@@ -860,11 +589,6 @@ const GATES = [
 		policy: "gate",
 		kind: "program",
 	},
-	/*
-	 * The effort guide's routing block is rendered from the routing file, so
-	 * an edit to either, or to the generator, without a re-render leaves the
-	 * guide disagreeing with what the code routes (#5033).
-	 */
 	{
 		id: "effort-guide-routing",
 		script: "scripts/generate-effort-guide-routing.js",
@@ -877,11 +601,6 @@ const GATES = [
 		policy: "gate",
 		kind: "program",
 	},
-	/*
-	 * The core glossary and doc-map method renders against GLOSSARY.md and
-	 * docs/doc-map.md, which an edit to either without a re-render leaves
-	 * shipping stale (#5294). It SKIPs in a repo shipping no plugin.
-	 */
 	{
 		id: "core-docs",
 		script: "scripts/generate-core-docs.js",
@@ -894,12 +613,6 @@ const GATES = [
 		policy: "gate",
 		kind: "program",
 	},
-	/*
-	 * The user-settings snapshot against ~/.claude/settings.json, checked here
-	 * and not in CI: its source lives outside the repo, so a runner could only
-	 * ever skip. Report-only, since drift in an unrelated file must not block
-	 * an unrelated commit.
-	 */
 	{
 		id: "user-settings-drift",
 		script: "scripts/check-user-settings-drift.js",
@@ -909,14 +622,6 @@ const GATES = [
 		policy: "warn",
 		kind: "checker",
 	},
-	/*
-	 * The code standards' citations, §N7 exports and pythonRoutes (#1863),
-	 * scoped to what this commit touches (mantahostels#2631). Report-only by
-	 * ruling (mantahostels#1091). Always armed: a citation can point at almost
-	 * any tracked file, and the run is cheap. --touching HEAD reads the
-	 * worktree, not the index, so an unstaged edit can surface here — accepted
-	 * (check-code-standards.js:27-43).
-	 */
 	{
 		id: "code-standards",
 		script: "scripts/check-code-standards.js",
@@ -926,13 +631,6 @@ const GATES = [
 		policy: "warn",
 		kind: "checker",
 	},
-	/*
-	 * A primitives row naming a path or § id that does not resolve, or a local
-	 * row taking a base row's job (#3451). Every commit, since a renamed
-	 * exemplar can sit anywhere; --paths-only keeps it to stat calls. It reads the worktree, so an unstaged
-	 * rename the commit does not carry can surface here; a base row's fault
-	 * only warns in an adopter.
-	 */
 	{
 		id: "primitives",
 		script: "scripts/check-primitives.js",
@@ -942,13 +640,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * An own skill body this commit grows past its cap, reported only
-	 * (mantahostels#3136); and a skill or command body holding an unescaped
-	 * $<digit>, which the harness rewrites to an argument — that limb FAILs,
-	 * so the row gates (#1490). --touching HEAD reads the worktree, so an
-	 * unstaged edit can surface here — accepted, the fix being one escape.
-	 */
 	{
 		id: "skill-body-size",
 		script: "scripts/check-skill-body-size.js",
@@ -958,13 +649,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * docs/adopter-boundary.md against what the release ships and init writes
-	 * (#5294). Always armed: a new top-level directory shows only as a path
-	 * under it, which no pattern tells from an existing one. It reads the
-	 * worktree, so an unstaged page edit can surface here; it SKIPs in an
-	 * adopter, which holds no page.
-	 */
 	{
 		id: "adopter-boundary",
 		script: "scripts/check-adopter-boundary.js",
@@ -974,13 +658,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * A workflow job reaching past the timer-triggered autonomy ceiling, R1
-	 * (docs/agents/autonomy-ceiling.md). Added or modified files only, `live`:
-	 * a commit deleting the last workflow would otherwise refuse on
-	 * NOTHING-INSPECTED. It reads the working tree, so an unstaged workflow
-	 * edit the commit does not carry can surface here (#1380).
-	 */
 	{
 		id: "workflow-permissions",
 		script: "scripts/check-workflow-permissions.js",
@@ -990,12 +667,6 @@ const GATES = [
 		policy: "gate",
 		kind: "checker",
 	},
-	/*
-	 * The doc map's own coverage, checked at commit as well as in
-	 * document-guards.yml (mantahostels#390); lib/doc-map-gate.js's header holds
-	 * its rules. The pattern spells SCOPE in lib/doc-map.js, and
-	 * lib/doc-map-gate-program.test.ts asserts the parity.
-	 */
 	{
 		id: "doc-map",
 		script: "scripts/lib/doc-map-gate-program.js",
@@ -1008,21 +679,6 @@ const GATES = [
 		policy: "gate",
 		kind: "program",
 	},
-	/*
-	 * The always-loaded context budget (#1014): a commit that adds bytes and
-	 * leaves a surface at or over its cap is refused; an over-cap total it did
-	 * not increase stays a WARN. --against HEAD reads both totals out of git, so
-	 * a half-saved CLAUDE.md the commit does not carry is not charged.
-	 *
-	 * The pattern is deliberately wider than the caps, so a capped file moved
-	 * elsewhere stays covered; `scripts/` is whole, since the event cap is the
-	 * rule text the wired guards deliver (mantahostels#2004). The computed list
-	 * is the pool the host config declares under `alwaysLoaded` (#33), which an
-	 * adopter may place outside the pattern.
-	 *
-	 * Silent on a pass: its byte line on nearly every commit would teach the
-	 * reader to skip it.
-	 */
 	{
 		id: "context-budget",
 		script: "scripts/check-context-budget.js",
@@ -1037,17 +693,6 @@ const GATES = [
 		kind: "checker",
 		quietPass: true,
 	},
-	/*
-	 * The limit that binds the injected payload, which the context-budget row
-	 * cannot read: it is per command, and check-context-budget.js sums a union
-	 * larger than any real variant (mantahostels#1915). --index composes each
-	 * command's payload from the staged text module and the rule fragments
-	 * /code-review's rules read, against the harness's 10,000-character
-	 * persistence threshold.
-	 *
-	 * It prints on a pass, unlike the context-budget row: crossing the
-	 * threshold raises no error anywhere else.
-	 */
 	{
 		id: "injector-margin",
 		script: "scripts/check-injector-margin.js",
@@ -1068,12 +713,9 @@ const GATES = [
  */
 const isProfileGate = (g) => "notice" in g;
 
-/** The rows whose checker has a fault profile, in order. */
 const PROFILE_GATES = GATES.filter(isProfileGate);
 
 /**
- * A path from the core root, absolute, in the core the running code sits in:
- * not script-path.js's corePath, which spells one for a command line.
  * @param {string} rel
  * @returns {string}
  */

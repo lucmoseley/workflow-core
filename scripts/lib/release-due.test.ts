@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * The weekly cut's judge (#5435). Loosened, a cut falls due inside the
- * cadence release-plugin.js refuses, or with nothing to release.
- */
 import { describe, expect, it } from "vitest";
 
 const { CADENCE_DAYS, daysSinceCut, judgeCut } = require("./release-due.js");

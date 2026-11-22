@@ -1,25 +1,3 @@
-/*
- * queue-ref-status.js — what became of a session's queue ref: each stay of
- * `queue/<name>` the remote shows, or the queue log or the drop record names
- * since the session's worktree was made, read as one of
- *
- *   - queued: the ref waits and no batch in flight holds it at the sha it
- *     holds now; where one not yet merged holds it at an older snapshot, that
- *     batch takes it at this sha (#5436);
- *   - testing: a batch in flight holds it at its snapshot sha, which `main`
- *     does not yet hold;
- *   - landed: a land row names it, or `main` holds its snapshot sha, with the
- *     `main` sha it reached, off the pipeline record, else the oldest
- *     green-ledger sha on `main`'s first-parent path from it;
- *   - dropped: a drop row or the drop record names it, with the dropped ref
- *     holding it, where the drop stands off the drop record — returned to
- *     this session, held behind a newer push, settled, or under a fix ticket
- *     — and its cause and evidence, in the words its fix ticket would use
- *     (lib/drop-evidence.js; #4950).
- *
- * Stays read oldest first, the ref's waiting sha last (#4485, spec #4458).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseErrorText } = require("./caught.js");
@@ -46,20 +24,18 @@ const { batchesOf, retakesMoved } = require("./queue-lander.js");
  * @typedef {import("./queue-lander.js").Drop} Drop
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
  * @typedef {import("./queue-log.js").LoggedRow} LoggedRow
- * @typedef {{fault: string}} Unwalked git could not walk `main`, and why
+ * @typedef {{fault: string}} Unwalked
  * @typedef {object} RefReading
- * @property {string} name after `queue/`
- * @property {number} since when the session's worktree was made, in ms
- * @property {{sha: string}|null} waiting the remote's `queue/<name>`
- * @property {readonly LoggedRow[]} rows the queue log's, oldest first
- * @property {RecordRead<Pipeline>} pipeline the pipeline record
+ * @property {string} name
+ * @property {number} since
+ * @property {{sha: string}|null} waiting
+ * @property {readonly LoggedRow[]} rows
+ * @property {RecordRead<Pipeline>} pipeline
  * @property {RecordRead<readonly Drop[]>} drops
- * @property {readonly DroppedRef[]} dropped the remote's `dropped/*` refs
- * @property {string|null} main the remote's `main`
- * @property {(sha: string) => boolean|Unwalked} mainHolds whether `main`
- *   holds `sha`
- * @property {(sha: string) => string|null|Unwalked} mainReached the green
- *   ledger's `main` sha that first held `sha`, null where it names none
+ * @property {readonly DroppedRef[]} dropped
+ * @property {string|null} main
+ * @property {(sha: string) => boolean|Unwalked} mainHolds
+ * @property {(sha: string) => string|null|Unwalked} mainReached
  * @typedef {{state: "queued", name: string, sha: string,
  *     snapshot: string|null, retaken?: boolean}
  *   | {state: "testing", name: string, sha: string}
@@ -70,9 +46,7 @@ const { batchesOf, retakesMoved } = require("./queue-lander.js");
  *   | {state: "dropped", name: string, sha: string, ref: string|null,
  *     record: "torn"|"no-entry"}
  *   | {state: "dropped", name: string, sha: string, ref: string|null,
- *     record: "read", drop: Drop, held: boolean}}
- *   RefState `drop` its drop record entry; `held` where a push of the queue
- *   ref waits
+ *     record: "read", drop: Drop, held: boolean}} RefState
  */
 
 /**
@@ -85,8 +59,6 @@ const memberOf = (b, name) =>
 		: b.members.find((m) => m.name === name);
 
 /**
- * The pipeline's batch holding `name`, among those landed where `landed`,
- * else those in flight.
  * @param {Pipeline} p
  * @param {string} name
  * @param {boolean} landed
@@ -116,7 +88,6 @@ function landedState(r, sha) {
 }
 
 /**
- * The drop record's entries for the session's own stays.
  * @param {RefReading} r
  * @returns {Drop[]}
  */
@@ -177,7 +148,6 @@ function waitingState(r, sha, mine) {
 			snapshot: m?.sha ?? null,
 			retaken: Boolean(b && m && retakesMoved(b)),
 		};
-	/* Between the lander's push to `main` and its record-landed step. */
 	const held = r.mainHolds(sha);
 	if (typeof held === "object")
 		return { state: "unwalked", name, sha, fault: held.fault };
@@ -209,9 +179,6 @@ function queueRefStates(r) {
 }
 
 /**
- * Where a recorded drop stands: settled, under its fix ticket, held behind
- * a newer push, its filing refused for good, or returned to the session
- * reading it.
  * @param {Drop} d
  * @param {boolean} held
  */
@@ -274,8 +241,6 @@ function buildQueueRefLine(s) {
 }
 
 /**
- * A git walk's answer, or why it failed. Fail-open (#4485): a status line
- * names the fault and claims no state off it.
  * @template T
  * @param {() => T} walk
  * @returns {T|Unwalked}
@@ -289,8 +254,6 @@ function walked(walk) {
 }
 
 /**
- * The green ledger's sha that first held `sha` on `main`'s first-parent
- * path; null where the ledger names none.
  * @param {string} root
  * @param {string|null} main
  * @param {ReadonlySet<string>} green
@@ -313,9 +276,7 @@ const ledgerMainReached = (root, main, green) => (sha) => {
 };
 
 /**
- * Each stay of `queue/<name>` since `since`, off `root`'s records and the
- * remote's refs and queue log already read.
- * @param {string} root the canonical checkout's root
+ * @param {string} root
  * @param {{name: string, since: number}} stay
  * @param {import("./queue-lander.js").QueueRefs} refs
  * @param {readonly LoggedRow[]} rows
@@ -342,11 +303,8 @@ function readQueueStays(root, { name, since }, refs, rows) {
 }
 
 /**
- * Each stay of the queue ref of the session in `tree`, as readQueueStays
- * reads it; none where `tree` is no session worktree. The worktree was made
- * when git wrote its `.git` file.
- * @param {string} root the canonical checkout's root
- * @param {string|null|undefined} tree the session's tree top level
+ * @param {string} root
+ * @param {string|null|undefined} tree
  * @param {import("./queue-lander.js").QueueRefs} refs
  * @param {readonly LoggedRow[]} rows
  * @returns {RefState[]}

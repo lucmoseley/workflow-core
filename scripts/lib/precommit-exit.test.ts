@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins precommit-exit.js's reading of a pre-commit hook's text, in-process
- * (#4123). check-precommit-exit.test.ts holds the program's boundary cases.
- * Built on hook text alone, so each shape needs no hook file on disk.
- * Breaking it lets a hook line turn a checker's BROKEN into a finding to
- * fix (base §N4).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -130,8 +123,7 @@ describe("parseBreaches", () => {
 	it.each([
 		[
 			"a binary",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'"${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1',
+			`"\${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1`,
 		],
 		["a declared command", 'sh -c "$declared_command" || exit 1'],
 		["inline node", "node -e 'process.exit(0)' || exit 1"],
@@ -139,8 +131,6 @@ describe("parseBreaches", () => {
 		expect(lines(`${line}\n`)).toEqual([]);
 	});
 
-	// A named arm is the checker's own answer, and a probe of an outside command
-	// runs no checker (#3808).
 	it.each([
 		[
 			"a named arm exiting 1 and a catch-all exiting 2",

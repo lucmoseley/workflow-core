@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * lib/push-dests.js (#2785): where a `git push` sends each ref, as
- * lib/branch-publish.js and lib/lander-on-push.js read it (#2405).
- */
 
 import { describe, expect, it } from "vitest";
 import { fakeSymbolicName } from "./git-tree-fake.js";
@@ -37,8 +33,6 @@ const { gitWords } = require("./shell-words.js") as {
 	) => { sub: string; args: string[] }[];
 };
 
-/* `git rev-parse --symbolic-full-name` in a tree holding branches `topic` and
- * `main` and tag v1, on `topic` or detached. */
 const TREE = "/repo";
 const REFS = { root: TREE, branches: ["main"], tags: ["v1"] };
 const onTopicName = fakeSymbolicName({ ...REFS, head: "topic" });
@@ -50,7 +44,6 @@ const detachedName = fakeSymbolicName({
 const onTopic = (src: string) => onTopicName(TREE, src);
 const detached = (src: string) => detachedName(TREE, src);
 
-/** The words after `push` in a one-segment command, as the walk hands them. */
 function read(command: string, names = onTopic): Read {
 	const parsed = parseCommand(command);
 	const words = (parsed.segments[0] ?? "").split(" ").filter(Boolean);

@@ -1,23 +1,6 @@
-/*
- * refuse-on-throw.js — an enforcing per-guard entry's failure policy, which
- * lib/guard-entry.js's `run({ onThrow: "refuse" })` applies (#2797, spec
- * #2733): a core that throws refuses the call, as the bash guard's crash did
- * under `"onFailure": "block"`, rather than the kit's fail-open.
- *
- * ONE THROW STAYS OPEN: the repo itself not resolving, which walkGit's
- * treeClass port throws (lib/git-tree.js's treeClassifier). The bash guards
- * allowed every command there, recorded (mantahostels#147), because with the
- * repo unknown no tree is the shared one; refusing would wedge every git call
- * in a repo git cannot read.
- */
-
 const { caught } = require("./caught.js");
 
 /**
- * `ctx` with its treeClass port and any `tree` port watched, and whether a
- * throw is the repo or the session's tree not resolving — the fault that
- * stays open, for this file and for lib/guard-judge.js's fail-closed cores
- * alike.
  * @template {{ treeClass: (dir: string) => string, tree?: () => unknown }} C
  * @param {C} ctx
  * @returns {{ ctx: C, isRepoFault: (e: unknown) => boolean }}
@@ -33,8 +16,6 @@ function watchRepoFault(ctx) {
 			throw e;
 		}
 	};
-	/* The session's tree, where the context carries one: unresolved is the
-	 * same fault (#4242). */
 	const read = ctx.tree;
 	const tree =
 		read &&
@@ -55,7 +36,7 @@ function watchRepoFault(ctx) {
 /**
  * @template {{ treeClass: (dir: string) => string,
  *   log: (what: string, detail?: string) => void }} C
- * @param {string} name the entry's file, as the refusal names it
+ * @param {string} name
  * @param {(command: string, ctx: C) => import("./guard-entry.js").Decision} decide
  * @returns {(command: string, ctx: C) => import("./guard-entry.js").Decision}
  */

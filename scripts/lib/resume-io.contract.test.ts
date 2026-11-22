@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The contract lib/resume-io-fake.ts keeps with lib/resume-io.js (#4386,
- * §G7): each answer the fake serves, its failures included, and each fault it
- * throws, is the shape and verdict the real adapter gives in the situation the
- * answer names. Only the situation's own values — paths, ids, the text a
- * message carries — differ. The real side runs over real fs, git and the real
- * session-arbiter.js in a temp HOME, with `claude` stubbed at WFC_CLAUDE_BIN by
- * the port fakes its own contracts hold (auth-status, bg-resume, agents-stop),
- * so no case spends or touches a live seat.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -91,9 +81,6 @@ const seatEnv = (over: NodeJS.ProcessEnv = {}) => ({
 
 const refill = () => path.join(dir, "refill");
 
-/** A headless resume of SESSION on KEY_VAR, the seat file declaring the
- * seat's dir both a plan seat and that key's overflow seat. The stub's
- * `claude -p` exits at once. */
 function resumeHeadless() {
 	fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -108,7 +95,6 @@ function resumeHeadless() {
 	});
 }
 
-/** The stub's `--bg` launch answering `kind`, run through the adapter. */
 function launchAs(kind: ResumeKind | null) {
 	const r = kind ? buildRekeyedResponse(kind, JOB, FAKE_COPY) : null;
 	const out = path.join(dir, "bg-out");
@@ -122,7 +108,6 @@ function launchAs(kind: ResumeKind | null) {
 	});
 }
 
-/** Job `jobId`'s state.json on the seat, as `record`. */
 function writeJobRecord(jobId: string, record: unknown) {
 	fs.mkdirSync(jobDirPath(seat, jobId), { recursive: true });
 	fs.writeFileSync(jobStatePath(seat, jobId), JSON.stringify(record));
@@ -135,7 +120,6 @@ const writeTranscript = (onSeat: string) => {
 	return file;
 };
 
-/** SESSION's name read from a transcript whose latest title is `name`. */
 const namedSession = (name: string) => {
 	const file = writeTranscript(seat);
 	const title = (customTitle: string) =>
@@ -144,7 +128,6 @@ const namedSession = (name: string) => {
 	return io().sessionName(file);
 };
 
-/** A pass marker of SESSION's, and a listing showing SESSION in `state`. */
 function holdPassMarker(state: string) {
 	fs.writeFileSync(
 		path.join(markersDir(root), `${PASS_MARKER_PREFIXES[0]}${SESSION}`),
@@ -184,13 +167,11 @@ const childShape = (v: unknown) => {
 	};
 };
 
-/** A failure message's type and the errno it names. */
 const errnoOf = (v: unknown) =>
 	v === null
 		? null
 		: { type: typeof v, errno: /: (E[A-Z]+)\b/.exec(String(v))?.[1] };
 
-/** What `act` threw, as its type and errno, or that it threw nothing. */
 function thrownBy(act: () => unknown) {
 	try {
 		act();
@@ -209,10 +190,8 @@ function thrownMessage(act: () => unknown) {
 	}
 }
 
-/* Named for the test selector (§X10): moveIssueClaim runs it. */
 const ARBITER = path.resolve(__dirname, "../session-arbiter.js");
 
-/** An answer less its situation's values, keyed by port. */
 const SHAPES: Record<string, (v: unknown) => unknown> = {
 	launchHeadless: (v) => {
 		const r = v as ReturnType<ResumeIo["launchHeadless"]>;

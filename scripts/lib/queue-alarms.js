@@ -1,16 +1,3 @@
-/*
- * queue-alarms.js — the agent-side reader of the two off-machine queue alarms
- * (#4772), .github/workflows/landing-quiet.yml and queue-wait.yml. The morning
- * review lists each alarm firing, and the refill loop's landing supervision keeps the
- * alarm ticket (lib/alarm-ticket.js) open while one fires. Off the machine,
- * scripts/alarm-notice.js reads the same two (#4939).
- *
- * FIRING means a failed scheduled run at `main`'s current sha with no
- * success of that workflow since: a scheduled run checks out `main`'s tip, so
- * a run at an older sha predates `main`'s last move. A checkout without the
- * workflow's file reads none of its runs.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -19,22 +6,19 @@ const ALARMS = /** @type {const} */ ([
 	{ name: "Queue ref waiting 2h", file: "queue-wait.yml" },
 ]);
 
-/* A guess: a day of hourly runs, past which a stall has long been ticketed. */
+// guess, #4772
 const RUN_LIMIT = 24;
 
 /**
  * @typedef {{databaseId: number, conclusion: string|null, createdAt: string,
- *   headSha: string}} AlarmRun a `gh run list` row
- * @typedef {{name: string, run: number, at: number, count: number}}
- *   FiringAlarm the newest failed run, when it was created in ms, and how
- *   many failed since `main` last moved
+ *   headSha: string}} AlarmRun
+ * @typedef {{name: string, run: number, at: number, count: number}} FiringAlarm
  */
 
 /**
- * The alarm a workflow's runs say fires, or null.
  * @param {string} name
- * @param {AlarmRun[]} runs newest first
- * @param {string} main `main`'s current sha
+ * @param {AlarmRun[]} runs
+ * @param {string} main
  * @returns {FiringAlarm|null}
  */
 function firingAlarm(name, runs, main) {
@@ -65,8 +49,6 @@ function buildAlarmLine({ name, run, at, count }, now) {
 }
 
 /**
- * `main`'s sha on the remote of the checkout at `root`, or null where it has
- * none.
  * @param {string} root
  * @returns {string|null}
  */
@@ -77,10 +59,6 @@ function readRemoteMain(root) {
 }
 
 /**
- * `main`'s sha and the alarms firing at it for the checkout at `root`, read
- * from its code repo's runs; throws where a read fails. `main` is read only
- * where an alarm's workflow file is present, null otherwise or where the
- * remote has none, and no alarm fires then.
  * @param {string} root
  * @returns {{main: string|null, alarms: FiringAlarm[]}}
  */

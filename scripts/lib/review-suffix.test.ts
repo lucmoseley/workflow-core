@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The three routes that name the review-axis Artefact paths must spell them
- * alike (mantahostels#3458): a review dispatched on one route's name and read back on
- * another's finds nothing. They name the axes' subagent type too, which must
- * be one the host has (#741). The inject-review-tier core's focus and attack
- * paths take the same suffix (#1621).
- *
- * Each route's real script runs black-box against a scratch host directory,
- * with a session id that needs sanitising, since the fault is the routes
- * disagreeing and only their own output shows it. One route is the
- * `guard-review-rules` core, run through the PreToolUse dispatcher's entry;
- * loosen a case and a `/code-review` pass reads back no axis report at all.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -23,7 +10,6 @@ import { runInProcess } from "./run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const SCRIPTS = path.join(ROOT, "scripts");
-// No `/`: concision-backstop.sh also names a file on the full id, and bails on one.
 const ID = "ab.cd:e+fgh-99";
 const EXPECTED = "-ab_cd_e_";
 
@@ -34,8 +20,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The dispatcher's stdout for one core, run on `payload` in `env`; a non-zero
- * exit fails the case, as execFileSync's throw would. */
 const dispatch = (
 	core: string,
 	payload: object,
@@ -50,15 +34,12 @@ const dispatch = (
 	return r.stdout;
 };
 
-/** Every review-spec path suffix in `text`; `""` for a bare name. */
 const suffixes = (text: string) =>
 	[...text.matchAll(/review-spec(-[^.`\s]*)?\.md/g)].map((m) => m[1] ?? "");
 
-/** Every review subagent type named in backticks in `text`. */
 const agentTypes = (text: string) =>
 	[...text.matchAll(/`((?:workflow-core:)?code-reviewer)`/g)].map((m) => m[1]);
 
-/** Gives `host` a code-reviewer definition of its own, as the core has. */
 const ownReviewer = (host: string) => {
 	fs.mkdirSync(path.join(host, ".claude", "agents"), { recursive: true });
 	fs.writeFileSync(
@@ -67,7 +48,6 @@ const ownReviewer = (host: string) => {
 	);
 };
 
-/** Called bare, as in the core, so the host carries the core's own skill (#1165). */
 const guardReviewRules = () => {
 	const skill = path.join(dir, ".claude", "skills", "code-review");
 	fs.mkdirSync(skill, { recursive: true });
@@ -106,7 +86,6 @@ const injectTrackerDocs = (host = ROOT) => {
 	return JSON.parse(r.stdout).hookSpecificOutput.additionalContext as string;
 };
 
-/** The Stop nag, provoked by a code change this session's ledger owns. */
 const concisionBackstop = (prepare: (repo: string) => void = noop) => {
 	const repo = path.join(dir, "repo");
 	const hooks = path.join(dir, "no-hooks");
@@ -144,7 +123,6 @@ const concisionBackstop = (prepare: (repo: string) => void = noop) => {
 	return JSON.parse(hook("stop")).reason as string;
 };
 
-/** The tier core's envelope, on a staged change to a declared sensitive glob (#1621). */
 const injectReviewTier = () => {
 	const repo = path.join(dir, "tier");
 	const hooks = path.join(dir, "tier-hooks");
@@ -246,7 +224,6 @@ describe("the review-axis session suffix (mantahostels#3458)", () => {
 });
 
 describe("the review subagent type (#741)", () => {
-	// A plugin agent is offered namespaced, and the bare name is refused as not found.
 	it("is the plugin's spelling on every route where the host has no definition", () => {
 		const routes = {
 			"guard-review-rules": agentTypes(guardReviewRules()),

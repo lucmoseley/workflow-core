@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { pauseOrThrow } = require("./write-fd.js");
 
-/* So one read takes what a pipe buffer holds. */
+// https://man7.org/linux/man-pages/man7/pipe.7.html
 const CHUNK = 64 * 1024;
 
 /**

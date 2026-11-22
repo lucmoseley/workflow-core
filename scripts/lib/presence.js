@@ -1,17 +1,3 @@
-/*
- * presence.js — whether the founder is at the laptop (#2004, spec #1995):
- * present means he typed a prompt in some session, on any seat, within the
- * last PRESENT_WINDOW_MS.
- *
- * ONE MARKER PER MACHINE, `~/.claude/.founder-presence` (lib/machine-marker.js),
- * because a per-checkout or per-seat file would miss his prompts in every
- * other repo and plan. `WFC_PRESENCE_MARKER` overrides it, so a test never
- * touches the machine's real marker.
- *
- * The marker also names the seat he typed on (#3731): the typing session's
- * config dir, in the seat file's form. Line one is the time, line two the seat.
- */
-
 const os = require("node:os");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { configDirFrom, seatDir } = require("./config-dir.js");
@@ -19,18 +5,14 @@ const { readText } = require("./file-read.js");
 const { machineMarkerPath } = require("./machine-marker.js");
 const { planSeatsOf } = require("./refill-seats.js");
 
-/* Untraced: spec #1995's value, not a measurement. */
+// guess, #1995
 const PRESENT_WINDOW_MS = 30 * 60 * 1000;
 
-/**
- * @param {Record<string, string | undefined>} env
- * @throws as lib/machine-marker.js's machineMarkerPath
- */
+/** @param {Record<string, string | undefined>} env */
 const markerPath = (env) =>
 	env.WFC_PRESENCE_MARKER || machineMarkerPath(".founder-presence", env);
 
 /**
- * Record a prompt typed at `now` in the session `env` belongs to, atomically.
  * @param {Date} now
  * @param {Record<string, string | undefined>} [env]
  */
@@ -41,12 +23,10 @@ function markPresent(now, env = process.env) {
 }
 
 /**
- * The marker's time in ms, null where none is recorded, and the seat it names.
  * @param {Record<string, string | undefined>} env
  * @returns {{at: number|null, recorded: string}}
  */
 function readMarker(env) {
-	/* Fails open to no record, which reads as away (#2004). */
 	const read = readText(markerPath(env));
 	const text = read.state === "read" ? read.data : "";
 	const [time = "", recorded = ""] = text.split("\n").map((l) => l.trim());
@@ -55,9 +35,6 @@ function readMarker(env) {
 }
 
 /**
- * The plan seat the last prompt was typed on: null where none is recorded, it
- * is not a plan seat `list` declares, or the seat file refuses, as
- * readConfiguredSeats reads it.
  * @param {import("./refill-seats.js").SeatList} list
  * @param {Record<string, string | undefined>} [env]
  * @returns {string|null}
@@ -70,17 +47,11 @@ function readLastTypedSeat(list, env = process.env) {
 	return recorded && listed ? recorded : null;
 }
 
-/**
- * The last typed prompt's time in ms: null where no time is recorded or the
- * marker is unreadable.
- * @param {Record<string, string | undefined>} [env]
- */
+/** @param {Record<string, string | undefined>} [env] */
 const readLastTypedAt = (env = process.env) => readMarker(env).at;
 
 /**
- * "present" where the last typed prompt falls within the window before `now`,
- * else "away". No record reads as away: the loop then fills every slot.
- * @param {number|null} lastTyped ms
+ * @param {number|null} lastTyped
  * @param {Date} now
  * @returns {"present"|"away"}
  */
@@ -91,12 +62,8 @@ function presenceAt(lastTyped, now) {
 }
 
 /**
- * Whether the founder is away at `now` since the away switch at `switchedAt`,
- * null where the control holds no readable switch. The switch counts as
- * presence, since the panel click that makes it records no typed prompt
- * (#4184), so any switch reads present for one window, whoever made it.
- * @param {number|null} switchedAt ms
- * @param {number|null} lastTyped ms
+ * @param {number|null} switchedAt
+ * @param {number|null} lastTyped
  * @param {Date} now
  */
 function isAbsentSinceSwitch(switchedAt, lastTyped, now) {

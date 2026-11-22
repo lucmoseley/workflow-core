@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/round-holds.js, a PreToolUse dispatcher core (#3858), refuses once a
- * background job's round before it reaches the founder, printing the open repo
- * holds.
- *
- * WHAT BREAKING IT COSTS: a miss lets many sessions ask one question; a
- * refusal with no way past wedges every round a job asks.
- */
 
 import fs from "node:fs";
 import os from "node:os";

@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/rescue-ports-fake.ts, the ports rescue-sessions' module cases run
- * on (#5157), to the production adapters its shell wires: its oracle to
- * lib/agent-liveness.js's runOracle, and its `claude stop` to
- * lib/claude-stop.js's stopOn over spawnRaw, each against a `claude` stub
- * printing the installed harness's recordings (lib/agents-stop-fake.ts, held
- * to the harness by lib/agents-stop.contract.test.ts). Breaking it costs the
- * module cases their meaning: a listing or a failed seat the fake folds as
- * runOracle never would passes a case the probe fails on.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -39,7 +29,6 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const seat = (name: string) => path.join(dir, name);
 
-/** What each side answers for `seats`, each listing its rows or failing. */
 function both(seats: Record<string, Row[] | null>) {
 	const bySeat: Record<string, AgentsAnswer> = {};
 	const fake = createRescuePorts(path.join(dir, "proc"));

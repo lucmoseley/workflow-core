@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * guard-pull-form in a session's own worktree (#4242): with
- * the session and CLAUDE_PROJECT_DIR in a linked worktree of a main
- * checkout, a reset is judged in the tree the command stands in — the
- * worktree's own ref — not the host's, and the module config is the host's.
- */
 
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -17,7 +11,6 @@ freshSandbox((sb) => {
 	at = splitCheckout(path.join(sb.dir, "split"));
 });
 
-/** The verdict on a hard reset; with no `worktree`, run from the main checkout. */
 const verdict = (opts: { worktree?: string }) =>
 	runCore(
 		"guard-pull-form",

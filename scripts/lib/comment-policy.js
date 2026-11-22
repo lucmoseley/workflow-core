@@ -590,6 +590,11 @@ function braceEnd(text, i) {
 	return text.length;
 }
 
+const TEMPLATE_NAME = String.raw`(?:\[[\w$]+ *= *[^\]\s][^\]\n]*\]|[\w$]+(?:\s*=\s*[^\s,]+)?)`;
+const TEMPLATE_NAMES = new RegExp(
+	String.raw`^${TEMPLATE_NAME}(?:\s*,\s*${TEMPLATE_NAME})*`,
+);
+
 /**
  * One JSDoc tag's prose: what a type tag carries past its type and name,
  * or the whole of any other tag.
@@ -604,13 +609,7 @@ function tagProse(name, body) {
 	if (rest.startsWith("{")) rest = rest.slice(braceEnd(rest, 0)).trimStart();
 	if (shape === "name")
 		rest = rest.replace(/^(?:\[[^\]]*\]|[\w$.[\]]+)/, "").trimStart();
-	if (shape === "names")
-		rest = rest
-			.replace(
-				/^[\w$]+(?:\s*=\s*[^\s,]+)?(?:\s*,\s*[\w$]+(?:\s*=\s*[^\s,]+)?)*/,
-				"",
-			)
-			.trimStart();
+	if (shape === "names") rest = rest.replace(TEMPLATE_NAMES, "").trimStart();
 	return rest.replace(/^-\s*/, "");
 }
 

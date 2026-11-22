@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/push-coverage.js (#5016): the touched tests a queue push holds that no
- * local pass covers, and the warning `session-checkout.js land` prints. Loosen
- * it and a push whose newest commits no local run tested reaches the lander
- * unremarked, or a covered push warns for nothing.
- *
- * In-process, the selector swapped for an adapter, and the pass store too
- * outside the real-store cases; the real `vitest list` is crossed once, by
- * scripts/session-checkout.test.ts.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";

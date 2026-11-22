@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The off-machine queue alarms' reader (#4772). Loosen it and a red alarm
- * reaches only the founder's inbox again, or an alarm from before `main`
- * last moved keeps a stall ticket open.
- *
- * `main` is read off a real bare remote, as the reader runs `git ls-remote`;
- * the runs come from a `WFC_GH` stub that serves `runs.json` per workflow and
- * logs each call, so a test sees which workflows were asked for.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -28,7 +19,6 @@ let runs: string;
 const git = (cwd: string, args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-/** A scheduled run created at `hour` UTC on 7 Nov 2026. */
 const run = (hour: number, conclusion: string, headSha = main) => ({
 	databaseId: hour,
 	conclusion,
@@ -36,7 +26,6 @@ const run = (hour: number, conclusion: string, headSha = main) => ({
 	headSha,
 });
 
-/** `rows` as landing-quiet.yml's runs, newest first, with its file present. */
 const quietRuns = (rows: object[]) => {
 	const workflows = path.join(work, ".github", "workflows");
 	fs.mkdirSync(workflows, { recursive: true });

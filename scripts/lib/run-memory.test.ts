@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * A run's memory record (#5183), sampled off a real process tree: a stand-in
- * vitest main that forks two workers, one holding far more memory. Break it
- * and a memory kill cannot be tied to its launch, nor admission's charges
- * checked against what runs draw.
- */
 
 import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -15,8 +9,8 @@ import { ignoreFailure } from "./caught.js";
 import { keptSpawn } from "./kept-spawn.js";
 
 const memory = require("./run-memory.js");
+const { LOOKBACK_MS } = require("./incident-tickets.js");
 
-/* Each child allocates and touches `mb` MiB, prints its pid, then idles. */
 const STAND_IN = `
 const { fork } = require("node:child_process");
 const mb = Number(process.argv[2] ?? 0);
@@ -42,7 +36,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The stand-in main, once both workers are up, and their pids. */
 async function startTree(): Promise<{
 	main: number;
 	big: number;
@@ -74,7 +67,6 @@ const launch = {
 	repo: "workflow-core",
 };
 
-/* A clock a test moves by hand: run files stamp `sampledAt` off it. */
 const clock = (start = Date.parse("2026-11-14T00:00:00Z")) => {
 	let t = start;
 	return {
@@ -177,12 +169,22 @@ describe("startSampler (#5183)", () => {
 		fs.mkdirSync(store);
 		const old = path.join(store, "1-1.json");
 		fs.writeFileSync(old, "{}");
-		/* Past any retention a run file could need: a month. */
 		const past = (Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000;
 		fs.utimesSync(old, past, past);
 		memory.startSampler(launch, { dir: store, intervalMs: 60_000 }).stop();
 		expect(fs.existsSync(old)).toBe(false);
 		expect(memory.readRunFiles(store).runs).toHaveLength(1);
+	});
+
+	it("keeps a run file as old as incident-tickets.js's lookback", () => {
+		const store = path.join(dir, "store");
+		fs.mkdirSync(store);
+		const kept = path.join(store, "1-1.json");
+		fs.writeFileSync(kept, "{}");
+		const past = (Date.now() - LOOKBACK_MS + 60_000) / 1000;
+		fs.utimesSync(kept, past, past);
+		memory.startSampler(launch, { dir: store, intervalMs: 60_000 }).stop();
+		expect(fs.existsSync(kept)).toBe(true);
 	});
 
 	it("says why where a run file will not parse, never dropping it silently", () => {
@@ -211,7 +213,6 @@ describe("heldUntil (#5183)", () => {
 		const [run] = memory.readRunFiles(store).runs;
 		expect(memory.heldUntil(run, process.pid)).toEqual({
 			role: "wrapper",
-			/* The last sample, plus SEEN_SLACK_MS's two 1 s samples. */
 			until: start + 30_000 + 2000,
 		});
 		expect(memory.heldUntil(run, 999_999_997)?.role).toBe("vitest main");

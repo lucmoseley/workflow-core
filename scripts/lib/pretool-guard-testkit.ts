@@ -1,13 +1,3 @@
-/*
- * pretool-guard-testkit.ts — spawn a PreToolUse guard on a harness-shaped
- * payload and read back what it handed the session (#2143), so a change to the
- * payload shape or the env isolation lands once instead of in every guard test.
- *
- * NEVER point `config` at a real config dir: a fail-open is written under
- * CLAUDE_CONFIG_DIR (mantahostels#147). The latch lands under CLAUDE_PROJECT_DIR,
- * so `project` is a temp dir or a fixture repo, never the checkout.
- */
-
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,31 +6,19 @@ import { expect } from "vitest";
 import { runInProcess } from "./run-in-process";
 
 export interface GuardSpawn {
-	/** Exported as CLAUDE_PROJECT_DIR. */
 	project: string;
-	/** Exported as CLAUDE_CONFIG_DIR. */
 	config: string;
-	/** Where the guard is spawned; left off, the test process's own. */
 	cwd?: string;
-	/** The guard's arguments, as its registration's command passes them. */
 	args?: string[];
-	/** Laid over the env last; an `undefined` value unsets. */
 	env?: NodeJS.ProcessEnv;
-	/** Sent in place of the payload, for a malformed one. */
 	stdin?: string;
-	/** Kills the guard past this many ms, which then throws as not run. */
 	timeout?: number;
 }
 
 export interface GuardRun extends GuardSpawn {
-	/** What stderr must match; left off, it must be empty. */
 	stderr?: RegExp;
 }
 
-/**
- * The payload Claude Code sends a PreToolUse hook on a Bash call. A null
- * session leaves `session_id` off, for a guard's no-session fail-open.
- */
 export const buildBashPayload = (
 	command: string,
 	session: string | null = `s-${Math.random()}`,
@@ -50,7 +28,6 @@ export const buildBashPayload = (
 	tool_input: { command },
 });
 
-/** A temp project dir with an empty config dir inside it; the caller removes `dir`. */
 export function guardDirs(prefix: string): { dir: string; config: string } {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 	const config = path.join(dir, "config");
@@ -58,7 +35,6 @@ export function guardDirs(prefix: string): { dir: string; config: string } {
 	return { dir, config };
 }
 
-/** The guard's raw run on `payload`. Throws where it did not run at all. */
 export function spawnGuard(
 	guard: string,
 	payload: unknown,
@@ -80,13 +56,6 @@ export function spawnGuard(
 	return r;
 }
 
-/**
- * The guard's `hookSpecificOutput` on `payload`, or null where it said nothing.
- *
- * A guard that CRASHED also emits no verdict, so the exit status and stderr
- * are asserted on every call. Left as JSON.parse types it, as the
- * guard tests read whichever envelope field their guard prints.
- */
 export function guardOutput(guard: string, payload: unknown, run: GuardRun) {
 	const r = spawnGuard(guard, payload, run);
 	expect(r.status).toBe(0);
@@ -96,11 +65,6 @@ export function guardOutput(guard: string, payload: unknown, run: GuardRun) {
 	return out ? JSON.parse(out).hookSpecificOutput : null;
 }
 
-/**
- * A Node guard entry's run on `payload`, in this process through
- * lib/run-in-process.js (base §X3), with spawnGuard's environment. No
- * `timeout`: a case crossing the clock keeps the spawn.
- */
 export function runNodeGuard(
 	guard: string,
 	payload: unknown,
@@ -118,7 +82,6 @@ export function runNodeGuard(
 	});
 }
 
-/** guardOutput for a Node guard entry, run through runNodeGuard. */
 export function nodeGuardOutput(
 	guard: string,
 	payload: unknown,
@@ -132,11 +95,8 @@ export function nodeGuardOutput(
 	return out ? JSON.parse(out).hookSpecificOutput : null;
 }
 
-/** The checkout's root: the plugin root a hook line is run against. */
 const CHECKOUT = path.resolve(__dirname, "..", "..");
 
-/* The plugin's hooks file and the self-plugin's, each spelled whole
- * (lib/file-reach.js's WHOLE PATHS). */
 const HOOKS_FILES = {
 	"hooks/hooks.json": path.join(CHECKOUT, "hooks", "hooks.json"),
 	"self-plugin/hooks/hooks.json": path.join(
@@ -147,14 +107,8 @@ const HOOKS_FILES = {
 	),
 };
 
-/** The dispatcher entry every always-on PreToolUse guard runs in (#2786). */
 const DISPATCH = path.join(CHECKOUT, "scripts", "guard-dispatch.js");
 
-/**
- * The dispatcher's run of its PreToolUse core `core` alone (`--only`) on
- * `payload`, through runNodeGuard: a core's boundary cases, the real entry,
- * adapters and store, with no other core's context in the answer (#3224).
- */
 export function runDispatchCore(
 	core: string,
 	payload: Record<string, unknown> | null,
@@ -167,7 +121,6 @@ export function runDispatchCore(
 	);
 }
 
-/** nodeGuardOutput for runDispatchCore. */
 export function dispatchCoreOutput(
 	core: string,
 	payload: Record<string, unknown>,
@@ -180,11 +133,6 @@ export function dispatchCoreOutput(
 	);
 }
 
-/**
- * The hookSpecificOutput of the registered hook `line`, run by bash as the
- * harness runs it, on a Bash call of `command`; `payload` lays further fields
- * over that call.
- */
 export function hookLineOutput(
 	line: string,
 	command: string,
@@ -205,11 +153,6 @@ export function hookLineOutput(
 	);
 }
 
-/**
- * `script` is registered `count` times in the plugin's hooks file and as many
- * in the self-plugin's, each entry matching `want(file)`, and in shell form,
- * so the harness runs it through a shell (mantahostels#2059).
- */
 export function expectShellHooks(
 	script: string,
 	want: (file: string) => Record<string, unknown>,
@@ -233,11 +176,6 @@ export function expectShellHooks(
 	}
 }
 
-/**
- * Every command line `hooksFile` registers that runs `script`, in file order —
- * a guard's own registrations, for a test that runs the line the harness
- * runs rather than the script alone.
- */
 export function readHookLines(
 	hooksFile: keyof typeof HOOKS_FILES,
 	script: string,

@@ -1,15 +1,7 @@
-/*
- * refill-dir.js — where the refill loop's machine-wide files live: the
- * machine markers directory (`~/.claude`, lib/machine-marker.js), or
- * `WFC_REFILL_DIR` where set. A leaf, so a module the loop's own readers
- * require can keep its files beside the loop's without a require cycle (#2607).
- */
-
 const path = require("node:path");
 const { machineMarkerPath } = require("./machine-marker.js");
 
 const REFILL_STATE_FILE = ".refill-loop-state.json";
-/* lib/refill-outside.js's records of the sessions the loop did not launch. */
 const OUTSIDE_FILE = ".refill-outside.json";
 
 /** @param {string} name */

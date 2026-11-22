@@ -1,39 +1,18 @@
-/*
- * push-dests.js — where a `git push` sends each ref (#2405, #2785), for the
- * hooks that judge or follow a push: lib/branch-publish.js and
- * lib/lander-on-push.js read one push alike.
- *
- * Each refspec's destination is resolved against the pushing tree: `src:dst`
- * takes `dst`; a
- * bare `src` takes `git rev-parse --symbolic-full-name`, so `HEAD` is the
- * current branch and `v1.2.3` is a tag only where that tag exists locally. A
- * bare `git push` or `git push <remote>` is read as the tree's current branch,
- * as push.default=simple would push it; a `remote.<name>.push` refspec or
- * push.default=matching pushes something else, unseen.
- */
-
 const { literal, scanFlags } = require("./shell-words.js");
 
-/** `git push`'s value-taking flags, from `git push -h` on git 2.43.0. */
 const PUSH_VALUE_FLAGS = "-o --push-option --repo --receive-pack --exec";
 
 /**
  * @typedef {object} PushRow
- * @property {"push" | "delete" | "unread-push" | "unread-delete"} kind unread
- *   being a refspec literal cannot read (`git push origin "$B"`)
- * @property {string} ref push: the full destination ref; delete: the word as
- *   written; unread: ""
- * @property {boolean} forced `-f`, `--force`, `--force-with-lease` or a `+`
- *   refspec forces it
- * @property {boolean} bare no refspec was given and the row is the current
- *   branch
+ * @property {"push" | "delete" | "unread-push" | "unread-delete"} kind
+ * @property {string} ref
+ * @property {boolean} forced
+ * @property {boolean} bare
  * @typedef {object} PushRead
- * @property {boolean} inert --help or --dry-run, which push nothing
- * @property {boolean} all --all, --branches or --mirror
- * @property {boolean} delete -d or --delete, every row then a deletion
- * @property {PushRow[]} rows one per destination. A detached HEAD's bare
- *   push, which git refuses, and `tag <name>` give none; nor does `--tags`
- *   with no refspec
+ * @property {boolean} inert
+ * @property {boolean} all
+ * @property {boolean} delete
+ * @property {PushRow[]} rows
  */
 
 /**
@@ -44,11 +23,8 @@ const PUSH_VALUE_FLAGS = "-o --push-option --repo --receive-pack --exec";
 const abbrevOf = (word, long, n) => word.length >= n && long.startsWith(word);
 
 /**
- * The full ref a bare push source names, or refs/heads/<src> where git cannot
- * name one, a push git refuses; HEAD on a detached HEAD.
  * @param {string} src
- * @param {(src: string) => string} symbolicName `git rev-parse
- *   --symbolic-full-name <src>` in the pushing tree, "" where it fails
+ * @param {(src: string) => string} symbolicName
  */
 function fullSrc(src, symbolicName) {
 	if (src.startsWith("refs/")) return src;
@@ -58,7 +34,7 @@ function fullSrc(src, symbolicName) {
 }
 
 /**
- * @param {string[]} args the masked words after `push`
+ * @param {string[]} args
  * @param {string[]} spans
  * @param {(src: string) => string} symbolicName
  * @returns {PushRead}
@@ -114,7 +90,6 @@ const FLAG_KEYS =
 	});
 
 /**
- * What a flag no name alone gives is git's abbreviation of, if anything.
  * @param {string} name
  * @returns {"delete" | "lease" | "noLease" | null}
  */
@@ -125,10 +100,7 @@ function abbreviated(name) {
 	return null;
 }
 
-/**
- * The push's flags, and its positional words, remote first.
- * @param {string[]} args
- */
+/** @param {string[]} args */
 function readFlags(args) {
 	const read = {
 		inert: false,
@@ -166,7 +138,6 @@ function readSpecs(specs, spans, symbolicName, forced) {
 	const rows = [];
 	for (let i = 0; i < specs.length; i++) {
 		const lit = literal(specs[i] ?? "", spans);
-		/* `tag <name>` is git's spelling of refs/tags/<name>:refs/tags/<name>. */
 		if (lit.known && lit.text === "tag" && i + 1 < specs.length) i++;
 		else if (lit.known) rows.push(...readSpec(lit.text, symbolicName, forced));
 		else rows.push(row("unread-push", ""));
@@ -175,7 +146,6 @@ function readSpecs(specs, spans, symbolicName, forced) {
 }
 
 /**
- * One refspec's row.
  * @param {string} text
  * @param {(src: string) => string} symbolicName
  * @param {boolean} forced
@@ -194,8 +164,6 @@ function readSpec(text, symbolicName, forced) {
 }
 
 /**
- * A `src:dst` refspec's full destination: in `refs/tags/` where `src` is a
- * tag, else `refs/heads/`.
  * @param {string} src
  * @param {string} dst
  * @param {(src: string) => string} symbolicName

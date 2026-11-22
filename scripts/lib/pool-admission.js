@@ -1,16 +1,3 @@
-/*
- * The always-loaded pool's rules, and the admission ledger each one must carry
- * an entry in (#1943, #2033).
- *
- * A RULE IS A TOP-LEVEL LIST ITEM OR A TOP-LEVEL BOLD-LED PARAGRAPH, outside
- * fences and HTML comments (#2056) — a shape, not a reading, so a list item
- * that states no rule still counts. Its KEY is its file plus its headline — the
- * bold lead where the item opens with one, else its first sentence — so a
- * reworded headline is a new key, and its entry moves with it. An absolute
- * path before `/scripts/` keys as bare `scripts/`, so neither the seat nor the
- * version init rendered a core command at moves a key (#5140).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -29,8 +16,6 @@ const COMMENT_OPEN = /^\s*<!--/;
 const squash = (s) => s.replace(/\s+/g, " ").trim();
 
 /**
- * Each index in `text` that sits outside a backtick code span, so a `**` or a
- * full stop quoted in code never ends a headline.
  * @param {string} text
  * @returns {Generator<number>}
  */
@@ -69,8 +54,6 @@ function headlineOf(text) {
 }
 
 /**
- * Each line outside fences and HTML comments, and null where a fence or a
- * comment ends the block before it.
  * @param {string} markdown
  * @returns {Generator<{ line: number, raw: string } | null>}
  */
@@ -92,9 +75,6 @@ function* parseProseLines(markdown) {
 }
 
 /**
- * Lazy continuation lines join their item. A bold-led paragraph counts only
- * from its first line, at column 0: a `**` line inside another paragraph or
- * under a list item is no rule.
  * @param {string} markdown
  * @returns {{ line: number, headline: string }[]}
  */
@@ -128,7 +108,7 @@ function poolItems(markdown) {
 /**
  * @param {string} root
  * @param {string} file
- * @returns {string | undefined} undefined where the revision lacks the file
+ * @returns {string | undefined}
  */
 function readIfPresent(root, file) {
 	try {
@@ -158,7 +138,6 @@ function readPoolItems(root, files) {
  */
 
 /**
- * Absent reads as empty, so every pool item is then unadmitted.
  * @param {string} root
  * @returns {LedgerEntry[]}
  */
@@ -193,10 +172,6 @@ function checkEntry(e, at) {
 		);
 }
 
-/** An absolute path opening a word, bare or quoted as `shellQuote` renders
- * it, up to its last `/scripts/`: any `--plugin-root` an adopter names is one, so no
- * narrower shape holds. Residual: two headlines naming one script under two
- * unrelated trees share a key. */
 const ABSOLUTE_SCRIPTS_PREFIX =
 	/(?<=^|[\s`])(?:'\/[^']*'(?:\\''[^']*')*|\/[^\s`'"]*)\/scripts\//g;
 

@@ -1,18 +1,3 @@
-/*
- * pathspec-glob.js — whether a path falls under a glob as
- * `git diff -- ':(glob)<glob>'` reads it, without running git (#1617, #1830).
- * Checked case by case against git in sensitive-paths.test.ts:
- *   - a glob matches a path spelt exactly as the glob, or anything under a
- *     directory so spelt, wildcards and all: `scripts` and `scripts/` both
- *     match `scripts/x.js`;
- *   - otherwise a glob with a wildcard (`*`, `?`, `[`, `\`) must match the
- *     whole path, never a leading directory;
- *   - `*`, `?` and a bracket never match `/`. A run of two or more stars
- *     crosses `/` only as a whole segment, the pattern's start or a `/`
- *     before it and its end or a `/` after it; anywhere else it is one `*`.
- * A leading `./` and a doubled `/` are dropped from glob and path alike.
- */
-
 const { escapeRe, requiredGroup } = require("./regex-group.js");
 
 /** @param {string} p */
@@ -20,7 +5,6 @@ const normalise = (p) => p.replace(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
 
 const POSIX_CLASS = /^\[:([a-z]+):\]/;
 
-/* A POSIX class's members, as a JS character-class body. */
 const POSIX_CLASSES = /** @type {Record<string, string>} */ ({
 	alnum: "a-zA-Z0-9",
 	alpha: "a-zA-Z",
@@ -37,9 +21,6 @@ const POSIX_CLASSES = /** @type {Record<string, string>} */ ({
 });
 
 /**
- * A bracket expression at `glob[i]` (the `[`) as a JS class that never
- * matches `/`, and the index past its `]`; null where it never closes, so the
- * `[` is a literal, as in wildmatch.
  * @param {string} glob
  * @param {number} i
  * @returns {[string, number] | null}
@@ -62,8 +43,6 @@ function parseBracket(glob, i) {
 }
 
 /**
- * The bracket-expression member at `glob[j]` as JS class text, and how many
- * characters of `glob` it spans.
  * @param {string} glob
  * @param {number} j
  * @returns {[string, number]}
@@ -80,7 +59,6 @@ function parseBracketMember(glob, j) {
 }
 
 /**
- * A wildcard glob as an anchored RegExp over the whole path.
  * @param {string} glob
  * @returns {RegExp}
  */
@@ -95,7 +73,6 @@ function buildWildcardRegExp(glob) {
 }
 
 /**
- * The glob token at `glob[i]` as regex source, and the index past it.
  * @param {string} glob
  * @param {number} i
  * @returns {[string, number]}
@@ -112,7 +89,6 @@ function parseWildcardToken(glob, i) {
 }
 
 /**
- * The run of `*`s at `glob[i]` as regex source, and the index past it.
  * @param {string} glob
  * @param {number} i
  * @returns {[string, number]}
@@ -128,8 +104,6 @@ function parseStarRun(glob, i) {
 }
 
 /**
- * Whether `path` falls under the pathspec glob `glob`. Not `isUnder`: a glob
- * with a trailing slash (`docs/`) must not match the bare `docs` (#1654).
  * @param {string} glob
  * @param {string} path
  */

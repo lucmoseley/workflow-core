@@ -1,18 +1,3 @@
-/*
- * precommit-gate-testkit.ts — what only this checkout's own hook suites use.
- * None of it is an adopter's, so it stays off precommit-gate-harness.js's
- * helper surface (#1367, #1417).
- *
- * The rule every fixture author meets here: supply a missing checker script
- * with `writeCheckerDelegates`, which re-execs the real repo script in a child
- * process, never a bare `require(<real path>)`. A `require`d checker loads and
- * satisfies node's module resolution, but `checker-new-faults.js`'s
- * `require.main === module` guard is then false — the checker's own body never
- * runs, the delegate exits 0, and the gate reads every fault as inherited from
- * HEAD (mantahostels#1998, mantahostels#2019). Prior art for pinning a refusal's actual reason rather
- * than its exit code alone, by file and test: `docs/agents/mutation-testing.md`.
- */
-
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -21,7 +6,6 @@ import { existsUnder, readStaged } from "./precommit-dispatch-ports.js";
 import { GATES } from "./precommit-gates.js";
 import { shellQuote } from "./sh-quote.js";
 
-/** The repository root, for a suite reading a checker it compares the hook against. */
 export const ROOT = path.join(__dirname, "..", "..");
 
 export const HOOK = fs.readFileSync(
@@ -29,22 +13,13 @@ export const HOOK = fs.readFileSync(
 	"utf8",
 );
 
-/** What the hook puts before a core `scripts/…` path: the plugin where an
- * adopter's shim set WFC_PLUGIN_ROOT, else the repo (#1839). */
-// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-export const CORE_ROOT = '"${WFC_PLUGIN_ROOT:-.}"/';
+export const CORE_ROOT = `"\${WFC_PLUGIN_ROOT:-.}"/`;
 
-/** How the hook runs core script `script` with `runner`. */
 export const coreCall = (runner: string, script: string) =>
 	`${runner} ${CORE_ROOT}${script}`;
 
 type DispatchPorts = Parameters<typeof dispatch>[0]["ports"];
 
-/**
- * The dispatcher's ports over the repo at `root`: its staged paths and files,
- * no computed list, output dropped and no signal, each overridable; `load`
- * is the caller's.
- */
 export const buildRepoPorts = (
 	root: string,
 	over: Partial<DispatchPorts> & Pick<DispatchPorts, "load">,
@@ -57,12 +32,10 @@ export const buildRepoPorts = (
 	...over,
 });
 
-/** One row of lib/precommit-gates.js. */
 export type GateRow = (typeof GATES)[number];
 
 type PatternRow = GateRow & { arm: { pattern: RegExp } };
 
-/** The dispatcher row running `script`, which arms on a pattern. */
 export function patternRow(script: string): PatternRow {
 	const row = GATES.find((g) => g.script === script);
 	if (!row || !("pattern" in row.arm))
@@ -70,11 +43,6 @@ export function patternRow(script: string): PatternRow {
 	return row as PatternRow;
 }
 
-/**
- * The dispatcher's run of `row` alone over the repo at `root`, its member
- * stubbed to answer `result` and its ports overridden by `ports`: the exit,
- * whether the member ran, and the output written.
- */
 export async function dispatchStubbed(
 	root: string,
 	row: GateRow,
@@ -105,7 +73,6 @@ export async function dispatchStubbed(
 	return { code, ran, output };
 }
 
-/** The lines of the hook from the first starting `first` to the first after it equal to `last`. */
 export function cutHookBlock(first: string, last: string): string {
 	const lines = HOOK.split("\n");
 	const start = lines.findIndex((l) => l.startsWith(first));
@@ -115,17 +82,9 @@ export function cutHookBlock(first: string, last: string): string {
 	return lines.slice(start, end + 1).join("\n");
 }
 
-/** How long a holder may take to take an uncontended flock — milliseconds in
- * practice, so only a holder that never ran reaches it. */
+// guess, #2627
 const HOLD_DEADLINE_MS = 10_000;
 
-/**
- * Holds a real flock on `lock` from a child shell until `release` is called
- * (#2579). Returns once the lock is held, or throws.
- *
- * Released through a file rather than a signal: the holder's `sleep` children
- * inherit fd 9, so killing the shell alone would leave the lock held.
- */
 export function holdLock(lock: string): { release: () => void } {
 	const ready = `${lock}.held`;
 	const stop = `${lock}.release`;
@@ -152,28 +111,21 @@ export function holdLock(lock: string): { release: () => void } {
 	return { release };
 }
 
-/** `scripts/lib/precommit-gate.sh`, which the hook sources (mantahostels#1793). */
 export const LIB = fs.readFileSync(
 	path.join(ROOT, "scripts", "lib", "precommit-gate.sh"),
 	"utf8",
 );
 
-/** `scripts/lib/local-hook.sh`, the missing-script check the
- * `.husky/pre-commit.local` block calls (#5142). */
 export const LOCAL_HOOK_LIB = fs.readFileSync(
 	path.join(ROOT, "scripts", "lib", "local-hook.sh"),
 	"utf8",
 );
 
-/** `scripts/lib/hook-bound.sh`, which the hook sources ahead of every gate
- * that opens `hook_bound` (#4187). */
 export const HOOK_BOUND_LIB = fs.readFileSync(
 	path.join(ROOT, "scripts", "lib", "hook-bound.sh"),
 	"utf8",
 );
 
-/** The commands LIB's arming read and temp-dir trap shell out to, which a
- * fixture running a gate on a PATH of its own must hold. */
 export const LIB_COMMANDS = [
 	"git",
 	"grep",
@@ -184,11 +136,6 @@ export const LIB_COMMANDS = [
 	"rm",
 ];
 
-/**
- * A `.git/sequencer` in `root` whose `abort-safety` names `rev`: HEAD as a
- * single pick over a leftover leaves it, an older commit as a stopped range
- * finished by hand does (#3298).
- */
 export function plantSequencer(root: string, rev: string): void {
 	const dir = path.join(root, ".git", "sequencer");
 	fs.mkdirSync(dir);
@@ -198,12 +145,6 @@ export function plantSequencer(root: string, rev: string): void {
 	);
 }
 
-/**
- * A commit in `root` over `.git/sequencer`, `git commit -q -m two` plus `args`.
- * `live` makes it as a `git revert A B` step does, which post-commit reads as
- * `revert-sequence`; otherwise as an ordinary commit over a leftover whose
- * `abort-safety` names HEAD, which a single pick leaves (#3298).
- */
 export function commitOverSequencer(
 	root: string,
 	live: boolean,
@@ -217,14 +158,8 @@ export function commitOverSequencer(
 	});
 }
 
-/** The line opening the hook's `.husky/pre-commit.local` load block (#437). */
 export const LOCAL_GATE_OPEN = "if [ -f .husky/pre-commit.local ]; then";
 
-/**
- * The `.husky/pre-commit.local` load block, from LOCAL_GATE_OPEN to the
- * column-zero `fi` closing it. `hook` is overridden to cut an adopter's
- * rewritten copy.
- */
 export function cutLocalGateBlock(hook: string = HOOK): string {
 	const lines = hook.split("\n");
 	const start = lines.indexOf(LOCAL_GATE_OPEN);
@@ -234,32 +169,6 @@ export function cutLocalGateBlock(hook: string = HOOK): string {
 	return lines.slice(start, end + 1).join("\n");
 }
 
-/**
- * Write `scripts/<name>.js` in `root` for each name, each a delegate that
- * re-execs the real repo script of that name.
- *
- * This is the required route (mantahostels#2073, mantahostels#2129) — see the file header above for
- * why. A fixture writing deliberate stub content with test-controlled
- * exit/stdout, to drive a gate's verdict without running real checker logic,
- * is a different, legitimate pattern and is not a delegate; nor is copying
- * the real script's bytes wholesale (`check-guard-registry.test.ts`'s
- * `copyFileSync` route) — that checker's entry point needs no re-exec because
- * the copy itself runs as `require.main`, and the libraries it copies
- * alongside are `require`d as libraries either way, delegate or not.
- *
- * A fixture meaning to exercise a real checker needs every script that checker
- * invokes, or the gate dies MODULE_NOT_FOUND, hits its fail-closed limb and
- * exits non-zero — which reads as a refusal and proves nothing (mantahostels#1998).
- *
- * `spawnSync` reports `status: null` when the real checker dies to a signal.
- * The delegate re-exits 128 + the signal number, the shell's own convention
- * (scripts/run-vitest.js's `armSignals`), so a signal-killed checker is never
- * mistaken for one that ran to completion and refused (mantahostels#2128).
- *
- * **Residual:** `r.signal` is `""`, not a name, for the 34 POSIX real-time
- * signals node's `signo_string` has no case for — that death still folds into
- * exit 1.
- */
 export function writeCheckerDelegates(root: string, names: string[]): void {
 	for (const name of names) {
 		fs.mkdirSync(path.dirname(path.join(root, "scripts", name)), {

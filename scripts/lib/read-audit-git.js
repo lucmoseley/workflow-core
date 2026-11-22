@@ -1,35 +1,11 @@
-/*
- * read-audit-git.js — a git call's identity under the read audit (#5078):
- * the record the git guard (lib/host-git-guard/git) writes for each call on
- * this checkout's repository, git's own options before the subcommand, the
- * variables changing what a call answers, which calls the pass store may run
- * again, the key and answer id a row stores, and that run again.
- *
- * A GIT CALL ON THIS REPOSITORY is a read `fs` never sees. One of the
- * read-only subcommands in `RERUN`, made from a directory under the root
- * with no `-C`, `--git-dir`, `--work-tree`, git-dir variable or `--output`
- * steering it and nothing fed to it on standard input, is kept word for word
- * with the answer the guard saw it give: the store keys it on its output run
- * again, and only where that equals what the test got (#4993).
- *
- * The guard is the one writer and is bash, for speed; read-audit-git.test.ts
- * pins its option list, its variable loop and its record to this module.
- * lib/read-audit-preload.js loads the option walk into every audited
- * process, so this requires nothing beside Node's own modules and the libs
- * the preload loads already.
- */
-
 const path = require("node:path");
 const { GIT_VALUED } = require("./git-options.js");
 const { isUnder } = require("./is-under.js");
 const { GIT_EVENTS, SHOWN_MAX, toPosix } = require("./read-audit-paths.js");
 
 /**
- * Step git's own options, the words before its subcommand: the
- * subcommand's index, or the words' length where none stands.
- * @param {readonly unknown[]} words the call's words after `git`
- * @param {(option: string, at: number) => void} [onOption] handed each
- *   option and its index
+ * @param {readonly unknown[]} words
+ * @param {(option: string, at: number) => void} [onOption]
  * @returns {number}
  */
 function stepGitOptions(words, onOption) {
@@ -43,20 +19,13 @@ function stepGitOptions(words, onOption) {
 	return Math.min(at, words.length);
 }
 
-/* The variables git reads a path from: its own, and where its configuration
- * lives (git(1), ENVIRONMENT VARIABLES; git-config(1), FILES). */
 const GIT_READ_NAMES = "GIT_.*|HOME|XDG_CONFIG_HOME";
 const GIT_READS = new RegExp(`^(${GIT_READ_NAMES})$`);
 
-/* The variables changing what a git call answers: those, and the locale
- * and zone its messages and dates follow (#5017). The guard's loop spells
- * the same set. */
 const GIT_ANSWER_VARS = new RegExp(
 	`^(${GIT_READ_NAMES}|TZ|LANG|LANGUAGE|LC_.*)$`,
 );
 
-/* The variables that point git at a repository. vitest.setup.ts deletes each
- * in every test worker. */
 const GIT_DIR_VARS = [
 	"GIT_DIR",
 	"GIT_WORK_TREE",
@@ -70,24 +39,13 @@ const GIT_DIR_VARS = [
 /**
  * @typedef {{at: number, steered: string, dir: string, pid: number,
  *   answer: string, env: Record<string, string>, args: string[]}} GitRecord
- *   one guard record, at its byte offset in the log; `answer` is empty on
- *   the record made before git ran; `env` the variables changing git's
- *   answer
  * @typedef {{cwd: string, args: string[]}} GitRun
- *   a git call to run again: its directory, repo-relative, and its words
  * @typedef {GitRun & {answer: string}} GitCall
- *   one with the answer the test got, `answerOf`'s
  * @typedef {GitRun & {begun: number, answers: string[]}} GitTally
- *   one as its records are counted: how many began, and each answer
  * @typedef {import("./read-audit-paths.js").Standing} Standing
  */
 
 /**
- * The guard's records: each its field count, then that many NUL-ended
- * fields — the git-dir flag, the directory, the pid, the answer, the count
- * of `env`'s pairs and each as `name=value`, the words. Read as Latin-1,
- * one character a byte, so each record's offset is its byte's; each field
- * is then decoded as UTF-8.
  * @param {Buffer} bytes
  * @returns {GitRecord[]}
  */
@@ -122,7 +80,6 @@ function parseGitRecords(bytes) {
 }
 
 /**
- * `name=value` pairs as a record.
  * @param {string[]} pairs
  * @returns {Record<string, string>}
  */
@@ -136,16 +93,10 @@ function parseEnvPairs(pairs) {
 	return env;
 }
 
-/**
- * The key a row stores a git call under.
- * @param {GitRun} call
- */
+/** @param {GitRun} call */
 const keyOf = ({ cwd, args }) => JSON.stringify({ cwd, args });
 
 /**
- * A git call's answer: its exit status and the sha1 of its stdout, as the
- * guard's `sha1sum` spells it. node:crypto loads here, not at the top, so
- * the preload's traced children never load it (#5078).
  * @param {number} status
  * @param {Buffer|string} stdout
  */
@@ -155,8 +106,6 @@ const answerOf = (status, stdout) =>
 /** @param {string[]} args */
 const shownCall = (args) => `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
 
-/* Subcommands that read and never write, so the store may run one again.
- * `status` is left out: it refreshes the index. */
 const RERUN = new Set([
 	"rev-parse",
 	"ls-files",
@@ -178,8 +127,6 @@ const RERUN = new Set([
 	"grep",
 ]);
 
-/* The long options that feed a `RERUN` subcommand its standard input, which
- * a run again never has: an object list, a path list, a revision list. */
 const STDIN_OPTIONS = [
 	"--stdin",
 	"--annotate-stdin",
@@ -188,30 +135,12 @@ const STDIN_OPTIONS = [
 	"--exclude-existing",
 ];
 
-/* A file named `-`, which git reads its standard input for: a word of its
- * own, the value stuck to a short option (`-f-`) or given to a long one
- * (`--exclude-from=-`). */
 const STDIN_FILE = /^(?:-|-[^-].*-|--.+=-)$/;
 
-/* A path naming a descriptor of the process that opens it, its standard
- * input among them, closing a word however the word spells it: bare, stuck
- * to a short option, or the value of a long one. A run again holds none of
- * the test's descriptors, so any of them counts, not standard input alone. */
 const DESCRIPTOR_PATH =
 	/\/(?:dev\/(?:stdin|stdout|stderr|fd\/\d+)|proc\/[^/]+\/(?:task\/[^/]+\/)?fd\/\d+)$/;
 
-/**
- * Whether a word of a git call may feed it its standard input, or hand it
- * another descriptor of the test's by path. git takes
- * any prefix of a long option that names no other, so every prefix of one
- * in `STDIN_OPTIONS` counts, whichever subcommand it is handed to and
- * whether or not another option there shares it: a call kept is run again
- * with no input, so the doubt goes to not keeping it (#4790). A word
- * naming a descriptor by path counts however it is spelt, `.`, `..` and
- * doubled slashes folded away below a root of the word's own, so a `..`
- * folds away no more than the option the path is stuck to.
- * @param {string} word
- */
+/** @param {string} word */
 function isDescriptorFed(word) {
 	if (STDIN_FILE.test(word)) return true;
 	if (DESCRIPTOR_PATH.test(path.posix.normalize(`/${word}`))) return true;
@@ -225,12 +154,6 @@ function isDescriptorFed(word) {
 }
 
 /**
- * The doubt a git call made after the setup settled leaves where a variable
- * changing git's answer was set, or unset, otherwise than settled; null
- * where none was, or the call was made before, as the setup's own. The
- * audit's own event target is no test's. The setup's own `GIT_CONFIG_*`
- * (vitest.setup.ts) stands in the settled environment but not in the
- * store's run again; neither changes a read-only answer.
  * @param {GitRecord} record
  * @param {Standing} standing
  * @returns {string|null}
@@ -247,10 +170,8 @@ function setApart({ at, env, args }, { env: settled, gitAt }) {
 }
 
 /**
- * A guard record as a git call to run again, or the doubt it leaves where it
- * cannot be run again.
  * @param {GitRecord} record
- * @param {string} root real path
+ * @param {string} root
  * @returns {GitRun|string}
  */
 function rerunnable({ steered, dir, args }, root) {
@@ -267,8 +188,6 @@ function rerunnable({ steered, dir, args }, root) {
 	if (named) return `a git call (${shown}) named its repository`;
 	if (!RERUN.has(String(args[sub])))
 		return `a git call (${shown}) read this repository`;
-	/* `--output` sends the answer to a file, so stdout, which the answer is
-	 * hashed off, holds none of it (#4993). */
 	if (args.some((a) => a === "--output" || String(a).startsWith("--output=")))
 		return `a git call (${shown}) wrote its answer to a file`;
 	if (args.slice(sub + 1).some(isDescriptorFed))
@@ -277,8 +196,6 @@ function rerunnable({ steered, dir, args }, root) {
 }
 
 /**
- * Each git call with the one answer the test got, or the doubt where one has
- * none or two.
  * @param {Iterable<GitTally>} calls
  * @returns {GitCall[]|{doubt: string}}
  */
@@ -300,11 +217,9 @@ function answeredCalls(calls) {
 }
 
 /**
- * One owner's guard records as the git calls to run again, or the doubt the
- * first that cannot be leaves.
  * @param {GitRecord[]} records
- * @param {Standing} standing the environment the suite's setup settled
- * @param {string} root real path
+ * @param {Standing} standing
+ * @param {string} root
  * @returns {GitCall[]|{doubt: string}}
  */
 function gitCallsOf(records, standing, root) {
@@ -327,14 +242,9 @@ function gitCallsOf(records, standing, root) {
 /**
  * @typedef {(args: string[], opts: {cwd: string, env: NodeJS.ProcessEnv}) =>
  *   {error?: Error, status: number|null, stdout: Buffer|string}} SpawnGit
- *   a synchronous git spawn
  */
 
 /**
- * A git call run again at `root`, by its key: its answer, `answerOf`'s.
- * Memoised. Null where its key will not
- * parse or the call will not run. A test's call ran with none of
- * `GIT_DIR_VARS` set (vitest.setup.ts), so its run again does too.
  * @param {string} root
  * @param {SpawnGit} spawnGit
  * @returns {(key: string) => string|null}
@@ -352,8 +262,6 @@ function buildGitRunner(root, spawnGit) {
 			const r = spawnGit(args, { cwd: path.join(root, cwd), env });
 			if (!r.error && r.status !== null) id = answerOf(r.status, r.stdout);
 		} catch {
-			// A key that will not parse is a call that cannot run: no id, so
-			// the row resting on it is not recorded and never holds (#4916).
 			id = null;
 		}
 		memo.set(key, id);

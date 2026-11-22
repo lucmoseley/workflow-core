@@ -12,9 +12,7 @@ const BUDGET_RULE = Object.freeze({
 	sleepAllowanceS: 60,
 });
 
-/* How long after a passing gate run its push is still due (#5441): the
- * longest gap from a passing run's end to its push in four checkouts'
- * gate-run and queue-log records, 634 s, rounded up to the minute. */
+// measured longest gap 634 s, #5441
 const PUSH_DUE_MS = 11 * 60_000;
 
 /* git's `%ct` is whole seconds: https://git-scm.com/docs/pretty-formats */
@@ -146,7 +144,6 @@ function budgetVerdict(l, read, now) {
 	if (park.onStreak || count.newest?.outcome !== "pass")
 		return { park: park.why };
 	const queue = read.queueOf(l);
-	/* An unread queue ref parks nothing, as an unread landing does (#5273). */
 	if (queue.state === "unread") return { note: `not judged: ${queue.why}` };
 	if (queue.state !== "gone")
 		return { note: "held: its passed commit waits on the lander" };
@@ -156,12 +153,10 @@ function budgetVerdict(l, read, now) {
 }
 
 /**
- * Park `l` on its budget: stopped, handed off, its issues labelled `parked`
- * and told why. A stop that fails is logged and tried again next tick.
  * @param {JobLaunch} l
  * @param {string} why
  * @param {Tick} seen
- * @returns {LoopLaunch|null} the parked launch, or null where the stop failed
+ * @returns {LoopLaunch|null}
  */
 function parkOnBudget(l, why, { now, io }) {
 	const failed = stopJob(l, io);

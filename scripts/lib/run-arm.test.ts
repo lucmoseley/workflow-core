@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The before/after test runner's core, lib/run-arm.js (#2045, #2046; core
- * and shell, #5149): its plan, its launch into an arm's config dir, its
- * self-looping `run` with the hang ceiling, the whole-run limit and the CLI
- * pinned at plan time (#2289), and its report. A break here mislabels which
- * arm a session ran in, starts more sessions than the machine holds, leaves
- * a hung run holding its slots all night, or reads the main run wrongly,
- * each of which costs a night's runs.
- *
- * Module cases: `claude` is lib/arm-claude-fake.ts, held by
- * lib/arm-claude.contract.test.ts; the builder is lib/fixtures/arm-build.js,
- * held by scripts/arm-tasks.test.ts, and admission's answer
- * lib/admission-verdict-fake.ts, held by its contract, each run in-process;
- * the scorer and the acceptance check are the real programs, in-process.
- * `run`'s clocks and sleep are injected. scripts/run-arm-test.test.ts keeps
- * the program's boundary set.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -36,12 +19,8 @@ const { projectSlug } = require("./project-slug.js");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const BUILDER = path.join(ROOT, "scripts", "lib", "fixtures", "arm-build.js");
-/** `run` reads its clock once a pass; a case past this many reads is a loop
- * that never ends, failed rather than left spinning, since a synchronous
- * loop outlasts vitest's timeout. A guess at headroom: the longest case
- * read it 107 times (#5149). */
+// guess, #5149
 const MAX_CLOCK_READS = 10_000;
-/** The wall clock every module case reads. */
 const NOW = Date.parse("2026-11-13T00:00:00.000Z");
 
 let tmp: string;
@@ -53,15 +32,12 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/** A file the plan can resolve and pin as a binary; nothing runs it, so its
- * exit 99 would show a call that strayed past the fake. */
 function executable(file: string) {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	fs.writeFileSync(file, "#!/bin/sh\nexit 99\n", { mode: 0o755 });
 	return file;
 }
 
-/** Admission's `n`th answer, 1-based, to a check under `env`. */
 type Admission = (env: NodeJS.ProcessEnv, n: number) => object;
 const slots =
 	(n: number): Admission =>
@@ -74,18 +50,11 @@ const refusal = (error: string) => ({
 });
 
 interface KitOpts extends Omit<ArmClaudeOptions, "listing"> {
-	/** The `n`th listing's rows, given the jobs launched so far; none lists
-	 * no job. */
 	listing?: (n: number, jobs: string[]) => Row[] | null;
-	/** None answers 8 slots. */
 	admission?: Admission;
-	/** Laid over the environment; an `undefined` value unsets the variable. */
 	env?: Record<string, string | undefined>;
-	/** How far `run`'s clock moves on each read; none holds it still. */
 	clockStepMs?: number;
-	/** The wall clock; none reads NOW throughout. */
 	now?: () => number;
-	/** `run`'s wait between passes; none returns at once. */
 	sleep?: (ms: number) => void;
 }
 
@@ -169,7 +138,6 @@ const planArgs = (root: string, seed: string) => [
 const readPlan = (root: string) =>
 	JSON.parse(fs.readFileSync(path.join(root, "plan.json"), "utf8"));
 
-/** A plan of 6 pairs at `root`, the arms' config dirs logged in. */
 function planned(root: string, k = kit()) {
 	expect(k.run(planArgs(root, "3")).code).toBe(0);
 	for (const cfg of ["cfg-a", "cfg-b"]) {
@@ -204,7 +172,6 @@ describe("plan", () => {
 		expect(
 			readPlan(two).runs.map((r: { id: string }) => r.id.replace("two", "")),
 		).toEqual(runs.map((r: { id: string }) => r.id.replace("one", "")));
-		// The seed orders each pair's arms, so neither arm always starts first.
 		const firsts = new Set(
 			[1, 2, 3, 4, 5, 6].map(
 				(pair) => runs.find((r: { pair: number }) => r.pair === pair).arm,
@@ -255,7 +222,6 @@ describe("launch", () => {
 		tmp,
 	];
 
-	/** Four runs of earlier pairs recorded launched, as jobs j1 to j4. */
 	const seedRunning = (root: string) => {
 		fs.mkdirSync(path.join(root, "launched"));
 		for (const [i, job] of ["j1", "j2", "j3", "j4"].entries())
@@ -355,11 +321,6 @@ describe("launch", () => {
 });
 
 describe("run", () => {
-	/**
-	 * The loop's listing: every job it launched, done, and each of `extra`
-	 * working for the first `workingListings` listings, then done; no
-	 * `workingListings` keeps them working.
-	 */
 	const loop = (
 		extra: string[] = [],
 		workingListings = Number.POSITIVE_INFINITY,
@@ -396,10 +357,6 @@ describe("run", () => {
 		...extra,
 	];
 
-	/**
-	 * The first `only` planned runs, every one where absent, recorded as
-	 * launched `agoMin` minutes before NOW as job `j<i>`.
-	 */
 	const seedLaunched = (root: string, agoMin: number, only?: number) => {
 		const dir = path.join(root, "launched");
 		fs.mkdirSync(dir, { recursive: true });
@@ -444,7 +401,6 @@ describe("run", () => {
 
 	it("logs why it holds a pair, once until the reason changes", () => {
 		const root = planned(path.join(tmp, "p"));
-		// Above one, so a reason logged on every held pass would print it twice.
 		const refusedPasses = 3;
 		const r = kit({
 			...loop(),
@@ -484,7 +440,6 @@ describe("run", () => {
 		]);
 		expect(r.code).toBe(0);
 		expect(k.fake.jobs).toHaveLength(12);
-		// Pairs 2 to 6 each wait out the 20-minute pace in 60 s polls.
 		expect(slept).toEqual(new Array(5 * 20).fill(60_000));
 	});
 
@@ -505,7 +460,6 @@ describe("run", () => {
 					fs.readFileSync(path.join(dir, `${x.id}.json`), "utf8"),
 				).limited,
 			).toBe("string");
-		// Still listed as working, yet none of them holds a pair under the default cap.
 		const again = kit(loop(extra)).run(runArgs(root));
 		expect(again.code).toBe(0);
 		expect(again.out).not.toContain("still running");
@@ -590,7 +544,6 @@ describe("run", () => {
 		] as const) {
 			const root = planned(path.join(tmp, `cap-${held}`));
 			const seeded = seedLaunched(root, 0, 4);
-			// The first pass's four listings: two arms, read to reap and to hold.
 			const r = kit(loop(seeded.extra, 4)).run(runArgs(root, ...extra));
 			expect(r.code).toBe(0);
 			expect(r.out.includes("4 session(s) still running")).toBe(held);
@@ -630,7 +583,6 @@ describe("run", () => {
 		const k = kit({
 			...loop(),
 			env: onPath,
-			// The update another session runs, landing after the first launch.
 			launch: (n) => {
 				if (n === 1) {
 					fs.rmSync(link);
@@ -695,8 +647,6 @@ describe("run", () => {
 	it("starts no more pairs after a build failure, waits for the runs already going to end, then exits saying so (#3503)", () => {
 		const root = planned(path.join(tmp, "p"));
 		const { extra } = seedLaunched(root, 0, 2);
-		// Two arms' listings each to reap and to hold on the failing pass, then
-		// two each to reap and to check on the drain's first, which sees both working.
 		const workingListings = 8;
 		const k = kit({
 			...loop(extra, workingListings),
@@ -712,7 +662,6 @@ describe("run", () => {
 			"every run started has ended; clear the failure above and run again to start the pairs left",
 		);
 		expect(r.err.match(/starts no more pairs/g)).toHaveLength(1);
-		// A drain pass after the working ones, so it waited for them to end.
 		expect(k.fake.listings).toBeGreaterThan(workingListings);
 		expect(k.fake.stopped).toHaveLength(0);
 		expect(k.fake.launches).toHaveLength(0);
@@ -736,9 +685,7 @@ describe("run", () => {
 
 	it("stops a run it drains at the whole-run limit and keeps the failure's status and next step (#3503)", () => {
 		const root = planned(path.join(tmp, "p"));
-		// Unlisted, so neither the ceiling nor its end can stop the drain: only the limit.
 		const { runs } = seedLaunched(root, 0, 1);
-		// Half the limit a read, so it passes at the second pass's check.
 		const k = kit({ ...loop(), clockStepMs: 30_000 });
 		const r = k.run(runArgs(root, "--limit-min", "1"));
 		expect(r.code).toBe(2);
@@ -793,11 +740,6 @@ describe("run", () => {
 });
 
 describe("report", () => {
-	/**
-	 * Run `id` recorded launched and ended in arm A's config dir, its
-	 * transcript two messages twelve minutes apart on CLI `version`, then
-	 * `extra`'s rows; its listing row, in `state`.
-	 */
 	const launched = (
 		root: string,
 		id: string,
@@ -839,7 +781,6 @@ describe("report", () => {
 		return buildJobRow(id, state, { sessionId });
 	};
 
-	/** The report of `rows`' runs, the acceptance check the real one. */
 	const report = (rows: Row[], args: string[]) =>
 		kit({ listing: () => rows, env: { WFC_ARM_TASKS_CLI: undefined } }).run([
 			"report",
@@ -973,7 +914,6 @@ describe("report", () => {
 			.split("\n")
 			.filter(Boolean)
 			.map((l) => ({ ...JSON.parse(l), version: "2.1.302" }));
-		// The warn measure reads this repo's own guard registry, the host root.
 		const r = report(
 			[
 				launched(root, "r1", "2.1.302", { extra: recorded }),

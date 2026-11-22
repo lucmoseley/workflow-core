@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's wake (#2313): the watcher's coalescing and the Stop hook
- * that feeds it. The hook runs as the real script on a
- * payload, against a sandboxed WFC_REFILL_DIR.
- *
- * Loosen the hook and every session's turn end wakes the loop; loosen the
- * watcher and wakes queue up ticks or are lost until the 300 s poll.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -21,8 +13,7 @@ import { runTicks, touchWake, wakeWatcher } from "./refill-wake.js";
 const HOOK = path.resolve(__dirname, "..", "refill-wake.sh");
 const SID = "ba316c37-99bb-4b5e-b891-5887d70d174d";
 
-/* Real time, as inotify delivers its events on the event loop; 200 ms is a
- * guess, standing in for the tick the wakes land during. */
+// guess, #2313
 const INOTIFY_SETTLE_MS = 200;
 const inotifyDelivered = () =>
 	new Promise((r) => setTimeout(r, INOTIFY_SETTLE_MS));
@@ -31,7 +22,6 @@ const ignore = (_line: string) => undefined;
 
 let dir: string;
 let wake: string;
-/** The loop's own file names, so the hook is held to them. */
 let files: ReturnType<typeof loopFiles>;
 
 beforeEach(() => {
@@ -44,8 +34,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/* `background_tasks` and `session_crons` are shaped as Claude Code sends them
- * to a Stop hook. */
 function runHook(sessionId: string, payload: object = {}) {
 	return spawnSync("bash", [HOOK], {
 		input: JSON.stringify({

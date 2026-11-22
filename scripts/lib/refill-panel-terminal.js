@@ -1,11 +1,3 @@
-/*
- * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, #3885, #3887, #3948, spec
- * #3596): raw mode, the alternate screen and mouse reports on opening, handed back
- * on every exit a process can catch, and the poll and pid watch between. It asks what
- * the terminal can draw on opening, keeping the text controls until both answers say
- * images fit; a terminal that never answers keeps them.
- */
-
 const {
 	POLL_MS,
 	buildFrame,
@@ -20,20 +12,16 @@ const {
 	holdTerminal,
 } = require("./terminal-hold.js");
 
-/* Primary device attributes, then the character cell's size in pixels. */
 const ASK_CAPABILITIES = `${ESC}[c${ESC}[16t`;
 const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?1000h${ESC}[?1006h${ESC}[?1004h${ESC}[?2004h${ASK_CAPABILITIES}`;
-/* Any-motion reports serve only the images' hover. No leave report exists, so losing
- * focus is what ends one. */
 const HOVER_ON = `${ESC}[?1003h`;
 const SCREEN_OFF = `${ESC}[?1004l${ESC}[?1003l${ESC}[?2004l${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
 const CLEAR = `${ESC}[2J`;
 
-/* Untraced, a first guess: how often the panel checks its own code for a change. */
+// guess, #3873
 const WATCH_MS = 1000;
 
 /**
- * Runs the panel until the process exits, through `proc.exit`.
  * @param {{pid: number, stdin: Pick<import("node:tty").ReadStream, "setRawMode"|"resume"|"setEncoding"|"on">,
  *   stdout: Pick<import("node:tty").WriteStream, "write"|"on"|"columns"|"rows">,
  *   proc: Pick<import("node:events").EventEmitter, "on"> & {exit: (code: number) => void},
@@ -124,11 +112,7 @@ function openPanel({
 	const pressKeys = (keys) => {
 		for (const key of keys) panel.pressKey(key).catch(crash);
 	};
-	/**
-	 * The wheel goes after the clicks: nothing in a read has been drawn yet, so the frame
-	 * showing when each was made is the one before any of its wheel reports.
-	 * @param {{clicks: number[], missed: boolean, wheel: number}} read
-	 */
+	/** @param {{clicks: number[], missed: boolean, wheel: number}} read */
 	const takeButtons = ({ clicks, missed, wheel }) => {
 		for (const row of clicks) panel.click(row).catch(crash);
 		if (missed) panel.missClick().catch(crash);

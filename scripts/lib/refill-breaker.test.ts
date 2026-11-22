@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/refill-breaker.js — the per-checkout throughput breaker (#5275). Broken,
- * it refills a repo whose sessions have stopped landing, or it trips on workflow-core's quiet hours, or a
- * restart forgets it is open.
- *
- * The replays step the breaker each quarter hour over two fixtures cut from the real job
- * timelines and `origin/main` (scripts/fixtures/refill-breaker-*.json),
- * each row kept wherever dropping it would change an hour-capped span.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -45,12 +36,6 @@ const WFC_DIPS = path.join(
 	"refill-breaker-workflow-core-dips.json",
 );
 const fixture = (file: string) => JSON.parse(fs.readFileSync(file, "utf8"));
-/**
- * The fixture's night stepped through the breaker each quarter hour in
- * [from, to], as the loop's ticks would: each session a launch from its first
- * row to its end, unfinished until then, the record carried tick to tick.
- * Each tick's events and the room it left.
- */
 function replay(f: Fixture, from: string, to: string) {
 	const root = "/h/replayed";
 	const sessions = f.sessions.map((s, i) => ({
@@ -182,7 +167,6 @@ describe("working time", () => {
 	});
 });
 
-/** `n` launches into DV, each working every half hour from `from` to now. */
 const busy = (
 	n: number,
 	from = NOW - 6 * HOUR,
@@ -208,7 +192,6 @@ const working = (from: number, to: number) => ({
 });
 
 type SessionTimeline = import("./refill-breaker.js").SessionTimeline;
-/** Read as each launch `step` is given working from its launch to its end. */
 const FROM_LAUNCHES: SessionTimeline[] = [];
 
 const readOf = (
@@ -301,7 +284,6 @@ describe("the breaker's steps", () => {
 		expect(step(busy(2), readOf({ commits })).events).toEqual([]);
 	});
 
-	/* Positive pair: "opens at 12 working hours under 0.3, barring the checkout while its sessions run". */
 	it("opens nothing, and says why, where a session's timeline would not read (#5301)", () => {
 		const why =
 			"job j9's timeline (EACCES: permission denied, stat '/s/jobs/j9/timeline.jsonl')";

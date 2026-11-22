@@ -1,17 +1,3 @@
-/*
- * refusal-limb.js — what the priced-options guard's close-rivals and
- * round-check limbs share (#1719, #1753): a per-session refusal record, its
- * retirement once the founder speaks, a pass kept while another Stop hook
- * refuses its turn (#1799, #1844), a transcript read, the limb's durable
- * log, the fail-open log line naming the limb, and two pieces of refusal
- * wording: the closing `RESEND_ONLY` line and the cap-spent `lastRefusal`
- * sentence. Each limb parses its own questions; the `{ at, questions }`
- * envelope around them is this file's.
- *
- * Every failure here is logged and handed back as no answer, for the limb to
- * fail open on (mantahostels#1253).
- */
-
 const fs = require("node:fs");
 
 const hookBlock = require("./hook-block");
@@ -25,12 +11,7 @@ const { failOpenLogger } = require("./fail-open-logger");
 const isObject = (value) =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
-/**
- * A question a passing send carried: its round number and when it passed. The
- * record keeps it while another Stop hook refuses its turn, which the limb
- * cannot see, so the re-send is neither judged nor logged again (#1799).
- * @typedef {{ number: string, passedAt: number }} Passed
- */
+/** @typedef {{ number: string, passedAt: number }} Passed */
 
 /**
  * @template Q
@@ -40,8 +21,6 @@ const isObject = (value) =>
 const isPassed = (q) => isObject(q) && "passedAt" in q;
 
 /**
- * The round numbers `record` holds as passed; none where there is no record
- * or it will not read.
  * @template Q
  * @param {{ questions: (Q | Passed)[] } | null | "unreadable"} record
  * @returns {string[]}
@@ -65,12 +44,6 @@ const parsePassed = ({ number, passedAt }) =>
  * @param {{ prefix: string, limb: string, skipped: string,
  *   parseQuestion: (question: Record<string, unknown>, at: number) => Q | null,
  *   log: string }} spec
- *   `prefix`, the record's counter prefix; `limb`, the name its fail-open log
- *   lines carry; `skipped`, what a record that will not read costs the limb;
- *   `parseQuestion`, one recorded question in the limb's shape, given the
- *   record's `at`, or null where it is malformed — never a pass, which this
- *   file parses; `log`, the file name of the limb's durable log in the
- *   markers directory
  */
 function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	const where = `guard-priced-options ${limb}`;
@@ -80,9 +53,8 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	const recordPath = (sessionId) => hookBlock.counterPath(prefix, sessionId);
 
 	/**
-	 * @param {unknown} json the parsed record
-	 * @returns {{ at: number, questions: (Q | Passed)[] } | null} null where
-	 *   the envelope or any question is malformed
+	 * @param {unknown} json
+	 * @returns {{ at: number, questions: (Q | Passed)[] } | null}
 	 */
 	function parseRecord(json) {
 		if (
@@ -106,8 +78,6 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	}
 
 	/**
-	 * The session's record: null where there is none, or `"unreadable"` where
-	 * it will not read or parse — logged.
 	 * @param {string} sessionId
 	 * @returns {{ at: number, questions: (Q | Passed)[] } | null | "unreadable"}
 	 */
@@ -127,7 +97,6 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	}
 
 	/**
-	 * Replace the record with `questions`, or, given none, remove it.
 	 * @param {string} sessionId
 	 * @param {(Q | Passed)[]} [questions]
 	 */
@@ -145,18 +114,16 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	}
 
 	/**
-	 * Read the transcript through `count`, or null where it cannot say.
 	 * @template T
 	 * @param {string | undefined} transcript
-	 * @param {string} allowed what passes for it, for the log
+	 * @param {string} allowed
 	 * @param {(since: typeof import("./tool-calls-since"), file: string) => T | null} count
 	 * @returns {T | null}
 	 */
 	function fromTranscript(transcript, allowed, count) {
 		if (!transcript) return null;
 		try {
-			/* Required here so a reader that will not load costs one logged
-			 * count, never the limb (mantahostels#1253). */
+			// lucmoseley/mantahostels#1253
 			const n = count(require("./tool-calls-since"), transcript);
 			if (n === null)
 				logFailOpen(
@@ -172,9 +139,6 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	}
 
 	/**
-	 * The record, or null where the founder has spoken since it was written
-	 * (#660). One holding no question has nothing to retire, and one the
-	 * transcript cannot speak to is kept.
 	 * @template {{ at: number, questions: unknown[] } | null | undefined} R
 	 * @param {string | undefined} transcript
 	 * @param {R} record
@@ -190,9 +154,6 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	}
 
 	/**
-	 * `record` without the passes whose turn has ended — or where the
-	 * transcript cannot say, since a pass kept into a new turn would leave a
-	 * reused round number unjudged and unlogged.
 	 * @template {{ at: number, questions: (Q | Passed)[] } | null} R
 	 * @param {string | undefined} transcript
 	 * @param {R} record
@@ -221,9 +182,6 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	}
 
 	/**
-	 * The session's record as `read` gives it, less what has ended: null
-	 * where the founder has spoken since it was written, and without the
-	 * passes whose turn has ended.
 	 * @param {string} sessionId
 	 * @param {string | undefined} transcript
 	 */
@@ -234,11 +192,8 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	}
 
 	/**
-	 * Replace the record with the questions `record` held as passed and
-	 * `numbers`, each marked passed now.
 	 * @param {string} sessionId
-	 * @param {{ questions: (Q | Passed)[] } | null} record as `readLive` gave
-	 *   it, narrowed past `unreadable`
+	 * @param {{ questions: (Q | Passed)[] } | null} record
 	 * @param {string[]} numbers
 	 */
 	function writePasses(sessionId, record, numbers) {
@@ -253,15 +208,12 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	}
 
 	/**
-	 * Append the events `build` makes to the limb's log, each stamped with the
-	 * session. Built and written inside the try, as the log's library loads
-	 * there, so one that will not load costs a logged line and changes no
-	 * decision, never the guard requiring this lib (#1747).
 	 * @param {string} sessionId
 	 * @param {() => { round: string, kind: string }[]} build
 	 */
 	function appendLog(sessionId, build) {
 		try {
+			// #1747
 			const events = build();
 			if (events.length === 0) return;
 			require("./refusal-log").appendEvents(
@@ -278,16 +230,13 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 }
 
 /**
- * What a limb's refusal says of the re-send where this refusal spends its cap,
- * in place of the refusal it would otherwise promise (#1808).
- * @param {string} work what the session does before re-sending, or "" for none
- * @param {boolean} misshapen whether the question's shape must be fixed too
+ * @param {string} work
+ * @param {boolean} misshapen
  */
 const lastRefusal = (work, misshapen) =>
 	"This is this check's last refusal this session, so it will not refuse " +
 	`the re-send: ${[work, misshapen && "fix its shape"].filter(Boolean).join(" and ")} before sending it.`;
 
-/* The line both limbs' refusals end on. */
 const RESEND_ONLY = "RE-SEND ONLY THE CORRECTED QUESTION, not the whole round.";
 
 module.exports = {

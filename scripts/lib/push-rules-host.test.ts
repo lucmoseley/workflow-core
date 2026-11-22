@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * lib/push-rules-host.js (#2785): the host's answers to the premises each push
- * rule needs (#742), read off a fixture host's own files, in process.
- */
 
 import crypto from "node:crypto";
 import fs from "node:fs";

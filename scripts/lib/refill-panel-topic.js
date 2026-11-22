@@ -1,13 +1,3 @@
-/*
- * refill-panel-topic.js — the issues a free-text refill-loop goal names (#3884):
- * one `claude -p` over the ticked repos' open issue
- * titles, its answer checked against those same issues. It writes nothing; the
- * panel saves the set on the founder's confirm.
- *
- * Asynchronous throughout, launch check included, since the panel draws and polls
- * meanwhile.
- */
-
 const { execFile } = require("node:child_process");
 const path = require("node:path");
 const { promisify } = require("node:util");
@@ -20,10 +10,6 @@ const pExecFile = promisify(execFile);
 
 const LAUNCH_CHECK = path.join(__dirname, "launch-auth.js");
 
-/* Haiku at xhigh as resolver, the cheap tier (#4919). No tools, as titles are
- * untrusted text and the answer is only read. `/` and no setting sources keep every
- * repo's and seat's hooks, output style and memory out — the standing per-model effort
- * among them, so the effort is named here. */
 const CLAUDE_ARGV = [
 	"-p",
 	"--model",
@@ -39,14 +25,13 @@ const CLAUDE_ARGV = [
 	"text",
 ];
 
-/* Untraced, a first guess. */
+// guess, #3884
 const RESOLVE_TIMEOUT_MS = 120_000;
 
 /**
  * @typedef {{name: string, root: string}} TickedRepo
  * @typedef {{repo: string, number: number, title: string}} TopicIssue
- * @typedef {{issues: TopicIssue[], dropped: number}} TopicSet `dropped`, how many
- *   refs of the answer named no open issue of a ticked repo
+ * @typedef {{issues: TopicIssue[], dropped: number}} TopicSet
  * @typedef {TopicSet|{why: string}} TopicResult
  * @typedef {{env: NodeJS.ProcessEnv, signal: AbortSignal}} TopicIo
  */
@@ -55,8 +40,6 @@ const RESOLVE_TIMEOUT_MS = 120_000;
 const buildFirstLine = (text) => text.split("\n").find((l) => l.trim());
 
 /**
- * An empty answer is re-run once before it is believed (#2565). Residual: one that
- * fails silently twice running reads as no open issue.
  * @param {TickedRepo} repo
  * @param {NodeJS.ProcessEnv} env
  * @returns {Promise<TopicIssue[]>}
@@ -104,15 +87,12 @@ const buildPrompt = (text, issues) =>
 	].join("\n");
 
 /**
- * The refs of an answer, each once, in its order. A bare `#N` counts only with one
- * repo to be in.
  * @param {string} reply
- * @param {string[]} names the ticked repos
+ * @param {string[]} names
  */
 function parseReplyRefs(reply, names) {
 	const only = names.length === 1 ? names[0] : "";
-	/* Each run is matched whole, so the search never restarts inside one; a
-	 * reference takes the run it touches as its repo (#4109). */
+	// #4109
 	const refs = [];
 	let run = null;
 	for (const m of reply.matchAll(/[\w.-]+|#([1-9]\d*)\b/g)) {
@@ -147,17 +127,13 @@ const askClaude = (prompt, { env, signal }) =>
 				}
 			},
 		);
-		// #3884: a child that exits unread is its own exit's to report.
 		child.stdin?.on("error", () => undefined);
 		child.stdin?.end(prompt);
 	});
 
 /**
- * The open issues of `repos` that one model call finds for `text`, or why there is
- * no set. Never rejects: an aborted call resolves too, for a caller no longer
- * listening.
  * @param {string} text
- * @param {TickedRepo[]} repos the ticked repos
+ * @param {TickedRepo[]} repos
  * @param {TopicIo} io
  * @returns {Promise<TopicResult>}
  */

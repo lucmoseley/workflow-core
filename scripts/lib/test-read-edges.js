@@ -224,6 +224,8 @@ const ESM_IMPORT =
 /** A type-only import or re-export, erased before vitest loads the file. */
 const TYPE_ONLY = /^[ \t]*(?:import|export)[ \t]+type\b[^;]*;?/gm;
 
+const TYPE_QUERY = /\btypeof\s+import\(\s*["'`][^"'`]+["'`]\s*\)/g;
+
 /** Extensions tried, in order, when a specifier names no file suffix. */
 const EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs"];
 
@@ -351,7 +353,12 @@ function importedHelpers(source, self, tracked, re = IMPORT) {
  * @returns {Set<string>}
  */
 const vitestImports = (source, self, tracked) =>
-	importedHelpers(source.replace(TYPE_ONLY, ""), self, tracked, ESM_IMPORT);
+	importedHelpers(
+		source.replace(TYPE_ONLY, "").replace(TYPE_QUERY, ""),
+		self,
+		tracked,
+		ESM_IMPORT,
+	);
 
 /**
  * @param {string} args  a run of quoted literals

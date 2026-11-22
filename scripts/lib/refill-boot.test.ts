@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * Whether a boot restarts the loop (#3878), and the line that says why. Loosen
- * it and a boot undoes a stop, or leaves a loop down that nothing stopped. And when
- * a tick trusts an empty listing (#3880): loosen that and a daemon's fault finishes
- * sessions still running. And which jobs the never-started stop spares (#3983):
- * loosen that and a dead job keeps its admission charge past the boot; tighten it
- * and a killed launch is stopped before it can queue. And whether a spawned loop
- * came to hold the lock (#4083): loosen that and a start that exited reads as a
- * running loop. And what a same-boot restart queues (#4139): loosen that and a kill
- * of the loop alone queues a live session for a second resume. And what
- * `boot-resume`, `watch` and `run` write around them (#4356): loosen that and a
- * failed boot loses the last loop's death, `watch` restarts over a live loop or
- * logs at every firing, or a run keeps a stop from before it. And what a manager
- * restart's marker reopens, and when its wait alarms (#4145): loosen that and a
- * session that ended on its own is resumed; tighten it and one a tick finished
- * just before the marker is never resumed, or a stuck wait goes unseen.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -338,8 +321,6 @@ describe("a same-boot restart (#3971)", () => {
 	});
 });
 
-/* A tick between the daemon's death and the marker read the restart's sessions
- * gone, so finished them (#4145). */
 describe("a tick just before a same-boot restart's marker (#4145)", () => {
 	const Tick = START - 30_000;
 	const Marker = { bootId: "b", at: START };
@@ -426,7 +407,6 @@ describe("restartWaitOf (#4145)", () => {
 describe("awaitLoopHold (#4083)", () => {
 	const Pid = 7;
 	const File = "/x/.refill-loop.pid";
-	/** One holder and aliveness reading per poll, the last repeating. */
 	const polls = (
 		holders: (number | null)[],
 		alive: boolean[],
@@ -482,9 +462,6 @@ describe("awaitLoopHold (#4083)", () => {
 	});
 });
 
-/* The control and state through their real readers and writer, in a refill
- * directory of the case's own; the lock, the launch and the unit's restart
- * faked. */
 describe("boot-resume, watch and run's hold, on their ports (#4356)", () => {
 	let dir = "";
 	beforeEach(() => {

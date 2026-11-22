@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/patch-files.js's contract (#2740). Plain strings pin the parse; one
- * real patch pins that git's own output for a tabbed path is what the parse
- * expects. A path cut short is left out of `--patch`'s files, so commit-paths
- * would take the working-tree copy whole.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

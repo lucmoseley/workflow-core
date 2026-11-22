@@ -1,16 +1,3 @@
-/*
- * proc-fake.ts — the fake `/proc` a program test points WFC_PROC at: one
- * directory a process, with the carried-weight reader's `environ`
- * NUL-separated as the kernel's is (#2948); the orphan sweeps' stat and
- * cmdline and the machine's uptime (#3057); the spare-pair test's `cwd` link
- * (#2502); and admission's `smaps_rollup`, with WFC_LOADAVG the machine's
- * load (#3342); and the guest-disk reader's `self/mountinfo` and
- * `partitions` (#5430). proc.contract.test.ts holds them all
- * to the kernel's.
- *
- * FOR TESTS ONLY.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,14 +9,12 @@ const { launchEnv } = require("./suite-handoff.js") as {
 	launchEnv: (launch: object) => Record<string, string>;
 };
 
-/** A launch record as an environment entry, `KEY=value`. */
 export function buildLaunchEntry(launch: object): string {
 	const [entry] = Object.entries(launchEnv(launch));
 	if (!entry) throw new Error("proc-fake: launchEnv wrote no entry");
 	return `${entry[0]}=${entry[1]}`;
 }
 
-/** Process `pid` under `proc`, its environment holding `entries`. */
 export function writeEnviron(
 	proc: string,
 	pid: number,
@@ -40,7 +25,6 @@ export function writeEnviron(
 	return pid;
 }
 
-/** Process `pid` under `proc`, its cwd `cwd`, replacing any link before it. */
 export function writeCwd(proc: string, pid: string, cwd: string): string {
 	fs.mkdirSync(path.join(proc, pid), { recursive: true });
 	fs.rmSync(path.join(proc, pid, "cwd"), { force: true });
@@ -48,7 +32,6 @@ export function writeCwd(proc: string, pid: string, cwd: string): string {
 	return pid;
 }
 
-/** Process `pid` under `proc`, carrying `launch`'s record, or none. */
 export function carrying(
 	proc: string,
 	pid: number,
@@ -60,11 +43,9 @@ export function carrying(
 	]);
 }
 
-/* Fields in a stat line after the comm: proc(5)'s fields 3 to 52. */
+// https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
 const STAT_TAIL = 50;
 
-/* The fake machine's seconds since boot: any figure above every age a test
- * asks for. */
 const UPTIME = 200_000;
 
 export interface ProcSpec {
@@ -72,18 +53,12 @@ export interface ProcSpec {
 	pgid?: number;
 	state?: string;
 	comm?: string;
-	/** Words joined by NUL, as the kernel writes cmdline; a string splits on spaces. */
 	argv?: string | string[];
-	/** Seconds since it started. A guess at a typical orphan's: an hour. */
 	ageS?: number;
-	/** CPU ticks spent in user mode, stat's utime. */
 	utime?: number;
-	/** A stat line written as given, in place of the built one. */
 	stat?: string;
 }
 
-/** One stat line: `pid (comm)`, its state, parent, group, user CPU ticks and
- * start time, and zeros for every other field. */
 export function buildStatLine(
 	pid: number,
 	{
@@ -111,11 +86,6 @@ export function buildStatLine(
 	return `${pid} (${comm}) ${tail.join(" ")}\n`;
 }
 
-/** A `smaps_rollup` as the kernel writes it: the rollup's header, then its
- * Rss, Pss, Pss_Dirty and Shared_Clean lines in the kernel's order. The
- * default Rss is one no test charges and the Pss_Dirty line follows Pss, so a
- * reader taking Rss, the last line or a `Pss`-prefixed line in place of Pss
- * fails. */
 export const buildSmapsRollup = ({
 	rssKb = 999_999,
 	pssKb,
@@ -140,7 +110,6 @@ export const buildSmapsRollup = ({
 		"",
 	].join("\n");
 
-/** Process `pid` under `proc`, its `smaps_rollup` charging `pssKb`. */
 export function writeSmapsRollup(proc: string, pid: string, pssKb: number) {
 	fs.mkdirSync(path.join(proc, pid), { recursive: true });
 	fs.writeFileSync(
@@ -149,19 +118,12 @@ export function writeSmapsRollup(proc: string, pid: string, pssKb: number) {
 	);
 }
 
-/** `load1` as the kernel writes /proc/loadavg: three loads, the running and
- * total task counts, and the newest pid. */
 export const buildLoadavgLine = (load1: number) =>
 	`${load1.toFixed(2)} 1.00 1.00 2/300 1\n`;
 
-/** `seconds` as the kernel writes /proc/uptime: uptime, then idle time. */
 export const buildUptimeLine = (seconds: number) =>
 	`${seconds.toFixed(2)} ${seconds.toFixed(2)}\n`;
 
-/**
- * `self/mountinfo` and `partitions` under `proc`, putting / on /dev/`device`
- * of `sizeBytes`, for lib/wsl-disk-host.js's readGuestDisk.
- */
 export function writeGuestDisk(
 	proc: string,
 	sizeBytes: number,
@@ -182,7 +144,6 @@ export function writeGuestDisk(
 	);
 }
 
-/** A fresh /proc root on a machine `uptime` seconds up, and its writer. */
 export function makeProcRoot(uptime = UPTIME) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "proc-fake-"));
 	fs.writeFileSync(path.join(root, "uptime"), buildUptimeLine(uptime));
@@ -202,7 +163,6 @@ export function makeProcRoot(uptime = UPTIME) {
 		);
 	}
 
-	/** Show the real process `pid` in the root, read live through /proc. */
 	function real(pid: number) {
 		fs.symlinkSync(`${REAL_PROC}/${pid}`, path.join(root, String(pid)));
 	}

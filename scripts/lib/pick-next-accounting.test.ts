@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins pick-next's accounting of a run (#4329): why each frontier issue
- * outside the set did not launch (#591), the open-issue tally, the
- * DISPATCHABLE FLOOR (mantahostels#1507), the band no command opens
- * (mantahostels#1626), and the §6 summary's figures (mantahostels#1001,
- * mantahostels#3363).
- *
- * Loosen a case and §5's accounting line stops summing, or §6 is written off
- * a figure the run never decided.
- */
 import { describe, expect, it } from "vitest";
 
 const {
@@ -98,8 +88,6 @@ describe("why a frontier issue did not launch (#591)", () => {
 	});
 
 	it("lists a dropped issue whose mergeable partner is not the one it clashed with", () => {
-		// #3 clashes with #1 on a.js; its merge pair is with #2 on b.js, so
-		// nothing carries it.
 		const rows = notLaunchedOf(
 			launchState({
 				frontier: [issue(1), issue(2), issue(3)],
@@ -128,7 +116,6 @@ describe("why a frontier issue did not launch (#591)", () => {
 		];
 		const frontier = [...bundles.flat(), 30].map((n) => issue(n, ["triage"]));
 		const g = graph({ proposed: [30] });
-		// Two bundles plus the lone non-retro issue: three slots, none short.
 		expect(
 			notLaunchedOf(
 				launchState({

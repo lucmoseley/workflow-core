@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * rescue-probe.test.ts — lib/rescue-probe.js's probe, the core behind
- * `rescue-sessions.js probe` (#620, spec #617), in-process on
- * lib/rescue-core-kit.ts's fake ports (#5157): one test per verdict row, plus
- * the cases the spec names. Breaking it costs the one promise the probe makes:
- * a slow or asking session is never called FROZEN, so #617's takeover never
- * stops it. rescue-sessions-probe.test.ts keeps the program's own cases.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -47,10 +39,6 @@ const subagent = (dir = plan()) =>
 
 const calling = (command: string) => JSON.stringify(buildBashCall(command));
 
-/**
- * The common case: listed working on the first plan, a transcript whose turn
- * ended on `waiting:`, nothing in flight, and a process tree that idles.
- */
 const frozenHolder = () => {
 	lists([holderRow()]);
 	writeTranscript([said("Delegated the suite.\n\nwaiting: the suite run")]);
@@ -511,7 +499,6 @@ describe("probe: GHOST, off the first sample alone", () => {
 	});
 });
 
-/* #1989: a job that never started holds no claim. */
 describe("probe --issue: falling back to the job whose intent names it", () => {
 	it("finds the job by its intent where no session claims the issue", async () => {
 		ghostJob("/implement 620 — RESUMED from session 3");

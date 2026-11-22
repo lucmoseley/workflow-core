@@ -1,33 +1,3 @@
-/*
- * plugin-hooks-render.js — renders the plugin's hook manifest from the
- * self-plugin's `self-plugin/hooks/hooks.json` (#4, #2441).
- *
- * The core runs its own hooks from its main checkout's scripts/, spelt through
- * the self-plugin's root (core-hooks.js's SCRIPT_PREFIX, #4701). An adopter
- * runs them from the plugin cache, so the render is ONE rewrite: every
- * main-checkout scripts/ prefix becomes the plugin root's scripts/, and so does
- * the core's pinned guard route (core-hooks.js's PINNED_GUARD_PREFIX). It gets
- * `"${CLAUDE_PLUGIN_ROOT}"/scripts/`, quoted because an unquoted plugin root
- * breaks a shell-form hook on a path with a space
- * (anthropics/claude-code#78490). A command that still names the main checkout
- * after the rewrite — CLAUDE_PROJECT_DIR, or the plugin root's parent — is
- * refused rather than guessed at: an adopter's plugin cache has no parent
- * holding the core.
- *
- * One entry is the core's alone and never rendered: the self-plugin's
- * session-marker writer, lib/core-hooks.js's MARKER_WRITER. It feeds the
- * canary in the core's settings, which an adopter does not run (#2295).
- *
- * Beside `hooks` it names the plugin's entry module, hooks/register.ts, under
- * `modules`, wherever the repo carries one (#946).
- *
- * FAIL CLOSED WHERE A GUARD CAN REFUSE (#2670 Q1 (A)). Every `PreToolUse` hook
- * whose script `lib/deny-capable.js` reads as able to refuse carries
- * `"onFailure": "block"`, and no other hook does, so a deny-capable guard the
- * harness times out, cannot start or sees exit other than 0 or 2 refuses the
- * call instead of letting it through. The set is derived, never listed.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { guardKey } = require("./guard-fires.js");
@@ -40,11 +10,8 @@ const {
 } = require("./core-hooks.js");
 
 const OUT = "hooks/hooks.json";
-/* A committed source file beside OUT, never generated; the release copies it. */
 const ENTRY = "hooks/register.ts";
-// biome-ignore lint/suspicious/noTemplateCurlyInString: the plugin-root variable Claude Code substitutes, not a JS template
-const PLUGIN_PREFIX = '"${CLAUDE_PLUGIN_ROOT}"/scripts/';
-/* A path off the main checkout that the rewrite left: one an adopter lacks. */
+const PLUGIN_PREFIX = `"\${CLAUDE_PLUGIN_ROOT}"/scripts/`;
 const MAIN_CHECKOUT_LEFT =
 	/CLAUDE_PROJECT_DIR|\$\{CLAUDE_PLUGIN_ROOT\}"?\/\.\./;
 
@@ -69,12 +36,7 @@ function rewriteCommand(command) {
 	return out;
 }
 
-/**
- * `h` where it carries no `args`: an exec-form hook spawns its command with
- * no shell, so the quoted plugin root is a literal path that fails ENOENT,
- * silently (mantahostels#2059).
- * @param {import("./core-hooks.js").Hook} h
- */
+/** @param {import("./core-hooks.js").Hook} h */
 function refuseArgs(h) {
 	if (h.args !== undefined)
 		throw new Error(
@@ -84,7 +46,6 @@ function refuseArgs(h) {
 }
 
 /**
- * A registration as the drift report names it: script, event, matcher, `if`.
  * @param {string} guard
  * @param {string} event
  * @param {string | undefined} matcher
@@ -102,9 +63,6 @@ function registrationLabel(guard, event, matcher, h) {
 }
 
 /**
- * `h` with `onFailure: "block"` exactly where its script can refuse on
- * `PreToolUse`, and the drift line where it had it otherwise.
- *
  * @param {import("./core-hooks.js").Hook} h
  * @param {string} event
  * @param {string | undefined} matcher
@@ -124,9 +82,6 @@ function failClosedHook(h, event, matcher, isDenyCapable) {
 }
 
 /**
- * `hooks` with `onFailure: "block"` on exactly the `PreToolUse` hooks whose
- * script can refuse, and each registration that had it otherwise.
- *
  * @param {import("./core-hooks.js").Hooks} hooks
  * @param {(guard: string) => boolean} isDenyCapable
  * @returns {{hooks: import("./core-hooks.js").Hooks, drift: string[]}}
@@ -150,9 +105,8 @@ function withFailClosed(hooks, isDenyCapable) {
 }
 
 /**
- * @param {{hooks?: import("./core-hooks.js").Hooks}} source the self-plugin
- *   file's parsed content
- * @param {boolean} hasEntry the repo carries ENTRY
+ * @param {{hooks?: import("./core-hooks.js").Hooks}} source
+ * @param {boolean} hasEntry
  * @returns {string}
  */
 function renderManifest(source, hasEntry) {
@@ -185,11 +139,8 @@ function renderManifest(source, hasEntry) {
 }
 
 /**
- * The manifest `root`'s self-plugin file renders to. The one render the
- * pre-commit gate and the release tree both take.
  * @param {string} root
  * @returns {string}
- * @throws {Error} where the file cannot be read or a command rewritten
  */
 function renderAt(root) {
 	return renderManifest(

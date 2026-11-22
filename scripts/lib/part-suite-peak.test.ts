@@ -1,12 +1,3 @@
-/*
- * part-suite-peak.test.ts — the part-suite peak (#5366): its buckets, the
- * nearest-rank p99 over a kind and bucket's 7 days of ledger lines, and the
- * ledger reader's torn, absent and unreadable cases. Pure, on fixture lines
- * and a temp ledger, so no case reads this repo's real ledger. Break it and
- * a part-suite is admitted on another kind's or bucket's peak, on runs
- * outside the window or on a bucket too thin to measure, so it starts beside
- * a neighbour with less room than it draws.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { readPartSuitePeak } from "./part-suite-ledger.js";
 import { bucketOf, partKindOfRoute, partSuitePeak } from "./part-suite-peak.js";
 
-/* part-suite-peak.js's floor: a bucket under 30 runs is thin. */
 const MIN_SAMPLES = 30;
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -34,7 +24,6 @@ const line = (over: Partial<Line> & { sum?: number } = {}): Line => {
 	};
 };
 
-/** `n` lines peaking 1..n MiB, each with `over`. */
 const lines = (n: number, over: Partial<Line> = {}) =>
 	Array.from({ length: n }, (_, i) => line({ sum: i + 1, ...over }));
 
@@ -60,14 +49,12 @@ describe("partSuitePeak", () => {
 	const named1 = { kind: "named", files: 1, now: NOW } as const;
 
 	it("is the nearest-rank p99 of the bucket's peaks", () => {
-		/* 200 runs, 1..200 MiB: rank ceil(0.99 * 200) = 198. */
 		expect(partSuitePeak(lines(200), named1)).toEqual({
 			kind: "named",
 			p99Mb: 198,
 			samples: 200,
 			bucket: "1",
 		});
-		/* 30 runs: rank ceil(29.7) = 30, the top. */
 		expect(partSuitePeak(lines(30), named1)?.p99Mb).toBe(30);
 	});
 

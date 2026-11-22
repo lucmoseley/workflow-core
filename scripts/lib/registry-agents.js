@@ -1,32 +1,3 @@
-/*
- * registry-agents.js — the sessions every seat's registry proves are running,
- * as lib/agent-liveness.js's AgentRecords, read from files alone: no
- * `claude agents --json` (#2665, ruled at #2663).
- *
- * WHAT IT READS, on each seat lib/arbiter-core.js's sessionDirs() names:
- * `sessions/<pid>.json`, kept only where /proc/<pid>/stat's start time equals
- * its `procStart`, joined to the same seat's `jobs/<jobId>/state.json` for
- * `state` and `tempo`, taken only where that record names the same session. These are
- * undocumented harness files; the refill loop logs where this listing and the
- * CLI one disagree (`buildDriftLines`).
- *
- * THE REAPER ACTS ONLY ON WHAT A RECORD SAYS, so a missing or garbled record
- * makes it stop less, never the wrong session.
- * THE REFILL LOOP'S NEVER-STARTED STOP DOES JUDGE BY ABSENCE — a working job
- * whose session has no live record here. It may use this read only because
- * absence is not its whole test: the job must also be past its 30-minute
- * grace with no transcript on any seat, which no running session shows; and
- * it judges a job only on a seat in `seats`, whose registry was read.
- * A MANAGER RESTART'S EMPTY LISTING is trusted only where this read also finds
- * the launches it may have killed gone (lib/refill-boot.js, #3971).
- * NEVER A READER THAT JUDGES BY ABSENCE ALONE — the claim prune, admission's
- * live set. A session whose record is missing would read
- * dead (mantahostels#104); those keep the CLI listing.
- *
- * PARTIAL BY DESIGN. A record of unrecognised shape is skipped. A seat whose
- * registry will not read is a fault naming it, and the other seats are read.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readProcStartOf } = require("./arbiter-proc.js");
@@ -38,22 +9,14 @@ const headless = require("./headless-runs.js");
 /**
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
  * @typedef {{agents: AgentRecord[], faults: string[], seats: string[]}} RegistryListing
- *   `faults` names each seat, or the headless store, that would not read;
- *   `seats` the config dirs whose registry was read
  * @typedef {{pid?: unknown, sessionId?: unknown, procStart?: unknown,
  *   jobId?: unknown, name?: unknown, cwd?: unknown, kind?: unknown,
- *   startedAt?: unknown}} RegistryEntry a parsed `sessions/<pid>.json`: the
- *   harness owns its schema, so every field is checked before it is read
+ *   startedAt?: unknown}} RegistryEntry
  */
 
-/* The registry's spelling of a background session, and the oracle's, which
- * `isFinishedAgent` reads. */
 const KIND_NAMES = new Map([["bg", "background"]]);
 
 /**
- * One registry entry as an AgentRecord on `seat`, the config dir whose registry
- * listed it, or null where its shape is not the
- * one this reads or its process is not the one it recorded.
  * @param {string} seat
  * @param {RegistryEntry} entry
  * @returns {AgentRecord|null}
@@ -78,9 +41,6 @@ function agentOf(seat, entry) {
 }
 
 /**
- * `agent` with its job id, and its state and tempo where that seat's job record names
- * the same session. An id that is not plain alphanumeric is never followed
- * into a path.
  * @param {AgentRecord} agent
  * @param {string} seat
  * @param {unknown} jobId
@@ -96,8 +56,6 @@ function withJob(agent, seat, jobId) {
 }
 
 /**
- * One seat's pid-verified sessions, `read` false where it has no registry
- * at all — or the fault that kept its registry from reading.
  * @param {string} seat
  * @returns {{agents: AgentRecord[], read: boolean} | {fault: string}}
  */
@@ -119,8 +77,6 @@ function readSeatAgents(seat) {
 		try {
 			entry = readRecord(path.join(dir, name));
 		} catch {
-			/* One refused entry is skipped and the rest read: PARTIAL BY DESIGN,
-			 * the header. */
 			continue;
 		}
 		const agent = entry && agentOf(seat, entry);
@@ -129,11 +85,7 @@ function readSeatAgents(seat) {
 	return { agents, read: true };
 }
 
-/**
- * Every pid-verified session on every seat, with the live headless runs
- * merged in as lib/agent-liveness.js merges them.
- * @returns {RegistryListing}
- */
+/** @returns {RegistryListing} */
 function readRegistryAgents() {
 	/** @type {AgentRecord[]} */
 	const agents = [];
@@ -158,9 +110,6 @@ function readRegistryAgents() {
 }
 
 /**
- * One line per background session the CLI listing and this one disagree on —
- * listed by one alone, or with a different pid or state. A session that
- * changes state between the two reads shows here too, once.
  * @param {AgentRecord[]} cli
  * @param {AgentRecord[]} registry
  * @returns {string[]}

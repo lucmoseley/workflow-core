@@ -1,19 +1,7 @@
-/*
- * recursive-dot-read-host.js — the production port lib/recursive-dot-read.js
- * reads through the dispatcher (#2791) beyond the shared ones: a path
- * resolved physical as `realpath -m` resolves it, no component required to
- * exist. Git and existence come through the dispatcher's own `git` and
- * `exists`.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
 /**
- * `p` with every symlink among its existing components followed, in order, so
- * a `..` after a link climbs from the link's target as `realpath -m` does; a
- * component that does not exist, and everything after it, is joined as
- * spelled. A relative `p` is read from the hook's own directory.
  * @param {string} p
  * @returns {string}
  */

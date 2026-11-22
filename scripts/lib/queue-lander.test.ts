@@ -1,31 +1,4 @@
 // @vitest-environment node
-/*
- * lib/queue-lander.js's green path, drop and defer, and red path (#4485,
- * spec #4458), driven through runQueueLander with an in-memory remote,
- * tester, tracker, ledgers and records: each case asserts the actions the
- * machine chose and where the remote ends.
- *
- * Loosen it and a batch lands untested or out of push order, a push made
- * while a batch is tested lands half-tested or is deleted unlanded, a
- * restart tests a sha again, a network blip throws a batch away, a member
- * that conflicts with another is dropped or one that conflicts with `main`
- * stops the queue, a dropped sha is lost or its fix ticket goes unfiled, a
- * crash mid-drop lands the member or a crash after the push loses its land
- * rows, a rerun green naming no CI run stops every restart until `main`
- * moves, a dropped ref outlives its closed ticket, or a run whose landing
- * changed its own code takes another batch on it; or a flake or a failure
- * `main` shares starts an isolation or drops a member, one on another
- * signature than `main`'s is read as `main`'s, a member red alone once is
- * dropped unconfirmed, the passers wait behind a newer ref, a
- * collision drops more or less than one member, or a restart repeats an
- * isolation run or merge; or a red only `main` shares lands where `main`
- * takes only a sha a CI run passed, a sha `main` refused is pushed again by
- * any batch or stays green-ledgered, a base check takes `main`'s old verdict
- * or an earlier batch's base verdict, a red
- * naming no file skips its rerun, base check or isolation, or a serial step
- * drops its member on one red or on a red the collision did not fail; or a
- * member withdrawn from the remote lands on `main` with its batch.
- */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { dropTicketFiler } from "./fix-ticket.js";
@@ -48,33 +21,24 @@ import {
 	type Verdict,
 } from "./queue-lander.js";
 
-// Required, not imported: runQueueLander tests for filing-refused.js's own
-// FilingRefusedError and network-fault.js's own PushRefused, which an ESM
-// import would load a second copy of.
 const { FilingRefusedError } = createRequire(__filename)("./filing-refused.js");
 const { PushRefused } = createRequire(__filename)("./network-fault.js");
 
 interface Ref {
 	sha: string;
 	pushedAt: number;
-	/** Descends from `main`, so the merge of it alone is itself. */
 	onMain?: boolean;
-	/** What its merge conflicts with in `<name>.txt`: `main`, or a member's name. */
 	conflicts?: string[];
-	/** Its merge refused, by a commit gate, giving this reason. */
 	refused?: string;
 }
 
-/** The remote: `main`, the queue refs by name and the dropped refs. */
 interface Remote {
 	main: string;
 	refs: Map<string, Ref>;
 	dropped: Map<string, string>;
-	/** The sha last asked at each placement, by its `placeOf` label. */
 	placed: Map<string, string>;
 }
 
-/** A placement's label: `batch-<slot>`, or `iso-<k>` for a run alone. */
 const placeOf = (p: Placement) =>
 	p.kind === "batch" ? `batch-${p.slot}` : `iso-${p.k}`;
 
@@ -89,45 +53,32 @@ const remoteOf = (
 	placed: new Map(),
 });
 
-/** The disk a restart keeps: the ledgers, records, queue log and tracker. */
 const freshDisk = () => ({
 	green: new Set<string>(),
-	/** When each green sha went green, in ms. */
 	greenAt: new Map<string, number>(),
 	verdicts: new Map<string, Verdict>(),
-	/** When each verdict was ledgered, in ms; NOW where absent. */
 	verdictAt: new Map<string, number>(),
-	/** The refused record: each sha `main` refused, with its refusal. */
 	refused: new Map<string, string>(),
 	pipeline: null as Pipeline | null,
 	torn: false,
-	/** Each pipeline record call that changes the file, in order. */
 	recordCalls: [] as ("write" | "quarantine")[],
 	drops: [] as Drop[],
 	log: [] as string[],
-	/** Each ticket's state; the filed ones open. */
 	tickets: new Map<number, "open" | "closed">(),
-	/** Each fix ticket filing: the branch's newest drop and the refs it holds. */
 	filed: [] as { drop: Drop; held: readonly DroppedRef[] }[],
-	/** Each update of an open fix ticket: its number and the drop it now names. */
 	updated: [] as {
 		ticket: number;
 		sha: string;
 		held: readonly DroppedRef[];
 	}[],
-	/** Each refresh of a ticket's body a settling left open: the drop it names. */
 	refreshed: [] as {
 		ticket: number;
 		sha: string;
 		held: readonly DroppedRef[];
 	}[],
-	/** Each fix ticket the lander closed, with the `main` named as holding its work. */
 	closed: [] as { ticket: number; main: string }[],
-	/** Each branch's fix ticket, by the queue ref name its title carries. */
 	titled: new Map<string, number>(),
-	/** Each land row's time, in ms, as `<name>` to its times. */
 	landedAt: [] as { name: string; at: number }[],
-	/** Each base-red filing, as `<main> <files>`. */
 	baseRed: [] as string[],
 });
 type Disk = ReturnType<typeof freshDisk>;
@@ -136,10 +87,6 @@ const mergeSha = (onto: string, members: readonly Member[]) =>
 	`merge(${onto};${members.map((m) => m.sha).join(",")})`;
 
 interface Options {
-	/**
-	 * The tester's answer at a sha on `files`, the whole suite where empty,
-	 * `nth` counting its asks there from 1; green naming run 1 where absent.
-	 */
 	verdict?: (
 		sha: string,
 		remote: Remote,
@@ -147,61 +94,32 @@ interface Options {
 		nth: number,
 	) => Verdict;
 	requiresRun?: boolean;
-	/** Whether the tester takes several asks at once. */
 	parallel?: boolean;
-	/** Runs as an ask is made, before its verdict is awaited. */
 	onAsk?: (sha: string, remote: Remote) => void;
-	/** Holds an ask's verdict until it reads true; the events so far, each
-	 * `ask <key>`, `verdict <key>`, `start <sha> at <place>`,
-	 * `run <sha> at <place>`, `cancel <sha> at <place>` or `main <sha>`. */
 	gate?: (key: string, events: readonly string[]) => boolean;
-	/** The merge's outcome; every member merged where absent. */
 	merge?: (
 		onto: string,
 		members: readonly Member[],
 		fresh?: boolean,
 		started?: (sha: string) => void,
 	) => MergeResult;
-	/** Throws in place of a call, by its name, while it returns an error: a
-	 * git call's, `start`, or `ask <placement kind>` as an ask is made. */
 	fault?: (call: string) => Error | undefined;
-	/** Runs before a compare-and-delete reads the ref. */
 	beforeDelete?: (branch: string, remote: Remote) => void;
-	/** Runs as a push to `main` reaches the remote, after the step's read. */
 	beforePush?: (sha: string, remote: Remote) => void;
-	/** The remote's refusal of a push of `sha` to `main`, none where absent. */
 	refuse?: (sha: string) => string | undefined;
-	/** Throws in place of filing a fix ticket while it returns an error. */
 	fileFault?: () => Error | undefined;
-	/** Unfinished runs at batch placements before the run starts, as a crash
-	 * leaves, `at` the placement's label. */
 	runs?: readonly { at: string; sha: string }[];
-	/** The cancels a run started at `sha` goes unlisted for; none where absent. */
 	unlisted?: (sha: string) => number;
-	/** Throws in place of moving a torn pipeline record aside, while it
-	 * returns an error. */
 	quarantineFault?: () => Error | undefined;
-	/** Throws in place of the fix ticket search, while it returns an error. */
 	findFault?: () => Error | undefined;
-	/** Throws in place of closing a fix ticket, while it returns an error. */
 	closeFault?: () => Error | undefined;
-	/** The owning-session state of a queue ref's name; stopped where absent. */
 	owningSessionState?: (name: string) => OwningSessionState;
-	/** The shas `main` holds, beyond `main` itself. */
 	onMain?: readonly string[];
 	acquired?: boolean;
-	/** The run's clock, in ms; NOW where absent. */
 	now?: number;
-	/** Whether a move of `main` to `sha` changed this run's own code; absent,
-	 * the run is handed no `mainMoved` at all. */
 	mainMoved?: (sha: string) => boolean;
 }
 
-/**
- * The fake merge: each member in order onto `onto`, stopping at the first
- * refused or conflicting with `main` or an earlier member; a lone member on
- * `main` is itself unless `fresh`.
- */
 function fakeMerge(
 	remote: Remote,
 	onto: string,
@@ -227,29 +145,21 @@ function fakeMerge(
 	};
 }
 
-/** A run against `remote` and `disk`, returning its end and every action. */
 async function land(remote: Remote, disk: Disk, o: Options = {}) {
 	const actions: QueueAction[] = [];
-	/** Each ask: the sha for the whole suite, else `<sha>:<files>`. */
 	const asked: string[] = [];
-	/** Each ask as `<place> <ask>`. */
 	const placements: string[] = [];
 	let inFlight = 0;
 	let peak = 0;
 	const said: string[] = [];
-	/** Each heartbeat's batch, undefined where it names none afresh. */
 	const beats: (string | null | undefined)[] = [];
-	/** Each push to `main` tried, refused or not. */
 	const pushed: string[] = [];
 	const events: string[] = [];
-	/** The window each pipeline record write carries. */
 	const depths: number[] = [];
 	const call = (name: string) => {
 		const err = o.fault?.(name);
 		if (err) throw err;
 	};
-	/** The tester's runs, each at a placement's label, as an Actions one
-	 * fires them: one per start, or per whole-suite ask where none is there. */
 	const runs = (o.runs ?? []).map((r) => ({ ...r, done: false, unlisted: 0 }));
 	const fire = (at: string, sha: string) => {
 		events.push(`run ${sha} at ${at}`);
@@ -341,7 +251,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				peak = Math.max(peak, ++inFlight);
 				await Promise.resolve();
 				for (let spins = 0; o.gate && !o.gate(ask, events); spins++) {
-					/* A guess: a gate opens within a few dozen turns of the loop. */
+					// guess, #4556
 					if (spins > 2000) throw new Error(`gate on ${ask} never opened`);
 					await new Promise((r) => setTimeout(r, 0));
 				}
@@ -475,8 +385,6 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		lock: { acquire: () => o.acquired ?? true, release: () => undefined },
 		beat: (batch) => beats.push(batch),
 		wait: async () => undefined,
-		/* A machine that loops on microtasks starves vitest's timeout, so a
-		 * runaway fails its case here rather than hanging the file. */
 		log: (a) => {
 			if (actions.push(a) > MAX_ACTIONS)
 				throw new Error(`runaway: ${kinds(actions.slice(-6)).join(", ")}`);
@@ -500,7 +408,6 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 	};
 }
 
-/** The body the real filer files for `drop`, through a fake file-issue.js. */
 function bodyOf(drop: Drop, held: readonly DroppedRef[]) {
 	let body = "";
 	dropTicketFiler({
@@ -533,7 +440,6 @@ const seed = (disk: Disk, b: Omit<Batch, "slot">) => {
 const batchIn = (disk: Disk) =>
 	disk.pipeline?.search ?? disk.pipeline?.line[0] ?? null;
 
-/** The placements alone asked at, each with the sha last asked there. */
 const isoPlaced = (remote: Remote) =>
 	[...remote.placed].filter(([at]) => at.startsWith("iso-"));
 
@@ -541,7 +447,7 @@ const verdictKey = (sha: string, files: readonly string[], pass: number) =>
 	`${sha} ${files.join(",")}${pass === 1 ? "" : ` #${pass}`}`;
 
 const kinds = (actions: QueueAction[]) => actions.map((a) => a.kind);
-/* A guess, several times the longest case's ~60 actions. */
+// guess, #4556
 const MAX_ACTIONS = 400;
 const taken = (actions: QueueAction[]) =>
 	actions.flatMap((a) =>
@@ -554,7 +460,6 @@ const NOW = Date.parse("2026-11-06T12:00:00Z");
 const TORN_ASIDE =
 	"/markers/.queue-lander-batch.json.torn-2026-11-06T12:00:00.000Z";
 const DAY = 24 * 60 * 60 * 1000;
-/** A drop's decision state as dropped, and once its branch's ticket names it. */
 const OPEN = { state: "open", decidedAt: NOW } as const;
 const TICKETED = { state: "ticketed", decidedAt: NOW } as const;
 
@@ -1128,8 +1033,6 @@ describe("faults", () => {
 		]);
 	});
 
-	/* Positive pair: "lands a lone ref as the integration commit its merge
-	 * names". */
 	it("merges a batch under test again without a member withdrawn meanwhile, so main never takes it (#5316)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
@@ -1159,8 +1062,6 @@ describe("faults", () => {
 		expect(remote.main).toBe("merge(m0;a1)");
 	});
 
-	/* Positive pair: "lands a batch whose failing files pass on their
-	 * rerun, isolating nothing". */
 	it("batches a search's members again without one withdrawn during its rerun, so main never takes it (#5316)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
@@ -2243,7 +2144,6 @@ describe("the red path", () => {
 	const RedB = "scripts/b.test.ts";
 	const red = (...files: string[]): Verdict => ({ kind: "red", files });
 	const Green: Verdict = { kind: "green", run: 1 };
-	/** Red on each `<name>.test.ts` whose `<name>1` the sha holds. */
 	const redWhereHeld =
 		(...names: string[]) =>
 		(sha: string, _: Remote, files: readonly string[]): Verdict => {
@@ -2458,7 +2358,6 @@ describe("the red path", () => {
 		expect(disk.drops).toEqual([]);
 	});
 
-	/** Red on x's test `t`, failing with `signature`. */
 	const failing = (signature: string): Verdict => ({
 		kind: "red",
 		files: ["scripts/x.test.ts"],
@@ -2550,7 +2449,6 @@ describe("the red path", () => {
 
 		expect(asked).toContain("m0:scripts/x.test.ts");
 		expect(isoAtAsk).toEqual(["m0"]);
-		/* The stall ticket names the heartbeat's batch, never the base (#5360). */
 		expect(beats).toContain(batchIn(disk)?.integration);
 		expect(beats).not.toContain("m0");
 		expect(batchIn(disk)?.bases).toContainEqual({
@@ -2564,7 +2462,6 @@ describe("the red path", () => {
 		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
 		const disk = freshDisk();
 		const x = "scripts/x.test.ts";
-		/* x fails in every batch, and at main once the date turns. */
 		let turned = false;
 		const verdict = (sha: string) => (sha === "m0" && !turned ? Green : red(x));
 
@@ -2594,7 +2491,6 @@ describe("the red path", () => {
 					r.refs.set("d", { sha: "d1", pushedAt: 9 });
 				}
 				const v = base(sha, r, files);
-				/* main shares x's failure, which is never blamed. */
 				if (sha !== Abc && sha !== "m0") return v;
 				return red("scripts/x.test.ts", ...(v.kind === "red" ? v.files : []));
 			},
@@ -2822,7 +2718,6 @@ describe("the red path", () => {
 		});
 		const disk = freshDisk();
 		const error = `expected 1 to be 2 ${"x".repeat(400)}`;
-		/* lib/queue-lander.js's QUOTED_MESSAGE_CHARS. */
 		const Cut = 300;
 		const aloneRuns: number[] = [];
 		let run = 40;
@@ -3104,8 +2999,6 @@ describe("the red path", () => {
 		expect((await run()).peak).toBe(1);
 	});
 
-	/** Holds each named-file verdict alone until its ask and its confirm's
-	 * are both made, so a confirm asked only after it never opens the gate. */
 	const pairGate = (key: string, events: readonly string[]) =>
 		!/^merge\(m0;[abc]1\):/.test(key) ||
 		events.filter((e) => e === `ask ${key}`).length === 2;
@@ -3147,13 +3040,11 @@ describe("the red path", () => {
 		const remote = abc();
 		const culprit = redWhereHeld("b");
 		let confirmed = false;
-		/* A guess: the run takes its next step within 20 turns of the loop. */
+		// guess, #4951
 		let turns = 0;
 
 		const { end, actions } = await land(remote, freshDisk(), {
 			parallel: true,
-			/* The harness polls a gate first for the ask just made, so the first
-			 * poll to see both of a's asks is its confirm's. */
 			gate: (key, events) => {
 				if (!pairGate(key, events)) return false;
 				if (!key.startsWith("merge(m0;a1):") || !confirmed) {
@@ -3180,7 +3071,7 @@ describe("the red path", () => {
 		});
 		const disk = freshDisk();
 		disk.verdicts.set(verdictKey("m0", [], 1), Green);
-		/* A guess: the run takes its next step within 20 turns of the loop. */
+		// guess, #4951
 		let turns = 0;
 
 		const { events } = await land(remote, disk, {
@@ -3355,8 +3246,6 @@ describe("a serial step", () => {
 	const Y = "scripts/y.test.ts";
 	const Z = "scripts/z.test.ts";
 	const step = "merge(merge(m0;a1);b1)";
-	/* Red on y where a1 and b1 meet in the batch, each passing alone, and
-	 * at the step as `at` says. */
 	const collision =
 		(
 			at: (
@@ -3431,8 +3320,6 @@ describe("a serial step", () => {
 		expect(disk.green.has(step)).toBe(false);
 	});
 
-	/* Positive pair: "lands a step red once that passes its confirm,
-	 * dropping nothing". */
 	it.each([
 		["the step before its own", "merge(m0;a1)", []],
 		["its own step", "merge(merge(m0;a1);b1)", ["merge(merge(m0;a1);b1)"]],
@@ -3457,8 +3344,6 @@ describe("a serial step", () => {
 					onAsk: (sha, rem) => {
 						if (sha === at) rem.refs.delete("b");
 					},
-					/* Held, so the run at `at` is still going when the lander sees
-					 * the ref gone. */
 					gate: (key) => key !== at || ++turns > 20,
 				},
 			);
@@ -3482,9 +3367,6 @@ describe("a serial step", () => {
 		},
 	);
 
-	/* Positive pairs: "lands a lone ref as the integration commit its merge
-	 * names" for the fast-forward, "skips a member withdrawn while %s is
-	 * under test…" for the serial step. */
 	it.each([
 		["a batch's fast-forward", "merge(m0;a1,b1)", false, "merge(m0;a1)"],
 		["a serial step", "merge(merge(m0;a1);b1)", true, "merge(merge(m0;a1);c1)"],
@@ -3536,8 +3418,6 @@ describe("a serial step", () => {
 		},
 	);
 
-	/* Positive pair: "lands a lone ref as the integration commit its merge
-	 * names". */
 	it("leases each queue ref at the sha the step read, so a member pushed again before the push lands on the step after (#5326)", async () => {
 		const r = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
@@ -3617,7 +3497,6 @@ describe("the pipeline (#4556)", () => {
 
 	describe("a follower's member conflicting with the batch under test (#4841)", () => {
 		const C = `merge(${A};c1)`;
-		/* b conflicts with a, so with any tip holding a1. */
 		const conflictWithA =
 			(remote: Remote) =>
 			(onto: string, members: readonly Member[], fresh?: boolean) =>
@@ -3726,8 +3605,6 @@ describe("the pipeline (#4556)", () => {
 		expect(taken(actions)).toEqual([["a@a1", "c@c1"], ["b@b1"], ["c@c1"]]);
 		expect(remote.main).toBe(`merge(${rebuilt};c1)`);
 		expect(depths).toEqual([2, 1, 2, 3]);
-		/* The heartbeat names the red batch under search, not the line rebuilt
-		 * behind it (#5360). */
 		expect(beats.lastIndexOf(Ac)).toBeGreaterThan(beats.indexOf(rebuilt));
 		expect(beats.slice(beats.indexOf(Ac), beats.lastIndexOf(Ac))).not.toContain(
 			null,
@@ -3812,7 +3689,6 @@ describe("the pipeline (#4556)", () => {
 	it("takes a deferred member onto the same base again once its ref moves (#4839)", async () => {
 		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
 		const disk = freshDisk();
-		/* b's first merge alone is followed by a push of b2. */
 		let alone = 0;
 		const merge = (onto: string, members: readonly Member[]): MergeResult => {
 			const b = remote.refs.get("b");
@@ -3882,7 +3758,6 @@ describe("the pipeline (#4556)", () => {
 describe("a base holding gating guard-registry faults (#4807)", () => {
 	const Row =
 		"findings: scripts/guard-branch.sh — the guard or a library its digest hashes changed since";
-	/* Every merge onto `m0` inherits its stale row, unless a member re-anchors it. */
 	const staleUnlessFixed =
 		(remote: Remote) =>
 		(onto: string, ms: readonly Member[], fresh?: boolean): MergeResult =>

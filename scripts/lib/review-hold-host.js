@@ -1,13 +1,3 @@
-/*
- * review-hold-host.js — lib/review-hold.js's production ports: git over the
- * committing repo in `cwd`, the review-tier stamp in its git directory, the
- * session's marker under the host root, the rule-text store and the
- * fail-open log. Every git read runs under `env`, which carries the
- * GIT_INDEX_FILE and GIT_REFLOG_ACTION git hands the hook. A ports file of
- * its own, so the core's module cases cross these adapters over real git in
- * a temp repo (#5153, #2733).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readText } = require("./file-read.js");
@@ -27,29 +17,30 @@ const { readConfig } = require("./workflow-core-config.js");
  */
 function buildHoldPorts({ cwd, env }) {
 	const gitEnv = { ...env };
-	/* git hands a plain commit's hook `.git/index`, relative to this cwd. */
 	if (gitEnv.GIT_INDEX_FILE && !path.isAbsolute(gitEnv.GIT_INDEX_FILE))
 		gitEnv.GIT_INDEX_FILE = path.join(cwd, gitEnv.GIT_INDEX_FILE);
 	/** @param {string[]} args */
 	const run = (args) =>
 		spawnGitSync(args, { cwd, env: gitEnv, encoding: "utf8" });
-	/** @param {string[]} args @returns {string} throws on a non-zero exit */
+	/**
+	 * @param {string[]} args
+	 * @returns {string}
+	 */
 	const read = (args) => {
 		const r = run(args);
 		if (r.status !== 0)
 			throw new Error(`git ${args[0]}: ${String(r.stderr ?? r.error).trim()}`);
 		return String(r.stdout);
 	};
-	/** @param {string} rev @returns {string} "" where it names nothing */
+	/**
+	 * @param {string} rev
+	 * @returns {string}
+	 */
 	const verify = (rev) => {
 		const r = run(["rev-parse", "-q", "--verify", rev]);
 		return r.status === 0 ? String(r.stdout).trim() : "";
 	};
-	/**
-	 * A diff with what only says where it applies removed: context, blob ids
-	 * and hunk positions, which differ once the base has moved.
-	 * @param {string[]} args
-	 */
+	/** @param {string[]} args */
 	const changeOf = (args) =>
 		read([
 			"-c",
@@ -67,12 +58,11 @@ function buildHoldPorts({ cwd, env }) {
 			.filter((l) => !l.startsWith("index "))
 			.map((l) => (l.startsWith("@@ ") ? "@@" : l))
 			.join("\n");
-	/** @param {string} rev "HEAD", or "" for the index */
+	/** @param {string} rev */
 	const declaration = (rev) => () => {
 		try {
 			return readConfig({ root: cwd, rev, quiet: true }).sensitivePaths;
 		} catch (e) {
-			/* An unborn HEAD holds no copy, which declares nothing. */
 			if (rev !== "" && String(e).includes("names no commit")) return;
 			throw e;
 		}
@@ -130,20 +120,15 @@ function buildHoldPorts({ cwd, env }) {
 				`.codereview-pass-${env.CLAUDE_CODE_SESSION_ID}`,
 			);
 		},
-		/* An unreadable marker reads as empty, so its fault is its first
-		 * missing line, as concision-marker.sh's marker_field reads it. */
 		readMarker: (marker) => {
 			const found = readText(marker);
 			if (found.state === "absent") return null;
 			return found.state === "read" ? found.data : "";
 		},
 		writeStamp: (stamp, text) => fs.writeFileSync(stamp, text),
-		// What a failed drop leaves, the trailer reads as unreadable.
 		dropStamp: (stamp) =>
 			ignoreFailure(() => fs.rmSync(stamp, { force: true })),
 		ruleText: () => {
-			// Unresolved, readRuleTextOr resolves it from process.cwd(), the cwd the
-			// entry passes (#3142).
 			const root = orFallback(
 				() => require("./host-root.js").hostRoot(cwd),
 				undefined,
@@ -166,9 +151,6 @@ function buildHoldPorts({ cwd, env }) {
 	};
 
 	/**
-	 * The commits this merge brings in, null where they cannot be read or a
-	 * side is on no remote-tracking ref, since only a pushed commit went
-	 * through its maker's hold.
 	 * @param {string} gitDir
 	 * @returns {string[] | null}
 	 */
@@ -185,10 +167,6 @@ function buildHoldPorts({ cwd, env }) {
 	}
 
 	/**
-	 * MERGE_HEAD's lines on a conflict's resolving commit; at
-	 * pre-merge-commit, beside the AUTO_MERGE git writes before MERGE_HEAD,
-	 * the names `git merge` took, which GIT_REFLOG_ACTION carries as
-	 * `merge <name>…`. Null where neither reads.
 	 * @param {string} gitDir
 	 * @returns {string[] | null}
 	 */

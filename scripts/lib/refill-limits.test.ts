@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's acts on limit-blocked launches (#3735), through
- * actOnLimits with a fake BlockIo that records each call.
- * refill-loop-run.test.ts drives the program's own BlockIo end to end.
- *
- * Loosen one and the loop holds, resumes, moves or parks a limit-blocked
- * session when it should not, fails to when it should, takes the wrong seat
- * or slot, keeps the wrong ledger hold, or misreports what it did.
- */
 import { describe, expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
 import { RESUME_CAP } from "./block-act.js";
@@ -40,7 +31,6 @@ import { buildSeatName } from "./refill-seats.js";
 const DAY = 24 * 60 * MIN;
 const DV = "/home/u/design-vault";
 const LIMIT_HOLD_BOUND_DAYS = 8;
-/** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
 
 describe("the acts on a limit-blocked launch (#3735)", () => {
@@ -494,8 +484,6 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			...over,
 		});
 
-		/** Each tick's act, then the next listing showing it blocked again, each
-		 * tick at its next try, until it parks or `ticks` run out. */
 		function reblocking(ticks: number, io: Partial<BlockIo>) {
 			let launch = blocked();
 			let now = NOW;
@@ -933,7 +921,6 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		});
 	});
 
-	/** held, its dispatch-ledger hold already written. */
 	const ledgerHeld = () =>
 		held({ limitHeld: { ...LimitHeld, ledgerHeldUntil: NOW + DAY } });
 
@@ -1499,7 +1486,6 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		);
 		const room = (launches: Launch[]) =>
 			buildLaunchRoom({
-				/* One unproven launch finishes: its room comes back. */
 				history: launches.map((l) =>
 					l.jobId === "u0" ? { ...l, finishedAt: NOW } : l,
 				),

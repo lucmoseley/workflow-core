@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/refuse-on-throw.js (#2797): an enforcing entry's core that throws
- * refuses the call, save where the repo itself did not resolve, which stays a
- * recorded fail-open (mantahostels#147).
- */
 
 import { describe, expect, it } from "vitest";
 import { ignoreFailure } from "./caught.js";

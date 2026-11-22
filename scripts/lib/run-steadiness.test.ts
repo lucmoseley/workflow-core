@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * A run's steadiness (#5073): a real watch over a throwaway repository, then
- * the record-time query. Loosen a rule and the pass store keys a row on
- * content no test read, so a file reads green that never ran on it.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -29,7 +24,6 @@ afterEach(() => {
 const git = (dir: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 
-/** A repository holding `a.js`, `b.js` and `docs/one.md`, committed. */
 function repo() {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rst-")));
 	dirs.push(dir);
