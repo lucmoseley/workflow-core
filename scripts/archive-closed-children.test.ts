@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
+import { LINK_READ_FAKE, LINK_READS, LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -36,6 +36,7 @@ const STATE = () => path.join(dir, "state.json");
 const CALLS = () => path.join(dir, "calls.log");
 
 const STUB = `#!/usr/bin/env node
+${LINK_READ_FAKE}
 ${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const statePath = process.env.ARCHIVE_STATE;
@@ -111,13 +112,13 @@ if (argv.includes("--method") && argv.includes("POST") && postMatch) {
   process.exit(0);
 }
 
-const getMatch = /issues\\/(\\d+)\\/sub_issues$/.exec(p);
+const getMatch = /^repos\\/(.+)\\/issues\\/(\\d+)\\/sub_issues$/.exec(p);
 if (getMatch && !argv.includes("--method")) {
-  const n = Number(getMatch[1]);
+  const n = Number(getMatch[2]);
   const s = state();
   const rows = s.kids.filter((k) => k.parent === n);
-  if (jq === ".[].number") {
-    process.stdout.write(rows.map((k) => k.number + "\\n").join(""));
+  if (jq === ${JSON.stringify(LINK_READS.children.jq)}) {
+    process.stdout.write(buildChildRows(getMatch[1], ...rows.map((k) => k.number)).stdout);
     process.exit(0);
   }
   process.stdout.write(JSON.stringify([rows.map(({ parent, subIssuesTotal, ...r }) => ({

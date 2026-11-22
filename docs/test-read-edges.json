@@ -28755,7 +28755,7 @@
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
-		"scripts/lib/fixtures/gh/sub-issue-numbers.json": [
+		"scripts/lib/fixtures/gh/sub-issue-refs.json": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -51703,6 +51703,7 @@
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-code-root.test.ts",
 			"scripts/hook-registrations.test.ts",
+			"scripts/host-root-plugin-cache.test.ts",
 			"scripts/init-adopter-commit.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -51740,6 +51741,7 @@
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/guard-core-testkit.test.ts",
 			"scripts/lib/guard-dispatch.test.ts",
@@ -51817,10 +51819,12 @@
 			"scripts/lib/vitest-wrapper.test.ts",
 			"scripts/lib/wait-loop.test.ts",
 			"scripts/lib/wide-read.test.ts",
+			"scripts/link-sub-issue.test.ts",
 			"scripts/mutation-hold-gate-disable-comment.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/place-new-issue.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/post-commit-release-claims.test.ts",
 			"scripts/post-commit-review-tier-notice.test.ts",
