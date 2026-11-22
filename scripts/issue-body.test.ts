@@ -19,6 +19,7 @@ import {
 import { asRecorded } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
+import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -671,7 +672,7 @@ describe("the CLI", () => {
 		expect(r.stderr).toContain(
 			'this edit adds the basis "#96 asks for a week", which carries no warrant, as the wording patterns read it. Every gate line',
 		);
-		expect(r.stderr).toContain("baseline 3/30 VM boots");
+		expect(r.stderr).toContain(readRuleText("gate-basis-line"));
 		expect(readEdits()).toBe(0);
 		run("append", "96", "--text", "**Gate basis:** #97 ruled a week");
 		expect(readBody()).toContain("#97 ruled a week");
