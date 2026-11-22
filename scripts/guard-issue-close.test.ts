@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-issue-close core of guard-dispatch.js denies a close that says
- * nothing about what is still outstanding (mantahostels#185), a hand close of
- * a roadmap card's own issue (mantahostels#220), a completed close over
- * unticked acceptance criteria (#1640), and one over census rows the
- * ticket's commits expired (#1913). These are its boundary cases, the
- * dispatcher entry run on it alone on a harness-shaped payload: each exit,
- * the fail-open record on disk, and gh at WFC_GH, the roadmap, the tracker
- * config, the rule store and git crossed for real. Which close is refused,
- * and why, is lib/issue-close.test.ts's; the entry's payload faults and the
- * throw policy are guard-dispatch's own tests' (#2798, #3225).
- *
- * CLAUDE_PROJECT_DIR is a temp project, so the fail-open log lands in the
- * temp CLAUDE_CONFIG_DIR and never the founder's.
- *
- * Make it allow every close and every issue closes unjudged; make it deny on
- * a fault and every close is wedged.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,16 +18,15 @@ const CORE = "guard-issue-close";
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
-// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-const { digestOf } = require("./lib/census-digest") as any;
+const { digestOf } = require("./lib/census-digest") as {
+	digestOf: (root: string, rel: string) => string | null;
+};
 
 const CARD_TITLE = "id-match — Build the hostel ID-matching layer";
 
 let dir: string;
 let config: string;
 
-/** The issue every `gh issue view` answers, and the open-check's closed
- *  carriers. */
 interface Issue {
 	title?: string;
 	newest?: string;
@@ -53,11 +34,6 @@ interface Issue {
 	closed?: string[];
 }
 
-/**
- * A gh at WFC_GH: `gh issue view` prints the issue's payload in its recorded
- * shape, and `gh api graphql` answers the Outstanding open-check with every
- * carrier open but `closed`.
- */
 function ghServing({
 	title = "An issue carrying no card-id prefix at all",
 	newest = "a resolution comment with no disposition line",
@@ -104,19 +80,16 @@ const git = (...args: string[]) =>
 beforeEach(() => {
 	({ dir, config } = guardDirs("issue-close-entry-"));
 	fs.mkdirSync(path.join(dir, ".claude"));
-	// The tracker a bare `#N` on an Outstanding line resolves to.
 	fs.writeFileSync(
 		path.join(dir, ".claude", "workflow-core.json"),
 		JSON.stringify({ contract: 1, tracker: "acme/tracker" }),
 	);
-	// A host is a checkout with a pushed ref: the landing read faults without one (#3101).
 	git("init", "-q");
 	git("commit", "-q", "--allow-empty", "-m", "seed");
 	git("update-ref", "refs/remotes/origin/main", "HEAD");
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The core's hookSpecificOutput for `command`, run in the temp project. */
 const emission = (
 	command: string,
 	{ env = {}, cwd = dir }: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
@@ -213,8 +186,6 @@ describe("the adapters, crossed for real", () => {
 	});
 
 	it("finds the roadmap at the host root from a subdirectory with CLAUDE_PROJECT_DIR unset (mantahostels#1905)", () => {
-		// Read relative to the cwd, a subdirectory named a roadmap that does not
-		// exist and the guard silently stopped judging card closes.
 		writeRoadmap(dir, "active");
 		const sub = path.join(dir, "sub");
 		fs.mkdirSync(sub);

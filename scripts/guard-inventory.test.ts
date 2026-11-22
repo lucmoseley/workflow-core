@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * guard-inventory.js refuses a background job's ending whose inventory of what
- * waits on the founder is missing, misshapen or carried by no open issue —
- * driven end to end through hook stdin (#988), the way the harness runs it at
- * every Stop.
- *
- * Each case gets a throwaway directory holding the repo config, the arbiter
- * store and the counters, so nothing reaches the shared tree. GitHub is a
- * stub `gh` (WFC_GH) that serves one canned GraphQL answer and logs each
- * call, so an open, closed or unreachable carrier is set per case and a case
- * can assert that no call was made.
- *
- * WHAT BREAKING IT COSTS: this guard is the only check that a background
- * job's ending lists what waits on the founder and that an open issue carries
- * each item (#958). It fails open, so a regression that lets a bad ending
- * through raises no error anywhere.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -69,7 +52,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** Serve one GraphQL `data` object for every call, logging each call. */
 function serve(data: unknown, script?: string) {
 	fs.writeFileSync(path.join(dir, "response.json"), JSON.stringify({ data }));
 	gh = stubGhScript(
@@ -90,7 +72,6 @@ const issue = (state: string, comments?: unknown[]) => ({
 	...(comments ? { comments: { nodes: comments } } : {}),
 });
 
-/** The arbiter run as `session` over this case's store, from `cwd`, refusing a failure. */
 function arbiter(args: string[], session: string, cwd = dir) {
 	const r = runInProcess(path.join(__dirname, "session-arbiter.js"), args, {
 		cwd,
@@ -105,20 +86,14 @@ function arbiter(args: string[], session: string, cwd = dir) {
 	if (r.status !== 0) throw new Error(`arbiter ${args[0]}: ${r.stderr}`);
 }
 
-/** Record `session`'s arbiter claim on issue `n`, in the store the guard reads. */
 function claim(n: number, session = sid) {
 	arbiter(["claim-issue", String(n)], session);
 }
 
-/** Record `session`'s write of `rel` in the write ledger the guard reads, made in `tree`. */
 function wrote(rel: string, session = sid, tree = dir) {
 	arbiter(["record", rel], session, tree);
 }
 
-/**
- * The guard's refusal for `message`; an `undefined` message puts none on the
- * payload, so the guard reads the transcript.
- */
 const run = (message: string | undefined, opts: Partial<StopRun> = {}) =>
 	readStopGuardReason(GUARD, {
 		dir,
@@ -270,8 +245,6 @@ describe("the status-line tail", () => {
 		);
 	});
 
-	/* Measured against the same refusal quoting a short tail, so the rule text
-	 * printed around the quote may grow (#4035, #4142). */
 	const growth = (long: string, short: string) =>
 		Buffer.byteLength(long) - Buffer.byteLength(short);
 
@@ -439,7 +412,6 @@ describe("the posted round", () => {
 });
 
 describe("the hand-off on a posted round (#2391)", () => {
-	/** The guard's refusal where the round comment's hand-off reads `handOff`. */
 	const withHandOff = (handOff: string, opts: Partial<StopRun> = {}) => {
 		serve({
 			r0: {
@@ -538,7 +510,6 @@ describe("the hand-off on a posted round (#2391)", () => {
 			commit("checkout", "-q", "src/a.txt");
 			const wt = cutWorktree(dir);
 			fs.writeFileSync(path.join(wt, "src", "a.txt"), "three\n");
-			/* Keyed by its path in the tree, as the recorder run there keys it (#4397), and stamped with that tree (#4457). */
 			wrote("src/a.txt", sid, wt);
 			const reason = withHandOff(HAND_OFF, { worktree: wt });
 			expect(reason).toContain(
@@ -754,11 +725,8 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 			describe("beside a transcript that will not read (#3951)", () => {
 				const tailDisagrees = handoverPark.replace(/#31$/, "#32");
 				const states = [
-					/* The lookup finds no file, so this row pins the limb's no-file exit. */
 					["missing", () => path.join(dir, "gone.jsonl")],
 					[
-						/* A directory passes the access and stat checks and throws at the
-						 * read, whoever runs the test: root reads a chmod 000 file. */
 						"unreadable",
 						() => {
 							const unreadable = path.join(dir, "unreadable.jsonl");
@@ -793,7 +761,6 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 		});
 
 		describe("woken by the refill loop's parked-resume prompt (#3939)", () => {
-			/* Close rivals, which guard-priced-options.js refuses on a re-print. */
 			const CloseRoundPark = NEEDS_INPUT.replace(
 				"70% (60% - 80%)",
 				"55% (45% - 65%)",
@@ -1104,7 +1071,6 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 	});
 
 	describe("beside a cited issue that could not be read (#2965)", () => {
-		/* No `r1` in the reply: other/repo reads as unreadable. */
 		const twoIssuePark = handoverPark
 			.replace(
 				"- #31 (run the deploy, send back its output)",
@@ -1157,7 +1123,6 @@ describe("the draft-and-act limb (#989)", () => {
 	const transcriptFile = () => path.join(dir, "t.jsonl");
 	const records = transcriptRecords("2026-10-09T00:00:00Z");
 	beforeEach(() => records.reset());
-	/** A session whose earlier assistant records said `turns`, ending on NOTHING. */
 	const endAfter = (turns: string[], opts: Partial<StopRun> = {}) => {
 		writeTranscript(
 			transcriptFile(),
@@ -1180,7 +1145,6 @@ describe("the draft-and-act limb (#989)", () => {
 		expect(reason).toContain("list the open issue that carries it");
 	});
 
-	/* The five real hits of #913's q3jobs.py run first. */
 	it.each([
 		[
 			"the incident: a draft quoted for the founder to send",
@@ -1250,7 +1214,6 @@ describe("the draft-and-act limb (#989)", () => {
 		expect(reason).toContain(RULE);
 	});
 
-	/* The same run's hits that hand the founder nothing to send outward. */
 	it.each([
 		[
 			"send back the output",
@@ -1401,7 +1364,6 @@ describe("failing open", () => {
 	});
 
 	it("allows the stop on an internal error", () => {
-		/* A `nodes` that is no list throws inside the module's comment read. */
 		serve({
 			r0: {
 				n31: { __typename: "Issue", state: "OPEN", comments: { nodes: 5 } },
@@ -1508,7 +1470,6 @@ describe("beside guard-priced-options.js, unchanged (#913 Q7)", () => {
 		});
 
 	it("passes a `result:` ending carrying the block and its tail", () => {
-		/* The control: this harness does reach that guard's refusals. */
 		expect(priced(RESULT.replace(/\nresult: .*$/, ""))).toContain(
 			"neither status marker",
 		);
@@ -1529,11 +1490,8 @@ describe("the status line each guard teaches, read by the other (#2374)", () => 
 			job: true,
 			env: { WFC_GH: gh },
 		});
-	/* `#31` is the issue NEEDS_INPUT's block lists, served and claimed below. */
 	const fill = (line: string) =>
 		line.replace(/<[^>]*>/g, "which parser ships first").replace("#N", "#31");
-	/* Every taught line, bare at a line's start or inline-coded mid-prose,
-	 * carrying a placeholder. */
 	const taught = (reason: string, marker: string) =>
 		[
 			...reason.matchAll(

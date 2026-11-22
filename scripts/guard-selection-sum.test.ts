@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * guard-selection-sum.js blocks a /pick-next selection session's dispatch or
- * hold message whose accounting line is missing, does not add up, or disagrees
- * with the frontier the run measured — and examines no session the run never
- * marked (mantahostels#844).
- *
- * Driven end-to-end through the CLI — a payload on stdin, a transcript on disk,
- * a marker in a scratch repo root, the block JSON on stdout. That is the whole
- * contract the Stop hook has with Claude Code, and only end-to-end does it
- * exercise the arming limb, which is the one mantahostels#844 asked to be mutation-tested.
- *
- * The one exception is called in-process: the marker store's own round-trips,
- * which no message shape can read back. Per-session keying is read off the
- * wave the guard records on that marker.
- *
- * It runs at every `Stop` (`self-plugin/hooks/hooks.json`, `hooks/hooks.json`)
- * and is the only check on `pick-next` §5's arithmetic: loosen a case and a
- * selection run dispatches with frontier items unaccounted for; break the
- * arming limb and every session, selection or not, is examined.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -29,6 +9,8 @@ import markerRoot from "./lib/marker-root";
 import { runInProcess } from "./lib/run-in-process";
 import selectionMarker from "./lib/selection-marker";
 import { readStopGuardBlockWithin } from "./lib/stop-guard-testkit";
+
+// code-edges loads: lib/session-id.js
 
 const GUARD = path.join(__dirname, "guard-selection-sum.js");
 
@@ -47,7 +29,6 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** A transcript whose outgoing message is `text`, preceded by a user turn. */
 function transcriptWith(text: string, extra: object[] = []): string {
 	const file = path.join(dir, `${sid}.jsonl`);
 	const records = [
@@ -62,10 +43,6 @@ function transcriptWith(text: string, extra: object[] = []): string {
 	return file;
 }
 
-/** Arm the session: record a selection run of `frontier` issues, over `slots`
- * free admission slots, `noCommand` of the frontier in the band no command
- * opens. `null` slots is a run whose admission read failed; `null` noCommand is
- * a marker minted before mantahostels#1626 added the field, which leaves that term unpinned. */
 function armed(
 	frontier: number | null = 60,
 	slots: number | null = null,
@@ -79,7 +56,6 @@ function armed(
 	});
 }
 
-/** The marker file `record` wrote for `sessionId`, found under the scratch root. */
 function findMarkerFile(sessionId: string): string {
 	const rel = (fs.readdirSync(root, { recursive: true }) as string[]).find(
 		(f) => path.basename(f) === `${sessionId}.json`,
@@ -92,9 +68,6 @@ interface Run {
 	reason: string;
 }
 
-/* CLAUDE_JOB_DIR decides the completion-mark limb, and the suite itself often
- * runs inside a background job — so it is set here explicitly rather than
- * inherited, or every case below would pass or fail on where it was run. */
 function run(text: string, cwd = dir, backgroundJob = false): Run {
 	const transcript = transcriptWith(text);
 	const env: NodeJS.ProcessEnv = { ...process.env, WFC_REPO_ROOT: root };
@@ -131,9 +104,6 @@ describe("the arming limb — a non-selection session is never blocked", () => {
 
 	it("blocks the identical message once a run has minted the marker", () => {
 		armed();
-		// exempt (mantahostels#2145): the block reason for this exact armed()/DISPATCH pair is
-		// pinned by "still blocks a single-wave dispatch that omits the sum
-		// entirely"; this test is only about the arming.
 		expect(run(DISPATCH).blocked).toBe(true);
 	});
 
@@ -174,9 +144,7 @@ describe("what counts as a dispatch message", () => {
 		expect(r.reason).toContain("without stating");
 	});
 
-	// 40 double-spaced numbers never finish when each comma's spaces can split
-	// two ways, and finish in milliseconds when they cannot (#2188, Sonar
-	// javascript:S5852).
+	// #2188
 	it("reads a long bold number list that dispatches nothing, promptly", () => {
 		const numbers = Array.from({ length: 40 }, (_, i) => i + 1).join(",  ");
 		expect(
@@ -189,11 +157,7 @@ describe("what counts as a dispatch message", () => {
 		).toBeNull();
 	});
 
-	// Long blank stretches (#3383, Sonar S8786): were a line's opening blank to
-	// run across line breaks, or a term's blanks to split two ways, each of
-	// 100,000 blanks would re-read every one after it, minutes in all; each is
-	// read once, milliseconds. The refusal each case ends on is reached only
-	// past its stretch, so it proves the whole message was read.
+	// #3383
 	it("reads an accounting line past a long blank stretch, promptly", () => {
 		const line = `Wave 1 of 2 — Frontier 60: 1 dispatched + 57 disqualified + 1 pending + 1${" ".repeat(100_000)}x + 1 no command.`;
 		const block = readStopGuardBlockWithin(GUARD, {
@@ -283,8 +247,6 @@ describe("the arithmetic it demands", () => {
 	});
 
 	it("reads a backticked wave line as it reads a bare one", () => {
-		/* Every figure is checked against the marker or the sum, so a spelling
-		 * misread on any one of them blocks, and only a whole read opens the wave. */
 		const bare =
 			"Wave 1 of 2 — Frontier 60: 2 dispatched + 41 disqualified + 1 no command + 16 pending";
 		for (const line of [
@@ -343,8 +305,6 @@ describe("the message it sends back", () => {
 });
 
 describe("the admission-cut line (mantahostels#1321)", () => {
-	/* Three session lines and a sum that adds up: everything mantahostels#844's guard asks
-	 * for. */
 	const three =
 		"**341** - takes:implement.\n" +
 		"**353** - takes:implement.\n" +
@@ -372,8 +332,6 @@ describe("the admission-cut line (mantahostels#1321)", () => {
 	});
 
 	it("counts sessions, not issues, so a merged bundle's line counts once", () => {
-		/* Four issues across three lines against four slots: the machine is not
-		 * full, so nothing is owed. */
 		armed(60, 4);
 		expect(run(three).blocked).toBe(false);
 	});
@@ -382,8 +340,6 @@ describe("the admission-cut line (mantahostels#1321)", () => {
 		armed(60, 2);
 		const r = run(three);
 		expect(r.blocked).toBe(true);
-		// `three` states an arithmetic that adds up, so the block must be the
-		// admission-cut limb rather than the sum one.
 		expect(r.reason).toContain("**Admission cut:**");
 	});
 
@@ -398,9 +354,6 @@ describe("the admission-cut line (mantahostels#1321)", () => {
 	});
 
 	it("fires on the always-admit-one shape, where the run measured zero slots", () => {
-		// `admissionFrom` admits one session whatever the headroom when nothing is
-		// running, so a set dispatched against zero measured slots is the sharpest
-		// admission cap there is — every other candidate was cut on it.
 		armed(60, 0);
 		const r = run(
 			"**341** - takes:implement.\n\nFrontier 60: 1 dispatched + 59 disqualified.",
@@ -568,9 +521,6 @@ describe("the not-launched block stands in for the admission-cut line (#592)", (
 describe("the loop is bounded", () => {
 	it("blocks three times, then lets the turn through", () => {
 		armed();
-		// exempt (mantahostels#2145): the reason each of these three blocks carries is pinned by
-		// "still blocks a single-wave dispatch that omits the sum entirely", the
-		// same armed()/DISPATCH pair; this test counts them.
 		const verdicts = [1, 2, 3, 4].map(() => run(DISPATCH, dir).blocked);
 		expect(verdicts).toEqual([true, true, true, false]);
 	});
@@ -580,8 +530,6 @@ describe("the loop is bounded", () => {
 		for (const _ of [1, 2, 3]) run(DISPATCH, dir);
 		sid = `another-${Math.random().toString(36).slice(2)}`;
 		armed();
-		// exempt (mantahostels#2145): same armed()/DISPATCH reason, pinned by "still blocks a
-		// single-wave dispatch that omits the sum entirely".
 		expect(run(DISPATCH, dir).blocked).toBe(true);
 	});
 });
@@ -618,7 +566,6 @@ describe("the marker store", () => {
 			expect(selectionMarker.record(root, { sessionId, frontier: 1 })).toBe(
 				false,
 			);
-		/* `../../` from the marker directory still lands under the root. */
 		expect(
 			(fs.readdirSync(root, { recursive: true }) as string[]).map((f) =>
 				path.basename(f),
@@ -662,7 +609,6 @@ describe("the marker store", () => {
 });
 
 describe("the completion mark a background job owes (mantahostels#1337)", () => {
-	/* The block is right — the job stays resumable either way (mantahostels#1337). */
 	it("does not tell a HOLD that it already launched the set", () => {
 		armed(60, 0);
 		const r = run(
@@ -691,8 +637,6 @@ describe("the completion mark a background job owes (mantahostels#1337)", () => 
 		expect(r.reason).toContain("dispatches a selection set");
 	});
 
-	/* Everything the other limbs ask for — a session line, a sum that adds up,
-	 * an admission-cut line — and no mark (mantahostels#1337). */
 	const full =
 		"**341** - takes:implement.\n\n" +
 		"Frontier 60: 1 dispatched + 59 disqualified.\n\n" +
@@ -737,8 +681,6 @@ describe("the completion mark a background job owes (mantahostels#1337)", () => 
 		const prose = `${full}\n\nI will report the result once they finish.`;
 		const r = run(prose, dir, true);
 		expect(r.blocked).toBe(true);
-		// `full` satisfies every other limb, so the block must be the missing
-		// completion mark rather than the sum or the cut line.
 		expect(r.reason).toContain("stays filed *Working*");
 	});
 
@@ -753,19 +695,6 @@ describe("the completion mark a background job owes (mantahostels#1337)", () => 
 });
 
 describe("the session id the two sides key on (mantahostels#844, mantahostels#1774)", () => {
-	/*
-	 * Both sides now read the id through one seam, `lib/session-id.js`, whose own
-	 * suite pins what each lookup answers. What this block adds is the round trip
-	 * through the real code: mint against an injected environment, read back
-	 * through the guard's CLI on a Stop payload. A wrong-session marker is
-	 * already covered above; what is new here is the environment as the mint's
-	 * only source of the id.
-	 *
-	 * STILL UNVERIFIED, and not counted as covered: that a running harness gives
-	 * the Bash environment and the Stop payload the same id. It is cross-process
-	 * and no test here can reach it — mantahostels#844 measured them equal by hand, and the
-	 * re-check recipe is in `lib/selection-marker.js`'s header.
-	 */
 	it("arms the guard when the mint's environment id is the payload's", () => {
 		expect(
 			selectionMarker.recordFromEnv(
@@ -774,9 +703,6 @@ describe("the session id the two sides key on (mantahostels#844, mantahostels#17
 				{ CLAUDE_CODE_SESSION_ID: sid },
 			),
 		).toBe(true);
-		// exempt (mantahostels#2145): same armed-marker/DISPATCH reason, pinned by "still
-		// blocks a single-wave dispatch that omits the sum entirely"; this test is
-		// only about which session id the mint keys on.
 		expect(run(DISPATCH).blocked).toBe(true);
 	});
 
@@ -789,12 +715,6 @@ describe("the session id the two sides key on (mantahostels#844, mantahostels#17
 });
 
 describe("a two-wave dispatch against one run marker (mantahostels#1486)", () => {
-	/*
-	 * §6 lets the set go out in two waves — the candidates needing no merge
-	 * decision the moment the script lands, the rest once §4's band read
-	 * returns. Wave 1's sum cannot add up on its own, so it names the pending
-	 * count instead and the closing wave states the full sum.
-	 */
 	const wave1 =
 		"**341** - takes:implement · sonnet.\n" +
 		"**353** - takes:triage · sonnet.\n" +
@@ -824,7 +744,6 @@ describe("a two-wave dispatch against one run marker (mantahostels#1486)", () =>
 
 	it("blocks a wave 1 stating a frontier the run never measured", () => {
 		armed();
-		/* Internally consistent — 2 + 52 + 16 = 70 — so only the marker catches it. */
 		const r = run(
 			wave1.replace(
 				"frontier 60: 2 dispatched + 42 disqualified",
@@ -946,8 +865,6 @@ describe("the admission-cut trigger across two waves (mantahostels#1486)", () =>
 	it("counts a restated wave-1 line once, not twice", () => {
 		armed(60, 3);
 		run(wave1);
-		/* Two sessions launched in all, both named again here: the set has not
-		 * filled three slots, so no cut line is owed. */
 		expect(
 			run(
 				"**341** - takes:implement.\n**353** - takes:triage.\nWave 2 of 2 — frontier 60: 2 dispatched + 58 disqualified.",
@@ -1052,8 +969,6 @@ describe("what the closing wave may not do (mantahostels#1486)", () => {
 	it("counts a merged bundle restated as one line per member as zero new sessions", () => {
 		armed(60, 3);
 		run(wave1);
-		/* One session launched, restated here as two lines. The set has not
-		 * filled three slots, so no admission-cut line is owed. */
 		expect(
 			run(
 				"**341** - takes:implement.\n**353** - takes:implement.\nWave 2 of 2 — frontier 60: 2 dispatched + 58 disqualified.",
@@ -1080,8 +995,6 @@ describe("the band no command opens — the line's third term (mantahostels#1626
 	});
 
 	it("blocks a two-term line where the run measured a band, quoting the measured count — mantahostels#1626's defect", () => {
-		// The old shape: the takes:human issues lumped into `disqualified`, the
-		// sum adding up, and nothing showing a queue nobody is draining.
 		armed(60, null, 4);
 		const r = run(
 			`${DISPATCH}\n\nFrontier 60: 3 dispatched + 57 disqualified.`,
@@ -1119,8 +1032,6 @@ describe("the band no command opens — the line's third term (mantahostels#1626
 	});
 
 	it("tells the frontier apart from the band, correcting the frontier first", () => {
-		// A mid-run close moves both, and two demands at once is what mantahostels#1622 says
-		// this ordering avoids.
 		armed(60, null, 4);
 		const r = run(
 			`${DISPATCH}\n\nFrontier 59: 3 dispatched + 52 disqualified + 4 no command.`,
@@ -1181,7 +1092,6 @@ describe("the band no command opens — the line's third term (mantahostels#1626
 
 describe("what the mantahostels#1626 review caught", () => {
 	it("echoes no third term back at a line that stated none", () => {
-		// Quoting `+ 0 no command` at a two-term line reads as a term it wrote.
 		armed(60, null, 0);
 		const r = run(`${DISPATCH}\n\nFrontier 60: 3 dispatched + 5 disqualified.`);
 		expect(r.blocked).toBe(true);
@@ -1191,9 +1101,6 @@ describe("what the mantahostels#1626 review caught", () => {
 	});
 
 	it("says the term is misplaced, not missing, when it follows pending", () => {
-		// The regex's order is fixed, so a term after `pending` is carried by the
-		// line and read by nothing — and "no term at all" sends the session
-		// looking for something already on the page.
 		armed(60, null, 4);
 		const r = run(
 			`${DISPATCH}\n\nWave 1 of 2 — frontier 60: 3 dispatched + 37 disqualified + 16 pending band read + 4 no command.`,
@@ -1201,7 +1108,6 @@ describe("what the mantahostels#1626 review caught", () => {
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain("after `pending`");
 		expect(r.reason).toContain("its count is still read");
-		// Not sent recounting a set that is right.
 		expect(r.reason).not.toContain("does not add up");
 	});
 
@@ -1214,8 +1120,6 @@ describe("what the mantahostels#1626 review caught", () => {
 	});
 
 	it("offers the re-run escape on a band that does not match the marker", () => {
-		// §4 of mantahostels#1626 asks for the same escape the frontier pin carries: a
-		// session whose frontier genuinely moved re-runs the script.
 		armed(60, null, 4);
 		const r = run(
 			`${DISPATCH}\n\nFrontier 60: 3 dispatched + 55 disqualified + 2 no command.`,
@@ -1229,7 +1133,6 @@ describe("what the mantahostels#1626 review caught", () => {
 		expect(opening).toContain(
 			"Wave 1 of 2 — frontier <F>: <D> dispatched + <Q> disqualified + <U> no command + <P> pending band read.",
 		);
-		// The closing template reaches a session only once a wave is open.
 		expect(
 			run(
 				`${DISPATCH}\n\nWave 1 of 2 — frontier 60: 3 dispatched + 37 disqualified + 4 no command + 16 pending band read.`,
@@ -1250,16 +1153,11 @@ describe("one block budget per stake tier (mantahostels#3431)", () => {
 	const right = misplaced(37);
 	const wrong = misplaced(30);
 	const wrongSum = `${DISPATCH}\n\nFrontier 60: 3 dispatched + 50 disqualified + 4 no command.`;
-	/* The block counters live under gr_markers_dir (.claude/tmp/markers), not
-	 * the throwaway root itself — hook-block.js's counterPath (mantahostels#3515 F8,
-	 * issue #2). */
 	const counter = (prefix: string) =>
 		path.join(markerRoot.markersDir(root), `${prefix}${sid}`);
 
 	it("still refuses a wrong sum after three term-position blocks", () => {
 		armed(60, null, 4);
-		// exempt (mantahostels#2145): the shape reason is pinned by "says the term is
-		// misplaced, not missing, when it follows pending"; this counts them.
 		const verdicts = [1, 2, 3, 4].map(() => run(right).blocked);
 		expect(verdicts).toEqual([true, true, true, false]);
 		const r = run(wrongSum);
@@ -1271,7 +1169,6 @@ describe("one block budget per stake tier (mantahostels#3431)", () => {
 		armed(60, null, 4);
 		for (const _ of [1, 2, 3]) run(right);
 		expect(run(right).blocked).toBe(false);
-		// The wave went out, so it is recorded and the closing sum is owed.
 		expect(selectionMarker.read(root, sid)?.wave?.keys).toEqual([
 			"341,353,366",
 		]);
@@ -1303,7 +1200,6 @@ describe("one block budget per stake tier (mantahostels#3431)", () => {
 
 	it("records no wave where the owed block could not be emitted", () => {
 		armed(60, null, 4);
-		// A directory at the counter path: it reads as 0 but will not write.
 		fs.mkdirSync(counter(".selection-sum-shape-nagged-"));
 		expect(run(right).blocked).toBe(false);
 		expect(selectionMarker.read(root, sid)?.wave ?? null).toBe(null);

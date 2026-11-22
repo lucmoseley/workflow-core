@@ -1,43 +1,12 @@
 #!/usr/bin/env node
-/*
- * guard-paste-self-match.js — Stop hook. Refuses a turn that hands the founder
- * a `!` paste whose `pkill -f` pattern matches the paste itself (#921), or
- * under `-v` misses it (#1814) — or whose `pkill` without `-f` selects the
- * shell's name, `bash`, the same two ways (#1842).
- *
- * WHY. A `!` paste runs as one shell whose command line is the whole pasted
- * text, and `-f` matches full command lines — so such a pattern matches the
- * founder's own shell, which is killed before the rest of the paste runs.
- * lib/self-match.js catches the same
- * hazard in the agent's own Bash calls; a founder paste never passes
- * `PreToolUse`, so the outgoing message at Stop is the last place to see it.
- *
- * WHAT IS READ. Every fenced block or code span in the outgoing message whose
- * text opens with `!`. The unit is the whole block, never the line: lines
- * pasted together run in one shell (#883, finding W6). A `!` line in plain
- * prose, and any span not opening with `!`, is not read.
- *
- * THE JUDGEMENT is lib/paste-self-match.js's, which reads each block with
- * lib/shell-parse.js's segment split and lib/pgrep-args.js's flag reader — the
- * ones lib/self-match.js uses — and tests each `-f` pattern, as an extended
- * regex, against the block's text, and any other against the shell's name,
- * inverted under `-v`. The split mirrors lib/self-match.js's (mantahostels#103):
- * a matching `pkill -f` is refused; a matching `pgrep -f` is warned on the
- * founder's screen (`systemMessage`, which never reaches the model), since a
- * read costs a wrong answer, not a shell. A segment naming `$$` or `$PPID`
- * passes. A pattern that will not compile, or carries an expansion, passes and
- * is logged to the fail-open record.
- */
 
 const hookBlock = require("./lib/hook-block");
 const { readRuleParagraph } = require("./lib/rule-text");
 const stopGuard = require("./lib/stop-guard");
 const { requiredGroup } = require("./lib/regex-group");
 
-/** The paragraph of `rule:founder-handover` the refusal prints. */
 const PARAGRAPH_HEAD = "A PROCESS KILL IN A `!` PASTE";
 
-/** Cheap pre-filter, so a message with no process search spawns nothing. */
 const MENTIONS = /\bp(?:kill|grep)\b/;
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
@@ -51,9 +20,8 @@ const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})\s*$/;
  */
 
 /**
- * @param {string} body the code's text
- * @returns {Paste | null} the paste with its `!` removed, or null where the
- *   code is not one
+ * @param {string} body
+ * @returns {Paste | null}
  */
 function asPaste(body) {
 	const lead = body.match(/^\s*!/);
@@ -63,9 +31,6 @@ function asPaste(body) {
 }
 
 /**
- * Every `!` paste in a message: fenced blocks first, then code spans in what
- * the fences leave. Spans follow CommonMark's rule — a run of N backticks
- * closes on the next run of exactly N.
  * @param {string} message
  * @returns {Paste[]}
  */
@@ -75,8 +40,6 @@ function parsePastes(message) {
 }
 
 /**
- * The `!` pastes in a message's fenced blocks, and the prose the fences leave —
- * each block standing as one empty line.
  * @param {string} message
  * @returns {{pastes: Paste[], prose: string}}
  */
@@ -84,7 +47,7 @@ function fencedPastes(message) {
 	/** @type {Paste[]} */
 	const out = [];
 	const rest = [];
-	/** @type {{fence: string, body: string[]} | null} the open fenced block */
+	/** @type {{fence: string, body: string[]} | null} */
 	let block = null;
 	/** @param {{fence: string, body: string[]}} b */
 	const shut = (b) => {
@@ -115,7 +78,6 @@ function fencedPastes(message) {
 }
 
 /**
- * The `!` pastes in the code spans of prose, by CommonMark's rule.
  * @param {string} prose
  * @returns {Paste[]}
  */
@@ -140,13 +102,11 @@ function spanPastes(prose) {
 }
 
 /**
- * lib/paste-self-match.js's findings for one paste, its fail-opens on the
- * guard-error record. Loaded here, so a message naming no process search
- * loads no parser.
  * @param {Paste} paste
  * @returns {Finding[]}
  */
 function scan(paste) {
+	// #2790
 	const { scanPaste } = require("./lib/paste-self-match");
 	const { logger } = require("./lib/entry-input.js");
 	const log = logger("guard-paste-self-match.js");
@@ -156,7 +116,6 @@ function scan(paste) {
 			opening: paste.opening,
 		}));
 	} catch (error) {
-		/* One paste's fault drops that paste alone, on the record. */
 		log(`paste unscanned: ${error instanceof Error ? error.message : error}`);
 		return [];
 	}
@@ -191,8 +150,6 @@ function refusal(kills, reads) {
 }
 
 /**
- * The way out the refusal ends on: the bracket trick and a name the shell
- * lacks each select the shell under `-v`, so there only a pid will do.
  * @param {Finding[]} kills
  * @returns {string}
  */

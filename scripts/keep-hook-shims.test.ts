@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * keep-hook-shims.js's boundary set (#2879): the program run in process on a
- * temp repository whose reflog is dated through GIT_COMMITTER_DATE, git and
- * fs crossed for real, and the liveness listing a fake `claude` on
- * WFC_CLAUDE_BIN (§N7).
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -57,7 +50,6 @@ const write = (rel: string, text: string) => {
 	fs.writeFileSync(path.join(repo, rel), text);
 };
 
-/** Runs the keeper with one live session, started at `startedAt` seconds. */
 function keep(startedAt: number, cwd = repo, ...args: string[]) {
 	fs.writeFileSync(
 		bin,

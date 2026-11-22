@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-headroom-read core of guard-dispatch.js states the headroom rule
- * before a session draws a conclusion from a memory reading
- * (mantahostels#1933). These are its boundary cases, the dispatcher entry run
- * on it alone on a harness-shaped payload: the answer and the latch on disk,
- * which no in-process case reaches. Its decision is lib/headroom-read.test.ts's;
- * the entry's payload faults and the throw policy are guard-dispatch's own
- * tests' (#3225).
- *
- * CLAUDE_PROJECT_DIR and CLAUDE_CONFIG_DIR sit in a temp directory, so its
- * latch and fail-open log never land in the checkout or the founder's log.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -33,7 +21,6 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The core's hookSpecificOutput for `command`, or null. */
 const emission = (command: string) =>
 	dispatchCoreOutput(CORE, buildBashPayload(command, "s1"), {
 		project: dir,

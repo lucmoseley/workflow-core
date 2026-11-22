@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-registry-atomicity core of guard-dispatch.js refuses a commit
- * landing a registry member without its wiring (mantahostels#2671). These are
- * its boundary cases, the dispatcher entry run on it alone, on a
- * harness-shaped payload against a fixture repo: the wiring, the exit and its
- * stream, the fail-open record on disk, and git crossed for real and at
- * WFC_GIT. The entry's payload faults and the throw policy are
- * guard-dispatch's own tests' (#3226).
- *
- * CLAUDE_PROJECT_DIR is the fixture repo, so its fail-open log lands in the
- * temp CLAUDE_CONFIG_DIR and never the founder's.
- *
- * Break the core and a member lands without its wiring, reddening the
- * whole-repo registry tests for every session; make it deny on a git read it
- * cannot answer and every commit is wedged.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -34,7 +18,6 @@ function git(cwd: string, ...args: string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8" });
 }
 
-/** A repo whose four registries are wired and green, one checker among them. */
 const template = defineTemplate((root) => {
 	const hooks = path.join(root, "no-hooks");
 	fs.mkdirSync(hooks);
@@ -76,13 +59,11 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** Give the repo a new, unwired checker, intent-added so a pathspec reaches it. */
 function addUnwiredChecker(): void {
 	fs.writeFileSync(path.join(repo, "scripts", "check-new.js"), "// new\n");
 	git(repo, "add", "-N", "--", "scripts/check-new.js");
 }
 
-/** The core's hookSpecificOutput for `command`, run in the fixture repo. */
 const emission = (command: string, run: { env?: NodeJS.ProcessEnv } = {}) =>
 	dispatchCoreOutput(CORE, buildBashPayload(command, "s1"), {
 		project: repo,

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The eleventh refusal (#5395): a background job never ends its turn on
- * `waiting:`, since Claude Code lists a job whose turn has ended as completed
- * whatever its marker says. Driven through the Stop hook in process, as a
- * background job unless a case says otherwise.
- *
- * The guard runs at every `Stop` (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`): loosen a case and a waiting job is listed completed in
- * front of the founder; widen it and an interactive session's one-line
- * hand-off is refused.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -31,7 +20,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A transcript holding one `run_in_background` launch with no notification. */
 const launchOut = () =>
 	writeTranscript(
 		file,
@@ -41,7 +29,6 @@ const launchOut = () =>
 	);
 
 const sid = () => `waiting-${Math.random().toString(36).slice(2)}`;
-/** The guard's refusal of `message` as a turn's last, or "" where it allows. */
 const stop = (message: string, { job = true }: { job?: boolean } = {}) =>
 	readStopGuardReason(GUARD, {
 		dir,

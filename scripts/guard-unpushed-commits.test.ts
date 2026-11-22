@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the Stop guard that names this session's own unpushed commits, the
- * `session-arbiter.js record-commit` ledger it reads, and the .husky/post-commit
- * step that writes it (lib/post-commit-steps.js's recordCommitRow, #5208).
- *
- * Each test builds a throwaway repo with a bare origin and its own Claude
- * config dir, because the guard's answer turns on what the pushed ref holds and
- * which session's ledger names a commit, and the real repo can be set to
- * neither.
- *
- * Breaking it either leaves commits unpushed with no session owning the push,
- * or warns a session about a neighbour's commits (#766).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -51,7 +38,6 @@ function git(...args: string[]): string {
 	return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 }
 
-/** A repo on `main` tracking `origin/main` in a bare sibling, one commit pushed. */
 function makeRepo(): string {
 	const base = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "unpushed-")),
@@ -75,9 +61,6 @@ function commit(subject: string): string {
 	return git("rev-parse", "HEAD");
 }
 
-/* The arbiter's commit ledger for this session: one sha per line, at
- * <config>/projects/<slug of the main worktree>/commits/<sid>.txt
- * (lib/arbiter-core.js `paths.commitLedger`). */
 function ledgerFile(): string {
 	return path.join(
 		config(),
@@ -93,10 +76,6 @@ function ledger(shas: string[]) {
 	fs.writeFileSync(ledgerFile(), shas.map((s) => `${s}\n`).join(""));
 }
 
-/**
- * The guard's block for a turn ending `message`; with no `transcript`, the
- * payload names a file that does not exist.
- */
 function run(
 	message = "result: done.",
 	transcript?: string,
@@ -275,7 +254,6 @@ describe("the warning", () => {
 });
 
 describe("a session worktree's commits (#2408, #4485)", () => {
-	/** A session worktree whose HEAD carries one commit of this session's. */
 	const sessionCommit = (subject: string) => {
 		const wt = cutWorktree(root, "q1");
 		const wtGit = (...args: string[]) =>
@@ -413,7 +391,6 @@ describe("session-arbiter.js record-commit", () => {
 	});
 });
 describe(".husky/post-commit's unpushed count (#2408)", () => {
-	/** lib/post-commit-steps.js's unpushedReport, as the registry runs it. */
 	function count(env: NodeJS.ProcessEnv = {}, cwd = root): string {
 		const r = STEPS.unpushedReport(
 			STEPS.buildRunIo({ cwd, env: { ...process.env, ...env } }),
@@ -473,7 +450,6 @@ describe(".husky/post-commit's unpushed count (#2408)", () => {
 describe(".husky/post-commit's record step", () => {
 	const temps = registerTempCleanup(afterEach);
 
-	/** A stand-in arbiter printing its argv and the project dir it was handed. */
 	const stubArbiter = () =>
 		stubProgram("session-arbiter.js", ({ args, env }) => ({
 			exit: 0,
@@ -493,7 +469,6 @@ describe(".husky/post-commit's record step", () => {
 			encoding: "utf8",
 		}).trim();
 
-	/** The step alone. */
 	function runStep(cwd: string, env: NodeJS.ProcessEnv) {
 		stubArbiter();
 		const r = STEPS.recordCommitRow(
@@ -504,7 +479,6 @@ describe(".husky/post-commit's record step", () => {
 		return { head: headOf(cwd), out: r.stdout };
 	}
 
-	/** The whole registry, every other program quiet, on the real route. */
 	async function runRegistry(cwd: string, env: NodeJS.ProcessEnv) {
 		quietPrograms();
 		stubArbiter();

@@ -1,29 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that linking a child issue under a parent exits 0 only once the parent
- * lists the child, and fails loudly on every other path: `-f` for `-F`, an
- * empty or non-numeric id, a closed or unreadable parent, a 422, a link that
- * never shows; and that a link closing a loop of open issues is refused with
- * exit 3 and nothing POSTed (#5070); and that `--json` prints the outcome as
- * one JSON object, its reason from the writer's closed set, with nothing on
- * stderr (#5096).
- *
- * link-sub-issue.sh links a child issue under a parent (mantahostels#1150, the build).
- *
- * The oracle is a stubbed `gh` at WFC_GH which logs the argv it was
- * handed and serves programmable answers — the `-F` assertion below reads that
- * log, which is the only place the difference between `-f` and `-F` is visible
- * at all.
- *
- * MUTATION TESTED (mantahostels#1150's last acceptance criterion): switching the POST's
- * `-F` to `-f` fails "POSTs the database id with -F, never -f" and nothing
- * else. Dropping the 422 branch's retry back to a single read fails the two
- * tests naming that branch, and nothing else.
- *
- * Breaking it lets a link that `file-issue.js`, `place-new-issue.sh` or
- * `promote-spec.js` asked for fail silently, leaving the child invisible to
- * every map that reads sub-issues.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -64,22 +39,14 @@ let dir: string;
 let calls: string;
 
 interface Gh {
-	/** What `gh api repos/o/r/issues/<child> --jq .id` prints. */
 	dbId?: string;
-	/** The db-id lookup fails. */
 	idFails?: boolean;
-	/** How the POST answers, as POSTS spells each out. */
 	post?: "ok" | "dup" | "layers" | "cap" | "invalid" | "err";
-	/** Parent-side reads: numbers listed, once `lag` reads have gone by. */
 	children?: string[];
 	lag?: number;
-	/** What `gh api repos/o/r/issues/<n> --jq .state` prints. */
 	state?: string;
-	/** Per-issue overrides of `state`, by number. */
 	states?: Record<string, string>;
-	/** The wait graph's links, by `owner/name#n`; no links where unset. */
 	graph?: Record<string, { blockedBy?: Row[]; subIssues?: Row[] }>;
-	/** The wait graph's GraphQL read fails. */
 	graphFails?: boolean;
 }
 
@@ -104,11 +71,6 @@ const ANSWERS_FILE = "gh-answers.json";
 const CALLS_FILE = "calls.log";
 const READS_FILE = "reads";
 
-/*
- * The `gh` every run calls, logging one line of argv per call under the
- * directory GH_STUB_DIR names and answering from its ANSWERS_FILE. The
- * parent's list stays empty for its first `lag` reads, which READS_FILE counts.
- */
 const HANDLER = `${LINK_READ_FAKE}
 ${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
@@ -140,7 +102,6 @@ beforeAll(async () => {
 });
 afterAll(() => server.close());
 
-/** Points the stub server at `g` for this run. */
 const stubGh = (g: Gh) => {
 	const reads: LinkReadAnswers = {
 		state: buildJqLines(g.state ?? "open"),
@@ -175,7 +136,6 @@ const linkEnv = (g: Gh, linkRepo: string | null) => {
 	return env;
 };
 
-/* The writer in-process; the shim's own pass-through has one case below. */
 const run = (
 	args: string[],
 	g: Gh = {},
@@ -185,7 +145,6 @@ const run = (
 		env: linkEnv(g, linkRepo),
 	});
 
-/** The host repo: its origin the code repo, and `tracker` where given. */
 const hostRepo = (tracker?: string) => {
 	spawnSync("git", ["init", "-q", dir]);
 	spawnSync("git", [
@@ -204,7 +163,6 @@ const hostRepo = (tracker?: string) => {
 	);
 };
 
-/** Every stubbed gh invocation, in call order. */
 const readLog = () => {
 	const read = readText(calls);
 	if (read.state === "unreadable") throw read.error;
@@ -293,7 +251,6 @@ describe("link-sub-issue.sh", () => {
 	});
 
 	it("treats a 422 naming an existing parent as success, and never re-POSTs", async () => {
-		// The parent lists the child on the second read, so the first POST worked.
 		const r = await run(["40", "63"], {
 			post: "dup",
 			children: ["63"],
@@ -361,8 +318,6 @@ describe("link-sub-issue.sh", () => {
 	});
 
 	it("retries the 422's own parent-side read through the lag", async () => {
-		// Inside the propagation window a single read would report a DIFFERENT
-		// parent and hand the operator a DELETE that unlinks a correct link.
 		const r = await run(["40", "63"], {
 			post: "dup",
 			children: ["63"],
@@ -483,8 +438,6 @@ describe("the --json outcome (#5096)", () => {
 });
 
 describe("the loop check (#5070)", () => {
-	/* #5055's shape: three open issues across two repos, one sub-issue link
-	 * and two blocker links; the sub-issue link closes it. */
 	const loop: Gh["graph"] = {
 		"owner/repo#63": {
 			blockedBy: [{ number: 3864, state: "open", repo: "other/m" }],

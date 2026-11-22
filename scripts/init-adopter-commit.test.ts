@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * init's skeleton, and an upgraded adopter's change set, committed through the
- * full hook stack init installed: that commit IS the test (#5). Kept apart from
- * init-adopter.test.ts: together they would hold one worker past the per-file
- * limit (#4296). Over the 10 s run-cost budget (base §X8 (5)) by nature: each
- * case runs every gate the hooks arm, and a cheaper commit would test less.
- * The file's cost grows with its cases: a new repo's skeleton commit
- * (#2412) is one more.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -29,14 +20,7 @@ import { allRegistrations, buildCommandLine } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
-/*
- * Skipped where gitleaks is absent, since
- * `.husky/pre-commit` refuses every commit without it; CI installs it (#55). The
- * probe resolves the binary as the hooks' `"${WFC_GITLEAKS:-gitleaks}"` does
- * (#224) — `||`, not `??`, so an empty value falls back rather than skipping
- * both cases.
- */
-
+// #224
 const HAS_GITLEAKS = (() => {
 	try {
 		execFileSync(process.env.WFC_GITLEAKS || "gitleaks", ["version"], {
@@ -48,7 +32,6 @@ const HAS_GITLEAKS = (() => {
 	}
 })();
 
-/* Untraced: a case's budget, an init and a commit through every gate. */
 const COMMIT_BUDGET_MS = 180_000;
 
 describe("the skeleton's first commit", () => {
@@ -56,8 +39,7 @@ describe("the skeleton's first commit", () => {
 		"lands green through the full husky stack with no modules",
 		() => {
 			const { dir } = initialised();
-			/* A session's leaked CLAUDE_PROJECT_DIR, so CI too checks the
-			 * helper's override (#3296). */
+			// #3296
 			const r = commitThroughHooks(
 				dir,
 				"Start the repo: the workflow-core skeleton",
@@ -120,8 +102,6 @@ describe("a new repo (#2412)", () => {
 				fs.readFileSync(path.join(dir, ".claude/workflow-core.md"), "utf8"),
 			).toContain("A push to your session's queue ref is your own act");
 			expect(isCutOver(dir)).toBe(true);
-			/* The suite's WFC_MODULES holds every module, and would replace the
-			 * declared list in the hooks. */
 			const { WFC_MODULES: _suite, ...env } = process.env;
 			const r = commitThroughHooks(
 				dir,
@@ -137,16 +117,10 @@ describe("a new repo (#2412)", () => {
 	);
 });
 
-/*
- * An adopter from before the host registries, with gaps of its own, commits
- * everything upgrade changed: the registry guard and the husky stack must both
- * let it through (#1671).
- */
 describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 	const ownGuard = "scripts/guard-own.sh";
 	const ownChecker = "scripts/check-own.js";
 
-	/** init's tree, put back to a pre-v1.3.14 adopter's and committed. */
 	function unseededAdopter() {
 		const { dir, git } = initialised("A");
 		for (const rel of [
@@ -154,13 +128,11 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 			".claude/guard-fire-needles.json",
 		])
 			fs.rmSync(path.join(dir, rel));
-		/* A hook from before #1839, which upgrade turns into its shim. */
+		// #1839
 		fs.writeFileSync(
 			path.join(dir, ".husky/pre-commit"),
 			`#!/usr/bin/env sh\nWFC_PLUGIN_ROOT=${shellQuote(CORE)}\nexport WFC_PLUGIN_ROOT\n`,
 		);
-		/* Settings with a core key missing, so the merge rewrites the file, and a
-		 * hook of the adopter's own that no registry pins or counts. */
 		const at = path.join(dir, ".claude/settings.json");
 		const settings = JSON.parse(fs.readFileSync(at, "utf8"));
 		delete settings.env.CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP;
@@ -184,10 +156,7 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 		});
 		fs.writeFileSync(path.join(dir, ownChecker), "// nothing calls this\n");
 		git("add", "-A");
-		/* With no hooks, so the gaps land as HEAD's and read as inherited below. */
 		git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "before upgrade");
-		/* Upgraded and committed in a session worktree: the main checkout takes
-		 * no commit past its root one (check-main-checkout-commit.js). */
 		const tree = `${dir}-session`;
 		made.push(tree);
 		git("worktree", "add", "-q", "--detach", tree);
@@ -211,8 +180,7 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 			const { dir, git } = unseededAdopter();
 			const hooksBefore = readHookLines(dir);
 			upgradeAfterInit(dir);
-			/* Upgrade adds no hook to settings.json, so it owes no `hooks` row:
-			 * a change here reopens #1671's second question. */
+			// #1671
 			expect(readHookLines(dir)).toEqual(hooksBefore);
 
 			const changed = git("status", "--porcelain", "-uall")
@@ -255,13 +223,10 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 				);
 			};
 
-			/* The upgrade moves no hook and adds no member, so the guard passes it
-			 * on judging, not by failing open... */
 			const allowed = guardOn(changed);
 			expect(allowed.status).toBe(0);
 			expect(allowed.stdout).not.toContain('"deny"');
 			expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
-			/* ...and the same tree refuses an unregistered guard riding along. */
 			const extra = "scripts/guard-new.sh";
 			fs.writeFileSync(path.join(dir, extra), "#!/usr/bin/env bash\n");
 			const refused = guardOn([...changed, extra]);

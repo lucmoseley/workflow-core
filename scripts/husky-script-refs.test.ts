@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * husky-script-refs.test.ts — every script a husky hook runs exists on disk
- * (#426). A hook calling a script that was never committed stays hidden until
- * its arming path is staged, then refuses every such commit with a bare
- * MODULE_NOT_FOUND.
- *
- * DEPARTS FROM §X3, DELIBERATELY (§G4): the subject is the hook TEXT, not a
- * script's behaviour, so nothing is run end to end.
- *
- * Reads each hook's non-comment lines for a `scripts/…` or `.claude/…` path
- * ending in a script extension. A grep pattern spells its dots `\.`, so the
- * paths a gate merely arms on never match. Unseen: an `npm run <x>` whose
- * script is missing, and a command resolved at runtime (the declared
- * `commands.*` in .claude/workflow-core.json).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -39,9 +24,7 @@ function scriptRefs(text: string): string[] {
 const missing = (text: string) =>
 	scriptRefs(text).filter((p) => !fs.existsSync(path.join(ROOT, p)));
 
-/* The template literal is what lets docs/test-read-edges.json attribute every
- * hook to this file, so an edit to any hook selects it; a plain `hook`
- * argument drops that attribution silently (#426). */
+// #426
 const readHook = (hook: string) =>
 	fs.readFileSync(path.join(ROOT, ".husky", `${hook}`), "utf8");
 

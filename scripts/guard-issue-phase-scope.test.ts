@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-issue-phase-scope core of guard-dispatch.js denies a `gh issue
- * create` whose title names a roadmap card outside Phase 0 that the founder
- * has not called (mantahostels#1613). These are its boundary cases, the
- * dispatcher entry run on it alone on a harness-shaped payload: each exit,
- * the fail-open record on disk, and the roadmap and register read off the
- * real fs under the host root. Which command is refused, and why, is
- * lib/issue-phase-scope.test.ts's; the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#2798, #3225).
- *
- * CLAUDE_PROJECT_DIR is a temp project holding FIXTURE docs, so a card moving
- * phase never changes a verdict here, and the fail-open log lands in the temp
- * CLAUDE_CONFIG_DIR and never the founder's.
- *
- * Make the guard allow an uncalled card and a session files work on a later
- * phase's card the founder never called; make it deny on a fault and filing
- * Phase-0 work is wedged.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -51,7 +33,6 @@ let config: string;
 
 beforeEach(() => {
 	({ dir, config } = guardDirs("issue-phase-scope-entry-"));
-	/* The core reads the session's tree, which git must name (#4242). */
 	execFileSync("git", ["init", "-q", dir]);
 	fs.mkdirSync(path.join(dir, "docs"));
 	fs.writeFileSync(path.join(dir, "docs/reference-roadmap.html"), ROADMAP);
@@ -59,7 +40,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The core's hookSpecificOutput for `command`, run in the temp project. */
 const emission = (command: string) =>
 	dispatchCoreOutput(CORE, buildBashPayload(command, "s1"), {
 		project: dir,

@@ -653,6 +653,10 @@ const DIRECTIVES = [
 	},
 	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
 	{
+		re: /^(?:DENIES-THROUGH:[ \t]*(?:lib\/)?[\w.-]+|DENIES-BY:[ \t]*exit 2)$/,
+		read: readsAsCode,
+	},
+	{
 		re: /^(?:full-sweep-only:|[a-z][a-z-]*-exempt:|Unbuilt caller:\s*(?=[^\s./]*[./])\S+(?=\s|$))(.*)$/,
 		read: (m) => (barePointers(m[1] ?? "") ? "code" : null),
 	},

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-pip-install core of guard-dispatch.js vets a new Python package
- * with a deny at the install boundary (#5232). These are its boundary cases
- * (§X11), the dispatcher entry run on it alone, end to end.
- *
- * NOTHING HERE TOUCHES THE NETWORK. curl is lib/pypi-registry-fake.ts's stub
- * injected at WFC_CURL (§N7).
- *
- * NOT DRIVEN: curl's 8 s timeout, which only a stub hanging past it would
- * reach (§X9).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -80,7 +69,6 @@ beforeEach(() => {
 	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: shared });
 	fs.writeFileSync(path.join(shared, "requirements.txt"), "requests==2.32.3\n");
 	execFileSync("git", ["add", "requirements.txt"], { cwd: shared });
-	/* Untracked, and still declared. */
 	fs.writeFileSync(
 		path.join(shared, "pyproject.toml"),
 		'[project]\ndependencies = ["httpx"]\n',
@@ -113,7 +101,6 @@ describe("the guard, end to end", () => {
 		);
 	});
 
-	/* Sits through the host's real 1 s wait: the host's pause is no port. */
 	it("waits out one pypistats 429 and asks again", () => {
 		expect(
 			emission("pip install --only-binary :all: playwright", {
