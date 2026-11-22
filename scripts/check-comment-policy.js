@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { listTree } = require("./lib/git-objects.js");
 const { readAttributeExcluded } = require("./lib/git-attributes.js");
@@ -312,7 +312,7 @@ const SPEC = {
 		settle,
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
 			ctx.broken(`the host root ${root} does not exist — nothing was read`);
 		const tree = readTreeFacts(root);

@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostPackage } = require("./lib/host-package.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
@@ -79,7 +79,7 @@ const SPEC = {
 		pathspecs: () => [".claude/skills"],
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
 			ctx.broken(`the host root ${root} does not exist — nothing was parsed`);
 		const dir = path.join(root, SKILLS_DIR);

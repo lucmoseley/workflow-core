@@ -144,6 +144,27 @@ describe("check-comment-policy", () => {
 		expect(r.out).toContain("1 code file(s), every comment a permitted kind.");
 	});
 
+	it("reads the linked worktree it runs in, not the main checkout (#5560)", () => {
+		write("scripts/a.js", "const a = 1;\n// one\nconst b = 1;\n// two\n");
+		commit("seed");
+		const linked = fs.mkdtempSync(path.join(os.tmpdir(), "comment-policy-wt-"));
+		fs.rmSync(linked, { recursive: true });
+		git("worktree", "add", "-q", "--detach", linked);
+		try {
+			fs.writeFileSync(
+				path.join(linked, "scripts/a.js"),
+				"const a = 1;\nconst b = 1;\n// two\n",
+			);
+			const r = runInProcess(SCRIPT, ["--all", "--json"], {
+				cwd: linked,
+				env: { ...process.env, GITHUB_ACTIONS: "", CLAUDE_PROJECT_DIR: root },
+			});
+			expect(JSON.parse(r.stdout).perFile).toEqual({ "scripts/a.js": 1 });
+		} finally {
+			git("worktree", "remove", "--force", linked);
+		}
+	});
+
 	describe("--against HEAD", () => {
 		beforeEach(() => {
 			write("scripts/a.js", "const a = 1;\n// inherited note\nconst b = 2;\n");

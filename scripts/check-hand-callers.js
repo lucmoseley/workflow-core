@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group");
 const {
 	BLANKS,
@@ -54,7 +54,7 @@ const SPEC = {
 		pathspecs: () => ROOTS,
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
 			ctx.broken(`the host root ${root} does not exist — nothing was read`);
 		const files = scriptsUnder(root);

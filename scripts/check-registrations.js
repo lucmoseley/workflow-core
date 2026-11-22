@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 const { guardKeys } = require("./lib/guard-fires.js");
 const { JS_TEST_FILE } = require("./lib/test-kind.js");
 const {
@@ -234,7 +234,7 @@ const SPEC = {
 		pathspecs: (_ctx, rev) => pathspecs(rev),
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
 			ctx.broken(`the host root ${root} does not exist — nothing was judged`);
 		if (isCoreRoot(root)) {
