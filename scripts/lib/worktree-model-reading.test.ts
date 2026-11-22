@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the readings #4229's done check (#4253) rests on: a levelling
- * fast-forward is the only `main` entry that passes, a move is levelled only
- * if main reaches it before origin/main moves again, a not-moved log line is
- * dated by the stamp above it and owned by the header above it, every shape a
- * reconcile merge leaves is counted, and only a landing route that merged is
- * timed as a merge.
- *
- * In-process over hand-built rows, because each reading is a pure function of
- * what the CLI read. A reading
- * that drifts from the strings git or lib/level-main.js write turns a failing
- * check into a silent PASS on the 24 h reading #4229 closes on.
- */
 
 import { describe, expect, it } from "vitest";
 import { MOVED_LINE } from "./land-refusal.js";
@@ -86,7 +73,6 @@ describe("reconcileEntries", () => {
 });
 
 describe("levelLags", () => {
-	/* A chain A <- B <- C. */
 	const order = [A, B, C];
 	const contains = (anc: string, sha: string) =>
 		order.indexOf(anc) <= order.indexOf(sha);

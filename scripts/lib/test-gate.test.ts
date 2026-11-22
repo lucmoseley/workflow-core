@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * test-gate.test.ts — which gate owns a declared test command (#740, #5294):
- * the lander, where the command's verdict probe has passed for it and its
- * canary, or pre-commit otherwise. Driven against a throwaway host whose test
- * command is a shell script, so each case sets whether it meets the verdict
- * contract. Read wrongly one way, a repo runs its whole suite on every
- * commit; the other, a command the lander gets no verdict from stands its
- * commit gate down with nothing behind it.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -26,7 +17,6 @@ afterEach(() => {
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
 });
 
-/** A host whose `commands.test` is a script running `body`. */
 function host(config: object, body = CONFORMING) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "test-gate-"));
 	dirs.push(root);

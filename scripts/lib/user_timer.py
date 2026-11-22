@@ -1,12 +1,3 @@
-"""user_timer.py — install a script as a user systemd timer, no sudo (#4791).
-Copies the script, and lib/memwatch_minute.py which it reads at run time, to
-~/.local/lib/workflow-core/<unit>/, so removing a worktree leaves the unit
-whole;
-renders `<unit>.service` and `<unit>.timer` from the templates beside the
-script into the user's systemd dir; enables the timer. WFC_SYSTEMCTL names the
-systemctl to call.
-"""
-
 import os
 import subprocess
 import sys
@@ -30,9 +21,6 @@ def render(template, placeholders):
 
 
 def install(source, unit, placeholders):
-    """Install `source` (a script in scripts/) as `unit`. `placeholders` fills
-    the templates; SCRIPT, the installed copy's path, is added here. Returns the
-    exit code."""
     home = INSTALL_DIR / unit
     script = home / source.name
     rerun = f"python3 scripts/{source.name} install"

@@ -1,27 +1,4 @@
 // @vitest-environment node
-/*
- * Pins each limb of the test-kind reading the standards checker, the
- * architecture-scan counter and the test-rules injector share (#1743, #2101),
- * and of the narrower COLLECTED_TEST gate-subjects.js reads. A table of paths fed straight to
- * the predicate, since it reads no file. Loosen it and the checker counts a
- * test as a real consumer while the counter counts test support as growth;
- * tighten it and real code drops out of both. Loosen COLLECTED_TEST and a repo
- * holding only test support counts as holding a suite, so its commits are
- * refused while the suites switch is off; tighten it and a real suite goes
- * ungated. Loosen isCollectedTestOrConftest and real code drops out of the
- * plugin, the needle corpus and doc-map's section-reference check; tighten it
- * and tests ship to adopters (#2759). Loosen siblingTests and a host guard
- * with no test passes the registry checks; tighten it and one tested by a
- * form the suite collects is refused as untested (#3170). Drift a
- * test-file pre-commit row's arm from JS_TEST_FILE, and a commit staging only a
- * `.spec.` or `.mjs` test skips the gates that read it (#3170, #3387). Drift vitest.config.ts's include from
- * JS_TEST_FILE and every reader of JS_TEST_FILE calls a file a test the suite
- * never runs, or misses one it does (#3743). Drift .sonarcloud.properties from
- * them and Sonar judges a test as source (#3810). Set pytest.ini's python_files
- * and PY_TEST_FILE's readers call a file a test pytest never collects (#3810).
- * Widen PY_TEST_FILE past PYTEST_DEFAULT_FILES and the Sonar pin stays green,
- * its Python half built from those globs, while the two disagree (#3849).
- */
 
 import fs from "node:fs";
 import path from "node:path";

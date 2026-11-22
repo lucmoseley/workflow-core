@@ -1,37 +1,15 @@
-/*
- * shared-fault-notices.js — the post-commit fault notice's table: for each
- * lib/fault-profiles.js profile, the checker report-new-shared-faults.js runs
- * over the archived `--root` trees, the flag .husky/pre-commit gates it with,
- * and what a red there costs the OTHER sessions (mantahostels#1750, #4254).
- *
- * KEYED BY PROFILE NAME, ONE ROW PER PROFILE: a whole-repo gate's row is its
- * lib/precommit-gates.js `notice`. report-new-shared-faults.test.ts holds the
- * keys equal to PROFILES and each `gate` equal to the hook's flag.
- * doc-map's checker takes no archived `--root` tree; the program runs its
- * row's script through readDocMapEnvelope instead.
- *
- * `full` is the command that shows the reader MORE than the notice already
- * did — the checker itself, over the working tree, WARNs and context included.
- */
-
 const path = require("node:path");
 const { scriptPath } = require("./script-path.js");
 const { fromCoreRoot, PROFILE_GATES: GATES } = require("./precommit-gates.js");
 
 /** @typedef {"against" | "index"} Gate */
 
-/** The `why` clause each gate kind earns. doc-map's own staged-vs-HEAD block
- * in the hook is an `against` gate in all but its flag. */
 const GATE_CLAUSE = {
 	against: "direction-gated in .husky/pre-commit",
 	index: "judged on the index in .husky/pre-commit",
 };
 
-/**
- * The two direction-gated checkers whose hook block is not a whole-repo gate
- * row: doc-map's staged-vs-HEAD block and context-budget's.
- * @type {Record<string, { script: string, gate: Gate, scope: string, cite?: string, cost: string }>}
- */
+/** @type {Record<string, { script: string, gate: Gate, scope: string, cite?: string, cost: string }>} */
 const OWN_BLOCK_ROWS = {
 	"doc-map": {
 		script: "scripts/check-doc-map.js",

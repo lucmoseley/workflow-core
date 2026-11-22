@@ -1,13 +1,3 @@
-/*
- * typecheck-red-host.js — the store lib/typecheck-red.js reads: one JSON file
- * per session, `.typecheck-red-<session>`, in the canonical checkout's markers
- * directory, so a commit in a worktree reaches a session rooted elsewhere
- * (#3824).
- *
- * A TAKE IS A RENAME, so of two calls answering at once only one reports it.
- * A session's leftover is pruned by lib/arbiter-markers.js's prefix list.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -16,8 +6,7 @@ const { markersDir } = require("./marker-root.js");
 const { repoRoot } = require("./test-pass-marker.js");
 
 const PREFIX = ".typecheck-red-";
-/* A judgement: room for about twenty `tsc` errors, and little context spent where
- * a file saved mid-run is what is RED. */
+// #3824 guess
 const OUTPUT_CAP = 2000;
 
 /**
@@ -63,8 +52,6 @@ function takeRed(root, sid, log) {
 		fs.renameSync(file, taken);
 		return JSON.parse(fs.readFileSync(taken, "utf8"));
 	} catch (e) {
-		/* Fails open (mantahostels#103 §6): no record is the ordinary answer on
-		 * every call, and any other fault costs this one report. */
 		if (/** @type {NodeJS.ErrnoException} */ (e).code !== "ENOENT")
 			log(`a RED record went unread: ${caught(e).message}`);
 		return null;

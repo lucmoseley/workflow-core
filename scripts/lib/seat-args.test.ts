@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/seat-args.js reads the seats lib/cli-args.js gathered, else every known
- * one (#380, #1391). Which argv spellings reach the list is cli-args's
- * contract, pinned at the scripts that call this.
- */
 
 import { describe, expect, it } from "vitest";
 import { configDirs } from "./arbiter-store.js";

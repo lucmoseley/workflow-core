@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * test-log.js's naming and its reap policy (mantahostels#1943): the only bound on a
- * per-run store that would otherwise grow by one file every `npm run test`.
- *
- * Naming is asserted on pure path strings, and the reap on a temp directory of
- * fabricated logs, so no case touches this checkout's own log store. Loosen a
- * case and two concurrent runs can write one log, or the store under
- * `.claude/tmp/markers` — which the scratch sweep never trims — grows unbounded.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -15,9 +6,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { dirPath, logPath, reap, runsPath, recordRun, readRuns }: any =
-	require("./test-log.js");
+const { dirPath, logPath, reap, runsPath, recordRun, readRuns } =
+	require("./test-log.js") as typeof import("./test-log.js");
 
 describe("naming a per-run log so two runs never collide", () => {
 	it("puts the log directory straight under the given root", () => {
@@ -32,7 +22,6 @@ describe("naming a per-run log so two runs never collide", () => {
 		expect(p.startsWith(dirPath("/repo"))).toBe(true);
 		expect(path.basename(p)).toContain("abc123");
 		expect(path.basename(p)).toContain("4242");
-		// No raw colons: some tools choke on them in a filename.
 		expect(path.basename(p)).not.toContain(":");
 	});
 
@@ -58,7 +47,6 @@ describe("bounding a store nothing else trims (mantahostels#1943)", () => {
 		return dir;
 	}
 
-	/** Writes `n` .log files with strictly increasing mtimes, oldest first. */
 	function seed(dir: string, n: number) {
 		const names: string[] = [];
 		for (let i = 0; i < n; i++) {
@@ -113,13 +101,12 @@ describe("bounding a store nothing else trims (mantahostels#1943)", () => {
 		const fsImpl = {
 			readdirSync: fs.readdirSync,
 			statSync: fs.statSync,
-			unlinkSync: (p: string) => {
+			unlinkSync: (p: fs.PathLike) => {
 				if (p === names[0]) throw Object.assign(new Error("EBUSY"), {});
 				fs.unlinkSync(p);
 			},
 		};
 		const removed = reap(dir, { keep: 0, fs: fsImpl });
-		// The one that threw is not reported removed, but is not fatal either.
 		expect(removed).not.toContain(names[0]);
 		expect(removed).toContain(names[1]);
 		expect(removed).toContain(names[2]);

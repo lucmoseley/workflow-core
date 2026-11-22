@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The dispatcher cores that run a shell guard (#5389): each starts its script
- * only where its trigger admits the call, relays the script's answer as a
- * decision, and admits every call the script itself acts on.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -13,7 +8,6 @@ import browser from "./browser-profile.js";
 import practice from "./practice-note.js";
 import { buildHostPorts } from "./shell-guard-host.js";
 
-/** A kit context carrying a spy for the port, over `input`. */
 const ctxFor = (input: Record<string, unknown>, tool: string, out = "") => {
 	const runShellGuard = vi.fn(() => out);
 	return {
@@ -40,7 +34,6 @@ const denyOut = (r: string) =>
 
 const TRIGGERED = "chrome.exe https://example.com";
 
-/** The browser core run on a trigger command, its port answering `out`. */
 const browserOn = (out: string) => {
 	const { ctx, runShellGuard } = ctxFor({ command: TRIGGERED }, "Bash", out);
 	return { decision: () => browser.decide(TRIGGERED, ctx), runShellGuard };
@@ -86,7 +79,6 @@ describe("the browser-profile core", () => {
 		const words = (gate?.[1] ?? "").split("|");
 		expect(words.length).toBeGreaterThan(1);
 		for (const word of words) {
-			/* The word spelt as a command types it, upper-cased to hold the gate's -i. */
 			const typed = word
 				.replace(/\\\./g, ".")
 				.replace(/ \+/g, " ")
@@ -154,7 +146,6 @@ describe("the host port", () => {
 
 	it("runs the real script, built as the dispatcher builds it, whose bare chrome.exe refusal reaches the core", () => {
 		const { ctx } = ctxFor({ command: TRIGGERED }, "Bash");
-		/* guard-judge.js passes the host's root, which need hold no scripts/ (#5425). */
 		const hosted = {
 			...(ctx as object),
 			...buildHostPorts({ root: home, log: () => undefined }),
@@ -166,9 +157,7 @@ describe("the host port", () => {
 		});
 	});
 
-	/* Four times Linux's 64 KiB default pipe buffer, so the child always
-	 * exits before Node has written it all: the EPIPE spawnSync then reports
-	 * beside the exit (#5416). */
+	// Four times Linux's 64 KiB default pipe capacity (https://man7.org/linux/man-pages/man7/pipe.7.html)
 	const big = { padding: "x".repeat(256 * 1024) };
 
 	it("throws the exit where the script cannot run", () => {

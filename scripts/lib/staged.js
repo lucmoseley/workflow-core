@@ -1,13 +1,3 @@
-/*
- * staged.js — the commit's staged side as the pre-commit checkers read it:
- * the staged path list and each path's blob, never the worktree copy, since
- * the commit carries the blob and a worktree read would judge an unstaged
- * edit. Shared by scripts/check-ruff-introduced.js (#122),
- * scripts/check-format-staged.js (#1332, #1354),
- * scripts/check-swallowed-errors.js (#1830) and
- * scripts/check-lockfile-sync.js (#3434).
- */
-
 const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { withoutLateEpipe } = require("./child-failure.js");
@@ -30,12 +20,7 @@ function spawn(cmd, args, input) {
 	);
 }
 
-/**
- * `git diff --cached` NUL-separated, broken if git fails.
- * @param {Ctx} ctx
- * @param {string[]} args
- * @returns {string[]}
- */
+/** @param {Ctx} ctx @param {string[]} args @returns {string[]} */
 function readStagedDiff(ctx, args) {
 	const r = spawnGitSync(["diff", "--cached", "-z", ...args], {
 		encoding: "utf8",
@@ -44,22 +29,13 @@ function readStagedDiff(ctx, args) {
 	return r.stdout.split("\0").filter(Boolean);
 }
 
-/**
- * A blob's text, or null where git has none by that name.
- * @param {string} spec a `<rev>:<path>` blob name, `:<path>` for the staged one
- * @returns {string | null}
- */
+/** @param {string} spec @returns {string | null} */
 function readBlob(spec) {
 	const r = spawnGitSync(["cat-file", "blob", spec], { encoding: "utf8" });
 	return r.status === 0 ? r.stdout : null;
 }
 
-/**
- * The HEAD path of each staged rename, new → old. Unrestricted by pathspec:
- * limited to the new path, git has no old one to pair it with and reports a
- * plain add.
- * @param {Ctx} ctx
- */
+/** @param {Ctx} ctx */
 function readRenameSources(ctx) {
 	const fields = readStagedDiff(ctx, [
 		"--name-status",

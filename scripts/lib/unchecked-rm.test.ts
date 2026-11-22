@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/unchecked-rm.js, the guard-rm-unchecked core (#2801), in process:
- * which `rm` commands Claude Code's built-in removal check cannot resolve
- * (#2436), what the refusal says, and when the once lets a re-send through.
- *
- * The latch read, its key and the writability probe are fakes passed as
- * values; the rule store is the real one, read in process. The production
- * adapters — the latch on disk, the markers directory's writability, the
- * session key — are crossed in guard-rm-unchecked.test.ts.
- */
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -42,11 +32,6 @@ interface Over {
 	corePaths?: (t: string) => string;
 }
 
-/**
- * The core's context: `latches` held, the latch directory writable unless
- * said, and kitContextFake's defaults for the rest — a keyed main session, no
- * shell vars, the real rule store, paths spelt as written.
- */
 function harness({ latches = [], isLatchWritable = true, ...over }: Over = {}) {
 	const logs: string[] = [];
 	const ctx = kitContextFake({
@@ -65,7 +50,6 @@ const judge = (command: string, over: Over = {}) => {
 	return { decision: decide(command, ctx), logs };
 };
 
-/** The latch guard-entry.js's latchPath names for `command`: its hash, newlines chomped. */
 const latchOf = (command: string) =>
 	`rm-unchecked.${crypto
 		.createHash("sha1")
@@ -73,6 +57,7 @@ const latchOf = (command: string) =>
 		.digest("hex")
 		.slice(0, 16)}`;
 
+const braced = (name: string) => `${"$"}{${name}}`;
 const varSlash = (t: string) =>
 	`its target \`${t}\` opens on a variable, and holds one this command never sets, so the check reads it as \`/\` when that variable is empty`;
 const cdGlob = (t: string) =>
@@ -100,8 +85,11 @@ describe("an rm the harness cannot check is refused, naming both spellings", () 
 			varSlash("$T/*"),
 		],
 		['rm -f "$S/$f"', "the same, quoted", varSlash("$S/$f")],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-		["rm -rf ${D}/x", "the same, braced", varSlash("${D}/x")],
+		[
+			`rm -rf ${braced("D")}/x`,
+			"the same, braced",
+			varSlash(`${braced("D")}/x`),
+		],
 		[
 			"T=$(mktemp -d); rm -rf $T/*",
 			"a variable set from a command substitution, probed denied on #2436",
@@ -212,11 +200,9 @@ describe("the var-slash limb", () => {
 		],
 		["T=/a || T=/b; rm -rf $T/x", "a name assigned past a `||`", "$T/x"],
 		[
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-			"T=/a; rm -rf ${T}/$U",
+			`T=/a; rm -rf ${braced("T")}/$U`,
 			"a braced set name before an unset one",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-			"${T}/$U",
+			`${braced("T")}/$U`,
 		],
 		[
 			"T=$HOME/x; rm -rf $T/*",
@@ -232,10 +218,11 @@ describe("the var-slash limb", () => {
 		["typeset T=/a; rm -rf $T/x", "a typeset"],
 		["readonly T='/q'; rm -rf $T/x", "a readonly, single-quoted"],
 		["local T=/q; rm -rf $T/x", "a local"],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-		["D=/a; rm -rf ${D}/x", "a braced name the command sets"],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-		["rm -rf ${T:-a}/x", "a default expansion, which the shape does not name"],
+		[`D=/a; rm -rf ${braced("D")}/x`, "a braced name the command sets"],
+		[
+			`rm -rf ${braced("T:-a")}/x`,
+			"a default expansion, which the shape does not name",
+		],
 		["rm -rf $1/x", "a positional parameter"],
 		["rm -rf ~/x/*", "a tilde"],
 		["rm -rf $(pwd)/x", "a command substitution, which this does not read"],
@@ -397,10 +384,7 @@ describe("from a linked worktree, its latch and rule are the main checkout's (#4
 	freshSandbox((sb) => {
 		at = splitCheckout(path.join(sb.dir, "split"));
 	});
-	/** A rule fragment of `id` reading `text`, in `tree`'s own rule store. */
 	const plantRule = (tree: string, id: string, text: string) => {
-		/* The suite pins every read to the plugin's store (vitest.setup.ts);
-		 * lifted, a checkout's own store is read first. */
 		vi.stubEnv("WFC_RULES_DIR", "");
 		const rules = path.join(tree, "docs", "agents", "rules");
 		fs.mkdirSync(rules, { recursive: true });
@@ -412,7 +396,6 @@ describe("from a linked worktree, its latch and rule are the main checkout's (#4
 			worktree: at.worktree,
 		}).output;
 
-	/** The refusal latches under `tree`'s marker store. */
 	const rmLatches = (tree: string) => {
 		const markers = path.join(tree, ".claude", "tmp", "markers");
 		return fs.existsSync(markers)

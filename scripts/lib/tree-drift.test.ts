@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * tree-drift.js names what moved in the working tree while a run was reading
- * it, and the tree a run actually saw at its end, without ever failing the run
- * (mantahostels#273, mantahostels#392, mantahostels#2187).
- *
- * Exercised inside a throwaway repository: the assertions are about a tree
- * changing mid-window, which cannot be arranged against this repo without
- * writing to it.
- *
- * The suite reporters and the test-pass marker read it on every run; loosen a
- * case and a red caused by a neighbour's half-written file reads as the
- * session's own, or a certificate over a moving tree is recorded as clean.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -32,7 +19,6 @@ const {
 	START_MARK_ENV,
 } = require("./tree-drift.js");
 
-/** A lock as `arbiter-store.listLocks()` returns it. */
 const lock = (
 	filePath: string,
 	sessionId: string,
@@ -136,8 +122,6 @@ describe("readTreeSnapshot", () => {
 		write("src/a.js", "edited\n");
 		const before = readTreeSnapshot(repo, { fs: unreadableFs });
 
-		// A clock in the sentinel would make this pair differ and cry drift on
-		// every run holding one unreadable path.
 		expect(
 			drift(before, readTreeSnapshot(repo, { fs: unreadableFs })),
 		).toBeNull();
@@ -226,12 +210,6 @@ describe("endOfRunTreeIdentity (mantahostels#2187)", () => {
 		expect(endOfRunTreeIdentity(repo)).toBe(stashTree());
 	});
 
-	/*
-	 * Deterministic racy entry: the index caches a.js's stat while a.js is
-	 * older than it, then a same-size edit keeps that stat and the index is
-	 * re-stamped to a.js's time. Only git's racy check (file not older than
-	 * the index) catches the edit — what a fresh-stamped index copy loses.
-	 */
 	it("sees a same-size edit only the racy check catches (#2104)", () => {
 		git("config", "core.trustctime", "false");
 		const file = path.join(repo, "src/a.js");
@@ -263,12 +241,6 @@ describe("endOfRunTreeIdentity (mantahostels#2187)", () => {
 		);
 	});
 
-	/*
-	 * An unmerged path reads as UNKNOWN — never as a match on HEAD's own tree,
-	 * the one value a reader must not mistake for "nothing moved"
-	 * (mantahostels#2187's own point), and never as the tree `add -u` would make
-	 * by staging the conflict markers.
-	 */
 	it("reads UNKNOWN, not HEAD's tree, on an unmerged path", () => {
 		git("checkout", "-qb", "feature");
 		write("src/a.js", "feature\n");
@@ -276,7 +248,6 @@ describe("endOfRunTreeIdentity (mantahostels#2187)", () => {
 		git("checkout", "-q", "master");
 		write("src/a.js", "master\n");
 		git("commit", "-qam", "master edit");
-		// the conflict is the point
 		ignoreFailure(() => git("merge", "-q", "feature"));
 
 		expect(endOfRunTreeIdentity(repo)).toBeNull();
@@ -395,11 +366,6 @@ describe("drift", () => {
 		expect(d.moved).toEqual([]);
 	});
 
-	/*
-	 * The boundary of the window comparison: a file left half-written BEFORE
-	 * the window opened breaks the suite exactly as mantahostels#273 did, and
-	 * `drift` reports nothing (mantahostels#291).
-	 */
 	it("cannot see a file left half-written before the window opened", () => {
 		write("src/a.js", "half-written, and nobody touches it again\n");
 		const before = readTreeSnapshot(repo);
@@ -438,8 +404,6 @@ describe("format", () => {
 		}));
 		const out = format({ headMoved: false, moved }, 12);
 		expect(out).toContain("… and 3 more");
-		// The count line prints whether or not the list was actually cut, so the
-		// cap is only proven by the entries themselves being absent.
 		expect(out.match(/^ {3}changed {2}f\d+$/gm)).toHaveLength(12);
 		expect(out).not.toMatch(/\bf1[234]\b/);
 	});
@@ -502,10 +466,7 @@ describe("neighbourDirty", () => {
 		).toEqual([{ path: "src/a.js", sessionId: "them", pid: 4242, dead: true }]);
 	});
 
-	/* The clock is passed in, so the boundary is exact rather than racing the
-	 * real one: `claimedAt` sits at t0 and `now` moves around the cutoff. */
 	const t0 = Date.parse("2026-08-17T00:00:00.000Z");
-	// The cutoff is 24 hours (mantahostels#392); spelled here, not imported.
 	const deadClaimMaxAgeMs = 24 * 60 * 60 * 1000;
 	const deadAt = (extra: Record<string, unknown> = {}) =>
 		lock("src/a.js", "them", {
@@ -537,7 +498,6 @@ describe("neighbourDirty", () => {
 	});
 
 	it("keeps a LIVE holder's claim however old it is", () => {
-		// The cutoff is about a holder that will never release, not about age.
 		write("src/a.js", "long-running session\n");
 		const before = readTreeSnapshot(repo);
 		const claimedAt = new Date(

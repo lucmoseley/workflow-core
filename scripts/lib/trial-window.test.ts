@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * trial-window.js parses gate 2's trial declaration, and the fortnight it
- * describes runs ONCE and cannot be replayed (mantahostels#2835). So the tests that matter
- * are the ones on refusal: a declaration this parser accepts wrongly suppresses
- * the ordinary ceiling trigger for two weeks (mantahostels#2845), and one it drops silently
- * leaves the gate unread on the only occasion it could ever be read.
- *
- * Declarations are built as ladder text in-process, one line overridden per
- * case, and read from a temp file through the reader the hooks call, so each
- * refusal is reached without editing the real ladder. The parse feeds
- * `check-seat-utilisation.js`, a SessionStart hook in `.claude/settings.json`.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -26,12 +14,7 @@ import {
 } from "vitest";
 import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
-const {
-	LADDER,
-	readTrialWindow,
-	windowPhase,
-	// eslint-disable-next-line @typescript-eslint/no-var-requires
-} = require("./trial-window.js");
+const { LADDER, readTrialWindow, windowPhase } = require("./trial-window.js");
 
 const parseDir = fs.mkdtempSync(path.join(os.tmpdir(), "trial-window-parse-"));
 afterAll(() => fs.rmSync(parseDir, { recursive: true, force: true }));
@@ -45,7 +28,6 @@ const readLadder = (text: string) => {
 const START = "2026-09-10T21:00:00Z";
 const END = "2026-09-24T21:00:00Z";
 
-/** A ladder holding one declaration, with `over` replacing named lines. */
 const ladder = (over: Record<string, string | null> = {}) => {
 	const lines: Record<string, string> = {
 		seat: "- **seat:** `.claude3`",
@@ -110,12 +92,6 @@ describe("a well-formed declaration", () => {
 	});
 
 	it("does not read a field only present past the heading boundary", () => {
-		/* Leave `seat` unset INSIDE the section, and place a matching line past
-		 * the next heading. `field()` returns the first match it finds, so if
-		 * `parseSectionLines()` failed to stop at "### Founder override" this would be
-		 * read as the seat line and the declaration would parse as `declared`
-		 * rather than refuse. This is the case the length assertion above does
-		 * not exercise: it never gives the boundary anything to wrongly admit. */
 		const text = [
 			"### Seat 3's probation",
 			"",
@@ -175,9 +151,6 @@ describe("refusals", () => {
 	});
 
 	it("refuses a window longer than the bound, which is a mistyped end, naming the 21-day bound", () => {
-		/* Without a ceiling a slipped year suppresses the repo's only upward
-		 * spend trigger for as long as the typo says — the unbounded suppression
-		 * mantahostels#2847 chose two written instants to avoid. */
 		expect(
 			reason({
 				window: `- **measured window:** \`${START}\` → \`2027-09-24T21:00:00Z\``,
@@ -194,9 +167,6 @@ describe("refusals", () => {
 	});
 
 	it("refuses a staleness figure that is not a number, naming the config dir it was read for", () => {
-		/* `NaN >= 24` is false, so an unguarded parse ACCEPTS this — the expensive
-		 * direction, a fortnight of suppressed upward trigger off a `resets_at`
-		 * that may be carried forward. */
 		expect(
 			reason({
 				basis: `- **start basis:** \`.claude\` resets \`${START}\` read 2.0.1h ago`,
@@ -262,8 +232,6 @@ describe("reading the file", () => {
 		return { root: dir };
 	};
 
-	/** Runs `fn` with the host root at `dir` and no `WFC_LADDER` seam, so
-	 *  LADDER() resolves through the host config. */
 	const atHost = (fn: () => void) => {
 		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
 		vi.stubEnv("WFC_LADDER", undefined);
@@ -301,10 +269,6 @@ describe("reading the file", () => {
 	});
 
 	it('never throws on a missing ladder, but reads it as unreadable rather than as no trial where the host declares `"capacityLadder": true` (mantahostels#2871)', () => {
-		/* Distinct from `state: "none"`, which means the ladder WAS read and holds
-		 * no declaration section — collapsing the two let an I/O failure sail
-		 * past `check-seat-utilisation.js`'s loud not-honoured branch and read as
-		 * no trial at all, on a fortnight that cannot be replayed. */
 		const d = readTrialWindow(
 			path.join(dir, "nope.md"),
 			hostWith('{"capacityLadder": true}'),

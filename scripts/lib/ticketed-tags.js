@@ -1,46 +1,20 @@
-/*
- * ticketed-tags.js — whether a whole-spec review comment names, on each line
- * marking a finding TICKETED, the exception that let it skip fix-first (#4492,
- * #4284).
- *
- * A review comment is one carrying `**Reviewed through:**`. A TICKETED line is
- * one holding the upper-case word and the issue it went to; it passes where it
- * also holds one of the three tags
- * `docs/agents/rules/review-finding-destination.txt` names.
- * Fenced blocks, quoted lines and spans quoting either head are masked as
- * lib/review-findings.js masks a record's mentions.
- *
- * Residual: it reads the tag, never whether the exception is true; a finding
- * whose tag sits on a continuation line is refused; a backticked `TICKETED`
- * reads as a mention and passes.
- */
-
 const { maskMentions } = require("./review-findings.js");
 const { scriptPath } = require("./script-path.js");
 
 const REVIEWED_THROUGH = /\*\*Reviewed through:\*\*/;
 const TICKETED = /(?<![A-Za-z])TICKETED(?![A-Za-z])/;
-/* A finding ticketed here: the word then the issue it went to, as in
- * `TICKETED #4491`, `**TICKETED** (#4491)`, `TICKETED on #4491`,
- * `TICKETED → owner/repo#7` or an issue URL, and not one an earlier pass
- * ticketed. Read by index, each character a fixed number of times (#4647). */
 const WORD = "TICKETED";
 const EARLIER = ["previously", "already", "earlier"];
 const SEPARATOR = /[\s,:;*_`(\u2014\u2013\u2192>-]/;
 const LINK_WORD = sticky(/(?:on|in|as|under|to)\s+/y);
 const OWNER_CHAR = /[\w.-]/;
-/* What ends an `owner/repo#<n>` past the owner, from its `/`. */
 const REPO_TAIL = sticky(/\/[\w.-]+#\d/y);
 const URL_HEAD = sticky(/https?:\/\//y);
 const ISSUE_PATH = sticky(/\/issues\/\d/y);
 
 const LETTER = /[A-Za-z]/;
 
-/**
- * A matcher for sticky `re`, which only it may hold: the end of `re`'s match
- * in `text` at `at`, or -1.
- * @param {RegExp} re
- */
+/** @param {RegExp} re */
 function sticky(re) {
 	return (/** @type {string} */ text, /** @type {number} */ at) => {
 		re.lastIndex = at;
@@ -48,12 +22,7 @@ function sticky(re) {
 	};
 }
 
-/**
- * Per position of `line`, plus its end: `owner`, whether an `owner/repo#<n>`
- * starts there; `issue`, the last `/issues/<digit>` starting at or after it
- * before the next whitespace, -1 for none.
- * @param {string} line
- */
+/** @param {string} line */
 function buildTargetTables(line) {
 	const owner = new Uint8Array(line.length + 1);
 	const issue = new Int32Array(line.length + 1).fill(-1);
@@ -72,12 +41,7 @@ function buildTargetTables(line) {
 	return { owner, issue };
 }
 
-/**
- * Whether `line` marks a finding ticketed: the word, no letter or EARLIER
- * word and whitespace before it; a run of separators; an optional LINK_WORD;
- * then an issue. An owner may open in the separators' trailing `_` or `-`.
- * @param {string} line
- */
+/** @param {string} line */
 function hasTicketing(line) {
 	/** @type {ReturnType<typeof buildTargetTables> | undefined} */
 	let tables;
@@ -102,8 +66,6 @@ function hasTicketing(line) {
 	return false;
 }
 
-/* Whether `previously`, `already` or `earlier` and any whitespace end at `at`:
- * with none, the letter before `at` already refuses it. */
 function isTicketedEarlier(
 	/** @type {string} */ line,
 	/** @type {number} */ at,
@@ -133,19 +95,10 @@ const HEADS = new RegExp(`${REVIEWED_THROUGH.source}|${TICKETED.source}`);
 const TAG =
 	/\bclaimed by\s+\S|\bneeds its own design:\s*\S|\bexposed, not caused\b/i;
 
-/* The fragment `docs/agents/rules/review-finding-destination.txt` spells
- * these tags too: review-rules.test.ts pins the fragment to the refusal's
- * copy (§G11). */
 const TAGS =
 	"`claimed by <session name>`, `needs its own design: <reason>` or `exposed, not caused`";
 
-/**
- * The TICKETED lines of a review comment that name no exception, trimmed; []
- * where the comment is no review comment.
- *
- * @param {string} comment
- * @returns {string[]}
- */
+/** @param {string} comment @returns {string[]} */
 function untaggedTicketed(comment) {
 	if (!REVIEWED_THROUGH.test(comment)) return [];
 	const masked = maskMentions(comment, HEADS).split("\n");
@@ -162,14 +115,7 @@ function untaggedTicketed(comment) {
 	});
 }
 
-/**
- * What to tell a session posting `comment`: each TICKETED line naming no
- * exception and the three tags, below the caller's own headline; null where
- * every such line names one, or the comment is no whole-spec review.
- *
- * @param {string} comment
- * @returns {string | null}
- */
+/** @param {string} comment @returns {string | null} */
 function ticketedRefusal(comment) {
 	const lines = untaggedTicketed(comment);
 	if (lines.length === 0) return null;

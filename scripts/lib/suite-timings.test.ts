@@ -29,7 +29,6 @@ import {
 
 const ROOT = "/repo";
 
-/** One file result as scripts/vitest-json-reporter.ts writes it, in ms. */
 const fileResult = (name: string, duration: number, tests = 1) => ({
 	name: `${ROOT}/${name}`,
 	startTime: 0,
@@ -258,7 +257,6 @@ describe("choosing the run a sharded run plans by (#4574)", () => {
 	it("passes over a run that finished inside the settle window, or after the planning run began", () => {
 		const runs = [
 			listed(1, 900_000, 700_000),
-			/* Just inside SETTLE_MS's 120 s. */
 			listed(2, 300_000, 119_999),
 			listed(3, 200_000, -60_000),
 		];

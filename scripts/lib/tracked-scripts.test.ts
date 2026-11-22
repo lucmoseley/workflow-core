@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/tracked-scripts.js's `--root` walk (#3170): it answers the tracked
- * `scripts/` files an extracted tree holds, none where it holds no `scripts/`,
- * and a root it cannot read is the checker's BROKEN. A module test over a temp tree and a stub ctx, since the
- * walk reads only the filesystem. Loosen it and a mistyped `--root` reports
- * OK having read nothing; tighten it and a tree with no `scripts/`, or a
- * subdirectory removed mid-walk, fails the commit (#3387).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -32,8 +24,6 @@ const write = (rel: string) => {
 
 let said: string[];
 
-/** A ctx whose `--root` is `root`, whose BROKEN throws its message and whose
- * report lines land in `said`. */
 const ctx = (root: string) =>
 	({
 		value: (flag: string) => (flag === "--root" ? root : undefined),
@@ -107,8 +97,6 @@ describe("readTrackedScripts on --root", () => {
 	it("reads a subdirectory gone between its listing and its read as empty", () => {
 		write("scripts/a.ts");
 		write("scripts/gone/b.ts");
-		/* The race between a directory's listing and its read cannot be staged
-		 * on a real tree, so the read is stubbed. */
 		const real = fs.readdirSync;
 		vi.spyOn(fs, "readdirSync").mockImplementation(((
 			p: fs.PathLike,

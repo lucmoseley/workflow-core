@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/verdict-probe.js — the proof that a declared test command gives the
- * lander a verdict on a red (#5294). Loosen the probe and a command that
- * exits 0 on red, or names no file, stands its commit gate down with nothing
- * behind it; loosen the record and a changed command keeps an old proof.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -31,7 +25,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-/* A test command written as a shell script, so the probe runs it for real. */
 function command(body: string) {
 	fs.writeFileSync(path.join(root, "run-tests"), `#!/bin/sh\n${body}\n`, {
 		mode: 0o755,
@@ -120,7 +113,6 @@ describe("the proof record", () => {
 			);
 		pkg(COMMAND);
 		const at = { root, command: "npm test --", canary: CANARY, markers };
-		/* Seeded pass: the record's key is what is under test, not npm. */
 		const run = (_line: string, { env }: { env: NodeJS.ProcessEnv }) =>
 			env.WFC_VERDICT_PROBE
 				? { code: 1, out: ` FAIL  ${CANARY}` }
@@ -130,8 +122,6 @@ describe("the proof record", () => {
 		expect(proofState(at)).toEqual({ state: "stale" });
 	});
 
-	/* A node runner whose verdict a module it requires decides: the shape of
-	 * this repo's own, scripts/run-vitest.js and its scripts/lib/ (#5327). */
 	function nodeRunner(exitOnRed: number) {
 		fs.writeFileSync(
 			path.join(root, "runner.js"),

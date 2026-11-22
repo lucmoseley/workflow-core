@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/systemctl-fake.ts to the real systemctl (§G7, #3970): each case
- * runs a call the fake's callers make against the fake and the machine's own,
- * checking shape and exit code, never values. Loosened, every caller's test
- * stays green on the fake while a systemd release prints a read-back the
- * installers misread, a state session-scope.js or start-orphan-sweep-timer.js
- * reads wrongly, or a failure their callers miss.
- *
- * The real side runs where the manager it asks answers, never in CI (§G7 item
- * 2): `show`, `is-enabled` and `is-active` are free reads, and a `restart` of a
- * unit that does not exist changes nothing.
- *
- * Red on the real side after a systemd upgrade: fix the fake or its
- * caller's reader.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,7 +9,6 @@ import { scriptInExecStart } from "../start-orphan-sweep-timer.js";
 import { writeSystemctl } from "./systemctl-fake";
 import { systemctl } from "./systemd-bins.js";
 
-/* install-user-manager-restart.js's read-back properties. */
 const PROPERTIES = ["Restart", "OOMScoreAdjust", "StartLimitIntervalUSec"];
 const MANAGER = `user@${os.userInfo().uid}.service`;
 const UNKNOWN = "wfc-contract-no-such.service";
@@ -60,8 +44,6 @@ function realExecUnit(active: string[]): string | null {
 	);
 }
 
-/** Null where the manager `scope` reaches answers, else why the real side
- * skips. */
 function realSkip(scope: string[], manager: string): string | null {
 	if (process.env.CI) return "CI: the live manager is the founder's machine's";
 	try {
@@ -85,8 +67,6 @@ function readRealUnits(): Units | string {
 	};
 }
 
-/** `read`'s answer, read at its first call: the real side's reads take a
- * spawn each, and every case asks. */
 function once<T>(read: () => T): () => T {
 	let value: { v: T } | undefined;
 	return () => {
@@ -125,8 +105,6 @@ const fake = writeSystemctl(dir, {
 });
 
 interface Units {
-	/** A unit enabled, one disabled, one active and one with an ExecStart
-	 * record, where the side has one. */
 	enabled: string | null;
 	disabled: string | null;
 	active: string | null;

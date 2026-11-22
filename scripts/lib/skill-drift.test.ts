@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * skill-drift.js's own suite: an adopter's forked skill is reported drifted
- * only where its bytes differ from the plugin's current copy, and a missing
- * file is named rather than read as drift. Built on a self-contained fixture
- * pair (adopter root, plugin root), carrying no host string — the doc-map
- * genericity test's shape (#7, AC3).
- *
- * `upgrade.js` prints what this returns on a plugin bump; loosen a case and an
- * adopter's fork is overwritten unreported, or flagged as drifted when it is not.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

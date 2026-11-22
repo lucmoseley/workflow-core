@@ -1,14 +1,3 @@
-/*
- * skill-drift.js — diffs an adopter's forked skill against the plugin's
- * current copy of the same skill (spec §Override model, mantahostels#3516
- * story 19: "a bump reports drift between my fork and the core instead of
- * silently overwriting it"; #7 AC3).
- *
- * Pure comparison only, no writing and no git: scripts/upgrade.js is the
- * caller that prints what this returns. Owed there as a one-line wiring debt
- * (#7) — this file is unclaimed, upgrade.js was not at the time #7 landed.
- */
-
 const path = require("node:path");
 const { readConfig, hostRoot } = require("./workflow-core-config.js");
 const { readText } = require("./file-read.js");
@@ -16,13 +5,12 @@ const { readText } = require("./file-read.js");
 /**
  * @typedef {object} SkillDrift
  * @property {string} name
- * @property {string} recordedFrom the value `overrides.skills` declared for this skill
- * @property {boolean} drifted whether the fork's bytes differ from the plugin's current copy
- * @property {string} [reason] set instead of comparing where either file is missing
+ * @property {string} recordedFrom
+ * @property {boolean} drifted
+ * @property {string} [reason]
  */
 
 /**
- * Every `overrides.skills` entry, checked against the plugin's shipped copy.
  * @param {{root?: string, pluginRoot: string}} opts
  * @returns {SkillDrift[]}
  */

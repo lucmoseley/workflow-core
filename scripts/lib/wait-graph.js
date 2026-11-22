@@ -1,21 +1,3 @@
-/*
- * wait-graph.js — the graph of open issues waiting on each other, in any repo
- * (#5070). An issue waits on each open blocker and, as a parent, on each open
- * sub-issue: it cannot close before they do. A loop needing both kinds is
- * invisible to a read of either alone, so both are read together.
- *
- * Nodes are keyed `owner/name#n` (refKey), so another repo's #3864 is never
- * ours. Each node's open blockers and open sub-issues come from
- * lib/link-batch.js's batched read.
- *
- * Every read is per node: edges, or unread with lib/gh.js's reason class.
- * What an unread node means is the caller's policy — the loop checker fails
- * closed on it, a link command fails open (lib/link-writer.js).
- *
- * Two operations: pathTo, for whether a new link closes a loop, and loops,
- * for every loop reachable from a set of seeds.
- */
-
 const { readLinksMany } = require("./link-batch.js");
 const { refKey, refLabel } = require("./issue-ref.js");
 
@@ -23,19 +5,12 @@ const { refKey, refLabel } = require("./issue-ref.js");
 /** @typedef {"child" | "blocker"} Kind */
 /** @typedef {{from: Ref, to: Ref, kind: Kind}} Link */
 /**
- * `state` is null where only REST answered, which does not say it.
  * @typedef {{ok: true, state: "open"|"closed"|null, edges: {to: Ref, kind: Kind}[]}
  *   | {ok: false, error: string, reason: "unreachable"|"broken"}} NodeRead
  */
 /** @typedef {{ref: Ref, error: string, reason: "unreachable"|"broken"}} Unread */
 
-/**
- * `v`, which the walk's own bookkeeping guarantees is set; a miss is a bug in
- * this file, never in the graph read.
- * @template T
- * @param {T|undefined} v
- * @returns {T}
- */
+/** @template T @param {T|undefined} v @returns {T} */
 function must(v) {
 	if (v === undefined)
 		throw new Error("wait-graph: a node the walk recorded is missing");
@@ -43,7 +18,6 @@ function must(v) {
 }
 
 /**
- * Rows' open targets as edges of `kind`, one naming no repo in `self`.
  * @param {import("./link-batch").LinkRow[]} rows
  * @param {Kind} kind
  * @param {string} self
@@ -55,7 +29,6 @@ const openEdges = (rows, kind, self) =>
 		.map((r) => ({ to: { repo: r.repo ?? self, number: r.number }, kind }));
 
 /**
- * One repo's nodes.
  * @param {string} repo
  * @param {Ref[]} refs
  * @returns {Promise<[string, NodeRead][]>}
@@ -79,11 +52,7 @@ async function readRepoNodes(repo, refs) {
 	]);
 }
 
-/**
- * Each of `refs`' outgoing edges, keyed by refKey.
- * @param {Ref[]} refs
- * @returns {Promise<Map<string, NodeRead>>}
- */
+/** @param {Ref[]} refs @returns {Promise<Map<string, NodeRead>>} */
 async function readNodes(refs) {
 	/** @type {Map<string, Ref[]>} */
 	const byRepo = new Map();
@@ -102,8 +71,6 @@ async function readNodes(refs) {
 }
 
 /**
- * The graph a walk has read: each node's ref and edges, and those it could
- * not read.
  * @typedef {{refs: Map<string, Ref>, edges: Map<string, {to: Ref, kind: Kind}[]>,
  *   states: Map<string, NodeRead & {ok: true}>, unread: Unread[]}} Graph
  */
@@ -117,9 +84,7 @@ const buildEmptyGraph = () => ({
 });
 
 /**
- * Reads `frontier` into `g`, returning the refs it reaches that `g` has not
- * yet seen.
- * @param {Graph} g accumulator: the frontier's reads added
+ * @param {Graph} g
  * @param {Ref[]} frontier
  * @param {(k: string) => boolean} seen
  * @returns {Promise<Ref[]>}
@@ -146,9 +111,6 @@ async function readLevel(g, frontier, seen) {
 }
 
 /**
- * The shortest path of existing links from `from` to `to`, or null, and the
- * nodes the walk could not read. A closed `from` waits on nothing a loop
- * could pass through, so it reaches nothing.
  * @param {Ref} from
  * @param {Ref} to
  * @returns {Promise<{path: Link[] | null, unread: Unread[]}>}
@@ -172,12 +134,9 @@ async function pathTo(from, to) {
 }
 
 /**
- * The refs one breadth-first step past `level` reaches first, each one's
- * link in `via`; `target` is recorded and never stepped past.
- * @param {Graph} g accumulator: each reached ref recorded
+ * @param {Graph} g
  * @param {Ref[]} level
- * @param {Map<string, {from: Ref, kind: Kind}>} via accumulator: each reached
- *   ref's link in
+ * @param {Map<string, {from: Ref, kind: Kind}>} via
  * @param {string} target
  */
 function advance(g, level, via, target) {
@@ -195,7 +154,6 @@ function advance(g, level, via, target) {
 }
 
 /**
- * The links `via` records from `from` to `target`, in order.
  * @param {Graph} g
  * @param {Map<string, {from: Ref, kind: Kind}>} via
  * @param {Ref} from
@@ -228,10 +186,7 @@ function traceBack(g, via, from, target) {
  * }} TarjanState
  */
 
-/**
- * @param {TarjanState} st accumulator: `v` indexed and pushed
- * @param {string} v
- */
+/** @param {TarjanState} st @param {string} v */
 function discover(st, v) {
 	st.index.set(v, st.counter);
 	st.low.set(v, st.counter++);
@@ -239,12 +194,7 @@ function discover(st, v) {
 	st.onStack.add(v);
 }
 
-/**
- * Pops the component rooted at `v`, keeping it when it has more than one
- * member.
- * @param {TarjanState} st accumulator: the component popped and kept in `out`
- * @param {string} v
- */
+/** @param {TarjanState} st @param {string} v */
 function popComponent(st, v) {
 	/** @type {string[]} */
 	const comp = [];
@@ -258,11 +208,9 @@ function popComponent(st, v) {
 }
 
 /**
- * Follows one edge out of `top`, descending into an unvisited target.
- * @param {TarjanState} st accumulator: advanced one edge
- * @param {{v: string, i: number}[]} work accumulator: an unvisited target
- *   pushed
- * @param {{v: string, i: number}} top accumulator: its edge cursor advanced
+ * @param {TarjanState} st
+ * @param {{v: string, i: number}[]} work
+ * @param {{v: string, i: number}} top
  * @param {string} w
  */
 function followEdge(st, work, top, w) {
@@ -275,10 +223,8 @@ function followEdge(st, work, top, w) {
 }
 
 /**
- * Leaves `top` once its edges are spent: passes its low-link to its parent
- * and closes its component when it is a root.
- * @param {TarjanState} st accumulator: low-links updated
- * @param {{v: string, i: number}[]} work accumulator: `top` popped
+ * @param {TarjanState} st
+ * @param {{v: string, i: number}[]} work
  * @param {{v: string, i: number}} top
  */
 function finishNode(st, work, top) {
@@ -293,10 +239,8 @@ function finishNode(st, work, top) {
 }
 
 /**
- * Tarjan's strongly connected components, iteratively; components of one
- * member dropped (an issue cannot wait on itself through these endpoints).
  * @param {string[]} nodes
- * @param {Map<string, string[]>} next each node's targets
+ * @param {Map<string, string[]>} next
  * @returns {string[][]}
  */
 function components(nodes, next) {
@@ -323,11 +267,7 @@ function components(nodes, next) {
 	return st.out;
 }
 
-/**
- * Orders refs `home`'s first, then by repo, then by number.
- * @param {string|null} home
- * @returns {(a: Ref, b: Ref) => number}
- */
+/** @param {string|null} home @returns {(a: Ref, b: Ref) => number} */
 const byRef = (home) => (a, b) => {
 	const rank = (/** @type {Ref} */ r) =>
 		refLabel(r, home).startsWith("#") ? 0 : 1;
@@ -338,12 +278,7 @@ const byRef = (home) => (a, b) => {
 	);
 };
 
-/**
- * The shortest path from the component's first member back to itself.
- * @param {string[]} members keys, first the start
- * @param {Graph} g
- * @returns {Link[]}
- */
+/** @param {string[]} members @param {Graph} g @returns {Link[]} */
 function examplePath(members, g) {
 	const inComp = new Set(members);
 	const start = must(members[0]);
@@ -376,11 +311,8 @@ function examplePath(members, g) {
 }
 
 /**
- * Every loop among the nodes reachable from `seeds`, each once with its
- * members ordered by `home` and one example path, plus the nodes the walk
- * read and could not read.
  * @param {Ref[]} seeds
- * @param {{home: string|null}} opts `home` orders members, its own first
+ * @param {{home: string|null}} opts
  * @returns {Promise<{cycles: {members: Ref[], path: Link[]}[], nodes: number, unread: Unread[]}>}
  */
 async function loops(seeds, { home }) {
@@ -413,11 +345,7 @@ async function loops(seeds, { home }) {
 	return { cycles, nodes: g.refs.size, unread: g.unread };
 }
 
-/**
- * A link as a reader sees it from `home`.
- * @param {Link} l
- * @param {string|null} home
- */
+/** @param {Link} l @param {string|null} home */
 const linkText = (l, home) =>
 	l.kind === "child"
 		? `${refLabel(l.from, home)} waits on child ${refLabel(l.to, home)}`

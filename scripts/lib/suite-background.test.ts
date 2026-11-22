@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * lib/suite-background.js, a PreToolUse dispatcher core (#2790), denies a
- * suite DETACHED INSIDE THE SHELL, where the tool call registers no job for
- * the run and nothing will ever wake the session (mantahostels#2485), and an
- * unbounded suite wrapped in a shell `timeout` (#1186).
- *
- * The deny's own TEXT carries its escape. And the escape is read from the
- * COMMAND STRING, a hook running before the command, so one read from the
- * hook's environment is unreachable from a Bash tool call (mantahostels#2486).
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * production adapters in the case's temp dir. The hook line and stdin are
- * scripts/guard-dispatch.test.ts's boundary set.
- *
- * Loosen a case and a suite detached in the shell runs unwatched while its
- * session waits for a wake that never comes; widen it and a properly
- * backgrounded suite is refused.
- *
- * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
- * whether a queued npm script runs run-vitest.js is read from the worktree's
- * package.json.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -56,10 +34,6 @@ const run = (command: string, background?: boolean) =>
 const FIX_OPENER =
 	"Run instead, in the foreground with the Bash tool's `timeout: 600000`: ";
 
-/*
- * Every deny's first line is the command to re-issue (#519): the opener, then
- * a command still carrying the suite and no detachment of any spelling.
- */
 const expectFixFirst = (command: string, reason: string) => {
 	const first = reason.split("\n")[0];
 	expect(first.startsWith(FIX_OPENER), `first line for: ${command}`).toBe(true);
@@ -67,7 +41,6 @@ const expectFixFirst = (command: string, reason: string) => {
 	expect(fix, `fix for: ${command}`).toMatch(
 		/npm|run-vitest\.js|pytest|node --test/,
 	);
-	/* The command's own words, in order: only a detaching `&` became `;`. */
 	const words = command.split(/\s+/);
 	let at = 0;
 	for (const word of fix.split(/\s+/).filter((w) => w && w !== ";")) {
@@ -99,7 +72,6 @@ const readDenyReason = (command: string) => {
 	return reason;
 };
 
-/* The core's header: the comment before its first require. */
 const readHeader = () => fs.readFileSync(CORE, "utf8").split("\nconst ")[0];
 
 beforeEach(() => {
@@ -123,19 +95,11 @@ describe("lib/suite-background.js", () => {
 			expect(verdict(command), command).toBe("deny");
 	});
 
-	/*
-	 * The wrapper shell exits at once, so the registered job describes the
-	 * wrapper and reports exit 0 in seconds while the suite runs on unattached.
-	 */
 	it("denies a detached suite even when run_in_background is set", () => {
 		expect(verdict("npm run test &", true)).toBe("deny");
 		expect(verdict("nohup npm run test", true)).toBe("deny");
 	});
 
-	/*
-	 * A foreground call that overruns its timeout is backgrounded by the
-	 * harness and does notify.
-	 */
 	it("allows a plain foreground suite", () => {
 		for (const command of [
 			"npm test",
@@ -182,8 +146,6 @@ describe("lib/suite-background.js", () => {
 			"sudo -u root npm run test &",
 			"nice npm run test &",
 			"nice -n 5 npm run test &",
-			/* Reading `nice`'s obsolete adjustment spelling as a value-taker
-			 * would eat `npm` (mantahostels#2524, mantahostels#2552). */
 			"nice -5 npm run test &",
 			"ionice -c2 npm run test &",
 			"ionice -c 2 -n 0 npm run test &",
@@ -196,8 +158,6 @@ describe("lib/suite-background.js", () => {
 			"env -S 'npm run test' &",
 			"env --split-string 'npm run test' &",
 			"env --split-string='npm run test' &",
-			/* An OPTIONAL-value flag must NOT be swept as a value-taker: swept,
-			 * it eats `npm` and the launch goes unjudged. */
 			"xargs --eof npm run test &",
 			"xargs --replace npm run test &",
 			"sudo -h npm run test &",
@@ -213,7 +173,6 @@ describe("lib/suite-background.js", () => {
 			"env WFC_SUITE_DETACH=1 npm run test &",
 			"nohup env WFC_SUITE_DETACH=1 npm run test",
 			"env WFC_SUITE_DETACH=1 -u FOO npm run test &",
-			/* The timeout limb has its own escape (#1186). */
 			"WFC_SUITE_DETACH=1 WFC_SUITE_TIMEOUT=1 timeout 900 npm run test &",
 			"WFC_SUITE_DETACH=1 stdbuf -oL npm run test &",
 			"WFC_SUITE_DETACH=1 time npm run test &",
@@ -235,25 +194,12 @@ describe("lib/suite-background.js", () => {
 			expect(verdict(command), command).toBe("allow");
 	});
 
-	/*
-	 * The empty-valued row is the discriminating half: the escape needs a
-	 * non-empty value, so a working split reaches the suite and denies, where a
-	 * broken one leaves a word the recogniser does not know and allows for the
-	 * wrong reason.
-	 */
 	it("reads the detach escape from inside the split string", () => {
 		expect(verdict("env -S 'WFC_SUITE_DETACH=1 npm run test' &")).toBe("allow");
 		expect(verdict("env -S 'WFC_SUITE_DETACH= npm run test' &")).toBe("deny");
 	});
 
 	it("reads an assignment as an escape only after env", () => {
-		/*
-		 * The first two are the discriminating case. An assignment after a
-		 * non-`env` wrapper must STOP the strip, so the words left to judge
-		 * begin with the assignment and no suite is seen at all — drop that
-		 * limb and the strip runs on to `npm run test`, a suite carrying no
-		 * escape, and both deny.
-		 */
 		expect(verdict("nohup FOO=1 npm run test")).toBe("allow");
 		expect(verdict("timeout 900 FOO=1 npm run test &")).toBe("allow");
 		expect(verdict("nohup WFC_SUITE_DETACH=1 npm run test")).toBe("allow");
@@ -271,7 +217,6 @@ describe("lib/suite-background.js", () => {
 		expect(verdict("npm run test:py")).toBe("allow");
 	});
 
-	/* #1528: lib/suite-launch.js's other runners and quoted script names. */
 	it("denies a detached pytest, node --test and a quoted npm script", () => {
 		for (const command of [
 			"pytest &",
@@ -327,11 +272,6 @@ describe("lib/suite-background.js", () => {
 			);
 	});
 
-	/*
-	 * A heredoc's body is data (#2384): read as a detachment it refused a
-	 * foreground run, and rewritten it re-issued a script that wrote
-	 * `[;;|]` for `[;&|]`. The timeout limb's re-spelling reached a body too.
-	 */
 	it("reads no detachment in a heredoc, and re-issues its body unchanged", () => {
 		const write = [
 			"cat > /tmp/x.sh <<'EOF'",
@@ -364,10 +304,6 @@ describe("lib/suite-background.js", () => {
 		}
 	});
 
-	/*
-	 * The deny must assert no wake: backgrounding buys a notification that may
-	 * never be delivered.
-	 */
 	it("keeps the escape, the no-tool-call ending and the check before a relaunch", () => {
 		const reason = readDenyReason("nohup npm run test");
 		expect(reason).toContain("WFC_SUITE_DETACH=1");
@@ -395,7 +331,6 @@ describe("lib/suite-background.js", () => {
 
 	it("reads the escape from the command string, not the hook's environment", () => {
 		expect(verdict("WFC_SUITE_DETACH=1 nohup npm run test")).toBe("allow");
-		// `?*` requires a value, so a bare `=` is not set and does not escape.
 		expect(verdict("WFC_SUITE_DETACH= nohup npm run test")).toBe("deny");
 	});
 
@@ -408,7 +343,6 @@ describe("lib/suite-background.js", () => {
 			expect(verdict(command), command).toBe("allow");
 	});
 
-	/* #1186, ruled at #1181: the wrapper kills the run with no result. */
 	it("denies an unbounded suite wrapped in a shell timeout", () => {
 		for (const command of [
 			"timeout 590 npm run test",
@@ -430,7 +364,6 @@ describe("lib/suite-background.js", () => {
 			expect(verdict(command), command).toBe("deny");
 	});
 
-	/* #1196: a flag's value is no test file, so the run takes every file. */
 	it("denies a timed run whose only bare word is a flag's value", () => {
 		for (const command of [
 			"timeout 590 node scripts/run-vitest.js -t foo",
@@ -449,7 +382,6 @@ describe("lib/suite-background.js", () => {
 			expect(verdict(command), command).toBe("deny");
 	});
 
-	/* #1213: an adoption run selects every reader of its paths. */
 	it("denies a timed adoption run even where it names a test file", () => {
 		for (const command of [
 			"timeout 590 npm run test -- --adopt scripts/a.test.ts",
@@ -472,17 +404,13 @@ describe("lib/suite-background.js", () => {
 			"timeout 590 node scripts/run-vitest.js 'scripts/a.test.ts'",
 			"timeout 590 npm run test -- scripts/a.test.ts",
 			"timeout 590 npm test -- scripts/a.test.ts",
-			/* A named file outranks --full: run-vitest.js runs no whole suite. */
 			"timeout 590 npm run test -- --full=pre-push scripts/a.test.ts",
 			"npm run test",
 			"npm run test -- --full=pre-push",
 			"node scripts/run-vitest.js --queue",
 			"scripts/bg-run.sh run s1 npm run test -- --full=pre-push --queue",
-			/* Not the wrapper: an argument after the command word, or a
-			 * timeout around another segment. */
 			"npm run test -- --grep timeout 5",
 			"timeout 5 curl -s example.com && npm run test",
-			/* Out of the limb: a watcher and the Python suite. */
 			"timeout 590 npm run test:watch",
 			"timeout 590 npm run test:py",
 		])
@@ -500,13 +428,11 @@ describe("lib/suite-background.js", () => {
 		expect(
 			verdict("timeout 590 npm run test -- --grep=WFC_SUITE_TIMEOUT=1"),
 		).toBe("deny");
-		/* Per segment: the escaped first segment does not cover the second. */
 		expect(
 			verdict(
 				"WFC_SUITE_TIMEOUT=1 timeout 5 npm run test; timeout 5 npm run test:changed",
 			),
 		).toBe("deny");
-		/* Each limb has its own escape, so the detachment escaped stays. */
 		expect(
 			readDenyReason("WFC_SUITE_DETACH=1 timeout 590 npm run test &").split(
 				"\n",
@@ -535,7 +461,6 @@ describe("lib/suite-background.js", () => {
 				"npm run test; npm run test",
 			],
 			["timeout 590 npm run test &", "npm run test"],
-			/* A timeout outside an env -S string is still stripped. */
 			["timeout 590 env -S 'npm run test'", "env -S 'npm run test'"],
 		])
 			expect(readDenyReason(command).split("\n")[0], command).toBe(

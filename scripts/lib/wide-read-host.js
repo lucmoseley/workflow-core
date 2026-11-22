@@ -1,23 +1,11 @@
-/*
- * wide-read-host.js — the production ports lib/wide-read.js reads (#2791),
- * wired by the dispatcher's `guard-wide-read` row: a file's size, the bytes a
- * line window holds, and a glob's expansion.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { escapeRe } = require("./regex-group.js");
 const { isGlobPattern } = require("./shell-words.js");
 
-/**
- * How much of a file one read takes while counting a line window: 64 KiB,
- * Node's own default chunk for a file stream (fs.createReadStream's
- * highWaterMark). Not measured for this use.
- */
 const CHUNK = 64 * 1024;
 
 /**
- * Bytes on disk for a readable regular file; null for anything else.
  * @param {string} p
  * @returns {number | null}
  */
@@ -28,17 +16,11 @@ function fileBytes(p) {
 		fs.accessSync(p, fs.constants.R_OK);
 		return st.size;
 	} catch {
-		/* The port's contract: a path that cannot be stat'd or read answers
-		 * null, and the core leaves it unjudged (#2791). */
 		return null;
 	}
 }
 
 /**
- * The bytes lines `first` to `last` (1-based, inclusive) of a file hold, each
- * line's newline counted, as `sed -n "<first>,<last>p"` prints them. It stops
- * reading at the end of line `last`, so a huge file costs only the window
- * (#1916). Null where the file cannot be read.
  * @param {string} p
  * @param {number} first
  * @param {number} last
@@ -60,20 +42,13 @@ function windowBytes(p, first, last) {
 			}
 		}
 	} catch {
-		/* The port's contract: a file that cannot be opened or read answers
-		 * null, which the core logs and judges unchecked — a measure that
-		 * failed is not a finding (mantahostels#147). */
 		return null;
 	} finally {
 		if (fd !== undefined) fs.closeSync(fd);
 	}
 }
 
-/**
- * One glob segment as a regex, bash's pattern grammar: `*`, `?`, a bracket
- * expression (`!` or `^` negating), a backslash quoting the next character.
- * @param {string} seg
- */
+/** @param {string} seg */
 function segmentRe(seg) {
 	let re = "";
 	for (let i = 0; i < seg.length; i++) {
@@ -93,8 +68,6 @@ function segmentRe(seg) {
 const GLOB_CHARS = { "*": "[^/]*", "?": "[^/]" };
 
 /**
- * The bracket expression opening at `i`, as a regex class, and the index of
- * its `]`; null where none closes, so the `[` is literal.
  * @param {string} seg
  * @param {number} i
  */
@@ -111,8 +84,6 @@ function bracketAt(seg, i) {
 }
 
 /**
- * One word's matches, bash's pathname expansion under nullglob: a leading `.`
- * matched only by a pattern spelling one, each directory's names sorted.
  * @param {string} word
  * @param {string} cwd
  * @returns {string[]}
@@ -133,7 +104,6 @@ function expandWord(word, cwd) {
 }
 
 /**
- * The names under `base` one pattern segment matches, joined to it, sorted.
  * @param {string} base
  * @param {string} seg
  * @param {string} cwd
@@ -144,8 +114,6 @@ function readMatching(base, seg, cwd) {
 	try {
 		names = fs.readdirSync(path.resolve(cwd, base || "."));
 	} catch {
-		/* The port's contract: a directory that cannot be listed matches
-		 * nothing, as nullglob expands an unreadable one (#2791). */
 		return [];
 	}
 	const re = segmentRe(seg);
@@ -156,9 +124,6 @@ function readMatching(base, seg, cwd) {
 }
 
 /**
- * What an unquoted `$lit` expands to: split on blanks, each part holding a
- * pattern character expanded under nullglob, any other kept as spelled.
- * Absolute, read from `cwd`.
  * @param {string} lit
  * @param {string} cwd
  * @returns {string[]}

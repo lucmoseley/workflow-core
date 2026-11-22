@@ -1,23 +1,8 @@
 // @vitest-environment node
-/*
- * The lexical read graph: which tracked files a test reaches at runtime, so a
- * change to one selects its readers (mantahostels#2031, mantahostels#2441, #157).
- *
- * The library is pure — a source string, a tracked set, a reader function — so
- * every branch is reachable in-process and none of it needs a git repo.
- *
- * `run-vitest.js` unions these edges into every bare `npm run test` and
- * `--changed` run, and a push is judged attested by those runs' certificates; loosen a case
- * and a changed document selects none of the tests that assert over it, which
- * then go unrun while the push reads attested.
- */
 
 import { describe, expect, it } from "vitest";
 import { buildManifest, testsReading } from "./test-read-edges.js";
 
-/* Joined rather than written whole: spelling either path out here — in code OR
- * in a comment, which the pass also scans — would make this test a reader of
- * the real document in the generated manifest, which it is not. */
 const DOC = ["docs", "doc-map.md"].join("/");
 const CLAUDE = ["CLAUDE", "md"].join(".");
 const tracked = new Set([
@@ -27,19 +12,12 @@ const tracked = new Set([
 	"scripts/b.test.ts",
 ]);
 
-/** A separate tracked set for the hop-resolution cases, so it never adds an
- * unread test file to the plain `buildManifest` cases above. */
 const withHelper = new Set([
 	...tracked,
 	"scripts/lib/helper.ts",
 	"scripts/c.test.ts",
 ]);
 
-/**
- * The tracked paths `buildManifest` records `self` as reading, where `self` is
- * a test file whose text is `source` and every other tracked file reads empty —
- * so no hop, own-module or spawned-script edge can join the direct reads.
- */
 function readsOf(source: string, files: Set<string>, self: string): string[] {
 	const { edges } = buildManifest(files, (p) => (p === self ? source : ""));
 	return Object.keys(edges)
@@ -73,7 +51,6 @@ describe("a test's direct reads", () => {
 	});
 
 	it("sorts its own return, so a reader list never depends on literal order", () => {
-		/* Named in reverse order in the source. */
 		const src = `process.cwd(); read("${DOC}"); read("${CLAUDE}");`;
 		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([CLAUDE, DOC]);
 	});
@@ -102,9 +79,6 @@ describe("a test's direct reads", () => {
 });
 
 describe("a test's direct reads under __dirname", () => {
-	/* The guard-test shape mantahostels#2433 found: the subject is named by bare filename,
-	 * so it is tracked only under the test's own directory. Joined from
-	 * fragments for the same reason DOC and CLAUDE are, above. */
 	const guard = ["scripts", "guard-x.sh"].join("/");
 	const parse = ["scripts", "lib", "guard-log.sh"].join("/");
 	const helper = ["scripts", "lib", "helper.ts"].join("/");
@@ -126,8 +100,6 @@ describe("a test's direct reads under __dirname", () => {
 	});
 
 	it("keeps the two anchors apart, so __dirname alone licenses no root edge", () => {
-		/* Were a bare __dirname to license the ROOT pass too, every tempdir
-		 * fixture beside one would become a false root edge (mantahostels#2433). */
 		const src = `path.join(__dirname, "x"); writeFileSync(join(os.tmpdir(), "${DOC}"), body);`;
 		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([]);
 	});
@@ -163,9 +135,6 @@ describe("a test's direct reads under __dirname", () => {
 	});
 
 	it("resolves a composed run under the root anchor, not just __dirname", () => {
-		/* A fictional path, not a real tracked file: this fixture's raw text
-		 * would otherwise make THIS test file a false reader of whatever it
-		 * names. */
 		const nowhere = ["docs", "not-a-real-file.md"].join("/");
 		const src = `process.cwd(); path.join(ROOT, "docs", "not-a-real-file.md");`;
 		const many = new Set([...tracked, nowhere]);
@@ -178,36 +147,27 @@ describe("a test's direct reads under __dirname", () => {
 	});
 
 	it("never reads an Array#join's comma run as a composed path", () => {
-		/* A composed pass that fired on any comma run, rather than one gated
-		 * on an actual `path.resolve`/`path.join` call, would defeat that
-		 * (mantahostels#2441). */
 		const src = `process.cwd(); const p = ["docs", "doc-map.md"].join("/");`;
 		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([]);
 	});
 
 	it("mints no sibling edge for a file the test already imports", () => {
-		/* An import specifier is a literal too. */
 		const src = `import { f } from "./lib/helper.ts";\npath.join(__dirname, "x");`;
 		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([]);
 	});
 
 	it("still mints the edge for a script it spawns rather than imports", () => {
-		/* A .js named as a subprocess argument is in no import graph. */
 		const src = `execFileSync("node", [path.resolve(__dirname, "lib/helper.ts")]);`;
 		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([helper]);
 	});
 
 	it("keeps the edge when the only static import is type-only (#1223)", () => {
-		/* vitest erases the type import, so only the require reaches it. */
 		const src = `import type { H } from "./lib/helper.ts";\nconst h = require("./lib/helper.ts");\npath.join(__dirname, "x");`;
 		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([helper]);
 	});
 });
 
 describe("a test's direct reads under a directory-class call (#157)", () => {
-	/* Fictional directory names throughout — a real one (e.g. "docs/agents/
-	 * rules") would make THIS test file a true reader of it once the real
-	 * generator scans this source. */
 	const fdir = ["docs", "zzz-fixture-dir"].join("/");
 	const ruleA = [fdir, "a.txt"].join("/");
 	const ruleB = [fdir, "b.txt"].join("/");
@@ -223,8 +183,6 @@ describe("a test's direct reads under a directory-class call (#157)", () => {
 	});
 
 	it("does not fire on a bare-variable final segment, only a template literal", () => {
-		/* A bare variable is too often a single named file rather than a
-		 * directory walk for a lexical pass to tell apart (#157). */
 		const src =
 			'process.cwd(); path.join(ROOT, "docs", "zzz-fixture-dir", file);';
 		expect(readsOf(src, dirTracked, "scripts/a.test.ts")).toEqual([]);
@@ -273,15 +231,12 @@ describe("a test's direct reads under a directory-class call (#157)", () => {
 	});
 
 	it("does not fire when every argument after the anchor is a plain literal", () => {
-		/* That shape is COMPOSED_CALL's, naming one file rather than a directory. */
 		const src =
 			'process.cwd(); path.join(ROOT, "docs", "zzz-fixture-dir", "a.txt");';
 		expect(readsOf(src, dirTracked, "scripts/a.test.ts")).toEqual([ruleA]);
 	});
 });
 
-/* Both spelled in pieces: written whole, a call in a fixture below would make
- * THIS file a reader of whatever it lists once the real generator scans it. */
 const READDIR = ["readdir", "Sync"].join("");
 const LS_FILES = ["ls", "files"].join("-");
 
@@ -481,11 +436,6 @@ describe("a test's direct reads through git ls-files (#1770)", () => {
 });
 
 describe("resolving a test's import to the helper it hops through", () => {
-	/**
-	 * Which of `helpers` the import `spec` in `test` resolves to, read off the
-	 * manifest: each helper reads a marker of its own, and a helper's reads are
-	 * credited to the test importing it.
-	 */
 	function resolvedHelper(
 		test: string,
 		spec: string,
@@ -557,7 +507,7 @@ describe("resolving a test's import to the helper it hops through", () => {
 describe("buildManifest", () => {
 	const sources: Record<string, string> = {
 		"scripts/a.test.ts": `process.cwd(); read("${DOC}"); read("${CLAUDE}");`,
-		"scripts/b.test.ts": `read("${DOC}");`, // no anchor: a fixture, not a read
+		"scripts/b.test.ts": `read("${DOC}");`,
 	};
 
 	it("keys by document and lists only the anchored readers", () => {
@@ -591,9 +541,6 @@ describe("buildManifest", () => {
 	});
 
 	it("never lists the importing test as its own reader through a hop", () => {
-		/* A harness naming the test paths it drives, beside an anchor, must not
-		 * make the self-exclusion (pinned above for the direct path)
-		 * fail to reach the test on the OTHER side of the hop. */
 		const selfNaming: Record<string, string> = {
 			"scripts/lib/helper.ts": `process.cwd(); read("scripts/c.test.ts");`,
 			"scripts/c.test.ts": `import { f } from "./lib/helper";\nf();`,
@@ -630,7 +577,6 @@ describe("buildManifest", () => {
 	});
 });
 
-/* Fictional paths under scripts/zz/, so this file reads none of them. */
 const T = "scripts/zz/t.test.ts";
 const drives = (target: string) => `process.cwd(); load("${target}");`;
 const build = (files: Record<string, string>) =>
@@ -720,7 +666,7 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 			"scripts/zz/run.js": `require("./lib/a");`,
 			"scripts/zz/other.js": `require("./lib/b");`,
 			"scripts/zz/lib/a.js": `require("./b.js");`,
-			"scripts/zz/lib/b.js": `require("./a");`, // a cycle terminates
+			"scripts/zz/lib/b.js": `require("./a");`,
 		});
 		expect(edges["scripts/zz/lib/a.js"]).toEqual([T]);
 		expect(edges["scripts/zz/lib/b.js"]).toEqual([U]);
@@ -856,8 +802,6 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 	});
 
 	it("reads a shell script's path operands, never its comments, heredocs or prose", () => {
-		/* Interpolated: a shell `${...}` written in a plain string trips
-		 * Biome's noTemplateCurlyInString. */
 		const Dollar = "$";
 		const { edges } = build({
 			[T]: drives("scripts/zz/run.sh"),
@@ -937,8 +881,6 @@ describe("buildManifest over a shell script's launches (#4505)", () => {
 	});
 });
 
-/* Joined for the reason DOC is, and the fixture test sits in scripts/ so its
- * "./lib/rule-text" resolves under scripts/lib/lib/ when this file is scanned. */
 const RULE_TEXT = ["scripts/lib", "rule-text.js"].join("/");
 const FRAGMENT = ["docs/agents/rules", "x.txt"].join("/");
 const R = "scripts/r.test.ts";
@@ -978,7 +920,6 @@ describe("buildManifest over a patch a test reads (#3206)", () => {
 	const fix = "scripts/fixes/x.patch";
 	const reader = "scripts/a.test.ts";
 	const files = new Set([...tracked, fix, "scripts/x.js", "scripts/x.test.ts"]);
-	/** What `reader` reads when it reads a patch holding `patch`. */
 	const readsWith = (patch: string) => {
 		const text: Record<string, string> = {
 			[reader]: `const ROOT = "."; read(ROOT, "${fix}");`,
@@ -1024,8 +965,6 @@ describe("testsReading", () => {
 
 describe("buildManifest's unseen read sites (#1881)", () => {
 	const self = "scripts/a.test.ts";
-	/* Built from DOC, never spelled: a quoted directory or file here would
-	 * make this test a reader of it in the real manifest. */
 	const [dir, file] = DOC.split("/");
 	const anchored = 'const ROOT = path.resolve(__dirname, "..");\n';
 	const fullSweep =
@@ -1319,7 +1258,6 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 		},
 	);
 
-	/* #2595: a walked collection changed after its declaration holds more than its literals. */
 	it("reports a walk of a declared array with an element assigned after its declaration", () => {
 		const body = `${anchored}const L = ["${DOC}"];\nL[1] = pick();\nfor (const f of L) fs.readFileSync(path.join(ROOT, f));`;
 		expect(sitesOf(body).map((s) => s.shape)).toEqual([
@@ -1390,7 +1328,6 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 		expect(sitesOf(body)).toEqual([]);
 	});
 
-	/* #2545: base §X binds every test vitest collects, so the listing does too. */
 	for (const other of ["scripts/a.spec.ts", "scripts/a.test.js"])
 		it(`reports an unseen read in ${other}, a test vitest collects`, () => {
 			const body = `${anchored}fs.readFileSync(path.join(ROOT, cfg.file));`;

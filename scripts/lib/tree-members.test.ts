@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * tree-members.js read from inside a commit hook, where git exports the hook
- * repo's index (#4733): another checkout is read from its own index, the
- * hook's repo from the one the commit is building. A real pathspec commit
- * through a real hook, since which variables git exports, and where they
- * point, is git's to decide (a linked worktree adds GIT_DIR). Broken, an
- * adopter's registry checker calls every core guard non-existent, or a
- * pathspec commit is judged on files it does not carry.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -49,11 +40,6 @@ require("node:fs").writeFileSync(${JSON.stringify(seen)}, JSON.stringify({
 	return { core, hooks, seen };
 }
 
-/**
- * A pathspec commit of a.md from `checkout`, with staged.md staged beside it:
- * git builds a temporary index of HEAD plus a.md and exports it, so staged.md
- * is in the real index but not that one.
- */
 function pathspecCommit(checkout: string, seen: string): Seen {
 	fs.writeFileSync(path.join(checkout, "staged.md"), "\n");
 	git(checkout, "add", "staged.md");

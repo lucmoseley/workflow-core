@@ -1,13 +1,3 @@
-/*
- * session-bar-carry.js — keeps a session bar in the usage-probe recording
- * when the probed seat lists none (#5332). A seat with no five-hour window
- * open, or on a plan with no 5-hour bar (#3758), prints no `Current
- * session:` line and caches no `session` limit, yet the fake still prints and
- * caches one for every case that sets a session percent. So a session-less
- * probe carries the previous recording's session bar forward, under the
- * harness that recorded it.
- */
-
 const SESSION_PREFIX = "Current session:";
 
 /**
@@ -21,11 +11,10 @@ const SESSION_PREFIX = "Current session:";
  * }} Recording
  */
 
-/** `recording`'s own session bar, or the one it carries; null when it has
- * neither. Throws on a probe that printed the bar but cached none, or the
- * reverse.
+/**
  * @param {Recording} recording
- * @returns {SessionBar | null} */
+ * @returns {SessionBar | null}
+ */
 function sessionBarOf(recording) {
 	const printed = recording.printed.find((l) => l.startsWith(SESSION_PREFIX));
 	const limit = recording.cache.utilization.limits.find(
@@ -39,12 +28,12 @@ function sessionBarOf(recording) {
 	return recording.sessionBar ?? null;
 }
 
-/** `probe` as the fixture records it: as probed when it lists a session
- * bar, else carrying `previous`'s.
+/**
  * @template {Recording} R
  * @param {R} probe
- * @param {Recording | null} previous the fixture it replaces, if any
- * @returns {R & { sessionBar?: SessionBar }} */
+ * @param {Recording | null} previous
+ * @returns {R & { sessionBar?: SessionBar }}
+ */
 function carrySessionBar(probe, previous) {
 	const own = sessionBarOf({ ...probe, sessionBar: undefined });
 	if (own) return probe;

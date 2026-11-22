@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * A session started in an existing worktree is refused, naming the line and
- * its fix, where that worktree's own `.claude/settings.json` would lock out
- * its every tool call, and admitted otherwise (#4752).
- *
- * Loosen the check and a resumed session meets the harness's bare refusal
- * on every call, with no fix named and no tool left to apply one.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -48,8 +40,6 @@ describe("settingsLockout", () => {
 	});
 
 	it("refuses a worktree whose canary line outlives its timeout", () => {
-		/* Wall-clock, as the probe kills the line at its registered timeout and
-		 * the line runs in `sh`, where no clock seam reaches. */
 		const at = repo.cutWorktree("slow", (text) =>
 			text
 				.replace(/"command": "(.*?)",/, '"command": "sleep 3; $1",')
@@ -105,8 +95,6 @@ describe("settingsLockout", () => {
 		expect(markersLeft(at)).toEqual([]);
 	});
 
-	/* The cases below each remove one of the main checkout's scripts, so each
-	 * builds a repo of its own rather than break the one the others share. */
 	const without = (name: string, script: string) => {
 		const own = path.join(dir, name);
 		fs.mkdirSync(own);

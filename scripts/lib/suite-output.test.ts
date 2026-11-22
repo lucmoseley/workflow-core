@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/suite-output.js's reading of a vitest or pytest run's output (#3937).
- *
- * Loosen it and a red names the wrong test, one failure reads as two across
- * runs, or two offenders read as one, so a bisect blames the wrong commit.
- */
 import { describe, expect, it } from "vitest";
 import { parseFailingTests } from "./suite-output.js";
 
@@ -55,7 +49,6 @@ it("names the failing tests vitest and pytest print, each with its error's first
 });
 
 describe("a failure's signature (#3937)", () => {
-	/* Vitest's print of `toEqual([])` on a list of one offender, as run on #3937. */
 	const scanRed = (offender: string) =>
 		parseFailingTests(
 			[

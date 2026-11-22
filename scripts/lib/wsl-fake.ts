@@ -1,11 +1,3 @@
-/*
- * wsl-fake.ts — check-wsl-currency.js's reads for its tests (#4082): a stub
- * `wsl.exe`, injected at WFC_WSL_EXE and held to the real one by
- * wsl.contract.test.ts (§G7); and the two release answers, built on the
- * fixtures gh.contract.test.ts holds to gh.
- *
- * FOR TESTS ONLY.
- */
 import fs from "node:fs";
 import path from "node:path";
 import LATEST from "./fixtures/gh/wsl-latest-release.json" with {
@@ -22,7 +14,6 @@ export type WslBehaviour =
 	| { hangs: true }
 	| { stallsOnce: true; version: string };
 
-/* Far over any budget a test passes; the reader's SIGKILL ends it. */
 const HANG_S = 30;
 
 const utf16 = (lines: string[]) =>
@@ -35,7 +26,6 @@ const versionBytes = (version: string) =>
 		"WSLg version: 1.0.71",
 	]);
 
-/** A wsl.exe in `dir`. Its path, for WFC_WSL_EXE. */
 export function writeWsl(dir: string, behaviour: WslBehaviour): string {
 	fs.mkdirSync(dir, { recursive: true });
 	const bin = path.join(dir, "wsl.exe");
@@ -71,7 +61,6 @@ export function writeWsl(dir: string, behaviour: WslBehaviour): string {
 export const wslCallLogPath = (dir: string): string =>
 	path.join(dir, "wsl-calls");
 
-/** A /proc tree under `dir` holding a kernel release. Its root, for WFC_PROC. */
 export function writeOsrelease(dir: string, release: string): string {
 	const root = path.join(dir, "proc");
 	fs.mkdirSync(path.join(root, "sys/kernel"), { recursive: true });
@@ -86,7 +75,6 @@ export const buildLatestAnswer = (tag: string): GhAnswer => ({
 	stdout: JSON.stringify({ ...JSON.parse(LATEST.stdout), tag_name: tag }),
 });
 
-/** The release-list read answering stable `tags`, then `preReleases`. */
 export const buildReleasesAnswer = (
 	tags: string[],
 	preReleases: string[] = [],

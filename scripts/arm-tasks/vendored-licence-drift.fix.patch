@@ -533,38 +533,18 @@ index d62c4c4ea..f15871220 100644
  
  	/** The limb, cut from the real hook, run over `root`'s index. */
 diff --git a/scripts/lib/vendored-notices.js b/scripts/lib/vendored-notices.js
-index 045b57a9866d3237a010ae4cd1caad1c3201bde1..027b03f894a618071a49e676ca6db72614e602c7 100644
 --- a/scripts/lib/vendored-notices.js
 +++ b/scripts/lib/vendored-notices.js
-@@ -8,6 +8,9 @@
-  * re-pull never removes it. The lock does not ship, so the `Skills:` line is what tells an
-  * adopter which licence covers which skill. Two readers refuse a mismatch:
-  * check-vendored-skills.js at commit, and the release render.
-+ *
-+ * `readNoticeLicences` hands each section's licence text to
-+ * check-vendored-skills.js --upstream, which compares it with upstream's (#1951).
-  */
- 
- const fs = require("node:fs");
-@@ -39,12 +42,14 @@ function readLockedSources(root) {
- 
+@@ -22,7 +22,7 @@ function readLockedSources(root) {
  /**
-  * Each `## <source>` section's `Skills:` names, or an empty list where the
-- * section has no such line. A section ends only at the next heading naming a
-- * lock source (#2378).
-+ * section has no such line, and its licence: the text after that line, or
-+ * empty where there is none. A section ends only at the next heading naming a
-+ * lock source, so a licence holding a `## ` heading of its own keeps its
-+ * tail (#2378).
-  *
   * @param {string} text
-  * @param {Map<string, string[]>} sources the lock's skill names by source
+  * @param {Map<string, string[]>} sources
 - * @returns {Map<string, { names: string[] }>}
 + * @returns {Map<string, { names: string[], licence: string }>}
   */
  function noticeSections(text, sources) {
  	/** @type {Map<string, string[]>} */
-@@ -58,10 +63,11 @@ function noticeSections(text, sources) {
+@@ -36,10 +36,11 @@ function noticeSections(text, sources) {
  			bodies.set(heading, body);
  		} else body?.push(l);
  	}
@@ -578,7 +558,7 @@ index 045b57a9866d3237a010ae4cd1caad1c3201bde1..027b03f894a618071a49e676ca6db726
  		const names = line
  			? line
  					.slice("Skills:".length)
-@@ -69,7 +75,10 @@ function noticeSections(text, sources) {
+@@ -47,7 +48,10 @@ function noticeSections(text, sources) {
  					.map((s) => s.trim().replace(/^`|`$/g, ""))
  					.filter(Boolean)
  			: [];
@@ -590,18 +570,11 @@ index 045b57a9866d3237a010ae4cd1caad1c3201bde1..027b03f894a618071a49e676ca6db726
  	}
  	return sections;
  }
-@@ -91,6 +100,26 @@ const staleHeadings = (text, sources) =>
+@@ -64,6 +68,19 @@ const staleHeadings = (text, sources) =>
  		.map((m) => m[1] ?? "")
  		.filter((h) => !sources.has(h));
  
-+/**
-+ * The licence text NOTICES holds for each lock source it has a section for. A
-+ * source with none is NOTICE-MISSING's, so it is absent here.
-+ *
-+ * @param {string} root
-+ * @returns {Map<string, string>}
-+ * @throws {Error} where the lock exists and will not parse
-+ */
++/** @param {string} root @returns {Map<string, string>} */
 +function readNoticeLicences(root) {
 +	const bySource = readLockedSources(root) ?? new Map();
 +	const sections = noticeSections(readNoticesText(root), bySource);
@@ -614,10 +587,10 @@ index 045b57a9866d3237a010ae4cd1caad1c3201bde1..027b03f894a618071a49e676ca6db726
 +	return out;
 +}
 +
- /**
-  * One line per lock source NOTICES fails, each naming its way out. None where
-  * the lock is absent.
-@@ -127,4 +156,4 @@ function noticeFaults(root) {
+ /** @param {string} root @returns {string[]} */
+ function noticeFaults(root) {
+ 	const bySource = readLockedSources(root);
+@@ -93,4 +110,4 @@ function noticeFaults(root) {
  	return faults;
  }
  

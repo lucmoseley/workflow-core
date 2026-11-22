@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * touched-tests.js's own suite: which tests a bare run selects
- * from a session's changed paths (#2930), over a throwaway repo whose tests,
- * helpers and documents are known exactly.
- *
- * A loosened case either widens the bare run past the unit changed or drops a
- * test that reads it, unrun until the lander's full suite.
- *
- * Its merge cases (#5334) build merging repos and run throwaway worktrees:
- * a merge's own content has no cheaper witness than git's own merge.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -37,7 +26,6 @@ const QUEUE_RUN = path.join(
 	"queue-run.js",
 );
 
-/** `git` at `dir`, as a committer named for the fixture; its trimmed output. */
 const git = (dir: string, ...args: string[]) =>
 	execFileSync(
 		"git",
@@ -51,9 +39,6 @@ afterEach(() => {
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
 });
 
-/* A unit `a.js` imported by `a.test.ts` and by a helper `h.js`, which
- * `chain.test.ts` imports in turn; `setup.js` imported for its side effect
- * by `setup.test.ts`; `doc.md` read by `doc.test.ts`. */
 const FILES: Record<string, string> = {
 	"lib/a.js": "module.exports = 1;\n",
 	"lib/setup.js": "globalThis.x = 1;\n",
@@ -66,9 +51,6 @@ const FILES: Record<string, string> = {
 	"lib/other.test.ts": "export {};\n",
 	"doc.md": "# doc\n",
 	"doc.test.ts": "export {};\n",
-	/* pytest's route (#2934): `scan.py` imported by `test_scan.py` and by a
-	 * helper `wrap.py`, which `test_wrap.py` imports; `pkg/mod.py` imported
-	 * as a submodule by `test_pkg.py`. */
 	"scripts/m/scan.py": "X = 1\n",
 	"scripts/m/scan.test.ts": "export {};\n",
 	"scripts/m/test_scan.py": "import os, scan as s\n",
@@ -79,11 +61,8 @@ const FILES: Record<string, string> = {
 	"scripts/pkg/__init__.py": "",
 	"scripts/pkg/mod.py": "Y = 1\n",
 	"scripts/m/test_pkg.py": "from pkg import (mod,\n  other)\n",
-	/* `near.py`, imported relatively by `test_rel.py`. */
 	"scripts/m/near.py": "W = 1\n",
 	"scripts/m/test_rel.py": "from . import near\n",
-	/* Reached by path, never imported: `run.py` as a subprocess,
-	 * `sub/load.py` through `spec_from_file_location`. */
 	"scripts/m/run.py": "print(1)\n",
 	"scripts/m/test_run.py": 'SCRIPT = HERE / "run.py"\n',
 	"scripts/m/sub/load.py": "Z = 1\n",
@@ -99,7 +78,6 @@ function repo(files: Record<string, string> = FILES) {
 	return dir;
 }
 
-/** `files` committed as the root of a new repository at `dir`. */
 function seed(dir: string, files: Record<string, string>) {
 	for (const [f, text] of Object.entries(files)) {
 		fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
@@ -110,7 +88,6 @@ function seed(dir: string, files: Record<string, string>) {
 	git(dir, "commit", "-qm", "root");
 }
 
-/* Built once for the cases that only read it. */
 let shared: string;
 beforeAll(() => {
 	shared = repo();
@@ -125,7 +102,6 @@ interface Options {
 	execFn?: (...args: unknown[]) => unknown;
 }
 
-/** The selection with `changed` as the session's whole own work. */
 const select = (dir: string, changed: string[], options: Options = {}) =>
 	selectTouched(dir, {
 		ownWork: { paths: changed, dropped: [], carriesUntracked: true },
@@ -134,7 +110,6 @@ const select = (dir: string, changed: string[], options: Options = {}) =>
 		...options,
 	});
 
-/** The test files the banner lists as left uncollected. */
 const uncollectedIn = (banner: string) => {
 	const lines = banner.split("\n");
 	const at = lines.findIndex((l) => l.startsWith("NOT COLLECTED"));
@@ -309,7 +284,6 @@ describe("selectTouched", () => {
 			},
 		);
 
-		/* A directory at pytest.ini's path reads as EISDIR: present, unreadable. */
 		it("throws where a pytest config is present but unreadable, never falling back to the defaults", () => {
 			const dir = repo();
 			fs.mkdirSync(path.join(dir, "pytest.ini"));
@@ -347,7 +321,6 @@ describe("selectTouched", () => {
 			]);
 		});
 
-		/* Real `vitest list` over the repo's own install. */
 		const vitestRepo = () => {
 			const dir = repo();
 			fs.symlinkSync(
@@ -393,9 +366,6 @@ describe("selectTouched", () => {
 describe("selectTouched's changed paths", () => {
 	const edges = () => EDGES;
 
-	/* An own set read as the overlay carries it already holds the session's
-	 * new files: adding the tree's untracked ones would select a neighbour's
-	 * test in this session's run (#2958). */
 	it("adds no untracked file of the tree to an own set that carries its own (#2958)", () => {
 		const dir = repo();
 		fs.writeFileSync(path.join(dir, "scripts/m/test_new.py"), "import os\n");
@@ -426,10 +396,6 @@ describe("selectTouched's changed paths", () => {
 	});
 });
 
-/* The three checker-only files (#4967), each with its checker tests and readers
- * that only read it as part of the tree: `bystander.test.ts` reads all three
- * and `notes.md`; `reader.test.ts` reads both anchors files and imports
- * `unit.js`; `test_anchors.py` names the instruction-surface anchors. */
 const GUARD = ".claude/guard-registry-anchors.json";
 const MANIFEST = "docs/test-read-edges.json";
 const SURFACE = "scripts/instruction-surface-anchors.json";
@@ -466,8 +432,6 @@ const CHECKER_ONLY_EDGES = {
 };
 
 describe("a checker-only file selects its checker tests alone (#4967)", () => {
-	/* Built once, every case but those minting their own only reading it:
-	 * popped, so `afterEach` leaves it for `afterAll`. */
 	let tree: string;
 	beforeAll(() => {
 		tree = repo(CHECKER_ONLY_FILES);
@@ -585,18 +549,12 @@ describe("a checker-only file selects its checker tests alone (#4967)", () => {
 	});
 });
 
-/* A branch of two own commits past verified main, then a staged change: the
- * shape a commit gate's tree holds (#5320). Under `head` only the staged
- * paths are the session's; under `merge-base`, all three. */
 describe("the base a touched selection takes (#5320)", () => {
 	const commit = (dir: string, file: string, message: string) => {
 		fs.appendFileSync(path.join(dir, file), "// more\n");
 		git(dir, "add", file);
 		git(dir, "commit", "-qm", message);
 	};
-	/** `files`' repo at `dir`, verified main at its root, then `own`
-	 * committed and `paths` staged, each with `edit` appended in a form its
-	 * file's language still parses. */
 	const branch =
 		(
 			paths: string[],
@@ -721,8 +679,6 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 });
 
-/* A merge answers for its own content alone, never for main's incoming
- * paths (#5334). */
 describe("a merge's own content under `head` (#5334)", () => {
 	const write = (dir: string, file: string, text: string) =>
 		fs.writeFileSync(path.join(dir, file), text);
@@ -735,9 +691,6 @@ describe("a merge's own content under `head` (#5334)", () => {
 	};
 	const branchA = { "lib/a.js": "ONE\ntwo\nthree\nfour\nfive\n" };
 	const mainA = { "lib/a.js": "one\ntwo\nthree\nfour\nFIVE\n" };
-	/** Branch `br` merging `main` uncommitted, MERGE_HEAD as git leaves it, a
-	 * conflict resolved to "resolved"; with `premerge`, MERGE_HEAD removed, as
-	 * pre-merge-commit runs before git writes it. */
 	const merging =
 		(
 			branchEdits: Record<string, string>,
@@ -775,7 +728,6 @@ describe("a merge's own content under `head` (#5334)", () => {
 			{ "scripts/m/scan.py": "X = 3\n" },
 		),
 	});
-	/** A copy of `variant`'s repo, and the merged-in main's sha. */
 	const copy = (variant: string) => {
 		const dir = mkScratchDir("touched-");
 		dirs.push(dir);
@@ -792,7 +744,6 @@ describe("a merge's own content under `head` (#5334)", () => {
 	const githead = ({ main }: { main: string }) => ({
 		[`GITHEAD_${main}`]: "main",
 	});
-	/** This process's environment with no merge parents of its own to hand. */
 	const unmerged = () => {
 		const env = { ...process.env };
 		for (const k of Object.keys(env))
@@ -933,12 +884,6 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 		});
 	});
 
-	/* The hook's in-place fallback: queue-run's gate in the committing
-	 * checkout, a touched run then moving into an overlay worktree that has no
-	 * MERGE_HEAD of its own (run-vitest.js `runChangedOverlaid`). The probe
-	 * stands in for that overlay with a worktree carrying every change over
-	 * HEAD: it shows the hand-off reaching a second worktree, not which files
-	 * run-vitest's overlay carries. */
 	it("hands the checkout's merge parents to an overlay a gate run in place moves into", () => {
 		const probeDir = mkScratchDir("touched-probe-");
 		dirs.push(probeDir);
@@ -969,8 +914,6 @@ process.stdout.write(JSON.stringify(r.changed));
 		dirs.push(overlay);
 		const tmp = mkScratchDir("touched-tmp-");
 		dirs.push(tmp);
-		/* The gate's records land under the fixture, never the live checkout
-		 * a commit gate's CLAUDE_PROJECT_DIR names (#160). */
 		const env = { ...unmerged(), CLAUDE_PROJECT_DIR: dir, TMPDIR: tmp };
 		const r = keptSpawn("fd").spawnSync(
 			process.execPath,

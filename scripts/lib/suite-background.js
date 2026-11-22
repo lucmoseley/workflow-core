@@ -144,26 +144,17 @@ const { endRun, trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} BackgroundPorts
- * @property {() => string[]} runners the host's declared `suiteRunners`
+ * @property {() => string[]} runners
  * @typedef {import("./core-contract.js").CoreContext & BackgroundPorts} Ctx
  */
 
-/** `[[:space:]]` within one line. */
 const SP = "[ \\t\\v\\f\\r]";
 
-/** The operators that spell an `&` without detaching anything. */
 const NOT_DETACHING = ["&&", "&>", "|&", ">&", "<&"];
 
-/** A detacher as a word: `/` may lead it, `.` and `-` may not trail it. */
 const DETACHER = /(^|[^A-Za-z0-9_-])(nohup|setsid|disown)([^A-Za-z0-9_.-]|$)/m;
 
-/**
- * Whether the command detaches the work from the tool call. THE BARE `&` IS
- * MATCHED BY SUBTRACTION rather than by parsing: every operator spelling an
- * `&` without detaching anything is blanked first, and any `&` still standing
- * detaches something.
- * @param {string} s
- */
+/** @param {string} s */
 function detaches(s) {
 	if (DETACHER.test(s)) return true;
 	return NOT_DETACHING.reduce((t, op) => t.split(op).join("  "), s).includes(
@@ -171,7 +162,6 @@ function detaches(s) {
 	);
 }
 
-/** Per-line rewrites, in order, that drop a detachment. */
 const DETACH_REWRITES = /** @type {const} */ ([
 	[
 		new RegExp(
@@ -189,18 +179,9 @@ const DETACH_REWRITES = /** @type {const} */ ([
 	],
 	[new RegExp(`&${SP}*(;|$)`, "g"), "$1"],
 	[/&/g, ";"],
-	// eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
-	[new RegExp(`${SP}+$`), ""],
 ]);
 
-/**
- * The command as the deny's first line re-issues it. The operators `detaches`
- * blanks are shielded first and put back last, so only a detaching `&` is
- * touched. Its word boundary is narrower than `detaches`': a word it deletes
- * must follow a space, an operator or a `/`-path, where a test may afford to
- * over-match.
- * @param {string} text
- */
+/** @param {string} text */
 function stripDetachment(text) {
 	let s = NOT_DETACHING.reduce(
 		(t, op, i) => t.split(op).join(String.fromCharCode(2 + i)),
@@ -210,7 +191,10 @@ function stripDetachment(text) {
 		s
 			.split("\n")
 			.map((line) =>
-				DETACH_REWRITES.reduce((l, [re, to]) => l.replace(re, to), line),
+				trimEndRun(
+					DETACH_REWRITES.reduce((l, [re, to]) => l.replace(re, to), line),
+					" \t\v\f\r",
+				),
 			)
 			.join("\n"),
 		"\n",
@@ -225,15 +209,9 @@ function stripDetachment(text) {
 /** @param {string} s */
 const trimStart = (s) => s.replace(/^[ \t\n\v\f\r]+/, "");
 
-/** The sentinel a held heredoc line stands as. */
 const held = (/** @type {number} */ n) => `\x07${n}\x07`;
 
-/**
- * The command with each heredoc body or terminator line replaced by a
- * sentinel holding its number, and the lines held.
- * @param {string} raw
- * @param {number[]} heredocLines
- */
+/** @param {string} raw @param {number[]} heredocLines */
 function holdHeredocs(raw, heredocLines) {
 	const lines = raw.split("\n");
 	/** @type {Map<number, string>} */
@@ -245,11 +223,7 @@ function holdHeredocs(raw, heredocLines) {
 	return { text: lines.join("\n"), kept };
 }
 
-/**
- * holdHeredocs reversed, on any text its sentinels survived.
- * @param {string} s
- * @param {Map<number, string>} kept
- */
+/** @param {string} s @param {Map<number, string>} kept */
 function putBackHeredocs(s, kept) {
 	let out = s;
 	for (const n of [...kept.keys()].sort((a, b) => a - b)) {
@@ -261,19 +235,9 @@ function putBackHeredocs(s, kept) {
 	return trimEndRun(out, "\n");
 }
 
-/** The flags of `timeout` that take the next word. */
 const TIMEOUT_VALUE_FLAGS = ["-k", "--kill-after", "-s", "--signal"];
 
-/**
- * The masked segment with every `timeout`, its flags and its duration taken
- * off the wrappers in front of the command word, or null where those
- * wrappers cannot be placed in the segment's text. The segment's outer
- * whitespace and its redirections are kept. The wrappers end at the command
- * word — or, where an `env -S` string was split into the command, at the
- * first quoted word, the string itself.
- * @param {string} seg
- * @param {string} commandWord the unwrapped command's first word
- */
+/** @param {string} seg @param {string} commandWord */
 function stripTimeout(seg, commandWord) {
 	const segWords = (seg.split("\n")[0] ?? "").split(/[ \t]+/).filter(Boolean);
 	const nwrap = segWords.findIndex(
@@ -286,10 +250,7 @@ function stripTimeout(seg, commandWord) {
 	return lead + [...kept, ...segWords.slice(nwrap)].join(" ") + trail;
 }
 
-/**
- * The wrapper words with every `timeout`, its flags and its duration dropped.
- * @param {string[]} wrappers
- */
+/** @param {string[]} wrappers */
 function keptWrappers(wrappers) {
 	/** @type {string[]} */
 	const kept = [];
@@ -332,7 +293,6 @@ function decide(command, ctx) {
 	/** @type {import("./suite-launch.js").LaunchPorts} */
 	const launchPorts = {
 		runners: ctx.runners,
-		/* The session's tree's package.json, never the host's (#4242). */
 		isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
 	};
 	let foundSuite = false;
@@ -340,7 +300,6 @@ function decide(command, ctx) {
 	/** @type {{ from: string, to: string }[]} */
 	const timed = [];
 	/**
-	 * One unwrap run's suite launch, noted; null where it launches none.
 	 * @param {string[]} leading
 	 * @param {import("./shell-words.js").Unwrapped} run
 	 */
@@ -357,11 +316,6 @@ function decide(command, ctx) {
 			const [first, ...later] = cmd.runs();
 			for (const run of later) noteLaunch(cmd.leading, run);
 			const { words, wrapperWords } = first;
-			/* An `env -S` split can leave more words than it took, so none are
-			 * read there.
-			 * Residual: a `-c` string's later command is never judged for an
-			 * unbounded `timeout`, as no cut of the segment's words reaches it
-			 * (#4699). */
 			const nwrap = cmd.words.length - words.length;
 			const isTimed =
 				nwrap > 0 &&
@@ -407,11 +361,8 @@ function decide(command, ctx) {
 }
 
 /**
- * Whether the launch has no upper bound on its selection: an `npm test`,
- * `npm run test`, `test:changed` or `run-vitest.js` naming no test file. A
- * `--full=<cause>` rides on one of those.
  * @param {import("./suite-launch.js").Launch} launch
- * @param {string[]} words masked, unwrapped
+ * @param {string[]} words
  * @param {string[]} spans
  */
 function isUnbounded(launch, words, spans) {

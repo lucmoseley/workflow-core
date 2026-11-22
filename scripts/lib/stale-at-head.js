@@ -1,27 +1,3 @@
-/*
- * stale-at-head.js — the rows a --review re-anchors that were already stale at
- * HEAD, and the inputs that changed under each since its anchor was written
- * (#4756).
- *
- * A re-anchor asserts a re-read of everything that moved the digest, not only
- * the change in hand. A row is stale at HEAD where its digest over HEAD's tree,
- * extracted, differs from HEAD's anchor; the inputs named are those of its
- * closure at HEAD or now that changed between the commit that wrote that anchor
- * and HEAD, so the re-anchoring commit reads them or leaves the row stale.
- *
- * HEAD's digest is taken by HEAD's own digest code where HEAD carries it at
- * this library's path, so a commit changing that code does not read every row
- * as stale at HEAD (#4807).
- *
- * The writer is the newest non-merge commit whose diff adds the row at HEAD's
- * value without removing it at that value, a line moved or re-emitted being no
- * write; else the newest merge whose first-parent diff does, as a merge
- * carrying the row writes it (#4514). Residual: a writer that itself committed
- * the row stale, through a gate stood down (#2853), bypassed, or an anchor
- * hashed from bytes it did not stage, names no input, and the row is printed
- * with that said.
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -33,21 +9,14 @@ const guardDigest = require("./guard-digest.js");
 const { ANCHORS, parseRows } = require("./registry-anchors-file.js");
 
 /**
- * @typedef {{ guard: string, digest: string, inputs: string[] }} Anchored a row
- *   this run writes, its new digest and every path that digest hashes
+ * @typedef {{ guard: string, digest: string, inputs: string[] }} Anchored
  * @typedef {{ guard: string, anchor: string, writer: string | null,
- *   changed: string[], error: string | null }} StaleAtHead `writer` null where
- *   the history this clone holds shows no commit writing `anchor`; `error`
- *   where git would not say
- * @typedef {{ stale: StaleAtHead[], error: string | null }} StaleRead `error`
- *   where git would not say which rows are stale at HEAD
+ *   changed: string[], error: string | null }} StaleAtHead
+ * @typedef {{ stale: StaleAtHead[], error: string | null }} StaleRead
  * @typedef {import("./git.js").GitReader} GitReader
  */
 
 /**
- * The anchors HEAD commits: none where HEAD is unborn or carries no anchors
- * file.
- *
  * @param {GitReader} git
  * @returns {{ anchors: Record<string, string>, error: string | null }}
  */
@@ -70,8 +39,6 @@ function readHeadAnchors(git) {
 }
 
 /**
- * HEAD's tree extracted to a fresh directory, removed by the caller.
- *
  * @param {GitReader} git
  * @returns {{ dir: string, error: string | null }}
  */
@@ -91,11 +58,8 @@ function extractHead(git) {
 }
 
 /**
- * The digest code HEAD carries at this library's path, or this one's where it
- * carries none, as when the library is a plugin's outside the tree.
- *
  * @param {string} root
- * @param {string} dir HEAD's extracted tree
+ * @param {string} dir
  * @returns {typeof guardDigest}
  */
 function headDigestCode(root, dir) {
@@ -105,14 +69,7 @@ function headDigestCode(root, dir) {
 	return require(there);
 }
 
-/**
- * The SHAs this clone's history is cut off at, none in a full clone: a boundary
- * commit's diff adds every row, so it is no writer.
- *
- * @param {string} root
- * @param {GitReader} git
- * @returns {Set<string>}
- */
+/** @param {string} root @param {GitReader} git @returns {Set<string>} */
 function readShallow(root, git) {
 	const p = git(["rev-parse", "--git-path", "shallow"], []);
 	if (!p.ok) return new Set();
@@ -139,10 +96,8 @@ function parseDiff(lines) {
 }
 
 /**
- * Each sought row's writer, from one `git log -p` over the anchors file.
- *
  * @param {GitReader} git
- * @param {Map<string, string>} sought guard → HEAD anchor
+ * @param {Map<string, string>} sought
  * @param {string[]} mode
  * @returns {{ writers: Map<string, string>, error: string | null }}
  */
@@ -181,9 +136,6 @@ function readWriters(git, sought, mode) {
 }
 
 /**
- * The rows among `anchored` stale at HEAD, each with the inputs of its closure
- * at HEAD or now that changed between its anchor's writer and HEAD.
- *
  * @param {string} root
  * @param {Anchored[]} anchored
  * @returns {StaleRead}
@@ -216,8 +168,6 @@ function readStaleAtHead(root, anchored) {
 }
 
 /**
- * Each stale row's writer and the inputs changed since it.
- *
  * @param {string} root
  * @param {GitReader} git
  * @param {(Anchored & { anchor: string })[]} stale

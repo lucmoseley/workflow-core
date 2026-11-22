@@ -1,84 +1,50 @@
-/*
- * worktree-model-reading.js — the readings behind scripts/measure-worktree-model.js
- * (#4253): whether the worktree model (#4229) holds over a window, and what an
- * `Edit` and a landing merge cost.
- *
- * Pure over what the CLI read (reflog rows, log lines, transcript records,
- * git's answers).
- */
-
 const { MOVED_LINE } = require("./land-refusal.js");
 const { QUEUE_PREFIX, VERIFIED_REF } = require("./landing-refs.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 const { escapeRe } = require("./regex-group.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
-/** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
-/* The reflog shapes a reconcile branch leaves in a worktree's HEAD log: a
- * switch onto one, a conflicted merge into one committed by hand, and a merge
- * of one. A commit whose subject merely names one is none of these. */
 const RECONCILE = [
 	/^checkout: moving from \S+ to reconcile-/,
 	/^commit \(merge\): .* into reconcile-/,
 	/^merge (?:\S+\/)?reconcile-/,
 ];
-/* The subject git gives a merge into a reconcile branch. */
 const INTO_RECONCILE = / into reconcile-/;
-/* What a levelling report says when it left main unmoved (lib/level-main.js
- * renderOutcome, scripts/level-main.js). A failed install follows a move, so
- * it is not one. */
 const NOT_MOVED = /^(?:refused: |level main: failed)/;
-/* The header scripts/level-main.js puts over each report. */
 const HEADER = /^levelling (\S.*)$/;
 const STAMP = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\s/;
 const LAND = /\bsession-checkout\.js\s+land\b/;
-/* scripts/session-checkout.js's land line, which names the session's queue
- * ref and the verified ref it merged. */
 const PUSHED_TO = `pushed ([0-9a-f]{7,40}) to ${escapeRe(QUEUE_PREFIX)}\\S+`;
 const MERGED_AND_PUSHED = new RegExp(
 	`${PUSHED_TO}, ${escapeRe(VERIFIED_REF)} merged in first`,
 );
 const PUSHED = new RegExp(PUSHED_TO);
 const WEEK_MS = 7 * 24 * 60 * 60_000;
-/* #4229's prediction, from #4166's replay: pushes that find `landing` moved
- * and so merge first, a week, at W = 15 to 60 min. */
+// #4229 guess
 const PREDICTED_MERGES = { low: 491, high: 587 };
-/* #4166's replay of the same week on the shared checkout: merges a push made
- * after finding `landing` moved. */
+// #4166 measured on the shared checkout, the same week
 const SHARED_MERGES = 436;
-/* Enough paths to act on; the count carries the rest. */
 const LISTED_PATHS = 20;
 
 /**
- * @typedef {{ since: number, until: number }} Window ms
- * @typedef {{ t: number, sha: string, msg: string }} ReflogRow t in ms
+ * @typedef {{ since: number, until: number }} Window
+ * @typedef {{ t: number, sha: string, msg: string }} ReflogRow
  * @typedef {{ name: string, input: Record<string, unknown>, start: number, end: number, isError: boolean, result: string }} ToolSpan
  * @typedef {{ sha: string, at: number, lagMs: number | null, withinPass: boolean }} Lag
  * @typedef {{ at: number, line: string, root: string | null }} Refusal
- *   root null: written before reports named their checkout
  * @typedef {{ where: string, t: number, sha: string, msg: string }} ReconcileEntry
  * @typedef {{ n: number, p50: number | null, p90: number | null, max: number | null }} Spread
  */
 
-/**
- * A capture group the pattern always fills where it matched.
- * @param {RegExpExecArray} m
- * @param {number} i
- * @returns {string}
- */
+/** @param {RegExpExecArray} m @param {number} i @returns {string} */
 function group(m, i) {
 	const g = m[i];
 	if (g === undefined) throw new Error(`no group ${i} in a match of ${m[0]}`);
 	return g;
 }
 
-/**
- * Rows of `git reflog show --date=unix --format=%H%x09%gd%x09%gs <ref>`,
- * oldest first.
- * @param {string} text
- * @returns {ReflogRow[]}
- */
+/** @param {string} text @returns {ReflogRow[]} */
 function parseReflog(text) {
 	/** @type {ReflogRow[]} */
 	const rows = [];
@@ -100,21 +66,13 @@ function parseReflog(text) {
 const inWindow = (rows, w) =>
 	rows.filter((r) => r.t >= w.since && r.t < w.until);
 
-/**
- * Entries on the main checkout's `main` that no levelling pass wrote: anything
- * but a fast-forward.
- * @param {ReflogRow[]} mainRows
- */
+/** @param {ReflogRow[]} mainRows */
 const foreignMainEntries = (mainRows) =>
 	mainRows.filter((r) => !FAST_FORWARD.test(r.msg));
 
 /**
- * For each move of `origin/main`, when `main` first reached it or a
- * descendant, and whether that came before `origin/main` moved again — each
- * move starts its own levelling pass (lib/level-main.js `startLevelling`), so a move
- * overtaken before main reached it is one that pass did not level.
- * @param {ReflogRow[]} moves origin/main rows in the window
- * @param {ReflogRow[]} mainRows every main row from the window's start on
+ * @param {ReflogRow[]} moves
+ * @param {ReflogRow[]} mainRows
  * @param {(ancestor: string, sha: string) => boolean} isAncestor
  * @param {number} until
  * @returns {Lag[]}
@@ -136,14 +94,9 @@ function levelLags(moves, mainRows, isAncestor, until) {
 }
 
 /**
- * The not-moved lines of a log's levelling reports for `root`, in the window.
- * A stamp-less line takes the last stamp above it, and its checkout from the
- * last header; a line under no header yet is kept with a null root, since an
- * older report did not name its checkout. A line before any stamp is dropped:
- * its time is unknown.
  * @param {Iterable<string>} lines
  * @param {Window} w
- * @param {string} root the main checkout measured
+ * @param {string} root
  * @returns {Refusal[]}
  */
 function levellingRefusals(lines, w, root) {
@@ -168,21 +121,14 @@ function levellingRefusals(lines, w, root) {
 	return found;
 }
 
-/**
- * @param {ReflogRow[]} rows a worktree's HEAD reflog
- */
+/** @param {ReflogRow[]} rows */
 const reconcileEntries = (rows) =>
 	rows.filter((r) => RECONCILE.some((re) => re.test(r.msg)));
 
-/**
- * @param {string} subject a merge commit's subject
- */
+/** @param {string} subject */
 const isMergeIntoReconcile = (subject) => INTO_RECONCILE.test(subject);
 
-/**
- * @param {unknown} content a tool result's content
- * @returns {string}
- */
+/** @param {unknown} content @returns {string} */
 function resultText(content) {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
@@ -198,8 +144,6 @@ function resultText(content) {
  */
 
 /**
- * One content block of a record: a call opened, or the span a result closes.
- * accumulator: adds to and removes from `open`, the calls awaiting a result.
  * @param {TranscriptRecord} rec
  * @param {TranscriptBlock} block
  * @param {number} t
@@ -227,12 +171,7 @@ function pairBlock(rec, block, t, open) {
 	};
 }
 
-/**
- * Each tool call of a transcript paired with its result: from the assistant
- * record that asked for it to the user record that answered it.
- * @param {Iterable<TranscriptRecord>} records
- * @returns {ToolSpan[]}
- */
+/** @param {Iterable<TranscriptRecord>} records @returns {ToolSpan[]} */
 function toolSpans(records) {
 	/** @type {Map<string, OpenCall>} */
 	const open = new Map();
@@ -251,13 +190,6 @@ function toolSpans(records) {
 }
 
 /**
- * What a landing route call did: `merged` with the merge commit it pushed
- * (`session-checkout.js land` prints the `HEAD` it pushed, which is the merge
- * of origin/main where it says it merged first), `pushed` where it pushed
- * with no merge, `moved` where its queue ref refused it as no fast-forward
- * (#4446),
- * `failed` where it returned any other error — a conflict, a refused gate —
- * and null where it is no landing route call or landed nothing.
  * @param {ToolSpan} span
  * @returns {{ kind: "merged", sha: string } | { kind: "pushed" | "moved" | "failed" } | null}
  */
@@ -273,13 +205,7 @@ function landingOutcome(span) {
 
 const IN_WORKTREE = new RegExp(`^${escapeRe(WORKTREES)}/[^/]+/(.+)$`);
 
-/**
- * The repo-relative path an `Edit` wrote, where it is this repo's: under the
- * main checkout or one of its `.claude/worktrees/<name>/` worktrees.
- * @param {string} root the main checkout
- * @param {unknown} file
- * @returns {string | null}
- */
+/** @param {string} root @param {unknown} file @returns {string | null} */
 function repoPath(root, file) {
 	if (typeof file !== "string") return null;
 	const rel = relativeUnder(root, file);
@@ -289,11 +215,7 @@ function repoPath(root, file) {
 	return isUnder(rel, [WORKTREES]) ? null : rel;
 }
 
-/**
- * Nearest-rank percentiles.
- * @param {number[]} values
- * @returns {Spread}
- */
+/** @param {number[]} values @returns {Spread} */
 function spread(values) {
 	const sorted = [...values].sort((a, b) => a - b);
 	/** @param {number} q */
@@ -322,7 +244,6 @@ function spread(values) {
  * }} Reading
  * @typedef {{ name: string, count: number, detail: string }} Check
  * @typedef {{ merged: number, pushed: number, moved: number, failed: number }} LandCounts
- *   landing route calls by landingOutcome's kind
  */
 
 /** @param {number | null} ms */
@@ -335,13 +256,7 @@ const iso = (t) => new Date(t).toISOString().replace(/\.\d+Z$/, "Z");
 /** @param {string[]} items */
 const indented = (items) => items.map((i) => `\n    ${i}`).join("");
 
-/**
- * The four zero-checks. Check 1 counts commits off origin/main, never reflog
- * entries: a reset to a landed sha writes main but strands nothing, so it is
- * named in the detail and not counted.
- * @param {Reading} r
- * @returns {Check[]}
- */
+/** @param {Reading} r @returns {Check[]} */
 function zeroChecks(r) {
 	const { main: m, reconcile, refusals, dirt } = r;
 	const missed = m.lags.filter((l) => !l.withinPass);
@@ -380,14 +295,7 @@ function zeroChecks(r) {
 	];
 }
 
-/**
- * The landing route's weekly rates: lands that merged a moved origin/main
- * first, against #4229's prediction, and pushes refused as no fast-forward
- * (#4446),
- * against #4166's race window.
- * @param {Reading["costs"]} c
- * @param {Window} w
- */
+/** @param {Reading["costs"]} c @param {Window} w */
 function landRates(c, w) {
 	/** @param {number} n */
 	const weekly = (n) => Math.round((n * WEEK_MS) / (w.until - w.since));

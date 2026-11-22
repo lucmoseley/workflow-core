@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/systemd-run-fake.ts to the real systemd-run (§G7): each case runs
- * a call the outliving launch makes (#4706) against the fake and the
- * machine's own, checking exit code and what reaches the command, never
- * values. Loosened, the launch's tests stay green on the fake while a systemd
- * release stops a scope's command seeing its argv or environment, or a probe
- * reads a manager that is not there.
- *
- * The real side runs where a user manager answers, never in CI (§G7 item 2).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

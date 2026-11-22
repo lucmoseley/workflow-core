@@ -1,23 +1,3 @@
-/*
- * unlanded-commits.js — the ticket's commits that never reached the pushed
- * ref (#3101).
- *
- * A ticket's commits are those on HEAD citing `#n`, as census-digest.js reads
- * them, and any commit the close's comment names by sha. One is unlanded
- * where the pushed ref (lib/landing-refs.js: the session's own queue ref
- * where it stands, else `origin/main`) holds neither
- * it nor a twin of the same author date and subject — a commit rebased before
- * its push lands under a new hash.
- *
- * Reads the remote-tracking ref as it stands, never fetching: a push from
- * this clone moves it, a push from another clone does not.
- *
- * Residual: an unpushed commit whose author date and subject both repeat a
- * pushed one's reads as landed. A short sha the comment means for a pushed
- * commit, shared with an unpushed or unreachable one it never meant, refuses
- * the close.
- */
-
 const { NO_CEILING, CeilingPassed } = require("./git-ceiling.js");
 const { readCommit } = require("./commit-sha.js");
 const { REMOTE, pushedRef } = require("./landing-refs.js");
@@ -30,21 +10,14 @@ const { caught } = require("./caught.js");
  * @typedef {{ ok: true, out: string } | { ok: false, why: string }} GitRead
  * @typedef {(args: string[], noMatch: number[]) => GitRead} GitReader
  */
-/** @typedef {{ sha: string, subject: string }} Commit `sha` as `%h` */
+/** @typedef {{ sha: string, subject: string }} Commit */
 
-/* Unlike SHA_RE, an all-digit or all-letter short sha too (#3230): each is
- * kept only where rev-parse finds a commit by it. */
 const HEX_WORDS_RE = new RegExp(HEX_WORD_RE.source, "g");
 
-/**
- * An `**Unlanded:**` line with something after it: why the close stands
- * without them.
- * @param {string} text
- */
+/** @param {string} text */
 const hasUnlandedLine = (text) => hasLine(text, "Unlanded", "\\S");
 
 /**
- * `ceiling`'s git as a GitReader, a passed ceiling still thrown.
  * @param {string} tree
  * @param {import("./git-ceiling.js").GitCeiling} ceiling
  * @returns {GitReader}
@@ -67,15 +40,6 @@ const ceilingReader = (tree, ceiling) => (args, noMatch) => {
 };
 
 /**
- * Issue `n`'s commits, cited on HEAD or named by sha in `comment`, that the
- * pushed ref holds under no hash, and that ref. `tree` is the checkout the
- * close ran from, whose HEAD may be a linked worktree's rather than the host
- * root's (#4280).
- * Each half is read on its own: a HEAD git cannot walk
- * still leaves the named commits judged, and throws only where they leave
- * nothing to refuse. Throws where the pushed ref is absent or git cannot answer;
- * CeilingPassed where `ceiling` passes.
- *
  * @param {string} tree
  * @param {number} n
  * @param {string} comment
@@ -97,9 +61,9 @@ function readUnlandedCommits(tree, n, comment, { ceiling = NO_CEILING } = {}) {
 	if (!commitOrThrow(read, pushed))
 		throw new Error(`no ${pushed} to compare against`);
 	const format = "--format=%h%x00%at%x00%s";
-	const named = readNamedCommits(read, comment)
-		/* Empty where the pushed ref holds it: the walk starts at it. */
-		.map((sha) => git(["log", "-1", format, sha, "--not", pushed]));
+	const named = readNamedCommits(read, comment).map((sha) =>
+		git(["log", "-1", format, sha, "--not", pushed]),
+	);
 	/** @type {Error | null} */
 	let headUnread = null;
 	let cited = "";
@@ -130,14 +94,7 @@ function readUnlandedCommits(tree, n, comment, { ceiling = NO_CEILING } = {}) {
 	return { pushed, commits };
 }
 
-/**
- * The full sha of each commit `text` names by a hex word, every one an
- * ambiguous short sha may mean included (#3233), and none for a word naming
- * no commit. Throws where git would not answer.
- * @param {GitReader} read
- * @param {string} text
- * @returns {string[]}
- */
+/** @param {GitReader} read @param {string} text @returns {string[]} */
 function readNamedCommits(read, text) {
 	const shas = [...new Set(text.match(HEX_WORDS_RE) ?? [])].flatMap((w) => {
 		const sha = commitOrThrow(read, w);
@@ -154,10 +111,6 @@ function readNamedCommits(read, text) {
 }
 
 /**
- * `candidates` with no twin on `pushed`: a commit of the same author date and
- * subject, which a rebase or cherry-pick keeps. A twin's committer date is
- * at or after its author date, so `--since` the oldest candidate's misses
- * none.
  * @param {(args: string[]) => string} git
  * @param {string} pushed
  * @param {Map<string, { at: string, subject: string }>} candidates
@@ -173,24 +126,14 @@ function unlandedOf(git, pushed, candidates) {
 		.map(([sha, { subject }]) => ({ sha, subject }));
 }
 
-/**
- * The full sha `rev` names, null where it names none; throws where git would
- * not answer.
- * @param {GitReader} read
- * @param {string} rev
- * @returns {string | null}
- */
+/** @param {GitReader} read @param {string} rev @returns {string | null} */
 function commitOrThrow(read, rev) {
 	const r = readCommit(read, rev);
 	if (!r.ok) throw new Error(`${rev}: ${r.why}`);
 	return r.sha;
 }
 
-/**
- * The refusal both close routes print over `commits`, escape included.
- * @param {number} n
- * @param {{ pushed: string, commits: Commit[] }} unlanded
- */
+/** @param {number} n @param {{ pushed: string, commits: Commit[] }} unlanded */
 function unlandedRefusal(n, { pushed, commits }) {
 	const one = commits.length === 1;
 	const branch = pushed.slice(REMOTE.length + 1);

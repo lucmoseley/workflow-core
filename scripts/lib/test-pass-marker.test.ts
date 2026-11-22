@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The certificate and red stores, and whether certificates attest a commit.
- *
- * Two properties are asserted hardest: every degraded store reads as "no
- * certificate" rather than as an error, and a certificate the store cannot
- * vouch for is never presented as clean.
- *
- * In-process, with every store in its own temp sandbox, so no case reads or
- * writes this checkout's real stores.
- *
- * The unasked-rerun guard reads attestation off these records; loosen a case
- * and a run of untested work reads as attested, and is refused as a repeat.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -54,7 +41,6 @@ afterEach(() => {
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
 });
 
-/* `skipped: 10` on a full run: skips do not make a run partial (mantahostels#1230). */
 const fullScope = (over: Record<string, unknown> = {}) => ({
 	modulesRun: 123,
 	modulesTotal: 123,
@@ -79,21 +65,13 @@ const redScope = (
 	...over,
 });
 
-/** Inside the archive's reach, which the fixed `certificate().at` is not. */
 const fresh = () => new Date().toISOString();
 
-/** How long a pruned run stays in the archive (#1231), spelled here rather
- *  than imported. */
 const ARCHIVE_REACH_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Where a store's pruned lines go: `<store>.archive.jsonl` beside it. */
 const archivePath = (root: string, store?: string) =>
 	storePath(root, store).replace(/\.jsonl$/, ".archive.jsonl");
 
-/**
- * The shas in `store`'s archive, the default marker store's when `store` is
- * absent.
- */
 const readArchivedShas = (root: string, store?: string) =>
 	fs
 		.readFileSync(archivePath(root, store), "utf8")
@@ -112,13 +90,11 @@ const certificate = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** A certificate whose scope nobody recorded (mantahostels#1230). */
 const unscoped = (over: Record<string, unknown> = {}) => {
 	const { scope: _scope, ...rest } = certificate(over);
 	return rest;
 };
 
-/** A certificate from `vitest run <file> -t <name>`. */
 const narrowed = (over: Record<string, unknown> = {}) =>
 	certificate({
 		scope: fullScope({
@@ -175,7 +151,6 @@ describe("the store", () => {
 		const root = sandbox();
 		expect(record(certificate({ sha: null }), { root })).toBe(false);
 		expect(record(certificate(), { root: null })).toBe(false);
-		// A directory where the store file goes: the append fails, the caller does not.
 		const blocked = sandbox();
 		fs.mkdirSync(storePath(blocked));
 		expect(record(certificate(), { root: blocked })).toBe(false);
@@ -190,7 +165,6 @@ describe("the store", () => {
 				keep: 4,
 			});
 		const shas = readMarkers({ root }).map((m) => m.sha);
-		// Pruned to the newest 4 as the 11th line landed; the 12th then appended.
 		expect(shas).toEqual(
 			[7, 8, 9, 10, 11].map((i) => String(i).padStart(40, "0")),
 		);
@@ -304,10 +278,6 @@ describe("the store", () => {
 	});
 });
 
-/**
- * Whether the reading warns that a certificate matched by sha read a dirty
- * tree — what a clean certificate means to `attestedReading`, its one reader.
- */
 const warnsDirty = (marker: Record<string, unknown>) =>
 	attestedReading("a".repeat(40), {
 		suite: "vitest",
@@ -373,7 +343,6 @@ describe("what counts as the whole suite (mantahostels#1230)", () => {
 });
 
 describe("a diff-selected run's certificate (mantahostels#2031)", () => {
-	/** A certificate from `npm run test:changed` — narrowed, and carrying NO path filter. */
 	const changedRun = (ref: string | boolean = "HEAD~1") =>
 		certificate({
 			scope: fullScope({
@@ -389,9 +358,6 @@ describe("a diff-selected run's certificate (mantahostels#2031)", () => {
 		expect(isFullRun(changedRun())).toBe(false);
 	});
 
-	/* The case above passes on the module count alone, so it would survive
-	 * `changed` being dropped from Scope entirely. This one cannot: every other
-	 * limb is satisfied, and `--changed` is the only thing disqualifying it. */
 	it("rejects a --changed run that reached every module, on provenance", () => {
 		expect(
 			isFullRun(certificate({ scope: fullScope({ changed: "HEAD~1" }) })),
@@ -405,8 +371,6 @@ describe("both suites answer for themselves (mantahostels#1256)", () => {
 	});
 });
 
-/* An attested suite as a session reads it, driven over hand-built suites: the
- * reading is pure, and `attestationOf` has its own real-repo block. */
 describe("what a session reads off an attested suite", () => {
 	const attestedSha = "a".repeat(40);
 	type Suite = Parameters<typeof attestedReading>[1];
@@ -523,11 +487,6 @@ describe("the line a narrowed run prints for itself (mantahostels#1230)", () => 
 	});
 });
 
-/*
- * What a green run records (mantahostels#987). Asserted as a pure function
- * over the two tree-drift results, so the record's contents can be checked
- * without a suite run to produce them.
- */
 describe("markerFrom", () => {
 	const after = { head: "f".repeat(40), files: {} };
 
@@ -598,8 +557,7 @@ describe("markerFrom", () => {
 		expect(m.dirtyCount).toBe(2);
 	});
 
-	// mantahostels#1953 (why a run's elapsed time is recorded).
-	it("records when the run began and how long it took", () => {
+	it("records when the run began and how long it took (lucmoseley/mantahostels#1953)", () => {
 		const startedAtMs = Date.parse("2026-10-17T06:00:00Z");
 		const m = markerFrom({ head: "old", files: {} }, after, null, {
 			startedAtMs,
@@ -654,11 +612,6 @@ describe("markerFrom", () => {
 		}
 	});
 
-	/*
-	 * Absence, not a clamp to zero: a `durationMs: 0` beside a `startedAt` that
-	 * postdates the marker's own `at` attests an instant run, which is the
-	 * reading these fields exist to make trustworthy.
-	 */
 	it("records nothing where the wall clock went backwards, whatever the span", () => {
 		const m = markerFrom({ head: "old", files: {} }, after, null, {
 			startedAtMs: Date.now() + 60_000,
@@ -679,14 +632,6 @@ describe("markerFrom", () => {
 		expect(m).not.toHaveProperty("startedAt");
 	});
 
-	/*
-	 * The `machine` block (mantahostels#1953). A `busyPct: 0` where nothing was measured
-	 * is the one reading the block exists to prevent — it looks like a MEASURED
-	 * idle machine rather than an absent one.
-	 *
-	 * Brackets are fabricated rather than sampled, so the arithmetic is asserted
-	 * against a known answer and the cases run identically off /proc.
-	 */
 	const cpuBracket = (jiffies: Record<string, number>, load1 = 3.5) => {
 		const fields = [
 			"user",
@@ -718,12 +663,6 @@ describe("markerFrom", () => {
 			endedAtMs: Date.now(),
 		});
 
-		/*
-		 * Asserted as a share of the ceiling this machine reports, never as an
-		 * absolute: `delta` defaults its core count to `os.cpus()`, so a literal
-		 * here would pin the test to an 8-core box. 700 busy jiffies of a
-		 * 1000-jiffie span is 70% of whatever the ceiling is.
-		 */
 		const machine = m.machine;
 		if (!machine) throw new Error("expected a machine block");
 		const ceiling = machine.ceilingPct;
@@ -766,11 +705,6 @@ describe("markerFrom", () => {
 		expect(m).not.toHaveProperty("machine");
 	});
 
-	/*
-	 * `markerFrom` runs from a globalSetup teardown firing once per PROCESS, so
-	 * passing the run's end in is what keeps a watch session's idle minutes out
-	 * of both the duration and the CPU delta (mantahostels#1953's review).
-	 */
 	it("times the run the caller ended, not the moment the marker was written", () => {
 		const startedAtMs = Date.now() - 600_000;
 		const endedAtMs = startedAtMs + 5000;
@@ -819,10 +753,6 @@ describe("markerFrom", () => {
 		expect(m.suite).toBe("pytest");
 	});
 
-	/*
-	 * mantahostels#2187: an end-of-run tree identity and an `--isolated` flag, added
-	 * alongside the three tree fields that already describe the START of a run.
-	 */
 	describe("isolated and treeAtEnd (mantahostels#2187)", () => {
 		it("records isolated:false by default, never omitting it", () => {
 			const m = markerFrom({ head: "old", files: {} }, after, null);
@@ -855,16 +785,7 @@ describe("markerFrom", () => {
 	});
 });
 
-/*
- * Which suites a range is judged on (mantahostels#1256). The pytest suite covers the
- * Python data-pipeline seam alone, so a docs-only range it cannot have broken
- * is not judged on it.
- */
 describe("the suites a range is asked about", () => {
-	/**
-	 * The suites `attestationOf` judges for a range of one commit touching `paths`
-	 * on top of `origin/main`.
-	 */
 	function suitesAskedOf(paths: string[]): string[] {
 		const dir = fs.realpathSync(
 			fs.mkdtempSync(path.join(os.tmpdir(), "suites-")),
@@ -926,8 +847,7 @@ describe("the suites a range is asked about", () => {
 		).not.toContain("pytest");
 	});
 
-	// mantahostels#2170 took `package.json` out of the touches regex.
-	it("drops pytest from a package.json-only diff, selecting vitest alone", () => {
+	it("drops pytest from a package.json-only diff, selecting vitest alone (lucmoseley/mantahostels#2170)", () => {
 		expect(suitesAskedOf(["package.json"])).toEqual(["vitest"]);
 	});
 });
@@ -971,17 +891,13 @@ describe("the red store (mantahostels#1942)", () => {
 		expect(fs.existsSync(storePath(root, FAIL_STORE))).toBe(false);
 	});
 
-	/* Neither store's writer throws: the suite has ALREADY reported its verdict
-	 * by the time this runs. */
 	it("returns false rather than throwing when the store cannot be written", () => {
 		const root = sandbox();
-		// A file where the markers directory's parent goes.
 		fs.writeFileSync(path.join(root, ".claude"), "");
 		let landed: boolean | undefined;
 		expect(() => {
 			landed = recordFailure({ sha: "c".repeat(40) }, { root });
 		}).not.toThrow();
-		// A swallowed write must report itself, or a caller reads it as landed.
 		expect(landed).toBe(false);
 	});
 
@@ -1003,7 +919,6 @@ describe("the red store (mantahostels#1942)", () => {
 });
 
 describe("an admissible filtered run (mantahostels#2146, mantahostels#2207)", () => {
-	/** `npm run test:changed` over a tree whose manifest was fresh. */
 	const admissible = (over: Record<string, unknown> = {}) =>
 		certificate({
 			scope: fullScope({
@@ -1030,8 +945,6 @@ describe("an admissible filtered run (mantahostels#2146, mantahostels#2207)", ()
 		expect(isAdmissibleRun(admissible({ admissible: false }))).toBe(false);
 	});
 
-	/* The field crosses a process boundary as an env var, so the value that
-	 * arrives is whatever a caller exported. Truthy is not the test. */
 	it("is not claimable by a truthy value that is not the flag", () => {
 		for (const value of ["1", 1, "true", {}])
 			expect(isAdmissibleRun(admissible({ admissible: value }))).toBe(false);
@@ -1041,8 +954,6 @@ describe("an admissible filtered run (mantahostels#2146, mantahostels#2207)", ()
 		expect(isAdmissibleRun(admissible({ modulesTotal: 0 }))).toBe(false);
 	});
 
-	/* The launcher refuses `-t`, so this certificate never came from
-	 * `npm run test:changed` however the flag reached it (mantahostels#2172). */
 	it("is not claimable by a name-filtered run, whatever set the flag", () => {
 		expect(isAdmissibleRun(admissible({ nameFilter: "/spawn/" }))).toBe(false);
 	});
@@ -1053,13 +964,7 @@ describe("an admissible filtered run (mantahostels#2146, mantahostels#2207)", ()
 		expect(isAdmissibleRun(full)).toBe(false);
 	});
 
-	/* `viaChanged` is a denominator and not a certificate (mantahostels#2303): it says the
-	 * run came from `npm run test:changed`, which is exactly the claim a run
-	 * that FAILED the freshness check can also make. A predicate reading it
-	 * would hand attestation to the runs it exists to count. */
 	it("is not claimable by the route flag, which attests nothing", () => {
-		/* The key is ABSENT on a failed launch, not present-and-undefined: the
-		 * reporter spreads it in only when the flag was set. */
 		const routed = certificate({
 			scope: fullScope({
 				modulesRun: 4,
@@ -1093,9 +998,6 @@ describe("why a full run was full (mantahostels#3207)", () => {
 			).toBe(bare);
 	});
 
-	/* A certificate predating mantahostels#3207 carries no reader for `full` at all — only
-	 * `isAdmissibleScope`'s presence check (`!scope.full`, tested below) reads
-	 * the field, and that reads absence and a bad value alike. */
 	it("carries no full key on a scope built before this change", () => {
 		expect("full" in fullScope()).toBe(false);
 	});
@@ -1149,22 +1051,12 @@ describe("reading the red store back (mantahostels#2205)", () => {
 	});
 });
 
-/*
- * #189: a certificate attests a tree plus a read closure, so a sha other than
- * the one stamped can be cleared by content.
- */
 describe("attesting a sha by tree (#189)", () => {
 	const attestedSha = "a".repeat(40);
 	const other = "b".repeat(40);
 	const treeSha = "c".repeat(40);
 	const baseSha = "d".repeat(40);
 
-	/**
-	 * A git that answers each of the four calls from a table: the sha's tree,
-	 * the manifest at the sha (`null`: absent there), the paths differing
-	 * between the certificate's tree and the sha's, and the paths in the sha's
-	 * range from the certificate's base.
-	 */
 	const scripted = ({
 		tree = treeSha,
 		manifest = JSON.stringify({ edges: {} }) as string | null,
@@ -1265,10 +1157,6 @@ describe("attesting a sha by tree (#189)", () => {
 		expect(io.calls.map((c) => c[0])).toEqual(["diff-tree"]);
 	});
 
-	/*
-	 * #799: the manifest is no closure root. A certificate carrying `selected`
-	 * re-reads it at the sha judged and attests what it maps to those tests.
-	 */
 	describe("re-reading the manifest at the sha (#799)", () => {
 		const selecting = (over: Record<string, unknown> = {}) =>
 			narrowedRun({ selected: ["scripts/a.test.ts"], ...over });
@@ -1408,11 +1296,6 @@ describe("attesting a sha by tree (#189)", () => {
 		});
 	});
 
-	/*
-	 * #150 Q6, over real git: a narrowed run over a tree holding a neighbour's
-	 * dirty file, whose dirt lies outside the closure, attests the commit made
-	 * from the session's own part of that tree.
-	 */
 	describe("over a real repository with a neighbour's dirty file", () => {
 		const git = (cwd: string, ...args: string[]) =>
 			execFileSync("git", args, {
@@ -1437,7 +1320,6 @@ describe("attesting a sha by tree (#189)", () => {
 			return dir;
 		}
 
-		/** The certificate a narrowed run over the CURRENT dirty tree would leave. */
 		function markerOver(
 			dir: string,
 		): Parameters<typeof holdsAt>[0] & { treeAtEnd: string } {
@@ -1664,7 +1546,6 @@ describe("certificates composed across sessions (#811, #789)", () => {
 		return { dir, root: git(dir, "rev-parse", "HEAD") };
 	}
 
-	/** The tree `base` would be with `files` written over it, built off an index of its own. */
 	function treeWith(dir: string, base: string, files: Record<string, string>) {
 		const env = {
 			...process.env,
@@ -1693,7 +1574,6 @@ describe("certificates composed across sessions (#811, #789)", () => {
 		return git(dir, "rev-parse", "HEAD");
 	};
 
-	/** An admissible narrowed certificate over `root` plus `files`, selected for them alone. */
 	const run = (
 		dir: string,
 		root: string,
@@ -1713,7 +1593,6 @@ describe("certificates composed across sessions (#811, #789)", () => {
 	const aEdit = { "a.js": "a.js v1\n" };
 	const bEdit = { "b.js": "b.js v1\n" };
 
-	/** Session A and session B each run green on its own edit, then both commit. */
 	function twoSessions() {
 		const { dir, root } = repo();
 		const a = run(dir, root, aEdit, {
@@ -1884,10 +1763,6 @@ describe("certificates composed across sessions (#811, #789)", () => {
 			expect(!none.judged && none.why).toContain("no git repository");
 		});
 
-		/*
-		 * A's certificate, then a `main` commit to a path A's closure reads,
-		 * merged into A's `main` — cleanly, or with a.js resolved by hand.
-		 */
 		function reconciled(resolved?: string) {
 			const { dir, root } = repo();
 			const a = run(dir, root, aEdit, {
@@ -1971,11 +1846,6 @@ describe("certificates composed across sessions (#811, #789)", () => {
 	});
 });
 
-/*
- * The shape #1860 replays: one wide test and one narrow test go green
- * together, a neighbour commits a file only the wide test reads, and the
- * session commits the narrow test's subject. The wide test alone is owed.
- */
 describe("a narrowed certificate judged test by test (#1860)", () => {
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, {
@@ -2027,7 +1897,6 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 	const readTree = (dir: string, sha: string) =>
 		git(dir, "rev-parse", `${sha}^{tree}`);
 
-	/** An admissible certificate reading `treeAtEnd`, recorded test by test. */
 	const perTest = (over: {
 		sha: string;
 		at: string;
@@ -2047,7 +1916,6 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 
 	const narrowEdit = { "narrow.js": "narrow.js v1\n" };
 
-	/** The session's certificate over its edit, a neighbour's commit, then the session's. */
 	function replay(
 		theirs: Record<string, string> = {
 			"docs/wide-only.md": "neighbour's edit\n",
@@ -2268,13 +2136,7 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 	});
 });
 
-/*
- * #3625: the printed recovery command once read the store's newest line, and
- * every session and worktree appends to that one store — so a neighbour's red
- * run written after this one answered in its place.
- */
 describe("a red run's recovery command (#3625)", () => {
-	// Distinct `at`s inside the archive's reach, a second apart.
 	const at = (i: number) =>
 		new Date(Date.now() - 10_000 + i * 1000).toISOString();
 	const red = (i: number, file: string) => ({
@@ -2283,7 +2145,6 @@ describe("a red run's recovery command (#3625)", () => {
 		scope: redScope([{ file, tests: ["fails"] }]),
 	});
 	const mine = red(0, "scripts/mine.test.ts");
-	// From a directory that is not the checkout, as from a worktree.
 	const run = (root: string) =>
 		execFileSync("sh", ["-c", failureRecoveryCommand(root, mine)], {
 			cwd: sandbox(),

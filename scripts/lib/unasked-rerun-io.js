@@ -1,28 +1,3 @@
-/*
- * unasked-rerun-io.js — the production `JudgeIO` lib/unasked-rerun.js's
- * `judge` decides over (#2913): the latch and refusal log under the markers
- * directory, git, the write ledger, the own-work selection, the
- * pass-marker store and the red store.
- *
- * TWO TREES (#4242). The stores are the host root's; HEAD, the own-work
- * selection and the checkout a run must be in are the session's tree's,
- * `tree`, which is the host root where the two are one.
- *
- * A CLASSED RED STANDS BESIDE THE CERTIFICATES (#3633), asked only where
- * certificates alone do not attest: a red-store run whose every failure
- * lib/already-red.js classes as already red on its base. A torn or
- * unreadable red store, or a classing that throws, costs the classed reds
- * alone and goes back as `redFault`.
- *
- * EVERY GIT CALL IS BOUNDED (ADR-0010): `ownSelection`'s and
- * `attestationOf`'s through the ExecFn they take, the arbiter store's under
- * its `withGitTimeout` — and every port that runs git says whether a call
- * overran, which `judge` allows on and logs.
- *
- * Its fake is lib/unasked-rerun-io-fake.js, held to it by
- * unasked-rerun-io.contract.test.ts (§G7).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { ownSelection } = require("./own-selection.js");
@@ -44,7 +19,6 @@ const { caught } = require("./caught.js");
 const { execProgram, gitAnswer, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { budgetMs } = require("./hook-deadline.js");
 
-/* arbiter-markers.js's sweep names the same prefix. */
 const LATCH_PREFIX = ".unasked-rerun-refused-";
 const REFUSAL_LOG = ".unasked-rerun-refusals.jsonl";
 
@@ -52,9 +26,8 @@ const REFUSAL_LOG = ".unasked-rerun-refusals.jsonl";
 const slug = (sid) => sid.replace(/[^A-Za-z0-9_-]/g, "_");
 
 /**
- * @param {string} root the host root, where the stores live
- * @param {{ tree?: string, timeoutMs?: number }} [options] `tree` the
- *   session's tree, the host root where omitted
+ * @param {string} root
+ * @param {{ tree?: string, timeoutMs?: number }} [options]
  * @returns {import("./unasked-rerun.js").JudgeIO}
  */
 function judgeIO(root, { tree = root, timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
@@ -105,7 +78,6 @@ function judgeIO(root, { tree = root, timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 			const { out, timedOut } = git(["rev-parse", "HEAD"], tree);
 			return { sha: out, timedOut };
 		},
-		/* The ledger's path is found through the store's repo root, a git read. */
 		ledger: (sid) => {
 			const { value, overran } = store.withGitTimeout(timeoutMs, () =>
 				store.readWritesBy(sid),
@@ -149,9 +121,6 @@ function judgeIO(root, { tree = root, timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
  */
 
 /**
- * The red store's runs that class as already red, oldest first, or why the
- * store could not be read for them.
- *
  * @param {string} root
  * @param {typeof import("node:child_process").execFileSync} exec
  * @param {{timedOut: boolean}} seen
@@ -180,12 +149,7 @@ function readClassedReds(root, exec, seen) {
 	}
 }
 
-/**
- * Why the store file at `at` will not read, as an error code — `ENOENT` where
- * it is absent — or null where it reads.
- * @param {string} at
- * @returns {string|null}
- */
+/** @param {string} at @returns {string|null} */
 function readStoreFault(at) {
 	try {
 		if (!fs.statSync(at).isFile()) return "EISDIR";
@@ -196,10 +160,7 @@ function readStoreFault(at) {
 	}
 }
 
-/**
- * Why the red store will not read whole, or null where it does or is absent.
- * @param {string} root
- */
+/** @param {string} root */
 function readRedStoreFault(root) {
 	const code = readStoreFault(storePath(root, FAIL_STORE));
 	if (code) return code === "ENOENT" ? null : code;
@@ -207,18 +168,12 @@ function readRedStoreFault(root) {
 	return malformed > 0 ? `${malformed} malformed line(s)` : null;
 }
 
-/**
- * Unjudged, or vitest attested: nothing a classed red could add.
- * @param {ReturnType<typeof attestationOf>} verdict
- */
+/** @param {ReturnType<typeof attestationOf>} verdict */
 const isSettled = (verdict) =>
 	!verdict.judged ||
 	verdict.suites.some((s) => s.suite === DEFAULT_SUITE && s.attested);
 
-/**
- * A red that could hold, and whose every error a failing test names.
- * @param {Marker} m
- */
+/** @param {Marker} m */
 const isClassable = (m) =>
 	suiteOf(m) === DEFAULT_SUITE &&
 	Boolean(m.base) &&
@@ -226,8 +181,6 @@ const isClassable = (m) =>
 	(isFullRun(m) || isAdmissibleRun(m));
 
 /**
- * Certificates and classed reds in one store order, oldest first, so
- * `attestationOf` asks the newest first whichever store it came from.
  * @param {Marker[]} certificates
  * @param {ClassedRed[]} reds
  * @returns {Marker[]}

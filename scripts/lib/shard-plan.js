@@ -1,20 +1,6 @@
-/*
- * shard-plan.js — which test files a `--shard=k/n` run takes, packed by each
- * file's recorded seconds so every shard finishes at about the same time
- * (#2413). scripts/vitest-shard-sequencer.ts is the seam vitest calls.
- *
- * LONGEST FIRST, EACH TO THE LIGHTEST SHARD (greedy LPT). A file no dataset
- * row names is charged the dataset's median.
- *
- * DETERMINISTIC ON PURPOSE: every shard job computes the whole plan on its own
- * and keeps its slice, so the same files and dataset must give the same plan
- * on every runner, or a file would run twice or never. Ties break on path,
- * never on input order.
- */
-
 /**
- * @param {{ file: string, seconds: number|null }[]} rows a parsed dataset's rows
- * @returns {Map<string, number>} each timed file's seconds
+ * @param {{ file: string, seconds: number|null }[]} rows
+ * @returns {Map<string, number>}
  */
 function secondsByFile(rows) {
 	/** @type {Map<string, number>} */
@@ -23,11 +9,7 @@ function secondsByFile(rows) {
 	return seconds;
 }
 
-/**
- * @param {number[]} values
- * Where nothing is timed every file is charged the same, so any positive
- * charge gives one plan: files dealt out in path order.
- */
+/** @param {number[]} values */
 function median(values) {
 	if (values.length === 0) return 1;
 	const sorted = [...values].sort((a, b) => a - b);
@@ -40,10 +22,8 @@ function median(values) {
 }
 
 /**
- * Files by their charge, heaviest first: their recorded seconds, or the
- * median where they have none.
- * @param {string[]} files repo-relative paths
- * @param {Map<string, number>} seconds from secondsByFile
+ * @param {string[]} files
+ * @param {Map<string, number>} seconds
  * @returns {[string, number][]}
  */
 function heaviestFirst(files, seconds) {
@@ -56,9 +36,8 @@ function heaviestFirst(files, seconds) {
 }
 
 /**
- * The files shard `index` of `count` runs, 1-based as `--shard` spells it.
- * @param {string[]} files repo-relative paths
- * @param {Map<string, number>} seconds from secondsByFile
+ * @param {string[]} files
+ * @param {Map<string, number>} seconds
  * @param {number} index
  * @param {number} count
  * @returns {string[]}

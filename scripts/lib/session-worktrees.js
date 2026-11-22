@@ -1,20 +1,3 @@
-/*
- * session-worktrees.js — the host repository's linked worktrees, each with
- * the session it belongs to, for the readers that report a dead session's
- * uncommitted work (#4244, spec #4229).
- *
- * A WORKTREE BELONGS TO THE SESSION WHOSE CWD LIES IN IT. The launcher starts
- * each session with its worktree as cwd (#4229), so the cwd is read where it
- * is recorded: the agents oracle's listing for a listed session, else the
- * harness's job records (`<seat>/jobs/<id>/state.json`), which outlive their
- * session, so a dead session's worktree still names it. Where several do, a
- * listed session wins, else the record written last.
- *
- * A WORKTREE NO CWD LIES IN HAS NO OWNER: a session that moved into it after
- * launch, a headless run, a tool's own tree. Callers judge its dirt as they
- * judge the main checkout's.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
@@ -31,18 +14,13 @@ const { isUnder, relativeUnder } = require("./is-under.js");
  * @typedef {{sessionId: string, name: string|null}} Owner
  * @typedef {{id: string, seat: string, sessionId: string, name: string|null,
  *   cwd: string, at: number, state: string|null}} JobCwd
- *   `id` the job's directory name, the id `claude attach` takes; `seat` the
- *   config dir holding it
  * @typedef {{cwds?: Map<string, string>, names?: Map<string, string>}} ListedCwds
- *   the agents oracle's read: each listed session's cwd and name
  */
 
 /**
- * A job record's id, seat, cwd, session, name and state; null where it names
- * no cwd or session.
- * @param {any} job a job record
- * @param {string} id the job's directory name
- * @param {string} seat the config dir holding it
+ * @param {any} job
+ * @param {string} id
+ * @param {string} seat
  * @returns {JobCwd | null}
  */
 function jobCwdOf(job, id, seat) {
@@ -59,13 +37,7 @@ function jobCwdOf(job, id, seat) {
 	};
 }
 
-/**
- * The id, seat, cwd, session, name and state of every job record on every
- * seat, and each job store or record that would not read. An absent store
- * holds no job; one that faults otherwise, EACCES among them, may hold a
- * resumable one.
- * @returns {{jobs: JobCwd[], unread: string[]}} `unread` as `<path>: <fault>`
- */
+/** @returns {{jobs: JobCwd[], unread: string[]}} */
 function readJobCwds() {
 	/** @type {JobCwd[]} */
 	const jobs = [];
@@ -77,9 +49,8 @@ function readJobCwds() {
 
 /**
  * @param {string} seat
- * @param {JobCwd[]} jobs accumulator: each job read is pushed here
- * @param {string[]} unread accumulator: each store or record that would not
- *   read is pushed here
+ * @param {JobCwd[]} jobs
+ * @param {string[]} unread
  */
 function readSeatJobs(seat, jobs, unread) {
 	const store = jobStorePath(seat);
@@ -100,9 +71,7 @@ function readSeatJobs(seat, jobs, unread) {
 }
 
 /**
- * The worktree among `worktrees` that holds `cwd`, the deepest where they
- * nest; null where none does.
- * @param {string} cwd dereferenced
+ * @param {string} cwd
  * @param {string[]} worktrees
  */
 function worktreeHolding(cwd, worktrees) {
@@ -117,7 +86,6 @@ function worktreeHolding(cwd, worktrees) {
 }
 
 /**
- * Each worktree a listed session's cwd lies in, with that session.
  * @param {string[]} worktrees
  * @param {ListedCwds} [listed]
  * @returns {Map<string, Owner>}
@@ -137,11 +105,8 @@ function listedOwners(worktrees, listed) {
 }
 
 /**
- * Each worktree's owner, for those any recorded cwd lies in, and readJobCwds'
- * `unread`: a worktree with no owner may belong to a job in one of those.
- * @param {string[]} worktrees dereferenced, as worktree-paths.js's readLinkedWorktrees gives them
- * @param {ListedCwds} [listed] the oracle read, whose sessions win over job
- *   records
+ * @param {string[]} worktrees
+ * @param {ListedCwds} [listed]
  * @returns {{owners: Map<string, Owner>, unread: string[]}}
  */
 function worktreeOwners(worktrees, listed) {
@@ -161,8 +126,6 @@ function worktreeOwners(worktrees, listed) {
 }
 
 /**
- * How a worktree is named in a report: relative to the host root where it sits
- * inside it, else as given.
  * @param {string} root
  * @param {string} wt
  * @returns {string}

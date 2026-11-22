@@ -1,25 +1,3 @@
-/*
- * suite-timings.js — the per-file suite-timing dataset: vitest JSON in, rows
- * out, from one report or every report under a directory as one sharded
- * Actions run's shards upload them (`vitest-report-*`, #2413); rows in,
- * percentile shares out; and the CSV serialisation between them.
- * `readReports` reads the filesystem, and `downloadReports` and `readNewestRun`
- * GitHub; the rest are pure (#4320). `scripts/suite-timings.js` is the CLI
- * over it, and `scripts/lib/latest-timings.js` this machine's copy.
- *
- * It exists so the suite-file-timings note's percentile table can be
- * recomputed rather than merely quoted (mantahostels#2039), docs/agents/guard-registry.md §Conventions resting
- * a live rule on it.
- *
- * DURATION IS EACH FILE'S `duration`, which `scripts/vitest-json-reporter.ts`
- * adds to vitest's report: the file's run, its beforeAll and afterAll hooks
- * included, as the default reporter prints it (#4313). It is wall time inside
- * the worker and so overlaps across workers: the file-seconds total exceeds the
- * run's wall clock by roughly the worker count. That is deliberately what the
- * shares are fractions of — a share of wall clock would depend on scheduling
- * luck rather than on the files.
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -27,16 +5,11 @@ const { caught } = require("./caught.js");
 const { gh, ghJson, retryingOnceSync } = require("./gh.js");
 const { resolveKey } = require("./workflow-core-config.js");
 
-/* scheduled-checks.yml carries the `lander/batch-*` push trigger, as it calls
- * every job `main`'s sweep judges by; its green runs are the timings' source. */
 const SUITE_WORKFLOW = "scheduled-checks.yml";
 
-/* Candidates tried for reports, newest first. Untraced: a green run
- * uploads its reports, so past the first few none is coming. */
 const SOURCES_TRIED = 5;
 const RUNS_LISTED = 30;
 
-/** Metadata lines are `# key: value` above the header row. */
 const META_PREFIX = "# ";
 
 /**
@@ -46,17 +19,9 @@ const META_PREFIX = "# ";
 const DEFAULT_SLICES = [5, 10, 20, 50, 100];
 
 /**
- * The checkout a report's file names sit under: the deepest ancestor of its
- * names under which the most of them name a file `exists` finds in this
- * checkout, else `root`. A report from an Actions runner names files under
- * the runner's own worktree, not this one, and a shard's files can all share
- * a subdirectory, so no common prefix is safe (#2413). A run in an isolated
- * worktree so keys its files under `<root>/.claude/worktrees/<name>/`, not
- * under `root` (#4352).
- *
- * @param {{ testResults?: unknown[] }} report parsed vitest JSON
- * @param {string} root this checkout
- * @param {(relative: string) => boolean} exists whether this checkout holds a path
+ * @param {{ testResults?: unknown[] }} report
+ * @param {string} root
+ * @param {(relative: string) => boolean} exists
  * @returns {string}
  */
 function reportRoot(report, root, exists) {
@@ -74,14 +39,8 @@ function reportRoot(report, root, exists) {
 }
 
 /**
- * Per-file rows from vitest's JSON reporter output, heaviest first.
- *
- * A FILE MISSING ITS DURATION IS KEPT WITH A NULL ONE, never dropped
- * and never zeroed (mantahostels#2039). Dropping it would silently inflate every share
- * below it; a zero would misreport a file as instant.
- *
- * @param {{ testResults?: unknown[] }} report parsed vitest JSON
- * @param {string} root repo root, so paths are recorded relative to the checkout
+ * @param {{ testResults?: unknown[] }} report
+ * @param {string} root
  * @returns {{ file: string, seconds: number|null, tests: number, status: string }[]}
  */
 function rowsFrom(report, root) {
@@ -103,13 +62,9 @@ function rowsFrom(report, root) {
 	return rows;
 }
 
-/* What `gh run download` prints for a run whose reports are gone or never
- * uploaded (#4292). */
 const NO_ARTEFACTS = /no valid artifacts found/i;
 
 /**
- * One run's `vitest-report-*` artefacts into `dir`: true, or false where the
- * run holds none. Any other gh failure throws, its stderr on the error.
  * @param {string} run
  * @param {string} dir
  * @returns {boolean}
@@ -125,10 +80,8 @@ function downloadReports(run, dir) {
 }
 
 /**
- * Heaviest first. Each report is relativised on its own: every shard ran in
- * a checkout of its own.
- * @param {string} source a report file, or a directory of them
- * @param {string} root the checkout the file names are made relative to
+ * @param {string} source
+ * @param {string} root
  * @returns {ReturnType<typeof rowsFrom>}
  */
 function readReports(source, root) {
@@ -150,9 +103,7 @@ function readReports(source, root) {
 	return rows;
 }
 
-/* A run finished this close before the planning run was created may still
- * list as running to one shard and as green to the next. A guess: the gap
- * between a run's completion and its listing as completed is unmeasured. */
+// #4574 guess
 const SETTLE_MS = 120_000;
 
 /**
@@ -161,15 +112,8 @@ const SETTLE_MS = 120_000;
  */
 
 /**
- * The green runs a sharded run may take its timings from, newest first: those
- * finished SETTLE_MS before `before`, the planning run's creation. Every shard
- * of one run, and each re-run of it, shares that instant, so each picks the
- * same run (#4574). A source run re-run between two reads drops out of the
- * later one, so those shards plan apart; scheduled-checks.yml's verdict
- * compares the shards' records and turns that red.
- *
  * @param {ListedRun[]} runs
- * @param {number} before ms since the epoch
+ * @param {number} before
  * @returns {number[]}
  */
 function timingSources(runs, before) {
@@ -211,12 +155,8 @@ function readSuiteRepo(root) {
 }
 
 /**
- * The newest green suite run finished before `before`, and its rows, made
- * relative to `root`; null where none of the newest SOURCES_TRIED holds
- * reports. A run `held` names comes back undownloaded, its rows null. Throws
- * where GitHub fails twice.
  * @param {string} repo
- * @param {number} before ms since the epoch
+ * @param {number} before
  * @param {string} root
  * @param {(run: number) => boolean} [held]
  * @returns {{ run: number, sha: string, rows: ReturnType<typeof readReports>|null }|null}
@@ -248,14 +188,8 @@ function readNewestRun(repo, before, root, held = () => false) {
 }
 
 /**
- * Median and cumulative share of file-seconds at each slice.
- *
- * Untimed rows are excluded from the total and the slices, and counted
- * separately so a caller sees the dataset was incomplete rather than inferring
- * it from a share that does not add up.
- *
  * @param {{ seconds: number|null }[]} rows
- * @param {number[]} [slices] top-N cut points
+ * @param {number[]} [slices]
  */
 function shares(rows, slices = DEFAULT_SLICES) {
 	const timed = rows
@@ -264,7 +198,6 @@ function shares(rows, slices = DEFAULT_SLICES) {
 		.sort((a, b) => b - a);
 	const total = timed.reduce((a, b) => a + b, 0);
 	const ascending = [...timed].sort((a, b) => a - b);
-	// One middle value twice on an odd count, the two middle values on an even.
 	const lower = ascending[Math.ceil(ascending.length / 2) - 1];
 	const upper = ascending[Math.floor(ascending.length / 2)];
 	const median =
@@ -289,17 +222,6 @@ function shares(rows, slices = DEFAULT_SLICES) {
 }
 
 /**
- * The CSV text: `# key: value` metadata, then `file,seconds,tests,status`.
- *
- * NO QUOTING, AND NO ESCAPING (mantahostels#2039). Every cell is a repo-relative test path,
- * a number, or one of vitest's own status words, and none of the three can
- * contain a comma; a quoting layer would be code no input reaches. The residual
- * is that a future column taking free text — a failure message, say — silently
- * shifts every column after it, so such a column wants the quoting first.
- *
- * An untimed row's `seconds` cell is empty, which is how `parseCsv` tells it
- * from a genuine 0.00.
- *
  * @param {ReturnType<typeof rowsFrom>} rows
  * @param {Record<string, string|number>} meta
  */
@@ -315,10 +237,7 @@ function toCsv(rows, meta) {
 	return `${lines.join("\n")}\n`;
 }
 
-/**
- * Rows and metadata back out of a dataset CSV.
- * @param {string} text
- */
+/** @param {string} text */
 function parseCsv(text) {
 	/** @type {Record<string, string>} */
 	const meta = {};
@@ -362,9 +281,6 @@ function formatShares(s) {
 }
 
 /**
- * `key=value` pairs into a metadata object, or the first argument that is not
- * one. Returned rather than thrown so the CLI owns the exit.
- *
  * @param {string[]} pairs
  * @returns {{ meta: Record<string, string>, bad: string|null }}
  */

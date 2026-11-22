@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * lib/vitest-wrapper.js, the guard-vitest-wrapper core (#2800), in process:
- * which vitest runs it warns are outside scripts/run-vitest.js's stall
- * watchdog (mantahostels#2002, the follow-on to mantahostels#1910's), what
- * the warning says, and when it drops the rule for the standing line
- * (mantahostels#2275).
- *
- * The rule store is the real one, read through lib/rule-text.js; the latch
- * (`told`), the script-path spelling and the core-path resolution are fakes
- * the case sets. What the kit makes of a verdict — the envelope, the latch
- * file, the fail-open log — is guard-vitest-wrapper.test.ts's boundary set.
- *
- * Loosen a case here and a bare vitest run parks on a hung call with no
- * output and no filename, unwarned — the hang mantahostels#1910's watchdog
- * was built for.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -44,7 +28,6 @@ const { decide } = require("./vitest-wrapper.js") as {
 	decide: (command: string, ctx: object) => Verdict;
 };
 
-/** The rule fragment the first warning is meant to carry whole. */
 const FRAGMENT = fs
 	.readFileSync(
 		path.resolve(
@@ -77,7 +60,6 @@ const ctxOf = ({ told = false, logs, ...over }: Over = {}) =>
 		...over,
 	});
 
-/** "warn" where the core hands the session text, "allow" where nothing. */
 const verdict = (command: string, over: Over = {}) => {
 	const v = decide(command, ctxOf(over));
 	if (v === null) return "allow";
@@ -85,7 +67,6 @@ const verdict = (command: string, over: Over = {}) => {
 	return "warn";
 };
 
-/** The text the session reads: the prelude untold, the context once told. */
 const message = (command: string, over: Over = {}) => {
 	const v = decide(command, ctxOf(over));
 	if (v === null) throw new Error(`no warning for ${command}`);
@@ -266,10 +247,6 @@ describe("the warning's content", () => {
 	});
 });
 
-/*
- * mantahostels#2275. The guard warns on a command it ALLOWS, so nothing but
- * this bounds how often one session pays the fragment.
- */
 describe("the rule fragment is latched, the suggestion is not", () => {
 	it("drops to a standing line once told, latching nothing more", () => {
 		const v = decide("vitest run y.test.ts", ctxOf({ told: true }));
@@ -290,10 +267,6 @@ describe("the rule fragment is latched, the suggestion is not", () => {
 		expect(second).toContain("node scripts/run-vitest.js y.test.ts");
 	});
 
-	/* Three copies of the same sentence exist — the fragment's own first line,
-	 * the standing line and the store-unreadable fallback — and the two
-	 * hardcoded ones are what a session reads in the states where being wrong
-	 * costs most (mantahostels#2275's review). */
 	it("repeats the fragment's own first sentence, not a paraphrase of it", () => {
 		const first = (FRAGMENT.split("\n")[0] ?? "").replace(/\.$/, "");
 		expect(message("vitest run y.test.ts", { told: true })).toContain(first);

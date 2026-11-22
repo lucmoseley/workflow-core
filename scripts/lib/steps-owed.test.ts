@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * steps-owed.test.ts — the sole reader/writer of `.claude/workflow-core.json`'s
- * `stepsOwed` field (#248): entries append, clear and decline without losing
- * the rest of the config, in the layout an adopter's Biome gate accepts (#675).
- *
- * Every case writes a config under its own temp root, so no case touches this
- * repo's `.claude/workflow-core.json`.
- *
- * `upgrade.js` writes it and `check-plugin-gap.js`, a SessionStart hook,
- * reports it; loosen a case and a migration's manual step is lost unreported,
- * or a declined choice is asked again on the next machine.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

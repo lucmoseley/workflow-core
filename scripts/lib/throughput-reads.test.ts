@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/throughput-reads.js — the throughput breaker's reads (#5275), crossed for
- * real: git and the files in the test's own temp directory. Broken, the
- * breaker counts merges or another branch's commits as landings, reads an
- * unreadable record as an empty one and closes a breaker it should hold, or
- * counts only the loop sessions the state still keeps (#5289).
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -26,7 +19,6 @@ type SeatedLaunch = import("./refill-breaker.js").BreakerLaunch & {
 	copiedFrom?: string;
 };
 
-/** The read a tick takes of `root`, reaching back to `since`. */
 const tickRead = (root: string, since = 0) =>
 	readThroughput({
 		roots: [root],
@@ -39,10 +31,6 @@ const HOUR = 3_600_000;
 const HI = Date.parse("2026-11-16T07:00:00Z");
 const LO = HI - 24 * HOUR;
 
-/**
- * A job on `seat` whose timeline works from `start`, then after `minutes`
- * writes `last`: done, or a working row a kill left last.
- */
 function writeJob(
 	seat: string,
 	jobId: string,
@@ -92,8 +80,6 @@ describe("a checkout's origin/main commits", () => {
 	it("reads origin/main's non-merge commits since a time, with their commit times, and none origin/main lacks", () => {
 		const repo = path.join(tmp, "repo");
 		fs.mkdirSync(repo);
-		// Committed before the read's second, so a lookback git takes for now
-		// reads none every run, not only when the clock ticks (#5336).
 		vi.stubEnv(
 			"GIT_COMMITTER_DATE",
 			`@${Math.floor(Date.now() / 1000) - 30} +0000`,
@@ -167,10 +153,6 @@ describe("the breaker's record", () => {
 
 const WORKTREE = "implement-1-abc";
 
-/**
- * A checkout `repo`, holding the worktree directory WORKTREE, whose `main`
- * is pushed to the bare `origin.git` beside it.
- */
 const lander = defineTemplate((dir) => {
 	const origin = path.join(dir, "origin.git");
 	const repo = path.join(dir, "repo");
@@ -318,7 +300,6 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		batch(sha);
 		const read = tickRead(repo);
 		expect(read.queueOf(l)).toEqual({ state: "waiting" });
-		/* The tick's refs are already read, so only the walk of main faults. */
 		const main = git(repo, "rev-parse", "main");
 		fs.rmSync(
 			path.join(repo, ".git", "objects", main.slice(0, 2), main.slice(2)),
@@ -444,7 +425,6 @@ describe("a checkout's loop sessions (#5289)", () => {
 		expect(hoursOf([launchOf(seat, "gone")])).toBe(0);
 	});
 
-	/* Positive pair: "counts a launch's current job to its finish, dropping a malformed row". */
 	it("counts no hours for a job whose timeline will not stat or read, and names it (#5301)", () => {
 		const seat = path.join(tmp, "seat");
 		writeJob(seat, "j1", HI - 2 * HOUR);
