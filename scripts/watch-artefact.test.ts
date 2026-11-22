@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { keptSpawn } from "./lib/kept-spawn.js";
+import { escapeRe } from "./lib/regex-group.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = join(__dirname, "watch-artefact.js");
@@ -227,14 +228,9 @@ describe("reading the agent's own log (#5421)", () => {
 	});
 
 	/* Four checks with no growth before the ceiling: two would stall. */
+	const CeilingS = 4.5 * INTERVAL_S;
 	const watchLog = () =>
-		watch([
-			artefact,
-			String(INTERVAL_S),
-			String(4.5 * INTERVAL_S),
-			"--log",
-			log,
-		]);
+		watch([artefact, String(INTERVAL_S), String(CeilingS), "--log", log]);
 
 	it.each([
 		["an unanswered tool call", toolCall],
@@ -321,6 +317,49 @@ describe("reading the agent's own log (#5421)", () => {
 		expect(r.stderr).toContain(`${log} holds no turn record`);
 	}, 15_000);
 
+	describe("on the log alone, for a dispatch with no artefact (#5515)", () => {
+		const watchLogOnly = (steps: [at: number, act: () => void][] = []) =>
+			watch(
+				["--no-artefact", String(INTERVAL_S), String(CeilingS), "--log", log],
+				steps,
+			);
+
+		it("ends DONE once the log reads stopped", async () => {
+			writeFileSync(log, toolCall);
+			const r = await watchLogOnly([
+				[1, () => appendFileSync(log, toolResult + turnEnd)],
+			]);
+			expect(r.status).toBe(EXIT.DONE);
+			expect(r.stdout).toMatch(
+				new RegExp(
+					`^DONE ${escapeRe(log)} — the agent has stopped; read its report`,
+				),
+			);
+		}, 15_000);
+
+		it.each([
+			["a call in flight", () => writeFileSync(log, toolCall)],
+			["no log yet, never MISSING", () => rmSync(log, { force: true })],
+		])(
+			"ends CEILING on %s",
+			async (_name, write) => {
+				write();
+				const r = await watchLogOnly();
+				expect(r.status).toBe(EXIT.CEILING);
+				expect(r.stdout).toMatch(new RegExp(`^CEILING ${escapeRe(log)} — `));
+			},
+			15_000,
+		);
+
+		it("keeps reading a malformed log to the ceiling, saying so once", async () => {
+			writeFileSync(log, "not json\n");
+			const r = await watchLogOnly();
+			expect(r.status).toBe(EXIT.CEILING);
+			expect(r.stderr.match(/still reading it/g)).toEqual(["still reading it"]);
+			expect(r.stderr).toContain(`${log} holds no turn record`);
+		}, 15_000);
+	});
+
 	it("says on its start line when no log is read", async () => {
 		const r = await watch([artefact, String(INTERVAL_S)]);
 		expect(r.stderr).toContain("on growth alone, no agent log");
@@ -340,6 +379,30 @@ describe("a bad invocation", () => {
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toMatch(/^watch-artefact: .*\nusage: /);
 	});
+
+	it.each([
+		["no log", ["--no-artefact", "1"], "--no-artefact needs --log"],
+		[
+			"a path",
+			["--no-artefact", "x", "1", "2", "--log", "l"],
+			"--no-artefact takes no artefact path",
+		],
+		[
+			"a first-write deadline",
+			["--no-artefact", "1", "--log", "l", "--first-write", "5"],
+			"--no-artefact has no first write to wait on",
+		],
+	])(
+		"refuses a log-only watch given %s, saying why",
+		async (_label, args, why) => {
+			const r = await runInProcessAsync(SCRIPT, args);
+			expect(r.status).toBe(EXIT.USAGE);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toMatch(
+				new RegExp(`^watch-artefact: ${escapeRe(why)}\n`),
+			);
+		},
+	);
 });
 
 describe("the poll guard (guard-dispatch.js's guard-agent-poll core)", () => {

@@ -1,12 +1,19 @@
 const path = require("node:path");
-const { BUDGET_RULE, budgetPark, countBudget } = require("./refill-budget.js");
+const {
+	BUDGET_RULE,
+	budgetPark,
+	countBudget,
+	isLaunchRun,
+} = require("./refill-budget.js");
 const { CEILING_MS } = require("./suite-ceiling.js");
 
 /**
  * @typedef {import("./gate-seat.js").GateRun} GateRun
  * @typedef {import("./refill-budget.js").BudgetRule} BudgetRule
  * @typedef {import("./refill-budget.js").BudgetCount} BudgetCount
- * @typedef {{at: string, repo: string, session: string, ticket?: number}} Park
+ * @typedef {import("./refill-budget.js").BudgetParkEvent} BudgetParkEvent
+ * @typedef {Pick<BudgetParkEvent, "at"|"repo"|"ticket"> & {session: string}
+ *   & Partial<Pick<BudgetParkEvent, "sessions"|"launchedAt">>} Park
  * @typedef {{arrivedAt: number, at: number}} Landing
  * @typedef {{park: Park, repoRuns: GateRun[], suiteCommand: string,
  *   landings: Landing[]}} ParkInput
@@ -28,6 +35,16 @@ function withLegacyWallClock(run, rule) {
 	return { ...run, wallS: run.runS, runS: ceilingS };
 }
 
+/* #5514 */
+/**
+ * @param {Park} park
+ * @returns {import("./refill-budget.js").LaunchScope}
+ */
+const launchOf = (park) => ({
+	ids: new Set(park.sessions ?? [park.session]),
+	launchedAt: park.launchedAt === undefined ? 0 : Date.parse(park.launchedAt),
+});
+
 /**
  * @param {Park} park
  */
@@ -44,10 +61,11 @@ function replayPark(
 	rule = BUDGET_RULE,
 ) {
 	const parkedAt = Date.parse(park.at);
-	const ids = new Set([park.session]);
+	const launch = launchOf(park);
+	const { ids, launchedAt } = launch;
 	const runs = repoRuns.map((r) => withLegacyWallClock(r, rule));
 	const mine = runs
-		.filter((r) => r.session === park.session && Date.parse(r.at) <= parkedAt)
+		.filter((r) => isLaunchRun(r, launch) && Date.parse(r.at) <= parkedAt)
 		.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 	/** @type {BudgetCount|null} */
 	let count = null;
@@ -58,7 +76,7 @@ function replayPark(
 			runs.filter((r) => Date.parse(r.at) <= t),
 			{
 				ids,
-				launchedAt: 0,
+				launchedAt,
 				landingAt: arrived.length > 0 ? Math.max(...arrived) : null,
 				suiteCommand,
 			},
@@ -150,4 +168,10 @@ function renderSweep(inputs, { streaks, backstops }, rule = BUDGET_RULE) {
 	return lines.join("\n");
 }
 
-module.exports = { firstHeldAt, renderReplay, renderSweep, unreadLine };
+module.exports = {
+	firstHeldAt,
+	launchOf,
+	renderReplay,
+	renderSweep,
+	unreadLine,
+};

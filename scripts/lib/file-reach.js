@@ -110,6 +110,11 @@ const {
 	HASH_COMMENT_LINE,
 	JS_COMMENT_LINE,
 } = require("./qualify-citations.js");
+const {
+	CALLER_BODY,
+	LOADS_BODY,
+	pragmaLine,
+} = require("./code-edges-pragmas.js");
 const { readText } = require("./file-read.js");
 const { closeOf, inertSpans, topLevelArgs } = require("./js-lex.js");
 const { escapeRe, requiredGroup } = require("./regex-group.js");
@@ -265,8 +270,8 @@ const LOAD_CONST_VALUE = /^(?:["'][^"'\\]*["']|process\.env\.\w+)$/;
 /* A file's declaration of what its loads that name no literal load: a path,
  * off the file's directory, of a script; or of a JSON manifest and the key
  * whose every value, at any depth, names a script off the same directory. */
-const LOADS_PRAGMA =
-	/^[ \t]*(?:\/\/|\/?\*)[ \t]*code-edges loads: (\S+)(?: (\w+))?[ \t]*$/gm;
+const LOADS_PRAGMA = pragmaLine(String.raw`\/\/|\/?\*`, LOADS_BODY);
+const SH_LOADS_PRAGMA = pragmaLine("#", LOADS_BODY);
 const PY_IMPORT =
 	/^\s*(?:from\s+([\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
 /* Any statement that may load a module or run a file's code, read with its
@@ -705,9 +710,11 @@ function declaredLoads(file, text) {
 	const dir = path.dirname(file);
 	/** @type {Declared} */
 	const out = { keys: [], edges: [], reads: [], unread: [] };
-	for (const m of text.matchAll(LOADS_PRAGMA)) {
+	const pragma =
+		scriptLanguage(file, text) === "sh" ? SH_LOADS_PRAGMA : LOADS_PRAGMA;
+	for (const m of text.matchAll(pragma)) {
 		const said = `declares ${m[0].trim()}`;
-		const named = path.join(dir, requiredGroup(m, 1, LOADS_PRAGMA));
+		const named = path.join(dir, requiredGroup(m, 1, pragma));
 		const key = m[2];
 		if (key === undefined) {
 			if (isFile(named)) out.edges.push(named);
@@ -1638,9 +1645,10 @@ const NONE = /(?!)/;
 const SH_FLAGS = {
 	node: {
 		inline: /^(?:-[A-Za-z]*[ep]|--eval|--print)$/,
-		load: /^(?:-r|--require|--import|--loader|--experimental-loader|--env-file)$/,
+		load: /^(?:-r|--require|--import|--loader|--experimental-loader|--env-file|--test-reporter)$/,
 		module: NONE,
-		value: /^(?:-C|--conditions|--title|--input-type)$/,
+		value:
+			/^(?:-C|--conditions|--title|--input-type|--test-reporter-destination)$/,
 	},
 	python: {
 		inline: /^-[A-Za-z]*c$/,
@@ -1712,8 +1720,7 @@ const SH_TOKEN_CLOSE = "\"'`),.;:";
 /* `# code-edges caller: <name>…`: variables a script assigns a program it
  * finds off `PATH`, as host-git-guard/git finds the real git, whose load is
  * the caller's to name, as a bare command name's is. */
-const SH_CALLER_PRAGMA =
-	/^[ \t]*#[ \t]*code-edges caller: (\w+(?:[ \t]+\w+)*)[ \t]*$/gm;
+const SH_CALLER_PRAGMA = pragmaLine("#", CALLER_BODY);
 /* `${X:-default}` or `${X-default}`: an inherited X reads as its default,
  * the value where the caller sets none. */
 const SH_DEFAULTED = /^\$\{(\w+):?-/;
@@ -1757,6 +1764,10 @@ function shReach(file, code) {
 				if (p !== file) reach.edges.push(p);
 		shLoads(command, scope, reach);
 	}
+	const declared = declaredLoads(file, code);
+	reach.edges.push(...declared.edges);
+	reach.reads.push(...declared.reads);
+	reach.unread.push(...declared.unread);
 	reach.edges = [...new Set(reach.edges)];
 	return reach;
 }
@@ -2152,7 +2163,11 @@ function shLoads(command, scope, reach) {
 	const run = { scope, reach, said: words.map((w) => w.text).join(" ") };
 	const named = interpreterNamed(head.text);
 	if (named) {
-		shInterpreterLoads(run, named.kind, args);
+		shInterpreterLoads(
+			run,
+			named.kind,
+			args.flatMap(splitJoinedFlag(SH_FLAGS[named.kind])),
+		);
 		return;
 	}
 	/* An array's elements are a command only where an interpreter heads them. */
@@ -2161,7 +2176,11 @@ function shLoads(command, scope, reach) {
 	const nested = args.findIndex((w) => interpreterNamed(w.text));
 	const nestedKind = interpreterNamed(args[nested]?.text ?? "")?.kind;
 	if (nestedKind && !SH_NAMING_HEAD.test(head.text))
-		shInterpreterLoads(run, nestedKind, args.slice(nested + 1));
+		shInterpreterLoads(
+			run,
+			nestedKind,
+			args.slice(nested + 1).flatMap(splitJoinedFlag(SH_FLAGS[nestedKind])),
+		);
 	const [first] = args;
 	if ((head.text === "source" || head.text === ".") && first)
 		load(run, first, { sourced: true });
@@ -2260,6 +2279,18 @@ function shInterpreterLoads(run, kind, args) {
 	unreadProgram(run);
 }
 
+/** @param {{load: RegExp, value: RegExp}} flags @returns {(word: ShWord) => ShWord[]} */
+const splitJoinedFlag = (flags) => (word) => {
+	const joined = /^(--[\w-]+)=/.exec(word.text);
+	const flag = joined?.[1];
+	if (!joined || !flag || !(flags.load.test(flag) || flags.value.test(flag)))
+		return [word];
+	return [
+		{ text: flag, at: word.at },
+		{ text: word.text.slice(joined[0].length), at: word.at + joined[0].length },
+	];
+};
+
 /**
  * @param {ShRun} run accumulator: its reach gains the run as unread
  */
@@ -2291,7 +2322,12 @@ function scriptWord(args, k) {
 function shFlagValue(run, flags, args, k) {
 	const flag = args[k]?.text ?? "";
 	const value = args[k + 1];
-	if (flags.load.test(flag) && value && /[/$]/.test(value.text))
+	if (
+		flags.load.test(flag) &&
+		value &&
+		/[/$]/.test(value.text) &&
+		!/^@[\w.-]+\//.test(value.text)
+	)
 		load(run, value);
 	return flags.load.test(flag) || flags.value.test(flag) ? 1 : 0;
 }

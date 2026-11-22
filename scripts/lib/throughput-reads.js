@@ -246,20 +246,24 @@ function readLoopSessions({ roots, launches, lookbackOf, now }) {
 }
 
 /**
- * The shas `l`'s sessions committed in its checkout, null where a ledger will
- * not read.
- * @param {import("./refill-breaker.js").BreakerLaunch} l
+ * @param {Iterable<string>} ids
+ * @param {string} root
  * @returns {string[]|null}
  */
-function readCommitsOf(l) {
+function readCommitsByEach(ids, root) {
 	const shas = [];
-	for (const id of sessionIdsOf(l)) {
-		const mine = readCommitsBy(id, l.root);
+	for (const id of ids) {
+		const mine = readCommitsBy(id, root);
 		if (mine === null) return null;
 		shas.push(...mine);
 	}
 	return shas;
 }
+
+/**
+ * @param {import("./refill-breaker.js").BreakerLaunch} l
+ */
+const readCommitsOf = (l) => readCommitsByEach(sessionIdsOf(l), l.root);
 
 /**
  * Where the stays of a queue ref stand for a breaker trial: one landed, one
@@ -412,6 +416,7 @@ function readThroughputWindow({ roots, launches, lo, hi }) {
 
 module.exports = {
 	GIT_LOG_TIMEOUT_MS,
+	readCommitsByEach,
 	readSuiteCommand,
 	readThroughput,
 	readThroughputWindow,
