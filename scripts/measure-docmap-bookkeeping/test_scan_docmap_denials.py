@@ -108,15 +108,13 @@ def test_a_denial_naming_no_claim_time_is_dropped():
     assert subjects(f"{MAP} is held by session 735db33b, which is still running.") == []
 
 
-def test_a_truncated_hook_payload_is_unescaped_by_hand_and_says_so(capsys):
+def test_a_truncated_hook_payload_is_unescaped_by_hand_silently(capsys):
     subjects(f'"permissionDecisionReason":"{MAP} is held by session {HOLDER}\\')
-    assert "fail-open: truncated reason unescaped by hand: JSONDecodeError" in (
-        capsys.readouterr().err
-    )
+    assert capsys.readouterr().err == ""
 
 
-def test_an_undated_record_is_counted_and_reported(corpus, capsys):
-    path = corpus(
+def test_an_undated_record_is_counted_silently(corpus, capsys):
+    corpus(
         "s1",
         [{"type": "user", "timestamp": "not-a-date", "text": "is held by session"}],
     )
@@ -124,6 +122,4 @@ def test_an_undated_record_is_counted_and_reported(corpus, capsys):
     start = datetime(2000, 1, 1, tzinfo=timezone.utc)
     events, _ = scan(start, datetime.now(timezone.utc), tally)
     assert (events, tally["undated records"]) == (set(), 1)
-    assert f"fail-open: {path} record counted as undated: ValueError" in (
-        capsys.readouterr().err
-    )
+    assert capsys.readouterr().err == ""

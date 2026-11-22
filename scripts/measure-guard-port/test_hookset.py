@@ -94,7 +94,9 @@ def test_an_if_matches_a_subcommand_of_a_compound_command():
     )
 
 
-def test_the_program_prints_the_set_from_the_layers_and_names_a_missing_one(tmp_path):
+def test_the_program_prints_the_set_from_the_layers_and_leaves_a_missing_one_out_silently(
+    tmp_path,
+):
     plugin = tmp_path / "plugin" / "hooks"
     plugin.mkdir(parents=True)
     (plugin / "hooks.json").write_text(json.dumps(LAYERS[0]))
@@ -113,9 +115,7 @@ def test_the_program_prints_the_set_from_the_layers_and_names_a_missing_one(tmp_
     )
     assert done.returncode == 0
     assert done.stdout.splitlines() == ["always", "everything"]
-    assert (
-        f"fail-open: no layer at {tmp_path / 'config' / 'settings.json'}" in done.stderr
-    )
+    assert done.stderr == ""
 
 
 def test_the_program_refuses_a_bad_invocation():
@@ -125,10 +125,8 @@ def test_the_program_refuses_a_bad_invocation():
     assert done.returncode == 1
 
 
-def test_a_missing_layer_is_left_out_and_named(tmp_path, capsys):
+def test_a_missing_layer_is_left_out_silently(tmp_path, capsys):
     (tmp_path / "a.json").write_text("{}")
     missing = tmp_path / "b.json"
     assert load_layers([str(tmp_path / "a.json"), str(missing)]) == [{}]
-    assert f"fail-open: no layer at {missing}: FileNotFoundError" in (
-        capsys.readouterr().err
-    )
+    assert capsys.readouterr().err == ""

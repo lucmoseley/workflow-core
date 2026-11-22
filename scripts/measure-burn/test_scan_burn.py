@@ -917,20 +917,22 @@ def test_an_unread_launch_record_refuses_rather_than_counting_overflow_as_plan(
 # --- fail-open sites (#5487) ---------------------------------------------------
 
 
-def test_an_unparsable_session_end_leaves_its_duration_out_and_says_so(corpus, capsys):
+def test_an_unparsable_session_end_leaves_its_duration_out_and_counts_it(
+    corpus, capsys
+):
     corpus("s1", [rec("r1", ts="not-a-date")])
     tally = Counter()
     sb.report(list(sb.requests(tally)), tally)
     out, err = capsys.readouterr()
     assert "(undated sessions: 1)" in out
-    assert "fail-open: session duration left out: ValueError" in err
+    assert err == ""
 
 
 def test_an_unopenable_seat_history_is_left_out_of_roots_read(seats, capsys):
     tally = Counter()
     owner, _, read = sb.seat_map(tally)
     assert (owner, read) == ({}, [])
-    assert "history left unread: FileNotFoundError" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
 def test_an_unparsable_history_line_is_counted_silently(seats, capsys):
@@ -959,5 +961,6 @@ def test_an_undated_request_is_left_out_of_its_seats_window(corpus, seats, capsy
     seats(".claude", ["s1"])
     tally = Counter()
     sb.seat_report(list(sb.requests(tally)), tally)
-    err = capsys.readouterr().err
-    assert "fail-open: request left out of its seat's peak window: ValueError" in err
+    out, err = capsys.readouterr()
+    assert "1 request(s) carried no parsable timestamp" in out
+    assert "peak window" not in err

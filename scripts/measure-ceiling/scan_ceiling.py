@@ -43,7 +43,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
-from fail_open import fail_open
+from fail_open import tallied
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "measure-burn"))
 import scan_burn as sb
@@ -57,15 +57,13 @@ WINDOW_HOURS = 5
 RESET_RE = re.compile(r"resets?(?: at)? (\d{1,2})(?::(\d{2}))?\s*(am|pm)", re.I)
 
 
-def parse_ts(value):
-    """A transcript timestamp as an aware UTC datetime, or None — which each
-    caller counts into its tally (#1274)."""
+def parse_ts(value, tally, key):
     try:
         return dt.datetime.fromisoformat(
             (value or "").replace("Z", "+00:00")
         ).astimezone(UTC)
     except ValueError as e:
-        fail_open(e, "timestamp read as None")
+        tallied(e, tally, key)
         return None
 
 
@@ -118,9 +116,8 @@ def classify(rec, tally):
         kind = "window-exhausted"
     else:
         kind = "request-rejected"
-    at = parse_ts(rec.get("timestamp"))
+    at = parse_ts(rec.get("timestamp"), tally, "undated 429s")
     if at is None:
-        tally["undated 429s"] += 1
         return None
     return {
         "kind": kind,
@@ -355,9 +352,8 @@ def activity(tally):
                 for k in ("output_tokens", "cache_read_input_tokens", "input_tokens")
             ):
                 continue
-            at = parse_ts(rec.get("timestamp"))
+            at = parse_ts(rec.get("timestamp"), tally, "undated turns")
             if at is None:
-                tally["undated turns"] += 1
                 continue
             turns[sid].append((at, msg.get("model")))
             rid = rec.get("requestId") or msg.get("id") or rec.get("uuid")
