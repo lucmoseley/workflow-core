@@ -43,6 +43,7 @@ const write = (rel = "notes.txt", content = "a note\n") => ({
 describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 	it("costs a plain Bash call these modules and starts", () => {
 		const r = dispatch({ hook_event_name: "PreToolUse", ...ls });
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-dispatch.js",
 			"lib/agent-poll.js",
@@ -161,6 +162,7 @@ describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 
 	it("costs a plain Write these modules and starts", () => {
 		const r = dispatch({ hook_event_name: "PreToolUse", ...write() });
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-dispatch.js",
 			"lib/caught.js",
@@ -259,6 +261,7 @@ describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 			hook_event_name: "PreToolUse",
 			...write("scripts/tool.js", "module.exports = {};\n"),
 		});
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-dispatch.js",
 			"lib/caught.js",
@@ -375,6 +378,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 				isImage: false,
 			},
 		});
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-dispatch.js",
 			"lib/act-line.js",
@@ -533,6 +537,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 				structuredPatch: [],
 			},
 		});
+		// #1497
 		expect(r.modules).toEqual([
 			"check-host-root.js",
 			"guard-dispatch.js",

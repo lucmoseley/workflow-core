@@ -35,6 +35,7 @@ const dispatcher = (name: string, args: string[] = []) =>
 describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 	it("costs precommit-dispatch.js these modules and starts", async () => {
 		const r = await dispatcher("precommit-dispatch.js");
+		// #1497
 		expect(r.modules).toEqual([
 			"check-adopter-boundary.js",
 			"check-citation-tracker.js",
@@ -213,6 +214,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			c.message,
 			"message",
 		]);
+		// #1497
 		expect(r.modules).toEqual([
 			"check-commit-message-closes.js",
 			"lib/caught.js",
@@ -267,6 +269,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 
 	it("costs commit-msg-dispatch.js these modules and starts", async () => {
 		const r = await dispatcher("commit-msg-dispatch.js", [c.message]);
+		// #1497
 		expect(r.modules).toEqual([
 			"check-commit-message-closes.js",
 			"check-weakens-line.js",
@@ -332,6 +335,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 	it("costs post-commit-dispatch.js these modules and starts", async () => {
 		c.committed();
 		const r = await dispatcher("post-commit-dispatch.js");
+		// #1497
 		expect(r.modules).toEqual([
 			"check-guard-registry.js",
 			"check-instruction-surface.js",

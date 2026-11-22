@@ -9,6 +9,9 @@ import { makeProcRoot, writeCwd } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
+// #3605 measured 2 s at 16 args
+const UNCLOSED_JOIN_ARGS = 40;
+
 const SCRIPT = path.join(__dirname, "cut-mantahostels.js");
 
 const made: string[] = [];
@@ -341,7 +344,7 @@ describe("cut-mantahostels.js", () => {
 		put(
 			f.dir,
 			"scripts/runner.js",
-			`path.join(__dirname, ${'"a"  '.repeat(40)}\npath.join(__dirname , "old.js" , );\n`,
+			`path.join(__dirname, ${'"a"  '.repeat(UNCLOSED_JOIN_ARGS)}\npath.join(__dirname , "old.js" , );\n`,
 		);
 		f.git("add", "-A");
 		f.git("commit", "-q", "-m", "an unclosed join before a real edge");

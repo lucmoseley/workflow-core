@@ -43,6 +43,7 @@ describe("guard-failed-call-rules.js's per-call cost (#5338)", () => {
 			is_interrupt: false,
 		});
 		expect(r.stdout).toBe("");
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-failed-call-rules.js",
 			"lib/caught.js",
@@ -97,6 +98,7 @@ describe("guard-failed-call-rules.js's per-call cost (#5338)", () => {
 			],
 		});
 		expect(r.stdout).toBe("");
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-failed-call-rules.js",
 			"lib/caught.js",

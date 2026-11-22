@@ -267,8 +267,9 @@ describe("judgeTree", () => {
 			"scripts/pointer.sh": `# gh-route-exempt: #5527\n${TEXT_ONLY}`,
 			"scripts/sandbox.test.ts": fixture("path-stub-exempt.ts.txt"),
 			"scripts/bare.sh": `# gh-route-exempt:\n${TEXT_ONLY}`,
+			"scripts/hash.sh": `# gh-route-exempt: #\n${TEXT_ONLY}`,
 		});
-		expect(r.sites).toEqual(["scripts/bare.sh:2"]);
+		expect(r.sites).toEqual(["scripts/bare.sh:2", "scripts/hash.sh:2"]);
 		expect(r.fixes).toEqual([GH_FIX["SHELL-BARE"]]);
 	});
 
