@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
-import { beforeEach, describe, expect, it } from "vitest";
+import { assert, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, gitRepo, issueClaims } from "./arbiter-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
@@ -44,15 +44,11 @@ function ctx({ sessionId = "sess-1", envSession = "", tool = "Bash" }: Call) {
 	});
 }
 
-const claims = () =>
-	(
-		issueClaims.listIssueClaims().claims as {
-			issue: number;
-			sessionId: string;
-		}[]
-	)
-		.map((c) => `${c.issue} ${c.sessionId}`)
-		.sort();
+const claims = () => {
+	const listed = issueClaims.listIssueClaims();
+	assert(listed);
+	return listed.claims.map((c) => `${c.issue} ${c.sessionId}`).sort();
+};
 
 const claim = (command: string, call: Call = {}) =>
 	decideClaim(command, ctx(call));

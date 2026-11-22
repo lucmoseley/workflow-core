@@ -54,10 +54,16 @@ function scanIssueClaims(n) {
 		});
 }
 
-/** @param {number|string} issue */
+/**
+ * @param {number|string} issue
+ * @returns {{file: string, record: IssueClaimRecord}[]}
+ */
 function readIssueClaims(issue) {
 	const n = issueNumber(issue);
-	return n === null ? [] : scanIssueClaims(n).filter((e) => e.record);
+	if (n === null) return [];
+	return scanIssueClaims(n).flatMap(({ file, record }) =>
+		record ? [{ file, record }] : [],
+	);
 }
 
 // #5529
@@ -277,7 +283,7 @@ function standingClaims(claims, live, terminal) {
 }
 
 /**
- * @param {{ids?: Set<string>|null, terminal?: Set<string>, why?: string|null}|null} listed
+ * @param {{ids?: Set<string>|null, terminal?: Set<string>, why?: string|null}|null} [listed]
  * @param {string} [root]
  */
 function heldIssues(listed, root) {
@@ -308,7 +314,7 @@ function heldIssues(listed, root) {
 	};
 }
 
-/** @param {LivenessOracle} liveness */
+/** @param {LivenessOracle} [liveness] */
 function pruneIssueClaims(liveness) {
 	const live = core.readLiveOrLog("pruneIssueClaims");
 	if (live === null) return;

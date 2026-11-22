@@ -4,7 +4,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type AgentsAnswer,
 	buildAgentsBranch,
@@ -93,6 +93,15 @@ const readRefs = () =>
 		.filter(Boolean);
 
 const inRepo = (rel: string) => path.join(sb.repo, rel);
+
+const listedPaths = () => {
+	const listed = store.listLocks();
+	assert(listed);
+	return listed.map((l) => {
+		assert(!l.unreadable);
+		return l.path;
+	});
+};
 
 describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	const sandboxOf = (name: string) => path.join(sb.dir, "stubs", name);
@@ -290,6 +299,11 @@ describe("the release CLI, as the skill loops invoke it", () => {
 	const run = (args: string[], sid: string) =>
 		cli(args, { CLAUDE_CODE_SESSION_ID: sid });
 	const docMap = () => inRepo("docs/doc-map.md");
+	const liveId = (name: string) => {
+		const { sessionId } = live(sb, name);
+		assert(sessionId);
+		return sessionId;
+	};
 
 	beforeEach(() => {
 		gitRepo(sb);
@@ -321,20 +335,16 @@ describe("the release CLI, as the skill loops invoke it", () => {
 	});
 
 	it("exits 1 and names the holder when the caller is not it", () => {
-		const r = run(["release", docMap()], live(sb, "bob").sessionId);
+		const r = run(["release", docMap()], liveId("bob"));
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("alice");
 	});
 
 	it("refuses a session id passed in argv, naming the argument and keeping the claim, so nobody can release as someone else", () => {
-		const r = run(["release", docMap(), "alice"], live(sb, "bob").sessionId);
+		const r = run(["release", docMap(), "alice"], liveId("bob"));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(/^unexpected argument: alice\n/);
-		expect(
-			store
-				.listLocks()
-				.some((l: { path: string }) => l.path === "docs/doc-map.md"),
-		).toBe(true);
+		expect(listedPaths().includes("docs/doc-map.md")).toBe(true);
 	});
 
 	it("exits 1 with the reason when the path is dirty", () => {
@@ -367,9 +377,7 @@ describe("the release CLI, as the skill loops invoke it", () => {
 			"claims the WHOLE of",
 		);
 
-		const warned = JSON.parse(
-			run(["check", docMap()], live(sb, "bob").sessionId).stdout,
-		);
+		const warned = JSON.parse(run(["check", docMap()], liveId("bob")).stdout);
 		expect(warned.hookSpecificOutput.additionalContext).toContain(
 			"also held by session alice",
 		);
@@ -1101,9 +1109,7 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 		expect(r.stderr).toBe(
 			"unknown flag: --forse\n\nusage: session-arbiter.js release [--generator] [--not-mine] <path>\n",
 		);
-		expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([
-			"docs/a.md",
-		]);
+		expect(listedPaths()).toEqual(["docs/a.md"]);
 	});
 
 	it.each([
@@ -1185,9 +1191,7 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toBe("");
-			expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([
-				"docs/other.md",
-			]);
+			expect(listedPaths()).toEqual(["docs/other.md"]);
 		},
 	);
 });
@@ -1457,9 +1461,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			notes(out(["check", inRepo(auditScript), "bob"])).permissionDecision,
 		).toBeUndefined();
 
-		expect(
-			store.listLocks().some((l: { path: string }) => l.path === auditScript),
-		).toBe(true);
+		expect(listedPaths().includes(auditScript)).toBe(true);
 	});
 
 	it("warns of the held file on the guarded tier, never denying (#4249)", () => {
@@ -1493,11 +1495,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	it("lets a script claim a detect-only path, and never aborts it there", () => {
 		fs.writeFileSync(inRepo("scripts/tool.js"), "alice's\n");
 		expect(cli(["claim", inRepo("scripts/tool.js"), "alice"]).status).toBe(0);
-		expect(
-			store
-				.listLocks()
-				.some((l: { path: string }) => l.path === "scripts/tool.js"),
-		).toBe(true);
+		expect(listedPaths().includes("scripts/tool.js")).toBe(true);
 		expect(out(["writes", "alice"])).toContain("scripts/tool.js");
 
 		aliceWrites("docs/doc-map.md", "alice's\n");
@@ -1645,9 +1643,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			expect(r.stdout).toContain("Released scripts/evidence-audit.py");
 			expect(r.stderr).toContain("has changed since this session");
 
-			expect(
-				store.listLocks().some((l: { path: string }) => l.path === auditScript),
-			).toBe(false);
+			expect(listedPaths().includes(auditScript)).toBe(false);
 
 			const sha = r.stderr.match(/git cat-file -p ([0-9a-f]{40,64})/)?.[1];
 			expect(
@@ -1690,9 +1686,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 				r.stderr.indexOf("has uncommitted changes"),
 			);
 
-			expect(
-				store.listLocks().some((l: { path: string }) => l.path === auditScript),
-			).toBe(true);
+			expect(listedPaths().includes(auditScript)).toBe(true);
 			const sha = r.stderr.match(/git cat-file -p ([0-9a-f]{40,64})/)?.[1];
 			expect(
 				execFileSync("git", ["cat-file", "-p", sha as string], {
@@ -1716,9 +1710,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 				r.stderr.indexOf("could not read git status"),
 			);
 			expect(r.stderr).toContain("the claim and its pin both stand");
-			expect(
-				store.listLocks().some((l: { path: string }) => l.path === auditScript),
-			).toBe(true);
+			expect(listedPaths().includes(auditScript)).toBe(true);
 		});
 
 		it("says nothing extra on an uncheckable refusal nobody clobbered", () => {
@@ -2464,7 +2456,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 		registerSession(sb, "bob", neighbourPid);
 		expect(check("alice", "Body of the first entry.")).toBe("");
 		expect(check("bob", "Body of the second entry.")).toBe("");
-		const held = store.listLocks().map((l: { path: string }) => l.path);
+		const held = listedPaths();
 		expect(held).toContain(`${docMap}#B1`);
 		expect(held).toContain(`${docMap}#B2`);
 	});
@@ -2480,7 +2472,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 
 	const straddling = "Body of the first entry.\n\n### B2 \u00b7 The second";
 
-	const paths = () => store.listLocks().map((l: { path: string }) => l.path);
+	const paths = () => listedPaths();
 
 	it("claims BOTH regions a straddling edit touches, not the file entire (mantahostels#1685)", () => {
 		registerSession(sb, "alice", process.pid);
@@ -2535,11 +2527,9 @@ describe("region claims — a §B entry, not the whole file", () => {
 
 	it("claims the file entire for a Write, which carries no anchor", () => {
 		registerSession(sb, "alice", process.pid);
-		expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([]);
+		expect(listedPaths()).toEqual([]);
 		check("alice");
-		expect(store.listLocks().map((l: { path: string }) => l.path)).toContain(
-			docMap,
-		);
+		expect(listedPaths()).toContain(docMap);
 	});
 
 	it("tells a Write it took the WHOLE map, and how to release it (mantahostels#2334)", () => {
@@ -2605,7 +2595,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 		check("alice", "Body of the first entry.");
 		const reason = warning(check("bob"));
 		expect(reason).toContain("alice");
-		const held = store.listLocks().map((l: { path: string }) => l.path);
+		const held = listedPaths();
 		expect(held).toEqual([`${docMap}#B1`]);
 	});
 
@@ -2614,9 +2604,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 		const raw = check("alice", "a line this file does not hold");
 		expect(raw).toContain("claims the WHOLE of");
 		expect(raw).toContain("anchor not found");
-		expect(store.listLocks().map((l: { path: string }) => l.path)).toContain(
-			docMap,
-		);
+		expect(listedPaths()).toContain(docMap);
 	});
 
 	it("logs that fallback as a fail-open, per mantahostels#103 §6", () => {
@@ -2642,9 +2630,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 		registerSession(sb, "bob", neighbourPid);
 		fs.writeFileSync(inRepo("docs/other.md"), "### B1 · x\n\nBody A.\n");
 		out(["check", inRepo("docs/other.md"), "alice", "Body A."]);
-		expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([
-			"docs/other.md",
-		]);
+		expect(listedPaths()).toEqual(["docs/other.md"]);
 		const raw = out(["check", inRepo("docs/other.md"), "bob", "Body A."]);
 		expect(warning(raw)).toContain("docs/other.md is also held by session");
 	});
@@ -2681,9 +2667,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.stderr).not.toContain("not by this session");
-		expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([
-			`${docMap}#B2`,
-		]);
+		expect(listedPaths()).toEqual([`${docMap}#B2`]);
 	});
 
 	it("releases the whole-file claim too when the session holds both", () => {
@@ -2705,9 +2689,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 		check("alice", "Body of the first entry.");
 		check("alice", "Body of the second entry.");
 		cli(["release", `${docMap}#B1`], { CLAUDE_CODE_SESSION_ID: "alice" });
-		expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([
-			`${docMap}#B2`,
-		]);
+		expect(listedPaths()).toEqual([`${docMap}#B2`]);
 	});
 });
 
@@ -2731,9 +2713,7 @@ describe("alloc-entry — the next free B<n>, taken atomically", () => {
 		const r = alloc("alice");
 		expect(r.status).toBe(0);
 		expect(r.stdout.trim()).toBe("B8");
-		expect(store.listLocks().map((l: { path: string }) => l.path)).toEqual([
-			`${docMap}#B8`,
-		]);
+		expect(listedPaths()).toEqual([`${docMap}#B8`]);
 	});
 
 	it("hands out the id above the high-water mark where a removed id sits above every live one (#2339)", () => {
@@ -2859,8 +2839,7 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 	const claim = (subject: string, session = "alice") =>
 		cli(["claim", inRepo(subject)], { CLAUDE_CODE_SESSION_ID: session });
 
-	const heldPaths = () =>
-		store.listLocks().map((l: { path: string }) => l.path);
+	const heldPaths = () => listedPaths();
 
 	it("refuses an id the document has no region for, naming it and taking no claim", () => {
 		registerSession(sb, "alice", process.pid);
@@ -3081,8 +3060,7 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 	const claim = (subject: string) =>
 		cli(["claim", inRepo(subject)], { CLAUDE_CODE_SESSION_ID: "alice" });
 
-	const heldPaths = () =>
-		store.listLocks().map((l: { path: string }) => l.path);
+	const heldPaths = () => listedPaths();
 
 	it("warns that it takes the whole file, and still takes the claim at exit 0", () => {
 		const r = claim(docMap);
@@ -3399,8 +3377,7 @@ describe("release-committed — the claim goes back when the commit lands (manta
 	const releaseCommitted = (sid: string, paths: string[]) =>
 		cli(["release-committed", ...paths], { CLAUDE_CODE_SESSION_ID: sid });
 
-	const held = (subject: string) =>
-		store.listLocks().some((l: { path: string }) => l.path === subject);
+	const held = (subject: string) => listedPaths().includes(subject);
 
 	const environment = () => {
 		const other = "docs/environment.md";
@@ -3637,8 +3614,7 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: sb.repo, encoding: "utf8" });
 
-	const held = () =>
-		store.listLocks().some((l: { path: string }) => l.path === notes);
+	const held = () => listedPaths().includes(notes);
 
 	const aliceWrites = (text: string) => {
 		out(["check", inRepo(notes), "alice"]);

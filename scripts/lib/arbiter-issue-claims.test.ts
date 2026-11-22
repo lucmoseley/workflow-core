@@ -1,7 +1,7 @@
 // @vitest-environment node
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import {
 	AS_ROOT,
 	finished,
@@ -34,9 +34,7 @@ describe("issue claims — which session is working which issue (mantahostels#64
 		store.claimIssue(645, me("alice"));
 		store.claimIssue(645, me("bob"));
 		expect(
-			issueClaims
-				.readIssueClaims(645)
-				.map((e: { record: { sessionId: string } }) => e.record.sessionId),
+			issueClaims.readIssueClaims(645).map((e) => e.record.sessionId),
 		).toEqual(expect.arrayContaining(["alice", "bob"]));
 	});
 
@@ -71,7 +69,9 @@ describe("issue claims — which session is working which issue (mantahostels#64
 			path.join(store.paths.issueClaimsDir(), "bogus.json"),
 			"not json",
 		);
-		const { claims, why } = store.listIssueClaims();
+		const listed = store.listIssueClaims();
+		assert(listed);
+		const { claims, why } = listed;
 		expect(claims.map((c: { sessionId: string }) => c.sessionId)).toEqual([
 			"alice",
 		]);
@@ -88,9 +88,7 @@ describe("issue claims — which session is working which issue (mantahostels#64
 		store.claimIssue(645, me("bob"));
 		expect(store.releaseIssue(645, me("alice")).status).toBe("released");
 		expect(
-			issueClaims
-				.readIssueClaims(645)
-				.map((e: { record: { sessionId: string } }) => e.record.sessionId),
+			issueClaims.readIssueClaims(645).map((e) => e.record.sessionId),
 		).toEqual(["bob"]);
 	});
 

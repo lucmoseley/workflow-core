@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, assert, beforeAll, describe, expect, it } from "vitest";
 import {
 	commitAll,
 	freshSandbox,
@@ -304,10 +304,14 @@ describe("a successful resolve", () => {
 		const r = run(DECISION);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^Released clean\.md — /m);
+		const listed = store.listLocks();
+		assert(listed);
 		expect(
-			store
-				.listLocks()
-				.map((l: { path: string }) => l.path)
+			listed
+				.map((l) => {
+					assert(!l.unreadable);
+					return l.path;
+				})
 				.sort(),
 		).toEqual(["dirty.md", "other.md"]);
 	});

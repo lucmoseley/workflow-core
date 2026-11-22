@@ -2,7 +2,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	AS_ROOT,
 	commitAll,
@@ -417,6 +417,7 @@ describe("readLocks — a record that will not parse", () => {
 		put("docs/doc-map.md", { sessionId: "alice", ...liveHolder() });
 		planted("deadbeefcafe0002.json", "");
 		const locks = store.readLocks();
+		assert(locks);
 		expect(locks).toHaveLength(2);
 		expect(locks.find((l: Listed) => l.sessionId === "alice")).toBeTruthy();
 		const bad = locks.find((l: Listed) => l.unreadable);
@@ -435,6 +436,7 @@ describe("readLocks — a record that will not parse", () => {
 				),
 			),
 		);
+		assert(locks);
 		expect(locks).toHaveLength(2);
 		expect(locks.some((l: Listed) => l.unreadable)).toBe(false);
 		expect(locks.find((l: Listed) => l.sessionId === "bob")).toBeTruthy();
@@ -448,6 +450,7 @@ describe("readLocks — a record that will not parse", () => {
 			pauses += 1;
 		});
 		expect(pauses).toBe(1);
+		assert(locks);
 		expect(locks.filter((l: Listed) => l.unreadable)).toHaveLength(2);
 	});
 
@@ -463,6 +466,7 @@ describe("readLocks — a record that will not parse", () => {
 		const locks = store.readLocks(() => {
 			throw new Error("paused for a record that cannot still be mid-write");
 		});
+		assert(locks);
 		expect(locks).toHaveLength(1);
 		expect(locks[0].reason).toBe("unparseable");
 	});
@@ -476,6 +480,7 @@ describe("readLocks — a record that will not parse", () => {
 			pauses += 1;
 		});
 		expect(pauses).toBe(1);
+		assert(locks);
 		expect(locks.filter((l: Listed) => l.unreadable)).toHaveLength(2);
 	});
 
@@ -932,8 +937,11 @@ describe("release — the second exit from a claim", () => {
 		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
 	});
 
-	const held = (rel: string) =>
-		store.listLocks().some((l: { path: string }) => l.path === rel);
+	const held = (rel: string) => {
+		const listed = store.listLocks();
+		assert(listed);
+		return listed.some((l) => !l.unreadable && l.path === rel);
+	};
 
 	it("drops the claim, and the next session can then take the file", () => {
 		const me = live(sb, "alice");
@@ -949,6 +957,7 @@ describe("release — the second exit from a claim", () => {
 		store.acquire("docs/doc-map.md", live(sb, "alice"));
 		const r = store.release("docs/doc-map.md", live(sb, "bob"));
 		expect(r.verdict).toBe("held-by-other");
+		assert(r.lock);
 		expect(r.lock.sessionId).toBe("alice");
 		expect(held("docs/doc-map.md")).toBe(true);
 	});
@@ -1013,13 +1022,20 @@ describe("listLocks", () => {
 			procStart: "1",
 			durable: true,
 		});
-		const held: Array<{ path: string; alive: boolean }> = store.listLocks();
-		expect(held.find((l) => l.path === "docs/a-live.md")?.alive).toBe(true);
-		expect(held.find((l) => l.path === "docs/b-dead.md")?.alive).toBe(false);
+		const held = store.listLocks();
+		assert(held);
+		const aliveAt = (rel: string) =>
+			held.filter((l) => !l.unreadable).find((l) => l.path === rel)?.alive;
+		expect(aliveAt("docs/a-live.md")).toBe(true);
+		expect(aliveAt("docs/b-dead.md")).toBe(false);
 	});
 
-	const aliveOf = (rel: string) =>
-		store.listLocks().find((l: { path: string }) => l.path === rel)?.alive;
+	const aliveOf = (rel: string) => {
+		const listed = store.listLocks();
+		assert(listed);
+		return listed.filter((l) => !l.unreadable).find((l) => l.path === rel)
+			?.alive;
+	};
 
 	it("calls a RESUMED holder's claim live, so `list` cannot print it STALE (mantahostels#359)", () => {
 		registerSession(sb, "resumed", process.pid);
@@ -1065,10 +1081,9 @@ describe("readHeldBy — the paths one session holds", () => {
 		store.acquire("docs/a.md", live(sb, "alice"));
 		store.acquire("scripts/b.js", live(sb, "alice"));
 		store.acquire("docs/c.md", live(sb, "bob"));
-		expect(store.readHeldBy("alice").sort()).toEqual([
-			"docs/a.md",
-			"scripts/b.js",
-		]);
+		const heldBy = store.readHeldBy("alice");
+		assert(heldBy);
+		expect(heldBy.sort()).toEqual(["docs/a.md", "scripts/b.js"]);
 	});
 
 	it("returns null, not an empty hold, when the store cannot be read", () => {
@@ -1300,8 +1315,11 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 					"| Path | Role | Owner |",
 				),
 			);
-		const stillHeld = (subject: string) =>
-			store.listLocks().some((l: { path: string }) => l.path === subject);
+		const stillHeld = (subject: string) => {
+			const listed = store.listLocks();
+			assert(listed);
+			return listed.some((l) => !l.unreadable && l.path === subject);
+		};
 
 		it("drops a dirty §A claim under --generator", () => {
 			const me = live(sb, "alice");

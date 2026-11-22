@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it } from "vitest";
 import {
 	commitAll,
 	core,
@@ -143,11 +143,16 @@ describe("the claim it gives back, against the real arbiter (mantahostels#2428)"
 		writeSidecar(repoData, sidecar);
 	});
 
-	const heldSubjects = () =>
-		store
-			.listLocks()
-			.filter((l: { path: string }) => l.path.startsWith("docs/doc-map.md"))
-			.map((l: { path: string }) => l.path);
+	const heldSubjects = () => {
+		const listed = store.listLocks();
+		assert(listed);
+		return listed
+			.map((l) => {
+				assert(!l.unreadable);
+				return l.path;
+			})
+			.filter((p) => p.startsWith("docs/doc-map.md"));
+	};
 
 	const realRun = (...args: string[]) =>
 		runInProcess(SCRIPT, ["--map", repoMap, "--data-file", repoData, ...args]);
