@@ -877,8 +877,9 @@ function unmarkedStop(status) {
 		"job-status classifier reads this message text alone and files the job on " +
 		"the marker it finds, so a turn with none leaves the job sitting where it " +
 		"stopped — its work committed and nobody told it finished. End on " +
-		"whichever of these two is true, as the last line, holding the turn on a " +
-		"foreground wait while anything you launched still runs:\n\n" +
+		"whichever of these two is true, as the last line, holding the turn while " +
+		"anything you launched still runs, waiting in the foreground only once " +
+		"no other work is left:\n\n" +
 		INVENTORY.resultLine +
 		"\n" +
 		INVENTORY.needsInputLine
@@ -1159,7 +1160,8 @@ function needsInputWithoutRound(message, status, transcript) {
 		"its line names `hold <id>` and that hold's `#<issue>`.\n\n" +
 		"If you are not blocked on a decision at all, the marker is the wrong one: " +
 		"`result:` where nothing waits on the founder; while something you " +
-		"launched runs, hold the turn on a foreground wait until it reports."
+		"launched runs, hold the turn until it reports, waiting in the foreground " +
+		"only once no other work is left."
 	);
 }
 
@@ -1174,7 +1176,8 @@ function waitingInJob(status) {
 		require("./lib/rule-text").readRuleTextOr(
 			"job-holds-turn",
 			"A background job never ends its turn on `waiting:`: it holds the turn " +
-				"on a foreground wait until what it launched reports",
+				"until what it launched reports, waiting in the foreground only once " +
+				"no other work is left",
 			"guard-priced-options waiting",
 		) +
 		"\n\nThen end on what is true:\n\n" +

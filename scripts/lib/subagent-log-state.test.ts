@@ -156,6 +156,84 @@ describe("an agent that stopped", () => {
 	});
 });
 
+describe("an agent paused on background work of its own (#5554)", () => {
+	const launch = (id: string, via = "running in background with ID: ") =>
+		user([
+			{
+				type: "tool_result",
+				tool_use_id: "t1",
+				content: `Command ${via}${id}. Output is being written to: x`,
+			},
+		]);
+	const notify = (id: string) =>
+		user(
+			`<task-notification>\n<task-id>${id}</task-id>\n<status>completed</status>`,
+		);
+	const queued = (id: string) => ({
+		type: "attachment",
+		attachment: {
+			type: "queued_command",
+			prompt: `<task-notification>\n<task-id>${id}</task-id>`,
+		},
+	});
+	const stop = (id: string) =>
+		assistant(
+			[
+				{
+					type: "tool_use",
+					id: "s1",
+					name: "TaskStop",
+					input: { task_id: id },
+				},
+			],
+			"tool_use",
+		);
+	const turnEnd = assistant([{ type: "text", text: "waiting" }], "end_turn");
+	const markFinished = () =>
+		writeFileSync(join(dir, "agent-a1.meta.json"), '{"finished":true}');
+
+	it.each([
+		["a Bash call run in the background", launch("b1")],
+		[
+			"a Bash call the harness moved to the background",
+			launch("b1", "was moved to the background (ID: "),
+		],
+	])(
+		"reads a turn ended on %s that has not notified as paused, its meta file marking it finished",
+		(_name, row) => {
+			writeLog(assistant([toolUse], "tool_use"), row, turnEnd);
+			markFinished();
+			expect(readSubagentLogState(log)).toEqual({ state: "paused" });
+		},
+	);
+
+	it.each([
+		["a task notification", notify("b1")],
+		["a queued task notification", queued("b1")],
+		["a TaskStop on it", stop("b1")],
+	])("reads it as stopped once its child is settled by %s", (_name, row) => {
+		writeLog(assistant([toolUse], "tool_use"), launch("b1"), row, turnEnd);
+		markFinished();
+		expect(readSubagentLogState(log)).toEqual({ state: "stopped" });
+	});
+
+	it("stays paused while one of two children is live", () => {
+		writeLog(launch("b1"), launch("b2"), notify("b1"), turnEnd);
+		expect(readSubagentLogState(log)).toEqual({ state: "paused" });
+	});
+
+	it("reads a handback as stopped, a live child notwithstanding", () => {
+		writeLog(
+			launch("b1"),
+			assistant(
+				[{ type: "tool_use", id: "h1", name: "SubagentHandback", input: {} }],
+				"tool_use",
+			),
+		);
+		expect(readSubagentLogState(log)).toEqual({ state: "stopped" });
+	});
+});
+
 describe("a log that will not read", () => {
 	it("is unread where missing, saying so", () => {
 		expect(readSubagentLogState(log)).toEqual({

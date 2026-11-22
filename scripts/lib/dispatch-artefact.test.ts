@@ -234,7 +234,7 @@ describe("buildWatchNote — a prompt that names its own artefact (#2013)", () =
 		expect(note).toContain("A `DONE` means the agent has stopped");
 	});
 
-	it("holds a background job's turn on a foreground watch instead (#5496)", () => {
+	it("holds a background job's turn on the watch, backgrounded while work remains and foreground once idle (#5496, #5554)", () => {
 		const note = buildWatchNote(
 			{ prompt: "Artefact: .claude/tmp/x.md" },
 			watch,
@@ -242,6 +242,9 @@ describe("buildWatchNote — a prompt that names its own artefact (#2013)", () =
 			true,
 		);
 		expect(note).toContain("hold the turn on `watch .claude/tmp/x.md --job`");
+		expect(note).toContain(
+			"While work remains that does not wait on this agent, run it with `run_in_background` and keep working; only once nothing else is left, run it in the foreground, as `rule:job-holds-turn` says.",
+		);
 		expect(note).not.toContain("end the turn");
 	});
 

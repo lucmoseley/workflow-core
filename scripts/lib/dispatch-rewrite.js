@@ -74,7 +74,11 @@
 const path = require("node:path");
 const { isBackgroundJob } = require("./job-paths.js");
 const { caught } = require("./caught.js");
-const { injectArtefact, buildWatchNote } = require("./dispatch-artefact.js");
+const {
+	injectArtefact,
+	buildWatchNote,
+	JOB_WAIT,
+} = require("./dispatch-artefact.js");
 const { tierDeparture, untrackedSearch } = require("./dispatch-rules.js");
 const { shellQuote } = require("./sh-quote.js");
 
@@ -112,7 +116,7 @@ const [TIER_RULE = "", SEARCH_RULE = ""] = EMITTED.injectRules;
 
 const END_TURN =
 	"While this agent runs, end the turn: its completion notification wakes this session, so a poll learns nothing.";
-const HOLD_TURN = `This session is a background job: hold the turn on \`${watchCommand(null, true)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says, until it exits \`DONE\`.`;
+const HOLD_TURN = `This session is a background job: hold the turn on \`${watchCommand(null, true)}\`, its \`<output_file>\` the one the launch result names, until it exits \`DONE\`. ${JOB_WAIT}`;
 
 /**
  * @param {unknown} input

@@ -164,6 +164,9 @@ function agentTypeOf(call) {
 		: "";
 }
 
+const JOB_WAIT =
+	"While work remains that does not wait on this agent, run it with `run_in_background` and keep working; only once nothing else is left, run it in the foreground, as `rule:job-holds-turn` says.";
+
 const VERDICTS =
 	"A `DONE` means the agent has stopped: read its report, or take over from its artefact where it sent none. A `STALLED` or `MISSING` means abandon the agent.";
 
@@ -175,7 +178,7 @@ const VERDICTS =
  */
 function buildWatchSentence(file, watch, job) {
 	if (job)
-		return `This session is a background job: hold the turn on \`${watch(file, true)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says. ${VERDICTS}`;
+		return `This session is a background job: hold the turn on \`${watch(file, true)}\`, its \`<output_file>\` the one the launch result names. ${JOB_WAIT} ${VERDICTS}`;
 	return `Watch it with one backgrounded \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, then end the turn. When the agent's completion notification arrives, \`TaskStop\` the watcher first. ${VERDICTS}`;
 }
 
@@ -216,4 +219,5 @@ module.exports = {
 	artefactFile,
 	injectArtefact,
 	buildWatchNote,
+	JOB_WAIT,
 };
