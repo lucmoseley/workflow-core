@@ -823,6 +823,17 @@ function splitDirectives(unit, facts) {
 }
 
 /**
+ * @param {string[]} prose
+ * @param {FileFacts} facts
+ */
+function sourceNote(prose, facts) {
+	const unsourced = prose.filter(
+		(line) => !URL.test(line) && !facts.deps?.test(line),
+	).length;
+	return unsourced < prose.length && unsourced <= 1;
+}
+
+/**
  * @param {Unit} unit
  * @param {string[]} prose
  * @param {FileFacts} facts
@@ -846,7 +857,7 @@ function proseBreach(unit, prose, facts) {
 	}
 	if (prose.length === 1 && DERIVATION.test(text) && ISSUE.test(text))
 		return null;
-	if (URL.test(text) || facts.deps?.test(text)) return null;
+	if (sourceNote(prose, facts)) return null;
 	if (onShippedExport(unit, facts)) return null;
 	return { tag: "COMMENT", ...at, why: "fits no permitted comment kind" };
 }
