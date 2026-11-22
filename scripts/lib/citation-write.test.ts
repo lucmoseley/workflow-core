@@ -118,7 +118,7 @@ describe("any other write", () => {
 		).toBeNull();
 		expect(
 			judged("Write", "b.md", {
-				content: `See ${cite(2015)}. citation-exempt: the inherited one\n`,
+				content: `See ${cite(2015)}. citation-exempt: #5540\n`,
 			}),
 		).toBeNull();
 		expect(judged("Write", "c.md", { content: "See #2015.\n" })).toBeNull();

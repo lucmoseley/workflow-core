@@ -1,34 +1,5 @@
 #!/usr/bin/env node
-/*
- * public-push-gate.js — the pre-push limb that keeps the tracker's history off
- * the public code repo (#1954). Where `codeRepo` differs from `tracker`, the
- * code repo was published as a fresh squashed root, and a push to it of any
- * commit that shares an ancestor with the tracker's history would publish all
- * of that history. So every push not bound for the tracker itself is refused
- * when a pushed sha has a common ancestor with any ref of a remote naming the
- * tracker. The destination is judged by what it is not: an exact match on the
- * code repo's url would let a case variant, a host alias or an ssh-over-443
- * url through.
- *
- * Replace objects are off for the test: the clones graft the squashed root
- * onto the tracker's old tip (`git replace --graft`) so `git log` reads past
- * the split, but git pushes the real parents, and only those can leak.
- *
- * `codeRepo` and `tracker` are read from the config at the pushing tree's
- * HEAD, as landing-push-gate.js reads the module config (#3128, #3132).
- *
- * cli-args-exempt: its one argument is the url git hands .husky/pre-push.
- *
- * LIMIT: `git push --no-verify` skips it, and nothing on the public repo can
- * refuse a push that carries the history.
- *
- * IN NO `scripts/` FAMILY (code-standards §N3), as landing-push-gate.js: 2
- * refuses and every other path exits 0. A fault that stops the gate learning
- * whether the code repo is apart from the tracker (no root, unreadable refs or
- * config) lets the push through, printed. Once it is apart, every fault
- * refuses, a clone with no fetched remote naming the tracker included: the
- * leak is one-way.
- */
+// cli-args-exempt: #5540
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
 	names,

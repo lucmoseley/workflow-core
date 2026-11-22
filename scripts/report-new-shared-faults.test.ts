@@ -34,12 +34,7 @@ const temps = registerTempCleanup();
 
 const REPO_ROOT = path.join(__dirname, "..");
 
-/** Runs the real CLI against THIS repo's own git history;
- * the cases below pick refs whose answer cannot drift with this
- * repo's ongoing history (a bad ref, and the repo's one root commit).
- * isolation-exempt: hostRoot() pinned to this real repo is the point — the
- * cases picked (a bad ref, the root commit) read no live state, so nothing
- * a CLAUDE_PROJECT_DIR redirect would protect is ever touched (#160). */
+// isolation-exempt: #160
 function runCli(...args: string[]) {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: REPO_ROOT,

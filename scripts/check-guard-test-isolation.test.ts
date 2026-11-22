@@ -590,11 +590,11 @@ describe("a shared helper that spawns the guard its caller hands it (#837)", () 
 });
 
 describe("the escape hatch and the caller-side cap", () => {
-	it("drops a file whose comment gives a reason", () => {
+	it("drops a file whose comment names an issue", () => {
 		guard("guard-x.sh");
 		track(
 			"scripts/guard-x.test.ts",
-			"/* isolation-exempt: asserts the guard refuses before it can log. */\n" +
+			"/* isolation-exempt: #4242 */\n" +
 				'spawnSync(path.join(__dirname, "guard-x.sh"), []);\n',
 		);
 		expect(run().status).toBe(0);
@@ -604,7 +604,7 @@ describe("the escape hatch and the caller-side cap", () => {
 		guard("guard-x.sh");
 		track(
 			"scripts/guard-x.test.ts",
-			"/* isolation-exempt: refuses before it can log. */\n" +
+			"// isolation-exempt: #4242\n" +
 				'spawnSync(path.join(__dirname, "guard-x.sh"), []);\n',
 		);
 		const r = run("--json");
@@ -612,12 +612,14 @@ describe("the escape hatch and the caller-side cap", () => {
 		expect(r.json().summary).toContain("1 exempt");
 	});
 
-	it("ignores a bare marker carrying no reason", () => {
+	it.each([
+		["no pointer", "/* isolation-exempt: */"],
+		["prose", "/* isolation-exempt: refuses before it can log. */"],
+	])("ignores a marker carrying %s", (_what, marker) => {
 		guard("guard-x.sh");
 		track(
 			"scripts/guard-x.test.ts",
-			"/* isolation-exempt: */\n" +
-				'spawnSync(path.join(__dirname, "guard-x.sh"), []);\n',
+			`${marker}\nspawnSync(path.join(__dirname, "guard-x.sh"), []);\n`,
 		);
 		expect(run().status).toBe(1);
 	});

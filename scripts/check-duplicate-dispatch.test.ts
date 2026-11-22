@@ -670,7 +670,7 @@ describe("the CLI — §N4's outcome alphabet", () => {
 		fs.mkdirSync(shadow);
 		writeClaudeStub(path.join(shadow, "claude"), [buildAgentsBranch([])]);
 		const r = runCli(["--issues", "972"], {
-			// claude-route-exempt: asserts a bare `claude` on PATH goes unread
+			// claude-route-exempt: #5540
 			PATH: `${shadow}:${process.env.PATH}`,
 		});
 		expect(r.status).toBe(1);

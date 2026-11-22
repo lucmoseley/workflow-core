@@ -33,13 +33,13 @@ roots="$(node "$here/lib/inherited-roots.js")" || {
 read -ra roots <<<"$roots"
 unset "${roots[@]}"
 launched="$("${WFC_CLAUDE_BIN:-claude}" --bg --agent claude --name "$name" "$@")" || {
-  # claude-route-exempt: only text
+  # claude-route-exempt: #5540
   printf 'start session: `claude --bg` failed in %s, which stays cut for a retry:\n%s\n' "$dir" "$launched" >&2
   exit 1
 }
 id="$(printf '%s\n' "$launched" | bg_launch_id)"
 if [[ -z "$id" ]]; then
-  # claude-route-exempt: only text
+  # claude-route-exempt: #5540
   printf 'start session: no job id in what `claude --bg` printed; attach from `claude agents`:\n%s\n' "$launched" >&2
   exit 1
 fi

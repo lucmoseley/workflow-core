@@ -571,11 +571,11 @@ describe("citation qualification (#396)", () => {
 		);
 	});
 
-	it("refuses a code line's #N outside a same-line bracket, bar one a bare-citation-ok comment excuses and leaves bare, naming each file and line and leaving no tree (#435)", () => {
+	it("refuses a code line's #N outside a same-line bracket, bar one a `bare-citation-exempt: #N` comment excuses and leaves bare, naming each file and line and leaving no tree (#435)", () => {
 		const tree = {
 			"scripts/a.js": [
 				"const a = 'the #23 hazard';",
-				"// bare-citation-ok: the citation form's own example",
+				"// bare-citation-exempt: #435",
 				"const b = say('a form (cite as `#24 (gloss)`)');",
 				"const c = 'opens (see",
 				"#25) on a later line';",
@@ -592,6 +592,13 @@ describe("citation qualification (#396)", () => {
 			.replace("opens (see", "opens (see #25)");
 		expect(render(tree)("scripts/a.js")).toContain(
 			"say('a form (cite as `#24 (gloss)`)')",
+		);
+		const prose = tree["scripts/a.js"].replace(
+			"bare-citation-exempt: #435",
+			"bare-citation-exempt: the citation form's own example",
+		);
+		expect(render({ "scripts/a.js": prose })("scripts/a.js")).not.toContain(
+			"`#24 (gloss)`",
 		);
 	});
 

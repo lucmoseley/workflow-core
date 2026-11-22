@@ -185,8 +185,7 @@ const buildSpec = (source) => ({
 });
 
 const main = () => {
-	/* Read under --notify alone: a plain run's stdin may be a terminal.
-	 * cli-args-exempt: a peek before runCheck, which parses the argv. */
+	// cli-args-exempt: #5540
 	const source = process.argv.includes("--notify")
 		? hookMessage.readPayload()?.source
 		: undefined;

@@ -8,6 +8,7 @@ const { stripComments } = require("./lib/strip-comments.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
+const { exemptMarker } = require("./lib/exempt-markers.js");
 
 const READS_ARGV = /process\.argv(?!\s*\[\s*[01]\s*\])/;
 const USES_HELPER = /require\(\s*["']\.\/lib\/cli-args(?:\.js)?["']\s*\)/;
@@ -26,7 +27,7 @@ const UTIL_PARSE_ARGS = /\butil\.parseArgs\s*\(/;
 const LAX_PARSE_ARGS = /\bstrict\s*:\s*false\b/;
 const COMMANDER = /require\(\s*["']commander["']\s*\)|from\s*["']commander["']/;
 const LAX_COMMANDER = /\ballowUnknownOption\s*\(/;
-const EXEMPT = /cli-args-exempt:\s*(?:\w|#\d)/;
+const EXEMPT = exemptMarker("cli-args");
 
 const WHY =
 	"read(s) the command line without a strict parser, so --help and an unknown flag fall through to the default action";

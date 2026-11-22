@@ -4,6 +4,7 @@ const {
 	DENIES_THROUGH_BODY,
 } = require("./deny-capable.js");
 const { SHIM_MARK } = require("./hook-shim.js");
+const { EXEMPT_MARKERS } = require("./exempt-markers.js");
 const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
 
@@ -637,7 +638,9 @@ const DIRECTIVES = [
 		read: readsAsCode,
 	},
 	{
-		re: /^(?:full-sweep-only:|[a-z][a-z-]*-exempt:|Unbuilt caller:\s*(?=[^\s./]*[./])\S+(?=\s|$))(.*)$/,
+		re: new RegExp(
+			String.raw`^(?:full-sweep-only:|(?:${EXEMPT_MARKERS.join("|")})-exempt:|Unbuilt caller:\s*(?=[^\s./]*[./])\S+(?=\s|$))(.*)$`,
+		),
 		read: (m) => (barePointers(m[1] ?? "") ? "code" : null),
 	},
 	{

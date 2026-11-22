@@ -4,6 +4,7 @@ const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 const { runCheck, errMessage } = require("./lib/check.js");
+const { exemptMarker } = require("./lib/exempt-markers.js");
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
 
@@ -15,7 +16,7 @@ const DELETION = /\bdelete\s+process\.env(\.\w+|\[[^\]]+\])/;
 const inScope = (/** @type {string} */ rel) =>
 	isJsTestFile(rel) || (rel.startsWith("scripts/") && rel.endsWith(".ts"));
 
-const KEPT = /env-write-kept:[ \t]*[A-Za-z0-9]/;
+const KEPT = exemptMarker("env-write");
 
 function variableOf(/** @type {string | undefined} */ target) {
 	if (target === undefined) return "(whole object)";
@@ -73,7 +74,7 @@ const SPEC = {
 				'  Fix: `vi.stubEnv("NAME", value)`, or `vi.stubEnv("NAME", undefined)` to unset, and delete any hand-written save and restore of it. A stub is undone before each test, so one at module scope or in beforeAll moves into a beforeEach.',
 			);
 			ctx.say(
-				"  A line that genuinely cannot stub? Put `env-write-kept: <why>` on it or the line above and this check drops it.",
+				"  A line that genuinely cannot stub? Record why on an issue and put `env-write-exempt: #N` on it or the line above; this check drops it.",
 			);
 		}
 		return {

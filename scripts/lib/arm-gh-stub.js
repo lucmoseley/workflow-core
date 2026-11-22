@@ -57,7 +57,7 @@ function answer(argv, root) {
 	if (isWrite(argv)) {
 		const n = fs
 			.readFileSync(path.join(root, "gh.log"), "utf8")
-			// jsonl-read-exempt: counts write lines by text and parses none
+			// jsonl-read-exempt: #5540
 			.split("\n")
 			.filter((l) => l.includes('"write":true')).length;
 		const out =

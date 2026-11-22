@@ -13,7 +13,7 @@ function refuse(text) {
 	process.exit(2);
 }
 
-// cli-args-exempt: every word after the entry is the entry's own, handed through unparsed.
+// cli-args-exempt: #5540
 const target = process.argv[2];
 if (!target)
 	refuse(

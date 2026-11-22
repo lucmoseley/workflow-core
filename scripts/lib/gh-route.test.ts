@@ -249,7 +249,7 @@ describe("judgeTree", () => {
 		expect(r.findings).toEqual([]);
 	});
 
-	it("honours the opt-out marker only where it gives a reason or an issue pointer", () => {
+	it("honours the opt-out marker only where it names an issue", () => {
 		const r = judge({
 			"scripts/why.sh": `# gh-route-exempt: tells the agent what to run\n${TEXT_ONLY}`,
 			"scripts/pointer.sh": `# gh-route-exempt: #5527\n${TEXT_ONLY}`,
@@ -257,7 +257,11 @@ describe("judgeTree", () => {
 			"scripts/bare.sh": `# gh-route-exempt:\n${TEXT_ONLY}`,
 			"scripts/hash.sh": `# gh-route-exempt: #\n${TEXT_ONLY}`,
 		});
-		expect(r.sites).toEqual(["scripts/bare.sh:2", "scripts/hash.sh:2"]);
+		expect(r.sites).toEqual([
+			"scripts/bare.sh:2",
+			"scripts/hash.sh:2",
+			"scripts/why.sh:2",
+		]);
 		expect(r.fixes).toEqual([GH_FIX["SHELL-BARE"]]);
 	});
 
@@ -318,7 +322,7 @@ describe("judgeTree", () => {
 			"scripts/hook.sh": [
 				"#!/usr/bin/env bash",
 				`"${sub("WFC_CLAUDE_BIN:-claude")}" agents --json`,
-				"# claude-route-exempt: only text",
+				"# claude-route-exempt: #5540",
 				"printf 'run `claude agents --json`\\n'",
 				"",
 			].join("\n"),
@@ -330,7 +334,7 @@ describe("judgeTree", () => {
 	it("names a `command claude` the gh marker does not excuse", () => {
 		const r = judge({
 			"scripts/wrap.sh":
-				'#!/usr/bin/env bash\n# gh-route-exempt: wraps the user\'s own shell\ncommand claude "$@"\n',
+				'#!/usr/bin/env bash\n# gh-route-exempt: #5540\ncommand claude "$@"\n',
 		});
 		expect(r.sites).toEqual(["scripts/wrap.sh:3"]);
 	});
@@ -368,7 +372,7 @@ describe("judgeFile", () => {
 					"# gh issue list",
 					"out=$(gh issue list)",
 					"command -v claude",
-					"# gh-route-exempt: a message naming the binary",
+					"# gh-route-exempt: #5540",
 					'echo "run"; gh auth login',
 					`"${sub("WFC_GH:-gh")}" issue list`,
 				].join("\n"),
@@ -407,7 +411,7 @@ describe("judgeFile", () => {
 			tags(
 				"scripts/x.js",
 				"node",
-				'// gh-route-exempt: no\nexecFileSync("gh", []);\n',
+				'// gh-route-exempt: #5540\nexecFileSync("gh", []);\n',
 			),
 		).toEqual([["NODE-COPY", "gh", 2]]);
 	});

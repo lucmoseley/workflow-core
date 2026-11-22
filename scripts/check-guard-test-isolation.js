@@ -7,13 +7,14 @@ const { isJsTestFile } = require("./lib/test-kind.js");
 const { inertSpans } = require("./lib/js-lex.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
+const { exemptMarker } = require("./lib/exempt-markers.js");
 const { escapeRe, requiredGroup } = require("./lib/regex-group.js");
 const { parseEdges } = require("./lib/guard-reach.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
 
-const EXEMPT = /isolation-exempt:[ \t]*[A-Za-z0-9]/;
+const EXEMPT = exemptMarker("isolation");
 
 const INTERPRETER =
 	/^(process\.execPath|"node"|"bash"|"sh"|"git"|"gh"|"npm"|"npx")$/;
@@ -415,7 +416,7 @@ function reportUnisolated(
 		"  Fix: give the spawn env a CLAUDE_CONFIG_DIR under the case's temp directory. lib/pretool-guard-testkit.ts's `guardDirs` is the worked shape.",
 	);
 	ctx.say(
-		"  Genuinely unable to log? Say so in a comment reading `isolation-exempt: <why>` and this check drops the file.",
+		"  Genuinely unable to log? Record why on an issue and put `isolation-exempt: #N` in a comment naming it; this check drops the file.",
 	);
 }
 
