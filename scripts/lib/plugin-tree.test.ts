@@ -393,6 +393,7 @@ describe("the core-only class (#440)", () => {
 		"scripts/lib/release-lag.js -> scripts/release-plugin.js",
 		"scripts/report-release-due.js -> scripts/lib/release-tags.js",
 		"scripts/report-release-due.js -> scripts/release-plugin.js",
+		"scripts/lib/release-due.js -> scripts/lib/release-tags.js",
 		"docs/agents/adopter-upgrade.md -> scripts/release-contains.js",
 		"scripts/check-code-standards.js -> scripts/lib/plugin-tree.js",
 		"scripts/check-adopter-boundary.js -> scripts/lib/plugin-tree.js",
@@ -409,6 +410,20 @@ describe("the core-only class (#440)", () => {
 		expect(
 			namedNotRun.filter((p) => !found.some((ref) => pair(ref) === p)),
 		).toEqual([]);
+	});
+
+	it("loads a shipped script excused for naming a left-behind one, reaching its adopter skip (#5630)", () => {
+		const out = path.join(tmp, "out");
+		buildTree(CORE, out);
+		const adopter = path.join(tmp, "adopter");
+		fs.mkdirSync(adopter);
+		const run = runInProcess(
+			path.join(out, "scripts", "report-release-due.js"),
+			[],
+			{ env: { ...process.env, WFC_REPO_ROOT: adopter } },
+		);
+		expect(run.stderr).toContain("SKIP: not workflow-core itself");
+		expect(run.status).toBe(0);
 	});
 
 	it("finds a left-behind script wired into a shipped hook, skill or doc", () => {

@@ -34,21 +34,35 @@ const git = (args: string[], at = 0): string => {
 	}).trim();
 };
 
+const note = (tag: string, step: string) =>
+	`# ${tag}\n\n## Manual steps\n\n- [${step}] Do the thing.\n`;
+
 const buildCore =
-	(ahead: number, name = "workflow-core") =>
+	(nextStep: string | null, name = "workflow-core") =>
 	(root: string) => {
 		repo = path.join(root, "repo");
 		fs.mkdirSync(path.join(repo, ".claude-plugin"), { recursive: true });
+		fs.mkdirSync(path.join(repo, "migrations"));
 		git(["init", "-q", "-b", "main"]);
 		fs.writeFileSync(
 			path.join(repo, ".claude-plugin", "plugin.json"),
 			JSON.stringify({ name }),
 		);
+		fs.writeFileSync(
+			path.join(repo, "migrations", "v1.0.0.md"),
+			note("v1.0.0", "act"),
+		);
 		git(["add", "."]);
 		git(["commit", "-q", "-m", "init"]);
 		const source = git(["rev-parse", "HEAD"]);
-		for (let i = 1; i <= ahead; i++)
-			git(["commit", "-q", "--allow-empty", "-m", `c${i}`], i * 60);
+		if (nextStep !== null) {
+			fs.writeFileSync(
+				path.join(repo, "migrations", "v1.1.0.md"),
+				note("v1.1.0", nextStep),
+			);
+			git(["add", "."]);
+			git(["commit", "-q", "-m", "next note"], 60);
+		}
 		git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
 		git(["checkout", "-q", "--orphan", "release"]);
 		git([
@@ -62,9 +76,11 @@ const buildCore =
 	};
 
 const fixture = defineTemplate({
-	ahead: buildCore(3),
-	level: buildCore(0),
-	adopter: buildCore(3, "an-adopter"),
+	act: buildCore("act"),
+	choice: buildCore("choice"),
+	notice: buildCore("notice"),
+	none: buildCore(null),
+	adopter: buildCore("act", "an-adopter"),
 });
 
 beforeEach(() => {
@@ -74,7 +90,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function clone(variant: "ahead" | "level" | "adopter") {
+function clone(variant: "act" | "choice" | "notice" | "none" | "adopter") {
 	fixture.instantiate(dir, variant);
 	repo = path.join(dir, "repo");
 }
@@ -107,15 +123,14 @@ function stubs(issues: unknown[] = [], existingBody = "") {
 	return { ghStub, issueBody, calls, body };
 }
 
-function run(fx: ReturnType<typeof stubs>, atDays: number) {
-	const r = runInProcess(SCRIPT, [], {
+function run(fx: ReturnType<typeof stubs>, args: string[] = []) {
+	const r = runInProcess(SCRIPT, args, {
 		cwd: repo,
 		env: {
 			...process.env,
 			WFC_REPO_ROOT: repo,
 			WFC_GH: fx.ghStub,
 			WFC_ISSUE_BODY: fx.issueBody.script,
-			WFC_NOW: iso(T0 + atDays * DAY),
 		},
 	});
 	return { code: r.status, output: `${r.stdout}${r.stderr}` };
@@ -128,13 +143,14 @@ const openTicket = (createdDays: number) => ({
 	createdAt: iso(T0 + createdDays * DAY),
 });
 
-describe("the weekly release cut's filer", () => {
-	it("files the cut ticket, labelled takes:implement, 7 days after the tag with commits to release", () => {
-		clone("ahead");
+describe("the release cut's filer", () => {
+	it("files the cut ticket, labelled takes:implement, where a note no release carries owes an [act] step", () => {
+		clone("act");
 		const fx = stubs();
-		const { code, output } = run(fx, 7);
+		const { code, output } = run(fx);
 		expect(code).toBe(0);
-		expect(output).toContain("3 commit(s) it does not carry");
+		expect(output).toContain("migrations/v1.1.0.md (1)");
+		expect(output).not.toContain("v1.0.0.md");
 		const calls = fx.calls();
 		expect(calls).toContain("issue create");
 		expect(calls).toContain(CUT_TITLE);
@@ -143,29 +159,64 @@ describe("the weekly release cut's filer", () => {
 		expect(output).toContain("issues/999");
 	});
 
-	it("files nothing under 7 days after the tag", () => {
-		clone("ahead");
+	it("files the cut ticket where the untagged note owes a [choice] step", () => {
+		clone("choice");
 		const fx = stubs();
-		const { code, output } = run(fx, 6.9);
+		const { code, output } = run(fx);
 		expect(code).toBe(0);
-		expect(output).toContain("under the 7-day cadence");
+		expect(output).toContain("migrations/v1.1.0.md (1)");
+		expect(fx.calls()).toContain("issue create");
+	});
+
+	it("files nothing where the untagged note carries only a [notice]", () => {
+		clone("notice");
+		const fx = stubs();
+		const { code, output } = run(fx);
+		expect(code).toBe(0);
+		expect(output).toContain(
+			"no migration note newer than v1.0.0 carries an [act] or [choice] step",
+		);
 		expect(fx.calls()).not.toContain("issue create");
 		expect(fx.issueBody.calls()).toEqual([]);
 	});
 
-	it("files nothing where origin/main holds nothing the tag does not carry", () => {
-		clone("level");
+	it("files nothing where every note is a released one", () => {
+		clone("none");
 		const fx = stubs();
-		const { code, output } = run(fx, 30);
+		const { code, output } = run(fx);
 		expect(code).toBe(0);
-		expect(output).toContain("holds no commit it does not carry");
+		expect(output).toContain("no migration note newer than v1.0.0");
 		expect(fx.calls()).not.toContain("issue create");
 	});
 
+	it("files the cut ticket for a trigger a session names with --because, writing it into the body", () => {
+		clone("notice");
+		const fx = stubs();
+		const { code, output } = run(fx, [
+			"--because",
+			"design-vault#9 is blocked on abc1234, which no release carries",
+		]);
+		expect(code).toBe(0);
+		expect(output).toContain("blocked on abc1234");
+		expect(fx.calls()).toContain("issue create");
+		expect(fx.calls()).toContain(
+			"issue comment 999 --body **Trigger:** design-vault#9 is blocked on abc1234",
+		);
+	});
+
+	it("comments a --because trigger on the open cut ticket it refreshes, so a later rewrite of the body keeps it", () => {
+		clone("act");
+		const fx = stubs([openTicket(1)], "old");
+		run(fx, ["--because", "v1.0.0 breaks session start"]);
+		expect(fx.calls()).toContain(
+			"issue comment 42 --body **Trigger:** v1.0.0 breaks session start",
+		);
+	});
+
 	it("refreshes the open cut ticket rather than filing a second", () => {
-		clone("ahead");
-		const fx = stubs([openTicket(7)], "old");
-		const { code, output } = run(fx, 8);
+		clone("act");
+		const fx = stubs([openTicket(1)], "old");
+		const { code, output } = run(fx);
 		expect(code).toBe(0);
 		expect(fx.calls()).not.toContain("issue create");
 		expect(output).toContain("#42");
@@ -175,21 +226,21 @@ describe("the weekly release cut's filer", () => {
 	});
 
 	it("leaves the open cut ticket's body alone while the tag and its due state hold", () => {
-		clone("ahead");
-		const fx = stubs([openTicket(7)], "old");
-		run(fx, 8);
+		clone("act");
+		const fx = stubs([openTicket(1)], "old");
+		run(fx);
 		fx.issueBody.clearCalls();
-		git(["commit", "-q", "--allow-empty", "-m", "later"], 8 * DAY);
+		git(["commit", "-q", "--allow-empty", "-m", "later"], 2 * DAY);
 		git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
-		const { output } = run(fx, 9);
+		const { output } = run(fx);
 		expect(output).toContain("#42 is open and current");
 		expect(fx.issueBody.calls()).toEqual([]);
 	});
 
 	it("rewrites an open ticket filed before the last tag to say that cut landed", () => {
-		clone("ahead");
+		clone("notice");
 		const fx = stubs([openTicket(-1)], "old");
-		const { code } = run(fx, 2);
+		const { code } = run(fx);
 		expect(code).toBe(0);
 		expect(fx.issueBody.calls()).toEqual([
 			expect.stringContaining("replace 42"),
@@ -197,27 +248,27 @@ describe("the weekly release cut's filer", () => {
 		expect(fx.body()).toContain("v1.0.0 was cut after this issue was filed");
 	});
 
-	it("leaves alone an open ticket filed after the last tag while no cut is due", () => {
-		clone("ahead");
+	it("leaves alone an open ticket filed after the last tag while no trigger stands, such as one a --because run filed", () => {
+		clone("notice");
 		const fx = stubs([openTicket(1)], "old");
-		run(fx, 2);
+		run(fx);
 		expect(fx.issueBody.calls()).toEqual([]);
 	});
 
 	it("skips by name outside workflow-core", () => {
 		clone("adopter");
 		const fx = stubs();
-		const { code, output } = run(fx, 30);
+		const { code, output } = run(fx);
 		expect(code).toBe(0);
 		expect(output).toContain("SKIP: not workflow-core itself");
 		expect(fx.calls()).toBe("");
 	});
 
 	it("is BROKEN, naming the fetch, filing nothing, where the clone has no origin/main", () => {
-		clone("ahead");
+		clone("act");
 		git(["update-ref", "-d", "refs/remotes/origin/main"]);
 		const fx = stubs();
-		const { code, output } = run(fx, 30);
+		const { code, output } = run(fx);
 		expect(code).toBe(2);
 		expect(output).toContain("BROKEN:");
 		expect(output).toContain("origin/main");

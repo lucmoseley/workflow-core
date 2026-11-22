@@ -41,7 +41,7 @@ import REPO_FULL_NAME from "./fixtures/gh/repo-full-name.json" with {
 import REPO_VIEW from "./fixtures/gh/repo-view.json" with { type: "json" };
 import RUN_JOBS from "./fixtures/gh/run-jobs.json" with { type: "json" };
 import RUN_LIST from "./fixtures/gh/run-list.json" with { type: "json" };
-import SUB_ISSUE_NUMBERS from "./fixtures/gh/sub-issue-numbers.json" with {
+import SUB_ISSUE_REFS from "./fixtures/gh/sub-issue-refs.json" with {
 	type: "json",
 };
 import SUB_ISSUES from "./fixtures/gh/sub-issues.json" with { type: "json" };
@@ -359,7 +359,10 @@ export const LINK_READS = {
 	repo: { jq: ".full_name", answer: REPO_FULL_NAME as GhAnswer },
 	state: { jq: ".state", answer: ISSUE_STATE as GhAnswer },
 	id: { jq: ".id", answer: ISSUE_ID as GhAnswer },
-	children: { jq: ".[].number", answer: SUB_ISSUE_NUMBERS as GhAnswer },
+	children: {
+		jq: '.[]|"\\(.repository_url)#\\(.number)"',
+		answer: SUB_ISSUE_REFS as GhAnswer,
+	},
 };
 
 export type LinkReadAnswers = Partial<
@@ -368,6 +371,10 @@ export type LinkReadAnswers = Partial<
 
 export const LINK_READ_FAKE = String.raw`function buildJqLines(...values) {
 	return { status: 0, stdout: values.map((v) => v + "\n").join(""), stderr: "" };
+}
+function buildChildRows(home, ...refs) {
+	return buildJqLines(...refs.map((r) =>
+		"https://api.github.com/repos/" + (String(r).includes("#") ? r : home + "#" + r)));
 }
 function answerLinkRead(argv, answers = {}) {
 	const reads = ${JSON.stringify(LINK_READS)};
@@ -380,6 +387,10 @@ export const buildJqLines = ghComputed<(...values: unknown[]) => GhAnswer>(
 	LINK_READ_FAKE,
 	"buildJqLines",
 );
+
+export const buildChildRows = ghComputed<
+	(home: string, ...refs: (number | string)[]) => GhAnswer
+>(LINK_READ_FAKE, "buildChildRows");
 
 export const answerCited = ghComputed<
 	(argv: string[], issues: Record<string, object>) => GhAnswer

@@ -5,6 +5,7 @@ const { parseArgs } = require("node:util");
 const { ghAsync, parseErrLine } = require("./gh");
 const { pathTo, linkText } = require("./wait-graph.js");
 const {
+	isSameRepo,
 	parseQualifiedRef,
 	parseRepoOfUrl,
 	refKey,
@@ -14,6 +15,7 @@ const { resolveKey } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { docPath } = require("./script-path.js");
 const { recordOwnAct } = require("./own-acts.js");
+const { requiredGroup } = require("./regex-group.js");
 
 /** @typedef {import("./wait-graph.js").Ref} Ref */
 /** @typedef {import("./wait-graph.js").Link} Link */
@@ -76,6 +78,27 @@ async function readGhText(args) {
 	}
 }
 
+/** @returns {() => Promise<string>} */
+function memoLocalRepo() {
+	/** @type {string|undefined} */
+	let local;
+	return async () => {
+		local ??= await resolveLocalRepo();
+		return local;
+	};
+}
+
+/**
+ * @param {string|null|undefined} repoUrl
+ * @param {number} number
+ * @param {Ref} ref
+ * @param {string|null} fallback
+ */
+const namesRef = (repoUrl, number, ref, fallback) => {
+	const repo = parseRepoOfUrl(repoUrl) ?? fallback;
+	return !!repo && refKey({ repo, number }) === refKey(ref);
+};
+
 async function resolveLocalRepo() {
 	let repo = process.env.WFC_LINK_REPO || resolveKey("tracker");
 	if (typeof repo !== "string" || !repo)
@@ -107,7 +130,7 @@ async function resolveLocalRepo() {
  */
 const buildLoopRefusal = (link, path, home) =>
 	[
-		`refused — ${linkText(link, home)} would close a loop of open issues waiting on each other, so none of them could ever close:`,
+		`refused — ${linkText(link, home)} would close a loop of open issues waiting on each other:`,
 		`  ${linkText(link, home)}   (the new link)`,
 		...path.map((l) => `  ${linkText(l, home)}`),
 		"Block on the build unit that does the work, never on a spec or map that stays open for its own follow-ups;",
@@ -161,17 +184,45 @@ async function waitFor(listed, { retries, sleepMs, first = false }) {
 
 /**
  * @param {string[]} rest
- * @returns {{parent: number, child: number}}
+ * @param {() => Promise<string>} home
+ * @returns {Promise<{parent: number, child: Ref, repo: string}>}
  */
-function parseSubIssueArgs(rest) {
+async function parseSubIssueArgs(rest, home) {
 	if (rest.length !== 2) fail("other", USAGE["sub-issue"]);
-	const [p = "", c = ""] = rest.map((a) => a.replace(/^#/, ""));
-	if (!/^[0-9]{1,9}$/.test(p))
-		fail("other", `parent '${rest[0]}' is not an issue number`);
-	if (!/^[0-9]{1,9}$/.test(c))
-		fail("other", `child '${rest[1]}' is not an issue number`);
-	if (p === c) refuse("self", `an issue cannot be its own parent (#${p})`);
-	return { parent: Number(p), child: Number(c) };
+	const [p = "", c = ""] = rest;
+	const parent = /^#?([0-9]{1,9})$/.exec(p)?.[1];
+	if (!parent) fail("other", `parent '${p}' is not an issue number`);
+	const child = await parseRef(c, home);
+	if (!child)
+		fail("other", `child '${c}' is not an issue number or owner/name#n`);
+	const repo = await home();
+	if (refKey(child) === refKey({ repo, number: Number(parent) }))
+		refuse("self", `an issue cannot be its own parent (#${parent})`);
+	return { parent: Number(parent), child, repo };
+}
+
+const CHILD_ROWS = '.[]|"\\(.repository_url)#\\(.number)"';
+const CHILD_ROW = /^(.*)#([0-9]+)$/;
+
+/**
+ * @param {string} repo
+ * @param {number} parent
+ * @param {Ref} child
+ */
+async function listsChild(repo, parent, child) {
+	const listed = await readGhText([
+		"api",
+		`repos/${repo}/issues/${parent}/sub_issues`,
+		"--paginate",
+		"--jq",
+		CHILD_ROWS,
+	]);
+	return (listed ?? "").split("\n").some((line) => {
+		const m = CHILD_ROW.exec(line);
+		if (!m) return false;
+		const url = requiredGroup(m, 1, CHILD_ROW);
+		return namesRef(url, Number(requiredGroup(m, 2, CHILD_ROW)), child, null);
+	});
 }
 
 /**
@@ -181,28 +232,18 @@ function parseSubIssueArgs(rest) {
  * @returns {Promise<string>}
  */
 async function linkSubIssue(args, warn, { replaceParent }) {
-	const { parent, child } = parseSubIssueArgs(args);
-	const repo = await resolveLocalRepo();
+	const { parent, child, repo } = await parseSubIssueArgs(
+		args,
+		memoLocalRepo(),
+	);
 	const t = timing();
-	const listsChild = async () => {
-		const listed = await readGhText([
-			"api",
-			`repos/${repo}/issues/${parent}/sub_issues`,
-			"--paginate",
-			"--jq",
-			".[].number",
-		]);
-		return listed?.split("\n").includes(String(child)) ?? false;
-	};
+	const label = refLabel(child, repo);
+	const listed = () => listsChild(repo, parent, child);
 
 	await assertParentHidesNoOpenChild(repo, parent, child);
-	const id = await readDatabaseId({ repo, number: child }, repo);
+	const id = await readDatabaseId(child, repo);
 	const warning = await checkLoop(
-		{
-			from: { repo, number: parent },
-			to: { repo, number: child },
-			kind: "child",
-		},
+		{ from: { repo, number: parent }, to: child, kind: "child" },
 		repo,
 	);
 	if (warning) warn(warning);
@@ -212,15 +253,15 @@ async function linkSubIssue(args, warn, { replaceParent }) {
 		child,
 		id,
 		replaceParent,
-		listsChild,
+		listed,
 		t,
 	});
 	if (already) return already;
-	if (await waitFor(listsChild, t))
-		return `linked #${child} as a sub-issue of #${parent}\n`;
+	if (await waitFor(listed, t))
+		return `linked ${label} as a sub-issue of #${parent}\n`;
 	return fail(
 		"unlisted",
-		`POST returned success but #${parent} still does not list #${child} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,
+		`POST returned success but #${parent} still does not list ${label} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,
 	);
 }
 
@@ -231,14 +272,17 @@ const readState = (repo, n) =>
 /**
  * @param {string} repo
  * @param {number} parent
- * @param {number} child
+ * @param {Ref} child
  */
 async function assertParentHidesNoOpenChild(repo, parent, child) {
 	const state = await readState(repo, parent);
-	if (state === "closed" && (await readState(repo, child)) !== "closed")
+	if (
+		state === "closed" &&
+		(await readState(child.repo, child.number)) !== "closed"
+	)
 		fail(
 			"closed-parent",
-			`#${parent} is closed — link #${child} under an open issue, or file it with file-issue.js --standalone "<why>"; nothing was POSTed`,
+			`#${parent} is closed — link ${refLabel(child, repo)} under an open issue, or file it with file-issue.js --standalone "<why>"; nothing was POSTed`,
 		);
 	if (state !== "open" && state !== "closed")
 		fail(
@@ -248,8 +292,8 @@ async function assertParentHidesNoOpenChild(repo, parent, child) {
 }
 
 /**
- * @param {{repo: string, parent: number, child: number, id: string,
- *   replaceParent: boolean, listsChild: () => Promise<boolean>,
+ * @param {{repo: string, parent: number, child: Ref, id: string,
+ *   replaceParent: boolean, listed: () => Promise<boolean>,
  *   t: {retries: number, sleepMs: number}}} at
  * @returns {Promise<string|null>}
  */
@@ -259,9 +303,10 @@ async function postSubIssue({
 	child,
 	id,
 	replaceParent,
-	listsChild,
+	listed,
 	t,
 }) {
+	const label = refLabel(child, repo);
 	try {
 		await ghAsync([
 			"api",
@@ -277,17 +322,17 @@ async function postSubIssue({
 		const out = `${caught(e).stderr ?? ""}${caught(e).stdout ?? ""}`;
 		// lucmoseley/mantahostels#1150
 		if (out.includes("only have one parent")) {
-			if (await waitFor(listsChild, t))
-				return `#${child} was already a sub-issue of #${parent}\n`;
+			if (await waitFor(listed, t))
+				return `${label} was already a sub-issue of #${parent}\n`;
 			fail(
 				"other",
-				`#${child} already has a different parent — re-root it with link-sub-issue.sh ${parent} ${child} --replace-parent, or detach it first: gh api --method DELETE repos/${repo}/issues/<parent>/sub_issue -F sub_issue_id=${id}`,
+				`${label} already has a different parent — re-root it with link-sub-issue.sh ${parent} ${isSameRepo(child.repo, repo) ? child.number : label} --replace-parent, or detach it first: gh api --method DELETE repos/${repo}/issues/<parent>/sub_issue -F sub_issue_id=${id}`,
 			);
 		}
 		if (out.includes("7 layers"))
 			fail(
 				"layers",
-				`#${parent} is 7 layers deep — give #${child} the SAME parent as #${parent} instead, and say in its body why it is a peer (${docPath("agents/issue-tracker.md")})`,
+				`#${parent} is 7 layers deep — give ${label} the SAME parent as #${parent} instead, and say in its body why it is a peer (${docPath("agents/issue-tracker.md")})`,
 			);
 		const text = out.trim() || parseErrLine(e);
 		return fail(postReason(text), `POST failed: ${text}`);
@@ -320,12 +365,8 @@ async function listsBlocker(blocked, blocker) {
 		]);
 		/** @type {{number: number, repository_url?: string}[]} */
 		const rows = out.trim() ? JSON.parse(out).flat() : [];
-		return rows.some(
-			(r) =>
-				refKey({
-					repo: parseRepoOfUrl(r.repository_url) ?? blocked.repo,
-					number: r.number,
-				}) === refKey(blocker),
+		return rows.some((r) =>
+			namesRef(r.repository_url, r.number, blocker, blocked.repo),
 		);
 	} catch {
 		return false;
@@ -339,12 +380,7 @@ async function listsBlocker(blocked, blocker) {
  */
 async function linkBlocker(args, warn) {
 	if (args.length !== 2) fail("other", USAGE.blocker);
-	/** @type {string|undefined} */
-	let local;
-	const home = async () => {
-		local ??= await resolveLocalRepo();
-		return local;
-	};
+	const home = memoLocalRepo();
 	const [a = "", b = ""] = args;
 	const blocked = await parseRef(a, home);
 	if (!blocked)
@@ -430,7 +466,7 @@ const USAGE = {
 	blocker:
 		"usage: link-blocker.js <blocked> <blocker> [--json] — each a bare number or owner/name#n",
 	"sub-issue":
-		"usage: link-sub-issue.sh <parent> <child> [--replace-parent] [--json]",
+		"usage: link-sub-issue.sh <parent> <child> [--replace-parent] [--json] — the parent a bare number, the child a bare number or owner/name#n",
 };
 
 /**

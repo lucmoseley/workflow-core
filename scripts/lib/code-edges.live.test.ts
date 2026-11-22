@@ -33,6 +33,17 @@ const QUOTED = /["'`]([^"'`\s]+)["'`]/g;
 /* #5553 measured: the deepest live loader, core-hooks.js, sits 2 imports in. */
 const LOADER_HOPS = 2;
 
+const quoted = (code: string) =>
+	[...code.matchAll(QUOTED)].map((q) =>
+		(q[1] ?? "").replace(/^.*\}/, "").replace(/^\.?\//, ""),
+	);
+
+const quotedPaths = (code: string) =>
+	quoted(code).filter((l) => /[./]/.test(l));
+
+const isTailOf = (whole: string) => (l: string) =>
+	whole === l || whole.endsWith(`/${l}`);
+
 function readLoaderSpellings(at: string, text: string, skip: string): string[] {
 	const seen = new Set([at, skip]);
 	let hop = [{ at, text }];
@@ -45,14 +56,28 @@ function readLoaderSpellings(at: string, text: string, skip: string): string[] {
 				.map((e: string) => {
 					seen.add(e);
 					const loaded = fs.readFileSync(e, "utf8");
-					for (const q of codeOf(loaded).matchAll(QUOTED))
-						spellings.push(
-							(q[1] ?? "").replace(/^.*\}/, "").replace(/^\.?\//, ""),
-						);
+					spellings.push(...quotedPaths(codeOf(loaded)));
 					return { at: e, text: loaded };
 				}),
 		);
-	return spellings.filter((l) => /[./]/.test(l));
+	return spellings;
+}
+
+function isTargetSpelt(at: string, without: string, target: string): boolean {
+	const code = codeOf(without);
+	const fromRoot = path.relative(ROOT, path.resolve(path.dirname(at), target));
+	const dir = path.dirname(fromRoot);
+	const paths = quotedPaths(code);
+	return (
+		code.includes(target) ||
+		paths.some(isTailOf(fromRoot)) ||
+		(dir.includes("/") &&
+			paths.includes(dir) &&
+			quoted(code).includes(path.basename(fromRoot))) ||
+		readLoaderSpellings(at, without, path.join(ROOT, fromRoot)).some(
+			isTailOf(fromRoot),
+		)
+	);
 }
 
 it.each(files.map((f) => [f.rel, f]))(
@@ -93,17 +118,22 @@ it.each(
 it.each(
 	declared.filter(([, , l]) => l.kind === "loads" && l.words.length === 1),
 )(
-	"%s names a target its file's code still spells, itself or its directory, or a module it loads within two imports quotes as a path tail",
+	"%s names a target its file's code spells whole, or quotes as a path tail or as its full directory path and file name, or a module it loads within two imports quotes as a path tail",
 	(_name, { at }, { without, words: [target = ""] }) => {
-		const code = codeOf(without);
-		const spellings = [target, path.dirname(target)].filter((t) => t !== ".");
-		const absolute = path.resolve(path.dirname(at), target);
-		const fromRoot = path.relative(ROOT, absolute);
-		const spelt =
-			spellings.some((t) => code.includes(t)) ||
-			readLoaderSpellings(at, without, absolute).some(
-				(l) => fromRoot === l || fromRoot.endsWith(`/${l}`),
-			);
-		expect(spelt).toBe(true);
+		expect(isTargetSpelt(at, without, target)).toBe(true);
+	},
+);
+
+it.each([
+	["lib/hook-block.js", 'join(ROOT, "lib");\n'],
+	[
+		"../.husky/pre-commit",
+		'join(root, ".husky", hook);\nconst h = "pre-commit";\n',
+	],
+])(
+	"fails keyless target %s, its code spelling only a shared directory",
+	(target, code) => {
+		const at = path.join(ROOT, "scripts/guard-uncommitted-work.test.ts");
+		expect(isTargetSpelt(at, code, target)).toBe(false);
 	},
 );
