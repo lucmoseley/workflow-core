@@ -1,34 +1,3 @@
-/*
- * chrome-merge.js — the guard-chrome-merge core (#5386, spec #5385): a Chrome
- * child's launch is read on stdout alone.
- *
- * Why: `claude-child.js chrome` prints exactly one JSON line on stdout on
- * every end path, and mirrors its `claude-child:` stderr notes inside it under
- * `notes` (#5381). A caller that merges stderr in hands its JSON reader extra
- * lines and the parse fails (#5349).
- *
- * WHAT IT REFUSES: a command that runs `claude-child.js chrome` — through
- * `node`, by any path, behind any wrapper unwrap strips — whose own segment
- * carries `2>&1`, `&>`, `&>>` or `>&<file>`, or is piped on by `|&`. Another
- * mode of the launcher (`chrome-close`, `usage`) passes.
- *
- * A CORE: it does no I/O. It fails open: a crash here would otherwise refuse
- * every launch, where a merge it misses costs one report, the record and the
- * sweep still closing the tabs.
- *
- * Its lib/guard-cores.json row runs it only on a call
- * `if: Bash(*claude-child*)` admits.
- *
- * LIMITS — lexical, one command string:
- *  - a merge made for the whole shell or a group — `exec 2>&1` before the
- *    launch, `{ …; } 2>&1`, `( … ) 2>&1` — is not the launcher's segment's,
- *    and passes;
- *  - a launch inside a `-c` string reads that string's redirections as
- *    words, so a merge there passes;
- *  - a node flag taking a value outside shell-words.js's NODE_VALUE_FLAGS
- *    hides the script, and the launch passes;
- *  - a launch from a script file, or a variable naming the script, passes.
- */
 const { deny, walkVerdict } = require("./guard-verdict.js");
 const { parseCommand } = require("./shell-parse.js");
 const { literal, nodeScriptArgs } = require("./shell-words.js");

@@ -67,24 +67,20 @@ bodies are 70–670 lines of bespoke judgement.
      wrapper-tolerant `Bash(*gh *)`; the `guard-pull-form` and
      `guard-registry-atomicity` cores keep `Bash(*git *)` for the same reason
      (#4009, #4879). **Match the `if` to what the guard's own
-     walker reads, not to the tool word.** A new
-     guard states its own `if` narrowing — one line
-     where its LIMITS section already runs long, its own paragraph where it
-     does not — never repeats this one (mantahostels#2126). **`check-guard-registry.js`
+     walker reads, not to the tool word.** A
+     guard whose script has a row in `.claude/implicit-behaviours.json` lists
+     the narrowing in that row's `IF` array, beside the DEFEAT it bounds,
+     never in a comment (mantahostels#2126, #5541). **`check-guard-registry.js`
      gates three ways** (mantahostels#2212, mantahostels#2234): it FAILs
-     `UNDECLARED-IF` where a hook entry carries an `if` the script's header
-     never states verbatim, `STALE-IF` where the header states one no entry
-     naming that script carries, and `UNWIRED-IF` where the header states one
-     and `self-plugin/hooks/hooks.json` names that script in no entry at all — a
-     script dropped from the wiring entirely, not just missing its `if` field.
-     A dispatcher core's `scripts/lib/guard-cores.json` row counts as its
-     entry, the row's `if` clauses judged against the core's header the same
-     way (#3244). A clause holding `*/` goes in a `//` line after the header's
-     block comment, which it would otherwise close.
-     Its remedy: delete the header's `if` line, or wire the script. It matches
-     the string, never the sentence around it — whether the blind-spot
-     enumeration beside it was recomputed against the narrowing is still a
-     reader's call, and the staleness warning is the surface for that.
+     `UNDECLARED-IF` where a hook entry carries an `if` the row's `IF` lacks,
+     `STALE-IF` where the `IF` holds one no entry naming that script carries,
+     and `UNWIRED-IF` where the `IF` holds one and
+     `self-plugin/hooks/hooks.json` names that script in no entry at all. A
+     dispatcher core's `scripts/lib/guard-cores.json` row is its wiring
+     (#3244); a core, holding no IMPLICIT row, declares nothing more. It
+     matches the clauses, never the DEFEAT around them — whether that prose
+     was recomputed against the narrowing is still a reader's call, and the
+     staleness warning is the surface for that.
    - **A removed entry runs on in every session started before its removal**,
      so a deleted script fails to start there, and under `onFailure: "block"`
      every call its line matches is refused. `scripts/keep-hook-shims.js`,
@@ -441,7 +437,15 @@ still reports it at `Stop`.
 `# DENIES-THROUGH: <script> <subcommand>` line in its header comment, naming a
 script beside it, as `guard-dispatch.js` carries — or `guard-lost-deny.js`
 never reports its cancellation (`scripts/lib/deny-capable.js`, #1815). A
-guard writing its `permissionDecision` itself needs no line.
+guard writing its `permissionDecision` itself needs no line. A shell guard
+refusing by exit code sets `REFUSE_EXIT=2` and refuses with
+`exit "$REFUSE_EXIT"`, the shape `deny-capable.js` reads (#2473, #5541); a
+bare `exit 2` reads as a usage error.
+
+A core whose deny lands only on a later trigger, so a rule its deny text
+reprints must stay where it is, carries `"denyTiming": "delayed"` on its
+`scripts/lib/guard-cores.json` row, and `check-guard-registry.js` draws no
+REPRINTED warning from it (mantahostels#964).
 
 **An internal budget only catches your own slowness.** It catches nothing in
 a whole-burst stall, because a starved guard has no CPU to notice its own

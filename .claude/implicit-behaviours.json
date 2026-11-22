@@ -287,7 +287,8 @@
 		"IMPLICIT": "after a `gh issue create`, injects an ask to place the new issue under a parent and label it — once per prompt for placement, every issue for labels; it applies neither itself.",
 		"JUSTIFIED": "fail-safe — an ad-hoc issue reaches no rule in docs/agents/issue-tracker.md, and PostToolUse is the only point at which its shape is visible (mantahostels#136).",
 		"DEFEAT": "real, two ways, both silent. No `jq` on PATH exits at its `command -v jq` line before the payload is even parsed. And CREATE_RE anchors `gh issue create` to start-of-segment or after a separator, so `timeout 5 gh issue create`, `sh -c \"gh issue create …\"` and `xargs gh issue create` all fail its match and exit unasked. Neither is the `if: Bash(gh *)` field's doing (docs/agents/guard-authoring.md's surface 4): anchored at mantahostels#2127, it now also declines to exec this script on the wrapped spellings — but CREATE_RE was already refusing them, so the set this script acts on is unchanged.",
-		"TREE": "none — reads the payload, the session and job records and GitHub, no repository"
+		"TREE": "none — reads the payload, the session and job records and GitHub, no repository",
+		"IF": ["Bash(gh *)"]
 	},
 	"scripts/practice-guard.sh": {
 		"IMPLICIT": "on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the session's project enables a plugin release pinned at or above the first to ship this guard.",
@@ -317,19 +318,22 @@
 		"IMPLICIT": "after a `gh issue close`, a round-opening `gh issue comment`, a `takes:` label added by `gh issue edit` or a blocked-by edge added, appends one line per act to the session's acts ledger.",
 		"JUSTIFIED": "convenience — the record is the session's own, into its own ledger, which only the refill loop's progress test reads; the act itself has already landed.",
 		"DEFEAT": "evadable by spelling — any `gh api` call but a blocked-by POST, a shell variable, an unread body or the web UI all miss the seam — but there is no switch.",
-		"TREE": "both — reads a `--body-file` and the origin from the command's own cwd, walked from host-root.js's sessionDir, and records into the host root's arbiter store"
+		"TREE": "both — reads a `--body-file` and the origin from the command's own cwd, walked from host-root.js's sessionDir, and records into the host root's arbiter store",
+		"IF": ["Bash(gh *)"]
 	},
 	"scripts/record-divergence.js": {
 		"IMPLICIT": "appends one row per refused `git pull` and per rejected `git push` to a per-repo log under the Claude config directory. Records only; it reaches no verdict and refuses nothing.",
 		"JUSTIFIED": "convenience — #289 holds the counts. The measurement that looked like the cause sees only pushes that SUCCEEDED, and this file is the population it cannot reach; until the refusals are on record, any reconcile recipe (#290) is aimed at a cause nobody has established.",
 		"DEFEAT": "WFC_NO_DIVERGENCE_LOG=1 — recording stops entirely. There is no partial setting.",
-		"TREE": "session — counts the refused pull or push's own checkout, host-root.js's sessionDir or its `-C`, against its pushed ref; the log lands under that checkout's project slug, which divergence-report.js reads with every other"
+		"TREE": "session — counts the refused pull or push's own checkout, host-root.js's sessionDir or its `-C`, against its pushed ref; the log lands under that checkout's project slug, which divergence-report.js reads with every other",
+		"IF": ["Bash(git *)"]
 	},
 	"scripts/record-issue-claim.js": {
 		"IMPLICIT": "after a `gh issue edit <n> --add-assignee @me`, records that issue claim in the session arbiter without the session asking.",
 		"JUSTIFIED": "convenience — the rule it automates is written down and still spellable by hand (`session-arbiter.js claim-issue <n>`); left as prose it was a second thing to remember.",
 		"DEFEAT": "evadable by spelling — `--repo`, a shell variable, `gh api` or the web UI all miss the seam — but there is no switch.",
-		"TREE": "host — records a gh issue claim into the host root's arbiter store"
+		"TREE": "host — records a gh issue claim into the host root's arbiter store",
+		"IF": ["Bash(gh *)"]
 	},
 	"scripts/refill-wake.sh": {
 		"IMPLICIT": "appends to the refill loop's wake file when a session it launched ends",
@@ -341,7 +345,8 @@
 		"IMPLICIT": "after a `gh issue close <n>`, drops this session's arbiter claim on that issue.",
 		"JUSTIFIED": "convenience — the release was written down in two places and no close path ever called it; a claim outliving its issue costs a stale line in `issue-claims` and nothing else.",
 		"DEFEAT": "evadable by spelling — `--repo`, a shell variable, `gh api` or the web UI all miss the seam — but there is no switch.",
-		"TREE": "host — drops this session's issue claim from the host root's arbiter store"
+		"TREE": "host — drops this session's issue claim from the host root's arbiter store",
+		"IF": ["Bash(gh *)"]
 	},
 	"scripts/replay-notify-reports.js": {
 		"IMPLICIT": "reads the persisted report files at every session start and injects into the session whatever a slow async producer finished after the harness had stopped listening to it, bar the reports `isHeldForStatus` keeps for `npm run status` and a founder notice at a start not his: a dispatcher's or the loop's job, a wake, a print-mode run, or a compaction. A founder notice also reaches his screen (lib/check.js's screenNotices, #3776).",
@@ -377,7 +382,8 @@
 		"IMPLICIT": "after a Bash call that pushes to a queue ref, runs start-lander.js detached, which — where no lander runs and a queue ref waits on the remote or a drop is owed a decision — starts `queue-lander.js run` in a session of its own.",
 		"JUSTIFIED": "fail-safe — a queue push that starts no lander sits untested until some later session starts, and every session meanwhile builds on a `main` behind its own work.",
 		"DEFEAT": "deleting the registration.",
-		"TREE": "both — resolves the pushed ref in the session's checkout, walked from host-root.js's sessionDir, and starts the lander in the host root"
+		"TREE": "both — resolves the pushed ref in the session's checkout, walked from host-root.js's sessionDir, and starts the lander in the host root",
+		"IF": ["Bash(*push*)"]
 	},
 	"scripts/unpark-on-prompt.js": {
 		"IMPLICIT": "at every prompt the founder types in a session whose `.parked-` marker lists an issue, removes the `parked` label from it and drops it from the marker.",

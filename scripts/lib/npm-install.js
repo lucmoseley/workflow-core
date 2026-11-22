@@ -52,8 +52,6 @@
  * lib/package-vetting.js's, shared with lib/pip-install.js.
  *
  * LIMITS
- *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
- *    clauses admits: `if: Bash(*npm *)`, `if: Bash(*npx *)` (#3226).
  *  - npm only. `pnpm add`, `yarn add` and `bun add` are not read; pip and uv
  *    are lib/pip-install.js's.
  *  - Only a registry spec is vetted. `npm i ./local`, `github:user/repo`, a

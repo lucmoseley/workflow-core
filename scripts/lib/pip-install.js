@@ -41,8 +41,6 @@
  * declares nothing, so its packages are vetted like any new one.
  *
  * LIMITS
- *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
- *    clauses admits: `if: Bash(*pip*)`, `if: Bash(*uv *)`, `if: Bash(*uvx*)`.
  *  - Only a PyPI requirement is vetted. A local path, a wheel or sdist file,
  *    a VCS or other URL and a `name @ url` direct reference cannot be asked of
  *    PyPI, so they are DENIED as unvettable — `pip install -e .` included.

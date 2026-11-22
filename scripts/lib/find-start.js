@@ -1,38 +1,3 @@
-/*
- * find-start.js — the guard-root-find core (#2801, #3227): a `find` whose start
- * point is `/`, at any depth, is refused, and the cheaper routes handed over
- * (#1006).
- *
- * DENY, NOT WARN (#1006 Q1): a warn cannot stop the call it fires on.
- *
- * NO ESCAPE VARIABLE: a self-spellable bypass would make the deny a warn (mantahostels#109).
- *
- * FAILS CLOSED on a throw, its manifest row's `failure`. Every input it cannot
- * resolve still fails open, recorded (mantahostels#103 §6, mantahostels#147).
- *
- * LIMITS
- *  - Its row's `Bash(*find *)` clause is unanchored, because the walk strips
- *    launchers (`timeout 120 find /`) that an anchored clause would miss. A
- *    command holding `find` with no space after it never reaches it.
- *  - A start point spelled with an unexpanded variable — `$HOME`, `"$dir"` —
- *    is unread, and passes.
- *  - `/` is recognised after collapsing `.`, `..` and doubled slashes. A symlink to `/` is not followed.
- *  - A RELATIVE start point, or none at all (`find` defaults to `.`), is
- *    resolved against every directory the find may stand in — the payload's
- *    cwd, moved by any `cd` before it and by each directory its launchers move
- *    to (`env -C /`, a `flock -c` string's `cd`), as the walk's runs hand
- *    them, and each of those left unmade where it may not have
- *    run or failed. So `cd / && find . -name x` is refused, and a session
- *    standing in `/` is refused `find . -name x` and
- *    `cd /missing; find . -name x`. A directory unknown to the walk is no `/`.
- *  - The command word must be `find`, by basename, after shell-words.js's
- *    launcher unwrapping. `sh -c "find / …"`, a heredoc fed to a shell, `fd`,
- *    `locate`, `du /`, `ls -R /` and `grep -r … /` are all unjudged (#1006
- *    out of scope).
- *  - Only the first refused segment is named in the refusal.
- *  - A plugin root that will not resolve allows the find, recorded
- *    (mantahostels#147): the refusal's first route would name nothing.
- */
 const { denyText } = require("./guard-verdict.js");
 const {
 	BASH_SPACE,
