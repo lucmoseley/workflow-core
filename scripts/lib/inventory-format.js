@@ -1,5 +1,3 @@
-// #1255
-
 const NOTHING = "`waits on you: nothing`";
 const REFS_TAIL = "— waits on you: #N";
 const NOTHING_TAIL = "— nothing waits on you";

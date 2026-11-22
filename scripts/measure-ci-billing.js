@@ -5,6 +5,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { orFallback } = require("./lib/caught.js");
+const { readJobDir } = require("./lib/job-paths.js");
 
 const { ghApiSlurpAsync, parseErrLine } = require("./lib/gh");
 const { CliExit, flagValue, parse, printExit } = require("./lib/cli-args");
@@ -104,7 +105,7 @@ function parseArgs(argv) {
 		git: flags["--no-git"] !== true,
 		cache:
 			flagValue(flags, "--cache") ??
-			path.join(process.env.CLAUDE_JOB_DIR || "/tmp", "ci-billing-cache"),
+			path.join(readJobDir(process.env) ?? "/tmp", "ci-billing-cache"),
 		json: flags["--json"] === true,
 		refresh: flags["--refresh"] === true,
 		"max-cache-age":

@@ -356,6 +356,11 @@ describe("a bad invocation", () => {
 	it.each([
 		["no log", ["--no-artefact", "1"], "--no-artefact needs --log"],
 		[
+			"no ceiling",
+			["--no-artefact", "1", "--log", "l"],
+			"--no-artefact needs a ceiling",
+		],
+		[
 			"a path",
 			["--no-artefact", "x", "1", "2", "--log", "l"],
 			"--no-artefact takes no artefact path",

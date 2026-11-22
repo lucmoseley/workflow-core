@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage, baselineOf } = require("./lib/check");
 const { readText: readFile } = require("./lib/file-read.js");
-const { requiredGroup } = require("./lib/regex-group");
+const { escapeRe, requiredGroup } = require("./lib/regex-group");
 const { JS_COMMENT, LINE_START, headerOf } = require("./lib/script-header.js");
 const { isTestKind } = require("./lib/test-kind");
 const { pythonRouteDrift } = require("./lib/python-routes.js");
@@ -665,7 +665,7 @@ function callerRowFault(row, exported, consumers, tracked) {
 		text === null ||
 		!hasWord(text, stem) ||
 		!hasToken(text, name) ||
-		definesOwn(text, name)
+		isOwnDefinition(text, name)
 	)
 		return `${caller} no longer reads ${name} off ${module} — make the name file-local, or name the caller that does`;
 	return null;
@@ -683,15 +683,13 @@ const hasToken = (text, token) =>
  * @param {string} word
  */
 const hasWord = (text, word) =>
-	new RegExp(
-		`(?<![\\w-])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
-	).test(text);
+	new RegExp(`(?<![\\w-])${escapeRe(word)}(?![\\w-])`).test(text);
 
 /**
  * @param {string} text
  * @param {string} name
  */
-const definesOwn = (text, name) =>
+const isOwnDefinition = (text, name) =>
 	firstGroups(DEFINITION_RE, text).has(name) &&
 	!firstGroups(MEMBER_RE, text).has(name);
 
