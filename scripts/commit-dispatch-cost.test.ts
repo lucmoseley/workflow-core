@@ -113,6 +113,8 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/issue-ref.js",
 			"lib/job-paths.js",
 			"lib/jsonl.js",
+			"lib/lander-job-names.js",
+			"lib/lander-workflows.js",
 			"lib/landing-pin.js",
 			"lib/landing-refs.js",
 			"lib/machine-marker.js",

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// cli-args-exempt: #5540
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { setTimeout: wait } = require("node:timers/promises");
@@ -28,7 +27,8 @@ const say = (line) => writeFd(1, `${line}\n`);
  */
 function openLanderRun(argv) {
 	const usage = `usage: node ${scriptPath("queue-lander.js")} run [--tester <command>]
-  without --tester, the tester .claude/workflow-core.json's landingTester names
+  without --tester, the tester .claude/workflow-core.json's landingTester names,
+  or under auto the one the median whole run picks
   <command> <sha> [<file>…] exits 0 green, 1 red (stdout: failing files),
   else no verdict`;
 	const parsed = parseOrCode(argv, {

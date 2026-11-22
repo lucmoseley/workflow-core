@@ -3,9 +3,15 @@ const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readPsRows, readTreePssKb, sampleTreePeak } = require("./admission.js");
+const {
+	TREE_PEAK_SAMPLE_MS,
+	readPsRows,
+	readTreePssKb,
+	sampleTreePeak,
+} = require("./admission.js");
 const { caught } = require("./caught.js");
 const { readBytes, readText } = require("./file-read.js");
+const { readJsonl } = require("./jsonl.js");
 const { MARKERS_REL, markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { writeFd } = require("./write-fd.js");
@@ -417,10 +423,15 @@ async function runInSlot(
 }
 
 /**
+ * @typedef {{sha: string, kind: "whole" | "named", files: number,
+ *   shards: number, peakMb?: number, samples?: number,
+ *   verdict: Verdict["kind"], tester: "local" | "actions",
+ *   suiteSeconds: number}} RunLine
+ */
+
+/**
  * @param {string} root
- * @param {{sha: string, kind: "whole" | "named", files: number,
- *   shards: number, peakMb: number, samples: number,
- *   verdict: Verdict["kind"]}} run
+ * @param {RunLine} run
  */
 function recordRun(root, run) {
 	const file = path.join(markersDir(root), RUN_RECORD);
@@ -430,6 +441,33 @@ function recordRun(root, run) {
 		RUN_RECORD_RETAIN_MS,
 	);
 	if (!landed) process.stderr.write(`lander: run record unwritten: ${file}\n`);
+}
+
+/** @param {number} samples */
+const localSeconds = (samples) => (samples * TREE_PEAK_SAMPLE_MS) / 1000;
+
+/**
+ * @param {string} root
+ * @returns {{tester: "local" | "actions", suiteSeconds: number}[]}
+ */
+function readWholeRuns(root) {
+	/** @type {Record<string, unknown>[]} */
+	const rows = readJsonl(path.join(root, MARKERS_REL, RUN_RECORD))?.rows ?? [];
+	return rows
+		.filter(
+			(r) =>
+				r.kind === "whole" && (r.verdict === "green" || r.verdict === "red"),
+		)
+		.map((r) => ({
+			tester: /** @type {"local" | "actions"} */ (
+				r.tester === "actions" ? "actions" : "local"
+			),
+			suiteSeconds:
+				typeof r.suiteSeconds === "number"
+					? r.suiteSeconds
+					: localSeconds(Number(r.samples) || 0),
+		}))
+		.reverse();
 }
 
 /**
@@ -540,6 +578,8 @@ function localTester({
 					peakMb: Math.round(tally.peakKb / 1024),
 					samples: tally.samples,
 					verdict: verdict.kind,
+					tester: "local",
+					suiteSeconds: localSeconds(tally.samples),
 				});
 			if (watched.shut !== null) recordHolders(root, sha, readPsRows());
 			return verdict;
@@ -594,4 +634,6 @@ module.exports = {
 	readLiveLanders,
 	localTester,
 	readRunsAt,
+	readWholeRuns,
+	recordRun,
 };
