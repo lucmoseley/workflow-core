@@ -1,34 +1,3 @@
-/*
- * check-sh-rules.js — the guard-check-sh core (#2800, #3224): which rules a
- * shell-gate command is handed before it runs (mantahostels#1805, spec
- * mantahostels#1762), and, before the full run, the changed-paths route that
- * costs seconds rather than minutes (#1015).
- *
- * INJECTION ONLY — it never denies and never warns. The third text, the
- * changed-paths route, is advice, not a rule.
- *
- * The ids' priority order is shellcheck-not-installed first — it is about
- * whether this run means anything at all — then the directive rule,
- * shellcheck-source-directive, which is about reading what it found. They are
- * literal arrays at the call site, where lib/rule-emission.js and
- * check-guard-registry.js read them.
- *
- * ONE INJECTION A COMMAND: every segment is walked first, so a command
- * carrying two runs is told once, and the full run's third id rides if any
- * segment is one.
- *
- * LIMITS
- *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
- *    clauses admits: `if: Bash(*shellcheck *)`, `if: Bash(*npm *)` (#3224).
- *  - SCOPE is `npm run check:sh` and `npm run check:sh:changed` (and their
- *    `npm check:sh…` shorthands) and a direct `shellcheck` invocation. Only
- *    the full run is told about `check:sh:changed`.
- *  - It fires on a segment's own first word, as written: `npm` and
- *    `shellcheck` exactly, never a path to either and never a quoted one. A
- *    run reached through `xargs`, `env`, `sudo` or a wrapper script states
- *    nothing.
- *  - It does NOT check whether shellcheck is actually installed.
- */
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 
 /** @param {string[]} words */

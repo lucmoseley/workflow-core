@@ -37,9 +37,6 @@
  * #1840).
  *
  * LIMITS
- *  - Its lib/guard-cores.json row narrows it to `Bash(git *)`
- *    (mantahostels#2127) — not loaded unless some segment of the command
- *    leads with `git`.
  *  - It FAILS OPEN, RECORDED (mantahostels#147), on anything it cannot
  *    resolve: a tree git cannot answer for, and the review adapter (the Stop
  *    nag still fires).

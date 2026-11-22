@@ -53,11 +53,6 @@
  * guard-error log (mantahostels#103 §6, mantahostels#147). A rule the store
  * cannot give is sent as a fallback sentence naming the file, logged, never
  * refused.
- *
- * ITS ROW'S `Bash(*vitest *)` AND `Bash(*npx *)` CLAUSES (mantahostels#2811)
- * admit no vitest invocation carrying no argument at all — `vitest`,
- * `node_modules/.bin/vitest` — so one never reaches the core, though it would
- * warn on it.
  */
 
 const { ruleOrFallback } = require("./guard-verdict.js");

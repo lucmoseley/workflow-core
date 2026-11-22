@@ -14,7 +14,7 @@ const MANIFEST = path.join(__dirname, "guard-cores.json");
  * @typedef {{ name: string, core: string, tools: string,
  *   failure: "open" | "closed", tree: "session" | "host" | "both",
  *   module?: Module, host?: string,
- *   if?: string[] }} CoreRow
+ *   if?: string[], denyTiming?: "delayed" }} CoreRow
  * @typedef {Record<string, CoreRow[]>} Manifest
  */
 

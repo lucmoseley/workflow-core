@@ -1,20 +1,3 @@
-/*
- * review-comment.js — a PreToolUse dispatcher core (#4492): it denies a
- * `gh issue comment` posting a whole-spec review — a body carrying
- * `**Reviewed through:**` — where a line marks a finding TICKETED without
- * naming the exception that let it skip fix-first (#4284).
- *
- * A CORE: it does no I/O.
- *
- * LIMITS
- *  - A body it cannot read (`$(cat …)`, a missing file, a file the same call
- *    writes) passes, logged; a comment posted through `gh api` or a script's
- *    child `gh` is not seen.
- *  - It reads the tag, never whether the exception named is true.
- *  - Wired with `if: Bash(gh *)` (best-effort: a `timeout gh …` prefix or a
- *    path-spelled `gh` goes unjudged).
- */
-
 const { COMMENT_SPELLING, readIssueCall } = require("./gh-acts.js");
 const { isGh } = require("./gh-issue-ref.js");
 const { deny, walkVerdict } = require("./guard-verdict.js");
