@@ -2,8 +2,6 @@
  * resolve-core.js — finds the workflow-core directory an adopter's checks and
  * tests import the helper surface from (#457), and that its husky hook shims
  * run (#1839). init and upgrade overwrite an adopter's copy.
- * resolve_core.py, beside it where the adopter has Python code (#465), is
- * copied once and never re-synced.
  *
  * FROZEN: a change to its lookup, its export or its variable names is a major
  * release with a migration note (#4117). It requires node builtins only.
@@ -16,9 +14,7 @@
  *      adopter root as spelt, else, where the root is a checkout's top level,
  *      that checkout's main checkout as git spells it, the marketplace read
  *      from the pin in the root's `.claude/settings.json`. git is asked only
- *      where the root as spelt has no row. So a linked worktree resolves
- *      through its main checkout, and so does a main checkout's root spelt
- *      through a symlink or with a trailing slash (#4150). `<config>` is
+ *      where the root as spelt has no row (#4150). `<config>` is
  *      CLAUDE_CONFIG_DIR, else ~/.claude, so a git hook or an npm script run
  *      outside any session resolves too.
  * A variable that is set but names no directory fails rather than falling
@@ -28,7 +24,7 @@
  * resolves; the two variables are never compared with the pin.
  *
  * RUN AS A SCRIPT, it runs a core script with the rest of its argv and exits as
- * that script did — how an adopter's npm scripts reach a core runner (#552):
+ * that script did:
  *   node scripts/lib/resolve-core.js scripts/run-vitest.js --changed
  */
 const fs = require("node:fs");
