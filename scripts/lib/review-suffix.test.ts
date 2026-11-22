@@ -97,7 +97,6 @@ const injectTrackerDocs = (host = ROOT) => {
 		}),
 		env: {
 			...process.env,
-			CLAUDE_JOB_DIR: "",
 			CLAUDE_CODE_SESSION_ID: "",
 			CLAUDE_PROJECT_DIR: host,
 			TMPDIR: dir,

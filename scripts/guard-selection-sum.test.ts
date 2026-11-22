@@ -92,14 +92,10 @@ interface Run {
 	reason: string;
 }
 
-/* CLAUDE_JOB_DIR decides the completion-mark limb, and the suite itself often
- * runs inside a background job — so it is set here explicitly rather than
- * inherited, or every case below would pass or fail on where it was run. */
 function run(text: string, cwd = dir, backgroundJob = false): Run {
 	const transcript = transcriptWith(text);
 	const env: NodeJS.ProcessEnv = { ...process.env, WFC_REPO_ROOT: root };
 	if (backgroundJob) env.CLAUDE_JOB_DIR = path.join(dir, "job");
-	else delete env.CLAUDE_JOB_DIR;
 	const res = runInProcess(GUARD, [], {
 		stdin: JSON.stringify({
 			session_id: sid,

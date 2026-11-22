@@ -32,6 +32,9 @@ delete process.env.WFC_GATE_SEAT;
 
 delete process.env.WFC_MERGE_PARENTS;
 
+/* #5547 */
+delete process.env.CLAUDE_JOB_DIR;
+
 delete process.env.WFC_PASS_STORE_CACHED;
 
 process.env.WFC_GATE_JUDGE = "off";

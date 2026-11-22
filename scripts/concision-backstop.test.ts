@@ -190,7 +190,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 					env: {
 						...env(),
 						WFC_SCRIPT_ROOT: core(),
-						CLAUDE_JOB_DIR: "",
 						WFC_GH: "false",
 						WFC_REVIEW_TIER_HOOK: path.join(dir, "no-tier-hook"),
 					},
