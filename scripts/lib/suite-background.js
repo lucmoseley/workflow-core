@@ -99,8 +99,7 @@
  *    read as the command word and the launch goes unjudged. `sh` is not a
  *    wrapper `unwrap` strips, so `sh -c "…"` stands as itself with its
  *    payload a blanked span; a heredoc's body is dropped as data, leaving only
- *    the opener line's own segments. The rest of the residual is `unwrap`'s
- *    own, listed in its header (lib/shell-parse.js).
+ *    the opener line's own segments.
  *  - `stripDetachment` is as LEXICAL as `detaches`: a `&` inside a quoted
  *    string outside a heredoc is rewritten too, and a detachment it cannot see
  *    is left standing.
