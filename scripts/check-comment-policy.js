@@ -19,6 +19,7 @@ const STYLE_ONLY = require("./lib/style-only-rules.json").rules;
 const { baselineOf, runCheck } = require("./lib/check");
 
 const SURFACE = "scripts/lib/helper-surface.json";
+const PLUGIN_SURFACE = path.join(__dirname, "lib", "helper-surface.json");
 const ADR_DIR = "docs/adr";
 const SUPPORT = [
 	SURFACE,
@@ -123,6 +124,7 @@ function readManifestDeps(root) {
  */
 function readTreeFacts(root) {
 	const surface = JSON.parse(readOr(root, SURFACE) ?? "{}");
+	const plugin = JSON.parse(fs.readFileSync(PLUGIN_SURFACE, "utf8"));
 	const adrDir = path.join(root, ADR_DIR);
 	const adrs = new Set(
 		(fs.existsSync(adrDir) ? fs.readdirSync(adrDir) : []).flatMap((name) => {
@@ -134,6 +136,8 @@ function readTreeFacts(root) {
 		/** @type {Record<string, string[]>} */
 		entryPoints: surface.entryPoints ?? {},
 		commands: new Set(Object.keys(surface.commands ?? {})),
+		/** @type {Set<string>} */
+		copies: new Set(plugin.copies),
 		adrs,
 		deps: depsPattern(readManifestDeps(root)),
 		checkJs: /"checkJs"\s*:\s*true/.test(readOr(root, "tsconfig.json") ?? ""),
@@ -295,7 +299,7 @@ function settle(ctx, added, { baseline }) {
 }
 
 const REMEDY = [
-	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note naming its source, a URL or a manifest dependency; a doc on an export the helper surface lists.",
+	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note naming its source, a URL or a manifest dependency; a doc on an export the helper surface lists, or atop a file it lists.",
 ];
 
 /** @type {import("./lib/check").CheckSpec} */
@@ -345,9 +349,10 @@ const SPEC = {
  */
 const factsFor = (tree, rel, lang) => ({
 	lang,
-	checkJs: tree.checkJs && /\.[cm]?jsx?$/.test(rel),
+	checkJs: (tree.checkJs || tree.copies.has(rel)) && /\.[cm]?jsx?$/.test(rel),
 	exports: new Set(tree.entryPoints[rel] ?? []),
-	shipped: rel in tree.entryPoints || tree.commands.has(rel),
+	shipped:
+		rel in tree.entryPoints || tree.commands.has(rel) || tree.copies.has(rel),
 	adrs: tree.adrs,
 	deps: tree.deps,
 	styleOnly: STYLE_ONLY,

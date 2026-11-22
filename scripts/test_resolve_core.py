@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import shlex
@@ -606,3 +607,21 @@ def test_an_adopter_suite_fails_naming_the_pin_where_the_core_is_unreachable(
         "resolve-core: no workflow-core directory for pin v1.2.0 — WORKFLOW_CORE_DIR"
         " and WORKFLOW_CORE_CHECKOUT are unset"
     ) in (r.stdout + r.stderr)
+
+
+def test_imports_the_standard_library_only():
+    tree = ast.parse((LIB / "resolve_core.py").read_text(encoding="utf-8"))
+    imported = [
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    ] + [
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    ]
+    assert imported
+    assert [
+        name for name in imported if name.split(".")[0] not in sys.stdlib_module_names
+    ] == []

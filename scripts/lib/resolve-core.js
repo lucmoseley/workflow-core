@@ -1,4 +1,42 @@
-// #457, #1839, #4117, #4150
+/*
+ * resolve-core.js — finds the workflow-core directory an adopter's checks and
+ * tests import the helper surface from (#457), and that its husky hook shims
+ * run (#1839). Core-owned in every adopter: init and upgrade copy it
+ * (core-owned-files.js). resolve_core.py, beside it where the adopter has
+ * Python code (#465), is copied once and never re-synced.
+ *
+ * FROZEN: a change to its lookup, its export or its variable names is a major
+ * release with a migration note. A linked worktree with no row of its own
+ * taking its main checkout's is, on #4117's judgement call, no lookup change:
+ * the adopter root means the main checkout (adopterRoot), and an exact row
+ * still wins. It requires node builtins only, because it runs before the core
+ * is found.
+ *
+ * LOOKUP, first hit wins:
+ *   1. WORKFLOW_CORE_DIR — an explicit override, for a test or an unusual layout.
+ *   2. WORKFLOW_CORE_CHECKOUT — where CI checked the core out, at the pin.
+ *      The workflow: lib/adopter-ci.js.
+ *   3. The installed plugin: the last `workflow-core@<marketplace>` row of
+ *      `<config>/plugins/installed_plugins.json` whose `projectPath` is the
+ *      adopter root as spelt, else, where the root is a checkout's top level,
+ *      that checkout's main checkout as git spells it, the marketplace read
+ *      from the pin in the root's `.claude/settings.json`. git is asked only
+ *      where the root as spelt has no row. So a linked worktree resolves
+ *      through its main checkout, and so does a main checkout's root spelt
+ *      through a symlink or with a trailing slash (#4150). `<config>` is
+ *      CLAUDE_CONFIG_DIR, else ~/.claude, so a git hook or an npm script run
+ *      outside any session resolves too.
+ * A variable that is set but names no directory fails rather than falling
+ * through: it was set to be used.
+ *
+ * Only the installed plugin can drift from the pin — CI checks the pin out
+ * itself, and an override is deliberate — so only it is compared: a version
+ * other than the pinned tag warns and still resolves.
+ *
+ * RUN AS A SCRIPT, it runs a core script with the rest of its argv and exits as
+ * that script did — how an adopter's npm scripts reach a core runner (#552):
+ *   node scripts/lib/resolve-core.js scripts/run-vitest.js --changed
+ */
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");

@@ -5,6 +5,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderHookShim } from "./lib/adopter-skeleton.js";
+import { CODE_FILE } from "./lib/comment-policy.js";
+import { coreOwnedPaths } from "./lib/core-owned-files.js";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import { factsAt } from "./lib/precommit-dispatch-ports.js";
 import { GATES } from "./lib/precommit-gates.js";
@@ -12,6 +15,13 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { NOTICES } from "./lib/shared-fault-notices.js";
 
 const SCRIPT = path.resolve(__dirname, "check-comment-policy.js");
+const PLUGIN_ROOT = path.resolve(__dirname, "..");
+const COPIES: string[] = JSON.parse(
+	fs.readFileSync(
+		path.join(PLUGIN_ROOT, "scripts/lib/helper-surface.json"),
+		"utf8",
+	),
+).copies;
 
 let root: string;
 let hooks: string;
@@ -142,6 +152,31 @@ describe("check-comment-policy", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("1 code file(s), every comment a permitted kind.");
+	});
+
+	it("passes the plugin's copies in an adopter with no surface of its own, and charges the adopter's own top comment", () => {
+		for (const rel of COPIES)
+			write(
+				rel,
+				rel.startsWith(".husky/")
+					? renderHookShim(path.basename(rel))
+					: fs.readFileSync(path.join(PLUGIN_ROOT, rel), "utf8"),
+			);
+		write("scripts/own.js", "/*\n * A note.\n */\nconst a = 1;\n");
+		git("add", "-A");
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain("scripts/own.js:1");
+		expect(r.out).toContain(
+			`1 comment breach(es) in 1 of ${COPIES.length + 1} code file(s)`,
+		);
+	});
+
+	it("lists as copies every core-owned code file, plus resolve_core.py, which an adopter copies once", () => {
+		const owned = coreOwnedPaths().filter((rel) => CODE_FILE.test(rel));
+		expect([...COPIES].sort()).toEqual(
+			[...owned, "scripts/lib/resolve_core.py"].sort(),
+		);
 	});
 
 	describe("--against HEAD", () => {
