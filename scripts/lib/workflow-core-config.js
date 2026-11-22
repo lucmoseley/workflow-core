@@ -102,7 +102,7 @@ const OWN_MISSING_LINE = `WARN ${CONFIG_PATH}: no own tracker resolves, so "corp
 /* What a host deploys on a push to `main` (#742): the guard-push-rules core hands
  * the Vercel rule only where this names it. */
 const DEPLOYS = /** @type {const} */ (["vercel"]);
-const LANDING_TESTERS = /** @type {const} */ (["local", "actions"]);
+const LANDING_TESTERS = /** @type {const} */ (["auto", "local", "actions"]);
 /* The runners the core-owned CI workflow may name (lib/adopter-ci.js, #5347):
  * the 1-core x64, else the 2-core ARM64. */
 const CI_RUNNERS = /** @type {const} */ (["ubuntu-slim", "ubuntu-24.04-arm"]);
@@ -224,44 +224,42 @@ const unsetCommands = () =>
  * @property {string} file
  * @property {number} contract
  * @property {string} [founder]
- * @property {string} [tracker] declared only; resolveKey derives it
- * @property {string} [codeRepo] declared only; resolveKey derives it
- * @property {string} [login] declared only; resolveKey derives it
+ * @property {string} [tracker]
+ * @property {string} [codeRepo]
+ * @property {string} [login]
  * @property {string} [name]
- * @property {string[]} [corpus] declared only; resolveKey derives it
+ * @property {string[]} [corpus]
  * @property {Record<Command, string|null>} commands
- * @property {string|null} testCanary `commands.testCanary`: the test file the verdict probe runs `commands.test` on (lib/verdict-probe.js, #5294); null where undeclared
+ * @property {string|null} testCanary
  * @property {Deploy} [deploy]
  * @property {Module[]} modules
  * @property {Record<string, string>} categories
  * @property {string[]} disabled
- * @property {{skills: Record<string, string>, output_style: string|null}} overrides output_style is a repo-relative path (e.g. `.claude/output-styles/mine.md`), never a bare style name
- * @property {boolean} [capacityLadder] absent means no ladder: only `true` declares one (#735, #748); read it through declaresLadder()
- * @property {boolean} [admissionGate] whether check-context-budget.js refuses a pool rule its admission ledger does not admit; absent is off, only `true` switches it on (#2033)
- * @property {boolean} refillLoop whether the refill loop may serve this checkout; absent is in, only `false` takes it out (#1969, #2003)
- * @property {boolean} refillPanel whether an agents alias's `refill-panel-open.js --if-enabled` opens the refill-loop panel beside the view; absent is off, only `true` switches it on (#3574, #3886)
- * @property {{command: string, outputs: string[]}} [manualRender] manual-sync's post-write step, absent by default (#451)
+ * @property {{skills: Record<string, string>, output_style: string|null}} overrides
+ * @property {boolean} [capacityLadder]
+ * @property {boolean} [admissionGate]
+ * @property {boolean} refillLoop
+ * @property {boolean} refillPanel
+ * @property {{command: string, outputs: string[]}} [manualRender]
  * @property {number} [roadmapMajorPin]
- * @property {string[]} [ruffExclude] ruff glob patterns the pre-commit Python gate excludes (#122)
- * @property {Record<string, PythonKind>} [pythonRoutes] the host's Python route rows, pathspec glob → code kind, first match winning, ahead of base §0's default map in scripts/check-swallowed-errors.js (#1830)
- * @property {number} [sessionMeanMb] the mean of one of this host's working sessions' memory draw, its tools included (#2139)
- * @property {number} [sessionSigmaMb] that draw's standard deviation (#2139)
- * @property {number} [gateSeatMb] what admission holds for this host's gate seat, set by hand to the highest `peakTreeMb` on its gate-run record (#5274); absent is the whole-suite rung
- * @property {LandingTester} [landingTester] which tester the lander runs: `local`, the suite in its own worktree (lib/local-tester.js), or `actions`, the suite workflow's run on the `lander/batch-<k>` or the `lander/iso-suite-<k>` ref holding the sha (lib/actions-tester.js); absent is `local` (#2413)
- * @property {number} [fullTestShards] how many `--shard=k/n` runs the lander's local tester splits `full_test` into, each in its own suite slot; absent runs it whole (#2996)
- * @property {Ci} [ci] the core-owned CI workflow's runner and job ceiling (lib/adopter-ci.js, #5347); absent, no workflow is written
- * @property {FounderNotice} [founderNotice] where a repo hold's phone notice goes (lib/repo-holds.js, #3871); absent, the loop sends none
- * @property {string[]} [suiteRunners] scripts the suite guard counts and judges as suites (#330)
- * @property {string[]} [worktreeLinks] gitignored paths the suite reads, linked into each throwaway worktree a suite runs in (#1767)
- * @property {string[]} polled the repo-relative programs the repo runs every few seconds, which base §G13 holds as hot-path (lib/hot-path-set.js, #5335); absent is `[]`
- * @property {string[]} [alwaysLoaded] declared only; lib/always-loaded-pool.js defaults it
- * @property {{weeklyCount?: number}} [retro] how many sessions retro-sweep's weekly run reviews (#964); unset until the calibration batch sets it
- * @property {{threshold?: number, exclude?: string[]}} [archScan] the architecture-scan counter's threshold override and extra pathspec-glob exclusions (#1362); neither switches the scan on or off
- * @property {SensitivePath[]} [sensitivePaths] the areas a review escalates on (#1617); absent is undeclared, `[]` declared none; lib/sensitive-paths.js matches paths against it
+ * @property {string[]} [ruffExclude]
+ * @property {Record<string, PythonKind>} [pythonRoutes]
+ * @property {number} [sessionMeanMb]
+ * @property {number} [sessionSigmaMb]
+ * @property {number} [gateSeatMb]
+ * @property {LandingTester} [landingTester]
+ * @property {number} [fullTestShards]
+ * @property {Ci} [ci]
+ * @property {FounderNotice} [founderNotice]
+ * @property {string[]} [suiteRunners]
+ * @property {string[]} [worktreeLinks]
+ * @property {string[]} polled
+ * @property {string[]} [alwaysLoaded]
+ * @property {{weeklyCount?: number}} [retro]
+ * @property {{threshold?: number, exclude?: string[]}} [archScan]
+ * @property {SensitivePath[]} [sensitivePaths]
  * @property {string[]} warnings
- * @property {ConfigFault[]} faults the warnings warnReadAsDefault() and
- *   warnUnknownKey() raise, each with its key — not a dropped glob, a nameless
- *   sensitive path, a repeated name or an unknown module, which only warn
+ * @property {ConfigFault[]} faults
  */
 
 /**

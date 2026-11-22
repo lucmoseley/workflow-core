@@ -1,36 +1,3 @@
-/*
- * adopter-ci.js — renders the core-owned CI workflow of a private adopter
- * (#5347, ruled on #5343). core-owned-files.js writes
- * it where `.claude/workflow-core.json` carries a `ci` key, and removes the
- * core's copy where the key is gone.
- *
- * SIZED TO THE ACCOUNT'S 3,000 PRO MINUTES, which every private repo of the
- * account shares (#5343's research):
- *   - ONE JOB, since GitHub rounds every job up to a whole minute. It runs the
- *     plugin's adopter-ci.js: the repo's own declared commands, then every
- *     shipped tree check whose gate holds. Semgrep CE follows in the same
- *     job, in place of CodeQL, which a Pro account cannot run on private code.
- *   - ON PUSH TO `main` ONLY, no manual trigger and never a `lander/*` ref: the lander's local
- *     tester gates before landing (lib/local-tester.js).
- *   - THE RUNNER the key names: `ubuntu-slim` (1 core, a third of the
- *     standard rate) where the job fits, else `ubuntu-24.04-arm`. Node is
- *     set to 24, as on the founder's machine, since the two images carry
- *     different versions; both carry Python 3.12.
- *   - A JOB CEILING, `timeoutMinutes`, default 15: a hung job bills until it
- *     is killed. GitHub ends a slim job at 15 whatever is set.
- *
- * NOTHING OF THE CORE'S OWN SUITE: no hourly alarm crons, no
- * bisect or named rerun. A stalled adopter queue is the refill loop's to
- * notice (#5343 Q1).
- *
- * THE FALLBACK, should the account's use pass 60% of the pool: swap the push
- * trigger here for one run a night when `main` has moved (#5347).
- *
- * THE PLUGIN IS CHECKED OUT AT THE TAG `.claude/settings.json` PINS, read at
- * run time so a bump needs no rewrite of this file. workflow-core is public,
- * so the checkout needs no key.
- */
-
 /** The workflow's path in the adopter. */
 const CI_WORKFLOW = ".github/workflows/workflow-core-ci.yml";
 
@@ -50,43 +17,28 @@ const SETUP_NODE =
 /* Pinned, never floating: a release older than two weeks at pinning. */
 const SEMGREP = "1.182.1";
 
-/**
- * @param {import("./workflow-core-config.js").Ci} ci
- * @returns {string}
- */
-function renderCiWorkflow({
-	runner,
-	timeoutMinutes = DEFAULT_TIMEOUT_MINUTES,
-}) {
-	return `${CI_MARKER} Written by workflow-core's upgrade from the \`ci\` key in
-# .claude/workflow-core.json, and REWRITTEN on every bump. Change the key, not
-# this file. What it runs and why: the plugin's scripts/lib/adopter-ci.js.
-name: workflow-core CI
-
-on:
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-jobs:
-  ci:
-    name: Tests and guards
-    runs-on: ${runner}
-    timeout-minutes: ${timeoutMinutes}
-    env:
+/** @returns {string} */
+const renderJobEnv = () => `    env:
       WORKFLOW_CORE_CHECKOUT: \${{ github.workspace }}/.workflow-core
       WFC_PLUGIN_ROOT: \${{ github.workspace }}/.workflow-core
       CLAUDE_PROJECT_DIR: \${{ github.workspace }}
-    steps:
+`;
+
+/**
+ * @param {{ref?: string}} [tree]
+ * @returns {string}
+ */
+function renderSetupSteps({ ref } = {}) {
+	return `    steps:
       # Full history: the doc-map checks read git log.
-      - uses: ${CHECKOUT} # v4
+      - name: Run actions/checkout@v4
+        uses: ${CHECKOUT} # v4
         with:
-          fetch-depth: 0
+${ref ? `          ref: ${ref}\n` : ""}          fetch-depth: 0
           persist-credentials: false
 
-      - uses: ${SETUP_NODE} # v4
+      - name: Run actions/setup-node@v4
+        uses: ${SETUP_NODE} # v4
         with:
           node-version: 24
 
@@ -124,7 +76,8 @@ jobs:
           console.log(\`ref=v\${ref.replace(/^v/, "")}\`);
           EOF
 
-      - uses: ${CHECKOUT} # v4
+      - name: Run actions/checkout@v4
+        uses: ${CHECKOUT} # v4
         with:
           repository: \${{ steps.core-pin.outputs.repo }}
           ref: \${{ steps.core-pin.outputs.ref }}
@@ -137,7 +90,35 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; fi
           if [ -f requirements-dev.txt ]; then python3 -m pip install --require-hashes --only-binary ":all:" -r requirements-dev.txt; fi
+`;
+}
 
+/**
+ * @param {import("./workflow-core-config.js").Ci} ci
+ * @returns {string}
+ */
+function renderCiWorkflow({
+	runner,
+	timeoutMinutes = DEFAULT_TIMEOUT_MINUTES,
+}) {
+	return `${CI_MARKER} Written by workflow-core's upgrade from the \`ci\` key in
+# .claude/workflow-core.json, and REWRITTEN on every bump. Change the key, not
+# this file. What it runs and why: the plugin's scripts/lib/adopter-ci.js.
+name: workflow-core CI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Tests and guards
+    runs-on: ${runner}
+    timeout-minutes: ${timeoutMinutes}
+${renderJobEnv()}${renderSetupSteps()}
       - name: Commands and shipped checks
         run: node .workflow-core/scripts/adopter-ci.js
 
@@ -157,7 +138,11 @@ jobs:
 const isCoreCi = (text) => text.startsWith(CI_MARKER);
 
 module.exports = {
+	CI_MARKER,
 	CI_WORKFLOW,
+	DEFAULT_TIMEOUT_MINUTES,
 	renderCiWorkflow,
+	renderJobEnv,
+	renderSetupSteps,
 	isCoreCi,
 };

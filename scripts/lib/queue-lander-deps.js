@@ -10,7 +10,7 @@
  * own suite slot handed in as `admit`.
  */
 
-const { queueTester } = require("./actions-tester.js");
+const { adopterTester, queueTester } = require("./actions-tester.js");
 const { baseRedFiler } = require("./base-red-issue.js");
 const { parseErrorText } = require("./caught.js");
 const { now } = require("./check.js");
@@ -25,7 +25,11 @@ const {
 const { short } = require("./lander-git.js");
 const { readRunCode, readSupersededFiles } = require("./lander-code.js");
 const { startLevelling } = require("./level-main.js");
-const { commandTester, localTester } = require("./local-tester.js");
+const {
+	commandTester,
+	localTester,
+	readWholeRuns,
+} = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { dropRecord, pipelineRecord } = require("./lander-records.js");
 const { isQueueHead, queueNameOf } = require("./landing-refs.js");
@@ -53,17 +57,59 @@ const { readConfig } = require("./workflow-core-config.js");
  * @typedef {import("./lander-code.js").RunCode} RunCode
  */
 
+/* A guess, #5468. */
+const ACTIONS_OVER_S = 180;
+/* A guess, #5524. */
+const MEDIAN_RUNS = 20;
+/* A guess, #5524. */
+const MIN_RUNS = 5;
+
 /**
- * The tester `landingTester` names: the Actions one for `actions`, else the
- * local one, taking its suite slot from `admit`.
  * @param {string} root
- * @param {Admit} [admit]
+ * @returns {{median: number|null, runs: number}}
+ */
+function readMedianRun(root) {
+	const seconds = readWholeRuns(root)
+		.slice(0, MEDIAN_RUNS)
+		.map((r) => r.suiteSeconds)
+		.sort((a, b) => a - b);
+	const n = seconds.length;
+	if (n < MIN_RUNS) return { median: null, runs: n };
+	const mid = Math.floor(n / 2);
+	/** @param {number} k */
+	const at = (k) => seconds[k] ?? 0;
+	const median = n % 2 === 1 ? at(mid) : (at(mid - 1) + at(mid)) / 2;
+	return { median, runs: n };
+}
+
+/**
+ * @param {string} root
+ * @param {Admit|undefined} admit
+ * @param {(line: string) => void} say
  * @returns {import("./queue-lander.js").QueueTester}
  */
-const configuredTester = (root, admit) =>
-	readConfig({ root, quiet: true }).landingTester === "actions"
-		? queueTester({ root })
-		: localTester({ root, admit });
+function configuredTester(root, admit, say) {
+	const pinned = readConfig({ root, quiet: true }).landingTester ?? "auto";
+	if (pinned === "actions") {
+		say("tester: actions, as landingTester pins it");
+		return queueTester({ root });
+	}
+	const local = localTester({ root, admit });
+	if (pinned === "local") {
+		say("tester: local, as landingTester pins it");
+		return local;
+	}
+	const { median, runs } = readMedianRun(root);
+	const onActions = median !== null && median > ACTIONS_OVER_S;
+	const read =
+		median === null
+			? `${runs} whole run(s) recorded, under the ${MIN_RUNS} a median needs`
+			: `the median whole run ${Math.round(median)} s over the newest ${runs}`;
+	say(
+		`tester: ${onActions ? "actions" : "local"}, ${read} (Actions over ${ACTIONS_OVER_S} s)`,
+	);
+	return onActions ? adopterTester({ root, fallback: local, say }) : local;
+}
 
 /**
  * After each move of `main` to `sha`: the guard code's adoption and a
@@ -118,7 +164,7 @@ function buildLanderDeps(
 	const files = queueLanderFiles(root);
 	const built =
 		tester === undefined
-			? configuredTester(root, admit)
+			? configuredTester(root, admit, say)
 			: commandTester(tester, root);
 	return {
 		git: queueGit(root, {

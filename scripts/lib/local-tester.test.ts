@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chargeMb as launchChargeMb } from "./launch-charge";
-import { localTester, readLiveLanders } from "./local-tester.js";
+import { localTester, readLiveLanders, readWholeRuns } from "./local-tester.js";
 import { markersDir } from "./marker-root.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
@@ -726,7 +726,7 @@ it("opens the gate's memory rung at a whole suite's and a named-file rerun's cha
 	}
 });
 
-it("appends each run's kind, file count and tree-PSS peak to the lander run record (#3323)", async () => {
+it("appends each run's kind, file count, tree-PSS peak, tester and suite seconds to the lander run record (#3323, #5524)", async () => {
 	const tester = localTester({
 		root: work,
 		admit: admitted().admit,
@@ -746,6 +746,30 @@ it("appends each run's kind, file count and tree-PSS peak to the lander run reco
 	expect(record).toMatchObject([
 		{ sha: passing, kind: "whole", files: 0, shards: 1, peakMb: 700 },
 		{ sha: passing, kind: "named", files: 1, shards: 1, peakMb: 700 },
+	]);
+	for (const line of record) {
+		expect(line.tester).toBe("local");
+		expect(line.suiteSeconds).toBe(line.samples * 2);
+	}
+});
+
+it("reads the record's whole runs newest first, a line without a tester the local one's at its samples' span (#5524)", () => {
+	const file = path.join(markersDir(work), ".lander-runs.jsonl");
+	fs.writeFileSync(
+		file,
+		[
+			{ kind: "whole", samples: 30 },
+			{ kind: "named", samples: 400 },
+			{ kind: "whole", tester: "actions", suiteSeconds: 500 },
+			{ kind: "whole", tester: "local", samples: 1, suiteSeconds: 90 },
+		]
+			.map((l) => JSON.stringify(l))
+			.join("\n"),
+	);
+	expect(readWholeRuns(work)).toEqual([
+		{ tester: "local", suiteSeconds: 90 },
+		{ tester: "actions", suiteSeconds: 500 },
+		{ tester: "local", suiteSeconds: 60 },
 	]);
 });
 

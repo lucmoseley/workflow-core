@@ -1,0 +1,155 @@
+const {
+	CI_MARKER,
+	DEFAULT_TIMEOUT_MINUTES,
+	isCoreCi,
+	renderJobEnv,
+	renderSetupSteps,
+} = require("./adopter-ci.js");
+
+const LANDER_SUITE_WORKFLOW = ".github/workflows/workflow-core-lander.yml";
+const LANDER_NAMED_WORKFLOW = ".github/workflows/workflow-core-named-rerun.yml";
+
+const GROUP_STEP = "Whole-run group";
+
+/** @type {import("./actions-tester.js").Workflows} */
+const ADOPTER_WORKFLOWS = {
+	suite: "workflow-core-lander.yml",
+	named: "workflow-core-named-rerun.yml",
+	suiteStep: GROUP_STEP,
+};
+
+/** @param {string} e */
+const expr = (e) => `\${{ ${e} }}`;
+const SHA_INPUT = expr("inputs.sha");
+
+/* #5464 */
+const DEFAULT_RUNNER = "ubuntu-24.04-arm";
+
+/**
+ * @typedef {Pick<import("./workflow-core-config.js").Config,
+ *   "commands" | "fullTestShards" | "ci">} LanderConfig
+ */
+
+/**
+ * @param {LanderConfig} config
+ */
+const groupCount = ({ commands, fullTestShards }) =>
+	(commands.full_test ?? commands.test) ? (fullTestShards ?? 1) : 1;
+
+/**
+ * @param {LanderConfig} config
+ * @returns {string}
+ */
+const renderJobHead = ({ ci }) => `    runs-on: ${ci?.runner ?? DEFAULT_RUNNER}
+    timeout-minutes: ${ci?.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES}
+`;
+
+/** @param {string} what */
+const header = (
+	what,
+) => `${CI_MARKER} Written by workflow-core's upgrade, where the queue lander may test
+# on Actions by run length ("landingTester" absent or "auto" in
+# .claude/workflow-core.json), and REWRITTEN on every bump. ${what}
+# Change the config, not this file. What it runs and why: the plugin's
+# scripts/lib/lander-workflows.js.
+`;
+
+/**
+ * @param {LanderConfig} config
+ * @returns {string}
+ */
+function renderSuiteWorkflow(config) {
+	const n = groupCount(config);
+	const ids = Array.from({ length: n }, (_, i) => `shard-${i + 1}`);
+	const shards = ids
+		.map(
+			(id, i) => `  ${id}:
+    name: Vitest (${i + 1}/${n})
+${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps()}
+      - name: ${GROUP_STEP}
+        run: node .workflow-core/scripts/lander-ci.js group ${i + 1}/${n}
+`,
+		)
+		.join("\n");
+	return `${header('Its shard jobs follow\n# "fullTestShards", their runner and ceiling the "ci" key.')}name: workflow-core lander
+
+on:
+  push:
+    branches: ["lander/batch*", "lander/iso-suite-*"]
+
+permissions:
+  contents: read
+
+jobs:
+${shards}
+  passed:
+    name: Suite passed
+    needs: [${ids.join(", ")}]
+    if: \${{ always() }}
+${renderJobHead(config)}    steps:
+      - name: Every shard passed
+        env:
+          RESULTS: \${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "shards: $RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || exit 1; done
+`;
+}
+
+/**
+ * @param {LanderConfig} config
+ * @returns {string}
+ */
+function renderNamedWorkflow(config) {
+	return `${header('Its runner and ceiling\n# follow the "ci" key.')}name: workflow-core named rerun
+
+run-name: named-rerun \${{ inputs.sha }} \${{ inputs.nonce }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        required: true
+        type: string
+      files:
+        description: "The test files, one a line."
+        required: true
+        type: string
+      nonce:
+        description: "Tells this dispatch's run from another's at the same sha."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  named:
+    name: Named files
+${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps({ ref: SHA_INPUT })}
+      # Through the environment, never \`\${{ }}\` in \`run:\`.
+      - name: Named files
+        env:
+          FILES: \${{ inputs.files }}
+        run: |
+          mapfile -t files <<<"$FILES"
+          node .workflow-core/scripts/lander-ci.js files "\${files[@]}"
+`;
+}
+
+/**
+ * @param {LanderConfig} config
+ * @returns {{rel: string, body: string}[]}
+ */
+const renderLanderWorkflows = (config) => [
+	{ rel: LANDER_SUITE_WORKFLOW, body: renderSuiteWorkflow(config) },
+	{ rel: LANDER_NAMED_WORKFLOW, body: renderNamedWorkflow(config) },
+];
+
+module.exports = {
+	ADOPTER_WORKFLOWS,
+	LANDER_NAMED_WORKFLOW,
+	LANDER_SUITE_WORKFLOW,
+	isCoreLander: isCoreCi,
+	renderLanderWorkflows,
+};

@@ -15,7 +15,12 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { type Job, queueTester, type Run } from "./actions-tester.js";
+import {
+	adopterTester,
+	type Job,
+	queueTester,
+	type Run,
+} from "./actions-tester.js";
 import { RECORDED_SHAPES } from "./gh-fake.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
@@ -1620,3 +1625,271 @@ it.each(["Install test tools", "Full history"])(
 		});
 	},
 );
+
+const adopterOf = (r: ReturnType<typeof queueReads>, root = namedRoot()) => {
+	const asked: unknown[][] = [];
+	const lines: string[] = [];
+	const recorded: unknown[] = [];
+	const tester = adopterTester({
+		root,
+		reads: r,
+		fallback: {
+			verdict: async (...a: unknown[]) => {
+				asked.push(a);
+				return { kind: "green" };
+			},
+		},
+		say: (l) => lines.push(l),
+		record: (line) => recorded.push(line),
+		...wallClock(),
+	});
+	return { tester, asked, lines, recorded };
+};
+
+const BLOCKED: Job[] = [
+	...shards("failure", "failure"),
+	{ name: "Suite passed", conclusion: "failure", steps: [] },
+];
+
+it("carries the local tester's flags on an adopter, so either can answer any ask (#5511)", () => {
+	const { tester } = adopterOf(queueReads([() => []]));
+	expect({
+		requiresRun: tester.requiresRun,
+		parallel: tester.parallel,
+		repeatsGates: tester.repeatsGates,
+		repeatsSuite: tester.repeatsSuite,
+	}).toEqual({
+		requiresRun: false,
+		parallel: false,
+		repeatsGates: false,
+		repeatsSuite: true,
+	});
+});
+
+it("serves a run whose failed jobs started no step from the local tester, saying where, at which sha and why; workflow-core reads it as before (#5511)", async () => {
+	const r = queueReads([() => [run(1, "failure")]]);
+	r.jobsOf = () => BLOCKED;
+	const a = adopterOf(r);
+	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(a.asked).toEqual([[BATCH0, SHA, [], false]]);
+	expect(a.lines).toEqual([
+		"lander: batch 0 at aaaaaaaaa tested locally: run 1's failed jobs started no step, as a spent Actions budget leaves them",
+	]);
+	expect(a.recorded).toEqual([]);
+	const core = queueReads([() => [run(1, "failure")]]);
+	core.jobsOf = () => BLOCKED;
+	expect(await queueOf(core).verdict(BATCH0, SHA)).toMatchObject({
+		kind: "red",
+	});
+});
+
+it("keeps an adopter's red on the code a red, its failed jobs having started steps (#5511)", async () => {
+	const r = queueReads([() => [run(1, "failure")]]);
+	r.jobsOf = () => [
+		{
+			name: "Vitest (1/1)",
+			conclusion: "failure",
+			steps: [{ name: "Whole-run group", conclusion: "failure" }],
+		},
+		{ name: "Suite passed", conclusion: "failure", steps: [] },
+	];
+	const a = adopterOf(r);
+	expect(await a.tester.verdict(BATCH0, SHA)).toMatchObject({
+		kind: "red",
+		run: 1,
+		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
+	});
+	expect(a.asked).toEqual([]);
+});
+
+it("tests locally a whole suite whose run is never listed on an adopter, where workflow-core reads a no-run red (#5511)", async () => {
+	const a = adopterOf(queueReads([() => []]));
+	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(a.lines).toEqual([
+		"lander: batch 0 at aaaaaaaaa tested locally: no run was listed at the sha within 3 min",
+	]);
+	expect(await queueOf(queueReads([() => []])).verdict(BATCH0, SHA)).toEqual({
+		kind: "red",
+		files: [],
+		noRun: true,
+	});
+});
+
+it("tests locally an ask whose push, read or dispatch is refused on anything but the network, which stays a transient no verdict (#5511)", async () => {
+	const refused = () =>
+		Object.assign(new Error("gh"), {
+			stderr: "HTTP 403: Resource not accessible",
+		});
+	const pushRefused = queueReads([() => [run(1, "success")]]);
+	pushRefused.push = () => {
+		throw refused();
+	};
+	const a = adopterOf(pushRefused);
+	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(a.lines[0]).toMatch(
+		/^lander: batch 0 at aaaaaaaaa tested locally: lander\/batch-0 not pushed at aaaaaaaaa: .*HTTP 403/,
+	);
+	const readRefused = queueReads([
+		() => {
+			throw refused();
+		},
+	]);
+	const b = adopterOf(readRefused);
+	await b.tester.verdict(BATCH0, SHA);
+	expect(b.lines[0]).toContain("workflow-core-lander.yml runs unreadable");
+	const dispatchRefused = queueReads([() => []]);
+	dispatchRefused.dispatch = () => {
+		throw refused();
+	};
+	const c = adopterOf(dispatchRefused);
+	expect(await c.tester.verdict(ISO1, SHA, ["scripts/lib/a.test.ts"])).toEqual({
+		kind: "green",
+	});
+	expect(c.asked).toEqual([[ISO1, SHA, ["scripts/lib/a.test.ts"], false]]);
+	expect(c.lines[0]).toContain(
+		"run alone 1 at aaaaaaaaa tested locally: workflow-core-named-rerun.yml did not dispatch",
+	);
+	const offline = queueReads([() => [run(1, "success")]]);
+	offline.push = () => {
+		throw Object.assign(new Error("push"), { code: "ETIMEDOUT" });
+	};
+	const d = adopterOf(offline);
+	expect(await d.tester.verdict(BATCH0, SHA)).toMatchObject({
+		kind: "unknown",
+		transient: true,
+	});
+	expect(d.asked).toEqual([]);
+});
+
+it("keeps the named-rerun cap on an adopter, a spent day no verdict (#5511)", async () => {
+	const root = namedRoot();
+	fs.writeFileSync(
+		path.join(markersDir(root), ".lander-named-runs.jsonl"),
+		`${JSON.stringify({ at: new Date().toISOString() })}\n`.repeat(12),
+	);
+	const a = adopterOf(queueReads([() => []]), root);
+	expect(
+		await a.tester.verdict(BATCH0, SHA, ["scripts/lib/a.test.ts"]),
+	).toEqual({
+		kind: "unknown",
+		reason: "workflow-core-named-rerun.yml's 12-a-day cap is spent",
+	});
+	expect(a.asked).toEqual([]);
+});
+
+it("records each whole run it judges, green or red, its suite seconds summed across the shard jobs' suite step (#5511)", async () => {
+	const timed = (
+		name: string,
+		conclusion: string,
+		from: string,
+		to: string,
+	) => ({
+		name,
+		conclusion,
+		steps: [
+			{
+				name: "Run actions/checkout@v4",
+				conclusion: "success",
+				startedAt: "2026-11-22T00:00:00Z",
+				completedAt: "2026-11-22T00:09:00Z",
+			},
+			{ name: "Whole-run group", conclusion, startedAt: from, completedAt: to },
+		],
+	});
+	const green = queueReads([() => [run(1, "success")]]);
+	green.jobsOf = () => [
+		timed(
+			"Vitest (1/2)",
+			"success",
+			"2026-11-22T00:00:00Z",
+			"2026-11-22T00:03:00Z",
+		),
+		timed(
+			"Vitest (2/2)",
+			"success",
+			"2026-11-22T00:00:00Z",
+			"2026-11-22T00:04:30Z",
+		),
+		SUITE_PASSED,
+	];
+	const a = adopterOf(green);
+	await a.tester.verdict(BATCH0, SHA);
+	await a.tester.verdict(BATCH0, SHA, ["scripts/lib/a.test.ts"]);
+	expect(a.recorded).toEqual([
+		{
+			sha: SHA,
+			kind: "whole",
+			files: 0,
+			shards: 2,
+			verdict: "green",
+			tester: "actions",
+			suiteSeconds: 450,
+		},
+	]);
+	const red = queueReads([() => [run(2, "failure")]]);
+	red.jobsOf = () => [
+		timed(
+			"Vitest (1/1)",
+			"failure",
+			"2026-11-22T00:00:00Z",
+			"2026-11-22T00:01:00Z",
+		),
+	];
+	const b = adopterOf(red);
+	await b.tester.verdict(BATCH0, SHA);
+	expect(b.recorded).toMatchObject([
+		{ verdict: "red", tester: "actions", shards: 1, suiteSeconds: 60 },
+	]);
+});
+
+it("pushes, lists and dispatches the adopter's core-owned lander workflows through the live adapters (#5511)", async () => {
+	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-tester-"));
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
+	git("init", "-q");
+	git("remote", "add", "origin", tmp);
+	fs.writeFileSync(path.join(tmp, "a.test.ts"), "");
+	git("add", ".");
+	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a");
+	const sha = git("rev-parse", "HEAD");
+	const argvLog = path.join(tmp, "argv.log");
+	vi.stubEnv(
+		"WFC_GH",
+		stubGhScript(
+			tmp,
+			`#!/usr/bin/env node
+const fs = require("node:fs");
+${RECORDED_SHAPES}
+const argv = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(argvLog)}, argv.join(" ") + "\\n");
+if (argv[0] === "workflow") { process.stderr.write("HTTP 403: Resource not accessible by integration"); process.exit(1); }
+if (argv[1] === "list") process.stdout.write(asRecorded("runList", [${JSON.stringify(run(5, "success"))}].map((r) => ({ ...r, headSha: ${JSON.stringify(sha)} }))));
+else process.stdout.write(asRecorded("runJobs", { jobs: [{ name: "Vitest (1/1)", conclusion: "success" }, { name: "Suite passed", conclusion: "success" }] }));
+`,
+		).gh,
+	);
+	const asked: unknown[][] = [];
+	const tester = adopterTester({
+		root: tmp,
+		fallback: {
+			verdict: async (...a: unknown[]) => {
+				asked.push(a);
+				return { kind: "green" };
+			},
+		},
+		say: () => undefined,
+		record: () => undefined,
+		...clock(),
+	});
+	expect(await tester.verdict(BATCH0, sha)).toEqual({ kind: "green", run: 5 });
+	expect(await tester.verdict(ISO1, sha, ["a.test.ts"])).toEqual({
+		kind: "green",
+	});
+	const argv = fs.readFileSync(argvLog, "utf8");
+	expect(argv).toContain(
+		"run list --workflow workflow-core-lander.yml --branch lander/batch-0",
+	);
+	expect(argv).toContain("workflow run workflow-core-named-rerun.yml");
+	expect(argv).not.toMatch(/scheduled-checks\.yml| named-rerun\.yml/);
+	expect(asked).toEqual([[ISO1, sha, ["a.test.ts"], false]]);
+});

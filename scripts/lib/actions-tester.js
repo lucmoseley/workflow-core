@@ -59,6 +59,8 @@ const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
 const { readJsonl } = require("./jsonl.js");
 const { SUITE_WORKFLOW } = require("./suite-timings.js");
+const { recordRun } = require("./local-tester.js");
+const { ADOPTER_WORKFLOWS } = require("./lander-workflows.js");
 const {
 	CLEARED,
 	parseFailingFiles,
@@ -95,7 +97,26 @@ const POLL_MS = 15 * 1000;
 /* Untraced: GitHub's newest push runs on a lander ref, deep enough to reach a
  * batch tip a few later pushes have buried. */
 const RUN_LIST_LIMIT = 50;
-const NAMED_WORKFLOW = "named-rerun.yml";
+/** @type {Workflows} */
+const CORE_WORKFLOWS = {
+	suite: SUITE_WORKFLOW,
+	named: "named-rerun.yml",
+	suiteStep: "Vitest",
+};
+/** @type {Flags} */
+const CORE_FLAGS = {
+	requiresRun: true,
+	parallel: true,
+	repeatsGates: true,
+	repeatsSuite: false,
+};
+/** @type {Flags} */
+const ADOPTER_FLAGS = {
+	requiresRun: false,
+	parallel: false,
+	repeatsGates: false,
+	repeatsSuite: true,
+};
 const NAMED_JOB = "Named files";
 /* Untraced: a runaway's stop, minutes being free on the public repo (#1930). */
 const NAMED_DAILY_CAP = 12;
@@ -133,10 +154,20 @@ const TYPE_ERRORS_MAX = 10;
 const RUNNER_RERUNS = 2;
 
 /**
+ * @typedef {{suite: string, named: string, suiteStep: string}} Workflows
+ * @typedef {Required<Pick<QueueTester, "requiresRun" | "parallel"
+ *   | "repeatsGates" | "repeatsSuite">>} Flags
+ * @typedef {{shards: number, seconds: number}} Timed
+ * @typedef {Verdict | {kind: "local", reason: string}
+ *   | {kind: "unknown", reason: string, transient?: true, offActions: true}
+ *   | (Extract<Verdict, {kind: "green" | "red"}> & {timed: Timed})}
+ *   AskVerdict
  * @typedef {{databaseId: number, headSha: string, attempt: number,
  *   conclusion: string|null}} Run a `gh run list` row
+ * @typedef {{name: string, conclusion: string|null, startedAt?: string,
+ *   completedAt?: string}} Step
  * @typedef {{name: string, conclusion: string|null, databaseId?: number,
- *   steps?: {name: string, conclusion: string|null}[]}} Job
+ *   steps?: Step[]}} Job
  * @typedef {object} Reads
  * @property {() => Run[]} runs the push runs on the tested branch
  * @property {(run: number) => Job[]} jobsOf
@@ -149,7 +180,7 @@ const RUNNER_RERUNS = 2;
  * @property {(to: string, sha: string) => boolean} repush deletes the
  *   remote's branch `to` where it holds `sha` or is gone, then creates it
  *   at `sha`; false where it moved
- * @typedef {Verdict | {kind: "pending", run: number|null}} RunVerdict
+ * @typedef {AskVerdict | {kind: "pending", run: number|null}} RunVerdict
  * @typedef {RunVerdict
  *   | {kind: "runner", run: number, attempt: number, reason: string}
  *   | {kind: "jobless", run: number, reason: string}} SuiteRunVerdict
@@ -212,15 +243,19 @@ function greenGap(jobs) {
 	return null;
 }
 
+/** @param {Job} job */
+const startedAStep = (job) =>
+	(job.steps ?? []).some((s) => !!s.conclusion && s.conclusion !== "skipped");
+
 /**
  * The verdict of the newest listed run at `sha`, reading its jobs and failed
  * logs only once it has finished.
  * @param {string} sha
- * @param {Reads} reads
+ * @param {On} on
  * @param {number} after
  * @returns {SuiteRunVerdict}
  */
-function runVerdict(sha, reads, after) {
+function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
 	const run = newestRun(sha, reads.runs());
 	if (run === undefined) return { kind: "pending", run: null };
 	/* A run has finished when it has a conclusion, never when `status` says
@@ -240,6 +275,7 @@ function runVerdict(sha, reads, after) {
 			kind: "green",
 			run: id,
 			...(cleared.length > 0 ? { cleared } : {}),
+			timed: timing(jobs, suiteStep),
 		};
 	}
 	if (run.conclusion !== "failure")
@@ -261,6 +297,11 @@ function runVerdict(sha, reads, after) {
 			reason: `run ${id} failed listing no failed job, which judges no code`,
 		};
 	const failed = jobs.filter((j) => j.conclusion === "failure");
+	if (fallsBack && failed.length > 0 && !failed.some(startedAStep))
+		return {
+			kind: "local",
+			reason: `run ${id}'s failed jobs started no step, as a spent Actions budget leaves them`,
+		};
 	const fault = runnerFault(failed);
 	if (fault !== null)
 		return {
@@ -269,7 +310,31 @@ function runVerdict(sha, reads, after) {
 			attempt: run.attempt,
 			reason: `run ${id}'s ${fault}, which judges no code`,
 		};
-	return readRed(sha, id, failed, reads);
+	return { ...readRed(sha, id, failed, reads), timed: timing(jobs, suiteStep) };
+}
+
+/**
+ * @param {readonly Job[]} jobs
+ * @param {string} suiteStep
+ * @returns {Timed}
+ */
+function timing(jobs, suiteStep) {
+	const shards = jobs.filter((j) => SHARD_JOB.test(j.name));
+	return {
+		shards: shards.length,
+		seconds: shards.reduce((sum, j) => sum + stepSeconds(j, suiteStep), 0),
+	};
+}
+
+/**
+ * @param {Job} job
+ * @param {string} name
+ */
+function stepSeconds(job, name) {
+	const step = (job.steps ?? []).find((s) => s.name === name);
+	if (!step?.startedAt || !step.completedAt) return 0;
+	const ms = Date.parse(step.completedAt) - Date.parse(step.startedAt);
+	return Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0;
 }
 
 /**
@@ -451,18 +516,19 @@ const stripLogPrefix = (log) =>
 
 /**
  * The suite workflow's newest `limit` runs on `branch`.
+ * @param {string} workflow
  * @param {string} branch
  * @param {number} limit
  * @param {string[]} [filter] further `gh run list` flags
  * @returns {Run[]}
  */
-const listRuns = (branch, limit, filter = []) =>
+const listRuns = (workflow, branch, limit, filter = []) =>
 	JSON.parse(
 		gh([
 			"run",
 			"list",
 			"--workflow",
-			SUITE_WORKFLOW,
+			workflow,
 			"--branch",
 			branch,
 			...filter,
@@ -514,6 +580,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @typedef {object} Poll
  * @property {(ms: number) => Promise<void>} wait
  * @property {() => number} now
+ * @typedef {{reads: Reads, branch: string, workflow: string,
+ *   suiteStep: string, fallsBack: boolean} & Poll} On
+ * @typedef {{record: string, reads: NamedReads, workflow: string} & Poll} Named
  */
 
 /**
@@ -521,9 +590,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * APPEAR_MS, or none finished by RUN_BOUND_MS.
  * @template {SuiteRunVerdict} T
  * @param {() => T} read
- * @param {(err: unknown) => Verdict} unread
+ * @param {(err: unknown) => AskVerdict} unread
  * @param {Poll} poll
- * @returns {Promise<T | Verdict>}
+ * @returns {Promise<T | AskVerdict>}
  */
 async function pollRun(read, unread, { wait, now }) {
 	const start = now();
@@ -551,6 +620,17 @@ async function pollRun(read, unread, { wait, now }) {
 	}
 }
 
+/**
+ * @param {string} reason
+ * @param {unknown} err
+ * @returns {AskVerdict}
+ */
+const failedCall = (reason, err) => ({
+	kind: "unknown",
+	reason: `${reason}: ${parseErrorText(err)}`,
+	...(isNetworkFault(err) ? {} : { offActions: true }),
+});
+
 /* `gh run rerun` prints every HTTP 403 as "run <id> cannot be rerun;
  * <message>", "This workflow run cannot be retried" among them (#4822). No
  * 403 starts an attempt, and pushing the ref again needs only git's push
@@ -560,11 +640,13 @@ const RERUN_REFUSED = /cannot be rerun/;
 /** @param {unknown} err */
 const isRerunRefused = (err) => RERUN_REFUSED.test(parseErrorText(err));
 
-/** @param {unknown} err @returns {Verdict} */
-const unreadable = (err) => ({
-	kind: "unknown",
-	reason: `${SUITE_WORKFLOW} runs unreadable: ${parseErrorText(err)}`,
-});
+/**
+ * @param {string} workflow
+ * @param {unknown} err
+ * @returns {AskVerdict}
+ */
+const unreadable = (workflow, err) =>
+	failedCall(`${workflow} runs unreadable`, err);
 
 /**
  * A push run still unlisted APPEAR_MS into the ask, the push before it, is a
@@ -574,7 +656,7 @@ const unreadable = (err) => ({
  * rerun, but not on `main`'s base check, drops a member on a false red,
  * which the verdict ledger keeps.
  * @param {RunVerdict} v
- * @returns {Verdict}
+ * @returns {AskVerdict}
  */
 function settle(v) {
 	if (v.kind !== "pending") return v;
@@ -593,11 +675,11 @@ function settle(v) {
  * has the branch pushed again, counted as an attempt (#4822).
  * @param {string} sha
  * @param {number} after
- * @param {{reads: Reads, branch: string} & Poll} suite
+ * @param {On} suite
  * @param {{reruns?: number, repushed?: boolean}} [ask] `reruns` attempts
  *   started for a runner that failed to ready; `repushed` the branch was
  *   pushed again for this ask
- * @returns {Promise<Verdict>}
+ * @returns {Promise<AskVerdict>}
  */
 async function suiteVerdict(
 	sha,
@@ -607,8 +689,8 @@ async function suiteVerdict(
 ) {
 	const { reads } = suite;
 	const v = await pollRun(
-		() => runVerdict(sha, reads, after),
-		unreadable,
+		() => runVerdict(sha, suite, after),
+		(err) => unreadable(suite.workflow, err),
 		suite,
 	);
 	if (v.kind === "jobless") {
@@ -636,7 +718,7 @@ async function suiteVerdict(
 	try {
 		reads.rerun(v.run);
 	} catch (err) {
-		if (!isRerunRefused(err)) return unreadable(err);
+		if (!isRerunRefused(err)) return unreadable(suite.workflow, err);
 		return repushedVerdict(sha, suite, v.run, reruns + 1);
 	}
 	return suiteVerdict(sha, v.attempt, suite, { reruns: reruns + 1, repushed });
@@ -693,16 +775,17 @@ function readDispatchesToday(file, nowMs) {
 
 /**
  * @param {string} root
+ * @param {string} workflow
  * @returns {Omit<Reads, "runs"> & NamedReads}
  */
-const liveNamedReads = (root) => ({
+const liveNamedReads = (root, workflow) => ({
 	...liveReads(root),
 	namedRuns: () =>
 		ghJson([
 			"run",
 			"list",
 			"--workflow",
-			NAMED_WORKFLOW,
+			workflow,
 			"--event",
 			"workflow_dispatch",
 			"--limit",
@@ -714,7 +797,7 @@ const liveNamedReads = (root) => ({
 		gh([
 			"workflow",
 			"run",
-			NAMED_WORKFLOW,
+			workflow,
 			"--ref",
 			VERIFIED_BRANCH,
 			"-f",
@@ -732,19 +815,19 @@ const liveNamedReads = (root) => ({
  * holds alone, green where it holds none; no verdict where the day's cap is
  * spent, unless `isolation` exempts it, or
  * the dispatch or its run reaches none.
- * @param {{record: string, reads: NamedReads} & Poll} named
+ * @param {Named} named
  * @param {string} sha
  * @param {string[]} files
  * @param {boolean} isolation
- * @returns {Promise<Verdict>}
+ * @returns {Promise<AskVerdict>}
  */
 async function namedVerdict(
-	{ record, reads, wait, now },
+	{ record, reads, workflow, wait, now },
 	sha,
 	files,
 	isolation,
 ) {
-	/** @type {(reason: string) => Verdict} */
+	/** @type {(reason: string) => AskVerdict} */
 	const unknown = (reason) => ({ kind: "unknown", reason });
 	/* A file the tree at `sha` lacks has no test to fail there: the base
 	 * check of a test file new in the tip (#4347). local-tester.js's
@@ -761,14 +844,12 @@ async function namedVerdict(
 	}
 	if (present.length === 0) return { kind: "green" };
 	if (!isolation && readDispatchesToday(record, now()) >= NAMED_DAILY_CAP)
-		return unknown(`${NAMED_WORKFLOW}'s ${NAMED_DAILY_CAP}-a-day cap is spent`);
+		return unknown(`${workflow}'s ${NAMED_DAILY_CAP}-a-day cap is spent`);
 	const nonce = crypto.randomUUID();
 	try {
 		reads.dispatch({ sha, files: present, nonce });
 	} catch (err) {
-		return unknown(
-			`${NAMED_WORKFLOW} did not dispatch: ${parseErrorText(err)}`,
-		);
+		return failedCall(`${workflow} did not dispatch`, err);
 	}
 	const entry = {
 		at: new Date(now()).toISOString(),
@@ -784,28 +865,31 @@ async function namedVerdict(
 	const title = `named-rerun ${sha} ${nonce}`;
 	const v = await pollRun(
 		() => namedRunVerdict(sha, title, reads),
-		(err) =>
-			unknown(`${NAMED_WORKFLOW} runs unreadable: ${parseErrorText(err)}`),
+		(err) => unreadable(workflow, err),
 		{ wait, now },
 	);
 	if (v.kind !== "pending") return v;
-	return unknown(
-		v.run === null
-			? `${NAMED_WORKFLOW} listed no run titled ${title}`
-			: `run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`,
-	);
+	return v.run === null
+		? {
+				kind: "unknown",
+				reason: `${workflow} listed no run titled ${title}`,
+				offActions: true,
+			}
+		: unknown(`run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`);
 }
 
 /**
  * @param {string} root
+ * @param {Workflows} workflows
  * @returns {QueueReads}
  */
-const liveQueueReads = (root) => ({
-	...liveNamedReads(root),
+const liveQueueReads = (root, workflows) => ({
+	...liveNamedReads(root, workflows.named),
 	push: (branch, sha) => {
 		pushRemote(root, ["--force", `${sha}:refs/heads/${branch}`]);
 	},
-	runsOn: (branch) => listRuns(branch, RUN_LIST_LIMIT, ["--event", "push"]),
+	runsOn: (branch) =>
+		listRuns(workflows.suite, branch, RUN_LIST_LIMIT, ["--event", "push"]),
 	cancel: (run) => {
 		gh(["run", "cancel", String(run)]);
 	},
@@ -814,9 +898,14 @@ const liveQueueReads = (root) => ({
 /**
  * @typedef {object} QueueTesterOptions
  * @property {string} root the canonical checkout
+ * @property {Workflows} [workflows]
+ * @property {Flags} [flags]
+ * @property {QueueTester} [fallback]
+ * @property {(line: string) => void} [say]
  * @property {QueueReads} [reads]
  * @property {(ms: number) => Promise<void>} [wait]
  * @property {() => number} [now]
+ * @property {(run: import("./local-tester.js").RunLine) => void} [record]
  */
 
 /**
@@ -825,49 +914,86 @@ const liveQueueReads = (root) => ({
  */
 function queueTester({
 	root,
-	reads = liveQueueReads(root),
+	workflows = CORE_WORKFLOWS,
+	flags = CORE_FLAGS,
+	fallback,
+	say = (line) => writeFd(2, `${line}\n`),
+	reads = liveQueueReads(root, workflows),
 	wait = sleep,
 	now = Date.now,
+	record = (run) => recordRun(root, run),
 }) {
 	const poll = { wait, now };
+	/** @type {Named} */
 	const named = {
 		record: path.join(markersDir(root), NAMED_RECORD),
 		reads,
+		workflow: workflows.named,
 		wait,
 		now,
 	};
+	/**
+	 * @param {Placement} place
+	 * @param {string} sha
+	 * @param {string[]} files
+	 * @param {boolean} again
+	 * @returns {Promise<AskVerdict>}
+	 */
+	async function ask(place, sha, files, again) {
+		const alone = files.length > 0 && place.kind === "iso";
+		const branch = alone ? `${LANDER_ISO_PREFIX}${place.k}` : suiteRef(place);
+		/* A batch's named files are read off the run its ref already has. */
+		if (alone || files.length === 0) {
+			try {
+				reads.push(branch, sha);
+			} catch (err) {
+				return unpushed(branch, sha, err);
+			}
+		}
+		if (alone) return namedVerdict(named, sha, files, true);
+		/** @type {On} */
+		const on = {
+			...poll,
+			branch,
+			workflow: workflows.suite,
+			suiteStep: workflows.suiteStep,
+			fallsBack: fallback !== undefined,
+			reads: { ...reads, runs: () => reads.runsOn(branch) },
+		};
+		if (files.length === 0 && !again) return suiteVerdict(sha, 0, on);
+		/* The batch's flakes are its first whole-suite ask's to record: a
+		 * later ask read off the same run would record them again. */
+		const { cleared: _, ...v } =
+			/** @type {AskVerdict & {cleared?: string[]}} */ (
+				await rerunVerdict(sha, files, on, named)
+			);
+		return v;
+	}
 	return {
-		requiresRun: true,
-		parallel: true,
-		repeatsGates: true,
+		...flags,
 		start(place, sha) {
 			reads.push(suiteRef(place), sha);
 		},
 		async verdict(place, sha, files = [], again = false) {
-			const alone = files.length > 0 && place.kind === "iso";
-			const branch = alone ? `${LANDER_ISO_PREFIX}${place.k}` : suiteRef(place);
-			/* A batch's named files are read off the run its ref already has. */
-			if (alone || files.length === 0) {
-				try {
-					reads.push(branch, sha);
-				} catch (err) {
-					return unpushed(branch, sha, err);
-				}
-			}
-			if (alone) return namedVerdict(named, sha, files, true);
-			const on = {
-				...poll,
-				branch,
-				reads: { ...reads, runs: () => reads.runsOn(branch) },
-			};
-			if (files.length === 0 && !again) return suiteVerdict(sha, 0, on);
-			/* The batch's flakes are its first whole-suite ask's to record: a
-			 * later ask read off the same run would record them again. */
-			const { cleared: _, ...v } =
-				/** @type {Verdict & {cleared?: string[]}} */ (
-					await rerunVerdict(sha, files, on, named)
+			const v = await ask(place, sha, files, again);
+			const why = offActionsReason(v, fallback !== undefined);
+			if (why !== null && fallback !== undefined) {
+				say(
+					`lander: ${placeName(place)} at ${sha.slice(0, SHORT_SHA)} tested locally: ${why}`,
 				);
-			return v;
+				return fallback.verdict(place, sha, files, again);
+			}
+			if (files.length === 0 && "timed" in v)
+				record({
+					sha,
+					kind: "whole",
+					files: 0,
+					shards: v.timed.shards,
+					verdict: v.kind,
+					tester: "actions",
+					suiteSeconds: v.timed.seconds,
+				});
+			return judged(v);
 		},
 		cancel(place, keep) {
 			const listed = reads.runsOn(suiteRef(place));
@@ -877,6 +1003,55 @@ function queueTester({
 		},
 	};
 }
+
+/**
+ * @param {Omit<QueueTesterOptions, "workflows" | "flags" | "fallback">
+ *   & {fallback: QueueTester}} options
+ * @returns {QueueTester}
+ */
+const adopterTester = (options) =>
+	queueTester({
+		...options,
+		workflows: ADOPTER_WORKFLOWS,
+		flags: ADOPTER_FLAGS,
+	});
+
+/**
+ * @param {AskVerdict} v
+ * @param {boolean} fallsBack
+ * @returns {string|null}
+ */
+function offActionsReason(v, fallsBack) {
+	if (v.kind === "local") return v.reason;
+	if (!fallsBack) return null;
+	if (v.kind === "red" && v.noRun)
+		return `no run was listed at the sha within ${APPEAR_MS / 60_000} min`;
+	if (v.kind === "unknown" && "offActions" in v) return v.reason;
+	return null;
+}
+
+/**
+ * @param {AskVerdict} v
+ * @returns {Verdict}
+ */
+function judged(v) {
+	if (v.kind === "local") return { kind: "unknown", reason: v.reason };
+	if ("offActions" in v) {
+		const { offActions: _, ...rest } = v;
+		return rest;
+	}
+	if ("timed" in v) {
+		const { timed: _, ...rest } = v;
+		return rest;
+	}
+	return v;
+}
+
+/**
+ * @param {Placement} place
+ */
+const placeName = (place) =>
+	place.kind === "batch" ? `batch ${place.slot}` : `run alone ${place.k}`;
 
 /**
  * The ref whose push runs judge the whole suite at `place`.
@@ -894,12 +1069,12 @@ const suiteRef = (place) =>
  * @param {string} sha
  * @param {unknown} err
  * @param {boolean} [again] where it was a push again
- * @returns {Verdict}
+ * @returns {AskVerdict}
  */
 const unpushed = (branch, sha, err, again = false) => ({
 	kind: "unknown",
 	reason: `${branch} not pushed${again ? " again" : ""} at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
-	...(isNetworkFault(err) ? { transient: true } : {}),
+	...(isNetworkFault(err) ? { transient: true } : { offActions: true }),
 });
 
 /**
@@ -915,9 +1090,9 @@ const unpushed = (branch, sha, err, again = false) => ({
  * and GitHub listed by the ask is run twice.
  * @param {string} sha
  * @param {string[]} files
- * @param {{reads: Reads, branch: string} & Poll} on
- * @param {{record: string, reads: NamedReads} & Poll} named
- * @returns {Promise<Verdict>}
+ * @param {On} on
+ * @param {Named} named
+ * @returns {Promise<AskVerdict>}
  */
 async function rerunVerdict(sha, files, on, named) {
 	const { reads } = on;
@@ -926,14 +1101,14 @@ async function rerunVerdict(sha, files, on, named) {
 	try {
 		listed = reads.runs();
 	} catch (err) {
-		return unreadable(err);
+		return unreadable(on.workflow, err);
 	}
 	const run = newestRun(sha, listed);
 	if (run?.conclusion === "failure") {
 		try {
 			reads.rerun(run.databaseId);
 		} catch (err) {
-			if (!isRerunRefused(err)) return unreadable(err);
+			if (!isRerunRefused(err)) return unreadable(on.workflow, err);
 			return repushedVerdict(sha, on, newestId(listed));
 		}
 		return suiteVerdict(sha, run.attempt, on);
@@ -950,7 +1125,7 @@ async function rerunVerdict(sha, files, on, named) {
 	try {
 		again = reads.runs();
 	} catch (err) {
-		return unreadable(err);
+		return unreadable(on.workflow, err);
 	}
 	return repushedVerdict(sha, on, newestId(again));
 }
@@ -961,10 +1136,10 @@ const newestId = (listed) => Math.max(0, ...listed.map((r) => r.databaseId));
 /**
  * `newerVerdict` once `on`'s branch is pushed again at `sha`.
  * @param {string} sha
- * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {On} on
  * @param {number} bound
  * @param {number} [reruns]
- * @returns {Promise<Verdict>}
+ * @returns {Promise<AskVerdict>}
  */
 const repushedVerdict = async (sha, on, bound, reruns = 0) =>
 	repushFailure(on, sha) ??
@@ -974,10 +1149,10 @@ const repushedVerdict = async (sha, on, bound, reruns = 0) =>
  * The whole suite at `sha` read off a run on `on`'s branch newer than run
  * `bound`.
  * @param {string} sha
- * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {On} on
  * @param {number} bound
  * @param {{reruns?: number, repushed?: boolean}} [ask] as `suiteVerdict`'s
- * @returns {Promise<Verdict>}
+ * @returns {Promise<AskVerdict>}
  */
 function newerVerdict(sha, on, bound, ask) {
 	const { reads } = on;
@@ -997,9 +1172,9 @@ function newerVerdict(sha, on, bound, ask) {
 
 /**
  * Deletes and creates `on`'s branch again at `sha`: null where it did, else the no verdict naming why not.
- * @param {{reads: Reads, branch: string}} on
+ * @param {On} on
  * @param {string} sha
- * @returns {Verdict|null}
+ * @returns {AskVerdict|null}
  */
 function repushFailure({ reads, branch }, sha) {
 	/** @type {boolean} */
@@ -1017,4 +1192,11 @@ function repushFailure({ reads, branch }, sha) {
 			};
 }
 
-module.exports = { queueTester };
+const JOB_CONTRACT = {
+	shardJob: SHARD_JOB,
+	suitePassedJob: SUITE_PASSED_JOB,
+	namedJob: NAMED_JOB,
+	runnerSteps: RUNNER_STEPS,
+};
+
+module.exports = { JOB_CONTRACT, adopterTester, queueTester };

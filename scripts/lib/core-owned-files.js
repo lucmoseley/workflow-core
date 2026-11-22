@@ -52,6 +52,12 @@ const { ledgerPath } = require("./dispatch-ledger.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const { CORE_DOCS } = require("./core-docs.js");
 const { CI_WORKFLOW, renderCiWorkflow, isCoreCi } = require("./adopter-ci.js");
+const {
+	LANDER_NAMED_WORKFLOW,
+	LANDER_SUITE_WORKFLOW,
+	isCoreLander,
+	renderLanderWorkflows,
+} = require("./lander-workflows.js");
 const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { caught } = require("./caught.js");
@@ -279,6 +285,55 @@ function bringCi(ctx) {
 		`removed ${CI_WORKFLOW} — .claude/workflow-core.json carries no "ci" key`,
 	);
 	return [CI_WORKFLOW];
+}
+
+const LANDER_KEYS = [
+	"landingTester",
+	"fullTestShards",
+	"ci",
+	"commands",
+	"commands.full_test",
+	"commands.test",
+];
+
+/** @param {Context} ctx */
+function bringLanderWorkflows(ctx) {
+	const { root, dryRun, out } = ctx;
+	const paths = [LANDER_SUITE_WORKFLOW, LANDER_NAMED_WORKFLOW];
+	let cfg;
+	try {
+		cfg = readConfig({ root, quiet: true });
+	} catch (err) {
+		out(`skipped ${paths.join(", ")}: ${caught(err).message}`);
+		return [];
+	}
+	const fault = cfg.faults.find((f) => LANDER_KEYS.includes(f.key));
+	if (fault) {
+		out(`skipped ${paths.join(", ")}: ${fault.text}`);
+		return [];
+	}
+	const tester = cfg.landingTester ?? "auto";
+	if (tester === "actions") return [];
+	return renderLanderWorkflows(cfg).flatMap(({ rel, body }) => {
+		const existing = readIfPresent(path.join(root, rel));
+		if (existing !== null && !isCoreLander(existing)) {
+			out(
+				`skipped ${rel} — it does not open on the CORE-OWNED marker, so the core did not write it`,
+			);
+			return [];
+		}
+		if (tester === "auto") return bringFile(ctx, { rel, body });
+		if (existing === null) return [];
+		if (dryRun) {
+			out(`would   remove ${rel}`);
+			return [];
+		}
+		fs.rmSync(path.join(root, rel));
+		out(
+			`removed ${rel} — .claude/workflow-core.json pins "landingTester": "local"`,
+		);
+		return [rel];
+	});
 }
 
 /**
@@ -651,6 +706,10 @@ const ENTRIES = [
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
 	{ bring: bringCoreDocs, paths: CORE_DOCS },
 	{ bring: bringCi, paths: [CI_WORKFLOW] },
+	{
+		bring: bringLanderWorkflows,
+		paths: [LANDER_SUITE_WORKFLOW, LANDER_NAMED_WORKFLOW],
+	},
 	{ bring: bringSettings, paths: [SETTINGS] },
 	{ bring: bringIgnoreBlock, paths: [".gitignore"] },
 	{ bring: bringStatusScript, paths: ["package.json"] },
