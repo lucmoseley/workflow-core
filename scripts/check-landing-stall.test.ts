@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * check-landing-stall.js at session start (#2406, #2692, #4458), over a
- * fixture remote whose commits carry chosen committer times and a queue
- * lander heartbeat written by hand.
- *
- * Loosen it and a stalled or dead queue lander holds every landing back with
- * no session told, or a repo with the module off hears of a queue it never
- * ran.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -29,7 +20,6 @@ const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
 		env: { ...process.env, ...env },
 	}).trim();
 
-/** A commit made `ago` ms back on `work`'s HEAD. */
 const commit = (name: string, ago: number) => {
 	fs.writeFileSync(path.join(work, name), name);
 	git(work, ["add", "-A"]);
@@ -38,7 +28,6 @@ const commit = (name: string, ago: number) => {
 	});
 };
 
-/** A queue ref at a commit made `ago` ms back, with no queue log row. */
 const queueRef = (name: string, ago: number) => {
 	commit(name, ago);
 	git(work, ["push", "-q", "origin", `HEAD:refs/heads/queue/${name}`]);
@@ -52,7 +41,6 @@ const writeMarker = (name: string, body: object) => {
 	fs.writeFileSync(path.join(markers(), name), JSON.stringify(body));
 };
 
-/** A queue lander heartbeat `ago` ms old, from a pid that has exited. */
 const beat = (ago: number) =>
 	writeMarker(".queue-lander-heartbeat.json", {
 		pid: spawnSync("true").pid,
@@ -87,7 +75,6 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-/** `main` moved to a commit made `ago` ms back. */
 const mainAt = (ago: number) => {
 	commit("main", ago);
 	git(work, ["push", "-q", "origin", "HEAD:main"]);
@@ -172,8 +159,6 @@ it("warns of no stall where the oldest queue ref was pushed within 2 h, though m
 	expect(r.stdout).toBe("");
 });
 
-/** The queue log holding one row per `[event, ago]`, for a ref no queue ref
- *  holds, in the order given. */
 const logRows = (...rows: ["land" | "enqueue", number][]) => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(

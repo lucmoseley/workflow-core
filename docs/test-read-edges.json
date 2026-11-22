@@ -91,7 +91,6 @@
 		],
 		".claude-plugin/plugin.json": [
 			"scripts/check-host-root.test.ts",
-			"scripts/check-output-style.test.ts",
 			"scripts/generate-plugin-hooks.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/check-in-process.contract.test.ts",
@@ -156,7 +155,6 @@
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-instruction-surface.test.ts",
-			"scripts/check-output-style.test.ts",
 			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-disabled.test.ts",
 			"scripts/guard-dispatch.test.ts",

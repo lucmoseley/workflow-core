@@ -1,32 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-lockfile-sync.js — refuses a commit whose staged lockfile is out of
- * step with its staged `package.json`, and prints the lockfile rule (#2029).
- *
- * Usage:
- *   node check-lockfile-sync.js [--json] [--warn]
- *
- * The rule lives in docs/agents/rules/lockfile-sync.txt and reaches a
- * session only here.
- *
- * OUT OF STEP means the lockfile's root entry (`packages[""]`) does not mirror
- * each of FIELDS as the manifest declares it, names and ranges both. npm
- * rewrites that entry on every install, so this is stricter than `npm ci`,
- * which passes a root entry still naming a dependency the manifest dropped. A
- * manifest declaring a dependency with no npm lockfile in the index is out of
- * step too.
- *
- * THE INDEX, NOT THE WORKTREE: a half-saved manifest is not this
- * commit's.
- *
- * ARMING is READS: a commit staging none of them, a deletion included, SKIPs.
- * The hook runs this on every commit, so the paths it arms on are the ones
- * read here and cannot drift from them.
- *
- * IMPLICIT:  on a commit staging package.json or a lockfile, refuses one whose staged pair is out of step.
- * JUSTIFIED: fail-safe — an index git will not read, or a staged file that is not a JSON object, is BROKEN rather than green.
- * DEFEAT:    --warn caps the finding below the gating line, and pre-commit never passes it. Not seen: a package.json below the root (a workspace member), a v1 lockfile's ranges (it has no root entry, so only names are compared), and a pnpm, Yarn or Bun lockfile, whose repo SKIPs.
- */
 
 const { runCheck } = require("./lib/check.js");
 const { readRuleTextOr } = require("./lib/rule-text");
@@ -38,7 +10,6 @@ const { readStagedDiff } = require("./lib/staged.js");
 /** @typedef {Record<string, unknown>} Json */
 
 const MANIFEST = "package.json";
-/* npm reads the shrinkwrap first where both exist. */
 const NPM_LOCKS = ["npm-shrinkwrap.json", "package-lock.json"];
 const OTHER_LOCKS = ["pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
 const FIELDS = [
@@ -49,11 +20,6 @@ const FIELDS = [
 ];
 const READS = [MANIFEST, ...NPM_LOCKS, ...OTHER_LOCKS];
 
-/*
- * An unreadable fragment is check-guard-registry.js's assertion, not a reason
- * to call the lockfile verdict BROKEN (mantahostels#1649's split, as in
- * check-roadmap-valid.js).
- */
 function readLockfileRule() {
 	return readRuleTextOr(
 		"lockfile-sync",
@@ -63,7 +29,6 @@ function readLockfileRule() {
 }
 
 /**
- * The staged blob at `file`, or null where the index holds none.
  * @param {Ctx} ctx
  * @param {string} file
  * @returns {string | null}
@@ -105,15 +70,12 @@ function parseStaged(ctx, file, text) {
 }
 
 /**
- * A dependency map, or an empty one where the field is absent or not an object.
  * @param {unknown} v
  * @returns {Record<string, unknown>}
  */
 const depMap = (v) => (isObject(v) ? v : {});
 
 /**
- * How one field's locked entries differ from the manifest's. `ranged` false
- * compares names only.
  * @param {string} field
  * @param {Record<string, unknown>} want
  * @param {Record<string, unknown>} have
@@ -140,7 +102,6 @@ function fieldDisagreements(field, want, have, ranged) {
 }
 
 /**
- * Each way the lock's declared dependencies differ from the manifest's.
  * @param {Json} manifest
  * @param {Json} lock
  * @returns {string[]}
