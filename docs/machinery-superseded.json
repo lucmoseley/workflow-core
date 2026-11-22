@@ -2675,5 +2675,17 @@
 				"scanned": true
 			}
 		]
+	},
+	"release-cadence": {
+		"needles": [
+			{
+				"needle": "7-day release cadence",
+				"scanned": true
+			},
+			{
+				"needle": "weekly release cut",
+				"scanned": true
+			}
+		]
 	}
 }
