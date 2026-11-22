@@ -7,7 +7,7 @@ export function treePortsFake(
 	return {
 		root: "/repo",
 		git: () => ({ ok: true, out: "" }),
-		repoRel: (f) => f,
+		repoRel: (f) => (f.startsWith("/repo/") ? f.slice("/repo/".length) : null),
 		read: (rel) => {
 			const got = files[rel];
 			if (got === undefined) return { state: "absent" };
