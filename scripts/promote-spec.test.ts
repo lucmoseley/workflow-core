@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, issueClaims } from "./lib/arbiter-testkit";
-import { LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
+import { LINK_READS, LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -39,7 +39,7 @@ const a = process.argv.slice(2);
 fs.appendFileSync(f("calls"), a.join(" ") + "\\n");
 const jq = a.includes("--jq") ? a[a.indexOf("--jq") + 1] : null;
 const project = (o) =>
-	jq === ".[].number" ? o.flat().map((i) => i.number + "\\n").join("") : jq ? o[jq.slice(1)] + "\\n" : o;
+	jq === ${JSON.stringify(LINK_READS.children.jq)} ? o.flat().map((i) => "https://api.github.com/repos/acme/widgets#" + i.number + "\\n").join("") : jq ? o[jq.slice(1)] + "\\n" : o;
 const say = (o) => { o = project(o); process.stdout.write(typeof o === "string" ? o : JSON.stringify(o)); process.exit(0); };
 const no = (m) => { process.stderr.write(m + "\\n"); process.exit(1); };
 const load = (n, d) => fs.existsSync(f(n)) ? JSON.parse(fs.readFileSync(f(n), "utf8")) : d;
