@@ -4,6 +4,7 @@ const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { readRunsAt } = require("./lib/local-tester.js");
+const { requiredGroup } = require("./lib/regex-group.js");
 const { coreRoot, scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -45,10 +46,11 @@ function readRuns(root, command, positionals) {
 		return typeof plan === "string" ? plan : plan.flat();
 	}
 	const m = SHARD.exec(positionals[0] ?? "");
-	const k = Number(m?.[1]);
-	const n = Number(m?.[2]);
-	if (!m || k < 1 || k > n)
-		return `"${positionals[0]}" is no group k/n with 1 <= k <= n`;
+	const bad = `"${positionals[0]}" is no group k/n with 1 <= k <= n`;
+	if (!m) return bad;
+	const k = Number(requiredGroup(m, 1, SHARD));
+	const n = Number(requiredGroup(m, 2, SHARD));
+	if (k < 1 || k > n) return bad;
 	const plan = readRunsAt(root, pytest, [], () => null);
 	if (typeof plan === "string") return plan;
 	if (plan.length === 0) return [];
@@ -80,7 +82,7 @@ function main(argv = process.argv.slice(2)) {
 		return 1;
 	}
 	if (runs.length === 0) {
-		writeFd(1, "lander-ci: nothing to run here\n");
+		writeFd(2, "lander-ci: nothing to run here\n");
 		return 0;
 	}
 	const failed = runAll(runs, root);

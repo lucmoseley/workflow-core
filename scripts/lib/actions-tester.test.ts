@@ -14,6 +14,7 @@ import {
 import { RECORDED_SHAPES } from "./gh-fake.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
+import { noop } from "./noop.js";
 import type { Placement } from "./queue-lander.js";
 
 const SHA = "a".repeat(40);
@@ -1829,8 +1830,8 @@ else process.stdout.write(asRecorded("runJobs", { jobs: [{ name: "Vitest (1/1)",
 				return { kind: "green" };
 			},
 		},
-		say: () => undefined,
-		record: () => undefined,
+		say: noop,
+		record: noop,
 		...clock(),
 	});
 	expect(await tester.verdict(BATCH0, sha)).toEqual({ kind: "green", run: 5 });

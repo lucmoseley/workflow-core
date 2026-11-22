@@ -124,7 +124,8 @@ jobs:
   named:
     name: ${NAMED_JOB}
 ${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps({ ref: SHA_INPUT })}
-      # Through the environment, never \`\${{ }}\` in \`run:\`.
+      # Through the environment, never \`\${{ }}\` in \`run:\`:
+      # https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
       - name: ${NAMED_JOB}
         env:
           FILES: \${{ inputs.files }}

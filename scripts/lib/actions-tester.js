@@ -163,7 +163,7 @@ function greenGap(jobs) {
 }
 
 /** @param {Job} job */
-const startedAStep = (job) =>
+const hasStartedStep = (job) =>
 	(job.steps ?? []).some((s) => !!s.conclusion && s.conclusion !== "skipped");
 
 /**
@@ -208,7 +208,7 @@ function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
 			reason: `run ${id} failed listing no failed job, which judges no code`,
 		};
 	const failed = jobs.filter((j) => j.conclusion === "failure");
-	if (fallsBack && failed.length > 0 && !failed.some(startedAStep))
+	if (fallsBack && failed.length > 0 && !failed.some(hasStartedStep))
 		return {
 			kind: "local",
 			reason: `run ${id}'s failed jobs started no step, as a spent Actions budget leaves them`,

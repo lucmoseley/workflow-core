@@ -114,6 +114,18 @@ describe("the upgrade's lander workflows", () => {
 		for (const rel of PATHS) expect(exists(rel)).toBe(false);
 	});
 
+	it.each([{ landingTester: "sometimes" }, { fullTestShards: "two" }])(
+		"skips both, writing neither, where a key they read is malformed: %o",
+		(bad) => {
+			config(bad);
+			const lines = run();
+			expect(
+				lines.some((l) => l.startsWith(`skipped ${PATHS.join(", ")}: `)),
+			).toBe(true);
+			for (const rel of PATHS) expect(exists(rel)).toBe(false);
+		},
+	);
+
 	it("leaves an adopter's own file at either path alone, whatever landingTester is", () => {
 		for (const rel of PATHS) write(root, rel, "name: own\n");
 		for (const landingTester of ["auto", "local"]) {
@@ -242,6 +254,9 @@ process.exit(red ? 1 : 0);
 		const r = lander("group", "1/2");
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("runs 2 group(s), but the config here plans 3");
+		expect(r.stderr).toContain(
+			"the next workflow-core upgrade rewrites the workflow to match",
+		);
 	});
 
 	it("runs the named files the tree holds, and a red prints the FAIL or FAILED line the tester reads", () => {
@@ -266,6 +281,6 @@ process.exit(red ? 1 : 0);
 		config();
 		const r = lander("group", "1/1");
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("nothing to run here");
+		expect(r.stderr).toContain("nothing to run here");
 	});
 });
