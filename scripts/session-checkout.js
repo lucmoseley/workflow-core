@@ -154,6 +154,17 @@ function renderReaped(r) {
 	];
 }
 
+/**
+ * #5501
+ * @param {NodeJS.ProcessEnv} env
+ */
+function landHandOff(env) {
+	const wait = `\`node ${scriptPath("landing-status.js")} --wait\``;
+	return env.CLAUDE_JOB_DIR
+		? `In a background job, end on \`result:\`, naming these commits as queued for the lander, not on main; a drop goes to the lander's own \`Fix queue/<name>\` ticket. Wait with ${wait} only where your next step needs them on main.`
+		: `Wait on its outcome with ${wait}, run in the background (\`run_in_background\`): it exits the moment the lander lands or drops it, so no timer is guessed.`;
+}
+
 /** What a warm pass did to its store, as a suffix to the store's path. */
 const WARMED = {
 	built: ", built now",
@@ -214,7 +225,7 @@ const RUN = {
 		writeFd(
 			2,
 			made.pushed
-				? `session checkout: pushed ${made.head} to ${made.queue}${made.merged ? `, ${VERIFIED_REF} merged in first` : ""}\n${made.lander}\nIt has not landed: the queue lander moves main to it once the full suite passes. Wait on its outcome with \`node ${scriptPath("landing-status.js")} --wait\`, run in the background (\`run_in_background\`): it exits the moment the lander lands or drops it, so no timer is guessed.\n`
+				? `session checkout: pushed ${made.head} to ${made.queue}${made.merged ? `, ${VERIFIED_REF} merged in first` : ""}\n${made.lander}\nIt has not landed: the queue lander moves main to it once the full suite passes. ${landHandOff(process.env)}\n`
 				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on ${VERIFIED_REF} or ${REMOTE}/${made.queue} already\n`,
 		);
 		/* Here, as in land(), so no other command loads the pass store. */
