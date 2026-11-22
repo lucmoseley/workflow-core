@@ -470,8 +470,6 @@ describe("the core-only class (#440)", () => {
 		"scripts/report-release-due.js -> scripts/release-plugin.js",
 		// Named to run in a core checkout, the only clone carrying release tags.
 		"docs/agents/adopter-upgrade.md -> scripts/release-contains.js",
-		// An allowlist key; an entry whose file is absent is silent.
-		"scripts/check-host-root.js -> scripts/cut-mantahostels.js",
 		// Required only where docs/code-standards-base.md exists: the core (#963).
 		"scripts/check-code-standards.js -> scripts/lib/plugin-tree.js",
 		// Required only where docs/adopter-boundary.md exists: the core (#5294).

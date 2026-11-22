@@ -181,8 +181,6 @@ const LEFT_BEHIND = new Set([
 	"scripts/idle-maxworkers-bench.sh",
 	// the core's one-off memory-store backup (mantahostels#642)
 	"scripts/snapshot-memory.sh",
-	// cuts mantahostels over, once, from this checkout (#423)
-	"scripts/cut-mantahostels.js",
 	// type-checks the core's own mods and entry module, from its `npm run typecheck` alone (#2048)
 	"scripts/typecheck-mods.js",
 	// creates repos under the founder's own account; skill and script go together (#691)

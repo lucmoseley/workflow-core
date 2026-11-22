@@ -298,18 +298,22 @@ describe("post-write — format, then record, in that order", () => {
 			expect(write('console.log("see (#12) for why");\n').output).toBeNull();
 		});
 
-		it.each([
-			"scripts/demo.test.js",
-			// The release leaves it behind, and check-host-root.js allowlists it.
-			"scripts/cut-mantahostels.js",
-		])("says nothing of %s, which neither gate judges", (rel) => {
+		it("says nothing of a test file, which neither gate judges", () => {
 			shipPlugin();
 			fakeBiome(sb, "#!/bin/sh\n");
-			const file = path.join(sb.repo, rel);
+			const file = path.join(sb.repo, "scripts/demo.test.js");
 			fs.writeFileSync(
 				file,
 				'const path = require("node:path");\nconsole.log("see #12");\nmodule.exports = path.join(__dirname, "..", "docs");\n',
 			);
+			expect(run("alice", file).output).toBeNull();
+		});
+
+		it("says nothing of a #N printed bare by a file the release leaves behind", () => {
+			shipPlugin();
+			fakeBiome(sb, "#!/bin/sh\n");
+			const file = path.join(sb.repo, "scripts/release-contains.js");
+			fs.writeFileSync(file, 'console.log("see #12");\n');
 			expect(run("alice", file).output).toBeNull();
 		});
 

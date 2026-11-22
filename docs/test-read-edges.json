@@ -7951,26 +7951,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/cut-mantahostels.js": [
-			"scripts/check-host-root.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/cut-mantahostels.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/post-write.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/cut-mantahostels.test.ts": [
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/cutover-main-checkout.js": [
 			"scripts/check-main-checkout-cutover.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -9582,7 +9562,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/archive-core-classes.test.ts",
 			"scripts/checker-registrations.test.ts",
-			"scripts/cut-mantahostels.test.ts",
 			"scripts/governance-empty-corpus.test.ts",
 			"scripts/init-adopter-commit.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
@@ -63044,6 +63023,7 @@
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/post-write.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
