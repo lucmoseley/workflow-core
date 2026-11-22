@@ -1,9 +1,3 @@
-"""Queue wait from .suite-queue-exits.jsonl over a window.
-Usage: python3 -I queue_wait.py <exits.jsonl> [start_iso] [end_iso]
-Wait is counted whole at the exit's UTC day (the #2194 method, not clipped).
-Skipped lines (left before they queued, #1221) are left out.
-Counting rules: #2812 (the baseline)'s, unchanged."""
-
 import collections
 import os
 import sys
@@ -24,8 +18,6 @@ def pct(xs, p):
 
 
 def exits(path, start, end, tally):
-    """A line torn by the log's
-    prune race (scripts/lib/queue-exit-log.js) is counted into `tally` as unparsed (#2823)."""
     return [
         r
         for _line, r in corpus.records_with_lines(path, tally)

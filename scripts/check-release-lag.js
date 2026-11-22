@@ -1,25 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-release-lag.js — how far the newest release tag lags `origin/main`,
- * and each adopter's pin beside the version it has installed (#4448, #5228).
- *
- * THE LAG IS MEASURED FROM THE TAG'S SOURCE, never the tag: release-plugin.js
- * cuts each release as a root commit, so `git rev-list <tag>..origin/main`
- * counts all of main's history. The source is the commit the release
- * message names (lib/release-tags.js's RENDERED_FROM). Days run from that
- * commit's committer date to `origin/main`'s, so an idle `main` ages nothing.
- *
- * LOCAL REFS ONLY, no fetch. A clone that has not fetched lately under-reads
- * the lag.
- *
- * ADOPTERS are lib/refill-repos.js's: each main checkout under `$HOME` with a
- * `.claude/workflow-core.json`, its pin read from `.claude/settings.json` and
- * its installed version from the config dir's `installed_plugins.json`, as
- * lib/plugin-state.js reads both.
- *
- * WFC_REPO_ROOT, HOME and CLAUDE_CONFIG_DIR inject the repo, the adopters'
- * home and the install registry.
- */
 
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
@@ -48,8 +27,9 @@ const {
 const PLUGIN = "workflow-core";
 
 /**
- * The row's recorded version, else the manifest its `installPath` holds.
- * @param {string} pluginsDir @param {string|null} marketplace @param {string} root
+ * @param {string} pluginsDir
+ * @param {string|null} marketplace
+ * @param {string} root
  * @returns {string|null}
  */
 function installedVersion(pluginsDir, marketplace, root) {
@@ -86,7 +66,6 @@ runCheck({
 		const root = process.env.WFC_REPO_ROOT || hostRoot();
 		if (!isCoreHost(root))
 			ctx.skip("not workflow-core itself; an adopter cuts no release.");
-		/* Required past the check above: the release never ships it. */
 		const {
 			readReleaseTags,
 			buildReleaseLagPort,
@@ -119,10 +98,8 @@ runCheck({
 		const installs = judgeInstalls(adopters);
 		if (installs !== null) findings.push(installs);
 		if (findings.length === 0) return { okLine: lag.line, data };
-		/* The lag line carries every adopter's pin and install, level ones too. */
 		if (lag.finding === null) ctx.say(lag.line);
 		for (const { finding, line } of findings) {
-			/* lib/check.js records a finding but prints none of it. */
 			ctx.warn(finding, line);
 			ctx.say(`${finding} — ${line}`);
 		}

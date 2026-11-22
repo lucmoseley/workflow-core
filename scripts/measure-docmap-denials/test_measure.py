@@ -1,19 +1,3 @@
-"""Pins the episode cut mantahostels#2430 added to measure.py's per-class breakdown.
-
-An episode is one (session, class) pair, so one session's serial retries must
-inflate its event share without moving its episode share. Route and
-escalation are carried per class too so a class's route mix doesn't need a
-separate pass over the events.
-
-`class_breakdown` is fed hand-built event dicts in-process, so each case
-stages exactly the retries or classes it is about, with no transcript to parse.
-
-CI's pytest step runs this file; the script gates
-nothing and is run by hand. Breaking the cut lets one session hammering a held
-file pass for many sessions blocked, inflating the doc-map claim-denial rate
-mantahostels#1761 measures.
-"""
-
 import sys
 from collections import Counter
 from pathlib import Path

@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Holds check-retry-watchdog.js's verdicts: a binary and settings carrying
- * both watchdog variables pass; a binary missing one, or holding only a longer
- * name it prefixes, or settings missing one or not parsing, fail, each naming
- * its way out; a missing binary or settings file leaves only its half
- * unchecked, and SKIPs where both are missing. Loosen it and a CLI update or
- * settings edit that turns the in-turn retry off (#4815) goes unsaid on
- * `npm run status`.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -30,8 +21,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** Runs the checker over a binary holding `binaryText` (none where null) and
- * settings carrying `env` (no file where null). */
 function run(binaryText: string | null, env: object | null) {
 	const bin = path.join(dir, "claude");
 	if (binaryText !== null) fs.writeFileSync(bin, binaryText);

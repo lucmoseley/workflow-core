@@ -1,36 +1,4 @@
 #!/usr/bin/env python3
-"""scan_advisor.py — measure the Opus advisor's real cost across this machine's transcripts.
-
-Built for mantahostels#1185, spun out of mantahostels#1102 (which put the advisor behind every Sonnet
-`/implement` launch). mantahostels#1102 priced the advisor as an unmeasured estimate --
-"~$0.41 a call at 82k context" -- and flagged two live risks: nothing caps how
-often it fires, and it silently stays off wherever feature-flag fetching is
-disabled, with nothing reporting that.
-
-An advisor call is NOT `usage.server_tool_use` (that field is the web-tool
-request counters, present on every record whether or not an advisor exists,
-and unrelated to it) and NOT a session merely carrying `advisorModel` (that
-field marks the session's *configured* advisor and is written on every
-assistant record of such a session, whether or not the advisor ever actually
-fired -- mantahostels#1102's own silent-off risk, live in this corpus: 22 sessions carry
-`advisorModel`, only 11 have ever actually fired it, main or subagent
-transcript combined). The real signal
-is `usage.iterations[].type == "advisor_message"`: one entry per advisor
-round, carrying its own input/output/cache token fields and `model`, nested
-inside the *parent* request's usage and excluded from that request's own
-top-level totals -- so `scan_burn.py` has never counted a cent of advisor
-spend.
-
-Reuses `scan_burn.py`'s transcript walk and MAX-per-requestId dedup rule
-(mantahostels#1121): a request's advisor iterations are summed within each duplicate
-record, then MAXed across duplicates of the same (path, requestId) -- the
-same guard against double-counting a subagent's streamed replay.
-
-Every dollar is `scan_burn.usd`: the four token classes at Opus 5 API list
-ratios, each cache write at its TTL's rate, never a bill (mantahostels#829) -- and here
-specifically the advisor's own consumption, priced at the same ratios
-regardless of which model hosts the parent turn.
-"""
 
 import argparse
 import os
@@ -45,20 +13,10 @@ import scan_burn as sb  # noqa: E402 - imported after HERE, which the sys.path.i
 sys.path.insert(0, os.path.join(HERE, "..", "lib"))
 import transcript_corpus as tc  # noqa: E402 - imported after HERE, which the sys.path.insert above reads (#1272)
 
-# mantahostels#1102 landed the advisor 23 August 2026; the first honest week closes
-# ~30 August 2026 (mantahostels#1185). Everything before this date predates the routing.
 DEFAULT_SINCE = "2026-08-23"
 
 
 def requests_with_advisor(tally, window=None):
-    """One entry per (relpath, requestId), scan_burn's key: that request's advisor spend, plus
-    whether the session carried a configured advisor at all.
-
-    `n` is 0 for a request that fired no advisor call -- kept (not filtered)
-    so the caller can compute the configured-but-silent population.
-
-    `tally`, the Counter `report` prints, receives `tc.records`'s skip counts.
-    """
     agg = {}
     for rel, path, is_sub, owner in tc.transcript_files():
         for rec in tc.records(path, tally, needle='"assistant"'):
@@ -88,9 +46,6 @@ def requests_with_advisor(tally, window=None):
                     "rounds": [],
                 }
             if advisor_its:
-                # MAXed per round across the request's records, and only
-                # then resolved and summed, as scan_burn MAXes before it
-                # resolves the TTL split.
                 rounds = cur["rounds"]
                 for i, it in enumerate(advisor_its):
                     tok = sb.tokens(it)
@@ -115,10 +70,6 @@ def requests_with_advisor(tally, window=None):
 
 def report(reqs, since, tally):
     reqs = list(reqs)
-    # A "firing request" is one whose parent turn carries >=1 advisor round.
-    # `n` (>1 seen nowhere yet, but possible) is the round count within it --
-    # keep requests and rounds distinct so a request bundling several rounds
-    # doesn't silently understate the per-round price.
     firing = [r for r in reqs if r["n"] > 0]
     rounds_total = sum(r["n"] for r in firing)
     tot = sb.zero()
@@ -188,7 +139,7 @@ def report(reqs, since, tally):
 
 def main():
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Measure the Opus advisor's real cost across this machine's transcripts."
     )
     ap.add_argument(
         "--since",

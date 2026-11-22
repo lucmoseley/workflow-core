@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins check-precommit-exit.js's boundary set (base §X11): each exit, argv
- * and --index, and the real reads of .husky/pre-commit and
- * .husky/pre-commit.local. Which lines exit 1 on a checker's failure is
- * lib/precommit-exit.test.ts's (§N4, #3456, #4652).
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here lets a
- * checker that could not run reach the committer as a finding again.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -28,7 +19,6 @@ const hook = (name: string, body: string) => {
 	);
 };
 
-/** Runs the checker in `root`, its host root `home`. */
 const runFrom = (home: string, args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: root,
@@ -50,8 +40,7 @@ describe("check-precommit-exit", () => {
 	it("FAILs a node checker line, naming file, line, the primitive and its exemplar", () => {
 		hook(
 			"pre-commit",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'set -e\nnode "${WFC_PLUGIN_ROOT:-.}"/scripts/check-a.js || exit 1\n',
+			`set -e\nnode "\${WFC_PLUGIN_ROOT:-.}"/scripts/check-a.js || exit 1\n`,
 		);
 		const r = run();
 		expect(r.status).toBe(1);

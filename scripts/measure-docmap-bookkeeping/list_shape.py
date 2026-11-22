@@ -1,12 +1,3 @@
-"""list_shape.py — what each `session-arbiter.js list` call printed, before and
-after region claims went live: calls, bytes, lines, and how many lines name a
-doc-map region.
-
-Built for lucmoseley/mantahostels#1759. No path-matched scan sees `list` output;
-scan_arbiter.py found it 57% of the claim subsystem's cost, and this splits it on the
-region-claim cut to show what the claims themselves added.
-"""
-
 import re
 import collections
 import sys
@@ -28,9 +19,7 @@ def rt(c):
 
 
 def main():
-    stats = collections.defaultdict(
-        lambda: [0, 0, 0, 0]
-    )  # calls, bytes, docmap-region lines, total lines
+    stats = collections.defaultdict(lambda: [0, 0, 0, 0])
     files = tc.all_transcripts()
     tally = collections.Counter()
     for p in files:

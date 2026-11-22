@@ -1,7 +1,3 @@
-"""Pins that the marker-store readers inherited_red.py, survey.py and wrapper_cost.py
-report a torn line they skip and read the rest (#5487). Each runs as a script on a
-markers dir under `tmp_path`."""
-
 import json
 import os
 import subprocess

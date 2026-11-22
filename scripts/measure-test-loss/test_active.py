@@ -1,5 +1,3 @@
-"""Pins that active.py reports a malformed timestamp it skips (#5487)."""
-
 import json
 import os
 import sys
