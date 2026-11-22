@@ -61,7 +61,7 @@ describe("the family modules' require graph", () => {
 	const readSource = (f: string) => fs.readFileSync(path.join(LIB, f), "utf8");
 
 	it("holds no cycle through a family module, by any path", () => {
-		const reachesItself = (start: string) => {
+		const isOnCycle = (start: string) => {
 			const seen = new Set<string>();
 			const queue = requires(start);
 			while (queue.length > 0) {
@@ -73,9 +73,7 @@ describe("the family modules' require graph", () => {
 			}
 			return false;
 		};
-		expect(families.filter((f) => reachesItself(path.join(LIB, f)))).toEqual(
-			[],
-		);
+		expect(families.filter((f) => isOnCycle(path.join(LIB, f)))).toEqual([]);
 	});
 
 	it("ends each family module on one module.exports, as base §N7 asks of an acyclic file", () => {

@@ -1,5 +1,3 @@
-// ADR-0010
-
 const { caught } = require("./caught.js");
 const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { withGitReadMemo } = require("./git-read-memo.js");
