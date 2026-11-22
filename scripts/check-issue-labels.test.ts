@@ -1465,6 +1465,16 @@ describe("a gate line with no basis (#577)", () => {
 		expect(r.out).toContain("beneath the Gated on line");
 	});
 
+	it("warns on a basis whose own figures do not give its window (#5406)", async () => {
+		const fisher = (n: number) =>
+			`**Gated on:** ${n} boots with no leap — abandon if: the machine leaves WSL2\n**Gate basis:** baseline 3/30 boots (10.0%, #4081); target the baseline point; 95% one-sided, one-sided Fisher; pass = 0 leaps in n = ${n} boots`;
+		const { r, fault } = await faulted(fisher(107));
+		expect(fault).toBe(true);
+		expect(r.out).toContain("it states n = 107");
+		expect(r.out).toContain("gives n = 50");
+		expect((await faulted(fisher(50))).fault).toBe(false);
+	});
+
 	it("passes either gate carrying a basis", async () => {
 		expect((await faulted(`${until}\n${basis}`)).fault).toBe(false);
 		expect((await faulted(`${on}\n${basis}`)).fault).toBe(false);

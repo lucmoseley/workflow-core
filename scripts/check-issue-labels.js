@@ -5,7 +5,12 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isRouteStep } = require("./lib/decision-labels");
 const { worktreeRoot } = require("./lib/host-root");
-const { resolveGate, citedSays, judgeOverrideOf } = require("./lib/issue-gate");
+const {
+	resolveGate,
+	citedSays,
+	recomputedSays,
+	judgeOverrideOf,
+} = require("./lib/issue-gate");
 const { readBasisFaults, unreadNote } = require("./lib/basis-cited-read");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
 const {
@@ -386,6 +391,13 @@ function checkGates(iss, raise, faults) {
 				"NO-GATE-BASIS",
 				`\`**Gate basis:**\` with no warrant — "${f.text}"${citedSays(f)}`,
 				"rewrite the basis to carry one of the three warrants in docs/agents/issue-tracker.md §Gating an issue",
+			);
+		else if (f.kind === "window-mismatch")
+			raise(
+				"WARN",
+				"NO-GATE-BASIS",
+				`\`**Gate basis:**\` whose own figures do not give its window — "${f.text}"${recomputedSays(f)}`,
+				"re-gate to the window the basis's own figures give, or correct the figures",
 			);
 }
 

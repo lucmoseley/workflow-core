@@ -1303,7 +1303,7 @@ describe("the basis limb (#672)", () => {
 		expect(out).toContain(
 			'the basis "the body asks for a day", which carries no warrant, as the wording patterns read it. Every gate line',
 		);
-		expect(out).toContain("baseline 27/449 attempts");
+		expect(out).toContain("baseline 3/30 VM boots");
 	});
 
 	it("allows the same bodies once a basis is written, and a measurement window", () => {
