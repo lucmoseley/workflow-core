@@ -61,8 +61,16 @@ def readable_text(path, tally):
     return b"\0" not in head
 
 
-def opening_runs(line, limit=400):
-    return [r.strip() for r in re.split(r'["\\]', line[:limit]) if len(r.strip()) >= 24]
+# guess, lucmoseley/mantahostels#1431
+OPENING_SCAN = 400
+# guess, lucmoseley/mantahostels#1431
+MIN_RUN = 24
+
+
+def opening_runs(line, limit=OPENING_SCAN):
+    return [
+        r.strip() for r in re.split(r'["\\]', line[:limit]) if len(r.strip()) >= MIN_RUN
+    ]
 
 
 def card_id_for(lines, idx):

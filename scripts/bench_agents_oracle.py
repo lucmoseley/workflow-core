@@ -96,7 +96,11 @@ def meminfo_available_kb():
     return None
 
 
-def time_meminfo(reps=2000):
+# guess, origin untraced, #5550
+MEMINFO_REPS = 2000
+
+
+def time_meminfo(reps=MEMINFO_REPS):
     t0 = time.perf_counter()
     for _ in range(reps):
         meminfo_available_kb()

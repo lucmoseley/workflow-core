@@ -235,7 +235,7 @@ def main(argv=None):
     ap.add_argument(
         "--horizon",
         type=int,
-        # measured: five days, lucmoseley/mantahostels#1215
+        # measured: longest first-rework lag 5.27 days, lucmoseley/mantahostels#1215
         default=5,
         help="days after close in which rework counts (default 5)",
     )

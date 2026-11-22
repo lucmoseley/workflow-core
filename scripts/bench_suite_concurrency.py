@@ -193,6 +193,7 @@ def parse_flags(flags, floor_mb):
     return floor_mb, require_quiet, measure_drift, workers
 
 
+# measured: the ladder's 3-worker rows, #1603
 DEFAULT_WORKERS = 3
 
 

@@ -15,6 +15,8 @@ from wfc_bin import bin_path
 
 MEMINFO = "/proc/meminfo"
 STAT = "/proc/stat"
+# guess, lucmoseley/mantahostels#1127
+PS_TIMEOUT_S = 10
 
 
 def cpu_totals(path: str = STAT) -> tuple[int, int]:
@@ -44,9 +46,11 @@ def count_claude(ps_output: str, cwd_of=live_cwd) -> tuple[int, int]:
 
 def ps_snapshot() -> str:
     try:
-        # guess: a 10 s ps timeout, lucmoseley/mantahostels#1127
         return subprocess.run(
-            [bin_path("ps"), *PS_ARGS], capture_output=True, text=True, timeout=10
+            [bin_path("ps"), *PS_ARGS],
+            capture_output=True,
+            text=True,
+            timeout=PS_TIMEOUT_S,
         ).stdout
     except (OSError, subprocess.SubprocessError) as e:
         fail_open(e, "ps snapshot read as empty")

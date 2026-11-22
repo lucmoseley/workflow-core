@@ -45,7 +45,6 @@ const { reportGroupedHits } = require("./lib/grouped-hits");
  * }} Scan
  */
 
-// measured: money amounts and years as noise, lucmoseley/mantahostels#1104
 const BARE_COUNT = /(?<![\w.,$#])\d{3,4}(?![\d.,%])/g;
 const YEAR = /^(?:19|20)\d\d$/;
 const PATH_TOKEN = /\.(?:md|html?|json|js|jsx|ts|tsx|py|csv|txt|sh|yml|yaml)$/i;
