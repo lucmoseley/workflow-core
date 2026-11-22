@@ -15,6 +15,7 @@ const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
 const issues = require("./arbiter-issue-claims.js");
 const ledger = require("./arbiter-ledger.js");
+const lockFiles = require("./arbiter-lock-files.js");
 const locksMod = require("./arbiter-locks.js");
 const observations = require("./arbiter-observations.js");
 const snapshots = require("./arbiter-snapshots.js");
@@ -33,8 +34,8 @@ module.exports = {
 	rootlessErrorLog: core.paths.rootlessErrorLog,
 	gitDirty: core.gitDirty,
 	subjectDirty: core.subjectDirty,
-	readHeldBy: locksMod.readHeldBy,
-	readLocksHeldBy: locksMod.readLocksHeldBy,
+	readHeldBy: lockFiles.readHeldBy,
+	readLocksHeldBy: lockFiles.readLocksHeldBy,
 	subjectDirtyWhereHeld: locksMod.subjectDirtyWhereHeld,
 	readHeldClean: locksMod.readHeldClean,
 	heldIssues: issues.heldIssues,
@@ -58,7 +59,7 @@ module.exports = {
 	readCommitsBy: ledger.readCommitsBy,
 	paths: core.paths,
 	pruneAll: sweep.pruneAll,
-	readLocks: locksMod.readLocks,
+	readLocks: lockFiles.readLocks,
 	readWants: wants.readWants,
 	recordAct: ledger.recordAct,
 	recordCommit: ledger.recordCommit,

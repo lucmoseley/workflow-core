@@ -10,6 +10,7 @@ import {
 	freshSandbox,
 	ledger,
 	live,
+	lockFiles,
 	locks as locksMod,
 	store,
 } from "./arbiter-testkit";
@@ -544,7 +545,7 @@ describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", 
 
 	it("takes no claim on what it credits", () => {
 		crediting("credit-noclaim", "scripts/unclaimed.js");
-		const held = locksMod.readHeldBy("credit-noclaim") ?? [];
+		const held = lockFiles.readHeldBy("credit-noclaim") ?? [];
 		expect(held).not.toContain("scripts/unclaimed.js");
 	});
 

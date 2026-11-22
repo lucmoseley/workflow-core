@@ -5,7 +5,7 @@ const breaks = require("./arbiter-breaks.js");
 const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
 const issues = require("./arbiter-issue-claims.js");
-const locksMod = require("./arbiter-locks.js");
+const lockFiles = require("./arbiter-lock-files.js");
 const markers = require("./arbiter-markers.js");
 const observations = require("./arbiter-observations.js");
 const snapshots = require("./arbiter-snapshots.js");
@@ -21,7 +21,7 @@ function pruneBlobRefs() {
 		contentMod.BLOB_REF_PREFIX,
 	]);
 	if (!listed) return;
-	const locks = locksMod.readLocks();
+	const locks = lockFiles.readLocks();
 	if (locks === null) {
 		core.logError("pruneBlobRefs", new Error("lock store unreadable"));
 		return;
