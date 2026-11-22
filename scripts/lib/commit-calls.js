@@ -1,14 +1,14 @@
 const {
 	asWritten,
+	commitPathsArgs,
+	gitWords,
 	parseCommand,
 	walkCommands,
 	TEXT_ONLY_PORTS,
 } = require("./shell-parse.js");
 const {
-	commitPathsArgs,
 	commitPathsParse,
 	gitValueFlags,
-	gitWords,
 	literal,
 	scanFlags,
 } = require("./shell-words.js");

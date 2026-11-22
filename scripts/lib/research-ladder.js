@@ -1,11 +1,12 @@
 const { scriptPath } = require("./script-path.js");
 const {
+	ghWords,
 	parseCommand,
 	walkCommands,
 	TEXT_ONLY_PORTS,
 } = require("./shell-parse.js");
 const { requiredGroup } = require("./regex-group.js");
-const { ghWords, literal } = require("./shell-words.js");
+const { literal } = require("./shell-words.js");
 
 /** @typedef {"rulings" | "web" | "subagent"} Rung */
 /** @typedef {import("./tool-calls-since").ToolCall} ToolCall */

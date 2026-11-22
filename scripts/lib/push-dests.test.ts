@@ -23,10 +23,8 @@ const { readPush } = require("./push-dests.js") as {
 		symbolicName: (src: string) => string,
 	) => Read;
 };
-const { parseCommand } = require("./shell-parse.js") as {
+const { gitWords, parseCommand } = require("./shell-parse.js") as {
 	parseCommand: (s: string) => { spans: string[]; segments: string[] };
-};
-const { gitWords } = require("./shell-words.js") as {
 	gitWords: (
 		words: string[],
 		spans: string[],

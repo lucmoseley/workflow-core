@@ -228,9 +228,9 @@ describe("judgeTree", () => {
 		expect(r.fixes).toEqual([GH_FIX["NODE-COPY"]]);
 	});
 
-	it("passes the one route: lib/gh.js, a program on it, a shell caller on WFC_GH, a stub at WFC_GH, and gh named only in comments", () => {
+	it("passes the one route: lib/gh-binary.js, a program on it, a shell caller on WFC_GH, a stub at WFC_GH, and gh named only in comments", () => {
 		const r = judge({
-			"scripts/lib/gh.js": fixture("gh-lib.js.txt"),
+			"scripts/lib/gh-binary.js": fixture("gh-lib.js.txt"),
 			"scripts/on.js": fixture("on-primitive.js.txt"),
 			"scripts/hook.sh": [
 				"#!/usr/bin/env bash",
@@ -355,9 +355,13 @@ describe("judgeFile", () => {
 		]);
 	});
 
-	it("lets the primitive read its own var, and a program assign it", () => {
+	it("lets the binary's reader read its own var, and a program assign it", () => {
 		expect(
-			tags("scripts/lib/gh.js", "node", "const b = process.env.WFC_GH;\n"),
+			tags(
+				"scripts/lib/gh-binary.js",
+				"node",
+				"const b = process.env.WFC_GH;\n",
+			),
 		).toEqual([]);
 		const assign = `${["process", "env", "WFC_GH"].join(".")} = "/stub";\n`;
 		expect(tags("scripts/x.js", "node", assign)).toEqual([]);
