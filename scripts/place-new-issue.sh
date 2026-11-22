@@ -1,42 +1,4 @@
 #!/usr/bin/env bash
-# Ask where a just-created issue belongs — and what label it takes — at the
-# moment it is created.
-#
-# WHY A HOOK AND NOT A DOC. inject-tracker-docs.js hands the tracker rules to
-# seven slash commands, and lib/inject-tracker-docs.js's header says an ad-hoc
-# "open an issue for X" typed in prose "gets nothing, and cannot: that path has no
-# distinguishing shape". That is true at UserPromptSubmit. At PostToolUse the
-# shape is exactly `gh issue create` — the path an ad-hoc issue is filed by, and
-# the one a rule in docs/agents/issue-tracker.md never reaches. The census that
-# established it: mantahostels#136.
-#
-# WHY AFTER, NOT BEFORE. The issue exists, so its number is known and placement
-# is one API call away rather than something to remember later. The parent is
-# usually the session's own issue, which is why the name is read below.
-#
-# ONCE PER PROMPT, FOR PLACEMENT ONLY. An 18-ticket /to-tickets batch is one
-# placement decision, not eighteen interruptions. The label asks do NOT share
-# that cardinality: a batch shares one parent, not one disposition, so they run
-# for every issue every call (mantahostels#314, the second issue of a batch, which a
-# per-prompt ask left unlabelled; the fix had no ticket of its own).
-#
-# WHY LABELS TOO (mantahostels#136). The producer for `wayfinder:*` is the charting step of
-# /wayfinder, which labels the tickets it creates. A session *working* a ticket
-# and spinning one off mid-flight has no producer at all. It rides here rather
-# than becoming a second hook: same event.
-#
-# The session's own issue says which family the new one joins: a session working
-# a `wayfinder:*` child of a map, or the map itself, spawns a ticket that lands
-# in that map either way, so the ask is `wayfinder:<type>`; under a spec it is
-# `kind:ticket`. Silent when it cannot tell.
-#
-# ADVISORY, NOT A GUARD. mantahostels#103 ruled: deny on a structured fact where the action
-# has no legitimate use, warn where the hook is inferring. A standalone
-# cross-cutting issue legitimately carries no `wayfinder:*`, so this is inference.
-#
-# Never blocks: every failure path exits 0 and injects nothing.
-#
-# Wired with `if: Bash(gh *)` (mantahostels#2127).
 
 set -uo pipefail
 

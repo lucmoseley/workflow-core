@@ -6,13 +6,12 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { shellQuote } from "./lib/sh-quote.js";
 
-const LIB = path.resolve(__dirname, "lib");
-
 let tmp: string;
 let repo: string;
 let repoLink: string;
 let linked: string;
 let linkedLink: string;
+let sep: string;
 
 beforeAll(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-seam-")));
@@ -43,6 +42,14 @@ beforeAll(() => {
 	linkedLink = path.join(tmp, "linked-link");
 	fs.symlinkSync(linked, linkedLink);
 	fs.mkdirSync(path.join(tmp, "nowhere"));
+	sep = path.join(tmp, "sep");
+	execFileSync("git", [
+		"init",
+		"-q",
+		"--separate-git-dir",
+		path.join(tmp, "sep.git"),
+		sep,
+	]);
 });
 
 afterAll(() => {
@@ -66,21 +73,24 @@ const readAnswers = (cwd: string, declared: string | undefined) => {
 		process.execPath,
 		[
 			"-e",
-			`process.stdout.write(require(${JSON.stringify(path.join(LIB, "host-root.js"))}).hostRoot())`,
+			`process.stdout.write(require(${JSON.stringify(path.resolve(__dirname, "lib", "host-root.js"))}).hostRoot())`,
 		],
 		opts,
 	);
 	const sh = spawnSync(
 		"bash",
-		["-c", `source ${shellQuote(path.join(LIB, "guard-root.sh"))}; gr_root`],
+		[
+			"-c",
+			`source ${shellQuote(path.resolve(__dirname, "lib", "guard-root.sh"))}; gr_root`,
+		],
 		{ ...opts, env: { ...opts.env, PWD: cwd } },
 	);
 	const py = spawnSync(
 		"python3",
 		[
 			"-c",
-			"import sys; sys.path.insert(0, sys.argv[1]); from host_root import host_root; sys.stdout.write(host_root())",
-			LIB,
+			"import os, sys; sys.path.insert(0, os.path.dirname(sys.argv[1])); from host_root import host_root; sys.stdout.write(host_root())",
+			path.resolve(__dirname, "lib", "host_root.py"),
 		],
 		opts,
 	);
@@ -162,6 +172,72 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 	});
 });
 
+describe("mainCheckout() and resolveCore()'s default root name the checkout hostRoot() does", () => {
+	const readCheckouts = (cwd: string) => {
+		const env = envWith(undefined);
+		delete env.WORKFLOW_CORE_DIR;
+		delete env.WORKFLOW_CORE_CHECKOUT;
+		const r = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`const [mainCheckout, resolveCore, cwd] = process.argv.slice(1);
+let adopter;
+try {
+  require(resolveCore).resolveCore();
+} catch (err) {
+  adopter = /are unset, and (.+)\\/\\.claude\\/settings\\.json enables no /.exec(err.message)?.[1];
+}
+process.stdout.write(JSON.stringify({
+  main: require(mainCheckout).mainCheckout(cwd),
+  adopter,
+}));`,
+				path.resolve(__dirname, "lib", "main-checkout.js"),
+				path.resolve(__dirname, "lib", "resolve-core.js"),
+				cwd,
+			],
+			{ cwd, env, encoding: "utf8" },
+		);
+		expect(r.stderr).toBe("");
+		return { ...JSON.parse(r.stdout), ...readAnswers(cwd, undefined) };
+	};
+
+	it.each([
+		["the main checkout's subdirectory", () => path.join(repo, "sub")],
+		["a linked worktree", () => linked],
+		["a linked worktree's subdirectory", () => path.join(linked, "sub")],
+		[
+			"a linked worktree reached through a symlink",
+			() => path.join(linkedLink, "sub"),
+		],
+	])("all name the main checkout from %s", (_name, cwdOf) => {
+		expect(readCheckouts(cwdOf())).toEqual({
+			main: repo,
+			adopter: repo,
+			js: repo,
+			sh: repo,
+			py: repo,
+		});
+	});
+
+	it.each([
+		["the common dir is not named .git", () => sep],
+		["there is no repository", () => path.join(tmp, "nowhere")],
+	])(
+		"where %s, mainCheckout() names none and the rest name the directory itself",
+		(_name, cwdOf) => {
+			const at = cwdOf();
+			expect(readCheckouts(at)).toEqual({
+				main: null,
+				adopter: at,
+				js: at,
+				sh: at,
+				py: at,
+			});
+		},
+	);
+});
+
 describe("sessionTree() and gr_session_tree agree (#4271)", () => {
 	const readTrees = (from: string, cwd: string | undefined) => {
 		const opts = { cwd: from, env: envWith(repo), encoding: "utf8" as const };
@@ -170,7 +246,7 @@ describe("sessionTree() and gr_session_tree agree (#4271)", () => {
 			process.execPath,
 			[
 				"-e",
-				`process.stdout.write(require(${JSON.stringify(path.join(LIB, "host-root.js"))}).sessionTree(${JSON.stringify(input)}) ?? "")`,
+				`process.stdout.write(require(${JSON.stringify(path.resolve(__dirname, "lib", "host-root.js"))}).sessionTree(${JSON.stringify(input)}) ?? "")`,
 			],
 			opts,
 		);
@@ -178,7 +254,7 @@ describe("sessionTree() and gr_session_tree agree (#4271)", () => {
 			"bash",
 			[
 				"-c",
-				`source ${shellQuote(path.join(LIB, "guard-root.sh"))}; gr_session_tree ${shellQuote(cwd ?? "")}`,
+				`source ${shellQuote(path.resolve(__dirname, "lib", "guard-root.sh"))}; gr_session_tree ${shellQuote(cwd ?? "")}`,
 			],
 			{ ...opts, env: { ...opts.env, PWD: from } },
 		);
@@ -231,7 +307,7 @@ describe("worktreeRoot() and gr_worktree_root agree (#5287)", () => {
 			process.execPath,
 			[
 				"-e",
-				`process.stdout.write(require(${JSON.stringify(path.join(LIB, "host-root.js"))}).worktreeRoot())`,
+				`process.stdout.write(require(${JSON.stringify(path.resolve(__dirname, "lib", "host-root.js"))}).worktreeRoot())`,
 			],
 			opts,
 		);
@@ -239,7 +315,7 @@ describe("worktreeRoot() and gr_worktree_root agree (#5287)", () => {
 			"bash",
 			[
 				"-c",
-				`source ${shellQuote(path.join(LIB, "guard-root.sh"))}; gr_worktree_root`,
+				`source ${shellQuote(path.resolve(__dirname, "lib", "guard-root.sh"))}; gr_worktree_root`,
 			],
 			{ ...opts, env: { ...opts.env, PWD: cwd } },
 		);

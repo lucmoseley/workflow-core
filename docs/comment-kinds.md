@@ -1,6 +1,6 @@
 # Comment kinds
 
-A comment in code is refused unless it is one of the seven kinds below (#5455). A directive a tool reads is code, not a comment, and is not judged here: a JSDoc type annotation `checkJs` reads, a pragma such as `@vitest-environment`, the hook shim's mark, a guard's `DENIES-THROUGH: <path>` or `DENIES-BY: exit 2` line, which `scripts/lib/deny-capable.js` reads, a `code-edges loads: <path> [<key>]` line in JS, TypeScript or shell and a `code-edges caller: <name>…` line in shell, which the verdict proof's walk reads, and a plugin checker's marker (`full-sweep-only:`, `Unbuilt caller: <path>`, a `<name>-exempt:` opt-out) followed by a bare pointer and nothing else.
+A comment in code is refused unless it is one of the seven kinds below (#5455). A directive a tool reads is code, not a comment, and is not judged here: a JSDoc type annotation `checkJs` reads, a pragma such as `@vitest-environment`, the hook shim's mark, a guard's `DENIES-THROUGH: <path>` line, which `scripts/lib/deny-capable.js` reads, a `code-edges loads: <path> [<key>]` line in JS, TypeScript or shell and a `code-edges caller: <name>…` line in shell, which the verdict proof's walk reads, and a plugin checker's marker (`full-sweep-only:`, `Unbuilt caller: <path>`, a `<name>-exempt:` opt-out) followed by a bare pointer and nothing else.
 
 **Tie rule: where you are unsure whether a comment is its kind, it is not, and the comment dies.**
 

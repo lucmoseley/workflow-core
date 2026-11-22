@@ -1,3 +1,4 @@
+const { throwUnreadable } = require("./file-read.js");
 const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { JS_TEST_FILE, PY_COLLECTED_TEST } = require("./test-kind.js");
 const { unwrapArgv } = require("./shell-words.js");
@@ -270,7 +271,7 @@ function isQueueable(words, ports) {
 const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 
 /**
- * @param {() => Pick<import("./guard-host-ports.js").TreePorts, "readText">} tree
+ * @param {() => Pick<import("./guard-host-ports.js").TreePorts, "read">} tree
  * @param {(what: string) => void} log
  * @returns {LaunchPorts["isWrapperScript"]}
  */
@@ -279,9 +280,9 @@ function buildIsWrapperScript(tree, log) {
 	let scripts;
 	return (script) => {
 		if (scripts === undefined) {
-			const { readText } = tree();
+			const got = tree().read("package.json");
 			try {
-				const text = readText("package.json");
+				const text = throwUnreadable(got);
 				scripts = text === null ? null : (JSON.parse(text)?.scripts ?? {});
 			} catch {
 				log(

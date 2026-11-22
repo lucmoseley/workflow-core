@@ -15,6 +15,7 @@ import {
 	type Registry,
 	writeRegistryStubs,
 } from "./npm-registry-fake";
+import { treePortsFake } from "./tree-ports-fake";
 
 const { decide } = require("./npm-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
@@ -82,10 +83,7 @@ function verdictOf(port: Port, pkg: string, answer: Call): string | null {
 	const ctx = kitContextFake({
 		isDir: () => true,
 		treeClass: fakeTreeClassifier({ "/repo": "shared" }),
-		tree: () => ({
-			root: "/repo",
-			readText: (rel: string) => (rel === "package.json" ? "{}" : null),
-		}),
+		tree: () => treePortsFake({ "package.json": "{}" }),
 		pathExists: () => false,
 		linkTarget: () => null,
 		npmView: () => npmViewAnswer(PASSING),

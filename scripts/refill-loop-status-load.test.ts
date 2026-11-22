@@ -84,6 +84,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/cpu-sample.js",
 			"lib/cut-at.js",
 			"lib/deref.js",
+			"lib/descendants-pss-kb.js",
 			"lib/dir-lock.js",
 			"lib/dirty-tree.js",
 			"lib/dispatch-ledger.js",

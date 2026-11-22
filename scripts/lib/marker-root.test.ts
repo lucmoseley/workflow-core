@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -65,6 +65,66 @@ describe("marker-root.sh", () => {
 			{ encoding: "utf8" },
 		).stdout;
 		expect(out).toBe("");
+	});
+});
+
+describe("marker-root.sh and marker-root.js agree byte for byte", () => {
+	const both = (declared: string) => {
+		const env = {
+			...process.env,
+			CLAUDE_PROJECT_DIR: declared,
+			GIT_CEILING_DIRECTORIES: path.dirname(fs.realpathSync(declared)),
+		};
+		const sh = spawnSync(
+			"bash",
+			[
+				"-c",
+				`source ${shellQuote(path.resolve(__dirname, "marker-root.sh"))} && gr_markers_dir`,
+			],
+			{ encoding: "utf8", env },
+		);
+		const js = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`process.stdout.write(require(${JSON.stringify(path.resolve(__dirname, "marker-root.js"))}).markersDir())`,
+			],
+			{ encoding: "utf8", env },
+		);
+		expect(js.stderr).toBe("");
+		return { sh: sh.stdout, js: js.stdout };
+	};
+	const git = (cwd: string, ...args: string[]) =>
+		execFileSync("git", args, { cwd, stdio: "ignore" });
+
+	it.each([
+		["a plain directory", (root: string) => root],
+		[
+			"a directory reached through a symlink",
+			(root: string) => {
+				const real = path.join(root, "real");
+				fs.mkdirSync(real);
+				fs.symlinkSync(real, path.join(root, "link"));
+				return path.join(root, "link");
+			},
+		],
+		[
+			"a linked worktree",
+			(root: string) => {
+				const main = path.join(root, "main");
+				fs.mkdirSync(main);
+				git(main, "init", "-q");
+				git(main, "config", "user.email", "test@example.com");
+				git(main, "config", "user.name", "test");
+				git(main, "commit", "-q", "--allow-empty", "--no-verify", "-m", "x");
+				git(main, "worktree", "add", "-q", path.join(root, "wt"));
+				return path.join(root, "wt");
+			},
+		],
+	])("both name the same markers directory from %s", (_name, declare) => {
+		const got = both(declare(fs.realpathSync(freshRoot())));
+		expect(got.sh).toBe(got.js);
+		expect(got.js).toMatch(/\/\.claude\/tmp\/markers$/);
 	});
 });
 

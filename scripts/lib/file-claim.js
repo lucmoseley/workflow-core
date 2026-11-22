@@ -1,4 +1,5 @@
 const { caught } = require("./caught.js");
+const { throwUnreadable } = require("./file-read.js");
 const { ruleModule } = require("./rule-gates.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { treeOrHost } = require("./tree-or.js");
@@ -133,7 +134,7 @@ function readAnswer(stdout, ctx) {
  */
 function readAuthorityClass(rel, ctx, tree) {
 	try {
-		const text = tree.readText(CLASSES);
+		const text = throwUnreadable(tree.read(CLASSES));
 		if (text === null) return "";
 		const reg = JSON.parse(text);
 		if (!reg || typeof reg !== "object" || Array.isArray(reg))

@@ -1,116 +1,3 @@
-/*
- * issue-close.js — the guard-issue-close core (#2798, programme #2733): may
- * this `gh issue close` go ahead? Six rules, in this order: a roadmap card's
- * own issue is closed by /card-close (mantahostels#220), no close leaves a
- * sub-issue open, a not-planned one included (#3637), a completed close
- * leaves no unmet acceptance criteria (#1640), every close says what is still
- * outstanding (mantahostels#185, #984), a completed close leaves no census
- * row its commits expired (#1913), and none whose commits are unpushed
- * (#3101).
- *
- * A CORE: it does no I/O. gh, the clock, the roadmap file, the tracker, the
- * census read, the landing read and the rule store arrive as ports;
- * lib/issue-close-host.js builds the real ones.
- *
- * THE SESSION'S TREE (#4242): the roadmap card's state, the commits the census
- * reads and the commits the landing read checks are read in the session's
- * tree, its HEAD and its working roadmap, so a linked worktree's close is
- * judged on its own work. The tracker is the host's config.
- *
- * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
- * fail-open that lets the whole call through, logged. A fault that leaves the
- * other rules a verdict to reach is logged and the walk goes on.
- *
- * THE TIME BUDGET (docs/agents/guard-authoring.md §The ceiling your guard runs
- * under). The dispatcher's registration runs `onFailure: block`, so an
- * overrun refuses the close. Each close costs up to four external calls — the
- * issue read, the Outstanding open-check, the census read and the landing
- * read — so each gets what is left of the run budget as its own timeout,
- * which the host cuts again to what the dispatcher's budget leaves
- * (lib/hook-deadline.js); a call with too little left is not made but
- * recorded as a fail-open. Only each spawned read is bounded, so CPU work
- * between reads that outlasts the registration's timeout refuses the close.
- *
- * Why: a closed issue is corpus, not a queue — nothing surfaces it again — so
- * residual work parked in one is found only when the founder happens to read
- * the comment.
- *
- * THE OUTSTANDING RULE: every close carries a line beginning
- * `**Outstanding:**`, where the `close-outstanding-where` fragment says; an
- * older marker does not count (#984). It holds the bare
- * word `none`, or items only, each `#N (what is left)` citing an OPEN issue
- * other than this one. DENY, not warn, and this is the distinction
- * mantahostels#103 draws: deny on a structured fact, warn where the hook is
- * inferring. Whether a comment's prose describes unfiled work is inference,
- * and no detector is built on it (mantahostels#185; examples on #1990): an
- * accepted limit and a real escape are written identically, so the prose
- * around the line stays unread. The LINE is a structured fact (#984, spec
- * #958): lib/outstanding-line.js reads its grammar and checks each cited
- * carrier open, and a shape miss or a closed, missing or self-referencing
- * carrier is denied.
- *
- * THE CARD RULE (mantahostels#220): closing a card's own issue by hand does
- * not merely skip a step — /card-close step 1 refuses to run on an issue
- * that is already CLOSED, so a hand close makes the command unusable and the
- * roadmap edit has to happen outside the one thing that sequences it
- * (mantahostels#165). The discriminator, settled at mantahostels#275: a child
- * ticket that merely shares a card-id prefix has a parent, a card's own issue
- * has none. Measured there — 33 of 39 prefixed closed issues had a parent and
- * were all children; all 5 card issues had none. A `wayfinder:*` label was
- * measured and rejected as *the* discriminator: it separates only 26 of the
- * 33, the doc-map-nav-check children carrying `kind:ticket` instead. ON TOP
- * of it, a `wayfinder:map` label exempts (mantahostels#1490): a map is
- * unparented like a card's own issue, so every card-prefixed map read as one.
- * The exemption survives mantahostels#275's measurement because it only has
- * to be true of maps, and a map is never a card's own issue. Known residual:
- * an unparented issue that borrows a card's prefix, carries no
- * `wayfinder:map` label, and is neither that card's issue nor a map, is
- * denied wrongly; the escape is --reason "not planned", or /card-close
- * itself.
- *
- * THE CHILDREN RULE (#3637) reads the payload's `subIssues`, which gh lists to
- * GitHub's 100-child cap. Its refusal is lib/open-children.js's,
- * resolve-ticket.js's too.
- *
- * THE CRITERIA, CENSUS AND LANDING RULES are resolve-ticket.js's refusals,
- * read through lib/ticket-criteria.js (#1640), lib/census-digest.js (#1913,
- * #1876) and lib/unlanded-commits.js (#3101). The census rule stands down
- * where a `**Census:**` line says why, or the close names another repo, whose
- * commits cite this one's tracker; the landing rule where an `**Unlanded:**`
- * line says why.
- *
- * LIMITS
- *  - It matches the parsed command form — a segment whose command word is
- *    `gh`, subcommand pair `issue close` — never a substring, so a grep or a
- *    heredoc mentioning `gh issue close` passes. Its manifest row runs it only
- *    on a command `Bash(gh *)` admits (mantahostels#2127), so `/usr/bin/gh …`
- *    is unjudged.
- *  - A close through the GitHub UI, or through `gh api --method PATCH … -f
- *    state=closed`, is not seen. The api spelling is the known residual.
- *  - It FAILS OPEN, house style (mantahostels#103 §6): an unparseable
- *    command, a missing or unreachable `gh`, a --comment it cannot wholly
- *    read (a `$` or backtick expansion, say), a census read that faulted or
- *    ran out of budget, an open-check the Outstanding-line parser could not
- *    make, and a run budget spent before a call are all allowed through — and
- *    all RECORDED (mantahostels#147) for check-guard-errors.js to report
- *    under `npm run status`.
- *  - THE RULE IT PRINTS lives in docs/agents/rules/ (mantahostels#1649, spec
- *    mantahostels#1641), spliced into its refusal. An unreadable fragment is
- *    the ONE fault it does not fail open on and does not log; it refuses with
- *    a pointer to the fragment instead.
- *  - It guards the Bash tool, so it binds agent sessions and not the
- *    founder's own terminal (mantahostels#109).
- *  - A `-R`/`--repo` close is judged against the repo it names (#553), and
- *    the card rule stands down where that is not the tracker
- *    `.claude/workflow-core.json` declares, or the origin remote's where it
- *    declares none. No tracker resolving leaves the card rule running. A
- *    `GH_REPO=… gh issue close N` is not seen: the parser strips the
- *    assignment, so that close is still read off this repo's #N.
- *  - A chained `gh issue comment N … && gh issue close N` is judged before
- *    the comment lands: the close carries its own line, or runs in a later
- *    call.
- */
-
 // #2798
 const {
 	deny,
@@ -125,7 +12,6 @@ const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { ENTRY_BUDGET_MS } = require("./hook-deadline.js");
 const { trimEndRun } = require("./trim-run.js");
-const { readTreeText } = require("./file-read.js");
 
 /**
  * @typedef {{ refusal: string } | { outOfBudget: true }} RefusalRead
@@ -440,7 +326,7 @@ function cardFault(run, close) {
 				.join(" ")
 		: "";
 	if (` ${labels} `.includes(" wayfinder:map ")) return "";
-	const got = readTreeText(run.ctx.tree(), ROADMAP);
+	const got = run.ctx.tree().read(ROADMAP);
 	if (got.state === "unreadable")
 		return `could not read the roadmap, so card ${id}`;
 	// #5576

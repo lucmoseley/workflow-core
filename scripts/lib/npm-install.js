@@ -52,8 +52,6 @@
  * lib/package-vetting.js's, shared with lib/pip-install.js.
  *
  * LIMITS
- *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
- *    clauses admits: `if: Bash(*npm *)`, `if: Bash(*npx *)` (#3226).
  *  - npm only. `pnpm add`, `yarn add` and `bun add` are not read; pip and uv
  *    are lib/pip-install.js's.
  *  - Only a registry spec is vetted. `npm i ./local`, `github:user/repo`, a
@@ -104,7 +102,6 @@ const {
 	unvettableText,
 } = require("./package-vetting.js");
 const { isUnder } = require("./is-under.js");
-const { readOrNull } = require("./file-read.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, scanFlags } = require("./shell-words.js");
 
@@ -208,14 +205,14 @@ const DEP_FIELDS = [
  */
 function loadDeps(ctx) {
 	const tree = ctx.tree();
-	const text = readOrNull(tree, "package.json");
-	if (text === null) {
+	const pkg = tree.read("package.json");
+	if (pkg.state !== "read") {
 		ctx.log(
-			`no readable package.json at ${tree.root}/package.json — install allowed unchecked`,
+			`package.json at ${tree.root}/package.json is ${pkg.state} — install allowed unchecked`,
 		);
 		return null;
 	}
-	const names = depNames(text);
+	const names = depNames(pkg.data);
 	if (names === null)
 		ctx.log("package.json did not parse — install allowed unchecked");
 	return names;
@@ -253,15 +250,16 @@ function depNames(text) {
  */
 function binOwner(bin, deps, ctx) {
 	const tree = ctx.tree();
-	const texts = deps.map((dep) =>
-		readOrNull(tree, `node_modules/${dep}/package.json`),
+	const reads = deps.map((dep) =>
+		tree.read(`node_modules/${dep}/package.json`),
 	);
-	let whole = texts.every((t) => t !== null);
+	// #5585
+	let whole = reads.every((r) => r.state === "read");
 	/** @type {string | null} */
 	let owner = null;
-	for (const text of texts) {
-		if (text === null) continue;
-		const named = carries(text, bin);
+	for (const got of reads) {
+		if (got.state !== "read") continue;
+		const named = carries(got.data, bin);
 		if (named === undefined) {
 			ctx.log(
 				`a dependency's package.json in node_modules did not parse — the owner of the ${bin} bin is unread`,

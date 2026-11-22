@@ -15,6 +15,7 @@ import { kitContextFake } from "./kit-context-fake";
 import { markersDir } from "./marker-root.js";
 import type { PartAdmission, PartPeak } from "./part-suite-peak.js";
 import type { ClimbScope } from "./suite-queue.js";
+import { treePortsFake } from "./tree-ports-fake";
 import { ensureProof } from "./verdict-probe.js";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 import type { WindowsRead } from "./windows-memory.js";
@@ -170,13 +171,12 @@ function harness(over: Over = {}) {
 			asked.push(argv);
 			return over.plain ?? { plain: false };
 		},
-		tree: () => ({
-			root: "/repo",
-			readText: (rel: string) =>
-				rel === "package.json" && pkg !== null
-					? JSON.stringify({ scripts: pkg })
-					: null,
-		}),
+		tree: () =>
+			treePortsFake(
+				pkg === null
+					? {}
+					: { "package.json": JSON.stringify({ scripts: pkg }) },
+			),
 	});
 }
 

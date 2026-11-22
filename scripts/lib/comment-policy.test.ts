@@ -322,11 +322,10 @@ describe("what is not a comment", () => {
 		);
 	});
 
-	it("reads a guard's DENIES-THROUGH and DENIES-BY lines as code, and refuses one carrying prose", () => {
+	it("reads a guard's DENIES-THROUGH line as code, and refuses one carrying prose", () => {
 		expect(tags("// DENIES-THROUGH: lib/guard-judge.js\nx();\n", "js")).toEqual(
 			[],
 		);
-		expect(tags("# DENIES-BY: exit 2\nx=1\n", "sh")).toEqual([]);
 		expect(
 			tags("// DENIES-THROUGH: lib/guard-judge.js, its judge\nx();\n", "js"),
 		).toEqual(["COMMENT@1"]);
