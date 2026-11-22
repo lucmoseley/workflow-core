@@ -1106,11 +1106,7 @@ function readUpstreamManifest(marketplaceDir, rel, sha) {
 	}
 	const at = path.join(marketplaceDir, relFile);
 	const read = readText(at);
-	if (read.state === "unreadable")
-		return {
-			unverifiable: `${at} will not read: ${read.message}`,
-			unreadable: true,
-		};
+	if (read.state === "unreadable") return wontRead(at, read.message);
 	// Absent upstream, which the comparison below reads as "ships no hooks".
 	return {
 		text: read.state === "read" ? read.data : null,
@@ -1408,10 +1404,7 @@ function auditInstall(audit, plugin, entry, scope) {
 	const cachedAt = path.join(entry.installPath, "hooks/hooks.json");
 	const read = readText(cachedAt);
 	if (read.state === "unreadable") {
-		noteUnverifiable(audit, key, {
-			unverifiable: `${cachedAt} will not read: ${read.message}`,
-			unreadable: true,
-		});
+		noteUnverifiable(audit, key, wontRead(cachedAt, read.message));
 		return;
 	}
 	// Absent from the cache, which is a divergence wherever upstream has one.
@@ -1440,6 +1433,12 @@ function auditInstall(audit, plugin, entry, scope) {
 		shape: divergenceShape(cached, up.text),
 	});
 }
+
+/** @param {string} at @param {string} message */
+const wontRead = (at, message) => ({
+	unverifiable: `${at} will not read: ${message}`,
+	unreadable: /** @type {const} */ (true),
+});
 
 /**
  * @param {ManifestAudit} audit accumulator: the plugin is listed unverifiable, and counted if unreadable

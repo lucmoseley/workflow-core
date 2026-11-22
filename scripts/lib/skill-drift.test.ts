@@ -108,6 +108,7 @@ describe("skillDrift", () => {
 		writeSkill(pluginRoot, "pick-next", "core body\n");
 		const [drift] = skillDrift({ root, pluginRoot });
 		expect(drift.drifted).toBe(false);
+		expect(drift).toHaveProperty("unreadable", true);
 		expect(drift.reason).toMatch(
 			new RegExp(`^the fork at ${forkPath} will not read: EISDIR`),
 		);

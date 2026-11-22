@@ -40,14 +40,26 @@ function skillDrift({ root = hostRoot(), pluginRoot }) {
 		const fork = readText(forkPath);
 		const core = readText(corePath);
 		/** @param {string} reason @returns {SkillDrift} */
-		const unread = (reason) => ({ name, recordedFrom, drifted: false, reason });
-		if (fork.state === "absent") return unread(`no fork at ${forkPath}`);
+		const notCompared = (reason) => ({
+			name,
+			recordedFrom,
+			drifted: false,
+			reason,
+		});
+		/** @param {string} reason @returns {SkillDrift & { unreadable: true }} */
+		const unreadable = (reason) => ({
+			...notCompared(reason),
+			unreadable: true,
+		});
+		if (fork.state === "absent") return notCompared(`no fork at ${forkPath}`);
 		if (fork.state === "unreadable")
-			return unread(`the fork at ${forkPath} will not read: ${fork.message}`);
+			return unreadable(
+				`the fork at ${forkPath} will not read: ${fork.message}`,
+			);
 		if (core.state === "absent")
-			return unread(`the plugin ships no "${name}" skill at ${corePath}`);
+			return notCompared(`the plugin ships no "${name}" skill at ${corePath}`);
 		if (core.state === "unreadable")
-			return unread(
+			return unreadable(
 				`the plugin's "${name}" skill at ${corePath} will not read: ${core.message}`,
 			);
 		return { name, recordedFrom, drifted: fork.data !== core.data };
