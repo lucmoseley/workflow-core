@@ -23,7 +23,7 @@ BROAD = {
 }
 
 
-def imported(tree, module, wanted):
+def imported_names(tree, module, wanted):
     out = {}
     for n in ast.walk(tree):
         if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[-1] == module:
@@ -72,13 +72,9 @@ def reports(handler, names):
     return False
 
 
-def fails_loudly(handler, names, returns_status=True):
+def reports_or_ends(handler, names):
     if reports(handler, names):
         return True
-    prints = any(
-        isinstance(n, ast.Call) and ast.unparse(n.func) == "print"
-        for n in ast.walk(handler)
-    )
     for n in ast.walk(handler):
         if isinstance(n, ast.Raise):
             return True
@@ -88,16 +84,23 @@ def fails_loudly(handler, names, returns_status=True):
                 name.endswith(".error") and name.split(".")[0] in PARSERS
             ):
                 return True
-        if (
-            prints
-            and returns_status
-            and isinstance(n, ast.Return)
-            and isinstance(n.value, ast.Constant)
-            and type(n.value.value) is int
-            and n.value.value != 0
-        ):
-            return True
     return False
+
+
+def fails_loudly(handler, names):
+    if reports_or_ends(handler, names):
+        return True
+    nodes = list(ast.walk(handler))
+    prints = any(
+        isinstance(n, ast.Call) and ast.unparse(n.func) == "print" for n in nodes
+    )
+    return prints and any(
+        isinstance(n, ast.Return)
+        and isinstance(n.value, ast.Constant)
+        and type(n.value.value) is int
+        and n.value.value != 0
+        for n in nodes
+    )
 
 
 def owners(tree):
@@ -121,46 +124,50 @@ def owners(tree):
     return owner, names
 
 
-def silenced(item, suppressors):
-    call = item.context_expr
-    if not isinstance(call, ast.Call) or ast.unparse(call.func) not in suppressors:
-        return None
-    return None if narrow(call.args) else f"with {ast.unparse(call)}"
+SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
-def catching_return(fn):
-    for n in ast.walk(fn):
-        if (
-            isinstance(n, ast.Return)
-            and n.value is not None
-            and not (isinstance(n.value, ast.Constant) and not n.value.value)
-        ):
-            return n
-    return None
+def own_blocks(fn):
+    stack = [fn]
+    while stack:
+        node = stack.pop()
+        for _, value in ast.iter_fields(node):
+            children = value if isinstance(value, list) else [value]
+            if children and all(isinstance(c, ast.stmt) for c in children):
+                yield children
+            stack.extend(
+                c
+                for c in children
+                if isinstance(c, ast.AST) and not isinstance(c, SCOPES)
+            )
+
+
+def catches(stmt):
+    return (
+        isinstance(stmt, ast.Return)
+        and stmt.value is not None
+        and not (isinstance(stmt.value, ast.Constant) and not stmt.value.value)
+    )
 
 
 def exit_swallows(fn, names):
     if fn.name not in ("__exit__", "__aexit__"):
         return None
-    caught = catching_return(fn)
-    if caught is None:
-        return None
     params = [*fn.args.posonlyargs, *fn.args.args]
-    handler = ast.ExceptHandler(
-        type=None,
-        name=params[-2].arg if len(params) >= 3 else None,
-        body=fn.body,
-    )
-    if fails_loudly(handler, names, returns_status=False):
-        return None
-    return caught.lineno, f"{fn.name} returning {ast.unparse(caught.value)}"
+    bound = params[-2].arg if len(params) >= 3 else None
+    for block in own_blocks(fn):
+        for at, stmt in enumerate(block):
+            path = ast.ExceptHandler(type=None, name=bound, body=block[: at + 1])
+            if catches(stmt) and not reports_or_ends(path, names):
+                return stmt.lineno, f"{fn.name} returning {ast.unparse(stmt.value)}"
+    return None
 
 
 def breaches(src):
     tree = ast.parse(src)
     owner, names = owners(tree)
-    via = imported(tree, "fail_open", REPORTERS)
-    suppressors = imported(tree, "contextlib", ("suppress",))
+    via = imported_names(tree, "fail_open", REPORTERS)
+    suppressors = imported_names(tree, "contextlib", ("suppress",))
     out = []
 
     def where(n):
@@ -170,11 +177,12 @@ def breaches(src):
         if isinstance(n, ast.ExceptHandler) and not fails_loudly(n, via):
             caught = ast.unparse(n.type) if n.type else "<bare>"
             out.append((n.lineno, where(n), f"except {caught}"))
-        if isinstance(n, (ast.With, ast.AsyncWith)):
-            for item in n.items:
-                caught = silenced(item, suppressors)
-                if caught:
-                    out.append((n.lineno, where(n), caught))
+        if (
+            isinstance(n, ast.Call)
+            and ast.unparse(n.func) in suppressors
+            and not narrow(n.args)
+        ):
+            out.append((n.lineno, where(n), ast.unparse(n)))
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
             swallow = exit_swallows(n, via)
             if swallow:

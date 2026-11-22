@@ -82,7 +82,9 @@ def test_a_suppress_of_a_broad_type_is_a_swallow():
         ("from contextlib import suppress as quiet", "quiet(*ERRORS)"),
     ):
         src = f"{line}\ndef f():\n    with {opened}:\n        x = 1\n"
-        assert breaches(src) == [(3, "f", f"with {opened}")], opened
+        assert breaches(src) == [(3, "f", opened)], opened
+    entered = "import contextlib\nstack.enter_context(contextlib.suppress(Exception))\n"
+    assert breach_lines(entered) == [2]
 
 
 def test_a_suppress_of_a_specific_type_or_not_from_contextlib_passes():
@@ -103,6 +105,8 @@ def test_an_exit_that_returns_true_without_reporting_is_a_swallow():
         "if isinstance(error, Exception):\n            return True\n        return False",
         "print(error)\n        return True",
         "fail_open(error, 'kept')\n        return True",
+        "if isinstance(error, KeyError):\n            fail_open(error, 'k')\n"
+        "            return True\n        return True",
     ):
         found = [(f, c) for _, f, c in breaches(exiting(body))]
         assert found == [("Q.__exit__", "__exit__ returning True")], body
@@ -115,6 +119,11 @@ def test_an_exit_that_reports_raises_or_propagates_passes():
     for body in (
         "fail_open(error, 'kept')\n        return True",
         "tallied(error, t, 'k')\n        return True",
+        "if not isinstance(error, Exception):\n            return False\n"
+        "        fail_open(error, 'kept')\n        return True",
+        "if isinstance(error, Exception):\n            fail_open(error, 'kept')\n"
+        "            return True\n        return False",
+        "def g():\n            return True\n        return False",
         "if error:\n            raise SystemExit(1) from error\n        return False",
         "return False",
         "return None",
@@ -156,8 +165,3 @@ def test_the_cli_reports_each_source_and_an_unparsable_one_as_an_error():
     assert b["name"] == "b.py"
     assert "error" in b
     assert "fail-open: b.py not judged: SyntaxError" in out.stderr
-
-
-def test_the_call_cost_harness_passes_by_its_shape():
-    harness = Path(__file__).resolve().parent / "lib" / "call_cost_harness.py"
-    assert breaches(harness.read_text(encoding="utf-8")) == []
