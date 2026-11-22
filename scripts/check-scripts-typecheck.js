@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* #5510 */
 
 const fs = require("node:fs");
 const { markersDir } = require("./lib/marker-root.js");

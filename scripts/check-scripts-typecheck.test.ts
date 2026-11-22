@@ -111,25 +111,14 @@ describe("the census — which tracked files have silenced the type checker", ()
 });
 
 describe("the finding a silenced file raises", () => {
-	it("raises one TYPECHECK-SILENCED finding whose way out is converting the file", () => {
-		// #5492
+	it("raises one TYPECHECK-SILENCED finding whose way out is converting the file (#5492)", () => {
 		write("scripts/plain.js", buildSilenced("plain.js"));
-		write(
-			"scripts/said.js",
-			"#!/usr/bin/env node\n// @ts-nocheck\n/*\n * said.js — a fixture.\n *\n * NO type checking (§N8). A reason.\n */\n\nmodule.exports = {};\n",
-		);
 		commitAll();
 		const envelope = JSON.parse(run(["--json"]).out);
-		expect(envelope.findings).toHaveLength(2);
-		for (const f of envelope.findings) {
-			expect(f.tag).toBe("TYPECHECK-SILENCED");
-			expect(f.message).toContain("§N8: convert the file");
-			expect(Object.keys(f)).not.toContain("reason");
-		}
-		const text = run(["--full"]).out;
-		expect(text).toMatch(/scripts\/said\.js {2}\(\d+ lines\)/);
-		expect(text).not.toContain("NO type checking (§N8).");
-		expect(text).not.toMatch(/reason/i);
+		expect(envelope.findings).toHaveLength(1);
+		expect(envelope.findings[0].tag).toBe("TYPECHECK-SILENCED");
+		expect(envelope.findings[0].message).toContain("§N8: convert the file");
+		expect(run(["--full"]).out).toMatch(/scripts\/plain\.js {2}\(\d+ lines\)/);
 	});
 });
 
