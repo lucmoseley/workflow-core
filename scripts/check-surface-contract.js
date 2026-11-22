@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { runCheck } = require("./lib/check");
 const { TAG_RE, isMajorBump, readLatestTag } = require("./lib/release-tags.js");
 const { MIGRATIONS_DIR } = require("./lib/workflow-core-config.js");
@@ -164,7 +164,7 @@ runCheck({
 	name: "surface-contract",
 	usage: "node check-surface-contract.js [--warn]",
 	run(/** @type {Ctx} */ ctx) {
-		const root = hostRoot();
+		const root = worktreeRoot();
 		const git = (/** @type {string[]} */ args) => {
 			try {
 				return execGit(args, {

@@ -5,7 +5,7 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isUnder } = require("./lib/is-under.js");
 const { escapeRe, requiredGroup } = require("./lib/regex-group");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { readHookCode } = require("./lib/hook-code.js");
 const { isJsExt } = require("./lib/test-kind.js");
 const { isApparatus } = require("./lib/suite-apparatus.js");
@@ -710,7 +710,7 @@ const SPEC = {
 	against: { profile: "host-root", materialise: "tree" },
 	/** @returns {import("./lib/check").CheckResult} */
 	run(/** @type {import("./lib/check").Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!shipsPlugin(root))
 			ctx.skip(
 				`${root} ships no plugin (.claude-plugin/plugin.json is absent) — its scripts run in place`,

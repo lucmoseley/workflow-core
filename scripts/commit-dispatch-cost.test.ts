@@ -201,12 +201,11 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"git rev-parse",
 			"git ls-files",
 			"git diff",
+			"git rev-parse",
+			"git rev-parse",
 			"git ls-files",
 			"git rev-parse",
 			"git diff",
-			"git rev-parse",
-			"git rev-parse",
-			"git rev-parse",
 		]);
 	});
 
@@ -540,11 +539,9 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"git cat-file",
 			"git rev-parse",
 			"git rev-parse",
-			"git rev-parse",
 			"git -C",
 			"git -C",
 			"git -c",
-			"git rev-parse",
 			"git rev-parse",
 			"git rev-parse",
 			"git rev-parse",

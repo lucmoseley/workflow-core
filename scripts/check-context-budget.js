@@ -97,7 +97,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { runCheck, errMessage } = require("./lib/check");
 const { SELF_PLUGIN_COST } = require("./lib/core-context-cost.js");
@@ -1379,7 +1379,7 @@ const SPEC = {
 	},
 	/** @returns {CheckResult} */
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 
 		const descs = readDescriptions(ctx, root);
 		const own = descs.filter((d) => !d.vendored);

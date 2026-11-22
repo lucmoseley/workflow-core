@@ -36,7 +36,7 @@
  */
 
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { RULES_DIR, withRuleStore } = require("./lib/rule-text.js");
 const {
 	MARGIN_INPUTS,
@@ -62,7 +62,7 @@ const SPEC = {
 		pathspecs: () => MARGIN_INPUTS,
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		const { limit, sizes, fallbacks } = withRuleStore(
 			path.join(root, RULES_DIR),
 			"",

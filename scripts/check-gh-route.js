@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { readWorktreeHead, shellFiles } = require("./lib/formatters.js");
 const { judgeTree } = require("./lib/gh-route.js");
 const { listTreeFiles, saySites } = require("./lib/heresy-scan.js");
@@ -26,7 +26,7 @@ const SPEC = {
 	},
 	run(/** @type {Ctx} */ ctx) {
 		const rootFlag = ctx.value("--root");
-		const root = path.resolve(rootFlag ?? hostRoot());
+		const root = path.resolve(rootFlag ?? worktreeRoot());
 		const files = listTreeFiles(root, ROOTS).sort();
 		const isCheckout = hasOwnGit(root);
 		const shell = new Set(

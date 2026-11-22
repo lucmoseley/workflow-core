@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isRouteStep } = require("./lib/decision-labels");
-const { hostRoot } = require("./lib/host-root");
+const { worktreeRoot } = require("./lib/host-root");
 const { resolveGate, citedSays, judgeOverrideOf } = require("./lib/issue-gate");
 const { readBasisFaults, unreadNote } = require("./lib/basis-cited-read");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
@@ -87,8 +87,8 @@ const HUMAN_FAULTS = {
 /** @param {string} name */
 const isCommand = (name) =>
 	COMMAND_VALUES.includes(name) ||
-	fs.existsSync(path.join(hostRoot(), ".claude", "skills", name)) ||
-	fs.existsSync(path.join(hostRoot(), ".claude", "commands", `${name}.md`));
+	fs.existsSync(path.join(worktreeRoot(), ".claude", "skills", name)) ||
+	fs.existsSync(path.join(worktreeRoot(), ".claude", "commands", `${name}.md`));
 
 const HUMAN_REVIEW_DAYS = 14;
 /** @param {string} iso */
