@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { bareCoreRoot } from "./lib/bare-core-fixture";
 import { orFallback } from "./lib/caught.js";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
@@ -281,7 +282,7 @@ interface Finding {
 const check = (repo: string) => {
 	const r = runInProcess(SCRIPT, ["--json"], {
 		cwd: repo,
-		env: { ...process.env },
+		env: { ...process.env, WFC_SCRIPT_ROOT: bareCoreRoot() },
 	});
 	const json: { outcome?: string; findings?: Finding[] } = orFallback(
 		() => JSON.parse(r.stdout),

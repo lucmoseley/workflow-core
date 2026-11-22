@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { bareCoreRoot } from "./lib/bare-core-fixture";
 import { ignoreFailure } from "./lib/caught.js";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, mkScratchDir, scratchBase } from "./lib/git-fixture";
@@ -209,7 +210,7 @@ const writeMap = (
 const check = (env: Record<string, string> = {}, ...args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: repo,
-		env: { ...process.env, ...env },
+		env: { ...process.env, WFC_SCRIPT_ROOT: bareCoreRoot(), ...env },
 	});
 	return { status: r.status, stdout: r.stdout, out: `${r.stdout}${r.stderr}` };
 };
@@ -1426,9 +1427,18 @@ describe("check-doc-map", () => {
 			expect(r.status).toBe(0);
 		});
 
-		it("still fails all three in a source checkout of the core, tagging each DEAD-ROUTE, DEAD-RESTATEMENT or DEAD-CONSUMES", () => {
+		it("resolves all three against a source checkout of the core outside the adopter", () => {
 			fs.writeFileSync(path.join(plugin, "package.json"), "{}\n");
-			const r = check({ WFC_SCRIPT_ROOT: plugin }, "--json");
+			execFileSync("git", ["init", "-q"], { cwd: plugin });
+			const r = check({ WFC_SCRIPT_ROOT: plugin });
+			expect(r.out).not.toContain("point at no tracked file");
+			expect(r.out).not.toContain("resolve to nothing");
+			expect(r.status).toBe(0);
+		});
+
+		it("still fails all three in the core's own repo, tagging each DEAD-ROUTE, DEAD-RESTATEMENT or DEAD-CONSUMES", () => {
+			track("package.json", "{}\n");
+			const r = check({ WFC_SCRIPT_ROOT: repo }, "--json");
 			expect(r.status).toBe(1);
 			const byTag = Object.fromEntries(
 				JSON.parse(r.stdout).findings.map((f: { tag: string }) => [f.tag, f]),

@@ -12,7 +12,7 @@
 	"scripts/check-ci-status.js": "1f4653504b3ff323",
 	"scripts/check-citation-tracker.js": "2e8daf7fed291344",
 	"scripts/check-digest-version.js": "86708992da838ea4",
-	"scripts/check-doc-map.js": "9dac1bafc6a05af6",
+	"scripts/check-doc-map.js": "2413a2f9a04ff7f1",
 	"scripts/check-gate-switches.js": "06e0ed8daba59d39",
 	"scripts/check-guard-registry.js": "1131c5bfc809fbc5",
 	"scripts/check-harness-canary.js": "c9fced97ef97480b",
