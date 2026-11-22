@@ -202,7 +202,7 @@ Three kinds of export are not test-only:
 
 **Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise an open issue names the caller that will supply one, and the seam cites it as a bare `#N` (K5).
 
-`scripts/lib/suite-queue.js:606` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:21` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
+`scripts/lib/suite-queue.js:416` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:21` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
 
 Where neither fits, remove the seam: create the dependency in place, and let the test reach it another way, through a temp directory, the real clock, or a binary stubbed at its §N7 var (#1374).
 
@@ -232,7 +232,7 @@ The unasked-rerun guard asks whether certificates attest a commit, so its verdic
 
 **Program, library and hook module.** §N9 holds what a function is passed; this holds the state it reaches without being passed: Fowler's Global Data smell, and the other half of his Mutable Data smell (#1308, #1821). That state is a module-scope `let`, a module-scope object, array, Map or Set, or `process.env`. It is written by one function, or only by functions whose names say what each does to it, so a reader finds every write from the declaration. Another module never writes it directly, only through one of those functions. `process.env` has no declaration, so each variable counts as state of its own, and a write through a general setter such as `setEnv` is its caller's. The breach is a second writer named for something else.
 
-`scripts/lib/suite-handoff.js:203-222` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:145-157` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:167`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
+`scripts/lib/suite-handoff.js:123-137` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:65-74` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:167`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
 
 The fixes, best first: return the value, so the caller holds it; pass it in, so the write shows at the call site, where §N9 holds a program to it; or move each write into a function named for it, declared beside the state (Fowler's Encapsulate Variable).
 
@@ -461,7 +461,7 @@ Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers 
 
 ### §N9 · A function returns its result rather than changing what it was passed — **judgement**
 
-**Program kind only**: library code leans on §T5's `readonly` instead, which holds a passed record's fields and arrays but not a passed Map, Set or regex. A function returns its result rather than changing an object or array it was passed, so every value a call changes shows at the call site. A field write, a push, an in-place sort and a reset of a regex's `lastIndex` all count, and so does a write to an element of a passed list or through a destructured options field. `scripts/lib/issue-gate.js:134` runs a caller's regex on a copy rather than resetting it: *"const local = new RegExp(re);"*.
+**Program kind only**: library code leans on §T5's `readonly` instead, which holds a passed record's fields and arrays but not a passed Map, Set or regex. A function returns its result rather than changing an object or array it was passed, so every value a call changes shows at the call site. A field write, a push, an in-place sort and a reset of a regex's `lastIndex` all count, and so does a write to an element of a passed list or through a destructured options field. `scripts/lib/issue-gate.js:76` runs a caller's regex on a copy rather than resetting it: *"const local = new RegExp(re);"*.
 
 **The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said by the parameter's name or type, which names what accumulates in it, as the parameter `tally`, typed `Tally`, in `scripts/check-cleared-trackers.js` does (#1375, #5455). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the name says which. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
 
