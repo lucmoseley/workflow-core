@@ -40,7 +40,10 @@ module.exports = { isModuleRetirement };
 
 if (require.main === module) {
 	const { positionals } = parseArgs({ allowPositionals: true, strict: true });
+	const [name] = positionals;
 	process.exit(
-		positionals.length === 1 && isModuleRetirement(positionals[0]) ? 0 : 1,
+		positionals.length === 1 && name !== undefined && isModuleRetirement(name)
+			? 0
+			: 1,
 	);
 }
