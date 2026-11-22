@@ -355,7 +355,7 @@ describe("judgeFile", () => {
 		]);
 	});
 
-	it("lets the binary's reader read its own var, and a program assign it, but not gh.js", () => {
+	it("lets the binary's reader read its own var, and a program assign it, and flags gh.js reading it as NODE-COPY", () => {
 		expect(
 			tags(
 				"scripts/lib/gh-binary.js",
