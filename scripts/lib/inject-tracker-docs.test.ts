@@ -9,7 +9,7 @@ import { initGitRepo } from "./git-fixture";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
 import { runInProcess } from "./run-in-process.js";
-import { withStubbedEnv } from "./scoped-env";
+import { withStubbedEnv } from "./scoped-env-testkit";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const { injectTrackerDocs } =

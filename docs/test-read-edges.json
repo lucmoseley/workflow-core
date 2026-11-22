@@ -56056,7 +56056,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/lib/scoped-env.ts": [
+		"scripts/lib/scoped-env-testkit.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
