@@ -150,6 +150,8 @@ const COPIED = [
 	/* The machine's limits and the guards' figures, which their text sends a
 	 * session to (#1452). */
 	"docs/environment.md",
+	/* #5499 */
+	"docs/environment-incidents.md",
 	/* The standards base, read at runtime: every review route hands it over
 	 * from here, beside the host's own local file, which never ships (#967). */
 	STANDARDS_DOCS.base,

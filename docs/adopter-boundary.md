@@ -23,6 +23,7 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 - `docs/agents` — the rule text guards and skills read at runtime, the tracker rules among them.
 - `docs/effort-guide.md` — which model and effort a job gets.
 - `docs/environment.md` — one machine's limits as a worked example, and which live figure each shipped guard reads.
+- `docs/environment-incidents.md` — that machine's dated incidents, each with its signature and fix.
 - `docs/code-standards-base.md` — the code standards every review reads.
 - `docs/comment-kinds.md` — the comment keep-list `/code-review`'s Comments axis and `concision-pass` paste.
 - `docs/practice` — the practice notes, without their `## In workflow-core` sections, which hold only lines that would mislead an adopter: those about workflow-core's own release notes, its CI config and its unshipped tools. A line about shipped machinery, its measured evidence included, sits in its entry and ships: an adopter's session reads the plugin's copy of a note where its own is missing or stale.
