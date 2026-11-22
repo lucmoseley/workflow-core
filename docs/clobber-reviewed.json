@@ -122,5 +122,6 @@
 	"#4481\t2026-11-05T13:12:06Z": "The stall ticket's own status line, `- Batch under test: <sha>`, refreshed by its filer when the queue lander's heartbeat named another sha (#5360). No human text lost.",
 	"#4828\t2026-11-09T21:17:47Z": "The stall ticket's own status line, `- Batch under test: <sha>`, refreshed by its filer when the queue lander's heartbeat named another sha (#5360). No human text lost.",
 	"#4972\t2026-11-17T16:09:32Z": "Replaced the 2026-11-18 Gated until line with the 2026-11-30 miss-rate gate once the run-time reading posted early at 16:08:36, ticking the run-time criterion.",
-	"#5022\t2026-11-11T14:07:23Z": "Reworded the Outside Claude Code line to begin with its founder-act category; the new line landed 13 seconds later."
+	"#5022\t2026-11-11T14:07:23Z": "Reworded the Outside Claude Code line to begin with its founder-act category; the new line landed 13 seconds later.",
+	"#5472\t2026-11-22T04:41:53Z": "Tightened the Gated on line to a start-stop pair 10+ minutes apart, its Gate basis line rewritten to match, after both runs since the restart ended inside 2 minutes; the delegated-decision comment at 04:42:22Z records it."
 }
