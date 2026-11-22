@@ -113,6 +113,7 @@ function lines(f: Fixture = {}) {
 			queue:
 				waiting === null ? [] : [{ name: "alpha", sha: waiting, pushedAt: 1 }],
 			dropped: f.dropped ?? [],
+			trackerDropped: [],
 		},
 		f.rows ?? [],
 	).map(buildQueueRefLine);
