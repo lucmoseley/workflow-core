@@ -671,7 +671,7 @@ describe("the CLI", () => {
 		expect(r.stderr).toContain(
 			'this edit adds the basis "#96 asks for a week", which carries no warrant, as the wording patterns read it. Every gate line',
 		);
-		expect(r.stderr).toContain("baseline 27/449 attempts");
+		expect(r.stderr).toContain("baseline 3/30 VM boots");
 		expect(readEdits()).toBe(0);
 		run("append", "96", "--text", "**Gate basis:** #97 ruled a week");
 		expect(readBody()).toContain("#97 ruled a week");
