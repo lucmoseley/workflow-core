@@ -4,7 +4,7 @@ const {
 	DENIES_THROUGH_BODY,
 } = require("./deny-capable.js");
 const { SHIM_MARK } = require("./hook-shim.js");
-const { EXEMPT_MARKERS } = require("./exempt-markers.js");
+const { EXEMPT_MARKERS, POINTER } = require("./exempt-markers.js");
 const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
 
@@ -639,7 +639,7 @@ const DIRECTIVES = [
 	},
 	{
 		re: new RegExp(
-			String.raw`^(?:full-sweep-only:|(?:${EXEMPT_MARKERS.join("|")})-exempt:|Unbuilt caller:\s*(?=[^\s./]*[./])\S+(?=\s|$))(.*)$`,
+			String.raw`^(?:full-sweep-only:|(?:${EXEMPT_MARKERS.map(escapeRe).join("|")})-exempt:|Unbuilt caller:\s*(?=[^\s./]*[./])\S+(?=\s|$))(.*)$`,
 		),
 		read: (m) => (barePointers(m[1] ?? "") ? "code" : null),
 	},
@@ -750,9 +750,6 @@ function styleOnly(list, tool, rule) {
 				: rule.startsWith(`${entry}/`)),
 	);
 }
-
-const POINTER =
-	/^(?:(?:[\w.-]+\/[\w.-]+)?#\d+|ADR-\d{4}|RFC\d+(?:§[\d.]+)?|https?:\/\/(?:www\.rfc-editor\.org\/rfc\/|datatracker\.ietf\.org\/doc\/(?:html\/)?|tools\.ietf\.org\/html\/)rfc\d+(?:[#/?.]\S*)?)$/;
 
 /** @param {string} text */
 function barePointers(text) {

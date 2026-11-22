@@ -49,7 +49,7 @@ export function readProcessesUnder(dir: string) {
 	});
 }
 
-// env-write-exempt: #5540
+// env-write-exempt: #4982
 process.env.WFC_READ_AUDIT_UNTRACED = "1";
 
 export function env(extra: Record<string, string> = {}) {

@@ -1,7 +1,7 @@
 const { blankComments } = require("./strip-comments.js");
 const { requiredGroup } = require("./regex-group.js");
 const { cutAt } = require("./cut-at.js");
-const { exemptMarker } = require("./exempt-markers.js");
+const { exemptHint, exemptMarker } = require("./exempt-markers.js");
 const { isTestKind } = require("./test-kind.js");
 
 /**
@@ -49,7 +49,7 @@ function buildRoute({
 		fix: {
 			"SECOND-VAR": `name the binary through ${envVar}, the one var ${primitive} reads, as ${exemplar} and ${shellExemplar} do.`,
 			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
-			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it \`${bin}-route-exempt: #N\` where \`${bin}\` is only text.`,
+			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it ${exemptHint(/** @type {const} */ (`${bin}-route`))} where \`${bin}\` is only text.`,
 			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
 		},
 		secondVar,

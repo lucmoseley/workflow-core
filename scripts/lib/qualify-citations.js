@@ -11,7 +11,7 @@ const QUOTE_OPEN = /"""|[`"“]/g;
 const TRIPLE_QUOTE = /"""|'''/g;
 const FENCE = /^\s*(```|~~~)/;
 const HUSKY_HOOK = /^\.husky\/[^/.]+$/;
-const BARE_CITATION_OK = exemptMarker("bare-citation");
+const EXEMPT = exemptMarker("bare-citation");
 // measured ~95 issues a day, #5356
 const CITATION_CEILING = 10_000;
 
@@ -47,8 +47,7 @@ function bracketPairs(line) {
  * @param {string} above
  * @param {(line: string) => boolean} citable
  */
-const excused = (above, citable) =>
-	citable(above) && BARE_CITATION_OK.test(above);
+const excused = (above, citable) => citable(above) && EXEMPT.test(above);
 
 /**
  * @param {string} line

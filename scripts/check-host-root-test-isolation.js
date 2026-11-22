@@ -5,7 +5,7 @@ const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
-const { exemptMarker } = require("./lib/exempt-markers.js");
+const { exemptHint, exemptMarker } = require("./lib/exempt-markers.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
@@ -210,7 +210,7 @@ const SPEC = {
 				"  Fix: give the spawn env a CLAUDE_PROJECT_DIR under the case's temp directory (scripts/run-vitest.test.ts and similar spawn helpers show the shape).",
 			);
 			ctx.say(
-				"  Genuinely rooted at the real repo on purpose? Record why on an issue and put `isolation-exempt: #N` in a comment naming it; this check drops the file.",
+				`  Genuinely rooted at the real repo on purpose? Record why on an issue and put ${exemptHint("isolation")} in a comment naming it; this check drops the file.`,
 			);
 		}
 

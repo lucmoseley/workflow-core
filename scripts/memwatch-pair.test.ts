@@ -12,7 +12,7 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
 
-// env-write-exempt: #5540
+// env-write-exempt: #4982
 process.env.WFC_READ_AUDIT_UNTRACED = "1";
 
 const HOME = os.homedir();
