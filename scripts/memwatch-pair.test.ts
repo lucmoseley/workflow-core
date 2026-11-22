@@ -11,9 +11,9 @@ import { keptSpawn } from "./lib/kept-spawn.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
+import { untraceChildren } from "./lib/untraced-children.js";
 
-// env-write-exempt: #4982
-process.env.WFC_READ_AUDIT_UNTRACED = "1";
+untraceChildren();
 
 const HOME = os.homedir();
 const MEMCHECK = path.join(HOME, "memcheck.sh");

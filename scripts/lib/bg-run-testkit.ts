@@ -13,6 +13,7 @@ import { ignoreFailure } from "./caught.js";
 import { REAL_PROC } from "./proc-root.js";
 import { isDead } from "./process-fixture";
 import { shellQuote } from "./sh-quote.js";
+import { untraceChildren } from "./untraced-children.js";
 
 const { TEST_TIMEOUT_MS } = require("./test-ceiling.js");
 
@@ -49,8 +50,7 @@ export function readProcessesUnder(dir: string) {
 	});
 }
 
-// env-write-exempt: #4982
-process.env.WFC_READ_AUDIT_UNTRACED = "1";
+untraceChildren();
 
 export function env(extra: Record<string, string> = {}) {
 	return {

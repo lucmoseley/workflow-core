@@ -12,3 +12,13 @@ export function withStubbedEnv<T>(
 		for (const [name, value] of held) vi.stubEnv(String(name), value);
 	}
 }
+
+export function withOnlyEnv<T>(
+	vars: Record<string, string | undefined>,
+	fn: () => T,
+): T {
+	const unset = Object.fromEntries(
+		Object.keys(process.env).map((name) => [name, undefined]),
+	);
+	return withStubbedEnv({ ...unset, ...vars }, fn);
+}

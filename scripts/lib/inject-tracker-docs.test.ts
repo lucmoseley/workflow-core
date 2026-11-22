@@ -9,6 +9,7 @@ import { initGitRepo } from "./git-fixture";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
 import { runInProcess } from "./run-in-process.js";
+import { withOnlyEnv } from "./scoped-env";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const { injectTrackerDocs } =
@@ -43,26 +44,12 @@ const FAKE_PORTS: Ports = {
 	log: logFailOpen,
 };
 
-function withEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
-	const saved = process.env;
-	// env-write-exempt: #5540
-	process.env = Object.fromEntries(
-		Object.entries(env).filter(([, v]) => v !== undefined),
-	) as NodeJS.ProcessEnv;
-	try {
-		return fn();
-	} finally {
-		// env-write-exempt: #5540
-		process.env = saved;
-	}
-}
-
 const runRaw = (
 	payload: object | string,
 	env: Record<string, string> = {},
 	ports: Partial<Ports> = {},
 ): string =>
-	withEnv(
+	withOnlyEnv(
 		{
 			...process.env,
 			// #448
