@@ -63,3 +63,6 @@
 {"issue":"lucmoseley/workflow-core-tracker#5569","filedAt":"2026-11-22T11:05:04.656Z","signature":null,"why":"a red or slow test in the scheduled Actions sweep leaves only that run's log, which no session transcript records"}
 {"issue":"lucmoseley/workflow-core-tracker#5570","filedAt":"2026-11-22T11:05:28.529Z","signature":null,"why":"a red or slow test in the scheduled Actions sweep leaves only that run's log, which no session transcript records"}
 {"issue":"lucmoseley/workflow-core-tracker#5571","filedAt":"2026-11-22T11:06:00.136Z","signature":null,"why":"a red or slow test in the scheduled Actions sweep leaves only that run's log, which no session transcript records"}
+{"issue":"lucmoseley/workflow-core-tracker#5576","filedAt":"2026-11-22T12:16:03.680Z","signature":null,"why":"the fail-open record lands in the per-project guard-errors.log, outside any session transcript"}
+{"issue":"lucmoseley/workflow-core-tracker#5577","filedAt":"2026-11-22T12:19:22.194Z","signature":null,"why":"the failure surfaces in an adopter's pre-commit output, run before any release carries it, which no session transcript of this repo records"}
+{"issue":"lucmoseley/workflow-core-tracker#5578","filedAt":"2026-11-22T12:33:33.726Z","signature":null,"why":"The fault is text drawn in the refill-loop panel's terminal pane; no transcript, hook output or tool call records it."}
