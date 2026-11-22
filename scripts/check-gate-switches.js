@@ -13,6 +13,7 @@ const { corePath } = require("./lib/script-path.js");
 
 const INIT = corePath("scripts/init-adopter.js");
 
+// guess, #1506
 const SHOWN = 3;
 
 /** @param {string[]} found */

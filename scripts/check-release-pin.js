@@ -42,6 +42,7 @@ function semverParts(v) {
 	return [major, minor, patch];
 }
 
+// guess, #257
 const LS_REMOTE_TIMEOUT_MS = 15_000;
 
 // guess, two ~12h sweep intervals, #4675

@@ -93,8 +93,11 @@ function seedUnprobed(agoMs: number) {
 	);
 }
 
-const POLLS = 100;
+// guess, #2819
+const CEILING_MS = 10_000;
+// guess, #2819
 const POLL_MS = 100;
+const POLLS = CEILING_MS / POLL_MS;
 async function until(done: () => boolean) {
 	for (let i = 0; i < POLLS && !done(); i++)
 		await new Promise((res) => setTimeout(res, POLL_MS));
