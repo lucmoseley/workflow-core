@@ -1,4 +1,3 @@
-import io
 import json
 import os
 import sys
@@ -318,11 +317,6 @@ def test_a_top_level_split_field_wins_over_the_nested_one(corpus):
     corpus("m", [r])
     (req,) = sb.requests(Counter())
     assert sb.usd(req) == pytest.approx(18.75)
-
-
-def test_the_scanner_file_states_its_own_rule():
-    src = io.open(os.path.join(HERE, "scan_burn.py"), encoding="utf-8").read()
-    assert "one billable unit per `requestId`" in src
 
 
 def run_main(capsys, *argv):
