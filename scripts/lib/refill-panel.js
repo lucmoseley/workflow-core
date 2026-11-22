@@ -663,8 +663,7 @@ function buildBurnMachineRows(burnMode) {
  * @returns {Row[]}
  */
 function buildBurnReportRows({ on, code, lines }) {
-	if (code === 0 && lines.length === 0)
-		return [{ text: BURN_RESTART_NOTE, role: "secondary" }];
+	if (code === 0) return [{ text: BURN_RESTART_NOTE, role: "secondary" }];
 	return [
 		{
 			text: `burn-mode.sh ${on ? "on" : "off"}: exit ${code}`,
@@ -1066,7 +1065,7 @@ function buildRepoPress({ status, presses }, name) {
  */
 function buildBurnReport(on, { code, stdout, stderr }) {
 	const lines =
-		code === 0 && !stderr.trim()
+		code === 0
 			? []
 			: `${stderr}\n${stdout}`
 					.split("\n")
