@@ -21,12 +21,12 @@ const production = (logged: string[] = []) =>
 
 function withEnv<T>(env: Record<string, string>, fn: () => T): T {
 	const saved = process.env;
-	// env-write-kept: swapped and restored around one synchronous call, never across a case.
+	// env-write-exempt: #5540
 	process.env = { ...saved, ...env };
 	try {
 		return fn();
 	} finally {
-		// env-write-kept: the restore of the swap above.
+		// env-write-exempt: #5540
 		process.env = saved;
 	}
 }

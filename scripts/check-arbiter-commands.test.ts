@@ -146,21 +146,24 @@ describe("check-arbiter-commands", () => {
 	it.each([
 		[
 			"above",
-			'// arbiter-literal-exempt: corePaths spells it\nconst m = "node scripts/session-arbiter.js list";\n',
+			'// arbiter-literal-exempt: #5540\nconst m = "node scripts/session-arbiter.js list";\n',
 		],
 		[
 			"on",
-			'const m = "node scripts/session-arbiter.js list"; // arbiter-literal-exempt: corePaths spells it\n',
+			'const m = "node scripts/session-arbiter.js list"; // arbiter-literal-exempt: #5540\n',
 		],
 	])("passes a literal marked %s its line", (_where, body) => {
 		program("a.js", body);
 		expect(run().status).toBe(0);
 	});
 
-	it("refuses a marker with no reason", () => {
+	it.each([
+		["no pointer", "// arbiter-literal-exempt:"],
+		["prose", "// arbiter-literal-exempt: corePaths spells it"],
+	])("refuses a marker carrying %s", (_what, marker) => {
 		program(
 			"a.js",
-			'// arbiter-literal-exempt:\nconst m = "node scripts/session-arbiter.js list";\n',
+			`${marker}\nconst m = "node scripts/session-arbiter.js list";\n`,
 		);
 		expect(run().status).toBe(1);
 	});
@@ -168,7 +171,7 @@ describe("check-arbiter-commands", () => {
 	it("excuses no word by the marker, and reports its line once", () => {
 		program(
 			"a.js",
-			`// arbiter-literal-exempt: corePaths spells it\nconst m = \`node scripts/session-arbiter.js release ${DOLLAR}{rel}\`;\n`,
+			`// arbiter-literal-exempt: #5540\nconst m = \`node scripts/session-arbiter.js release ${DOLLAR}{rel}\`;\n`,
 		);
 		const { status, out } = run();
 		expect(status).toBe(1);

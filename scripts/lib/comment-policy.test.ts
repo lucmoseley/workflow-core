@@ -313,6 +313,15 @@ describe("what is not a comment", () => {
 		).toEqual(["COMMENT@1"]);
 	});
 
+	it("refuses an exempt marker no checker registers (#5540)", () => {
+		expect(tags("// foo-exempt: #1\nconst a = 1;\n", "js")).toEqual([
+			"COMMENT@1",
+		]);
+		expect(tags("// env-write-exempt: #4019\nconst a = 1;\n", "js")).toEqual(
+			[],
+		);
+	});
+
 	it("reads a guard's DENIES-THROUGH and DENIES-BY lines as code, and refuses one carrying prose", () => {
 		expect(tags("// DENIES-THROUGH: lib/guard-judge.js\nx();\n", "js")).toEqual(
 			[],

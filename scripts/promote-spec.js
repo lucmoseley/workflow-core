@@ -1,47 +1,5 @@
 #!/usr/bin/env node
-/*
- * promote-spec.js — move a brief's spec up to hang directly under its map, and
- * close the brief, in one call (#608; spec #606, ruled at #578).
- *
- *   node scripts/promote-spec.js <brief>
- *
- * The spec and the map are derived, never passed: the spec is the brief's one
- * open `kind:spec` sub-issue, the map is the brief's parent, which must carry
- * `wayfinder:map`.
- *
- * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this holds for itself what
- * the guard-issue-close core holds on the hand spelling — `**Outstanding:**`, a
- * roadmap card's own issue going to /card-close, and no open child but the
- * spec it moves (#3637) — refuses to move the spec under a closed map, as
- * link-sub-issue.sh does (#3651), and does what release-issue-claim.js does
- * after it.
- *
- * ORDER: every refusal, then re-parent, comment, close, release. Nothing is
- * written on the spec, and the brief is never closed before the map lists the
- * spec.
- *
- * THE RE-PARENT GOES THROUGH lib/link-writer.js (link-sub-issue.sh
- * --replace-parent), which refuses a move that would close a loop of open
- * issues and verifies it from the map's side (#5070).
- *
- * RE-RUN FINISHES ONLY WHAT IS MISSING. Once the move lands the spec is no
- * longer the brief's child, so a brief with no open spec child is looked up in
- * its timeline: a `sub_issue_removed` spec the map now lists — open, where the
- * brief is still open — is the one this command moved, and the re-parent is
- * skipped. A closed brief skips the comment
- * and the close; an open one whose latest comment by this account is the close
- * comment skips the comment.
- *
- * A 422 is read as the 100-child cap only on GitHub's own prose for it, as
- * file-issue.js reads it; any other 422 still names the archive remedy, as a
- * possibility.
- *
- * Exits, as the other tracker scripts: 0 done or already done, 1 a write did
- * not land or could not be verified, 2 a usage error or a refusal.
- *
- * cli-args-exempt: it refuses any argv but one issue number, `--help`
- * included, before any gh call.
- */
+// cli-args-exempt: #5540
 const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 const { openChildrenRefusal } = require("./lib/open-children.js");

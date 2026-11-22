@@ -19,7 +19,7 @@ describe("messages a shipped script prints", () => {
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
 		/: "node scripts\/check-ci-status\.js";$/,
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
-		/^\t\t\t`\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`$/,
+		/^\tconst overflow = `\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`;$/,
 		/^\t"This suite is DETACHED INSIDE THE SHELL — .*`scripts\/bg-run\.sh run <name>`/,
 		/^\t"node scripts\/watch-artefact\.js <artefact> 120 --log <output_file>";$/,
 		/^const READ_REASON = `Instead: a subagent, one backgrounded \\`\$\{WATCH\}\\`;/,

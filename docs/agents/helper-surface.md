@@ -46,7 +46,7 @@ A test runs a Node program through `runInProcess` from `scripts/lib/run-in-proce
 
 ## Reading the clock
 
-A program reads the time through `now()` from `scripts/lib/clock.js`, so a test pins it with `WFC_NOW`; a guard core passes its injected env, `now(ctx.env)`. The pre-commit's `check-clock-copies.js` refuses any other read of `WFC_NOW` in your `scripts/`.
+A program reads the time through `now()` from `scripts/lib/clock.js`, so a test pins it with `WFC_NOW`; a guard core passes its injected env, `now(ctx.env)`. The pre-commit's `check-clock-copies.js` refuses any other read of `WFC_NOW` in your `scripts/`. A program times a span on the clock `durationClock()` returns, so a test fixes each span with `WFC_STEP_MS`, every read that many ms past the last; a program that spawns deletes `WFC_STEP_MS` from `process.env` once it has built its clock, so no child inherits it.
 
 ## Failing open in Python
 

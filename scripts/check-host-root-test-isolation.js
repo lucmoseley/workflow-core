@@ -5,10 +5,11 @@ const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
+const { exemptHint, exemptMarker } = require("./lib/exempt-markers.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
-const EXEMPT = /isolation-exempt:[ \t]*[A-Za-z0-9]/;
+const EXEMPT = exemptMarker("isolation");
 
 const INTERPRETER =
 	/^(process\.execPath|"node"|"bash"|"sh"|"git"|"gh"|"npm"|"npx")$/;
@@ -209,7 +210,7 @@ const SPEC = {
 				"  Fix: give the spawn env a CLAUDE_PROJECT_DIR under the case's temp directory (scripts/run-vitest.test.ts and similar spawn helpers show the shape).",
 			);
 			ctx.say(
-				"  Genuinely rooted at the real repo on purpose? Say so in a comment reading `isolation-exempt: <why>` and this check drops the file.",
+				`  Genuinely rooted at the real repo on purpose? Record why on an issue and put ${exemptHint("isolation")} in a comment naming it; this check drops the file.`,
 			);
 		}
 

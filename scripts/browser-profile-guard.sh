@@ -228,9 +228,11 @@ if grep -qiE '(^|[;&|(`][ ]*)([^ ]*/)?(xdg-open|wslview)([ ]|$)|explorer\.exe[^;
   deny "This opens the URL in the Windows default browser, which opens whichever profile Chrome picks, not this session's. $open_right $picker"
 fi
 
-# Tools that open the default browser themselves: allowed only with their opener disabled.
-# gh-route-exempt: only text matched in the command; claude-route-exempt: only text likewise.
-if grep -qiE '(claude(\.exe)?"? +auth +login|gh +auth +login[^;&|]*--web|npm +login)' <<<"$run" && ! { grep -qF 'WSLENV=BROWSER/w' <<<"$cmd" && grep -qiF 'BROWSER='"'"'C:\Windows\System32\where.exe' <<<"$cmd"; }; then
+# claude-route-exempt: #5540
+claude_login='claude(\.exe)?"? +auth +login'
+# gh-route-exempt: #5540
+gh_login='gh +auth +login[^;&|]*--web'
+if grep -qiE "($claude_login|$gh_login|npm +login)" <<<"$run" && ! { grep -qF 'WSLENV=BROWSER/w' <<<"$cmd" && grep -qiF 'BROWSER='"'"'C:\Windows\System32\where.exe' <<<"$cmd"; }; then
   deny "This tool opens the Windows default browser itself, so its tab lands in whichever profile Chrome picks, not this session's. Never hand that to the founder. Prefix it with BROWSER='C:\\Windows\\System32\\where.exe' WSLENV=BROWSER/w to disable the opener, then open its link yourself with chrome.exe --profile-directory; for a Claude login, point redirect_uri at the waiting process's localhost port (method: workflow-core's docs/claude-user-settings.md, Claude login for the founder). $open_right $picker"
 fi
 exit 0
