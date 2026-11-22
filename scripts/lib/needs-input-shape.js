@@ -1,23 +1,3 @@
-/*
- * needs-input-shape.js — the whole shape a background job's `needs input:`
- * ending owes, as one checklist (#4206).
- *
- * Three Stop hooks judge that ending — guard-inventory.js, guard-priced-options.js
- * and the user-level practice hook — and several limbs judge only once an
- * earlier piece exists, so a session told only its own defects found the shape
- * one refusal at a time. Both guards here end a refusal of that ending with
- * this checklist: every piece owed, each met, missing or not yet judged.
- *
- * IT CHANGES WHAT A REFUSAL SAYS, NEVER WHETHER ONE IS SENT.
- *
- * WHICH PARK (`parkKind`) is owned here too, so the checklist and
- * guard-priced-options.js's no-round limb read it the one way.
- *
- * ONCE A TURN (`shareChecklist`). Residual: a guard that claims the turn and
- * then fails to write its block leaves the other's reference pointing at
- * nothing.
- */
-
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -32,17 +12,11 @@ const { splitQuestions } = require("./round-marker");
 const { scriptPath } = require("./script-path");
 const { governingMarker } = require("./status-marker");
 
-/* A pasteable `!` command's opening, which every pattern reading one is built
- * from (#936); `![` opens a Markdown image, not a command. */
 const BANG = /!\s*[^\s`[]/.source;
 const HANDOVER_BANG = new RegExp(String.raw`^\s{0,3}\x60?${BANG}`);
 const FENCE = /^\s{0,3}```/;
-/* An `(A)`-style letter anywhere, which voids the hand-over and hold parks. */
 const NAMES_A_LETTER = /\([A-Z]\)/;
-/* What `rule:founder-handover`'s third step asks for — what to send back, or
- * what the session then checks (#926). Lexical, so a send-back phrased
- * otherwise is refused and the session rewords it. The 30- and 40-character
- * reaches are chosen, not measured. */
+// guess: the 30- and 40-character reaches, #926
 const SEND_BACK = new RegExp(
 	[
 		String.raw`\b(?:send|paste)\b[^.\n]{0,30}\bback\b`,
@@ -54,16 +28,7 @@ const SEND_BACK = new RegExp(
 );
 
 /**
- * Whether a message ends in a founder hand-over: at least one literal act — a
- * `!` line, or a fenced block of literal text — with a send-back line after
- * the last of them. Lines inside a fence are never read as the send-back.
- *
- * TWO RESIDUALS. Any fenced block counts as an act, so quoted output followed
- * by "let me know" passes. And nothing bounds the prose between the last act
- * and the send-back, so a decision put in unlettered prose there passes too —
- * `parkKind` voids the exemption on a letter, never on prose.
- *
- * @param {string} message the outgoing assistant message
+ * @param {string} message
  * @returns {boolean}
  */
 function isFounderHandover(message) {
@@ -82,27 +47,12 @@ function isFounderHandover(message) {
 	return lastAct >= 0 && lastSendBack > lastAct;
 }
 
-/* The fail-open log's second field for the standing-round reader (#924),
- * which fails closed. */
 const FAIL_LOG_STANDING = "needs-input-shape standing-round";
-/* A round named by number on the marker's own line: `Q1 above`. */
 const NAMED_ROUND = /\bQ(\d+)\b/g;
 
 /**
- * Whether a `needs input:` payload points at rounds still standing (#924):
- * it names at least one `Q<n>`, and every one it names was opened in the
- * assistant's text since the founder last spoke, in a turn no Stop hook sent
- * back (`lib/tool-calls-since.js`).
- *
- * IT FAILS CLOSED, LOGGED. A missed pointer costs a re-printed round; a
- * pointer let through wrongly ends the job on a round the founder already
- * answered or never saw.
- *
- * RESIDUAL: a `❓ **Qn**` line quoted in an earlier message, fenced or not,
- * counts as posted.
- *
- * @param {string} payload the governing marker's text after its colon
- * @param {string} [transcript] the session's transcript path
+ * @param {string} payload
+ * @param {string} [transcript]
  * @returns {boolean}
  */
 function pointsAtStandingRound(payload, transcript) {
@@ -125,15 +75,10 @@ function pointsAtStandingRound(payload, transcript) {
 	return named.every((n) => rounds.includes(n));
 }
 
-/* The fail-open log's second field for the attached-park reader (#3858). */
 const FAIL_LOG_ATTACHED = "needs-input-shape attached-park";
 
 /**
- * Whether a `needs input:` payload parks this job on an open repo hold it is
- * attached to (#3858). Fails closed, logged, on `pointsAtStandingRound`'s terms:
- * a missed park costs a round the founder may already hold; a park let through
- * wrongly ends the job with its question asked nowhere.
- * @param {string} payload the governing marker's text after its colon
+ * @param {string} payload
  * @returns {boolean}
  */
 function isAttachedPark(payload) {
@@ -148,11 +93,9 @@ function isAttachedPark(payload) {
 /** @typedef {"round" | "handover" | "pointer" | "hold" | "prose"} ParkKind */
 
 /**
- * Which park a `needs input:` ending is: one carrying a round, or one of the
- * three that owe none, or prose, which owes the round it lacks.
  * @param {string} message
- * @param {string} payload the `needs input:` marker's text after its colon
- * @param {string} [transcript] the session's transcript path
+ * @param {string} payload
+ * @param {string} [transcript]
  * @returns {ParkKind}
  */
 function parkKind(message, payload, transcript) {
@@ -182,7 +125,6 @@ const ONCE_POSTED = "once the round is posted on that issue";
 const ONCE_BLOCK = "once the `waits on you:` block cites the open issue";
 
 /**
- * Each piece's own words, and what a piece no caller judged waits on.
  * @type {Record<PieceId, { how: (kind: ParkKind) => string, judgedBy: string }>}
  */
 const PIECES = {
@@ -254,7 +196,7 @@ const ROUND_PIECES = [
 	"status",
 	"practice",
 ];
-/** @type {Record<ParkKind, PieceId[]>} the pieces each park owes, in writing order */
+/** @type {Record<ParkKind, PieceId[]>} */
 const OWED = {
 	round: ROUND_PIECES,
 	prose: ROUND_PIECES,
@@ -276,7 +218,6 @@ const BLOCK_HEADER = /^[ \t]*waits on you:/m;
 const REFS_TAIL = /[—–-][ \t]*waits on you:[ \t]*\S/i;
 
 /**
- * What the message alone shows missing — never met, which only a guard judges.
  * @param {string} message
  * @param {ParkKind} kind
  * @returns {Judgement}
@@ -296,7 +237,6 @@ function lexicalGaps(message, kind) {
 const TRACKED = new Set(["posted", "claimed", "hand-off"]);
 
 /**
- * What a piece no caller judged waits on, where an earlier piece gates it.
  * @param {PieceId} id
  * @param {ParkKind} kind
  * @param {(id: PieceId) => Judged | undefined} stateOf
@@ -312,12 +252,9 @@ function waitsOnOf(id, kind, stateOf) {
 }
 
 /**
- * Every piece this park owes, in writing order, each met, missing or not yet
- * judged. A guard's judgement wins over the message's own gaps save where the
- * message shows a piece missing.
  * @param {string} message
  * @param {ParkKind} kind
- * @param {Judgement} [judged] what the calling guard judged this turn
+ * @param {Judgement} [judged]
  * @returns {Piece[]}
  */
 function owedPieces(message, kind, judged = {}) {
@@ -327,7 +264,6 @@ function owedPieces(message, kind, judged = {}) {
 	return OWED[kind].map((id) => {
 		const piece = PIECES[id];
 		const how = piece.how(kind);
-		/* `parkKind` read the hand-over, pointer and hold whole. */
 		const state =
 			stateOf(id) ??
 			(["act", "pointer", "hold"].includes(id) ? "met" : undefined);
@@ -357,18 +293,12 @@ function renderChecklist(pieces, kind) {
 }
 
 const CLAIM_PREFIX = ".needs-input-checklist-";
-/* How long a turn's claim stands. Both guards run side by side within a
- * second or two at one Stop; a later Stop on the same message is a re-send,
- * which claims afresh. A first guess, well clear of the hooks' own runtime. */
+// guess, #4206
 const CLAIM_FRESH_MS = 30_000;
 const REFERENCE =
 	"The checklist of every piece this `needs input:` ending owes sits in the other Stop refusal this turn (#4206).";
 
 /**
- * Whether this guard prints the turn's checklist: the first of the two to
- * claim the turn's marker does. Its name holds the session id and the
- * message's hash, so the marker sweep ages it out. An unwritable marker prints
- * it, a repeat costing less than none.
  * @param {string} sessionId
  * @param {string} message
  * @returns {boolean}
@@ -393,11 +323,8 @@ function claimTurn(sessionId, message) {
 		}
 	};
 	if (create()) return true;
-	// A failure here is another guard moving it first; its create, or ours,
-	// wins below.
 	const fresh = orFallback(() => {
 		if (Date.now() - fs.statSync(file).mtimeMs <= CLAIM_FRESH_MS) return true;
-		/* Stale: one rename succeeds, so one of two racing re-sends re-creates. */
 		const aside = `${file}.${String(process.pid)}`;
 		fs.renameSync(file, aside);
 		fs.rmSync(aside, { force: true });
@@ -407,13 +334,9 @@ function claimTurn(sessionId, message) {
 }
 
 /**
- * The checklist a refused `needs input:` ending ends with, or a pointer to the
- * other guard's copy where that guard claimed this turn first.
  * @param {{ sessionId: string, message: string, payload: string,
- *   transcript?: string, judged?: Judgement }} turn  `payload`, the
- *   `needs input:` marker's text after its colon; `judged`, what the calling
- *   guard judged this turn
- * @returns {string} the text to append, blank lines first
+ *   transcript?: string, judged?: Judgement }} turn
+ * @returns {string}
  */
 function shareChecklist({ sessionId, message, payload, transcript, judged }) {
 	if (!claimTurn(sessionId, message)) return `\n\n${REFERENCE}`;

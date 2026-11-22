@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * outstanding-line.test.ts — pins lib/outstanding-line.js, the founder-facing
- * item grammar and its open-check (#982). Those cases go through `judge`, the
- * entry each reader calls; the grammar cases run shape-only, the open-check
- * cases against a stub `gh`, never the real one. Through `judge` so a case
- * tests what the guards actually receive; a stub `gh` so each case dictates
- * GitHub's answer — open, closed, missing, a pull request, a failure — which
- * the live tracker could not be made to give on demand.
- *
- * WHAT BREAKING IT COSTS: the close guard, resolve-ticket.js and the
- * inventory guard all judge through this one module (#958). A regression
- * there passes a close or an ending whose owed work no open issue carries, in
- * all three at once, or refuses the honest ones.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -38,8 +24,6 @@ const load = async () => await import(LIB);
 const shape = async (text: string, grammar = "outstanding") =>
 	(await load()).judge(text, { grammar, tracker: TRACKER, shapeOnly: true });
 
-/** Serve `data`, the read's nodes by alias, as gh-fake's `answerIssueData`
- *  answers it: a null repository or issue errs as gh does, exiting 1. */
 const serve = (data: unknown, { sleep = 0 } = {}) => {
 	const at = path.join(dir, "data.json");
 	fs.writeFileSync(at, JSON.stringify(data));

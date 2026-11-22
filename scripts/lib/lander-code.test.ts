@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/lander-code.js's reading of the queue lander's own code (#4521),
- * against a real git repo in a temp directory, and its levelling loop over
- * fakes.
- *
- * Loosen it and a landing that changes a file the running lander loaded goes
- * unnoticed, one that changes only other files restarts it, a lander running
- * code outside the checkout it lands (a plugin cache, a nested worktree)
- * restarts on a landing, a checkout still on the old file reads as carrying
- * the new one, or a busy levelling pass loses the restart.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins whose pass markers a refill-loop copy takes at its resume (#4105). Too
- * loose and a session passes its gates on another live session's review; too tight
- * and a resume re-runs a pass it finished. That a real tick calls this is in
- * refill-loop-run.test.ts, and that a gate reads the result in
- * concision-backstop.test.ts.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +21,6 @@ const leave = (prefix: string, id: string) =>
 const read = (prefix: string, id: string) =>
 	fs.readFileSync(buildMarkerPath(prefix, id), "utf8");
 
-/** The liveness oracle, listing `rows` beside the copy, or failing, given null. */
 const oracle = (rows: Row[] | null) => {
 	const bin = path.join(root, "claude");
 	const copy = buildJobRow("copy", "working", { sessionId: TO });

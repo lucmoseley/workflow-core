@@ -1,15 +1,3 @@
-/*
- * overflow-cap.js — the per-session cap on an overflow seat's key (#3698, spec
- * #2570). `--max-budget-usd` works only with `--print`, so each refill tick
- * stops a listed session whose spend, with its chain of resumed copies'
- * (#4195), has reached the allowance its launch recorded, with `claude stop` on
- * the seat's dir, which keeps the conversation. Each chain is capped once, and
- * a founder's reply to it runs uncapped (spec #3691 §Out of Scope): the reply
- * is a headless run of its own, which its run record marks
- * (lib/overflow-actions.js, #4174), and its spend stays off the chain's figure
- * (#4668); the loop's resumes carry no mark.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { isTerminalAgent } = require("./agent-liveness.js");
@@ -32,8 +20,6 @@ const { buildSeatLabel, overflowSeatsOf } = require("./refill-seats.js");
  * @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup
  */
 
-/* The listing kinds an overflow launch runs as: a `--bg` job, or a headless
- * run (lib/headless-runs.js, #4580), which lib/claude-stop.js also stops. */
 const LAUNCHED_KINDS = new Set(["background", "headless"]);
 
 /** @param {OverflowSeat} seat */
@@ -41,15 +27,9 @@ const cappedFile = (seat) =>
 	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.capped.jsonl`));
 
 /**
- * The key's listed background sessions and headless runs whose chain's spend
- * has reached the allowance their launch recorded, a founder's reply and its
- * spend aside,
- * once priceSessions has priced the key's ledger again. An `ended` one is past
- * it but no longer running: capped without a stop.
  * @param {OverflowSeat} seat
  * @param {import("./agent-liveness.js").AgentRecord[]} agents
  * @param {OverflowLookup} lookup
- * @throws where a transcript or the ledger cannot be read, written or locked
  */
 function priceOverAllowance(seat, agents, lookup) {
 	const spent = chainSpendOf(
@@ -91,14 +71,8 @@ function priceOverAllowance(seat, agents, lookup) {
 }
 
 /**
- * Stop every listed overflow session past its allowance (#3698): one log line
- * per stop and one per seat that could not be judged.
- * A failed stop is not marked capped, so the next tick tries again. Residual:
- * one the daemon holds no job for (NO_JOB_ANSWER in lib/claude-stop.js) logs its failure every
- * tick for as long as the listing shows it.
  * @param {import("./refill-seats.js").SeatList} declared
- * @param {import("./agent-liveness.js").AgentRecord[]|null} agents the tick's
- *   listing, null where it is unread
+ * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
  * @returns {string[]}
  */
 function stopOverAllowance(declared, agents) {
@@ -127,15 +101,12 @@ function stopOverAllowance(declared, agents) {
 }
 
 /**
- * Stop one session at or past its allowance, unless it has ended, and mark
- * it capped.
  * @param {OverflowSeat} seat
  * @param {ReturnType<typeof priceOverAllowance>[number]} s
  * @returns {string[]}
  */
 function capSession(seat, s) {
 	const who = `overflow session ${s.name ? `${s.name} (${s.jobId})` : s.jobId} on ${buildSeatLabel(seat)}`;
-	/* A malformed launch row must not read as an allowance of nothing. */
 	if (!Number.isFinite(s.allowanceUsd))
 		return [`${who} unjudged: its launch records no allowance`];
 	const r = s.ended ? null : stopOn(seat.dir, s.jobId);

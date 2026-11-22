@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * own-work.js's own suite: which commits of the unpushed range are a
- * neighbour's under #1154's rule, and the path set a bare run tests as its own
- * (#1156, #1216, #1218), or a review marker's newer base= bills (#3108).
- *
- * Each case builds a throwaway repo whose four unpushed commits are known
- * exactly — the launcher's, a neighbour's, an unledgered one, a shared-file
- * one — since this repo's own range moves under parallel sessions.
- *
- * run-vitest.js narrows a bare `npm run test` through it, so a loosened case
- * lets a run skip a session's own work and still count as its certificate,
- * or re-test every neighbour's.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -39,11 +26,6 @@ function commit(dir: string, files: Record<string, string>) {
 	return git(dir, "rev-parse", "HEAD");
 }
 
-/**
- * A repo whose `base` is the published tip, with four unpushed commits past
- * it: the launcher's, a neighbour's, one in no ledger, and a second
- * neighbour's touching a file the launcher's also touched.
- */
 function range() {
 	const dir = mkScratchDir("own-work-");
 	dirs.push(dir);
@@ -64,7 +46,6 @@ function range() {
 	return { dir, base, mine, theirs, loose, theirsToo };
 }
 
-/** A commit-ledger stub: each session's commits. */
 function ledgerOf(ledgers: Record<string, string[] | null>) {
 	return {
 		ledgerRoot: () => "/main",
@@ -142,8 +123,6 @@ describe("readOwnPaths, the bare run's own-work path set (#1216)", () => {
 	it("reads the tip alone, so no uncommitted file enters (#1218)", () => {
 		const r = range();
 		fs.writeFileSync(path.join(r.dir, "theirs.js"), "dirty\n");
-		/* Back to its base text in the tree: still selected, so the net diff
-		 * was read at the tip. */
 		fs.writeFileSync(path.join(r.dir, "mine.js"), "0\n");
 		const own = readOwnPaths(r.dir, r.base, {
 			sessionId: "me",

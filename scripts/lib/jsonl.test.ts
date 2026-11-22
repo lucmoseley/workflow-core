@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/jsonl.js's answers (#3452): a torn last line, an unparsable row, an
- * empty file, a missing one, a line `keep` refuses, one streamed line, and
- * the last row alone.
- * In-process over real temp files: the reader's one port is the filesystem,
- * and its ENOENT-versus-other-error split is only real on a real one.
- * Every JSONL read in scripts/ goes through this reader (#3453), so a break
- * here miscounts or drops rows in each of them at once.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -166,8 +157,7 @@ describe("readLastJsonlRow", () => {
 		"one row": '{"a":1}',
 		"no row": "not json\n\n",
 		"an empty file": "",
-		/* Past one read of the file's end, and split inside a multi-byte character. */
-		"a last row longer than one read": `{"a":1}\n{"a":"${"é".repeat(70_000)}"}\n`,
+		"a last row longer than one read, split inside a multi-byte character": `{"a":1}\n{"a":"${"é".repeat(70_000)}"}\n`,
 		"a last row with more than one read of bad lines after it": `{"a":1}\n${"not json\n".repeat(8000)}`,
 	};
 
@@ -191,8 +181,9 @@ describe("readLastJsonlRow", () => {
 	);
 
 	it("reads past one read of the file's end for a row the test passes", () => {
-		// 20,000 eight-byte rows, 160 KB: past one doubling (128 KiB) of the 64 KiB first read, so the third read finds it.
-		const file = write(`{"a":1}\n${'{"a":2}\n'.repeat(20_000)}`);
+		const after = '{"a":2}\n'.repeat(20_000);
+		expect(after.length).toBeGreaterThan(128 * 1024);
+		const file = write(`{"a":1}\n${after}`);
 		expect(
 			readLastJsonlRow(file, (row: Record<string, unknown>) => row.a === 1),
 		).toEqual({ a: 1 });

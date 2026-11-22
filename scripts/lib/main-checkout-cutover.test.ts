@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/main-checkout-cutover.js judges each reading (#4688, #5276). Loosened, a
- * cut-over checkout runs the cutover again, an occupied one passes, or a
- * refusal reads as cut over.
- */
 import { describe, expect, it } from "vitest";
 
 const { judgeCutover } = require("./main-checkout-cutover.js");

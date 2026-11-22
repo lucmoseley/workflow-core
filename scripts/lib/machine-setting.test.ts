@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * lib/machine-setting.js's contract (#3228): the variable where set, else
- * `$HOME/.claude/<name>`, and only ENOENT reads as no file. A break here
- * reaches the load ceiling, which reads through it.
- *
- * One temp HOME is built at module scope, since every case only reads it.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

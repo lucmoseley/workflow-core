@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins latest-timings.js (#4579): the newest green run's timings cached once
- * per source run under the git common dir, checked at most every 6 hours and
- * retried half an hour after a failure, the held file read until its last
- * passed check is a day old and none after, and the named file or none where
- * `WFC_SHARD_TIMINGS` or `CI` is set.
- *
- * WHAT BREAKING THIS COSTS: the lander's shards and the run-cost report would
- * pack and judge by timings days old, the fault #4579 closed, or fetch for
- * 10 s on every local run.
- *
- * GitHub comes in through `latestTimings`'s `fetch` seam and time through its
- * `now` (§X9). git is real, in a throwaway repository per case.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,7 +21,6 @@ afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
 const T0 = Date.parse("2026-11-09T00:00:00Z");
 const HOUR = 60 * 60 * 1000;
-/* latest-timings.js's windows, spelt here so a change to one fails a case. */
 const CHECK_MS = 6 * HOUR;
 const RETRY_MS = HOUR / 2;
 const STALE_MS = 24 * HOUR;
@@ -43,8 +28,6 @@ const row = (seconds: number) => [
 	{ file: "a.test.ts", seconds, tests: 1, status: "passed" },
 ];
 
-/** A GitHub whose newest green run is `run`, recording each call's `held`
- * answer for that run. */
 const github = (run: number, rows = row(2)) => {
 	const calls: boolean[] = [];
 	return {

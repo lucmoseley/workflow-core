@@ -1,9 +1,3 @@
-/*
- * Which prompt a parked session wakes to, by the block its park marker names
- * (#3949). Text rather than a guard run, as guard-inventory.test.ts drives the
- * prompts through the guards. A wrong pick tells a session on a round to repeat
- * a tool call, or one on a permission to post nothing and be refused for it.
- */
 import { describe, expect, it } from "vitest";
 import {
 	BOOT_PROMPT,

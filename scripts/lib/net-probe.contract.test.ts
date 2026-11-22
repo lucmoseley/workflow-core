@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/net-probe-fake.ts, the probe stand-in the refill loop's run suites
- * name at WFC_NET_PROBE, to lib/net-probe.js's real child (#4826). The real
- * `main` runs offline through its seams: a lookup that fails as an offline
- * resolver does, and a loopback port nothing listens on.
- *
- * The lookup error's code is the test's choice, taken from the stand-in's
- * line.
- *
- * Residual: the connect-timeout line has no offline case, as no loopback peer
- * reliably leaves a SYN unanswered; and the child's shell is not run here.
- */
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -79,8 +67,6 @@ it("prints the refused line when nothing listens on the port", async () => {
 });
 
 it("prints the no-answer line when the lookup never answers", async () => {
-	/* The seam's timeout, not the shipped 3 s: any short value, as only the
-	 * line is under test (§X9). */
 	const silent: Lookup = () => undefined;
 	expect(await main({ lookup: silent, timeoutMs: 10 })).toBe(
 		"api.anthropic.com gave no answer in 10 ms",

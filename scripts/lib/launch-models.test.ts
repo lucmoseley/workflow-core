@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * launch-models.test.ts — the two prose model tables, and retro-bundles.js's
- * copy of the triage row, against scripts/lib/launch-models.sh, the one source
- * both launch scripts read (#361, #1195). A model changed in one place and not
- * the others fails here.
- *
- * It reads the real docs, not fixtures, since drift between the real files is
- * the whole subject, and resolves each kind through `launch_model_for` in bash,
- * as launch.sh does. A loosened case lets the tables a session or /pick-next
- * routes by name one model while the launch scripts start another.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -18,15 +7,14 @@ import { describe, expect, it } from "vitest";
 const ROOT = path.resolve(__dirname, "../..");
 const MAP = path.join(__dirname, "launch-models.sh");
 const { RETRO_BUNDLE_MODEL } = require("./retro-bundles.js");
+const shellVar = (name: string): string => `\${${name}}`;
 
-/** Every mapped kind, resolved through launch_model_for as both launch scripts resolve it. */
 const readMap = (): { models: Map<string, string>; fallback: string } => {
 	const out = execFileSync(
 		"bash",
 		[
 			"-c",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expansions, not a JS template
-			'source "$1"; echo "$LAUNCH_MODEL_FALLBACK"; for p in "${LAUNCH_MODELS[@]}"; do k="${p%%=*}"; echo "$k $(launch_model_for "$k")"; done',
+			`source "$1"; echo "$LAUNCH_MODEL_FALLBACK"; for p in "${shellVar("LAUNCH_MODELS[@]")}"; do k="${shellVar("p%%=*")}"; echo "$k $(launch_model_for "$k")"; done`,
 			"_",
 			MAP,
 		],
@@ -40,7 +28,6 @@ const readMap = (): { models: Map<string, string>; fallback: string } => {
 	return { models, fallback: out[0] };
 };
 
-/** The rows of the first table after `anchor`, as [first cell, second cell]. */
 const readTableRows = (file: string, anchor: string): [string, string][] => {
 	const text = fs.readFileSync(path.join(ROOT, file), "utf8");
 	const start = text.indexOf(anchor);
@@ -59,7 +46,6 @@ const readTableRows = (file: string, anchor: string): [string, string][] => {
 const kindOf = (cell: string): string =>
 	cell.replace(/`/g, "").replace(/^\/|^takes:/, "");
 
-/** `**plain Opus**`, `Sonnet`, `` `opus` `` or a host-model sentence → one alias. */
 const modelOf = (cell: string): string => {
 	const lower = cell.toLowerCase();
 	const hits = ["sonnet", "opus", "fable", "haiku"].filter((m) =>

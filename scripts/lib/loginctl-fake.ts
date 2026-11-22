@@ -1,19 +1,10 @@
-/*
- * loginctl-fake.ts — a stub `loginctl` for tests of its callers, injected at
- * WFC_LOGINCTL (lib/systemd-bins.js) and held to the real one by
- * loginctl.contract.test.ts (§G7, #4594).
- *
- * FOR TESTS ONLY.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
 
 export interface LoginctlAnswers {
-	/** `show-user`'s Linger property. */
 	linger?: "yes" | "no";
-	/** A verb that fails, with its exit code and stderr. */
 	fails?: Record<string, { exit: number; says?: string }>;
 }
 
@@ -56,12 +47,6 @@ exit 0
 `;
 }
 
-/**
- * A loginctl in `dir` that knows only the running user, appending each call's `loginctl <args>` to `dir/calls`.
- * A verb neither failed nor modelled, `enable-linger` among them, prints
- * nothing and exits 0, as does `show-user` for a property other than Linger.
- * Its path, for WFC_LOGINCTL.
- */
 export function writeLoginctl(
 	dir: string,
 	answers: LoginctlAnswers = {},

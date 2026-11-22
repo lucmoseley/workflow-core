@@ -1,27 +1,13 @@
-/*
- * main-checkout-cutover.js — the session-start step that moves a main checkout
- * still on the shared-tree model to the worktree model (#4688, #5276).
- *
- * A main checkout not cut over (lib/cutover.js's mark) is one tree every
- * session there shares, with no shared-tree guard and no file-claim refusal
- * (#4251, #4249). The first session to start while no session stands in it
- * runs the cutover; while one does, the step fails naming each (#5247 Q1 (A)).
- * A reading with no `runCutover` reports and never cuts: `npm run status` only
- * reads.
- */
-
 /**
  * @typedef {import("./cutover.js").CutoverResult | { status: "busy" }} RunResult
- *   `busy` where another run holds the cutover
  * @typedef {{ cutOver: () => boolean | null,
  *   runCutover?: () => { result: RunResult, lines: string[] } }} Reading
- *   `cutOver` reads the main checkout's mark, null where git could not
  * @typedef {(
  *   | { outcome: "broken", line: string }
  *   | { outcome: "skip", line: string }
  *   | { outcome: "ok", line: string, lines: string[] }
  *   | { outcome: "fail", tag: "OCCUPIED" | "NOT-CUT-OVER", line: string }
- * )} Judgement `lines` is the cutover's report where this run made it
+ * )} Judgement
  */
 
 /**

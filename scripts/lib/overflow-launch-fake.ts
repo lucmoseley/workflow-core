@@ -1,17 +1,9 @@
-/*
- * A fixture checkout under `home` whose dispatch ledger marks sessions
- * overflow, written through the ledger's own writer (#3696), so a test of a
- * spend reading breaks where the row's shape moves rather than passing on a
- * shape no launch writes. It declares the overflow seat in `home`'s seat file
- * too, as a reader consults the ledger only where one is declared (#4393).
- */
 import fs from "node:fs";
 import path from "node:path";
 import { ledgerPath, record } from "./dispatch-ledger";
 
 const KEY_VAR = "WFC_OVERFLOW_API_KEY_FAKE";
 
-/** `home`'s seat file: a plan seat and an overflow seat on its dir. */
 export function declareOverflowSeat(home: string) {
 	fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -28,7 +20,6 @@ function writeCheckout(home: string, name: string) {
 	return root;
 }
 
-/** A checkout under `home` whose dispatch ledger will not read. */
 export function writeUnreadableLedgerCheckout(home: string, name: string) {
 	fs.mkdirSync(ledgerPath(writeCheckout(home, name)), { recursive: true });
 }

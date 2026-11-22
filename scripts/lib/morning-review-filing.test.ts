@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * lib/morning-review-filing.js, the morning review's core, called in-process
- * (#5148): the shared fixture's home and checkouts, with git real in the
- * test's temp directory and journalctl at its owned fake, while gh answers
- * through the fixture's handler in-process (`ghPort`, held by
- * gh-stub-server.test.ts), filing through lib/file-issue-fake.ts (held by
- * file-issue.contract.test.ts) and the checkers through
- * lib/checker-run-fake.ts (held by checker-run.contract.test.ts). The
- * answering is answer-review-reversals.js's real answerReversals in the cases
- * on it, with gh at the fixture's stub; elsewhere a port answering nothing,
- * which no case asserts on and which spares each filing two gh spawns. The
- * program's boundary set stays in file-morning-review.test.ts. Break the core
- * and the loop files no review, or two in a day, or loses an event between two
- * reviews (#3813), or a repo that did not read loses its events (#3831).
- *
- * Near the 10 s file budget (§X8 (5)) on CI, some 5.5 s there; a loaded
- * machine runs it past, some 10 s at a load of 6 and 18 s at 15. Many cases
- * file three or four days in a row, each filing paying two journalctl fake
- * starts and its real git, and the three answering cases pay the real
- * answering's gh stub and file-issue.js starts.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -56,7 +35,6 @@ const {
 beforeEach(() => stubRunEnv());
 afterEach(() => vi.unstubAllEnvs());
 
-/** One filing; `at` pins the core's clock and the handler's both. */
 const file = async ({
 	dryRun = false,
 	at,
@@ -105,7 +83,6 @@ const reviewAt = async (at: string) => {
 	expect((await file({ at })).status).toBe(0);
 };
 
-/** Appends a still-caught decision to a checkout's ledger, stamped `at`. */
 const appendDecision = (
 	root: string,
 	at: string,
@@ -130,7 +107,6 @@ const appendDecision = (
 	);
 };
 
-/** The fixture checkout as a real git repository with a standards file to commit. */
 function tableRepo() {
 	const root = wfc();
 	fs.rmSync(path.join(root, ".git"), { recursive: true });
@@ -203,15 +179,12 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 
 	it("files the concurrency section from the refill loop's ticks and memwatch's minutes (#3321)", async () => {
 		seed([]);
-		/* One base instant, so a minute line and its paired tick share a time. */
 		const base = Date.now();
 		const at = (min: number) =>
 			new Date(base - (min / 60) * HOUR).toISOString();
 		const lines = (rows: object[]) =>
 			`${rows.map((r) => JSON.stringify(r)).join("\n")}\n`;
 		fs.mkdirSync(path.join(sb.dir, "refill"), { recursive: true });
-		/* Three days ago: 25 minutes at 6, inside the week only. Then the last
-		 * hour: 30 minutes at 2, then 30 at 4. */
 		fs.writeFileSync(
 			path.join(sb.dir, "refill", "memwatch-minute.jsonl"),
 			lines([
@@ -405,7 +378,6 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 					},
 				],
 				61: [],
-				/* After the window's end. */
 				62: [
 					{ event: "labeled", label: { name: "parked" }, created_at: ago(-1) },
 				],
@@ -461,7 +433,6 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 		expect(readTimelineReads()).toEqual(["60", "61"]);
 		fs.rmSync(stub("fail-review-create"));
 		fs.writeFileSync(stub("calls.log"), "");
-		/* The timeline gone: a kept age is the only way #60's still reads. */
 		fs.writeFileSync(stub("timelines.json"), JSON.stringify({ 61: [] }));
 		expect((await file()).status).toBe(0);
 		expect(readTimelineReads()).toEqual(["61"]);
@@ -579,7 +550,6 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 		it("puts a ledger line appended after a window's end, for an older comment, in the next review only", async () => {
 			seed([]);
 			await reviewAt("2026-10-10T07:00:00.000Z");
-			/* The stamp record-delegated-decision.js gives a re-run: its append's. */
 			appendDecision(wfc(), "2026-10-10T08:00:00.000Z", 3, "Re-run decision");
 			await reviewAt("2026-10-11T07:00:00.000Z");
 			await reviewAt("2026-10-12T07:00:00.000Z");
@@ -600,8 +570,6 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 
 		it("prints the section before the stalls, flagging a served repo whose breaker opened in the window", async () => {
 			seed([]);
-			/* A served checkout is a git repository, its gate-run record
-			 * resolved through it. */
 			const served = path.join(sb.dir, "served", "dv");
 			fs.mkdirSync(served, { recursive: true });
 			execFileSync("git", ["init", "-q", served]);
@@ -783,7 +751,6 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 				path.join(second(), ".claude", "workflow-core.json"),
 				text,
 			);
-		/** No tracker makes the checkout's read fail, with its config in place. */
 		const configureSecond = (config: object) =>
 			writeSecondConfig(
 				JSON.stringify({ contract: 1, founder: "T", ...config }),

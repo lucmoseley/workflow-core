@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * origin-fallback.test.ts — #4627's keyword rules for an issue with no
- * `origin:*` label (#4797). Break it and the ticket-mix review counts a
- * hand-filed issue under the wrong origin, or under one off the fixed list.
- */
 
 import { describe, expect, it } from "vitest";
 import { ORIGINS } from "./issue-origin";

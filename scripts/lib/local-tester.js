@@ -1,20 +1,3 @@
-/*
- * local-tester.js — the landing queue's local tester (#2403, spec #2261): the
- * lander's tester on a private adopter and on the core's trial. It runs the
- * suite at a sha in a detached worktree the lander owns, never the shared
- * tree, so no session's unsaved edit is ever tested.
- *
- * Each group of runs holds one suite slot from a fresh checkout and install to
- * its last command; a sharded whole run takes one slot per shard. A slot still shut at
- * the queue's wait bound is a transient no verdict, which asking again later
- * can turn to one: the tester never runs unadmitted.
- *
- * Any step that fails before the suite reports — the checkout, the slot, the
- * install, a command that will not start, is killed, or fails naming no
- * failing file — is no verdict, never green or red.
-
- */
-
 const { execFileSync, spawn } = require("node:child_process");
 const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
@@ -43,14 +26,6 @@ const { voidProof } = require("./verdict-probe.js");
 const { npmBin } = require("./npm-bin.js");
 const { INSTALL_TIMEOUT_MS, LOCKFILE } = require("./npm-ci-staging.js");
 
-/**
- * The lander's environment less every variable a root lookup answers before
- * cwd, so the install and suite run as CI does: the tree under test rooted by
- * its own directory, the host root by the main checkout owning it. A CLAUDE_PROJECT_DIR left in sent the suite to the main checkout;
- * a WFC_REPO_ROOT, the suite's test-injection point, outranked every
- * fixture's root (#2410); a CLAUDE_PLUGIN_ROOT from the hook that started the
- * lander sent init-adopter to the main checkout's self-plugin/ (#2476).
- */
 const rootlessEnv = () => {
 	const env = { ...process.env };
 	delete env.CLAUDE_PROJECT_DIR;
@@ -63,50 +38,36 @@ const rootlessEnv = () => {
 /** @typedef {import("./queue-lander.js").Verdict} Verdict */
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
-/* Untraced: room for a checkout of the whole tree. */
+// guess, #2403
 const CHECKOUT_TIMEOUT_MS = 120 * 1000;
-/* Each tester run's kind, file count and tree peak, under the canonical
- * checkout's markers (#3323). Untraced: 90 days, room for many runs to
- * re-size the charges from. */
 const RUN_RECORD = ".lander-runs.jsonl";
+// guess, #3323
 const RUN_RECORD_RETAIN_MS = 90 * DAY_MS;
-/* The largest processes at each memory-shut slot, under the same markers and
- * for as long (#3764). Untraced: ten of them and 120 characters of each
- * command. */
 const HOLDER_RECORD = ".lander-memory-holders.jsonl";
+// guess, #3764
 const HOLDERS_KEPT = 10;
+// guess, #3764
 const HOLDER_COMMAND_CHARS = 120;
-/* Where the install's lockfile hash is kept: inside what it installed, so a
- * deleted `node_modules` takes its stamp with it. */
 const STAMP = path.join("node_modules", ".lander-lock-hash");
 
 /**
  * @typedef {import("./suite-slot.js").Admission} Admission
  * @typedef {{code: number|null, signal: string|null, out: string,
  *   error: string|null, peakKb: number, samples: number}} RunResult
- *   `peakKb` the run's tree-PSS peak over `samples` reads
  * @typedef {{command: string, args: string[], label?: string,
- *   env?: Record<string, string>}} Run `label` names the run in a reason
- *   where `command` alone would not, as a shard's; `env` adds to its
- *   environment
+ *   env?: Record<string, string>}} Run
  * @typedef {(bin: string, args: string[], cwd: string,
  *   opts?: {timeout?: number, maxBuffer?: number}) => void} Exec
- *   git or npm, throwing on failure
  * @typedef {object} LocalTesterOptions
- * @property {string} root the canonical checkout, whose object store the
- *   worktree shares
- * @property {(slot: {chargeMb: number}) => Promise<Admission>} [admit] one
- *   suite slot, charged as the run it holds
+ * @property {string} root
+ * @property {(slot: {chargeMb: number}) => Promise<Admission>} [admit]
  * @property {Exec} [exec]
- * @property {string} [pytest] the Python suite's runner
- * @property {(pid: number) => number} [treePss] the tree PSS under `pid`, kB
- * @property {(dir: string) => string|null} [timings] the per-file timings
- *   file every shard of one whole run at `dir` packs by, null for none
+ * @property {string} [pytest]
+ * @property {(pid: number) => number} [treePss]
+ * @property {(dir: string) => string|null} [timings]
  */
 
 /**
- * A run's ceiling-kill line, where the suite ceiling killed it (#2696): no
- * verdict, with no culprit to bisect for, and the ceiling named.
  * @param {string} out
  * @returns {string|null}
  */
@@ -116,10 +77,6 @@ function parseCeilingKillReason(out) {
 }
 
 /**
- * The landers holding or waiting for a suite slot, each with the charge its
- * marker carries, for session admission to hold back (#2416, #3323). A marker
- * whose charge is not a number, or a queue that will not read, is held a
- * whole run's.
  * @param {{queueDir?: string}} [options]
  * @returns {import("./admission.js").Landers}
  */
@@ -136,9 +93,6 @@ function readLiveLanders({ queueDir } = {}) {
 }
 
 /**
- * `command "$@"` under `sh` in `cwd`, marked the lander's run (#4757), its
- * stdout and stderr passed through to stderr and kept, its tree PSS sampled
- * for the peak.
  * @param {Run} run
  * @param {string} cwd
  * @param {() => void} onSpawn
@@ -193,7 +147,6 @@ const execOrThrow = (bin, args, cwd, opts) => {
 };
 
 /**
- * Why an exec failed, its stderr's last line where it left one.
  * @param {unknown} err
  */
 function whyFailed(err) {
@@ -203,8 +156,6 @@ function whyFailed(err) {
 }
 
 /**
- * The lander's worktree checked out clean at `sha`, made first where it is
- * missing. Ignored files, the install among them, are kept.
  * @param {string} root
  * @param {string} dir
  * @param {string} sha
@@ -233,8 +184,6 @@ function checkOut(root, dir, sha, exec) {
 }
 
 /**
- * `npm ci` where the lockfile's hash differs from the one the last install
- * stamped; nothing where the tree has no lockfile.
  * @param {string} dir
  * @param {Exec} exec
  */
@@ -253,11 +202,9 @@ function install(dir, exec) {
 }
 
 /**
- * The runs that retest `files` alone: the Python ones on the runner where
- * Python is routed, the rest on `test`.
  * @param {string[]} files
  * @param {string|null} test
- * @param {Run|false} python the runner's run, false where unrouted
+ * @param {Run|false} python
  * @returns {Run[] | string}
  */
 function rerunsOf(files, test, python) {
@@ -273,24 +220,11 @@ function rerunsOf(files, test, python) {
 }
 
 /**
- * The commands a run takes at `dir`, one group per suite slot: the declared
- * `full_test`, else `test`, and the Python runner where the config routes a
- * Python test path; with `files`, `rerunsOf`'s runs of those `dir` holds,
- * and no group where it holds none. A declared
- * `fullTestShards` splits the whole run into that many `--shard=k/n` groups,
- * each under its own suite ceiling, the Python runner joining the last
- * (#2996), all packing by the one file `timings` names through
- * `WFC_SHARD_TIMINGS` (#4579). Where neither `full_test` nor `test` is declared, the Python runner
- * alone, and where that is unrouted too, no group: a repo declaring no suite
- * has nothing to fail, so its sha is green, which the commit gate keeps true
- * by refusing a test file while no test command is declared (#2412). Read
- * from the worktree's own config, the one the sha carries. An adopter's CI
- * job runs the same whole-run groups (scripts/adopter-ci.js, #5347).
  * @param {string} dir
  * @param {string} pytest
  * @param {string[]} files
  * @param {(dir: string) => string|null} timings
- * @returns {Run[][] | string} the groups, or why none can be had
+ * @returns {Run[][] | string}
  */
 function readRunsAt(dir, pytest, files, timings) {
 	let config;
@@ -303,8 +237,6 @@ function readRunsAt(dir, pytest, files, timings) {
 	const routesPython = Object.values(config.pythonRoutes ?? {}).includes(
 		"test",
 	);
-	/* An argument, not shell text, so a plugin path with a space reaches node
-	 * whole. */
 	/** @type {Run} */
 	const python = {
 		command: "node",
@@ -312,16 +244,11 @@ function readRunsAt(dir, pytest, files, timings) {
 		label: `node ${path.basename(pytest)}`,
 	};
 	if (files.length > 0) {
-		/* A file the tree lacks has no test to fail here: the base check of a
-		 * test file new in the tip (#4347). actions-tester.js's namedVerdict
-		 * holds the same rule. Residual: a path misnamed by the red that asked reads
-		 * green here, never no verdict. */
 		const present = files.filter((f) => fs.existsSync(path.join(dir, f)));
 		if (present.length === 0) return [];
 		const runs = rerunsOf(present, test, routesPython && python);
 		return typeof runs === "string" ? runs : [runs];
 	}
-	/* A bare run in this clean worktree selects no touched test (#3508). */
 	/** @type {Run} */
 	const wholePython = {
 		...python,
@@ -346,21 +273,18 @@ function readRunsAt(dir, pytest, files, timings) {
 
 /**
  * @typedef {{root: string, dir: string, sha: string, exec: Exec}} Checkout
- *   the lander's tree `dir` of the main checkout `root`, to be at `sha`
  */
 
 /**
  * @typedef {object} SlotRuns
- * @property {() => Promise<Admission>} admit one suite slot
+ * @property {() => Promise<Admission>} admit
  * @property {(pid: number) => number} treePss
  * @property {{ran: number, peakKb: number, samples: number}} tally
- *   accumulator: the runs spawned, their highest tree peak and the reads it
- *   was taken over
  */
 
 /**
  * @param {Checkout} checkout
- * @returns {string|null} why the checkout failed, or null
+ * @returns {string|null}
  */
 function checkOutOrWhy({ root, dir, sha, exec }) {
 	try {
@@ -372,10 +296,8 @@ function checkOutOrWhy({ root, dir, sha, exec }) {
 }
 
 /**
- * The tree checked out again, rebuilt where it went during the slot wait
- * (#4421), and installed.
  * @param {Checkout} checkout
- * @returns {string|null} why it could not be readied, or null
+ * @returns {string|null}
  */
 function checkOutAndInstall(checkout) {
 	const why = checkOutOrWhy(checkout);
@@ -389,10 +311,6 @@ function checkOutAndInstall(checkout) {
 }
 
 /**
- * Each group of runs at the checkout, in turn, each in a suite slot of its
- * own taken by `admit`, checking out and installing in it first: green where
- * every run exits 0, red with the files they name where one fails naming
- * some, and no verdict at the first step that reaches none.
  * @param {Run[][]} groups
  * @param {Checkout} checkout
  * @param {SlotRuns} slotRuns
@@ -427,9 +345,6 @@ async function runEach(groups, checkout, { admit, treePss, tally }) {
 				failures,
 				root: checkout.root,
 			});
-			/* No verdict, never red, though an earlier shard failed: a red
-			 * would send the lander to rerun those files alone, and a pass
-			 * there would land a shard no run judged. */
 			if (why !== null)
 				return {
 					kind: "unknown",
@@ -451,12 +366,9 @@ async function runEach(groups, checkout, { admit, treePss, tally }) {
 }
 
 /**
- * Why a red naming no failing file in the tree reached no verdict. Short of a
- * ceiling kill, that is the verdict contract broken in the field, so the
- * proof that stood the commit gate down is marked failed (#5294).
  * @param {string} command
  * @param {{ code: number | null, out: string }} r
- * @param {string} root the main checkout
+ * @param {string} root
  */
 function voidProofOnNamelessRed(command, r, root) {
 	const ceiling = parseCeilingKillReason(r.out);
@@ -470,16 +382,12 @@ function voidProofOnNamelessRed(command, r, root) {
 }
 
 /**
- * Each of `runs` in `dir`, in turn, adding the files a failing one names to
- * `failing` and its tree peak to `tally`.
  * @param {Run[]} runs
  * @param {string} dir
  * @param {{spawned: () => void, treePss: (pid: number) => number,
  *   tally: SlotRuns["tally"], failing: Set<string>,
  *   failures: import("./queue-lander.js").Failure[], root: string}} into
- *   accumulator, and `root` the main checkout whose verdict proof a red
- *   naming no file voids
- * @returns {Promise<string|null>} why a run reached no verdict, or null
+ * @returns {Promise<string|null>}
  */
 async function runInSlot(
 	runs,
@@ -496,8 +404,6 @@ async function runInSlot(
 		if (r.code === null)
 			return `${command} was killed by ${r.signal ?? "an unknown signal"}`;
 		if (r.code === 0) continue;
-		/* A test that prints a runner's output as its fixture puts FAIL lines
-		 * naming files the tree lacks into the run's output (#2410). */
 		const files = parseFailingFiles(r.out).filter((f) =>
 			fs.existsSync(path.join(dir, f)),
 		);
@@ -511,8 +417,6 @@ async function runInSlot(
 }
 
 /**
- * One line of the lander run record (#3323). A line that does not land is
- * said on stderr and costs the verdict nothing.
  * @param {string} root
  * @param {{sha: string, kind: "whole" | "named", files: number,
  *   shards: number, peakMb: number, samples: number,
@@ -529,9 +433,6 @@ function recordRun(root, run) {
 }
 
 /**
- * One line of what held memory at a memory-shut slot, its RSS largest first.
- * Like the run record, a line that cannot be had or land is said on stderr and
- * costs the verdict nothing.
  * @param {string} root
  * @param {string} sha
  * @param {import("./admission.js").PsRead} ps
@@ -560,7 +461,7 @@ function recordHolders(root, sha, ps) {
  * @param {string} pytest
  * @param {string[]} files
  * @param {(dir: string) => string|null} timings
- * @returns {Run[][] | string} the groups, or why none can be had
+ * @returns {Run[][] | string}
  */
 function checkedOutRuns(checkout, pytest, files, timings) {
 	return (
@@ -569,7 +470,6 @@ function checkedOutRuns(checkout, pytest, files, timings) {
 }
 
 /**
- * The cached newest green run's timings.
  * @param {string} dir
  * @returns {string|null}
  */
@@ -601,8 +501,6 @@ function watchMemoryShut(admit) {
 }
 
 /**
- * The queue lander's tester. It judges every sha in its own worktree, so it
- * reads no placement and pushes nothing.
  * @param {LocalTesterOptions} options
  * @returns {QueueTester}
  */
@@ -650,8 +548,6 @@ function localTester({
 }
 
 /**
- * The tester `--tester <command>` names, run in `root`, the whole suite or
- * only the files where they are given, wherever the ask places them.
  * @param {string} command
  * @param {string} root
  * @returns {import("./queue-lander.js").QueueTester}

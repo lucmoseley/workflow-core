@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the persist-and-replay store a slow SessionStart checker writes to:
- * the report round-trip, the atomic write, and when an open run reads as
- * cancelled (mantahostels#1973, specified at mantahostels#1949).
- *
- * Every test points CLAUDE_CONFIG_DIR and CLAUDE_PROJECT_DIR at throwaway
- * temp directories — the real config dir otherwise gets a stray
- * notify-reports/ tree, and a fixed CLAUDE_PROJECT_DIR from a prior run in
- * this shell would make every run share one slug.
- *
- * replay-notify-reports.js, a `SessionStart` hook, replays these reports, so a
- * loosened case lets a checker's finding be lost when the harness cancels it,
- * or a truncated report be replayed as a whole one.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -21,10 +7,30 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runRecordFile } from "./notify-report-testkit";
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const notify: any = createRequire(__filename)("./notify-report.js");
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const arbiterStore: any = createRequire(__filename)("./arbiter-store.js");
+const notify = createRequire(__filename)(
+	"./notify-report.js",
+) as typeof import("./notify-report.js");
+const arbiterStore = createRequire(__filename)(
+	"./arbiter-store.js",
+) as typeof import("./arbiter-store.js");
+
+function mustRead(checker: string) {
+	const report = notify.readReport(checker);
+	if (report === null) throw new Error(`no report for ${checker}`);
+	return report;
+}
+
+const reportAt = (at: string) => ({
+	checker: "c",
+	outcome: "OK" as const,
+	text: "",
+	at,
+	durationMs: null,
+	stamp: null,
+	stamps: {},
+	owner: null,
+	maxAgeMs: null,
+});
 
 let dir = "";
 
@@ -73,8 +79,6 @@ describe("write / read round-trip", () => {
 		});
 	});
 
-	/* A report written before #1553 carries none, and a mangled one is no
-	 * bound at all: both read as the default. */
 	it("reads an absent or non-positive maxAgeMs as none", () => {
 		for (const bad of [undefined, 0, -5, "7d", null]) {
 			notify.writeReport("check-example", { outcome: "WARN", text: "x" });
@@ -82,7 +86,7 @@ describe("write / read round-trip", () => {
 			const raw = JSON.parse(fs.readFileSync(file, "utf8"));
 			raw.maxAgeMs = bad;
 			fs.writeFileSync(file, JSON.stringify(raw));
-			expect(notify.readReport("check-example").maxAgeMs).toBeNull();
+			expect(mustRead("check-example").maxAgeMs).toBeNull();
 		}
 	});
 
@@ -93,19 +97,16 @@ describe("write / read round-trip", () => {
 			const raw = JSON.parse(fs.readFileSync(file, "utf8"));
 			raw.owner = bad;
 			fs.writeFileSync(file, JSON.stringify(raw));
-			expect(notify.readReport("check-example").owner).toBeNull();
+			expect(mustRead("check-example").owner).toBeNull();
 		}
 	});
 
 	it("reads a report whose producer had nothing to stamp as an unstampable one", () => {
 		notify.writeReport("check-example", { outcome: "WARN", text: "x" });
-		expect(notify.readReport("check-example").stamp).toBeNull();
-		expect(notify.readReport("check-example").stamps).toEqual({});
+		expect(mustRead("check-example").stamp).toBeNull();
+		expect(mustRead("check-example").stamps).toEqual({});
 	});
 
-	/* mantahostels#2277: a mangled `stamps` must read as empty rather than throw — a crash
-	 * here takes down the whole session-start replay, every producer's report
-	 * included, not just this one's. */
 	it("drops a stamps value that is not a non-empty string, and a stamps that is not an object", () => {
 		notify.writeReport("check-example", { outcome: "WARN", text: "x" });
 		const file = notify.reportFile("check-example");
@@ -113,21 +114,21 @@ describe("write / read round-trip", () => {
 		const raw = JSON.parse(fs.readFileSync(file, "utf8"));
 		raw.stamps = { good: "sig", bad: 5, empty: "", nully: null };
 		fs.writeFileSync(file, JSON.stringify(raw));
-		expect(notify.readReport("check-example").stamps).toEqual({ good: "sig" });
+		expect(mustRead("check-example").stamps).toEqual({ good: "sig" });
 
 		raw.stamps = ["not", "an", "object"];
 		fs.writeFileSync(file, JSON.stringify(raw));
-		expect(notify.readReport("check-example").stamps).toEqual({});
+		expect(mustRead("check-example").stamps).toEqual({});
 
 		raw.stamps = null;
 		fs.writeFileSync(file, JSON.stringify(raw));
-		expect(notify.readReport("check-example").stamps).toEqual({});
+		expect(mustRead("check-example").stamps).toEqual({});
 	});
 
 	it("writes a file for an OK outcome with empty text, told apart from never-run", () => {
 		expect(notify.readReport("never-run")).toBeNull();
 		notify.writeReport("check-example", { outcome: "OK" });
-		const report = notify.readReport("check-example");
+		const report = mustRead("check-example");
 		expect(report.outcome).toBe("OK");
 		expect(report.text).toBe("");
 	});
@@ -142,17 +143,6 @@ describe("atomic write", () => {
 		expect(notify.readReport("check-example")).toBeNull();
 	});
 
-	/*
-	 * MUTATION (mantahostels#1973, run and reversed): replace atomicWriteJSON's
-	 * lib/atomic-write.js call with a direct fs.writeFileSync(file, ...) — the change a
-	 * reviewer might propose as "simpler". Every test above still passed: none
-	 * of them drives the write path itself under a simulated slow write, so
-	 * none can tell a direct write from a temp-then-rename one. This is the
-	 * test that catches it: it asserts the MECHANISM — a temp path distinct
-	 * from the target is written first, and only a rename onto the target
-	 * follows — rather than an outcome a non-atomic write happens to share.
-	 * Counting those internal calls is the breach base §X6 allows with a reason.
-	 */
 	it("writes a temp file distinct from the target and renames it into place", () => {
 		const target = notify.reportFile("check-example");
 		const writeSpy = vi.spyOn(fs, "writeFileSync");
@@ -176,9 +166,6 @@ describe("open-run records and cancellation", () => {
 		const run = notify.readRun("check-example");
 		expect(run).not.toBeNull();
 
-		// The same "certainly no process" pid arbiter-proc.test.ts pins for the
-		// identical reason: the highest pid Linux's default pid_max allows,
-		// vanishingly unlikely to be occupied.
 		fs.writeFileSync(
 			runRecordFile("check-example"),
 			`${JSON.stringify({ ...run, pid: 4_194_303, procStart: "12345" })}\n`,
@@ -187,11 +174,6 @@ describe("open-run records and cancellation", () => {
 	});
 
 	it("a record naming this LIVE pid but the WRONG start token reads as cancelled — the recycled-pid case", () => {
-		// The pid is real and running (it's this test process), so an
-		// existence-only liveness check would wrongly call this "still running".
-		// A recycled pid looks exactly like this: the same number, a process
-		// that really is alive, and a start-time token that does not match the
-		// one recorded when the record was opened.
 		notify.openRun("check-example");
 		const run = notify.readRun("check-example");
 		fs.writeFileSync(
@@ -208,10 +190,6 @@ describe("open-run records and cancellation", () => {
 	});
 
 	it("a record naming this live pid and its real token, but a DIFFERENT boot, reads as cancelled", () => {
-		// A run file lives under `~/.claude*` and survives a reboot, unlike a
-		// lock (arbiter-proc.js's holderAlive header). Without the boot check a
-		// coincident pid+procStart pair recorded before a reboot would read a
-		// producer that never finished as still running, forever.
 		notify.openRun("check-example");
 		const run = notify.readRun("check-example");
 		fs.writeFileSync(
@@ -233,39 +211,18 @@ describe("open-run records and cancellation", () => {
 		expect(notify.readRun("check-example")).toBeNull();
 		expect(() => notify.closeRun("check-example")).not.toThrow();
 	});
-
-	/*
-	 * MUTATION (mantahostels#1973, run and reversed): change isCancelled's
-	 * `!holderAlive(...)` to `return false` unconditionally. The two positive
-	 * ("not cancelled") tests still pass — `false` is correct there — but both
-	 * negative tests above fail: the no-/proc-entry case and, separately, the
-	 * live-pid-wrong-token case, which a weaker mutant (existence-only, no
-	 * token comparison) would still pass.
-	 */
 });
 
 describe("age arithmetic and staleness", () => {
 	it("ageMs measures against `now`, and staleness is exposed and configurable", () => {
-		const report = {
-			checker: "c",
-			outcome: "OK",
-			text: "",
-			at: new Date(0).toISOString(),
-			durationMs: null,
-		};
+		const report = reportAt(new Date(0).toISOString());
 		expect(notify.ageMs(report, 10_000)).toBe(10_000);
 		expect(notify.isStale(report, 5000, 10_000)).toBe(true);
 		expect(notify.isStale(report, 20_000, 10_000)).toBe(false);
 	});
 
 	it("an unparseable timestamp reads as unknown age and as stale, never as fresh", () => {
-		const report = {
-			checker: "c",
-			outcome: "OK",
-			text: "",
-			at: "not a date",
-			durationMs: null,
-		};
+		const report = reportAt("not a date");
 		expect(notify.ageMs(report)).toBeNull();
 		expect(notify.isStale(report)).toBe(true);
 	});
@@ -275,40 +232,20 @@ describe("age arithmetic and staleness", () => {
 		expect(notify.isStale(null)).toBe(true);
 	});
 
-	/*
-	 * MUTATION (mantahostels#1973, run and reversed): flip isStale's `age > maxAgeMs` to
-	 * `age >= maxAgeMs`. Neither the "5 000 / 20 000 against age 10 000" pair
-	 * above sits on the boundary, so neither catches it — only the exact-equal
-	 * case below does.
-	 */
 	it("the bound is exact: equal to the limit is not yet stale", () => {
-		const report = {
-			checker: "c",
-			outcome: "OK",
-			text: "",
-			at: new Date(0).toISOString(),
-			durationMs: null,
-		};
+		const report = reportAt(new Date(0).toISOString());
 		expect(notify.isStale(report, 10_000, 10_000)).toBe(false);
 		expect(notify.isStale(report, 9999, 10_000)).toBe(true);
 	});
 
 	it("the exported default bound is what isStale actually uses when none is given", () => {
 		const now = 10_000_000;
-		const justInside = {
-			checker: "c",
-			outcome: "OK",
-			text: "",
-			at: new Date(now - notify.DEFAULT_STALE_MS + 1).toISOString(),
-			durationMs: null,
-		};
-		const justOutside = {
-			checker: "c",
-			outcome: "OK",
-			text: "",
-			at: new Date(now - notify.DEFAULT_STALE_MS - 1).toISOString(),
-			durationMs: null,
-		};
+		const justInside = reportAt(
+			new Date(now - notify.DEFAULT_STALE_MS + 1).toISOString(),
+		);
+		const justOutside = reportAt(
+			new Date(now - notify.DEFAULT_STALE_MS - 1).toISOString(),
+		);
 		expect(notify.isStale(justInside, undefined, now)).toBe(false);
 		expect(notify.isStale(justOutside, undefined, now)).toBe(true);
 	});
@@ -316,8 +253,6 @@ describe("age arithmetic and staleness", () => {
 
 describe("cross-config-dir resolution", () => {
 	it("resolves to the pinned arbiter store from a non-first seat, with _A named off the sorted-first position (#385)", () => {
-		// `seat-z` sorts last of the three, so the rule this replaced — the
-		// sorted-first usable config dir — would have picked `claude2`.
 		const first = path.join(dir, "seat-z");
 		const claudeB = path.join(dir, "claude2");
 		const claudeC = path.join(dir, "claude3");
@@ -335,7 +270,7 @@ describe("cross-config-dir resolution", () => {
 
 		vi.stubEnv("CLAUDE_CONFIG_DIR", claudeB);
 		expect(notify.base()).toBe(writtenAt);
-		expect(notify.readReport("check-example").text).toBe("from C");
+		expect(mustRead("check-example").text).toBe("from C");
 	});
 });
 
@@ -366,14 +301,8 @@ describe("degradation on failure", () => {
 		const root = path.join(dir, "sealed");
 		fs.mkdirSync(root, { recursive: true, mode: 0o555 });
 		if (process.getuid && process.getuid() === 0) {
-			// root ignores the permission bit; the guarantee is untestable here.
 			return;
 		}
-		// Every candidate config dir nests under the same sealed ancestor, so
-		// canHoldState's walk-up finds no writable one for ANY of them — the
-		// single-plan fallback candidates (.claude2, .claude3) are otherwise
-		// writable via their own creatable parent, which would silently pick
-		// one of those instead of exercising the failure path this test wants.
 		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(root, "claude"));
 		vi.stubEnv("WFC_CLAUDE_CONFIG_A", path.join(root, "claude"));
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(root, "claude2"));
@@ -413,21 +342,18 @@ describe("degradation on failure", () => {
 		});
 		fs.writeFileSync(
 			notify.reportFile("check-example"),
-			`${JSON.stringify({ checker: "check-example", outcome: "OK" })}\n`, // missing text/at
+			`${JSON.stringify({ checker: "check-example", outcome: "OK" })}\n`,
 		);
 		expect(notify.readReport("check-example")).toBeNull();
 
 		fs.writeFileSync(
 			runRecordFile("check-example"),
-			`${JSON.stringify({ checker: "check-example", pid: 123 })}\n`, // missing startedAt
+			`${JSON.stringify({ checker: "check-example", pid: 123 })}\n`,
 		);
 		expect(notify.readRun("check-example")).toBeNull();
 	});
 
 	it("a store that cannot be resolved at all still yields a usable, in-sandbox base, never a throw", () => {
-		// A spy, because no real seam reaches base()'s catch (#684): stateDir()'s
-		// helpers catch and log their own errors and hostRoot() fails open to the
-		// cwd, so no environment a test can build makes it throw.
 		const spy = vi.spyOn(arbiterStore, "stateDir").mockImplementation(() => {
 			throw new Error("registry unreadable");
 		});
@@ -435,9 +361,6 @@ describe("degradation on failure", () => {
 			expect(() =>
 				notify.writeReport("check-example", { outcome: "OK" }),
 			).not.toThrow();
-			// The fallback must still respect CLAUDE_CONFIG_DIR — a sandboxed test
-			// (or a sandboxed arbiter suite) must never fall through to the
-			// founder's real ~/.claude.
 			expect(notify.reportFile("check-example").startsWith(dir)).toBe(true);
 			expect(notify.readReport("check-example")).not.toBeNull();
 		} finally {
@@ -446,8 +369,6 @@ describe("degradation on failure", () => {
 	});
 });
 
-/* The listing the replay reader (mantahostels#1976) opens the directory with: it has to
- * know which checkers have written before it can read any of them. */
 describe("list", () => {
 	it("names every checker with a report or an open run record, once, sorted", () => {
 		notify.writeReport("ghost-jobs", { outcome: "OK" });

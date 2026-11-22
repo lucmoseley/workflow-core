@@ -1,15 +1,3 @@
-/*
- * landed-edit.js — whether a worktree's uncommitted change to a file is
- * already on a landed ref, for check-orphaned-edits.js (#4439).
- *
- * The landed versions of a file are its copy at the ref and its copy as each
- * commit since `HEAD`'s merge base with the ref left it. LANDED BY BLOB where
- * the working copy is byte for byte one of them. LANDED BY LINES where one of
- * them made the change in place: each run of lines the change replaces is
- * gone from it, the lines either side of the run are kept, and the run's new
- * lines stand there against one of them (#4903).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { gitRead } = require("./dirty-tree.js");
@@ -19,8 +7,6 @@ const { logError } = require("./arbiter-core");
 const { matchLines } = require("./line-match.js");
 
 /**
- * The blob id of every landed version of `rel`: at `ref`, then as each commit
- * in `base..ref` left it.
  * @param {string} tree
  * @param {string} rel
  * @param {string} ref
@@ -55,14 +41,9 @@ function readLandedBlobs(tree, rel, ref) {
 	return blobs;
 }
 
-/**
- * @typedef {{from: number, to: number, lines: string[]}} Hunk
- *   a run of lines a change replaces: `head[from..to)` gone, `lines` in its
- *   place
- */
+/** @typedef {{from: number, to: number, lines: string[]}} Hunk */
 
 /**
- * The hunks `now` makes off `head`.
  * @param {string[]} head
  * @param {string[]} now
  * @returns {Hunk[]}
@@ -81,7 +62,6 @@ function buildHunks(head, now) {
 		}
 		const from = i;
 		while (i < head.length && at[i] === -1) i++;
-		/* Past `head`'s end `at[i]` is undefined; before it, a kept line. */
 		const next = at[i] ?? now.length;
 		hunks.push({ from, to: i, lines: now.slice(j, next) });
 		j = next;
@@ -90,11 +70,6 @@ function buildHunks(head, now) {
 }
 
 /**
- * Whether `there` made each of `hunks` off `head` in place.
- *
- * Residual: `matchLines` keeps one longest common subsequence of several, so
- * where a line repeats beside a hunk the verdict can rest on which copy it
- * kept, and a wrong pick can read an unlanded change as landed.
  * @param {string[]} head
  * @param {Hunk[]} hunks
  * @param {string[]} there
@@ -105,11 +80,7 @@ function isChangeMade(head, hunks, there) {
 }
 
 /**
- * Whether `there` made `hunk`: the head lines either side of it kept, the
- * lines it replaces gone, and its new lines standing against one of those
- * neighbours. The other side may hold lines landed since (#4439). A
- * deletion leaves its neighbours adjacent.
- * @param {Int32Array} at each line of `head`'s index in `there`, or -1
+ * @param {Int32Array} at
  * @param {Hunk} hunk
  * @param {string[]} there
  */
@@ -128,11 +99,9 @@ function isHunkMade(at, { from, to, lines }, there) {
 }
 
 /**
- * Where `head[i]` stands in `there`: -1 before `there`'s first line, `end`
- * past its last, null where `there` dropped it.
- * @param {Int32Array} at each line of `head`'s index in `there`, or -1
+ * @param {Int32Array} at
  * @param {number} i
- * @param {number} end `there`'s length
+ * @param {number} end
  */
 function placeOf(at, i, end) {
 	if (i < 0) return -1;
@@ -142,8 +111,6 @@ function placeOf(at, i, end) {
 }
 
 /**
- * The lines of a file at `HEAD` and the runs its working copy replaces there,
- * or null where the working copy will not read.
  * @param {string} tree
  * @param {string} rel
  */
@@ -159,12 +126,8 @@ function readChange(tree, rel) {
 }
 
 /**
- * How the working copy of each file in `tree` reached `ref`: by its blob, by
- * its lines, or not at all (null). Every file's landed versions are read
- * through one `git cat-file --batch` (#4542); a batch that fails reads as
- * not landed, which keeps the land route.
  * @param {string} tree
- * @param {{rel: string, blob: string}[]} files each blob the working copy's id
+ * @param {{rel: string, blob: string}[]} files
  * @param {string} ref
  * @returns {Promise<("blob"|"lines"|null)[]>}
  */
@@ -173,7 +136,7 @@ async function readLanded(tree, files, ref) {
 	const out = files.map(() => null);
 	/** @type {{blobs: string[], test: (body: Buffer) => boolean}[]} */
 	const groups = [];
-	/** @type {number[]} each group's index in `files` */
+	/** @type {number[]} */
 	const fileAt = [];
 	files.forEach(({ rel, blob }, i) => {
 		const blobs = readLandedBlobs(tree, rel, ref);
@@ -208,7 +171,6 @@ async function readLanded(tree, files, ref) {
 }
 
 /**
- * The count of `HEAD`'s commits not on `ref`, or null where git will not say.
  * @param {string} tree
  * @param {string} ref
  */

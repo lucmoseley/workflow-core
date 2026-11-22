@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/kernel-stall-fixture.ts's writeKernelConfig to the real
- * /proc/config.gz (#4081): check-kernel-stall.js converts a `t` through each.
- * Loosened, the conversion tests stay green on the fixture while a kernel whose
- * config reads differently leaves every stall unconverted, and no leap counted.
- *
- * The real side runs where the file exists. Red there after a kernel update:
- * `zcat /proc/config.gz | grep CONFIG_HZ=`, then fix readKernelHz or the fixture.
- */
 
 import fs from "node:fs";
 import os from "node:os";

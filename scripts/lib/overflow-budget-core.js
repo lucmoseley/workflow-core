@@ -1,90 +1,45 @@
-/*
- * overflow-budget-core.js — the budget gate's pure core: how many sessions fit
- * on an overflow key, from its ledger, its running runs, the session cost
- * table and the time (#2609, spec #2570 story 45).
- *
- * ANCHOR: with a Console reading (lib/console-credit.js) the key has what the
- * reading's unexpired grants held, less the sessions last written since, and one
- * ended on a credit refusal since then marks it exhausted until a newer reading.
- * A grant expires at 00:00 UTC on its expiry date, the Console's dates being UTC.
- *
- * CYCLE: with no reading yet, the key has its configured grant, less the sessions
- * last written since the most recent `cycle-day` at local midnight, where their
- * last requests were billed, and a credit refusal marks it exhausted until the
- * next cycle.
- *
- * RESERVATIONS, against requests and never live usage
- * (docs/practice/capacity-planning-and-admission.md): each running session holds
- * max(Q, spent so far + session-spend's expected remainder), and a new launch
- * holds Q, the cost table's `meanUsd` — read, never a constant (#2570). A running
- * session's ledger row is held, not settled, so a session counts once (#3695); a
- * resumed copy's spend there is its chain share, the remainder still read from
- * its own spend (#4369). One whose row falls outside the basis holds Q alone:
- * that spend came off another cycle or is already in the reading.
- *
- *   headroom = credit − settled spend − Σ running reservations
- *   fit      = floor(headroom / Q), or 0 on an exhausted key
- *
- * CHAINS: a `--bg --resume` copy repeats its parent's history up to the fork,
- * so a chain of copies settles its shared requests once (#4208), each copy
- * capped on the chain's spend (#4195), and what a copy repeats is fixed once
- * read with every member before it (#4370).
- */
-
 const { localDate } = require("./local-date.js");
 const { expectedRemainderUsd } = require("./session-spend.js");
 
 /**
  * @typedef {import("./session-spend.js").CostTable} CostTable
  * @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup
- * @typedef {(mainFiles: string[]) => number} ReadChainSpendUsd the spend of
- *   transcripts, each request once: session-spend.js's readChainSpendUsd
- *
+ * @typedef {(mainFiles: string[]) => number} ReadChainSpendUsd
  * @typedef {object} LedgerEntry
  * @property {string} sessionId
  * @property {string|null} jobId
- * @property {number} endedAt ms, the session's latest transcript write
- * @property {number} bytes its transcripts' size when priced
- * @property {number} costUsd its cumulative cost at that size
- * @property {number} [sharedUsd] what that cost repeats from the members
- *   before it in its chain of resumed copies (#4370)
- * @property {string} outcome `key-exhausted`: its latest API answer was a credit
- *   refusal
- * @property {number} [refusedAt] ms, that refusal's time; absent, `endedAt` stands
- *
+ * @property {number} endedAt
+ * @property {number} bytes
+ * @property {number} costUsd
+ * @property {number} [sharedUsd]
+ * @property {string} outcome
+ * @property {number} [refusedAt]
  * @typedef {object} RunningRun
  * @property {string} sessionId
- * @property {number|null} spentUsd its cumulative spend, null before a transcript
- * @property {number} [shareUsd] what it adds to the members of its chain of
- *   resumed copies before it (#4369); absent, `spentUsd` stands
- *
+ * @property {number|null} spentUsd
+ * @property {number} [shareUsd]
  * @typedef {{remainingUsd: number, grantUsd: number, grantedOn: string,
- *   expiresOn: string}} Credit a Promotional credits row, its dates YYYY-MM-DD
+ *   expiresOn: string}} Credit
  * @typedef {{at: number, credits: Credit[]}} ConsoleReading
- *
  * @typedef {object} Budget
- * @property {number} fit sessions that fit on the key now
+ * @property {number} fit
  * @property {number} headroomUsd
- * @property {number} settledUsd settled spend since the reading, else this cycle
- * @property {number} reservedUsd held by running runs
- * @property {number} creditUsd the unexpired credit at the reading, else the grant
- * @property {number} grantUsd the unexpired grants' size, else the configured grant
- * @property {number|null} readAt ms, the reading's time; null with none
- * @property {string|null} expiresOn the earliest unexpired credit's expiry,
- *   YYYY-MM-DD; null with no reading or none unexpired
- * @property {number} qUsd the launch reservation
+ * @property {number} settledUsd
+ * @property {number} reservedUsd
+ * @property {number} creditUsd
+ * @property {number} grantUsd
+ * @property {number|null} readAt
+ * @property {string|null} expiresOn
+ * @property {number} qUsd
  * @property {number} running
- * @property {number} cycleStart ms
- * @property {number} nextCycleStart ms
+ * @property {number} cycleStart
+ * @property {number} nextCycleStart
  * @property {boolean} exhausted
- * @property {string} freeAgain when a spent key frees: the next cycle's local
- *   date, YYYY-MM-DD, with no reading, else `a newer Console reading`
+ * @property {string} freeAgain
  */
 
 /**
- * The billing cycle `now` falls in: from the most recent `cycleDay` at local
- * midnight to the next. cycleDay is 1–28, so every month holds it.
- * @param {number} now ms
+ * @param {number} now
  * @param {number} cycleDay
  * @returns {{start: number, next: number}}
  */
@@ -110,7 +65,6 @@ function reservationUsd(run, table) {
 }
 
 /**
- * What the key holds and which runs come off it, with a reading.
  * @param {ConsoleReading} reading
  * @param {number} now
  */
@@ -188,8 +142,6 @@ function budgetOf({
 }
 
 /**
- * The session a chain of `--bg --resume` copies started from, and how many
- * copies deep a session is in it (#4195).
  * @param {OverflowLookup} lookup
  * @param {string} sessionId
  * @returns {{root: string, depth: number}}
@@ -206,16 +158,12 @@ function chainOf(lookup, sessionId) {
 }
 
 /**
- * The session a chain of `--bg --resume` copies started from (#4195).
  * @param {OverflowLookup} lookup
  * @param {string} sessionId
  */
 const chainRootOf = (lookup, sessionId) => chainOf(lookup, sessionId).root;
 
 /**
- * What a session's transcript repeats from before a move put its chain on the
- * key, which a plan paid: its chain root's record, as each copy repeats the
- * root's history (#3736).
  * @param {OverflowLookup} lookup
  * @param {string} sessionId
  */
@@ -223,8 +171,6 @@ const offKeyOf = (lookup, sessionId) =>
 	lookup({ sessionId: chainRootOf(lookup, sessionId) })?.offKeyUsd ?? 0;
 
 /**
- * The ledger's rows grouped by chain root, each chain's root first and every
- * copy after its parent; copies at one depth by session id.
  * @param {OverflowLookup} lookup
  * @param {Iterable<LedgerEntry>} rows
  * @returns {Map<string, LedgerEntry[]>}
@@ -252,16 +198,9 @@ function groupByChain(lookup, rows) {
 }
 
 /**
- * What each listed chain member's cost repeats from the members before it. A
- * copy repeats only history from before its fork, so the figure is fixed once
- * read with every member before it listed: where one of those has gone, the
- * row's last figure stands (#4370). A chain's root repeats nothing and gets
- * none. Residual: a member first read after an earlier member's transcript
- * went, or gone before it was ever read with them, has no figure, so its
- * repeated requests count twice.
  * @param {OverflowLookup} lookup
  * @param {Iterable<LedgerEntry>} rows
- * @param {Map<string, string>} files each listed session's main transcript
+ * @param {Map<string, string>} files
  * @param {ReadChainSpendUsd} readChainSpendUsd
  * @returns {[LedgerEntry, number][]}
  */
@@ -276,12 +215,10 @@ function readSharedUsd(lookup, rows, files, readChainSpendUsd) {
 }
 
 /**
- * `readSharedUsd` for one chain, its members in chain order.
  * @param {string} root
  * @param {LedgerEntry[]} members
  * @param {Map<string, string>} files
- * @param {ReadChainSpendUsd} readListedUsd the listed transcripts' spend, less
- *   what the root's move repeats from off the key
+ * @param {ReadChainSpendUsd} readListedUsd
  * @returns {[LedgerEntry, number][]}
  */
 function readChainSharedUsd(root, members, files, readListedUsd) {
@@ -311,23 +248,13 @@ function readChainSharedUsd(root, members, files, readListedUsd) {
 	return shared;
 }
 
-/**
- * A row's spend less what it repeats from its chain.
- * @param {LedgerEntry} e
- */
+/** @param {LedgerEntry} e */
 const chainShareOf = (e) => Math.max(0, e.costUsd - (e.sharedUsd ?? 0));
 
 /**
- * Each session's spend with every copy in its chain, by session: a copy
- * repeats its parent's main-thread requests up to the fork, but neither the
- * parent's subagents nor what the parent spends after it, so a copy priced
- * alone could spend its allowance again (#4195). A founder's reply spends
- * outside the allowance (#4668): each chain's figure is less its members'
- * `replyUsd`, taken once, as a copy's repeat of a reply is no share of it.
  * @param {OverflowLookup} lookup
  * @param {LedgerEntry[]} ledger
- * @param {Map<string, number>} [replyUsd] by session, what its founder's
- *   replies spent in it
+ * @param {Map<string, number>} [replyUsd]
  * @returns {Map<string, number>}
  */
 function chainSpendOf(lookup, ledger, replyUsd = new Map()) {
@@ -348,9 +275,6 @@ function chainSpendOf(lookup, ledger, replyUsd = new Map()) {
 }
 
 /**
- * Each founder's reply's span of its session (#4668): from its launch to just
- * before the next run of that session, open-ended where none follows. A
- * resume of the session is always a run of its own (lib/refill-resume.js).
  * @param {{sessionId: string, launchedAt: number, founderReply?: true}[]} runs
  * @returns {{sessionId: string, fromMs: number, toMs: number}[]}
  */
@@ -373,19 +297,13 @@ const replyWindowsOf = (runs) =>
 		}));
 
 /**
- * The ledger with each row at its chain share, so a parent and its copies
- * settle the requests they share once (#4208), with one row per session.
  * @param {LedgerEntry[]} ledger
  * @returns {LedgerEntry[]}
  */
 const settleChainsOnce = (ledger) =>
 	ledger.map((e) => ({ ...e, costUsd: chainShareOf(e) }));
 
-/**
- * Whether the key has no launch left, running runs aside: a credit refusal, or
- * less unsettled credit than one launch's reservation.
- * @param {Budget} budget
- */
+/** @param {Budget} budget */
 const isBudgetSpent = ({ exhausted, creditUsd, settledUsd, qUsd }) =>
 	exhausted || creditUsd - settledUsd < qUsd;
 

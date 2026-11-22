@@ -1,25 +1,10 @@
-/*
- * machine-setting.js — the one reader of a machine setting: an environment
- * variable where set, else the file `~/.claude/<name>`, shared by every repo's
- * sessions on the machine (#3228). The caller parses the text and keeps its
- * own default.
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
 
 /**
- * The setting's raw text and where it came from: `envVar` where set, else the
- * file. An empty variable is no setting and skips the file, as is no file. A
- * file that will not read is no setting, and `problem` says why. `source`
- * names the variable or the file's path.
- *
- * Only the live environment falls back to the account's home; an injected one
- * names its own `HOME` or reads no file. A relative `HOME` reads no file.
- *
- * @param {string} name the file's name under `~/.claude`
+ * @param {string} name
  * @param {string} envVar
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {{text?: string, source?: string, problem?: string}}

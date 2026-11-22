@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * mainCheckout is the one home of the rule turning git's common dir into the
- * main checkout (#2563): a `.git` common dir names its parent, any other names
- * none.
- *
- * The mainCheckout cases build real throwaway repositories outside this one,
- * a linked worktree and a `--separate-git-dir` repo among them, because it
- * reads what `git rev-parse --git-common-dir` prints and only real git prints
- * it. checkoutOfCommonDir takes that output as a string, so its case does not.
- *
- * mainCheckout places the commit ledgers (arbiter-ledger.js) and the
- * self-plugin setup path (core-hooks.js); checkoutOfCommonDir picks
- * repo-checks.js's reading root. A loosened case lets a worktree session keep
- * its ledgers in its own worktree, or print a setup path that is not the main
- * checkout's.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";

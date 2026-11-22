@@ -1,87 +1,39 @@
-/*
- * orphan-hooks.js — which hook runs outlived whatever was waiting on them, and
- * the kill that ends each one with its group: the judgement and the effect for
- * scripts/reap-orphan-hooks.js, its one caller, with /proc's root, the clock,
- * the kill and the log handed in (#2922).
- *
- * The incident it answers: docs/environment.md §7, 25 Oct 2026.
- *
- * THE SIGNATURE IS THREE FACTS TOGETHER:
- *
- *   1. IT RUNS A GUARD OR A REGISTERED HOOK INVOCATION: any `scripts/guard-*`
- *      script, by path alone (isGuard says why), or the script a hook command names,
- *      as argv[0] or as an interpreter's first operand, followed by exactly the
- *      arguments that command passes. Exact arguments are what spare a hook
- *      script's deliberately detached child — `session-arbiter.js
- *      prune-markers`, `audit-escape-lines.js --judge` — which has init for a
- *      parent by design and no hook timeout bounding it. A fork of a bash guard
- *      keeps its parent's argv, so it matches too.
- *   2. ITS PARENT IS AN INIT: pid 1, a process whose argv[0] is `init` or
- *      `/init`, or a `systemd` — on WSL an orphan reparents to its session
- *      `/init`, not pid 1.
- *   3. IT IS OLDER THAN THE CEILING: the longest timeout any registered hook
- *      carries plus MARGIN_S.
- *
- * WHAT IS KILLED. Claude Code starts every hook as a session and group leader,
- * so a matched process leading its own group takes the whole group. A matched
- * process that leads none — the incident's shape, a fork in a harness's group —
- * takes the group too where every live member of it is matched or descends
- * from one, since nothing else is left in it; otherwise only its own descendant
- * tree. Every kill is SIGKILL.
- *
- * A RECYCLED PID IS NEVER KILLED: each target's start time is read again just
- * before the kill and must match the snapshot's.
- *
- * /proc is read through lib/proc-table.js.
- */
-
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { ageSeconds, readStartTicks } = require("./proc-table.js");
 
-/* Claude Code's timeout for a command hook that sets none: "Defaults: 600 for
- * `command`" (code.claude.com/docs/en/hooks). */
+// https://code.claude.com/docs/en/hooks
 const DEFAULT_HOOK_TIMEOUT_S = 600;
 
-/* Slack past the longest timeout before a run counts as orphaned. A guess,
- * against no measurement: room for a cancelled hook's own exit to land. */
+// guess, #2922
 const MARGIN_S = 60;
 
-/* How much of a killed process's argv the log keeps — memwatch's own bound
- * (docs/environment.md §4). */
+// guess, #2922
 const ARGV_KEPT = 512;
 
-/* The kill log, one JSON line a kill, under a canonical checkout's markers. */
 const REAP_LOG = ".orphan-hook-reaps.jsonl";
 
-/* How much of an argv a report prints: two terminal lines at this repo's
- * usual width, check-orphan-wait-loops.js's WINDOW. A guess. */
+// guess, #4342
 const ARGV_SHOWN = 160;
 
-/** The kill log of the checkout at `canonical`.
- * @param {string} canonical */
+/** @param {string} canonical */
 const reapLogPath = (canonical) => path.join(markersDir(canonical), REAP_LOG);
 
 const INTERPRETER = /^(?:ba|da)?sh$|^node$/;
 const INIT = /^(?:init|systemd)$/;
-/* Where a hook command's own arguments stop. */
 const COMMAND_END = /^(?:\|\||&&|;|\||[0-9]*>.*|<.*)$/;
 
 /**
  * @typedef {import("./proc-table.js").Proc} Proc
- * @typedef {{ script: string, args: string[] }} Invocation `script` relative
- *   to `scripts/`, so any checkout's copy matches
+ * @typedef {{ script: string, args: string[] }} Invocation
  * @typedef {{ type?: string, command?: string, args?: unknown, timeout?: number }} Hook
  * @typedef {Record<string, Array<{ hooks?: Hook[] }>>} Hooks
  * @typedef {{ pid: number, pgid: number, scope: "group"|"tree", ageS: number,
  *   argv: string[], targets: Proc[],
- *   session?: import("./ended-sessions.js").Session }} Reap `session`
- *   where the reap is lib/ended-sessions.js's
+ *   session?: import("./ended-sessions.js").Session }} Reap
  */
 
 /**
- * The invocation one hook command makes of a core script, or null where it
- * names none.
  * @param {Hook} hook
  * @returns {Invocation | null}
  */
@@ -99,11 +51,7 @@ function invocationOf(hook) {
 	return { script, args: [...args.filter(Boolean), ...extra] };
 }
 
-/**
- * Every invocation `hooks` registers, and the ceiling past which a run of one
- * is orphaned.
- * @param {Hooks} hooks
- */
+/** @param {Hooks} hooks */
 function readRegistry(hooks) {
 	/** @type {Invocation[]} */
 	const invocations = [];
@@ -119,13 +67,7 @@ function readRegistry(hooks) {
 	return { invocations, ceilingS: longest + MARGIN_S };
 }
 
-/**
- * A guard, registered or not and whatever its arguments: a harness may run a
- * copy the registry does not name (#2922). No guard detaches a
- * child of its own, so an orphaned guard is never one meant to outlive its
- * hook.
- * @param {string} script relative to `scripts/`
- */
+/** @param {string} script */
 const isGuard = (script) => /^guard-[^/]+\.(?:sh|js)$/.test(script);
 
 /** @param {string[]} a @param {string[]} b */
@@ -133,14 +75,11 @@ const isSameArgs = (a, b) =>
 	a.length === b.length && a.every((w, i) => w === b[i]);
 
 /**
- * Whether `argv` runs one of `invocations`, exactly.
  * @param {string[]} argv
  * @param {Invocation[]} invocations
  */
 function isHookInvocation(argv, invocations) {
 	const head = argv[0] ?? "";
-	/* A compound hook command — `command -v node && node …/x.js --notify ||
-	 * true` — runs as `sh -c <command>`, its node a child of that shell. */
 	if (argv[1] === "-c" && INTERPRETER.test(path.basename(head))) {
 		const inv = invocationOf({ command: argv[2] ?? "" });
 		return (
@@ -174,8 +113,7 @@ const isInit = (ppid, parentArgv0) =>
 	(parentArgv0 !== undefined && INIT.test(path.basename(parentArgv0)));
 
 /**
- * `pid` and everything descending from it.
- * @param {Map<number, number[]>} children parent pid to child pids
+ * @param {Map<number, number[]>} children
  * @param {number} pid
  */
 function subtree(children, pid) {
@@ -191,8 +129,6 @@ function subtree(children, pid) {
 }
 
 /**
- * The orphaned hook runs in `procs` and what each kill takes, oldest first.
- * `mine` — this process and its ancestors — is never matched or killed.
  * @param {Map<number, Proc>} procs
  * @param {{ invocations: Invocation[], ceilingS: number, bootAgo: number, mine: Set<number> }} at
  * @returns {{ reaps: Reap[], young: number }}
@@ -224,9 +160,6 @@ function findOrphanHooks(procs, { invocations, ceilingS, bootAgo, mine }) {
 }
 
 /**
- * Whether `orphan`'s kill takes its whole group: never one holding a process
- * of `mine`; always one it leads; else one whose every member is `covered` —
- * matched, or descending from a match.
  * @param {Proc} orphan
  * @param {Proc[]} members
  * @param {{ mine: Set<number>, covered: Set<number> }} sets
@@ -236,8 +169,6 @@ const isWholeGroupKill = (orphan, members, { mine, covered }) =>
 	(orphan.pgid === orphan.pid || members.every((m) => covered.has(m.pid)));
 
 /**
- * What each orphan's kill takes, a process taken by an earlier one left out
- * of a later.
  * @param {Map<number, Proc>} procs
  * @param {Proc[]} orphans
  * @param {Set<number>} mine
@@ -275,10 +206,6 @@ function planReaps(procs, orphans, mine) {
 }
 
 /**
- * Kill each reap's targets, logging one line per reap. A group whose every
- * snapshot member still holds its start time is killed by pgid, taking any
- * member forked since; otherwise each target whose start time still matches
- * is killed on its own.
  * @template {Reap} R
  * @param {R[]} reaps
  * @param {{ root: string, kill: (pid: number, signal: "SIGKILL") => void,
@@ -317,8 +244,6 @@ function killReaps(reaps, { root, kill, log }) {
 			scope: r.scope,
 			ageS: r.ageS,
 			argv: r.argv.join(" ").slice(0, ARGV_KEPT),
-			/* A pgid kill also takes any member forked after the snapshot,
-			 * which no line names. */
 			byPgid: r.scope === "group" && live.length === r.targets.length,
 			targets: live.map((t) => ({
 				pid: t.pid,

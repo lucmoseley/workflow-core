@@ -1,14 +1,9 @@
 // @vitest-environment node
-/*
- * lib/line-scan.js's contract: each parser finds exactly the matches of the
- * regex it stands in for (#3383), and does so in linear time. The parsers
- * feed lib/guard-reach.js's run edges, so a parser that found
- * one path more or less would move a guard's digest, or miss the lib edit
- * the digest is there to warn about.
- */
 
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+
+const shellVar = (name: string): string => `\${${name}}`;
 
 interface Match {
 	prefix: string;
@@ -34,7 +29,6 @@ const RUN_RE =
 const VAR_RE =
 	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm;
 
-/** Each match of `re` as an object keyed by `fields`, group 1 onwards. */
 const parseGroups = <T>(
 	re: RegExp,
 	text: string,
@@ -57,34 +51,24 @@ const PLANTED = [
 	"sourcelib/a.sh",
 	"source lib/.sh lib/x.sh",
 	'node "$here/session-arbiter.js" "$@"',
-	// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-	"(node $root/scripts/a/b.js) | node ${x}/c.js",
+	`(node $root/scripts/a/b.js) | node ${shellVar("x")}/c.js`,
 	'// node "$here/x.js"',
 	"node $x/-a.js node $y/.js",
-	// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-	'node "$lib"; node ${prog} | node $a}x',
-	// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-	'if node $script; then node "${b}"',
+	`node "$lib"; node ${shellVar("prog")} | node $a}x`,
+	`if node $script; then node "${shellVar("b")}"`,
 	"node $\nnode $x",
 	"a&node $v)",
-	// Several heads on one line, a head opening the next line, a `#` stop,
-	// and a `.` inside a word (#4170's head-jumping engine).
 	"x . y source lib/a.sh . lib/b.sh",
 	"a\nnode $x/y.js",
 	"a #node $x/y.js\nnode $z/w.js",
 	"a.b lib/x.sh\nb.c . lib/y.sh",
 	"node node $a/b.js node $c/d.js",
-	// A tail opening just past a mid-line break, which is a boundary and a
-	// line start at once: the prefix stops before the break.
 	"a\rnode $x/y.js",
 	"a\u2028node $v",
-	// The shell runners and the .sh suffix (#4730): a runner inside a word
-	// opens nothing, and the longer run of either suffix wins.
 	'bash "$scanner" "$1" commit-msg',
 	"sh $x/a.sh.js; bash $y/b.js.sh",
 	"ssh $x/a.sh; shellcheck $y/b.sh; bash$z/c.sh",
-	// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-	'hook_bound sh "${R:-.}"/scripts/lib/serialised.sh x',
+	`hook_bound sh "${shellVar("R:-.")}"/scripts/lib/serialised.sh x`,
 ];
 
 describe("parseProgramRuns", () => {
@@ -105,8 +89,6 @@ describe("parseProgramVars", () => {
 	});
 });
 
-/* Texts built from the tokens the three grammars turn on (#4170). Short
- * texts, so the oracle's quadratic case costs nothing. */
 describe("every parser against its regex over generated texts", () => {
 	const Tokens = [
 		"source",
@@ -182,16 +164,18 @@ describe("segmentTailMatches", () => {
 	});
 });
 
-// A regex match is synchronous, so only a process timeout can stop a
-// backtracking one (#2188). These texts are sized so RUN_RE and
-// VAR_RE overrun the 10 s timeout below and each parser stays far
-// inside it (#4181). A `\r` opens a line for `^` but does not end the
-// prefix, so each one is a fresh start.
+// guess, #4181
+const RUN_HEADS = 55_000;
+// guess, #4181
+const VAR_HEADS = 30_000;
+// guess, #4181
+const PARSER_TIMEOUT_MS = 10_000;
+
 describe("a long line of heads that reach nothing", () => {
 	it.each([
-		["parseProgramRuns", "node", 'node "$/a '.repeat(55_000)],
-		["parseProgramVars", "node", "node $-\r".repeat(30_000)],
-		["parseProgramRuns", "sh", 'sh "$/a '.repeat(55_000)],
+		["parseProgramRuns", "node", 'node "$/a '.repeat(RUN_HEADS)],
+		["parseProgramVars", "node", "node $-\r".repeat(VAR_HEADS)],
+		["parseProgramRuns", "sh", 'sh "$/a '.repeat(RUN_HEADS)],
 	])("%s reads a line of %s heads in linear time", (name, _runner, text) => {
 		const r = spawnSync(
 			process.execPath,
@@ -200,7 +184,7 @@ describe("a long line of heads that reach nothing", () => {
 				`const found = require(${JSON.stringify(require.resolve("./line-scan.js"))})[process.argv[1]](require("node:fs").readFileSync(0, "utf8")); process.exit(found.length === 0 ? 0 : 1)`,
 				name,
 			],
-			{ input: text, timeout: 10_000 },
+			{ input: text, timeout: PARSER_TIMEOUT_MS },
 		);
 		expect(r.signal).toBeNull();
 		expect(r.status).toBe(0);

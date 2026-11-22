@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The bracket and argument scanner test-read-edges.js reads source through
- * (#1770): a bracket or comma inside a string, comment or regex literal must
- * never count, or a call's arguments are split wrong and its reads lost.
- */
 
 import { describe, expect, it } from "vitest";
 import { closeOf, inertSpans, statementEnd, topLevelArgs } from "./js-lex.js";
@@ -61,8 +56,7 @@ describe("statementEnd", () => {
 	});
 
 	it("reads from inside a template's placeholder as code (#3667)", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-		const text = 'x = `a ${f(";")} b`; y(1)';
+		const text = `x = \`a \${f(";")} b\`; y(1)`;
 		expect(statementEnd(text, text.indexOf("f"))).toBe(text.length);
 	});
 
@@ -73,15 +67,9 @@ describe("statementEnd", () => {
 
 describe("inertSpans", () => {
 	it("gives each string, comment and regex its first and last index, a template whole (#3667)", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-		const text = 'return /a/g; `${"b"}`; // c';
+		const text = `return /a/g; \`\${"b"}\`; // c`;
 		expect(
 			inertSpans(text).map(([first, last]) => text.slice(first, last + 1)),
-		).toEqual([
-			"/a/g",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-			'`${"b"}`',
-			"// c",
-		]);
+		).toEqual(["/a/g", `\`\${"b"}\``, "// c"]);
 	});
 });

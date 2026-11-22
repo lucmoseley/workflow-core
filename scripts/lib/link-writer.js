@@ -1,47 +1,4 @@
 #!/usr/bin/env node
-/*
- * link-writer.js — the one writer of blocker and sub-issue links (#5070).
- * It resolves a reference to its database id, refuses a link that would
- * close a loop of open issues waiting on each other (lib/wait-graph.js),
- * POSTs, and verifies from the side that answers at once. scripts/
- * link-sub-issue.sh and scripts/link-blocker.js are its CLIs; every in-repo
- * script that links goes through runLinkSync, since a `gh` a script shells
- * out to never reaches a PreToolUse guard.
- *
- * WHY A WRITER. The hand-assembled call fails SILENTLY (mantahostels#1150; the
- * rules it encodes are docs/agents/issue-tracker.md, "Placing a new issue"):
- *
- *  - `-f` sends the id as a JSON string where the endpoint wants an integer,
- *    and the link is never made. Only `-F` sends a number.
- *  - An id read inline sends an EMPTY STRING on a transient error, and the
- *    422 then complains about the type, hiding the cause. So the id is read
- *    first and asserted numeric before the POST.
- *  - A sub-issue's `parent_issue_url` lags the POST by minutes, so a
- *    sub-issue is verified from the PARENT's list, which answers at once; a
- *    blocker's canonical list read in the same breath as its POST answers
- *    empty, so it is read in a separate call after a pause. The retries cover
- *    propagation only, and their count is an unmeasured guess.
- *  - A 422 naming an existing parent is PROOF THE FIRST CALL WORKED. Never
- *    re-POST on it.
- *  - A closed parent is refused before the POST over a child that is not
- *    closed (#3650; assertParentHidesNoOpenChild).
- *
- * A LOOP IS REFUSED. "A is blocked by B" and "P gets child C" each add an
- * edge from the waiting issue to the waited-on one; it closes a loop exactly
- * when the waited-on one already reaches the waiting one. Where the walk
- * cannot read a node the link is made anyway, with a warning naming each
- * unread issue: a link write is worth letting through an outage, and
- * check-issue-cycles.js, which fails closed, is the backstop (#5070).
- *
- * EXIT 0 only where the link is in place; 3 refused with nothing changed (a
- * self-link, or a loop), as park-blocked.sh's precondition refusal; 1 any
- * other failure, with a message on stderr. Each failure also names a Reason,
- * set where it is raised, which runLinkSync's callers branch on and never on
- * the message (#5096).
- *
- * Test seams: WFC_LINK_RETRIES (verification attempts), WFC_LINK_SLEEP
- * (seconds between them).
- */
 
 const { spawnSync } = require("node:child_process");
 const { parseArgs } = require("node:util");
@@ -61,25 +18,17 @@ const { recordOwnAct } = require("./own-acts.js");
 /** @typedef {import("./wait-graph.js").Ref} Ref */
 /** @typedef {import("./wait-graph.js").Link} Link */
 /**
- * Why a link was not made: `self` and `loop` refusals; `unlisted`, a
- * POST that succeeded but whose link no read shows; `cap`, a parent at
- * GitHub's 100-child limit; `layers`, a parent 7 layers deep; `closed-parent`;
- * `rejected`, any other 422; `other`, everything else.
  * @typedef {"self"|"loop"|"unlisted"|"cap"|"layers"|"closed-parent"|"rejected"|"other"} Reason
  */
 /**
- * A link command's outcome: `out` the success line, `warning` the
- * partial-check lines, `err` the failure or refusal itself and `reason` its
- * kind, each empty where linked.
  * @typedef {{code: 0|1|3, out: string, err: string, warning: string,
  *   reason: Reason|""}} Outcome
  */
-/** @typedef {(line: string) => void} Warn takes each partial-check line, kept on success and failure alike */
-/** @typedef {{replaceParent: boolean}} LinkOptions `replaceParent` re-roots a sub-issue that already has a parent */
+/** @typedef {(line: string) => void} Warn */
+/** @typedef {{replaceParent: boolean}} LinkOptions */
 
 const PLACING = `${docPath("agents/issue-tracker.md")} §Placing a new issue`;
 
-/** A failure carrying its exit code, its reason and its stderr line. */
 class LinkExit extends Error {
 	/** @param {1|3} code @param {Reason} reason @param {string} message */
 	constructor(code, reason, message) {
@@ -99,9 +48,6 @@ function refuse(reason, message) {
 }
 
 /**
- * A failed POST's reason, read from gh's text.
- * KNOWN RESIDUAL: `cap` is matched on gh's prose, so a reword of GitHub's
- * 100-child message demotes it to `rejected`.
  * @param {string} text
  * @returns {Reason}
  */
@@ -113,14 +59,13 @@ function postReason(text) {
 /** @param {number} ms */
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** The verification reads' count, and their spacing: 2 s, a first guess, unmeasured. */
+// guess, #5070
 const timing = () => ({
 	retries: Number(process.env.WFC_LINK_RETRIES ?? 4),
 	sleepMs: Number(process.env.WFC_LINK_SLEEP ?? 2) * 1000,
 });
 
 /**
- * One `--jq` read's printed text, or null where gh failed.
  * @param {string[]} args
  */
 async function readGhText(args) {
@@ -131,12 +76,6 @@ async function readGhText(args) {
 	}
 }
 
-/**
- * The repo every local `#n` names: WFC_LINK_REPO, else the tracker as every
- * tracker script reads it — the config's "tracker", else the origin remote
- * (#3556). gh's `{owner}/{repo}` is resolved to its name, so a walk's keys
- * match the names GitHub answers with.
- */
 async function resolveLocalRepo() {
 	let repo = process.env.WFC_LINK_REPO || resolveKey("tracker");
 	if (typeof repo !== "string" || !repo)
@@ -162,8 +101,6 @@ async function resolveLocalRepo() {
 }
 
 /**
- * The refusal of a link that closes a loop: the new link, then each existing
- * one, then the rule that fixes the authoring error.
  * @param {Link} link
  * @param {Link[]} path
  * @param {string} home
@@ -178,8 +115,6 @@ const buildLoopRefusal = (link, path, home) =>
 	].join("\n");
 
 /**
- * Refuses `link` where its target already reaches its source; otherwise
- * returns the warning owed where the walk could not read every node, else "".
  * @param {Link} link
  * @param {string} home
  * @returns {Promise<string>}
@@ -194,7 +129,6 @@ async function checkLoop(link, home) {
 }
 
 /**
- * A numeric database id from a `--jq .id` read of `ref`.
  * @param {Ref} ref
  * @param {string} home
  */
@@ -214,8 +148,6 @@ async function readDatabaseId(ref, home) {
 }
 
 /**
- * Whether `listed()` holds within the retries, pausing between reads, and
- * first where `first` says so.
  * @param {() => Promise<boolean>} listed
  * @param {{retries: number, sleepMs: number, first?: boolean}} t
  */
@@ -243,11 +175,10 @@ function parseSubIssueArgs(rest) {
 }
 
 /**
- * Makes `child` a sub-issue of `parent`, in one repo.
- * @param {string[]} args `<parent> <child>`
+ * @param {string[]} args
  * @param {Warn} warn
  * @param {LinkOptions} opts
- * @returns {Promise<string>} stdout
+ * @returns {Promise<string>}
  */
 async function linkSubIssue(args, warn, { replaceParent }) {
 	const { parent, child } = parseSubIssueArgs(args);
@@ -298,10 +229,6 @@ const readState = (repo, n) =>
 	readGhText(["api", `repos/${repo}/issues/${n}`, "--jq", ".state"]);
 
 /**
- * Refuses a parent whose state cannot be read, or a closed one over a child
- * that is not closed: the link would hide an open child from every map that
- * walks open issues (#3650). A closed child may go under a closed parent, as
- * into an archival container.
  * @param {string} repo
  * @param {number} parent
  * @param {number} child
@@ -321,12 +248,10 @@ async function assertParentHidesNoOpenChild(repo, parent, child) {
 }
 
 /**
- * The POST, and what its refusal means: the already-parented 422 reads as
- * success where the parent lists the child.
  * @param {{repo: string, parent: number, child: number, id: string,
  *   replaceParent: boolean, listsChild: () => Promise<boolean>,
  *   t: {retries: number, sleepMs: number}}} at
- * @returns {Promise<string|null>} the line to print where it was already linked
+ * @returns {Promise<string|null>}
  */
 async function postSubIssue({
 	repo,
@@ -350,10 +275,7 @@ async function postSubIssue({
 		return null;
 	} catch (e) {
 		const out = `${caught(e).stderr ?? ""}${caught(e).stdout ?? ""}`;
-		// The one failure meaning the opposite of what it says: the child is
-		// already parented. KNOWN RESIDUAL: both 422s below are matched on gh's
-		// prose, GitHub's status being 422 for either; a reword demotes this to
-		// the generic failure, the one place a reader might re-POST by hand.
+		// lucmoseley/mantahostels#1150
 		if (out.includes("only have one parent")) {
 			if (await waitFor(listsChild, t))
 				return `#${child} was already a sub-issue of #${parent}\n`;
@@ -373,7 +295,6 @@ async function postSubIssue({
 }
 
 /**
- * `#n`, `n` or `owner/name#n` as a ref, a bare number in `home`.
  * @param {string} text
  * @param {() => Promise<string>} home
  * @returns {Promise<Ref|null>}
@@ -386,7 +307,6 @@ async function parseRef(text, home) {
 }
 
 /**
- * Whether `blocked`'s canonical blocker list names `blocker`.
  * @param {Ref} blocked
  * @param {Ref} blocker
  */
@@ -413,10 +333,9 @@ async function listsBlocker(blocked, blocker) {
 }
 
 /**
- * Makes `blocker` block `blocked`, in any repos.
- * @param {string[]} args `<blocked> <blocker>`, each `n`, `#n` or `owner/name#n`
+ * @param {string[]} args
  * @param {Warn} warn
- * @returns {Promise<string>} stdout
+ * @returns {Promise<string>}
  */
 async function linkBlocker(args, warn) {
 	if (args.length !== 2) fail("other", USAGE.blocker);
@@ -432,10 +351,6 @@ async function linkBlocker(args, warn) {
 		fail("other", `blocked issue '${a}' is not a number or owner/name#n`);
 	const blocker = await parseRef(b, home);
 	if (!blocker) fail("other", `blocker '${b}' is not a number or owner/name#n`);
-	// Labels read from the session's own tracker, so its own issues print as
-	// `#n` (#5070 story 4). A tracker that cannot be resolved changes only
-	// which repo's issues print bare, so it falls back to the blocked issue's
-	// repo rather than failing a link both of whose refs are qualified.
 	const view = await home().catch(() => blocked.repo);
 	if (refKey(blocked) === refKey(blocker))
 		refuse("self", `an issue cannot block itself (${refLabel(blocked, view)})`);
@@ -466,9 +381,6 @@ async function linkBlocker(args, warn) {
 		fail(postReason(text), `POST failed: ${text}`);
 	}
 	if (await waitFor(listed, { ...t, first: true })) {
-		// A script's own gh call never reaches record-acts.js, so the edge is
-		// recorded here, or the refill loop reads the launch as no progress
-		// (#5399).
 		recordOwnAct("block", blocked.repo, blocked.number);
 		return `linked ${subject} as blocked by ${label}\n`;
 	}
@@ -479,7 +391,6 @@ async function linkBlocker(args, warn) {
 }
 
 /**
- * A failure no link step raised, a bad command line among them.
  * @param {string} err
  * @param {string} [warning]
  * @returns {Outcome}
@@ -493,7 +404,6 @@ const otherFailure = (err, warning = "") => ({
 });
 
 /**
- * Runs one link command, never throwing.
  * @param {"sub-issue"|"blocker"} kind
  * @param {string[]} args
  * @param {LinkOptions} opts
@@ -524,9 +434,6 @@ const USAGE = {
 };
 
 /**
- * The CLI: reads the command line strictly, prints the outcome under the
- * command's name, or as one JSON object on stdout where `--json` is anywhere
- * in argv, and exits with its code.
  * @param {"sub-issue"|"blocker"} kind
  * @param {string[]} argv
  * @returns {Promise<void>}
@@ -577,9 +484,6 @@ function runCli(kind, argv) {
 }
 
 /**
- * runLink for a synchronous caller: the CLI in a child process with `--json`,
- * `repo` the repo a local `#n` names. A child that died before printing its
- * outcome reads as `other`, its stderr the error.
  * @param {"sub-issue"|"blocker"} kind
  * @param {string[]} args
  * @param {{repo?: string}} [opts]

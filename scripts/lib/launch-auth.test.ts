@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/launch-auth.js against a `claude` stub answering `auth status` through
- * lib/auth-status-fake.ts (#2236): which auth each launch admits, and that a
- * refusal names what set the auth and the rule. No case bills: the fake
- * makes no model call, and neither does the real `auth status`.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -38,7 +32,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A bare environment: none of the parent's auth leaks into a case. */
 const refusal = (extra: Record<string, string> = {}, cwd = dir) =>
 	launchAuthRefusal({
 		bin,

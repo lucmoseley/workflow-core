@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * lib/npm-install.js, the guard-npm-install core (#2800), in process: the
- * npm install boundary (mantahostels#1803, ruled at mantahostels#1767).
- *
- * THREE CHECKS, tested in both directions each: the execution window
- * (`--ignore-scripts` on an install that adds a package), new-package
- * legitimacy (the name exists, clears 180 days, clears 1,000 downloads a
- * month, inside a 30 s budget), and the bare `npx` name.
- *
- * NOTHING HERE TOUCHES THE NETWORK OR THE DISK. package.json, the installed
- * manifests, both registry calls and the clock are fakes passed as values,
- * the registry calls lib/npm-registry-fake.ts's, which
- * lib/npm-registry.contract.test.ts holds to the real npm and curl; the
- * production adapters are crossed in guard-npm-install.test.ts.
- *
- * The thresholds are constants in the core, so each threshold case pins the
- * boundary from both sides — one day inside and one day outside — which is
- * what makes a silent change to either constant fail something. It is the
- * only vetting of a new dependency, so a loosened case lets an unvetted
- * install through.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -55,7 +34,6 @@ const PKG = {
 	},
 };
 
-/** The installed manifests, as `node_modules` holds them (#1806). */
 const INSTALLED: Record<string, string> = {
 	typescript: JSON.stringify({
 		name: "typescript",
@@ -76,12 +54,10 @@ interface Over {
 	now?: () => number;
 	startedAt?: number;
 	vars?: Record<string, string>;
-	/** Each entry on the fake disk, the link's target or "" for no link. */
 	disk?: Record<string, string>;
 	cwd?: string;
 }
 
-/** A session worktree whose `node_modules` links its store. */
 const WORKTREE = {
 	"/repo/.claude/worktrees/s1/package.json": "",
 	"/repo/.claude/worktrees/s1/node_modules":
@@ -127,7 +103,6 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 	return { ctx, logs, calls };
 }
 
-/** The refusal's prose, or null where the core allowed. */
 const denial = (
 	command: string,
 	reg: Partial<Registry> = {},
@@ -143,7 +118,6 @@ const allows = (
 	over: Over = {},
 ) => denial(command, reg, over) === null;
 
-/** The registry calls `command` makes. */
 const callsOf = (
 	command: string,
 	reg: Partial<Registry> = {},
@@ -154,7 +128,6 @@ const callsOf = (
 	return h.calls;
 };
 
-/** The rule each legitimacy refusal prints whole (#5232). */
 const RULE = readRuleText("new-package-vetted");
 
 const ESCAPE = `The escape is \`WFC_ALLOW_NEW_PACKAGE=1\` in the environment Claude Code itself
@@ -163,8 +136,6 @@ founder to run the install from their own terminal, which sees no hook.`;
 
 describe("what it does not judge", () => {
 	it.each([
-		// The lockfile install: no package named, so nothing is added that
-		// `package.json` has not already been reviewed for.
 		"npm install",
 		"npm i",
 		"npm ci",
@@ -172,24 +143,18 @@ describe("what it does not judge", () => {
 		"npm test",
 		"npm view left-pad version",
 		"npm ls --depth 0",
-		// An install alias that is not the subcommand.
 		"npm run install left-pad",
 		"npm view left-pad add",
-		// A bare `npm` names nothing.
 		"npm",
-		// A package already in package.json is a reinstall, not an addition.
 		"npm install js-yaml",
 		"npm i js-yaml@4.1.0",
 		"npm install vitest typescript",
-		// A help request installs nothing, however npm lets it be spelled.
 		"npm install --help left-pad",
 		"npm install -h left-pad",
 		"npm i --hel left-pad",
-		// Another package manager entirely — out of scope, stated in LIMITS.
 		"pnpm add left-pad",
 		"yarn add left-pad",
 		"bun add left-pad",
-		// A binary reached by path resolves to exactly one thing.
 		"node_modules/.bin/biome ci .",
 		"npx @biomejs/biome ci .",
 		"npx ./scripts/thing.js",
@@ -198,8 +163,6 @@ describe("what it does not judge", () => {
 	});
 
 	it("allows a command that merely MENTIONS an install", () => {
-		// The false-positive mode a Bash deny has and a structured-field deny does
-		// not (mantahostels#103): a session documenting the hazard must not trip it.
 		expect(
 			allows('echo "run npm install left-pad to reproduce" >> notes.md'),
 		).toBe(true);
@@ -381,7 +344,6 @@ Then commit the lockfile.`,
 	it("names every new package in the refusal, not just the first", () => {
 		const why = denial("npm install left-pad ms js-yaml");
 		expect(why).toContain("— left-pad ms  — and");
-		// js-yaml is already a dependency, so it is not one of the additions.
 		expect(why).toMatch(/adds 2 package\(s\)/);
 	});
 
@@ -415,8 +377,6 @@ Then commit the lockfile.`,
 	});
 
 	it("runs before any registry call, so a malformed install costs nothing", () => {
-		// The ordering is the guard's own: check 1 is local and certain, so a
-		// command that is both malformed and hallucinated is refused offline.
 		expect(callsOf("npm install wfc-nope", { created: "E404" })).toEqual([]);
 	});
 
@@ -434,8 +394,6 @@ Then commit the lockfile.`,
 	});
 
 	it("still denies where the flag sits behind a value-taking option, naming --ignore-scripts", () => {
-		// `--omit dev` must not eat the package name; if it did, `left-pad` would
-		// read as the value and the install would look like it added nothing.
 		expect(denial("npm install --omit dev left-pad")).toMatch(
 			/--ignore-scripts/,
 		);
@@ -561,7 +519,6 @@ ${ESCAPE}`,
 	])(
 		"denies when %s, offering WFC_ALLOW_NEW_PACKAGE=1 as the way out",
 		(_who, reg) => {
-			// mantahostels#1767: the escape is a named env var, never silence.
 			expect(denial(install, reg as Registry)).toBe(
 				`The npm registry could not be reached to check \`left-pad\`, so this install proceeds on nothing: ${install}
 
@@ -640,7 +597,6 @@ ${ESCAPE}`,
 		["left-pad@latest", "left-pad"],
 		["@nope/thing@next", "@nope/thing"],
 	])("strips the range in `%s` before asking the registry", (spec, name) => {
-		// `~` is npm's approximate-version range, not a home-relative path.
 		expect(callsOf(`npm i --ignore-scripts ${spec}`)[0]).toBe(
 			`npm view ${name} time.created --json`,
 		);
@@ -704,7 +660,6 @@ ${ESCAPE}`,
 	it.each(["-d", "--dd", "-sil"])(
 		"reads `true` after the shorthand `%s` as a package",
 		(shorthand) => {
-			// Each is `--loglevel <level>` to npm, which then installs `true`.
 			expect(
 				callsOf(`npm install --ignore-scripts ${shorthand} true`, {
 					created: "E404",
@@ -718,14 +673,10 @@ ${ESCAPE}`,
 	});
 
 	it.each([
-		// A `no-` makes any config a Boolean, so the `=` word is a package.
 		"npm install --no-cafile=evil",
-		// `--help` is `--usage`, which a later `false` switches off again.
 		"npm install --help false evil",
 		"npm install -h false evil",
-		// Each `no-` flips the flag, so three leave usage off.
 		"npm install --usage --no-no-no-usage evil",
-		// nopt takes `--` as `--browser`'s value and reads on.
 		"npm install --browser -- --save-dev=evil",
 	])("reads the package npm installs in `%s` (#563)", (command) => {
 		expect(denial(command)).toMatch(/— evil +— and does not carry/);
@@ -747,19 +698,17 @@ ${ESCAPE}`,
 		expect(allows(command)).toBe(true);
 	});
 
-	it.each([
-		"--cafile ca.pem true",
-		// `-5` is `--no-depth`'s value, not an option of its own.
-		"--no-depth -5 true",
-	])("reads `true` in `%s` as a package (#563)", (options) => {
-		expect(
-			denial(`npm install --ignore-scripts ${options}`, { created: "E404" }),
-		).toMatch(/No package named `true`/);
-	});
+	it.each(["--cafile ca.pem true", "--no-depth -5 true"])(
+		"reads `true` in `%s` as a package (#563)",
+		(options) => {
+			expect(
+				denial(`npm install --ignore-scripts ${options}`, { created: "E404" }),
+			).toMatch(/No package named `true`/);
+		},
+	);
 
 	it.each([
 		"--ignore-scripts --no-no-no-ignore-scripts",
-		// A String option refuses a word that looks like an option.
 		"--ignore-scripts --tag --no-ignore-scripts",
 	])("reads `%s` as npm does, leaving scripts on (#563)", (options) => {
 		expect(denial(`npm install ${options} lodash`)).toMatch(
@@ -783,16 +732,12 @@ ${ESCAPE}`,
 	});
 
 	it("asks the registry about a legacy uppercase name", () => {
-		// npm has refused uppercase for NEW names since 2017; the legacy ones are
-		// still installable, and calling one a path would be a false deny (H3).
 		expect(
 			denial("npm i --ignore-scripts JSONStream", { created: "E404" }),
 		).toMatch(/No package named `JSONStream`/);
 	});
 
 	it("requires --ignore-scripts on an unvettable spec before judging it", () => {
-		// Check 1 runs first on every addition, a tarball included — its preinstall
-		// is exactly what the flag shuts (H2's ordering limb).
 		expect(denial("npm install github:someone/thing")).toMatch(
 			/--ignore-scripts/,
 		);
@@ -830,7 +775,6 @@ ${ESCAPE}`,
 		"npm i --ignore-scripts some/path",
 		"npm i --ignore-scripts @scope/bad!name",
 		"npm i --ignore-scripts _under",
-		// A scope with no name.
 		"npm i --ignore-scripts @scope",
 		'npm i --ignore-scripts "left-pad"',
 	])("denies `%s` as unvettable", (command) => {
@@ -845,7 +789,6 @@ ${ESCAPE}`,
 describe("the time budget", () => {
 	const install = "npm i --ignore-scripts left-pad ms";
 
-	/** A clock that steps `step` seconds on every read. */
 	const stepping = (step: number) => {
 		let t = NOW;
 		return () => {
@@ -856,8 +799,6 @@ describe("the time budget", () => {
 	};
 
 	it("refuses, in full, a package the budget ran out before", () => {
-		// Reads: left-pad's start, its age, then ms's start at 30 s past the
-		// hook's start.
 		expect(denial(install, {}, { now: stepping(15) })).toBe(
 			`This guard ran out of its own time budget before it could check \`ms\`, so nothing is known about it: ${install}
 
@@ -870,7 +811,6 @@ ${ESCAPE}`,
 	});
 
 	it("asks about every package started inside the budget", () => {
-		// ms starts at 28 s, inside the 30 s budget.
 		expect(allows(install, {}, { now: stepping(14) })).toBe(true);
 	});
 
@@ -895,9 +835,6 @@ describe("the escape", () => {
 	});
 
 	it("is NOT spellable on the command line", () => {
-		// mantahostels#109: an escape a session can spell for itself is not a
-		// deny. The leading assignment reaches the core as text, and the shell's
-		// own variable as `vars`, and neither is honoured.
 		expect(
 			denial(
 				`WFC_ALLOW_NEW_PACKAGE=1 ${fake}`,
@@ -908,7 +845,6 @@ describe("the escape", () => {
 	});
 
 	it("stands down the unvettable-spec deny too", () => {
-		// The deny's own text names this escape.
 		expect(
 			allows(
 				"npm i --ignore-scripts github:someone/thing",
@@ -958,7 +894,6 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 		);
 	});
 
-	// #1806: the owner is read from each dependency's installed `bin`.
 	describe("with node_modules installed", () => {
 		const nm = { manifests: INSTALLED };
 
@@ -1103,8 +1038,6 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 	});
 
 	it("denies `tsc` as a bare name even though typescript is a dependency", () => {
-		// Intended, per the guard's LIMITS: the PACKAGE name is what resolves,
-		// and `tsc` is not one.
 		expect(denial("npx tsc --noEmit")).toMatch(/by bare name/);
 	});
 
@@ -1116,13 +1049,9 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 	it.each([
 		["npx tsc -p tsconfig.json", "tsc"],
 		["npx biome --package x ci .", "biome"],
-		// Controls: these fail only if a value-taking option after the bin is
-		// read as npx's.
 		["npx tsc --project tsconfig.json", "tsc"],
 		["npx eslint -c .eslintrc.json .", "eslint"],
 	])("names the bin, not a value after it, in `%s`", (command, bin) => {
-		// #491: npx's options end at the bin, so a `-p` after it is the bin's own
-		// flag.
 		const why = denial(command);
 		expect(why).toContain(`\`${bin}\` by bare name`);
 		expect(why).toContain(`node_modules/.bin/${bin}`);
@@ -1140,7 +1069,6 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 	);
 
 	it.each([
-		// #571: the option's value was read as the bin, and a URL or path passed.
 		["npx --reg https://r.example biome ci .", "biome"],
 		["npx -registry https://r.example biome ci .", "biome"],
 		["npx --regis https://r.example biome ci .", "biome"],
@@ -1148,15 +1076,12 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 		["npx -L project biome ci .", "biome"],
 		['npx --r"eg" https://r.example biome ci .', "biome"],
 		['npx -"-reg" https://r.example biome ci .', "biome"],
-		// npx drops a removed option together with its value.
 		["npx -n ./x.js biome ci .", "biome"],
 		["npx --npm ./x biome ci .", "biome"],
-		// Controls, each value joined by `=` or after a spelling npx knows whole.
 		["npx --reg=https://r.example biome ci .", "biome"],
 		["npx -C ./app biome ci .", "biome"],
 		["npx --node-arg ./x.js biome ci .", "biome"],
 		["npx --node-arg=./x.js biome ci .", "biome"],
-		// npx hands `--ignore-scr` the next word, and npm reads that word as the bin.
 		["npx --ignore-scr biome ci .", "biome"],
 		["npx -y biome ci .", "biome"],
 		["npx --shell /bin/sh biome ci .", "biome"],
@@ -1173,7 +1098,6 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 	);
 
 	it.each([
-		// npm fetches the packages `true` and `false` for these.
 		["npx -p true vitest run", "true"],
 		["npx --package=false vitest", "false"],
 		["npx --no-package true vitest", "false"],
@@ -1186,26 +1110,18 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 	});
 
 	it.each([
-		// #571: only the last `-p` was judged.
 		"npx -p biome -p @biomejs/biome biome ci .",
 		"npx -p @biomejs/biome -p biome biome ci .",
 		"npx -p=biome biome ci .",
-		// nopt hands `--no-package` its next word as a package.
 		"npx --no-package biome @biomejs/biome ci .",
 	])("judges every --package spelling, in `%s`", (command) => {
 		expect(denial(command)).toContain("`biome` by bare name");
 	});
 
 	it.each([
-		// npx matches a key whole, so `--no-audit` and the glued `-DE` are
-		// not switches to it and take the next word, leaving `--package` npx's.
-		// npm's own parser reads both as Booleans; using it here would allow these.
 		"npx --no-audit @biomejs/biome --package biome ci .",
 		"npx -DE @biomejs/biome --package biome ci .",
-		// An unknown option takes a next word that is no option.
 		"npx --zzz @biomejs/biome --package biome ci .",
-		// npx hands `--browser` nothing, then nopt takes npx's `--` as its value
-		// and reads on, so the `--package` is npx's.
 		"npx --browser @biomejs/biome --package biome ci .",
 	])(
 		"reads an option's key as npx does, not as npm does, in `%s` (#1972)",
@@ -1215,13 +1131,9 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 	);
 
 	it.each([
-		// A joined value takes no next word, and separate whole shorthands expand
-		// to switches, so the bin comes first and the `--package` after it is the
-		// bin's own.
 		"npx --audit=false @biomejs/biome --package biome ci .",
 		"npx -D -E @biomejs/biome --package biome ci .",
 		"npx --audit @biomejs/biome --package biome ci .",
-		// An unknown option takes a next word only where it is no option.
 		"npx --zzz --audit=false @biomejs/biome --package biome ci .",
 	])(
 		"allows a scoped bin after an option that takes no next word, in `%s` (#1972)",
@@ -1247,8 +1159,6 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 	});
 
 	it("is not defeated by --no-install", () => {
-		// docs/agents/guard-registry.md §Conventions: one `npx biome` writes the impostor into the npx
-		// cache, after which `--no-install` resolves it silently and offline.
 		expect(denial("npx --no-install biome ci .")).toMatch(/by bare name/);
 	});
 
@@ -1256,25 +1166,16 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 		"npx",
 		"npx --help",
 		"npx -h",
-		// #571: npm reads both as `--usage`, and runs nothing.
 		"npx --usa biome",
 		"npx -? biome",
-		// A lone `-` is no registry name.
 		"npx -",
 		"npx - biome",
-		// After `--`, the first word is the bin.
 		"npx -- @biomejs/biome",
-		// A scoped name, a path, a dotted name and a URL-shaped spec are no
-		// bare registry name.
 		"npx @someone/else",
 		"npx scripts/x.js",
 		"npx .tool",
 		"npx file:tool",
-		// A joined value, and npx's own `--no-install`, take no next word, so
-		// the scoped package is the bin and the `--package` after it its own.
 		"npx --registry=https://r.example @biomejs/biome --package biome ci .",
-		// A removed option npx hands its value drops it, the bin after it
-		// npm's.
 		"npx -p -n x biome",
 		"npx --no-install @biomejs/biome --package biome ci .",
 	])("allows `%s`", (command) => {
@@ -1308,8 +1209,6 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 
 describe("fail-open, where a verdict is impossible upstream of the registry", () => {
 	it("allows and records when package.json cannot be read", () => {
-		// Unreadable package.json would make every package look new, so the guard
-		// would deny an ordinary reinstall. It allows instead, on the record.
 		const h = harness({}, { pkg: null });
 		expect(decide("npm install left-pad", h.ctx)).toBeNull();
 		expect(h.logs).toEqual([
@@ -1380,10 +1279,6 @@ describe("fail-closed, where the registry cannot be asked", () => {
 			"curl not found — download history of left-pad could not be checked, denying",
 		],
 	])("DENIES and records when %s has gone missing", (_tool, reg, line) => {
-		// The one deliberate departure from mantahostels#103 §6, on
-		// mantahostels#1767's wording: an unchecked install is what this guard
-		// exists to prevent, so a guard that cannot check refuses. It records the
-		// fault as well, so the departure is visible rather than silent.
 		const h = harness(reg);
 		const d = decide("npm install --ignore-scripts left-pad", h.ctx);
 		expect(d?.deny).toMatch(/could not be reached/);

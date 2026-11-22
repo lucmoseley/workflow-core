@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/lander-on-push.js, start-lander-on-push.js's core (#2785), in process:
- * which pushes start the queue lander (#2405, #4458).
- *
- * Loosen it and a push elsewhere starts a lander nobody asked for; tighten it
- * and a queue ref sits untested until some later session starts.
- */
 
 import path from "node:path";
 import { expect, it } from "vitest";

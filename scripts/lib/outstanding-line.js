@@ -1,57 +1,16 @@
-/*
- * outstanding-line.js — the one home of the founder-facing item grammar and of
- * the check that each item's carrier is an open issue (#982, under the #958
- * spec).
- *
- * THE ITEM: `#N (gist)`. The leading ref is `#N` (the tracker given), `repo#N`
- * (same owner) or `owner/repo#N`. A ref inside the parentheses is gist and is
- * never checked. A range (`#3615 through #3622`) is refused: list each item.
- *
- * TWO GRAMMARS OVER IT:
- *   outstanding — the `**Outstanding:**` line of a close comment: the bare
- *     word `none`, or items separated by `, ` or `; `. A trailing full stop is
- *     allowed. A sha, a reason or a residual goes on another line, never here.
- *   block — the inventory's `waits on you:` block: one
- *     `- #N (gist)` per line, or the single line `nothing`. The caller strips
- *     the heading, so `waits on you: nothing` arrives as `nothing`.
- *
- * THE OPEN-CHECK is one GraphQL read for every repository named, under
- * TIMEOUT_MS. It refuses a closed issue, a missing number and a pull request,
- * and can also return each cited issue's newest comments. The issue being closed
- * is `self`, refused as its own carrier.
- *
- * FAILS OPEN (mantahostels#103 §6; ruled for this check at #911) on an
- * unreachable GitHub, a failed call, an unreadable repo or no resolvable
- * tracker: the items it could not read pass on shape alone. The kind of
- * failure is logged under one constant text per kind, and the detail — gh's
- * own line, the repo — is returned in `unchecked`. In process the record goes
- * through `log` (arbiter-core's error log by default); the CLI logs nothing,
- * for the bash caller to record through lib/guard-log.sh's gl_log, which names
- * the guard.
- *
- * WHAT IT NEVER SEES: GitHub answers a misspelt repo exactly as it answers an
- * unreadable one, so `design-vualt#17 (x)` passes on shape. Nor is a sha
- * or a range inside a gist judged.
- */
-
 const { INVENTORY } = require("./inventory-format.js");
 const { gh, parseGhFailureReason, parseErrLine } = require("./gh.js");
 const { requiredGroup } = require("./regex-group.js");
 const { caught, ignoreFailure, orFallback } = require("./caught.js");
 
-/* The #958 spec's ceiling (ruled at #911): a guess, under the close guard's
- * 10 s hook budget. Unmeasured — one issue alone read in 0.88-0.92 s there,
- * and a batch of several repos never has been. */
+// guess, #911
 const TIMEOUT_MS = 5000;
-/* How far back the posted-round check looks (#913): a round is posted just
- * before the ending, so it sits among the newest few. */
+// guess, #913
 const COMMENTS_READ = 5;
 
 const END_RE = /^\.?\s*$/;
 const NOTHING_RE = /^nothing\.?$/i;
 
-/* The grammar's shape, carried on every verdict so a reader's refusal can
- * teach it in one retry (#958 story 18). */
 const LINE_SHAPE =
 	"`**Outstanding:** none`, or `**Outstanding:** #N (what is left), owner/repo#M (what is left)` — items only, separated by `, ` or `; `, each citing an open issue";
 const BLOCK_SHAPE = `${INVENTORY.itemLines}, each citing an open issue, or the single line \`nothing\``;
@@ -61,27 +20,15 @@ const REPO = "[A-Za-z0-9_.-]+";
 const REF_RE = new RegExp(`^(?:(${OWNER})\\/(${REPO})|(${REPO}))?#([1-9]\\d*)`);
 const RANGE_RE =
 	/#\d+[`)]?\s*(?:through|thru|to|until|[-–—]|\.\.\.?)\s*[`(]?(?:[A-Za-z0-9_./-]*#)?\d+/i;
-/* Hex with at least one digit and one letter, so a word ("defaced") or a bare
- * number is not read as a sha; and never joined to a word or a hyphen, so a
- * session id's first group is not one either; from git's default 7-character
- * abbreviation to a full SHA-1's 40, a SHA-256 repo's 64 unread.
- * resolve-ticket.js reads the same test, through hasSha, to decide whether a
- * Door line is owed (#1247). HEX_WORD_RE is it without the digit-and-letter
- * rule, which lib/unlanded-commits.js reads (#3230). */
 const HEX_WORD_RE = /(?<![\w-])[0-9a-f]{7,40}(?![\w-])/;
-const SHA_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-move -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	`(?=[0-9a-f]*\\d)(?=[0-9a-f]*[a-f])${HEX_WORD_RE.source}`,
-);
+const SHA_RE =
+	/(?<![\w-])(?=[0-9a-f]{0,39}\d)(?=[0-9a-f]{0,39}[a-f])[0-9a-f]{7,40}(?![\w-])/;
 const MARKER_RE = /^[ \t]*\*\*Outstanding:\*\*(.*)$/;
 const FENCE_RE = /^[ \t]{0,3}(```|~~~)/;
 
 /**
  * @typedef {{ref: string, owner: string, repo: string, number: number,
  *   gist: string, raw: string}} Item
- *   `ref` is the full `owner/repo#N`, however the item spelled it — unless no
- *   tracker resolves a bare `#N` or `repo#N`, when `ref` is the spelling and
- *   `owner` or `repo` is empty.
  * @typedef {{reason: string, fragment?: string, ref?: string}} Refusal
  * @typedef {{author: string, body: string, createdAt: string, url: string}} Comment
  * @typedef {"open"|"closed"|"missing"|"pull-request"|"self"|"unchecked"} Status
@@ -89,33 +36,21 @@ const FENCE_RE = /^[ \t]{0,3}(```|~~~)/;
  *   createdAt?: string, url?: string}} CommentNode
  * @typedef {{__typename?: string, state?: string,
  *   comments?: {nodes?: (CommentNode | null)[]}} | null} IssueNode
- *   null where the number does not exist; a comment is null where GitHub
- *   errored on it, as a partial answer allows.
  * @typedef {Record<string, Record<string, IssueNode> | null>} QueryData
- *   `r<i>` → `n<number>` → node, as buildQuery aliases them; a repo is null
- *   where it is unreadable.
  * @typedef {{ok: boolean, none: boolean, items: Item[], refusals: Refusal[],
  *   unchecked: string[], statuses: Record<string, Status>,
  *   comments: Record<string, Comment[]>, shape: string}} Verdict
  * @typedef {{data: QueryData | null | undefined} | {failed: string, kind: string}} QueryResult
  * @typedef {((where: string, what: string) => void) | null} Log
- * @typedef {(args: string[], opts: { timeout: number }) => string} Gh gh's
- *   stdout; throws as lib/gh.js's gh throws
+ * @typedef {(args: string[], opts: { timeout: number }) => string} Gh
  */
 
 /**
- * `owner/name` of the tracker a bare `#N` names, lower-cased as an item's
- * `owner` and `repo` are: the caller's, else the host's declared or derived
- * one. guard-inventory.js compares it with items to tell which ones
- * claim-issue.js can claim.
  * @param {string} [tracker]
  * @returns {string|undefined}
  */
 function trackerOf(tracker) {
 	if (tracker) return tracker.toLowerCase();
-	// An unreadable config resolves no tracker, as an undeclared one does:
-	// judge() passes a bare ref on shape alone and says so in `unchecked`
-	// (FAILS OPEN above, #911), and guard-inventory.js owes no claim.
 	const t = orFallback(
 		() => require("./workflow-core-config").resolveKey("tracker"),
 		undefined,
@@ -123,24 +58,13 @@ function trackerOf(tracker) {
 	return typeof t === "string" ? t.toLowerCase() : undefined;
 }
 
-/**
- * Whether `text` is the block's `nothing` alone, in any letter case (#982).
- * guard-inventory.js passes a whole block body: `trim()` drops the blank
- * lines around the word, and `NOTHING_RE`, anchored without the `m` flag,
- * fails on any second non-blank line.
- * @param {string} text
- */
+/** @param {string} text */
 const isNothing = (text) => NOTHING_RE.test(text.trim());
 
-/**
- * Whether `text` names a commit sha anywhere.
- * @param {string} text
- */
+/** @param {string} text */
 const hasSha = (text) => SHA_RE.test(text);
 
 /**
- * The index just past the `)` closing a group whose `(` sits before `from`,
- * or -1 where it never closes. A code span's brackets are text, not nesting.
  * @param {string} text
  * @param {number} from
  */
@@ -157,11 +81,7 @@ function closeParen(text, from) {
 	return depth > 0 ? -1 : i;
 }
 
-/**
- * `text` with every ref's parenthesised gist cut out, so a range or a sha
- * quoted inside a gist does not name the fault of the text around it.
- * @param {string} text
- */
+/** @param {string} text */
 function withoutGists(text) {
 	const ref = /#\d+[ \t]+\(/g;
 	let out = "";
@@ -177,7 +97,6 @@ function withoutGists(text) {
 }
 
 /**
- * A parse that refuses on one fault, keeping any items read before it.
  * @param {string} reason
  * @param {string} [fragment]
  * @param {Item[]} [items]
@@ -189,8 +108,6 @@ const refusedParse = (reason, fragment, items = []) => ({
 });
 
 /**
- * Reads one item at the head of `text`: the ref, one space or more, then a
- * balanced parenthesised gist.
  * @param {string} text
  * @param {string|undefined} tracker
  * @returns {{item: Item, rest: string} | {reason: string}}
@@ -202,8 +119,6 @@ function readItem(text, tracker) {
 			reason: "an item starts with its issue: `#N`, `repo#N` or `owner/repo#N`",
 		};
 	const [owner = "", name = ""] = tracker ? tracker.split("/") : [];
-	/* GitHub names ignore case, so a ref is compared lower-cased — else
-	 * `Here#40` slips past the self-reference refusal. */
 	const itemOwner = (m[1] ?? owner).toLowerCase();
 	const itemRepo = (m[2] ?? m[3] ?? name).toLowerCase();
 	let i = m[0].length;
@@ -232,8 +147,6 @@ function readItem(text, tracker) {
 }
 
 /**
- * The reason a fragment failed, sharpened where it holds one of the census's
- * (#908 F4) known non-item shapes.
  * @param {string} fragment
  * @param {string} fallback
  */
@@ -247,8 +160,7 @@ function buildShapeReason(fragment, fallback) {
 }
 
 /**
- * The tail of an `**Outstanding:**` line, parsed.
- * @param {string} tail  what follows the marker
+ * @param {string} tail
  * @param {string|undefined} tracker
  * @returns {{none: boolean, items: Item[], refusals: Refusal[]}}
  */
@@ -286,9 +198,8 @@ function parseOutstandingTail(tail, tracker) {
 }
 
 /**
- * Every `**Outstanding:**` line of a comment outside a fenced block.
  * @param {string} comment
- * @returns {string[]}  each line's tail
+ * @returns {string[]}
  */
 function outstandingTails(comment) {
 	const tails = [];
@@ -303,16 +214,10 @@ function outstandingTails(comment) {
 	return tails;
 }
 
-/**
- * Whether a comment carries an `**Outstanding:**` line outside a fence — the
- * close guard's test for reading a close's own `--comment` over the issue's
- * newest one.
- * @param {string} comment
- */
+/** @param {string} comment */
 const hasOutstandingLine = (comment) => outstandingTails(comment).length > 0;
 
 /**
- * A close comment's `**Outstanding:**` line, parsed. Exactly one is owed.
  * @param {string} comment
  * @param {string|undefined} tracker
  */
@@ -329,7 +234,6 @@ function parseOutstanding(comment, tracker) {
 }
 
 /**
- * An inventory block below its heading, parsed.
  * @param {string} block
  * @param {string|undefined} tracker
  * @returns {{none: boolean, items: Item[], refusals: Refusal[]}}
@@ -388,9 +292,7 @@ function parseBlock(block, tracker) {
 const gqlString = (s) => JSON.stringify(s);
 
 /**
- * The one GraphQL document for every repo and number cited. Aliases carry
- * the index, never the name, so any repo spelling is a legal alias.
- * @param {Map<string, Set<number>>} byRepo  `owner/repo` → numbers
+ * @param {Map<string, Set<number>>} byRepo
  * @param {boolean} comments
  */
 function buildQuery(byRepo, comments) {
@@ -411,12 +313,9 @@ function buildQuery(byRepo, comments) {
 }
 
 /**
- * Runs the batched read. A GraphQL error (a missing number, an unreadable
- * repo) makes gh exit non-zero with the partial `data` still on stdout, so
- * that output is read before the call is judged failed.
  * @param {string} query
  * @param {number} timeoutMs
- * @param {Gh} [run] the gh call, lib/gh.js's unless a caller injects its own
+ * @param {Gh} [run]
  * @returns {QueryResult}
  */
 function runQuery(query, timeoutMs, run = gh) {
@@ -442,7 +341,6 @@ function runQuery(query, timeoutMs, run = gh) {
 
 /** @param {string} where @param {string} what */
 function defaultLog(where, what) {
-	// The error log is unloadable; the verdict still carries `unchecked`.
 	ignoreFailure(() => require("./arbiter-core").logError(where, what));
 }
 
@@ -453,19 +351,13 @@ const REFUSED_STATUS = {
 	"pull-request": "is a pull request, not an issue",
 };
 
-/**
- * The `owner/name` a bare `#N` resolves against, or undefined where none does.
- * @param {string} [tracker]
- */
+/** @param {string} [tracker] */
 function homeOf(tracker) {
 	const t = trackerOf(tracker);
 	return t && /^[^/\s]+\/[^/\s]+$/.test(t) ? t : undefined;
 }
 
 /**
- * The full `owner/repo#N` a bare ref spelling names, as an item's `ref`
- * reads — for a reader comparing refs written outside an item, as a
- * status-line tail is. Null where `spelling` is not one ref.
  * @param {string} spelling
  * @param {string} [tracker]
  * @returns {string|null}
@@ -478,8 +370,6 @@ function readCanonicalRef(spelling, tracker) {
 }
 
 /**
- * The ref the issue being closed resolves to, or undefined where `self` is
- * absent or reads as no item.
  * @param {number|string|undefined} self
  * @param {string|undefined} home
  * @returns {string|undefined}
@@ -494,9 +384,7 @@ function readSelfRef(self, home) {
 }
 
 /**
- * Marks a bare ref no tracker resolves as unchecked, saying so once per
- * verdict.
- * @param {Verdict} verdict accumulator: the verdict being built, filled in place
+ * @param {Verdict} verdict
  * @param {string} ref
  * @param {Log} log
  * @returns {void}
@@ -512,13 +400,11 @@ function markUnresolved(verdict, ref, log) {
 }
 
 /**
- * Refuses the issue in hand as its own carrier, marks each bare ref no
- * tracker resolves, and groups the rest for the open-check.
- * @param {Verdict} verdict accumulator: the verdict being built, filled in place
+ * @param {Verdict} verdict
  * @param {Item[]} items
  * @param {string|undefined} selfRef
  * @param {Log} log
- * @returns {Map<string, Set<number>>}  `owner/repo` → numbers to read
+ * @returns {Map<string, Set<number>>}
  */
 function groupForRead(verdict, items, selfRef, log) {
 	/** @type {Map<string, Set<number>>} */
@@ -532,8 +418,6 @@ function groupForRead(verdict, items, selfRef, log) {
 			});
 			continue;
 		}
-		/* A bare ref with no tracker to resolve it names no repository: its
-		 * shape is judged, its carrier is not. */
 		if (!item.owner || !item.repo) {
 			markUnresolved(verdict, item.ref, log);
 			continue;
@@ -546,8 +430,7 @@ function groupForRead(verdict, items, selfRef, log) {
 }
 
 /**
- * Marks an item in an unreadable repo as unchecked, saying so once per repo.
- * @param {Verdict} verdict accumulator: the verdict being built, filled in place
+ * @param {Verdict} verdict
  * @param {Item} item
  * @param {Log} log
  * @returns {void}
@@ -589,14 +472,10 @@ function commentsOf(node) {
 }
 
 /**
- * Records each read item's status, refusing every carrier that is not open.
- * A failed read leaves them all unchecked.
- * @param {Verdict} verdict accumulator: the verdict being built, filled in place
+ * @param {Verdict} verdict
  * @param {Item[]} items
  * @param {QueryResult} read
- * @param {{repos: string[], comments: boolean, log: Log}} how  `repos` is the
- *   read's `owner/repo` keys in alias order; `comments` keeps each open
- *   issue's comments
+ * @param {{repos: string[], comments: boolean, log: Log}} how
  * @returns {void}
  */
 function applyRead(verdict, items, read, how) {
@@ -626,17 +505,11 @@ function applyRead(verdict, items, read, how) {
 }
 
 /**
- * Parses `text` in `grammar`, then checks each item's carrier is open.
- *
- * @param {string} text  a close comment (`outstanding`) or a block body (`block`)
+ * @param {string} text
  * @param {{grammar: "outstanding"|"block", tracker?: string | null,
  *   self?: number|string, comments?: boolean,
  *   shapeOnly?: boolean, timeoutMs?: number,
  *   log?: Log, gh?: Gh}} opts
- *   `self` is the issue being closed — a number in the tracker, or
- *   any ref spelling. `log: null` silences the record. `tracker: null` is a
- *   caller that resolved none itself, so none is read here. `gh` is the
- *   open-check's call, for a core that takes gh as a port.
  * @returns {Verdict}
  */
 function judge(text, opts) {
@@ -694,10 +567,7 @@ function judge(text, opts) {
 	return verdict;
 }
 
-/**
- * A refused verdict as a reader prints it: each fault, then the shape.
- * @param {Verdict} verdict
- */
+/** @param {Verdict} verdict */
 function buildRefusalText(verdict) {
 	const faults = verdict.refusals.map(
 		(r) => `- ${r.reason}${r.fragment ? ` — read: \`${r.fragment}\`` : ""}`,

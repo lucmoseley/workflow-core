@@ -1,20 +1,3 @@
-/*
- * marker-root.js — where per-session hook markers, rule latches and
- * breadcrumbs live: `.claude/tmp/markers`, the sanctioned in-repo scratch
- * directory (`.gitignore`, mantahostels#2089) — not the host repo root
- * (mantahostels#3515 F8, #2).
- *
- * `scripts/lib/marker-root.sh` is the shell half; BYTE-IDENTICAL OUTPUT IS
- * THE CONSTRAINT, same as `host-root.js`/`guard-root.sh` (see host-root.js's
- * header) — change the two together.
- *
- * Rooted on `host-root.js`'s `hostRoot()`, never `__dirname` — a plugin
- * install's files live in the plugin cache, and a marker directory resolved
- * from there would write into the wrong tree entirely (mantahostels#3515).
- *
- * THE DIRECTORY IS CREATED ON READ.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { ignoreFailure } = require("./caught.js");
@@ -25,9 +8,6 @@ const { hostRoot } = require("./host-root.js");
  * @returns {string}
  */
 function ensure(dir) {
-	/* Issue #2: a guard whose marker directory cannot be created still has its
-	 * real job to do. The failure surfaces at the write that follows, where the
-	 * caller's own fail-open handling (if any) catches it. */
 	ignoreFailure(() => fs.mkdirSync(dir, { recursive: true }));
 	return dir;
 }
@@ -38,11 +18,8 @@ function ensure(dir) {
  */
 const MARKERS_REL = path.join(".claude", "tmp", "markers");
 
-/* The markers vouching that a session ran a pass, each followed by its session id. */
 const PASS_MARKER_PREFIXES = [".concision-pass-", ".codereview-pass-"];
 
-/* write-self-plugin-marker.sh's proof that the self-plugin loaded, followed
- * by its session id. */
 const SELF_PLUGIN_PREFIX = ".self-plugin-loaded-";
 
 function markersDir(root = hostRoot()) {
