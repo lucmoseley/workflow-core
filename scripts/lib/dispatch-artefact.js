@@ -238,7 +238,7 @@ function agentTypeOf(call) {
 }
 
 const VERDICTS =
-	"A `DONE` means the agent has finished: read its report. A `STALLED` or `MISSING` means abandon the agent.";
+	"A `DONE` means the agent has stopped: read its report, or take over from its artefact where it sent none. A `STALLED` or `MISSING` means abandon the agent.";
 
 /**
  * @param {string} file
@@ -248,7 +248,7 @@ const VERDICTS =
  */
 function buildWatchSentence(file, watch, job) {
 	if (job)
-		return `This session is a background job, so it holds the turn: where the agent runs in the background, wait on it with a foreground \`timeout 540 ${watch(file)}\`, Bash \`timeout: 600000\`, its \`<output_file>\` the one the launch result names, re-run on a \`CEILING\` or a timeout. ${VERDICTS}`;
+		return `This session is a background job: hold the turn on \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says. ${VERDICTS}`;
 	return `Watch it with one backgrounded \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, then end the turn. When the agent's completion notification arrives, \`TaskStop\` the watcher first. ${VERDICTS}`;
 }
 

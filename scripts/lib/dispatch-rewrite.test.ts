@@ -185,11 +185,11 @@ describe("the composed rewrite", () => {
 			"prescribes a foreground watch for %s, never ending the turn",
 			(_n, input) => {
 				const prelude = String(rewrite(input, { job: true })?.prelude);
-				expect(prelude).toMatch(
-					/a foreground `timeout 540 node .*watch-artefact\.js/,
+				expect(prelude).toMatch(/hold the turn on `node .*watch-artefact\.js/);
+				expect(prelude).toContain(
+					"in the foreground as `rule:job-holds-turn` says",
 				);
-				expect(prelude).toContain("`timeout: 600000`");
-				expect(prelude).toContain("A `DONE` means the agent has finished");
+				expect(prelude).toContain("A `DONE` means the agent has stopped");
 				expect(prelude).not.toMatch(/end the turn|backgrounded/);
 			},
 		);
@@ -199,7 +199,7 @@ describe("the composed rewrite", () => {
 				rewrite({ prompt: "Find it.", subagent_type: "Explore" }, { job: true })
 					?.prelude,
 			);
-			expect(prelude).toContain("holds the turn until this agent reports");
+			expect(prelude).toContain("hold the turn until this agent reports");
 			expect(prelude).not.toContain("end the turn");
 		});
 	});

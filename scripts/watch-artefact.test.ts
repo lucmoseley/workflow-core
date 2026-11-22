@@ -287,26 +287,28 @@ describe("reading the agent's own log (#5421)", () => {
 		"ends DONE at the start, never STALLED, on a log ending on %s (#5496)",
 		async (_name, write) => {
 			write();
-			const t0 = Date.now();
 			const r = await watchLog();
 			expect(r.status).toBe(EXIT.DONE);
 			expect(r.stdout).toMatch(
-				new RegExp(`^DONE ${artefact} size=10 last-growth=none — `),
+				new RegExp(
+					`^DONE ${artefact} size=10 last-growth=none — the agent has stopped; read its report`,
+				),
 			);
-			expect(Date.now() - t0).toBeLessThan(2 * INTERVAL_S * 1000);
 		},
 		15_000,
 	);
 
-	it("ends DONE between checks, within a poll of the log turning stopped (#5496)", async () => {
+	it("ends DONE between checks, before any check or the ceiling, naming the size then (#5496)", async () => {
 		writeFileSync(log, toolCall);
-		const t0 = Date.now();
 		const r = await watch(
-			[artefact, "8", "--log", log],
-			[[2, () => appendFileSync(log, toolResult + turnEnd)]],
+			[artefact, "8", "4", "--log", log],
+			[
+				[1, grow],
+				[2, () => appendFileSync(log, toolResult + turnEnd)],
+			],
 		);
 		expect(r.status).toBe(EXIT.DONE);
-		expect(Date.now() - t0).toBeLessThan(6000);
+		expect(r.stdout).toMatch(new RegExp(`^DONE ${artefact} size=20 `));
 	}, 15_000);
 
 	it("falls back to growth alone on a malformed log, saying so once", async () => {

@@ -1,5 +1,5 @@
 const fs = require("node:fs");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { readLastJsonlRow } = require("./jsonl.js");
 
 /** @typedef {{state: "in-flight" | "stopped"} | {state: "unread", why: string}} LogState */
@@ -29,27 +29,6 @@ const isBlock = (block, type) =>
 
 /**
  * @param {import("./transcript.js").TranscriptRecord} row
- * @returns {boolean}
- */
-function isCallOpen(row) {
-	if (row.type === "api-request") return true;
-	const blocks = blocksOf(row.message?.content);
-	if (row.type === "assistant")
-		return (
-			row.message?.stop_reason === "tool_use" ||
-			blocks.some((b) => isBlock(b, "tool_use"))
-		);
-	return !blocks.some(
-		(b) =>
-			isBlock(b, "text") &&
-			String(/** @type {{text?: unknown}} */ (b).text ?? "").startsWith(
-				INTERRUPTED,
-			),
-	);
-}
-
-/**
- * @param {import("./transcript.js").TranscriptRecord} row
  * @param {string} type
  * @returns {Record<string, unknown>[]}
  */
@@ -59,17 +38,33 @@ const blocksTyped = (row, type) =>
 	);
 
 /**
+ * @param {import("./transcript.js").TranscriptRecord} row
+ * @returns {boolean}
+ */
+function isCallOpen(row) {
+	if (row.type === "api-request") return true;
+	if (row.type === "assistant")
+		return (
+			row.message?.stop_reason === "tool_use" ||
+			blocksTyped(row, "tool_use").length > 0
+		);
+	return !blocksTyped(row, "text").some((b) =>
+		String(b.text ?? "").startsWith(INTERRUPTED),
+	);
+}
+
+/**
  * @param {string} log
  * @param {import("./transcript.js").TranscriptRecord} row
  */
 function isHandedBack(log, row) {
-	let call = row.type === "assistant" ? row : null;
-	if (row.type === "user")
-		try {
-			call = readLastJsonlRow(log, (r) => r.type === "assistant") ?? null;
-		} catch {
-			return false;
-		}
+	const call =
+		row.type === "assistant"
+			? row
+			: orFallback(
+					() => readLastJsonlRow(log, (r) => r.type === "assistant"),
+					null,
+				);
 	if (!call) return false;
 	const handbacks = blocksTyped(call, "tool_use").filter(
 		(b) => b.name === HANDBACK,

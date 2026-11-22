@@ -117,7 +117,7 @@ const [TIER_RULE = "", SEARCH_RULE = ""] = EMITTED.injectRules;
 const END_TURN =
 	"While this agent runs, end the turn: its completion notification wakes this session, so a poll learns nothing.";
 const HOLD_TURN =
-	"This session is a background job, so it holds the turn until this agent reports, never ending it on `waiting:` (`rule:job-holds-turn`).";
+	"This session is a background job: hold the turn until this agent reports (`rule:job-holds-turn`).";
 
 /**
  * @param {unknown} input

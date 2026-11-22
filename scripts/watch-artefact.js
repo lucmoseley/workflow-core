@@ -80,7 +80,7 @@ const ADVICE = {
 		"never written by the first-write deadline, deleted, or the wrong path",
 	CEILING:
 		"the ceiling came before two checks without growth; re-run the watch to keep waiting",
-	DONE: "the agent's log reads stopped; it has finished, so read its report",
+	DONE: "the agent has stopped; read its report, or take over from its artefact where it sent none",
 };
 
 // This file's own path, which in an adopter is the plugin's, not `scripts/`.
@@ -217,7 +217,7 @@ async function main() {
 
 	let unreadSaid = false;
 	/** @returns {"in-flight" | "stopped" | "unread" | "none"} */
-	const logState = () => {
+	const readLogState = () => {
 		if (!log) return "none";
 		const read = readSubagentLogState(log);
 		if (read.state === "unread") {
@@ -230,7 +230,8 @@ async function main() {
 
 	/** @param {keyof typeof ADVICE} verdict */
 	const finish = (verdict) => {
-		const { size, lastGrowth } = tracker;
+		const { lastGrowth } = tracker;
+		const size = verdict === "DONE" ? readSizeOf(file) : tracker.size;
 		const at =
 			lastGrowth === null ? "none" : new Date(lastGrowth).toISOString();
 		writeFd(
@@ -246,11 +247,11 @@ async function main() {
 		if (!log) return;
 		for (let at = Date.now() + logPollMs; at < until; at += logPollMs) {
 			await sleep(at - Date.now());
-			if (logState() === "stopped") finish("DONE");
+			if (readLogState() === "stopped") finish("DONE");
 		}
 	};
 
-	if (logState() === "stopped") finish("DONE");
+	if (readLogState() === "stopped") finish("DONE");
 	for (let check = 1; ; check++) {
 		const due = start + check * intervalMs;
 		const ceiling = start + ceilingMs;
@@ -260,7 +261,7 @@ async function main() {
 			finish("CEILING");
 		}
 		await sleep(due - Date.now());
-		const state = logState();
+		const state = readLogState();
 		if (state === "stopped") finish("DONE");
 		const verdict = tracker.observe(
 			readSizeOf(file),

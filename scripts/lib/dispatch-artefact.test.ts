@@ -270,7 +270,7 @@ describe("buildWatchNote — a prompt that names its own artefact (#2013)", () =
 		);
 		expect(note).toContain("`watch .claude/tmp/x.md`");
 		expect(note).toContain("then end the turn");
-		expect(note).toContain("A `DONE` means the agent has finished");
+		expect(note).toContain("A `DONE` means the agent has stopped");
 	});
 
 	it("holds a background job's turn on a foreground watch instead (#5496)", () => {
@@ -280,7 +280,7 @@ describe("buildWatchNote — a prompt that names its own artefact (#2013)", () =
 			undefined,
 			true,
 		);
-		expect(note).toContain("a foreground `timeout 540 watch .claude/tmp/x.md`");
+		expect(note).toContain("hold the turn on `watch .claude/tmp/x.md`");
 		expect(note).not.toContain("end the turn");
 	});
 
