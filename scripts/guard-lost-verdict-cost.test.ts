@@ -42,7 +42,6 @@ describe("guard-lost-verdict.js's per-call cost (#5338)", () => {
 			tool_response: { stdout: "README.md\n", stderr: "" },
 		});
 		expect(r.stdout).toBe("");
-		// #1497
 		expect(r.modules).toEqual([
 			"guard-lost-verdict.js",
 			"lib/arbiter-proc.js",
@@ -121,7 +120,6 @@ describe("guard-lost-verdict.js's per-call cost (#5338)", () => {
 			is_interrupt: false,
 		});
 		expect(r.stdout).toBe("");
-		// #1497
 		expect(r.modules).toEqual([
 			"guard-lost-verdict.js",
 			"lib/arbiter-proc.js",

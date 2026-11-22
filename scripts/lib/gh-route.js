@@ -66,7 +66,7 @@ function buildRoute({
 			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
 		},
 		secondVar,
-		exempt: new RegExp(`${bin}-route-exempt:\\s*[\\w#]`),
+		exempt: new RegExp(`${bin}-route-exempt:\\s*(?:\\w|#\\d)`),
 		envRead: new RegExp(`\\bprocess\\.env\\.${envVar}\\b(?!\\s*=[^=])`),
 		literalSpawn: new RegExp(
 			`\\b(?:execFileSync|execFile|spawnSync|spawn)\\s*\\(\\s*(["'\`])${bin}\\1`,

@@ -15,9 +15,9 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "guard-main-checkout-job.js");
-const CLAUDE_CALL_MS = 60_000;
+const CLAUDE_TIMEOUT_MS = 60_000;
 const NODE_START_MS = 10_000;
-const LAUNCH_ROOM_MS = 2 * CLAUDE_CALL_MS + NODE_START_MS;
+const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + NODE_START_MS;
 
 let tmp: string;
 let main: string;

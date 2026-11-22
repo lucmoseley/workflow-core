@@ -13,7 +13,6 @@ const { scriptPath } = require("./lib/script-path.js");
 
 /** @param {string} root */
 const storeOf = (root) => path.join(root, "docs", "agents", "rules");
-// #95
 /** @param {string} root */
 const manifestOf = (root) =>
 	path.join(

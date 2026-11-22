@@ -1164,9 +1164,21 @@ const LOADS_PRAGMA = pragmaLine(String.raw`\/\/|\/?\*`, LOADS_BODY);
  * @returns {string[]}
  */
 function declaredReads(source, tracked, self) {
+	return declaredPaths(source, self).filter((p) => tracked.has(p));
+}
+
+/** @param {string} source @param {Set<string>} tracked @param {string} self @returns {string[]} */
+function untrackedLoads(source, tracked, self) {
+	return declaredPaths(source, self)
+		.filter((p) => !tracked.has(p))
+		.map((p) => `${self}: code-edges loads: ${p} names no tracked file`);
+}
+
+/** @param {string} source @param {string} self @returns {string[]} */
+function declaredPaths(source, self) {
 	return [...source.matchAll(LOADS_PRAGMA)]
 		.map((m) => resolveRelative(self, requiredGroup(m, 1, LOADS_PRAGMA)))
-		.filter((p) => p !== self && tracked.has(p));
+		.filter((p) => p !== self);
 }
 
 const RULE_TEXT_MODULE = "scripts/lib/rule-text.js";
@@ -2557,6 +2569,7 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 	const unseen = {};
 	for (const t of tests) {
 		const source = read(t);
+		warnings.push(...untrackedLoads(source, tracked, t));
 		const found = testReads(t, source, tracked, read);
 		addLaunches(found, t, launchesOnce);
 		addClosure(byClosure, t, closureDepths(t, found, loadsOnce, readsOnce));

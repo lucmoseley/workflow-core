@@ -11,7 +11,7 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { childFailure, childVerdict } = require("./lib/child-failure.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-// #3496 measured 5 s one run, bound over ten times that
+// #3496 guess, over ten times one ~5 s run
 const ADMISSION_TIMEOUT_MS = 60_000;
 
 /**

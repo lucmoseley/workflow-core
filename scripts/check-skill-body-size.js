@@ -13,7 +13,7 @@ const SKILLS_DIR = path.join(".claude", "skills");
 const COMMANDS_DIR = path.join(".claude", "commands");
 const ARG_TOKEN_RE = /(?<!\\)\$\d+/g;
 
-// lucmoseley/mantahostels#2495 measured 16066 B
+// lucmoseley/mantahostels#2495 guess
 const CAP_BYTES = 16_000;
 
 /**

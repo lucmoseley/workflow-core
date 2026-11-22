@@ -287,7 +287,7 @@ async function askJev({
 		model: gateway.evaluationModel(MODEL_ID),
 		state: message,
 		questions,
-		// `ai` retries 408, 429 and 500-599 with backoff to a ~40 s worst case: https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/jev-commercial-terms.md §3
+		// `ai` retries 408, 429 and 500-599 with backoff to a ~40 s worst case.
 		maxRetries: 0,
 		abortSignal: AbortSignal.timeout(abortMs),
 	});
@@ -474,7 +474,7 @@ async function askWithRetries({
 				failRefused({ log, sessionId, latencyMs, retries });
 				return null;
 			}
-			// `ai` synthesises a 500 for a refused connection and for an abort alike.
+			// `@ai-sdk/gateway` synthesises a 500 for a refused connection and for an abort alike.
 			if (retries < ABORT_RETRIES && Date.now() - attemptAt >= abortMs) {
 				retries++;
 				continue;

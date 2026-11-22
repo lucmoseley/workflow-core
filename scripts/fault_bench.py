@@ -13,7 +13,7 @@ import memwatch_minute  # noqa: E402
 from fail_open import expected, fail_open  # noqa: E402
 from memwatch_minute import MINUTE_LOG  # noqa: E402
 
-MIN_UPTIME_S = 100_800  # #3246 measured 37.9 s on the gradual bench at 28 h
+MIN_UPTIME_S = 100_800  # #3246 measured 3 of 3 gradual boots degraded past 28 h
 MIN_AVAIL_MB = 1_900  # #3246 measured earlyoom 794 + bench 800, plus a 300 guess margin
 ROUNDS = (1, 2, 4, 8, 8)
 ALLOC = "b=bytearray(100*1024*1024)"

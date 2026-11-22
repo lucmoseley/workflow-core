@@ -149,6 +149,11 @@ describe("check-cli-args", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(": bare.js.");
+		fs.rmSync(path.join(root, "scripts", "bare.js"));
+		script("hash.js", `// cli-args-exempt: #\n${HAND_ROLLED}`);
+		const h = run();
+		expect(h.status).toBe(1);
+		expect(h.out).toContain(": hash.js.");
 	});
 
 	it("skips scripts/lib and non-.js files", () => {

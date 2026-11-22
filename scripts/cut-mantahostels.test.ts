@@ -338,7 +338,6 @@ describe("cut-mantahostels.js", () => {
 
 	it("reads an unclosed __dirname join of comma-less, double-spaced args once, still finding the spaced edge after it (#3605)", () => {
 		const f = fixture();
-		// #3605 measured 2 s at 16 args
 		put(
 			f.dir,
 			"scripts/runner.js",

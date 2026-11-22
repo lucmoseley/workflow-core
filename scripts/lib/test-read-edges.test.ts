@@ -777,6 +777,15 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 		expect(edges["scripts/zz/lib/one.sh"]).toEqual([T]);
 	});
 
+	it("warns on a code-edges loads line naming no tracked file", () => {
+		const { warnings } = build({
+			"scripts/zz/x.test.ts": "// code-edges loads: gone.json\nrun();\n",
+		});
+		expect(warnings).toEqual([
+			"scripts/zz/x.test.ts: code-edges loads: scripts/zz/gone.json names no tracked file",
+		]);
+	});
+
 	it("still warns where the only -f naming the path is not a test", () => {
 		const { warnings } = build({
 			[T]: drives("scripts/zz/guard.sh"),
