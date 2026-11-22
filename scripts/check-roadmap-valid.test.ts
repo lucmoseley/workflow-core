@@ -335,7 +335,7 @@ describe("check-roadmap-valid", () => {
 			expect(r.stderr).toContain(`SKIP: this commit deletes ${HTML}`);
 		});
 
-		it("stays BROKEN where the staged config keeps the module", () => {
+		it("stays BROKEN, naming the unreadable staged roadmap, where the staged config keeps the module", () => {
 			stage(
 				".claude/workflow-core.json",
 				'{ "modules": ["roadmap", "landing"] }\n',
@@ -343,11 +343,11 @@ describe("check-roadmap-valid", () => {
 			expectUnreadableRoadmap();
 		});
 
-		it("stays BROKEN where the staged config is unchanged", () => {
+		it("stays BROKEN, naming the unreadable staged roadmap, where the staged config is unchanged", () => {
 			expectUnreadableRoadmap();
 		});
 
-		it("stays BROKEN where HEAD's config never listed the module", () => {
+		it("stays BROKEN, naming the unreadable staged roadmap, where HEAD's config never listed the module", () => {
 			stage(".claude/workflow-core.json", '{ "modules": [] }\n');
 			git(
 				"commit",
