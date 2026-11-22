@@ -624,6 +624,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 			"lib/file-read.js",
 			"lib/formatters.js",
 			"lib/gh.js",
+			"lib/git-attributes.js",
 			"lib/git-mode.js",
 			"lib/git-objects.js",
 			"lib/git-read-memo.js",

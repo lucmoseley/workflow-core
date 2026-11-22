@@ -277,7 +277,7 @@ function indexHead() {
  * @param {string[]} paths repo-relative, read from the host root
  * @param {(p: string) => string | null} head a path's opening text, null
  *   where it is no regular file, which drops it
- * @param {import("./git-attributes.js").AttributeRead} [read]
+ * @param {{ cached?: boolean, timeout?: number, cwd?: string }} [read]
  * @returns {string[]}
  */
 function shellFiles(paths, head, { cached = false, timeout, cwd } = {}) {
@@ -287,7 +287,11 @@ function shellFiles(paths, head, { cached = false, timeout, cwd } = {}) {
 		const text = head(p);
 		return text !== null && (named || SHELL_SHEBANG.test(text));
 	});
-	const excluded = readAttributeExcluded(shell, { cached, timeout, cwd });
+	const excluded = readAttributeExcluded(shell, {
+		from: cached ? "index" : "worktree",
+		timeout,
+		cwd,
+	});
 	return shell.filter((p) => !excluded.has(p));
 }
 

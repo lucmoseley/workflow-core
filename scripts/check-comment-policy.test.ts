@@ -103,9 +103,21 @@ describe("check-comment-policy", () => {
 		expect(r.out).toContain("1 code file(s), every comment a permitted kind.");
 	});
 
-	const attributes =
-		"vendor/** linguist-vendored\ngen/** linguist-generated\nvendor/keep/** -linguist-vendored\n";
+	const marked = ["vendor/a.js", "gen/b.js", "vendor/keep/c.js"];
+	const writeMarked = (text: string) => {
+		write(
+			".gitattributes",
+			"vendor/** linguist-vendored\ngen/** linguist-generated\nvendor/keep/** -linguist-vendored\n",
+		);
+		for (const rel of marked) write(rel, text);
+	};
 	const stray = "const a = 1;\n// a stray note\n";
+	const expectOnlyUnmarked = (r: { status: number; out: string }) => {
+		expect(r.status).toBe(1);
+		expect(r.out).toContain("vendor/keep/c.js");
+		expect(r.out).not.toContain("vendor/a.js");
+		expect(r.out).not.toContain("gen/b.js");
+	};
 
 	it.each([
 		["the host root", []],
@@ -113,15 +125,9 @@ describe("check-comment-policy", () => {
 	])(
 		"--all skips what .gitattributes marks vendored or generated, from %s",
 		(_, args) => {
-			write(".gitattributes", attributes);
-			for (const rel of ["vendor/a.js", "gen/b.js", "vendor/keep/c.js"])
-				write(rel, stray);
+			writeMarked(stray);
 			git("add", "-A");
-			const r = run(...args, "--all");
-			expect(r.status).toBe(1);
-			expect(r.out).toContain("vendor/keep/c.js");
-			expect(r.out).not.toContain("vendor/a.js");
-			expect(r.out).not.toContain("gen/b.js");
+			expectOnlyUnmarked(run(...args, "--all"));
 		},
 	);
 
@@ -238,18 +244,20 @@ describe("check-comment-policy", () => {
 		});
 
 		it("charges no comment added to a vendored or generated file", () => {
-			write(".gitattributes", attributes);
-			for (const rel of ["vendor/a.js", "gen/b.js", "vendor/keep/c.js"])
-				write(rel, "const a = 1;\n");
+			writeMarked("const a = 1;\n");
 			commit("attributes");
-			for (const rel of ["vendor/a.js", "gen/b.js", "vendor/keep/c.js"])
-				write(rel, stray);
+			writeMarked(stray);
 			git("add", "-A");
-			const r = run("--against", "HEAD");
-			expect(r.status).toBe(1);
-			expect(r.out).toContain("vendor/keep/c.js:2");
-			expect(r.out).not.toContain("vendor/a.js");
-			expect(r.out).not.toContain("gen/b.js");
+			expectOnlyUnmarked(run("--against", "HEAD"));
+		});
+
+		it("reads --head's own attributes, not the index's", () => {
+			writeMarked("const a = 1;\n");
+			commit("attributes");
+			writeMarked(stray);
+			commit("comments");
+			git("rm", "-q", "--cached", ".gitattributes");
+			expectOnlyUnmarked(run("--against", "HEAD~1", "--head", "HEAD"));
 		});
 	});
 });

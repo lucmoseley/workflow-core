@@ -195,16 +195,61 @@ function readChangedPaths(ctx) {
 }
 
 /**
+ * @param {Ctx} ctx
  * @param {ReturnType<typeof readChangedPaths>} read
  * @param {string} head
  */
-function dropAttributeExcluded({ paths, renames }, head) {
-	const excluded = readAttributeExcluded(
-		paths,
-		head ? { source: head } : { cached: true },
-	);
-	for (const p of excluded) renames.delete(p);
-	return { paths: paths.filter((p) => !excluded.has(p)), renames };
+function dropAttributeExcluded(ctx, { paths, renames }, head) {
+	const excluded = readExcludedOr(ctx, paths, {
+		from: head ? { rev: head } : "index",
+	});
+	return {
+		paths: paths.filter((p) => !excluded.has(p)),
+		renames: new Map([...renames].filter(([to]) => !excluded.has(to))),
+	};
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string[]} paths
+ * @param {import("./lib/git-attributes.js").AttributeRead} read
+ * @returns {Set<string>}
+ */
+function readExcludedOr(ctx, paths, read) {
+	try {
+		return readAttributeExcluded(paths, read);
+	} catch (e) {
+		return ctx.broken(e instanceof Error ? e.message : String(e));
+	}
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ * @returns {string[]}
+ */
+function readJudgedFiles(ctx, root) {
+	const walked = ctx.has("--root");
+	const files = readTreeFiles(ctx, root, walked);
+	if (!inWorkTree(ctx, root)) return files;
+	const excluded = readExcludedOr(ctx, files, {
+		from: walked ? "worktree" : "index",
+		cwd: root,
+	});
+	return files.filter((p) => !excluded.has(p));
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ */
+function inWorkTree(ctx, root) {
+	const r = spawnGitSync(["rev-parse", "--is-inside-work-tree"], {
+		cwd: root,
+		encoding: "utf8",
+	});
+	if (r.error) ctx.broken(`git rev-parse failed: ${r.error.message}`);
+	return r.status === 0 && r.stdout.trim() === "true";
 }
 
 /** @type {WeakMap<Ctx, ReturnType<typeof dropAttributeExcluded>>} */
@@ -218,6 +263,7 @@ const changedOnce = (ctx) => {
 	const known = changed.get(ctx);
 	if (known) return known;
 	const read = dropAttributeExcluded(
+		ctx,
 		readChangedPaths(ctx),
 		ctx.value("--head", ""),
 	);
@@ -290,12 +336,7 @@ const SPEC = {
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
 		let judged = 0;
-		const files = readTreeFiles(ctx, root, ctx.has("--root"));
-		const excluded = fs.existsSync(path.join(root, ".git"))
-			? readAttributeExcluded(files, { cwd: root })
-			: new Set();
-		for (const rel of files) {
-			if (excluded.has(rel)) continue;
+		for (const rel of readJudgedFiles(ctx, root)) {
 			const text = readOr(root, rel);
 			const lang = text === null ? null : langOf(rel, text);
 			if (text === null || lang === null) continue;
