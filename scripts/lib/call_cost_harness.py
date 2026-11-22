@@ -42,6 +42,7 @@ process's; a program that holds its own dup of a real fd from before the call
 writes past the capture.
 """
 
+import contextlib
 import io
 import os
 import runpy
@@ -182,23 +183,32 @@ def _record_starts(children: list[str], root: str, cwd: str):
     return restore
 
 
+class _ExitAsPython3(contextlib.AbstractContextManager):
+    code = 0
+
+    def __exit__(self, exc_type, error, tb):
+        if isinstance(error, SystemExit):
+            if isinstance(error.code, int):
+                self.code = error.code
+            elif error.code is not None:
+                print(error.code, file=sys.stderr)
+                self.code = 1
+            return True
+        if isinstance(error, Exception):
+            traceback.print_exception(error)
+            self.code = 1
+            return True
+        return False
+
+
 def _invoke(script: str) -> int:
     """Runs `script` as `__main__` and returns its exit as python3 would: a
     `SystemExit`'s code, a non-int one printed as exit 1, and an escaping
     exception's traceback printed as exit 1."""
-    try:
+    exit_ = _ExitAsPython3()
+    with exit_:
         runpy.run_path(script, run_name="__main__")
-    except SystemExit as exc:
-        if exc.code is None:
-            return 0
-        if isinstance(exc.code, int):
-            return exc.code
-        print(exc.code, file=sys.stderr)
-        return 1
-    except Exception:  # noqa: BLE001 - python3 prints any escaping exception
-        print(traceback.format_exc(), end="", file=sys.stderr)
-        return 1
-    return 0
+    return exit_.code
 
 
 def _run(script: str, argv: list[str], *, cwd: str, env, stdin: str | bytes) -> tuple:
