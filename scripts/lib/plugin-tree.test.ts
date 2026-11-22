@@ -393,6 +393,7 @@ describe("the core-only class (#440)", () => {
 		"scripts/lib/release-lag.js -> scripts/release-plugin.js",
 		"scripts/report-release-due.js -> scripts/lib/release-tags.js",
 		"scripts/report-release-due.js -> scripts/release-plugin.js",
+		"scripts/lib/release-due.js -> scripts/lib/release-tags.js",
 		"docs/agents/adopter-upgrade.md -> scripts/release-contains.js",
 		"scripts/check-code-standards.js -> scripts/lib/plugin-tree.js",
 		"scripts/check-adopter-boundary.js -> scripts/lib/plugin-tree.js",

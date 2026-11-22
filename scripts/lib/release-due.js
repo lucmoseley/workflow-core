@@ -1,4 +1,3 @@
-const { TAG_RE, newestTag } = require("./release-tags.js");
 const { parseSteps } = require("./migration-note.js");
 
 const CUT_TITLE = "Release cut due";
@@ -17,6 +16,7 @@ const OWED_TYPES = ["act", "choice"];
  * @returns {OwedNote[]}
  */
 function selectOwed(tag, notes) {
+	const { TAG_RE, newestTag } = require("./release-tags.js");
 	/** @type {OwedNote[]} */
 	const owed = [];
 	for (const { note, version, text } of notes) {
