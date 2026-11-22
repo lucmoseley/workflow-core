@@ -5,6 +5,7 @@ const { readText } = require("./file-read.js");
 const text = require("./tracker-inject-text.js");
 const { trimEndRun, trimStartRun } = require("./trim-run.js");
 const { escapeRe } = require("./regex-group.js");
+const { readJobDir } = require("./job-paths.js");
 
 const TOKEN_SEPARATORS = " \t\n\v\f\r,&+";
 
@@ -47,9 +48,9 @@ function asText(v) {
 	return typeof v === "string" ? v : JSON.stringify(v);
 }
 
-/** @param {string | undefined} jobDir */
+/** @param {string | null} jobDir */
 function readJobIntent(jobDir) {
-	if (!jobDir) return "";
+	if (jobDir === null) return "";
 	const file = path.join(jobDir, "state.json");
 	if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return "";
 	try {
@@ -289,7 +290,7 @@ function openMarker({ source, session, matched, takesIssue, now }) {
 function injectTrackerDocs(stdin, ports) {
 	const f = parseFields(stdin);
 	if (f.agentId) return "";
-	const prompt = f.prompt || readJobIntent(process.env.CLAUDE_JOB_DIR);
+	const prompt = f.prompt || readJobIntent(readJobDir(process.env));
 	if (!prompt) return "";
 	const hit = matchCommand(prompt);
 	if (!hit) return "";

@@ -6,6 +6,7 @@ const { caught } = require("./lib/caught.js");
 const { run } = require("./lib/guard-entry.js");
 const {
 	parseJobDir,
+	readJobDir,
 	readJobRecordIn,
 	shortJobId,
 } = require("./lib/job-paths.js");
@@ -119,9 +120,11 @@ function runOnJobSeat(args, cwd, env, job) {
  */
 function readJob(payload, env) {
 	if (typeof payload.cwd !== "string") return null;
-	const where = parseJobDir(env.CLAUDE_JOB_DIR);
+	const jobDir = readJobDir(env);
+	if (jobDir === null) return null;
+	const where = parseJobDir(jobDir);
 	if (where === null) return null;
-	const record = readJobRecordIn(String(env.CLAUDE_JOB_DIR));
+	const record = readJobRecordIn(jobDir);
 	if (record === null) return null;
 	const cwd = fs.realpathSync(payload.cwd);
 	const root = mainCheckout(cwd);
@@ -130,7 +133,7 @@ function readJob(payload, env) {
 		root: cwd,
 		seat: where.seat,
 		jobId: where.jobId,
-		jobDir: path.resolve(String(env.CLAUDE_JOB_DIR)),
+		jobDir: path.resolve(jobDir),
 		intent: typeof record.intent === "string" ? record.intent : "",
 		name: String(record.name ?? "session"),
 		flags: Array.isArray(record.respawnFlags)
