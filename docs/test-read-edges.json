@@ -31323,6 +31323,8 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-session-ceiling.test.ts",
+			"scripts/lib/dispatch-rewrite.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/job-paths.test.ts",
@@ -31332,12 +31334,16 @@
 			"scripts/lib/run-arm.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/park-blocked.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-status-load.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/start-session.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/job-paths.test.ts": [
 			"scripts/check-guard-errors.test.ts",

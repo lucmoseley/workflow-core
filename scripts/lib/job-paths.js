@@ -9,6 +9,15 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string | null}
+ */
+const readJobDir = (env) => env.CLAUDE_JOB_DIR || null;
+
+/** @param {NodeJS.ProcessEnv} env */
+const isBackgroundJob = (env) => readJobDir(env) !== null;
+
 /** @param {string} seat */
 const jobStorePath = (seat) => path.join(seat, "jobs");
 
@@ -119,8 +128,10 @@ function readJobCwd(seat, jobId) {
 }
 
 module.exports = {
+	isBackgroundJob,
 	jobDirPath,
 	parseJobDir,
+	readJobDir,
 	jobStateIn,
 	jobStatePath,
 	isAbsentFault,

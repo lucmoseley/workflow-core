@@ -103,6 +103,7 @@ const {
 } = require("./lib/hand-off");
 const { listIssueClaims } = require("./lib/arbiter-store");
 const { readOwnJob } = require("./lib/claude-stop");
+const { isBackgroundJob } = require("./lib/job-paths");
 const { readStrandedFiles } = require("./lib/neighbour-dirt");
 const { sessionTree } = require("./lib/host-root.js");
 const { findOwnHold } = require("./lib/repo-holds");
@@ -823,8 +824,7 @@ const refusal = (message, end, sessionId, payload) =>
 	assess(message, end, sessionId, payload).faults;
 
 /** @param {ReturnType<typeof ending>} end */
-const isOwed = (end) =>
-	Boolean(process.env.CLAUDE_JOB_DIR) && OWED.has(end.marker);
+const isOwed = (end) => isBackgroundJob(process.env) && OWED.has(end.marker);
 
 /**
  * Whether `message` carries a block this guard passes, judged by the same

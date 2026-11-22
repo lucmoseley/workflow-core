@@ -48,6 +48,7 @@
 
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
+const { isBackgroundJob } = require("./lib/job-paths.js");
 const { caught } = require("./lib/caught.js");
 const { buildWaysOut } = require("./lib/orphan-filings.js");
 const { claudeBin } = require("./lib/claude-bin.js");
@@ -160,7 +161,7 @@ function renderReaped(r) {
  */
 function renderLandHandOff(env) {
 	const wait = `\`node ${scriptPath("landing-status.js")} --wait\``;
-	return env.CLAUDE_JOB_DIR
+	return isBackgroundJob(env)
 		? `In a background job, end on \`result:\`, naming these commits as queued for the lander, not on main; a drop goes to the lander's own \`Fix queue/<name>\` ticket. Wait with ${wait} only where your next step needs them on main.`
 		: `Wait on its outcome with ${wait}, run in the background (\`run_in_background\`): it exits the moment the lander lands or drops it, so no timer is guessed.`;
 }

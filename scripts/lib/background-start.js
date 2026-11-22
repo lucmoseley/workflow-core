@@ -29,14 +29,17 @@
  * BLIND SPOT: he types `claude --bg` himself: held, as a dispatcher's is.
  */
 
-const { readJobRecordIn } = require("./job-paths.js");
+const {
+	isBackgroundJob,
+	readJobDir,
+	readJobRecordIn,
+} = require("./job-paths.js");
 
 /** @param {NodeJS.ProcessEnv} env */
 const isPrintMode = (env) => env.CLAUDE_CODE_ENTRYPOINT === "sdk-cli";
 
 /** @param {NodeJS.ProcessEnv} env */
-const isBackgroundStart = (env) =>
-	Boolean(env.CLAUDE_JOB_DIR) || isPrintMode(env);
+const isBackgroundStart = (env) => isBackgroundJob(env) || isPrintMode(env);
 
 /**
  * Whether a job record is one the founder launched from the agents view. A
@@ -54,7 +57,7 @@ function isHisJobRecord(record) {
  * @param {NodeJS.ProcessEnv} env
  */
 function isHisOwnJob(env) {
-	const jobDir = env.CLAUDE_JOB_DIR;
+	const jobDir = readJobDir(env);
 	if (!jobDir || isPrintMode(env)) return false;
 	return isHisJobRecord(readJobRecordIn(jobDir));
 }
