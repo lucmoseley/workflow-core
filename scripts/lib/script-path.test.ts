@@ -279,6 +279,18 @@ describe("in a plugin install", () => {
 		);
 	});
 
+	it("leaves a kept host-owned path as written though the core ships it (#5598)", () => {
+		const root = install(["a.js"]);
+		fs.mkdirSync(path.join(root, "docs"));
+		fs.writeFileSync(path.join(root, "docs", "doc-map.md"), "");
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
+		expect(
+			resolveScriptPaths("node scripts/a.js docs/doc-map.md", {
+				keep: ["docs/doc-map.md"],
+			}),
+		).toBe(`node ${root}/scripts/a.js docs/doc-map.md`);
+	});
+
 	it("serves a rule fragment resolved, from both rule-text accessors", () => {
 		const root = install(["issue-body.js"]);
 		const rules = fs.mkdtempSync(path.join(os.tmpdir(), "script-path-rules-"));

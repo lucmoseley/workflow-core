@@ -2196,6 +2196,18 @@ describe("Section B entries inside Section B", () => {
 		expect(check().out).toContain("B2 — line");
 	});
 
+	it("spells the mover from the plugin and the map the host's own, though the plugin ships one too (#5598)", () => {
+		const plugin = mkScratchDir("plugin-");
+		for (const f of ["scripts/move-stray-doc-map-entries.js", MAP]) {
+			fs.mkdirSync(path.join(plugin, path.dirname(f)), { recursive: true });
+			fs.writeFileSync(path.join(plugin, f), "x\n");
+		}
+		writeMap(baselineRows, withSectionC(["B1"], ["B2"]));
+		expect(check({ WFC_SCRIPT_ROOT: plugin }).out).toContain(
+			`  node ${plugin}/scripts/move-stray-doc-map-entries.js docs/doc-map.md`,
+		);
+	});
+
 	it("routes the fix to relocation, never a rewrite", () => {
 		writeMap(baselineRows, withSectionC(["B1"], ["B2"]));
 		const r = check();

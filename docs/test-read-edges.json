@@ -3257,6 +3257,7 @@
 			"scripts/lib/morning-review-filing.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/precommit-gate-verdicts.test.ts",
+			"scripts/lib/script-path.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/pick-next-output.test.ts",
 			"scripts/precommit-gate-input-deletion.test.ts",

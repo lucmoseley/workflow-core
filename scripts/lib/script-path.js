@@ -83,16 +83,20 @@ function expandPastePaths(text, host) {
 
 const CORE_PATH = /(?<![\w./$}-])(?:\.\/)?(scripts|docs)\/([\w*.-][\w*./-]*)/g;
 
+// #5598
 /**
  * @param {string} text
+ * @param {{ keep?: Iterable<string> }} [opts]
  * @returns {string}
  */
-function resolveScriptPaths(text) {
+function resolveScriptPaths(text, { keep = [] } = {}) {
 	if (inCheckout()) return text;
+	const kept = new Set(keep);
 	return text.replace(CORE_PATH, (whole, dir, rest) => {
 		const name = trimEndRun(rest, ".");
 		const file = `${coreRoot()}/${dir}/${name}`;
-		if (!name || !fs.existsSync(file)) return whole;
+		if (!name || kept.has(`${dir}/${name}`) || !fs.existsSync(file))
+			return whole;
 		return shellQuote(file) + rest.slice(name.length);
 	});
 }
