@@ -1,28 +1,4 @@
 // @vitest-environment node
-/*
- * Pins guard-deny-rates.js's table to the census it was copied from.
- *
- * The table is transcribed by hand from a landed census, so the failure it can
- * have is a copying error — a digit, a band, a guard put against the wrong row.
- * This reads the census back out of `main` and diffs it, which also serves as
- * the staleness check mantahostels#3261 left optional: the day the census is re-run, this
- * fails until the table is brought up to it.
- *
- * It cannot see the OTHER staleness — a guard that joined the deny-capable set
- * after the census and so appears in neither. Nothing can; that one surfaces as
- * the block's own "deny rate UNKNOWN" line.
- *
- * A census row is keyed by what runs the guard now: its dispatcher core's name
- * where it was folded into guard-dispatch.js, else its script (#3272). One
- * whose guard no longer denies — removed, or downgraded to a warn (#497) — is
- * dropped from the table, never edited, so only the rows of guards still
- * deny-capable are compared.
- *
- * guard-lost-deny.js, a `Stop` hook, prints these rates so a session can
- * decide whether re-running a guard that failed open is worth a turn; a
- * loosened case lets a mistyped rate tell it to skip a loss that mattered.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -33,7 +9,6 @@ import { RATES } from "./guard-deny-rates";
 const SCRIPTS = path.join(__dirname, "..");
 const isDenyCapable = isDenyCapableIn([SCRIPTS]);
 
-/** The dispatcher's deny-event cores, by name. */
 const CORES = new Map(
 	readManifest(path.join(__dirname, "guard-cores.json")).PreToolUse.map((r) => [
 		r.name,
@@ -59,13 +34,8 @@ interface Row {
 	highPct: number;
 }
 
-/** `1.588% [1.41-1.79%]` and `0% [0-0.02%]` both. */
 const RATE_CELL = /^([\d.]+)%\s*\[([\d.]+)-([\d.]+)%\]$/;
 
-/**
- * A census row's guard under what runs it now: the dispatcher core it was
- * folded into, else the Node entry it was ported to, else its own script.
- */
 function portedName(guard: string): string {
 	const core = guard.replace(/\.sh$/, "");
 	if (CORES.has(core)) return core;
@@ -76,16 +46,11 @@ function portedName(guard: string): string {
 		: guard;
 }
 
-/** Whether what a census row now names can still deny. */
 function isLiveDenier(name: string): boolean {
 	const core = CORES.get(name);
 	return core ? isDenyingCore(corePath(core.core)) : isDenyCapable(name);
 }
 
-/**
- * The census table, keyed by guard. Its columns are
- * `guard | lost (Q1) | deny events | true population | true deny rate | …`.
- */
 function readCensusRows(): Record<string, Row> {
 	const out: Record<string, Row> = {};
 	for (const line of fs.readFileSync(CENSUS, "utf8").split("\n")) {
@@ -107,7 +72,6 @@ function readCensusRows(): Record<string, Row> {
 	return out;
 }
 
-/** The census rows whose guard can still deny. */
 function readLiveRows(): Record<string, Row> {
 	return Object.fromEntries(
 		Object.entries(readCensusRows()).filter(([g]) => isLiveDenier(g)),
@@ -115,7 +79,7 @@ function readLiveRows(): Record<string, Row> {
 }
 
 describe("the pinned table against the census it was copied from", () => {
-	it("finds the census table where the module says it is", () => {
+	it("reads every row of the census table", () => {
 		expect(Object.keys(readCensusRows()).length).toBe(19);
 	});
 

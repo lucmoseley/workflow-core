@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/gh-acts.js, record-acts.js's core (#2799), in process: a session's raw
- * `gh` close, question round, `takes:` relabel and blocked-by edge, one acts
- * ledger line each (#2308, #2464, spec #2245).
- *
- * The ports are the production ones, lib/gh-recorder-host.js's, over the
- * arbiter testkit's sandbox and a real git checkout whose origin names
- * owner/repo; the ledger is read back through readActsBy.
- *
- * The refill loop judges a launch's progress from these lines: a case loosened
- * here lets a launch that did nothing read as progress, or one that asked a
- * round read as idle and count toward the loop's no-progress pause.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -33,7 +20,6 @@ const ROUND =
 
 const sb = freshSandbox();
 let logged: string[];
-/** Every act the core handed the ledger, written or not. */
 let handed: string[];
 
 beforeEach(() => {
@@ -198,7 +184,6 @@ describe("relabel", () => {
 		run("gh issue edit 7 --add-label takes:");
 		run('gh issue edit 7 --add-label "$L"');
 		expect(readActs()).toEqual([]);
-		// Never handed over: the ledger would drop it silently (#2799).
 		expect(handed).toEqual([]);
 	});
 

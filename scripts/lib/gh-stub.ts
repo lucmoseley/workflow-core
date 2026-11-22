@@ -1,14 +1,3 @@
-/*
- * Shared scaffolding for faking `gh` in tests. A test answering more than one
- * call passes `stubGhRoutes` a route table, `serveGhStub` a handler where its
- * answers change within a run, or `stubGhHandler` one where a call waits or is
- * answered on arguments no route key holds, never a router of its own; this
- * owns the stub executable and its one injection point, WFC_GH, which
- * scripts/lib/gh.js and every shell caller's "${WFC_GH:-gh}" read. The
- * canonical failure mode is gh-fake's logged-out answer, which
- * gh.contract.test.ts holds to the real binary (#2220).
- */
-
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -34,32 +23,22 @@ const LOGGED_OUT = path.join(__dirname, "fixtures/gh/logged-out.json");
 
 const loggedOut = readGhAnswer(LOGGED_OUT);
 
-/** What a logged-out gh prints on stderr for any API call, verbatim. */
 export const GH_LOGGED_OUT_STDERR = loggedOut.stderr;
 
 export const GH_LOGGED_OUT_EXIT = loggedOut.status;
 
-/** The same answer as node statements, for a test's inline node fake. */
 export const GH_LOGGED_OUT_NODE = ghAnswerNode(LOGGED_OUT);
 
-/** What every stub prints when asked to model an unreachable gh: a logged-out gh. */
 export const GH_FAILING_SCRIPT = ghFakeScript(LOGGED_OUT);
 
-/** A stub that serves one fixture file verbatim, whatever the arguments. */
 export const catFixture = (file: string) =>
 	`#!/bin/sh\ncat ${shellQuote(file)}\n`;
 
 export interface StubGh {
-	/** The stub executable — what WFC_GH points at. */
 	gh: string;
-	/** For the program under test's environment. */
 	env: { WFC_GH: string };
 }
 
-/**
- * Write `script` as a fake `gh` under `dir` and return its injection points.
- * `failing: true` substitutes the canonical unreachable-gh stub.
- */
 export function stubGhScript(
 	dir: string,
 	script: string,
@@ -75,29 +54,21 @@ export function stubGhScript(
 	};
 }
 
-/**
- * One route's answer: the body gh prints for a read of recorded `kind`,
- * built by `asRecorded` and wrapped as `--slurp` wraps one object where
- * `slurp` is set; or a gh-fake answer served verbatim.
- */
 export type RouteAnswer =
 	| { kind: string; value: unknown; slurp?: boolean }
 	| GhAnswer;
 
-/** `rows` as the one page a `--paginate --slurp` list read of `kind` answers. */
 export const page = (kind: string, rows: unknown[]): RouteAnswer => ({
 	kind,
 	value: [rows],
 });
 
-/** A call that succeeds printing `stdout`: a write, or a `--jq` read's text. */
 export const printed = (stdout = ""): GhAnswer => ({
 	status: 0,
 	stdout,
 	stderr: "",
 });
 
-/** A call gh fails, printing `stderr` as one line. */
 export const refused = (stderr: string): GhAnswer => ({
 	status: 1,
 	stdout: "",
@@ -110,16 +81,13 @@ const routeAnswer = (a: RouteAnswer): GhAnswer => {
 	return printed(a.slurp ? `[${body}]` : body);
 };
 
-/** `key` as a shell `case` pattern in which `*` alone is special. */
 const casePattern = (key: string) => key.split("*").map(shellQuote).join("*");
 
-/* A link list's route, its repo `o/r` where gh's placeholder names it. */
 const LINK_LIST_ROUTE =
 	/^repos\/([^/*]+\/[^/*]+)\/issues\/(\d+)\/(dependencies\/blocked_by|sub_issues)$/;
 
 type LinkNode = { blockedBy?: unknown[]; subIssues?: unknown[] } | null;
 
-/** Each issue's link lists, as lib/link-batch.js's batched read answers them. */
 function buildLinkNodes(routes: Record<string, RouteAnswer>) {
 	const nodes: Record<string, LinkNode> = {};
 	for (const [key, a] of Object.entries(routes)) {
@@ -156,7 +124,6 @@ const blockerRow = (r: {
 	labels: r.labels?.map((l) => l.name),
 });
 
-/** One issue a basis cites, as gh-fake's `answerCited` serves it. */
 export interface CitedFixture {
 	body?: string;
 	comments?: string[];
@@ -165,24 +132,6 @@ export interface CitedFixture {
 const lowerKeys = <T>(o: Record<string, T>) =>
 	Object.fromEntries(Object.entries(o).map(([k, v]) => [k.toLowerCase(), v]));
 
-/**
- * Write a fake `gh` under `dir` serving `routes` (#3168). A
- * `gh api` call routes on the request it sends — its path, then its `-f` and
- * `-F` fields as a query string, keyed `POST <path>?…` where it carries
- * fields and no `-X GET`, as gh then sends it — and any other call on its whole argv: the
- * first key matching wins, `*` in a key matches any run of characters, and a
- * call no key matches fails naming itself. Unless `routes` keys `graphql`
- * exactly — a catch-all `*` does not —
- * `gh api graphql` is lib/link-batch.js's batched read, answering each issue
- * from its page routes keyed exactly `repos/<repo>/issues/n/dependencies/blocked_by`
- * and `…/sub_issues`, a list with no route empty, and null — sending the
- * issue to those REST paths — where either route fails or neither exists; a
- * read of the issues a
- * basis cites is answered from `cited`, gh-fake's `answerCited` shape, every
- * repo it leaves out answering null. `failing` is stubGhScript's.
- * `bodies` takes the body a call pipes to `--body-file -`, read as gh reads
- * it, so the writer never fails EPIPE on a stub that reads no stdin.
- */
 export function stubGhRoutes(
 	dir: string,
 	routes: Record<string, RouteAnswer>,
@@ -245,14 +194,6 @@ esac
 	return stubGhScript(dir, script, { failing });
 }
 
-/**
- * A `serveGhStub` handler as a gh started per call, for a call that must wait
- * mid-answer: the server answers one call at a time, so a wait there stalls
- * every other program's calls. Also for one file's few calls answered on
- * arguments a route key does not hold, such as `--jq` or `-H`. Binds the
- * handler's eight names as the server does, stdin read only where an argument
- * names it (`-`, `…@-`) (#4311).
- */
 export function stubGhHandler(dir: string, handler: string): StubGh {
 	return stubGhScript(
 		dir,
@@ -269,18 +210,10 @@ ${handler}`,
 }
 
 export interface GhStubServer {
-	/** The stub executable's text, for `stubGhScript`. */
 	script: string;
 	close: () => Promise<void>;
 }
 
-/**
- * Serve a stateful stub from one long-lived process (gh-stub-server.js), so a
- * suite making hundreds of gh calls pays a node start once, not per call
- * (#2877). `handler` is the body gh-stub-server.js runs per call. Keep its
- * state in files the call's environment names, never in the handler's
- * memory, so each test's fixture stays its own.
- */
 export async function serveGhStub(handler: string): Promise<GhStubServer> {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-stub-server-"));
 	const file = path.join(dir, "handler.js");
@@ -316,12 +249,9 @@ export async function serveGhStub(handler: string): Promise<GhStubServer> {
 	return { script: buildServerClient(port), close };
 }
 
-/** Two repos' REST prefixes, for a parent or child in another repo (#778). */
 export const HERE = "https://api.github.com/repos/o/here";
 export const THERE = "https://api.github.com/repos/o/there";
 
-/** Write the files `subIssuesArm` serves from: each issue's answer as
- *  gh-fake builds it, its streams and status a file each. */
 export function writeSubIssues(
 	dir: string,
 	answers: Record<number, SubIssuesAnswer>,
@@ -334,11 +264,6 @@ export function writeSubIssues(
 	}
 }
 
-/**
- * A shell `case` arm answering `gh api …/issues/N/sub_issues` from the files
- * `writeSubIssues` wrote under `dir`, and no sub-issue for any other N. It
- * matches the path, so the stub's `case` must switch on `$2`.
- */
 export const subIssuesArm = (dir: string) => `  */sub_issues)
     n=$(echo "$2" | sed 's|.*/issues/||; s|/sub_issues||')
     if [ -f ${shellQuote(dir)}/children-$n.status ]; then
@@ -348,11 +273,6 @@ export const subIssuesArm = (dir: string) => `  */sub_issues)
     fi
     ${ghServeLines(subIssuesAnswer([]))}    ;;`;
 
-/**
- * The shell `case` arms answering link-sub-issue.sh's reads from gh-fake's
- * LINK_READS, for a stub switching on `$*`. `childrenWhen` is a shell condition:
- * while it fails, the parent lists nothing, as it does before a link lands.
- */
 export const buildLinkReadArms = (
 	answers: LinkReadAnswers,
 	{ childrenWhen }: { childrenWhen?: string } = {},

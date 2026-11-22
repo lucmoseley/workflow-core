@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Holds a headless `claude -p` run's three faces (#4586) — the options it
- * takes, which lib/headless-sessions.js's launch and claude-child.js pass, its
- * `result` row, which lib/headless-runs.js's readEndResult reads, and a
- * stream-json run's answer to an interrupt, which lib/chrome-stream.js's
- * capped turn reads (#5388) — to the installed harness's
- * recording (scripts/fixtures/headless-run.json, re-recorded by
- * `node scripts/record-headless-run.js`), to lib/headless-run-fake.ts, which
- * every suite's `claude` stub execs for `-p`, and, on the founder's machine,
- * to the real `claude` where a call is free: its `--help` and its refusal of
- * an unknown flag or a missing value, which is all that shows a hidden option. Breaking it lets a renamed flag or result field pass every
- * suite, an overflow run launch refused or bill as a success it was not, and
- * a Chrome child's capped turn read as ended where the binary's answer has
- * drifted.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -56,7 +41,6 @@ const runFake = (argv: string[]) =>
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 
-/** An ended run whose stream is `stdout`, as readEndResult reads it. */
 function endedRun(stdout: string) {
 	const pid = spawnSync("true").pid;
 	const log = path.join(dir, "out.jsonl");
@@ -193,7 +177,6 @@ const SESSION_ID_FLAGS = recorded.options.find((o) =>
 	o.names.includes("--session-id"),
 )?.flags;
 
-/* The refusals the binary makes before any turn, so free to run live. */
 const refusals = [
 	{
 		what: "a flag the recording lacks",
@@ -212,7 +195,6 @@ const refusals = [
 	})),
 ];
 
-// Residual: off the founder's machine the live cases skip, and the fixture goes unchecked.
 const LIVE_SKIP = claudeLiveSkipReason();
 
 const binaries = [
@@ -243,8 +225,6 @@ describe.each(binaries)("$name", ({ skip, bin, logs }) => {
 	);
 });
 
-/* A run's result row has no live case: it spends a turn, so the recorder
- * takes it. */
 it.skipIf(LIVE_SKIP)(
 	"the installed claude still lists every recorded option, as recorded",
 	() => {

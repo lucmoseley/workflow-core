@@ -1,14 +1,3 @@
-/*
- * The fake of a headless `claude -p` run (#4586), the one every suite's
- * `claude` stub execs for `-p`: a Node program that reads its argv against the
- * installed harness's options as recorded, the hidden ones among them
- * (scripts/fixtures/headless-run.json, re-recorded by
- * `node scripts/record-headless-run.js`), refusing an unknown
- * flag in the binary's words; runs the apiKeyHelper its `--settings` names, as
- * the binary does. The contract,
- * lib/headless-run.contract.test.ts, holds the fixture to the binary.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import type { HelpOption } from "./headless-options.js";
@@ -19,10 +8,8 @@ import { TEST_TIMEOUT_MS } from "./test-ceiling.js";
 export const recorded: {
 	harness: string;
 	options: HelpOption[];
-	/** The options the binary takes and `--help` omits. */
 	hidden: HelpOption[];
 	result: Record<string, unknown>;
-	/** A stream-json run's answer to an interrupt control request mid-turn. */
 	interrupt: {
 		controlResponse: { response: Record<string, unknown> };
 		result: Record<string, unknown>;
@@ -39,16 +26,8 @@ export const buildResultRow = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/**
- * `hold` runs on with a grandchild in its group, `stubborn` also ignores
- * SIGTERM, `orphan` leaves the grandchild behind and exits, `end` prints its
- * rows or text and exits, `stream` reads `--input-format stream-json` from
- * stdin (#5385).
- */
 export type HeadlessMode = "hold" | "stubborn" | "orphan" | "end" | "stream";
 
-/** What a `stream` run read and received, in order, one per line of its
- * `events` log. */
 export type StreamEvent =
 	| { stdin: Record<string, unknown> }
 	| { signal: string }
@@ -61,32 +40,15 @@ export interface HeadlessCall {
 	sessionId: string | null;
 	env: Record<string, string>;
 	cwd: string;
-	/** What the apiKeyHelper printed, null where none ran or it failed. */
 	helped: string | null;
 	grandchild: number | null;
-	/** What fd 0 links to. */
 	stdin: string;
-	/** The text on stdin where it is a file, null elsewhere: a pipe may
-	 * never close. */
 	stdinText: string | null;
 }
 
-/**
- * Write the fake program at `file`, logging to `log`. A held run ends itself
- * and its grandchild once `log`'s directory is gone or `holdMs` passes,
- * checked each second (a guess): the launch detaches it, so no case's
- * teardown is its parent (#2678 (the leaked fakes)). `end` prints `text`
- * where given, else the stream `rows`, and exits `exit`.
- *
- * `stream` answers each user message on stdin with the next of `turns`, a
- * default result row once they run out: a turn with no result row hangs until
- * an interrupt control request, answered with the recorded `control_response`
- * then `interruptRows`, the recorded interrupted result row by default (rows
- * a suite passes are held to no recording), unless `ignoreInterrupt`. It exits `exit` once stdin
- * closes; on SIGTERM, SIGINT or SIGHUP it dies of that signal, or ignores
- * SIGTERM under `ignoreTerm`. Each message, signal and the close is logged to
- * `events`.
- */
+// guess, #2678
+const HOLD_POLL_MS = 1000;
+
 export function writeHeadlessFake(
 	file: string,
 	{
@@ -95,7 +57,7 @@ export function writeHeadlessFake(
 		rows = [buildResultRow()],
 		text,
 		exit = 0,
-		/* Past one case and its hooks, so a fake never dies mid-case. */
+		// guess, #4586
 		holdMs = 2 * TEST_TIMEOUT_MS,
 		turns = [],
 		interruptRows = [recorded.interrupt.result],
@@ -204,21 +166,17 @@ setInterval(() => {
 		/* already gone */
 	}
 	process.exit(0);
-}, 1000);
+}, ${HOLD_POLL_MS});
 `;
 	fs.writeFileSync(file, program, { mode: 0o755 });
 	return file;
 }
 
-/** A bash `claude` stub's `-p` branch: runs the shell `onLaunch`, then
- * becomes the fake at `fake`. */
 export const buildHeadlessBranch = (fake: string, onLaunch = "") =>
 	`if [ "$1" = "-p" ]; then ${onLaunch} exec ${shellQuote(fake)} "$@"; fi`;
 
-/** Every event a `stream` run logged to `events`, in order. */
 export const readStreamEvents = (events: string) =>
 	(readJsonl(events)?.rows ?? []) as unknown as StreamEvent[];
 
-/** Every run the fake logged to `log`, in order; none where it never ran. */
 export const readHeadlessCalls = (log: string) =>
 	(readJsonl(log)?.rows ?? []) as unknown as HeadlessCall[];

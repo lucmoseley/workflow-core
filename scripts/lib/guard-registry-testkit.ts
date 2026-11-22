@@ -1,15 +1,3 @@
-/*
- * The fixtures and runners the check-guard-registry test files share
- * (`scripts/check-guard-registry*.test.ts`, #4294).
- *
- * The script is copied into a `scripts/` inside each fixture, because the
- * checker reads its own siblings; but the TREE it scans is the host root, not
- * `..` from its own location, so every runner names the fixture with
- * `CLAUDE_PROJECT_DIR` as well — unless it runs from a linked worktree of
- * another tree, which the check then scans instead (#3386). Without that the
- * checker walks this repo and every case reads the live registry's findings.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -27,11 +15,9 @@ export const REAL_SCRIPT = path.join(
 );
 export const SELF_PLUGIN_HOOKS = "self-plugin/hooks/hooks.json";
 
-/* chmod is a no-op for root, which can read the directory anyway. */
 export const asRoot =
 	typeof process.getuid === "function" && process.getuid() === 0;
 
-/** Directories a case made; each file's afterEach hands them to removeTemps. */
 export const temps: string[] = [];
 
 export function removeTemps(): void {
@@ -41,18 +27,9 @@ export function removeTemps(): void {
 
 export interface Fixture {
 	claude?: string;
-	/** Extra files to create, path → contents. */
 	files?: Record<string, string>;
 }
 
-/* The libs the checker and the landing gate run on, not all of scripts/lib:
- * the check reads, hashes and regex-scans every lib a fixture carries, on
- * every run (#3257). rule-text.sh is read by path, never required. Copied
- * from build()'s own listing of scripts/lib, which keeps every lib change
- * selecting each file that loads this kit: the read-edge selector credits a
- * test with its helper's reads one hop deep, never installLib's two hops off
- * (#4294). Residual: no fixture runs the checker over a real lib outside the
- * closure; the live-repository case does. */
 const FIXTURE_LIBS = new Set([
 	...readProgramLibs("check-guard-registry.js"),
 	...readProgramLibs("landing-registry-gate.js"),
@@ -63,7 +40,6 @@ export const ANCHORS = ".claude/guard-registry-anchors.json";
 
 export const IMPLICIT_MANIFEST = ".claude/implicit-behaviours.json";
 
-/** A complete, well-formed implicit-behaviour row. */
 export const ACTING_ROW = {
 	IMPLICIT: "rewrites the file the session just wrote.",
 	JUSTIFIED: "fail-safe — an unformatted file is read as a clobber later.",
@@ -71,7 +47,6 @@ export const ACTING_ROW = {
 	TREE: "host — reads the host root's stores.",
 };
 
-/** The manifest file holding `rows`, as a build() files entry. */
 export function implicitRows(
 	rows: Record<string, Record<string, string>>,
 ): Record<string, string> {
@@ -96,9 +71,6 @@ export function build(fx: Fixture): string {
 	);
 	if (fx.claude !== undefined)
 		fs.writeFileSync(path.join(root, "CLAUDE.md"), fx.claude);
-	/* A core tree registers its hooks in the self-plugin's file (#2442), which
-	 * the real core always carries; its package.json marks it a checkout, so
-	 * scriptPath() spells a command as a session there runs it (#4285). */
 	const files = {
 		"package.json": "{}",
 		[SELF_PLUGIN_HOOKS]: '{"hooks": {}}',
@@ -115,14 +87,6 @@ export function build(fx: Fixture): string {
 export interface Result {
 	code: number;
 	kinds: string[];
-	/**
-	 * The human-readable report — the prose a session actually reads, which
-	 * --json otherwise sends nowhere (mantahostels#1962).
-	 *
-	 * WFC_CHECK_SAY_FD is lib/check.js's own channel for exactly this: it
-	 * makes say() write to the given fd even under --json, so one run yields
-	 * the envelope on stdout and the report on stderr.
-	 */
 	report: string;
 	json: {
 		regionCount: number;
@@ -145,21 +109,11 @@ export interface Result {
 	};
 }
 
-/**
- * The environment a `--review` run gets. A runner's `env` REPLACES the
- * environment, so the caller's is merged back in — minus WFC_RULES_DIR, which
- * run() strips for the reason its docstring gives.
- */
 export function reviewEnv(root: string, env: Record<string, string> = {}) {
 	const { WFC_RULES_DIR: _drop, ...outer } = process.env;
 	return { ...outer, CLAUDE_PROJECT_DIR: root, ...env };
 }
 
-/**
- * `--review` prints prose, not JSON, so it needs its own runner. It exits on
- * its own path rather than through runCheck, so a non-zero status is raised
- * here.
- */
 export function reviewIn(
 	root: string,
 	paths: string[] = [],
@@ -177,11 +131,6 @@ export function reviewIn(
 
 export const NEIGHBOUR = "neighbour-session";
 
-/*
- * A lock record as `listLocks` hands one over. Injected at the STORE, not at
- * the checker's own answer, so neighbourDirty's own filtering — is it mine,
- * is it dirty, has a dead claim aged out — runs against it.
- */
 export function lock(rel: string, { alive = true } = {}) {
 	return {
 		path: rel,
@@ -192,10 +141,6 @@ export function lock(rel: string, { alive = true } = {}) {
 	};
 }
 
-/*
- * The claims a session's own Edit calls take: a live lock held by `session` on
- * each path dirty in `root`, bar those `except` names.
- */
 export function ownLocks(root: string, session: string, except: string[] = []) {
 	const args = ["status", "--porcelain=v1", "-uall", "--no-renames", "-z"];
 	return execFileSync("git", args, { cwd: root, encoding: "utf8" })
@@ -206,7 +151,6 @@ export function ownLocks(root: string, session: string, except: string[] = []) {
 		.map((rel) => ({ ...lock(rel), sessionId: session }));
 }
 
-/** The --review env of a session whose own claims cover every dirty path. */
 export function ownClaims(root: string, session = "self-session") {
 	return {
 		CLAUDE_CODE_SESSION_ID: session,
@@ -219,19 +163,6 @@ export function run(
 	extra: string[] = [],
 	{ cwd, env = {} }: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ): Result {
-	/*
-	 * WFC_RULES_DIR is stripped so a stray value in this process's
-	 * environment cannot redirect the fixture's store out from under it.
-	 *
-	 * WFC_CHECK_SAY_FD puts the human report on fd 2 while stdout stays a
-	 * single parseable document, so a case can assert on either without a
-	 * second run of the fixture (mantahostels#1962).
-	 *
-	 * cwd defaults to the fixture, as a hook's does: the git calls that take
-	 * no -C read it (mantahostels#2077), and worktreeRoot() forks git twice
-	 * more from a cwd outside the fixture (#4294). A case naming another cwd
-	 * passes it.
-	 */
 	const {
 		status: code,
 		stdout,
@@ -252,9 +183,6 @@ export function run(
 		},
 	);
 	const json = JSON.parse(stdout);
-	/* `kinds` means the gating claims. The advisory staleness warnings ride in
-	 * the same `findings` array as WARNs, and are asserted separately via
-	 * `json.warnings`. */
 	return {
 		code,
 		kinds: json.findings
@@ -265,7 +193,6 @@ export function run(
 	};
 }
 
-/** A region wrapper, so each case states only the rules it is about. */
 export function region(...rules: string[]): string {
 	return [
 		"## Conventions",
@@ -279,7 +206,6 @@ export function region(...rules: string[]): string {
 	].join("\n");
 }
 
-/* A hooks file that wires the named scripts as PreToolUse hooks. */
 export function hooksWiring(...guards: string[]): string {
 	return JSON.stringify({
 		hooks: {
@@ -324,16 +250,10 @@ export function committedRepo(
 	return root;
 }
 
-/**
- * A fixture built once per describe by `make` in `beforeAll`, and a fresh
- * copy of it per call (base §X8 (1), #4294). Call it at a describe's top
- * level; the template is removed in `afterAll`.
- */
 export function templateOf(make: () => string): () => string {
 	let template = "";
 	beforeAll(() => {
 		template = make();
-		/* Out of `temps`, which afterEach empties after the first case. */
 		const at = temps.indexOf(template);
 		if (at >= 0) temps.splice(at, 1);
 	});
@@ -346,11 +266,6 @@ export function templateOf(make: () => string): () => string {
 	};
 }
 
-/**
- * #2617's fixture: two guards, one sourcing a library, anchored and committed
- * with their anchors, so each case stages the change under judgement. Call
- * it at a describe's top level: it builds through templateOf().
- */
 export function anchorExpiryKit() {
 	const copy = templateOf(() =>
 		committedRepo(TWO_GUARDS, (r) => reviewIn(r, [], claims())),
@@ -368,8 +283,6 @@ export function anchorExpiryKit() {
 		return { root, git, stage };
 	}
 
-	/* Claims are injected at the store, so the live arbiter's never reach a
-	 * fixture whose paths share their names. */
 	function claims(locks: unknown[] = []) {
 		return {
 			CLAUDE_CODE_SESSION_ID: "self-session",
@@ -380,9 +293,6 @@ export function anchorExpiryKit() {
 		run(root, ["--against", "HEAD"], { env: claims(locks) });
 	const review = (root: string, paths: string[]) =>
 		reviewIn(root, paths, ownClaims(root));
-	/* The guard-registry row of lib/precommit-gates.js, which the hook's
-	 * dispatcher runs (#5172), as one shell line, so the case runs what the
-	 * hook runs. */
 	const readHookLine = () => {
 		const row = GATES.find((g) => g.id === "guard-registry");
 		if (!row)

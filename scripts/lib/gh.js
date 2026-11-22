@@ -1,12 +1,3 @@
-/*
- * The seam between the Node scripts and the `gh` CLI: they route every call
- * through here and never name the binary themselves.
- *
- * The binary is injected at one named point: WFC_GH, pointing at an
- * executable. Tests set it to a stub (scripts/lib/gh-stub.ts) instead of
- * prepending PATH; a shell caller runs "${WFC_GH:-gh}".
- */
-
 const { execFile, execFileSync } = require("node:child_process");
 const { promisify } = require("node:util");
 
@@ -21,65 +12,23 @@ const { codeRepoArgs } = require("./workflow-core-config.js");
 
 const pExecFile = promisify(execFile);
 
-/*
- * A full-tracker response runs to megabytes; Node's 1 MB default does not
- * truncate it, it kills the call with ENOBUFS. Measured at mantahostels#2466: the widest
- * query any checker then made — every issue's body and comments in one
- * `gh issue list` — was 26.67 MB across 2,456 issues, ~10.6 KiB per issue, so
- * 256 MB carries ~23,500. The widest single read now is check-issue-citations.js's
- * cold read of the repo-wide comments list: 53 MB across 14,433 comments
- * (#5355), so 256 MB carries ~70,000.
- *
- * Memory is not the binding constraint: buffering and parsing the full 256 MB
- * costs ~2x payload in heap and ~3.6x in RSS, peaking at 925 MB RSS / 530 MB
- * heap — against ~/.bashrc's 4 GB node heap cap, that ceiling sits at ~1.9 GB
- * of payload, ~175,000 issues (mantahostels#2481). ISSUE_LIST_LIMIT, below,
- * fires first and loudly, and mantahostels#2481 ruled that raising both
- * constants together when it does is right — narrowing, scoping and
- * streaming the full-tracker reads were all priced there and declined as
- * premature. What degrades first is wall time, ~99% of it the GraphQL fetch —
- * mantahostels#2491 owns that, gated on the reading.
- */
+// measured 53 MB across 14,433 comments, #5355
 const MAX_BUFFER = 256e6;
 
-/*
- * The ceiling every full-tracker `gh issue list` passes to --limit. gh returns
- * at most this many rows and says nothing about the ones it dropped, so a
- * tracker that reaches the ceiling silently narrows every check to a subset of
- * itself.
- *
- * Set BELOW what MAX_BUFFER carries (~23,500 issues, measured above), so the
- * check that fires first is this one, which names what to raise, rather than
- * an ENOBUFS. That ordering holds only while the mean issue
- * stays under ~12.8 KiB; above it this guard goes silent, since it can fire
- * only after the response has already fit. A limit larger than the tracker
- * costs nothing: gh stops at the last issue, not at the ceiling.
- */
+// guess, lucmoseley/mantahostels#2481
 const ISSUE_LIST_LIMIT = 20_000;
 
-/** GitHub search's silent cap: a query returning this many was truncated. */
+// https://docs.github.com/en/rest/search/search#about-search
 const SEARCH_CAP = 1000;
 
-/*
- * Every call's wall-clock cap unless its caller sets its own (#2677). Under
- * load 32-52 on 8 cores, 114 measured calls took 8-187 s, the CPU starved
- * rather than GitHub slow; a cap of 120 s would have failed 13 of them. The
- * margin over 187 s is a guess, set level with the refill loop's shortlist
- * cap.
- */
+// measured 8-187 s over 114 calls under load, #2677
 const GH_TIMEOUT_MS = 300_000;
 
 const ghBinary = () => process.env.WFC_GH || "gh";
 
-/* The subcommands that read Actions runs and workflows. */
 const RUNS_SUBCOMMANDS = new Set(["run", "workflow"]);
 
-/**
- * `args` with `--repo <codeRepo>` added to a run or workflow call that names
- * no repo of its own. Runs live in the code repo, and gh's default repo is the
- * tracker, which holds none once the two differ (#1963).
- * @param {string[]} args
- */
+/** @param {string[]} args */
 function routed(args) {
 	if (
 		!RUNS_SUBCOMMANDS.has(args[0] ?? "") ||
@@ -90,16 +39,9 @@ function routed(args) {
 	return [...args, ...codeRepoArgs()];
 }
 
-/**
- * What every catch here actually reads off a failed call: `execFileSync`,
- * `execFile` and a plain thrown `Error` all agree on this shape closely
- * enough that one typedef covers all four readers below.
- * @typedef {Error & {stderr?: string|Buffer, code?: string}} ExecError
- */
+/** @typedef {Error & {stderr?: string|Buffer, code?: string}} ExecError */
 
 /**
- * Every catch here starts from `unknown` (strict mode's own rule for a caught
- * value) and narrows to `ExecError` here rather than at each call site.
  * @param {unknown} e
  * @returns {ExecError}
  */
@@ -109,12 +51,7 @@ function asExecError(e) {
 		: /** @type {ExecError} */ (new Error(String(e)));
 }
 
-/**
- * The one line carrying the reason: gh's is the LAST of stderr, under any
- * warnings; a thrown JS error's is the FIRST of its message, above the stack
- * and above whatever input it quoted back.
- * @param {unknown} raw
- */
+/** @param {unknown} raw */
 const parseErrLine = (raw) => {
 	const e = asExecError(raw);
 	const stderr = (e.stderr || "").toString().trim();
@@ -122,39 +59,23 @@ const parseErrLine = (raw) => {
 	return (e.message || "").toString().trim().split("\n")[0] ?? "";
 };
 
-/**
- * Whether a failed call was GitHub's 404, by gh's own `gh: Not Found (HTTP
- * 404)`: anchored to the parenthesised status rather than to a bare `404`,
- * which any error text could carry.
- * @param {unknown} raw
- */
+/** @param {unknown} raw */
 const isNotFound = (raw) =>
 	/\(HTTP 404\)/.test(String(asExecError(raw).stderr ?? ""));
 
-/**
- * Whether a failed read was of something deleted: GitHub's 404, or the 410 it
- * answers for a deleted issue.
- * @param {unknown} raw
- */
+/** @param {unknown} raw */
 const isGone = (raw) =>
 	/\(HTTP (?:404|410)\)/.test(String(asExecError(raw).stderr ?? ""));
 
-/**
- * Whether a failed call was GitHub's 403, by gh's `(HTTP 403)`, as isNotFound.
- * @param {unknown} raw
- */
+/** @param {unknown} raw */
 const isForbidden = (raw) =>
 	/\(HTTP 403\)/.test(String(asExecError(raw).stderr ?? ""));
 
 /**
- * A synchronous gh call's signature: `gh` itself, or the in-process port a
- * core takes in its place, which throws what execFileSync throws.
  * @typedef {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string} GhRun
  */
 
 /**
- * Run gh synchronously; return stdout. Throws execFileSync's error, with
- * stderr captured on `e.stderr` rather than echoed to the terminal.
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  * @returns {string}
@@ -172,7 +93,6 @@ function gh(args, opts = {}) {
 }
 
 /**
- * Async variant, for callers that fan out calls in parallel.
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileOptions} [opts]
  * @returns {Promise<string>}
@@ -188,11 +108,9 @@ async function ghAsync(args, opts = {}) {
 }
 
 /**
- * `any` because the shape is the endpoint's or the `--json` list's, which only
- * the caller knows.
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
- * @param {GhRun} [run]  the call, `gh` but where a core's port answers it
+ * @param {GhRun} [run]
  * @returns {any}
  */
 function ghJson(args, opts = {}, run = gh) {
@@ -200,8 +118,6 @@ function ghJson(args, opts = {}, run = gh) {
 }
 
 /**
- * The JSON readers over `run`, a core's gh port (§T7): `gh` above in
- * production, gh-stub-server.js's `buildHandlerPort` in a module test (#5148).
  * @param {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string} run
  */
 function buildGhReaders(run) {
@@ -225,7 +141,6 @@ function buildGhReaders(run) {
 }
 
 /**
- * gh's default repo for the directory it runs in, as `owner/name`.
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  * @returns {string}
  */
@@ -233,9 +148,6 @@ const ghDefaultRepo = (opts = {}) =>
 	ghJson(["repo", "view", "--json", "nameWithOwner"], opts).nameWithOwner;
 
 /**
- * `gh api … --paginate --slurp`, parsed. --slurp wraps each page's array so
- * multi-page output stays parseable; older gh returns one flat array.
- * `.flat()` normalises both. `any[]`: the caller's endpoint decides the row.
  * @param {string[]} apiArgs
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  * @param {GhRun} [run]
@@ -246,7 +158,6 @@ function ghApiSlurp(apiArgs, opts = {}, run = gh) {
 }
 
 /**
- * `any[]`: the caller's endpoint decides the row.
  * @param {string[]} apiArgs
  * @param {import("node:child_process").ExecFileOptions} [opts]
  * @returns {Promise<any[]>}
@@ -257,23 +168,6 @@ async function ghApiSlurpAsync(apiArgs, opts = {}) {
 }
 
 /**
- * `gh api <path> --paginate --slurp`, retried once, never throwing (mantahostels#1145).
- *
- * One retry because a transient 502 from the dependencies endpoint is common
- * enough that failing on the first would make a fan-out unusable. What a
- * PERSISTENT failure means is the caller's policy, not this function's:
- * pick-next.js drops that one issue, wayfinder-frontier.js refuses its whole
- * run. Both read the same `{ ok }`.
- *
- * `strict` treats a gh that exits 0 with no output as a failure. Without it an
- * empty stdout parses as `[]`, which on the `dependencies/blocked_by` endpoint
- * is indistinguishable from "this issue has no blockers" — a blocked issue
- * reported as free. Callers whose empty answer is a real answer leave it off.
- *
- * Deliberately no `--jq`: every projection stays in the caller's JS, which
- * keeps the shape of the query visible there and testable against a stub `gh`
- * that would otherwise have to reimplement a jq filter. `any[]`: `apiPath`
- * decides the row.
  * @param {string} apiPath
  * @param {{strict?: boolean}} [opts]
  * @returns {Promise<{ok: true, out: any[]} | {ok: false, error: string, reason: "unreachable"|"broken"}>}
@@ -290,8 +184,6 @@ async function ghGetRetrying(apiPath, { strict = false } = {}) {
 }
 
 /**
- * `once()`, tried a second time where the first throws, as an outcome that
- * never throws: the second failure's line and parseGhFailureReason's class.
  * @template T
  * @param {() => Promise<T>} once
  * @returns {Promise<{ok: true, out: T} | {ok: false, error: string, reason: "unreachable"|"broken"}>}
@@ -309,8 +201,6 @@ async function retryingOnce(once) {
 }
 
 /**
- * retryingOnce for a read made in a synchronous run (#3928). A first failure
- * leaves no trace: only the second is reported.
  * @template T
  * @param {() => T} once
  * @returns {{ok: true, out: T} | {ok: false, error: string, reason: "unreachable"|"broken"}}
@@ -338,14 +228,6 @@ const buildFailedRead = (e) => ({
 });
 
 /**
- * Run `fn` over `items` with at most `limit` in flight — in every caller here
- * the per-issue gh calls dominate the run time, and an unbounded fan-out is a
- * self-inflicted rate limit.
- *
- * Results come back in INPUT order, which both callers rely on to pair a result
- * with the issue it describes. `limit` is clamped to `items.length`. A `fn`
- * that rejects rejects the whole call, which is why callers pass one that
- * resolves to `{ ok: false }` instead of throwing.
  * @template T, R
  * @param {T[]} items
  * @param {number} limit
@@ -354,7 +236,6 @@ const buildFailedRead = (e) => ({
  */
 async function mapLimit(items, limit, fn) {
 	const out = new Array(items.length);
-	// One iterator shared by every worker, so each item is taken exactly once.
 	const queue = items.entries();
 	await Promise.all(
 		Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -364,30 +245,13 @@ async function mapLimit(items, limit, fn) {
 	return out;
 }
 
-/* The fan-out every per-issue mapLimit caller here passes. A guess, never
- * measured. */
+// guess, #2309
 const ISSUE_READ_CONCURRENCY = 8;
 
-/**
- * Everything gh said on stderr, not just the last line — a reason can be
- * printed above a trailing hint.
- *
- * Deliberately NOT e.message: execFileSync puts the whole argv in there, so a
- * query whose own arguments contain "rate limit" or "GH_TOKEN" would classify
- * itself unreachable and exit 0.
- * @param {unknown} raw
- */
+/** @param {unknown} raw */
 const errStderr = (raw) => (asExecError(raw).stderr ?? "").toString();
 
-/*
- * Only three causes make a failed gh call an environment fact: no binary, no
- * credentials, no network. Anything else — an overrun buffer, a malformed
- * request, unparseable output — is a fault in the call (mantahostels#164).
- */
-const UNREACHABLE = [
-	// no credentials. Several spellings because gh words it differently per
-	// surface: `gh auth status` logged out, `gh api` with no token, and the
-	// Actions runner with GH_TOKEN unset.
+const NO_CREDENTIALS = [
 	/gh auth login/i,
 	/not logged in/i,
 	/not authenticated/i,
@@ -396,7 +260,8 @@ const UNREACHABLE = [
 	/GH_TOKEN/,
 	/bad credentials/i,
 	/HTTP 401/,
-	// no network
+];
+const NO_NETWORK = [
 	/dial tcp/i,
 	/no such host/i,
 	/could not resolve host/i,
@@ -406,48 +271,29 @@ const UNREACHABLE = [
 	/i\/o timeout/i,
 	/TLS handshake/i,
 	/EAI_AGAIN/,
-	// GitHub is up and refusing everyone for a while; as unconcludable as no
-	// network. Matched on the phrase, never on 403, which is also the code for
-	// a token missing a scope — a configuration fault, and loud.
-	/rate limit/i,
 ];
+const RATE_LIMITED = /rate limit/i;
+const UNREACHABLE = [...NO_CREDENTIALS, ...NO_NETWORK, RATE_LIMITED];
 
-/**
- * "unreachable" — nothing to conclude; "broken" — the call itself is at fault.
- * @param {unknown} raw
- */
+/** @param {unknown} raw */
 function parseGhFailureReason(raw) {
-	if (asExecError(raw).code === "ENOENT") return "unreachable"; // no gh binary on PATH
+	if (asExecError(raw).code === "ENOENT") return "unreachable";
 	return UNREACHABLE.some((re) => re.test(errStderr(raw)))
 		? "unreachable"
 		: "broken";
 }
 
 /**
- * The one-line remedy for an unreachable GitHub, for raiseGhFailure and for
- * the callers that build their own message.
  * @param {unknown} raw
  * @returns {string}
  */
 function unreachableRemedy(raw) {
-	/* A rate limit is a spent budget, not a missing credential — telling the
-	 * reader to authenticate `gh` sends them to fix the wrong thing (#93). */
-	return /rate limit/i.test(errStderr(raw))
+	return RATE_LIMITED.test(errStderr(raw))
 		? "GitHub's rate-limit budget is exhausted, not a credential problem."
 		: "Needs an authenticated `gh`.";
 }
 
 /**
- * The outcome of a failed gh call in a REPORTING check. An unreachable GitHub
- * must not read as "all clear" but must not block anything either, so it SKIPs
- * at exit 0. Every other failure is BROKEN at exit 2, distinct from the 1 a
- * checker uses for a finding.
- *
- * It THROWS rather than exiting: check.js is the one place a checker's process
- * ends (mantahostels#155 — the checker family's exit-code and severity model —
- * decision 6). A caller with its own exit rule — such as
- * check-ci-status.js, which must never block a session start, or pick-next.js,
- * where no shortlist is never a success — reads parseGhFailureReason directly.
  * @param {unknown} raw
  * @param {string} [conclusion]
  * @returns {never}
@@ -469,22 +315,10 @@ function raiseGhFailure(raw, conclusion = "No conclusion drawn.") {
 	);
 }
 
-// Same figure as the fantasy-books module's ENUMERATE_CAP (#81, #93).
+// guess, #93
 const COLLAPSE_ABOVE = 3;
 
 /**
- * Splits a same-shaped-failure list into full detail and a one-line-per-group
- * collapse, once more than COLLAPSE_ABOVE items share the exact same error
- * string — the enumeration a reporter prints one block per issue otherwise
- * runs to the length of the outage (#93).
- *
- * Grouping is by exact string equality on whatever `errorOf` returns —
- * callers here pass `parseErrLine`'s output, which is gh's LAST stderr line and so
- * carries no per-issue path (see parseErrLine's own doc above); an error string
- * that DOES embed the issue number defeats the grouping silently.
- *
- * Report text only: a caller's `--json` still carries every item, from the
- * array it read this from.
  * @template T
  * @param {T[]} items
  * @param {(item: T) => string} errorOf
@@ -508,9 +342,6 @@ function groupByRepeatedError(items, errorOf) {
 }
 
 /**
- * The one line a collapsed group prints, shared so pick-next.js's DEGRADED
- * block and check-stale-claims.js's UNREADABLE block render it identically
- * (#93).
  * @param {{error: string, items: {number: number}[]}} group
  * @returns {string}
  */
@@ -519,9 +350,6 @@ function buildCollapsedFailureLine(group) {
 }
 
 /**
- * Refuses a `gh issue list` that came back exactly at ISSUE_LIST_LIMIT, which
- * gh reports as a full answer. It throws `brokenError`, how check.js tells a
- * fault in the check from a finding about the tracker.
  * @template T
  * @param {T[]} rows
  * @param {string} [what]
@@ -538,7 +366,6 @@ function assertWholeTracker(rows, what = "issues") {
 }
 
 /**
- * A row of REST's issues list, as far as this repo's callers read it.
  * @typedef {object} IssueRow
  * @property {number} number
  * @property {string} title
@@ -547,33 +374,18 @@ function assertWholeTracker(rows, what = "issues") {
  * @property {{name: string}[]} labels
  * @property {{login: string}[]} assignees
  * @property {string | null} [parent_issue_url]
- * @property {object} [pull_request] present only on a pull request
+ * @property {object} [pull_request]
  * @property {string} html_url
  * @property {string} created_at
  * @property {string} updated_at
  * @property {string | null} closed_at
  */
 
-/**
- * Every issue in the repo — open and closed, bodies and labels included — in
- * one paginated call.
- *
- * Each row carries `parent_issue_url`, which is why both callers read parentage
- * from here rather than walking each issue's /sub_issues: that is one call per
- * issue and defaults to per_page=30, silently truncating (the incident that
- * proved it: check-issue-orphans.js's header).
- */
 function ghAllIssues() {
 	return ghIssuesInState("all");
 }
 
 /**
- * The issues list in one state, `--paginate`d, with any extra `-f` pairs the
- * caller adds — the shared body under ghAllIssues and the scoped reads below.
- *
- * An empty answer is re-run once before it is believed, the tracker rule for
- * any empty `gh` result (#2565). Residual: a closed or filtered read can be empty
- * for real, so one that fails silently twice running still reads as none.
  * @param {"all"|"open"|"closed"} state
  * @param {string[]} [extra]
  * @returns {IssueRow[]}
@@ -599,15 +411,9 @@ function ghIssuesInState(state, extra = []) {
 }
 
 /**
- * `rows`, unless they are empty and the repo itself counts open issues — then
- * BROKEN, never an empty tracker (#2565). Call it on the RE-RUN of a whole
- * open-issue read whose first answer was empty.
- *
- * The repo's `open_issues_count` counts pull requests too, as the issues
- * list's rows do.
  * @template T
  * @param {T[]} rows
- * @param {string} repo `owner/name`, or gh's `{owner}/{repo}` placeholder
+ * @param {string} repo
  * @returns {T[]}
  */
 function assertOpenRead(rows, repo) {
@@ -620,19 +426,12 @@ function assertOpenRead(rows, repo) {
 	);
 }
 
-/**
- * The OPEN issues alone, same rows and same `parent_issue_url` as ghAllIssues.
- *
- * Paying one page instead of the whole tracker is why this exists (mantahostels#1899).
- * It cannot replace ghAllIssues where closed rows are the subject.
- * @returns {IssueRow[]}
- */
+/** @returns {IssueRow[]} */
 function ghOpenIssues() {
 	return ghIssuesInState("open");
 }
 
 /**
- * The OPEN issues carrying `label`.
  * @param {string} label
  * @returns {IssueRow[]}
  */
@@ -641,9 +440,6 @@ function ghOpenIssuesWithLabel(label) {
 }
 
 /**
- * The CLOSED issues carrying `label` — the cheap way to reach the few closed
- * rows a scan of open issues still needs, a closed parent among them, without
- * paginating the whole tracker to find them (mantahostels#1899).
  * @param {string} label
  * @returns {IssueRow[]}
  */
@@ -651,20 +447,12 @@ function ghClosedIssuesWithLabel(label) {
 	return ghIssuesInState("closed", ["-f", `labels=${label}`]);
 }
 
-/*
- * How far before a cache's stamp an updated-since read starts, so a clock
- * running ahead of GitHub's loses no update. Re-reading an issue merges to
- * the same entry. Five minutes is a guess.
- */
+// guess, #5355
 const SINCE_SKEW_MS = 5 * 60 * 1000;
 
 /**
- * The issues on `repo`, open or closed, updated since `since`: the REST list,
- * current at once where search's index lags a fresh create, and with no
- * 1,000-result cap. Pull requests are left out. An empty answer is re-run once
- * before it is believed (#2565). Throws on a failed read.
- * @param {string} repo `owner/name`
- * @param {string} since ISO 8601
+ * @param {string} repo
+ * @param {string} since
  * @param {GhRun} [run]
  * @returns {IssueRow[]}
  */
@@ -690,8 +478,6 @@ function ghIssuesUpdatedSince(repo, since, run = gh) {
 }
 
 /**
- * A whole-tracker `gh issue list`, ceiling-checked. `what` names the rows in
- * the truncation message. `any[]`: the caller's `--json` list decides the row.
  * @param {string} what
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]

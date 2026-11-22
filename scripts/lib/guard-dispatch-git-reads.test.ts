@@ -1,13 +1,5 @@
 // @vitest-environment node
-/*
- * The dispatcher's contract 5 over the whole entry (#2733, #4127): one tool
- * call starts one git per distinct argument list, whichever core, host or
- * library under them asks. A host spawning its own git past lib/git.js's memo
- * repeats an argv here. Its writes are lib/git-read-memo.test.ts's.
- *
- * full-sweep-only: the source scan reads every dispatched module through the
- * manifest, so no one host's change selects it.
- */
+// full-sweep-only: #4127
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,9 +32,6 @@ beforeEach(() => {
 	stub = path.join(dir, "git-log");
 	fs.mkdirSync(path.join(dir, "no-hooks"));
 	initGitRepo(repo, path.join(dir, "no-hooks"));
-	/* A second commit and a pushed base, so the test core's selection reads a
-	 * range, a staged e.js only the index read hands the commit core's rule
-	 * selection, and an untracked file, so it lists what git tracks. */
 	fs.writeFileSync(path.join(repo, "b.md"), "b\n");
 	git("add", "b.md");
 	git("commit", "-qm", "second");
@@ -68,10 +57,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/**
- * The entry's stdout on `tool_input`, and each git it started, spelled with the
- * directory it ran in: the same argv in two directories asks two questions.
- */
 function runEntry(tool: string, toolInput: Record<string, unknown>) {
 	const r = runInProcess(ENTRY, [], {
 		cwd: repo,
@@ -101,8 +86,6 @@ const repeats = (spawns: string[]) =>
 	spawns.filter((call, i) => spawns.indexOf(call) !== i);
 
 describe("one PreToolUse call", () => {
-	/* Each pattern is the core's own answer, so a replay that misshaped a read
-	 * shows as a lost verdict. The test launch's answer rests on free memory. */
 	it.each([
 		["git commit -m x -- d.md", /git does not track yet:\\n\\n {2}d\.md/],
 		["git commit -m x -- c.md", /BIOME GATE READS ONLY/],
@@ -123,8 +106,6 @@ describe("one PreToolUse call", () => {
 	});
 });
 
-/* git.js's own spawns are the seam, and git.test.ts refuses a spawn naming
- * the binary anywhere. */
 const SPAWNS_GIT_ITSELF = ["scripts/lib/git.js"];
 
 describe("what the dispatcher loads", () => {

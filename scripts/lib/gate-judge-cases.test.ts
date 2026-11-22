@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The shape of the gate judge's labelled set
- * (scripts/fixtures/gate-judge-cases.json, #4964), and that the judge's
- * prompt quotes none of it. The set is the judge's own test, run by hand
- * (`node scripts/measure-gate-judge.js validate`); breaking this lets a case
- * with no label or part drop out of the rates unseen, or a case leak into the
- * prompt it is meant to measure.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -26,9 +18,9 @@ const LABELS = [
 	"restated",
 	"asserted",
 ];
-/* Shorter lines are markdown furniture any prompt may share. */
+// guess, #4964
 const MIN_LINE = 20;
-/* Shorter quotes are window words ("the first week") any prompt may share. */
+// guess, #4986
 const MIN_QUOTE_WORDS = 4;
 
 describe("the labelled set", () => {

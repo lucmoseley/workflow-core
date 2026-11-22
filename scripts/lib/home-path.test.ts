@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/home-path.js's contract (#4611). In-process, since the helpers are pure
- * functions. A wrong answer misplaces every `~/` path the shell parser, the
- * gh body reader, the tracker's job-dir scan, the seat dirs, the dispatch watch
- * note and `rescue-sessions --from` read.
- */
 import { describe, expect, it } from "vitest";
 import { expandHome, expandTildeWord } from "./home-path.js";
 

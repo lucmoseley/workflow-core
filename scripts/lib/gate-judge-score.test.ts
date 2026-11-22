@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/gate-judge-score.js: how measure-gate-judge.js counts a stored reply, a
- * labelled case over its runs and a corpus body's two readings (#4968). No
- * call is made: every reply here is written out. Broken, the rates the
- * founder rules refusal on are miscounted.
- */
 
 import { describe, expect, it } from "vitest";
 import {

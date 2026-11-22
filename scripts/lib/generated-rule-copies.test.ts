@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * No dispatcher core, nor any file its relative requires reach, holds a run
- * of RUN_WORDS words copied from a generated rule fragment (#4155). A refusal
- * printing such a copy keeps the old words when the source document's region
- * is reworded; the core reads the fragment instead (docs/agents/rules/README.md).
- *
- * Comments count: a rule restated in a comment drifts the same way.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -18,13 +10,12 @@ const require = createRequire(import.meta.url);
 const { readDispatchedCores } = require("./guard-cores.js");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-/* #4129's scan threshold, untraced: below it the hits were paraphrases. */
+// guess, #4129
 const RUN_WORDS = 10;
 
 const words = (text: string) =>
 	text.toLowerCase().match(/[a-z0-9]+(?:'[a-z]+)?/g) ?? [];
 
-/** Every RUN_WORDS-word run in `text`, joined by single spaces. */
 function runsOf(text: string): string[] {
 	const w = words(text);
 	const runs = [];
@@ -40,7 +31,6 @@ const manifest: { rules: Record<string, unknown> } = JSON.parse(
 	),
 );
 
-/** run → the generated fragment holding it */
 const generated = new Map<string, string>();
 for (const id of Object.keys(manifest.rules))
 	for (const run of runsOf(

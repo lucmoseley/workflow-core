@@ -47,10 +47,7 @@
 # shellcheck source=scripts/lib/guard-root.sh
 source "${BASH_SOURCE[0]%/*}/guard-root.sh" 2>/dev/null
 declare -F gr_root >/dev/null 2>&1 || gr_root() { :; }
-# A COPY of guard-root.sh's gr_config_dir (#2095), the one exception to that
-# file's no-second-copy rule: a detached guard-log.sh must still file under the
-# config dir (guard-log.test.ts's rootless case), where gr_root's stub may be
-# empty. config-dir.test.ts holds the two equal.
+# #2095
 declare -F gr_config_dir >/dev/null 2>&1 || gr_config_dir() {
   if [[ -n "${CLAUDE_CONFIG_DIR+set}" ]]; then
     printf -v "$1" '%s' "${CLAUDE_CONFIG_DIR:-.}"
@@ -61,24 +58,14 @@ declare -F gr_config_dir >/dev/null 2>&1 || gr_config_dir() {
   fi
 }
 
-# gl_where — the logging guard's own script name.
-#
-# Parameter expansion, NOT basename: the faults most worth recording are the
-# missing-binary ones, and a guard whose PATH has lost jq has generally lost
-# basename with it.
 gl_where() {
   local name="${0##*/}"
-  # A guard sourced rather than executed, or run through stdin, has no useful $0.
   case "$name" in
     "" | bash | sh | -bash | -sh) printf 'guard' ;;
     *) printf '%s' "$name" ;;
   esac
 }
 
-# gl_when — the record's timestamp, whole seconds, UTC.
-#
-# printf's %()T is a BUILTIN (bash 4.2+), so this forks nothing and needs no
-# external `date`. `date -u` remains the fallback.
 gl_when() {
   local t=""
   TZ=UTC printf -v t '%(%Y-%m-%dT%H:%M:%S)T' -1 2>/dev/null
@@ -88,46 +75,17 @@ gl_when() {
   esac
 }
 
-# The bytes a caller keeps as gl_log's detail — a child's stderr: enough to
-# locate it, never a whole stack trace. A guess, never measured.
-# shellcheck disable=SC2034 # read by the callers that source this file
-GL_DETAIL_MAX=300
+# guess, #1622
+: "${GL_DETAIL_MAX:=300}"
 
-# gl_project_dir <repo root> — the Claude project directory for that root.
-# SHELL'S ONE SITE for the slug transform, which lib/project-slug-scan.test.ts pins:
-# every other shell caller routes through here rather than restating the class.
-# project-slug.js and project_slug.py are the same derivation in their own
-# languages, and the test holds all three equal.
 gl_project_dir() {
   local slug="$1"
-  # The class below matches per BYTE under LC_ALL=C, so one multi-byte UTF-8
-  # character would slug to one hyphen per byte where project-slug.js, walking
-  # UTF-16, gives one — and a hook inherits whatever locale the harness hands it
-  # (mantahostels#2096). Pinned for this function only, and named outright rather than
-  # borrowed from $LANG, which a hook's environment may leave unset or set to a
-  # non-UTF-8 value. Where C.UTF-8 is absent bash keeps the CALLER's locale, so
-  # the divergence returns exactly where it already was, and it warns on stderr:
-  # unsuppressed, unlike everything else here.
+  # lucmoseley/mantahostels#2096
   local LC_ALL=C.UTF-8
   slug="${slug//[^a-zA-Z0-9]/-}"
-  # An unresolved root — the stub above, left when guard-root.sh cannot be
-  # sourced — slugs to the empty string, and `$root/projects/$slug` would then be
-  # `projects/` ITSELF, a file beside the project directories that
-  # check-guard-errors.js never opens (mantahostels#2438). Named instead.
-  # The literal is project-slug.js's UNRESOLVED_ROOT_SLUG, restated because this
-  # path cannot fork a node; guard-log.test.ts runs gl_log and asserts the
-  # directory it creates, which is what pins the two equal.
   printf '%s/projects/%s' "$(gl_store_config_dir)" "${slug:-unresolved-root}"
 }
 
-# gl_store_config_dir — arbiter-core.js's storeConfigDir(): the first seat,
-# where this session's config dir is one of the three; the config dir itself
-# where it is none. Seats compare by `pwd -P`, realpath's spelling, falling back
-# to the literal path as deref.js's realKey() does. Subshells, no
-# exec: `dirname` could be missing.
-# The three names restate arbiter-core.js's DEFAULT_CONFIG_DIR_NAMES;
-# guard-log.test.ts's seat cases pin the two equal, with WFC_CLAUDE_CONFIG_*
-# unset only.
 gl_store_config_dir() {
   local own parent a b c key
   gr_config_dir own
@@ -156,17 +114,9 @@ gl_dir_key() {
 # cannot be written must not turn a fail-open into a crash.
 gl_log() {
   local dir what detail=""
-  # Tabs and newlines are the record's own delimiters, and a reason routinely
-  # carries a path straight off the tool payload — so a file named with a newline
-  # would append a second, forged record, and one with a tab would shift every
-  # field. Collapsed to spaces, as arbiter-store.js's flat() does for the same log.
   what="${1//[$'\t\r\n']/ }"
-  # Field 4 only when a caller passes a non-empty one, so every other record
-  # stays three fields.
   [[ -n "${2-}" ]] && detail=$'\t'"${2//[$'\t\r\n']/ }"
   dir="$(gl_project_dir "$(gr_root)")"
-  # Not `mkdir && printf`: the directory usually exists already, and chaining
-  # them drops the record whenever mkdir is the binary that has gone missing.
   mkdir -p "$dir" 2>/dev/null
   printf '%s\t%s\t%s%s\n' "$(gl_when)" "$(gl_where)" "$what" "$detail" \
     >>"$dir/guard-errors.log" 2>/dev/null

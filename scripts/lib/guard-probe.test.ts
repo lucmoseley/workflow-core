@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/guard-probe.js over fixture hooks.json files in a real checkout in the
- * test's temp directory, git real there. The hold it raises and lifts is
- * repo-holds.test.ts's, which injects this module's answers.
- *
- * Broken, a guard entry that will not load reads as passing, and every session
- * launched into that checkout is locked out; or a hooks file the probe cannot
- * read throws up through the tick and fails every refill tick (#4907).
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,8 +8,6 @@ import { readProbeFailure, readReplayFailure } from "./guard-probe.js";
 import { buildHookEnv } from "./hook-env.js";
 import { GUARD_HOOKS_JSON, probedCheckout } from "./repo-hold-fixture";
 
-/* This repo's own hook lines and the runner they name, spelt whole so a
- * change to either selects this file. */
 const REAL_HOOKS = path.join(__dirname, "../../self-plugin/hooks/hooks.json");
 const REAL_RUNNER = path.join(__dirname, "../run-pinned-guards.js");
 
@@ -50,7 +39,6 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-probe-"));
 	repo = at("repo");
 	probedCheckout.instantiate(repo);
-	/* The re-run at once, as a sandboxed tick has it. */
 	vi.stubEnv("WFC_GUARD_PROBE_RETRY_MS", "0");
 	vi.stubEnv("WFC_MODULES", "");
 });
@@ -61,8 +49,6 @@ afterEach(() => {
 });
 
 describe("the hook line a matcher covers (#4914)", () => {
-	/* A guard entry that lets every call through, so a probe that finds the
-	 * line passes. */
 	beforeEach(() => {
 		fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
 		fs.writeFileSync(
@@ -133,9 +119,7 @@ describe("the hook line a matcher covers (#4914)", () => {
 });
 
 describe("the hook environment (#4736)", () => {
-	/* What a login shell already holds, which the harness need not give. */
 	const LoginVars = new Set(["HOME", "PATH"]);
-	/* Each variable a hooks.json's command lines need set: none behind a default or an alternate. */
 	const parseRequiredVars = (hooksJson: string) => {
 		const commands: string[] = [];
 		JSON.parse(hooksJson, (key, value) => {
@@ -176,8 +160,8 @@ describe("the hook environment (#4736)", () => {
 	});
 
 	it("names a variable a hook line reads that it does not set", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		const command = 'node "${CLAUDE_ENV_FILE}" "${WFC_X:-y}" ${WFC_Y:+z}';
+		const shellVar = (body: string) => `\${${body}}`;
+		const command = `node "${shellVar("CLAUDE_ENV_FILE")}" "${shellVar("WFC_X:-y")}" ${shellVar("WFC_Y:+z")}`;
 		const drifted = JSON.stringify({
 			hooks: { Stop: [{ hooks: [{ command }] }] },
 		});
@@ -205,13 +189,8 @@ ${body}`,
 			? fs.readFileSync(at("guard-runs"), "utf8").split("\n").filter(Boolean)
 			: [];
 
-	/* The probe runs the guard hook line the checkout registers, here one
-	 * that runs the shared tree's own entry. */
 	beforeEach(() => writeHooks(GUARD_HOOKS_JSON));
 
-	/* The checkout registers this repo's own hook lines, run as written: the
-	 * pinned guard code's link names the served checkout, so its entry is the
-	 * one each case writes. */
 	const registerRealHooks = () => {
 		const scripts = path.join(repo, "scripts");
 		fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
@@ -269,8 +248,6 @@ process.exit(0);
 
 	describe("a locked-out session's replayed call (#4228)", () => {
 		const Fault = `guard-x ${CORE_FAULT_TEXT}, and it fails closed: boom`;
-		/* Refuses a Bash `locked` as a core it could not run would, and a
-		 * Bash `merits` as a healthy guard would; lets all else through. */
 		const Judging = `const p = JSON.parse(fs.readFileSync(0, "utf8"));
 const why = p.tool_name !== "Bash" ? null : p.tool_input.command === "locked" ? ${JSON.stringify(Fault)} : p.tool_input.command === "merits" ? "Refused: rule:x" : null;
 if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: why } }));

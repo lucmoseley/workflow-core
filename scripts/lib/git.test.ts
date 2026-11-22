@@ -1,16 +1,3 @@
-/*
- * Tests for lib/git.js, the one seam every Node `git` spawn goes through
- * (#2636). Loosen the grep and a script spawning `git` on its own escapes
- * WFC_GIT and the shared buffer cap.
- *
- * The seam is driven through a stub at WFC_GIT, not on PATH, because WFC_GIT is
- * the injection point it owns (base §N7). The grep reads the `.js` scripts and
- * the `.sh` hooks that inline node; the `.ts` files are test support.
- *
- * full-sweep-only: the two scans read every tracked script through a
- * `git ls-files` glob, so no one script's change selects them.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -26,14 +13,9 @@ import {
 	vi,
 } from "vitest";
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const lib: any = createRequire(__filename)("./git.js");
+const lib = createRequire(__filename)("./git.js") as typeof import("./git.js");
 const ROOT = path.resolve(__dirname, "../..");
 
-/**
- * The tracked files `lsFiles` lists, less `exempt`. Each caller spells its
- * `ls-files` argv out, as test-read-edges.js reads only literal pathspecs.
- */
 const readTrackedScripts = (lsFiles: string[], exempt: Set<string>) =>
 	execFileSync("git", lsFiles, {
 		cwd: ROOT,
@@ -42,7 +24,6 @@ const readTrackedScripts = (lsFiles: string[], exempt: Set<string>) =>
 		.split("\0")
 		.filter((f) => f && !exempt.has(f));
 
-/** `file:line` for each line `find` reports in each of `files`. */
 const offendersIn = (files: string[], find: (src: string) => number[]) =>
 	files.flatMap((f) =>
 		find(fs.readFileSync(path.join(ROOT, f), "utf8")).map(
@@ -50,7 +31,6 @@ const offendersIn = (files: string[], find: (src: string) => number[]) =>
 		),
 	);
 
-/** Line numbers of `pattern`'s matches that do not sit in a comment line. */
 const uncommentedLines = (src: string, pattern: RegExp) =>
 	[...src.matchAll(pattern)]
 		.filter((m) => {
@@ -167,7 +147,6 @@ describe("gitSpawnOptions, for a git spawn through an injected executor (#2734)"
 		expect(seen.map((o) => o.maxBuffer)).toEqual([CHILD_MAX_BUFFER]);
 	});
 
-	/** Lines of a gitBinary() whose statement carries no gitSpawnOptions(). */
 	const unwrappedLines = (src: string) =>
 		[...src.matchAll(/gitBinary\(\)/g)]
 			.filter((m) => {
@@ -200,15 +179,11 @@ describe("gitSpawnOptions, for a git spawn through an injected executor (#2734)"
 });
 
 describe('no literal "git" as a spawn\'s first argument (#2636)', () => {
-	/* precommit-gate-harness.js builds fixture repos, which take the real `git`
-	 * whatever a test stubs. resolve-core.js is copied into every adopter and
-	 * runs before any core is found, so it requires node builtins only. */
 	const exempt = new Set([
 		"scripts/lib/precommit-gate-harness.js",
 		"scripts/lib/resolve-core.js",
 	]);
 
-	/** A quoted `git` opening a call's arguments, or a runner's argv after its cwd. */
 	const gitLiteral =
 		/(?<!Set)\(\s*(?:[\w.]+\s*,\s*\[|\[)?\s*(["'`])git\1\s*[,)]/g;
 
@@ -246,8 +221,6 @@ describe('no literal "git" as a spawn\'s first argument (#2636)', () => {
 });
 
 describe("no `--git-common-dir` read outside gitCommonDir (#2737, #3066)", () => {
-	/* commit-paths.js's git() routes a spawn failure into the commit's exit
-	 * codes; resolve-core.js requires builtins only (as above). */
 	const exempt = new Set([
 		"scripts/lib/git.js",
 		"scripts/commit-paths.js",
@@ -278,8 +251,6 @@ describe("no `--git-common-dir` read outside gitCommonDir (#2737, #3066)", () =>
 describe("no `rev-parse … ^{commit}` probe outside readCommit (#3068, #3396)", () => {
 	const exempt = new Set(["scripts/lib/commit-sha.js"]);
 
-	/* A quoted `rev-parse` whose call, up to the next `;`, quotes a rev ending
-	 * `^{commit}`: `cat-file` names one too, and is no probe of this shape. */
 	const probeLines = (src: string) =>
 		uncommentedLines(src, /(["'`])rev-parse\1[^;]*?\^\{commit\}["'`]/g);
 

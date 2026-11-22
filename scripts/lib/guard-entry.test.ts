@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * guard-entry.js is every Node PreToolUse guard's prologue and epilogue
- * (#2784): a broken latch hands a session the same rule on every call, a
- * broken cap truncates the harness's per-hook record, and a broken fault arm
- * either refuses calls it should allow or states no rule where the store is
- * broken.
- *
- * Run in process: a fixture entry under a temp dir answers whatever decision
- * WFC_TEST_DECISION names, so each case reaches one arm of the kit without a
- * guard of its own. CLAUDE_PROJECT_DIR and CLAUDE_CONFIG_DIR sit in that temp
- * dir, so no latch or fail-open record lands in the checkout or the founder's
- * log. WFC_RULES_DIR points at a store each case writes.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -64,7 +50,6 @@ require(${JSON.stringify(KIT)}).run({ field: "command", noun: "command",
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** A fragment of `bytes` bytes under `id` in the case's store. */
 const fragment = (id: string, bytes = 20) =>
 	fs.writeFileSync(path.join(store, `${id}.txt`), `${id} `.padEnd(bytes, "x"));
 
@@ -73,7 +58,6 @@ const writeConfig = (text: string) => {
 	fs.writeFileSync(path.join(dir, ".claude", "workflow-core.json"), text);
 };
 
-/** One run of the fixture: its exit, its stdout parsed, its stderr. */
 function call(
 	decision: unknown,
 	{
@@ -595,7 +579,6 @@ describe("a PostToolUse guard (#2785)", () => {
 		const r = call({ launch: { script, log: ".launch.log" } }, post);
 		expect(r.status).toBe(0);
 		expect(r.out).toBeNull();
-		/* Crosses the real clock: the launch is a detached child. */
 		for (let waited = 0; waited < 10_000 && !fs.existsSync(done); waited += 50)
 			await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(
@@ -874,8 +857,6 @@ describe("the host's config", () => {
 });
 
 describe("the root adapter is timed (#2784)", () => {
-	/* Crosses the real clock on purpose: what is proved is that the kit's git
-	 * read is killed at its timeout, which only a real process timeout shows. */
 	it("answers the working directory where git runs past its timeout", () => {
 		const git = path.join(dir, "slow-git");
 		fs.writeFileSync(git, "#!/bin/sh\nexec sleep 30\n", { mode: 0o755 });
@@ -896,8 +877,6 @@ describe("the root adapter is timed (#2784)", () => {
 		expect(Date.now() - started).toBeLessThan(10_000);
 	}, 15_000);
 
-	/* One run with CLAUDE_PROJECT_DIR unset and a git that logs each spawn and
-	 * hangs: its result, and how many times the root was read. */
 	const underHungGit = (decision: unknown, payload: object) => {
 		const calls = path.join(dir, "git-calls");
 		const git = path.join(dir, "slow-git");
@@ -928,10 +907,6 @@ describe("the root adapter is timed (#2784)", () => {
 		return { r, spawns };
 	};
 
-	/* The fail-open record files under the root the entry already resolved: a
-	 * second root read would re-run the hung git unbounded. Counted through the
-	 * stub, but crossing the real clock: the one read is bounded only by a real
-	 * process timeout. */
 	it("writes its fail-open record off that one root read (#3038)", () => {
 		const { r, spawns } = underHungGit("throw", {
 			tool_input: { command: "x" },
@@ -943,8 +918,6 @@ describe("the root adapter is timed (#2784)", () => {
 		);
 	}, 40_000);
 
-	/* No WFC_RULES_DIR: the store is the host's own, under the root the timed
-	 * read fell back to. Real clock, as above. */
 	it.each([
 		["an injecting decision", { injectRules: ["alpha"] }],
 		["the ruleText port", { ruleText: "alpha" }],

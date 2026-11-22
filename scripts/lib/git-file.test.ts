@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/git-file.js against `.git` files written in the test's temp directory.
- * Broken, a hold raised on a worktree git will not answer for splits from its
- * checkout's store (#4402), and a loop's worktree whose registration went
- * reads as registered, never registered again (#5209).
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

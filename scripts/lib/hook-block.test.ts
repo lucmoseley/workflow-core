@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins how a capped Stop block goes out: the decision and reason alone
- * (mantahostels#2350), core paths spelled for a plugin install (#1010), the
- * notice on the last block a counter allows, and every counter prefix swept.
- *
- * hook-block.js's counter files are swept by arbiter-markers.js's MARKER_PREFIXES
- * and hidden by .gitignore. Both lists are hand-written, so a guard adding a
- * prefix is invisible until its files pile up untracked at the repo root (mantahostels#1308).
- * Each prefix is put to the real sweep, which must delete a finished session's
- * counter and spare a running one's.
- *
- * mantahostels#1278's own tests restate the author's literal list, so they agree with it by
- * construction. These read the prefixes off the real call sites in scripts/
- * and .claude/skills/ instead, and the repo's own .gitignore.
- *
- * Every capped `Stop` guard blocks through this module, so a loosened case
- * also lets a block carry its correction on a channel that never reaches the
- * model, or stay silent on the last block the cap allows.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -31,11 +12,6 @@ const REPO = path.join(__dirname, "..", "..");
 const HOOK_BLOCK = path.join(__dirname, "hook-block.js");
 const hookBlock = require(HOOK_BLOCK);
 
-/*
- * Both Node corpora a guard could call from: scripts/ and the skills' own
- * scripts — never .claude/worktrees, a throwaway copy whose files double-count.
- * hook-block.js itself is skipped: it defines the API rather than calling it.
- */
 const CORPORA = [
 	path.join(REPO, "scripts"),
 	path.join(REPO, ".claude", "skills"),
@@ -57,34 +33,13 @@ function readSources(): string[] {
 	return out;
 }
 
-/*
- * Three regexes, narrowing: every way of reaching the function, then the object-
- * literal call this file can read, then the prefix inside it. A caller matching
- * an outer one but not the next is what the counts below catch.
- *
- * `blockStop` AND `charge`: between them they are the two entries that MINT a
- * counter, so they are where an unswept prefix first puts a file at the repo
- * root. `capSpent` reads an existing counter and mints nothing (mantahostels#2383).
- */
 const USE = /(?:blockStop|charge)\s*\(|["'](?:blockStop|charge)["']/g;
 const CALL = /(?:blockStop|charge)\(\s*\{/g;
 const CALL_WITH_PREFIX =
 	/(?:blockStop|charge)\(\s*\{[^}]*?prefix:\s*"([^"]+)"/g;
-/*
- * The other way a prefix reaches a call: a top-level `..._PREFIX` const, for a
- * caller that picks its counter at run time (mantahostels#2544 gave guard-priced-options.js
- * one per bucket-deciding check and blocks them in a loop). Scoped to values
- * ending `-nagged-`, so it reads counter prefixes and nothing else.
- */
 const DECLARED_PREFIX = /^const \w*PREFIX\w* = "([^"]*-nagged-)";$/gm;
 const declaredIn = (src: string) =>
 	[...src.matchAll(DECLARED_PREFIX)].map((m) => m[1]);
-/*
- * A caller may declare its prefixes in a library it requires instead —
- * guard-priced-options.js reads all of its off lib/priced-options-limbs.js
- * (#1474), and lib/priced-options-ceiling.js, a lib itself, off its sibling
- * (#1689) — so a required `./lib/` or `./` file's declarations count as its own.
- */
 const REQUIRED_LIB = /require\("(\.\/(?:lib\/)?[\w-]+)(?:\.js)?"\)/g;
 const declaredInLibs = (f: string, src: string) =>
 	[...src.matchAll(REQUIRED_LIB)].flatMap((m) => {
@@ -92,15 +47,6 @@ const declaredInLibs = (f: string, src: string) =>
 		return fs.existsSync(lib) ? declaredIn(fs.readFileSync(lib, "utf8")) : [];
 	});
 
-/*
- * Uses and calls are counted only in a file that requires hook-block.js by a
- * literal path: check-swallowed-errors.js defines a `charge` of its own, which
- * the bare names in USE would otherwise count (#1893).
- *
- * Residual: a consumer requiring it any other way — a computed path, a
- * re-exporting wrapper — drops out of uses and calls alike, so the equality
- * below still holds; only the twenty-call count notices.
- */
 const REQUIRES_HOOK_BLOCK = /require\("[^"]*\/hook-block(?:\.js)?"\)/;
 
 const scanned = readSources().map((f) => {
@@ -120,9 +66,6 @@ const rows = scanned.flatMap((s) =>
 );
 const total = (k: "uses" | "calls") => scanned.reduce((n, s) => n + s[k], 0);
 
-/* Every double-quoted `-nagged-` literal in the corpus. The trailing class is
- * what reaches `.session-ceiling-nagged-hard-`, whose band suffix sits after
- * `-nagged-`. */
 const naggedLiterals = [
 	...new Set(
 		readSources().flatMap((file) =>
@@ -135,7 +78,6 @@ const naggedLiterals = [
 	),
 ].sort();
 
-/* Off one sweep over both for every prefix this file reads. */
 let sweepOf: (prefix: string) => {
 	finishedGone: boolean;
 	runningKept: boolean;
@@ -159,31 +101,10 @@ const gitignore = new Set(
 );
 
 describe("the counter prefixes, read from hook-block.js's call sites", () => {
-	/* Today, counting both minting entries: guard-selection-sum.js twice — the
-	 * block and the `charge` for the second stake tier (mantahostels#3431) —
-	 * guard-uncommitted-work.js twice — its clean-claim limb (#3565) — guard-priced-options.js three times — the
-	 * one block every refusal emits and the two `charge` calls that spend the non-paying limbs and the
-	 * ceiling —
-	 * guard-session-ceiling.js three times — the tripwire, the turn band and the
-	 * wind-up band (#1199) — guard-lost-deny.js once,
-	 * guard-automode-refusal.js once (#860), guard-unpushed-commits.js once (#766), guard-typecheck-owed.js once (#3803), guard-paste-self-match.js once (#921), guard-session-id-prose.js once (#3557), guard-exhausted-map.js once (#3639), guard-held-ticket.js once (#4535), guard-inventory.js twice (#988, and its draft-and-act limb's own counter, #989), and
-	 * guard-jev-advisory.js four times — the flag's warn, the outage notice,
-	 * the malformed-reply notice #226 split off it and the refused-key notice
-	 * (#4144), on four counters kept separate. A drop below twenty-four means a caller went away — deliberately, or
-	 * because the scan stopped seeing it. */
 	it("still finds the twenty-four call sites", () => {
 		expect(total("calls")).toBe(24);
 	});
 
-	/* Every call must be reachable by ONE of the two readers: the literal prefix
-	 * in its own object literal, or a `..._PREFIX` const its file declares. A
-	 * caller spelled some other way — a spread, a computed key,
-	 * `hookBlock["blockStop"](opts)` — mints a prefix this file cannot read.
-	 *
-	 * RESIDUAL, and it is why the sweep test below was widened to the whole
-	 * corpus: this counts per file, not per call, so a file already declaring
-	 * more prefixes than it has calls — guard-priced-options.js, fourteen against
-	 * three (#1474) — can gain an unreadable one and still pass here. */
 	it("reads a prefix for every reachable use", () => {
 		expect(total("uses")).toBe(total("calls"));
 		for (const s of scanned) {
@@ -205,13 +126,6 @@ describe("the counter prefixes, read from hook-block.js's call sites", () => {
 		expect(sweepOf(prefix)).toEqual({ finishedGone: true, runningKept: true });
 	});
 
-	/* The catch-all the two readers above cannot be: every `-nagged-` string in
-	 * the corpus, however it reaches `blockStop`. A prefix that is swept is
-	 * harmless whatever spelling minted it, and an unswept one leaves a file at
-	 * the repo root for ever.
-	 *
-	 * RESIDUAL: double-quoted literals only, so a template literal, a single-
-	 * quoted string or a prefix built at run time is still unread here. */
 	it("sweeps every `-nagged-` literal in the corpus", () => {
 		expect(
 			naggedLiterals.filter((p) => {
@@ -222,29 +136,12 @@ describe("the counter prefixes, read from hook-block.js's call sites", () => {
 	});
 });
 
-/* The other half: the concision backstop's markers reach MARKER_PREFIXES from a
- * shell script with no call site to read, but everything on the list must still
- * be hidden. Since F8 (mantahostels#3515, #2) that is true of the whole
- * family at once — every prefix's file lands under `.claude/tmp/markers/`, and
- * `.claude/tmp/` is one ignore line rather than one per prefix — so this no
- * longer greps for a per-prefix root pattern. */
 describe("every swept prefix, whatever wrote it", () => {
 	it("the marker directory is hidden by .gitignore", () => {
 		expect([...gitignore]).toContain(".claude/tmp/");
 	});
 });
 
-/**
- * Call blockStop `times` over in one throwaway root, pointing its repo root
- * there so the counter file lands in the sandbox and carries between calls,
- * letting the cap be reached. Without the override the real
- * `CLAUDE_PROJECT_DIR` of the session running the suite mints a `.t-s1` in the
- * shared tree (mantahostels#1798).
- *
- * `entry` writes the call into a script of that name and runs it, so
- * `process.argv[1]` is set; without it the call goes through `node -e`, which
- * leaves argv[1] undefined.
- */
 function emitRun(
 	times: number,
 	spec: Record<string, unknown>,
@@ -262,9 +159,6 @@ function emitRun(
 				? runInProcess(file, [], { cwd, env })
 				: spawnSync("node", ["-e", call], { cwd, encoding: "utf8", env });
 			expect(res.status).toBe(0);
-			/* Empty stdout is a REFUSED call, which the cap tests below rely on
-			 * — so it contributes no entry rather than throwing. A caller
-			 * expecting a block must assert on `length`, or go through `emit`. */
 			if (res.stdout) out.push(JSON.parse(res.stdout));
 		}
 		return out;
@@ -273,8 +167,6 @@ function emitRun(
 	}
 }
 
-/** One call, one block, so a refusal fails here rather than surfacing as
- * `undefined` downstream. */
 function emit(spec: Record<string, unknown>): Record<string, string> {
 	const blocks = emitRun(1, spec);
 	expect(blocks.length).toBe(1);
@@ -306,15 +198,9 @@ describe("the reason in a plugin install (#1010)", () => {
 	});
 });
 
-/*
- * mantahostels#2348. Past the cap `blockStop` returns false and writes nothing, so a guard
- * going dark looked to the session exactly like a turn it had got right.
- */
 describe("the notice on the last block a counter allows", () => {
 	const last = /last Stop block on this check/;
 
-	/* The cap is per PREFIX, so a notice speaking for the whole script is false
-	 * on a caller holding two of them. */
 	it("speaks for the counter, not the script", () => {
 		const reason = emitRun(1, { reason: "seen", max: 1 })[0].reason;
 		expect(reason).toContain("`.t-` counter");
@@ -346,26 +232,16 @@ describe("the notice on the last block a counter allows", () => {
 
 	it("names the guard by its entry script when there is one", () => {
 		const blocks = emitRun(1, { reason: "seen", max: 1 }, "guard-fake.js");
-		/* Anchored on `This was`: the fixture's own absolute path ends in
-		 * `/guard-fake.js`, so an unanchored match survives dropping the
-		 * `path.basename` this case exists to pin. */
 		expect(blocks[0].reason).toContain("This was guard-fake.js's last Stop");
 	});
 
 	it("falls back to the counter prefix where argv[1] names no script", () => {
-		/* `node -e`, as every other case here runs. */
 		const blocks = emitRun(1, { reason: "seen", max: 1 });
 		expect(blocks[0].reason).toMatch(/\.t-'s last Stop block/);
 	});
 });
 
-/*
- * mantahostels#2383. In-process, as §X3 asks of a `lib/**` test.
- */
 describe("capSpent, the read-only cap query (mantahostels#2383)", () => {
-	/** Ask `capSpent` over a throwaway root holding `counter`, and report the
-	 * answer beside what the file says afterwards, so a write inside the read
-	 * would show. */
 	function ask(
 		counter: string | null,
 		spec: Record<string, unknown> = {},
@@ -409,14 +285,7 @@ describe("capSpent, the read-only cap query (mantahostels#2383)", () => {
 	});
 });
 
-/*
- * mantahostels#2786. The silent spend: `judge` reports several defects in one refusal, so
- * exactly one contributing counter pays through `blockStop` — which owns
- * stdout — and the rest pay here. In-process, as §X3 asks of a `lib/**` test.
- */
 describe("charge, the spend that emits nothing (mantahostels#2786)", () => {
-	/** Charge a throwaway root's counter and report the answer beside what the
-	 * file says afterwards and what reached stdout, which must be nothing. */
 	function spend(
 		counter: string | null,
 		spec: Record<string, unknown> = {},
@@ -459,9 +328,6 @@ describe("charge, the spend that emits nothing (mantahostels#2786)", () => {
 		expect(spend(null)).toEqual({ charged: true, after: "1\n", said: "" });
 	});
 
-	/* The branch `judge` cannot reach — it `capSpent`-filters every prefix
-	 * before charging it — so nothing but this test pins that `charge` reads
-	 * `max` at all. */
 	it("refuses at the cap, leaving the counter as it found it", () => {
 		expect(spend("3\n")).toEqual({ charged: false, after: "3\n", said: "" });
 	});

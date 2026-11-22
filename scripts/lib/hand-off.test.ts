@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * buildHandOffComment, the hand-off the refill loop posts for a resumed-idle
- * session it stopped (#2659): it must read back as a well-formed block, or
- * read-hand-off.js passes it over and the fresh session starts blind.
- *
- * Loosen it and a long narration pushes the comment past GitHub's 65,536-
- * character limit,
- * so nothing posts, or a narration quoting a fence closes its own early.
- */
 import { describe, expect, it } from "vitest";
 import {
 	buildHandOffComment,

@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Holds the gate judge's launch (#4964) to the installed harness's recording
- * (scripts/fixtures/gate-judge-reply.json, re-recorded by
- * `node scripts/record-gate-judge-reply.js`): the `result` row
- * lib/gate-judge.js reads, the row lib/gate-judge-fake.ts serves every suite
- * in its place, the flags lib/gate-judge-mode.js passes, and what a child
- * under those flags was seen to load and leave. Breaking it lets a renamed
- * result field or flag pass every suite while each live call falls back to
- * the patterns, and lets the child start loading tools, plugins or hooks, or
- * writing transcripts, unseen.
- *
- * Also holds the in-process `judge` fake (lib/gate-judge-fake.ts
- * `judgeServe`) to the fake launched through the real launcher, on every
- * plan but a hang. Breaking it lets the suites' module cases pass on a run
- * the launcher would never hand back.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

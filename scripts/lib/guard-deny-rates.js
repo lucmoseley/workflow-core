@@ -1,53 +1,18 @@
-/*
- * guard-deny-rates.js — how often each deny-capable guard actually denies,
- * measured once and pinned here, so a report about a guard that failed open can
- * say whether the loss mattered.
- *
- * WHY IT EXISTS (mantahostels#3261, on the census at mantahostels#3260). `guard-lost-deny.js` blocks a
- * turn to say a guard failed open and prints the command that re-runs it. That
- * costs a second turn, and the rate is what tells a session whether to spend it.
- *
- * THE FIGURES ARE PINNED, NOT COMPUTED. Nothing on `main` recomputes them
- * (mantahostels#3263). Copy any change from a fresh census; never adjust a number by hand.
- * Bands are Wilson 95%. Source: `docs/data/lost-deny-census-2026-09-05/rates.md`
- * (the census's correct cut).
- *
- * A ROW IS KEYED BY WHAT RUNS: a dispatcher core by its name in
- * lib/guard-cores.json, a standalone guard by its script. The census measured
- * each guard on its own `if` narrowing, which its core row carries over, so a
- * guard's figure still prices its core (#3272). A killed `guard-dispatch.js`
- * call is priced from the cores able to deny that it ran on the call
- * (`lib/guard-cores.js` `denyingCoresOn`).
- *
- * A GUARD OR CORE WITH NO ROW IS UNKNOWN, NEVER ZERO. `guard-lost-deny.js`
- * derives the deny-capable set from each script's and core's own source
- * (`lib/deny-capable.js`), so one added after the census joins that set with
- * no edit anywhere — and this table lags it by design.
- *
- * NOTHING DETECTS STALENESS AUTOMATICALLY. The signal is the report itself: a
- * guard printed as "deny rate unknown" is a guard this table has not been
- * brought up to.
- */
-
 const fs = require("node:fs");
 
 const { cutAt } = require("./cut-at.js");
 
-/** When the figures were measured — the end of the census's loss window. */
 const AS_OF = "5 Sep 2026";
 
-/*
- * Above this share of invocations a loss is worth a turn. A reading of one
- * census (mantahostels#3261), not a derived threshold.
- */
+// guess, lucmoseley/mantahostels#3261
 const WORTH_REPLAYING_PCT = 1;
 
 /**
- * One guard's measured deny rate.
  * @typedef {{denies: number, population: number, pct: number,
  *   lowPct: number, highPct: number}} Rate
  */
 
+// measured, lucmoseley/mantahostels#3260
 /** @type {Record<string, Rate>} */
 const RATES = {
 	"guard-issue-close": {
@@ -158,11 +123,6 @@ const RATES = {
 };
 
 /**
- * The measured rate for a guard, or null where it has none.
- *
- * The key arrives off a transcript record, and `guardKey` appends the arguments
- * that tell two registrations of one script apart — the file is the first word.
- *
  * @param {string} guard
  * @returns {Rate | null}
  */
@@ -171,10 +131,6 @@ function forGuard(guard) {
 }
 
 /**
- * The table a loss is priced from. `WFC_DENY_RATES` names a JSON file read in
- * place of `RATES`, so a test prices rows under and over the cut that no live
- * guard still carries (#3272). Pricing alone: `lost-deny-rates.js`'s staleness
- * audit reads `RATES` itself, since it judges the pinned table.
  * @returns {Record<string, Rate>}
  */
 function readRateTable() {
@@ -183,9 +139,6 @@ function readRateTable() {
 }
 
 /**
- * The chance at most that one of `lost` would have denied, as a percentage:
- * their rates summed, which bounds the union whatever their overlap. Null where
- * one of them is unmeasured.
  * @param {string[]} lost
  * @returns {number | null}
  */
@@ -200,8 +153,6 @@ function summedPct(lost) {
 }
 
 /**
- * Whether losing `lost` together on one call is worth the turn a replay costs.
- * An unmeasured one makes it worth it.
  * @param {string[]} lost
  * @returns {boolean}
  */
@@ -211,20 +162,16 @@ function isWorthReplaying(lost) {
 }
 
 /**
- * A percentage at the precision the figure actually carries — 2.192% and
- * 0.0046% both read wrongly at a fixed number of places.
  * @param {number} n
  * @returns {string}
  */
 function pct(n) {
 	if (n === 0) return "0%";
 	if (n >= 1) return `${n.toFixed(3).replace(/\.?(?<!0)0+$/, "")}%`;
-	// Three significant figures: 0.0046% stays distinct from 0.0038%.
 	return `${Number(n.toPrecision(3))}%`;
 }
 
 /**
- * A rate's verdict, stated against the cut rather than in words.
  * @param {number} ratePct
  * @returns {string}
  */
@@ -235,8 +182,6 @@ function verdictAt(ratePct) {
 }
 
 /**
- * One line saying how often this guard denies, and so whether the loss is worth
- * a turn.
  * @param {string} guard
  * @returns {string}
  */
@@ -250,8 +195,6 @@ function describe(guard) {
 }
 
 /**
- * The verdict on several lost together on one call, from their summed rates;
- * null where one is unmeasured, its own line having said so.
  * @param {string[]} lost
  * @returns {string | null}
  */
@@ -261,7 +204,6 @@ function describeTogether(lost) {
 	return `Together: at most ${pct(sum)} of calls (the ${lost.length} rates summed) — ${verdictAt(sum)}.`;
 }
 
-/** The one line that dates the figures and says what they were priced against. */
 const PROVENANCE = `Deny rates as of ${AS_OF}, counted whole-corpus and unbounded: every tool_use record matching each guard's own if-narrowing, not just the firings that printed something. https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md §Q2.`;
 
 module.exports = {

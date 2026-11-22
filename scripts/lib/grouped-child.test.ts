@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the grouped child the refill loop's shortlist read runs in (#2677):
- * past its cap, or past its output cap, the whole group dies, a grandchild
- * included, and a group still live when its caller exits dies with it.
- * Loosen a case and one slow checkout's read, or the `gh` calls it started,
- * holds the loop's tick or outlives the loop.
- *
- * Every case crosses the real clock: what is pinned is a real kill of real
- * processes, which no injected clock reaches. The file runs past the 10 s
- * budget because the cap case waits out HUNG_CAP_MS: a shorter cap can kill
- * the stub before it starts the grandchild that case pins.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -22,12 +10,9 @@ const { runGrouped } = require("./grouped-child.js");
 
 const LIB = path.resolve(__dirname, "grouped-child.js");
 
-/* Long enough for the stub to start and write its group id first: under the
- * machine's load a node start runs to seconds (vitest.config.ts's x39.6
- * median spawn slowdown), and the 90 s test timeout bounds it from above. */
+// guess, #2677
 const HUNG_CAP_MS = 15_000;
-/* A killed orphan stays a zombie, still in its group, until init reaps it;
- * how long that takes under load is unmeasured, so this is a guess. */
+// guess, #2677
 const REAP_WAIT_MS = 20_000;
 const REAP_POLL_MS = 100;
 

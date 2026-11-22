@@ -1,13 +1,3 @@
-/*
- * gh-recorder-host.js — the production ports record-acts.js,
- * record-issue-claim.js and release-issue-claim.js wire into their cores,
- * lib/gh-acts.js and lib/issue-claim-hook.js (#2799).
- *
- * The arbiter's stores are written in process. A claim or release that fails
- * is the store's own to log (arbiter-core.js's logError) and leaves the record
- * unwritten.
- */
-
 const { readBodyFile } = require("./body-file.js");
 const os = require("node:os");
 const { gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
@@ -43,7 +33,6 @@ function buildHostPorts({ root, payload }) {
 			try {
 				recordAct(act, sessionId);
 			} catch (e) {
-				/* Fails open, logged (mantahostels#103 §6). */
 				require("./arbiter-core.js").logError("record act", e);
 			}
 		},

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * gate-seat.js (#5274): a commit gate's seat in the suite queue. The markers
- * and the gate-run record are real files in a scratch directory; process
- * ancestry is injected, being a shape a real process tree cannot stage. In the world, a wrong verdict counts one gate's three lanes as three
- * whole suites and holds every other run out, lets a process that inherited
- * the variable skip the count, or under-charges an unmeasured gate.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,8 +39,6 @@ const queue = () => {
 	return { dir, marker };
 };
 
-/* 40 → 30 → 20 → 10: the seat's holder is the live test process, the
- * runner under it 40. */
 const tree = (holder: number) => (pid: number) => {
 	if (pid === 30) return holder;
 	return pid > 10 ? pid - 10 : 1;
@@ -73,7 +64,6 @@ describe("readLiveGateSeats", () => {
 		});
 	});
 
-	/* Positive pair: "reads every live gate marker, queued or running, with its charge". */
 	it("holds the default charge, and says why, where the queue will not read (#5301)", () => {
 		const q = queue();
 		q.marker({ pid: process.pid, role: "gate", chargeMb: 2100 });
@@ -124,7 +114,6 @@ describe("readGateSeats, the count's reading of the seats", () => {
 		expect(seats.under(null)).toBe(false);
 	});
 
-	/* Positive pair: "places a runner among a spawned seat's holder's descendants under it". */
 	it("counts no seat, and says why, where the queue will not read (#5301)", () => {
 		const q = queue();
 		q.marker({ pid: process.pid, role: "gate", spawned: true });
@@ -169,7 +158,6 @@ describe("a waiting gate's place", () => {
 });
 
 describe("runningSuites with a gate seat", () => {
-	// Lanes naming no file, each a whole suite on its own.
 	const lanes = [
 		{ pid: 40, args: "node --test lanes/a" },
 		{ pid: 41, args: "node --test lanes/b" },

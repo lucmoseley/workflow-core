@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The guard hooks' pinned code (#4227): adoption of the verified tip behind
- * a load probe; the shim and the hook line are run-pinned-guards.test.ts's. Real
- * git in a temporary directory: a bare origin and a checkout of it, whose
- * `scripts/guard-dispatch.js` each case writes as a stub.
- *
- * Break it and a commit whose guards cannot load is adopted, refusing every
- * call in every session, or a working copy's edit reaches the hooks again.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,7 +30,6 @@ const gitIn =
 	(...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-/* Commit `entry` as the guard entry and push it as origin's `main`. */
 function land(entry: string): string {
 	const git = gitIn(repo);
 	fs.writeFileSync(path.join(repo, "scripts/guard-dispatch.js"), entry);
@@ -53,7 +43,6 @@ const OK = "process.stdin.resume(); process.stdin.on('end', () => {});\n";
 const THROWS = "throw new SyntaxError(\"Unexpected token '}'\");\n";
 const DENIES = `process.stdout.write(JSON.stringify({hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "guard-x ${CORE_FAULT_TEXT}: scripts/lib/shell-parse.js failed to load"}}));\n`;
 
-/* The code directory the case's own, never the machine's. */
 const at = (root: string) =>
 	adoptGuardCodeAt(root, {
 		env: { ...process.env, WFC_GUARD_CODE_DIR: codeDir },
@@ -97,7 +86,6 @@ describe("adoption", () => {
 		expect(r?.kind).toBe("refused");
 		expect(r?.why).toMatch(/Unexpected token/);
 		expect(live()).toBe(path.join(codeDir, good));
-		/* The refused tree stays as the spare, for the next tip to rewrite. */
 		expect(fs.readdirSync(codeDir).sort()).toEqual([good, bad].sort());
 		expect(fs.readFileSync(files().refused, "utf8")).toBe(`${bad}\n`);
 		expect(fs.readFileSync(files().log, "utf8")).toMatch(
@@ -178,7 +166,6 @@ describe("adoption", () => {
 		adopt();
 		const third = land(`${OK}// three\n`);
 		adopt();
-		/* A kill mid-checkout leaves the lock behind. */
 		const gitDir = gitIn(path.join(codeDir, first))(
 			"rev-parse",
 			"--absolute-git-dir",
@@ -199,9 +186,7 @@ describe("adoption", () => {
 
 	it("never lets a second adopter take the tree the first is probing, so `.current` never names a missing one (#5431)", async () => {
 		const probing = path.join(dir, "x-probing");
-		/* X's tip is probed slowly, so Y starts while X holds a checked-out,
-		 * unflipped tree: 1.5 s, a guess at room for Y's node start to reach the
-		 * lock while X holds it. */
+		// guess, #5431
 		const first = land(
 			`require("fs").writeFileSync(${JSON.stringify(probing)}, ""); process.stdin.resume(); setTimeout(() => {}, 1500);\n`,
 		);
@@ -226,7 +211,7 @@ describe("adoption", () => {
 				child.on("close", (code) => resolve({ code, out }));
 			});
 		const x = run();
-		/* Guessed ceilings: a cold node start and git under load. */
+		// guess, #5431
 		await vi.waitFor(() => expect(fs.existsSync(probing)).toBe(true), {
 			timeout: 30_000,
 			interval: 20,
@@ -244,7 +229,7 @@ describe("adoption", () => {
 		);
 		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, first));
 		expect(fs.existsSync(files().previous)).toBe(true);
-	}, 60_000 /* a guess: the 30 s wait above and both adoptions, with room */);
+	}, 60_000 /* guess, #5431 */);
 
 	it("adopts nothing in a checkout whose hooks do not run from it", () => {
 		land(OK);

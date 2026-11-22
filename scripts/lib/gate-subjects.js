@@ -1,16 +1,3 @@
-/*
- * gate-subjects.js — what each switchable gate guards, found in a repo's
- * tracked tree (#1506). One predicate for every reader: check-gate-switches.js
- * refuses a commit while a subject is tracked and its switch is off, and
- * init-adopter.js and /new-repo switch on the module of each subject a
- * copied repo already holds. Test files are switched by `commands.test`, the
- * command that runs them, never by a module.
- *
- * The tree is the INDEX — `git ls-files`, and the doc-map read as its staged
- * blob — so a commit is judged on its own bytes, never on a half-written
- * working copy.
- */
-
 const { sectionBEntryCount } = require("./doc-map.js");
 const { brandSheetPath } = require("./workflow-core-config.js");
 const { COLLECTED_TEST } = require("./test-kind.js");
@@ -26,8 +13,7 @@ const SITE_DIR = "app/";
  * @typedef {{subject: "tests", command: "test", found: string[]}} CommandFound
  * @typedef {{subject: Exclude<Subject, "tests">,
  *   module: import("./workflow-core-config.js").Module, found: string[]}} ModuleFound
- * @typedef {CommandFound | ModuleFound} Found `found` is the tracked paths
- *   that make the subject, for the refusal to name
+ * @typedef {CommandFound | ModuleFound} Found
  */
 
 /**
@@ -47,8 +33,6 @@ function git(root, args) {
 }
 
 /**
- * Every subject `root`'s index tracks, in the order above. Throws where git
- * cannot list the index or read the doc-map's blob.
  * @param {string} root
  * @returns {Found[]}
  */
@@ -86,10 +70,7 @@ function readIndexSubjects(root) {
 	return out;
 }
 
-/**
- * The modules switching the subjects `root`'s index tracks.
- * @param {string} root
- */
+/** @param {string} root */
 const readSubjectModules = (root) =>
 	readIndexSubjects(root).flatMap((s) => ("module" in s ? [s.module] : []));
 

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The contract lib/git-tree-fake.js keeps with lib/git-tree.js (#2863, §G7).
- * Each case asks real git in a temp-dir layout and the fake declared over
- * that same layout, so a drift in either fails here. Breaking it costs the
- * guard cores' module suites their tie to git: they go on passing against a
- * fake that no longer answers as git does.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * gate-subjects.js finds each gate's subject in a repo's index (#1506).
- * check-gate-switches.js refuses a commit on what it finds and init-adopter.js
- * switches modules on by it, so a shape it misses is a gate that never binds.
- * The module reads the index, so each case stages files in a real scratch
- * repo rather than writing them alone.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -15,7 +8,6 @@ import { mkScratchDir } from "./git-fixture";
 
 let dir: string;
 
-/** Writes and stages each file, its body `x` unless one is given. */
 const track = (files: Record<string, string> | string[]) => {
 	const entries = Array.isArray(files)
 		? files.map((f) => [f, "x\n"])

@@ -1,88 +1,44 @@
-/*
- * gate-sweep.js — the refill loop's gate sweep (#2279): on its own cadence,
- * outside every tick, it runs check-gates.js in each served checkout and
- * queues one `/triage <n>` judgement for each `**Gated on:**` issue whose
- * reading differs from the one stored for it, a first sighting included.
- * Residual: the first sweep, or one over an unreadable store, queues a
- * judgement for every gated issue in every served checkout, each launched
- * ahead of the ranking, behind normal mode's parked rows, as slots allow.
- *
- * NO EXIT CODE IS A VERDICT HERE (mantahostels#1332). A reading's change only
- * summons a judge; the launched session reads it against the condition and
- * strips the marker or leaves it. "Changed" is the reading's text: a reading
- * embedding a clock changes every sweep, and that is a `check:` segment to
- * repair, not something to filter here. A reading that is live state, such
- * as load, changes every sweep too, so an issue is queued at most once per
- * JUDGE_EVERY_MS (#3092).
- *
- * ONE FILE, under the loop's files (lib/refill-files.js's loopFiles): each
- * issue's stored reading and last queuing keyed by checkout and number, the
- * judgements still to launch, and when the last sweep started, so a restart
- * keeps all four.
- *
- * A REPAIR STATE SUMMONS A JUDGE TOO (#3487). A `check:` that printed nothing,
- * did not parse, died or ran over budget is stored as its state's name, so the
- * first sighting of one, and each change of state, queues a `/triage` that
- * judges the condition by hand and repairs the segment.
- *
- * THE SWEEP ALSO FILES THE WEEKLY RELEASE CUT (#5435): report-release-due.js
- * runs in each served checkout after its gates (refill-loop.js composes the
- * two).
- */
-
 const { execFile, spawn } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { PRINTING_FIX, REPAIR_STATES } = require("./gate-check.js");
 const { readJson, writeJson } = require("./refill-json.js");
 
-/* A guess: often enough that a met gate waits on its judge about as long as
- * a session takes to start, rare enough that a sweep of slow checks (one runs
- * to check-gates.js's 60 s budget on every sweep, mantahostels#2491) is not
- * running most of the time. */
+// guess, #2279
 const GATE_SWEEP_MS = 30 * 60 * 1000;
-/* A met gate waits up to this plus a sweep for its judge (#3092). Untraced. */
+// guess, #3092
 const JUDGE_EVERY_MS = 6 * 60 * 60 * 1000;
-/* One checkout's sweep; check-gates.js bounds each check, so this only
- * catches a sweep hung outside them. Untraced. */
 const ROOT_SWEEP_TIMEOUT_MS = GATE_SWEEP_MS;
 
 const CHECK_GATES = path.join(__dirname, "..", "check-gates.js");
 const RELEASE_DUE = path.join(__dirname, "..", "report-release-due.js");
-/* Untraced. */
+// guess, #5435
 const RELEASE_DUE_TIMEOUT_MS = 2 * 60 * 1000;
 
 /** @typedef {{root: string, number: number, prompt: string}} Judgement */
 
 /**
  * @typedef {object} GateStore
- * @property {Record<string, string>} readings keyed `<root>#<n>`
- * @property {Record<string, number>} queuedAt ms each issue was last queued,
- *   keyed as `readings`
- * @property {Judgement[]} pending queued, not yet tried
- * @property {number|null} lastSweepAt ms the last sweep started
+ * @property {Record<string, string>} readings
+ * @property {Record<string, number>} queuedAt
+ * @property {Judgement[]} pending
+ * @property {number|null} lastSweepAt
  */
 
 /** @param {string} root @param {number} n */
 const keyOf = (root, n) => `${root}#${n}`;
 
-/**
- * The launch prompt for one judgement.
- * @param {number} n
- */
+/** @param {number} n */
 const buildJudgementPrompt = (n) =>
 	`/triage ${n} — its Gated on: reading changed. Run check-gates.js --issue ${n} and judge the reading against the condition: met, comment the evidence and strip the marker; unmet, leave the gate and end.`;
 
 /**
- * The launch prompt for an issue whose `check:` reads as a repair state.
  * @param {number} n
  * @param {string} state
  */
 const buildRepairPrompt = (n, state) =>
 	`/triage ${n} — its Gated on: check reads ${state}. Judge the condition by hand: met, comment the evidence and strip the marker; unmet, rewrite the check: so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
 
-/* check-gates.js trims a reading, so a bracketed state name equals one only
- * where a check prints exactly that text. */
 /** @param {string} state */
 const buildRepairSeen = (state) => `[${state}]`;
 
@@ -107,8 +63,6 @@ function judgementsOf(raw) {
 }
 
 /**
- * The store's fields; an absent or damaged file is an empty store, and `log`
- * names a damaged one.
  * @param {string} file
  * @param {(line: string) => void} log
  * @returns {GateStore}
@@ -131,16 +85,9 @@ function readGateStore(file, log) {
 	};
 }
 
-/**
- * @typedef {{number: number, seen: string|null, repair: string|null}} SweptRow
- *   `seen` is what is stored and compared: the reading, a repair state's
- *   bracketed name, else null.
- */
+/** @typedef {{number: number, seen: string|null, repair: string|null}} SweptRow */
 
 /**
- * One checkout's rows from check-gates.js's --json envelope, one per
- * conditioned issue. Null where the envelope is unreadable or carries no
- * rows, so nothing stored for that checkout moves.
  * @param {string} stdout
  * @returns {SweptRow[] | null}
  */
@@ -171,9 +118,7 @@ function sweptRows(stdout) {
 }
 
 /**
- * Queue one issue's judgement, replacing one still pending for it, whose
- * prompt may be for the state it has left.
- * @param {Judgement[]} pending accumulator: the judgement is put here
+ * @param {Judgement[]} pending
  * @param {string} root
  * @param {number} number
  * @param {string|null} repair
@@ -189,11 +134,6 @@ function enqueue(pending, root, number, repair) {
 }
 
 /**
- * The store after one checkout's sweep, and the issues it queued. A changed
- * reading or repair state is stored and queued once; one changed inside
- * JUDGE_EVERY_MS of the issue's last queuing is neither, so the first sweep
- * past it sees the change; a row with neither keeps what is stored and
- * queues nothing; an issue no longer gated leaves the store and the queue.
  * @param {GateStore} store
  * @param {string} root
  * @param {SweptRow[]} rows
@@ -228,10 +168,6 @@ function withSweep(store, root, rows, now) {
 }
 
 /**
- * Take each judgement the tick tried off the queue, launched or refused: a
- * refused one would otherwise take a slot every tick. The next changed
- * reading queues it again. One refused on admission's HOLD took no slot, so
- * the tick does not count it tried and it stays queued (#5125).
  * @param {string} file
  * @param {{root: string, issues: number[]}[]} tried
  * @param {(line: string) => void} log
@@ -246,8 +182,6 @@ function dropTried(file, tried, log) {
 }
 
 /**
- * Run check-gates.js --json in `root` as a child the caller does not wait
- * on; resolves with its stdout, or an error string where it could not run.
  * @param {string} root
  * @param {{env: NodeJS.ProcessEnv, script?: string}} opts
  * @returns {Promise<{stdout: string} | {error: string}>}
@@ -273,8 +207,6 @@ function runCheckGates(root, { env, script = CHECK_GATES }) {
 }
 
 /**
- * Run report-release-due.js in `root`; resolves with the line to log where it
- * filed, refreshed or failed, else null.
  * @param {string} root
  * @param {{env: NodeJS.ProcessEnv, script?: string}} opts
  * @returns {Promise<string|null>}
@@ -301,9 +233,6 @@ function runReleaseDue(root, { env, script = RELEASE_DUE }) {
 }
 
 /**
- * The loop's sweeper. `startIfDue` returns at once: the sweep runs its
- * checkouts in series in children, so no tick waits on a check. One sweep at
- * a time.
  * @param {{file: string,
  *   runRoot: (root: string) => Promise<{stdout: string} | {error: string}>,
  *   log: (line: string) => void, cadenceMs: number}} deps
@@ -338,12 +267,11 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 	}
 
 	return {
-		/** Whether a sweep this sweeper started is still running. */
 		busy: () => inFlight !== null,
 		/**
 		 * @param {string[]} roots
 		 * @param {number} now
-		 * @returns {Promise<void>|null} the sweep started, else null
+		 * @returns {Promise<void>|null}
 		 */
 		startIfDue(roots, now) {
 			if (inFlight !== null) return null;

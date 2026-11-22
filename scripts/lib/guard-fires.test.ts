@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The guarantee under test is ONE thing: a guard's own words counted where the
- * harness recorded a hook speaking them, and NOT counted where a session merely
- * quoted them. The guardKey and registeredGuards cases serve it, keying each
- * hook registration so a fire is attributed to the right guard (mantahostels#1246).
- *
- * In-process on hand-built transcript records and settings files in temp dirs,
- * so each case knows which spans are fires and which are quotes.
- *
- * count-guard-fires.js is what proves a guard reprints a rule before that
- * rule's text leaves the always-loaded pool (`docs/doc-map.md` §Capture and
- * placement, route (e)); a loosened case counts a quote as a fire, so a rule
- * can be shed to a guard that never says it. guard-lost-deny.js and
- * check-hook-liveness.js key hooks through the same functions.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,15 +21,12 @@ const {
 } = require("./guard-fires.js");
 const { mergeHooks } = require("./core-hooks.js");
 
-/** One record's fires, read as a one-line transcript. */
 const recordFires = (record: unknown, subjects: unknown[]) =>
 	transcriptFires(JSON.stringify(record), subjects, "main");
 
-/** One record's mentions, read as a one-line transcript. */
 const recordMentions = (record: unknown, subjects: unknown[]) =>
 	transcriptMentions(JSON.stringify(record), subjects, "main");
 
-/** The claim guard's deny, as session-arbiter.js emits it. */
 const DENY =
 	"docs/doc-map.md is held by session 735db33b (pid 762805), which is still running.";
 
@@ -59,7 +40,6 @@ const SUBJECT = {
 
 const denyRecord = (text = DENY, isError = true) => deniedCall(text, isError);
 
-/** A hook that produced output: the harness writes its own attachment record. */
 const attachment = (over: Record<string, unknown> = {}) => ({
 	type: "attachment",
 	uuid: "a1",
@@ -76,9 +56,6 @@ const attachment = (over: Record<string, unknown> = {}) => ({
 	},
 });
 
-/* The exec form's own spelling, assembled rather than written whole: biome's
- * noTemplateCurlyInString cannot tell a shell variable from a botched template
- * literal, and every one of these is the shell's. */
 const braced = (name: string) => `\${CLAUDE_PROJECT_DIR}/scripts/${name}`;
 
 describe("guardKey", () => {
@@ -107,10 +84,7 @@ describe("guardKey", () => {
 		).toBe("check-manual-freshness.js --notify");
 	});
 
-	/* The exec form (mantahostels#2059) moves the argument out of `command` and into `args`.
-	 * Reading `command` alone collapses two registrations of one script onto a
-	 * single key and merges their fire tallies with no signal (mantahostels#2106). */
-	it("keeps two exec-form registrations of one script apart on their args", () => {
+	it("keeps two exec-form registrations of one script apart on their args (mantahostels#2106)", () => {
 		expect(guardKey(braced("concision-backstop.sh"), ["stop"])).toBe(
 			"concision-backstop.sh stop",
 		);
@@ -131,9 +105,7 @@ describe("guardKey", () => {
 		);
 	});
 
-	/* `"args": "stop"` is malformed against the vendor schema. Reading it as
-	 * nothing reproduces the very fault mantahostels#2106 fixed. */
-	it("reads a scalar args rather than dropping it", () => {
+	it("reads a scalar args rather than dropping it (mantahostels#2106)", () => {
 		expect(guardKey(braced("concision-backstop.sh"), "stop")).toBe(
 			"concision-backstop.sh stop",
 		);
@@ -163,8 +135,6 @@ describe("registeredGuards", () => {
 					hooks: [{ command: '"$CLAUDE_PROJECT_DIR"/scripts/guard-branch.sh' }],
 				},
 			],
-			// An event this module has never heard of must still come back, or a
-			// hook registered on it reads as unwired (lib/hook-wiring.ts's rule).
 			PreCompact: [
 				{ hooks: [{ command: '"$CLAUDE_PROJECT_DIR"/scripts/guard-new.sh' }] },
 			],
@@ -183,9 +153,7 @@ describe("registeredGuards", () => {
 		]);
 	});
 
-	/* mantahostels#2106: the exec form moves the distinguishing argument into `args`, so a
-	 * key read off `command` alone merges two registrations' fire tallies. */
-	it("hands each entry's args to the key, so an exec-form pair does not collapse", () => {
+	it("hands each entry's args to the key, so an exec-form pair does not collapse (mantahostels#2106)", () => {
 		const execForm = {
 			hooks: {
 				Stop: [
@@ -220,9 +188,7 @@ describe("registeredGuards", () => {
 		expect(registeredGuards(settings)[0].matcher).toBe("Bash");
 	});
 
-	// `if` holds one permission rule, so it is what tells one narrowing of a
-	// guard from another where the event and matcher are identical (mantahostels#2825).
-	it("carries each entry's own `if` through, not just the matcher", () => {
+	it("carries each entry's own `if` through, not just the matcher (mantahostels#2825)", () => {
 		const narrowed = {
 			hooks: {
 				PreToolUse: [
@@ -242,8 +208,7 @@ describe("registeredGuards", () => {
 	});
 });
 
-/* #940: a plugin's hooks live in its own hooks.json, not the host's settings. */
-describe("mergeHooks and keyOrigins", () => {
+describe("mergeHooks and keyOrigins (#940)", () => {
 	const hook = (script: string) => ({
 		matcher: "Bash",
 		hooks: [{ command: `"\${CLAUDE_PLUGIN_ROOT}"/scripts/${script}` }],
@@ -287,7 +252,6 @@ describe("needleIn", () => {
 	it("treats an array as an AND across all its members", () => {
 		const held = { text: ["is held by session", "which is still running."] };
 		expect(needleIn(DENY, held)).toBe(true);
-		// session-arbiter's CLI refusal shares the first clause and not the second.
 		expect(
 			needleIn(
 				"session-arbiter: docs/doc-map.md is held by session 735db33b, which `claude agents --json` still lists as live.",
@@ -296,14 +260,12 @@ describe("needleIn", () => {
 		).toBe(false);
 	});
 
-	/* #1759: lib/branch-publish.js's force-push deny reprints guard-pull-form.sh's
-	 * rewind fragment, so pull-form's needle excludes the frame only publish prints. */
 	const needle = {
 		text: "NEVER MOVE `main` BACKWARDS",
 		unless: ["force-pushes"],
 	};
 
-	it("matches a span carrying the text and none of the unless literals", () => {
+	it("matches a span carrying the text and none of the unless literals (#1759)", () => {
 		expect(
 			needleIn("This resets main.\n\nNEVER MOVE `main` BACKWARDS", needle),
 		).toBe(true);
@@ -435,12 +397,7 @@ describe("recordFires — the mention/fire split", () => {
 		expect(recordFires(catRecord, [candidate])).toHaveLength(1);
 	});
 
-	/*
-	 * mantahostels#2118: guard-branch.sh both DENIES a branch move and, on the clean branch,
-	 * injects the same rule fragment pre-emptively — and its deny reprints that
-	 * fragment in full.
-	 */
-	describe("a needle that narrows the subject's routes", () => {
+	describe("a needle that narrows the subject's routes (mantahostels#2118)", () => {
 		const fragment = "THE SHARED WORKING TREE STAYS ON `main`.";
 		const branch = {
 			id: "guard:guard-branch.sh",
@@ -747,9 +704,6 @@ describe("transcriptMatches — the regex route", () => {
 					blockingError: { blockingError: "BOOM refused", command: "x" },
 				},
 			});
-		// The harness writes the feedback, then the attachment it came from.
-		// Two firings echo; a lone feedback record and a lone attachment each
-		// count once.
 		const text = [
 			typed("u1", "Stop hook feedback:\nBOOM refused", { isMeta: true }),
 			block("h1"),
@@ -765,7 +719,6 @@ describe("transcriptMatches — the regex route", () => {
 				attachment: { type: "hook_additional_context", content: ["BOOM"] },
 			}),
 		].join("\n");
-		// u5 and the context attachment after it are two firings, not an echo.
 		expect(
 			transcriptMatches(text, /BOOM/, "main", { reads: "output" }),
 		).toHaveLength(6);
@@ -855,9 +808,7 @@ describe("tally", () => {
 		});
 	});
 
-	// One guard prints several rules, so a subject-wide `last` cannot say when
-	// any ONE of them last fired — what docs/doc-map.md §5's test asks (mantahostels#2118).
-	it("keeps a last fire per needle, not just per subject", () => {
+	it("keeps a last fire per needle, not just per subject (mantahostels#2118)", () => {
 		const rolled = tally([
 			{
 				subject: "g",
@@ -939,9 +890,6 @@ describe("readTranscriptFiles", () => {
 		fs.chmodSync(subDir, 0o000);
 		try {
 			const files = readTranscriptFiles(dir);
-			// EISDIR/EACCES surfaces as an entry pointing at the directory itself,
-			// which every caller's own readFileSync attempt reports as unreadable
-			// rather than silently dropping that session's whole subagent tier.
 			expect(files).toContainEqual({ file: subDir, tier: "subagent" });
 		} finally {
 			fs.chmodSync(subDir, 0o700);
@@ -961,7 +909,3 @@ describe("sessionKeyFor", () => {
 		expect(a).toBe(path.join("/x", "s1"));
 	});
 });
-
-/* The slug `transcriptDirs` spells its project directories with is
- * `project-slug.test.ts`'s, which asserts the rule across every caller at once
- * — the fault is divergence, and a per-caller suite cannot see it. */
