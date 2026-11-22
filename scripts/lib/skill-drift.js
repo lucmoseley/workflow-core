@@ -9,10 +9,9 @@
  * (#7) — this file is unclaimed, upgrade.js was not at the time #7 landed.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { readConfig, hostRoot } = require("./workflow-core-config.js");
-const { orFallback } = require("./caught.js");
+const { readText } = require("./file-read.js");
 
 /**
  * @typedef {object} SkillDrift
@@ -21,12 +20,6 @@ const { orFallback } = require("./caught.js");
  * @property {boolean} drifted whether the fork's bytes differ from the plugin's current copy
  * @property {string} [reason] set instead of comparing where either file is missing
  */
-
-/** @param {string} p */
-function readOrUndefined(p) {
-	// Missing or unreadable, the caller reports which.
-	return orFallback(() => fs.readFileSync(p, "utf8"), undefined);
-}
 
 /**
  * Every `overrides.skills` entry, checked against the plugin's shipped copy.
@@ -44,23 +37,35 @@ function skillDrift({ root = hostRoot(), pluginRoot }) {
 			name,
 			"SKILL.md",
 		);
-		const fork = readOrUndefined(forkPath);
-		const core = readOrUndefined(corePath);
-		if (fork === undefined)
-			return {
-				name,
-				recordedFrom,
-				drifted: false,
-				reason: `no fork at ${forkPath}`,
-			};
-		if (core === undefined)
-			return {
-				name,
-				recordedFrom,
-				drifted: false,
-				reason: `the plugin ships no "${name}" skill at ${corePath}`,
-			};
-		return { name, recordedFrom, drifted: fork !== core };
+		const fork = readText(forkPath);
+		const core = readText(corePath);
+		/** @param {string} reason @returns {SkillDrift} */
+		const buildNotCompared = (reason) => ({
+			name,
+			recordedFrom,
+			drifted: false,
+			reason,
+		});
+		/** @param {string} reason @returns {SkillDrift & { unreadable: true }} */
+		const buildUnreadable = (reason) => ({
+			...buildNotCompared(reason),
+			unreadable: true,
+		});
+		if (fork.state === "absent")
+			return buildNotCompared(`no fork at ${forkPath}`);
+		if (fork.state === "unreadable")
+			return buildUnreadable(
+				`the fork at ${forkPath} will not read: ${fork.message}`,
+			);
+		if (core.state === "absent")
+			return buildNotCompared(
+				`the plugin ships no "${name}" skill at ${corePath}`,
+			);
+		if (core.state === "unreadable")
+			return buildUnreadable(
+				`the plugin's "${name}" skill at ${corePath} will not read: ${core.message}`,
+			);
+		return { name, recordedFrom, drifted: fork.data !== core.data };
 	});
 }
 

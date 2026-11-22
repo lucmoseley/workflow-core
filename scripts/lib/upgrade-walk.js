@@ -358,10 +358,10 @@ function readPluginManifest(pluginRoot) {
  */
 function reportForkDrift({ root, pluginRoot, out }) {
 	ignoreFailure(() => {
-		for (const { name, recordedFrom, drifted, reason } of skillDrift({
-			root,
-			pluginRoot,
-		})) {
+		for (const drift of skillDrift({ root, pluginRoot })) {
+			const { name, recordedFrom, drifted, reason } = drift;
+			if ("unreadable" in drift)
+				out(`"${name}" is forked, but its drift goes unchecked: ${reason}`);
 			if (reason) continue;
 			if (drifted)
 				out(

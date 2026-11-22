@@ -8,7 +8,8 @@
  */
 
 const fs = require("node:fs");
-const { ignoreFailure, orFallback } = require("./caught.js");
+const { ignoreFailure } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { stampFile } = require("./delivery-stamp.js");
 const {
 	readSessionStartRoster,
@@ -287,7 +288,9 @@ function parkStamps(producers, reports = {}) {
 		const fromReport = Object.keys(reports[p.key]?.stamps ?? {});
 		for (const key of new Set([p.key, ...(p.stampKeys ?? []), ...fromReport])) {
 			const file = stampFile(key);
-			const text = orFallback(() => fs.readFileSync(file, "utf8"), null);
+			const read = readText(file);
+			if (read.state === "unreadable") continue;
+			const text = read.state === "read" ? read.data : null;
 			// Not cleared, the comparison reads the suppression instead.
 			ignoreFailure(() => {
 				fs.rmSync(file, { force: true });

@@ -49,11 +49,8 @@
  */
 
 const { runCheck } = require("./lib/check");
-const {
-	ignoreFailure,
-	orFallback,
-	parseErrorText,
-} = require("./lib/caught.js");
+const { ignoreFailure, parseErrorText } = require("./lib/caught.js");
+const { readText } = require("./lib/file-read.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
@@ -167,7 +164,8 @@ const SHOWN_STAMP = ".orphan-session-reaps-shown";
 function unseenSessionKills(canonical, log) {
 	if (canonical === null) return null;
 	const stamp = path.join(markersDir(canonical), SHOWN_STAMP);
-	const since = orFallback(() => fs.readFileSync(stamp, "utf8").trim(), "");
+	const shown = readText(stamp);
+	const since = shown.state === "read" ? shown.data.trim() : "";
 	let read;
 	try {
 		read = readJsonl(log);
