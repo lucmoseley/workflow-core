@@ -7944,6 +7944,8 @@
 			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/count-guard-fires.test.ts": [
+			"scripts/lib/code-edges.inventory.live.test.ts",
+			"scripts/lib/code-edges.live.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -8268,6 +8270,8 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/file-morning-review.test.ts": [
+			"scripts/lib/code-edges.inventory.live.test.ts",
+			"scripts/lib/code-edges.live.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -9351,6 +9355,8 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/guard-selection-sum.test.ts": [
+			"scripts/lib/code-edges.inventory.live.test.ts",
+			"scripts/lib/code-edges.live.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -9456,6 +9462,8 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/guard-uncommitted-work.test.ts": [
+			"scripts/lib/code-edges.inventory.live.test.ts",
+			"scripts/lib/code-edges.live.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -9514,6 +9522,8 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/hook-registrations.test.ts": [
+			"scripts/lib/code-edges.inventory.live.test.ts",
+			"scripts/lib/code-edges.live.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -59805,6 +59815,8 @@
 			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/lost-deny-rates.test.ts": [
+			"scripts/lib/code-edges.inventory.live.test.ts",
+			"scripts/lib/code-edges.live.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
