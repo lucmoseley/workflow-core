@@ -1690,7 +1690,7 @@ const TESTKIT = /-testkit\.[cm]?[jt]sx?$/;
 const forwardsImports = (p) => TESTKIT.test(p) && !isJsTestFile(p);
 
 /**
- * Walks on through a `*-testkit.*` helper's own imports, measured on #5575 against a two-hop walk through any helper.
+ * #5575
  * @param {string} t
  * @param {string} source
  * @param {Set<string>} tracked
