@@ -2512,7 +2512,7 @@ describe("Section B pointer shape", () => {
 		expect(r.out).toContain("B1 — pointer says 3 path(s)");
 	});
 
-	it("names the host's own sidecars in the templates, though the plugin ships them too (#5598)", () => {
+	it("names the host's own sidecars in the templates, though the plugin ships them too, the mover case pinning the core half (#5598)", () => {
 		const plugin = mkScratchDir("plugin-");
 		fs.mkdirSync(path.join(plugin, "docs"));
 		for (const f of [RESTATEMENTS, SUPERSEDED])

@@ -87,7 +87,7 @@ const CORE_PATH = /(?<![\w./$}-])(?:\.\/)?(scripts|docs)\/([\w*.-][\w*./-]*)/g;
 let hostOwned = null;
 
 /** @returns {Set<string>} */
-function hostOwnedPaths() {
+function readHostOwnedPaths() {
 	hostOwned ??= new Set(
 		fs
 			.readFileSync(path.join(__dirname, "host-owned-paths.txt"), "utf8")
@@ -106,7 +106,11 @@ function resolveScriptPaths(text) {
 	return text.replace(CORE_PATH, (whole, dir, rest) => {
 		const name = trimEndRun(rest, ".");
 		const file = `${coreRoot()}/${dir}/${name}`;
-		if (!name || hostOwnedPaths().has(`${dir}/${name}`) || !fs.existsSync(file))
+		if (
+			!name ||
+			readHostOwnedPaths().has(`${dir}/${name}`) ||
+			!fs.existsSync(file)
+		)
 			return whole;
 		return shellQuote(file) + rest.slice(name.length);
 	});
@@ -120,5 +124,4 @@ module.exports = {
 	corePath,
 	expandPastePaths,
 	resolveScriptPaths,
-	hostOwnedPaths,
 };

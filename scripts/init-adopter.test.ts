@@ -36,7 +36,6 @@ import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
 import { initPaths } from "./lib/init-adopter-core.js";
 import { installPathFor } from "./lib/plugin-state.js";
 import { runInProcess } from "./lib/run-in-process.js";
-import { hostOwnedPaths } from "./lib/script-path.js";
 import { MODULES } from "./lib/workflow-core-config.js";
 
 function fakeClaude(fake: PluginFake = {}) {
@@ -2198,7 +2197,11 @@ describe("the skeleton pathspec", () => {
 		const own = initPaths([...MODULES], []).filter((p: string) =>
 			/^(docs|scripts)\//.test(p),
 		);
-		expect([...hostOwnedPaths()].sort()).toEqual(own.sort());
+		const listed = fs
+			.readFileSync(path.join(__dirname, "lib/host-owned-paths.txt"), "utf8")
+			.split("\n")
+			.filter(Boolean);
+		expect(listed.sort()).toEqual(own.sort());
 	});
 
 	it("takes a new core-owned entry's paths with no other edit (#1540)", () => {
