@@ -8,9 +8,9 @@ const { keptSpawn } =
 	require("./kept-spawn.js") as typeof import("./kept-spawn");
 
 const EVERY_SPAN = /[\s\S]/;
-/* measured: quadratic before, ~11 min at this size; ~26 ms now (#5559) */
+/* measured: ~26 ms (#5559) */
 const QUOTES = 300_000;
-/* guess: 400x the scanner's time, far under the old form's (#5559) */
+/* guess: 400x the scanner's time (#5559) */
 const SCAN_LIMIT_MS = 10_000;
 const spans = (line: string) =>
 	maskMentions(line, EVERY_SPAN)
