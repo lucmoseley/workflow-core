@@ -6,7 +6,7 @@ import { afterEach, beforeEach } from "vitest";
 import { ledgerHead } from "./arbiter-testkit";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
 import { runInProcess } from "./run-in-process.js";
-import { withStubbedEnv } from "./scoped-env";
+import { withStubbedEnv } from "./scoped-env-testkit";
 
 export const BACKSTOP = path.resolve(__dirname, "..", "concision-backstop.sh");
 const ARBITER = path.resolve(__dirname, "..", "session-arbiter.js");

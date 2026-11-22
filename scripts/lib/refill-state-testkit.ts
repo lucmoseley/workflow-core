@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { REFILL_STATE_FILE } from "./refill-dir.js";
 import { type LoopState, readState } from "./refill-state.js";
-import { withStubbedEnv } from "./scoped-env";
+import { withStubbedEnv } from "./scoped-env-testkit";
 
 export function loopStateOf(
 	raw: unknown,
