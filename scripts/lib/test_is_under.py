@@ -1,9 +1,3 @@
-"""`relative_under`'s edge spellings (#5374), the contract of `relativeUnder`
-in `is-under.js`. In-process calls on literal paths, no I/O; the drive case
-swaps the module's `os` for Windows spelling, the one host difference no
-Linux run reaches. A break here mis-answers every §LG3 containment test
-Python code makes."""
-
 import ntpath
 import sys
 from pathlib import Path

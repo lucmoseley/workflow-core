@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/walk-command.js spells the in-session walk for where the core runs
- * (#5286). Loosened, an adopter is told `node scripts/upgrade.js`, a path its
- * checkout does not carry.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

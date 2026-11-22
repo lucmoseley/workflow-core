@@ -1,11 +1,3 @@
-/*
- * The fake of `claude -p "/usage"`: the bar lines it prints and the seat
- * cache it rewrites, as the installed harness's recording
- * (scripts/fixtures/usage-probe.json, re-recorded by `node
- * scripts/record-claude-responses.js`) holds them, with a case's own
- * percents (#3266).
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { SESSION_PREFIX, type SessionBar } from "./session-bar-carry.js";
@@ -20,7 +12,6 @@ interface Limit {
 
 export const recorded: {
 	harness: string;
-	/** How long after the probe's start the seat's cache stamp moved. */
 	refreshedAfterMs: number;
 	printed: string[];
 	cache: {
@@ -28,8 +19,6 @@ export const recorded: {
 		accountUuid: string;
 		utilization: { limits: Limit[] };
 	};
-	/** The session bar an earlier harness recorded, kept when this probe's
-	 * seat listed none (lib/session-bar-carry.js). */
 	sessionBar?: SessionBar & { limit: Limit };
 } = JSON.parse(
 	fs.readFileSync(
@@ -38,8 +27,6 @@ export const recorded: {
 	),
 );
 
-/** The printed lines and cached limits the fake builds from, a carried
- * session bar among them. */
 export const printedLines = [
 	...recorded.printed,
 	...(recorded.sessionBar ? [recorded.sessionBar.printed] : []),
@@ -49,11 +36,8 @@ export const recordedLimits = [
 	...(recorded.sessionBar ? [recorded.sessionBar.limit] : []),
 ];
 
-/** A bar's percent; a string lets a case print one no parse reads. */
 type Percent = number | string;
 
-/** The two bars lib/allowance.js reads; an absent one is neither printed
- * nor cached. */
 export interface Bars {
 	session?: Percent;
 	week?: Percent;
@@ -68,7 +52,6 @@ const PREFIX: Record<Kind, string> = {
 
 const USED = /(?<![0-9])[0-9]+% used/;
 
-/** The recorded line of `kind`'s bar, reading `percent`. */
 function printedLine(kind: Kind, percent: Percent): string {
 	const line = printedLines.find((l) => l.startsWith(PREFIX[kind]));
 	if (!line)
@@ -76,13 +59,11 @@ function printedLine(kind: Kind, percent: Percent): string {
 	return line.replace(USED, `${percent}% used`);
 }
 
-/** The reset time each printed bar names, as a refusal quotes it. */
 export const printedResets = {
 	session: printedLine("session", 0).replace(/^.*resets /, ""),
 	week: printedLine("weekly_all", 0).replace(/^.*resets /, ""),
 };
 
-/** The bars `bars` gives, keyed by the kind the harness names them. */
 const byKind = (bars: Bars): [Kind, Percent][] =>
 	(
 		[
@@ -91,7 +72,6 @@ const byKind = (bars: Bars): [Kind, Percent][] =>
 		] as const
 	).filter((e): e is [Kind, Percent] => e[1] !== undefined);
 
-/** What the probe prints, as far as lib/allowance.js reads it. */
 export function buildUsageText(bars: Bars): string {
 	return byKind(bars)
 		.map(([kind, percent]) => `${printedLine(kind, percent)}\n`)
@@ -102,14 +82,11 @@ export function buildUsageBranch(bars: Bars): string {
 	return `printf '%s' ${shellQuote(buildUsageText(bars))}`;
 }
 
-/* Each bar's window, so a written bar resets after its stamp; any offset
- * longer than a case runs would do. */
 const WINDOW_MS: Record<Kind, number> = {
 	session: 5 * 60 * 60 * 1000,
 	weekly_all: 7 * 24 * 60 * 60 * 1000,
 };
 
-/** The recording's cached bar of `kind`. */
 export function recordedLimit(kind: string): Limit {
 	const limit = recordedLimits.find((l) => l.kind === kind);
 	if (!limit) throw new Error(`${recorded.harness} cached no "${kind}" bar`);
@@ -130,8 +107,6 @@ function limitOf(
 	};
 }
 
-/** One `weekly_scoped` bar: a model's own weekly allowance, which
- * lib/seat-utilisation.js reads (#304, #3282). */
 export interface ScopedBar {
 	model: string;
 	percent: number;
@@ -139,8 +114,6 @@ export interface ScopedBar {
 	severity?: string;
 }
 
-/** The recorded `weekly_scoped` bar, renamed to `bar`'s model and reading
- * its percent; its severity is the recorded one unless `bar` names one. */
 function scopedLimitOf(bar: ScopedBar): Limit {
 	const limit = recordedLimit("weekly_scoped");
 	const scope = limit.scope as { model?: Record<string, unknown> } | null;
@@ -161,8 +134,6 @@ export interface CacheOptions {
 	scoped?: ScopedBar[];
 }
 
-/** A seat's `.claude.json`, holding a usage cache stamped `fetchedAtMs` with
- * the bars given. */
 export function buildUsageCache(
 	bars: Bars,
 	fetchedAtMs: number,
@@ -189,8 +160,6 @@ export function buildUsageCache(
 	};
 }
 
-/** A bash stub line writing `buildUsageCache(bars)` to `target`, a bash word,
- * stamped when it runs, as the probe's refresh does. */
 export function buildRefreshLine(bars: Bars, target: string): string {
 	const now = Date.now();
 	const [head, tail] = JSON.stringify(buildUsageCache(bars, now)).split(

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/strip-comments.js's contract: comments go, literals stay whole, and the
- * scan's literals are the outermost ones, whatever a regex literal or a
- * template placeholder holds (#3001). Its callers judge code by what is left:
- * a comment read as code reports a flag nobody reads in check-cli-args.js,
- * and a literal cut short hides a core's refusal from the REPRINTED check.
- */
 
 import { describe, expect, it } from "vitest";
 import {
@@ -60,8 +53,7 @@ describe("blankComments", () => {
 
 describe("blankInert", () => {
 	it("blanks comments, strings, templates and regex literals, keeping offsets and line breaks", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-		const source = 'f("x", `a\n${b}`, /c/); // d\ng()';
+		const source = `f("x", \`a\n\${b}\`, /c/); // d\ng()`;
 		const out = blankInert(source);
 		expect(out).toBe("f(   ,   \n     ,    );     \ng()");
 		expect(out).toHaveLength(source.length);
@@ -70,11 +62,9 @@ describe("blankInert", () => {
 
 describe("scanJs", () => {
 	it("returns a template whole, the literals in its placeholders inside it", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-		const source = 'f(`a ${b ? `x${"y"}` : "z"} c`, "d")';
+		const source = `f(\`a \${b ? \`x\${"y"}\` : "z"} c\`, "d")`;
 		expect(scanJs(source).literals.map((l) => l.raw)).toEqual([
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-			'`a ${b ? `x${"y"}` : "z"} c`',
+			`\`a \${b ? \`x\${"y"}\` : "z"} c\``,
 			'"d"',
 		]);
 	});
@@ -87,16 +77,9 @@ describe("scanJs", () => {
 	});
 
 	it("lists the stretches that are not code once each, a template whole and an unclosed one to the end (#3667)", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-		const source = 'a(/x/g, `${/* c */ "y"}`) // z\n`open';
+		const source = `a(/x/g, \`\${/* c */ "y"}\`) // z\n\`open`;
 		expect(
 			scanJs(source).inert.map(([start, end]) => source.slice(start, end)),
-		).toEqual([
-			"/x/g",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-			'`${/* c */ "y"}`',
-			"// z",
-			"`open",
-		]);
+		).toEqual(["/x/g", `\`\${/* c */ "y"}\``, "// z", "`open"]);
 	});
 });

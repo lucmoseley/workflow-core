@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the per-issue write-set cache: an entry keyed on the issue body alone,
- * a malformed store read as a miss, promotion, pruning, and a provisional
- * entry never counted as a band read (mantahostels#385, mantahostels#1001).
- *
- * Exercised against a throwaway root: pointing it at this repo would write the
- * real cache.
- *
- * Breaking it costs `/pick-next` either a stale write-set, so it pairs issues
- * that collide on a file, or a cold cache that re-buys every band read.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -30,11 +19,9 @@ const {
 
 let root: string;
 
-/** `readTrackedFiles()`'s shape, as pick-next.js passes it in. */
 const tracked = (files: string[]) => ({ ok: true, files });
 const trackedFailed = { ok: false, error: "git ls-files: not a repository" };
 
-/** Writes an entry the way the CLI does. */
 const put = (
 	issue: number,
 	body: string,
@@ -74,8 +61,6 @@ describe("the staleness key", () => {
 	});
 
 	it("flattens a task-list tick and leaves an [x](url) link alone", () => {
-		// Unanchored, the same pattern rewrites the link, so two bodies differing
-		// only there would collide.
 		expect(bodyHash("* [X] one")).toBe(bodyHash("* [ ] one"));
 		expect(bodyHash("see [x](http://u) inline")).not.toBe(
 			bodyHash("see [ ](http://u) inline"),
@@ -100,8 +85,6 @@ describe("the store", () => {
 	});
 
 	it("overwrites in place, so two sessions deriving the same body agree", () => {
-		// A per-issue entry is a pure function of the body, so last-writer-wins
-		// loses nothing.
 		put(7, "a body", { gist: "first" });
 		put(7, "a body", { gist: "second" });
 		expect(readEntry(root, 7).gist).toBe("second");
@@ -247,8 +230,6 @@ describe("lookup", () => {
 	});
 
 	it("keeps an entry predicting a file the issue has yet to create", () => {
-		// Untracked at derive time means "this issue makes it", not "renamed":
-		// promoting such a path would read it as renamed away on every later run.
 		put(7, "a body", {
 			writeSet: ["scripts/not-yet.js"],
 			trackedAtDerive: [],
@@ -276,7 +257,6 @@ describe("lookup", () => {
 	});
 
 	it("promotes nothing when git could not list the tree", () => {
-		// An absent listing is not evidence a file was created.
 		put(7, "a body", { writeSet: ["scripts/new.js"], trackedAtDerive: [] });
 		expect(
 			lookup(root, issue(7, "a body"), trackedFailed).promotable,
@@ -284,8 +264,6 @@ describe("lookup", () => {
 	});
 
 	it("serves the entry flagged when git could not list the tree", () => {
-		// A prediction is advisory, so a stale path costs a wrong hint; re-deriving
-		// costs the band read minutes, on a run that is already degraded.
 		put(7, "a body", {
 			writeSet: ["scripts/a.js"],
 			trackedAtDerive: ["scripts/a.js"],
@@ -399,8 +377,6 @@ describe("promotion of a path created after derive time", () => {
 	});
 
 	it("serves the entry, unpromoted, when the store cannot be written", () => {
-		// Reporting a promotion the store does not hold would have the caller
-		// believe a rename check covers a path it does not.
 		put(7, "a body", { writeSet: ["scripts/new.js"], trackedAtDerive: [] });
 		fs.chmodSync(cacheDir(root), 0o500);
 		try {
@@ -417,11 +393,6 @@ describe("promotion of a path created after derive time", () => {
 	});
 
 	it("does not write over an entry a neighbour re-derived meanwhile", () => {
-		// The snapshot in hand is keyed on the old body, so writing it back would
-		// throw away the band read the neighbour just paid for. The neighbour's
-		// store lands between this run's lookup and its promotion: the second
-		// read of the entry. No real seam reaches that gap, which only a second
-		// process racing this one opens.
 		put(7, "a body", { writeSet: ["scripts/new.js"], trackedAtDerive: [] });
 		const file = path.join(cacheDir(root), "7.json");
 		const realRead = fs.readFileSync;
@@ -504,7 +475,6 @@ describe("prune", () => {
 	});
 
 	it("prunes nothing when the open list is empty, which is a failed query", () => {
-		// Emptying the cache on one would throw away every warm entry.
 		put(1, "one");
 		expect(prune(root, []).removed).toEqual([]);
 		expect(readEntry(root, 1)).not.toBeNull();
@@ -514,19 +484,16 @@ describe("prune", () => {
 describe("a caller passing the wrong shape", () => {
 	it("degrades to cold rather than throwing at the caller", () => {
 		put(1, "one", { writeSet: ["a.js"], trackedAtDerive: ["a.js"] });
-		const r = lookupAll(
-			root,
-			[{ number: 1, body: "one" }],
-			// `ok` with no `files`.
-			{ ok: true } as { ok: boolean; files: string[] },
-		);
+		const r = lookupAll(root, [{ number: 1, body: "one" }], { ok: true } as {
+			ok: boolean;
+			files: string[];
+		});
 		expect(r.warm).toEqual([]);
 		expect(r.cold.map((c: { number: number }) => c.number)).toEqual([1]);
 	});
 });
 
 describe("counting the puts since an instant", () => {
-	/** Backdates an entry the way a put minutes ago would have left it. */
 	const putAt = (issue: number, derivedAt: string) => {
 		put(issue, `body ${issue}`);
 		const file = path.join(cacheDir(root), `${issue}.json`);
@@ -585,7 +552,6 @@ describe("the provisional flag (mantahostels#1001)", () => {
 	});
 
 	it("rejects an entry whose flag is not a boolean, rather than guessing", () => {
-		// Guessing either way hides a prediction or discards a band read.
 		put(1, "one");
 		const file = path.join(cacheDir(root), "1.json");
 		const e = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -615,11 +581,6 @@ describe("the provisional flag (mantahostels#1001)", () => {
 	});
 
 	it("keeps a provisional entry out of the band-read count (mantahostels#667)", () => {
-		/*
-		 * Selection writes a provisional entry for every miss on every run, so
-		 * counting one would make `putsSinceLastRun` non-zero on every line and
-		 * tell the duplicate collapse a band read ran in every gap.
-		 */
 		put(1, "one");
 		put(2, "two", { provisional: true });
 		expect(countDerivedSince(root, "2026-08-19T08:00:00.000Z")).toEqual({

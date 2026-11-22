@@ -1,10 +1,3 @@
-/*
- * suite-ladder.js — docs/environment.md §6's suite-concurrency ladder and the
- * reading of the suites `ps` shows running: one copy, for lib/admission.js and
- * lib/suite-concurrency.js, the guard. Kept apart from admission.js, which
- * costs a hook ~65 ms to load.
- */
-
 const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { requiredGroup } = require("./regex-group.js");
@@ -15,53 +8,25 @@ const {
 	vitestLineWeigh,
 } = require("./suite-bounded.js");
 
-/* Above earlyoom's kill line, ruled at #2221: the suite gate's margin, fitted,
- * not measured (mantahostels#463). */
+// #2221 guess
 const DRAW_MARGIN_MB = 300;
 
-/*
- * earlyoom's kill line: 8% free of the 10 GB cap, ≈ 794 MiB (docs/environment.md
- * §3). Admission keeps it, and DRAW_MARGIN_MB above it, free (#337, #2221).
- */
+// #2221
 const EARLYOOM_FLOOR_MB = 794;
 
-/*
- * Concurrent test suites, owned by `docs/environment.md` §6. THE LADDER IS THE
- * WHOLE RULE — there is no flat allowance above it.
- *
- * A rung is rungMb of the dip that many vitest workers make. SUITE_DIP_MB is
- * §6's dip at 0-3 suites of LADDER_SUITE_WORKERS workers each, the count the
- * bench runs them at; w workers sit w/LADDER_SUITE_WORKERS of the way to the
- * next suite's dip. Each is a LOWER BOUND (#2862): see
- * SUITE_LADDER_MEASURED_AT. SUITE_MAX is the most suites measured
- * (mantahostels#462, mantahostels#954); past it each worker adds the one-suite
- * dip's share of one worker — EXTRAPOLATED.
- */
+// #2862
 const SUITE_MAX = 3;
-/*
- * How many whole suites run at once, machine-wide: one (#2680). The queue's
- * turn and the guard's count cap both stop at it; SUITE_MAX stays the ladder's
- * top, pricing memory rungs and session admission.
- */
+// #2680
 const WHOLE_SUITE_MAX = 1;
 const LADDER_SUITE_WORKERS = 3;
+// lucmoseley/mantahostels#462 measured lower bounds at 0-3 suites of LADDER_SUITE_WORKERS workers
 const SUITE_DIP_MB = [0, 1582, 2550, 3576];
 
-/**
- * The memory rung for a workload that draws `chargeMb`: EARLYOOM_FLOOR_MB +
- * the draw + DRAW_MARGIN_MB, rounded up to the next 50 MB (#2558).
- * @param {number} chargeMb
- */
+/** @param {number} chargeMb */
 const rungMb = (chargeMb) =>
 	Math.ceil((EARLYOOM_FLOOR_MB + chargeMb + DRAW_MARGIN_MB) / 50) * 50;
 
 /**
- * A rung as this machine can meet it (#5310): never above MemTotal less
- * EARLYOOM_FLOOR_MB, the most MemAvailable can ever read with earlyoom's line
- * kept. A rung past that is clamped to it, `ladderMb` keeping the rung as
- * priced. Residual: a run priced past the ceiling launches on less MemAvailable than
- * its rung asks, where what the rung counted as running still draws; and an
- * unread MemTotal clamps nothing, the rung waited on as priced.
  * @typedef {{ rungMb: number, ladderMb?: number }} Reach
  * @param {number} rung
  * @param {number | null} totalMb
@@ -75,20 +40,13 @@ function reachableRung(rung, totalMb) {
 		: { rungMb: rung };
 }
 
-/**
- * What a clamped rung's reading adds (#5310).
- * @param {number | undefined} ladderMb
- */
+/** @param {number | undefined} ladderMb */
 const clampedClause = (ladderMb) =>
 	ladderMb === undefined
 		? ""
 		: ` (clamped from ~${ladderMb} MB, out of the machine's reach: past MemTotal less earlyoom's line)`;
 
-/**
- * MB of available that must be resting before `workers` concurrent vitest
- * workers run.
- * @param {number} workers
- */
+/** @param {number} workers */
 function suiteRungMb(workers) {
 	const dipAt = (/** @type {number} */ suites) => {
 		const mb = SUITE_DIP_MB[suites];
@@ -119,18 +77,6 @@ const SUITE_RESTING_MB = {
 };
 const SUITE_GATE_MB = SUITE_RESTING_MB[SUITE_MAX];
 
-/*
- * The suite the ladder above was measured on — its fourth invalidating
- * variable, beside vitest's `maxWorkers`, the 2048 MB heap and the core count
- * (mantahostels#954).
- *
- * `lowerBound` marks dips read off suites the `ceilingS` ceiling cut short
- * (#4606): on the 818-file suite each reached `reachedMin`–`reachedMax` files, so a rung is a floor
- * under the whole suite's.
- *
- * `scripts/check-suite-size-drift.js` reads it, warning when the live suite has
- * drifted from a whole-suite ladder. MOVE IT ONLY WITH A RE-MEASUREMENT.
- */
 const SUITE_LADDER_MEASURED_AT = {
 	files: 818,
 	lowerBound: {
@@ -142,20 +88,8 @@ const SUITE_LADDER_MEASURED_AT = {
 	date: "3 Nov 2026",
 };
 
-/* A `vitest list` is no suite (#1180): it is run-vitest.js's selection probe
- * and runs no tests. Only `list` first after the binary: a later one may be a
- * `-t list` filter on a real run. */
 const VITEST_LIST = /[.]bin\/vitest list( |$)/;
 
-/*
- * A line whose argv[0] is a shell or one of shell-words.js's `unwrap`
- * wrappers (#1127): the Bash tool's own `bash -c …` line and a `timeout 300
- * node_modules/.bin/vitest run` line both carry `.bin/vitest`, so one run
- * would read as three. That costs no under-count: an exec'ing wrapper
- * (`nohup`, `env`) leaves no line of its own, and a forking one (`timeout`,
- * `sudo`) leaves the runner's. A shell or wrapper off the list (`fish`,
- * `flock`, `taskset`) still adds a line.
- */
 const WRAPPER_ARGV0 =
 	/^ *-?([^ ]*\/)?(bash|sh|dash|zsh|nohup|setsid|env|timeout|time|command|stdbuf|nice|ionice|xargs|sudo)( |$)/;
 
@@ -178,24 +112,13 @@ const WRAPPER_ARGV0 =
  */
 const VITEST_RUNNER = /[.]bin\/vitest( |$)/;
 
-/**
- * Whether a `ps` line is a vitest run's runner, one per run.
- * @param {string} line
- */
+/** @param {string} line */
 const isVitestRunnerLine = (line) =>
 	VITEST_RUNNER.test(line) &&
 	!WRAPPER_ARGV0.test(line) &&
 	!VITEST_LIST.test(line);
 
-/**
- * Whether a `ps` line is a `next <sub>` runner: the binary's path, so npm's `sh
- * -c next build` and a line merely quoting the words are not counted. A build
- * also counts by the `next-build (v…)` title it sets on itself; a dev server's
- * parent keeps its path for its life, and the `next-server (v…)` title its
- * child takes is `next start`'s too, so it is not read.
- * @param {"build" | "dev"} sub
- * @param {string} line
- */
+/** @param {"build" | "dev"} sub @param {string} line */
 function isNextRunnerLine(sub, line) {
 	const title = sub === "build" ? "^ *next-build \\(v|" : "";
 	return (
@@ -206,48 +129,21 @@ function isNextRunnerLine(sub, line) {
 
 /**
  * @typedef {object} Running
- * @property {number} total the runs going
- * @property {number} watchers how many of them are vitest watchers
- * @property {number} whole how many are whole suites
- * @property {number} workers the vitest workers they can occupy between them
+ * @property {number} total
+ * @property {number} watchers
+ * @property {number} whole
+ * @property {number} workers
  */
 
-/**
- * One `ps -eo pid=,args=` line: its pid, null on a line that opens with none,
- * and its args.
- * @typedef {{ pid: number | null, args: string }} PsRow
- */
+/** @typedef {{ pid: number | null, args: string }} PsRow */
 
 /**
- * The live gate seats as the count reads them: how many are running, whether
- * a process runs inside one, and why the queue would not read, null where it
- * did. An unread queue counts no seat, so every runner is counted as itself.
  * @typedef {{ count: number, part: number, under: (pid: number | null) => boolean, unread: string | null }} GateSeats
  */
 /** @type {GateSeats} */
 const NO_SEATS = { count: 0, part: 0, under: () => false, unread: null };
 
 /**
- * The test runs a `ps` listing shows (mantahostels#1906, #2560). A vitest run
- * weighs what `carriedOf` reads for its pid, the weight its launch record
- * carries (#2931), else the workers its runner line names, as a launch does
- * (#2559); a watcher, which holds a rung for as long as it is open
- * (mantahostels#1927), weighs a whole suite. Only a whole run counts toward
- * WHOLE_SUITE_MAX; a part-suite adds to the memory rung alone. Residual: `ps`
- * drops the quoting, so an unrecorded run's `-t "a b"` value's second word
- * reads as a filter and the run as whole.
- *
- * `isOther` counts a line as a whole one-shot of a non-vitest runner
- * (#330); admission's reap counts vitest alone, the under-count only ever
- * pointing it at a lower rung (#627).
- *
- * A GATE SEAT COUNTS AS ONE SUITE, however many runners its command starts
- * (#5274): `seats.count` whole seats, each a whole suite's workers, and
- * `seats.part` short ones, part-suites whose memory admission holds off their
- * own charge (#5450); a runner `seats.under` places inside one is not counted
- * again (lib/gate-seat.js).
- *
- * An EMPTY listing counts as zero: `readPs` rejects an empty or failed read.
  * @param {PsRow[]} rows
  * @param {(words: string[]) => boolean} [isOther]
  * @param {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} [carriedOf]
@@ -279,10 +175,6 @@ function runningSuites(
 }
 
 /**
- * One `ps` row's suite, or null where it runs none: a vitest runner weighed
- * by its line and launch record, or a non-vitest runner, a part-suite where
- * it names its test files (#5274) and whole otherwise, charged a whole
- * suite's workers either way.
  * @param {string} line
  * @param {number | null} pid
  * @param {((words: string[]) => boolean) | undefined} isOther
@@ -303,20 +195,13 @@ function rowWeigh(line, pid, isOther, carriedOf) {
 	};
 }
 
-/**
- * The weight process `pid`'s launch record carries, off WFC_PROC's
- * `<pid>/environ` (#2931).
- * @param {number | null} pid
- */
+/** @param {number | null} pid */
 const readCarriedWeightOf = (pid) =>
 	require("./suite-handoff.js").readCarriedWeight(pid);
 
 const PS_PID_LINE = /^\s*(\d+)\s(.*)$/;
 
-/**
- * @param {string} text a `ps -eo pid=,args=` listing
- * @returns {PsRow[]}
- */
+/** @param {string} text @returns {PsRow[]} */
 function parsePsRows(text) {
 	return text.split("\n").map((line) => {
 		const m = PS_PID_LINE.exec(line);
@@ -329,17 +214,10 @@ function parsePsRows(text) {
 	});
 }
 
-/* A hung `ps` would otherwise hold the suite it runs ahead of. Its 5 s is a
- * guess, never measured. */
 const PS_TIMEOUT_MS = 5000;
 const PS_BIN = () => process.env.WFC_PS || "ps";
 
-/**
- * `ps -eo pid=,args=` at WFC_PS, the one read admission and the suite guard
- * count by. A listing of no process at all, itself included, is broken, not
- * idle.
- * @returns {{ ok: true, rows: PsRow[] } | { ok: false, error: string }}
- */
+/** @returns {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} */
 function readPs() {
 	const r = spawnSync(PS_BIN(), ["-eo", "pid=,args="], {
 		encoding: "utf8",

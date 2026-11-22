@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/subagent-payload.js, and the shell face name-issue-session.sh sources, on
- * one table: every row asks both, so the routes never answer a payload apart
- * (#1785).
- */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

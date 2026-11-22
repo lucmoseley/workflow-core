@@ -1,56 +1,38 @@
-/*
- * wsl-disk.js — the core of the monthly WSL disk compaction (#5044): reads
- * win-interop-watchdog/compact-disk.ps1's log, judges when a run is due and
- * when a quiet one should warn, judges the guest's fill against its virtual
- * disk (#5430), judges the sparse watch, and runs one compaction start. Every read and effect is a port.
- */
-
 const { compareVersions } = require("./compare-versions.js");
 const { docPath, scriptPath } = require("./script-path.js");
 
 const DAY_MS = 86_400_000;
 
-/** Untraced: the ruling's "monthly" (#5041 Q1). */
+// #5041 guess: the ruling's "monthly"
 const DUE_DAYS = 30;
 
-/** The ticket's figure (#5044): a month and a few days' grace for a deferral. */
+// #5044 guess: a month and a few days' grace for a deferral
 const STALE_DAYS = 35;
 
-/*
- * Untraced: about 8% of this laptop's 476 GB C:. The VM died at 7.7 GB free
- * (#5041), and rebuild-disk.ps1 stops at 15 GB.
- */
+// #5041 guess: about 8% of a 476 GB C:; the VM died at 7.7 GB free
 const LOW_FREE_GB = 40;
 
-/*
- * Untraced (#5430): past this share of the virtual disk, the guest is near
- * ENOSPC. rebuild-disk.ps1's $fullShare is the same figure.
- */
+// #5430 guess, shared with rebuild-disk.ps1's $fullShare
 const GUEST_FULL_SHARE = 0.85;
 
-/** The ticket's figure (#5044): two missed weekly fstrim.timer runs. */
+// #5044 guess: two missed weekly fstrim.timer runs
 const TRIM_STALE_DAYS = 14;
 
-/** Untraced: one listing read a poll, a few minutes apart. */
+// #5044 guess
 const POLL_MS = 5 * 60_000;
 
-/** Untraced: the timer fires at 02:00, so a wait ends by morning. */
+// #5044 guess: the timer fires at 02:00, so a wait ends by morning
 const MAX_WAIT_MS = 6 * 3_600_000;
 
-/** Untraced: a listing that reads empty once may be a thin read, never twice. */
+// #5044 guess: one empty listing may be a thin read
 const ZERO_READINGS = 2;
 
-/** A run's own result, which the WSL side's `trimfailed` and `watched` lines are not. */
 const RUN_RESULTS = new Set(["ok", "failed", "deferred", "registered"]);
 
-/*
- * microsoft/WSL issues on sparse safety (#5041's research): #41837 is the
- * one whose fix the ruling waits on; the other two are watched for a fix.
- */
 const WATCHED_ISSUES = /** @type {const} */ ([41_837, 42_179, 10_609]);
 const BLOCKING_ISSUE = 41_837;
 
-/** Untraced: enough of a release's sparse lines for the ticket to quote. */
+// #5044 guess
 const QUOTED_LINES = 5;
 
 const RUN_AGAIN = `\`node ${scriptPath("wsl-disk-compaction.js")} run --now\``;
@@ -73,12 +55,7 @@ const LOG_REMEDY = `read %LOCALAPPDATA%\\wsl-compact.log and \`journalctl --user
  */
 const isFailed = (v) => typeof v === "object" && v !== null && "why" in v;
 
-/**
- * The log's lines, oldest first: `<local ISO time> <result> key=value…`.
- * A line that does not parse is skipped.
- * @param {string} text
- * @returns {Entry[]}
- */
+/** @param {string} text @returns {Entry[]} */
 function parseLog(text) {
 	/** @type {Entry[]} */
 	const entries = [];
@@ -99,32 +76,20 @@ function parseLog(text) {
 	return entries;
 }
 
-/**
- * The newest `ok`, or the `registered` line the count starts from.
- * @param {Entry[]} entries
- * @returns {Entry | null}
- */
+/** @param {Entry[]} entries @returns {Entry | null} */
 function lastSuccess(entries) {
 	return (
 		entries.findLast((e) => ["ok", "registered"].includes(e.result)) ?? null
 	);
 }
 
-/**
- * Whether a run is due: DUE_DAYS since the last success, or none on record.
- * @param {Entry[]} entries
- * @param {number} now
- */
+/** @param {Entry[]} entries @param {number} now */
 function isDue(entries, now) {
 	const last = lastSuccess(entries);
 	return last === null || now - last.at >= DUE_DAYS * DAY_MS;
 }
 
-/**
- * A WSL-side line in the ps1's shape, local time.
- * @param {number} at
- * @param {string} rest
- */
+/** @param {number} at @param {string} rest */
 function buildLogLine(at, rest) {
 	const d = new Date(at);
 	const p = (/** @type {number} */ n) => String(n).padStart(2, "0");
@@ -134,11 +99,7 @@ function buildLogLine(at, rest) {
 /** @param {string} text */
 const asField = (text) => text.replace(/\s+/g, "_");
 
-/**
- * The warnings a read log's entries carry.
- * @param {Entry[]} entries
- * @param {number} now
- */
+/** @param {Entry[]} entries @param {number} now */
 function entryWarnings(entries, now) {
 	const warnings = [];
 	const last = lastSuccess(entries);
@@ -174,11 +135,7 @@ function entryWarnings(entries, now) {
 }
 
 /**
- * fstrim.timer's warning: it keeps the disk's free blocks known between
- * compactions, and the stock unit never fires under WSL.
  * @param {{last: number | null | Failed, fixedAt: number | null}} trim
- *   last: its last firing, null where it never has; fixedAt: when
- *   install-fstrim-wsl.sh wrote its drop-in, null where it has not
  * @param {number} now
  */
 function trimWarnings({ last, fixedAt }, now) {
@@ -189,7 +146,6 @@ function trimWarnings({ last, fixedAt }, now) {
 				line: `fstrim.timer's last run would not read: ${last.why}.`,
 			},
 		];
-	// A timer that has not fired yet since its fix counts from the fix.
 	const since = last ?? fixedAt;
 	if (since !== null && now - since <= TRIM_STALE_DAYS * DAY_MS) return [];
 	const days = (/** @type {number} */ at) => Math.floor((now - at) / DAY_MS);
@@ -206,7 +162,6 @@ function trimWarnings({ last, fixedAt }, now) {
 }
 
 /**
- * The guest root's fill against its virtual disk (#5430).
  * @param {GuestDisk | Failed} guest
  * @returns {{shown: string, warnings: {tag: string, line: string}[]}}
  */
@@ -237,11 +192,9 @@ function guestWarnings(guest) {
 }
 
 /**
- * The status check's verdict.
  * @param {{log: LogRead, now: number, freeGB: number | Failed,
  *   guest: GuestDisk | Failed,
  *   trim: {last: number | null | Failed, fixedAt: number | null}}} input
- *   trim: fstrim.timer's, as trimWarnings takes it
  * @returns {{warnings: {tag: string, line: string}[], okLine: string}}
  */
 function judgeDisk({ log, now, freeGB, guest, trim }) {
@@ -281,12 +234,7 @@ function judgeDisk({ log, now, freeGB, guest, trim }) {
 	return { warnings, okLine: `${shown}${free}${disk.shown}` };
 }
 
-/**
- * A watched issue's trigger: #41837 closed for any reason, another closed as
- * completed.
- * @param {IssueRow} i
- * @returns {Trigger[]}
- */
+/** @param {IssueRow} i @returns {Trigger[]} */
 function issueTrigger(i) {
 	if (i.state !== "closed") return [];
 	const blocking = i.number === BLOCKING_ISSUE;
@@ -300,12 +248,7 @@ function issueTrigger(i) {
 	];
 }
 
-/**
- * A release's trigger: stable, newer than `installed`, its notes naming sparse.
- * @param {ReleaseRow} r
- * @param {number[]} installed
- * @returns {Trigger[]}
- */
+/** @param {ReleaseRow} r @param {number[]} installed @returns {Trigger[]} */
 function releaseTrigger(r, installed) {
 	const tag = /^\d+(?:\.\d+)*$/.test(r.tag_name)
 		? r.tag_name.split(".").map(Number)
@@ -327,9 +270,6 @@ function releaseTrigger(r, installed) {
 }
 
 /**
- * The sparse watch's triggers (#5041 Q1 (B)): what would make converting to
- * sparse worth asking about again. Each title is unique to its trigger, so a
- * filing is deduped on the title.
  * @param {{issues: IssueRow[], releases: ReleaseRow[], installed: number[]}} input
  * @returns {Trigger[]}
  */
@@ -354,12 +294,7 @@ const buildTicketBody = (t) =>
  * }} SparsePorts
  */
 
-/**
- * The sparse watch: one line per outcome, filing a ticket per new trigger,
- * and whether any read or filing failed. A failure never stops the run.
- * @param {SparsePorts} ports
- * @returns {{lines: string[], failed: boolean}}
- */
+/** @param {SparsePorts} ports @returns {{lines: string[], failed: boolean}} */
 function runSparseWatch(ports) {
 	const installed = ports.readInstalled();
 	if (isFailed(installed))
@@ -419,13 +354,7 @@ function fileTrigger(ports, t) {
  * }} RunPorts
  */
 
-/**
- * One run: 0 started, not due or not WSL; 1 deferred, not installed or a
- * step failed.
- * @param {RunPorts} ports
- * @param {{force: boolean}} opts
- * @returns {number}
- */
+/** @param {RunPorts} ports @param {{force: boolean}} opts @returns {number} */
 function runCompaction(ports, { force }) {
 	const log = readyLog(ports, force);
 	if (typeof log === "number") return log;
@@ -440,7 +369,6 @@ function runCompaction(ports, { force }) {
 	if (trimmed.error === null)
 		ports.say(`trimmed: ${trimmed.out.replace(/\s+/g, " ")}`);
 	else {
-		// Compacting untrimmed still drops what an earlier trim freed.
 		append(`trimfailed error=${asField(trimmed.error)}`);
 		ports.say(`fstrim failed, compacting untrimmed: ${trimmed.error}`);
 	}
@@ -450,12 +378,7 @@ function runCompaction(ports, { force }) {
 	return 0;
 }
 
-/**
- * The log's path where the run goes ahead, else its exit.
- * @param {RunPorts} ports
- * @param {boolean} force
- * @returns {string | number}
- */
+/** @param {RunPorts} ports @param {boolean} force @returns {string | number} */
 function readyLog(ports, force) {
 	const kernel = ports.readKernelRelease();
 	if (isFailed(kernel)) {
@@ -482,10 +405,6 @@ function readyLog(ports, force) {
 }
 
 /**
- * Holds launches until no session is live on ZERO_READINGS polls running,
- * renewing the hold each poll: null once none is, else the exit, the hold
- * released. A listing that will not read counts as live. Where every live
- * session waits on input, none will end by morning, so it defers at once.
  * @param {RunPorts} ports
  * @param {(rest: string) => void} append
  * @returns {number | null}

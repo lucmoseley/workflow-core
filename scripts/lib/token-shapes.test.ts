@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/token-shapes.js masks a listed vendor's token wherever it can start:
- * an `sk-` token after a non-alphanumeric character or after an escape whose
- * last character is a letter or digit (#3394), every other shape after
- * anything (#3540), and a control sequence anywhere after a token's first
- * character (#3547), doubly escaped, URL-encoded or an OSC 8 hyperlink
- * included (#3549). Break it and a token in a URL, a stringified tool input or
- * coloured command output reaches the scratch files other sessions read,
- * through scripts/retro-transcript.js.
- */
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
@@ -118,7 +108,6 @@ describe("maskTokens across a colour code in the body (#3540)", () => {
 	);
 });
 
-/* What `grep --color` wraps a match in. */
 const OPEN = "\u001b[01;31m\u001b[K";
 const CLOSE = "\u001b[m\u001b[K";
 
@@ -163,7 +152,6 @@ describe("maskTokens across a colour code in the prefix (#3547)", () => {
 
 const HYPERLINK = "\u001b]8;;https://example.com/a?b=1\u001b\\";
 
-/* Each raw; a test reads it stringified as well. */
 const CONTROLS_3549 = [
 	["a doubly escaped caret ESC", "\\\\^[[m"],
 	["a Python repr's \\x1b inside JSON", "\\\\x1b[m"],
@@ -260,13 +248,9 @@ describe("maskTokens back-to-back (#3540)", () => {
 });
 
 describe("maskTokens on a cascading chain (#3661)", () => {
-	/* Each link's `hf_` body stops before the next `sk-`, which only the
-	 * `hf_` mask after it gives a lead. */
 	const chain = (links: number) =>
 		`${`hf_${"a".repeat(29)}sk-`.repeat(links)}x`;
 
-	/** The regex replacements one call makes, the masker's unit of work: no
-	 * return value shows how many passes it ran. */
 	function replacements(text: string, names?: string[], values?: string[]) {
 		const spy = vi.spyOn(RegExp.prototype, Symbol.replace);
 		try {

@@ -1,87 +1,3 @@
-/*
- * tracker-rules.js — the dispatcher core that hands a session a tracker rule
- * at the call that engages it, rather than pointing the session at a document
- * (mantahostels#2493, spec mantahostels#2457 §T3). Its one production port of
- * its own, a body file's text, is lib/tracker-rules-host.js.
- *
- * EIGHTEEN RULES, OVER TWENTY-TWO `gh` TABLE ROWS AND ONE NON-`gh` LIMB
- * (mantahostels#2497, mantahostels#2592, mantahostels#2652, #2023). The
- * vendored skills carry a tracker vocabulary this repo does not use, and
- * scripts/inject-tracker-docs.js can only say so and point at the document —
- * which the session reads, or does not, long before it types the call.
- *
- * THE NON-`gh` LIMB IS WHY THE ROW JUDGES EVERY BASH CALL (mantahostels#2592).
- * The `written and verified` success signal binds at `node
- * scripts/issue-body.js`, the command this repo prescribes IN PLACE OF the raw
- * `gh` write, so the rule about reading its output can only be routed on a
- * shape that is not a `gh` call at all. The core therefore runs on every Bash
- * call and returns on each command it does not know.
- *
- * WHAT IS NOT ROUTED HERE, deliberately: the background-every-`gh`-call rule,
- * which binds BEFORE the first tool call and so cannot be delivered by a hook
- * on that call. It stays pasted, in scripts/lib/tracker-inject-text.js.
- *
- * INJECTION ONLY — it never denies. The tracker guards that DO deny are
- * the guard-issue-create-label core, the guard-issue-close core, the guard-issue-body core and
- * the guard-issue-phase-scope core.
- *
- * IMPLICIT: on an allowed call it injects the rules as additionalContext and
- *   writes a `.rule-injected-*` latch under .claude/tmp/markers.
- * JUSTIFIED: fail-safe — it adds no refusal.
- * DEFEAT: `scripts/clear-rule-latch.sh` clears the latch and the rule is said
- *   again; `disabled` naming guard-tracker-rules in .claude/workflow-core.json
- *   silences it.
- *
- * LIMITS
- *  - THE MAPPING IS A TABLE, never inferred — TRIGGERS below. A `gh` shape
- *    with no row emits nothing, silently.
- *  - It matches the PARSED command form — a command whose command word is
- *    `gh`, followed by the row's own subcommand words — so a grep, an echo or
- *    a heredoc mentioning those words emits nothing. The command word is read
- *    as lib/shell-words.js's ghCall reads it (#5012): past any wrapper unwrap
- *    strips (`timeout 5 gh …`, `env gh …`), in each command a `flock -c` or
- *    `watch` string runs, and past `gh`'s own flags (`gh -R o/r issue …`). A
- *    `sh -c` string and a launcher outside unwrap's list are unread.
- *  - THE issue-body.js LIMB IS THE ONE EXCEPTION TO THAT COMMAND-WORD TEST,
- *    and it reads a WORD instead: any word whose basename is `issue-body.js`,
- *    wherever it sits, PROVIDED THE NEXT WORD IS ONE OF THE SCRIPT'S WRITING
- *    SUBCOMMANDS (mantahostels#2652). That reaches `node
- *    scripts/issue-body.js`, `./scripts/issue-body.js` and a wrapper alike,
- *    while leaving both kinds of read to spend nothing: a read of the FILE —
- *    `grep -n foo scripts/issue-body.js` — and the script's own `show`, which
- *    writes nothing. What still
- *    costs a latched injection and nothing else: an UNQUOTED mention where the
- *    script is its own word and a writing subcommand is the next one — `echo
- *    node scripts/issue-body.js tick 12`. A QUOTED body does NOT: the parser
- *    MASKS a quoted span, and the limb is gated on the masked word
- *    (mantahostels#2652).
- *  - THE JOB-DIR LIMB reads only the words that can be a body path, across the
- *    WHOLE COMMAND (#4043): `gh issue`'s `--body-file`/`-F <path>`, `gh api`'s
- *    `--input <path>` and `-F`/`--field <key>=@<path>`, and the operands of a
- *    `cat`, which is how the PIPED spelling (`cat <job-dir file> | gh issue
- *    comment <n> --body-file -`) and `--comment "$(cat <path>)"` name theirs.
- *    Any other reader of a body file (`sed … <path> | gh`, `< <path>`) is
- *    unread, and so is a bare file name (#1731). Command-wide, so an unrelated
- *    `gh` call sharing a command string with such a word is told the rule too
- *    (mantahostels#2652).
- *  - THE OTHER SPELLINGS OF A CREATION ARE OUT OF SCOPE HERE. `gh api --method
- *    POST …/issues` and a `gh api graphql` `createIssue` mutation are both
- *    chased by the guard-issue-create-label core (mantahostels#511, mantahostels#519)
- *    and are not chased here, where each would be a row in TRIGGERS.
- *  - SO ARE THE OTHER SPELLINGS OF A LABEL EDIT (#2023): `gh api …/labels`, a
- *    label set at creation, and scripts/park-blocked.sh's own
- *    `waiting:external` write. Only `gh issue edit` and `gh pr edit` label
- *    flags are read.
- *  - The rule is stated ONCE PER SESSION PER ID, by the kit's latch, keyed on
- *    the agent as well as the session so a subagent is told on its own
- *    account.
- *  - It FAILS OPEN on anything it cannot resolve, logged (mantahostels#147),
- *    as its row's `open` policy has it. The one exception is the kit's store
- *    side, which refuses on a fragment it cannot read (mantahostels#1762).
- *  - It guards the Bash tool, so a creation from a script, from a workflow or
- *    from the GitHub web UI sees no hook at all.
- */
-
 const { SPACE, bodyFileWord, bodyWord, newBody } = require("./gh-body.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { expandHome } = require("./home-path.js");
@@ -94,30 +10,20 @@ const { URGENT_LABEL } = require("./urgent-label.js");
 
 /**
  * @typedef {import("./core-contract.js").CoreContext & {
- *   readFile: (path: string) => string | undefined,
- * }} TrackerContext `readFile` is a body file's text, undefined where it is
- *   absent; it throws where the file cannot be read
+ *  readFile: (path: string) => string | undefined,
+ * }} TrackerContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {{ parsed: Parsed, ctx: TrackerContext, jobDirSeen: boolean,
- *   cmd: Command }} Call what a predicate reads beyond the words after `gh`
+ *  cmd: Command }} Call
  * @typedef {(words: string[], call: Call) => boolean} Predicate
  */
 
-/* The prelude's own latch key, in ctx.told's `warn.<id>` namespace. */
 const PRELUDE_LATCH = "tracker-rules-prelude";
 
-/* The framing sentence (mantahostels#2369). IT STANDS ALONE, never ending in a
- * colon: the kit emits a prelude on its own where the fragments are dropped. */
 const PRELUDE =
 	"This call engages tracker rules THIS repo authors and the vendored skills do not carry — docs/agents/issue-tracker.md and docs/agents/triage-labels.md are their home, and the vendored defaults are not this repo's.";
 
-/* The script's WRITING subcommands, its USAGE block's list less `show`
- * (mantahostels#2652). The limb reads the word AFTER the script to tell a run
- * from a read, and `show` is a read: it writes nothing, so the `written and
- * verified` signal the rule is about never appears in its output.
- * lib/tracker-rules.test.ts pins this against that USAGE block, so a
- * subcommand added there and not here fails rather than dropping out. */
 const ISSUE_BODY_SUBCOMMANDS = new Set([
 	"append",
 	"append-section",
@@ -128,55 +34,29 @@ const ISSUE_BODY_SUBCOMMANDS = new Set([
 	"replace",
 ]);
 
-/** A word's text with its quoted spans put back, read on where it is unknown.
- * @param {string | undefined} word
- * @param {string[]} spans */
+/** @param {string | undefined} word @param {string[]} spans */
 const lit = (word, spans) => literal(word ?? "", spans).text;
 
-/** A command word's name: the text after its last `/`.
- * @param {string} p */
+/** @param {string} p */
 const basename = (p) => p.slice(p.lastIndexOf("/") + 1);
 
-// --- the flag predicates a TRIGGERS row may name -----------------------------
-//
-// Each takes the raw words after `gh` and its own flags and answers whether the row applies. A
-// row naming null runs none and matches on the subcommand alone.
-
-/** Whether any word is one of `flags`, a long one's `=`-joined form included.
- * @param {string[]} words
- * @param {string[]} flags */
+/** @param {string[]} words @param {string[]} flags */
 const hasFlag = (words, flags) =>
 	words.some((w) =>
 		flags.some((f) => w === f || (f.startsWith("--") && w.startsWith(`${f}=`))),
 	);
 
-/* A `gh issue edit` that writes the body whole — the long flags, each
- * `=`-joined form, and gh's own short spellings `-b`/`-F`. The guard-issue-body core
- * DENIES every one of those (mantahostels#132). */
 const BODY_FLAGS = ["--body", "--body-file", "-b", "-F"];
 /** @type {Predicate} */
 const writesBody = (words) =>
 	words.some((w) => BODY_FLAGS.some((f) => w === f || w.startsWith(`${f}=`)));
 
-/* A `gh issue edit` that takes the issue. `--add-assignee` only:
- * `--remove-assignee` is a release and engages no claim rule. */
 /** @type {Predicate} */
 const addsAssignee = (words) => hasFlag(words, ["--add-assignee"]);
 
-/* A `gh api` call on an issue's native dependency or sub-issue endpoint. The
- * test is on the call's one positional word, its endpoint, so one mentioned in
- * a `--jq` filter or a `-f` field is not a call to it. That word is read
- * unquoted, since `?` is a shell glob and the paged read below is the spelling
- * people quote (#4030).
- *
- * THE QUERY STRING IS WHY THE ARMS ARE UNANCHORED. The read the fragment tells
- * a session to make is the PAGED one — `…/sub_issues?per_page=100`, the
- * default being 30 — so an arm anchored at the end of the word would miss
- * exactly the call this rule exists for. `/sub_issue` matches the singular
- * DELETE re-root spelling, and `blocking` the other side of the edge. */
 const DEPENDENCY_ENDPOINT =
 	/\/dependencies\/blocked_by|\/dependencies\/blocking|\/sub_issue$|\/sub_issue\?|\/sub_issues/s;
-/* `gh api`'s value-taking flags, from `gh api --help`. */
+// `gh api`'s value-taking flags: https://cli.github.com/manual/gh_api
 const API_VALUE_FLAGS =
 	"--cache -F --field -H --header --hostname --input -q --jq -X --method -p --preview -f --raw-field -t --template";
 /** @type {Predicate} */
@@ -190,18 +70,9 @@ const dependencyEndpoint = (words, { parsed }) => {
 	return DEPENDENCY_ENDPOINT.test(lit(endpoint, parsed.spans));
 };
 
-/* A `gh` call sharing its command string with a path under the background
- * job's scratch tree. `gh` reads one fine — the real risk is `$CLAUDE_JOB_DIR`
- * failing to resolve at all (mantahostels#2088), which breaks the path before
- * `gh`, or any tool, ever opens it. The answer is taken command-wide by
- * scanJobDir below, and this predicate only reports it (mantahostels#2652). */
 /** @type {Predicate} */
 const jobDirPath = (_words, { jobDirSeen }) => jobDirSeen;
 
-/* A `gh issue comment` whose body opens as lib/prose-blockers.js's
- * NOT_READY_OPENING matches. The body is read through lib/gh-body.js, in the
- * spellings record-acts.js reads; one it cannot read matches nothing, a file
- * fault logged. */
 /** @type {Predicate} */
 const opensNotReady = (words, { parsed, ctx, cmd }) => {
 	const body = newBody();
@@ -231,36 +102,19 @@ const opensNotReady = (words, { parsed, ctx, cmd }) => {
 	return NOT_READY_OPENING.test(body.text);
 };
 
-/* A `gh` call that reads check runs, which the token cannot
- * (rule:gh-cli-limits): a `--json` field list naming `statusCheckRollup`, or
- * the REST check-runs endpoint. On the unquoted word, since a field list is
- * often quoted and the parser masks a quoted span. */
 const CHECK_RUNS = /statusCheckRollup|\/check-runs/;
 /** @type {Predicate} */
 const readsCheckRuns = (words, { parsed }) =>
 	CHECK_RUNS.test(parsed.subject) &&
 	words.some((w) => CHECK_RUNS.test(lit(w, parsed.spans)));
 
-/* `gh run list` filtered by commit. `-c` is gh's own short spelling of
- * `--commit`. */
 /** @type {Predicate} */
 const namesCommit = (words) => hasFlag(words, ["--commit", "-c"]);
 
-/* `gh issue view --comments`. Whether the issue has comments is unknowable
- * before the call, so every such read is told. `-c` is gh's own short
- * spelling of `--comments`. */
 /** @type {Predicate} */
 const readsComments = (words) => hasFlag(words, ["--comments", "-c"]);
 
-/**
- * Every label a `gh issue edit` or `gh pr edit` adds or removes: each
- * `--add-label`/`--remove-label` value, joined or not, split on gh's own
- * comma, trailing empties dropped as label_values' command substitution
- * dropped its trailing newlines. Unquoted first, so `--add-label "a,urgent"`
- * yields both.
- * @param {string[]} words
- * @param {string[]} spans
- */
+/** @param {string[]} words @param {string[]} spans */
 function labelEdits(words, spans) {
 	/** @type {string[]} */
 	const out = [];
@@ -278,31 +132,16 @@ function labelEdits(words, spans) {
 	return text === "" ? [] : text.split("\n");
 }
 
-/* A label edit at all — the role table binds on every one. */
 /** @type {Predicate} */
 const editsLabels = (words, { parsed }) =>
 	labelEdits(words, parsed.spans).length > 0;
 
-/* A label edit naming `urgent`, or any `waiting:` value. */
 /** @type {Predicate} */
 const labelsUrgent = (words, { parsed }) =>
 	labelEdits(words, parsed.spans).includes(URGENT_LABEL);
 /** @type {Predicate} */
 const labelsWaiting = (words, { parsed }) =>
 	labelEdits(words, parsed.spans).some((l) => l.startsWith("waiting:"));
-
-// --- THE TABLE ---------------------------------------------------------------
-//
-// `[<subcommand words>, <predicate or null>, <the ids the shape engages>]`. A
-// row's id order has no effect — the emission order is decide's injectRules
-// array. Adding a rule adds a row here, an anchored region and a TRIGGERS
-// entry in scripts/generate-rule-fragments.js, a needle in
-// scripts/guard-fire-needles.json, and its id in that array, which carries the
-// priority order.
-//
-// THE SUBCOMMAND WORDS ARE MATCHED WHOLE, word for word, against the raw words
-// following `gh` and its own flags. `api` is one word; `issue create` is two; an empty list
-// matches every `gh` call.
 
 /** @type {[string[], Predicate | null, string[]][]} */
 const TRIGGERS = [
@@ -330,12 +169,8 @@ const TRIGGERS = [
 	[["issue", "comment"], jobDirPath, ["gh-job-dir-unreadable"]],
 	[["issue", "create"], jobDirPath, ["gh-job-dir-unreadable"]],
 	[["api"], jobDirPath, ["gh-job-dir-unreadable"]],
-	/* The two remaining writes that take a body (mantahostels#2652). `gh issue
-	 * close <n> --comment "$(cat <p>)"` is the documented resolution route, so
-	 * its silent no-op loses the comment a close is refused without. */
 	[["issue", "edit"], jobDirPath, ["gh-job-dir-unreadable"]],
 	[["issue", "close"], jobDirPath, ["gh-job-dir-unreadable"]],
-	/* The reads this machine's token or gh version gets wrong (#2023). */
 	[["pr", "checks"], null, ["gh-cli-limits"]],
 	[[], readsCheckRuns, ["gh-cli-limits"]],
 	[["run", "list"], namesCommit, ["gh-cli-limits"]],
@@ -348,14 +183,9 @@ const TRIGGERS = [
 	[["pr", "edit"], labelsWaiting, ["waiting-external-vocabulary"]],
 ];
 
-/* `gh api`'s body flags. Its other value flags go unlisted because the `=@` an
- * `-F` value must hold is what keeps a run like `-HFoo` out. */
 const API_BODY_FLAGS = "-F --field --input";
 
-/**
- * @param {string[]} args the words after `gh`
- * @param {string[]} spans
- */
+/** @param {string[]} args @param {string[]} spans */
 function ghBodyPaths(args, spans) {
 	/** @type {string[]} */
 	const found = [];
@@ -379,11 +209,7 @@ function ghBodyPaths(args, spans) {
 	return found;
 }
 
-/**
- * Each body path one unwrap run names.
- * @param {string[]} words one unwrap run's words, its head included
- * @param {string[]} spans
- */
+/** @param {string[]} words @param {string[]} spans */
 function bodyPathWords(words, spans) {
 	const [head = "", ...args] = words;
 	if (basename(lit(head, spans)) === "cat")
@@ -392,21 +218,7 @@ function bodyPathWords(words, spans) {
 	return gh ? ghBodyPaths(gh.args, spans) : [];
 }
 
-/**
- * Whether ANY command of this call names a job-dir body path, answered before
- * the table walk so jobDirPath can report it on the `gh` command
- * (mantahostels#2652). GATED ON THE RAW SUBJECT CONTAINING `gh` AT ALL: every
- * job-dir row is a `gh` subcommand, so a command with no `gh` in its text can
- * match none of them. A bare substring, not a word test: the subject is raw
- * text, quoting and all.
- *
- * A word opening on any other expansion (`$HOME/b.md`) could land anywhere, so
- * it is not resolved against the working directory; `~/` expands to HOME.
- * Where HOME is empty or relative the rest of the word is judged on the job
- * dir's shape alone, which needs no home (#4611).
- * @param {Parsed} parsed
- * @param {TrackerContext} ctx
- */
+/** @param {Parsed} parsed @param {TrackerContext} ctx */
 function scanJobDir(parsed, ctx) {
 	if (!parsed.subject.includes("gh")) return false;
 	const jobDir = ctx.env.CLAUDE_JOB_DIR ?? "";
@@ -430,12 +242,7 @@ function scanJobDir(parsed, ctx) {
 	return seen;
 }
 
-/**
- * The ids one command engages, added to `matched`: each unwrap run's.
- * @param {Command} cmd
- * @param {Set<string>} matched
- * @param {Omit<Call, "cmd">} call
- */
+/** @param {Command} cmd @param {Set<string>} matched @param {Omit<Call, "cmd">} call */
 function judge(cmd, matched, call) {
 	const { spans } = call.parsed;
 	for (const { words, dirs } of cmd.runs()) {
@@ -447,12 +254,7 @@ function judge(cmd, matched, call) {
 	}
 }
 
-/**
- * Each TRIGGERS row one `gh` call's words match, its ids added to `matched`.
- * @param {string[]} args the words after `gh` and its own flags
- * @param {Call} call
- * @param {Set<string>} matched
- */
+/** @param {string[]} args @param {Call} call @param {Set<string>} matched */
 function matchRows(args, call, matched) {
 	for (const [subcmd, pred, ids] of TRIGGERS) {
 		if (!subcmd.every((s, i) => args[i] === s)) continue;
@@ -461,11 +263,7 @@ function matchRows(args, call, matched) {
 	}
 }
 
-/**
- * The issue-body.js limb the header describes.
- * @param {string[]} words one unwrap run's
- * @param {string[]} spans
- */
+/** @param {string[]} words @param {string[]} spans */
 const runsIssueBody = (words, spans) =>
 	words.some(
 		(w, i) =>
@@ -486,16 +284,9 @@ function decide(command, ctx) {
 	const matched = new Set();
 	walkCommands(parsed, (cmd) => judge(cmd, matched, call), ctx);
 	if (matched.size === 0) return null;
-	/* The prelude is latched apart from any id (mantahostels#2275), and marked
-	 * only once the envelope is out (mantahostels#2528). */
 	const framing = ctx.told(PRELUDE_LATCH)
 		? {}
 		: { prelude: ctx.corePaths(PRELUDE), latchAfter: PRELUDE_LATCH };
-	/* THE IDS ARE NAMED LITERALLY, highest priority first, so a deferral under
-	 * the cap keeps the costliest breach: lib/rule-emission.js reads them here.
-	 * Every one is resolved, so a fragment the store cannot give refuses on
-	 * the id leading this order (mantahostels#2592); `skip` takes out each the
-	 * table did not match (mantahostels#1805). */
 	const decision = {
 		injectRules: [
 			"gh-job-dir-unreadable",

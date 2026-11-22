@@ -1,10 +1,3 @@
-/*
- * unchecked-rm-host.js — the production ports the dispatcher wires into the
- * guard-rm-unchecked core, lib/unchecked-rm.js (#2801, #3226). The latch's
- * key, read and write are the kit's (lib/kit-context.js); this answers only whether its directory
- * can be written.
- */
-
 const { isMarkersWritable } = require("./refuse-once.js");
 
 /**

@@ -1,29 +1,13 @@
-/*
- * tracker-remotes.js — which remotes of a clone name the tracker, and the
- * command that fetches its history into a clone that lacks it. A clone of the
- * public code repo holds none of it (#1954).
- */
-
 const { parseGithubRemote } = require("./workflow-core-config.js");
 const { spawnGitSync } = require("./git.js");
 const { shellQuote } = require("./sh-quote.js");
 
-/**
- * Whether a url names `repo`, owner/name compared as GitHub does, ignoring
- * case.
- * @param {string} url
- * @param {string} repo owner/name
- */
+/** @param {string} url @param {string} repo */
 const names = (url, repo) =>
 	parseGithubRemote(url)?.toLowerCase() === repo.toLowerCase();
 
-/**
- * The remotes whose url names the tracker.
- * @param {string} tracker owner/name
- * @param {{ cwd?: string }} [opts]
- */
+/** @param {string} tracker @param {{ cwd?: string }} [opts] */
 function readTrackerRemotes(tracker, { cwd } = {}) {
-	// Exit 1 where no remote has a url at all: no tracker remote either.
 	const out = spawnGitSync(["config", "--get-regexp", "^remote\\..*\\.url$"], {
 		cwd,
 		encoding: "utf8",
@@ -37,10 +21,7 @@ function readTrackerRemotes(tracker, { cwd } = {}) {
 	});
 }
 
-/**
- * @param {string[]} remotes the remotes naming the tracker
- * @param {string} tracker owner/name
- */
+/** @param {string[]} remotes @param {string} tracker */
 const fetchTrackerCommand = ([remote], tracker) =>
 	remote === undefined
 		? `git remote add archive ${shellQuote(`https://github.com/${tracker}.git`)} && git fetch archive`

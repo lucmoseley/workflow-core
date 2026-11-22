@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/shell-tokens.js's `tokenise` (#3445): the words a command's text makes.
- * The check_staged classifier reads Biome's flags from them, so a word read
- * wrong there maps or refuses a command on text the shell never runs. Each
- * row hands `tokenise` the text alone, with no shell and no repo, so a failure
- * is the lexing's and never a classifier rule's above it.
- */
 
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -16,7 +9,8 @@ import {
 	writtenCommands,
 } from "./shell-tokens.js";
 
-/** The value of each word token `src` makes. */
+const braced = (inner: string) => `$\{${inner}}`;
+
 const values = (src: string) =>
 	tokenise(src).flatMap((t) => (t.type === "word" ? [t.value] : []));
 
@@ -64,9 +58,8 @@ describe("tokenise — a `$'…'` control escape (#3853)", () => {
 	});
 });
 
-/* Each row's bytes are what `bash -c "printf %s <src>"` printed, on bash 5.2.21
- * in C.UTF-8. A row expects them as Node decodes bytes: not UTF-8, U+FFFD. */
 describe("tokenise — a `$'…'` word reads as bash's bytes (#3896)", () => {
+	// #3896 measured: each row is what `bash -c "printf %s <src>"` printed on bash 5.2.21 in C.UTF-8
 	it.each<[string, number[]]>([
 		["$'\\x'", [0x5c, 0x78]],
 		["$'\\xZ'", [0x5c, 0x78, 0x5a]],
@@ -152,8 +145,6 @@ describe("tokenise — a brace expansion's cap (#4088)", () => {
 		expect(words[0]).toMatchObject({ value: "", pieces: buildOpaquePieces(7) });
 	});
 
-	/* 2^24 words cannot fit this heap, so a build of them kills the child. The
-	 * 64 MB is a guess at room for the child's start and a capped tokenise. */
 	it("reads 24 brace groups in a 64 MB heap, building no words", () => {
 		const script = `
 			import { tokenise } from ${JSON.stringify(new URL("./shell-tokens.js", import.meta.url).href)};
@@ -161,6 +152,7 @@ describe("tokenise — a brace expansion's cap (#4088)", () => {
 		`;
 		const child = spawnSync(
 			process.execPath,
+			// #4088 guess
 			["--max-old-space-size=64", "--input-type=module", "-e", script],
 			{ encoding: "utf8" },
 		);
@@ -197,16 +189,13 @@ describe("tokenise — a word's escapes, quotes and expansions read as bash read
 
 	it("reads an expansion as no text beside the text around it (#4134)", () => {
 		expect(values('"$E"x')).toEqual(["x"]);
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-		expect(values("echo ${X}y")).toEqual(["echo", "y"]);
+		expect(values(`echo ${braced("X")}y`)).toEqual(["echo", "y"]);
 		expect(values("echo `a` b")).toEqual(["echo", "", "b"]);
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-		expect(values("echo ${}; b")).toEqual(["echo", "", "b"]);
+		expect(values(`echo ${braced("")}; b`)).toEqual(["echo", "", "b"]);
 	});
 
 	it("ends a subshell after a braced expansion at its own `)` (#4134)", () => {
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
-		expect(tokenise("( cd ${X} )").at(-1)).toMatchObject({
+		expect(tokenise(`( cd ${braced("X")} )`).at(-1)).toMatchObject({
 			type: "op",
 			value: ")",
 		});

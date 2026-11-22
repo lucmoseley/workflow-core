@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/session-bar-carry.js, which keeps a session bar in the
- * usage-probe recording when the probed seat lists none (#5332). Breaking it
- * costs the suite: a session-less re-record leaves lib/usage-probe-fake.ts
- * no session line to print, and every case setting a session percent fails
- * to load. Plain recordings, since the carry reads only their harness, lines
- * and limits.
- */
 import { describe, expect, it } from "vitest";
 import { carrySessionBar } from "./session-bar-carry.js";
 

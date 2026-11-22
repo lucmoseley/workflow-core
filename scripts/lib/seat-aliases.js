@@ -1,14 +1,3 @@
-/*
- * seat-aliases.js — the founder's shell aliases that open a seat's agents view
- * (#5293), read from `~/.bashrc`, where he keeps one per repo and seat:
- *
- *   alias manta2='(cd ~/mantahostels && CLAUDE_CONFIG_DIR=$HOME/.claude2 _wfc_agents)'
- *
- * Each seat is put in the seat file's form, so it compares equal to a listing
- * record's. A line of any other shape is skipped. A `.bashrc` that will not
- * read says so on stderr, as no alias then looks the same as none defined.
- */
-
 const path = require("node:path");
 const { seatDir } = require("./config-dir.js");
 const { readText } = require("./file-read.js");
@@ -20,18 +9,15 @@ const { writeFd } = require("./write-fd.js");
 
 /**
  * @typedef {{alias: string, dir: string, seat: string}} SeatAlias
- * @typedef {ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>}
- *   ConcurrencyStatus
+ * @typedef {ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>} ConcurrencyStatus
  * @typedef {Omit<ConcurrencyStatus, "waiting"> & {waiting:
- *   (import("./concurrency.js").Waiting & {alias: string|null})[]|null}}
- *   ConcurrencyView  the status, each waiting seat with the alias that opens it
+ *   (import("./concurrency.js").Waiting & {alias: string|null})[]|null}} ConcurrencyView
  */
 
 const ALIAS_LINE =
 	/^\s*alias\s+([\w.-]+)='\(\s*cd\s+(\S+)\s+&&\s+CLAUDE_CONFIG_DIR=(\S+)\s+_wfc_agents\s*\)'/;
 
 /**
- * `word` with its leading home read against `home`, resolved.
  * @param {string} word
  * @param {string} home
  */
@@ -39,8 +25,7 @@ const resolveShellPath = (word, home) =>
 	path.resolve(expandShellHome(word, home) ?? word);
 
 /**
- * Each agents-view alias `text` defines, in file order.
- * @param {string} text a `.bashrc`
+ * @param {string} text
  * @param {string} home
  * @returns {SeatAlias[]}
  */
@@ -62,8 +47,6 @@ function parseSeatAliases(text, home) {
 }
 
 /**
- * The aliases `home`'s `.bashrc` defines, none where it is absent or will not
- * read.
  * @param {string} [home]
  * @returns {SeatAlias[]}
  */
@@ -77,8 +60,6 @@ function readSeatAliases(home = homeDir()) {
 }
 
 /**
- * The alias that opens `seat`'s view: the one for the repo holding `cwd`, else
- * the seat's first; null where none opens it.
  * @param {SeatAlias[]} aliases
  * @param {string} seat
  * @param {string|null} cwd

@@ -20,12 +20,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const tc: any = createRequire(__filename)("./turn-collapse.js");
+const tc = createRequire(__filename)("./turn-collapse.js");
 
 const HOUR = 36e5;
 
-/** One assistant turn as the harness writes it. */
 function turn(
 	timestamp: string,
 	id: string,
@@ -42,7 +40,6 @@ function turn(
 	});
 }
 
-/** `n` turns an even `spacingMin` apart, starting at `startMs`. */
 function run(startMs: number, n: number, spacingMin: number) {
 	return Array.from({ length: n }, (_, i) => startMs + i * spacingMin * 60_000);
 }
@@ -54,7 +51,6 @@ describe("readCorpus", () => {
 		dir = null;
 	});
 
-	/** The ISO timestamps `readCorpus` returns for one transcript's text. */
 	const turnsOf = (text: string) => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "turn-collapse-"));
 		const file = path.join(dir, "t.jsonl");
@@ -87,8 +83,6 @@ describe("readCorpus", () => {
 	});
 
 	it("keys on the id AND both usage figures", () => {
-		/* One id with a different output or cache figure is a real second turn;
-		 * the same three again is the same turn written twice. */
 		const text = [
 			turn("2026-08-01T00:00:00.000Z", "msg_a", { out: 7, cache: 9 }),
 			turn("2026-08-01T00:01:00.000Z", "msg_a", { out: 8, cache: 9 }),
@@ -167,7 +161,6 @@ describe("corpusFiles", () => {
 
 describe("trailingBusyRate", () => {
 	it("is the median of the busiest 24 hour-buckets in the trailing 7 days", () => {
-		/* The busiest 24 buckets carry 25..48, whose median is (36 + 37) / 2. */
 		const base = Date.parse("2026-08-10T00:00:00.000Z");
 		const turns: number[] = [];
 		for (let h = 0; h < 48; h++)
@@ -177,8 +170,6 @@ describe("trailingBusyRate", () => {
 	});
 
 	it("is null where the trailing week holds fewer than 24 busy hours", () => {
-		/* "The busiest 24 hours" is undefined over a week that had six. Taking it
-		 * anyway would score a handful of turns as full-rate work. */
 		const base = Date.parse("2026-08-10T00:00:00.000Z");
 		const turns = run(base, 6, 60);
 		expect(tc.trailingBusyRate(tc.hourlyCounts(turns), base + 6 * HOUR)).toBe(
@@ -187,14 +178,11 @@ describe("trailingBusyRate", () => {
 	});
 
 	it("counts busy hours, not the median's value — a thin week still has none", () => {
-		/* 23 hours carrying one turn each: a top-24 median over all buckets would be
-		 * a non-zero 0.5 and normalise a flank of 1/hour to double the busy rate. */
 		const base = Date.parse("2026-08-10T00:00:00.000Z");
 		const turns = run(base, 23, 60);
 		expect(tc.trailingBusyRate(tc.hourlyCounts(turns), base + 23 * HOUR)).toBe(
 			null,
 		);
-		// One more busy hour and it resolves, to the median of 24 ones.
 		const enough = run(base, 24, 60);
 		expect(tc.trailingBusyRate(tc.hourlyCounts(enough), base + 24 * HOUR)).toBe(
 			1,
@@ -203,36 +191,23 @@ describe("trailingBusyRate", () => {
 });
 
 describe("a window's flank rates", () => {
-	/* Each flank is read off the one window a lone turn 10 hours away opens. */
 	it("counts turns per hour over the 3 hours ending at the gap", () => {
 		const at = Date.parse("2026-08-10T12:00:00.000Z");
-		// 13 turns spanning exactly [at - 3h, at], one every 15 minutes.
 		const turns = [...run(at - 3 * HOUR, 13, 15), at + 10 * HOUR];
 		const [window] = tc.deadWindows(turns, 10);
 		expect(window.start).toBe(at);
-		// Half-open away from `at`: the turn ON at - 3h belongs to the window before.
 		expect(window.before).toBe(12 / 3);
 	});
 
 	it("looks forward for the after-flank", () => {
 		const at = Date.parse("2026-08-10T12:00:00.000Z");
-		// 7 turns spanning exactly [at, at + 3h], one every 30 minutes.
 		const turns = [at - 10 * HOUR, ...run(at, 7, 30)];
 		const [window] = tc.deadWindows(turns, 10);
 		expect(window.end).toBe(at);
-		// The turn that closes the gap counts; the one on at + 3h does not.
 		expect(window.after).toBe(6 / 3);
 	});
 });
 
-/**
- * A corpus shaped like the real one: a fortnight of steady heavy work with one
- * long, strongly-flanked silence in it.
- *
- * `gapAtHour` is measured from the start; `gapHours` is how long the silence
- * runs. Work is 60 turns an hour for 12 hours a day, so the busy-hour baseline
- * is 60 and a full-rate flank normalises to 1.0.
- */
 function corpus({
 	gapAtHour,
 	gapHours,
@@ -243,7 +218,7 @@ function corpus({
 	const base = Date.parse("2026-08-01T00:00:00.000Z");
 	const turns: number[] = [];
 	for (let h = 0; h < 14 * 24; h++) {
-		if (h % 24 >= 12) continue; // twelve hours off a day
+		if (h % 24 >= 12) continue;
 		if (h >= gapAtHour && h < gapAtHour + gapHours) continue;
 		for (let n = 0; n < 60; n++) turns.push(base + h * HOUR + n * 60_000);
 	}
@@ -252,7 +227,6 @@ function corpus({
 
 describe("deadWindows and episodes", () => {
 	it("fires on a 24h silence between two full-rate stretches", () => {
-		// Starts on day 10 hour 6, so a full 7 days of history sits behind it.
 		const fired = tc.episodes(
 			tc.deadWindows(corpus({ gapAtHour: 10 * 24 + 6, gapHours: 24 })),
 		);
@@ -269,12 +243,9 @@ describe("deadWindows and episodes", () => {
 	});
 
 	it("does not fire when only one flank is strong", () => {
-		/* Both flanks are required: a long silence with weak work after it is a
-		 * holiday or a machine that stopped, not rationing. */
 		const turns = corpus({ gapAtHour: 10 * 24 + 6, gapHours: 24 });
 		const resume =
 			Date.parse("2026-08-01T00:00:00.000Z") + (11 * 24 + 6) * HOUR;
-		// Thin the three hours after the gap to a tenth of full rate.
 		const thinned = turns.filter(
 			(ms) =>
 				ms < resume || ms >= resume + 3 * HOUR || (ms / 60_000) % 10 === 0,
@@ -288,7 +259,6 @@ describe("deadWindows and episodes", () => {
 	});
 
 	it("does not fire on an 18-hour silence, however hard the flanks work", () => {
-		/* The night before day 10 runs six hours long. */
 		const windows = tc.deadWindows(corpus({ gapAtHour: 10 * 24, gapHours: 6 }));
 		const near = windows.find((w: { hours: number }) => w.hours > 17);
 		expect(near.hours).toBeCloseTo(18, 1);
@@ -298,9 +268,6 @@ describe("deadWindows and episodes", () => {
 	});
 
 	it("scores no baseline at the very start of a corpus", () => {
-		/* Day 0's night has twelve busy hours behind it, under the 24 a baseline
-		 * needs, so its flanks cannot be normalised and it can never fire, however
-		 * long it runs. */
 		const windows = tc.deadWindows(corpus({ gapAtHour: 12, gapHours: 24 }));
 		expect(windows[0].hours).toBeGreaterThanOrEqual(tc.MIN_DEAD_HOURS);
 		expect(windows[0].baseline).toBe(null);

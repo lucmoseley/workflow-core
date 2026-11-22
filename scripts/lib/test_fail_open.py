@@ -1,8 +1,3 @@
-"""test_fail_open.py — the reporters base §N5's Python fail-opens call (#5487,
-#5503): `fail_open` prints the error and what the program does instead, to
-stderr alone; `tallied` counts it and `expected` takes it, both silently.
-"""
-
 import sys
 from pathlib import Path
 

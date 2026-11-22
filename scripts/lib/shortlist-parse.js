@@ -1,17 +1,8 @@
-/*
- * shortlist-parse.js — a pick-next shortlist's `--json` output as the refill
- * loop reads it (#4355).
- */
-
 const { caught } = require("./caught.js");
 
 /** @typedef {import("./refill-decide.js").HeldBy} HeldBy */
 
 /**
- * Each row with its predicted write-set and the substrate files a running
- * session holds of it, off its shortlist's conflict graph, for the loop's walk
- * to skip a clash on (#4355). A retro-bundle member has neither: `/triage`
- * writes no repo file.
  * @param {import("./frontier-order.js").FrontierRow[]} rows
  * @param {{candidates: {number: number, writeSet: string[]}[],
  *   inFlight: ({candidate: number} & HeldBy)[]}} graph
@@ -40,7 +31,6 @@ function withWriteSets(rows, graph) {
 }
 
 /**
- * A shortlist's `--json` output, parsed.
  * @param {string} stdout
  * @returns {import("./refill-frontier.js").Shortlist | {error: string}}
  */

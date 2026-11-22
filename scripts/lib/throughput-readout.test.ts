@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The throughput readout's core (#5196). Each case builds its records inline
- * and hands them to the pure core, so no file, log or process is read. Break
- * it and a band misreads the objective: rework passes as output, a junk close
- * counts, a truncated day reads as a slow one, or a plateau is read off a
- * handful of hours.
- */
 
 import { describe, expect, it } from "vitest";
 import { LOOP_OFF } from "./concurrency";
@@ -77,7 +70,6 @@ const commit = (
 	revertsSubject: null,
 });
 
-/* A revert whose body line was edited out, naming its target by subject. */
 const buildSubjectRevert = (sha: string, at: number, subject: string) => ({
 	...commit(sha, at, []),
 	subject: `Revert "${subject}"`,
@@ -199,8 +191,6 @@ describe("throughput readout", () => {
 	});
 
 	it("ties a revert named by subject alone to the commit before it in the log, never a re-land keeping the subject (#5196)", () => {
-		/* One commit time for all, as a rebase-merge stamps a branch: only log
-		 * order tells them apart. #2's revert has no re-land, its positive pair. */
 		const at = (
 			sha: string,
 			seq: number,

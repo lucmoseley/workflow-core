@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * tool-calls-since.test.ts — which transcript records read as the founder's
- * message. Loosen it and a refill loop resume restarts the priced-options
- * guard's since-the-founder windows as if he had spoken (#3378).
- */
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";

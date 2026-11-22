@@ -1,142 +1,4 @@
-/*
- * test-read-edges.js — the read-graph vitest cannot see.
- *
- * Vitest selects `--changed` on the IMPORT graph. A test that reaches a file
- * through `readFileSync` at runtime has no edge there, so a commit changing a
- * tracked document selects zero tests while the tests asserting over that
- * document sit unrun (mantahostels#2031).
- *
- * This library derives the missing edges. It is deliberately LEXICAL and
- * deliberately over-inclusive: a false edge costs one extra test file in a
- * filtered run, a missed edge costs an unrun assertion, and only the second is
- * a correctness loss.
- *
- * TWO ANCHORS, EACH GOVERNING ITS OWN PASS, and a source may carry both.
- * `ANCHOR` — a ROOT spelling — licenses reading a literal at the repo root.
- * `DIRNAME` — a bare `__dirname` — licenses reading it against the test's own
- * directory instead, the only way a guard test's `path.resolve(__dirname,
- * "guard-x.sh")` reaches `scripts/guard-x.sh` (mantahostels#2433). Keeping them apart is
- * what makes the second pass cheap: letting a bare `__dirname` license the
- * ROOT pass too turns every tempdir fixture beside one into a false root edge.
- *
- * A test's own comments are scanned too: a quoted path in one reads as an
- * edge. A helper's and a script's are not: citing a document in a shared
- * helper's comment is the house idiom (#2074, #2093). The root anchor
- * is what keeps tempdir fixtures out: a test writing its own `doc-map.md`
- * into os.tmpdir() names the literal but no anchor.
- *
- * ONE HOP: a test naming no literal of its own can still read a document
- * through an imported helper (the gate-harness module under scripts/lib is
- * the dominant shape — the gate tests read the staged-gate module only
- * through it). Each test's relative imports are resolved one level and the
- * resolved helper's OWN read literals in code — under the helper's own
- * anchoring, via the same edgesFor — are attributed to the importing test.
- * Never recursed: a helper importing a second helper is a chain this pass
- * does not walk.
- *
- * A COMPOSED CALL — `path.resolve`/`path.join` given an anchor and several
- * FURTHER literal arguments, climbing out of the anchor and back down into a
- * nested target instead of naming it in one string — spreads one path across
- * arguments each resolved alone by the passes above. `COMPOSED_CALL` joins
- * the further arguments with "/" into one candidate and routes it to the
- * pass its own anchor owns (mantahostels#2441).
- *
- * A DIRECTORY-CLASS CALL — the same anchor-plus-literals shape as
- * `COMPOSED_CALL`, but the FINAL argument is a template literal interpolating
- * a variable rather than a further literal — composes no single file, since
- * the variable is only known at test runtime. `DIR_CLASS` treats the literal
- * segments as naming a DIRECTORY instead, and attributes every tracked file
- * under it to the reading test (#157). A directory that resolves outside
- * the tree, or that names no tracked file, mints nothing — the same contract
- * `COMPOSED_CALL` holds for a single file.
- *
- * A DIRECTORY LISTING — `fs.readdirSync(<dir>)` with `<dir>` traced through
- * `const` declarations and `path.join` to an anchor, or a `git ls-files`
- * argument list's literal pathspecs, or a `git grep`'s after its `--`, a helper parameter's call-site literals
- * included, under the directory a `-C` ahead of the subcommand names as a
- * literal or traces to an anchor (#4922) —
- * attributes what the listing returns (#1770). A readdir is one
- * level, narrowed by a `.filter` regex or string test chained onto it
- * (#1770). A pathspec is matched as git matches it, `:!` excludes
- * applied.
- *
- * A RULE ID — `readRuleText(id)` builds `docs/agents/rules/<id>.txt` itself, so no
- * literal names the fragment. `ruleEdgesFor` licenses a test that loads
- * `rule-text.js` by any relative specifier to read every quoted literal
- * matching a tracked fragment's id, the lexical choice over tracing which
- * call forwards to `readRuleText`, so an id quoted for another reason is a false
- * edge (#1296).
- *
- * A PATCH'S TARGETS — a test reading a tracked `.patch` reads the files its
- * `---`/`+++` headers name too, since an edit to one stales the patch, and
- * the test applying it is the case that catches it (#3206).
- *
- * THE OWN-MODULE EDGE — `x.test.ts` selects its sibling `x.js` however it
- * loads it: a `require` or `createRequire` load is no edge in vitest's import
- * graph, and no literal for the passes above (#1123, #1126).
- *
- * A SPAWNED SCRIPT'S DEPENDENCIES — what a read script `require`s or
- * `source`s, transitively — are NOT attributed to the test as a rule
- * (#1113, #1118). A file that nothing else selects — no direct read, no
- * own-module test, no test reaching it through static ESM imports — keeps the
- * closure's NEAREST readers only, the tests at its shallowest depth (#1126).
- * A `source` line written through a directory variable
- * resolves against the sourcing file's own directory, then the repo root; one
- * resolving to no tracked file is returned as a warning, never dropped
- * silently.
- *
- * A SHELL SCRIPT'S LAUNCHES — its `launch` edges in lib/guard-reach.js
- * (#4567) — ARE attributed to
- * the test, with each launched script's own `require`s or `source`s one hop
- * (#4505). Where a test runs a shell script that launches a sibling by its
- * own directory, the tracked sibling runs, not a fixture's copy.
- *
- * A SPAWNED SCRIPT'S OWN READS — what `fileReadsOf` finds in its code — join
- * the closure at the script's depth under the same nearest-reader fallback
- * (#2093). Giving them to the tests that run the script measured a cost and
- * no gain: every such test #2093 checked ran the script in a fixture, so the
- * script read the fixture's copy, never the tracked file.
- *
- * Narrowed, not closed — these shapes still get no edge: a spawned script's
- * dependency that something else selects, which then selects no test
- * driving that script end to end (the sweep catches its break), a spawned
- * script's read that something else selects, a two-hop
- * import chain, a
- * directory named through a bare variable rather than an interpolated
- * template literal, a literal run spread across some other call or array
- * rather than `path.resolve`/`path.join`, a `path` call opening on a name
- * declared as a path rather than on an anchor, a template literal carrying
- * more than one interpolation, a rule id read through a helper that loads
- * `rule-text.js` for the test, a file inside a subdirectory a plain readdir
- * returns, a listing's directory reached any way but a `const` or a `path`
- * call, a pathspec reached any way but a literal in the list or at a
- * helper's call site, a `git grep` flag reading a pattern file or held
- * other than as a literal, a `-C` directory traced no such way, a listing
- * behind a global option but `-C` and `-c`, and a `git ls-files` naming no pathspec or a `git grep` none
- * after `--` or reading untracked files (#4922) — the whole tree, left
- * unattributed.
- *
- * UNSEEN READ SITES — the second output, asked for with `sites` (#1881).
- * Every read call, listing and in-repo `git ls-files` or `git grep` in a test whose
- * argument traces to an anchor yet mints no edge is reported by line and
- * shape, so its author can name the path literally or mark the test
- * `full-sweep-only:` in its header, which silences it. A spawned script's dependency and a two-hop chain
- * leave no site in the test and stay review's. Like the edges, a site is an
- * inference: an anchor also roots a fixture the test wrote itself.
- * A name walking a literal array or a listing — a `for … of`, an array
- * callback, an `it.each` table, or a helper parameter its callers pass such a
- * name — stands for what the array holds, a spread, a `new Set` or
- * `Array.from` copy and an object literal's `Object.values` included, its
- * array values only through a `.flat()` (#2595),
- * or is judged at the listing when read one level under the directory listed
- * (#1886) — never a name assigned or grown after its declaration.
- * Residual (#1881): a read inside a template literal's `${}` is never
- * judged, the whole literal reading as text, and an argument standing for
- * more than `MAX_ALTERNATIVES` paths is judged on the first of them only.
- *
- * THE TREE IT SCANS: `readWorkingTree` reads the tracked paths the disk still
- * holds, for this render and for touched-tests.js's lexical edges alike.
- */
+// `vitest` selects `--changed` on the import graph alone: a file a test reaches through `readFileSync` has no edge there. https://vitest.dev/guide/cli#changed
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -151,113 +13,55 @@ const { LOADS_BODY, pragmaLine } = require("./code-edges-pragmas.js");
 const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
 const { isUnder } = require("./is-under.js");
 
-/** The names a root anchor is spelled with, the root calls aside. */
 const ROOT_NAMES =
 	"ROOT|REPO|repoRoot|projectRoot|REPO_ROOT|PROJECT_ROOT|HOST_ROOT";
 
-/** The calls answering a repo root: `worktreeRoot()` is what a tracked-file
- * writer reads through (#4438), and `coreRoot()` what a helper naming core
- * files reads them under (#4597). */
 const ROOT_CALLS = "hostRoot\\(\\)|worktreeRoot\\(\\)|coreRoot\\(\\)";
 
-/** What a `path.resolve`/`path.join` call may open on: either kind of anchor. */
 const CALL_ANCHOR = `__dirname|CORE_SCRIPTS|${ROOT_NAMES}|${ROOT_CALLS}`;
 
-/**
- * Tokens a test uses to build a path from the repo ROOT rather than a tempdir.
- *
- * Without `hostRoot()` and `HOST_ROOT` (#1), a read built on them — every
- * `path.join(hostRoot(), ".claude", "settings.json")` — is invisible here, and
- * `test:changed` silently stops selecting the tests that read that document.
- */
 const ANCHOR = new RegExp(
 	`\\b(${ROOT_NAMES})\\b|\\b(?:${ROOT_CALLS})|process\\.cwd\\(\\)|__dirname\\s*,\\s*["']\\.\\.`,
 );
 
-/** The anchor whose literals are relative to the test's OWN directory. */
 const DIRNAME = /\b__dirname\b|\bCORE_SCRIPTS\b/;
 
-/**
- * Anchors whose literals hang off the FILE's own directory rather than the repo
- * root. `CORE_SCRIPTS` is `__dirname` under another name (#1), so it routes
- * the same way.
- */
 const DIRNAME_ANCHORS = new Set(["__dirname", "CORE_SCRIPTS"]);
 
-/** Single, double and backtick literals holding something path-shaped. */
 const LITERAL = /["'`]([A-Za-z0-9_./-]+)["'`]/g;
 
-/** A `path.resolve`/`path.join` call whose first argument is an anchor and
- * whose remaining arguments compose the rest of the path, e.g. climbing out
- * of `__dirname` with ".." and back down through two more literals. Tied to
- * the call itself, not to any comma-separated literals: an unrelated array
- * joined with "/" outside such a call must not be read as a path (mantahostels#2441). */
 const COMPOSED_CALL = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
-	`\\bpath\\.(?:resolve|join)\\(\\s*(${CALL_ANCHOR})\\s*,\\s*((?:["'\`][A-Za-z0-9_./-]+["'\`]\\s*,\\s*)*["'\`][A-Za-z0-9_./-]+["'\`])\\s*,?\\s*\\)`,
+	`\\bpath\\.(?:resolve|join)\\(\\s*(${CALL_ANCHOR})\\s*,\\s*((?:["'\`][A-Za-z0-9_./-]+["'\`]\\s*,\\s*)*["'\`][A-Za-z0-9_./-]+["'\`])\\s*(?:,\\s*)?\\)`,
 	"g",
 );
 
-/** A `path.resolve`/`path.join` call whose anchor is followed by one or more
- * literal segments and then a FINAL argument that is a template literal
- * interpolating a variable, e.g. `` `${id}.txt` ``. The literal segments name
- * a DIRECTORY, not a file. Deliberately NOT extended to a bare identifier
- * final argument (`path.join(ROOT, "scripts", name)`): a bare variable is too
- * often a single chosen file rather than a directory walk for a lexical pass
- * to tell the two apart (#157).
- * The literal-segment class excludes the backtick quote that `COMPOSED_CALL`
- * accepts: it is reserved for the final interpolated argument, so a segment
- * written in backticks never gets read twice under two different rules. */
 const DIR_CLASS = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
-	`\\bpath\\.(?:resolve|join)\\(\\s*(${CALL_ANCHOR})\\s*,\\s*((?:["'][A-Za-z0-9_./-]+["']\\s*,\\s*)+)\`[A-Za-z0-9_./-]*\\$\\{[^}\`]+\\}[A-Za-z0-9_./-]*\`\\s*,?\\s*\\)`,
+	`\\bpath\\.(?:resolve|join)\\(\\s*(${CALL_ANCHOR})\\s*,\\s*((?:["'][A-Za-z0-9_./-]+["']\\s*,\\s*)+)\`[A-Za-z0-9_./-]*\\$\\{[^}\`]+\\}[A-Za-z0-9_./-]*\`\\s*(?:,\\s*)?\\)`,
 	"g",
 );
 
-/** A relative `from`/`require(`/`import(` specifier, one hop's worth. */
 const IMPORT = /\b(?:from|require\(|import\()\s*["'`](\.\.?\/[^"'`]+)["'`]/g;
 
-/** The subset vitest's own import graph is certain to follow: static ESM,
- * the bare side-effect `import "./x"` included. */
 const ESM_IMPORT =
 	/(?:\b(?:from|import\()|^[ \t]*import)\s*["'`](\.\.?\/[^"'`]+)["'`]/gm;
 
-/** A type-only import or re-export, erased before vitest loads the file. */
 const TYPE_ONLY = /^[ \t]*(?:import|export)[ \t]+type\b[^;]*;?/gm;
 
 const TYPE_QUERY = /\btypeof\s+import\(\s*["'`][^"'`]+["'`]\s*\)/g;
 
-/** Extensions tried, in order, when a specifier names no file suffix. */
 const EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs"];
 
-/** The suffixes an own-module edge pairs with `x.test.ts` or `x.spec.ts`. `.ts` is for a
- * module no test imports, the vitest setup file being one. */
 const OWN_MODULE_EXTENSIONS = [".js", ".sh", ".cjs", ".mjs", ".ts"];
 
 /**
- * One test's edge scan: what it may read against, and the edges found so far.
  * @typedef {{ tracked: Set<string>, self: string, root: boolean,
- *   sibling: boolean, imported: Set<string>, found: Set<string> }} EdgeScan
- *   `root` and `sibling` are whether the test carries a root anchor and a
- *   directory anchor; `imported` is its static imports, which the sibling and
- *   directory-class passes never take as an edge.
+ *  sibling: boolean, imported: Set<string>, found: Set<string> }} EdgeScan
  */
 
-/**
- * Whether `p` may be an edge of the scanned test: never the test itself, and
- * never a module vitest's own graph already reaches from it.
- * @param {EdgeScan} scan
- * @param {string} p
- */
+/** @param {EdgeScan} scan @param {string} p */
 const isCandidate = (scan, p) => p !== scan.self && !scan.imported.has(p);
 
-/**
- * The tracked modules a test is named for: its same-named siblings.
- *
- * @param {string} test
- * @param {Set<string>} tracked
- * @returns {string[]}
- */
+/** @param {string} test @param {Set<string>} tracked @returns {string[]} */
 function ownModules(test, tracked) {
 	const stem = test.replace(JS_TEST_FILE, "");
 	return OWN_MODULE_EXTENSIONS.map((e) => stem + e).filter((p) =>
@@ -265,14 +69,7 @@ function ownModules(test, tracked) {
 	);
 }
 
-/**
- * Resolves a relative specifier against the importing file's own directory —
- * no `node:path`, so this stays a pure string transform over repo-style `/`.
- *
- * @param {string} fromFile
- * @param {string} spec
- * @returns {string}
- */
+/** @param {string} fromFile @param {string} spec @returns {string} */
 function resolveRelative(fromFile, spec) {
 	const stack = fromFile.split("/").slice(0, -1);
 	for (const part of spec.split("/")) {
@@ -283,15 +80,7 @@ function resolveRelative(fromFile, spec) {
 	return stack.join("/");
 }
 
-/**
- * Resolves a directory-class call's literal segments against a base stack,
- * refusing to climb past it — unlike `resolveRelative`, which a `..` past the
- * top just leaves at the top.
- *
- * @param {string[]} base
- * @param {string} spec
- * @returns {string | null} null when the spec climbs past the base
- */
+/** @param {string[]} base @param {string} spec @returns {string | null} */
 function resolveDirPath(base, spec) {
 	const stack = [...base];
 	for (const part of spec.split("/")) {
@@ -312,9 +101,6 @@ function resolveDirPath(base, spec) {
  */
 function resolveImport(fromFile, spec, tracked) {
 	const base = resolveRelative(fromFile, spec);
-	/* A TS-ESM specifier names its own ".js" for a ".ts" source file, so the
-	 * bare base is tried again with any extension it already carries stripped
-	 * — otherwise "./x.js" over a tracked "x.ts" resolves to nothing. */
 	const stripped = base.replace(/\.(?:ts|tsx|js|mjs|cjs)$/, "");
 	const candidates = [
 		base,
@@ -327,12 +113,10 @@ function resolveImport(fromFile, spec, tracked) {
 }
 
 /**
- * The tracked helper files a test imports by relative specifier, one hop.
- *
  * @param {string} source
  * @param {string} self
  * @param {Set<string>} tracked
- * @param {RegExp} [re]  ESM_IMPORT only via `vitestImports`, which also drops type-only imports
+ * @param {RegExp} [re]
  * @returns {Set<string>}
  */
 function importedHelpers(source, self, tracked, re = IMPORT) {
@@ -345,9 +129,6 @@ function importedHelpers(source, self, tracked, re = IMPORT) {
 }
 
 /**
- * The helpers vitest's own graph follows from a file: static ESM, less the
- * type-only imports it erases before load (#1223).
- *
  * @param {string} source
  * @param {string} self
  * @param {Set<string>} tracked
@@ -361,48 +142,28 @@ const vitestImports = (source, self, tracked) =>
 		ESM_IMPORT,
 	);
 
-/**
- * @param {string} args  a run of quoted literals
- * @returns {string[]}  each literal's text
- */
+/** @param {string} args @returns {string[]} */
 const literalsIn = (args) =>
 	[...args.matchAll(LITERAL)].map((x) => requiredGroup(x, 1, LITERAL));
 
-/**
- * @param {EdgeScan} scan accumulator: each edge found is added to it
- * @param {string} raw
- * @returns {void}
- */
+/** @param {EdgeScan} scan @param {string} raw @returns {void} */
 function addSiblingEdge(scan, raw) {
 	const q = resolveRelative(scan.self, raw);
 	if (isCandidate(scan, q) && scan.tracked.has(q)) scan.found.add(q);
 }
 
-/**
- * One path-shaped literal, read root-relative and sibling-relative as the
- * test's anchors allow.
- * @param {EdgeScan} scan accumulator: each edge found is added to it
- * @param {string} raw
- * @returns {void}
- */
+/** @param {EdgeScan} scan @param {string} raw @returns {void} */
 function addLiteralEdges(scan, raw) {
 	const p = raw.replace(/^\.\//, "");
 	if (scan.root && p !== scan.self && scan.tracked.has(p)) scan.found.add(p);
 	if (scan.sibling) addSiblingEdge(scan, p);
 }
 
-/**
- * @param {EdgeScan} scan accumulator: each edge found is added to it
- * @param {string} source
- * @returns {void}
- */
+/** @param {EdgeScan} scan @param {string} source @returns {void} */
 function addComposedEdges(scan, source) {
 	for (const m of source.matchAll(COMPOSED_CALL)) {
 		const pieces = literalsIn(requiredGroup(m, 2, COMPOSED_CALL));
 		const joined = pieces.join("/").replace(/^\.\//, "");
-		/* Routed by the matched anchor, not tried under both passes: a
-		 * dirname-relative candidate like "../docs/x.md" never collides with a
-		 * root-relative one, so this cannot mint an edge the wrong pass owns. */
 		if (DIRNAME_ANCHORS.has(requiredGroup(m, 1, COMPOSED_CALL))) {
 			if (scan.sibling) addSiblingEdge(scan, joined);
 		} else if (scan.root && joined !== scan.self && scan.tracked.has(joined)) {
@@ -411,13 +172,7 @@ function addComposedEdges(scan, source) {
 	}
 }
 
-/**
- * The directory a `DIR_CLASS` match names, or null where the test lacks its
- * anchor or the path climbs past it.
- * @param {EdgeScan} scan
- * @param {RegExpMatchArray} m
- * @returns {string | null}
- */
+/** @param {EdgeScan} scan @param {RegExpMatchArray} m @returns {string | null} */
 function dirClassPath(scan, m) {
 	const dirAnchor = DIRNAME_ANCHORS.has(requiredGroup(m, 1, DIR_CLASS));
 	if (dirAnchor && !scan.sibling) return null;
@@ -428,58 +183,39 @@ function dirClassPath(scan, m) {
 	return resolveDirPath(base, joined);
 }
 
-/**
- * Every tracked file under each directory a `DIR_CLASS` match in `source`
- * names.
- * @param {EdgeScan} scan accumulator: each edge found is added to it
- * @param {string} source
- * @returns {void}
- */
+/** @param {EdgeScan} scan @param {string} source @returns {void} */
 function addDirClassEdges(scan, source) {
 	for (const m of source.matchAll(DIR_CLASS)) {
 		const dirPath = dirClassPath(scan, m);
-		/* Falsy covers two outcomes on purpose: `null` is an escape past the
-		 * tree, `""` is every literal segment cancelling out to the anchor's
-		 * own root (e.g. a lone "."). */
 		if (!dirPath) continue;
 		for (const p of scan.tracked)
 			if (isCandidate(scan, p) && isUnder(p, [dirPath])) scan.found.add(p);
 	}
 }
 
-/** Any plain quoted string, a scoped package's `@` included. */
 const QUOTED = /^(["'])([^"'`\n\\]+)\1$/;
 
-/** A JS identifier, unanchored. */
 const IDENT_SRC = "[A-Za-z_$][\\w$]*";
 const IDENT = new RegExp(`^${IDENT_SRC}$`);
 const IDENT_HEAD = new RegExp(`^${IDENT_SRC}`);
 
-/** How many declarations a trace follows before giving up, so a cycle
- * ends — `dirsOf`'s to an anchor, or a collection's to its literals or
- * listing. A guess: the deepest `dirsOf` chain the tests held on
- * 16 Oct 2026 was two; a collection's is unmeasured. */
+// #1770 guess: the deepest `dirsOf` chain the tests held on 16 Oct 2026 was two
 const TRACE_HOPS = 4;
 
-/** A root-anchor spelling standing alone as an expression. */
 const ROOT_NAME = new RegExp(
 	`^(?:${ROOT_NAMES}|${ROOT_CALLS}|process\\.cwd\\(\\))$`,
 );
 
-/** A root call, or the working directory, standing alone. */
 const ROOT_CALL = new RegExp(`^(?:${ROOT_CALLS}|process\\.cwd\\(\\))$`);
 
-/** The quoted literal an argument is, or null where it is anything else. */
 const literalArg = (/** @type {string} */ arg) =>
 	/^["'`]([A-Za-z0-9_./-]+)["'`]$/.exec(arg)?.[1] ?? null;
 
 /**
- * The repo directories an expression names, traced through `const`
- * declarations in the same source to `__dirname` or a root anchor (#1770).
  * @param {EdgeScan} scan
  * @param {string} source
  * @param {string} expr
- * @param {number} [hops]  declarations still to follow
+ * @param {number} [hops]
  * @returns {string[]}
  */
 function dirsOf(scan, source, expr, hops = TRACE_HOPS) {
@@ -495,8 +231,6 @@ function dirsOf(scan, source, expr, hops = TRACE_HOPS) {
 }
 
 /**
- * A whole `path.join`/`path.resolve` call's directory: its base traced, then
- * every further argument, each a literal, climbed or descended.
  * @param {EdgeScan} scan
  * @param {string} source
  * @param {string} call
@@ -515,15 +249,11 @@ function joinedDirs(scan, source, call, hops) {
 	});
 }
 
-/** A declaration's initialiser this traces: a `path` call or a bare name. */
 const INITIALISER = new RegExp(
 	`^path\\.(?:resolve|join)\\(|^${IDENT_SRC}(?=\\s*[;,)\\n])`,
 );
 
 /**
- * The directories every declaration of `name` in `source` initialises it to,
- * where the initialiser is a whole `path` call or a bare name. Every one
- * counts, so a name shadowed in two scopes reads as both.
  * @param {EdgeScan} scan
  * @param {string} source
  * @param {string} name
@@ -549,19 +279,11 @@ function declaredDirs(scan, source, name, hops) {
 	return found;
 }
 
-/** What a regex literal's closing `/` leads to in a filter: its flags, then
- * `.test(` on a name. */
 const FILTER_TAIL = /([dgimsuy]*)\.test\(\s*([\w$.]+)\s*\)/y;
 
-/** The characters `.` refuses without the `s` flag. */
 const LINE_BREAKS = "\n\r\u2028\u2029";
 
-/**
- * An array with one entry per position of `body`, plus one for its end: the
- * `]` closing a regex class whose content opens there, past escapes, as
- * `(?:\\.|[^\]\\])*\]` reads it; -1 where none closes.
- * @param {string} body
- */
+/** @param {string} body */
 function classCloses(body) {
 	const n = body.length;
 	const close = new Int32Array(n + 2).fill(-1);
@@ -574,23 +296,13 @@ function classCloses(body) {
 	return close;
 }
 
-/** Whether the `\` at `i` escapes a next character, which `.` must match. */
 const escapes = (/** @type {string} */ body, /** @type {number} */ i) =>
 	i + 1 < body.length && !LINE_BREAKS.includes(body.charAt(i + 1));
 
-/**
- * An array with one entry per position of `body`, plus one for its end: where
- * a regex literal's source read from that position stops, at the first
- * character that opens no escape, class or plain character, as
- * `(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n[])*` reads it. Each piece is decided by
- * its first character, so reading from any position is one fixed path and
- * one backward pass settles every position.
- * @param {string} body
- */
+/** @param {string} body */
 function sourceStops(body) {
 	const n = body.length;
 	const classClose = classCloses(body);
-	/** The end of the piece opening at `i`, or -1 where none opens there. */
 	const pieceEnd = (/** @type {number} */ i) => {
 		const ch = body.charAt(i);
 		if (ch === "\\") return escapes(body, i) ? i + 2 : -1;
@@ -607,14 +319,6 @@ function sourceStops(body) {
 }
 
 /**
- * The regex literals a filter body tests against a name, in order: an
- * optional `!`, blanks that follow no blank, then `/source/flags.test(name)`.
- * Each is whether it is negated, its source, its flags and the name. The
- * same as the `g` regex
- * `(!?)(?<!\s)\s*\/((?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n[])+)\/([dgimsuy]*)\.test\(\s*([\w$.]+)\s*\)`
- * finds. As that regex, every `/` is a fresh start whose class reads on to
- * the next `]`, quadratic on `/[` repeated; here each source and each tail
- * is read once.
  * @param {string} body
  * @returns {{negated: boolean, source: string, flags: string, name: string}[]}
  */
@@ -660,13 +364,9 @@ function regexFilters(body) {
 	return found;
 }
 
-/** A string method tested against a name, optionally negated: the name, the
- * method and its literal. */
 const FILTER_STR =
 	/(!?)(?:(?<!\s)\s+|(?<![\s\w$.]))([\w$.]+)\.(endsWith|startsWith|includes)\(\s*["']([^"'\n]*)["']\s*\)/g;
 
-/** A filter body this cannot read as a conjunction of tests: an `||`, a
- * ternary, a negated group, a comparison against a boolean, or a block. */
 const UNREAD_FILTER =
 	/\|\||\?(?![.?])|!\s*\(|[!=]==?\s*(?:true|false)\b|\b(?:true|false)\s*[!=]==?|\breturn\b|\{/;
 
@@ -677,13 +377,7 @@ const STRING_TESTS = {
 	includes: (n, lit) => n.includes(lit),
 };
 
-/**
- * The un-negated tests a filter body holds on the listed name `v` — `v`
- * itself, or a Dirent's `v.name` — or null where a regex does not compile.
- * @param {string} body
- * @param {string} v
- * @returns {((name: string) => boolean)[] | null}
- */
+/** @param {string} body @param {string} v @returns {((name: string) => boolean)[] | null} */
 function nameChecks(body, v) {
 	const onName = (/** @type {string} */ r) => r === v || r === `${v}.name`;
 	const checks = [];
@@ -705,16 +399,7 @@ function nameChecks(body, v) {
 	return checks;
 }
 
-/**
- * What a filter body keeps of the names bound to `v`, read lexically: every
- * un-negated regex `.test` and `endsWith`/`startsWith`/`includes` on that
- * name must pass. A negated or unread conjunct is dropped, which only ever
- * widens; a body `UNREAD_FILTER` matches, or one holding no test this reads,
- * narrows nothing.
- * @param {string} body
- * @param {string} v
- * @returns {((name: string) => boolean) | null}  null where nothing narrows
- */
+/** @param {string} body @param {string} v @returns {((name: string) => boolean) | null} */
 function filterPredicate(body, v) {
 	if (UNREAD_FILTER.test(body)) return null;
 	const checks = nameChecks(body, v);
@@ -722,16 +407,11 @@ function filterPredicate(body, v) {
 	return (n) => checks.every((c) => c(n));
 }
 
-/** An arrow function's single parameter, typed or not, and its body. */
 const ARROW = new RegExp(
 	`^(?:\\(\\s*(${IDENT_SRC})\\s*(?::[^)]*)?\\)|(${IDENT_SRC}))\\s*=>([\\s\\S]*)$`,
 );
 
 /**
- * What the listing ending at `end` keeps: an arrow `.filter(…)` chained
- * straight onto it, past a `.sort()`, or — where the listing is the iterable
- * of a `for (const <loopVar> of …)` — a loop body opening on
- * `if (!<test>) continue;`.
  * @param {string} source
  * @param {number} end
  * @param {string | undefined} loopVar
@@ -758,8 +438,8 @@ function listingFilter(source, end, loopVar) {
 }
 
 /**
- * @param {EdgeScan} scan accumulator: each edge found is added to it
- * @param {string} dir  "" for the root
+ * @param {EdgeScan} scan
+ * @param {string} dir
  * @param {boolean} recursive
  * @param {((name: string) => boolean) | null} keep
  * @returns {void}
@@ -774,20 +454,11 @@ function addListedEdges(scan, dir, recursive, keep) {
 	}
 }
 
-/** A `for (const v of ` head running up to a listing call's own name. */
 const LOOP_HEAD = new RegExp(
 	`for\\s*\\(\\s*(?:const|let|var)\\s+(${IDENT_SRC})\\s+of\\s+[\\w$.]*$`,
 );
 
-/**
- * Every tracked file an `fs.readdirSync(<dir>)` lists, where `<dir>` traces to
- * `__dirname` or a root anchor — narrowed by a `.filter` chained onto the
- * call. A plain listing is one level: files in a subdirectory it names are
- * left for whatever reads them (#1770).
- * @param {EdgeScan} scan accumulator: each edge found is added to it
- * @param {string} source
- * @returns {void}
- */
+/** @param {EdgeScan} scan @param {string} source @returns {void} */
 function addReaddirEdges(scan, source) {
 	for (const m of source.matchAll(/\breaddirSync\(/g)) {
 		const open = (m.index ?? 0) + m[0].length - 1;
@@ -807,9 +478,8 @@ function addReaddirEdges(scan, source) {
 const GLOB_CHARS = { "*": ".*", "?": "." };
 
 /**
- * Git's own pathspec match, without magic: a glob's `*` crosses `/`, and a
- * plain spec matches itself or anything under it. An exclude's magic prefix
- * is stripped by the caller.
+ * Git's pathspec without magic: a glob's `*` crosses `/`, and a plain spec
+ * matches itself or anything under it. https://git-scm.com/docs/gitglossary
  * @param {string} spec
  * @returns {(p: string) => boolean}
  */
@@ -825,13 +495,8 @@ function pathspecMatcher(spec) {
 }
 
 /**
- * The literal pathspecs reaching a git listing's argument list: a quoted
- * element itself, or — where an element is a parameter of the function the
- * list sits in — the literal each call of that function passes in its place,
- * the shape of a `tracked(glob)` helper (#1770); and whether any element
- * names one the selector cannot read, neither of those.
  * @param {string} source
- * @param {string[]} elements  the list's, its subcommand first
+ * @param {string[]} elements
  * @returns {{ specs: string[], unreadable: boolean }}
  */
 function parsePathspecs(source, elements) {
@@ -849,49 +514,28 @@ function parsePathspecs(source, elements) {
 	return { specs, unreadable };
 }
 
-/** A quoted short-flag cluster holding `f`, which reads grep's patterns from
- * a file: `-f`, `-fp.txt`, `-lf` (#4790). */
 const GREP_PATTERN_FILE = /^["'`]-[A-Za-z]*f/;
 
-/**
- * Whether a `grep`'s flags may read a file no pathspec names: a pattern
- * file, or a flag the selector cannot read as a literal (#4790).
- * @param {string[]} elements  the list's, its subcommand first
- * @returns {boolean}
- */
+/** @param {string[]} elements @returns {boolean} */
 function isGrepReadingFlagFile(elements) {
 	return splitListing(elements).flags.some(
 		(el) => GREP_PATTERN_FILE.test(el) || !QUOTED_ELEMENT.test(el),
 	);
 }
 
-/** A `grep` flag reading files no pathspec edge names: the untracked ones,
- * or every file on disk (#4922). */
 const GREP_UNTRACKED = /^["'](?:--untracked|--no-index)["']$/;
 
-/** A quoted literal argument-list element. */
 const QUOTED_ELEMENT = /^(["'`])[^"'`]*\1$/;
 
-/** The git subcommands listing tracked files: `ls-files`, and `grep`, which
- * reads every file its pathspecs name (#4790). */
 const GIT_LISTER = /^["'](?:ls-files|grep)["']$/;
 
-/** A git call listing tracked files, the list opening its arguments on the
- * subcommand or on a global option ahead of it (#4922). */
 const GIT_LISTING = /\[\s*["'](?:ls-files|grep|-[^"']*)["']/g;
 
-/** A quoted option element. */
 const OPTION_ELEMENT = /^["']-/;
 
-/** A git global option the listing's reads do not turn on, its value the
- * next element. */
 const GIT_CONFIG_OPTION = /^["']-c["']$/;
 
 /**
- * The git listing whose argument list opens at `open`: each `-C` value as
- * written and in order, whether a global option ahead of the subcommand is
- * one it does not read — any but `-C` and `-c` — its elements from the subcommand on, and where the list closes;
- * null where the list holds no `ls-files` or `grep` subcommand (#4922).
  * @param {string} source
  * @param {number} open
  * @returns {{ dirArgs: string[], unread: boolean, elements: string[], close: number } | null}
@@ -907,14 +551,7 @@ function parseGitListing(source, open) {
 		: null;
 }
 
-/**
- * A git argument list's global options: each `-C` value, where the
- * subcommand sits, and whether an option it does not read stands ahead of
- * it — past which the subcommand is the first `ls-files` or `grep`, -1
- * where none follows.
- * @param {string[]} elements
- * @returns {{ dirArgs: string[], at: number, unread: boolean }}
- */
+/** @param {string[]} elements @returns {{ dirArgs: string[], at: number, unread: boolean }} */
 function parseGlobalOptions(elements) {
 	const dirArgs = [];
 	let at = 0;
@@ -934,10 +571,6 @@ function parseGlobalOptions(elements) {
 }
 
 /**
- * The repo directories a listing's `-C` values run it in, from `start`: a
- * literal joins the directory before it, any other value replaces it with
- * what `trace` makes of it; null where `trace` returns null, a value it
- * leaves unattributed (#4922).
  * @param {string[]} start
  * @param {string[]} dirArgs
  * @param {(expr: string) => string[] | null} trace
@@ -955,26 +588,12 @@ function foldDirArgs(start, dirArgs, trace) {
 	return dirs;
 }
 
-/**
- * The repo directory a literal `-C` value names from
- * `base`, or null where it is absolute or climbs out of the tree.
- * @param {string} base
- * @param {string} lit
- * @returns {string | null}
- */
+/** @param {string} base @param {string} lit @returns {string | null} */
 const literalDir = (base, lit) =>
 	lit.startsWith("/") ? null : resolveDirPath(base ? base.split("/") : [], lit);
 
-/**
- * Whether a listing's pathspecs, read from repo directory `dir`, name `p`:
- * one include matching it, no exclude.
- * @param {string[]} specs
- * @param {string} dir
- * @returns {(p: string) => boolean}
- */
+/** @param {string[]} specs @param {string} dir @returns {(p: string) => boolean} */
 function listingMatcher(specs, dir) {
-	/* Under a `-C`, `.` and `..` resolve against it; at the root a spec is
-	 * matched as written. */
 	const under = (/** @type {string} */ s) =>
 		dir ? resolveDirPath(dir.split("/"), s) : s.replace(/^\.\//, "");
 	const matchers = (/** @type {boolean} */ exclude) =>
@@ -989,14 +608,7 @@ function listingMatcher(specs, dir) {
 	return (p) => included.some((t) => t(p)) && !excluded.some((t) => t(p));
 }
 
-/**
- * A git listing's argument list split into the elements that may name
- * pathspecs — every one after `ls-files`, each after `grep`'s `--` — and a
- * `grep`'s pattern and flags before it; a `grep` with no `--` reads the
- * whole tree.
- * @param {string[]} elements  the list's, its subcommand first
- * @returns {{ pathspecs: string[], flags: string[] }}
- */
+/** @param {string[]} elements @returns {{ pathspecs: string[], flags: string[] }} */
 function splitListing(elements) {
 	const [subcommand, ...rest] = elements;
 	if (!/^["']grep["']$/.test(subcommand ?? ""))
@@ -1007,47 +619,29 @@ function splitListing(elements) {
 		: { pathspecs: rest.slice(dashes + 1), flags: rest.slice(0, dashes) };
 }
 
-/** A quoted pathspec, an exclude's `:!`, `:^` or `:(exclude)` included. */
 const PATHSPEC = /^["'`]((?::!|:\^|:\(exclude\))?[A-Za-z0-9_./*?-]+)["'`]$/;
 
-/** The magic prefix marking a pathspec as an exclude. */
 const EXCLUDE = /^:(?:!|\^|\(exclude\))/;
 
-/** A function header: `function f(` or `const f = (`, async or not. */
 const FUNCTION_HEAD = new RegExp(
 	`\\b(?:function\\s+(${IDENT_SRC})\\s*|(?:const|let)\\s+(${IDENT_SRC})\\s*=\\s*(?:async\\s*)?)\\(`,
 	"g",
 );
 
-/**
- * Where parameter `param` sits in a function header's list opening at
- * `open`, or -1.
- * @param {string} source
- * @param {number} open
- * @param {string} param
- * @returns {number}
- */
+/** @param {string} source @param {number} open @param {string} param @returns {number} */
 function paramIndex(source, open, param) {
 	return paramsOf(source, open).findIndex(
 		(p) => IDENT_HEAD.exec(p.replace(/^\.\.\.\s*/, ""))?.[0] === param,
 	);
 }
 
-/**
- * A function header's parameters, as written, from the list opening at
- * `open`.
- * @param {string} source
- * @param {number} open
- * @returns {string[]}
- */
+/** @param {string} source @param {number} open @returns {string[]} */
 function paramsOf(source, open) {
 	const close = closeOf(source, open);
 	return close === -1 ? [] : topLevelArgs(source.slice(open + 1, close - 1));
 }
 
 /**
- * Every call of `name` — where its argument list opens, and the list — the
- * declaration's own at `declared` aside.
  * @param {string} source
  * @param {string} name
  * @param {number} declared
@@ -1069,7 +663,6 @@ function callArgs(source, name, declared) {
 }
 
 /**
- * The pathspec literal each call of `name` passes as its `at`-th argument.
  * @param {string} source
  * @param {string} name
  * @param {number} at
@@ -1082,13 +675,7 @@ const callLiterals = (source, name, at, declared) =>
 		return lit === undefined ? [] : [lit];
 	});
 
-/**
- * The literal each call passes for parameter `param` of any function in
- * `source` that declares it.
- * @param {string} source
- * @param {string} param
- * @returns {string[]}
- */
+/** @param {string} source @param {string} param @returns {string[]} */
 function argsFor(source, param) {
 	const out = [];
 	for (const h of source.matchAll(FUNCTION_HEAD)) {
@@ -1100,15 +687,7 @@ function argsFor(source, param) {
 	return out;
 }
 
-/**
- * Every tracked file a `git ls-files <pathspec>` or `git grep … -- <pathspec>`
- * lists, the pathspec read as relative to the root, or to the `-C`
- * directory ahead of the subcommand — the `cwd` such a call
- * runs in is never read, so the root anchor licenses it (#1770, #4922).
- * @param {EdgeScan} scan accumulator: each edge found is added to it
- * @param {string} source
- * @returns {void}
- */
+/** @param {EdgeScan} scan @param {string} source @returns {void} */
 function addListingEdges(scan, source) {
 	for (const m of source.matchAll(GIT_LISTING)) {
 		const listing = parseGitListing(source, m.index ?? 0);
@@ -1121,13 +700,7 @@ function addListingEdges(scan, source) {
 	}
 }
 
-/**
- * Every tracked file a listing's `specs` name from repo directory `dir`.
- * @param {EdgeScan} scan accumulator: each edge found is added to it
- * @param {string[]} specs
- * @param {string} dir
- * @returns {void}
- */
+/** @param {EdgeScan} scan @param {string[]} specs @param {string} dir @returns {void} */
 function addPathspecEdges(scan, specs, dir) {
 	const lists = listingMatcher(specs, dir);
 	for (const p of scan.tracked)
@@ -1135,21 +708,16 @@ function addPathspecEdges(scan, specs, dir) {
 }
 
 /**
- * @param {string} source        the test file's text
- * @param {Set<string>} tracked  every path `git ls-files` reports
- * @param {string} self          the test file's own repo path, never its own edge
- * @returns {string[]} tracked paths this test reads from the repo tree
+ * @param {string} source
+ * @param {Set<string>} tracked
+ * @param {string} self
+ * @returns {string[]}
  */
 function edgesFor(source, tracked, self) {
 	const declared = declaredReads(source, tracked, self);
 	const root = ANCHOR.test(source);
 	const sibling = DIRNAME.test(source);
 	if (!root && !sibling) return declared;
-	/* An import specifier is a path-shaped literal too, so the sibling pass
-	 * would mint an edge for every relative import — the one edge vitest
-	 * already has, at the cost of a much wider filtered run (mantahostels#2433). STATIC ESM
-	 * ONLY: a runtime `require()` is a call vitest's graph need not follow, so
-	 * excluding on one would drop an edge nothing else supplies. */
 	const imported = sibling ? vitestImports(source, self, tracked) : new Set();
 	/** @type {EdgeScan} */
 	const scan = { tracked, self, root, sibling, imported, found: new Set() };
@@ -1192,17 +760,11 @@ const RULE_TEXT_MODULE = "scripts/lib/rule-text.js";
 
 const RULES_DIR = "docs/agents/rules/";
 
-/** Any relative specifier, `createRequire(__filename)("./lib/rule-text")`
- * included, which `IMPORT` does not see. */
 const SPECIFIER = /["'`](\.\.?\/[^"'`]+)["'`]/g;
 
-/** A quoted rule id, with or without the `rule:` prefix `readRuleText` strips. */
 const RULE_ID = /["'`](?:rule:)?([a-z0-9][a-z0-9-]*)["'`]/g;
 
 /**
- * The rule fragments a test reads through `readRuleText(id)`, which builds the
- * path itself, so no literal names it (#1296).
- *
  * @param {string} source
  * @param {Set<string>} tracked
  * @param {string} self
@@ -1225,33 +787,18 @@ function ruleEdgesFor(source, tracked, self) {
 
 const NODE_SCRIPT = /\.[mc]?js$/;
 
-/** A script whose runtime dependencies the closure follows: node or shell. */
 const isScript = (/** @type {string} */ p) =>
 	NODE_SCRIPT.test(p) || /\.sh$/.test(p) || /^\.husky\/[^/.]+$/.test(p);
 
-/** A `source`/`.` line, argument captured to the end of the line. */
 const SOURCE_LINE = /^[ \t]*(?:source|\.)[ \t]+(\S.*)$/gm;
 
-/**
- * A source argument's path: an optional directory-variable prefix, then a
- * literal tail. The `BASH_SOURCE`/`$0` spellings are the file's own directory;
- * any other variable is tried against that directory, then the root. A bare
- * variable's name is tried whole, then less its last character, and no
- * shorter, since every shorter split ends the tail in the same place: each
- * `(?=(…))\k<…>` is an atomic group, so the name is not re-split at every
- * length.
- */
 const SOURCE_ARG =
 	/^["']?(?<dirVar>\$\(dirname\s+"?\$(?:\{BASH_SOURCE\[0\]\}|BASH_SOURCE|0)"?\)|\$\{BASH_SOURCE\[0\]%\/\*\}|\$\{?[A-Za-z_](?:(?=(?<whole>[A-Za-z0-9_]*))\k<whole>\}?|(?=(?<lessLast>[A-Za-z0-9_]*)[A-Za-z0-9_])\k<lessLast>))?(?<tail>\/?[A-Za-z0-9_./-]+)["']?(?:\s|;|$)/;
 
 /**
- * Where a `source`/`.` argument may point: the file's own directory first,
- * then the root where the prefix is a variable that need not be the file's
- * directory.
- * @param {string} sourced  the argument, to the end of the line
- * @param {string[]} dir  the sourcing file's directory
- * @returns {{ tail: string, candidates: (string | null)[] }}  `tail` is the
- *   argument's literal path, "" where it has none
+ * @param {string} sourced
+ * @param {string[]} dir
+ * @returns {{ tail: string, candidates: (string | null)[] }}
  */
 function sourceCandidates(sourced, dir) {
 	const arg = SOURCE_ARG.exec(sourced);
@@ -1270,27 +817,19 @@ function sourceCandidates(sourced, dir) {
 }
 
 /**
- * Whether a source line that resolves to no tracked file owes no warning.
- * @param {string} source  the script's text
- * @param {number | undefined} at  where the line's match starts
- * @param {string} tail  the argument's literal path
+ * @param {string} source
+ * @param {number | undefined} at
+ * @param {string} tail
  * @returns {boolean}
  */
 function isExcusedSource(source, at, tail) {
-	/* A "." opening a continuation line or an array element is an argument. */
 	if (/[\\(]$/.test(source.slice(0, at).trimEnd())) return true;
-	/* An optional source — guarded by a `-f` test of its path — may be
-	 * absent (#657). Lexical: a `[ -f` of that path anywhere in the file
-	 * silences it, whether or not it guards this line. */
 	const bare = escapeRe(tail.replace(/^\.\//, ""));
 	const guard = `(?:\\[|\\btest)\\s+-f\\s+["']?(?:\\./)?${bare}["']?\\s`;
 	return !!tail && new RegExp(guard).test(source);
 }
 
 /**
- * The tracked files a script loads at runtime, one level: relative
- * `require`/`import` for node, `source`/`.` for shell.
- *
  * @param {string} file
  * @param {string} source
  * @param {Set<string>} tracked
@@ -1338,32 +877,18 @@ const SHAPE = {
 		"a git global option it does not read: `--git-dir`, `--work-tree`, or one but `-C` and `-c`",
 };
 
-/**
- * One read the selector cannot attribute: its 1-based line, and its shape.
- * @typedef {{ line: number, shape: string }} Site
- */
+/** @typedef {{ line: number, shape: string }} Site */
+
+/** @typedef {{ path: string } | { unseen: string }} Resolution */
 
 /**
- * What an argument resolves to: a repo path ("" the root), or an anchored
- * argument whose shape gets no edge.
- * @typedef {{ path: string } | { unseen: string }} Resolution
- */
-
-/**
- * One test's site scan.
  * @typedef {{ source: string, spans: [number, number][], dir: string,
- *   tracked: Set<string>, seen: (p: string) => boolean, site: number,
- *   decls: Map<string, string[]> }} SiteScan
- *   `spans` are its strings and comments, `dir` its own directory, `seen`
- *   what the selector reaches from it already, `site` where the read being
- *   judged sits, and `decls` an accumulator: each name's initialisers, once
- *   found, shared by every read in the test.
+ *  tracked: Set<string>, seen: (p: string) => boolean, site: number,
+ *  decls: Map<string, string[]> }} SiteScan
  */
 
-/** An expression opening as a `path.resolve`/`path.join` call. */
 const PATH_CALL = /^path\.(?:resolve|join)\(/;
 
-/** The calls that read a file's contents, as against listing a directory. */
 const FILE_READS = "readFileSync|readFile|readJsonl";
 
 const FILE_READ = new RegExp(`\\b(?:${FILE_READS})\\(`);
@@ -1376,12 +901,9 @@ const READ_OR_LIST = new RegExp(
 
 const FULL_SWEEP_ONLY = /^(?:[^\S\n\r\u2028\u2029]|[/*])*full-sweep-only:/m;
 
-/** How many paths one argument may stand for before the rest are dropped.
- * A guess: the most any test held on 17 Oct 2026 was a handful. */
+// #1881 guess: the most any test held on 17 Oct 2026 was a handful
 const MAX_ALTERNATIVES = 256;
 
-/** `DIR_CLASS` over a whole call, which the extractor attributes. */
-// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 const DIR_CLASS_CALL = new RegExp(`^${DIR_CLASS.source}$`);
 
 /** @param {[number, number][]} spans @param {number} i */
@@ -1412,14 +934,7 @@ function headerOf(source, spans) {
 	return source.slice(0, i);
 }
 
-/**
- * The initialiser of every declaration of `name` in code: the text of a
- * whole `path` call or array, a quoted literal, or a bare name — and "" for
- * anything else, so an untraceable declaration still counts as one.
- * @param {SiteScan} scan
- * @param {string} name
- * @returns {string[]}
- */
+/** @param {SiteScan} scan @param {string} name @returns {string[]} */
 function declInits(scan, name) {
 	const known = scan.decls.get(name);
 	if (known) return known;
@@ -1446,31 +961,19 @@ function declInits(scan, name) {
 	return out;
 }
 
-/**
- * What a name walking a collection takes: the literals of a literal array,
- * or the files a listing returns, as the directories it lists (#1886).
- * @typedef {{ lits: string[] } | { listed: string[] }} Elements
- */
+/** @typedef {{ lits: string[] } | { listed: string[] }} Elements */
 
-/** Calls that keep a collection's elements, each a subset of the last. */
 const KEEPS_ELEMENTS = /^\.\s*(?:filter|sort|toSorted|slice|reverse)\(/;
 
-/** A `withFileTypes` listing's entries mapped back to their names. */
 const DIRENT_NAMES =
 	/^\.\s*map\(\s*(?:\(\s*)?([\w$]+)\s*(?:\)\s*)?=>\s*\1\.name\s*\)/;
 
-/** A git call returning `ls-files` output, the list opening its arguments. */
 const LS_FILES_CALL =
 	/^(?:execFileSync|spawnSync)\(\s*["']git["']\s*,\s*\[\s*["']ls-files["']/;
 
-/** A call whose callback's first parameter walks the receiver's elements. */
 const WALKS = "filter|map|flatMap|find|findIndex|some|every|forEach";
 
-/**
- * Where the bracket closing at `close` opens, walking back over code.
- * @param {SiteScan} scan
- * @param {number} close
- */
+/** @param {SiteScan} scan @param {number} close */
 function openOf(scan, close) {
 	let depth = 0;
 	for (let i = close; i >= 0; i--) {
@@ -1482,13 +985,7 @@ function openOf(scan, close) {
 	return -1;
 }
 
-/**
- * The method chain a call at `dot` is made on — `fs.readdirSync(D).filter(…)`
- * for the `.map` after it — or null where a link is not a name, a call or a
- * literal array.
- * @param {SiteScan} scan
- * @param {number} dot
- */
+/** @param {SiteScan} scan @param {number} dot */
 function receiverOf(scan, dot) {
 	const src = scan.source;
 	let at = dot;
@@ -1512,12 +1009,7 @@ function lastNonSpace(src, i) {
 	return j;
 }
 
-/**
- * Where the chain link ending at `end` starts — a name, a call or a literal
- * array — or -1 for anything else.
- * @param {SiteScan} scan
- * @param {number} end
- */
+/** @param {SiteScan} scan @param {number} end */
 function linkStart(scan, end) {
 	let j = end;
 	let head = -1;
@@ -1530,12 +1022,7 @@ function linkStart(scan, end) {
 	return ident ? ident.index : head;
 }
 
-/**
- * Each initialiser of `name` in code, whole, up to its statement's `;`.
- * @param {SiteScan} scan
- * @param {string} name
- * @returns {string[]}
- */
+/** @param {SiteScan} scan @param {string} name @returns {string[]} */
 function declExprs(scan, name) {
 	const decl = new RegExp(
 		`\\b(?:const|let|var)\\s+${escapeRe(name)}\\s*(?::[^=;\\n]+)?=\\s*`,
@@ -1550,12 +1037,7 @@ function declExprs(scan, name) {
 	return out;
 }
 
-/**
- * Whether `name`, or a member of it, is assigned or grown anywhere but its
- * declaration, so its initialiser no longer says what it holds.
- * @param {SiteScan} scan
- * @param {string} name
- */
+/** @param {SiteScan} scan @param {string} name */
 function isChangedAfter(scan, name) {
 	const n = escapeRe(name);
 	const member = "(?:\\s*(?:\\.\\s*[\\w$]+|\\[[^\\]]*\\]))*";
@@ -1568,11 +1050,7 @@ function isChangedAfter(scan, name) {
 	return false;
 }
 
-/**
- * Where the statement running from `at` ends: its `;`, brackets skipped.
- * @param {SiteScan} scan
- * @param {number} at
- */
+/** @param {SiteScan} scan @param {number} at */
 function statementEnd(scan, at) {
 	let end = at;
 	while (end < scan.source.length) {
@@ -1589,9 +1067,6 @@ function statementEnd(scan, at) {
 }
 
 /**
- * The elements a collection expression holds: a literal array, a listing, or
- * a name declared as either, through calls that keep its elements; null for
- * anything else.
  * @param {SiteScan} scan
  * @param {string} expr
  * @param {number} hops
@@ -1611,10 +1086,9 @@ function elementsOfExpr(scan, expr, hops) {
 }
 
 /**
- * A listing call opening `e`: the directories it lists, and what follows it.
  * @param {SiteScan} scan
  * @param {string} e
- * @param {boolean} listsFiles  a `git ls-files` call, not a readdir
+ * @param {boolean} listsFiles
  * @returns {{ held: Elements, rest: string } | null}
  */
 function listingHead(scan, e, listsFiles) {
@@ -1622,7 +1096,6 @@ function listingHead(scan, e, listsFiles) {
 	const close = closeOf(e, open);
 	if (close === -1) return null;
 	const args = topLevelArgs(e.slice(open + 1, close - 1));
-	/* `ls-files` names root-relative paths wherever it runs in the repo. */
 	const cwd = listsFiles ? optionCwd(args[2] ?? "") : (args[0] ?? "");
 	const reached = cwd === null ? [{ path: "" }] : resolveExpr(scan, cwd);
 	const dirs = reached.flatMap((r) => ("path" in r ? [r.path] : []));
@@ -1639,7 +1112,6 @@ function listingHead(scan, e, listsFiles) {
 }
 
 /**
- * A literal array opening `e`: its literals, and what follows it.
  * @param {SiteScan} scan
  * @param {string} e
  * @param {number} hops
@@ -1653,8 +1125,6 @@ function arrayHead(scan, e, hops) {
 }
 
 /**
- * The literals a literal array `text` holds, a spread of a collection of
- * literals included; null where any element is anything else.
  * @param {SiteScan} scan
  * @param {string} text
  * @param {number} hops
@@ -1679,12 +1149,9 @@ const WRAPS_ELEMENTS =
 	/^(?:(?<copy>new\s+Set|Array\s*\.\s*from)|Object\s*\.\s*values)\(/;
 
 /**
- * A call `WRAPS_ELEMENTS` names opening `e`: what its argument holds — for
- * `Object.values`, an object literal's literal values, flattened by a
- * `.flat()` where any is a literal array — and what follows it.
  * @param {SiteScan} scan
  * @param {string} e
- * @param {RegExpExecArray} call  the `WRAPS_ELEMENTS` match
+ * @param {RegExpExecArray} call
  * @param {number} hops
  * @returns {{ held: Elements, rest: string } | null}
  */
@@ -1706,14 +1173,9 @@ function wrappedHead(scan, e, call, hops) {
 	);
 }
 
-/**
- * @typedef {{ lits: string[], nested: boolean }} ObjectValues
- *   `nested` where any value is a literal array
- */
+/** @typedef {{ lits: string[], nested: boolean }} ObjectValues */
 
 /**
- * The values of an object literal, or of a name every declaration of which
- * is one, where each is a literal or a literal array; null otherwise.
  * @param {SiteScan} scan
  * @param {string} expr
  * @param {number} hops
@@ -1755,8 +1217,6 @@ function objectLiteralValues(scan, expr, hops) {
 }
 
 /**
- * Each declaration of `name` read by `read`, or null where `name` is changed
- * after its declaration or no hops remain.
  * @template T
  * @param {SiteScan} scan
  * @param {string} name
@@ -1770,8 +1230,6 @@ function declaredAs(scan, name, hops, read) {
 }
 
 /**
- * A name opening `e`, declared as a collection: what every declaration
- * holds, all of one kind, and what follows the name.
  * @param {SiteScan} scan
  * @param {string} e
  * @param {number} hops
@@ -1785,12 +1243,7 @@ function declaredHead(scan, e, hops) {
 	return held && { held, rest: e.slice(ident.length) };
 }
 
-/**
- * Several collections as one, where every one is there and all are of one
- * kind; null otherwise.
- * @param {(Elements | null)[]} parts
- * @returns {Elements | null}
- */
+/** @param {(Elements | null)[]} parts @returns {Elements | null} */
 function mergeElements(parts) {
 	if (parts.length === 0 || parts.includes(null)) return null;
 	const all = /** @type {Elements[]} */ (parts);
@@ -1801,11 +1254,7 @@ function mergeElements(parts) {
 	return null;
 }
 
-/**
- * Whether every call in `rest` keeps the collection's elements.
- * @param {string} rest
- * @param {Elements} held
- */
+/** @param {string} rest @param {Elements} held */
 function isElementKeeping(rest, held) {
 	let t = rest.trimStart();
 	while (t) {
@@ -1821,15 +1270,7 @@ function isElementKeeping(rest, held) {
 	return true;
 }
 
-/**
- * The bindings of `name` to a collection's elements: a `for … of` walking it,
- * a callback a walking call passes it to as its first parameter, or an
- * `it.each`/`describe.each` table — each as the collection's text and the
- * span the binding holds over.
- * @param {SiteScan} scan
- * @param {string} name
- * @returns {Binding[]}
- */
+/** @param {SiteScan} scan @param {string} name @returns {Binding[]} */
 function elementBindings(scan, name) {
 	const n = escapeRe(name);
 	const param = `(?:async\\s+)?(?:\\(\\s*${n}\\s*(?::[^,)=]+)?(?:,[^)]*)?\\)(?:\\s*:[^=()]*?)?|${n})\\s*=>`;
@@ -1844,12 +1285,7 @@ function elementBindings(scan, name) {
  * @typedef {{ collection: string, from: number, to: number }} Binding
  */
 
-/**
- * Each `for … of` binding the escaped name `n`, over the loop's body.
- * @param {SiteScan} scan
- * @param {string} n
- * @returns {Binding[]}
- */
+/** @param {SiteScan} scan @param {string} n @returns {Binding[]} */
 function loopBindings(scan, n) {
 	const src = scan.source;
 	const out = [];
@@ -1873,12 +1309,7 @@ function loopBindings(scan, n) {
 	return out;
 }
 
-/**
- * Each walking call passing the name to its callback, over the call.
- * @param {SiteScan} scan
- * @param {string} param  the callback's head, binding the name first
- * @returns {Binding[]}
- */
+/** @param {SiteScan} scan @param {string} param @returns {Binding[]} */
 function callbackBindings(scan, param) {
 	const src = scan.source;
 	const out = [];
@@ -1894,13 +1325,7 @@ function callbackBindings(scan, param) {
 	return out;
 }
 
-/**
- * Each `it.each`/`test.each`/`describe.each` table whose callback binds the
- * name first, over the callback's call.
- * @param {SiteScan} scan
- * @param {string} param
- * @returns {Binding[]}
- */
+/** @param {SiteScan} scan @param {string} param @returns {Binding[]} */
 function eachBindings(scan, param) {
 	const src = scan.source;
 	const out = [];
@@ -1918,13 +1343,7 @@ function eachBindings(scan, param) {
 	return out;
 }
 
-/**
- * What a name walking a collection takes at the site: the binding nearest
- * above it, of those holding over it; null where none traces.
- * @param {SiteScan} scan
- * @param {string} name
- * @returns {Elements | null}
- */
+/** @param {SiteScan} scan @param {string} name @returns {Elements | null} */
 function boundElements(scan, name) {
 	const near = elementBindings(scan, name)
 		.filter((b) => b.from < scan.site && scan.site < b.to)
@@ -1932,14 +1351,7 @@ function boundElements(scan, name) {
 	return near ? elementsOfExpr(scan, near.collection, TRACE_HOPS) : null;
 }
 
-/**
- * What a parameter of the nearest function above the site takes, where
- * every call passes literals — a rest parameter's run of them joined with
- * "/" — or a name walking a collection; null otherwise.
- * @param {SiteScan} scan
- * @param {string} name
- * @returns {Elements | null}
- */
+/** @param {SiteScan} scan @param {string} name @returns {Elements | null} */
 function paramValues(scan, name) {
 	const nearest = nearestDeclaring(scan, name);
 	if (!nearest) return null;
@@ -1952,8 +1364,6 @@ function paramValues(scan, name) {
 }
 
 /**
- * What one call passes for the parameter at `at`: its literals — a rest
- * parameter's run joined with "/" — or what a name it passes walks.
  * @param {SiteScan} scan
  * @param {{ at: number, args: string[] }} call
  * @param {number} at
@@ -1970,8 +1380,6 @@ function passedValue(scan, call, at, rest) {
 }
 
 /**
- * The last named function above the site whose parameters include `name`:
- * its name, where its list opens, and the parameter's position.
  * @param {SiteScan} scan
  * @param {string} name
  * @returns {{ fn: string, open: number, at: number } | undefined}
@@ -1988,25 +1396,14 @@ function nearestDeclaring(scan, name) {
 	return nearest;
 }
 
-/**
- * What a name stands for at the site: the elements it walks, or the literals
- * every call passes for it as a parameter.
- * @param {SiteScan} scan
- * @param {string} name
- * @returns {Elements | null}
- */
+/** @param {SiteScan} scan @param {string} name @returns {Elements | null} */
 function boundValues(scan, name) {
 	const walked = boundElements(scan, name);
 	if (walked) return walked;
 	return paramValues(scan, name);
 }
 
-/**
- * The segment a name's initialiser spells: a literal, or a `path` call over
- * literals alone; null for anything else.
- * @param {string} init
- * @returns {string | null}
- */
+/** @param {string} init @returns {string | null} */
 function initSegment(init) {
 	const lit = literalArg(init);
 	if (lit !== null || !PATH_CALL.test(init)) return lit;
@@ -2017,13 +1414,10 @@ function initSegment(init) {
 }
 
 /**
- * The segments a `path` call's further argument stands for, or the shape
- * that stops it resolving.
  * @param {SiteScan} scan
  * @param {string} arg
  * @param {number} hops
  * @returns {string[] | { unseen: string } | { listed: string[], name: string }}
- *   `listed` where it walks a listing of those directories
  */
 function segmentsOf(scan, arg, hops) {
 	const lit = literalArg(arg) ?? QUOTED.exec(arg)?.[2] ?? null;
@@ -2043,12 +1437,7 @@ function segmentsOf(scan, arg, hops) {
 	return "lits" in bound ? bound.lits : { listed: bound.listed, name: arg };
 }
 
-/**
- * Bases joined with further segments, each kept unseen or resolved.
- * @param {Resolution[]} bases
- * @param {string[]} tails
- * @returns {Resolution[]}
- */
+/** @param {Resolution[]} bases @param {string[]} tails @returns {Resolution[]} */
 function joinAll(bases, tails) {
 	return bases.flatMap((b) => {
 		if ("unseen" in b) return [b];
@@ -2059,13 +1448,7 @@ function joinAll(bases, tails) {
 	});
 }
 
-/**
- * A whole `path.join`/`path.resolve` call.
- * @param {SiteScan} scan
- * @param {string} call
- * @param {number} hops
- * @returns {Resolution[]}
- */
+/** @param {SiteScan} scan @param {string} call @param {number} hops @returns {Resolution[]} */
 function resolveJoin(scan, call, hops) {
 	const open = call.indexOf("(");
 	if (closeOf(call, open) !== call.length) return [];
@@ -2075,7 +1458,6 @@ function resolveJoin(scan, call, hops) {
 	let tails = [""];
 	for (const [i, arg] of rest.entries()) {
 		const segs = segmentsOf(scan, arg, hops);
-		/* A file a listing returned is judged at the listing, one level deep. */
 		if ("listed" in segs) {
 			const unseen = { unseen: SHAPE.variable(segs.name) };
 			if (i < rest.length - 1)
@@ -2094,16 +1476,9 @@ function resolveJoin(scan, call, hops) {
 	return joinAll(bases, tails);
 }
 
-/** A template literal opening on an interpolation: it, and the rest. */
 const TEMPLATE_HEAD = /^`\$\{([^}`]+)\}([^`]*)`$/;
 
-/**
- * A template literal opening on an anchored interpolation.
- * @param {SiteScan} scan
- * @param {string} tpl
- * @param {number} hops
- * @returns {Resolution[]}
- */
+/** @param {SiteScan} scan @param {string} tpl @param {number} hops @returns {Resolution[]} */
 function resolveTemplate(scan, tpl, hops) {
 	const m = TEMPLATE_HEAD.exec(tpl);
 	if (!m) return [];
@@ -2113,12 +1488,7 @@ function resolveTemplate(scan, tpl, hops) {
 	return bases.length > 0 ? [{ unseen: SHAPE.template }] : [];
 }
 
-/**
- * The first piece of a path spread across `[…].join(…)` or a `+` chain,
- * neither of which the extractor joins; null for any other expression.
- * @param {string} e
- * @returns {string | null}
- */
+/** @param {string} e @returns {string | null} */
 function spreadRunHead(e) {
 	if (e.startsWith("[") && /^\]\s*\.join\(/.test(e.slice(closeOf(e, 0) - 1)))
 		return topLevelArgs(e.slice(1, closeOf(e, 0) - 1))[0] ?? null;
@@ -2130,11 +1500,9 @@ function spreadRunHead(e) {
 }
 
 /**
- * What a path expression resolves to, traced through declarations to an
- * anchor; [] where it reaches none — a tempdir, a parameter, a call.
  * @param {SiteScan} scan
  * @param {string} expr
- * @param {number} [hops]  declarations still to follow
+ * @param {number} [hops]
  * @returns {Resolution[]}
  */
 function resolveExpr(scan, expr, hops = TRACE_HOPS) {
@@ -2155,9 +1523,6 @@ function resolveExpr(scan, expr, hops = TRACE_HOPS) {
 }
 
 /**
- * The shape of a read call's argument the selector leaves unattributed, or
- * null. A resolved file counts as seen when it is one of the test's edges or
- * untracked; a resolved directory when any file under it is an edge.
  * @param {SiteScan} scan
  * @param {string} arg
  * @param {boolean} listing
@@ -2177,16 +1542,10 @@ function readShape(scan, arg, listing) {
 	return null;
 }
 
-/** A git call whose argument list follows: the shape `addListingEdges` reads. */
 const GIT_CALL =
 	/\b(?:execFileSync|execFile|spawnSync|spawn)\(\s*["']git["']\s*,\s*$/;
 
-/**
- * Whether the options after a git call's argument list leave it in the repo:
- * no `cwd`, or one resolving to an anchor.
- * @param {SiteScan} scan
- * @param {number} after  just past the argument list
- */
+/** @param {SiteScan} scan @param {number} after */
 function isRunInRepo(scan, after) {
 	const opts = /^\s*,\s*\{/.exec(scan.source.slice(after));
 	if (!opts) return true;
@@ -2197,28 +1556,17 @@ function isRunInRepo(scan, after) {
 	return cwd === null || resolveExpr(scan, cwd).length > 0;
 }
 
-/**
- * The `cwd` an options object literal names, `cwd: X` or a bare `cwd`; null
- * where it names none.
- * @param {string} opts
- */
+/** @param {string} opts */
 function optionCwd(opts) {
 	if (!opts.startsWith("{")) return null;
 	for (const entry of topLevelArgs(opts.slice(1, -1))) {
-		// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
-		const cwd = /^cwd\b\s*(?::\s*([\s\S]+))?$/.exec(entry);
+		const cwd = /^cwd\b\s*(?::\s*(\S[\s\S]*))?$/.exec(entry);
 		if (cwd) return cwd[1] ?? "cwd";
 	}
 	return null;
 }
 
-/**
- * The shape of a git listing's argument list run in the repo whose
- * pathspecs the selector cannot read, or null.
- * @param {SiteScan} scan
- * @param {string[]} elements  the list's, its subcommand first
- * @returns {string | null}
- */
+/** @param {SiteScan} scan @param {string[]} elements @returns {string | null} */
 function listingShape(scan, elements) {
 	if (isGrepReadingFlagFile(elements)) return SHAPE.grepFlags;
 	if (splitListing(elements).flags.some((el) => GREP_UNTRACKED.test(el)))
@@ -2230,12 +1578,9 @@ function listingShape(scan, elements) {
 }
 
 /**
- * Whether a listing's `-C` values leave it unattributed: one tracing to no
- * anchor, or a directory they reach whose listed tracked files include no
- * edge of the test (#4922).
  * @param {SiteScan} scan
  * @param {string[]} dirArgs
- * @param {string[]} specs  the listing's literal pathspecs
+ * @param {string[]} specs
  * @returns {boolean}
  */
 function isDirUnseen(scan, dirArgs, specs) {
@@ -2251,17 +1596,9 @@ function isDirUnseen(scan, dirArgs, specs) {
 	});
 }
 
-/**
- * Where an unattributed site sits, and its shape.
- * @typedef {{ at: number, shape: string } | null} Found
- */
+/** @typedef {{ at: number, shape: string } | null} Found */
 
-/**
- * A read call's unseen shape, where it is code and has one.
- * @param {SiteScan} test
- * @param {RegExpExecArray} m  a `READ_CALL` match
- * @returns {Found}
- */
+/** @param {SiteScan} test @param {RegExpExecArray} m @returns {Found} */
 function readCallShape(test, m) {
 	const call = readCallArg(test, m);
 	if (!call) return null;
@@ -2272,10 +1609,8 @@ function readCallShape(test, m) {
 }
 
 /**
- * A read call's first argument and where the call sits, where it is code and
- * has one.
  * @param {SiteScan} scan
- * @param {RegExpExecArray} m  a `READ_CALL` match
+ * @param {RegExpExecArray} m
  * @returns {{ site: number, arg: string } | null}
  */
 function readCallArg(scan, m) {
@@ -2288,19 +1623,13 @@ function readCallArg(scan, m) {
 	return arg === undefined ? null : { site, arg };
 }
 
-/**
- * A git listing's unseen shape, where git runs it in the repo.
- * @param {SiteScan} test
- * @param {RegExpExecArray} m  a `GIT_LISTING` match
- * @returns {Found}
- */
+/** @param {SiteScan} test @param {RegExpExecArray} m @returns {Found} */
 function listingCallShape(test, m) {
 	const scan = { ...test, site: m.index ?? 0 };
 	const listing = parseGitListing(scan.source, scan.site);
 	if (!isCode(scan.spans, scan.site) || !listing) return null;
 	if (!GIT_CALL.test(scan.source.slice(0, scan.site))) return null;
 	const { elements, dirArgs, unread } = listing;
-	/* A `-C` given as an expression overrides the call's `cwd`. */
 	const rooted = dirArgs.length > 0 && literalArg(dirArgs[0] ?? "") === null;
 	if (!rooted && !isRunInRepo(scan, listing.close)) return null;
 	const unseenDir = () =>
@@ -2313,15 +1642,10 @@ function listingCallShape(test, m) {
 }
 
 /**
- * Every read in a test the selector cannot attribute (#1881): a read or a
- * listing whose argument traces to an anchor yet resolves to no edge, and a
- * git listing run in the repo on a pathspec no literal names, whatever
- * the test's header says.
  * @param {string} source
  * @param {Set<string>} tracked
  * @param {string} self
- * @param {(p: string) => boolean} seen  whether the selector already reaches
- *   `p` from the test
+ * @param {(p: string) => boolean} seen
  * @returns {Site[]}
  */
 function unseenSitesFor(source, tracked, self, seen) {
@@ -2344,16 +1668,12 @@ function unseenSitesFor(source, tracked, self, seen) {
 		.sort((a, b) => a.line - b.line);
 }
 
-/**
- * Whether `source`'s header carries `full-sweep-only:`, leaving its unseen
- * reads to the full run rather than reporting them.
- * @param {string} source
- */
+/** @param {string} source */
 const isFullSweepOnly = (source) =>
 	FULL_SWEEP_ONLY.test(headerOf(source, inertSpans(source)));
 
 /**
- * @param {Map<string, Set<string>>} byDoc accumulator: file -> the tests reading it; `t` is added under `p`
+ * @param {Map<string, Set<string>>} byDoc
  * @param {string} p
  * @param {string} t
  * @returns {void}
@@ -2365,10 +1685,8 @@ function addReader(byDoc, p, t) {
 }
 
 /**
- * What one test reads from the tree: its own literals and rule fragments,
- * the literals of each helper it imports, and each read patch's targets.
- * @param {string} t  the test's path
- * @param {string} source  its text
+ * @param {string} t
+ * @param {string} source
  * @param {Set<string>} tracked
  * @param {(p: string) => string} read
  * @returns {Set<string>}
@@ -2385,9 +1703,8 @@ function testReads(t, source, tracked, read) {
 }
 
 /**
- * Adds what each shell script in `found` launches, one hop (#4505).
- * @param {Set<string>} found  accumulator: a test's reads
- * @param {string} t  the test's path
+ * @param {Set<string>} found
+ * @param {string} t
  * @param {(p: string) => string[]} launches
  * @returns {void}
  */
@@ -2396,12 +1713,9 @@ function addLaunches(found, t, launches) {
 		for (const p of launches(sh)) if (p !== t) found.add(p);
 }
 
-/** A unified diff's `---`/`+++` header line, its path after the `a/` or `b/`
- * prefix captured. */
 const PATCH_TARGET = /^(?:---|\+\+\+) [ab]\/([^\t\n]+)/gm;
 
 /**
- * The tracked files the headers of each patch in `reads` name.
  * @param {Set<string>} reads
  * @param {Set<string>} tracked
  * @param {(p: string) => string} read
@@ -2414,19 +1728,10 @@ const readPatchTargets = (reads, tracked, read) =>
 		.map((m) => requiredGroup(m, 1, PATCH_TARGET))
 		.filter((p) => tracked.has(p));
 
-/** A word a shell line may name a root-relative path with, after any
- * `$var/` prefix that roots it. */
 const SHELL_PATH =
 	/(?:^|[\s="'(:<>|;])(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\/)?(?:\.\/)?([A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]*[A-Za-z0-9_-]|[A-Za-z0-9_-]+\.[A-Za-z0-9]+)/g;
 
-/**
- * Every tracked path a shell script names as an operand (`shellOperands`).
- * Lexical: a shell script naming a path almost always runs `cat`, `grep` or a
- * redirect on it, and no call shape tells a read from the rest (#2093).
- * @param {string} source
- * @param {Set<string>} tracked
- * @returns {string[]}
- */
+/** @param {string} source @param {Set<string>} tracked @returns {string[]} */
 function shellReadsOf(source, tracked) {
 	const out = new Set();
 	for (const m of shellOperands(source).matchAll(SHELL_PATH)) {
@@ -2437,11 +1742,6 @@ function shellReadsOf(source, tracked) {
 }
 
 /**
- * The tracked files a script reads (#2093). A node script's are its
- * `FILE_READS` calls in code whose argument is a bare literal or
- * traces to an anchor — the site scan's own resolution — so a path it names
- * for any other reason, a comment's citation included, is no read. A shell
- * script's are every path its code names.
  * @param {string} file
  * @param {string} source
  * @param {Set<string>} tracked
@@ -2477,9 +1777,6 @@ function nodeReadsOf(file, source, tracked) {
 		if (requiredGroup(m, 1, READ_CALL).startsWith("readdir")) continue;
 		const call = readCallArg(scan, m);
 		if (!call) continue;
-		/* A bare literal is read against the working directory, the root a
-		 * test spawns a script from. Residual (#2093): a script spawned with
-		 * another `cwd`, or one that changes directory, gets a false edge. */
 		const bare = literalArg(call.arg)?.replace(/^\.\//, "");
 		if (bare !== undefined && tracked.has(bare)) out.add(bare);
 		for (const r of resolveExpr({ ...scan, site: call.site }, call.arg))
@@ -2490,8 +1787,7 @@ function nodeReadsOf(file, source, tracked) {
 }
 
 /**
- * @param {Map<string, Map<string, number>>} byClosure accumulator: file ->
- *   reading test -> depth; `t` is added under each file at its depth
+ * @param {Map<string, Map<string, number>>} byClosure
  * @param {string} t
  * @param {Map<string, number>} depths
  * @returns {void}
@@ -2504,12 +1800,7 @@ function addClosure(byClosure, t, depths) {
 	}
 }
 
-/**
- * `fn` with each path's answer kept, so a file shared by many tests is read
- * once.
- * @param {(p: string) => string[]} fn
- * @returns {(p: string) => string[]}
- */
+/** @param {(p: string) => string[]} fn @returns {(p: string) => string[]} */
 function once(fn) {
 	/** @type {Map<string, string[]>} */
 	const kept = new Map();
@@ -2524,12 +1815,9 @@ function once(fn) {
 }
 
 /**
- * Gives each file a test's scripts load, and no test reads directly, to the
- * tests that reach it at the shallowest depth — vitest's own graph and the
- * test files themselves excepted.
- * @param {Map<string, Set<string>>} byDoc  edited in place
- * @param {Map<string, Map<string, number>>} byClosure  file -> reading test -> depth
- * @param {Set<string>} esm  what vitest's import graph already reaches
+ * @param {Map<string, Set<string>>} byDoc
+ * @param {Map<string, Map<string, number>>} byClosure
+ * @param {Set<string>} esm
  * @returns {void}
  */
 function addNearestReaders(byDoc, byClosure, esm) {
@@ -2544,16 +1832,14 @@ function addNearestReaders(byDoc, byClosure, esm) {
 /**
  * @param {Set<string>} tracked
  * @param {(p: string) => string} read
- * @param {{ sites?: boolean }} [opts]  also find each test's unseen reads,
- *   a fifth of the render's cost, so only the callers reporting them ask
+ * @param {{ sites?: boolean }} [opts]
  * @returns {{ edges: Record<string, string[]>, anchored: number, tests: number, warnings: string[], unseen: Record<string, Site[]> }}
- *   `unseen` is empty unless `sites` asked for it
  */
 function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 	const tests = [...tracked].filter(isJsTestFile).sort();
 	/** @type {Map<string, Set<string>>} */
 	const byDoc = new Map();
-	/** @type {Map<string, Map<string, number>>} file -> reading test -> depth */
+	/** @type {Map<string, Map<string, number>>} */
 	const byClosure = new Map();
 	/** @type {string[]} */
 	const warnings = [];
@@ -2602,20 +1888,16 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 }
 
 /**
- * What the scripts a test reads load and read at runtime, transitively, each
- * at its shallowest depth: 1 for a read script's own dependency or read.
- * A read is never followed: a script reading another as text runs none of it.
- *
  * @param {string} test
- * @param {Set<string>} reads  the test's direct reads, never re-entered
+ * @param {Set<string>} reads
  * @param {(p: string) => string[]} loads
- * @param {(p: string) => string[]} scriptReads  what a script reads in its code
+ * @param {(p: string) => string[]} scriptReads
  * @returns {Map<string, number>}
  */
 function closureDepths(test, reads, loads, scriptReads) {
 	/** @type {Map<string, number>} */
 	const depths = new Map();
-	/** Records `d` at `depth` unless it is reached already. @param {string} d @param {number} depth */
+	/** @param {string} d @param {number} depth */
 	const record = (d, depth) => {
 		if (d === test || reads.has(d) || depths.has(d)) return false;
 		depths.set(d, depth);
@@ -2636,9 +1918,6 @@ function closureDepths(test, reads, loads, scriptReads) {
 }
 
 /**
- * Every tracked file some test reaches through static ESM imports, at any
- * depth: what vitest's own graph selects without a manifest edge.
- *
  * @param {string[]} tests
  * @param {Set<string>} tracked
  * @param {(p: string) => string} read
@@ -2659,13 +1938,7 @@ function esmReach(tests, tracked, read) {
 	return reached;
 }
 
-/**
- * The selection a set of changed paths adds on top of vitest's own.
- *
- * @param {string[]} changed
- * @param {Record<string, string[]>} edges
- * @returns {string[]}
- */
+/** @param {string[]} changed @param {Record<string, string[]>} edges @returns {string[]} */
 function testsReading(changed, edges) {
 	const out = new Set();
 	for (const p of changed) for (const t of edges[p] ?? []) out.add(t);
@@ -2673,11 +1946,6 @@ function testsReading(changed, edges) {
 }
 
 /**
- * The tracked files `source` imports or requires by relative specifier, one
- * hop, the bare side-effect `import "./x"` included: the import edge the
- * manifest leaves to vitest's own graph, read lexically for a touched-test
- * selection (#2930).
- *
  * @param {string} source
  * @param {string} self
  * @param {Set<string>} tracked
@@ -2696,25 +1964,14 @@ const directImports = (source, self, tracked) =>
 const gitOut = (root, args) =>
 	execGit(args, {
 		cwd: root,
-		/* A wedged git must not hang a suite launch: the render and the touched
-		 * selection both run on scripts/run-vitest.js's launch path. */
 		timeout: GIT_TIMEOUT_MS,
 	});
 
-/**
- * @param {string} root
- * @param {string[]} args  a git command printing NUL-separated entries
- */
+/** @param {string} root @param {string[]} args */
 const gitList = (root, args) =>
 	gitOut(root, args).toString("utf8").split("\0").filter(Boolean);
 
-/**
- * Tracked paths the working tree still holds, and a reader over them. A path
- * the index lists but the disk has lost — a neighbour's deletion in flight, a
- * cut's deletions before its commit — reads nothing and bounds no edge (#557).
- *
- * @param {string} root
- */
+/** @param {string} root */
 function readWorkingTree(root) {
 	const gone = new Set(gitList(root, ["ls-files", "-z", "--deleted"]));
 	return {

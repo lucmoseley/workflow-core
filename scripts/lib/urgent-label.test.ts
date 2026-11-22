@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the one test of how far a tier passes down a sub-issue chain (#3653),
- * shared by pick-next.js and file-issue.js. Were it to pass through a closed
- * issue, file-issue would refuse an `urgent` nothing passes down.
- */
 import { describe, expect, it } from "vitest";
 import { isPassingDown } from "./urgent-label.js";
 

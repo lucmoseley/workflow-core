@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins runVerify's verdict on a Verify command: only a real timeout reads as
- * `timedOut`, never another signal kill, and `said` carries the failure's
- * output from either stream.
- *
- * Drives `runVerify` in-process on real shell commands rather than through the
- * three call sites it replaced, so a case can cause a true timeout or a true
- * signal kill directly, with no upgrade or release built around it — the
- * ETIMEDOUT/signal distinction is the whole reason it exists
- * (#305), and a wrong read there means every one of upgrade.js's Verify
- * calls and release-plugin.js's release gate misreport a live-hazard kill
- * as "exceeded the timeout". Its `said` is pinned too: a stdout-only failure
- * once reached the release's refusal blank (#1268).
- */
 import { beforeEach, describe, expect, it } from "vitest";
 import { runVerify } from "./verify-run.js";
 

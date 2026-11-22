@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * usage-cache.js's own suite (#377): a seat's usage bars are read off
- * `limits[]`, a missing or unreadable cache is told apart from a readable one,
- * and a reset is passed only once its time has come. The parse runs against a
- * temp config dir, never a real seat's `.claude.json`.
- *
- * `allowance.js` sizes `/pick-next`'s launch and `seat-utilisation.js` the
- * session-start seat check from it; loosen a case and a bar misread as clear
- * launches sessions into a spent allowance.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

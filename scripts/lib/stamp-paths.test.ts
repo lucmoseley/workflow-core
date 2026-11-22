@@ -1,8 +1,3 @@
-/*
- * stamp-paths.test.ts — the stamp allowlist holds exactly the ruled stamps
- * (mantahostels#422, mantahostels#1281), not docs/reference-roadmap.html (mantahostels#1074).
- */
-
 import { describe, expect, it } from "vitest";
 
 const { STAMP_PATHS, withoutStamps } = require("./stamp-paths.js");

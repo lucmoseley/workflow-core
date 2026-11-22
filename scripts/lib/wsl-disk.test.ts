@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/wsl-disk.js (#5044): the compaction log's reading, when a quiet run
- * or an idle fstrim.timer or a full guest disk (#5430) warns, the sparse watch, and one run's order with every effect behind a
- * port. Loosened, a missed compaction re-fills C: with no warning, a sparse
- * fix goes unnoticed, or the monthly job shuts WSL down under a live session
- * or leaves the loop held.
- */
 import { describe, expect, it } from "vitest";
 import {
 	judgeDisk,
@@ -24,7 +17,6 @@ const LOG = [
 const read = (text: string) => ({ state: "read", path: "/log", text }) as const;
 const GIB = 2 ** 30;
 const ROOMY = { usedBytes: 110 * GIB, sizeBytes: 224 * GIB };
-/** judgeDisk on a clean input, `over` replacing its parts. */
 const judgeWith = (over: Partial<Parameters<typeof judgeDisk>[0]>) =>
 	judgeDisk({
 		log: read(LOG),
@@ -442,7 +434,6 @@ describe("runCompaction", () => {
 			"release",
 			"log /log 2026-12-20T08:00:00 deferred sessions=1_live,_0_waiting_on_input",
 		]);
-		// One hold a 5-minute poll across the 6 h, and the last one.
 		expect(s.filter((c) => c === "hold")).toHaveLength(73);
 	});
 

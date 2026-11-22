@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The tail read drops the line its offset cut rather than handing on a
- * fragment (mantahostels#3311), asserted on a file big enough to trigger it.
- * `readStartedAt` finds the first stamped record past a chunk boundary (#2944),
- * and the latest resume mark over it (#2950).
- * `guard-lost-deny.js` and `guard-inventory.js` read through it as Stop hooks
- * in `.claude/settings.json`; loosen a case and every Stop of an oversize
- * session reports a corrupt transcript that is not. `resolve` is not
- * covered here: it reaches for every config dir on the machine, which a test
- * cannot stand up without writing outside its own tmpdir.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,7 +16,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A transcript of `n` identical records, each padded to `pad` bytes. */
 const write = (n: number, pad: number) => {
 	const file = path.join(dir, "t.jsonl");
 	const line = (i: number) =>
@@ -45,8 +33,6 @@ describe("read", () => {
 	});
 
 	it("drops the line the tail offset cut, rather than handing on a fragment — mantahostels#3311", () => {
-		/* 20 MB of records, over the 16 MB whole-file limit, so the 8 MB tail
-		 * offset lands mid-line. */
 		const file = write(2000, 10 * 1024);
 		const text = read(file);
 
@@ -128,7 +114,6 @@ describe("readStartedAt", () => {
 	});
 });
 
-// The dispatch remap and burn-off-sessions judge a session by this (#4992).
 describe("readLastModel", () => {
 	let tmp: string;
 	beforeEach(() => {

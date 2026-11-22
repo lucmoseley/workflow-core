@@ -1,18 +1,3 @@
-/*
- * shell-parse.js — the guard parser's first half in Node (#2784, programme
- * #2733): given one opaque shell string from a Bash tool call, which commands
- * does it run, with which words, redirections and write targets, in which
- * directory?
- *
- * A CORE: it does no I/O. The variables a word may expand through and the
- * directory test `cp` needs arrive as ports; the guard's entry wires the real
- * ones (lib/guard-entry.js).
- *
- * FAIL OPEN is the house rule (mantahostels#103 §6): a word this file cannot read
- * comes back unresolved — null, or an empty path — and the guard decides what
- * that costs. Nothing here ever runs the text.
- */
-
 // biome-ignore lint/suspicious/noImportCycles: shell-words.js requires this file only inside runScript, once both have loaded (#4863).
 const shellWords = require("./shell-words.js");
 const {
@@ -52,27 +37,20 @@ const {
 	defineFromConfigWord,
 } = gitAlias;
 
-/** The flatten's subshell marker, standing a bracket on a line of its own so a
- * walk can end a subshell's `cd` at its `)` (mantahostels#3453). */
 const SCOPE_MARK = "\x02";
 const SCOPE_OPEN = `${SCOPE_MARK}(`;
 const SCOPE_CLOSE = `${SCOPE_MARK})`;
 
-/** Opens a flattened line with the code of the operator before it (#4009). */
 const OP_MARK = "\x05";
 
-/** What joins a flattened line to the one before, as parseJoins codes it. */
 const JOIN = Object.freeze({
-	/** a newline, or nothing; falsy, as parseJoins reads it */
 	NONE: "",
 	AND: "a",
 	OR: "o",
 	SEMI: "s",
 	PIPE: "p",
 	BACKGROUND: "b",
-	/** a bracket's opening */
 	OPEN: "(",
-	/** the rest of the line a bracket's `)` closed (#5093) */
 	AFTER_CLOSE: ")",
 });
 
@@ -87,20 +65,9 @@ const JOIN_CODES = Object.values(JOIN);
  */
 const isJoin = (code) => JOIN_CODES.includes(code);
 
-/** The first private-use code point, where escapeShield's stand-ins start. */
 const STAND_IN_BASE = 0xe0_00;
 
-/**
- * A shield for the escaped characters among `chars` while a split runs over
- * text the lexer wrote, where an escape is a `\`-pair: `shield` stands each
- * such pair's character behind a private-use stand-in, no whitespace and no
- * mark of these modules, and `unshield` restores each stand-in a pair holds
- * (#5113, #5114, #5116).
- *
- * Residual: a raw stand-in typed after a `\` outside quotes comes back as the
- * escaped character; it changes that word and splits nothing.
- * @param {string} chars
- */
+/** @param {string} chars */
 function escapeShield(chars) {
 	/** @param {number} at */
 	const standIn = (at) => String.fromCharCode(STAND_IN_BASE + at);
@@ -123,39 +90,22 @@ function escapeShield(chars) {
 	};
 }
 
-/** The flatten's shield: every character its splits act on. */
 const FLATTEN_SHIELD = escapeShield("()&|;<>");
 
-/**
- * The command names whose line the logical-line join refuses to absorb.
- *
- * IT STAYS AT `git` AND `gh` (mantahostels#2346): the deny guards are safe here only because a
- * line they refuse begins with one of these, and a wider list exposes quoted
- * prose as commands.
- */
+// lucmoseley/mantahostels#2346
 const GUARDED_HEADS = ["git", "gh"];
 
-/** A word as `read -ra` splits it: on runs of IFS whitespace. */
 const IFS_SPLIT = /[ \t\n]+/;
 
-/** A redirection operator, and the text before it with every `\`-escaped
- * character kept (#1488). */
 const REDIRECT_RE = /^((?:\\.|[^\\<>])*)([<>].*)$/s;
 
 /** @param {string} p */
 const basename = (p) => p.slice(p.lastIndexOf("/") + 1);
 
-/**
- * A path a verdict can be built on: nothing unexpanded and no blanked span.
- * @param {string} s
- */
+/** @param {string} s */
 const isResolvable = (s) => s !== "" && !hasExpansion(s) && !s.includes(QUOTED);
 
-/**
- * Blank every quoted span out of `text` on `lx`, reset first.
- * @param {InstanceType<typeof Lexer>} lx
- * @param {string} text
- */
+/** @param {InstanceType<typeof Lexer>} lx @param {string} text */
 function maskText(lx, text) {
 	lx.reset();
 	text.split("\n").forEach((line, i) => {
@@ -165,29 +115,12 @@ function maskText(lx, text) {
 	return lx.masked();
 }
 
-/**
- * Break masked text into the segments it runs, one per line. A subshell or a
- * command substitution splits too, so neither can hide a command behind its
- * bracket; given `mark`, each bracket also stands on a line of its own behind
- * SCOPE_MARK. A backtick pair splits as the `$(…)` it means (#3375). The `&`
- * and `|` of a redirection — `>&`, `<&`, `&>`, `&>>`, `>|` — are shielded from
- * the split (#1488).
- *
- * RESIDUAL: an unclosed backtick opens a subshell that never closes, so a `cd`
- * after it is undone at no `)`.
- *
- * The text this returns ends in a newline. Given `ops`, each line an operator
- * opens starts with OP_MARK and its code, which parseJoins takes off.
- * @param {string} text
- * @param {boolean} [mark]
- * @param {boolean} [ops]
- */
+/** @param {string} text @param {boolean} [mark] @param {boolean} [ops] */
 function flatten(text, mark = false, ops = false) {
 	let inBackticks = false;
 	/** @param {Join} code */
 	const join = (code) => (ops ? `\n${OP_MARK}${code}` : "\n");
 	const flat = FLATTEN_SHIELD.shield(text)
-		/* A `\`-pair is never a backtick of its own. */
 		.replace(/\\[\s\S]|`/g, (m) => {
 			if (m !== "`") return m;
 			inBackticks = !inBackticks;
@@ -211,20 +144,14 @@ function flatten(text, mark = false, ops = false) {
 	return `${FLATTEN_SHIELD.unshield(flat)}\n`;
 }
 
-/** Where `masked`'s first `||` outside an escape starts, or -1.
- * @param {string} masked */
+/** @param {string} masked */
 const indexOfFirstOr = (masked) => {
 	for (const m of masked.matchAll(/\\[\s\S]|\|\|/g))
 		if (m[0] === "||") return m.index;
 	return -1;
 };
 
-/**
- * What joins each of `masked`'s flattened lines to the one before. A blank
- * line takes the operator carried to it, and hands it on (#5099).
- * @param {string} masked
- * @returns {Join[]} one per line of flatSegments
- */
+/** @param {string} masked @returns {Join[]} */
 function parseJoins(masked) {
 	/** @type {Join} */
 	let carry = JOIN.NONE;
@@ -246,13 +173,7 @@ function parseJoins(masked) {
 		});
 }
 
-/** The join code an OP_MARK line opens with.
- * Residual: a raw OP_MARK byte typed at a line's start, outside quotes, reads
- * as the operator the next character codes, or as `;` for any other, and
- * stays in the command word, so the command it opens goes unseen; bash would
- * not run it either.
- * @param {string} line
- * @returns {Join} */
+/** @param {string} line @returns {Join} */
 function parseOpCode(line) {
 	const code = line.charAt(1);
 	return isJoin(code) ? code : JOIN.SEMI;
@@ -261,47 +182,28 @@ function parseOpCode(line) {
 /** @type {readonly Join[]} */
 const CHAIN_HELD = [JOIN.AND, JOIN.PIPE, JOIN.OPEN, JOIN.AFTER_CLOSE];
 
-/**
- * Whether a `&&` chain ends at the segment: not where `&&` joins it, nor `|`,
- * which binds tighter (#5109), nor inside a bracket's line.
- * @param {Join[]} joins
- * @param {number} segIdx
- */
+/** @param {Join[]} joins @param {number} segIdx */
 const isChainEnd = (joins, segIdx) =>
 	!CHAIN_HELD.includes(joins[segIdx] ?? JOIN.NONE);
 
 /**
  * @typedef {object} CommandWords
- * @property {string[]} words the segment's words, redirections taken out
- * @property {number} wi where the command starts
- * @property {number} assignStart where the leading assignments start, past
- *   any reserved word
- * @property {number} assignEnd where the leading assignments stop, before any
- *   `exec`
- * @property {RedirectEntry[]} redirs one per redirection taken out
- * @property {boolean} ran whether the segment runs a command
+ * @property {string[]} words
+ * @property {number} wi
+ * @property {number} assignStart
+ * @property {number} assignEnd
+ * @property {RedirectEntry[]} redirs
+ * @property {boolean} ran
  */
 
 /**
- * @typedef {object} RedirectEntry one redirection as written (#2785)
- * @property {string} fd the descriptor as written: digits, a `{name}`, the
- *   `&` of `&>`, or ""
- * @property {string} op the operator
- * @property {string} target masked as the command's words are
+ * @typedef {object} RedirectEntry
+ * @property {string} fd
+ * @property {string} op
+ * @property {string} target
  */
 
-/**
- * Take the redirections out of `words` (#1488): one entry per redirection,
- * the target masked as the words are. A word carrying an operator part-way —
- * `echo hi>out` — is cut there, as bash cuts it; a leading run of digits or a
- * `{name}` is the descriptor. An operator with no target left, or one whose
- * target is a process substitution, is dropped unrecorded.
- *
- * Not inside `[[ … ]]`, where `>` and `<` compare strings, nor in arithmetic
- * (`noRedirects`). `[` and `test` get no such exemption: bash redirects there.
- * @param {string[]} words
- * @param {boolean} noRedirects
- */
+/** @param {string[]} words @param {boolean} noRedirects */
 function stripRedirects(words, noRedirects) {
 	/** @type {RedirectEntry[]} */
 	const redirs = [];
@@ -321,11 +223,7 @@ function stripRedirects(words, noRedirects) {
 	return { words: out, redirs };
 }
 
-/**
- * Does the segment reach a `]]` before any `[[`? A `&&` inside `[[ … ]]`
- * splits it, so such a segment is the conditional's tail.
- * @param {string[]} words
- */
+/** @param {string[]} words */
 function isConditionalTail(words) {
 	for (const w of words) {
 		if (w === "[[") return false;
@@ -334,7 +232,6 @@ function isConditionalTail(words) {
 	return false;
 }
 
-/** The redirection operators, longest first so a prefix never wins. */
 const REDIRECT_OPS = [
 	"&>>",
 	"&>",
@@ -349,10 +246,6 @@ const REDIRECT_OPS = [
 ];
 
 /**
- * Cut every redirection out of one word, `words[start - 1]`, pushing what is
- * left of it to `out` and each redirection to `redirs`. Returns the index of
- * the next word to read: past a target taken from the word after, or the end
- * where an operator's target is missing or a process substitution.
  * @param {string} word
  * @param {string[]} words
  * @param {number} start
@@ -377,14 +270,7 @@ function cutRedirects(word, words, start, { out, redirs }) {
 	return i;
 }
 
-/**
- * Split a redirection off the text `pre` before it: the descriptor — a
- * leading run of digits, a `{name}`, or the `&` of `&>` — and the operator.
- * A `pre` that is no descriptor is a word of its own, pushed to `out`.
- * @param {string} before
- * @param {string} from the text from the operator on
- * @param {string[]} out
- */
+/** @param {string} before @param {string} from @param {string[]} out */
 function parseOperator(before, from, out) {
 	let pre = before;
 	let rest = from;
@@ -401,11 +287,9 @@ function parseOperator(before, from, out) {
 }
 
 /**
- * An operator's target: the text glued after it, up to any further operator
- * (`w`, still to cut), else the next word. Null where it has none to record.
- * @param {string} rest the text after the operator
+ * @param {string} rest
  * @param {string[]} words
- * @param {number} i the next word's index
+ * @param {number} i
  * @returns {{ target: string, w: string, next: number } | null}
  */
 function parseTarget(rest, words, i) {
@@ -420,21 +304,11 @@ function parseTarget(rest, words, i) {
 	}
 	if (i >= words.length) return null;
 	const target = words[i] ?? "";
-	/* `2> >(tee e)` and `< <(ls)`: the target is a process substitution, whose
-	 * own bare operator the flatten left last. */
 	if ((target === "<" || target === ">") && i + 1 === words.length) return null;
 	return { target, w: "", next: i + 1 };
 }
 
 /**
- * Split one segment into its words and find the word the command starts at.
- *
- * Skipped in shell's own order (#1013): any run of reserved words, then the
- * assignments, then an `exec` and its flags. A word after `exec` is the
- * command even where it looks like an assignment. `case` arms and function
- * bodies stay unread. Given `bare`, only the assignments are skipped: the line
- * join asks that way, because skipping a reserved word there turns a prose
- * line opening `if git …` into a command (mantahostels#1818's trade).
  * @param {string} segment
  * @param {{ bare?: boolean, noRedirects?: boolean }} [opts]
  * @returns {CommandWords}
@@ -455,8 +329,6 @@ function commandWords(segment, { bare = false, noRedirects = false } = {}) {
 	return { words, wi, assignStart, assignEnd, redirs, ran: wi < words.length };
 }
 
-/** The reserved words a command may follow; `time` is read apart, for its
- * flags. */
 const RESERVED_WORDS = [
 	"{",
 	"!",
@@ -470,12 +342,7 @@ const RESERVED_WORDS = [
 	"coproc",
 ];
 
-/**
- * The index past any run of reserved words from `start`, a `time` taking its
- * `-p` and `--` with it.
- * @param {string[]} words
- * @param {number} start
- */
+/** @param {string[]} words @param {number} start */
 function skipReserved(words, start) {
 	let wi = start;
 	while (wi < words.length) {
@@ -489,12 +356,7 @@ function skipReserved(words, start) {
 	return wi;
 }
 
-/**
- * The index past an `exec` at `start` and its flags, `-a` taking its value
- * with it; `start` itself where no `exec` stands there.
- * @param {string[]} words
- * @param {number} start
- */
+/** @param {string[]} words @param {number} start */
 function skipExec(words, start) {
 	if (words[start] !== "exec") return start;
 	let wi = start + 1;
@@ -505,13 +367,7 @@ function skipExec(words, start) {
 	return wi;
 }
 
-/**
- * Collapse `.`, `..` and doubled slashes, so two spellings of one absolute
- * path compare equal as strings (mantahostels#3315). Textual, never
- * symlink-resolved. One
- * line only, as the bash reader's `read`.
- * @param {string} p
- */
+/** @param {string} p */
 function normAbs(p) {
 	/** @type {string[]} */
 	const out = [];
@@ -523,57 +379,25 @@ function normAbs(p) {
 	return `/${out.join("/")}`;
 }
 
-/** @param {string} kind a redirection kind */
+/** @param {string} kind */
 const isWriteRedirect = (kind) =>
 	["truncate", "clobber", "append", "read-write"].includes(kind);
 
 /**
  * @typedef {object} Parsed
- * @property {string} subject the field as the payload carried it
- * @property {string[]} spans every quoted span blanked, quote character first
- * @property {string} masked the subject with quoted spans blanked, heredoc
- *   bodies out and every separator kept, before the flatten (#2710)
- * @property {number[]} heredocLines the subject's lines, numbered from 0, a
- *   heredoc's body or terminator fills (#2384)
- * @property {string[]} segments the flattened segments, one command each,
- *   with SCOPE_MARK lines for the brackets: `\x02(` and `\x02)`
- * @property {number} conditional the segment index of the first after the
- *   subject's first `||` outside a quoted span, or -1 where it has none (#328)
- * @property {Join[]} joins parseJoins's code for each segment (#4009); a lifted
- *   substitution's is JOIN.OPEN
- * @property {boolean[]} lifted whether each segment was lifted out of a
- *   substitution (#5098)
+ * @property {string} subject
+ * @property {string[]} spans
+ * @property {string} masked
+ * @property {number[]} heredocLines
+ * @property {string[]} segments
+ * @property {number} conditional
+ * @property {Join[]} joins
+ * @property {boolean[]} lifted
  */
 
-/**
- * Parse one Bash command string.
- *
- * Quoted spans are blanked FIRST, and heredoc openers then detected on the
- * blanked text, so `echo "a << b"` opens no heredoc; a quoted delimiter is read
- * back off the original line. A heredoc body is data, not commands, and is
- * dropped (mantahostels#201).
- *
- * Then the lines are masked again over LOGICAL lines (mantahostels#182): a quote the lexer
- * leaves open takes the next line too, so a multi-line message stays one
- * segment. The join is ABANDONED the moment it would absorb a line that runs
- * a GUARDED_HEADS command — the lexer is not the whole of shell, and joining on
- * a stray quote would hide every line after it — EXCEPT inside a message
- * argument (mantahostels#232), whose lines are prose, and a script unwrap
- * reads (#4978).
- *
- * Each command substitution a double-quoted span runs is LIFTED into segments
- * of its own, bracketed as a subshell, ahead of the segment holding the span
- * (#3375): it runs before that command does.
- * @param {string} subject
- * @param {string[]} [spans] accumulator: the subject's spans are appended, so
- *   words parsed out of a span another parse recorded read through that
- *   parse's array (#4863)
- * @returns {Parsed}
- */
+/** @param {string} subject @param {string[]} [spans] @returns {Parsed} */
 function parseCommand(subject, spans = []) {
 	const { masked, heredocLines } = maskSubject(subject, spans);
-	/* Read BEFORE the flatten turns every `||` into a newline. The text before
-	 * the first one flattens to exactly the segments ahead of it. */
 	const orAt = indexOfFirstOr(masked);
 	const before =
 		orAt >= 0
@@ -610,11 +434,7 @@ function parseCommand(subject, spans = []) {
 	};
 }
 
-/**
- * `subject` masked, and the lines its heredoc bodies fill.
- * @param {string} subject
- * @param {string[]} spans accumulator: the subject's spans are appended
- */
+/** @param {string} subject @param {string[]} spans */
 function maskSubject(subject, spans) {
 	const start = spans.length;
 	const lx = new Lexer(spans);
@@ -631,25 +451,13 @@ function maskSubject(subject, spans) {
 const flatSegments = (masked) =>
 	trimEndRun(flatten(masked, true), "\n").split("\n");
 
-/**
- * `segment`, behind the segments its quoted substitutions run.
- * @param {string} segment
- * @param {string[]} spans accumulator: each lifted command's spans are
- *   appended
- */
+/** @param {string} segment @param {string[]} spans */
 const withLifted = (segment, spans) => [
 	...liftSubstitutions(segment, spans),
 	segment,
 ];
 
-/**
- * The segments the command substitutions in `segment`'s double-quoted spans
- * run, each bracketed by SCOPE_MARK lines, their own lifted first.
- * @param {string} segment
- * @param {string[]} spans accumulator: each lifted command's spans are
- *   appended
- * @returns {string[]}
- */
+/** @param {string} segment @param {string[]} spans @returns {string[]} */
 function liftSubstitutions(segment, spans) {
 	/** @type {string[]} */
 	const lifted = [];
@@ -668,13 +476,7 @@ function liftSubstitutions(segment, spans) {
 	return lifted;
 }
 
-/**
- * The text of each `$(…)` and backtick pair a recorded span runs at its own
- * level — none unless it is double-quoted. A `$((`
- * is arithmetic and skipped. A backtick pair's `\$`, `` \` ``, `\\` and
- * `\"` lose their backslash, as bash reads them there.
- * @param {string} span as recorded, its opening quote first
- */
+/** @param {string} span */
 function quotedSubstitutions(span) {
 	/** @type {string[]} */
 	const found = [];
@@ -689,8 +491,6 @@ function quotedSubstitutions(span) {
 }
 
 /**
- * Read on from `i` in a double-quoted span: where to read on from, -1 where
- * a substitution never closes, and the text of one that ends there.
  * @param {string} span
  * @param {number} i
  * @returns {{ next: number, text: string | null }}
@@ -711,11 +511,7 @@ function scanSubstitution(span, i) {
 	return { next: end, text: isArith ? null : span.slice(i + 2, end - 1) };
 }
 
-/**
- * The index of the backtick closing one opened before `from`, or -1.
- * @param {string} text
- * @param {number} from
- */
+/** @param {string} text @param {number} from */
 function backtickEnd(text, from) {
 	for (let j = from; j < text.length; j++) {
 		const c = text.charAt(j);
@@ -725,12 +521,7 @@ function backtickEnd(text, from) {
 	return -1;
 }
 
-/**
- * The subject's command lines, `\`-newlines joined and heredoc bodies out,
- * and the lines, numbered from 0, those bodies fill (#2384).
- * @param {string} subject
- * @param {InstanceType<typeof Lexer>} lx
- */
+/** @param {string} subject @param {InstanceType<typeof Lexer>} lx */
 function readCommandLines(subject, lx) {
 	/** @type {number[]} */
 	const heredocLines = [];
@@ -744,8 +535,6 @@ function readCommandLines(subject, lx) {
 			if (raw === term || raw === `${term};`) term = "";
 			return;
 		}
-		/* A `\`-newline outside `'…'` or `$'…'` is no break to bash, so the line
-		 * is held and the next joined onto it (#490). */
 		const line = held + raw;
 		held = "";
 		if (isLineContinued(lx, line)) {
@@ -754,8 +543,6 @@ function readCommandLines(subject, lx) {
 		}
 		lx.lex("\n");
 		term = parseHeredocTerm(lx.out, line);
-		/* An opener ends the carry: a quote after the `<<` would otherwise stay
-		 * open across the skipped body and blank every line after it. */
 		if (term) lx.reset();
 		commandLines.push(line);
 	});
@@ -763,12 +550,7 @@ function readCommandLines(subject, lx) {
 	return { commandLines, heredocLines };
 }
 
-/**
- * Lex one line; true where it ends in a `\`-newline outside `$'…'`, to be
- * joined onto the next, the lexer then set back to where it stood.
- * @param {InstanceType<typeof Lexer>} lx
- * @param {string} line
- */
+/** @param {InstanceType<typeof Lexer>} lx @param {string} line */
 function isLineContinued(lx, line) {
 	const saved = hasOddTrailingBackslashes(line) ? lx.save() : null;
 	lx.out = "";
@@ -781,13 +563,7 @@ function isLineContinued(lx, line) {
 /** @param {string} line */
 const hasOddTrailingBackslashes = (line) => endRun(line, "\\").length % 2 === 1;
 
-/**
- * The terminator a line's heredoc opener names, or "". Read on the masked
- * line, so a `<<` inside quotes opens nothing; a quoted delimiter is read back
- * off the original line.
- * @param {string} mask
- * @param {string} line
- */
+/** @param {string} mask @param {string} line */
 function parseHeredocTerm(mask, line) {
 	const opener = /<<-?[ \t\n\v\f\r]*\\?([A-Za-z_][A-Za-z0-9_]*)/.exec(mask);
 	const quoted = mask.includes("<<")
@@ -797,14 +573,6 @@ function parseHeredocTerm(mask, line) {
 }
 
 /**
- * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
- * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
- * line outside a message argument (mantahostels#232) or a script unwrap reads
- * (#4978). A bare `sh -c` script is not among them: unwrap leaves it standing
- * as the command word (mantahostels#2629), so its later lines are judged only
- * as lines of their own, which the abandoned join keeps.
- * Residual: three cores read no unwrap run, so a later `gh` or text line of a
- * script unwrap reads passes them (#5012).
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
@@ -834,9 +602,6 @@ function joinLogicalLines(commandLines, lx, spans) {
 				keepPerLine();
 				continue;
 			}
-			/* The join point is inside the quote still open, so the newline lands
-			 * in a span — kept, because the lexer reads a heredoc's terminator
-			 * line by it. */
 			lx.lex("\n");
 		}
 		pending.push(line);
@@ -846,19 +611,11 @@ function joinLogicalLines(commandLines, lx, spans) {
 		pending = [];
 		lx.reset();
 	}
-	/* A quote that never closed was not a multi-line string — a stray
-	 * apostrophe in a comment is the ordinary case. */
 	keepPerLine();
 	return kept;
 }
 
-/**
- * Does `line`, read on its own, run a GUARDED_HEADS command? Every segment is
- * checked, not just the head word: `foo; git checkout -b evil` hides one.
- * Masked on a lexer of its own.
- * @param {string} line
- * @param {string[]} spans
- */
+/** @param {string} line @param {string[]} spans */
 function isCommandAbsorbed(line, spans) {
 	const masked = maskText(new Lexer(spans), line);
 	for (const seg of flatten(masked).split("\n")) {
@@ -868,24 +625,13 @@ function isCommandAbsorbed(line, spans) {
 	return false;
 }
 
-/**
- * Is the lexer's still-open quote the argument of a flag whose value is DATA —
- * a commit message, an issue body — so the lines that follow are prose
- * (mantahostels#232)? Narrow on the word the quote opens on: `-m` or
- * `--message` on any command, so `commit-paths.js -m` reads as `git commit -m`
- * does (#4028), and `gh`'s body and title flags on `gh`. Not keyed on the
- * subcommand: a quoted argument is data whatever the subcommand.
- * Residual: `-m` is a count or mode on `grep`, `sort`, `mkdir` and others, so
- * a quote opened after one there keeps its join through a `git` line too.
- * @param {InstanceType<typeof Lexer>} lx
- */
+/** @param {InstanceType<typeof Lexer>} lx */
 function isMessageOpen(lx) {
 	if (!lx.frames) return false;
 	const lines = flatten(lx.prefix).split("\n");
 	const last = lines.at(-2) ?? "";
 	const { words, wi, ran } = commandWords(last);
 	if (!ran) return false;
-	/* `--message="…` arrives glued to its `=`. */
 	const word = (words.at(-1) ?? "").replace(/[=]$/, "");
 	if (word === "-m" || word === "--message") return true;
 	return (
@@ -894,19 +640,10 @@ function isMessageOpen(lx) {
 	);
 }
 
-/**
- * Does the lexer's still-open quote hold its join through a GUARDED_HEADS line?
- * @param {InstanceType<typeof Lexer>} lx
- * @param {string[]} spans
- */
+/** @param {InstanceType<typeof Lexer>} lx @param {string[]} spans */
 const isJoinHeld = (lx, spans) => isMessageOpen(lx) || isScriptOpen(lx, spans);
 
-/**
- * Is the lexer's still-open quote, opening a word of its own, the script a
- * `flock -c` or `watch` runs (#4978)?
- * @param {InstanceType<typeof Lexer>} lx
- * @param {string[]} spans
- */
+/** @param {InstanceType<typeof Lexer>} lx @param {string[]} spans */
 function isScriptOpen(lx, spans) {
 	if (!/[ \t]$/.test(lx.prefix)) return false;
 	const lines = flatten(lx.prefix).split("\n");
@@ -914,13 +651,7 @@ function isScriptOpen(lx, spans) {
 	return ran && shellWords.isScriptNext(words.slice(wi), spans);
 }
 
-/**
- * A flattened segment for a human: every blanked span shown as `"…"`, and the
- * leading whitespace the flattening leaves dropped. A sentinel without an
- * index is not something this file writes, so it is rendered and left alone.
- * A sentinel byte the command typed shows as `"…"` too: this reads no spans.
- * @param {string} segment
- */
+/** @param {string} segment */
 function unmask(segment) {
 	const { out, rest } = readSentinels(segment, (lit, idx) => ({
 		text: `${lit}"…"`,
@@ -929,14 +660,7 @@ function unmask(segment) {
 	return (out + rest).replace(/^[ \t\n\v\f\r]+/, "");
 }
 
-/**
- * Masked text as typed, each blanked span back inside its own quotes, for a
- * guard handing a command back to be re-issued (#519). A span index never
- * recorded is written `<quoted>` rather than guessed. One pass: a span holds
- * its text as typed, so a sentinel inside one was typed (#4278).
- * @param {string} text
- * @param {string[]} spans
- */
+/** @param {string} text @param {string[]} spans */
 function asWritten(text, spans) {
 	const { out, rest } = readSentinels(text, (lit, idx) => {
 		const span = idx === null ? undefined : spans[idx];
@@ -948,41 +672,20 @@ function asWritten(text, spans) {
 }
 
 /**
- * @typedef {object} Scope what a word resolves against
+ * @typedef {object} Scope
  * @property {string[]} spans
- * @property {Map<string, string>} locals the command's own assignments,
- *   resolved (mantahostels#208)
- * @property {Set<string>} dead names it assigned a value this file will not
- *   resolve, or two different values
- * @property {Set<string>} exported names an `export`, `declare -x` or
- *   `typeset -x` put in the environment a `-c` string's shell inherits (#5120)
- * @property {Map<string, number>} harvested how many of the command's words
- *   the harvest read as assigning or exporting each name
- * @property {Record<string, string | undefined>} vars the guard's own
- *   variables, the environment the hook inherited
- * @property {string} subject the whole command, searched for a name's other
- *   mentions under emptyUnset (#325)
- * @property {number} conditional Parsed's
- * @property {boolean} emptyUnset a git walk's opt-in (#310): a name provably
- *   empty is substituted empty rather than refused
- * @property {string[]} emptyNames the unset names the last pathArg read as
- *   empty
+ * @property {Map<string, string>} locals
+ * @property {Set<string>} dead
+ * @property {Set<string>} exported
+ * @property {Map<string, number>} harvested
+ * @property {Record<string, string | undefined>} vars
+ * @property {string} subject
+ * @property {number} conditional
+ * @property {boolean} emptyUnset
+ * @property {string[]} emptyNames
  */
 
-/**
- * `$VAR` and `${VAR}` in `s` expanded, the command's own assignments winning
- * over the environment as in shell (mantahostels#208); null where the text
- * cannot be resolved.
- *
- * DELIBERATELY NARROW. It refuses, rather than guessing, on command
- * substitution, every `${VAR<operator>…}` form, an unset or empty variable,
- * and a value carrying whitespace or a shell metacharacter. A name the command
- * assigned in a way this file will not resolve never falls back to the
- * environment: the command overwrote it.
- * @param {string} text
- * @param {Scope} scope
- * @returns {string | null}
- */
+/** @param {string} text @param {Scope} scope @returns {string | null} */
 function expandVars(text, scope) {
 	if (text.includes("$(") || text.includes("`")) return null;
 	let s = text;
@@ -1000,11 +703,7 @@ function expandVars(text, scope) {
 	return out + s;
 }
 
-/**
- * The name a `$` opens, `{…}`-braced or bare, and the text after it; null
- * where neither form follows.
- * @param {string} s the text after the `$`
- */
+/** @param {string} s */
 function parseVarRef(s) {
 	if (s.startsWith("{")) {
 		const close = s.indexOf("}");
@@ -1016,20 +715,12 @@ function parseVarRef(s) {
 	return { name: m[0], rest: s.slice(m[0].length) };
 }
 
-/** A shell variable's name. */
 const NAME = "[A-Za-z_][A-Za-z0-9_]*";
 const NAME_RE = new RegExp(`^${NAME}$`);
 const NAME_PREFIX_RE = new RegExp(`^${NAME}`);
 
-/**
- * The value `name` expands to, the command's own assignments winning; null
- * where it is refused.
- * @param {string} name
- * @param {Scope} scope
- */
+/** @param {string} name @param {Scope} scope */
 function lookupVar(name, scope) {
-	/* Anything but a bare name — ${VAR:-x}, ${#VAR}, ${!VAR}, $1 — is
-	 * refused. */
 	if (!NAME_RE.test(name) || scope.dead.has(name)) return null;
 	let val = scope.locals.get(name);
 	if (val === "" && isProvablyEmpty(name, 1, scope)) return "";
@@ -1042,33 +733,10 @@ function lookupVar(name, scope) {
 	return val;
 }
 
-/** A command that can assign a name without the text naming it (#325
- * review). */
 const SOURCING_RE =
 	/(?:(?:^|[;&|(]|then|do|else)[ \t\n\v\f\r]*|\n[ \t\v\f\r]*)(source|\.|eval)[ \t\n\v\f\r]/;
 
-/**
- * Under a git walk's emptyUnset opt-in (#325), is `$<name>` empty for certain,
- * so lookupVar substitutes it rather than refusing? The caller has already
- * found the name unset in the environment and unharvested (`allowed` 0), or
- * harvested as empty (`allowed` 1). Either is certain only where the command
- * assigns it NOWHERE ELSE: the harvest sees leading `NAME=` words and an
- * `export`'s alone, so a `read W` or `for W in` must stop it. Any bare-word mention past
- * the count refuses — a heredoc or a quoted string naming it included, which
- * fails open where it need not. A command carrying `||` may skip an assignment
- * the count cannot tell from a use, and one running `source`, `.` or `eval`
- * can assign without naming it, so both refuse outright.
- *
- * An unset name is recorded in `scope.emptyNames`; one this command emptied
- * itself needs no telling that variables do not carry between calls.
- *
- * RESIDUAL (#310's Q2): a name the Bash tool's shell holds and the hook's
- * environment lacks — an unexported ~/.bashrc variable — reads as unset here,
- * so the guard judges the cwd where the command runs elsewhere.
- * @param {string} name
- * @param {number} allowed
- * @param {Scope} scope
- */
+/** @param {string} name @param {number} allowed @param {Scope} scope */
 function isProvablyEmpty(name, allowed, scope) {
 	const { subject } = scope;
 	if (!scope.emptyUnset || scope.conditional >= 0) return false;
@@ -1078,12 +746,7 @@ function isProvablyEmpty(name, allowed, scope) {
 	return true;
 }
 
-/**
- * How often `subject` names `name` as a whole word but not as a `$name` or
- * `${name}` reference, which assigns nothing.
- * @param {string} name
- * @param {string} subject
- */
+/** @param {string} name @param {string} subject */
 function bareMentions(name, subject) {
 	let mentions = 0;
 	for (
@@ -1101,12 +764,6 @@ function bareMentions(name, subject) {
 }
 
 /**
- * One path argument — a `cd` target, a redirect target, a word — resolved:
- * `{ path }`, `{ empty: true }` where it resolved fully to the EMPTY STRING
- * (only a quoted `""` can, and `cd ""` stays put, #301), or null where it stays
- * unresolved. The unset names it read as empty land in `scope.emptyNames`
- * (#325). The word arrives masked, so a fully literal `cd "/abs"` reaches
- * here as a sentinel and is read back through `spans` (mantahostels#183).
  * @param {string} word
  * @param {Scope} scope
  * @returns {{ path: string } | { empty: true } | null}
@@ -1120,31 +777,17 @@ function pathArg(word, scope) {
 	const out = expandMasked(raw, scope);
 	if (out === null) return null;
 	if (out) return isResolvable(out) ? { path: out } : null;
-	/* Only a quoted word survives expanding to nothing: unquoted, bash drops
-	 * it, so `cd $W` with W empty is a bare `cd` (#325). */
 	return raw.includes(QUOTED) ? { empty: true } : null;
 }
 
-/**
- * An unquoted leading `~` is the shell's to expand (mantahostels#3453); `~user`
- * is refused, not looked up. Null where it will not expand.
- * @param {string} word
- * @param {Scope} scope
- */
+/** @param {string} word @param {Scope} scope */
 function expandTilde(word, scope) {
 	if (!word.startsWith("~")) return word;
 	return expandTildeWord(word, expandVars("$HOME", scope));
 }
 
-/**
- * A masked word with every span read back through `scope.spans` and every
- * variable expanded, or null where any part will not resolve.
- * @param {string} raw
- * @param {Scope} scope
- */
+/** @param {string} raw @param {Scope} scope */
 function expandMasked(raw, scope) {
-	/* Once a part fails nothing after it is read: an expansion records the
-	 * names it read as empty (#325). */
 	let ok = true;
 	const { out, rest } = readSentinels(raw, (lit, idx) => {
 		const recorded = idx === null ? undefined : scope.spans[idx];
@@ -1160,29 +803,16 @@ function expandMasked(raw, scope) {
 	return tail === null ? null : out + tail;
 }
 
-/**
- * A recorded span's text as the shell reads it: a `"…"` span expanded, a
- * `'…'` span literal; null where it will not resolve.
- * @param {string} recorded the span, quote character first
- * @param {Scope} scope
- */
+/** @param {string} recorded @param {Scope} scope */
 function expandSpan(recorded, scope) {
-	/* A bare span is typed text outside quotes, read back as typed (#4278). */
 	if (isBareSpan(recorded)) return recorded;
 	const span = recorded.slice(1);
 	if (recorded.charAt(0) === '"') return expandVars(span, scope);
-	/* Single quotes are literal, so a `$` inside one names a directory rather
-	 * than an expansion. Refused rather than guessed at. */
 	if (recorded.charAt(0) !== "'" || hasExpansion(span)) return null;
 	return span;
 }
 
-/**
- * A word as the shell would expand it, or null where any part will not
- * resolve — a quoted `""` included. Relative stays relative.
- * @param {string} word
- * @param {Scope} scope
- */
+/** @param {string} word @param {Scope} scope */
 function resolveWord(word, scope) {
 	const r = pathArg(word, scope);
 	return r && "path" in r ? r.path : null;
@@ -1190,78 +820,49 @@ function resolveWord(word, scope) {
 
 /**
  * @typedef {object} Redirect
- * @property {string} fd as written, else 1 for an output and 0 for an input;
- *   `&` for `&>`, `&>>` and `>&<file>`, which send both 1 and 2
- * @property {string} kind truncate, clobber, append, read, read-write, copy,
- *   close, here-string or heredoc
- * @property {string} target as written, masked as the command's words are
- * @property {string} path the target as an absolute path, through the walk's
- *   cwd; "" where it will not resolve, and always for copy, close,
- *   here-string and heredoc
+ * @property {string} fd
+ * @property {string} kind
+ * @property {string} target
+ * @property {string} path
  */
 
 /**
  * @typedef {object} WriteTarget
  * @property {"write" | "move-source" | "delete"} mode
- * @property {string} route redirect, or the command as the table in
- *   writeTargets names it (#2142)
- * @property {string} target as written, masked — `<dest>/<basename>` for a
- *   copy into a directory
- * @property {string} path absolute, through the walk's cwd; "" where it will
- *   not resolve
+ * @property {string} route
+ * @property {string} target
+ * @property {string} path
  */
 
 /**
- * @typedef {object} Command one command a walk hands its callback
- * @property {string} segment the flattened segment, masked
- * @property {string[]} words the command's own words, leading assignments and
- *   every redirection removed (#1488)
- * @property {string[]} leading the words before the command — reserved words
- *   and the leading assignments (#1013)
- * @property {string} cwd the directory it runs in, every `cd` before it taken
- *   as made; "" where the walk cannot know it, which the caller records before
- *   it fails open (mantahostels#3453)
- * @property {import("./shell-dirs.js").Dirs} cwds every directory it may
- *   stand in, `cwd` first: a `cd` may not have run or have failed (#4980)
- * @property {() => [CommandRun, ...CommandRun[]]} runs the runs its words
- *   make, as unwrap strips them, in the order they run; unwrapped once, and
- *   read inside the callback
+ * @typedef {object} Command
+ * @property {string} segment
+ * @property {string[]} words
+ * @property {string[]} leading
+ * @property {string} cwd
+ * @property {import("./shell-dirs.js").Dirs} cwds
+ * @property {() => [CommandRun, ...CommandRun[]]} runs
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
- *   `words` the command's own by default; `cwd` the directory a target, a
- *   redirect's included, resolves in, the walk's by default, "" where unknown
- *   (#5012, #5105)
  * @property {(word: string) => string | null} resolveWord
- * @property {(name: string) => boolean} assigned whether the command assigned
- *   `name`, before this point, a value the walk resolves (#2436)
+ * @property {(name: string) => boolean} assigned
  */
 
 /**
  * @typedef {import("./shell-words.js").Unwrapped & {
- *   dirs: () => import("./shell-dirs.js").Dirs }} CommandRun one run a
- *   command's words make: `dirs` every directory it may stand in, the
- *   command's `cwds` moved through its own chdirs, its words read under the
- *   walk's scope as it stands (#5075)
+ *   dirs: () => import("./shell-dirs.js").Dirs }} CommandRun
  */
 
 /**
  * @typedef {object} WalkPorts
- * @property {string | undefined} cwd the payload's `.cwd`, where the session's
- *   shell stands (mantahostels#2682)
- * @property {string} fallbackCwd where a walk stands with no absolute `cwd`:
- *   under a hook, lib/host-root.js's sessionDir (#4695)
- * @property {Record<string, string | undefined>} vars what an unassigned
- *   `$VAR` reads
+ * @property {string | undefined} cwd
+ * @property {string} fallbackCwd
+ * @property {Record<string, string | undefined>} vars
  * @property {(path: string) => boolean} isDir
- * @property {boolean} [bareRedirects] also hand over a segment that is
- *   redirections alone — `> out`, `exec 3> log` — with no words
+ * @property {boolean} [bareRedirects]
  */
 
-/**
- * Ports for a walk that judges the text alone: no payload cwd, no
- * environment, no filesystem.
- * @type {WalkPorts}
- */
+/** @type {WalkPorts} */
 const TEXT_ONLY_PORTS = Object.freeze({
 	cwd: undefined,
 	fallbackCwd: "/",
@@ -1269,45 +870,29 @@ const TEXT_ONLY_PORTS = Object.freeze({
 	isDir: () => false,
 });
 
-/**
- * @typedef {Map<string, string | null>} GitEnv each git-reading variable's raw
- *   value word, null where the command's handling of it cannot be read
- */
+/** @typedef {Map<string, string | null>} GitEnv */
 
 /**
- * @typedef {object} Walk one walk's running state over a parse's segments
- *   (#2785): the cwd through `cd`, the subshell stack, arithmetic's redirect
- *   switch and the command's own assignments. Each walk keeps
- *   its own, so a walk from inside a callback disturbs nothing.
+ * @typedef {object} Walk
  * @property {Parsed} parsed
  * @property {Scope} scope
- * @property {import("./shell-dirs.js").DirsState} dirs where the command may
- *   stand through `cd`, its first "" where the walk cannot know it, the others
- *   where a `cd` may not have run or failed (#4009)
- * @property {number} cdAt the segment of the last `cd` that opened its `&&` or
- *   `||` list, unnegated, -1 where none has, for a `cd` after `||` (#5010)
- * @property {string[]} cwdNames the unset names read as empty on the way to
- *   the cwd (#325)
- * @property {string} cwdLost the words of the command that made the cwd
- *   unknown, for the unresolved-tree record (#320)
- * @property {boolean} aliasWritten a `git config` earlier in the command touched
- *   an alias (#4009)
- * @property {GitEnv} gitEnv the git-reading variables an `export` has put in
- *   the environment (#3997)
+ * @property {import("./shell-dirs.js").DirsState} dirs
+ * @property {number} cdAt
+ * @property {string[]} cwdNames
+ * @property {string} cwdLost
+ * @property {boolean} aliasWritten
+ * @property {GitEnv} gitEnv
  * @property {{ dirs: import("./shell-dirs.js").DirsState, names: string[],
- *   noRedirects: boolean, gitEnv: GitEnv, vars: ScopeVars }[]} stack what
- *   each open `(` restores at its `)`
- * @property {boolean} noRedirects inside arithmetic, whose `>` and `<`
- *   compare (#1488)
- * @property {string} arPrev the segment before
- * @property {string} arLast "open" after a `(`, "open-empty" after the empty
- *   line a second `(` straight after it leaves
+ *   noRedirects: boolean, gitEnv: GitEnv, vars: ScopeVars }[]} stack
+ * @property {boolean} noRedirects
+ * @property {string} arPrev
+ * @property {string} arLast
  */
 
 /**
  * @param {Parsed} parsed
  * @param {Record<string, string | undefined>} vars
- * @param {string} cwd where the walk starts
+ * @param {string} cwd
  * @param {boolean} emptyUnset
  * @returns {Walk}
  */
@@ -1338,12 +923,6 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
 });
 
 /**
- * Call `fn` with each segment that is no bracket's SCOPE_MARK line, its words
- * split. A segment of assignments alone is harvested for the commands after
- * it, as `WT=/x && git …` flattens into one (mantahostels#208), and so is an
- * `export`'s (#5120), unless the segment runs apart. A command's own leading
- * assignments are not: bash expands its words first and puts them in its
- * environment alone (#5087).
  * @param {Walk} walk
  * @param {(segment: string, cw: CommandWords, segIdx: number) => void} fn
  */
@@ -1356,11 +935,7 @@ function eachSegment(walk, fn) {
 	});
 }
 
-/**
- * @param {Walk} walk accumulator: its scope is moved
- * @param {CommandWords} cw
- * @param {number} segIdx
- */
+/** @param {Walk} walk @param {CommandWords} cw @param {number} segIdx */
 function harvestSegment(walk, cw, segIdx) {
 	if (cw.ran)
 		harvestExport(walk.scope, walk.parsed, cw.words.slice(cw.wi), segIdx);
@@ -1368,16 +943,7 @@ function harvestSegment(walk, cw, segIdx) {
 		harvest(walk.scope, walk.parsed, cw.words.slice(0, cw.assignEnd), segIdx);
 }
 
-/**
- * Whether `segment` is a bracket's SCOPE_MARK line, moving the scope where it
- * is. Arithmetic `((` and `$((` compare with `>` and `<` (#1488): each `(`
- * stacks the state its `)` restores. A `$(` opens a command, a `(` inside
- * arithmetic groups, and a second `(` straight after a first — the flatten
- * leaves exactly an empty line between — opens arithmetic.
- * @param {Walk} walk accumulator: its `arLast` and `arPrev` are moved, and
- *   at a bracket what openScope or closeScope moves
- * @param {string} segment
- */
+/** @param {Walk} walk @param {string} segment */
 function arithScope(walk, segment) {
 	const isOpen = segment === SCOPE_OPEN;
 	const isClose = segment === SCOPE_CLOSE;
@@ -1389,24 +955,16 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/** @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars
- * `harvested` is left out: bareMentions counts the whole command's words, so
- * the count must span a subshell's `)` too. */
+/** @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars */
 
-/**
- * @param {Scope} scope
- * @returns {ScopeVars} a copy of its variables
- */
+/** @param {Scope} scope @returns {ScopeVars} */
 const copyVars = (scope) => ({
 	locals: new Map(scope.locals),
 	dead: new Set(scope.dead),
 	exported: new Set(scope.exported),
 });
 
-/** A subshell's `(`: stack the state its `)` restores, and open the
- * directories' scope.
- * @param {Walk} walk accumulator: its stack, directories, redirect mode and
- *   `arLast` are moved */
+/** @param {Walk} walk */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv, scope } = walk;
 	walk.stack.push({ dirs, names, noRedirects, gitEnv, vars: copyVars(scope) });
@@ -1420,11 +978,7 @@ function openScope(walk) {
 	walk.arLast = "open";
 }
 
-/** A `)` with no `(` open is a `case` pattern, which moves nothing.
- * RESIDUAL: one inside a subshell closes that subshell early.
- * @param {Walk} walk accumulator: its stack, directories, cwd names, redirect
- *   mode, `gitEnv`, the scope's locals, dead and exported, and `arLast` are
- *   moved */
+/** @param {Walk} walk */
 function closeScope(walk) {
 	const back = walk.stack.pop();
 	if (back) {
@@ -1432,23 +986,15 @@ function closeScope(walk) {
 		walk.cwdNames = back.names;
 		walk.noRedirects = back.noRedirects;
 		walk.gitEnv = back.gitEnv;
-		/* Onto the scope object itself: a Command and dirEnv hold it. */
 		Object.assign(walk.scope, back.vars);
 	}
 	walk.arLast = "";
 }
 
-/** A `NAME=value` word: the name, then the value. */
 const ASSIGNMENT = new RegExp(`^(${NAME})=(.*)$`, "s");
 
 /**
- * Record the literal assignments in `words` (mantahostels#208) into `scope`,
- * each visible to what reads after it alone. A name lands in `dead` — every
- * later use unresolvable — on an assignment at or after the first `||`
- * (#328), which a `||` may skip; on a value this file will not resolve; and
- * on a second assignment of a different value, as the flatten loses which arm
- * ran.
- * @param {Scope} scope accumulator
+ * @param {Scope} scope
  * @param {Parsed} parsed
  * @param {string[]} words
  * @param {number} segIdx
@@ -1464,22 +1010,14 @@ function harvest(scope, { conditional }, words, segIdx) {
 	}
 }
 
-/**
- * @param {Scope} scope accumulator: its harvested is moved
- * @param {string} name
- */
+/** @param {Scope} scope @param {string} name */
 const countHarvested = (scope, name) =>
 	scope.harvested.set(name, (scope.harvested.get(name) ?? 0) + 1);
 
 /**
- * Record what one `export`, `declare -x`, `typeset -x`, `export -n` or `unset`
- * does to `scope`: its assignments as harvest records a bare one's, and each
- * name it exports or drops from the environment. An `unset` name, or an
- * assignment word whose name is quoted, is unresolvable after it.
- * @param {Scope} scope accumulator: its locals, dead, exported and harvested
- *   are moved
+ * @param {Scope} scope
  * @param {Parsed} parsed
- * @param {string[]} own the command's words, its command word first
+ * @param {string[]} own
  * @param {number} segIdx
  */
 function harvestExport(scope, parsed, [head = "", ...rest], segIdx) {
@@ -1500,9 +1038,6 @@ function harvestExport(scope, parsed, [head = "", ...rest], segIdx) {
 }
 
 /**
- * The scope each of a command's own leading assignments reads its value under,
- * by name, the last of a name winning: the walk's, every assignment before it
- * applied, as bash expands them left to right (#5087).
  * @param {Walk} walk
  * @param {string[]} leading
  * @param {number} segIdx
@@ -1526,11 +1061,7 @@ function leadingScopes(walk, leading, segIdx) {
 }
 
 /**
- * Read where a `cd`, or a command that losesCwd, moves the cwd, keeping the
- * names and words that record it. Followed: `cd <path>`, and `cd ""`, which
- * stays put (#301). Made unknown: `cd -` and any other flag, a bare `cd`,
- * `pushd`, `popd`, `builtin cd` and `command cd`.
- * @param {Walk} walk accumulator: its cwd names and lost words are moved
+ * @param {Walk} walk
  * @param {string[]} words
  * @returns {import("./shell-dirs.js").Resolved}
  */
@@ -1556,52 +1087,27 @@ function moveCwd(walk, words) {
 	return r;
 }
 
-/**
- * Whether a command moves the cwd: a `cd`, or one losesCwd names.
- * @param {string} head
- * @param {string | undefined} arg the word after it
- */
+/** @param {string} head @param {string | undefined} arg */
 const movesCwd = (head, arg) => head === "cd" || losesCwd(head, arg);
 
-/**
- * Whether a command moves the cwd where no word of it says.
- * @param {string} head
- * @param {string | undefined} arg the word after it
- */
+/** @param {string} head @param {string | undefined} arg */
 const losesCwd = (head, arg) =>
 	head === "pushd" ||
 	head === "popd" ||
 	((head === "builtin" || head === "command") && arg === "cd");
 
-/**
- * Keep the command that made the cwd unknown. RESIDUAL: not stacked, so a
- * subshell's `)` handing back an unknown cwd leaves the words of a `cd`
- * inside it.
- * @param {Walk} walk
- * @param {string[]} words
- */
+/** @param {Walk} walk @param {string[]} words */
 function loseCwd(walk, words) {
 	walk.cwdNames = [];
 	walk.cwdLost = words.join(" ");
 }
 
-/**
- * A word as an absolute path through the walk's cwd, normalised; "" where it
- * will not resolve.
- * @param {Walk} walk
- * @param {string} word
- */
+/** @param {Walk} walk @param {string} word */
 function absolutePath(walk, word) {
 	return absoluteIn(cwdOf(walk), word, walk.scope);
 }
 
-/**
- * A word as an absolute path, a relative one joined to `cwd`; "" where it
- * will not resolve or `cwd` is unknown.
- * @param {string} cwd
- * @param {string} word
- * @param {Scope} scope
- */
+/** @param {string} cwd @param {string} word @param {Scope} scope */
 function absoluteIn(cwd, word, scope) {
 	const p = resolveWord(word, scope);
 	if (!p) return "";
@@ -1610,13 +1116,6 @@ function absoluteIn(cwd, word, scope) {
 }
 
 /**
- * Call `fn` once per command `parsed` runs, in order. Segments that run
- * nothing are skipped, bar redirections alone under `bareRedirects`.
- *
- * Seeded from the payload's cwd, else `ports.fallbackCwd` (mantahostels#2682). The
- * cwd is moved AFTER each callback, as stepCwd moves it, so a `cd`'s own
- * callback reads the directory it ran from. A subshell's `)` hands back the
- * cwd its `(` saw.
  * @param {Parsed} parsed
  * @param {(cmd: Command) => void} fn
  * @param {WalkPorts} ports
@@ -1668,8 +1167,7 @@ function walkCommands(parsed, fn, ports) {
 }
 
 /**
- * A Command's `runs`: each run's `dirs` read on its first call.
- * @param {string[]} words the command's own
+ * @param {string[]} words
  * @param {import("./shell-dirs.js").Dirs} cwds
  * @param {{ scope: Scope, isDir: (path: string) => boolean }} at
  * @returns {() => [CommandRun, ...CommandRun[]]}
@@ -1702,51 +1200,33 @@ function commandRuns(words, cwds, { scope, isDir }) {
  */
 
 /**
- * @typedef {object} ScriptCommand one command a `sh -c` script runs
- * @property {string[]} words from its command word on, masked, redirections
- *   taken out
- * @property {string[]} leading each assignment an earlier `export` put in the
- *   environment, then its own leading ones, in the order they apply
- * @property {Chdir[]} chdirs each `cd` before it, in order
- * @property {string[]} unread each git-reading variable an earlier command
- *   changed in a way not followed here, as markRepoVarsUnread reads one
+ * @typedef {object} ScriptCommand
+ * @property {string[]} words
+ * @property {string[]} leading
+ * @property {Chdir[]} chdirs
+ * @property {string[]} unread
  */
 
 /**
- * @typedef {object} ScriptAt where in a script a segment stands
+ * @typedef {object} ScriptAt
  * @property {Parsed} parsed
  * @property {number} segIdx
  * @property {string[]} spans
  */
 
 /**
- * @typedef {object} ScriptState what a script's next command runs under
+ * @typedef {object} ScriptState
  * @property {Chdir[]} chdirs
- * @property {{ depth: number }[]} pending the depth of each `cd` whose `&&`
- *   chain has not yet ended, as stepDirs tags its pending (#5095)
- * @property {boolean} subshellOpened a subshell has opened since the last `cd`
+ * @property {{ depth: number }[]} pending
+ * @property {boolean} subshellOpened
  * @property {string[]} exports
- * @property {Map<string, string>} locals each name an assignment alone set,
- *   its word
- * @property {string[]} lost each name the script may have changed in a way
- *   not followed: an assignment that may not have run, an `unset`, or any
- *   other command naming it bare (`read X`, `for X in`)
+ * @property {Map<string, string>} locals
+ * @property {string[]} lost
  * @property {string[]} unread
- * @property {number} cdAt the segment of the last `cd` that opened its `&&` or
- *   `||` list, -1 where none has
+ * @property {number} cdAt
  */
 
-/**
- * The commands of a script a wrapper hands to `sh -c`, in the order they run,
- * parsed as a command line is (#4863), its spans appended to `spans`. A `cd`,
- * an `export` and an assignment alone move the commands after it as walkGit's
- * walk moves them: not from a pipeline or behind `&`; a subshell's `)` hands
- * back what its `(` saw; a `cd` holds as stepCwd's does, the directory test
- * left to the reader, which has the cwd.
- * @param {string} script
- * @param {string[]} spans accumulator: the script's spans are appended
- * @returns {ScriptCommand[]}
- */
+/** @param {string} script @param {string[]} spans @returns {ScriptCommand[]} */
 function parseScript(script, spans) {
 	const parsed = parseCommand(script, spans);
 	/** @type {ScriptCommand[]} */
@@ -1767,13 +1247,9 @@ function parseScript(script, spans) {
 	parsed.segments.forEach((segment, segIdx) => {
 		if (segment === SCOPE_OPEN) {
 			stack.push(state);
-			/* As openScope's: the chain outside stays open (#5093, #5102). */
 			state = { ...openChainScope(state), subshellOpened: true };
 			return;
 		}
-		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
-		 * `((…))` or `$((…))` parses as brackets too, and its assignments
-		 * stand, so each name the brackets changed is lost. */
 		if (segment === SCOPE_CLOSE) {
 			const outer = stack.pop();
 			if (outer)
@@ -1802,14 +1278,7 @@ function parseScript(script, spans) {
 	return out;
 }
 
-/**
- * The state at a chain end `depth` compound commands deep: the last `cd`
- * before it settles, for every command after, each chain a `cd` as deep or
- * deeper opened (#5082, #5095, #5109).
- * @param {ScriptState} state
- * @param {number} depth
- * @returns {ScriptState}
- */
+/** @param {ScriptState} state @param {number} depth @returns {ScriptState} */
 function settleScriptChain(state, depth) {
 	if (!state.pending.some((p) => p.depth >= depth)) return state;
 	const last = state.chdirs.at(-1);
@@ -1824,10 +1293,8 @@ function settleScriptChain(state, depth) {
 }
 
 /**
- * The state after a segment of assignments alone: each a local, and a
- * variable already exported takes the new value.
  * @param {ScriptState} state
- * @param {string[]} words the segment's
+ * @param {string[]} words
  * @param {string[]} assigned
  * @param {ScriptAt} where
  * @returns {ScriptState}
@@ -1859,16 +1326,9 @@ function assignAlone(state, words, assigned, where) {
 	);
 }
 
-/** A name a word spells other than as a `$name` or `${name}` reference. */
 const BARE_NAME_RE = /(?<![\w$])(?<!\$\{)[A-Za-z_]\w*/g;
 
-/**
- * The names assignment texts set, and those they leave lost: every one where
- * `empties` (an `unset`), else each `+=`, which appends to a value this file
- * does not add up.
- * @param {string[]} texts
- * @param {boolean} empties
- */
+/** @param {string[]} texts @param {boolean} empties */
 function assignedNames(texts, empties) {
 	/** @type {string[]} */
 	const set = [];
@@ -1893,30 +1353,17 @@ const changedNames = (inner, outer) => [
 	),
 ];
 
-/**
- * Whether a segment's assignments surely stand after it: no `&&` or `||`
- * before it, no compound command in the script, and not in a pipeline or
- * behind `&`.
- * @param {Pick<ScriptAt, "parsed" | "segIdx">} where
- */
+/** @param {Pick<ScriptAt, "parsed" | "segIdx">} where */
 const isSureAssignment = ({ parsed, segIdx }) =>
 	isSureMove(parsed, segIdx, []) && !runsApart(parsed, segIdx);
 
-/**
- * `lost` after `names` are assigned: followed where the assignment surely
- * stands, lost where it may not.
- * @param {string[]} lost
- * @param {string[]} names
- * @param {boolean} sure
- */
+/** @param {string[]} lost @param {string[]} names @param {boolean} sure */
 const settleLost = (lost, names, sure) =>
 	sure
 		? lost.filter((n) => !names.includes(n))
 		: [...lost, ...names.filter((n) => !lost.includes(n))];
 
 /**
- * The state after one command: a `cd` or `export` moves it; any other command
- * but `git` may mark variables unread.
  * @param {ScriptState} state
  * @param {CommandWords} cw
  * @param {ScriptAt} where
@@ -1948,9 +1395,8 @@ function stepScript(state, cw, where) {
 
 /**
  * @param {ScriptState} state
- * @param {{ head: string, kind: "export" | "drop" }} command its command word,
- *   and what exportKind reads it as
- * @param {string[]} args the words after the command word, masked
+ * @param {{ head: string, kind: "export" | "drop" }} command
+ * @param {string[]} args
  * @param {ScriptAt} where
  * @returns {ScriptState}
  */
@@ -1972,7 +1418,7 @@ function exportInScript(state, command, args, where) {
 /**
  * @param {ScriptState} state
  * @param {{ head: string, kind: "export" | "drop" }} command
- * @param {string[]} args the words after the command word, masked
+ * @param {string[]} args
  * @param {string[]} spans
  * @returns {ScriptState}
  */
@@ -1987,8 +1433,6 @@ function exportWords(state, { head, kind }, args, spans) {
 			continue;
 		}
 		if (text !== name) locals.set(name, w);
-		/* A name alone exports the value it holds, and keeps an earlier
-		 * export's where the script set none. */
 		const value = text === name ? locals.get(name) : w;
 		if (value !== undefined)
 			exports = [...withoutName(exports, name, spans), value];
@@ -1997,10 +1441,8 @@ function exportWords(state, { head, kind }, args, spans) {
 }
 
 /**
- * The state after a `cd`: one whose target no word gives goes where nothing
- * resolves; one a `&&` chains a command off opens a chain.
  * @param {ScriptState} state
- * @param {string[]} own its words, masked
+ * @param {string[]} own
  * @param {ScriptAt} where
  * @returns {ScriptState}
  */
@@ -2035,7 +1477,7 @@ function cdInScript(state, own, where) {
 
 /**
  * @param {ScriptState} state
- * @param {string[]} words the segment's
+ * @param {string[]} words
  * @param {boolean} assigning
  * @param {string[]} spans
  * @returns {ScriptState}
@@ -2050,9 +1492,7 @@ function markScriptUnread(state, words, assigning, spans) {
 }
 
 /**
- * The words an `export`, `declare`, `typeset` or `unset` names, its flags
- * left out: each masked, read through literal, and the name it sets.
- * @param {string[]} args the words after its command word
+ * @param {string[]} args
  * @param {string[]} spans
  * @returns {{ w: string, text: string, name: string }[]}
  */
@@ -2064,10 +1504,7 @@ const exportArgs = (args, spans) =>
 			: [{ w, text, name: assignedName(w, spans) }];
 	});
 
-/**
- * @param {string} w an assignment or a name, masked
- * @param {string[]} spans
- */
+/** @param {string} w @param {string[]} spans */
 const assignedName = (w, spans) =>
 	(literal(w, spans).text.split("=", 1)[0] ?? "").replace(/\+$/, "");
 
@@ -2080,17 +1517,12 @@ const withoutName = (words, name, spans) =>
 	words.filter((w) => assignedName(w, spans) !== name);
 
 /**
- * @typedef {object} GitCall one git command walkGit hands its callback
- * @property {string} segment the flattened segment, masked
- * @property {string} sub the subcommand, one the walk asked for
- * @property {string} tree the working tree it runs against; "" only under
- *   `strict`, where the tree did not resolve and may be any tree at all
- *   (#311): branch on it before any `git -C`, which answers an empty path for
- *   the hook's own cwd
- * @property {string[]} args the subcommand's own words, RAW: each still to be
- *   read through literal
- * @property {string[]} emptyVars under `emptyUnset`, each unset name read as
- *   empty on the way to `tree` (#325), once each, in order; else empty
+ * @typedef {object} GitCall
+ * @property {string} segment
+ * @property {string} sub
+ * @property {string} tree
+ * @property {string[]} args
+ * @property {string[]} emptyVars
  */
 
 /**
@@ -2098,49 +1530,20 @@ const withoutName = (words, name, spans) =>
  *   treeClass: (dir: string) => "shared" | "linked" | "other" | "unknown",
  *   log: (what: string, detail?: string) => void,
  *   readFileAliases?: (dir: string) => import("./git-alias.js").FileAliases | null,
- * }} GitWalkPorts `treeClass` is lib/git-tree.js's treeClassifier; `log`
- *   records a fail-open; `readFileAliases` reads the config files a tree sees, null
- *   where git could not say, and a walk without it reads none
+ * }} GitWalkPorts
  */
 
 /**
  * @typedef {object} GitWalkOpts
- * @property {string[]} subs the subcommands to call back for
- * @property {string} noun what the guard would have judged, for the
- *   fail-open record
- * @property {"shared" | "repo"} scope "shared" judges this repo's shared
- *   working tree alone; "repo" a linked worktree too (mantahostels#1213), for
- *   a guard whose reason to refuse is not the shared index (mantahostels#344)
- * @property {boolean} [strict] hand an unresolved tree over as "" rather than
- *   record and skip it (#301, #311): for a guard whose target may BE the shared
- *   tree, where declining to judge allows the very command it refuses. The
- *   callback then owns the fail-open record for what it still allows
- * @property {boolean} [emptyUnset] the opt-in #310 ruled: a `cd`/`git -C`
- *   target whose every `$` is a bare name the command does not assign and the
- *   environment does not set — or one the command sets to empty — is
- *   substituted EMPTY and judged, which in quotes is the cwd. Shell state does
- *   not carry between Bash calls, so that is the tree the command runs in
- * @property {boolean} [unwrap] judge a git command behind shell-words.js's
- *   unwrap wrappers (#1731). Without it, a command a `flock -c` or `watch`
- *   script runs is still judged (#4978), behind an outer wrapper too
- *   (`timeout 5 flock … -c "git …"`), while a bare `timeout 5 git …` stays
- *   unread
+ * @property {string[]} subs
+ * @property {string} noun
+ * @property {"shared" | "repo"} scope
+ * @property {boolean} [strict]
+ * @property {boolean} [emptyUnset]
+ * @property {boolean} [unwrap]
  */
 
 /**
- * Call `fn` once per git invocation of one of `opts.subs` that runs against a
- * tree in `opts.scope` (mantahostels#157). Everything else is filtered out
- * here: another repo, a tree outside the scope, a subcommand the guard did not
- * ask for, and a `cd`, which moves the running cwd rather than being judged.
- *
- * The subcommand filter runs BEFORE the tree is resolved: a `git status` whose
- * tree cannot be resolved is no fail-open, because no guard was going to judge
- * it. One the guard asked for
- * whose tree will not resolve is recorded through `ports.log`, as is a tree
- * git could not answer for (mantahostels#147).
- *
- * Seeded from `ports.fallbackCwd`, which a hook's context sets to the
- * session's directory (#4695).
  * @param {Parsed} parsed
  * @param {(call: GitCall) => void} fn
  * @param {GitWalkPorts} ports
@@ -2163,8 +1566,6 @@ function walkGit(parsed, fn, ports, opts) {
 }
 
 /**
- * Hand `fn` each tree one git command runs against, where its subcommand is
- * one the walk asked for.
  * @param {Walk} walk
  * @param {string} segment
  * @param {GitTarget & { sub: string, args: string[] }} git
@@ -2182,9 +1583,6 @@ function judgeGit(walk, segment, git, { fn, ports, opts }) {
 	});
 	if (sub === "config") markAliasWritten(walk, args);
 	if (!subs.includes(sub)) return;
-	/* A named git directory moves the refs and leaves the work tree where the
-	 * command stands, and a named work tree moves the files (measured), so
-	 * each adds a tree to judge. */
 	const trees = [git.named, git.workTree, git.tree, ...git.doubted].filter(
 		(t) => t !== null,
 	);
@@ -2208,8 +1606,7 @@ function judgeGit(walk, segment, git, { fn, ports, opts }) {
 }
 
 /**
- * Hand `call` one tree its walk judges, or record why it cannot.
- * @param {string} tree "" where it will not resolve
+ * @param {string} tree
  * @param {string} sub
  * @param {(tree: string) => void} call
  * @param {{ walk: Walk, git: GitTarget, ports: GitWalkPorts,
@@ -2226,9 +1623,6 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
 		return;
 	}
 	const cls = ports.treeClass(tree);
-	/* "unknown" is git declining to answer for the directory, not a
-	 * different tree: the guard is declining to judge a command it asked
-	 * for, so it is recorded. */
 	if (cls === "unknown")
 		ports.log(
 			`git could not answer for ${tree} — a git ${sub} there was allowed unchecked`,
@@ -2238,33 +1632,22 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
 }
 
 /**
- * @typedef {object} GitTarget the trees a git command reaches
- * @property {string} tree its work tree; "" where it will not resolve
- * @property {string | null} named the tree whose refs `--git-dir`, `GIT_DIR` or
- *   `GIT_COMMON_DIR` name, "" where it will not resolve; null where none does
- * @property {string | null} workTree the tree `--work-tree` or `GIT_WORK_TREE`
- *   names, "" where it will not resolve; null where none does
- * @property {string[]} doubted where the command may stand instead of `tree`
- * @property {ReturnType<typeof pathArg>[]} dirMoves each `-C`'s directory
- *   as pathArg read it, in order
- * @property {string[]} names the unset names read as empty on the way (#325)
- * @property {string} written an unresolved `-C` as typed, for the record
- * @property {import("./git-alias.js").AliasTable} aliases what the command
- *   line defines
+ * @typedef {object} GitTarget
+ * @property {string} tree
+ * @property {string | null} named
+ * @property {string | null} workTree
+ * @property {string[]} doubted
+ * @property {ReturnType<typeof pathArg>[]} dirMoves
+ * @property {string[]} names
+ * @property {string} written
+ * @property {import("./git-alias.js").AliasTable} aliases
  */
 
 /**
- * One segment's git commands carrying a subcommand: each `{ sub, args }` and
- * the tree it runs against, none for anything else — a `cd` among them, which
- * moves the walk's cwd instead (emptying it where the target will not resolve,
- * so every later segment fails open rather than judging a worktree command
- * against the hook's own tree).
  * @param {Walk} walk
  * @param {CommandWords} cw
  * @param {number} segIdx
  * @param {{ unwrapped: boolean, isDir: (path: string) => boolean }} how
- *   `unwrapped` judges past the launcher wrappers (#1731); each command a
- *   `-c` string runs is judged either way (#4699, #4978)
  * @returns {(GitTarget & { sub: string, args: string[] })[]}
  */
 function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
@@ -2292,22 +1675,14 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 		const git = readGitRun(walk, run, { leading, scopes }, how.isDir);
 		return git ? [git] : [];
 	});
-	/* After the git runs, which a later run's mention of a variable cannot
-	 * reach back to. */
 	if (gitRuns.length < runs.length) markRepoVarsUnread(walk, words, false);
 	return gits;
 }
 
 /**
- * One `git` command's subcommand and the tree it runs against. Its moves, a
- * wrapper's and a script's read under the walk's scope and then its `-C`s, are
- * made once from every directory the walk may stand in: the first is the tree,
- * the others `doubted`.
  * @param {Walk} walk
  * @param {Pick<import("./shell-words.js").Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
- *   its words from `git` on, and what its wrappers and its script carried
- * @param {{ leading: string[], scopes: Map<string, Scope> }} prefix the
- *   segment's own leading assignments, and leadingScopes' answer
+ * @param {{ leading: string[], scopes: Map<string, Scope> }} prefix
  * @param {(path: string) => boolean} isDir
  * @returns {(GitTarget & { sub: string, args: string[] }) | null}
  */
@@ -2319,8 +1694,6 @@ function readGitRun(walk, run, { leading, scopes }, isDir) {
 		dirEnv.set(name, { word, scope: walk.scope });
 	for (const [name, word] of leading.flatMap(parseGitEnvWord))
 		dirEnv.set(name, { word, scope: scopes.get(name) ?? walk.scope });
-	/* A wrapper's words were expanded before it ran, under the walk's scope
-	 * (#5087). */
 	for (const [name, word] of run.wrapperWords.flatMap(parseGitEnvWord))
 		dirEnv.set(name, { word, scope: walk.scope });
 	for (const name of run.unread)
@@ -2363,11 +1736,9 @@ function readGitRun(walk, run, { leading, scopes }, isDir) {
 		[...moves, ...dashC],
 		isDir,
 	);
-	/* The config read follows `tree`, which the doubt says it may not stand in. */
 	target.aliases.anyUnread ||= target.doubted.length > 0;
 	const args = own.slice(i + 1);
 	const spelt = literal(word, spans);
-	/* An unread word could be any subcommand, or a `--git-dir` to any tree. */
 	if (!spelt.known)
 		return {
 			...target,
@@ -2378,18 +1749,10 @@ function readGitRun(walk, run, { leading, scopes }, isDir) {
 	return { ...target, sub: spelt.text, args };
 }
 
-/* A segment opening a compound command, whose parts a `cd` may run in any order
- * or not at all. A `{ …; }` group runs its parts in order: isBraceGroupSure. */
 const COMPOUND_START =
 	/^\s*(?:if|while|until|for|select|case|function)(?:\s|$)/;
 
-/**
- * The index of the segment that follows `segIdx`'s in its list: past the
- * substitutions lifted out of the next command (#5098). Inside a lifted run,
- * the next segment.
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 function nextInList({ lifted }, segIdx) {
 	let i = segIdx + 1;
 	if (lifted[segIdx]) return i;
@@ -2397,12 +1760,7 @@ function nextInList({ lifted }, segIdx) {
 	return i;
 }
 
-/**
- * The index of the segment ahead of `segIdx`'s in its list, as nextInList
- * reads one: past the substitutions lifted out of this command.
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 function prevInList({ lifted }, segIdx) {
 	let i = segIdx - 1;
 	if (lifted[segIdx]) return i;
@@ -2410,19 +1768,10 @@ function prevInList({ lifted }, segIdx) {
 	return i;
 }
 
-/**
- * The join between the segment and the one that follows it in its list.
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 const joinAfter = (parsed, segIdx) => parsed.joins[nextInList(parsed, segIdx)];
 
-/**
- * Whether the segment runs in a subshell of its own, in a pipeline or behind
- * `&`, so a `cd` or `export` in it moves nothing after it (measured).
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 function runsApart(parsed, segIdx) {
 	const after = joinAfter(parsed, segIdx);
 	return (
@@ -2432,30 +1781,15 @@ function runsApart(parsed, segIdx) {
 	);
 }
 
-/**
- * Whether the segment opens its `&&` or `||` list: no `&&` or `||` before it.
- * @param {Join[]} joins
- * @param {number} segIdx
- */
+/** @param {Join[]} joins @param {number} segIdx */
 const opensList = (joins, segIdx) =>
 	joins[segIdx] !== JOIN.AND && joins[segIdx] !== JOIN.OR;
 
-/**
- * Whether the segment is a `cd` after `||` whose left side is the `cd` that
- * opened the list at `cdAt`, unnegated: it runs only where that one failed
- * (#5010).
- * @param {Parsed} parsed
- * @param {number} segIdx
- * @param {number} cdAt -1 where no such `cd` stands
- */
+/** @param {Parsed} parsed @param {number} segIdx @param {number} cdAt */
 const isAfterCd = (parsed, segIdx, cdAt) =>
 	parsed.joins[segIdx] === JOIN.OR && cdAt === prevInList(parsed, segIdx);
 
-/**
- * Whether the segment's command is negated by `!`, past any `{` opening it.
- * @param {string[]} segments
- * @param {number} segIdx
- */
+/** @param {string[]} segments @param {number} segIdx */
 function isNegated(segments, segIdx) {
 	const segment = segments[segIdx];
 	if (segment === undefined) return false;
@@ -2467,32 +1801,19 @@ function isNegated(segments, segIdx) {
 	);
 }
 
-/**
- * Whether a `&&` chains the next command off the segment alone, so it runs only
- * where the segment's command worked: not where `||` stands before it, whose
- * left side working runs that command too, nor where `!` reverses its status
- * (measured, #5010).
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 const isChainedOff = (parsed, segIdx) =>
 	joinAfter(parsed, segIdx) === JOIN.AND &&
 	parsed.joins[segIdx] !== JOIN.OR &&
 	!isNegated(parsed.segments, segIdx);
 
-/** The joins that keep a segment in the list or pipeline before it.
- * @type {readonly Join[]} */
+/** @type {readonly Join[]} */
 const IN_LIST = [JOIN.AND, JOIN.OR, JOIN.PIPE];
 
-/** @param {Join | undefined} join undefined past the last segment */
+/** @param {Join | undefined} join */
 const isInList = (join) => join !== undefined && IN_LIST.includes(join);
 
-/**
- * Whether the `&&` and `||` list the segment ends is closed by `&`, which
- * backgrounds all of it, a pipeline in it included (measured, #5010, #5107).
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 function isListBackgrounded(parsed, segIdx) {
 	const { joins } = parsed;
 	let end = nextInList(parsed, segIdx);
@@ -2504,12 +1825,8 @@ function isListBackgrounded(parsed, segIdx) {
 /** @type {WeakMap<Parsed, Compound[] | null>} */
 const compoundMemo = new WeakMap();
 
-/**
- * @typedef {[from: number, to: number, opener: string]} Compound a compound
- *   command's opening and closing segment, and the word that opened it
- */
+/** @typedef {[from: number, to: number, opener: string]} Compound */
 
-/** Each word that closes a compound command, and the words that open one. */
 const CLOSERS = new Map([
 	["}", ["{"]],
 	["fi", ["if"]],
@@ -2519,23 +1836,13 @@ const CLOSERS = new Map([
 
 const OPENERS = new Set([...CLOSERS.values()].flat());
 
-/**
- * The closer a word is, a `}` read with any redirection straight after it;
- * undefined where it is none.
- * @param {string} word
- */
+/** @param {string} word */
 function closerOf(word) {
 	if (/^\}(?=$|[<>])/.test(word)) return "}";
 	return CLOSERS.has(word) ? word : undefined;
 }
 
-/**
- * The words a segment opens with that close a compound command, and those
- * that open one: among the reserved words after them, or the word after
- * those, which takes a word of its own, so no reserved word follows (#5095,
- * #5109).
- * @param {string} segment
- */
+/** @param {string} segment */
 function compoundWords(segment) {
 	const words = segment.trim().split(/\s+/);
 	/** @type {string[]} */
@@ -2553,38 +1860,20 @@ function compoundWords(segment) {
 	return { closes, opens };
 }
 
-/**
- * Whether a bracket's `(` at `at` holds commands: not an array's, after `=`,
- * nor the inner one of `((`, which holds arithmetic.
- * @param {string[]} segments
- * @param {number} at
- */
+/** @param {string[]} segments @param {number} at */
 function holdsCommands(segments, at) {
 	const before = segments[at - 1] ?? "";
 	if (/[=]\s*$/.test(before)) return false;
 	return !(before.trim() === "" && segments[at - 2] === SCOPE_OPEN);
 }
 
-/**
- * Whether the brackets `from` to `to` are a function's `()`: empty, after a
- * name alone, so a `{` straight after opens its body.
- * @param {string[]} segments
- * @param {number} from
- * @param {number} to
- */
+/** @param {string[]} segments @param {number} from @param {number} to */
 const isFunctionParens = (segments, from, to) =>
 	to === from + 2 &&
 	segments[from + 1]?.trim() === "" &&
 	/^\s*(?:function\s+)?[^\s$=<>|&;`'"]+\s*$/.test(segments[from - 1] ?? "");
 
-/**
- * Whether each segment opens where a command starts: not inside an array's or
- * arithmetic's brackets, nor the rest of a line after a `)` that closed a `(`
- * other than a function's (#5109). A `)` that closed none is a `case`
- * pattern's.
- * @param {Parsed} parsed
- * @returns {boolean[]}
- */
+/** @param {Parsed} parsed @returns {boolean[]} */
 function commandStarts({ segments, joins }) {
 	/** @type {{ from: number, holds: boolean }[]} */
 	const brackets = [];
@@ -2605,12 +1894,7 @@ function commandStarts({ segments, joins }) {
 	});
 }
 
-/**
- * Each compound command, paired by segment; null where an opener or closer is
- * left over or a closer meets another's opener.
- * @param {Parsed} parsed
- * @returns {Compound[] | null}
- */
+/** @param {Parsed} parsed @returns {Compound[] | null} */
 function compoundSpans(parsed) {
 	const known = compoundMemo.get(parsed);
 	if (known !== undefined) return known;
@@ -2637,25 +1921,13 @@ function compoundSpans(parsed) {
 	return groups;
 }
 
-/**
- * How many compound commands the segment's command runs inside, an opener's
- * own counted (#5095, #5109).
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 const runDepth = (parsed, segIdx) =>
 	(compoundSpans(parsed) ?? []).filter(
 		([from, to]) => from <= segIdx && segIdx < to,
 	).length;
 
-/**
- * The depth of the `&&` chain end at the segment, or undefined where none ends
- * there: the compound commands holding its join, a closer's own counted, as
- * the `;` before a `}` or `fi` sits inside (#5095, #5109). Where an opener or
- * closer is left over, every chain end settles.
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 function chainEndDepth(parsed, segIdx) {
 	if (!isChainEnd(parsed.joins, segIdx)) return;
 	return (compoundSpans(parsed) ?? []).filter(
@@ -2663,15 +1935,7 @@ function chainEndDepth(parsed, segIdx) {
 	).length;
 }
 
-/**
- * The last segment of the command a list member starts at `segIdx`: past a
- * `( … )` or compound command it opens, the words after its `)` or closer, a
- * function's `( … )` or compound body past blank lines, and each `$(…)` or
- * `<(…)` mid-word (#5107, #5112, #5117, #5118). Any other bracket opening on a
- * blank line is another command's.
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 function commandEnd(parsed, segIdx) {
 	let end = groupEnd(parsed, segIdx);
 	for (
@@ -2683,23 +1947,13 @@ function commandEnd(parsed, segIdx) {
 	return end;
 }
 
-/**
- * The last segment of the `( … )` or compound command the segment at `segIdx`
- * opens, or `segIdx` where it opens neither.
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 const groupEnd = (parsed, segIdx) =>
 	parsed.segments[segIdx] === SCOPE_OPEN
 		? closingBracket(parsed.segments, segIdx)
 		: closingCompound(parsed, segIdx);
 
-/**
- * The command's last segment so far once the words or bracket after `end` are
- * taken in, or `end` where nothing after it is the command's.
- * @param {Parsed} parsed
- * @param {number} end
- */
+/** @param {Parsed} parsed @param {number} end */
 function stepPast(parsed, end) {
 	const { segments, joins } = parsed;
 	const next = end + 1;
@@ -2713,14 +1967,7 @@ function stepPast(parsed, end) {
 	return groupEnd(parsed, body);
 }
 
-/**
- * The index of the SCOPE_MARK `)` line closing the `(` line at `openIdx`, or
- * the last segment's where none does: bash reads to the script's end for the
- * `)` and refuses the source line holding the `(` and all after it, though
- * the lines before it have run (#5115).
- * @param {string[]} segments
- * @param {number} openIdx
- */
+/** @param {string[]} segments @param {number} openIdx */
 function closingBracket(segments, openIdx) {
 	let depth = 0;
 	for (let i = openIdx; i < segments.length; i++) {
@@ -2730,13 +1977,7 @@ function closingBracket(segments, openIdx) {
 	return segments.length - 1;
 }
 
-/**
- * The segment closing the outermost compound command the segment at `segIdx`
- * opens, or `segIdx` where it opens none or its openers and closers are
- * unpaired (#5112, #5117).
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 function closingCompound(parsed, segIdx) {
 	let end = segIdx;
 	for (const [from, to] of compoundSpans(parsed) ?? [])
@@ -2744,14 +1985,7 @@ function closingCompound(parsed, segIdx) {
 	return end;
 }
 
-/**
- * Whether every `{ …; }` group holding the segment surely runs in this shell:
- * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
- * not a function's body. False where any compound command's opener or closer
- * is unpaired.
- * @param {Parsed} parsed
- * @param {number} segIdx
- */
+/** @param {Parsed} parsed @param {number} segIdx */
 function isBraceGroupSure(parsed, segIdx) {
 	const { joins, segments } = parsed;
 	const groups = compoundSpans(parsed);
@@ -2762,7 +1996,6 @@ function isBraceGroupSure(parsed, segIdx) {
 		let prev = prevInList(parsed, from);
 		while (prev >= 0 && segments[prev]?.trim() === "")
 			prev = prevInList(parsed, prev);
-		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
 		const defined =
 			(before === JOIN.NONE || before === JOIN.AFTER_CLOSE) &&
 			segments[prev] === SCOPE_CLOSE;
@@ -2775,28 +2008,14 @@ function isBraceGroupSure(parsed, segIdx) {
 	});
 }
 
-/**
- * Whether a `cd` surely runs where its directory is there, from where the
- * segment before it left the walk: none of the command's segments opening a
- * compound command, any `{ …; }` group holding it surely running, its `&&` or
- * `||` list not closed by `&`, and no word after its target.
- * @param {Parsed} parsed
- * @param {number} segIdx
- * @param {string[]} own its words
- */
+/** @param {Parsed} parsed @param {number} segIdx @param {string[]} own */
 const isSureOnceReached = (parsed, segIdx, own) =>
 	!isListBackgrounded(parsed, segIdx) &&
 	own.length <= 2 &&
 	!parsed.segments.some((s) => COMPOUND_START.test(s)) &&
 	isBraceGroupSure(parsed, segIdx);
 
-/**
- * Whether a `cd` surely runs, where its directory is there: as
- * isSureOnceReached, with no `&&` or `||` before it.
- * @param {Parsed} parsed
- * @param {number} segIdx
- * @param {string[]} own its words
- */
+/** @param {Parsed} parsed @param {number} segIdx @param {string[]} own */
 function isSureMove(parsed, segIdx, own) {
 	return (
 		opensList(parsed.joins, segIdx) && isSureOnceReached(parsed, segIdx, own)
@@ -2804,14 +2023,10 @@ function isSureMove(parsed, segIdx, own) {
 }
 
 /**
- * How a `cd` holds, as both the walk and a `-c` string read one: "if-dir"
- * where it surely ran had its directory been there — opening its `&&` or `||`
- * list, or after `||` whose left side is the `cd` before it — else "maybe";
- * the compound commands it runs inside; and the `cdAt` the next `cd` reads.
  * @param {Parsed} parsed
  * @param {number} segIdx
- * @param {string[]} own its words
- * @param {number} cdAt the last `cd` that opened its list, -1 where none has
+ * @param {string[]} own
+ * @param {number} cdAt
  * @returns {{ holds: "if-dir" | "maybe", afterFailed: boolean,
  *   chained: boolean, depth: number, cdAt: number }}
  */
@@ -2830,11 +2045,7 @@ function classifyCd(parsed, segIdx, own, cdAt) {
 	};
 }
 
-/**
- * A `&&` chain's end: from here on, a `cd` that opened it may not have worked.
- * @param {Walk} walk accumulator: its directories are replaced
- * @param {number} segIdx
- */
+/** @param {Walk} walk @param {number} segIdx */
 function settleCwdDoubt(walk, segIdx) {
 	const { parsed } = walk;
 	const ends = chainEndDepth(parsed, segIdx);
@@ -2842,10 +2053,7 @@ function settleCwdDoubt(walk, segIdx) {
 }
 
 /**
- * Move the cwd for one command's words, as moveCwd reads them, through
- * stepDirs; whether the command is one that moves it. In a pipeline or behind
- * `&` it runs in a subshell and moves nothing (measured).
- * @param {Walk} walk accumulator: its directories and `cdAt` are moved
+ * @param {Walk} walk
  * @param {string[]} own
  * @param {number} segIdx
  * @param {(path: string) => boolean} isDir
@@ -2865,21 +2073,13 @@ function stepCwd(walk, own, segIdx, isDir) {
 	return true;
 }
 
-/**
- * The walk's cwd: where it stands if every move before was made.
- * @param {Walk} walk
- */
+/** @param {Walk} walk */
 const cwdOf = (walk) => walk.dirs.dirs[0];
 
 /**
- * Every directory a run may stand in: each of `cwds` moved through its
- * `chdirs` by dirsAfter. Unknown past a directory no word gives whole: a
- * wrapper's word reading a variable or a `~`, a `-c` string's `cd` reading one
- * its script did not set (#4981), a glob, or a `-` flag.
  * @param {import("./shell-dirs.js").Dirs} cwds
  * @param {Chdir[]} chdirs
- * @param {Scope} scope the outer command's, so a wrapper's word reads the
- *   variables the command set
+ * @param {Scope} scope
  * @param {(path: string) => boolean} isDir
  * @returns {import("./shell-dirs.js").Dirs}
  */
@@ -2890,7 +2090,7 @@ function runCwd(cwds, chdirs, scope, isDir) {
 
 /**
  * @param {Chdir} cd
- * @param {import("./shell-dirs.js").Resolved} resolved its directory
+ * @param {import("./shell-dirs.js").Resolved} resolved
  * @returns {import("./shell-dirs.js").Move}
  */
 const chdirMove = ({ dir, read, vars, envReset, ...move }, resolved) => ({
@@ -2900,17 +2100,11 @@ const chdirMove = ({ dir, read, vars, envReset, ...move }, resolved) => ({
 
 const CONFIG_READ = /^(?:--get|--list$|-l$)/;
 
-/**
- * Note a `git config` naming an alias or an include, or a key it cannot read:
- * what it writes is not on disk when the hook reads it.
- * @param {Walk} walk accumulator
- * @param {string[]} args raw
- */
+/** @param {Walk} walk @param {string[]} args */
 function markAliasWritten(walk, args) {
 	const read = args.map((w) => literal(w, walk.scope.spans));
 	if (read.some((l) => CONFIG_READ.test(l.text))) return;
 	walk.aliasWritten ||= read.some((l, i) =>
-		/* A last word after another is a value, whatever it holds. */
 		l.known ? isAliasKey(l.text) : i === 0 || i < read.length - 1,
 	);
 }
@@ -2931,14 +2125,7 @@ function parseGitEnvWord(word) {
 	return eq > 0 && GIT_ENV_NAME.test(name) ? [[name, word.slice(eq + 1)]] : [];
 }
 
-/**
- * Mark the repository variables unread where a command mentions them other than
- * as a `git` prefix or a plain `export`: an assignment after an export, `set -a`,
- * `eval` and `local -x` each change the environment in a way not followed here.
- * @param {Walk} walk accumulator: its `gitEnv` is replaced
- * @param {string[]} words
- * @param {boolean} assigning the segment holds assignments alone
- */
+/** @param {Walk} walk @param {string[]} words @param {boolean} assigning */
 function markRepoVarsUnread(walk, words, assigning) {
 	const named = repoVarsNamed(words, assigning, walk.scope.spans);
 	if (named.length === 0) return;
@@ -2947,17 +2134,12 @@ function markRepoVarsUnread(walk, words, assigning) {
 }
 
 /**
- * The repository variables a command's words name, as markRepoVarsUnread
- * reads them.
  * @param {string[]} words
- * @param {boolean} assigning the segment holds assignments alone
+ * @param {boolean} assigning
  * @param {string[]} spans
  */
 function repoVarsNamed(words, assigning, spans) {
 	const text = words.map((w) => literal(w, spans).text).join(" ");
-	/* A bare `HOME=` moves a variable already exported (measured). Any other
-	 * command naming `HOME` or `XDG_CONFIG_HOME` only reads it, far too often to
-	 * call each one a move. */
 	const candidates = [
 		...REPO_VARS,
 		...CONFIG_FILE_VARS.filter((name) => assigning || name.startsWith("GIT_")),
@@ -2979,13 +2161,7 @@ function exportKind(head, rest) {
 	return rest.includes("-n") ? "drop" : "export";
 }
 
-/**
- * Move `walk.gitEnv` for one `export`, `declare -x`, `typeset -x` or `unset`;
- * whether the command is one of them. A bare assignment exports nothing
- * (measured), so a name only `export` names reads its value through the shell.
- * @param {Walk} walk accumulator: its `gitEnv` is replaced
- * @param {string[]} words
- */
+/** @param {Walk} walk @param {string[]} words */
 function trackExport(walk, [head = "", ...rest]) {
 	const kind = exportKind(head, rest);
 	if (kind === null) return false;
@@ -3031,15 +2207,10 @@ function stepGitOption(w, next, target, { scope, dirs }) {
 }
 
 /**
- * Step git's own options; the index of the subcommand, or past the end where
- * there is none. The directories `--git-dir`, `--work-tree` or the environment
- * name are read last, since git reads a relative one from wherever the `-C`s
- * end.
- * @param {string[]} own the command's words, `git` first
+ * @param {string[]} own
  * @param {GitTarget} target
  * @param {{ scope: Scope, dirEnv: Map<string, GitDirWord>,
- *   isDir: (path: string) => boolean }} from `dirEnv` each git-reading
- *   variable's word
+ *   isDir: (path: string) => boolean }} from
  */
 function readGitOptions(own, target, { scope, dirEnv, isDir }) {
 	/** @type {GitDirs} */
@@ -3056,18 +2227,11 @@ function readGitOptions(own, target, { scope, dirEnv, isDir }) {
 }
 
 /**
- * @typedef {{ word: string | null, scope: Scope }} GitDirWord a directory
- *   word, null where it cannot be read, and the scope it reads under
+ * @typedef {{ word: string | null, scope: Scope }} GitDirWord
  * @typedef {{ gitDir?: GitDirWord, workTree?: GitDirWord }} GitDirs
  */
 
-/**
- * A directory word as an absolute path from `target`'s tree; "" where it will not
- * resolve.
- * @param {string} word
- * @param {GitTarget} target
- * @param {Scope} scope
- */
+/** @param {string} word @param {GitTarget} target @param {Scope} scope */
 function absFromTree(word, target, scope) {
 	const r = pathArg(word, scope);
 	const path = r && "path" in r ? r.path : "";
@@ -3078,10 +2242,7 @@ function absFromTree(word, target, scope) {
 	return abs.startsWith("/") ? abs : "";
 }
 
-/**
- * @param {GitDirWord | undefined} named
- * @param {GitTarget} target accumulator: its `workTree` and `written` are set
- */
+/** @param {GitDirWord | undefined} named @param {GitTarget} target */
 function nameWorkTree(named, target) {
 	if (named === undefined) return;
 	const { word, scope } = named;
@@ -3091,13 +2252,9 @@ function nameWorkTree(named, target) {
 }
 
 /**
- * Set `target.named` to the tree the git directory names. Unknown where both are
- * named, as the refs and the HEAD can live apart; where it is empty, which git
- * refuses (measured); and where it is a file not called `.git`, a gitfile that
- * could point anywhere.
  * @param {GitDirWord | undefined} gitDir
  * @param {GitDirWord | undefined} commonDir
- * @param {GitTarget} target accumulator: its `named` and `written` are set
+ * @param {GitTarget} target
  * @param {(path: string) => boolean} isDir
  */
 function nameRepoTree(gitDir, commonDir, target, isDir) {
@@ -3112,22 +2269,10 @@ function nameRepoTree(gitDir, commonDir, target, isDir) {
 	if (!readable) target.written = `--git-dir ${word}`;
 }
 
-/**
- * The tree a git directory belongs to, read as a path: a tree's `.git` is its
- * root, where a linked tree's is the file the classifier would not enter. Any
- * other directory stands for itself, as the classifier asks git about it.
- * @param {string} dir absolute
- */
+/** @param {string} dir */
 const treeOfGitDir = (dir) => normAbs(dir).replace(/\/\.git$/, "") || "/";
 
-/**
- * Move `target` for one `git -C <word>`. `git -C ""` runs against the cwd —
- * git treats an empty path as if -C were not given (#301) — so the tree
- * stands where it is. A relative path from an unknown tree stays unknown.
- * @param {string} word
- * @param {GitTarget} target
- * @param {Scope} scope
- */
+/** @param {string} word @param {GitTarget} target @param {Scope} scope */
 function readGitDir(word, target, scope) {
 	const r = pathArg(word, scope);
 	target.dirMoves.push(r);
@@ -3135,12 +2280,10 @@ function readGitDir(word, target, scope) {
 }
 
 /**
- * Move `target` to a directory as pathArg answered it.
- * @param {GitTarget} target accumulator: its tree, names and written
- *   are moved
+ * @param {GitTarget} target
  * @param {ReturnType<typeof pathArg>} r
- * @param {string} word as written, for the unresolved record
- * @param {string[]} emptyNames the unset names `r` read as empty
+ * @param {string} word
+ * @param {string[]} emptyNames
  */
 function moveGitTarget(target, r, word, emptyNames) {
 	const from = target.tree;
@@ -3154,12 +2297,8 @@ function moveGitTarget(target, r, word, emptyNames) {
 }
 
 /**
- * One chdir's directory as the shell that makes it reads it (#4981): a `read`
- * one as it stands; a `-c` string's `cd` under buildScriptScope; any other — a
- * wrapper's word the outer shell expands — under the outer `scope`. Null
- * past an unquoted glob or a `-` flag.
  * @param {Chdir} cd
- * @param {Scope} scope the outer command's
+ * @param {Scope} scope
  * @returns {{ resolved: ReturnType<typeof pathArg>, emptyNames: string[] }}
  */
 function chdirArg(cd, scope) {
@@ -3194,23 +2333,9 @@ const buildBareScope = (spans) => ({
 	emptyNames: [],
 });
 
-/** Names a script's shell sets itself, whatever the script did. */
 const SHELL_SET = ["PWD", "OLDPWD", "_"];
 
-/**
- * What a `-c` string's word reads under: each name its script set at that
- * value, read itself under the environment alone; any other at the
- * environment the outer command hands down, a name it exported at the value
- * the outer command reads (#5120). Unknown: a name the script changed
- * unfollowed or set to a value that will not resolve, SHELL_SET, an exported
- * name the outer command may have changed unseen, and an
- * environment name the outer command names bare without exporting it — it
- * may have set it — or any under a `source`, `.` or `eval`, or behind a
- * wrapper that may replace the environment.
- * @param {Chdir} cd a `-c` string's `cd`
- * @param {Scope} outer
- * @returns {Scope}
- */
+/** @param {Chdir} cd @param {Scope} outer @returns {Scope} */
 function buildScriptScope({ vars = new Map(), envReset }, outer) {
 	const inherits = !envReset && !SOURCING_RE.test(outer.subject);
 	/** @type {Scope} */
@@ -3231,14 +2356,7 @@ function buildScriptScope({ vars = new Map(), envReset }, outer) {
 	return { ...scope, locals, dead, emptyNames: [] };
 }
 
-/**
- * The environment a `-c` string's shell inherits from `outer`, as
- * buildScriptScope reads it. An exported name stands at its outer value only
- * where the harvest read every bare mention of it: one it did not may have
- * changed it.
- * @param {Scope} outer
- * @returns {Record<string, string | undefined>}
- */
+/** @param {Scope} outer @returns {Record<string, string | undefined>} */
 function buildInheritedEnv(outer) {
 	/** @type {Record<string, string | undefined>} */
 	const env = {};
@@ -3256,24 +2374,14 @@ function buildInheritedEnv(outer) {
 	return env;
 }
 
-/**
- * The unresolved-tree record's detail (#315, #320): what the walk could not
- * resolve as typed, the session's directory, and the walk's cwd.
- * @param {GitTarget} git
- * @param {Walk} walk
- * @param {string} pwd
- */
+/** @param {GitTarget} git @param {Walk} walk @param {string} pwd */
 function unresolvedDetail(git, walk, pwd) {
 	const t = git.written || git.tree || walk.cwdLost;
 	const typed = asWritten(t || "<unknown>", walk.scope.spans);
 	return `target=${typed} pwd=${pwd} cwd=${cwdOf(walk) || "<unknown>"}`;
 }
 
-/**
- * The line #310 ruled for a refusal whose tree was reached through an unset
- * variable, with a blank line after it; "" where `emptyVars` names none.
- * @param {string[]} emptyVars a GitCall's
- */
+/** @param {string[]} emptyVars */
 function unsetText(emptyVars) {
 	const names = [...new Set(emptyVars)];
 	if (names.length === 0) return "";
@@ -3283,7 +2391,7 @@ function unsetText(emptyVars) {
 }
 
 /**
- * @param {RedirectEntry[]} redirs stripRedirects's entries
+ * @param {RedirectEntry[]} redirs
  * @param {Scope} scope
  * @param {(word: string) => string} resolveAbs
  * @returns {Redirect[]}
@@ -3293,7 +2401,6 @@ function readRedirects(redirs, scope, resolveAbs) {
 }
 
 /**
- * One stripRedirects entry as a Redirect.
  * @param {RedirectEntry} entry
  * @param {Scope} scope
  * @param {(word: string) => string} resolveAbs
@@ -3312,7 +2419,6 @@ function readRedirect({ fd: written, op, target }, scope, resolveAbs) {
 	return { fd, kind, target, path };
 }
 
-/** The kind each operator but `>&` and `<&` names. */
 const REDIRECT_KINDS = new Map([
 	[">", "truncate"],
 	["&>", "truncate"],
@@ -3327,9 +2433,6 @@ const REDIRECT_KINDS = new Map([
 ]);
 
 /**
- * A `>&` or `<&`'s kind, and its descriptor as `fd` was written. Bash decides
- * on the expanded word, so `>&$fd` is read through its value, and taken as a
- * copy where it has none.
  * @param {string} op
  * @param {string} fd
  * @param {string} target
@@ -3339,17 +2442,11 @@ function readDescriptorCopy(op, fd, target, scope) {
 	const word = resolveWord(target, scope) ?? "1";
 	if (word === "-") return { kind: "close", fd };
 	if (/^[0-9]+-?$/.test(word)) return { kind: "copy", fd };
-	/* `>&file` with no descriptor is bash's older `&>file`. */
 	if (op === ">&" && !fd) return { kind: "truncate", fd: "&" };
 	return { kind: "read", fd };
 }
 
-/**
- * An assignment's value as this file resolves it — "" for an empty one or a
- * quoted `""` — or null where it will not resolve.
- * @param {string} raw
- * @param {Scope} scope
- */
+/** @param {string} raw @param {Scope} scope */
 function assignedValue(raw, scope) {
 	if (!raw) return "";
 	const r = pathArg(raw, scope);
@@ -3357,13 +2454,7 @@ function assignedValue(raw, scope) {
 	return "path" in r ? r.path : "";
 }
 
-/**
- * Record `name`'s assignment of `val`, or put it in `dead` where `val` is
- * unresolved (null) or differs from a value it already holds.
- * @param {Scope} scope
- * @param {string} name
- * @param {string | null} val
- */
+/** @param {Scope} scope @param {string} name @param {string | null} val */
 function recordAssignment(scope, name, val) {
 	const prior = scope.locals.get(name);
 	if (val === null || (prior !== undefined && prior !== val)) {
@@ -3375,26 +2466,6 @@ function recordAssignment(scope, name, val) {
 }
 
 /**
- * Every file one command writes or removes (#1827), by the routes the guard
- * tier reads:
- *
- *   a redirect            every kind isWriteRedirect names; a heredoc's own
- *                         redirect is read, its body is data
- *   `cp` / `mv`           the LAST bare word, or `-t <dir>`, as
- *                         `<dest>/<basename>` where the destination is a
- *                         directory, ends in `/` or takes two sources — and for
- *                         `mv` alone its SOURCES, which it destroys
- *   `sed -i` / `perl -i`  every bare file argument
- *   `truncate`, `tee`     every bare file argument
- *   `git restore <path>`  every bare word after the subcommand, unless
- *                         `--staged` without `--worktree`
- *   `git checkout -- <p>` every bare word after the `--`
- *   `rm`, `git rm`,       every bare word, and every word past a `--`
- *   `git mv`
- *
- * The command word is read as written, never unwrapped, so `sudo tee x` is not
- * read. `git checkout <path>` without `--` is not read: the word is a revision
- * as often as a path. Nor is a git global option.
  * @param {string[]} words
  * @param {Redirect[]} redirects
  * @param {{ spans: string[], resolveAbs: (w: string) => string, resolve: (w: string) => string | null, isDir: (p: string) => boolean }} ctx
@@ -3428,7 +2499,6 @@ function writeTargets(words, redirects, ctx) {
  */
 
 /**
- * Each command writeTargets reads, by its name as written, and how.
  * @type {Map<string, (args: string[], add: AddTarget, ctx: TargetCtx) => void>}
  */
 const COMMAND_TARGETS = new Map([
@@ -3458,11 +2528,7 @@ const COMMAND_TARGETS = new Map([
 	["git", (args, add) => gitTargets(args, add)],
 ]);
 
-/**
- * `git restore`, `git checkout --`, `git mv` and `git rm`'s targets.
- * @param {string[]} args
- * @param {AddTarget} add
- */
+/** @param {string[]} args @param {AddTarget} add */
 function gitTargets(args, add) {
 	const [sub, ...rest] = args;
 	if (sub === "restore") {
@@ -3476,13 +2542,7 @@ function gitTargets(args, add) {
 	} else if (sub === "mv" || sub === "rm") deleteTargets(rest, add);
 }
 
-/**
- * Every bare word as a write target; `skip` names the flags whose VALUE is
- * the next word.
- * @param {string[]} skip
- * @param {string[]} ws
- * @param {AddTarget} add
- */
+/** @param {string[]} skip @param {string[]} ws @param {AddTarget} add */
 function bareTargets(skip, ws, add) {
 	let value = false;
 	for (const w of ws) {
@@ -3499,10 +2559,7 @@ function bareTargets(skip, ws, add) {
 	}
 }
 
-/** No flag of `rm`, `git rm` or `git mv` takes a separate value but
- * `git rm --pathspec-from-file`, whose file then lands here.
- * @param {string[]} ws
- * @param {AddTarget} add */
+/** @param {string[]} ws @param {AddTarget} add */
 function deleteTargets(ws, add) {
 	let sep = false;
 	for (const w of ws) {
@@ -3515,13 +2572,7 @@ function deleteTargets(ws, add) {
 	}
 }
 
-/**
- * Is any word an in-place switch? Bundled single letters are read left to
- * right and the scan stops at the first switch that TAKES an argument, so
- * `perl -Ilib` is not misread as in-place on its `i`.
- * @param {string} takesArg
- * @param {string[]} words
- */
+/** @param {string} takesArg @param {string[]} words */
 function isInPlace(takesArg, words) {
 	for (const w of words) {
 		if (w === "--in-place" || w.startsWith("--in-place=")) return true;
@@ -3534,12 +2585,7 @@ function isInPlace(takesArg, words) {
 /** @param {string} w */
 const isShortFlags = (w) => w.startsWith("-") && !w.startsWith("--");
 
-/**
- * Does a bundle of single-letter switches hold `i` before any switch that
- * takes an argument?
- * @param {string} w
- * @param {string} takesArg
- */
+/** @param {string} w @param {string} takesArg */
 function hasInPlaceLetter(w, takesArg) {
 	for (const ch of w.slice(1)) {
 		if (ch === "i") return true;
@@ -3549,8 +2595,6 @@ function hasInPlaceLetter(w, takesArg) {
 }
 
 /**
- * `cp` and `mv`'s destinations, and `mv`'s sources. `cp` leaves its sources
- * alone, so reading them would report a read as a write.
  * @param {string} prog
  * @param {string[]} args
  * @param {AddTarget} add
@@ -3563,8 +2607,6 @@ function copyTargets(prog, args, add, ctx) {
 	const dpath = ctx.resolveAbs(dest.text);
 	const lit = literal(dest.text, ctx.spans).text;
 	if (!lit && !dpath) return;
-	/* A directory as this hook sees it, or one by its own spelling — a
-	 * trailing `/` names nothing else, existing or not. */
 	const into = isDirectoryDest(dpath, lit, ctx) || dest.into;
 	const dir = { base: dest.text.replace(/\/$/, ""), dpath };
 	for (const src of srcs) {
@@ -3574,8 +2616,6 @@ function copyTargets(prog, args, add, ctx) {
 	if (!into) add("write", dest.text, dpath);
 }
 
-/** Flags of `cp` and `mv` whose value is the next word: 1, the target
- * directory; 2, a backup suffix, a value and no file. */
 const COPY_VALUE_FLAGS = new Map([
 	["-t", 1],
 	["--target-directory", 1],
@@ -3583,10 +2623,7 @@ const COPY_VALUE_FLAGS = new Map([
 	["--suffix", 2],
 ]);
 
-/**
- * `cp` or `mv`'s bare words, and the `-t` directory where one is named.
- * @param {string[]} args
- */
+/** @param {string[]} args */
 function parseCopyArgs(args) {
 	let dest = "";
 	/** @type {string[]} */
@@ -3607,41 +2644,26 @@ function parseCopyArgs(args) {
 	return { dest, srcs };
 }
 
-/**
- * The destination — the `-t` directory, else the last bare word, taken off
- * the sources — and whether it must be a directory; null where there is none.
- * @param {{ dest: string, srcs: string[] }} parsed
- */
+/** @param {{ dest: string, srcs: string[] }} parsed */
 function pickDestination({ dest, srcs }) {
 	if (dest) return { srcs, dest: { text: dest, into: true } };
 	if (srcs.length < 2) return null;
 	const last = srcs.pop();
 	if (last === undefined) return null;
-	/* Two sources or more land in a directory or nowhere. */
 	return { srcs, dest: { text: last, into: srcs.length >= 2 } };
 }
 
-/**
- * Is the destination a directory as this hook sees it, or by its spelling?
- * @param {string} dpath
- * @param {string} lit
- * @param {TargetCtx} ctx
- */
+/** @param {string} dpath @param {string} lit @param {TargetCtx} ctx */
 const isDirectoryDest = (dpath, lit, ctx) =>
 	Boolean(dpath && ctx.isDir(dpath)) || lit.endsWith("/");
 
 /**
- * One source copied into the destination directory, as `<dest>/<basename>`.
  * @param {string} src
- * @param {{ base: string, dpath: string }} dir the destination as written, no
- *   trailing `/`, and absolute, or ""
+ * @param {{ base: string, dpath: string }} dir
  * @param {AddTarget} add
  * @param {TargetCtx} ctx
  */
 function addIntoTarget(src, { base, dpath }, add, ctx) {
-	/* The basename as written where it reads, else the masked word's own —
-	 * `"$F"` stays unreadable to the caller, `$HOME/a.md` comes back
-	 * `a.md`. */
 	const name = literal(src, ctx.spans);
 	const tgt = `${base}/${basename(name.known ? name.text : src)}`;
 	const rsrc = ctx.resolve(src) ?? name.text;

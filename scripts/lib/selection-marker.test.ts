@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * selection-marker.js's own suite: the marker a /pick-next run mints so that
- * guard-selection-sum.js can check the sum a session states against what the
- * run measured (mantahostels#844, mantahostels#1321).
- *
- * Each case writes under a fresh temp root, and passes its environment to
- * recordFromEnv rather than reading this process's own.
- *
- * Loosen a case and the guard compares a stated sum against a guessed slot
- * count, or a run with no session id mints a marker no session can own.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

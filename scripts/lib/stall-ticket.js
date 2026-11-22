@@ -1,18 +1,3 @@
-/*
- * stall-ticket.js — the one ticket the refill loop keeps open while `main`
- * has not moved for lib/queue-tickets.js's STALL_MS with a queue ref waiting
- * (#2692, ruled at #2672), filed as lib/queue-issue.js files it, and closed
- * with the stall's length once `main` moves, so a later stall files a new one
- * (#4443).
- *
- * Its body changes only with the oldest waiting ref, the batch, or `main`'s
- * last move.
- *
- * A record in the markers directory names the stall a ticket was filed for,
- * so a pass with no stall on record reads no tracker. Residual: a ticket
- * filed from another checkout of the same repo is closed only by that one.
- */
-
 const path = require("node:path");
 const { formatHoursMin } = require("./queue-gauge.js");
 const { STALL_MS, STALL_TITLE: TITLE } = require("./queue-tickets.js");
@@ -20,9 +5,9 @@ const { recordTicket } = require("./record-ticket.js");
 
 /**
  * @typedef {object} Stall
- * @property {string} waiting the oldest waiting queue ref and its sha
- * @property {string} movedAt when `main` last moved, ISO
- * @property {string|null} batch the batch the queue lander has under test
+ * @property {string} waiting
+ * @property {string} movedAt
+ * @property {string|null} batch
  */
 
 const CRITERION = "The cause is fixed, and the lander moves `main` again.";
@@ -45,10 +30,7 @@ The lander's log: \`.lander.log\` in the checkout's markers directory.
 
 const RECORD = ".landing-stall-ticket.json";
 
-/**
- * @typedef {{main: string, movedAt: string}} StallRecord `main`'s sha and
- *   last move when the ticket was filed
- */
+/** @typedef {{main: string, movedAt: string}} StallRecord */
 
 /** @param {unknown} rec @returns {StallRecord|null} */
 function parseStallRecord(rec) {
@@ -62,8 +44,8 @@ function parseStallRecord(rec) {
 }
 
 /**
- * @param {string} main the sha `main` moved to
- * @param {number|null} movedAt when, where known later than the stall began
+ * @param {string} main
+ * @param {number|null} movedAt
  * @param {number} since
  */
 function buildCloseComment(main, movedAt, since) {
@@ -74,14 +56,10 @@ function buildCloseComment(main, movedAt, since) {
 }
 
 /**
- * One supervision pass's act on the stall ticket: close the recorded stall's
- * ticket where `main` is no longer the sha it stood at, then file or refresh
- * one for `stall`. A close that throws keeps the record, so the next pass
- * retries it.
  * @param {import("./queue-issue.js").QueueIssueDeps} deps
- * @param {string} markers the markers directory
+ * @param {string} markers
  * @returns {(pass: {main: string|null, movedAt: number|null,
- *   stall: Stall|null}) => string[]} the lines naming what it did
+ *   stall: Stall|null}) => string[]}
  */
 function stallTicketTender(deps, markers) {
 	const ticket = recordTicket(deps, {
@@ -90,8 +68,6 @@ function stallTicketTender(deps, markers) {
 		noun: "stall ticket",
 		subject: "the stalled queue",
 		criterion: CRITERION,
-		/* Fail-open (#4443): the ticket stays open, and the next stall's
-		 * filing refreshes it and writes a fresh record. */
 		tornNote: "; an open stall ticket stays open until the next stall",
 	});
 	return ({ main, movedAt, stall }) => {

@@ -1,7 +1,3 @@
-"""The pin helper's own tests, Python half (base §G13 (5), #5338): a pin built
-on it cannot pass blind, so each spawn route, each lazy load and each broken
-call is shown here to be seen, and every patch is shown undone."""
-
 import importlib.util
 import os
 import subprocess
@@ -19,7 +15,6 @@ LAZY = FIXTURES / "call_cost_lazy.py"
 
 
 def _patched_state():
-    """Everything a call patches, as it stands now."""
     return {
         "Popen": subprocess.Popen,
         "system": os.system,
@@ -69,9 +64,7 @@ def test_each_call_reads_its_load_set_from_a_purged_registry(tmp_path, monkeypat
     )
     rare = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(rare)
-    monkeypatch.setitem(
-        sys.modules, "call_cost_rare", rare
-    )  # as an earlier load left it
+    monkeypatch.setitem(sys.modules, "call_cost_rare", rare)
 
     assert call_cost(LAZY, ["rare"], cwd=tmp_path).modules == [
         "lib/fixtures/call_cost_lazy.py",

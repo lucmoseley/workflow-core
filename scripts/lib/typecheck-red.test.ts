@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The PostToolUse Bash core handing a session its
- * commit's RED pre-commit type-check, and the store behind it.
- *
- * Breaking it leaves a RED try piped through `tail` to be heard first from CI
- * (#3824), or repeats one report on every Bash call.
- *
- * Built on a real git repository and the real store, as the record is found
- * through git's common directory, which a fake would not cross.
- *
- * The seam-2 case (#4242) runs it from a linked worktree of a main checkout,
- * CLAUDE_PROJECT_DIR on the worktree too: the record is taken from the main
- * checkout's store.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

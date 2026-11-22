@@ -1,17 +1,7 @@
-/*
- * size-line-check.js — which open `takes:implement` tickets a new one must be
- * weighed against under rule:size-line before it is filed (#4450): the ones
- * this session already filed, and the open siblings naming a source file the
- * new body names. A pure module; file-issue.js does the reads.
- */
-
 const { takesLabel } = require("./takes-label.js");
 
 const IMPLEMENT_LABEL = takesLabel("implement");
 
-/* A repo path with at least one directory and a code extension: a shared doc
- * or config file says nothing about co-change.
- * Residual: a source file at the repo root is never matched. */
 const SOURCE_PATH =
 	/(?<![\w./-])(?:[\w.-]+\/)+[\w.-]+\.(?:[cm]?js|jsx|tsx?|sh|py)(?![\w/-])/g;
 
@@ -28,10 +18,6 @@ const isOpenImplement = (c) =>
 	c.state === "open" && c.labels.includes(IMPLEMENT_LABEL);
 
 /**
- * The issues a new `takes:implement` ticket must be weighed against, each
- * with the source files it shares (none for an earlier filing of this
- * session's), less those confirmed. A closed or relabelled one is passed
- * over: it can take no further slice.
  * @param {{body: string, filed: Candidate[], siblings: Candidate[],
  *   confirmed: Set<number>}} at
  * @returns {Overlap[]}
@@ -52,8 +38,7 @@ function sizeLineCandidates({ body, filed, siblings, confirmed }) {
 }
 
 /**
- * The refusal, after the rule text.
- * @param {string} rule rule:size-line's text
+ * @param {string} rule
  * @param {Overlap[]} overlaps
  * @param {Set<number>} confirmed
  */

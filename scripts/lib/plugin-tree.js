@@ -64,7 +64,6 @@ const LEFT_BEHIND = new Set([
 	"scripts/release-plugin.js",
 	"scripts/idle-maxworkers-bench.sh",
 	"scripts/snapshot-memory.sh",
-	"scripts/cut-mantahostels.js",
 	"scripts/typecheck-mods.js",
 	".claude/skills/new-repo",
 ]);

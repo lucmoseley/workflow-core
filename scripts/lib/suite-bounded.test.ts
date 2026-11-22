@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/suite-bounded.js, in process: the test files a run-vitest.js launch is
- * bounded to, and the vitest workers a running runner line can occupy (#1186,
- * #2558, #2560).
- *
- * Misread a bound and the suite gate charges a whole suite at a part-suite's
- * rung, letting it past the count cap into the 10 GB cap, or refuses a
- * one-file run as if it were the whole suite.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -56,7 +47,6 @@ const COUNTS: [string, number | null][] = [
 	["--full=coverage a.test.ts", 1],
 	["--queue a.test.ts", 1],
 	["-t foo", null],
-	/* A flag where a value would stand is no value: its own value follows. */
 	["-t --project x.test.ts", null],
 	["--changed", null],
 	["--changed a.test.ts", null],
@@ -65,7 +55,6 @@ const COUNTS: [string, number | null][] = [
 	["--adopt x.js", null],
 	["--adopt a.test.ts", null],
 	["a.test.ts --adopt x.js", null],
-	/* A bare word vitest reads as a path filter (#2559). */
 	["run new-repo.test.ts", null],
 	["-t a.test.ts", null],
 ];
@@ -84,7 +73,6 @@ const WEIGHS: [string, number, boolean][] = [
 	[runner(` run ${namedFiles(WHOLE_SLOT_BOUND)}`), W, false],
 	[runner(" run run a.test.ts"), W, false],
 	[runner(" run -t foo a.test.ts"), 1, true],
-	/* A `watch` word makes a watcher wherever it stands, a flag's value too. */
 	[runner(" run -t watch a.test.ts"), W, false],
 	[runner(" run --testNamePattern=foo a.test.ts"), 1, true],
 	[runner(" run --unknownFlag x a.test.ts"), W, false],

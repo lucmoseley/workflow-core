@@ -1,19 +1,3 @@
-/*
- * tsc-slot.js — the machine-wide type-check slot (#3163): one `tsc` at a
- * time, admitted against a memory rung of its own. One definition for
- * scripts/queue-run.js `--tsc`, which waits on it, and lib/suite-concurrency.js,
- * which refuses a bare `tsc` launch it would hold.
- *
- * A TYPE-CHECK IS NO SUITE: it waits in a queue directory of its own, so it
- * never queues behind a whole suite, and the suite ladder never counts it.
- * Both read MemAvailable live, less what the other queue's launches have yet
- * to draw as they climb (#3416); a launch admitted and not yet up is held by
- * lib/suite-queue.js, which reads both queues' admission stamps (#3203).
- *
- * It also reads a runner's line, live or as memwatch cut it, for the slot's
- * count and the queue-wait replay (lib/suite-queue-replay.js).
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -22,36 +6,20 @@ const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { rungMb } = require("./suite-ladder.js");
 const { windowsShortfall } = require("./windows-memory.js");
 
-/**
- * The peak a `tsc` of TypeScript `major` is charged.
- * @param {number | null} major
- */
+/** @param {number | null} major */
 const tscPeakMb = (major) => chargeMb({ kind: "tsc", major });
 
-/* What a `tsc` whose compiler is unread is charged: the highest. */
 const TSC_PEAK_MB = chargeMb({ kind: "tsc" });
 
-/* How many `tsc` run at once, machine-wide (#3163): one, as docs/environment.md
- * §6 keeps every unmeasured concurrent workload; only one `tsc` at a time has
- * been measured. */
+// #3163 guess
 const TSC_MAX = 1;
 
-/* Set to `1`, a `--tsc` launch tries the slot once rather than wait for it,
- * and exits TSC_BUSY_EXIT, running nothing, where it is held (#3278). The
- * pre-commit hook sets it. 75 is sysexits.h's EX_TEMPFAIL, an exit no `tsc`
- * gives. */
+// 75 is EX_TEMPFAIL: https://man.freebsd.org/cgi/man.cgi?query=sysexits
 const TSC_NO_WAIT_ENV = "WFC_TSC_NO_WAIT";
 const TSC_BUSY_EXIT = 75;
 
-/* The environment variable a `--tsc` launch hands its command: its marker's
- * path, so a `--tsc` launch inside that command's process tree runs in the
- * slot it holds rather than queue behind it (#3404).
- * Residual: nothing counts the `tsc` runs inside the slot, so a command that
- * starts two in parallel passes TSC_MAX and the rung. */
 const TSC_SLOT_ENV = "WFC_TSC_SLOT";
 
-/* The slot's queue directory's name under the temp root, which
- * lib/suite-queue.js also reads to find this queue's admissions (#3203). */
 const TSC_QUEUE_NAME = "wfc-tsc-queue";
 
 /** @returns {string} */
@@ -59,24 +27,7 @@ function defaultTscQueueDir() {
 	return path.join(os.tmpdir(), TSC_QUEUE_NAME);
 }
 
-/*
- * A runner's line, one per `tsc`, of two shapes (#4892):
- *
- * - the launcher: node running a package's `bin/tsc` or `bin/tsc6`, `…/.bin/tsc` or the
- *   path typecheck-mods.js resolves (`typescript/bin/tsc` on 5.x,
- *   `@typescript/native/bin/tsc` on 7.0);
- * - 7.0's native compiler, `…/@typescript/typescript-<os>-<arch>/lib/tsc`,
- *   which the launcher becomes under the same PID where node has
- *   `process.execve`, and spawns as its child where it has not.
- *
- * Each is anchored on its first word or node's script argument, so npm's
- * `sh -c tsc …`, a wrapper's line and a `queue-run.js --tsc -- …/.bin/tsc`
- * waiter, which name the path further on, never count: a waiter counted as
- * running holds the slot it waits on (#3276).
- */
 const TSC_LAUNCHER = /^ *(?:\S*\/)?node +(\S*bin\/tsc6?)((?: .*)?)$/;
-/* 7.0's native compiler's path in three parts; the middle is a regex
- * source, the other two literal strings. */
 const NATIVE_HEAD = "@typescript/typescript-";
 const NATIVE_PLATFORM = "[a-z0-9]+-[a-z0-9]+";
 const NATIVE_BIN = "/lib/tsc";
@@ -84,32 +35,19 @@ const TSC_NATIVE = new RegExp(
 	`^ *(\\S*/node_modules/)${escapeRe(NATIVE_HEAD)}${NATIVE_PLATFORM}${escapeRe(NATIVE_BIN)}((?: .*)?)$`,
 );
 
-/** @param {string} args  a process's command line */
+/** @param {string} args */
 const isTscRunner = (args) => TSC_LAUNCHER.test(args) || TSC_NATIVE.test(args);
 
-/*
- * A command cut short inside 7.0's native compiler's path, as memwatch's
- * process lists write it (#5217). Where the cut falls moves with the path's
- * length; NATIVE_CUT_FLOOR is the shortest cut recorded. Residuals: a line
- * cut before it counts nothing, at `@types` or before as it reads as
- * `@types/`, and past that as no such cut has been recorded; one cut inside
- * `@typescript` counts, though `@typescript-eslint/`'s binary cut there reads
- * the same.
- */
+// #5217 measured: the shortest cut memwatch recorded
 const NATIVE_CUT_FLOOR = "@typescr";
 const TSC_NATIVE_CUT = new RegExp(
 	`^ */\\S*/node_modules/(${escapeRe(NATIVE_CUT_FLOOR)}\\S*)$`,
 );
-/* Past the head: a cut `<os>-<arch>`, or a whole one and a cut binary. The
- * first branch is NATIVE_PLATFORM cut short, so changes with it. */
 const NATIVE_REST = new RegExp(
 	`^[a-z0-9]+(?:-[a-z0-9]*)?$|^${NATIVE_PLATFORM}(/.*)$`,
 );
 
-/**
- * Whether a cut command line reads as a runner's: 7.0's native compiler.
- * @param {string} args  a process's command line, cut short
- */
+/** @param {string} args */
 function isCutTscRunner(args) {
 	if (isTscRunner(args)) return true;
 	const m = TSC_NATIVE_CUT.exec(args);
@@ -123,62 +61,34 @@ function isCutTscRunner(args) {
 	);
 }
 
-/**
- * The `node_modules/` a path sits under, through its last one; the path itself
- * where it names none.
- * @param {string} file
- */
+/** @param {string} file */
 const modulesRootOf = (file) => {
 	const at = file.lastIndexOf("/node_modules/");
 	return at < 0 ? file : file.slice(0, at + "/node_modules/".length);
 };
 
-/**
- * A launcher's script path as the process sees it: a relative one, as a
- * `.bin` shebang leaves it, against the process's own working directory;
- * null where that cannot be read.
- * @param {import("./suite-ladder.js").PsRow} row
- * @param {string} script
- */
+/** @param {import("./suite-ladder.js").PsRow} row @param {string} script */
 const scriptOf = ({ pid }, script) => {
 	if (path.isAbsolute(script)) return script;
 	return pid === null ? null : path.join(`/proc/${pid}/cwd`, script);
 };
 
-/**
- * A path with its links dereferenced, itself where it will not resolve.
- * @param {string} file
- */
+/** @param {string} file */
 const realOr = (file) => {
 	try {
 		return fs.realpathSync(file);
 	} catch {
-		/* The path unresolved: a launcher reached through a link is keyed apart
-		 * from its native child, which is counted a second runner. That charges
-		 * nothing more: at TSC_MAX 1 the launcher alone denies, so the child adds
-		 * only a PID to the denial (#4892). */
 		return file;
 	}
 };
 
-/**
- * What pairs a launcher with its native child: the `node_modules/` both run
- * from, through its real path, and their arguments.
- * @param {string} modulesDir  a `node_modules/`, its trailing slash optional
- * @param {string} args
- */
+/** @param {string} modulesDir @param {string} args */
 const pairKey = (modulesDir, args) => {
 	const root = realOr(modulesDir);
 	return `${root.endsWith("/") ? root : `${root}/`}\0${args}`;
 };
 
 /**
- * The `tsc` runners on `ps`, each by its PID, null where `ps` gave none. A
- * native compiler is left out where a launcher resolving into the same
- * `node_modules` with the same arguments is running: its parent, on a node
- * with no `process.execve`. Residual: two same-argument `tsc` from one tree,
- * one launched before the other's launcher handed over, count as one.
- *
  * @param {import("./suite-ladder.js").PsRow[]} rows
  * @returns {(number | null)[]}
  */
@@ -211,12 +121,7 @@ function runningTsc(rows) {
 		.map(({ pid }) => pid);
 }
 
-/**
- * The TypeScript major version of the package a `bin/tsc` belongs to; null
- * where it will not read.
- * @param {string} binTsc
- * @returns {number | null}
- */
+/** @param {string} binTsc @returns {number | null} */
 function readTscMajor(binTsc) {
 	try {
 		const pkg = path.dirname(path.dirname(fs.realpathSync(binTsc)));
@@ -226,13 +131,11 @@ function readTscMajor(binTsc) {
 		const major = Number.parseInt(String(version), 10);
 		return Number.isInteger(major) ? major : null;
 	} catch {
-		/* Unread: the launch is charged the highest peak (#4892). */
 		return null;
 	}
 }
 
 /**
- * The peak a running `tsc`'s line is charged.
  * @param {import("./suite-ladder.js").PsRow} row
  * @param {(binTsc: string) => number | null} [readMajor]
  */
@@ -244,12 +147,7 @@ function runnerPeakMb(row, readMajor = readTscMajor) {
 	return tscPeakMb(script === null ? null : readMajor(script));
 }
 
-/**
- * The first `node_modules/.bin/<name>` from `dir` up, null where there is
- * none.
- * @param {string} dir
- * @param {string} name
- */
+/** @param {string} dir @param {string} name */
 function findBin(dir, name) {
 	for (let at = path.resolve(dir); ; at = path.dirname(at)) {
 		const bin = path.join(at, "node_modules", ".bin", name);
@@ -258,37 +156,19 @@ function findBin(dir, name) {
 	}
 }
 
-/**
- * The peak a `tsc` launched from `dir` is charged: the compiler of the first
- * `node_modules/.bin/<bin>` from `dir` up.
- * @param {string} dir
- * @param {{ bin?: string }} [launch]
- */
+/** @param {string} dir @param {{ bin?: string }} [launch] */
 function launchPeakMb(dir, { bin: name = "tsc" } = {}) {
 	const bin = findBin(dir, name);
 	return tscPeakMb(bin === null ? null : readTscMajor(bin));
 }
 
-/**
- * The peak one type-check of `dir`'s checkout is charged, 0 where it holds no
- * `tsc`: what session admission reserves for (#4956).
- * @param {string} dir
- */
+/** @param {string} dir */
 function checkoutPeakMb(dir) {
 	const bin = findBin(dir, "tsc");
 	return bin === null ? 0 : tscPeakMb(readTscMajor(bin));
 }
 
 /**
- * Whether the slot would refuse a `tsc` now, and on which limb: the count cap
- * with the running `tsc`s' PIDs, and the memory reading where the rung fails
- * too (#4359), the memory rung, or the Windows-memory hold (#4557). Null where
- * it would not, and on an unread `ps`, MemAvailable or Windows reading that
- * limb fails open (mantahostels#103 §6). `climbMb`, what the suite queue's
- * launches have yet to draw (#3416), comes off MemAvailable before the rung
- * reads it. `peakMb` is the launch's own compiler's (`launchPeakMb`), whose
- * rung it is held on.
- *
  * @param {import("./suite-ladder.js").PsRow[] | null} rows
  * @param {number | null} mb
  * @param {number} [climbMb]
@@ -310,11 +190,6 @@ function tscDenial(
 }
 
 /**
- * Whether a launch charged its own `peakMb` would be refused on memory now:
- * the rung that peak sets, MemAvailable less `climbMb` read against it, or
- * the Windows-memory hold (#4557). Null where it would not, an unread reading
- * failing open.
- *
  * @param {number | null} mb
  * @param {number} climbMb
  * @param {{ windows?: import("./windows-memory.js").WindowsRead, peakMb: number }} limbs
@@ -339,17 +214,9 @@ function memoryShortfall(mb, climbMb, peakMb) {
 		: null;
 }
 
-/** `tsc` or `tsc6`, bare or as a path's last segment. */
 const TSC_WORD = /(?:^|\/)(tsc6?)$/;
 
-/**
- * The `tsc` binary unwrapped words launch: `tsc`, `tsc6` or a path ending in
- * either, through `npx`, `npm exec` or node, 5.x's `typescript/bin/tsc` and
- * 7.0's `@typescript/native/bin/tsc` among them; null where they launch none.
- *
- * @param {string[]} words
- * @returns {string | null}
- */
+/** @param {string[]} words @returns {string | null} */
 function tscLaunchBin(words) {
 	const [w0 = "", w1 = "", w2 = ""] = words;
 	const named = (/** @type {string} */ w) => {

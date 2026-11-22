@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * Pins scripts/lib/suite-budget.js (#5137): which files are summed, which
- * count towards a refusal, and the budget's derivation from TARGET_MS. Pure
- * functions over sweep rows, so no fixture on disk. Broken, a cut or a slow
- * sweep turns the armed sweep red, or growth passes unrefused.
- */
 
 import { describe, expect, it } from "vitest";
 

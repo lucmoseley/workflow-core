@@ -1,51 +1,3 @@
-/*
- * session-checkout.js — the one owner of a session worktree's lifecycle
- * (#4229): every launcher and session goes through it, and no caller runs
- * `git worktree` itself. Its dependency stores are lib/dep-store.js's, and
- * the pass that clears landed trees is lib/worktree-reaper.js's.
- *
- * CUT fetches `main`, adds a worktree detached at `origin/main` under
- * the main checkout's worktrees folder (lib/worktree-dirs.js), named for the
- * session, and attaches its dependencies. A session that cuts one names
- * itself its holder (lib/worktree-reaper.js `writeHolder`), so a tree it
- * hands to an in-process subagent, where no process's cwd lies, stands while
- * it lives.
- *
- * LAUNCH-DIR is the directory a launcher starts a session in (#4245): a
- * worktree cut for it. Its name is the prompt's words and a random suffix, so
- * a session's worktree reads as its task. A resume runs in
- * the directory its job recorded, so it reopens the same worktree.
- *
- * LAUNCH-INTO is the directory a successor starts in to finish a dead
- * session's orphaned edits: that session's own worktree, named by the
- * caller, refused where git does not list it under the worktrees folder or
- * any live process still has its cwd inside it (#4385).
- *
- * LAUNCH-INTO and REOPEN both refuse a worktree whose own unlanded
- * `.claude/settings.json` would refuse or stall every tool call of the session
- * started there, naming the line and the fix (lib/settings-lockout.js,
- * #4752): a cut is from `origin/main`, whose lines the lander's suite passed.
- *
- * LAND merges a freshly fetched `origin/main` into the worktree's `HEAD` and
- * pushes `HEAD:refs/heads/queue/<worktree name>`, the session's own queue ref
- * (#4458), then starts the queue lander, which tests it with every other
- * waiting ref and moves `main` on green. The merge keeps a conflict with
- * `main` in the session's hands, where the lander would drop the ref for it.
- * A merge, never a rebase: git runs `pre-merge-commit`, and so the whole
- * pre-commit stack, on a merge commit, and no hook at all on a rebase (#3106),
- * which would skip the re-anchor the merge owes. A registry-anchor conflict is
- * settled by the per-row merge driver git config names (#4171). Neither the
- * merge nor the push carries a timeout of its own: every checker their hooks
- * run is bounded already (#4187). A push refused as no fast-forward is filed
- * as a `land` row in the divergence log (#4446), the push running here where
- * no Bash hook sees it. One failing on a network or remote fault is retried
- * with backoff (#4497).
- *
- * REOPEN gives a finished background job its worktree back so `claude attach`
- * can wake it: an open from the agents view fails before any hook runs where
- * the tree is gone (#4368).
- */
-
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -97,20 +49,15 @@ const {
 const { writeFd } = require("./write-fd.js");
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-/* Untraced: enough of a prompt to name its task in a directory listing. */
+// #4245 guess
 const SLUG_MAX = 40;
-/* 24 bits: two live worktrees for one prompt collide ~6e-8 of the time, and a
- * collision costs one refused member, which the next tick launches again. */
+// #4245 guess
 const SUFFIX_BYTES = 3;
 
 /**
- * Cut the session worktree for `name`: detached at a freshly fetched
- * `origin/main`, its dependencies attached. A worktree whose attach fails
- * is removed.
- * @param {string} cwd anywhere in the repository
- * @param {string} name the session's name
- * @param {{ noBuild?: boolean, holder?: string | null }} [how] `holder` the
- *   id of the session the worktree is held for
+ * @param {string} cwd
+ * @param {string} name
+ * @param {{ noBuild?: boolean, holder?: string | null }} [how]
  * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
  */
 function cut(cwd, name, how = {}) {
@@ -129,14 +76,10 @@ function cut(cwd, name, how = {}) {
 }
 
 /**
- * Add a worktree at `dir` detached at `rev`, its holder named before its
- * dependencies are attached, since a cold build can outlast `YOUNG_MS`; one
- * whose attach fails is removed.
- * @param {string} root the main checkout
+ * @param {string} root
  * @param {string} dir
  * @param {string} rev
- * @param {{ noBuild?: boolean, holder?: string | null }} [how] `noBuild`
- *   passed to the attach
+ * @param {{ noBuild?: boolean, holder?: string | null }} [how]
  * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
  */
 function addWorktree(root, dir, rev, how = {}) {
@@ -162,8 +105,6 @@ function addWorktree(root, dir, rev, how = {}) {
 }
 
 /**
- * A git command whose output the session reads — hook output included — on
- * stderr, so a caller's stdout stays clean.
  * @param {string[]} args
  * @param {string} cwd
  * @returns {{ ok: boolean, output: string }}
@@ -181,7 +122,6 @@ function gitShown(args, cwd) {
 }
 
 /**
- * Whether `a` is an ancestor of `b`, or the same commit.
  * @param {string} a
  * @param {string} b
  * @param {string} cwd
@@ -194,12 +134,9 @@ const isAncestor = (a, b, cwd) =>
 	}).status === 0;
 
 /**
- * Start the queue lander after a push: the post-push hook sees no push made
- * inside a script. The main checkout's start-lander.js where this code runs from a
- * linked worktree of it, so no lander runs from a tree the reaper may remove.
- * @param {string} root the main checkout
- * @param {string} dir the worktree
- * @returns {string} start-lander.js's line, or why it did not start
+ * @param {string} root
+ * @param {string} dir
+ * @returns {string}
  */
 function startLanderFor(root, dir) {
 	const own = path.join(__dirname, "..", "start-lander.js");
@@ -235,17 +172,12 @@ function refuseUnlandable(dir, root) {
 		);
 }
 
-/**
- * Whether a merge is in progress in the worktree `dir`.
- * @param {string} dir
- */
+/** @param {string} dir */
 const isMerging = (dir) =>
 	fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir));
 
-/**
- * Merge `origin/main` into `HEAD`.
- * @param {string} dir
- */
+/** @param {string} dir */
+// #3106
 function mergeMain(dir) {
 	if (gitShown(["merge", "--no-edit", VERIFIED_REF], dir).ok) return;
 	if (!isMerging(dir))
@@ -261,7 +193,6 @@ function mergeMain(dir) {
 }
 
 /**
- * The session worktree `dir`'s queue ref, refused where it is none.
  * @param {string} dir
  * @param {string} root
  * @returns {string}
@@ -276,9 +207,9 @@ function queueRefOrRefuse(dir, root) {
 }
 
 /**
- * @param {string} cwd anywhere in the worktree
+ * @param {string} cwd
  * @returns {{ dir: string, queue: string, head: string, merged: boolean, pushed: boolean, lander: string | null,
- *   coverage: import("./push-coverage.js").Coverage | null }} `coverage` null where nothing was pushed
+ *   coverage: import("./push-coverage.js").Coverage | null }}
  */
 function land(cwd) {
 	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
@@ -297,8 +228,6 @@ function land(cwd) {
 			lander: null,
 			coverage: null,
 		};
-	/* Judged before `main` is merged in, so only the session's own work is.
-	 * Required here, so the relink every checkout runs loads no pass store. */
 	const { readUncovered } = require("./push-coverage.js");
 	const coverage = readUncovered(dir);
 	const merged = !isAncestor(VERIFIED_REF, "HEAD", dir);
@@ -331,9 +260,6 @@ function land(cwd) {
 }
 
 /**
- * The push of `HEAD` to the queue ref, retried with lib/network-fault.js's
- * backoff while git's own words name a fault it names, GitHub's own among
- * them; `faulted` where the last try failed so.
  * @param {string} dir
  * @param {string} queue
  * @returns {{ ok: boolean, output: string, faulted: boolean }}
@@ -353,11 +279,9 @@ function pushQueueRef(dir, queue) {
 }
 
 /**
- * Files the refused push's divergence row, counted against freshly fetched
- * refs.
  * @param {string} root
  * @param {string} dir
- * @param {string} output the refused push's output
+ * @param {string} output
  */
 function recordMoved(root, dir, output) {
 	try {
@@ -369,8 +293,6 @@ function recordMoved(root, dir, output) {
 		);
 	}
 	try {
-		/* Loaded here, so a divergence lib that will not load costs the row
-		 * and never the land. */
 		const { landRow } = require("./divergence-row.js");
 		const { appendRow, buildHostPorts } = require("./divergence-row-host.js");
 		appendRow(landRow(dir, output, buildHostPorts(process.env)));
@@ -383,8 +305,6 @@ function recordMoved(root, dir, output) {
 }
 
 /**
- * The worktree name for a session launched on `prompt`: its words joined by
- * `-`, then random hex, as `/implement 4245` → `implement-4245-3fa9c1`.
  * @param {string} prompt
  * @returns {string}
  */
@@ -398,11 +318,9 @@ function buildSessionName(prompt) {
 }
 
 /**
- * LAUNCH-DIR, above; with `into`, LAUNCH-INTO.
- * @param {string} cwd anywhere in the repository
+ * @param {string} cwd
  * @param {string} prompt
- * @param {{ noBuild?: boolean, into?: string }} [how] `noBuild` passed to
- *   the cut or attach
+ * @param {{ noBuild?: boolean, into?: string }} [how]
  * @returns {string}
  */
 function launchDir(cwd, prompt, how = {}) {
@@ -413,11 +331,9 @@ function launchDir(cwd, prompt, how = {}) {
 }
 
 /**
- * LAUNCH-INTO, above: `into`, dereferenced, where it is a registered session
- * worktree of `root` no process works in, its dependencies re-attached.
- * @param {string} root the main checkout
+ * @param {string} root
  * @param {string} into
- * @param {{ noBuild?: boolean }} how passed to the attach
+ * @param {{ noBuild?: boolean }} how
  * @returns {string}
  */
 function launchInto(root, into, how) {
@@ -445,21 +361,15 @@ function launchInto(root, into, how) {
 	return dir;
 }
 
-/**
- * Throw where a session started in `dir` would have every tool call refused
- * or stalled by the worktree's own settings (lib/settings-lockout.js).
- * @param {string} dir
- */
+/** @param {string} dir */
 function refuseLockout(dir) {
 	const why = settingsLockout(dir);
 	if (why !== null) throw new CheckoutError(why);
 }
 
 /**
- * Job `id`'s worktree, re-added at the sha REAPED_RECORD holds
- * for it where the reaper removed it, and the seat to attach the job on.
- * @param {string} cwd anywhere in the repository
- * @param {string} id the job id, as `claude attach` takes it
+ * @param {string} cwd
+ * @param {string} id
  * @returns {{ dir: string, seat: string, restored: boolean }}
  */
 function reopen(cwd, id) {
@@ -490,7 +400,6 @@ function reopen(cwd, id) {
 		throw new CheckoutError(
 			`job ${id}'s directory ${dir} is gone and the reaper recorded no sha for it, so nothing can rebuild it`,
 		);
-	/* A registration whose directory went by hand would refuse the add. */
 	prune(root);
 	addWorktree(root, dir, reaped.head);
 	refuseLockout(dir);
