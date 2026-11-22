@@ -1,13 +1,9 @@
 #!/usr/bin/env node
-/* #5510 */
-
 const fs = require("node:fs");
-const { markersDir } = require("./lib/marker-root.js");
 const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root.js");
 const { execGit } = require("./lib/git.js");
-const { ignoreFailure } = require("./lib/caught.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
@@ -119,37 +115,6 @@ const survey = (ctx, root) => {
 	return { paths, silenced };
 };
 
-/**
- * The silenced count the last --notify run cached, or null where there is no
- * baseline; the cache is then rewritten with this run's count.
- *
- * @param {string} statePath
- * @param {number} count
- * @returns {number|null}
- */
-const swapBaseline = (statePath, count) => {
-	let previous = null;
-	try {
-		previous = JSON.parse(fs.readFileSync(statePath, "utf8")).silenced;
-	} catch {
-		/* Absent, unreadable or corrupt all mean the same thing here — no
-		 * baseline — so the check speaks, which is the safe direction: the
-		 * cost is one extra line, against a file silenced and nobody hearing
-		 * about it. Not reported: a first run and a corrupt cache are
-		 * indistinguishable to a reader, and the file is regenerated below. */
-		previous = null;
-	}
-	/* A read-only checkout must not cost the run its verdict. Uncached, it
-	 * simply speaks on every --notify run until the write works. */
-	ignoreFailure(() =>
-		fs.writeFileSync(
-			statePath,
-			`${JSON.stringify({ silenced: count, at: new Date().toISOString() }, null, 2)}\n`,
-		),
-	);
-	return previous;
-};
-
 const warnSilenced = (
 	/** @type {Ctx} */ ctx,
 	/** @type {Silenced[]} */ silenced,
@@ -172,20 +137,6 @@ runCheck({
 		const root = ctx.value("--root") || hostRoot();
 		const { paths, silenced } = survey(ctx, root);
 
-		const statePath = path.join(
-			markersDir(root),
-			".scripts-typecheck-state.json",
-		);
-		let previous = null;
-		if (ctx.notify) {
-			previous = swapBaseline(statePath, silenced.length);
-			if (previous === silenced.length)
-				return {
-					okLine: `${silenced.length} file(s) have silenced the type checker, unchanged since the last run.`,
-					data: { total: paths.length, silenced: silenced.length },
-				};
-		}
-
 		if (silenced.length === 0)
 			return {
 				okLine: `all ${paths.length} in-scope .js file(s) are type-checked; none carries \`// @ts-nocheck\`.`,
@@ -202,8 +153,6 @@ runCheck({
 			ctx.say(
 				ctx.has("--full") ? `  ${s.path}  (${s.lines} lines)` : `  ${s.path}`,
 			);
-		if (ctx.notify && previous !== null)
-			ctx.say(`  Was ${previous} at the last session that read this.`);
 
 		warnSilenced(ctx, silenced);
 

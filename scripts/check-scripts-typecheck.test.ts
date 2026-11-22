@@ -185,56 +185,6 @@ describe("scope — the two globs tsconfig.json lists in `include`", () => {
 	});
 });
 
-describe("--notify — the session-start surface, quiet while the number holds", () => {
-	const seed = () => {
-		write("scripts/off.js", buildSilenced("off.js"));
-		commitAll();
-	};
-
-	it("speaks on the first session, when no count has been recorded yet", () => {
-		seed();
-		const { status, out } = run(["--notify"]);
-		expect(status).toBe(0);
-		expect(out).toContain("scripts/off.js");
-	});
-
-	it("says nothing at all on a second session with the count unchanged", () => {
-		seed();
-		run(["--notify"]);
-		const { status, out } = run(["--notify"]);
-		expect(status).toBe(0);
-		expect(out.trim()).toBe("");
-	});
-
-	it("speaks again when a file is silenced, naming the previous count", () => {
-		seed();
-		run(["--notify"]);
-		write("scripts/second.js", buildSilenced("second.js"));
-		commitAll();
-		const { out } = run(["--notify"]);
-		expect(out).toContain("Was 1 at the last session that read this");
-	});
-
-	it("reports OK beside a non-zero silenced count under --json, the declared §G4 departure", () => {
-		seed();
-		run(["--notify"]);
-		const { status, out } = run(["--notify", "--json"]);
-		expect(status).toBe(0);
-		const envelope = JSON.parse(out);
-		expect(envelope.outcome).toBe("OK");
-		expect(envelope.silenced).toBe(1);
-	});
-
-	it("exits 0 even on a BROKEN read, so Claude Code does not disable the hook", () => {
-		// check.js:280.
-		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
-		const r = runInProcess(SCRIPT, ["--root", outside, "--notify"]);
-		fs.rmSync(outside, { recursive: true, force: true });
-		expect(r.status).toBe(0);
-		expect(`${r.stdout}${r.stderr}`).toMatch(/^BROKEN:/m);
-	});
-});
-
 describe("apparatus failures", () => {
 	it("is BROKEN when git cannot enumerate the tracked set", () => {
 		// git is the reading apparatus, so this is BROKEN and never SKIP
