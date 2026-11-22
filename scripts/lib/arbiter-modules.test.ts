@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -37,8 +37,8 @@ const keysAfterFacade = (file: string) =>
 	) as string[];
 
 describe("every family module loads as the entry point", () => {
-	it("finds all fifteen — the twelve families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
-		expect(families.length).toBe(15);
+	it("finds all sixteen — the thirteen families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
+		expect(families.length).toBe(16);
 	});
 
 	for (const file of families) {
@@ -51,48 +51,39 @@ describe("every family module loads as the entry point", () => {
 	}
 });
 
-describe("the two disciplines that make the cycle safe", () => {
+describe("the family modules' require graph", () => {
 	const readSource = (f: string) => fs.readFileSync(path.join(LIB, f), "utf8");
-	const cyclic = families.filter((f) =>
-		readSource(f).includes("biome-ignore lint/suspicious/noImportCycles"),
-	);
-
-	it("names the three files the header says are in the cycle", () => {
-		expect(cyclic).toEqual([
-			"arbiter-content.js",
-			"arbiter-locks.js",
-			"arbiter-observations.js",
-		]);
-	});
-
-	it("never destructures a sibling family's require", () => {
-		const offenders = families.flatMap((f) =>
-			[
-				...readSource(f).matchAll(
-					/const\s*\{[^}]*\}\s*=\s*require\("\.\/(arbiter-[\w-]+)\.js"\)/g,
-				),
-			]
-				.filter((m) => m[1] !== "arbiter-proc")
-				.map((m) => `${f} destructures ${m[1]}.js`),
+	const siblings = (f: string) =>
+		[...readSource(f).matchAll(/require\("\.\/(arbiter-[\w-]+\.js)"\)/g)].map(
+			(m) => m[1],
 		);
-		expect(offenders).toEqual([]);
+
+	it("holds no cycle", () => {
+		const done = new Set<string>();
+		const cycles: string[] = [];
+		const visit = (f: string, trail: string[]) => {
+			if (trail.includes(f)) {
+				cycles.push([...trail.slice(trail.indexOf(f)), f].join(" → "));
+				return;
+			}
+			if (done.has(f)) return;
+			for (const to of siblings(f)) visit(to, [...trail, f]);
+			done.add(f);
+		};
+		for (const f of families) visit(f, []);
+		expect(cycles).toEqual([]);
 	});
 
-	it("fills the exports object in place wherever the requires are cyclic", () => {
-		for (const f of cyclic)
-			expect(readSource(f)).not.toMatch(/^module\.exports = \{/m);
-	});
-
-	it("fills it in place nowhere else, as base §N7's cycle exception allows", () => {
-		const inPlace = execFileSync(
+	it("leaves no scripts/*.js filling its exports object in place, as base §N asks", () => {
+		const grep = spawnSync(
 			"git",
 			["grep", "-lE", "^exports\\.[A-Za-z_$]+ =", "--", "scripts/*.js"],
 			{ cwd: path.join(LIB, "../.."), encoding: "utf8" },
-		)
-			.trim()
-			.split("\n")
-			.map((f) => path.basename(f));
-		expect(inPlace).toEqual(cyclic);
+		);
+		expect({ status: grep.status, files: grep.stdout.trim() }).toEqual({
+			status: 1,
+			files: "",
+		});
 	});
 });
 
