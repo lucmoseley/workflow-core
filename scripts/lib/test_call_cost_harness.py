@@ -142,3 +142,12 @@ def test_a_non_int_exit_is_printed_as_exit_1_as_under_python3(tmp_path):
     probe.write_text("import sys\nsys.exit('gave up')\n")
     r = call_cost(probe, cwd=tmp_path, expect_status=1, allow_stderr=True)
     assert r.stderr == "gave up\n"
+
+
+def test_an_escaping_exception_of_any_type_is_exit_1_with_its_traceback(tmp_path):
+    probe = tmp_path / "scripts" / "thrower.py"
+    probe.parent.mkdir()
+    probe.write_text("class Odd(Exception):\n    pass\n\n\nraise Odd('boom')\n")
+    r = call_cost(probe, cwd=tmp_path, expect_status=1, allow_stderr=True)
+    assert r.stderr.startswith("Traceback (most recent call last):\n")
+    assert r.stderr.endswith("Odd: boom\n")

@@ -156,22 +156,30 @@ def file_seconds(config):
     return {str(root / file): seconds for file, seconds in _file_seconds.items()}
 
 
+class _ReportedAs(contextlib.AbstractContextManager):
+    def __init__(self, terminalreporter, headline):
+        self._terminalreporter = terminalreporter
+        self._headline = headline
+
+    def __exit__(self, exc_type, error, tb):
+        if not isinstance(error, Exception):
+            return False
+        self._terminalreporter.write_line(f"{self._headline}: {error}")
+        return True
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     out = os.environ.get("WFC_PYTEST_SCOPE_OUT")
     if not out or getattr(config.option, "collectonly", False):
         return
     with contextlib.suppress(Exception):
-        result = {"passed": int(exitstatus) == 0, "scope": None}
-        try:
+        result = {"passed": int(exitstatus) == 0, "scope": None, "fileSeconds": None}
+        with _ReportedAs(
+            terminalreporter,
+            "SCOPE UNRECORDED (mantahostels#1256) — this run cannot say how much of the "
+            "suite it covered",
+        ):
             result["scope"] = describe_run(terminalreporter, config)
-        except Exception as error:  # noqa: BLE001 - an unreadable scope still records the pass (mantahostels#1256)
-            terminalreporter.write_line(
-                f"SCOPE UNRECORDED (mantahostels#1256) — this run cannot say how much of the "
-                f"suite it covered: {error}"
-            )
-        try:
+        with _ReportedAs(terminalreporter, "TIMINGS UNRECORDED (#1884)"):
             result["fileSeconds"] = file_seconds(config)
-        except Exception as error:  # noqa: BLE001 - null reads as a failed report at the wrapper, never a failed suite (#1884)
-            terminalreporter.write_line(f"TIMINGS UNRECORDED (#1884): {error}")
-            result["fileSeconds"] = None
         Path(out).write_text(json.dumps(result), encoding="utf-8")

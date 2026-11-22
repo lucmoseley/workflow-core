@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * What one file reaches (file-reach.js) and what its run does (code-edges.js,
- * #4864): the files an import loads, the paths it tried first, and the
- * imports it cannot place. Loosen a case and the pass store caches a test
- * whose spawned script's module changed. Each case builds a real temporary
- * tree, since the walk resolves a module by reading the disk. Both modules'
- * cases share this file: "a module walked on its importer's sys.path" holds
- * a module read alone against the run importing it.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -23,8 +14,6 @@ const { fileReach } = require("./file-reach.js");
 let root = "";
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-/** The reach of `file` under `root`, reading `text`, as a script run on
- * its own. */
 function walk(file: string, text: string) {
 	const faults: string[] = [];
 	const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
@@ -37,7 +26,6 @@ function walk(file: string, text: string) {
 	return { edges: rel(found.edges), shadows: rel(found.shadows), faults };
 }
 
-/** A tree holding `files`, and the importer `tool/t.py` reading `code`. */
 function tree(code: string, files: string[]) {
 	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
 	for (const rel of [...files, "tool/t.py"]) {
@@ -48,8 +36,6 @@ function tree(code: string, files: string[]) {
 	return { edges, shadows, faults };
 }
 
-/** Python for a file directly under tool/ or lib/, putting the tree's `dir`
- * first on sys.path. */
 const putFirst = (dir: string) =>
 	`sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "${dir}"))`;
 
@@ -91,8 +77,6 @@ describe("a dotted import", () => {
 		).toContain("tool/pkg/sub/__init__.py");
 	});
 
-	/* #4790 pass 2 review, finding 6: a from-imported name's package form
-	 * went unwatched once its module was found. */
 	it("names what a from-imported name tried before its module as a shadow", () => {
 		expect(
 			tree("from pkg import sub\n", ["tool/pkg/__init__.py", "tool/pkg/sub.py"])
@@ -302,8 +286,6 @@ describe("a sys.path entry the file adds", () => {
 		]);
 	});
 
-	/* #4790 pass 2 review, finding 5: the unreadable front entry may hold a
-	 * json.py, so a stdlib name cached past it. */
 	it("places a stdlib import past an unreadable entry appended after the stdlib's", () => {
 		const { faults } = tree(
 			"sys.path.append(sys.argv[1])\nimport json\nimport helper\n",
@@ -341,8 +323,6 @@ describe("a sys.path entry the file adds", () => {
 	});
 });
 
-/** The run of `start` under `root`, read off the disk (`readRunReach`):
- * every file it reaches bar `start`, sorted, its shadows and its faults. */
 function runOf(start: string) {
 	const faults: string[] = [];
 	const found = readRunReach(root)(start, (_file: string, m: string) =>
@@ -356,7 +336,6 @@ function runOf(start: string) {
 	};
 }
 
-/** A tree under a fresh `root` holding each of `files`, path to text. */
 function writeTree(files: Record<string, string>) {
 	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
 	for (const [rel, text] of Object.entries(files)) {
@@ -366,9 +345,6 @@ function writeTree(files: Record<string, string>) {
 }
 
 describe("a module walked on its importer's sys.path (#4870)", () => {
-	/** `lib/m.py`'s own reach, reading `code`, and the run of the script
-	 * `tool/t.py`, reading `script`, that imports it; `files` stand beside
-	 * them, empty. */
 	function moduleTree(script: string, code: string, files: string[]) {
 		writeTree({
 			...Object.fromEntries(files.map((f) => [f, ""])),
@@ -377,7 +353,6 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 		});
 		return { alone: walk("lib/m.py", code), imported: runOf("tool/t.py") };
 	}
-	/* list_shape.py's shape: `lib`, then its own directory ahead of it. */
 	const listShape = [
 		"HERE = os.path.dirname(os.path.abspath(__file__))",
 		'sys.path.insert(0, os.path.join(HERE, "..", "lib"))',
@@ -446,8 +421,6 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 		});
 	});
 
-	/* A package may rewrite its own __path__, so one lacking the submodule
-	 * may still be the one Python takes, and loads what the walk cannot see. */
 	it("faults a submodule one package of its name on the handed path lacks, though another holds it", () => {
 		const { imported } = moduleTree(listShape, "import pkg.sub\n", [
 			"lib/pkg/__init__.py",
@@ -492,8 +465,6 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 			["lib/helper.py"],
 		);
 		expect(alone.faults).toEqual([]);
-		/* The script's own imports too: the settled pass walks it on the path
-		 * it left, the unread entry first. */
 		expect(imported.faults).toEqual([
 			"imports os after a sys.path edit the walk cannot read",
 			"imports m after a sys.path edit the walk cannot read",
@@ -529,8 +500,6 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 		});
 	});
 
-	/* Walked first, `b` meets `x` before `a` has added its entry: only the
-	 * settled pass judges it. */
 	it("reaches a module found only on the entry a module imported after it adds, faulting nothing (#5071)", () => {
 		writeTree({
 			"tool/t.py": `${putFirst("lib")}\nimport b\nimport a\n`,
@@ -551,14 +520,9 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 	});
 });
 
-/* #4864, #4870: what a spawned Python script's run reaches, each a change
- * the pass store must see. */
 describe("a Python script's run", () => {
-	/** Python putting `name`, beside the file that reads it, first on sys.path. */
 	const insert = (name: string) =>
 		`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
-	/** `tool.py` putting `lib` and then its own directory first on sys.path,
-	 * as list_shape.py does, and importing `lib/mod.py`. */
 	const listShaped = [
 		"import os, sys",
 		"HERE = os.path.dirname(os.path.abspath(__file__))",
@@ -633,8 +597,6 @@ describe("a Python script's run", () => {
 		expect(runOf("s/tool.py").shadows).toContain("s/y/helper.py");
 	});
 
-	/* The second pair differs by a soft hyphen, which a locale's collation
-	 * ignores. */
 	it.each([
 		["x", "y"],
 		["x", "x\u00ad"],
@@ -684,8 +646,6 @@ describe("a Python script's run", () => {
 	});
 });
 
-/* #4790 pass 2 review, finding 4: each of these dropped its import with no
- * fault, so the pass store cached a test past a change to helper.py. */
 describe("a statement the parse may miss", () => {
 	it.each([
 		[
@@ -718,8 +678,6 @@ describe("a statement the parse may miss", () => {
 		]);
 	});
 
-	/* #4790 pass 3 review, finding 3: a load with no import keyword raised
-	 * no fault. */
 	it.each([
 		['spec = importlib.util.spec_from_file_location("m", P)'],
 		["spec.loader.exec_module(m)"],
@@ -760,9 +718,6 @@ describe("a file the walk cannot read", () => {
 	});
 });
 
-/* #4790 pass 2 review, finding 1: scripts/host-root-byte-identity.test.ts
- * imported host_root inside `python3 -c`, so editing host_root.py left it
- * cached. */
 describe("an interpreter handed its program inline", () => {
 	const unseen = (code: string, file = "/x/a.test.ts") =>
 		fileReach(file, code, () => undefined, null).unread;
@@ -779,8 +734,6 @@ describe("an interpreter handed its program inline", () => {
 		['spawnSync("python3", ["-"], { input: code });'],
 		['spawnSync("python3", ["-", "import sys"], { input: code });'],
 		["execSync(`python3 -c 'import helper'`);"],
-		/* #4790 pass 3 review, finding 2: an escape hid the load's line
-		 * start, and one the reader does not undo hides the text. */
 		['spawnSync("python3", ["-c", "import sys\\nimport host_root"]);'],
 		[
 			"spawnSync(process.execPath, [\"-e\", \"require('node:fs')\\nrequire('./x')\"]);",
@@ -805,8 +758,6 @@ describe("an interpreter handed its program inline", () => {
 		expect(unseen(code)).toEqual([]);
 	});
 
-	/* #4790 pass 3 review, finding 4: the row of a builtin-only inline
-	 * python must still rest on python3. */
 	it("marks the reach of a Python spawn it lets pass as running python3", () => {
 		expect(
 			fileReach(
@@ -828,9 +779,6 @@ describe("an interpreter handed its program inline", () => {
 	});
 });
 
-/* #4790 pass 3 review, finding 1: park-blocked.sh's `node -e` required
- * issue-hold.js off its argument, which no walk read, so
- * park-blocked.test.ts stayed cached after issue-hold.js changed. */
 describe("a shell script's inline program", () => {
 	const SelfDirLines = [
 		`SELF_DIR="\${BASH_SOURCE[0]%/*}"`,
@@ -858,8 +806,7 @@ describe("a shell script's inline program", () => {
 			`$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)/lib/c.js`,
 			"/x/lib/c.js",
 		],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-		["${BASH_SOURCE[0]%/*}/c.js", "/x/s/c.js"],
+		[`${"$"}{BASH_SOURCE[0]%/*}/c.js`, "/x/s/c.js"],
 	])("reads %s as a path", (arg, want) => {
 		expect(sh(`node -p 'require(process.argv[1]).X' "${arg}"\n`).edges).toEqual(
 			[want],
@@ -886,8 +833,6 @@ describe("a shell script's inline program", () => {
 		expect(sh(code).unread).toHaveLength(1);
 	});
 
-	/* The same review's sweep: 162 tests reached a script sourcing or
-	 * running a sibling through `"$here/…"`, which no walk read. */
 	it("reaches a code path spelled off a variable naming the file's directory", () => {
 		expect(
 			sh(
@@ -907,10 +852,6 @@ describe("a shell script's inline program", () => {
 	});
 });
 
-/* #4790 pass 3 review round 3, finding 1: a load spelled off a variable the
- * walk dropped without a word. concision-backstop-sensitive.test.ts runs
- * code-signal.sh's `node "$CS_MATCHER"`, sensitive-paths.js, which no row
- * held; the rule since: a load word the walk cannot read is unread. */
 describe("a shell script's loads", () => {
 	const dirOf = (v: string) =>
 		`${v}="\${BASH_SOURCE[0]%/*}"\n[[ "$${v}" == "\${BASH_SOURCE[0]}" ]] && ${v}=.`;
@@ -940,8 +881,7 @@ describe("a shell script's loads", () => {
 		],
 		[
 			"an inherited variable's default",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'hook="${WFC_TIER_HOOK:-${BASH_SOURCE[0]%/*}/d.js}"\nnode "$hook" --only x\n',
+			`hook="\${WFC_TIER_HOOK:-\${BASH_SOURCE[0]%/*}/d.js}"\nnode "$hook" --only x\n`,
 			["/x/s/d.js"],
 		],
 		[
@@ -1008,24 +948,17 @@ describe("a shell script's loads", () => {
 			"a --test-reporter off the working directory (#5512)",
 			`${dirOf("dir")}\nnode --test --test-reporter=./r.js "$dir/a.test.js"\n`,
 		],
-		/* Finding 2: hook-bound.sh, precommit-gate.sh and relink-store.sh. A
-		 * default naming the caller's $0, the working directory or an
-		 * argument is no path the walk can read; the gate suites run the
-		 * hooks in a throwaway repository. */
 		[
 			"hook-bound.sh's runner, off the caller's $0",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'hb_runner="$(cd "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}" 2>/dev/null && pwd)/scripts/lib/run-budgeted.js" || hb_runner=""\nhook_bound() { command node "$hb_runner" --hook "$@"; }\n',
+			`hb_runner="$(cd "\${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}" 2>/dev/null && pwd)/scripts/lib/run-budgeted.js" || hb_runner=""\nhook_bound() { command node "$hb_runner" --hook "$@"; }\n`,
 		],
 		[
 			"precommit-gate.sh's formatters, off the working directory",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'node "${WFC_PLUGIN_ROOT:-.}/scripts/lib/formatters.js" shell-files\n',
+			`node "\${WFC_PLUGIN_ROOT:-.}/scripts/lib/formatters.js" shell-files\n`,
 		],
 		[
 			"relink-store.sh's script, off an argument",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'rs_script="${WFC_PLUGIN_ROOT:-$1}/scripts/session-checkout.js"\nnode "$rs_script" relink\n',
+			`rs_script="\${WFC_PLUGIN_ROOT:-$1}/scripts/session-checkout.js"\nnode "$rs_script" relink\n`,
 		],
 	])("names %s unread", (_what, code) => {
 		expect(sh(code).unread).toHaveLength(1);
@@ -1035,8 +968,7 @@ describe("a shell script's loads", () => {
 		["a load the caller hands in whole", 'node "$1"\n"$@"\n'],
 		[
 			"a command an inherited variable names",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'gh="${WFC_GH:-gh}"\n"$gh" api x\n',
+			`gh="\${WFC_GH:-gh}"\n"$gh" api x\n`,
 		],
 		[
 			"a variable holding a command's name",
@@ -1047,9 +979,7 @@ describe("a shell script's loads", () => {
 		["a heredoc's body", 'cat <<EOF\nsource "$X/a.sh"\nEOF\n'],
 		["an array of data", "PROSE=(\n  . ':(exclude)*.js'\n)\n"],
 		["arithmetic", "if (( $# > 0 )); then :; fi\n"],
-		/* #4790: a definition's brackets may hold any run of blanks. */
 		["a function defined with spaced brackets", "./x.sh (        ) { :; }\n"],
-		/* #4790: the git shim's real git, found off PATH, is the caller's. */
 		[
 			"a program a `code-edges caller:` line declares found off PATH",
 			'# code-edges caller: real\nfor d in $PATH; do real="$d/git"; done\n"$real" status\n',
@@ -1091,8 +1021,6 @@ describe("a shell script's loads", () => {
 		).toEqual([]);
 	});
 
-	/* Found in round 4: an assignment after `then` or `do` bound nothing, so
-	 * its variable read as inherited, the caller's, and its load dropped. */
 	it("binds an assignment after `then` or `do`, so a load off it is read", () => {
 		expect(
 			sh('if c; then X="$PWD/a.sh"; fi\nsource "$X"\n').unread,
@@ -1102,8 +1030,6 @@ describe("a shell script's loads", () => {
 		expect(read.shadows).toEqual(["/x/s/b.sh"]);
 	});
 
-	/* #4790: a code path inside a message word is an edge, as
-	 * park-blocked.sh's `refuse "… node $SELF_DIR/issue-body.js …"`. */
 	it("reaches a code path a message spells inside a quoted word", () => {
 		expect(
 			sh(
@@ -1112,7 +1038,6 @@ describe("a shell script's loads", () => {
 		).toEqual(["/x/s/issue-body.js", "/x/s/x.sh"]);
 	});
 
-	/* #4790: one interpreter table, so a versioned python3 is Python. */
 	it("walks a script whose #! line names a versioned python3 as Python", () => {
 		const faults: string[] = [];
 		fileReach(
@@ -1131,11 +1056,8 @@ describe("a shell script's loads", () => {
 		).toHaveLength(1);
 	});
 
-	/* #4790: a git hook is executed, never sourced, so its `$0` is itself. */
 	it("reads `$0` as the file itself in a script with no extension alone", () => {
-		const code =
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'#!/usr/bin/env sh\nnode "${WFC_ROOT:-$(dirname "$0")/..}/s/x.js"\n';
+		const code = `#!/usr/bin/env sh\nnode "\${WFC_ROOT:-$(dirname "$0")/..}/s/x.js"\n`;
 		const hook = sh(code, "/x/.husky/pre-commit");
 		expect(hook.unread).toEqual([]);
 		expect(hook.shadows).toEqual(["/x/s/x.js"]);
@@ -1144,13 +1066,10 @@ describe("a shell script's loads", () => {
 
 	it("names a `source` of a script with no extension unread", () => {
 		expect(
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			sh('. "${BASH_SOURCE[0]%/*}/pre-commit"\n', "/x/.husky/lib.sh").unread,
+			sh(`. "\${BASH_SOURCE[0]%/*}/pre-commit"\n`, "/x/.husky/lib.sh").unread,
 		).toHaveLength(1);
 	});
 
-	/* #4790: a walk for edges alone must not need python3 to read a
-	 * shell script's inline Python program. */
 	it("reads a shell script's edges where no python3 is on PATH", () => {
 		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
 		const probe = path.join(root, "probe.js");
@@ -1168,7 +1087,6 @@ describe("a shell script's loads", () => {
 });
 
 describe("a JS file's loads and reads (#4790 round 4)", () => {
-	/** A tree holding `files` (path to text), and the reach of `lib/l.js` reading `code`. */
 	function js(code: string, files: Record<string, string> = {}) {
 		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
 		for (const [rel, text] of Object.entries({ ...files, "lib/l.js": code })) {
@@ -1190,7 +1108,6 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		};
 	}
 
-	/* #4790: a non-literal load is unread, never dropped. */
 	it.each([
 		[
 			"a name bound to nothing it reads",
@@ -1225,7 +1142,6 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		expect(js(code).unread).toEqual([]);
 	});
 
-	/* #4790: a data file joined off __dirname is a read, any path binding. */
 	it("reads a data file joined off __dirname, through any binding of path", () => {
 		const r = js(
 			'const M = nodePath.join(__dirname, "m.json");\nconst C = path.join(__dirname, "c.js");\nconst G = path.join(__dirname, "gone.json");\n',
@@ -1235,7 +1151,6 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		expect(r.edges).toEqual(["lib/c.js"]);
 	});
 
-	/* #4790: guard-core-load.js's cores, off guard-cores.json. */
 	it("reaches each script a declared manifest's key names, and reads the manifest", () => {
 		const r = js(
 			"// code-edges loads: m.json core\nconst load = (row) => require(corePath(row.core));\n",
@@ -1261,7 +1176,6 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		).toHaveLength(1);
 	});
 
-	/* #4790: a declared value naming no file is unread, never dropped. */
 	it("names a declared manifest value that is no file unread", () => {
 		const r = js(
 			"// code-edges loads: m.json core\nconst load = (row) => require(corePath(row.core));\n",
@@ -1275,7 +1189,6 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		]);
 	});
 
-	/* #4790: a declaration explains only the loads reading its key. */
 	it("leaves a load its declaration does not explain unread", () => {
 		const files = { "lib/m.json": '[{"core": "a.js"}]', "lib/a.js": "" };
 		const declared = "// code-edges loads: m.json core\n";
@@ -1291,8 +1204,6 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		).toEqual(["loads require(process.argv[9])"]);
 	});
 
-	/* #4790: a path two joins off __dirname, as pretool-guard-testkit's
-	 * DISPATCH off CHECKOUT, is an edge; a part bound to a literal is read. */
 	it("reaches a file joined off a const bound to a __dirname join", () => {
 		const r = js(
 			'const ROOT = path.resolve(__dirname, "..");\nconst NAME = "d.js";\nconst D = path.join(ROOT, "s", NAME);\nconst J = path.join(\n\tROOT,\n\t"s",\n\t"j.json",\n);\n',
@@ -1303,7 +1214,6 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		expect(r.unknown).toEqual([]);
 	});
 
-	/* headless-run-fake.ts writes a script requiring such a join. */
 	it("reaches a join inside a template's interpolation, which is code", () => {
 		const r = js(
 			[
@@ -1340,7 +1250,6 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		expect(js(code).unknown).toEqual([]);
 	});
 
-	/* claimed-bash-write-host.js's ledger writer. */
 	it("reaches the file a listed node program requires off a __dirname-joined argument", () => {
 		const r = js(
 			'const STORE = path.join(__dirname, "s.js");\nconst RECORD = "require(process.argv[1]).f()";\nspawnSync(process.execPath, ["-e", RECORD, STORE, rel]);\n',

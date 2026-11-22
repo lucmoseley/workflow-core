@@ -1,44 +1,12 @@
-/*
- * dispatch-artefact.js — does an `Agent` dispatch prompt carry the structured
- * marker `docs/agents/guard-registry.md` §Subagent dispatch requires, and the
- * line to give it where it does not?
- *
- * The artefact half of `scripts/lib/dispatch-rewrite.js`, which supplies the
- * line rather than refusing the dispatch (#482).
- *
- * WHY A LITERAL AND NOT A DETECTOR. mantahostels#689 (can a PreToolUse hook enforce the
- * artefact-path clause on Agent dispatches?) measured both cheap free-text
- * detectors and rejected them, because prompts overwhelmingly cite paths to
- * READ; its figures are there. mantahostels#103's house rule is act on a
- * structured fact, only warn where the hook infers — so the only form a hook
- * can act on is a literal the prompt either has or has not. That is mantahostels#689's option (C), reopened and approved at mantahostels#766.
- *
- * WHAT IS DELIBERATELY NOT CHECKED. That the path is sane, writable, inside
- * the sanctioned `.claude/tmp/` scratch directory (mantahostels#2089), or ever actually
- * written. The marker is a promise, and nothing here verifies it is kept.
- */
-
 const crypto = require("node:crypto");
 const path = require("node:path");
 const { expandHome } = require("./home-path.js");
 const { requiredGroup } = require("./regex-group.js");
 const { trimEndRun, trimRun } = require("./trim-run.js");
 
-/*
- * `- `/`* ` bullet, optional `**` bold on either side of the colon, either
- * spelling, any case. The anchor is load-bearing: without `^` the marker fires
- * on prose merely containing the word. The value opens on a non-blank, so the
- * blanks before it are read one way.
- */
 const MARKER =
 	/^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?:artefacts?|artifacts?)(?:\*\*)?[ \t]*:(?:\*\*)?[ \t]*((?:(?![ \t]).*)?)$/i;
 
-/*
- * Values that satisfy the letter and not the rule — an unfilled template, or a
- * declaration that there is no artefact. Compared lowercased; any `<…>`
- * template is unfilled without an entry here (isUnfilled). `n/a` is here rather than left
- * to the path-likeness test below, which its slash would otherwise pass.
- */
 const PLACEHOLDERS = new Set([
 	"path",
 	"artefact",
@@ -55,8 +23,6 @@ const PLACEHOLDERS = new Set([
 ]);
 
 /**
- * Strip the wrappers a path picks up in prose, plus trailing punctuation.
- *
  * @param {string} token
  * @returns {string}
  */
@@ -68,9 +34,6 @@ function clean(token) {
 }
 
 /**
- * Path-like enough to be a path and not a description: a separator, or a
- * filename carrying an extension.
- *
  * @param {string} value
  * @returns {boolean}
  */
@@ -79,12 +42,7 @@ function pathLike(value) {
 }
 
 /**
- * The first token after a marker, as written. It is the value, not the rest of
- * the line: trailing prose ("…/a.md, appended as you go") is the common shape,
- * and a path containing a space is not. An angle-bracket template is one token
- * to its closing bracket, so `<path to file>` is read whole.
- *
- * @param {string} rest the text after the marker's colon
+ * @param {string} rest
  * @returns {string}
  */
 function firstToken(rest) {
@@ -95,9 +53,8 @@ function firstToken(rest) {
 }
 
 /**
- * @param {string} token a marker's first token, as written
- * @returns {boolean} true where it is empty, an angle-bracket template, or a
- *   known placeholder
+ * @param {string} token
+ * @returns {boolean}
  */
 function isUnfilled(token) {
 	const value = clean(token);
@@ -107,9 +64,7 @@ function isUnfilled(token) {
 }
 
 /**
- * The artefact path a prompt names, or null where it names none.
- *
- * @param {unknown} prompt the dispatch prompt, as free text
+ * @param {unknown} prompt
  * @returns {string|null}
  */
 function artefactPath(prompt) {
@@ -134,30 +89,17 @@ const EXEMPT_AGENT_TYPES = new Set([
 	"Plan",
 ]);
 
-/** Where every supplied artefact lives, under the sanctioned scratch directory. */
 const AGENTS_DIR = path.join(".claude", "tmp", "agents");
 
-/**
- * Told to the agent beneath its supplied line. Residual: a prompt that already
- * names a usable artefact is left as written, so it never gets the second,
- * reading line.
- */
 const ARTEFACT_INSTRUCTIONS = [
 	"Append your findings to that file as each one lands; never hold them back for the final report.",
 	"Save a long fetched or local source to disk and search it, rather than reading it whole into your context.",
 ].join("\n");
 
 /**
- * An absolute artefact path for one dispatch:
- * `<root>/.claude/tmp/agents/<slug>-<short-id>.md`. The slug is the call's
- * `description`, so a listing of the directory says whose file is whose; the
- * id is 32 random bits, so parallel sessions naming the same task never
- * collide. The slug stops at 48 characters, a choice rather than a measure, to
- * keep a listing's names on one line.
- *
- * @param {string} root the session's project root, absolute
- * @param {unknown} description the call's `description`
- * @param {string} [id] fixed only by tests
+ * @param {string} root
+ * @param {unknown} description
+ * @param {string} [id]
  * @returns {string}
  */
 function artefactFile(
@@ -177,16 +119,8 @@ function artefactFile(
 }
 
 /**
- * The prompt given an artefact line, or null where it needs none.
- *
- * A placeholder — `Artefact:
- * TBD`, `Artefact: <path to file>`, `Artefact: none` — is replaced in place,
- * bullet, bold and trailing prose kept, so the prompt does not carry two.
- * Otherwise the lines are appended: a marker with no value, or prose for one,
- * may be a heading over something else, and is left alone.
- *
  * @param {string} prompt
- * @param {string} file the path to supply
+ * @param {string} file
  * @returns {string|null}
  */
 function withArtefact(prompt, file) {
@@ -273,8 +207,6 @@ function buildWatchNote(call, watch, home, job = false) {
 	if (!isWatchable(call)) return null;
 	const named = artefactPath(call.prompt);
 	if (named === null) return null;
-	/* The watch command quotes its path and a quoted tilde reaches the watcher
-	 * literally, so `~/` is expanded here; left as written where it cannot be. */
 	const file = expandHome(named, home) ?? named;
 	return `This dispatch names its artefact: ${file}. ${buildWatchSentence(file, watch, job)}`;
 }

@@ -21,12 +21,10 @@ def fail_open(error, instead):
 
 
 def tallied(error, tally, key):
-    """Count `error` under `key` in `tally`, the counts the caller prints.
-    `error` is unread: it is passed so the walk sees the bound name."""
+    # #5503
     tally[key] += 1
 
 
 def expected(error, outcome):
-    """Take `error` as the normal-path `outcome`; nothing is printed. Neither
-    is read: `error` is passed so the walk sees the bound name, and `outcome`
-    names the condition for the reader of the site."""
+    # #5503
+    pass

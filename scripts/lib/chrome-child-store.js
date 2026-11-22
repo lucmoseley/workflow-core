@@ -1,28 +1,3 @@
-/*
- * chrome-child-store.js — the machine-wide record of each Chrome child whose
- * tab group may still be open, and what a closer may do with it (#5385).
- *
- * One file per child, `<storeConfigDir()>/chrome-children/<uuid>.json`, written
- * by claude-child.js's chrome mode before the child starts and deleted once
- * the launcher or a closer knows the group is empty. The store is the first
- * seat's, so every repo on the machine shares it: adopters launch Chrome
- * children too. A record outlives its launcher on purpose: only a resume of
- * the child's own session can close its group (#5352).
- *
- * A pid counts as live only while its start time (/proc/<pid>/stat field 22)
- * still matches, so a recycled pid never holds a record. `lastReason` is the
- * last resume's outcome where it closed nothing: `not-connected`, which spends
- * no attempt, or the failure's text. The sweep leaves a not-connected record
- * an hour and a failed one 6 h before resuming it again.
- * `tabs` are the tabs the launcher last saw open, for a give-up's report.
- *
- * `first-launch` holds the ISO time of the first record ever written here:
- * before it, no launcher kept records, so the census reads nothing older.
- *
- * `given-up/<uuid>.json` keeps each record no closer could close: nothing
- * resumes it. `closed.jsonl` takes one line per close a closer confirmed.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readProcStartOf, pidAlive } = require("./arbiter-proc.js");
@@ -34,16 +9,13 @@ const { pidLock } = require("./pid-lock.js");
 const { readText } = require("./file-read.js");
 const { writeFd } = require("./write-fd.js");
 
-/* #5376 (founder ruling): how long a held hand-over tab is the founder's. */
+// #5376
 const HOLD_MS = 2 * 60 * 60 * 1000;
-/* Delegated in #5368, untraced: past either, a record is given up. */
+// guess, #5368
 const GIVE_UP_ATTEMPTS = 3;
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
-/* Untraced: how long a sweep leaves a record whose bridge was not connected. */
 const NOT_CONNECTED_BACKOFF_MS = 60 * 60 * 1000;
-/* Delegated in #5392, untraced: how long a sweep leaves a record whose last
- * resume failed, so its 3 attempts span at least 12 h and outlast a 5-hour
- * seat window. Residual: a passing failure leaves its tab open 6 h too. */
+// guess, #5392
 const FAILED_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 /**
@@ -68,7 +40,6 @@ const givenUpDir = () => path.join(storeDir(), "given-up");
 const closedLog = () => path.join(storeDir(), "closed.jsonl");
 const firstLaunchFile = () => path.join(storeDir(), "first-launch");
 const lastSweepFile = () => path.join(storeDir(), "last-sweep");
-/** Make `dir`, the store's own or its given-up folder, this user's alone. */
 const makeDir = (dir = storeDir()) =>
 	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 /** @param {string} id */
@@ -88,9 +59,6 @@ function readJson(file) {
 		return JSON.parse(fs.readFileSync(file, "utf8"));
 	} catch (e) {
 		if (caught(e).code === "ENOENT") return null;
-		/* Records are written atomically, so one that will not parse was
-		 * damaged outside this store: said, and left on disk for a hand
-		 * (#5386). */
 		if (e instanceof SyntaxError) {
 			writeFd(
 				2,
@@ -106,7 +74,6 @@ function readJson(file) {
 function writeRecord(record) {
 	assertId(record.sessionId);
 	makeDir();
-	/* Two first launches racing both write, a moment apart: either serves. */
 	if (!fs.existsSync(firstLaunchFile()))
 		writeFileAtomic(firstLaunchFile(), `${record.startedAt}\n`);
 	writeFileAtomic(
@@ -124,10 +91,7 @@ function readRecord(id) {
 	return /** @type {ChildRecord | null} */ (readJson(recordFile(id)));
 }
 
-/**
- * The ISO time a stamp file holds, null where it is absent or no time.
- * @param {string} file
- */
+/** @param {string} file */
 function readStamp(file) {
 	const read = readText(file);
 	if (read.state === "absent") return null;
@@ -136,13 +100,11 @@ function readStamp(file) {
 	return Number.isNaN(Date.parse(text)) ? null : text;
 }
 
-/** When the first record was written here, in ms; null where none was. */
 function readFirstLaunch() {
 	const stamp = readStamp(firstLaunchFile());
 	return stamp === null ? null : Date.parse(stamp);
 }
 
-/** The time of the last session-start sweep, or null where none has run. */
 const readLastSweep = () => readStamp(lastSweepFile());
 
 /** @param {Date} at */
@@ -176,16 +138,15 @@ function readRecordsIn(dir) {
 		.filter((r) => r !== null);
 }
 
-/** Every record not given up. @returns {ChildRecord[]} */
+/** @returns {ChildRecord[]} */
 const listRecords = () =>
 	/** @type {ChildRecord[]} */ (readRecordsIn(storeDir()));
 
-/** Every given-up record. @returns {GivenUpRecord[]} */
+/** @returns {GivenUpRecord[]} */
 const listGivenUp = () =>
 	/** @type {GivenUpRecord[]} */ (readRecordsIn(givenUpDir()));
 
 /**
- * Move `record` to the given-up folder.
  * @param {ChildRecord} record
  * @param {string} reason
  * @param {Date} at
@@ -215,11 +176,7 @@ function readClosedLog() {
 	);
 }
 
-/**
- * The exclusive lock a closer holds for the whole of one resume: a pidfile,
- * held only by a live process running claude-child.js.
- * @param {string} id
- */
+/** @param {string} id */
 function recordLock(id) {
 	assertId(id);
 	makeDir();
@@ -227,7 +184,6 @@ function recordLock(id) {
 }
 
 /**
- * Whether the process `pid` started at `start` still runs.
  * @param {number | null} pid
  * @param {string | null} start
  */
@@ -236,10 +192,7 @@ function isProcessLive(pid, start) {
 	return readProcStartOf(pid) === start;
 }
 
-/**
- * When `record`'s give-up limits start: the end of its hold, else its start.
- * @param {ChildRecord} record
- */
+/** @param {ChildRecord} record */
 function clockStart(record) {
 	return record.heldSince
 		? Date.parse(record.heldSince) + HOLD_MS
@@ -247,11 +200,9 @@ function clockStart(record) {
 }
 
 /**
- * Why the sweep leaves `record` alone at `now`, or null where it resumes it.
  * @param {ChildRecord} record
  * @param {number} now
- * @param {{launcherLive: boolean, locked: boolean}} state whether its
- *   launcher still runs and whether a closer holds its lock
+ * @param {{launcherLive: boolean, locked: boolean}} state
  * @returns {string | null}
  */
 function sweepSkip(record, now, { launcherLive, locked }) {
@@ -271,7 +222,6 @@ function sweepSkip(record, now, { launcherLive, locked }) {
 }
 
 /**
- * Whether `record` has run out of attempts or time at `now`.
  * @param {ChildRecord} record
  * @param {number} now
  */

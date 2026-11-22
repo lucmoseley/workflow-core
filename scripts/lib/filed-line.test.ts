@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * lib/filed-line.js: the line naming the issue file-issue.js filed, read out
- * of output that names other issues first.
- */
 import { describe, expect, it } from "vitest";
 import { buildFiledLine, findFiledLine, parseFiledLine } from "./filed-line.js";
 

@@ -1,15 +1,7 @@
-/*
- * cost-table-testkit.ts — a fixture checkout's session cost table, at the path
- * lib/session-spend.js reads it from (#3697). Import it directly: vitest's
- * graph then selects the caller when session-spend.js moves the table.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { type CostTable, SESSION_COST_TABLE } from "./session-spend.js";
 
-/** Writes the table into the checkout `root` and returns its path. The default
- *  only reads as a table: a case asserting on a figure passes that figure. */
 export function writeCostTable(
 	root: string,
 	figures: Partial<CostTable> & { n?: number } = {},

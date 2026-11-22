@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * lib/file-claim.js is the PreToolUse core that stops one session writing a
- * file another live session holds (mantahostels#113), run by
- * scripts/guard-dispatch.js on every `Write`/`Edit`/`NotebookEdit`.
- *
- * It is THIN: every verdict is session-arbiter.js's, and those are covered by
- * session-arbiter.test.ts. What is only testable here is the core's own work —
- * building the arbiter's argv off the hook payload, reading its answer, and
- * choosing which claim rules to hand over — and the host port's, which runs
- * the arbiter as its own process under a bound.
- *
- * Cases run in process through the dispatcher's own merge and injection. The
- * arbiter answers through `runInProcess`, the process harness's owned fake,
- * except in the boundary cases that cross lib/file-claim-host.js for real:
- * the real arbiter warning, one that exits non-zero, and one that hangs.
- *
- * A payload it misreads lets one session clobber another's live edit, and a
- * fault that denies instead of logging wedges every write.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -55,14 +36,8 @@ const sb = freshSandbox();
 
 const docMap = () => path.join(sb.repo, "docs/doc-map.md");
 
-/**
- * A deny-tier path that is NOT regioned, so an anchorless write to it takes a
- * plain whole-file claim and draws no anchorless notice (mantahostels#2344),
- * and that no path rule names, so its envelope is the claim cluster alone.
- */
 const plainDoc = () => path.join(sb.repo, "docs/plain.md");
 
-/** The real arbiter, run through the process harness. */
 const inProcessArbiter: ArbiterCheck = (args, cwd) => {
 	const r = runInProcess(ARBITER, args, { cwd });
 	return r.status === 0
@@ -70,7 +45,6 @@ const inProcessArbiter: ArbiterCheck = (args, cwd) => {
 		: { ok: false, why: `exited ${r.status}`, stdout: r.stdout };
 };
 
-/** An arbiter that answers `stdout` and records the argv it was handed. */
 const standIn =
 	(stdout = "", seen: string[][] = []): ArbiterCheck =>
 	(args) => {
@@ -79,18 +53,11 @@ const standIn =
 	};
 
 interface Run {
-	/** Null where silent. */
 	output: Output | null;
 	logs: string[];
-	/** The name every log line was filed under. */
 	names: string[];
 }
 
-/**
- * The core run on `payload` as the dispatcher runs it, its arbiter port
- * `arbiterCheck`. `root` stands in for the host root, `env` for the whole
- * environment the core reads.
- */
 const run = (
 	payload: Record<string, unknown>,
 	{
@@ -113,8 +80,6 @@ const run = (
 		(c) => c.name === "guard-file-claim",
 	);
 	expect(cores).toHaveLength(1);
-	/* The core's own port rides in with the shared ones, as dispatch spreads
-	 * both into the context; host is cleared below so nothing replaces it. */
 	const adapters: Adapters & Pick<FileClaimContext, "arbiterCheck"> = {
 		...hostAdapters(root, logFor("entry")),
 		fallbackCwd: root,
@@ -140,24 +105,17 @@ const run = (
 
 const writePayload = (file: string, extra: Record<string, unknown> = {}) => ({
 	session_id: "s",
-	// Edit, the commonest of the three the matcher covers. The core reads
-	// tool_name for one thing only — whether a Write is creating a guard (#1011).
 	tool_name: "Edit",
 	tool_input: { file_path: file },
 	...extra,
 });
 
-/**
- * Allowed, with nothing said beyond the pre-emptive rule injection
- * (mantahostels#1646): an injection is the ONLY thing the output may be.
- */
 const expectAllowNoDeny = (r: Run) => {
 	if (r.output === null) return;
 	expect(Object.keys(r.output)).toEqual(["additionalContext"]);
 	expect(typeof r.output.additionalContext).toBe("string");
 };
 
-/** The log check-guard-errors.js reads, parsed as it parses it. */
 const readFaults = (logPath = store.errorLog()) => {
 	if (!fs.existsSync(logPath)) return [];
 	return fs
@@ -170,11 +128,6 @@ const readFaults = (logPath = store.errorLog()) => {
 		});
 };
 
-/*
- * The lock registry, read back after a run. `check` takes the claim as well as
- * answering it, so the lock is what proves the arbiter was consulted at all —
- * an allow on its own is indistinguishable from a core that never looked.
- */
 interface Lock {
 	path: string;
 	sessionId: string;
@@ -184,13 +137,10 @@ const holderOf = (rel: string) =>
 	(store.listLocks() as Lock[]).find((l) => l.path === rel)?.sessionId;
 
 beforeEach(() => {
-	// Product code, which the core must ignore; the testkit's sandbox makes
-	// docs/ alone.
 	fs.mkdirSync(path.join(sb.repo, "app"), { recursive: true });
 });
 
 describe("what it pulls out of the hook payload", () => {
-	/** The argv the arbiter was handed for `payload`. */
 	const argvOf = (
 		payload: Record<string, unknown>,
 		env: Record<string, string> = {},
@@ -202,12 +152,6 @@ describe("what it pulls out of the hook payload", () => {
 	};
 
 	it("hands the arbiter the check subcommand and the file", () => {
-		// The fourth and fifth arguments are the edit anchor and its original
-		// length (mantahostels#970). A payload carrying no old_string — a Write or a
-		// NotebookEdit — sends an empty anchor and a length of 0; the arbiter
-		// answers "no anchor" off the empty anchor before it ever reads the length.
-		// The sixth is the `### B<n>` ids the write introduces (mantahostels#1424), and a
-		// payload with no new_string introduces none.
 		expect(argvOf(writePayload(docMap()))).toEqual([
 			"check",
 			docMap(),
@@ -219,8 +163,6 @@ describe("what it pulls out of the hook payload", () => {
 	});
 
 	it("forwards Edit's old_string as the anchor that places the write (mantahostels#970)", () => {
-		// The core forwards it and judges nothing about it: resolving an anchor to
-		// its `### B<n>` entry is the arbiter's, per mantahostels#102's one-subsystem rule.
 		expect(
 			argvOf({
 				session_id: "s",
@@ -231,8 +173,6 @@ describe("what it pulls out of the hook payload", () => {
 	});
 
 	it("truncates a very long anchor rather than failing the exec", () => {
-		// A single argv entry is capped at 128 KB on Linux, and an old_string can
-		// exceed it.
 		const anchor = "x".repeat(20_000);
 		const argv = argvOf({
 			session_id: "s",
@@ -241,17 +181,10 @@ describe("what it pulls out of the hook payload", () => {
 		});
 		expect(argv[3]).toHaveLength(8000);
 		expect(anchor.startsWith(argv[3])).toBe(true);
-		// And the ORIGINAL length rides alongside it, because truncation loses the
-		// anchor's end — which is the whole of what the spans-regions test reads.
-		// Without it the arbiter would silently claim the entry the surviving
-		// prefix happens to sit in.
 		expect(argv[4]).toBe("20000");
 	});
 
 	it("keeps a newline-terminated anchor whole, so it is not read as truncated (mantahostels#1188)", () => {
-		// An old_string arriving SHORT of its stated length is read as truncated,
-		// and the arbiter falls back to a claim on the whole of docs/doc-map.md,
-		// which blocks every other session on it.
 		const anchor = "### B42 · A debt\nand its owner\n";
 		const argv = argvOf({
 			session_id: "s",
@@ -274,10 +207,6 @@ describe("what it pulls out of the hook payload", () => {
 	});
 
 	it("forwards the `### B<n>` ids the write introduces (mantahostels#1424)", () => {
-		// Extracted here rather than forwarded as new_string whole: new_string is
-		// unbounded, so forwarding it would need the anchor's 8000-character
-		// truncation and reintroduce the "did the ids fall off the end?" ambiguity
-		// the anchor's length exists to resolve.
 		expect(
 			argvOf({
 				session_id: "s",
@@ -293,8 +222,6 @@ describe("what it pulls out of the hook payload", () => {
 	});
 
 	it("does not forward a heading the edit only re-types", () => {
-		// The subtraction is against the UNTRUNCATED old_string — an Edit that
-		// rewrites the body under a heading it quotes introduces nothing.
 		expect(
 			argvOf({
 				session_id: "s",
@@ -322,8 +249,6 @@ describe("what it pulls out of the hook payload", () => {
 	});
 
 	it("sends no ids for a Write, which carries content rather than new_string", () => {
-		// Left unread deliberately: a whole-file Write claims the file entire, so
-		// there is nothing per-entry to say about it.
 		expect(
 			argvOf({
 				session_id: "s",
@@ -334,8 +259,6 @@ describe("what it pulls out of the hook payload", () => {
 	});
 
 	it("reads notebook_path, which NotebookEdit sends instead of file_path", () => {
-		// Reading file_path alone matched the tool and then allowed every write
-		// through it unchecked.
 		const nb = path.join(sb.repo, "docs/notes.ipynb");
 		expect(
 			argvOf({
@@ -361,9 +284,6 @@ describe("what it pulls out of the hook payload", () => {
 	});
 
 	it("passes an empty session through rather than inventing one", () => {
-		// The arbiter's own answer to an unidentifiable session is to take no
-		// claim; a core that substituted a placeholder would mint a lock under a
-		// session id nothing can ever release.
 		expect(
 			argvOf({ tool_name: "Write", tool_input: { file_path: docMap() } })[2],
 		).toBe("");
@@ -397,8 +317,6 @@ describe("the arbiter's verdict reaches the tool", () => {
 	});
 
 	it("says nothing about product code", () => {
-		// The refusing tier is docs/, .claude/, CLAUDE.md, AGENTS.md — product code
-		// is left to git (mantahostels#103).
 		live(sb, "a");
 		const r = run(
 			writePayload(path.join(sb.repo, "app/page.tsx"), { session_id: "a" }),
@@ -438,19 +356,14 @@ describe("the arbiter's verdict reaches the tool", () => {
 	});
 
 	it("does not deny on a claim whose holder has died", () => {
-		// The verdict is the arbiter's ("a lock recording a pid that is no longer
-		// the session's", session-arbiter.test.ts). What only shows here is the
-		// end of the chain: the next session's write goes through instead of the
-		// file staying wedged for as long as the dead holder's lock sits there.
 		store.acquire("docs/doc-map.md", {
 			sessionId: "gone",
-			pid: 4_194_303, // above pid_max: no process, and none can be recycled onto it
+			pid: 4_194_303,
 			procStart: "1",
 			durable: true,
 		});
 		live(sb, "bob");
 		expectAllowNoDeny(run(writePayload(docMap(), { session_id: "bob" })));
-		// The dead holder's lock was broken and re-minted to bob.
 		expect(holderOf("docs/doc-map.md")).toBe("bob");
 	});
 
@@ -473,9 +386,6 @@ describe("the arbiter's verdict reaches the tool", () => {
 	});
 
 	it("relays a field sitting BESIDE hookSpecificOutput into the log, never in silence", () => {
-		// A shape other than the exact note is not unwrapped into the rule
-		// envelope: what can be relayed is, alone, and the rest is named
-		// (mantahostels#2387).
 		const r = run(writePayload(docMap()), {
 			arbiterCheck: standIn(
 				JSON.stringify({
@@ -505,7 +415,6 @@ describe("the arbiter's verdict reaches the tool", () => {
 });
 
 describe("the host runs the arbiter as its own process, bounded", () => {
-	/** A script standing in for session-arbiter.js. */
 	const fakeArbiter = (body: string) => {
 		const at = path.join(
 			sb.dir,
@@ -532,8 +441,6 @@ describe("the host runs the arbiter as its own process, bounded", () => {
 	});
 
 	it("allows an Edit whose old_string holds a NUL, which no process can take as an argument", () => {
-		// spawnSync refuses such an argv before any arbiter starts; uncaught, the
-		// throw would reach the row's closed policy and refuse the write.
 		const r = hostRun(
 			writePayload(docMap(), {
 				tool_input: { file_path: docMap(), old_string: "a\0b" },
@@ -544,22 +451,15 @@ describe("the host runs the arbiter as its own process, bounded", () => {
 	});
 
 	it("logs an arbiter that exits non-zero, and allows the write", () => {
-		// The arbiter catches its own exceptions and exits 0, so any non-zero exit
-		// is a fault it never saw and never logged itself.
 		const r = hostRun(writePayload(docMap()), fakeArbiter("process.exit(3)"));
 		expect(r.output).toBeNull();
 		expect(r.logs).toEqual([
 			`arbiter exited 3 on ${docMap()} — write allowed unchecked`,
 		]);
-		// Field 2 of the record is what tells the guards apart in one log.
 		expect(r.names).toEqual(["guard-file-claim"]);
 	});
 
 	it("kills an arbiter that hangs, inside the hook timeout its registration gives it", () => {
-		// Fail-open-on-exception cannot catch a hang; only the port's bound can,
-		// and past the registration's budget Claude Code takes over and the core
-		// never gets to allow the write. Stub 120 s against the 5 s bound, so a
-		// bound that never fired cannot read like a stub that ended on its own.
 		const [{ timeout }] = registrationsOf("PreToolUse", "guard-dispatch.js");
 		if (typeof timeout !== "number")
 			throw new Error("the hook registration no longer carries a timeout");
@@ -578,8 +478,6 @@ describe("the host runs the arbiter as its own process, bounded", () => {
 
 describe("faults the core cannot see past", () => {
 	it("logs a payload whose shape no longer carries a path", () => {
-		// Every matched payload carries a path today, so an empty extraction means
-		// the payload shape changed under the core — silent unless logged.
 		const r = run({ session_id: "s", tool_name: "Write", tool_input: {} });
 		expect(r.output).toBeNull();
 		expect(r.logs).toEqual([
@@ -588,8 +486,6 @@ describe("faults the core cannot see past", () => {
 	});
 
 	it("logs, and forwards no ids, where new_string is not a string (mantahostels#1424)", () => {
-		// Silence there would be indistinguishable from a write that adds no
-		// entries, which is exactly the fail-open the log exists to make visible.
 		const seen: string[][] = [];
 		const r = run(
 			{
@@ -603,25 +499,19 @@ describe("faults the core cannot see past", () => {
 		expect(r.logs[0]).toMatch(/entry ids dropped/);
 	});
 
-	// chmod is advisory to root, which reads a 000 directory regardless — under
-	// it the store is readable, the arbiter denies, and these would fail for a
-	// reason that says nothing about the core.
 	const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
 
 	const sealTheStore = () => {
 		live(sb, "alice");
-		run(writePayload(docMap(), { session_id: "alice" })); // alice takes the lock
+		run(writePayload(docMap(), { session_id: "alice" }));
 		fs.chmodSync(store.paths.locksDir(), 0o000);
 		live(sb, "bob");
 	};
-	// The testkit's afterEach rmSync cannot descend into a 000 directory.
 	const unseal = () => fs.chmodSync(store.paths.locksDir(), 0o755);
 
 	it.skipIf(isRoot)(
 		"an unreadable lock store allows the write, but says so rather than going quiet (mantahostels#174)",
 		() => {
-			// The deny is genuinely lost — nothing can read alice's lock — and the
-			// write is allowed, because fail-open is house style (mantahostels#103 §6).
 			sealTheStore();
 			try {
 				const { output } = run(writePayload(docMap(), { session_id: "bob" }));
@@ -636,7 +526,6 @@ describe("faults the core cannot see past", () => {
 	it.skipIf(isRoot)(
 		"records the unreadable store where check-guard-errors.js reads it (mantahostels#174)",
 		() => {
-			// Filed under `claim`, as the arbiter's fault rather than the core's.
 			sealTheStore();
 			try {
 				run(writePayload(docMap(), { session_id: "bob" }));
@@ -652,9 +541,6 @@ describe("faults the core cannot see past", () => {
 	it.skipIf(isRoot)(
 		"never accuses a session of an unallocated id it cannot check (mantahostels#1424)",
 		() => {
-			// readHeldBy answers null for an unreadable store, which is "unknown", never
-			// "this session holds nothing" (mantahostels#174). Reading it as the latter would
-			// accuse every session that DID run alloc-entry.
 			sealTheStore();
 			try {
 				const { output } = run(
@@ -675,39 +561,14 @@ describe("faults the core cannot see past", () => {
 	);
 });
 
-/*
- * PRE-EMPTIVE INJECTION (mantahostels#1646, spec mantahostels#1762) — the claim cluster's
- * rules, handed to a session on the CLEAN branch rather than only in the
- * refusal that follows a mistake.
- *
- * Keyed by fragment id through the accessor, never by quoting the prose here: a
- * test carrying its own copy of the text passes while the store holds something
- * else (mantahostels#1644).
- *
- * The 4,000-byte ceiling cannot carry the cluster in one emission, so these
- * drive successive writes and read the union.
- */
 describe("it hands over the claim rules before the mistake", () => {
 	const coreSrc = fs.readFileSync(CORE_SRC, "utf8");
 
-	/*
-	 * The docs arm's path-tied rules (#2302), as `[rule, path, ...modules]`
-	 * rows: the paths and module gates file-claim.js spells in its skip list.
-	 */
 	const pathRows: string[][] = [
 		["roadmap-edit", "docs/reference-roadmap.html", "roadmap"],
 		["manual-sync", "docs/operating-manual.md", "governance", "roadmap"],
 	];
 
-	/*
-	 * The claim tier's three rules, in the core's own priority order, each with a
-	 * NEEDLE from its operative clause.
-	 *
-	 * `toContain(readRuleText(id))` reads the same file the core reads, so it
-	 * holds the WIRING — the id really is injected — and nothing at all about
-	 * the text: a fragment gutted of its instruction passes it. The literal is
-	 * what fails when the operative clause goes.
-	 */
 	const claimTier: [string, string[]][] = [
 		[
 			"file-claim",
@@ -721,13 +582,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		["claim-bash-route", ["file unrefused", "Read the\nclaims yourself"]],
 	];
 
-	/**
-	 * Everything the core injected across `writes` successive writes of one
-	 * file by one session, concatenated.
-	 *
-	 * Pass a NON-REGIONED path. Every run is then a plain whole-file claim the
-	 * arbiter says nothing about, so the injection is the only thing speaking.
-	 */
 	const injectedOver = (file: string, sessionId: string, writes: number) => {
 		let seen = "";
 		for (let i = 0; i < writes; i++) {
@@ -756,11 +610,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		expect(seen).toContain("MUST CLAIM FOR ITSELF");
 	});
 
-	/*
-	 * THE NEW-GUARD POINTER (#1011). Only a Write creating
-	 * `scripts/guard-*.{sh,js}` carries it: an Edit cannot create a file, and a
-	 * guard that already exists has already been through its surfaces.
-	 */
 	const toldGuardAuthoring = (file: string, tool: string) => {
 		live(sb, "a");
 		const r = run(writePayload(file, { session_id: "a", tool_name: tool }));
@@ -826,8 +675,6 @@ describe("it hands over the claim rules before the mistake", () => {
 	});
 
 	it("still speaks when the root carries a trailing slash", () => {
-		// The prefix strip is what turns the payload's absolute path into the tier
-		// test's subject, and a root spelled with a trailing / made it a no-op.
 		live(sb, "a");
 		const { output } = run(writePayload(plainDoc(), { session_id: "a" }), {
 			root: `${sb.repo}/`,
@@ -835,11 +682,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		expect(output?.additionalContext).toContain(readRuleText("file-claim"));
 	});
 
-	/**
-	 * The `.rule-injected-*` markers standing under the sandbox repo's marker
-	 * directory (`.claude/tmp/markers`, not the root itself — mantahostels#3515 F8,
-	 * issue #2).
-	 */
 	const readLatchedMarkers = () => {
 		const dir = path.join(sb.repo, ".claude", "tmp", "markers");
 		if (!fs.existsSync(dir)) return [];
@@ -847,24 +689,16 @@ describe("it hands over the claim rules before the mistake", () => {
 	};
 
 	it("carries an arbiter NOTICE and the cluster in ONE envelope (mantahostels#2369)", () => {
-		// mantahostels#2334 gave an anchorless write to a REGIONED path a notice of its own, and
-		// under mantahostels#1646 any arbiter output displaced the rules — so on the repo's
-		// most-written guarded file the first write got no rule at all, and a
-		// session that wrote once got none ever.
 		live(sb, "a");
 		const first = run(writePayload(docMap(), { session_id: "a" })).output;
 		expect(first?.permissionDecision).toBeUndefined();
 		const said = first?.additionalContext ?? "";
 		expect(said).toContain("claims the WHOLE of");
-		// The notice spends the same budget (mantahostels#2386); both rules still
-		// fit behind it.
 		expect(said).toContain(readRuleText("claim-bash-route"));
 		expect(said).toContain(readRuleText("file-claim"));
-		// The notice comes FIRST — it is about the write in hand, the rules are not.
 		expect(said.indexOf("claims the WHOLE of")).toBeLessThan(
 			said.indexOf(readRuleText("claim-bash-route")),
 		);
-		// Emitted means latched, or the next write would repeat it.
 		expect(readLatchedMarkers()).toEqual(
 			expect.arrayContaining([
 				".rule-injected-claim-bash-route-main-a",
@@ -873,10 +707,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		);
 	});
 
-	/*
-	 * A NON-REGIONED trigger, which is what mantahostels#2369 turned on. The unreadable store
-	 * carries no rule content of its own and fires on a plain whole-file path.
-	 */
 	it.skipIf(typeof process.getuid === "function" && process.getuid() === 0)(
 		"rides with a notice carrying no rule content of its own (mantahostels#2369)",
 		() => {
@@ -896,17 +726,11 @@ describe("it hands over the claim rules before the mistake", () => {
 		},
 	);
 
-	/*
-	 * The case above is chmod-based, and chmod is advisory to root, so on a root
-	 * runner mantahostels#2369's non-regioned limb is pinned only here (mantahostels#2387).
-	 */
 	it("rides with the dirty-and-unclaimed notice, root or not (mantahostels#2387)", () => {
 		gitRepo(sb);
-		// Untracked is dirty to `git status --porcelain`, so no commit is needed.
 		fs.writeFileSync(plainDoc(), "an edit nobody claims\n");
 		live(sb, "alice");
 		const first = run(writePayload(plainDoc(), { session_id: "alice" })).output;
-		// An allow, not a refusal: only a denial may displace the cluster.
 		expect(first?.permissionDecision).toBeUndefined();
 		const said = first?.additionalContext ?? "";
 		expect(said).toMatch(/uncommitted changes that no live session claims/);
@@ -928,12 +752,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		});
 
 	it("emits the notice alone, unlatched, where it crowds every rule out", () => {
-		// The notice counts against the 4,000-byte ceiling, so a long enough one
-		// leaves no room for even the highest-priority fragment. It must then
-		// defer UNLATCHED — mantahostels#2261's failure, which no assertion on the output can
-		// see — rather than being marked as said and lost for the session's life.
-		//
-		// A stand-in arbiter, because no real note is anywhere near this long.
 		live(sb, "a");
 		const huge = "N".repeat(3999);
 		const r = run(writePayload(plainDoc(), { session_id: "a" }), {
@@ -941,7 +759,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		});
 		expect(r.output).toEqual({ additionalContext: huge });
 		expect(readLatchedMarkers()).toEqual([]);
-		// Not vacuous: the same core, told nothing, latches.
 		const quiet = run(writePayload(plainDoc(), { session_id: "a" }));
 		expect(quiet.output?.additionalContext).toContain(
 			readRuleText("file-claim"),
@@ -949,10 +766,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		expect(readLatchedMarkers()).not.toEqual([]);
 	});
 
-	/*
-	 * THE ARMS THAT ONLY CARRY THE NOTE, each failing by saying nothing at all
-	 * (mantahostels#2369).
-	 */
 	it.each([
 		["outside both tiers", () => path.join(sb.repo, "app/page.tsx"), true],
 		["after the arbiter died", () => plainDoc(), false],
@@ -966,7 +779,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		expect(r.output?.additionalContext).toContain("a note");
 	});
 
-	/** The rule envelope a fresh session's first write to `rel` carries. */
 	const firstEnvelope = (rel: string) => {
 		live(sb, "a");
 		const r = run(writePayload(path.join(sb.repo, rel), { session_id: "a" }));
@@ -974,7 +786,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		return r.output?.additionalContext ?? "";
 	};
 
-	// THE AUTHORITY-CLASS RULE (#2016).
 	describe("on a hand edit of a derived or generated-only doc", () => {
 		const classed = (classes: Record<string, object>) =>
 			fs.writeFileSync(
@@ -1047,7 +858,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		});
 	});
 
-	// THE ROADMAP-EDIT RULE (#2021) AND THE MANUAL-SYNC RULE (#2233).
 	describe.each([
 		{
 			rule: "roadmap-edit",
@@ -1074,7 +884,6 @@ describe("it hands over the claim rules before the mistake", () => {
 	});
 
 	it.each(
-		// Each module a row names shut in turn, the row's others left on.
 		pathRows.flatMap(([rule, rel, ...gates]) =>
 			gates.map((shut) => ({
 				rule,
@@ -1093,7 +902,6 @@ describe("it hands over the claim rules before the mistake", () => {
 			rel: string;
 			modules: string[];
 		}) => {
-			// The suite injects its own modules (vitest.setup.ts).
 			vi.stubEnv("WFC_MODULES", modules.join(","));
 			const ctx = firstEnvelope(rel);
 			expect(ctx).not.toContain(readRuleText(rule));
@@ -1102,8 +910,6 @@ describe("it hands over the claim rules before the mistake", () => {
 	);
 
 	it("spells every path row's gate where lib/rule-emission.js reads it", () => {
-		// The budget readers see a core's module gates only as statement-initial
-		// `...ruleModule(ctx, "<module>", ["<id>"])` lines (#2785).
 		for (const [rule, rel, ...gates] of pathRows) {
 			expect(coreSrc).toContain(`rel === "${rel}" ? [] : ["${rule}"]`);
 			for (const module of gates)
@@ -1116,7 +922,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		}
 	});
 
-	// THE WRITING-FOR-AGENTS POINTER (#2030).
 	describe("on a write to a skill file, a CLAUDE.md or an AGENTS.md", () => {
 		it.each([
 			".claude/skills/x/SKILL.md",
@@ -1161,10 +966,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		).toBeNull();
 	});
 
-	/* The sanctioned scratch directory sits INSIDE `.claude/`, so it reaches the
-	 * refusing arm unless the arm above it takes it first (mantahostels#2089, mantahostels#2103). A
-	 * session writing throwaway scratch has no claim to release, so the rules
-	 * would be four kilobytes it can never act on. */
 	it("says nothing on a write to the sanctioned scratch directory", () => {
 		live(sb, "a");
 		expect(
@@ -1190,32 +991,12 @@ describe("it hands over the claim rules before the mistake", () => {
 		);
 	});
 
-	/*
-	 * THE PACKING ARITHMETIC (mantahostels#2386).
-	 *
-	 * Which ids reach a session's FIRST guarded write is a property of the
-	 * fragments' BYTE LENGTHS against the ceiling, not of the call's spelling —
-	 * and the injection stops at the first id that does not fit rather than
-	 * skipping to a smaller one behind it. So a fragment that merely grows can
-	 * silently push claim-bash-route, the id nothing anywhere reprints, off a
-	 * one-write session's only envelope.
-	 *
-	 * Each case below checks the model against what the core really emitted,
-	 * never the model alone: were that `break` ever to become a skip to a smaller
-	 * id behind, a model would go on agreeing with itself.
-	 */
 	const cap = readRuleCap();
 
-	/** The ids each `injectRules` array names, in the order it names them. */
 	const calls = [...coreSrc.matchAll(/injectRules:\s*\[([^\]]*)\]/g)].map((m) =>
 		[...m[1].matchAll(/"([a-z-]+)"/g)].map((x) => x[1]),
 	);
 
-	/**
-	 * The ids the core offers on one kind of write, in its order. On the docs
-	 * arm `docs` names the one rule its write's path or class keeps, or null
-	 * for none, of doc-authority-class, writing-for-agents and every path row.
-	 */
 	const orderFor = (
 		call:
 			| { docs: string | null }
@@ -1225,12 +1006,10 @@ describe("it hands over the claim rules before the mistake", () => {
 	) => {
 		expect(calls).toHaveLength(4);
 		const newGuard = calls.find((ids) => ids.includes("guard-authoring"));
-		// Both tiers skip writing-for-agents off a document written for agents.
 		const scriptsArm = calls.find(
 			(ids) =>
 				ids.includes("script-self-claim") && !ids.includes("guard-authoring"),
 		);
-		// The fourth call, outside both tiers, names no claim rule.
 		const docs = calls.find(
 			(ids) => ids.includes("file-claim") && !ids.includes("script-self-claim"),
 		);
@@ -1252,7 +1031,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		return chosen;
 	};
 
-	/** The leading ids whose fragments fit one envelope under the cap. */
 	const fillEnvelope = (ids: string[]) => {
 		let envelope = "";
 		const taken: string[] = [];
@@ -1267,7 +1045,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		return taken;
 	};
 
-	/** The injection's greedy fill, modelled. */
 	const modelPacks = (ids: string[]) => {
 		const out: string[][] = [];
 		let remaining = [...ids];
@@ -1281,13 +1058,8 @@ describe("it hands over the claim rules before the mistake", () => {
 		return out;
 	};
 
-	/** Every id any call can name — the alphabet emittedPacks reads back. */
 	const cluster = [...new Set(calls.flat())];
 
-	/**
-	 * What the core really emitted over `writes` successive writes, split back
-	 * into the ids each envelope carried; null for a write that said nothing.
-	 */
 	const emittedPacks = (
 		file: string,
 		sessionId: string,
@@ -1394,7 +1166,6 @@ describe("it hands over the claim rules before the mistake", () => {
 		const expected = modelPacks(orderFor("new-guard"));
 		expect(expected[0][0]).toBe("guard-authoring");
 		live(sb, "a");
-		// Never written, so every Write below is still creating it.
 		expect(
 			emittedPacks(
 				path.join(sb.repo, "scripts/guard-new.sh"),
@@ -1409,27 +1180,15 @@ describe("it hands over the claim rules before the mistake", () => {
 		live(sb, "a");
 		const first = injectedOver(plainDoc(), "a", claimTier.length);
 		for (const [id] of claimTier) expect(first).toContain(readRuleText(id));
-		// The latch is written on emission.
 		expect(injectedOver(plainDoc(), "a", 3)).toBe("");
 	});
 });
 
-/*
- * THE ENVELOPE BOTH SIDES AGREE ON (mantahostels#2387).
- *
- * mantahostels#2369 made the core unwrap an arbiter NOTE and re-emit its text inside the
- * rule envelope, and the unwrap is shape-exact: the object's key set must be
- * exactly ["hookSpecificOutput"] and that object's exactly ["additionalContext",
- * "hookEventName"]. So the day session-arbiter.js adds a field to that
- * emission, every note silently stops riding with the rules and mantahostels#2369 reverts
- * to the behaviour it fixed.
- */
 describe("what the arbiter emits on a note (mantahostels#2387)", () => {
 	it("carries exactly the two key sets the core's unwrap requires", () => {
 		gitRepo(sb);
 		fs.writeFileSync(plainDoc(), "an edit nobody claims\n");
 		live(sb, "alice");
-		// The core's own argv: check <file> <session> <anchor> <anchor_len> <ids>.
 		const r = runInProcess(ARBITER, ["check", plainDoc(), "alice", "", "", ""]);
 		expect(r.status).toBe(0);
 		const parsed = JSON.parse(r.stdout);
@@ -1439,8 +1198,6 @@ describe("what the arbiter emits on a note (mantahostels#2387)", () => {
 			"hookEventName",
 		]);
 		expect(parsed.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-		// Not vacuous: a silent arbiter would satisfy the key sets above by
-		// emitting nothing at all.
 		expect(parsed.hookSpecificOutput.additionalContext).toMatch(
 			/uncommitted changes that no live session claims/,
 		);
@@ -1614,12 +1371,6 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		expect(said).not.toContain(readRuleText("doc-authority-class"));
 	});
 
-	/*
-	 * The claim store is the arbiter's, on the host: the real host port spawns
-	 * it, and it finds its store by the hook process's CLAUDE_PROJECT_DIR, which
-	 * the seam maps to the main checkout. runCore's env reaches the core
-	 * alone, so the process is pointed at the store each step reads.
-	 */
 	const aliceHoldsIn = (root: string) => {
 		storeAt(root);
 		store.acquire("docs/plain.md", live(split, "alice"));
@@ -1653,7 +1404,6 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		expect(store.listLocks()).toEqual([]);
 	});
 
-	/* Cut where the checkout module cuts them, under the main checkout. */
 	it("warns when two sessions in two worktrees write one doc (#4397)", () => {
 		const first = cutWorktree(at.main, "s1");
 		const second = cutWorktree(at.main, "s2");
@@ -1678,8 +1428,6 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		hashOf(at.main, "main copy\n");
 		const mine = hashOf(wt, "worktree copy\n");
 		writeFrom(wt, "bob");
-		/* The pin is the after-write record's, which the PostToolUse hook makes
-		 * in the session's directory. */
 		const back = process.cwd();
 		process.chdir(wt);
 		try {

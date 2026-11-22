@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/burn-off-listing.js lists every plan's live background sessions with
- * the model each last answered on, for scripts/burn-off-sessions.js (#4992).
- * A red here means `burn-mode.sh off` would leave a Fable session running, or
- * move one it should not, or read a plan it could not list as empty.
- */
 import { describe, expect, it } from "vitest";
 import { readLiveSessions } from "./burn-off-listing.js";
 

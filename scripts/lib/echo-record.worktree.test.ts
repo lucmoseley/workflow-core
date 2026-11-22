@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/echo-record.js, the record-tool-echo PostToolUse core, run from a
- * linked worktree of a main checkout (#4242): the chain it writes is keyed on
- * the session and agent under TMPDIR, so it reads no tree and lands in
- * neither checkout. The chain's rules are lib/echo-call.test.ts's.
- */
 
 import fs from "node:fs";
 import path from "node:path";

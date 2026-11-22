@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/fixtures/auth-status.js, the fake every launch site's `claude`
- * stub answers `auth status` through, to the installed binary (#2236). The
- * real `auth status` makes no model call, so each live case is free. Breaking
- * it costs lib/launch-auth.js: a fake reporting an auth the harness ranks
- * otherwise passes a site's admit case while the real launch bills per token.
- *
- * The live cases run under a scratch CLAUDE_CONFIG_DIR, which #838 keeps
- * every test to, so the real binary has no login there: the fake's no-login
- * mode stands beside it.
- */
 
 import { execFile } from "node:child_process";
 import fs from "node:fs";
@@ -34,7 +23,6 @@ const realClaude = (process.env.PATH ?? "")
 	});
 
 const CASES: [string, Record<string, string>, boolean][] = [
-	/* The real binary ignores the fake's knob. */
 	["no login", { WFC_FAKE_AUTH_NO_LOGIN: "1" }, false],
 	["an API key", { ANTHROPIC_API_KEY: "k" }, false],
 	["an auth token", { ANTHROPIC_AUTH_TOKEN: "t" }, false],
@@ -66,7 +54,6 @@ const CASES: [string, Record<string, string>, boolean][] = [
 	["an auth token over a helper", { ANTHROPIC_AUTH_TOKEN: "t" }, true],
 ];
 
-/* The seat's own settings carry the helper; the plain project does not. */
 const SEAT_CASES: [string, Record<string, string>][] = [
 	["a seat's helper", {}],
 	["a seat's helper over a key", { ANTHROPIC_API_KEY: "k" }],
@@ -100,7 +87,6 @@ async function readStatusOf(
 	env: Record<string, string>,
 	cwd: string,
 ) {
-	/* With no login the binary exits 1, still printing its JSON. */
 	const { stdout, code } = await run(argv[0], argv.slice(1), {
 		cwd,
 		env: {

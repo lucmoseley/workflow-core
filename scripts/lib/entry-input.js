@@ -1,23 +1,13 @@
-/*
- * entry-input.js — a Node entry's payload read and fail-open logger, apart
- * from lib/guard-entry.js's kit: an entry that may find nothing to do, such as
- * record-divergence.js on every git call, pays none of the kit's loads before
- * it knows (#2899).
- */
-
 const { caught, ignoreFailure } = require("./caught.js");
 const { readFdAll } = require("./read-fd.js");
 
 /**
- * gl_log, its records naming `name`: the entry's file, or a dispatcher core's
- * own name.
  * @param {string} name
- * @param {string} [root] the host root the entry resolved, as logError takes it
+ * @param {string} [root]
  * @returns {(what: string, detail?: string) => void}
  */
 function logger(name, root) {
 	return (what, detail) => {
-		// The record is the fail-open's trace, never its policy (mantahostels#103 §6).
 		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
 				name,
@@ -29,11 +19,10 @@ function logger(name, root) {
 	};
 }
 
-/** stdin that could not be read: no payload is known, so no core can judge. */
 class PayloadUnreadable extends Error {
 	/**
 	 * @param {string} message
-	 * @param {{ cause: unknown }} options the read's own fault
+	 * @param {{ cause: unknown }} options
 	 */
 	constructor(message, options) {
 		super(message, options);
@@ -42,13 +31,9 @@ class PayloadUnreadable extends Error {
 }
 
 /**
- * The hook payload off stdin, parsed. Null where there is none, which
- * is allowed unrecorded, or where it is not JSON, logged.
- * @param {string} noun what goes unchecked, for the record
+ * @param {string} noun
  * @param {(what: string, detail?: string) => void} log
  * @returns {Record<string, unknown> | null}
- * @throws {PayloadUnreadable} where stdin will not read: the caller's failure
- *   policy judges it (#4132)
  */
 function readPayload(noun, log) {
 	let raw;

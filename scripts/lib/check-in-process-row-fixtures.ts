@@ -1,21 +1,3 @@
-/*
- * The fixture each pre-commit dispatcher row's equivalence case (#5172) is
- * judged on (#5195), one entry per row of lib/precommit-gates.js: a row with
- * no entry fails its case.
- *
- * `path` is a path the row's arm matches, a member of its computed list where
- * it has one, where the row names no `staged` of its own; an always-armed row's is any path. `fault` is owed by exactly the
- * rows comparing an `--against` or `--index` side: `inherited` the files the
- * tree's one commit holds, one fault among them, and `added` the files the
- * index then stages, adding a second. `names` is what the added fault's
- * findings print, where that is not its files' paths: a checker whose
- * findings name something else, such as a command. `scoped` marks a checker
- * whose sides hold only the files the commit changes, so a fault in a file
- * it leaves alone reaches neither side.
- *
- * FOR TESTS ONLY.
- */
-
 export type Files = Record<string, string>;
 
 export interface RowFixture {
@@ -28,14 +10,10 @@ export interface RowFixture {
 	};
 }
 
-/* Joined, so this file's own lines hold none of the faults they write for
- * the checkers that read scripts/ .ts to find. */
 const env = (name: string) => ["process", "env", name].join(".");
 const envWrite = (name: string) => `${env(name)} = "x";\n`;
 const GH = ["g", "h"].join("");
 
-/* A text module whose every command's payload is at the threshold
- * hook-limits.js sets, so each command is one PAYLOAD-OVER finding. */
 const THRESHOLD = 10_000;
 const HOOK_LIMITS = `const HOOK_PERSIST_CHARS = ${THRESHOLD};\nconst RULE_CAP = 500;\n`;
 const textModule = (commands: string[]) =>
@@ -242,9 +220,6 @@ export const ROW_FIXTURES: Record<string, RowFixture> = {
 	"doc-map": { path: "docs/notes.md" },
 	"context-budget": {
 		path: "CLAUDE.md",
-		/* A pool member under vitest.setup.ts's WFC_ALWAYS_LOADED, well over
-		 * check-context-budget.js's CAP_BYTES at HEAD, then 100 B more: the cap
-		 * is on the pool's total, so a second fault is the same total grown. */
 		fault: {
 			inherited: { "docs/working-contract.md": `${"x".repeat(40_000)}\n` },
 			added: { "docs/working-contract.md": `${"x".repeat(40_100)}\n` },

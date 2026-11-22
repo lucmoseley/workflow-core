@@ -1,10 +1,3 @@
-/*
- * cached-plan.js — the launcher's lookup in the per-file pass store (#4790),
- * kept out of run-vitest.js so the plan, the named launch and the queued
- * probe narrow one way.
- *
- * IMPLICIT:  narrows a vitest launch by the per-file pass store (#4790) — the files a recorded pass attests on identical inputs leave the plan or argv, a banner names each — and writes the certificate of a launch whose every file was cached, which spawns nothing.
- */
 const fs = require("node:fs");
 const path = require("node:path");
 const { buildCachedBanner, foldCached, lookup } = require("./pass-store.js");
@@ -31,19 +24,9 @@ const { readTreeSnapshot, endOfRunTreeIdentity } = require("./tree-drift.js");
  *   notice: string|null }} Looked
  */
 
-/* Selection flags whose argv no lookup narrows: what they select is
- * expanded elsewhere. */
 const UNNAMED = new Set(["--changed", "--adopt", "--retest"]);
 
 /**
- * The launch with every file a recorded pass attests taken out of it. A plan
- * keeps its order and loses those files from `files` and `argv`; a named
- * launch — every bare word an existing test file — loses those words. Any
- * other launch, or one `on` is false for, is looked nothing up: `cached`
- * is then null, which the run's records keep apart from none cached.
- *
- * `allCached` is a launch whose every file was cached: it must spawn
- * nothing, its argv narrowed to no file reading as the whole suite.
  * @template {Plan} P
  * @param {string[]} argv
  * @param {P|null} plan
@@ -92,9 +75,6 @@ function lookupLaunch(argv, plan, { root, on }) {
 }
 
 /**
- * The repo-relative test files a named launch's bare words are, or null
- * where any word is something else — a filter vitest matches as a
- * substring, a directory, a missing file.
  * @param {string[]} argv
  * @param {string} root
  * @returns {string[]|null}
@@ -114,7 +94,6 @@ function namedTestFiles(argv, root) {
 }
 
 /**
- * `word` repo-relative in `/` form, or null where it lies outside `root`.
  * @param {string} root
  * @param {string} word
  * @returns {string|null}
@@ -124,10 +103,6 @@ const relativeTo = (root, word) =>
 	null;
 
 /**
- * The certificate of a launch whose every file a recorded pass attested, as
- * its vitest teardown would have written it, no file
- * run and each cached file folded in, so `attestationOf` reads it as it reads
- * any narrowed run (#4790).
  * @param {Cached[]} cached
  * @param {{ root: string, launch: Partial<import("./suite-handoff.js").Launch>,
  *   changedPaths: string[]|null, base: string|null, startedAtMs: number,

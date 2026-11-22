@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/empty-secret.js's refusal wording (#2554). The hidden-prompt case is
- * read here because no test drives write-secret.js on a real terminal; the
- * piped case runs end to end in write-secret.test.ts. Loosen a case and the
- * founder is told to retype a value no prompt asked for, or handed a line
- * that differs from the one the founder hand-over rule prints.
- */
 
 import { describe, expect, it } from "vitest";
 import { emptyWhy } from "./empty-secret.js";

@@ -187,6 +187,18 @@ describe("the citation prefix gate", () => {
 			expect(r.output).not.toContain("#3664 should be");
 		});
 
+		it("judges as bare an owner glued to the previous citation's digits", () => {
+			const repo = newRepo();
+			repo.stage(
+				"notes.md",
+				"Filed mantahostels#900lucmoseley/mantahostels#3664.\n",
+			);
+
+			const r = run(repo);
+			expect(r.code).toBe(1);
+			expect(r.output).toContain("mantahostels#3664 should be #3664");
+		});
+
 		it.each(["someone-else", "xlucmoseley"])(
 			"refuses owner %s, naming the citation",
 			(owner) => {

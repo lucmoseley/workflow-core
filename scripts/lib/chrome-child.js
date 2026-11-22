@@ -1,20 +1,3 @@
-/*
- * chrome-child.js — what claude-child.js's Chrome child is always told, the
- * tally of the tabs it leaves behind, what the launcher says of its end, and
- * how a closer's resume ended (#4847, #5385). No I/O here.
- *
- * Every Chrome tool result ends in a `Tab Context:` block listing the tabs in
- * the session's own Claude tab group, and closing the last one answers "Group
- * is now empty (auto-removed)". The group holds only tabs the session opened,
- * and no later session can see or close it but a resume of the same session
- * id, and only where the child was killed rather than exiting cleanly
- * (#5352): so what the last result lists is what stays in the founder's tab
- * strip. A session cut off from its group is told "This session has no tab
- * group of its own": the tabs it held then stay open too, out of its reach.
- */
-
-/* Appended to the child's system prompt on every launch, so no brief has to
- * carry them. */
 const SHARED_LINES = [
 	"Stop when the same screen comes back twice, or after 2 failed tries at one action, and report what you saw.",
 	"Where a page you are only reading asks you to prove you are human, try to answer it yourself.",
@@ -32,8 +15,6 @@ const HAND_OVER_LINE =
 const chromeStandingLines = (handOver) =>
 	[...SHARED_LINES, handOver ? HAND_OVER_LINE : CLOSE_ALL_LINE].join("\n");
 
-/* The one user message of a close-only turn: the launcher's, its hand-over
- * trim, and a closer's resume. */
 const CLOSE_PROMPT =
 	"Close every tab in your own tab group with tabs_close_mcp until the group is gone. Do nothing else: open no tab and create no group. Reply in one line once it is gone.";
 const TRIM_PROMPT =
@@ -42,8 +23,6 @@ const RESUME_PROMPT =
 	"Call tabs_context_mcp without createIfEmpty, then close every tab it lists with tabs_close_mcp until the group is gone. Do nothing else: open no tab and create no group.";
 
 const TAB_LINE = /^\s*• tabId (\d+): "(.*)" \("(.*)"\)\s*$/;
-/* A line of a `browser_batch` result opens with the tool it ran, in square
- * brackets. */
 const CLOSED_LINE = /^(?:\[\w+\] )?Closed tab (\d+)\./;
 const CREATED_LINE = /^(?:\[\w+\] )?Created new tab\. Tab ID: (\d+)/;
 const NO_GROUP = "This session has no tab group of its own";
@@ -57,7 +36,6 @@ const EMPTIED = "Group is now empty";
  */
 
 /**
- * One tool result's text parts.
  * @param {unknown} content
  * @returns {string[]}
  */
@@ -70,7 +48,6 @@ function textParts(content) {
 }
 
 /**
- * The text of the tool results one stream row carries.
  * @param {unknown} row
  * @returns {string[]}
  */
@@ -84,7 +61,6 @@ function toolResultTexts(row) {
 }
 
 /**
- * The tabs a `Tab Context:` block lists, undefined where `text` is none.
  * @param {string} text
  * @returns {Tabs | undefined}
  */
@@ -106,8 +82,7 @@ function listedTabs(text) {
 }
 
 /**
- * `open` after the tabs one result line says were closed or made.
- * @param {Tabs} open changed in place
+ * @param {Tabs} open
  * @param {string} line
  */
 function applyLine(open, line) {
@@ -120,18 +95,13 @@ function applyLine(open, line) {
 		open.set(tabId, { tabId, title: "", url: "" });
 }
 
-/**
- * The tabs a child leaves open, read off its `--output-format stream-json`
- * rows in order: those its group still holds, and those of a group it was cut
- * off from. `missingIsEmpty` reads a missing group as no tab instead.
- */
 function createTabTally({ missingIsEmpty = false } = {}) {
 	/** @type {Tabs} */
 	let open = new Map();
 	/** @type {OpenTab[]} */
 	const orphaned = [];
 	return {
-		/** @param {unknown} row one parsed stream row */
+		/** @param {unknown} row */
 		read(row) {
 			for (const text of toolResultTexts(row)) {
 				for (const line of text.split("\n")) applyLine(open, line);
@@ -155,12 +125,6 @@ function createTabTally({ missingIsEmpty = false } = {}) {
 	};
 }
 
-/**
- * How a closer's resume ended, read off its stream rows: `closed` once the
- * group is emptied or listed with no tab, `gone` where the session has no
- * group left, `not-connected` where the bridge did not answer, else `failed`.
- * The last of these the results say is the one that stands.
- */
 function createCloseReader() {
 	/** @type {"closed" | "gone" | "not-connected" | undefined} */
 	let said;
@@ -177,7 +141,6 @@ function createCloseReader() {
 }
 
 /**
- * What one tool result says of the close, `before` where it says nothing.
  * @param {string} text
  * @param {"closed" | "gone" | "not-connected" | undefined} before
  */
@@ -189,10 +152,7 @@ function closeSaid(text, before) {
 	return listed === undefined ? before : undefined;
 }
 
-/**
- * The launcher's own result row, where the child gave none.
- * @param {"time_limit" | "killed" | "no_result" | "failed"} end
- */
+/** @param {"time_limit" | "killed" | "no_result" | "failed"} end */
 const launcherRow = (end) => ({
 	type: "result",
 	subtype: `launcher_${end}`,
@@ -205,14 +165,6 @@ const named = (t) =>
 	`${t.title ? `"${t.title}"` : "an untitled tab"} (${t.url})`;
 
 /**
- * What the launcher prints and exits with once the child has ended: one JSON
- * line on stdout on every end path, the child's result row (or the
- * launcher's own) with `sessionId`, `tabsLeftOpen`, `heldTab` and `notes`,
- * every `claude-child:` stderr line mirrored in `notes` word for word.
- *
- * `held` are the tabs kept open for the founder under `--hand-over`: never in
- * `tabsLeftOpen`, and never in the "left N tab(s) open" wording the weekly
- * outcome review counts as the fault (#5382).
  * @param {{
  *   sessionId: string,
  *   result: Record<string, unknown> | undefined,
@@ -226,11 +178,7 @@ const named = (t) =>
  *   failed: string | undefined,
  *   said: string[],
  *   closeCommand: string,
- * }} end `stopped`: the launcher stopped the child by signal itself, to keep
- *   its group; `limitMs`: the limit the launcher interrupted the child at;
- *   `killedBy`: the signal the launcher itself was killed by; `failed`: why
- *   the launch failed before the child ran; `said`: what the launcher noted
- *   along the way
+ * }} end
  * @returns {{stdout: string, stderr: string, exit: number, notes: string[]}}
  */
 function chromeOutcome(end) {
@@ -254,10 +202,7 @@ function chromeOutcome(end) {
 
 /** @typedef {Parameters<typeof chromeOutcome>[0]} ChromeEnd */
 
-/**
- * What the launcher says of the tabs left and held.
- * @param {ChromeEnd} end
- */
+/** @param {ChromeEnd} end */
 function tabNotes({ sessionId, left, held, closeCommand }) {
 	const said = [];
 	if (left.length > 0)
@@ -277,7 +222,6 @@ function tabNotes({ sessionId, left, held, closeCommand }) {
 }
 
 /**
- * What the launcher says of how the child ended, where anything went wrong.
  * @param {ChromeEnd} end
  * @returns {string[]}
  */
@@ -307,7 +251,6 @@ function endNotes({
 }
 
 /**
- * Which end the launcher's own row names.
  * @param {ChromeEnd} end
  * @returns {"time_limit" | "killed" | "no_result" | "failed"}
  */
@@ -317,11 +260,7 @@ function launcherEnd({ failed, killedBy, limitMs }) {
 	return limitMs === undefined ? "no_result" : "time_limit";
 }
 
-/**
- * 1 where the child gave no result row; a child the launcher stopped itself
- * exits as its result says; any other its own status.
- * @param {ChromeEnd} end
- */
+/** @param {ChromeEnd} end */
 function exitOf({ result, stopped, status }) {
 	if (!result) return 1;
 	if (stopped) return result.is_error === true ? 1 : 0;

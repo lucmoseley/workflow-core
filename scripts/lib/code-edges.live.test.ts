@@ -11,8 +11,6 @@ import {
 	readMarkerLines,
 } from "./code-edges-declaring-testkit";
 
-/* The manifest the keyed lines name, read two hops in: guard-core-load.js's
- * declaration, then the cores its `core` values name. */
 const GUARD_CORES = path.join(ROOT, "scripts/lib/guard-cores.json");
 
 const files = Object.entries(DECLARING).map(([rel, at]) => ({
@@ -22,7 +20,6 @@ const files = Object.entries(DECLARING).map(([rel, at]) => ({
 	lines: readMarkerLines(at),
 }));
 
-/* A comment line, which a keyless line's target must be spelled outside. */
 const COMMENT_LINE = /^\s*(?:\/\/|\/?\*|#)/;
 
 const codeOf = (text: string) =>

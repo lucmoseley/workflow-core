@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The shared helper's own suite: parseCliArgs and claimDataFile in isolation,
- * the contended case against the real arbiter in the testkit sandbox.
- * Everything that must go through a spawned generator CLI — the wiring that
- * calls claimDataFile at all — stays in each generator's own *.test.ts.
- *
- * Extracted at mantahostels#1596, after each generator's own copy drifted.
- * Those generators write docs/doc-map.md and its sidecar through this claim,
- * so a loosened case lets one write over a live session's doc-map edit, or
- * lose the record of why its claim failed.
- */
 
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -45,9 +34,6 @@ describe("parseCliArgs", () => {
 describe("claimDataFile", () => {
 	const sb = freshSandbox();
 
-	/* Fails open (mantahostels#1194): a claim the arbiter refuses costs the content record
-	 * and nothing else, and is never grounds to stop the write. This is the
-	 * shape check-instruction-surface.js's rebaseline wants. */
 	it("fails open by default, printing why the record was lost", () => {
 		const write = spyStderr();
 		const result = claimDataFile("docs/doc-map-classes.json", {

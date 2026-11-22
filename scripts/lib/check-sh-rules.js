@@ -29,14 +29,9 @@
  *    nothing.
  *  - It does NOT check whether shellcheck is actually installed.
  */
-
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 
-/**
- * The npm script a segment runs, null where it is not npm. `npm check:sh` —
- * no `run` — is npm's own shorthand and runs the same script.
- * @param {string[]} words
- */
+/** @param {string[]} words */
 function npmScript(words) {
 	if (words[0] !== "npm") return null;
 	return (words[1] === "run" ? words[2] : words[1]) ?? null;

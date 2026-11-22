@@ -1,13 +1,3 @@
-/*
- * canary-remark-host.js — the production ports lib/canary-remark.js reads
- * (#4744): git at a revision and the worktree list, the live session
- * listing, each canary or writer run as a session's hook would run it, and
- * the scratch tree a revision's canary is taken into. Kept apart so the
- * core's choices of whom to vouch for and whom the move strands are tested
- * without a bash canary or a real repository; level-main.test.ts crosses
- * these adapters for real.
- */
-
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -23,15 +13,10 @@ const { worktreePaths } = require("./worktree-paths.js");
  * @typedef {import("./canary-remark.js").RemarkPorts} RemarkPorts
  */
 
-/* Untraced: a canary or writer is a few file reads and one jq. */
+// guess, #5529
 const HOOK_TIMEOUT_MS = 10_000;
 
-/**
- * Every session `claude agents --json` lists, with the directory it started
- * in. The self-test is waived: a levelling pass runs detached from whichever
- * session started it, and acts only on the sessions listed.
- * @type {ListSessions}
- */
+/** @type {ListSessions} */
 function listLiveSessions() {
 	const listed = readAgentsForLevelling();
 	if (listed.why !== undefined) return { why: listed.why };
@@ -49,10 +34,9 @@ function listLiveSessions() {
 }
 
 /**
- * Run a canary or writer for one session, as its hook would.
  * @param {string} script
  * @param {LiveSession} s
- * @param {NodeJS.ProcessEnv} [env] added to the hook's environment
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {{ ok: boolean, said: string }}
  */
 function runHook(script, s, env = {}) {
@@ -71,7 +55,7 @@ function runHook(script, s, env = {}) {
 }
 
 /**
- * @param {string} root the main checkout
+ * @param {string} root
  * @param {string} rev
  * @param {string} file
  * @returns {import("./canary-remark.js").ReadAt}
@@ -79,15 +63,14 @@ function runHook(script, s, env = {}) {
 function readAt(root, rev, file) {
 	const text = gitRead(["show", `${rev}:${file}`], root);
 	if (text !== null) return { text };
-	/* Absent at `rev` lists nothing; a git fault answers null. */
 	if (gitRead(["ls-tree", "--name-only", rev, "--", file], root) === "")
 		return { absent: true };
 	return { why: `git could not read ${file} at ${rev}` };
 }
 
 /**
- * @param {string} root the main checkout
- * @param {string} scratch a directory the re-mark may fill and remove
+ * @param {string} root
+ * @param {string} scratch
  * @param {ListSessions} [listSessions]
  * @returns {RemarkPorts}
  */

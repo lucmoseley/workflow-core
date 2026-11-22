@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * lib/citation-write.js names a `Write` or `Edit` adding a citation of the
- * inherited tracker for a number it never used, and hands the session the
- * rule (#2015). The rule left the always-loaded pool for this core, so a
- * silent core means a session never meets it before the commit gate refuses.
- *
- * Module cases on the core over the production adapters — real git and the
- * real file read — in a throwaway repo whose seed commit stands in for
- * `ec8654cd` through `WFC_CITATION_BASELINE`. The citations are built at run
- * time so the commit gate never reads this file's own lines as mis-copies.
- * The rule text and its latch are lib/guard-entry.test.ts's.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -72,14 +60,12 @@ beforeEach(() => {
 
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** A copy of the seeded repo, for a case that writes into it. */
 const repoCopy = () => {
 	const copy = fs.mkdtempSync(path.join(dir, "copy-"));
 	fs.cpSync(repo, copy, { recursive: true });
 	return copy;
 };
 
-/** The host's ports, standing in for the session's tree as well. */
 const portsAt = (at: string) => {
 	const ports = hostAdapters(at, () => undefined);
 	return { ...ports, tree: () => ports };
@@ -250,9 +236,6 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	});
 
 	it("judges against the host root's baseline, not the worktree's (#4274)", () => {
-		/* `HEAD` is per worktree, so a baseline spelled by it is the one store
-		 * read whose answer differs between the two trees: only the main
-		 * checkout's HEAD has used #2015. */
 		const told = () =>
 			runCore(
 				"guard-citation-tracker",

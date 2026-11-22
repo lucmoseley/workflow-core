@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * What sends the founder away for his steps, and what merely mentions a ticket
- * (#4058). Built on phrases, each taken from a real ending or from the review's probe,
- * because the check is lexical. Loosen it and he is told to go and read an issue;
- * tighten it and an ordinary report costs a re-send.
- */
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";

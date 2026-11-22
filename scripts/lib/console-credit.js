@@ -1,24 +1,3 @@
-/*
- * console-credit.js — each overflow key's credit as the Console's Billing page
- * last showed it (#4071, research #4061), the anchor lib/overflow-budget-core.js
- * sizes a key from. No API gives a balance to these keys, so a Chrome child reads
- * the page (scripts/read-console-credit.js).
- *
- * THE LOG sits beside the key's ledger, one JSONL row per event:
- *
- *   {at, started: true}   a tick launched a read
- *   {at, credits: [...]}  a read that parsed
- *   {at, why}             a read that failed, which leaves the last reading held
- *
- * A read's `at` is when it began, so a run ending during the read is charged
- * against the reading rather than assumed to be in it.
- *
- * THE CADENCE: at most one attempt per key per 24 hours, failed ones included; only
- * while the key is in use or has no launch left, as a read spends the plan seat's
- * allowance; and only while that seat has room, as a Chrome child on a limited seat
- * fails (mmm-infra#42) and would use up the day's try.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readJsonl } = require("./jsonl.js");
@@ -33,7 +12,7 @@ const { refillPath } = require("./refill-dir.js");
  *   failure: string|null}} ConsoleLog
  */
 
-/* The ticket's "at most one read per key per day"; #4061 records it as untraced. */
+// guess, #4061
 const READ_EVERY_MS = 24 * 3600 * 1000;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -65,9 +44,8 @@ function isCredit(v) {
 }
 
 /**
- * Only validated numbers and dates leave here, as the child read an outside page.
- * @param {string} stdout `claude -p --output-format json`'s result
- * @param {string|null} account the plan seat's own email, which the page must show
+ * @param {string} stdout
+ * @param {string|null} account
  * @returns {{credits: Credit[]}|{why: string}}
  */
 function parseConsoleRead(stdout, account) {
@@ -116,13 +94,7 @@ function parseObject(text) {
 	}
 }
 
-/**
- * The body of a code fence, plain or `json`, wrapping all of `text`, its
- * leading whitespace cut; else undefined. Read by index: the regex
- * `/^```(?:json)?\s*([\s\S]*?)```$/` would re-read the body at every split of
- * that whitespace (#4109).
- * @param {string} text
- */
+/** @param {string} text */
 function fenceBody(text) {
 	if (text.length < 6 || !text.startsWith("```") || !text.endsWith("```"))
 		return;
@@ -145,11 +117,8 @@ function appendConsoleRow(seat, row) {
 }
 
 /**
- * The newest reading, the newest attempt and, where the newest read to finish
- * failed, why.
  * @param {OverflowSeat} seat
  * @returns {ConsoleLog}
- * @throws where the log cannot be read
  */
 function readConsoleLog(seat) {
 	/** @type {ConsoleLog} */
@@ -197,7 +166,6 @@ function readSeatAccount(planDir) {
 		)?.emailAddress;
 		return typeof email === "string" ? email : null;
 	} catch {
-		/* Fails closed: parseConsoleRead refuses a read with no account to match. */
 		return null;
 	}
 }

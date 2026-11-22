@@ -1,18 +1,3 @@
-/*
- * echo-record-host.js — the production echo-chain store (#2787): one file
- * per (session, agent) under ${TMPDIR:-/tmp}/wfc-echo-chain, in
- * lib/echo-chain.js's record format. lib/echo-record.js records in it, and
- * lib/echo-call.js reads it and writes its refusals through the same `chain`
- * port (lib/echo-call-host.js).
- *
- * TWO HAZARDS, two mechanisms. The atomic write stops a concurrent reader
- * seeing a half-written chain; the lock stops two overlapping calls' rebuilds
- * losing one record. The lock is `<file>.dlock`, a directory
- * (lib/dir-lock.js), taken by the recorder's write and the guard's alike. A
- * record lost to a lock wait run out undercounts a chain, which delays a
- * refusal and never causes one.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -22,15 +7,10 @@ const { parseRecords, storeText } = require("./echo-chain.js");
 const { readText } = require("./file-read.js");
 const { scratchDir } = require("./guard-entry.js");
 
-/* Swept at a day, on this agent's first record only, since this runs on
- * every call. */
+// guess, #5529
 const SWEEP_AGE_MS = 24 * 60 * 60 * 1000;
 
-/**
- * `stat -L -c '%i:%s:%.9Y:%.9Z'`: inode, size, and mtime and ctime to the
- * nanosecond, through any symlink.
- * @param {fs.BigIntStats} st
- */
+/** @param {fs.BigIntStats} st */
 function fileStateOf(st) {
 	const Ns = BigInt(1_000_000_000);
 	/** @param {bigint} ns */
@@ -55,9 +35,6 @@ function buildHostPorts({ log }) {
 				return null;
 			}
 		},
-		/* The store's text, "" where it is absent, null where it will not read.
-		 * Unlocked: the write is atomic, so a reader sees the whole old file or
-		 * the whole new one. */
 		readChain: (name) => {
 			const got = readText(path.join(dir, name));
 			if (got.state === "read") return got.data;
@@ -68,8 +45,6 @@ function buildHostPorts({ log }) {
 			try {
 				fs.mkdirSync(dir, { recursive: true });
 			} catch {
-				/* Fail open (§N5): no store, no chain, and the guard never fires on
-				 * this call's answer; the core logs it. */
 				return false;
 			}
 			const first = !fs.existsSync(file);
@@ -81,8 +56,6 @@ function buildHostPorts({ log }) {
 						? []
 						: parseRecords(fs.readFileSync(file, "utf8"), now);
 				} catch {
-					/* A chain that cannot be READ is a broken clock, not an absent
-					 * record: restarting it at 1 would disarm the guard. */
 					log("could not read the chain store — no echo chain recorded");
 					return true;
 				}
@@ -91,12 +64,10 @@ function buildHostPorts({ log }) {
 				try {
 					writeFileAtomic(file, storeText(records, { sig, ...rec, at: now }));
 				} catch {
-					/* Fail open (§N5), as the unmade directory above. */
 					return false;
 				}
 				return true;
 			});
-			// A failed sweep is retried on the next agent's first.
 			if (first) ignoreFailure(() => sweepFiles(dir, SWEEP_AGE_MS));
 			return ok;
 		},

@@ -14,11 +14,10 @@ const { writeFd } = require("./lib/write-fd.js");
 // #3496 guess, over ten times one ~5 s run
 const ADMISSION_TIMEOUT_MS = 60_000;
 
-/**
- * @returns {import("./lib/concurrency.js").UnlistedRead}
- */
-function readLiveUnlisted() {
-	const r = spawnSync(
+/** @type {import("node:child_process").SpawnSyncReturns<string> | undefined} */
+let liveAdmission;
+const readLiveAdmission = () => {
+	liveAdmission ??= spawnSync(
 		process.execPath,
 		[path.join(__dirname, "admission.js"), "--json", "--skip-allowance"],
 		{
@@ -27,6 +26,24 @@ function readLiveUnlisted() {
 			maxBuffer: CHILD_MAX_BUFFER,
 		},
 	);
+	return liveAdmission;
+};
+
+/** @returns {number | null} */
+function readLiveHeldRun() {
+	try {
+		const { heldRunMb } = JSON.parse(readLiveAdmission().stdout);
+		return Number.isFinite(heldRunMb) ? heldRunMb : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * @returns {import("./lib/concurrency.js").UnlistedRead}
+ */
+function readLiveUnlisted() {
+	const r = readLiveAdmission();
 	let row = null;
 	try {
 		/** @type {Partial<Pick<import("./lib/admission.js").AdmissionJson, "memory">>} */
@@ -47,7 +64,7 @@ function readLiveUnlisted() {
 /** @returns {number} */
 function main() {
 	const r = buildVerdict({ ...readTicks(), now: Date.now() });
-	writeFd(1, `${buildBlockText(r, readLiveUnlisted)}\n`);
+	writeFd(1, `${buildBlockText(r, readLiveUnlisted, readLiveHeldRun)}\n`);
 	return 0;
 }
 

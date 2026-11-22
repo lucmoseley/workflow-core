@@ -1,41 +1,13 @@
-/*
- * concision-receipts.js — reads the `.concision-pass-<session-id>` receipts a
- * concision pass writes at its step 6, and totals findings per run split by the
- * route the pass took.
- *
- * The seam behind scripts/concision-route-report.js, which is the only caller.
- * It exists so the parsing and the totalling can be asserted in-process, the
- * CLI staying a black-box subprocess (§X3).
- *
- * WHY THE SPLIT IS STILL READ. The question it was built for — is a subagent
- * pass cheaper because it re-reads less context, or because it is less thorough?
- * (mantahostels#1085, mantahostels#1099) — is closed: mantahostels#1100 and mantahostels#1143 ended that route, so nothing
- * writes `route=subagent` any more. The receipts already carrying it are the
- * only record of that arm, and mantahostels#1103 kept this reader for them.
- *
- * WHAT THE OUTPUT IS WORTH. Findings-per-run counts cuts, not whether the right
- * lines were cut; mantahostels#1085 priced it at ~60% validity as a proxy for quality —
- * never a quality measurement.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { orFallback } = require("./caught.js");
 
-/**
- * The routes a pass may record, plus the bucket for a receipt that names none
- * this file knows. Order is the report's row order.
- */
 const ROUTES = ["subagent", "in-session", "mixed", "unrecorded"];
 
 /** @typedef {{ findings: number, route: string }} Receipt */
 /** @typedef {{ runs: number, findings: number, zero: number }} RouteTotals */
 
 /**
- * Parses one receipt body. Returns null for a body carrying no usable
- * `findings=`, which is a receipt scripts/concision-backstop.sh would itself
- * have rejected as no pass.
- *
  * @param {string} body
  * @returns {Receipt | null}
  */
@@ -57,8 +29,6 @@ function readReceipt(body) {
 }
 
 /**
- * Totals each route over its own runs.
- *
  * @param {Receipt[]} receipts
  * @returns {Map<string, RouteTotals>}
  */
@@ -76,10 +46,6 @@ function summarise(receipts) {
 }
 
 /**
- * Every readable receipt in `dir`. A receipt that cannot be read or parsed is
- * dropped rather than counted as a pass that found nothing — a findings=0 pass
- * is evidence and an unreadable file is not.
- *
  * @param {string} dir
  * @returns {Receipt[]}
  */
@@ -88,7 +54,6 @@ function collect(dir) {
 	const out = [];
 	for (const f of fs.readdirSync(dir)) {
 		if (!f.startsWith(".concision-pass-")) continue;
-		// Unreadable mid-write, or gone since the readdir. Neither is a pass.
 		const r = orFallback(
 			() => readReceipt(fs.readFileSync(path.join(dir, f), "utf8")),
 			null,
@@ -99,10 +64,6 @@ function collect(dir) {
 }
 
 /**
- * The report, as Markdown. Every caveat that qualifies a row is printed with
- * the table: this output is read once, by a session deciding mantahostels#1099's held
- * question, and a caveat left elsewhere would not reach it.
- *
  * @param {Receipt[]} receipts
  * @returns {string}
  */

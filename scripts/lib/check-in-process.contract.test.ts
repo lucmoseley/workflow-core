@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The equivalence contract (#5172), per checker: a checker run in-process
- * through lib/check.js's checkInProcess() gives the same exit code, stdout and
- * stderr as the same checker spawned as `node <checker> <args>`, over the same
- * fixture tree. It is what licenses each pre-commit dispatcher row: a row
- * whose checker fails it keeps its own process. The per-dispatcher-row cases
- * are check-in-process-armed-rows, -always-rows and -side-rows (#5191).
- *
- * Each row is one checker and the trees it is judged on; each tree runs both
- * ways and the two are compared, never against a hand-written expectation.
- * Breaking it costs that licence: a checker whose in-process run drifts from
- * its process would refuse, or pass, a commit differently from its own CLI,
- * and nothing else compares the two.
- */
 
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -39,7 +25,6 @@ const roadmapBase = (repo: string) => {
 	git(repo, "commit", "-qm", "init");
 };
 
-/* A plugin root, so check-host-root.js judges rather than SKIPs (#83). */
 const pluginBase = (repo: string) => {
 	stage(repo, ".claude-plugin/plugin.json", '{ "name": "fixture" }\n');
 	stage(repo, "scripts/ok.js", 'require("node:path");\n');

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/carry-job-files.js over real files in a temp seat and checkout (#4750).
- *
- * Loosen one and `claude rm` deletes a pasted screenshot the next session
- * is still told to read.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

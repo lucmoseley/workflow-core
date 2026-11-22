@@ -1,13 +1,3 @@
-/*
- * file-issue's link fake (#5150): what lib/file-issue-host.js's `link`
- * answers for the link of `child` under `parent` on file-issue's gh fake; a
- * landing link warns, since the fake's reads never reach the child.
- * file-issue-link.contract.test.ts holds every answer to the real adapter.
- */
-
-/**
- * @param postErr  the POST's stderr, or null where it lands
- */
 export function answerLink(
 	parent: number,
 	child: number,

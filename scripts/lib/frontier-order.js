@@ -1,46 +1,31 @@
-/*
- * frontier-order.js — the shortlist's sort levels, shared by pick-next.js,
- * which ranks one repo's frontier, and lib/refill-frontier.js, which merges
- * every served repo's (#2003); and the waiting label pick-next.js ranks and
- * lib/refill-decide.js skips (#3372).
- */
-
 const WAITING_LABEL = "waiting:external";
 
 /**
  * @typedef {object} SortLevels
- * @property {boolean} bug an open `bug`, or holding one out, urgent whether
- *   labelled or not
- * @property {boolean} urgent `urgent` on the issue or on an issue it holds
- *   out, as a blocker or as a parent; or a bug
- * @property {boolean} goal in the run's goal set, or holding a member out
- * @property {number} stallDays 0 unless a stalled wait
+ * @property {boolean} bug
+ * @property {boolean} urgent
+ * @property {boolean} goal
+ * @property {number} stallDays
  * @property {boolean} asksQuestions
- * @property {number} depth the longest chain to the highest tier it holds out
- * @property {number} closes the ancestors its closing closes, ranked added to
- *   `depth`, so an ancestor it closes counts in both, as #3613 ruled
+ * @property {number} depth
+ * @property {number} closes
  * @property {number} reach
- * @property {boolean|number} collision writes repo files
+ * @property {boolean|number} collision
  */
 
 /**
- * One pick-next `--json` frontier row, as far as the merge reads it.
  * @typedef {Omit<SortLevels, "collision"> & {number: number, createdAt?: string, collision: string}} FrontierRow
  */
 
 /**
  * @typedef {object} RepoFrontier
  * @property {string} root
- * @property {number|null} lastLaunchAt ms; null where it never launched
+ * @property {number|null} lastLaunchAt
  * @property {FrontierRow[]} rows
- * @property {import("./retro-bundles.js").RetroLaunch[]} retroBundles each
- *   launches as one session with its own prompt, never member by member
+ * @property {import("./retro-bundles.js").RetroLaunch[]} retroBundles
  */
 
 /**
- * Lexicographic, highest first: bug → urgent → goal set → stalled wait →
- * ticket type → chain depth + closes → reach → collision (comment-only first). 0 on a full tie, so
- * each caller appends its own tie-break.
  * @param {SortLevels} a
  * @param {SortLevels} b
  */
@@ -58,12 +43,10 @@ function compareLevels(a, b) {
 }
 
 /**
- * The levels an issue inherits from what it holds out (#3222).
  * @typedef {Pick<SortLevels, "bug" | "urgent" | "goal" | "depth">} Inherited
  */
 
 /**
- * `a` with what `b` passes it: each tier joined, the deeper chain kept.
  * @template {Inherited} A
  * @param {A} a
  * @param {Inherited} b
@@ -78,9 +61,6 @@ const joinInherited = (a, b) => ({
 });
 
 /**
- * Every repo's rows in one ranking, and its retro bundles in one list, each
- * tagged with its `root`. Below collision, the oldest issue wins; then the
- * repo launched least recently, a never-launched one first.
  * @param {RepoFrontier[]} repos
  */
 function mergeFrontiers(repos) {
@@ -96,7 +76,7 @@ function mergeFrontiers(repos) {
 		...row,
 		collision: row.collision !== "comment-only",
 	});
-	/** Oldest first; a row without a date ties on age (#3385). @param {FrontierRow} a @param {FrontierRow} b */
+	/** @param {FrontierRow} a @param {FrontierRow} b */
 	const byAge = (a, b) =>
 		Date.parse(a.createdAt ?? "") - Date.parse(b.createdAt ?? "") || 0;
 	const frontier = tagged

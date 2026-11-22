@@ -79,9 +79,6 @@ const MOVE_FRAMING = "This moves the shared working tree off its branch: @CMD@";
 const RESTORE_HINT =
 	"To restore a file rather than move a branch, use the pathspec form: git checkout -- <file>, or git restore <file>.";
 
-/* -c/-C are `git switch`'s create flags; git's own -c <k>=<v> was consumed as
- * a global option by the walk. `-` is `@{-1}`, always a branch move, and gets
- * no `main` exception: its target is only knowable at run time. */
 const MOVE_FLAGS = [
 	"-b",
 	"-B",
@@ -96,13 +93,10 @@ const MOVE_FLAGS = [
 
 /**
  * @typedef {object} BranchPorts
- * @property {(dir: string, name: string) => boolean} isBranch `refs/heads/<name>`
- *   resolves in the repo at `dir`
- * @property {(p: string) => boolean} exists anything is at `p`, relative to the
- *   hook's own directory where not absolute
+ * @property {(dir: string, name: string) => boolean} isBranch
+ * @property {(p: string) => boolean} exists
  * @typedef {import("./kit-context.js").KitContext & BranchPorts
- *   & { git: import("./git.js").GitReader }} BranchContext `git` runs in the
- *   main checkout
+ *   & { git: import("./git.js").GitReader }} BranchContext
  */
 
 /**
@@ -139,17 +133,11 @@ function decide(command, ctx) {
 		},
 	);
 	if (refusal !== null) return { deny: refusal };
-	/* Once cut over, the rule's shared-tree recipe binds no session: each works
-	 * in the worktree the checkout module cut it (#4248). */
 	if (!ruleSubject || readCutOverOnce()) return null;
-	/* The line naming the cutover rides with it (#2409). */
 	return { injectRules: ["branch-shared-tree", "branch-shared-tree-cutover"] };
 }
 
 /**
- * One `git checkout`/`switch`/`worktree` against the shared tree: allowed
- * silently, allowed with the rule handed over, or refused as a worktree add or
- * a branch move. `args` are raw, as the walk hands them.
  * @param {string} sub
  * @param {string} tree
  * @param {string[]} args
@@ -158,13 +146,7 @@ function decide(command, ctx) {
  */
 function judge(sub, tree, args, ctx) {
 	if (sub === "worktree") return judgeWorktree(args);
-	/* `git checkout -- <file>`, `git checkout <sha> -- <file>` and `-p` restore
-	 * content and move no branch; so does `git checkout <file>` naming
-	 * something on disk. */
 	const { move, ddash, positional } = scanWords(args);
-	/* The one command that RESTORES the invariant passes, and is handed the
-	 * rule: a session running it has just been somewhere it should not have
-	 * been (mantahostels#100, mantahostels#1647). */
 	if (!move && positional.length === 1 && positional[0] === "main")
 		return "rule";
 	if (sub === "checkout" && !move) {
@@ -174,11 +156,7 @@ function judge(sub, tree, args, ctx) {
 	return "move";
 }
 
-/**
- * What the words say: a move flag, a restore marker (`--`, `-p`), and the
- * words before any marker that no flag claims.
- * @param {string[]} args
- */
+/** @param {string[]} args */
 function scanWords(args) {
 	let move = false;
 	let ddash = false;
@@ -199,7 +177,6 @@ function scanWords(args) {
 function judgeWorktree(args) {
 	if (args[0] !== "add") return "allow";
 	if (args.some((a) => a === "-h" || a === "--help")) return "allow";
-	/* -b/-B take a value, which git accepts joined (`-bfoo`) or separate. */
 	const branched = args.some(
 		(a) =>
 			a.startsWith("-b") ||
@@ -211,9 +188,6 @@ function judgeWorktree(args) {
 }
 
 /**
- * A lone word naming something on disk, and no branch, restores a file. A
- * name that is also a branch is a branch move whatever else it names: git
- * prefers the ref.
  * @param {string} tree
  * @param {string[]} positional
  * @param {BranchContext} ctx
@@ -229,12 +203,9 @@ function isFileRestore(tree, positional, ctx) {
 }
 
 /**
- * The refusal: its framing, the unset-variable line (#310), the rule, and
- * the restore hint on a branch move; core paths spelled at the plugin root,
- * then the segment in place of the CMD placeholder, as typed.
  * @param {"worktree" | "move"} kind
  * @param {string} unset
- * @param {string} segment masked
+ * @param {string} segment
  * @param {BranchContext} ctx
  */
 function refusalText(kind, unset, segment, ctx) {

@@ -1,69 +1,34 @@
-/*
- * blocker-graph.js — the open blocked-by graph the shortlist ranks on,
- * followed out of the served repo into any repo it reaches (#2427).
- *
- * Every node is keyed `owner/name#n` (refKey), so a blocker in another repo
- * never credits the served issue that shares its number. From each open
- * served issue the walk follows open native edges and `**Blocked on**`
- * markers into any repo, then those blockers' own, to any depth; the node map
- * is the visited set that ends a cycle. A node outside the served repo costs
- * one blocked_by read, plus one issue read where a marker alone names it.
- *
- * An issue holds out what it blocks and its own open parent in the served
- * repo, which cannot close while it is open (#3222; refused at
- * lib/issue-close.js and resolve-ticket.js, #3637), so each open ancestor
- * counts in its reach and depth (#3613). A parent in another repo is not read.
- * A served issue's open children in another repo count toward its
- * openChildren, so a map whose only open child lives elsewhere is still a
- * container (#3658).
- */
-
 const { isInOtherRepo, refKey, refLabel } = require("./issue-ref.js");
 const { judgeProseRefs, proseRefsOf } = require("./prose-blockers.js");
 
 /** @typedef {import("./issue-ref.js").IssueRef} IssueRef */
 /**
- * An issue as a blocked_by or issue read gives it, `repo` resolved.
  * @typedef {IssueRef & {state: string, title: string, url: string, labels: string[], body: string}} Edge
  */
 /**
- * `reason` is lib/gh.js's parseGhFailureReason class, where the read knew it.
  * @typedef {{ok: true, edges: Edge[]} | {ok: false, error: string, reason?: "unreachable"|"broken"}} EdgesRead
  */
 /** @typedef {{ok: true, issue: Edge} | {ok: false, error: string}} IssueRead */
 /**
  * @typedef {object} Reads
- * @property {(ref: IssueRef) => Promise<EdgesRead>} blockedBy a foreign
- *   node's edges, each edge's `repo` resolved against `ref.repo`
+ * @property {(ref: IssueRef) => Promise<EdgesRead>} blockedBy
  * @property {(ref: IssueRef) => Promise<IssueRead>} issue
- * @property {(ref: IssueRef) => Promise<EdgesRead>} subIssues a served
- *   issue's sub-issues in every repo, each `repo` resolved
+ * @property {(ref: IssueRef) => Promise<EdgesRead>} subIssues
  * @property {<T, R>(items: T[], fn: (item: T) => Promise<R>) => Promise<R[]>} each
- *   bounded fan-out, results in input order
  */
 /**
  * @typedef {object} Node
  * @property {IssueRef} ref
  * @property {boolean} served
- * @property {Edge|null} info null on a served node, which its caller holds
- * @property {{key: string, ref: IssueRef, prose: boolean}[]} blockers open ones
- * @property {Awaited<ReturnType<typeof judgeProseRefs>>} prose every
- *   `**Blocked on**` reference its body names, judged, native edges included
- * @property {string|null} unknown why its blockers could not be read
+ * @property {Edge|null} info
+ * @property {{key: string, ref: IssueRef, prose: boolean}[]} blockers
+ * @property {Awaited<ReturnType<typeof judgeProseRefs>>} prose
+ * @property {string|null} unknown
  */
-/**
- * A strongly connected set of nodes: its work count, and the keys of the
- * nodes it holds out directly that lie outside it and inside it.
- * @typedef {{work: number, out: string[], inner: string[]}} Unit
- */
-/**
- * Where an issue inherits a tier from: `number`, the held issue carrying it,
- * reached along `path`, each node from the first one held to `number`.
- * @typedef {{number: number, path: string[]}} Via
- */
+/** @typedef {{work: number, out: string[], inner: string[]}} Unit */
+/** @typedef {{number: number, path: string[]}} Via */
 
 /**
- * `ref` with its repo filled in, `home` where it names none.
  * @param {IssueRef} ref
  * @param {string|null} home
  * @returns {IssueRef}
@@ -73,19 +38,11 @@ const inRepo = (ref, home) => ({
 	number: ref.number,
 });
 
-/**
- * A node's verdicts where its body was never read.
- * @returns {Node["prose"]}
- */
+/** @returns {Node["prose"]} */
 const buildUnreadProse = () => ({ open: [], closed: [], unreadable: [] });
 
 /**
- * The graph over `served`'s open issues and every open blocker they reach.
  * @param {{number: number, edges: Edge[], body: string, parent: number|null, openSubIssues: number, map: boolean}[]} served
- *   every open issue in the served repo, its native edges resolved, `parent`
- *   its parent where that is another open issue in the served repo,
- *   `openSubIssues` its open children in every repo by its sub_issues_summary,
- *   `map` whether it is a wayfinder map
  * @param {string|null} ownRepo
  * @param {Reads} read
  */
@@ -93,7 +50,7 @@ async function blockerGraph(served, ownRepo, read) {
 	const openServed = new Set(served.map((s) => s.number));
 	/** @param {IssueRef} ref */
 	const isServed = (ref) => !isInOtherRepo(ref, ownRepo);
-	/** @type {Map<string, Edge>} what a read has said of a foreign issue */
+	/** @type {Map<string, Edge>} */
 	const known = new Map();
 	/** @type {Map<string, Promise<IssueRead>>} */
 	const issueReads = new Map();
@@ -113,9 +70,6 @@ async function blockerGraph(served, ownRepo, read) {
 	};
 
 	/**
-	 * A node's open blockers, native edges first, then markers no edge names,
-	 * and its markers' verdicts. An unreadable marker reference holds as open:
-	 * launching past a blocker is the one error the shortlist cannot take back.
 	 * @param {IssueRef} ref
 	 * @param {Edge[]} edges
 	 * @param {string} body
@@ -191,15 +145,13 @@ async function blockerGraph(served, ownRepo, read) {
 		layer = unvisited(walked);
 	}
 
-	/** @type {Map<string, string[]>} key -> the open nodes it holds out
-	 * directly: those it blocks, and its parent */
+	/** @type {Map<string, string[]>} */
 	const holds = new Map([...nodes.keys()].map((k) => [k, []]));
 	for (const [k, n] of nodes)
 		for (const b of n.blockers) holds.get(b.key)?.push(k);
-	/** @type {Map<number, number>} served issue -> its open served parent */
+	/** @type {Map<number, number>} */
 	const parentOf = new Map();
-	/** @type {Map<number, number>} open served parent -> its open children
-	 * in every repo, pick-next.js's heading test */
+	/** @type {Map<number, number>} */
 	const openChildren = new Map();
 	for (const s of served) {
 		if (s.parent === null || !openServed.has(s.parent)) continue;
@@ -208,21 +160,13 @@ async function blockerGraph(served, ownRepo, read) {
 		parentOf.set(s.number, s.parent);
 		openChildren.set(s.parent, (openChildren.get(s.parent) ?? 0) + 1);
 	}
-	/*
-	 * The summary only flags where to look, and can be stale either way, so
-	 * the canonical list is what counts, and a map with no open served child,
-	 * which the refill loop would launch, is read whatever its summary says
-	 * (#3658). An unreadable list holds on the summary — launching a
-	 * container is the error a launch cannot take back. Residual: a non-map
-	 * whose summary undercounts its foreign children is never read.
-	 */
+	// #3658
 	const toRead = served
 		.map((s) => ({ s, local: openChildren.get(s.number) ?? 0 }))
 		.filter(
 			({ s, local }) => s.openSubIssues > local || (s.map && local === 0),
 		);
-	/** @type {Map<number, string>} served issue -> why its sub-issues could
-	 * not be read, its openChildren then the summary's */
+	/** @type {Map<number, string>} */
 	const childrenUnread = new Map();
 	const childCounts = await read.each(toRead, async ({ s, local }) => {
 		const r = await read.subIssues({ repo: ownRepo, number: s.number });
@@ -238,7 +182,6 @@ async function blockerGraph(served, ownRepo, read) {
 }
 
 /**
- * The node at `k`, which every key `holds` names.
  * @param {Map<string, Node>} nodes
  * @param {string} k
  */
@@ -251,15 +194,12 @@ function nodeAt(nodes, k) {
 /** @typedef {Awaited<ReturnType<typeof blockerGraph>>} Graph */
 
 /**
- * Whether `k` is an issue in the served repo.
  * @param {Graph} graph
  * @param {string} k
  */
 const isServedKey = (graph, k) => graph.nodes.get(k)?.served === true;
 
 /**
- * Orders node keys by issue number, then by key, as numbers repeat across
- * repos.
  * @param {Graph} graph
  * @returns {(a: string, b: string) => number}
  */
@@ -268,9 +208,6 @@ const byNumber = (graph) => (a, b) =>
 	a.localeCompare(b);
 
 /**
- * The served issues `key` transitively holds out, sorted: what its reach
- * counts, each open ancestor included. A foreign node on the way passes the
- * walk on but is not counted.
  * @param {Graph} graph
  * @param {string} key
  */
@@ -292,9 +229,6 @@ function heldBy(graph, key) {
 }
 
 /**
- * The nodes holding `key` out at any depth, across repos and through foreign
- * nodes, and `key` itself: what an `unblock` goal on it names. Empty where
- * `key` is no node, an issue closed or never read.
  * @param {Graph} graph
  * @param {string} key
  * @returns {Node[]}
@@ -318,18 +252,9 @@ function holdersOf(graph, key) {
 }
 
 /**
- * Each tier an issue inherits from what it holds out, and its chain depth
- * (#3222). A tier passes from any held served issue its source test accepts,
- * through foreign nodes as reach does. `depth` is the longest path to the
- * first tier in `sources` order that it holds, else to any served issue it
- * holds (Hu 1961; Kwok and Ahmad 1999). Only a step into work counts. Each
- * `via` names the source at the end of that tier's longest path, a tie going
- * to the lowest number held first. A cycle of holds is one unit: every work
- * issue in it counts, and an issue in it inherits what the cycle holds out.
  * @template {string} T
  * @param {Graph} graph
- * @param {Record<T, (n: number) => boolean>} sources each tier's test of a
- *   served issue, in the order the sort ranks the tiers
+ * @param {Record<T, (n: number) => boolean>} sources
  * @returns {(ref: IssueRef) => {via: Record<T, Via|null>, depth: number}}
  */
 function inheritance(graph, sources) {
@@ -418,11 +343,7 @@ function inheritance(graph, sources) {
 	};
 }
 
-/**
- * The graph's strongly connected components (Tarjan 1972), sinks first, so
- * the longest-path pass runs on an acyclic graph.
- * @param {Graph} graph
- */
+/** @param {Graph} graph */
 function unitsOf(graph) {
 	/** @type {Map<string, {index: number, low: number}>} */
 	const meta = new Map();
@@ -470,19 +391,13 @@ function unitsOf(graph) {
 }
 
 /**
- * Transitive downstream reach over open served descendants (mantahostels#101).
- * Direct out-degree is degenerate on this tracker — max 2 — so an
- * untransitive count would rank almost everything equal.
  * @param {Graph} graph
- * @param {number} n a served issue
+ * @param {number} n
  */
 const reachOf = (graph, n) =>
 	heldBy(graph, refKey({ repo: graph.ownRepo, number: n })).length;
 
 /**
- * How many ancestors close when served issue `n` closes: its parent where it
- * is that parent's only open child, then that parent's where the parent is
- * its only open child, and on up (#3613).
  * @param {Graph} graph
  * @param {number} n
  */
@@ -501,7 +416,6 @@ function closesOf(graph, n) {
 }
 
 /**
- * The node of served issue `n`, undefined where the graph has none.
  * @param {Graph} graph
  * @param {number} n
  */
@@ -509,9 +423,6 @@ const servedNode = (graph, n) =>
 	graph.nodes.get(refKey({ repo: graph.ownRepo, number: n }));
 
 /**
- * A served issue's open blockers as a reader sees them, its own repo's by
- * number, then `owner/name#n` for those in another; `native` is false for a
- * marker-only one.
  * @param {Graph} graph
  * @param {number} n
  * @returns {{label: string, native: boolean}[]}
@@ -524,7 +435,6 @@ function openBlockersOf(graph, n) {
 }
 
 /**
- * `items` its own repo's first by number, then those in another by key.
  * @template T
  * @param {T[]} items
  * @param {(item: T) => IssueRef} refOf
@@ -541,9 +451,6 @@ function inReadingOrder(items, refOf, ownRepo) {
 }
 
 /**
- * A served issue's `**Blocked on**` references as a reader sees them, in
- * openBlockersOf's order, split as judgeProseRefs judged them; `named` is
- * every one.
  * @param {Graph} graph
  * @param {number} n
  */
@@ -571,13 +478,7 @@ function proseOf(graph, n) {
 	};
 }
 
-/**
- * Every open issue in another repo that holds a served issue out and that
- * nothing open holds itself: a launch candidate for its own repo (#2427).
- * `unread` lists the foreign nodes whose blockers would not read. Each names
- * the served issues it holds as `owner/name#n`.
- * @param {Graph} graph
- */
+/** @param {Graph} graph */
 function pulledInOf(graph) {
 	const rows = [];
 	const unread = [];

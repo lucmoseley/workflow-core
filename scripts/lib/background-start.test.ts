@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which session starts lib/background-start.js holds a founder's
- * once-a-day notice back from, for his own session start (#3707).
- *
- * In process, each case handing the predicate its own environment object,
- * so the case does not depend on whether the suite itself runs in a
- * background job. A break here either lets a job spend the day's notice
- * before he starts, so he never sees it, or holds it from his own start.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";

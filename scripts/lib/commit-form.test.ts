@@ -1,36 +1,4 @@
 // @vitest-environment node
-/*
- * lib/commit-form.js, the guard-commit-form core (#2793), in process: which
- * commit forms skip the hooks, rewrite pushed history, carry a closing keyword
- * or leave a new file behind, denied or warned on under mantahostels#109's
- * split, and which are handed the commit rules instead. Every allow case below
- * is a shape that would otherwise be a false positive; do not thin them out.
- *
- * Each case calls `decide` on a context built from the production adapters —
- * kit-context.js's kitContext, with commit-form-host.js's buildHostPorts over
- * it — against a throwaway repo, a linked worktree of it, and an unrelated
- * repo. Real git and the real rule store. The log is collected, so a
- * fail-open is asserted on what it records.
- *
- * OVER §X8 (5)'S 10 S BUDGET (#2893): about 1,400 real git calls, most of
- * them the arranging done by the cases that write. Spec #2733 keeps git real
- * rather than faked.
- *
- * A case that only reads judges one view shared by the file: the template
- * with the paths the scope cases name committed into it and `origin/main` on
- * that commit, every file and directory then made read-only. A case that writes calls `writes()` before
- * its first write, or sits in a describe whose every case writes and runs it
- * `beforeEach`, and gets a fresh copy of the template. The opt-in is per case
- * because most describes pair a reading case with a writing one. The lock
- * fails the test's own write on the view; a write the core makes and
- * swallows (an error log, a latch) fails silently there instead.
- *
- * A deny's text is the decision's `deny`, a warn's the `prelude` it carries
- * with no rules, and a rules hand-over is the ids it names less the ids it
- * skips. Rendering them — the envelope, the once-a-session latch and the
- * emission ceiling — is the kit's, crossed in guard-commit-form.test.ts with
- * the rest of the program's boundary.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -95,28 +63,16 @@ let dir: string;
 let shared: string;
 let worktree: string;
 let elsewhere: string;
-/** The store's root, pointed at the temp dir. */
 let config: string;
-/** What the core logged this case, one line a record. */
 let logs: string[];
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 
-/*
- * THE FIXTURE IS BUILT ONCE AND COPIED (mantahostels#2016), not rebuilt per
- * test, via lib/git-fixture.ts (mantahostels#2068) — its own header explains
- * what a naive copy breaks and why.
- */
 const template = defineTemplate(trioTemplate());
 
 type Verdict = "deny" | "warn" | "allow";
 
-/**
- * The core's decision on `command`, run from `cwd` as `session`, with `env`
- * laid over the process's for the call. A null session leaves the payload's
- * `session_id` off.
- */
 const judge = (
 	command: string,
 	cwd = shared,
@@ -133,7 +89,6 @@ const judge = (
 		};
 		return decide(command, {
 			...kitContext({ root, payload, log }, sharedReaders(root, log)),
-			/* The hook's own directory, which kitContext reads off the process. */
 			fallbackCwd: cwd,
 			...buildHostPorts({ root }),
 		});
@@ -142,13 +97,11 @@ const judge = (
 	}
 };
 
-/** What the session reads: a deny's refusal or a warn's text; "" otherwise. */
 const said = (d: Decision) => {
 	if (d === null) return "";
 	return "deny" in d ? d.deny : (d.prelude ?? "");
 };
 
-/** The core's text on `command`, as `run`'s callers read the session's. */
 const run = (
 	command: string,
 	cwd = shared,
@@ -156,7 +109,6 @@ const run = (
 	env: Record<string, string> = {},
 ) => said(judge(command, cwd, session, env));
 
-/** A warn is a prelude handed with no rules; a rules hand-over is an allow. */
 const verdictOf = (d: Decision): Verdict => {
 	if (d === null) return "allow";
 	if ("deny" in d) return "deny";
@@ -169,7 +121,6 @@ const verdict = (
 	env: Record<string, string> = {},
 ): Verdict => verdictOf(judge(command, cwd, "test", env));
 
-/** The refusal `command` earns. Throws on anything but a deny. */
 const readDenyReason = (
 	command: string,
 	cwd = shared,
@@ -181,53 +132,41 @@ const readDenyReason = (
 	return d.deny;
 };
 
-/** The rule ids a decision hands over, in its priority order: none on a deny. */
 const handed = (d: Decision) => {
 	if (d === null || "deny" in d) return [];
 	const skip = new Set(d.skip ?? []);
 	return d.injectRules.filter((id) => !skip.has(id));
 };
 
-/** The handed rules' fragments as guard-entry joins them, below the ceiling. */
 const handedText = (d: Decision) =>
 	handed(d)
 		.map((id) => readRuleText(id))
 		.join("\n\n");
 
-/** The handed rules on one line, so a clause survives a re-wrap of its text. */
 const handedProse = (d: Decision) => handedText(d).replace(/\s+/g, " ");
 
-/** Everything the core logged this case. */
 const logged = () => logs.join("\n");
 
-/* The framing line of the `--amend` refusal (#4384). */
 const AMEND = "This amend rewrites a commit already pushed";
 
-/* The framing line of the closing-keyword refusal (#129). */
 const CLOSES = "This commit message closes an issue server-side";
 
-/* The framing line of the `--no-verify` refusal (mantahostels#975). */
 const NO_VERIFY =
 	"This flag skips none of the pre-commit gates on a plain commit or merge";
 
-/** Points `ref` (the pushed ref) at `at`'s HEAD. */
 const pushHead = (at = shared, ref = "origin/main") =>
 	git(at, "update-ref", `refs/remotes/${ref}`, "HEAD");
 
-/** Points the case's paths, and the store's and host root's env, at `root`. */
 const useFixture = (root: string) => {
 	dir = root;
 	config = path.join(root, "config");
 	shared = path.join(root, "shared");
 	worktree = path.join(root, "wt");
 	elsewhere = path.join(root, "elsewhere");
-	/* The store, the host root and the rule store read these at call time, so the
-	 * arrangement, the core and the fragments all see the same sandbox. */
 	vi.stubEnv("CLAUDE_CONFIG_DIR", config);
 	vi.stubEnv("CLAUDE_PROJECT_DIR", shared);
 };
 
-/** Sets the mode of every directory under `root`, and of every file where given. */
 const chmodTree = (root: string, dirMode: number, fileMode?: number) => {
 	for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
 		const full = path.join(root, entry.name);
@@ -239,7 +178,6 @@ const chmodTree = (root: string, dirMode: number, fileMode?: number) => {
 };
 
 let view: string;
-/** This case's own copy, once `writes()` has made one. */
 let copy: string | null;
 let owned: string[];
 
@@ -253,9 +191,6 @@ const SEEDED = [
 	"scripts/y.sh",
 ];
 
-/* A view's name carries its worker's pid, so a run killed before afterAll
- * leaves a view the next run can tell is dead and unlock: scratch-sweep.js
- * cannot delete inside a read-only directory. */
 const VIEW_PREFIX = "commit-form-view-";
 
 const reclaimDeadViews = () => {
@@ -287,7 +222,6 @@ beforeAll(() => {
 	git(seeded, "commit", "-qm", "seed");
 	pushHead(seeded);
 	chmodTree(view, 0o555, 0o444);
-	// Root ignores the mode bits, and a write would then reach the next case.
 	expect(() => fs.writeFileSync(path.join(seeded, "probe"), "")).toThrow(
 		/EACCES/,
 	);
@@ -309,7 +243,6 @@ afterAll(() => {
 	fs.rmSync(view, { recursive: true, force: true });
 });
 
-/** A writable directory of this case's own, outside every fixture. */
 const scratch = () => {
 	const d = mkScratchDir("commit-form-");
 	owned.push(d);
@@ -323,10 +256,6 @@ const writes = () => {
 	useFixture(copy);
 };
 
-/*
- * mantahostels#975. `--no-verify` stands down every pre-commit hook at once. It
- * is a DENY: it has no legitimate use (mantahostels#109).
- */
 describe("--no-verify is denied — it silently disables the secrets scan", () => {
 	it("takes its no-override line from the rule store (#4129)", () => {
 		const rules = fs.mkdtempSync(path.join(os.tmpdir(), "commit-form-rules-"));
@@ -354,7 +283,6 @@ describe("--no-verify is denied — it silently disables the secrets scan", () =
 		['git commit -vn -m "msg" -- a.md', "bundled behind another short flag"],
 		['npm run check && git commit -n -m "msg" -- a.md', "later in a chain"],
 		['git commit --no-verify --amend -m "msg" -- a.md', "amending"],
-		// Behind a reserved word (#1013).
 		['{ git commit --no-verify -m "msg" -- a.md; }', "in a brace group"],
 		['! git commit --no-verify -m "msg" -- a.md', "negated"],
 		['if true; then git commit --no-verify -m "msg" -- a.md; fi', "in an if"],
@@ -367,16 +295,12 @@ describe("--no-verify is denied — it silently disables the secrets scan", () =
 			"in a while loop",
 		],
 	])("%s — %s", (command) => {
-		// exempt (mantahostels#2145): every `--no-verify` route shares one refusal, pinned by
-		// "says what the flag skips, and offers no override" below.
 		expect(verdict(command)).toBe("deny");
 	});
 
 	it("says what the flag skips, and offers no override", () => {
 		const msg = readDenyReason('git commit --no-verify -m "msg" -- a.md');
 		expect(msg).toContain("secrets scan");
-		// The git-hook escape is named as the founder's, never handed over as a
-		// command (#916).
 		expect(msg).toContain("are the founder's to set, never yours");
 		expect(msg).not.toContain("WFC_ALLOW_BRANCH=1");
 	});
@@ -430,7 +354,6 @@ describe("--no-verify is denied — it silently disables the secrets scan", () =
 	});
 
 	it("does not read --no-edit as --no-verify", () => {
-		// Denied, but for the AMEND reason — which is what proves it.
 		const reason = readDenyReason(
 			'git commit --no-edit --amend -m "msg" -- a.md',
 		);
@@ -439,8 +362,6 @@ describe("--no-verify is denied — it silently disables the secrets scan", () =
 	});
 
 	it("is denied in a linked worktree too (mantahostels#1213)", () => {
-		// It protects the secrets scan and the rest of the pre-commit gates,
-		// which a worktree runs too.
 		expect(verdict('git commit --no-verify -m "msg"', worktree)).toBe("deny");
 		expect(verdict('git commit -n -m "msg"', worktree)).toBe("deny");
 		expect(
@@ -450,7 +371,6 @@ describe("--no-verify is denied — it silently disables the secrets scan", () =
 
 	it("is denied mid-merge in a worktree too — both stand-downs at once", () => {
 		writes();
-		// The combination mantahostels#1213 made reachable.
 		git(worktree, "checkout", "-q", "-b", "wt-other");
 		fs.writeFileSync(path.join(worktree, "a.md"), "other\n");
 		git(worktree, "commit", "-qm", "other", "--", "a.md");
@@ -462,7 +382,6 @@ describe("--no-verify is denied — it silently disables the secrets scan", () =
 	});
 
 	it("is still allowed in an unrelated repository", () => {
-		// Widening the walk went as far as this repo, and no further.
 		expect(verdict('git commit --no-verify -m "msg"', elsewhere)).toBe("allow");
 		expect(verdict(`git -C ${elsewhere} commit --no-verify -m "m"`)).toBe(
 			"allow",
@@ -470,13 +389,6 @@ describe("--no-verify is denied — it silently disables the secrets scan", () =
 	});
 });
 
-/*
- * #4384. `git commit --amend` on a commit already pushed forks from it: the
- * next push is a non-fast-forward, and landing again merges the commit and its
- * rewrite both. It binds in every working tree of this repo and stands down
- * mid-sequence, where HEAD is the replay's own commit. The view's HEAD, and
- * the worktree's behind it, are on `origin/main`.
- */
 describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", () => {
 	it.each([
 		['git commit --amend -m "msg"', "the full spelling"],
@@ -488,8 +400,6 @@ describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", 
 		["git commit --amen --no-edit", "--amen"],
 		['git commit -v --amend -m "msg"', "behind an unrelated flag"],
 	])("%s — %s", (command) => {
-		// exempt (mantahostels#2145): every route shares one refusal, pinned by "the
-		// refusal names the pushed ref and the follow-up commit" below.
 		expect(verdict(command)).toBe("deny");
 	});
 
@@ -591,7 +501,6 @@ describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", 
 
 	it("allows, and records, an amend where git cannot say whether HEAD is pushed", () => {
 		writes();
-		// No origin/main in this copy, so the ancestry check errors.
 		expect(verdict("git commit --amend --no-edit")).toBe("allow");
 		expect(logged()).toMatch(
 			/git could not say whether HEAD in .* is pushed — the amend allowed unchecked/,
@@ -628,12 +537,6 @@ describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", 
 	});
 });
 
-/*
- * mantahostels#1539. `git commit -a`/`-am`/`--all` commits every dirty TRACKED
- * file, and a session's subagents share its worktree, so it takes a
- * subagent's unfinished edit under the session's message. It is a DENY in
- * every tree of this repo, stood down mid-sequence.
- */
 describe("`git commit -a` is denied — it sweeps in every dirty tracked file", () => {
 	const Sweeps = "This commit form sweeps in every dirty tracked file";
 
@@ -702,12 +605,6 @@ describe("`git commit -a` is denied — it sweeps in every dirty tracked file", 
 	});
 });
 
-/*
- * mantahostels#1705 widened the same deny onto `git merge`, the second route that spells a
- * flag turning the gates off: `--no-verify` there skips `.husky/pre-merge-commit`,
- * which runs the whole of `.husky/pre-commit` over the merge's own content.
- * Nothing else about a merge is judged — it stages nothing.
- */
 describe("`git merge --no-verify` is denied on the same reasoning (mantahostels#1705)", () => {
 	it.each([
 		['git merge other -m "msg"', "no flag at all"],
@@ -740,7 +637,6 @@ describe("`git merge --no-verify` is denied on the same reasoning (mantahostels#
 		['git merge --no-verify -m "msg" other', "carrying a message"],
 		["git fetch && git merge --no-verify other", "later in a chain"],
 	])("%s — %s", (command) => {
-		// exempt (mantahostels#2145): reason pinned by "names the merge hook the flag skips".
 		expect(verdict(command)).toBe("deny");
 	});
 
@@ -750,11 +646,6 @@ describe("`git merge --no-verify` is denied on the same reasoning (mantahostels#
 		["git merge --gpg-sign --no-verify other", "the same flag spelled in full"],
 		["git merge -Skey --no-verify other", "-S with its key stuck on"],
 	])("%s — %s, still denied", (command) => {
-		/*
-		 * Each value is optional and taken only stuck on, so git reads the
-		 * --no-verify after it as the flag and runs `git merge --log --no-verify
-		 * side` with the hooks off (measured on git 2.43.0, #302).
-		 */
 		expect(verdict(command)).toBe("deny");
 	});
 
@@ -775,8 +666,6 @@ describe("`git merge --no-verify` is denied on the same reasoning (mantahostels#
 	});
 
 	it("is denied in a linked worktree too, as the commit spelling is", () => {
-		// Same reasoning as mantahostels#1213's: the gates it stands down are ones a worktree
-		// runs (mantahostels#344), so the shared-tree scoping does not reach this verdict.
 		expect(verdict("git merge --no-verify other", worktree)).toBe("deny");
 	});
 
@@ -785,11 +674,6 @@ describe("`git merge --no-verify` is denied on the same reasoning (mantahostels#
 	});
 });
 
-/*
- * mantahostels#1706 widens the same deny onto the three replay routes. `--no-verify` there
- * skips `.husky/pre-commit` on the resolution commit that finishes a rebase,
- * cherry-pick or revert — the commit carrying bytes no parent ever held.
- */
 describe("`--no-verify` is denied on rebase, cherry-pick and revert (mantahostels#1706)", () => {
 	it.each([
 		["git rebase main", "no flag at all"],
@@ -829,22 +713,10 @@ describe("`--no-verify` is denied on rebase, cherry-pick and revert (mantahostel
 		["git revert --no-verify HEAD", "revert, the full spelling"],
 		["git fetch && git rebase --no-verify main", "later in a chain"],
 	])("%s — %s", (command) => {
-		// `--no-veri` is rebase's floor, measured on git 2.43.0 at mantahostels#1706.
-		// exempt (mantahostels#2145): one `--no-verify` refusal for all five routes, pinned by
-		// "names pre-applypatch in the deny, so the reader knows what was skipped".
 		expect(verdict(command)).toBe("deny");
 	});
 
 	it("denies a cherry-pick/revert flag today's git does not have", () => {
-		/*
-		 * Measured on git 2.43.0 at mantahostels#1706, and RE-measure it with a resolvable
-		 * revision: given a ref git cannot resolve, git dies on the revision
-		 * before it reports the flag.
-		 *
-		 * So this arm guards nothing today and is kept anyway. Only the full
-		 * spelling — there is no abbreviation floor to honour on a flag that does
-		 * not exist.
-		 */
 		expect(verdict("git cherry-pick --no-verify abc123")).toBe("deny");
 		expect(verdict("git cherry-pick --no-v abc123")).toBe("allow");
 		expect(verdict("git revert --no-ver HEAD")).toBe("allow");
@@ -861,7 +733,6 @@ describe("`--no-verify` is denied on rebase, cherry-pick and revert (mantahostel
 			"a boolean flag under cherry-pick",
 		],
 	])("%s — %s, still denied", (command) => {
-		// Unlisted value-taking flags err toward the deny (mantahostels#1705).
 		expect(verdict(command)).toBe("deny");
 	});
 
@@ -876,15 +747,6 @@ describe("`--no-verify` is denied on rebase, cherry-pick and revert (mantahostel
 	});
 });
 
-/*
- * mantahostels#1707 finishes the widening on `git am`, the last route in mantahostels#1687's table.
- * `--no-verify` there skips `.husky/pre-applypatch`, the ONLY hook `git am`
- * offers — no `pre-commit`, no `prepare-commit-msg`, no `commit-msg`.
- *
- * `git am` is also the one subcommand of the five where `-n` must NOT be read
- * as `--no-verify`: it is `--no-scissors`, which changes how the patch's
- * message is cut and skips no hook at all.
- */
 describe("`--no-verify` is denied on `git am` (mantahostels#1707)", () => {
 	it.each([
 		["git am patch.mbox", "no flag at all"],
@@ -914,18 +776,12 @@ describe("`--no-verify` is denied on `git am` (mantahostels#1707)", () => {
 		["git am -3 --no-verify patch.mbox", "after a boolean flag"],
 		["git fetch && git am --no-verify patch.mbox", "later in a chain"],
 	])("%s — %s", (command) => {
-		// `--no-v` is am's floor, measured on git 2.43.0 at mantahostels#1707: no other
-		// `--no-v…` option exists under `am`, so git resolves it to --no-verify
-		// and skips the hook. Every longer prefix resolves the same way.
-		// exempt (mantahostels#2145): reason pinned by "names pre-applypatch in the deny, so
-		// the reader knows what was skipped" below.
 		expect(verdict(command)).toBe("deny");
 	});
 
 	it("names pre-applypatch in the deny, so the reader knows what was skipped", () => {
 		const reason = readDenyReason("git am --no-verify patch.mbox");
 		expect(reason).toContain("pre-applypatch");
-		// The one named escape is for a DIFFERENT check and stays the only one.
 		expect(reason).toContain("There is no override, deliberately");
 	});
 
@@ -938,19 +794,7 @@ describe("`--no-verify` is denied on `git am` (mantahostels#1707)", () => {
 	});
 });
 
-/*
- * THE PRE-EMPTIVE LIMB (mantahostels#1647, spec mantahostels#1762).
- *
- * The verdicts above fire ON the mistake. This fires ON the command, on
- * the clean branch, and hands the session the rule before it commits wrongly.
- *
- * Expectations are keyed by FRAGMENT ID, never by a string literal copied out
- * of the fragment; the mutation anchors below are the deliberate exception, on
- * the reasoning guard-branch.test.ts states in full.
- */
 describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)", () => {
-	// What a commit naming no gated path is handed, in injection order: the
-	// three act rules, then the push rule (#2022, #2285).
 	const plainCommitRules = [
 		"commit-pathspec",
 		"commit-show-diff",
@@ -964,12 +808,6 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 		expect(said(d)).toBe("");
 	});
 
-	/*
-	 * MUTATION ANCHORS. `toEqual(plainCommitRules)` keys on the ids, so it moves
-	 * with a mutation to the fragment instead of catching it. One short literal
-	 * per clause a session must actually receive, chosen to break if the clause
-	 * is deleted and to survive an ordinary reword.
-	 */
 	it.each([
 		["COMMIT BY PATHSPEC", "the operative instruction itself"],
 		["git add -N", "the exception for a file git does not track"],
@@ -983,8 +821,6 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 
 	it("a warn outranks it: the warn hands over no rules", () => {
 		writes();
-		// A warn already carries the specific hazard it found; appending the
-		// general rule underneath would bury it.
 		fs.writeFileSync(path.join(shared, "new.md"), "new\n");
 		const d = judge('git commit -m "x" -- new.md');
 		expect(handed(d)).toEqual([]);
@@ -1009,8 +845,6 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 	});
 
 	it("a payload with no session id is still handed the rules to render", () => {
-		// Whether they reach the session is the kit's: it cannot latch what it
-		// cannot key, so it says nothing (guard-commit-form.test.ts).
 		expect(handed(judge('git commit -m "x" -- a.md', shared, null))).toEqual(
 			plainCommitRules,
 		);
@@ -1036,7 +870,6 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 	])(
 		"%s is handed the show-the-diff, message and push rules alone — %s",
 		(command) => {
-			// It runs no git the walk sees, and already commits by pathspec (#2022).
 			expect(handed(judge(command))).toEqual([
 				"commit-show-diff",
 				"commit-message",
@@ -1050,14 +883,8 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 	});
 
 	it("hands a root .md commit the act and push rules and nothing else", () => {
-		// `a.md` is outside the mapped scope, is neither roadmap file, holds no
-		// guard-registry region and is not a language Biome parses — so every one
-		// of mantahostels#1805's §Gotchas ids is scoped out and this is the whole emission.
 		const d = judge('git commit -m "x" -- a.md');
 		expect(handed(d)).toEqual(plainCommitRules);
-		// The four rules' 2,399 B at #2285 with the core root's spelling dropped,
-		// as it varies by checkout, rounded up: a fragment growing past it is a
-		// decision about every session's first commit.
 		const pathless = handedText(d).replaceAll(
 			path.resolve(__dirname, "..", ".."),
 			"",
@@ -1066,28 +893,12 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 	});
 });
 
-/*
- * THE §GOTCHAS CLUSTER ON THIS TRIGGER (mantahostels#1805, spec mantahostels#1762).
- *
- * Six more rules share `git commit`, and which of them a session is handed
- * turns on what the commit ACTUALLY NAMES — the ticket's acceptance criterion,
- * against the blanket per-subcommand request that would spend the
- * emission ceiling on rules that cannot fire.
- *
- * The scoping is expressed as an EXCLUSION (the decision's `skip`) rather than a
- * selection, because scripts/check-guard-registry.js reads the literal ids at
- * the call site: ids assembled into an array would every one report
- * UNPRINTED-RULE and the store's third assertion would stop meaning anything.
- */
 const MODULES_ON = { WFC_MODULES: "roadmap,governance" };
 
 describe("the §Gotchas rules are scoped by what the commit names (mantahostels#1805)", () => {
-	/** The rule ids `command` is handed, sorted. */
 	const idsIn = (command: string, env: Record<string, string> = MODULES_ON) =>
 		handed(judge(command, shared, "test", env)).sort();
 
-	/* A file the view does not carry, committed so the pathspec resolves
-	 * against something real. */
 	const withPaths = (...paths: string[]) => {
 		for (const rel of paths) {
 			fs.mkdirSync(path.dirname(path.join(shared, rel)), { recursive: true });
@@ -1179,8 +990,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 	])("%s", (_name, paths, id, expected) => {
 		const got = idsIn(`git commit -m "x" -- ${(paths as string[]).join(" ")}`);
 		expect(got.includes(id as string)).toBe(expected);
-		// Whatever the scope, the pathspec rule is never scoped out: it is about
-		// the act, not about a gate that will judge the result.
 		expect(got).toContain("commit-pathspec");
 	});
 
@@ -1192,7 +1001,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		expect(idsIn(command)).toContain("doc-map-precommit");
 	});
 
-	/* A path each rule is scoped IN on, so only the module decides (#449). */
 	it.each([
 		["digest-version-drift", "roadmap", "docs/roadmap-digest.md"],
 		["doc-map-precommit", "governance", "docs/x.md"],
@@ -1204,12 +1012,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		expect(idsIn(cmd, { WFC_MODULES: others })).not.toContain(id);
 	});
 
-	/*
-	 * MUTATION ANCHORS, one clause per relocated bullet. The scope cases above
-	 * key on the fragment ID and read the store through readRuleText, so they move
-	 * with a mutation to the fragment instead of catching it — these are what
-	 * fails when a clause is cut out of one.
-	 */
 	it.each([
 		[
 			"docs/x.md",
@@ -1308,10 +1110,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		["git add -N docs/x.md", "intent-to-add is not committing"],
 		["git add docs/x.md", "nor is staging"],
 	])("%s is handed the act and push rules alone — %s", (command) => {
-		// SCOPING IS `commit`-ONLY. `git add` runs none of these gates, reads a
-		// pre-add index, and contributes no pathspec words — scan_commit fills
-		// those for `commit` alone — so scoping it would judge the wrong file set.
-		// It still gets the act and push rules, which are unscoped.
 		const got = idsIn(command);
 		expect(got).toEqual([
 			"commit-message",
@@ -1321,11 +1119,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		]);
 	});
 
-	/*
-	 * A commit-paths.js call is scoped off the paths it would land, as a
-	 * `git commit` pathspec is (#2147). It never gets commit-pathspec: it already
-	 * commits by pathspec (#2022).
-	 */
 	const commitPathsDocs = [
 		"commit-show-diff",
 		"commit-message",
@@ -1340,8 +1133,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		expect(idsIn('node scripts/commit-paths.js -m "x" -- docs/x.md')).toEqual(
 			commitPathsDocs,
 		);
-		// The git commit is handed commit-pathspec on top; which of them fit
-		// the ceiling is the kit's (#2285).
 		expect(idsIn('git commit -m "x" -- docs/x.md')).toEqual(
 			[...commitPathsDocs, "commit-pathspec"].sort(),
 		);
@@ -1409,9 +1200,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 	});
 
 	it("hands every path-scoped id on the widest commit, the push rule last", () => {
-		// Which of them fit the emission ceiling, and the deferral of the rest, is
-		// the kit's (guard-commit-form.test.ts). The push rule binds after the
-		// commit, so it is the lowest priority (#2285).
 		const command =
 			'git commit -m "x" -- docs/roadmap-digest.md scripts/y.sh app/y.ts';
 		expect(
@@ -1428,11 +1216,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		]);
 	});
 
-	/*
-	 * THE CLOSING-KEYWORD REFUSAL (mantahostels#2592, raised from an advisory injection to a
-	 * deny at #129), the one verdict on this trigger decided by the commit's
-	 * MESSAGE rather than by its paths.
-	 */
 	it.each([
 		["closes #12", true, "the spelling the fragment names"],
 		["Closes #12", true, "capitalised"],
@@ -1452,9 +1235,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		["encloses #12", false, "a word merely ENDING in a keyword"],
 		["closes the gap", false, "the keyword with no issue number after it"],
 		["closes 12", false, "a number with no `#`"],
-		/* mantahostels#2652's three spellings. GitHub honours the cross-repo and URL forms
-		 * and closes on them, so a session writing one got no rule while the
-		 * issue closed on the push anyway. */
 		["closes owner/repo#12", true, "the cross-repo reference"],
 		[
 			"closes https://github.com/owner/repo/issues/12",
@@ -1486,9 +1266,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 			}
 			const reason = readDenyReason(command);
 			expect(reason).toContain(CLOSES);
-			// The refusal quotes back what matched, in the session's own case —
-			// every positive case above is exactly its own match, boundary
-			// characters aside.
 			expect(reason).toContain(`What matched: \`${message}\``);
 		},
 	);
@@ -1507,8 +1284,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		expect(reason).toContain("What matched: `Closes #2592`");
 	});
 
-	/* The declared project dir holds no store, so a read resolving its own
-	 * root would answer the core's fragment, never this one. */
 	it("reads the rule under the root the entry resolved (#3142)", () => {
 		const root = mkScratchDir("closes-root-");
 		const declared = mkScratchDir("closes-elsewhere-");
@@ -1534,9 +1309,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 
 	it("is refused in a linked worktree and mid-merge alike", () => {
 		writes();
-		// Judged above the mid-sequence stand-down: GitHub reads the pushed
-		// message, so neither the tree the commit was written in nor a merge in
-		// progress changes what it does (#129).
 		expect(verdict('git commit -m "Closes #12"', worktree)).toBe("deny");
 		git(worktree, "checkout", "-q", "-b", "wt-closes");
 		fs.writeFileSync(path.join(worktree, "a.md"), "other\n");
@@ -1548,8 +1320,6 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		expect(verdict('git commit -m "Closes #12"', worktree)).toBe("deny");
 	});
 
-	/* MUTATION ANCHOR: the cases above key on the framing line and the matched
-	 * text, so the fragment the refusal splices in could be gutted under them. */
 	it("states what to write instead, and that the amend is not the escape", () => {
 		const reason = readDenyReason('git commit -m "Closes #12" -- a.md');
 		expect(reason).toContain("Write `Refs #n` instead");
@@ -1557,16 +1327,10 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 	});
 });
 
-/*
- * mantahostels#495. Which words of a commit are its pathspec, read by the
- * untracked-path warn: an option's value is not one, and a flag-shaped word
- * past `--` is.
- */
 describe("a commit's pathspec words are read apart from its option values", () => {
 	beforeEach(writes);
 
 	it("does not read an option's value as a pathspec", () => {
-		// Each of these ends in a word that is a value, naming an untracked file.
 		for (const [command, file] of [
 			["git commit -m msg", "msg"],
 			['git commit --message "msg"', "msg"],
@@ -1579,28 +1343,16 @@ describe("a commit's pathspec words are read apart from its option values", () =
 	});
 
 	it("reads a value glued to its flag without eating the next word", () => {
-		// `-mmsg` carries its own value, so `new.md` after it IS a pathspec.
 		fs.writeFileSync(path.join(shared, "new.md"), "new\n");
 		expect(verdict("git commit -mmsg new.md")).toBe("warn");
 	});
 
 	it("reads a flag-shaped word after -- as the pathspec it is", () => {
-		// Past a bare `--`, `-weird-file` is a path git will commit, not an
-		// option.
 		fs.writeFileSync(path.join(shared, "-weird-file"), "x\n");
 		expect(verdict('git commit -m "msg" -- -weird-file')).toBe("warn");
 	});
 });
 
-/*
- * mantahostels#182. Every case above puts its whole command on one line. A commit message
- * with a body does not, and that was enough to make the guard read the pathspec
- * wrong in BOTH directions — the cause being in the shared parser rather than
- * here (see shell-parse.test.ts, "logical lines").
- *
- * A commit naming pathspecs lost them; and a leftover word on the message's
- * first line could read as a path.
- */
 describe("a multi-line commit message leaves the pathspec in view", () => {
 	const cases: [string, string][] = [
 		[
@@ -1640,7 +1392,6 @@ describe("a multi-line commit message leaves the pathspec in view", () => {
 	);
 
 	it("still denies --no-verify carrying a multi-line message", () => {
-		// The deny reads flags on the first line, so it never depended on the join.
 		expect(
 			readDenyReason('git commit -n -m "Subject line\n\nBody."'),
 		).toContain(NO_VERIFY);
@@ -1688,9 +1439,7 @@ describe("text that merely mentions a commit is not a commit", () => {
 	});
 
 	it("<< inside a quoted string does not open a heredoc", () => {
-		// Otherwise it swallows every line after it, the commit included.
 		expect(verdict('echo "a << b"\ngit commit -n foo')).toBe("deny");
-		// The segment echoed back must be the commit, not the echo.
 		expect(readDenyReason('echo "a << b"\ngit commit -n foo')).toContain(
 			"everywhere else: git commit -n foo",
 		);
@@ -1734,8 +1483,6 @@ describe("trees this guard has no business in", () => {
 
 	it("judges a worktree spelt through $CLAUDE_JOB_DIR instead of failing open on it", () => {
 		writes();
-		// The recipe was `"$CLAUDE_JOB_DIR/tmp/<name>"` until #1732, and a hook
-		// process inherits CLAUDE_JOB_DIR, so the path resolves (mantahostels#183).
 		const env = { CLAUDE_JOB_DIR: dir };
 		git(shared, "worktree", "add", "-q", "-b", "recipe", path.join(dir, "tmp"));
 		expect(
@@ -1758,8 +1505,6 @@ describe("trees this guard has no business in", () => {
 	});
 
 	it("fails open on a path it genuinely cannot resolve", () => {
-		// The deliberate residual (#312): a command substitution, directly or
-		// through a name, stays unjudged. An unset name is judged.
 		expect(verdict('cd "$(mktemp -d)" && git commit -n -m "msg"')).toBe(
 			"allow",
 		);
@@ -1771,9 +1516,6 @@ describe("trees this guard has no business in", () => {
 
 describe("a commit form it cannot judge is recorded, not just allowed", () => {
 	it("logs a commit whose working tree cannot be resolved", () => {
-		// An unexpanded variable in the cd target: the guard does not know which
-		// tree this commits against, so it allows — and that is a commit form it
-		// declined to judge, not a command it never had to.
 		run('cd $TARGET && git commit -n -m "x"');
 		expect(logged()).toMatch(
 			/could not resolve the working tree for a git commit/,
@@ -1786,8 +1528,6 @@ describe("a commit form it cannot judge is recorded, not just allowed", () => {
 	});
 
 	it("says nothing about a commit in a directory that is in no repo (mantahostels#253)", () => {
-		// The directory exists and git refuses for it — a confident "not a
-		// repository", not an unknown: nothing committed there reaches this repo.
 		const opaque = mkDirOutsideRepo("not-a-repo-");
 		try {
 			run(`git -C ${opaque} commit -n -m "x"`, shared, "test");
@@ -1798,10 +1538,6 @@ describe("a commit form it cannot judge is recorded, not just allowed", () => {
 	});
 
 	it("logs a commit where git failed for some other reason (mantahostels#253)", () => {
-		// A commit form the guard declined to judge, so is_shared_tree() returns 2
-		// and the guard records it. git's own answer cannot pick this case out: a
-		// `.git` pointing at a gitdir that is gone exits 128 printing the same
-		// "not a git repository" as the case above.
 		const broken = path.join(scratch(), "broken-repo");
 		fs.mkdirSync(broken);
 		fs.writeFileSync(
@@ -1815,8 +1551,6 @@ describe("a commit form it cannot judge is recorded, not just allowed", () => {
 	});
 
 	it("says nothing about a commit in a directory that does not exist", () => {
-		// git fails before it commits anything, so an absolute path with nothing at
-		// it is no more this repo than another repo is (mantahostels#208).
 		run(`git -C ${path.join(dir, "gone")} commit -n -m "x"`);
 		expect(logged()).toBe("");
 	});
@@ -1835,7 +1569,6 @@ describe("an unset variable in the target is the cwd (#312, #326)", () => {
 		"refuses with %s, naming the variable after the framing line",
 		(framing, command) => {
 			const r = readDenyReason(command);
-			// The framing paragraph, the line, then the refusal's own body.
 			const from = r.slice(r.indexOf(framing)).split("\n\n");
 			expect(from[1]).toBe(unsetLine);
 			expect(from[2]).not.toBe("");
@@ -1885,7 +1618,6 @@ describe("an unset variable in the target is the cwd (#312, #326)", () => {
 	});
 });
 
-/** The escape both untracked-path warns offer: the commit script first, the hand-typed intent-add after it. */
 const expectScriptAheadOfAddN = (out: string) => {
 	const script = out.indexOf("node scripts/commit-paths.js");
 	expect(script).toBeGreaterThan(-1);
@@ -1895,7 +1627,6 @@ const expectScriptAheadOfAddN = (out: string) => {
 describe("the untracked-path warn spells the commit script where it is installed (#343)", () => {
 	it("spells the script at the plugin root in an install's warn", () => {
 		writes();
-		// A plugin install: the core's scripts with no package.json beside them.
 		const root = path.join(scratch(), "plugin");
 		fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(root, "scripts", "commit-paths.js"), "");
@@ -1908,13 +1639,7 @@ describe("the untracked-path warn spells the commit script where it is installed
 	});
 });
 
-/*
- * mantahostels#1612. docs/agents/guard-registry.md §Conventions' headline rule — commit by
- * pathspec — is unsatisfiable for a file git does not track yet: the pathspec
- * matches nothing, git exits 1 and commits nothing.
- */
 describe("a pathspec commit warns when it names a path git does not track", () => {
-	/** Puts a file on disk that git has never been told about. */
 	const newFile = (rel: string, text = "new\n") => {
 		fs.mkdirSync(path.dirname(path.join(shared, rel)), { recursive: true });
 		fs.writeFileSync(path.join(shared, rel), text);
@@ -1954,8 +1679,6 @@ describe("a pathspec commit warns when it names a path git does not track", () =
 
 	it("leaves a directory git already tracks something in to mantahostels#1651", () => {
 		writes();
-		// git accepts the pathspec and commits the tracked file, silently
-		// leaving the untracked one behind — a warn, but not this one's.
 		newFile("also-new.md");
 		const out = run('git commit -m "x" -- .');
 		expect(out).not.toContain("#1612");
@@ -1963,16 +1686,12 @@ describe("a pathspec commit warns when it names a path git does not track", () =
 	});
 
 	it("says nothing about a path that is not there at all", () => {
-		// A typo, or mantahostels#495's flag-shaped path: `git add -N` is no advice for a
-		// file that is not there.
 		expect(verdict('git commit -m "msg" -- -weird-file')).toBe("allow");
 		expect(verdict('git commit -m "msg" -- typo.md')).toBe("allow");
 	});
 
 	it("warns on an ignored path too, and offers the -f the escape needs", () => {
 		writes();
-		// git rejects the pathspec for an ignored file just the same, so the
-		// harm is identical — but plain `git add -N` would refuse it.
 		fs.writeFileSync(path.join(shared, ".gitignore"), "ignored.md\n");
 		git(shared, "add", ".gitignore");
 		git(shared, "commit", "-qm", "ignore");
@@ -2007,15 +1726,11 @@ describe("a pathspec commit warns when it names a path git does not track", () =
 
 	it("binds in a linked worktree too", () => {
 		writes();
-		// git rejects an unmatchable pathspec byte-identically in every tree.
 		fs.writeFileSync(path.join(worktree, "new.md"), "new\n");
 		expect(verdict('git commit -m "x" -- new.md', worktree)).toBe("warn");
 	});
 
 	it("leaves a word git cannot answer for unjudged, and records it", () => {
-		// A path outside the repo: git exits 128, so the word is left unjudged
-		// rather than guessed at — and mantahostels#147's rule is that every fail-open is
-		// logged, or a broken git reads exactly like a clean verdict.
 		expect(
 			verdict(`git commit -m "x" -- ${path.join(dir, "outside.md")}`),
 		).toBe("allow");
@@ -2031,20 +1746,12 @@ describe("a pathspec commit warns when it names a path git does not track", () =
 	});
 });
 
-/*
- * mantahostels#1651. The residual mantahostels#1612 leaves. A pathspec word naming a DIRECTORY that
- * holds one tracked file and one untracked file is accepted by git: it commits
- * the tracked one, exits 0 and leaves the new one behind. mantahostels#1612's harm with no
- * signal at all — which is why this is a second verdict rather than a widening
- * of mantahostels#1612's loop, whose "tracks nothing" test deliberately clears such a word.
- */
 describe("a pathspec commit warns when a directory word leaves a new file behind", () => {
 	const newFile = (rel: string, text = "new\n") => {
 		fs.mkdirSync(path.dirname(path.join(shared, rel)), { recursive: true });
 		fs.writeFileSync(path.join(shared, rel), text);
 	};
 
-	/** A tracked, modified file and an untracked sibling, both under `docs/`. */
 	const mixedDir = () => {
 		fs.mkdirSync(path.join(shared, "docs"), { recursive: true });
 		fs.writeFileSync(path.join(shared, "docs", "old.md"), "old\n");
@@ -2107,7 +1814,6 @@ describe("a pathspec commit warns when a directory word leaves a new file behind
 
 	it("leaves mantahostels#1612's own message and trigger untouched", () => {
 		writes();
-		// A word matching nothing tracked is still mantahostels#1612's, byte for byte.
 		newFile("new.md");
 		const out = run('git commit -m "x" -- new.md');
 		expect(out).toContain("#1612");
@@ -2129,15 +1835,11 @@ describe("a pathspec commit warns when a directory word leaves a new file behind
 		for (let i = 0; i < 14; i++) newFile(`docs/n${i}.md`);
 		const out = run('git commit -m "x" -- docs');
 		expect(out).toContain("and 5 more");
-		// git lists them sorted, so docs/new.md is last of the fifteen and one
-		// of the five cut.
 		expect(out).not.toContain("docs/new.md");
 	});
 
 	it("spends one budget across the whole message, not one per word", () => {
 		writes();
-		// Two directory words, eight new files each: ten named, six counted —
-		// not ten named per word.
 		mixedDir();
 		fs.writeFileSync(path.join(shared, "src.md"), "src\n");
 		git(shared, "add", "src.md");
@@ -2181,8 +1883,6 @@ describe("a pathspec commit warns when a directory word leaves a new file behind
 
 	it("says nothing about a glob — the verdict is scoped to a directory word", () => {
 		writes();
-		// A quoted glob git expands itself has the same silent harm, and is the
-		// verdict's known residual: the boundary is a word that IS a directory.
 		mixedDir();
 		expect(verdict(`git commit -m "x" -- 'docs/*'`)).toBe("allow");
 	});
@@ -2194,24 +1894,11 @@ describe("a pathspec commit warns when a directory word leaves a new file behind
 	});
 
 	it("leaves a word git cannot answer for unjudged, and records it", () => {
-		// A directory outside the repo: git exits 128, so the word is left
-		// unjudged rather than guessed at, and mantahostels#147's rule is that it is logged.
 		expect(verdict(`git commit -m "x" -- ${dir}`)).toBe("allow");
 		expect(logged()).toContain("left unjudged for mantahostels#1651");
 	});
 });
 
-/*
- * mantahostels#3280.
- *
- * D1: mantahostels#1612 rests on "git rejects the whole commit". That is false
- * of `git add -N x && git commit … -- x …` — the escape mantahostels#1612
- * itself prints. The guard judges PreToolUse, so x is untracked here and
- * tracked by the time git runs: the commit succeeds.
- *
- * D2: mantahostels#1651 describes a commit that SUCCEEDS and leaves scratch
- * behind, so it is the lowest-ranked warn.
- */
 describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 	const doc = "docs/a.md";
 
@@ -2238,7 +1925,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("suppresses in a linked worktree too, where mantahostels#1612 binds", () => {
-			// Which is why the record is taken above the shared-tree gate.
 			fs.writeFileSync(path.join(worktree, "new.md"), "new\n");
 			expect(
 				verdict('git add -N new.md && git commit -m "x" -- new.md', worktree),
@@ -2250,7 +1936,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 			const out = run(
 				`git add -n new.md && git commit -m "x" -- ${doc} new.md`,
 			);
-			// "mantahostels#1612", not the sentence: mantahostels#1651's text carries the same words.
 			expect(out).toContain("#1612");
 		});
 
@@ -2286,7 +1971,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("suppresses across a `./` spelling difference (mantahostels#3315)", () => {
-			// The unnormalised string compare read one file as two and fired mantahostels#1612.
 			newFile("new.md");
 			const out = run(
 				`git add -N ./new.md && git commit -m "x" -- ${doc} new.md`,
@@ -2303,8 +1987,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("resolves the word against the add segment's own cwd", () => {
-			// `git -C` can differ per segment, so an absolute-path comparison is
-			// the only one that holds.
 			fs.mkdirSync(path.join(shared, "sub"), { recursive: true });
 			newFile("sub/new.md");
 			const out = run(
@@ -2314,8 +1996,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("suppresses a DIRECTORY word the intent-add lands inside (mantahostels#3318)", () => {
-			// git tracks src/new.md by the time the commit runs, so `-- src`
-			// commits it and exits 0.
 			newFile("src/new.md");
 			const out = run(
 				`git add -N src/new.md && git commit -m "x" -- ${doc} src`,
@@ -2324,7 +2004,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("does not let an add under a prefix-sharing sibling suppress the word (mantahostels#3318)", () => {
-			// /repo/srcx/other.md is not under /repo/src, so `src` keeps its warn.
 			newFile("src/new.md");
 			newFile("srcx/other.md");
 			const out = run(`git add -N srcx/other.md && git commit -m "x" -- src`);
@@ -2332,8 +2011,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("suppresses a FILE word an intent-add of the directory covers (mantahostels#3321)", () => {
-			// `git add -N src` intent-adds every untracked file under src, so
-			// src/new.md is tracked by the time the commit runs.
 			newFile("src/new.md");
 			const out = run(
 				`git add -N src && git commit -m "x" -- ${doc} src/new.md`,
@@ -2350,8 +2027,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("does not suppress an IGNORED file a plain add of the directory skips (mantahostels#3321)", () => {
-			// `git add -N src` leaves src/x.log untracked, so that commit really
-			// does fail.
 			fs.writeFileSync(path.join(shared, ".gitignore"), "*.log\n");
 			newFile("src/x.log");
 			expect(run(`git add -N src && git commit -m "x" -- src/x.log`)).toContain(
@@ -2395,11 +2070,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 			expect(out).not.toContain("#1612");
 		});
 
-		/**
-		 * A `--pathspec-from-file` list at `rel`, one pathspec per line.
-		 * `terminated: false` leaves the last element with no separator after it —
-		 * git stages it all the same, so the guard has to read it (mantahostels#3324).
-		 */
 		const listFile = (
 			rel: string,
 			lines: string[],
@@ -2430,8 +2100,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("records a DIRECTORY named as the list, rather than reading it per line (mantahostels#3324)", () => {
-			// A directory passes `-r`, so without the `-f` test the read fails once
-			// per line with nothing logged and the commit looks judged.
 			newFile("new.md");
 			fs.mkdirSync(path.join(shared, "listdir"), { recursive: true });
 			expect(
@@ -2490,8 +2158,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("reads a NUL-separated list under --pathspec-file-nul (mantahostels#3324)", () => {
-			// The flag is spelled AFTER --pathspec-from-file, which is why it is
-			// read in the pre-pass rather than in the word walk.
 			newFile("new.md");
 			listFile("paths.bin", ["new.md"], "\0");
 			const out = run(
@@ -2501,8 +2167,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("takes a NUL list literally — no CR is stripped off it (mantahostels#3324)", () => {
-			// The bytes git stages are `new.md\r`, so a guard that stripped the CR
-			// would credit a path git never intent-added.
 			newFile("new.md");
 			listFile("paths.bin", ["new.md\r"], "\0");
 			expect(
@@ -2522,9 +2186,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("suppresses nothing when the list comes from stdin, and records it (mantahostels#3324)", () => {
-			// `-` is git's stdin spelling and the hook payload carries no stdin, so
-			// the commit keeps its warn. The log entry is what
-			// tells that apart from a list this guard read and found empty.
 			newFile("new.md");
 			expect(
 				run(`git add -N --pathspec-from-file - && git commit -m "x" -- new.md`),
@@ -2574,9 +2235,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("records nothing off a list an earlier segment redirects into (mantahostels#3327)", () => {
-			// The list on disk names new.md and the command overwrites it before git
-			// reads it, so the guard opens bytes git never sees. Crediting them
-			// suppresses the warn on a commit that leaves new.md behind.
 			newFile("new.md");
 			listFile("paths.txt", ["new.md"]);
 			expect(
@@ -2599,8 +2257,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("still suppresses through a list the command APPENDS to (mantahostels#3327)", () => {
-			// `>>` can only add pathspecs, so what the guard read is a subset of what
-			// git stages and the suppression stands.
 			newFile("new.md");
 			listFile("paths.txt", ["new.md"]);
 			const out = run(
@@ -2630,7 +2286,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("reads a redirect written with no space before its target (mantahostels#3327)", () => {
-			// `echo other.md>paths.txt` is one word to this guard and two to bash.
 			newFile("new.md");
 			listFile("paths.txt", ["new.md"]);
 			expect(
@@ -2651,8 +2306,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("reads a descriptor-prefixed redirect into the list (mantahostels#3327)", () => {
-			// `2> paths.txt` writes no pathspec list in practice; reading it costs a
-			// false warn, and not reading the prefix at all would cost a lost one.
 			newFile("new.md");
 			listFile("paths.txt", ["new.md"]);
 			expect(
@@ -2663,8 +2316,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 		});
 
 		it("matches a redirect target by name where it resolves elsewhere (mantahostels#3327)", () => {
-			// The redirect names `../paths.txt` against a list read from `sub/`, so
-			// the two never compare equal as paths.
 			fs.mkdirSync(path.join(shared, "sub"), { recursive: true });
 			newFile("sub/new.md");
 			listFile("sub/paths.txt", ["new.md"]);
@@ -2677,7 +2328,6 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 	});
 
 	describe("D2 — mantahostels#1651's verdict is deferred to the emission foot", () => {
-		/** A tracked, modified file and an untracked sibling under `src/`. */
 		const mixedDir = () => {
 			fs.mkdirSync(path.join(shared, "src"), { recursive: true });
 			fs.writeFileSync(path.join(shared, "src", "old.md"), "old\n");

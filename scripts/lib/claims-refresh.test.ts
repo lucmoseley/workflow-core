@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/claims-refresh.js, the PostToolUse-on-Bash recorder core
- * (mantahostels#295): it re-records what this session holds after a Bash call,
- * baselines a path the session only Bash-wrote (mantahostels#419) without
- * minting a lock, and says nothing.
- *
- * It runs after EVERY Bash call in every session. The core runs in process
- * through the dispatcher, inside an arbiter sandbox, so its records land in a
- * scratch store and never the live one; the entry's fail-open on an empty or
- * unparseable payload is scripts/guard-dispatch.test.ts's boundary set.
- *
- * Loosen a case and a session's own `sed` reads as a clobber at its next write,
- * or a Bash-route overwrite goes unbaselined.
- *
- * The seam-2 case (#4242) runs it from a linked worktree of a main checkout:
- * the claim store it refreshes is the host's, at the main checkout.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -50,7 +33,6 @@ describe("refresh-claims — re-record what this session holds, after a Bash cal
 		fs.writeFileSync(path.join(sb.repo, REL), text);
 	const readLock = () => core.readRecord(store.paths.lock(REL));
 
-	/** A claim on REL with its content recorded, as a tool write would leave it. */
 	const claimed = (sessionId: string, text: string) => {
 		const me = live(sb, sessionId);
 		write(text);
@@ -69,8 +51,6 @@ describe("refresh-claims — re-record what this session holds, after a Bash cal
 	});
 
 	it("leaves a path this session does not hold alone", () => {
-		// Refreshing a neighbour's claim would erase the evidence they are owed the
-		// moment somebody clobbers their file.
 		claimed("bob", "bob's\n");
 		write("clobbered\n");
 
@@ -91,21 +71,17 @@ describe("refresh-claims — re-record what this session holds, after a Bash cal
 		write("v1.36\n");
 
 		expect(run(undefined, { CLAUDE_CODE_SESSION_ID: "" }).output).toBeNull();
-		// Unrefreshed, so the next write reports — failing open here costs a false
-		// clobber report, never a lost one.
 		expect(store.contentState(REL, readLock()).state).toBe("changed");
 	});
 
 	describe("the tier scan — a baseline for a session holding no claim (mantahostels#419)", () => {
-		// The gap mantahostels#364 measured: this hook refreshed only what the session already
-		// held, and a session that reached the file from Bash alone holds nothing.
 		it("baselines a path this session only ever Bash-wrote", () => {
 			live(sb, "alice");
 			write("v1.35\n");
 			run("alice");
 			expect(store.observationState(REL, "alice").state).toBe("unknown");
 
-			write("v1.36\n"); // the sed no hook sees
+			write("v1.36\n");
 			run("alice");
 			expect(store.observationState(REL, "alice").state).toBe("same");
 
@@ -114,7 +90,6 @@ describe("refresh-claims — re-record what this session holds, after a Bash cal
 		});
 
 		it("refreshes a baseline the scan minted on a deny-tier path, so the session's second sed is no clobber either", () => {
-			// A deny-tier path takes an unlocked observation only on the Bash route.
 			const doc = "docs/notes.md";
 			const sed = (text: string) => {
 				fs.writeFileSync(path.join(sb.repo, doc), text);
@@ -124,7 +99,7 @@ describe("refresh-claims — re-record what this session holds, after a Bash cal
 			fs.mkdirSync(path.join(sb.repo, "docs"), { recursive: true });
 			sed("v1.35\n");
 			sed("v1.36\n");
-			sed("v1.37\n"); // the second sed, on a path the scan now covers
+			sed("v1.37\n");
 			expect(store.observationState(doc, "alice").state).toBe("same");
 		});
 
@@ -137,9 +112,6 @@ describe("refresh-claims — re-record what this session holds, after a Bash cal
 		});
 
 		it("baselines no more than the scan's cap in one call, so a whole-tier move cannot overrun the hook's timeout", () => {
-			// Counted, not timed (#1916): each baseline costs two git processes, and
-			// the cap (SCAN_MINT_MAX in lib/arbiter-snapshots.js) keeps one call's
-			// count of them under the tier's whole move.
 			const rels = Array.from({ length: 60 }, (_, i) => `scripts/gen-${i}.py`);
 			const baselined = () =>
 				rels.filter(
@@ -164,8 +136,6 @@ describe("a Bash call from a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
 	const split = freshSandbox((fresh) => {
 		at = splitCheckout(path.join(fresh.dir, "split"));
-		/* The harness names the worktree (#4168); the claim store is the main
-		 * checkout's, which host-root.js maps it to. */
 		vi.stubEnv("CLAUDE_PROJECT_DIR", at.worktree);
 		vi.stubEnv("WFC_REPO_ROOT", at.main);
 		vi.stubEnv("WFC_DISPATCH_ROOT", at.main);

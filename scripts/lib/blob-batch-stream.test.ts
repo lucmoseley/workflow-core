@@ -1,26 +1,14 @@
 // @vitest-environment node
-/*
- * Over lib/blob-batch-stream.js: groups of blobs tested through one
- * `git cat-file --batch`, against a throwaway object store (#4542).
- *
- * WHAT BREAKS IF THESE GO WRONG: check-orphaned-edits.js reads a landed edit
- * as unlanded, so an orphan already on main is filed as lost work; or a body
- * split across chunks is misread, so a lost edit is taken as landed.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { matchBlobGroups } from "./blob-batch-stream.js";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
 
 describe("matchBlobGroups — groups of blobs tested through one streaming batch (#4542)", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const lib: any = createRequire(__filename)("./blob-batch-stream.js");
-
 	let root: string;
-	/** Blob ids by name: two small, one far over a pipe's chunk. */
 	const ids: Record<string, string> = {};
 	const big = `${"x".repeat(199)}\n`.repeat(2000);
 	beforeAll(() => {
@@ -47,7 +35,7 @@ describe("matchBlobGroups — groups of blobs tested through one streaming batch
 	const Missing = "0".repeat(40);
 
 	it("answers each group, a body far over one chunk read whole and a missing blob skipped", async () => {
-		const found = await lib.matchBlobGroups(
+		const found = await matchBlobGroups(
 			[
 				{ blobs: [Missing, ids.one, ids.big], test: is(big) },
 				{ blobs: [ids.two], test: is("one\n") },
@@ -60,7 +48,7 @@ describe("matchBlobGroups — groups of blobs tested through one streaming batch
 
 	it("stops testing a group at its first match", async () => {
 		const seen: string[] = [];
-		const found = await lib.matchBlobGroups(
+		const found = await matchBlobGroups(
 			[
 				{
 					blobs: [ids.one, ids.two, ids.big],
@@ -78,7 +66,7 @@ describe("matchBlobGroups — groups of blobs tested through one streaming batch
 
 	it("rejects where git cannot run the batch", async () => {
 		await expect(
-			lib.matchBlobGroups([{ blobs: [ids.one], test: () => false }], {
+			matchBlobGroups([{ blobs: [ids.one], test: () => false }], {
 				cwd: path.join(root, "gone"),
 			}),
 		).rejects.toThrow();

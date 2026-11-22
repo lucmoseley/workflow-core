@@ -1,11 +1,3 @@
-/*
- * biome-allowlist.js — what a `biome check` command's words become on
- * biome-staged.js (#3947): the flags it carries, drops or refuses, and the way
- * out each refusal names. A flag maps only from this list, so one Biome ships
- * later never maps unreviewed (#2599). infer-commands.js's
- * `classifyCheckStaged` finds the command.
- */
-
 const { isUnreadWord } = require("./shell-tokens.js");
 const { shellQuote } = require("./sh-quote.js");
 
@@ -13,20 +5,13 @@ const { shellQuote } = require("./sh-quote.js");
 
 const BIOME_STAGED_COMMAND = 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js';
 
-/* That command at the start of a text, its root spelt either way the hooks do
- * (#4042). */
 const BIOME_STAGED_START =
 	/^\s*node\s+"\$(?:WFC_PLUGIN_ROOT|\{WFC_PLUGIN_ROOT:-\.\})"\/scripts\/biome-staged\.js(?=$|[\s;&|<>()])/;
 
 const PINNED = /(?:^|\s)(?:@biomejs\/)?biome@/;
 
-/* The names that find the `biome` the hook puts on PATH from
- * `node_modules/.bin` (#2597 §7), as the words before `check`, bare or after
- * `npx`. */
 const MAPPED_NAMES = new Set(["biome", "@biomejs/biome"]);
 
-/* Dropped, with WRITE_NOTE: their fixes would land in biome-staged.js's
- * thrown-away extract (#2597, #2598). */
 const WRITE_FLAGS = new Set([
 	"--write",
 	"--fix",
@@ -37,8 +22,6 @@ const WRITE_FLAGS = new Set([
 const WRITE_NOTE =
 	"auto-fix on commit dropped; `biome-staged.js` lints a thrown-away extract of the index, and Biome's `--write` would rewrite the worktree file, a neighbour's hunks included (#2583)";
 
-/* What each fails or checks on the extract, a fresh repo with no commits
- * (#2597 §5). */
 const NO_EXTRACT = new Map([
 	["--changed", "fails, as the extract has no commits"],
 	["--since", "fails, as the extract has no commits"],
@@ -47,7 +30,6 @@ const NO_EXTRACT = new Map([
 	["--", "marks a path list biome-staged.js cannot keep"],
 ]);
 
-/* Their paths resolve in, or write to, the thrown-away extract (#2597 §5). */
 const PATH_FLAGS = new Set([
 	"--config-path",
 	"--vcs-root",
@@ -56,31 +38,23 @@ const PATH_FLAGS = new Set([
 	"--stdin-file-path",
 ]);
 
-/* The allowlist (#2597 §6's carry rows, #2599), by family: a switch, or a
- * value flag taking `--flag=value` with the value carried verbatim. Names are
- * `biome check --help`'s on 2.5.15 and 1.9.4. */
 const CARRY_SWITCHES = new Set([
-	// output and exit
 	"--verbose",
 	"--error-on-warnings",
 	"--no-errors-on-unmatched",
 	"--profile-rules",
 	"--json",
-	// per-file behaviour
 	"--skip-errors",
 	"--skip-parse-errors",
 	"--use-server",
 ]);
 const CARRY_VALUES = new Set([
-	// output and exit
 	"--reporter",
 	"--max-diagnostics",
 	"--diagnostic-level",
 	"--colors",
-	// per-file behaviour
 	"--files-ignore-unknown",
 	"--files-max-size",
-	// analysis selection
 	"--formatter-enabled",
 	"--linter-enabled",
 	"--assist-enabled",
@@ -90,7 +64,6 @@ const CARRY_VALUES = new Set([
 	"--format-with-errors",
 	"--only",
 	"--skip",
-	// general formatter options
 	"--indent-style",
 	"--indent-width",
 	"--indent-size",
@@ -111,18 +84,15 @@ const CARRY_VALUES = new Set([
 	"--semicolons",
 	"--arrow-parentheses",
 	"--jsx-everywhere",
-	// logging
 	"--log-level",
 	"--log-kind",
 	"--log-path",
 	"--log-prefix-name",
-	// VCS
 	"--vcs-enabled",
 	"--vcs-client-kind",
 	"--vcs-use-ignore-file",
 	"--vcs-default-branch",
 ]);
-/* A family's look, but a `--reporter` value: Biome rejects it as a flag (#4042). */
 const NOT_A_FLAG = "--json-pretty";
 const CARRY_VALUE_PREFIXES = [
 	"--javascript-",
@@ -140,10 +110,7 @@ const isValueFlag = (name) =>
 
 const OWN_FLAGS = `${BIOME_STAGED_COMMAND} <flags>`;
 
-/**
- * @typedef {{command: string, note?: string}} MappedCommand `note`, present
- *   only where a write flag was dropped, is init's to print beside the command.
- */
+/** @typedef {{command: string, note?: string}} MappedCommand */
 
 /** @typedef {{shape: string, wayOut: string}} Unmapped */
 
@@ -154,13 +121,12 @@ const OWN_FLAGS_WAY_OUT = declareCheckStaged(
 	`instead as an explicit '${OWN_FLAGS}' whose flags you own`,
 );
 
-/* `biome check`'s one short flag, judged under its long name (#2597 R5, #2871). */
 const SHORT_FLAGS = new Map([["-h", "--help"]]);
 
 /**
  * @param {string} word
- * @param {string|undefined} next the word after it
- * @returns {"drop"|"write"|"keep"|"path"|Unmapped} "write" is dropped too, and noted
+ * @param {string|undefined} next
+ * @returns {"drop"|"write"|"keep"|"path"|Unmapped}
  */
 function judgeWord(word, next) {
 	const eq = word.indexOf("=");
@@ -183,10 +149,9 @@ function judgeWord(word, next) {
 }
 
 /**
- * A flag's verdict against the allowlist, which holds no short flag.
  * @param {string} name
- * @param {string|null} value what follows its `=`, or null for none
- * @param {string|undefined} next the word after it
+ * @param {string|null} value
+ * @param {string|undefined} next
  * @returns {"keep"|Unmapped}
  */
 function judgeFlag(name, value, next) {
@@ -229,9 +194,6 @@ const UNRESOLVED_SELECTOR = {
 const SHELL_FILE_WAY_OUT =
 	"where it never runs Biome, as a shell file (sh ./your-gate.sh) holding the command";
 
-/* A selector is read through `fs.globSync` and `path.matchesGlob`, which Node
- * 22.5 first has both of. The hook's check reads the throw as a refusal, printing
- * this. */
 const NEEDS_NODE = `Reading an npm workspace selector needs Node 22.5, and this is ${process.version}. Upgrade Node, declare check_staged as an explicit '${OWN_FLAGS}' whose flags you own, or, ${SHELL_FILE_WAY_OUT}`;
 
 /** @type {Unmapped} */
@@ -287,8 +249,6 @@ function mapBiome(words, biome, inferred) {
 }
 
 /**
- * Why the words before `check` do not find the `biome` biome-staged.js runs,
- * or null.
  * @param {string} runner
  * @param {boolean} biome
  * @param {boolean} inferred
@@ -316,18 +276,12 @@ function refuseUnmappedRunner(runner, biome, inferred) {
 }
 
 /**
- * Why `words` cannot be carried into the mapped command as they stand, or
- * null.
  * @param {Word[]} words
  * @returns {Unmapped|null}
  */
 const refuseUnreadWords = (words) => (words.some(isUnreadWord) ? UNREAD : null);
 
 /**
- * mapBiome on a command as written, which is refused, not unquoted, where it
- * quotes or escapes a word: a quoted word is not judged against the
- * allowlist (#3414). A composite's Biome part is mapped from its unquoted
- * words instead.
  * @param {Word[]} words
  * @param {boolean} biome
  * @param {boolean} inferred

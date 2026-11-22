@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The counting seam behind `scripts/measure-encoding-use.js` (mantahostels#1299).
- *
- * ONE GUARANTEE ABOVE ALL: an invocation is counted and a MENTION is not.
- *
- * In-process on hand-built transcript records, one per shape, rather than the
- * real corpus, whose mix of mentions and invocations has no known answer.
- *
- * CI's vitest step runs this file; measure-encoding-use.js itself gates nothing
- * and is run by hand. A loosened case counts mentions as use, so a skill or npm
- * script nobody invokes reads as used and escapes the retirement its zero would
- * have prompted.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -38,15 +25,12 @@ const skillCall = (skill: string) => ({
 
 const bash = (command: string) => buildBashCall(command, "t1", AT);
 
-/** The `npm run` names one Bash call is counted as invoking. */
 const npmRunNames = (command: string) =>
 	recordUses(bash(command)).map((u: { name: string }) => u.name);
 
-/** The command shapes one Bash call is counted under. */
 const shapes = (command: string) =>
 	recordShapes(bash(command)).map((s: { shape: string }) => s.shape);
 
-/** A user record carrying plain text. */
 const buildUserText = (text: string) => ({
 	type: "user",
 	uuid: "u2",
@@ -150,7 +134,6 @@ describe("what is a MENTION and must not count", () => {
 	});
 
 	it("ignores another tool's own `run` subcommand", () => {
-		// The segment's verb must BE npm.
 		expect(npmRunNames("gh run list --limit 5")).toEqual([]);
 		expect(npmRunNames("npx vitest run scripts/x.test.ts")).toEqual([]);
 	});
@@ -177,7 +160,6 @@ describe("normalising a Bash command to a shape", () => {
 	});
 
 	it("identifies a plain utility by its verb alone", () => {
-		// A `cat` shape carrying its filename would be one shape per file.
 		expect(shapes("cat docs/doc-map.md")).toEqual(["cat"]);
 		expect(shapes("grep -rn foo docs/")).toEqual(["grep"]);
 	});
@@ -261,14 +243,12 @@ describe("the skill inventory, read off the directories", () => {
 			path.join(agents, "tdd", "SKILL.md"),
 			"---\nname: tdd\ndisable-model-invocation: true\n---\n",
 		);
-		// This is how most of `.claude/skills` is built: a symlink to the copy.
 		fs.symlinkSync(path.join(agents, "tdd"), path.join(claude, "tdd"));
 		fs.mkdirSync(path.join(claude, "own"), { recursive: true });
 		fs.writeFileSync(
 			path.join(claude, "own", "SKILL.md"),
 			"---\nname: own\n---\n",
 		);
-		// A directory with no SKILL.md is not a skill.
 		fs.mkdirSync(path.join(claude, "notaskill"), { recursive: true });
 	});
 	afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));

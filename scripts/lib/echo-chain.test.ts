@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * lib/echo-chain.js holds the echo-chain rules both halves run on
- * (mantahostels#2570): lib/echo-record.js, the PostToolUse recorder, writes
- * the chain after every Bash and Read call, and lib/echo-call.js reads it and
- * refuses on it. The rules are tested here as functions; then the real
- * recorder core, run in process through lib/guard-core-testkit.ts, is read
- * back by the reader's own lookup, so a call the recorder files is one the
- * guard finds. The store lives under TMPDIR, stubbed per case, as its host
- * (lib/echo-record-host.js) reads it.
- *
- * These cross the real clock: the recorder stamps its own records, so each
- * read back uses the clock's reading, and no case measures elapsed time.
- */
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -47,7 +34,6 @@ describe("the signature", () => {
 		).toBe(sha24('Bash\x1f{"a":null,"b":[1,{"c":2,"d":1}]}'));
 	});
 
-	/* By UTF-16 units an astral key sorts before U+FFFF; by UTF-8 bytes after. */
 	it("sorts keys by their UTF-8 bytes", () => {
 		expect(chain.signature("Bash", { "\u{1F600}": 1, "￿": 2 }, null)).toBe(
 			sha24('Bash\x1f{"￿":2,"\u{1F600}":1}'),
@@ -214,9 +200,6 @@ describe("the recorder core, read back by the reader", () => {
 		logs = [];
 	});
 
-	/** The real recorder on one payload, as PostToolUse runs it. Its output is
-	 * context handed to the session on every Bash and Read call, so it must
-	 * say nothing. */
 	const run = (
 		payload: Record<string, unknown>,
 		env: Record<string, string> = {},
@@ -230,7 +213,6 @@ describe("the recorder core, read back by the reader", () => {
 		logs.push(...r.logs);
 	};
 
-	/** One completed call recorded. */
 	const record = (
 		input: Record<string, unknown>,
 		response: unknown,
@@ -251,7 +233,6 @@ describe("the recorder core, read back by the reader", () => {
 
 	const store = (name = "s1.main") => path.join(tmp, "wfc-echo-chain", name);
 
-	/** The record the reader finds for a call, signed as the guard signs it. */
 	const found = (input: Record<string, unknown>, tool = "Bash") => {
 		const text = fs.existsSync(store()) ? fs.readFileSync(store(), "utf8") : "";
 		const sig = chain.callSignature(
@@ -264,9 +245,6 @@ describe("the recorder core, read back by the reader", () => {
 	const runOf = (input: Record<string, unknown>, tool = "Bash") =>
 		found(input, tool)?.run ?? null;
 
-	/* Real payloads, captured at mantahostels#2616: the short circuit is a
-	 * different shape from the real read, `type: "file_unchanged"` and no
-	 * `content`. */
 	const ReadInput = { file_path: "/repo/.claude/tmp/echo-target.txt" };
 	const ReadFirst = {
 		type: "text",
@@ -291,8 +269,6 @@ describe("the recorder core, read back by the reader", () => {
 		expect(runOf(Ls)).toBe(1);
 	});
 
-	/* Keys sorted by UTF-8 bytes where JS sorts by UTF-16 units, a DEL, and
-	 * nesting: the recorder files the call where the reader looks it up. */
 	it("files an awkward input where the reader looks it up", () => {
 		const input = {
 			"\u{1F600}": 1,
@@ -454,8 +430,6 @@ describe("the recorder core, read back by the reader", () => {
 		},
 	);
 
-	/* A chain that cannot be read is a broken clock: restarting it at 1 would
-	 * disarm the guard, so the record is left as it was. */
 	it.skipIf(process.getuid?.() === 0)(
 		"leaves an unreadable chain alone, on the record",
 		() => {

@@ -80,18 +80,15 @@ const { shellQuote } = require("./sh-quote.js");
 
 /**
  * @typedef {Pick<import("./core-contract.js").CoreContext, "agent" |
- *   "corePaths" | "env" | "input" | "isFile" | "log" | "ruleText" | "session"> & {
- *   artefactFile: (description: unknown) => string,
- *   makeDir: (dir: string) => boolean,
- *   sessionModel: (session: string) => string,
- * }} RewriteContext a fresh artefact path for a dispatch's description; the
- *   making of a directory, false where it could not be made; and the model a
- *   session's transcript last answered on, "" where none is read
+ * "corePaths" | "env" | "input" | "isFile" | "log" | "ruleText" | "session"> & {
+ * artefactFile: (description: unknown) => string,
+ * makeDir: (dir: string) => boolean,
+ * sessionModel: (session: string) => string,
+ * }} RewriteContext
  * @typedef {import("./guard-entry.js").Injection} Injection
  * @typedef {Pick<typeof import("./model-table.js"), "isRoutedAway" | "isOverflowSession" | "remapModel" | "standardRoute">} ModelTable
  */
 
-// Resolved from this file, so an adopter is handed the plugin's copy (#541).
 const WATCHER = path.resolve(__dirname, "..", "watch-artefact.js");
 
 // guess (#539): never measured against a band's timings
@@ -110,11 +107,6 @@ function watchCommand(file, job = false) {
 	return `node ${shellQuote(WATCHER)} ${watched} ${WATCH_INTERVAL_S}${ceiling} --log <output_file>`;
 }
 
-/**
- * The rules a dispatch can trip, in emission order: every dispatch injects
- * both and skips the ones it did not trip. The ids' one spelling, a literal
- * where lib/rule-emission.js reads it.
- */
 const EMITTED = { injectRules: ["dispatch-tier", "dispatch-search-tracker"] };
 const [TIER_RULE = "", SEARCH_RULE = ""] = EMITTED.injectRules;
 
@@ -177,8 +169,6 @@ function rewrite(
 }
 
 /**
- * The model table, loaded per dispatch so a broken one costs the remap and
- * never the line.
  * @param {RewriteContext} ctx
  * @returns {ModelTable | null}
  */
@@ -210,10 +200,6 @@ function loadModelTable(ctx) {
 }
 
 /**
- * Whether burn mode's layer applies: its marker present, on a session not on
- * an overflow seat (#4919). A lib/burn-mode.js that will not load (#4920), or
- * a marker that cannot be placed, reads as off, recorded, so the standing
- * layer still applies.
  * @param {ModelTable} table
  * @param {RewriteContext} ctx
  */
@@ -243,8 +229,6 @@ function isBurnApplied(table, ctx) {
 }
 
 /**
- * The fork refusal, naming the model the general-purpose dispatch it asks for
- * should name: the standard row for the session's model.
  * @param {ModelTable} table
  * @param {string} inherited
  * @param {{ruleText: (id: string) => string}} ctx
@@ -258,15 +242,14 @@ function forkDeny(table, inherited, ctx) {
 }
 
 /**
- * @param {string} _prompt the dispatch's prompt; the whole call is ctx.input
+ * @param {string} _prompt
  * @param {RewriteContext} ctx
  * @returns {import("./guard-entry.js").Deny
- *   | (Injection & Required<Pick<Injection, "skip" | "prelude">>
- *     & { updatedInput?: Record<string, unknown> })
- *   | null}
+ * | (Injection & Required<Pick<Injection, "skip" | "prelude">>
+ * & { updatedInput?: Record<string, unknown> })
+ * | null}
  */
 function decide(_prompt, ctx) {
-	// A subagent's own calls carry `agent_id`; the parent's never do.
 	if (ctx.agent)
 		return { deny: ctx.corePaths(ctx.ruleText("dispatch-grandchild")) };
 	let out;
@@ -274,8 +257,6 @@ function decide(_prompt, ctx) {
 		const table = loadModelTable(ctx);
 		const burn = table ? isBurnApplied(table, ctx) : false;
 		const inherited = table && !burn ? ctx.sessionModel(ctx.session) : "";
-		/* A fork runs on its parent's model whatever the call names, so with
-		 * burn mode off a fork from a routed-away session can only be refused. */
 		if (
 			table?.isRoutedAway(inherited) &&
 			String(ctx.input.subagent_type ?? "").trim() === "fork"
@@ -296,8 +277,6 @@ function decide(_prompt, ctx) {
 		return null;
 	}
 	if (!out) return null;
-	/* The directory is made here so a subagent appending through a shell
-	 * redirect finds it. */
 	if (out.artefact && !ctx.makeDir(path.dirname(out.artefact)))
 		ctx.log(
 			"artefact directory not made — the agent's first shell append will fail",

@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * lib/cpu-load.js, the guard-cpu-load core (#2801), in process: which
- * commands start CPU load outside a cap of at most half the cores, and which
- * pass (#2710).
- *
- * The first refused case and the first two passing cases are #2710's
- * acceptance criteria; do not thin them. The core count is a port, pinned at
- * 8 unless a case says otherwise, so a 2-core CI runner judges the cap as this
- * machine does. Scripts on disk are a fake reader over SCRIPTS; the real
- * reader is held to it by the contract cases at the foot of this file, and
- * crossed end to end in guard-cpu-load.test.ts.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -54,7 +42,6 @@ interface Over {
 	scripts?: Record<string, string>;
 }
 
-/** The script reader fake: `scripts` by name, a relative name under `base`. */
 const fakeReader =
 	(scripts: Record<string, string>, base: string) =>
 	(p: string, maxBytes: number) => {
@@ -83,7 +70,6 @@ function harness(over: Over = {}) {
 	return { judge: (command: string) => decide(command, ctx), logs, reads };
 }
 
-/** The refusal's text, or null where the command passes. */
 const refusal = (command: string, over: Over = {}) =>
 	harness(over).judge(command)?.deny ?? null;
 
@@ -91,7 +77,6 @@ const G = "is a CPU load generator with no CPU cap";
 const M =
 	"is a capped CPU load generator beside another, or started in a loop — two caps add up to more than one";
 
-/** The whole refusal for 8 cores. */
 const refused8 = (shown: string, why = G) =>
 	`Refused: \`${shown}\` ${why}. Every session shares this machine's 8 cores; on 23 Oct 2026 eight uncapped \`yes\` loops starved the kernel's RCU thread and WSL had to be restarted (#2710).
 
@@ -138,7 +123,6 @@ describe("an uncapped generator is refused (#2710)", () => {
 		"yes >/dev/null | true &",
 		"bash --rcfile x.sh -c 'yes >/dev/null &'",
 		"systemd-run --user --scope -p CPUQuota=400.5% yes >/dev/null &",
-		// A flock -c or watch script, first line or later (#4978).
 		'flock /l -c "yes > /dev/null &"',
 		'flock /l -c "true\nyes > /dev/null &"',
 		'flock /l -c "true; yes > /dev/null &"',
@@ -645,7 +629,6 @@ describe("the edges each rule turns on", () => {
 		expect(
 			refusal("taskset -c 9223372036854775808-9223372036854775807 yes &"),
 		).toBeNull();
-		/* The range's width wraps before the stride divides it: -1 / 3 + 1. */
 		expect(
 			refusal("taskset -c 9223372036854775808-9223372036854775807:3 yes &"),
 		).toBeNull();
@@ -692,8 +675,6 @@ describe("the edges each rule turns on", () => {
 		expect(refusal("case $x in a) echo; echo; yes & ;; esac")).toContain(G);
 		expect(refusal("case $x in a) echo ;& yes & ;; esac")).toContain(G);
 		expect(refusal("case $x in a) echo & ; yes & ;; esac")).toContain(G);
-		/* Each line's separator is the next line's `prev`: an `esac`'s, a
-		 * pattern's `)`. */
 		expect(refusal("case a in a) :;; esac; echo ;; yes &")).toContain(G);
 		expect(
 			refusal("case a in a) case b in b) :;; esac\n; (yes &);; esac"),

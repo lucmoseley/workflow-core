@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * lib/echo-call.js refuses a tool call that has already answered the same
- * thing twice in a row (mantahostels#2570), and lib/echo-record.js is the
- * PostToolUse core that gives it something to read (#2787).
- *
- * The verdict depends on ACCUMULATED STATE, which the recorder writes after
- * every allowed call. Each case runs a session's calls as the two halves
- * meet: the core judges the call in process, over its production ports
- * (lib/echo-call-host.js), then `record` below runs the real recorder core
- * in process through lib/guard-core-testkit.ts. The rules both run on are
- * lib/echo-chain.test.ts's. Each case gets its own TMPDIR, because that is
- * where the chain lives.
- *
- * Module cases call `decide` over the context lib/kit-context.js's kitContext
- * builds, so a store or stat port can be swapped for a failing one. The
- * dispatcher row's own cases use lib/guard-core-testkit.ts; the hook
- * line's are scripts/guard-dispatch.test.ts's.
- *
- * Both halves run on every Bash and Read call: loosen a case and a session
- * spins on a call that keeps answering the same thing; widen "same" and a
- * legitimate re-check after a change is refused.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -49,8 +27,6 @@ interface Payload {
 	tool_response?: unknown;
 }
 
-/** The core's decision on `payload`, over the context lib/guard-entry.js's
- * kitContext builds from it, as the dispatcher composes it. */
 const judge = (payload: Payload, over: Partial<EchoContext> = {}) =>
 	refusal(
 		decide(payload.session_id ?? "", {
@@ -64,17 +40,11 @@ const judge = (payload: Payload, over: Partial<EchoContext> = {}) =>
 		}),
 	);
 
-/** `d` as the refusal this core answers, thrown on any other. */
 const refusal = (d: CoreDecision): { deny: string } | null => {
 	if (d === null || "deny" in d) return d;
 	throw new Error(`not a deny: ${JSON.stringify(d)}`);
 };
 
-/**
- * The real recorder on one completed call, as PostToolUse runs it. Its output
- * is context handed to the session on every Bash and Read call, so each run
- * asserts it silent.
- */
 const record = (payload: Payload) => {
 	const r = runCore(
 		"record-tool-echo",
@@ -85,7 +55,6 @@ const record = (payload: Payload) => {
 	logs.push(...r.logs);
 };
 
-/** One completed call: the core judges it, then the recorder records it. */
 const call = (
 	input: Record<string, unknown>,
 	response: unknown,
@@ -98,7 +67,6 @@ const call = (
 		tool_input: input,
 	};
 	const verdict = judge(base);
-	// A denied call never runs, so nothing answers and the recorder never fires.
 	if (!verdict) record({ ...base, tool_response: response });
 	return verdict;
 };
@@ -151,7 +119,6 @@ describe("the chain", () => {
 		call(LS, SAME);
 		call(LS, { stdout: "changed" });
 		expectSilentAllow(call(LS, SAME));
-		// And the run that follows the interruption arms on its own two.
 		call(LS, SAME);
 		expectDeny(call(LS, SAME));
 	});
@@ -163,9 +130,6 @@ describe("the chain", () => {
 		expectSilentAllow(call(LS, SAME));
 	});
 
-	/* Read back through bash, not through JS: JS `split("\t")` does not collapse
-	 * adjacent tabs, so a JS assertion on the field count passes on exactly the
-	 * record shape this is guarding against. */
 	it("keeps a cleared record readable — an empty field would shift the columns", () => {
 		call(LS, SAME);
 		call(LS, SAME);
@@ -187,10 +151,10 @@ describe("the chain", () => {
 	it("escalates: the second refusal on a call does not clear its chain", () => {
 		call(LS, SAME);
 		call(LS, SAME);
-		expectDeny(call(LS, SAME)); // first refusal — chain cleared
+		expectDeny(call(LS, SAME));
 		call(LS, SAME);
 		call(LS, SAME);
-		expectDeny(call(LS, SAME)); // second refusal — chain left armed
+		expectDeny(call(LS, SAME));
 		expectDeny(call(LS, SAME));
 		expectDeny(call(LS, SAME));
 	});
@@ -201,20 +165,6 @@ describe("the chain", () => {
 	});
 });
 
-/*
- * mantahostels#2616. The two fixtures below are REAL payloads, captured by
- * dumping the hook payload on PostToolUse while reading one unchanged file
- * twice. To re-capture: add a line to lib/echo-record.js's decide dumping
- * ctx.input and ctx.response to a file, Read one file twice through the tool,
- * then remove the line. Only the captured file's PATH is rewritten below, to a
- * repo-neutral one; every other byte is as the harness sent it. Two facts they
- * settle:
- *
- *   * PostToolUse DOES fire on a short-circuited Read, so the Read limb arms.
- *   * The short-circuit response is a DIFFERENT SHAPE from the real read's —
- *     `type: "file_unchanged"` with no `content`, which would reset the chain
- *     had the recorder not folded it in by name (#1090).
- */
 const READ_INPUT = { file_path: "/repo/.claude/tmp/echo-target.txt" };
 
 const READ_FIRST = {
@@ -252,9 +202,6 @@ describe("what counts as the same call", () => {
 		expectSilentAllow(call(LS, SAME, { session: "s2" }));
 	});
 
-	/* A subagent's payload carries its parent's session_id and an agent_id of
-	 * its own, on PostToolUse as on PreToolUse (hooks reference, "Common input
-	 * fields"), #1004. */
 	it("separates the parent and each subagent under one session", () => {
 		const read = (agent?: string) =>
 			call(READ_INPUT, READ_FIRST, { tool: "Read", agent });
@@ -275,7 +222,6 @@ describe("what counts as the same call", () => {
 		call(LS, SAME);
 		call(LS, SAME);
 		expectDeny(call(LS, SAME, { agent: "" }));
-		// And the recorder files an empty agent_id's answers where the guard looks.
 		call(LS, SAME, { agent: "" });
 		call(LS, SAME, { agent: "" });
 		expectDeny(call(LS, SAME));
@@ -331,7 +277,6 @@ describe("the Read short-circuit, on payloads captured at mantahostels#2616", ()
 	});
 });
 
-/* #1058: a Read signs the file's on-disk state as well as its input. */
 describe("a Read of a file rewritten since its last reads", () => {
 	const target = () => path.join(dir, "shot.png");
 	const read = () =>
@@ -385,7 +330,6 @@ describe("a Read of a file rewritten since its last reads", () => {
 	});
 
 	it("is allowed when a rename replaced the file, as a generator does", () => {
-		// One whole-second mtime on both, so only the inode tells them apart.
 		const at = new Date(1_700_000_000_000);
 		armed();
 		fs.utimesSync(target(), at, at);
@@ -415,7 +359,6 @@ describe("hygiene", () => {
 			.join("\n");
 		fs.writeFileSync(stateFile(), `${stale}\n`);
 		expectSilentAllow(call(LS, SAME));
-		// The recorder drops it too, so the next identical call starts a run of one.
 		expectSilentAllow(call(LS, SAME));
 	});
 
@@ -426,7 +369,6 @@ describe("hygiene", () => {
 		fs.mkdirSync(lock);
 		const old = Date.now() / 1000 - 60;
 		fs.utimesSync(lock, old, old);
-		// A denied call runs no recorder, so only the guard's clear can take it.
 		expectDeny(call(LS, SAME));
 		expect(fs.existsSync(lock)).toBe(false);
 		expectSilentAllow(call(LS, SAME));
@@ -456,8 +398,6 @@ describe("the deny", () => {
 		);
 	});
 
-	/* #1732: a subagent's turn ending is its work ending, so it is told to wait
-	 * inside the turn, in lib/agent-poll.js's words (#1169, #1735). */
 	it("tells a subagent to wait inside its turn, never to end it", () => {
 		call(LS, SAME, { agent: "sub1" });
 		call(LS, SAME, { agent: "sub1" });
@@ -540,7 +480,6 @@ describe("through the dispatcher row (#2791)", () => {
 });
 
 describe("the cases a mutant must not survive (#2791)", () => {
-	/** A store holding one live record for LS, at run `run` with `denies`. */
 	const seeded = (run: number, denies: number) => {
 		call(LS, SAME);
 		const [sig] = fs.readFileSync(stateFile(), "utf8").split("\t");
@@ -549,8 +488,6 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		return sig;
 	};
 
-	/* The recorder skips the same calls, so only a store armed by hand shows
-	 * the core's own filter at work. */
 	it("leaves a neighbour's shapes and other tools alone even on an armed chain", () => {
 		const now = Math.floor(Date.now() / 1000);
 		const arm = (tool: string, input: Record<string, unknown>) => {
@@ -567,7 +504,6 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		expectDeny(arm("Bash", LS));
 	});
 
-	/** The refusal, verbatim: what the parent and a subagent are told. */
 	it("says the refusal byte for byte, parent and subagent", () => {
 		const said = (agent?: string) => {
 			call(LS, SAME, { agent });

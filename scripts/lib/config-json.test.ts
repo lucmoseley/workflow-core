@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * config-json.test.ts — the config writers' layout is judged by the formatter
- * an adopter's pre-commit runs (#675).
- *
- * Each case pipes the printer's output through the real Biome binary and
- * asserts it comes back byte-identical, so the oracle is the formatter itself
- * rather than a hand-written expectation of it.
- *
- * upgrade.js and the cut script write adopters' config with this printer, so
- * a loosened case lets an upgrade or steps-owed commit be refused by the
- * adopter's Biome gate until someone formats it by hand.
- */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -25,8 +13,6 @@ const biome = (text: string) =>
 		{ input: text, encoding: "utf8" },
 	);
 
-// A string that puts `\t"k": ["<it>"],` at exactly `n` columns: the tab
-// counts 2, `"k": [` 6, the string's quotes 2 and `],` 2.
 const fill = (n: number) => "a".repeat(n - 2 - 6 - 2 - 2);
 
 const CASES: Record<string, unknown> = {

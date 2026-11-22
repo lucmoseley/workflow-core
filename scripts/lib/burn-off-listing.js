@@ -1,28 +1,20 @@
-/*
- * burn-off-listing.js — every live background session on every plan, with
- * the model its transcript last answered on, for scripts/burn-off-sessions.js
- * (#4992). A plan whose listing will not read is a fault, named, never a
- * plan with no sessions.
- */
 const { caught } = require("./caught.js");
 const { isTerminalAgent, readSeatListing } = require("./agent-liveness.js");
 const { readPlanDirs } = require("./plan-dirs.js");
 const { readLastModel } = require("./session-transcript.js");
 const { findTranscript } = require("./transcript.js");
 
-/** A hang guard on one plan's `claude agents --json`, never measured. */
+// guess, #5529
 const LISTING_TIMEOUT_MS = 20_000;
 
 /**
  * @typedef {{seat: string, sessionId: string, cwd: string, name: string,
- *   model: string}} LiveSession  `model` "" where no transcript read
+ *   model: string}} LiveSession
  */
 
 /**
- * One listed record as a LiveSession, null where it is not a live background
- * job: a finished one (done, failed, stopped) is never woken.
  * @param {string} seat
- * @param {any} a a `claude agents --json` record, untyped: the harness owns it
+ * @param {any} a
  * @param {(seat: string, sessionId: string) => string} modelOf
  * @returns {LiveSession | null}
  */

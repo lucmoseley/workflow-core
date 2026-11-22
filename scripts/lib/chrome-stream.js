@@ -1,19 +1,3 @@
-/*
- * chrome-stream.js — one `claude -p --input-format stream-json` child driven
- * turn by turn, for claude-child.js's Chrome launcher and its closer (#5385).
- *
- * Its stdin is a pipe held open: a prompt goes in as one user message, and a
- * turn is ended early by the stdin interrupt control request, never by
- * SIGTERM or SIGINT, which end the process (#5350). Closing stdin lets the
- * child exit cleanly, which drops its tab group's tabs out of every session's
- * reach (#5352), so `finish` is only for a child whose group is empty; every
- * other end is `stop`, a signal to the child's process group, which keeps the
- * group for a resume (#5375).
- *
- * A stdout line that is no JSON row goes to stderr: the caller's stdout is
- * one JSON line alone (#5381).
- */
-
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const readline = require("node:readline");
@@ -22,7 +6,6 @@ const { parseJsonlRow } = require("./jsonl.js");
 const { noop } = require("./noop.js");
 const { writeFd } = require("./write-fd.js");
 
-/* The flags that make a `claude -p` child read and write stream-json. */
 const STREAM_ARGS = [
 	"--input-format",
 	"stream-json",
@@ -36,12 +19,10 @@ const KILL_AFTER_MS = 1500;
 
 /**
  * @typedef {{ result: Record<string, unknown> | undefined,
- *   capped: boolean }} TurnEnd `capped`: the turn hit its cap and was
- *   interrupted; `result` undefined where no result row came
+ *   capped: boolean }} TurnEnd
  */
 
 /**
- * `onRow` sees every parsed row first.
  * @param {string} bin
  * @param {string[]} args
  * @param {import("node:child_process").SpawnOptions} opts
@@ -68,12 +49,10 @@ function startStreamChild(bin, args, opts, onRow) {
 		child.on("exit", end);
 		child.on("error", () => end(null, null));
 	});
-	// EPIPE once the child has gone: `exited` says so.
 	child.stdin?.on("error", noop);
 
 	/** @type {Record<string, unknown> | undefined} */
 	let lastResult;
-	/* One model turn streams a row per content block, under one message id. */
 	const assistants = new Set();
 	if (child.stdout) {
 		const lines = readline.createInterface({ input: child.stdout });
@@ -123,9 +102,6 @@ function startStreamChild(bin, args, opts, onRow) {
 		},
 		interrupt,
 		/**
-		 * Wait for the turn's result row. At `capMs`, or once an assistant
-		 * message past `capAssistants` arrives, so the last allowed one's call
-		 * finishes, interrupt it and wait `graceMs` more for the row.
 		 * @param {{capMs: number, capAssistants?: number, graceMs: number}} cap
 		 * @returns {Promise<TurnEnd>}
 		 */
@@ -164,7 +140,6 @@ function startStreamChild(bin, args, opts, onRow) {
 			child.stdin?.end();
 			return exited;
 		},
-		/** Stdin kept. */
 		async stop() {
 			signalGroup("SIGTERM");
 			const kill = setTimeout(() => signalGroup("SIGKILL"), KILL_AFTER_MS);

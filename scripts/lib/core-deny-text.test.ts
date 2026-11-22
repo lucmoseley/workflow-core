@@ -1,16 +1,10 @@
 // @vitest-environment node
-/*
- * lib/core-deny-text.js's contract (#3001): what a Node guard core's source
- * says it can refuse with, read without loading it, and the core an entry
- * runs. In-process over source strings, the function being pure. A text it
- * misses is a reprinted rule check-guard-registry.js never warns of; a text it
- * invents is a warning that pushes a session to cut a load-bearing rule.
- */
 
 import { describe, expect, it } from "vitest";
 import { coreDenyTexts, decideModule } from "./core-deny-text.js";
 
 const core = (...lines: string[]) => coreDenyTexts(lines.join("\n"));
+const placeholder = (name: string) => `\${${name}}`;
 
 describe("coreDenyTexts", () => {
 	it("reads a REASON or *_REASON constant", () => {
@@ -47,8 +41,7 @@ describe("coreDenyTexts", () => {
 		expect(
 			core(
 				"function refusal(name) {",
-				// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-				"\treturn `Refused: ${name} is scratch.`;",
+				`\treturn \`Refused: ${placeholder("name")} is scratch.\`;`,
 				"}",
 				"const decide = (n) => ({ deny: refusal(n) });",
 			),
@@ -58,8 +51,7 @@ describe("coreDenyTexts", () => {
 	it("follows an arrow whose body is a bare template", () => {
 		expect(
 			core(
-				// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-				"const why = (\n\tcard,\n) => `card ${card} is not called`;",
+				`const why = (\n\tcard,\n) => \`card ${placeholder("card")} is not called\`;`,
 				"function judge(ctx, seg, card) { deny(ctx, seg, why(card)); }",
 			),
 		).toEqual(["card   is not called"]);
@@ -76,8 +68,10 @@ describe("coreDenyTexts", () => {
 
 	it("fills a template placeholder from the name's first bound string", () => {
 		expect(
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
-			core('const SLOT = "end the turn";', "const REASON = `Stop: ${SLOT}.`;"),
+			core(
+				'const SLOT = "end the turn";',
+				`const REASON = \`Stop: ${placeholder("SLOT")}.\`;`,
+			),
 		).toEqual(["Stop: end the turn."]);
 	});
 

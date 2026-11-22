@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins readOverflowLookup, the one reader of what marks a session overflow
- * (#3694), on rows a dispatcher run never writes; the rows it does write are
- * dispatch-sessions-overflow.test.ts's. Loosen it and an overflow session reads
- * as a plan one, its credits counted as plan allowance and its cap never hit.
- *
- * Also pins readDeclaredOverflowLookup's gate (#4393): loosen it and a host
- * with no overflow seat refuses its launches on any unreadable ledger.
- *
- * Also pins which launches still hold their issues — readRecentEntries' window
- * and refill hand-off, entryHolds' command key — as /pick-next reads them.
- * Loosen those and a dispatched issue is launched twice, or a released one
- * never again.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

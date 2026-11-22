@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * lib/commit-calls.js (#2383, #2793) in process: which calls in a command are
- * commits, and which message word each carries.
- */
 
 import { describe, expect, it } from "vitest";
 
