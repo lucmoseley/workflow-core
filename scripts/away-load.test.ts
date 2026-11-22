@@ -14,10 +14,19 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { pidAlive } from "./lib/arbiter-proc.js";
+import {
+	awayLoadEnv,
+	epoch,
+	awayLoadEvents as events,
+	memwatchReading,
+} from "./lib/away-load-fixture";
 import { gitBinary, gitSpawnOptions } from "./lib/git.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { writeSystemctl } from "./lib/systemctl-fake";
+import { writeWevtutil } from "./lib/wevtutil-fake";
+import { writeWindowsTasks } from "./lib/windows-tasks-fake";
 
 const SCRIPT = path.join(__dirname, "away-load.js");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "away-load-"));
@@ -35,46 +44,25 @@ const repoTemplate = defineTemplate((dir) => {
 function rig(name: string) {
 	const dir = path.join(tmp, name);
 	fs.mkdirSync(dir);
-	const fake = (file: string, body: string) => {
-		fs.writeFileSync(path.join(dir, file), `#!/bin/sh\n${body}\n`, {
-			mode: 0o755,
-		});
-		return path.join(dir, file);
-	};
+	const tasks = writeWindowsTasks(dir);
 	const files = {
-		calls: path.join(dir, "taskkill.calls"),
-		held: path.join(dir, "testlimit.args"),
+		calls: tasks.calls,
+		held: tasks.args,
 		workers: path.join(dir, "worker.pids"),
-		holders: path.join(dir, "holder.pids"),
-		onWindows: path.join(dir, "tasklist.out"),
+		holders: tasks.pids,
 	};
 	const env = {
 		CLAUDE_PROJECT_DIR: tmp,
-		WFC_AWAY_LOAD_STATE_DIR: path.join(dir, "state"),
-		WFC_AWAY_LOAD_LOG: path.join(dir, "away-load.jsonl"),
-		WFC_AWAY_LOAD_POLL_MS: "100",
-		MEMWATCH_WIN_OUT: path.join(dir, "memwatch-win"),
-		MEMWATCH_MINUTE_LOG: path.join(dir, "minute.jsonl"),
-		WFC_TESTLIMIT: fake(
-			"Testlimit64.exe",
-			`echo "$*" >> "${files.held}"; echo $$ >> "${files.holders}"; exec sleep 600`,
-		),
-		WFC_TASKKILL: fake("taskkill", `echo "$*" >> "${files.calls}"`),
-		WFC_TASKLIST: fake("tasklist", `cat "${files.onWindows}" 2>/dev/null; :`),
-		WFC_SYSTEMCTL: fake("systemctl", `echo "$*" >> "${files.calls}"; exit 1`),
+		...awayLoadEnv(dir, tasks),
+		WFC_SYSTEMCTL: writeSystemctl(dir, {}),
 		WFC_AWAY_LOAD_WORKER: `echo $$ >> "${files.workers}"; exec sleep 600`,
 		WFC_AWAY_LOAD_REPOS_ROOT: path.join(dir, "home"),
 	};
-	return { dir, env, files };
+	return { dir, env, files, tasks };
 }
 
 const read = (file: string) =>
 	fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-const events = (log: string) =>
-	read(log)
-		.split("\n")
-		.filter(Boolean)
-		.map((l) => JSON.parse(l));
 
 const isGone = (pid: number) => !pidAlive(pid);
 const readPids = (file: string) => read(file).trim().split("\n").map(Number);
@@ -87,12 +75,10 @@ async function until(what: string, test: () => boolean) {
 	}
 }
 
-const epoch = () => Math.floor(Date.now() / 1000);
-
 describe("run", () => {
 	it("starts on 15 idle minutes, holds and loads, and stops on input", async () => {
 		const { env, files } = rig("run");
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		const child = keptSpawn("signal").spawn("node", [SCRIPT, "run"], {
 			env: { ...process.env, ...env },
 			stdio: "ignore",
@@ -117,7 +103,7 @@ describe("run", () => {
 
 			fs.writeFileSync(
 				env.MEMWATCH_WIN_OUT,
-				`${epoch() + 1} 1100 1 2 60 100 3\n`,
+				memwatchReading(epoch() + 1, 1100, 3),
 			);
 			/* The stop is logged, then the holders and workers ended. */
 			await until("the stop", () =>
@@ -166,7 +152,7 @@ describe("run, by its readings", () => {
 
 	it("releases only the newest holders, about the shortfall (#5472, where a release ended them all)", async () => {
 		const { env, files } = rig("release");
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		let held: number[] = [];
 		let oldestKept = false;
 		await runUntil(env, "the release", () => {
@@ -174,7 +160,7 @@ describe("run, by its readings", () => {
 				held = readPids(files.holders);
 				fs.writeFileSync(
 					env.MEMWATCH_WIN_OUT,
-					`${epoch() + 1} 700 1 2 60 100 900\n`,
+					memwatchReading(epoch() + 1, 700, 900),
 				);
 			}
 			const released =
@@ -191,19 +177,16 @@ describe("run, by its readings", () => {
 	});
 
 	it("ends the whole hold where Windows runs more Testlimits than it holds", async () => {
-		const { env, files } = rig("strays");
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		const { env, files, tasks } = rig("strays");
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		let held: number[] = [];
 		await runUntil(env, "the strays", () => {
 			if (held.length === 0 && readPids(files.holders).length === 3) {
 				held = readPids(files.holders);
-				fs.writeFileSync(
-					files.onWindows,
-					'"Testlimit64.exe","1","Console","1","9 K"\n'.repeat(4),
-				);
+				tasks.setStrays(1);
 				fs.writeFileSync(
 					env.MEMWATCH_WIN_OUT,
-					`${epoch() + 1} 800 1 2 60 100 900\n`,
+					memwatchReading(epoch() + 1, 800, 900),
 				);
 			}
 			return (
@@ -222,7 +205,7 @@ describe("run, by its readings", () => {
 
 	it("logs the gate met while it waits, and writes the end", async () => {
 		const { env } = rig("finish");
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 3\n`);
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 3));
 		const row = JSON.stringify({
 			ts: "2026-11-21T19:00:00+0800",
 			cpu_busy_pct: 600,
@@ -239,33 +222,27 @@ describe("run, by its readings", () => {
 });
 
 describe("recover", () => {
-	const recover = (env: Record<string, string>, reset: string) => {
-		const wevtutil = path.join(env.WFC_AWAY_LOAD_STATE_DIR, "..", "wevtutil");
-		fs.writeFileSync(
-			wevtutil,
-			`#!/bin/sh\nprintf 'Event[0]:\\r\\n  Date: ${reset}.4670000Z\\r\\n'\n`,
-			{ mode: 0o755 },
-		);
-		return runInProcessAsync(SCRIPT, ["recover"], {
-			env: { ...process.env, ...env, WFC_WEVTUTIL: wevtutil },
+	const recover = (
+		{ dir, env }: ReturnType<typeof rig>,
+		reset: string,
+		{ fails = false } = {},
+	) =>
+		runInProcessAsync(SCRIPT, ["recover"], {
+			env: {
+				...process.env,
+				...env,
+				WFC_WEVTUTIL: writeWevtutil(path.join(dir, "wevtutil"), [], {
+					fails,
+					resets: [Date.parse(`${reset}Z`)],
+				}),
+			},
 		});
-	};
 
 	it("fails the unit's start where the event log will not read", async () => {
-		const { env } = rig("recover-unread");
-		const wevtutil = path.join(env.WFC_AWAY_LOAD_STATE_DIR, "..", "wevtutil");
-		fs.writeFileSync(
-			wevtutil,
-			"#!/bin/sh\necho 'Access is denied.' >&2; exit 5\n",
-			{
-				mode: 0o755,
-			},
-		);
-		const r = await runInProcessAsync(SCRIPT, ["recover"], {
-			env: { ...process.env, ...env, WFC_WEVTUTIL: wevtutil },
-		});
-		expect(r.status).toBe(1);
-		expect(events(env.WFC_AWAY_LOAD_LOG)).toMatchObject([
+		const r = rig("recover-unread");
+		const result = await recover(r, "2026-11-11T17:26:26", { fails: true });
+		expect(result.status).toBe(1);
+		expect(events(r.env.WFC_AWAY_LOAD_LOG)).toMatchObject([
 			{
 				event: "recover-unread",
 				error: expect.stringContaining("Access is denied"),
@@ -274,8 +251,9 @@ describe("recover", () => {
 	});
 
 	it("records the first reading and checks nothing", async () => {
-		const { env } = rig("recover-first");
-		const r = await recover(env, "2026-11-11T17:26:26");
+		const rigged = rig("recover-first");
+		const { env } = rigged;
+		const r = await recover(rigged, "2026-11-11T17:26:26");
 		expect(r).toMatchObject({ status: 0, stdout: "" });
 		expect(read(path.join(env.WFC_AWAY_LOAD_STATE_DIR, "seen-reset"))).toBe(
 			"2026-11-11T17:26:26\n",
@@ -286,12 +264,13 @@ describe("recover", () => {
 	});
 
 	it("after a new reset, ends the runner and runs git fsck in each repo", async () => {
-		const { env } = rig("recover-reset");
+		const rigged = rig("recover-reset");
+		const { env } = rigged;
 		const repo = path.join(env.WFC_AWAY_LOAD_REPOS_ROOT, "alpha");
 		repoTemplate.instantiate(repo);
 		fs.mkdirSync(path.join(env.WFC_AWAY_LOAD_REPOS_ROOT, "not-a-repo"));
-		await recover(env, "2026-11-11T17:26:26");
-		const r = await recover(env, "2026-11-22T03:00:00");
+		await recover(rigged, "2026-11-11T17:26:26");
+		const r = await recover(rigged, "2026-11-22T03:00:00");
 		expect(r.status).toBe(0);
 		const logged = events(env.WFC_AWAY_LOAD_LOG);
 		expect(logged.map((e) => e.event)).toEqual(["reset", "fsck"]);
@@ -320,22 +299,13 @@ describe("hand-start", () => {
 describe("sweep", () => {
 	it("reads no Testlimit running as swept, and any other failure as exit 1", async () => {
 		const { dir, env } = rig("sweep");
-		const taskkill = (body: string) => {
-			fs.writeFileSync(path.join(dir, "taskkill"), `#!/bin/sh\n${body}\n`);
-			return runInProcessAsync(SCRIPT, ["sweep"], {
+		const sweep = () =>
+			runInProcessAsync(SCRIPT, ["sweep"], {
 				env: { ...process.env, ...env },
 			});
-		};
-		expect(
-			(
-				await taskkill(
-					"echo 'ERROR: The process \"Testlimit64.exe\" not found.' >&2; exit 128",
-				)
-			).status,
-		).toBe(0);
-		const failed = await taskkill(
-			"echo 'ERROR: Access is denied.' >&2; exit 1",
-		);
+		expect((await sweep()).status).toBe(0);
+		writeWindowsTasks(dir, { denied: true });
+		const failed = await sweep();
 		expect(failed.status).toBe(1);
 		expect(failed.stderr).toContain("Access is denied");
 	});
