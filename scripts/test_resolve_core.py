@@ -407,12 +407,13 @@ def _resolver_input(which, root, config, install):
     }[which]
 
 
+@pytest.mark.parametrize("text", ["{", '{"version": NaN}'])
 @pytest.mark.parametrize("which", ["settings", "record", "plugin"])
-def test_fails_alike_naming_a_file_that_is_there_but_not_json(adopter, which):
+def test_fails_alike_naming_a_file_that_is_there_but_not_json(adopter, which, text):
     """#5504."""
     root, config, install = adopter()
     at = _resolver_input(which, root, config, install)
-    at.write_text("{")
+    at.write_text(text)
     out = agreed(root, {"CLAUDE_CONFIG_DIR": str(config)})
     assert not out["ok"]
     assert out["value"] == f"resolve-core: {at} is not JSON"

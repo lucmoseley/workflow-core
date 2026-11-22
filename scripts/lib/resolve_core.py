@@ -39,6 +39,10 @@ CHECKOUT = "WORKFLOW_CORE_CHECKOUT"
 TAG_REF = re.compile(r"v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
 
 
+def _refuse_constant(name):
+    raise ValueError(name)
+
+
 def _read_json(at):
     """#1274, #5504."""
     if not os.path.isfile(at):
@@ -50,7 +54,7 @@ def _read_json(at):
     except OSError as err:
         raise RuntimeError(f"resolve-core: {at} cannot be read") from err
     try:
-        return json.loads(text)
+        return json.loads(text, parse_constant=_refuse_constant)
     except ValueError as err:
         raise RuntimeError(f"resolve-core: {at} is not JSON") from err
 
