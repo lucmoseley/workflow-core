@@ -59,7 +59,7 @@ describe("a background job ending on `waiting:`", () => {
 		const reason = stop(WAITING);
 		expect(reason).toContain("This turn ends a background job on `waiting:`");
 		expect(reason).toContain("lists\na job whose turn has ended as completed");
-		expect(reason).toContain("`Agent` calls in one");
+		expect(reason).toContain("timeout 540 node scripts/watch-artefact.js");
 		expect(reason).toContain("scripts/bg-run.sh wait <name> 540");
 		expect(reason).toContain(
 			"timeout 540 node scripts/landing-status.js --wait",

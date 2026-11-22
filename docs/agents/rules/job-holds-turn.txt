@@ -7,11 +7,10 @@ Each wait is a FOREGROUND Bash call given `timeout: 600000`, or the tool
 moves it to the background at 120 s; 540 s leaves the call room under that
 600 s cap. Re-run a wait until what it waits on reports:
 
-- a subagent: dispatch it in the foreground; several `Agent` calls in one
-  message run in parallel, and the turn holds until each returns. One that
-  runs in the background anyway: `timeout 540 node scripts/watch-artefact.js
-  <its artefact> 120 --log <output_file>`; its notification arrives inside
-  the turn.
+- a subagent: every `Agent` call returns at once, so wait on its artefact
+  with `timeout 540 node scripts/watch-artefact.js <its artefact> 120 --log
+  <output_file>`, the launch result's `output_file`, until it exits `DONE`.
+  Several agents: one wait each, in turn.
 - a long Bash job: `scripts/bg-run.sh run <name> <command>` with
   `run_in_background`, then `scripts/bg-run.sh wait <name> 540`.
 - a landing: `timeout 540 node scripts/landing-status.js --wait`, until it
