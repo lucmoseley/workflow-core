@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * self-plugin-canary.sh refuses every tool call in a session the self-plugin
- * did not load, and write-self-plugin-marker.sh, the self-plugin's SessionStart
- * hook, writes the marker that lets a loaded session through (#2438, spec
- * #2295 seam 2).
- *
- * The session's project dir is a real git checkout, and some cases add a
- * worktree, since the canary resolves the main checkout from git's own common
- * dir (#2461).
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -46,7 +36,6 @@ function run(script: string, input: string, env: NodeJS.ProcessEnv = {}) {
 			...process.env,
 			CLAUDE_PROJECT_DIR: repo,
 			CLAUDE_PLUGIN_ROOT: path.join(repo, "self-plugin"),
-			// Unset, a fail-open record would append to the founder's own log.
 			CLAUDE_CONFIG_DIR: path.join(repo, "config"),
 			...env,
 		},
@@ -89,7 +78,6 @@ const bash = (session: string, extra: object = {}) => ({
 
 const PLACEHOLDER = "<absolute path to the main checkout>";
 
-/** The setup line's arguments, as bash would parse the pasted `!` line. */
 function pastedArgs(stderr: string) {
 	const line = stderr.split("\n").find((l) => l.startsWith("! "));
 	expect(line).toBeDefined();
@@ -210,9 +198,6 @@ describe("the setup line", () => {
 		expectRefused(call(bash(SID), { CLAUDE_PROJECT_DIR: worktree }), main);
 	});
 
-	/* The marker sits under CLAUDE_PROJECT_DIR as handed, never gr_root's
-	 * main checkout: a session whose start wrote it under its worktree, then
-	 * merged the re-point in, was refused every call. */
 	it("lets a worktree session through on the marker its start wrote there (#4487)", () => {
 		const main = checkout("main");
 		const worktree = worktreeOf(main);
@@ -284,7 +269,6 @@ describe("failing closed", () => {
 });
 
 describe("with lib/script-path.sh not loading (#3798)", () => {
-	/** The canary and its libraries, script-path.sh holding `quoter` or absent. */
 	function canaryWithQuoter(quoter: string | null) {
 		const scripts = path.join(base, "core", "scripts");
 		const lib = path.join(scripts, "lib");
@@ -385,7 +369,6 @@ describe("a session the self-plugin loaded from another root (#4712)", () => {
 		expect(pastedArgs(r.stderr)).toContain(`${repo}/self-plugin`);
 	});
 
-	/* chmod binds nobody as root, so this says nothing there. */
 	it.skipIf(process.getuid?.() === 0)(
 		"refuses an unreadable marker with no stray error line (#2626)",
 		() => {
@@ -430,7 +413,6 @@ describe("the marker", () => {
 		expectUnwrittenLogged();
 	});
 
-	/* chmod binds nobody as root, so this says nothing there. */
 	it.skipIf(process.getuid?.() === 0)(
 		"does the same where the markers directory is read-only (#2626)",
 		() => {

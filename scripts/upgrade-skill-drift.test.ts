@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * upgrade()'s own skill-drift wiring only (#7, AC3) — kept out of
- * upgrade.test.ts because #70 held that file for the duration of #7's own
- * session; skill-drift.js's comparison logic is skill-drift.test.ts's.
- *
- * Each case builds a fake adopter and plugin root in a temp dir, already
- * pinned at the installed version, and calls upgrade() directly, so the report
- * is shown to print even on the up-to-date early return. Upgrade runs in every
- * adopter on every bump: loosen a case and a forked skill drifts from the
- * plugin's copy with nothing said.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,9 +28,6 @@ beforeEach(() => {
 		name: "workflow-core",
 		version: "1.0.0",
 	});
-	/* Already pinned at the installed version, so `upgrade` takes its
-	 * "up to date" early return — the drift report must still have printed
-	 * before that point. */
 	writeJson(root, ".claude/settings.json", {
 		enabledPlugins: { "workflow-core@wfc": true },
 		extraKnownMarketplaces: {

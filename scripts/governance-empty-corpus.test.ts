@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the governance cluster against a Manta-free corpus (#412 Seam 1). Its zero
- * case is the empty corpus: `init` with `governance` on, the skeleton
- * committed, and every gated script run against it — each exits 0, and one
- * with nothing written yet to read says so by name (#395 Q1). Its second case
- * is `roadmap` off: the manual half skips naming `roadmap` and the §B half
- * runs as it does with `roadmap` on (#395 Q2, #418).
- *
- * Not run to a verdict here: check-capture-drain.js and, with `roadmap` on,
- * check-cleared-trackers.js, which need a GitHub remote and are proved on the
- * dry-run adopter (#420).
- *
- * Loosen a case and an adopter switching governance on before writing anything
- * meets errors from every gated check, or a check that should skip by name
- * files an issue against an empty corpus.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -28,9 +12,6 @@ const script = (name: string) => path.join(__dirname, name);
 
 let dir: string;
 
-/* The scripts read git history, so the skeleton is committed as an adopter's
- * would be; its hook stack is init-adopter-commit.test.ts's to prove, not
- * this file's. Each module set is built once and copied per case. */
 const buildSkeleton = (modules: string) => (root: string) => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, encoding: "utf8" });
@@ -77,8 +58,6 @@ function run(name: string, ...args: string[]) {
 	return runEnv(name, {}, ...args);
 }
 
-/* WFC_MODULES is dropped so each case reads the modules its own init wrote,
- * not the suite's all-on default. */
 function runEnv(name: string, extra: NodeJS.ProcessEnv, ...args: string[]) {
 	const r = runInProcess(script(name), args, {
 		cwd: dir,
@@ -98,7 +77,6 @@ const readStatus = () =>
 		encoding: "utf8",
 	});
 
-/** The §B half: its empty-corpus line, the same whether `roadmap` is on or off. */
 const B_HALF: [string, string[], string][] = [
 	[
 		"report-cycle-review-due.js",
@@ -168,7 +146,6 @@ describe("governance on an empty corpus", () => {
 		expect(r.out).not.toContain("No cycle declared");
 	});
 
-	// The skips key on the default input being absent, never on any path that does not read.
 	it.each([["check-manual-freshness.js", ["docs/no-such-manual.md"]]])(
 		"%s stays red on a path that does not exist",
 		(name, args) => {
@@ -197,7 +174,6 @@ describe("governance with roadmap off", () => {
 		expect(r.status).toBe(0);
 	});
 
-	// manual-sync's gate, and so the operating manual's, is a skill's first step.
 	it("gives manual-sync the same line, exiting 1 so the skill stops", () => {
 		const r = run(
 			"lib/workflow-core-config.js",
@@ -220,10 +196,6 @@ describe("governance with roadmap off", () => {
 		},
 	);
 
-	/* It runs past the gate to its gh call, which a remote-less fixture refuses.
-	 * A dummy token and an empty gh config: an unauthenticated gh, as on CI,
-	 * stops at auth before it looks for a remote (#443). Residual: a gh that
-	 * validates the token before that lookup fails this on auth instead. */
 	it("check-capture-drain.js, of the capture half, runs rather than skipping", () => {
 		const ghConfig = fs.mkdtempSync(path.join(os.tmpdir(), "gh-empty-"));
 		const r = runEnv("check-capture-drain.js", {

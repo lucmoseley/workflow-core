@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * Guards the commit list a spec's whole-spec review reads (#892): a wrong one
- * reviews a neighbour's work, or the inherited tracker's, as the spec's. The
- * CLI runs against a throwaway git repo and a stub `gh` (WFC_GH).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -44,9 +39,7 @@ describe("spec-commits CLI", () => {
 		);
 	};
 
-	/* Each issue's comments; none where unset. */
 	let comments: Record<number, { body: string }[]>;
-	/* What each issue holds as sub-issues; none where unset. */
 	let held: Record<number, unknown[]>;
 
 	const routes = (
@@ -127,7 +120,6 @@ describe("spec-commits CLI", () => {
 		expect(r.out).toMatch(/git show [0-9a-f]{12} [0-9a-f]{12}\n/);
 	});
 
-	/* /implement's closing review runs it on the build unit's own ticket (#4410). */
 	it("lists the commits citing a ticket that has no sub-issues", () => {
 		commit("t.js", "Build the unit's next slice (#10)", "2026-09-05T00:00:00Z");
 		const r = run([]);
@@ -197,10 +189,6 @@ describe("spec-commits CLI", () => {
 		});
 
 		describe("a rebased copy merged back onto HEAD (#3240)", () => {
-			/* `pre` holds the reviewed, pre-landing copies; main lands their
-			 * rebased twins — one patch-identical, one carrying an extra file
-			 * under its original author date, as a rebase keeps it — then merges
-			 * `pre` back, so both copies sit on HEAD. */
 			const landTwins = () => {
 				const base = git(["rev-parse", "HEAD"]).trim();
 				git(["checkout", "-q", "-b", "pre"]);

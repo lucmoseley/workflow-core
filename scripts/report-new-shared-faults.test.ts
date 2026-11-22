@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * report-new-shared-faults.js (mantahostels#1823) — the sha-vs-parent generalisation of
- * checker-new-faults.js's staged-vs-HEAD set difference (mantahostels#1753).
- *
- * The program is run in-process against throwaway git repos built by
- * newRepo(), its checker table replaced by STUB checkers (WFC_SHARED_FAULT_CHECKERS)
- * whose envelope varies by commit — the fixture repo's own history supplies
- * the two sides, which is what proves the sha and its parent (not some other
- * pair) were the ones actually compared. The guard-registry cases' fixture
- * repos carry no docs/doc-map.md, so the doc-map limb stands down in them.
- *
- * check-doc-map.js (mantahostels#1824's extension) is tested against the real
- * checker in its own file, report-new-shared-faults-doc-map.test.ts.
- *
- * It runs from `.husky/post-commit` after every commit, the notice of faults a
- * commit added to the whole-repo checks: loosen a case and a new fault goes
- * unannounced, or a session is blamed for one it inherited.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -66,8 +48,6 @@ function runCli(...args: string[]) {
 	return { code: r.status, out: r.stdout, err: r.stderr };
 }
 
-/** A stub checker.js: prints <root>/envelope.json verbatim, or `{"findings":[]}`
- * where the commit being read carries none. */
 function writeStubChecker(): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "report-stub-checker-"));
 	temps.push(dir);
@@ -87,7 +67,6 @@ process.exit(0);
 	return script;
 }
 
-/** A stub checker.js that always fails to produce a usable envelope. */
 function writeBrokenChecker(mode: "throw" | "garbage"): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "report-stub-broken-"));
 	temps.push(dir);
@@ -182,7 +161,6 @@ describe("report-new-shared-faults", () => {
 		const child = commitEnvelope(
 			repo,
 			{
-				// a.txt repaired (dropped), b.txt inherited, c.txt added
 				findings: [
 					fail({ file: "b.txt", rule: 'rule id "b"' }),
 					fail({ file: "c.txt", rule: 'rule id "c"' }),
@@ -280,8 +258,6 @@ process.stdout.write('{"findings":[]}');
 		const repo = newRepo("report-new-shared-faults-runs-", temps);
 		commitEnvelope(repo, { findings: [] }, "base");
 		const child = commitEnvelope(repo, { findings: [fail()] }, "adds x");
-		/* Each side's output under the per-child cap, the four together past
-		 * the 64 MB the runs' combined result may take (lib/child-buffer.js). */
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "report-big-checker-"));
 		temps.push(dir);
 		const checker = path.join(dir, "checker.js");
@@ -312,8 +288,6 @@ process.stdout.write('{"findings":[]}');
 			"the only commit",
 		);
 
-		// A checker that would throw if it were ever invoked: proves the root
-		// commit short-circuits before either side is read.
 		const broken = writeBrokenChecker("throw");
 		const { code, out, err } = run(root, {
 			checkers: { "guard-registry": broken },
@@ -334,11 +308,6 @@ process.stdout.write('{"findings":[]}');
 			.toString()
 			.trim();
 
-		// topic is the ONLY branch that ever touches envelope.json, so a trivial
-		// merge carries topic's fault into the merge tree wholesale — a diff
-		// against the WRONG parent (topic) would then read as silent. Only a
-		// diff against the RIGHT parent (main, which never touched the file)
-		// reports the fault, which is what makes this test able to fail.
 		repo.git("checkout", "-q", "-b", "topic");
 		commitEnvelope(
 			repo,
@@ -383,9 +352,6 @@ process.stdout.write('{"findings":[]}');
 			cwd: repo.root,
 		});
 
-		// the readable profile's fault still prints — it just isn't the story
-		// the exit code tells, per report-new-shared-faults.js's own comment on
-		// this precedence.
 		expect(out.join("\n")).toContain("x.txt");
 		expect(err.join("\n")).toContain("guard-test-isolation");
 		expect(code).toBe(2);
@@ -405,8 +371,6 @@ process.stdout.write('{"findings":[]}');
 			cwd: REPO_ROOT,
 			encoding: "utf8",
 		}).trim();
-		// This repo has exactly one root commit; two would make `root` a
-		// multi-line list and this ref lookup meaningless.
 		expect(root.split("\n")).toHaveLength(1);
 
 		const { code, out, err } = runCli(root);
@@ -433,15 +397,7 @@ process.stdout.write('{"findings":[]}');
 	});
 });
 
-/*
- * The notice's SHAPE (mantahostels#1825, mantahostels#1750).
- *
- * Every case here drives `run()` with the same stub checker the block at the
- * top of this file uses, because the framing is written from the diff's result
- * and not from any checker's own text.
- */
 describe("the notice the session reads", () => {
-	/** A repo whose child commit adds exactly one guard-registry fault. */
 	function repoWithOneAddedFault(prefix: string) {
 		const repo = newRepo(prefix, temps);
 		commitEnvelope(repo, { findings: [] }, "base");
@@ -468,7 +424,6 @@ describe("the notice the session reads", () => {
 		expect(text).toContain("CLAUDE.md");
 		expect(text).toContain("warns every other session's commit touching docs/");
 		expect(text).toContain("REPORTS and never blocks");
-		// The route in, so the one-line summary is not a dead end (story 10).
 		expect(text).toContain("In full, WARNs and context included: node");
 		expect(text).toContain(
 			`Re-read this notice after a later commit: node scripts/report-new-shared-faults.js ${child}`,
@@ -524,9 +479,6 @@ describe("the notice the session reads", () => {
 		expect(out.join("\n")).not.toContain("REPORTS and never blocks");
 	});
 
-	/* The route in must go somewhere the notice has not already been. Re-running
-	 * this script on the same sha reprints the same bytes, so `full` names the
-	 * checker itself. */
 	it("offers a route in that exists and is not a reprint of itself", () => {
 		const { PROFILES } = require("./lib/fault-profiles.js") as {
 			PROFILES: Record<string, unknown>;
@@ -556,8 +508,6 @@ describe("the notice the session reads", () => {
 		}
 	});
 
-	/* Its own table, not a stub one: a checker it reads that the diff has no
-	 * profile for would throw after every commit. */
 	it("reads every checker in its real table as a profile the diff knows", () => {
 		const repo = newRepo("report-notice-real-table-", temps);
 		fs.writeFileSync(path.join(repo.root, "a.txt"), "a");
@@ -579,12 +529,6 @@ describe("the notice the session reads", () => {
 	}, 30_000);
 });
 
-/**
- * The real notice table, not a stub one: a profile with no row goes
- * unannounced (#4246), and a row's gate claim must be the flag the hook, or
- * its dispatcher's row, runs its checker with (#4221). doc-map's own row
- * compares staged with HEAD itself, running its checker with no flag.
- */
 describe("lib/shared-fault-notices.js's NOTICES", () => {
 	const OwnGateBlock = new Set(["doc-map"]);
 	const hook = fs.readFileSync(
@@ -601,8 +545,6 @@ describe("lib/shared-fault-notices.js's NOTICES", () => {
 
 	const cases = Object.entries(NOTICES).map(([profile, { script, gate }]) => {
 		const name = path.basename(script);
-		/* A dispatcher row's run is its args (#5172); an own-gate profile's row
-		 * is the one it names. */
 		const row =
 			GATES.find((g) => g.script === `scripts/${name}`) ??
 			(OwnGateBlock.has(profile)
@@ -635,18 +577,7 @@ describe("lib/shared-fault-notices.js's NOTICES", () => {
 	);
 });
 
-/*
- * THE POST-COMMIT STEP (mantahostels#1825, #5208): lib/post-commit-steps.js's
- * newSharedFaultsRow, and its new-shared-faults row in lib/post-commit-rows.js
- * run through dispatch() on the real route where the gating is the point.
- *
- * The cases stand a program in for this one through its PROGRAM export
- * (lib/post-commit-testkit.ts): what is under test is the step's guarding,
- * not the program's answer — but for the linked-worktree case, which runs the
- * real one.
- */
 describe(".husky/post-commit's fault-notice step", () => {
-	/** A throwaway repo with one commit. */
 	function hookRepo(prefix: string) {
 		const repo = newRepo(prefix, temps);
 		fs.writeFileSync(path.join(repo.root, "a.txt"), "a");
@@ -657,19 +588,16 @@ describe(".husky/post-commit's fault-notice step", () => {
 
 	const Notice: Result = { exit: 1, stdout: "a fault notice\n", stderr: "" };
 
-	/** The step on `cwd`, the program answering `answer`. */
 	function runStep(cwd: string, answer: Result, env: NodeJS.ProcessEnv = {}) {
 		const program = stubProgram("report-new-shared-faults.js", () => answer);
 		const r = STEPS.newSharedFaultsRow(
 			STEPS.buildRunIo({ cwd, env: hookEnv(env) }),
 			programs,
 		);
-		// Exit 0 whatever the program did — git ignores post-commit's status.
 		expect(r.exit).toBe(0);
 		return { ...r, program };
 	}
 
-	/** The whole registry on `cwd`, the program printing NOTICE, the rest quiet. */
 	async function runRegistry(cwd: string) {
 		quietPrograms();
 		stubProgram("report-new-shared-faults.js", () => Notice);
@@ -733,10 +661,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 		expect(quiet.check).toHaveBeenCalledTimes(2);
 	});
 
-	/* The other half of the crash case: exit 2 is the program SAYING it could
-	 * not answer, which mantahostels#1750 wants rather than the silence a clean
-	 * run gives — on the hook's stdout, as the block's `cat` put it. */
-	it("prints the program's stderr on its exit 2, the could-not-answer code", () => {
+	it("prints the program's stderr on its exit 2, the could-not-answer code (lucmoseley/mantahostels#1750)", () => {
 		const repo = hookRepo("post-commit-unanswerable-");
 
 		const r = runStep(repo.root, {
@@ -761,9 +686,6 @@ describe(".husky/post-commit's fault-notice step", () => {
 			expect(handed[k], k).toBeUndefined();
 	});
 
-	/* Every sentinel the stand-down set reads, one case each: what an
-	 * in-progress rebase, cherry-pick, revert or bisect leave in the git dir.
-	 * `sequencer`, a multi-commit revert's, is below. */
 	it.each(REPLAY_SENTINELS)(
 		"stays quiet while %s is in the git dir, rather than attributing a replayed range one commit at a time",
 		async (sentinel, kind) => {
@@ -788,20 +710,12 @@ describe(".husky/post-commit's fault-notice step", () => {
 		expect(r.stdout.includes("a fault notice\n")).toBe(prints);
 	});
 
-	/* The inverse: with no sentinel present the same fixture DOES print. */
 	it("prints where no replay is in progress", async () => {
 		const repo = hookRepo("post-commit-no-replay-");
 
 		expect((await runRegistry(repo.root)).stdout).toContain("a fault notice\n");
 	});
 
-	/*
-	 * The real program, under the redirects git hands a linked worktree's
-	 * post-commit hook: its checker's own `git ls-files`, run from a
-	 * materialised tree that is no repository, lists nothing and so finds the
-	 * worktree's file — where one still carrying the hook's GIT_DIR and
-	 * GIT_INDEX_FILE would list the hook's index and find nothing.
-	 */
 	it("reads a linked worktree's commit from a clean environment, never the hook's index", () => {
 		const repo = hookRepo("post-commit-linked-");
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "post-commit-linked-"));
@@ -829,7 +743,6 @@ process.stdout.write(JSON.stringify({ findings }));
 				cwd: wt,
 				env: {
 					...env,
-					// hook-root.sh's answer for a linked worktree: the main tree.
 					CLAUDE_PROJECT_DIR: repo.root,
 					[CHECKERS_ENV]: JSON.stringify({ "guard-registry": probe }),
 				},

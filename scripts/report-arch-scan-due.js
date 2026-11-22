@@ -1,64 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-arch-scan-due.js — the architecture-scan counter (#1362, spec #1348
- * Part 2): how far a repo's busiest code has grown since its last scan, and
- * the threshold that growth is judged against.
- *
- *   (no flag)                 the daily filing run (#1378), launched detached
- *                             at every session start by
- *                             scripts/session-start-sweeps.sh, in every repo.
- *                             At most one reading a day, off a stamp in the
- *                             git common directory, so worktrees share it, and
- *                             behind a lock, through lib/periodic-reading.js.
- *                             At or over the threshold it files or refreshes
- *                             the one *Architecture scan due* issue, found by
- *                             title alone, so a retitled one is not found and
- *                             the next reading over the threshold files a
- *                             second.
- *   --dry-run                 print the window, the ten hot files with their
- *                             commits and net growth, the total, the threshold
- *                             and its source.
- *   --next-threshold <yield>  print {threshold, nextThreshold} as one JSON line
- *                             for the architecture-scan skill's close line, so
- *                             the rule lives here alone: the threshold in force
- *                             and what the recalibration rule gives from the
- *                             learned one, which an override never moves.
- *   --hot-files <file>        print a saved dry run's hot files as one compact
- *                             JSON array of {path, commits, net}, for the
- *                             skill's scan line, so the row format is read
- *                             where it is written (#1490). A file holding no
- *                             hot-file row is BROKEN, never an empty array.
- *   --partners <file>         print a saved dry run's hot files, each with its
- *                             change-coupling partners: the code files most
- *                             often in the same commits over that run's
- *                             window, as one JSON array of {path, partners:
- *                             [{path, commits}]}, for the skill's explore
- *                             step, so a partner passes the filter a hot file
- *                             does (#1743).
- *
- * CODE is a file tracked at the window's end with a code extension or under
- * `.husky/`, minus test kind (lib/test-kind.js), vendored
- * `.agents/`, generated `*.d.ts` and `*.min.js`, and `archScan.exclude`'s
- * pathspec globs.
- *
- * THE HOT FILES are the ten code files with the most commits in the window;
- * GROWTH is lines added minus deleted over them, renames detected, a renamed
- * file counted under its newest path.
- *
- * THE FILING RUN FILES NOTHING while the newest `scan` line has no `close`
- * line for its map: that scan is in flight. Where the newest closed due issue
- * has no `scan` line dated on or after its creation day, it was closed without
- * a scan, so the window starts at its close, for the issue refiled from it
- * too. By day, since the skill's scan line may carry no time: a scan run
- * earlier on the day a due issue was filed counts as following it.
- *
- * Exit 0 on a reading. The filing run always exits 0: anything it cannot do —
- * an unreadable run log, a malformed `archScan` value, a git or `gh` failure —
- * is one line in the arbiter's error log, which `npm run check:guard-errors`
- * reports, and the next day's reading retries. `--dry-run` reads no tracker,
- * so its window never starts at a close. The flagged modes exit 2 on
- * those, and on a refused command line.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -84,18 +24,14 @@ const { buildStandaloneLine } = require("./lib/standalone-line.js");
 const { runDailyReading } = require("./lib/daily-reading.js");
 
 const RECORD = "docs/data/arch-scan-runs.jsonl";
-/* The spec's chosen values: the start date at #1309 Q4 (A), the threshold,
- * its bounds and recalibrate()'s bands at #1309 Q2 (A), the hot-file count at
- * #1309 Q1 (A). */
+// #1309
 const DEFAULT_SINCE = "2026-09-21T00:00Z";
 const START_THRESHOLD = 8750;
 const MIN_THRESHOLD = 4000;
 const MAX_THRESHOLD = 40_000;
 const HOT_COUNT = 10;
-/* The spec names one partner per hot file, the strongest (#1310); three gives
- * the scan the runners-up beside it. Untraced. */
+// #1310 guess
 const PARTNER_COUNT = 3;
-/** A `--numstat` line: added, deleted, path — the path empty on a rename. */
 const NUMSTAT_RE = /^(\d+|-)\t(\d+|-)\t(.*)$/s;
 const TITLE = "Architecture scan due";
 const LABEL = takesLabel("implement");
@@ -104,13 +40,11 @@ const CODE_EXT = /\.(?:js|mjs|cjs|ts|tsx|sh|py)$/;
 const GENERATED = /\.(?:d\.ts|min\.js)$/;
 
 const USAGE = `usage: node ${scriptPath("report-arch-scan-due.js")} [--dry-run | --next-threshold <yield> | --hot-files <file> | --partners <file>]`;
-/** A dry run's hot-file row, as hotRow() writes it: commits, signed net, path. */
 const HOT_ROW_RE = /^ +(\d+) commits +([+-]\d+) {2}(.+)$/gm;
-/** A dry run's window line, as dryRun() writes it: its since, where that came from, then its end sha. */
 const WINDOW_RE =
 	/^Window: since (.+) \(([^()]*)\) to ([0-9a-f]{40}) \([^()]*\)$/m;
 
-/** @param {string} p repo-relative, forward slashes */
+/** @param {string} p */
 const isCode = (p) =>
 	(CODE_EXT.test(p) || p.startsWith(".husky/")) &&
 	!isTestKind(p) &&
@@ -128,13 +62,7 @@ const git = (args) =>
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 
-/**
- * The run log's lines, oldest first; none where the file is absent, as in an
- * adopter no scan has reached. Throws on a line it cannot read, so a corrupt
- * log never reads as "never scanned".
- *
- * @returns {Array<Record<string, unknown>>}
- */
+/** @returns {Array<Record<string, unknown>>} */
 function readRecord() {
 	const read = readJsonl(path.join(hostRoot(), RECORD));
 	if (!read) return [];
@@ -151,9 +79,6 @@ function readRecord() {
  */
 
 /**
- * Where counting starts: the newest scan's head, else the newest seed's
- * since, else the plugin's default date.
- *
  * @param {Array<Record<string, unknown>>} rows
  * @returns {Start}
  */
@@ -183,7 +108,7 @@ const newestRow = (rows, mode) => rows.findLast((r) => r?.mode === mode);
 
 /**
  * @param {Array<Record<string, unknown>>} rows
- * @param {number | undefined} override archScan.threshold
+ * @param {number | undefined} override
  * @returns {{ threshold: number, source: Source }}
  */
 function thresholdInForce(rows, override) {
@@ -192,10 +117,8 @@ function thresholdInForce(rows, override) {
 	return learnedThreshold(rows);
 }
 
+// #1348
 /**
- * The newest close line's nextThreshold, else the start value. An override
- * neither reads nor moves it, so removing one resumes this (#1348).
- *
  * @param {Array<Record<string, unknown>>} rows
  * @returns {{ threshold: number, source: Exclude<Source, "override"> }}
  */
@@ -212,7 +135,7 @@ function learnedThreshold(rows) {
 
 /**
  * @param {number} threshold
- * @param {number} y the scan's candidates accepted for build
+ * @param {number} y
  */
 function recalibrate(threshold, y) {
 	let factor = 2;
@@ -225,11 +148,8 @@ function recalibrate(threshold, y) {
 	);
 }
 
-/** The window's end: origin's HEAD, else the checked-out HEAD. */
 function readWindowEnd() {
 	for (const ref of ["refs/remotes/origin/HEAD", "HEAD"]) {
-		// `--verify -q` exits 1, silent, on a ref that does not resolve, which
-		// is the fallback's whole case.
 		const sha = orFallback(
 			() => git(["rev-parse", "--verify", "-q", ref]).trim(),
 			undefined,
@@ -242,15 +162,8 @@ function readWindowEnd() {
 }
 
 /**
- * The files at the window's end that the exclusion leaves in.
- *
- * The exclusion applies here, to the files at the window's end, never to
- * the log: a path the log's pathspec drops is gone before rename detection,
- * so a file moved out of an excluded directory would count whole. A diff
- * from the empty tree is the one listing of a tree that takes `:(glob)`.
- *
  * @param {string} head
- * @param {string[]} exclude archScan.exclude
+ * @param {string[]} exclude
  * @returns {Set<string>}
  */
 function readCountedFiles(head, exclude) {
@@ -271,12 +184,9 @@ function readCountedFiles(head, exclude) {
 }
 
 /**
- * A numstat record's path under its newest name. An empty `name` is a rename,
- * whose two paths are the iterator's next two tokens.
- *
  * @param {string} name
- * @param {Iterator<string>} tokens accumulator: a rename's two paths are taken off it
- * @param {Map<string, string>} renamedTo accumulator: each rename's old path is mapped to its newest
+ * @param {Iterator<string>} tokens
+ * @param {Map<string, string>} renamedTo
  * @returns {string}
  */
 function numstatName(name, tokens, renamedTo) {
@@ -291,10 +201,8 @@ function numstatName(name, tokens, renamedTo) {
 }
 
 /**
- * A numstat line's added (group 1) or deleted (group 2) count; git's `-`, a
- * binary file, changes no line.
- *
- * @param {RegExpExecArray} m @param {1 | 2} n
+ * @param {RegExpExecArray} m
+ * @param {1 | 2} n
  */
 function parseNumstatCount(m, n) {
 	const g = requiredGroup(m, n, NUMSTAT_RE);
@@ -302,12 +210,9 @@ function parseNumstatCount(m, n) {
 }
 
 /**
- * Each commit in the window, as the net lines it changed in each code file,
- * every path under its newest name.
- *
  * @param {Start} start
  * @param {string} head
- * @param {string[] | undefined} exclude archScan.exclude
+ * @param {string[] | undefined} exclude
  * @returns {Array<Map<string, number>>}
  */
 function readWindowCommits(start, head, exclude = []) {
@@ -325,7 +230,6 @@ function readWindowCommits(start, head, exclude = []) {
 	]);
 	const counted = readCountedFiles(head, exclude);
 
-	/** Newest name of each path a rename moved, built newest-first. */
 	/** @type {Map<string, string>} */
 	const renamedTo = new Map();
 	/** @type {Array<Map<string, number>>} */
@@ -333,7 +237,6 @@ function readWindowCommits(start, head, exclude = []) {
 	/** @type {Map<string, number>} */
 	let inCommit = new Map();
 
-	// One iterator, so a rename's body can take its two path tokens off it.
 	const tokens = out.split("\0").values();
 	for (const token of tokens) {
 		const t = token.replace(/^\n/, "");
@@ -361,8 +264,6 @@ function readWindowCommits(start, head, exclude = []) {
 }
 
 /**
- * Commits and net lines per code file in the window, the busiest first.
- *
  * @param {Array<Map<string, number>>} commits
  * @returns {HotFile[]}
  */
@@ -380,8 +281,6 @@ function tally(commits) {
 }
 
 /**
- * The `n` rows in the most commits, ties by path.
- *
  * @template {{ path: string, commits: number }} T
  * @param {T[]} rows
  * @param {number} n
@@ -393,8 +292,6 @@ const busiestFirst = (rows, n) =>
 		.slice(0, n);
 
 /**
- * The code files most often in the same commits as `hot`, the most first.
- *
  * @param {Array<Map<string, number>>} commits
  * @param {string} hot
  * @returns {Array<{ path: string, commits: number }>}
@@ -413,7 +310,6 @@ function partnersOf(commits, hot) {
 	);
 }
 
-/** The config's archScan, BROKEN-thrown on a malformed value. */
 function readArchScanConfig() {
 	const c = readConfig();
 	const file = path.relative(hostRoot(), c.file);
@@ -498,8 +394,6 @@ function dryRun() {
 }
 
 /**
- * The map of the newest scan where no close line names it, else null.
- *
  * @param {Array<Record<string, unknown>>} rows
  * @returns {string | null}
  */
@@ -511,12 +405,7 @@ function scanInFlight(rows) {
 		: String(scan.map);
 }
 
-/**
- * Carries no date of the reading's own, so a reading that finds nothing
- * changed leaves the body as it stands.
- *
- * @param {Reading} reading
- */
+/** @param {Reading} reading */
 function body(reading) {
 	return [
 		"Filed automatically by `scripts/report-arch-scan-due.js`, which reads this repo once a day at session start and rewrites this body at each reading while growth stays at or over the threshold. **Edit it by hand and the next reading silently overwrites it** — put anything you want kept in a comment.",
@@ -548,8 +437,6 @@ function body(reading) {
 }
 
 /**
- * The newest due issue's close, where no scan followed its filing; else null.
- *
  * @param {Array<Record<string, unknown>>} rows
  * @returns {Start | null}
  */
@@ -571,7 +458,7 @@ function unscannedCloseStart(rows) {
 			};
 }
 
-/** @returns {string} what happened, for the run to print */
+/** @returns {string} */
 function fileRun() {
 	const archScan = readArchScanConfig();
 	const rows = readRecord();
@@ -622,8 +509,6 @@ function nextThreshold(raw) {
 }
 
 /**
- * A saved `--dry-run` output's hot files, BROKEN-thrown where it holds none.
- *
  * @param {string} file
  * @returns {{ text: string, hot: HotFile[] }}
  */
@@ -647,17 +532,12 @@ function readSavedRun(file) {
 const buildSaveHint = (file) =>
 	`save one with: node ${scriptPath("report-arch-scan-due.js")} --dry-run > ${file}`;
 
-/** @param {string} file a saved `--dry-run` output */
+/** @param {string} file */
 function hotFiles(file) {
 	writeFd(1, `${JSON.stringify(readSavedRun(file).hot)}\n`);
 }
 
-/**
- * Over the saved run's own window, so a head that moved since cannot shift
- * the partners off the hot files they belong to.
- *
- * @param {string} file a saved `--dry-run` output
- */
+/** @param {string} file */
 function partners(file) {
 	const { text, hot } = readSavedRun(file);
 	const m = WINDOW_RE.exec(text);
@@ -682,7 +562,6 @@ function partners(file) {
 }
 
 /**
- * Each flagged mode, run with its flag's value; naming none is the daily run.
  * @type {Record<string, { kind: "boolean" | "value", run: (value: string) => void }>}
  */
 const MODES = {

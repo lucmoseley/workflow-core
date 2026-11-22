@@ -1,16 +1,3 @@
-"""Tests for scripts/lib/project_slug.py — the Python mirror of
-scripts/lib/project-slug.js's slug rule (mantahostels#2148).
-
-Pins the same guarantee project-slug.test.ts pins on the JS side: every
-non-alphanumeric character becomes its own hyphen, case preserved, and the
-two languages agree on this checkout's own slug.
-
-The agreement case runs the JS sibling through `node` in this checkout rather
-than restating its rule, so a change to either side fails here. Loosen it and
-`transcript_corpus.py`'s scanners look for this repo's transcripts under a slug
-Claude Code never wrote, and report a near-empty corpus as if it were real.
-"""
-
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +23,6 @@ def test_one_hyphen_per_character_never_one_per_run():
 
 
 def test_slug_for_repo_names_this_checkout(monkeypatch):
-    # A linked worktree slugs as its main checkout (#4493).
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(REPO_ROOT))
     common = subprocess.run(
         ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],

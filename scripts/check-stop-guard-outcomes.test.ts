@@ -1,22 +1,11 @@
 // @vitest-environment node
-/*
- * Pins that check-stop-guard-outcomes.js names a Stop guard that has gone blind
- * to the turn it judges, or stopped running, and stays silent while each
- * reaches a verdict (mantahostels#1254, on mantahostels#1275's fix).
- *
- * The checker reports on breadcrumbs at a repository root, so every test builds
- * a throwaway root and points --root at it — the real repo's own breadcrumbs
- * would make the verdict depend on whatever sessions happened to run today.
- *
- * It reports through `npm run status`: loosen a case and a Stop guard can reach
- * no verdict on most turns while the report reads healthy.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as NotifyReport from "./lib/notify-report.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
@@ -27,9 +16,6 @@ const OTHER = "guard-selection-sum";
 
 let dir: string;
 let home: string;
-/* Where the breadcrumbs actually sit under `dir` (mantahostels#3382). Built from the
- * module's own constant rather than spelled again here, so a move breaks
- * the production path and not these tests. */
 let crumbs: string;
 
 beforeEach(() => {
@@ -44,7 +30,6 @@ afterEach(() => {
 	fs.rmSync(home, { recursive: true, force: true });
 });
 
-/** A guard that took its text off the payload and reached a verdict. */
 function crumb(over: Record<string, unknown> = {}) {
 	return {
 		outcome: "message",
@@ -57,7 +42,6 @@ function crumb(over: Record<string, unknown> = {}) {
 	};
 }
 
-/** The post-fix shape of a guard that read nothing: a verdict it never reached. */
 const blindLine = crumb({
 	outcome: "empty-message",
 	source: null,
@@ -77,7 +61,6 @@ function write(
 	);
 }
 
-/** `n` records of one shape, spread over `sessions` sessions. */
 function spread(
 	guard: string,
 	n: number,
@@ -98,7 +81,6 @@ interface Envelope {
 	outcome: string;
 	summary: string;
 	findings: { severity: string; tag: string; message: string }[];
-	/* runCheck spreads a checker's `data` across the envelope's top level. */
 	vanished?: number;
 }
 
@@ -144,10 +126,6 @@ describe("guards that are reading what they judge", () => {
 		expect(run(["--json"]).env.summary).toMatch(/no Stop-guard breadcrumbs/);
 	});
 
-	/* mantahostels#3382's own branch: before the first guard writes, the breadcrumb directory
-	 * does not exist at all. That is an empty sample, not a fault — and it must
-	 * not be reported as either a fault or a clean bill of health. Distinct from
-	 * the case above, where the directory exists and holds nothing. */
 	it("reads a tree whose breadcrumb directory does not exist yet as no sample", () => {
 		fs.rmSync(crumbs, { recursive: true, force: true });
 		expect(run(["--json"]).env.outcome).not.toBe("BROKEN");
@@ -227,8 +205,6 @@ describe("the routes that say the fix itself is failing (mantahostels#1275, mant
 		expect(finding?.message).toMatch(/#1273/);
 	});
 
-	/* Every other case writes its lines by hand; this one writes them through
-	 * hook-record.js, so a field the writer renames or drops fails here. */
 	it("reads each route off the lines hook-record.js writes", () => {
 		const rec = (outcome: string, source: string, message: string) =>
 			hookRecord.record({
@@ -278,12 +254,9 @@ describe("records it must not choke on", () => {
 		write(GUARD, "session-cap", [
 			{ capped: true, at: new Date().toISOString() },
 		]);
-		/* Counted, it would read as an invocation the guard never made. */
 		expect(run(["--notify"]).stdout).toMatch(/: 60 invocation/);
 	});
 
-	/* A dropped line shrinks the denominators the rates are measured over, so an
-	 * epidemic of them would read as health. */
 	it("keeps reading past a torn line, and says it found one", () => {
 		spread(GUARD, 60, crumb());
 		fs.appendFileSync(
@@ -351,8 +324,6 @@ describe("what --notify says twice", () => {
 		expect(run(["--notify"]).stdout).toBe("");
 	});
 
-	/* Without the bucket, each new occurrence changes the count and the notice
-	 * returns every session. */
 	it("does not re-say a fault whose only change is one more occurrence", () => {
 		spread(GUARD, 60, crumb());
 		const fallback = crumb({
@@ -379,14 +350,10 @@ describe("what --notify says twice", () => {
 		expect(tags()).toContain("FAIL:BLIND");
 	});
 
-	/*
-	 * The producer's stdout is not the delivery under persist mode, so
-	 * suppressing on its own stamp would bury a report the reader never got the
-	 * chance to show (mantahostels#1975).
-	 */
 	describe("under persist mode", () => {
-		// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-		const notify: any = createRequire(__filename)("./lib/notify-report.js");
+		const notify: typeof NotifyReport = createRequire(__filename)(
+			"./lib/notify-report.js",
+		);
 
 		beforeEach(() => {
 			vi.stubEnv("HOME", home);
@@ -410,8 +377,8 @@ describe("what --notify says twice", () => {
 			for (const _ of [1, 2]) {
 				expect(persist().status).toBe(0);
 				const report = notify.readReport("stop-guard-outcomes");
-				expect(report.outcome).toBe("FAIL");
-				expect(report.text).toMatch(/BLIND|no verdict/);
+				expect(report?.outcome).toBe("FAIL");
+				expect(report?.text).toMatch(/BLIND|no verdict/);
 			}
 		});
 
@@ -421,7 +388,7 @@ describe("what --notify says twice", () => {
 			persist();
 
 			expect(fs.existsSync(stampPath())).toBe(false);
-			expect(notify.readReport("stop-guard-outcomes").stamp).toContain(GUARD);
+			expect(notify.readReport("stop-guard-outcomes")?.stamp).toContain(GUARD);
 		});
 	});
 });
@@ -429,8 +396,6 @@ describe("what --notify says twice", () => {
 describe("the guard name as it sits on disk (mantahostels#2545)", () => {
 	const old = new Date(Date.now() - 9 * 86_400_000).toISOString();
 
-	/* `guardName` has not always stripped the suffix, so records on disk carry
-	 * both spellings of a guard that is alive and firing. */
 	it("folds a suffixed record onto the guard that wrote it", () => {
 		write(`${GUARD}.js`, "session-old", [crumb({ at: old })]);
 		spread(GUARD, 60, crumb());
@@ -447,8 +412,6 @@ describe("the guard name as it sits on disk (mantahostels#2545)", () => {
 
 describe("a guard whose healthy case is finding nothing", () => {
 	const lost = "guard-lost-deny";
-	/* It reads the transcript, not the turn's text, so "nothing to raise" is a
-	 * verdict rather than a failure to reach one. */
 	const found = crumb({ outcome: "no-finding", source: null });
 
 	it("reads no-finding as a verdict reached, not a verdict missed", () => {
@@ -474,9 +437,6 @@ describe("the ceiling guard's stand-down (#1786)", () => {
 });
 
 describe("a breadcrumb swept while the report was reading it", () => {
-	/* `prune-markers --detach` runs at every session start alongside this check,
-	 * so the readdir/readFile race is routine. A dangling symlink reproduces what
-	 * the sweep leaves: readdir names it, the read throws ENOENT. */
 	const dangle = (name: string) =>
 		fs.symlinkSync(path.join(crumbs, "gone"), path.join(crumbs, name));
 
@@ -493,8 +453,6 @@ describe("a breadcrumb swept while the report was reading it", () => {
 		expect(run(["--json"]).env.vanished).toBe(1);
 	});
 
-	/* The count has to follow the report onto the healthy path too, that being
-	 * the one where an epidemic of vanishing files would hide. */
 	it("says how many were skipped on a tree with nothing else wrong", () => {
 		spread(GUARD, 60, crumb());
 		dangle(`.hook-ran-${GUARD}-session-swept`);

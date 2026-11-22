@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The check-wsl-currency.js program (#4082), its reads crossed through the
- * WFC_PROC, WFC_WSL_EXE and gh seams, so each exit and print is seen as
- * `npm run status` and the morning review see it. Loosened, a failed read
- * reads as clean, or the commands stop being pasteable. The judging itself is
- * lib/wsl-currency.test.ts's.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

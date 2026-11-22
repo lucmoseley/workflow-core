@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * guard-uncommitted-work.js blocks a turn's end while this session's own
- * tracked edits sit uncommitted in its checkout — the main checkout or its own
- * linked worktree (#4229) — not a neighbour's dirt, not untracked scratch
- * (mantahostels#1555).
- *
- * Driven end-to-end through the CLI — a payload on stdin, a real git repo on
- * disk, a real write ledger, the block JSON on stdout. Only end-to-end
- * exercises the worktree split, which needs an actual linked worktree to be
- * wrong about. Through `runInProcess` (§X3): the guard's own git reads are
- * real subprocesses either way, so nothing here needs a spawn of the guard
- * itself.
- *
- * The guard is a `Stop` hook in `self-plugin/hooks/hooks.json` and the shipped
- * plugin's `hooks/hooks.json`: loosen a case here and a background job can
- * stop mid-edit with work nobody else sees for hours, or blocks a session on
- * a neighbour's edits it cannot commit.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -42,6 +24,7 @@ import {
 const require_ = createRequire(__filename);
 const { REFUSAL_NAMED_MAX } = require_("./lib/dirty-tree.js");
 const arbiter = require_("./lib/arbiter-store.js");
+// code-edges loads: lib/hook-block.js
 
 const GUARD = path.join(__dirname, "guard-uncommitted-work.js");
 const ARBITER = path.join(__dirname, "session-arbiter.js");
@@ -49,7 +32,6 @@ const ARBITER = path.join(__dirname, "session-arbiter.js");
 let root: string;
 let sid: string;
 
-/** A throwaway repo with one committed tracked file. */
 function makeRepo(): string {
 	const dir = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "uncommitted-")),
@@ -61,17 +43,12 @@ function makeRepo(): string {
 	git("config", "user.name", "T");
 	fs.writeFileSync(path.join(dir, "tracked.md"), "one\n");
 	fs.writeFileSync(path.join(dir, "other.md"), "one\n");
-	// A code path, so the fixture below reads as the case it means. The CODE
-	// glob that decides it is pinned in lib/claimed-bash-write.test.ts, not
-	// here.
 	fs.writeFileSync(path.join(dir, "tool.sh"), "one\n");
 	git("add", "tracked.md", "other.md", "tool.sh");
 	git("commit", "-qm", "base");
 	return dir;
 }
 
-/** The arbiter's per-project state directory for `forRoot`, or one of its
- * subdirectories. */
 function storeDir(sub = "", forRoot = root): string {
 	return path.join(
 		root,
@@ -82,10 +59,6 @@ function storeDir(sub = "", forRoot = root): string {
 	);
 }
 
-/* The ledger the arbiter keeps for a session: one repo-relative path per line,
- * at <config>/projects/<root with every non-alphanumeric dashed>/writes/<sid>.txt
- * (lib/arbiter-store.js `paths.ledger`). Written directly rather than through
- * the post-write core so each case states the ledger it means. */
 function ledger(entries: string[] | null, forRoot = root) {
 	const dir = storeDir("writes", forRoot);
 	fs.mkdirSync(dir, { recursive: true });
@@ -97,8 +70,6 @@ function ledger(entries: string[] | null, forRoot = root) {
 	fs.writeFileSync(file, entries.map((e) => `${e}\n`).join(""));
 }
 
-/** A lock record the arbiter reads as live and owned by `owner`, taken in
- * `tree` where it names one, else in the main checkout. */
 function claim(rel: string, owner: string, tree?: string) {
 	const dir = storeDir("locks");
 	fs.mkdirSync(dir, { recursive: true });
@@ -118,14 +89,9 @@ function claim(rel: string, owner: string, tree?: string) {
 interface Run {
 	blocked: boolean;
 	reason: string;
-	/** The warn limb speaks through `systemMessage` and never blocks (mantahostels#2211). */
 	warn: string;
 }
 
-/**
- * No transcript is named unless a case names one. `stdin`, when given, is sent
- * in place of the whole payload, for a malformed one.
- */
 function run(
 	cwd = root,
 	extraEnv: Record<string, string> = {},
@@ -189,9 +155,6 @@ describe("the dirt limb", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
 		execFileSync("git", ["add", "tracked.md"], { cwd: root, stdio: "ignore" });
-		// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-		// uncommitted" above, which exercises the same readDirtyTracked()
-		// block for the same file.
 		expect(run().blocked).toBe(true);
 	});
 });
@@ -219,8 +182,6 @@ describe("attribution — a neighbour's dirt is not yours (mantahostels#114)", (
 		expect(run().blocked).toBe(false);
 	});
 
-	/* A session that has written nothing has no ledger file at all — readWritesBy
-	 * reads that ENOENT as the empty answer. */
 	it("passes when there is no ledger file at all", () => {
 		ledger(null);
 		dirty("tracked.md");
@@ -228,24 +189,9 @@ describe("attribution — a neighbour's dirt is not yours (mantahostels#114)", (
 	});
 });
 
-/*
- * lib/claimed-bash-write.js credits an uncontended CODE target to this
- * session's ledger at `PreToolUse` (mantahostels#2778), so dirt that reached the tree by
- * `sed -i` or a redirect now refuses the turn.
- *
- * Driven through the REAL hook entry rather than a hand-written ledger line, to
- * pin that the two halves agree on the ledger's location and its spelling of a
- * path. The CODE-glob gate that decides which targets are credited at all is
- * pinned in lib/claimed-bash-write.test.ts.
- *
- * Through `runInProcess` like the guard itself (§X3): its `env` option replaces
- * and restores the suite's own environment for the call.
- */
 describe("a Bash-route code write is credited and blocks (mantahostels#2778)", () => {
 	const entry = path.join(__dirname, "guard-dispatch.js");
 
-	/** The crediting core alone on a `sed -i` over `rel`: the fixture is a main
-	 * checkout, whose own write refusal is pinned in main-checkout-write's tests. */
 	function credit(rel: string) {
 		const res = runInProcess(entry, ["--only", "guard-claimed-bash-write"], {
 			cwd: root,
@@ -261,8 +207,6 @@ describe("a Bash-route code write is credited and blocks (mantahostels#2778)", (
 				tool_input: { command: `sed -i s/a/b/ ${rel}` },
 			}),
 		});
-		// Crediting refuses nothing and prints nothing, so a non-zero exit or a
-		// word on stdout is a fault in the fixture, not a verdict.
 		expect(res.status).toBe(0);
 		expect(res.stdout).toBe("");
 	}
@@ -275,8 +219,6 @@ describe("a Bash-route code write is credited and blocks (mantahostels#2778)", (
 		expect(r.reason).toContain("tool.sh");
 	});
 
-	/* The credit bills the path it was GIVEN and no other — a credit half that
-	 * billed the whole tree would pass the case above and fail here. */
 	it("leaves a doc the same session dirtied unnamed and unblocked", () => {
 		credit("tool.sh");
 		dirty("tracked.md");
@@ -318,7 +260,6 @@ describe("the session's own worktree (#4229)", () => {
 			: { blocked: false, reason: "", warn: "" };
 	};
 
-	/* A worktree write's ledger line names its tree (#4457). */
 	const wrote = (rel: string) => ledger([`${rel}\t${wt}`]);
 
 	it("blocks on the worktree's dirt, naming it as the worktree spells it", () => {
@@ -331,8 +272,6 @@ describe("the session's own worktree (#4229)", () => {
 		expect(r.reason).not.toContain("index is every session's");
 	});
 
-	/* A key names no tree, so the main checkout's copy of a path this session
-	 * wrote in its worktree is not billed to it (#4397). */
 	it("passes on main-checkout dirt at a path the session wrote in its worktree", () => {
 		wrote("tracked.md");
 		dirty("tracked.md");
@@ -359,9 +298,6 @@ describe("the session's own worktree (#4229)", () => {
 		expect(runIn().blocked).toBe(false);
 	});
 
-	/* A session launched in a linked worktree: its hooks are handed
-	 * CLAUDE_PROJECT_DIR naming the worktree, its Bash tool none. The claim a
-	 * hook takes and the release run by hand must meet in one store (#4493). */
 	describe("hooks handed the worktree as CLAUDE_PROJECT_DIR (#4493)", () => {
 		const arbiterCli = (args: string[], projectDir: string | undefined) => {
 			const { CLAUDE_PROJECT_DIR: _p, WFC_REPO_ROOT: _r, ...env } = process.env;
@@ -381,7 +317,6 @@ describe("the session's own worktree (#4229)", () => {
 				worktree: wt,
 				sid,
 				config: path.join(root, ".claude-home"),
-				/* WFC_REPO_ROOT unset, so the guard's own root is the seam's answer. */
 				env: { CLAUDE_PROJECT_DIR: wt, WFC_REPO_ROOT: undefined },
 				payload: {
 					transcript_path: undefined,
@@ -389,11 +324,8 @@ describe("the session's own worktree (#4229)", () => {
 				},
 			});
 
-		/* A watched path, so the arbiter claims it. */
 		const doc = "docs/notes.md";
 
-		/* The issue's own case: once released, committed work holding no claim
-		 * is not blocked. */
 		it("names a committed file's claim, which the hand-run release then clears", () => {
 			fs.mkdirSync(path.join(wt, "docs"));
 			fs.writeFileSync(path.join(wt, doc), "notes\n");
@@ -407,7 +339,6 @@ describe("the session's own worktree (#4229)", () => {
 			expect(reason).toContain(
 				`holds 1 claim(s) on files with no uncommitted change: ${doc}.`,
 			);
-			/* The release run below is the one the block prints (#4518). */
 			expect(reason).toMatch(
 				new RegExp(
 					`\`node \\S*session-arbiter\\.js release-committed ${doc}\``,
@@ -433,7 +364,6 @@ describe("the session's own worktree (#4229)", () => {
 });
 
 describe("outside a repository", () => {
-	/* Outside a repo `sessionTree` finds no tree, so the guard reads no dirt. */
 	it("passes where the cwd is not a git repository at all", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
@@ -446,16 +376,12 @@ describe("outside a repository", () => {
 	});
 });
 
-/* The backstop's nag marker is written once and never cleared, so honouring it
- * would exempt the session permanently. */
 describe("the concision backstop's markers buy no exemption", () => {
 	it.each(["concision", "codereview"])(
 		"blocks even while the %s pass it demanded is outstanding",
 		(kind) => {
 			ledger(["tracked.md"]);
 			dirty("tracked.md");
-			// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-			// uncommitted".
 			fs.writeFileSync(path.join(root, `.${kind}-nagged-${sid}`), "");
 			expect(run().blocked).toBe(true);
 		},
@@ -474,7 +400,6 @@ describe("the way out", () => {
 		expect(r.reason).toContain("Never `git add` first");
 	});
 
-	/** `count` dirty files, committed first — `-uno` sees only tracked ones. */
 	function manyDirty(count: number): string[] {
 		const many = Array.from({ length: count }, (_, i) => `f${String(i)}.md`);
 		for (const f of many) fs.writeFileSync(path.join(root, f), "one\n");
@@ -493,17 +418,12 @@ describe("the way out", () => {
 		const r = run();
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain("(and 2 more)");
-		/* A partial pathspec is worse than none: the session would run it, commit
-		 * all but the two it never saw, and spend a block on the guard's own
-		 * half-remedy. */
 		expect(r.reason).not.toContain(
 			'git commit -m "<why, in plain language>" -- f',
 		);
 		expect(r.reason).toContain("git status --porcelain -uno");
 	});
 
-	/* The boundary on the shared number, the same pair `run-vitest.test.ts`
-	 * pins for `--isolated` (mantahostels#2231). */
 	it("names every path at exactly the cap", () => {
 		manyDirty(REFUSAL_NAMED_MAX);
 		const r = run();
@@ -518,22 +438,17 @@ describe("the way out", () => {
 });
 
 describe("the block is bounded (lib/hook-block.js)", () => {
-	/* Six (mantahostels#2791), not the house three. */
 	it("stops blocking after six, so an uncommittable session is not trapped", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
-		// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-		// uncommitted".
 		for (let i = 0; i < 6; i++) expect(run().blocked).toBe(true);
 		expect(run().blocked).toBe(false);
 	});
 
-	/* Both `capSpent` and `blockStop` have to carry the 6 for this to pass. */
 	it("still blocks at three, the house default this guard raises to six (mantahostels#2791)", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
 		fs.writeFileSync(path.join(root, `.uncommitted-nagged-${sid}`), "3\n");
-		// exempt (mantahostels#2082): as above.
 		expect(run().blocked).toBe(true);
 	});
 });
@@ -548,8 +463,6 @@ describe("the payload limb", () => {
 	});
 });
 
-/* The write ledger says "this session wrote this path, ever" — not "this dirt is
- * this session's". A neighbour's live claim is what separates the two (mantahostels#63). */
 describe("a live neighbour's claim subtracts the path", () => {
 	it("passes when a live OTHER session holds the dirty path", () => {
 		ledger(["tracked.md"]);
@@ -561,16 +474,11 @@ describe("a live neighbour's claim subtracts the path", () => {
 	it("still blocks when the live claim is this session's own", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
-		// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-		// uncommitted".
 		claim("tracked.md", sid);
 		expect(run().blocked).toBe(true);
 	});
 });
 
-/** A fake `claude` whose `agents --json` lists `ids`, or one that will not
- * run at all. `marker` is touched on every call, so a test can prove the
- * oracle was never spent. */
 function oracle(ids: string[] | null, { marker }: { marker?: string } = {}) {
 	const bin = path.join(root, "fake-claude");
 	const listing = path.join(root, "agents.json");
@@ -591,19 +499,13 @@ function oracle(ids: string[] | null, { marker }: { marker?: string } = {}) {
 	return bin;
 }
 
-/** The oracle's self-test needs this session named in the listing. */
 const withOracle = (ids: string[] | null, opts?: { marker?: string }) => ({
 	WFC_CLAUDE_BIN: oracle(ids, opts),
 	CLAUDE_CODE_SESSION_ID: sid,
 });
 
-/* A claim is not the only way a neighbour comes to own bytes: on the detect-only
- * `scripts/` tier a Bash-route write mints no lock, only an OBSERVATION — the
- * shape that trapped mantahostels#2272 (mantahostels#2282). */
 describe("a live neighbour's observation subtracts the path (mantahostels#2282)", () => {
 	const neighbour = "neighbour-session";
-	/* An observation is minted only on a WATCHED tier (`arbiter-core.js`'s
-	 * `isWatched`), so the repo's own `tracked.md` cannot carry one. */
 	const mine = "scripts/one.js";
 	const others = "scripts/two.js";
 
@@ -620,7 +522,6 @@ describe("a live neighbour's observation subtracts the path (mantahostels#2282)"
 		});
 	});
 
-	/** `owner`'s own baseline on `rel`, taken without a claim (mantahostels#363). */
 	function observe(rel: string, owner: string) {
 		const { CLAUDE_PROJECT_DIR, CLAUDE_CONFIG_DIR } = process.env;
 		vi.stubEnv("CLAUDE_PROJECT_DIR", root);
@@ -645,8 +546,6 @@ describe("a live neighbour's observation subtracts the path (mantahostels#2282)"
 		ledger([mine]);
 		dirty(mine);
 		observe(mine, sid);
-		// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-		// uncommitted".
 		expect(run(root, withOracle([sid])).blocked).toBe(true);
 	});
 
@@ -654,7 +553,6 @@ describe("a live neighbour's observation subtracts the path (mantahostels#2282)"
 		ledger([mine]);
 		dirty(mine);
 		observe(mine, neighbour);
-		// exempt (mantahostels#2082): as above.
 		expect(run(root, withOracle([sid])).blocked).toBe(true);
 	});
 
@@ -662,7 +560,6 @@ describe("a live neighbour's observation subtracts the path (mantahostels#2282)"
 		ledger([mine]);
 		dirty(mine);
 		observe(others, neighbour);
-		// exempt (mantahostels#2082): as above.
 		expect(run(root, withOracle([sid, neighbour])).blocked).toBe(true);
 	});
 
@@ -675,7 +572,6 @@ describe("a live neighbour's observation subtracts the path (mantahostels#2282)"
 		expect(r.reason).toContain("could not run");
 	});
 
-	/* chmod is advisory to root, so the seal below would not seal. */
 	it.skipIf(AS_ROOT)(
 		"blocks and says so when the observation store will not open",
 		() => {
@@ -693,7 +589,6 @@ describe("a live neighbour's observation subtracts the path (mantahostels#2282)"
 		},
 	);
 
-	/* The oracle is dear and this guard fires on every turn (mantahostels#2282). */
 	it("does not spend the oracle on a turn with nothing to name", () => {
 		const marker = path.join(root, "oracle-ran");
 		ledger([mine]);
@@ -705,16 +600,10 @@ describe("a live neighbour's observation subtracts the path (mantahostels#2282)"
 	});
 });
 
-/* A session PAST its six blocks is deliberately leaving work uncommitted,
- * which is what the cap exists to allow, so it must not go on paying for a
- * message that can never print (mantahostels#2383). */
 describe("the spent block cap stands the oracle down (mantahostels#2383)", () => {
 	const neighbour = "neighbour-session";
 	const mine = "tracked.md";
 
-	/* The block counter lives under gr_markers_dir (.claude/tmp/markers), not
-	 * the throwaway root itself — `lib/hook-block.js`'s counterPath (mantahostels#3515 F8,
-	 * issue #2). */
 	const counter = () =>
 		path.join(
 			require_("./lib/marker-root.js").markersDir(root),
@@ -740,14 +629,10 @@ describe("the spent block cap stands the oracle down (mantahostels#2383)", () =>
 		expect(fs.readFileSync(counter(), "utf8")).toBe("6\n");
 	});
 
-	/* Fail open: a counter that will not parse must let the guard run rather
-	 * than silence it. */
 	it("still blocks when the counter holds something that is not a number", () => {
 		ledger([mine]);
 		dirty(mine);
 		fs.writeFileSync(counter(), "not a number\n");
-		// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this
-		// session wrote is uncommitted".
 		expect(run(root, withOracle([sid])).blocked).toBe(true);
 	});
 
@@ -756,7 +641,6 @@ describe("the spent block cap stands the oracle down (mantahostels#2383)", () =>
 		ledger([mine]);
 		dirty(mine);
 		fs.writeFileSync(counter(), "5\n");
-		// exempt (mantahostels#2082): as above.
 		expect(run(root, withOracle([sid], { marker })).blocked).toBe(true);
 		expect(fs.existsSync(marker)).toBe(true);
 	});
@@ -787,20 +671,13 @@ describe("path shapes the porcelain parser exists for", () => {
 		ledger(["tracked.md", "other.md", "renamed.md"]);
 		const r = run();
 		expect(r.blocked).toBe(true);
-		/* Both sides, because a commit that carries only one of them leaves the
-		 * rename half-applied in the index. */
 		expect(r.reason).toContain("renamed.md");
 		expect(r.reason).toContain("tracked.md");
-		/* The source rides in a NUL field of its own, with no status letters in
-		 * front of it. */
 		expect(r.reason).toContain("other.md");
 	});
 });
 
 describe("the `waiting:` stand-down (mantahostels#2567)", () => {
-	/* The guard reads this file twice: once through `readPendingTasks`, and once
-	 * more through `readOutgoingMessage` where the payload carries no message of its
-	 * own. */
 	const launchId = "toolu_launch01";
 
 	function transcript(lines: unknown[]): string {
@@ -873,8 +750,6 @@ describe("the `waiting:` stand-down (mantahostels#2567)", () => {
 		).toBe(false);
 	});
 
-	/* The pair (#5420): an interim notification leaves the subagent out, and
-	 * its final notification settles it, so the block comes back. */
 	const agentLaunch = [
 		buildToolCall("Agent", { description: "Fix review findings" }, launchId),
 		buildAsyncAgentResult(launchId),
@@ -966,7 +841,6 @@ describe("the `waiting:` stand-down (mantahostels#2567)", () => {
 		expect(run(root, {}, { transcript_path: file }).blocked).toBe(false);
 	});
 
-	/* Every failure path declines the stand-down. */
 	it("still blocks when the transcript named does not exist", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
@@ -1016,7 +890,6 @@ describe("the `waiting:` stand-down (mantahostels#2567)", () => {
 		expect(r.reason).not.toContain("hand-off");
 	});
 
-	/* The message fallback's own catch, distinct from `readPendingTasks`'. */
 	it("still blocks when the payload omits the message and the transcript will not read", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");

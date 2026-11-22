@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * register-doc.js writes one docs/doc-map-classes.json key (mantahostels#1848):
- * every field validated, every malformed argument refused with nothing written,
- * a registered key never overwritten, and `--role`/`--route` alone touching
- * that one field (mantahostels#3376, mantahostels#3411, mantahostels#3412).
- *
- * Run in-process against a scratch data file with `--no-claim`, so no case
- * writes the live sidecar or takes an arbiter claim — bar the claiming cases,
- * which stub the arbiter or run it in a sandbox.
- *
- * It is the only sanctioned way to register a document (CLAUDE.md §Ground
- * truth): loosen a case and a malformed or clobbered key reaches the sidecar
- * §A renders from, and the authority map misstates a document's class.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -51,8 +37,6 @@ const runRaw = (...args: string[]) => {
 	};
 };
 
-/* A prose registration needs --reader (mantahostels#3412); cases about anything else get
- * one, and the --reader cases call runRaw. */
 const withReader = (args: string[]) =>
 	args.includes("--class") &&
 	!args.includes("--reader") &&
@@ -144,7 +128,6 @@ describe("register-doc", () => {
 		expect(readData()).toEqual({});
 	});
 
-	/* The five tokens are read off the refusal itself, never an imported constant (#1369). */
 	it("refuses a --class outside the five documented tokens, naming it", () => {
 		const r = run(
 			"docs/x.md",
@@ -161,7 +144,6 @@ describe("register-doc", () => {
 		expect(readData()).toEqual({});
 	});
 
-	/* The typed-reference grammar mantahostels#2419 settled, taken at registration time (mantahostels#2535). */
 	describe("--consumes", () => {
 		it("writes a typed-reference array through as consumes", () => {
 			const r = run(
@@ -280,10 +262,6 @@ describe("register-doc", () => {
 			expect(ok.status).toBe(0);
 		});
 
-		/*
-		 * Two shape faults the commit-time checker would refuse, caught at
-		 * registration instead (mantahostels#2535 review, F2).
-		 */
 		it("refuses an issue ref that is not a bare number, and registers nothing", () => {
 			const r = run(
 				"docs/x.md",
@@ -419,8 +397,6 @@ describe("register-doc", () => {
 	});
 
 	it("returns 2, distinct from a refusal, when the data file cannot be read", () => {
-		/* Not runRaw: its own --data-file would be a second one, and the last
-		 * given wins. */
 		const r = runInProcess(
 			SCRIPT,
 			[
@@ -847,11 +823,6 @@ describe("register-doc", () => {
 		let claimLog: string;
 		let claimStub: string;
 
-		// A stand-in for `session-arbiter.js claim <subject>`, matching
-		// claimDataFile's real spawnSync(cmd, [subject]) shape — no shell, `cmd`
-		// a single executable. Logs the subject it was invoked with and exits
-		// `exitCode`, so both claimDataFile's ok and refused branches run
-		// against it.
 		const writeStub = (exitCode: number, stderr = "") => {
 			fs.writeFileSync(
 				claimStub,
@@ -1007,13 +978,7 @@ describe("register-doc", () => {
 		});
 	});
 
-	/*
-	 * The registration-time orphan trigger (mantahostels#3198). It prompts and never
-	 * judges, so what is under test is reach: which registrations meet the
-	 * line, and which do not.
-	 */
 	describe("the orphan check (mantahostels#3198)", () => {
-		/* mantahostels#3195's five skip sections. */
 		const skipSections = [
 			"Agent-skill configuration",
 			"Copy artefacts",
@@ -1047,11 +1012,6 @@ describe("register-doc", () => {
 			expect(r.out).not.toContain("Orphan check owed");
 		});
 
-		/*
-		 * The fail-safe direction, and the whole reason the constant is an
-		 * exemption list rather than an inclusion one: a subsection nobody has
-		 * classified yet triggers rather than being silently exempt.
-		 */
 		it("prints it for a section nobody has classified", () => {
 			const r = run(
 				"docs/whatever/new-thing.md",
@@ -1083,11 +1043,6 @@ describe("register-doc", () => {
 			expect(r.out).toContain("Orphan check owed (mantahostels#3198)");
 		});
 
-		/*
-		 * --new-section alongside a heading §A already carries is accepted, so
-		 * the prompt has to fire on newness rather than on the flag, or it
-		 * calls a live heading new.
-		 */
 		it("does not call a live subsection new, even with --new-section", () => {
 			fs.writeFileSync(
 				dataFile,

@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins dispatch-sessions.js on an overflow seat (#2610, spec #2570): no
- * `/usage` probe, advisor check or allowance cap; the set sized by the key's
- * budget gate, which --force does not lift; each member launched headless,
- * `claude -p` through lib/headless-sessions.js under its plan seat's dir,
- * with the key's helper in `--settings`, the `Overflow · ` name, the key's
- * headroom as its budget and no key in its environment (#3701, #4580); its
- * job id, session id, key and allowance in the ledger (#3694); and a plan
- * launch unchanged, `--bg`.
- *
- * Each call is lib/refill-batch.js's dispatchCall, run on the core in
- * process; the cases reading which members the loop counts launched or
- * refused go through its launchBatch over a spawned dispatcher, so a cut or
- * refused member's reason is the one the loop's refusal parser reads. Every `claude`
- * is the testkit's stub and every key a fixture secrets-file value.
- *
- * Over the 10 s run-cost line (§X8 (5)): the #4392 and #4425 cases copy the
- * scripts into a loop code worktree or a session worktree and spawn the copy,
- * since the subject is a launch from one; and each headless launch is a real
- * detached child the cases poll.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -49,14 +28,10 @@ const { stubClaude, baseEnv, readArgvLines, readFakeCalls } = fx;
 const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
 const JOB = "0a0b0c0d";
 const seat = () => path.join(fx.dir, ".claude2");
-/* What the dispatcher's lines name the seat by: its dir and key (#4196). */
 const label = () => `${seat()} key=${KEY_VAR}`;
 const secrets = () =>
 	path.join(fx.dir, "config", "workflow-core", "secrets.env");
 
-/* A $10-mean cost table sets every figure the cases assert: written where
- * the budget gate reads it, in the fixture checkout the dispatcher runs in,
- * and named to the allowance gate. */
 function overflowEnv(
 	grant: number,
 	{ key = true }: { key?: boolean } = {},
@@ -88,8 +63,6 @@ function overflowEnv(
 	};
 }
 
-/* The stub prints the recorded named launch to a `--bg` call, and runs a
- * `-p` one as lib/headless-run-fake.ts's fake, which logs each run. */
 function stub(opts: Parameters<typeof stubClaude>[0] = {}) {
 	stubClaude({ launch: "named", jobId: JOB, ...opts });
 }
@@ -108,8 +81,6 @@ function batchOf(n: number) {
 	}));
 }
 
-/* The core in process on the call the loop would make: its exit and its
- * merged output. */
 async function dispatch(
 	n: number,
 	env: Record<string, string>,
@@ -126,9 +97,6 @@ async function dispatch(
 	};
 }
 
-/* The loop's own launchBatch over a spawned dispatcher: the cases that read
- * which members it counts launched or refused, and why, and those launching
- * from a dispatcher copied into another worktree. */
 function throughLoop(
 	n: number,
 	env: Record<string, string>,
@@ -164,11 +132,6 @@ function storedRun(jobId: string) {
 	return readRun(jobId);
 }
 
-/* Ends every stored run before the fixture's teardown removes the tree (#5014):
- * a detached run still writing as `rmSync` walks it throws ENOTEMPTY. It runs
- * first because it is registered after dispatchFixture's, under vitest's
- * default `sequence.hooks: "stack"`. RESIDUAL: a run whose `run.json` is not
- * yet written is not listed, so not stopped. */
 function endLaunchedRuns() {
 	readFixtureStore();
 	const failed: unknown[] = [];
@@ -181,8 +144,6 @@ function endLaunchedRuns() {
 	if (failed.length > 0)
 		throw new AggregateError(failed, "a run would not stop");
 }
-/* A throw here ends vitest's afterEach chain before dispatchFixture's removal,
- * so this removes the fixture itself before failing the case. */
 afterEach(() => {
 	try {
 		endLaunchedRuns();
@@ -192,7 +153,6 @@ afterEach(() => {
 	}
 });
 
-/* A Console reading of the key's live grant, `remainingUsd` left on it. */
 function writeConsoleReading(remainingUsd: number, at: number) {
 	readFixtureStore();
 	appendConsoleRow(
@@ -216,9 +176,6 @@ const readStoredJobIds = () => {
 	return fs.existsSync(store) ? fs.readdirSync(store).sort() : [];
 };
 
-/* A wait on the detached child the launcher spawned, which logs its run
- * after the launcher has returned. The ceiling is a guess, generous against
- * a loaded machine. */
 function readHeadlessLaunches(expected = readStoredJobIds().length) {
 	for (const end = Date.now() + 10_000; Date.now() < end; ) {
 		if (readFakeCalls().length >= expected) break;
@@ -236,8 +193,6 @@ const readAllowances = () =>
 	readRecentEntries(fx.dir, 1).entries.map(
 		(e) => (e as { allowanceUsd?: number }).allowanceUsd,
 	);
-/* One of the refill loop's code worktrees under `env`'s refill dir: a copy
- * of these scripts, as a symlink would resolve out of it. */
 function loopCodeTip(env: Record<string, string>) {
 	const codeDir = path.join(String(env.WFC_REFILL_DIR), ".refill-loop-code");
 	const tip = path.join(codeDir, "0123456789ab");
@@ -253,7 +208,6 @@ const helperOf = (launch: HeadlessCall | undefined) =>
 	JSON.parse(String(launch?.flags["--settings"])).apiKeyHelper;
 
 function expectHelperPrintsKey(helper: string) {
-	// The subject is the literal apiKeyHelper line, run by a shell as `claude` runs it.
 	const h = spawnSync("sh", ["-c", helper], { encoding: "utf8" });
 	expect(h.stderr).toBe("");
 	expect(h.stdout).toBe("sk-fake-overflow\n");
@@ -265,10 +219,6 @@ const copyScripts = (root: string) =>
 		filter: (src) => !isTestKind(path.relative(__dirname, src)),
 	});
 
-/* A main checkout and a session worktree linked to it, laid out as git lays
- * them: the worktree's `.git` a file naming its registration under the main
- * checkout's `.git/worktrees/`. The main checkout's scripts are these, linked
- * as it only reads them; `mainCopy` false leaves it without them. */
 function sessionWorktree({ mainCopy = true }: { mainCopy?: boolean } = {}) {
 	const main = path.join(fx.dir, "main");
 	const worktree = path.join(main, ".claude", "worktrees", "implement-1");
@@ -287,7 +237,6 @@ function sessionWorktree({ mainCopy = true }: { mainCopy?: boolean } = {}) {
 
 describe("an overflow seat (#2610)", () => {
 	it("skips the probe and the cap, launching claude -p under the plan dir with the key's helper, its name, its budget, and no key in its environment (#4580)", () => {
-		// Plan bars at 100% would refuse a plan seat; an overflow seat never reads them.
 		stub({ session: "100", week: "100" });
 		const r = throughLoop(1, {
 			...overflowEnv(200),
@@ -373,7 +322,6 @@ describe("an overflow seat (#2610)", () => {
 		stub();
 		const r = await dispatch(1, overflowEnv(200));
 		expect(r.failed).toBeNull();
-		// The run records its cwd after the launcher returns.
 		expect(readHeadlessLaunches(1)).toHaveLength(1);
 		const [cwd = ""] = fx.launchCwds();
 		expect(path.dirname(cwd)).toBe(
@@ -390,7 +338,6 @@ describe("an overflow seat (#2610)", () => {
 	it("sizes the set from the batch's checkout's table, whichever checkout the loop's env names (#3700)", async () => {
 		stub();
 		const elsewhere = path.join(fx.dir, "elsewhere");
-		/* $100 a session fits 2 of the $200 grant, so a gate reading this table prints "fits 2". */
 		writeCostTable(elsewhere, { meanUsd: 100, quantilesUsd: [1, 100] });
 		const r = await dispatch(1, {
 			...overflowEnv(200),
@@ -407,7 +354,6 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.out).toContain(capped);
 		expect(r.launched.map((l) => l.prompt)).toEqual(prompts.slice(0, 2));
 		expect(r.refused).toEqual([{ launch: expect.anything(), reason: capped }]);
-		// The first launch, listed running, holds $10, leaving the second $15.
 		expect(readAllowances()).toEqual([25, 15]);
 		expect(budgetsOf(readHeadlessLaunches(2))).toEqual(["25", "15"]);
 	});
@@ -415,8 +361,6 @@ describe("an overflow seat (#2610)", () => {
 	it("refuses a member its own re-read fits none of, launching the one before it (#5167)", async () => {
 		stub({ headless: "hold" });
 		const env = { ...overflowEnv(200), WFC_PROC: "/proc" };
-		/* In the stagger after the first launch, a Console reading leaves the
-		 * key $15: the first member, listed running, holds $10 of it. */
 		const sleep = async () => writeConsoleReading(15, Date.now());
 		const call = dispatchCall(batchOf(2), SCRIPT, baseEnv(env));
 		const r = await fx.runCoreUnder(call.args, call, { sleep });

@@ -1,12 +1,4 @@
 // @vitest-environment node
-/**
- * rescue-sessions.js's list, snapshot and stop through the program
- * (mantahostels#2605): the boundary set lib/rescue-jobs.js's module cases
- * (lib/rescue-jobs.test.ts) leave to it (#5157) — argument parsing, the real
- * oracle adapter asked of the source plan's own config dir and killed on its
- * timeout with every child, `claude stop` on a stub, and one run of each
- * subcommand through the shell's exit.
- */
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -27,7 +19,6 @@ import { runInProcessAsync } from "./lib/run-in-process";
 
 const SCRIPT = join(__dirname, "rescue-sessions.js");
 
-/** Every temp dir a test made. */
 const made: string[] = [];
 
 afterEach(() => {
@@ -40,7 +31,6 @@ function tempDir(prefix: string): string {
 	return dir;
 }
 
-/** One transcript line, in the shape the daemon writes. */
 function line(obj: unknown): string {
 	return JSON.stringify(obj);
 }
@@ -51,7 +41,6 @@ function assistant(content: unknown[]) {
 
 const said = (text: string) => line(assistant([{ type: "text", text }]));
 
-/** A config dir holding the jobs described, in the daemon's own layout. */
 function configDirOf(jobs: Record<string, unknown>): string {
 	const dir = tempDir("rescue-cfg-");
 	mkdirSync(join(dir, "jobs"), { recursive: true });
@@ -74,10 +63,6 @@ interface Snapshot {
 	commitsLanded: string[] | null;
 }
 
-/**
- * `snapshot` over one job whose transcript is `lines`: the narration file it
- * wrote, the job's index entry, and what it printed.
- */
 async function snapshotOf(
 	lines: string[],
 	state: Record<string, unknown> = {},
@@ -106,8 +91,6 @@ async function snapshotOf(
 
 describe("argument parsing", () => {
 	it("reads both --k v and --k=v", async () => {
-		// snapshotOf passes `--from <dir>` and `--out=<dir>`; it fails on any
-		// other exit.
 		await snapshotOf([said("Read.")]);
 	});
 
@@ -152,8 +135,6 @@ describe("the jobs list reads", () => {
 	});
 
 	it("leaves no child of a timed-out oracle behind it (#2682)", async () => {
-		// An oracle that backgrounds children, then waits on them.
-		// §X9: it crosses a real process timeout, as the kill is what is tested.
 		const cfg = configDirOf({ aaaaaaaa: { state: "blocked" } });
 		const pids = join(cfg, "pids");
 		const bin = writeClaudeStub(join(cfg, "claude"), [
@@ -163,8 +144,6 @@ describe("the jobs list reads", () => {
 			env: {
 				...process.env,
 				WFC_CLAUDE_BIN: bin,
-				// Untraced: long enough for node and bash to start and write both
-				// pids under suite load, far short of the children's 30 s.
 				WFC_RESCUE_ORACLE_TIMEOUT_MS: "1500",
 			},
 		});
@@ -179,8 +158,6 @@ describe("the jobs list reads", () => {
 				return false;
 			}
 		};
-		// SIGKILL is delivered asynchronously, so the reap is polled for — up
-		// to 1 s, untraced: far past a kill's delivery on an idle machine.
 		for (let i = 0; i < 20 && children.some(isRunning); i++)
 			await new Promise((r) => setTimeout(r, 50));
 		expect(children.filter(isRunning)).toEqual([]);
@@ -215,11 +192,6 @@ describe("--ids", () => {
 	});
 });
 
-/*
- * The CLI entry points, driven through the process boundary (mantahostels#2628) —
- * `run-in-process.js` takes the script unchanged since it is synchronous,
- * `require.main`-guarded.
- */
 describe("the CLI entry points: list, snapshot, stop", () => {
 	let cfg: string;
 
@@ -325,8 +297,6 @@ describe("the CLI entry points: list, snapshot, stop", () => {
 			expect(res.stderr).toContain("--ids needs a value");
 		});
 
-		// mantahostels#2628: parseArgs passes "--force" through as the value, so readIds
-		// has to refuse it.
 		it.each([[["--ids=--force"]], [["--ids", "--force"]]])(
 			"rejects a flag-shaped id given as %j, naming it, rather than passing it to claude stop",
 			async (ids) => {

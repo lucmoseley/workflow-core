@@ -1,30 +1,4 @@
 #!/usr/bin/env node
-/*
- * record-headless-run.js — re-records scripts/fixtures/headless-run.json,
- * the installed harness's side of a headless `claude -p` run (#4586): every
- * option `claude --help` lists, with whether it takes a value, each hidden
- * one lib/headless-options.js names, and the
- * `result` row of one run lib/headless-sessions.js launched, which
- * lib/headless-runs.js reads, and what a `--input-format stream-json` run
- * answers an interrupt control request with mid-turn, which
- * lib/chrome-stream.js's capped turn rests on (#5388).
- * lib/headless-run-fake.ts serves all three to the suites' `claude` stubs.
- *
- *   node scripts/record-headless-run.js [--key <key var>]
- *
- * The run goes on the overflow seat whose key `--key` names, else the
- * seat file's first, from an empty directory and into a throwaway run store,
- * so the refill loop never lists it. It spends one short turn on that key. The
- * interrupted run goes on the recorder's own plan seat, as claude-child.js's
- * Chrome child does.
- *
- * Run it by hand after a harness upgrade, then `npm run test --
- * scripts/lib/headless-run.contract.test.ts`.
- *
- * In no family (§N3): it writes a fixture, but spends turns to do it, so it
- * is no `generate-*` a gate may run. No suite runs it: the contract holds what
- * it writes.
- */
 
 const { spawnSync } = require("node:child_process");
 const { scriptPath } = require("./lib/script-path.js");
@@ -51,12 +25,10 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const FIXTURE = path.join(__dirname, "fixtures", "headless-run.json");
 const PROMPT = "Reply with the single word ok. Use no tools.";
-/* A guess: one short turn ends in well under a minute. */
+// #4586 guess
 const WAIT_MS = 180_000;
-/* Far over one short turn's $0.04, so the budget never stops
- * the turn it records. */
+// #4586 measured $0.04 a short turn
 const BUDGET_USD = 1;
-/* What the fixture carries in place of the run's own ids. */
 const SYNTHETIC = {
 	session_id: "5e551011-0000-4000-8000-000000000000",
 	uuid: "0e5017ed-0000-4000-8000-000000000000",
@@ -65,7 +37,7 @@ const SYNTHETIC = {
 const SYNTHETIC_REQUEST_ID = "1e7e5e47-0000-4000-8000-000000000000";
 const LONG_PROMPT =
 	"Write a 1500-word essay on the history of the lighthouse. Use no tools.";
-/* A guess: past the first token, well short of the essay's end. */
+// #4586 guess
 const INTERRUPT_AT_MS = 5000;
 
 /** @param {string|undefined} key */
@@ -112,7 +84,7 @@ function readHiddenOptions() {
 async function recordResult(keyVar) {
 	const store = fs.mkdtempSync(path.join(os.tmpdir(), "headless-record-"));
 	process.env.WFC_REFILL_DIR = store;
-	/* Required after the store is set, which they read on each call. */
+	// #4586
 	const { launch } = require("./lib/headless-sessions.js");
 	const { readEndResult, stop } = require("./lib/headless-runs.js");
 	const cwd = path.join(store, "cwd");
@@ -147,10 +119,7 @@ async function recordResult(keyVar) {
 	}
 }
 
-/**
- * A row with the run's own ids swapped for the fixture's.
- * @param {Record<string, unknown>} row
- */
+/** @param {Record<string, unknown>} row */
 function synthesise(row) {
 	const out = { ...row };
 	for (const [field, value] of Object.entries(SYNTHETIC))
@@ -160,10 +129,6 @@ function synthesise(row) {
 	return out;
 }
 
-/**
- * One stream-json run interrupted mid-turn: its `control_response` to the
- * interrupt and its result row.
- */
 async function recordInterrupt() {
 	const env = buildSeatEnv(process.env, configDir());
 	const bin = claudeBin(env);
@@ -182,8 +147,6 @@ async function recordInterrupt() {
 			(row) => rows.push(row),
 		);
 		run.send(LONG_PROMPT);
-		/* The closer's grace, so a row the launcher would miss fails the
-		 * recording. */
 		const { result, capped } = await run.turn({
 			capMs: INTERRUPT_AT_MS,
 			graceMs: INTERRUPT_WAIT_MS,

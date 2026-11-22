@@ -10,6 +10,26 @@ export const ROOT = path.resolve(__dirname, "..", "..");
 export const MARKER = /code-edges (loads|caller): /;
 
 export const DECLARING: Record<string, string> = {
+	"scripts/count-guard-fires.test.ts": path.join(
+		ROOT,
+		"scripts/count-guard-fires.test.ts",
+	),
+	"scripts/file-morning-review.test.ts": path.join(
+		ROOT,
+		"scripts/file-morning-review.test.ts",
+	),
+	"scripts/guard-selection-sum.test.ts": path.join(
+		ROOT,
+		"scripts/guard-selection-sum.test.ts",
+	),
+	"scripts/guard-uncommitted-work.test.ts": path.join(
+		ROOT,
+		"scripts/guard-uncommitted-work.test.ts",
+	),
+	"scripts/hook-registrations.test.ts": path.join(
+		ROOT,
+		"scripts/hook-registrations.test.ts",
+	),
 	"scripts/lib/guard-core-load.js": path.join(
 		ROOT,
 		"scripts/lib/guard-core-load.js",
@@ -18,6 +38,10 @@ export const DECLARING: Record<string, string> = {
 	"scripts/lib/host-git-guard/git": path.join(
 		ROOT,
 		"scripts/lib/host-git-guard/git",
+	),
+	"scripts/lost-deny-rates.test.ts": path.join(
+		ROOT,
+		"scripts/lost-deny-rates.test.ts",
 	),
 	"vitest.setup.ts": path.join(ROOT, "vitest.setup.ts"),
 };

@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The before/after test's runner (#2045, #2046) as a program: its boundary
- * set (§X11, #5149) — a plan pinning PATH's versioned claude (#2289), a launch
- * through the builder, admission and claude at their WFC_* vars, a run
- * stopping a hung run on the real clocks, a report through the real scorer
- * and acceptance check, and a refused report — and the statistics
- * lib/arm-stats.js gives it. Every other case is a module case on its core,
- * lib/run-arm.test.ts. A break here mislabels which arm a session ran in,
- * starts more sessions than the machine holds, leaves a hung run holding its
- * slots all night, or sizes or reads the main run wrongly, each of which
- * costs a night's runs.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -50,11 +38,6 @@ const STUB_JOB = "0000000a";
 
 const VERSION_BRANCH = buildVersionBranch(FAKE_VERSION);
 
-/**
- * A `claude` stub: `agents` lists `agents`, `auth status` says signed in,
- * `--version` says FAKE_VERSION, and a `--bg` launch is logged to `log` and
- * answered with the recorded launch naming STUB_JOB.
- */
 const claudeStub = (
 	agents: { id: string; sessionId?: string; state: string }[],
 	log = path.join(tmp, "claude.log"),
@@ -79,7 +62,6 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/** `plan` resolves the stub every case's `beforeEach` writes, which later stubs overwrite in place. */
 const planEnv = () => ({
 	...process.env,
 	WFC_CLAUDE_BIN: path.join(tmp, "claude"),
@@ -87,7 +69,6 @@ const planEnv = () => ({
 
 const BUILDER = path.join(ROOT, "scripts", "lib", "fixtures", "arm-build.js");
 
-/** The arms' config dirs, logged in. */
 const loggedIn = () => {
 	for (const arm of ["cfg-a", "cfg-b"]) {
 		fs.mkdirSync(path.join(tmp, arm), { recursive: true });
@@ -95,7 +76,6 @@ const loggedIn = () => {
 	}
 };
 
-/** The builder fake, and an admission stub answering `slots` slots. */
 const stubEnv = (slots: number) => {
 	const admission = path.join(tmp, "admission.js");
 	fs.writeFileSync(
@@ -158,8 +138,6 @@ describe("plan", () => {
 });
 
 describe("launch", () => {
-	/** The arms' config dirs logged in, claude as `claudeStub`, logging each
-	 * launch to `log`. */
 	const stubs = () => {
 		loggedIn();
 		const log = path.join(tmp, "claude.log");
@@ -249,10 +227,6 @@ describe("the pilot's statistics", () => {
 });
 
 describe("run", () => {
-	/**
-	 * A `claude` stub whose `agents` lists each of `jobs` as working, and
-	 * whose `stop` appends its argv to `stops`.
-	 */
 	const loopStub = (jobs: string[]) => {
 		const stops = path.join(tmp, "stops.log");
 		const file = writeClaudeStub(path.join(tmp, "claude"), [
@@ -279,12 +253,6 @@ describe("run", () => {
 		...extra,
 	];
 
-	/**
-	 * Every planned run recorded as launched `agoMin` minutes ago as job
-	 * `j<i>`. The ceiling case leaves a margin of two
-	 * minutes past the ceiling against the real clock, which the few seconds
-	 * a run takes cannot cross.
-	 */
 	const seedLaunched = (root: string, agoMin: number, only?: number) => {
 		const dir = path.join(root, "launched");
 		fs.mkdirSync(dir, { recursive: true });
@@ -307,7 +275,6 @@ describe("run", () => {
 		expect(run(planArgs(root, "3")).code).toBe(0);
 		const { dir, runs, jobs } = seedLaunched(root, 42);
 		const { env, stops } = loopStub(jobs);
-		// No claude but the plan's, so the stop goes through it (#2289).
 		const r = run(runArgs(root, "--ceiling-min", "40"), {
 			...env,
 			WFC_CLAUDE_BIN: path.join(tmp, "absent"),

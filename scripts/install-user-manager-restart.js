@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-/*
- * install-user-manager-restart.js — run under sudo, makes the invoking user's
- * systemd manager come back after a kill, without a boot, and has the kernel's
- * OOM killer take every session before it (#3963). Re-running replaces both files.
- *
- * The restart holds from the install. The OOM values take at the manager's next
- * start, so memwatch's own -500 is refused until then (docs/environment.md §4).
- *
- * `--root` prefixes the two paths and drops the need for root, for a test.
- *
- * Joins no §N3 family: an install command, not a checker or a guard.
- *
- * Exit codes: 0; 1 where a write, a systemd call or the read-back fails; 2 on a
- * command line, or a run with no sudo to name the user by.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -25,13 +9,9 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: sudo "$(command -v node)" ${scriptPath("install-user-manager-restart.js")}`;
 
-/* on-failure, not memwatch's always: a stop of the manager that exits cleanly, as
- * at shutdown, stays a stop. */
 const RESTART = "Restart=on-failure";
-/* memwatch.service's own declared value. */
-const OOM_SCORE = "OOMScoreAdjust=-500";
-/* Five starts in this window is untraced: past it the manager stays down, so a
- * kill loop cannot spin for ever. The stock 10 s never trips at RestartSec=5. */
+const MEMWATCH_OOM_SCORE = "OOMScoreAdjust=-500";
+// #3963 guess
 const START_WINDOW = "10min";
 
 const DROP_IN = `# Written by scripts/install-user-manager-restart.js.
@@ -42,12 +22,9 @@ StartLimitBurst=5
 [Service]
 ${RESTART}
 RestartSec=5
-${OOM_SCORE}
+${MEMWATCH_OOM_SCORE}
 `;
 
-/* What a manager at the stock 100 gives its units: without this, each unit that
- * declares no value would drop to the manager's value plus 100, and a loop the
- * boot unit starts would pass that shield on to its sessions. */
 const MANAGER_CONF = `# Written by scripts/install-user-manager-restart.js.
 [Manager]
 DefaultOOMScoreAdjust=200
@@ -55,7 +32,7 @@ DefaultOOMScoreAdjust=200
 
 const LOADED_VALUES = [
 	RESTART,
-	OOM_SCORE,
+	MEMWATCH_OOM_SCORE,
 	`StartLimitIntervalUSec=${START_WINDOW}`,
 ];
 

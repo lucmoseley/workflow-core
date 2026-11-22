@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * report-cost-per-unit.js — the cost-per-unit-of-work reading, reported and
- * never triggered on (mantahostels#1740), so what its tests guard is arithmetic
- * and loss: the two exclusions mantahostels#1737 settled are applied, GitHub's
- * silent 1,000-result truncation is declared rather than swallowed, and a
- * write to the series appends rather than rewriting, so a parallel session's
- * row is never lost (mantahostels#2880), save a re-reading of a day the series
- * holds, which replaces that day's row.
- *
- * Nothing triggers on the figure, so a wrong one is read as real and a lost
- * row is never missed; this test fails CI when red.
- *
- * Each case runs the command in-process against a throwaway host root, its
- * `gh` stubbed at WFC_GH, so nothing here reaches the network or the tracked
- * series.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -26,8 +10,6 @@ import { runInProcess } from "./lib/run-in-process";
 const SCRIPT = path.join(__dirname, "report-cost-per-unit.js");
 const SERIES_LABEL = "docs/data/cost-per-unit.jsonl";
 const USAGE = "usage: node scripts/report-cost-per-unit.js";
-/* The search cap the script asks `gh` for, restated so a day served at it
- * reads as truncated. */
 const SEARCH_CAP = 1000;
 
 interface Close {
@@ -49,12 +31,6 @@ interface Row {
 	truncated: string[];
 }
 
-/**
- * A day of `total` closes, `counted` of them counted. The excluded remainder is
- * split across BOTH exclusions rather than all landing on `takes:children`:
- * with `not planned` pinned at 0 its roll-up could be mutated away with the
- * suite green.
- */
 const closes = (total: number, counted = total): Close[] => {
 	const notPlanned = Math.floor((total - counted) / 2);
 	return Array.from({ length: total }, (_, i): Close => {
@@ -75,11 +51,6 @@ afterEach(() => {
 		fs.rmSync(r, { recursive: true, force: true });
 });
 
-/**
- * One run of the command. `series` seeds the host's series file line by line
- * (null: no file); `gh` serves each day its own closes, `daily` serving every
- * day it does not name — verbatim where it is a string.
- */
 const run = (
 	argv: string[],
 	{
@@ -128,7 +99,6 @@ const run = (
 		out: r.stdout + r.stderr,
 		before,
 		after,
-		/* Every line that parses, the seeded ones included. */
 		rows: (after ?? "")
 			.split("\n")
 			.flatMap((l) => {
@@ -145,7 +115,6 @@ const run = (
 	};
 };
 
-/** The row a due reading on `today` appends. */
 const appended = (opts: Parameters<typeof run>[1] = {}) => {
 	const r = run([], opts);
 	expect(r.code).toBe(0);
@@ -165,7 +134,6 @@ describe("the window", () => {
 		const dates = ghCalls.map((c) => c.match(/closed:(\S+)/)?.[1]);
 		expect(dates).toHaveLength(30);
 		expect([dates[0], dates.at(-1)]).toEqual(["2026-07-29", "2026-08-27"]);
-		// Today is excluded: a partial day would drag the mean down by the hour.
 		expect(dates).not.toContain("2026-08-28");
 	});
 });
@@ -237,7 +205,6 @@ describe("the counting rule", () => {
 
 describe("the series file", () => {
 	it("is the tracked path under the host root, whatever the working directory", () => {
-		// A gitignored series would leave the review with nothing to read.
 		const { after, out } = appended();
 		expect(after).not.toBeNull();
 		expect(out).toContain(`Appended to ${SERIES_LABEL}`);
@@ -245,7 +212,6 @@ describe("the series file", () => {
 	});
 
 	it("skips a line that parses but is not a row, rather than passing it to the gate", () => {
-		// `null` and `[]` are valid JSON: syntax alone would let them through.
 		const r = run([], {
 			today: "2026-09-05",
 			series: [
@@ -359,7 +325,6 @@ describe("the cadence", () => {
 
 describe("what each row says it was measuring", () => {
 	it("records the bill and seat count in force when it was taken, at the $200 seat price", () => {
-		// A ratio alone cannot say the arrangement changed underneath it (mantahostels#2750).
 		const { row } = appended();
 		expect([row.bill, row.seats]).toEqual([600, 3]);
 		expect(row.bill).toBe(row.seats * 200);
@@ -441,7 +406,6 @@ describe("the command", () => {
 	});
 });
 
-/* lib/cli-args.js's exit is what is asserted. */
 describe("the command line", () => {
 	it("prints usage on --help and -h, exits 0, and calls gh not at all", () => {
 		for (const flag of ["--help", "-h"]) {

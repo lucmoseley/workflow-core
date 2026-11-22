@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-wide-read core of guard-dispatch.js warns where a Bash command
- * pours a whole file, a wide slice or an uncounted glob into the context
- * window (mantahostels#1562). These are its Bash boundary cases (§X11), the
- * dispatcher entry run on it alone: the payload on stdin, the
- * WFC_WIDE_READ_* thresholds from the environment, the hook's own directory
- * for a relative path, and the real file-size, glob and core-path adapters,
- * end to end. Which command earns which warning, and the `Read` limb, are
- * lib/wide-read.test.ts's (#2791); the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#3227).
- *
- * Every warning asserts no `permissionDecision`: this guard warns and must
- * never deny.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -80,8 +66,6 @@ describe("the guard, end to end", () => {
 	});
 
 	it("spells core paths at the plugin root in an install", () => {
-		// WFC_SCRIPT_ROOT stands in for an install: a core root with no
-		// package.json.
 		const install = path.join(dir, "install");
 		fs.mkdirSync(path.join(install, "docs", "agents"), { recursive: true });
 		fs.writeFileSync(

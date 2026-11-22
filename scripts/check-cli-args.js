@@ -26,12 +26,12 @@ const UTIL_PARSE_ARGS = /\butil\.parseArgs\s*\(/;
 const LAX_PARSE_ARGS = /\bstrict\s*:\s*false\b/;
 const COMMANDER = /require\(\s*["']commander["']\s*\)|from\s*["']commander["']/;
 const LAX_COMMANDER = /\ballowUnknownOption\s*\(/;
-const EXEMPT = /cli-args-exempt:\s*\w/;
+const EXEMPT = /cli-args-exempt:\s*(?:\w|#\d)/;
 
 const WHY =
 	"read(s) the command line without a strict parser, so --help and an unknown flag fall through to the default action";
 const FIX =
-	"parse it with node:util's parseArgs, strict unless told `strict: false` (declare a `help` option to answer --help), or with this repo's lib/cli-args.js where it has one; or mark it `cli-args-exempt: <why>` (#920, #1532).";
+	"parse it with node:util's parseArgs, strict unless told `strict: false` (declare a `help` option to answer --help), or with this repo's lib/cli-args.js where it has one; or mark it `cli-args-exempt: #N` (#920, #1532).";
 
 /** @param {string} source */
 function isFault(source) {

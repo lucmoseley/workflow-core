@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that the cut refuses, writing nothing, on a live process in the adopter,
- * a dirty tree, a dangling spawn or a racing hook, and otherwise cuts in one
- * commit after the tag, printing the way back before any write.
- *
- * The cut is run against a synthetic adopter under `--spec`, with a stub plugin
- * root, init and Biome, so the cut's own steps run without mantahostels or
- * this machine's plugin registry (#423). Unexercised here: `--pin`'s install,
- * the real pre-commit stack and the MANTA spec itself — those are proved on a
- * clone of mantahostels, reported on #423.
- *
- * It is run once, by hand, to switch mantahostels onto the plugin: loosen a
- * case and the cut swaps hooks under a live Manta session, or leaves a half-cut
- * repo with no rollback recipe.
- */
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -23,6 +8,9 @@ import { keptSpawn } from "./lib/kept-spawn.js";
 import { makeProcRoot, writeCwd } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
+
+// #3605 measured 2 s at 16 args
+const UNCLOSED_JOIN_ARGS = 40;
 
 const SCRIPT = path.join(__dirname, "cut-mantahostels.js");
 
@@ -70,20 +58,16 @@ const SPEC = {
 	commitMessage: "Cut the fixture over",
 };
 
-/**
- * The stub init sets the hooks path and exits `FAKE_INIT_EXIT`.
- */
 function fixture(pluginHooks: object = {}) {
 	const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cut-")));
 	made.push(base);
-	/* The space is what makes "stops after the tag with the way back…" pin #3975's shellQuote; a plain path passes unquoted. */
+	/* #3975 */
 	const dir = path.join(base, "the adopter");
 	const plugin = path.join(base, "plugin");
 	fs.mkdirSync(dir);
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 	git("init", "-q", "-b", "main", ".");
-	/* An identity, so the cut's own commit is not refused for want of one. */
 	git("config", "user.email", "fixture@example.invalid");
 	git("config", "user.name", "Cut Fixture");
 
@@ -258,7 +242,6 @@ describe("cut-mantahostels.js", () => {
 		const r = f.cut();
 		expect(r.status).toBe(0);
 		const classes = JSON.parse(f.read("docs/doc-map-classes.json"));
-		/* One the plugin ships, a survivor and an unresolved kind stay. */
 		expect(classes["CLAUDE.md"].consumes).toEqual([
 			{ kind: "path", ref: "scripts/keep.sh" },
 			{ kind: "path", ref: "init-adopter.js" },
@@ -358,12 +341,10 @@ describe("cut-mantahostels.js", () => {
 
 	it("reads an unclosed __dirname join of comma-less, double-spaced args once, still finding the spaced edge after it (#3605)", () => {
 		const f = fixture();
-		/* 40 args: the exponential reading took 2 s at 16, doubling or more per
-		 * arg, so it cannot finish inside the timeout below. */
 		put(
 			f.dir,
 			"scripts/runner.js",
-			`path.join(__dirname, ${'"a"  '.repeat(40)}\npath.join(__dirname , "old.js" , );\n`,
+			`path.join(__dirname, ${'"a"  '.repeat(UNCLOSED_JOIN_ARGS)}\npath.join(__dirname , "old.js" , );\n`,
 		);
 		f.git("add", "-A");
 		f.git("commit", "-q", "-m", "an unclosed join before a real edge");

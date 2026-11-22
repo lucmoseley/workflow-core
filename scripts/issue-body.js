@@ -1,63 +1,4 @@
 #!/usr/bin/env node
-/*
- * issue-body.js — the only safe way to change a GitHub issue's body (mantahostels#131,
- * building what mantahostels#128 ruled).
- *
- * The hazard. Changing body text means download-whole, edit, upload-whole.
- * Two sessions doing that at once means the second silently erases the first.
- * mantahostels#128 established live against this repo that GitHub offers
- * nothing to lean on — PATCH /repos/{o}/{r}/issues/{n} rejects every
- * conditional-request header with HTTP 400 (not 412, so it cannot even serve as
- * a probe), GraphQL updateIssue has no version field, and updated_at is
- * unusable as a detector on three counts: one-second resolution (which is the
- * race window itself), it bumps on comments and labels, and a no-op write does
- * not move it.
- *
- * THE CONTRACT: a transform is one pure, IDEMPOTENT function of the body.
- *
- * Idempotence collapses three separate things into one operation:
- *
- *   verify      apply(current) === current   ("my change is already present")
- *   repair      apply(current)               (re-apply onto THEIR body)
- *   no-op check apply(current) === current   (nothing to write at all)
- *
- * A transform that is not idempotent is a caller bug: apply(apply(b)) is
- * compared against apply(b) before the first write, and a mismatch aborts
- * having written nothing.
- *
- * The loop. Fetch, apply, write, re-fetch. If the re-fetch does not satisfy the
- * transform, someone wrote over us in the window — re-apply onto THEIR body,
- * never re-upload our stale one, and both changes survive.
- *
- * The residual window. The loser of a race only repairs if its
- * re-fetch lands AFTER the winner's write. Where it lands before, the loser
- * sees its own change present, exits happy, and the winner's later write
- * destroys it with nobody left to notice. The retry loop cannot close that; a
- * local lock can, for the threat model that actually exists here — parallel
- * sessions on one machine — so writers serialise through one (see acquire()).
- * The loop remains the backstop for what the lock cannot cover: the founder's
- * own terminal, another machine, CI. Where both fail, mantahostels#128's other finding is
- * the recovery route — GraphQL Issue.userContentEdits holds every past body in
- * full, so a clobbered body is recoverable, not lost.
- *
- * GitHub is called from Node, by execFile, NOT through the Bash tool:
- * mantahostels#132's PreToolUse guard denies a raw `gh issue edit --body`,
- * and a hook only sees Bash *tool* calls, so this permitted path never trips
- * its own guard and needs no WFC_ALLOW_* escape. Auth is gh's own credential
- * store — there is no GH_TOKEN in a hook environment, which is why this shells
- * to gh rather than speaking HTTP.
- *
- * This script FAILS LOUD. The guards in this repo fail open because a broken
- * guard must not block work; a broken writer must not silently drop a decision.
- * The one exception is the `gate` act it records after a landed write (#3301),
- * which fails open: the act ledger is the refill loop's, not the body's.
- *
- * Two things the recovery route does not do (mantahostels#1579): `userContentEdits` is
- * not returned in edit order, so a caller must sort by `editedAt` before
- * taking the latest node rather than trusting `last:1`. And `scripts/check-
- * clobbered-bodies.js`'s daily reading keys off a stale base, not a shrink, so
- * it misses an emptied body.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -79,18 +20,13 @@ const { pidAlive } = require("./lib/arbiter-proc.js");
 const { addedCheckVerdict } = require("./lib/gate-check.js");
 
 /**
- * The parsed command line. `command` and `issue` are positional; every other
- * `--flag value` is stored under its own camelCased name, which is why this
- * carries an index signature (see `parseArgs`).
- *
  * @typedef {{command?: string, issue?: string, repo?: string, file?: string,
  *   text?: string, heading?: string, match?: string, attempts?: string,
  *   dryRun?: boolean} & Record<string, any>} Opts
- * @typedef {Opts & {issue: string}} IssueOpts  once main has checked it
+ * @typedef {Opts & {issue: string}} IssueOpts
  * @typedef {(body: string) => string} Transform
  */
 
-/** `|| fallback` would swallow a deliberate 0 — and 0 is the meaningful case here. */
 /**
  * @param {string} name
  * @param {number} fallback
@@ -103,35 +39,17 @@ const numEnv = (name, fallback) => {
 };
 
 const GH_TIMEOUT_MS = numEnv("WFC_ISSUE_GH_TIMEOUT_MS", 20_000);
-/** One write plus three repairs. */
 const DEFAULT_ATTEMPTS = 4;
 const LOCK_WAIT_MS = numEnv("WFC_ISSUE_LOCK_WAIT_MS", 15_000);
 const LOCK_STALE_MS = 60_000;
 const LOCK_POLL_MS = 25;
 
-/**
- * Thrown for a caller's mistake — usage, a bad transform, a missing heading.
- * append-decision's missing heading is a missing-section error instead: the
- * map needs fixing, not the call.
- */
 class CallerError extends Error {}
 
-// ---------------------------------------------------------------------------
-// Transforms
-// ---------------------------------------------------------------------------
-
-/**
- * CRLF folded to LF and ALL trailing whitespace stripped, so a transform cannot
- * depend on how a body happened to end. A body with trailing blank lines is
- * therefore rewritten once, then converges.
- */
 /** @param {string} body */
 const normalise = (body) => body.replace(/\r\n/g, "\n").trimEnd();
 
 /**
- * Append a block at the end of the body, once. Idempotent because the block is
- * added only when absent.
- *
  * @param {string} text
  * @returns {Transform}
  */
@@ -146,15 +64,6 @@ const append = (text) => {
 };
 
 /**
- * Append each non-blank line of `text` at the end of one `## ` section, in
- * order, each once, in one write (#1019). A map's Decisions so far line goes
- * through appendDecision instead, which keys on the child. Scoped to the
- * section so an identical line under a different heading is not mistaken for
- * one of these.
- *
- * Residual: presence ignores indentation, so `  - x` is skipped under a
- * section already holding `- x`, and a line repeated in `text` lands once.
- *
  * @param {string} heading
  * @param {string} text
  * @returns {Transform}
@@ -176,8 +85,6 @@ const appendSection = (heading, text) => {
 			throw new CallerError(`no '## ${heading}' section in this body`);
 		const { start, end } = found;
 		const section = lines.slice(start + 1, end);
-		// Insert after the section's last non-blank line, so a blank separator
-		// before the next heading survives and entries stay contiguous.
 		let at = section.findLastIndex((l) => l.trim() !== "") + 1;
 		for (const line of incoming) {
 			if (section.some((l) => l.trim() === line.trim())) continue;
@@ -188,9 +95,6 @@ const appendSection = (heading, text) => {
 };
 
 /**
- * The `## <heading>` section's bounds: `start` is the heading line, `end` the
- * next `## ` heading or the end of the body. Null where there is none.
- *
  * @param {string[]} lines
  * @param {string} heading
  * @returns {{start: number, end: number} | null}
@@ -213,9 +117,6 @@ function findSection(lines, heading) {
 const DECISIONS = "Decisions so far";
 
 /**
- * The non-blank lines of a body's Decisions so far section, trimmed; null
- * where the section is missing.
- *
  * @param {string} body
  * @returns {string[] | null}
  */
@@ -229,23 +130,17 @@ function parseDecisionLines(body) {
 		.filter(Boolean);
 }
 
-/** A section line keyed to `child`: `- #<child>` not followed by another digit. */
 /**
  * @param {string} child
  * @returns {RegExp}
  */
 const childKey = (child) => new RegExp(`^[-*]\\s+#${child}(?!\\d)`);
 
-/* Errors appendDecision throws for a map with no Decisions section, kept in a
- * set rather than a second class: Biome allows one a file (#1381). */
+// #1381
 /** @type {WeakSet<Error>} */
 const missingSection = new WeakSet();
 
 /**
- * Append `- #<child> — <gist>` to Decisions so far, keyed by the child: a line
- * already there for `#<child>`, whatever its gist, is left as it is (#531).
- * A missing section throws a missing-section error rather than inventing one.
- *
  * @param {string} child
  * @param {string} gist
  * @returns {Transform}
@@ -266,14 +161,11 @@ const appendDecision = (child, gist) => {
 			missingSection.add(error);
 			throw error;
 		}
-		// The body untouched, not normalised: a skip must compare equal to the
-		// body as fetched, or a missing trailing newline is written as a change.
 		if (existing.some((l) => key.test(l))) return body;
 		return insert(body);
 	};
 };
 
-/** Drop every line containing a literal substring. Idempotent: nothing is left to drop. */
 /**
  * @param {string} match
  * @returns {Transform}
@@ -289,9 +181,6 @@ const deleteLines = (match) => {
 };
 
 /**
- * Tick `- [ ]` on lines containing a literal substring — the acceptance-criteria
- * close step. Idempotent: an already-ticked box is left alone.
- *
  * @param {string} match
  * @returns {Transform}
  */
@@ -315,10 +204,6 @@ const tick = (match) => {
 };
 
 /**
- * Append a suffix to every line containing a literal substring, once — the
- * `**waived:** <why>` case on an acceptance criterion. Idempotent: a line that
- * already carries the suffix is left alone.
- *
  * @param {string} match
  * @param {string} suffix
  * @returns {Transform}
@@ -340,10 +225,6 @@ const annotate = (match, suffix) => {
 	};
 };
 
-// ---------------------------------------------------------------------------
-// GitHub, from Node
-// ---------------------------------------------------------------------------
-
 /**
  * @param {string[]} args
  * @returns {string}
@@ -353,7 +234,6 @@ function gh(args) {
 		return ghRun(args, { timeout: GH_TIMEOUT_MS });
 	} catch (e) {
 		const err = caught(e);
-		// Full stderr, not the last line: recovery here leans on the whole message.
 		const detail = (err.stderr || err.message).trim();
 		throw new Error(`gh ${args.join(" ")} failed: ${detail}`, { cause: e });
 	}
@@ -408,7 +288,6 @@ function writeBody(issue, repo, body) {
 	}
 }
 
-/** Park a body this process could not land, and return where it went. */
 /**
  * @param {number|string} issue
  * @param {string} suffix
@@ -424,15 +303,7 @@ function rescueTo(issue, suffix, body) {
 	return file;
 }
 
-// ---------------------------------------------------------------------------
-// The local write lock
-// ---------------------------------------------------------------------------
-
 /**
- * Machine-global, keyed on the GitHub issue rather than the working tree: a
- * worktree is a different tree but the same issue, so a tree-keyed lock would
- * let two worktree sessions race.
- *
  * @param {number|string} issue
  * @param {string|undefined} repo
  * @returns {string}
@@ -447,7 +318,6 @@ function lockPath(issue, repo) {
 	return path.join(dir, `${key}-${issue}.lock`);
 }
 
-/** True when `file` has not been touched for `ms`, or cannot be stat'd. */
 /**
  * @param {string} file
  * @param {number} ms
@@ -456,18 +326,11 @@ function olderThan(file, ms) {
 	try {
 		return Date.now() - fs.statSync(file).mtimeMs > ms;
 	} catch {
-		return true; // gone: whoever holds it is past caring
+		return true;
 	}
 }
 
-/**
- * Create the lock so that it never exists without its holder's identity in it.
- *
- * `writeFileSync(..., {flag:"wx"})` cannot do this: it creates the file, then
- * writes, and a competitor reading between the two sees an empty lock. Linking a
- * fully-written temp file into place is one atomic step, and fails EEXIST when
- * the lock is already held.
- */
+// lucmoseley/mantahostels#139
 /** @param {string} file */
 function createLock(file) {
 	const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}`;
@@ -480,12 +343,6 @@ function createLock(file) {
 }
 
 /**
- * Take the lock, or give up and proceed without it (mantahostels#131). It NEVER
- * blocks indefinitely: a lock that can wedge a session is worse than the race it
- * prevents. Proceeding unlocked is safe — it is exactly the fetch/verify/
- * re-apply behaviour the lock is an optimisation over. Every give-up prints
- * one stderr line naming the lock and why (#595).
- *
  * @param {string} file
  * @param {number} waitMs
  * @returns {boolean}
@@ -496,8 +353,7 @@ function acquire(file, waitMs) {
 		const created = tryCreateLock(file);
 		if (created !== null) return created;
 		const holder = readLockHolder(file);
-		// An unparseable lock names no holder, so nothing proves it dead — age it
-		// out by the file's own mtime instead of stealing it at once (mantahostels#139).
+		// lucmoseley/mantahostels#139
 		const { removed, undeletable } = isLockStale(file, holder)
 			? removeStaleLock(file)
 			: { removed: false, undeletable: undefined };
@@ -506,15 +362,11 @@ function acquire(file, waitMs) {
 			giveUpLock({ file, holder, undeletable, waitMs });
 			return false;
 		}
-		// Busy-wait: the hold is one gh round-trip, so a sleep granularity coarser
-		// than this costs more than it saves.
 		sleepSync(LOCK_POLL_MS);
 	}
 }
 
 /**
- * One attempt to create the lock: true when taken, false when it cannot be
- * created at all (warned), null when another holder has it.
  * @param {string} file
  * @returns {boolean | null}
  */
@@ -533,14 +385,10 @@ function tryCreateLock(file) {
 }
 
 /**
- * A lock's named holder, as `createLock` writes it. Only `pid` is checked on
- * the way in; `at` is read as written, so a missing one never ages it out.
  * @typedef {{pid: number, at: number}} LockHolder
  */
 
 /**
- * The lock's named holder, or null where it cannot be read or parsed or
- * names no pid.
  * @param {string} file
  * @returns {LockHolder | null}
  */
@@ -566,7 +414,6 @@ function isLockStale(file, holder) {
 }
 
 /**
- * Removes a stale lock; where it cannot be removed, names why.
  * @param {string} file
  * @returns {{removed: boolean, undeletable: string | undefined}}
  */
@@ -576,14 +423,12 @@ function removeStaleLock(file) {
 		return { removed: true, undeletable: undefined };
 	} catch (e) {
 		const { code, message } = caught(e);
-		// EPERM or EACCES: retrying at once looped for ever, so the deadline
-		// decides, and the fail-open is printed (#586).
+		// #586
 		return { removed: false, undeletable: code || message };
 	}
 }
 
 /**
- * Prints the give-up line once the deadline has passed.
  * @param {{file: string, holder: LockHolder | null, undeletable: string | undefined, waitMs: number}} a
  */
 function giveUpLock({ file, holder, undeletable, waitMs }) {
@@ -612,7 +457,6 @@ function releaseLock(file) {
 	});
 }
 
-/** Run `fn` holding the issue's lock where it can be had, without it where not. */
 /**
  * @template T
  * @param {number|string} issue
@@ -630,10 +474,6 @@ function withLock(issue, repo, fn) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// The safe edit
-// ---------------------------------------------------------------------------
-
 /** @param {number|string} issue */
 function refuseNonIssueNumber(issue) {
 	if (!/^\d+$/.test(String(issue)))
@@ -641,17 +481,14 @@ function refuseNonIssueNumber(issue) {
 }
 
 /**
- * Apply `transform` to issue `issue`'s body, safely under concurrency.
- *
  * @param {object} o
- * @param {number|string} o.issue    issue number
- * @param {(body: string) => string} o.transform  pure and IDEMPOTENT
- * @param {string} [o.repo]          owner/name; omitted lets gh resolve from cwd
- * @param {number} [o.attempts]      total writes before giving up
- * @param {boolean} [o.dryRun]       compute and return, never write
+ * @param {number|string} o.issue
+ * @param {(body: string) => string} o.transform
+ * @param {string} [o.repo]
+ * @param {number} [o.attempts]
+ * @param {boolean} [o.dryRun]
  * @returns {{changed: boolean, attempts: number, body: string, before: string,
- *   base: string}} `before` is the body as first read, ahead of any write;
- *   `base` the one the landing write was applied to
+ *   base: string}}
  */
 function editIssueBody({
 	issue,
@@ -663,8 +500,6 @@ function editIssueBody({
 	if (typeof transform !== "function")
 		throw new CallerError("transform must be a function");
 	refuseNonIssueNumber(issue);
-	// Unvalidated, `--attempts abc` is NaN, skips the loop, and reports "gave up
-	// after NaN writes".
 	if (!Number.isInteger(attempts) || attempts < 1)
 		throw new CallerError(
 			`attempts must be a positive whole number: ${attempts}`,
@@ -674,7 +509,6 @@ function editIssueBody({
 		const before = fetchBody(issue, repo);
 		let current = before;
 
-		// The caller-bug check, before anything is written.
 		const once = transform(current);
 		const twice = transform(once);
 		if (once !== twice)
@@ -700,8 +534,6 @@ function editIssueBody({
 		for (let n = 1; n <= attempts; n++) {
 			writeBody(issue, repo, desired);
 			current = fetchBody(issue, repo);
-			// Verify and repair are the same question: if re-applying changes
-			// nothing, the change is present.
 			const reapplied = transform(current);
 			if (reapplied === current)
 				return { changed: true, attempts: n, body: current, before, base };
@@ -717,13 +549,8 @@ function editIssueBody({
 		);
 	};
 
-	// A dry run writes nothing, so it has no reason to hold anyone else up.
 	return dryRun ? run() : withLock(issue, repo, run);
 }
-
-// ---------------------------------------------------------------------------
-// CLI
-// ---------------------------------------------------------------------------
 
 const OPTIONS = "options: --repo <owner/name>  --attempts <n>  --dry-run";
 
@@ -755,8 +582,6 @@ Every command but 'replace' is idempotent and converges under concurrent
 writes. 'replace' cannot be — see the contract in this file's header.`;
 
 /**
- * One command's usage, for `issue-body.js <command> --help` and its refusals.
- *
  * @param {string} line
  * @param {Record<string, import("./lib/cli-args").FlagType>} [flags]
  * @returns {import("./lib/cli-args").CommandSpec}
@@ -806,9 +631,6 @@ const CLI = {
 };
 
 /**
- * Throws lib/cli-args.js's CliExit on `--help` or a bad command line, before
- * anything is fetched.
- *
  * @param {string[]} argv
  * @returns {Opts}
  */
@@ -905,17 +727,11 @@ function replaceWhole(issue, repo, next, dryRun = false) {
 		writeFd(1, `issue ${issue}: body replaced\n`);
 		return 0;
 	};
-	// As editIssueBody: a dry run writes nothing, so it holds no lock.
 	return dryRun ? run() : withLock(issue, repo, run);
 }
 
-/* A transform runs more than once a write — the idempotence check, a repair —
- * so the hand-over prints once a run. */
 let gateRuleHanded = false;
 
-/* The model reading is a call of seconds, so each pair of bodies is read
- * once a run, and each piece of advice printed once. A run edits one issue,
- * so the pair is the key. */
 /** @type {Map<string, ReturnType<typeof readGateWrite>>} */
 const readings = new Map();
 /** @type {Set<string>} */
@@ -936,20 +752,10 @@ function readGateWriteOnce(before, after, own) {
 }
 
 /**
- * A gate or a prose wait the write would add with no `**Gate basis:**`, or
- * with a window its basis does not name, is refused before anything is
- * written (#672, #823) — after `rule:roadmap-gating` is handed over where the
- * write adds a gate line — and so is an added `check:` that prints no
- * reading (#3487), and so is what the model reading faults in what the edit
- * adds (#4964), unless a `**Gate judge override:**` line gives a reason
- * (#4970). The command line only: a script calling editIssueBody
- * writes machine text, and is left alone.
- *
  * @param {string} before
  * @param {string} after
  * @param {string|undefined} repo
- * @param {number|string} issue the body's own number: a basis citing it
- *   cites nothing (#4946)
+ * @param {number|string} issue
  */
 function refuseGateFaults(before, after, repo, issue) {
 	const handover = gateRuleHanded
@@ -974,26 +780,19 @@ function refuseGateFaults(before, after, repo, issue) {
 }
 
 /**
- * A `gate` act in this session's acts ledger where a landed write gave the
- * issue its first live gate line, so the refill loop reads it as progress
- * (#3301). The repo unnamed is gh's own default, read where an act is owed.
- *
  * @param {number|string} issue
  * @param {string|undefined} repo
  * @param {string} before
  * @param {string} after
  */
 function recordNewGate(issue, repo, before, after) {
-	// recordOwnAct checks the session id too; checked first here, it spares a
-	// session-less run the `gh repo view` read below.
 	if (!process.env.CLAUDE_CODE_SESSION_ID || !isNewlyGated(before, after))
 		return;
 	let named = repo;
 	try {
 		named ??= ghDefaultRepo({ timeout: GH_TIMEOUT_MS });
 	} catch (e) {
-		// The write has landed, so a missed act costs the refill loop one launch
-		// read as unproven, never the edit (#2308).
+		// #2308
 		writeFd(
 			2,
 			`issue ${issue}: gated, but no gate act was recorded — the repo would not resolve (${caught(e).message}).\n`,
@@ -1004,9 +803,6 @@ function recordNewGate(issue, repo, before, after) {
 }
 
 /**
- * Checked against the transform's own input, so a re-application onto a
- * neighbour's body judges what this edit adds to THAT body.
- *
  * @param {Transform} transform
  * @param {string|undefined} repo
  * @param {number|string} issue
@@ -1019,9 +815,6 @@ const basisChecked = (transform, repo, issue) => (body) => {
 };
 
 /**
- * One idempotent edit as the command line asks for it. A dry run prints the
- * body it would write and returns null.
- *
  * @param {IssueOpts} o
  * @param {string|undefined} repo
  * @param {Transform} transform
@@ -1050,10 +843,7 @@ const verified = (issue, attempts) =>
 	`issue ${issue}: written and verified (${attempts} write${attempts === 1 ? "" : "s"})\n`;
 
 /**
- * The keyed map append, plus the survival check the loop alone cannot give:
- * a rival writing from a stale base can drop a neighbour's line while the loop
- * repairs ours, and the loop only ever re-checks our own line (#531).
- *
+ * #531
  * @param {IssueOpts} o
  * @param {string|undefined} repo
  * @returns {number}
@@ -1084,8 +874,6 @@ function appendDecisionCli(o, repo) {
 		);
 		return 0;
 	}
-	// Checked against the first read only: a line arriving after it and lost to
-	// a retry goes unseen, a window the lock already closes for local writers.
 	const after = new Set(parseDecisionLines(r.body) || []);
 	const lost = (parseDecisionLines(r.before) || []).filter(
 		(l) => !after.has(l),
@@ -1122,8 +910,7 @@ function main(argv) {
 	if (o.command === "replace") {
 		if (!o.file) throw new CallerError("replace needs --file");
 		const next = fs.readFileSync(o.file, "utf8");
-		// mantahostels#1579: divergence was the only guard, and an empty file isn't
-		// divergence. No escape flag: no session has ever needed to blank a body.
+		// lucmoseley/mantahostels#1579
 		if (next.trim() === "")
 			throw new CallerError(
 				`replace refuses an empty or whitespace-only --file (${o.file}) — ` +

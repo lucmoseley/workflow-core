@@ -3,11 +3,19 @@ const path = require("node:path");
 
 const LITERAL_DENY = /\bpermissionDecision\\?"?\s*:\s*\\?"deny\\?"/;
 
-const DENIES_THROUGH_MARKER =
-	/^[ \t]*(?:#|\*|\/\/)[ \t]*DENIES-THROUGH:[ \t]*((?:lib\/)?[\w.-]+)/m;
+const DENIES_THROUGH_BODY = String.raw`DENIES-THROUGH:[ \t]*((?:lib\/)?[\w.-]+)`;
+const DENIES_BY_EXIT_BODY = String.raw`DENIES-BY:[ \t]*exit 2\b`;
+const MARKER_LEAD = String.raw`^[ \t]*(?:#|\*|\/\/)[ \t]*`;
 
-const DENIES_BY_EXIT_MARKER =
-	/^[ \t]*(?:#|\*|\/\/)[ \t]*DENIES-BY:[ \t]*exit 2\b/m;
+const DENIES_THROUGH_MARKER = new RegExp(
+	MARKER_LEAD + DENIES_THROUGH_BODY,
+	"m",
+);
+
+const DENIES_BY_EXIT_MARKER = new RegExp(
+	MARKER_LEAD + DENIES_BY_EXIT_BODY,
+	"m",
+);
 const EXIT_2 = /\bexit 2\b/;
 
 const CORE_DENY =
@@ -136,4 +144,11 @@ function isDenyCapableIn(dirs) {
 	};
 }
 
-module.exports = { isDenyingCore, guardDirs, guardPath, isDenyCapableIn };
+module.exports = {
+	DENIES_BY_EXIT_BODY,
+	DENIES_THROUGH_BODY,
+	isDenyingCore,
+	guardDirs,
+	guardPath,
+	isDenyCapableIn,
+};

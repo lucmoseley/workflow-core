@@ -1,35 +1,5 @@
 // @vitest-environment node
-/*
- * The refill loop's `run` driven end to end through a hold: the repo, probe
- * and cleared holds with their phone notices, and the resume of a session its
- * seat's limit held. Split from scripts/refill-loop-run-recovery.test.ts
- * toward the 60 s per-file limit (#4602); its sandbox is
- * lib/refill-loop-run-testkit.ts's.
- *
- * The testkit's `claude` stub types through lib/claude-attach-fake.ts, which
- * answers from "scripts/fixtures/claude-attach.json": a re-recording selects
- * this file.
- *
- * Over §X8 (5)'s 10 s budget: each case drives real ticks, some ten of the
- * loop's own children apiece, none a fixture or a wait to cut (#4602).
- *
- * Loosen it and a fault in the program's own wiring, of its libs, children
- * and exits, passes unseen (#2851).
- *
- * Why each case stays a full tick: refill-loop-run.test.ts's header keys the
- * codes (A, E, S, F, R).
- * - repo hold (#3857): its command run for real A. Probe hold (#3860): a
- *   broken .git A, the other checkout A, the state's probe A, its parked
- *   resumed A, a stored hold left out of a dry run's preview A (the hold
- *   store read), the panel's waiting row naming it (#4736) A. Guard entry (#4226): raises and files A, attaches and
- *   resumes A. Locked out (#4228): raises, attaches, holds and resumes A.
- * - cleared repo hold (#3863): its raiser and attached resumed off a hand
- *   lift A (repo-hold.js lift).
- * - phone notice (#3871): one on raise, one on clear A (gh workflow).
- * - limit hold (#3735): resumes under its seat A; the ledger hold A and its
- *   swap A; moved to another plan seat A; onto a key A, its first overflow
- *   start A.
- */
+// full-sweep-only: #5528
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -92,7 +62,6 @@ import { buildUsageCache } from "./lib/usage-probe-fake";
 
 refillSandbox();
 
-/** `job`'s park marker, written `age` minutes ago, listing its issue. */
 const writeParkMarker = (job: string, issue: number, age: number) => {
 	const file = markerPath(`s-${job}`);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -101,10 +70,8 @@ const writeParkMarker = (job: string, issue: number, age: number) => {
 	fs.utimesSync(file, parkedAt, parkedAt);
 };
 
-/** The secrets file vitest.setup.ts points every test at. */
 const keySecrets = () => String(process.env.WFC_SECRETS_FILE);
 
-/** Overflow seat `keyVar` on the plan seat's dir, its key in the secrets file. */
 const declareKey = (keyVar: string) => {
 	fs.mkdirSync(at(".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -180,7 +147,6 @@ describe("a probe hold on the real tick (#3860)", () => {
 		);
 	};
 
-	/* The filer's seam: lib/file-through.js spawns it by path. */
 	const stubFiler = () =>
 		stub(
 			"file-issue.js",
@@ -204,7 +170,6 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 		stubFiler();
 	});
 
-	/** One run whose stop follows its first tick's state: two real ticks. */
 	const tickRun = async (
 		gh = "",
 		over: NodeJS.ProcessEnv = {},
@@ -214,8 +179,6 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 		return tickOnState(gh, over, onTicked);
 	};
 
-	/* The state file must read no lastTick, or the wait below ends at once.
-	 * `onTicked` runs between the first tick and the stop tick that replaces it. */
 	const tickOnState = async (
 		gh = "",
 		over: NodeJS.ProcessEnv = {},
@@ -246,9 +209,6 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 			)
 		).stdout;
 
-	/* The waiting row the loop's panel draws off `status --json`, read while the
-	 * run is live. Live too to the panel: the run is in this process, which
-	 * status reads as no loop's (#3861). */
 	const readWaitingRow = async () => {
 		const shown = keptSpawn("concurrent").execFileSync(
 			process.execPath,
@@ -425,8 +385,6 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 
 	describe("a guard entry that will not load (#4226)", () => {
 		const guardEntry = () => path.join(repo, "scripts", "guard-dispatch.js");
-		/* The shared tree's own entry, under the served checkout: the loop runs
-		 * from its code copy, whose entry stays healthy. */
 		const writeGuardEntry = (body: string) => {
 			fs.mkdirSync(path.dirname(guardEntry()), { recursive: true });
 			fs.writeFileSync(
@@ -455,8 +413,6 @@ ${body}`,
 					},
 			);
 
-		/* The probe runs the guard hook line the checkout registers, here one
-		 * that runs the shared tree's own entry. */
 		beforeEach(() => {
 			fs.mkdirSync(path.dirname(hooksFile()), { recursive: true });
 			fs.writeFileSync(hooksFile(), GUARD_HOOKS_JSON);
@@ -477,7 +433,6 @@ ${body}`,
 			const filed = readFiled();
 			expect(filed).toHaveLength(1);
 			expect(filed[0]?.body).toContain("guard entry: Lexer is not defined");
-			/* Two ticks, each probe a run and its re-run. */
 			const runs = guardRuns();
 			expect(runs).toHaveLength(4);
 			expect(runs[0]).toEqual({
@@ -549,8 +504,6 @@ ${body}`,
 			const Refusal =
 				"guard-x could not judge this call, and it fails closed: Lexer is not defined";
 			const healed = () => at("guard-healed");
-			/* The entry lets the benign Read through and refuses every Bash call
-			 * as a core it could not run would, until healed. */
 			const writeLockingEntry = () => {
 				fs.mkdirSync(path.dirname(guardEntry()), { recursive: true });
 				fs.writeFileSync(
@@ -563,8 +516,6 @@ if (payload.tool_name === "Bash" && !fs.existsSync(${JSON.stringify(healed())}))
 `,
 				);
 			};
-			/* A locked-out session's transcript and job record, as the 3 Nov
-			 * sessions wrote them: every call refused, then needs input:. */
 			const seedLockedOut = (job: string) => {
 				const transcript = at(`${job}.jsonl`);
 				const call = {
@@ -734,7 +685,6 @@ describe("the sessions parked on a cleared repo hold (#3863)", () => {
 			}),
 		});
 
-	/** A hold `job` raised and `attached` parked on, read off the line it prints. */
 	const raiseWith = (job: string, ...attached: string[]) => {
 		const id = parseHoldId(
 			holdAs(
@@ -767,15 +717,12 @@ describe("the sessions parked on a cleared repo hold (#3863)", () => {
 			{ "*": printed("") },
 			{ log: at("gh-calls") },
 		).gh;
-		/* Over every tick's slots, so admission alone paces them. */
 		stub(
 			"allowance.js",
 			"process.stdout.write(JSON.stringify({ cap: { launch: 9 } }));\n",
 		);
 	});
 
-	/** One loop run with `slots` free, asked to stop once `isDone` holds; the
-	 * default is the tick's state written. */
 	const tickUntil = async (slots: number, isDone?: () => boolean) => {
 		const control = at(".refill-loop-control.json");
 		fs.writeFileSync(
@@ -851,15 +798,12 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 
 	const readGhLog = () =>
 		fs.existsSync(at("gh-log")) ? fs.readFileSync(at("gh-log"), "utf8") : "";
-	/** The markers of every dispatch so far, in order. */
 	const readDispatched = () =>
 		[...readGhLog().matchAll(/<!-- (repo-hold-notice [^>]*) -->/g)].map(
 			(m) => m[1] ?? "",
 		);
 	const readPhases = () => readDispatched().map((m) => m.split(" ").at(-1));
 
-	/** gh for the next run: each dispatch so far has its comment on the issue, as
-	 * the workflow would. */
 	const serve = () => {
 		fs.mkdirSync(at("gh-routes"), { recursive: true });
 		const comments = readDispatched().map((m) => ({
@@ -880,7 +824,6 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 		).gh;
 	};
 
-	/** One run whose stop follows its first tick's state: two real ticks. */
 	const tickRun = async (gh: string) => {
 		fs.rmSync(stateFile(), { force: true });
 		updateControl({ stopRequested: false });
@@ -952,8 +895,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 	const concurrencyRow = () =>
 		JSON.parse(readLines(at("concurrency.jsonl"))[0]);
 
-	/** A normal-mode loop with one limit-blocked launch, held where `held` says
-	 * so, its job record reading session `recorded`. */
 	const seed = (recorded = "s-job7", held = true) => {
 		fs.writeFileSync(
 			path.join(repo, ".claude", "workflow-core.json"),
@@ -1021,7 +962,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 		expect(readGhActs().join("\n")).toMatch(
 			/^issue comment 7 --repo o\/r --body Refill loop: resumed this session after its weekly limit \(reset 2026-11-01T00:00:00.000Z\): same seat, .*Lost: /,
 		);
-		/* Its slot went to the resume, so the frontier's #5 launched nothing. */
 		expect(r.stdout).toContain("no free slot");
 		expect(concurrencyRow()).toMatchObject({
 			live: Admitted + 1,
@@ -1041,9 +981,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 		const newTranscript = () =>
 			path.join(target(), "projects", slug(), `${Session}.jsonl`);
 
-		/** Two plan seats: this one spent on `week`, the other low; the launch's
-		 * job blocked on its limit there, its transcript on disk and no slug
-		 * directory on the other seat. */
 		const seedMove = () => {
 			seed(Session, false);
 			fs.mkdirSync(target());
@@ -1156,7 +1093,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 			writeKeyCostTable();
 			fs.mkdirSync(path.dirname(transcript()), { recursive: true });
 			fs.writeFileSync(transcript(), `${JSON.stringify({ type: "user" })}\n`);
-			/* The resume's environment: its key and session id, set or unset. */
 			const envSeen = `echo "env key=\${K2-unset} api=\${ANTHROPIC_API_KEY-unset} session=\${CLAUDE_CODE_SESSION_ID-unset} dir=$CLAUDE_CONFIG_DIR" >> "$calls";`;
 			fakeResumeClaude(Job, [LISTED], envSeen);
 		};

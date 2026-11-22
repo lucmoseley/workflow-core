@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-npm-install core of guard-dispatch.js vets a new dependency with
- * a deny at the install boundary (mantahostels#1803, ruled at
- * mantahostels#1767). These are its boundary cases (§X11), the dispatcher
- * entry run on it alone: the payload, a real package.json and node_modules,
- * and the two registry programs, end to end. Which command earns which
- * verdict is lib/npm-install.test.ts's (#2800); the entry's payload faults
- * and the throw policy are guard-dispatch's own tests' (#3226).
- *
- * NOTHING HERE TOUCHES THE NETWORK. `npm` and `curl` are
- * lib/npm-registry-fake.ts's stubs injected at WFC_NPM and WFC_CURL (§N7: they
- * feed chosen output, #2266, #2422), held to the real tools by
- * lib/npm-registry.contract.test.ts. Both sit off PATH, so a bare call that
- * skips its var reaches the real tool and fails the test.
- *
- * NOT DRIVEN: the two network timeouts (12 s on `npm view`, 8 s on curl),
- * which only a stub hanging past them would reach (§X9); the core reads a
- * killed call as unreachable, a case lib/npm-install.test.ts holds.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -46,11 +27,6 @@ const daysAgo = (n: number) =>
 
 const calls = () => path.join(dir, "stub-calls.log");
 
-/*
- * The stubs, lib/npm-registry-fake.ts's. Their exit codes are the real
- * tools', because the guard tells "no such package" from "registry
- * unreachable" by npm's E404 alone. Each records its argv.
- */
 let serve: ReturnType<typeof writeRegistryStubs>;
 
 const env = (
@@ -63,8 +39,6 @@ const env = (
 	...over,
 });
 
-/** The hook output for `command`, or null; exit 0 and a quiet stderr
- * asserted on every call. */
 const emission = (
 	command: string,
 	reg: Partial<Registry> = {},
@@ -77,7 +51,6 @@ const emission = (
 		env: env(reg, over),
 	});
 
-/** The refusal's prose, or null where the guard allowed. */
 const denial = (
 	command: string,
 	reg: Partial<Registry> = {},
@@ -211,7 +184,6 @@ describe("the escape", () => {
 	});
 
 	it("is NOT spellable on the command line (mantahostels#109)", () => {
-		// The leading assignment reaches the guard as text and is never honoured.
 		expect(
 			denial(`WFC_ALLOW_NEW_PACKAGE=1 ${fake}`, { created: "E404" }),
 		).toMatch(/No package named/);
@@ -229,9 +201,7 @@ describe("fail-closed, where the registry cannot be asked", () => {
 		["npm", "WFC_NPM"],
 		["curl", "WFC_CURL"],
 	])("DENIES and records when %s has gone missing", (tool, envVar) => {
-		// The one deliberate departure from mantahostels#103 §6, on
-		// mantahostels#1767's wording: an unchecked install is what this guard
-		// exists to prevent, so a guard that cannot check refuses, and records it.
+		// lucmoseley/mantahostels#1767
 		const why = denial(
 			"npm install --ignore-scripts left-pad",
 			{},
@@ -249,11 +219,7 @@ describe("fail-closed, where the registry cannot be asked", () => {
 });
 
 describe("a link that will not read", () => {
-	// Needs a non-root runner: root reads through a directory with no search
-	// bit, so no EACCES arises.
 	it("refuses on the record, never reading it as no link", () => {
-		// readlink under a directory with no search bit fails EACCES, not
-		// ENOENT: the core cannot tell a store link from none.
 		const locked = path.join(dir, "locked");
 		fs.mkdirSync(locked);
 		fs.chmodSync(locked, 0o600);
@@ -281,8 +247,6 @@ describe("the fail-open record", () => {
 			/package\.json did not parse — install allowed unchecked/,
 		],
 	])("allows and records %s", (_l, damage, match) => {
-		// Unreadable package.json would make every package look new, so the guard
-		// would deny an ordinary reinstall. It allows instead, on the record.
 		damage();
 		expect(emission("npm install left-pad")).toBeNull();
 		expect(readFailOpenLog(config, shared)).toMatch(match);

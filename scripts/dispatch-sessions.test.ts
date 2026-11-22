@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins each /pick-next dispatch member's advisor: which models get one, by
- * the alias the routing file reads a spelling as (the fixture's, by
- * WFC_MODEL_ROUTING), and the advisor-live check.
- *
- * The fixture is scripts/lib/dispatch-sessions-testkit.ts's. The dispatch's
- * cases are split by subject across dispatch-sessions.test.ts (the advisor),
- * -launch (model, burn mode, launcher binary, seat, auth, usage), -allowance,
- * -duplicate, -drop (a set with one member already dispatched), -reread (the
- * per-member re-read, CPU holds, stagger, roster remedy), -overflow, -bridge
- * and -bridge-budget (the interop-bridge probe), so the forks pool runs them
- * side by side and no file holds the suite to its own length (#2413, #4299). The case that breaks the interop-probe library lives in
- * dispatch-sessions-probe-load.test.ts, as it links every file in scripts/lib
- * and so makes its file a reader of each one (#2423).
- *
- * Loosen a test here and a /pick-next set launches with no advisor attached,
- * with nothing in either session saying so (mantahostels#1102).
- *
- * Over the run-cost budget (base §X8 (5)): its cases are pre-existing and
- * unchanged by #4299's split, each a real dispatcher run (#2413).
- */
 import { describe, expect, it } from "vitest";
 import { dispatchFixture, ROUTING } from "./lib/dispatch-sessions-testkit";
 

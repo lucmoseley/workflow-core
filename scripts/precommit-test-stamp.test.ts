@@ -1,44 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-commit test gate's stand-down on a pre-lock stamp (#1650, spec
- * #1639): where $WFC_TEST_STAMP names a file in the hook's own git directory
- * holding the key of exactly the changes git handed the hook, the declared
- * test does not run; otherwise it runs inside the index lock, after a line
- * naming why, in a worktree holding HEAD plus the staged changes alone (#1766).
- *
- * One seam (#1639): a real `git commit` in a fixture repo
- * carrying the husky shims, the real `prepare-commit-msg`, and a `pre-commit`
- * built from the live hook's own blocks — the stamp read at its top, the test
- * gate and the whole-stack stamp — so editing any of them in the real hook
- * reaches these cases.
- *
- * The only pin on the stand-down: loosen a case and an adopter's commit lands
- * untested on a stamp naming other changes, or another checkout's.
- *
- * Every commit but a --patch one names its paths, as commit-paths does: on
- * git 2.43 a commit naming none holds no index lock while its hooks run.
- *
- * The same seam drives commit-paths' pre-lock run (#1651), the stamp's only
- * producer: loosen one of those cases and the commit holds its index lock
- * for the suite again, or a red one lands — or, where a change lands mid-run (#1652),
- * one the suite never saw — under --patch as well (#1653). Where a run throws
- * or is killed, it is spawned rather than run in process, whose exit is no
- * real one: loosen those and its files outlive it in the git directory
- * (#1680).
- *
- * Both launch points run the declared test as a commit gate, through
- * `queue-run.js --gate` (#5274): loosen that case and a commit's suite runs
- * unseated and unrecorded on `.gate-runs.jsonl`.
- *
- * A stamp names its gate (#1904): loosen those cases and a second slow gate's
- * green stands the test gate down, the suite never run.
- *
- * The fixture's hook also carries a stub gate above the live hook's line
- * ending its early gates, which commit-paths runs before its suite (#1763):
- * loosen those cases and a one-second lint refusal waits behind the suite
- * again. In an `adopter` fixture the repo's hook is the core's shim, and
- * loosening its cases does the same to every adopter's commit (#5288).
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -64,17 +24,12 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
-/** The hook's line ending the gates commit-paths runs before its suite (#1763). */
 const GATES_END = HOOK.split("\n").find((l) =>
 	l.startsWith(": end of the gates"),
 );
 if (GATES_END === undefined)
 	throw new Error("no line ending the pre-lock gates in .husky/pre-commit");
 
-/**
- * A gate standing in for the hook's own: one line per run to `stub-gate.log`,
- * `lock=<0|1> staged=<a,b>`, and red where `stub-gate-red` exists.
- */
 const STUB_GATE = `staged="$(git diff --cached --name-only | paste -sd, -)"
 lock=0; [ -f .git/index.lock ] && lock=1
 echo "lock=$lock staged=$staged" >> stub-gate.log
@@ -96,11 +51,6 @@ const PRECOMMIT = [
 	"",
 ].join("\n");
 
-/**
- * The files whose edit selects this suite, as path literals. The fixture also
- * copies each script its hooks name by path, so a launch the hook gains runs
- * without a row here; its row is only for its edits to select the suite (#5423).
- */
 const LISTED = [
 	"scripts/lib/precommit-gate.sh",
 	"scripts/lib/workflow-core-config.js",
@@ -111,7 +61,6 @@ const LISTED = [
 	"scripts/lib/commit-key.js",
 	"scripts/lib/isolated-worktree.js",
 	"scripts/queue-run.js",
-	// prepare-commit-msg fails closed without its dispatcher and scanner.
 	"scripts/prepare-commit-msg-dispatch.js",
 	"scripts/lib/hook-root.sh",
 	"scripts/lib/hook-bound.sh",
@@ -133,23 +82,8 @@ const COPIED = [
 const COMMIT_PATHS = path.join(ROOT, "scripts/commit-paths.js");
 const COMMIT_KEY = path.join(ROOT, "scripts/lib/commit-key.js");
 
-/**
- * How much slower the stub runs where `stub-slow` exists: five times the
- * 0.0–0.1 s the outcome log read for the stub without it (five runs at load1
- * 5.6, #5143), so a run the log failed to count shows as below it. Only a
- * floor is asserted, so load can only move it away from failing.
- */
 const SLOW_S = 0.5;
 
-/**
- * One line per run: `lock=<0|1> stamp=<value|unset> staged=<a,b>`, to the
- * fixture's `root` wherever the run's own tree is, `lock` the worktree index's. Its markers are read there
- * too, and `stub-mid.sh` runs there, the run's own tree in $RUN_DIR. Red, too,
- * where a.txt is staged — the suite it selects reading b.txt and stray.txt —
- * and the run's own tree holds `stray.txt` or a `b.txt` reading `broken`; and
- * where `stub-needs-gen` exists and the run's own tree lacks the gitignored
- * `gen.txt`.
- */
 const stub = (root: string) => `#!/bin/sh
 r=${shellQuote(root)}
 [ -f "$r/stub-slow" ] && sleep ${SLOW_S}
@@ -162,12 +96,6 @@ if [ -f "$r/stub-needs-gen" ] && [ ! -f gen.txt ]; then echo "stub: gen.txt is m
 case ",$staged," in *,a.txt,*) if [ -e stray.txt ] || grep -qs broken b.txt; then echo "stub: b.txt is broken"; exit 1; fi;; esac
 `;
 
-/**
- * Shell committing `body` at `rel` on top of HEAD, or as an unborn branch's
- * first commit, as another commit would, through a throwaway index: the
- * worktree's may be locked, and a `git commit` would run the hooks, and the
- * stub, again.
- */
 const buildOtherCommit = (rel: string, body: string) => `t="$(mktemp -u)"
 p=""
 if git rev-parse -q --verify HEAD >/dev/null; then GIT_INDEX_FILE="$t" git read-tree HEAD; p="-p HEAD"; fi
@@ -178,19 +106,11 @@ git update-ref HEAD "$(git commit-tree $p -m other "$tree")"
 rm -f "$t"
 `;
 
-/* A test command meeting the verdict contract, its own canary: PUSH declares
- * it, so the probe passes and the test is gated at push (#5294). */
 const PROVEN_STUB = `if [ -n "$WFC_VERDICT_PROBE" ]; then echo " FAIL  $1"; exit 1; fi\n`;
 const PUSH = JSON.stringify({
 	commands: { test: "sh stub-proven.sh", testCanary: "stub-proven.sh" },
 });
 
-/**
- * `adopter` commits as an adopter does: its `.husky/pre-commit` is the core's
- * shim, which runs the hook of a core outside the repo, found through
- * WORKFLOW_CORE_DIR, and the repo holds no copy of the gate library that
- * hook sources, so a gate run without WFC_PLUGIN_ROOT fails.
- */
 function fixture({
 	born = true,
 	config = JSON.stringify({ commands: { test: "sh stub.sh" } }),
@@ -224,9 +144,6 @@ function fixture({
 	fs.writeFileSync(path.join(root, ".claude/workflow-core.json"), config);
 	fs.writeFileSync(path.join(root, "stub.sh"), stub(root));
 	fs.writeFileSync(path.join(root, "stub-proven.sh"), PROVEN_STUB);
-	// Everything but stub.sh and a top-level *.txt other than gen.txt, the files
-	// commit-paths may add: the pre-lock run sees only what HEAD and the commit
-	// hold (#1760).
 	fs.writeFileSync(
 		path.join(root, ".git/info/exclude"),
 		"/scripts/\n/docs/\n/.claude/\n/.husky/\n/stub*\n!/stub.sh\n/gen.txt\n",
@@ -248,7 +165,6 @@ function fixture({
 			cwd: root,
 			encoding: "utf8",
 		}).stdout.trim();
-	/** The lines of `name` in the fixture's root, none where it is absent. */
 	const readLog = (name: string) => {
 		const log = path.join(root, name);
 		return fs.existsSync(log)
@@ -296,7 +212,6 @@ function fixture({
 		root,
 		gitDir,
 		readLeftInGitDir,
-		/** Stages `body` at `rel` (or removes it, for null), and names `rel` to the commit. */
 		stage(rel: string, body: string | null) {
 			if (!named.includes(rel)) named.push(rel);
 			if (body === null) git("rm", "-q", "--", rel);
@@ -305,14 +220,12 @@ function fixture({
 				git("add", "-f", "--", rel);
 			}
 		},
-		/** Writes `body` at `rel` on disk alone (or deletes it, for null), and names `rel` to the commit. */
 		edit(rel: string, body: string | null) {
 			if (!named.includes(rel)) named.push(rel);
 			if (body === null) fs.rmSync(path.join(root, rel));
 			else fs.writeFileSync(path.join(root, rel), body);
 		},
 		git,
-		/** `gate`'s key of the index as staged now, as a stamp at `at`. */
 		stamp(at = path.join(gitDir, "wfc-test-stamp-1"), gate = "test"): string {
 			const r = runInProcess(COMMIT_KEY, ["key", gate], {
 				cwd: root,
@@ -322,14 +235,12 @@ function fixture({
 			writeStamp(at, r.stdout.trim());
 			return at;
 		},
-		/** commit-key.js's verdict on `stamp` standing `gate` down for the index as staged now. */
 		standDown(gate: string, stamp: string) {
 			return runInProcess(COMMIT_KEY, ["stand-down", gate, stamp], {
 				cwd: root,
 				env: env(),
 			});
 		},
-		/** The hook run directly, for its own exit code: git reports any refusal as 1. */
 		runHook() {
 			return spawnSync("sh", [".husky/pre-commit"], {
 				cwd: root,
@@ -357,7 +268,6 @@ function fixture({
 				otherWorktrees: readOtherWorktrees(),
 			};
 		},
-		/** The named paths committed through commit-paths, under `--patch` where given one; `inherited` is a stamp variable its caller carries; `unsetCore` leaves no core to resolve. */
 		commitPaths({
 			patch,
 			inherited,
@@ -402,11 +312,6 @@ function fixture({
 						: undefined,
 			};
 		},
-		/**
-		 * The named paths committed through a spawned commit-paths, its own
-		 * process group, `node` given `nodeArgs` first, under `--patch` where
-		 * given one.
-		 */
 		spawnCommitPaths({
 			nodeArgs = [],
 			patch,
@@ -430,12 +335,10 @@ function fixture({
 			if (pid === undefined) throw new Error("commit-paths did not start");
 			return {
 				pid,
-				/** How it ended, at once: a process it left running may hold its output open. */
 				exited: new Promise<{ code: number | null; signal: string | null }>(
 					(resolve) =>
 						child.on("exit", (code, signal) => resolve({ code, signal })),
 				),
-				/** Its output, once every holder of its streams has closed them. */
 				closed: new Promise<string>((resolve) =>
 					child.on("close", () => resolve(out)),
 				),
@@ -444,7 +347,6 @@ function fixture({
 	};
 }
 
-/** The hook's line where it runs the test itself. */
 const IN_HOOK = "no pre-lock green stands it down";
 const reason = (why: string) => `${IN_HOOK}: ${why}.`;
 
@@ -481,7 +383,6 @@ it("stands the test down on a stamp matching the commit's changes, and the commi
 	expect(r.code).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual([]);
-	// Never consumed: commit-paths removes it as it exits.
 	expect(fs.existsSync(stamp)).toBe(true);
 });
 
@@ -621,7 +522,6 @@ it("applies the same rule on the --no-verify route, through prepare-commit-msg",
 
 it("runs the declared test once through commit-paths, before the lock, on exactly the named paths, and the hook stands down", () => {
 	const f = fixture();
-	// A staged change to a path this commit does not name.
 	fs.writeFileSync(path.join(f.root, "c.txt"), "theirs\n");
 	f.git("add", "-f", "c.txt");
 	f.edit("a.txt", "changed\n");
@@ -633,8 +533,6 @@ it("runs the declared test once through commit-paths, before the lock, on exactl
 	expect(r.leftInGitDir).toEqual([]);
 });
 
-/* The gate-run record queue-run.js --gate alone writes (#5274), under the
- * fixture's canonical checkout. */
 const readGateRunRecord = (root: string) => {
 	const file = path.join(root, ".claude/tmp/markers/.gate-runs.jsonl");
 	return fs.existsSync(file)
@@ -700,10 +598,8 @@ it("runs the pre-lock suite on a named path as on disk, refusing the commit it b
 	expect(r.otherWorktrees).toEqual([]);
 });
 
-/** A suite reading the gitignored `gen.txt`, with `gen.txt` in the checkout, and `a.txt` edited. */
 function needsGen(config: object) {
 	const f = fixture({ config: JSON.stringify(config) });
-	// Committed: the worktree reads the declared links from its own copy.
 	f.git("add", "-f", ".claude/workflow-core.json");
 	f.git("commit", "-qm", "config", "--no-verify");
 	fs.rmSync(path.join(f.root, "stub.log"), { force: true });
@@ -769,7 +665,6 @@ it("keeps an inherited stamp out of the commit where the pre-lock run defers to 
 	]);
 });
 
-/** A half-written tracked file and a new one, neither named, both turning the stub red where a.txt is staged. */
 function unsavedDirt(f: ReturnType<typeof fixture>) {
 	fs.writeFileSync(path.join(f.root, "b.txt"), "broken\n");
 	fs.writeFileSync(path.join(f.root, "stray.txt"), "theirs\n");
@@ -807,7 +702,6 @@ it("refuses an in-lock red on the commit's own paths, blaming no file outside th
 
 it("runs the in-lock suite in the checkout where no worktree can be made, saying so, and its red names mantahostels#273 (#1766)", () => {
 	const f = fixture();
-	// A file where the worktrees' directory goes, so none can be made.
 	fs.writeFileSync(path.join(f.root, ".claude/worktrees"), "");
 	unsavedDirt(f);
 	f.stage("a.txt", "changed\n");
@@ -965,7 +859,6 @@ it("runs the gates once, in the lock, on a plain git commit (#1763)", () => {
 });
 
 it("ends the live hook's early gates on one line directly above its test gate, below every other core gate, with no switch to stop there (#1763)", () => {
-	// Read as the host runs it, each core call with its plugin root dropped.
 	const lines = HOOK.replaceAll(CORE_ROOT, "").split("\n");
 	expect(lines.filter((l) => l === GATES_END)).toHaveLength(1);
 	const end = lines.indexOf(GATES_END);
@@ -979,9 +872,6 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 	expect(below.find((l) => !/^\s*(#|$)/.test(l))).toBe(
 		"if ! lander_batch && ! lander_tested && declared_cmd node scripts/lib/test-gate.js commit; then",
 	);
-	// Below the line, only the test gate's own libraries and the mutation
-	// hold, slower than the suite (#1906): any other core gate added there
-	// would never run before the suite.
 	const runners = new Set(
 		below.join("\n").match(/\b(?:node|bash|sh) scripts\/\S+/g) ?? [],
 	);
@@ -992,13 +882,8 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 		"node scripts/mutation-hold-gate.js",
 		"node scripts/queue-run.js",
 	]);
-	// The hook's own stamp says every gate passed, so an early run must stop
-	// short of writing it.
 	expect(below.join("\n")).toContain("/wfc-precommit-stamp");
 	expect(above).not.toContain("wfc-precommit-stamp");
-	// The test gate's one input from the environment is the stamp, read and
-	// unset at the hook's top, so no other variable can stand it down; the
-	// plugin root picks which core runs the gate, not whether it runs.
 	expect(
 		cut(
 			`if ! lander_batch && ! lander_tested && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
@@ -1049,7 +934,6 @@ it.each([
 	async (_kind, config, swept) => {
 		const f = fixture(config === undefined ? {} : { config });
 		f.edit("a.txt", "changed\n");
-		// A spy, not a seam: the sweeper leaves nothing an outsider can see once it exits.
 		const preload = path.join(f.root, "stub-spawn.js");
 		fs.writeFileSync(
 			preload,
@@ -1171,7 +1055,6 @@ it("writes no stamp where another commit to a named path changes what this commi
 	const f = fixture();
 	f.edit("a.txt", "changed\n");
 	f.edit("b.txt", "changed too\n");
-	// Another commit takes a.txt as it stands, leaving this commit only b.txt.
 	fs.writeFileSync(
 		path.join(f.root, "stub-mid.sh"),
 		buildOtherCommit("a.txt", "changed\\n"),
@@ -1202,10 +1085,6 @@ it("stands down where another commit to a named path lands while the pre-lock ru
 	expect(r.leftInGitDir).toEqual([]);
 });
 
-/**
- * a.txt on disk reads a line of this commit's above HEAD's, and one left out
- * below it; the patch, cut as a session cuts one, carries this commit's alone.
- */
 const cutPatch = (f: ReturnType<typeof fixture>): string => {
 	fs.writeFileSync(path.join(f.root, "a.txt"), "mine\na.txt\ntheirs\n");
 	const diff = String(f.git("diff", "HEAD", "-U0", "--", "a.txt"));
@@ -1214,7 +1093,6 @@ const cutPatch = (f: ReturnType<typeof fixture>): string => {
 	return at;
 };
 
-/** Has the stub's first run save the a.txt it was handed, staged and on disk. */
 const recordStaged = (f: ReturnType<typeof fixture>) => {
 	fs.writeFileSync(
 		path.join(f.root, "stub-mid.sh"),
@@ -1222,9 +1100,6 @@ const recordStaged = (f: ReturnType<typeof fixture>) => {
 	);
 	return () => fs.readFileSync(path.join(f.root, "stub-staged.out"), "utf8");
 };
-
-// Under --patch the commit names no paths, so its hook holds no index lock
-// either: the in-hook run is told from the pre-lock one by IN_HOOK.
 
 it("runs the declared test once under --patch, before the commit, on the patch's private index alone, and the hook stands down", () => {
 	const f = fixture();
@@ -1278,7 +1153,6 @@ it("refuses a red pre-lock gate under --patch with exit 3, starting no suite and
 	expect(r.leftInGitDir).toEqual([]);
 });
 
-/** `pid` and every process descending from it, read off /proc as a tree kill reads them. */
 function readProcessTree(pid: number): number[] {
 	const parentOf = new Map<number, number>();
 	for (const d of fs.readdirSync("/proc").filter((name) => /^\d+$/.test(name)))
@@ -1296,7 +1170,6 @@ function readProcessTree(pid: number): number[] {
 	return tree;
 }
 
-/** A descendant may exit on its parent's signal before its own turn in the tree (#3837). */
 function signalIfAlive(pid: number, signal: NodeJS.Signals) {
 	try {
 		process.kill(pid, signal);
@@ -1305,9 +1178,7 @@ function signalIfAlive(pid: number, signal: NodeJS.Signals) {
 	}
 }
 
-/** A guess: the sweep and a hold's start were measured here at well under a second. */
 const UNTIL_MS = 5000;
-/** Polls until `ok`, for `ms` at most; 20 ms is a poll, not a bound. */
 async function until(ok: () => boolean, ms = UNTIL_MS) {
 	for (const end = Date.now() + ms; !ok() && Date.now() < end; )
 		await new Promise((r) => setTimeout(r, 20));
@@ -1325,7 +1196,6 @@ it.each([
 	async (signal, to, _during, hold) => {
 		const f = fixture();
 		f.edit("a.txt", "changed\n");
-		// Holds past `until`'s ceiling, so the kill always lands mid-hold.
 		fs.writeFileSync(
 			path.join(f.root, hold),
 			`touch held\nsleep ${(2 * UNTIL_MS) / 1000}\n`,
@@ -1346,7 +1216,6 @@ it.each([
 			await until(() => f.readLeftInGitDir().length === 0);
 			expect(f.readLeftInGitDir()).toEqual([]);
 		} finally {
-			// A signal to commit-paths alone leaves its suite or its commit running.
 			ignoreFailure(() => process.kill(-run.pid, "SIGKILL"));
 		}
 	},
@@ -1361,10 +1230,6 @@ it.each([
 		const f = fixture();
 		const patch = underPatch ? cutPatch(f) : undefined;
 		if (!underPatch) f.edit("a.txt", "changed\n");
-		// A spy, not a seam: nothing reachable from outside makes the script itself
-		// throw once its commit has landed.
-		// --patch lands its commit with update-ref, and hands the stamp to the
-		// hooks before it rather than to that call (#2638).
 		const preload = path.join(f.root, "stub-throw.js");
 		fs.writeFileSync(
 			preload,

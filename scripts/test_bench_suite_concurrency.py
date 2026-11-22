@@ -1,23 +1,3 @@
-"""Tests for the safety guarantees in scripts/bench_suite_concurrency.py.
-
-What is worth testing here is the pair of promises the script makes about
-*other people's processes*, because both fail silently and both cost a live
-session (mantahostels#463, the ticket that measured the suite cap on a loaded machine):
-
-  1. The watchdog signals process **groups**. A reaped pid is free for the
-     kernel to reuse, so signalling one after reaping would kill whatever now
-     owns it.
-  2. The metrics path walks /proc while processes are exiting under it. A torn
-     read must not take the run down.
-
-It also pins the judgements behind the bench's figures — session counting,
-baseline stationarity, idle drift — and its quiet gate, suite launch and
-ceiling-kill reading, where a wrong call misstates the suite-concurrency cap sessions run under. Every case
-drives the module with an injected memory reader and killer, literal `/proc`
-text or a stub `ps` at WFC_PS, so no case signals a real process or reads this
-machine's load.
-"""
-
 import re
 from pathlib import Path
 
@@ -73,7 +53,6 @@ class TestWatchdogNeverSignalsAReapedGroup:
 
 
 def test_a_group_gone_before_the_kill_is_passed_silently(bench, capsys):
-    # Above pid_max, so no live process group has it.
     assert bench.Watchdog._killpg(99_999_999) is None
     assert capsys.readouterr().err == ""
 
@@ -82,8 +61,6 @@ def test_a_group_not_ours_is_left_unkilled_and_named(bench, monkeypatch, capsys)
     def killpg(pgid, sig):
         raise PermissionError("not ours")
 
-    # No other user's process group is sure to exist on every test host, and
-    # the one that always does, pgid 1, makes killpg a kill(-1) of everything.
     monkeypatch.setattr(bench.os, "killpg", killpg)
     assert bench.Watchdog._killpg(4242) is None
     assert "fail-open: process group 4242 left unkilled" in capsys.readouterr().err
@@ -120,8 +97,6 @@ class TestWatchdogThreshold:
 
 
 class TestTornProcReadsAreSurvivable:
-    """A process exiting mid-read yields a short or empty /proc read."""
-
     def test_ppid_parses_a_normal_line(self, bench):
         assert bench.parse_ppid("42 (node) S 7 42 42 0 -1 4194304 100 0") == 7
 
@@ -139,7 +114,6 @@ class TestTornProcReadsAreSurvivable:
         self, bench
     ):
         stat = "1 (x) S 0 " + " ".join(str(i) for i in range(20))
-        # fields 11 and 12 after the ppid slot are utime/stime
         got = bench.parse_cpu_ticks_and_rss(stat, "500 128 3 1 0 0 0")
         assert got is not None
         ticks, rss = got
@@ -161,14 +135,11 @@ class TestTornProcReadsAreSurvivable:
             in capsys.readouterr().err
         )
 
-    # Above pid_max, so no live process owns it.
     GONE = 99_999_999
 
     def test_a_pid_gone_before_its_stat_opens_is_left_out_of_the_tree(
         self, bench, monkeypatch, capsys
     ):
-        # A pid exiting between /proc's listing and its stat open is a race no
-        # fixture can time.
         monkeypatch.setattr(bench.os, "listdir", lambda _: [str(self.GONE)])
         assert bench.children_map() == {}
         assert capsys.readouterr().err == ""
@@ -183,8 +154,6 @@ class TestTornProcReadsAreSurvivable:
 
 
 class TestSessionCountingUnit:
-    """The unit itself is test_claude_sessions.py's; this pins the bench's wiring."""
-
     SPARE = "/tmp/cc-daemon-1000/d/spare"
     PS = "\n".join(
         [
@@ -210,8 +179,6 @@ class TestSessionCountingUnit:
 
 
 class TestBaselineStationarity:
-    """A dip is only a suite's cost if the baseline under it held still (mantahostels#954)."""
-
     def classify(self, bench, **kw):
         base = dict(
             rest_mb=5000.0,
@@ -236,7 +203,6 @@ class TestBaselineStationarity:
         assert r["baseline_stationary"] is False
 
     def test_a_shift_inside_the_tolerance_still_counts_as_stationary(self, bench):
-        # Kernel reclaim lags the last sample by design.
         r = self.classify(bench, avail_end_mb=4900.0)
         assert r["baseline_shift_mb"] == 100.0
         assert r["baseline_stationary"] is True
@@ -251,12 +217,6 @@ class TestBaselineStationarity:
     def test_a_row_that_ended_richer_than_it_started_attributes_the_whole_dip(
         self, bench
     ):
-        """The clamp: a shift cannot go negative and credit the suites.
-
-        The dip itself is still wrong here — a neighbour freeing mid-row
-        shallows the trough, so the raw dip UNDERSTATES what the suites cost.
-        Nothing in the check catches that.
-        """
         r = self.classify(bench, avail_end_mb=5600.0)
         assert r["baseline_shift_mb"] == 0.0
         assert r["dip_attributable_mb"] == 1000.0
@@ -280,7 +240,6 @@ class TestBaselineStationarity:
         ]
 
     def test_the_rss_corroborator_is_reported_and_gates_nothing(self, bench):
-        """A dip far above the suite tree's own sampled peak went elsewhere."""
         r = self.classify(bench, dip_mb=3814.5, rss_peak_mb=2775.0)
         assert r["dip_over_rss_peak"] == 1.37
         clean = self.classify(bench, rss_peak_mb=100.0)
@@ -290,11 +249,6 @@ class TestBaselineStationarity:
         assert self.classify(bench, rss_peak_mb=0.0)["dip_over_rss_peak"] is None
 
     def test_the_three_954_rows_are_all_reported_contaminated(self, bench):
-        """Verbatim from mantahostels#954's `results.json`.
-
-        The aborted 2-suite row is omitted: it has no usable dip. No row here
-        turns on where the tolerance sits.
-        """
         rows = [
             dict(
                 rest_mb=3112.7,
@@ -344,14 +298,10 @@ class TestQuietGate:
 
     @pytest.fixture
     def run_main(self, bench, stub_bin, monkeypatch, tmp_path):
-        """`run_main(sessions, argv)`: `bench.main(argv)` with `sessions` live."""
-
         def run(sessions, argv):
             path, _ = stub_bin("ps", self.sessions_ps(sessions))
             monkeypatch.setenv("WFC_PS", path)
             monkeypatch.setenv("OUTDIR", str(tmp_path))
-            # A real `true` in place of a whole suite; `settle` would sleep 20 s
-            # before the first row, so it ends the run there.
             monkeypatch.setattr(bench, "suite_command", lambda workers: ["true"])
 
             def stop(*a):
@@ -383,7 +333,6 @@ class TestQuietGate:
         assert not (tmp_path / "drift.json").exists()
 
     def test_the_separated_spelling_is_refused_naming_the_flag_not_dropped(self, bench):
-        """`--require-quiet 3` once meant "three suites, no gate" — the reverse."""
         with pytest.raises(ValueError, match="--require-quiet"):
             bench.parse_flags(["--require-quiet"], 900.0)
 
@@ -403,7 +352,7 @@ class TestQuietGate:
 
 
 class TestSuiteLaunch:
-    """#1132: a bare `npm run test` narrows to the diff (mantahostels#3208)."""
+    # #1132
 
     def test_each_suite_runs_the_whole_suite_at_the_chosen_workers(self, bench):
         assert bench.suite_command(2) == [
@@ -430,26 +379,17 @@ class TestSuiteLaunch:
     def test_the_separated_workers_spelling_is_refused_naming_the_flag_not_dropped(
         self, bench
     ):
-        """`--workers 2` would leave the 2 to be read as two suites."""
         with pytest.raises(ValueError, match="--workers"):
             bench.parse_flags(["--workers"], 900.0)
 
 
 class TestIdleBaselineDrift:
-    """mantahostels#1449: `BASELINE_SHIFT_TOLERANCE_MB` stands for how far
-    `MemAvailable` wanders between two resting settles when nothing is running.
-
-    That is measurable only on the same quiet machine the three-suite row needs,
-    so it is captured by the same run.
-    """
-
     def test_the_drift_is_the_gap_between_consecutive_settles(self, bench):
         assert bench.drift_from_settle_means([5000.0, 5050.0, 5020.0])[
             "drift_deltas_mb"
         ] == [50.0, 30.0]
 
     def test_a_fall_counts_as_much_as_a_rise(self, bench):
-        """Signed drift would cancel a wander out to nothing across a long run."""
         rise = bench.drift_from_settle_means([5000.0, 5080.0])
         fall = bench.drift_from_settle_means([5080.0, 5000.0])
         assert rise["drift_max_mb"] == fall["drift_max_mb"] == 80.0
@@ -460,7 +400,6 @@ class TestIdleBaselineDrift:
         assert d["drift_mean_mb"] == 50.0
 
     def test_one_settle_measures_no_drift_and_says_so(self, bench):
-        """Returning 0.0 here would read as a perfectly stationary machine."""
         with pytest.raises(ValueError, match="two"):
             bench.drift_from_settle_means([5000.0])
 
@@ -483,22 +422,15 @@ class TestIdleBaselineDrift:
     def test_the_separated_drift_spelling_is_refused_naming_the_flag_not_dropped(
         self, bench
     ):
-        """`--measure-drift 4` would leave the 4 to be read as four suites."""
         with pytest.raises(ValueError, match="--measure-drift"):
             bench.parse_flags(["--measure-drift"], 900.0)
 
     def test_the_tolerance_is_not_below_the_measured_idle_drift(self, bench):
-        """A tolerance under the machine's own idle wander condemns clean rows.
-
-        214.3 MB is the largest idle settle gap mantahostels#1449 read, with three
-        sessions live.
-        """
         assert bench.BASELINE_SHIFT_TOLERANCE_MB >= 214.3
 
 
 class TestCeilingKill:
-    """#4031: a suite run-vitest killed at its 840 s ceiling makes its row
-    unusable, so the bench must tell one from a suite that only failed tests."""
+    # #4031
 
     def test_the_ceiling_report_is_read_as_a_kill(self, bench):
         log = (

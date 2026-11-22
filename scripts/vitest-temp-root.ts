@@ -1,7 +1,3 @@
-/*
- * vitest-temp-root.ts — a vitest globalSetup that gives the run one private temp root (#5083).
- */
-
 import { createRequire } from "node:module";
 
 const { makeRunRoot, removeRunRoot } = createRequire(import.meta.url)(

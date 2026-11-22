@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/*
- * time-to-land.js — where the landing queue's time goes (#4951): each
- * queue ref's take-to-land time off the queue log, and each batch's steps
- * off the lander's log, replayed batch by batch (lib/time-to-land.js).
- *
- *   node scripts/time-to-land.js [--since <ISO time>] [--until <ISO time>]
- *
- * The window is lib/time-to-land.js's THE WINDOW, the last 7 days by
- * default. A batch counts where it was taken in it, a queue ref and a green
- * run where they began and ended in it. Times are seconds; `sum` is minutes.
- *
- * In no family: it reads two machine-local logs and prints, gating nothing
- * and writing no file (§N3).
- *
- * Exit codes: 0 printed; 2 on a command line it refuses.
- */
-
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { landerLog } = require("./lib/lander-start.js");
@@ -40,15 +23,12 @@ const {
 } = require("./lib/time-to-land.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-/* The lead before the window that the lander log is read from, so a batch
- * taken before the window that ends in it is replayed from its take. A
- * guess: a day is about 30 times the 46 min take-to-land p90 #4951 measured. */
+// #4951 guess: a day is ~30x the measured 46 min take-to-land p90
 const BATCH_LEAD_MS = DAY_MS;
 
 /** @typedef {import("./lib/time-to-land.js").ReplayedBatch} ReplayedBatch */
 
 /**
- * One table row: the count, p50, p90, max and sum of `spans`, in ms.
  * @param {string} label
  * @param {number[]} spans
  */
@@ -57,7 +37,7 @@ const buildRow = (label, spans) =>
 
 /**
  * @param {readonly string[]} keys
- * @returns {string} each key's count, the commonest first
+ * @returns {string}
  */
 function buildTally(keys) {
 	/** @type {Map<string, number>} */
@@ -70,7 +50,7 @@ function buildTally(keys) {
 }
 
 /**
- * @param {ReplayedBatch[]} batches those taken in the window
+ * @param {ReplayedBatch[]} batches
  * @returns {string[]}
  */
 function buildBatchLines(batches) {
@@ -135,9 +115,8 @@ function buildBatchLines(batches) {
 }
 
 /**
- * @param {import("./lib/time-to-land.js").Stay[]} stays those ended in the
- *   window
- * @param {number[]} greens green run times in the window, ms
+ * @param {import("./lib/time-to-land.js").Stay[]} stays
+ * @param {number[]} greens
  * @returns {string[]}
  */
 function buildMemberLines(stays, greens) {

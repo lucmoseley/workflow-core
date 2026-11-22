@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which stranded file claims and worktrees the sweep names, past what
- * age, and what it itemises under `--notify`.
- *
- * Every test drives the real script end to end through run-in-process, with a
- * fake `claude` on WFC_CLAUDE_BIN standing in for the daemon.
- *
- * Two properties carry the ruling (mantahostels#318 — expiry refused, this sweep bounds the
- * wedge instead): the sweep NEVER breaks a claim, and it degrades to silence
- * rather than to "dead".
- *
- * It runs in `npm run status` and feeds /pick-next's owed-work count: loosen a
- * case and a claim outliving its session goes unreported, so every later
- * writer of its path is warned of a merge conflict that is not there, or a
- * live holder is called finished.
- */
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -39,16 +23,9 @@ const sb = freshSandbox((fresh) =>
 
 const locksDir = () => store.paths.locksDir();
 
-/*
- * The store's own filename for a claim: a truncated sha256 of the repo-relative
- * path. Duplicated rather than exported, because a fixture writing lock files
- * under a name of its own invention is one the arbiter's writers cannot find.
- */
 const lockFile = (rel: string) =>
 	`${createHash("sha256").update(rel).digest("hex").slice(0, 16)}.json`;
 
-/** A lock on disk, in the shape locks.newLock writes. `agedHours` back-dates it;
- * `tree` is the worktree its holder wrote it in, the main checkout where absent. */
 function claim(rel: string, sessionId: string, agedHours = 24, tree?: string) {
 	fs.mkdirSync(locksDir(), { recursive: true });
 	const rec = locks.newLock({
@@ -63,14 +40,12 @@ function claim(rel: string, sessionId: string, agedHours = 24, tree?: string) {
 	return rec;
 }
 
-/** Everything the locks directory holds right now, by claim path. */
 const readLocksOnDisk = () =>
 	fs
 		.readdirSync(locksDir())
 		.filter((f) => f.endsWith(".json"))
 		.map((f) => fs.readFileSync(path.join(locksDir(), f), "utf8")) as string[];
 
-/** A `claude` stand-in whose `agents --json` answers `answer`. */
 function fakeClaude(answer: AgentsAnswer) {
 	const bin = writeClaudeStub(path.join(sb.dir, "bin", "claude"), [
 		buildAgentsBranch(answer),
@@ -79,11 +54,6 @@ function fakeClaude(answer: AgentsAnswer) {
 	return bin;
 }
 
-/*
- * A git repo at the sandbox root, with whatever the tree already holds
- * committed — so a file written AFTER this call is dirty and one written before
- * it is clean.
- */
 function gitRepo() {
 	const git = (...args: string[]) =>
 		spawnSync("git", args, { cwd: sb.repo, encoding: "utf8" });
@@ -111,8 +81,6 @@ const agentsListing = (...sessionIds: string[]) =>
 		}),
 	);
 
-/* A background session the oracle still lists but has marked done — mantahostels#2765's
- * exact shape: finished but not yet reaped. */
 const finishedListing = (...sessionIds: string[]) =>
 	sessionIds.map((sessionId, i) =>
 		buildListedRow({
@@ -136,9 +104,6 @@ const endedListing = (state: string, ...sessionIds: string[]) =>
 		}),
 	);
 
-/* GITHUB_ACTIONS off: these assert on the human report, and check.js writes
- * ::warning:: annotations to stdout when it is set. A `sessionId` is the shape
- * every mid-session caller has; the default is a run from outside a session. */
 const run = (args: string[] = [], sessionId = "") =>
 	runInProcess(SCRIPT, args, {
 		env: {
@@ -150,7 +115,6 @@ const run = (args: string[] = [], sessionId = "") =>
 		cwd: sb.repo,
 	});
 
-/** Human text is on stderr, except under --notify. */
 const report = (r: { stdout: string; stderr: string }) => r.stdout + r.stderr;
 
 describe("what it reports", () => {
@@ -164,7 +128,6 @@ describe("what it reports", () => {
 		expect(out).toContain("dead-session");
 		expect(out).toContain("held 30h");
 		expect(out).toContain("STRANDED-CLAIM");
-		// WARN, never FAIL: a human decides whether anyone is still working it.
 		expect(r.status).toBe(0);
 	});
 
@@ -185,8 +148,7 @@ describe("what it reports", () => {
 		expect(report(run(["--hours", "1"]))).toContain("docs/doc-map.md");
 	});
 
-	/* mantahostels#2765: a holder the oracle still lists but has marked done is judged like
-	 * an unlisted one, not exempted for ever. */
+	// lucmoseley/mantahostels#2765
 	it("reports a claim whose holder is listed but the oracle calls finished, past the threshold", () => {
 		claim("docs/doc-map.md", "finished-session", 30);
 		fakeClaude(finishedListing("finished-session"));
@@ -196,8 +158,7 @@ describe("what it reports", () => {
 		expect(out).toContain("STRANDED-CLAIM");
 	});
 
-	/* mantahostels#2774: `done` was never the only terminal state. A session the oracle
-	 * lists as `failed` or `stopped` has stopped working just as surely. */
+	// lucmoseley/mantahostels#2774
 	it.each(["failed", "stopped"])(
 		"reports a claim whose holder the oracle calls %s, past the threshold",
 		(state) => {
@@ -210,8 +171,6 @@ describe("what it reports", () => {
 		},
 	);
 
-	/* A background session still WORKING must keep its exemption, or the
-	 * widening would call every live holder stranded. */
 	it("still says nothing about a listed holder the oracle calls working", () => {
 		claim("docs/doc-map.md", "busy-session", 300);
 		fakeClaude([
@@ -241,7 +200,7 @@ describe("what it reports", () => {
 		expect(report(run())).toContain("held since an unreadable time");
 	});
 
-	/* mantahostels#1692. */
+	// lucmoseley/mantahostels#1692
 	it("names an unparseable record and still judges every claim beside it", () => {
 		claim("docs/doc-map.md", "dead-session", 30);
 		fs.writeFileSync(path.join(locksDir(), lockFile("AGENTS.md")), "");
@@ -255,7 +214,7 @@ describe("what it reports", () => {
 		expect(out).toContain("STRANDED-CLAIM");
 	});
 
-	/* mantahostels#1747. */
+	// lucmoseley/mantahostels#1747
 	it("keeps reporting the standing count under --notify, run after run", () => {
 		claim("docs/doc-map.md", "dead-session", 30);
 		fakeClaude(agentsListing("live-session"));
@@ -263,7 +222,6 @@ describe("what it reports", () => {
 		for (const _ of [1, 2]) {
 			const r = run(["--notify"]);
 			expect(r.stdout).toContain("STRANDED-CLAIM (1) standing");
-			// Every --notify outcome exits 0 or Claude Code stops showing the hook.
 			expect(r.status).toBe(0);
 		}
 	});
@@ -295,8 +253,7 @@ describe("what it reports", () => {
 		expect(r.status).toBe(0);
 	});
 
-	/* A lock holds a claim SUBJECT, and a region claim spells itself
-	 * `docs/doc-map.md#B42`, which git has never heard of (mantahostels#1747). */
+	// lucmoseley/mantahostels#1747
 	it("matches a REGION claim against the file it names", () => {
 		gitRepo();
 		fs.writeFileSync(path.join(sb.repo, "docs", "doc-map.md"), "edited\n");
@@ -308,8 +265,6 @@ describe("what it reports", () => {
 		expect(out).toContain("docs/doc-map.md#B42");
 	});
 
-	/* The whole reason for `-z`: porcelain v1 C-quotes a path with a space, and
-	 * a quoted path never matches the raw one the lock holds. */
 	it("matches a claim on a path with a space in it", () => {
 		gitRepo();
 		fs.writeFileSync(path.join(sb.repo, "docs", "a note.md"), "edited\n");
@@ -319,8 +274,6 @@ describe("what it reports", () => {
 		expect(run(["--notify"]).stdout).toContain("docs/a note.md");
 	});
 
-	/* A rename spends the next NUL-separated field on its source, so a claim on
-	 * the OLD name must still be found. */
 	it("matches a claim on the source side of a rename", () => {
 		fs.writeFileSync(path.join(sb.repo, "docs", "was.md"), "content\n");
 		gitRepo();
@@ -339,15 +292,12 @@ describe("what it reports", () => {
 		claim("docs/doc-map.md", "dead-session", 30);
 		fakeClaude(agentsListing("live-session"));
 
-		// The sandbox repo is not a git repo at all, so `git status` cannot answer.
 		const r = run(["--notify"]);
 		expect(r.stdout).toContain("STRANDED-CLAIM (1) standing");
 		expect(r.stdout).toContain("would not answer");
 		expect(r.stdout).not.toContain("docs/doc-map.md");
 		expect(r.status).toBe(0);
 
-		// And a hand run says it too, rather than printing a list whose missing
-		// annotations read exactly like a clean tree.
 		expect(report(run())).toContain("would not answer");
 	});
 
@@ -448,11 +398,6 @@ describe("it degrades to silence, never to dead", () => {
 		expect(r.status).toBe(0);
 	});
 
-	/*
-	 * Mid-session, the oracle lists its caller, so a listing that omits it is a
-	 * short one — and on a short list a live neighbour's claim would read
-	 * stranded. The strict self-test refuses it instead (#1390).
-	 */
 	it("judges nothing, and names the omission, where the oracle has not listed the session it runs in", () => {
 		claim("docs/doc-map.md", "dead-session", 500);
 		fakeClaude(agentsListing("someone-else"));
@@ -489,13 +434,8 @@ describe("it degrades to silence, never to dead", () => {
 	});
 });
 
-/*
- * Seam 2 (#4244, spec #4229): a linked worktree of the main checkout, owned
- * by the session whose job record names it as its cwd.
- */
+// #4244
 describe("a finished session's worktree", () => {
-	/** A worktree detached at HEAD, owned through `sessionId`'s job record,
-	 * with `rel` dirtied in it and back-dated `hours`. */
 	function worktreeOf(sessionId: string, rel: string, hours: number) {
 		gitRepo();
 		const wt = path.join(sb.repo, ".claude", "worktrees", "w1");

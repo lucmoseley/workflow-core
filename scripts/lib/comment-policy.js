@@ -1,4 +1,8 @@
 const { CALLER_BODY, LOADS_BODY } = require("./code-edges-pragmas.js");
+const {
+	DENIES_BY_EXIT_BODY,
+	DENIES_THROUGH_BODY,
+} = require("./deny-capable.js");
 const { SHIM_MARK } = require("./hook-shim.js");
 const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
@@ -628,7 +632,13 @@ const DIRECTIVES = [
 	},
 	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
 	{
-		re: /^(?:full-sweep-only:|Unbuilt caller:\s*(?=[^\s./]*[./])\S+(?=\s|$))(.*)$/,
+		re: new RegExp(
+			String.raw`^(?:${DENIES_THROUGH_BODY}|${DENIES_BY_EXIT_BODY})[ \t]*$`,
+		),
+		read: readsAsCode,
+	},
+	{
+		re: /^(?:full-sweep-only:|[a-z][a-z-]*-exempt:|Unbuilt caller:\s*(?=[^\s./]*[./])\S+(?=\s|$))(.*)$/,
 		read: (m) => (barePointers(m[1] ?? "") ? "code" : null),
 	},
 	{

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the effort guide's routing generator (#5033). The routing is the
- * fixture's (lib/model-table.test.ts names its rows), so a value edit to the real file breaks nothing here; the
- * last case checks the real guide against the real file. Break it and the
- * guide's routing block can fall behind the routing file while `npm run
- * status` and pre-commit stay green.
- */
 
 import fs from "node:fs";
 import os from "node:os";

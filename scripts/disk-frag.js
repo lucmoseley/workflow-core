@@ -1,30 +1,4 @@
 #!/usr/bin/env node
-/*
- * disk-frag.js — how much of the WSL disk's free space sits in small aligned
- * chunks, and where on the disk its used blocks sit, without root (#5054).
- *
- * In no family (§N3): a readout run by hand while the disk is being measured,
- * neither a check, a guard nor a report the sweeps run.
- *
- * It reads the kernel's per-group buddy table, /proc/fs/ext4/<dev>/mb_groups,
- * which is world-readable where the device is not, so `e2freefrag` needs
- * root. Each row counts a block group's free chunks by buddy order: order k
- * is 2^k blocks, aligned to its own size. These are NOT e2freefrag's free
- * extents: the buddy cuts a free run into aligned chunks, so a run of 4 MiB
- * or more that starts off a 4 MiB boundary counts partly under 4 MiB. Keep a
- * series to one tool. Aligned chunks are what a 1 MiB-block `compact vdisk`
- * sees, so the figure under COMPACT_BYTES is free space it cannot hand back
- * (docs/environment.md §1).
- *
- * BANDS sums the used space per BAND_GIB of disk, so a band filling past the
- * packed region shows where new writes land: ext4's Orlov allocator puts a
- * top-level directory such as /tmp into an empty region of its own.
- *
- * Residual: a group is taken to hold 8 × block-size blocks, one block bitmap's
- * worth, which a filesystem made with `mke2fs -g` or bigalloc breaks. On a
- * live mount the read refuses where the groups do not cover the filesystem's
- * blocks; a saved --table is taken at TABLE_BLOCK_BYTES, unchecked.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -35,17 +9,12 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const MIB = 2 ** 20;
 const GIB = 2 ** 30;
-/* WSL's VHDX block, the unit `compact vdisk` frees (docs/environment.md §1). */
 const COMPACT_BYTES = MIB;
-/* #5041's cut: the free space under it was the dead space its rebuild dropped. */
+/* #5041 */
 const REBUILD_BYTES = 4 * MIB;
-/* A readability choice: 512 groups, so the rebuild's packed 0–128 GiB reads as
- * two bands. */
 const BAND_GIB = 64;
-/* mke2fs.conf's default block size for any filesystem over 512 MiB. */
 const TABLE_BLOCK_BYTES = 4096;
 const USAGE = `Usage: node ${scriptPath("disk-frag.js")} [--mount <path>] [--table <file>] [--json]`;
-/* One group: `#<n> : <free> <frags> <first> [ <chunks by order> ]`. */
 const ROW = /^#(\d+)\s*:\s*(\d+)\s+\d+\s+\d+\s*\[([\d\s]*)\]/;
 
 /**
@@ -56,7 +25,6 @@ const ROW = /^#(\d+)\s*:\s*(\d+)\s+\d+\s+\d+\s*\[([\d\s]*)\]/;
  */
 
 /**
- * Summarise the text of an mb_groups table.
  * @param {string} text
  * @param {number} blockBytes
  * @returns {Frag}
@@ -112,13 +80,7 @@ function summarise(text, blockBytes) {
 	};
 }
 
-/**
- * Read the kernel's name for the device of the ext4 filesystem mounted at
- * `mount`, the name /proc/fs/ext4 keys it by, or null where none is ext4.
- * The name comes from the row's major:minor through /sys/dev/block, never
- * from its source field, which can be an alias such as /dev/root.
- * @param {string} mount
- */
+/** @param {string} mount */
 function readExt4Device(mount) {
 	for (const line of fs
 		.readFileSync("/proc/self/mountinfo", "utf8")

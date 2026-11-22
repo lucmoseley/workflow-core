@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/post-commit-dispatch.js and lib/post-commit-rows.js (#5208, spec
- * #5207).
- *
- * Breaking it costs every after-commit notice, release and record at once:
- * the hook's one line runs them all.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -66,8 +59,6 @@ describe("the registry", () => {
 			{ mode: 0o755 },
 		);
 		quietPrograms();
-		/* check-guard-registry.js reads its own top level as it loads: the
-		 * program's read, not a row's, so it loads before the count. */
 		for (const checker of [
 			STEPS.PROGRAM_FILES.instructionSurface,
 			STEPS.PROGRAM_FILES.guardRegistry,
@@ -193,7 +184,6 @@ describe("the real .husky/post-commit, as git fires it", () => {
 		const r = repo.git("commit", "-q", "--allow-empty", "-m", "mine");
 
 		expect(r.status).toBe(0);
-		// git hands a hook's stdout to its own stderr.
 		expect(r.stderr).toContain(
 			"\u001b[33m!\u001b[0m 1 commit not pushed to origin/main.\n",
 		);

@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins a /pick-next dispatch set's per-member re-read: the memory, CPU-load
- * and CPU-session holds, the force flags, the launch stagger, the roster
- * remedy, and the kernel-stall and scheduler-clock checks.
- *
- * Loosen a test here and a set launches past a memory or CPU gate, which is
- * how the machine freezes.
- *
- * The stagger cases (mantahostels#2553) assert on a `sleep` stubbed onto PATH
- * (#146): bash has no `sleep` builtin, so the script's own bare
- * `sleep "$STAGGER_SECONDS"` resolves through PATH like any other command. Not
- * a wall-clock ceiling: neighbour load breaches one.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -59,8 +43,6 @@ describe("the partial launch's edges", () => {
 	});
 
 	it("warns about the advisor for the members that actually launch", async () => {
-		/* The Sonnet member is dropped, so the set that launches is Opus-only and
-		 * wants no advisor. */
 		stubClaude({ advisorAttaches: false });
 		await runCore(["sonnet", "/implement 341"]);
 		const second = await runCore([
@@ -82,9 +64,6 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 	});
 
 	it("refuses a member when the re-read shows no headroom, and names it", async () => {
-		// A neighbour already listed, so the always-admit-one guarantee
-		// (`admission.js`'s own header) does not mask the low-memory refusal
-		// this test is actually about.
 		stubClaude({
 			agentsJson: agentsListing(true),
 		});
@@ -146,8 +125,9 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 });
 
 describe("a CPU load hold at the re-read (#830, #834)", () => {
-	// load1 well over the testkit's WFC_LOAD_CEILING of 10.
-	const overloaded = () => fs.writeFileSync(fx.loadavg, buildLoadavgLine(60));
+	const WellOverLoadCeiling = 60;
+	const overloaded = () =>
+		fs.writeFileSync(fx.loadavg, buildLoadavgLine(WellOverLoadCeiling));
 
 	it("names the load remedy, and neither the memory one nor the roster", async () => {
 		stubClaude({});
@@ -212,8 +192,6 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 	});
 });
 
-/* #2876: the admit path's warning match, on the allowance line admission.js
- * prints where its own reading is not fresh, and silent where it is. */
 describe("the admit-path allowance warning", () => {
 	it("names the member and the stale reading, and launches", async () => {
 		stubClaude({});
@@ -289,9 +267,6 @@ describe("a CPU session hold at the re-read (#2141)", () => {
 });
 
 describe("--force and --force-memory split (#299)", () => {
-	/** A fresh cache with the session bar full — read by both the pre-set cap
-	 * and admission.js's per-spawn 100% backstop, so a refusal from either is
-	 * possible. */
 	const fullSession = (): Record<string, string> => {
 		const configDir = path.join(fx.dir, "full-session-config");
 		writeCache(configDir, { session: 100, weeklyAll: 12 });
@@ -361,12 +336,6 @@ describe("--force and --force-memory split (#299)", () => {
 });
 
 describe("the launch stagger (mantahostels#2553)", () => {
-	/*
-	 * THE ONE CASE ON REAL ELAPSED TIME, and the only proof the stagger is a
-	 * real sleep rather than a recorded intention — every other case here runs
-	 * against the stub. Its bound is a floor, so neighbour load can only push
-	 * it further from failing.
-	 */
 	it("sleeps WFC_DISPATCH_STAGGER_SECONDS between two launches", () => {
 		stubClaude({});
 		const start = Date.now();
@@ -381,18 +350,10 @@ describe("the launch stagger (mantahostels#2553)", () => {
 		);
 		const elapsed = Date.now() - start;
 		expect(r.status).toBe(0);
-		// §X9: the stagger is a real sleep, and this floor is its one proof; load only moves it away from failing.
 		expect(elapsed).toBeGreaterThanOrEqual(1000);
-		// The wall-clock alone would also pass a run that slept but refused the
-		// second member — both launches must actually have happened.
 		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
 	});
 
-	/*
-	 * THE DEFAULT IS MEASURED, NOT CHOSEN (mantahostels#2588; the derivation sits on
-	 * STAGGER_SECONDS). The recorded argument pins it: any re-pick or a
-	 * dropped sleep fails.
-	 */
 	it("staggers by the measured 2 seconds when nothing overrides it", async () => {
 		stubClaude({});
 		const r = await runCore(
@@ -404,18 +365,12 @@ describe("the launch stagger (mantahostels#2553)", () => {
 		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
 	});
 
-	/*
-	 * The three cases below assert an EMPTY log, never a sub-second elapsed
-	 * time, which a `sleep 0.9` would pass.
-	 */
 	it("never sleeps before the first launch, or after the last", async () => {
 		stubClaude({});
 		const r = await runCore(["sonnet", "/implement 341"], {
 			WFC_DISPATCH_STAGGER_SECONDS: "1",
 		});
 		expect(r.code).toBe(0);
-		// An empty log also describes a run that never launched at all, so the
-		// one launch has to be asserted alongside it.
 		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(1);
 		expect(sleepArgs()).toEqual([]);
 	});
@@ -438,7 +393,6 @@ describe("the launch stagger (mantahostels#2553)", () => {
 			{ WFC_DISPATCH_STAGGER_SECONDS: "1" },
 		);
 		expect(r.code).toBe(0);
-		// Both launches ran and failed: the failure, not a refusal, is what skips the stagger.
 		expect(r.stderr).toContain("(claude exited 1; not recorded as launched.)");
 		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
 		expect(sleepArgs()).toEqual([]);
@@ -454,9 +408,6 @@ describe("the launch stagger (mantahostels#2553)", () => {
 			{ WFC_DISPATCH_STAGGER_SECONDS: "1" },
 		);
 		expect(r.code).toBe(0);
-		// Both members refused (memory stays low throughout), so neither pays
-		// the stagger. Asserted on the refusal itself, not just the empty log:
-		// a `claude` that died on launch would leave the same empty log.
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("REFUSED: /wayfinder 1114");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
@@ -464,21 +415,12 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	});
 });
 
-/*
- * mantahostels#2588. The re-read charges for the spare pair the daemon warms the moment
- * THIS member's launch claims its own — memory the next member of the same set
- * would otherwise find gone. `admission.js` prints that reserve on its own line,
- * and a refused member relays admission's whole output, which is where the flag
- * having reached it is observable from outside.
- */
 describe("the pending-spare charge on the re-read (mantahostels#2588)", () => {
 	it("relays the pending-spare reserve in a refusal, so the flag is visibly in force", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    600000 kB\n");
 		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.stderr).toContain("pending spares");
-		// No idle pair is resident under the empty `ps` stub, so the measured
-		// fallback is what prices it.
 		expect(r.stderr).toContain("106 MB");
 	});
 
@@ -490,11 +432,6 @@ describe("the pending-spare charge on the re-read (mantahostels#2588)", () => {
 	});
 });
 
-/*
- * #2889. admission.js's lander read lists the suite queue under the temp root,
- * which the fixture points at its own directory: a refused member relays the
- * slot arithmetic, which names a lander's reserve only where one is queued.
- */
 describe("the lander read on the re-read (#2889)", () => {
 	const refused = async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
@@ -517,11 +454,6 @@ describe("the lander read on the re-read (#2889)", () => {
 	});
 });
 
-/*
- * mantahostels#2588. Both refusals here have the same likeliest cause — a slot or a ledger
- * entry held by a job that will never finish — so the route that actually
- * retires one travels with the refusal rather than behind a second command.
- */
 describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 	it("offers the roster SIGTERM route when the re-read refuses a member", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
@@ -568,14 +500,6 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		expect(r.stderr.split("check-ghost-jobs.js")).toHaveLength(2);
 	});
 
-	/*
-	 * ONE REFUSAL IS UNPINNED HERE (mantahostels#2588).
-	 * `refuse_dispatched` does not print the roster recipe itself; the
-	 * already-dispatched call site does, because a job stuck in "working" holds
-	 * its ledger entry and its issues then read as already running. The other
-	 * caller — an unreadable per-member drop list — gets nothing, and that
-	 * branch has no test.
-	 */
 	it("says nothing about a roster on a launch that is not refused", async () => {
 		stubClaude({});
 		const r = await runCore(["sonnet", "/implement 341"]);
@@ -625,12 +549,6 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		expect(r.stderr).toContain("HOME unset or unreadable");
 	});
 
-	/*
-	 * mantahostels#2598: a HUNG-JOB is named INLINE, off `admission.js`'s own oracle read —
-	 * no second `check-ghost-jobs.js` invocation. The fixture is a
-	 * "working" job listed alive with a pid, past the transcript-less window,
-	 * so `lib/hung-jobs.js#findHungJobs` calls it hung rather than a ghost.
-	 */
 	it("names a HUNG-JOB inline, with its roster path, on a refusal (mantahostels#2598)", async () => {
 		const hungSessionId = "hung-0000-0000-0000-000000000000";
 		stubClaude({
@@ -722,8 +640,6 @@ describe("the kernel-stall check (#867)", () => {
 
 	it("re-checks before each member, naming the ones already launched and --force", async () => {
 		stubClaude({});
-		// Clean for the opening check and the first member's, stalled from the
-		// second member's on.
 		const calls = path.join(fx.dir, "journal-calls");
 		const journal = path.join(fx.dir, "journalctl-stalls-later");
 		fs.writeFileSync(
@@ -787,10 +703,3 @@ describe("the scheduler-clock check (#2779)", () => {
 		expect(launchArgv()).toBeDefined();
 	});
 });
-
-/*
- * The interop-bridge wedge (mantahostels#3111). CLAUDE_INTEROP_REG points at an executable
- * that sleeps. The budget is driven to 1s for the behavioural cases; the one
- * case that proves the SHIPPED budget clears the 45s ceiling runs at the real
- * default and pays about 36s for it (docs/environment.md §9).
- */

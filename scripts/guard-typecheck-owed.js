@@ -1,31 +1,4 @@
 #!/usr/bin/env node
-/*
- * guard-typecheck-owed.js — Stop hook. Asks a session for a type-check where
- * its commit's pre-commit try found the machine-wide slot held (#3803).
- *
- * WHY. The hook never waits for the slot, as its commit holds .git/index.lock
- * (#3278), so a held slot leaves that commit's first type report to CI, and the
- * hook's skip line goes to commit output that sessions usually pipe through
- * `tail` or `grep`.
- *
- * THE DEBT IS READ OFF queue-run.js's EXIT LOG (lib/queue-exit-log.js), so paying
- * it writes nothing here. A `refused` line marked `noWait` is a held try; an
- * `opened` line with no `noWait` is a later run of the session's own. A later
- * try that opened pays nothing, as its report goes to the same piped output.
- *
- * WHY THE MODEL RUNS IT. The check outlasts this hook's timeout and may wait in
- * the queue, so the block hands over the command.
- *
- * IT ALSO TAKES A RED TRY STILL UNHEARD (#3824): lib/typecheck-red.js delivers one
- * on the next Bash answer, so what reaches here is a background commit whose turn
- * ends with no further Bash call.
- *
- * LIMITS. `opened` is written before the command starts, and nothing records a
- * run's end, so a run killed after it reads as paid. A try whose commit another
- * gate then refused still owes, and so does a commit behind the session's own
- * background type-check, which costs one more run.
- */
-
 const { logger } = require("./lib/entry-input.js");
 const hookBlock = require("./lib/hook-block");
 const { readJsonl } = require("./lib/jsonl.js");
@@ -36,8 +9,6 @@ const { takeRed } = require("./lib/typecheck-red-host.js");
 const { readDeclaredCommand } = require("./lib/workflow-core-config.js");
 
 /**
- * When this session's oldest held try since its last own run happened, or null
- * where it owes nothing.
  * @param {string} file
  * @param {string} sid
  * @returns {string|null}
@@ -74,7 +45,7 @@ function judge({ sessionId: sid, root }) {
  * @returns {string|null}
  */
 function redFinding(root, sid) {
-	/* At the cap the block is refused, so the record stays for the next Bash. */
+	// #3824
 	if (hookBlock.capSpent({ prefix: ".typecheck-owed-nagged-", sessionId: sid }))
 		return null;
 	const red = takeRed(root, sid, logger("guard-typecheck-owed.js", root));

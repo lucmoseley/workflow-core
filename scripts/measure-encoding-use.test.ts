@@ -1,29 +1,4 @@
 // @vitest-environment node
-/*
- * Two guarantees about the REPORT rather than the counting:
- *
- *  1. THE INVENTORY COMES FROM DISK, NOT A HAND-LIST. A skill added to
- *     `.claude/skills/` or `.agents/skills/`, or a name added to
- *     package.json's `scripts`, must appear here without anyone editing this
- *     script — or it arrives uncounted, which reads as neither used nor unused.
- *
- *  2. A ZERO IS REPORTED AS A ZERO. The whole finding this scan exists for is
- *     the never-invoked row (mantahostels#1241), so a never-used name must be listed by
- *     name, never dropped.
- *
- * Transcripts are synthetic, written to a temp dir per test, but the inventory
- * is compared against this repo's real skill folders and package.json, since
- * guarantee 1 is about what is on disk.
- *
- * Built end to end (#1369, §G6: nothing is exported only for its tests): every
- * case runs the program in-process through lib/run-in-process.js on
- * `--dir <temp dir>`, and reads its `--json` envelope or its printed report —
- * the two things a reader of the scan ever sees.
- *
- * The scan is hand-run on no trigger (mantahostels#1243). Breaking either guarantee
- * hides a skill or npm script nobody invokes, so the retirement call it exists
- * to prompt is never made.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -39,7 +14,6 @@ const BAR = ["--min-count", "1", "--min-sessions", "1", "--top", "10"];
 
 let dir: string;
 
-/** One transcript, from records given as objects. */
 function transcript(name: string, records: Record<string, unknown>[]) {
 	fs.writeFileSync(
 		path.join(dir, `${name}.jsonl`),
@@ -53,17 +27,12 @@ const bash = (command: string, id: string) =>
 		timestamp: "2026-08-20T09:00:00.000Z",
 	});
 
-/* The host root pinned to this checkout, whatever CLAUDE_PROJECT_DIR the
- * suite inherited. From a linked worktree hostRoot maps that to the main
- * checkout, so the inventory read is the main checkout's: compare against
- * `host()`, never ROOT. */
 const run = (...args: string[]) =>
 	runInProcess(SCRIPT, args, {
 		cwd: ROOT,
 		env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
 	});
 
-/** The root the script reads its inventory from, resolved as it resolves it. */
 const host = () => {
 	vi.stubEnv("CLAUDE_PROJECT_DIR", ROOT);
 	return hostRoot(ROOT);
@@ -76,7 +45,6 @@ interface Row {
 	last: string;
 }
 
-/** The `--json` report over the temp corpus. */
 const report = (...args: string[]) => {
 	const { status, stdout, stderr } = run("--dir", dir, "--json", ...args);
 	expect(stderr).toBe("");
@@ -84,7 +52,6 @@ const report = (...args: string[]) => {
 	return JSON.parse(stdout);
 };
 
-/** The printed report over the temp corpus. */
 const printed = (...args: string[]) => {
 	const { status, stdout } = run("--dir", dir, ...args);
 	expect(status).toBe(0);
@@ -151,7 +118,6 @@ describe("counting across the corpus", () => {
 	});
 
 	it("counts one tool call once, however many records carry it", () => {
-		// One assistant turn writes one record PER CONTENT BLOCK (mantahostels#1141).
 		transcript("a", [bash("npm run test", "t1"), bash("npm run test", "t1")]);
 		expect(report(...BAR).npm.find((r: Row) => r.name === "test").total).toBe(
 			1,
@@ -160,8 +126,6 @@ describe("counting across the corpus", () => {
 
 	it("names a transcript it could not read rather than counting it as empty", () => {
 		transcript("a", [bash("npm run test", "t1")]);
-		/* A subagent transcript is listed by name alone, so one whose target is
-		 * gone reaches the scan and fails to open there. */
 		const subagents = path.join(dir, "a", "subagents");
 		fs.mkdirSync(subagents, { recursive: true });
 		const missing = path.join(subagents, "gone.jsonl");
@@ -237,8 +201,6 @@ describe("the CLI boundary — argv, exit codes and what the message names", () 
 	it("refuses a corpus directory it cannot read, naming the directory", () => {
 		const missing = path.join(dir, "nope");
 		const { status, stderr } = run("--dir", missing);
-		// BROKEN, never 0: nothing was measured, and a zero would read as a
-		// corpus in which nothing was ever invoked.
 		expect(status).toBe(2);
 		expect(stderr).toContain(missing);
 	});
@@ -270,8 +232,6 @@ describe("the CLI boundary — argv, exit codes and what the message names", () 
 	});
 
 	it("names the flag AS TYPED when its value is not a number (mantahostels#1299)", () => {
-		// The review at mantahostels#1299 found this printing `--minCount`, a flag that does
-		// not exist, because the message was built from the field name.
 		const bad = run("--dir", dir, "--min-count", "banana");
 		expect(bad.status).toBe(2);
 		expect(bad.stderr).toContain("--min-count needs a non-negative number");

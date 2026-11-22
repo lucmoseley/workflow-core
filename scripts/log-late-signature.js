@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * log-late-signature.js — the outcome review's late-signature backstop
- * (#4796): a ticket that closed fault-shaped with no signature gets one after
- * the fact, checked as file-issue.js checks a filing's, and logged
- * `late: true` so its verdicts are reported apart. The ticket gains the
- * `fault-signature` label and the line in its body section first, as a filing
- * does (#4861).
- *
- *   node scripts/log-late-signature.js --issue <owner/name>#<n>
- *     --filed-at <iso> --fault-signature <file>
- *   node scripts/log-late-signature.js --restore <owner/name>#<n>
- *
- * `--filed-at` is the ticket's own `createdAt`. `--restore` appends the line a
- * ticket's body section records, unchanged: the outcome review's
- * `lostLines` names the tickets owing one. The line lands in the worktree's
- * docs/data/outcome-signatures.jsonl, for the caller to commit.
- * Exits: 0 logged, 1 a tracker read or write failed or the section is gone,
- * 2 a usage error or a signature refused.
- *
- * IN NO §N3 FAMILY: it gates nothing and files no issue, and it appends one
- * line to a log rather than writing a file whole, so it is no `generate-*`.
- */
 
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -47,10 +25,7 @@ function refuse(msg, code = 2) {
 	process.exit(code);
 }
 
-/**
- * The ticket's body, or exit 1 naming the failed read.
- * @param {{repo: string, number: number}} ref
- */
+/** @param {{repo: string, number: number}} ref */
 function readBody({ repo, number }) {
 	try {
 		return String(

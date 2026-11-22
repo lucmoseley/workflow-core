@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The warm-fraction report over `pick-next.js`'s run log: identical runs
- * collapsed and said so, no verdict under ten runs, and the pre-warming split
- * judged on its own side (mantahostels#789, mantahostels#1054,
- * mantahostels#1327).
- *
- * Exercised against a throwaway root via WFC_REPO_ROOT: the script reads a
- * log, and pointing it at this repo would report the real measurement.
- *
- * The verdict fixtures are synthetic lines rather than real runs: a verdict
- * needs ten.
- *
- * `npm run warm-fraction` is read by hand: loosen a case and it confirms or
- * refutes mantahostels#385's 60-80% re-pick saving off double-counted or too
- * few runs.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -33,7 +17,6 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** One stored record, with the issue numbers a duplicate is judged on. */
 const rec = (at: string, session: string, warm: number[], cold: number[]) => ({
 	at,
 	frontier: warm.length + cold.length,
@@ -69,12 +52,6 @@ const report = (...args: string[]) => {
 	return r.out;
 };
 
-/**
- * A run `warm` of `frontier` tickets warm. `i` spaces the timestamps an hour
- * apart and shifts the issue numbers, so no two lines share a duplicate key: the
- * collapse keys on frontier membership, and ten identical lines would collapse
- * to one and never reach the verdict floor.
- */
 const line = (
 	i: number,
 	{ frontier, warm }: { frontier: number; warm: number },
@@ -95,11 +72,6 @@ const line = (
 const runs = (n: number, frontier: number, warm: number) =>
 	Array.from({ length: n }, (_, i) => line(i, { frontier, warm }));
 
-/**
- * A spread of runs pooling to one fraction: `a` and `b` alternate. A verdict is
- * an overlap of intervals, and a zero-variance fixture cannot tell that apart
- * from a midpoint test.
- */
 const spread = (
 	n: number,
 	a: { frontier: number; warm: number },
@@ -172,10 +144,6 @@ describe("reporting the collapsed duplicates", () => {
 });
 
 describe("reporting a run that carried no fraction", () => {
-	/*
-	 * Only the RUNS block: the prose above it says "frontier" too, and the
-	 * window line carries the same timestamps.
-	 */
 	const runRows = (out: string) =>
 		out.slice(out.indexOf("RUNS (oldest first)")).split("\n").slice(1);
 
@@ -220,7 +188,6 @@ describe("with nothing recorded", () => {
 	});
 
 	it("exits 0 where the log cannot be read at all", () => {
-		// A directory where the file belongs.
 		fs.mkdirSync(path.join(root, LOG_SUBPATH), { recursive: true });
 		const r = runReport();
 		expect(r.status).toBe(0);
@@ -245,7 +212,6 @@ describe("the verdict", () => {
 	});
 
 	it("confirms a fraction whose whole band sits inside mantahostels#385's 60-80%", () => {
-		// A band tight enough to stay inside the claim.
 		write(spread(10, { frontier: 20, warm: 13 }, { frontier: 20, warm: 15 }));
 		const out = report();
 		expect(out).toContain("CONFIRMED — measured 70.0%");
@@ -261,8 +227,6 @@ describe("the verdict", () => {
 		write(spread(10, { frontier: 10, warm: 1 }, { frontier: 10, warm: 3 }));
 		const out = report();
 		expect(out).toContain("REFUTED — measured 20.0%");
-		// mantahostels#628's fourth criterion: below the claim the cache may cost more upkeep
-		// than it returns.
 		expect(out).toContain("PLAINLY: the cache is warm on 20.0%");
 		expect(JSON.parse(report("--json")).verdict.side).toBe("below");
 	});
@@ -276,7 +240,6 @@ describe("the verdict", () => {
 	});
 
 	it("calls a band straddling the claim's edge inconclusive, not refuted", () => {
-		// 65% pooled, but the run-to-run spread reaches either side of 60-80%.
 		write(spread(10, { frontier: 10, warm: 3 }, { frontier: 10, warm: 10 }));
 		expect(report()).toContain("INCONCLUSIVE — measured 65.0%");
 		expect(JSON.parse(report("--json")).verdict.side).toBeNull();
@@ -285,7 +248,6 @@ describe("the verdict", () => {
 
 describe("the interval the verdict is judged on", () => {
 	it("does not confirm a band whose lower edge falls below the claim", () => {
-		// 65% pooled, spread either side, so the band reaches under 60%.
 		write(spread(10, { frontier: 20, warm: 11 }, { frontier: 20, warm: 15 }));
 		expect(report()).toContain("INCONCLUSIVE — measured 65.0%");
 	});
@@ -307,23 +269,17 @@ describe("what the report qualifies", () => {
 			line(0, { frontier: 100, warm: 50 }),
 			line(1, { frontier: 2, warm: 2 }),
 		]);
-		// Cost-weighted: 52 of 102, not the 75% the two runs average to.
 		expect(report()).toContain("pooled        51.0%  (52 warm of 102");
 	});
 
 	it("shows no cause share where nothing was cold", () => {
-		// A share of zero cold tickets is undefined, not 0%.
 		write([line(0, { frontier: 10, warm: 10 })]);
 		expect(report()).toContain("never derived  0 (—)");
 	});
 
 	it("labels the header as entries over distinct tickets, not as tickets alone (mantahostels#1428)", () => {
 		write([
-			// Cold on ticket 9, {frontier:10, warm:8} defaults its cold numbers to
-			// [8, 9] (see `rec`/`line`'s helper).
 			line(0, { frontier: 10, warm: 8 }, { session: "s1" }),
-			// A different session and cold list, so this is not collapsed as a
-			// duplicate of the line above, but re-derives ticket 9 cold.
 			{
 				...line(0, { frontier: 10, warm: 8 }, { session: "s2" }),
 				coldNumbers: [
@@ -376,7 +332,6 @@ describe("what the report qualifies", () => {
 });
 
 describe("the covered fraction's own floor (mantahostels#1054)", () => {
-	/** `n` runs a pre-warming build wrote, each pre-warming two tickets. */
 	const prewarmed = (n: number) =>
 		Array.from({ length: n }, (_, i) => ({
 			...line(i, { frontier: 4, warm: 2 }),
@@ -388,7 +343,6 @@ describe("the covered fraction's own floor (mantahostels#1054)", () => {
 		write(prewarmed(4));
 		const out = report();
 		expect(out).toContain("covered       WITHHELD — 4 of 10");
-		// The suppressed arithmetic is printed, so nobody re-derives it by hand.
 		expect(out).toContain("The arithmetic would give");
 	});
 
@@ -449,7 +403,6 @@ describe("the two sides of the pre-warming change (mantahostels#1054)", () => {
 				degraded: 0,
 				putsSinceLastRun: 0,
 			},
-			// A second after-split run re-deriving one of the first's cold tickets.
 			{
 				...rec(t(3), "s2", [60], [2001]),
 				provisional: 2,
@@ -481,12 +434,6 @@ describe("the two sides of the pre-warming change (mantahostels#1054)", () => {
 });
 
 describe("the verdict when the log spans the pre-warming split (mantahostels#1327)", () => {
-	/**
-	 * `n` post-split runs, each of 4 frontier tickets, `warm` of them warm and
-	 * `provisional` pre-warmed — so `splitAtProvisional` places every one on the
-	 * AFTER side. Indices start at 2, after `runs(2, ...)`'s BEFORE-side lines,
-	 * so no two lines share a timestamp or an issue-number key.
-	 */
 	const afterFixture = (n: number, warm: number, provisional: number) =>
 		Array.from({ length: n }, (_, k) => ({
 			...line(2 + k, { frontier: 4, warm }),
@@ -514,8 +461,6 @@ describe("the verdict when the log spans the pre-warming split (mantahostels#132
 	});
 
 	it("says the bound rules nothing out where covered stays high", () => {
-		// Every one of these 10 runs carries the identical 75% covered fraction,
-		// so the band is zero-width — a tight bound is still only inconclusive.
 		write([...runs(2, 4, 2), ...afterFixture(10, 1, 2)]);
 		const out = report();
 		expect(out).toContain(
@@ -540,9 +485,6 @@ describe("the verdict when the log spans the pre-warming split (mantahostels#132
 	});
 
 	it("does not refute a covered bound on noise, if the after side ever carries a spread", () => {
-		// Ten runs whose per-run covered fraction alternates 25%/95% — pooled
-		// point sits under the claim, but the spread reaches over it, so a
-		// midpoint test would wrongly refute where the band does not.
 		write([
 			...runs(2, 4, 2),
 			...Array.from({ length: 10 }, (_, k) => ({
@@ -566,9 +508,6 @@ describe("the verdict when the log spans the pre-warming split (mantahostels#132
 	});
 
 	it("carries a headlineVerdict in --json that never reads the cross-split pooled figure", () => {
-		// A caller reading `verdict` alone in --json would hit the exact fault
-		// mantahostels#1327 fixes; `headlineVerdict` is what the text report actually
-		// asserts, and must not silently agree with the pooled one.
 		write([...runs(2, 4, 2), ...afterFixture(10, 0, 1)]);
 		const out = JSON.parse(report("--json"));
 		expect(out.headlineVerdict).toMatchObject({
@@ -577,9 +516,6 @@ describe("the verdict when the log spans the pre-warming split (mantahostels#132
 			state: "refuted",
 			point: 0.25,
 		});
-		// The pooled figure this fixture would otherwise headline off — different
-		// from headlineVerdict's `covered`-bound point, proving the two are not
-		// silently the same number under a new name.
 		expect(out.verdict.point).not.toBeCloseTo(out.headlineVerdict.point);
 	});
 
@@ -596,7 +532,6 @@ describe("the verdict when the log spans the pre-warming split (mantahostels#132
 
 describe("the window a figure was read over (mantahostels#789)", () => {
 	it("prints the span beside the endpoints, not the endpoints alone", () => {
-		// Three runs an hour apart: a 2.0-hour window.
 		write(runs(3, 4, 2));
 		expect(report()).toContain("(2.0 hours)");
 	});

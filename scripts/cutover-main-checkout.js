@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/*
- * cutover-main-checkout.js — the main checkout's one move to the worktree
- * model (#4248).
- *
- *   node scripts/cutover-main-checkout.js
- *     cuts over the main checkout of the repository the current directory is
- *     in, from it or from any linked worktree of it; run again, it reports
- *     the edits left there and runs a levelling pass
- *
- * check-main-checkout-cutover.js runs the same cutover at session start
- * (lib/cutover-run.js, #5276).
- *
- * In no family (§N3).
- *
- * The report goes to stderr. Exit 0 cut over, 1 refused or failed, 2 a usage
- * error.
- */
 
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");

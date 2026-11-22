@@ -867,7 +867,6 @@ describe("a hold raised through repo-hold.js from a linked worktree git refuses 
 					...process.env,
 					HOME: dir,
 					CLAUDE_PROJECT_DIR: projectDir,
-					CLAUDE_JOB_DIR: "",
 					CLAUDE_CODE_SESSION_ID: "",
 				},
 			},

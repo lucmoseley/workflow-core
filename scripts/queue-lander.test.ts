@@ -1,31 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/queue-lander.js end to end, and lib/queue-lander-adapters.js's git
- * and files, against lib/lander-testkit.ts's real bare remote and clone
- * (#4485, spec #4458).
- *
- * Loosen it and two queue refs no longer land as one merged batch or in the
- * order they were pushed, a lone ref gains a merge commit, an anchors file
- * both refs touched stops the batch though its driver settles it, a ref
- * pushed while its batch was tested is deleted unlanded, a broken git object
- * is read again unrepaired, a live queue lander's lock is taken by a
- * second one or its launcher, a verdict, batch or drop written to disk is lost to the
- * next run, or a ref conflicting with `main` stops the queue, goes unkept
- * under `dropped/<name>` or unticketed, or one a merge gate refuses is
- * ticketed with the gate's first line in place of its findings; or a red batch's culprit is not
- * isolated alone and dropped with its evidence, a collision is
- * not settled by serial landing, or a failure `main` shares holds the batch
- * on a local tester or goes without its base-red ticket, or a push `main`
- * refuses reads as a fault or one `main` moved under reads as a refusal;
- * or a hook it cannot execute holds a merge, a registry SKIP holds one, or a
- * BROKEN, unparseable or timed-out registry run passes one (#4904); or an
- * adopter's batch conflicting on docs/test-read-edges.json drops every member
- * for want of WFC_PLUGIN_ROOT (#5309), or is judged by a core other than the
- * one its hook resolves (#5314).
- *
- * The sandbox seeds workflow-core itself, so a merge runs the tree's own gate
- * scripts; a case wanting an adopter's tree calls asAdopter().
- */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -76,15 +49,13 @@ import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
 landerSandbox({ coreHost: true });
 afterEach(removeTemps);
 
-// Required, not imported: an ESM import would load a second copy of
-// TransientFault or PushRefused, which queueGit's throw is not.
+// #4485
 const { TransientFault } = createRequire(__filename)("./lib/queue-lander.js");
 const { PushRefused } = createRequire(__filename)("./lib/network-fault.js");
 
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
 const ANCHORS = ".claude/guard-registry-anchors.json";
 
-/** Whether `pid` runs, a zombie being no run. */
 const isLive = (pid: string) => {
 	try {
 		return !/\) [ZX] /.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
@@ -93,13 +64,11 @@ const isLive = (pid: string) => {
 	}
 };
 
-/** `body` as the script at core-relative `rel` of a stub core at `core`. */
 const stubCoreScript = (core: string, rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(core, rel)), { recursive: true });
 	fs.writeFileSync(path.join(core, rel), body);
 };
 
-/** A commit on `from`, after `write` where given, pushed as `queue/<name>`, returning its sha. */
 const pushQueue = (name: string, from: string, write?: () => void) => {
 	git(work, "checkout", "-q", "--detach", from);
 	write?.();
@@ -108,7 +77,6 @@ const pushQueue = (name: string, from: string, write?: () => void) => {
 	return sha;
 };
 
-/** A commit on `from` with committer time `date`, pushed as `queue/<name>`. */
 const pushQueueAt = (name: string, from: string, date: string) => {
 	git(work, "checkout", "-q", "--detach", from);
 	fs.writeFileSync(path.join(work, `${name}.txt`), name);
@@ -144,18 +112,12 @@ describe("a run", () => {
 			git(remote, "rev-list", "--first-parent", `${seed}..${main}`).split("\n"),
 		).toHaveLength(2);
 		expect(remoteHeads()).not.toContain("refs/heads/queue/");
-		/* The command tester judges in place: no lander ref fires a run nobody
-		 * reads (#4906). */
 		expect(remoteHeads()).not.toContain("refs/heads/lander/");
 		expect(
 			fs.readFileSync(path.join(markers(), ".landing-green-ledger"), "utf8"),
 		).toContain(main);
 	});
 
-	/**
-	 * Stub hooks in the work repo's hooks directory, each logging its
-	 * arguments; `preCommit` runs after pre-commit's log line.
-	 */
 	const stubHooks = (names: string[], preCommit = "") => {
 		const hooks = path.resolve(
 			work,
@@ -173,7 +135,6 @@ describe("a run", () => {
 		return () => fs.readFileSync(log, "utf8").trim().split("\n");
 	};
 
-	/* Pre-commit's body on the batch pass alone, called with no argument. */
 	const onBatchPass = (body: string) =>
 		`case "$*" in --gates=*) ;; *) ${body} ;; esac\n`;
 
@@ -240,8 +201,6 @@ describe("a run", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const lone = { name: "a", sha: pushQueue("a", seed), pushedAt: 1 };
 		const pids = path.join(tmp, "gate.pids");
-		/* The batch pass's hook, and the child it waits on, both ignore TERM:
-		 * only the KILL to the group ends them. */
 		stubHooks(
 			["pre-commit"],
 			onBatchPass(
@@ -251,9 +210,7 @@ describe("a run", () => {
 		const stderr = spyStderr();
 		let merged: unknown;
 		try {
-			/* Crosses the real clock, as run-budgeted.js's kill is of real
-			 * processes. 2 s and 0.5 s are guesses, unmeasured: past the git
-			 * steps here, and far short of the stub's 60 s. */
+			// #4485 guess
 			merged = queueGit(work, {
 				mergeTimeoutMs: 2000,
 				gateGraceMs: 500,
@@ -367,7 +324,6 @@ describe("a run", () => {
 		);
 	});
 
-	/* Paired with "drops a ref whose merge a gate refuses …". */
 	it("gates a batch member staging a shell path in a merge tree linking the checkout's node_modules and worktreeLinks, so the format gate's loadShfmt finds shfmt (#5451)", () => {
 		fs.writeFileSync(path.join(work, ".gitignore"), "node_modules\n.fmt\n");
 		fs.mkdirSync(path.join(work, ".claude"), { recursive: true });
@@ -376,8 +332,6 @@ describe("a run", () => {
 			JSON.stringify({ worktreeLinks: [".fmt"] }),
 		);
 		const seed = commit("declare links");
-		/* A core with no node_modules above it, as the plugin cache is, so
-		 * loadShfmt resolves from its cwd alone. */
 		const core = path.join(tmp, "core");
 		copyRequireClosure(core, OWN_CORE, ["scripts/lib/formatters.js"]);
 		fs.mkdirSync(path.join(work, "node_modules", "@wasm-fmt"), {
@@ -597,8 +551,6 @@ describe("a run", () => {
 			(w) => w.guard === guard,
 		);
 		expect(stale).toEqual([]);
-		/* The adoption after the move refused the fixture into the worker's
-		 * code dir, never the machine's (#5427). */
 		const refused = fs.readFileSync(
 			`${process.env.WFC_GUARD_CODE_DIR}.refused`,
 			"utf8",
@@ -608,7 +560,6 @@ describe("a run", () => {
 
 	describe("a batch tree judged whole on its guard-registry faults (#4807)", () => {
 		const guard = "scripts/guard-pair.sh";
-		/** `main` holding `guard`'s row stale: its guard changed, unanchored. */
 		const staleMain = () => {
 			const fixture = build({
 				claude: region(
@@ -675,9 +626,7 @@ describe("a run", () => {
 		});
 
 		describe("off a checker that gives no reading (#4904)", () => {
-			/** The core the batch's tree resolves, whose checker judges it. */
 			const core = () => path.join(tmp, "plugin");
-			/** `body` as that core's checker. */
 			const checker = (body: string) =>
 				stubCoreScript(core(), "scripts/check-guard-registry.js", body);
 			const envelope = (outcome: string) =>
@@ -690,8 +639,6 @@ describe("a run", () => {
 			it("merges a batch whose stale row its checker SKIPped, saying so, as a SKIP gates nothing (mantahostels#155)", () => {
 				const main = staleMain();
 				const a = pushQueue("a", main);
-				/* The real checker's envelope, its faults kept, relabelled SKIP:
-				 * read as a reading, it holds the batch as stale-base. */
 				checker(
 					`const { spawnSync } = require("node:child_process");
 const r = spawnSync(process.execPath, [${JSON.stringify(path.resolve(__dirname, "check-guard-registry.js"))}, ...process.argv.slice(2)], { encoding: "utf8" });
@@ -743,10 +690,7 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 				const a = pushQueue("a", main);
 				checker("setTimeout(() => {}, 60_000);\n");
 
-				/* Crosses the real clock: the ETIMEDOUT is spawnSync's kill of a
-				 * real child, which no injected clock reaches. 3 s is a guess,
-				 * unmeasured: past the member merge's git steps here, short enough
-				 * to keep the case cheap; the stub's 60 s need only outlast it. */
+				// #4485 guess
 				let thrown: unknown;
 				try {
 					queueGit(work, { mergeTimeoutMs: 3000 }).mergeMembers(main, [
@@ -904,7 +848,6 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 			[main, [], undefined],
 			[main, ["scripts/x.test.ts"], 2],
 		]);
-		/* Red, the batch left the line as the search, which keeps it. */
 		const { search } = JSON.parse(
 			fs.readFileSync(path.join(markers(), ".queue-lander-batch.json"), "utf8"),
 		);
@@ -1069,7 +1012,6 @@ describe("the adapters", () => {
 			git(work, "ls-tree", "-r", "--name-only", sha)
 				.split("\n")
 				.filter((f) => f.endsWith(".txt"));
-		/** gen.js bodies writing genFile from the index's `.txt` files: their names, or their count. */
 		const tracked = `require("node:child_process").execFileSync("git", ["ls-files", "*.txt"], { encoding: "utf8" }).split("\\n").filter(Boolean).sort()`;
 		const listing = `require("node:fs").writeFileSync("${genFile}", ${tracked}.join("\\n") + "\\n");`;
 		const counting = `require("node:fs").writeFileSync("${genFile}", ${tracked}.length + "\\n");`;
@@ -1077,7 +1019,6 @@ describe("the adapters", () => {
 			expect(
 				runInProcess(path.join(work, "gen.js"), [], { cwd: work }).status,
 			).toBe(0);
-		/** A commit holding gen.js as `body` and genFile as it writes. */
 		const seeded = (body: string) => {
 			fs.writeFileSync(path.join(work, "gen.js"), body);
 			fs.writeFileSync(path.join(work, "seed-gen.txt"), "seed-gen");
@@ -1085,7 +1026,6 @@ describe("the adapters", () => {
 			runGen();
 			return commit("seed-gen");
 		};
-		/** A queue ref adding `<name>.txt` and `extra`'s writes, genFile as gen.js then writes it. */
 		const pushGenerated = (name: string, from: string, extra?: () => void) =>
 			pushQueue(name, from, () => {
 				extra?.();
@@ -1182,8 +1122,6 @@ describe("the adapters", () => {
 		});
 	});
 
-	/* The positive pair of "lands a merge whose text-merged copy is clean but
-	 * stale", which renders with a core host's own generator. */
 	it("regenerates an adopter's read-edges with its resolved core's generator, WFC_PLUGIN_ROOT unset, dropping no member (#5309)", () => {
 		vi.stubEnv("WFC_PLUGIN_ROOT", undefined);
 		const edges = "docs/test-read-edges.json";
@@ -1231,7 +1169,6 @@ describe("the adapters", () => {
 
 	describe("an adopter's tree whose hook resolves a core other than the lander's own install (#5314)", () => {
 		const edges = "docs/test-read-edges.json";
-		/** Two members onto an adopter seed holding `edges`, so each merge regenerates it. */
 		const twoMembers = () => {
 			asAdopter();
 			fs.mkdirSync(path.join(work, "docs"), { recursive: true });
@@ -1396,29 +1333,21 @@ describe("the adapters", () => {
 			kind: "red",
 			files: ["a.ts"],
 		});
-		/* A red its own run retried keeps the mark, or the lander re-runs it
-		 * a second time (#4545). */
 		verdictLedger(verdicts).add("s3", [], {
 			kind: "red",
 			files: ["a.ts"],
 			retried: true,
 		});
-		/* A tree no run fired for keeps the mark, or its drop's fix ticket
-		 * reads as a red naming no file (#4571). */
 		verdictLedger(verdicts).add("s4", [], {
 			kind: "red",
 			files: [],
 			noRun: true,
 		});
-		/* A red at the type-check keeps its errors, or its drop's fix ticket
-		 * reads as a red naming no file (#4800). */
 		verdictLedger(verdicts).add("s5", [], {
 			kind: "red",
 			files: [],
 			typecheck: ["a.js(1,1): error TS1: x"],
 		});
-		/* A red keeps its CI run and its failing tests' errors, and a named
-		 * green its run, or a drop's fix ticket cites neither (#4857). */
 		const cited = {
 			kind: "red" as const,
 			files: ["a.ts"],
@@ -1431,8 +1360,6 @@ describe("the adapters", () => {
 		verdictLedger(verdicts).add("s7", [], cited);
 		verdictLedger(verdicts).add("s7", ["a.ts"], { kind: "green", named: 32 });
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
-		/* A green its in-job retry reached keeps the files it cleared, the
-		 * batch's flakes (#4558). */
 		verdictLedger(verdicts).add("s6", [], {
 			kind: "green",
 			run: 8,
@@ -1480,8 +1407,6 @@ describe("the adapters", () => {
 			files: [],
 			typecheck: ["a.js(1,1): error TS1: x"],
 		});
-		/* Its time read back, as a no-run red stands only so long, and a row
-		 * with none readable as the epoch (#4572). */
 		expect(verdictLedger(verdicts).get("s4", [])?.at).toBe(
 			Date.parse(LedgeredAt),
 		);

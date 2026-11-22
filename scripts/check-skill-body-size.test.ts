@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-skill-body-size.js warns on an own skill body over its cap —
- * under --touching, only where the commit grew it — and never FAILs on size,
- * and that it FAILs on an unescaped `$<digit>` in a skill or command body
- * (#1490).
- *
- * check-skill-body-size.js is exercised against a fabricated skills tree in a
- * throwaway git repo, never this one: the live bodies change with every
- * commit, so a test reading them would pass or fail by what someone else
- * pushed.
- *
- * The size guarantee worth breaking to prove: a body over the cap is WARN and
- * exit 0, never FAIL — the checker is report-only by ruling (mantahostels#3136), and a
- * test that let FAIL through would let it become a gate unnoticed.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -56,8 +41,6 @@ const run = (...args: string[]) => {
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "skill-body-size-"));
-	/* An empty hooks dir, so the scratch repo never runs this checkout's
-	 * Husky gates through its absolute core.hooksPath. */
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "skill-body-hooks-"));
 	git("init", "-q", "-b", "main");
 	git("config", "user.email", "test@example.com");

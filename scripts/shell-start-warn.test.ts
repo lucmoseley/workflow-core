@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins shell-start-warn.sh: it fires only when MemAvailable is under the floor,
- * what it prints, and that the silent path never lists processes.
- *
- * It runs the script in bash with a fixture meminfo and a stub `ps` at WFC_PS,
- * so the test sets the trigger and the stub's marker shows whether the costly
- * path ran.
- *
- * Breaking it either fires on every shell, training the founder to skip it, or
- * hides a real memory pile-up (mantahostels#578).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -44,10 +33,6 @@ function writeMeminfo(availableKb: number | null, freeKb = 8_000_000): string {
 
 const marker = () => path.join(dir, "ps-ran");
 
-// A stub `ps` at WFC_PS: proof of whether the firing path ran, and a fixed
-// process table so the message fields are assertable.
-// Fixture covers all three argv[0] shapes (versioned binary, bare claude,
-// launcher path) plus a non-Claude line that must not be counted.
 function stubPs(): string {
 	return writePsStub(
 		dir,
@@ -92,10 +77,7 @@ describe("trigger", () => {
 	});
 
 	it("reads MemAvailable, never MemFree", () => {
-		// MemFree far below the floor, MemAvailable above it: reclaimable
-		// cache is not spent memory, so this must stay silent.
 		expect(run(writeMeminfo(3000 * 1024, 100 * 1024), 1500)).toBe("");
-		// And the reverse fires.
 		expect(run(writeMeminfo(1000 * 1024, 8_000_000), 1500)).not.toBe("");
 	});
 });
@@ -106,8 +88,6 @@ describe("message", () => {
 		expect(out).toContain("1000 MB");
 		expect(out).toContain("floor 1500 MB");
 		expect(out).toContain("earlyoom");
-		// From the ps fixture: one bg-pty-host, three Claude processes,
-		// (524288+262144+102400) kB = 0.8 GB.
 		expect(out).toContain("1 session(s) / 3 process(es) / 0.8 GB RSS");
 		expect(out).toContain("upper bound");
 		expect(out).toContain("memcheck");

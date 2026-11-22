@@ -1,34 +1,8 @@
 #!/usr/bin/env node
-/*
- * run-pinned-guards.js — runs this repo's guard entry from the pinned guard code
- * (#4227, #4203): `node run-pinned-guards.js <link>/scripts/guard-dispatch.js`, the
- * link lib/guard-code.js keeps at the last guard code that passed its probe.
- *
- * DEPENDENCY-FREE, node's own modules alone: the hook line runs it from the
- * main checkout, as it runs every other hook (lib/core-hooks.js's
- * SCRIPT_PREFIX, #4701), and the guards from the pinned code, so no fault in a
- * shared lib at either can silence its refusal.
- *
- * FAIL-CLOSED STAYS TOTAL. Where the entry is missing or throws while it
- * loads or runs, the shim refuses with exit 2, the error's first line and the
- * founder's one-line `!` repair: point the link back at the previous code
- * and never adopt the failing sha again, or, with no previous code (a fresh
- * machine), set the link up with scripts/adopt-guard-code.js. A throw while
- * judging the call offers that repair only where every call fails so.
- *
- * LIMITS
- *  - An entry's asynchronous throw after its first tick is not caught here:
- *    it exits non-zero, which the PreToolUse registration's `onFailure:
- *    "block"` refuses, without the repair line.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
-/* lib/sh-quote.js's shellQuote and lib/pinned-code.js's SHA_SHOWN, copied:
- * the shim requires nothing of the repo's (local §LG1's marked copy). Its
- * refusals' openings are in lib/core-fault.js's lockout texts, copied too, as
- * the refill loop reads a session refused only so as locked out (#4228). */
+// #4227 #4228
 /** @param {string} word */
 const shellQuote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
 const SHA_SHOWN = 9;
@@ -57,7 +31,6 @@ if (!fs.existsSync(entry))
 	);
 
 /**
- * Refuse on `err`, thrown by the code the link names.
  * @param {unknown} err
  * @param {boolean} loading
  */
@@ -67,7 +40,6 @@ function refuseOn(err, loading) {
 	try {
 		sha = path.basename(fs.realpathSync(link));
 	} catch {
-		// A link gone mid-call: the repair below still names it.
 		sha = "";
 	}
 	const back = fs.existsSync(previous);
@@ -87,7 +59,6 @@ try {
 } catch (err) {
 	refuseOn(err, true);
 }
-/* The entry reads its own name and flags from argv, as if run directly. */
 process.argv.splice(1, 2, entry);
 try {
 	require(entry);

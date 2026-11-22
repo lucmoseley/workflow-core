@@ -1,21 +1,5 @@
 #!/usr/bin/env node
-/*
- * overflow-view.js — the founder's view of the overflow seats' headless
- * sessions (#3685, #4583), laid out as `claude agents` lays out plan sessions
- * (lib/overflow-viewer.js): awaiting input, working, completed.
- *
- * A headless session cannot wait for input: one that asks the founder
- * something ends on a `needs input:` line. A reply resumes the session with
- * it as the next turn, on the same overflow seat and key; a stop goes
- * through the refill loop's stop routing (lib/overflow-actions.js).
- *
- * Usage:
- *   node scripts/overflow-view.js     on a terminal, the view; piped, its list once
- *
- * Keys: ↑↓ select · Enter open the thread · Space reply · ← back · x stop · q quit
- */
 
-const fs = require("node:fs");
 const { parseArgs } = require("node:util");
 const { caught } = require("./lib/caught.js");
 const { sendReply, stopRun } = require("./lib/overflow-actions.js");
@@ -26,7 +10,16 @@ const {
 } = require("./lib/overflow-viewer.js");
 const { writeFd } = require("./lib/write-fd.js");
 
+const { scriptPath } = require("./lib/script-path.js");
 const PIPE_COLUMNS = Number.POSITIVE_INFINITY;
+
+const HELP_TEXT = `overflow-view.js — the overflow seats' headless sessions, laid out as
+\`claude agents\` lays out plan sessions: awaiting input, working, completed.
+
+Usage:
+  node ${scriptPath("overflow-view.js")}     on a terminal, the view; piped, its list once
+
+Keys: ↑↓ select · Enter open the thread · Space reply · ← back · x stop · q quit`;
 
 /** @param {string[]} argv */
 function main(argv) {
@@ -38,8 +31,7 @@ function main(argv) {
 		return 2;
 	}
 	if (parsed.values.help) {
-		const text = fs.readFileSync(__filename, "utf8");
-		writeFd(1, `${text.slice(0, text.indexOf("*/"))}\n`);
+		writeFd(1, `${HELP_TEXT}\n`);
 		return 0;
 	}
 	if (!process.stdin.isTTY || !process.stdout.isTTY) {

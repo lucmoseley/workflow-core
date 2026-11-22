@@ -63,12 +63,6 @@ interface Diagnostic {
 	location?: { path?: string };
 }
 
-/**
- * Lint probe files under this repo's real Biome config, from a throwaway
- * project so `overrides` globs resolve against a path we control. `files` maps
- * a relative path to its content, and may overwrite the copied package.json.
- * Returns every diagnostic Biome reported on the paths `lint` names.
- */
 function biomeDiagnostics(
 	files: Record<string, string>,
 	lint: string[] = Object.keys(files),
@@ -83,8 +77,6 @@ function biomeDiagnostics(
 			path.join(ROOT, "package.json"),
 			path.join(dir, "package.json"),
 		);
-		// biome.json sets vcs.useIgnoreFile, which errors out with no repository
-		// and no ignore file to read.
 		fs.writeFileSync(path.join(dir, ".gitignore"), "");
 		execFileSync("git", ["init", "-q"], { cwd: dir });
 		for (const [relPath, source] of Object.entries(files)) {
@@ -100,8 +92,6 @@ function biomeDiagnostics(
 				{ cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
 			);
 		} catch (error) {
-			// biome exits non-zero whenever it reports a diagnostic, which is the
-			// case every probe here is written to produce.
 			stdout = (error as { stdout?: string }).stdout ?? "";
 		}
 		return (
@@ -112,12 +102,10 @@ function biomeDiagnostics(
 	}
 }
 
-/** The rule categories that fired on one probe file. */
 function biomeCategories(relPath: string, source: string): string[] {
 	return biomeDiagnostics({ [relPath]: source }).map((d) => d.category ?? "");
 }
 
-/** `rule` fires among `diagnostics`, and every firing is at error, not warn. */
 function expectRefusedAtError(
 	diagnostics: Diagnostic[],
 	rule: string,
@@ -128,9 +116,6 @@ function expectRefusedAtError(
 	for (const d of here) expect(d.severity, `${label} at error`).toBe("error");
 }
 
-/* 12 nested `if`s, comfortably past the threshold of 15 that biome.json pins
- * noExcessiveCognitiveComplexity to (mantahostels#1518): each nesting level costs more than
- * one point. */
 const NESTED = (() => {
 	let body = "export function deep(n: number): number {\n";
 	for (let i = 0; i < 12; i++) body += `\tif (n > ${i}) {\n`;
@@ -154,9 +139,6 @@ export function C({ a }: { a: number }) {
 
 describe("§W — Biome's effective rule set is wider than biome.json", () => {
 	it("fires the react-domain hook rules on app/ TSX that biome.json never names", () => {
-		// The whole reason §W says "read the effective set, never the config
-		// file". If this stops firing, ESLint's react-hooks preset is no longer
-		// duplicated and eslint.config.mjs's comment goes stale with it.
 		const config = read("biome.json");
 		expect(config).not.toMatch(/useHookAtTopLevel/);
 		expect(config).not.toMatch(/useExhaustiveDependencies/);
@@ -167,8 +149,6 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 	});
 
 	it("scopes noExcessiveCognitiveComplexity to app/, lib/, scripts/ and .claude/, and nowhere else", () => {
-		// §W tells a reviewer never to raise complexity on these four paths
-		// (#1318 Q2 (A)), which holds only while Biome really refuses it there.
 		const rule = "lint/complexity/noExcessiveCognitiveComplexity";
 		for (const where of [
 			"app/deep.ts",
@@ -182,8 +162,6 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 	});
 
 	it("caps parameters at Biome's default in programs and skill scripts as in app/ and lib/", () => {
-		// §W tells a reviewer never to raise a long parameter list on these
-		// paths (#1313), which holds only while Biome really refuses one there.
 		const five =
 			"export function f(a, b, c, d, e) {\n\treturn [a, b, c, d, e];\n}\n";
 		for (const where of [
@@ -204,9 +182,6 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 	});
 
 	it("refuses a missing return type in library .ts only, never in a component, a test or a program", () => {
-		// §W hands base §T1's library limb to useExplicitReturnType (#1335). The
-		// rule is nursery under a caret pin, so a Biome bump that drops or
-		// widens it fails here rather than silently moving §T1's line.
 		const helper = "export function f(n: number) {\n\treturn n + 1;\n}\n";
 		const component = `${helper}export function Nav() {\n\treturn <nav />;\n}\n`;
 		const rule = "lint/nursery/useExplicitReturnType";
@@ -241,15 +216,12 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 		expect(rules.suspicious.noExplicitAny).toBe("error");
 		expect(rules.style.noNonNullAssertion).toBe("error");
 
-		// §W states this total in prose, so a miscount there ships unchallenged.
-		// `preset` is the recommended set, not an entry.
 		const explicit = Object.entries(rules)
 			.filter(([group]) => group !== "preset")
 			.reduce((n, [, group]) => n + Object.keys(group as object).length, 0);
 		expect(explicit).toBe(223);
 		expect(Object.keys(rules.nursery)).toHaveLength(28);
 
-		// §W states the path-scoped total too — pin it like the one above.
 		const config = JSON.parse(read("biome.json"));
 		const scoped = config.overrides.find(
 			(o: { includes: string[] }) =>
@@ -262,10 +234,6 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 	});
 
 	it("refuses #1318's repo-wide rules in scripts/, not only in app/ and lib/", () => {
-		// §W tells a reviewer these rules bind everywhere, which holds only
-		// while each really fires outside the product override. Each row is
-		// its own probe file, so a row passes on its own snippet alone. A Biome
-		// bump that moves a nursery rule fails here too.
 		const rows: [rule: string, source: string][] = [
 			[
 				"nursery/useReduceTypeParameter",
@@ -414,9 +382,6 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 	});
 
 	it("refuses a GNU-family or non-OSI direct dependency, naming its licence, and passes MIT and MPL", () => {
-		// #1353 Q1 (A): the deny list is the GPL family on top of
-		// requireOsiApproved, and file-level copyleft stays allowed. The rule
-		// reads each declared dependency's own package.json under node_modules.
 		const licences: Record<string, string> = {
 			"p-agpl": "AGPL-3.0-only",
 			"p-lgpl": "LGPL-3.0-only",
@@ -458,9 +423,6 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 	});
 
 	it("refuses base §G5's tool-checkable names at error in scripts/ and lib/, and passes the shapes §W leaves alone", () => {
-		// §W tells a reviewer not to raise what useNamingConvention refuses, and
-		// to keep raising its four review-only limbs (#1328 Q2 (A)). Both hold
-		// only while these fire and these stay silent.
 		const fires: [claim: string, file: string, source: string][] = [
 			[
 				"an all-capitals const inside a function",
@@ -506,7 +468,6 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 				"an all-capitals const at module scope",
 				"export const MAX_TRIES = 3;\n",
 			],
-			// §W's limb 1: a camelCase module constant stays review's to raise.
 			["a camelCase const at module scope", "export const maxTries = 3;\n"],
 			[
 				"external object keys",
@@ -590,13 +551,10 @@ describe("§W — which checker sees which surface", () => {
 	});
 
 	it("keeps the 15 React Compiler rules that are ESLint's whole remaining reason to exist", () => {
-		// Dropping the preset would delete these 15 rather than consolidate 2.
 		const preset = require("eslint-plugin-react-hooks").configs.flat[
 			"recommended-latest"
 		];
 		const names = Object.keys(preset.rules);
-		// 17 = the 15 compiler rules plus rules-of-hooks and exhaustive-deps,
-		// which Biome's react domain now owns.
 		expect(names).toHaveLength(17);
 		for (const rule of [
 			"react-hooks/set-state-in-effect",
@@ -610,8 +568,6 @@ describe("§W — which checker sees which surface", () => {
 	});
 
 	it("carries scripts/ and the skill scripts in the tsc program", () => {
-		// `checkJs` is on across `scripts/**/*.js`, so a file is checked whether
-		// or not it carries `// @ts-check`, as §N8 requires.
 		const tsconfig = read("tsconfig.json");
 		expect(tsconfig).toMatch(/"scripts\/\*\*\/\*\.js"/);
 		expect(tsconfig).toMatch(/"\.claude\/skills\/\*\/scripts\/\*\.ts"/);
@@ -619,34 +575,20 @@ describe("§W — which checker sees which surface", () => {
 	});
 
 	it("excludes only .claude/'s worktrees and settings from Biome, not .claude/", () => {
-		// mantahostels#1138. Biome cannot re-include inside an excluded path, so `!.claude`
-		// returning would silently take the skill scripts back out.
 		const includes = JSON.parse(read("biome.json")).files.includes as string[];
 		expect(includes).toContain("!.claude/worktrees");
 		expect(includes).not.toContain("!.claude");
-		// The whole exclusion list, not a sample: §W's surface table names these
-		// as seen by nothing, and one arriving silently would make that row
-		// wrong.
 		expect(includes.filter((entry) => entry.startsWith("!"))).toEqual([
 			"!public",
 			"!docs",
 			"!.claude/worktrees",
-			// The sanctioned scratch directory (mantahostels#2089, mantahostels#2103): scratch is not
-			// linted, and the post-write core stops reformatting it on every write.
 			"!.claude/tmp",
 			"!.claude/settings*.json",
-			// A mod's verbatim copy of the engine's API declarations (#854).
 			"!.claude/skills/*/.claude-plugin/types",
-			// Unsanctioned scratch, and where sessions put throwaway worktrees
-			// (mantahostels#2206): a worktree's own biome.json reads as a nested root
-			// configuration Biome refuses on repo-wide, blocking every commit.
 			"!.local",
 			"!skills-lock.json",
-			// The plugin hook manifest, rendered by generate-plugin-hooks.js (#946).
 			"!hooks/hooks.json",
 			"!scripts/fixtures",
-			// An adopter skeleton's templates (#5): a `{{placeholder}}` does not
-			// parse as the language the template is a template for.
 			"!scripts/templates",
 		]);
 	});
@@ -665,7 +607,6 @@ describe("§W — which checker sees which surface", () => {
 		const table = (name: string) =>
 			toml.split(`\n[${name}]\n`)[1]?.split("\n[")[0] ?? "";
 		expect(table("lint.pylint")).toMatch(/^max-positional-args\s*=\s*4$/m);
-		// A top-level `preview` switches lint preview on too.
 		expect(toml.split("\n[")[0]).not.toMatch(/^(lint\.)?preview\s*=/m);
 		expect(table("lint")).not.toMatch(/^preview\s*=/m);
 	});
@@ -691,9 +632,6 @@ describe("§W — which checker sees which surface", () => {
 		]) {
 			expect(set, hook).toContain(`.husky/${hook}`);
 		}
-		// Paired negative: a lister that swept every .sh would satisfy the seven
-		// above. .agents/skills/ is vendored by .gitattributes — skill templates
-		// carrying placeholders — so its absence is the discriminator.
 		expect(set.filter((p) => p.startsWith(".agents/"))).toEqual([]);
 	});
 });
@@ -726,9 +664,6 @@ describe("§W — which gate runs it in CI", () => {
 	});
 
 	it("runs Biome, ESLint, shellcheck, shfmt, actionlint, tsc and the suite in CI", () => {
-		// One job, deliberately: Actions bills each job's minutes rounded up
-		// (mantahostels#313), so §W's gate table has a single CI column rather
-		// than one per checker.
 		const ci = read(".github/workflows/ci.yml");
 		for (const step of [
 			"name: Biome ci",
@@ -741,15 +676,11 @@ describe("§W — which gate runs it in CI", () => {
 		]) {
 			expect(ci, step).toContain(step);
 		}
-		// Paired negative: ci.yml carries no push trigger of its own —
-		// scheduled-checks.yml's `lander/batch-*` push calls it (#4458) — so a CI file
-		// that simply listed every conceivable trigger would fail here rather than
-		// pass the presence checks above.
 		expect(ci).not.toMatch(/^on:\s*\n\s*push:/m);
 	});
 
 	it("puts gitleaks on the runner's PATH before Vitest, whatever failed first", () => {
-		// #55: the gitleaks-gated cases skip green where the binary is absent.
+		// #55
 		const ci = read(".github/workflows/ci.yml");
 		const tools = ci.indexOf("name: Install test tools");
 		expect(tools).toBeGreaterThan(-1);
@@ -766,7 +697,6 @@ describe("§W — which gate runs it in CI", () => {
 });
 
 describe("base §0's floor — the shipped pre-commit's code gates in every repo", () => {
-	// Every adopter's §W leaves these to the base (#1826).
 	const floor = (() => {
 		const base = read("docs/code-standards-base.md");
 		const start = base.indexOf("| Gate | Refuses | Where it runs |");
@@ -815,8 +745,6 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 	);
 
 	it("gives shfmt the flags the format gate passes it", () => {
-		// The hook hands formatting to check-format-staged.js, which takes its
-		// shfmt options from lib/formatters.js.
 		expect(floor).toContain("shfmt at `-i 2 -ci`");
 		expect(hook).toMatch(
 			/node "\$\{WFC_PLUGIN_ROOT:-\.\}"\/scripts\/check-format-staged\.js/,
@@ -827,16 +755,12 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 	});
 
 	it("names every script the hook runs, or holds it here as no code gate", () => {
-		// Spelled without `scripts/` or an extension, so the read-edge extractor
-		// takes none for a read: the test reads the hook, not these.
 		const notCode = new Set([
-			// A row names the tool these run for.
 			"check-ruff-introduced",
 			"check-format-staged",
 			"biome-staged",
 			"lib/infer-commands",
 			"lib/test-gate",
-			// Helpers the gates call.
 			"record-typecheck-red",
 			"lib/precommit-gate",
 			"lib/precommit-gates",
@@ -853,16 +777,12 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"lib/isolated-worktree",
 			"queue-run",
 			"checker-new-faults",
-			// Named in a refusal's message, never run.
 			"commit-paths",
 			"guard-hook-escape",
 			"inject-tracker-docs",
-			// Named in the hook's comments, never run.
 			"guard-dispatch",
 			"lib/commit-form",
-			// Judges the settings snapshot, not code.
 			"check-user-settings-drift",
-			// Documents, the roadmap, the copy and the repo's own registers.
 			"review-hold-gate",
 			"check-roadmap-pair",
 			"check-roadmap-valid",
@@ -883,7 +803,6 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"check-context-budget",
 			"check-injector-margin",
 			"check-superseded-values",
-			// The dispatcher: each of its rows is placed below as a script.
 			"precommit-dispatch",
 			...PRECOMMIT_GATES.filter((g) => !g.floor).map((g) =>
 				g.script.slice("scripts/".length).replace(/\.js$/, ""),
@@ -908,8 +827,6 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 
 describe("§W — which tsc flags are still off", () => {
 	it("leaves exactOptionalPropertyTypes and noPropertyAccessFromIndexSignature as the only two", () => {
-		// §W tells a reviewer these are the only flags left to write a prose rule
-		// about.
 		const tsconfig = read("tsconfig.json");
 		for (const flag of [
 			"noImplicitReturns",
@@ -926,9 +843,6 @@ describe("§W — which tsc flags are still off", () => {
 	});
 
 	it("scopes noUncheckedIndexedAccess to app/, lib/ and the programs, minus their tests, through tsconfig.strict.json", () => {
-		// mantahostels#1064, #1336. `npm run typecheck` runs both configs, so the flag is
-		// gated; the scoping is why §W's surface table qualifies its tsc column.
-		/** A tsconfig parsed as tsc reads it, comments and all. */
 		const readConfig = (file: string) =>
 			ts.readConfigFile(path.join(ROOT, file), ts.sys.readFile).config as {
 				compilerOptions?: Record<string, unknown>;
@@ -947,7 +861,6 @@ describe("§W — which tsc flags are still off", () => {
 				".claude/skills/*/scripts/*.ts",
 			]),
 		);
-		// A child's `exclude` replaces its parent's, so the base list must be repeated.
 		expect(strict.exclude).toEqual(
 			expect.arrayContaining([
 				...readConfig("tsconfig.json").exclude,
@@ -959,7 +872,6 @@ describe("§W — which tsc flags are still off", () => {
 				".claude/skills/*/scripts/*.spec.*",
 			]),
 		);
-		// Excluding app/ or lib/ tests would drop coverage they had before #1336.
 		expect(strict.exclude.filter((g) => /^(app|lib)\//.test(g))).toEqual([]);
 		expect(JSON.parse(read("package.json")).scripts.typecheck).toContain(
 			"tsconfig.strict.json",

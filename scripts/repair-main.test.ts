@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The repair of an unreadable shared `main` (#3198), run as a session runs it,
- * against a real repo. Its side on the real tick is refill-loop-run-holds.test.ts's, and
- * the guard's that names it is guard-pull-form.test.ts's.
- *
- * WHAT BREAKING IT COSTS: a proof that lets a readable `main` through rewinds a
- * neighbour's commits; a target that takes the reflog's last line restores an
- * unpushed scratch commit as `main`.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -31,7 +22,6 @@ const commit = (cwd: string, file: string, message: string) => {
 	return git(cwd, "rev-parse", "HEAD");
 };
 
-/* `pushed` is on origin; `A` and `B` are scratch commits, on none. */
 const template = defineTemplate((root) => {
 	const repo = path.join(root, "repo");
 	const hooks = path.join(root, "no-hooks");
@@ -95,7 +85,6 @@ const expectRefused = (
 	expect(backups()).toEqual([]);
 };
 
-/* A git that runs `act` on the call matching `pattern`, then goes on as real git. */
 const stubGit = (pattern: string, act: string) => {
 	const stub = path.join(dir, "git-stub");
 	fs.writeFileSync(
@@ -239,7 +228,6 @@ describe("the proofs", () => {
 
 describe.each([
 	["empty", ""],
-	/* A sha and its newline long. */
 	["NUL-filled", "\0".repeat(41)],
 ])("repairing an %s ref", (_name, broken) => {
 	beforeEach(() => fs.writeFileSync(refFile, broken));
@@ -361,8 +349,6 @@ it("lists an entry git wrote with no message, as `git update-ref` does", () => {
 	expect(r.stdout).toContain(`${"c".repeat(40)} (no message)\n`);
 });
 
-/* A wedged git's only outward sign is a repair that never ends, which no test can
- * wait out; runInProcess loads git.js fresh, so it binds spawnSync over the spy. */
 it("reads main's state under GIT_TIMEOUT_MS at both proofs, never unbounded (#4192)", () => {
 	fs.writeFileSync(refFile, "");
 	const cp = require("node:child_process");

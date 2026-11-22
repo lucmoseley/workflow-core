@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the selection shortlist: which open issues are ready and count as
- * work, their order, the gates a body sets, and why each frontier issue did
- * not launch (mantahostels#102, mantahostels#105, mantahostels#106).
- *
- * `/pick-next` launches work off this output: loosen a case and it can
- * dispatch a blocked issue or one that is not work. Claims, admission and
- * launches are pinned in pick-next-claims.test.ts; the collision, write-set
- * and summary annotations in pick-next-output.test.ts. The harness is
- * lib/pick-next-testkit.ts.
- *
- * Each case runs scripts/pick-next.js in process against a stub gh, a git
- * tree and a claim store: ~0.2 s a case, under #4302's 60 s per-file limit.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -66,8 +52,6 @@ describe("readiness", () => {
 	});
 
 	it("carries a blocker naming no issue number, and excludes nothing on it", async () => {
-		// mantahostels#927's shape: the marker names a roadmap card, mid-sentence, so there
-		// is no number to resolve against the open list.
 		const r = await run(
 			{
 				issues: [
@@ -135,7 +119,6 @@ describe("readiness", () => {
 		expect(of(8)).toBeNull();
 		expect(row(7).prompt).toBeNull();
 		expect(row(8).prompt).toBe("/implement 8");
-		// the prompt lib/refill-decide.js launches the same row on
 		expect(row(9).prompt).toBe(buildVerifyPrompt(9));
 		expect(
 			r.json().summary.proposed.map((p: { prompt: string | null }) => p.prompt),
@@ -279,7 +262,6 @@ describe("ordering", () => {
 			timeline: {
 				3: [{ label: "urgent", created_at: daysAgo(2), actor: "owner" }],
 			},
-			// mantahostels#1 and mantahostels#2 have reach 0 too, so only urgency can lift mantahostels#3 to the top.
 		});
 		expect(r.order()[0]).toBe(3);
 		expect(r.out).toMatch(/#3\s+applied by owner 2d ago/);
@@ -339,8 +321,6 @@ describe("ordering", () => {
 	});
 
 	it("ranks a map's last open child on depth plus closes, carrying both in --json (#3613)", async () => {
-		// #11 is #10's only open child, so it closes #10; #3 shares parent #2
-		// with #4. Both score depth 1, reach 1; closes lifts #11.
 		const fx = {
 			issues: [
 				{ number: 2 },
@@ -357,8 +337,6 @@ describe("ordering", () => {
 	});
 
 	it("ranks the deeper blocker of an urgent issue above the wider one (#3222)", async () => {
-		// #30 urgent, blocked by #31 and #32; #33 blocks #31. #32 also holds
-		// #40 and #41, so it leads on reach (3 to 2); depth (2 to 1) must win.
 		const fx = {
 			issues: [30, 31, 32, 33, 40, 41].map((number) => ({
 				number,
@@ -393,9 +371,6 @@ describe("ordering", () => {
 	});
 
 	it("puts the goal band above reach, keeping the high-reach issue on screen", async () => {
-		// mantahostels#106 (how a stated goal reweights the queue) accepted this consequence:
-		// draining a goal set lifts a reach-0 member above the most load-bearing
-		// issue on the tracker, which must still print beneath the band.
 		const r = await run(
 			{
 				issues: [{ number: 22 }, { number: 25 }, { number: 116 }],
@@ -522,7 +497,6 @@ describe("a goal the script works out itself (#3866)", () => {
 	});
 });
 
-/* mantahostels#227, which gave the `takes:` label its first reader. */
 describe("the takes: column", () => {
 	it("shows each shortlisted issue's takes: value", async () => {
 		const r = await run({
@@ -537,8 +511,6 @@ describe("the takes: column", () => {
 	});
 
 	it("prints `none` rather than a blank when the label is missing", async () => {
-		// Every open issue carries exactly one, so absence is a fault to see, not
-		// a state.
 		const r = await run({ issues: [{ number: 1 }] });
 		expect(r.out).toMatch(/^#1\s.*\snone\s/m);
 	});
@@ -551,7 +523,6 @@ describe("the takes: column", () => {
 	});
 
 	it("never lets the label reach the ordering", async () => {
-		// Display only: mantahostels#111 rejected selection writing `takes:`.
 		const r = await run({
 			issues: [
 				{ number: 9, labels: ["takes:human"] },
@@ -571,11 +542,6 @@ describe("the takes: column", () => {
 	});
 });
 
-/*
- * mantahostels#259: the shape `waiting:external` defends against is mantahostels#85 (no working channel
- * to an outside partner), whose request stalled with nothing surfacing the
- * silence.
- */
 describe("the waiting:external escalation", () => {
 	const waiting = (n: number, days: number) => ({
 		[n]: [
@@ -588,7 +554,6 @@ describe("the waiting:external escalation", () => {
 	});
 
 	it("lifts a stalled wait above a higher-reach issue, and prints the days", async () => {
-		// Delete the stall level from the sort and mantahostels#2 wins on reach.
 		const r = await run({
 			issues: [
 				{ number: 1, labels: ["waiting:external"] },
@@ -604,7 +569,6 @@ describe("the waiting:external escalation", () => {
 	});
 
 	it("still shows the wait on an issue the shortlist excludes", async () => {
-		// mantahostels#85 was claimed while its silence ran, so the rank level cannot reach it.
 		const r = await run({
 			issues: [
 				{ number: 85, labels: ["waiting:external"], assignees: ["owner"] },
@@ -679,11 +643,6 @@ describe("the waiting:external escalation", () => {
 	});
 });
 
-/*
- * #2000, #2703: a parked ticket stays choosable; the refill loop holds it out
- * of a launch (lib/refill-decide.js). The PARKED block keeps the park from
- * going quiet.
- */
 describe("the parked label", () => {
 	const parked = (n: number, days: number) => ({
 		[n]: [{ label: "parked", created_at: daysAgo(days), actor: "owner" }],
@@ -759,7 +718,6 @@ describe("when the tracker misbehaves", () => {
 	});
 
 	it("holds an issue out of the shortlist when its readiness stays unknown", async () => {
-		// Never assumed takeable: a session would claim work something else gates.
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }],
 			failDeps: [2],
@@ -815,8 +773,6 @@ describe("when the tracker misbehaves", () => {
 	});
 
 	it("says reach is a lower bound when an issue is degraded", async () => {
-		// mantahostels#3's blocked_by is what would have recorded the mantahostels#1 -> mantahostels#3 edge, so losing
-		// that call costs mantahostels#1 a reach point.
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }, { number: 3 }],
 			deps: { 3: [{ number: 1, state: "open" }] },
@@ -832,7 +788,6 @@ describe("when the tracker misbehaves", () => {
 	});
 
 	it("fails loudly when the issue list itself is unreachable, warning it is no empty frontier and printing no shortlist", async () => {
-		// An empty shortlist would read as "the tracker is drained".
 		const r = await run({ issues: [{ number: 1 }], failList: true });
 		expect(r.status).toBe(1);
 		expect(r.out).toMatch(/FAILED: could not list open issues/);
@@ -866,8 +821,6 @@ describe("advisory only", () => {
 			expect(call.split(" ")[0]).toBe("api");
 			expect(call).not.toMatch(/(^|\s)(-X|--method)(\s|$)/);
 		}
-		// The `urgent` path is the one mantahostels#101 (what defines urgency) and mantahostels#111 (who
-		// may apply it) both guarded: read and display, never apply, never strip.
 		expect(restCalls(r.calls()).join("\n")).not.toMatch(/labels/);
 		expectGraphqlReadsOnly(r.calls());
 		expect(r.out).toMatch(/nothing here was written back to the tracker/);
@@ -890,7 +843,6 @@ describe("advisory only", () => {
 	});
 
 	it("refuses a flag given as another flag's value, naming the flag that needs a value (#920)", async () => {
-		// `--goal --json` must not resolve to the goal set "--json".
 		const r = await run({ issues: [{ number: 1 }] }, ["--goal", "--json"]);
 		expect(r.status).toBe(2);
 		expect(r.out).toMatch(/--goal needs a value/);
@@ -907,11 +859,6 @@ describe("advisory only", () => {
 });
 
 describe("a date gate in the body (mantahostels#85)", () => {
-	/*
-	 * A YYYY-MM-DD `n` days from now, the shape the marker takes — on WITA, the
-	 * clock a gate is written and read on. A UTC date here would put every case
-	 * a day out for the eight hours after 16:00 UTC.
-	 */
 	const isoIn = (n: number) =>
 		new Date(Date.now() + WITA_OFFSET_MS + n * 86_400_000)
 			.toISOString()
@@ -932,8 +879,6 @@ describe("a date gate in the body (mantahostels#85)", () => {
 	});
 
 	it("still prints it under the waiting banner, to be chased anyway", async () => {
-		// The point of reusing `excluded` rather than dropping the issue: it leaves
-		// the batch without leaving the report.
 		const r = await run({
 			issues: [
 				{ number: 1 },
@@ -968,8 +913,6 @@ describe("a date gate in the body (mantahostels#85)", () => {
 			],
 		});
 		expect(r.order()).toContain(85);
-		// The whole tail comes back verbatim: which part of it was meant as the
-		// date is precisely what could not be worked out.
 		expect(r.out).toMatch(
 			/#85\s+UNREADABLE DATE `next Tuesday — a chase is due` — GATING NOTHING/,
 		);
@@ -1006,15 +949,12 @@ describe("a date gate in the body (mantahostels#85)", () => {
 });
 
 describe("a data-condition gate in the body (mantahostels#1419)", () => {
-	/** A YYYY-MM-DD `n` days from now on WITA, the clock a date gate is read on. */
 	const isoIn = (n: number) =>
 		new Date(Date.now() + WITA_OFFSET_MS + n * 86_400_000)
 			.toISOString()
 			.slice(0, 10);
 	const gateCondition =
 		"the eleven tickets have cleared the 5-day rework horizon";
-	/* Backtick-quoted in a real body; kept regex-safe here so the assertions can
-	 * match the printed line literally. */
 	const gateCommand = "python3 scan_rework.py";
 	const abandonCondition = "the label stops being applied";
 	const gateOn = (cond = gateCondition, cmd: string | null = gateCommand) =>
@@ -1072,7 +1012,6 @@ describe("a data-condition gate in the body (mantahostels#1419)", () => {
 	});
 
 	it("says `check: none stated` where no command is given", async () => {
-		// Separates "no command tests this" from "the parser dropped one".
 		const r = await run({
 			issues: [
 				{
@@ -1088,9 +1027,6 @@ describe("a data-condition gate in the body (mantahostels#1419)", () => {
 	});
 
 	it("names the reason for a malformed gate that reads well-formed on its own", async () => {
-		// mantahostels#1652: a duplicate `— check:`/`— abandon if:` inside the prose leaves
-		// the raw tail looking like a valid three-segment gate, so the print
-		// site must say *why* it was rejected, not just echo the tail.
 		const r = await run({
 			issues: [
 				{
@@ -1155,10 +1091,6 @@ describe("a data-condition gate in the body (mantahostels#1419)", () => {
 	});
 
 	it("flags a two-marker issue in the JSON, not only in the printed banner", async () => {
-		// Without the flag a conflicted issue reads exactly like a lapsed date in
-		// `gated[]` — `active: false` beside a positive `daysLeft` — so a consumer
-		// that never sees the banner cannot tell the two apart (mantahostels#1333, one gate
-		// line per issue).
 		const r = await run(
 			{
 				issues: [
@@ -1183,7 +1115,6 @@ describe("a data-condition gate in the body (mantahostels#1419)", () => {
 			holding: false,
 			bothMarkers: true,
 		});
-		// The unconflicted neighbour is untouched by the flag.
 		expect(j.gatedOn[1]).toMatchObject({
 			number: 1216,
 			holding: true,
@@ -1250,11 +1181,6 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 
 	const retro = "Standalone: retro-sweep finding (#948)";
 
-	/**
-	 * The sessions guard-selection-sum.js keys `lines` on, run as Claude Code
-	 * runs it at Stop over a wave-1 turn of this run's own marker, and read back
-	 * off the wave it records there.
-	 */
 	const guardSessionKeys = (lines: string[], frontier: number) => {
 		const transcript = path.join(kit.dir, "guard-transcript.jsonl");
 		const text = [
@@ -1270,8 +1196,6 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 			...process.env,
 			WFC_REPO_ROOT: kit.repoRoot as string,
 		};
-		/* Off, or a suite run from a background job arms the completion-mark limb. */
-		delete env.CLAUDE_JOB_DIR;
 		const r = runInProcess(
 			path.resolve(__dirname, "guard-selection-sum.js"),
 			[],
@@ -1310,13 +1234,11 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 		expect(guardSessionKeys(lines, 9)).toEqual(
 			nineBundled.map((b) => b.join(",")),
 		);
-		// Line i launches bundle i, so a swap between lines fails here.
 		expect(lines.map((l) => l.match(/· (\S+) {4}→ "(.*)"$/)?.slice(1))).toEqual(
 			bundles.map((b) => [b.model, b.prompt]),
 		);
 		expect(bundles.map((b) => issuesIn(b.prompt))).toEqual(nineBundled);
 		for (const b of bundles) {
-			// The bundle rule the vendored /triage skill lacks (#1195).
 			expect(b.prompt).toContain(
 				"one decision, one round comment and one brief per issue",
 			);
@@ -1399,7 +1321,6 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 	});
 
 	it("prints the NOT PROPOSED block, and --json carries every row past its print cap", async () => {
-		// The printed cap and grouping are pinned on notProposedLines (#4382).
 		const issues = Array.from({ length: 25 }, (_, n) => ({
 			number: n + 1,
 			labels: ["takes:human"],

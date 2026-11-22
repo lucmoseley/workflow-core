@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * report-suite-queue-wait.test.ts — the daily queue-wait alarm (#1219, ruled
- * at #1157). Break it and a backlog files nothing, a quiet day files an issue,
- * a closed issue re-files on the backlog it already reported, or the reporter
- * reads on every session start.
- *
- * Black-box through `runInProcess` over a temp git repo, because the log's
- * path comes from git's canonical checkout. `gh` is a fake reached through
- * WFC_GH and the body writer one reached through WFC_ISSUE_BODY, each logging
- * its argv, so every case reads what would have reached the tracker.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -25,8 +14,6 @@ import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-suite-queue-wait.js");
-/* The issue title and the marker names the script uses, restated so a rename
- * fails here rather than passing unseen. */
 const TITLE = "Suite queue wait is over its daily limit";
 const STAMP = ".suite-queue-wait-read";
 const LOCK = ".suite-queue-wait-read.lock";
@@ -39,7 +26,6 @@ const iso = (t: number) => new Date(t).toISOString();
 let home: string;
 let repo: string;
 let markers: string;
-/* The log the script reads, through the path its own reader resolves. */
 let exitLog: string;
 
 beforeEach(() => {
@@ -58,7 +44,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
-/** Writes the host's config, declaring `test` as its test command, or none. */
 function declareTest(test: string | null) {
 	fs.mkdirSync(path.join(repo, ".claude"), { recursive: true });
 	fs.writeFileSync(
@@ -93,11 +78,8 @@ const log = (...exits: Exit[]) =>
 		exits.map((e) => `${JSON.stringify(exit(e))}\n`).join(""),
 	);
 
-/** `hours` of wait, as one run exiting an hour before NOW. */
 const waited = (hours: number) => log({ at: NOW - HOUR, waitS: hours * 3600 });
 
-/** A fake `gh` serving `open` to the open listing and `open` then `closed`,
- *  newest first, to the all-states one. */
 function stubGh(
 	{
 		open = [] as { number: number; title: string }[],
@@ -187,7 +169,6 @@ const run = (
 
 const readErrorLog = () => readGuardErrorsLog(config());
 
-/** What a `--dry-run` at NOW prints: the issue body, then the figure. */
 const dryRun = () => {
 	const r = run(stubGh(), NOW, ["--dry-run"]);
 	expect(r.status).toBe(0);
@@ -228,7 +209,6 @@ describe("the body carries #1157 Q7's breakdown", () => {
 			{ at: at(6), waitS: 360, kind: "bare", session: "f", empty: true },
 			{ at: at(7), waitS: 60, kind: "other", session: "e" },
 			{ at: at(7), waitS: 720, reason: "killed", session: null },
-			/* Never queued (#1221), so in none of the figures below but its own. */
 			{
 				at: at(8),
 				waitS: 0,

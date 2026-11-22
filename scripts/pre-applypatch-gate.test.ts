@@ -1,28 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins `.husky/pre-applypatch` (mantahostels#1707): gitleaks alone, on `git am` and
- * `git rebase --apply`, refusing the apply on a finding or on a scanner that
- * cannot run — exercised through git's own hook seam.
- *
- * The gap it closes: `git am` and `git rebase --apply` (the apply backend) run
- * NEITHER `.husky/pre-commit` NOR `.husky/prepare-commit-msg`, so a patch
- * applied from a file landed on `main` having run no gate at all — gitleaks
- * among them, and `AGENTS.md` §Secrets boundary makes a committed key
- * permanent. `pre-applypatch` is the only hook either route offers that can
- * refuse: git aborts the apply on a non-zero exit, before the commit is
- * written.
- *
- * Each case that fires the hook drives a REAL `git am`/`git rebase --apply`
- * in a throwaway repo with its own `core.hooksPath`, because the class of bug
- * this file guards against is one layer out from the hook's logic — a hook
- * that is correct and never invoked (`docs/agents/guard-authoring.md` §The
- * proving discipline).
- *
- * Past 2.5x its CI record (base §X8 (5)): 17 cases each fire the real hook
- * through a real git apply, at 0.3–0.8 s apiece (#5208).
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -40,28 +17,14 @@ const HOOK_REL = path.join(".husky", "pre-applypatch");
 const HOOK = fs.readFileSync(path.join(ROOT, HOOK_REL), "utf8");
 const PRINTER_REL = path.join("scripts", "pre-applypatch-refusal.js");
 
-/** The hook's one line where its refusal printer would not run. */
 const UNNAMED = "its route could not be named";
 
 const temps = registerTempCleanup();
 
-/** Where a stubbed hook appends the line proving it ran. */
 const LOG = "fired.log";
 
-/**
- * A credential gitleaks' stock rules match, split across a concatenation so this
- * file is not itself a finding on the repo's own scan. Not AWS's documentation
- * key, which gitleaks 8.30.1 allowlists.
- */
 const SECRET = `AKIA${"2QQ7WZ4KKPFXJ3RN"}`;
 
-/**
- * gitleaks has no npm route, so the cases needing it skip rather than fail. The
- * probe reads WFC_GITLEAKS like the hooks do (#224): probing PATH alone would
- * skip every case below on the var-only machine the variable exists for. `||`,
- * not `??`: the hooks' `${WFC_GITLEAKS:-gitleaks}` falls back on an empty
- * value too, and `??` would not (#239).
- */
 const HAS_GITLEAKS = (() => {
 	try {
 		execFileSync(process.env.WFC_GITLEAKS || "gitleaks", ["version"], {
@@ -76,38 +39,15 @@ const HAS_GITLEAKS = (() => {
 interface Probe {
 	root: string;
 	git: (...args: string[]) => Buffer;
-	/** Every hook name that fired since the last `reset()`, in order. */
 	fired: () => string[];
 	reset: () => void;
 	gitDir: () => string;
-	/** The base branch by name: `git init` follows init.defaultBranch. */
 	base: string;
 }
 
-/*
- * THE FIXTURE IS BUILT ONCE AND COPIED (mantahostels#2068), via scripts/lib/git-fixture.ts:
- * `core.hooksPath` at `.husky/_`, the real shim files copied in (rather than
- * written, so a husky upgrade that changed how `_/h` resolves the user hook
- * fails here instead of silently disarming the gate), and the repo's own
- * `pre-applypatch` and its refusal printer beside STUBBED `pre-commit` and
- * `prepare-commit-msg` that only log. `scripts/lib` is a symlink to the live
- * one, so the printer requires the real lib/commit-route.js; the printer
- * itself is a copy, so a case may delete it.
- *
- * The two stubs exist to prove a NEGATIVE — that neither fires on these routes —
- * so they must be present and armed, not merely absent.
- *
- * Both stubs bake the fixture's own ABSOLUTE `fired.log` path into their text,
- * so a naive copy would have every instance log to the TEMPLATE's log file.
- * Both `.husky/pre-commit` and `.husky/prepare-commit-msg` are passed as
- * `extraPaths` entries so `instantiate()` relinks those occurrences the same
- * way it relinks `.git`'s own absolute paths.
- */
 const buildTemplate = (root: string) => {
 	const git = (...args: string[]) => execFileSync("git", args, { cwd: root });
 	git("init", "-q", ".");
-	// A repo-local identity: a machine with no global `user.email` cannot
-	// commit at all (mantahostels#953).
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
 
@@ -138,8 +78,6 @@ const buildTemplate = (root: string) => {
 
 const template = defineTemplate(buildTemplate);
 
-/** Hands out a copy of `buildTemplate`'s repo, plus the accessors `probe()`'s
- * callers depend on. */
 function probe(): Probe {
 	const root = mkScratchDir("pre-applypatch-gate-");
 	temps.push(root);
@@ -172,12 +110,6 @@ function probe(): Probe {
 	};
 }
 
-/**
- * Runs `git args` in `cwd`, returning the exit code and the merged output. An
- * `extraEnv` entry set to `undefined` is REMOVED from the child's environment
- * rather than passed empty, which is how a case asks for a machine that has
- * never heard of the variable.
- */
 function run(
 	cwd: string,
 	args: string[],
@@ -190,8 +122,6 @@ function run(
 	};
 	for (const [k, v] of Object.entries(extraEnv))
 		if (v === undefined) delete env[k];
-	// spawnSync, not execFileSync: the latter surfaces stderr on a throw only, so
-	// a case asserting what a SUCCEEDING hook printed would never see it.
 	const r = spawnSync("git", args, {
 		cwd,
 		encoding: "utf8",
@@ -204,7 +134,6 @@ function run(
 	};
 }
 
-/** `run` with the environment left alone, which is what most cases want. */
 function attempt(
 	cwd: string,
 	...args: string[]
@@ -212,12 +141,6 @@ function attempt(
 	return run(cwd, args);
 }
 
-/**
- * A stub standing in for gitleaks at the hook's own `WFC_GITLEAKS` injection
- * point, exiting `code` and announcing itself so a case can tell it apart from
- * the real binary. It is what lets the #224 cases below run on a machine with
- * no gitleaks at all.
- */
 function scannerStub(dir: string, code: number): string {
 	const bin = path.join(dir, `scanner-exit-${code}`);
 	fs.writeFileSync(
@@ -228,14 +151,6 @@ function scannerStub(dir: string, code: number): string {
 	return bin;
 }
 
-/**
- * A `PATH` on which no gitleaks can be found: the host-git guard, a scratch dir
- * holding only the `bash` it needs (#3403) and the `node` a refusal's printer
- * runs on, and real git's own directory for the hook's `sh` and `dirname`. The `bash` is the one on `PATH`, ahead of
- * git's directory, because the guard needs bash 4 and git's directory may hold
- * 3.2. Throws where git's directory also holds gitleaks, which no such `PATH`
- * can hide.
- */
 function pathWithoutGitleaks(): string {
 	const guardBin = path.join(ROOT, "scripts", "lib", "host-git-guard");
 	const gitBin = (process.env.PATH ?? "")
@@ -253,7 +168,6 @@ function pathWithoutGitleaks(): string {
 	return [guardBin, bashBin, gitBin].join(path.delimiter);
 }
 
-/** A `side` branch adding `files`, leaving the probe back on the base branch. */
 function sideBranch(p: Probe, files: Record<string, string>): void {
 	p.git("checkout", "-q", "-b", "side");
 	for (const [rel, body] of Object.entries(files)) {
@@ -264,13 +178,11 @@ function sideBranch(p: Probe, files: Record<string, string>): void {
 	p.git("checkout", "-q", p.base);
 }
 
-/** Puts the base branch one commit ahead of `side`, so a rebase has work to do. */
 function diverge(p: Probe): void {
 	fs.writeFileSync(path.join(p.root, "base.txt"), "moved\n");
 	p.git("commit", "-qm", "moved", "--", "base.txt");
 }
 
-/** `side`'s single commit as a patch file, ready for `git am`. */
 function patchOfSide(p: Probe): string {
 	const dir = path.join(p.root, "patches");
 	p.git("format-patch", "-1", "side", "-o", dir, "-q");
@@ -287,24 +199,17 @@ const gitLog = (p: Probe, ...args: string[]) =>
 
 describe(".husky/pre-applypatch", () => {
 	it("is the hook husky actually dispatches", () => {
-		// `_/h` exits 0 when the user hook is absent, so the two halves are
-		// separately load-bearing.
 		expect(fs.existsSync(path.join(ROOT, HOOK_REL))).toBe(true);
 		expect(huskyHooks()).toContain("pre-applypatch");
 	});
 
 	it("runs gitleaks ALONE, never the gate stack", () => {
-		// The design, not an accident: a rebase replaying N commits would run N
-		// full stacks, and an intermediate state can fail a cross-file check that
-		// only the final state satisfies (mantahostels#1706, restated at mantahostels#1707).
 		const code = HOOK.split("\n").filter((l) => !l.trimStart().startsWith("#"));
 		expect(code.join("\n")).not.toMatch(/sh -e|npm run/);
 		expect(code.filter((l) => l.includes("gitleaks")).length).toBe(1);
 	});
 
 	it("runs the command .husky/pre-commit runs, spelled once, and exits 0 on its pass", () => {
-		// The literal is never derived from either file, which would make this
-		// tautological.
 		const scan = `"\${WFC_GITLEAKS:-gitleaks}" git --staged --redact`;
 		expect(HOOK.split(scan).length - 1).toBe(1);
 		expect(HOOK).toContain(`${scan} && exit 0`);
@@ -336,12 +241,6 @@ describe(".husky/pre-applypatch", () => {
 });
 
 describe("the premise: which hooks these two routes reach", () => {
-	/*
-	 * Facts about git 2.43.0, measured at mantahostels#1706 and re-measured at mantahostels#1707 with a
-	 * marker hook on every hook name. If a future git routes either operation
-	 * through `prepare-commit-msg` instead, these fail and the change is reported
-	 * rather than silently doubling or dropping the gate.
-	 */
 	it("`git am` reaches pre-applypatch and neither pre-commit nor prepare-commit-msg", () => {
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
@@ -350,10 +249,6 @@ describe("the premise: which hooks these two routes reach", () => {
 		p.reset();
 
 		const r = attempt(p.root, "am", patch);
-		// The two stubs are armed and log on sight; neither ran, which holds with
-		// or without gitleaks on the machine. Without it the real hook refuses
-		// rather than passing, so only the exit-code assertion is conditional
-		// (mantahostels#1707).
 		expect(p.fired()).toEqual([]);
 		if (HAS_GITLEAKS) expect(r.code).toBe(0);
 	});
@@ -376,8 +271,6 @@ describe("what a refusal actually stops", () => {
 		"aborts a `git am` applying a secret, naming `git am --abort`",
 		() => {
 			const p = probe();
-			// Built on a branch and cut to a patch file: the secret arrives as bytes
-			// from outside, which is the shape this hook exists for.
 			sideBranch(p, { "creds.txt": `${SECRET}\n` });
 			const patch = patchOfSide(p);
 			p.git("branch", "-qD", "side");
@@ -388,10 +281,7 @@ describe("what a refusal actually stops", () => {
 			expect(r.code).not.toBe(0);
 			expect(r.output).toContain("git am --abort");
 			expect(gitLog(p, "--format=%H", "-1").trim()).toBe(before);
-			// `side` is deleted, so nothing anywhere in the repo may carry it.
 			expect(gitLog(p, "-p", "--all")).not.toContain(SECRET);
-			// The message names an abort because there IS something to abort: git
-			// leaves the apply in progress.
 			expect(
 				fs.existsSync(path.join(p.gitDir(), "rebase-apply", "applying")),
 			).toBe(true);
@@ -409,11 +299,8 @@ describe("what a refusal actually stops", () => {
 
 			const r = attempt(p.root, "rebase", "--apply", p.base);
 			expect(r.code).not.toBe(0);
-			// The WRONG abort here would strand the tree: `git am --abort` does not
-			// clear a rebase.
 			expect(r.output).toContain("git rebase --abort");
 			expect(r.output).not.toContain("git am --abort");
-			// The rebase rewound HEAD onto the base branch and got no further.
 			expect(gitLog(p, "--format=%H", "-1").trim()).toBe(onto);
 			expect(gitLog(p, "-p", "HEAD")).not.toContain(SECRET);
 			expect(
@@ -423,7 +310,6 @@ describe("what a refusal actually stops", () => {
 	);
 
 	it.skipIf(!HAS_GITLEAKS)("lets a clean `git am` through", () => {
-		// The paired positive: the hook refuses on a finding, not on the route.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);
@@ -444,10 +330,6 @@ describe("what a refusal actually stops", () => {
 	});
 
 	it("refuses when gitleaks itself cannot run, rather than passing vacuously", () => {
-		// A missing binary exits non-zero exactly as a finding does, and the
-		// message says "did not pass" for that reason. Simulated by a PATH with
-		// no gitleaks on it — and by unsetting WFC_GITLEAKS, without which a
-		// machine that exports it would route around the point.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);
@@ -463,7 +345,6 @@ describe("what a refusal actually stops", () => {
 	});
 
 	it("runs the scanner WFC_GITLEAKS names, and refuses on its finding", () => {
-		// #224: §N7 wants one named env var per external binary.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);
@@ -495,7 +376,6 @@ describe("what a refusal actually stops", () => {
 	});
 
 	it("still refuses when the refusal printer is missing, in one line", () => {
-		// The scan is the hook's own; the printer only names the route.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);
@@ -563,7 +443,6 @@ describe("what a refusal actually stops", () => {
 			}
 			const r = run(p.root, args, { WFC_GITLEAKS: scannerStub(p.root, 1) });
 			expect(r.code).not.toBe(0);
-			// Spelled here, not imported, so a drift in scanRefusal fails.
 			expect(r.output).toContain(
 				`STUB SCANNER RAN\npre-applypatch: the secrets scan did not pass on this ${name} (mantahostels#1706).\n` +
 					"  Its own output is above — a finding, or gitleaks itself is missing.\n" +
@@ -573,7 +452,6 @@ describe("what a refusal actually stops", () => {
 		},
 	);
 
-	/** A PATH whose `node` logs each start to `log` before running the real one. */
 	function nodeSpyPath(dir: string, log: string): string {
 		const bin = path.join(dir, "node-spy");
 		fs.mkdirSync(bin);
@@ -586,7 +464,6 @@ describe("what a refusal actually stops", () => {
 	}
 
 	it("starts no node on a passing apply, and starts it once on a refusal", () => {
-		// The latency gate times `git am`: a pass must cost the scan alone.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);
@@ -602,7 +479,6 @@ describe("what a refusal actually stops", () => {
 		});
 		expect(refused.code).not.toBe(0);
 		expect(refused.output).toContain("Clear it with:  git am --abort");
-		// The paired positive: the spy is the node the hook would start.
 		expect(starts()).toBe("node\n");
 		p.git("am", "--abort");
 		fs.rmSync(log);
@@ -616,9 +492,6 @@ describe("what a refusal actually stops", () => {
 	});
 
 	it("lets the apply through when the scanner WFC_GITLEAKS names passes it", () => {
-		// The paired positive: the var routes the scan, it does not refuse the
-		// route. Without it the case above would pass on a hook that refused
-		// everything.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);
@@ -636,14 +509,10 @@ describe("what a refusal actually stops", () => {
 describe("an adopter's pre-applypatch, run from the plugin through its shim (#1839)", () => {
 	it("finds its printer under $WFC_PLUGIN_ROOT where set", () => {
 		expect(HOOK).toContain(
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell parameter expansion under test, not a JS placeholder
-			'"${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/pre-applypatch-refusal.js"',
+			`"\${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/pre-applypatch-refusal.js"`,
 		);
 	});
 
-	/** An adopter-shaped repo — core.hooksPath at `.husky`, no `.husky/_` —
-	 * whose pre-applypatch shim runs the core's, from a plugin root holding the
-	 * printer that WORKFLOW_CORE_DIR names. */
 	function adopter() {
 		const { root, git } = newRepo("pre-applypatch-adopter-", temps);
 		const plugin = fs.mkdtempSync(`${root}-plugin-`);
@@ -716,8 +585,6 @@ describe("an adopter's pre-applypatch, run from the plugin through its shim (#18
 
 describe("the pre-applypatch hook's own linting", () => {
 	it("is in check:sh's file set, which pre-commit's shell gate shares (#1828)", () => {
-		// A husky hook nothing lints is a hook whose next edit breaks silently:
-		// `npm run lint` never sees a shell file.
 		const set = runInProcess(
 			path.join(ROOT, "scripts/lib/formatters.js"),
 			["shell-files", "--tracked"],

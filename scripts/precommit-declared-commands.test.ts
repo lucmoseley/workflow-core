@@ -31,7 +31,6 @@ import { takeRed } from "./lib/typecheck-red-host.js";
 const temps = registerTempCleanup();
 const INFER = path.join(ROOT, "scripts", "lib", "infer-commands.js");
 
-/** From the column-zero `if` above `anchor`'s line to the `fi` closing `last`'s block. */
 function cut(anchor: string, last = anchor): string {
 	const lines = HOOK.split("\n");
 	const at = (needle: string) =>
@@ -97,15 +96,11 @@ function run(
 		RAN_DIR: root,
 	};
 	delete env.CLAUDE_PROJECT_DIR;
-	// `sh -e`, as husky runs the hook, with a trailing no-op so a gate that
-	// fell through without its own `exit` still reads as passing.
 	const r = spawnSync("sh", ["-ec", `{\n${LIB}\n${gate}\n:\n} 2>&1`], {
 		cwd: root,
 		env,
 		encoding: "utf8",
 	});
-	// Each command leaves a file behind: the typecheck gate holds a green
-	// command's output back, so stdout cannot say whether it ran.
 	return {
 		code: r.status,
 		out: r.stdout,
@@ -117,7 +112,6 @@ const declared = {
 	check_staged: "touch RAN-check_staged",
 	typecheck: "touch RAN-typecheck",
 	lint: "switches the gate on; it runs eslint itself",
-	// The test gate runs in a throwaway worktree (#1766), so its marker is rooted.
 	test: 'touch "$RAN_DIR/RAN-test"',
 };
 
@@ -177,7 +171,6 @@ const SID = "11111111-2222-3333-4444-555555555555";
 const RED = "echo tsc-said-no; exit 1";
 
 describe("the record a red declared typecheck leaves for its session (#3824)", () => {
-	/** The gate's commit, its output piped through `tail` as sessions do. */
 	function commitPiped(typecheck: string, sid = SID) {
 		const root = fixture({ commands: { typecheck } });
 		copyRequireClosure(root, ROOT, ["scripts/record-typecheck-red.js"]);
@@ -277,9 +270,6 @@ it("refuses the commit where the declared test command is red, printing its outp
 	expect(out).toContain("the declared test command is RED");
 });
 
-/* A test command meeting the verdict contract, a script on the gate's PATH:
- * under the probe it fails the file it is given, naming it; a run given no
- * file is the gate's own. */
 const PROVEN =
 	'if [ -n "$WFC_VERDICT_PROBE" ]; then echo " FAIL  $1"; exit 1; fi; [ -n "$1" ] || touch "$RAN_DIR/RAN-test"';
 const CANARY = "canary.test.ts";
@@ -323,8 +313,6 @@ it("keeps the test gate on a failed probe, naming the clause the command broke",
 	expect(out).toContain("the verdict probe failed: it exits 0 on a red");
 });
 
-/* A stand-in `biome` (or any command) that leaves the gate's marker, and on
- * `--write` rewrites the staged file. */
 const MARKER_STUB =
 	'#!/bin/sh\ntouch RAN-check_staged\ncase " $* " in *" --write "*) echo rewritten > app/x.ts ;; esac\n';
 
@@ -345,7 +333,6 @@ const declaresBiome = (script: string) => ({
 
 const MAPPED = `${BIOME_STAGED_COMMAND} --no-errors-on-unmatched`;
 
-/* With the classifier gone, a gate that spent node on it would refuse. */
 function withoutClassifier(root: string): void {
 	fs.rmSync(path.join(root, "scripts/lib/infer-commands.js"));
 }
@@ -482,7 +469,6 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 	it.each([
 		"bi$@ome check --staged",
 		"bi$*ome check --staged",
-		// Reaches node through the hook's `{` arm alone (#3545).
 		"{bi,x}ome check --staged",
 	])(
 		"refuses %s, whose expansion may hide the word biome, before it runs (#3445)",
@@ -542,8 +528,6 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 			"eslint $(git diff --cached --name-only)",
 		);
 		fs.writeFileSync(path.join(root, "package.json"), "{ not json");
-		/* The plugin's scripts sit under a package.json of their own, as in the
-		 * plugin cache; node refuses to start one under an unparsable one. */
 		fs.writeFileSync(path.join(root, "scripts/package.json"), "{}");
 		fs.writeFileSync(path.join(root, "bin/eslint"), MARKER_STUB, {
 			mode: 0o755,
@@ -553,8 +537,6 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		expect(ran("check_staged"), out).toBe(true);
 	});
 
-	/* The hook's package-manager, glob, shell-word and parallel arms send each to
-	 * node (#3851). */
 	it.each([
 		["yarn check:staged", "never rewritten"],
 		["pnpm check:staged", "never rewritten"],
@@ -587,7 +569,6 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 	it("reaches the classifier on npx before npx runs, failing where the classifier is gone (#3851)", () => {
 		const { root } = biomeFixture("npx eslint");
 		withoutClassifier(root);
-		/* A gate that skipped the classifier would run this and pass. */
 		fs.writeFileSync(path.join(root, "bin/npx"), MARKER_STUB, { mode: 0o755 });
 		const { code, out, ran } = run(root, GATES.check_staged);
 		expect(code).toBe(1);
@@ -639,8 +620,6 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 });
 
 describe("infer-commands.js check-staged", () => {
-	/* `echo npm run x` runs no script, yet holds a run, so the way out must
-	 * name the text it reads, not what the command runs (#3546). */
 	it.each(["npm run check:staged", "echo npm run x"])(
 		"exits 1 on %j over a package.json that does not parse, naming the hook's way out rather than init's --command (#3192)",
 		(command) => {

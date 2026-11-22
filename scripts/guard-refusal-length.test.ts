@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * The deny and warn texts #497 cut — the agent-poll guard (#518), the two suite
- * guards (#519) and the recursive-dot-read guard (#520) — may not regrow (#521).
- * Each is pinned at or under a byte ceiling. Only these four guards: the
- * ceiling is not widened to any other (#497 §Implementation Decisions).
- *
- * WHAT IS COUNTED is the guard's own words, in UTF-8 bytes: the text as the
- * session receives it, less the command it quotes back. The dot-read warning
- * also names the project root, a temp path here, and that goes too.
- *
- * A text over its ceiling fails with its measurement. Cut the text; raise the
- * ceiling only on a ruling, re-measuring every row and recording it below.
- *
- * Each guard is spawned on the hook route that runs it for that tool, and its
- * live text measured, never a copy: guard-dispatch.js for the poll and
- * dot-read guards, and for a Bash core through `--only`, so a refusal
- * measures alone the core whose text it is. All run as `PreToolUse` hooks (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`), so a ceiling loosened here lets a refusal regrow and
- * every session that trips it pays the bytes #497 cut, on every trip.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -27,14 +7,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writePsStub } from "./lib/ps-stub";
 
-/** `text`'s bytes with every occurrence of each of `quoted` taken out. */
 const ownBytes = (text: string, ...quoted: string[]) =>
 	Buffer.byteLength(
 		quoted.reduce((t, q) => t.split(q).join(""), text),
 		"utf8",
 	);
 
-/** How far `text`'s own bytes run past `ceiling`; zero or less is within it. */
 const overBy = (text: string, ceiling: number, ...quoted: string[]) =>
 	ownBytes(text, ...quoted) - ceiling;
 
@@ -48,48 +26,33 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/* Inherited from a hook or a worktree, these point git at the live index. */
 const NO_GIT_ENV = {
 	GIT_DIR: undefined,
 	GIT_WORK_TREE: undefined,
 	GIT_INDEX_FILE: undefined,
 };
 
-/** What a row adds to the call, built inside the case's temp dir. */
 interface Setup {
 	env?: Record<string, string | undefined>;
 	payload?: Record<string, unknown>;
-	/** Strings the text quotes back that only the setup knows. */
 	quoted?: string[];
 }
 
 interface Row {
-	/** Completes the case title, "keeps … within its ceiling". */
 	text: string;
 	guard: string;
-	/** The one dispatcher core run, where the row measures a core alone. */
 	only?: string;
 	decision: "deny" | "warn";
 	tool?: string;
 	input: Record<string, unknown>;
-	/** Caller strings the text quotes back, left out of the count. */
 	quotes?: string[];
-	/** Identical calls before the measured one — the route's allowance. */
 	spent?: number;
 	setup?: () => Setup;
-	/** A phrase only this branch's text carries, so a case that has drifted
-	 * onto a shorter branch fails rather than passing on the wrong text. */
 	marks: string;
-	/** The text's own bytes when the ceiling was set. */
 	measured: number;
 	ceiling: number;
 }
 
-/**
- * `suites` one-shot runs and `watchers` open watchers already going, with the
- * count cap live. MemAvailable sits far above the ladder so the memory warn
- * never outranks the deny.
- */
 const running =
 	(suites: number, watchers = 0) =>
 	(): Setup => {
@@ -108,15 +71,11 @@ const running =
 		};
 	};
 
-/** The same call, made by a subagent rather than the session itself. */
 const subagent = (): Setup => ({ payload: { agent_id: "x1" } });
-/* The dispatcher picks its cores by the payload's event (#2790). */
 const dispatched = (): Setup => ({
 	payload: { hook_event_name: "PreToolUse" },
 });
 
-/* The rule the dot-read warning carries on its first trip (#2060): route (f)'s
- * cap prices it, so it is not the guard's own words. */
 const heavyTreeRule = fs
 	.readFileSync(
 		path.resolve(__dirname, "../docs/agents/rules/heavy-tree-search.txt"),
@@ -124,7 +83,6 @@ const heavyTreeRule = fs
 	)
 	.trim();
 
-/** A project whose top level is `CLAUDE.md` and `app/`, as the root to expand. */
 const project = (): Setup => {
 	const repo = fs.realpathSync(fs.mkdtempSync(path.join(dir, "repo-")));
 	fs.mkdirSync(path.join(repo, "app"));
@@ -145,11 +103,6 @@ const project = (): Setup => {
 
 const DISPATCH = "guard-dispatch.js";
 
-/*
- * Each ceiling is its measurement plus 50 bytes: a reworded clause fits, an
- * added sentence does not. #545 re-measured the four rows it rewrote; each
- * ceiling is now the lower of its old one and the new measurement plus 50.
- */
 const ROWS: Row[] = [
 	{
 		text: "the poll guard's no-op refusal",
@@ -381,7 +334,6 @@ const ROWS: Row[] = [
 	},
 ];
 
-/** The text the row's guard emits on the measured call, its decision checked. */
 const emitted = (row: Row) => {
 	const setup = row.setup?.() ?? {};
 	const call = () =>

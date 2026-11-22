@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The levelling step (#4238) against real git: a bare origin carrying `main`,
- * a main checkout cloned from it with a linked worktree, and a
- * second clone that moves `origin/main` as the lander would. `npm` is a stub
- * at `WFC_NPM` that records each install.
- *
- * Loosen it and the main checkout's `main` drifts from the lander-green tip,
- * a local commit or a session's edit is moved or lost, two passes install at
- * once, or hook code runs against a tree built for another lockfile.
- */
 import {
 	type ChildProcess,
 	execFileSync,
@@ -26,7 +16,6 @@ import { shellQuote } from "./lib/sh-quote.js";
 const SCRIPT = path.resolve(__dirname, "level-main.js");
 const REPO = path.resolve(__dirname, "..");
 const MARKER_LIB = "scripts/lib/self-plugin-marker.sh";
-/* The canary, its writer and every file they source. */
 const CANARY_FILES = [
 	"scripts/self-plugin-canary.sh",
 	"scripts/write-self-plugin-marker.sh",
@@ -125,7 +114,6 @@ beforeEach(() => {
 	git(tmp, "clone", "-q", origin, lander);
 	git(lander, "config", "user.email", "t@t");
 	git(lander, "config", "user.name", "t");
-	/* The main checkout's tree as a pass leaves it for lock-1. */
 	expect(pass().install.installed).toBe(true);
 	fs.rmSync(npmCalls, { force: true });
 });
@@ -393,10 +381,7 @@ it("refuses a stray argument, and a directory no main checkout holds", () => {
 
 const writerLog = () => path.join(tmp, "writer-runs");
 
-/* CANARY_FILES, its writer also logging each run to writerLog. Landed and
- * levelled with no session live. */
 const seedCanary = () => {
-	/* The writer's fail-open log, here and in the pass's own runs of it. */
 	vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(tmp, "config"));
 	const files: Record<string, string> = {};
 	for (const f of CANARY_FILES)
@@ -456,7 +441,6 @@ it("re-marks a live session before a fast-forward that moves its marker path, so
 		status: "forwarded",
 		head: moved,
 	});
-	/* The pass's writer records the main checkout's self-plugin (#4712). */
 	expect(
 		fs.readFileSync(
 			path.join(worktree, ".claude", "tmp", "markers", ".self-plugin-v2-s-old"),
@@ -474,8 +458,6 @@ it("re-marks a session that starts under the old writer after the pass lists ses
 	const listings: string[][] = [["s-old"], ["s-old", "s-new", "s-unloaded"]];
 	const listSessions = () => {
 		const ids = listings.shift() ?? [];
-		/* After the first listing, before the fast-forward: the main
-		 * checkout's writer is still the old one. */
 		if (listings.length === 1) startSession("s-new");
 		return live(...ids)();
 	};
@@ -491,9 +473,6 @@ it("re-marks a session that starts under the old writer after the pass lists ses
 it("re-marks a session listed before its writer ran, then marked by the old writer before the fast-forward", () => {
 	const files = seedCanary();
 	landOnMain(movedMarkerPath(files));
-	/* The old writer's marker, recording the plugin root as every writer
-	 * since #4712 does, landing after the first pass checked s-slow and
-	 * before `main` moves: git runs this as it prepares that ref update. */
 	const oldMarker = path.join(
 		worktree,
 		".claude",

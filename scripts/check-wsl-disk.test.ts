@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The check-wsl-disk.js program (#5044), its reads crossed through the
- * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C, WFC_SYSTEMCTL and WFC_NOW seams,
- * so each outcome is seen as `npm run status` sees it. Loosened, a missed
- * compaction or an idle fstrim.timer reads as clean. The judging itself is
- * lib/wsl-disk.test.ts's.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,7 +17,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** A systemctl answering `show` with `says`. Its path, for WFC_SYSTEMCTL. */
 function writeSystemctl(says: string) {
 	const file = path.join(dir, "systemctl");
 	fs.writeFileSync(file, `#!/bin/sh\necho '${says}'\n`, { mode: 0o755 });
@@ -52,12 +44,9 @@ function run({
 			GITHUB_ACTIONS: "",
 			WFC_NOW: NOW,
 			WFC_PROC: proc,
-			// The temp dir's own filesystem stands for the guest's /: a 1 PiB
-			// disk holds it under 85%, a 1 MiB one over.
 			WFC_GUEST_ROOT: dir,
 			WFC_WSL_COMPACT_LOG:
 				log === undefined ? path.join(dir, "absent.log") : logPath,
-			// A temp dir has room: C: free never warns here.
 			WFC_WIN_C: dir,
 			WFC_SYSTEMCTL: writeSystemctl(trim),
 			WFC_FSTRIM_DROPIN: path.join(dir, "absent.conf"),

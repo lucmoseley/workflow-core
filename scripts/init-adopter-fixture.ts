@@ -12,8 +12,6 @@ import { gateTmpdir } from "./lib/precommit-gate-harness.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { upgrade } from "./lib/upgrade-walk.js";
 
-/* These fixtures hold no package.json, and init's config carries no `ci` key
- * to write the CI workflow from; a pathspec naming either fails. */
 export const SKELETON_PATHS = skeletonPaths(
 	(rel) => rel !== "package.json" && rel !== CI_WORKFLOW,
 );
@@ -26,22 +24,16 @@ afterAll(() => {
 	for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/* The template builds under git-fixture's scratch base, inside this checkout,
- * so the ceiling stops a failed `git init` from letting `git config` write
- * into the checkout's own .git/config (#2875). */
+// #2875
 const emptyRepo = defineTemplate((dir) => {
 	const env = { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(dir) };
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: dir, env });
 	git("init", "-q", "-b", "main", ".");
-	/* An identity, so the tests' commits are not refused for want of one. */
 	git("config", "user.email", "fixture@example.invalid");
 	git("config", "user.name", "Adopter Fixture");
 });
 
-/* Copies land outside any repository, not under the scratch base, so no
- * test's adopter repo sits inside this checkout. Residual: they are back on
- * the shared /tmp (mantahostels#3144). */
 export function repo() {
 	return adopterFrom((dir) => emptyRepo.instantiate(dir));
 }
@@ -55,11 +47,7 @@ function adopterFrom(fill: (dir: string) => void) {
 	return { dir, git };
 }
 
-/* A plain init's tree, run once per founder and copied per case (#4296): for
- * a case that judges what follows that run, never the run's own output. A
- * copy is byte-identical, modes included, as init writes no absolute path of
- * its root into the tree. Built on first use, not in beforeAll: two founders,
- * each wanted by only some cases. */
+// #4296
 const initedTrees = new Map<string, string>();
 export function initialised(founder = "A Founder") {
 	let tree = initedTrees.get(founder);
@@ -72,9 +60,6 @@ export function initialised(founder = "A Founder") {
 	return adopterFrom((dir) => fs.cpSync(built, dir, { recursive: true }));
 }
 
-/* The core's production runNode with the plugin script run in-process in
- * place of a child node, a failure thrown as execFileSync throws it, so the
- * core reads it as it reads the spawn's. */
 function runNodeInProcess(
 	root: string,
 	script: string,
@@ -99,12 +84,6 @@ function runNodeInProcess(
 	);
 }
 
-/**
- * init's core called in-process, in runInProcess's argument and result shape:
- * `env`, where given, replaces the environment and `cwd` is the working
- * directory for the call, as a spawn's would be. runNode runs each plugin
- * script in-process.
- */
 export function adoptWith(
 	args: string[],
 	{ cwd, env = process.env }: { cwd: string; env?: NodeJS.ProcessEnv },
@@ -139,16 +118,12 @@ const fixtureArgs = (dir: string, args: string[]) => [
 	dir,
 	"--plugin-root",
 	CORE,
-	/* Every fixture skips it: a real `claude plugin install` mutates this
-	 * machine's own plugin registry and is exercised on its own, against a
-	 * stub `claude`, in init-adopter.test.ts (#75). */
+	// #75
 	"--no-plugin-install",
 	...args,
 ];
 
-/* init passes NO CLAUDE_PROJECT_DIR: init sets it for its own children, so
- * supplying it would prove the harness rather than the script (#5). */
-
+// #5
 export const init = (dir: string, ...args: string[]) =>
 	initIn(process.env, dir, ...args);
 
@@ -158,7 +133,6 @@ export const initIn = (
 	...args: string[]
 ) => adoptWith(fixtureArgs(dir, args), { cwd: dir, env });
 
-/** init run as the program, for the boundary set (§X11). */
 export const initProgram = (dir: string, ...args: string[]) =>
 	initProgramIn(process.env, dir, ...args);
 
@@ -168,28 +142,16 @@ export const initProgramIn = (
 	...args: string[]
 ) => runInProcess(SCRIPT, fixtureArgs(dir, args), { cwd: dir, env });
 
-/** A pathspec commit of `paths` in the adopter, through its own hooks. */
 export function commitThroughHooks(
 	dir: string,
 	message: string,
 	paths = SKELETON_PATHS,
 	env = process.env,
 ) {
-	/* Intent-to-add, so the pathspec commit the convention asks for can name
-	 * files git has never seen. */
 	execFileSync("git", ["add", "-N", ...paths], { cwd: dir });
-	/* The shims run this checkout, as CI's WORKFLOW_CORE_CHECKOUT would: the
-	 * fixture has no install row for them to resolve (#1839). The skeleton's
-	 * hooks arm the real shellcheck gate, so the commit takes the fixture's own
-	 * TMPDIR for its lock, set after `env` so no caller's replaces it (#2648).
-	 * CLAUDE_PROJECT_DIR is the adopter's, as its own session's would be: a
-	 * session's inherited value names this checkout (#3296).
-	 * CLAUDE_CONFIG_DIR is the commit's own, so a guard failing open under the
-	 * hooks logs there, never in the developer's live log (mantahostels#1452). */
+	// #1839 #2648 #3296 lucmoseley/mantahostels#1452
 	const config = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-config-"));
 	made.push(config);
-	/* The adopter's own .claude/workflow-core.json names its modules; the
-	 * suite's WFC_MODULES would replace that list with every module. */
 	const { WFC_MODULES: _suite, ...own } = env;
 	return spawnSync("git", ["commit", "-m", message, "--", ...paths], {
 		cwd: dir,
@@ -204,10 +166,6 @@ export function commitThroughHooks(
 	});
 }
 
-/**
- * The suite injects WFC_MODULES, which replaces the declared list; the
- * spawned init never saw it, so the upgrade must not either.
- */
 export function upgradeAfterInit(
 	dir: string,
 	labels?: Parameters<typeof upgrade>[0]["labels"],

@@ -1,31 +1,4 @@
 #!/usr/bin/env node
-/*
- * list-noun-readers.js — the JS and TS functions that read a file, a
- * directory or a command's output and carry a noun name: the candidates for
- * base §G5's `readX` (#2750).
- *
- * Usage:  node scripts/list-noun-readers.js [<pathspec>…]
- *
- * It reads the tracked `.js`, `.cjs`, `.mjs` and `.ts` files the git
- * pathspecs match in the working directory's repo, all of them where none is
- * given (`'scripts/lib/*' ':!scripts/*.test.ts'` narrows it). It prints
- * `<file>:<line>\t<name>` per candidate, then their count, and exits 0; 1
- * where typescript or git cannot be reached.
- *
- * A CANDIDATE, NOT A VERDICT. A function is listed where its name's first
- * word is not in VERBS and its own body, nested functions aside, calls an fs
- * read, a child-process spawn or a `git`/`gh`/`sh` wrapper, or returns what a
- * `readX` call gave it: the call in a returned expression, or a variable
- * that carries one, transitively (#2858). Review decides whether its job is
- * returning what it read; one that only checks or acts on it is no reader.
- * Missed: a reader that reaches its I/O only through a helper outside these
- * sets (another noun-named function, a `loadX`, a `runCli`), a `readX` value
- * carried through an object property, and a class or object method.
- * Over-listed: a function that returns something it computed from what it
- * read.
- *
- * IN NO FAMILY (code-standards §N3, §G4): it gates nothing.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -38,11 +11,6 @@ const { writeFd } = require("./lib/write-fd.js");
 
 /** @typedef {typeof import("typescript")} Ts */
 
-/* The first words taken as verbs. A noun added here hides its readers, so
- * add only words this repo's names use as verbs alone (`guard`, `start`,
- * `store` and kin lead noun names too, so they stay out). `gh`, `git` and
- * `sh` stand as verbs: a wrapper named for the command it runs is that
- * command's runner, not a reader (#2750). */
 const VERBS = new Set(
 	`add advance append apply archive arm ask assert assign attach attempt
 	audit await build bump gh git sh call check claim classify clear clone
@@ -88,7 +56,6 @@ const SPAWNS = new Set([
 	"spawnSync",
 ]);
 const WRAPPER = /^(?:git|gh|sh)(?:[A-Z]\w*)?$|^(?:exec|spawn)Git\w*$/;
-/* Buffer's own `readUInt32LE` and kin read memory, not a file. */
 const READER = /^read(?!U?Int|Big|Float|Double)[A-Z]/;
 
 /**
@@ -103,8 +70,6 @@ function calleeName(ts, call) {
 }
 
 /**
- * Whether `pred` holds of `node` or any node under it, not entering nested
- * functions.
  * @param {Ts} ts
  * @param {import("typescript").Node} node
  * @param {(node: import("typescript").Node) => boolean} pred
@@ -119,8 +84,6 @@ function someOwn(ts, node, pred) {
 }
 
 /**
- * Whether `body` calls an fs read, a spawn or a command wrapper, not counting
- * the bodies of functions nested in it.
  * @param {Ts} ts
  * @param {import("typescript").Node} body
  */
@@ -136,9 +99,6 @@ function hasOwnRead(ts, body) {
 }
 
 /**
- * The names `node` fills with a value `hasReadIn` accepts: a declaration or
- * an assignment from one, a method call taking one (`out.push(x)` fills
- * `out`), or a loop over one.
  * @param {Ts} ts
  * @param {import("typescript").Node} node
  * @param {(expr: import("typescript").Node) => boolean} hasReadIn
@@ -190,7 +150,6 @@ function loopNames(ts, loop, hasReadIn) {
 }
 
 /**
- * Whether `body` returns what a `readX` call gave it.
  * @param {Ts} ts
  * @param {import("typescript").ConciseBody} body
  */

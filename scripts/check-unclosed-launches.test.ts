@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * check-unclosed-launches.test.ts — what `npm run status` names (#3782), from
- * a real state file and a stubbed tracker: an open implement ticket whose
- * latest launch committed and did not close, and nothing else. A break here
- * leaves a stranded ticket waiting unreported, as #3609 did.
- */
 
 import fs from "node:fs";
 import os from "node:os";

@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * name-issue-session.sh names a session after the work it was opened on, so a
- * screenful of parallel background jobs can be told apart without opening each
- * one (mantahostels#998).
- *
- * The guarantee that matters most is not the format but that the format
- * survives a hook killed on its deadline (mantahostels#998), so that case is driven with a
- * `gh` that never returns.
- *
- * Every case supplies its own `gh` at WFC_GH: these must never reach the network,
- * and a test that silently depended on the founder's live issue titles would
- * change its own expectations whenever an issue was retitled.
- *
- * The script runs as a `SessionStart` and `UserPromptSubmit` hook in
- * `.claude/settings.json`: loosen a case and parallel jobs launched together
- * come up unnamed or misnamed, with nothing else to report it.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,13 +23,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A `gh` stub, for WFC_GH. `mode: "slow"` never returns, standing in for the
- * loaded machine that provoked the timeout; `"fail"` is gh-fake's logged-out
- * answer, standing in for any failed lookup.
- *
- * The `ok` and `fail` stubs record their argv: the title is fetched for exactly
- * one of the issues given, and a stub answering every number identically would
- * let `titled by the last` pass the test named for `titled by the first`. */
 function stubGh(mode: "ok" | "slow" | "fail"): string {
 	if (mode === "slow") return stubGhScript(dir, "#!/bin/sh\nsleep 120\n").gh;
 	const answer = mode === "ok" ? printed(`${TITLE}\n`) : GH_LOGGED_OUT;
@@ -57,30 +33,24 @@ function argvLog(): string {
 	return path.join(dir, "gh-argv.log");
 }
 
-/** Every argument line the gh stub was called with, in order. */
 function ghCalls(): string[] {
 	if (!fs.existsSync(argvLog())) return [];
 	return fs.readFileSync(argvLog(), "utf8").trim().split("\n").filter(Boolean);
 }
 
 interface Run {
-	/** The name left on the job record, or undefined if it was never renamed. */
 	name?: string;
 	nameSource?: string;
-	/** The hook must ALWAYS exit 0 — a non-zero exit blocks the prompt. */
 	status: number | null;
 	stdout: string;
 }
 
-/** Run the hook as a background job. `timeoutMs` reproduces the harness killing
- * the hook on its deadline. */
 function runHook(
 	prompt: string | null,
 	opts: {
 		gh?: "ok" | "slow" | "fail";
 		timeoutMs?: number;
 		intent?: string;
-		/** The environment the launcher handed the session. */
 		env?: Record<string, string>;
 		extra?: Record<string, unknown>;
 	} = {},
@@ -109,8 +79,6 @@ function runHook(
 			...process.env,
 			WFC_GH: gh,
 			CLAUDE_JOB_DIR: jobDir,
-			// Never the founder's live registry: a job-write failure would send
-			// the interactive branch scanning their real sessions.
 			CLAUDE_CONFIG_DIR: path.join(dir, "config"),
 			...opts.env,
 		},
@@ -129,7 +97,6 @@ function runHook(
 	};
 }
 
-/** The name the hook left, for the cases that only care about that. */
 function runJob(
 	prompt: string,
 	opts: { gh?: "ok" | "slow" | "fail"; timeoutMs?: number } = {},
@@ -237,7 +204,6 @@ describe("the hook never blocks the prompt", () => {
 	});
 
 	it("says the name only as a systemMessage, never as bare stdout", () => {
-		// On UserPromptSubmit, plain stdout is injected into the model's context.
 		const r = runHook("/wayfinder 962");
 		expect(JSON.parse(r.stdout.trim())).toEqual({
 			systemMessage: `Session named — Wayfinder 962: ${TITLE}`,
@@ -284,7 +250,6 @@ describe("a reference keeps its ordinary sentence punctuation", () => {
 	});
 
 	it("reads a permalink carrying a comment fragment", () => {
-		// The form GitHub's "copy link" produces.
 		expect(
 			runJob(
 				"/wayfinder https://github.com/owner/repo/issues/962#issuecomment-5365681768",
@@ -319,15 +284,12 @@ describe("references are read from the front of the argument only", () => {
 
 describe("a resume is named from the job record's intent", () => {
 	it("names the session on SessionStart, where no prompt is submitted", () => {
-		// This route only fires on a RESUME (mantahostels#998).
 		const r = runHook(null, { intent: "/wayfinder 962" });
 		expect(r.name).toBe(`Wayfinder 962: ${TITLE}`);
 		expect(r.status).toBe(0);
 	});
 });
 
-// A subagent's compaction fires SessionStart:compact under its parent's
-// session id, and would rename the parent from inside the subagent (#1785).
 describe("a compaction renames from the job's intent", () => {
 	const atCompaction = (agentId?: string) => {
 		const { sessionStart } = compactPayloads({
@@ -365,7 +327,6 @@ describe("an interactive session is found in the registry CLAUDE_CONFIG_DIR name
 			WFC_GH: stubGh("ok"),
 			CLAUDE_CONFIG_DIR: cfg,
 		};
-		delete (env as Record<string, string | undefined>).CLAUDE_JOB_DIR;
 		spawnSync("bash", [HOOK], {
 			input: JSON.stringify({
 				session_id: "s1",
@@ -377,13 +338,11 @@ describe("an interactive session is found in the registry CLAUDE_CONFIG_DIR name
 
 		const written = JSON.parse(fs.readFileSync(reg, "utf8"));
 		expect(written.name).toBe(`Triage 958: ${TITLE}`);
-		// An absent nameSource is how /rename marks a deliberate name.
 		expect(written.nameSource).toBeUndefined();
 	});
 });
 
 describe("a long title is truncated rather than filling the list column", () => {
-	/** Drive the hook with a gh that returns this exact title. */
 	function withTitle(title: string, env: Record<string, string> = {}): string {
 		const { gh } = stubGhRoutes(dir, { "*": printed(`${title}\n`) });
 		const jobDir = fs.mkdtempSync(path.join(dir, "job-trunc-"));
@@ -416,8 +375,6 @@ describe("a long title is truncated rather than filling the list column", () => 
 	});
 
 	it("counts characters, not bytes, even under a byte-oriented locale", () => {
-		// Slicing bytes can cut an em dash in half and produce a name that is
-		// not valid UTF-8.
 		const name = withTitle("—".repeat(300), { LC_ALL: "C" });
 		expect([...name].length).toBe(90);
 		expect(Buffer.from(name, "utf8").toString("utf8")).toBe(name);
@@ -425,10 +382,6 @@ describe("a long title is truncated rather than filling the list column", () => 
 	});
 });
 
-/*
- * In an adopter the commands arrive namespaced — `/workflow-core:pick-next`,
- * the spelling Claude Code's menu produces for a plugin command (#201).
- */
 describe("the plugin namespace on a command is optional (#201)", () => {
 	it.each([
 		["/workflow-core:wayfinder 962", `Wayfinder 962: ${TITLE}`],
@@ -452,14 +405,10 @@ describe("the plugin namespace on a command is optional (#201)", () => {
 		);
 	});
 
-	/* `workflow-core` is the PLUGIN's name, set in plugin.json by whoever ships
-	 * the plugin, so a hardcoded prefix would fix this repo and no fork. */
 	it("accepts any plugin name as the prefix", () => {
 		expect(runJob("/my-fork:wayfinder 962")).toBe(`Wayfinder 962: ${TITLE}`);
 	});
 
-	/* A background job reads its command off the record's `intent`, not off a
-	 * submitted prompt, so a prompt-only case leaves that path uncovered. */
 	it("names a background job whose intent carries the namespaced command", () => {
 		expect(
 			runHook(null, { intent: "/workflow-core:pick-next", gh: "fail" }).name,

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which named paths commit-paths refuses before writing anything, that a
- * commit carries exactly the named paths (or, under `--patch`, only the
- * session's own lines), and how a hook refusal leaves the index for a re-run.
- *
- * commit-paths.js, driven through its command line against a real temporary
- * repository (#583; the seam ruled on #502, Q1 (A)).
- *
- * Every refusal also asserts the index is untouched.
- *
- * It is the commit route `CLAUDE.md`'s pathspec rule and
- * the guard-commit-form core send every session down: loosen a case and a
- * commit sweeps in work it was not handed, or leaves a new file behind.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -30,9 +16,6 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "commit-paths.js");
 
-/* Built once and copied per case; each copy points its hooks at its own
- * sandbox, a path the template cannot know. The placeholder hooks directory
- * is removed so no copy carries it as an untracked directory. */
 const repoTemplate = defineTemplate((dir) => {
 	const none = path.join(dir, ".git-no-hooks");
 	fs.mkdirSync(none);
@@ -55,7 +38,6 @@ const write = (rel: string, text = `${rel}\n`) => {
 	fs.writeFileSync(path.join(sb.repo, rel), text);
 };
 
-/** With no `stdin`, the script's read of fd 0 reaches the test process's own. */
 const run = (
 	args: string[],
 	{ cwd = sb.repo, stdin }: { cwd?: string; stdin?: string } = {},
@@ -63,13 +45,11 @@ const run = (
 
 const readIndex = () => git("ls-files", "--stage");
 const readHead = () => git("rev-parse", "HEAD").trim();
-/** `ref`'s subject, then one `<status>\t<path>` line per file it changed. */
 const readCommitted = (ref = "HEAD") =>
 	git("show", "--name-status", "--format=%s", ref).replace("\n\n", "\n").trim();
 
 const runWith = (args: string[], env: NodeJS.ProcessEnv) =>
 	runInProcess(SCRIPT, args, { cwd: sb.repo, env });
-/** The outcome log's last line, split on its tabs. */
 const readLastOutcome = () =>
 	fs
 		.readFileSync(store.paths.commitPathsLog(), "utf8")
@@ -78,7 +58,6 @@ const readLastOutcome = () =>
 		.at(-1)
 		?.split("\t");
 
-/** A pre-commit that refuses while `gate-refuses` exists in the repo root. */
 const gate = () => {
 	const hook = path.join(hooks, "pre-commit");
 	fs.writeFileSync(
@@ -396,11 +375,9 @@ describe("a hook refusal — exit 3, intent-add left for a safe re-run", () => {
 });
 
 describe("--patch: some of a file's lines, the working tree never written (#801)", () => {
-	/** a.md at HEAD reads `a`; the patch adds a line above it, and leaves out one below. */
 	const split = () => {
 		write("a.md", "mine\na\ntheirs\n");
 		const diff = git("diff", "HEAD", "-U0", "--", "a.md");
-		// The left-out line is the last hunk; cut it.
 		const mine = diff.slice(0, diff.lastIndexOf("@@ -1,0"));
 		fs.writeFileSync(path.join(sb.dir, "mine.patch"), mine);
 		return path.join(sb.dir, "mine.patch");
@@ -430,7 +407,6 @@ describe("--patch: some of a file's lines, the working tree never written (#801)
 		const lines = (n: number) =>
 			Array.from({ length: n }, (_, i) => `l${i + 1}`);
 		write("a.md", `${lines(10).join("\n")}\n`);
-		// b.md's deleted `-- sig` reads `--- sig` in the patch, like a file header.
 		write("b.md", "b1\n-- sig\nb3\nb4\n");
 		git("add", "b.md");
 		git("commit", "-qam", "seed");
@@ -532,7 +508,6 @@ describe("--patch: some of a file's lines, the working tree never written (#801)
 
 	const WayOut =
 		/would show the commit reversed\. Cut the patch from `git diff HEAD -U0 -- <path>` \(`--binary` for a binary file\) in the tree you commit from\. Nothing written/;
-	/** Runs `args`, expecting a refusal naming `why`, and nothing written. */
 	const expectNotInTree = (why: RegExp, ...runs: string[][]) => {
 		const tip = readHead();
 		const before = readIndex();
@@ -684,7 +659,6 @@ describe("--patch: some of a file's lines, the working tree never written (#801)
 		subGit("checkout", "-q", next);
 		commits(patch);
 		expect(git("rev-parse", "HEAD:sub").trim()).toBe(next);
-		// Uninitialised: an empty directory, where rev-parse would find the superproject.
 		subGit("commit", "-q", "--allow-empty", "-m", "three");
 		const third = subGit("rev-parse", "HEAD");
 		const bump = cut("bump.patch", "-U0", "--", "sub");
@@ -703,7 +677,6 @@ describe("--patch: some of a file's lines, the working tree never written (#801)
 		expect(r.stderr).toMatch(
 			/a\.md is in the patch and also named whole.*Leave it to the patch/s,
 		);
-		// No `index` line, so the preimage check stands aside and git apply judges it.
 		const bare = path.join(sb.dir, "bare.patch");
 		fs.writeFileSync(
 			bare,
@@ -958,12 +931,8 @@ describe("an adopter's plugin copy", () => {
 });
 
 describe("post-commit's claim release after a commit-paths commit (#3254)", () => {
-	// Three files, one on the detect-only scripts/ tier.
 	const held = ["a.md", "scripts/lib/one.js", "notes.md"];
 
-	// The fixture's post-commit: the real hook, whose dispatcher's claim-release
-	// row calls the real arbiter on the real route. The fault notice's checker
-	// table is emptied: what it would say is not this case's.
 	beforeEach(() => {
 		const hook = path.join(hooks, "post-commit");
 		fs.writeFileSync(
@@ -985,7 +954,6 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 		});
 	};
 
-	/** git hands a hook's stdout to its own stderr. */
 	const expectReleased = (r: { status: number | null; stderr: string }) => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(/^Released .* — the commit holding/m);
@@ -997,8 +965,6 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 		expectReleased(commitHeld());
 	});
 
-	// The hook ran while the index still held the old copies, which read as
-	// still uncommitted (#3565).
 	it.each([
 		["written from Bash before its claim", true],
 		["claimed after its first write", false],
@@ -1109,7 +1075,6 @@ const readLog = () => {
 };
 
 describe("--tree: the tree the commit would carry, nothing written (#1695)", () => {
-	/** The tree printed, asserting the index, the working tree and the log untouched. */
 	const tree = (args: string[]) => {
 		const before = [readIndex(), git("status", "--porcelain"), readLog()];
 		const r = run(["--tree", ...args]);
@@ -1288,7 +1253,6 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 		fs.writeFileSync(hook, `#!/bin/sh\n${body}\n`);
 		fs.chmodSync(hook, 0o755);
 	};
-	/** pre-commit as the real stack ends: a gate, then the review hold's and the stand-down stamp, each keyed to the tree. */
 	beforeEach(() => {
 		hookScript(
 			"pre-commit",
@@ -1310,7 +1274,6 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 			...process.env,
 			CLAUDE_CODE_SESSION_ID: Sid,
 		});
-	/** Everything a check may not move. */
 	const snapshot = () => [
 		readLog(),
 		git("log", "--format=%H"),
@@ -1400,7 +1363,6 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 		[
 			"a patch that does not apply",
 			() => {
-				// No `index` line, so git apply, not the preimage check, judges it.
 				const patch = path.join(sb.dir, "bare.patch");
 				fs.writeFileSync(
 					patch,

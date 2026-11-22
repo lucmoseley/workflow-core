@@ -1,14 +1,5 @@
 // @vitest-environment node
 
-/*
- * The pre-commit swallowed-error gate (#1830), exercised as the shell it is.
- *
- * How the checker judges is scripts/check-swallowed-errors.test.ts's; this
- * suite owns the shell: when it runs, that a refusal stops the commit, and
- * that a missing python3 refuses rather than skips. Loosen a case and a
- * swallow lands unrefused in every repo the plugin runs in.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -32,8 +23,6 @@ const temps = registerTempCleanup();
 const ANCHOR = "check-swallowed-errors.js";
 const CHECKER = "scripts/check-swallowed-errors.js";
 const PY = "tools/fetch.py";
-// A shebang makes it a program by base §0's default map, the fixture
-// declaring no `pythonRoutes`.
 const SWALLOW =
 	"#!/usr/bin/env python3\ndef fetch():\n    try:\n        return 1\n    except OSError:\n        return None\n";
 
@@ -43,10 +32,6 @@ function fixture(staged: Record<string, string>): TempRepo {
 	return r;
 }
 
-/**
- * A PATH holding `sh`, `node` and the library's commands, and no python3, so
- * the checker's spawn of it fails as on a machine without one.
- */
 function pathWithoutPython(r: TempRepo): string {
 	const bin = path.join(r.root, "..", `${path.basename(r.root)}-bin`);
 	temps.push(bin);
@@ -59,8 +44,6 @@ function pathWithoutPython(r: TempRepo): string {
 }
 
 function runGate(r: TempRepo, Path = process.env.PATH ?? "") {
-	// The trailing no-op stands in for the rest of the hook and masks a bare
-	// checker status, so a non-zero exit pins the block's `exit "$se_rc"`.
 	const script = `exec 2>&1\n${LIB}\n${cutGateFragment(ANCHOR)}\n:\n`;
 	try {
 		const output = execFileSync("sh", ["-c", script], {

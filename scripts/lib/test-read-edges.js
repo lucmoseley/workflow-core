@@ -147,6 +147,7 @@ const { parseEdges } = require("./guard-reach.js");
 const { shellOperands } = require("./shell-operands.js");
 const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
+const { LOADS_BODY, pragmaLine } = require("./code-edges-pragmas.js");
 const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
 const { isUnder } = require("./is-under.js");
 
@@ -1133,9 +1134,10 @@ function addPathspecEdges(scan, specs, dir) {
  * @returns {string[]} tracked paths this test reads from the repo tree
  */
 function edgesFor(source, tracked, self) {
+	const declared = declaredReads(source, tracked, self);
 	const root = ANCHOR.test(source);
 	const sibling = DIRNAME.test(source);
-	if (!root && !sibling) return [];
+	if (!root && !sibling) return declared;
 	/* An import specifier is a path-shaped literal too, so the sibling pass
 	 * would mint an edge for every relative import — the one edge vitest
 	 * already has, at the cost of a much wider filtered run (mantahostels#2433). STATIC ESM
@@ -1149,7 +1151,34 @@ function edgesFor(source, tracked, self) {
 	addDirClassEdges(scan, source);
 	addReaddirEdges(scan, source);
 	addListingEdges(scan, source);
+	for (const p of declared) scan.found.add(p);
 	return [...scan.found].sort();
+}
+
+const LOADS_PRAGMA = pragmaLine(String.raw`\/\/|\/?\*`, LOADS_BODY);
+
+/**
+ * @param {string} source
+ * @param {Set<string>} tracked
+ * @param {string} self
+ * @returns {string[]}
+ */
+function declaredReads(source, tracked, self) {
+	return declaredPaths(source, self).filter((p) => tracked.has(p));
+}
+
+/** @param {string} source @param {Set<string>} tracked @param {string} self @returns {string[]} */
+function untrackedLoads(source, tracked, self) {
+	return declaredPaths(source, self)
+		.filter((p) => !tracked.has(p))
+		.map((p) => `${self}: code-edges loads: ${p} names no tracked file`);
+}
+
+/** @param {string} source @param {string} self @returns {string[]} */
+function declaredPaths(source, self) {
+	return [...source.matchAll(LOADS_PRAGMA)]
+		.map((m) => resolveRelative(self, requiredGroup(m, 1, LOADS_PRAGMA)))
+		.filter((p) => p !== self);
 }
 
 const RULE_TEXT_MODULE = "scripts/lib/rule-text.js";
@@ -2540,6 +2569,7 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 	const unseen = {};
 	for (const t of tests) {
 		const source = read(t);
+		warnings.push(...untrackedLoads(source, tracked, t));
 		const found = testReads(t, source, tracked, read);
 		addLaunches(found, t, launchesOnce);
 		addClosure(byClosure, t, closureDepths(t, found, loadsOnce, readsOnce));

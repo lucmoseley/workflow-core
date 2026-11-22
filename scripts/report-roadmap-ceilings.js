@@ -1,38 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-roadmap-ceilings.js — first limb of mantahostels#3188's ruling (C), landed at
- * mantahostels#3334: a standing census of every non-done roadmap card carrying a field
- * over its word ceiling.
- *
- * Usage (from the repo root):
- *   node report-roadmap-ceilings.js [<roadmap.html>] [--dry-run]
- *   (default: docs/reference-roadmap.html; --dry-run prints the verdict and
- *   touches no issue)
- *
- * Ceilings are read off `.claude/skills/roadmap-edit/scripts/validate.js`
- * (`BODY_WORD_CEILING`, `FIELD_WORD_CEILINGS`, `bodyWords`) rather than
- * re-declared here, so a ceiling change there cannot drift this census.
- *
- * This is a CENSUS, not the validator's touch-gated CARD SHAPE warning
- * (`validate.js`'s scope diff): that warning fires only on a field an edit
- * changed while over its ceiling, because it runs at commit time and the
- * session in the field is the one that can fix it (mantahostels#3335). This reporter runs
- * from the daily repo-checks run against no baseline at all — every non-done card
- * currently over any ceiling, touched or not.
- *
- * A `capOk` exemption record is annotated on its row, never dropped from the
- * census: mantahostels#3189 ruled a capOk record reports and never suppresses, and mantahostels#3335
- * narrowed that to the census alone — the validator's warn on a touch that
- * does not grow the field is the one thing it silences. But an exempt row is
- * a founder-ratified floor, not work, so it does not keep the issue open: the
- * issue is filed and refreshed only while some row carries NO exemption, and
- * once every row does the run touches nothing and `check-cleared-trackers.js`
- * asks for a close (mantahostels#3352; mantahostels#2748, every issue must be closeable).
- *
- * Exit is 0 whether or not any card is over; the issue is the signal. It
- * exits 2, and only 2, when it cannot do its job: the roadmap unreadable, gh
- * refusing, or a command line lib/cli-args.js refuses.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -47,48 +13,21 @@ const {
 const { fileOrRefresh } = require("./lib/tracking-issue");
 const { takesLabel } = require("./lib/takes-label");
 
-/**
- * The `b` field alongside the three-plus-`dw` ceilinged fields
- * `FIELD_WORD_CEILINGS` already carries, composed rather than re-typed so a
- * ceiling change to either source moves this list too.
- * @type {{ field: string, ceiling: number, read: (c: import("../.claude/skills/roadmap-edit/scripts/validate.js").Card) => unknown }[]}
- */
+/** @type {{ field: string, ceiling: number, read: (c: import("../.claude/skills/roadmap-edit/scripts/validate.js").Card) => unknown }[]} */
 const CEILINGED_FIELDS = [
 	{ field: "b", ceiling: BODY_WORD_CEILING, read: (c) => c.b },
 	...FIELD_WORD_CEILINGS,
 ];
 
-/**
- * `openTrackingIssue` (lib/tracking-issue.js) matches the open issue by this
- * exact string, so changing it orphans whatever issue carries the old title —
- * the next run files a duplicate instead of refreshing it. A future edit here
- * must retitle the live issue in the same session, as `report-doc-map-budget.js`'s
- * own `TITLE` comment requires of its caller.
- */
 const TITLE =
 	"Roadmap ceiling census — non-done cards over a field's word ceiling";
-/** What the open-issue lookup matches on, alongside the exact title — the
- * category mantahostels#3334 itself carries, there being no dedicated tracker label. */
 const LABEL = "Tech & Stack";
-/**
- * The issue's only `takes:` value: it exists only while a row carries no
- * `capOk` exemption, and trimming that card is a specified unit of work
- * through the (model-invocable) `roadmap-edit` skill, so `/implement` is what
- * opens it — `docs/agents/triage-labels.md` §`takes:`. Never `takes:human`:
- * that label names an act outside Claude Code, and this issue has none
- * (mantahostels#3352).
- */
 const TAKES = takesLabel("implement");
 
-/**
- * The rows that keep the issue open — those no `capOk` ruling covers.
- * @param {ReturnType<typeof overCeilingRows>} rows
- */
+/** @param {ReturnType<typeof overCeilingRows>} rows */
 const payable = (rows) => rows.filter((r) => r.capOk === null);
 
 /**
- * Every (card, field) pair over its ceiling, across every non-done card.
- *
  * @param {any[]} items
  * @returns {{ id: string, field: string, words: number, ceiling: number, excess: number, p: number, capOk: number | null }[]}
  */
@@ -131,9 +70,6 @@ function verdict(rows) {
 }
 
 /**
- * Excess summed by phase, only over the phases actually present in `rows` —
- * the baseline at mantahostels#3188 named four (P0-P3) because that's what was over then,
- * not because a fifth phase is out of scope.
  * @param {{ p: number, excess: number }[]} rows
  * @returns {string}
  */
@@ -273,7 +209,6 @@ function main({ flags, positionals }) {
 }
 
 if (require.main === module) {
-	// Parsed before the module gate, so --help is answered with roadmap off too (#1062).
 	const args = parseOrExit(process.argv.slice(2), CLI);
 	require("./lib/workflow-core-config.js").exitUnlessModule("roadmap");
 	process.exit(main(args));

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The closeness test lib/close-rivals.js exports (#472, #487).
- *
- * Called directly on the export, since `splitQuestions` and `rivalPair` are
- * pure functions of a round's text and need no transcript or hook payload.
- *
- * Two readers share it: the close-rivals refusal at every `Stop` and
- * `check-band-drift.js` under `npm run status`. A wrong verdict refuses rounds
- * whose rivals are far apart, or lets close ones through, and skews the drift
- * count meant to catch agents narrowing their bands.
- */
 
 import { describe, expect, it } from "vitest";
 
