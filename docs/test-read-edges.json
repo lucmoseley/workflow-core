@@ -3194,6 +3194,13 @@
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-retro-due.test.ts"
 		],
+		"docs/environment-incidents.md": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
+			"scripts/lib/checker-run.contract.test.ts",
+			"scripts/lib/file-issue.contract.test.ts",
+			"scripts/lib/morning-review-filing.test.ts"
+		],
 		"docs/environment.md": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-registry.test.ts",
