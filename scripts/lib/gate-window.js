@@ -10,8 +10,15 @@ const STATED_RE = new RegExp(
 );
 const CONFIDENCE_RE = /(?<![\d.])(\d+(?:\.\d+)?)%\s+one-sided/i;
 const TARGET_RE = /\btarget\s+(\d+(?:\.\d+)?)%/i;
+const LOWER_BOUND_TARGET_RE = /\btarget\s+[\d.]+%\s*\([^)]*\blower bound\b/i;
 const UNIT_STOP = new Set(["a", "an", "the", "of", "on", "in", "per", "more"]);
+// guess: a unit phrase's head noun sits in its first three words, `VM boots on a Windows` (#5406)
+const UNIT_HEAD_WORDS = 3;
+// guess: a million times the largest live baseline, 1842 minutes on #5346 (#5406)
 const MAX_TRIALS = 10_000_000;
+// guess: far under a stated window's last decimal, far over float error near 1e4 (#5406)
+const EPSILON = 1e-9;
+const RULE_OF_THREE_ALPHA = 0.05;
 
 /** @typedef {"conditional"|"fisher"|"binomial"} WindowMethod */
 /** @type {Record<WindowMethod, string>} */
@@ -22,7 +29,7 @@ const METHOD_SAYS = {
 };
 
 /** @param {string} basis @returns {WindowMethod|null} */
-function methodOf(basis) {
+function parseMethod(basis) {
 	if (/\bFisher\b/i.test(basis)) return "fisher";
 	if (/\bconditional\b/i.test(basis)) return "conditional";
 	if (/\bexact binomial\b|\brule of three\b/i.test(basis)) return "binomial";
@@ -39,24 +46,25 @@ const unitWords = (phrase) =>
 			.toLowerCase()
 			.split(/[^a-z]+/)
 			.filter((w) => w && !UNIT_STOP.has(w))
-			.slice(0, 3)
+			.slice(0, UNIT_HEAD_WORDS)
 			.map((w) => w.replace(/s$/, "")),
 	);
 
 /** @param {string} a @param {string} b */
-function sameUnit(a, b) {
+function isSameUnit(a, b) {
 	const of = unitWords(a);
 	return [...unitWords(b)].some((w) => of.has(w));
 }
 
-/** @param {number} k @param {number} t1 @param {number} alpha */
-const conditionalWindow = (k, t1, alpha) => t1 * (alpha ** (-1 / k) - 1);
+/** @param {number} k @param {number} baseSize @param {number} alpha */
+const conditionalWindow = (k, baseSize, alpha) =>
+	baseSize * (alpha ** (-1 / k) - 1);
 
-/** @param {number} k @param {number} big @param {number} alpha */
-function fisherWindow(k, big, alpha) {
+/** @param {number} k @param {number} baseSize @param {number} alpha */
+function fisherWindow(k, baseSize, alpha) {
 	for (let n = 1; n <= MAX_TRIALS; n++) {
 		let p = 1;
-		for (let i = 0; i < k; i++) p *= (big - i) / (big + n - i);
+		for (let i = 0; i < k; i++) p *= (baseSize - i) / (baseSize + n - i);
 		if (p <= alpha) return n;
 	}
 	return null;
@@ -64,11 +72,12 @@ function fisherWindow(k, big, alpha) {
 
 /** @param {number} target @param {number} alpha */
 function binomialRange(target, alpha) {
-	const exact = Math.ceil(Math.log(alpha) / Math.log(1 - target) - 1e-9);
-	const rule = Math.abs(alpha - 0.05) < 1e-12 ? 3 : -Math.log(alpha);
+	const exact = Math.ceil(Math.log(alpha) / Math.log(1 - target) - EPSILON);
+	const rule =
+		Math.abs(alpha - RULE_OF_THREE_ALPHA) < EPSILON ? 3 : -Math.log(alpha);
 	return {
 		low: exact,
-		high: Math.max(exact, Math.ceil(rule / target - 1e-9)),
+		high: Math.max(exact, Math.ceil(rule / target - EPSILON)),
 	};
 }
 
@@ -78,13 +87,13 @@ const decimalsOf = (written) => written.split(".")[1]?.length ?? 0;
 /** @param {number} value @param {number} places @param {"round"|"ceil"} how */
 function toPlaces(value, places, how) {
 	const scale = 10 ** places;
-	return Math[how](value * scale - (how === "ceil" ? 1e-9 : 0)) / scale;
+	return Math[how](value * scale - (how === "ceil" ? EPSILON : 0)) / scale;
 }
 
 /**
- * @typedef {{method: WindowMethod, k: number, big: number, base: string,
+ * @typedef {{method: WindowMethod, k: number, baseSize: number, base: string,
  *   alpha: number, level: string, n: number, stated: string,
- *   target: string|undefined}} Figures
+ *   target: string|undefined, note: string}} Figures
  * @typedef {{computed: string, holds: boolean, figures: string}} Computed
  * @typedef {{method: WindowMethod, stated: string, computed: string,
  *   says: string, holds: boolean}} WindowReading
@@ -92,26 +101,43 @@ function toPlaces(value, places, how) {
 
 /**
  * @param {string} basis
+ * @param {WindowMethod} written
+ * @param {number} k
+ */
+function methodFor(basis, written, k) {
+	const isBoundTarget =
+		written === "binomial" && k >= 1 && LOWER_BOUND_TARGET_RE.test(basis);
+	return isBoundTarget
+		? {
+				method: /** @type {const} */ ("fisher"),
+				note: " (its target is the baseline's lower bound, which sizes a before/after question by the two-sample test)",
+			}
+		: { method: written, note: "" };
+}
+
+/**
+ * @param {string} basis
  * @returns {Figures|null}
  */
-function figuresOf(basis) {
-	const method = methodOf(basis);
+function parseFigures(basis) {
+	const written = parseMethod(basis);
 	const base = BASELINE_RE.exec(basis);
 	const pass = STATED_RE.exec(basis);
 	const confidence = CONFIDENCE_RE.exec(basis);
-	if (!method || !base || !pass || !confidence || pass[1] !== "0") return null;
-	const [, kWritten = "", bigWritten = "", baseUnit = ""] = base;
+	if (!written || !base || !pass || !confidence || pass[1] !== "0") return null;
+	const [, kWritten = "", sizeWritten = "", baseUnit = ""] = base;
 	const [, , stated = "", statedUnit = ""] = pass;
-	if (!sameUnit(baseUnit, statedUnit)) return null;
+	if (!isSameUnit(baseUnit, statedUnit)) return null;
 	const level = confidence[1] ?? "";
 	const alpha = 1 - Number(level) / 100;
-	const big = numberOf(bigWritten);
-	if (!(alpha > 0 && alpha < 1) || !(big > 0)) return null;
+	const baseSize = numberOf(sizeWritten);
+	if (!(alpha > 0 && alpha < 1) || !(baseSize > 0)) return null;
+	const k = Number(kWritten);
 	return {
-		method,
-		k: Number(kWritten),
-		big,
-		base: `baseline ${kWritten}/${bigWritten}`,
+		...methodFor(basis, written, k),
+		k,
+		baseSize,
+		base: `baseline ${kWritten}/${sizeWritten}`,
 		alpha,
 		level,
 		n: numberOf(stated),
@@ -132,15 +158,16 @@ const COMPUTE = {
 			figures: `target ${target}%`,
 		};
 	},
-	fisher: ({ k, big, alpha, n, base }) => {
-		const least = k < 1 || k > big ? null : fisherWindow(k, big, alpha);
+	fisher: ({ k, baseSize, alpha, n, base }) => {
+		const least =
+			k < 1 || k > baseSize ? null : fisherWindow(k, baseSize, alpha);
 		return least === null
 			? null
 			: { computed: `${least}`, holds: n === least, figures: base };
 	},
-	conditional: ({ k, big, alpha, n, stated, base }) => {
+	conditional: ({ k, baseSize, alpha, n, stated, base }) => {
 		if (k < 1) return null;
-		const exact = conditionalWindow(k, big, alpha);
+		const exact = conditionalWindow(k, baseSize, alpha);
 		const places = decimalsOf(stated);
 		const shown = [
 			toPlaces(exact, places, "round"),
@@ -148,7 +175,7 @@ const COMPUTE = {
 		];
 		return {
 			computed: (shown[0] ?? exact).toFixed(places),
-			holds: shown.some((v) => Math.abs(v - n) < 1e-9),
+			holds: shown.some((v) => Math.abs(v - n) < EPSILON),
 			figures: base,
 		};
 	},
@@ -158,17 +185,17 @@ const COMPUTE = {
  * @param {string} basis
  * @returns {WindowReading|null}
  */
-function readWindow(basis) {
-	const f = figuresOf(basis);
+function parseWindow(basis) {
+	const f = parseFigures(basis);
 	const c = f && COMPUTE[f.method](f);
 	if (!f || !c) return null;
 	return {
 		method: f.method,
 		stated: f.stated,
 		computed: c.computed,
-		says: `${METHOD_SAYS[f.method]}, ${c.figures} at ${f.level}% one-sided`,
+		says: `${METHOD_SAYS[f.method]}, ${c.figures} at ${f.level}% one-sided${f.note}`,
 		holds: c.holds,
 	};
 }
 
-module.exports = { readWindow, conditionalWindow, fisherWindow };
+module.exports = { parseWindow };

@@ -2,7 +2,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path");
 const { witaDay } = require("./wita");
 const { caught } = require("./caught.js");
-const { readWindow } = require("./gate-window.js");
+const { parseWindow } = require("./gate-window.js");
 
 const AT_LINE_HEAD = "^[ \\t]{0,3}";
 
@@ -488,7 +488,7 @@ function citedFault(ref, issue, windows) {
 function windowFaults(bases) {
 	return bases.flatMap((m) => {
 		const basis = requiredGroup(m, 1, BASIS_RE);
-		const w = readWindow(basis);
+		const w = parseWindow(basis);
 		if (!w || w.holds) return [];
 		const { stated, computed, says } = w;
 		return [

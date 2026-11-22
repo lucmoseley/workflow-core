@@ -1472,6 +1472,9 @@ describe("a gate line with no basis (#577)", () => {
 		expect(fault).toBe(true);
 		expect(r.out).toContain("it states n = 107");
 		expect(r.out).toContain("gives n = 50");
+		expect(r.out).toContain(
+			"re-gate to the window the basis's own figures give, or correct the figures",
+		);
 		expect((await faulted(fisher(50))).fault).toBe(false);
 	});
 

@@ -762,17 +762,17 @@ describe("basisFaults — a window its own figures do not give (#5406)", () => {
 	const basis = (n: number) =>
 		`**Gate basis:** the leap rate is below the baseline's; baseline 3/30 VM boots (10.0%, #4081); target the baseline point; 95% one-sided, one-sided Fisher; pass = 0 leaps in n = ${n} boots (about ${Math.round(n / 1.5)} days at 1.5 boots a day); fail at the first leap`;
 	const body = (n: number) => `${gate(n)}\n${basis(n)}`;
-	const mismatches = (text: string, before?: string) =>
+	const mismatches = (text: string, before: string | undefined) =>
 		faultsAdded(wordedBasisFaults(text), { body: text, before }).filter(
 			(f: { kind: string }) => f.kind === "window-mismatch",
 		);
 
 	it("passes a basis whose stated n its figures give", () => {
-		expect(mismatches(body(50))).toEqual([]);
+		expect(mismatches(body(50), undefined)).toEqual([]);
 	});
 
 	it("refuses one whose stated n differs, naming the computed n", () => {
-		const [f] = mismatches(body(107));
+		const [f] = mismatches(body(107), undefined);
 		expect(f).toMatchObject({
 			recomputed: { stated: "107", computed: "50" },
 		});
