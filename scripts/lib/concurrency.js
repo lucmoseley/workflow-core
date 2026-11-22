@@ -494,6 +494,11 @@ function buildBlockText(r, readLive) {
 	const largest = t?.memory?.largest;
 	if (largest)
 		lines.push(`memory:    ${largest.name} holds most (${largest.mb} MB)`);
+	const heldRun = t?.memory?.heldRunMb;
+	if (heldRun)
+		lines.push(
+			`held run:  ${heldRun} MB held for a queued test run the memory rung holds (#5555)`,
+		);
 	const unlisted = buildUnlistedLine(r, readLive);
 	if (unlisted) lines.push(unlisted);
 	return lines.join("\n");

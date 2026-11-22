@@ -9,17 +9,17 @@
 const { readLiveLanders } = require("./local-tester.js");
 const {
 	readLiveGateSeats,
+	readTestsHeldOnMemory,
 	readTestsHeldOnWindows,
 } = require("./suite-queue.js");
 
 /**
- * The landers, the gate seats and the queued test runs the Windows-memory
- * hold is holding.
  * @returns {import("./admission.js").Reserves}
  */
 const readReserves = () => ({
 	landers: readLiveLanders(),
 	gates: readLiveGateSeats(),
+	heldRuns: readTestsHeldOnMemory(),
 	testsHeld: readTestsHeldOnWindows(),
 });
 

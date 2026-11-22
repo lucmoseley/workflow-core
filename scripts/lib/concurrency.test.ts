@@ -240,6 +240,23 @@ describe("readout's verdict (#3317)", () => {
 		);
 	});
 
+	it("prints the held-run reserve the last tick held (#5555)", () => {
+		const tick = tickAt(T0, "memory");
+		const r = buildVerdict({
+			ticks: [{ ...tick, memory: { ...tick.memory, heldRunMb: 3000 } }],
+			now: T0 + 5 * MIN,
+		});
+		expect(buildBlockText(r, unread)).toContain(
+			"held run:  3000 MB held for a queued test run the memory rung holds (#5555)",
+		);
+		expect(
+			buildBlockText(
+				buildVerdict({ ticks: [tickAt(T0, "memory")], now: T0 + 5 * MIN }),
+				unread,
+			),
+		).not.toContain("held run:");
+	});
+
 	it("names a record that would not read above the verdict", () => {
 		const r = buildVerdict({
 			ticks: [],

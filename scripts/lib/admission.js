@@ -174,12 +174,14 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ why: string, chargeMb: number }} UnreadReserve a reserve whose record would not read, and the default charge held for it (#5301)
  * @typedef {{ live: { pid: number, chargeMb: number }[], unread: UnreadReserve | null }} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
  * @typedef {{ live: { pid: number, chargeMb: number, spawned: boolean, part: boolean }[], unread: UnreadReserve | null }} Gates each live gate seat's holder pid, charge, whether it has spawned its command and whether it is a short gate's part-suite (#5450), from suite-queue.js's `readLiveGateSeats`
- * @typedef {{ landers: Landers, gates: Gates, testsHeld: number }} Reserves the reserves read live off other processes' records, by admission-reserves.js's `readReserves`; the pool and type-check reserves are read in `machineAdmission`
+ * @typedef {{ landers: Landers, gates: Gates, heldRuns: HeldRuns, testsHeld: number }} Reserves the reserves read live off other processes' records, by admission-reserves.js's `readReserves`; the pool and type-check reserves are read in `machineAdmission`
  * @typedef {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} HeldTree the process tree a reserve's charge is credited against
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
  * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
  */
+
+/** @typedef {{ pid: number, chargeMb: number }[]} HeldRuns */
 
 const REAP_SCRIPT = () =>
 	process.env.WFC_REAP_SCRIPT ||
@@ -957,6 +959,13 @@ function gateSeatHeldMb({ live }, { pssKbOf, children, sessionPids }) {
 }
 
 /**
+ * #5555
+ * @param {HeldRuns} heldRuns
+ */
+const heldRunMb = (heldRuns) =>
+	heldRuns.length === 0 ? 0 : Math.max(...heldRuns.map((r) => r.chargeMb));
+
+/**
  * What each memory reserve still holds back, in MB, as the list the verdict
  * carries: `field` is its verdict field, `holding` names it in the reason and
  * `term` in the slot arithmetic. A reserve whose record would not read holds
@@ -965,7 +974,7 @@ function gateSeatHeldMb({ live }, { pssKbOf, children, sessionPids }) {
  * @param {Reserves} reserves
  * @param {HeldTree} tree
  */
-const heldReserves = ({ landers, gates }, tree) => [
+const heldReserves = ({ landers, gates, heldRuns }, tree) => [
 	{
 		field: /** @type {const} */ ("landerMb"),
 		...heldOrUnread(landers.unread, () => landerHeldMb(landers, tree), {
@@ -979,6 +988,12 @@ const heldReserves = ({ landers, gates }, tree) => [
 			holding: "the gate seat",
 		}),
 		term: "gate seat",
+	},
+	{
+		field: /** @type {const} */ ("heldRunMb"),
+		mb: heldRunMb(heldRuns),
+		holding: "the queued test run the memory rung holds",
+		term: "held run",
 	},
 ];
 

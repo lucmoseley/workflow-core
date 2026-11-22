@@ -902,6 +902,37 @@ function readTestsHeldOnWindows({
 		).length;
 }
 
+/**
+ * #5555
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
+ * @returns {{ pid: number, chargeMb: number }[]}
+ */
+function readTestsHeldOnMemory({
+	queueDir = defaultQueueDir(),
+	queueFs = fs,
+	alive = pidAlive,
+} = {}) {
+	return [
+		{ dir: queueDir, name: QUEUE_NAME },
+		...peerQueueDirs(queueDir).map((dir) => ({
+			dir,
+			name: path.basename(dir),
+		})),
+	].flatMap(({ dir, name }) =>
+		readMarkers(dir, queueFs)
+			.markers.map((m) => m.record)
+			.filter(
+				(r) =>
+					r.memoryHeld === true &&
+					r.role === undefined &&
+					r.admitted !== true &&
+					r.spawned !== true &&
+					!isMarkerStale(r, { alive }),
+			)
+			.map((r) => ({ pid: r.pid, chargeMb: peakMbOf(name, r) })),
+	);
+}
+
 /* The environment variable a seat hands its driver: the seat's marker path
  * (#2918). */
 const SEAT_ENV = "WFC_SUITE_SEAT";
@@ -2272,6 +2303,7 @@ module.exports = {
 	readLiveCharged,
 	readLiveRoleMarkers,
 	readTestsHeldOnWindows,
+	readTestsHeldOnMemory,
 	readQueuesClimbMb,
 	queuedRunnerPeakMb,
 	gateDenies,
