@@ -161,17 +161,45 @@ async function waitFor(listed, { retries, sleepMs, first = false }) {
 
 /**
  * @param {string[]} rest
- * @returns {{parent: number, child: number}}
+ * @param {() => Promise<string>} home
+ * @returns {Promise<{parent: number, child: Ref, repo: string}>}
  */
-function parseSubIssueArgs(rest) {
+async function parseSubIssueArgs(rest, home) {
 	if (rest.length !== 2) fail("other", USAGE["sub-issue"]);
-	const [p = "", c = ""] = rest.map((a) => a.replace(/^#/, ""));
-	if (!/^[0-9]{1,9}$/.test(p))
-		fail("other", `parent '${rest[0]}' is not an issue number`);
-	if (!/^[0-9]{1,9}$/.test(c))
-		fail("other", `child '${rest[1]}' is not an issue number`);
-	if (p === c) refuse("self", `an issue cannot be its own parent (#${p})`);
-	return { parent: Number(p), child: Number(c) };
+	const [p = "", c = ""] = rest;
+	const parent = /^#?([0-9]{1,9})$/.exec(p)?.[1];
+	if (!parent) fail("other", `parent '${p}' is not an issue number`);
+	const child = await parseRef(c, home);
+	if (!child)
+		fail("other", `child '${c}' is not an issue number or owner/name#n`);
+	const repo = await home();
+	if (refKey(child) === refKey({ repo, number: Number(parent) }))
+		refuse("self", `an issue cannot be its own parent (#${parent})`);
+	return { parent: Number(parent), child, repo };
+}
+
+const CHILD_ROWS = '.[]|"\\(.repository_url)#\\(.number)"';
+
+/**
+ * @param {string} repo
+ * @param {number} parent
+ * @param {Ref} child
+ */
+async function readListsChild(repo, parent, child) {
+	const listed = await readGhText([
+		"api",
+		`repos/${repo}/issues/${parent}/sub_issues`,
+		"--paginate",
+		"--jq",
+		CHILD_ROWS,
+	]);
+	return (listed ?? "").split("\n").some((line) => {
+		const m = /^(.*)#([0-9]+)$/.exec(line);
+		const at = m?.[1] ? parseRepoOfUrl(m[1]) : null;
+		return (
+			!!at && refKey({ repo: at, number: Number(m?.[2]) }) === refKey(child)
+		);
+	});
 }
 
 /**
@@ -181,46 +209,36 @@ function parseSubIssueArgs(rest) {
  * @returns {Promise<string>}
  */
 async function linkSubIssue(args, warn, { replaceParent }) {
-	const { parent, child } = parseSubIssueArgs(args);
-	const repo = await resolveLocalRepo();
+	const { parent, child, repo } = await parseSubIssueArgs(
+		args,
+		resolveLocalRepo,
+	);
 	const t = timing();
-	const listsChild = async () => {
-		const listed = await readGhText([
-			"api",
-			`repos/${repo}/issues/${parent}/sub_issues`,
-			"--paginate",
-			"--jq",
-			".[].number",
-		]);
-		return listed?.split("\n").includes(String(child)) ?? false;
-	};
+	const label = refLabel(child, repo);
+	const listed = () => readListsChild(repo, parent, child);
 
 	await assertParentHidesNoOpenChild(repo, parent, child);
-	const id = await readDatabaseId({ repo, number: child }, repo);
+	const id = await readDatabaseId(child, repo);
 	const warning = await checkLoop(
-		{
-			from: { repo, number: parent },
-			to: { repo, number: child },
-			kind: "child",
-		},
+		{ from: { repo, number: parent }, to: child, kind: "child" },
 		repo,
 	);
 	if (warning) warn(warning);
 	const already = await postSubIssue({
 		repo,
 		parent,
-		child,
+		label,
 		id,
 		replaceParent,
-		listsChild,
+		listsChild: listed,
 		t,
 	});
 	if (already) return already;
-	if (await waitFor(listsChild, t))
-		return `linked #${child} as a sub-issue of #${parent}\n`;
+	if (await waitFor(listed, t))
+		return `linked ${label} as a sub-issue of #${parent}\n`;
 	return fail(
 		"unlisted",
-		`POST returned success but #${parent} still does not list #${child} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,
+		`POST returned success but #${parent} still does not list ${label} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,
 	);
 }
 
@@ -231,14 +249,17 @@ const readState = (repo, n) =>
 /**
  * @param {string} repo
  * @param {number} parent
- * @param {number} child
+ * @param {Ref} child
  */
 async function assertParentHidesNoOpenChild(repo, parent, child) {
 	const state = await readState(repo, parent);
-	if (state === "closed" && (await readState(repo, child)) !== "closed")
+	if (
+		state === "closed" &&
+		(await readState(child.repo, child.number)) !== "closed"
+	)
 		fail(
 			"closed-parent",
-			`#${parent} is closed — link #${child} under an open issue, or file it with file-issue.js --standalone "<why>"; nothing was POSTed`,
+			`#${parent} is closed — link ${refLabel(child, repo)} under an open issue, or file it with file-issue.js --standalone "<why>"; nothing was POSTed`,
 		);
 	if (state !== "open" && state !== "closed")
 		fail(
@@ -248,7 +269,7 @@ async function assertParentHidesNoOpenChild(repo, parent, child) {
 }
 
 /**
- * @param {{repo: string, parent: number, child: number, id: string,
+ * @param {{repo: string, parent: number, label: string, id: string,
  *   replaceParent: boolean, listsChild: () => Promise<boolean>,
  *   t: {retries: number, sleepMs: number}}} at
  * @returns {Promise<string|null>}
@@ -256,7 +277,7 @@ async function assertParentHidesNoOpenChild(repo, parent, child) {
 async function postSubIssue({
 	repo,
 	parent,
-	child,
+	label,
 	id,
 	replaceParent,
 	listsChild,
@@ -278,16 +299,16 @@ async function postSubIssue({
 		// lucmoseley/mantahostels#1150
 		if (out.includes("only have one parent")) {
 			if (await waitFor(listsChild, t))
-				return `#${child} was already a sub-issue of #${parent}\n`;
+				return `${label} was already a sub-issue of #${parent}\n`;
 			fail(
 				"other",
-				`#${child} already has a different parent — re-root it with link-sub-issue.sh ${parent} ${child} --replace-parent, or detach it first: gh api --method DELETE repos/${repo}/issues/<parent>/sub_issue -F sub_issue_id=${id}`,
+				`${label} already has a different parent — re-root it with link-sub-issue.sh ${parent} ${label.replace(/^#/, "")} --replace-parent, or detach it first: gh api --method DELETE repos/${repo}/issues/<parent>/sub_issue -F sub_issue_id=${id}`,
 			);
 		}
 		if (out.includes("7 layers"))
 			fail(
 				"layers",
-				`#${parent} is 7 layers deep — give #${child} the SAME parent as #${parent} instead, and say in its body why it is a peer (${docPath("agents/issue-tracker.md")})`,
+				`#${parent} is 7 layers deep — give ${label} the SAME parent as #${parent} instead, and say in its body why it is a peer (${docPath("agents/issue-tracker.md")})`,
 			);
 		const text = out.trim() || parseErrLine(e);
 		return fail(postReason(text), `POST failed: ${text}`);
@@ -430,7 +451,7 @@ const USAGE = {
 	blocker:
 		"usage: link-blocker.js <blocked> <blocker> [--json] — each a bare number or owner/name#n",
 	"sub-issue":
-		"usage: link-sub-issue.sh <parent> <child> [--replace-parent] [--json]",
+		"usage: link-sub-issue.sh <parent> <child> [--replace-parent] [--json] — the parent a bare number, the child a bare number or owner/name#n",
 };
 
 /**

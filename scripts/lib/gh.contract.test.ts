@@ -107,7 +107,10 @@ const LINK_FIXTURES = {
 	".full_name": path.join(__dirname, "fixtures/gh/repo-full-name.json"),
 	".state": path.join(__dirname, "fixtures/gh/issue-state.json"),
 	".id": path.join(__dirname, "fixtures/gh/issue-id.json"),
-	".[].number": path.join(__dirname, "fixtures/gh/sub-issue-numbers.json"),
+	[LINK_READS.children.jq]: path.join(
+		__dirname,
+		"fixtures/gh/sub-issue-refs.json",
+	),
 };
 
 const LIB = path.resolve(__dirname, "gh.js");
@@ -868,7 +871,7 @@ describe("live: link-sub-issue.sh's reads", () => {
 			`#!/bin/sh
 printf '%s\\n' "$*" >> ${shellQuote(log)}
 case "$*" in
-${buildLinkReadArms({ repo: buildJqLines(home), children: buildJqLines(2327) })}
+${buildLinkReadArms({ repo: buildJqLines(home), children: buildJqLines(`https://api.github.com/repos/${home}#2327`) })}
   *"--method POST"*) exit 0 ;;
 esac
 exit 1

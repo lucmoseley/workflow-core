@@ -77,7 +77,7 @@ describe("a raw sub-issue link write is refused, naming the sub-issue link comma
 				"gh api --method POST repos/{owner}/{repo}/issues/40/sub_issues -F sub_issue_id=987",
 			),
 		).toBe(
-			`This POSTs a sub-issue link by raw gh api: gh api --method POST repos/{owner}/{repo}/issues/40/sub_issues -F sub_issue_id=987\n\n${WHY}\nMake it with scripts/link-sub-issue.sh 40 <child> — the child's bare number, never its database id; add --replace-parent to move a child that already has a parent.`,
+			`This POSTs a sub-issue link by raw gh api: gh api --method POST repos/{owner}/{repo}/issues/40/sub_issues -F sub_issue_id=987\n\n${WHY}\nMake it with scripts/link-sub-issue.sh 40 <child> — the child a bare number or owner/name#n, never a database id; add --replace-parent to move a child that already has a parent.`,
 		);
 	});
 

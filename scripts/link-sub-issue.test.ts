@@ -40,6 +40,7 @@ let calls: string;
 
 interface Gh {
 	dbId?: string;
+	ids?: Record<string, string>;
 	idFails?: boolean;
 	post?: "ok" | "dup" | "layers" | "cap" | "invalid" | "err";
 	children?: string[];
@@ -88,10 +89,16 @@ if (argv[argv.indexOf("--jq") + 1] === ${JSON.stringify(LINK_READS.children.jq)}
 	const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;
 	fs.writeFileSync(counter, String(n + 1));
 	if (n < g.lag) exit(0);
+	const home = /^repos\\/(.+)\\/issues\\/\\d+\\/sub_issues$/.exec(argv[1])[1];
+	serveHandlerAnswer(buildJqLines(...g.children.map((c) =>
+		"https://api.github.com/repos/" + (c.includes("#") ? c : home + "#" + c))));
 }
-const issue = /\\/issues\\/(\\d+)$/.exec(argv[1] ?? "");
-if (issue && argv.includes(".state") && g.states[issue[1]] !== undefined)
-	serveHandlerAnswer(buildJqLines(g.states[issue[1]]));
+const issue = /^repos\\/(.+)\\/issues\\/(\\d+)$/.exec(argv[1] ?? "");
+const stated = issue && (g.states[issue[1] + "#" + issue[2]] ?? g.states[issue[2]]);
+if (issue && argv.includes(".state") && stated !== undefined)
+	serveHandlerAnswer(buildJqLines(stated));
+const ided = issue && g.ids[issue[1] + "#" + issue[2]];
+if (ided && argv.includes(".id")) serveHandlerAnswer(buildJqLines(ided));
 const read = answerLinkRead(argv, g.reads);
 if (read) serveHandlerAnswer(read);
 `;
@@ -106,13 +113,14 @@ const stubGh = (g: Gh) => {
 	const reads: LinkReadAnswers = {
 		state: buildJqLines(g.state ?? "open"),
 		id: g.idFails ? GH_NOT_FOUND : buildJqLines(g.dbId ?? "987654"),
-		children: buildJqLines(...(g.children ?? [])),
 	};
 	fs.writeFileSync(
 		path.join(dir, ANSWERS_FILE),
 		JSON.stringify({
 			post: POSTS[g.post ?? "ok"],
 			lag: g.lag ?? 0,
+			children: g.children ?? [],
+			ids: g.ids ?? {},
 			reads,
 			states: g.states ?? {},
 			graph: g.graph ?? {},
@@ -351,7 +359,8 @@ describe("link-sub-issue.sh", () => {
 
 	it.each([
 		[["40"], "usage"],
-		[["40", "sixty-three"], "not an issue number"],
+		[["40", "sixty-three"], "not an issue number or owner/name#n"],
+		[["o/r#40", "63"], "parent 'o/r#40' is not an issue number"],
 	])(
 		"refuses bad arguments, saying what is wrong and posting nothing: %s",
 		async (args, expected) => {
@@ -376,6 +385,67 @@ describe("link-sub-issue.sh", () => {
 			true,
 		);
 		expect(readLog().some((l) => l.includes("issues/63 "))).toBe(true);
+	});
+});
+
+describe("a child in another repo (#5618)", () => {
+	const child = "other/m#63";
+
+	it("reads its database id from its own repo and POSTs it under the local parent", async () => {
+		const r = await run(["40", child], {
+			ids: { [child]: "555" },
+			children: [child],
+		});
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toBe("linked other/m#63 as a sub-issue of #40\n");
+		expect(readLog()).toContainEqual("api repos/other/m/issues/63 --jq .id");
+		expect(readPosts()).toEqual([
+			"api --method POST repos/owner/repo/issues/40/sub_issues -F sub_issue_id=555",
+		]);
+	});
+
+	it("is not read back from a local issue with the same number", async () => {
+		const r = await run(["40", child], { children: ["63"] });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"#40 still does not list other/m#63 after 3 reads",
+		);
+	});
+
+	it("reads its state from its own repo under a closed parent", async () => {
+		const r = await run(["40", child, "--replace-parent"], {
+			states: { "owner/repo#40": "closed", [child]: "closed" },
+			children: [child],
+		});
+		expect(r.status, r.stderr).toBe(0);
+		expect(readLog()).toContainEqual("api repos/other/m/issues/63 --jq .state");
+	});
+
+	it("gives the loop check its own repo", async () => {
+		const r = await run(["40", child], {
+			graph: {
+				"other/m#63": {
+					blockedBy: [{ number: 40, state: "open", repo: "owner/repo" }],
+				},
+			},
+			children: [child],
+		});
+		expect(r.status).toBe(3);
+		expect(r.stderr).toContain("#40 waits on child other/m#63");
+		expect(readPosts()).toHaveLength(0);
+	});
+
+	it("names it by its qualified ref in a 422's remedy", async () => {
+		const r = await run(["40", child], { post: "dup", children: [] });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"other/m#63 already has a different parent — re-root it with link-sub-issue.sh 40 other/m#63 --replace-parent",
+		);
+	});
+
+	it("is not a self-link though it shares the parent's number", async () => {
+		const r = await run(["40", "other/m#40"], { children: ["other/m#40"] });
+		expect(r.status, r.stderr).toBe(0);
 	});
 });
 

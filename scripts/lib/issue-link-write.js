@@ -154,6 +154,6 @@ const blockerForm = (ctx, blocked) =>
  * @param {boolean} replace
  */
 const subIssueForm = (ctx, parent, replace) =>
-	`${ctx.scriptPath("link-sub-issue.sh")} ${parent} <child>${replace ? " --replace-parent" : ""} — the child's bare number, never its database id${replace ? "" : "; add --replace-parent to move a child that already has a parent"}`;
+	`${ctx.scriptPath("link-sub-issue.sh")} ${parent} <child>${replace ? " --replace-parent" : ""} — the child a bare number or owner/name#n, never a database id${replace ? "" : "; add --replace-parent to move a child that already has a parent"}`;
 
 module.exports = { field: "command", noun: "command", decide };
