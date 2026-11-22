@@ -269,11 +269,15 @@ describe("post-write — format, then record, in that order", () => {
 				'{"name":"demo"}\n',
 			);
 		};
-		const write = (body: string) => {
+		const write = (body: string, rel = REL) => {
 			fakeBiome(sb, "#!/bin/sh\n");
-			fs.writeFileSync(path.join(sb.repo, REL), body);
-			return run("alice");
+			const file = path.join(sb.repo, rel);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, body);
+			return run("alice", file);
 		};
+		const Walk =
+			'const path = require("node:path");\nmodule.exports = path.join(__dirname, "..", "docs");\n';
 
 		it("names a __dirname walk into docs/, as the commit gate would", () => {
 			shipPlugin();
@@ -300,21 +304,25 @@ describe("post-write — format, then record, in that order", () => {
 
 		it("says nothing of a test file, which neither gate judges", () => {
 			shipPlugin();
-			fakeBiome(sb, "#!/bin/sh\n");
-			const file = path.join(sb.repo, "scripts/demo.test.js");
-			fs.writeFileSync(
-				file,
-				'const path = require("node:path");\nconsole.log("see #12");\nmodule.exports = path.join(__dirname, "..", "docs");\n',
+			const r = write(
+				`console.log("see #12");\n${Walk}`,
+				"scripts/demo.test.js",
 			);
-			expect(run("alice", file).output).toBeNull();
+			expect(r.output).toBeNull();
 		});
 
 		it("says nothing of a #N printed bare by a file the release leaves behind", () => {
 			shipPlugin();
-			fakeBiome(sb, "#!/bin/sh\n");
-			const file = path.join(sb.repo, "scripts/release-contains.js");
-			fs.writeFileSync(file, 'console.log("see #12");\n');
-			expect(run("alice", file).output).toBeNull();
+			const r = write(
+				'console.log("see #12");\n',
+				"scripts/release-contains.js",
+			);
+			expect(r.output).toBeNull();
+		});
+
+		it("says nothing of a __dirname walk check-host-root.js allowlists", () => {
+			shipPlugin();
+			expect(write(Walk, "scripts/lib/rule-text.js").output).toBeNull();
 		});
 
 		it("says nothing where the repo ships no plugin, which neither rule binds", () => {
