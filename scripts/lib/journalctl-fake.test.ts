@@ -11,15 +11,17 @@ let dir: string;
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe("writeJournalctl", () => {
-	it("serves both halves of a line holding a newline under its own time", () => {
+	it("serves both halves of a line holding a newline under its own time, the second whole (#5568)", () => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "journalctl-fake-"));
 		const ms = Date.parse("2026-11-01T10:00:00Z");
-		const bin = writeJournalctl(dir, [buildKernelLine(ms, "first\nsecond")]);
+		const bin = writeJournalctl(dir, [
+			buildKernelLine(ms, "first\na b c: second\n"),
+		]);
 		const read = (since: number) =>
 			spawnSync(bin, ["--since", `@${since}`, "-o", "cat"], {
 				encoding: "utf8",
 			}).stdout;
-		expect(read(ms / 1000 - 1)).toBe("first\nsecond\n");
+		expect(read(ms / 1000 - 1)).toBe("first\na b c: second\n");
 		expect(read(ms / 1000 + 1)).toBe("");
 	});
 });

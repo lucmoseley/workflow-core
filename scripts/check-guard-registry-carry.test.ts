@@ -17,11 +17,15 @@ import {
 	SELF_PLUGIN_HOOKS,
 	templateOf,
 } from "./lib/guard-registry-testkit";
-import { parseGateRefusal } from "./lib/lander-git.js";
+import { parseGateRefusal, REFUSAL_TAIL_LINES } from "./lib/lander-git.js";
 
 afterEach(removeTemps);
 
 const GUARD = "scripts/guard-pair.sh";
+const REMEDY = Array.from(
+	{ length: REFUSAL_TAIL_LINES + 1 },
+	(_, i) => `remedy ${i}`,
+);
 const LIB_A = "scripts/lib/a.sh";
 const LIB_B = "scripts/lib/b.sh";
 const ADDED = "scripts/guard-solo.sh";
@@ -182,8 +186,7 @@ describe("a merge carries a row whose sides changed different files of its closu
 		);
 		expect(r.stderr).toContain(`STALE-PROSE  ${GUARD}`);
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(before);
-		const remedy = Array.from({ length: 41 }, (_, i) => `remedy ${i}`);
-		const kept = parseGateRefusal([r.stderr, ...remedy].join("\n"));
+		const kept = parseGateRefusal([r.stderr, ...REMEDY].join("\n"));
 		expect(kept).toContain(
 			`not carried ${GUARD} — both sides changed ${LIB_A}`,
 		);
@@ -206,8 +209,7 @@ describe("a merge carries a row whose sides changed different files of its closu
 		const why =
 			"no row carried across this merge: a merge of 2 heads carries none";
 		expect(r.stderr).toContain(why);
-		const remedy = Array.from({ length: 41 }, (_, i) => `remedy ${i}`);
-		expect(parseGateRefusal([r.stderr, ...remedy].join("\n"))).toContain(why);
+		expect(parseGateRefusal([r.stderr, ...REMEDY].join("\n"))).toContain(why);
 	});
 
 	it("never carries a row whose library the merge commit itself changes, matching neither parent", () => {
