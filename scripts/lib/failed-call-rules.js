@@ -1,14 +1,3 @@
-/*
- * failed-call-rules.js — guard-failed-call-rules.js's core (#2026): after a call fails in one of two known ways, which rule the
- * session is handed.
- *
- *   PostToolUseFailure, Bash, exit 137 or 143 — `rule:silent-kill`.
- *   PostToolBatch, a `Skill` result refused for `disable-model-invocation` —
- *     `rule:skill-refused`.
- *
- * A CORE: it does no I/O. The rule store arrives as a port.
- */
-
 const { caught } = require("./caught.js");
 
 const REFUSAL = "due to disable-model-invocation";
@@ -16,14 +5,11 @@ const KILLED = /(^|\n)Exit code (137|143)(\n|$)/;
 
 /**
  * @typedef {object} FailedCallPorts
- * @property {Record<string, unknown>} payload the hook payload
+ * @property {Record<string, unknown>} payload
  * @typedef {import("./kit-context.js").KitContext & FailedCallPorts} FailedCallContext
  */
 
-/**
- * A tool result as text, whether a string or content blocks.
- * @param {unknown} response
- */
+/** @param {unknown} response */
 const asText = (response) =>
 	typeof response === "string" ? response : JSON.stringify(response ?? "");
 
@@ -44,8 +30,6 @@ function isRefusedSkill(payload) {
 	);
 }
 
-/* Each rule's id is spelt literally in its call: check-guard-registry.js
- * finds a rule's emitter by that spelling. */
 /** @type {Record<string, { hit: (payload: Record<string, unknown>) => boolean, rule: (ctx: FailedCallContext) => string }>} */
 const LIMBS = {
 	PostToolUseFailure: {
@@ -59,7 +43,7 @@ const LIMBS = {
 };
 
 /**
- * @param {string} event the payload's hook_event_name
+ * @param {string} event
  * @param {FailedCallContext} ctx
  * @returns {{ context: string } | null}
  */
@@ -71,7 +55,6 @@ function decide(event, ctx) {
 	try {
 		text = limb.rule(ctx);
 	} catch (e) {
-		/* Fails open, logged (mantahostels#103 §6). */
 		why = caught(e).message;
 	}
 	if (!text) {

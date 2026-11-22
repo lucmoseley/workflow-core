@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the tab tally, the launcher's closing report and the closer's reading
- * of a resume for a Chrome child (#4847, #5385). The rows are hand-built in the extension's own wording
- * (lib/chrome-rows-fake.ts), since no Chrome runs under test: where the
- * extension rewords a result, these still pass and only a live run shows it.
- * Loosening one lets a child leave tabs in the founder's tab strip unnamed.
- */
 import { describe, expect, it } from "vitest";
 import {
 	chromeOutcome,

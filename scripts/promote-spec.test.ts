@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins promote-spec.js: a brief's spec re-parented under its map, read back,
- * and the brief closed, in that order; every refusal before any write; a move
- * that does not land leaves the brief open; a re-run finishes only what is
- * missing.
- *
- * promote-spec.js, driven through its command line against a gh stub (#608;
- * the seam ruled on #606). Every refusal also asserts that nothing was
- * written — no move, no comment, no close, the claim still standing.
- *
- * `/to-spec` runs it, and no hook sees a `gh` call a script makes: loosen a case
- * and a brief closes with its spec still under it, or a roadmap card's own
- * issue closes past /card-close.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -43,13 +29,6 @@ const put = (name: string, value: object) => {
 };
 const get = (name: string) => JSON.parse(fs.readFileSync(state(name), "utf8"));
 
-/**
- * `gh` over issues kept in `issues.json` (number → issue, each with a
- * `parent`), a brief's `timeline.json` and its `comments.json`. The sub-issue
- * POST moves the child and logs `sub_issue_removed` on its old parent, as
- * GitHub does. Levers: `post-422`, `close-fails`, and `hide` — the map's
- * listing omits the moved spec.
- */
 const STUB = `#!/usr/bin/env node
 ${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");

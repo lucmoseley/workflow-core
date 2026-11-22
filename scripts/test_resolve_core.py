@@ -1,16 +1,3 @@
-"""resolve_core.py against resolve-core.js (#465): the same fixture through both
-resolvers must give the same directory, the same failure message and the same
-warnings. Each case also pins the expected outcome, so the two cannot agree on
-a wrong answer.
-
-`env` always carries CLAUDE_CONFIG_DIR or a throwaway HOME, so no case reads
-this machine's install record or its own WORKFLOW_CORE_* variables.
-
-An adopter's Python scripts and pytest suite find the core's helpers only
-through this resolver: loosen a case and they load a different core from the
-one its JS checks use, or fail with a message naming the wrong fix.
-"""
-
 import json
 import os
 import shlex
@@ -64,8 +51,6 @@ def _write_json(path, value):
 
 @pytest.fixture
 def adopter(tmp_path):
-    """plugin-state-testkit.ts's adopterFixtures, in Python."""
-
     def make(pin_ref="v1.1.8", installed_version="1.1.8"):
         root = tmp_path / "adopter"
         config = tmp_path / "config"
@@ -99,7 +84,6 @@ def adopter(tmp_path):
 
 
 def both(root, env):
-    """Each resolver's {ok, value, warnings} for the same root and env."""
     warnings = []
     try:
         py = {
@@ -340,7 +324,6 @@ def _git(cwd, *args):
 
 
 def _linked_worktree(root, tmp_path):
-    """`root` made a git checkout, and a linked worktree of it beside it."""
     _git(root, "init", "-q", "-b", "main")
     _git(root, "add", ".claude")
     _git(root, "commit", "-q", "-m", "x")
@@ -352,7 +335,7 @@ def _linked_worktree(root, tmp_path):
 def test_resolves_a_root_that_is_a_linked_worktree_through_its_main_checkout(
     adopter, tmp_path, monkeypatch
 ):
-    """#4117, the GIT_DIR of a hook not answering for the named directory."""
+    # #4117
     root, config, install = adopter()
     worktree = _linked_worktree(root, tmp_path)
     env = {"CLAUDE_CONFIG_DIR": str(config)}
@@ -532,10 +515,6 @@ def test_resolves_with_no_harness_variables_from_a_checkout_and_a_linked_worktre
         assert json.loads(py.stdout)["value"] == str(install)
 
 
-# The adopter's pytest seam end to end (#465): a fixture adopter holding only
-# its copy of resolve_core.py imports the surface from a rendered release tree,
-# the way CI hands it one through WORKFLOW_CORE_CHECKOUT.
-
 REPO = LIB.parent.parent
 
 CONFTEST = """
@@ -612,7 +591,6 @@ def test_an_adopter_suite_imports_the_surface_from_a_rendered_release_tree(
     r = run(
         WORKFLOW_CORE_CHECKOUT=str(release),
         EXPECT_CORE=str(release),
-        # Checks which root is slugged, not the rule — test_project_slug.py pins that.
         EXPECT_SLUG=project_slug(str(root.resolve())),
     )
     assert r.returncode == 0, r.stdout + r.stderr

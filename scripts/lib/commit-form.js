@@ -97,7 +97,6 @@
  *    own terminal. That is why the deny carries no override
  *    (mantahostels#109, mantahostels#110).
  */
-
 const { closingMatch } = require("./closing-keyword.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { ruleModule } = require("./rule-gates.js");
@@ -120,29 +119,19 @@ const {
 /**
  * @typedef {"cached" | "others" | "others-standard"} LsMode
  * @typedef {object} CommitFormPorts
- * @property {string} root the host root, as the arbiter's repoRoot() reads it
- * @property {(dir: string) => boolean} midSequence a merge, rebase,
- *   cherry-pick, revert or `git am` in progress; false where git cannot answer
- * @property {(dir: string) => string[] | null} stagedFiles the index against
- *   HEAD, or the empty tree before the first commit; null where git errors
- * @property {(dir: string, path: string, mode: LsMode) => string[] | null}
- *   lsFiles `git ls-files` under one path; null where git errors
+ * @property {string} root
+ * @property {(dir: string) => boolean} midSequence
+ * @property {(dir: string) => string[] | null} stagedFiles
+ * @property {(dir: string, path: string, mode: LsMode) => string[] | null} lsFiles
  * @property {(dir: string) => string | null} topLevel
  * @property {(dir: string, file: string) => string[] | null} patchFiles
- * @property {(file: string) => string | null} readList a pathspec list file's
- *   text; null where it is not a readable regular file
- * @property {(dir: string) => string | null} pushedHead the ref `dir` pushes
- *   to (lib/landing-refs.js readUnpushedRef) where its HEAD is on it, "" where it is not,
- *   null where git errors
- * @property {(match: string) => string} closingRefusal what the
- *   closing-keyword deny says after its opening line
- * @typedef {import("./kit-context.js").KitContext & CommitFormPorts}
- *   CommitFormContext
+ * @property {(file: string) => string | null} readList
+ * @property {(dir: string) => string | null} pushedHead
+ * @property {(match: string) => string} closingRefusal
+ * @typedef {import("./kit-context.js").KitContext & CommitFormPorts} CommitFormContext
  */
 
-/* How many paths a warn names before it falls back to a count. A first guess:
- * nothing has measured what a session stops reading at. The budget is the
- * whole message's, not each word's. */
+// guess, #5529
 const PATHS_SHOWN_CAP = 10;
 
 /** @param {CommitFormContext} ctx */
@@ -172,8 +161,6 @@ Commit by pathspec instead, naming only the files you changed:
 
 ${untrackedEscape(ctx)} Then commit by pathspec as normal.`;
 
-/* The opening line is a plain string so guard-fire-needles.json's
- * amend-pushed needle reads it byte for byte. */
 const AMEND_OPENING = "This amend rewrites a commit already pushed";
 
 /** @param {string} ref */
@@ -192,12 +179,6 @@ const denyClosesKeyword = (refusal) =>
 
 ${refusal}`;
 
-/* The flags each hook-skipping subcommand gives a value in a separate word,
- * so `git merge -m --no-verify` reads its own message as no flag. List only a
- * flag measured to swallow the next word: one listed wrongly lets
- * `--no-verify` through as its value. merge and rebase share guard-pull-form's
- * table (#302); am's was measured at mantahostels#1707. `-m` under cherry-pick
- * and revert is the MAINLINE number. */
 const NV_VALUE_FLAGS = {
 	merge: gitValueFlags("merge"),
 	rebase: gitValueFlags("rebase"),
@@ -206,11 +187,6 @@ const NV_VALUE_FLAGS = {
 	am: "--directory --exclude --include --whitespace --patch-format --quoted-cr -p -C",
 };
 
-/* The `--no-verify` spellings each accepts (mantahostels#1705, #1706, #1707);
- * shorter ones git rejects as ambiguous with `--no-verbose`. cherry-pick and
- * revert accept none on git 2.43.0, so their arm is PROSPECTIVE — re-measure
- * with a RESOLVABLE revision, as git dies on a bad one first. `git am` has no
- * other `--no-v…` option. */
 const NV_SPELLINGS = {
 	merge: ["--no-verify"],
 	"cherry-pick": ["--no-verify"],
@@ -230,19 +206,11 @@ const COMMIT_NO_VERIFY = ["-n", "--no-veri", "--no-verif", "--no-verify"];
 const COMMIT_AMEND = ["--am", "--ame", "--amen", "--amend"];
 const COMMIT_SWEEPS = ["-a", "--all"];
 
-/* Doc map's SCOPE in scripts/lib/doc-map.js: check-doc-map.js runs in
- * .husky/pre-commit on exactly this set (mantahostels#390). */
 const DOC_MAP_SCOPE =
 	/^(docs\/|\.claude\/|hooks\/|self-plugin\/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)/;
-/* The two files check-digest-version.js compares: either alone is the drift. */
 const DIGEST_FILES = /^docs\/(reference-roadmap\.html|roadmap-digest\.md)$/;
-/* Where a guard-registry region, the guards it names and their fragments
- * live. */
 const REGISTRY_FILES =
 	/^(CLAUDE\.md$|AGENTS\.md$|(docs|\.claude)\/.*\.md$|scripts\/.*\.sh$|docs\/agents\/rules\/)/;
-/* The languages Biome parses, outside biome.json's `includes` exclusions —
- * MIRRORED, not read: a hook must not parse config to decide whether to say
- * something, and a miss costs a rule, never a verdict. */
 const BIOME_EXT =
 	/\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|jsonc|css|graphql|gql|vue|svelte|astro|html)$/;
 const BIOME_EXCLUDED =
@@ -256,9 +224,7 @@ const COMMIT_FLAG = Object.fromEntries([
 ]);
 
 /**
- * The flags `git commit` carries. `-m`/`--message` only feed the keyword test:
- * `-F` and `-t` name a FILE, `-c`/`-C`/`--fixup`/`--squash` a COMMIT.
- * @param {string[]} args raw
+ * @param {string[]} args
  * @param {string[]} spans
  */
 function scanCommit(args, spans) {
@@ -299,8 +265,6 @@ const ADD_FLAG = {
 	"--pathspec-file-nul": "nul",
 };
 
-/* No other `git add` short flag carries an n, N or f, and none takes a value
- * in the same word. */
 /** @type {[string, keyof AddFlags][]} */
 const ADD_SHORT = [
 	["N", "intent"],
@@ -309,8 +273,7 @@ const ADD_SHORT = [
 ];
 
 /**
- * The `git add` flags the guard reads.
- * @param {string[]} args raw
+ * @param {string[]} args
  * @returns {AddFlags}
  */
 function addFlags(args) {
@@ -325,7 +288,6 @@ function addFlags(args) {
 }
 
 /**
- * Whether a merge-family call skips the hooks.
  * @param {keyof typeof NV_SPELLINGS} sub
  * @param {string[]} args
  */
@@ -338,12 +300,9 @@ function skipsHooks(sub, args) {
 }
 
 /**
- * A deny's text: the unset-variable line spliced after its framing paragraph
- * (#312), paths at the plugin root, then the segment in place of the CMD
- * placeholder — after the paths, so the command is shown as typed.
  * @param {string} reason
- * @param {string} unset unsetText's
- * @param {string} segment masked
+ * @param {string} unset
+ * @param {string} segment
  * @param {CommitFormContext} ctx
  */
 function commitDenyText(reason, unset, segment, ctx) {
@@ -365,35 +324,27 @@ function commitDenyText(reason, unset, segment, ctx) {
 const absAt = (p, dir) => normAbs(p.startsWith("/") ? p : `${dir}/${p}`);
 
 /**
- * `abs` relative to `top` where it lies beneath it, else as given.
  * @param {string} top
  * @param {string} abs
  */
 const relativeTo = (top, abs) => relativeUnder(top, abs) || abs;
 
 /**
- * One command's judging state, built by decide and threaded through the
- * functions below.
  * @typedef {object} Judging
  * @property {CommitFormContext} ctx
  * @property {ReturnType<typeof parseCommand>} parsed
  * @property {string[]} spans
  * @property {string | null} denied
- * @property {string} warning the first warn found, held across segments in
- *   case a later one denies
- * @property {string} leftBehind mantahostels#1651's text, held out of
- *   `warning` so every verdict decided later outranks it (mantahostels#3280 D2)
- * @property {string[]} intentAdded what earlier segments intent-add, absolute
- *   and normalised, each argument with the untracked files git says it covers
- *   (mantahostels#3280 D1, mantahostels#3315, mantahostels#3321)
- * @property {Set<string>} committed the trees an earlier segment commits in
+ * @property {string} warning
+ * @property {string} leftBehind
+ * @property {string[]} intentAdded
+ * @property {Set<string>} committed
  * @property {boolean} ruleSubject
  * @property {string} ruleDir
  * @property {string[]} lastWords
  */
 
 /**
- * A word's literal text; null where it is unreadable or empty.
  * @param {Judging} j
  * @param {string} word
  */
@@ -403,11 +354,10 @@ function known(j, word) {
 }
 
 /**
- * `git ls-files` under one pathspec word, or null, logged, where git errors.
  * @param {Judging} j
- * @param {{ dir: string, abs: string }} at the word, run from `dir`
+ * @param {{ dir: string, abs: string }} at
  * @param {LsMode} mode
- * @param {string} ticket the verdict left unjudged
+ * @param {string} ticket
  */
 function listUnder({ ctx }, { dir, abs }, mode, ticket) {
 	const out = ctx.lsFiles(dir, abs, mode);
@@ -419,8 +369,6 @@ function listUnder({ ctx }, { dir, abs }, mode, ticket) {
 }
 
 /**
- * Whether a word git tracks nothing under holds something untracked; false
- * where it was left unjudged.
  * @param {Judging} j
  * @param {string} dir
  * @param {string} abs
@@ -434,10 +382,6 @@ function onlyUntracked(j, dir, abs) {
 }
 
 /**
- * The untracked-pathspec warn (mantahostels#1612): a word git tracks nothing
- * under but something untracked is there. A word matching nothing at all gets
- * no warn. IGNORED files are in scope: git rejects them too, and the message
- * carries the `-f` they need.
  * @param {Judging} j
  * @param {string[]} words
  * @param {string} dir
@@ -448,8 +392,6 @@ function untrackedWarn(j, words, dir) {
 		const lit = known(j, w);
 		if (lit === null) continue;
 		const abs = absAt(lit, dir);
-		/* CONTAINMENT (mantahostels#3318): a file intent-added inside a
-		 * directory word clears that word too. */
 		const bare = abs.replace(/\/$/, "");
 		if (j.intentAdded.some((ia) => isUnder(ia, [bare]))) continue;
 		if (onlyUntracked(j, dir, abs)) list += `  ${lit}\n`;
@@ -459,8 +401,6 @@ function untrackedWarn(j, words, dir) {
 }
 
 /**
- * The untracked files under a directory word that also holds tracked ones;
- * empty where it holds none, or was left unjudged.
  * @param {Judging} j
  * @param {string} dir
  * @param {string} abs
@@ -474,9 +414,6 @@ function leftUnder(j, dir, abs) {
 }
 
 /**
- * The left-behind warn (mantahostels#1651): a directory word with tracked
- * files under it and untracked ones too. IGNORED files are excluded, or a
- * directory word would list node_modules.
  * @param {Judging} j
  * @param {string[]} words
  * @param {string} dir
@@ -502,10 +439,6 @@ function leftBehindWarn(j, words, dir) {
 }
 
 /**
- * Record one intent-added argument. `git add -N src` stages every untracked
- * file under src, so a later `-- src/new.md` names a tracked path: the walk
- * happens here (mantahostels#3321), matching `git add`'s own
- * --exclude-standard, which -f widens to the ignored files.
  * @param {Judging} j
  * @param {string} p
  * @param {string} dir
@@ -530,13 +463,10 @@ function recordIntent(j, p, dir, force) {
 }
 
 /**
- * Record what a `git add -N` segment intent-adds, for untrackedWarn
- * (mantahostels#3280 D1). -N ONLY: -n leaves the path untracked, and a bundle
- * carrying both is a dry run.
  * @param {Judging} j
- * @param {string[]} args raw
+ * @param {string[]} args
  * @param {AddFlags} flags
- * @param {string} dir the segment's own cwd
+ * @param {string} dir
  */
 function scanIntentAdded(j, args, { intent, dry, force, nul }, dir) {
 	if (!intent || dry) return;
@@ -552,9 +482,6 @@ function scanIntentAdded(j, args, { intent, dry, force, nul }, dir) {
 }
 
 /**
- * The paths a pathspec list's text names. `--pathspec-file-nul` takes every
- * character literally; otherwise a C-quoted line, git's escape for a path
- * holding a newline or a quote, is skipped and left warned.
  * @param {string} text
  * @param {boolean} nul
  */
@@ -567,13 +494,8 @@ const listPaths = (text, nul) =>
 				.filter((line) => line && !line.startsWith('"'));
 
 /**
- * The list a `git add -N --pathspec-from-file <file>` names
- * (mantahostels#3324), resolved against the segment's cwd. Four shapes record
- * nothing, each failing towards the warn: stdin (`-`), an unreadable list, a
- * C-quoted line, and a list this command redirects into (mantahostels#3327),
- * whose bytes at hook time are not git's.
  * @param {Judging} j
- * @param {string} word raw
+ * @param {string} word
  * @param {string} dir
  * @param {boolean} nul
  * @returns {string[]}
@@ -606,9 +528,6 @@ function readPathspecsFromFile(j, word, dir, nul) {
 }
 
 /**
- * Whether one redirect truncates into `file`. A target that will not resolve
- * is read as the list, the direction that keeps the warn; a relative one's
- * basename is compared too, a `git -C` moving the list but not the redirect.
  * @param {{ kind: string, path: string | null, target: string }} r
  * @param {string} file
  * @param {string[]} spans
@@ -626,12 +545,8 @@ function truncatesInto(r, file, spans) {
 }
 
 /**
- * Whether any segment of this command truncates into `file`. TRUNCATING
- * redirects only, and `<>`: `>>` keeps the stale lines, a subset only ever
- * failing towards the warn. A `tee`, `sed -i` or script rewriting it passes
- * unseen.
  * @param {Judging} j
- * @param {string} file normalised absolute
+ * @param {string} file
  */
 function listRewritten(j, file) {
 	let hit = false;
@@ -647,8 +562,6 @@ function listRewritten(j, file) {
 }
 
 /**
- * A `git add`/`stage`: judged for what it intent-adds, which a later
- * segment's untracked warn reads.
  * @param {Judging} j
  * @param {string[]} args
  * @param {string} tree
@@ -658,9 +571,6 @@ function judgeAdd(j, args, tree) {
 }
 
 /**
- * A pathspec commit's two untracked warns. They bind in every tree — git
- * rejects an unmatchable pathspec there too — and stand down mid-sequence,
- * where git refuses a partial commit itself.
  * @param {Judging} j
  * @param {string[]} words
  * @param {string} tree
@@ -672,8 +582,6 @@ function untrackedWarns(j, words, tree) {
 }
 
 /**
- * The pushed ref `tree`'s HEAD is on, for the amend deny: "" where it is on
- * none, and "" too, logged, where git cannot say — the deny fails open.
  * @param {Judging} j
  * @param {string} tree
  */
@@ -687,8 +595,6 @@ function readPushedHead(j, tree) {
 }
 
 /**
- * One `git add`/`stage`/`commit` or merge-family call against any working
- * tree of this repo.
  * @param {Judging} j
  * @param {import("./shell-parse.js").GitCall} call
  */
@@ -699,16 +605,12 @@ function judge(j, { segment, sub, tree, args, emptyVars }) {
 		j.denied = commitDenyText(reason, unsetText(emptyVars), segment, j.ctx);
 	};
 	if (sub in NV_SPELLINGS) {
-		/* Nothing else about the merge family is judged: none stages a
-		 * pathspec. Judged in every tree and mid-sequence too. */
 		if (skipsHooks(/** @type {keyof typeof NV_SPELLINGS} */ (sub), args))
 			deny(denyNoVerify(j.ctx));
 		return;
 	}
 	j.ruleSubject = true;
 	if (sub !== "commit") return judgeAdd(j, args, tree);
-	/* `commit` alone scopes the §Gotchas rules (mantahostels#1805): they are
-	 * about gates that fire at commit time. The last commit wins. */
 	j.ruleDir = tree;
 	const c = scanCommit(args, j.spans);
 	j.lastWords = c.words;
@@ -718,8 +620,6 @@ function judge(j, { segment, sub, tree, args, emptyVars }) {
 		return deny(denyClosesKeyword(j.ctx.closingRefusal(match)));
 	const atRest = !j.ctx.midSequence(tree);
 	if (c.sweeps && atRest) return deny(denySweeping(j.ctx));
-	/* Mid-sequence HEAD is the replay's own commit, and after an earlier
-	 * commit in this command it is that new one: neither is pushed. */
 	if (c.amend && atRest && !j.committed.has(tree)) {
 		const ref = readPushedHead(j, tree);
 		if (ref) return deny(denyAmend(ref));
@@ -729,8 +629,6 @@ function judge(j, { segment, sub, tree, args, emptyVars }) {
 }
 
 /**
- * Each readable word, joined to `dir` where relative, relative to `dir`'s
- * repo root, so one set of patterns judges every source.
  * @param {Judging} j
  * @param {string} dir
  * @param {string[]} words
@@ -751,8 +649,6 @@ function repoRelative(j, dir, words) {
 }
 
 /**
- * The paths one `node …/commit-paths.js` call would land, for the §Gotchas
- * scoping (#2147).
  * @param {Judging} j
  * @param {NonNullable<ReturnType<typeof commitPathsParse>>} call
  * @param {string | undefined} cwd
@@ -777,12 +673,7 @@ function commitPathsWords(j, call, cwd) {
 	return repoRelative(j, cwd, words);
 }
 
-/**
- * A `node …/commit-paths.js` call runs no git the walk sees, and already
- * commits by pathspec (#2022); the paths it would land feed the §Gotchas
- * scoping as a pathspec does (#2147).
- * @param {Judging} j
- */
+/** @param {Judging} j */
 function commitPathsCalls(j) {
 	let subject = false;
 	/** @type {string[]} */
@@ -802,13 +693,6 @@ function commitPathsCalls(j) {
 }
 
 /**
- * The commit rules, scoped by the paths the commit names.
- *
- * PRIORITY ORDER, highest first, as the ceiling defers the tail: the three
- * about the act itself, then the gates by what a session loses to each — a
- * local FAIL first, the sweep-only WARN last — and push-cadence,
- * which binds after the commit, closing (#2285). THE SCOPING IS AN EXCLUSION:
- * each skip states its own condition (mantahostels#1805).
  * @param {Judging} j
  * @param {string[]} paths
  * @returns {import("./guard-entry.js").Decision}
@@ -888,8 +772,6 @@ function decide(command, ctx) {
 	if (j.denied !== null) return { deny: j.denied };
 
 	const cp = commitPathsCalls(j);
-	/* mantahostels#1651's verdict claims the slot last, and only where nothing
-	 * decided later took it (mantahostels#3280 D2). */
 	const warning = j.warning || j.leftBehind;
 	if (warning) return { injectRules: [], prelude: ctx.corePaths(warning) };
 
@@ -898,8 +780,6 @@ function decide(command, ctx) {
 	if (j.ruleDir)
 		paths.push(
 			...repoRelative(j, j.ruleDir, j.lastWords),
-			/* An unreadable index selects no rules from it: an advisory read
-			 * fails open (mantahostels#103 §6). */
 			...(ctx.stagedFiles(j.ruleDir) ?? []),
 		);
 	return commitRules(j, paths);

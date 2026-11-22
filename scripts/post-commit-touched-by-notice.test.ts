@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * .husky/post-commit's `--touched-by` notices — the census's (#1810) and the
- * guard registry's (#2375) — as lib/post-commit-steps.js's touchedByRow and
- * their two rows in lib/post-commit-rows.js, run through dispatch() on the
- * real route (#5208).
- *
- * What is under test is the STEP'S half: the argv it hands each checker, that
- * it prints the checker's report only where the commit expired something, and
- * that a fault in it never stops the steps after it. What a commit expires is
- * each checker's own test's. Loosen a case and a commit that expires a census
- * row or a registry anchor lands with no notice.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -58,7 +46,6 @@ describe.each(CHECKERS)(
 			};
 		}
 
-		/** The row's step on `cwd`, the checker's run answering `answer`. */
 		async function runStep(
 			cwd: string,
 			answer: (argv: string[]) => Result,
@@ -85,7 +72,6 @@ describe.each(CHECKERS)(
 			expect(spec).toBe(load(path.join(SCRIPTS, checker)).SPEC);
 		});
 
-		/* The real checker, once, through the real checkInProcess. */
 		it("runs the real checker in-process, silent on a repo it cannot read", async () => {
 			const { root } = hookRepo("post-commit-touched-by-real-");
 			expect(

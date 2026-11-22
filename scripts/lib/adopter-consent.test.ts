@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * adopter-consent.test.ts — the decline/pending-consent store (#245). Every
- * test points CLAUDE_CONFIG_DIR at a throwaway temp directory — the real
- * config dir otherwise gets a stray adopter-upgrade/ tree.
- *
- * check-plugin-gap.js and reconcile-plugin.js read this store at session start
- * and end: loosen a case here and a declined upgrade is re-asked every session,
- * or a yes never reaches the materialiser and the plugin gap goes unclosed.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -100,8 +91,6 @@ describe("nothing expresses an accepted-and-completed state", () => {
 describe("storage location", () => {
 	it("lives under the sandbox's config-dir set, never a hard-coded ~/.claude", () => {
 		decline(REPO, "v1.1.11");
-		// The candidate set is sorted for cross-process agreement, so this need
-		// not be CLAUDE_CONFIG_DIR itself — only under this test's own tree.
 		expect(base().startsWith(dir)).toBe(true);
 		expect(base()).not.toContain(os.homedir());
 	});

@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * file-process-runaway-tickets.js — file one `takes:triage` ticket for each
- * group memwatch fired on in a process runaway (#3807): an episode, read from the line
- * ~/memwatch.sh appends (lib/process-runaways.js). Once per episode, through
- * lib/incident-tickets.js, and at the first read rather than once it is over: a
- * firing means a process count held for 10 minutes, so it may be running now.
- *
- *   node scripts/file-process-runaway-tickets.js [--dry-run]
- *
- * Reads back LOOKBACK_MS, so a refill loop down for under that files its missed
- * episodes when it returns.
- *
- * Joins no §N3 family: a failed filing exits 1 so the refill loop logs it, as
- * file-memory-kill-tickets.js does.
- *
- * Prints nothing where there is nothing to file. Exit codes: 0 on a pass, an
- * unreadable log included (said on stderr); 1 where a filing or the tracker read
- * failed; 2 on a command line it refuses.
- */
 
 const path = require("node:path");
 const { scriptPath } = require("./lib/script-path.js");

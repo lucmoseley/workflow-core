@@ -29,7 +29,6 @@
  *    hides the script, and the launch passes;
  *  - a launch from a script file, or a variable naming the script, passes.
  */
-
 const { deny, walkVerdict } = require("./guard-verdict.js");
 const { parseCommand } = require("./shell-parse.js");
 const { literal, nodeScriptArgs } = require("./shell-words.js");
@@ -74,8 +73,6 @@ function decide(command, ctx) {
 }
 
 /**
- * Whether any run of the command is the launcher in its `chrome` mode, run
- * through node or as the script itself.
  * @param {Command} cmd
  * @param {string[]} spans
  */
@@ -96,17 +93,11 @@ const isLauncher = (word, spans) => {
 	return text.slice(text.lastIndexOf("/") + 1) === LAUNCHER;
 };
 
-/**
- * `2>&1`, or a redirection sending both streams to one file (`&>`, `&>>`,
- * `>&<file>`).
- * @param {Redirect} r
- */
+/** @param {Redirect} r */
 const isStderrMerge = (r) =>
 	r.fd === "&" || (r.fd === "2" && r.kind === "copy" && /^1-?$/.test(r.target));
 
 /**
- * Whether the segment, standing as a command of its own in the quote-masked
- * subject, is followed by `|&`.
  * @param {string} masked
  * @param {string} segment
  */

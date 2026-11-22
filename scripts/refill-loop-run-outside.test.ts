@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's `run` driven end to end over one background session the
- * founder started, which no launch knows (#4815, lib/refill-outside.js): its
- * turn drops on a connection error, the loop waits while the API host is
- * unreachable, types the resume once it is back, and counts it arrived off the
- * job's timeline. Its sandbox is lib/refill-loop-run-testkit.ts's; the
- * network probe is the testkit's stand-in, taken down by setOffline.
- *
- * The testkit's `claude` stub types through lib/claude-attach-fake.ts, which
- * answers from "scripts/fixtures/claude-attach.json": a re-recording selects
- * this file.
- *
- * Loosen it and the wiring the unit tests stub (the registry read, the probe
- * child, the attach, the outside file) can break unseen (#2851).
- */
 import fs from "node:fs";
 import path from "node:path";
 import { expect, it } from "vitest";
@@ -41,8 +26,6 @@ const jobDir = () => path.join(seat, "jobs", Job);
 const outside = () =>
 	JSON.parse(fs.readFileSync(at(".refill-outside.json"), "utf8"));
 
-/** The founder's session: live in the seat's registry as a background job,
- * its job record blocked and its transcript ending on a connection error. */
 function seedFounderSession() {
 	const transcript = at("transcript.jsonl");
 	fs.writeFileSync(
@@ -108,8 +91,6 @@ it("takes a founder-started session through a drop, an offline wait, a typed res
 	const [typed] = outside();
 	expect(typed).toMatchObject({ tries: 1, attachAt: expect.any(Number) });
 
-	/* An hour back, past lib/refill-blocks.js's one-minute verdict window,
-	 * with the typed line on the job's timeline. */
 	const attachAt = Date.now() - 60 * 60 * 1000;
 	fs.writeFileSync(
 		at(".refill-outside.json"),

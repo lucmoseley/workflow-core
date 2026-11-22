@@ -30,23 +30,10 @@ index fe0eedb38d3cb4dbfe7d3d172385fe9adb981d85..545fb040acf0186be920849f0b9b9650
  				"path": "scripts/report-round-check-reading.test.ts",
  				"anchors": [
 diff --git a/scripts/lib/doc-map.js b/scripts/lib/doc-map.js
-index d05049a82d3d37315bf6d303ea52016940687b57..95526348bdfe5d5cbec568a119944392d9ce88eb 100644
+index c71f8502dc7430a618fbfae5eb7dc4e6c9d4e6af..3baece1adf1ea01810e42716c0bf93a5a35266b7 100644
 --- a/scripts/lib/doc-map.js
 +++ b/scripts/lib/doc-map.js
-@@ -2394,8 +2394,10 @@ function headingWords(heading) {
-  * (`call list 23-25` inside `call list 23-25.5`), and fails to end a match
-  * on a non-word character followed by a space (`800%`). One ending in a
-  * letter also refuses a following word character, so a unit letter cannot
-- * match the start of a longer word (#1620). A needle with no digit matches
-- * as a plain whole word.
-+ * match the start of a longer word (#1620). A preceding `#` marks an issue
-+ * citation, not a figure, and a following `,\d` is the rest of a longer
-+ * comma-grouped number (`38,000` inside `38,000,000`), so neither matches
-+ * (#1875). A needle with no digit matches as a plain whole word.
-  * @param {string} needle
-  */
- function needlePattern(needle) {
-@@ -2405,7 +2407,7 @@ function needlePattern(needle) {
+@@ -1467,7 +1467,7 @@ function needlePattern(needle) {
  	const body = escapeRe(needle.replace(/^~/, "")).replace(/[–—-]/g, "[–—-]");
  	if (!/\d/.test(needle)) return new RegExp(`\\b${body}\\b`, "gi");
  	const tail = /[a-z]$/i.test(needle) ? "\\w" : "\\d";
@@ -54,7 +41,7 @@ index d05049a82d3d37315bf6d303ea52016940687b57..95526348bdfe5d5cbec568a119944392
 +	return new RegExp(`(?<![\\w.,#])~?${body}(?![${tail}]|[.,]\\d)`, "gi");
  }
  
- /* The data files' canonical names, resolved against the map's own
+ const DATA_FILES = {
 diff --git a/scripts/lib/doc-map.test.ts b/scripts/lib/doc-map.test.ts
 index d71179a3ffd93f8d3e373271816530e43d880622..4c25ec86bc0a3865a371d82b01eecd434cf604a4 100644
 --- a/scripts/lib/doc-map.test.ts

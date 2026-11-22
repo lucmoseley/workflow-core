@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Direct tests for the checker family's reporting tail (mantahostels#156), against the
- * alphabet settled at mantahostels#155 (the checker family's exit-code and severity
- * model).
- *
- * Driven through a fixture checker rather than a real one, so a test that fails
- * here is the library's fault and never a checker's.
- *
- * Every checker the .husky/pre-commit stack and CI run reports through this
- * tail: loosen a case here and a checker that crashed reads as one that ran
- * clean, or a finding exits on the wrong code and a gate passes it.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -20,6 +8,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENVELOPE_FRAME_KEYS } from "./envelope-frame-keys";
 import { keptSpawn } from "./kept-spawn.js";
+import {
+	base as notifyBase,
+	readReport as readNotifyReport,
+	readRun,
+} from "./notify-report.js";
 import { runRecordFile } from "./notify-report-testkit";
 import { copyRequireClosure } from "./require-closure";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
@@ -36,11 +29,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/**
- * Write a checker whose run() body is `body`; returns its path for run().
- * An `"async"` run() first awaits `later()`, a turn of the event loop, so
- * `body` runs after runCheck has returned.
- */
 const checker = (body: string, spec = "", kind: "sync" | "async" = "sync") => {
 	const file = path.join(dir, "fixture-check.js");
 	const head =
@@ -123,7 +111,6 @@ describe("the five outcomes and their exit codes", () => {
 		);
 		const r = run(c);
 		expect(r.status).toBe(1);
-		// counts what drove the outcome — the FAIL findings, not all three
 		expect(r.out).toContain("FAIL: 1 problems");
 	});
 });
@@ -146,7 +133,6 @@ describe("--warn, the caller-side cap", () => {
 		expect(j.findings[0].severity).toBe("FAIL");
 	});
 
-	// A checker that cannot run has not been asked a question it can answer.
 	it("cannot cap BROKEN", () => {
 		const c = checker(`ctx.broken("unreadable input");`);
 		const r = run(c, ["--warn"]);
@@ -161,8 +147,6 @@ describe("--warn, the caller-side cap", () => {
 });
 
 describe("--notify", () => {
-	/* Claude Code reads a non-zero SessionStart hook as the hook itself being
-	 * broken, so every outcome has to come back 0. */
 	it("exits 0 on every outcome, BROKEN included", () => {
 		expect(
 			run(checker(`ctx.fail("T","x"); return {};`), ["--notify"]).status,
@@ -178,8 +162,6 @@ describe("--notify", () => {
 		expect(r.stdout).toContain("BROKEN: bad usage");
 	});
 
-	/* Its stdout is injected into every session that starts, so a clean run has
-	 * to say nothing at all. */
 	it("stays silent on an OK or SKIP run", () => {
 		for (const body of [
 			`return { okLine: "clean." };`,
@@ -290,9 +272,6 @@ describe("stream discipline", () => {
 		expect(r.stdout).not.toContain("a detail");
 	});
 
-	/* --json-text buys the report back as a FIELD, never as loose text (mantahostels#2490).
-	 * Opt-in, because replay-notify-reports.js's `--json` exists to print no
-	 * report and asserts on stdout not carrying one. */
 	it("carries human output as `text` under --json-text, and only then", () => {
 		const c = checker(`ctx.say("a detail"); ctx.fail("T","x"); return {};`);
 		expect(JSON.parse(run(c, ["--json"]).stdout).text).toBeUndefined();
@@ -357,13 +336,6 @@ describe("the --json envelope", () => {
 		expect(j.findings[0].url).toBe("u");
 	});
 
-	/*
-	 * mantahostels#2600: lib/fault-profiles.js's `doc-map` profile reads ENVELOPE_FRAME_KEYS
-	 * to tell the envelope frame apart from a checker's own payload. A key
-	 * added to `finish()`'s frame without joining that Set would leak through
-	 * that profile silently (mantahostels#2594) — this pins that it cannot, on a checker
-	 * with no `data` of its own, so every key on the envelope is frame.
-	 */
 	it("carries no key outside ENVELOPE_FRAME_KEYS when the checker adds no data", () => {
 		const c = checker(`ctx.fail("TAG", "a thing"); return {};`);
 		const j = JSON.parse(run(c, ["--json", "--json-text"]).stdout);
@@ -391,8 +363,6 @@ describe("annotations", () => {
 		expect(r.stdout).toContain("::warning::iffy");
 	});
 
-	/* Severity and exit come off one value, or a demoted exit leaves an
-	 * ::error:: on a green job (mantahostels#155). */
 	it("demotes the annotation with the exit code under --warn", () => {
 		const c = checker(`ctx.fail("T","bad"); return {};`);
 		const r = run(c, ["--warn"], inCi);
@@ -411,9 +381,6 @@ describe("annotations", () => {
 		expect(r.stdout).not.toContain("::");
 	});
 
-	/* Workflow commands are line-oriented: a newline inside one silently ends it
-	 * and leaves the rest as loose log text. Checker messages are multi-line
-	 * routinely. */
 	it("flattens a multi-line message onto one line", () => {
 		const c = checker(
 			"ctx.fail('T', 'first line\\n        second line'); return {};",
@@ -467,7 +434,6 @@ describe("argv", () => {
 		expect(r.out).toContain("usage:");
 	});
 
-	/* #920: `--help` ran the check rather than printing its usage. */
 	it.each(["--help", "-h"])(
 		"answers %s with the usage and exit 0, running nothing",
 		(flag) => {
@@ -479,7 +445,6 @@ describe("argv", () => {
 		},
 	);
 
-	/* #938: a flag the checker never reads ran the check with its defaults. */
 	describe("an undeclared flag", () => {
 		const ran = `ctx.say("RAN"); return { okLine: "x" };`;
 
@@ -622,9 +587,6 @@ describe("argv", () => {
 });
 
 describe("an unexpected throw", () => {
-	/* A crash is the checker being broken, not a finding about the thing it
-	 * checks — the misattribution mantahostels#164 (the ENOBUFS-reported-as-a-SKIP ticket)
-	 * was filed over. */
 	it("is BROKEN, not a finding, and carries the stack", () => {
 		const c = checker(`throw new TypeError("undefined is not a function");`);
 		const r = run(c);
@@ -724,9 +686,6 @@ describe("an async run() (#1586)", () => {
 		expect(r.out).not.toContain("never seen");
 	});
 
-	/* The parent never calls run(), so this reaches the refusal through the
-	 * re-exec'd index side, not the keyword check — a second process, as in
-	 * the --against block below. */
 	it("is refused as BROKEN under --against where a plain run() returns a Promise", () => {
 		const root = fs.mkdtempSync(path.join(dir, "repo-"));
 		const git = (...a: string[]) => spawnSync("git", a, { cwd: root });
@@ -781,8 +740,6 @@ describe("the summary line", () => {
 		expect(run(c).stderr).toContain("FAIL: 3 unplaced issues");
 	});
 
-	/* Some checkers count finer than their own findings — citations are counted
-	 * per citation across a surface that is one finding. */
 	it("honours an explicit count over the finding total", () => {
 		const c = checker(
 			`ctx.fail("T","one surface"); return { noun: "citations", count: 17 };`,
@@ -799,12 +756,6 @@ describe("the summary line", () => {
 });
 
 describe("dirtied() — the clean-but-changed-a-tracked-file channel (mantahostels#2665)", () => {
-	/*
-	 * status-report.js's verdict() (scripts/status-report.js:177-183) drops a
-	 * checker's whole body when its LAST line is its own OK:/SKIP: summary.
-	 * dirtied() exists to survive that: it must print AFTER the summary, so
-	 * the note — not the summary — is the last line.
-	 */
 	it("prints the note after the OK summary, as the new last line", () => {
 		const c = checker(
 			`ctx.dirtied("data/x.json needs committing."); return { okLine: "clean." };`,
@@ -847,14 +798,6 @@ describe("dirtied() — the clean-but-changed-a-tracked-file channel (mantahoste
 		expect(JSON.parse(r.stdout)).not.toHaveProperty("dirty");
 	});
 
-	/*
-	 * The cross-file contract mantahostels#2665 relies on: status-report.js's verdict()
-	 * (scripts/status-report.js:177-183) reads a run as non-clean whenever its
-	 * LAST line matches neither /^OK:/ nor /^SKIP:/. Pinned here, against
-	 * verdict()'s own regexes, rather than only against the literal note text
-	 * — a future checker's dirtied() message that happened to start with "OK:"
-	 * would defeat this channel without either file's own tests catching it.
-	 */
 	it("makes the note read as non-clean under status-report.js's own OK:/SKIP: regexes", () => {
 		const c = checker(
 			`ctx.dirtied("data/x.json needs committing."); return { okLine: "clean." };`,
@@ -866,11 +809,6 @@ describe("dirtied() — the clean-but-changed-a-tracked-file channel (mantahoste
 });
 
 describe("gaps a review pass found", () => {
-	/*
-	 * `--days --json` must not read `--json` as the value of `--days`. Without
-	 * the guard the checker silently runs against a nonsense value AND loses the
-	 * flag the caller actually passed.
-	 */
 	it("rejects a flag whose value is the next flag, naming the flag that needs a value", () => {
 		const c = checker(
 			`ctx.say("days=" + ctx.value("--days")); return { okLine: "x" };`,
@@ -881,11 +819,6 @@ describe("gaps a review pass found", () => {
 		expect(r.out).toContain("--days needs a value");
 	});
 
-	/*
-	 * A checker that raised findings and then hit a SKIP did not finish, so it
-	 * has no verdict. The findings stay — they were genuinely raised — but
-	 * counting them puts "1 finding(s)" beside "SKIP: GitHub unreachable".
-	 */
 	it("counts nothing on a run that did not complete", () => {
 		const c = checker(
 			`ctx.fail("T", "found before the wheels came off"); ctx.skip("GitHub unreachable.");`,
@@ -895,7 +828,6 @@ describe("gaps a review pass found", () => {
 		expect(j.outcome).toBe("SKIP");
 		expect(j.count).toBe(0);
 		expect(j.summary).toBe("SKIP: GitHub unreachable.");
-		// Kept, so the reader can see how far the run got.
 		expect(j.findings).toHaveLength(1);
 	});
 
@@ -908,11 +840,6 @@ describe("gaps a review pass found", () => {
 		expect(j.count).toBe(0);
 	});
 
-	/*
-	 * A SessionStart hook reads stdout into the session. --json takes that same
-	 * stream, so the pair must still exit 0 and still put the envelope there —
-	 * a non-zero exit makes Claude Code treat the hook itself as broken.
-	 */
 	it("--notify --json keeps exit 0 and still emits the envelope", () => {
 		const c = checker(`ctx.broken("cannot reach the API.");`);
 		const r = run(c, ["--notify", "--json"]);
@@ -922,12 +849,6 @@ describe("gaps a review pass found", () => {
 		expect(j.exit).toBe(0);
 	});
 
-	/*
-	 * node drops what is still buffered on a pipe at process.exit, so a large
-	 * envelope written with console.log/process.stdout.write is truncated
-	 * mid-string and reaches the reader as invalid JSON. 64 KiB is the pipe
-	 * buffer; this clears it several times over.
-	 */
 	it("writes an envelope past the pipe buffer without truncating it", () => {
 		const c = checker(
 			`for (let i = 0; i < 4000; i++) ctx.fail("T", "finding number " + i + " with enough text to matter");
@@ -935,31 +856,14 @@ describe("gaps a review pass found", () => {
 		);
 		const r = run(c, ["--json"]);
 		expect(r.stdout.length).toBeGreaterThan(200_000);
-		const j = JSON.parse(r.stdout); // throws if truncated
+		const j = JSON.parse(r.stdout);
 		expect(j.findings).toHaveLength(4000);
 	});
 });
 
-/*
- * --against <rev> (mantahostels#1801, mantahostels#1833).
- *
- * Proved here against a fake check. What the hook's own suite still owns is
- * that it CALLS this.
- *
- * The fixture reads its faults out of a `faults.txt` under --root, so index,
- * HEAD and worktree can each be given a different fault list and the reading
- * the gate actually took is readable from the verdict.
- */
 describe("--against <rev>", () => {
-	/** Every --root the re-exec passed, one per line, written outside both trees. */
 	const rootLog = () => path.join(dir, "roots.log");
 
-	/**
-	 * A throwaway repo with the fixture checker in it, plus HEAD's fault list.
-	 *
-	 * Throwaway because the shared tree's index is repo-global (mantahostels#63): a test that
-	 * staged into it would sweep a parallel session's files into their commit.
-	 */
 	const repo = (head: string) => {
 		const root = fs.mkdtempSync(path.join(dir, "repo-"));
 		const git = (...args: string[]) =>
@@ -997,7 +901,6 @@ runCheck({
 		return { root, git };
 	};
 
-	/** Stage `staged` and leave `worktree` unstaged, then run the gate. */
 	const gate = (
 		head: string,
 		staged?: string,
@@ -1056,7 +959,6 @@ runCheck({
 	});
 
 	it("judges the INDEX, never the working tree a neighbour is editing", () => {
-		// `b` exists only in the worktree copy — the residual this flag closes.
 		const r = gate("a\n", "a\n", { worktree: "a\nb\n" });
 		expect(r.status).toBe(0);
 		expect(r.out).not.toContain("findings: b");
@@ -1064,7 +966,6 @@ runCheck({
 
 	it("honours GIT_INDEX_FILE, which `git commit -- <paths>` sets for its hooks", () => {
 		const { root, git } = repo("a\n");
-		// The fault is staged into the REAL index; `alt` is never written to.
 		fs.writeFileSync(path.join(root, "faults.txt"), "a\nb\n");
 		const alt = path.join(dir, "alt-index");
 		git("add", "--", "faults.txt");
@@ -1077,13 +978,11 @@ runCheck({
 				env: { ...process.env, GITHUB_ACTIONS: "", GIT_INDEX_FILE: alt },
 			},
 		);
-		// The alternate index is empty, so it stages no faults.txt at all.
 		expect(r.status).toBe(0);
 		expect(`${r.stdout}${r.stderr}`).not.toContain("findings: b");
 	});
 
 	describe("a merge in flight (#4582)", () => {
-		/** A `topic` branch at HEAD, and `main` moved on to carry `landed`. */
 		const merging = (head: string, landed: string) => {
 			const { root, git } = repo(head);
 			git("branch", "-M", "main");
@@ -1127,7 +1026,6 @@ runCheck({
 			expect(r.out).not.toContain("findings: b");
 		});
 
-		/* The queue lander's shape: an unlanded member merged into the batch. */
 		it("judges against HEAD alone a merged-in head on no landed ref, refusing what it brings", () => {
 			const { root, git, judge } = merging("a\n", "a\n");
 			fs.writeFileSync(path.join(root, "faults.txt"), "a\nz\n");
@@ -1140,7 +1038,6 @@ runCheck({
 			expect(r.out).toContain("it is on no landed ref");
 		});
 
-		/* pre-merge-commit runs before git writes MERGE_HEAD. */
 		it("reads the merged-in head from GITHEAD_<sha> where MERGE_HEAD is not yet written", () => {
 			const { root, git, mainSha, judge } = merging("a\n", "a\nb\n");
 			fs.writeFileSync(path.join(root, "faults.txt"), "a\nb\n");
@@ -1197,7 +1094,6 @@ runCheck({
 
 		it("judges the private index a pathspec commit hands its hooks", () => {
 			const { root, git } = repo("");
-			// A neighbour's fault, staged in the live index alone.
 			fs.writeFileSync(path.join(root, "faults.txt"), "b\n");
 			git("add", "--", "faults.txt");
 			const r = runInProcess(path.join(root, "fixture-check.js"), ["--index"], {
@@ -1277,17 +1173,12 @@ runCheck({
 		expect(gate("", "").out).toContain("THE-CHECKER'S-OWN-REPORT");
 	});
 
-	/* The baseline is read lazily, so a typo'd rev is never resolved on a clean
-	 * index — and would pass every commit in silence. */
 	it("fails closed on an unresolvable rev even when the index is clean", () => {
 		const r = gate("", "", { args: ["--against", "no-such-rev"] });
 		expect(r.status).toBe(2);
 		expect(r.out).not.toContain("OK:");
 	});
 
-	/* mantahostels#155's alphabet, and what the shell gate did before mantahostels#1833: the checker
-	 * declining to run is not the repo's fault, and gating on it teaches a
-	 * reader to ignore the gate. Only the BASELINE side fails closed. */
 	it("passes an index side that SKIPs, rather than refusing the commit", () => {
 		const c = checker(
 			`ctx.skip("the corpus is absent.");`,
@@ -1337,8 +1228,6 @@ runCheck({
 	});
 
 	it("fails closed when the index side is BROKEN, rather than reading it as inherited, naming the reason the checker gave", () => {
-		// A BROKEN checker emits a VALID EMPTY envelope, so the comparison would
-		// find nothing new and pass a commit it could not judge at all (mantahostels#1753).
 		const c = checker(
 			`ctx.broken("cannot read the corpus.");`,
 			`
@@ -1360,12 +1249,6 @@ runCheck({
 		expect(`${r.stdout}${r.stderr}`).toContain("cannot read the corpus.");
 	});
 
-	/*
-	 * The refusal cases below pass `--against` through `run()` (the converted
-	 * seam), not `gate()`/`gateBlobs()` (real spawns) — safe because every one
-	 * refuses before `reread` or any materialisation runs, so the real-fd exemption
-	 * (mantahostels#1993, mantahostels#1945) never applies to them.
-	 */
 	it("refuses --against on a checker that does not direction-gate", () => {
 		const c = checker("return {};");
 		const r = run(c, ["--against", "HEAD"]);
@@ -1415,7 +1298,6 @@ runCheck({
 		const r = run(c, ["--against", "HEAD"]);
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("photocopy");
-		// The refusal names what it WOULD have taken, or a typo is a guessing game.
 		expect(r.out).toContain("tree");
 		expect(r.out).toContain("blobs");
 	});
@@ -1467,13 +1349,6 @@ runCheck({
 		expect(out2).not.toContain('"HEAD"');
 	});
 });
-/*
- * The second materialisation (mantahostels#1834). `tree` extracts a whole revision for a
- * checker that discovers its own scan roots; `blobs` fetches exactly the paths
- * the spec's pathspecs() names, for one whose scope IS a pathspec. The
- * difference is cost, so what these pin is that the cheap path is the one
- * actually taken.
- */
 describe("--against with the blobs materialisation", () => {
 	const gitRepo = (prefix: string) => {
 		const root = fs.mkdtempSync(path.join(dir, prefix));
@@ -1485,10 +1360,6 @@ describe("--against with the blobs materialisation", () => {
 		return { root, git };
 	};
 
-	/**
-	 * A repo whose fixture checker LISTS everything under --root, so a test can
-	 * read back exactly which paths the materialisation put there.
-	 */
 	const blobRepo = (spec: string) => {
 		const { root, git } = gitRepo("blobrepo-");
 		fs.writeFileSync(
@@ -1564,10 +1435,6 @@ runCheck({
 		};
 	};
 
-	/*
-	 * THE MUTATION THIS EXISTS FOR: swap `blobs` for `tree` in the spec and this
-	 * fails, because the whole-tree extraction brings `elsewhere/` with it.
-	 */
 	it("fetches the pathspec's paths and nothing else", () => {
 		const { root, git } = blobRepo(blobSpec);
 		seed(root, git);
@@ -1577,9 +1444,6 @@ runCheck({
 		expect(r.out).not.toContain("elsewhere");
 	});
 
-	/* A corrupt or partly-fetched object store (mantahostels#1834). Constructed with
-	 * `mktree --missing`, porcelain refusing to build a tree over an object it
-	 * does not hold. */
 	it("is BROKEN when git lists a blob it will not then return", () => {
 		const { root, git } = blobRepo(blobSpec);
 		seed(root, git);
@@ -1611,7 +1475,6 @@ runCheck({
 				encoding: "utf8",
 			}),
 		).trim();
-		/* The baseline is lazy, so a clean staged side would never fetch it. */
 		fs.writeFileSync(path.join(root, "wanted", "b.txt"), "TELL\n");
 		git("add", "-A");
 		const r = gateBlobs(root, ["--against", commit]);
@@ -1629,9 +1492,6 @@ runCheck({
 		expect(r.out).toContain("wanted/b.txt");
 	});
 
-	/* A symlink's blob is its TARGET PATH, so writing it as a file would make
-	 * check-context-budget.js's own/vendored split read every vendored skill as
-	 * an own one and charge its description to the capped pool. */
 	it("writes a symlink back as a symlink, not as its target's text", () => {
 		const { root, git } = blobRepo(blobSpec);
 		fs.mkdirSync(path.join(root, "wanted"), { recursive: true });
@@ -1643,22 +1503,15 @@ runCheck({
 		expect(r.out).toContain("LINK=wanted/link.txt");
 	});
 
-	/* The re-exec drops the caller's flags but must keep the positionals, or both
-	 * sides scan the default root instead of the one asked about. */
 	it("carries the caller's positionals into the pathspec and the re-exec", () => {
 		const { root, git } = blobRepo(blobSpec);
 		seed(root, git);
 		const r = gateBlobs(root, ["elsewhere", "--against", "HEAD"]);
 		expect(r.out).toContain("elsewhere/huge.txt");
 		expect(r.out).not.toContain("wanted/a.txt");
-		// The re-exec side, which a checker deriving its own scope from ctx.args
-		// depends on and this fixture does not — check-website-copy.test.ts is
-		// where that half refuses a commit.
 		expect(r.out).toContain('ARGS=["elsewhere"]');
 	});
 
-	/* A gate about to go green over scope it never looked at is what BROKEN is
-	 * for (check.js's header, the SKIP/BROKEN boundary). */
 	it("is BROKEN when the spec names no pathspec at all", () => {
 		const { root, git } = blobRepo(`
   against: {
@@ -1672,12 +1525,6 @@ runCheck({
 		expect(r.out).toContain("named no pathspec");
 	});
 
-	/*
-	 * `baseline: "always"`. The lazy default reads <rev> only where the index
-	 * already carries a gating fault, which silences a NON-gating direction
-	 * finding on exactly the clean commits it exists for — check-context-budget.js's
-	 * admissibility prompt. Affordable here only because this is a blob fetch.
-	 */
 	const noteSpec = `
   against: {
     profile: "context-budget",
@@ -1738,14 +1585,6 @@ runCheck({
 		expect(`${r.stdout}${r.stderr}`).not.toContain("GREW-NOTE");
 	});
 
-	/*
-	 * `baselineCode: "rev"` over a pathspec that holds none of the checker's
-	 * code (#5178): a commit renaming the module's export and the checker's
-	 * read of it together. HEAD's own copy, fetched with its run reach,
-	 * measures HEAD's module in the old shape.
-	 * HEAD's copy also requires a lib the commit deletes, which only the walk
-	 * over the fetched tree finds.
-	 */
 	const shapeRepo = (baselineCode: string) => {
 		const { root, git } = gitRepo("shaperepo-");
 		const put = (rel: string, text: string) => {
@@ -1776,8 +1615,6 @@ runCheck({
 });
 `,
 		);
-		/* The harness copied in, so the baseline side runs the rev's own
-		 * lib/check.js as a real checker does, not this checkout's. */
 		copyRequireClosure(root, REPO, ["scripts/lib/check.js"]);
 		put("scripts/lib/old.js", 'module.exports = "a";\n');
 		put(
@@ -1817,14 +1654,7 @@ runCheck({
 	});
 });
 
-/*
- * A throw that lands OUTSIDE runCheck's own try (mantahostels#1899): a top-level require in
- * the checker, or CheckContext's argv parse. Node's own report goes to stderr
- * and a SessionStart hook injects stdout alone, so before this the checker was
- * simply silent.
- */
 describe("a crash before runCheck can catch it", () => {
-	/** A checker that throws while its own top-level requires are still running. */
 	const crasher = () => {
 		const file = path.join(dir, "crash-check.js");
 		fs.writeFileSync(
@@ -1843,8 +1673,6 @@ require("./no-such-module-at-all.js");
 		expect(r.stderr).toContain("no-such-module-at-all");
 	});
 
-	/* --notify's reader is stdout, and it exits 0 so a session
-	 * start is never blocked on a checker. */
 	it("reports on STDOUT under --notify, and still exits 0", () => {
 		const r = run(crasher(), ["--notify"]);
 		expect(r.status).toBe(0);
@@ -1858,8 +1686,6 @@ require("./no-such-module-at-all.js");
 		expect(JSON.parse(r.stdout)).toMatchObject({ outcome: "BROKEN" });
 	});
 
-	/* CheckContext parses argv before the try begins, so a usage error raised
-	 * there took the same silent path. */
 	it("reports a throw from the argv parse too", () => {
 		const file = path.join(dir, "argv-check.js");
 		fs.writeFileSync(
@@ -1879,19 +1705,12 @@ runCheck({
 	});
 });
 
-/*
- * PERSIST MODE (mantahostels#1974). WFC_NOTIFY_PERSIST=1 sends the --notify report to a
- * file instead of stdout, so an `async` SessionStart hook — whose stdout the
- * harness discards — still reaches a reader (mantahostels#1949).
- *
- * Every test points CLAUDE_CONFIG_DIR and CLAUDE_PROJECT_DIR at throwaway
- * directories: without it the founder's real config dir collects a stray
- * notify-reports/ tree.
- */
 describe("persist mode", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-	const notify: any = createRequire(__filename)("./notify-report.js");
-	/** The env the async hook command would set, plus the sandboxing. */
+	const readReport = (name: string) => {
+		const report = readNotifyReport(name);
+		if (report === null) throw new Error(`no ${name} report`);
+		return report;
+	};
 	let persistEnv: Record<string, string>;
 
 	beforeEach(() => {
@@ -1899,8 +1718,6 @@ describe("persist mode", () => {
 		const repo = path.join(dir, "repo");
 		vi.stubEnv("CLAUDE_CONFIG_DIR", config);
 		vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
-		// configDirs()'s own test seams: an exported one here would put the reports
-		// somewhere neither this test nor the run under it agrees on.
 		vi.stubEnv("WFC_CLAUDE_CONFIG_A", undefined);
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", undefined);
 		vi.stubEnv("WFC_CLAUDE_CONFIG_C", undefined);
@@ -1917,7 +1734,7 @@ describe("persist mode", () => {
 
 	const readStateFiles = () => {
 		try {
-			return fs.readdirSync(notify.base()).sort();
+			return fs.readdirSync(notifyBase()).sort();
 		} catch {
 			return [];
 		}
@@ -1931,7 +1748,7 @@ describe("persist mode", () => {
 
 		expect(r.stdout).toBe("");
 		expect(r.status).toBe(0);
-		const report = notify.readReport("fixture");
+		const report = readReport("fixture");
 		expect(report.outcome).toBe("FAIL");
 		expect(report.text).toBe("detail line\nFAIL: 1 n\n");
 	});
@@ -1956,26 +1773,24 @@ if (require.main === module) main();
 		});
 
 		expect(r.status).toBe(0);
-		const report = notify.readReport("fixture");
+		const report = readReport("fixture");
 		expect(report.outcome).toBe("FAIL");
 		expect(report.text).toBe("FAIL: 1 n\n");
 	});
 
-	/* The producer never stamps under persist mode, so the signature travels in
-	 * the report instead (mantahostels#1975). */
 	it("carries the checker's delivery stamp into the report", () => {
 		const c = checker(
 			`ctx.fail("T","x"); return { noun: "n", stamp: "sig-1" };`,
 		);
 		run(c, ["--notify"], persistEnv);
 
-		expect(notify.readReport("fixture").stamp).toBe("sig-1");
+		expect(readReport("fixture").stamp).toBe("sig-1");
 	});
 
 	it("stamps the report with the session it ran in", () => {
 		const c = checker(`ctx.fail("T","x"); return { noun: "n" };`);
 		run(c, ["--notify"], { ...persistEnv, CLAUDE_CODE_SESSION_ID: "s-own" });
-		expect(notify.readReport("fixture").owner).toBe("s-own");
+		expect(readReport("fixture").owner).toBe("s-own");
 	});
 
 	it("carries no stamp where the checker returned none", () => {
@@ -1985,19 +1800,16 @@ if (require.main === module) main();
 			persistEnv,
 		);
 
-		expect(notify.readReport("fixture").stamp).toBeNull();
+		expect(readReport("fixture").stamp).toBeNull();
 	});
 
-	/* mantahostels#2277: a checker holding several stamps — check-hook-liveness.js's eight
-	 * assertions, check-guard-errors.js's INERT warning — hands every one of
-	 * them to the reader through `stamps`, beside the single `stamp` field. */
 	it("carries the checker's whole stamps map into the report", () => {
 		const c = checker(
 			`ctx.fail("T","x"); return { noun: "n", stamps: { "fixture-a": "sig-a", "fixture-b": "sig-b" } };`,
 		);
 		run(c, ["--notify"], persistEnv);
 
-		expect(notify.readReport("fixture").stamps).toEqual({
+		expect(readReport("fixture").stamps).toEqual({
 			"fixture-a": "sig-a",
 			"fixture-b": "sig-b",
 		});
@@ -2010,32 +1822,29 @@ if (require.main === module) main();
 			persistEnv,
 		);
 
-		expect(notify.readReport("fixture").stamps).toEqual({});
+		expect(readReport("fixture").stamps).toEqual({});
 	});
 
 	it("persists exactly what --notify would have printed", () => {
 		const body = `ctx.say("first"); ctx.say(""); ctx.say("second"); ctx.warn("T","x"); return { noun: "n" };`;
 		const printed = run(checker(body), ["--notify"]).stdout;
-		// Or the comparison below holds for two empty strings.
 		expect(printed).toBe("first\n\nsecond\nWARN: 1 n\n");
 		run(checker(body), ["--notify"], persistEnv);
-		expect(notify.readReport("fixture").text).toBe(printed);
+		expect(readReport("fixture").text).toBe(printed);
 	});
 
-	/* The reader has to tell "ran and had nothing to say" from "never ran", and
-	 * only a present file can say the first. */
 	it("writes a file with empty text for an OK run", () => {
 		run(checker(`return { okLine: "clean." };`), ["--notify"], persistEnv);
-		const report = notify.readReport("fixture");
+		const report = readReport("fixture");
 		expect(report.outcome).toBe("OK");
 		expect(report.text).toBe("");
 	});
 
 	it("records the outcome of a SKIP and a BROKEN run too", () => {
 		run(checker(`ctx.skip("no net");`), ["--notify"], persistEnv);
-		expect(notify.readReport("fixture").outcome).toBe("SKIP");
+		expect(readReport("fixture").outcome).toBe("SKIP");
 		run(checker(`ctx.broken("bad usage");`), ["--notify"], persistEnv);
-		const broken = notify.readReport("fixture");
+		const broken = readReport("fixture");
 		expect(broken.outcome).toBe("BROKEN");
 		expect(broken.text).toBe("BROKEN: bad usage\n");
 	});
@@ -2046,8 +1855,6 @@ if (require.main === module) main();
        ctx.say("open while running: " + fs.existsSync(${JSON.stringify("RUNFILE")}));
        return { okLine: "clean." };`,
 		);
-		// The path is only knowable once the env above is in force, so it is
-		// patched into the fixture rather than computed inside it.
 		fs.writeFileSync(
 			c,
 			fs
@@ -2056,16 +1863,11 @@ if (require.main === module) main();
 		);
 
 		run(c, ["--notify"], persistEnv);
-		expect(notify.readReport("fixture").text).toContain(
-			"open while running: true",
-		);
-		expect(notify.readRun("fixture")).toBeNull();
+		expect(readReport("fixture").text).toContain("open while running: true");
+		expect(readRun("fixture")).toBeNull();
 		expect(readStateFiles()).toEqual(["fixture.report.json"]);
 	});
 
-	/* The checker runs in this process, so it shares the fake clock and moves
-	 * it on by a known 250 ms. A fixed WFC_NOW holds `now()` still, so a
-	 * duration read off `now()` would be 0. */
 	it("times the run, and records the elapsed time rather than a clock", () => {
 		const fixtureGlobals = globalThis as {
 			advanceClock?: (ms: number) => void;
@@ -2082,7 +1884,7 @@ if (require.main === module) main();
 			vi.useRealTimers();
 			delete fixtureGlobals.advanceClock;
 		}
-		expect(notify.readReport("fixture").durationMs).toBe(250);
+		expect(readReport("fixture").durationMs).toBe(250);
 	});
 
 	it("persists an async run's report through the same finish() (#1586)", () => {
@@ -2091,12 +1893,8 @@ if (require.main === module) main();
 
 		expect(r.stdout).toBe("");
 		expect(r.status).toBe(0);
-		expect(notify.readReport("fixture").outcome).toBe("FAIL");
+		expect(readReport("fixture").outcome).toBe("FAIL");
 	});
-
-	/* The last-resort reporter (mantahostels#1899) has to reach the file too: under an async
-	 * hook its stdout is discarded. Keyed on the FILE's name, no spec having
-	 * been read — `crash-check.js` => `crash-check`. */
 
 	it("persists a crash that lands outside runCheck", () => {
 		const file = path.join(dir, "crash-check.js");
@@ -2110,14 +1908,11 @@ require("./no-such-module-at-all.js");
 
 		expect(r.stdout).toBe("");
 		expect(r.status).toBe(0);
-		const report = notify.readReport("crash-check");
+		const report = readReport("crash-check");
 		expect(report.outcome).toBe("BROKEN");
 		expect(report.text).toContain("no-such-module-at-all");
 	});
 
-	/* The three paths the variable must not reach, asserted on the file as well
-	 * as the stream: a report nobody replays is still a behaviour change for a
-	 * CI or pre-commit caller. */
 	it("leaves --notify on stdout when the variable is absent", () => {
 		const c = checker(`ctx.say("detail line"); ctx.fail("T","x"); return {};`);
 		const { WFC_NOTIFY_PERSIST: _unset, ...withoutIt } = persistEnv;
@@ -2126,7 +1921,6 @@ require("./no-such-module-at-all.js");
 		expect(readStateFiles()).toEqual([]);
 	});
 
-	/* `=== "1"`, not truthiness: mantahostels#1924's cost of keying off mere presence. */
 	it("ignores a value that is not exactly 1", () => {
 		const c = checker(`ctx.say("detail line"); ctx.fail("T","x"); return {};`);
 		for (const value of ["0", "true", "yes"]) {
@@ -2158,12 +1952,8 @@ require("./no-such-module-at-all.js");
 		expect(readStateFiles()).toEqual([]);
 	});
 
-	/* notify-report.js degrades to a no-op rather than throwing, so an
-	 * unwritable state directory must not swallow the report. */
 	it("falls back to stdout when the write cannot land", () => {
 		const c = checker(`ctx.say("detail line"); ctx.fail("T","x"); return {};`);
-		// A regular file where the config dirs' PARENT should be, so every
-		// candidate base() sorts through is unmakeable rather than just the first.
 		const blocked = path.join(dir, "blocked");
 		fs.writeFileSync(blocked, "not a directory");
 		const under = path.join(blocked, "claude");
@@ -2179,14 +1969,9 @@ require("./no-such-module-at-all.js");
 	});
 });
 
-/*
- * An adopter's product check imports this harness, and must not drag the
- * session-arbiter store in with it (#459).
- */
 describe("the harness's import closure", () => {
 	const arbiterOrNotify = /[/\\](?:arbiter-[^/\\]+|notify-report)\.js$/;
 
-	/** Run a clean fixture check and return every module its process loaded. */
 	const readLoadedModules = (
 		args: string[],
 		env: Record<string, string> = {},
@@ -2231,8 +2016,6 @@ runCheck({ name: "closure", usage: "node closure-check.js", run() { return { okL
 		expect(modules).toContain(path.join(__dirname, "notify-report.js"));
 	});
 
-	/* The runtime tests above still pass with a literal require restored, the
-	 * load being lazy either way; only this walk sees the literal edge. */
 	it("has no literal require path to an arbiter module", () => {
 		const seen = new Set<string>();
 		const walk = (file: string) => {
@@ -2248,11 +2031,6 @@ runCheck({ name: "closure", usage: "node closure-check.js", run() { return { okL
 	});
 });
 
-/*
- * The `keys` set is what makes a delta-gated reader possible (mantahostels#2490): it is the
- * only field lib/key-delta.js's gate diffs, so a checker whose count
- * moved but whose findings are the same findings must produce the same set.
- */
 describe("the --json envelope's per-finding keys", () => {
 	it("uses each finding's explicit key", () => {
 		const c = checker(
@@ -2289,8 +2067,6 @@ describe("the --json envelope's per-finding keys", () => {
 		expect(JSON.parse(run(c, ["--json"]).stdout).keys).toEqual(["k1", "k2"]);
 	});
 
-	/* A key from `data` must not become the identity: it is the checker's own
-	 * payload and nothing promises it is stable. */
 	it("prefers the explicit key argument over one in the finding's data", () => {
 		const c = checker(
 			`ctx.fail("T","x",{ key: "from-data" },"explicit"); return {};`,
@@ -2298,9 +2074,6 @@ describe("the --json envelope's per-finding keys", () => {
 		expect(JSON.parse(run(c, ["--json"]).stdout).keys).toEqual(["explicit"]);
 	});
 
-	/* An incomplete run drew no conclusion, so its EMPTY set must not read as
-	 * "everything drained" — the next complete run would then report every
-	 * standing finding as newly added. */
 	it("is empty on a SKIP, even where findings were raised first", () => {
 		const c = checker(`ctx.fail("T","x",{},"k1"); ctx.skip("github is down");`);
 		const j = JSON.parse(run(c, ["--json"]).stdout);

@@ -1,37 +1,3 @@
-/*
- * escape-audit.js — the escape-line audit's reading half (#671 step 3): which
- * close-rivals rounds got past `guard-priced-options.js`, and what the judge
- * made of each.
- *
- * `audit-escape-lines.js` owns the judging and the report; this file owns the
- * extraction and the two stores.
- *
- * WHAT COUNTS AS GETTING PAST. A `❓ **Qn**` block in an assistant text record
- * where the next user record that is not a tool result is not a Stop hook's
- * feedback. A text record followed by a tool call before any such user record
- * was not the turn's last message, so the Stop guard never read it, and it is
- * dropped. RESIDUAL: a transcript cut off mid-turn commits its last text as
- * passed.
- *
- * FIRST SIGHT OR AFTER REFUSAL. After refusal where an earlier close-rivals
- * refusal named the block's question in its flagged lines and still holds:
- * then every re-send is taken, close or not, escape line or not, paired with
- * the block as first refused and what came since (#4945, #5003). A refusal
- * holds, as the guard's record does (`refusal-limb.js` `liveRecord`), until
- * the founder speaks or the question passes. RESIDUAL: a re-send pairs by
- * round number, as the guard does, so a question renumbered into a refused
- * one's slot is judged against the wrong refused block. First sight, a block is taken
- * only where its top two rivals are close (`rivalPair`) and it carries a
- * non-empty escape line. A send is committed as passed at the next user
- * record that is neither a tool result nor Stop feedback — a task
- * notification or a mod's delivery too.
- *
- * THE STORES live in the markers directory under a prefix no sweep family
- * claims, so they outlive the 24 h marker sweep: the items index (rewritten
- * whole by each batch run, carrying no question text) and the verdict log
- * (append-only JSONL, the last line per key winning).
- */
-
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -46,41 +12,25 @@ const { readJsonl } = require("./jsonl.js");
 const ITEMS_NAME = ".escape-audit-items.json";
 const VERDICTS_NAME = ".escape-audit-verdicts.jsonl";
 
-/* The windows the ticket names, +0800 as it gives them, in order. Before
- * `PRE_660` is before #488 shipped the escape lines at all, so nothing there
- * is judged. */
 const WINDOWS = /** @type {const} */ (["pre-660", "660", "671", "1061"]);
 const PRE_660 = Date.parse("2026-09-27T18:46:00+08:00");
 const AT_660 = Date.parse("2026-09-28T15:30:00+08:00");
-/* e57bd34a, the commit that dropped the first-sight refusal (#671). */
 const AT_671 = Date.parse("2026-09-28T19:15:39+08:00");
-/* #1098's commit, which refuses every close question once again (#1061). */
 const AT_1061 = Date.parse("2026-10-09T19:01:58+08:00");
 
-/* Words only the close-rivals refusal prints, every text since #488 alike. */
 const CLOSE_REFUSAL = /top two rivals sit close|could flip/;
-/* The refusal's opening, its flagged lines the paragraph after it, one per
- * question and naming the round first; other limbs' lines in the same
- * feedback name rounds they flag, not these. */
 const REFUSAL_FLAGGED = /top two rivals sit close[^\n]*\n\n((?:.+\n?)*)/;
 const REFUSED_LINE = /^Q(\d+): /gm;
 
-/* What of the trail between a refusal and its re-send reaches the judge:
- * each call's input, result and the session's text between cut to a head,
- * the whole trail to its head and tail. Chosen, not measured (#4945, #5003). */
+// guess, #4945
 const CALL_CHARS = 400;
 const RESULT_CHARS = 4000;
 const SAID_CHARS = 2000;
 const TRAIL_CHARS = 40_000;
 
-/* The two escapes a close question may carry, read like `Relation:`: a line of
- * its own, the label optionally bold, a colon, then text. The tail is captured
- * rather than matched, so `**Checked:**` with nothing after it reads as empty. */
 const ESCAPE_LINE = /^\s{0,3}(?:\*\*)?(Checked|Unmeasured)(?:\*\*)?:(.*)$/i;
 
 /**
- * A block's escape lines, each only where its tail says something, joined
- * whitespace-normalised; "" where it carries none.
  * @param {string[]} lines
  * @returns {string}
  */
@@ -105,10 +55,6 @@ function escapesIn(lines) {
  *   window: (typeof WINDOWS)[number], sight: "first" | "after-refusal",
  *   escape: "checked" | "unmeasured" | "both" | "none", text: string,
  *   refusedText?: string, message?: string, calls?: string }} Item
- * `text` is the question block; on an after-refusal item, `refusedText` the
- * block as first refused, `message` the whole text the re-send went in, and
- * `calls` the tool calls and the session's text since. All four are held in
- * memory for the judge and never written to the items index.
  */
 
 /**
@@ -117,12 +63,6 @@ function escapesIn(lines) {
  *   splitQuestions: (text: string) => import("./round-marker.js").QuestionBlock[] }} Deps
  * @typedef {{ pending: Item[], refused: Map<string, { text: string, from: number }>,
  *   lastAsk: string, trail: string[] }} Turn
- *   `pending` holds the rounds of the latest question, committed once a send
- *   passes; `refused`, each question a close-rivals refusal named that still
- *   holds, its block as first refused and the `trail` length then;
- *   `lastAsk`, the latest text carrying a question; `trail`, the tool calls,
- *   their results and the session's text since the first refusal still
- *   holding.
  */
 
 /**
@@ -160,7 +100,7 @@ function windowOf(ms) {
 }
 
 /**
- * @param {string} escapes  a block's escape lines, as `escapesIn` joins them
+ * @param {string} escapes
  * @returns {Item["escape"]}
  */
 function escapeKindOf(escapes) {
@@ -203,7 +143,7 @@ function trailFrom(trail, from) {
 }
 
 /**
- * @param {string} said  the assistant text
+ * @param {string} said
  * @param {{ms: number, window: Item["window"]}} at
  * @param {{session: string, deps: Deps, turn: Turn}} ctx
  * @returns {Item[]}
@@ -252,11 +192,7 @@ function resultText(content) {
 		.join("\n");
 }
 
-/**
- * One tool call as the trail records it: its name and input, a Bash call's
- * command alone.
- * @param {{ name?: string, input?: Record<string, unknown> }} part
- */
+/** @param {{ name?: string, input?: Record<string, unknown> }} part */
 function renderCall({ name = "?", input = {} }) {
 	const said =
 		typeof input.command === "string" ? input.command : JSON.stringify(input);
@@ -264,10 +200,8 @@ function renderCall({ name = "?", input = {} }) {
 }
 
 /**
- * Open a refusal for each question a close-rivals Stop feedback names that
- * the turn has not yet refused, its block read from the turn's latest ask.
- * @param {string} said the feedback
- * @param {Turn} turn accumulator: `refused` gains the newly named questions
+ * @param {string} said
+ * @param {Turn} turn
  * @param {Deps} deps
  */
 function openRefusals(said, turn, deps) {
@@ -297,7 +231,7 @@ const newTurn = () => ({
 
 /**
  * @param {TranscriptRecord} rec
- * @param {Turn} turn accumulator: `trail` grows
+ * @param {Turn} turn
  */
 function trailToolResult(rec, turn) {
 	const content = rec.message?.content;
@@ -308,11 +242,9 @@ function trailToolResult(rec, turn) {
 }
 
 /**
- * Commit the pending rounds as passed, retiring the refusal of each re-send
- * among them.
- * @param {TranscriptRecord} rec the user record that ended the send
- * @param {Turn} turn accumulator: the turn's state, advanced in place
- * @param {Item[]} out accumulator: each committed item is pushed here
+ * @param {TranscriptRecord} rec
+ * @param {Turn} turn
+ * @param {Item[]} out
  */
 function commitPending(rec, turn, out) {
 	out.push(...turn.pending);
@@ -325,7 +257,7 @@ function commitPending(rec, turn, out) {
 
 /**
  * @param {TranscriptRecord} rec
- * @param {Turn} turn accumulator: the turn's state, advanced in place
+ * @param {Turn} turn
  * @param {{out: Item[], deps: Deps}} ctx
  * @returns {void}
  */
@@ -345,7 +277,7 @@ function readUser(rec, turn, { out, deps }) {
 
 /**
  * @param {string} said
- * @param {Turn} turn accumulator: `trail` grows
+ * @param {Turn} turn
  */
 function trailSaid(said, turn) {
 	if (turn.refused.size > 0 && said.trim())
@@ -353,12 +285,8 @@ function trailSaid(said, turn) {
 }
 
 /**
- * An assistant record: a tool call drops the pending rounds, as the turn did
- * not end there; a text carrying a question replaces them with its own. While
- * a refusal holds, the record's text joins the trail after its rounds are
- * read, so a re-send's own text reaches only a later re-send's trail.
  * @param {TranscriptRecord} rec
- * @param {Turn} turn accumulator: the turn's state, advanced in place
+ * @param {Turn} turn
  * @param {{session: string, deps: Deps}} ctx
  * @returns {void}
  */
@@ -387,7 +315,7 @@ function readAssistant(rec, turn, ctx) {
 }
 
 /**
- * @param {string} text the transcript
+ * @param {string} text
  * @param {string} session
  * @param {Deps} deps
  * @returns {Item[]}
@@ -411,8 +339,6 @@ const itemsPath = (root) => path.join(markersDir(root), ITEMS_NAME);
 const verdictsPath = (root) => path.join(markersDir(root), VERDICTS_NAME);
 
 /**
- * Replace the items index, question text stripped, atomically, with the count of
- * transcripts that would not read, so the report can say it under-counts.
  * @param {string} root
  * @param {Item[]} items
  * @param {number} [unreadable]
@@ -434,7 +360,6 @@ function writeItems(root, items, unreadable = 0) {
 /** @typedef {Omit<Item, "text" | "refusedText" | "message" | "calls">} IndexedItem */
 
 /**
- * The items index, or null where no batch has run.
  * @param {string} root
  * @returns {{ at: string, unreadable?: number, items: IndexedItem[] } | null}
  */
@@ -451,15 +376,11 @@ function readItems(root) {
  * @typedef {{ key: string, at: string, question?: string,
  *   outcome: "bears" | "misses" | "outage" | "malformed" | "unswept" | "finding",
  *   probability?: number }} Verdict
- * `bears`/`misses` are answers; the rest are retried on a later run, bar
- * `finding`: gitleaks hit the block, so it is never sent. `question` is the
- * judge's question key the row answers.
  */
 
 const ANSWERED = new Set(["bears", "misses", "finding"]);
 
 /**
- * The last verdict per key.
  * @param {string} root
  * @returns {Map<string, Verdict>}
  */

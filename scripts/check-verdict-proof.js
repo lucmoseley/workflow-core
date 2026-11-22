@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-verdict-proof.js — the state of the declared test command's verdict
- * proof (lib/verdict-probe.js, #5294), for `npm run status`: fresh, so the
- * lander's run is the test gate and commits run none; stale, so the next
- * commit probes; failed, with the clause the command broke, so commits run
- * the suite; or no canary declared. It reads and never probes.
- *
- * IMPLICIT: none — a report; nothing reads its exit but status.
- */
 
 const { runCheck } = require("./lib/check");
 const { readConfig } = require("./lib/workflow-core-config.js");

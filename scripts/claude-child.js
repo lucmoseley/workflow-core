@@ -1,64 +1,4 @@
 #!/usr/bin/env node
-/*
- * claude-child.js — the one route by which a skill launches a child `claude -p`
- * session, each mode with its flags fixed here (#2040).
- *
- *   node scripts/claude-child.js usage --config-dir <dir>
- *   node scripts/claude-child.js chrome --config-dir <dir> --pages <1-6> --prompt-file <f> [--hand-over]
- *   node scripts/claude-child.js chrome-close (--session <uuid> [--trap] | --sweep | --held)
- *   node scripts/claude-child.js judge --config-dir <dir> --timeout-ms <n> < prompt
- *
- * A launch spelt out in a skill is judged afresh by the auto-mode classifier
- * each time; a fixed script is what a
- * narrow allow rule can name, run bare. Background sessions go through
- * scripts/dispatch-sessions.js, not here.
- *
- * usage   `claude -p /usage --permission-mode manual` on that seat, so the
- *         child can approve no tool: prints both bars and spends no model
- *         tokens. Killed after 60 s.
- * chrome  the browser-ladder skill's Chrome child: the Chrome tools and no
- *         other, `file_upload` barred (#1080), 10 turns a page plus 5, and
- *         lib/chrome-child.js's standing lines appended to its system prompt.
- *         Every tab it opens is closed by its own session, or held as the
- *         founder's one hand-over tab (#5385):
- *         - The launcher mints the session id and writes the child's record
- *           (lib/chrome-child-store.js) before the child starts, so no kill
- *           lands before a closer can find it.
- *         - The child reads stream-json on a stdin held open, the prompt
- *           file going in as one user message. After a result row with tabs
- *           still open, one close-only turn follows, capped at 5 assistant
- *           messages and 60 s; under `--hand-over` it trims the group to one
- *           tab, which is held: `heldSince` and `heldTab` written, the child
- *           stopped by signal so its group survives for `chrome-close`.
- *         - Only a child whose group is empty is let exit cleanly, and only
- *           then is its record deleted. Every other end is a signal.
- *         - The limit, lib/child-spawn.js's a page or
- *           WFC_CHROME_CHILD_LIMIT_MS, interrupts the turn through stdin and
- *           waits 10 s for its result row.
- *         - SIGTERM, SIGINT or SIGHUP to the launcher stops the child and
- *           starts an outliving `chrome-close --session <uuid> --trap`.
- *         stdout is one JSON line on every end path (#5381): the result row,
- *         or the launcher's own, with `sessionId`, `tabsLeftOpen`, `heldTab`
- *         and `notes`, every `claude-child:` stderr line mirrored there. A
- *         child stdout line that is no JSON row goes to stderr.
- * chrome-close  lib/chrome-close.js: resume a record's session on the seat it
- *         names, from an empty directory, and close its group; `--sweep` does
- *         so for every record the session-start sweep may take; `--held`
- *         lists the held ones. One JSON line on stdout.
- * judge   the gate judge's one question of one issue body (#4964), for
- *         lib/gate-judge.js: lib/gate-judge-mode.js's flags, the prompt on
- *         stdin, an empty working directory; the JSON result on stdout. Killed once --timeout-ms have passed since this
- *         script started, the auth read included.
- *
- * --config-dir must be one of this machine's own seats (lib/arbiter-store.js's
- * configDirs). A launch whose auth would not bill the subscription is refused
- * (lib/launch-auth.js).
- *
- * The binary is WFC_CLAUDE_BIN, else `claude` on PATH. Joins no §N3 family:
- * it exits with the child's status, 2 on a usage error or refusal, and 1
- * where the child could not start or was killed.
- */
-
 const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const { scriptPath } = require("./lib/script-path.js");
@@ -68,7 +8,6 @@ const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { now } = require("./lib/clock.js");
 
-/* A durable stamp, so an exported WFC_NOW skews it (clock.js RESIDUAL). */
 const stamp = () => new Date(now()).toISOString();
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
 const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
@@ -109,9 +48,7 @@ const USAGE = [
 	`       node ${scriptPath("claude-child.js")} judge --config-dir <dir> --timeout-ms <n> < prompt`,
 ].join("\n");
 
-/* All three carried from the skill text they replace, never measured: the 60 s
- * from rescue-sessions' `timeout 60`, the 6 pages and the turn budget from
- * browser-ladder (#1070). */
+// #1070 guess
 const USAGE_TIMEOUT_MS = 60_000;
 const MAX_PAGES = 6;
 /** @param {number} pages */
@@ -170,13 +107,8 @@ function promptOrFail(given) {
 }
 
 /**
- * An empty working directory for a child, one per user and `name`: kept,
- * since the harness leaves an empty project directory in the seat for each
- * directory a child runs in. Emptied before each call, a CLAUDE.md for the
- * child to load included; refused where it is not this user's own directory.
  * @param {string} name
  * @returns {string}
- * @throws {Error} saying why the directory could not be had
  */
 function emptyDir(name) {
 	let dir = os.tmpdir();
@@ -207,8 +139,6 @@ function timeoutOrFail(given) {
 }
 
 /**
- * The trap's closer, outliving this process and its session's scope, so
- * neither the parent's tree kill nor the session's end takes it down.
  * @param {string} sessionId
  */
 function startTrapCloser(sessionId) {
@@ -222,7 +152,6 @@ function startTrapCloser(sessionId) {
 /** @typedef {import("./lib/chrome-child-store.js").ChildRecord} ChildRecord */
 
 /**
- * The child's record, written before the child starts.
  * @param {string} sessionId
  * @param {string} seat
  * @returns {ChildRecord}
@@ -243,12 +172,9 @@ function firstRecord(sessionId, seat) {
 }
 
 /**
- * Write the child's pid to its record, noting in `said` where it cannot:
- * without the pid a closer cannot wait the child out, and the record as first
- * written still finds the session.
  * @param {ChildRecord} record
  * @param {number} pid
- * @param {string[]} said accumulator: a failed write is added to the launcher's notes
+ * @param {string[]} said
  */
 function recordChild(record, pid, said) {
 	record.childPid = pid;
@@ -263,7 +189,6 @@ function recordChild(record, pid, said) {
 }
 
 /**
- * Run the Chrome child to one of its ends, printing one JSON line.
  * @param {{bin: string, args: string[], env: NodeJS.ProcessEnv, seat: string,
  *   prompt: string, limitMs: number, handOver: boolean}} launch
  */
@@ -271,7 +196,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 	const sessionId = crypto.randomUUID();
 	/** @type {Record<string, unknown> | undefined} */
 	let result;
-	/** @type {string[]} What the launcher said along the way, for `notes`. */
+	/** @type {string[]} */
 	const said = [];
 	let printed = false;
 	/** @param {Partial<Parameters<typeof chromeOutcome>[0]>} over */
@@ -323,7 +248,6 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 	if (run.child.pid) recordChild(record, run.child.pid, said);
 
 	/**
-	 * Keep the record, `over` and the tabs still open written to it.
 	 * @param {Partial<import("./lib/chrome-child-store.js").ChildRecord>} [over]
 	 */
 	const keep = (over = {}) => {
@@ -331,7 +255,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		try {
 			writeRecord({ ...(readRecord(sessionId) ?? record), tabs, ...over });
 		} catch (e) {
-			/* The record as first written still finds the session (#5386). */
+			// #5386
 			said.push(`could not update the child's record (${caught(e).message}).`);
 		}
 		return tabs;
@@ -356,8 +280,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 	result = first.result;
 	if (!result) {
 		const end = await stopOrWait(run);
-		/* A stop or kill may cut a tab-opening call off before its result,
-		 * and a kill keeps the group for a resume (#5352). */
+		// #5352
 		const left = keep();
 		if (left.length === 0 && end.status === 0 && !end.signal)
 			deleteRecord(sessionId);
@@ -390,11 +313,9 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 }
 
 /**
- * On SIGTERM, SIGINT or SIGHUP: `stop` the child, keeping its tabs, start a
- * closer outliving this launcher, print the one line and exit 1.
  * @param {() => import("./lib/chrome-child.js").OpenTab[]} stop
  * @param {string} sessionId
- * @param {string[]} said accumulator: a failed closer start is added to the launcher's notes
+ * @param {string[]} said
  * @param {(over: {left: import("./lib/chrome-child.js").OpenTab[], killedBy: NodeJS.Signals}) => void} print
  */
 function trapSignals(stop, sessionId, said, print) {
@@ -404,7 +325,7 @@ function trapSignals(stop, sessionId, said, print) {
 			try {
 				startTrapCloser(sessionId);
 			} catch (e) {
-				/* The session-start sweep is the backstop (#5386). */
+				// #5386
 				said.push(
 					`no closer started (${caught(e).message}); the next session-start sweep closes the tabs.`,
 				);
@@ -415,8 +336,6 @@ function trapSignals(stop, sessionId, said, print) {
 }
 
 /**
- * Stop a child still running by signal, keeping its group; wait out one
- * already gone.
  * @param {ReturnType<typeof startStreamChild>} run
  */
 async function stopOrWait(run) {
@@ -426,7 +345,6 @@ async function stopOrWait(run) {
 }
 
 /**
- * What a child on `seat` runs from `cwd` with, or why its auth refuses it.
  * @param {string} seat
  * @param {string} cwd
  * @returns {import("./lib/chrome-close.js").Launch | string}
@@ -438,7 +356,6 @@ function seatLaunch(seat, cwd) {
 }
 
 /**
- * What a closer's resume runs on `seat` with, or why it may not run.
  * @param {string} seat
  * @returns {import("./lib/chrome-close.js").Launch | string}
  */
@@ -482,7 +399,6 @@ async function runChromeClose(flags) {
 }
 
 /**
- * The chrome mode's launch, its flags read.
  * @param {string} seat
  * @param {Record<string, string | true>} flags
  */

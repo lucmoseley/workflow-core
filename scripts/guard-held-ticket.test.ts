@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the Stop guard that refuses a session-ending turn while the session
- * claims an unfinished build unit — an open, unparked `kind:ticket` with an
- * unticked, unwaived criterion (#4535) — and every exit it lets through.
- *
- * Breaking it either lets a session stop mid-unit again (#4495), or blocks a
- * session that parked, waits, or is past the tripwire or the backstop.
- *
- * Each case runs the guard through stop-guard-testkit against a sandboxed
- * arbiter store and `gh` served by stubGhRoutes, so no real tracker is read.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -59,7 +48,6 @@ const unit = ({
 	},
 });
 
-/** A transcript whose last turn stands at `tokens`. */
 const transcriptAt = (tokens: number) => {
 	const file = path.join(sb.dir, `${ME}.jsonl`);
 	fs.writeFileSync(

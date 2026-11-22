@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * check-weakens-line.js refuses a commit that weakens a check unless its
- * message names each weakening on a `Weakens:` line (#2235). A case loosened
- * here lets a disabled guard, a dropped CI step or a skipped test land inside
- * a large commit unseen (#2203).
- *
- * Each case commits through a real commit-msg hook in a throwaway repo, the
- * seam .husky/commit-msg calls the checker from, because a pathspec commit,
- * commit-paths.js's route, hands the hook a temporary index through
- * GIT_INDEX_FILE that no in-process run would read.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -35,8 +24,6 @@ const write = (file: string, body: string) => {
 	fs.writeFileSync(path.join(dir, file), body);
 };
 
-/** process.env less any gate stand-down a developer has exported, which
- * every fixture commit would otherwise be refused for naming nowhere. */
 const ENV = Object.fromEntries(
 	Object.entries(process.env).filter(([k]) => !/^WFC_[A-Z0-9_]+_OFF$/.test(k)),
 );
@@ -49,7 +36,6 @@ const gitWith = (env: Record<string, string>, ...args: string[]) =>
 	});
 const git = (...args: string[]) => gitWith({}, ...args);
 
-/** Stages every change in the tree and commits it with `message`, `env` added. */
 const commit = (message: string, env: Record<string, string> = {}) => {
 	git("add", "-A");
 	const file = path.join(hooks, "..", `${path.basename(hooks)}-msg`);
@@ -59,7 +45,6 @@ const commit = (message: string, env: Record<string, string> = {}) => {
 	return { status: r.status, out: r.stdout + r.stderr };
 };
 
-/** Commits the tree as HEAD, with no weakening judged against it. */
 const seed = () => {
 	const r = commit("seed");
 	expect(r.status, r.out).toBe(0);
@@ -382,7 +367,6 @@ describe("check-weakens-line (#2235)", () => {
 	});
 
 	it("refuses a skip added under a rename, naming the new file", () => {
-		/* Enough unchanged lines that git still pairs the two as a rename. */
 		const cases = ["b", "c", "d", "e"].map(
 			(n) => `it("${n}", () => expect(1).toBe(1));`,
 		);

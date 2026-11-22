@@ -1,39 +1,10 @@
 #!/usr/bin/env bash
-# start-session.sh — start a session by hand in its own worktree (#4241). It
-# cuts the worktree through scripts/session-checkout.js, as every dispatched
-# session's launcher does, starts a background job with that worktree as its
-# cwd, and attaches this terminal to it, so a hand-started session follows the
-# one model with no exception in the guards (#4168 Q2). The job is started as
-# the agents view starts one (`--agent claude`), so the guards read it as his
-# own (lib/background-start.js), and its record keeps the worktree for a
-# resume. Neither `claude` call inherits the shell's root
-# (lib/inherited-roots.js).
-#
-# Usage, from anywhere inside the repo:
-#   scripts/start-session.sh [<session-name>] [<claude args>...]
-#
-# <session-name> names the worktree, .claude/worktrees/<session-name>/, and
-# the session; hand-<UTC timestamp> where none is given. The plan is the
-# shell's CLAUDE_CONFIG_DIR: `CLAUDE_CONFIG_DIR=~/.claude2 scripts/start-session.sh`.
-# Every later argument goes to `claude --bg` unchanged; with no prompt among
-# them the session waits idle for one. Leaving the attached view leaves the
-# session running, as in `claude attach`.
-#
-# No `-e`: every step's failure is checked where it stands, and the probe
-# library's absence must not end the script (BashFAQ/105,
-# docs/practice/shell-scripting-and-hooks.md).
-#
-# Exit codes: 1 the cut or the launch refused or failed (why on stderr), 5
-# refused on a wedged WSL interop bridge, before anything is cut; otherwise
-# `claude attach`'s own.
-
 set -uo pipefail
 
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 here="$(cd "$here" && pwd)"
-# Fails open where the library will not load, as dispatch-sessions.js does:
-# the probe may never be the reason Claude won't start (mantahostels#3111).
+# lucmoseley/mantahostels#3111
 # shellcheck source=scripts/lib/interop-probe.sh
 source "$here/lib/interop-probe.sh" 2>/dev/null
 # shellcheck source=scripts/lib/bg-launch-id.sh
@@ -54,8 +25,7 @@ fi
 
 dir="$(node "$here/session-checkout.js" cut "$name")" || exit 1
 cd "$dir" || exit 1
-# The roots the cut read are not the job's: a daemon this launch starts would
-# hand them to every later job in any repository (#4595).
+# #4595
 roots="$(node "$here/lib/inherited-roots.js")" || {
   printf 'start session: the root variables to clear would not read; %s stays cut for a retry.\n' "$dir" >&2
   exit 1

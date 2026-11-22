@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * suite-timings.js — the CLI over scripts/lib/suite-timings.js. `extract`
- * turns one vitest JSON run into a tracked per-file dataset; `latest` does it
- * from the newest green suite run's reports, which each Vitest shard in CI
- * plans by (#4574); `shares` recomputes the percentile table from a dataset
- * already committed.
- *
- * `latest` WRITES AN EMPTY DATASET where it cannot read a run: no green run
- * with reports, or GitHub failing twice. Every shard meeting the same failure
- * so still plans as one, by file count; a shard meeting it alone plans apart,
- * which the verdict job's comparison of the shards' records turns red.
- *
- * IT JOINS NO FAMILY (§G4, §N3, mantahostels#2039). It gates nothing, so it is no
- * `check-*` and owes none of that alphabet; it is not a hook, so it is no
- * `guard-*`; `generate-*` fits `extract` and not `shares`, which writes
- * nothing. Exit is 0 or 1 — never 2, which would read as `check-*`'s BROKEN
- * from a script outside that contract.
- */
-
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
 const { caught } = require("./lib/caught.js");
@@ -58,27 +39,14 @@ const CLI = {
 	},
 };
 
-/*
- * writeFd, not console (§N6). Every path here precedes process.exit, and
- * this script is read from Bash by an agent, whose stdout is a pipe — node
- * drops whatever is still buffered to a pipe when the process exits.
- */
 /** @param {string} s */
 const out = (s) => writeFd(1, `${s}\n`);
 /** @param {string} s */
 const err = (s) => writeFd(2, `${s}\n`);
 
-/* The vitest report's file names are paths in the tree the suite ran over, so
- * they are relativised against it (#1, #4493): a linked worktree's own, where
- * the run was in one. Never `__dirname` — a plugin install's own checkout is
- * not that tree. */
 const ROOT = worktreeRoot();
 
-/**
- * The newest green suite run finished before `beforeRun` was created, and its
- * rows; null where none of the newest holds reports.
- * @param {string|undefined} beforeRun
- */
+/** @param {string|undefined} beforeRun */
 function latestRows(beforeRun) {
 	const repo = readSuiteRepo(ROOT);
 	const before =
@@ -94,7 +62,6 @@ function latestRows(beforeRun) {
 	return readNewestRun(repo, before, ROOT);
 }
 
-/* Under Actions, a fallback shows on the run's summary, not in its log alone. */
 const annotation = process.env.GITHUB_ACTIONS ? "::warning::" : "";
 
 /**
@@ -130,11 +97,10 @@ function latest(target, beforeRun) {
 
 /**
  * @param {string[]} argv
- * @returns {number} exit code
+ * @returns {number}
  */
 function main(argv = process.argv.slice(2)) {
 	const parsed = parseOrCode(argv, CLI);
-	/* A refusal exits 1, never cli-args' 2 (see the header). */
 	if (typeof parsed === "number") return parsed === 0 ? 0 : 1;
 	const { command, positionals, flags } = parsed;
 	if (command === "latest") {
@@ -171,8 +137,4 @@ function main(argv = process.argv.slice(2)) {
 	return 0;
 }
 
-/* Exports nothing (§N7): the seam is scripts/lib/suite-timings.js, and the
- * test drives this file end to end through scripts/lib/run-in-process.js,
- * which loads it as the entry module so this guard fires as it does under
- * node. */
 if (require.main === module) process.exit(main());

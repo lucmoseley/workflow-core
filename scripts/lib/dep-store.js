@@ -1,46 +1,3 @@
-/*
- * dep-store.js — the dependency stores session worktrees link their
- * `node_modules` to (#4229).
- *
- * ATTACH points the worktree's `node_modules` at the dependency store keyed by
- * the hash of the worktree's own `package-lock.json`, building that store
- * first where none exists. A store is built once, into a staging directory
- * (lib/npm-ci-staging.js) renamed into place whole, and is never installed
- * into again. One build runs per key: a cut finding a live builder's lock waits for
- * its store rather than running a second `npm ci` against the memory cap.
- *
- * RELINK re-points a worktree whose lockfile a merge, pull or checkout
- * changed at the store standing for the new one, building none (#4702);
- * `.husky/post-merge`, `post-checkout` and, on a commit changing the lockfile,
- * `post-commit` run it, through lib/relink-store.sh. Nothing relinks after a
- * `git reset`, `stash` or `restore` run by hand: `relink` or `attach` does. A merge's `pre-merge-commit` gates run before it, on the
- * store linked before the merge: the lander's install keys on the merged
- * lockfile, and its full suite is what moves `main`.
- *
- * WARM builds the store for a freshly fetched `origin/main`'s lockfile
- * where none stands, so a cut needs no build of its own (#4318). The refill
- * tick runs it, detached, ahead of its launches, and its dispatcher cuts with
- * `noBuild`: a cut finding no store refuses at once rather than build inside
- * the dispatcher's time budget (lib/refill-batch.js).
- *
- * A STORE IS READ-ONLY: its `node_modules` loses every write bit before the
- * rename, so a tool caching under `node_modules` fails or falls back rather
- * than writing under each neighbour on the lockfile (#4255). Vite falls back
- * on its own, bundling its config beside the source; vitest's cache sits in
- * the worktree (vitest.config.ts `cacheDir`); guard-npm-install refuses an
- * install through the link. A frozen tree is removed by giving its
- * directories their owner's write bit back first (`removeTree`).
- * Residual: the owner's own `chmod`, or a root process, still writes through.
- *
- * THE STORES LIVE UNDER lib/worktree-dirs.js `STORES`, inside the worktrees
- * folder, so the ignores every tool already carries for that folder cover
- * them too.
- *
- * REAP-STORES, run by each reap pass, removes a store no standing worktree
- * links, save `origin/main`'s, and a dead build's lock, staging directory and
- * failure record.
- */
-
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -65,12 +22,9 @@ const { scriptPath } = require("./script-path.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { STORES } = require("./worktree-dirs.js");
 
-/* 64 bits of sha256: a collision among even 10^4 live lockfiles is ~3e-12
- * likely, and the name stays short enough to read in a path. */
+// guess, #5529
 const KEY_HEX = 16;
-/* Untraced: five minutes is room for a loaded machine. A cut registers its
- * directory, and a build renames its store into place, moments before the
- * link that names it, so nothing younger is reaped. */
+// guess, #5529
 const YOUNG_MS = 5 * 60_000;
 const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
 const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
@@ -80,9 +34,6 @@ const BUILD_FAILED = /^\.build-([0-9a-f]+)\.failed$/;
 /** @typedef {import("./worktree-reaper.js").Reaped} Reaped */
 
 /**
- * Take the build lock for a store, or wait out a live holder. True where the
- * lock is ours; false where the holder's store now stands, or, under `noWait`,
- * where a live holder is still building it.
  * @param {string} lock
  * @param {string} store
  * @param {boolean} noWait
@@ -109,7 +60,6 @@ function takeBuildLock(lock, store, noWait) {
 }
 
 /**
- * Create the build lock naming this process; false where it exists already.
  * @param {string} lock
  * @returns {boolean}
  */
@@ -124,8 +74,6 @@ function writeLock(lock) {
 }
 
 /**
- * The pid a build lock names: null where the lock is gone, 0 where it names
- * none.
  * @param {string} lock
  * @returns {number | null}
  */
@@ -134,8 +82,7 @@ function readLockHolder(lock) {
 }
 
 /**
- * The failure the last build of a store left, or null where none did.
- * @param {string} failed the store's failure record
+ * @param {string} failed
  * @returns {string | null}
  */
 function readBuildFailure(failed) {
@@ -143,8 +90,6 @@ function readBuildFailure(failed) {
 }
 
 /**
- * `file`'s text through `parse`; null where it is absent, a throw where it
- * will not read.
  * @template T
  * @param {string} file
  * @param {(text: string) => T} parse
@@ -157,9 +102,6 @@ function readOrThrow(file, parse) {
 }
 
 /**
- * Every write bit off under `dir`, or its owner's back on. A mode is changed
- * with no write bit on its directory, so the order is free. Links are left:
- * their modes are never read.
  * @param {string} dir
  * @param {boolean} on
  */
@@ -177,10 +119,7 @@ function setWriteBits(dir, on) {
 	set(dir);
 }
 
-/**
- * Remove `dir`, absent or frozen.
- * @param {string} dir
- */
+/** @param {string} dir */
 function removeTree(dir) {
 	if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isDirectory())
 		setWriteBits(dir, true);
@@ -190,7 +129,6 @@ function removeTree(dir) {
 /** @typedef {import("./npm-ci-staging.js").ManifestSource} ManifestSource */
 
 /**
- * The manifests of the worktree `dir`.
  * @param {string} dir
  * @returns {ManifestSource}
  */
@@ -201,7 +139,6 @@ const buildWorktreeSource = (dir) => (name) => {
 };
 
 /**
- * The manifests `origin/main` carries, read from the main checkout `root`.
  * @param {string} root
  * @returns {ManifestSource}
  */
@@ -215,22 +152,15 @@ const buildStartSource = (root) => (name) => {
 	return r.status === 0 ? r.stdout : null;
 };
 
-/**
- * The store key of a lockfile's bytes.
- * @param {Buffer} lockfile
- */
+/** @param {Buffer} lockfile */
 const storeKeyOf = (lockfile) =>
 	crypto.createHash("sha256").update(lockfile).digest("hex").slice(0, KEY_HEX);
 
 /**
- * What ensureStore found or did: `built` now, already `standing`, or left to
- * the live process `building` it.
  * @typedef {{ store: string, state: "built" | "standing" | "building" }} Ensured
  */
 
 /**
- * The refusal of a no-build cut whose store stands nowhere: the last build's
- * failure where one is recorded, else the live builder, else the warm route.
  * @param {string} key
  * @param {string} lock
  * @param {string} failed
@@ -249,12 +179,7 @@ function buildNoStoreRefusal(key, lock, failed) {
 }
 
 /**
- * The store for the lockfile `source` carries, built from its manifests where
- * absent; null where `source` has no lockfile. Under `noBuild` an absent store
- * refuses (buildNoStoreRefusal); under `noWait` a live builder is left to
- * finish. A failed build is recorded beside the store's lock, and cleared by
- * the next build that succeeds.
- * @param {string} root the main checkout
+ * @param {string} root
  * @param {ManifestSource} source
  * @param {{ noBuild?: boolean, noWait?: boolean }} [how]
  * @returns {Ensured | null}
@@ -282,7 +207,6 @@ function ensureStore(root, source, { noBuild = false, noWait = false } = {}) {
 		if (fs.existsSync(path.join(store, "node_modules")))
 			return { store, state: "standing" };
 		buildStore(staging, lockfile, source);
-		/* A store directory without `node_modules` is a dead build's leftover. */
 		fs.rmSync(store, { recursive: true, force: true });
 		fs.renameSync(staging, store);
 		fs.rmSync(failed, { force: true });
@@ -297,9 +221,8 @@ function ensureStore(root, source, { noBuild = false, noWait = false } = {}) {
 }
 
 /**
- * Build a frozen `node_modules` in `staging` from `source`'s manifests.
  * @param {string} staging
- * @param {Buffer} lockfile `source`'s, read once already
+ * @param {Buffer} lockfile
  * @param {ManifestSource} source
  */
 function buildStore(staging, lockfile, source) {
@@ -318,10 +241,7 @@ function buildStore(staging, lockfile, source) {
 }
 
 /**
- * Point the `node_modules` of the worktree holding `cwd` at the store for its
- * lockfile, building the store where none exists. A worktree with no lockfile
- * gets no link.
- * @param {string} cwd anywhere in the worktree
+ * @param {string} cwd
  * @param {{ noBuild?: boolean }} [how]
  * @returns {{ dir: string, store: string | null, built: boolean }}
  */
@@ -342,7 +262,6 @@ function attach(cwd, { noBuild = false } = {}) {
 		);
 	const made = ensureStore(root, buildWorktreeSource(dir), { noBuild });
 	if (made === null) return { dir, store: null, built: false };
-	/* One rename, so no reader of the worktree sees `node_modules` absent. */
 	const tmp = `${link}.attach-${process.pid}`;
 	fs.rmSync(tmp, { force: true });
 	fs.symlinkSync(path.join(made.store, "node_modules"), tmp, "dir");
@@ -351,7 +270,6 @@ function attach(cwd, { noBuild = false } = {}) {
 }
 
 /**
- * The store a session worktree's `node_modules` links, or null where it links none.
  * @param {string} dir
  * @param {string} storesDir
  * @returns {string | null}
@@ -361,7 +279,6 @@ function readLinkedStore(dir, storesDir) {
 	try {
 		target = fs.readlinkSync(path.join(dir, "node_modules"));
 	} catch (err) {
-		/* ENOENT: never attached; EINVAL: a real directory, as the lander's. */
 		if (["ENOENT", "EINVAL"].includes(String(caught(err).code))) return null;
 		throw err;
 	}
@@ -370,13 +287,8 @@ function readLinkedStore(dir, storesDir) {
 }
 
 /**
- * Re-point a worktree whose `node_modules` links a store at the one standing
- * for the lockfile it now carries (#4702). Builds none, as git hooks run it within
- * HOOK_LIMIT_MS and a build takes up to INSTALL_TIMEOUT_MS, so a missing store
- * refuses naming `attach`, which builds it.
- * @param {string} cwd anywhere in the worktree
- * @returns {{ dir: string, store: string | null }} the store newly linked, or
- *   null where the worktree links no store or its link still matches
+ * @param {string} cwd
+ * @returns {{ dir: string, store: string | null }}
  */
 function relink(cwd) {
 	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
@@ -394,8 +306,7 @@ function relink(cwd) {
 }
 
 /**
- * WARM, above. Null where `origin/main` carries no lockfile.
- * @param {string} cwd anywhere in the repository
+ * @param {string} cwd
  * @returns {Ensured | null}
  */
 function warm(cwd) {
@@ -405,8 +316,6 @@ function warm(cwd) {
 }
 
 /**
- * Milliseconds since `at` was last written or renamed; Infinity where it is
- * gone.
  * @param {string} at
  * @param {number} now
  */
@@ -416,7 +325,6 @@ function ageOf(at, now) {
 }
 
 /**
- * The store each of `standing` links its `node_modules` to.
  * @param {string[]} standing
  * @returns {Set<string>}
  */
@@ -431,7 +339,6 @@ function readLinkedStores(standing) {
 }
 
 /**
- * Remove each dead build's lock; the store keys a live build holds.
  * @param {string} storesDir
  * @param {string[]} names
  * @param {number} now
@@ -443,7 +350,6 @@ function sweepBuildLocks(storesDir, names, now) {
 		const key = BUILD_LOCK.exec(name)?.[1];
 		if (key === undefined) continue;
 		const lock = path.join(storesDir, name);
-		/* Null: released since the listing. */
 		const holder = readLockHolder(lock) ?? 0;
 		if (holder > 0 && pidAlive(holder)) building.add(key);
 		else if (ageOf(lock, now) >= YOUNG_MS) fs.rmSync(lock, { force: true });
@@ -452,13 +358,10 @@ function sweepBuildLocks(storesDir, names, now) {
 }
 
 /**
- * Every store not in `kept`, and every dead build's staging directory,
- * removed.
  * @param {string} storesDir
- * @param {Set<string>} kept the stores a standing worktree links, and the one
- *   WARM keeps for the next cut
+ * @param {Set<string>} kept
  * @param {number} now
- * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
+ * @param {Reaped} out
  */
 function removeUnusedStores(storesDir, kept, now, out) {
 	if (!fs.existsSync(storesDir)) return;
@@ -486,9 +389,8 @@ function removeUnusedStores(storesDir, kept, now, out) {
 }
 
 /**
- * Remove each build failure record of a store no longer kept.
  * @param {string} storesDir
- * @param {Set<string>} kept as removeUnusedStores's
+ * @param {Set<string>} kept
  */
 function sweepBuildFailures(storesDir, kept) {
 	if (!fs.existsSync(storesDir)) return;
@@ -500,18 +402,14 @@ function sweepBuildFailures(storesDir, kept) {
 }
 
 /**
- * REAP-STORES, above.
- * @param {string} root the main checkout
- * @param {string[]} standing every registered worktree the pass left standing
+ * @param {string} root
+ * @param {string[]} standing
  * @param {number} now
- * @param {Reaped} out accumulator: what the pass removed and failed on is pushed here
+ * @param {Reaped} out
  */
 function reapStores(root, standing, now, out) {
 	const storesDir = path.join(root, STORES);
 	const kept = readLinkedStores(standing);
-	/* Residual: after a failed fetch this keeps the store of a stale
-	 * `origin/main`'s lockfile, one store more than the next cut uses,
-	 * until a pass whose fetch succeeds. */
 	const startLock = buildStartSource(root)(LOCKFILE);
 	if (startLock !== null) kept.add(path.join(storesDir, storeKeyOf(startLock)));
 	removeUnusedStores(storesDir, kept, now, out);

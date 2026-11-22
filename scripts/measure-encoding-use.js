@@ -1,35 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-encoding-use.js — what did this repo encode that never fires, and
- * what is still being done by hand, read off the transcripts already on disk.
- *
- *   node scripts/measure-encoding-use.js [--dir <path>] [--json]
- *                                        [--min-count N] [--min-sessions N] [--top N]
- *
- * Built at mantahostels#1299; `scripts/count-guard-fires.js` is the hook half.
- *
- *   SECTION 1, top-down and primary: every skill in `.claude/skills/` and
- *   `.agents/skills/` and every `npm run` name in package.json, with its
- *   invocation count and last invocation (mantahostels#1241).
- *
- *   SECTION 2, bottom-up and secondary: the most frequent normalised Bash
- *   command shapes matching no script, skill or `npm run` name. IT IS EXPECTED
- *   TO REPORT NOTHING OFTEN.
- *
- * NEEDS NO MODEL, and streams each transcript line by line rather than loading
- * it — the `measure-*` family convention.
- *
- * HAND-RUN, on no trigger at all: mantahostels#1243 ruled it so, and mantahostels#1240 refused a
- * diff-triggered check that would fire ~31 times a day and find nothing.
- *
- * The routes, the mention problem and the corpus bound:
- * `scripts/lib/encoding-use.js`.
- *
- * IN NO §N3 FAMILY, DELIBERATELY, as `count-guard-fires.js` is not: it gates
- * nothing, runs from a prompt, writes no file and files no issue. It exits 0
- * having reported, and borrows §N4's BROKEN 2 for a bad invocation alone —
- * nothing was measured, so a 0 there would read as a corpus of no invocations.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -57,20 +26,13 @@ const SKILL_ROOTS = [
 	path.join(ROOT, ".agents", "skills"),
 ];
 
-/**
- * Straight to the fd, never `console`: node buffers writes to a PIPE and drops
- * whatever is still buffered at `process.exit` (`lib/check.js` carries the
- * measurement behind that rule).
- * @param {string} text
- */
+/** @param {string} text */
 const say = (text) => writeFd(1, `${text}\n`);
 
 /** @param {string|null} iso */
 const day = (iso) => (iso ? iso.slice(0, 10) : "never");
 
 /**
- * A number flag's value, or `fallback` where it was not given; null where it
- * is not a non-negative number.
  * @param {string | undefined} given
  * @param {number} fallback
  * @returns {number | null}
@@ -97,13 +59,11 @@ const CLI = {
  * @typedef {Array<{subject: string, needle: string, route: string, at: string|null}>} Uses
  * @typedef {{uses: Uses, shapes: Uses, sessions: Map<string, Set<string>>}} ScanAcc
  * @typedef {{seenUse: Set<string>, seenShape: Set<string>, sessionKey: string}} SessionSeen
- *   one session's dedupe sets: a tool call split across records is one use
  * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
  */
 
 /**
- * Records that session `key` saw `id`.
- * @param {Map<string, Set<string>>} sessions accumulator: `key` is added under `id`
+ * @param {Map<string, Set<string>>} sessions
  * @param {string} id
  * @param {string} key
  */
@@ -113,10 +73,9 @@ function markSeen(sessions, id, key) {
 }
 
 /**
- * One record's invocations, each counted once a session.
  * @param {TranscriptRecord} record
- * @param {SessionSeen} seen accumulator: seenUse is filled; sessionKey is read
- * @param {ScanAcc} acc accumulator: each new use is pushed to uses and sessions
+ * @param {SessionSeen} seen
+ * @param {ScanAcc} acc
  */
 function collectUses(record, seen, acc) {
 	for (const use of recordUses(record)) {
@@ -129,10 +88,9 @@ function collectUses(record, seen, acc) {
 }
 
 /**
- * One record's Bash shapes, each counted once a session.
  * @param {TranscriptRecord} record
- * @param {SessionSeen} seen accumulator: seenShape is filled; sessionKey is read
- * @param {ScanAcc} acc accumulator: each new shape is pushed to shapes and sessions
+ * @param {SessionSeen} seen
+ * @param {ScanAcc} acc
  */
 function collectShapes(record, seen, acc) {
 	for (const s of recordShapes(record)) {
@@ -148,17 +106,8 @@ function collectShapes(record, seen, acc) {
 	}
 }
 
-/**
- * Scan every transcript once, for invocations and for Bash shapes.
- *
- * A transcript that will not open is COUNTED AND NAMED rather than skipped
- * silently: it makes a count read low for a reason that is not the skill.
- *
- * @param {Array<{file: string, tier: "main" | "subagent"}>} files
- */
+/** @param {Array<{file: string, tier: "main" | "subagent"}>} files */
 function scan(files) {
-	// `subject` and `needle` are the shared roll-up's field names — a subject
-	// there is a guard, here a skill, an `npm run` name or a Bash shape.
 	/** @type {ScanAcc} */
 	const acc = { uses: [], shapes: [], sessions: new Map() };
 	/** @type {string[]} */
@@ -189,8 +138,6 @@ function scan(files) {
 }
 
 /**
- * Everything the report shows, as data: `--json` and the human table read it.
- *
  * @param {ReturnType<typeof scan>} scanned
  * @param {{minCount: number, minSessions: number, top: number}} bar
  */
@@ -213,12 +160,9 @@ function rows(scanned, bar) {
 		};
 	};
 
-	// ONE ROW SHAPE for both halves, `note` carrying whatever only one of them
-	// has, so the renderer never has to be told which half it is printing.
 	const skillRows = skills.map((s) => ({
 		name: s.name,
 		note: [
-			// The path, not the bare directory name: two roots can define one skill.
 			`[${s.roots.map((r) => path.relative(ROOT, r)).join(", ")}]`,
 			s.modelInvocable
 				? ""
@@ -338,14 +282,12 @@ function render(data, corpus) {
 
 /**
  * @param {string[]} argv
- * @returns {number} the exit code
+ * @returns {number}
  */
 function main(argv) {
 	const { flags } = parseOrExit(argv, CLI);
 	const given = flagValue(flags, "--dir");
 	const dirs = given ? [given] : transcriptDirs();
-	// The defaults are first guesses: 25 invocations across 5 sessions is low
-	// enough that this corpus prints ~30 shapes rather than a handful.
 	const bar = { minCount: 25, minSessions: 5, top: 25 };
 	for (const [key, flag] of /** @type {const} */ ([
 		["minCount", "--min-count"],
@@ -354,7 +296,6 @@ function main(argv) {
 	])) {
 		const value = numberFlag(flagValue(flags, flag), bar[key]);
 		if (value === null) {
-			// Name the flag as TYPED, never the field it fills.
 			writeFd(2, `${flag} needs a non-negative number after it.\n`);
 			return 2;
 		}

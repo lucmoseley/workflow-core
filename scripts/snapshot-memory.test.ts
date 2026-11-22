@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * The store is passed as the first argument, so no case reads the machine's
- * real memory store.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -32,8 +28,6 @@ it("writes the snapshot into a linked worktree and leaves the main checkout clea
 		const store = path.join(scratch, "memory");
 		fs.mkdirSync(store);
 		fs.writeFileSync(path.join(store, "note.md"), "x\n");
-		/* The harness names the main checkout as the project even for a
-		 * session in a linked worktree. */
 		const r = spawnSync("bash", [SCRIPT, store], {
 			cwd: tree,
 			encoding: "utf8",

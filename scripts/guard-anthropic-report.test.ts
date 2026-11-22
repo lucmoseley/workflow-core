@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-anthropic-report core of guard-dispatch.js refuses every
- * `gh issue`, `gh pr` and writing `gh api` call it can tie to an
- * `anthropics/*` repo (#1987; the ruling, #1967). These are its boundary
- * cases, the dispatcher entry run on it alone on a harness-shaped payload:
- * each exit, each input channel, the fail-open record on disk, and the rule
- * store and git crossed for real. Which command is refused, and why, is
- * lib/anthropic-report.test.ts's; the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#2798, #3224).
- *
- * CLAUDE_PROJECT_DIR is a temp project, so the fail-open log lands in the
- * temp CLAUDE_CONFIG_DIR and never the founder's.
- *
- * Make it allow an upstream report and one goes out unrefused; make it deny
- * on a fault and every `gh` call is wedged.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,10 +24,8 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-// A GH_REPO the runner happens to carry would decide every unnamed case.
 const NO_GH_REPO = { GH_REPO: undefined };
 
-/** The core's hookSpecificOutput for `command`, run in `cwd`. */
 const emission = (
 	command: string,
 	{ cwd = dir, env = {} }: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
@@ -54,7 +36,6 @@ const emission = (
 		{ project: dir, config, cwd: dir, env: { ...NO_GH_REPO, ...env } },
 	);
 
-/** A real clone with one remote. */
 const clone = (url: string) => {
 	const at = path.join(dir, "clone");
 	fs.mkdirSync(at);

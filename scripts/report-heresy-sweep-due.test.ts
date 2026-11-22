@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * report-heresy-sweep-due.test.ts — the monthly heresy sweep's filer (#3464,
- * spec #3365). Break it and a sweep is filed early or never, a second due
- * issue piles up beside an open one, two session starts both file, or a
- * tracker failure fails a session start.
- *
- * Driven end to end through `runInProcess` (§X3) against a throwaway git repo
- * per case, the clock pinned through WFC_NOW (§X9). `gh` is a fake reached
- * through WFC_GH, `stubGhRoutes` serving each case its due issues and logging
- * its argv, and the body writer one reached through WFC_ISSUE_BODY.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -22,8 +11,6 @@ import { plantLiveLock } from "./lib/pid-lock-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "report-heresy-sweep-due.js");
-/* The issue title and the stamp and lock names the script uses, restated so a
- * rename fails here rather than passing unseen. */
 const TITLE = "Heresy sweep due";
 const STAMP = ".heresy-sweep-read";
 const LOCK = ".heresy-sweep-read.lock";
@@ -115,7 +102,6 @@ function run(args: string[], gh = tracker(), at = NOW) {
 const read = (f: string) =>
 	fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "";
 const ghCalls = () => read(argvLog);
-/** Each `gh issue create` call whole, its multi-line body included. */
 const readCreates = () =>
 	ghCalls()
 		.split(/\n(?=issue (?:list|view|create|edit) )/)

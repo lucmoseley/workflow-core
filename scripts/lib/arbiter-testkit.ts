@@ -1,10 +1,3 @@
-/*
- * arbiter-testkit.ts — the sandbox the arbiter's suites share.
- *
- * NEVER let a suite touch the real registry: a literal ~/.claude would make a
- * test run write into the founder's live locks and wedge real sessions.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -18,66 +11,34 @@ import { type RouteAnswer, stubGhRoutes, stubGhScript } from "./gh-stub";
 import { runInProcess } from "./run-in-process";
 import { sleepSync } from "./sleep-sync.js";
 
-// The arbiter is CommonJS and stays that way — it is spawned as a plain node
-// script by a bash hook.
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const family = (name: string): any =>
-	createRequire(import.meta.url)(`./arbiter-${name}.js`);
+const requireLocal = createRequire(import.meta.url);
 
-export const store = family("store");
-export const proc = family("proc");
+export const store = requireLocal("./arbiter-store.js");
+export const proc = requireLocal("./arbiter-proc.js");
 
-/*
- * The families arbiter-store.js does not re-export (mantahostels#1967, mantahostels#1994).
- *
- * EACH IS A NAMESPACE AND IS NEVER DESTRUCTURED — the discipline
- * arbiter-store.js states in full. A file that already has a local of one of
- * these names imports it `as <name>Mod`.
- *
- * A family exports more than the facade did, accepted at mantahostels#1959: reaching past
- * the operation you came for is a review finding.
- */
-export const breaks = family("breaks");
-export const content = family("content");
-export const core = family("core");
-export const issueClaims = family("issue-claims");
-export const ledger = family("ledger");
-export const locks = family("locks");
-export const markers = family("markers");
-export const snapshots = family("snapshots");
+export const breaks = requireLocal("./arbiter-breaks.js");
+export const content = requireLocal("./arbiter-content.js");
+export const core = requireLocal("./arbiter-core.js");
+export const issueClaims = requireLocal("./arbiter-issue-claims.js");
+export const ledger = requireLocal("./arbiter-ledger.js");
+export const locks = requireLocal("./arbiter-locks.js");
+export const markers = requireLocal("./arbiter-markers.js");
+export const snapshots = requireLocal("./arbiter-snapshots.js");
 
 export const SCRIPT = path.join(__dirname, "..", "session-arbiter.js");
 
-/**
- * chmod is advisory to root, which reads a 000 file or directory and writes into
- * a 555 one regardless. Every test that seals a path off skips on this, or it
- * would pass for a reason that says nothing about the store.
- */
 export const AS_ROOT =
 	typeof process.getuid === "function" && process.getuid() === 0;
 
 export interface Sandbox {
-	/** The throwaway root; everything below lives inside it. */
 	dir: string;
-	/** The fake CLAUDE_CONFIG_DIR. */
 	home: string;
-	/** The fake repo, and CLAUDE_PROJECT_DIR. */
 	repo: string;
 
-	/*
-	 * Methods, not fields (mantahostels#205). Both derive from the environment this sandbox
-	 * re-points in its beforeEach, so a suite that captured them as fields would
-	 * capture whatever the PREVIOUS test left behind — or, on the first test, the
-	 * developer's real ~/.claude.
-	 */
-
-	/** Where the arbiter keeps locks/, writes/ and the fail-open log. */
 	stateDir: () => string;
-	/** The fail-open log itself. */
 	errorLog: () => string;
 }
 
-/** The config dirs sessionDirs() (arbiter-core.js) prefers over its own. */
 const SIBLING_CONFIGS = [
 	"WFC_CLAUDE_CONFIG_A",
 	"WFC_CLAUDE_CONFIG_B",
@@ -86,55 +47,12 @@ const SIBLING_CONFIGS = [
 
 const BELT = path.join(__dirname, "arbiter-belt");
 
-/**
- * Point every external oracle the arbiter shells out to at a stub inside the
- * sandbox.
- *
- * WITHOUT THIS THE SUITE READS THE MACHINE (mantahostels#1902). A case reaching
- * the liveness oracle without a shim of its own runs the real `claude` over the
- * founder's three live session registries, asking which sessions are running
- * RIGHT NOW, and answers differently minute to minute. Without this, `WFC_GH`
- * is unset too, falling every `gh` call back on the real `gh`. NEITHER BINARY
- * IS REACHABLE IN CI, so a green CI run says nothing about this.
- *
- * THE AGENTS STUB LISTS `sandbox` AND NOBODY ELSE, the caller this sets, as
- * the real oracle would. A fixed id, since the oracle's child runs with the
- * session id forgotten (lib/seat-claude.js's buildSeatEnv). An empty array
- * is NOT that: `agent-liveness.js` reads `[]` as a refusal ("listed no agents
- * at all"), and its self-test refuses again unless
- * the list names `CLAUDE_CODE_SESSION_ID` — so a stub echoing `[]` would send
- * every unshimmed case down the refusal branch the real oracle never took.
- *
- * The `gh` stub refuses loudly: a case that needs one says so with `fakeGh`
- * rather than reaching the network. Each stub sits at its var, WFC_GH or
- * WFC_CLAUDE_BIN, never on PATH, since every caller reads that var (#3455,
- * #3559).
- *
- * PATH HOLDS A BELT FOR BOTH (#4089, #4103). check-gh-route.js cannot read a
- * command-string spawn or a child whose env dropped the var, and either reaches
- * the founder's live tracker or live sessions with no refusal. The belt answers
- * no call, so a caller off the var still fails its test (base §N7). It is
- * tracked, in BELT, not written under `sb.dir`: a detached child keeps the PATH
- * it was spawned with, so a belt removed with the sandbox would drop its bare
- * call through to the real binary.
- *
- * RESIDUAL: a real session also exports `CLAUDE_PID`, `CLAUDECODE` and
- * `CLAUDE_CODE_MESSAGING_SOCKET`, and the sandbox leaves `HOME` alone
- * deliberately. None is read by the arbiter today. A detached child outliving
- * the checkout itself, as in a removed worktree, loses the belt.
- */
 function stubOracles(sb: Sandbox) {
 	const dir = path.join(sb.dir, "stubs");
 	fs.mkdirSync(dir, { recursive: true });
 
-	// A sandbox id of its own, so the oracle's self-test is not answered with
-	// the founder's live session id (agent-liveness.js's `me`).
 	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "sandbox");
 
-	// sessionDirs() (arbiter-core.js) PREFERS these three over its
-	// configDir-derived defaults, so one exported in a session's environment
-	// would reopen the route this whole helper closes. Latent today: nothing
-	// exports them. Cleared anyway, since the failure would be silent.
 	for (const name of SIBLING_CONFIGS) vi.stubEnv(name, undefined);
 
 	vi.stubEnv(
@@ -156,37 +74,10 @@ function stubOracles(sb: Sandbox) {
 	vi.stubEnv("PATH", `${BELT}${path.delimiter}${process.env.PATH}`);
 }
 
-/**
- * Attempts `removeSandbox` makes before it gives up and rethrows.
- *
- * 100 x 50 ms is a 5-second ceiling, and it is a bound rather than a
- * measurement — nobody has timed how long a detached child keeps writing. It is
- * sized off the load a CI runner puts on the children in question (mantahostels#2255, mantahostels#2956).
- */
+// guess, lucmoseley/mantahostels#2255
 export const SANDBOX_RM_ATTEMPTS = 100;
 export const SANDBOX_RM_DELAY_MS = 50;
 
-/**
- * Remove a sandbox directory, tolerating a detached child still writing into it.
- *
- * A suite that spawns a child detached returns from its assertions before that
- * child is done, so the teardown can walk the tree while the child is still
- * creating files in it — `rmSync` then throws ENOTEMPTY and reds a suite whose
- * assertions all passed (mantahostels#2956).
- *
- * ONLY ENOTEMPTY is retried. Any other code is the caller's bug and is rethrown
- * at once, and a directory that never empties still throws rather than being
- * left behind silently.
- *
- * `rmSync`'s own `maxRetries` is the obvious reach and is deliberately not used:
- * it retries inside the native call, so the retry branch is unreachable from a
- * test and the guarantee could only be reported unverified (mantahostels#2956). It also
- * widens the retried set to EBUSY/EMFILE/ENFILE/EPERM, none of which this
- * failure produces.
- *
- * `remove` and `sleep` are injected so the retry branch is reachable in-process
- * without a real racing writer.
- */
 export function removeSandbox(
 	dir: string,
 	{
@@ -213,22 +104,6 @@ export function removeSandbox(
 	}
 }
 
-/**
- * Register beforeEach/afterEach for a fresh sandbox, and hand back a handle
- * re-pointed before every test. Read it inside the test body, never at module
- * scope.
- *
- * `setUp` runs INSIDE this beforeEach, once the environment is re-pointed, and
- * is the only safe place for a suite to prepare something whose path derives
- * from the sandbox. A suite doing that from a beforeEach of its own is correct
- * only while its hook happens to be registered after this one, which is an
- * ordering nothing states and nothing checks; get it wrong and the work lands in
- * the wrong directory with nothing failing (mantahostels#205).
- */
-/**
- * session-arbiter.js run in `sb.repo`: `cli` returns the whole result,
- * `readListing` only stdout, throwing on a non-zero exit.
- */
 export const arbiterCli = (sb: Sandbox) => ({
 	cli: (args: string[], env: Record<string, string> = {}) =>
 		runInProcess(SCRIPT, args, {
@@ -238,7 +113,6 @@ export const arbiterCli = (sb: Sandbox) => ({
 	readListing: (args: string[]) => arbiterOk(args, { cwd: sb.repo }),
 });
 
-/** session-arbiter.js's stdout, throwing on a non-zero exit. */
 const arbiterOk = (
 	args: string[],
 	options: { cwd?: string; env?: NodeJS.ProcessEnv },
@@ -251,10 +125,6 @@ const arbiterOk = (
 	return r.stdout;
 };
 
-/**
- * Name `tree`'s HEAD in the commit ledger of `env`'s CLAUDE_CODE_SESSION_ID,
- * as post-commit does; throws on a non-zero exit.
- */
 export const ledgerHead = (tree: string, env: NodeJS.ProcessEnv) => {
 	const head = execFileSync("git", ["rev-parse", "HEAD"], {
 		cwd: tree,
@@ -264,7 +134,6 @@ export const ledgerHead = (tree: string, env: NodeJS.ProcessEnv) => {
 	arbiterOk(["record-commit", head], { env });
 };
 
-/** A pid whose process has ended. */
 export const endedPid = () =>
 	execFileSync("sh", ["-c", "echo $$"], { encoding: "utf8" }).trim();
 
@@ -285,9 +154,6 @@ export function freshSandbox(setUp?: (sb: Sandbox) => void): Sandbox {
 		fs.mkdirSync(path.join(sb.repo, "docs"), { recursive: true });
 		vi.stubEnv("CLAUDE_CONFIG_DIR", sb.home);
 		vi.stubEnv("CLAUDE_PROJECT_DIR", sb.repo);
-		// A background job inherits both pointed at the real checkout, and either
-		// outranks CLAUDE_PROJECT_DIR in dispatch-ledger.js ledgerRoot() and every
-		// `WFC_REPO_ROOT || hostRoot()` reader (#3119).
 		vi.stubEnv("WFC_REPO_ROOT", sb.repo);
 		vi.stubEnv("WFC_DISPATCH_ROOT", sb.repo);
 		stubOracles(sb);
@@ -299,16 +165,6 @@ export function freshSandbox(setUp?: (sb: Sandbox) => void): Sandbox {
 	return sb;
 }
 
-/**
- * A sessions/<pid>.json entry, the registry mantahostels#104 ruled the single source.
- *
- * `procStart: null` is a real entry shape, not a missing argument — a Claude
- * Code that stopped writing the field.
- *
- * `name` is the session's own title, which the real registry carries and which
- * sweepRisk reads to name a neighbour without a `claude agents --json` call. It
- * is optional because an entry genuinely arrives without one.
- */
 export function registerSession(
 	sb: Pick<Sandbox, "home" | "repo">,
 	sessionId: string,
@@ -329,12 +185,6 @@ export function registerSession(
 	);
 }
 
-/** A registered session running on this test's own live pid. */
-/**
- * Point this process's arbiter store at `root`'s, as a hook process on that
- * host finds it: both variables, since WFC_REPO_ROOT outranks
- * CLAUDE_PROJECT_DIR for some readers. unstubEnvs restores them.
- */
 export function storeAt(root: string) {
 	vi.stubEnv("CLAUDE_PROJECT_DIR", root);
 	vi.stubEnv("WFC_REPO_ROOT", root);
@@ -345,15 +195,10 @@ export function live(sb: Sandbox, sessionId: string, name?: string) {
 	return store.identify(sessionId);
 }
 
-/** Registered, but on a pid whose start time does not match: finished. */
 export function finished(sb: Sandbox, sessionId: string) {
 	registerSession(sb, sessionId, process.pid, { procStart: "999999999" });
 }
 
-/**
- * A `gh` stand-in wired through WFC_GH, serving `routes` as gh-stub's
- * `stubGhRoutes` does and logging each call's argv for `ghCalls`.
- */
 export function fakeGh(sb: Sandbox, routes: Record<string, RouteAnswer>) {
 	const { gh } = stubGhRoutes(sb.dir, routes, {
 		log: path.join(sb.dir, "gh-calls"),
@@ -362,10 +207,6 @@ export function fakeGh(sb: Sandbox, routes: Record<string, RouteAnswer>) {
 	return gh;
 }
 
-/**
- * The argv of every gh call, in order. Assert on the argv, never on the count:
- * a sweep's whole correctness is in its query (mantahostels#1203).
- */
 export function ghCalls(sb: Sandbox): string[] {
 	try {
 		return fs
@@ -379,20 +220,6 @@ export function ghCalls(sb: Sandbox): string[] {
 
 export const ghCallCount = (sb: Sandbox) => ghCalls(sb).length;
 
-/**
- * Make the sandbox repo a real git repository.
- *
- * Without one the arbiter answers nothing off `git status`, the
- * DIRTY-AND-UNCLAIMED notice included (mantahostels#2387).
- *
- * NOT git-fixture.ts's `initGitRepo`, and not part of `freshSandbox`. That
- * seam takes a `core.hooksPath` and commits a seed `a.md`, putting a file the
- * suite never asked for into every tree that then reads `git status`; and
- * `git init` costs every suite that asks git nothing, which is most of them.
- *
- * A repo-local identity is written straight into `.git/config`, costing no
- * spawn, so a caller's plain `git commit` works on a runner with no global one.
- */
 export function gitRepo(sb: Sandbox) {
 	execFileSync("git", ["init", "-q"], { cwd: sb.repo });
 	fs.appendFileSync(
@@ -401,13 +228,6 @@ export function gitRepo(sb: Sandbox) {
 	);
 }
 
-/**
- * Commit whatever the sandbox tree holds, so a release's cleanliness check has a
- * HEAD to compare against.
- *
- * Identity on the command line rather than in a config: a machine with no
- * `user.email` set would otherwise fail every suite that commits.
- */
 export function commitAll(sb: Sandbox, message = "seed") {
 	execFileSync("git", ["add", "-A"], { cwd: sb.repo });
 	execFileSync(
@@ -417,14 +237,8 @@ export function commitAll(sb: Sandbox, message = "seed") {
 	);
 }
 
-/**
- * The agents oracle pruneIssueClaims spares on, listing nobody — what a test
- * about some other family passes so pruneAll's issue-claim sweep is exercised
- * rather than refused (mantahostels#1796).
- */
 export const noSessions = () => ({ ids: new Set<string>() });
 
-/** A lock recording a process that is certainly gone. */
 export const DEAD = { pid: 999_999, procStart: "1" };
 
 export const liveHolder = () => ({
@@ -432,7 +246,6 @@ export const liveHolder = () => ({
 	procStart: proc.readProcStartOf(process.pid),
 });
 
-/** A claim on `rel` written straight into the sandbox's lock store. */
 export function putLock(rel: string, fields: object) {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	fs.writeFileSync(
@@ -441,20 +254,12 @@ export function putLock(rel: string, fields: object) {
 	);
 }
 
-/** A caller identity for a session the registry can prove is running. */
 export const durably = (sessionId: string) => ({
 	sessionId,
 	...liveHolder(),
 	durable: true,
 });
 
-/**
- * Which of `names` the session-start sweep deletes, each written as a day-old
- * file in the markers directory, with `running` the one session registered as
- * live. `prune-markers` runs as a child in a throwaway sandbox of its own, so a
- * suite with no arbiter sandbox can ask whether a marker family it writes is
- * swept.
- */
 export function sweptMarkers(names: string[], running = "running"): string[] {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "swept-markers-"));
 	try {
@@ -464,7 +269,6 @@ export function sweptMarkers(names: string[], running = "running"): string[] {
 		registerSession({ home, repo }, running, process.pid);
 		const markerDir = path.join(repo, ".claude", "tmp", "markers");
 		fs.mkdirSync(markerDir, { recursive: true });
-		// Past arbiter-markers.js's MARKER_AGE_MS, a day, by an hour.
 		const old = new Date(Date.now() - 25 * 60 * 60 * 1000);
 		for (const name of names) {
 			const file = path.join(markerDir, name);

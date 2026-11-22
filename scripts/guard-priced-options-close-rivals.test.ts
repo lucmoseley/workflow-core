@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * guard-priced-options-close-rivals.test.ts — the fifteenth refusal (#488): a
- * round whose top two rivals sit close is refused once, whatever `Checked:` or
- * `Unmeasured:` line it carries, and the same round number passes on its next
- * send (#1061). A founder message after the refusal retires the record (#659).
- * Driven through the guard's Stop entry in process, with fixture transcripts,
- * the way `self-plugin/hooks/hooks.json` runs it; config, project and repo
- * roots are redirected so counters and the fail-open log land in the temp
- * directory.
- *
- * The guard runs at every `Stop` (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`): loosen a case and the founder is asked to choose between
- * rivals no one checked could flip; break the one-refusal record and a
- * corrected round is refused for ever, or never.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -78,8 +63,6 @@ beforeEach(() => {
 	config = path.join(dir, "config");
 	sid = `close-rivals-${Math.random().toString(36).slice(2)}`;
 	reset();
-	/* The research-ladder limb's cap spent, so a still-close re-send meets
-	 * this limb alone; the ladder has its own file (#2006). */
 	seed(RESEARCH_LADDER_PREFIX, limbOf(RESEARCH_LADDER_PREFIX).cap);
 });
 
@@ -87,7 +70,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The refusal the guard writes for `message`, or "" where it allows the stop. */
 const stop = (
 	message: string,
 	{
@@ -96,15 +78,11 @@ const stop = (
 	}: { job?: boolean; transcript?: string } = {},
 ) => readStopGuardReason(GUARD, { dir, sid, message, job, transcript });
 
-/* Unstamped, so no close-rivals count sees them; they pass every round under
- * the under-researched-round limb (#1710), which this file tests only where
- * it meets a passed close question (#1844). */
 const RESEARCH = researchCalls().map((call) => JSON.stringify(call));
 const write = (...lines: string[]) =>
 	writeTranscript(file, ...lines, ...RESEARCH);
 
 type Opt = [string, string];
-/** One round; each option is [letter, "figure% (low% - high%)"]. */
 function round(
 	opts: Opt[],
 	{
@@ -131,7 +109,6 @@ const OVERLAP_ONLY: Opt[] = [
 	["A", "70% (50% - 90%)"],
 	["B", "30% (20% - 55%)"],
 ];
-/* Its 62 top is also low-top, so a first sight logs trigger `both`. */
 const GAP_ONLY: Opt[] = [
 	["A", "62% (58% - 66%)"],
 	["B", "38% (34% - 42%)"],
@@ -141,15 +118,10 @@ const NEITHER: Opt[] = [
 	["B", "20% (15% - 25%)"],
 ];
 
-/* The refusal record's time is the wall clock at refusal, so a tool call or
- * founder message counts as following it only when stamped after it. */
 const toolCallAt = (ms: number) =>
 	JSON.stringify(
 		buildBashCall("ls", "t2", { timestamp: new Date(ms).toISOString() }),
 	);
-/* Real-epoch, unlike `founder()`'s synthetic clock — needed to place a founder
- * message AFTER a refusal without also landing after every synthetic-clock
- * timestamp already in the transcript (the re-price the founder's message retires, below; #659). */
 const founderAt = (ms: number, text = "still go") =>
 	[
 		JSON.stringify({
@@ -166,9 +138,7 @@ const recordFile = () =>
 	path.join(markersDir(dir), `.close-rivals-record-${sid}`);
 const UNMEASURED = "Unmeasured: which the founder prefers, because it is taste";
 const REPRICED = "with no tool call since this check refused it";
-/* Only a close question's own line prints it; a re-price's does not. */
 const CLOSE = "so the recommendation could flip";
-/* A shape defect on its own question, so a block can carry it beside a close one. */
 const TITLED =
 	"❓ **Q1** — Which?\n\nRelation: rivals\n\n" +
 	"(A) **Title** x\nConfidence: 80% (75% - 85%). why\n\n" +
@@ -190,8 +160,6 @@ describe("which questions are close", () => {
 		expect(stop(round(NEITHER))).toBe("");
 	});
 
-	/* Two rivals 26 points apart top at 63, under the low-top line, so the
-	 * wider one is refused as low-top alone. */
 	it("counts a 25-point gap as close and a 26-point one as not", () => {
 		expect(
 			stop(
@@ -468,7 +436,6 @@ describe("the escape lines", () => {
 
 	it("passes an escape line resent unchanged from the send it was refused on", () => {
 		write(founder());
-		/* A record written before #1061 still carries the refused escape. */
 		fs.mkdirSync(path.dirname(recordFile()), { recursive: true });
 		fs.writeFileSync(
 			recordFile(),
@@ -523,8 +490,6 @@ describe("the escape lines", () => {
 	])("does not read %s as the founder speaking", (_name, rec) => {
 		write(founder());
 		expect(stop(round(BOTH))).toContain(CLOSE);
-		/* Stamped after the refusal, where a founder message would retire it
-		 * and let the re-price below through. */
 		stampAfter(Date.now() + 90_000);
 		append(rec());
 		expect(stop(round(NEITHER))).toContain(REPRICED);
@@ -690,8 +655,6 @@ describe("its budget", () => {
 		expect(stop(unpriced, { job: true })).toContain("no Confidence line");
 		expect(stop(close(2), { job: true })).toContain(CLOSE);
 		expect(stop(close(3), { job: true })).toContain(CLOSE);
-		/* Two ceiling blocks spent: the close blocks charged none,
-		 * so its third is still refused and its own cap alone lets the fourth by. */
 		expect(stop(close(4), { job: true })).toContain(CLOSE);
 		expect(stop(close(5), { job: true })).toBe("");
 		const filing = stop("Done.", { job: true });
@@ -775,7 +738,6 @@ describe("its budget", () => {
 	});
 });
 
-/* A close pair whose (A) carries a bold title, a shape fault. */
 const CLOSE_TITLED =
 	"❓ **Q1** — Which?\n\nRelation: rivals\n\n" +
 	"(A) **Title** x\nConfidence: 55% (45% - 65%). why\n\n" +
@@ -888,9 +850,6 @@ describe("a re-priced question", () => {
 
 	it("keeps the refused figures, so re-sending the new ones is still a re-price", () => {
 		expect(stop(round(NEITHER))).toContain(REPRICED);
-		/* A third call here would read as this describe block's fourth close-rivals
-		 * refusal (the beforeEach's own refusal spends the first), tripping the
-		 * per-session cap of 3 and passing for the wrong reason. */
 		expect(stop(round(NEITHER))).toContain(REPRICED);
 		const record = JSON.parse(fs.readFileSync(recordFile(), "utf8"));
 		expect(record.questions).toEqual([
@@ -977,8 +936,6 @@ describe("the refusal record", () => {
 		expect(sweptMarkers([record])).toEqual([record]);
 	});
 
-	/* Both questions refused in one turn, so each test below has two blocks of
-	 * the cap left. */
 	const q1AndQ2 = `${round(BOTH)}\n\n${round(BOTH, { n: 2 })}`;
 	const both = () => expect(stop(q1AndQ2)).toContain(CLOSE);
 
@@ -994,7 +951,6 @@ describe("the refusal record", () => {
 		const reason = stop(`${round(GAP_ONLY)}\n\n${round(BOTH, { n: 3 })}`);
 		expect(reason).toContain("Q3:");
 		expect(reason).not.toContain("Q1:");
-		/* Q2 re-priced, but measured since its own refusal. */
 		expect(
 			stop(`${round(NEITHER, { n: 2 })}\n\n${round(BOTH, { n: 3 })}`),
 		).toBe("");
@@ -1065,12 +1021,10 @@ describe("the refusal record", () => {
 	])("fails open where it is %s, and logs it", (_name, spoil) => {
 		stop(round(BOTH));
 		spoil();
-		/* The close resend first: a Stop let through rewrites the record. */
 		expect(stop(round(BOTH, { extra: UNMEASURED }))).toBe("");
 		spoil();
 		expect(stop(round(NEITHER))).toBe("");
 		spoil();
-		/* Treated as already refused: a question never refused passes too. */
 		expect(stop(round(BOTH, { n: 2 }))).toBe("");
 		expect(failOpenLog(config)).toContain(
 			"re-price allowed, caught question passed",
@@ -1369,7 +1323,6 @@ describe("a pass another Stop hook refuses (#1844)", () => {
 		writeTranscript(file, founder());
 		passOnResend();
 		append(buildSiblingBlock());
-		/* Not close, so only the passed number keeps that limb off it. */
 		expect(stop(round(NEITHER))).toBe("");
 	});
 

@@ -1,25 +1,4 @@
 #!/usr/bin/env node
-/*
- * keep-hook-shims.js — the entry for lib/hook-shims.js (#2879): writes an
- * exit-0 shim at each hook script a live session still runs after the main
- * checkout deleted it, and removes each shim no live session needs.
- *
- * IN NO PROGRAM FAMILY (§N3): a git hook's helper, run by .husky/post-commit
- * and .husky/post-merge, which git ignores the exit of. It gates nothing and
- * files nothing.
- *
- * Runs on the MAIN worktree, whichever worktree calls it: that is the tree
- * whose scripts the sessions started there run.
- *
- * `--lazy` is the hooks' route: it returns on four git calls unless a shim
- * exists or a script was deleted since the HEAD its last run saw, kept in
- * .git/wfc-hook-shims-head. A reset that deletes one is caught at the next
- * commit or merge.
- *
- * Prints one line per shim written or removed, or the fault that stopped it,
- * to stderr. Exits 0, the commit or merge having landed; 2 on a bad flag.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
@@ -30,7 +9,6 @@ const { keepShims } = require("./lib/hook-shims.js");
 const { runProgram } = require("./lib/program-scope.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-/* The files whose hook lines a session loads at its start. */
 const HOOKS_FILES = ["self-plugin/hooks/hooks.json", ".claude/settings.json"];
 
 const CLI = {
@@ -39,7 +17,7 @@ const CLI = {
 };
 
 /**
- * @param {string} root the main worktree
+ * @param {string} root
  * @param {readonly string[]} args
  * @param {string} [input]
  * @returns {string | null}
@@ -55,11 +33,10 @@ const git = (root, args, input) =>
 /** @param {string | null} out */
 const lines = (out) => (out ?? "").split("\n").filter(Boolean);
 
-/** @param {string | null} out `-z` output */
+/** @param {string | null} out */
 const paths = (out) => (out ?? "").split("\0").filter(Boolean);
 
 /**
- * The main worktree: the directory holding the common git dir.
  * @param {string} cwd
  * @returns {string | null}
  */
@@ -69,8 +46,6 @@ function readMainTree(cwd) {
 }
 
 /**
- * Each hooks file's text at each of `shas` that has one, each distinct blob
- * once.
  * @param {string} root
  * @param {string[]} shas
  * @returns {string[]}
@@ -100,7 +75,7 @@ function readHooksAt(root, shas) {
 }
 
 /**
- * @param {string} root the main worktree
+ * @param {string} root
  * @returns {import("./lib/hook-shims.js").ShimPorts}
  */
 function buildHostPorts(root) {
@@ -115,7 +90,6 @@ function buildHostPorts(root) {
 			try {
 				return fs.readFileSync(path.join(root, rel), "utf8");
 			} catch {
-				/* A file gone between the listing and this read is no shim (#2879). */
 				return null;
 			}
 		},
@@ -125,7 +99,6 @@ function buildHostPorts(root) {
 			try {
 				seen = fs.readFileSync(stamp, "utf8").trim();
 			} catch {
-				/* No run on record: the core reads null as "run in full" (#2879). */
 				return null;
 			}
 			const out = git(root, [
@@ -170,8 +143,6 @@ function buildHostPorts(root) {
 			try {
 				return fs.readFileSync(exclude, "utf8");
 			} catch (e) {
-				/* Only an absent file is empty; any other fault must not let
-				 * writeExclude replace the user's own lines. */
 				if (/** @type {NodeJS.ErrnoException} */ (e).code === "ENOENT")
 					return "";
 				throw e;
@@ -206,9 +177,7 @@ function main(argv) {
 				new Error(r.why),
 			);
 	} catch (e) {
-		/* Fail open, printed (#2879). */
 		writeFd(2, `keep-hook-shims: ${String(e)}\n`);
-		// An unwritable log costs only the record: the line above was printed.
 		ignoreFailure(() =>
 			require("./lib/arbiter-core.js").logError("keep-hook-shims", e),
 		);
@@ -217,9 +186,6 @@ function main(argv) {
 }
 
 /**
- * The program as the post-commit dispatcher runs it in its own process
- * (#5208): `node keep-hook-shims.js <args>`'s exit code and output, under
- * `cwd` and `env`, which its git children inherit.
  * @param {{ cwd: string, env: NodeJS.ProcessEnv, args: string[] }} io
  */
 const PROGRAM = (io) => runProgram(io, () => main(io.args));

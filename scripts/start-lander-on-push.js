@@ -22,7 +22,6 @@
  *    to the lander's log.
  *  - Every fault allows, logged to guard-errors.log.
  */
-
 const { readSymbolicName } = require("./lib/git-tree.js");
 const { run } = require("./lib/guard-entry.js");
 const { decide } = require("./lib/lander-on-push.js");

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins lib/console-credit.js and scripts/read-console-credit.js: what a Chrome
- * child's report must hold to become a reading, the failed reads that leave the
- * last reading held, the cadence, and the figure the budget gate then gives.
- *
- * Loosen one and a sign-in page, another account's Console or a misread row
- * becomes the figure the gate spends against (#4071).
- *
- * The child is injected through main's deps, bar one run of the real entry, which
- * claude-child.js refuses for a seat that is none of this machine's.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

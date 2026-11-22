@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * earlyoom's kills read from its journal lines (#3094), through a stub
- * journalctl: paired with their memory readings, merged per pid, grouped into
- * incidents, and rendered for the incident ticket. Break it and a kill goes
- * unticketed, one incident files twice, or a ticket misnames its victims.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -25,7 +19,6 @@ const { basisFaults } = require("./issue-gate.js");
 const MIN = 60 * 1000;
 const T0 = Date.parse("2026-10-26T03:56:56+08:00");
 
-/** Two incidents: three kills, one pid signalled twice, then one 40 min on. */
 const JOURNAL = [
 	buildEarlyoomBannerLine(T0 - MIN),
 	buildEarlyoomReadingLine(T0, 776),
@@ -168,11 +161,6 @@ describe("buildIncidentBody and incidentTitle (#3094)", () => {
 describe("headless runs among the kills (#4143)", () => {
 	const Pid = 4242;
 	const OtherBoot = "fedcba9876543210fedcba9876543210";
-	/**
-	 * Kills of comm `claude` on Pid at each of `at`, and `runs` stored on Pid,
-	 * recorded in ONE_BOOT unless `bootId` says; `boots` is what `--list-boots`
-	 * serves, null for a list that refuses.
-	 */
 	function seed(
 		at: number[],
 		runs: { jobId: string; launchedAt: number; bootId?: string | null }[],
@@ -199,7 +187,6 @@ describe("headless runs among the kills (#4143)", () => {
 					sessionId: "s",
 					pid: Pid,
 					procStart: "1",
-					/* /proc's boot_id, dashed as the launcher records it. */
 					bootId:
 						r.bootId === undefined
 							? ONE_BOOT.id.replace(
@@ -252,7 +239,6 @@ describe("headless runs among the kills (#4143)", () => {
 				{ ...ONE_BOOT, from: T0 + 61 * MIN },
 			],
 		);
-		/* T0: before the launch, and in a boot the run never saw. */
 		expect(victims()).toEqual([
 			["claude CLI", null],
 			["headless run", "0aaaaaaa"],
@@ -300,8 +286,6 @@ describe("test runs among the kills (#5183)", () => {
 		"$1-$2-$3-$4-$5",
 	);
 	const iso = (ms: number) => new Date(ms).toISOString();
-	/** A kill of a process named `comm` on Worker at T0, and `runs` in the
-	 * run files, each last sampled a second before the kill. */
 	function seed(runs: Record<string, unknown>[], comm = "MainThread") {
 		vi.stubEnv(
 			"WFC_JOURNALCTL",
@@ -391,9 +375,7 @@ describe("test runs among the kills (#5183)", () => {
 	it("leaves a reused pid unmatched: a run ended, last sampled or its worker last seen before the kill, started after it, or in another boot", () => {
 		seed([
 			{ endedAt: iso(T0 - MIN) },
-			/* A killed wrapper's file: no end, its last sample long past. */
 			{ sampledAt: iso(T0 - 10 * MIN) },
-			/* A live run whose worker on the pid exited minutes ago. */
 			{ workersSeenAt: { [Worker]: iso(T0 - 3 * MIN) } },
 			{ at: iso(T0 + MIN) },
 			{ bootId: "fedcba98-7654-3210-fedc-ba9876543210" },
@@ -452,8 +434,6 @@ describe("gate runs and Chromium among the kills (#5269)", () => {
 		"$1-$2-$3-$4-$5",
 	);
 	const iso = (ms: number) => new Date(ms).toISOString();
-	/** A kill of `comm` on Browser at T0, and `seats` as gate-seat records,
-	 * each having seen the pid a second before the kill. */
 	function seed(seats: Record<string, unknown>[], comm = "headless_shell") {
 		vi.stubEnv(
 			"WFC_JOURNALCTL",
@@ -519,7 +499,6 @@ describe("gate runs and Chromium among the kills (#5269)", () => {
 
 	it("leaves a pid reused after its heldUntil unattributed: last seen, last sampled or ended past the slack, started after the kill, or in another boot", () => {
 		seed([
-			/* Seen 5 s before the kill: past two 2 s samples. */
 			{ seenAt: { [Browser]: iso(T0 - 5000) } },
 			{ sampledAt: iso(T0 - 10 * MIN) },
 			{ endedAt: iso(T0 - MIN) },

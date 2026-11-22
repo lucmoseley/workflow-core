@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * lib/cut-at.js's contract (#1344): the text before the first separator and
- * the text after it, with "" after where there is no separator — the pair
- * `split(sep)` gives as its first element and the rest rejoined. In-process,
- * since the helper is a pure function. A wrong cut moves bytes between a
- * header and its body in every parser that calls it.
- */
 
 import { describe, expect, it } from "vitest";
 import { cutAt } from "./cut-at.js";

@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * check-time-to-land.js and time-to-land.js (#4951), each run once
- * for real over a queue log and a lander log written into a fixture
- * checkout's markers directory.
- *
- * Loosen it and a queue landing in many times the suite's own time reports
- * OK on `npm run status`, or the report prints another window's batches.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -27,11 +19,6 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(work, { recursive: true, force: true }));
 
-/**
- * The logs of 100 queue refs landed in the last hour, a green run of 180 s
- * among them: the first `over` took `slow` s from take to land, the rest
- * 200 s. 16 of 100 is the fewest over a 540 s target that calls it over.
- */
 const writeLogs = (slow: number, over = 16) => {
 	const now = Date.now();
 	const iso = (t: number) => new Date(t).toISOString();
@@ -112,9 +99,6 @@ it("reads only the stays begun and ended in the window it is given, counting tho
 	writeLogs(5000);
 	const now = Date.now();
 	const iso = (t: number) => new Date(t).toISOString();
-	// Ref k lands at now - 3600 s + k s; refs 0-15 took 5000 s, the rest 200 s.
-	// Every take, to ref 50's land: refs 0-50, and no green run, which ends
-	// at now - 810 s, so no target to count against.
 	const early = run(CHECK, [
 		"--since",
 		iso(now - 8700 * S),
@@ -122,8 +106,6 @@ it("reads only the stays begun and ended in the window it is given, counting tho
 		iso(now - 3600 * S + 50.5 * S),
 		"--json",
 	]);
-	// From now - 3794.5 s: the slow refs' takes fall before it, so refs 16-99
-	// stay.
 	const late = run(CHECK, ["--since", iso(now - 3800 * S + 5.5 * S), "--json"]);
 	const zoneless = run(CHECK, ["--since", "2026-11-10T16:13:04"]);
 	const future = run(CHECK, ["--since", iso(now + 3600 * S)]);

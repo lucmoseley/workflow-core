@@ -1,25 +1,8 @@
-/*
- * ci-runs.js — which workflows under .github/workflows/ run each commit-gate
- * tool, so a gate that skips a missing tool can say truly whether CI catches
- * what it let through (#1463, #1563, #1629).
- *
- * Run as a program it is precommit-gate.sh's tool_gate reading:
- *
- *   node scripts/lib/ci-runs.js <tool>   `ci:` and the workflows running it,
- *                                        comma-separated, so the hook tells
- *                                        none from a crash
- *
- * The read is lexical — a non-comment line naming the tool, or an `npm run`
- * of a package.json script that does — so a step that names shellcheck
- * without running it, as a download URL does, counts as running it.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 
-/** What a workflow line runs for each tool, once `npm run`s are expanded. */
 const CI_RUNS = {
 	shfmt: /\bshfmt\b|check-shfmt\.js/,
 	ruffFormat: /\bruff\s+format\b/,
@@ -31,7 +14,6 @@ const CI_RUNS = {
 /** @typedef {keyof typeof CI_RUNS} CiTool */
 
 /**
- * The workflows under `root`'s .github/workflows/ that run each CI_RUNS tool.
  * @param {string} root
  * @returns {Record<CiTool, string[]>}
  */
@@ -55,7 +37,7 @@ function readCiRuns(root) {
 	}
 	/**
 	 * @param {string} text
-	 * @param {Set<string>} seen accumulator: the scripts already expanded
+	 * @param {Set<string>} seen
 	 * @returns {string}
 	 */
 	const expand = (text, seen) =>

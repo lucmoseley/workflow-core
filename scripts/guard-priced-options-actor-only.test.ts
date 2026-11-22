@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The eighteenth refusal (#598): a round offering one option the founder
- * performs and another the agent performs, naming no `Blocked:` line. Driven
- * through the guard's Stop entry in process, by `lib/stop-guard-testkit`, so
- * its block counters land in the temp directory rather than spending the real
- * repo's allowance. It runs at every `Stop` (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`). A break here lets "shall I do it
- * or will you?" reach the founder again, or refuses a round that named its
- * block.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -30,11 +20,9 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The refusal the guard writes for `message`, or "" where it allows the stop. */
 const stop = (message: string, { job = false } = {}) =>
 	readStopGuardReason(GUARD, { dir, sid, message, job });
 
-/** A well-formed round of two rivals, with `extra` lines before the arrow. */
 const round = (
 	a: string,
 	b: string,
@@ -208,7 +196,6 @@ describe("its budget", () => {
 		expect(stop(unpriced, { job: true })).toContain("no Confidence line");
 		expect(stop(marked, { job: true })).toContain(REFUSED);
 		expect(stop(marked, { job: true })).toContain(REFUSED);
-		/* Four blocks spent: the fifth is the filing checks'. */
 		expect(stop(marked, { job: true })).toBe("");
 		expect(stop("Done.", { job: true })).toContain(
 			"carrying neither status marker",

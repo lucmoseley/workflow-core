@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * guard-commit-form in a session's own worktree (#4242): with
- * the session and CLAUDE_PROJECT_DIR in a linked worktree of a main
- * checkout, a pathspec commit's untracked-path warn reads the worktree's
- * files, never the main checkout's, an amend reads the worktree's HEAD, and
- * `git commit -a` is denied there as in the main checkout.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -22,7 +15,6 @@ freshSandbox((sb) => {
 
 const UNTRACKED = "names path(s) git does not track yet";
 
-/** What the core says to a pathspec commit of new.md, run from the worktree. */
 const said = () => {
 	const out = runCore(
 		"guard-commit-form",
@@ -53,8 +45,6 @@ describe("a commit from a worktree reads the host's rule layer at the main check
 		fs.writeFileSync(path.join(dir, "commit-closes-keyword.txt"), hostRule);
 	};
 
-	/* The suite pins every rule read to the core's layer (vitest.setup.ts);
-	 * unpinned, a read takes the host's layer first. */
 	const refusal = () => {
 		vi.stubEnv("WFC_RULES_DIR", undefined);
 		return (
@@ -83,7 +73,6 @@ describe("an amend from a worktree is judged on the worktree's HEAD (#4384)", ()
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" });
 
-	/** The core's decision on an amend run from the worktree. */
 	const amend = () =>
 		runCore(
 			"guard-commit-form",
@@ -109,7 +98,6 @@ describe("an amend from a worktree is judged on the worktree's HEAD (#4384)", ()
 describe("`git commit -a` from a worktree is denied, its subagents sharing it", () => {
 	const Sweeps = "This commit form sweeps in every dirty tracked file";
 
-	/** The core's decision on `command`, run from the worktree. */
 	const decision = (command: string) =>
 		runCore("guard-commit-form", toolCall("Bash", { command }), {
 			root: at.main,

@@ -1,14 +1,5 @@
 #!/usr/bin/env node
-/*
- * dispatch-sessions.js — launch a /pick-next dispatch set, each session on the
- * model its kind calls for, and only as many as allowance remains for. The
- * shell of lib/dispatch-sessions.js, whose header holds the usage, the gates
- * and the exit codes (#5145).
- *
- * cli-args-exempt: the core parses the line, refusing an unknown flag, `--help`
- * included, at exit 2; a strict parser would also refuse a prompt opening with
- * `-`, which launches as a prompt (#4820).
- */
+// cli-args-exempt: #4820
 
 const { dispatch } = require("./lib/dispatch-sessions.js");
 const { hostPorts } = require("./lib/dispatch-sessions-host.js");

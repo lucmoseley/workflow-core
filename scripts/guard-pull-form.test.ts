@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-pull-form core of guard-dispatch.js refuses a non-fast-forward
- * reconciliation of the shared `main` (mantahostels#245) and a rewind of
- * `main` (#765), and hands the pull rule to a sanctioned reconciliation
- * instead. These are its boundary
- * cases, the dispatcher entry run on it alone: each exit path, each input
- * channel, and each production read crossed once against a real repo. Which
- * command earns which verdict and text is lib/pull-form.test.ts's (#2797);
- * the entry's payload faults and the throw policy are guard-dispatch's own
- * tests' (#3226).
- *
- * The guard compares the target tree against CLAUDE_PROJECT_DIR's, so a
- * throwaway repo stands in for the shared tree and a worktree of it for the
- * exempt case.
- *
- * It runs as a core of the `PreToolUse` dispatcher on a git command: loosen it and a merge, rebase or rewind in the
- * shared tree can wipe a neighbour's commits; break it and every git command
- * is refused.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -42,10 +23,6 @@ let elsewhere: string;
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 
-/*
- * Built once and copied, not rebuilt per test, via scripts/lib/git-fixture.ts
- * (mantahostels#2068) — its own header explains what a naive copy breaks and why.
- */
 const template = defineTemplate(trioTemplate());
 
 interface Spawn {
@@ -54,7 +31,6 @@ interface Spawn {
 	env?: Record<string, string | undefined>;
 }
 
-/** Runs the guard on `command`, as Claude Code would. */
 const runGuard = (
 	command: string,
 	{ cwd = shared, session = "test", env = {} }: Spawn = {},
@@ -66,7 +42,6 @@ const runGuard = (
 		env,
 	});
 
-/** The whole hook output for `command`, parsed. Null where it said nothing. */
 const emission = (
 	command: string,
 	{ cwd = shared, session = "test", env = {} }: Spawn = {},
@@ -81,7 +56,6 @@ const emission = (
 const verdict = (command: string, at: Spawn = {}) =>
 	emission(command, at)?.permissionDecision === "deny" ? "deny" : "allow";
 
-/** The refusal `command` earns, as the session reads it. Throws on an allow. */
 const readDenyReason = (command: string, at: Spawn = {}) => {
 	const out = emission(command, at);
 	if (out?.permissionDecision !== "deny")
@@ -92,7 +66,6 @@ const readDenyReason = (command: string, at: Spawn = {}) => {
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
-/* The land route a reconciliation refusal names. */
 const LAND_ROUTE =
 	"Reconcile in your session's own worktree, never in the main checkout";
 
@@ -103,7 +76,6 @@ beforeEach(() => {
 	worktree = path.join(dir, "wt");
 	elsewhere = path.join(dir, "elsewhere");
 	template.instantiate(dir);
-	/* The shared-tree model: the main checkout not yet cut over (#4248). */
 	git(shared, "config", "branch.main.merge", "refs/heads/landing");
 });
 
@@ -145,7 +117,6 @@ describe("each exit path", () => {
 				project: notARepo,
 				config,
 				cwd: notARepo,
-				// Otherwise git walks up out of the fixture into a real repository.
 				env: { GIT_CEILING_DIRECTORIES: dir },
 			},
 		);
@@ -171,13 +142,11 @@ describe("each production read, crossed once", () => {
 			`This moves the shared \`main\` to another commit, dropping whatever came after it if that commit is behind — to move \`main\` forward, \`git merge --ff-only <commit>\`: git reset --hard HEAD~1\n\n${readRuleText("main-rewind")}`,
 		);
 		expect(verdict("git reset a.md")).toBe("allow");
-		/* #3177: real git, not the fake, finding no HEAD~5. */
 		expect(verdict("git reset --hard HEAD~5")).toBe("deny");
 		expect(verdict("git reset --soft main")).toBe("allow");
 		expect(verdict("git reset --soft side")).toBe("deny");
 	});
 
-	/* An empty ref, and one of NULs a sha and its newline long. */
 	it.each([
 		"git update-ref refs/heads/main HEAD",
 		"git reset --hard HEAD~1",
@@ -295,14 +264,6 @@ describe("each production read, crossed once", () => {
 	});
 });
 
-/*
- * mantahostels#2068. git-fixture.ts's own leak scan already proves no copy
- * still carries the template's path. What is left to assert here is what that
- * scan cannot see: that relink() wrote THIS instance's own path rather than
- * some third, wrong one, and — the BEHAVIOURAL limb — that a write made in the
- * instantiated copy does not reach a second, independent instantiation of the
- * same template.
- */
 describe("the copied fixture is isolated from its template (mantahostels#2068)", () => {
 	const freshCopy = () => {
 		const fresh = mkScratchDir("guard-pull-form-fresh-");
@@ -316,8 +277,6 @@ describe("the copied fixture is isolated from its template (mantahostels#2068)",
 	};
 
 	it("a commit made in the copied WORKTREE leaves the template untouched", () => {
-		// The worktree shares its parent's object store, so a stale gitdir
-		// pointer here writes into the template rather than failing loudly.
 		fs.writeFileSync(path.join(worktree, "c.md"), "c\n");
 		git(worktree, "add", "c.md");
 		git(worktree, "commit", "-qm", "worktree copy only", "--", "c.md");
@@ -334,11 +293,6 @@ describe("the copied fixture is isolated from its template (mantahostels#2068)",
 	});
 
 	it("each copy's core.hooksPath is relinked, not left pointing at the template", () => {
-		// Reads back the relinked path directly (mantahostels#2193): anchoring
-		// on `dir`, this instance's own root, is what tells a relinked path
-		// apart from a leaked one. This block sits last in the file so the
-		// beforeEach instance is a LATE instantiation (mantahostels#2232); run
-		// alone, it becomes the first, and that limb goes unasserted.
 		for (const repo of [shared, elsewhere]) {
 			const hooksPath = git(repo, "config", "core.hooksPath").trim();
 			expect(hooksPath).toBe(path.join(dir, "no-hooks"));

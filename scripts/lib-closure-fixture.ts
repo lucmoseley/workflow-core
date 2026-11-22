@@ -1,9 +1,3 @@
-/*
- * The lib/ collectors (`readRequiredLibs`, `readProgramLibs`) and their copier
- * `copyLibs`, which any test copying a script into a detached fixture uses
- * (#2256, #2272).
- */
-
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -15,11 +9,6 @@ const { requiredGroup }: typeof import("./lib/regex-group.js") = createRequire(
 const SIBLING_REQUIRE = /require\("\.\/([^"]+)"\)/g;
 const PROGRAM_LIB_REQUIRE = /require\("\.\/lib\/([^"]+)"\)/g;
 
-/**
- * The lib/ files `text` requires through `pattern`, as .js filenames. A name
- * with no file is skipped, as a comment's `require("./lib/x")` is; a real
- * require of one fails the fixture's run as MODULE_NOT_FOUND.
- */
 const requiresOf = (pattern: RegExp) => (text: string) =>
 	[...text.matchAll(pattern)]
 		.map((m) => {
@@ -28,18 +17,10 @@ const requiresOf = (pattern: RegExp) => (text: string) =>
 		})
 		.filter((lib) => fs.existsSync(path.resolve(__dirname, "lib", lib)));
 
-/**
- * The lib/ data files a lib reads by path rather than requiring, so no
- * require walk finds them; a closure holding the lib carries them too.
- */
 const READ_BY_PATH: Record<string, string[]> = {
 	"model-table.js": ["model-routing.json"],
 };
 
-/**
- * `entry` and every lib/ file it requires, transitively, as bare filenames,
- * with the data files READ_BY_PATH names for them.
- */
 const readRequiredLibs = (entry: string): string[] => {
 	const libs = [
 		entry,
@@ -51,12 +32,6 @@ const readRequiredLibs = (entry: string): string[] => {
 	return [...libs, ...libs.flatMap((lib) => READ_BY_PATH[lib] ?? [])];
 };
 
-/**
- * Every lib/ file a scripts/ program requires, transitively, as bare
- * filenames: what a plugin-install fixture copies beside `program`, which is
- * left out (#2256). Reads only the double-quoted `require("./lib/…")` form
- * Biome writes; a miss fails the fixture's run as MODULE_NOT_FOUND.
- */
 export const readProgramLibs = (program: string): string[] => [
 	...new Set(
 		requiresOf(PROGRAM_LIB_REQUIRE)(
@@ -75,7 +50,6 @@ export const copyLibs = (
 		fs.copyFileSync(path.resolve(__dirname, "lib", lib), path.join(dest, lib));
 };
 
-/** Every lib/ file reachable from `text` through `named`, read from lib/. */
 const readLibClosure = (text: string, named: (text: string) => string[]) => {
 	const out = new Set<string>();
 	const queue = named(text);

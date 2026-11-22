@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * concurrency-readout.js's unlisted watch with the refill loop off (#3496):
- * its newest tick is stale, so the watch reads admission live. A break here
- * leaves a session admission cannot see unraised while the loop is off,
- * which it is unless being tested (#3215).
- *
- * The program runs in-process over a refill record holding a stale tick, and
- * spawns the real admission.js over fake `ps`, `/proc`, `claude` and meminfo,
- * so its live read finds one claimed pair that no listing names. Which row the
- * watch reads, tick or live, is lib/concurrency.test.ts's.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -27,7 +16,6 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 
-/* Past lib/concurrency.js's staleness bound. */
 const STALE_AGE_MS = 30 * 60 * 1000;
 
 const SCRIPT = path.resolve(__dirname, "concurrency-readout.js");
@@ -39,10 +27,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The readout over a machine running one claimed pair, `abc`, that a
- * listing of this session alone does not name; `refused` fails the listing,
- * `empty` runs outside any session over an empty one, and `fresh` seeds a
- * fresh tick. */
 const run = ({ refused = false, empty = false, fresh = false } = {}) => {
 	const refill = path.join(dir, "refill");
 	fs.mkdirSync(refill, { recursive: true });

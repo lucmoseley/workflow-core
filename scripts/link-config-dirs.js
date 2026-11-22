@@ -1,39 +1,4 @@
 #!/usr/bin/env node
-/*
- * link-config-dirs.js — makes every sibling Claude config dir (`~/.claude2`,
- * `~/.claude3`, …) share `~/.claude`'s config by symlink, so the plans cannot
- * drift apart (#107).
- *
- * Usage:
- *   node scripts/link-config-dirs.js            merge, then link
- *   node scripts/link-config-dirs.js --check    report; exit 1 on any drift.
- *                                               `npm run status` runs it.
- *   [--home <dir>]                              the dir holding `.claude*`
- *
- * WHY. One `CLAUDE_CONFIG_DIR` per plan (docs/environment.md §13). Each plan
- * kept its own `plugins/`, so a plugin installed or upgraded under one was
- * missing or stale under the others.
- *
- * SHARED is what is config rather than per-account state. Credentials,
- * `.claude.json`, sessions, jobs, projects, history and caches stay per dir.
- *
- * THE MERGE IS LOSSLESS BY CONSTRUCTION. What the sibling holds and `~/.claude`
- * lacks is copied in; where both hold a file and they differ, `~/.claude`'s
- * wins, except the two plugin registries, which are merged entry by entry. A
- * git clone and a cached plugin version are UNITS: where both hold one,
- * `~/.claude`'s is kept whole, never spliced file by file with the sibling's.
- * The sibling's own copy is then MOVED to `<sibling>/.pre-link/<entry>`, and a
- * registry `~/.claude` held is copied to `~/.claude/.pre-link/` before the merge
- * rewrites it.
- *
- * LIVE SESSIONS. The swap is a rename then a symlink, a window of
- * microseconds in which the path is absent. A version directory a running
- * session loaded from stays reachable after it, because the union copies every
- * version in before the swap.
- *
- * Not a SessionStart hook (#2038): no session links an entry on reading the
- * line, so drift is read on `npm run status`.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -92,8 +57,6 @@ function state(sibling, canonical, entry) {
 	} catch {
 		return fs.existsSync(want) ? "missing" : "absent";
 	}
-	/* DIRECTLY at `~/.claude`'s entry: a chain through another sibling resolves
-	 * the same today and breaks the day that sibling's link moves. */
 	if (st.isSymbolicLink()) {
 		return path.resolve(sibling, fs.readlinkSync(at)) === want &&
 			readRealOrNull(want) !== null
@@ -104,8 +67,8 @@ function state(sibling, canonical, entry) {
 }
 
 /**
- * A clone or one cached plugin version: kept or taken whole, never spliced.
- * @param {string} dir @param {string} rel
+ * @param {string} dir
+ * @param {string} rel
  */
 function isUnit(dir, rel) {
 	return (
@@ -115,8 +78,8 @@ function isUnit(dir, rel) {
 }
 
 /**
- * Re-homes a registry copied whole from the sibling, as the merge would.
- * @param {string} sibling @param {string} canonical
+ * @param {string} sibling
+ * @param {string} canonical
  */
 function rehomeRegistries(sibling, canonical) {
 	for (const [rel, merge] of Object.entries(REGISTRIES)) {
@@ -145,8 +108,9 @@ function sameFile(a, b) {
 }
 
 /**
- * Rewrites a path under the sibling's dir to the same path under canonical's.
- * @param {unknown} p @param {string} sibling @param {string} canonical
+ * @param {unknown} p
+ * @param {string} sibling
+ * @param {string} canonical
  */
 function rehome(p, sibling, canonical) {
 	return typeof p === "string" &&
@@ -157,8 +121,8 @@ function rehome(p, sibling, canonical) {
 }
 
 /**
- * Newer `lastUpdated` wins; a tie keeps `ours`.
- * @param {any} ours @param {any} theirs
+ * @param {any} ours
+ * @param {any} theirs
  */
 function newer(ours, theirs) {
 	return String(theirs?.lastUpdated ?? "") > String(ours?.lastUpdated ?? "")
@@ -167,9 +131,10 @@ function newer(ours, theirs) {
 }
 
 /**
- * `{version, plugins: {id: [{scope, projectPath?, installPath, …}]}}`, keyed
- * per id by scope and project.
- * @param {any} ours @param {any} theirs @param {string} sibling @param {string} canonical
+ * @param {any} ours
+ * @param {any} theirs
+ * @param {string} sibling
+ * @param {string} canonical
  */
 function mergeInstalled(ours, theirs, sibling, canonical) {
 	const out = { ...ours, plugins: { ...(ours.plugins ?? {}) } };
@@ -191,8 +156,10 @@ function mergeInstalled(ours, theirs, sibling, canonical) {
 }
 
 /**
- * `{name: {source, installLocation, lastUpdated}}`.
- * @param {any} ours @param {any} theirs @param {string} sibling @param {string} canonical
+ * @param {any} ours
+ * @param {any} theirs
+ * @param {string} sibling
+ * @param {string} canonical
  */
 function mergeMarketplaces(ours, theirs, sibling, canonical) {
 	const out = { ...ours };
@@ -207,12 +174,10 @@ function mergeMarketplaces(ours, theirs, sibling, canonical) {
 }
 
 /**
- * Copies what `from` holds and `to` lacks, recursively; merges registries;
- * records every file both hold with different bytes.
  * @param {string} from
  * @param {string} to
- * @param {string} rel entry-relative path, for registry lookup and reporting
- * @param {{sibling: string, canonical: string, kept: string[]}} ctx accumulator: kept is filled; sibling and canonical are read
+ * @param {string} rel
+ * @param {{sibling: string, canonical: string, kept: string[]}} ctx
  */
 function union(from, to, rel, ctx) {
 	const st = fs.lstatSync(from);
@@ -243,8 +208,10 @@ function union(from, to, rel, ctx) {
 }
 
 /**
- * @param {string} from @param {string} to @param {string} rel
- * @param {{sibling: string, canonical: string, kept: string[]}} ctx accumulator: kept is filled; sibling and canonical are read
+ * @param {string} from
+ * @param {string} to
+ * @param {string} rel
+ * @param {{sibling: string, canonical: string, kept: string[]}} ctx
  */
 function unionDirs(from, to, rel, ctx) {
 	if (isUnit(from, rel) || isUnit(to, rel)) {
@@ -262,10 +229,9 @@ function unionDirs(from, to, rel, ctx) {
 }
 
 /**
- * Merges a differing registry into canonical's copy, backing that copy up
- * first; false where `rel` is no registry, either side will not parse, or the
- * backup or write fails.
- * @param {string} from @param {string} to @param {string} rel
+ * @param {string} from
+ * @param {string} to
+ * @param {string} rel
  * @param {{sibling: string, canonical: string, kept: string[]}} ctx
  * @returns {boolean}
  */
@@ -298,10 +264,7 @@ function isLink(p) {
 	}
 }
 
-/**
- * `p`, or `p.<n>` for the first `n` nothing occupies.
- * @param {string} p
- */
+/** @param {string} p */
 function unique(p) {
 	let dest = p;
 	for (let n = 1; fs.existsSync(dest) || isLink(dest); n++) dest = `${p}.${n}`;
@@ -309,9 +272,8 @@ function unique(p) {
 }
 
 /**
- * Moves `<sibling>/<entry>` under the sibling's backup dir, never overwriting
- * one, and returns where it went.
- * @param {string} sibling @param {string} entry
+ * @param {string} sibling
+ * @param {string} entry
  */
 function backUp(sibling, entry) {
 	const dir = path.join(sibling, BACKUP);
@@ -322,8 +284,9 @@ function backUp(sibling, entry) {
 }
 
 /**
- * Replaces nothing: `<sibling>/<entry>` must already be free.
- * @param {string} sibling @param {string} canonical @param {string} entry
+ * @param {string} sibling
+ * @param {string} canonical
+ * @param {string} entry
  */
 function link(sibling, canonical, entry) {
 	const at = path.join(sibling, entry);
@@ -335,22 +298,19 @@ function link(sibling, canonical, entry) {
  * @property {string} sibling
  * @property {string} canonical
  * @property {string} entry
- * @property {"missing"|"diverged"|"misdirected"} s the entry's drifted state
+ * @property {"missing"|"diverged"|"misdirected"} s
  * @property {(line: string) => void} out
- * @property {string[]} kept every differing path canonical's copy won, appended to
+ * @property {string[]} kept
  */
 
 /**
- * Links one drifted entry to `~/.claude`'s, merging a diverged copy in first.
  * @param {EntryFix} fix
- * @returns {string | null} the path linked, or null where it was left
+ * @returns {string | null}
  */
 function fixEntry(fix) {
 	const { sibling, canonical, entry, s, out } = fix;
 	const at = path.join(sibling, entry);
 	const want = path.join(canonical, entry);
-	/* A link aimed elsewhere, with nothing at `~/.claude` to aim it at:
-	 * take what it resolves to, or leave it rather than dangle it. */
 	if (s === "misdirected" && !fs.existsSync(want)) {
 		const target = readRealOrNull(at);
 		if (target === null) {
@@ -457,7 +417,6 @@ function main(argv) {
 function report(drift, check, out) {
 	if (check) {
 		for (const d of drift) out(`${d.state}\t${path.join(d.sibling, d.entry)}`);
-		/* `OK:`, so `npm run status` folds a clean run away. */
 		if (drift.length === 0)
 			out("OK: every shared entry is linked to ~/.claude");
 		else out(`Fix: node ${path.join(__dirname, "link-config-dirs.js")}`);

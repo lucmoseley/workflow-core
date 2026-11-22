@@ -111,31 +111,23 @@ const {
 	withWait,
 } = require("./wait-text.js");
 
-/** The rolling window, in seconds: five minutes, a guess never measured —
- * wide enough to hold two beats of the prescribed `sleep 120` cadence, which
- * the timed watches' allowance is set against. */
+// guess, #5529
 const WINDOW = 300;
 
-/** Each route's allowance, its derivation in the header above. */
+// guess, #482
 const ALLOWANCE = { agents: 2, read: 2, noop: 1, check: 3, "check:job": 3 };
 
 /** @type {Record<number, string>} */
 const NUMBER_WORDS = { 1: "one", 2: "two", 3: "three", 4: "four", 5: "five" };
 
-/** `n` as a word, where the refusal texts spell it. @param {number} n */
+/** @param {number} n */
 const spelt = (n) => NUMBER_WORDS[n] ?? String(n);
 
-/** `s` with its first letter capitalised. @param {string} s */
+/** @param {string} s */
 const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** The window as the texts say it: `five minutes`. */
 const WINDOW_TEXT = `${spelt(WINDOW / 60)} minutes`;
 
-/* Bash opens a comment only at a word start, so whitespace or `;` must part
- * the `#` from the no-op word: `true#x` runs the command `true#x` (#4610).
- * It ends a comment only at a newline, so every line after the first `#`
- * must be blank or a comment too (#4037). Each comment ends at a newline or
- * the end, so no two quantifiers share a span: the match stays linear. */
 const NOOP =
 	/^[ \t\n\v\f\r]*(true|:|exit([ \t\n\v\f\r]+0)?)(?:(?:[ \t\n\v\f\r]+|[ \t\n\v\f\r]*;[ \t\n\v\f\r]*)(?:#[^\n]*(?:\n[ \t\n\v\f\r]*|$))*)?$/;
 const SLEEP = /^[ \t\n\v\f\r]*sleep[ \t\n\v\f\r]+[0-9]/;
@@ -144,7 +136,6 @@ const JOB_BEAT = /bg-run\.sh[ \t\n\v\f\r]+check([ \t\n\v\f\r]|$)/;
 const WATCH =
 	"node scripts/watch-artefact.js <artefact> 120 --log <output_file>";
 
-/** The parent's refusals, WAIT_SLOT holding PARENT_WAIT's place (#1779). */
 const NOOP_REASON = `Ending a turn is not a tool call. A no-op command like \`true\` re-invokes this session — which is why the loop it is meant to break keeps going. End the turn by emitting your final text with NO tool call at all, and stop: ${WAIT_SLOT}, so each no-op is a full-context turn spent learning nothing.`;
 const READ_REASON = `Instead: a subagent, one backgrounded \`${WATCH}\`; your next suite, in the foreground with \`timeout: 600000\`; a bg-run.sh job, \`scripts/bg-run.sh wait <name>\`. Then end the turn (a job: \`rule:job-holds-turn\`).
 Re-reading a background job's output file is a wait loop: ${WAIT_SLOT}, so each re-read is a full-context turn spent for nothing.`;
@@ -157,7 +148,6 @@ const PARENT_REASON = {
 	agents: AGENTS_REASON,
 };
 
-/** What a subagent's refusal says after its in-turn wait. */
 const SUBAGENT_WHY = {
 	noop: "A no-op like `true` waits on nothing. If your work is done, return your final report.",
 	read: "Re-reading a background job's output file is a wait loop, each re-read a full-context call spent for nothing.",
@@ -165,7 +155,6 @@ const SUBAGENT_WHY = {
 		"Polling ListAgents is a wait loop, and its elapsed-time column is stale.",
 };
 
-/** Each timed watch's warning parts. */
 const WATCHES = {
 	check: {
 		lead: "Timed checks under two minutes apart",
@@ -193,16 +182,11 @@ const WATCHES = {
  *   makeDir: (dir: string) => boolean,
  *   writeWindow: (file: string, text: string) => boolean,
  *   sweep: (dir: string, now: number) => void,
- * }} PollContext the kit's, and lib/agent-poll-host.js's
+ * }} PollContext
  * @typedef {{ key: string, allowance: number, kind: "agents" | "read" | "noop" | "check" | "check:job" }} Route
  */
 
 /**
- * Which route the call takes, or null for a call this core leaves alone. An
- * absent tool name reads as ListAgents only where the payload carries no tool
- * input either: that is the shape the guard was built against, and folding a
- * real Bash or Read call into that bucket would deny it with a reason about
- * polling at a session that never polled.
  * @param {PollContext} ctx
  * @returns {Route | null}
  */
@@ -213,7 +197,6 @@ function route(ctx) {
 	if (tool === "ListAgents")
 		return { key: "agents", allowance: ALLOWANCE.agents, kind: "agents" };
 	if (tool === "Read") {
-		/* A background job's output file, wherever the harness puts it. */
 		if (!/\/tasks\/.*\.output$/s.test(file)) return null;
 		return {
 			key: `read:${file.replace(/^.*\//s, "")}`,
@@ -222,29 +205,22 @@ function route(ctx) {
 		};
 	}
 	if (tool !== "Bash") return null;
-	/* The WHOLE command must be inert. `make || true` runs make; only a command
-	 * that is nothing but the no-op is a turn-end that is not one. */
 	if (NOOP.test(command))
 		return { key: "noop", allowance: ALLOWANCE.noop, kind: "noop" };
 	if (!SLEEP.test(command)) return null;
-	/* The job beat names bg-run.sh; anything else is the artefact check. */
 	return JOB_BEAT.test(command)
 		? { key: "check:job", allowance: ALLOWANCE["check:job"], kind: "check:job" }
 		: { key: "check", allowance: ALLOWANCE.check, kind: "check" };
 }
 
 /**
- * Every call still inside the window, whatever its key — one route's
- * allowance must not be spent by another's — and how many are this key's.
- * @param {string} raw the window file's text
+ * @param {string} raw
  * @param {string} key
  * @param {number} now
  */
 function inWindow(raw, key, now) {
 	const recent = [];
 	let hits = 0;
-	/* A record is `<unix seconds>\t<key>`, newline-ended; one with no count
-	 * for a stamp is dropped. */
 	for (const [stamp = "", k = ""] of tabRecords(raw, 2)) {
 		if (!/^[0-9]+$/.test(stamp)) continue;
 		if (now - Number(stamp) >= WINDOW) continue;
@@ -255,8 +231,6 @@ function inWindow(raw, key, now) {
 }
 
 /**
- * The text past the allowance: `{ warning }` for a timed watch, which runs,
- * `{ reason }` for a refusal.
  * @param {Route} r
  * @param {boolean} subagent
  * @param {PollContext} ctx
@@ -271,8 +245,6 @@ function overText(r, subagent, ctx) {
 			return {
 				warning: `${head} ${next}. Act on what it says: ${ceiling} Meanwhile end the turn — the backgrounded watch is what wakes this session, and it cannot while a tool call of yours is in flight.`,
 			};
-		/* The artefact check's ceiling abandons a watched subagent, which a
-		 * subagent never has; the job beat's still says when to stop waiting. */
 		return {
 			warning:
 				r.kind === "check"
@@ -296,17 +268,9 @@ function decide(session, ctx) {
 	const r = route(ctx);
 	if (!r) return null;
 	const agent = ctx.agentLabel;
-	/* Keyed per session, outside the repo: scratch state, never an artefact.
-	 * The session reaches the filesystem, so anything that is not a plain
-	 * identifier is replaced; the key shares the sanitiser, since a tab or a
-	 * newline in it would split one record into two. A subagent's file is its
-	 * session's plus `.a<agent_id>`; the sanitised session holds no `.`, so no
-	 * session's file can be mistaken for one. */
 	const key = r.key.replace(/[^A-Za-z0-9_.:-]/g, "_");
 	const dir = scratchDir(ctx.env, "agent-poll");
 	const file = `${dir}/${segment(session)}${agent === "main" ? "" : `.${agent}`}`;
-	/* Cannot record => cannot judge: an unwritable TMPDIR would otherwise leave
-	 * a disarmed guard looking like one that keeps finding nothing wrong. */
 	if (!ctx.makeDir(dir)) {
 		ctx.log(`could not create ${dir} — poll allowed unchecked`);
 		return null;
@@ -321,16 +285,11 @@ function decide(session, ctx) {
 	let warning = "";
 	if (hits >= r.allowance) {
 		const over = overText(r, agent !== "main", ctx);
-		/* A denied call is not recorded: it is not a poll, and recording it
-		 * would keep the window alive forever under a retry loop. */
 		if ("reason" in over) return { deny: ctx.corePaths(over.reason) };
 		warning = over.warning;
 	}
 	ctx.sweep(dir, now);
 	recent.push(`${now}\t${key}`);
-	/* A warned watch ran, so it is recorded too: the warning keeps firing for
-	 * as long as the cadence stays under two minutes. A failed write loses the
-	 * record, never the warning. */
 	if (!ctx.writeWindow(file, `${recent.join("\n")}\n`))
 		ctx.log(`could not write ${file} — this call went unrecorded`);
 	return warning ? { context: ctx.corePaths(warning) } : null;

@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/guard-main-checkout-job.js against real git (#4340): a bare origin
- * carrying `main` and `landing`, a main checkout cloned from it, a job
- * directory holding the harness's record, and the shared fake `claude`
- * (lib/bg-launch-fake.ts) with each call logged.
- *
- * Loosen it and an agents-view job edits in the main checkout, the copy runs
- * on another plan or under the original's job identity, or a failed relaunch
- * leaves the session unaware of the worktree cut for it.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -25,8 +15,9 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "guard-main-checkout-job.js");
-/* The guard's two claude calls at 60 s each, and 10 s for node. */
-const LAUNCH_ROOM_MS = 130_000;
+const CLAUDE_TIMEOUT_MS = 60_000;
+const NODE_START_MS = 10_000;
+const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + NODE_START_MS;
 
 let tmp: string;
 let main: string;
@@ -47,7 +38,6 @@ const RECORD = {
 	providerEnv: { WFC_PROBE_PROVIDER: "carried" },
 };
 
-/* Each call's argv, cwd and the environment the guard hands the job. */
 const CALL_LOGGER = `const fs = require("node:fs");
 fs.appendFileSync(process.env.FAKE_CALLS, JSON.stringify({
 	args: process.argv.slice(2), cwd: process.cwd(),
@@ -58,8 +48,6 @@ fs.appendFileSync(process.env.FAKE_CALLS, JSON.stringify({
 }) + "\\n");
 `;
 
-/** The fake `claude`: the recorded launch, or `bgFail` on stderr at exit 1,
- * and the recording's `rm` removal. */
 const writeFakeClaude = ({
 	bgFail,
 	rm = "ok",
@@ -254,8 +242,6 @@ it("carries a file the prompt names through a symlinked spelling of the job's di
 	);
 });
 
-/* Program cases, not module ones on `decide`: they pin the real copy's
- * failure and the real `..` resolution, which a stubbed `carry` would not. */
 it("relaunches nothing where a file the prompt names will not copy, so removal never deletes it (#4750)", () => {
 	const shots = path.join(jobDir, "tmp", "shots");
 	fs.mkdirSync(shots, { recursive: true });

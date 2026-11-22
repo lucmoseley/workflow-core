@@ -48,22 +48,10 @@ const {
 	turnRecords,
 } = require("./lib/transcript.js");
 
-/** Human-readable output, written so it survives `process.exit` (§N6). */
 const out = (/** @type {string} */ text) => writeFd(1, `${text}\n`);
 const fail = (/** @type {string} */ text) => writeFd(2, `${text}\n`);
 
 /**
- * One session on all three scales.
- *
- * `responses` counts distinct keys exactly as `countTurns` does, and
- * `crossedAt` is the response ordinal that first reached `threshold`, so the
- * band can be read straight off the pair.
- * `records` and `toolCalls` are the same session on the scales the older
- * figures were written on, and `crossedAtRecord` / `crossedAtToolCall` are the
- * crossing counted on each: measured where it happened rather than converted
- * from `crossedAt` at the session's average ratio, which is close but not the
- * same number.
- *
  * @param {string} text
  * @param {number} threshold
  */
@@ -88,9 +76,6 @@ function sessionRow(text, threshold) {
 		records += 1;
 		toolCalls += toolUses(record);
 		if (key) {
-			/* An already-seen key is the same API response written out again. It
-			 * repeats the same usage, so skipping it moves no reading — only the
-			 * ordinal, which must not advance. */
 			if (seen.has(key)) continue;
 			seen.add(key);
 		} else unkeyed += 1;
@@ -114,7 +99,6 @@ function sessionRow(text, threshold) {
 }
 
 /**
- * How many tool calls one assistant record makes.
  * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @returns {number}
  */
@@ -127,8 +111,6 @@ function toolUses(record) {
 }
 
 /**
- * The value at `p` of a population, nearest-rank. `0` on an empty one, which
- * every caller guards before printing.
  * @param {number[]} xs
  * @param {number} p
  */
@@ -139,14 +121,9 @@ function percentile(xs, p) {
 	return at === undefined ? 0 : at;
 }
 
-/** A count as the report prints it. */
 const num = (/** @type {number} */ v) => v.toLocaleString("en-GB");
 
-/**
- * `--threshold` and `--band`, defaulted; NaN where one was given but is not a
- * number.
- * @param {import("./lib/cli-args").Parsed["flags"]} flags
- */
+/** @param {import("./lib/cli-args").Parsed["flags"]} flags */
 function readNumbers(flags) {
 	const arg = (/** @type {string} */ name, /** @type {number} */ fallback) => {
 		const value = flagValue(flags, name);
@@ -154,18 +131,13 @@ function readNumbers(flags) {
 		const n = Number(value);
 		return Number.isFinite(n) ? n : Number.NaN;
 	};
-	/* The defaults mirror `guard-session-ceiling.js`'s `WIND_UP` and `TURN_BAND`,
-	 * which export nothing. Move either there and this measures the old one
-	 * silently, so re-price both. */
 	const threshold = arg("--threshold", 200_000);
 	const band = arg("--band", 100);
 	return { threshold, band };
 }
 
 /**
- * One row per `cli` session that made at least one API response, and the
- * transcripts that would not open.
- * @param {string[]} files paths
+ * @param {string[]} files
  * @param {number} threshold
  */
 function readRows(files, threshold) {
@@ -178,9 +150,6 @@ function readRows(files, threshold) {
 		try {
 			text = fs.readFileSync(f, "utf8");
 		} catch (e) {
-			/* Never silent: a transcript that would not open is a session missing
-			 * from the denominator, and a calibration whose `n` is quietly short
-			 * misreports it. */
 			unread.push(`${f}: ${errMessage(e)}`);
 			continue;
 		}
@@ -192,15 +161,12 @@ function readRows(files, threshold) {
 }
 
 /**
- * The share of `total` that `part` is, as a percentage to one place.
  * @param {number} part
  * @param {number} total
  */
 const share = (part, total) => ((100 * part) / total).toFixed(1);
 
 /**
- * The crossing section: where `threshold` tokens is first reached, on all
- * three scales.
  * @param {ReturnType<typeof sessionRow>[]} rows
  * @param {number} threshold
  */
@@ -245,7 +211,6 @@ function main(argv) {
 		return 2;
 	}
 
-	/* Derived from THIS CHECKOUT, never a literal and never the cwd (mantahostels#1982). */
 	const dirs = corpusDirs(process.env.WFC_TRANSCRIPT_DIR);
 	const where = dirs.join(", ");
 

@@ -1,53 +1,13 @@
-/*
- * adopter-ci.js — renders the core-owned CI workflow of a private adopter
- * (#5347, ruled on #5343). core-owned-files.js writes
- * it where `.claude/workflow-core.json` carries a `ci` key, and removes the
- * core's copy where the key is gone.
- *
- * SIZED TO THE ACCOUNT'S 3,000 PRO MINUTES, which every private repo of the
- * account shares (#5343's research):
- *   - ONE JOB, since GitHub rounds every job up to a whole minute. It runs the
- *     plugin's adopter-ci.js: the repo's own declared commands, then every
- *     shipped tree check whose gate holds. Semgrep CE follows in the same
- *     job, in place of CodeQL, which a Pro account cannot run on private code.
- *   - ON PUSH TO `main` ONLY, no manual trigger and never a `lander/*` ref: the lander's local
- *     tester gates before landing (lib/local-tester.js).
- *   - THE RUNNER the key names: `ubuntu-slim` (1 core, a third of the
- *     standard rate) where the job fits, else `ubuntu-24.04-arm`. Node is
- *     set to 24, as on the founder's machine, since the two images carry
- *     different versions; both carry Python 3.12.
- *   - A JOB CEILING, `timeoutMinutes`, default 15: a hung job bills until it
- *     is killed. GitHub ends a slim job at 15 whatever is set.
- *
- * NOTHING OF THE CORE'S OWN SUITE: no hourly alarm crons, no
- * bisect or named rerun. A stalled adopter queue is the refill loop's to
- * notice (#5343 Q1).
- *
- * THE FALLBACK, should the account's use pass 60% of the pool: swap the push
- * trigger here for one run a night when `main` has moved (#5347).
- *
- * THE PLUGIN IS CHECKED OUT AT THE TAG `.claude/settings.json` PINS, read at
- * run time so a bump needs no rewrite of this file. workflow-core is public,
- * so the checkout needs no key.
- */
-
-/** The workflow's path in the adopter. */
 const CI_WORKFLOW = ".github/workflows/workflow-core-ci.yml";
 
-/** The first line of every copy the core writes; a file without it is the
- * adopter's own and never touched. */
 const CI_MARKER = "# CORE-OWNED.";
 
-/* About five times the 2.9-minute job #5347's close measured; a guess past
- * that, carried as one there. */
+// 2.9 min measured, #5347
 const DEFAULT_TIMEOUT_MINUTES = 15;
 
-/* actions/checkout v4, pinned to a full commit sha as GitHub's secure-use
- * guidance asks (docs/practice/ci-and-repo-quality-gates.md). */
 const CHECKOUT = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262";
 const SETUP_NODE =
 	"actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
-/* Pinned, never floating: a release older than two weeks at pinning. */
 const SEMGREP = "1.182.1";
 
 /**
@@ -150,10 +110,7 @@ jobs:
 `;
 }
 
-/**
- * Whether `text` is a copy the core wrote.
- * @param {string} text
- */
+/** @param {string} text */
 const isCoreCi = (text) => text.startsWith(CI_MARKER);
 
 module.exports = {

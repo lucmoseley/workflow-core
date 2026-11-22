@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * report-close-check-reading.test.ts — the week-one close-check reading
- * (#1103, #1104, spec #1091). Break it and the reading lands on the wrong
- * day, counts the founder's replies wrongly, judges a failure line the wrong
- * way, or files its issue early or twice.
- *
- * Each case builds a scratch home of three seats and four adopter checkouts
- * (git-initialised, each carrying a workflow-core config), writes transcripts
- * and close-check logs into them, and runs the
- * script in-process with `gh` stubbed, because the real corpus is
- * machine-local and the real issue must never be filed by a test.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -29,13 +17,10 @@ import { seatDirs } from "./lib/seat-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-close-check-reading.js");
-/* The issue title and the marker file the script names, restated so a rename
- * fails here rather than passing unseen. */
 const TITLE =
 	"Close-check reading: has refusing close questions once stopped the separation prompts?";
 const FILED = ".close-check-reading-filed";
 const DATA = "docs/data/close-rounds-2026-10-09";
-/* Spelt whole, not off DATA, so the read-graph pass sees this test read them. */
 const PROMPTS = path.join(
 	__dirname,
 	"..",
@@ -82,7 +67,6 @@ beforeEach(() => {
 	for (const [name, r] of Object.entries(roots)) {
 		fs.mkdirSync(path.join(r, ".claude"), { recursive: true });
 		execFileSync("git", ["init", "-q", r]);
-		/* fantasy-books opts out of away mode, and is read all the same. */
 		fs.writeFileSync(
 			path.join(r, ".claude", "workflow-core.json"),
 			JSON.stringify({
@@ -104,8 +88,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
-/** A session's transcript, under the repo's slug on seat `seat`, its records
- *  stamped with the repo's root as cwd. Founder replies at the given times. */
 const session = (
 	repo: Repo,
 	id: string,
@@ -141,7 +123,6 @@ const session = (
 	);
 };
 
-/** One close-check event, through the guard's own writer. */
 const log = (
 	repo: Repo,
 	at: number,
@@ -158,7 +139,6 @@ const log = (
 		CLOSE_CHECK_LOG,
 	);
 
-/** Every repo live at T0, so the clock starts there. */
 const allLive = () => {
 	for (const repo of Object.keys(roots) as Repo[]) {
 		log(repo, T0, `live-${repo}`, { kind: "refused", slot: 1 });
@@ -166,8 +146,6 @@ const allLive = () => {
 	}
 };
 
-/** `n` refused-then-answered questions in one workflow-core session, the
- *  i-th passing at `start + i h` and answered a minute later. */
 const answered = (
 	n: number,
 	start: number,
@@ -211,16 +189,12 @@ const run = (
 		},
 	);
 
-/** A normal run's stdout, its exit 0 asserted. */
 const read = (now: number) => {
 	const r = run(now);
 	expect(r.status).toBe(0);
 	return r.stdout;
 };
 
-/** Which of `texts` the reading counts as the stock prompt: each answers its
- *  own refused question, and a reply the reading does not list to classify is
- *  one it counted in the stock floor. */
 const stockOf = (texts: string[]) => {
 	allLive();
 	const replies = texts.map((text, i) => {
@@ -349,7 +323,6 @@ describe("the reading point", () => {
 	it("is the 40th answer where it came after 7 days", () => {
 		allLive();
 		answered(40, T0 + 6 * DAY);
-		// The 40th passes at +6d+39h and is answered a minute later.
 		const out = read(T0 + 9 * DAY);
 		expect(out).toMatch(/Reading point: 2026-10-17 15:01 — the later of/);
 		expect(out).toMatch(/Reached/);
@@ -451,7 +424,6 @@ describe("the four figures", () => {
 			stillClose: true,
 			round: "4",
 		});
-		// Left out of the passing send: not a re-send.
 		log("workflow-core", T0 + 4, "u", {
 			kind: "passed-after-refusal",
 			toolCalls: 0,
@@ -523,7 +495,6 @@ describe("the four figures", () => {
 			toolCalls: 1,
 		});
 		const out = read(T0 + 4 * DAY);
-		// 10 answered, 1 stock: the line needs 2.
 		expect(out).toMatch(
 			/stock floor 1 of 10 \(10%\).*Line 16%: undecided — fires if 1 of the 9 listed repl\(ies\) are prompts/,
 		);
@@ -552,7 +523,6 @@ describe("the four figures", () => {
 		});
 		session("workflow-core", "c", []);
 		const out = read(T0 + DAY);
-		// The four live-* sessions and "c": 1 of 5.
 		expect(out).toMatch(
 			/3\. Cap spent: 1 of 5 \(20%\) .* Line 10%: FIRES — re-put the ceiling ruling \(#1067\)/,
 		);
@@ -701,7 +671,6 @@ describe("the research ladder (#2010)", () => {
 			flipped: false,
 			citesNewFact: true,
 		});
-		// Left out of its passing send: not a re-send.
 		log("workflow-core", L0 + 6, "e", {
 			kind: "passed-after-refusal",
 			stillClose: null,
@@ -761,7 +730,6 @@ describe("filing the reading (#1104)", () => {
 	const ghCalls = () =>
 		fs.existsSync(argvLog) ? fs.readFileSync(argvLog, "utf8") : "";
 
-	/** Without `failing`, gh is the logging stub below; with it, an unreachable gh. */
 	const stubGh = (opts: { failing?: boolean } = {}) => {
 		argvLog = path.join(home, "gh-argv.log");
 		issues = path.join(home, "issues.json");
@@ -781,7 +749,6 @@ describe("filing the reading (#1104)", () => {
 		).env;
 	};
 
-	/** A reading reached at T0 + 7 days, line 2 firing on the stock floor. */
 	const reachedReading = () => {
 		allLive();
 		answered(40, T0 + DAY, STOCK);
@@ -840,8 +807,6 @@ describe("filing the reading (#1104)", () => {
 		expect(ghCalls()).toBe("");
 	});
 
-	/** Records each listing or read under a seat's `projects/`, and throws on
-	 *  it, so a read the reporter does not catch fails the run as well. */
 	const watchSeatReads = () => {
 		const underSeats = (p: unknown) =>
 			typeof p !== "number" &&

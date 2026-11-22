@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which finished sessions the weekly retro's picker pools, excludes and
- * ranks by fault signal over its window, and how `--calibrate` draws controls.
- *
- * pick-retro-sessions.js, driven as a command against a fake home. Asserts on
- * stdout, stderr and the exit code only (#960).
- *
- * What a break costs: the weekly retro reads the wrong sessions — a live one
- * mid-flight, a headless probe, another repo's scratch — or a calibration batch
- * whose controls are not random, so its verdict on the ranking means nothing.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,7 +29,6 @@ const writeJson = (file: string, value: unknown) => {
 	fs.writeFileSync(file, JSON.stringify(value));
 };
 
-/* Records, each stamped after the session's first so only the header dates it. */
 const later = iso(NOW - HOUR * 30);
 const toolError = (text = "boom") =>
 	JSON.stringify({
@@ -109,7 +97,6 @@ interface SessionOpts {
 	changed?: number;
 }
 
-/** One session's main log (and subagent logs) under `cwd`'s slug; returns its path. */
 function session(cwd: string, id: string, opts: SessionOpts = {}) {
 	const {
 		seat = seats[0],
@@ -143,14 +130,12 @@ function session(cwd: string, id: string, opts: SessionOpts = {}) {
 	return file;
 }
 
-/** What the stub oracle lists, the calling session always among it for the self-test. */
 const oracleLists = (rows: Record<string, unknown>[]) =>
 	writeJson(path.join(home, "agents.json"), [
 		{ sessionId: "caller", kind: "interactive", state: "working" },
 		...rows,
 	]);
 
-/** One output row, as far as these cases read it. */
 interface Row {
 	sessionId: string;
 	transcript: string;
@@ -173,8 +158,6 @@ function run(args: string[] = [], env: Record<string, string> = {}) {
 		{
 			env: {
 				...process.env,
-				// A sibling of the seats, so the registry walk finds them and the
-				// oracle library's cache lands outside them.
 				CLAUDE_CONFIG_DIR: path.join(home, ".oracle-home"),
 				WFC_CLAUDE_BIN: path.join(home, "claude"),
 				WFC_NOW: iso(NOW),
@@ -187,7 +170,6 @@ function run(args: string[] = [], env: Record<string, string> = {}) {
 			},
 		},
 	);
-	// Null on a refusal, whose cases read stderr and never this.
 	const json = (
 		r.stdout.startsWith("{") ? JSON.parse(r.stdout) : null
 	) as Picked;
@@ -610,7 +592,6 @@ describe("command line", () => {
 		expect(out.stderr).toContain(log);
 	});
 
-	// Root lists a 0o000 directory, so the refusal never happens.
 	it.skipIf(typeof process.getuid === "function" && process.getuid() === 0)(
 		"names a seat whose projects directory cannot be read, and still exits 0 (#1054)",
 		() => {
@@ -652,7 +633,6 @@ describe("command line", () => {
 			const walk = (dir: string) => {
 				for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
 					const full = path.join(dir, e.name);
-					// The oracle's cache and its temp reads land here, beside the seats.
 					if (full === path.join(home, ".oracle-home") || full === systmp)
 						continue;
 					const st = fs.lstatSync(full);

@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * lib/cli-args.js's contract (#920), limb by limb: --help, an unknown flag, a
- * missing value, a boolean beside a positional, and per-subcommand specs.
- * It calls `parse` in-process and reads the CliExit it throws, so no case
- * exits the runner. One case spawns node: a full non-blocking pipe needs a real
- * fd, which run-in-process cannot give it.
- * Every script on the helper inherits these answers, so loosening a case here
- * loosens all of them.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -23,7 +14,6 @@ const SPEC = {
 	max: 1,
 } satisfies CliSpec;
 
-/** The CliExit a call throws, or a failure naming what it returned. */
 function exitOf(argv: string[], spec: CliSpec = SPEC) {
 	try {
 		const parsed = parse(argv, spec);
@@ -66,11 +56,9 @@ describe("parse", () => {
 	it("takes any value but a declared flag, inline or not", () => {
 		expect(parse(["--repo", "- [ ] x"], SPEC).flags["--repo"]).toBe("- [ ] x");
 		expect(parse(["--repo=--x"], SPEC).flags["--repo"]).toBe("--x");
-		/* A markdown rule passed to issue-body.js's --text (#920's review). */
 		expect(parse(["--repo", "---"], SPEC).flags["--repo"]).toBe("---");
 	});
 
-	/* #743's bug: a boolean flag swallowed the positional after it. */
 	it("never lets a boolean flag take the positional after it", () => {
 		expect(parse(["--dry-run", "42"], SPEC)).toEqual({
 			command: undefined,
@@ -170,7 +158,6 @@ describe("parseOrCode", () => {
 	});
 
 	it("returns the exit code where help or a refusal ends the run", () => {
-		// The whole text taken: a 0-byte answer holds writeFd for its 10 s ceiling.
 		const write = vi
 			.spyOn(fs, "writeSync")
 			.mockImplementation((_fd, data) => Buffer.byteLength(data as string));
@@ -185,9 +172,6 @@ describe("parseOrCode", () => {
 });
 
 describe("parseOrExit", () => {
-	/* A pipe can be non-blocking — a module the process loads that touches
-	 * process.stderr sets that on the pipe itself, which the script's first
-	 * statement stands in for. */
 	it("waits out a full non-blocking stderr pipe, keeping the refusal and its exit code (#1641)", () => {
 		const script = `process.stderr; require(${JSON.stringify(path.join(__dirname, "cli-args.js"))}).parseOrExit(["--bogus"], ${JSON.stringify(SPEC)});`;
 		expect(throughFullPipe(2, ["-e", script])).toBe(

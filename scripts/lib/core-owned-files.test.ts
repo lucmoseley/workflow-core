@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins core-owned-files.js through upgrade(), the run every adopter makes on
- * every bump (#1501). A new entry's paths are pinned through bringCoreFiles
- * and skeletonPaths directly (#1540); initPaths' half is in
- * ../init-adopter.test.ts.
- *
- * Breaking it leaves adopters on stale helpers and hooks after a bump, or
- * rewrites their settings and labels on every run.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -33,8 +24,6 @@ const HELPER = "scripts/browse.py";
 const PLUGIN_HELPER = "#!/usr/bin/env python3\nprint('plugin')\n";
 
 beforeEach(() => {
-	/* The suite injects WFC_MODULES, which replaces the declared list the
-	 * labels are planned from. */
 	vi.stubEnv("WFC_MODULES", undefined);
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "core-owned-test-"));
 	made.push(tmp);
@@ -73,7 +62,6 @@ afterEach(() => {
 	made = [];
 });
 
-/** One upgrade; `labels` absent, it reads and writes no label. */
 function run(labels?: Parameters<typeof upgrade>[0]["labels"]) {
 	const lines: string[] = [];
 	const r = upgrade({ root, pluginRoot, out: (l) => lines.push(l), labels });
@@ -195,7 +183,6 @@ describe("the CI workflow (#5347)", () => {
 		config({ runner: "ubuntu-slimm" });
 		expect(run().join("\n")).toContain(`skipped ${CI_WORKFLOW}: `);
 		expect(read()).toContain("runs-on: ubuntu-slim\n");
-		/* GitHub ends a single-CPU job at 15 minutes. */
 		config({ runner: "ubuntu-slim", timeoutMinutes: 16 });
 		expect(run().join("\n")).toContain("at most 15 on ubuntu-slim");
 		expect(read()).toContain("timeout-minutes: 15\n");
@@ -437,8 +424,6 @@ describe("the session cost table (#1734)", () => {
 	const tableRel = SESSION_COST_TABLE;
 	const scriptRel = "scripts/measure-session-cost.js";
 	const ledgerRel = ".claude/tmp/markers/.pick-next/dispatched.jsonl";
-	/* A stand-in for the plugin's script: the real one's pricing is
-	 * measure-session-cost.test.ts's to pin. */
 	const stub = (body: string) =>
 		write(pluginRoot, scriptRel, `const fs = require("node:fs");\n${body}\n`);
 	const readable = JSON.stringify({

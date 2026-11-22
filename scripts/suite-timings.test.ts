@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins suite-timings.js's command line: `extract` writes a dataset of every
- * file and reports its count and shares, `shares` recomputes them from a
- * dataset already written, and a bad argument prints usage rather than a file.
- *
- * The CLI's own suite, black-box (§X3): the real script is loaded end to end
- * through scripts/lib/run-in-process.js, and every case asserts the exit code
- * AND what the output says. The arithmetic behind the numbers is
- * scripts/lib/suite-timings.test.ts's, not this file's.
- *
- * A PLAIN TEMP DIR, NOT A TEMP GIT REPO. This script reads a JSON file and
- * writes a CSV; it never asks git anything — the same reason
- * `validate.test.ts` mints a plain directory.
- *
- * WHAT BREAKING THIS COSTS. `extract` is how a per-file timing dataset is made
- * at all (mantahostels#2039), and its output is a dated record — a run written
- * wrongly is superseded only by another full suite run.
- */
 
 import {
 	mkdirSync,
@@ -46,7 +28,6 @@ afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
-/** A vitest JSON report naming files under the real repo root, in ms. */
 const report = (files: [string, number][]) =>
 	JSON.stringify({
 		testResults: files.map(([name, ms]) => ({
@@ -57,15 +38,12 @@ const report = (files: [string, number][]) =>
 		})),
 	});
 
-/** Writes the report and returns the path the CLI should read. */
 const writeGivenReport = (files: [string, number][]) => {
 	const path = join(dir, "run.json");
 	writeFileSync(path, report(files));
 	return path;
 };
 
-/* The script relativises against the tree it runs in, so that is this
- * checkout the reports are named under (#3334). */
 const run = (...args: string[]) =>
 	runInProcess(SCRIPT, args, {
 		cwd: REPO,
@@ -179,9 +157,6 @@ describe("latest (#4574)", () => {
 	const Created = "2026-11-06T10:00:00Z";
 	const Empty = "# run: none\nfile,seconds,tests,status\n";
 
-	/* A run listing, each run's reports and the planning run's creation, as
-	 * the API and `gh run download` answer them. `reports` maps a run id to
-	 * its files and seconds; a run absent from it has no artefacts. */
 	const stub = (
 		runs: { id: number; created_at: string; updated_at: string }[],
 		reports: Record<string, [string, number][]>,

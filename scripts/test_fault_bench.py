@@ -1,9 +1,3 @@
-"""Tests for scripts/fault_bench.py — #3246's bench at 28 h uptime (#4768).
-
-Each run case points the script at literal /proc stand-ins and a temp log, and
-benches `true` in place of python.
-"""
-
 import json
 import os
 import shutil
@@ -154,7 +148,6 @@ def test_install_copies_the_script_writes_both_units_and_enables_the_timer(
     assert done.returncode == 0, done.stderr
     installed = home / ".local/lib/workflow-core/fault-bench/fault_bench.py"
     assert installed.read_text() == (HERE / "fault_bench.py").read_text()
-    # The copy reads the minute log through its own lib/ at run time.
     imported = subprocess.run(
         [
             sys.executable,
@@ -169,10 +162,8 @@ def test_install_copies_the_script_writes_both_units_and_enables_the_timer(
     assert imported.returncode == 0, imported.stderr
     units = home / ".config/systemd/user"
     service = (units / "fault-bench.service").read_text()
-    # The unit runs the installed copy, which outlives any worktree.
     assert f'"{installed}" run --log "{home / "fault-bench.log"}"' in service
     assert "@" not in service
-    # Rendered from scripts/fault-bench.service.template and scripts/fault-bench.timer.template.
     assert "OnBootSec=100800s" in (units / "fault-bench.timer").read_text()
     assert calls() == [
         "--user daemon-reload",

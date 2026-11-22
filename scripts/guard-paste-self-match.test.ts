@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * guard-paste-self-match.js refuses a turn handing the founder a `!` paste
- * whose `pkill -f` pattern matches the paste itself, or under `-v` misses it
- * (#1814), or whose `pkill` without `-f` selects the shell's name, `bash`, the
- * same two ways (#1842); warns on such a `pgrep`, and passes the rest (#921) —
- * #921's Stop guard, black-box.
- *
- * Driven in process through `lib/stop-guard-testkit`, the way
- * `self-plugin/hooks/hooks.json` runs it, with every root it writes redirected
- * into a temp directory, so its block counter and fail-open log never touch the
- * real repo or config.
- *
- * It runs at every `Stop` (`self-plugin/hooks/hooks.json`, `hooks/hooks.json`),
- * the last place a founder paste can be seen: a break here lets the agent hand
- * the founder a paste that kills their shell.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -37,7 +21,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The guard's whole output on `message`, or null where it says nothing. */
 const run = (message: string) =>
 	readStopGuardBlock(GUARD, { dir, sid, message }) as
 		| ({ decision?: string; reason?: string; systemMessage?: string } & object)
@@ -45,7 +28,6 @@ const run = (message: string) =>
 
 const refused = (message: string) => run(message)?.decision === "block";
 
-/** The fail-open log for this test's project. */
 const readErrorLog = () => readFailOpenLog(path.join(dir, "config"), dir);
 
 function refusalFor(message: string, pattern: string): string {

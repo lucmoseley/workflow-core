@@ -1,25 +1,27 @@
+diff --git a/scripts/check-vendored-skills.test.ts b/scripts/check-vendored-skills.test.ts
+index 33c3062c5..3dec37f10 100644
 --- a/scripts/check-vendored-skills.test.ts
 +++ b/scripts/check-vendored-skills.test.ts
-@@ -42,4 +42,5 @@
+@@ -11,6 +11,7 @@ import {
+ 	printed,
  	type RouteAnswer,
  	refused,
 +	stubGhHandler,
  	stubGhRoutes,
  } from "./lib/gh-stub";
-@@ -50,4 +51,5 @@
+ import { splitCheckout } from "./lib/guard-core-testkit";
+@@ -19,6 +20,7 @@ import {
+ 	registerTempCleanup,
  	stagedRepo,
  } from "./lib/precommit-gate-harness";
 +import { escapeRe } from "./lib/regex-group.js";
  import { runInProcess } from "./lib/run-in-process.js";
  
-@@ -617,10 +619,11 @@
- /**
-  * A `gh` for `stubGh`: its routes, keyed on the path fetched, and the file its
-- * calls' arguments are appended to; with no `log`, no call is recorded.
-+ * calls' arguments are appended to; with no `log`, no call is recorded. Or a
-+ * `stubGhHandler` handler, which reads the whole call where a route key
-+ * holds only its path (#4811).
-  */
+ const SCRIPT = path.join(__dirname, "check-vendored-skills.js");
+@@ -544,14 +546,15 @@ function upstreamRoot(source: string) {
+ 
+ const LICENCE = "MIT License\n";
+ 
 -interface Gh {
 -	routes: Record<string, RouteAnswer>;
 -	log?: string;
@@ -28,29 +30,16 @@
 +	| { routes: Record<string, RouteAnswer>; log?: string }
 +	| { handler: string };
  
- /** What `gh api <path> --jq .content` prints for a file holding `text`. */
-@@ -628,4 +631,7 @@
+ const content = (text: string) =>
  	printed(`${Buffer.from(text).toString("base64")}\n`);
  
-+/** Handler source: the call as one line, and whether it is a licence fetch. */
 +const CALL = `const line = argv.join(" "); const isLicence = line.includes("/license");`;
 +
- /** A `gh` failing every fetch with `stderr`. */
  const refusing = (stderr: string): Gh => ({ routes: { "*": refused(stderr) } });
-@@ -635,7 +641,9 @@
  
- /**
-- * A `gh` that answers every contents fetch with `body` and every licence
-- * fetch with `licence`, and appends each call's arguments to `log`. A path
-- * matching the `missing` glob 404s instead.
-+ * A `gh` that answers every contents fetch with `body`, base64-encoded as
-+ * `--jq .content` returns it, and every licence fetch with `licence` in
-+ * whichever form the call asks for: raw, decoded by jq, `.content` alone, or
-+ * the whole JSON. It appends each call's arguments to `log`. A call matching
-+ * the `missing` glob 404s instead.
-  */
- function answering(
-@@ -645,16 +653,23 @@
+ const GH_422: Gh = { routes: { "*": GH_VALIDATION_FAILED } };
+@@ -562,18 +565,25 @@ function answering(
+ 	licence = LICENCE,
  	missing?: string,
  ): Gh {
 -	return {
@@ -83,20 +72,26 @@
 +`,
  });
  
-@@ -665,5 +680,5 @@
+ function readEndpoints(log: string, kind: "contents" | "license") {
+@@ -582,7 +592,7 @@ function readEndpoints(log: string, kind: "contents" | "license") {
+ 				.readFileSync(log, "utf8")
  				.trim()
  				.split("\n")
 -				.map((l) => l.split(" ")[1] ?? "")
 +				.map((l) => l.split(" ").find((a) => a.startsWith("repos/")) ?? "")
  				.filter((e) => e.split("/")[3] === kind)
  		: [];
-@@ -778,5 +793,4 @@
+ }
+@@ -693,7 +703,6 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
+ 		const log = path.join(root, "gh.log");
  		const r = runUpstream(root, answering(SKILL, log));
  		expect(r.tags).toEqual([]);
 -		expect(r.text).toContain("1 licence notice(s)");
  		expect(readEndpoints(log, "license")).toEqual([
  			"repos/mattpocock/skills/license",
-@@ -799,8 +813,7 @@
+ 		]);
+@@ -714,17 +723,17 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
+ 			root,
  			answering(SKILL, log, "MIT License\n\nCopyright (c) 2027 Someone Else\n"),
  		);
 -		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
@@ -108,7 +103,8 @@
 +		expect(r.text).toContain("mattpocock/skills");
  	});
  
-@@ -809,5 +822,6 @@
+ 	it("checks the licence even where no edit is declared", () => {
+ 		const root = build({ disk: { "a/SKILL.md": SKILL } });
  		const log = path.join(root, "gh.log");
  		const r = runUpstream(root, answering(SKILL, log, "Apache License\n"));
 -		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
@@ -116,7 +112,9 @@
 +		expect(r.tags[0]).not.toMatch(/UNREADABLE|GONE/);
  		expect(readContentsEndpoints(log)).toEqual([]);
  	});
-@@ -819,8 +833,4 @@
+ 
+@@ -734,10 +743,6 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
+ 			licenceFailing("gh: could not resolve host"),
  		);
  		expect(r.tags).toEqual(["UPSTREAM-UNREADABLE"]);
 -		expect(r.outcome).not.toBe("SKIP");
@@ -125,15 +123,19 @@
 -		);
  	});
  
-@@ -874,6 +884,9 @@
-  */
+ 	it("reads a licence holding a ## heading of its own whole, ending its section only at the next source's heading (#2378)", () => {
+@@ -784,8 +789,12 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
+ 	});
+ });
  
 -const stubGh = (root: string, { routes, log }: Gh) =>
 -	stubGhRoutes(root, routes, { log }).gh;
++
 +const stubGh = (root: string, gh: Gh) =>
 +	("handler" in gh
 +		? stubGhHandler(root, gh.handler)
 +		: stubGhRoutes(root, gh.routes, { log: gh.log })
 +	).gh;
  
- /**
+ function runUpstream(root: string, gh: Gh, extra: string[] = []) {
+ 	const r = runInProcess(

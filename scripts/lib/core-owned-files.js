@@ -1,23 +1,3 @@
-/*
- * core-owned-files.js — brings each file the core owns in an adopter to the
- * plugin's current form. Init calls it after its one-time, repo-owned writes,
- * and upgrade on every run before it walks the migration notes (#1501, ruled
- * at #1470).
- *
- * A NEW CORE-OWNED FILE IS ONE ENTRY IN `ENTRIES`, and every existing adopter
- * receives it on its next upgrade.
- *
- * EVERY ENTRY IS IDEMPOTENT: over an adopter already current it writes nothing
- * and prints nothing, so init then upgrade at one plugin leaves every file
- * byte-identical. One line repeats: an adopter's own status script is said
- * kept on every run (#4190). Renderers stay in `adopter-skeleton.js`.
- *
- * AN ENTRY THAT CANNOT READ ITS INPUT SKIPS WITH A LINE, but for one: a
- * `settings.json` that does not parse throws, since the plugin entry it
- * carries is what loads the plugin at all, and rewriting it would drop the
- * adopter's keys.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -69,20 +49,14 @@ const SETTINGS = ".claude/settings.json";
 /** @typedef {{name: string, color: string, description: string}} Label */
 
 /**
- * The gh calls the labels entry makes, passed in so a dry run or a test makes
- * no live write.
  * @typedef {object} LabelGh
  * @property {(repo: string) => Label[]} list
  * @property {(repo: string, label: Label) => void} create
  */
 
-/**
- * The gh the labels sync through, or why the caller turned them off.
- * @typedef {LabelGh|{off: string}} Labels
- */
+/** @typedef {LabelGh|{off: string}} Labels */
 
 /**
- * The config keys the entries render from.
  * @typedef {object} RenderConfig
  * @property {string|undefined} founder
  * @property {Module[]} modules
@@ -91,30 +65,22 @@ const SETTINGS = ".claude/settings.json";
 
 /**
  * @typedef {object} Context
- * @property {string} root the adopter's root
- * @property {string} pluginRoot the plugin this run brings files to
+ * @property {string} root
+ * @property {string} pluginRoot
  * @property {boolean} dryRun
  * @property {(line: string) => void} out
- * @property {boolean} [fresh] init's run, which writes the rules file where
- *   it is absent; upgrade leaves an absent one absent
- * @property {RenderConfig} [config] the config as the caller holds it; read
- *   off disk where absent. Init passes its own, because `readConfig` lets the
- *   suite's `WFC_MODULES` replace the adopter's modules.
- * @property {import("./plugin-record.js").PluginRecord|null} record the
- *   plugin this run installs; null keeps the provenance block as written
+ * @property {boolean} [fresh]
+ * @property {RenderConfig} [config]
+ * @property {import("./plugin-record.js").PluginRecord|null} record
  * @property {{marketplace: string, source: object, plugin: string}|null} pin
- *   the plugin's settings entry; null leaves `settings.json` alone
- * @property {import("./core-context-cost.js").Measurer} [measureCore] absent,
- *   no context-cost row is seeded and no `claude` is called
- * @property {Labels} [labels] absent, no label is read or written
+ * @property {import("./core-context-cost.js").Measurer} [measureCore]
+ * @property {Labels} [labels]
  */
 
 /**
- * Writes `body` at `rel` where it differs, and sets `mode` where given.
  * @param {Context} ctx
  * @param {{rel: string, body: string, mode?: number, lost?: string}} file
- *   `lost` is said where an existing copy is overwritten
- * @returns {string[]} `[rel]` where it wrote, else `[]`
+ * @returns {string[]}
  */
 function bringFile({ root, dryRun, out }, { rel, body, mode, lost }) {
 	const at = path.join(root, rel);
@@ -149,7 +115,7 @@ function bringFile({ root, dryRun, out }, { rel, body, mode, lost }) {
 
 /**
  * @param {string} at
- * @returns {string|null} the file's text, or null where it does not exist
+ * @returns {string|null}
  */
 function readIfPresent(at) {
 	try {
@@ -160,14 +126,7 @@ function readIfPresent(at) {
 	}
 }
 
-/**
- * The husky hook shims, executable. A hook written before #1839, which
- * names the plugin on a `WFC_PLUGIN_ROOT` line, becomes its shim here. An
- * adopter's own hook under a shipped name, neither shim nor root-line hook, is
- * left alone, with a line saying the core's gate does not run there and,
- * where the core sources a `.local` for that hook, the way to the shim.
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringHooks(ctx) {
 	return HOOKS.flatMap((hook) => {
 		const rel = path.join(".husky", hook);
@@ -189,14 +148,7 @@ function bringHooks(ctx) {
 	});
 }
 
-/**
- * The helper scripts, copied verbatim: each is self-contained.
- *
- * NOT REGISTERED IN THE CLASS SIDECAR (#133): `scripts` is outside
- * doc-map.js's SCOPE, so a key there would warn UNTRACKED-ENTRY in every
- * adopter for good.
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringHelpers(ctx) {
 	return HELPERS.flatMap((rel) => {
 		const body = readIfPresent(path.join(ctx.pluginRoot, rel));
@@ -213,12 +165,7 @@ function bringHelpers(ctx) {
 	});
 }
 
-/**
- * The core's glossary and doc-map method, copied from the plugin root and
- * rewritten wherever they differ (#5294). The adopter's own
- * GLOSSARY.md and docs/doc-map.md sit at other paths, never touched.
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringCoreDocs(ctx) {
 	return CORE_DOCS.flatMap((rel) => {
 		const body = readIfPresent(path.join(ctx.pluginRoot, rel));
@@ -234,19 +181,9 @@ function bringCoreDocs(ctx) {
 	});
 }
 
-/**
- * The CI workflow (#5347), rendered from the `ci` key of
- * the config on disk: init's own config carries no `ci`, so reading it there
- * would remove a workflow on a re-run. Where the key is absent the core's copy
- * is deleted; a file at that path not opening on its marker is the adopter's
- * own, and left alone either way.
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringCi(ctx) {
 	const { root, dryRun, out } = ctx;
-	/* A config that will not read, or a malformed `ci`, skips rather than
-	 * fails or removes: either read as no key would delete a working CI over
-	 * a typo (#5347), and the other entries still have their work to do. */
 	let cfg;
 	try {
 		cfg = readConfig({ root, quiet: true });
@@ -281,14 +218,7 @@ function bringCi(ctx) {
 	return [CI_WORKFLOW];
 }
 
-/**
- * `.claude/workflow-core.md` and its never-imported sibling
- * `.claude/workflow-core.reference.md`: written where absent on a fresh run,
- * and re-rendered only where the rules file opens on `CORE_OWNED`. The
- * sibling's provenance block comes from `record`, else from the block it or,
- * before #2035, the rules file already carries.
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringRules(ctx) {
 	const { root, pluginRoot, out } = ctx;
 	const existing = readIfPresent(path.join(root, RULES_FILE));
@@ -314,7 +244,6 @@ function bringRules(ctx) {
 	}
 	const reference = readIfPresent(path.join(root, REFERENCE_FILE));
 	const foreign = reference !== null && !reference.startsWith(CORE_OWNED);
-	/* With nowhere else to go, the block stays on the rules file. */
 	const rules = bringFile(ctx, {
 		rel: RULES_FILE,
 		body:
@@ -343,7 +272,7 @@ function bringRules(ctx) {
 
 /**
  * @param {import("./plugin-record.js").PluginRecord|null} record
- * @param {string|null} existing the file carrying the block as it stands
+ * @param {string|null} existing
  */
 function provenance(record, existing) {
 	if (record) return renderPluginRecord(record);
@@ -365,11 +294,7 @@ function renderConfig({ config, root }) {
 	};
 }
 
-/**
- * The core's `.claude/settings.json` keys, merged onto the adopter's own and
- * written 2-space (#1484).
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringSettings(ctx) {
 	if (!ctx.pin) return [];
 	const text = readIfPresent(path.join(ctx.root, SETTINGS));
@@ -384,7 +309,6 @@ function bringSettings(ctx) {
 		);
 	}
 	const merged = settingsKeys({ ...ctx.pin, outputStyle: null }, existing);
-	/* A file whose keys are current keeps its own layout (#1484). */
 	if (text !== null && isDeepStrictEqual(merged, existing)) return [];
 	return bringFile(ctx, {
 		rel: SETTINGS,
@@ -399,11 +323,7 @@ function bringIgnoreBlock(ctx) {
 	return next === null ? [] : bringFile(ctx, { rel: ".gitignore", body: next });
 }
 
-/**
- * The `status` script in a `package.json` the adopter holds; a repo with none
- * has no npm route and is given no file (#4151).
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringStatusScript(ctx) {
 	const text = readIfPresent(path.join(ctx.root, "package.json"));
 	if (text === null) return [];
@@ -411,8 +331,6 @@ function bringStatusScript(ctx) {
 	try {
 		outcome = withStatusScript(text);
 	} catch (err) {
-		/* A skip, not bringSettings' refusal: the script is a convenience, and a
-		 * throw would stop the upgrade's walk over it (#4151). */
 		ctx.out(`skipped package.json's status script: ${caught(err).message}`);
 		return [];
 	}
@@ -441,21 +359,12 @@ function bringCoreCost({ root, pin, measureCore, dryRun, out }) {
 		: [COST_TABLE];
 }
 
-/* A first guess: the script prices every ledger session's transcripts. */
+// guess, #5529
 const SESSION_COST_TIMEOUT_MS = 5 * 60 * 1000;
 
-/**
- * The cost table the capped launch sizes a set from, built from the host's own
- * dispatch ledger where it has none, or none this version reads (#1734,
- * #2925): another repo's table misprices this one's sessions. A readable table
- * is left alone — refreshing it is the script's, by hand.
- * Residual: a build that fails, as where no ledger entry matches a transcript,
- * is re-run on every upgrade and says FAILED each time until one succeeds.
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
 	if (readCostTableIn(root)) return [];
-	/* ledgerPath creates the markers directory, which a dry run must not. */
 	if (!fs.existsSync(path.join(root, MARKERS_REL))) return [];
 	if (!readIfPresent(ledgerPath(root))?.trim()) return [];
 	const script = path.join(pluginRoot, "scripts", "measure-session-cost.js");
@@ -470,8 +379,6 @@ function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
 	}
 	const r = spawnSync(process.execPath, [script, "--write"], {
 		cwd: root,
-		/* The writer places the table off the first, ledgerPath() reads the
-		 * second before anything else: an inherited value prices another repo. */
 		env: { ...process.env, CLAUDE_PROJECT_DIR: root, WFC_DISPATCH_ROOT: root },
 		encoding: "utf8",
 		timeout: SESSION_COST_TIMEOUT_MS,
@@ -489,12 +396,7 @@ function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
 	return [SESSION_COST_TABLE];
 }
 
-/**
- * The host registries the guard-registry-atomicity core and check-registrations.js
- * judge the repo's own hooks against, written empty where absent and never
- * touched after: the adopter fills them (#1456).
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringRegistries(ctx) {
 	const seeds = {
 		[HOST_REGISTRATIONS]: emptyRegistry(),
@@ -507,11 +409,7 @@ function bringRegistries(ctx) {
 	);
 }
 
-/**
- * The tracker's labels: one `gh label list`, then a create for each label
- * missing or changed (#1484).
- * @param {Context} ctx
- */
+/** @param {Context} ctx */
 function bringLabels(ctx) {
 	const { root, labels, dryRun, out } = ctx;
 	if (labels && "off" in labels) {
@@ -541,7 +439,6 @@ function bringLabels(ctx) {
 	const plan = labelPlan({
 		modules: config.modules,
 		categories: config.categories,
-		/* bringCi, run first, has written it where the config asks for it. */
 		ciWorkflow: fs.existsSync(path.join(root, CI_WORKFLOW)),
 	});
 	const owed = plan.filter((want) => !have.some((h) => isSameLabel(h, want)));
@@ -566,8 +463,6 @@ function bringLabels(ctx) {
 }
 
 /**
- * The declared tracker, else the origin remote's; a config that will not read
- * falls back to the remote, saying so (#1484).
  * @param {{root: string, out: (line: string) => void}} ctx
  * @returns {string|undefined}
  */
@@ -585,8 +480,6 @@ function trackerOf({ root, out }) {
 }
 
 /**
- * GitHub matches a label's name with case ignored and returns its colour in
- * lower case.
  * @param {Label} have
  * @param {Label} want
  */
@@ -596,7 +489,6 @@ const isSameLabel = (have, want) =>
 	(have.description ?? "") === want.description;
 
 /**
- * The live gh calls, against `root`'s checkout.
  * @param {string} root
  * @returns {LabelGh}
  */
@@ -637,14 +529,10 @@ const ghLabels = (root) => ({
 /**
  * @typedef {object} Entry
  * @property {(ctx: Context) => string[]} bring
- * @property {string[]} paths every adopter-relative path `bring` may write
+ * @property {string[]} paths
  */
 
-/**
- * Every core-owned file, in the order each needs the last: the core-cost row
- * reads the settings entry's declaration.
- * @type {Entry[]}
- */
+/** @type {Entry[]} */
 const ENTRIES = [
 	{ bring: bringHooks, paths: HOOKS.map((hook) => `.husky/${hook}`) },
 	{ bring: bringHelpers, paths: HELPERS },
@@ -661,16 +549,14 @@ const ENTRIES = [
 ];
 
 /**
- * Brings every entry current.
  * @param {Context} ctx
  * @param {Entry[]} [entries]
- * @returns {string[]} the paths written, adopter-relative
+ * @returns {string[]}
  */
 function bringCoreFiles(ctx, entries = ENTRIES) {
 	return entries.flatMap(({ bring, paths }) => {
 		const wrote = bring(ctx);
 		const undeclared = wrote.filter((rel) => !paths.includes(rel));
-		/* An undeclared path would miss the skeleton commit (#1540). */
 		if (undeclared.length > 0)
 			throw new Error(
 				`${bring.name} wrote ${undeclared.join(", ")}, which its entry's paths do not declare`,
@@ -683,17 +569,9 @@ function bringCoreFiles(ctx, entries = ENTRIES) {
 const coreOwnedPaths = (entries = ENTRIES) =>
 	entries.flatMap((entry) => entry.paths);
 
-/** The directories and files the skeleton commit takes whole.
- *
- * `scripts` is not one: a bare directory would sweep an adopter's own
- * untracked files there into the skeleton commit (#133). */
 const SKELETON_ROOTS = ["CLAUDE.md", "AGENTS.md", ".claude", "docs", ".husky"];
 
 /**
- * The skeleton commit's pathspec, which init prints as its next step and
- * new-repo.js commits: `SKELETON_ROOTS`, then each entry path none of them
- * covers that `isPresent` finds. An entry may write nothing on a run, and a
- * pathspec naming an absent path fails.
  * @param {(rel: string) => boolean} isPresent
  * @param {Entry[]} [entries]
  */

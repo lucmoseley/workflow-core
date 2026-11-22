@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * The `disabled` switch (#2): every guard `self-plugin/hooks/hooks.json` wires stands
- * down — exit 0, nothing on stdout, nothing read — where the host's
- * `.claude/workflow-core.json` lists its file name under "disabled" — or, for
- * an entry over a dispatcher core, that core's row name in
- * lib/guard-cores.json, which silences both routes at once — and runs where
- * the list names only some other guard.
- *
- * "Ran" means got past the switch to its payload read — not that it judged —
- * read off a trace the guard leaves when fed an unparseable payload:
- * a shell guard's fail-open record under CLAUDE_CONFIG_DIR, and for a JS guard
- * a preload that marks stdin being read. Spawned rather than run in-process
- * (scripts/lib/run-in-process.js): the shell guards need a real process, and
- * the JS preload needs a real fd 0.
- *
- * The switch is the one way a host turns off a guard the plugin ships it
- * (`hooks/hooks.json`) short of forking the core: break it and a disabled guard
- * keeps refusing that host's tool calls, or a guard the host still wants stands
- * down with nothing said.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -95,7 +75,6 @@ function run(guard: string, disabled: string[], contract = CONTRACT) {
 		HOME: home,
 	};
 	delete env.CLAUDE_CODE_SESSION_ID;
-	/* An inherited root would send the guard's config read past `host`. */
 	delete env.WFC_REPO_ROOT;
 	const r = spawnSync(js ? "node" : file, js ? ["--require", shim, file] : [], {
 		cwd: host,
@@ -111,8 +90,6 @@ function run(guard: string, disabled: string[], contract = CONTRACT) {
 
 describe("the disabled switch", () => {
 	it("finds the wired guards", () => {
-		// 13 JS guards wired once #3224, #3225, #3226 and #3227 moved
-		// batches 1 to 4, six each, into guard-dispatch.js's cores.
 		expect(GUARDS.length).toBeGreaterThanOrEqual(13);
 	});
 

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins link-config-dirs.js, which merges each plan's shared Claude config into
- * ~/.claude and symlinks it back: what it unions, what wins a clash, that it
- * never deletes a copy, and its --check lines.
- *
- * Every test runs against a fake home in a temp dir, because the real script
- * moves files in the founder's live config dirs.
- *
- * Breaking it loses a plan's plugins or settings in a merge, or lets the three
- * plans drift apart again (#107).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -62,7 +51,6 @@ describe("link-config-dirs (#107)", () => {
 			"one",
 		);
 		expect(kept).toEqual([path.join(two, "skills/a/SKILL.md")]);
-		// Reachable through the sibling, as a live session there reads it.
 		expect(fs.readFileSync(path.join(two, "skills/b/SKILL.md"), "utf8")).toBe(
 			"new",
 		);
@@ -322,7 +310,6 @@ describe("link-config-dirs (#107)", () => {
 			);
 		});
 
-		/* `sed -i` through the link leaves the sibling a plain file (#2322). */
 		it("links practice-crafts.md, and --check reports it once a plain copy replaces the link", () => {
 			put(path.join(one, "practice-crafts.md"), "- a-craft: covers.\n");
 			cli();

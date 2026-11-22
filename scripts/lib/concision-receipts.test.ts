@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * concision-receipts.test.ts — the parsing and totalling behind
- * scripts/concision-route-report.js.
- *
- * In-process against return values, which is what a `scripts/lib/` seam is for:
- * the CLI's own test drives the script as a subprocess instead.
- *
- * What breaking these costs: mantahostels#1099 built the `route=` receipt line to answer
- * whether a concision pass run in a subagent finds less than one run in the
- * session that wrote the prose. A receipt silently landing in the wrong arm
- * would not fail anything — it would just answer that question wrongly. This
- * test, red in CI, is the only thing that would.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -29,13 +16,11 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The receipt `collect` reads off one file holding `text`, or null where it drops it. */
 const collectedFrom = (text: string) => {
 	fs.writeFileSync(path.join(dir, ".concision-pass-one"), text);
 	return collect(dir)[0] ?? null;
 };
 
-/** One receipt as the pass's step 6 writes it, plus the route under test. */
 const body = (findings: string, route?: string) =>
 	`base=${"a".repeat(40)}\nfindings=${findings}\n${route ? `route=${route}\n` : ""}`;
 
@@ -47,10 +32,6 @@ describe("reading a receipt (mantahostels#1099)", () => {
 		});
 	});
 
-	// The paired negative to the case above: every receipt written before mantahostels#1099
-	// carries no route at all. Folding them into in-session — which is what they
-	// all in fact were — would let a pre-mantahostels#1099 corpus masquerade as evidence
-	// gathered for the comparison.
 	it("buckets a receipt carrying no route as unrecorded, not in-session", () => {
 		expect(collectedFrom(body("3"))?.route).toBe("unrecorded");
 	});

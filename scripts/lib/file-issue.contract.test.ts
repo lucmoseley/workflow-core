@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/file-issue-fake.ts to the real file-issue.js (§G7, #5148): one
- * script filing, the morning review's, sent through lib/file-through.js under
- * the morning review fixture's served gh, then through the fake under the same
- * handler answering in-process. Each case checks the verdict and what landed,
- * never a value either side computes for itself. Loosened, every module case
- * of lib/morning-review-filing.test.ts stays green on a fake that files a
- * body, a label set or an exit the real filer would not.
- *
- * Red after a change to file-issue.js: run this file, read which side
- * filed what, then fix the fake or narrow its header's "does not model".
- */
 
 import fs from "node:fs";
 import path from "node:path";

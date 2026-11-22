@@ -1,38 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-ticket-criteria.js — periodic report on closed issues whose acceptance
- * criteria were never ticked off.
- *
- * Usage:
- *   node check-ticket-criteria.js [--warn] [--json]
- *
- * Backstop for the tracker doc's "Closing an issue with acceptance criteria"
- * rule: resolve-ticket.js and the guard-issue-close core refuse at close (#1640), so
- * what reaches this is a close by the GitHub UI or `gh api`, or one made before
- * those refusals. Same posture as check-issue-card-drift.js.
- *
- * THIS SCRIPT NEVER WRITES. A box ticked by a script asserts a verification
- * nobody performed, which is worse than the unticked box it replaced.
- *
- * What it reports:
- *   UNVERIFIED    closed as completed, has criteria, at least one still `- [ ]`.
- *                 Counts toward the exit code.
- *   WAIVED        unticked but marked `**waived:** <why>` — checked, found not
- *                 met, left unticked on purpose. Reported only.
- *   NO-CRITERIA   closed, `kind:ticket`, no criteria section — the heading
- *                 drifted, or the ticket was hand-opened rather than published
- *                 by /to-tickets. Reported only.
- *
- * Issues closed as NOT PLANNED are skipped: abandoned, not delivered.
- *
- * Requires the `gh` CLI, authenticated.
- *
- * Outcomes follow the family alphabet in scripts/lib/check.js. UNVERIFIED is a
- * FAIL finding and gates; WAIVED and NO-CRITERIA are intrinsic WARN findings, so
- * they report without ever changing the exit code. An unreachable GitHub is SKIP
- * (exit 0); any other gh failure is BROKEN (exit 2, mantahostels#164 —
- * the ticket that drew that line).
- */
 
 const { runCheck } = require("./lib/check");
 const { ghIssueListAll, raiseGhFailure } = require("./lib/gh");
@@ -46,8 +12,7 @@ const {
  * @typedef {import("./lib/check").Ctx} Ctx
  * @typedef {{ number: number, title: string, body?: string | null,
  *   labels?: { name: string }[], stateReason?: string | null,
- *   closedAt?: string | null, url: string }} ClosedIssue the fields
- *   readClosed() asks gh for
+ *   closedAt?: string | null, url: string }} ClosedIssue
  * @typedef {{ number: number, title: string, url: string,
  *   closedAt?: string | null, total: number, unticked: number,
  *   items: string[] }} Unverified
@@ -56,7 +21,6 @@ const {
  *   waivedItems: Waived[] }} Buckets
  */
 
-/** Every closed issue, or a raised gh failure. */
 function readClosed() {
 	try {
 		return ghIssueListAll("closed issues", [
@@ -72,10 +36,9 @@ function readClosed() {
 
 /**
  * @param {ClosedIssue} iss
- * @param {Buckets} buckets accumulator: the issue is pushed onto each bucket it belongs in
+ * @param {Buckets} buckets
  */
 function classifyIssue(iss, buckets) {
-	// Abandoned, not delivered. Nothing to verify.
 	if ((iss.stateReason || "").toUpperCase() === "NOT_PLANNED") return;
 
 	const labels = (iss.labels || []).map(
@@ -116,9 +79,7 @@ function classifyIssue(iss, buckets) {
  * @param {Buckets} buckets
  */
 function raiseFindings(ctx, { unverified, noCriteria, waivedItems }) {
-	/* Issue number and tag only (mantahostels#2490). The title moves, and so does the
-	 * unticked/total pair — a ticket going from 3/7 to 2/7 is the same finding
-	 * partly drained, not a new one. */
+	// lucmoseley/mantahostels#2490
 	for (const i of unverified)
 		ctx.fail(
 			"UNVERIFIED",
@@ -126,10 +87,6 @@ function raiseFindings(ctx, { unverified, noCriteria, waivedItems }) {
 			i,
 			`UNVERIFIED\t#${i.number}`,
 		);
-	/* Reported, never gating: a waiver is someone having checked and said why,
-	 * and a missing criteria section is a shape problem on an already-closed
-	 * ticket. Both are WARN findings so they ride in the --json envelope and the
-	 * annotations without ever changing the exit code. */
 	for (const i of waivedItems)
 		ctx.warn(
 			"WAIVED",
@@ -216,8 +173,6 @@ runCheck({
 		const buckets = { unverified: [], noCriteria: [], waivedItems: [] };
 		for (const iss of closed) classifyIssue(iss, buckets);
 		const { unverified, noCriteria, waivedItems } = buckets;
-
-		// --- report -------------------------------------------------------------
 
 		raiseFindings(ctx, buckets);
 

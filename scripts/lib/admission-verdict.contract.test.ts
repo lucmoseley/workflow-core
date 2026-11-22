@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/admission-verdict-fake.ts, the verdict lib/refill-loop-run-testkit.ts's
- * admission stub prints, to what the real admission.js prints under the
- * loop's own arguments (lib/refill-tick-core.js's FREE_SLOT_ARGS), run against a
- * fake `/proc`, meminfo, `ps` and `claude` (#3331). Breaking it costs the
- * concurrency record: a field admission renames still passes the run test,
- * and the loop records null for it live.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -41,11 +33,6 @@ const write = (name: string, body: string, mode = 0o644) => {
 	return at(name);
 };
 
-/*
- * What admission.js prints on a machine with room to spare, where one
- * neighbour works in a repo beside this session: every limb it reads is a
- * fixture here, so no case reads this machine's own state.
- */
 function realVerdict() {
 	const host = writeHostRepo(dir, {});
 	const claude = writeClaudeStub(at("claude"), [
@@ -70,7 +57,6 @@ function realVerdict() {
 			),
 			WFC_PS: writePsStub(dir, ["claude /usr/bin/claude"]),
 			WFC_CLAUDE_BIN: claude,
-			// Each session's pair at 600 MB, so the working row reads a figure.
 			WFC_PROC: writeProcRoot(dir, {
 				pss: { "701": 600 * 1024, "702": 600 * 1024 },
 			}),

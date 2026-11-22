@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that a workflow job holding any write scope but `issues`, no
- * permissions block, an unrecognised value, or a `git commit`/`git push` step
- * fails the autonomy cap (mantahostels#1169, mantahostels#1209); and that, where
- * the code repo is kept apart from its tracker, any issues access or secret
- * fails too (#1963).
- *
- * Each case writes its workflows into a temp directory handed to the script.
- * No case asserts the live .github/workflows is clean: that would put the gate in
- * two places and make an unrelated workflow edit fail the suite instead of the
- * check.
- *
- * Messages are asserted alongside tags because a tag alone would survive the
- * message being rewritten into nonsense.
- *
- * It is a gate step in the scheduled `.github/workflows/document-guards.yml`
- * sweep: a false pass lets a timed job gain the power to push to `main`, past
- * the R1 ceiling.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -40,7 +21,6 @@ afterEach(() => {
 const write = (name: string, body: string) =>
 	fs.writeFileSync(path.join(dir, name), body);
 
-/** A host whose code repo is its tracker, so no case reads this checkout's. */
 const sameRepoHost = () => {
 	const root = path.join(dir, "same-repo-host");
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
@@ -192,7 +172,6 @@ describe("silence is not a grant of read (mantahostels#1169, mantahostels#1209)"
 		expect(tags(e)).toEqual(["NO-PERMISSIONS"]);
 		expect(messages(e)).toContain("with no value");
 		expect(messages(e)).toContain("permissions: {}");
-		// Not the default-token diagnosis: a key IS declared here.
 		expect(messages(e)).not.toContain("repository's default token");
 	});
 });
@@ -418,8 +397,6 @@ describe("a code repo kept apart from its tracker (#1963)", () => {
 		const e = judged(
 			workflow(
 				"permissions:\n  contents: read",
-				// The `$` is interpolated: a literal `${{` in a JS string trips Biome's
-				// noTemplateCurlyInString.
 				`      - run: deploy\n        env:\n          T: ${"$"}{{ secrets.TOKEN }}\n`,
 			),
 		);

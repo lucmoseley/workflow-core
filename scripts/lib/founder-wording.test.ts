@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * lib/founder-wording.js hands a session a pattern's text — the recurrence
- * checks or the plain-words re-pitch — when the founder's prompt matches its
- * wording or the session loads its skill, and stays silent otherwise (spec
- * #628, #514, #642).
- *
- * Every prompt below is a paraphrase, never the founder's own words (#496).
- *
- * Module cases, run in process over the production ports
- * (lib/founder-wording-host.js) against a throwaway git host: the prompt
- * route through `decidePrompt`, the Skill route through
- * lib/guard-core-testkit.ts as the dispatcher runs it, its latch under the
- * case's host, and the prompt route's entry, scripts/inject-founder-wording.js,
- * through runInProcess with its own config dir, so a fail-open never reaches
- * the founder's own log. The dispatcher's hook line and stdin are
- * scripts/guard-dispatch.test.ts's boundary set.
- *
- * Break a case here and a returning fault is diagnosed from scratch without
- * the earlier fix, or the guard fires on a subagent report that merely quotes
- * its phrases (#652).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -87,7 +66,6 @@ const addOrigin = () =>
 		"git@github.com:owner/hostel.git",
 	]);
 
-/** The prompt route's context, or undefined where it says nothing. */
 function injected(
 	prompt: string,
 	ports: Record<string, unknown> = {},
@@ -105,7 +83,6 @@ function injected(
 	return d === null ? undefined : d.context;
 }
 
-/** The context a Skill load injects, or undefined where the core said nothing. */
 function skillInjected(skill: string, session = "s1"): string | undefined {
 	const { output, logs: said } = runCore(
 		"inject-founder-wording",
@@ -123,7 +100,6 @@ function skillInjected(skill: string, session = "s1"): string | undefined {
 	return output.additionalContext;
 }
 
-/** One run of the prompt route's entry: its exit, its hook output. */
 function entry(stdin: string) {
 	const r = runInProcess(ENTRY, [], {
 		cwd: host,

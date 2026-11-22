@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what one guard-failed-call-rules.js call costs on the common path: the
- * repo modules it loads and the processes it starts (base §G13, #5338). The
- * shipped hooks/hooks.json runs it unnarrowed on every failed Bash call's
- * PostToolUseFailure and on every PostToolBatch, so each module or child past
- * what the call needs is paid on nearly every turn of every session.
- *
- * Program cases (base §X3), run through lib/call-cost-harness.js in
- * lib/hook-cost-testkit.ts's fixture repo. Which failure or batch draws a
- * rule is guard-failed-call-rules.test.ts's and lib/failed-call-rules.test.ts's.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -31,7 +20,6 @@ afterEach(() => {
 	fs.rmSync(fx.dir, { recursive: true, force: true });
 });
 
-/** One guard call on `payload`, as the harness sends it. */
 const guard = (payload: Record<string, unknown>) =>
 	callCost(ENTRY, [], {
 		cwd: fx.repo,
@@ -45,8 +33,6 @@ const guard = (payload: Record<string, unknown>) =>
 	});
 
 describe("guard-failed-call-rules.js's per-call cost (#5338)", () => {
-	// The hot-path entry: the PostToolUseFailure line. The common call: a
-	// plain `ls` that exited non-zero, killed by no signal.
 	it("costs an ordinary failed Bash call under PostToolUseFailure these modules and starts", () => {
 		const r = guard({
 			hook_event_name: "PostToolUseFailure",
@@ -57,8 +43,7 @@ describe("guard-failed-call-rules.js's per-call cost (#5338)", () => {
 			is_interrupt: false,
 		});
 		expect(r.stdout).toBe("");
-		// The module set and the child list are internals, asserted because
-		// no output shows the start-up cost they guard (base §X6, #1497).
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-failed-call-rules.js",
 			"lib/caught.js",
@@ -94,8 +79,6 @@ describe("guard-failed-call-rules.js's per-call cost (#5338)", () => {
 		expect(r.children).toEqual([]);
 	});
 
-	// The hot-path entry: the PostToolBatch line. The common call: a batch of
-	// a plain `ls` and a Read, both answered.
 	it("costs an ordinary PostToolBatch these modules and starts", () => {
 		const r = guard({
 			hook_event_name: "PostToolBatch",
@@ -115,7 +98,7 @@ describe("guard-failed-call-rules.js's per-call cost (#5338)", () => {
 			],
 		});
 		expect(r.stdout).toBe("");
-		// As above, base §X6, #1497.
+		// #1497
 		expect(r.modules).toEqual([
 			"guard-failed-call-rules.js",
 			"lib/caught.js",

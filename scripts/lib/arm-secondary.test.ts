@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The before/after test's three lexical secondary measures (#2175), over two
- * transcripts recorded from the #2046 main run and trimmed to the records the
- * measures read. A break here misreports warns ignored, commits refused or the
- * final message's form in every arm of the report, and a gate refusal reworded
- * past the table moves its refusals to another gate or to none, unseen (#2298),
- * as does a gate added to .husky/pre-commit with no row (#2448).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -18,7 +10,6 @@ const { readRegisteredGuardSubjects } = require("./guard-fires.js");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const subjects = readRegisteredGuardSubjects(ROOT);
-/** A recorded run that commits through a refusing gate, then lands. */
 const REFUSED = fs.readFileSync(
 	path.join(
 		ROOT,
@@ -29,7 +20,6 @@ const REFUSED = fs.readFileSync(
 	),
 	"utf8",
 );
-/** A recorded run ending on a priced round. */
 const ROUND = fs.readFileSync(
 	path.join(
 		ROOT,
@@ -42,7 +32,6 @@ const ROUND = fs.readFileSync(
 );
 const refusedRun = secondaryOf(REFUSED, subjects);
 const roundRun = secondaryOf(ROUND, subjects);
-/** The vitest call the guard warned in REFUSED. */
 const WARNED_CALL = "toolu_01BkDqSsptTHYBzmHD6Kw5qg";
 
 const lines = (text: string) =>
@@ -103,11 +92,6 @@ const result = (output: string, tool = "Bash") => {
 		},
 	];
 };
-/**
- * REFUSED with a call inserted straight after the warned one: a clone of it,
- * in its own message unless `sameMessage`, with `command` in place of the
- * warned one's where given, and the warn's record cloned onto it if `warned`.
- */
 const withNextCall = ({
 	command,
 	warned = false,
@@ -136,7 +120,6 @@ const withNextCall = ({
 	records.splice(at + 1, 0, ...added);
 	return secondaryOf(joined(records), subjects).warnsActedAgainst;
 };
-/** Husky's line, as it closes a refused commit's output. */
 const HUSKY = "husky - pre-commit script failed (code 1)";
 
 describe("warns acted against", () => {
@@ -226,11 +209,6 @@ const gates: { id: string; tool?: string; lines: GateLine[] }[] = [
 	).gates,
 	...PRECOMMIT_GATES.map((g) => ({ id: g.id, lines: g.refusals })),
 ];
-/**
- * The files each in-repo gate prints its refusal lines from, spelt here as
- * literals rather than in the JSON so a change to a gate's source selects this
- * test (base §X10); a whole-repo checker gate's are its registry row's.
- */
 const GATE_SOURCES: Record<string, string[]> = {
 	...Object.fromEntries(
 		PRECOMMIT_GATES.map((g) => [g.id, g.sources ?? [g.script]]),
@@ -287,7 +265,6 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"commit-msg-local": [".husky/commit-msg"],
 	"staged-paths": ["scripts/lib/precommit-gate.sh"],
 };
-/** Each source's text, with a JS template literal's escaped backticks read as printed. */
 const sourceAsPrinted = new Map(
 	[...new Set(Object.values(GATE_SOURCES).flat())].map((rel) => [
 		rel,
@@ -297,7 +274,6 @@ const sourceAsPrinted = new Map(
 const PRE_COMMIT = sourceAsPrinted.get(".husky/pre-commit") ?? "";
 const occurrences = (text: string, needle: string) =>
 	text.split(needle).length - 1;
-/** A table line as its source spells it. */
 const speltAs = (line: GateLine) =>
 	typeof line === "string" ? line : (line.from ?? line.text);
 
@@ -318,8 +294,6 @@ describe("the commit-gate refusal table against the gates it copies (#2298)", ()
 				expect(found, `${spelt} in ${GATE_SOURCES[id]}`).toBe(row.sites ?? 1);
 				if (!row.from) continue;
 				expect(row.from.replace(/\$(?:\w+|\{\w+\})/, id)).toBe(row.text);
-				// The placeholder's value is bound at a shell call site (`via`), or
-				// as the id's own string literal in a Node gate's sources.
 				if (row.via)
 					expect(PRE_COMMIT).toMatch(
 						new RegExp(`^\\s*${row.via} ${id}(\\s|$)`, "m"),
@@ -348,15 +322,7 @@ describe("the commit-gate refusal table against the gates it copies (#2298)", ()
 	});
 });
 
-/**
- * The hook's script calls no gate lists as a source, each script's calls in
- * hook order: the gate whose line that call refuses through, or null for one
- * that prints no gate's refusal line, whose BROKEN run still refuses
- * unattributed.
- */
 const HOOK_CALLS: Record<string, (string | null)[]> = {
-	/* Each row's own lines pass through its output, so the dispatcher's call
-	 * names no one gate (#5172). */
 	"scripts/precommit-dispatch.js": [null],
 	"scripts/lib/workflow-core-config.js": [null, null, null],
 	"scripts/check-digest-render.js": ["digest-render"],
@@ -372,7 +338,6 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	"scripts/lib/serialised.sh": ["shellcheck"],
 	"scripts/record-typecheck-red.js": [null],
 };
-/** The hook's inline `pre-commit:` heads that refuse nothing. */
 const HOOK_NOTICES = [
 	"is RED — reporting only, this commit is NOT blocked.",
 	"skipped, not waited for, as this commit holds .git/index.lock",
@@ -380,13 +345,6 @@ const HOOK_NOTICES = [
 	"no worktree holds this commit's tree alone",
 ];
 
-/**
- * The hook's gate calls, comments dropped: each script call, each gate helper's
- * label, and each inline `pre-commit:` head sent to stderr.
- * Residual: a head opened on a continuation line or built in a variable, a
- * quoted or variable label, and a script reached other than by `node`, `bash`,
- * `sh` or `python3` pass unread.
- */
 function hookCalls(hook: string) {
 	const code = hook
 		.split("\n")
@@ -406,11 +364,6 @@ function hookCalls(hook: string) {
 	};
 }
 
-/**
- * The hook's gate calls that map to no table gate: a script called more times
- * than its declared calls or the gates listing it, a label no gate is, and a
- * head carrying no table line or notice.
- */
 function unmappedGates(hook: string) {
 	const { scripts, labels, heads } = hookCalls(hook);
 	const ids = new Set(gates.map((g) => g.id));

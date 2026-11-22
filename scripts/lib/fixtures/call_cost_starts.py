@@ -1,6 +1,3 @@
-"""Starts one child by each process-starting route, in a fixed order, each
-with its own first argument, for test_call_cost_harness.py."""
-
 import os
 import shutil
 import subprocess
@@ -11,7 +8,6 @@ quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
 
 subprocess.Popen([python, "--version"], **quiet).wait()
 subprocess.run([python, "-V"], check=True, **quiet)
-# close_fds=False lets Popen start its child through os.posix_spawn.
 subprocess.run([python, "-E", "-c", "pass"], close_fds=False, check=True)
 os.system(f"{python} -c pass")
 os.waitpid(os.posix_spawn(python, [python, "-I", "-c", "pass"], os.environ), 0)

@@ -1,41 +1,16 @@
-/*
- * commit-range.js — the git half of a red-batch report (mantahostels#945).
- *
- * One scheduled sweep covers every commit since the last one, so a red run
- * accuses a RANGE rather than a sha: report the range well, escalate to a
- * hand-fired bisect only when the read fails (mantahostels#907).
- *
- * Its own module, and gh-free on purpose: the range report is pure git, so it
- * is testable against real commits in this repo without stubbing a CLI.
- *
- * REPORTS ONLY. Every failure here returns { ok: false, reason }; nothing
- * throws, because a range this cannot read must still leave the caller able to
- * print the red run it already knows about.
- */
-
 const { cutAt } = require("./cut-at.js");
 const { readCommit } = require("./commit-sha.js");
 const { execGit, gitReader } = require("./git.js");
 
-/* Above this many commits, per-commit file LISTS are replaced by a file COUNT
- * plus one aggregate. At the range sizes mantahostels#905 measured, the long form is the
- * normal one. */
+// guess, lucmoseley/mantahostels#905
 const LONG_RANGE = 8;
 
-/* A hard ceiling on printed commits, whatever the range. Not a measured
- * figure. */
+// guess, #5529
 const MAX_LISTED = 120;
 
-/* How many entries the aggregate names in the long form. */
+// guess, #5529
 const TOP_FILES = 10;
 
-/* Field and record separators git will never emit inside a subject or a path.
- * NUL and unit-separator rather than a tab or a newline, both of which are
- * legal in a commit subject and would split a record in the wrong place.
- *
- * Asked for as git's OWN `%x00`/`%x1f` placeholders, never as the bytes: Node
- * refuses an argv string containing a NUL outright, so a literal separator in
- * --format makes every call throw before git sees it. */
 const FIELD = "\x1f";
 const RECORD = "\x00";
 const FORMAT = "%x00%h%x1f%s";
@@ -60,10 +35,7 @@ function git(args, cwd) {
 }
 
 /**
- * The one line carrying git's reason, not the whole stderr dump.
- *
- * @param {unknown} e What git's failure threw — an exec exception in practice,
- *   but a `catch` binding promises nothing, so it is narrowed here.
+ * @param {unknown} e
  * @returns {string}
  */
 const parseGitLine = (e) => {
@@ -80,14 +52,6 @@ const parseGitLine = (e) => {
 };
 
 /**
- * Every commit in `good..bad`, newest first, with the files each touched.
- *
- * Returns { ok: true, count, commits, truncated } or { ok: false, reason }.
- * A sha the local clone has never fetched is the expected failure here — the
- * red run names shas from `origin/main`, and this machine may be behind — so it
- * is reported as a reason to fetch, never as a broken check. A git that will
- * not answer is named as that failure instead (#3152).
- *
  * @param {{good?: string|null, bad?: string|null, cwd?: string,
  *   maxListed?: number}} ends
  * @returns {RangeResult}
@@ -114,9 +78,6 @@ function readRange({ good, bad, cwd, maxListed = MAX_LISTED }) {
 			};
 	}
 
-	/* Ancestry checked before the log: `git log a..b` over two unrelated tips
-	 * happily prints b's whole side of the fork, which would read as a range
-	 * nobody meant to name. */
 	try {
 		git(["merge-base", "--is-ancestor", good, bad], cwd);
 	} catch {
@@ -142,9 +103,6 @@ function readRange({ good, bad, cwd, maxListed = MAX_LISTED }) {
 				`--max-count=${maxListed}`,
 				`--format=${FORMAT}`,
 				"--name-only",
-				/* A merge shows no files under --name-only without this, so its
-				 * commits would print an empty file list rather than the union of
-				 * what it brought in. -m would list each parent separately instead. */
 				"--first-parent",
 				`${good}..${bad}`,
 			],
@@ -179,11 +137,6 @@ function readRange({ good, bad, cwd, maxListed = MAX_LISTED }) {
 }
 
 /**
- * How many commits `good..bad` holds, and nothing else.
- *
- * Returns null rather than a reason: the one caller prints a different sentence
- * when it cannot count, not the reason it could not.
- *
  * @param {{good?: string|null, bad?: string|null, cwd?: string}} ends
  * @returns {number|null}
  */
@@ -198,8 +151,6 @@ function countRange({ good, bad, cwd }) {
 }
 
 /**
- * The files the range touched most, commonest first.
- *
  * @param {Commit[]} commits
  * @param {number} [limit]
  * @returns {[string, number][]}
@@ -214,14 +165,6 @@ function topFiles(commits, limit = TOP_FILES) {
 }
 
 /**
- * The range, as the lines a reader sees. Returned rather than printed so the
- * caller keeps its own stream discipline (check.js reserves stdout for machine
- * readers except under --notify).
- *
- * Both ends are required. The `= {}` default this carried was dead: every line
- * past the unavailable-range one reads `good` and `bad`, so a call without them
- * threw the moment the range was readable at all.
- *
  * @param {RangeResult} range
  * @param {{good: string, bad: string, longRange?: number}} ends
  * @returns {string[]}
@@ -255,9 +198,6 @@ function renderRange(range, { good, bad, longRange = LONG_RANGE }) {
 }
 
 /**
- * One commit's lines: subject and file count for a long range, else the
- * subject and each file beneath it.
- *
  * @param {Commit} c
  * @param {boolean} long
  * @returns {string[]}
@@ -271,8 +211,6 @@ function buildCommitLines(c, long) {
 }
 
 /**
- * The most-touched-files block, or none where the range touched no file.
- *
  * @param {Commit[]} commits
  * @returns {string[]}
  */
@@ -287,18 +225,8 @@ function buildTopFileLines(commits) {
 }
 
 /**
- * The bisect hand-off, as lines — or none at all.
- *
- * Offered only where a bisect could say something the range above has not. At
- * one commit the range IS the answer and at zero there is no commit to find, so
- * firing one costs a bisect (mantahostels#947) to reprint what the reader already has. A
- * range this could not read still gets the offer: the runner has the history
- * this clone is missing.
- *
  * @param {RangeResult} range
  * @param {{good?: string, bad?: string, workflow?: string, repoFlag?: string}} [ends]
- *   `repoFlag` is appended to the command, ` --repo <codeRepo>` where gh's
- *   default repo holds no runs (#1963)
  * @returns {string[]}
  */
 function buildBisectAdvice(
@@ -310,9 +238,6 @@ function buildBisectAdvice(
 		range.ok && range.count > LONG_RANGE
 			? "Too many to read? Name the commit"
 			: "Name the commit by bisect";
-	/* Full shas, not short ones: bisect.yml resolves whatever it is handed
-	 * against its own checkout, and an abbreviation that is unique here can be
-	 * ambiguous there. */
 	return [
 		"",
 		`${lead}:`,

@@ -1,16 +1,9 @@
-/*
- * Rival rounds and the transcripts that carry them, shared by the tests of
- * scripts/check-band-drift.js and of its entry in check-cleared-trackers.js,
- * so the two build one corpus shape (#487).
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { LOW_TOP } from "./close-rivals";
 
 type Band = [number, number, number];
 
-/** One round with two rivals, each `[figure, low, high]`. */
 export const round = (a: Band, b: Band, relation = "rivals for one slot") =>
 	[
 		"Some preamble.",
@@ -26,44 +19,31 @@ export const round = (a: Band, b: Band, relation = "rivals for one slot") =>
 		`Relation: ${relation}.`,
 	].join("\n");
 
-/* A 28-point gap, in the 26-30 band, in four shapes. */
 export const WIDE_OVERLAP = round([64, 50, 78], [36, 22, 50]);
 export const WIDE_CLEAR = round([64, 57, 71], [36, 29, 43]);
-/* Top option ±3; the runner-up's wide band still overlaps it. */
 export const NARROW_OVERLAP = round([64, 61, 67], [36, 11, 61]);
 export const NARROW_CLEAR = round([64, 61, 67], [36, 33, 39]);
 
 export const times = (n: number, text: string) =>
 	Array.from({ length: n }, () => text);
 
-/*
- * Rounds topped at the first figure the low-top test passes, and two steps
- * over it, each with a 40-point or wider gap so that none lands in the 26-30
- * band. `relation` sets the shape of the rounds at the line.
- */
 const AT_LINE = LOW_TOP + 5;
 const buildAtLine = (relation?: string) =>
 	round([AT_LINE, AT_LINE - 5, AT_LINE + 5], [25, 20, 30], relation);
 const buildOverLine = () =>
 	round([AT_LINE + 10, AT_LINE + 5, AT_LINE + 15], [20, 15, 25]);
-/* Topped two steps under the line, with a 45-point gap: a round the low-top
- * test refuses. */
 const UNDER_LINE = round(
 	[AT_LINE - 10, AT_LINE - 15, AT_LINE - 5],
 	[15, 10, 20],
 );
 
-/** `n` priced tops at the line or over it, `at` of them at the line in
- * `relation`'s shape. */
 export const topQuestions = (n: number, at: number, relation?: string) => [
 	...times(at, buildAtLine(relation)),
 	...times(n - at, buildOverLine()),
 ];
 
-/** `n` priced tops under the line. */
 export const underLineQuestions = (n: number) => times(n, UNDER_LINE);
 
-/** `n` band questions, `overlapping` of them with overlapping bands. */
 export const bandQuestions = (n: number, overlapping: number) => [
 	...times(overlapping, WIDE_OVERLAP),
 	...times(n - overlapping, WIDE_CLEAR),
@@ -71,7 +51,6 @@ export const bandQuestions = (n: number, overlapping: number) => [
 
 let seq = 0;
 
-/** A top-level transcript under `dir` holding one assistant record per text. */
 export function writeTranscript(
 	dir: string,
 	texts: string[],

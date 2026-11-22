@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * file-memory-kill-tickets.js, driven through its command line against a stub
- * gh and a stub journalctl (#3094). Filing goes through the real
- * file-issue.js, so its label and similar-title refusals run on each incident
- * ticket. Break it and a kill incident goes unticketed, or one files twice.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -28,7 +22,6 @@ const repo = () => path.join(sb.dir, "wfc");
 const stub = (name: string) => path.join(sb.dir, "gh", name);
 
 const MIN = 60 * 1000;
-/** Kills `minutesAgo` each, written where the stub journalctl serves them. */
 function seed(minutesAgo: number[], tickets: object[] = []) {
 	fs.mkdirSync(path.join(repo(), ".git"), { recursive: true });
 	fs.mkdirSync(path.join(repo(), ".claude"), { recursive: true });
@@ -73,7 +66,6 @@ const readCreated = () =>
 
 describe("file-memory-kill-tickets.js (#3094)", () => {
 	it("files one takes:triage ticket per incident that is over, and never a second", () => {
-		/* Two incidents over, 100 min apart; one 5 min old, not over. */
 		seed([300, 290, 190, 5]);
 		const first = run();
 		expect(first.stderr).toBe("");
@@ -88,8 +80,6 @@ describe("file-memory-kill-tickets.js (#3094)", () => {
 		expect(created[0].body).toContain(
 			"By kind: Claude host 1, node or python process 1.",
 		);
-		/* The second incident's title resembles the first's: file-issue.js
-		 * refused it once, so it was filed on the re-run naming the first. */
 		expect(first.stdout).toMatch(/: filed #900\.\n.*: filed #901\.\n$/s);
 
 		const second = run();
@@ -126,7 +116,6 @@ describe("file-memory-kill-tickets.js (#3094)", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(readCreated()).toHaveLength(0);
-		/* Recorded, so the next run asks the tracker nothing. */
 		fs.writeFileSync(stub("calls.log"), "");
 		expect(run().status).toBe(0);
 		expect(fs.readFileSync(stub("calls.log"), "utf8")).toBe("");

@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-branch core of guard-dispatch.js denies a branch move on the
- * shared working tree (mantahostels#110) and hands the rule over before an
- * allowed worktree add (mantahostels#1647). These are its boundary cases
- * (§X11), the dispatcher entry run on it alone: the payload, real git trees,
- * the rule store and the latch, end to end. Which command earns which verdict
- * is lib/branch-move.test.ts's; the tree classes are lib/git-tree.test.ts's;
- * the entry's payload faults and the throw policy are guard-dispatch's own
- * tests' (#2797, #3224).
- *
- * A throwaway repo stands in for the shared tree and a worktree of it for the
- * exempt case. Loosen a deny and a session can move the shared tree off `main`
- * under its neighbours; lose an allow and sanctioned worktree work is wedged.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -41,14 +27,10 @@ let elsewhere: string;
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 
-/* Built once and copied (mantahostels#2016) via scripts/lib/git-fixture.ts,
- * whose header says what a naive copy breaks. */
 const template = defineTemplate(trioTemplate());
 
 const MOVED = "moves the shared working tree off its branch";
 
-/** The hook output for `command` from `cwd`, or null; exit 0 and a quiet
- * stderr asserted on every call. */
 const emission = (
 	command: string,
 	{
@@ -71,7 +53,6 @@ beforeEach(() => {
 	worktree = path.join(dir, "wt");
 	elsewhere = path.join(dir, "elsewhere");
 	template.instantiate(dir);
-	/* The shared-tree model: the main checkout not yet cut over (#4248). */
 	git(shared, "config", "branch.main.merge", "refs/heads/landing");
 });
 
@@ -111,7 +92,6 @@ describe("the guard, end to end", () => {
 		git(shared, "add", "docs/x.md");
 		git(shared, "commit", "-qm", "docs");
 		expect(emission("git checkout docs")).toBeNull();
-		// A tag is no branch: only refs/heads/ outranks the path.
 		git(shared, "tag", "docs");
 		expect(emission("git checkout docs")).toBeNull();
 		git(shared, "branch", "docs");
@@ -183,30 +163,18 @@ describe("the fail-open record", () => {
 	});
 
 	it("records a repo git cannot answer for at all, allowing every command", () => {
-		// The most complete fail-open the guard has, and silent before
-		// mantahostels#147.
 		const notARepo = path.join(dir, "not-a-repo");
 		fs.mkdirSync(notARepo, { recursive: true });
-		const r = run(
-			buildBashPayload("git checkout -b foo", "test"),
-			notARepo,
-			/* Otherwise git walks up out of the fixture into a real repository
-			 * (mantahostels#3149, mantahostels#3158). */
-			{ GIT_CEILING_DIRECTORIES: dir },
-		);
+		const r = run(buildBashPayload("git checkout -b foo", "test"), notARepo, {
+			GIT_CEILING_DIRECTORIES: dir,
+		});
 		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		// The core's own words, not the kit's "guard threw" wrapper.
 		expect(readFailOpenLog(config, notARepo).split("\t")[2]).toMatch(
 			/^git could not resolve a git dir/,
 		);
 	});
 });
 
-/*
- * git-fixture.ts (mantahostels#2068) leak-checks every instantiate() itself;
- * what mantahostels#2085 asks for here is the BEHAVIOURAL isolation a leak
- * would cause.
- */
 describe("the copied fixture is isolated from its template (mantahostels#2085)", () => {
 	const freshCopy = () => {
 		const fresh = mkScratchDir("guard-branch-fresh-");
@@ -220,10 +188,6 @@ describe("the copied fixture is isolated from its template (mantahostels#2085)",
 	};
 
 	it("the copy's core.hooksPath is relinked, not left pointing at the template", () => {
-		// Anchoring on `fresh` — this instance's own root — is what tells a
-		// relinked path apart from a leaked one: the template's own no-hooks dir
-		// is exists-and-empty too. Both top-level repos, since a relink can write
-		// a wrong path into one and not the other (mantahostels#2193).
 		const fresh = freshCopy();
 		try {
 			for (const repo of ["shared", "elsewhere"]) {
@@ -242,8 +206,6 @@ describe("the copied fixture is isolated from its template (mantahostels#2085)",
 	});
 
 	it("a commit made in the copied worktree leaves the template untouched", () => {
-		// The worktree shares its parent's object store, so a stale gitdir
-		// pointer here writes into the template rather than failing loudly.
 		fs.writeFileSync(path.join(worktree, "c.md"), "c\n");
 		git(worktree, "add", "c.md");
 		git(worktree, "commit", "-qm", "worktree copy only", "--", "c.md");

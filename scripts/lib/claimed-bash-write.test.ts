@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * lib/claimed-bash-write.js, a PreToolUse dispatcher core (#2788), warns that
- * a Bash command writes over a file a live session holds (mantahostels#1818).
- *
- * The parse half: given one opaque shell string, which paths is this command
- * about to WRITE? A command that merely MENTIONS a guarded path — a grep, a
- * cat, an echo, a `cp` reading one as its source — must produce nothing, or
- * the injection fires on reading the very file it is about. Those cases read
- * lib/bash-write-plan.js's `plan`, the lists the core hands its judge;
- * lib/claim-warning.test.ts holds the judge's verdicts.
- *
- * Module cases, run in process over the production ports
- * (lib/claimed-bash-write-host.js) in a sandbox with a real arbiter store. The
- * hook line and stdin are scripts/guard-dispatch.test.ts's boundary set.
- *
- * Nothing else announces a Bash-route write to a claimed file: a missed write
- * route lets a session overwrite a neighbour's tier-1 doc unwarned.
- *
- * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
- * whether a restore discards uncommitted edits is the worktree's `HEAD` and
- * working files' answer, and scratch is the worktree's own `.claude/tmp/`.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -44,24 +22,20 @@ const sb = freshSandbox((fresh) => {
 	fs.mkdirSync(path.join(fresh.repo, "scripts", "lib"), { recursive: true });
 	fs.mkdirSync(path.join(fresh.repo, "docs", "agents"), { recursive: true });
 	fs.mkdirSync(path.join(fresh.repo, ".claude"), { recursive: true });
-	// A host whose tests read the selection ledger (#1245).
 	fs.writeFileSync(
 		path.join(fresh.repo, "package.json"),
 		'{"scripts":{"test":"node scripts/run-vitest.js"}}',
 	);
 });
 
-/** What the core logged on its last plan. */
 let logs: string[] = [];
 
-/** The core's context for `command`, as the dispatcher builds it. */
 function ctxFor(command: string) {
 	logs = [];
 	const log = (what: string) => {
 		logs.push(what);
 	};
 	const payload = buildBashPayload(command, "mine");
-	/* The host's ports stand in for the session's tree as well. */
 	const ports = hostAdapters(sb.repo, log);
 	return {
 		...kitContext(
@@ -79,11 +53,6 @@ function ctxFor(command: string) {
 	};
 }
 
-/**
- * The lists the core hands its judge, split into the `credit` paths
- * (mantahostels#2778), the tier-1 targets repo-relative, and the selection
- * paths; null where it would hand the judge nothing at all.
- */
 function judgeSplit(command: string): {
 	parts: { credits: string[]; targets: string[] };
 	selects: string[];
@@ -105,26 +74,18 @@ function judgeParts(
 	return judgeSplit(command)?.parts ?? null;
 }
 
-/** The selection paths alone (#1220), sorted; null where the judge is never handed anything. */
 function selectsOf(command: string): string[] | null {
 	return judgeSplit(command)?.selects.sort() ?? null;
 }
 
-/**
- * The tier-1 targets alone, repo-relative. Null where the judge is handed
- * nothing at all — which also requires the command to name no code path
- * (mantahostels#2778), since one of those reaches the judge on its own.
- */
 function targets(command: string): string[] | null {
 	return judgeParts(command)?.targets ?? null;
 }
 
-/** The `credit` paths alone (mantahostels#2778), already repo-relative. */
 function credits(command: string): string[] | null {
 	return judgeParts(command)?.credits ?? null;
 }
 
-/** The core run as the dispatcher runs it, on `command` from `session`. */
 function run(
 	command: string,
 	session: string | null = "mine",
@@ -139,7 +100,6 @@ function run(
 	);
 }
 
-/** `sessionId` takes the claim the arbiter would take on its first write. */
 function claimedBy(subject: string, sessionId: string) {
 	store.acquire(subject, live(sb, sessionId));
 }
@@ -159,10 +119,6 @@ describe("the session ledger it keeps (mantahostels#2345)", () => {
 		expect(run("echo hi > docs/x.md").output?.additionalContext).toContain(
 			"HELD  docs/x.md",
 		);
-		// What clear-rule-latch.sh globs and arbiter-markers.js sweeps: the
-		// marker directory (.claude/tmp/markers), not the repo root itself
-		// (mantahostels#3515 F8, issue #2). A path outside it outlives the
-		// compaction that discards what it records.
 		expect(fs.existsSync(ledgerFile("main"))).toBe(true);
 	});
 
@@ -192,7 +148,6 @@ describe("the write routes it reads", () => {
 	});
 
 	it("does not read a `>` inside a conditional as a redirect", () => {
-		// `[[ a > b ]]` compares two strings and writes nothing.
 		expect(targets('[[ "$a" > docs/x.md ]]')).toBe(null);
 		expect(targets('[ "$a" \\> docs/x.md ]')).toBe(null);
 	});
@@ -235,7 +190,6 @@ describe("the write routes it reads", () => {
 	});
 
 	it("does not read perl's -I directory as an in-place switch", () => {
-		// `-Ilib` carries an `i`, and a naive letter scan calls the run in-place.
 		expect(targets("perl -Ilib -ne print docs/x.md")).toBe(null);
 	});
 
@@ -249,13 +203,10 @@ describe("the write routes it reads", () => {
 	it("reads git restore, and git checkout only past its --", () => {
 		expect(targets("git restore docs/x.md")).toEqual(["docs/x.md"]);
 		expect(targets("git checkout -- docs/x.md")).toEqual(["docs/x.md"]);
-		// Without the separator the word is a revision at least as often as a
-		// path.
 		expect(targets("git checkout docs/x.md")).toBe(null);
 	});
 
 	it("does not read a restore that rewrites only the index", () => {
-		// `--staged` alone leaves the file on disk untouched.
 		expect(targets("git restore --staged docs/x.md")).toBe(null);
 		expect(targets("git restore --staged --worktree docs/x.md")).toEqual([
 			"docs/x.md",
@@ -263,8 +214,6 @@ describe("the write routes it reads", () => {
 	});
 
 	it("gives up on a git global option rather than guessing", () => {
-		// `-C <dir>` puts the subcommand in a different word; the core declines
-		// to guess which words are still git's own.
 		expect(targets("git -C . checkout -- docs/x.md")).toBe(null);
 	});
 });
@@ -277,8 +226,6 @@ describe("what it must stay silent about", () => {
 	});
 
 	it("says nothing about a write outside tier 1", () => {
-		// It still CREDITS the first, which is code (mantahostels#2778) — but
-		// names no target, so the judge has no claim line to print.
 		expect(targets("echo hi > scripts/x.js")).toEqual([]);
 		expect(targets("echo hi > /tmp/x")).toBe(null);
 		expect(targets("echo hi > package.json")).toBe(null);
@@ -314,15 +261,11 @@ describe("the code paths it hands the judge to credit (mantahostels#2778)", () =
 	});
 
 	it("credits a code write even with no tier-1 target at all", () => {
-		// A core that skipped the judge for want of a tier-1 target would leave
-		// a Bash-only code edit on no ledger.
 		run("echo hi > scripts/x.js");
 		expect(store.readWritesBy("mine")).toContain("scripts/x.js");
 	});
 
 	it("credits a path repo-relative, never absolute", () => {
-		// The write ledger holds repo-relative paths and concision-backstop.sh
-		// compares them with `grep -Fx`, so an absolute one would never match.
 		for (const c of credits("echo hi > scripts/x.js") ?? [])
 			expect(path.isAbsolute(c)).toBe(false);
 	});
@@ -345,9 +288,6 @@ describe("the code paths it hands the judge to credit (mantahostels#2778)", () =
 	});
 
 	it("credits nothing it could not read literally", () => {
-		// Same rule as the warning half: an unreadable word is dropped, never
-		// guessed at — which is what keeps the credit list from naming a path the
-		// command may not write.
 		expect(credits("echo hi > $DEST/x.js")).toBe(null);
 		expect(credits('echo hi > "$(mktemp).js"')).toBe(null);
 	});
@@ -370,13 +310,6 @@ describe("the code paths it hands the judge to credit (mantahostels#2778)", () =
 });
 
 describe("the line join mantahostels#287 named as a gap, left open", () => {
-	/*
-	 * The masker pairs quotes by COUNT, which is not how shell pairs them, so two
-	 * stray apostrophes read as one quoted span and the lines between them are
-	 * joined into a single segment headed by the first. Widening the guarded
-	 * head to bound that join is rejected (lib/bash-write-plan.js's LIMITS
-	 * carries why). Change this only by fixing the quote pairing itself.
-	 */
 	it("misses a write swallowed between two stray apostrophes", () => {
 		expect(targets("echo it's fine\ncp /tmp/a docs/x.md\necho don't")).toBe(
 			null,
@@ -392,17 +325,12 @@ describe("the line join mantahostels#287 named as a gap, left open", () => {
 
 describe("the code globs it duplicates from the backstop (mantahostels#2778)", () => {
 	it("credits every path lib/code-signal.sh's CODE array counts", () => {
-		// The core spells those globs a second time, so a drift makes it miss a
-		// file the backstop counts. mantahostels#2779 is why this is not
-		// extensions alone: the Husky hooks carry none.
 		const backstop = fs.readFileSync(
 			path.join(__dirname, "code-signal.sh"),
 			"utf8",
 		);
 		const array = backstop.match(/^CODE=\(\n([\s\S]*?)^\)$/m);
 		expect(array).not.toBeNull();
-		// Comment lines stripped first: one of them holds an apostrophe, which a
-		// bare single-quote scan reads as the start of a glob.
 		const body = (array?.[1] ?? "")
 			.split("\n")
 			.filter((l) => !l.trim().startsWith("#"))
@@ -426,10 +354,6 @@ describe("the code globs it duplicates from the backstop (mantahostels#2778)", (
 
 describe("the tier prefix test", () => {
 	it("covers every prefix the arbiter's warned tier holds", () => {
-		// The prefix test only saves the store a read; `isWarned` is the
-		// authority (lib/bash-write-plan.js's LIMITS). So drift is safe in
-		// one direction only — the prefix list must never be NARROWER than the
-		// tier, or a real claim goes unannounced.
 		const core = fs.readFileSync(
 			path.join(__dirname, "arbiter-core.js"),
 			"utf8",
@@ -449,8 +373,6 @@ describe("the tier prefix test", () => {
 
 describe("failing open", () => {
 	it("allows unchecked, and records, when the payload names no session", () => {
-		// Without a session id every claim reads as a neighbour's, so the core
-		// would announce the reader's own work back to it.
 		claimedBy("CLAUDE.md", "theirs");
 		const r = run("sed -i s/a/b/ CLAUDE.md", null);
 		expect(r.output).toBe(null);
@@ -458,12 +380,6 @@ describe("failing open", () => {
 	});
 
 	it("gives up on a ledger write that hangs, inside the hook timeout its registration gives it", () => {
-		// The real hang shape: the store's mkdirSync under an unreadable /proc
-		// path blocks forever on this kernel rather than raising, and only a
-		// process can be killed out of it. Unbounded, the dispatcher's entry
-		// timeout would refuse the Bash call. A credit and a selection, so the
-		// selection is seen to skip the store the credit found hung rather than
-		// wait out a second bound.
 		const [{ timeout }] = registrationsOf("PreToolUse", "guard-dispatch.js");
 		if (typeof timeout !== "number")
 			throw new Error("the hook registration no longer carries a timeout");
@@ -479,9 +395,6 @@ describe("failing open", () => {
 	}, 40_000);
 
 	it("records a ledger write that fails, and allows the command", () => {
-		// A write ledger directory that cannot be made, the locks still
-		// readable: the child exits non-zero, which must read as a fault, never
-		// as a credit that landed.
 		fs.mkdirSync(sb.stateDir(), { recursive: true });
 		fs.writeFileSync(path.join(sb.stateDir(), "writes"), "");
 		const r = run("echo hi > scripts/a.js");
@@ -496,7 +409,7 @@ describe("failing open", () => {
 		fs.chmodSync(path.join(sb.stateDir(), "locks"), 0o000);
 		try {
 			const r = run("sed -i s/a/b/ CLAUDE.md scripts/x.sh");
-			if (process.getuid?.() === 0) return; // root reads through chmod
+			if (process.getuid?.() === 0) return;
 			expect(r.output).toBe(null);
 			expect(r.logs.join("\n")).toContain("the lock store could not be read");
 		} finally {
@@ -512,8 +425,6 @@ describe("the cwd a relative target resolves against (mantahostels#2807)", () =>
 	});
 
 	it("keeps a relative target where the cd lands back on the hook's cwd", () => {
-		// The dominant idiom in the corpus, and what rules out dropping every
-		// target on any cd at all (mantahostels#2807).
 		expect(credits(`cd ${sb.repo} && sed -i s/a/b/ scripts/x.sh`)).toEqual([
 			"scripts/x.sh",
 		]);
@@ -541,8 +452,6 @@ describe("the cwd a relative target resolves against (mantahostels#2807)", () =>
 		expect(credits("pushd /elsewhere && sed -i s/a/b/ scripts/x.sh")).toBe(
 			null,
 		);
-		// No `cd` before it: a popd alone must move the cwd on its own, or this
-		// case passes on the cd's account rather than the popd's.
 		expect(credits("popd; sed -i s/a/b/ scripts/x.sh")).toBe(null);
 	});
 
@@ -554,9 +463,6 @@ describe("the cwd a relative target resolves against (mantahostels#2807)", () =>
 	});
 
 	it("stays unknown after an unreadable cd, however it is followed", () => {
-		// `cd .`, the one relative hop landing back on the start: a resolver that
-		// wrongly reads the hop against the hook's own cwd still drops `cd sub`,
-		// so only keeping unknown unknown drops this.
 		expect(credits('cd "$WT" && cd . && tee scripts/x.sh')).toBe(null);
 	});
 
@@ -607,13 +513,6 @@ describe("the cwd a relative target resolves against (mantahostels#2807)", () =>
 	});
 });
 
-/*
- * The inline-interpreter arm (mantahostels#2854). The dominant edit form here
- * is a read-modify-write inside `python3`/`node`, whose destination is a
- * string in another language: the nine routes above cannot see it, so this
- * arm names every tier-1 path the command QUOTES and lets the judge pick the
- * held one.
- */
 describe("the inline-interpreter arm (mantahostels#2854)", () => {
 	it("names a path a python heredoc writes", () => {
 		expect(
@@ -665,29 +564,11 @@ describe("the inline-interpreter arm (mantahostels#2854)", () => {
 		expect(targets(`node -e 'console.log(1)'`)).toBe(null);
 	});
 
-	/*
-	 * A PIPED program is inline by every measure but this one
-	 * (mantahostels#2865): the pipe leaves the interpreter's segment with no
-	 * word after it, so inlineInterp has no flag and no heredoc opener to read.
-	 * Reading it would mean calling a bare `python3` inline, which fires on
-	 * every python in a pipeline.
-	 */
 	it("says nothing about a program arriving down a pipe", () => {
 		expect(targets(`echo "open('docs/x.md','w')" | python3`)).toBe(null);
 		expect(targets(`echo "open('docs/x.md','w')" | python3 -`)).toBe(null);
 	});
 
-	/*
-	 * The arm hands the judge every candidate; picking the one a live neighbour
-	 * holds is the judge's half, pinned by *names one held path out of five
-	 * candidates* in claim-warning.test.ts.
-	 *
-	 * ORDER IS NOT PART OF THE CONTRACT (mantahostels#2865). quotedTokens scans
-	 * once per quote kind, so candidates come out grouped by quote character
-	 * rather than in source order, and the judge filters by claim rather than
-	 * reading the list positionally, so this ONE case sorts before comparing.
-	 * The next case pins the grouping itself and does assert an order.
-	 */
 	it("hands every tier-1 path it quotes, resolving none of them", () => {
 		expect(
 			targets(
@@ -696,8 +577,6 @@ describe("the inline-interpreter arm (mantahostels#2854)", () => {
 		).toEqual(["docs/a.md", "docs/b.md"]);
 	});
 
-	// quotedTokens' `'` pass runs before its backtick pass, so the backticked
-	// `docs/b.md`, first in the source, comes out second.
 	it("emits candidates grouped by quote kind, not in source order", () => {
 		expect(targets(`node -e "w(\`docs/b.md\`); r('docs/a.md')"`)).toEqual([
 			"docs/a.md",
@@ -705,14 +584,6 @@ describe("the inline-interpreter arm (mantahostels#2854)", () => {
 		]);
 	});
 
-	/*
-	 * The `scripts/` tier is detect-only by mantahostels#287, and the arm
-	 * inherits that from addTarget's tier test rather than stating it — so a
-	 * candidate under `scripts/` reaches the judge as neither a target nor a
-	 * credit (mantahostels#2865), only as a selection path (#1220). Crediting
-	 * is barred separately: a quoted candidate is not a resolved write, and
-	 * mantahostels#114 bars over-billing.
-	 */
 	it("never warns about a scripts/ path the interpreter quotes", () => {
 		expect(
 			judgeParts(`node -e "fs.writeFileSync('scripts/foo.sh','')"`),
@@ -722,12 +593,6 @@ describe("the inline-interpreter arm (mantahostels#2854)", () => {
 		).toEqual({ credits: [], targets: ["docs/a.md"] });
 	});
 
-	/*
-	 * The arm's documented false fire (mantahostels#2865): the scan's scope is
-	 * the WHOLE command string, not the interpreter's own segment, so a path
-	 * quoted by a LATER command is named too. Narrowing that is a behaviour
-	 * change, not a bug fix, so it fails here rather than landing unnoticed.
-	 */
 	it("names a path quoted by a neighbouring command, not the interpreter", () => {
 		expect(targets(`node -e 'x=1' && grep "docs/x.md" y`)).toEqual([
 			"docs/x.md",
@@ -856,7 +721,6 @@ describe("the selection paths it notes (#1220)", () => {
 				["docs/gone.md", "scripts/gone.js"],
 			],
 			["git rm -q -- docs/old.md", ["docs/old.md"]],
-			// The destination is not tracked yet; the rename pairing bills it.
 			[
 				"git mv scripts/lib/a.test.ts scripts/lib/b.test.ts",
 				["scripts/lib/a.test.ts"],
@@ -901,7 +765,6 @@ describe("the selection paths it notes (#1220)", () => {
 	});
 });
 
-/* The scan stops at the script (mantahostels#2854 review). */
 describe("what ends the inline-interpreter scan", () => {
 	it("says nothing about a flag belonging to the program, not the interpreter", () => {
 		expect(targets(`python3 -m pip install -c "docs/x.md"`)).toBe(null);
@@ -914,12 +777,6 @@ describe("what ends the inline-interpreter scan", () => {
 		).toEqual(["docs/x.md"]);
 	});
 
-	/*
-	 * And it takes the heredoc-carrying-DATA case with it (mantahostels#2865).
-	 * `node script.js <<'EOF'` feeds a heredoc to a program the walk CAN read,
-	 * so the body is input rather than the program — the scan stops at
-	 * `script.js` before it ever reaches the `<<`, and the arm stays silent.
-	 */
 	it("says nothing about a heredoc feeding DATA to a script file", () => {
 		expect(
 			targets(
@@ -932,7 +789,6 @@ describe("what ends the inline-interpreter scan", () => {
 describe("the whole-file restore rule it hands over (#2028)", () => {
 	const rule = readRuleText("whole-file-restore");
 
-	/** A git host with `f.txt` committed, and `dirty` deciding whether it is then edited. */
 	function gitHost(dirty: boolean) {
 		const git = (...args: string[]) =>
 			spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
@@ -950,7 +806,6 @@ describe("the whole-file restore rule it hands over (#2028)", () => {
 		}
 	}
 
-	/** What the core told the session. */
 	function told(command: string, session = "mine"): string {
 		return run(command, session).output?.additionalContext ?? "";
 	}
@@ -962,7 +817,6 @@ describe("the whole-file restore rule it hands over (#2028)", () => {
 		"git checkout HEAD f.txt",
 		"cp /tmp/f.bak f.txt",
 		"mv f.bak f.txt",
-		// The redirect row leads the answer (#2142).
 		"cp /tmp/f.bak f.txt > log",
 	])("hands over the whole rule on %s over uncommitted changes", (command) => {
 		gitHost(true);
@@ -1007,13 +861,8 @@ describe("the whole-file restore rule it hands over (#2028)", () => {
 	});
 });
 
-/*
- * Cases a mutant must not survive (§X8 (4)): each kills a hand mutant of
- * lib/claimed-bash-write.js that every case above let through.
- */
 describe("cases a mutant must not survive", () => {
 	it("credits nothing outside the repo whose path is longer than the root's", () => {
-		// A prefix test on the root, not a length slice, is what keeps it out.
 		expect(
 			credits(`echo hi > ${path.dirname(sb.repo)}/outside-the-repo/x.js`),
 		).toBe(null);
@@ -1124,7 +973,6 @@ describe("a restore from a session in its own worktree (#4242)", () => {
 				),
 				{ root: at.main, worktree: at.worktree },
 			);
-		/* A neighbour's claim on b.js under the host root's store. */
 		storeAt(at.main);
 		store.acquire("scripts/b.js", live(split, "theirs"));
 		write("scripts/a.js");
@@ -1132,9 +980,6 @@ describe("a restore from a session in its own worktree (#4242)", () => {
 		expect(store.readWritesBy("mine")).toEqual(["scripts/a.js"]);
 	});
 
-	/* Cut where the checkout module cuts one, the host's store spells the
-	 * worktree's scratch `.claude/worktrees/…`, a guarded path a claim can sit
-	 * on (#4275). */
 	const heldWrite = (rel: string) => {
 		const nested = cutWorktree(at.main);
 		storeAt(at.main);

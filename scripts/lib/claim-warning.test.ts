@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * lib/claim-warning.js, the judge half of mantahostels#1818: given the paths a
- * Bash command is about to write, which of them does a live neighbour hold?
- *
- * Driven in process inside a sandbox with a real arbiter store, so a claim is
- * held the way a live session holds one; the ports are the production ones
- * (lib/claimed-bash-write-host.js). lib/claimed-bash-write.js, a PreToolUse
- * dispatcher core, prints what this judges: loosen a case and a `cp` or
- * redirect onto a tier-1 file a neighbour is editing goes unannounced, or every
- * Bash write is buried in claims nobody holds. Crediting and selection run
- * through that core, as the dispatcher runs it.
- */
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -30,18 +18,12 @@ import { buildHostPorts } from "./claimed-bash-write-host.js";
 import { runCore } from "./guard-core-testkit";
 import { buildBashPayload } from "./pretool-guard-testkit";
 
-/*
- * The store's own filename for a claim: a truncated sha256 of the repo-relative
- * path, duplicated here — a fixture writing lock files under a name of its own
- * invention is one the arbiter's readers cannot find.
- */
 const lockFile = (rel: string) =>
 	`${createHash("sha256").update(rel).digest("hex").slice(0, 16)}.json`;
 
 const sb = freshSandbox((fresh) => {
 	fs.mkdirSync(path.join(fresh.repo, "docs"), { recursive: true });
 	fs.mkdirSync(path.join(fresh.repo, "scripts"), { recursive: true });
-	// A host whose tests read the selection ledger (#1245).
 	fs.writeFileSync(
 		path.join(fresh.repo, "package.json"),
 		'{"scripts":{"test":"node scripts/run-vitest.js"}}',
@@ -51,27 +33,17 @@ const sb = freshSandbox((fresh) => {
 	git("init", "-q", "-b", "main", ".");
 	git("config", "user.email", "test@example.com");
 	git("config", "user.name", "test");
-	// This checkout's core.hooksPath is absolute, so a scratch repo would
-	// otherwise run the real Husky gates (mantahostels#100's finding).
 	git("config", "core.hooksPath", path.join(fresh.dir, "no-hooks"));
 });
 
-/** `sessionId` takes the claim the arbiter would take on its first write. */
 function claimedBy(subject: string, sessionId: string) {
 	store.acquire(subject, live(sb, sessionId));
 }
 
-/** The judge's warning for `targets`, judged for `sessionId`. */
 function judge(sessionId: string, ...targets: string[]) {
 	return judgeWith(null, sessionId, ...targets);
 }
 
-/**
- * The same, through the session ledger at `ledgerFile` (mantahostels#2345),
- * written back as the core's latch would be. `null` judges against an empty
- * ledger and keeps nothing.
- */
-/** The clock the judge reads in judgeWith, fixed so a decay is exact. */
 const NOW = 1_800_000_000_000;
 
 function judgeWith(
@@ -95,7 +67,6 @@ function judgeWith(
 	return said.text ? `${said.text}\n` : "";
 }
 
-/** The core run as the dispatcher runs it, on `command` from `sessionId`. */
 function runCommand(command: string, sessionId: string | null) {
 	return runCore(
 		"guard-claimed-bash-write",
@@ -106,13 +77,10 @@ function runCommand(command: string, sessionId: string | null) {
 
 const ledgerPath = (name: string) => path.join(sb.dir, `ledger-${name}.json`);
 
-/* The figures lib/claim-warning.js states, pinned as its contract:
- * SESSION_BUDGET_BYTES, POINTER_DECAY_MS and WARN_MAX_BYTES. */
 const SESSION_BUDGET = 2000;
 const HOUR = 60 * 60 * 1000;
 const WARN_MAX = 4000;
 
-/** The pointer as the core prints it, off a ledger whose budget is spent. */
 function readPointerText(): string {
 	claimedBy("docs/pointer-probe.md", "neighbour-session");
 	const led = ledgerPath(`pointer-${Math.random().toString(36).slice(2)}`);
@@ -150,7 +118,6 @@ describe("a tier-1 path a live neighbour holds", () => {
 	});
 
 	it("names a REGION claim, and says which region covers the write", () => {
-		// mantahostels#970's finer claim: a whole-file write lands on every region of it.
 		claimedBy("docs/doc-map.md#B42", "neighbour-session");
 		const out = judge("mine", "docs/doc-map.md");
 		expect(out).toContain("docs/doc-map.md#B42");
@@ -165,10 +132,6 @@ describe("what must stay silent", () => {
 	});
 
 	it("a claim whose holder has stopped running", () => {
-		// The lock freezes pid and procStart at claim time, so a holder that has
-		// since ended is a lock whose procStart no longer matches its pid —
-		// written here rather than acquired, which would freeze this live process
-		// in.
 		finished(sb, "gone-session");
 		const lock = locksMod.newLock({
 			path: "docs/doc-map.md",
@@ -186,7 +149,6 @@ describe("what must stay silent", () => {
 	});
 
 	it("a held path outside the refusing tier", () => {
-		// `scripts/` is detect-only by mantahostels#287's ruling.
 		claimedBy("scripts/pick-next.js", "neighbour-session");
 		expect(judge("mine", "scripts/pick-next.js")).toBe("");
 	});
@@ -207,8 +169,6 @@ describe("what must stay silent", () => {
 
 describe("the payload is filtered, not the whole store", () => {
 	it("prints only the paths the command names", () => {
-		// Not the whole-store dump mantahostels#1778 measured — that ruling narrowed
-		// `session-arbiter.js list` by liveness, not by path.
 		claimedBy("docs/doc-map.md", "neighbour-session");
 		claimedBy("docs/environment.md", "another-session");
 		claimedBy("CLAUDE.md", "third-session");
@@ -220,13 +180,6 @@ describe("the payload is filtered, not the whole store", () => {
 		expect(out).not.toContain("CLAUDE.md");
 	});
 
-	/*
-	 * mantahostels#2854's fourth criterion end to end (mantahostels#2865). The inline-interpreter arm
-	 * hands the judge every tier-1 path a command quotes without resolving any
-	 * of them, so the case it exists for is several candidates against ONE live
-	 * claim. The test above is the inverse — one target, three claims — and
-	 * cannot see a judge that named all the targets it was given.
-	 */
 	it("names one held path out of five candidates, on one line", () => {
 		claimedBy("docs/environment.md", "neighbour-session");
 
@@ -260,7 +213,6 @@ describe("the session ledger (mantahostels#2345)", () => {
 	});
 
 	it("still delivers a DIFFERENT held path in full", () => {
-		// The unit is the pair, not the rule.
 		claimedBy("docs/doc-map.md", "neighbour-session");
 		claimedBy("docs/environment.md", "other-session");
 		const led = ledgerPath("second-path");
@@ -328,18 +280,12 @@ describe("the session ledger (mantahostels#2345)", () => {
 			SESSION_BUDGET,
 		);
 
-		// A SMALL payload is the test that matters: one still fitting the remainder
-		// would get through if the latch were only consulted inside the
-		// over-budget branch, and the enforced ceiling would then exceed the
-		// stated one.
 		claimedBy("docs/tiny.md", "h");
 		expect(judgeWith(led, "mine", "docs/tiny.md")).toBe("");
 		expect(judgeWith(led, "mine", rels.at(-1) ?? "")).toBe("");
 	});
 
 	it("records no pair on the firing it refused to pay for", () => {
-		// The payload was not delivered, so a compaction — which clears the ledger
-		// — must leave every one of those pairs still to come.
 		const led = ledgerPath("over-budget-pairs");
 		const rels: string[] = [];
 		for (let i = 0; i < 40; i++) {
@@ -361,8 +307,6 @@ describe("the session ledger (mantahostels#2345)", () => {
 	});
 
 	it("does not record a pair the size ceiling dropped", () => {
-		// A line counted into `… and N more` was never said, so recording it
-		// would suppress the only delivery it was ever going to get.
 		const many: string[] = [];
 		for (let i = 0; i < 60; i++) {
 			const rel = `docs/clamped-${i}.md`;
@@ -374,7 +318,6 @@ describe("the session ledger (mantahostels#2345)", () => {
 		const out = judgeWith(led, "mine", ...many);
 		expect(out).toMatch(/… and \d+ more/);
 
-		// Pinned both ways: failing to record one that WAS said pays for it twice.
 		const recorded: string[] = JSON.parse(fs.readFileSync(led, "utf8")).pairs;
 		for (const rel of many)
 			expect(recorded.some((p) => p.startsWith(`${rel} `))).toBe(
@@ -385,25 +328,15 @@ describe("the session ledger (mantahostels#2345)", () => {
 
 	it("prices the session budget from the case its derivation states (mantahostels#2363)", () => {
 		const pointer = readPointerText();
-		// The derivation's inputs are `head`, `tail` and `line()`, all ordinary
-		// literals, so the fixed prose is measured off real firings rather than
-		// restated from the docstring.
 		claimedBy("docs/priced-a.md", "holder-a");
 		claimedBy("docs/priced-b.md", "holder-b");
 		const one = Buffer.byteLength(judge("mine", "docs/priced-a.md").trimEnd());
 		const two = Buffer.byteLength(
 			judge("mine", "docs/priced-a.md", "docs/priced-b.md").trimEnd(),
 		);
-		// A second line costs itself plus the newline `clamp` joins it with, so
-		// the difference isolates the fixed prose from the lines either payload
-		// happens to carry.
 		const fixed = one - (two - one) + 1;
 		expect(fixed).toBe(578);
 
-		// The line width cannot be measured here — it turns on the holder's
-		// session id, its pid width and the path, none of them this sandbox's.
-		// 129 B is the docstring's figure for `docs/doc-map.md` under a uuid
-		// session id.
 		const lineBytes = 129;
 		const stated =
 			fixed +
@@ -413,14 +346,10 @@ describe("the session ledger (mantahostels#2345)", () => {
 			Buffer.byteLength(pointer);
 
 		expect(stated).toBeLessThanOrEqual(SESSION_BUDGET);
-		// A further delivery does not fit.
 		expect(stated + fixed + lineBytes).toBeGreaterThan(SESSION_BUDGET);
 	});
 
 	it("trims a large first firing to the remainder instead of pointing at once (mantahostels#2363)", () => {
-		// The session budget is under one delivery's ceiling, so an unfloored
-		// clamp would compose a payload no remainder could afford and hand back a
-		// pointer naming nothing.
 		const pointer = readPointerText();
 		const led = ledgerPath("trim");
 		const many: string[] = [];
@@ -442,7 +371,6 @@ describe("the session ledger (mantahostels#2345)", () => {
 });
 
 describe("the pointer decays hourly (mantahostels#2364)", () => {
-	/** A ledger whose payload budget is spent, pointed `agoMs` ago. */
 	const spentAt = (name: string, agoMs: number) => {
 		const led = ledgerPath(name);
 		fs.writeFileSync(
@@ -475,8 +403,6 @@ describe("the pointer decays hourly (mantahostels#2364)", () => {
 		const again = judgeWith(led, "mine", "docs/decay-again.md");
 
 		expect(again).toContain("session-arbiter.js list");
-		// An hour passing does not buy a session past its budget a claim list it
-		// did not pay for.
 		expect(again).not.toContain("HELD");
 		expect(judgeWith(led, "mine", "docs/decay-again.md")).toBe("");
 	});
@@ -491,13 +417,10 @@ describe("the pointer decays hourly (mantahostels#2364)", () => {
 		const after = JSON.parse(fs.readFileSync(led, "utf8"));
 		expect(after.bytes).toBe(SESSION_BUDGET + Buffer.byteLength(pointer));
 		expect(after.pairs).toEqual([]);
-		// The stamp is this firing's, not the seeded one an hour back.
 		expect(after.pointedAt).toBe(NOW);
 	});
 
 	it("does not repeat over contention it has already reported", () => {
-		// The pair filter runs before the decay, so an unchanging neighbour is
-		// not re-announced however many hours pass.
 		claimedBy("docs/decay-known.md", "neighbour-session");
 		const led = ledgerPath("decay-known");
 		fs.writeFileSync(
@@ -513,9 +436,6 @@ describe("the pointer decays hourly (mantahostels#2364)", () => {
 	});
 
 	it("hands a pre-mantahostels#2364 ledger the pointer, not a payload it cannot afford", () => {
-		// Such a ledger carries `pointed: true` and no stamp, so it reads as
-		// never-pointed — but its `bytes` spent the old 4,000 B budget, leaving a
-		// negative remainder.
 		claimedBy("docs/legacy-ledger.md", "neighbour-session");
 		const led = ledgerPath("legacy");
 		fs.writeFileSync(
@@ -527,7 +447,6 @@ describe("the pointer decays hourly (mantahostels#2364)", () => {
 
 		expect(out).toContain("session-arbiter.js list");
 		expect(out).not.toContain("HELD");
-		// And it is stamped, so the decay runs from here rather than never.
 		expect(JSON.parse(fs.readFileSync(led, "utf8")).pointedAt).toBeGreaterThan(
 			0,
 		);
@@ -562,17 +481,13 @@ describe("the size ceiling", () => {
 });
 
 describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", () => {
-	/** The core on a `tee` writing every one of `paths`. */
 	const crediting = (sessionId: string | null, ...paths: string[]) =>
 		runCommand(`tee ${paths.join(" ")} < /dev/null`, sessionId);
 
-	/** What the write ledger holds for `sessionId`. */
 	const readWrites = (sessionId: string): string[] =>
 		ledger.readWritesBy(sessionId) ?? [];
 
 	it("credits an uncontended code path, which is the whole point", () => {
-		// Without this the session reaches concision-backstop.sh with an empty
-		// ledger, and its code signal never fires on any threshold.
 		crediting("credit-plain", "scripts/plain.js");
 		expect(readWrites("credit-plain")).toContain("scripts/plain.js");
 	});
@@ -583,8 +498,6 @@ describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", 
 	});
 
 	it("never credits a path another LIVE session holds", () => {
-		// mantahostels#114's property, and the reason this is safe at all: billing a session
-		// for a neighbour's file sends it to edit what that neighbour is holding.
 		claimedBy("scripts/contended.js", "the-neighbour");
 		crediting("credit-contended", "scripts/contended.js");
 		expect(readWrites("credit-contended")).not.toContain(
@@ -599,9 +512,6 @@ describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", 
 	});
 
 	it("credits again once the holder has stopped running", () => {
-		// The lock is written rather than acquired, for the reason "a claim whose
-		// holder has stopped running" above gives: acquiring would freeze this live
-		// process into it and the holder would read as alive.
 		finished(sb, "credit-gone-holder");
 		const lock = locksMod.newLock({
 			path: "scripts/released.js",
@@ -628,15 +538,11 @@ describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", 
 	});
 
 	it("prints nothing at all while crediting", () => {
-		// It rides a PreToolUse hook that turns stdout into additionalContext, so
-		// anything printed here would be charged to every Bash call that writes code.
 		const r = crediting("credit-quiet", "scripts/quiet.js");
 		expect(r.output).toBe(null);
 	});
 
 	it("takes no claim on what it credits", () => {
-		// The ledger and the lock store are separate (mantahostels#114 vs mantahostels#113): crediting must
-		// not make a `scripts/` path look held, or the next session is warned off it.
 		crediting("credit-noclaim", "scripts/unclaimed.js");
 		const held = locksMod.readHeldBy("credit-noclaim") ?? [];
 		expect(held).not.toContain("scripts/unclaimed.js");
@@ -650,9 +556,6 @@ describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", 
 	});
 
 	it("credits nothing when no session id reaches it", () => {
-		// Asserted on the WHOLE store, not on `readWritesBy("")` — that answers null
-		// unconditionally, so an assertion against it would pass whatever the
-		// core did.
 		crediting(null, "scripts/orphan.js");
 		const dir = store.paths.writesDir();
 		const anywhere = fs.existsSync(dir)
@@ -665,10 +568,6 @@ describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", 
 	});
 
 	it("treats a live lock with NO session id as contention, not as free", () => {
-		// The inverse of `warnings()`, where a holder it cannot name is skipped
-		// because the line would say nothing. Here skipping would CREDIT the path.
-		// Acquired for real and then anonymised, so pid and procStart stay this
-		// LIVE process's and the lock keeps reading alive.
 		claimedBy("scripts/anonymous.js", "about-to-be-anonymous");
 		const at = path.join(
 			store.paths.locksDir(),
@@ -684,7 +583,6 @@ describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", 
 });
 
 describe("noting an inline program's quoted paths for test selection (#1220)", () => {
-	/** The core on an inline program quoting every one of `paths`. */
 	const selecting = (sessionId: string, ...paths: string[]) =>
 		runCommand(
 			`node -e "${paths.map((p) => `r('${p}')`).join(";")}"`,
@@ -734,10 +632,6 @@ describe("noting an inline program's quoted paths for test selection (#1220)", (
 	});
 });
 
-/*
- * Cases a mutant must not survive (§X8 (4)): each kills a hand mutant of
- * lib/claim-warning.js that every case above let through.
- */
 describe("cases a mutant must not survive", () => {
 	it("names a target given twice once", () => {
 		claimedBy("docs/twice.md", "neighbour-session");
@@ -781,8 +675,6 @@ describe("cases a mutant must not survive", () => {
 	});
 
 	it("points again after the decay, never resuming the payload", () => {
-		// A pointed ledger can still afford one short line; the pointer's hour
-		// ending must not spend it.
 		const pointer = readPointerText();
 		claimedBy("docs/repoint.md", "neighbour-session");
 		const led = ledgerPath("repoint");

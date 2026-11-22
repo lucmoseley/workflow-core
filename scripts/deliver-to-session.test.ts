@@ -1,34 +1,21 @@
 // @vitest-environment node
-/*
- * Pins that a session is handed each report its own start produced exactly
- * once, never another's or an off-list producer's, and that an unreadable
- * report or store is said rather than read as nothing due.
- *
- * The delivery script driven through its CLI over a sandboxed store (#853),
- * with `CLAUDE_CONFIG_DIR` and `CLAUDE_PROJECT_DIR` in a temp directory so no
- * live session's reports are read or spent.
- *
- * The `wfc-delivery` mod runs it every 30 s in a live session: loosen a case
- * and a red CI report is withheld or repeated, or the next session start's
- * replay loses what it should still show.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as ArbiterStore from "./lib/arbiter-store.js";
+import type * as HostRoot from "./lib/host-root.js";
+import type * as NotifyReport from "./lib/notify-report.js";
+import type * as ProjectSlug from "./lib/project-slug.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const require_ = createRequire(__filename);
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const notify: any = require_("./lib/notify-report.js");
-// biome-ignore lint/suspicious/noExplicitAny: as above
-const store: any = require_("./lib/arbiter-store.js");
-// biome-ignore lint/suspicious/noExplicitAny: as above
-const { projectSlug }: any = require_("./lib/project-slug.js");
-// biome-ignore lint/suspicious/noExplicitAny: as above
-const { hostRoot }: any = require_("./lib/host-root.js");
+const notify: typeof NotifyReport = require_("./lib/notify-report.js");
+const store: typeof ArbiterStore = require_("./lib/arbiter-store.js");
+const { projectSlug }: typeof ProjectSlug = require_("./lib/project-slug.js");
+const { hostRoot }: typeof HostRoot = require_("./lib/host-root.js");
 
 const SCRIPT = path.resolve(__dirname, "deliver-to-session.js");
 const REPLAY = path.resolve(__dirname, "replay-notify-reports.js");
@@ -49,14 +36,9 @@ const run = (script: string, args: string[], session: string | null) => {
 const deliver = (session: string | null = "mine") =>
 	run(SCRIPT, ["--reports"], session);
 
-/**
- * A FAIL report from `checker`; a `null` owner is an unowned report, written
- * before owners existed or by a run with no session.
- */
 const report = (checker: string, text: string, owner: string | null) =>
 	notify.writeReport(checker, { outcome: "FAIL", text, owner });
 
-/** Every file in the store but the delivery ledger, with its bytes. */
 const replayState = () =>
 	Object.fromEntries(
 		fs
@@ -151,7 +133,6 @@ describe("owned reports", () => {
 		});
 		expect(replayState()).toEqual(before);
 
-		// The next session start is shown what it would have been with no delivery.
 		vi.stubEnv("WFC_NOW", new Date().toISOString());
 		const after = run(REPLAY, ["--notify"], "next").out;
 		fs.rmSync(notify.base(), { recursive: true });
@@ -173,8 +154,6 @@ describe("owned reports", () => {
 	});
 
 	it("says the store is unreadable once, never an empty all-clear", () => {
-		/* A file wherever the store could resolve, so notify.base() falls back to
-		 * the pinned path and readdir fails with ENOTDIR (mantahostels#174). */
 		const slug = projectSlug(hostRoot());
 		fs.rmSync(notify.base(), { recursive: true, force: true });
 		for (const p of [

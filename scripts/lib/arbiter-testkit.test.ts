@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * arbiter-testkit.ts's own suite: its retrying sandbox teardown (mantahostels#2956),
- * where an ENOTEMPTY is retried within a fixed budget and then thrown and any
- * other error is thrown at once; and freshSandbox's re-pointing of the inherited
- * repo roots (#3119).
- *
- * The remover and sleep are injected as a flaky stub, so a detached child still
- * writing into the sandbox is reproduced on cue rather than raced for; one case
- * removes a real tree through the default remover.
- *
- * Every arbiter suite tears down through this: loosen a case here and a suite
- * whose assertions all passed goes red in CI on a teardown race, or a real
- * teardown fault is swallowed and sandboxes pile up in the temp dir. Loosen the
- * roots case and those suites read and write the real checkout's dispatch ledger
- * from a background job.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -29,10 +13,8 @@ import {
 import { ledgerPath } from "./dispatch-ledger.js";
 import { noop } from "./noop.js";
 
-/** An Error carrying a `code`, the shape node's fs throws. */
 const errno = (code: string) => Object.assign(new Error(code), { code });
 
-/** A remover that throws `code` for its first `failures` calls, then succeeds. */
 function flaky(failures: number, code = "ENOTEMPTY") {
 	const calls: string[] = [];
 	return {
@@ -95,14 +77,11 @@ describe("removeSandbox", () => {
 	});
 
 	it("actually blocks between attempts when no sleep is injected", () => {
-		// The default sleep is the one line that stalls the vitest worker; every
-		// other case stubs it out, so without this it never runs under test.
 		const stub = flaky(2);
 		const started = Date.now();
 
 		removeSandbox("/tmp/arbiter-w", { remove: stub.remove });
 
-		// §X9: the default sleep is a real one, and this floor is its one proof.
 		expect(Date.now() - started).toBeGreaterThanOrEqual(
 			2 * SANDBOX_RM_DELAY_MS,
 		);
@@ -135,8 +114,6 @@ describe("removeSandbox", () => {
 });
 
 describe("freshSandbox", () => {
-	// Set before freshSandbox's own setup runs, as a background job's inherited
-	// real-checkout roots are (#3119).
 	beforeEach(() => {
 		for (const k of ["WFC_REPO_ROOT", "WFC_DISPATCH_ROOT"])
 			vi.stubEnv(k, "/real/checkout");

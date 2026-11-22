@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the dispatch's allowance gate: its refusal, the cap that cuts a set to
- * what fits, its JSON source and the cheap /usage probe.
- *
- * The fixture is scripts/lib/dispatch-sessions-testkit.ts's. The dispatch's
- * cases are split by subject across dispatch-sessions.test.ts (the advisor),
- * -launch (model, burn mode, launcher binary, seat, auth, usage), -allowance,
- * -duplicate, -drop (a set with one member already dispatched), -reread (the
- * per-member re-read, CPU holds, stagger, roster remedy), -overflow, -bridge
- * and -bridge-budget (the interop-bridge probe), so the forks pool runs them
- * side by side and no file holds the suite to its own length (#2413, #4299). The case that breaks the interop-probe library lives in
- * dispatch-sessions-probe-load.test.ts, as it links every file in scripts/lib
- * and so makes its file a reader of each one (#2423).
- *
- * Loosen a test here and a /pick-next set launches past an allowance gate,
- * which is how the machine freezes.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -32,10 +12,6 @@ import { printedResets } from "./lib/usage-probe-fake";
 
 const fx = dispatchFixture();
 
-/* The cache ages below are read on the boundary clock, WFC_NOW (lib/check.js's
- * `now`), half an hour behind the real one: a reader still on the real clock
- * reads a fresh cache as stale, past lib/allowance.js's 5 minutes, while the
- * stub's printed resets, set off the real clock, stay ahead of both. */
 const NOW = Date.now() - 30 * 60 * 1000;
 const STALE = NOW - 10 * 60 * 1000;
 const AT_NOW = { WFC_NOW: new Date(NOW).toISOString() };
@@ -73,11 +49,6 @@ describe("the allowance gate", () => {
 	});
 });
 
-/* #371: past a threshold the set is cut to the prefix that just reaches 100%
- * of the warned bar (X, not X−1, since the reversal recorded on #371), at least one
- * while the bar reads under 100%. A $10-mean table makes a new session 4.7
- * points of the 5-hour bar and 0.25 of the week; the stub lists only this session, with no
- * transcript under the test's config dir, so it is charged that full mean. */
 describe("the allowance cap (#371)", () => {
 	const table = (): Record<string, string> => {
 		const file = path.join(fx.dir, "cost-table.json");
@@ -104,8 +75,6 @@ describe("the allowance cap (#371)", () => {
 	const readLaunches = () => readArgvLines().filter((l) => l.includes("--bg"));
 
 	it("launches the prefix that fits and names the cut tail", async () => {
-		// Headroom 100 − 90 − 4.7 = 5.3: two 4.7-point members reach it, so the
-		// third is cut.
 		stubClaude({ session: "90" });
 		const r = await runCore(set, table());
 		expect(r.code).toBe(0);
@@ -117,9 +86,6 @@ describe("the allowance cap (#371)", () => {
 		expect(readLaunches()[0]).toContain("/implement 341");
 	});
 
-	/* #2876: every figure on the CAPPED line comes off one jq read of the
-	 * allowance JSON. A neighbour makes the running projection differ from one
-	 * new session's, so a swap of the two shows. */
 	it("names the binding bar's reading, the running sessions and both projections on the CAPPED line", async () => {
 		stubClaude({ session: "90", agentsJson: agentsListing(true) });
 		const r = await runCore(set, table());
@@ -140,7 +106,6 @@ describe("the allowance cap (#371)", () => {
 	});
 
 	it("caps on the weekly bar at its own 99% threshold", async () => {
-		// Headroom 100 − 99 − 0.54 = 0.46: one 0.54-point member reaches it.
 		stubClaude({ week: "99", session: "12" });
 		const r = await runCore(set, table());
 		expect(r.code).toBe(0);
@@ -159,7 +124,6 @@ describe("the allowance cap (#371)", () => {
 	});
 
 	it("launches one where the running session's projection alone passes 100% but the bar does not", async () => {
-		// Headroom 100 − 96 − 4.7 < 0, yet a bar at 96% still has room.
 		stubClaude({ session: "96" });
 		const r = await runCore(set, table());
 		expect(r.code).toBe(0);
@@ -185,7 +149,6 @@ describe("the allowance cap (#371)", () => {
 		});
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("the allowance cap cannot be sized");
-		// #1734: an adopter has no table until it builds one, so the refusal says how.
 		expect(r.stderr).toContain(
 			"the session cost table is unreadable — build it: node scripts/measure-session-cost.js --write",
 		);
@@ -209,14 +172,10 @@ describe("the allowance cap (#371)", () => {
 	});
 });
 
-/* #294: the gate re-pointed at `cachedUsageUtilization` (#280), primary over
- * the printed bars. */
 describe("the allowance gate's JSON source (#280, #294)", () => {
 	it("reads the JSON cache over the printed bars when both are fresh", async () => {
 		const configDir = path.join(fx.dir, "fresh-config");
 		writeCache(configDir, { session: 40, weeklyAll: 50 }, NOW);
-		// The stub's printed bars say 99% — if the gate used them the run would
-		// refuse. The JSON cache says 40/50, so it should not.
 		stubClaude({ week: "99", session: "99" });
 		const r = await runCore(["sonnet", "/implement 341"], {
 			...AT_NOW,
@@ -246,8 +205,6 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 		expect(r.stderr).toContain("likely transient");
 	});
 
-	/* #3758: a plan with no 5-hour bar caches `five_hour: null` and prints no
-	 * `Current session:` line; the cap runs on the weekly bar alone. */
 	it("launches without --force on a fresh weekly bar where the account reports no session bar", async () => {
 		const configDir = path.join(fx.dir, "weekly-only-config");
 		writeCache(configDir, { weeklyAll: 0 }, NOW);
@@ -273,9 +230,6 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 		expect(r.stderr).toContain("no trustworthy allowance reading");
 	});
 
-	/* #294 "also in scope": a failed mktemp for the debug log must not turn
-	 * into an allowance refusal unrelated to allowance — the JSON read is
-	 * attempted whether or not the `/usage` probe ran. */
 	it("still reads the JSON cache when the debug-log mktemp fails, so /usage never runs", async () => {
 		const fakeMktemp = path.join(fx.dir, "mktemp");
 		fs.writeFileSync(

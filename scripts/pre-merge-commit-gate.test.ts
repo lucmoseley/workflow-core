@@ -1,22 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins `.husky/pre-merge-commit` (mantahostels#1679): an auto-resolving merge
- * runs the whole of `.husky/pre-commit` over its own delta, and a red gate
- * refuses the merge commit — exercised through git's own hook seam.
- *
- * The gap it closes: `git merge` runs `pre-merge-commit`, never `pre-commit`, so
- * while `.husky/pre-merge-commit` did not exist an auto-resolving merge landed
- * on `main` having run none of `.husky/pre-commit`'s gates — gitleaks among
- * them, which is the limb that matters, `AGENTS.md` §Secrets boundary making a
- * committed key permanent.
- *
- * Every merge case drives a REAL `git merge` in a throwaway repo with its own
- * `core.hooksPath`, because the class of bug this file guards against is one
- * layer out from the hook's logic — a hook that is correct and never invoked
- * (`docs/agents/guard-authoring.md` §The proving discipline).
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -33,29 +16,12 @@ const HOOK = fs.readFileSync(path.join(ROOT, HOOK_REL), "utf8");
 
 const temps = registerTempCleanup();
 
-/** Where a stubbed hook appends the line proving it ran. */
 const LOG = "fired.log";
 
-/**
- * A credential gitleaks' stock rules match, split across a concatenation so this
- * file is not itself a finding on the repo's own scan. Not AWS's documentation
- * key `AKIA`+`IOSFODNN7EXAMPLE`, which gitleaks 8.30.1 allowlists and which
- * would make the case below pass vacuously.
- */
 const SECRET = `AKIA${"2QQ7WZ4KKPFXJ3RN"}`;
 
-/**
- * The one secrets-scan spelling the hooks share (#224), so the stub hook below
- * resolves the binary exactly as the live ones do.
- */
 const SCAN = `"\${WFC_GITLEAKS:-gitleaks}" git --staged --redact`;
 
-/**
- * gitleaks has no npm route, so the case that needs it skips rather than fails.
- * The probe resolves the binary as `SCAN`'s `:-` does (#224) — `||`, not `??`,
- * so an empty WFC_GITLEAKS falls back rather than skipping a case the hooks
- * would run.
- */
 const HAS_GITLEAKS = (() => {
 	try {
 		execFileSync(process.env.WFC_GITLEAKS || "gitleaks", ["version"], {
@@ -70,36 +36,17 @@ const HAS_GITLEAKS = (() => {
 interface Probe {
 	root: string;
 	git: (...args: string[]) => Buffer;
-	/** Every hook name that fired since the last `reset()`, in order. */
 	fired: () => string[];
 	reset: () => void;
-	/** Replaces the stub `pre-commit` with one exiting `code`. */
 	precommitExits: (code: number) => void;
 }
 
 const buildStubText = (name: string, logFile: string, code: number) =>
 	`echo ${shellQuote(name)} >> ${shellQuote(logFile)}\nexit ${code}\n`;
 
-/*
- * THE FIXTURE IS BUILT ONCE AND COPIED (mantahostels#2068), via scripts/lib/git-fixture.ts:
- * `core.hooksPath` at `.husky/_`, the real shim files copied in (rather than
- * written, so a husky upgrade that changed how `_/h` resolves the user hook
- * fails here instead of silently disarming the gate), and the repo's own
- * `pre-merge-commit` beside a STUBBED `pre-commit` — stubbed because this
- * suite is about the merge seam, what the real one checks being
- * `scripts/precommit-*.test.ts`'s ground.
- *
- * The `pre-commit` stub bakes the fixture's own ABSOLUTE `fired.log` path into
- * its text (`buildStubText` above), so a naive copy would have every instance log
- * to the TEMPLATE's log file. `.husky/pre-commit` is passed as an `extraPaths`
- * entry so `instantiate()`
- * relinks that occurrence the same way it relinks `.git`'s own absolute paths.
- */
 const buildTemplate = (root: string) => {
 	const git = (...args: string[]) => execFileSync("git", args, { cwd: root });
 	git("init", "-q", ".");
-	// A repo-local identity: a machine with no global `user.email` cannot
-	// commit at all (mantahostels#953).
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
 
@@ -124,8 +71,6 @@ const buildTemplate = (root: string) => {
 
 const template = defineTemplate(buildTemplate);
 
-/** Hands out a copy of `buildTemplate`'s repo, plus accessors onto its
- * `fired.log` and a way to change the `pre-commit` stub's exit code. */
 function probe(): Probe {
 	const root = mkScratchDir("premerge-commit-gate-");
 	temps.push(root);
@@ -151,7 +96,6 @@ function probe(): Probe {
 	};
 }
 
-/** A branch adding `files`, leaving the probe back on the branch it started on. */
 function sideBranch(
 	p: Probe,
 	name: string,
@@ -196,19 +140,12 @@ const readLog = (p: Probe, ...args: string[]) =>
 
 describe(".husky/pre-merge-commit", () => {
 	it("is the hook husky actually dispatches", () => {
-		// `_/h` exits 0 when the user hook is absent, so the two halves are
-		// separately load-bearing. The shim half is weak — husky writes every
-		// shim at install, so it fails only on a husky that stopped emitting
-		// this name.
 		expect(fs.existsSync(path.join(ROOT, HOOK_REL))).toBe(true);
 		expect(huskyHooks()).toContain("pre-merge-commit");
 	});
 
 	it("runs the whole of .husky/pre-commit rather than a copied gate list", () => {
-		// A copied gate list goes stale (mantahostels#1261).
 		expect(HOOK).toMatch(/sh -e "\$here\/pre-commit"/);
-		// Comments strip out first: the header names gitleaks and mantahostels#1261, and
-		// matching those would pass on a hook that ran them.
 		const code = HOOK.split("\n").filter((l) => !l.trimStart().startsWith("#"));
 		expect(code.join("\n")).not.toMatch(/gitleaks|node scripts\/|npm run/);
 	});
@@ -227,13 +164,6 @@ describe(".husky/pre-merge-commit", () => {
 	});
 
 	it("hands the gates the merge's own delta, not the whole tree", () => {
-		/*
-		 * mantahostels#1679 asked whether a merge's "staged paths" are the merge result or
-		 * its delta, on the worry that reusing `check:staged` would gate the
-		 * entire tree. Measured here: `git diff --cached` inside the hook is the
-		 * delta against `ours`, so every `--staged`/`--cached` read in
-		 * pre-commit is already scoped correctly and the worry does not arise.
-		 */
 		const p = probe();
 		fs.writeFileSync(
 			path.join(p.root, ".husky", "pre-commit"),
@@ -252,8 +182,6 @@ describe(".husky/pre-merge-commit", () => {
 		const read = (f: string) =>
 			fs.readFileSync(path.join(p.root, f), "utf8").split("\n").filter(Boolean);
 		expect(read("staged.txt")).toEqual(["a.txt", "b.txt", "c.txt"]);
-		// The paired negative: without it the case would pass on a hook that saw
-		// nothing at all.
 		expect(read("tracked.txt")).toContain("base.txt");
 		expect(read("tracked.txt").length).toBeGreaterThan(3);
 	});
@@ -268,7 +196,6 @@ describe(".husky/pre-merge-commit", () => {
 
 		const r = merge(p, "side");
 		expect(r.output).toContain("the gates above refused this merge's content");
-		// Spec F7 of mantahostels#1679's review: `git merge` itself exits non-zero.
 		expect(r.code).not.toBe(0);
 		expect(readLog(p, "--format=%H", "-1").trim()).toBe(before);
 		expect(fs.existsSync(path.join(p.root, ".git", "MERGE_HEAD"))).toBe(true);
@@ -276,8 +203,6 @@ describe(".husky/pre-merge-commit", () => {
 	});
 
 	it("does not let `git commit` past the refusal without the same gates", () => {
-		// The escape git prints — "use 'git commit' to complete the merge" — is
-		// only honest because that commit runs pre-commit.
 		const p = probe();
 		sideBranch(p, "side", { "side.txt": "side\n" });
 		fs.writeFileSync(path.join(p.root, "base.txt"), "moved\n");
@@ -296,13 +221,6 @@ describe(".husky/pre-merge-commit", () => {
 	});
 
 	it("passes pre-commit's exit code through, which git then discards", () => {
-		/*
-		 * .husky/pre-commit exits 2 on BROKEN apparatus, distinct from a finding.
-		 * The hook keeps that distinction for anything reading it directly —
-		 * measured here by running the hook itself. `git merge` does NOT: it
-		 * reports 1 on any non-zero hook, so no caller of `git merge` can tell
-		 * the two apart, and nothing should be built on being able to.
-		 */
 		const p = probe();
 		sideBranch(p, "side", { "side.txt": "side\n" });
 		fs.writeFileSync(path.join(p.root, "base.txt"), "moved\n");
@@ -325,17 +243,7 @@ describe(".husky/pre-merge-commit", () => {
 	it.skipIf(!HAS_GITLEAKS)(
 		"catches a secret arriving only by the merge, through real gitleaks",
 		() => {
-			/*
-			 * The end-to-end case for mantahostels#1679's headline limb, run against the real
-			 * gitleaks binary rather than a stub: the secret exists on neither the
-			 * merge's own commit message nor `ours`, and reaches `main` only because
-			 * the merge brings it. Skipped where gitleaks is absent — CLAUDE.md
-			 * §Gotchas records that npm install does not supply it.
-			 */
 			const p = probe();
-			// The branch is built under the stub, then the real scan is wired in:
-			// the secret is already on the side branch by whatever route put it
-			// there, and the merge is the moment it would reach main.
 			sideBranch(p, "side", { "creds.txt": `${SECRET}\n` });
 			fs.writeFileSync(path.join(p.root, "base.txt"), "moved\n");
 			p.git("commit", "-qm", "moved", "--", "base.txt");
@@ -353,12 +261,6 @@ describe(".husky/pre-merge-commit", () => {
 	);
 
 	it("is skipped entirely by `git merge --no-verify`", () => {
-		// The residual this hook alone cannot close. It is not a hole: the gates
-		// sit behind `.husky/prepare-commit-msg`, which the flag cannot skip, and
-		// the guard-commit-form core's deny covers `git merge` (mantahostels#1705).
-		// This probe copies no prepare-commit-msg in, so what it measures is
-		// still THIS hook's own reach — scripts/prepare-commit-msg-gate.test.ts
-		// is where the merge is refused.
 		const p = probe();
 		sideBranch(p, "side", { "side.txt": "side\n" });
 		fs.writeFileSync(path.join(p.root, "base.txt"), "moved\n");
@@ -380,8 +282,6 @@ describe(".husky/pre-merge-commit", () => {
 	});
 
 	it("gates `git merge --continue`, the third way to finish a merge", () => {
-		// Neither mantahostels#1679 nor its first measurement probed this spelling. It
-		// completes a CONFLICTED merge, so what it runs is `pre-commit`.
 		const p = probe();
 		sideBranch(p, "side", { "shared.txt": "theirs\n" });
 		fs.writeFileSync(path.join(p.root, "shared.txt"), "ours\n");
@@ -403,12 +303,6 @@ describe(".husky/pre-merge-commit", () => {
 	});
 
 	it("leaves the conflicted shape alone — git already runs pre-commit there", () => {
-		/*
-		 * A CONFLICTED merge runs no hook on the failed merge itself, and its
-		 * resolution `git commit` is an ordinary gated commit — so the
-		 * auto-resolving shape was the only unguarded one. mantahostels#1679's issue body
-		 * assumed otherwise and asked for a second measurer.
-		 */
 		const p = probe();
 		sideBranch(p, "side", { "shared.txt": "theirs\n" });
 		fs.writeFileSync(path.join(p.root, "shared.txt"), "ours\n");
@@ -428,8 +322,6 @@ describe(".husky/pre-merge-commit", () => {
 
 describe("the pre-merge-commit hook's own linting", () => {
 	it("is in check:sh's file set, which pre-commit's shell gate shares (#1828)", () => {
-		// A husky hook nothing lints is a hook whose next edit breaks silently:
-		// `npm run lint` never sees a shell file.
 		const set = runInProcess(
 			path.join(ROOT, "scripts/lib/formatters.js"),
 			["shell-files", "--tracked"],
@@ -441,14 +333,6 @@ describe("the pre-merge-commit hook's own linting", () => {
 
 describe("what a refused merge strands, and where", () => {
 	it("parks MERGE_HEAD in the merging worktree alone, never repo-wide", () => {
-		/*
-		 * The residual the hook's header names, measured rather than assumed. A
-		 * refusal leaves MERGE_HEAD set, and until it is cleared that tree
-		 * cannot take the pathspec commit CLAUDE.md mandates. The question that
-		 * decides its blast radius in a repo-global working tree is whether
-		 * MERGE_HEAD is per-worktree: it is, so a merge-back refused in a
-		 * throwaway worktree strands only that worktree.
-		 */
 		const p = probe();
 		sideBranch(p, "side", { "side.txt": "side\n" });
 		fs.writeFileSync(path.join(p.root, "base.txt"), "moved\n");
@@ -479,7 +363,6 @@ describe("what a refused merge strands, and where", () => {
 		expect(fs.existsSync(path.join(gitDir, "MERGE_HEAD"))).toBe(true);
 		expect(fs.existsSync(path.join(p.root, ".git", "MERGE_HEAD"))).toBe(false);
 
-		// And the shared tree still takes a pathspec commit while that sits.
 		fs.writeFileSync(path.join(p.root, "unrelated.txt"), "x\n");
 		p.git("add", "--", "unrelated.txt");
 		p.precommitExits(0);

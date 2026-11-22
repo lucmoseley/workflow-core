@@ -1,19 +1,5 @@
 // @vitest-environment node
-/*
- * Pins the refill loop's stale-seat read to the shared usage probe (#2317,
- * from #2306): a `dry-run` tick over two seats, against a fake `claude`, `gh`,
- * memory reading and reap, sees a stale seat probed through usage-probe.js
- * and the routine it runs, "lib/usage-probe.js" (from `/`, stdin on
- * /dev/null, `--permission-mode manual`, the seat named by --config-dir),
- * and a fresh one not probed at all.
- *
- * Every bar reads 100%, so no seat has room: the tick sizes no cap and reads
- * no shortlist, and so makes no GitHub call.
- *
- * Break it and the loop's stale-seat read leaves the shared probe: a stale
- * seat costs a full `/usage` run per tick again, and a fresh one is probed
- * for nothing.
- */
+// full-sweep-only: #5528
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,7 +19,6 @@ let seats: string[];
 let probeLog: string;
 let ghLog: string;
 
-/** Both bars full, so a seat reads as no room. */
 const FULL = { session: 100, week: 100 };
 
 beforeEach(() => {
@@ -46,7 +31,6 @@ beforeEach(() => {
 		path.join(dir, ".refill-loop-control.json"),
 		JSON.stringify({ noProgressFrom: Date.now(), stopRequested: false, seats }),
 	);
-	// Any figure over admission's memory floor for one slot.
 	fs.writeFileSync(path.join(dir, "meminfo"), "MemAvailable: 20000000 kB\n");
 	fs.writeFileSync(
 		path.join(dir, "reap.js"),
@@ -57,9 +41,6 @@ beforeEach(() => {
 		`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(ghLog)}\nexit 1\n`,
 		{ mode: 0o755 },
 	);
-	/* A probe records its parent's command line and where and how it ran, then refreshes the caches of the
-	 * seats FAKE_REFRESH names, or, under FAKE_ABORT, SIGTERMs its parent
-	 * usage-probe.js, which then exits 1. */
 	fs.writeFileSync(
 		path.join(dir, "claude"),
 		[
@@ -94,7 +75,6 @@ function dryRun(fake: { refresh?: string[]; abort?: boolean } = {}) {
 			WFC_REFILL_DIR: dir,
 			CLAUDE_PROJECT_DIR: dir,
 			HOME: dir,
-			// No seat's: a probe that drops --config-dir shows here.
 			CLAUDE_CONFIG_DIR: path.join(dir, "home-seat"),
 			CLAUDE_CODE_SESSION_ID: SESSION_ID,
 			WFC_CLAUDE_BIN: path.join(dir, "claude"),

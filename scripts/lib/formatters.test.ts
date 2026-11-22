@@ -1,14 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins scripts/lib/formatters.js's shell file set (#1828), its install lines
- * and CI's ruff install against the core's pins, and its program route: the skip flags, the lint verdict and the ruff
- * config the pre-commit gates read.
- *
- * Loosen a case and a shell file outside the set goes unformatted and
- * unlinted, or a vendored one is refused for code the repo never wrote.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -23,7 +14,6 @@ const PROGRAM = path.join(ROOT, "scripts", "lib", "formatters.js");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 
 describe("the shell file set (#1828)", () => {
-	/** `shell-files` over `paths` in a repo holding `files`, all staged. */
 	const pick = (
 		files: Record<string, string>,
 		paths = Object.keys(files),
@@ -119,7 +109,6 @@ describe("the shell file set (#1828)", () => {
 			"v.sh linguist-vendored\n",
 		);
 		git("add", ".");
-		// The worktree now says the opposite of the index on both counts.
 		fs.writeFileSync(path.join(root, "bin", "run"), "#!/usr/bin/env node\n");
 		fs.writeFileSync(path.join(root, ".gitattributes"), "");
 		const r = runInProcess(PROGRAM, ["shell-files", "--index"], {
@@ -142,7 +131,6 @@ describe("the shell file set (#1828)", () => {
 		expect(shellFiles(paths, head)).toEqual(paths);
 	});
 
-	/** This checkout's tracked shell files, as check:sh lists them. */
 	const tracked = () =>
 		runInProcess(PROGRAM, ["shell-files", "--tracked"], { cwd: ROOT })
 			.stdout.split("\n")
@@ -176,7 +164,6 @@ describe("the shell file set (#1828)", () => {
 				input: paths.join("\n"),
 				encoding: "utf8",
 			}).trim();
-		// grep exits 1 on a zero count, which is the pass.
 		expect(() => grep(shell)).toThrow();
 		expect(grep(["scripts/a.js", "docs/x.md", ".husky/README.md"])).toBe("3");
 	});
@@ -208,14 +195,12 @@ describe("formatters.js as a program — the pre-commit hook's reading (#1354)",
 		return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 	};
 
-	/** A plugin root holding a ruff.toml, as a release tree does. */
 	const plugin = () => {
 		const { root } = newRepo("formatters-plugin-", temps);
 		fs.writeFileSync(path.join(root, "ruff.toml"), "[lint]\n");
 		return root;
 	};
 
-	/** A host whose one workflow and package.json scripts read as given. */
 	const host = (workflow?: string, scripts?: Record<string, string>) => {
 		const { root } = newRepo("formatters-host-", temps);
 		if (workflow !== undefined) {
@@ -269,7 +254,6 @@ describe("formatters.js as a program — the pre-commit hook's reading (#1354)",
 	it("reads no workflow or package.json where both formatters are installed, so a malformed one cannot refuse", () => {
 		const { root } = newRepo("formatters-host-", temps);
 		fs.writeFileSync(path.join(root, "package.json"), "{ not json");
-		// node answers `--version`, standing in for a ruff CI's node job lacks.
 		expect(flags(root, { WFC_RUFF: process.execPath })).toEqual(
 			answer("flags:"),
 		);

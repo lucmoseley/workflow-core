@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/failed-call-rules.js, guard-failed-call-rules.js's core (#2026, ported
- * at #2799), in process: a Bash call killed by a signal is handed
- * `rule:silent-kill`, a batch holding a Skill refused as slash-only
- * `rule:skill-refused`.
- *
- * Loosen the silent cases and every failed call or batch carries a rule the
- * session did not need; loosen the firing ones and the rule, gone from the
- * pool, reaches nobody. The rule store is the real one, so a case compares
- * against the fragment a session would be handed.
- */
 
 import { describe, expect, it } from "vitest";
 import { kitContextFake } from "./kit-context-fake";

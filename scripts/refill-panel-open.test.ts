@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * The panel's launcher (#3886): the config key decides whether an alias's call opens
- * anything, and a failed route falls through to the next, then to the printed command.
- * Broken, a view opens no panel, or a repo that never asked for one gets a pane.
- *
- * Most cases inject `run` and `detach`, so no test opens a pane in the terminal it runs
- * in; three cross the real spawn, against a stub `tmux` at `WFC_TMUX`. Every case injects
- * `wait`, so none takes the hold's real 5 seconds.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -276,7 +267,6 @@ describe("refill-panel-open.js", () => {
 			`#!/bin/sh\nwhile [ ! -e ${shellQuote(release)} ]; do sleep 0.05; done\n: > ${shellQuote(seen)}\nexit 7\n`,
 			{ mode: 0o755 },
 		);
-		/* A guess, generous for a loaded machine: it bounds only a failure's wait. */
 		const logTimeoutMs = 15_000;
 		const code = main(
 			["--if-enabled", String(process.pid)],

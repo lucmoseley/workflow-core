@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * agent-liveness.js is the one reader of `claude agents --json`, and every
- * caller refuses on the `{why}` it returns. These tests pin the refusals rather
- * than the happy path: a branch that wrongly returned `{agents}` would let a
- * caller narrow the live set on a partial read and break a live session's claim
- * (lucmoseley/mantahostels#512).
- *
- * A fake `claude` on WFC_CLAUDE_BIN stands in for the daemon, except where a
- * case counts the retry's attempts or caps: there `opts.run` stands in for the
- * read, so no real child races a cap of milliseconds (#4411). `isListedLive`,
- * a pure predicate, is tested in process at the end.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -28,17 +16,12 @@ import { readText } from "./file-read.js";
 import { writeHeadlessRun } from "./headless-runs-testkit";
 import { withStopClockLeft } from "./hook-deadline-testkit";
 
-// The module is CommonJS and stays that way — it is required by plain node
-// scripts that a bash hook spawns.
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const liveness: any = createRequire(__filename)("./agent-liveness.js");
+const liveness = createRequire(__filename)("./agent-liveness.js");
 
 let dir = "";
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "liveness-"));
-	// Outside a session there is nothing for the self-test to test against; each
-	// test that wants it opts in.
 	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
 	vi.stubEnv("WFC_REFILL_DIR", path.join(dir, "refill"));
 });
@@ -47,8 +30,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A `claude` stand-in whose `agents --json` answers `answer`, or, on a seat
- * `bySeat` maps, that seat's. */
 function fakeClaude(
 	answer: AgentsAnswer,
 	bySeat?: Record<string, AgentsAnswer>,
@@ -60,7 +41,6 @@ function fakeClaude(
 	return bin;
 }
 
-/** Output no harness prints, for the reader's malformed-listing cases. */
 const malformed = (text: string) => ({ malformed: text });
 
 const listing = (...sessionIds: string[]) =>
@@ -127,11 +107,6 @@ describe("the binary will not run", () => {
 	});
 });
 
-/*
- * A stand-in for runOracle, passed as `opts.run`, that throws `failure` (a
- * timeout unless given) on its first `hangs` calls and answers a listing after
- * that, recording each call's cap. The count pins "exactly one retry".
- */
 function fakeRun(
 	hangs: number,
 	failure: () => Error = () =>
@@ -150,8 +125,6 @@ function fakeRun(
 
 describe("the oracle times out (mantahostels#1900)", () => {
 	beforeEach(() => {
-		// Milliseconds, not the 10s/20s defaults, so the suite does not wait on a
-		// real ceiling. The retry's cap stays the longer of the two.
 		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "300");
 		vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", "600");
 	});
@@ -191,9 +164,6 @@ describe("the oracle times out (mantahostels#1900)", () => {
 	});
 
 	it("refuses when the retry times out too, naming the longer cap", () => {
-		// §X9: a process timeout: the one case crossing spawnSync's real cap, so
-		// the fake's ETIMEDOUT above is what a hung child really throws. The fake
-		// sleeps far past both caps, so the cap fires however slowly it starts.
 		fakeClaude("hang");
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
@@ -208,7 +178,6 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(dir, "no-b"));
 		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(dir, "no-c"));
 		const pids = path.join(dir, "pids");
-		// An oracle that backgrounds two children, logging each pid, then waits.
 		fakeClaude({ hangsWithChildren: pids });
 		const running = (pid: string) => {
 			try {
@@ -217,17 +186,9 @@ describe("the oracle times out (mantahostels#1900)", () => {
 				return false;
 			}
 		};
-		// Two children a read, two seats a call, and two calls: the first and
-		// its one retry.
 		const childrenOfAllReads = 8;
-		// §X9: a round whose fake started late logs fewer pids, so it is run
-		// again on doubled caps rather than failed (#4732); every child any round
-		// logged must still be reaped. The retry cap is twice the first, as
-		// production's 10 s / 20 s are (agent-liveness.js). A guess: 1 s starts
-		// the climb; 8 s ends it, bounding a failing case to ~45 s of caps
-		// (3 × (1+2+4+8)), inside the 90 s testTimeout.
-		// Residual: a fake still short of 8 pids at 8 s fails the count.
 		let children: string[] = [];
+		// guess, #5529
 		for (
 			let capMs = 1000;
 			capMs <= 8000 && children.length < childrenOfAllReads;
@@ -241,26 +202,21 @@ describe("the oracle times out (mantahostels#1900)", () => {
 			if (log.state === "unreadable") throw log.error;
 			children =
 				log.state === "read" ? log.data.trim().split("\n").filter(Boolean) : [];
-			// §X9: SIGKILL is delivered asynchronously, so the reap is polled for —
-			// up to 1 s, untraced: far past a kill's delivery on an idle machine.
+			// guess, #5529
 			for (let i = 0; i < 20 && children.some(running); i++)
 				await new Promise((r) => setTimeout(r, 50));
 			expect(children.filter(running)).toEqual([]);
 		}
-		// Short at 8 s: a seat or retry the oracle skipped, as likely as a slow fake.
 		expect(children).toHaveLength(childrenOfAllReads);
 	});
 
 	it("falls back to the default cap when the knob is garbled", () => {
 		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "not-a-number");
 		fakeClaude(listing("aaaa"));
-		// A cap of NaN or 0 would disable the ceiling; the answer proves it ran.
 		expect(liveness.listedAgents().why).toBeUndefined();
 	});
 });
 
-/* A hook that started lib/hook-deadline.js's clock gets its read cut to what
- * the budget leaves (#4115). */
 describe("a hook's time budget (#4115)", () => {
 	it("cuts a hung read to what the budget leaves, and does not retry it", () => {
 		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "5000");
@@ -431,7 +387,6 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 		expect(r.agents).toHaveLength(1);
 	});
 
-	/* Fail-closed: only the literal `false` exempts. */
 	it.each([
 		["unset", {}],
 		["true", { requireSelf: true }],
@@ -447,7 +402,6 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 		);
 	});
 
-	/* It suppresses ONE test, not the oracle's judgement. */
 	it.each([
 		["the binary will not run", () => fakeClaude({ exit: 3 }), "would not run"],
 		[
@@ -474,8 +428,6 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 		expect(r.why).toContain(fragment);
 	});
 
-	/* pick-next subtracts self from its session count on the strength of this
-	 * reader listing its own caller (mantahostels#437). */
 	it("does not exempt listedSessionIds, whose callers rely on the self-test", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("someone-else"));
@@ -506,8 +458,6 @@ describe("what it returns when it can answer", () => {
 });
 
 describe("every plan's listing (#3512)", () => {
-	/** Seats A and B beside this caller's own dir, each listing its own ids;
-	 * B failing with exit 4 where `bFails`. */
 	function seats({ bFails = false } = {}) {
 		const a = path.join(dir, "seat-a");
 		const b = path.join(dir, "seat-b");
@@ -611,7 +561,6 @@ describe("headless runs (#2608)", () => {
 	});
 
 	it("drops a live oracle row sharing a run's pid under another session id, never a dead one (#4588)", () => {
-		// writeHeadlessRun records this process as the run's pid.
 		fakeClaude([
 			...listing("a"),
 			buildListedRow({ pid: process.pid, sessionId: "x", kind: "interactive" }),
@@ -670,7 +619,6 @@ describe("headless runs (#2608)", () => {
 		headlessRun("0123abcd", "h");
 		fakeClaude(listing("a"));
 		expect(liveness.listedSessionIds().ids.has("h")).toBe(true);
-		// The daemon may have nothing of its own to list beside it.
 		fakeClaude([]);
 		expect(liveness.listedSessionIds().ids).toEqual(new Set(["h"]));
 	});
@@ -693,8 +641,6 @@ describe("listedSessionIds", () => {
 		expect([...r.ids].sort()).toEqual(["a", "b"]);
 	});
 
-	/* Off the SAME oracle read, so a caller pricing the daemon+spare overhead
-	 * can build its live-pid set without a second oracle spawn (mantahostels#1295). */
 	it("maps each session id to its pid", () => {
 		fakeClaude(listing("a", "b"));
 		const r = liveness.listedSessionIds();
@@ -702,7 +648,6 @@ describe("listedSessionIds", () => {
 		expect(r.pids.get("b")).toBe(101);
 	});
 
-	/* Every session's cwd, whatever its state, for its repo's draw (#2221). */
 	it("maps each session to its cwd, whatever its state", () => {
 		fakeClaude([
 			buildListedRow({ sessionId: "me", cwd: "/r/a" }),
@@ -742,8 +687,6 @@ describe("listedSessionIds", () => {
 		expect([...r.terminal]).toEqual(["done-1", "fail-1"]);
 	});
 
-	/* `finished` — the pool a caller reports as reclaimable, off this same read
-	 * (mantahostels#653). */
 	it("holds the background sessions the oracle calls done", () => {
 		fakeClaude([
 			buildListedRow({ sessionId: "me", kind: "session" }),
@@ -784,8 +727,6 @@ describe("listedSessionIds", () => {
 		expect(r.finished.size).toBe(0);
 	});
 
-	/* Every refusal reaches the callers through this wrapper, so a wrapper that
-	 * dropped `why` would hand them an empty Set — every claim reading dead. */
 	it.each([
 		["the binary will not run", () => fakeClaude({ exit: 3 })],
 		["the output is not JSON", () => fakeClaude(malformed("not json"))],
@@ -807,16 +748,10 @@ describe("listedSessionIds", () => {
 		const r = liveness.listedSessionIds();
 		expect(r.ids).toBeUndefined();
 		expect(typeof r.why).toBe("string");
-		// The same sentence, not merely some refusal: the net below would other-
-		// wise swallow a dropped pass-through and report an unreadable oracle.
 		expect(r.why).toBe(liveness.listedAgents().why);
 	});
 });
 
-/*
- * The issue-claim prune's reader (mantahostels#710). Its only wiring is a SessionStart
- * hook, where the starting session is not yet listed.
- */
 describe("sweepSessionIds", () => {
 	it("adds the starting session it is handed, run with no session id of its own (#4706)", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
@@ -836,9 +771,6 @@ describe("sweepSessionIds", () => {
 		expect([...r.ids].sort()).toEqual(["me", "other"]);
 	});
 
-	/* A sweep's judgement IS an absence, so a list short by the caller must be
-	 * corrected rather than merely tolerated: leaving "me" out would delete the
-	 * sweeping session's own claim. */
 	it("adds the caller back rather than passing the short list through", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
@@ -850,8 +782,6 @@ describe("sweepSessionIds", () => {
 		expect([...liveness.sweepSessionIds().ids]).toEqual(["other"]);
 	});
 
-	/* The waiver reaches the self-test and nothing else: every other refusal
-	 * still refuses, or a sweep would run on an oracle that said nothing. */
 	it.each([
 		["the binary will not run", () => fakeClaude({ exit: 3 })],
 		["the output is not JSON", () => fakeClaude(malformed("not json"))],
@@ -869,9 +799,6 @@ describe("sweepSessionIds", () => {
 		expect(r.why).toBe(liveness.listedAgents({ requireSelf: false }).why);
 	});
 
-	/* Display names ride along on the same read (mantahostels#1924), the stranded-claim
-	 * sweep naming its holders. The caller's own id is never in the map, since
-	 * the oracle did not list it. */
 	it("carries display names, minus the caller it added back", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude([
@@ -884,7 +811,6 @@ describe("sweepSessionIds", () => {
 		expect(r.names.has("me")).toBe(false);
 	});
 
-	/* The waiver is hard-coded, so a caller cannot re-arm the self-test. */
 	it("ignores a caller trying to set requireSelf back to true", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
@@ -893,8 +819,6 @@ describe("sweepSessionIds", () => {
 		).toEqual(["me", "other"]);
 	});
 
-	/* Mirrors listedSessionIds's `finished` field (mantahostels#2765): a caller reading the
-	 * waived list still needs to tell a listed-but-done holder from a live one. */
 	it("holds the background sessions the oracle calls done, like listedSessionIds", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude([
@@ -910,9 +834,6 @@ describe("sweepSessionIds", () => {
 		expect(liveness.sweepSessionIds().finished.has("me")).toBe(false);
 	});
 
-	/* `terminal` — the pool a caller judging LIVENESS reads, wider than
-	 * `finished` because a session that FAILED is no more alive than one that
-	 * finished (mantahostels#2774). */
 	it.each(["done", "failed", "stopped"])(
 		"holds a background session the oracle calls %s",
 		(state) => {
@@ -925,9 +846,6 @@ describe("sweepSessionIds", () => {
 		},
 	);
 
-	/* `finished` feeds pick-next's reclaimable headline,
-	 * which promises the memory the reaper returns, and the reaper stops `done`
-	 * alone. Merging the two predicates would widen what it kills. */
 	it("leaves a failed session out of `finished` while holding it in `terminal`", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude([
@@ -963,10 +881,6 @@ describe("sweepSessionIds", () => {
 	});
 });
 
-/*
- * The oracle must be total: every input returns a list or a `{why}`, never a
- * throw (mantahostels#517, the ticket that found a JSON `null` throwing instead).
- */
 describe("totality", () => {
 	const payloads: [string, string][] = [
 		["a JSON null", "null"],
@@ -1037,7 +951,6 @@ describe("totality", () => {
 		};
 		expect(liveness.listedAgents(boom).agents).toHaveLength(1);
 		expect([...liveness.listedSessionIds(boom).ids]).toEqual(["a"]);
-		// The shape `.map` would pass: an element, an index, then the array.
 		const mapped: { ids: Set<string> }[] = ["x"].map(liveness.listedSessionIds);
 		expect([...mapped[0].ids]).toEqual(["a"]);
 	});
@@ -1064,7 +977,6 @@ describe("totality", () => {
 			const r = read({ read: () => ({}) });
 			expect(r.ids).toBeUndefined();
 			expect(typeof r.why).toBe("string");
-			// The positive half §X4 asks for: the same reader on a real listing.
 			expect([
 				...read({ read: () => ({ agents: [{ sessionId: "a" }] }) }).ids,
 			]).toContain("a");

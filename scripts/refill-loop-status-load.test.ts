@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what `refill-loop.js status --json` costs (#4821): the modules it
- * loads and the processes it starts. The refill panel runs it every 3 s, and
- * each module it loads costs that poll start-up time.
- *
- * A program case (base §X3), run through lib/call-cost-harness.js (base §G13).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -28,8 +21,6 @@ afterEach(() => {
 });
 
 describe("refill-loop.js status's per-call cost (#4821)", () => {
-	// The hot-path entry: the refill panel's 3 s poll (`polled`). The common
-	// call: `status --json` with no loop running.
 	it("loads neither the tick, the morning review nor the session store to show status", async () => {
 		const r = await callCostAsync(SCRIPT, ["status", "--json"], {
 			cwd: dir,
@@ -43,8 +34,6 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			},
 		});
 		expect(JSON.parse(r.stdout).running).toBe(false);
-		// The module set and the child list are internals, asserted because no
-		// output shows the start-up cost they guard (base §X6, #1497).
 		expect(r.modules).toContain("lib/refill-io.js");
 		expect(
 			[

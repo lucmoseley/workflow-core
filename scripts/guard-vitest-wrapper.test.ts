@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-vitest-wrapper core of guard-dispatch.js, its boundary set
- * (#2800): each exit path, each input channel and each production adapter
- * crossed once for real, the dispatcher entry run on it alone. Which commands
- * it warns on and what the warning says are lib/vitest-wrapper.test.ts's
- * module cases on the core; the entry's payload faults and the throw policy
- * are guard-dispatch's own tests' (#3227). The last case reads the
- * context-budget census against the real repo (#2905).
- *
- * The entry runs in process (lib/run-in-process.js) on a hook payload, its
- * config and project directories under a temp dir, so its latch and
- * fail-open log never land in the shared tree or the developer's own log
- * (mantahostels#1452). CLAUDE_PROJECT_DIR names that temp project directory
- * (mantahostels#2275): the latch is per session under the project root, so an
- * inherited root would drop a marker into the shared working tree AND latch
- * every case after the first onto the short form.
- *
- * It is a core of the PreToolUse dispatcher: loosen a case here and a bare vitest run parks on a hung call with no output and no
- * filename, unwarned.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -33,7 +13,6 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const CORE = "guard-vitest-wrapper";
 
-/** The rule fragment the first warning is meant to carry whole, once. */
 const FRAGMENT = fs
 	.readFileSync(
 		path.resolve(
@@ -57,13 +36,11 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The hook output for `payload`, parsed; null where it said nothing. */
 const output = (
 	payload: Record<string, unknown>,
 	env: NodeJS.ProcessEnv = {},
 ) => dispatchCoreOutput(CORE, payload, { project: dir, config, cwd: dir, env });
 
-/** The warning's text; it must never deny. */
 const message = (
 	command: string,
 	session: string | null = "test",
@@ -101,8 +78,6 @@ describe("each exit path", () => {
 
 	it("keeps the latch marker where a compaction clear will find it", () => {
 		message("vitest run x.test.ts");
-		/* The latch lives under markersDir (.claude/tmp/markers), not the repo
-		 * root itself — guard-entry.js's latchPath. */
 		expect(readLatches()).toEqual([
 			".rule-injected-warn.vitest-wrapper-main-test",
 		]);
@@ -116,9 +91,6 @@ describe("each exit path", () => {
 		expect(second).toContain("node scripts/run-vitest.js y.test.ts");
 	});
 
-	/* Three copies of the same sentence exist — the fragment's own first line,
-	 * this standing line and the store-unreadable fallback — and the two
-	 * hardcoded ones are what a session reads where being wrong costs most. */
 	it("repeats the fragment's own first sentence, not a paraphrase of it", () => {
 		const first = (FRAGMENT.split("\n")[0] ?? "").replace(/\.$/, "");
 		message("vitest run x.test.ts");
@@ -171,8 +143,6 @@ describe("each production adapter, crossed once", () => {
 	});
 
 	it("spells the wrapper at the plugin root in an install", () => {
-		/* WFC_SCRIPT_ROOT stands in for an install: a core root with
-		 * scripts/run-vitest.js and no package.json. */
 		const install = path.join(dir, "install");
 		fs.mkdirSync(path.join(install, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(install, "scripts", "run-vitest.js"), "");
@@ -185,21 +155,14 @@ describe("each production adapter, crossed once", () => {
 	});
 });
 
-/*
- * The census reads this guard's bound off its Node core — `ctx.ruleText`,
- * `ctx.told` and `latchAfter` (#2905) — and a spelling it stops seeing drops
- * the fragment out of the per-session budget unnoticed.
- */
 describe("the context-budget scan against this guard as it stands", () => {
 	it("reads its bound as bounded, from its core", () => {
 		const root = path.resolve(__dirname, "..");
 		const r = runInProcess(
 			path.join(root, "scripts", "check-context-budget.js"),
-			// --root, as hostRoot() maps a linked worktree to its main checkout.
 			["--root", root, "--json"],
 			{ cwd: root, env: { ...process.env, CLAUDE_PROJECT_DIR: root } },
 		);
-		/* Its exit is the repo's whole budget verdict, not this guard's. */
 		const fragments = JSON.parse(r.stdout).session.direct.fragments as {
 			id: string;
 			guards: string[];

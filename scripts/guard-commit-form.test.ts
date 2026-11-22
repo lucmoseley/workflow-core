@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-commit-form core of guard-dispatch.js (mantahostels#117) end to
- * end, the boundary set (§X11), the dispatcher entry run on it alone: each
- * exit path, each input channel, each production adapter crossed once for
- * real, and the fail-open record. Which commit forms are denied, warned on or
- * handed the rules — every branch of the core — is lib/commit-form.test.ts's,
- * in process; the entry's payload faults and the throw policy are
- * guard-dispatch's own tests' (#3224).
- *
- * The guard compares the target tree against CLAUDE_PROJECT_DIR's, so a
- * throwaway repo stands in for this one, with a linked worktree of it, and an
- * unrelated repo for the exempt case.
- *
- * The program runs through lib/run-in-process.js.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -37,17 +22,11 @@ let dir: string;
 let shared: string;
 let worktree: string;
 let elsewhere: string;
-/** The config root, pointed at the temp dir so no test reads ~/.claude. */
 let config: string;
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 
-/*
- * THE FIXTURE IS BUILT ONCE AND COPIED (mantahostels#2016), not rebuilt per test, via
- * scripts/lib/git-fixture.ts (mantahostels#2068) — its own header explains what a
- * naive copy breaks and why.
- */
 const template = defineTemplate(trioTemplate());
 
 interface At {
@@ -56,10 +35,6 @@ interface At {
 	env?: Record<string, string>;
 }
 
-/**
- * The guard's run on `stdin`, from `cwd`, with CLAUDE_PROJECT_DIR at
- * `project`.
- */
 const guard = (
 	stdin: string,
 	{ cwd = shared, project = shared, env = {} }: At = {},
@@ -75,18 +50,12 @@ const guard = (
 		},
 	});
 
-/** The payload Claude Code sends on a Bash call, as the guard reads it. */
 const payload = (command: string, session: string | null = "test") =>
 	JSON.stringify({
 		hook_event_name: "PreToolUse",
 		...buildBashPayload(command, session),
 	});
 
-/**
- * The guard's `hookSpecificOutput` on `command`, or null where it said
- * nothing. A guard that CRASHED also emits no verdict, so the exit status and
- * stderr are asserted on every call.
- */
 const emission = (
 	command: string,
 	session: string | null = "test",
@@ -99,28 +68,20 @@ const emission = (
 	return out ? JSON.parse(out).hookSpecificOutput : null;
 };
 
-/** The fail-open log this case's guard runs wrote. */
 const failOpenLog = () => readFailOpenLog(config, shared);
 
-/* The store's Node accessor, so a test asks for a rule by id rather than
- * holding a second copy of its text. It renders a fragment as the guard does
- * in the fixture host: push-cadence's `{command:}` lines expand
- * against the config of CLAUDE_PROJECT_DIR, read at call time. */
 const { readRuleText } = createRequire(__filename)("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
 
-/* What a commit naming no gated path is handed, in `injectRules` order. */
 const commitRule = () =>
 	["commit-pathspec", "commit-show-diff", "commit-message", "push-cadence"]
 		.map((id) => readRuleText(id))
 		.join("\n\n");
 
-/* The framing line of the `--no-verify` refusal (mantahostels#975). */
 const NO_VERIFY =
 	"This flag skips none of the pre-commit gates on a plain commit or merge";
 
-/** Puts a file on disk that git has never been told about. */
 const newFile = (rel: string, text = "new\n") => {
 	fs.mkdirSync(path.dirname(path.join(shared, rel)), { recursive: true });
 	fs.writeFileSync(path.join(shared, rel), text);
@@ -161,8 +122,6 @@ describe("each exit path", () => {
 	});
 
 	it("a warn is context with no decision, keyed by the field Claude Code reads", () => {
-		// A warn without hookEventName is dropped silently, leaving the warns
-		// inert.
 		newFile("new.md");
 		const out = emission('git commit -m "x" -- new.md');
 		expect(out.hookEventName).toBe("PreToolUse");
@@ -189,10 +148,6 @@ describe("each exit path", () => {
 	});
 });
 
-/*
- * THE RULES' ONCE-A-SESSION LATCH (mantahostels#1647) and the kit's ceiling,
- * which render the core's hand-over.
- */
 describe("the commit rules are handed over once a session", () => {
 	it("says it once per session, and again for a different session", () => {
 		expect(emission('git commit -m "x" -- a.md', "sess-A")).not.toBeNull();
@@ -201,8 +156,6 @@ describe("the commit rules are handed over once a session", () => {
 	});
 
 	it("a warn outranks it, and leaves it unlatched for the next commit", () => {
-		// The rule is not spent by a warn — the next clean commit in the same
-		// session still gets it.
 		newFile("new.md");
 		const warned = emission('git commit -m "x" -- new.md', "sess-C");
 		expect(warned.additionalContext).toContain("#1612");
@@ -221,8 +174,6 @@ describe("the commit rules are handed over once a session", () => {
 	});
 
 	it("defers what the ceiling cannot hold to the next commit, the push rule first", () => {
-		// This trigger's gate ids fit in one emission on this repo's own
-		// modules; with governance on as well they do not (#449).
 		fs.mkdirSync(path.join(shared, "docs"), { recursive: true });
 		fs.mkdirSync(path.join(shared, "scripts"), { recursive: true });
 		fs.mkdirSync(path.join(shared, "app"), { recursive: true });
@@ -245,8 +196,6 @@ describe("the commit rules are handed over once a session", () => {
 
 describe("each input channel", () => {
 	it("hands no rules where the payload carries no session id, rather than wedging", () => {
-		// The kit cannot latch what it cannot key, so it says nothing and allows
-		// (mantahostels#103 §6).
 		expect(emission('git commit -m "x" -- a.md', null)).toBeNull();
 		expect(failOpenLog()).toMatch(/no session_id in payload/);
 	});
@@ -270,8 +219,6 @@ describe("each input channel", () => {
 	});
 
 	it("allows, recorded, where CLAUDE_PROJECT_DIR is no repository", () => {
-		// With the repo unknown no tree is this repo's, and refusing would
-		// wedge every git call in a repo git cannot read (lib/refuse-on-throw.js).
 		const opaque = mkDirOutsideRepo("not-a-repo-");
 		try {
 			const r = guard(payload('git commit -n -m "x"'), { project: opaque });
@@ -310,7 +257,6 @@ describe("each production adapter, crossed for real", () => {
 	it("reads whether HEAD is on the pushed ref (#4384)", () => {
 		const amend = (session: string) =>
 			emission("git commit --amend --no-edit", session)?.permissionDecision;
-		// No origin/main yet: git cannot answer, so the amend is allowed, recorded.
 		expect(amend("p1")).toBeUndefined();
 		expect(failOpenLog()).toMatch(
 			/git could not say whether HEAD in .* is pushed — the amend allowed unchecked/,
@@ -404,17 +350,6 @@ describe("each production adapter, crossed for real", () => {
 	});
 });
 
-/*
- * scripts/lib/git-fixture.ts (mantahostels#2068) exposes neither `template` nor
- * `pathBearingFiles`: the helper leak-checks every instantiate() call
- * itself (proven in git-fixture.test.ts), so THIS beforeEach already throws
- * before any test body runs were the copy still pointing at the template. What
- * is left to assert here, and what mantahostels#2068's acceptance criteria ask for, is
- * what that scan cannot see: that relink() wrote THIS instance's own path
- * rather than some third, wrong one, and — the BEHAVIOURAL limb — that a write
- * made in the instantiated copy does not reach a second, independent
- * instantiation of the same template.
- */
 describe("the copied fixture is isolated from its template (mantahostels#2016, mantahostels#2068)", () => {
 	const freshCopy = () => {
 		const fresh = mkScratchDir("guard-commit-form-fresh-");
@@ -428,24 +363,6 @@ describe("the copied fixture is isolated from its template (mantahostels#2016, m
 	};
 
 	it("each copy's core.hooksPath is relinked, not left pointing at the template", () => {
-		// Writing a commit into the copy's own real .git (the shape this
-		// replaced) proves nothing about relinking: nothing that write touches
-		// is one of git-fixture's path carriers, so it cannot fail on a relink
-		// regression. This instead reads back the relinked file directly.
-		// Asserting merely "exists and is empty" would pass even with relink()
-		// disabled: the template's own no-hooks dir is exists-and-empty too, so a
-		// stale pointer left aimed at the TEMPLATE would read identically.
-		// Anchoring on `dir` — this instance's own root — is what tells a
-		// relinked path apart from a leaked one. What these assertions catch
-		// that checkForLeak() cannot is a relink writing some third, wrong path,
-		// which can hit one copy and not the other — hence both (mantahostels#2193 review).
-		// Reading the beforeEach instance rather than minting a second one
-		// (mantahostels#2232) rests on this block sitting last in the file, so that
-		// instance is a LATE instantiation. Run this test alone — it.only, or
-		// -t — and it becomes the first, and "relink is still correct on a copy
-		// after the first" goes unasserted. "a commit made in the copied
-		// WORKTREE leaves the template untouched" keeps freshCopy(), where a
-		// second, independent instance IS the assertion.
 		for (const repo of [shared, elsewhere]) {
 			const hooksPath = git(repo, "config", "core.hooksPath").trim();
 			expect(hooksPath).toBe(path.join(dir, "no-hooks"));
@@ -455,8 +372,6 @@ describe("the copied fixture is isolated from its template (mantahostels#2016, m
 	});
 
 	it("a commit made in the copied WORKTREE leaves the template untouched", () => {
-		// The worktree shares its parent's object store, so a stale gitdir
-		// pointer here writes into the template rather than failing loudly.
 		fs.writeFileSync(path.join(worktree, "c.md"), "c\n");
 		git(worktree, "add", "c.md");
 		git(worktree, "commit", "-qm", "worktree copy only", "--", "c.md");
@@ -471,14 +386,4 @@ describe("the copied fixture is isolated from its template (mantahostels#2016, m
 			fs.rmSync(fresh, { recursive: true, force: true });
 		}
 	});
-
-	// A commit made in the 'elsewhere' copy's own real .git (dropped here,
-	// mantahostels#2193) has the same defect mantahostels#2178 fixed for the shared-copy test above:
-	// nothing that write touches is a git-fixture path carrier, so it cannot
-	// fail on a relink regression. "each copy's core.hooksPath is relinked"
-	// above reads `elsewhere` as well as `shared` in its place.
-	//
-	// A bare exists-and-empty assertion on core.hooksPath (dropped here, mantahostels#2233)
-	// is a strict subset of that same test, which already says why it catches
-	// nothing. guard-pull-form carried no such duplicate.
 });

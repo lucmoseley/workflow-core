@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-chrome-merge core of guard-dispatch.js refuses a Chrome child's
- * launch whose stderr is merged into stdout (#5386, spec #5385): the
- * launcher's stdout is one JSON line on every end path, and a merged note
- * breaks the parse (#5381). The dispatcher entry is run on the core alone:
- * the payload on stdin, end to end. The command judged is never run.
- * Loosening a case lets a merged launch through, and its tab report is lost.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -26,8 +18,6 @@ const LAUNCH =
 let dir: string;
 let config: string;
 
-/** The hook output for `command`, or null; exit 0 and a quiet stderr
- * asserted on every call. */
 const emission = (command: string) =>
 	dispatchCoreOutput(CORE, buildBashPayload(command, "test"), {
 		project: dir,

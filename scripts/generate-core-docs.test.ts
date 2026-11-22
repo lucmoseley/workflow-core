@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * generate-core-docs.js over fixture repos (#5294): it renders the core
- * glossary and doc-map method, refuses drift under --check, and SKIPs in a
- * repo shipping no plugin, whose glossary and doc map are its own. Loosen a
- * case and an adopter's core glossary or doc-map method drifts from this
- * repo's, or a plain repo's own files are overwritten.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

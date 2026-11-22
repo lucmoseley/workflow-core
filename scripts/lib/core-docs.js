@@ -1,20 +1,3 @@
-/*
- * core-docs.js — the two core documents every adopter reads but never edits,
- * rendered from the core's own sources (#5294): its glossary, which the
- * shipped rules cite for a core term, and the method sections of its doc map.
- *
- * The core commits both renders (scripts/generate-core-docs.js, `--check`
- * in .husky/pre-commit), the release ships them, and core-owned-files.js
- * copies them into an adopter on every bump. Neither is imported at session
- * start: a session opens one where a rule cites it.
- *
- * THE DOC-MAP RENDER IS THE METHOD, NEVER THE CONTENT: §Authority classes,
- * §A's preamble before its first register table, §B's before its first
- * entry, §The propagation pass, and §Capture and placement's §1–4. The
- * register, the figure entries, the routes and the shed ledger stay in each
- * repo's own docs/doc-map.md.
- */
-
 const GLOSSARY_FILE = ".claude/workflow-core.glossary.md";
 const DOC_MAP_METHOD_FILE = ".claude/workflow-core.doc-map.md";
 const GLOSSARY_SOURCE = "GLOSSARY.md";
@@ -27,16 +10,14 @@ const buildHeader = (source) =>
 	`<!-- CORE-OWNED. Rendered from workflow-core's ${source} by scripts/generate-core-docs.js, and REWRITTEN in an adopter on every bump. Never imported at session start. Do not edit. -->\n\n`;
 
 /**
- * @param {string} glossary the core's GLOSSARY.md
+ * @param {string} glossary
  * @returns {string}
  */
 const renderGlossary = (glossary) => buildHeader(GLOSSARY_SOURCE) + glossary;
 
 /**
- * The top-level sections of a markdown text, by heading line.
  * @param {string} text
- * @returns {Map<string, string>} heading line to its whole section, heading
- *   included
+ * @returns {Map<string, string>}
  */
 function sectionsOf(text) {
 	/** @type {Map<string, string>} */
@@ -50,7 +31,6 @@ function sectionsOf(text) {
 }
 
 /**
- * `section` up to the first line `stop` matches, trailing blanks dropped.
  * @param {string} section
  * @param {RegExp} stop
  */
@@ -60,8 +40,6 @@ function cut(section, stop) {
 	return (at < 0 ? lines : lines.slice(0, at)).join("\n").trimEnd();
 }
 
-/* Each method section, by its heading in the core's doc map, and where it
- * stops: never, or at the first line that opens the repo's own content. */
 /** @type {Array<[string, RegExp | null]>} */
 const METHOD = [
 	["## Authority classes", null],
@@ -75,9 +53,8 @@ const METHOD = [
 ];
 
 /**
- * @param {string} docMap the core's docs/doc-map.md
+ * @param {string} docMap
  * @returns {string}
- * @throws {Error} naming a method section the doc map no longer carries
  */
 function renderDocMapMethod(docMap) {
 	const sections = sectionsOf(docMap);

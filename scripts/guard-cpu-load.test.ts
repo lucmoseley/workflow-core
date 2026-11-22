@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-cpu-load core of guard-dispatch.js refuses a CPU load generator
- * run outside a CPU cap of at most half the cores, and hands over the capped
- * form (#2710). These are its boundary cases (§X11), the dispatcher entry run
- * on it alone: the payload on fd 0, the hook's environment, real scripts in a
- * temp project, and the fail-open log. Which command earns which verdict is
- * lib/cpu-load.test.ts's (#2801); the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#3224).
- *
- * The core count is pinned at 8 through WFC_CPU_COUNT, so a 2-core CI runner
- * judges the cap as this machine does, bar the one case that reads the online
- * count itself.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -31,9 +18,6 @@ let dir: string;
 let config: string;
 let project: string;
 
-/** The hook output for `command`, the payload's cwd the project; exit 0 and
- * a quiet stderr asserted on every call. `cores` omitted pins
- * WFC_CPU_COUNT to 8; null leaves it unset. */
 const emission = (
 	command: string,
 	{

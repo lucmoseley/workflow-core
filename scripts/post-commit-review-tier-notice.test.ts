@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * .husky/post-commit's notice after an amend that dropped the amended
- * commit's `Review-Tier:` line: lib/post-commit-steps.js's droppedReviewTier
- * and its row in lib/post-commit-rows.js (#5208), beside
- * post-commit-touched-by-notice.test.ts's steps. Loosen a case and a reviewed
- * commit's record goes with no word, or an empty commit on a reviewed HEAD is
- * told it amended something.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -19,7 +11,6 @@ const temps = registerTempCleanup();
 const Trailer =
 	"Review-Tier: escalated; areas=secrets; base=b; tree=t; paths=s";
 
-/** A repo whose HEAD carries a Review-Tier: line. */
 function reviewed() {
 	const repo = newRepo("post-commit-review-tier-", temps);
 	fs.writeFileSync(path.join(repo.root, "a.txt"), "x");
@@ -28,7 +19,6 @@ function reviewed() {
 	return repo;
 }
 
-/** The step on `cwd`: its stderr, the stream it speaks on. */
 function runStep(cwd: string) {
 	const r = STEPS.droppedReviewTier(STEPS.buildRunIo({ cwd, env: hookEnv() }));
 	expect(r.exit).toBe(0);

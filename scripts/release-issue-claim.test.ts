@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * release-issue-claim.js drops this session's arbiter claim on an issue it
- * closes with `gh issue close <n>` (mantahostels#706).
- * These are its boundary cases: the line hooks/hooks.json registers, run by
- * bash as the harness runs it, on a harness-shaped payload — the wiring, the
- * session id's two channels, the fail-open record, and the arbiter's claim
- * store and git crossed for real. Which close releases what is
- * lib/issue-claim-hook.test.ts's (#2799). One case runs it by hand with an
- * argument instead, as a session once did and hung (#3556).
- *
- * Break the line and every claim outlives its issue.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

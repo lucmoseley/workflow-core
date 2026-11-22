@@ -1,85 +1,4 @@
 #!/usr/bin/env node
-/*
- * release-plugin.js — cuts a plugin release: the trimmed tree
- * lib/plugin-tree.js renders from HEAD, committed and tagged
- * `v<plugin.json version>`, so the marketplace's `ref` names exactly what an
- * adopter installs (#4, founder ruling Q1 (B)).
- *
- * Usage:
- *   node scripts/release-plugin.js [--push] [--dry-run-adopter <path>]
- *     [--file-bump-issues] [--reason <why>]
- *
- * Joins no §N3 family: it writes git objects and a tag rather than a file,
- * exiting 0 on a cut and 1, reason on stderr, on a refusal — and 1 for a
- * SUCCESSFUL cut too where `--file-bump-issues` left a tracker unfiled or a
- * bump unlinked, the reason then on stdout, in the report, alongside every
- * filed one (#242).
- *
- * Releases the tree it runs in, a linked worktree included, never that
- * worktree's main checkout (lib/host-root.js `worktreeRoot`, #2412).
- *
- * HEAD, NEVER THE WORKING TREE. The tree is rendered from `git archive HEAD`,
- * so an uncommitted edit cannot ship. And HEAD must be on `origin/main`
- * (lib/landing-refs.js's VERIFIED_REF): a session's HEAD carries queue-ref
- * commits the full suite has not yet passed (#2408).
- *
- * THE RELEASE COMMIT IS A ROOT COMMIT, off every branch, made with plumbing
- * against a throwaway index: nothing on `main` moves and no hook runs. The tag
- * alone keeps it reachable. Pushing is left to the caller — the command is printed.
- * So `git tag --contains <sha>` is always empty: which release carries a
- * commit is `node scripts/release-contains.js <sha>`'s to answer (#797).
- *
- * Refuses where the tag already exists, and where the marketplace entry for
- * this plugin does not pin the tag, since a cut the marketplace does not name
- * installs nothing.
- *
- * #463 adds one more: a helper-surface export the last release promised,
- * dropped without a major bump and its note (check-surface-contract.js).
- *
- * RELEASES ARE BATCHED, ABOUT ONE A WEEK (founder ruling #5223 Q1 (A)): each
- * cut reports the days since the last tag, and one under CADENCE_DAYS after it
- * refuses unless `--reason <why>` states one, such as a broken release or an
- * adopter blocked on a fix. The reason rides in the tag's annotation.
- *
- * #4252 adds one more: a `migrations/hold.txt` at HEAD or on `origin/main`
- * holds every cut, its text the reason and what lifts it. The commit that
- * lifts the hold deletes it.
- *
- * And one more: a migration note at HEAD naming a version above the tag
- * being cut (#5276).
- *
- * #6 adds five more refusals: a dirty tree; a red core
- * (`commands.test`, skipped where undeclared — CLAUDE.md's own skip
- * convention); a major bump with no `migrations/v<tag>.md`; a malformed one
- * (scripts/lib/migration-note.js); and that note's own *Verify* command
- * failing against the core. `--dry-run-adopter <path>` runs `upgrade.js`
- * against a throwaway COPY of a second checkout (a local path in tests; the
- * real dry-run adopter is the caller's to pass) — the copy takes the whole
- * walk for real, residue and each note's own *Verify* included, so the walk
- * never writes to the caller's tree (#291) and the check still proves what
- * it is named for (#296). A note's Verify is arbitrary shell and can still
- * write anywhere it likes; what is bounded is the walk. Refuses if the walk
- * refuses, whether on a malformed note, a pin ahead of the release, or an
- * in-range note's Verify — a PROBED note's Verify is reported and stepped
- * over (upgrade.js, #284). Omitted, it SKIPS
- * rather than silently passing, since this repo has no standing network
- * fixture to point at by default. After the walk, the copy's own
- * `commands.helper_check` runs with the resolver's WORKFLOW_CORE_DIR pointed
- * at the rendered tree, proving the surface importable from outside the
- * plugin before the tag exists (#464); undeclared, it SKIPS. The copy carries
- * no node_modules, so the command must need none — the surface requires no
- * npm package, and the resolver only builtins.
- *
- * PUSHING AND BUMP-ISSUE FILING STAY OPT-IN (`--push`, `--file-bump-issues`):
- * the spec has `release` do both unconditionally, but cutting a real tag,
- * pushing it and opening issues on other trackers are irreversible and this
- * repo's own guard rules gate pushes on a human decision — so the default
- * call still only prints the publish command.
- *
- * THE BUMP TRACKERS ARE DERIVED, never typed (#5229): every adopter checkout
- * lib/refill-repos.js finds under `$HOME`, save the core itself, by the
- * tracker its config resolves.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -153,17 +72,11 @@ const git = (cwd, args, env) =>
 		stdio: ["ignore", "pipe", "pipe"],
 	}).trim();
 
-/* A first guess, and stated as one (#135 review): long enough for a real
- * suite, short enough that a hung Verify still frees the tmp dir it now runs
- * inside rather than leaking it for the life of the process. */
+// #135 guess
 const VERIFY_TIMEOUT_MS = 10 * 60 * 1000;
 
-/**
- * main()'s catch prints a refusal through `parseErrLine`, which keeps the message's
- * first line only; a command's output under it rides on `detail`, printed whole
- * beneath that line (#1268).
- * @param {string} message
- */
+// #1268
+/** @param {string} message */
 function refusal(message) {
 	const detail = message.split("\n").slice(1).join("\n");
 	return Object.assign(new Error(message), { detail });
@@ -171,8 +84,8 @@ function refusal(message) {
 
 /**
  * @param {string} root
- * @param {string} command a shell command
- * @param {string} label named in the refusal on failure
+ * @param {string} command
+ * @param {string} label
  * @param {NodeJS.ProcessEnv} [env]
  */
 function verifyOrThrow(root, command, label, env) {
@@ -187,14 +100,8 @@ function verifyOrThrow(root, command, label, env) {
 	);
 }
 
-/**
- * Refuses a cut that drops a helper-surface export an adopter was promised,
- * short of a major bump with a note (#463). Its SKIPs pass: a core with no
- * surface, or no prior release carrying one, has no contract to break.
- * Spawned rather than imported so the release gets the same OK/SKIP/BROKEN
- * verdict CI does.
- * @param {string} root
- */
+// #463
+/** @param {string} root */
 function surfaceContractOrThrow(root) {
 	const r = spawnSync(
 		process.execPath,
@@ -224,12 +131,10 @@ function surfaceContractOrThrow(root) {
 }
 
 /**
- * Runs the adopter's `commands.helper_check` in `adopterRoot` against the
- * rendered tree `pluginRoot`, throwing on a failure (#464).
  * @param {string} adopterRoot
  * @param {string} pluginRoot
  * @param {NodeJS.ProcessEnv} env
- * @returns {string} the report line
+ * @returns {string}
  */
 function helperCheck(adopterRoot, pluginRoot, env) {
 	const command = readConfig({ root: adopterRoot, quiet: true }).commands
@@ -269,7 +174,6 @@ function readReleaseTarget(root) {
 }
 
 /**
- * `rel`'s text at `ref`, or null where `ref` holds no such file.
  * @param {string} root
  * @param {string} ref
  * @param {string} rel
@@ -283,9 +187,6 @@ function readAt(root, ref, rel) {
 }
 
 /**
- * Refuses a cut below the newest migration note at HEAD: its release names
- * that version, so a lower tag ships what the note describes under the wrong
- * number, and no adopter walks the note until a later cut (#5276).
  * @param {string} root
  * @param {string} tag
  */
@@ -306,7 +207,6 @@ function noteAheadOrThrow(root, tag) {
 }
 
 /**
- * The tag's migration note at HEAD, or null where it ships none.
  * @param {string} root
  * @param {string} tag
  * @returns {string | null}
@@ -324,8 +224,7 @@ function readNoteOrThrow(root, tag) {
 	if (note !== null) {
 		const faults = validateNote(note);
 		if (faults.length > 0) {
-			/* One line, for the reason `refusal()` gives (#246 — a malformed
-			 * manual step must name the bullet in that refusal). */
+			// #246
 			throw new Error(`${noteRel} is malformed: ${faults.join("; ")}`);
 		}
 	}
@@ -337,55 +236,10 @@ function readNoteOrThrow(root, tag) {
  * @param {string} tmp
  * @param {string} outDir
  * @param {NodeJS.ProcessEnv} verifyEnv
- * @returns {string} the report's adopter lines
+ * @returns {string}
  */
 function walkAdopter(dryRunAdopter, tmp, outDir, verifyEnv) {
-	/* NO REAL INSTALL HERE, and none is possible: upgrade() (#217, #230)
-	 * never materialises the plugin — that is wholly the reconciler's
-	 * job.
-	 *
-	 * WALKED AGAINST A COPY, never the adopter itself (#291, #296).
-	 * #291 stopped the adopter being mutated by passing
-	 * `dryRun: true`, but that same flag skips `applyResidue` and
-	 * the note's own Verify with it (lib/upgrade-walk.js's `walkNote`), leaving
-	 * this step proving note SHAPE alone — which the cut's own note
-	 * checks in `release()` already prove against the core. Copying first
-	 * gets both back: residue applies, Verify runs, `walkedTo`
-	 * advances and `.husky/*` is rewritten to shims, all under `tmp`, which
-	 * `release()`'s `finally` deletes.
-	 *
-	 * THREE THINGS KEEP THE WALK'S WRITES INSIDE THE COPY:
-	 *
-	 * `dereference: true` — cpSync otherwise copies a symlink AS a
-	 * symlink and rewrites a relative target to an absolute one
-	 * pointing back into the ORIGINAL, so re-pointing the copy's own
-	 * `.husky/pre-commit` would have written the caller's file.
-	 *
-	 * `.git` dropped, alongside `node_modules` — `.git` carries
-	 * sockets `cpSync` refuses outright, and without an origin remote
-	 * nothing can derive an adopter tracker from the copy. A fresh,
-	 * remoteless `git init` stands in for it, so a Verify's
-	 * `git check-ignore` of an untracked path reads the copy's own
-	 * `.gitignore` as a real adopter's would (#780). Residual: the
-	 * repository is empty — no index, no commits, not the original's
-	 * `.git/info/exclude` — so a Verify asking what is tracked or
-	 * committed, or leaning on that exclude file, answers otherwise.
-	 *
-	 * The labels are turned off: every run syncs the adopter's
-	 * real tracker, a live write no dry run may make (#1501).
-	 *
-	 * upgrade() takes `env` and `verifyTimeoutMs` (#300): #135's
-	 * throwaway CLAUDE_CONFIG_DIR and this leg's own
-	 * CLAUDE_PROJECT_DIR — pinned to `adopterCopy`, so
-	 * hostRoot() (which reads it before the cwd) resolves the copy
-	 * rather than this release's own checkout — are passed straight
-	 * to the call below, and VERIFY_TIMEOUT_MS bounds it exactly as
-	 * it bounds the core's own suite and note Verify in `release()`.
-	 *
-	 * `out` is collected rather than dropped (#117 review): upgrade()
-	 * returns 0 for a directory-sourced adopter and for "nothing to
-	 * walk" alike, so a bare "passed" line cannot be told from a
-	 * Verify that did nothing. */
+	// #291 #296
 	const adopterCopy = path.join(tmp, "adopter");
 	const unwanted = new Set(["node_modules", ".git"]);
 	fs.cpSync(dryRunAdopter, adopterCopy, {
@@ -423,15 +277,13 @@ function refuseIfHeld(root) {
 	const hold =
 		readAt(root, "HEAD", HOLD_REL) ?? readAt(root, VERIFIED_REF, HOLD_REL);
 	if (hold === null) return;
-	/* One line: `refusal()` prints only the first (#246). */
+	// #246
 	throw new Error(
 		`releases are held by ${HOLD_REL}: ${hold.replace(/\s+/g, " ")}`,
 	);
 }
 
 /**
- * The report line on the gap since the last tag, and whether the cut is early;
- * refuses an early cut that no `reason` explains.
  * @param {string} root
  * @param {string} [reason]
  * @returns {{line: string, early: boolean}}
@@ -450,10 +302,7 @@ function cadenceOrThrow(root, reason) {
 	return { line: `${line}early cut: ${reason}\n`, early: true };
 }
 
-/**
- * Refuses a HEAD that `origin/main` does not hold.
- * @param {string} root
- */
+/** @param {string} root */
 function verifiedOrThrow(root) {
 	try {
 		git(root, ["merge-base", "--is-ancestor", "HEAD", VERIFIED_REF]);
@@ -482,14 +331,9 @@ function release(root, { dryRunAdopter, reason } = {}) {
 	const { plugin, tag } = readReleaseTarget(root);
 	const cadence = cadenceOrThrow(root, reason);
 
-	/* Cheapest refusals first — no point running the whole suite before a
-	 * missing or malformed note refuses the release outright. */
 	noteAheadOrThrow(root, tag);
 	const note = readNoteOrThrow(root, tag);
 	surfaceContractOrThrow(root);
-	/* Here rather than at the copy in `walkAdopter`, which happens after the core's own
-	 * suite and note Verify have already run — a mistyped path should refuse
-	 * in the same breath as a missing note, not ten minutes later. */
 	if (
 		dryRunAdopter &&
 		!fs.statSync(dryRunAdopter, { throwIfNoEntry: false })?.isDirectory()
@@ -501,11 +345,7 @@ function release(root, { dryRunAdopter, reason } = {}) {
 
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-release-"));
 	try {
-		/* #135: the whole cut's shell-outs — the core's own suite, a note's
-		 * Verify, and the adopter walk's Verify below — run under one
-		 * throwaway CLAUDE_CONFIG_DIR rather than whatever the calling
-		 * session's own env carries, the same hazard #117 fixed for the
-		 * dry-run-adopter step. */
+		// #135
 		const verifyEnv = {
 			...process.env,
 			CLAUDE_CONFIG_DIR: path.join(tmp, "release-claude-config"),
@@ -562,31 +402,14 @@ const BUMP_TITLE = "Bump workflow-core to ";
 
 /**
  * @typedef {object} BumpFailure
- * @property {string} where the tracker, or the checkout whose tracker would
- *   not resolve
+ * @property {string} where
  * @property {string} reason
  * @property {string} retry
  */
 
+// #4867 #2562
 /**
- * Opens "Bump workflow-core to vX" on each adopter tracker, labelled for
- * `/pick-next` and `urgent`, so a bump outranks the adopter's other work, and
- * `origin:release-bump`, so the ticket-mix review counts it (#4867). Opt-in — see the header. The binary is `scripts/lib/gh.js`'s
- * WFC_GH seam, not a per-call override — a test points it there directly.
- *
- * ONE LINE PER ADOPTER (#2562). `upgrade.js` walks every note from `walkedTo`
- * to the installed plugin, so the newest bump does every older open bump's
- * work, and two bump sessions in one tree rewrite the same pin, `walkedTo`
- * and `stepsOwed` under each other. pick-next takes no issue with an open
- * blocker, so each older bump nobody is assigned is blocked by the new one,
- * whose body names them for its session to close; an assigned one may
- * already be walking, so the new one is blocked by it instead. Blocked
- * rather than bundled: pick-next's merge rule wants disjoint edit targets.
- *
- * Each gh step is caught on its own (#242). A failed entry carries the exact
- * command to retry that step by hand, alongside the reason. A failed read of
- * the older bumps files nothing, since filing blind would reopen the race.
- * @param {string[]} repos `owner/name` per tracker
+ * @param {string[]} repos
  * @param {string} tag
  * @returns {{filed: string[], failed: BumpFailure[]}}
  */
@@ -600,7 +423,7 @@ function fileBumpIssues(repos, tag) {
 	 * @param {string} repo
 	 * @param {string[]} args
 	 * @param {(args: string[]) => T} run
-	 * @returns {T|null} null once the failure is recorded
+	 * @returns {T|null}
 	 */
 	const ghStep = (repo, args, run) => {
 		try {
@@ -615,8 +438,6 @@ function fileBumpIssues(repos, tag) {
 		}
 	};
 	/**
-	 * The link, through lib/link-writer.js, which refuses a loop and verifies
-	 * the edge in a separate read.
 	 * @param {string} repo
 	 * @param {number} blocked
 	 * @param {number} blocker
@@ -636,7 +457,6 @@ function fileBumpIssues(repos, tag) {
 		/** @type {{number: number, id: number, title: string, assignees: unknown[]}[]|null} */
 		const older = ghStep(
 			repo,
-			// per_page=100 is GitHub's maximum page size.
 			[
 				"api",
 				`repos/${repo}/issues?state=open&labels=${MIGRATION_LABEL}&per_page=100`,
@@ -683,9 +503,6 @@ function fileBumpIssues(repos, tag) {
 }
 
 /**
- * Each adopter's tracker, once; each adopter whose tracker will not resolve,
- * which files nothing and so fails the run; and each config-carrying checkout
- * discovery left out, with why.
  * @param {string} home
  * @returns {{repos: string[], unresolved: BumpFailure[], excluded: import("./lib/refill-repos").LeftOut[]}}
  */
@@ -726,13 +543,12 @@ function readBumpTrackers(home) {
 
 /**
  * @param {string} tag
- * @param {string} home where the adopter checkouts sit
+ * @param {string} home
  * @returns {{report: string, trackerFailure: boolean}}
  */
 function buildBumpIssueReport(tag, home) {
 	let report = "";
-	/* Thrown here, the tag is already cut, so it reports as a tracker
-	 * failure, never as main's no-tag refusal (#242). */
+	// #242
 	let trackers;
 	try {
 		trackers = readBumpTrackers(home);
@@ -783,8 +599,6 @@ function main(argv) {
 		} else {
 			report += `publish: git push origin ${tag}\n`;
 		}
-		/* Distinct from the refusals below (#242), which mean no tag was cut
-		 * at all. */
 		const bump = args.fileBumpIssues
 			? buildBumpIssueReport(tag, homeDir())
 			: { report: "", trackerFailure: false };

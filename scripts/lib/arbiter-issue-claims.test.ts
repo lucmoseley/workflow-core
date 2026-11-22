@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * arbiter-issue-claims.js's own suite: which session is working which issue —
- * records that never erase each other, a claim held only while its session is
- * listed live, and doubt that keeps rather than drops (mantahostels#645,
- * mantahostels#1186).
- *
- * Each case runs in arbiter-testkit's sandbox with the liveness oracle's answer
- * passed in, so live, finished and unanswerable sessions are set per case
- * rather than read off the machine.
- *
- * `record-issue-claim.js` (a `PostToolUse` hook) writes these and /pick-next
- * reads them: loosen a case here and two sessions take one issue, or a dead
- * session's claim hides its issue from the frontier for good.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -31,7 +17,6 @@ describe("issue claims — which session is working which issue (mantahostels#64
 	const me = (id: string) => ({ sessionId: id });
 	const claimFile = (issue: number, id: string) =>
 		path.join(store.paths.issueClaimsDir(), `${issue}-${id}.json`);
-	/** A stamp no test run can mint by accident. */
 	const old = "2026-08-01T00:00:00.000Z";
 
 	it("records a claim keyed by issue and session", () => {
@@ -46,9 +31,6 @@ describe("issue claims — which session is working which issue (mantahostels#64
 	});
 
 	it("keeps both records when two sessions claim one issue", () => {
-		// Not a lock: an issue claim arbitrates nothing, so neither session's
-		// record may erase the other's — which is also what stops a dead session's
-		// entry wedging the issue.
 		store.claimIssue(645, me("alice"));
 		store.claimIssue(645, me("bob"));
 		expect(
@@ -60,8 +42,6 @@ describe("issue claims — which session is working which issue (mantahostels#64
 
 	it("re-claiming keeps one record, still stamped when the session first took it", () => {
 		store.claimIssue(645, me("alice"));
-		// Back-dated, or the assertion is vacuous: two claims a millisecond apart
-		// print the same ISO string, so a restamp would pass unnoticed.
 		const f = claimFile(645, "alice");
 		const first = { ...JSON.parse(fs.readFileSync(f, "utf8")), claimedAt: old };
 		fs.writeFileSync(f, JSON.stringify(first));
@@ -69,7 +49,6 @@ describe("issue claims — which session is working which issue (mantahostels#64
 		store.claimIssue(645, me("alice"));
 		const after = issueClaims.readIssueClaims(645);
 		expect(after).toHaveLength(1);
-		// The age of the claim is what a reader of a stale one needs.
 		expect(after[0].record.claimedAt).toBe(old);
 	});
 
@@ -128,16 +107,12 @@ describe("issue claims — which session is working which issue (mantahostels#64
 		});
 
 		it("names the session that recorded the claim, not just the issue", () => {
-			// pick-next.js has no other handle on a claim carrying no GitHub
-			// assignee, and reported one as "a live session" (mantahostels#708).
 			store.claimIssue(645, me("alice"));
 			const { held } = store.heldIssues({ ids: new Set(["alice"]) });
 			expect(held.get(645)).toBe("alice");
 		});
 
 		it("gives one answer where two sessions hold the same issue", () => {
-			// Records are keyed by (issue, session), so both stand; which one is
-			// named changes nothing, but it must not vary between reads.
 			store.claimIssue(645, me("alice"));
 			store.claimIssue(645, me("bob"));
 			const ids = new Set(["alice", "bob"]);
@@ -162,8 +137,6 @@ describe("issue claims — which session is working which issue (mantahostels#64
 		});
 
 		it("keeps every claim where the oracle would not answer", () => {
-			// Narrowing the live set on a partial read is what would dispatch a
-			// second session onto work already in flight.
 			store.claimIssue(645, me("alice"));
 			const r = store.heldIssues({ why: "the daemon would not run" });
 			expect([...r.held.keys()]).toEqual([645]);
@@ -195,8 +168,6 @@ describe("issue claims — which session is working which issue (mantahostels#64
 			fs.chmodSync(store.paths.issueClaimsDir(), 0o000);
 			try {
 				const r = store.heldIssues({ ids: new Set(["alice"]) });
-				// The opposite direction from the oracle: with no claims read there is
-				// nothing to keep, so every assignment stays selectable.
 				expect([...r.held.keys()]).toEqual([]);
 				expect(r.kept).toBe(false);
 				expect(r.why).toMatch(/issue-claim store/);
@@ -213,7 +184,6 @@ describe("issue claims — which session is working which issue (mantahostels#64
 			fs.utimesSync(f, t, t);
 		};
 
-		/** An agents oracle listing exactly these sessions, counting its calls. */
 		const agents = (...ids: string[]) => {
 			const fn = () => {
 				fn.calls++;
@@ -240,16 +210,11 @@ describe("issue claims — which session is working which issue (mantahostels#64
 			expect(fs.existsSync(claimFile(645, "alice"))).toBe(true);
 		});
 
-		/*
-		 * mantahostels#704. The registry and `claude agents --json` are two different oracles,
-		 * and a session the exclusion still calls live must keep its claim whatever
-		 * its age, or selection offers work already in flight.
-		 */
 		it("spares a claim the agents oracle calls live though the registry does not", () => {
-			finished(sb, "bob"); // registry: dead
+			finished(sb, "bob");
 			store.claimIssue(645, me("bob"));
 			age(645, "bob", 8 * 24 * 60 * 60 * 1000);
-			issueClaims.pruneIssueClaims(agents("bob")); // oracle: live
+			issueClaims.pruneIssueClaims(agents("bob"));
 			expect(fs.existsSync(claimFile(645, "bob"))).toBe(true);
 		});
 
@@ -272,7 +237,6 @@ describe("issue claims — which session is working which issue (mantahostels#64
 			expect(fs.existsSync(claimFile(645, "bob"))).toBe(true);
 		});
 
-		/* ~465 ms a call, at every session start. */
 		it("does not call the oracle when nothing is old enough to sweep", () => {
 			finished(sb, "bob");
 			store.claimIssue(645, me("bob"));

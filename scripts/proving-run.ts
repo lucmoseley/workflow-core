@@ -1,29 +1,3 @@
-/*
- * proving-run.ts — the harness behind mantahostels#107 (the proving run for mantahostels#96's
- * arbitration side).
- *
- * mantahostels#96's destination requires arbitration to be "proven to work — demonstrated,
- * not merely designed". mantahostels#107 asked how to demonstrate that without the founder
- * hand-orchestrating two live sessions on every run. The answer this harness
- * implements:
- *
- *   Tier 1 — deterministic interleaving. None of the four documented failure
- *   modes is a timing race. mantahostels#63 (index sweep), the stale version bump, mantahostels#87
- *   (wrong-branch commit) and mantahostels#60/mantahostels#73 (held-file deadlock) are all determined
- *   consequences of shared mutable state — the index, a file's content, HEAD,
- *   the working tree.
- *
- *   Tier 2 — real concurrency, but only on the claim primitive. mantahostels#103 §3 designs
- *   against one genuine race: two sessions reading an empty registry in the same
- *   instant. Simultaneity is the whole point of it, so interleaving cannot show
- *   it.
- *
- * Everything runs inside a throwaway arena: a scratch git repo, and a sandbox
- * HOME standing in for the liveness and claim registries. The harness must
- * never write to the real ~/.claude — a test that did could wedge the founder's
- * live sessions — nor to this working tree.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -51,11 +25,8 @@ export class Arena {
 		this.git("init", "-q", "-b", "main", ".");
 		this.git("config", "user.email", "test@example.com");
 		this.git("config", "user.name", "test");
-		// The real tree's core.hooksPath is absolute, so a scratch repo would
-		// otherwise run this repo's Husky gates (see mantahostels#100's PATH finding).
+		// lucmoseley/mantahostels#100
 		this.git("config", "core.hooksPath", path.join(this.dir, "no-hooks"));
-		// Not cut over (lib/cutover.js): the sessions here share one tree, the
-		// world these runs prove; a cut-over main checkout refuses every write.
 		this.git("config", "branch.main.merge", "refs/heads/landing");
 	}
 
@@ -78,43 +49,15 @@ export class Arena {
 		this.git("commit", "-qm", message);
 	}
 
-	/** Env every session in this arena inherits, on top of the registry paths. */
 	readonly extraEnv: Record<string, string> = {};
 
-	/**
-	 * A fake `gh` at WFC_GH, so a script that calls `gh` can run without a
-	 * network call or a real issue number: gh-stub's `stubGhRoutes`, serving
-	 * `routes` and, where `log` is given, appending each call's argv to it.
-	 */
 	ghStub(routes: Record<string, RouteAnswer>, { log }: { log?: string } = {}) {
 		this.extraEnv.WFC_GH = stubGhRoutes(this.dir, routes, { log }).gh;
 		return this;
 	}
 
-	/** Where issueStub keeps the one issue body it serves. */
 	private issueStore?: string;
 
-	/**
-	 * A fake `gh` backing ONE issue body with a file, so the safe-edit path
-	 * (mantahostels#131) can be raced without live GitHub. It serves exactly the two calls
-	 * that script makes — `issue view --json body` and `issue edit --body-file`
-	 * — and writes via temp-then-rename, because the race under test lives
-	 * between one process's fetch and its write, not inside a single gh call: a
-	 * torn read would fake a lost update the code never caused.
-	 *
-	 * `viewDelayMs` widens that fetch-to-write window on purpose. Measured on
-	 * this machine, eight real processes against an instant stub never collide
-	 * at all — node's own startup dominates, so every writer reported a single
-	 * write and the test would have passed with the repair loop deleted.
-	 *
-	 * `intrude` is the Tier 1 alternative to widening it: instead of racing two
-	 * writers and hoping they collide, the stub itself performs the rival's
-	 * write, at a chosen point in the one real writer's call sequence. That
-	 * sequence is fixed — view, edit, view — so `afterCall` selects the
-	 * ordering under test exactly (mantahostels#142). The rival
-	 * write is raw and whole-body, which is what a writer that fetched before
-	 * ours started would upload.
-	 */
 	issueStub(
 		initialBody: string,
 		viewDelayMs = 0,
@@ -126,8 +69,6 @@ export class Arena {
 		}
 		this.issueStore = path.join(this.dir, "issue-body.md");
 		fs.writeFileSync(this.issueStore, initialBody);
-		/* A gh started per call, not served: a view's delay must not stall the
-		 * racing writers' other calls (gh-stub.ts's stubGhHandler). */
 		this.extraEnv.WFC_GH = stubGhHandler(
 			path.join(this.dir, "gh-issue-stub"),
 			`const fs = require("node:fs");
@@ -178,17 +119,11 @@ exit(1);
 		return this;
 	}
 
-	/** The issue body as the stub currently holds it. */
 	readIssueBodyText() {
 		if (!this.issueStore) throw new Error("no issueStub in this arena");
 		return fs.readFileSync(this.issueStore, "utf8");
 	}
 
-	/**
-	 * A raw upload, with nothing in the loop — what `gh issue edit --body-file`
-	 * does. The before-halves need it: they model the unguarded write, so they
-	 * must not go through the script whose absence they are demonstrating.
-	 */
 	writeIssueBody(body: string) {
 		if (!this.issueStore) throw new Error("no issueStub in this arena");
 		fs.writeFileSync(this.issueStore, body);
@@ -202,13 +137,6 @@ exit(1);
 		return s;
 	}
 
-	/**
-	 * The rule every session follows today, in the absence of any guard: treat a
-	 * file that is already dirty as belonging to someone else. This is mantahostels#99's
-	 * signal 2, and it fails in both directions — dirty-but-finished reads as
-	 * taken, which deadlocks two sessions; clean-but-held reads as free, which
-	 * is mantahostels#66.
-	 */
 	freeByConvention(file: string) {
 		return this.git("status", "--porcelain", "--", file).trim() === "";
 	}

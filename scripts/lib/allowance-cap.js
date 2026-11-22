@@ -1,19 +1,3 @@
-/*
- * allowance-cap.js — how many of a set's members launch on a seat under
- * lib/allowance.js's capSet: `allowance.js --cap`'s sizing, which
- * dispatch-sessions.js reads through that CLI and the refill loop calls here
- * in-process (lib/seat-reading.js's readCap, #4176), so both size one figure.
- *
- * Only where a trusted bar is past its threshold does it read the running
- * sessions — one `claude agents --json` call and their own transcripts, no
- * allowance spent — leaving out those the launch record marks overflow, whose
- * spend bills a key and not this seat (#3696), a record read only where the
- * seat file declares an overflow seat (#4393). A bar counts only the spend
- * projected to land before its own `resetsAt`, by the cost table's
- * `landedByHours`; spend after it falls in the next window, and a reset that
- * does not parse counts all of it (#2925).
- */
-
 const {
 	sizedPercent,
 	capSet,
@@ -37,16 +21,9 @@ const {
  *   | {launch: 0, error: string}} Cap
  */
 
-/** The listing `allowance.js --cap` reads: strict, waiving the self-test. */
 const readListedAgents = () => listedAgents({ requireSelf: false });
 
 /**
- * The cap on a trustworthy `result` for `members`, against the caller's
- * `thresholds` (#293 ruling 2); `error` set, and `launch` 0, where it cannot be
- * read: a count or threshold that is no number, the cost table unreadable, the
- * listing unanswered, or the launch record unread. `root` is the host checkout
- * whose cost table and dispatch ledger it reads, this process's by default;
- * `readAgents` the running-session listing, strict by default.
  * @param {ReturnType<typeof import("./allowance").readAllowance>} result
  * @param {{members: number|null,
  *   thresholds: {session: number|null, weekly_all: number|null},
@@ -64,8 +41,6 @@ function capOf(
 		readAgents = readListedAgents,
 	},
 ) {
-	// No default threshold: a missing or non-numeric one refuses rather than
-	// reading as NaN, which no reading is past, and launching the whole set.
 	if (
 		!Number.isInteger(members) ||
 		/** @type {number} */ (members) < 0 ||
@@ -77,7 +52,6 @@ function capOf(
 			error: `the member count and both thresholds need numbers, got members ${members}, session ${asked.session}, week ${asked.weekly_all}`,
 		};
 	const count = /** @type {number} */ (members);
-	// Only a trustworthy reading is sized, so neither bar reads null here.
 	const readings = {
 		session: sizedPercent(result.session) ?? 0,
 		weekly_all: sizedPercent(result.weekly_all) ?? 0,
@@ -107,8 +81,6 @@ function capOf(
 			error: `the session cost table is unreadable — build it: node ${scriptPath("measure-session-cost.js")} --write`,
 		};
 	const listed = readAgents();
-	// An empty listing is the one `why` that still answers: nothing is running,
-	// as from a terminal with no session open.
 	const agents = listed.why?.includes("listed no agents at all")
 		? []
 		: listed.agents;

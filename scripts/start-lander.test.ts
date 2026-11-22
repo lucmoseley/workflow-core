@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/start-lander.js end to end (#2405, #4458, #4950): it starts a
- * detached queue lander that lands a queue ref's commit, or that decides a
- * drop owed a decision with no queue ref waiting, and starts none where one
- * runs or nothing waits or is owed.
- *
- * Loosen it and the session-start route starts no lander, two landers race
- * to test and push, or a drop waits on an unrelated push for its decision.
- *
- * Built on a real bare remote and a real detached lander, since what is
- * under test is the detach itself; the tester is gated on a file, so the
- * second start meets a lander still holding the lock.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -23,20 +10,16 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const START = path.resolve(__dirname, "../scripts/start-lander.js");
-/* A guess: a lander run here takes well under a second. */
 const WAIT_MS = 30_000;
 
 let tmp: string;
 let work: string;
 let remote: string;
-/** Every lander a start reported, so teardown waits on one a failed case
- * left too, and never removes `tmp` under a live lander (#5444). */
 let landers: number[];
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-/** A commit on `work`'s HEAD, pushed as `queue/<message>`. */
 const commit = (message: string) => {
 	fs.writeFileSync(path.join(work, `${message}.txt`), message);
 	git(work, "add", "-A");
@@ -74,7 +57,6 @@ const start = (args: string[]) => {
 			...process.env,
 			WFC_MODULES: "",
 			CLAUDE_PROJECT_DIR: work,
-			/* As no session, so the start reads no real `claude agents`. */
 			CLAUDE_CODE_SESSION_ID: "",
 		},
 	});
@@ -83,7 +65,6 @@ const start = (args: string[]) => {
 	return r;
 };
 
-/* Crosses the real clock: the lander is a detached process. */
 const waitFor = async (done: () => boolean) => {
 	for (let waited = 0; waited < WAIT_MS && !done(); waited += 100)
 		await new Promise((resolve) => setTimeout(resolve, 100));
@@ -101,9 +82,6 @@ beforeEach(() => {
 	git(tmp, "clone", "-q", remote, work);
 	seedAdopterTree(work);
 	vi.stubEnv("WORKFLOW_CORE_DIR", OWN_CORE);
-	/* A no-op levelling pass: the real one, detached after a move of main,
-	 * would fetch into `work` past the lander's exit (#5444). The testkit's
-	 * levelStub() writes under a tmp this file never sets up. */
 	const level = path.join(tmp, "level-stub.js");
 	fs.writeFileSync(level, "");
 	vi.stubEnv("WFC_LEVEL_MAIN_SCRIPT", level);
@@ -148,7 +126,6 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	);
 });
 
-/** The drop record holding one drop of `queue/gone` at `sha`, as `over` has it. */
 const recordDrop = (sha: string, over: Record<string, unknown> = {}) => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(

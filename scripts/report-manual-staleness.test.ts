@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * report-manual-staleness.test.ts — the schedule-only staleness reporter
- * (mantahostels#389, the ticket that moved the manual-freshness gate onto a
- * schedule that files an issue). Break it and a stale manual files nothing,
- * or a fresh one files an issue every day.
- *
- * Driven end to end through `runInProcess` (§X3; #1194). Both of the script's
- * outside dependencies are stubbed: `gh` is a real script injected at WFC_GH
- * that records its own argv, and check-manual-freshness.js's
- * SPEC is a module `WFC_MANUAL_FRESHNESS_MODULE` names, since
- * report-manual-staleness.js's freshness() calls `SPEC.run(ctx)` in-process
- * now rather than spawning the checker as a CLI (mantahostels#2062).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -30,29 +17,15 @@ afterEach(() => {
 		fs.rmSync(t, { recursive: true, force: true });
 });
 
-/**
- * A cwd carrying a stub freshness checker and a stub `gh` for WFC_GH.
- * `ghIssueList` is the JSON the stub answers `gh issue list` with.
- *
- * `freshnessExit` mirrors the checker's own exit alphabet: 0 OK, 1 FAIL
- * (stale), 2 BROKEN, 3 WARN (fresh, but with a real finding to report — the
- * shape a 5-9 MINOR band or a CITED-PATH miss actually takes). The stub calls
- * `ctx.say()` alongside `ctx.fail()`/`ctx.warn()`, as the real checker's
- * `fail()`/`warn()` helpers do (check-manual-freshness.js's `line()`), since
- * freshness() now reads its report off `say()`'s captured text (mantahostels#2062).
- */
 function fixture(opts: {
 	freshnessExit: number;
 	ghIssueList: unknown;
-	/** What `gh issue view --json body` answers with, for the refresh path;
-	 * absent, an empty body. */
 	existingBody?: string;
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "staleness-"));
 	temps.push(root);
 
 	fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
-	/* Present, so the reporter reaches the stub: with no manual it skips first. */
 	fs.mkdirSync(path.join(root, "docs"));
 	fs.writeFileSync(path.join(root, "docs", "operating-manual.md"), "stub\n");
 	const freshnessStub = path.join(root, "scripts", "manual-freshness-stub.js");
@@ -68,8 +41,6 @@ function fixture(opts: {
 			"} } };",
 		].join("\n"),
 	);
-	// The sanctioned body writer (mantahostels#131), faked so the refresh path is
-	// observable without a network call.
 	const issueBody = fakeIssueBody(root, opts.existingBody);
 
 	const argvLog = path.join(root, "gh-argv.log");
@@ -115,8 +86,7 @@ const ghCalls = (fx: ReturnType<typeof fixture>): string =>
 const TITLE = "Operating manual is stale against the roadmap";
 
 describe("the scheduled manual-staleness reporter", () => {
-	// An adopter's manual does not exist before its first sync (#395 Q1).
-	it("skips by name, touching gh not at all, where no manual exists yet", () => {
+	it("skips by name, touching gh not at all, where no manual exists yet (#395)", () => {
 		const fx = fixture({ freshnessExit: 1, ghIssueList: [] });
 		fs.rmSync(path.join(fx.root, "docs", "operating-manual.md"));
 
@@ -150,10 +120,6 @@ describe("the scheduled manual-staleness reporter", () => {
 	});
 
 	it("labels the issue it files with a takes: value", () => {
-		// This is the one script path known to file a bare issue: mantahostels#464 arrived with
-		// `manual-finding` alone, so /pick-next could not say which command opens
-		// it. The guard-issue-create-label core cannot see a create from inside a
-		// workflow, so the label has to be here (mantahostels#470).
 		const fx = fixture({ freshnessExit: 1, ghIssueList: [] });
 
 		run(fx);
@@ -192,8 +158,6 @@ describe("the scheduled manual-staleness reporter", () => {
 		]);
 	});
 
-	// A body edit costs a write and a notification-free but real API call; when
-	// nothing moved, the day's run should do neither.
 	it("leaves the body alone when it already says the right thing", () => {
 		const fx = fixture({
 			freshnessExit: 1,
@@ -208,10 +172,7 @@ describe("the scheduled manual-staleness reporter", () => {
 		expect(output).toContain("current");
 	});
 
-	// Severity, not "any finding", is what drives staleness (mantahostels#2062): a mutant
-	// collapsing the FAIL/WARN distinction into "findings exist" would file an
-	// issue over a WARN-only (fresh) run.
-	it("stays fresh, and files nothing, on a WARN with no FAIL", () => {
+	it("stays fresh, and files nothing, on a WARN with no FAIL (lucmoseley/mantahostels#2062)", () => {
 		const fx = fixture({ freshnessExit: 3, ghIssueList: [] });
 
 		const { code, output } = run(fx);
@@ -220,11 +181,6 @@ describe("the scheduled manual-staleness reporter", () => {
 		expect(ghCalls(fx)).toBe("");
 	});
 
-	/*
-	 * check.js's exit alphabet: 1 is a FAIL finding, 2 is BROKEN — the checker
-	 * could not do its job. Filing "the manual is stale" on a BROKEN run asserts
-	 * the wrong fact, so it must raise instead of file.
-	 */
 	it("raises rather than filing when the checker is BROKEN", () => {
 		const fx = fixture({ freshnessExit: 2, ghIssueList: [] });
 
@@ -249,9 +205,6 @@ describe("the scheduled manual-staleness reporter", () => {
 		expect(run(fixture({ freshnessExit: 0, ghIssueList: [] })).code).toBe(0);
 	});
 
-	// The refresh is a whole-body replace that only refuses a write landing
-	// during the call itself, so a reader who edits the body is silently
-	// overwritten by the next run. The body has to say so.
 	it("warns in the body that a hand edit is silently overwritten", () => {
 		const fx = fixture({
 			freshnessExit: 1,
@@ -268,7 +221,6 @@ describe("the scheduled manual-staleness reporter", () => {
 	});
 });
 
-// A stale manual, so any fall-through to the default action would file (#1051).
 describe("the command line", () => {
 	it("prints usage on --help and -h, exits 0, and calls gh not at all", () => {
 		for (const flag of ["--help", "-h"]) {

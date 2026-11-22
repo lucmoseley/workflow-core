@@ -1,16 +1,3 @@
-/*
- * act-line.js — the acts ledger's one line format (#3264): every
- * writer builds its line through buildAct, lib/arbiter-ledger.js checks it
- * against ACT_LINE, and every reader splits it through parseAct.
- *
- * A pure module, so lib/gh-acts.js stays a core and lib/refill-loop.js free of
- * store reads.
- */
-
-/* What a session did beside committing, as `<kind> <owner/name>#<n>`, a
- * relabel adding ` takes:<x>`; a block is a blocked-by edge added (#2464), a
- * gate an issue's first live gate line (#3301). A commit is no line here: the
- * commit ledger already holds it. */
 const ACT_KINDS = /** @type {const} */ ([
 	"block",
 	"close",
@@ -22,7 +9,6 @@ const ACT_KINDS = /** @type {const} */ ([
 
 /** @typedef {typeof ACT_KINDS[number]} ActKind */
 
-/** The one kind whose line carries a ` takes:<x>` suffix. */
 const TAKES_KIND = /** @type {const} */ ("relabel");
 
 /** @typedef {Exclude<ActKind, typeof TAKES_KIND>} BareActKind */
@@ -41,9 +27,9 @@ const ACT_LINE = new RegExp(
 
 /**
  * @param {ActKind} kind
- * @param {string} repo `owner/name`
+ * @param {string} repo
  * @param {number|string} n
- * @param {string} [takes] a relabel's `takes:<x>`
+ * @param {string} [takes]
  */
 function buildAct(kind, repo, n, takes) {
 	const line = `${kind} ${repo}#${n}`;

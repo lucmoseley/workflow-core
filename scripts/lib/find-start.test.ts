@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * lib/find-start.js, the guard-root-find core (#2801), in process: which
- * `find` commands start at `/` and are refused (#1006), what the refusal
- * hands over, and which pass. The first fire list and the first pass list are
- * #1006's acceptance criteria; do not thin them.
- *
- * The payload's cwd, the plugin root and the core-path rewrite are fakes
- * passed as values; the production adapters are crossed in
- * guard-root-find.test.ts. The refusal is asserted whole, its text written
- * out here rather than read from the core.
- */
 
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -49,7 +38,6 @@ function harness({ root = ROOT, ...over }: Over = {}) {
 const judge = (command: string, over: Over = {}) =>
 	decide(command, harness(over).ctx);
 
-/** The refusal for `shown` refused under `root`. */
 const refusal = (shown: string, root = ROOT) =>
 	`Refused: \`${shown}\` starts at \`/\`. A find over the whole disk under WSL2 ran to the 2-minute timeout in about half of 114 measured calls, and neither \`-maxdepth\` nor \`-xdev\` saved it (#1006). Cheapest route first:
 
@@ -103,8 +91,6 @@ describe("a find started at / is refused (#1006)", () => {
 		expect(judge(command, { cwd })?.deny).toBeDefined();
 	});
 
-	/* Where each launcher's move puts a run is the walk's, tested there
-	 * (#5075); these pin that the guard judges a run where it stands. */
 	it.each([
 		"env -C / find . -name x",
 		'flock /l -c "cd /; find . -name x"',
@@ -316,7 +302,6 @@ describe("from a linked worktree (#4242)", () => {
 			worktree: at.worktree,
 		}).output;
 
-	/* It reads no store and no tree: the refusal names the plugin's own root. */
 	it("refuses a find at / and names neither checkout as the root to search", () => {
 		const reason = String(
 			fromWorktree("find / -name x")?.permissionDecisionReason,

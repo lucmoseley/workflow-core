@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * wfc-mods-copies.test.ts — the two mods carry their own copies of the same
- * helpers, which cannot be shared (#944), so this test holds the copies to one
- * text: each helper is declared in both mods' hooks modules, and every
- * declaration of it reads the same, liveness's per-hook `debug` closures among
- * them (#1049). Without it, a fix to one mod's floor reaches adopters while
- * the other runs the old rule. A helper copied later is held only once it
- * joins COPIED. Liveness's switch is its own: delivery has none (#1467).
- *
- * Compared as TypeScript declarations, name through initializer, with any
- * JSDoc above: a plain comment there may cite each mod's own ticket.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -26,7 +14,6 @@ const MODULES = [
 
 const COPIED = ["versionFloor", "isAtFloor", "messageOf", "debug"];
 
-/** Every declaration of each COPIED name in `source`, as written. */
 const declarationsOf = (file: string, source: string) => {
 	const found = new Map<string, string[]>(COPIED.map((name) => [name, []]));
 	const visit = (node: ts.Node) => {
@@ -52,7 +39,6 @@ const declarationsOf = (file: string, source: string) => {
 	return found;
 };
 
-/** One line per COPIED name missing from a module or read two ways. */
 const driftOf = (sources: Record<string, string>) => {
 	const texts = new Map<string, Set<string>>(
 		COPIED.map((name) => [name, new Set()]),

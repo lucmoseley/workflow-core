@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins deliver-to-session.js's --ci source, the mid-session CI re-check: one
- * gh call while the newest run is unchanged, the full check only when it
- * changes, each text delivered once, and never a sweep fired.
- *
- * It runs the real script and check-ci-status.js in a sandbox repo, with gh a
- * logging stub serving canned runs, so a test can count every call and catch
- * a `workflow run` the re-check must never make.
- *
- * Breaking it either keeps a red sweep from the running session, or spends
- * the 3-a-day sweep budget every ten minutes (#856).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -19,14 +7,16 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
+import type * as NotifyReport from "./lib/notify-report.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const DELIVER = path.resolve(__dirname, "deliver-to-session.js");
 const CHECK = path.resolve(__dirname, "check-ci-status.js");
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const notify: any = createRequire(__filename)("./lib/notify-report.js");
+const notify: typeof NotifyReport = createRequire(__filename)(
+	"./lib/notify-report.js",
+);
 
 const sb = freshSandbox();
 
@@ -35,7 +25,6 @@ const OTHER = "0123456789abcdef0123456789abcdef01234567";
 const at = (hm: string) => `2026-08-21T${hm}:00Z`;
 
 let file: (name: string) => string;
-/** A commit HEAD sits one past, so a sweep there leaves HEAD untested. */
 let behind = "";
 
 const run_ = (over: Record<string, unknown> = {}) => ({
@@ -60,10 +49,8 @@ const sweep = (hm: string) =>
 const write = (name: string, value: unknown) =>
 	fs.writeFileSync(file(name), JSON.stringify(value));
 const setRuns = (runs: unknown[]) => write("runs.json", runs);
-/** Every slot of the last day fired: the check has nothing to say. */
 const sweepsCurrent = () =>
 	write("sweeps.json", ["03:00", "09:00", "15:00", "21:00"].map(sweep));
-/** Twelve hours old, past the 8 h a --notify run fires a sweep at. */
 const sweepsStale = () => write("sweeps.json", ["03:00", "09:00"].map(sweep));
 
 const readCalls = () =>
@@ -111,8 +98,6 @@ beforeEach(() => {
 	]);
 	setRuns([run_()]);
 	sweepsCurrent();
-	/* The gate's query asks for `updatedAt`; the check's never does. The
-	 * `hang` file stalls every call but the gate's. */
 	vi.stubEnv(
 		"WFC_GH",
 		stubGhScript(
@@ -279,7 +264,6 @@ describe("the CI re-check (#856)", () => {
 	});
 
 	it("records nothing seen when the check skips, so a red is not lost", () => {
-		// A spent budget: the check skips, exiting 0 with nothing printed.
 		setRuns([run_({ conclusion: "failure" })]);
 		vi.stubEnv("WFC_NOTIFY_BUDGET_MS", "1");
 		expect(deliver().out).toBe("");

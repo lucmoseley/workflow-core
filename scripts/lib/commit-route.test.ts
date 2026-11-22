@@ -1,19 +1,5 @@
 // @vitest-environment node
 
-/*
- * scripts/lib/commit-route.js (#1503): which git operation made the commit a
- * hook is asked about, the route's abort and name, and the replay secrets
- * scan's refusal.
- *
- * The route cases drive REAL git operations in a throwaway repo whose every
- * hook asks the live module and logs the route it reads, because what the
- * module encodes is git's own behaviour per hook — which a constructed $GIT_DIR
- * can only restate.
- *
- * A loosened row lets a hook gate a replay as an ordinary commit or stand an
- * ordinary commit down as a replay, on a route git does not show it as.
- */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -33,7 +19,6 @@ import { shellQuote } from "./sh-quote.js";
 const MODULE = path.join(ROOT, "scripts", "lib", "commit-route.js");
 const temps = registerTempCleanup(afterEach);
 
-/** The hooks a commit route can reach; pre-push and post-merge never ask. */
 const HOOKS = [
 	"applypatch-msg",
 	"pre-applypatch",
@@ -45,16 +30,11 @@ const HOOKS = [
 	"post-commit",
 ];
 
-/** Prints commitRoute(argv[1], argv[2]) from the live module. */
 const ASK = `process.stdout.write(require(${JSON.stringify(MODULE)}).commitRoute(process.argv[1], process.argv[2]))`;
 
-/** A marker hook logging `<hook> <route>` for each step a case labels `act`;
- * node starts only then, so a case's setup pays none. */
 function markerHook(hook: string): string {
 	const ask = `route="$(node -e ${shellQuote(ASK)} ${shellQuote(hook)} "$(git rev-parse --absolute-git-dir)")"`;
 	const log = `echo "\${WFC_ASKER:+$WFC_ASKER>}${hook} $route" >> "$ROUTE_LOG"`;
-	// pre-merge-commit runs pre-commit as the real one does, so the merge
-	// that has not written MERGE_HEAD yet is asked about from inside it too.
 	const nested =
 		hook === "pre-merge-commit"
 			? `WFC_ASKER=pre-merge-commit "$(dirname "$0")/pre-commit"\n`
@@ -64,8 +44,6 @@ function markerHook(hook: string): string {
 
 type Git = (...args: string[]) => string;
 
-/** A repo with the marker hooks installed, one base commit, and a `git` whose
- * steps log only once `act()` is called. */
 function routeRepo() {
 	const { root } = newRepo("commit-route-", temps);
 	const log = path.join(root, ".git", "route.log");
@@ -82,7 +60,6 @@ function routeRepo() {
 	});
 	const git: Git = (...args) =>
 		execFileSync("git", args, { cwd: root, env: env(), encoding: "utf8" });
-	/** A step expected to stop, as a conflict does. */
 	const stops = (...args: string[]) =>
 		expect(
 			spawnSync("git", args, { cwd: root, env: env(), stdio: "ignore" }).status,
@@ -113,7 +90,6 @@ function routeRepo() {
 
 type Repo = ReturnType<typeof routeRepo>;
 
-/** `side` with one commit per file, the base branch one commit ahead of it. */
 function forked(r: Repo, files: string[], baseFile = "m"): void {
 	r.git("checkout", "-q", "-b", "side");
 	for (const f of files) r.commit(f, "side");
@@ -126,13 +102,8 @@ const COMMIT_HOOKS = (route: string, from = "pre-commit") =>
 		.slice(["pre-commit", "prepare-commit-msg"].indexOf(from))
 		.map((h) => `${h} ${route}`);
 
-/** One replayed commit's hooks, for an operation replaying two. */
 const twice = (lines: string[]) => [...lines, ...lines];
 
-/*
- * Each row is the marker table in commit-route.js's header, driven: the hooks
- * that fire on the route, in firing order, and the route each one reads.
- */
 const CASES: [string, (r: Repo) => void, string[]][] = [
 	[
 		"an ordinary commit",
@@ -296,8 +267,6 @@ const CASES: [string, (r: Repo) => void, string[]][] = [
 			r.act();
 			r.commit("a", "x");
 		},
-		// Before post-commit only abort-safety is there to read, and the pick
-		// rewrote it; no hook acts on the route this reads as.
 		[...COMMIT_HOOKS("revert-sequence").slice(0, 3), "post-commit commit"],
 	],
 	[
@@ -398,7 +367,6 @@ describe("the route each hook reads, through real git (#1503)", () => {
 	);
 });
 
-/** A $GIT_DIR holding exactly `markers`; a path ending in `/` is a directory. */
 function gitDir(markers: string[]): string {
 	const { root } = newRepo("commit-route-dir-", temps);
 	const dir = path.join(root, ".git");
@@ -413,11 +381,6 @@ function gitDir(markers: string[]): string {
 	return dir;
 }
 
-/**
- * A repo two commits deep whose git directory carries `markers`, each
- * `<path>[=<rev>]` or `reflog=<verb>`: a file naming `<rev>`'s commit, or
- * with `other` one git cannot match.
- */
 function laid(markers: string[]): string {
 	const { root } = newRepo("commit-route-js-", temps);
 	const git = (...a: string[]) =>
@@ -475,8 +438,6 @@ describe("commitRoute on a git directory laid by hand", () => {
 			["REVERT_HEAD", "sequencer/"],
 			"revert-continue",
 		],
-		// A cherry-pick range finished by a plain `git commit` leaves
-		// `sequencer` behind, and a later merge must still read as one (#1503).
 		[
 			"MERGE_HEAD before a leftover sequencer",
 			["sequencer/", "MERGE_HEAD"],
@@ -509,7 +470,6 @@ describe("commitRoute on a git directory laid by hand", () => {
 	});
 
 	it("reads GIT_REFLOG_ACTION as a merge at pre-commit alone", () => {
-		// `pull …` is `git pull`'s merge.
 		for (const action of ["merge side", "pull . side"])
 			expect(route("pre-commit", [], action)).toBe("merge");
 		expect(route("prepare-commit-msg", [], "merge side")).toBe("commit");
@@ -532,11 +492,6 @@ describe("commitRoute on a git directory laid by hand", () => {
 		);
 	});
 
-	/*
-	 * A leftover `sequencer` is not a sequence (#3298): live only where its
-	 * abort-safety names the commit this one is made on, and at post-commit
-	 * only after the sequence's own reflog entry.
-	 */
 	it.each([
 		["prepare-commit-msg", ["sequencer/abort-safety=HEAD"], "revert-sequence"],
 		["prepare-commit-msg", ["sequencer/abort-safety=other"], "commit"],
@@ -588,11 +543,6 @@ describe("isReplayRoute", () => {
 	});
 });
 
-/*
- * Each route's abort, display name and post-commit stand-down answer. A wrong
- * abort strands the tree, and a wrong stand-down releases claims over a
- * replay.
- */
 describe("routeAbort, routeName and the post-commit stand-down set", () => {
 	it.each([
 		["rebase", "git rebase --abort", "git rebase", true],
@@ -640,7 +590,6 @@ describe("scanRefusal", () => {
 	])(
 		"refuses for %s on a %s, naming %s and `%s`",
 		(hook, route, name, abort) => {
-			// Spelled here, never derived, so a drift in the text fails.
 			expect(scanRefusal(hook, route)).toBe(
 				`${hook}: the secrets scan did not pass on this ${name} (mantahostels#1706).\n` +
 					"  Its own output is above — a finding, or gitleaks itself is missing.\n" +

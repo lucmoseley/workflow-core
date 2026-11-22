@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the whole-repo pre-commit gates (mantahostels#1753), every row of
- * lib/precommit-gates.js (#4597), as the pre-commit dispatcher runs them
- * (#5172): each row's checker loads as a SPEC, and each program as a
- * PROGRAM, without running; each checker takes
- * `--against HEAD` for a direction-gated gate and `--index` for a whole-tree
- * one, and arms on exactly the staged paths the hook's own `armed` ERE took.
- *
- * What the dispatcher does with a row's verdict is proved once, over stub
- * rows, in scripts/lib/precommit-dispatch.test.ts, and through the real hook
- * in scripts/precommit-dispatch.test.ts. What is left here is each row's own.
- *
- * They are hard gates in `.husky/pre-commit`: loosen a case and a commit adding
- * a new fault — a rule claiming backing it lacks, a test escaping its fixture —
- * lands unrefused, or a direction-gated one is refused for faults it inherited.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,12 +19,10 @@ import { JS_TEST_FILE, siblingTests } from "./lib/test-kind.js";
 
 const temps = registerTempCleanup();
 
-/** A path no gate's condition holds, and where a rename of it goes. */
 const OUTSIDE = "lib/page.png";
 
 type Gate = (typeof PROFILE_GATES)[number];
 
-/** Whether the dispatcher runs `gate` on what is staged in `root`. */
 async function arms(gate: Gate, root: string): Promise<boolean> {
 	let ran = false;
 	await dispatch({
@@ -57,7 +39,6 @@ async function arms(gate: Gate, root: string): Promise<boolean> {
 	return ran;
 }
 
-/** A repo committing `from` and staging its `git mv` to `to`. */
 function renamed(from: string, to: string): string {
 	const { root, git } = stagedRepo(
 		"whole-repo-gate-",
@@ -72,8 +53,6 @@ function renamed(from: string, to: string): string {
 }
 
 describe.each(GATES)("the dispatcher's $id row", (gate) => {
-	/* The dispatcher requires the module: one that ran at load would exit the
-	 * dispatcher's own process. */
 	const exported =
 		gate.kind === "program" ? "typeof PROGRAM" : "typeof SPEC?.run";
 	it(`loads as a ${gate.kind === "program" ? "PROGRAM" : "SPEC"} without running`, () => {
@@ -115,8 +94,6 @@ describe.each(PROFILE_GATES)("the pre-commit $id gate", (gate) => {
 		expect(await arms(gate, root)).toBe(true);
 	});
 
-	/* After `git mv`, a bare `--name-only` prints the new name alone, so a move
-	 * out of the condition armed nothing. */
 	it("arms on a rename out of its condition (#1483)", async () => {
 		const root = renamed(gate.staged, `bin/${path.basename(gate.staged)}`);
 		expect(await arms(gate, root)).toBe(true);
@@ -137,13 +114,6 @@ describe.each(PROFILE_GATES)("the pre-commit $id gate", (gate) => {
 	});
 });
 
-/*
- * Each pattern row's arm pinned to the hook's own `armed` ERE it replaced
- * (#5172),
- * frozen here as the hook spelt it, `$JS_TEST_ERE` standing for
- * JS_TEST_FILE in grep's ERE: grep -E and the row's pattern must take the
- * same paths of a list spanning every condition.
- */
 const HOOK_ERE: Record<string, string> = {
 	"scripts/check-comment-policy.js": String.raw`\.([cm]?[jt]sx?|py|sh|bash)$|(^|/)[^/.]+$`,
 	"scripts/check-guard-registry.js": String.raw`^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)`,
@@ -180,12 +150,10 @@ const HOOK_ERE: Record<string, string> = {
 	"scripts/check-injector-margin.js": String.raw`^(scripts/lib/tracker-inject-text\.js|docs/agents/rules/review-(dispatch-shape|deviations-read|finding-destination)\.txt)$`,
 };
 
-/** Every row arming on a path pattern, which HOOK_ERE pins. */
 const PATTERN_GATES = GATES.flatMap((g) =>
 	"pattern" in g.arm ? [{ ...g, arm: g.arm }] : [],
 );
 
-/* grep's ERE has no non-capturing group. */
 const JS_TEST_ERE = JS_TEST_FILE.source.replaceAll("(?:", "(");
 
 const PATHS = [
@@ -275,7 +243,6 @@ describe("each row's arm, against the hook ERE it replaced", () => {
 			"$JS_TEST_ERE",
 			JS_TEST_ERE,
 		);
-		// grep exits 1 where nothing matches.
 		const matched = orFallback(
 			() =>
 				execFileSync("grep", ["-E", "-e", ere], {
@@ -291,8 +258,6 @@ describe("each row's arm, against the hook ERE it replaced", () => {
 });
 
 describe("the --root each side of the comparison is read through", () => {
-	/* An EMPTY tree, because a --root silently ignored answers about the live
-	 * worktree, which is the one answer an empty tree cannot produce. */
 	const emptyTree = () => newRepo("empty-root-", temps).root;
 
 	const runChecker = (checker: string, args: string[]) =>
@@ -325,8 +290,6 @@ describe("the --root each side of the comparison is read through", () => {
 	};
 
 	it("points the rule-text store at --root's own store, not the live worktree", () => {
-		/* A CORE tree, which is what --against materialises here: the checker's
-		 * own file in it is what marks it one. */
 		const root = emptyTree();
 		plantedStore(root);
 		fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
@@ -342,8 +305,6 @@ describe("the --root each side of the comparison is read through", () => {
 	});
 
 	it("layers an adopter --root's own store over the CORE's", () => {
-		/* An adopter that generates a fragment still reads every core guard's
-		 * from the plugin (#97). */
 		const root = emptyTree();
 		plantedStore(root);
 		const r = runChecker("check-guard-registry.js", ["--root", root, "--json"]);
@@ -354,9 +315,6 @@ describe("the --root each side of the comparison is read through", () => {
 	});
 
 	it("falls back to the CORE's store where --root has none of its own", () => {
-		/* An adopter never copies the fragments — they ship in the plugin — so
-		 * pinning its absent store would call every rule id in its rules file
-		 * unresolvable (#5). */
 		const r = runChecker("check-guard-registry.js", [
 			"--root",
 			emptyTree(),
@@ -367,8 +325,6 @@ describe("the --root each side of the comparison is read through", () => {
 	});
 
 	it("reads check-guard-test-isolation.js's --root instead of asking git", () => {
-		// Its live scope comes from `git ls-files`, which in a temp directory would
-		// read the enclosing repo or nothing at all.
 		const r = runChecker("check-guard-test-isolation.js", [
 			"--root",
 			emptyTree(),
@@ -378,8 +334,6 @@ describe("the --root each side of the comparison is read through", () => {
 		expect(JSON.parse(r.stdout).scanned).toBe(0);
 	});
 
-	/* --review writes anchors back into the tree it read, so both flags that
-	 * point the read somewhere throwaway must refuse it (mantahostels#1833). */
 	it.each([
 		["--root", ["--review", "--root", "<tree>"]],
 		["--against", ["--review", "--against", "HEAD"]],

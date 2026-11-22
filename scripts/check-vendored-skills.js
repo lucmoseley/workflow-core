@@ -1,160 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-vendored-skills.js — a local edit to a vendored skill body is declared,
- * or it is a finding.
- *
- * Usage:
- *   node scripts/check-vendored-skills.js [--root <dir>] [--json] [--warn]
- *   node scripts/check-vendored-skills.js --declare <path> --issue <n> --why "<one line>"
- *   node scripts/check-vendored-skills.js --drop <path>
- *   node scripts/check-vendored-skills.js --forget <path>
- *   node scripts/check-vendored-skills.js --revendor --at <rev> [--from <upstream clone>]
- *   node scripts/check-vendored-skills.js --upstream [--write]
- *   node scripts/check-vendored-skills.js --covered <dir>
- *
- * THE PROBLEM (mantahostels#1809, specified at mantahostels#1826).
- * `.agents/skills/` holds 24 skills vendored from two upstreams — 23 from
- * mattpocock/skills and `animate` from emilkowalski/skills — symlinked into
- * `.claude/skills/`. Some of their files carry deliberate local edits, and
- * nothing else records which are deliberate, so a re-pull would overwrite them
- * silently and an accidental edit looks identical to a deliberate one.
- *
- * WHY NOT `skills-lock.json`'s `computedHash` ALONE. It is reproducible under
- * the same locale (mantahostels#3522). The construction is
- * `computeSkillFolderHash` in vercel-labs/skills `src/local-lock.ts`, read at
- * 7533583f: sha256 over every file in the SKILL FOLDER, sorted by relative path
- * with `localeCompare`, each file's path then its bytes fed to one digest. Every
- * skill here carrying no declared edit matches its lock entry exactly, and every
- * skill carrying one differs — the test pins it.
- *
- * What still bars it as THE record is granularity and provenance, not
- * arithmetic: the digest is per skill folder, so it names no file; it cannot
- * tell a local edit from an upstream move; and the installer rewrites it at
- * every install, so it records the bytes of the last pull rather than a baseline
- * a reverted edit could be caught against. It is used below as a second signal
- * only — see LOCK-HASH.
- *
- * THE RECORD. `.agents/vendored-skill-edits.json`, two sections:
- *   vendored  every tracked file under .agents/skills/ as its upstream
- *             supplied it, path -> sha256.
- *   edits     only the files that diverge or were added, each with the hash
- *             it was declared at, the issue that approved it and one line of
- *             why. Absence is the pristine state.
- *
- * VERDICTS, per tracked file:
- *   matches vendored, no entry          pristine        silent
- *   matches its entry's editedHash      declared        silent
- *   matches vendored, entry exists      STALE-ENTRY     FAIL — edit reverted
- *   differs, no entry                   UNDECLARED      FAIL
- *   differs, entry disagrees            DRIFTED         FAIL — edited again
- *   absent from the manifest, no entry  UNTRACKED       FAIL — added locally
- *   absent from the manifest, matches   declared        silent — an added file
- *     its entry's editedHash                            is a declared edit too
- *   absent from the manifest, entry     DRIFTED         FAIL — edited again
- *     disagrees
- *   an added file's entry, not on disk  STALE-ENTRY     FAIL — addition removed
- *   in the manifest, absent from disk   REMOVED         WARN — de-vendoring is
- *                                                       a real move (mantahostels#1502,
- *                                                       mantahostels#1757) and lands as a
- *                                                       lock edit, not a bug
- *   lock entry with no directory        LOCK-ORPHAN     WARN
- *   directory with no lock entry        LOCK-MISSING    WARN
- *   lock source the notices miss, or a  NOTICE-MISSING  FAIL — lib/vendored-notices.js
- *   notices section naming none
- *
- * VERDICTS, per skill folder (mantahostels#3522):
- *   folder hash differs from the lock   LOCK-HASH       WARN
- *   the lock cannot be read at all      LOCK-UNREADABLE WARN
- * LOCK-HASH is scoped to a skill whose every file matched the manifest and which
- * carries no declared edit — anywhere else the two are expected to disagree and
- * the digest cannot say why. So it fires where the per-file check is blind: the
- * MANIFEST is wrong, because `--revendor --at <rev>` was pointed at a commit
- * where an undeclared edit had already landed, or `--from` at a tag other than
- * the one pulled, which bakes those bytes in as "what the vendor supplied" and
- * silences every later verdict on that file. The lock is the installer's own
- * witness of the pull, so it disagrees.
- *
- * That needs the per-file gate to have been defeated first — `HUSKY=0`, a
- * `--warn` run, or the edit riding a commit staging no path this check is scoped
- * to.
- *
- * TWO WAYS IT LIES, both firing on clean skills: an installer that changes the
- * construction, and a lock written under a locale whose `localeCompare` orders
- * two paths differently from the checking machine's. So re-read the port against
- * upstream before acting on a LOCK-HASH that names more than one or two skills.
- *
- * RECORDING A PULL. `--revendor` rebuilds the record from blobs at a revision,
- * never from a working tree, which is where local edits live. Two routes:
- *   --at <rev> --from <clone>  what a re-pull runs (#4802). <clone> is a local
- *                              clone of the upstream repo and <rev> a tag or
- *                              commit in it. For every skill the lock sources
- *                              from that repo — read off the clone's `origin` —
- *                              it records the manifest, the lock's
- *                              `computedHash` and `vendoredAt`, as
- *                              `<source>@<sha> (<rev>)`. Another source's
- *                              skills keep their rows.
- *   --at <rev>                 a commit of THIS repo holding the vendor's bytes
- *                              pristine: the first vendoring. A re-pull has no
- *                              such commit — upstream's bytes over a declared
- *                              edit are DRIFTED, so the gate below refuses it.
- *
- * WHERE IT RUNS. `.husky/pre-commit`, scoped to commits that stage a path under
- * `.agents/skills/`, or the manifest, or `skills-lock.json` — an unrelated
- * commit pays nothing. Deliberately NOT a SessionStart notifier: a declared
- * edit is a permanent condition, and a notice on one is noise every session
- * (mantahostels#1809).
- *
- * --upstream is the re-pull mode and the only one that touches the network, so
- * no gate runs it; a gate reads the record it writes instead. It reports which
- * declared edits upstream has ALSO moved under, which is the difference
- * between re-applying an edit cleanly and merging two changes — and, per lock
- * source, whether upstream's licence still reads as NOTICES' section for it,
- * since a re-pull vendors under whatever upstream states now (#1951). Its own
- * verdicts:
- *   body differs from the vendored bytes   UPSTREAM-MOVED       WARN
- *   licence differs from the notice        UPSTREAM-LICENCE     WARN
- *   upstream 404s on the path              UPSTREAM-GONE        WARN — the
- *                                                               path, or the
- *                                                               `source` repo;
- *                                                               for a licence,
- *                                                               no LICENSE file
- *   fetch failed, GitHub unreachable       UPSTREAM-UNREADABLE  WARN — and a
- *                                                               run where EVERY
- *                                                               row failed that
- *                                                               way SKIPs
- *   fetch failed, the call itself at fault —                    BROKEN, at once
- *   no source/skillPath in the lock        UPSTREAM-UNRESOLVED  WARN
- *
- * Which of those two a failed fetch is comes from `lib/gh.js`'s
- * `parseGhFailureReason`, never from a rule of this checker's own (mantahostels#3066).
- *
- * THE UPSTREAM RECORD (#2394, ruled at #2377). A `--write` run that neither
- * SKIPs nor breaks, and finds every lock source's licence matching its notice,
- * writes
- * `.agents/vendored-upstream-pass.json`: the sha256 of the lock and of NOTICES
- * as the run read them, the date, and each source's licence verdict. Any other
- * licence row writes none, so a mismatch is cleared by refreshing NOTICES and
- * re-running, never by recording it; UPSTREAM-MOVED does not stop the write.
- * Without `--write` it only says whether it would write one (#4449); with it,
- * a cut-over main checkout is refused before any fetch (#4229).
- * `--covered <dir>` is the offline half, run by `.husky/pre-commit` on a commit
- * staging the lock: it reads the staged lock, NOTICES and record that the hook
- * copies into <dir>, and fails where the record is missing or either hash
- * differs.
- * WFC_UPSTREAM_RECORD_OFF stands it down for one commit, for a GitHub outage
- * that SKIPs --upstream; `.husky/commit-msg` refuses that commit until its
- * `Weakens:` line names the variable.
- *
- * RESIDUAL: `vendoredAt` is single-provenance and the manifest is not.
- * It names one mattpocock/skills commit for every file, but `animate`'s two
- * are emilkowalski/skills', so every verdict line quoting the field misdescribes
- * those two. Nothing compares against it, so no gate is wrong, and every file
- * of every skill vendored outside a --revendor joins it, and a --revendor
- * --from names the one source it pulled. Per-path
- * provenance, a data-format change plus a write command, was declined at
- * mantahostels#3025; revisit at a third upstream, when the field misdescribes
- * enough of the manifest to pay.
- */
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -178,16 +22,12 @@ const SIDECAR = ".agents/vendored-skill-edits.json";
 const SKILLS_DIR = ".agents/skills";
 const RECORD = ".agents/vendored-upstream-pass.json";
 const STAND_DOWN = "WFC_UPSTREAM_RECORD_OFF";
-/** Hex digits of the sha `vendoredAt` names. A first choice, stated as one: the
- * width of `d1478fcb`, the sha the record names; git lengthens it where that is
- * ambiguous. */
 const VENDORED_AT_SHA_WIDTH = 8;
-/** The files the upstream record vouches for, by their repo paths. */
 const COVERED = [LOCK, NOTICES];
 
 /**
  * @typedef {{ editedHash: string, issue: number, why: string }} EditEntry
- * @typedef {{ rel: string, content: Buffer }} SkillFile one file of a skill folder, `rel` relative to it
+ * @typedef {{ rel: string, content: Buffer }} SkillFile
  * @typedef {{
  *   ranOn: string,
  *   sha256: Record<string, string | null>,
@@ -205,8 +45,6 @@ const sha256 = (bytes) =>
 	crypto.createHash("sha256").update(bytes).digest("hex");
 
 /**
- * Each COVERED file's sha256, null where absent, read at `locate(rel)`.
- *
  * @param {(rel: string) => string} locate
  * @returns {Record<string, string | null>}
  */
@@ -214,10 +52,6 @@ const coveredHashes = (locate) =>
 	Object.fromEntries(COVERED.map((rel) => [rel, fileHash(locate(rel))]));
 
 /**
- * A file's sha256 with CRLF read as LF, or null where it does not exist. The
- * record hashes the worktree and the gate the staged blob, which differ by
- * line endings alone under `core.autocrlf` or an `eol` attribute.
- *
  * @param {string} file
  * @returns {string | null}
  */
@@ -231,9 +65,6 @@ function fileHash(file) {
 }
 
 /**
- * Biome formats JSON with tabs, and this file is in its scope, so writing any
- * other indent means the next `check:staged` reformats it under us.
- *
  * @param {string} file
  * @param {unknown} value
  */
@@ -242,11 +73,6 @@ function writeJson(file, value) {
 }
 
 /**
- * Every tracked file under .agents/skills/, repo-relative, sorted.
- *
- * Walks the filesystem rather than asking git: --root points at a fixture that
- * is not a repository, and the walk is what makes the check work there.
- *
  * @param {string} root
  * @returns {string[]}
  */
@@ -258,8 +84,6 @@ function readVendoredFilesOnDisk(root) {
 	const walk = (dir) => {
 		for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
 			const p = path.join(dir, e.name);
-			/* Symlinks are skipped: .claude/skills/ points in here, and a link
-			 * followed from inside would hash the same bytes twice. */
 			if (e.isSymbolicLink()) continue;
 			if (e.isDirectory()) walk(p);
 			else if (e.isFile()) out.push(path.relative(root, p));
@@ -271,12 +95,11 @@ function readVendoredFilesOnDisk(root) {
 }
 
 /**
- * `computeSkillFolderHash` from vercel-labs/skills `src/local-lock.ts`, ported
- * (mantahostels#3522): sha256 over every file in one skill folder, sorted by relative path,
- * each file's path then its bytes. Deliberately mirrors upstream rather than
- * improving on it — `localeCompare` over a byte sort, `.git`/`node_modules`
- * skipped, hidden files kept, symlinks skipped as upstream's `Dirent` tests
- * skip them.
+ * A port of `computeSkillFolderHash` in
+ * https://github.com/vercel-labs/skills/blob/7533583f/src/local-lock.ts:
+ * sha256 over every file in one skill folder, sorted by relative path with
+ * `localeCompare`, each file's path then its bytes; `.git` and `node_modules`
+ * skipped, hidden files kept, symlinks skipped.
  *
  * @param {string} dir
  * @returns {string}
@@ -289,10 +112,7 @@ function skillFolderHash(dir) {
 }
 
 /**
- * `skillFolderHash`'s digest, over one skill folder's files however they were
- * read: off disk, or out of an upstream clone's blobs.
- *
- * @param {SkillFile[]} files each `rel` relative to the skill folder
+ * @param {SkillFile[]} files
  * @returns {string}
  */
 function hashSkillFiles(files) {
@@ -306,12 +126,9 @@ function hashSkillFiles(files) {
 }
 
 /**
- * `skillFolderHash`'s walk: push every file under `cur` onto `files`, its path
- * relative to the skill folder `dir`.
- *
  * @param {string} dir
  * @param {string} cur
- * @param {SkillFile[]} files accumulator: each file found is pushed here
+ * @param {SkillFile[]} files
  */
 function collectSkillFiles(dir, cur, files) {
 	for (const e of fs.readdirSync(cur, { withFileTypes: true })) {
@@ -350,12 +167,6 @@ function loadSidecar(root) {
 }
 
 /**
- * Skill names the lock claims, and skill directories on disk.
- *
- * `null` means the lock or the skills directory is absent, which is not a fault.
- * A lock that exists and will not parse is one, and comes back as
- * `{ unreadable }`.
- *
  * @param {string} root
  * @returns {{ locked: string[], onDisk: string[], hashes: Record<string, string> } | { unreadable: string } | null}
  */
@@ -382,12 +193,6 @@ function readLockRoster(root) {
 		.map((e) => e.name);
 	return { locked: locked.sort(), onDisk: onDisk.sort(), hashes };
 }
-
-/* --- the write commands ---------------------------------------------------
- *
- * These write and check nothing, the same split check-guard-registry.js --review
- * runs on: a command that both records a divergence and reports on it can
- * always be made green by running it, which is not a gate. */
 
 /**
  * @param {string} root
@@ -423,11 +228,6 @@ function drop(root, rel) {
 }
 
 /**
- * Drop a de-vendored file from the manifest.
- *
- * De-vendoring leaves a manifest entry for a file nobody has. Refuses while the
- * file still exists, so it cannot be used to silence an UNDECLARED finding.
- *
  * @param {string} root
  * @param {string} rel
  */
@@ -446,14 +246,10 @@ function forget(root, rel) {
 }
 
 /**
- * Every regular file under `dir` as `rev` holds it in the repository at `cwd`.
- * A symlink or submodule is skipped: the walks over a skill folder on disk skip
- * them too.
- *
  * @param {string} cwd
  * @param {string} rev
- * @param {string} dir repo-relative, POSIX
- * @returns {{ file: string, content: Buffer }[]} `file` repo-relative
+ * @param {string} dir
+ * @returns {{ file: string, content: Buffer }[]}
  */
 function readBlobsAt(cwd, rev, dir) {
 	const rows = execGit(
@@ -473,9 +269,6 @@ function readBlobsAt(cwd, rev, dir) {
 }
 
 /**
- * Rebuild the `vendored` manifest from a commit of this repo holding the
- * vendor's bytes pristine: the first vendoring.
- *
  * @param {string} root
  * @param {string} rev
  */
@@ -500,9 +293,6 @@ function revendor(root, rev) {
 }
 
 /**
- * The `owner/repo` a clone's `origin` names on GitHub, which is how the lock
- * spells a `source`.
- *
  * @param {string} clone
  * @returns {string}
  */
@@ -529,13 +319,9 @@ function readCloneSource(clone) {
 }
 
 /**
- * One skill folder's files as `sha` holds them in `clone`, none under
- * `node_modules`: what `collectSkillFiles` reads of the same folder once
- * installed.
- *
  * @param {string} clone
  * @param {string} sha
- * @param {string} folder repo-relative, POSIX
+ * @param {string} folder
  * @returns {SkillFile[]}
  */
 function readUpstreamFolder(clone, sha, folder) {
@@ -545,9 +331,7 @@ function readUpstreamFolder(clone, sha, folder) {
 }
 
 /**
- * Swap one skill's manifest rows for the files upstream supplied.
- *
- * @param {Record<string, string>} vendored accumulator: the skill's rows are swapped here
+ * @param {Record<string, string>} vendored
  * @param {string} name
  * @param {SkillFile[]} supplied
  */
@@ -559,11 +343,6 @@ function replaceSkillRows(vendored, name, supplied) {
 }
 
 /**
- * `--revendor --from` (#4802), as the header's RECORDING A PULL has it.
- *
- * Everything is read and hashed before either file is written, so a refusal
- * leaves both as they were.
- *
  * @param {string} root
  * @param {string} rev
  * @param {string} from
@@ -580,8 +359,6 @@ function revendorFrom(root, rev, from) {
 	const lockFile = path.join(root, LOCK);
 	const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
 	const sidecar = loadSidecar(root);
-	/* A lock entry with no directory is LOCK-ORPHAN's: recording its files would
-	 * only turn each into a REMOVED. */
 	const skills = Object.entries(
 		/** @type {Record<string, { source?: string, skillPath?: string, computedHash?: string }>} */ (
 			lock.skills
@@ -623,7 +400,6 @@ function revendorFrom(root, rev, from) {
 	sidecar.vendoredAt = `${source}@${short}${sha.startsWith(rev) ? "" : ` (${rev})`}`;
 	sidecar.vendored = sortKeys(vendored);
 	writeJson(path.join(root, SIDECAR), sidecar);
-	/* Two spaces, as the installer writes it: Biome leaves this file alone. */
 	fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
 	const lockLine =
 		moved.length > 0
@@ -641,11 +417,6 @@ function sortKeys(obj) {
 }
 
 /**
- * Which repo holds a vendored file upstream, and where in it — both read off
- * the file's own lock entry, never assumed (mantahostels#3025).
- *
- * `rel` must be `.agents/skills/<skill>/<tail>`.
- *
  * @param {Record<string, { source?: string, skillPath?: string }>} lock
  * @param {string} rel
  * @returns {{ source: string, remotePath: string } | null}
@@ -655,8 +426,6 @@ function remoteFor(lock, rel) {
 	if (skill === undefined || tail.length === 0) return null;
 	const entry = lock[skill];
 	if (!entry?.source || !entry?.skillPath) return null;
-	/* Reference files sit beside SKILL.md upstream, so the lock's skillPath
-	 * for the skill gives the directory and the on-disk tail gives the name. */
 	return {
 		source: entry.source,
 		remotePath: `${path.posix.dirname(entry.skillPath)}/${tail.join("/")}`,
@@ -664,10 +433,6 @@ function remoteFor(lock, rel) {
 }
 
 /**
- * `broken` is REQUIRED, not optional. Omitted, a fetcher's failure would default
- * to `unreadable`, which is the every-row SKIP condition and so exit 0 over a
- * check that never ran.
- *
  * @typedef {{ body: string }
  *   | { error: string, notFound: boolean, broken: boolean }} FetchResult
  * @typedef {{
@@ -684,20 +449,6 @@ function remoteFor(lock, rel) {
  */
 
 /**
- * The re-pull pre-flight: which declared edits would a re-pull collide with?
- *
- * A declared edit whose upstream body is unchanged since we vendored it can be
- * re-applied verbatim. One whose upstream body has ALSO moved cannot — that is
- * a merge, and the founder has to see it before anything is overwritten.
- *
- * A file we added has no upstream body: a 404 on it is `same`, and any body at
- * that path is `taken`, upstream having shipped a file where ours sits.
- *
- * Any other failed fetch is never folded into either answer. A 404 is `gone` —
- * a collision of its own; a failure the environment explains is `unreadable`,
- * and one the call itself is at fault for is `fault`, which the CLI turns into
- * a BROKEN rather than a finding.
- *
  * @param {string} root
  * @returns {UpstreamRow[]}
  */
@@ -745,8 +496,6 @@ function buildUpstreamReport(root) {
 }
 
 /**
- * Each lock source's licence upstream against the text NOTICES holds for it.
- *
  * @param {string} root
  * @returns {LicenceRow[]}
  */
@@ -773,12 +522,7 @@ function buildLicenceReport(root) {
 	return rows;
 }
 
-/**
- * Line endings and trailing whitespace are not terms of a licence, and NOTICES
- * separates its sections with blank lines a LICENSE file does not carry.
- *
- * @param {string} text
- */
+/** @param {string} text */
 const normalisedLicence = (text) =>
 	text
 		.split(/\r?\n/)
@@ -796,8 +540,6 @@ function failedState(failed) {
 }
 
 /**
- * A base64 `content` field — a contents read's or a licence read's — decoded.
- *
  * @param {string} endpoint
  * @returns {FetchResult}
  */
@@ -811,9 +553,6 @@ function ghFetch(endpoint) {
 		return {
 			error: stderr.split("\n")[0] || errMessage(e),
 			notFound,
-			/* A 404 is answered before this is asked: it is a real answer about
-			 * upstream, and `parseGhFailureReason` — knowing nothing of this checker's
-			 * subject — calls it a fault in the call. */
 			broken: !notFound && parseGhFailureReason(e) === "broken",
 		};
 	}
@@ -821,30 +560,16 @@ function ghFetch(endpoint) {
 
 /** @type {string | undefined} */
 let selfPath;
-/**
- * The command a finding prints, spelt from where this script lives (#2515). In
- * an adopter that is the plugin root, outside the adopter's root, so it prints
- * the absolute path, quoted so a root holding a space pastes whole.
- * Where the plugin root is the cwd, or the canonical checkout a core worktree's
- * plugin root may name, the repo-relative path runs — as `dr_hint` in
- * `.husky/pre-commit` decides it.
- *
- * Residual: a plugin root holding `"`, `$` or a backtick still pastes wrong
- * inside the quotes, as `dr_hint`'s does.
- * @param {string} args
- */
+/** @param {string} args */
 function buildSelfCommand(args) {
 	if (selfPath === undefined) {
 		const roots = [process.cwd()];
-		/* Outside a git checkout the cwd is the only root to compare, and a miss
-		 * prints the absolute spelling (#2515). */
 		const common = gitCommonDir(process.cwd());
 		if (common !== null) roots.push(path.dirname(common));
 		const real = (/** @type {string} */ dir) => {
 			try {
 				return fs.realpathSync(dir);
 			} catch {
-				/* Compared unresolved (#2515). */
 				return dir;
 			}
 		};
@@ -870,16 +595,11 @@ function skillOf(rel) {
 }
 
 /**
- * The per-file verdicts, and the skills the folder-hash check must stay quiet
- * about.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {{ root: string, sidecar: Sidecar, onDisk: string[], seen: Set<string> }} tree
  * @returns {Set<string>}
  */
 function checkFiles(ctx, { root, sidecar, onDisk, seen }) {
-	/* Skills the folder-hash check must stay quiet about: one carrying a declared
-	 * edit, or any per-file finding, is expected to differ from the lock. */
 	/** @type {Set<string>} */
 	const notClean = new Set();
 	for (const rel of Object.keys(sidecar.vendored))
@@ -902,8 +622,6 @@ function checkFiles(ctx, { root, sidecar, onDisk, seen }) {
 }
 
 /**
- * One vendored file's verdict: UNTRACKED, STALE-ENTRY, UNDECLARED or DRIFTED.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {{ rel: string, disk: string, vendored: string | undefined, entry: EditEntry | undefined, vendoredAt: string }} file
  */
@@ -957,9 +675,6 @@ function warnRemoved(ctx, sidecar, seen) {
 }
 
 /**
- * A declared added file that is gone: its entry would tell --upstream the
- * addition re-applies cleanly.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {Sidecar} sidecar
  * @param {Set<string>} seen
@@ -975,8 +690,6 @@ function failRemovedAdditions(ctx, sidecar, seen) {
 }
 
 /**
- * The lock's verdicts: LOCK-UNREADABLE, LOCK-ORPHAN, LOCK-MISSING, LOCK-HASH.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  * @param {Set<string>} notClean
@@ -1026,14 +739,10 @@ function lockHashFinding(ctx, { root, name, locked, notClean }) {
 }
 
 /**
- * The whole verdict, over a tree.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  */
 function check(ctx, root) {
-	// Neither record nor skills: an adopter vendoring nothing (mantahostels#3515
-	// F12, #2). One without the other is still BROKEN below.
 	if (
 		!fs.existsSync(path.join(root, SIDECAR)) &&
 		!fs.existsSync(path.join(root, SKILLS_DIR))
@@ -1045,9 +754,6 @@ function check(ctx, root) {
 	try {
 		sidecar = loadSidecar(root);
 	} catch (e) {
-		/* The manifest is this checker's own apparatus, not its subject: without it
-		 * nothing was checked, so it is BROKEN rather than a green run over a scope
-		 * it never looked at. */
 		return ctx.broken(errMessage(e));
 	}
 
@@ -1057,7 +763,6 @@ function check(ctx, root) {
 	warnRemoved(ctx, sidecar, seen);
 	failRemovedAdditions(ctx, sidecar, seen);
 	checkLock(ctx, root, notClean);
-	/* An unparseable lock is LOCK-UNREADABLE's to report, just above. */
 	const roster = readLockRoster(root);
 	if (roster && !("unreadable" in roster))
 		for (const fault of noticeFaults(root))
@@ -1095,12 +800,7 @@ function runDeclare(ctx, root) {
 	return { okLine: "declared." };
 }
 
-/**
- * The write commands, in the order their flags are tried: the first one given
- * runs, and the rest are ignored.
- *
- * @type {[string, (ctx: import("./lib/check").Ctx, root: string) => { okLine: string }][]}
- */
+/** @type {[string, (ctx: import("./lib/check").Ctx, root: string) => { okLine: string }][]} */
 const WRITE_COMMANDS = [
 	["--declare", runDeclare],
 	[
@@ -1129,12 +829,7 @@ const WRITE_COMMANDS = [
 	],
 ];
 
-/**
- * The warning each colliding upstream state raises; a state absent here
- * ("same") re-applies cleanly and is only said.
- *
- * @type {Record<string, { code: string, message: (r: UpstreamRow, edit: string) => string }>}
- */
+/** @type {Record<string, { code: string, message: (r: UpstreamRow, edit: string) => string }>} */
 const UPSTREAM_WARNINGS = {
 	moved: {
 		code: "UPSTREAM-MOVED",
@@ -1200,8 +895,6 @@ function reportUpstreamRow(ctx, r) {
 }
 
 /**
- * The --upstream report: the re-pull pre-flight, over every declared edit.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  */
@@ -1211,15 +904,12 @@ function runUpstream(ctx, root) {
 	/** @type {Record<string, string | null>} */
 	let read;
 	try {
-		/* Hashed before the fetches, so the record names the bytes the run read. */
 		read = coveredHashes((rel) => path.join(root, rel));
 		rows = buildUpstreamReport(root);
 		licences = buildLicenceReport(root);
 	} catch (e) {
 		return ctx.broken(errMessage(e));
 	}
-	/* A fault in the call is not a finding about upstream, so it ends the
-	 * run rather than joining the rows (mantahostels#3066). */
 	const fault = [...rows, ...licences].find((r) => r.state === "fault");
 	if (fault)
 		return ctx.broken(
@@ -1228,14 +918,6 @@ function runUpstream(ctx, root) {
 	const unreadable = [...rows, ...licences].filter(
 		(r) => r.state === "unreadable",
 	);
-	/* Upstream is the SUBJECT here, so an unreachable GitHub is a SKIP: a
-	 * green run over a fetch that never happened is the failure mode. A 404
-	 * is excluded, being an answer rather than a failure to get one.
-	 *
-	 * The condition is EVERY row, so an unresolved row beside unreadable ones
-	 * reports rather than skipping — ruled correct at mantahostels#3066:
-	 * UPSTREAM-UNRESOLVED is a finding about the lock, reached without a
-	 * network and actionable while GitHub is down. */
 	const [firstUnreadable] = unreadable;
 	if (firstUnreadable && unreadable.length === rows.length + licences.length) {
 		const unread = [
@@ -1254,8 +936,6 @@ function runUpstream(ctx, root) {
 		if (warning) ctx.warn(warning.code, warning.message(r), { path: NOTICES });
 	}
 	for (const f of ctx.findings) ctx.say(`${f.severity}: ${f.message}`);
-	/* The recipe re-applies declared edits; a licence finding's way out is the
-	 * section refresh its own message names (#1951). */
 	if (rows.some((r) => UPSTREAM_WARNINGS[r.state]))
 		ctx.say(
 			"  Re-pull, then: --revendor --at <the pulled tag> --from <a clone of the upstream repo>, re-apply each edit by hand, and --declare it again.",
@@ -1268,8 +948,6 @@ function runUpstream(ctx, root) {
 }
 
 /**
- * Write the upstream record where every licence matched; say why not otherwise.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  * @param {Record<string, string | null>} read
@@ -1302,10 +980,6 @@ function writeRecord(ctx, root, read, licences) {
 }
 
 /**
- * The commit gate's half of the record: does the staged record cover the
- * staged lock and NOTICES? Reads the copies `.husky/pre-commit` stages into
- * `dir` under their basenames.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} dir
  */
@@ -1316,8 +990,6 @@ function runCovered(ctx, dir) {
 		);
 	/** @param {string} rel */
 	const staged = (rel) => path.join(dir, path.basename(rel));
-	/* --upstream cannot run without the manifest, so a repo vendoring nothing
-	 * could never write a record. */
 	if (!fs.existsSync(staged(SIDECAR)))
 		return ctx.skip(
 			`no ${SIDECAR} staged — nothing vendored, so no upstream record is owed.`,
@@ -1341,8 +1013,6 @@ function runCovered(ctx, dir) {
 }
 
 /**
- * Why the record at `file` does not cover `staged`, or null where it does.
- *
  * @param {string} file
  * @param {Record<string, string | null>} staged
  * @returns {{ tag: string, why: string } | null}
@@ -1382,10 +1052,7 @@ function recordFault(file, staged) {
 			};
 }
 
-/**
- * Whether `root` is the main checkout itself, cut over to the worktree model.
- * @param {string} root
- */
+/** @param {string} root */
 function isCutOverMainCheckout(root) {
 	const top = mainCheckout(root);
 	if (top === null || fs.realpathSync(top) !== fs.realpathSync(root))
@@ -1424,8 +1091,6 @@ const SPEC = {
 	run(/** @type {import("./lib/check").Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root", process.cwd()));
 
-		/* The write commands report in prose and raise no findings, so they have
-		 * no --json form and nothing to gate on. */
 		for (const flag of ["--declare", "--drop", "--forget", "--revendor"])
 			if (ctx.has(flag) && ctx.asJson)
 				ctx.usageError(

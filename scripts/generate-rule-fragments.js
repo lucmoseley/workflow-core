@@ -1,39 +1,4 @@
 #!/usr/bin/env node
-/*
- * generate-rule-fragments.js — render `docs/agents/rules/<id>.txt` from an
- * anchor pair in the document that authors the rule (mantahostels#2493, spec mantahostels#2457 §T2).
- *
- * WHY A GENERATOR RATHER THAN A CUT. `docs/agents/triage-labels.md` and
- * `docs/agents/issue-tracker.md` stay the authored home of their rules and keep
- * their `docs/doc-map.md` §A class; the fragment is a second copy on disk,
- * policed by `--check` rather than by a reader's memory. The fragment is never
- * the sole home (§T2): that would be a one-way change that strands each
- * document's §Where decisions get written material.
- *
- * THE ANCHOR PAIR is two HTML comments on their own lines:
- *
- *     <!-- rule:<id>:begin -->
- *     …the rule…
- *     <!-- rule:<id>:end -->
- *
- * The region is every line BETWEEN them, joined by newlines with one trailing
- * newline.
- *
- * A SPAN is the same pair written inline, inside a region: its text renders
- * as a fragment of its own, and the region's fragment carries the text with
- * the two comments dropped. A guard printing one sentence of a longer rule
- * reads the span (#4155). Inline comments leave the source's rendered
- * paragraph whole, which an own-line pair would split.
- *
- * THE MANIFEST records, per id, the document and the trigger that makes the
- * rule bind. The trigger is never inferred from the anchor: an anchored id
- * with no TRIGGERS row refuses.
- *
- * EXIT CODES: 0 wrote (or, under --check, everything matches); 1 a fault —
- * an unpaired anchor, an empty region, an id the grammar refuses, an id with
- * no TRIGGERS row, a span unpaired, nested, empty or outside a region, or
- * (under --check) a fragment or manifest out of step.
- */
 
 const fs = require("node:fs");
 const { capture } = require("./lib/check-sink.js");
@@ -46,15 +11,8 @@ const { trimEndRun, trimRun } = require("./lib/trim-run.js");
 const { caught } = require("./lib/caught.js");
 const { scriptPath } = require("./lib/script-path.js");
 
-/* Every path here — the source documents and the fragment store — is in the
- * session's own tree (#1, #4438): a plugin install keeps this script beside
- * the core's own files, but `docs/agents/rules` lives in the repository being
- * worked on. */
 /** @param {string} root */
 const storeOf = (root) => path.join(root, "docs", "agents", "rules");
-/* The host's store, never rule-text's store in force: that falls back to the
- * core's own where the host has none, and a write there from an adopter
- * would overwrite the core's manifest. */
 /** @param {string} root */
 const manifestOf = (root) =>
 	path.join(
@@ -62,11 +20,6 @@ const manifestOf = (root) =>
 		path.basename(require("./lib/rule-text").manifestPath()),
 	);
 
-/* The documents scanned for anchors, and the trigger each anchored id binds
- * at. One table, not a per-document one: an id is unique across the store, so
- * a second table would only let two documents claim the same id. Repo-relative
- * with `/`, as git names a staged path: the pre-commit dispatcher arms
- * `--check` on this list rather than a copy of it (#3118). */
 const SOURCES = [
 	"docs/agents/triage-labels.md",
 	"docs/agents/issue-tracker.md",
@@ -74,15 +27,11 @@ const SOURCES = [
 	"docs/agents/dependabot.md",
 ];
 
-/* scripts/lib/test-rules-inject.js's trigger, shared by base §X8, §X9 and §X10. */
 const TEST_WRITE = "a `Write`, `Edit` or `NotebookEdit` to a test file";
 
-/* The moment the takes:human limb of the create guard and file-issue.js binds. */
 const TAKES_HUMAN =
 	"a `gh issue create`, `gh issue edit` or `scripts/file-issue.js` applying `takes:human` to a body whose Outside line fails";
 
-/* id → the observable moment the rule binds, in the words a session reads.
- * Never inferred from the anchor. */
 /** @type {Record<string, string>} */
 const TRIGGERS = {
 	"create-command-shape": "a `gh issue create` on the Bash tool",
@@ -124,11 +73,6 @@ const TRIGGERS = {
 	"hot-path-cost":
 		"a `Write`, `Edit` or `NotebookEdit` to a hot-path program or a hook registration",
 
-	/* THE SECOND CLASS (mantahostels#2496, mantahostels#2499). No Bash shape observes these — a session
-	 * is told the id and the moment in its command's injected index instead, and
-	 * fetches the text with scripts/lib/rule-text.sh when that moment arrives.
-	 * The trigger text here is that moment, in the reader's own words, not a
-	 * guard's match predicate. */
 	"roadmap-gating":
 		"gating or closing an issue tied to a roadmap card's timing",
 	"card-close-route": "closing an issue that carries a roadmap card",
@@ -147,7 +91,6 @@ const TRIGGERS = {
 	"takes-label-nuances":
 		"applying, removing or reading `takes:children` or `takes:human`",
 
-	/* SPANS (#4155): one sentence of a region above, printed by a guard alone. */
 	"founder-acts": TAKES_HUMAN,
 	"no-command-opens-shape": TAKES_HUMAN,
 	"repo-file-act": TAKES_HUMAN,
@@ -164,14 +107,9 @@ const END_RE = /^<!--\s*rule:([^\s:]+):end\s*-->$/;
 const SPAN_RE = /<!--\s*rule:([^\s:]+):(begin|end)\s*-->/g;
 const HAS_SPAN = new RegExp(SPAN_RE.source);
 
-/**
- * One document's anchor scan in progress: the region open, if any, the lines
- * it holds so far, and the regions already closed.
- * @typedef {{ source: string, open: string | null, body: string[], out: { id: string, text: string, source: string }[] }} RegionScan
- */
+/** @typedef {{ source: string, open: string | null, body: string[], out: { id: string, text: string, source: string }[] }} RegionScan */
 
 /**
- * Every anchored region in one document. Throws on a fault.
  * @param {string} root
  * @param {string} relPath
  * @returns {{ id: string, text: string, source: string }[]}
@@ -202,9 +140,7 @@ function readRegionsIn(root, relPath) {
 }
 
 /**
- * A begin anchor: opens its region, refusing one inside another or an id the
- * grammar refuses.
- * @param {RegionScan} scan accumulator: the parser's scan state, its region opened
+ * @param {RegionScan} scan
  * @param {RegExpExecArray} begin
  * @param {string} at
  */
@@ -221,10 +157,7 @@ function openRegion(scan, begin, at) {
 }
 
 /**
- * An end anchor: closes the open region into `scan.out`, refusing one that
- * closes another id or nothing, or whose region is empty. Its spans close
- * into out beside it.
- * @param {RegionScan} scan accumulator: the parser's scan state, its region closed into out
+ * @param {RegionScan} scan
  * @param {RegExpExecArray} end
  * @param {string} at
  */
@@ -244,9 +177,8 @@ function closeRegion(scan, end, at) {
 }
 
 /**
- * A region's text with its inline spans dropped, and each span's own text.
  * @param {string} raw
- * @param {string} at the region, as a fault names it
+ * @param {string} at
  * @returns {{ text: string, spans: { id: string, text: string }[] }}
  */
 function splitSpans(raw, at) {
@@ -267,8 +199,6 @@ function splitSpans(raw, at) {
 }
 
 /**
- * A span's begin comment: refused inside another span or on an id the
- * grammar refuses.
  * @param {{ id: string } | null} open
  * @param {string} id
  * @param {RegExpExecArray} m
@@ -286,11 +216,9 @@ function openSpan(open, id, m, at) {
 }
 
 /**
- * A span's end comment: refused where it closes another id or nothing, or
- * the span holds nothing.
  * @param {{ id: string } | null} open
  * @param {string} id
- * @param {string} body the text since the open span's begin comment
+ * @param {string} body
  * @param {string} at
  * @returns {{ id: string, text: string }}
  */
@@ -305,7 +233,6 @@ function closeSpan(open, id, body, at) {
 }
 
 /**
- * Every anchored region across every source, id-collision checked.
  * @param {string} root
  * @param {import("./lib/write-fd.js").Write} write
  * @returns {{ id: string, text: string, source: string }[]}
@@ -314,9 +241,6 @@ function collect(root, write) {
 	/** @type {Map<string, { id: string, text: string, source: string }>} */
 	const seen = new Map();
 	for (const src of SOURCES) {
-		/* An adopter need not carry every source — fantasy-books has no
-		 * triage-labels.md — so an absent one anchors nothing. Said aloud, since
-		 * a silent skip would also hide a source renamed out from under the list. */
 		if (!fs.existsSync(path.join(root, src))) {
 			write(
 				1,
@@ -340,10 +264,7 @@ function collect(root, write) {
 	return [...seen.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/**
- * The manifest body for a set of regions. Sorted, so a re-render is stable.
- * @param {{ id: string, text: string, source: string }[]} regions
- */
+/** @param {{ id: string, text: string, source: string }[]} regions */
 const manifestFor = (regions) =>
 	`${JSON.stringify(
 		{
@@ -361,8 +282,6 @@ const manifestFor = (regions) =>
 	)}\n`;
 
 /**
- * The generated files out of step with `regions`, repo-relative; each is
- * rewritten unless `check`.
  * @param {string} root
  * @param {{ id: string, text: string, source: string }[]} regions
  * @param {boolean} check
@@ -379,10 +298,6 @@ function reconcile(root, regions, check) {
 	const stale = [];
 	for (const [file, text] of want) {
 		const on = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
-		/* Trailing newlines are trimmed by both accessors (lib/rule-text.sh's
-		 * command substitution, lib/rule-text.js's own trim), so they cannot make
-		 * a fragment stale — comparing them would refuse a commit over bytes no
-		 * reader ever sees. The manifest is JSON and compared whole. */
 		const same =
 			file === manifest
 				? on === text
@@ -408,7 +323,6 @@ function main(argv) {
 }
 
 /**
- * Renders `root`'s fragments and manifest, or with `check` names the stale.
  * @param {string} root
  * @param {boolean} check
  * @param {import("./lib/write-fd.js").Write} write
@@ -439,11 +353,7 @@ function render(root, check, write) {
 	return 0;
 }
 
-/**
- * The --check run over the repo at `cwd`, as the pre-commit dispatcher runs
- * it in its own process (#5172).
- * @type {import("./lib/precommit-gates.js").Program}
- */
+/** @type {import("./lib/precommit-gates.js").Program} */
 const PROGRAM = ({ cwd }) => capture((write) => render(cwd, true, write));
 
 module.exports = { PROGRAM, SOURCES };

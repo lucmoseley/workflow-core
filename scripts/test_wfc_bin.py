@@ -1,11 +1,3 @@
-"""Tests for scripts/lib/wfc_bin.py — the Python scripts' WFC_* binary lookup (#1298).
-
-Env only, no stub executable: bin_path resolves a name and never runs it — the
-callers' own tests run a stub through it (#1278). A hard gate in CI's python job:
-loosen it and a Python script can ignore its `WFC_*` override, so its tests' stub
-is bypassed and the real binary (`gh` among them) runs instead.
-"""
-
 import sys
 from pathlib import Path
 

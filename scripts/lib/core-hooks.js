@@ -1,16 +1,3 @@
-/*
- * core-hooks.js — the core's own registered hooks, read in one place (#2295).
- *
- * At the core's own checkout the registration is the self-plugin's file,
- * `self-plugin/hooks/hooks.json`, loaded in place as the `wfc-self` plugin,
- * plus the canary its `.claude/settings.json` keeps (#2473). At
- * an adopter host it is the host's `.claude/settings.json` hooks merged with
- * the core plugin's `hooks/hooks.json` (#940).
- *
- * It also builds the `wfc-self` marketplace record, which the sandbox builder
- * and arm-tasks.js both write (#3552).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { coreRoot } = require("./script-path.js");
@@ -24,55 +11,31 @@ const { escapeRe } = require("./regex-group.js");
 const SELF_PLUGIN_DIR = "self-plugin";
 const SELF_PLUGIN_HOOKS = `${SELF_PLUGIN_DIR}/hooks/hooks.json`;
 const HOST_SETTINGS = ".claude/settings.json";
-/* The core's own hooks run the MAIN CHECKOUT's scripts/, never the session's
- * tree, so no unlanded edit judges the session that made it (#4701). The
- * self-plugin loads in place from `<main checkout>/self-plugin`, so its
- * plugin root's parent is the main checkout in every session, a worktree's
- * included. The canary in the settings has no plugin
- * root, and derives the main checkout from git's common dir. */
-// biome-ignore lint/suspicious/noTemplateCurlyInString: the plugin-root variable Claude Code substitutes, not a JS template
-const MAIN_SCRIPTS = '"${CLAUDE_PLUGIN_ROOT}"/../scripts/';
+const MAIN_SCRIPTS = `"\${CLAUDE_PLUGIN_ROOT}"/../scripts/`;
 const CANARY_MAIN_SCRIPTS =
 	'"$(git -C "$CLAUDE_PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir)"/../scripts/';
-/* The core's scripts/ directory as a hook command spells it, in either form. */
 const SCRIPT_PREFIX = new RegExp(
 	`${escapeRe(MAIN_SCRIPTS)}|${escapeRe(CANARY_MAIN_SCRIPTS)}`,
 	"g",
 );
-/**
- * `command` with each main-checkout prefix spelt as the repo-relative
- * `scripts/` it names.
- * @param {string} command
- */
+/** @param {string} command */
 const toScriptsRel = (command) => command.replace(SCRIPT_PREFIX, "scripts/");
-/* The self-plugin's guard entry, run through the main checkout's shim from
- * the pinned guard code (lib/guard-code.js, #4227): the core's own route,
- * which a render spells as the plugin root's scripts/ like any other. */
 const PINNED_GUARD_PREFIX = new RegExp(
 	escapeRe(
 		`${MAIN_SCRIPTS}run-pinned-guards.js "\${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}".current/scripts/`,
 	),
 	"g",
 );
-/* The self-plugin's session-marker writer. It feeds the canary in the core's
- * settings, so it registers in the self-plugin alone (#2438). */
 const MARKER_WRITER = "write-self-plugin-marker.sh";
-/* The self-plugin's marketplace and plugin are both `wfc-self` (#2295). */
 const SELF_PLUGIN_MARKETPLACE = "wfc-self";
 const SELF_PLUGIN_ID = `${SELF_PLUGIN_MARKETPLACE}@${SELF_PLUGIN_MARKETPLACE}`;
 
-/**
- * The `known_marketplaces.json` entry that registers the `wfc-self`
- * marketplace loaded in place from `dir`.
- * @param {string} dir
- */
+/** @param {string} dir */
 const buildSelfMarketplaceEntry = (dir) => ({
 	source: { source: "directory", path: dir },
 	installLocation: dir,
 });
 
-/* The one hook the core's settings keeps: a PreToolUse entry with no matcher
- * that refuses a session the self-plugin did not load (#2447). */
 const CANARY_COMMAND = `${CANARY_MAIN_SCRIPTS}self-plugin-canary.sh`;
 
 /**
@@ -82,14 +45,9 @@ const CANARY_COMMAND = `${CANARY_MAIN_SCRIPTS}self-plugin-canary.sh`;
  */
 
 /**
- * A hook file that is absent registers nothing, and says so unless `quiet`:
- * an adopter whose hooks all come from the plugin may carry no settings file
- * (#940). One that is present but unparseable still throws, naming the file,
- * since reading it as empty would report its hooks as never fired.
  * @param {string} p
- * @param {boolean} [quiet] for a reader to whom an absent settings file is
- *   an adopter's ordinary case, not news (#2462)
- * @returns {{hooks?: Hooks} | null} only `hooks` is read off the parsed file
+ * @param {boolean} [quiet]
+ * @returns {{hooks?: Hooks} | null}
  */
 function readHooksFile(p, quiet = false) {
 	let parsed;
@@ -109,11 +67,8 @@ function readHooksFile(p, quiet = false) {
 }
 
 /**
- * Throws where an event of `hooks` holds anything but a list of matcher
- * groups, naming the event, where a reader iterating it would fail as a bare
- * TypeError (#2572).
  * @param {Hooks} hooks
- * @param {string} where the file, and the revision where one is read
+ * @param {string} where
  */
 function listedEvents(hooks, where) {
 	for (const [event, groups] of Object.entries(hooks))
@@ -121,7 +76,6 @@ function listedEvents(hooks, where) {
 			throw new Error(`${where}: its ${event} hooks are not a list`);
 }
 
-/** Thrown where a hook group's matcher is not a valid regex, naming it. */
 class MatcherError extends Error {
 	/**
 	 * @param {string} matcher
@@ -138,13 +92,8 @@ class MatcherError extends Error {
 }
 
 /**
- * Which tools a hook group's `matcher` covers, compiled once. THE ONE READING
- * of a matcher (#4914). Absent, `""` and `"*"` cover every tool, as Claude Code
- * reads them; any other is anchored whole, so `Write` does not answer for
- * `WriteFile`.
  * @param {string | undefined} matcher
  * @returns {(tool: string) => boolean}
- * @throws {MatcherError} where `matcher` is not a valid regex
  */
 function buildToolCoverage(matcher) {
 	if (matcher === undefined || matcher === "" || matcher === "*")
@@ -159,19 +108,15 @@ function buildToolCoverage(matcher) {
 }
 
 /**
- * Does a hook group's `matcher` cover `tool`? `buildToolCoverage`, asked once.
  * @param {string | undefined} matcher
  * @param {string} tool
  * @returns {boolean}
- * @throws {MatcherError} where `matcher` is not a valid regex
  */
 function isToolCovered(matcher, tool) {
 	return buildToolCoverage(matcher)(tool);
 }
 
 /**
- * Where the plugin registers its hooks: under the core, not in the host's
- * settings (#940).
  * @param {string} [core]
  * @returns {string}
  */
@@ -180,12 +125,9 @@ function pluginHooksFile(core = coreRoot()) {
 }
 
 /**
- * The two files that register hooks for `host`, in merge order: its own
- * `.claude/settings.json`, then `pluginHooksFile(core)`.
  * @param {string} host
- * @param {string} [core] a program that reads its needles from beside itself
- *   passes that same root, so `WFC_SCRIPT_ROOT` cannot split the two reads
- * @param {boolean} [quiet] as `readHooksFile` takes it
+ * @param {string} [core]
+ * @param {boolean} [quiet]
  * @returns {Array<{file: string, settings: {hooks?: Hooks} | null}>}
  */
 function readHookSources(host, core = coreRoot(), quiet = false) {
@@ -195,9 +137,6 @@ function readHookSources(host, core = coreRoot(), quiet = false) {
 }
 
 /**
- * Several parsed hook files folded into one settings-shaped object, each
- * event's entries concatenated in source order.
- *
  * @param {Array<{settings: {hooks?: Hooks} | null}>} sources
  * @returns {{hooks: Hooks}}
  */
@@ -211,11 +150,9 @@ function mergeHooks(sources) {
 }
 
 /**
- * The text of `rel` under `root`, on disk or at `rev`; null where it is absent.
- * Any other failure to read throws.
  * @param {string} root
  * @param {string} rel
- * @param {string} [rev] a git revision; `""` names the index
+ * @param {string} [rev]
  * @returns {string | null}
  */
 function readTextAt(root, rel, rev) {
@@ -228,8 +165,6 @@ function readTextAt(root, rel, rev) {
 				});
 	} catch (e) {
 		const err = caught(e);
-		/* git's English stderr is the only sign the path is absent at `rev`; under
-		 * another locale an absent file throws as unreadable instead. */
 		if (
 			err.code === "ENOENT" ||
 			/does not exist in|exists on disk, but not in/.test(
@@ -253,9 +188,6 @@ function whereOf(root, rev) {
 }
 
 /**
- * The `hooks` object of `text`, the JSON read from `rel` at `where`.
- * Malformed, or carrying no `hooks` object, throws; with `optional`, a file
- * carrying no `hooks` key registers none.
  * @param {string} text
  * @param {{rel: string, where: string, optional?: boolean}} from
  * @returns {Hooks}
@@ -279,11 +211,9 @@ function parseHooks(text, { rel, where, optional = false }) {
 }
 
 /**
- * The `hooks` object of the JSON file `rel` under `root`, on disk or at `rev`.
- * Absent, malformed or carrying no `hooks` object throws.
  * @param {string} root
  * @param {string} rel
- * @param {string} [rev] a git revision; `""` names the index
+ * @param {string} [rev]
  * @returns {Hooks}
  */
 function readHooksAt(root, rel, rev) {
@@ -295,18 +225,6 @@ function readHooksAt(root, rel, rev) {
 }
 
 /**
- * Does `root` hold the core's own registration, the self-plugin's file? THE
- * ONE PLACE the core/adopter split is made (#2456).
- *
- * It does where `root` is the checkout `core`, compared through symlinks as a
- * host root is (a worktree of the core is its own `core`, since `coreRoot()` is
- * the checkout the script runs from). It does too where the tree carries the
- * self-plugin's file, on disk or at `rev`: `--against` measures a revision
- * materialised into a temporary directory, which identity cannot name the
- * core, and no adopter carries the file (#2445).
- * Residual: an adopter that vendored `self-plugin/` would read as the core
- * for every reader here.
- *
  * @param {string} root
  * @param {{rev?: string, core?: string}} [opts]
  * @returns {boolean}
@@ -316,12 +234,9 @@ function isCoreRoot(root, { rev, core = coreRoot() } = {}) {
 }
 
 /**
- * Is `rel` in the tree at `root`, on disk or at `rev`? Read from git's
- * listing, not its stderr, so the answer holds under any locale; a revision
- * git cannot list throws.
  * @param {string} root
  * @param {string} rel
- * @param {string} [rev] a git revision; `""` names the index
+ * @param {string} [rev]
  * @returns {boolean}
  */
 function hasPath(root, rel, rev) {
@@ -346,7 +261,6 @@ function hasPath(root, rel, rev) {
 }
 
 /**
- * A path that does not exist resolves no link, so it is compared as written.
  * @param {string} a
  * @param {string} b
  * @returns {boolean}
@@ -360,17 +274,8 @@ function isSameDir(a, b) {
 }
 
 /**
- * The files that register `host`'s hooks, each parsed, in merge order. At the
- * core that is the self-plugin's file, which throws where absent or malformed,
- * then `.claude/settings.json`, whose one hook is the canary (#2473), each at
- * `rev` where one is given. At an adopter it is `readHookSources`' pair, either
- * of which may be absent, read from disk; no caller reads an adopter at a
- * revision, so `rev` there throws. `quiet` reaches only the adopter's pair:
- * the core's settings file, absent, is read silently.
- *
  * @param {string} host
- * @param {{rev?: string, core?: string, quiet?: boolean}} [opts] `quiet` as
- *   `readHooksFile` takes it
+ * @param {{rev?: string, core?: string, quiet?: boolean}} [opts]
  * @returns {ReturnType<typeof readHookSources>}
  */
 function readHostHookSources(
@@ -396,10 +301,6 @@ function readHostHookSources(
 }
 
 /**
- * `root`'s `.claude/settings.json`, on disk or at `rev`, reduced to its hooks;
- * null where it is absent. Absence is read from git's listing, as `hasPath`
- * reads it: `readTextAt` knows absence at a revision only by git's stderr, which
- * names a file absent from both index and disk in other words (#2473).
  * @param {string} root
  * @param {string} [rev]
  * @returns {{hooks: Hooks} | null}
@@ -418,7 +319,6 @@ function readSettingsAt(root, rev) {
 }
 
 /**
- * The hooks `root` runs, event to matcher groups: `readHostHookSources` merged.
  * @param {string} root
  * @param {{rev?: string, core?: string, quiet?: boolean}} [opts]
  * @returns {Hooks}
@@ -428,22 +328,15 @@ function readRunningHooks(root, opts = {}) {
 }
 
 /**
- * The file a new hook of `root`'s own registers in: the self-plugin's at the
- * core, the host's `.claude/settings.json` anywhere else.
  * @param {string} root
  * @param {{rev?: string, core?: string}} [opts]
- * @returns {string} relative to `root`
+ * @returns {string}
  */
 function ownHooksFile(root, opts = {}) {
 	return isCoreRoot(root, opts) ? SELF_PLUGIN_HOOKS : HOST_SETTINGS;
 }
 
 /**
- * The files `root` registers its own hooks in, each parsed, in merge order,
- * without the plugin's that an adopter also runs (#2442). At the core that is
- * `readHostHookSources` (#2572). At an adopter it is the host's `.claude/settings.json` alone, null
- * where absent, and registering none where it carries no `hooks` key.
- *
  * @param {string} root
  * @param {{rev?: string, core?: string}} [opts]
  * @returns {ReturnType<typeof readHookSources>}
@@ -460,10 +353,6 @@ function readOwnHookSources(root, { rev, core = coreRoot() } = {}) {
 }
 
 /**
- * The hooks `root` registers itself: `readOwnHookSources` merged. At the core an
- * absent self-plugin file throws; at an adopter an absent
- * settings file is null.
- *
  * @param {string} root
  * @param {{rev?: string, core?: string}} [opts]
  * @returns {Hooks | null}
@@ -490,8 +379,6 @@ function isMarkerWriter(h) {
 }
 
 /**
- * A group or event that leaves empty goes with it; one already empty stays as
- * it stands (#2441).
  * @param {Hooks} hooks
  * @returns {Hooks}
  */
@@ -510,23 +397,16 @@ function withoutMarkerWriter(hooks) {
 }
 
 /**
- * The one-time, per-machine command that registers the self-plugin's
- * marketplace for the core checkout holding `root`. DUPLICATED BY HAND as
- * `setup` in scripts/self-plugin-canary.sh, which runs with no node.
  * @param {string} root
  * @returns {string}
  */
 function selfPluginSetup(root) {
-	/* Never a worktree: a marketplace registered at one breaks once the
-	 * worktree is deleted (#2461). */
+	// #2461
 	const dir = `${mainCheckout(root) ?? "<absolute path to the main checkout>"}/${SELF_PLUGIN_DIR}`;
 	return `claude plugin marketplace add ${shellQuote(dir)} --scope user`;
 }
 
 /**
- * An `enabledPlugins` map with the self-plugin left out: it loads the core's
- * own guards, which an adopter does not carry, so its canary would refuse
- * every session there (#2440).
  * @template T
  * @param {Record<string, T>} enabled
  * @returns {Record<string, T>}
@@ -537,8 +417,6 @@ function withoutSelfPlugin(enabled) {
 }
 
 /**
- * Every hook in `hooks`, one per `hooks[]` entry with every field it carries,
- * tagged with the event and matcher holding it.
  * @param {Hooks} hooks
  * @returns {HookEntry[]}
  */

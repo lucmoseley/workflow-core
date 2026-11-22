@@ -1,35 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-pass-store-rows.js — the pass-store rows a read-audit change costs
- * (#5029), before and after, off one set of kept audit logs.
- *
- * Usage:
- *   node scripts/measure-pass-store-rows.js --against <rev|dir>
- *     [--logs <dir>] [--keep] [--batch-files <n>]
- *
- * Draws #4916's sample, every third tracked `*.test.ts`, and runs it through
- * `run-vitest.js --queue --fresh` in this tree, in batches of at most
- * `--batch-files` (default 120, under the 121 files that take the
- * whole-suite slot, so a batch queues beside a neighbour's whole suite). Each
- * batch keeps its audit logs and the run its pass store was handed
- * (lib/row-measure.js's `KEEP_ENV`), and is judged as soon as it ends, twice:
- * by `--against`, a revision or a directory holding a `scripts/` reader, and
- * by this tree's reader, each recording into a scratch store as the run did.
- * It prints each reader's caching rows and named-run weighted share, and each
- * file lost or gained with the doubt that cost it. Progress goes to stderr,
- * the table to stdout.
- *
- * `--logs <dir>` judges logs a `--keep` run left, running nothing.
- *
- * THE LOGS HOLD THE RUN'S ENVIRONMENT, KEYS INCLUDED. A batch's are deleted
- * once judged unless `--keep` is given, and a `--logs` directory is never
- * deleted. A signal stops the batch and deletes them; a run killed outright
- * leaves them, so each start deletes any this command left over a day ago.
- *
- * The tree must stand as each batch left it until it is judged: a tracked
- * file rewritten or touched since drops rows on both sides, so the command
- * refuses it.
- */
 
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -54,16 +23,12 @@ const {
 	summarise,
 } = require("./lib/row-measure.js");
 
-/* The tree the batches run in and the judging reads: this session's. */
 const ROOT = worktreeRoot();
 const DAY_MS = 864e5;
 const KEEP_PREFIX = "wfc-row-measure-";
 
-/* Enough of a batch's log to show vitest's summary or a ceiling kill's
- * headline, which run-vitest.js prints last. */
 const LOG_TAIL_LINES = 20;
 
-/* Enough moved paths to tell an edit from a checkout switch. */
 const MOVED_SHOWN = 10;
 
 const CLI = {
@@ -98,11 +63,6 @@ function sweepLeftovers() {
 }
 
 /**
- * The reader `against` names, as a `scripts/lib` directory under `into`: a
- * directory's `scripts/` copied, or a revision's archived. Its git guard is
- * this checkout's, linked in: the audit tells the guard by its real path
- * beside the reader (lib/read-audit-provenance.js's `GUARD`), and the logs name
- * the guard that ran.
  * @param {string} against
  * @param {string} into
  */
@@ -131,8 +91,6 @@ function placeReader(against, into) {
 let running = null;
 
 /**
- * Run one batch, its logs kept under `keep`. Resolves with its exit status,
- * or null where a signal ended it.
  * @param {string[]} batch
  * @param {string} keep
  * @param {string} log
@@ -159,9 +117,6 @@ function runBatch(batch, keep, log) {
 }
 
 /**
- * Judge each kept run under `keep` not yet judged with both judges, refusing
- * a tree moved since it was kept, and delete its logs unless `retain`.
- * Returns the moved paths that refused one, or null.
  * @param {string} keep
  * @param {Set<string>} done
  * @param {ReturnType<typeof buildJudge>[]} judges
@@ -184,7 +139,6 @@ const movedRefusal = ({ dir, moved }) =>
 	`the tree moved since ${path.basename(dir)} was kept (${moved.slice(0, MOVED_SHOWN).join(", ")}), which drops rows on both sides; rerun on a still tree\n`;
 
 /**
- * Resolves with the exit code where a moved tree stops the run, else null.
  * @param {string[][]} batches
  * @param {{keep: string, done: Set<string>, own: Set<string>,
  *   judges: ReturnType<typeof buildJudge>[], retain: boolean}} ctx
@@ -217,8 +171,8 @@ async function runAndJudge(batches, { keep, done, own, judges, retain }) {
 
 /**
  * @typedef {{name: string, judge: ReturnType<typeof buildJudge>}} Side
- * @param {Side} before the `--against` reader's
- * @param {Side} after this tree's
+ * @param {Side} before
+ * @param {Side} after
  * @param {string[]} sample
  * @param {Set<string>} own
  */

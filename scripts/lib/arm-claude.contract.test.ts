@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/arm-claude-fake.ts, the in-process `claude` lib/run-arm.js's
- * module cases run on (#5149), to the production adapter, lib/child-spawn.js's
- * `spawnRaw`. One case list reads each call through lib/arm-claude.js, the
- * calls run-arm.js makes: run against the fake; against `spawnRaw` on a
- * `claude` stub printing
- * the installed harness's recordings (scripts/fixtures/agents-stop.json,
- * scripts/fixtures/bg-launch.json), which lib/agents-stop.contract.test.ts
- * and lib/bg-launch.contract.test.ts hold to the harness; and, on the
- * founder's machine, against the real `claude` where a call is free. Breaking
- * it costs the runner's module cases their meaning: a listing, launch or stop
- * the fake answers as the harness never would passes a case the runner fails
- * on a night's runs.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -67,10 +53,6 @@ const portsOn = (spawn: unknown) => ({
 	hostRoot: () => dir,
 });
 
-/**
- * The stub's `--bg` branch: the recorded positional launch, naming job
- * `launchedJob(1)` as the fake's first launch does.
- */
 const bgBranch = () => {
 	const { stdout, stderr } = buildRecordedAnswer(launchedJob(1), "positional");
 	return `if [ "$1" = "--bg" ]; then ${buildAnswerBranch({ status: 0, stdout, stderr })}; fi`;
@@ -178,8 +160,6 @@ it("prints its version in the harness's form", () => {
 	});
 });
 
-/* The suite's scratch CLAUDE_CONFIG_DIR (#838) holds no login, so the real
- * binary reads logged out there: the fake's no-login mode stands beside it. */
 describe("against the real claude", () => {
 	const skip = claudeLiveSkipReason();
 	it.skipIf(skip !== undefined)(
