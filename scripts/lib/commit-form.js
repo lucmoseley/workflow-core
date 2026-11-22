@@ -3,6 +3,7 @@ const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { ruleModule } = require("./rule-gates.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 const {
+	commitPathsArgs,
 	normAbs,
 	parseCommand,
 	unsetText,
@@ -10,7 +11,6 @@ const {
 	walkGit,
 } = require("./shell-parse.js");
 const {
-	commitPathsArgs,
 	commitPathsParse,
 	gitValueFlags,
 	literal,
