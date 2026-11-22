@@ -314,9 +314,10 @@ describe("check-roadmap-valid", () => {
 		expect(r.stderr).not.toContain("WARN");
 	});
 
-	describe("a commit deleting the roadmap", () => {
+	describe("a commit deleting the roadmap (#5405)", () => {
 		beforeEach(() => {
 			stage(HTML, roadmap(v(2), [card()]));
+			stage(".claude/workflow-core.json", '{ "modules": ["roadmap"] }\n');
 			git("commit", "-q", "-m", "roadmap");
 			git("rm", "-q", HTML);
 		});
@@ -333,7 +334,20 @@ describe("check-roadmap-valid", () => {
 			expect(check().status).toBe(2);
 		});
 
-		it("stays BROKEN where no config is staged at all", () => {
+		it("stays BROKEN where the staged config is unchanged", () => {
+			expect(check().status).toBe(2);
+		});
+
+		it("stays BROKEN where HEAD's config never listed the module", () => {
+			stage(".claude/workflow-core.json", '{ "modules": [] }\n');
+			git(
+				"commit",
+				"-q",
+				"-m",
+				"module off",
+				"--",
+				".claude/workflow-core.json",
+			);
 			expect(check().status).toBe(2);
 		});
 	});
