@@ -54,7 +54,7 @@ class TransientFault extends Error {}
  * @typedef {{readonly ref: string, readonly sha: string}} DroppedRef
  * @typedef {{readonly main: string|null, readonly queue: readonly QueueRef[],
  *   readonly dropped: readonly DroppedRef[],
- *   readonly mirrored: readonly DroppedRef[]}} QueueRefs
+ *   readonly trackerDropped: readonly DroppedRef[]}} QueueRefs
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly onto: string, readonly main: string}} Deferral
  * @typedef {{readonly kind: "merged", readonly sha: string}
@@ -145,7 +145,7 @@ class TransientFault extends Error {}
  * @property {boolean} busy
  * @property {readonly Unread[]} unread
  * @property {readonly DroppedRef[]} dropped
- * @property {readonly DroppedRef[]} mirrored
+ * @property {readonly DroppedRef[]} trackerDropped
  * @property {readonly Drop[]} drops
  * @property {number} now
  * @property {(ticket: number) => boolean} isClosed
@@ -1308,7 +1308,7 @@ function owedAction(s) {
 	const cut = s.drops.find(
 		(d) =>
 			isStanding(d, s.isClosed) &&
-			![...s.dropped, ...s.mirrored].some(sameDropAs(d)),
+			![...s.dropped, ...s.trackerDropped].some(sameDropAs(d)),
 	);
 	if (cut) return { kind: "drop-member", drop: cut };
 	const orphan = s.dropped.find(

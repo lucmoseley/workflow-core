@@ -118,7 +118,7 @@ interface Options {
 	acquired?: boolean;
 	now?: number;
 	mainMoved?: (sha: string) => boolean;
-	mirrored?: readonly DroppedRef[];
+	trackerDropped?: readonly DroppedRef[];
 }
 
 function fakeMerge(
@@ -181,7 +181,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 						pushedAt: r.pushedAt,
 					})),
 					dropped: [...remote.dropped].map(([ref, sha]) => ({ ref, sha })),
-					mirrored: o.mirrored ?? [],
+					trackerDropped: o.trackerDropped ?? [],
 				};
 			},
 			mergeMembers: (onto, members, fresh, started) => {
@@ -1967,7 +1967,7 @@ describe("the reap", () => {
 		disk.drops = [dropOf("a", 1), dropOf("b", 2)];
 
 		const { end, actions } = await land(remote, disk, {
-			mirrored: [{ ref: "dropped/a", sha: "a1" }],
+			trackerDropped: [{ ref: "dropped/a", sha: "a1" }],
 		});
 
 		expect(end).toEqual(NO_QUEUE);

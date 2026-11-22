@@ -141,7 +141,7 @@ function readEnvelope(r, sha, timeoutMs) {
  * @param {string} root
  * @returns {string[]}
  */
-function trackerRemotesOf(root) {
+function readOtherTrackerRemotes(root) {
 	const tracker = resolveKey("tracker", { root });
 	return typeof tracker === "string"
 		? readTrackerRemotes(tracker, { cwd: root }).filter((r) => r !== REMOTE)
@@ -156,7 +156,6 @@ function trackerRemotesOf(root) {
  * @param {boolean} [options.ciRepeats]
  * @param {number} [options.gateGraceMs]
  * @param {boolean} [options.suiteRepeats]
- * @param {readonly string[]} [options.trackerRemotes]
  * @returns {QueueGit}
  */
 function queueGit(
@@ -167,7 +166,6 @@ function queueGit(
 		ciRepeats = false,
 		suiteRepeats = false,
 		gateGraceMs = HOOK_GRACE_MS,
-		trackerRemotes,
 	} = {},
 ) {
 	const batchSet = batchGateSet(ciRepeats, suiteRepeats);
@@ -225,23 +223,21 @@ function queueGit(
 	};
 	/** @param {string[]} args */
 	const git = (args) => readGit(root, args);
+	/** @type {DroppedRef[]|null} */
+	let trackerDropped = null;
 	// #5539
-	/** @returns {DroppedRef[]} */
-	const readMirrored = () =>
-		(trackerRemotes ?? trackerRemotesOf(root)).flatMap((r) => {
-			const under = `refs/remotes/${r}/`;
-			return git([
-				"for-each-ref",
-				"--format=%(refname) %(objectname)",
-				`${under}${DROPPED_PREFIX}`,
-			])
+	const readTrackerDropped = () => {
+		trackerDropped ??= readOtherTrackerRemotes(root).flatMap((r) =>
+			git(["ls-remote", r, `${DROPPED_HEADS}*`])
 				.split("\n")
 				.filter(Boolean)
 				.map((line) => {
-					const [ref = "", sha = ""] = line.split(" ");
-					return { ref: ref.slice(under.length), sha };
-				});
-		});
+					const [sha = "", ref = ""] = line.split("\t");
+					return { ref: ref.slice("refs/heads/".length), sha };
+				}),
+		);
+		return trackerDropped;
+	};
 	/** @param {string[]} shas @returns {Map<string, number>} */
 	const committedAt = (shas) => {
 		if (shas.length === 0) return new Map();
@@ -296,7 +292,7 @@ function queueGit(
 					main: heads.get(mainRef) ?? null,
 					queue,
 					dropped,
-					mirrored: readMirrored(),
+					trackerDropped: readTrackerDropped(),
 				};
 			}),
 		mergeMembers: (onto, members, fresh, started) =>

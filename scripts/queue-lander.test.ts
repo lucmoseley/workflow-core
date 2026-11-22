@@ -988,27 +988,34 @@ describe("the adapters", () => {
 		expect(g.refs().dropped).toEqual([{ ref: "dropped/a", sha: a }]);
 	});
 
-	it("lists as mirrored the fetched dropped refs of a remote naming the tracker, and only those (#5539)", () => {
+	it("lists the dropped refs a remote naming the tracker holds, and only that remote's (#5539)", () => {
 		const a = commit("a");
 		const config = path.join(work, ".claude", "workflow-core.json");
 		fs.mkdirSync(path.dirname(config), { recursive: true });
 		fs.writeFileSync(config, JSON.stringify({ tracker: "acme/tracker" }));
-		git(
-			work,
-			"remote",
-			"add",
-			"archive",
-			"https://github.com/acme/tracker.git",
-		);
-		git(work, "remote", "add", "other", "https://github.com/acme/other.git");
-		git(work, "update-ref", "refs/remotes/archive/dropped/a", a);
-		git(work, "update-ref", "refs/remotes/archive/main", a);
-		git(work, "update-ref", "refs/remotes/other/dropped/b", a);
+		for (const [name, ref] of [
+			["tracker", "dropped/a"],
+			["other", "dropped/b"],
+		] as const) {
+			const bare = path.join(tmp, `${name}.git`);
+			git(tmp, "init", "-q", "--bare", bare);
+			const url = `https://github.com/acme/${name}.git`;
+			git(work, "config", `url.${bare}.insteadOf`, url);
+			git(work, "remote", "add", name === "tracker" ? "archive" : name, url);
+			git(
+				work,
+				"push",
+				"-q",
+				bare,
+				`${a}:refs/heads/${ref}`,
+				`${a}:refs/heads/main`,
+			);
+		}
 
-		const { dropped, mirrored } = queueGit(work).refs();
+		const { dropped, trackerDropped } = queueGit(work).refs();
 
 		expect(dropped).toEqual([]);
-		expect(mirrored).toEqual([{ ref: "dropped/a", sha: a }]);
+		expect(trackerDropped).toEqual([{ ref: "dropped/a", sha: a }]);
 	});
 
 	it("merges a lone member descending from main as a new commit where asked fresh, never its own sha", () => {
