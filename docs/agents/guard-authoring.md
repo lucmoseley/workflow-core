@@ -69,8 +69,8 @@ bodies are 70–670 lines of bespoke judgement.
      (#4009, #4879). **Match the `if` to what the guard's own
      walker reads, not to the tool word.** A
      guard whose script has a row in `.claude/implicit-behaviours.json` lists
-     the narrowing in that row's `IF` array, beside the DEFEAT it bounds,
-     never in a comment (mantahostels#2126, #5541). **`check-guard-registry.js`
+     the narrowing in that row's `IF` array, beside the DEFEAT it bounds
+     (mantahostels#2126, #5541). **`check-guard-registry.js`
      gates three ways** (mantahostels#2212, mantahostels#2234): it FAILs
      `UNDECLARED-IF` where a hook entry carries an `if` the row's `IF` lacks,
      `STALE-IF` where the `IF` holds one no entry naming that script carries,
