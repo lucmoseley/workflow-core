@@ -223,6 +223,15 @@ describe("the gate-run budget (#5275, #5471)", () => {
 		expect(tick([live()], readOf([...mine, ...others])).events).toEqual([]);
 	});
 
+	it("records every session of a resumed launch, and its start, on its park (#5514)", () => {
+		const relaunched = live({ pastSessionIds: ["s-old"] });
+		expect(tick([relaunched], readOf(runsAgo(4))).events[0]).toMatchObject({
+			session: "s-job42",
+			sessions: ["s-old", "s-job42"],
+			launchedAt: new Date(LAUNCHED).toISOString(),
+		});
+	});
+
 	it("parks at its 10th whole-suite run of any outcome since its last landing, its newest red", () => {
 		const nine = runsAgo(9, 11, { outcome: "pass" });
 		expect(tick([live()], readOf(nine)).events).toEqual([]);

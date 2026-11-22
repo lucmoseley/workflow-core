@@ -64,6 +64,15 @@ const neitherFailsNorResets = (run, repoRuns, ids, rule) =>
 	(run.outcome === "ceiling" && isSystemicCeiling(run, repoRuns, ids, rule));
 
 /**
+ * @param {GateRun} run
+ * @param {{ids: Set<string>, launchedAt: number}} launch
+ */
+const isLaunchRun = (run, { ids, launchedAt }) =>
+	run.session !== null &&
+	ids.has(run.session) &&
+	Date.parse(run.at) > launchedAt;
+
+/**
  * @param {GateRun[]} repoRuns
  * @param {{ids: Set<string>, launchedAt: number, landingAt: number|null,
  *   suiteCommand: string}} of
@@ -76,16 +85,13 @@ function countBudget(
 	rule = BUDGET_RULE,
 ) {
 	const counted = repoRuns
-		.filter((r) => {
-			const at = Date.parse(r.at);
-			return (
-				r.session !== null &&
-				ids.has(r.session) &&
+		.filter(
+			(r) =>
+				isLaunchRun(r, { ids, launchedAt }) &&
 				r.command === suiteCommand &&
-				at > launchedAt &&
-				(landingAt === null || at >= landingAt + CT_RESOLUTION_MS)
-			);
-		})
+				(landingAt === null ||
+					Date.parse(r.at) >= landingAt + CT_RESOLUTION_MS),
+		)
 		.filter((r) => !neitherFailsNorResets(r, repoRuns, ids, rule))
 		.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 	const lastPass = counted.findLastIndex((r) => r.outcome === "pass");
@@ -222,4 +228,10 @@ function parkOverBudget(launches, read, seen) {
 	return { launches: out, events };
 }
 
-module.exports = { BUDGET_RULE, budgetPark, countBudget, parkOverBudget };
+module.exports = {
+	BUDGET_RULE,
+	budgetPark,
+	countBudget,
+	isLaunchRun,
+	parkOverBudget,
+};

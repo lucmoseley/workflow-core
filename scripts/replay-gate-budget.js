@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-const { readCommitsBy } = require("./lib/arbiter-ledger.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { readText } = require("./lib/file-read.js");
 const { gateRunLogPath, readGateRunsAt } = require("./lib/gate-seat.js");
@@ -17,6 +16,7 @@ const { breakerRecordPath } = require("./lib/refill-breaker.js");
 const { scriptPath } = require("./lib/script-path.js");
 const {
 	GIT_LOG_TIMEOUT_MS,
+	readCommitsByEach,
 	readSuiteCommand,
 } = require("./lib/throughput-reads.js");
 const { writeFd } = require("./lib/write-fd");
@@ -76,12 +76,8 @@ function readMainReflog(root) {
  * @returns {import("./lib/gate-budget-replay.js").Landing[]|null}
  */
 function readLandings(root, ids, reflog) {
-	const shas = [];
-	for (const id of ids) {
-		const mine = readCommitsBy(id, root);
-		if (mine === null) return null;
-		shas.push(...mine);
-	}
+	const shas = readCommitsByEach(ids, root);
+	if (shas === null) return null;
 	return shas.flatMap((sha) => {
 		const ct = git(["log", "-1", "--format=%ct", sha], root);
 		const arrivedAt =
