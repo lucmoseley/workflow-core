@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 const fs = require("node:fs");
-const { parseArgs } = require("node:util");
 const { closingMatch, closingRefusal } = require("./lib/closing-keyword.js");
 const { recordedLines } = require("./lib/commit-message.js");
+const { parseOrExit } = require("./lib/cli-args.js");
+
+const CLI = {
+	usage:
+		"usage: node check-commit-message-closes.js <message-file> [<context>]",
+	max: 2,
+};
 
 /**
  * @param {string} raw
@@ -37,11 +43,7 @@ function main(argv) {
 }
 
 if (require.main === module) {
-	const { positionals } = parseArgs({
-		args: process.argv.slice(2),
-		allowPositionals: true,
-		strict: true,
-	});
+	const { positionals } = parseOrExit(process.argv.slice(2), CLI);
 	const { code, stderr } = main(positionals);
 	if (stderr) process.stderr.write(stderr);
 	process.exitCode = code;

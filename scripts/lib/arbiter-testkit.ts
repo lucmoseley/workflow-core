@@ -21,6 +21,7 @@ export const content = requireLocal("./arbiter-content.js");
 export const core = requireLocal("./arbiter-core.js");
 export const issueClaims = requireLocal("./arbiter-issue-claims.js");
 export const ledger = requireLocal("./arbiter-ledger.js");
+export const lockFiles = requireLocal("./arbiter-lock-files.js");
 export const locks = requireLocal("./arbiter-locks.js");
 export const markers = requireLocal("./arbiter-markers.js");
 export const snapshots = requireLocal("./arbiter-snapshots.js");

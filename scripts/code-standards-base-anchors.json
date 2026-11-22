@@ -1,6 +1,6 @@
 {
-	".claude/skills/concision-pass/scripts/check-facts.js:12": "cc71eccf5ee3ae9b",
-	"scripts/check-hook-liveness.js:389": "6eeec2425fcb3c5e",
+	".claude/skills/concision-pass/scripts/check-facts.js:13": "5f53e69c374d6229",
+	"scripts/check-hook-liveness.js:167": "6eeec2425fcb3c5e",
 	"scripts/lib/arbiter-core.js:399-407": "a6a99e986d7afb94",
 	"scripts/lib/check.js:15-23": "1f11bceb2087b535",
 	"scripts/lib/check.js:2231-2234": "691345f86af000b2",
@@ -13,8 +13,8 @@
 	"scripts/lib/gh.js:432": "74904d00bd2c2475",
 	"scripts/lib/hook-envelope.js:15-30": "f3a622d13a0d315b",
 	"scripts/lib/standards-pins.js:176": "7033c4610b0d5372",
-	"scripts/lib/suite-handoff.js:203-222": "65147fec3243a221",
+	"scripts/lib/suite-handoff.js:123-137": "6b83439f394155c6",
 	"scripts/lib/test-pass-marker.js:1257": "a43b89133ba019c3",
 	"scripts/lib/test-pass-marker.js:1340": "a43b89133ba019c3",
-	"scripts/session-arbiter.js:145-157": "f64d79653094ad42"
+	"scripts/session-arbiter.js:65-74": "b8c5a2ea0ae2f465"
 }
