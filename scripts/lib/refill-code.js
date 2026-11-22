@@ -156,17 +156,19 @@ function bootProgram({ scriptsDir, codeDir, log = toStderr }) {
 /**
  * @param {number} pid
  * @param {string} codeDir
+ * @returns {{code: string}|{unread: string}}
  */
 function readRunningCode(pid, codeDir) {
 	try {
-		const program = readRunningProgram(pid);
-		if (program === null) return null;
-		const root = rootOf(program);
-		if (path.dirname(root) === codeDir) return short(path.basename(root));
-		if (checkoutOf(root) === null) return "a plugin install";
-		return `${short(git(root, ["rev-parse", "HEAD"]))} in ${root}`;
-	} catch {
-		return null;
+		const running = readRunningProgram(pid);
+		if ("unread" in running) return running;
+		const root = rootOf(running.program);
+		if (path.dirname(root) === codeDir)
+			return { code: short(path.basename(root)) };
+		if (checkoutOf(root) === null) return { code: "a plugin install" };
+		return { code: `${short(git(root, ["rev-parse", "HEAD"]))} in ${root}` };
+	} catch (err) {
+		return { unread: whyOf(err) };
 	}
 }
 
