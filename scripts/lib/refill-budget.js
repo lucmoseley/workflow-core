@@ -31,6 +31,7 @@ const CT_RESOLUTION_MS = 1000;
  *   systemicSessions: number, systemicWindowMs: number,
  *   sleepAllowanceS: number}} BudgetRule
  * @typedef {{failStreak: number, counted: number, newest: GateRun|null}} BudgetCount
+ * @typedef {BreakerEvent & {sessions: string[], launchedAt: string}} BudgetParkEvent
  */
 
 /**
@@ -203,15 +204,19 @@ function parkOverBudget(launches, read, seen) {
 			seen,
 		);
 		if (parked === null) return l;
-		events.push({
+		/** @type {BudgetParkEvent} */
+		const event = {
 			at: new Date(seen.now).toISOString(),
 			repo: l.root,
 			event: "budget-park",
 			rate: null,
 			workingHours: 0,
 			session: l.sessionId ?? l.jobId,
+			sessions: [...sessionIdsOf(l)],
+			launchedAt: new Date(l.launchedAt).toISOString(),
 			...(l.issues[0] === undefined ? {} : { ticket: l.issues[0] }),
-		});
+		};
+		events.push(event);
 		return parked;
 	});
 	return { launches: out, events };

@@ -5,6 +5,7 @@ const { readText } = require("./lib/file-read.js");
 const { gateRunLogPath, readGateRunsAt } = require("./lib/gate-seat.js");
 const {
 	firstHeldAt,
+	launchOf,
 	renderReplay,
 	renderSweep,
 	unreadLine,
@@ -70,13 +71,17 @@ function readMainReflog(root) {
 
 /**
  * @param {string} root
- * @param {string} session
+ * @param {Set<string>} ids
  * @param {{at: number, sha: string}[]} reflog
  * @returns {import("./lib/gate-budget-replay.js").Landing[]|null}
  */
-function readLandings(root, session, reflog) {
-	const shas = readCommitsBy(session, root);
-	if (shas === null) return null;
+function readLandings(root, ids, reflog) {
+	const shas = [];
+	for (const id of ids) {
+		const mine = readCommitsBy(id, root);
+		if (mine === null) return null;
+		shas.push(...mine);
+	}
 	return shas.flatMap((sha) => {
 		const ct = git(["log", "-1", "--format=%ct", sha], root);
 		const arrivedAt =
@@ -119,7 +124,7 @@ function readInputs(parks) {
 			);
 			continue;
 		}
-		const landings = readLandings(park.repo, park.session, reflog);
+		const landings = readLandings(park.repo, launchOf(park).ids, reflog);
 		if (landings === null) notes.push(unreadLine(park, "commit ledger"));
 		inputs.push({
 			park,

@@ -107,6 +107,8 @@ describe("the gate-run budget (#5275, #5471)", () => {
 				rate: null,
 				workingHours: 0,
 				session: "s-job42",
+				sessions: ["s-job42"],
+				launchedAt: new Date(LAUNCHED).toISOString(),
 				ticket: 42,
 			},
 		]);
