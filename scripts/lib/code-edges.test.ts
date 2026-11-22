@@ -1169,6 +1169,15 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		});
 	});
 
+	it("reads the data file a keyless `code-edges loads:` line names, and reaches the script one names (#5558)", () => {
+		const r = js("// code-edges loads: m.json\n// code-edges loads: c.js\n", {
+			"lib/m.json": "{}",
+			"lib/c.js": "",
+		});
+		expect(r.reads).toEqual(["lib/m.json"]);
+		expect(r.edges).toEqual(["lib/c.js"]);
+	});
+
 	it("names a declared manifest that is no file, or will not parse, unread", () => {
 		expect(js("// code-edges loads: m.json core\n").unread).toHaveLength(1);
 		expect(
