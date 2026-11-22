@@ -299,7 +299,7 @@ function settle(ctx, added, { baseline }) {
 }
 
 const REMEDY = [
-	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note of at most two lines naming its source, a URL other than an issue's or a manifest dependency; a doc on an export the helper surface lists, or atop a file it lists.",
+	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note of at most two lines naming its source, a URL, other than a link behind a `#N` pointer, or a manifest dependency; a doc on an export the helper surface lists, or atop a file it lists.",
 ];
 
 /** @type {import("./lib/check").CheckSpec} */

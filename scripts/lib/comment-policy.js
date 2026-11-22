@@ -759,9 +759,8 @@ function barePointers(text) {
 const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
 const DERIVATION = /\b(?:measured|guess)\b/i;
 const ISSUE = /(?<![\w&])#\d+|\/[\w.-]+#\d+/;
-const URLS = /\bhttps?:\/\/\S+/g;
-const ISSUE_URL =
-	/^https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+/;
+const URL = /\bhttps?:\/\/\S/;
+const POINTER_LINK = /\[(?:[\w.-]+\/[\w.-]+)?#\d+\]\([^)\s]*\)/g;
 
 /**
  * @param {string} line
@@ -834,8 +833,7 @@ function isSourceNote(prose, facts) {
 		prose.length <= 2 &&
 		prose.some(
 			(line) =>
-				line.match(URLS)?.some((u) => !ISSUE_URL.test(u)) ||
-				facts.deps?.test(line),
+				URL.test(line.replace(POINTER_LINK, "")) || facts.deps?.test(line),
 		)
 	);
 }
