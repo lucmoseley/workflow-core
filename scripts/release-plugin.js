@@ -12,11 +12,8 @@ const {
 	isMajorBump,
 	newestTag,
 	readLatestTag,
-	readCutTime,
 	buildReleaseMessage,
 } = require("./lib/release-tags.js");
-const { CADENCE_DAYS, daysSinceCut } = require("./lib/release-due.js");
-const { now } = require("./lib/clock.js");
 const { runVerify } = require("./lib/verify-run.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const {
@@ -49,12 +46,11 @@ const HOLD_REL = `${MIGRATIONS_DIR}/hold.txt`;
 
 const CLI = {
 	usage:
-		"usage: node scripts/release-plugin.js [--push] [--dry-run-adopter <path>] [--file-bump-issues] [--reason <why>]",
+		"usage: node scripts/release-plugin.js [--push] [--dry-run-adopter <path>] [--file-bump-issues]",
 	flags: {
 		"--push": /** @type {const} */ ("boolean"),
 		"--dry-run-adopter": /** @type {const} */ ("value"),
 		"--file-bump-issues": /** @type {const} */ ("boolean"),
-		"--reason": /** @type {const} */ ("value"),
 	},
 };
 
@@ -283,25 +279,6 @@ function refuseIfHeld(root) {
 	);
 }
 
-/**
- * @param {string} root
- * @param {string} [reason]
- * @returns {{line: string, early: boolean}}
- */
-function cadenceOrThrow(root, reason) {
-	const last = readLatestTag(root);
-	if (last === null) return { line: "last release: none\n", early: false };
-	const days = daysSinceCut(readCutTime(root, last), now());
-	const line = `last release: ${last}, ${days.toFixed(1)} days ago\n`;
-	if (days >= CADENCE_DAYS) return { line, early: false };
-	if (!reason) {
-		throw new Error(
-			`${last} was cut ${days.toFixed(1)} days ago, under the ${CADENCE_DAYS}-day release cadence (#5223) — batch the change into the next weekly cut, or pass --reason "<why>", such as a broken release or an adopter blocked on a fix`,
-		);
-	}
-	return { line: `${line}early cut: ${reason}\n`, early: true };
-}
-
 /** @param {string} root */
 function verifiedOrThrow(root) {
 	try {
@@ -316,10 +293,10 @@ function verifiedOrThrow(root) {
 
 /**
  * @param {string} root
- * @param {{dryRunAdopter?: string, reason?: string}} [opts]
- * @returns {{tag: string, commit: string, adopterLine: string, cadenceLine: string}}
+ * @param {{dryRunAdopter?: string}} [opts]
+ * @returns {{tag: string, commit: string, adopterLine: string}}
  */
-function release(root, { dryRunAdopter, reason } = {}) {
+function release(root, { dryRunAdopter } = {}) {
 	if (git(root, ["status", "--porcelain"]) !== "") {
 		throw new Error(
 			"the working tree is dirty — commit or stash before releasing",
@@ -329,7 +306,6 @@ function release(root, { dryRunAdopter, reason } = {}) {
 	verifiedOrThrow(root);
 	refuseIfHeld(root);
 	const { plugin, tag } = readReleaseTarget(root);
-	const cadence = cadenceOrThrow(root, reason);
 
 	noteAheadOrThrow(root, tag);
 	const note = readNoteOrThrow(root, tag);
@@ -388,11 +364,8 @@ function release(root, { dryRunAdopter, reason } = {}) {
 			"-m",
 			buildReleaseMessage(plugin.name, tag, source),
 		]);
-		const annotation = cadence.early
-			? `${plugin.name} ${tag}\n\nEarly cut: ${reason}`
-			: `${plugin.name} ${tag}`;
-		git(root, ["tag", "-a", tag, commit, "-m", annotation]);
-		return { tag, commit, adopterLine, cadenceLine: cadence.line };
+		git(root, ["tag", "-a", tag, commit, "-m", `${plugin.name} ${tag}`]);
+		return { tag, commit, adopterLine };
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
@@ -467,11 +440,11 @@ function fileBumpIssues(repos, tag) {
 				),
 		);
 		if (older === null) continue;
-		const covered = older.filter((i) => i.assignees.length === 0);
+		const unstarted = older.filter((i) => i.assignees.length === 0);
 		const walking = older.filter((i) => i.assignees.length > 0);
-		const closesCovered =
-			covered.length > 0
-				? ` It walks through the notes of ${covered.map((i) => `#${i.number}`).join(", ")} too: close each with a comment naming the bump commit.`
+		const supersedes =
+			unstarted.length > 0
+				? ` It supersedes ${unstarted.map((i) => `#${i.number}`).join(", ")}: the walk runs their notes too.`
 				: "";
 		/** @type {{number: number, id: number}|null} */
 		const created = ghStep(
@@ -484,7 +457,7 @@ function fileBumpIssues(repos, tag) {
 				"-f",
 				`title=${BUMP_TITLE}${tag}`,
 				"-f",
-				`body=Migration note: ${MIGRATIONS_DIR}/${tag}.md in ${UPSTREAM_CODE_REPO}. Closed by the bump commit. After it, run the install commands and the accept that docs/agents/adopter-upgrade.md §The install is the session's names, each bare (#5230).${closesCovered}`,
+				`body=Migration note: ${MIGRATIONS_DIR}/${tag}.md in ${UPSTREAM_CODE_REPO}. Closed by the bump commit. After it, run the install commands and the accept that docs/agents/adopter-upgrade.md §The install is the session's names, each bare (#5230).${supersedes}`,
 				"-f",
 				`labels[]=${MIGRATION_LABEL}`,
 				"-f",
@@ -496,7 +469,22 @@ function fileBumpIssues(repos, tag) {
 		);
 		if (created === null) continue;
 		filed.push(repo);
-		for (const i of covered) block(repo, i.number, created.number);
+		for (const i of unstarted)
+			ghStep(
+				repo,
+				[
+					"issue",
+					"close",
+					String(i.number),
+					"--repo",
+					repo,
+					"--duplicate-of",
+					String(created.number),
+					"--comment",
+					`Superseded by #${created.number}, ${BUMP_TITLE}${tag}: its walk runs this note too.`,
+				],
+				gh,
+			);
 		for (const i of walking) block(repo, created.number, i.number);
 	}
 	return { filed, failed };
@@ -584,15 +572,13 @@ function main(argv) {
 		dryRunAdopter: flagValue(flags, "--dry-run-adopter"),
 		push: flags["--push"] === true,
 		fileBumpIssues: flags["--file-bump-issues"] === true,
-		reason: flagValue(flags, "--reason")?.trim() || undefined,
 	};
 	try {
 		const root = worktreeRoot();
-		const { tag, commit, adopterLine, cadenceLine } = release(root, {
+		const { tag, commit, adopterLine } = release(root, {
 			dryRunAdopter: args.dryRunAdopter,
-			reason: args.reason,
 		});
-		let report = `tagged ${tag} at ${commit}\n${cadenceLine}${adopterLine}`;
+		let report = `tagged ${tag} at ${commit}\n${adopterLine}`;
 		if (args.push) {
 			git(root, ["push", "origin", tag]);
 			report += `pushed ${tag}\n`;

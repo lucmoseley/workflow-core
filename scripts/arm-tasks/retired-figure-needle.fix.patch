@@ -1,9 +1,9 @@
 diff --git a/docs/machinery-superseded.json b/docs/machinery-superseded.json
-index fe0eedb38d3cb4dbfe7d3d172385fe9adb981d85..545fb040acf0186be920849f0b9b96501c9ece4e 100644
+index 007ef25fe97723cd93cbedc316e06ff397386431..e1c42cf4d8620a087f5bbe458de704ae149081be 100644
 --- a/docs/machinery-superseded.json
 +++ b/docs/machinery-superseded.json
-@@ -1860,13 +1860,6 @@
- 					"21 days, non-responsive at 45"
+@@ -1805,13 +1805,6 @@
+ 					"condition: \"the cohort has cleared 21 days\""
  				]
  			},
 -			{
@@ -16,7 +16,7 @@ index fe0eedb38d3cb4dbfe7d3d172385fe9adb981d85..545fb040acf0186be920849f0b9b9650
  			{
  				"path": "scripts/report-close-check-reading.test.ts",
  				"anchors": [
-@@ -1876,12 +1869,6 @@
+@@ -1821,12 +1814,6 @@
  					"whose first log line came after the 21-day ceiling"
  				]
  			},
