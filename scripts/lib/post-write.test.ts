@@ -276,14 +276,12 @@ describe("post-write — format, then record, in that order", () => {
 			fs.writeFileSync(file, body);
 			return run("alice", file);
 		};
-		const Walk =
-			'const path = require("node:path");\nmodule.exports = path.join(__dirname, "..", "docs");\n';
+		const walkToDocs = (ups: string) =>
+			`const path = require("node:path");\nmodule.exports = path.join(__dirname, ${ups}, "docs");\n`;
 
 		it("names a __dirname walk into docs/, as the commit gate would", () => {
 			shipPlugin();
-			const r = write(
-				'const path = require("node:path");\nmodule.exports = path.join(__dirname, "..", "docs", "x.json");\n',
-			);
+			const r = write(walkToDocs('".."'));
 			expect(context(r)).toMatch(
 				/scripts\/demo\.js:2 .*outside scripts\/\. Use hostRoot\(\)/,
 			);
@@ -305,7 +303,7 @@ describe("post-write — format, then record, in that order", () => {
 		it("says nothing of a test file, which neither gate judges", () => {
 			shipPlugin();
 			const r = write(
-				`console.log("see #12");\n${Walk}`,
+				`console.log("see #12");\n${walkToDocs('".."')}`,
 				"scripts/demo.test.js",
 			);
 			expect(r.output).toBeNull();
@@ -320,9 +318,13 @@ describe("post-write — format, then record, in that order", () => {
 			expect(r.output).toBeNull();
 		});
 
-		it("says nothing of a __dirname walk check-host-root.js allowlists", () => {
+		it("says nothing of a __dirname walk check-host-root.js allowlists, naming the same walk beside it", () => {
 			shipPlugin();
-			expect(write(Walk, "scripts/lib/rule-text.js").output).toBeNull();
+			const walk = walkToDocs('"..", ".."');
+			expect(write(walk, "scripts/lib/rule-text.js").output).toBeNull();
+			expect(context(write(walk, "scripts/lib/other.js"))).toMatch(
+				/scripts\/lib\/other\.js:2 .*outside scripts\//,
+			);
 		});
 
 		it("says nothing where the repo ships no plugin, which neither rule binds", () => {
