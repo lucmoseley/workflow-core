@@ -94,9 +94,11 @@ def main():
     ap.add_argument(
         "--sample",
         type=int,
+        # guess, lucmoseley/mantahostels#1215
         default=250,
         help="how many closed issues to fetch (0 for all)",
     )
+    # guess, lucmoseley/mantahostels#1215
     ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args()
     a.repo = a.repo or sr.config_tracker()
