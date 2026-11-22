@@ -1,6 +1,5 @@
 const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { JS_TEST_FILE, PY_COLLECTED_TEST } = require("./test-kind.js");
-const { unwrapArgv } = require("./shell-parse.js");
 
 /**
  * @typedef {"npm-vitest" | "npm-watch" | "npm-py" | "wrapper" | "other"} LaunchKind
@@ -251,6 +250,7 @@ function isWholePytestRun(argv) {
 function isQueuedLaunch(words, ports) {
 	const rest = words[0] === "--" ? words.slice(1) : words;
 	if (rest.length === 0) return false;
+	const { unwrapArgv } = require("./shell-parse.js");
 	return unwrapArgv(rest).some(
 		({ words: inner }) => inner.length > 0 && isQueueable(inner, ports),
 	);

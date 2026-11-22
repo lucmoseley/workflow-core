@@ -33,7 +33,7 @@ const GATE_SEAT_DEFAULT_MB = suiteRungMb(WHOLE_SUITE_WORKERS);
 const GATE_RUN_LOG = ".gate-runs.jsonl";
 
 // guess, #5450
-const SHORT_GATE_RUNS = 5;
+const GATE_PEAK_RUNS = 5;
 // guess, #5450
 const SHORT_GATE_MAX_S = 60;
 const GATE_SELECTION_ENV = "WFC_GATE_SELECTION";
@@ -87,12 +87,14 @@ function readGateRunsAt(file) {
 		: null;
 }
 
+/** @typedef {{ peakMb: number, short: boolean }} GatePeak */
+
 /**
  * @param {GateRun[]} runs
  * @param {{ repo: string | null, command: string }} seat
- * @returns {number | null}
+ * @returns {GatePeak | null}
  */
-function shortGatePeakMb(runs, { repo, command }) {
+function measuredGatePeak(runs, { repo, command }) {
 	const last = runs
 		.filter(
 			(r) =>
@@ -100,11 +102,13 @@ function shortGatePeakMb(runs, { repo, command }) {
 				r.command === command &&
 				(r.outcome === "pass" || r.outcome === "red"),
 		)
-		.slice(-SHORT_GATE_RUNS);
-	if (last.length < SHORT_GATE_RUNS) return null;
-	if (!last.every((r) => r.runS <= SHORT_GATE_MAX_S && r.peakTreeMb > 0))
-		return null;
-	return Math.max(...last.map((r) => r.peakTreeMb));
+		.slice(-GATE_PEAK_RUNS);
+	if (last.length < GATE_PEAK_RUNS) return null;
+	if (!last.every((r) => r.peakTreeMb > 0)) return null;
+	return {
+		peakMb: Math.max(...last.map((r) => r.peakTreeMb)),
+		short: last.every((r) => r.runS <= SHORT_GATE_MAX_S),
+	};
 }
 
 /**
@@ -292,9 +296,9 @@ module.exports = {
 	gateHeldUntil,
 	gateSeatChargeMb,
 	isInSuite,
+	measuredGatePeak,
 	readGatePids,
 	readGateRunsAt,
-	shortGatePeakMb,
 	readGateSelection,
 	startGatePids,
 };

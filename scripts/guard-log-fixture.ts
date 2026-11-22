@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
-import { withStubbedEnv } from "./lib/scoped-env";
+import { withStubbedEnv } from "./lib/scoped-env-testkit";
 
 const { errorLog } = createRequire(import.meta.url)("./lib/arbiter-store.js");
 

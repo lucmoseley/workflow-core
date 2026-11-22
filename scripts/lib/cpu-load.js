@@ -5,7 +5,7 @@ const {
 	unwrap,
 	wrapperScript,
 } = require("./shell-parse.js");
-const { literal } = require("./shell-words.js");
+const { afterSlash, literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 const ZERO = BigInt(0);
@@ -111,9 +111,6 @@ function lit(word, spans) {
 	const { text, known } = literal(word, spans);
 	return { text: trimEndRun(text, "\n"), known };
 }
-
-/** @param {string} w */
-const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
 
 /** @param {string} digits */
 function arith(digits) {

@@ -51,9 +51,9 @@ function buildRoute({
 		primitive,
 		reader,
 		fix: {
-			"SECOND-VAR": `name the binary through ${envVar}, the one var ${primitive} reads, as ${exemplar} and ${shellExemplar} do.`,
+			"SECOND-VAR": `name the binary through ${envVar}, the one var ${reader} reads, as ${exemplar} and ${shellExemplar} do.`,
 			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
-			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it ${exemptHint(/** @type {const} */ (`${bin}-route`))} where \`${bin}\` is only text.`,
+			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${reader} reads, as ${shellExemplar} does; or mark it ${exemptHint(/** @type {const} */ (`${bin}-route`))} where \`${bin}\` is only text.`,
 			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
 		},
 		secondVar,

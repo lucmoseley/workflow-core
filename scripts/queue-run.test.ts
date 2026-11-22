@@ -682,7 +682,6 @@ describe("queue-run.js", () => {
 
 			it.each([
 				["4 records", five.slice(1)],
-				["5 records, one at 61 s", [...five.slice(1), run(61, 100)]],
 				["5 records, one with no peak read", [...five.slice(1), run(20, 0)]],
 				[
 					"a slower run of another command",
@@ -693,6 +692,36 @@ describe("queue-run.js", () => {
 				expect(started).toBe(false);
 				expect(marker.part).toBeUndefined();
 				expect(marker.chargeMb).toBe(2100);
+			});
+
+			it("waits whole on 5 records with one over 60 s, charged the highest of their peaks (#5591)", async () => {
+				const { marker, started } = await seatBeside([
+					...five.slice(1),
+					run(145, 100),
+				]);
+				expect(started).toBe(false);
+				expect(marker.part).toBeUndefined();
+				expect(marker.chargeMb).toBe(189);
+			});
+
+			it("waits whole on a gate-run record that will not read, charged its configured seat", async () => {
+				const f = fixture();
+				const gateLog = path.join(f.dir, "unreadable-gate-runs");
+				fs.mkdirSync(gateLog);
+				const g = gateOptions(f, {
+					gateLog,
+					alive: () => true,
+					sleepFn: () => new Promise(noop),
+				});
+				main(gateRun, g.options);
+				await tick();
+				const mine = f.readMarkers()[0] as string;
+				expect(
+					JSON.parse(fs.readFileSync(path.join(f.dir, mine), "utf8")),
+				).toMatchObject({ role: "gate", chargeMb: 2100 });
+				expect(f.err.join("")).toMatch(
+					/would not read; this gate waits for the whole-suite slot, charged its configured or default seat/,
+				);
 			});
 
 			it("leaves a `ceiling` outcome out of the 5", async () => {

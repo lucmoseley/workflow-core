@@ -10,7 +10,7 @@ import { adopt } from "./lib/init-adopter-core.js";
 import { resolveConfigDir } from "./lib/plugin-state.js";
 import { gateTmpdir } from "./lib/precommit-gate-harness.js";
 import { runInProcess } from "./lib/run-in-process.js";
-import { withOnlyEnv } from "./lib/scoped-env";
+import { withOnlyEnv } from "./lib/scoped-env-testkit";
 import { upgrade } from "./lib/upgrade-walk.js";
 
 export const SKELETON_PATHS = skeletonPaths(

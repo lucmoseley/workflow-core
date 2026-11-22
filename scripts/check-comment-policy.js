@@ -49,18 +49,7 @@ const readOr = (root, rel) => {
  * @returns {string[]}
  */
 function readTreeFiles(ctx, root, walked) {
-	if (!walked) {
-		const r = spawnGitSync(["ls-files", "-s", "-z"], {
-			cwd: root,
-			encoding: "utf8",
-		});
-		if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
-		return r.stdout
-			.split("\0")
-			.filter((e) => /^100(?:644|755) /.test(e))
-			.map((e) => e.slice(e.indexOf("\t") + 1))
-			.sort();
-	}
+	if (!walked) return readTrackedPaths(ctx, root).sort();
 	/** @type {string[]} */
 	const out = [];
 	/** @param {string} rel */
@@ -213,12 +202,33 @@ function readJudgedFiles(ctx, root) {
 	if (ctx.side) return files;
 	const env = walked ? withoutGitRedirects() : undefined;
 	if (!inWorkTree(ctx, root, env)) return files;
-	const excluded = readExcludedOrBroken(ctx, files, {
+	const tracked = walked ? new Set(readTrackedPaths(ctx, root, env)) : null;
+	const judged = tracked ? files.filter((p) => tracked.has(p)) : files;
+	const excluded = readExcludedOrBroken(ctx, judged, {
 		from: walked ? "worktree" : "index",
 		cwd: root,
 		env,
 	});
-	return files.filter((p) => !excluded.has(p));
+	return judged.filter((p) => !excluded.has(p));
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string[]}
+ */
+function readTrackedPaths(ctx, root, env) {
+	const r = spawnGitSync(["ls-files", "-s", "-z"], {
+		cwd: root,
+		encoding: "utf8",
+		...(env ? { env } : {}),
+	});
+	if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
+	return r.stdout
+		.split("\0")
+		.filter((e) => /^100(?:644|755) /.test(e))
+		.map((e) => e.slice(e.indexOf("\t") + 1));
 }
 
 const withoutGitRedirects = () =>
@@ -299,7 +309,7 @@ function settle(ctx, added, { baseline }) {
 }
 
 const REMEDY = [
-	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note naming its source, a URL or a manifest dependency; a doc on an export the helper surface lists, or atop a file it lists.",
+	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note of at most two lines naming its source, a URL, other than a link behind a `#N` pointer, or a manifest dependency; a doc on an export the helper surface lists, or atop a file it lists.",
 ];
 
 /** @type {import("./lib/check").CheckSpec} */

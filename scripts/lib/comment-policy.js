@@ -760,6 +760,7 @@ const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
 const DERIVATION = /\b(?:measured|guess)\b/i;
 const ISSUE = /(?<![\w&])#\d+|\/[\w.-]+#\d+/;
 const URL = /\bhttps?:\/\/\S/;
+const POINTER_LINK = /\[(?:[\w.-]+\/[\w.-]+)?#\d+\]\([^)\s]*\)/g;
 
 /**
  * @param {string} line
@@ -823,6 +824,21 @@ function splitDirectives(unit, facts) {
 }
 
 /**
+ * @param {string[]} prose
+ * @param {FileFacts} facts
+ * @returns {boolean}
+ */
+function isSourceNote(prose, facts) {
+	return (
+		prose.length <= 2 &&
+		prose.some(
+			(line) =>
+				URL.test(line.replace(POINTER_LINK, "")) || facts.deps?.test(line),
+		)
+	);
+}
+
+/**
  * @param {Unit} unit
  * @param {string[]} prose
  * @param {FileFacts} facts
@@ -846,7 +862,7 @@ function proseBreach(unit, prose, facts) {
 	}
 	if (prose.length === 1 && DERIVATION.test(text) && ISSUE.test(text))
 		return null;
-	if (URL.test(text) || facts.deps?.test(text)) return null;
+	if (isSourceNote(prose, facts)) return null;
 	if (onShippedExport(unit, facts)) return null;
 	return { tag: "COMMENT", ...at, why: "fits no permitted comment kind" };
 }

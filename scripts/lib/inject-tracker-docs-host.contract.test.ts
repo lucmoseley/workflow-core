@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { stubGhScript } from "./gh-stub";
 import { initGitRepo } from "./git-fixture";
 import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
-import { withStubbedEnv } from "./scoped-env";
+import { withStubbedEnv } from "./scoped-env-testkit";
 import { shellQuote } from "./sh-quote.js";
 
 const { buildHostPorts } =
