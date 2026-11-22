@@ -1,4 +1,5 @@
 // @vitest-environment node
+// #5569
 
 import fs from "node:fs";
 import path from "node:path";
