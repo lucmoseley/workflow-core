@@ -55,6 +55,8 @@ const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { isStringList, parseVerdict } = require("./lander-records.js");
 const { isCoreHost } = require("./plugin-state.js");
 const { CoreUnresolved, resolveTreeCore } = require("./tree-core.js");
+const { readTrackerRemotes } = require("./tracker-remotes.js");
+const { resolveKey } = require("./workflow-core-config.js");
 
 const REGISTRY_PROFILE = (() => {
 	const profile = PROFILES["guard-registry"];
@@ -137,6 +139,17 @@ function readEnvelope(r, sha, timeoutMs) {
 
 /**
  * @param {string} root
+ * @returns {string[]}
+ */
+function readOtherTrackerRemotes(root) {
+	const tracker = resolveKey("tracker", { root });
+	return typeof tracker === "string"
+		? readTrackerRemotes(tracker, { cwd: root }).filter((r) => r !== REMOTE)
+		: [];
+}
+
+/**
+ * @param {string} root
  * @param {object} [options]
  * @param {number} [options.mergeTimeoutMs]
  * @param {ReadonlyMap<string, Regenerated>} [options.regenerated]
@@ -210,6 +223,21 @@ function queueGit(
 	};
 	/** @param {string[]} args */
 	const git = (args) => readGit(root, args);
+	/** @type {DroppedRef[]|null} */
+	let trackerDropped = null;
+	// #5539
+	const readTrackerDropped = () => {
+		trackerDropped ??= readOtherTrackerRemotes(root).flatMap((r) =>
+			git(["ls-remote", r, `${DROPPED_HEADS}*`])
+				.split("\n")
+				.filter(Boolean)
+				.map((line) => {
+					const [sha = "", ref = ""] = line.split("\t");
+					return { ref: ref.slice("refs/heads/".length), sha };
+				}),
+		);
+		return trackerDropped;
+	};
 	/** @param {string[]} shas @returns {Map<string, number>} */
 	const committedAt = (shas) => {
 		if (shas.length === 0) return new Map();
@@ -260,7 +288,12 @@ function queueGit(
 						? [{ ref: ref.slice("refs/heads/".length), sha }]
 						: [],
 				);
-				return { main: heads.get(mainRef) ?? null, queue, dropped };
+				return {
+					main: heads.get(mainRef) ?? null,
+					queue,
+					dropped,
+					trackerDropped: readTrackerDropped(),
+				};
 			}),
 		mergeMembers: (onto, members, fresh, started) =>
 			repairing(() => {
