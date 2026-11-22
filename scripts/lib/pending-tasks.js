@@ -60,8 +60,9 @@ function callName(part) {
  */
 
 /**
+ * #5554
  * @param {string} file
- * @param {{sidechain?: boolean}} [opts] #5554
+ * @param {{sidechain?: boolean}} [opts]
  * @returns {Pending}
  */
 function readPendingTasks(file, { sidechain = false } = {}) {
