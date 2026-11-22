@@ -56,9 +56,9 @@ const NEEDLES = "docs/doc-map-superseded.json";
 
 const STUB_MARKER = "STUB-CHECKER-RAN";
 const RETIREMENT = "scripts/lib/module-retirement.js";
-const RETIREMENT_SHIM = `process.exit(require(${JSON.stringify(
+const RETIREMENT_SHIM = `const r = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(
 	path.join(ROOT, RETIREMENT),
-)}).isModuleRetirement(process.argv[2]) ? 0 : 1);\n`;
+)}, ...process.argv.slice(2)], { stdio: "inherit" });\nprocess.exit(r.status ?? 1);\n`;
 const ESCAPE = "WFC_ALLOW_GATE_INPUT_DELETE";
 const DOLLAR = "$";
 
@@ -84,6 +84,7 @@ function fixture(opts: {
 	committed: Record<string, string>;
 	staged?: Record<string, string>;
 	deleted?: string[];
+	retirementLib?: boolean;
 }): TempRepo {
 	const stubs = Object.fromEntries(
 		opts.checkers.map((c) => [
@@ -94,7 +95,13 @@ function fixture(opts: {
 	const repo = stagedRepo(
 		"gate-input-deletion-",
 		temps,
-		{ ...stubs, [RETIREMENT]: RETIREMENT_SHIM, ...opts.committed },
+		{
+			...stubs,
+			...(opts.retirementLib === false
+				? {}
+				: { [RETIREMENT]: RETIREMENT_SHIM }),
+			...opts.committed,
+		},
 		opts.staged ?? {},
 	);
 	for (const rel of opts.deleted ?? [])
@@ -426,6 +433,20 @@ describe("a commit retiring the roadmap module (#5405)", () => {
 			committed: { ...PAIR, [config]: on },
 			staged: { [config]: '{ "modules": ["roadmap", "landing"] }\n' },
 			deleted: [ROADMAP, DIGEST],
+		});
+
+		const { code, output } = runGate(root, versionGate());
+		expect(code).toBe(1);
+		expect(output).toContain("DELETES");
+	});
+
+	it("still refuses where the retirement check cannot run", () => {
+		const { root } = fixture({
+			checkers: VERSION_CHECKERS,
+			committed: { ...PAIR, [config]: on },
+			staged: { [config]: off },
+			deleted: [ROADMAP, DIGEST],
+			retirementLib: false,
 		});
 
 		const { code, output } = runGate(root, versionGate());

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const { parseArgs } = require("node:util");
 const { CONFIG_PATH } = require("./workflow-core-config.js");
 const { orFallback } = require("./caught.js");
 const { execGit } = require("./git.js");
@@ -20,22 +21,26 @@ function listsModule(text, name) {
  * @returns {boolean}
  */
 function isModuleRetirement(name) {
-	const show = (/** @type {string} */ ref) =>
+	const show = (/** @type {string} */ spec) =>
 		orFallback(
 			() =>
-				execGit(["show", `${ref}:${CONFIG_PATH}`], {
+				execGit(["show", spec], {
 					encoding: "utf8",
 					stdio: ["ignore", "pipe", "ignore"],
 				}),
 			"",
 		);
 	return (
-		listsModule(show("HEAD"), name) === true &&
-		listsModule(show(""), name) === false
+		listsModule(show(`HEAD:${CONFIG_PATH}`), name) === true &&
+		listsModule(show(`:${CONFIG_PATH}`), name) === false
 	);
 }
 
 module.exports = { isModuleRetirement };
 
-if (require.main === module)
-	process.exit(isModuleRetirement(process.argv[2] ?? "") ? 0 : 1);
+if (require.main === module) {
+	const { positionals } = parseArgs({ allowPositionals: true, strict: true });
+	process.exit(
+		positionals.length === 1 && isModuleRetirement(positionals[0]) ? 0 : 1,
+	);
+}
