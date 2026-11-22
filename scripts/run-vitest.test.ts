@@ -5748,6 +5748,58 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(argv[0]).toContain("manifest.test.ts");
 				});
 
+				const extractorFile = "scripts/lib/test-read-edges.js";
+
+				async function queuedAcrossCommit(loaded: string) {
+					const { EDGES_FILE } = require("./lib/test-pass-marker.js");
+					const dir = dirtyCheckout();
+					fs.mkdirSync(path.join(dir, "docs"));
+					fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
+					fs.writeFileSync(path.join(dir, EDGES_FILE), "stale\n");
+					fs.writeFileSync(path.join(dir, extractorFile), "old walk\n");
+					gitIn(dir, ["add", EDGES_FILE, extractorFile]);
+					gitIn(dir, ["commit", "-q", "-m", "stale manifest, old walk"]);
+					const gateRead = vi.fn(() => {
+						if (gateRead.mock.calls.length === 1) {
+							fs.writeFileSync(path.join(dir, extractorFile), "new walk\n");
+							gitIn(dir, ["commit", "-q", "-am", "new walk"]);
+						}
+						return null;
+					});
+					const got = await runSeeing(dir, ["--queue", "--changed"], {
+						pid: 5579,
+						sessionId: "mine",
+						renderEdges: () => ({ [EDGES_FILE]: ["manifest.test.ts"] }),
+						extractor: {
+							root: dir,
+							loaded: new Map([[extractorFile, loaded]]),
+						},
+						claimFn: () => ({ claimed: true }),
+						queueDir: qdir(),
+						gateRead,
+					});
+					expect(gateRead).toHaveBeenCalled();
+					return {
+						...got,
+						manifest: fs.readFileSync(path.join(dir, EDGES_FILE), "utf8"),
+					};
+				}
+
+				it("leaves the manifest alone where a queued run loaded the walk a commit during its wait replaced (#5579)", async () => {
+					const got = await queuedAcrossCommit("old walk\n");
+					expect(got.manifest).toBe("stale\n");
+					expect(got.out).not.toContain("brought up to date");
+					expect(got.err).toContain(
+						`left alone: this run loaded ${extractorFile}`,
+					);
+				});
+
+				it("brings it up to date where a queued run loaded the walk its tree holds (#5579)", async () => {
+					const got = await queuedAcrossCommit("new walk\n");
+					expect(got.manifest).toContain('"manifest.test.ts"');
+					expect(got.out).toContain("brought up to date");
+				});
+
 				it("hands vitest the own readers, and no neighbour's", async () => {
 					const dir = dirtyCheckout();
 					const argv: string[][] = [];
@@ -6534,7 +6586,7 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		const out: string[] = [];
 		const err: string[] = [];
 		const claimed: unknown[][] = [];
-		freshenManifest(rendered, {
+		freshenManifest(() => rendered, {
 			...at,
 			session: "me",
 			claimFn: (...args: unknown[]) => {
@@ -6593,7 +6645,7 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 			).toBe(0);
 
 			const err: string[] = [];
-			freshenManifest(rendered, {
+			freshenManifest(() => rendered, {
 				root,
 				home: sb.repo,
 				session: "edges-writer",

@@ -1110,7 +1110,8 @@ function refuseNarrowing(options, cause) {
  * @typedef {Parameters<typeof runOnce>[1] & Parameters<typeof runIsolated>[1] &
  *    { renderEdges?: () => Record<string, string[]>,
  *      commitLedger?: import("./lib/own-work.js").CommitLedger,
- *      claimFn?: import("./lib/manifest-freshen.js").ClaimFn }} RouteOptions
+ *      claimFn?: import("./lib/manifest-freshen.js").ClaimFn,
+ *      extractor?: import("./lib/manifest-freshen.js").Extractor }} RouteOptions
  */
 
 /**
@@ -1485,17 +1486,12 @@ function namedList(paths) {
  * @param {RouteOptions} options
  */
 function freshenOverlay(dir, home, options) {
-	let rendered;
-	try {
-		rendered = (options.renderEdges ?? (() => liveEdges(dir)))();
-	} catch {
-		return;
-	}
-	freshenManifest(rendered, {
+	freshenManifest(options.renderEdges ?? (() => liveEdges(dir)), {
 		root: dir,
 		home,
 		session: options.sessionId || idSeam.fromEnv(),
 		claimFn: options.claimFn,
+		extractor: options.extractor,
 		out: options.out ?? process.stdout,
 		err: options.err ?? process.stderr,
 	});
