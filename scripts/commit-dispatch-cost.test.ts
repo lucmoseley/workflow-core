@@ -354,6 +354,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/arbiter-core.js",
 			"lib/arbiter-issue-claims.js",
 			"lib/arbiter-ledger.js",
+			"lib/arbiter-lock-files.js",
 			"lib/arbiter-locks.js",
 			"lib/arbiter-markers.js",
 			"lib/arbiter-observations.js",

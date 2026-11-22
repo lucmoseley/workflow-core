@@ -14,7 +14,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from fail_open import expected, fail_open, tallied
 from wfc_bin import bin_path
 
+# guess, origin untraced, #5550
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 30
+# guess, origin untraced, #5550
 GAP = float(sys.argv[2]) if len(sys.argv) > 2 else 4.0
 
 CLK = os.sysconf("SC_CLK_TCK")
@@ -94,7 +96,11 @@ def meminfo_available_kb():
     return None
 
 
-def time_meminfo(reps=2000):
+# guess, origin untraced, #5550
+MEMINFO_REPS = 2000
+
+
+def time_meminfo(reps=MEMINFO_REPS):
     t0 = time.perf_counter()
     for _ in range(reps):
         meminfo_available_kb()

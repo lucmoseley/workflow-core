@@ -16,7 +16,9 @@ const {
 	unwrap,
 } = require("./lib/gate-check.js");
 
+// guess, lucmoseley/mantahostels#2656
 const ROW_LINES = 3;
+// guess, lucmoseley/mantahostels#2656
 const ROW_WIDTH = 160;
 
 const REPO_ROOT = worktreeRoot();

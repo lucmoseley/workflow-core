@@ -286,7 +286,12 @@ describe("buildIsWrapperScript (#4276)", () => {
 		const unparsed = reader("{");
 		expect(unreadable.is("test")).toBe(true);
 		expect(unparsed.is("test")).toBe(true);
-		expect([...unreadable.logs, ...unparsed.logs]).toHaveLength(2);
+		expect(unreadable.logs).toEqual([
+			expect.stringMatching(/^package\.json unreadable — /),
+		]);
+		expect(unparsed.logs).toEqual([
+			expect.stringMatching(/^package\.json is not JSON — /),
+		]);
 	});
 
 	it("lets a fault resolving the tree propagate, for the core to answer for", () => {

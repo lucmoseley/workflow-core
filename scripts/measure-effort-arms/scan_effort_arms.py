@@ -325,6 +325,7 @@ def main(argv=None):
     ap.add_argument(
         "--min-turns",
         type=int,
+        # guess, lucmoseley/mantahostels#1108
         default=5,
         help="drop sessions below this many parent turns (default 5) "
         "-- a session that died at launch is not an arm "

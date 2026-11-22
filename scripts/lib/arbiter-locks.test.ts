@@ -13,6 +13,7 @@ import {
 	gitRepo,
 	live,
 	liveHolder,
+	lockFiles,
 	locks as locksMod,
 	proc,
 	registerSession,
@@ -547,7 +548,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		const t = new Date(Date.now() - 3 * 60 * 60 * 1000);
 		fs.utimesSync(lockPath, t, t);
 
-		const r = locksMod.dropIfUnchanged("docs/doc-map.md", () => {
+		const r = lockFiles.dropIfUnchanged("docs/doc-map.md", () => {
 			locksMod.sweepDebris();
 			return false;
 		});
@@ -993,7 +994,7 @@ describe("release — the second exit from a claim", () => {
 
 	it("puts back a lock that is not the one it read, rather than dropping it", () => {
 		store.acquire("docs/doc-map.md", live(sb, "alice"));
-		const r = locksMod.dropIfUnchanged(
+		const r = lockFiles.dropIfUnchanged(
 			"docs/doc-map.md",
 			(m: { claimId: string }) => m.claimId === "not-this-one",
 		);

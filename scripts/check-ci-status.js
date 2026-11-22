@@ -77,10 +77,13 @@ const {
 	sweepLedger,
 } = require("./lib/sweep-ledger.js");
 
+// guess, lucmoseley/mantahostels#949
 const HATCH_MIN_WAIT_MS = 2 * 60 * 60 * 1000;
 
+// measured 16-83 min sweep lag, lucmoseley/mantahostels#1816
 const SWEEP_STALE_MS = 8 * 60 * 60 * 1000;
 
+// measured 4.3-5.1 s dispatch-to-listing lag, lucmoseley/mantahostels#1832
 const AUTOFIRE_COOLDOWN_MS = 2 * 60 * 1000;
 
 // guess: 8s under the hook's 40s timeout, #2471

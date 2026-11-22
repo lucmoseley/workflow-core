@@ -103,6 +103,7 @@ const { buildHookCommandLine } = require("./lib/rule-emission");
 /** @typedef {{ distinct: number, own: number, vendored: number, disabled: number }} SkillCounts */
 /** @typedef {{ link: boolean, text: string | null }} SkillEntry */
 
+// guess, lucmoseley/mantahostels#1771
 const DEFAULT_THRESHOLD_PCT = 10;
 
 /** @type {Record<string, (root: string, rev: string | undefined) => object>} */

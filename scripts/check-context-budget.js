@@ -119,8 +119,10 @@ const { readOwnHooks } = require("./lib/core-hooks.js");
 
 /** @typedef {{ path: string, vendored: boolean, words: number, bytes: number }} DescEntry */
 
+// measured 20,334 B on 18 Oct 2026, past a 1,813 B band, #2034
 const CAP_BYTES = 22_500;
 
+// measured 9,637 B on 18 Oct 2026, past a 515 B band, #2039
 const INJECTION_CAP_BYTES = 10_500;
 
 /* #5447: measured 33,577 B for Bash at the install spelling, past a 423 B slack band. */

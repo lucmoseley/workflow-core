@@ -67,6 +67,7 @@ def needles():
     return out
 
 
+# guess, lucmoseley/mantahostels#2499
 NEEDLE = 60
 
 
