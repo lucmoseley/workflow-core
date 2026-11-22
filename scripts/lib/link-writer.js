@@ -5,6 +5,7 @@ const { parseArgs } = require("node:util");
 const { ghAsync, parseErrLine } = require("./gh");
 const { pathTo, linkText } = require("./wait-graph.js");
 const {
+	isSameRepo,
 	parseQualifiedRef,
 	parseRepoOfUrl,
 	refKey,
@@ -14,6 +15,7 @@ const { resolveKey } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { docPath } = require("./script-path.js");
 const { recordOwnAct } = require("./own-acts.js");
+const { requiredGroup } = require("./regex-group.js");
 
 /** @typedef {import("./wait-graph.js").Ref} Ref */
 /** @typedef {import("./wait-graph.js").Link} Link */
@@ -75,6 +77,27 @@ async function readGhText(args) {
 		return null;
 	}
 }
+
+/** @returns {() => Promise<string>} */
+function memoLocalRepo() {
+	/** @type {string|undefined} */
+	let local;
+	return async () => {
+		local ??= await resolveLocalRepo();
+		return local;
+	};
+}
+
+/**
+ * @param {string|null|undefined} repoUrl
+ * @param {number} number
+ * @param {Ref} ref
+ * @param {string|null} fallback
+ */
+const namesRef = (repoUrl, number, ref, fallback) => {
+	const repo = parseRepoOfUrl(repoUrl) ?? fallback;
+	return !!repo && refKey({ repo, number }) === refKey(ref);
+};
 
 async function resolveLocalRepo() {
 	let repo = process.env.WFC_LINK_REPO || resolveKey("tracker");
@@ -179,13 +202,14 @@ async function parseSubIssueArgs(rest, home) {
 }
 
 const CHILD_ROWS = '.[]|"\\(.repository_url)#\\(.number)"';
+const CHILD_ROW = /^(.*)#([0-9]+)$/;
 
 /**
  * @param {string} repo
  * @param {number} parent
  * @param {Ref} child
  */
-async function readListsChild(repo, parent, child) {
+async function listsChild(repo, parent, child) {
 	const listed = await readGhText([
 		"api",
 		`repos/${repo}/issues/${parent}/sub_issues`,
@@ -194,11 +218,10 @@ async function readListsChild(repo, parent, child) {
 		CHILD_ROWS,
 	]);
 	return (listed ?? "").split("\n").some((line) => {
-		const m = /^(.*)#([0-9]+)$/.exec(line);
-		const at = m?.[1] ? parseRepoOfUrl(m[1]) : null;
-		return (
-			!!at && refKey({ repo: at, number: Number(m?.[2]) }) === refKey(child)
-		);
+		const m = CHILD_ROW.exec(line);
+		if (!m) return false;
+		const url = requiredGroup(m, 1, CHILD_ROW);
+		return namesRef(url, Number(requiredGroup(m, 2, CHILD_ROW)), child, null);
 	});
 }
 
@@ -211,11 +234,11 @@ async function readListsChild(repo, parent, child) {
 async function linkSubIssue(args, warn, { replaceParent }) {
 	const { parent, child, repo } = await parseSubIssueArgs(
 		args,
-		resolveLocalRepo,
+		memoLocalRepo(),
 	);
 	const t = timing();
 	const label = refLabel(child, repo);
-	const listed = () => readListsChild(repo, parent, child);
+	const listed = () => listsChild(repo, parent, child);
 
 	await assertParentHidesNoOpenChild(repo, parent, child);
 	const id = await readDatabaseId(child, repo);
@@ -227,10 +250,10 @@ async function linkSubIssue(args, warn, { replaceParent }) {
 	const already = await postSubIssue({
 		repo,
 		parent,
-		label,
+		child,
 		id,
 		replaceParent,
-		listsChild: listed,
+		listed,
 		t,
 	});
 	if (already) return already;
@@ -269,20 +292,21 @@ async function assertParentHidesNoOpenChild(repo, parent, child) {
 }
 
 /**
- * @param {{repo: string, parent: number, label: string, id: string,
- *   replaceParent: boolean, listsChild: () => Promise<boolean>,
+ * @param {{repo: string, parent: number, child: Ref, id: string,
+ *   replaceParent: boolean, listed: () => Promise<boolean>,
  *   t: {retries: number, sleepMs: number}}} at
  * @returns {Promise<string|null>}
  */
 async function postSubIssue({
 	repo,
 	parent,
-	label,
+	child,
 	id,
 	replaceParent,
-	listsChild,
+	listed,
 	t,
 }) {
+	const label = refLabel(child, repo);
 	try {
 		await ghAsync([
 			"api",
@@ -298,11 +322,11 @@ async function postSubIssue({
 		const out = `${caught(e).stderr ?? ""}${caught(e).stdout ?? ""}`;
 		// lucmoseley/mantahostels#1150
 		if (out.includes("only have one parent")) {
-			if (await waitFor(listsChild, t))
+			if (await waitFor(listed, t))
 				return `${label} was already a sub-issue of #${parent}\n`;
 			fail(
 				"other",
-				`${label} already has a different parent — re-root it with link-sub-issue.sh ${parent} ${label.replace(/^#/, "")} --replace-parent, or detach it first: gh api --method DELETE repos/${repo}/issues/<parent>/sub_issue -F sub_issue_id=${id}`,
+				`${label} already has a different parent — re-root it with link-sub-issue.sh ${parent} ${isSameRepo(child.repo, repo) ? child.number : label} --replace-parent, or detach it first: gh api --method DELETE repos/${repo}/issues/<parent>/sub_issue -F sub_issue_id=${id}`,
 			);
 		}
 		if (out.includes("7 layers"))
@@ -341,12 +365,8 @@ async function listsBlocker(blocked, blocker) {
 		]);
 		/** @type {{number: number, repository_url?: string}[]} */
 		const rows = out.trim() ? JSON.parse(out).flat() : [];
-		return rows.some(
-			(r) =>
-				refKey({
-					repo: parseRepoOfUrl(r.repository_url) ?? blocked.repo,
-					number: r.number,
-				}) === refKey(blocker),
+		return rows.some((r) =>
+			namesRef(r.repository_url, r.number, blocker, blocked.repo),
 		);
 	} catch {
 		return false;
@@ -360,12 +380,7 @@ async function listsBlocker(blocked, blocker) {
  */
 async function linkBlocker(args, warn) {
 	if (args.length !== 2) fail("other", USAGE.blocker);
-	/** @type {string|undefined} */
-	let local;
-	const home = async () => {
-		local ??= await resolveLocalRepo();
-		return local;
-	};
+	const home = memoLocalRepo();
 	const [a = "", b = ""] = args;
 	const blocked = await parseRef(a, home);
 	if (!blocked)

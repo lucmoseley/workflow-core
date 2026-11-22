@@ -359,7 +359,7 @@ describe("link-sub-issue.sh", () => {
 
 	it.each([
 		[["40"], "usage"],
-		[["40", "sixty-three"], "not an issue number or owner/name#n"],
+		[["40", "sixty-three"], "not an issue number"],
 		[["o/r#40", "63"], "parent 'o/r#40' is not an issue number"],
 	])(
 		"refuses bad arguments, saying what is wrong and posting nothing: %s",
@@ -446,6 +446,7 @@ describe("a child in another repo (#5618)", () => {
 	it("is not a self-link though it shares the parent's number", async () => {
 		const r = await run(["40", "other/m#40"], { children: ["other/m#40"] });
 		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toBe("linked other/m#40 as a sub-issue of #40\n");
 	});
 });
 
