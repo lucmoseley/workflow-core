@@ -36,6 +36,12 @@ const keysAfterFacade = (file: string) =>
 		),
 	) as string[];
 
+const requires = (file: string) =>
+	[...fs.readFileSync(file, "utf8").matchAll(/require\("(\.[^"]+)"\)/g)]
+		.map((m) => path.resolve(path.dirname(file), m[1]))
+		.map((to) => (to.endsWith(".js") ? to : `${to}.js`))
+		.filter((to) => fs.existsSync(to));
+
 describe("every family module loads as the entry point", () => {
 	it("finds all sixteen arbiter-*.js modules beside the facade", () => {
 		expect(families.length).toBe(16);
@@ -53,11 +59,6 @@ describe("every family module loads as the entry point", () => {
 
 describe("the family modules' require graph", () => {
 	const readSource = (f: string) => fs.readFileSync(path.join(LIB, f), "utf8");
-	const requires = (file: string) =>
-		[...fs.readFileSync(file, "utf8").matchAll(/require\("(\.[^"]+)"\)/g)]
-			.map((m) => path.resolve(path.dirname(file), m[1]))
-			.map((to) => (to.endsWith(".js") ? to : `${to}.js`))
-			.filter((to) => fs.existsSync(to));
 
 	it("holds no cycle through a family module, by any path", () => {
 		const reachesItself = (start: string) => {
@@ -129,12 +130,7 @@ describe("nothing the hook entry pulls reaches check.js either", () => {
 			const file = queue.pop() as string;
 			if (seen.has(file) || !fs.existsSync(file)) continue;
 			seen.add(file);
-			for (const m of fs
-				.readFileSync(file, "utf8")
-				.matchAll(/require\("(\.[^"]+)"\)/g)) {
-				const to = path.resolve(path.dirname(file), m[1]);
-				queue.push(to.endsWith(".js") ? to : `${to}.js`);
-			}
+			queue.push(...requires(file));
 		}
 		return seen;
 	};
