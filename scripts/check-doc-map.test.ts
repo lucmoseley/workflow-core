@@ -4738,6 +4738,37 @@ describe("live section references (#805)", () => {
 	});
 });
 
+describe("live assertion citations (#5551)", () => {
+	it("fails a citation of a number no assertion carries, naming the file", () => {
+		writeMap(baselineRows);
+		track("CLAUDE.md", "`check-doc-map.js` refuses it (assertion 3).\n");
+		const r = check();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"1 citation(s) of a check-doc-map assertion number no assertion carries:",
+		);
+		expect(r.out).toContain("CLAUDE.md: assertion 3");
+		const envelope = JSON.parse(check({}, "--json").stdout);
+		expect(envelope.assertionCitations).toEqual([
+			{ file: "CLAUDE.md", assertion: 3 },
+		]);
+		expect(
+			envelope.findings.find(
+				(f: { tag: string }) => f.tag === "DEAD-ASSERTION-CITATION",
+			).assertion,
+		).toBe(34);
+	});
+
+	it("passes a carried number, and skips a test file", () => {
+		writeMap(baselineRows);
+		track("CLAUDE.md", "`check-doc-map.js` assertions 12 and 13 refuse it.\n");
+		track("scripts/x.test.ts", "// check-doc-map assertion 3\n");
+		const r = check();
+		expect(r.out).not.toContain("DEAD-ASSERTION-CITATION");
+		expect(r.out).toContain("every assertion citation live");
+	});
+});
+
 describe("register-doc.js advice in an install", () => {
 	let plugin: string;
 	beforeEach(() => {

@@ -30,6 +30,7 @@ NEEDLE = "Sheds paid, most recent first"
 DOC_MAP = "docs/doc-map.md"
 HEADING = re.compile(r"^#{1,6} ")
 BULLET = re.compile(r"^\s*- ")
+# guess, lucmoseley/mantahostels#1430
 ANCHOR_LEN = 40
 
 

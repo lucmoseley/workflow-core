@@ -35,8 +35,12 @@ const trackerVars = () => {
 	return trackerCache;
 };
 
+// guess, lucmoseley/mantahostels#283
 const SUBSTANTIAL = 40;
+// guess, lucmoseley/mantahostels#283
+const CLOBBER_KEPT_SHARE = 0.99;
 
+// guess from three events, lucmoseley/mantahostels#141
 const SUSPECT_WINDOW_MIN = 15;
 
 const REV_PAGE = 20;
@@ -185,7 +189,8 @@ function classify(A, B, C, live) {
 			? (new Date(C.at).getTime() - new Date(B.at).getTime()) / 60_000
 			: null;
 
-	const clobbered = lost.length === added.length && aKept >= 0.99 && cAdded > 0;
+	const clobbered =
+		lost.length === added.length && aKept >= CLOBBER_KEPT_SHARE && cAdded > 0;
 
 	if (!clobbered && !(gapMin !== null && gapMin <= SUSPECT_WINDOW_MIN))
 		return null;
