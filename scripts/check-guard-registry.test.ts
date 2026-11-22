@@ -896,6 +896,20 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212, #5541)", (
 		expect(run(root).kinds).toContain("UNWIRED-IF");
 	});
 
+	it("breaks on a row whose `IF` is not an array of clauses", () => {
+		const root = build({
+			claude: region(rule),
+			files: {
+				[guard]: body,
+				...implicitRows({ [guard]: { ...ACTING_ROW, IF: "Bash(*git*)" } }),
+				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
+			},
+		});
+		const r = run(root);
+		expect(r.kinds).not.toContain("UNDECLARED-IF");
+		expect(r.code).toBe(2);
+	});
+
 	describe("a dispatcher core's manifest row (#3244)", () => {
 		const core = "scripts/lib/x.js";
 
@@ -925,6 +939,15 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212, #5541)", (
 			const r = run(dispatched("Bash(git *)"));
 			expect(r.kinds).not.toContain("UNDECLARED-IF");
 			expect(r.code).toBe(2);
+		});
+
+		it('breaks on a row whose `denyTiming` is not "delayed"', () => {
+			const root = dispatched(["Bash(git *)"]);
+			const file = path.join(root, MANIFEST_REL);
+			const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+			manifest.PreToolUse[0].denyTiming = "late";
+			fs.writeFileSync(file, JSON.stringify(manifest));
+			expect(run(root).code).toBe(2);
 		});
 
 		it("reads a core's narrowing off its row, asking nothing of its source", () => {

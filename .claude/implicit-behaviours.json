@@ -361,7 +361,7 @@
 		"TREE": "host — the pinned guard code; the dispatcher it runs picks each core's tree (#4242)."
 	},
 	"scripts/self-plugin-canary.sh": {
-		"IMPLICIT": "refuses every tool call of a session whose self-plugin marker is absent, names a root other than the main checkout's self-plugin, or is empty",
+		"IMPLICIT": "refuses every tool call of a session whose self-plugin marker is absent, names a root other than the main checkout's self-plugin, or is empty, and fails closed on every fault it meets, an exit it did not choose included (its EXIT trap, mantahostels#103 §6)",
 		"JUSTIFIED": "fail-safe — a session the self-plugin did not load, or loaded from another tree, would otherwise run with no guards or another tree's, and nothing said",
 		"DEFEAT": "none",
 		"TREE": "host — checks this session's self-plugin marker in the host root's markers against the main checkout"

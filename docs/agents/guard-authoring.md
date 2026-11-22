@@ -147,8 +147,8 @@ bodies are 70–670 lines of bespoke judgement.
    path. Wiring counts a `package.json` script as well as a
    hook entry, a husky file and a workflow.
    - **`Enforced` claims wiring, not delivery.** The registry's Enforced
-     branch (`scripts/check-guard-registry.js:1612-1623`) requires only a
-     named path; `checkNamedPaths` (`:1481-1500`) tests only that it exists
+     branch of `scripts/check-guard-registry.js` requires only a
+     named path; its `checkNamedPaths` tests only that it exists
      and is wired — never that it fired. A wired guard killed mid-verdict
      fails open and the marker still reads true (mantahostels#2291).
    - **Its default home is `docs/agents/guard-registry.md`** (#1942), whose
@@ -439,8 +439,9 @@ script beside it, as `guard-dispatch.js` carries — or `guard-lost-deny.js`
 never reports its cancellation (`scripts/lib/deny-capable.js`, #1815). A
 guard writing its `permissionDecision` itself needs no line. A shell guard
 refusing by exit code sets `REFUSE_EXIT=2` and refuses with
-`exit "$REFUSE_EXIT"`, the shape `deny-capable.js` reads (#2473, #5541); a
-bare `exit 2` reads as a usage error.
+`exit "$REFUSE_EXIT"`, the shape `deny-capable.js` reads (#2473, #5541). A
+bare `exit 2` still blocks the call, but `deny-capable.js` does not count it,
+since a usage error spells it the same way.
 
 A core whose deny lands only on a later trigger, so a rule its deny text
 reprints must stay where it is, carries `"denyTiming": "delayed"` on its

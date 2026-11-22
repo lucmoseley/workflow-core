@@ -518,6 +518,10 @@ function coreNarrowings(wired) {
 			throw brokenError(
 				`${MANIFEST_REL}: row ${row.name}'s \`if\` is not an array of clauses`,
 			);
+		if (row.denyTiming !== undefined && row.denyTiming !== "delayed")
+			throw brokenError(
+				`${MANIFEST_REL}: row ${row.name}'s \`denyTiming\` is not "delayed"`,
+			);
 		const rel = modulePath(row.core);
 		cores.set(rel, new Set([...(cores.get(rel) ?? []), ...clauses]));
 	}
@@ -3604,8 +3608,8 @@ function sayFindings(
 		);
 	if (ifFindings.length > 0)
 		ctx.say(
-			`  An \`if\` field in ${hooksFile()}, or on a core's row in ${MANIFEST_REL},\n` +
-				"  decides whether the script runs at all, so the DEFEAT its row in\n" +
+			`  An \`if\` field in ${hooksFile()} decides whether the script runs at\n` +
+				"  all, so the DEFEAT its row in\n" +
 				`  ${IMPLICIT_MANIFEST} gives is computed against it. That row's \`${IF_KEY}\`\n` +
 				"  array names every clause the wiring narrows the script with, verbatim, and\n" +
 				"  no other (docs/agents/guard-authoring.md, surface 4). UNWIRED-IF is a row\n" +
@@ -3728,8 +3732,8 @@ const SPEC = {
 			okLine:
 				"every rule in scope states its backing, every claim holds, every wired " +
 				"implicit behaviour says what it does to a session, every relocated " +
-				"rule's fragment and emitter agree, and every hook `if` narrowing is " +
-				"stated in the script it narrows.",
+				"rule's fragment and emitter agree, and every implicit row's `IF` " +
+				"matches the `if` narrowing its script is wired with.",
 			noun:
 				findings.length > 0
 					? "rule(s) or wired script(s) whose stated backing or behaviour is missing or false"
