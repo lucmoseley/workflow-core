@@ -125,7 +125,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { ENTRY_BUDGET_MS } = require("./hook-deadline.js");
 const { trimEndRun } = require("./trim-run.js");
-const { readTreeText } = require("./tree-read.js");
+const { readTreeText } = require("./file-read.js");
 
 /**
  * @typedef {{ refusal: string } | { outOfBudget: true }} RefusalRead
