@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * The probe contract (#2782): run-in-process.js held to a real `node` on every
- * behaviour its header says it reproduces — exit code, both streams, cwd, env,
- * stdin, argv, uptime, the entry module — each row run both ways on the same
- * fixture and compared, never against a hand-written expectation
- * (mantahostels#1907).
- *
- * The seam is under every suite that runs through it, so a row missing here
- * is a behaviour nothing holds it to.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -26,7 +16,6 @@ const ASYNC_PROBE = path.resolve(
 
 type RunOptions = Parameters<typeof runInProcess>[2];
 
-/** The same call through a real `node`, for the parity assertions. */
 const spawned = (args: string[], options: RunOptions = {}, script = PROBE) => {
 	const r = keptSpawn("boundary").spawnSync(
 		process.execPath,
@@ -60,8 +49,6 @@ afterEach(() => {
 
 type Result = ReturnType<typeof runInProcess>;
 
-/* A thrown stack's frames differ by route — node's loader under a spawn, the
- * harness and vitest in-process — so the throw row compares its message line. */
 const errorLine = (r: Result) => ({
 	status: r.status,
 	stdout: r.stdout,
@@ -75,7 +62,6 @@ interface Row {
 	project?: (r: Result) => unknown;
 }
 
-/* Options are built per run, since some need a fresh tmpdir. */
 const SHARED: Row[] = [
 	{
 		behaviour: "returns a bare process.exitCode set without exiting",
@@ -136,24 +122,16 @@ const SHARED: Row[] = [
 	},
 ];
 
-/* What only the sync entry point shares with a spawn: the async one's
- * require.main gap and rejection route are documented divergences, pinned in
- * its own describe in run-in-process.test.ts. */
 const SYNC_ONLY: Row[] = [
 	{
 		behaviour:
 			"returns the code the script exits with, and what it printed first",
 		args: ["exit", "3"],
 	},
-	// runCheck catches everything spec.run() throws, and
-	// `check-guard-registry.js --review` exits from inside it. A real process
-	// was gone before that catch ever ran.
 	{
 		behaviour: "lets nothing take back an exit the script then catches",
 		args: ["exit-in-try"],
 	},
-	// Returning normally after the swallow: the recorded code is then the only
-	// record of the exit.
 	{
 		behaviour: "keeps an exit the script swallows outright",
 		args: ["exit-swallowed"],
@@ -163,8 +141,6 @@ const SYNC_ONLY: Row[] = [
 		args: ["throw"],
 		project: errorLine,
 	},
-	// Every checker requires lib/check.js, whose uncaughtException listener
-	// reports the crash as BROKEN and exits 2.
 	{
 		behaviour: "hands an uncaught throw to the handler the script registered",
 		args: ["throw-handled"],
@@ -197,13 +173,9 @@ const ASYNC_ONLY: Row[] = [
 	},
 ];
 
-/* Unmeasured guess: long enough for node to start and print "armed" on a
- * loaded machine. Too short fails the "armed" assertion loudly rather than
- * passing. */
+// guess, #2782
 const HANG_MS = 2000;
 
-/* A leaked ref'd timer's spawned side: only a real process's timeout can show
- * that it never exits, which is what the in-process refusal stands in for. */
 const hangs = (script: string, mode: string) =>
 	new Promise<{ stdout: string; killed: boolean }>((resolve) => {
 		keptSpawn("timeout").execFile(
@@ -219,7 +191,6 @@ const parity = (
 	spawnedResult: Result,
 	project = (x: Result) => x as unknown,
 ) => {
-	// A renamed mode fails alike both ways, which parity alone would pass.
 	expect(spawnedResult.stderr).not.toContain("unknown mode");
 	expect(project(r)).toEqual(project(spawnedResult));
 };
@@ -251,8 +222,6 @@ describe("probe contract: spawned and in-process agree (#2782)", () => {
 			[ASYNC_PROBE, "leak-timer"],
 			[PROBE, "leak-then-handled-throw"],
 		] as const;
-		// "armed" proves the probe reached the leak, so the timeout is the
-		// timer's doing and not a slow start.
 		for (const r of await Promise.all(leaks.map(([s, m]) => hangs(s, m))))
 			expect(r).toEqual({ stdout: "armed\n", killed: true });
 
@@ -263,19 +232,12 @@ describe("probe contract: spawned and in-process agree (#2782)", () => {
 			refusal,
 		);
 		clearInterval((globalThis as Record<symbol, NodeJS.Timeout>)[LEAKED]);
-		// The async form checks once main has settled: the probe arms its
-		// timer after an await.
 		await expect(
 			runInProcessAsync(ASYNC_PROBE, ["leak-timer"]),
 		).rejects.toThrow(refusal);
 	});
 });
 
-/* `process.uptime()` read as soon as the script starts is never more than the
- * call took end to end, whichever way it ran; unpatched, it would read the
- * vitest worker's age. Crosses the real clock because the claim is about
- * process.uptime itself, which reads no seam; the bound holds whatever the
- * load, since the reading is taken inside the interval it is held to. */
 describe("uptime (#4136)", () => {
 	const timed = async (run: () => Result | Promise<Result>) => {
 		const before = performance.now();

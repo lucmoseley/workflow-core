@@ -1,23 +1,3 @@
-/*
- * python-routes.js — where a host's `pythonRoutes` in
- * .claude/workflow-core.json disagrees with its code-standards local file's
- * route table on Python (#1863). The swallowed-error gate routes by
- * `pythonRoutes`, a copy of the table's Python rows (#1830); the table wins.
- * `pythonRouteKind` is that gate's lookup of a path's row in `pythonRoutes`.
- *
- * WHICH ROWS: the table under the local file's `## Route rows` heading, each
- * backticked glob in a row's path cell taken alone, the prose beside them
- * unread. A glob reaches Python where it ends in `/`, or its last segment ends
- * in `.py` or `*`, or `pythonRoutes` names it; a bare directory or an
- * extensionless name it does not name goes unchecked.
- * A glob a later row repeats keeps the first row's kind.
- *
- * WHICH KIND: the kind cell's leading base §0 kind, or its words up to the
- * first `:`, `,` or `(`. One `pythonRoutes` cannot carry — shell, hook module,
- * a local kind such as tool configuration — is expected there as `none`: the
- * gate judges programs alone, and the table makes none of these one.
- */
-
 const { globMatches } = require("./pathspec-glob.js");
 const { PYTHON_KINDS } = require("./workflow-core-config.js");
 const { requiredGroup } = require("./regex-group.js");
@@ -49,10 +29,8 @@ const isPythonReachable = (glob) => {
 };
 
 /**
- * One table row's globs onto `rows`, or its line onto `unread` where it has
- * no backticked glob or no kind cell.
  * @param {string} line
- * @param {number} at its 1-based document line
+ * @param {number} at
  * @param {{ rows: RouteRow[], unread: number[] }} into
  */
 function readRow(line, at, { rows, unread }) {
@@ -66,11 +44,7 @@ function readRow(line, at, { rows, unread }) {
 		for (const glob of globs) rows.push({ glob, kind: kindOf(kind), line: at });
 }
 
-/**
- * The route table's rows, one per glob, with their 1-based document line,
- * and the lines of any row it could not read.
- * @param {string} text
- */
+/** @param {string} text */
 function parseRouteRows(text) {
 	const found = {
 		rows: /** @type {RouteRow[]} */ ([]),
@@ -90,11 +64,7 @@ function parseRouteRows(text) {
 	return found;
 }
 
-/**
- * A local row's kind as `pythonRoutes` must carry it, and how a finding says
- * so where the two spellings differ.
- * @param {string} kind
- */
+/** @param {string} kind */
 const declaredKindFor = (kind) => {
 	const want = PYTHON_KINDS.find((k) => k === kind) ?? "none";
 	const routed = `the local route table routes it to ${kind}${want === kind ? "" : `, which pythonRoutes carries as ${want}`}`;
@@ -102,7 +72,6 @@ const declaredKindFor = (kind) => {
 };
 
 /**
- * A row missing from either side, and a kind that differs.
  * @param {Map<string, RouteRow>} local
  * @param {Record<string, PythonKind>} declared
  * @returns {Drift[]}
@@ -137,8 +106,6 @@ function rowDrift(local, declared) {
 }
 
 /**
- * The rows both sides hold, where they stand in another order: one finding,
- * on the first row out of place.
  * @param {Map<string, RouteRow>} local
  * @param {Record<string, PythonKind>} declared
  * @returns {Drift[]}
@@ -160,9 +127,6 @@ function orderDrift(local, declared) {
 }
 
 /**
- * Each disagreement between the local file's Python route rows and
- * `pythonRoutes`. `line` is the row's document line, 0 for a row only
- * `pythonRoutes` holds.
  * @param {string} text
  * @param {Record<string, PythonKind> | undefined} declared
  * @returns {{ rows: number, drift: Drift[] }}
@@ -194,8 +158,6 @@ function pythonRouteDrift(text, declared = {}) {
 }
 
 /**
- * The kind of the first `pythonRoutes` row whose glob matches `rel`, or
- * undefined where none does.
  * @param {Record<string, PythonKind> | undefined} declared
  * @param {string} rel
  * @returns {PythonKind | undefined}

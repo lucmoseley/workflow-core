@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * lib/pull-form.js, the guard-pull-form core (#2797), in process: which
- * commands are refused a non-fast-forward reconciliation of the shared `main`
- * (mantahostels#245, #290) or a rewind of `main` (#765), and with what text.
- * A deny is only defensible while it cannot wedge sanctioned work, so every allow-case below is a shape that would
- * otherwise be a false positive; do not thin them out.
- *
- * The git reads are fakes answering as the trio fixture's real repos do: the
- * shared tree at /repo on `main`, a linked worktree at /repo-wt, another repo
- * at /other. The rule store is the real one, in process, so a refusal is held
- * to the fragment it splices. Each production read is
- * pull-form-host.test.ts's; the program's boundary is
- * guard-pull-form.test.ts's.
- */
 
 import { describe, expect, it } from "vitest";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
@@ -31,7 +17,6 @@ const { readRuleText } = require("./rule-text.js") as {
 const SHARED = "/repo";
 const LINKED = "/repo-wt";
 const ELSEWHERE = "/other";
-/* The trio fixture's commits and trees, as rev-parse --verify answers. */
 const OBJECTS = [
 	"HEAD",
 	"HEAD~1",
@@ -44,16 +29,12 @@ const OBJECTS = [
 ];
 
 interface Over {
-	/** The walk's starting directory; left off, the shared tree's root. */
 	cwd?: string;
 	vars?: Record<string, string>;
 	pullFf?: string;
-	/** The checked-out branch; left off, `main`. */
 	branch?: string;
-	/** True: every rule fetch throws, as an empty store does. */
 	storeFault?: boolean;
 	mainUnreadable?: boolean;
-	/** True: the main checkout is cut over; left off, its `main` still tracks `landing`. */
 	cutOver?: boolean;
 	isDir?: (path: string) => boolean;
 	readFileAliases?: Record<string, string | null> | null;
@@ -67,7 +48,6 @@ const treeClass = fakeTreeClassifier({
 	[`${SHARED}/.claude/worktrees/reconcile`]: "linked",
 });
 
-/** A context of fakes, answering as the trio fixture does. */
 function harness(over: Over = {}) {
 	const logs: string[] = [];
 	const ctx = kitContextFake({
@@ -112,14 +92,12 @@ const verdict = (command: string, over: Over = {}) => {
 	return d && "deny" in d ? "deny" : "allow";
 };
 
-/** The refusal `command` earns. Throws on an allow. */
 const readDenyReason = (command: string, over: Over = {}) => {
 	const d = run(command, over);
 	if (!d || !("deny" in d)) throw new Error(`expected a deny for: ${command}`);
 	return d.deny;
 };
 
-/* The land route a reconciliation refusal names, at the fake's script paths. */
 const PULL_RULE =
 	"Reconcile in your session's own worktree, never in the main checkout: `node scripts/session-checkout.js cut <session-name>` prints one, and `node scripts/session-checkout.js land` run there merges `origin/main` and pushes its queue ref.";
 const readPullRule = () => PULL_RULE;
@@ -208,16 +186,11 @@ describe("a rewrite or merge of the shared main is denied", () => {
 		["npm run test && git pull", "later in a chain"],
 		["GIT_PAGER=cat git pull --rebase", "behind an env assignment"],
 	])("%s — %s", (command) => {
-		// exempt (mantahostels#2145): the guard has one deny message, and each
-		// spelling here is its own whole command, so no other trigger is
-		// available; its text is pinned by "tells the session what to run
-		// instead" below.
 		expect(verdict(command)).toBe("deny");
 	});
 
 	it("sees the shared tree through a variable the command assigned (mantahostels#208)", () => {
 		const command = `WT=${SHARED} && git -C "$WT" pull --rebase`;
-		// The chain has two segments, so the refusal must name the pull one.
 		expect(readDenyReason(command)).toContain('git -C "…" pull --rebase');
 	});
 
@@ -230,9 +203,6 @@ describe("a rewrite or merge of the shared main is denied", () => {
 	});
 
 	it("resolves git -C, including from inside a worktree", () => {
-		// exempt (mantahostels#2145): one command, one segment, and the guard's
-		// single deny message is pinned by "tells the session what to run
-		// instead" below.
 		expect(verdict(`git -C ${SHARED} pull --rebase`, { cwd: LINKED })).toBe(
 			"deny",
 		);
@@ -245,9 +215,6 @@ describe("a rewrite or merge of the shared main is denied", () => {
 	});
 
 	it("echoes the command back readably, not as the sentinel byte (mantahostels#138)", () => {
-		// The parse blanks every quoted span to a sentinel before the guard
-		// sees it, so echoing the segment raw prints that byte at the user;
-		// unmask is what puts a readable "…" back.
 		const reason = readDenyReason('git pull --rebase "origin main"');
 		expect(reason).not.toContain("QSTR");
 		expect(reason).not.toContain("\x01");
@@ -255,11 +222,6 @@ describe("a rewrite or merge of the shared main is denied", () => {
 	});
 });
 
-/*
- * The allow-cases are the load-bearing half: a session stranded mid-merge
- * must still be able to unwind, and a fast-forward-only merge moves nothing
- * backwards.
- */
 describe("a merge or rebase reaching the shared tree directly is denied (#290)", () => {
 	it.each([
 		["git merge origin/main", "the spelling the founder ran by hand"],
@@ -280,9 +242,6 @@ describe("a merge or rebase reaching the shared tree directly is denied (#290)",
 			"after the fetch that precedes it",
 		],
 	])("%s — %s", (command) => {
-		// exempt (mantahostels#2145): the guard has one deny message for every
-		// reason, and it is pinned by "the refusal carries the land route"
-		// below.
 		expect(verdict(command)).toBe("deny");
 	});
 
@@ -324,8 +283,6 @@ describe("the shapes #290 must not wedge", () => {
 		["git rebase --edit-todo", "editing its plan"],
 		["git rebase --show-current-patch", "reading the stopped patch"],
 	])("%s passes — %s", (command) => {
-		// A tree stranded mid-merge with no way out is worse than the merge that
-		// stranded it, so these are allowed on either subcommand.
 		expect(run(command)).toBeNull();
 	});
 
@@ -340,8 +297,6 @@ describe("the shapes #290 must not wedge", () => {
 		["git merge-base --is-ancestor a b", "what concision-backstop.sh runs"],
 		["git merge-tree a b", "a read-only three-way merge"],
 	])("%s is a different subcommand, not a merge — %s", (command) => {
-		// The walker matches the subcommand word whole, so a hyphenated neighbour
-		// is never the merge this guard judges.
 		expect(run(command)).toBeNull();
 	});
 
@@ -352,7 +307,6 @@ describe("the shapes #290 must not wedge", () => {
 		],
 		["git merge --ff-only --ff origin/main", "--ff wins the same way"],
 	])("%s is denied — %s", (command) => {
-		// git takes the last of the three, and so does the scan.
 		expect(verdict(command)).toBe("deny");
 	});
 
@@ -361,15 +315,10 @@ describe("the shapes #290 must not wedge", () => {
 	});
 
 	it("a rebase cannot buy its way out with --ff-only", () => {
-		// git rebase has no fast-forward-only mode; the flag would be an unknown
-		// option to git, and reading it as an excuse here would open the hole.
 		expect(verdict("git rebase --ff-only origin/main")).toBe("deny");
 	});
 
-	/*
-	 * #302: each flag reads the next word exactly as git 2.43.0 does, measured
-	 * per flag — gitValueFlags carries the derivation.
-	 */
+	// #302
 	it.each([
 		["git merge -S --ff-only origin/main", "-S signs; its key is never a word"],
 		["git rebase -S --continue", "the same under rebase"],
@@ -390,8 +339,6 @@ describe("the shapes #290 must not wedge", () => {
 	});
 
 	it("pull.ff=only does not excuse a direct merge", () => {
-		// The config governs `git pull` alone — `git merge origin/main` under it
-		// merges exactly as it does without it.
 		expect(verdict("git merge origin/main", { pullFf: "only" })).toBe("deny");
 		expect(verdict("git rebase origin/main", { pullFf: "only" })).toBe("deny");
 	});
@@ -409,16 +356,12 @@ describe("a fast-forward is the sanctioned route and passes", () => {
 	});
 
 	it("a repo configured pull.ff=only makes a bare pull safe by its spelling", () => {
-		// git itself refuses anything but a fast-forward under this config.
 		expect(verdict("git pull", { pullFf: "only" })).toBe("allow");
 		expect(verdict("git pull origin main", { pullFf: "only" })).toBe("allow");
 		expect(verdict("git pull", { pullFf: "true" })).toBe("deny");
 	});
 
 	it("but a flag countermanding that config is still denied, echoing the command", () => {
-		// The guard has one deny message for every reason (mantahostels#2145),
-		// so this only pins that the countermanding command was the segment
-		// echoed back — not which branch of the judge produced the deny.
 		for (const command of [
 			"git pull --no-ff",
 			"git pull --ff",
@@ -469,14 +412,11 @@ describe("trees this guard has no business in", () => {
 
 describe("hard cases at the edge of the parser", () => {
 	it("a subshell or command substitution cannot hide the pull", () => {
-		// The refusal echoes the segment it fired on, so it must be the pull
-		// itself rather than the wrapper the parser was asked to see through.
 		for (const command of ["(git pull --rebase)", "x=$(git pull --rebase)"])
 			expect(readDenyReason(command)).toContain("git pull --rebase");
 	});
 
 	it("<< inside a quoted string does not open a heredoc", () => {
-		// Otherwise it swallows every line after it, the pull included.
 		expect(readDenyReason('echo "a << b"\ngit pull --rebase')).toContain(
 			"git pull --rebase",
 		);
@@ -488,8 +428,6 @@ describe("hard cases at the edge of the parser", () => {
 	});
 
 	it("a value merely containing an r is not the -r flag", () => {
-		// A value-taking letter ends the bundle walk, so the r inside a strategy
-		// option's value is never read as --rebase.
 		expect(verdict("git pull --ff-only -Xtheirs")).toBe("allow");
 		expect(verdict("git pull --ff-only -s recursive")).toBe("allow");
 		expect(verdict("git pull --ff-only --strategy-option=theirs")).toBe(
@@ -498,22 +436,14 @@ describe("hard cases at the edge of the parser", () => {
 	});
 
 	it("reads no flag at all out of a strategy option's value", () => {
-		// -Xtheirs alone does not prove it: an h in the value stops the walk as
-		// `-h` before it ever reaches an r. `renormalize` is a real -X value whose
-		// first letter is the r this guard denies on.
 		expect(verdict("git pull --ff-only -Xrenormalize")).toBe("allow");
 	});
 
 	it("reads -s -r as a strategy named -r, not as a rebase flag", () => {
-		// git's own parser takes the next word as -s's value even when it begins
-		// with a dash — the measurement is on the guard's LIMITS block.
-		// Without the --ff-only this would be denied anyway, as a bare pull.
 		expect(verdict("git pull --ff-only -s -r")).toBe("allow");
 	});
 
 	it("a bundled -r is a rebase, even under pull.ff=only", () => {
-		// Measured on git 2.43.0: pull.ff=only does NOT stop an explicit
-		// --rebase, it rebases and rewrites the local commit.
 		for (const command of [
 			"git pull -qr",
 			"git pull -rq",
@@ -543,11 +473,6 @@ describe("hard cases at the edge of the parser", () => {
 	});
 });
 
-/*
- * #301. An EMPTY `-C` or `cd` target is not an unknown tree: git and bash
- * both run against the cwd, so the parser resolves it and the command is
- * judged where it actually lands.
- */
 describe("an empty -C or cd target is the cwd, not an unknown tree (#301)", () => {
 	it.each([
 		['git -C "" merge origin/main', "an empty -C runs here"],
@@ -558,9 +483,6 @@ describe("an empty -C or cd target is the cwd, not an unknown tree (#301)", () =
 	});
 
 	it("gets the ordinary refusal, because the tree is known", () => {
-		// Not the ambiguity refusal: nothing here is ambiguous. If this ever
-		// reads as the #301 wording, the parser has stopped resolving the empty
-		// case and the deny is coming from the fail-closed limb by accident.
 		const reason = readDenyReason('git -C "" merge origin/main');
 		expect(reason).toContain("This reconciles the shared `main`");
 		expect(reason).not.toContain("I cannot tell which working tree");
@@ -576,12 +498,6 @@ describe("an empty -C or cd target is the cwd, not an unknown tree (#301)", () =
 	});
 });
 
-/*
- * A target the parser cannot EXPAND is genuinely unknown, and on `merge` and
- * `rebase` it fails CLOSED — the command reconciles wherever it lands, and
- * the shared tree is one of the candidates. The false denies that buys are
- * pinned deliberately: the escape is a literal path.
- */
 describe("a merge or rebase onto a tree it cannot resolve fails closed (#301)", () => {
 	it.each([
 		['git -C "$W" merge origin/main', "an unset variable runs HERE"],
@@ -617,8 +533,6 @@ ${readPullRule()}`);
 	});
 
 	it("refuses an innocent tree too — the accepted cost of failing closed", () => {
-		// The tree is `elsewhere` and the merge is harmless, but the guard cannot
-		// know that.
 		expect(verdict('E=$OTHER; git -C "$E" merge origin/main')).toBe("deny");
 		expect(verdict(`git -C ${ELSEWHERE} merge origin/main`)).toBe("allow");
 	});
@@ -642,10 +556,6 @@ ${readPullRule()}`);
 	});
 });
 
-/*
- * Only a bare pull's verdict needs the tree — its pull.ff config — so only it
- * keeps the fail-open (#308).
- */
 describe("a pull onto a tree it cannot resolve is judged on its flags (#308)", () => {
 	it.each([
 		['git -C "$W" pull --rebase origin main', "the mantahostels#245 shape"],
@@ -662,8 +572,6 @@ describe("a pull onto a tree it cannot resolve is judged on its flags (#308)", (
 	});
 
 	it("is refused for its flag, not for the tree it could not read", () => {
-		// Spelling the path literally would not help, so the refusal must not
-		// offer it.
 		const reason = readDenyReason('git -C "$W" pull --rebase origin main');
 		expect(reason).toContain("not by fast-forward");
 		expect(reason).not.toContain("I cannot tell which working tree");
@@ -692,8 +600,6 @@ describe("a pull onto a tree it cannot resolve is judged on its flags (#308)", (
 	});
 });
 
-/* The shared tree's HEAD~1 is a commit, as the fixture's second commit makes
- * it. */
 describe("rewinding main is refused (#765)", () => {
 	it.each([
 		["git reset --hard HEAD~1", "the hard form"],
@@ -886,8 +792,6 @@ describe("rewinding main is refused (#765)", () => {
 		);
 	});
 
-	/* #1759: guard-branch-publish's needles key on its own framing, so a
-	 * rewind it never printed is not credited to it. */
 	it.each(["git reset --hard HEAD~1", "git branch -D main"])(
 		"%s counts once, as a main-rewind refusal",
 		(command) => {
@@ -1009,9 +913,6 @@ describe("rewinding main is refused (#765)", () => {
 		},
 	);
 
-	/* #5234: only the lander moves `main`, so the local refusal prints the
-	 * shared rule, and not the remote route's lander reading. The quoted clause pins #5234's
-	 * wording on purpose: the rule read back would match any reword. */
 	it.each([
 		[
 			"git update-ref refs/heads/main HEAD~1",

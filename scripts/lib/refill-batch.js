@@ -1,10 +1,3 @@
-/*
- * refill-batch.js — the refill loop's launch step: a tick's launches grouped
- * into one dispatcher call per repo and seat (#2196), each call run, and its
- * members' records read back from the dispatch ledger, and a parked member
- * resumed in place instead where the decision routed it so (#3621).
- */
-
 const { hasNothingToRepeat } = require("./loop-prompts.js");
 const {
 	buildResumedHow,
@@ -21,24 +14,14 @@ const {
 	memberRefused,
 } = require("./dispatch-sessions.js");
 
-/* Untraced: the dispatcher call's one-off gates and a `claude --bg` that hangs
- * up to dispatch-sessions.js's own launch ceiling. */
+// guess, #2315
 const DISPATCH_FIXED_MS = 10 * 60 * 1000;
-/* Untraced: a member's 120 s launch ceiling, about 9 s of admission and the
- * 2 s stagger, rounded up (#2196). A member's worktree cut is a fetch and a
- * `git worktree add` inside it: the call sets WFC_DISPATCH_NO_BUILD, so a cut
- * finding no dependency store refuses rather than run `npm ci`, and the tick's
- * warm pass builds the store outside this budget (#4318). */
+// guess, #2196
 const DISPATCH_MEMBER_MS = 150 * 1000;
-/* The slack covers the clock read before the spawn. */
+// guess, #2012
 const LEDGER_SLACK_MS = 1000;
 
-/**
- * The pause, ms, that lets a re-read count the bg-spare the last start warmed.
- * Unset or empty is the default, as in the shell; so is an unreadable value, as
- * a NaN would never wake sleepSync.
- * @param {NodeJS.ProcessEnv} [env]
- */
+/** @param {NodeJS.ProcessEnv} [env] */
 function readStaggerMs(env = process.env) {
 	const seconds = Number(
 		env.WFC_DISPATCH_STAGGER_SECONDS || DEFAULT_STAGGER_SECONDS,
@@ -47,8 +30,6 @@ function readStaggerMs(env = process.env) {
 }
 
 /**
- * A tick's launches as dispatcher calls: one per repo and seat, in the order
- * each first appears, its members in pick order (#2196).
  * @param {import("./refill-decide.js").Launch[]} launches
  * @returns {import("./refill-decide.js").Launch[][]}
  */
@@ -63,13 +44,9 @@ function batchesOf(launches) {
 }
 
 /**
- * The dispatcher call for one batch: run with the target checkout as its
- * working directory and host root, so that repo's ledger, duplicate drop and
- * memory re-read apply, and on the batch's seat. The loop is no session, so
- * no session id rides along to be recorded as the launcher.
- * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
- * @param {string} dispatcher path to dispatch-sessions.js
- * @param {NodeJS.ProcessEnv} env the loop's own
+ * @param {import("./refill-decide.js").Launch[]} batch
+ * @param {string} dispatcher
+ * @param {NodeJS.ProcessEnv} env
  */
 function dispatchCall(batch, dispatcher, env) {
 	const [first] = batch;
@@ -93,11 +70,7 @@ function dispatchCall(batch, dispatcher, env) {
 	};
 }
 
-/**
- * The dry run's line for one dispatcher call, naming the key an overflow
- * seat's members bill (#2611, #3701).
- * @param {ReturnType<typeof dispatchCall>} call
- */
+/** @param {ReturnType<typeof dispatchCall>} call */
 function buildWouldRunLine(call) {
 	const seat = String(call.env.CLAUDE_CONFIG_DIR);
 	const on = call.env.WFC_SEAT_KEY
@@ -109,38 +82,25 @@ function buildWouldRunLine(call) {
 /**
  * @typedef {{launch: import("./refill-decide.js").Launch, reason: string}} Refusal
  * @typedef {{launched: import("./refill-loop.js").LoopLaunch[], refused: Refusal[],
- *   resumeRefused?: string|null}} BatchOutcome  `resumeRefused`, why a resume
- *   waits, which holds back every batch behind it
+ *   resumeRefused?: string|null}} BatchOutcome
  * @typedef {{resume: (l: import("./refill-decide.js").Launch,
  *   target: import("./refill-decide.js").ResumeTarget) =>
  *   import("./refill-blocks.js").Resumed,
  *   readActsBefore: import("./refill-blocks.js").ReadActsBefore,
  *   admitResume: (root: string) => string|null, stagger: () => void,
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
- *   log: (line: string) => void, now: () => number}} ResumeIo  `resume`
- *   carries a session off `target.from`, where set, to `target.seat` (#5293)
+ *   log: (line: string) => void, now: () => number}} ResumeIo
  */
 
-/* A set-level refusal or cut: the duplicate gate's REFUSED or DROPPING
- * header, the allowance cap's CAPPED, the launch timeout's REFUSED. */
 const SET_HEADER = /^\s*(REFUSED: |DROPPING |CAPPED: )/;
-/* admission.js's `slots` line at no slot, as parseRefusalReason gives it; a
- * test pins it to admission.js's template. A HOLD with slots left is the
- * allowance breach, which the loop's free-slot count skips, so that member
- * counts as tried. Residual: an `ADMISSION REFUSED` prints no `slots` line,
- * so its members count as tried too. */
 const ADMISSION_HOLD = /^slots 0 — HOLD\b/;
-/** @param {string} reason one of parseRefusalReason's */
+/** @param {string} reason */
 const isAdmissionHold = (reason) => ADMISSION_HOLD.test(reason);
 
 /**
- * Parse why the dispatcher launched nothing for `prompt` from its output: the
- * re-read's `slots` line under that member's REFUSED block, else the block's
- * first line; for a dropped member, the last set header above the drop; else
- * the call's last set-level refusal or its exit (#2500).
- * @param {string} out the dispatcher's stdout and stderr
+ * @param {string} out
  * @param {string} prompt
- * @param {string|null} failed the call's failure, null on exit 0
+ * @param {string|null} failed
  */
 function parseRefusalReason(out, prompt, failed) {
 	const lines = out.split("\n");
@@ -170,33 +130,16 @@ function parseRefusalReason(out, prompt, failed) {
 	return "no ledger entry written for it";
 }
 
-/**
- * The parked route's limit-cap parks in a row, for `l`'s launch record: the next
- * such park counts on from them, whichever session makes it (#3804).
- * @param {import("./refill-decide.js").Launch} l
- */
+/** @param {import("./refill-decide.js").Launch} l */
 const limitParksOf = (l) =>
 	l.parkedRoute?.limitParks ? { limitParks: l.parkedRoute.limitParks } : {};
 
 /**
- * Launch one batch through the dispatcher: the record of each member it
- * launched, each it refused with parseRefusalReason's reason, and the members
- * it tried. The ledger is read after every exit: a non-zero one can follow
- * earlier members' launches, and exit 0 covers a dropped member too.
- * After a non-zero exit only the launched members count as tried, as the
- * rest may never have been reached and the next tick retries them. A member
- * refused on admission's HOLD is never tried: the refusal took no slot, so
- * the next tick with one free launches it (#5125).
- * A headless launch's session id is fixed at launch, so its record carries it
- * from the start (#2611): a run ending before any listing shows it still has
- * its acts read.
- * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
+ * @param {import("./refill-decide.js").Launch[]} batch
  * @param {{dispatcher: string, env: NodeJS.ProcessEnv,
  *   run: (call: ReturnType<typeof dispatchCall>) => {failed: string|null, out: string},
  *   entriesOf: (root: string) => import("./dispatch-ledger.js").DispatchRecord[],
  *   sessionOf: (jobId: string) => string|undefined, now: () => number}} io
- *   `sessionOf` is lib/headless-runs.js's record of the job, undefined
- *   for any other; `now` is read once, before the call
  * @returns {BatchOutcome & {tried: import("./refill-decide.js").Launch[],
  *   failed: string|null, out: string}}
  */
@@ -217,11 +160,7 @@ function launchBatch(batch, io) {
 }
 
 /**
- * The members of `batch` the dispatch ledger shows launched by a call made at
- * `calledAt`: an entry written since for a member's prompt is its launch, and
- * its record is stamped with that entry's time. `reached`, those members;
- * `missing`, the rest.
- * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
+ * @param {import("./refill-decide.js").Launch[]} batch
  * @param {number} calledAt
  * @param {Pick<Parameters<typeof launchBatch>[1], "entriesOf"|"sessionOf">} io
  */
@@ -265,14 +204,6 @@ function readLaunched(batch, calledAt, io) {
 }
 
 /**
- * Resume the session that parked `l`'s ticket, in place (#3621): its new
- * launch record, or null, logged, where the decision routed it afresh or the
- * resume failed, for `l` to launch afresh. The resume is written to the
- * dispatch ledger as a launch, so the idle alarm dates the issue from it
- * (#3704); a write that fails is logged and the resume stands
- * (mantahostels#1528). A session woken in place keeps its id, so the record
- * notes the acts read before the wake, which are not this launch's (#3942); a
- * copy's session starts with none.
  * @param {import("./refill-decide.js").Launch} l
  * @param {NonNullable<import("./refill-decide.js").Launch["parkedRoute"]>} parked
  * @param {ResumeIo} io
@@ -297,8 +228,6 @@ function resumeParked(l, parked, io) {
 }
 
 /**
- * The launch record of parked `l`'s resume `r` of `target` at `launchedAt`, the
- * resume written to the dispatch ledger as a launch (resumeParked).
  * @param {import("./refill-decide.js").Launch} l
  * @param {import("./refill-decide.js").ResumeTarget} target
  * @param {Extract<import("./refill-blocks.js").Resumed, {failed: null}>} r
@@ -325,7 +254,6 @@ function recordParkedResume(l, target, r, { launchedAt, actsBefore, io }) {
 }
 
 /**
- * The launch record of parked `l`'s resume `r` of `target` at `launchedAt`.
  * @param {import("./refill-decide.js").Launch} l
  * @param {import("./refill-decide.js").ResumeTarget} target
  * @param {Extract<import("./refill-blocks.js").Resumed, {failed: null}>} r
@@ -355,22 +283,9 @@ function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
 	return withUnretired(record, r);
 }
 
-/**
- * @typedef {{at: number, batch: import("./refill-decide.js").Launch[]}}
- *   Launching  the batch the loop was launching from `at`, on record before
- *   its first member starts and gone with the tick's own write (#4180)
- */
+/** @typedef {{at: number, batch: import("./refill-decide.js").Launch[]}} Launching */
 
 /**
- * The members of `launching` that started, which a kill left out of the state
- * (#4180), recorded as the launch would have: a parked member routed to resume
- * whose session's job the store shows started since (lib/resumed-copy.js's
- * findResumed), handed what the session held; else a member the dispatch ledger
- * shows launched (readLaunched). The ledger row a parked resume owes is written
- * where the kill came first. A store that will not tell is logged, and the
- * member is looked for in the ledger alone.
- * Residual: a parked session woken in place has its acts since the wake read as
- * made before it.
  * @param {Launching} launching
  * @param {Pick<ResumeIo, "readActsBefore"|"recordLaunch"|"log"> &
  *   Pick<Parameters<typeof launchBatch>[1], "entriesOf"|"sessionOf"> & {
@@ -416,14 +331,7 @@ function adoptLaunching({ at, batch }, io) {
 }
 
 /**
- * `batch` launched: each parked member the decision routed to resume resumed
- * in place (resumeParked), the rest and any not resumed through one
- * dispatcher call, `launchFresh`, which is skipped where none is left. Each
- * resume first passes the re-read the tick's resume step gives a stopped
- * session (#3872, #3855), and the next re-read waits out its spare; the first
- * it refuses is refused with every member behind it, for a later tick, so none
- * overtakes it.
- * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
+ * @param {import("./refill-decide.js").Launch[]} batch
  * @param {ResumeIo & {launchFresh: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome}} io
  * @returns {BatchOutcome}
  */

@@ -1,22 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins the run-cost report's lines (#1880): which test files it names over the
- * 10 s budget, new against pre-existing, growth past the CI record (#4289,
- * #4579),
- * the summary beside load and memory, its silences, and the program entry an
- * adopter's runner calls.
- *
- * Every case drives an export a real caller uses (#1971): `reportForRun`, as
- * the core's runners call it in-process, or the program entry through
- * runInProcess. Both read one throwaway git repo built once for the file,
- * which no case writes to — each program case's timings file sits in its own
- * temp directory outside it, and the CI record in one more, named by
- * `WFC_SHARD_TIMINGS` as a CI shard names its own. Load and memory come in through `reportForRun`'s
- * `machine` seam, faked per case, so the lines are exact on any machine; the
- * tracker through its `findTicket` seam, or a stub `gh` for the program.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -46,8 +29,6 @@ let repo: string;
 let base: string;
 let record: string;
 
-/* No GIT_* from a hook running this suite, and no session root: the program
- * must find the repo from its cwd as an adopter's runner leaves it. */
 const cleanEnv = () =>
 	Object.fromEntries(
 		Object.entries(process.env).filter(
@@ -64,10 +45,6 @@ const git = (...args: string[]) =>
 const put = (rel: string) => fs.writeFileSync(path.join(repo, rel), "x\n");
 const CI_RUN = "CI run 41 at a21957804bab";
 
-/* `old`, `bare` and `same` at the base, with a CI record holding `old` at 8 s
- * and `same` at 5 s; `old` and `bare` edited and `committed`, `a`, `b` added
- * in a commit since; `fresh` untracked. `same` is a file the run only
- * selected as a reader. */
 beforeAll(() => {
 	repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "run-cost-")));
 	record = path.join(
@@ -113,8 +90,6 @@ describe("reportForRun", () => {
 		| { failed: string };
 	const None: Found = { tickets: [] };
 
-	/** `reportForRun` on the loaded machine; an absent `unit` means seconds,
-	 * and an absent `found` a tracker with no open ticket. */
 	const report = (
 		timings: Record<string, number>,
 		{
@@ -214,7 +189,6 @@ describe("reportForRun", () => {
 				base +
 				"; CI record not refreshed (HTTP 502: Bad Gateway); load 1.50",
 		);
-		/* The failed check's stamp, so the repo stays as every case found it. */
 		fs.rmSync(path.join(repo, ".git", "workflow-core"), {
 			recursive: true,
 			force: true,
@@ -319,9 +293,6 @@ describe("the program entry", () => {
 		return () => fs.rmSync(scratch, { recursive: true, force: true });
 	});
 
-	/* The tracker answers only the open-issue listing: one issue naming
-	 * `old.test.ts`, one naming a file whose name only contains it, one naming
-	 * neither. Any other query fails, so a broken query reads unknown. */
 	const routes = {
 		"issue list --state open --limit 1000 --json number,title": printed(
 			JSON.stringify([

@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which issues pick-next reports as naming the same repo file (#4329):
- * two frontier candidates (mantahostels#192), and a candidate with an issue
- * a live session is on (mantahostels#384, mantahostels#708).
- *
- * Loosen a case and a run warns against the very issue it offers, or stays
- * silent while a candidate's session would write under a live one.
- */
 import { describe, expect, it } from "vitest";
 
 const {
@@ -26,7 +18,6 @@ describe("frontier and in-flight pairs", () => {
 	it("pairs a candidate only with an issue a live session is on", () => {
 		const one = issue(1);
 		const two = issue(2, ["luc"]);
-		// Claimed: in flight, and out of the frontier.
 		const claimed = collisionsOf(
 			annotatePaths([one], tracked),
 			[one, two],
@@ -37,7 +28,6 @@ describe("frontier and in-flight pairs", () => {
 		expect(claimed.inFlightCollisions).toMatchObject([
 			{ candidate: 1, inFlight: 2 },
 		]);
-		// Unclaimed: the run offers #2 itself, so it is an ordinary candidate pair.
 		const open = collisionsOf(
 			annotatePaths([one, two], tracked),
 			[one, two],
@@ -89,7 +79,6 @@ describe("the POSSIBLE FILE COLLISIONS lines", () => {
 		}).join("\n");
 
 	it("suppresses a pair sharing only docs/doc-map.md behind a summary count", () => {
-		// The doc-map-only wall the skill tells the reader to discount (.claude/skills/pick-next/SKILL.md; mantahostels#593).
 		const out = lines([
 			pair(1, 2, ["docs/doc-map.md"]),
 			pair(1, 3, ["docs/doc-map.md"]),

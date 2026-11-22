@@ -1,20 +1,4 @@
 // @vitest-environment node
-/**
- * Pins lib/rescue-jobs.js's account of where a dead session got to — its
- * transcript, its jobs and its landed commits — which the `rescue-sessions`
- * skill hands to the session that takes its work over on another Claude plan
- * (mantahostels#2605). The list and snapshot cores run in-process on
- * lib/rescue-ports-fake.ts's ports (#5157), whose oracle lists no seat here,
- * so liveness reads as unreadable; rescue-sessions.test.ts keeps the
- * program's own cases.
- *
- * Over temp config dirs in the daemon's own layout: the transcript reducers
- * are read back from what `snapshot` writes, the job reads from what `list`
- * prints, and the landed commits over a throwaway git repo. Loosen a case and
- * the successor session the skill briefs reads a wrong account of where a
- * dead session got to — a neighbour's commit taken for its own, or its last
- * prose lost under tool output.
- */
 import { execFileSync } from "node:child_process";
 import {
 	mkdirSync,
@@ -43,10 +27,8 @@ const { list, snapshot } = require("./rescue-jobs.js") as {
 	snapshot: Core;
 };
 
-/** The ports, no seat listed: liveness reads as unreadable. */
 const ports = () => createRescuePorts(join(tmpdir(), "no-proc")).ports;
 
-/** Every temp dir a test made. */
 const made: string[] = [];
 
 afterEach(() => {
@@ -59,7 +41,6 @@ function tempDir(prefix: string): string {
 	return dir;
 }
 
-/** One transcript line, in the shape the daemon writes. */
 function line(obj: unknown): string {
 	return JSON.stringify(obj);
 }
@@ -73,7 +54,6 @@ const called = (name: string, input: Record<string, unknown>) =>
 	line(assistant([{ type: "tool_use", name, input }]));
 const bash = (command: string) => line(buildBashCall(command));
 
-/** A config dir holding the jobs described, in the daemon's own layout. */
 function configDirOf(jobs: Record<string, unknown>): string {
 	const dir = tempDir("rescue-cfg-");
 	mkdirSync(join(dir, "jobs"), { recursive: true });
@@ -96,10 +76,6 @@ interface Snapshot {
 	commitsLanded: string[] | null;
 }
 
-/**
- * `snapshot` over one job whose transcript is `lines`: the narration file it
- * wrote, the job's index entry, and what it printed.
- */
 async function snapshotOf(
 	lines: string[],
 	state: Record<string, unknown> = {},
@@ -210,7 +186,6 @@ describe("where snapshot says a session died", () => {
 	});
 });
 
-/** `list` over the jobs described. */
 async function listOf(jobs: Record<string, unknown>, extra = {}) {
 	const cfg = configDirOf(jobs);
 	const res = await list({ _: ["list"], from: cfg, ...extra }, ports());
@@ -309,9 +284,6 @@ describe("the artefacts snapshot says survived", () => {
 		expect(entry.artefactsSurvived).toEqual([]);
 	});
 
-	// mantahostels#2628: package.json genuinely exists at the repo root, the cwd
-	// runInProcess gives the script here — the case that would otherwise pass
-	// by accident.
 	it("never resolves a relative path against its own process cwd when the job has none", async () => {
 		const { entry } = await snapshotOf([
 			called("Write", { file_path: "package.json" }),
@@ -334,7 +306,6 @@ describe("the commits snapshot says were attempted and landed", () => {
 	const commit = (msg: string) =>
 		execFileSync("git", ["commit", "--allow-empty", "-m", msg], { cwd: repo });
 
-	/** snapshot over a session that ran `calls`, dying now in `cwd`. */
 	const landed = (calls: string[], cwd = repo) =>
 		snapshotOf(calls.map(bash), {
 			cwd,
@@ -555,8 +526,6 @@ describe("the commits snapshot says were attempted and landed", () => {
 		);
 	});
 
-	// mantahostels#2628: a bare time window would attribute ANY commit in the window to
-	// this job, including a concurrent neighbour's.
 	it("does not attribute a neighbour's commit this job never attempted", async () => {
 		commit("a neighbour's unrelated commit");
 		const { entry } = await landed(['git commit -m "landed the fix" -- a.js']);

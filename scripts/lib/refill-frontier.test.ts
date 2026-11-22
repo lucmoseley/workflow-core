@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins how the refill loop's frontier takes in issues from repos it does not
- * serve (#2427): a foreign blocker pulled in by a served shortlist is read
- * from its own checkout's shortlist and launched, ranked on the served
- * issues it holds out; one with no checkout, or that its own shortlist does
- * not return, is held.
- * Driven through a fake shortlist, so no pick-next runs. Loosen a case and
- * the loop launches another repo's whole frontier, launches where no
- * checkout is, or leaves a served ticket held by a blocker nobody works.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -60,7 +50,6 @@ const pulled = (number: number, over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** A fake shortlist answering per root, logging the roots it was asked for. */
 const shortlists = (by: Record<string, unknown>) => {
 	const asked: string[] = [];
 	const fn = async (root: string) => {
@@ -91,7 +80,6 @@ const launchesOf = (frontier: unknown[]) =>
 			`${path.basename(l.root)}#${l.issues.join("+")}`,
 	);
 
-/** A shortlist of these rows, naming no goal and nothing running. */
 const list = (numbers: number[]) => ({
 	rows: numbers.map((n) => row(n)),
 	retroBundles: [],
@@ -317,8 +305,6 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 	});
 
 	it("inherits the tier and chain depth of what it holds across repos, not its own repo's depth (#3222)", async () => {
-		// o/other#20 holds an urgent served issue two steps on; the served #2
-		// leads on reach, and #20's own repo counts it 7 deep on its own chains.
 		const s = shortlists({
 			[served]: {
 				rows: [row(2, { reach: 3 })],
@@ -494,7 +480,6 @@ describe("a pulled-in issue whose own blockers would not read", () => {
 });
 
 describe("served X blocked by foreign Y, Y by foreign Z (#2427 acceptance)", () => {
-	/** The served shortlist as pick-next builds it, over the chain's graph. */
 	const servedShortlist = async (zState: "open" | "closed") => {
 		const issue = (repo: string, number: number, state: string) => ({
 			repo,

@@ -1,29 +1,12 @@
-/*
- * review-hold-marker.js — the review hold's judgement of its marker and the
- * text it answers with (#1622, spec #1612 §The hold): which fault a marker
- * carries, the `Review-Tier:` value a clearing one leaves, and the refusal.
- * A module of its own so the fault ladder and the text are tested through
- * these exports, word for word.
- */
-
 const { trimEndRun } = require("./trim-run.js");
 
-/**
- * concision-marker.sh's NAMED_PATHS_MAX, which the Stop nag lists paths up
- * to: a first guess there, never measured. lib/review-hold-marker.test.ts
- * pins the two together.
- */
+// guess, #1769
 const NAMED_PATHS_MAX = 10;
 
-/**
- * The most of a bad tier= value a fault quotes: concision-marker.sh's
- * short_quote cuts at `%.40s`.
- */
+// #5153
 const QUOTED_MAX = 40;
 
 /**
- * The value of the marker's first `<key>=` line, verbatim, or null where it
- * has none.
  * @param {string} text
  * @param {string} key
  */
@@ -36,8 +19,6 @@ function markerField(text, key) {
 const stripped = (v) => (v ?? "").replace(/\s/g, "");
 
 /**
- * The comma-separated values of the marker's `<key>=` line, trimmed, empty
- * ones dropped.
  * @param {string} text
  * @param {string} key
  */
@@ -54,10 +35,7 @@ const joinComma = (words) => words.join(", ");
 const shortQuote = (v) => `'${v.slice(0, QUOTED_MAX)}'`;
 
 /**
- * Why the marker does not clear a commit holding `areas`, carrying `tree` and
- * owing review of `owed`, or "" where it does: an escalated tier naming every
- * area, `tree=` this tree, and `paths=` naming every owed path.
- * @param {string | null} text the marker, null where there is none
+ * @param {string | null} text
  * @param {string[]} areas
  * @param {string} tree
  * @param {string[]} owed
@@ -87,7 +65,6 @@ function markerFault(text, areas, tree, owed) {
 }
 
 /**
- * The `Review-Tier:` value a clearing marker leaves for the trailer.
  * @param {string} text
  * @param {string} tree
  */
@@ -97,10 +74,10 @@ const stampValue = (text, tree) =>
 /**
  * @param {object} r
  * @param {string[]} r.areas
- * @param {string[] | null} r.offSides on a merge, the paths no side carries
+ * @param {string[] | null} r.offSides
  * @param {string} r.marker
  * @param {string} r.fault
- * @param {string} r.stagedFault the staged declaration's read fault, or ""
+ * @param {string} r.stagedFault
  * @param {string} r.rule
  */
 function refusal({ areas, offSides, marker, fault, stagedFault, rule }) {

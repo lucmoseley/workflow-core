@@ -1,19 +1,3 @@
-/*
- * retained-jsonl.js — append one JSON line to a log that keeps its own
- * history by age: lines whose `at` is older than the caller's retention go.
- *
- * NO APPEND IS LOST TO A PRUNE (#4819). Every append, prune and removal of a
- * log runs under a lock directory beside it (lib/dir-lock.js). A writer that waits the lock
- * out appends anyway and prunes nothing; a holder stalled past that wait, or
- * past the lock's stale takeover, carries over whatever such a writer
- * appended after its read (`replaceCarrying`). The rewrite is an atomic
- * rename, so a reader never sees a log cut short.
- *
- * NEVER THROWS: an unwritable log costs the line, never the caller's run.
- * Synchronous throughout, because the queue's signal handler calls it on its
- * way to exit.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught, ignoreFailure } = require("./caught.js");
@@ -31,9 +15,7 @@ const lockOf = (file) => `${file}.lock`;
  * @param {Record<string, unknown> & { at: string }} entry
  * @param {number} retainMs
  * @param {{dropOnBadLine?: boolean, now?: () => number}} [options]
- *   `dropOnBadLine` empties a log holding a line that will not parse before
- *   appending, for a reader to whom a lost line may be a newer verdict
- * @returns {boolean} whether the line landed
+ * @returns {boolean}
  */
 function appendRetained(
 	file,
@@ -43,7 +25,6 @@ function appendRetained(
 ) {
 	if (!file) return false;
 	let landed = false;
-	// A log that will not take the line costs the line.
 	ignoreFailure(() =>
 		withDirLock(
 			lockOf(file),
@@ -63,14 +44,11 @@ function appendRetained(
 }
 
 /**
- * Rewrite `file` without its lines past `retainMs`, once its oldest is a day
- * past it, so a log is rewritten about once a day rather than on every append.
  * @param {string} file
  * @param {number} retainMs
  * @param {number} now
  */
 function prune(file, retainMs, now) {
-	// The line is written; a failed prune costs disk, not the record.
 	ignoreFailure(() =>
 		replaceCarrying(file, (text) => {
 			const { rows } = parseJsonl(text);
@@ -124,9 +102,6 @@ function replaceCarrying(file, next) {
 }
 
 /**
- * Delete every log in `dir` last written before `beforeMs`, under its lock,
- * and any lock or rewrite aside a crashed writer left beside one. Throws
- * where a removal does.
  * @param {string} dir
  * @param {number} beforeMs
  * @param {() => number} [now]
@@ -150,7 +125,6 @@ const writtenBefore = (file, beforeMs) => {
 };
 
 /**
- * Delete `file` where it was last written before `beforeMs`, under its lock.
  * @param {string} file
  * @param {number} beforeMs
  * @param {() => number} now

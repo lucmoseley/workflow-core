@@ -173,6 +173,8 @@ describe("JSDoc types checkJs reads are code", () => {
 			"/**",
 			" * @typedef {{ x: number }} Point",
 			" * @template T, U",
+			" * @template {string} [C=string]",
+			" * @template T, [U = string]",
 			' * @import { Ctx } from "./check"',
 			" */",
 			"",

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The read audit (#4916): real Node processes under the preload, on a
- * throwaway checkout, and the logs they leave read back into each test
- * file's reads. Loosen a case and the pass store caches a file whose verdict
- * rests on a read nobody recorded.
- *
- * Cost: every case runs one to three real Node processes under the preload,
- * and a traced one its tracer; some spawn real git, tar or systemctl too.
- * The spawn hooks, the links a hand goes through and what those programs
- * run are what is under test, which no seeded log reaches.
- */
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -41,8 +30,6 @@ const STRACE = (() => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 })();
-// Without strace the tracer blocks skip and stay green; CI fails instead.
-// Residual: a local run, or a CI runner with no CI variable, still skips them.
 it.runIf(process.env.CI)(
 	"fails in CI where strace is missing, naming the install step (#5068)",
 	() => {
@@ -90,9 +77,6 @@ function checkout() {
 	return dir;
 }
 
-/* The variables vitest.setup.ts sets and the few a child needs to run: the
- * runner's own (`GITHUB_REF_NAME=main`) would hand the audit values no test
- * chose (#5049). */
 const HARNESS_VAR =
 	/^(PATH|HOME|TMPDIR|LANG|LC_\w+)$|^(WFC_|GIT_|CLAUDE_|MEMWATCH_)/;
 const harnessEnv = () =>
@@ -106,16 +90,9 @@ interface AuditOpts {
 	settle?: boolean;
 }
 
-/**
- * Run `body` as the test file `file` in a process under the audit armed over
- * `root`; returns the audit's log dir. `trace: false` arms it as on a machine
- * with no tracer; `settle: false` leaves the environment unsettled, as no
- * setup ran.
- */
 const audited = (root: string, file: string, body: string, opts?: AuditOpts) =>
 	runAudited(root, file, body, opts).log;
 
-/** `audited`, with what the process wrote to its stdout. */
 function runAudited(
 	root: string,
 	file: string,
@@ -149,7 +126,6 @@ function runAudited(
 
 const T = "scripts/x.test.js";
 
-/** A clock whose sleep only moves its `t` on. */
 const fakeClock = () => {
 	const c = {
 		t: 0,
@@ -161,8 +137,6 @@ const fakeClock = () => {
 	return c;
 };
 
-/* A child's verdict as the preload logs it (lib/read-audit-provenance.js),
- * for a log seeded by hand: nothing it is, but what `is` names. */
 const NOTHING = buildVerdictOf({
 	root: "/nonexistent",
 	tmps: [],
@@ -170,7 +144,6 @@ const NOTHING = buildVerdictOf({
 })({ file: "", bin: [], args: [], envPairs: [], audited: false, standing: {} });
 const prov = (is: Record<string, boolean> = {}) => ({ ...NOTHING, ...is });
 
-/* The guard on PATH, as vitest.setup.ts puts it, for a test's git calls. */
 const guarded = (root: string) => ({
 	PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
 	WFC_HOST_GIT_DIR: git(
@@ -386,8 +359,6 @@ describe("what a test file reads, as the audit sees it", () => {
 		);
 	});
 
-	/** A body running `git ls-files -o` in `cwd` with the spawn's environment
-	 * changed by `set` (a name to a value, or to null to delete it). */
 	const lsFiles = (cwd: string, set: Record<string, string | null>) =>
 		[
 			"const env = { ...process.env };",
@@ -473,7 +444,6 @@ describe("what a test file reads, as the audit sees it", () => {
 	});
 });
 
-/** A program `tool` a test wrote, as `text`, in a scratch directory to put on PATH. */
 function stubTool(text: string) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rda-stub-"));
 	dirs.push(dir);
@@ -481,7 +451,6 @@ function stubTool(text: string) {
 	return dir;
 }
 
-/** A test body running the `tool` on `stub` in the checkout `root`. */
 const runsTool = (root: string, stub: string) =>
 	`require("node:child_process").execFileSync("tool", ["api", "user"], { cwd: ${quoted(root)}, env: { ...process.env, PATH: ${quoted(stub + path.delimiter)} + process.env.PATH } });`;
 
@@ -489,8 +458,6 @@ const READS_SETTINGS = "#!/bin/sh\ncat .claude/settings.json\n";
 
 describe("waiting out a traced child's copied output (#5218)", () => {
 	const fail = (code: string) => Object.assign(new Error(code), { code });
-	/** Named pipes whose `cat` reads for `reads[path]` more probes, then
-	 * ends; every other path absent. */
 	const fifos = (reads: Record<string, number>) => {
 		const unlinked: string[] = [];
 		const probed: string[] = [];
@@ -609,9 +576,7 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 				`const at = { cwd: ${quoted(root)}, encoding: "utf8" };`,
 				'const r = cp.spawnSync("sh", ["-c", "echo $$; exit 3"], at);',
 				"if (r.status !== 3 || Number(r.stdout) !== r.pid) throw new Error(JSON.stringify(r));",
-				/* Crosses the real clock: the kill Node sends at its timeout is
-				 * what the case tests. 300 ms is a guess above a shell's start
-				 * under the tracer; the 30 s sleep, one far past it. */
+				// guess, #4966
 				'const k = cp.spawnSync("sh", ["-c", "exec sleep 30"], { ...at, timeout: 300 });',
 				'if (k.signal !== "SIGTERM") throw new Error(JSON.stringify(k));',
 			].join("\n"),
@@ -619,9 +584,7 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		expect(audit).toHaveProperty("reads");
 	});
 
-	/* 20 rounds: before #5218 most runs lost the race in one. The audit
-	 * reading back with no doubt is the positive pair: the wait keeps the
-	 * child traced. */
+	// guess, #5218
 	const Rounds = 20;
 	const interleaved = Array.from(
 		{ length: Rounds },
@@ -658,7 +621,6 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 
 	it("delivers the exit of a traced child whose process group was killed, its pipes' readers with it, and leaves no pipe (#5218)", () => {
 		const root = checkout();
-		/* The 30 s sleep is one far past the case: the kill is what it tests. */
 		const body = [
 			'const cp = require("node:child_process");',
 			'const fs = require("node:fs");',
@@ -683,8 +645,6 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 			[
 				'const cp = require("node:child_process");',
 				`const at = { cwd: ${quoted(root)}, encoding: "utf8" };`,
-				/* The 30 s sleep is one far past the case: the spawn returning
-				 * while it lives is what the case tests. */
 				`const r = cp.spawnSync("sh", ["-c", "setsid sh -c 'echo $$; exec sleep 30 </dev/null >/dev/null 2>&1' </dev/null 2>/dev/null &"], at);`,
 				"const pid = Number(r.stdout);",
 				"process.kill(pid, 0);",
@@ -742,8 +702,6 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 				`${line}\ncat "$(dirname "$0")/data.txt"\n`,
 			);
 			fs.chmodSync(sh, 0o755);
-			/* The checkout stands outside the child's temporary directory, so
-			 * the script is no stub a test wrote. */
 			const tmp = fs.realpathSync(
 				fs.mkdtempSync(path.join(os.tmpdir(), "rda-tmp-")),
 			);
@@ -872,7 +830,6 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			const root = checkout();
 			const cwd = outsideDir();
 			const link = path.join(cwd, "in");
-			/* Linked by a child, which leaves this process's lookups standing. */
 			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)})`;
 			const body = [
 				spawns("cat", [], cwd),
@@ -951,8 +908,6 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			const root = checkout();
 			const cwd = outsideDir();
 			const staged = path.join(cwd, "staged");
-			/* Linked by a child, which leaves this process's lookups standing,
-			 * until the process moves the link's directory into the path. */
 			const linker = `const fs = require("node:fs"); fs.mkdirSync(${quoted(staged)}); fs.symlinkSync(${quoted(root)}, ${quoted(path.join(staged, "in"))});`;
 			const body = [
 				spawns("cat", [], cwd),
@@ -974,8 +929,6 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			const cwd = outsideDir();
 			const link = path.join(cwd, "in");
 			const apart = outsideDir();
-			/* Linked by a child, unseen: a lookup kept from before it misses
-			 * the link, which a removal apart from the path leaves standing. */
 			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)})`;
 			const body = [
 				spawns("cat", [], cwd),
@@ -998,8 +951,6 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			const target = outsideDir();
 			fs.symlinkSync(target, path.join(cwd, "hop"));
 			const apart = outsideDir();
-			/* The hop is not kept: a child linking under its target moves the
-			 * lookup, so any removal drops it. */
 			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(path.join(target, "in"))})`;
 			const body = [
 				spawns("cat", [], cwd),
@@ -1035,11 +986,6 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
-		/* What a Node descendant of the test was handed: the lookups it starts
-		 * from, or none. `spawner` is what the test runs after filling its own
-		 * lookups, handed the reporter's code. `/bin` is a link on a merged-/usr
-		 * system and a directory elsewhere; neither is under a temporary
-		 * directory. */
 		const spawnsNode = (code: string) =>
 			`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(code)}]);`;
 		const handedTo = (spawner: (report: string) => string) => {
@@ -1056,8 +1002,6 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 				JSON.parse(fs.readFileSync(out, "utf8")),
 			);
 		};
-		/* An unlink of `/` always fails (EISDIR) and removes nothing, yet the
-		 * attempt drops every lookup at or under it. */
 		const dropsAll = `try { require("node:fs").unlinkSync("/"); } catch {}`;
 
 		it("hands a Node child its spawner's lookup of a path no test may write (#5160)", () => {
@@ -1455,7 +1399,6 @@ describe("the routes still open after #4982 (#4997)", () => {
 	}).trim();
 
 	describe("input written to a child's pipe once it runs", () => {
-		/** A body that starts `cat` and writes `chunks` down its input. */
 		const writes = (cwd: string, chunks: string[]) =>
 			[
 				`const c = require("node:child_process").spawn("cat", [], { cwd: ${quoted(cwd)}, stdio: ["pipe", "ignore", "ignore"] });`,
@@ -1503,7 +1446,6 @@ describe("the routes still open after #4982 (#4997)", () => {
 	});
 
 	describe("what real git runs", () => {
-		/** A fixture repository outside the checkout, with a hook if asked. */
 		const fixture = (hook?: string) => {
 			const dir = outsideDir();
 			git(dir, "init", "-q");
@@ -1557,8 +1499,6 @@ describe("the routes still open after #4982 (#4997)", () => {
 			expect(untraced(root, plain)).toHaveProperty("reads");
 		});
 
-		/** A body that starts git on `args` and, once it first answers, ends it
-		 * by `stop`. */
 		const stopped = (repo: string, args: string[], stop: string) =>
 			[
 				`const c = require("node:child_process").spawn(${quoted(realGit)}, ${quoted(args)}, { cwd: ${quoted(repo)}, stdio: ["pipe", "pipe", "ignore"] });`,
@@ -1646,7 +1586,6 @@ describe("the routes still open after #4982 (#4997)", () => {
 			`const env = { ...process.env, PATH: ${quoted(GUARD_DIR + path.delimiter)} + process.env.PATH }; delete env.WFC_READ_AUDIT; try { require("node:child_process").execFileSync("git", ${quoted(args)}, { cwd: ${cwd}, env, stdio: "ignore" }); } catch {}`;
 		const minting = (root: string) =>
 			`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`;
-		/** The hands the preload logged on each git child holding `word`. */
 		const handsOn = (root: string, body: string, word: string) => {
 			const log = audited(root, T, body, { trace: false });
 			return fs
@@ -1704,7 +1643,6 @@ describe("the routes still open after #4982 (#4997)", () => {
 			expect(
 				untraced(root, inScratch(["clone", "-q", source, "made"])),
 			).toHaveProperty("reads");
-			/* `git help` runs `man`, which the call's event log doubts first. */
 			expect(
 				handsOn(root, inScratch(["init", "--help"]), "--help"),
 			).toContainEqual({ by: "repo", p: ["."] });
@@ -1721,8 +1659,6 @@ describe("the routes still open after #4982 (#4997)", () => {
 			]
 				.join("\n")
 				.replace('"PLACE"', "scratch");
-			/* `..` read against the scratch it follows names the checkout, which
-			 * doubts first; the repository it finds there is a hand too. */
 			expect(untraced(root, walked).doubt).toMatch(
 				/was handed a path in the checkout/,
 			);
@@ -1735,8 +1671,6 @@ describe("the routes still open after #4982 (#4997)", () => {
 				stripped(["--bare", "rev-parse", "--git-dir"], "scratch"),
 			].join("\n");
 			expect(untraced(root, inScratch)).toHaveProperty("reads");
-			/* git takes the repository where `--bare` is read: -C words after
-			 * it move only the work tree. */
 			const after = [
 				minting(root),
 				stripped(
@@ -1788,9 +1722,7 @@ describe("the routes still open after #4982 (#4997)", () => {
 			);
 		});
 
-		/* The timeout bounds a systemctl that waits on a user bus, or a host,
-		 * this machine may not reach: 10 s, a guess far past the second or so
-		 * one that answers takes. */
+		// guess, #4997
 		const systemctl = (cwd: string, args: string[], env = {}) =>
 			`try { require("node:child_process").execFileSync("systemctl", ${quoted(["--user", ...args, "--no-ask-password", "no-such.service"])}, { cwd: ${quoted(cwd)}, env: { ...process.env, EDITOR: "true", SYSTEMD_EDITOR: "true", ...${quoted(env)} }, stdio: "ignore", timeout: 10000 }); } catch {}`;
 
@@ -1807,7 +1739,6 @@ describe("the routes still open after #4982 (#4997)", () => {
 describe("from a real audited run to a cached row (#4916)", () => {
 	const Values = { node: "v22.0.0", arch: "arm64" };
 
-	/** Record `log`'s run of T at `root`, as the suite's teardown does. */
 	const recordRun = (root: string, log: string) =>
 		record(
 			{
@@ -1827,7 +1758,6 @@ describe("from a real audited run to a cached row (#4916)", () => {
 		lookup([T], { root, storeRoot: root, values: Values, rowless: false })
 			.cached.length === 1;
 
-	/** A checkout holding what a row keys on; `commit` once the run is in. */
 	const keyed = () => {
 		const root = checkout();
 		for (const f of ["vitest.config.ts", "vitest.setup.ts", "package.json"])
@@ -1998,7 +1928,6 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 
 	describe("off a child's trace (#4966)", () => {
 		const Exit = "7 +++ exited with 0 +++\n";
-		/** The audit of a file whose one child left `trace`, null for none. */
 		const traced = (root: string, trace: string | null) => {
 			const dir = logs({
 				"100.100.jsonl": [
@@ -2191,7 +2120,6 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 	const Claim = { k: "claim", file: "a.test.ts" };
 	const Self = { k: "self", owner: "100", pid: 100 };
 
-	/** The guard's two records of one call: begun, then answered `ANSWER`. */
 	const Answer = "0:da39a3ee5e6b4b0d3255bfef95601890afd80709";
 	const gitRecord = (dir: string, words: string[]) =>
 		["", Answer]
@@ -2207,10 +2135,6 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			.map((f) => `${f}\0`)
 			.join("");
 
-	/**
-	 * The audit of a.test.ts off a log of `lines` and the guard's record of
-	 * `calls`, each a directory and a git call's words.
-	 */
 	function judged(root: string, lines: object[], calls: [string, string[]][]) {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rda-log-"));
 		dirs.push(dir);
@@ -2225,7 +2149,6 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		return readAudits(dir, root).get("a.test.ts");
 	}
 
-	/** The audit of a real process running `body` as T under the preload. */
 	const ran = (root: string, body: string) =>
 		readAudits(audited(root, T, body, { trace: false }), root).get(T);
 
@@ -2307,7 +2230,6 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		expect(judged(root, [child(py)], []).doubt).toMatch(unread);
 		const elf = program("scripts/tool", "\x7fELF");
 		expect(judged(root, [child(elf)], []).doubt).toMatch(unread);
-		/* A shell runs it, and the reach reads it by its name, as Python. */
 		const misnamed = program("scripts/sh.py", "#!/bin/sh\ntrue\n");
 		expect(judged(root, [child(misnamed)], []).doubt).toMatch(unread);
 		const link = path.join(os.tmpdir(), "elsewhere", "run");
@@ -2330,7 +2252,6 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		expect(
 			judged(core, [child("git", [guard, guard], {})], []).reads.scripts,
 		).toEqual(named);
-		/* Through a link, it finds itself by another path. */
 		const link = path.join(core, "scripts/lib/elsewhere/git");
 		expect(judged(core, [child("git", [link, guard], {})], []).doubt).toMatch(
 			/ran a program of the checkout/,
@@ -2468,7 +2389,6 @@ describe("arming", () => {
 
 	it("removes the directory a run killed mid-audit left, once stale, and never a live run's (#5046)", async () => {
 		const root = checkout();
-		/* A run that arms the audit, names its directory and waits. */
 		const arm = () => {
 			const child = keptSpawn("signal").spawn(
 				process.execPath,

@@ -1,22 +1,3 @@
-/*
- * post-commit-rows.js — .husky/post-commit's Node steps, one row each, run
- * in order by scripts/post-commit-dispatch.js through
- * lib/precommit-dispatch.js (#5207). Every row warns: git ignores the hook's
- * exit status, and a step's fault must never read as a failed commit.
- *
- * A rebase, cherry-pick or multi-commit revert replays commits, firing this
- * hook once per replayed commit, and a bisect checks out commits nobody here
- * wrote. The route-gated rows stand down on those routes, lib/commit-route.js's
- * `post-commit-stand-down` set, each for a reason of its own: the three
- * notices would attribute a whole range one commit at a time
- * (mantahostels#1825), the release would drop a live claim over somebody
- * else's paths (mantahostels#2336), and the record would take a replayed
- * commit, which may be a neighbour's, as this session's own (#766). A route
- * that will not read stands them down too. The clean single cherry-pick
- * costs that commit's stand-down rows: new-shared-faults, instruction-surface,
- * guard-registry, claim-release and commit-record.
- */
-
 const { commitRoute } = require("./commit-route.js");
 const { readHookGitDir } = require("./hook-entry.js");
 const { dispatch } = require("./precommit-dispatch.js");
@@ -38,7 +19,7 @@ const GATED = { unlessRoutes: ["post-commit-stand-down"] };
 
 /**
  * @param {string} id
- * @param {string} script the file the row runs, for check-guard-registry.js
+ * @param {string} script
  * @param {PostCommitRow["run"]} run
  * @param {boolean} gated
  * @returns {PostCommitRow}
@@ -105,15 +86,13 @@ const ROWS = [
 ];
 
 /**
- * The registry's run under `io`, each row's output through `write`: the
- * wiring scripts/post-commit-dispatch.js and the tests share.
  * @param {import("./post-commit-steps.js").HookIo} io
  * @param {{
  *   write: (fd: number, text: string) => void,
  *   interrupted?: () => Promise<number | null>,
  *   rows?: PostCommitRow[],
  *   programs?: import("./post-commit-steps.js").Programs,
- * }} opts `programs` absent, each row runs the real programs
+ * }} opts
  * @returns {Promise<number>}
  */
 function runPostCommit(

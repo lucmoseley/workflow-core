@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins pick-next's verdict on each open issue (#4329): why it is held out of
- * the frontier, earliest-applicable reason first, the tiers it ranks on, its
- * wait, and the frontier's order (mantahostels#102, mantahostels#105,
- * mantahostels#106, #2664, #3222).
- *
- * Loosen a case and `/pick-next` offers a blocked, claimed, gated or
- * container issue as takeable, or ranks the queue so the wrong ticket leads.
- */
 import { describe, expect, it } from "vitest";
 
 const {
@@ -30,24 +21,16 @@ interface FxIssue {
 	body?: string;
 	parent?: number;
 	openSubIssues?: number;
-	/** why its blocker read failed */
 	depsUnknown?: string;
 }
 interface Fx {
 	issues: FxIssue[];
-	/** issue -> the served issues blocking it, with their state */
 	deps?: Record<number, { number: number; state: "open" | "closed" }[]>;
-	/** issues whose sub-issues read fails */
 	failSubIssues?: number[];
-	/** issue -> each label put on it, how many days ago, and by whom */
 	timeline?: Record<number, { label: string; days: number; actor?: string }[]>;
-	/** issue -> the session holding its claim */
 	claims?: Record<number, string>;
-	/** the claims were kept on a degraded oracle read */
 	kept?: boolean;
-	/** issue -> the ledger entries holding it */
 	dispatched?: Record<number, Record<string, unknown>[]>;
-	/** issue -> the parent map whose claim holds it, and that claim's session */
 	parentHeld?: Record<number, { label: string; sessionId: string }>;
 	goal?: number[];
 }
@@ -72,7 +55,6 @@ const ledgerEntry = (n: number, over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** Every issue's verdict and the frontier, over fake reads in the served repo. */
 async function verdictOf(fx: Fx) {
 	const raw = fx.issues.map((i) => ({
 		number: i.number,
@@ -339,8 +321,6 @@ describe("why an issue is held out of the frontier", () => {
 	});
 
 	it("excludes a dispatched issue though no session from that launch is still listed", async () => {
-		// The listing holds "self" alone: the ledger limb is unconditional
-		// inside the window.
 		const v = await verdictOf({
 			issues: [{ number: 2 }],
 			dispatched: { 2: [ledgerEntry(2)] },
@@ -357,7 +337,6 @@ describe("why an issue is held out of the frontier", () => {
 			dispatched: { 2: [ledgerEntry(2)] },
 		});
 		expect(v.of(2).excluded).toBe("claimed by someone");
-		// Not dispatch-held, so it stays out of the dispatched block and its count.
 		expect(v.of(2).dispatchHeld).toBe(false);
 	});
 
@@ -451,7 +430,6 @@ describe("the tiers an issue ranks on", () => {
 	});
 
 	it("passes goal-set membership to every issue holding a member out (#3222)", async () => {
-		// #2 blocks #3, whose parent #5 is the goal; #1 holds nothing.
 		const v = await verdictOf({
 			issues: [
 				{ number: 1 },
@@ -502,9 +480,7 @@ describe("the frontier's order", () => {
 		expect(v.of(1).asksQuestions).toBe(true);
 		expect(v.of(2).reach).toBe(1);
 		expect(v.of(2).asksQuestions).toBe(false);
-		// A `takes:` value overrides the type label that disagrees with it.
 		expect(v.of(7).asksQuestions).toBe(false);
-		// A map asks nothing by itself, though it takes /wayfinder.
 		expect(v.of(6).asksQuestions).toBe(false);
 	});
 
@@ -517,7 +493,6 @@ describe("the frontier's order", () => {
 });
 
 describe("the waiting:external escalation", () => {
-	// #2 outranks #1 on reach, so only a firing stall can invert the pair.
 	const pair = [
 		{ number: 1, labels: ["waiting:external"] },
 		{ number: 2 },

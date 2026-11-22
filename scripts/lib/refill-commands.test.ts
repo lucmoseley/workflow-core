@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * What the refill loop's `start` writes over a running loop's scope (#2123)
- * and what its `status` prints (#2012, #2561, #2850, #2659).
- *
- * Loosen one and a /pick-next start silently narrows or prolongs a running
- * away mode, or `status` hides a launch that waits on the founder or on the
- * loop's resumes or hand-off.
- */
 
 import { describe, expect, it } from "vitest";
 import {

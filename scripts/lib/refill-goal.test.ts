@@ -1,8 +1,4 @@
 // @vitest-environment node
-/*
- * The refill loop's goal refs (#3864): what `set` reads a typed ref as, and
- * which ticked repo it lands in. Loosen one and a number lands in the wrong repo.
- */
 import { describe, expect, it } from "vitest";
 import {
 	buildGoalLine,

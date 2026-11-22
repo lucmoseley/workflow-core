@@ -1,43 +1,3 @@
-/*
- * round-check.js — the priced-options guard's under-researched-round limb
- * (#1710, ruled at #1684). The rule it applies is written in
- * guard-priced-options.js's header (the paragraph after the close-check log's).
- *
- * THE LOG, `ROUND_CHECK_LOG` in the markers directory, written through
- * refusal-log.js's writer: one line per question the close-rivals limb does
- * not catch, or refused one that limb then took (#2076), at the Stop that
- * decides it, for the reading #1691 specifies. A refused question that comes
- * back caught, close or low-top, also takes a line at each re-send this limb
- * refuses where neither the close-rivals limb's refusal nor the
- * research-ladder limb's goes out:
- * `refused` when bare, `refused-misshapen` when still misshapen (#2244).
- * Kinds:
- *   refused               refused, on first sight or re-sent with no tool call
- *   refused-misshapen     a refused question re-sent after a tool call, or
- *                         where the transcript cannot say, with its shape
- *                         still wrong while the shape limb is silent (#1730)
- *   passed-after-refusal  a refused question let through on a later send
- *   passed-at-cap         a question never refused, let through because the
- *                         limb's cap of 3 is spent
- *   passed-unrefused      a question asked after 10 or more tool calls, or
- *                         whose count the transcript could not give
- * Every line carries `callsBefore` (tool calls since the founder last spoke,
- * at the question's first send; null where the transcript cannot say) and
- * `slot` (the limb's counter: after this block's charge on a refusal, as it
- * stands on a pass). A line after a refusal adds `sinceRefusal` and `tools`,
- * the tool calls since it and their names, and a pass of a question an
- * earlier, blocked send carried adds `resent`, false where the passing send
- * left it out, and `firstSent`, its first send's time, where that was an
- * earlier Stop's (#1949).
- *
- * A PASS IS KEPT IN THE RECORD WHILE ANOTHER STOP HOOK REFUSES ITS TURN
- * (#1799), since this limb cannot see a sibling's block: the re-send is the
- * same question, neither judged nor logged again, by this limb or, re-priced
- * into the close-rivals limb's tests, close or low-top, by that limb (#1949).
- * Once anything starts a new turn (`tool-calls-since.js`'s
- * `isTurnRefusedSince`), a round reusing the number is a new question.
- */
-
 const {
 	ROUND_CHECK_LOG,
 	ROUND_CHECK_PREFIX,
@@ -60,8 +20,7 @@ const {
 	buildShapeOnlyReason,
 } = require("./shape-hold");
 
-/* Tool calls since the founder's last message below which a round is sent
- * back (#1684). */
+// guess, #1684
 const MIN_CALLS = 10;
 
 /** @param {number | null} callsBefore */
@@ -69,11 +28,6 @@ const isUnderResearched = (callsBefore) =>
 	callsBefore !== null && callsBefore < MIN_CALLS;
 
 /**
- * A question a blocked send carried this session, so it keeps the count from
- * its first send (#1751): its round number, the tool calls before that send,
- * when that send was (#1949) and, where this limb refused it, when. The record
- * holds these beside the questions a passing send carried (`Passed`, #1799);
- * `at`, when it was written.
  * @typedef {{ number: string, callsBefore: number, sentAt?: number,
  *   refusedAt?: number }} Held
  * @typedef {Held & { refusedAt: number }} Refused
@@ -90,7 +44,6 @@ function isRefused(q) {
 }
 
 /**
- * One recorded question, or null where it is malformed.
  * @param {Record<string, unknown>} question
  * @returns {Held | null}
  */
@@ -116,8 +69,6 @@ const limb = refusalLimb({
 });
 
 /**
- * One question as this limb judged it this Stop. `shape`, its shape
- * faults where the shape limb is silent this turn, and empty otherwise.
  * @typedef {{ round: string, refuse: boolean, callsBefore: number | null,
  *   shape: string[], prior?: Refused, sinceRefusal?: number | null,
  *   tools?: string[] | null, resent?: boolean, sentAt?: number }} Check
@@ -129,9 +80,7 @@ const limb = refusalLimb({
 /** @typedef {import("./shape-hold").Flag} Flag */
 
 /**
- * A refused check's line in the refusal: on shape alone where it is re-sent
- * after a tool call, or where the transcript cannot say.
- * @param {Check} check a refused one
+ * @param {Check} check
  * @returns {Flag}
  */
 function flagOf({ round, prior, callsBefore, shape, sinceRefusal }) {
@@ -148,9 +97,9 @@ function flagOf({ round, prior, callsBefore, shape, sinceRefusal }) {
 }
 
 /**
- * @param {Flag[]} flags the refused checks' lines
- * @param {string} houseDecision the house-decision rule's text (#1683)
- * @param {boolean} isLastRefusal whether this refusal spends the limb's cap
+ * @param {Flag[]} flags
+ * @param {string} houseDecision
+ * @param {boolean} isLastRefusal
  */
 function reasonOf(flags, houseDecision, isLastRefusal) {
 	const misshapen = isMisshapen(flags);
@@ -174,17 +123,10 @@ function reasonOf(flags, houseDecision, isLastRefusal) {
 }
 
 /**
- * A question this limb already refused: refused again where no tool call has
- * run since, or where its shape is still wrong, and passed otherwise — or
- * where it was left out of this send or the close-rivals or research-ladder
- * limb refuses it.
  * @param {Refused} prior
  * @param {string | undefined} transcript
- * @param {string[] | undefined} shape its shape faults; undefined where this
- *   send left it out
- * @param {boolean} rivalLimbsRefuse whether the close-rivals or research-ladder
- *   limb refuses it this send, which takes that refusal and never this one's
- *   (#2076)
+ * @param {string[] | undefined} shape
+ * @param {boolean} rivalLimbsRefuse
  * @returns {Check}
  */
 function judgeRefused(prior, transcript, shape, rivalLimbsRefuse) {
@@ -210,8 +152,6 @@ function judgeRefused(prior, transcript, shape, rivalLimbsRefuse) {
 /** @typedef {import("./shape-hold").ShapeFaults} ShapeFaults */
 
 /**
- * Judge every question in `message` the close-rivals limb does not catch
- * (`caughtBy`), and every question this limb refused, against the record.
  * @param {string} message
  * @param {{ transcript?: string, record: RefusalRecord | null,
  *   closeJudged: Set<string>, rivalLimbsRefusing: Set<string>,
@@ -251,14 +191,6 @@ function judgeQuestions(
 			)
 		: null;
 	return [
-		/* Where the close-rivals or research-ladder limb's refusal goes out
-		 * this send, judged only so a pass pairs this limb's refusal in the
-		 * log (#2076); where it will not, its cap spent or its rule passing
-		 * the question, judged on this limb's own, so a bare re-send cannot
-		 * clear it (#2244). The close-rivals and research-ladder limbs refuse
-		 * only rounds the close-rivals limb judged, so a question it never
-		 * judged is always judged on this limb's own. Checks follow record
-		 * order, and the refusal and log lines with them (#2576). */
 		...priors.map((q) =>
 			judgeRefused(
 				q,
@@ -267,9 +199,6 @@ function judgeQuestions(
 				rivalLimbsRefusing.has(q.number),
 			),
 		),
-		/* A held question this send leaves out reached the founder on an
-		 * earlier, blocked send, so it passes with this turn, if this turn
-		 * passes. */
 		...[...firstSends.values()]
 			.filter((q) => !sent.includes(q.number))
 			.map(({ number, callsBefore, sentAt }) => ({
@@ -322,36 +251,21 @@ function lineOf(
 /**
  * @param {Check} check
  * @param {boolean} capSpent
- * @returns {RoundLogKind | null} its kind on a passing Stop
+ * @returns {RoundLogKind | null}
  */
 function passKind({ prior, callsBefore }, capSpent) {
 	if (prior) return "passed-after-refusal";
 	if (!isUnderResearched(callsBefore)) return "passed-unrefused";
-	/* A refusal let through with the cap unspent — an unwritable counter — is
-	 * logged as nothing, as the close-rivals limb does. */
 	return capSpent ? "passed-at-cap" : null;
 }
 
 /**
- * This limb's verdict on one turn, for the guard to batch with its others, in
- * the shape of close-rivals.js's `closeRivalsTurn`: `onBlocked` once a block
- * carrying this limb has gone out, with its counter after that block's
- * charge; `onBlockedElsewhere` once a block without it has; `onPassed` once
- * the turn is let through, with its counter and whether that is spent.
- * @param {string} message the outgoing assistant message
+ * @param {string} message
  * @param {{ sessionId: string, transcript?: string,
  *   stored: RefusalRecord | null | "unreadable",
  *   houseDecision: () => string,
  *   closeJudged: string[], rivalLimbsRefusing: string[],
  *   silencedShape: ShapeFaults | null, isLastRefusal: boolean }} turn
- *   `closeJudged`, the questions the close-rivals limb judged this send;
- *   `rivalLimbsRefusing`, those of them whose close-rivals or research-ladder
- *   refusal goes out this send, which alone keep a question this limb refused
- *   from its own rule (#2244);
- *   `silencedShape`, the guard's
- *   own shape check, passed in since a lib cannot require the guard program,
- *   and given only where the shape limb will not speak this turn (#1730);
- *   `isLastRefusal`, whether a block refusing here would spend this limb's cap
  * @returns {{ prefix: string, reason: string,
  *   onBlocked: (slot: number) => void, onBlockedElsewhere: () => void,
  *   onPassed: (capSpent: boolean, slot: number) => void }}
@@ -383,12 +297,7 @@ function roundCheckTurn(
 	const refusals = checks
 		.filter((c) => c.refuse)
 		.map((check) => ({ check, flag: flagOf(check) }));
-	/**
-	 * Hold this send's new questions with their counts and first sends,
-	 * `refusedAt` stamped on those this block refuses, beside what the record
-	 * already holds.
-	 * @param {{ refusing: boolean }} block whether it carries this limb
-	 */
+	/** @param {{ refusing: boolean }} block */
 	const hold = ({ refusing }) => {
 		const now = Date.now();
 		const toHold = checks.filter(
@@ -445,12 +354,8 @@ function roundCheckTurn(
 }
 
 /**
- * A question's first send, with its count: a refusal that is not a re-send's,
- * or a pass that never followed a refusal. One per Stop, keyed by session and
- * the time of that send — a line's own, or its `firstSent` where it is a
- * question held from an earlier Stop (#1949).
  * @param {{ session: string, at: string, kind: RoundLogKind,
- *   callsBefore?: number | null, firstSent?: string }[]} events  the log's lines
+ *   callsBefore?: number | null, firstSent?: string }[]} events
  * @returns {Map<string, number>}
  */
 function firstDrafts(events) {
@@ -468,9 +373,6 @@ function firstDrafts(events) {
 }
 
 /**
- * This limb's record, read once a Stop for `roundCheckTurn` and the
- * close-rivals limb, which leaves this one the questions it holds as passed
- * (#1949).
  * @param {string} sessionId
  * @param {string | undefined} transcript
  * @returns {RefusalRecord | null | "unreadable"}

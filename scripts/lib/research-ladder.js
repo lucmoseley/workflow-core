@@ -1,25 +1,3 @@
-/*
- * research-ladder.js — which rungs of the research ladder a session's tool
- * calls tried, and the refusal that names the rest (#2006; spec #1995 §The
- * research ladder).
- *
- * A QUALIFYING CALL, one per rung being enough and its content never judged:
- *   rulings   a Bash call running `gh issue list` with `--search` and a
- *             `--state` of closed or all, or `gh search issues` not narrowed
- *             to open issues, on a corpus tracker — one naming no repo
- *             searches the host's own, which the corpus follows
- *   web       a WebSearch or WebFetch call
- *   subagent  an Agent call (`Task`, its older name, too)
- *
- * Commands are read through shell-parse.js, a `$(…)` quoted or not,
- * backticks and each side of `&&` included. A repo named by a `for` loop's
- * variable is read as each word of its list, where every word is literal
- * (#4945). RESIDUALS: a `gh` call inside `bash -c`, `eval`, a script or an
- * alias, or behind a wrapper shell-words.js's unwrap does not strip, is
- * unseen; and a repo named by any other shell variable never matches the
- * corpus.
- */
-
 const { scriptPath } = require("./script-path.js");
 const {
 	parseCommand,
@@ -32,8 +10,7 @@ const { ghWords, literal } = require("./shell-words.js");
 /** @typedef {"rulings" | "web" | "subagent"} Rung */
 /** @typedef {import("./tool-calls-since").ToolCall} ToolCall */
 /** @typedef {Record<Rung, number>} RungCounts */
-/** @typedef {string[] | null} Corpus `owner/name` trackers, null where the
- *   config would not read */
+/** @typedef {string[] | null} Corpus */
 
 /** @type {Rung[]} */
 const RUNGS = ["rulings", "web", "subagent"];
@@ -44,17 +21,14 @@ const RUNG_NAME = {
 	subagent: "rung 3, a fresh subagent",
 };
 
-/* The budgets the refusal states: ceilings it advises, never enforced. Rungs
- * 2 and 3 are sourced at spec #1995 §The research ladder; rung 1's is
- * untraced there. */
+// guess, #1995
 const RULINGS_BUDGET = 5;
 const WEB_BUDGET = 10;
 const SUBAGENT_BUDGET = 15;
 
 /**
- * Each value `args` gives a flag, `--name v`, `--name=v` and `-x v` alike.
  * @param {string[]} args
- * @param {string[]} names the flag's spellings, `--state` and `-s`
+ * @param {string[]} names
  * @returns {string[]}
  */
 function parseFlagValues(args, names) {
@@ -78,16 +52,10 @@ function parseFlagValues(args, names) {
 	return values;
 }
 
-/* The flags `gh search issues` reads a value from, so their values are not
- * taken for query words. */
 const SEARCH_VALUE_FLAGS =
 	/^(?:-[RLs]|--(?:repo|owner|state|limit|label|author|assignee|mentions|commenter|involves|language|milestone|app|match|sort|order|created|updated|closed|comments|interactions|reactions|team-mentions|visibility|json|jq|template))$/;
 
 /**
- * Whether `repos` and `owners` reach a corpus tracker: either naming none —
- * the host's own tracker for `gh issue list`, every repo for `gh search` —
- * or one naming a corpus tracker or its owner. An unread corpus is reached
- * by any.
  * @param {string[]} repos
  * @param {string[]} owners
  * @param {Corpus} corpus
@@ -103,11 +71,10 @@ function isOnCorpus(repos, owners, corpus) {
 	);
 }
 
-/** @typedef {(value: string) => string[]} Expand a repo or owner word's
- *   readings under the enclosing `for` loops */
+/** @typedef {(value: string) => string[]} Expand */
 
 /**
- * @param {string[]} args the words after `gh issue list`
+ * @param {string[]} args
  * @param {Corpus} corpus
  * @param {Expand} expand
  */
@@ -123,7 +90,7 @@ function isRulingsList(args, corpus, expand) {
 }
 
 /**
- * @param {string[]} args the words after `gh search issues`
+ * @param {string[]} args
  * @param {Corpus} corpus
  * @param {Expand} expand
  */
@@ -156,7 +123,6 @@ function isRulingsSearch(args, corpus, expand) {
 	);
 }
 
-/* A `$name` or `${name}` reference inside a word. */
 const VAR_REF = /\$(?:\{(\w+)\}|(\w+))/g;
 
 /** @param {RegExpMatchArray} m */
@@ -167,9 +133,6 @@ function varName(m) {
 }
 
 /**
- * A word's readings with each loop variable it names replaced by every word
- * of that loop's list; a word naming none, or one no loop binds, reads as
- * itself.
  * @param {string} value
  * @param {Map<string, string[]>} loops
  * @returns {string[]}
@@ -186,15 +149,13 @@ function expandLoopVars(value, loops) {
 }
 
 /**
- * Whether a Bash command searches past rulings on a corpus tracker.
  * @param {string} command
  * @param {Corpus} corpus
  */
 function isRulingsCommand(command, corpus) {
 	const parsed = parseCommand(command);
 	const read = (/** @type {string} */ w) => literal(w, parsed.spans).text;
-	/** @type {{ name: string, list: string[] | null }[]} the open `for` loops,
-	 *  innermost last */
+	/** @type {{ name: string, list: string[] | null }[]} */
 	const loops = [];
 	/** @type {Expand} */
 	const expand = (value) => {
@@ -241,7 +202,6 @@ function isRulingsCommand(command, corpus) {
 }
 
 /**
- * The rung one tool call tries, or null.
  * @param {ToolCall} call
  * @param {Corpus} corpus
  * @returns {Rung | null}
@@ -259,7 +219,6 @@ function rungOf({ name, input }, corpus) {
 }
 
 /**
- * Qualifying calls per rung.
  * @param {ToolCall[]} calls
  * @param {Corpus} corpus
  * @returns {RungCounts}
@@ -276,12 +235,11 @@ function rungCounts(calls, corpus) {
 
 /**
  * @param {RungCounts} counts
- * @returns {Rung[]} the rungs with no qualifying call, in ladder order
+ * @returns {Rung[]}
  */
 const missingRungs = (counts) => RUNGS.filter((rung) => counts[rung] === 0);
 
 /**
- * The method for each missing rung, in ladder order.
  * @param {Rung[]} missing
  * @param {Corpus} corpus
  */
@@ -306,11 +264,8 @@ function buildRungSteps(missing, corpus) {
 }
 
 /**
- * The research-ladder refusal.
- * @param {string[]} lines one per refused question, naming its missing rungs
+ * @param {string[]} lines
  * @param {{ missing: Rung[], corpus: Corpus, last: string | null }} opts
- *   `missing`, every rung some refused question lacks; `last`, the
- *   last-refusal line where this refusal spends the cap
  */
 function buildLadderReason(lines, { missing, corpus, last }) {
 	return (
@@ -334,8 +289,7 @@ function buildLadderReason(lines, { missing, corpus, last }) {
 }
 
 /**
- * One refused question's line.
- * @param {string} number its round number
+ * @param {string} number
  * @param {Rung[]} missing
  */
 const buildLadderLine = (number, missing) =>

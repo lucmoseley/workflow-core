@@ -1,11 +1,3 @@
-/*
- * The one fake of lib/refill-resume.js's ResumeIo port, for its module cases
- * (#4386). Each port serves the answer a test picks by name from ANSWERS, or
- * throws the fault it picks from FAULTS, every port defaulting to its first
- * answer, and records what it was handed. Held to lib/resume-io.js by
- * resume-io.contract.test.ts (§G7).
- */
-
 import {
 	buildRekeyedResponse,
 	FAKE_COPY,
@@ -18,18 +10,12 @@ type OverflowLaunch = NonNullable<
 	ReturnType<ReturnType<ResumeIo["overflowLookup"]>>
 >;
 
-/** The stopped session every answer is about, and its short job id, which
- * `claude stop` and the job store key on. */
 export const SESSION = "5e55101d-job7";
 export const JOB = SESSION.slice(0, 8);
-/** The session id a copy's job record names. */
 export const COPY_SESSION = "s-copy";
 export const KEY_VAR = "K2";
-/** The job a headless resume of SESSION runs under. */
 export const HEADLESS_JOB = "0e0e0e0e";
 export const ALLOWANCE_USD = 50;
-/** The launch flags a job's record saves, which its resume under its own id
- * passes again. */
 export const SAVED_FLAGS = [
 	"--model",
 	"opus",
@@ -51,7 +37,6 @@ const launched = (kind: ResumeKind): ChildRun => {
 	return ran(r.stdout, r.stderr);
 };
 
-/** The key's first launch of SESSION, as the dispatch ledger reads it back. */
 const FIRST_LAUNCH: OverflowLaunch = {
 	ts: "2026-11-05T00:00:00.000Z",
 	issues: [7],
@@ -113,28 +98,24 @@ export const ANSWERS = {
 		woke: launched("woke"),
 		continued: launched("continued"),
 		ownId: launched("ownId"),
-		/* `claude rm`'s answer. */
 		removed: ran(`removed ${JOB}\n`),
 		noJob: ran("no job named"),
 	},
 	readJobRecord: {
 		copyWorking: { state: "working", sessionId: COPY_SESSION },
 		working: { state: "working", sessionId: SESSION },
-		/* A job a restart killed, its launch flags saved. */
 		saved: {
 			state: "working",
 			sessionId: SESSION,
 			respawnFlags: SAVED_FLAGS,
 		},
 		stopped: { state: "stopped", sessionId: SESSION },
-		/* A job launched under burn mode, its Fable model saved (#4992). */
 		savedRoutedAway: {
 			state: "stopped",
 			sessionId: SESSION,
 			respawnFlags: ["--model", "test-sonnet-1[1m]"],
 		},
 		otherSession: { state: "working", sessionId: "s-other" },
-		/* No record yet: the resume is not confirmed. */
 		unread: null,
 	},
 	findResumed: { none: null },
@@ -152,7 +133,6 @@ export const ANSWERS = {
 					from: `/home/u/.claude3/jobs/${JOB}/tmp/pasted-1.png`,
 					to: `/home/u/repo/.claude/tmp/attachments/${JOB}/tmp/pasted-1.png`,
 				},
-				/* Pasted in a later turn, named in the transcript alone. */
 				{
 					from: `/home/u/.claude3/jobs/${JOB}/tmp/pasted-2.png`,
 					to: `/home/u/repo/.claude/tmp/attachments/${JOB}/tmp/pasted-2.png`,
@@ -170,7 +150,6 @@ export const ANSWERS = {
 	},
 	stop: {
 		stopped: { ok: true, said: "stopped" },
-		/* A job that never started, or has gone. */
 		noJob: {
 			ok: false,
 			why: `exit 1: No job matching ${JOB}`,
@@ -229,7 +208,6 @@ type Faults = typeof FAULTS;
 type AnswerPick<P extends keyof Answers> =
 	| keyof Answers[P]
 	| (P extends keyof Faults ? keyof Faults[P] : never);
-/** Each port's answer, or its answers call by call, the last repeating. */
 export type Picks = {
 	[P in keyof Answers]?: AnswerPick<P> | AnswerPick<P>[];
 };

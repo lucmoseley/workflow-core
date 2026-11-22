@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The per-file pass store's two calls (#4790), `record` then `lookup`, on a
- * throwaway repository and its real git. Loosen a case and `npm run test`
- * skips a file whose inputs changed, or whose newest result is red: a test
- * reads green that was never run on the code it judges.
- */
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -47,7 +41,6 @@ const A = "scripts/a.test.ts";
 const B = "scripts/b.test.ts";
 const VALUES: Record<string, string> = { node: "v22.0.0", arch: "arm64" };
 
-/** The shard holding `file`'s rows in the store at `dir`. */
 const shardOf = (dir: string, file: string) =>
 	path.join(
 		markersDir(dir),
@@ -55,7 +48,6 @@ const shardOf = (dir: string, file: string) =>
 		`${createHash("sha256").update(file).digest("hex").slice(0, 16)}.jsonl`,
 	);
 
-/** A repository whose tests read `lib.js` and `doc.md`, committed. */
 function repo(edges: Record<string, string[]> = { "doc.md": [A] }) {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pst-")));
 	dirs.push(dir);
@@ -87,24 +79,16 @@ function write(dir: string, file: string, text: string) {
 	fs.writeFileSync(path.join(dir, file), text);
 }
 
-/** `file` written again with the bytes it holds: its change time moves. */
 const rewrite = (dir: string, file: string) =>
 	write(dir, file, fs.readFileSync(path.join(dir, file), "utf8"));
 
 const DAY = 24 * 60 * 60 * 1000;
-/* A day back, so every row sits inside the retention whenever this runs. */
 let clock = Date.now() - DAY;
 const nextAt = () => {
 	clock += 60_000;
 	return new Date(clock).toISOString();
 };
 
-/**
- * A run of `files` at `dir`, each passing unless named in `failing`, each
- * audited as reading nothing unless `audits` names it; `audits: null` is a
- * run nothing audited. Its steadiness is a watch's over `during`, unless
- * `steadiness` hands one; null is a run nothing watched.
- */
 function run(
 	dir: string,
 	files: string[],
@@ -144,7 +128,6 @@ function run(
 	);
 }
 
-/** What the store holds for `A` at the repo's HEAD. */
 const heldAtHead = (dir: string) =>
 	heldAtSha([A], {
 		storeRoot: dir,
@@ -297,8 +280,6 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	/* #4790 round 4 review, finding 2: the setup file's reach was vite's
-	 * graph alone, so the git shim on every test's PATH was no input. */
 	it("voids it when a file the setup file reaches changes", () => {
 		const dir = repo();
 		write(dir, "vitest.setup.ts", "// code-edges loads: shim\n");
@@ -310,7 +291,6 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	/* Finding 3: guard-core-load.js requires each core off guard-cores.json. */
 	it("voids it when a module a declared manifest names changes", () => {
 		const dir = repo();
 		write(
@@ -327,7 +307,6 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	/* Finding 4: a data file joined off __dirname was dropped. */
 	it("voids it when a data file a module joins off __dirname changes", () => {
 		const dir = repo();
 		write(dir, "lib.js", 'const M = nodePath.join(__dirname, "m.json");\n');
@@ -339,8 +318,6 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	/* #4790: a path two joins off __dirname, as
-	 * pretool-guard-testkit.ts's DISPATCH off CHECKOUT, was no input. */
 	it("voids it when a script a module joins off a __dirname-joined const changes", () => {
 		const dir = repo();
 		write(
@@ -356,8 +333,6 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	/* #4790: the setup exports the plugin config to every
-	 * test, and vite reads tsconfig.json for every file. */
 	it.each(["tsconfig.json", ".claude/workflow-core.json"])(
 		"voids it when %s changes",
 		(input) => {
@@ -756,7 +731,6 @@ describe("the newest result on the same content decides", () => {
 });
 
 describe("a script the manifest says a file spawns", () => {
-	/** A repository whose test A spawns `script`, which loads `deps`. */
 	function spawning(script: string, deps: string[], load: string) {
 		const dir = repo({ [script]: [A] });
 		write(dir, script, load);
@@ -799,9 +773,6 @@ describe("a script the manifest says a file spawns", () => {
 				"import helper  # noqa: E402",
 			].join("\n"),
 		],
-		/* #4790 pass 3 review, finding 1: park-blocked.test.ts stayed cached
-		 * after issue-hold.js, which park-blocked.sh's `node -e` requires off
-		 * its argument, changed. */
 		[
 			"the module a spawned shell script's inline node program loads off its argument, as park-blocked.sh's (#4790)",
 			"scripts/park.sh",
@@ -835,8 +806,6 @@ describe("a script the manifest says a file spawns", () => {
 		expect(run(dir, [A])).toBe(0);
 	});
 
-	/* #4790 pass 2 review, finding 2: a python3 upgrade left a pass resting
-	 * on its stdlib list cached. */
 	it("voids a pass resting on a Python file when python3's version changes", () => {
 		const dir = spawning(
 			"scripts/tool.py",
@@ -852,11 +821,7 @@ describe("a script the manifest says a file spawns", () => {
 	});
 });
 
-/* #4790 pass 2 review, finding 1: a test importing host_root inside
- * `python3 -c` stayed cached after host_root.py changed. */
 describe("a spawn of an interpreter handed inline code", () => {
-	/* #4790 pass 3 standards review, finding 2: a literal program sent the
-	 * detector to python3, so without python3 the case passed untested. */
 	it("records no row for a file whose reach spawns one", () => {
 		const dir = repo();
 		expect(run(dir, [A])).toBe(1);
@@ -864,8 +829,6 @@ describe("a spawn of an interpreter handed inline code", () => {
 		expect(run(dir, [A])).toBe(0);
 	});
 
-	/* #4790 pass 3 review, finding 4: a builtin-only inline python recorded
-	 * no python3 version, so a python3 upgrade left its pass cached. */
 	it("voids a pass whose reach runs inline Python when python3's version changes", () => {
 		const dir = repo();
 		write(
@@ -917,15 +880,12 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
-	/* Finding 3: a load of no literal is unread, never dropped. */
 	it("records no row for a file reaching a load of no literal", () => {
 		const dir = repo();
 		write(dir, "lib.js", "module.exports = (file) => require(file);\n");
 		expect(run(dir, [A])).toBe(0);
 	});
 
-	/* #4790: a join off __dirname of a parameter names a file
-	 * in the tree the walk cannot tell. */
 	it("records no row for a file reaching a join off __dirname it cannot tell", () => {
 		const dir = repo();
 		write(
@@ -984,8 +944,6 @@ describe("which runs keep no rows (#5138)", () => {
 	});
 });
 
-/* #4916: a read built at run time is invisible to the lexical reach. The
- * read audit (lib/read-audit.js) sees it. */
 describe("the reads the audit saw", () => {
 	const Skills = ".claude/skills";
 	const audited = (reads: Partial<Reads>): Audit => ({
@@ -1088,8 +1046,6 @@ describe("the reads the audit saw", () => {
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
-	/* #5018: two snapshots see no change put back between them. The walked
-	 * files must reach the paths the steadiness query is asked about. */
 	it("records no pass row for a tree walked while a file under it was removed, then restored", () => {
 		const dir = repo();
 		withSkill(dir);
@@ -1146,8 +1102,7 @@ describe("the reads the audit saw", () => {
 		write(
 			dir,
 			"scripts/run.sh",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell script's own text
-			'source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"\n',
+			`source "$(dirname "\${BASH_SOURCE[0]}")/lib.sh"\n`,
 		);
 		write(dir, "scripts/lib.sh", "x=1\n");
 		git(dir, "add", "-A");
@@ -1335,15 +1290,6 @@ describe("a red recorded at another layout (#4995)", () => {
 });
 
 describe("a store it cannot trust runs every file", () => {
-	/* Format 3 is #4790 pass 2 review's finding 3: its rows ignored the
-	 * sys.path a spawned Python script builds (#4864). Format 4 is pass 3's
-	 * finding 1: its rows missed what a shell script's inline node program
-	 * loads, and an inline Python's python3. Format 6 is round 4's findings
-	 * 2-4: its rows missed every guard core, a data file joined off
-	 * `__dirname` and what the setup file reaches. Format 7 is round 5's
-	 * findings 1, 2 and 7: its rows missed a path two joins off `__dirname`,
-	 * `.claude/workflow-core.json` and `tsconfig.json`. Format 8's rows
-	 * placed a Python module's imports on its own directory alone (#4870). */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],

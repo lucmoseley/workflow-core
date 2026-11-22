@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * plugin-state.test.ts — the four-record read (#243) and the readings #251
- * corrected on it. Every read case builds its tree through
- * `plugin-state-testkit.ts`, which threads `configDir` explicitly, so this
- * never touches the real registry (#238 user story 48). The `isCoreHost`
- * cases build their own, needing a missing and an unparseable manifest the
- * testkit never writes.
- *
- * The read feeds `check-plugin-gap.js`, a SessionStart hook in
- * `.claude/settings.json`, and `upgrade.js`; loosen a case and a session in a
- * stale adopter repo is told nothing, or told a gap that is not there.
- * Loosen an `isCoreHost` case and an adopter runs the core's own reports.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -298,9 +285,6 @@ describe("an install already at its pin owes the supply nothing (#747)", () => {
 
 describe("resolveMarketplace on a git source whose installLocation is not the clone path (#251 item 11)", () => {
 	it("reads the tree installLocation names, not the plugins/marketplaces fallback", () => {
-		/* The divergent case itself: a registry pointing elsewhere resolves to
-		 * the tree it names, never the `plugins/marketplaces/<name>` fallback,
-		 * so every reader of it lands on one tree. */
 		const f = fixture({
 			pinRef: "v1.1.8",
 			installedVersion: "1.1.8",
@@ -327,7 +311,6 @@ describe("findPin counts only the marketplaces the settings themselves name (#47
 			enabledPlugins: { [`workflow-core@${marketplace}`]: true },
 			extraKnownMarketplaces: known,
 		};
-		/* Malformed on purpose: the file is the CLI's, not typed input. */
 		const malformed = settings as unknown as Parameters<typeof findPin>[0];
 		expect(findPin(malformed, "workflow-core")).toEqual(none);
 	});

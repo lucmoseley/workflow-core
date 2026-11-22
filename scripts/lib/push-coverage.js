@@ -1,15 +1,3 @@
-/*
- * push-coverage.js — which tests a queue push's own work touches that no
- * local pass covers (#5016): the touched set a bare `npm run test` selects
- * (lib/touched-tests.js), less each file the per-file pass store holds a
- * pass for on the tree's present inputs (lib/pass-store.js's `lookup`, the
- * judge that same run skips a file by). Such a file's first run is the
- * lander's.
- *
- * It warns and never refuses: the lander runs the full suite whatever this
- * says. Vitest's route alone, as the pass store records no pytest run.
- */
-
 const { caught } = require("./caught.js");
 const { lookup } = require("./pass-store.js");
 const { repoRoot } = require("./test-pass-marker.js");
@@ -17,12 +5,11 @@ const { selectTouched } = require("./touched-tests.js");
 
 /**
  * @typedef {{ files: string[], touched: number, notice: string|null }
- *   | { why: string }} Coverage `files` the touched tests no pass covers, of
- *   `touched`; `notice` the pass store's own, where it read with a fault
+ *   | { why: string }} Coverage
  */
 
 /**
- * @param {string} dir the session worktree, its HEAD the sha to be pushed
+ * @param {string} dir
  * @param {{ select?: (dir: string) => { files: string[] },
  *   look?: typeof lookup, storeRoot?: string|null }} [seams]
  * @returns {Coverage}
@@ -39,7 +26,6 @@ function readUncovered(
 	try {
 		({ files } = select(dir));
 	} catch (err) {
-		/* Fails open, the warning saying why (#5016). */
 		return { why: caught(err).message.trim() };
 	}
 	if (files.length === 0) return { files: [], touched: 0, notice: null };
@@ -52,8 +38,6 @@ function readUncovered(
 }
 
 /**
- * The warning `session-checkout.js land` prints for `c`, or null where every
- * touched test is covered.
  * @param {Coverage} c
  * @returns {string|null}
  */

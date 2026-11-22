@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * patch-in-tree.test.ts — whether a patch section's post-image is in the tree
- * (#4338, #4339). A break lets commit-paths --patch commit lines, a mode or
- * a binary file's bytes the calling tree lacks, or refuse a patch the tree
- * does hold.
- */
 
 import { describe, expect, it } from "vitest";
 import { notInTree } from "./patch-in-tree.js";

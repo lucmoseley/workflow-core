@@ -1,28 +1,10 @@
-/*
- * registrations.js — a host repo's own registry of its hooks, guards and
- * checkers, and the whole-repo predicates check-registrations.js judges over
- * it (#1456).
- *
- * The core holds these invariants as vitest tests over its own tables:
- * `scripts/hook-registrations.test.ts`, `scripts/checker-registrations.test.ts`
- * and, for the needles, `scripts/count-guard-fires.test.ts`. A repo with no
- * test runner cannot carry those, so it carries the data as JSON and a node
- * checker asserts the same predicates.
- *
- * the guard-registry-atomicity core judges a commit against the same host files,
- * through lib/registry-atomicity.js.
- */
-
 const { isToolCovered, MatcherError } = require("./core-hooks.js");
 const { siblingTests, spellSiblingTests } = require("./test-kind.js");
 
-/** The host registry, every adopter seeded with `emptyRegistry()`. */
 const HOST_REGISTRATIONS = ".claude/registrations.json";
 
-/** The host's own fire-count needles, merged by count-guard-fires.js (#1267). */
 const HOST_NEEDLES = ".claude/guard-fire-needles.json";
 
-/** The husky hooks that run a checker unasked, as checker-registrations.test.ts lists them. */
 const CALLER_HOOKS = [
 	"pre-commit",
 	"prepare-commit-msg",
@@ -36,7 +18,7 @@ const CALLER_HOOKS = [
 /** @typedef {{event: string, matcher?: string, command: string, args?: string[], if?: string, timeout?: number}} Registration */
 /** @typedef {{key: string, message: string}} Fault */
 
-/** @returns {string} the seeded file's bytes */
+/** @returns {string} */
 function emptyRegistry() {
 	return `${JSON.stringify(
 		{
@@ -57,7 +39,7 @@ function emptyRegistry() {
 	)}\n`;
 }
 
-/** @returns {string} the seeded needles file's bytes */
+/** @returns {string} */
 function emptyNeedles() {
 	return `${JSON.stringify(
 		{
@@ -74,8 +56,7 @@ function emptyNeedles() {
 }
 
 /**
- * The registry's shape faults, each a sentence; empty where it is well formed.
- * @param {any} json  the parsed file, of any shape: this is what narrows it
+ * @param {any} json
  * @returns {string[]}
  */
 function shapeFaults(json) {
@@ -104,11 +85,7 @@ function shapeFaults(json) {
 }
 
 /**
- * Every hook registration in a settings-shaped object, flattened out of the
- * entry carrying its matcher — `lib/hook-wiring.ts`'s `allRegistrations`,
- * which its TypeScript keeps from being shared.
- * @param {any} settings  `{hooks}` as lib/core-hooks.js's `readOwnHooks` reads it,
- *   read defensively at each level
+ * @param {any} settings
  * @returns {Registration[]}
  */
 function allRegistrations(settings) {
@@ -133,8 +110,6 @@ const labelOf = (r) =>
 	`${r.event}: ${buildCommandLine(r)}${r.if ? ` if: ${r.if}` : ""}`;
 
 /**
- * The core's own match: same event, the id a substring of the command line,
- * the same narrowing.
  * @param {Row} row
  * @param {Registration} r
  */
@@ -144,7 +119,6 @@ const isPinnedBy = (row, r) =>
 	(row.narrowing ?? null) === (r.if ?? null);
 
 /**
- * `s` before the first match of `re`, or all of `s` where it has none.
  * @param {string} s
  * @param {RegExp} re
  */
@@ -154,8 +128,6 @@ function upTo(s, re) {
 }
 
 /**
- * A row a reader can paste for an unpinned registration. Its id is the
- * script path and arguments where the command names one under scripts/.
  * @param {Registration} r
  * @returns {Row}
  */
@@ -169,8 +141,6 @@ function suggestedRow(r) {
 					line.slice(at).replace(/"/g, ""),
 					/(?<!\s)\s+(?:\|\||&&|;|2>\/dev\/null)/,
 				).trim();
-	/* A quote closing after the path splits it from its arguments, and the id
-	 * must stay a substring of the command line. */
 	const id = line.includes(candidate) ? candidate : upTo(candidate, /\s/);
 	const matcher = r.matcher ?? null;
 	return {
@@ -178,7 +148,6 @@ function suggestedRow(r) {
 		id,
 		...(r.if ? { narrowing: r.if } : {}),
 		matcher,
-		/* A tool event's matcher names tools; SessionStart's names a source. */
 		covers:
 			matcher && /ToolUse/.test(r.event) && /^[\w|]+$/.test(matcher)
 				? matcher.split("|")
@@ -188,7 +157,6 @@ function suggestedRow(r) {
 }
 
 /**
- * A clause each for how the one registration a row pins has drifted.
  * @param {Row} row
  * @param {Registration} r
  * @returns {string[]}
@@ -221,8 +189,6 @@ function rowDrift(row, r) {
 }
 
 /**
- * The hooks half: every registration pinned by exactly one row, and every
- * row matching what is registered.
  * @param {Row[]} rows
  * @param {Registration[]} regs
  * @returns {{unpinned: Fault[], drifted: Fault[]}}
@@ -255,9 +221,7 @@ function hookFaults(rows, regs) {
 }
 
 /**
- * Every name a test of scripts/`file` may take, spelt for a refusal, where it
- * has none of any form a runner collects; null where it has one.
- * @param {string} file a guard's or checker's basename
+ * @param {string} file
  * @param {(rel: string) => boolean} exists
  */
 const spellSiblingTestsIfUntested = (file, exists) => {
@@ -266,8 +230,7 @@ const spellSiblingTestsIfUntested = (file, exists) => {
 };
 
 /**
- * The fault for scripts/`file` having no sibling test: one, or none.
- * @param {string} file a guard's or checker's basename
+ * @param {string} file
  * @param {(rel: string) => boolean} exists
  * @returns {Fault[]}
  */
@@ -284,8 +247,6 @@ const untestedFaults = (file, exists) => {
 };
 
 /**
- * The guards half: every scripts/guard-* run by a hook or allowlisted, and
- * every one with a sibling test.
  * @param {{guards: string[], regs: Registration[], elsewhere: Record<string, string>, exists: (rel: string) => boolean}} at
  * @returns {Fault[]}
  */
@@ -307,11 +268,7 @@ function guardFaults({ guards, regs, elsewhere, exists }) {
 	return out;
 }
 
-/**
- * Whole-line comments dropped, as checker-registrations.test.ts drops them, so
- * a hook that only mentions a checker in prose is no caller.
- * @param {string} text
- */
+/** @param {string} text */
 function stripCommentLines(text) {
 	return text
 		.split("\n")
@@ -320,11 +277,7 @@ function stripCommentLines(text) {
 }
 
 /**
- * The checkers half: every scripts/check-*.js called by one of the four
- * surfaces or allowlisted, every allowlist key still a checker, and every
- * checker with a sibling test.
  * @param {{checkers: string[], callers: Record<string, string>, elsewhere: Record<string, string>, exists: (rel: string) => boolean}} at
- *   `callers` maps each caller surface's repo-relative path to its text
  * @returns {Fault[]}
  */
 function checkerFaults({ checkers, callers, elsewhere, exists }) {
@@ -354,10 +307,7 @@ function checkerFaults({ checkers, callers, elsewhere, exists }) {
 	return out;
 }
 
-/**
- * Allowlist entries whose reason is blank.
- * @param {Record<string, string>} elsewhere
- */
+/** @param {Record<string, string>} elsewhere */
 const unexplained = (elsewhere) =>
 	Object.entries(elsewhere)
 		.filter(([, why]) => typeof why !== "string" || why.trim() === "")

@@ -1,9 +1,3 @@
-/*
- * rescue-cli.js — rescue-sessions.js's subcommands (#5157): the flags each
- * takes, its parsed arguments, and the core entry it runs. The shell runs
- * them on production's ports; lib/rescue-core-kit.ts on the fakes.
- */
-
 const { parseOrExit } = require("./cli-args");
 const { HAND_OFF_USAGE } = require("./rescue-takeover.js");
 
@@ -61,8 +55,6 @@ const CLI = {
 };
 
 /**
- * lib/cli-args.js's parseOrExit, keyed as the subcommands read it: each flag
- * without its `--`, the subcommand alone in `_`.
  * @param {string[]} argv
  * @returns {ParsedArgs}
  */
@@ -75,7 +67,6 @@ function parseArgs(argv) {
 	return out;
 }
 
-/** The core entry each subcommand runs. */
 const ENTRIES = {
 	list: () => require("./rescue-jobs.js").list,
 	snapshot: () => require("./rescue-jobs.js").snapshot,

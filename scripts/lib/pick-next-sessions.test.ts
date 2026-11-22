@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what pick-next decides off the session listing and the claim store:
- * whether the store it read claims from is the tree they were filed under
- * (mantahostels#703), what the claims read carries when it is not, and which
- * finished sessions count as reclaimable (mantahostels#421) — #4329.
- *
- * Loosen a case and a run from a worktree reads an empty store as an
- * unclaimed frontier and offers live work as takeable, or promises headroom
- * stopping this very session could never return.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

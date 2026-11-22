@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Holds the refill loop's resumes of background sessions it did not launch
- * (lib/refill-outside.js, #4815) to their acts through the BlockIo double:
- * typed into on #2359's schedule, left alone once the founder types, held
- * back while the network is down with no try spent, fallen back to a stop and
- * --bg --resume only where no prompt reached them since the stop, and at the
- * cap left blocked with no park, label, comment or stop; one stopped whose
- * relaunch failed relaunched again within minutes on a bounded budget that
- * spends no try, and once more at the cap (#4871); a copy's original
- * that would not retire tried again on later ticks, its record kept until
- * then (#4829). Loosen it and the loop talks over the founder, burns its tries
- * offline, starts a second session beside one already resumed, leaves a
- * founder's session stopped for half an hour or for good, leaves an
- * original live as a second row beside its copy, or parks a ticket it does
- * not own.
- */
 import { expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
 import { nextTryAt, RESUME_CAP } from "./block-act.js";
@@ -54,13 +38,11 @@ const row = (state = "blocked") => ({
 const TRANSIENT: Reading = { cause: "API_ERROR", sub: "transient" };
 const NAME = "founder-session (f1, started outside the loop)";
 
-/** One loop process: its records and call log kept across ticks. */
 function loop(over: Partial<BlockIo> = {}) {
 	const { io, calls } = fakeIo(over);
 	return {
 		io,
 		calls,
-		/** One tick at `now` over a registry of `rows`. */
 		tick(
 			now: number,
 			{
@@ -107,7 +89,6 @@ it("types a resume into a founder-started session blocked on a transient API err
 	expect(logs(l.calls)).toContain(
 		`resume 1 of ${RESUME_CAP} after an API error, ${NAME}, by typing into the live session; next due ${new Date(NOW + 4 * MIN).toISOString()}`,
 	);
-	/* The typed line arrived; the session blocks again on the next drop. */
 	l.io.readTimeline = () => [
 		{ at: new Date(NOW + 1000).toISOString(), detail: API_PROMPT },
 	];
@@ -222,7 +203,6 @@ it("at the cap stops trying, says so, and neither parks, labels, comments on nor
 			labelled.push("label");
 			return [];
 		},
-		/* Every typed resume arrives, and every resumed turn drops again. */
 		readTimeline: () => [
 			{
 				at: new Date(NOW + 365 * 24 * 60 * MIN).toISOString(),
@@ -285,11 +265,6 @@ it("names a copy its fallback started, and follows the session onto it", () => {
 const WHY = "the launcher named no job";
 const at = (ms: number) => new Date(ms).toISOString();
 
-/**
- * A loop whose first typed resume goes unseen, so its second tick stops the
- * session, and whose every --bg --resume fails while `fails()`: `resumedAt`,
- * the minutes past NOW of each one.
- */
 function stoppedLoop(fails: () => boolean, over: Partial<BlockIo> = {}) {
 	const resumedAt: number[] = [];
 	let clock = NOW;
@@ -337,8 +312,6 @@ it("relaunches a session it stopped whose --bg --resume failed a minute later, n
 it("re-attempts a relaunch that keeps failing 3 times at doubling gaps, then waits for its scheduled try, which earns 3 more", () => {
 	const l = stoppedLoop(() => true);
 	for (let m = 3; m <= 15; m++) l.tick(NOW + m * MIN);
-	/* Try 2, due at 4 min, replaces the re-attempt due at 5; try 3 is due at
-	 * 14, after the three that follow try 2 at 5, 7 and 11. */
 	expect(l.resumedAt).toEqual([2, 3, 4, 5, 7, 11, 14, 15]);
 	const lines = logs(l.calls);
 	expect(lines).toContain(
@@ -370,10 +343,6 @@ it("makes no re-attempt, and spends none, on a tick with the network down or lau
 	expect(logs(l.calls).at(-1)).toMatch(/^re-attempt 1 of 3 /);
 });
 
-/**
- * Tick `l` each minute until its scheduled tries and the re-attempts of the
- * last are spent: the minute after.
- */
 function tickToSpent(l: ReturnType<typeof stoppedLoop>) {
 	const isSpent = () => {
 		const lines = logs(l.calls);
@@ -395,8 +364,6 @@ it("at the cap makes one last relaunch of a session it holds stopped before it l
 	);
 	expect(l.calls[drop - 1]).toBe("resume f1");
 	expect(l.calls.slice(drop + 1)).toEqual([]);
-	/* 3 re-attempts a scheduled try and the last one bound it at 65; the two
-	 * tries whose gaps are shorter than 7 min spend fewer. */
 	expect(l.resumedAt.length).toBeGreaterThan(RESUME_CAP);
 	expect(l.resumedAt.length).toBeLessThanOrEqual(65);
 	expect(typed(l.calls)).toBe(1);
@@ -485,7 +452,6 @@ it("retries, on later ticks, the retirement of a copy's original that would not 
 		{ jobId: "f1-copy", unretired: [unretired] },
 	]);
 	expect(retires).toEqual([]);
-	/* The copy is not listed, yet its record stays for the retirement. */
 	l.tick(NOW + 3 * MIN, { rows: [] });
 	expect(retires).toEqual(["sess-f1-full"]);
 	expect(l.io.readOutside()).toMatchObject([
@@ -579,7 +545,6 @@ it("takes up no copy's unretired original as a session of its own", () => {
 	expect(l.calls.filter((c) => c.startsWith("type"))).toEqual([]);
 });
 
-/* A `done` session the harness ended on a synthetic reply (#5324). */
 function syntheticLoop(start: { job: unknown; rows: unknown }) {
 	const read = { ...start };
 	const l = loop({
@@ -601,7 +566,6 @@ it("types the synthetic resume into a done outside session once the quiet window
 			new RegExp(`^resumed ${escapeRe(NAME)}, whose last turn .* try 1 of 2$`),
 		),
 	);
-	/* Unseen past the verdict window, the same try relaunches. */
 	l.tick(NOW + 6 * MIN, { rows: [row("done")] });
 	expect(l.calls).toContain("stop f1");
 	expect(l.calls).toContain("resume f1");
@@ -665,8 +629,6 @@ it("acts on nothing where the outside session's transcript is unread", () => {
 	expect(l.calls).not.toContain("stop f1");
 });
 
-/* A session the reaper stopped before the loop read its synthetic stop,
- * reached only through the reaper's journal (#5331). */
 function reapedLoop(start: { job: unknown; rows: unknown }) {
 	const read = { ...start };
 	let readings = 0;
@@ -736,9 +698,6 @@ it("reads each journal entry once, by its key, and takes up none that is no synt
 	expect(l.io.readReaped().read).toHaveLength(1);
 });
 
-/* Regression (#5322): every reap used to grant a spent session two more
- * resumes. Its pair: "resumes by --bg --resume alone an outside session the
- * reaper stopped…" above. */
 it("starts no fresh count off the journal for a session whose resumes of that stop are spent, and drops the record once the journal would", () => {
 	const l = reapedLoop({
 		job: doneJob({ state: "stopped" }),

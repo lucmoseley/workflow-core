@@ -1,17 +1,3 @@
-/*
- * review-reads.js — the morning review's slow reads kept for the day it files
- * (#3765): each repo's check-primitives.js count line and each label age read
- * off a timeline. A filing killed part way, by the refill loop's runner bound
- * or by hand, resumes from them on its retry instead of starting again.
- *
- * Kept per machine-local date in lib/refill-dir.js's directory, beside the
- * loop's own files, and written after each read. A file from another day is
- * read as empty. Only a read that succeeded is kept: a failed one is retried.
- *
- * A dry run takes freshReads instead (#3813): it writes nothing a later filing would
- * take for its own, and shows what is true now.
- */
-
 const { writeFileAtomic } = require("./atomic-write.js");
 const { refillPath } = require("./refill-dir.js");
 const { readJson } = require("./refill-json.js");
@@ -25,8 +11,6 @@ const READS_FILE = ".morning-review-reads.json";
  * @returns {Record<string, unknown>}
  */
 function load(file, day) {
-	/* Fail open (#3765): a damaged file costs only the day's kept reads, and
-	 * writes here are atomic, so it is a fault to print (#3814). */
 	/** @param {string} line */
 	const print = (line) => writeFd(2, `${line}\n`);
 	const kept =
@@ -39,9 +23,7 @@ function load(file, day) {
 }
 
 /**
- * The day's kept reads: `read(key, fresh, keep)` answers the kept value under
- * `key`, else runs `fresh` and keeps its value where `keep` accepts it.
- * @param {string} day machine-local date (lib/local-date.js)
+ * @param {string} day
  * @param {string} [file]
  */
 function reviewReads(day, file = refillPath(READS_FILE)) {
@@ -68,7 +50,6 @@ function reviewReads(day, file = refillPath(READS_FILE)) {
 	};
 }
 
-/** reviewReads' shape over no file: every read runs, and nothing is kept. */
 const freshReads = () => ({
 	/**
 	 * @template T

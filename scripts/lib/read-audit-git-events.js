@@ -1,37 +1,15 @@
-/*
- * read-audit-git-events.js — what a git child of a test ran, off git's own
- * event log (#4997). A hook, an alias, a helper or a pager runs from git,
- * not from a spawn the read audit's preload (lib/read-audit-preload.js)
- * wraps, and inherits every variable the test's process holds, the ones
- * naming the checkout among them. So the preload hands each real git, and
- * the git guard, a file of the audit's on `GIT_TRACE2_EVENT` (git's
- * api-trace2), and this reads it back.
- *
- * A PROCESS GIT STARTS IS A DOUBT unless it is git again, which logs to the
- * same file: run as `git` itself, or as the `git-upload-pack`,
- * `git-receive-pack` or `git-upload-archive` a local transport runs on one
- * quoted path, which git finds in its own exec path ahead of `PATH`. A
- * process git looked for and never found (`pid` -1 at its exit) ran
- * nothing. A git that logged its start and never its end may still be
- * running: a doubt too, unless the preload logged, after it, that the test
- * killed that git and it exited (`EXITED`): git 2.43 logs a SIGPIPE, but
- * not the SIGTERM a test kills a long-lived git with.
- */
-
 const path = require("node:path");
 const { readText } = require("./file-read.js");
 const { parseJsonl } = require("./jsonl.js");
 const { EXITED, SHOWN_MAX } = require("./read-audit-paths.js");
 const { requiredGroup } = require("./regex-group.js");
 
-/* Each quote within the path as `'\''` (git's connect.c, sq_quote). */
 const TRANSPORT =
 	/^git-(?:upload-pack|receive-pack|upload-archive) '(?:[^']|'\\'')*'$/;
 
 /**
- * @param {string} dir the audit's log directory
- * @returns {(name: string|null, shown: string) => string|null} why a git
- *   call's log leaves what it ran unseen, or null where it ran only git
+ * @param {string} dir
+ * @returns {(name: string|null, shown: string) => string|null}
  */
 function buildGitEventsReader(dir) {
 	return (name, shown) => {
@@ -64,10 +42,7 @@ function otherChildDoubt(rows, shown) {
 	return null;
 }
 
-/**
- * The processes the log's gits started, by git process and child.
- * @param {Record<string, unknown>[]} rows
- */
+/** @param {Record<string, unknown>[]} rows */
 function tally(rows) {
 	/** @type {Map<string, Record<string, unknown>>} */
 	const started = new Map();
@@ -91,9 +66,6 @@ function tally(rows) {
 }
 
 /**
- * Close the open gits a mark says were killed: those whose sid names its
- * pid, started before it, and none that ran `git help`, which execs the
- * viewer in its place.
  * @param {Set<string>} open
  * @param {Set<string>} helped
  * @param {unknown} pid
@@ -103,18 +75,14 @@ function closeKilled(open, helped, pid) {
 		if (pidOf(sid) === pid && !helped.has(sid)) open.delete(sid);
 }
 
-/**
- * The pid a sid's last part names, `P` and eight hex digits (git's
- * trace2/tr2_sid.c); NaN where it names none.
- * @param {string} sid
- */
+/** @param {string} sid */
 function pidOf(sid) {
 	const re = /-P([0-9a-f]{8})$/;
 	const named = re.exec(sid);
 	return named ? Number.parseInt(requiredGroup(named, 1, re), 16) : Number.NaN;
 }
 
-/** @param {Record<string, unknown>} row a `child_start` event */
+/** @param {Record<string, unknown>} row */
 function isGit(row) {
 	const first = Array.isArray(row.argv) ? String(row.argv[0] ?? "") : "";
 	if (row.use_shell === true)

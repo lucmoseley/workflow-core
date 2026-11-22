@@ -1,10 +1,3 @@
-/*
- * refill-decide.js — the refill loop's decision core, in normal and away mode
- * (#2007, spec #1995; parked rows by mode, #3621): one pure function from a
- * tick's readings to the launches to make, the idle reason for making none, or
- * the stop that ends the loop, with the held sessions it resumes ahead of them.
- */
-
 const path = require("node:path");
 const { LAST_RESUME_OFFSET_MS } = require("./block-act.js");
 const { WAITING_LABEL } = require("./frontier-order.js");
@@ -23,229 +16,134 @@ const {
 	UNPROVEN_HELD,
 } = require("./launch-room.js");
 
-/* A finish whose acts could not be read, counted neither as progress nor as
- * no progress (#2312). */
 /** @type {"unread"} */
 const UNREAD = "unread";
-/* Sonnet's founder check does not happen while he is away (#1920). */
 const MODEL = "opus";
-/* A bar reading this refuses the dispatcher's launch (#371); under it, its
- * cap sizes the launch (#2278). Residual: past the cap's thresholds the margin
- * left is the cap's projection alone, which the per-call floor of one can
- * overrun. */
 const FULL = 100;
 const BILLING_SKIP_MS = LAST_RESUME_OFFSET_MS;
-/* The idle reason of a tick that walked its frontier and launched nothing. */
 const NOTHING_LAUNCHABLE = "nothing launchable";
-/* The idle reason of one missing a checkout's shortlist, named over "nothing
- * launchable" even where the checkouts read held only skipped rows: the
- * unread work may have launched (#2561). */
 const SHORTLIST_FAILED = "shortlist failed in";
-/* The idle reasons of a tick with no slot to launch into. */
 const NO_FREE_SLOT = "no free slot";
 const NO_PROGRESS_PAUSE = "no-progress";
-/* A seat's reading, cap size or cap fit holds it, as one reason to the reader
- * (#2525, #3859). Residual: the log and the idle alarm lose which seat and hold;
- * `status`'s `passed over` names them. */
 const NO_PLAN_ROOM = "no plan has room right now";
 const FIVE_HOUR_FULL = "the 5-hour bar is full on";
-/* The idle reason of a tick whose seats are all spent, with a limit-held
- * launch still to act on. */
 const LIMIT_HELD_WAIT =
 	"every seat is spent; a limit-held session waits on one";
-/* The idle reason of a tick whose seats are all spent, with a resume due. */
 const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
-/* The idle reason of a tick whose resumes take every free slot. */
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
-/* The idle reason of a tick whose unproven launches fill the cap (#4223). */
 const UNPROVEN_CAP = `${NO_PROGRESS_RUN} launches since the last act are running`;
-/* The idle reason of a tick whose skipped rows a mix of checkout holds skipped. */
 const CHECKOUTS_HELD = "every launchable checkout is held";
-/* The idle reason of a tick whose plan seats are weekly-full and whose
- * overflow keys are spent. */
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
-/* The idle reason of a tick waiting out every plan seat's full week. */
 const PLAN_RESETS = "a plan resets";
 const PAUSED = "paused by";
-/* The idle reason of a tick under a manual /pick-next's launch hold (#4354). */
 const LAUNCH_HELD = "launches held by a manual /pick-next";
-/* The idle reason of a tick whose every skipped row a probe hold skipped (#4736). */
 const PROBE_HOLD_WAIT = "a probe hold stops every launch";
-/* A row a running launch already holds, skipped as any other so an idle
- * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
-/* A row whose predicted write-set shares a substrate file with a held file or
- * a launch this tick, deferred behind the clean rows (#4355). */
 const CLASH_PREFIX = "clashes on ";
 /** @param {Skip} s */
 const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
 
 /**
- * `parkedAt` is when `parked` went on, null where the label is off or its
- * start would not read. `writeSet` is its shortlist's predicted write-set;
- * `heldBy` the substrate files of it a running session holds (#4355).
  * @typedef {import("./frontier-order.js").FrontierRow & {root: string,
  *   takes: string[], labels: string[], parkedAt?: string|null,
  *   writeSet?: string[], heldBy?: HeldBy}} MergedRow
  */
-/** @typedef {{paths: string[], session: string, sessionId: string|null}} HeldBy
- *   substrate files of a row's write-set a running session holds, and that
- *   session's name and id */
+/** @typedef {{paths: string[], session: string, sessionId: string|null}} HeldBy */
 /** @typedef {import("./retro-bundles.js").RetroLaunch & {root: string}} MergedBundle */
 
 /**
- * One seat's bars, in percent; null where the reading is not fresh. A bar is
- * full where it reads 100% fresh, or cached with its reset still ahead
- * (lib/seat-reading.js's seatReadingOf), so a fresh `week` of 100 is always
- * `weekFull`.
  * @typedef {object} SeatReading
- * @property {string} seat config dir
+ * @property {string} seat
  * @property {number|null} week
- * @property {number|null} session the 5-hour bar
+ * @property {number|null} session
  * @property {boolean} weekFull
  * @property {boolean} sessionFull
- * @property {string|null} sessionResets the 5-hour bar's reset, as read
- * @property {number|null} weekResets the weekly bar's reset, ms, from the
- *   same reading; null where it is unread, will not parse or has passed
- * @property {number} readAt ms, when the older of its bars was read
+ * @property {string|null} sessionResets
+ * @property {number|null} weekResets
+ * @property {number} readAt
  * @property {{percent: number|null, atMs: number|null, rolled?: boolean}} weekRead
- *   the weekly bar as read, whatever its trust, and when; `rolled` where its reset
- *   has since passed, `percent` then being 0; for reporting alone
  */
 
-/**
- * @typedef {SeatReading & {fits: number|null}} SizedSeat `fits` is how many
- *   the dispatcher's allowance cap would launch on this seat now; null where
- *   it was not sized
- */
+/** @typedef {SeatReading & {fits: number|null}} SizedSeat */
 
 /**
- * An overflow seat (lib/refill-seats.js), billed to a plan's API credits
- * through its own key (#2570). `fits` is how many sessions its budget gate
- * fits on the key now, null where it was not read, with `why`; `spentUntil`
- * the date its cycle ends where the key is spent for it, else null.
  * @typedef {object} OverflowReading
- * @property {string|null} seat config dir; null on the row standing in for a
- *   seat file that refuses
- * @property {string} [keyVar] the seat's identity; none on that row
+ * @property {string|null} seat
+ * @property {string} [keyVar]
  * @property {number|null} fits
- * @property {number} [headroomUsd] the key's headroom where its budget read,
- *   the allowance a session moved onto it takes (#3736)
+ * @property {number} [headroomUsd]
  * @property {string|null} spentUntil
  * @property {string|null} why
  */
 
 /**
- * A loop launch. `acts` is read once it has finished.
  * @typedef {object} LaunchRecord
  * @property {string} root
  * @property {number[]} issues
- * @property {string} [prompt] what it launched on
- * @property {number} launchedAt ms
- * @property {number} [relaunchedAt] ms, when a resume last restarted its job
- * @property {number} [slotTakenAt] ms, when a resume that took a slot last
- *   restarted it
+ * @property {string} [prompt]
+ * @property {number} launchedAt
+ * @property {number} [relaunchedAt]
+ * @property {number} [slotTakenAt]
  * @property {string|null} [jobId]
- * @property {{resumedAt?: number}} [limitHeld] where the loop stopped it on its
- *   seat's limit, with `resumedAt` once a resume restarted it
- * @property {number|null} finishedAt ms of the tick that saw the finish, not
- *   of the finish itself, used only to order the last three finishes; null
- *   while running
- * @property {Record<string, number>|typeof UNREAD} [acts] the launched
- *   session's acts-ledger lines counted per kind (#2312), or UNREAD where its
- *   session id was never captured or its ledger would not read
- * @property {true} [gate] a gate judgement's launch (#3092)
- * @property {true} [nothingToRepeat] a resume of a session parked on an API error
- *   or a limit, which asked the founder nothing (#3949)
- * @property {number} [parkStopped] ms, when the loop stopped it for a park
- * @property {SeatReason} [reason] why its seat was picked
+ * @property {{resumedAt?: number}} [limitHeld]
+ * @property {number|null} finishedAt
+ * @property {Record<string, number>|typeof UNREAD} [acts]
+ * @property {true} [gate]
+ * @property {true} [nothingToRepeat]
+ * @property {number} [parkStopped]
+ * @property {SeatReason} [reason]
  */
 
 /**
- * The picker's tokens (#3732), then a parked resume's, which goes back to its
- * own session's seat, and a moved session's (#3734), naming the seat it left.
  * @typedef {"last typed on" | "soonest reset" | "overflow"
  *   | "parked session's seat" | `moved from ${string}`} SeatReason
  */
 
-/**
- * A seat whose limit moved a session off it, and when that limit blocked it.
- * @typedef {{seat: string, since: number}} SeatLeft
- */
+/** @typedef {{seat: string, since: number}} SeatLeft */
 
 /**
  * @typedef {object} TickInput
- * @property {number} now ms
+ * @property {number} now
  * @property {"normal"|"away"} mode
- * @property {number} noProgressFrom ms, where the no-progress count counts from
+ * @property {number} noProgressFrom
  * @property {boolean} stopRequested
- * @property {Pause} [paused] absent where the loop is not paused
- * @property {LaunchHold} [launchHold] live only; absent where a pause already
- *   bars the launches
- * @property {string|null} [controlDamaged] the control file and why, where it
- *   exists but is not a control
- * @property {MergedRow[]} frontier lib/frontier-order.js's merged ranking
+ * @property {Pause} [paused]
+ * @property {LaunchHold} [launchHold]
+ * @property {string|null} [controlDamaged]
+ * @property {MergedRow[]} frontier
  * @property {MergedBundle[]} retroBundles
  * @property {{root: string, issues: number[]}[]} running
- * @property {number} freeSlots admission's count
- * @property {string|null} [typedSeat] the plan seat the founder last typed
- *   on, null or absent where none is recorded (lib/presence.js's
- *   readLastTypedSeat)
- * @property {SizedSeat[]} seats the plan seats, seat-file order or any
- *   order of it: pickSeat orders them
- * @property {OverflowReading[]} [overflow] the overflow seats, in failover
- *   order
+ * @property {number} freeSlots
+ * @property {string|null} [typedSeat]
+ * @property {SizedSeat[]} seats
+ * @property {OverflowReading[]} [overflow]
  * @property {LaunchRecord[]} history
- * @property {Record<string, number>} lastActAt ms by checkout, the latest act
- *   any of `history`'s sessions launched there made; a checkout with none read
- *   is absent (#4223, #5275)
- * @property {Record<string, Pause>} [repoPaused] each checkout's no-progress
- *   pause, by root (#5275)
- * @property {Record<string, number>} [breakerRoom] each checkout whose
- *   throughput breaker is open, by root: 0 where it takes nothing, 1 where it
- *   takes its one trial launch, never a resume (lib/refill-breaker.js, #5275)
- * @property {import("./gate-sweep.js").Judgement[]} [judgements] the gate
- *   sweep's queue, launched ahead of the ranking (#2279), behind normal
- *   mode's parked rows (#3713)
+ * @property {Record<string, number>} lastActAt
+ * @property {Record<string, Pause>} [repoPaused]
+ * @property {Record<string, number>} [breakerRoom]
+ * @property {import("./gate-sweep.js").Judgement[]} [judgements]
  * @property {{root: string, error: string}[]} [failedShortlists]
- * @property {ParkerReading[]} [parkers] each parked frontier row's park
- *   marker the tick found
- * @property {string[]} [limitHeldLines] each launch waiting stopped on its seat's
- *   limit, for a stop line to name (#3785): spent seats end no run while any
- *   waits, as only a running loop resumes it (#3735)
- * @property {HeldResume[]} [resumable] each session the loop stopped whose
- *   cause has cleared (#3855)
- * @property {TickHold[]} [holds] each checkout's open repo holds (#3860)
+ * @property {ParkerReading[]} [parkers]
+ * @property {string[]} [limitHeldLines]
+ * @property {HeldResume[]} [resumable]
+ * @property {TickHold[]} [holds]
  * @property {BillingStop[]} [billingStops]
  */
 
 /** @typedef {{seat: string, since: number}} BillingStop */
 
 /**
- * `issue` and `raisedAt` are its stored record's, null on a probe this tick
- * found broken before its store took it.
  * @typedef {{root: string, kind: "probe"|"park", issue: number|null,
  *   raisedAt: number|null}} TickHold
  */
 
-/**
- * When away mode was switched on, ms.
- * @typedef {{since: number}} AwaySwitch
- */
+/** @typedef {{since: number}} AwaySwitch */
 
-/**
- * Who paused the loop, and when, ms; the no-progress rule also records the
- * issues that made none.
- * @typedef {{by: string, at: number, issues?: PauseIssue[]}} Pause
- */
+/** @typedef {{by: string, at: number, issues?: PauseIssue[]}} Pause */
 
 /** @typedef {{root: string, number: number}} PauseIssue */
 
-/**
- * A manual /pick-next's lease on the loop's launches (#4354): the session that
- * took it, null where none was named, and the time it lapses, ms.
- * @typedef {{holder: string|null, until: number}} LaunchHold
- */
+/** @typedef {{holder: string|null, until: number}} LaunchHold */
 
 /**
  * @param {LaunchHold|undefined} hold
@@ -255,8 +153,6 @@ const liveLaunchHold = (hold, now) =>
 	hold !== undefined && hold.until > now ? hold : undefined;
 
 /**
- * Whether launching is barred, by a pause or a launch hold live at `now`: the
- * one reading of a bar, for a control or a tick's input alike.
  * @param {{paused?: Pause, launchHold?: LaunchHold}} barring
  * @param {number} now
  */
@@ -271,60 +167,44 @@ const buildLaunchHoldIdle = ({ until }) =>
 const buildLaunchHoldText = (hold) => buildIdleText(buildLaunchHoldIdle(hold));
 
 /**
- * A stopped session due back: its launch's job, seat and checkout, when it was
- * stopped, and its line for a stop to name. `keyVar`, the overflow seat it ran on;
- * `parked`, a parked question's session, which resumes on the seat
- * pickParkedSeat picks; `to`, that seat, set by takeResumes where it is not
- * `seat`.
  * @typedef {{jobId: string, seat: string, keyVar?: string, root: string, at: number,
  *   line: string, parked?: true, to?: string}} HeldResume
  */
 
 /**
  * @typedef {object} Launch
- * @property {string} root the checkout the dispatcher runs in
+ * @property {string} root
  * @property {number[]} issues
  * @property {string} prompt
  * @property {"opus"} model
  * @property {string} seat
- * @property {string} [keyVar] the overflow seat it launches on
+ * @property {string} [keyVar]
  * @property {SeatReason} reason
- * @property {true} [gate] a gate judgement's launch (#3092)
+ * @property {true} [gate]
  * @property {({resume: ResumeTarget}|{afresh: string}) & {limitParks?: number}} [parkedRoute]
- *   a parked ticket's: the session that parked it to resume in place, else why
- *   `prompt` launches afresh (#3621), and its limit-cap parks in a row, for
- *   the launch's record to carry on (#3804)
  */
 
 /**
  * @typedef {object} ParkerReading
  * @property {string} root
- * @property {number} number the parked issue
- * @property {string} sessionId the session whose marker lists it
- * @property {import("./parked.js").ParkJob|null} job the seat and job its
- *   marker names, null where it names none
- * @property {string} resumeCwd where its session resumes
- * @property {number} [limitParks] its marker's limit-cap parks in a row
- * @property {string} [parkCause] the block its marker names, where the loop
- *   stopped it on one
+ * @property {number} number
+ * @property {string} sessionId
+ * @property {import("./parked.js").ParkJob|null} job
+ * @property {string} resumeCwd
+ * @property {number} [limitParks]
+ * @property {string} [parkCause]
  */
 
 /**
  * @typedef {{seat: string, sessionId: string, cwd: string, parkCause?: string,
- *   from?: string}} ResumeTarget  `from`, the seat the session parked on,
- *   where it resumes on another (pickParkedSeat)
+ *   from?: string}} ResumeTarget
  */
 
 /** @typedef {"control-damaged" | "explicit"} StopReason */
 
 /** @typedef {{root: string, number: number, why: string}} Skip */
 
-/**
- * Why a tick launched nothing: `reason` one of the idle reasons above, which
- * readers match on, and `detail` the text that follows it in the log line, its
- * joining punctuation included, so buildIdleText gives back that line (#4183).
- * @typedef {{reason: string, detail: string}} Idle
- */
+/** @typedef {{reason: string, detail: string}} Idle */
 
 /**
  * @param {string} reason
@@ -340,22 +220,12 @@ const buildIdleText = ({ reason, detail }) => `${reason}${detail}`;
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: Idle | null,
  *   held: Skip[], resumes: HeldResume[], repoPauses?: Record<string, Pause>,
- *   capHeld?: HeldResume[], planWait?: PlanWait}} Decision `held` is
- *   heldParked's; `resumes` the tick's, oldest first, made ahead of its launches;
- *   `capHeld` takeResumes's, for the tick to log; `repoPauses` each checkout's
- *   new no-progress pause, by root, for the tick to write; `planWait` set where
- *   every plan seat's full week is why nothing launches
+ *   capHeld?: HeldResume[], planWait?: PlanWait}} Decision
  */
 
-/**
- * The allowance wait: the earliest weekly reset, ms, null where none reads.
- * @typedef {{resets: number|null}} PlanWait
- */
+/** @typedef {{resets: number|null}} PlanWait */
 
-/**
- * The launch's acts counted per kind, or null where they were not read.
- * @param {LaunchRecord} r
- */
+/** @param {LaunchRecord} r */
 const actsRead = (r) =>
 	r.acts === undefined || r.acts === UNREAD ? null : r.acts;
 
@@ -364,17 +234,6 @@ const hasProgressed = (r) =>
 	Object.values(actsRead(r) ?? {}).some((n) => n > 0);
 
 /**
- * In one checkout, the last three read finishes since noProgressFrom, if none
- * progressed (#5275): an
- * unread one is passed over, and so is a gate judgement with no act, since
- * judging a gate unmet ends with none (#3092), and a resume with nothing to repeat
- * that ended with no act and no new park, as its work may be done already (#3949):
- * its ticket leaves `parked`, so it comes back only by a new park, while one the
- * loop parked again, as an auth error would be, counts. A resume moves noProgressFrom, or
- * the finishes behind this pause would pause the checkout again at once. Residual: a
- * judge that crashed or did nothing is passed over too, so a run of gate launches
- * alone never pauses a checkout; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
- * often each issue's runs.
  * @param {Pick<TickInput, "history"|"noProgressFrom">} input
  * @param {string} root
  */
@@ -399,8 +258,6 @@ function noProgressRun({ history, noProgressFrom }, root) {
 }
 
 /**
- * Each checkout's no-progress pause this tick writes: one per checkout not
- * already paused whose run of finishes made no act.
  * @param {TickInput} input
  * @returns {Record<string, Pause>}
  */
@@ -416,8 +273,6 @@ function buildNoProgressPauses(input) {
 }
 
 /**
- * The unproven cap's idle, naming each held checkout and the act it counts
- * from.
  * @param {Record<string, number>} lastActAt
  * @param {string[]} roots
  */
@@ -436,11 +291,7 @@ const buildUnprovenIdle = (lastActAt, roots) =>
 			.join("; ")})`,
 	);
 
-/**
- * Whether the dispatcher would launch on a seat: both bars fresh and under
- * 100%.
- * @param {{week: number|null, session: number|null}} s
- */
+/** @param {{week: number|null, session: number|null}} s */
 const hasRoom = (s) =>
 	s.week !== null && s.session !== null && s.week < FULL && s.session < FULL;
 
@@ -452,27 +303,18 @@ const hasRoom = (s) =>
 const isFitted = (s) => s.fits !== null && s.fits > 0;
 
 /**
- * Whether the loop launches on a seat: room on both bars and a cap sized
- * above 0.
  * @template {{week: number|null, session: number|null, fits: number|null}} S
  * @param {S} s
  * @returns {s is S & {fits: number}}
  */
 const fitsLaunch = (s) => hasRoom(s) && isFitted(s);
 
-/**
- * Whether a seat reads full: a bar at 100% or a cap sized 0.
- * @param {SizedSeat} s
- */
+/** @param {SizedSeat} s */
 const readsFull = (s) => s.weekFull || s.sessionFull || s.fits === 0;
 
 /**
- * The plan seats in the order the loop launches on them (#3732): the seat
- * the founder last typed on first, where it is one of them, then the rest
- * by soonest weekly reset, ties and unread resets in seat-file order. The
- * one order both a launch and a move walk.
  * @template {{seat: string, weekResets: number|null}} S
- * @param {S[]} seats in seat-file order
+ * @param {S[]} seats
  * @param {string|null} typedSeat
  * @returns {S[]}
  */
@@ -491,10 +333,6 @@ function orderPlanSeats(seats, typedSeat) {
 }
 
 /**
- * The plan seat a parked question's session resumes on (#5293): the first, in
- * orderPlanSeats's order, that a launch could take, or its own seat `own`
- * where that does not read full; undefined where none. A seat other than `own` is the
- * session carried there (refill-resume.js's moveSession).
  * @template {SizedSeat} S
  * @param {S[]} seats
  * @param {string|null} typedSeat
@@ -507,10 +345,6 @@ const pickParkedSeat = (seats, typedSeat, own) =>
 	);
 
 /**
- * The first plan seat, in orderPlanSeats's order, with room whose cap fits a
- * launch, else, once every plan seat is weekly-full, the first overflow seat
- * whose budget fits one (#2570); else whether every seat is spent, and why
- * the tick waits where not.
  * @param {Pick<TickInput, "seats"|"overflow"|"typedSeat">} input
  * @returns {{seat: string, keyVar?: string, fits: number, reason: SeatReason}
  *   | {seat: null, fits: 0, allCut: boolean, wait: Idle|null}}
@@ -526,7 +360,6 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 	if (!plan.allCut) {
 		const open = seats.filter((s) => !s.weekFull).map((s) => s.seat);
 		const shut = `; no overflow launch: ${open.join(", ")} not weekly-full`;
-		/* A seat not cut holds a wait of its own, so plan.wait is set. */
 		return {
 			...plan,
 			wait: plan.wait && {
@@ -551,15 +384,8 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 }
 
 /**
- * The seat a session blocked on its seat's limit goes to (#3735): pickSeat's
- * walk over `seats` sized for one session, as it already holds its slot, with
- * its own seat passed over until a reading taken since the block shows room,
- * so an older one never sends it back into the limit. Passed over, not left
- * out: a seat full on its 5-hour bar still keeps overflow shut (#2570). Each
- * seat a limit moved it off is passed over the same way (#3734).
  * @param {Pick<TickInput, "seats"|"overflow"|"typedSeat"> &
- *   {ownSeat: string, since: number, left?: SeatLeft[]}} input `since`, ms,
- *   when it blocked
+ *   {ownSeat: string, since: number, left?: SeatLeft[]}} input
  */
 function pickMoveSeat({
 	seats,
@@ -601,13 +427,7 @@ function barBillingSeats(seats, stops, now) {
 const overflowHolds = (overflow) => overflow.map(overflowHold).join(", ");
 
 /**
- * The first plan seat with room whose cap fits a launch, else whether every
- * plan seat is weekly-full, and why the tick waits where not. A seat full on
- * its 5-hour bar alone reopens at that bar's reset, so the tick waits through
- * it (#2606). A seat with no fresh reading, no sized cap or a cap sized 0
- * waits too: the dispatcher refuses the first two, and running sessions
- * finishing reopen the third's headroom (#2432).
- * @param {SizedSeat[]} seats in launch order
+ * @param {SizedSeat[]} seats
  * @returns {{seat: string, fits: number}
  *   | {seat: null, fits: 0, allCut: boolean, wait: Idle|null}}
  */
@@ -625,7 +445,6 @@ function pickPlanSeat(seats) {
 			);
 		else noRoom += 1;
 	}
-	/* One reason, as #2362 ruled, whichever hold it is. A 5-hour wait beside it. */
 	const fiveHourText = ` ${fiveHour.join(", ")}`;
 	/** @type {Idle|null} */
 	let wait = null;
@@ -655,9 +474,6 @@ function buildOverflowHoldText(o) {
 /** @typedef {"cut" | "fiveHour" | "unread" | "unsized" | "capped"} SeatHold */
 
 /**
- * What holds a seat the loop cannot launch on: a full week, which alone makes
- * the allowance wait, else a full 5-hour bar, else an unread bar, else its cap
- * unsized or sized 0.
  * @param {SizedSeat} s
  * @returns {SeatHold}
  */
@@ -669,7 +485,6 @@ function seatHold(s) {
 }
 
 /**
- * Each probe hold's checkout, issue and age, one per checkout.
  * @param {TickHold[]} holds
  * @param {number} now
  */
@@ -693,16 +508,10 @@ function buildProbeHoldDetail(holds, now) {
 /** @param {{labels: string[]}} row */
 const isParked = (row) => row.labels.includes(PARKED_LABEL);
 
-/**
- * Whether a loop in `mode` routes parked rows: normal mode relaunches them,
- * away mode leaves their questions to the founder's return (#2355, #3621).
- * @param {"normal"|"away"} [mode]
- */
+/** @param {"normal"|"away"} [mode] */
 const isParkRoutingMode = (mode) => mode === "normal";
 
 /**
- * Why the loop's launch filter skips a row, or null where it launches it;
- * also the idle alarm's printed reason (lib/idle-efforts.js).
  * @param {{labels: string[], takes: string[]}} row
  * @param {"normal"|"away"} [mode]
  */
@@ -715,8 +524,6 @@ function buildSkipReason(row, mode) {
 }
 
 /**
- * What one ranked row launches, its whole retro bundle where it sits in one,
- * or why it is skipped.
  * @param {MergedRow} row
  * @param {Pick<TickInput, "retroBundles"|"mode"|"history">} input
  * @param {(n: number) => boolean} isTaken
@@ -739,7 +546,6 @@ function rowLaunch(row, { retroBundles, mode, history }, isTaken) {
 }
 
 /**
- * rowLaunch, with a parked row routed by routeParked, a hold as a skip.
  * @param {MergedRow} row
  * @param {Pick<TickInput, "retroBundles"|"mode"|"seats"|"parkers"|"history"|
  *   "typedSeat">} input
@@ -760,12 +566,9 @@ function routedLaunch(
 		: { ...next, parkedRoute: parked };
 }
 
-/* What a `stop` command's record says, as the loop decides it and as `stop`'s own
- * control field reads before a tick has. */
 const EXPLICIT_STOP_DETAIL = "stop was requested";
 
 /**
- * The stop a damaged control or a `stop` command asks for, or null.
  * @param {TickInput} input
  * @returns {Extract<Decision, {stop: StopReason}> | null}
  */
@@ -777,51 +580,27 @@ function requestedStopOf(input) {
 	return null;
 }
 
-/**
- * @typedef {{seats: SizedSeat[], typedSeat?: string|null}} SeatWalk  a tick's
- *   plan seats and the seat the founder last typed on, for pickParkedSeat
- */
+/** @typedef {{seats: SizedSeat[], typedSeat?: string|null}} SeatWalk */
 
-/* A limit-cap park has spent block-act.js's RESUME_CAP of resumes or its hold
- * bound, whose comments say which limit each outlasts, so a second in a row with
- * no model reply means a limit no relaunch has outlasted. Untraced (#3804,
- * delegated). */
+// guess, #3804
 const LIMIT_PARK_CAP = 2;
 
-/**
- * What ends a ticket's relaunches, for the park's comment and the hold's why,
- * which the idle alarm prints.
- * @param {number} limitParks
- */
+/** @param {number} limitParks */
 const buildLimitCapText = (limitParks) =>
 	`${limitParks} limit-cap parks in a row with no model reply; it stays parked until you type in its session or take the label off`;
 
 /**
- * Whether a ticket's limit-cap parks in a row have ended its relaunches.
  * @param {number|undefined} limitParks
- * @returns {limitParks is number} false covers a count under the cap too
+ * @returns {limitParks is number}
  */
 const isAtLimitCap = (limitParks) =>
 	limitParks !== undefined && limitParks >= LIMIT_PARK_CAP;
 
-/**
- * The hold's why for a row at LIMIT_PARK_CAP, else null.
- * @param {number|undefined} limitParks
- */
+/** @param {number|undefined} limitParks */
 const buildLimitCapHoldWhy = (limitParks) =>
 	isAtLimitCap(limitParks) ? `parked: ${buildLimitCapText(limitParks)}` : null;
 
 /**
- * How a parked row's session goes back, from the tick's reading of its park
- * marker: resumed (#3621) on the seat pickParkedSeat picks (#5293); held, a skip with why, where none has room and
- * that session's own seat reads full, a bar at 100% or a cap sized 0 (#3669);
- * else afresh on its `takes:` command, with why. Its own seat with an unread
- * bar resumes: the loop refreshes no seat behind the first with room, so a hold
- * there would never end. A weekly-full seat holds its tickets until its
- * week resets, up to 7 days; the idle alarm counts one held past 2 days
- * (#3680). A seat outside `seats` goes afresh: the loop launches on no such
- * seat, with no bar or cap to hold a resume to, and an overflow seat's key
- * bars a resume (lib/launch-auth.js) (#3773).
  * @param {ParkerReading} parker
  * @param {SeatWalk} walk
  * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
@@ -851,10 +630,7 @@ function routeParkedSession(parker, { seats, typedSeat }) {
 }
 
 /**
- * How a parked row launches: held at LIMIT_PARK_CAP limit-cap parks in a row,
- * as the next relaunch would burn the cap again (#3804), else as
- * routeParkedSession says, with the count carried on.
- * @param {ParkerReading|undefined} parker none where no marker lists it
+ * @param {ParkerReading|undefined} parker
  * @param {SeatWalk} walk
  * @returns {{hold: string, atCap?: boolean} | NonNullable<Launch["parkedRoute"]>}
  */
@@ -868,7 +644,6 @@ function routeParked(parker, walk) {
 }
 
 /**
- * routeParked for `row`, from the parker the tick read for it.
  * @param {MergedRow} row
  * @param {ParkerReading[]} parkers
  * @param {SeatWalk} walk
@@ -880,10 +655,6 @@ const routeParkedRow = (row, parkers, walk) =>
 	);
 
 /**
- * Every parked frontier row whose session's seat a tick reads full, whether or
- * not its walk reaches the row (#3680), and in either mode, so an away tick
- * can keep a hold's start (#3850). One at the limit-cap parks' cap is left
- * to the idle alarm's own read of its marker, which needs no loop (#3840).
  * @param {Pick<TickInput, "frontier"|"seats"|"parkers"|"typedSeat">} input
  * @returns {Skip[]}
  */
@@ -895,16 +666,10 @@ const heldParked = ({ frontier, seats, parkers = [], typedSeat = null }) =>
 			: [];
 	});
 
-/**
- * When `row` was parked, ms; an unreadable start sorts as the oldest, as in
- * pick-next.js's PARKED.
- * @param {MergedRow} row
- */
+/** @param {MergedRow} row */
 const parkedMs = (row) => Date.parse(row.parkedAt ?? "") || 0;
 
 /**
- * The ranking split for the walk: parked rows, oldest park first, where the
- * mode routes them (#3621), then the rest in rank order.
  * @param {MergedRow[]} frontier
  * @param {"normal"|"away"} mode
  */
@@ -917,16 +682,13 @@ function splitParked(frontier, mode) {
 }
 
 /**
- * The log line of a resume left for a later tick.
- * @param {string} line the resume's own, HeldResume's
+ * @param {string} line
  * @param {string} why
  */
 const buildResumeWaitLine = (line, why) =>
 	`not resuming ${line}, for a later tick: ${why}`;
 
 /**
- * `seats` with one launch's or resume's fit spent on `seat`, where its cap is
- * sized.
  * @param {SizedSeat[]} seats
  * @param {string} seat
  * @returns {SizedSeat[]}
@@ -937,9 +699,6 @@ const spendSeatFit = (seats, seat) =>
 	);
 
 /**
- * The plan seat resume `r` is charged to, undefined where it runs on none of
- * `seats`: its own, or for a parked question's session the seat
- * pickParkedSeat picks, falling back to its own where none has a fit (#5293).
  * @param {HeldResume} r
  * @param {SizedSeat[]} seats
  * @param {string|null} typedSeat
@@ -951,20 +710,9 @@ function resumeSeatOf(r, seats, typedSeat) {
 }
 
 /**
- * The resumes this tick starts, oldest first, up to `slots`, and `seats` with
- * a fit spent on each one's seat (#3895). One whose seat has no fit left waits
- * for a later tick, in `capHeld` (#3911). Past the last slot the walk stops, the
- * slots being why the rest wait: a seat is sized for the slots alone, so one that
- * filled them reads 0 whatever room it has. Only the cap holds it, not a full bar
- * as a parked row: it was running on that seat, and a limit it meets there moves
- * it (#3735). A
- * seat outside `seats` or unsized has no cap to charge, nor has an
- * overflow seat's session, on the dir a plan seat's cap is sized for or not. A
- * held checkout's, or one whose unproven room is spent, waits too (#5275).
  * @param {TickInput} input
  * @param {number} slots
- * @param {import("./launch-room.js").LaunchRoom} room accumulator: each launch or
- *   resume taken spends its checkout's room
+ * @param {import("./launch-room.js").LaunchRoom} room
  */
 function takeResumes(input, slots, room) {
 	const { resumable = [], seats } = input;
@@ -989,25 +737,10 @@ function takeResumes(input, slots, room) {
 }
 
 /**
- * Walk the routed parked rows, then the gate judgements, then the rest of
- * the ranking, launching up to `slots`. A parked row goes first, its
- * question already waiting on the founder (spec #3623, #3713); one with a
- * judgement queued walks behind that judgement, which a launch of its issue
- * would drop from the queue. A judgement goes ahead of the ranking: its
- * issue is held out of every ranking until one runs. A retro-bundle member
- * launches its whole bundle, at its best-ranked member's place. A row whose
- * substrate write-set meets a held file or a launch this tick waits behind
- * every clean row, a parked one included, then fills what slots they leave
- * (#4355); a parked row's own session holding its files is no clash, as it
- * resumes onto them. A held checkout's rows, and those of one whose unproven
- * room is spent, are skipped (#5275). Residual:
- * enough resumable parked rows to fill every slot hold the judgements back a
- * tick.
  * @param {TickInput} input
  * @param {{seat: string, keyVar?: string, reason: SeatReason}} on
  * @param {number} slots
- * @param {import("./launch-room.js").LaunchRoom} room accumulator: each launch or
- *   resume taken spends its checkout's room
+ * @param {import("./launch-room.js").LaunchRoom} room
  */
 function fill(input, { seat, keyVar, reason }, slots, room) {
 	const {
@@ -1030,13 +763,13 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	const taken = new Set(
 		running.flatMap((r) => r.issues.map((n) => key(r.root, n))),
 	);
-	/** Why `number` in `root` launches nothing whatever its row reads, or null.
-	 * @param {string} root @param {number} number */
+	/**
+	 * @param {string} root
+	 * @param {number} number
+	 */
 	const buildHeldWhy = (root, number) =>
 		room.heldWhy(root) ??
 		(taken.has(key(root, number)) ? ALREADY_RUNNING : room.spentWhy(root));
-	/* A resume is held to its own seat's cap, which the pick seat's fits does
-	 * not bound where it is another seat (#3872). */
 	let seatsLeft = seats;
 	/**
 	 * @param {string} root @param {number[]} issues @param {string} prompt
@@ -1066,8 +799,7 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 			(n) => taken.has(key(row.root, n)),
 		);
 	};
-	/** @type {Map<string, number>} root and path -> the issue launched this
-	 * tick that writes it */
+	/** @type {Map<string, number>} */
 	const writtenBy = new Map();
 	/** @param {MergedRow} row */
 	const substrateOf = (row) => withoutStamps(row.writeSet ?? []);
@@ -1093,7 +825,7 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		}
 		return null;
 	};
-	/** @type {{row: MergedRow, why: string}[]} rank order */
+	/** @type {{row: MergedRow, why: string}[]} */
 	const clashing = [];
 	/** Launch `row` as `next` routes it, its substrate paths marked written.
 	 * @param {MergedRow} row
@@ -1138,9 +870,6 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		else skipped.push({ root: j.root, number: j.number, why });
 	}
 	walk([...parked.filter(hasQueuedJudgement), ...rest]);
-	/* An empty slot costs more than a predicted clash (mantahostels#588).
-	 * Residual: such a row still launches onto its held file, or beside its
-	 * partner, that same tick. */
 	for (const { row, why } of clashing) {
 		const next = launches.length < slots ? nextOf(row) : { why };
 		if ("why" in next) skip(row, next.why);
@@ -1190,16 +919,13 @@ const buildPauseIdle = ({ by, at, issues = [] }) =>
 const buildPauseText = (pause) => buildIdleText(buildPauseIdle(pause));
 
 /**
- * The loop log's line for a pause written or lifted, naming who sent it (#5126).
- * @param {boolean} paused the state written
+ * @param {boolean} paused
  * @param {string} source
  */
 const buildPauseLogLine = (paused, source) =>
 	`${paused ? "paused" : "resumed"} by ${source}`;
 
 /**
- * The pause three launched sessions in a row with no act in one checkout call
- * for, with their issues, each once. Only `set --resume` ends it.
  * @param {LaunchRecord[]} stalled
  * @param {number} at
  * @returns {Pause}
@@ -1217,8 +943,6 @@ function buildNoProgressPause(stalled, at) {
 }
 
 /**
- * The wait every plan seat at 100% of the week makes, which the loop leaves by
- * itself on the first tick a bar has reset.
  * @param {SeatReading[]} seats
  * @returns {PlanWait}
  */
@@ -1240,11 +964,8 @@ const buildPlanWaitIdle = ({ resets }) =>
 const buildPlanWaitText = (wait) => buildIdleText(buildPlanWaitIdle(wait));
 
 /**
- * The idle of a tick with no seat to launch on, the allowance wait leading where
- * every plan seat's week is full, as a session left on a limit or an overflow
- * key's held budget does not change what the loop waits for.
  * @param {TickInput} input
- * @param {Idle|null} wait null where every plan seat's week is full
+ * @param {Idle|null} wait
  * @param {Skip[]} held
  * @param {HeldResume[]} resumes
  */
@@ -1269,8 +990,6 @@ function buildNoSeatIdle(input, wait, held, resumes) {
 const buildPausedWaitText = (pause) =>
 	`${buildPauseText(pause)}; launches nothing until \`set --resume\``;
 
-/* Idle reasons that stop no row in particular: the next slot goes to the top of
- * rank, and a failed shortlist may be another tracker's. */
 const QUEUE_MOVING_WAITS = [
 	NO_FREE_SLOT,
 	RESUMES_TAKE_SLOTS,
@@ -1279,9 +998,6 @@ const QUEUE_MOVING_WAITS = [
 ];
 
 /**
- * The reason a tick's idle gives for no row launching whatever its rank, or null
- * where rank still decides. Any reason this does not know counts, so a new stop
- * cannot read as rank on the idle alarm (#3920).
  * @param {Idle|null} idle
  * @returns {string|null}
  */
@@ -1293,7 +1009,6 @@ const buildLoopWait = (idle) =>
 		: buildIdleText(idle);
 
 /**
- * A stop's detail with what it leaves for the next start to act on.
  * @param {string} detail
  * @param {TickInput} input
  */
@@ -1314,9 +1029,6 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
 }
 
 /**
- * A requested stop outranks a pause, so `stop` still ends a paused loop; a pause,
- * then a launch hold, outranks every other reason, as the reads they rest on are
- * barred (#3856).
  * @param {TickInput} input
  * @returns {Decision}
  */
@@ -1331,8 +1043,6 @@ function decideTick(input) {
 }
 
 /**
- * The decision once the tick's resumes are taken: their launches, or why none.
- * `spent`, the idle where the resumes take every slot of `free`.
  * @param {TickInput} input
  * @param {{free: number, spent: Idle, held: Skip[], resumes: HeldResume[],
  *   seatsLeft: SizedSeat[]}} taken
@@ -1361,8 +1071,6 @@ function decideLaunches(
 			held,
 			resumes,
 		);
-	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
-	 * would drop: each call launches at least one under 100%. */
 	const out = fill(
 		chargedInput,
 		launchPick,
@@ -1378,14 +1086,9 @@ function decideLaunches(
 	};
 }
 
-/* The skips a checkout's hold or spent unproven room makes, whatever the row. */
 const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, BREAKER_OPEN, UNPROVEN_HELD];
 
 /**
- * Why a tick that walked its frontier launched nothing: a shortlist it could
- * not read; a probe hold, or each checkout's spent unproven room, that skipped
- * every row it skipped; a mix of checkout holds that did, each named; or
- * nothing launchable.
  * @param {TickInput} input
  * @param {Skip[]} skipped
  * @returns {Idle}
@@ -1434,14 +1137,11 @@ function decideUnpaused(input) {
 }
 
 /**
- * The decision once each checkout's no-progress pause is set.
  * @param {TickInput} input
  * @returns {Decision}
  */
 function decideUnpausedRepos(input) {
 	const pick = pickSeat(input);
-	/* A session left on a seat's limit or with a resume due has acts still to
-	 * come, so the tick carries on to them. */
 	if (
 		pick.seat === null &&
 		pick.allCut &&
@@ -1449,8 +1149,6 @@ function decideUnpausedRepos(input) {
 		!input.resumable?.length
 	)
 		return buildNoSeatIdle(input, null, heldParked(input), []);
-	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
-	 * so an aged cache reads unread and is not why the tick waits (#2362). */
 	const held = heldParked(input);
 	if (input.freeSlots === 0)
 		return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
@@ -1464,16 +1162,10 @@ function decideUnpausedRepos(input) {
 	};
 }
 
-/** When `l` last started its job, from which it has the listing's grace: its
- * launch, or a resume or move since.
- * @param {{launchedAt: number, relaunchedAt?: number}} l */
+/** @param {{launchedAt: number, relaunchedAt?: number}} l */
 const startedAt = (l) => Math.max(l.launchedAt, l.relaunchedAt ?? 0);
 
 /**
- * Each parked row's park marker, the newest written where several list it,
- * with the seat and job it names and the directory its session resumes in,
- * its marker's, else the checkout holding the marker (#3773). Each checkout's
- * markers are read once.
  * @param {MergedRow[]} frontier
  * @param {(root: string) => import("./parked.js").ParkMarkerRead[]} readMarkers
  * @returns {ParkerReading[]}

@@ -1,123 +1,3 @@
-/*
- * recursive-dot-read.js — the dispatcher core that warns on a recursive
- * `grep`/`rg` rooted at the project directory — named as `.` or its path, or
- * named not at all (`rg PAT`) — leading with the same command with that root
- * expanded to the top-level entries that actually exist, minus the ones no
- * search wants and the ones a `Read()` deny rule covers (mantahostels#2717).
- * Its production port beyond the dispatcher's, the physical path, is
- * lib/recursive-dot-read-host.js.
- *
- * A SECOND LIMB, ON THE HEAVY TREES (#2060): a recursive `grep` or `rg`, a
- * `find`, or either under `watch`, whose root is `node_modules`, `.next`, `.git`
- * or ignored build output, or a `find` or `grep` from the repo root, hands over
- * `rule:heavy-tree-search` once a session, beside any warning below. It never
- * refuses.
- *
- * WHY IT IS EXPENSIVE, TWICE. A recursive `grep` reads every tree git ignores
- * or keeps to itself — `node_modules`, `.git`, build output — in any permission
- * mode; `rg` skips those by default, so this cost is grep's alone. And Claude
- * Code escalates a Bash command to a permission prompt whenever it cannot
- * prove the command avoids a path covered by a `Read()` deny rule. A recursive
- * search rooted at `.` traverses the whole tree, `.env` among it, so
- * `Read(./.env)` in .claude/settings.json fires — even though no `.env` exists
- * on this machine. That is shape 2 of mantahostels#2682.
- *
- * THE SESSION CANNOT SEE THE PROMPT IT CAUSED (mantahostels#2717). An escalated
- * command returns normally and exits 0 whether it was allowed outright or
- * approved at a prompt, so no session can measure this for itself, and the
- * guard cannot be tuned by trying shapes and watching. The readings behind it
- * were taken by the founder on Claude Code 2.1.259 and are recorded on
- * mantahostels#2717.
- *
- * The discriminator they establish: whether the check can resolve the read set
- * as excluding the denied path, not which tool does the reading.
- *
- * WHY THIS REWRITE AND NOT A SHORTER ONE. Both shorter rewrites lose files
- * silently (mantahostels#2717):
- *   - `*` alone drops every dot-directory, so `.claude/`, `.github/` and
- *     `.husky/` — real search targets in this repo — vanish from the results
- *     with no signal.
- *   - `git grep` drops untracked files, so a hit in a file not yet committed
- *     goes missing, which is the worst shape a search can fail in.
- *
- * WARN, NOT DENY (#482): every measured session was in auto mode, where no
- * prompt is shown, so the refusal spared none. The `Read(./.env)` rule that
- * causes the prompt stays.
- *
- * THE PROMPT IS NAMED ONLY WHERE THE PAYLOAD'S `permission_mode` CAN SHOW ONE
- * (#1731): never in `auto` or `bypassPermissions`, so there an `rg` search,
- * whose only cost is the prompt, passes unwarned. A payload with no mode is
- * read as `default`.
- *
- * LIMITS
- *  - It never stops the command, so in default permission mode the prompt it
- *    names can happen; the warning spares only a search the session re-spells.
- *  - It judges a root spelled `.`, `./`, or the project directory's absolute
- *    path, and a recursive search naming no path (mantahostels#2723, #1731),
- *    whose rewrite appends the expansion to that search's own text in the
- *    command. A path-less `rg` fed by a pipe, a `<` or a heredoc reads that
- *    instead, and passes; so does any search behind `xargs`, and one whose
- *    text, quotes and all, is not found exactly once in the command. grep's
- *    `-r` ignores stdin. Where the Bash tool's stdin is a socket, as in a
- *    subagent, a path-less `rg` reads it too; the rewrite, naming paths, still
- *    runs right.
- *  - A root QUOTED — `grep -rn PAT "."` — is allowed. The count and the
- *    substitution both read the raw string, where `"."` is not a standalone
- *    `.`.
- *  - Any other spelling of the same directory is unjudged: `$PWD` and
- *    `$CLAUDE_PROJECT_DIR`, which only the shell can expand and which this
- *    guard must not evaluate, and a path reaching the root by `..` or through
- *    a symlink, which matches no literal it compares against.
- *  - The dot limb fires only where the shell already stands in the project
- *    directory, read from the payload's `cwd` as mantahostels#2682 established.
- *    The project directory is the session's own tree — its linked worktree
- *    where it works in one, not the host checkout `$CLAUDE_PROJECT_DIR` names
- *    (#4242) — and its expansion is that tree's `git ls-files`. A `.`
- *    somewhere else is a different tree, which this guard knows nothing
- *    about.
- *  - A command carrying MORE THAN ONE standalone root spelling is allowed. The
- *    substitution is textual, and a second one — inside a quoted pattern, say —
- *    gives it no way to tell which is the search root. A root WELDED to what
- *    follows it is not standalone and is allowed too: `grep -rn PAT .|head`
- *    reaches the count as the single word `.|head`.
- *  - A `cd`, `pushd` or `popd` ANYWHERE in the command stands the guard down
- *    for every segment after it. The `cwd` gate above reads where the shell
- *    stood BEFORE the command ran, so after a `cd` the expansion would name a
- *    tree the search is no longer in — a rewrite that fails outright rather
- *    than reading widely, which is the one failure worth refusing to hand over.
- *  - Recursion is read from `-r`, `-R` and `--recursive` only. `grep -d
- *    recurse` is the same search and is not seen.
- *  - The command word must be `grep`, `egrep`, `fgrep` or `rg` exactly. A path
- *    spelling — `/usr/bin/grep` — is unjudged.
- *  - A top-level name outside `[A-Za-z0-9._-]` stands the guard down rather
- *    than building a rewrite: the name reaches a shell command line unescaped.
- *  - The expansion is computed from the tree at call time, so a top-level file
- *    added since is included, and one `git ls-files` still lists but the
- *    working tree no longer holds is dropped. It is NOT re-derived from the
- *    deny rules in .claude/settings.json: the exclusion list below is a
- *    literal that must be updated by hand if a `Read()` rule ever names
- *    something else at the top level.
- *  - `--exclude-dir=node_modules` is not added for the caller. `node_modules`
- *    is simply absent from the expansion, which is stronger: grep never
- *    descends into a directory it was not given.
- *  - It reads `grep`, `egrep`, `fgrep` and `rg`. `ag`, `ack` and a recursive
- *    `find … -exec grep` are unjudged.
- *  - For `rg` the rewrite WIDENS the search. `rg PAT .` skips hidden
- *    directories by default, so naming `.claude` and `.github` explicitly makes
- *    rg read them.
- *  - The heavy-tree limb reads a root's last component, resolved against
- *    where the search runs (#5119), so a search inside one — `grep -rn PAT
- *    node_modules/vitest`, or a `..` reaching it — passes; only a `.` is
- *    judged by every directory it stands in. A root behind a `cd` it cannot
- *    resolve passes, as does a `find` from the repo root bounded by `-prune`
- *    or `-maxdepth`. `dist`, `build`, `out` and
- *    `coverage` count only where git ignores them. A watcher other than `watch`
- *    — `inotifywait`, a bundler's `--watch` — is unjudged, and a single-word
- *    `watch` command is split on blanks, its own quoting unread.
- *  - It FAILS OPEN throughout, house style (mantahostels#103 §6), recording
- *    through the dispatcher's log (mantahostels#147).
- */
-
 const path = require("node:path");
 const {
 	BASH_SPACE,
@@ -134,29 +14,12 @@ const { relativeUnder } = require("./is-under.js");
 
 /**
  * @typedef {object} DotReadPorts
- * @property {(p: string) => string} realpath `p` resolved physical, no
- *   component required to exist, as `realpath -m`
- * @typedef {import("./core-contract.js").CoreContext & DotReadPorts}
- *   DotReadContext
+ * @property {(p: string) => string} realpath
+ * @typedef {import("./core-contract.js").CoreContext & DotReadPorts} DotReadContext
  */
 
-/*
- * Flags taking a value, short and long together. Leave one out and its value
- * is read as a bare word — which for `-e PAT .` would make the pattern a path.
- *
- * ONE SPEC PER COMMAND, because the two grammars disagree and a shared list
- * gets both wrong. `-T` is grep's no-value --initial-tab and rg's --type-not
- * VALUE; `-r` is grep's --recursive and rg's --replace VALUE. Listing either
- * wrongly makes the scan eat the pattern, read `.` as the pattern, and ALLOW in
- * silence.
- *
- * An OPTIONAL-value flag is absent from both: `--color` takes its value joined
- * or not at all, so listing it would eat the next word. The `--flag=value`
- * spelling is read as name and value whatever the spec says.
- */
 const GREP_VALUE_FLAGS =
 	"-e --regexp -f --file -m --max-count -A --after-context -B --before-context -C --context -d --directories -D --devices --include --exclude --exclude-dir --exclude-from --binary-files --label --group-separator";
-/* Flags that print and search nothing. grep's `-h` is --no-filename, not help. */
 const GREP_INERT_FLAGS = ["--help", "-V", "--version"];
 const RG_INERT_FLAGS = ["-h", "--help", "-V", "--version", "--type-list"];
 const RG_VALUE_FLAGS =
@@ -166,26 +29,21 @@ const RECURSIVE_FLAGS = ["-r", "-R", "--recursive", "--dereference-recursive"];
 const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
 
 /**
- * @typedef {object} Judgement one command's running state
- * @property {"" | "root" | "bare"} fires what fired: a named root, or no path
- * @property {string} tool the searching command that fired
- * @property {string} typed for `bare`, the search as typed
- * @property {string} base the text the rewrite substitutes in: the command,
- *   or the search a `-c` string runs, as typed (#4978)
- * @property {boolean} moved a `cd`, `pushd` or `popd` ran — see LIMITS
- * @property {boolean} heavyTree any search's root names a heavy tree (#2060)
- * @property {boolean} inWatch the search being judged runs under `watch`,
- *   where no rewrite is offered
- *
- * @typedef {object} Scene what every judge of one call reads
- * @property {string} raw the command as typed
- * @property {string} root the session tree's root, "" where it stands in none
- * @property {import("./guard-host-ports.js").TreePorts | null} tree the
- *   session's tree, null where the shell stands in no repository
- * @property {string} rootReal the session tree's root resolved physical, ""
- *   where there is none
- * @property {boolean} atRoot the shell stands at the repo root
- * @property {boolean} showsPrompt the permission mode can show a prompt
+ * @typedef {object} Judgement
+ * @property {"" | "root" | "bare"} fires
+ * @property {string} tool
+ * @property {string} typed
+ * @property {string} base
+ * @property {boolean} moved
+ * @property {boolean} heavyTree
+ * @property {boolean} inWatch
+ * @typedef {object} Scene
+ * @property {string} raw
+ * @property {string} root
+ * @property {import("./guard-host-ports.js").TreePorts | null} tree
+ * @property {string} rootReal
+ * @property {boolean} atRoot
+ * @property {boolean} showsPrompt
  * @property {string[]} spans
  * @property {DotReadContext} ctx
  * @property {Judgement} judgement
@@ -205,7 +63,6 @@ function decide(raw, ctx) {
 		);
 		return null;
 	}
-	/* The heavy-tree limb judges wherever the shell stands, in a tree or not. */
 	const tree = treeOr(ctx, null);
 	const root = tree?.root ?? "";
 	const rootReal = tree ? ctx.realpath(root) : "";
@@ -230,35 +87,23 @@ function decide(raw, ctx) {
 			inWatch: false,
 		},
 	};
-	/* Through the shared parser rather than the raw string: a `grep` mentioned
-	 * in an echo or a heredoc body is not a search. */
 	walkCommands(parsed, (cmd) => judge(scene, cmd), ctx);
 	const { judgement } = scene;
-	/* A heavy-tree root with nothing to rewrite gets the rule alone. */
 	if (!judgement.fires)
 		return judgement.heavyTree ? { injectRules: ["heavy-tree-search"] } : null;
 	return rewrite(scene, mode);
 }
 
 /**
- * The warning a fired search earns, led by its rewrite; null, logged, where
- * no rewrite can be built.
  * @param {Scene} scene
  * @param {string} mode
  * @returns {import("./core-contract.js").CoreDecision}
  */
 function rewrite({ root, tree, showsPrompt, ctx, judgement }, mode) {
 	const { base } = judgement;
-	/* A search fires only where the shell stands at the tree's root. */
 	if (tree === null) return null;
 	const expansion = expand(tree, ctx);
 	if (expansion === null) return null;
-	/* Textual substitution on the command as typed — or, for a search a `-c`
-	 * string runs, on that search as typed (#4978) — so quoting everywhere else
-	 * survives untouched. For a named root, exactly one standalone root is
-	 * present — the count required it — so the first match is the search root.
-	 * For no path, the search's own text gains the expansion after it; a
-	 * redirection it carries may stand before a path, as shell reads it. */
 	const rewritten =
 		judgement.fires === "bare"
 			? base.replace(judgement.typed, () => `${judgement.typed} ${expansion}`)
@@ -301,28 +146,7 @@ files. For \`rg\` it WIDENS the search to the hidden directories \`rg PAT .\` sk
 }
 
 /**
- * The replacement, built out of GIT'S OWN VIEW of the top level, which needs no
- * maintained exclusion list: .git, node_modules, .next and every cache
- * directory are gitignored already, and stay out for that reason rather than
- * by name. Null, logged, where it cannot be built.
- *
- * Two lists, unioned:
- *   ls-files                              tracked content — its first path
- *                                         component is a directory worth
- *                                         searching, or a root file
- *   ls-files --others --exclude-standard  a directory that exists but holds
- *             --directory                 nothing tracked yet, so a new one is
- *                                         not silently dropped
- *
- * The second is filtered to DIRECTORIES, and to NON-DOT ones. Taking untracked
- * root files too would re-admit the hundreds of `.<name>.out` scratch files
- * this repo's root carries. And an untracked DOT-directory at this root is
- * tooling state that nobody ignored — searching a cache on every rewritten
- * command is a cost with no return. The price of that line is a new source
- * directory named with a leading dot, which would be dropped silently; no such
- * directory exists here, and a tracked one — `.claude`, `.github` — comes
- * through the first list.
- * @param {import("./guard-host-ports.js").TreePorts} tree the session's tree
+ * @param {import("./guard-host-ports.js").TreePorts} tree
  * @param {DotReadContext} ctx
  * @returns {string | null}
  */
@@ -344,23 +168,15 @@ function expand(tree, ctx) {
 	/** @type {string[]} */
 	const names = [];
 	for (const p of paths) {
-		/* The first path component: the directory to search, or the file itself. */
 		const name = p.split("/")[0] ?? "";
 		if (name === "" || name === ".env" || name.startsWith(".env.")) continue;
 		if (name.endsWith(".pem")) continue;
-		/* The name reaches a shell command line unescaped. Every top-level name
-		 * in this repo is in the class below; one outside it — a space, a `&`, a
-		 * glob character, a leading dash — would be misread, so stand down. */
 		if (/[^A-Za-z0-9._-]/.test(name) || name.startsWith("-")) {
 			ctx.log(
 				"a top-level name outside [A-Za-z0-9._-] — a recursive dot search was allowed unrewritten",
 			);
 			return null;
 		}
-		/* Tracked but not on disk: `ls-files` still lists a file deleted from the
-		 * working tree, and naming it would make the corrected grep warn `No such
-		 * file` and exit 2 even where it matched. Existence follows a symlink, so
-		 * a broken one is dropped for the same reason. */
 		if (!ctx.exists(`${root}/${name}`) || names.includes(name)) continue;
 		names.push(name);
 	}
@@ -380,10 +196,8 @@ const HEAVY_TREES = ["node_modules", ".next", ".git"];
 const BUILD_OUTPUT = ["dist", "build", "out", "coverage"];
 
 /**
- * Whether a directory stands inside node_modules, .next or .git, counting only
- * the components below the session tree's root where it is inside that tree.
  * @param {string} dir
- * @param {string} root "" where the shell stands in no tree
+ * @param {string} root
  */
 function isInHeavyTree(dir, root) {
 	const below = (root === "" ? null : relativeUnder(root, dir)) ?? dir;
@@ -391,11 +205,9 @@ function isInHeavyTree(dir, root) {
 }
 
 /**
- * Whether a search root is node_modules, .next or .git by its last component,
- * or dist, build, out or coverage where git ignores it.
  * @param {Scene} scene
  * @param {string} word
- * @param {string} cwd "" where unknown
+ * @param {string} cwd
  */
 function namesTree({ spans, ctx, tree, root }, word, cwd) {
 	const { text, known } = literal(word, spans);
@@ -408,10 +220,7 @@ function namesTree({ spans, ctx, tree, root }, word, cwd) {
 	if (HEAVY_TREES.includes(base)) return true;
 	const isDot = path.posix.normalize(lit) === ".";
 	if (isDot && isInHeavyTree(resolved, root)) return true;
-	/* A `.` outside any tree has no git to ask. */
 	if (!BUILD_OUTPUT.includes(base) || (isDot && tree === null)) return false;
-	/* `-C cwd` names where the search runs; outside any tree the host's git
-	 * carries it. */
 	const r = (tree ?? ctx).git(
 		[...(cwd ? ["-C", cwd] : []), "check-ignore", "--", `${resolved}/`],
 		[1],
@@ -427,8 +236,6 @@ function namesTree({ spans, ctx, tree, root }, word, cwd) {
 }
 
 /**
- * Whether a start point, resolved against the walker's cwd, is the repo root,
- * which holds every heavy tree.
  * @param {Scene} scene
  * @param {string} word
  * @param {string} cwd
@@ -441,10 +248,8 @@ function isProjectRoot({ spans, ctx, rootReal }, word, cwd) {
 }
 
 /**
- * A `find` reads every tree it is given, ignored or not. From the repo root it
- * is let off only by a `-prune` or a `-maxdepth`.
- * @param {Scene} scene accumulator: its `judgement` is advanced here
- * @param {string[]} words the words after `find`
+ * @param {Scene} scene
+ * @param {string[]} words
  * @param {string} cwd
  */
 function judgeFind(scene, words, cwd) {
@@ -461,10 +266,9 @@ function judgeFind(scene, words, cwd) {
 
 /**
  * @typedef {{ grepLike: boolean, recursive: boolean, spec: string,
- *   inert: string[] }} SearchKind a searching command's grammar
+ *   inert: string[] }} SearchKind
  */
 
-/* `rg` is recursive with no flag at all; the greps need one. */
 /** @type {SearchKind} */
 const GREP_KIND = {
 	grepLike: true,
@@ -495,8 +299,7 @@ const isRootSpelling = (w, root) =>
 	w === "." || w === "./" || w === root || w === `${root}/`;
 
 /**
- * One command the string runs.
- * @param {Scene} scene accumulator: its `judgement` is advanced here
+ * @param {Scene} scene
  * @param {import("./shell-parse.js").Command} cmd
  */
 function judge(scene, { segment, words, runs }) {
@@ -504,8 +307,6 @@ function judge(scene, { segment, words, runs }) {
 		const { words: w, watched, scripted } = run;
 		const [head, ...args] = w;
 		if (head === undefined) continue;
-		/* Residual: the run's first directory alone, every move taken as made
-		 * (#5075). */
 		const [cwd] = run.dirs();
 		scene.judgement.inWatch = watched;
 		const kind = SEARCHES.get(head);
@@ -523,23 +324,18 @@ function judge(scene, { segment, words, runs }) {
 }
 
 /**
- * @typedef {object} Search one searching command
- * @property {string} segment the flattened segment, masked
- * @property {string[]} words the command's words, wrappers and all
- * @property {string} base the text holding it, which a rewrite substitutes in
- * @property {string} cwd where it runs
- * @property {boolean} launched whether a launcher's chdir comes before it —
- *   `env -C`, a `-c` string's `cd` — even one that stays put
- * @property {string} head its command word
+ * @typedef {object} Search
+ * @property {string} segment
+ * @property {string[]} words
+ * @property {string} base
+ * @property {string} cwd
+ * @property {boolean} launched
+ * @property {string} head
  * @property {SearchKind} kind
- * @property {string[]} args its own arguments
+ * @property {string[]} args
  */
 
 /**
- * Whether this search may earn the dot rewrite: nothing fired yet, no `cd`
- * before it and no launcher moving it, the shell at the root and no `watch`
- * around it — and for `rg`, whose only cost at the root is the prompt, a mode
- * that can show one.
  * @param {Scene} scene
  * @param {Search} search
  */
@@ -552,7 +348,7 @@ const dotAllowed = ({ judgement, atRoot, showsPrompt }, { head, launched }) =>
 	!judgement.inWatch;
 
 /**
- * @param {Scene} scene accumulator: its `judgement` is advanced here
+ * @param {Scene} scene
  * @param {Search} search
  */
 function judgeSearch(scene, search) {
@@ -562,8 +358,6 @@ function judgeSearch(scene, search) {
 	const found = scan(scene, search, dotOk);
 	if (!found.recursive || found.inert) return;
 	const bareCount = found.patternByFlag ? 0 : 1;
-	/* A search naming no path searches where it stands: a heavy tree, or, for
-	 * a grep, the repo root. */
 	if (found.bareWords === bareCount) {
 		found.heavy ||= namesTree(scene, ".", cwd);
 		if (kind.grepLike) found.heavy ||= isProjectRoot(scene, ".", cwd);
@@ -576,7 +370,6 @@ function judgeSearch(scene, search) {
 		judgement.base = search.base;
 		return;
 	}
-	/* No path: the bare words are the pattern alone, if any. */
 	if (found.bareWords !== bareCount - (found.files ? 1 : 0)) return;
 	const typed = bareSearch(scene, search, head);
 	if (typed === null) return;
@@ -587,15 +380,14 @@ function judgeSearch(scene, search) {
 }
 
 /**
- * @typedef {object} Scanned what one search's own arguments say
+ * @typedef {object} Scanned
  * @property {boolean} recursive
- * @property {boolean} inert a flag that prints and searches nothing
- * @property {number} bareWords how many bare words it carries
- * @property {boolean} patternByFlag a pattern given by flag means every bare
- *   word is a path
- * @property {boolean} files `--files`, which takes no pattern
- * @property {boolean} heavy a root names a heavy tree
- * @property {boolean} dotRoot a root is the project directory, standalone
+ * @property {boolean} inert
+ * @property {number} bareWords
+ * @property {boolean} patternByFlag
+ * @property {boolean} files
+ * @property {boolean} heavy
+ * @property {boolean} dotRoot
  */
 
 /**
@@ -626,8 +418,7 @@ function scan(scene, search, dotOk) {
 }
 
 /**
- * One value-less flag of a search.
- * @param {Scanned} out accumulator: the flag's facts are set here
+ * @param {Scanned} out
  * @param {SearchKind} kind
  * @param {string} name
  */
@@ -638,11 +429,8 @@ function readFlag(out, kind, name) {
 }
 
 /**
- * One bare word of a search. The first is the pattern, unless a flag already
- * supplied one; every other is a root.
  * @param {Scene} scene
- * @param {Scanned} out accumulator: the word is counted and its facts set
- *   here
+ * @param {Scanned} out
  * @param {{ search: Search, dotOk: boolean }} at
  * @param {string} value
  */
@@ -661,7 +449,6 @@ function readArg(scene, out, { search, dotOk }, value) {
 }
 
 /**
- * How many standalone root spellings `text` carries.
  * @param {string} text
  * @param {string} root
  */
@@ -671,11 +458,9 @@ const rootCount = (text, root) =>
 		: 0;
 
 /**
- * A path-less search's text as typed, found exactly once in the text holding
- * it; null where it reads something other than the tree or cannot be placed.
  * @param {Scene} scene
  * @param {Search} search
- * @param {string} head the search's command word
+ * @param {string} head
  */
 function bareSearch({ spans }, { segment, words, base }, head) {
 	for (const x of words) {
@@ -686,7 +471,6 @@ function bareSearch({ spans }, { segment, words, base }, head) {
 	const text = trimRun(asWritten(segment, spans), BASH_SPACE);
 	const at = base.indexOf(text);
 	if (!text || at < 0) return null;
-	/* Twice in the command, and which one is this search is unreadable. */
 	if (base.indexOf(text, at + text.length) >= 0) return null;
 	const before = trimEndRun(base.slice(0, at), BASH_SPACE);
 	if (head === "rg" && before.endsWith("|") && !before.endsWith("||"))

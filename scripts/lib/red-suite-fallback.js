@@ -1,31 +1,3 @@
-/*
- * red-suite-fallback.js — the second route a red suite reaches the tracker
- * by, where the daily filer did not (#2480).
- *
- * scripts/report-red-suite.js runs only inside the daily repo-checks
- * reading, so a filer that breaks there leaves a red suite unticketed until
- * someone reads `npm run status`.
- * check-ci-status.js already knows at session start that the suite is red
- * and that no open issue covers it, so where the day's reading shows the
- * filer did not file, it launches the filer itself, detached, through this.
- *
- * THE FILER'S READING COUNTS AS FILED only where its `red-suite` job is OK
- * and the reading is under READING_STALE_MS old.
- *
- * ONE LAUNCH AN HOUR (LAUNCH_COOLDOWN_MS), stamped in `.red-suite-fallback`
- * in the git common directory. The launch's stdout and stderr land in
- * `.red-suite-fallback.log` beside it, under a first line naming the tree it
- * ran from, and the log's last line is shown while the cooldown holds.
- *
- * IT LAUNCHES FROM THE TREE THE CALLER LOADED FROM, which a half-edited
- * checkout can break. check-ci-status.js
- * requires report-red-suite.js at load, so a launch only follows a load of
- * the filer's whole require tree from that same tree moments before.
- *
- * Core only: check-ci-status.js, which calls this, reads the core's own
- * `scheduled-checks` sweep.
- */
-
 const { spawnOutliving } = require("./user-scope.js");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -40,17 +12,13 @@ const JOB = "red-suite";
 const FILER = "report-red-suite.js";
 const STAMP = ".red-suite-fallback";
 const LOG = ".red-suite-fallback.log";
-/* One missed daily reading and a half, so a reading that ran late is not
- * yet stale. A guess. */
+// guess, #2480
 const READING_STALE_MS = 36 * 3_600_000;
-/* A guess: long enough that a failing filer is not relaunched at every
- * session start, short of letting a fixed one wait a sweep. */
+// guess, #2480
 const LAUNCH_COOLDOWN_MS = 3_600_000;
 
 /**
- * Why the day's reading does not show the filer filed, or null where it does.
- *
- * @param {string} dir the git common directory
+ * @param {string} dir
  * @param {number} nowMs
  * @returns {string | null}
  */
@@ -89,12 +57,10 @@ function readLastLine(file) {
 }
 
 /**
- * Launch the filer detached, unless a launch is inside the cooldown.
- *
- * @param {string} root the host checkout
- * @param {string} dir the git common directory
+ * @param {string} root
+ * @param {string} dir
  * @param {number} nowMs
- * @returns {string} what was done, as a clause
+ * @returns {string}
  */
 function launchFiler(root, dir, nowMs) {
 	const stamp = path.join(dir, STAMP);
@@ -113,12 +79,10 @@ function launchFiler(root, dir, nowMs) {
 	try {
 		fs.writeFileSync(log, `launched ${filer} from ${root}\n`);
 		fd = fs.openSync(log, "a");
-		/* Outliving the session-start check that launches it (#4706). */
 		const child = spawnOutliving(process.execPath, [filer], {
 			cwd: root,
 			stdio: ["ignore", fd, fd],
 		});
-		/* An async spawn fault would otherwise throw in the caller. */
 		child.on("error", (e) =>
 			fs.appendFileSync(log, `could not launch: ${caught(e).message}\n`),
 		);
@@ -133,11 +97,7 @@ function launchFiler(root, dir, nowMs) {
 }
 
 /**
- * Where no open issue covers a red suite job: launch the filer where the
- * daily reading shows it did not file, and say what was done. Null where the
- * daily filer is the route — it filed, or this is no core host.
- *
- * @param {string} root the host checkout
+ * @param {string} root
  * @param {number} nowMs
  * @returns {string | null}
  */
