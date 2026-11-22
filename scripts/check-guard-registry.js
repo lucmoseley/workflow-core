@@ -3608,8 +3608,8 @@ function sayFindings(
 		);
 	if (ifFindings.length > 0)
 		ctx.say(
-			`  An \`if\` field in ${hooksFile()} decides whether the script runs at\n` +
-				"  all, so the DEFEAT its row in\n" +
+			`  An \`if\` field in ${hooksFile()}\n` +
+				"  decides whether the script runs at all, so the DEFEAT its row in\n" +
 				`  ${IMPLICIT_MANIFEST} gives is computed against it. That row's \`${IF_KEY}\`\n` +
 				"  array names every clause the wiring narrows the script with, verbatim, and\n" +
 				"  no other (docs/agents/guard-authoring.md, surface 4). UNWIRED-IF is a row\n" +
