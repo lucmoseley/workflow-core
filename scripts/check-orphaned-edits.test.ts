@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-orphaned-edits.js names an uncommitted file no live session
- * owns, untouched for 24 hours — or at any age in a cut-over main checkout —
- * files it once for triage, and stays silent
- * where ownership cannot be read.
- *
- * The checker (#813) runs end to end, through lib/run-in-process.js, over a
- * sandbox git repository and arbiter store, with a fake `claude` on
- * WFC_CLAUDE_BIN for the liveness oracle and a fake filer on WFC_ORPHAN_FILER,
- * so no case reaches the real tracker.
- *
- * Breaking an exclusion case lets the checker file a triage issue sending a
- * session to commit or revert a live neighbour's work; breaking a filing case
- * files the same orphan at every session start.
- */
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -50,16 +35,13 @@ const sb = freshSandbox((fresh) => {
 	fs.writeFileSync(path.join(fresh.repo, "c.txt"), "seed\n");
 	gitRepo(fresh);
 	commitAll(fresh);
-	/* Not cut over: `main` tracks `landing`, so the 24-hour window holds. */
 	spawnSync("git", ["config", "branch.main.merge", "refs/heads/landing"], {
 		cwd: fresh.repo,
 	});
-	// Never an empty list: the oracle reads `[]` as a refusal.
 	fakeClaude("bystander");
 	fakeFiler();
 });
 
-/** A `claude` stand-in whose `agents --json` lists `sessionIds`, all working. */
 function fakeClaude(...sessionIds: string[]) {
 	const bin = writeClaudeStub(path.join(sb.dir, "bin", "claude"), [
 		buildAgentsBranch(
@@ -73,10 +55,6 @@ function fakeClaude(...sessionIds: string[]) {
 
 const filerLog = () => path.join(sb.dir, "filer-calls");
 
-/**
- * A filer stand-in: records its argv and stdin, prints an issue URL. With
- * `hint`, it refuses as file-issue.js does until --distinct-from is given.
- */
 function fakeFiler(code = 0, hint = "") {
 	const bin = path.join(sb.dir, "bin", "filer.js");
 	fs.writeFileSync(
@@ -101,7 +79,6 @@ const readFilings = (): { argv: string[]; body: string }[] =>
 				.map((l) => JSON.parse(l))
 		: [];
 
-/** Dirty a tracked file and back-date it `hours`. */
 function dirty(rel: string, hours: number, content = "edited\n") {
 	const file = path.join(sb.repo, rel);
 	fs.writeFileSync(file, content);
@@ -109,16 +86,12 @@ function dirty(rel: string, hours: number, content = "edited\n") {
 	fs.utimesSync(file, at, at);
 }
 
-/* GITHUB_ACTIONS off: check.js writes ::warning:: to stdout when it is set. */
-/* A hand run by default, which exits on a fault where the hook run (`notify`)
- * stays at 0. */
 const run = async (
 	args: string[] = [],
 	notify = false,
 	env: NodeJS.ProcessEnv = {},
 	write = true,
 ) => {
-	/* --write as the hook passes it, unless `write` is false. */
 	const argv = [
 		...(notify ? ["--notify"] : []),
 		...args,
@@ -375,18 +348,14 @@ describe("check-orphaned-edits", () => {
 			.find((h: { command: string }) =>
 				h.command.includes("check-orphaned-edits.js"),
 			);
-		/* Read off the source: requiring the script would load lib/check.js's
-		 * process handlers into this worker. */
 		const budget = /const HOOK_TIMEOUT_MS = ([\d_]+);/.exec(
 			fs.readFileSync(SCRIPT, "utf8"),
 		)?.[1];
 		expect(entry.timeout * 1000).toBe(Number(budget?.replaceAll("_", "")));
-		/* Async (#4367): it prints nothing, so no start waits on it. */
 		expect(entry.async).toBe(true);
 	});
 
 	describe("--hourly, the SessionStart run's throttle (#4367)", () => {
-		/* Mid-hour, so no run here straddles a clock hour. */
 		const at = (minutes: number) => ({
 			WFC_NOW: new Date(
 				Math.floor(Date.now() / HOUR) * HOUR + (30 + minutes) * 60_000,
@@ -455,7 +424,6 @@ describe("check-orphaned-edits", () => {
 	it("leaves an interrupted filing alone rather than filing it again", async () => {
 		dirty("a.txt", 30);
 		await run();
-		// What a filer killed mid-create leaves: its marker, empty.
 		const dir = path.join(sb.repo, ".git", "orphaned-edits-filed");
 		for (const f of fs.readdirSync(dir))
 			fs.writeFileSync(path.join(dir, f), "");
@@ -483,7 +451,6 @@ describe("check-orphaned-edits", () => {
 	});
 
 	describe("reports nothing where an ownership store will not read", () => {
-		/* chmod binds nobody as root, so these say nothing there. */
 		it.skipIf(AS_ROOT)("the lock store", async () => {
 			dirty("a.txt", 30);
 			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
@@ -551,14 +518,7 @@ describe("check-orphaned-edits", () => {
 	});
 });
 
-/*
- * Seam 2 (#4244, spec #4229): the host root is the main checkout and the dirt
- * sits in a linked worktree of it, owned by the session whose job record
- * names that worktree as its cwd.
- */
 describe("a linked worktree's dirt", () => {
-	/** A worktree of the sandbox repo, detached at HEAD, which job record
-	 * `sessionId` names as its cwd; `a.txt` in it dirtied and back-dated. */
 	function worktreeOf(
 		sessionId: string | null,
 		hours: number,
@@ -614,8 +574,6 @@ describe("a linked worktree's dirt", () => {
 		fs.utimesSync(file, at, at);
 	}
 
-	/** Point `origin/main` at a line of commits on HEAD, each carrying
-	 * one entry of `commits`, then put the main checkout back at HEAD. */
 	function landOnOrigin(...commits: Record<string, string>[]) {
 		const git = (...args: string[]) =>
 			spawnSync("git", args, { cwd: sb.repo, encoding: "utf8" });
@@ -629,7 +587,6 @@ describe("a linked worktree's dirt", () => {
 		git("reset", "-q", "--hard", head);
 	}
 
-	/** The issue the reaper defers to for worktree `wt` as its dirt stands. */
 	const reaperSees = (wt: string) =>
 		readWorktreeFiling(
 			path.join(sb.repo, ".git"),
@@ -811,7 +768,6 @@ describe("a linked worktree's dirt", () => {
 		expect(body).toContain(`git worktree remove --force ${wt}`);
 	});
 
-	/** A `git` stand-in that logs each call's arguments, a line each, then runs git. */
 	function loggedGit() {
 		const log = path.join(sb.dir, "git-calls");
 		const bin = path.join(sb.dir, "bin", "git-logged");
@@ -822,7 +778,6 @@ describe("a linked worktree's dirt", () => {
 		fs.chmodSync(bin, 0o755);
 		return {
 			env: { WFC_GIT: bin },
-			/** The calls that read landed history: versions listed, or blobs read. */
 			landedReads: () =>
 				(fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "")
 					.split("\n")
@@ -943,11 +898,6 @@ describe("a linked worktree's dirt", () => {
 	});
 });
 
-/*
- * Seam 2 (#4317, spec #4229): with the sandbox's `main` tracking no `landing`
- * upstream, the main checkout is cut over, so #4248's refusal holds every
- * session out of it and its dirt is judged at once.
- */
 describe("a cut-over main checkout's dirt", () => {
 	beforeEach(() => {
 		spawnSync("git", ["config", "--unset", "branch.main.merge"], {
@@ -998,8 +948,6 @@ describe("a cut-over main checkout's dirt", () => {
 	});
 
 	describe("read from a session launched in a linked worktree (#4483)", () => {
-		/** A worktree of the sandbox repo, `a.txt` in it dirtied now, which a
-		 * session launched there names as its project dir and cwd. */
 		function launchedIn() {
 			const wt = path.join(sb.repo, ".claude", "worktrees", "probe");
 			fs.mkdirSync(path.dirname(wt), { recursive: true });

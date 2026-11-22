@@ -1,67 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-issue-labels.js — reports routing faults on open issues: a child
- * missing the family its parent fixes, a `takes:` that is absent, duplicated,
- * contradicted by the issue's own kind, or gone stale, a `**Gated on:**`
- * whose condition is the founder typing a slash command (#411), a gate
- * line whose `**Gate basis:**` is absent or faulty (#577, #4946), a `kind:brief` still holding
- * the spec it should have handed up to its map (#609), and a ticket left
- * not ready in a comment alone, which the shortlist cannot read (#2309).
- *
- * `takes:` says which command opens the issue, and every open issue carries
- * exactly one — so absence is a defect, not a state meaning "/triage it"
- * (docs/agents/triage-labels.md §`takes:`). This is its only reader (mantahostels#227).
- *
- * A child of a `wayfinder:map` takes a `wayfinder:<type>`; a child of a
- * `kind:spec` takes `kind:ticket`.
- *
- * Prevention on the Bash route is the guard-issue-create-label core, which
- * denies a `gh issue create` carrying no `takes:` label, or one outside the
- * seven (mantahostels#453). That hook sees Bash tool calls only, so
- * this script is the sole control for the three routes it cannot reach: a
- * script, the GitHub web UI, and `gh api --method POST …/issues`.
- *
- * THIS SCRIPT NEVER WRITES: the parent fixes the *family*, never the member.
- * `wayfinder:grilling` versus `wayfinder:task` is a judgement about how the
- * ticket will be resolved, and a script guessing it would assert one nobody made.
- * Same for a `takes:` — mantahostels#136 (nothing asks a mid-session issue for its labels)
- * ruled the label not always knowable at creation.
- *
- * RULES BELOW ARE MIRRORED IN BASH, in scripts/place-new-issue.sh's label block —
- * unavoidable across the hook seam. Change the scoping in one and change it in
- * the other, or the prompt asks for a label this check does not want.
- *
- * Parentage and labels both come off the issues list, and never off each issue's
- * /sub_issues: that is one call per issue and defaults to per_page=30. The one
- * exception is STALE-CONTAINER, which means no open child in ANY repository:
- * the list holds this repo's issues alone, so a `takes:children` with no open
- * child in it has its own /sub_issues read, every page, before it is reported
- * (#778). PROSE-BLOCKED is the other: each open issue with comments has
- * its latest comment read, and one opening as lib/prose-blockers.js's NOT_READY_OPENING
- * matches with no gate line or open `**Blocked on**` issue its `blocked_by` edges.
- *
- * NEVER THE WHOLE TRACKER (mantahostels#1899). check-issue-orphans.js reads ghAllIssues;
- * this one must not. The scan below reads open issues only, plus the
- * closed rows carrying a RULES parent label, which is the one thing an open-only
- * read would otherwise lose: a closed parent still fixes its open child's label
- * family. Both extra calls are skipped when every parent is already in hand.
- *
- * Usage: node check-issue-labels.js [--warn] [--json] [--notify]
- *
- * --notify is the quiet path, wired to nothing:
- * silent unless there is a finding, exit 0 whatever the outcome, and — alone
- * in the family — capped, naming NOTIFY_CAP offenders per list and counting
- * the rest.
- *
- * Outcomes follow the family alphabet in scripts/lib/check.js: an unreachable
- * GitHub is SKIP (exit 0), any other gh failure is BROKEN (exit 2, mantahostels#164 —
- * the ticket that drew that line), and an
- * unlabelled child is a FAIL finding (exit 1, or 0 under --warn).
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), asks GitHub for the open issues — and for the sub-issues of each `takes:children` with no open child among them — and reports label faults — an absent, duplicated, contradicted or stale `takes:`, a `takes:human` naming no outside act, naming a repo file as its product, lacking a `**Close when:**` line, untouched for 14 days, or carrying a `! gh ` step with no refused act named, a `**Gated on:**` whose condition is the founder typing a slash command, a gate line with no `**Gate basis:**`, with a window its basis does not name or with a basis carrying no warrant, a brief still holding its spec, a latest comment saying the issue is not ready on an issue with no open blocker and no holding gate line, and a child missing its parent's family.
- * JUSTIFIED: fail-safe — an issue with no `takes:` is routed to no command, and every reader of the label reads it rather than fixing it.
- * DEFEAT:    none; --notify is silent when no open issue carries a fault.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -109,20 +46,6 @@ const {
 const HUMAN_LABEL = takesLabel("human");
 const CHILDREN_LABEL = takesLabel("children");
 
-/*
- * A `**Gated on:**` whose condition is the founder typing a slash command
- * (#411). The premise is false — `disable-model-invocation` bars the Skill
- * tool only, and scripts/dispatch-sessions.js types the prompt — yet
- * pick-next.js holds a gated issue out of the frontier and no judge can read
- * that condition met, so the one sentence silently stops dispatch. No part of the
- * match may cross a sentence. Read on a well-formed condition only: a
- * malformed gate holds nothing (scripts/lib/issue-gate.js resolveGate).
- *
- * Unseen, and accepted: the passive ("`/to-spec` is typed by the founder"),
- * a verb outside the list, and an actor other than "founder". The slash word
- * must be a real command (isCommand below), so a path or product route
- * (`/tmp`, `/book`) passes.
- */
 const FOUNDER_COMMAND_GATE =
 	/\bfounder\b[^—.;]*?\b(types?|typing|runs?|running|invokes?|fires?|launches?)\b[^—.;]*?[\s`(]\/([a-z][a-z0-9-]*)/i;
 /** @type {Record<NonNullable<ReturnType<typeof outsideLineFault>>["fault"] | "NO-CLOSE-WHEN", [string, string]>} */
@@ -167,19 +90,11 @@ const isCommand = (name) =>
 	fs.existsSync(path.join(hostRoot(), ".claude", "skills", name)) ||
 	fs.existsSync(path.join(hostRoot(), ".claude", "commands", `${name}.md`));
 
-/* The cadence check-stale-claims.js already uses for an issue nobody has
- * touched (mantahostels#3358). */
 const HUMAN_REVIEW_DAYS = 14;
-/* A missing or unparseable stamp yields NaN, which no comparison passes — so
- * it never warns — unreachable in practice, GitHub's REST rows always carrying
- * `updated_at`. */
 /** @param {string} iso */
 const ageDays = (iso) => (Date.now() - Date.parse(iso)) / 86_400_000;
 
 /**
- * The two report rows. Both carry the issue's own labels in `has`, which is
- * what the printed line quotes back.
- *
  * @typedef {import("./lib/check").Ctx} Ctx
  * @typedef {{number: number, title: string, url: string, has: string[],
  *   severity: string, tag: string, says: string, fix: string}} TakesFault
@@ -187,24 +102,9 @@ const ageDays = (iso) => (Date.now() - Date.parse(iso)) / 86_400_000;
  *   parent: number, parentLabel: string, needs: string}} Unlabelled
  */
 
-/*
- * Each rule: a label on the parent that fixes a family, and the prefix a child
- * must carry from it. `kind:ticket` is an exact name rather than a prefix
- * because `kind:` has other members a child of a spec must not take. A map's
- * child is read through `isRouteStep`, not `isDecisionTicket`: its type, not
- * `takes:wayfinder`, is what the map's frontier reads.
- */
 const RULES = [
 	{
 		parent: "wayfinder:map",
-		/*
-		 * A spec under a map is a structural node, not a step on the route, so it
-		 * takes no type. A nested map needs no clause here — `wayfinder:map` is
-		 * itself in the family. A `kind:brief` is exempt the
-		 * same way: the hand-off an exhausted map files per deliverable, awaiting
-		 * its spec (#578). Both exemptions are copied into place-new-issue.sh and
-		 * file-issue.js.
-		 */
 		exempt: (/** @type {string[]} */ l) =>
 			l.includes("kind:spec") || l.includes("kind:brief"),
 		wants: isRouteStep,
@@ -217,11 +117,6 @@ const RULES = [
 	},
 ];
 
-/*
- * Combinations no `takes:` value can be right in — NOT every disagreement with
- * another label. A `takes:` deliberately overrides one that merely disagrees
- * (mantahostels#172 is `wayfinder:task` and takes /implement).
- */
 const CONTRADICTIONS = [
 	{
 		has: "kind:spec",
@@ -233,27 +128,12 @@ const CONTRADICTIONS = [
 		takes: takesLabel("to-spec"),
 		why: "it is already a spec",
 	},
-	/*
-	 * NOT listed: `kind:ticket` with `takes:to-tickets`. An oversized ticket
-	 * really can need breaking up, so the override rule covers it.
-	 */
-	/*
-	 * Only while a step of the route is still open. A map whose every open child
-	 * is a spec or a brief is exhausted, and `takes:children` is its right value
-	 * (#578).
-	 */
 	{
 		has: "wayfinder:map",
 		takes: CHILDREN_LABEL,
 		when: (/** @type {{ openSteps: number }} */ s) => s.openSteps > 0,
 		why: "/wayfinder works the map itself while any open child carries a wayfinder:<type>",
 	},
-	/*
-	 * A finding is discharged by `manual-sync` in full mode, so it is never work
-	 * done outside Claude Code (mantahostels#2810, mantahostels#3146). Only
-	 * `takes:human` is wrong: report-manual-staleness.js files its own findings
-	 * `takes:triage`, which this entry leaves alone.
-	 */
 	{
 		has: "manual-finding",
 		takes: HUMAN_LABEL,
@@ -264,15 +144,8 @@ const CONTRADICTIONS = [
 /** @param {string[]} names */
 const takesOf = (names) => names.filter((n) => n.startsWith("takes:"));
 
-/*
- * How many offenders --notify names before it stops, sized for a SessionStart
- * hook's stdout (mantahostels#1148). Every other path
- * prints the lot — there a human is working the whole list. Findings are never
- * capped: --json and the Actions annotations still carry all of them.
- */
 const NOTIFY_CAP = 3;
 
-/* FAIL before WARN, so the slots the cap leaves go to what gates. */
 /** @param {TakesFault[]} list */
 const gatingFirst = (list) =>
 	[...list].sort(
@@ -280,10 +153,6 @@ const gatingFirst = (list) =>
 	);
 
 /**
- * Print one finding per line via `line`, capping the list under --notify and
- * saying how many were withheld. The recipe carries --warn: without it the
- * rerun exits 1 on the very findings it was asked to show.
- *
  * @template T
  * @param {Ctx} ctx
  * @param {T[]} list
@@ -300,25 +169,17 @@ const sayCapped = (ctx, list, line) => {
 };
 
 /**
- * @param {any} iss A GitHub issue as the API returns it.
+ * @param {any} iss
  * @returns {string[]}
  */
 const namesOf = (iss) =>
 	(iss.labels || []).map((/** @type {any} */ l) => l.name || l);
 
 /**
- * The closed parents `issues` lacks.
  * @param {any[]} issues
  * @returns {any[]}
  */
 function readClosedParents(issues) {
-	/*
-	 * The parents the open set does not already contain — closed, by
-	 * elimination. Fetched by RULES label rather than by number: one call per
-	 * label whatever the count, against one call per parent that grows with
-	 * the backlog. A parent carrying neither label constrains nothing, so a
-	 * fetch that misses it costs no finding.
-	 */
 	const inHand = new Set(
 		issues.filter((i) => !i.pull_request).map((i) => i.number),
 	);
@@ -339,7 +200,6 @@ function readClosedParents(issues) {
 }
 
 /**
- * The open issues, plus the closed parents a RULES label makes matter.
  * @returns {any[]}
  */
 function readIssues() {
@@ -354,11 +214,6 @@ function readIssues() {
 	return issues;
 }
 
-/*
- * Open LOCAL children per issue, counted structurally rather than read off
- * a label — the only way to see a `takes:children` whose last child
- * closed.
- */
 /** @param {any[]} issues */
 function countOpenChildren(issues) {
 	/** @type {Map<number, number>} */
@@ -386,8 +241,7 @@ function countOpenChildren(issues) {
 /**
  * @param {any} iss
  * @param {string[]} own
- * @param {TakesFault[]} takesFaults accumulator: each fault the raiser is
- *   called with is pushed here
+ * @param {TakesFault[]} takesFaults
  * @returns {Raise}
  */
 const faultRaiser = (iss, own, takesFaults) => (severity, tag, says, fix) => {
@@ -441,13 +295,6 @@ function checkContradictions(own, openSteps, raise) {
 
 /** @param {any} iss @param {string[]} own @param {Raise} raise */
 function checkHumanBody(iss, own, raise) {
-	/*
-	 * The create guard asks this line of a new takes:human body (mantahostels#2775) and
-	 * of a takes:human applied by `gh issue edit --add-label` (mantahostels#3555), but
-	 * misses a GraphQL or script create and a body it cannot parse. No issue
-	 * is exempt (mantahostels#3352). The Close-when line is judged only once
-	 * the Outside line passes, in the guard's order (#983).
-	 */
 	const isHumanErrand = own.includes(HUMAN_LABEL);
 	const humanBody = String(iss.body ?? "");
 	const human = isHumanErrand ? outsideLineFault(humanBody) : null;
@@ -457,9 +304,6 @@ function checkHumanBody(iss, own, raise) {
 }
 
 /**
- * The gate line whose basis the report reads, or null: a holding `**Gated
- * on:**`, else a well-formed `**Gated until:**`. A malformed or conflicting
- * gate is pick-next.js's to report.
  * @param {ReturnType<typeof resolveGate>} gates
  * @returns {string|null}
  */
@@ -470,14 +314,11 @@ function gateMarkerOf(gates) {
 	return null;
 }
 
-/* The status run's cited read, a whole tracker's in one call: far over
- * #5007's 1.6 s for four issues, a first guess. */
+// guess, over a measured 1.6 s for four issues, #5007
 const CITED_STATUS_MS = 60_000;
 
 /**
- * Every open gate's basis faults by issue number, the issues their bases
- * cite read in one batched call (#5007), saying which went unread.
- * @param {any[]} issues GitHub issues as the API returns them
+ * @param {any[]} issues
  * @param {Ctx} ctx
  * @returns {Map<number, import("./lib/issue-gate").BasisFault[]>}
  */
@@ -504,9 +345,9 @@ function readGateCitations(issues, ctx) {
 }
 
 /**
- * @param {any} iss @param {Raise} raise
- * @param {import("./lib/issue-gate").BasisFault[]} faults its basis faults,
- *   the cited issues followed
+ * @param {any} iss
+ * @param {Raise} raise
+ * @param {import("./lib/issue-gate").BasisFault[]} faults
  */
 function checkGates(iss, raise, faults) {
 	const gates = resolveGate(iss.body);
@@ -522,10 +363,8 @@ function checkGates(iss, raise, faults) {
 				? `relabel takes:${typed} and delete the Gated on line`
 				: "delete the Gated on line and give it the takes: value of the command that opens it",
 		);
-	/* A WARN (#577): a gate without a basis still routes correctly. */
 	const marker = gateMarkerOf(gates);
 	if (!marker) return;
-	// The write routes' own reading (#4946), so a body that skipped them surfaces.
 	if (faults.some((f) => f.kind === "no-basis"))
 		raise(
 			"WARN",
@@ -551,9 +390,8 @@ function checkGates(iss, raise, faults) {
 }
 
 /**
- * A WARN (#4970) on each open issue whose body overrides the gate judge, so
- * every disputed model reading is reviewed. The judge is not called here.
- * @param {{body?: string|null}} iss @param {Raise} raise
+ * @param {{body?: string|null}} iss
+ * @param {Raise} raise
  */
 function checkJudgeOverride(iss, raise) {
 	const reason = judgeOverrideOf(iss.body ?? "")?.reason;
@@ -568,14 +406,6 @@ function checkJudgeOverride(iss, raise) {
 
 /** @param {any} iss @param {string[]} own @param {Raise} raise */
 function checkHumanIdle(iss, own, raise) {
-	/*
-	 * takes:human is the one value with no command and no reviewer, so a
-	 * wrong one is examined by nobody (mantahostels#3358). A WARN, never a FAIL: a
-	 * genuine errand (pay, sign, email) can legitimately wait longer than
-	 * this. `updated_at` moves on any comment, label or body touch, so a
-	 * relabel or a sweep's edit restarts the clock without a look — this
-	 * asks for one, it never proves one happened.
-	 */
 	const idleDays = ageDays(iss.updated_at);
 	if (own.includes(HUMAN_LABEL) && idleDays >= HUMAN_REVIEW_DAYS)
 		raise(
@@ -588,12 +418,6 @@ function checkHumanIdle(iss, own, raise) {
 
 /** @param {any} iss @param {string[]} own @param {Raise} raise */
 function checkAgentStep(iss, own, raise) {
-	/*
-	 * A `! gh ` step is one a session runs itself (#4142 item 11, from #3874),
-	 * unless the permission check refused it. A WARN, never a FAIL: it reads
-	 * only `! gh `, and a step a session could not run when the body was
-	 * filed may have become runnable since.
-	 */
 	const body = String(iss.body ?? "");
 	if (
 		own.includes(HUMAN_LABEL) &&
@@ -610,8 +434,6 @@ function checkAgentStep(iss, own, raise) {
 
 /** @param {any} iss @param {Raise} raise */
 function checkStaleContainer(iss, raise) {
-	/* An unread list could hold the open child, so it reports no
-	 * STALE-CONTAINER (#778). */
 	/** @type {any[] | null} */
 	let kids = null;
 	try {
@@ -642,11 +464,6 @@ function checkContainer(iss, own, children, raise) {
 	if (own.includes(CHILDREN_LABEL) && !children) {
 		checkStaleContainer(iss, raise);
 	} else if (
-		/*
-		 * The inverse, and a WARN because it has legitimate cases: an issue
-		 * can hold real work of its own alongside open children. A
-		 * `wayfinder:map` is the standing one.
-		 */
 		children &&
 		!own.includes(CHILDREN_LABEL) &&
 		!own.includes("wayfinder:map")
@@ -664,17 +481,11 @@ function checkContainer(iss, own, children, raise) {
  * @param {Raise} raise
  */
 function checkSpeccedBrief(iss, own, specs, raise) {
-	/*
-	 * A WARN: the pair still routes correctly, the spec by its own takes:.
-	 * What is lost is the map listing the spec rather than a placeholder
-	 * (#606).
-	 */
 	if (own.includes("kind:brief") && specs)
 		raise(
 			"WARN",
 			"SPECCED-BRIEF",
 			"kind:brief still holding its open kind:spec — the move up under its map was never run",
-			/* promote-spec.js refuses a brief with more than one spec child. */
 			specs === 1
 				? `check the brief's rulings are in the spec body, then \`node ${scriptPath("promote-spec.js")} ${iss.number}\``
 				: `${specs} open kind:spec children — close or re-parent all but one by hand, then \`node ${scriptPath("promote-spec.js")} ${iss.number}\``,
@@ -682,11 +493,10 @@ function checkSpeccedBrief(iss, own, specs, raise) {
 }
 
 /**
- * Every `takes:` and gate fault on one open issue, raised in report order.
- * @param {any} iss @param {string[]} own
+ * @param {any} iss
+ * @param {string[]} own
  * @param {ChildCounts & {gateFaults: Map<number,
- *   import("./lib/issue-gate").BasisFault[]>}} counts with each open gate's
- *   basis faults
+ *   import("./lib/issue-gate").BasisFault[]>}} counts
  * @param {Raise} raise
  */
 function checkTakesFaults(iss, own, counts, raise) {
@@ -703,9 +513,9 @@ function checkTakesFaults(iss, own, counts, raise) {
 }
 
 /**
- * A row for each RULES family the issue's parent fixes and the issue lacks —
- * or null where the issue has no local parent at all.
- * @param {any} iss @param {string[]} own @param {Map<number, any>} byNumber
+ * @param {any} iss
+ * @param {string[]} own
+ * @param {Map<number, any>} byNumber
  * @returns {Unlabelled[]|null}
  */
 function scanParentFamily(iss, own, byNumber) {
@@ -740,9 +550,6 @@ function reportUnlabelled(ctx, unlabelled) {
 			"UNLABELLED",
 			`#${i.number} ${i.title} — under #${i.parent} (${i.parentLabel}), needs ${i.needs}`,
 			i,
-			/* `needs` is in the key and the title is not (mantahostels#2490): a child
-			 * re-parented into a different label family owes a DIFFERENT label, so
-			 * that is a new finding a reader should be told about. */
 			`UNLABELLED\t#${i.number}\t${i.needs}`,
 		);
 
@@ -791,13 +598,8 @@ function reportTakesFaults(ctx, takesFaults) {
 }
 
 /**
- * A ticket a launched session found not ready, left with a comment opening as
- * NOT_READY_OPENING matches and nothing pick-next.js holds it on (#2309, ruled
- * at #2212), judged by lib/issue-hold.js. A WARN: the issue still routes.
- * Returns the fault, or its read failure, as Raise's arguments; null where it
- * has neither.
  * @param {any} iss
- * @param {Set<number>} openNumbers every open issue in this repo
+ * @param {Set<number>} openNumbers
  * @returns {Promise<Parameters<Raise> | null>}
  */
 async function proseBlockedFault(iss, openNumbers) {
@@ -806,10 +608,7 @@ async function proseBlockedFault(iss, openNumbers) {
 		ownRepo: parseRepoOfUrl(iss.repository_url),
 		readIssue: readIssueStrict,
 	};
-	/* The free half first, so the reads are paid only on an issue whose latest
-	 * comment says it is not ready (#3271). */
 	if (await isHeldWithoutReads(iss, at)) return null;
-	/* The last page at one comment a page is the latest comment. */
 	const latest = await ghGetRetrying(
 		`repos/{owner}/{repo}/issues/${iss.number}/comments?per_page=1&page=${iss.comments}`,
 		{ strict: true },
@@ -821,7 +620,6 @@ async function proseBlockedFault(iss, openNumbers) {
 			`latest comment unreadable (${latest.error}), so a prose-only not-ready comment is unjudged`,
 			`re-run, or read it yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/comments`,
 		];
-	/* An empty page is a comment deleted since the list, not a silence. */
 	const comment = latest.out.at(-1);
 	if (!comment)
 		return [
@@ -850,8 +648,6 @@ async function proseBlockedFault(iss, openNumbers) {
 }
 
 /**
- * Raise each issue's PROSE-BLOCKED fault in input order, so the report's order
- * never rides on which read answered first.
  * @param {{iss: any, raise: Raise}[]} commented
  * @param {Set<number>} openNumbers
  */
@@ -873,9 +669,6 @@ const SPEC = {
 	async run(/** @type {Ctx} */ ctx) {
 		const issues = readIssues();
 
-		/* Keyed by number, holding the issue as the API returns it — `any` because
-		 * the row is an untyped API shape and only the `iss.*` fields read
-		 * below matter. */
 		/** @type {Map<number, any>} */
 		const byNumber = new Map();
 		for (const iss of issues)
@@ -897,7 +690,7 @@ const SPEC = {
 		let scanned = 0;
 		let openScanned = 0;
 		for (const iss of issues) {
-			if (iss.pull_request) continue; // one number space, two kinds of thing
+			if (iss.pull_request) continue;
 			if (iss.state !== "open") continue;
 			openScanned++;
 			openNumbers.add(iss.number);
@@ -905,9 +698,6 @@ const SPEC = {
 			const raise = faultRaiser(iss, own, takesFaults);
 			checkTakesFaults(iss, own, counts, raise);
 			if (iss.comments > 0) commented.push({ iss, raise });
-			/* Counted off the link, not off the lookup: a parent carrying no RULES
-			 * label is deliberately unfetched above, and reporting it as un-scanned
-			 * would read as a gap in coverage rather than as nothing to check. */
 			const rows = scanParentFamily(iss, own, byNumber);
 			if (rows) {
 				scanned++;
@@ -917,11 +707,6 @@ const SPEC = {
 
 		await raiseProseBlocked(commented, openNumbers);
 
-		/*
-		 * Not under --notify, built for a SessionStart hook: a scan summary with
-		 * nothing to report is a line every session would pay for and none acts
-		 * on. The findings below still speak there.
-		 */
 		if (!ctx.notify)
 			ctx.say(
 				`Checked ${openScanned} open issue(s) for a takes: fault, ${scanned} of them with a parent to inherit a label family from.\n`,

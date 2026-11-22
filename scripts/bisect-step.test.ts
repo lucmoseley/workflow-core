@@ -1,47 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the exit code `scripts/bisect-step.sh` hands `git bisect run` for each
- * outcome and check set, and the bisect.yml text that calls it.
- *
- * `scripts/bisect-step.sh` is the body `git bisect run` executes at every step
- * of the hand-fired bisect (mantahostels#947). Its exit code is the only thing bisect
- * reads, and the three codes mean different things: 0 good, 125 skip this
- * commit entirely, anything else bad. Getting 125 wrong is what makes a bisect
- * name the wrong commit — a commit whose install cannot resolve is untestable,
- * not broken.
- *
- * Since mantahostels#967 the checks that decide are selectable, because judging on one CI
- * job's checks when the red lives in another does not fail loudly: git never
- * re-tests either endpoint, so every commit returns good and git names the BAD
- * ENDPOINT — usually the tip of main — as the first bad commit, exiting 0.
- *
- * npm, python3 and node are stubbed at their §N7 vars (WFC_NPM, WFC_PYTHON,
- * WFC_NODE) so the exit codes are ours to drive (#2266); npx is a decoy on PATH.
- * UNVERIFIED, and deliberately: the workflow that calls this, since testing that
- * means running a bisect on a runner (AGENTS.md, mutation rule). The pre-flight
- * is asserted as workflow text for the same reason.
- *
- * Twenty-three mutations run against these tests, each confirmed to fail the named
- * test and then reversed with the inverse edit.
- *
- * The original eight: `exit 125` on a failed install → `exit 1`; `125) exit 1` →
- * `125) exit 125`; `fetch-depth: 0` → `1`; a `schedule:` trigger added to
- * bisect.yml; the Biome check dropped from the step; the short-circuit between
- * the three checks removed; `--branch main` dropped from the good-sha
- * resolution; and the copy-out of the step script replaced by `true`.
- *
- * The fourteen added at mantahostels#967: the lint-and-tests fallback for an unset check set
- * removed; `npm ci` added to the python set; the python set's untestable `return
- * 125` → `return 1`; the manual-staleness reporter added to the documents set;
- * the needle-drift finding fold removed; needle-drift forced always-good;
- * check-guard-registry.js dropped from the documents set; the unknown-set `exit
- * 128` → `exit 1`; `run_check`'s 125 fold removed; and in bisect.yml the
- * `BISECT_CHECK_SET` env line removed, the pre-flight invocation removed, the
- * cannot-reproduce abort removed, the check-set summary row removed, and the
- * choice input's `default: lint-and-tests` → `default: all`.
- *
- * The one added at #2266: a documents gate's `"$node_bin"` → bare `node`.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -63,18 +20,14 @@ afterEach(() => {
 interface Exits {
 	ci?: number;
 	biome?: number;
-	/* Omit the Biome binary entirely — the pre-Biome half of the range. */
 	biomeMissing?: boolean;
 	sh?: number;
 	test?: number;
 	pip?: number;
 	testpy?: number;
-	/* Exit code per `node scripts/<file>`, keyed by the script path. Any script
-	 * not named here exits 0. */
 	node?: Record<string, number>;
 }
 
-/* The document guards' gates, in the order document-guards.yml's job runs them. */
 const DOC_CALLS = [
 	"node scripts/check-doc-map.js",
 	"node scripts/check-doc-map-markers.js",
@@ -93,9 +46,6 @@ const PY_CALLS = [
 	"npm run test:py -- --full",
 ];
 
-/* Fake `npm`, `python3` and `node` that exit with whatever the caller asked for,
- * per subcommand, and record the invocations they saw. They sit off PATH, so a
- * bare call that skips its var reaches the real binary and fails the test. */
 function stubTools({
 	ci = 0,
 	biome = 0,
@@ -129,13 +79,8 @@ function stubTools({
   *)              exit ${test} ;;
 esac`,
 	);
-	// Poisoned deliberately (mantahostels#1538): nothing here should call npx at all, so a
-	// reintroduced one is loud rather than a live registry fetch from a unit test.
 	write("npx", `echo "UNEXPECTED npx" >&2\nexit 66`, pathDecoys);
 
-	// Biome is called by path, not as `npx biome` (mantahostels#1538), so its stub has to sit
-	// where the script looks — a node_modules/.bin inside the cwd `run` hands it.
-	// One left on PATH would never be consulted.
 	const localBin = path.join(dir, "node_modules", ".bin");
 	fs.mkdirSync(localBin, { recursive: true });
 	if (!biomeMissing)
@@ -167,11 +112,7 @@ function run(t: ReturnType<typeof stubTools>, checkSet?: string) {
 		WFC_PYTHON: path.join(t.stubs, "python3"),
 		WFC_NODE: path.join(t.stubs, "node"),
 	};
-	// The biome stub sits in this dir's node_modules/.bin, so the script must run
-	// from here — a relative call from anywhere else reaches the REAL biome in
-	// whatever cwd vitest chose.
 	const cwd = t.dir;
-	// Never inherit a real one: it would silently re-point every default test.
 	delete env.BISECT_CHECK_SET;
 	if (checkSet !== undefined) env.BISECT_CHECK_SET = checkSet;
 
@@ -195,14 +136,9 @@ describe("bisect-step.sh — the default check set", () => {
 	it("exits 125 — skip, never bad — when the install fails, running nothing after the install", () => {
 		const t = stubTools({ ci: 1 });
 		expect(run(t)).toBe(125);
-		// And it stops there: anything run against a half-installed tree would
-		// fail for the install's reason and be recorded as this commit's.
 		expect(readCalls(t.dir)).toEqual(["npm ci"]);
 	});
 
-	// The three checks below are ci.yml's `Lint and tests` job. A sweep goes red
-	// on any of them, so judging on the suite alone walks a lint-only red to
-	// a confidently wrong culprit.
 	it("calls a commit bad when Biome fails, and stops before the rest", () => {
 		const t = stubTools({ biome: 1 });
 		expect(run(t)).toBe(1);
@@ -212,14 +148,9 @@ describe("bisect-step.sh — the default check set", () => {
 		]);
 	});
 
-	// Absent is untestable, never bad. Every commit before Biome was adopted
-	// installs cleanly without it, and a missing path exits 127 — which run_check
-	// does not fold, so without this arm bisect reads the whole pre-Biome half of
-	// the range as bad and names a commit adjacent to the real one (mantahostels#1538).
 	it("exits 125 — skip, never bad — when the Biome binary is absent, running nothing after the install", () => {
 		const t = stubTools({ biomeMissing: true });
 		expect(run(t)).toBe(125);
-		// And it stops there, exactly as a failed install does.
 		expect(readCalls(t.dir)).toEqual(["npm ci"]);
 	});
 
@@ -240,21 +171,17 @@ describe("bisect-step.sh — the default check set", () => {
 	});
 
 	it("never lets the suite's own 125 reach bisect as a skip", () => {
-		// 125 from the suite would silently skip a genuinely bad commit.
 		const t = stubTools({ test: 125 });
 		expect(run(t)).toBe(1);
 	});
 
 	it("runs the lint-and-tests trio when BISECT_CHECK_SET is unset", () => {
-		// A direct local run, and any caller predating mantahostels#967, must behave exactly
-		// as this script always has.
 		const t = stubTools({});
 		expect(run(t)).toBe(0);
 		expect(readCalls(t.dir)).toEqual(LINT_CALLS);
 	});
 
 	it("runs the lint-and-tests trio when BISECT_CHECK_SET is set but empty", () => {
-		// What an unset workflow_dispatch input actually delivers.
 		const t = stubTools({});
 		expect(run(t, "")).toBe(0);
 		expect(readCalls(t.dir)).toEqual(LINT_CALLS);
@@ -269,8 +196,6 @@ describe("bisect-step.sh — the python check set", () => {
 	});
 
 	it("runs no npm ci — the pip install is this job's install step", () => {
-		// ci.yml's Python job has no setup-node and no npm ci; `run-pytest.js`
-		// reads nothing out of node_modules.
 		const t = stubTools({});
 		run(t, "python");
 		expect(readCalls(t.dir)).not.toContain("npm ci");
@@ -312,9 +237,6 @@ describe("bisect-step.sh — the documents check set", () => {
 			node: { "scripts/check-doc-map.js": 1 },
 		});
 		expect(run(t, "documents")).toBe(1);
-		// Up to and including the failing gate, and nothing after it. Sliced by
-		// lookup rather than a literal count, so inserting a step ahead of it —
-		// mantahostels#974 added one — moves the boundary instead of reddening this case.
 		const failed = DOC_CALLS.indexOf("node scripts/check-doc-map.js");
 		expect(readCalls(t.dir)).toEqual(DOC_CALLS.slice(0, failed + 1));
 	});
@@ -344,9 +266,6 @@ describe("bisect-step.sh — check-set selection", () => {
 	});
 
 	it("never runs the manual-staleness reporter, in any set", () => {
-		// It files and refreshes a GitHub issue rather than failing, is gated to
-		// the schedule, and bisect.yml grants no `issues: write` — so running it
-		// would spam the tracker and fail for a reason unrelated to the commit.
 		for (const set of ["lint-and-tests", "python", "documents", "all"]) {
 			const t = stubTools({});
 			run(t, set);
@@ -357,8 +276,6 @@ describe("bisect-step.sh — check-set selection", () => {
 	});
 
 	it("aborts the bisect on an unrecognised check set rather than judging", () => {
-		// 128+ aborts. Falling back to the default would judge on checks the
-		// operator did not ask for — the failure this ticket exists to close.
 		const t = stubTools({});
 		expect(run(t, "lint-and-test")).toBe(128);
 	});
@@ -369,9 +286,6 @@ describe("bisect.yml", () => {
 		path.join(ROOT, ".github", "workflows", "bisect.yml"),
 		"utf8",
 	);
-	/* Comment lines only, and everything but. Every assertion about the
-	 * workflow's prose must not be satisfiable by its runtime output, and vice
-	 * versa. */
 	const split = (wanted: boolean) =>
 		wf
 			.split("\n")
@@ -381,8 +295,6 @@ describe("bisect.yml", () => {
 	const runtime = split(false);
 
 	it("is workflow_dispatch only — never a schedule, push or failure trigger", () => {
-		// mantahostels#907 ruled the bisect is fired by hand after a human reads the range
-		// report: an automatic one names a flaky test's commit confidently.
 		expect(wf).toMatch(/^on:\n {2}workflow_dispatch:/m);
 		expect(wf).not.toMatch(/^ {2}(schedule|push|pull_request|workflow_run):/m);
 	});
@@ -392,21 +304,16 @@ describe("bisect.yml", () => {
 	});
 
 	it("runs the step script rather than inlining a second copy of it", () => {
-		// The `run:` body, not a comment mentioning the path.
 		expect(runtime).toMatch(
 			/git bisect run bash "\$RUNNER_TEMP\/bisect-step\.sh"/,
 		);
 	});
 
 	it("copies the step script out of the worktree before starting", () => {
-		// Bisect checks out commits predating the script, where an in-tree path
-		// does not exist and every step fails identically.
 		expect(runtime).toMatch(/cp scripts\/bisect-step\.sh "\$RUNNER_TEMP/);
 	});
 
 	it("checks out full history — a shallow clone cannot be bisected", () => {
-		// Anchored past any comment: the reason for the setting is written
-		// directly above it and would satisfy a looser match on its own.
 		expect(runtime).toMatch(/^\s+fetch-depth: 0$/m);
 	});
 
@@ -418,8 +325,6 @@ describe("bisect.yml", () => {
 	});
 
 	it("installs no dependencies itself — every step does its own install", () => {
-		// One install at the top would test every commit in the range against
-		// the newest lockfile rather than the one it shipped with.
 		expect(wf).not.toMatch(/^\s+run: npm ci$/m);
 	});
 
@@ -432,8 +337,6 @@ describe("bisect.yml", () => {
 	});
 
 	it("passes the check set through the environment, never into a run body", () => {
-		// A `${{ inputs.x }}` inside `run:` is substituted before bash sees it,
-		// so a crafted input would execute in the step.
 		expect(runtime).toMatch(
 			/^\s+BISECT_CHECK_SET: \$\{\{ inputs\.checks \}\}$/m,
 		);
@@ -444,9 +347,6 @@ describe("bisect.yml", () => {
 	});
 
 	it("pre-flights the bad endpoint before it starts the bisect", () => {
-		// git never re-tests an endpoint, so a check set that cannot reproduce
-		// the red names the bad sha — the tip of main — as the culprit and exits
-		// 0. Running the step once against that sha is what makes it loud.
 		const checkout = runtime.indexOf('git checkout --quiet --detach "$BAD"');
 		const preflight = runtime.indexOf(
 			'bash "$RUNNER_TEMP/bisect-step.sh" || preflight=$?',
@@ -470,10 +370,6 @@ describe("bisect.yml", () => {
 	});
 
 	it("reports a pre-flight abort in the summary, and names no culprit there", () => {
-		// A red job whose explanation lives only in a step log is the shape this
-		// ticket is closing, not one to reintroduce.
-		// Regex rather than a literal: a shell `${...}` inside a JS string trips
-		// Biome's noTemplateCurlyInString.
 		const abort = runtime.search(/if \[ -n "\$\{PREFLIGHT:-\}" \]; then/);
 		const culprit = runtime.search(/elif \[ -n "\$\{CULPRIT:-\}" \]; then/);
 		expect(abort).toBeGreaterThan(-1);
@@ -482,7 +378,6 @@ describe("bisect.yml", () => {
 	});
 
 	it("names the check set it judged on in the run summary", () => {
-		// An answer read weeks later has to carry its own scope.
 		expect(runtime).toMatch(/Check set \| .*CHECKS:-lint-and-tests/);
 	});
 });

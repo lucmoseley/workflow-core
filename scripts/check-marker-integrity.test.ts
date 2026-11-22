@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-marker-integrity.js counts the test-pass-marker store lines
- * that will not read back as a marker, at WARN, and never rewrites the store
- * (#182, #156 Q3).
- *
- * Drives the real script as a subprocess, `--root` pointed at a sandbox so a
- * real machine's own marker stores are never read (matches
- * check-stale-suite-queue.test.ts, this family's model).
- *
- * It speaks only through `npm run status`: loosen a case and a torn append
- * drops a full-run record in silence, or the check starts repairing a store
- * still being priced off its history.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -33,7 +20,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** Writes raw lines to one of the two stores under `dir`'s marker root. */
 function writeStore(store: string, lines: string[]) {
 	const file = path.join(markersDir(dir), store);
 	fs.writeFileSync(file, lines.length > 0 ? `${lines.join("\n")}\n` : "");

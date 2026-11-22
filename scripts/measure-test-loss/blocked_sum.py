@@ -1,7 +1,3 @@
-"""Sum blocked.py's rows. Usage: python3 -I blocked_sum.py blocked.jsonl [days]
-Counting rules: #2812 (the baseline)'s, unchanged.
-Rows are de-duplicated on (file, at, cls), because a transcript can repeat a line after a resume."""
-
 import collections
 import json
 import sys
@@ -19,13 +15,12 @@ for line in open(sys.argv[1]):
     r = json.loads(line)
     rows[(r["file"], r["at"], r["cls"], r["cmd"][:60])] = r
 rows = list(rows.values())
-CAP = 1800  # a foreground call is moved to the background near 600 s; longer rows are a held prompt or a suspended session
+CAP = 1800
 ex = [r for r in rows if r["cls"] == "fg" and r["s"] > CAP]
 print(
     f"left out: {len(ex)} fg rows over {CAP} s, {sum(r['s'] for r in ex) / 3600:.2f} h"
 )
 rows = [r for r in rows if not (r["cls"] == "fg" and r["s"] > CAP)]
-# The window's length in days, for the h/day figures: #2812's 14 unless given.
 DAYS = float(sys.argv[2]) if len(sys.argv) > 2 else 14
 for repo in ("wfc", "mh"):
     R = [r for r in rows if r["repo"] == repo]

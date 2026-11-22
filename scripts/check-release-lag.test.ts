@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The check-release-lag.js program (#4448, #5228) over a throwaway clone and
- * $HOME. Loosened, the lag reads from the tag rather than its source and
- * counts all of main's history, a lag past the threshold stays silent at
- * SessionStart, or an install off its pin reads as the pin.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -19,7 +13,6 @@ const T0 = 1_790_000_000;
 let dir: string;
 let repo: string;
 let home: string;
-/** The install registry addAdopter fills. */
 let registry: { plugins: Record<string, object[]> };
 beforeEach(() => {
 	registry = { plugins: { "workflow-core@wfc": [] } };
@@ -53,8 +46,6 @@ const git = (args: string[], at = 0): string => {
 const commit = (at: number) =>
 	git(["commit", "-q", "--allow-empty", "-m", `c${at}`], at);
 
-/** A core clone: main's source at day 0, a release rendered from it, and
- * `ahead` more commits on origin/main, the last at `lagDays`. */
 const buildCore = ({
 	lagDays,
 	ahead = 3,
@@ -93,7 +84,6 @@ const buildCore = ({
 	return source;
 };
 
-/** `installed` is the version installed_plugins.json records. */
 const addAdopter = (
 	name: string,
 	ref: string | null,

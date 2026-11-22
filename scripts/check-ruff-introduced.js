@@ -51,7 +51,6 @@ const { scriptPath } = require("./lib/script-path.js");
 const codeOf = (/** @type {Diagnostic} */ d) => d.code ?? "syntax";
 
 /**
- * Diagnostics grouped by their line-free key.
  * @param {Diagnostic[]} ds
  */
 function byKey(ds) {
@@ -65,8 +64,6 @@ function byKey(ds) {
 }
 
 /**
- * Charge each key the staged blob holds more of than HEAD's, listing every
- * diagnostic under it; returns how many were introduced.
  * @param {Ctx} ctx
  * @param {string} p
  * @param {Diagnostic[]} now
@@ -85,7 +82,6 @@ function chargeIntroduced(ctx, p, now, had) {
 			message: first.message,
 			introduced: ds.length - old,
 		});
-		// Which of the n is new cannot be told apart, so every one is listed.
 		const note =
 			old > 0 ? ` (${old} of these ${ds.length} were already in HEAD)` : "";
 		ctx.say(`${p}: ${codeOf(first)} ${first.message}${note}`);

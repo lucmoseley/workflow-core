@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-refill-loop-stop.js names a refill loop stopped on a damaged
- * control file, or paused by the no-progress rule, once, at the next session
- * start (#2014, #3389, #3859), and never an explicit stop or a founder's pause,
- * and names a damaged state file (#3380)
- * and a stopped loop's damaged control file (#3927), and a running loop's restart
- * wait past its bound at every start (#4145).
- * WFC_REFILL_DIR points the loop's files
- * at a temp directory, so the machine's real loop is never read. Loosen a case
- * and a stalled loop goes unseen at session start, or its notice repeats at
- * every start.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -41,7 +29,6 @@ function writeState(reason: string, detail = "the detail", at = STOP_AT) {
 	);
 }
 
-/** An interactive start unless `jobDir` names a background job's. */
 const run = (
 	args: string[],
 	source = "startup",

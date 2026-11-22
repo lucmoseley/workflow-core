@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-open-maps.js reports an open `wayfinder:map` with no open
- * child (mantahostels#1206), a closed child missing from its map's decision
- * record (mantahostels#1862), and a map near GitHub's sub-issue cap (#92) — and
- * never gates or writes.
- *
- * Runs with a stub `gh` injected via WFC_GH: no network, no auth, and no
- * dependence on this repo's own tracker state — which is what the script
- * reports on and so cannot also be its fixture.
- *
- * It runs daily in the repo-checks run, report-only: loosen a case and a
- * map's destination sits with no ticket toward it, a decision leaves its map,
- * or a map hits the 100-child cap unwarned.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -37,15 +23,12 @@ interface Map {
 	pull_request?: object;
 	body?: string;
 	labels?: string[];
-	/** undefined means the sub_issues call is never reached for this map. */
 	children?: SubIssue[];
-	/** the sub_issues call for this one map returns an HTTP error */
 	failChildren?: boolean;
 }
 
 interface Fixture {
 	maps: Map[];
-	/** the maps list call itself fails */
 	failList?: boolean;
 	listError?: string;
 	unreachable?: boolean;
@@ -129,7 +112,6 @@ describe("undischarged maps", () => {
 		expect(r.out).toContain("UNDISCHARGED-MAP");
 		expect(r.out).toContain("#8");
 		expect(r.out).toContain("taglines");
-		// The way out, not just the fault (§X3): a scoping decision, not a close.
 		expect(r.out).toContain("takes:triage");
 		expect(r.out).toContain("never close by hand");
 	});
@@ -287,7 +269,6 @@ ${extra}
 		expect(r.out).toContain("#12");
 		expect(r.out).toContain("map #8");
 		expect(r.out).not.toMatch(/MISSING-DECISION[\s\S]*#9\b/);
-		// The way out, not just the fault (§X3): the repair command, not just the gap.
 		expect(r.out).toContain("scripts/issue-body.js append-section");
 		expect(r.out).toContain('--heading "Decisions so far"');
 	});
@@ -477,7 +458,6 @@ describe("never gates, never writes", () => {
 		for (const call of r.calls()) {
 			expect(call.split(" ")[0]).toBe("api");
 			expect(call).not.toMatch(/(^|\s)(-X|--method)\s+(?!GET(\s|$))/);
-			// gh api turns a call carrying -f fields into a POST unless told GET.
 			if (/(^|\s)-[fF]\s/.test(call))
 				expect(call).toMatch(/(^|\s)-X GET(\s|$)/);
 		}

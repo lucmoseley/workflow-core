@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-r"""
-scan_bookkeeping.py — mantahostels#1139's measurement: what the ~8 MB of doc-map "bookkeeping" tool output
-actually is, and whether other contended paths carry the same shape.
-
-Supersedes the v2 doc-map read scanner (mantahostels#1082), whose two
-classifier defects are pinned by name in test_scan_bookkeeping.py. v3
-sub-classifies the non-read residue so "bookkeeping" can be separated into
-removable and inherent.
-"""
 
 import os
 import json
@@ -59,7 +50,6 @@ SIZE_VERBS = {"wc", "ls", "stat", "du", "file", "find"}
 
 
 def strip_heredocs(cmd):
-    """Return (command_without_heredoc_bodies, heredoc_body_text)."""
     bodies = []
     out = cmd
     for m in re.finditer(r"<<-?\s*'?\"?([A-Za-z_][A-Za-z0-9_]*)'?\"?", cmd):
@@ -73,8 +63,6 @@ def strip_heredocs(cmd):
 
 
 def split_unquoted(s, seps):
-    """Split s on any separator in `seps` (list of literal strings) that lies
-    outside single/double quotes."""
     parts, buf = [], []
     i, n = 0, len(s)
     q = None
@@ -143,7 +131,6 @@ GIT_SUB_RE = re.compile(r"\bgit\s+(?:-\S+\s+)*([a-z-]+)")
 
 
 def classify(cmd, target_re):
-    """Return (route, detail). Highest-priority route across all stages."""
     body_stripped, heredoc = strip_heredocs(cmd)
     in_heredoc_only = bool(
         heredoc and target_re.search(heredoc) and not target_re.search(body_stripped)

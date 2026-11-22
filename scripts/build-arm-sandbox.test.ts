@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * The before/after test's sandboxes (#2042), built by the command against
- * throwaway stand-ins: a "live" config dir the arm copy must not link to, and
- * a git repo whose sandbox clone must push nowhere but its own bare origin,
- * run its own commit hooks, and reach `gh` only as a stub that logs and
- * reaches nothing. A break here lets an arm write to the founder's live config
- * or to GitHub.
- *
- * `gh` is spawned through PATH on purpose: PATH is the sandbox's own contract
- * with a session's Bash calls, which never read `WFC_GH`.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -43,7 +32,6 @@ const readSymlinksUnder = (dir: string): string[] =>
 	});
 
 describe("config: an arm's config dir", () => {
-	/** `~/.claude` holds the files; `~/.claude3` links to them, as on this machine. */
 	const liveLayer = () => {
 		const home = path.join(tmp, "home");
 		const live = path.join(home, ".claude");
@@ -227,7 +215,6 @@ describe("task: one run's sandbox", () => {
 		git(repo, "config", "user.email", "test@example.com");
 		git(repo, "config", "user.name", "test");
 		fs.writeFileSync(path.join(repo, "f.txt"), "before\n");
-		// The repo arms its hooks from `prepare`.
 		fs.writeFileSync(
 			path.join(repo, "package.json"),
 			JSON.stringify({
@@ -369,7 +356,6 @@ describe("task: one run's sandbox", () => {
 		expect(sandboxEnv).toContain("GIT_ALLOW_PROTOCOL=file");
 	});
 
-	/** A clone of `repo`'s main alone. */
 	const publicClone = () => {
 		const repo = sourceRepo();
 		fs.mkdirSync(path.join(repo, ".claude"));
@@ -383,9 +369,7 @@ describe("task: one run's sandbox", () => {
 		fs.writeFileSync(path.join(repo, "f.txt"), "tracker\n");
 		git(repo, "commit", "--quiet", "-am", "a tracker-only commit");
 		const absent = git(repo, "rev-parse", "HEAD").stdout.trim();
-		// The space is what makes both #2854 refusal cases below pin #3975's shellQuote; a plain path passes unquoted.
 		const clone = path.join(tmp, "public clone");
-		// --no-local copies main's objects alone; a local clone hardlinks them all.
 		git(
 			tmp,
 			"clone",
@@ -565,7 +549,6 @@ describe("task: one run's sandbox", () => {
 		expect(r.err).toContain("build the sandbox outside every one");
 	});
 
-	/** An arm config dir whose wfc-self marketplace and install name the live checkout. */
 	const armConfig = () => {
 		const live = "/live/workflow-core/self-plugin";
 		const configDir = path.join(tmp, "arm-config");
@@ -619,7 +602,6 @@ describe("task: one run's sandbox", () => {
 			configDir,
 		]);
 
-	/** Commits a self-plugin/ into `repo`, and `settings` as its settings file. */
 	const withSelfPlugin = (repo: string, settings?: object) => {
 		const files: Record<string, string> = {
 			"self-plugin/.claude-plugin/marketplace.json": "{}\n",

@@ -1,15 +1,3 @@
-"""Pins bench.py's per-call figures and deny count, and the paired gate a
-guard port is read by (#2733, #2783, #3216) with its one re-read (#4664), and that each dispatched tool's
-payload carries what its cores read (#3176).
-
-`one_call` runs real `/bin/sh` commands, since the parallel start and the
-children's rusage are what it measures. The payload cases run `node`, since the
-subject a core reads is the dispatcher's `subjectFor` on the core's own
-`field`, and the Skill case runs the dispatcher itself.
-
-full-sweep-only: the payload case loads every core `guard-cores.json` names.
-"""
-
 import json
 import os
 import random
@@ -31,7 +19,6 @@ from bench import (
 )
 
 HERE = Path(__file__).parent
-# The loop costs some 200-500 ms of CPU; 50 ms is far under it.
 BURN = "i=0; while [ $i -lt 200000 ]; do i=$((i+1)); done"
 BURN_CPU_FLOOR_MS = 50
 
@@ -72,8 +59,6 @@ def test_a_post_call_payload_carries_the_answer_and_a_file_tool_its_path(tmp_pat
 
 REPO = HERE.parent.parent
 
-# Each (event, tool, core) triple's subject, read off its bench payload by the
-# dispatcher's own subjectFor: a core finding none fails open unjudged (#3176).
 UNREAD = """
 const { corePath } = require("./scripts/lib/guard-cores.js");
 const { subjectFor } = require("./scripts/lib/guard-entry.js");
@@ -155,7 +140,6 @@ def test_a_bare_code_review_is_denied_by_the_review_rules_core_naming_the_builti
 
 
 def test_a_detached_child_is_counted_once_it_exits_and_refused_while_it_runs(tmp_path):
-    # Run in a child, so the pytest worker never becomes a subreaper.
     probe = f"""
 import os, subprocess, sys
 sys.path.insert(0, {str(HERE)!r})
@@ -176,8 +160,6 @@ subprocess.run(["pkill", "-P", str(os.getpid()), "sleep"])
 def test_a_child_exiting_after_the_reap_loop_is_waited_for_and_its_cpu_counted(
     tmp_path,
 ):
-    # The race of #3657: a child that turns zombie only after reap_orphans'
-    # any-child wait.
     probe = f"""
 import os, resource, subprocess, sys, time
 from pathlib import Path
@@ -234,8 +216,6 @@ def test_a_narrowed_guard_passes_on_wall_with_cpu_recorded_beside_it():
 
 
 def run_with(values, narrowed=False, reread=False):
-    """run_paired over calls whose new/old ratio cycles through `values`,
-    recording the order each pair ran in."""
     order, i = [], [0]
 
     def old():
@@ -395,8 +375,6 @@ def test_each_paired_side_runs_from_its_own_root(tmp_path):
 
 
 def test_the_reread_flag_reaches_the_paired_read(tmp_path):
-    # Run in a child, since main makes its process a subreaper. run_paired
-    # is stubbed: the 720 real pairs a re-read runs would cost seconds.
     sets = tmp_path / "set.txt"
     sets.write_text("cat >/dev/null\n")
     (tmp_path / ".claude").mkdir()
@@ -438,21 +416,16 @@ def test_the_program_refuses_a_bad_invocation():
 
 
 def stub_root(tmp_path, name, hooks):
-    """A side root whose `.husky` holds `hooks`, {name: shell body}, not
-    executable, as the repo's are: git reaches them only through husky."""
     root = tmp_path / name
     (root / ".husky").mkdir(parents=True)
     for hook, body in hooks.items():
         (root / ".husky" / hook).write_text(f"{body}\n")
-    # The side's own husky install, as a real side root has one: husky's
-    # shim, from the fixture CI's pytest job (which runs no npm ci) can read.
     shim = root / "node_modules" / "husky" / "husky"
     shim.parent.mkdir(parents=True)
     shim.write_text(HUSKY_SHIM.read_text())
     return str(root)
 
 
-# husky 9's `h` shim, held to the installed copy by the case below.
 HUSKY_SHIM = HERE / "husky-h-shim.fixture"
 
 
@@ -541,7 +514,6 @@ def test_hook_cpu_reports_each_hook_that_fired_by_name(tmp_path):
 
 
 def test_a_refused_git_am_is_read_and_reported_ungated(tmp_path):
-    # Run in a child, since main makes its process a subreaper.
     roots = [
         stub_root(tmp_path, name, {"pre-applypatch": "exit 1"})
         for name in ("old", "new")
@@ -571,18 +543,13 @@ assert bench.main(args) == 0
     assert not list((tmp_path / ".claude" / "tmp").iterdir())
 
 
-# --- fail-open sites (#5487) ---------------------------------------------------
-
-
 def test_a_hook_exiting_before_its_stdin_is_read_is_still_a_run(tmp_path, capsys):
-    # Past the pipe buffer, so the write meets the closed pipe.
     call = one_call(["exit 2"], b"x" * (1 << 20), dict(os.environ), str(tmp_path))
     assert call["denies"] == 1
     assert capsys.readouterr().err == ""
 
 
 def test_no_child_at_all_counts_none_running():
-    # A fresh interpreter has no child, so its own waitpid raises.
     run = subprocess.run(
         [
             sys.executable,
@@ -599,15 +566,12 @@ def test_no_child_at_all_counts_none_running():
 
 
 def test_a_process_gone_before_its_stat_is_read_is_skipped(monkeypatch, capsys):
-    # A live child, so the reap loop finds one running and goes on to /proc.
     child = subprocess.Popen(["sleep", "30"])
     try:
 
         def gone(self, *a, **kw):
             raise FileNotFoundError(2, "No such file or directory", str(self))
 
-        # A pid exiting between /proc's listing and its stat read is a race no
-        # fixture can time.
         monkeypatch.setattr(bench.Path, "read_text", gone)
         assert bench.reap_orphans() == 0
     finally:

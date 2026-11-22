@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * Runs check-comment-policy.js (#5490) over a real git repo, because the
- * facts the verdict reads come from the commit's own tree; a break here charges a commit comments it inherited, or
- * arms the gate in a repo that never switched it on.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

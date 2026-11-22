@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what check-primitives.js refuses in a primitives table, and its count
- * line, each count unreadable in turn (#3451).
- *
- * Black-box over fixture roots, never this repo: a plugin root holding a base
- * table (reached through WFC_SCRIPT_ROOT, lib/script-path.js's test seam) and
- * a host root holding a local one. Where the two are one directory, the run
- * is the core's own, and a base fault FAILs; apart, it is an adopter's, and a
- * base fault only warns.
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here
- * loosens that gate.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -32,8 +19,6 @@ const write = (root: string, rel: string, body: string) => {
 	fs.writeFileSync(path.join(root, rel), body);
 };
 
-/* A check program printing a runCheck envelope with `n` FAIL findings and
- * one WARN, which is no breach. */
 const fakeCheck = (n: number) =>
 	`process.stdout.write(JSON.stringify({ outcome: ${n > 0 ? '"FAIL"' : '"OK"'}, findings: [...Array.from({ length: ${n} }, () => ({ severity: "FAIL" })), { severity: "WARN" }] }));\n`;
 

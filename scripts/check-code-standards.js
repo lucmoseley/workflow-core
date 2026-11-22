@@ -1,86 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-code-standards.js — every citation in docs/code-standards.md, and in
- * docs/code-standards-base.md where it is written, still resolves, so a
- * reviewer never cites a rule against the wrong lines; and no §N7 export block
- * offers a name nothing consumes (mantahostels#1799), or only tests consume
- * (#1361), bar a name docs/export-callers.json keeps for a caller the scan
- * misses, whose row it verifies (#5486); and `pythonRoutes` in .claude/workflow-core.json routes Python as
- * the local file's route table does, which wins (#1863, lib/python-routes.js).
- *
- * Usage:
- *   node scripts/check-code-standards.js [--warn] [--json] [--touching <rev>] [<doc>]
- *   node scripts/check-code-standards.js --review [<doc>] [<pin>…]
- *     re-anchor the bare pins named (`scripts/lib/check.js:50-56`, or a bare
- *     path to take every pin into that file) after re-reading them; with no
- *     pin, re-anchors every bare pin the document carries and drops entries
- *     for pins it no longer carries. <doc> defaults to the local file. Reports
- *     in prose, never JSON, and checks nothing.
- *
- * THE BASE IS READ ONLY WHERE IT IS WRITTEN (#963). Where
- * docs/code-standards-base.md sits in this repo — the core — a run with no
- * <doc> reads it beside the local file, so the export scan reports once. Each
- * document keeps its own anchors file, and --review rewrites only its own. A
- * base line pin the release refuses — one naming no file, or a file it leaves
- * behind — is UNSHIPPED (#961, #1259), and here it warns like every other
- * finding.
- *
- * --touching <rev> IS A SCOPE FILTER, DELIBERATELY NOT lib/check.js's --against
- * (mantahostels#2631). That framework flag is reserved repo-wide for fault-diffing
- * (check-website-copy.js, check-guard-registry.js): run the whole checker
- * twice, at <rev> and at the index, and report the set difference — "did this
- * commit newly break something". runCheck intercepts --against itself before
- * a spec's run() ever sees it (lib/check.js runCheck's `ctx.has(AGAINST)`
- * branch) and demands an AgainstSpec (runAgainst's `!against` refusal), so a
- * checker cannot repurpose the name for a different question. And
- * fault-diffing is the wrong question here regardless: a rule's PROSE can
- * change on a line that cites a file the diff never touches, and the backlog
- * citation sitting on that line was already stale before this commit —
- * set-diffing two identical finding-sets would keep suppressing it forever.
- * So this instead runs the checker once, against the working tree, and
- * FILTERS its findings to the two things mantahostels#2631 named: a finding whose cited
- * file <rev>..working touched, or a finding sitting on a document line
- * <rev>..working touched. A pre-existing backlog entry outside
- * both is silent; touch either side and it resurfaces.
- *
- * THE PROBLEM (mantahostels#1091). The standards documents are derived
- * from the corpus: every rule pins a real file and usually quotes it. The
- * offsets rot while the quotations stay verbatim.
- *
- * REPORT-ONLY, DELIBERATELY. Findings are WARN and this never gates (mantahostels#1091). A
- * stale pin is a documentation defect discovered by whoever edited the cited
- * file, who is not the person who can judge whether the rule still holds; and
- * there is no --fix, because no generator in this repo writes into a
- * source-of-truth prose document. BROKEN is reserved for this script's own
- * apparatus failing: git unable to enumerate the tracked set.
- *
- * THE TWO HALVES OF THE CITATION SURFACE.
- *
- *   QUOTATION-PAIRED PIN — a pin sharing its line with an italic quotation
- *   (*"…"*). Directly checkable: does the quoted text still sit inside the
- *   cited range? If not, where in the file is it now? A quotation that appears
- *   NOWHERE in the file is reported distinctly (ABSENT), because that is a
- *   fabricated or deleted quotation and not an offset slip.
- *
- *   BARE PIN — no quoted text, pointing at a region rather than a sentence
- *   (`scripts/lib/check.js:8-13`, the five-outcome alphabet table). Nothing to
- *   string-match, so each is anchored by a digest of EXACTLY THE CITED LINES,
- *   held in scripts/code-standards-anchors.json, and a change WARNs.
- *
- * WHY A HUNK DIGEST AND NOT A WHOLE-FILE ONE. mantahostels#1091 rejected whole-file
- * anchoring in check-guard-registry.js's mould: it fires when any cited file
- * changes at all. A hunk digest fires only when the cited lines themselves move
- * or change, which is precisely the event that invalidates the pin. The cost is
- * that a pin is re-anchored by hand — one line in an uncontended file, outside
- * lib/file-claim.js's scope and outside doc-map §A's, exactly as
- * guard-registry-anchors.json is.
- *
- * TWO ROT MODES THIS CANNOT SEE: a rule acquiring a COUNTEREXAMPLE (a new
- * file arriving that breaks a rule), and TOOLING CATCHING UP (a Biome bump
- * making a rule restate what a tool now enforces).
- * Both need a reader, not a digest.
- */
-
 const crypto = require("node:crypto");
 const { writeFd } = require("./lib/write-fd.js");
 const fs = require("node:fs");
@@ -108,9 +26,7 @@ const {
 } = require("./lib/guard-cores.js");
 /** @typedef {import("./lib/standards-pins").LinePin} LinePin */
 
-/* The working directory, never __dirname: it is what lets this be exercised
- * inside a throwaway repository rather than against this one (§X3). Read at
- * each call, so a run in a shared process judges its own directory (#5172). */
+// #5172
 const root = () => process.cwd();
 const DOC = "docs/code-standards.md";
 const ANCHORS = "scripts/code-standards-anchors.json";
@@ -119,8 +35,6 @@ const BASE_ANCHORS = "scripts/code-standards-base-anchors.json";
 /** @param {string} doc */
 const anchorsOf = (doc) => (doc === BASE_DOC ? BASE_ANCHORS : ANCHORS);
 /**
- * The command that re-anchors `key` in `doc`.
- *
  * @param {string} doc
  * @param {string} [key]
  */
@@ -133,25 +47,10 @@ const reviewCommand = (doc, key) =>
 		.filter(Boolean)
 		.join(" ");
 
-/**
- * Every quote character folded to one.
- *
- * A quotation is delimited by double quotes, so source text that itself
- * contains them cannot be transcribed verbatim — *"… passing for 'no names
- * found'"* quotes a line reading `"no names found"`. That substitution is
- * forced by the notation, not a misquotation, so neither side may see it.
- *
- * @param {string} s
- */
+/** @param {string} s */
 const foldQuotes = (s) => s.replace(/[\u2018\u2019\u201c\u201d'"]/g, '"');
 
-/**
- * Comment furniture removed and whitespace collapsed, so a quotation matches a
- * comment however it happens to be wrapped. `/*`, ` * `, `//` and a leading `#`
- * are stripped at the head of the line only — mid-line they are content.
- *
- * @param {string} line
- */
+/** @param {string} line */
 const normalise = (line) =>
 	foldQuotes(line)
 		.replace(/^\s*(?:\/\*+|\*+\/?|\/\/+|#+)\s?/, "")
@@ -159,12 +58,9 @@ const normalise = (line) =>
 		.trim();
 
 /**
- * The lines from `from` to `to` as one searchable string, with the map back to
- * line numbers.
- *
  * @param {string[]} lines
- * @param {number} from 1-based, inclusive
- * @param {number} to   1-based, inclusive
+ * @param {number} from
+ * @param {number} to
  */
 function haystack(lines, from, to) {
 	let text = "";
@@ -183,8 +79,6 @@ function haystack(lines, from, to) {
 }
 
 /**
- * The line an offset into a haystack came from.
- *
  * @param {{at: number, line: number}[]} marks
  * @param {number} offset
  */
@@ -196,17 +90,6 @@ function lineAt(marks, offset) {
 }
 
 /**
- * A quotation as the fragments that must appear, in order.
- *
- * AN ELLIPSIS IS A JOIN, NOT A CHARACTER. Several quotations elide — *"the
- * widest query any checker makes … was 26.67 MB across 2,456 issues"* — so a
- * verbatim match would report every one of them as fabricated.
- *
- * A TRAILING FULL STOP IS DROPPED from the last fragment. A quotation cut short
- * closes with a full stop the source does not carry there (*"… exercised
- * in-process."*, where the source runs on to `against ./fake-llm-port`), and
- * that is ordinary prose rather than a misquotation.
- *
  * @param {string} quote
  * @returns {string[]}
  */
@@ -221,8 +104,6 @@ function fragmentsOf(quote) {
 }
 
 /**
- * Where a quotation starts in a haystack, or -1.
- *
  * @param {string} text
  * @param {string[]} parts
  * @returns {number}
@@ -242,21 +123,11 @@ function findFragments(text, parts) {
 }
 
 /**
- * The longest leading run of the quotation's words that the file does carry.
- *
- * A quotation that matches for two lines and then diverges is a MISQUOTATION,
- * and saying where it parts company is the whole of the fix. Reported apart
- * from a quotation matching nothing at all, which is fabricated or deleted.
- *
  * @param {string} text
  * @param {string[]} parts
  * @returns {{words: number, at: number, prefix: string} | null}
  */
 function longestPrefix(text, parts) {
-	/* A quotation can fold away to nothing — *"."* loses its only fragment to
-	 * fragmentsOf's trailing-full-stop strip — and there is then no prefix to
-	 * report, which is what null already means here. Without it the checker
-	 * dies with BROKEN on the document it is reporting on (mantahostels#1064). */
 	const first = parts[0];
 	if (first === undefined) return null;
 	const words = first.split(" ");
@@ -281,8 +152,6 @@ function hunkDigest(lines, from, to) {
 }
 
 /**
- * The canonical anchor key: how the document spells the pin, path resolved.
- *
  * @param {string} rel
  * @param {number} from
  * @param {number} to
@@ -297,7 +166,6 @@ const keyOf = (rel, from, to) =>
 function loadAnchors(file) {
 	try {
 		const raw = JSON.parse(fs.readFileSync(path.join(root(), file), "utf8"));
-		/* Tolerate anything non-object rather than crashing the whole check. */
 		return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
 	} catch {
 		return {};
@@ -322,10 +190,6 @@ function saveAnchors(file, anchors) {
 }
 
 /**
- * The paths <rev>..working-tree touched, repo-relative. git failing here is
- * APPARATUS (an unresolvable rev, most often), so it is BROKEN — the same
- * rule readTrackedFiles below applies.
- *
  * @param {string} rev
  * @param {(m: string) => never} broken
  * @returns {Set<string>}
@@ -344,11 +208,6 @@ function readChangedFiles(rev, broken) {
 }
 
 /**
- * The 1-based line numbers <rev>..working-tree touched in `rel`, on the
- * NEW (working-tree) side. `-U0` carries no context, so this is exactly the
- * added lines — a pure deletion (0 new lines) contributes nothing: there is
- * no new-side line left to attribute a citation to.
- *
  * @param {string} rev
  * @param {string} rel
  * @param {(m: string) => never} broken
@@ -374,14 +233,7 @@ function readChangedLines(rev, rel, broken) {
 	return lines;
 }
 
-/**
- * The tracked set, by full path and by basename.
- *
- * git failing here is APPARATUS, not subject: it is what this reads the repo
- * with, so it is BROKEN and gates, per check.js:16-26.
- *
- * @param {(m: string) => never} broken
- */
+/** @param {(m: string) => never} broken */
 function readTrackedFiles(broken) {
 	let out = "";
 	try {
@@ -405,13 +257,6 @@ function readTrackedFiles(broken) {
 }
 
 /**
- * A cited path resolved to a repo path.
- *
- * The document cites by BASENAME wherever the section has already named the
- * directory (`strip.ts:23-25`, `check.js:50-56`), so a basename is resolved
- * against the tracked set and an ambiguous one is reported rather than guessed,
- * since a wrong guess would accuse a file the rule never cited.
- *
  * @param {string} rawPath
  * @param {{set: Set<string>, byBase: Map<string, string[]>}} tracked
  * @returns {{rel: string} | {fault: string, detail: string}}
@@ -461,85 +306,26 @@ function readText(rel) {
 	}
 }
 
-/*
- * §N7's SECOND HALF, and §G6, scanned rather than cited (mantahostels#1799,
- * #1361): an export block offering names nothing takes, or only tests do.
- *
- * WARN, like every finding here.
- *
- * THE RESIDUAL IT CANNOT CLOSE: a real consumer that reaches the name through
- * a string. That one is deliberately silent.
- */
-
-/**
- * The files §N7 governs: the `scripts/` executables and seams, plus the
- * skills' own scripts.
- */
 const EXPORT_SCOPE =
 	/^(?:scripts\/|\.claude\/skills\/[^/]+\/scripts\/)[\w./-]+\.js$/;
-/**
- * The trailing `module.exports = { … }` §N7 fixes as the only form. Global, and
- * the LAST match is the one read: a file may quote the form in a header comment
- * (`pick-next.js:72`), and §N7 puts the real one at the end.
- */
 const EXPORT_BLOCK = /\nmodule\.exports = \{([\s\S]*?)\};/g;
-/**
- * One line of the form a file in a require cycle keeps instead, filling the
- * exports object in place (arbiter-store.js's THE SPLIT RULE): a trailing run
- * of `exports.<name> = …;` lines, comment lines among them. A line no
- * `EXPORTS_RUN_LINE` fits stays in the run, so it counts as unparsed.
- */
 const EXPORTS_RUN_MEMBER = /^(?:exports\.|[ \t]*(?:\/\/|\/\*|\*))/;
-/** One line of that run, rewritten as the block entry it stands for. */
 const EXPORTS_RUN_LINE = /^exports\.([A-Za-z_$][\w$]*) = ([\w$.]+);$/;
-/** One entry in it: `name,` or the re-export form `name: other.thing,`. */
 const EXPORT_ENTRY = /^\s*([A-Za-z_$][\w$]*)\s*(?::\s*[\w.$]+\s*)?,?$/;
-/** A comment-shaped line, which an export block may carry between entries. */
 const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*)/;
-/** Every identifier a file spells. */
 const TOKEN_RE = /[A-Za-z_$][\w$]*/g;
-/** A top-level binding, which is what makes a speller its own definer. */
 const DEFINITION_RE =
 	/^(?:const|let|var|function|class|async function)\s+([A-Za-z_$][\w$]*)/gm;
-/**
- * A property read. It is what rescues the file that takes an export and
- * rebinds it under the same name — `pick-next.js`'s
- * `const DOC_MAP_HINT = writeSetPredict.DOC_MAP_HINT`, a definer by the line
- * above and a real consumer.
- */
 const MEMBER_RE = /\.\s*([A-Za-z_$][\w$]*)/g;
-/**
- * A path's last segment, and the `/` or quote opening it where one does —
- * `./thing` in a `require`, `scripts/thing.js` in a spawned command,
- * `"thing.js"` in a `path.join`. A segment a `/` follows is a directory, not a
- * module, so it is no match. A bare segment opens only where no `[\w-]`
- * precedes it, so a long run is read once, not from each of its characters.
- */
 const PATH_TAIL_RE = /(?:([/"'`])|(?<![\w-]))([\w-]+(?:\.[\w-]+)*)(?![\w/-])/g;
 const SCRIPT_EXT = /\.[cm]?[jt]sx?$/;
-/**
- * A header line naming the unbuilt caller a module was built ahead of, and
- * that caller's ticket — `Unbuilt caller: app/reviews/page.tsx (#575)`. Its
- * exports are interface, not test-only (base §G6).
- */
 const UNBUILT_CALLER = new RegExp(
 	String.raw`${LINE_START}${JS_COMMENT}\s*Unbuilt caller:.*#\d+`,
 	"im",
 );
-/**
- * The harness whose generic `entry.exports?.main` read IS the run-in-process
- * consumption the entry-point exemption models, so it vouches for no `main`
- * (#1361) — nor does `require.main`, a program's own guard.
- */
 const RUN_IN_PROCESS = "scripts/lib/run-in-process.js";
 const REQUIRE_MAIN = /\brequire\.main\b/g;
-/**
- * The exports kept for a caller the textual scan cannot see (§N7, #5486): a
- * JSON array of `{module, name, caller}` rows, every path repo-relative.
- * Absent, it keeps none.
- */
 const EXPORT_CALLERS = "docs/export-callers.json";
-/** Tracked bytes no identifier can be hiding in. */
 const BINARY_EXT =
 	/\.(?:png|jpe?g|gif|webp|avif|ico|pdf|woff2?|ttf|zip|gz|xlsx?|docx?|ods)$/i;
 
@@ -547,14 +333,12 @@ const BINARY_EXT =
  * @typedef {object} ExportBlock
  * @property {string} rel
  * @property {{name: string, exempt: boolean}[]} entries
- * @property {number} unparsed  entries no `EXPORT_ENTRY` shape fits
+ * @property {number} unparsed
  */
 
 /** @typedef {{module: string, name: string, caller: string}} CallerRow */
 
 /**
- * Every §N7 export block.
- *
  * @param {{set: Set<string>}} tracked
  * @returns {ExportBlock[]}
  */
@@ -562,7 +346,6 @@ function readExportBlocks(tracked) {
 	/** @type {ExportBlock[]} */
 	const out = [];
 	for (const rel of [...tracked.set].sort()) {
-		/* A test-kind file's exports are meant for tests. */
 		if (!EXPORT_SCOPE.test(rel) || isTestKind(rel)) continue;
 		const text = readText(rel);
 		if (text === null) continue;
@@ -573,18 +356,12 @@ function readExportBlocks(tracked) {
 }
 
 /**
- * One file's last §N7 export block, or null where it has none.
- *
  * @param {string} rel
  * @param {string} text
  * @returns {ExportBlock | null}
  */
 function exportBlockOf(rel, text) {
 	const hasUnbuiltCaller = UNBUILT_CALLER.test(headerOf(rel, text));
-	/* runInProcessAsync calls the exported `main` of a program carrying a
-	 * `require.main` guard, and refuses one without (run-in-process.js), so
-	 * that `main` is how the program is run, not a test-only export (#1361).
-	 * Textual: `require.main` spelled anywhere, a comment included, counts. */
 	const isEntryPoint = text.includes("require.main");
 	const block = moduleExportsBlock(text) ?? exportsRun(text);
 	if (!block) return null;
@@ -596,7 +373,6 @@ function exportBlockOf(rel, text) {
 }
 
 /**
- * The last `module.exports = { … }` block's entry lines.
  * @param {string} text
  * @returns {{entries: string[]} | null}
  */
@@ -613,15 +389,10 @@ function moduleExportsBlock(text) {
 }
 
 /**
- * The trailing `exports.<name> =` run's lines.
  * @param {string} text
  * @returns {{entries: string[]} | null}
  */
 function exportsRun(text) {
-	/* Walked back line by line: as one regex, every line of a long run that
-	 * stops short of the end is a fresh start rescanning the rest (#3383). The
-	 * run closes on the last non-blank line, an `exports.` one, and never takes
-	 * in the file's first line. */
 	const lines = text.split("\n");
 	let last = lines.length - 1;
 	while (last > 0 && !/\S/.test(lines[last] ?? "")) last--;
@@ -639,9 +410,6 @@ function exportsRun(text) {
 }
 
 /**
- * Each entry's name and whether it is exempt, and how many entries no
- * `EXPORT_ENTRY` shape fits.
- *
  * @param {string[]} entries
  * @param {{blockExempt: boolean, isEntryPoint: boolean}} block
  */
@@ -653,7 +421,6 @@ function blockEntries(entries, { blockExempt, isEntryPoint }) {
 		if (!entry.trim()) continue;
 		const hit = EXPORT_ENTRY.exec(entry);
 		if (!hit) {
-			/* A spread, a call, an object literal — a shape §N7 does not describe. */
 			if (!COMMENT_LINE.test(entry)) unparsed += 1;
 			continue;
 		}
@@ -667,37 +434,9 @@ function blockEntries(entries, { blockExempt, isEntryPoint }) {
 }
 
 /**
- * For each exported name, and each module exporting it, the tracked files
- * that spell it WITHOUT defining it, bar a definer reading it off an object
- * (`MEMBER_RE`), and that reach that module — the consumers.
- *
- * ONE TOKENISATION PASS, NOT A SEARCH PER NAME (mantahostels#1799 holds the measurement).
- *
- * WHY A SPELLER MUST REACH THE MODULE (#1616). Spelling alone made every
- * common-word export — `review`, `record`, `shape` — consumed by any file
- * using the word, so it was never reported test-only (#1411). A file reaches a
- * module by naming its basename as a path's last segment (`modulesNamed`).
- * Two modules sharing a basename are reached together.
- *
- * A FILE BUILDING A MANIFEST PATH REACHES WHAT THE MANIFEST LOADS (#4136). The
- * dispatcher requires each core and host module by a path `corePath` builds
- * from a lib/guard-cores.json row, so its `buildHostPorts` names no host; a
- * file reaching lib/guard-cores.js and calling `corePath(` reaches every
- * module the manifest's rows name. A file merely naming the manifest does
- * not, so it masks no real dead export in a core.
- *
- * WHY DEFINERS ARE SUBTRACTED. A file exporting `main` spells `main`, so a
- * plain speller-count has two consumer-less exporters of one name vouching for
- * each other permanently.
- *
- * DELIBERATELY TEXTUAL, and so biased towards silence. A name or path spelled
- * in a comment, a JSON value or a shell string counts, which is what keeps a
- * module reached only through a string (a dynamic `require`, a spawned
- * command) out of the findings.
- *
  * @param {Set<string>} paths
  * @param {ExportBlock[]} blocks
- * @returns {Map<string, Map<string, Set<string>>>} name → exporter → consumers
+ * @returns {Map<string, Map<string, Set<string>>>}
  */
 function consumersOf(paths, blocks) {
 	/** @type {Map<string, Map<string, Set<string>>>} */
@@ -710,8 +449,6 @@ function consumersOf(paths, blocks) {
 			consumers.set(name, byExporter);
 		}
 	for (const rel of paths) {
-		/* The baseline spells every name and module it keeps, so it would vouch
-		 * for its own rows. */
 		if (BINARY_EXT.test(rel) || rel === EXPORT_CALLERS) continue;
 		const text = readText(rel)?.replace(REQUIRE_MAIN, "require");
 		if (text === undefined) continue;
@@ -720,11 +457,7 @@ function consumersOf(paths, blocks) {
 	return consumers;
 }
 
-/**
- * The basenames of the modules the dispatcher's manifest loads, empty where
- * this tree carries no manifest of its own to read.
- * @returns {string[]}
- */
+/** @returns {string[]} */
 function dispatchedModules() {
 	const own = path.join(root(), MANIFEST_REL);
 	if (manifestAt(root()) !== own) return [];
@@ -734,14 +467,10 @@ function dispatchedModules() {
 }
 
 /**
- * Records `rel` against every exported name it spells without defining, for
- * each exporter of that name it reaches.
- *
- * @param {Map<string, Map<string, Set<string>>>} consumers accumulator: `rel`
- *   joins each reached exporter's set
+ * @param {Map<string, Map<string, Set<string>>>} consumers
  * @param {string} rel
  * @param {string} text
- * @param {string[]} dispatched the modules a built manifest path reaches
+ * @param {string[]} dispatched
  */
 function addConsumer(consumers, rel, text, dispatched) {
 	const defined = firstGroups(DEFINITION_RE, text);
@@ -757,8 +486,6 @@ function addConsumer(consumers, rel, text, dispatched) {
 }
 
 /**
- * `reached`, plus every module the manifest loads where `text` reaches
- * lib/guard-cores.js and builds a path with `corePath(`.
  * @param {Set<string>} reached
  * @param {string} text
  * @param {string[]} dispatched
@@ -770,10 +497,6 @@ function withDispatched(reached, text, dispatched) {
 }
 
 /**
- * The module basenames `text` names as a path's last segment: any segment
- * with a script extension, and a bare one only where a `/` or quote opens it,
- * so prose spelling the word `review` reaches no `review.js`.
- *
  * @param {string} text
  * @returns {Set<string>}
  */
@@ -790,8 +513,6 @@ function modulesNamed(text) {
 }
 
 /**
- * Group 1 of every match of a global regex in `text`.
- *
  * @param {RegExp} re
  * @param {string} text
  * @returns {Set<string>}
@@ -806,10 +527,6 @@ function firstGroups(re, text) {
 }
 
 /**
- * The files the scan finds consuming `name` off `rel`, the exporter itself
- * aside: it lands here only on the re-export form (`a: b`), where the file
- * spells the exported name without defining it.
- *
  * @param {Map<string, Map<string, Set<string>>>} consumers
  * @param {string} name
  * @param {string} rel
@@ -818,11 +535,6 @@ const takersOf = (consumers, name, rel) =>
 	[...(consumers.get(name)?.get(rel) ?? [])].filter((f) => f !== rel);
 
 /**
- * Every exported name no tracked file consumes, tests aside: a name only
- * test-kind files spell is reported like one nothing spells (#1361). A name
- * an export-callers row keeps is not judged here; `staleCallerRows` judges
- * the row.
- *
  * @param {ExportBlock[]} blocks
  * @param {Map<string, Map<string, Set<string>>>} consumers
  * @param {CallerRow[]} rows
@@ -859,7 +571,7 @@ function deadExports(blocks, consumers, rows) {
 /**
  * @param {string} name
  * @param {string} rel
- * @param {string[]} tests the test-kind files consuming it
+ * @param {string[]} tests
  */
 function deadDetail(name, rel, tests) {
 	return tests.length > 0
@@ -871,10 +583,6 @@ function deadDetail(name, rel, tests) {
 }
 
 /**
- * The export-callers rows, or none where the file is absent. One that will
- * not read is BROKEN, since reading it as absent would report every name it
- * keeps as dead.
- *
  * @param {(message: string) => never} broken
  * @returns {CallerRow[]}
  */
@@ -910,16 +618,6 @@ const isCallerRow = (row) =>
 	);
 
 /**
- * Every export-callers row that keeps nothing: its module no longer exports
- * the name, the scan already finds a consumer, or its caller no longer reads
- * the name off the module.
- *
- * THE CALLER CHECK IS LOOSER THAN THE SCAN, DELIBERATELY. A row exists for a
- * caller the scan misses, so the caller is held only to spelling the name and
- * the module's basename each as a whole word, in a tracked file that is no
- * test (§G6) and does not define the name for itself, as the scan holds a
- * consumer to.
- *
  * @param {CallerRow[]} rows
  * @param {ExportBlock[]} blocks
  * @param {Map<string, Map<string, Set<string>>>} consumers
@@ -949,8 +647,6 @@ function staleCallerRows(rows, blocks, consumers, tracked) {
 }
 
 /**
- * Why a row keeps nothing, or null where it holds.
- *
  * @param {CallerRow} row
  * @param {Map<string, Set<string>>} exported
  * @param {Map<string, Map<string, Set<string>>>} consumers
@@ -983,8 +679,6 @@ const hasToken = (text, token) =>
 	new Set(text.match(TOKEN_RE) ?? []).has(token);
 
 /**
- * Whether `text` spells `word` with no `[\w-]` character either side, so `gh`
- * is not found inside `ghost`.
  * @param {string} text
  * @param {string} word
  */
@@ -994,7 +688,6 @@ const hasWord = (text, word) =>
 	).test(text);
 
 /**
- * Whether `text` binds `name` at top level without reading it off an object.
  * @param {string} text
  * @param {string} name
  */
@@ -1005,28 +698,20 @@ const definesOwn = (text, name) =>
 /**
  * @typedef {object} Finding
  * @property {string} kind
- * @property {string} [doc] the document carrying the pin; absent on a DEAD-EXPORT
+ * @property {string} [doc]
  * @property {number} docLine
  * @property {string} pin
  * @property {string} detail
- * @property {string} [where] where to go, for a finding that is not about a
- *   line in the document
- * @property {string} [rel] the cited file, where the pin resolved to one —
- *   what --touching scopes a finding by (mantahostels#2631)
- * @property {string[]} [scopedBy] files any change to which brings the finding
- *   into --touching scope wherever it sits: a ROUTE-DRIFT's two copies, since
- *   deleting a table row leaves no changed line to scope it by
+ * @property {string} [where]
+ * @property {string} [rel]
+ * @property {string[]} [scopedBy]
  */
 
 /**
- * Judge every pin in one document. Returns the findings and what the OK line
- * has to state.
- *
  * @param {string} doc
  * @param {LinePin[]} pins
  * @param {{set: Set<string>, byBase: Map<string, string[]>}} tracked
- * @param {((rel: string) => boolean) | null} shipped whether the release ships
- *   a path; null for a document whose line pins are not read at the plugin root
+ * @param {((rel: string) => boolean) | null} shipped
  */
 function judge(doc, pins, tracked, shipped) {
 	const anchorsFile = anchorsOf(doc);
@@ -1055,8 +740,6 @@ function judge(doc, pins, tracked, shipped) {
 				docLine: 0,
 				pin: key,
 				detail: `anchored in ${anchorsFile} but no bare pin in ${doc} cites it — drop it with: ${reviewCommand(doc)}`,
-				/* key is keyOf's `rel:from` or `rel:from-to` — LINE_PIN_RE parses that same
-				 * shape, so group 1 is the file back off the trailing range. */
 				rel: LINE_PIN_RE.exec(key)?.[1],
 			});
 
@@ -1064,9 +747,6 @@ function judge(doc, pins, tracked, shipped) {
 }
 
 /**
- * One document's judging state: what every pin is judged against, and what
- * the pins judged so far have added.
- *
  * @typedef {object} Judging
  * @property {string} doc
  * @property {{set: Set<string>, byBase: Map<string, string[]>}} tracked
@@ -1083,17 +763,13 @@ function judge(doc, pins, tracked, shipped) {
 /** @typedef {(kind: string, detail: string) => number} Push */
 
 /**
- * Judge one pin: its path, its range, then its quotations or its anchor.
- *
- * @param {Judging} j accumulator: findings, filesCited, liveKeys, quoted and bare are filled; the rest is read
+ * @param {Judging} j
  * @param {LinePin} pin
  */
 function judgePin(j, pin) {
 	const at = `${j.doc}:${pin.line}`;
 	const resolved = resolveCited(pin.rawPath, j.tracked);
-	/** The pin's cited file, once resolved — undefined while the path itself is
-	 * the fault (UNRESOLVED/MISSING-PATH/AMBIGUOUS-PATH have nothing to scope by).
-	 * @type {string | undefined} */
+	/** @type {string | undefined} */
 	const citedRel = "rel" in resolved ? resolved.rel : undefined;
 	/** @type {Push} */
 	const push = (kind, detail) =>
@@ -1106,8 +782,6 @@ function judgePin(j, pin) {
 			rel: citedRel,
 		});
 
-	/* Judged before a path fault ends the pin, since the release refuses a
-	 * pin naming no file too: the UNSHIPPED set is exactly what it refuses. */
 	const unshipped = j.shipped && baseLinePinFault(root(), pin, j.shipped);
 	if (unshipped)
 		push(
@@ -1163,9 +837,6 @@ function judgePin(j, pin) {
 }
 
 /**
- * Judge one quotation of a pin: found where the line says, DRIFTED,
- * MISQUOTED or ABSENT.
- *
  * @param {{set: Set<string>, byBase: Map<string, string[]>}} tracked
  * @param {{pin: LinePin, quote: string, rel: string, lines: string[], at: string}} q
  * @param {Push} push
@@ -1174,11 +845,6 @@ function judgeQuote(tracked, { pin, quote, rel, lines, at }, push) {
 	const parts = fragmentsOf(quote);
 	const gist = quote.length > 60 ? `${quote.slice(0, 60)}…` : quote;
 
-	/* Checked against EVERY pin on the document line, not just the one it
-	 * pairs to. A sentence is often cited at two pins at once, and insisting
-	 * on the paired pin would report a quotation that is demonstrably where
-	 * the line says it is. Residual: a quotation cited at the wrong one of two
-	 * pins passes. */
 	if (isQuotedAtPin(pin, { rel, lines, parts, tracked })) return;
 
 	const whole = haystack(lines, 1, lines.length);
@@ -1197,18 +863,12 @@ function judgeQuote(tracked, { pin, quote, rel, lines, at }, push) {
 			prefix.at + prefix.prefix.length,
 			prefix.at + prefix.prefix.length + 70,
 		);
-		/* Matches, then parts company: the document quoted a sentence it
-		 * then cut or paraphrased. The fix is in the DOCUMENT — quote it
-		 * verbatim, or mark the cut with an ellipsis, which this reads. */
 		push(
 			"MISQUOTED",
 			`the quotation "${gist}" matches ${rel}:${lineAt(whole.marks, prefix.at)} for ${prefix.words} word(s) and then diverges — the source reads "…${prefix.prefix.slice(-30)}${after}"`,
 		);
 		return;
 	}
-	/* Nowhere in the file at all: the quotation was fabricated, or the
-	 * line it quoted is gone. Reported apart from a slipped offset
-	 * because the fix is different — re-read the file, do not renumber. */
 	push(
 		"ABSENT",
 		`the quotation "${gist}" appears nowhere in ${rel} — fabricated, or the line it quoted is gone`,
@@ -1216,9 +876,6 @@ function judgeQuote(tracked, { pin, quote, rel, lines, at }, push) {
 }
 
 /**
- * Whether a quotation sits inside the range of its pin or of any sibling pin
- * on the same document line.
- *
  * @param {LinePin} pin
  * @param {{rel: string, lines: string[], parts: ReturnType<typeof fragmentsOf>, tracked: {set: Set<string>, byBase: Map<string, string[]>}}} q
  * @returns {boolean}
@@ -1229,9 +886,6 @@ function isQuotedAtPin(pin, { rel, lines, parts, tracked }) {
 		if ("fault" in target) continue;
 		const sibLines = sib === pin ? lines : readLines(target.rel);
 		if (sibLines === null) continue;
-		/* From the pin's first line to the end of the file, so a quotation
-		 * running PAST its cited range still counts as being where the pin
-		 * says it starts. */
 		const tail = haystack(sibLines, sib.from, sibLines.length);
 		const at = findFragments(tail.text, parts);
 		if (at !== -1 && lineAt(tail.marks, at) <= sib.to) return true;
@@ -1240,8 +894,6 @@ function isQuotedAtPin(pin, { rel, lines, parts, tracked }) {
 }
 
 /**
- * Every bare pin whose path resolves, keyed as its anchor is.
- *
  * @param {LinePin[]} pins
  * @param {{set: Set<string>, byBase: Map<string, string[]>}} tracked
  */
@@ -1249,7 +901,7 @@ function liveBarePins(pins, tracked) {
 	/** @type {Map<string, {rel: string, from: number, to: number, docLine: number}>} */
 	const live = new Map();
 	for (const pin of pins) {
-		if (pin.quotes.length > 0) continue; // verified verbatim; never anchored
+		if (pin.quotes.length > 0) continue;
 		const resolved = resolveCited(pin.rawPath, tracked);
 		if ("fault" in resolved) continue;
 		live.set(keyOf(resolved.rel, pin.from, pin.to), {
@@ -1263,9 +915,6 @@ function liveBarePins(pins, tracked) {
 }
 
 /**
- * Whether a --review target names a pin key: the key itself, or a bare path
- * meaning every pin into that file.
- *
  * @param {string} target
  * @param {string} key
  * @returns {boolean}
@@ -1275,12 +924,8 @@ function isTargetOf(target, key) {
 }
 
 /**
- * Re-anchor the bare pins named and end the process. A write command: it
- * reports no findings, so it has no outcome and never reaches the reporting
- * below — the §N4 exception check-guard-registry.js's --review already takes.
- *
  * @param {string} doc
- * @param {string[]} targets      pin keys, or bare paths meaning every pin into that file
+ * @param {string[]} targets
  * @param {LinePin[]} pins
  * @param {{set: Set<string>, byBase: Map<string, string[]>}} tracked
  * @returns {never}
@@ -1295,8 +940,6 @@ function reanchor(doc, targets, pins, tracked) {
 			? [...live.keys()].filter((k) => targets.some((t) => isTargetOf(t, k)))
 			: [...live.keys()];
 
-	/* A named target matching no live pin is the reviewer's typo, and silently
-	 * anchoring nothing would read as success. */
 	const unmatched = targets.filter(
 		(t) => !wanted.some((k) => isTargetOf(t, k)),
 	);
@@ -1341,10 +984,6 @@ function isDocumentArg(arg) {
 }
 
 /**
- * The documents to read: the one named — under --review `reviewDoc`, the
- * document its first argument named, else DOC — or the local document and,
- * where present, the base.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {boolean} reviewing
  * @param {string | undefined} reviewDoc
@@ -1357,11 +996,7 @@ function docsFor(ctx, reviewing, reviewDoc) {
 	return [DOC];
 }
 
-/**
- * Each document's pins, and why each unreadable one could not be read.
- *
- * @param {string[]} docs
- */
+/** @param {string[]} docs */
 function readDocs(docs) {
 	/** @type {{doc: string, text: string, pins: LinePin[]}[]} */
 	const read = [];
@@ -1379,18 +1014,12 @@ function readDocs(docs) {
 }
 
 /**
- * plugin-tree.js is left behind by the release, so it is required only
- * where the base is read — the core — never in an adopter (#963). The
- * release's surface closure reads requires lexically, lazy ones too, so
- * it would fault this edge if this checker joined helper-surface.json.
- * Failing to load it fails open (§N5): the release still refuses an
- * unshipped line pin, and a BROKEN here would gate every core commit.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @returns {((rel: string) => boolean) | null}
  */
 function loadShipped(ctx) {
 	try {
+		// #963
 		const { isShipped } = require("./lib/plugin-tree");
 		return (/** @type {string} */ rel) => isShipped(root(), rel);
 	} catch (e) {
@@ -1402,13 +1031,6 @@ function loadShipped(ctx) {
 }
 
 /**
- * Each row on which the local file's route table and `pythonRoutes` disagree
- * about Python, and how many table rows reach it; nothing where the local
- * file was not asked for. An absent local file is an empty table, so every
- * `pythonRoutes` row is then one no table holds. A config that does not
- * parse fails open (§N5, #1863): readConfig's other readers report it, and
- * this checker never gates.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {string[]} docs
  * @param {{doc: string, text: string}[]} read
@@ -1442,8 +1064,6 @@ function routeDrift(ctx, docs, read) {
 }
 
 /**
- * Judge every document read, and total what the OK line states.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {{doc: string, pins: LinePin[]}[]} read
  * @param {{set: Set<string>, byBase: Map<string, string[]>}} tracked
@@ -1473,15 +1093,10 @@ function judgeDocs(ctx, read, tracked) {
 }
 
 /**
- * The findings a --touching diff reaches, and the note saying how far it
- * scoped them.
- *
  * @param {import("./lib/check").Ctx} ctx
  * @param {{touching: string, findings: Finding[], read: {doc: string}[]}} scope
  */
 function scopeToTouching(ctx, { touching, findings, read }) {
-	/* An adopter's first commit is made on an unborn HEAD, which has no
-	 * standards file and so reaches here (#1376). */
 	const rev = baselineOf(touching);
 	const touchedFiles = readChangedFiles(rev, (m) => ctx.broken(m));
 	const touchedDocLines = new Map(
@@ -1505,9 +1120,6 @@ function scopeToTouching(ctx, { touching, findings, read }) {
 	return { findings: scoped, scopeNote };
 }
 
-/* The kinds that are no citation, so neither citations_stale nor the "fix
- * the document" line takes them. UNSHIPPED is a citation, but the release,
- * not the document, may be what is wrong. */
 const NOT_CITATIONS = ["DEAD-EXPORT", "STALE-CALLER", "ROUTE-DRIFT"];
 
 /**
@@ -1519,9 +1131,7 @@ function reportFindings(ctx, findings) {
 		const where =
 			f.where ??
 			(f.docLine ? `${f.doc}:${f.docLine}` : anchorsOf(f.doc ?? DOC));
-		/* The pin, never `where` (mantahostels#2490): `where` resolves to a document LINE
-		 * number, which every edit above it moves while the stale citation stays
-		 * the same stale citation. */
+		// lucmoseley/mantahostels#2490
 		ctx.warn(
 			f.kind,
 			`${f.kind}  ${where}  ${f.pin} — ${f.detail}`,
@@ -1607,8 +1217,6 @@ const SPEC = {
 		const reviewAt = ctx.argv.indexOf("--review");
 		const reviewing = reviewAt !== -1;
 		const touching = ctx.value("--touching");
-		/* Refused rather than emitting an envelope describing a run that never
-		 * happened. */
 		if (reviewing && ctx.asJson)
 			ctx.usageError(
 				"--review writes anchors and reports no findings, so it has no --json form.",
@@ -1618,7 +1226,6 @@ const SPEC = {
 				"--review re-anchors after a read; --touching scopes a report. Not both at once.",
 			);
 
-		/* --review's first argument may name the document; a pin never does. */
 		const targets = ctx.argv
 			.slice(reviewAt + 1)
 			.filter((a) => !a.startsWith("--"));
@@ -1627,11 +1234,6 @@ const SPEC = {
 		const docs = docsFor(ctx, reviewing, reviewDoc);
 
 		const { read, unread } = readDocs(docs);
-		/* A document is the citation scan's SUBJECT. Absent, --review has nothing
-		 * to re-anchor and no defect in the repo, so SKIP (check.js:16-26). The
-		 * export scan's subject is the code, so a repo keeping no local file —
-		 * one with no choices of its own keeps none (#947) — still has its
-		 * exports judged, which §G6's migration step lists them with (#1376). */
 		const [primary] = read;
 		if (reviewing && primary === undefined)
 			ctx.skip(`${unread[0]} — so there are no citations to check`);
@@ -1649,8 +1251,6 @@ const SPEC = {
 			tracked,
 		);
 
-		/* The export scan reads no part of either document, so it runs once
-		 * whatever was read. */
 		const blocks = readExportBlocks(tracked);
 		const consumers = consumersOf(tracked.set, blocks);
 		const rows = readCallerRows((m) => ctx.broken(m));
@@ -1698,10 +1298,6 @@ const SPEC = {
 				exportedNames: dead.names,
 				exportEntriesUnread: dead.unparsed,
 				exportsTestOnly: dead.testOnly,
-				/* NOT `findings`: runCheck spreads the checker's payload first so the
-				 * envelope's own keys win, and this one was silently replaced by
-				 * ctx.findings (check.js:219-222). Scoped to what was actually
-				 * reported, under --touching, same as the warn()/say() loop above. */
 				citations_stale: findings.filter(
 					(f) => !NOT_CITATIONS.includes(f.kind),
 				),

@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The before/after test's task set (#2044). The committed set must meet the
- * spec's shape — ten tasks, five or more under a pressure, two seating a
- * neighbour — and `accept` must tell work done from work not done: pass a
- * known-good sandbox, fail a reverted one, and not be talked round by a
- * session that edits the test or never pushes.
- *
- * Its ~15 s goes on eight sandbox builds and eight vitest runs, the least that
- * proves accept against both sandboxes, a real replay, a gamed one, two
- * landings it must refuse, a stale hidden test and a fix patch unapplied; the
- * neighbour case clones
- * this repo once.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -45,7 +32,6 @@ const git = (cwd: string, ...args: string[]) =>
 
 const taskPatch = (name: string) => path.join(ROOT, "scripts/arm-tasks", name);
 
-/** git's refusal of `patch` in `cwd`, as `<patch name>: <stderr>`. */
 const refusals = (cwd: string, patch: string, ...flags: string[]) => {
 	const r = spawnSync("git", ["apply", "--check", ...flags, patch], {
 		cwd,
@@ -83,14 +69,10 @@ describe("the committed task set", () => {
 		expect(tasks.filter((t) => t.neighbour)).toHaveLength(2);
 	});
 
-	/* The public code repo is one squashed root (#1954): its clones hold none
-	 * of the tracker commits the tasks revert. Residual: its CI never judges a
-	 * revert's size, so a tasks.json edit is judged on a tracker clone only. */
 	const held = (sha: string) =>
 		git(ROOT, "rev-parse", "--verify", "--quiet", `${sha}^{commit}`) !== "";
 	const historyHeld = tasks.some((t) => t.revert.some(held));
 
-	// A generated-only file is a tool's output, not work done (#2080).
 	const classes: Record<string, { class: string }> = JSON.parse(
 		fs.readFileSync(path.join(ROOT, "docs/doc-map-classes.json"), "utf8"),
 	);
@@ -146,10 +128,6 @@ describe("the committed task set", () => {
 		}
 	});
 
-	// The working tree, not HEAD, so a session sees its own edit stale a patch
-	// before it pushes; a neighbour's uncommitted edit can redden it too. The
-	// patches are listed, not read off tasks.json, so the read graph selects
-	// this case on an edit to a file one targets (#3206).
 	it("unapplies every fix patch from the tree, applies every hidden-test patch to it, and holds exactly the patches the tasks name (#3165)", () => {
 		const fixes = new Set(tasks.flatMap((t) => (t.fix ? [t.fix] : [])));
 		const hidden = new Set(
@@ -222,7 +200,6 @@ describe("the committed task set", () => {
 	});
 });
 
-/** The landing commit's test: the sum, the code's own spelling, and its name. */
 const LANDED_TEST = `import { expect, it } from "vitest";
 const { add } = require("./lib.js");
 it("adds", () => {
@@ -232,7 +209,6 @@ it("adds", () => {
 it("is named add", () => expect(add.name).toBe("add"));
 `;
 
-/** The cut the ticket's asks leave: the sum alone. */
 const CUT_WORDING = `--- a/lib.test.ts
 +++ b/lib.test.ts
 @@ -4,3 +4,2 @@
@@ -242,10 +218,6 @@ const CUT_WORDING = `--- a/lib.test.ts
 `;
 
 describe("accept: work done against work not done", () => {
-	/**
-	 * A source repo whose landing commit adds a function, its test and a doc
-	 * line. Builds only clone it, so one copy serves every case.
-	 */
 	let env: NodeJS.ProcessEnv;
 	beforeAll(() => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "arm-tasks-source-"));
@@ -345,13 +317,11 @@ describe("accept: work done against work not done", () => {
 		git(sandbox, ...id, "commit", "--quiet", "-am", "replay");
 	};
 
-	/** What a session's landing amounts to: a commit pushed to the sandbox origin. */
 	const land = (sandbox: string, files: Record<string, string>) => {
 		commit(sandbox, files);
 		git(sandbox, "push", "--quiet", "origin", "main");
 	};
 
-	/** What lib/run-arm.js reads off a build's record: each field's type. */
 	const readsOf = (printed: string) => {
 		const record = JSON.parse(printed);
 		return { prompt: typeof record.prompt, repo: typeof record.sandbox?.repo };
@@ -382,7 +352,6 @@ describe("accept: work done against work not done", () => {
 		const pass = run(["accept", "add", "--sandbox", good.root], env);
 		expect(pass.code, pass.out).toBe(0);
 		expect(pass.out).toMatch(/PASS add/);
-		// A passing doc check prints no detail, its `why` included.
 		expect(pass.out).toContain("✓ notes.md matches /sums/\n");
 		expect(pass.out).not.toContain("the notes name sums");
 
@@ -395,7 +364,6 @@ describe("accept: work done against work not done", () => {
 			"notes.md matches /sums/",
 			"hidden test lib.test.ts",
 		]);
-		// A failing doc check prints its `why` (#2253).
 		expect(failed[0].detail).toBe("the notes name sums");
 		expect(fs.readdirSync(bad.sandbox)).not.toContain("lib.accept.test.ts");
 		expect(run(["accept", "nope", "--sandbox", bad.root], env).code).toBe(2);
@@ -493,9 +461,7 @@ describe("accept: work done against work not done", () => {
 	});
 });
 
-/** Long enough to outlast the case; the case kills the holder itself. */
 const HOLD_SECONDS = "60";
-/** A 5 s ceiling on init reaping a killed holder. */
 const REAP_POLLS = 100;
 
 describe("build: the fake neighbour", () => {
@@ -526,7 +492,6 @@ describe("build: the fake neighbour", () => {
 		const args = ["build", "held", "--at", "HEAD", "--to", to];
 		expect(run(args, env).code).toBe(2);
 
-		// HEAD enables wfc-self, so the build refuses a config dir without its marketplace.
 		fs.mkdirSync(path.join(config, "plugins"), { recursive: true });
 		fs.writeFileSync(
 			path.join(config, "plugins", "known_marketplaces.json"),
@@ -544,7 +509,6 @@ describe("build: the fake neighbour", () => {
 		expect(r.code, r.err).toBe(0);
 		const { neighbour, sandbox } = JSON.parse(r.out);
 		expect(Date.parse(neighbour.expiresAt)).toBeGreaterThan(Date.now());
-		// The config dir reaches the sandbox builder's wfc-self pointing (#2440).
 		const repo = fs.realpathSync(path.join(to, "repo"));
 		expect(fs.realpathSync(sandbox.selfPlugin.dir)).toBe(
 			path.join(repo, "self-plugin"),
@@ -570,8 +534,6 @@ describe("build: the fake neighbour", () => {
 		} finally {
 			process.kill(neighbour.pid);
 		}
-		// Crosses a real process death, which no clock seam reaches: the claim
-		// frees only once init has reaped the holder.
 		for (
 			let i = 0;
 			i < REAP_POLLS && fs.existsSync(`/proc/${neighbour.pid}`);

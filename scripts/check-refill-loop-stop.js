@@ -1,44 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-refill-loop-stop.js — name, at the next session start, a refill loop
- * that stopped on a damaged control file (#3389) or whose checkouts the
- * no-progress rule paused (#2014, spec #1995 story 32; #3859, #5275), and its first overflow launch
- * after a plan-seat launch, with the plan seats it rested on (#3767). And a
- * running loop whose wait on a listing after a restart has outlasted its bound
- * (lib/refill-boot.js's restartWaitOf, #4145), at every start while it lasts.
- *
- * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
- *
- * READS the loop's state file (lib/refill-state.js) for its last stop, its
- * control file for its checkout pauses, and its pid lock for whether it runs. An
- * explicit stop and a founder's pause are not named.
- *
- * ONCE PER STOP OR PAUSE. A `--notify` run, bar under `--json`, records its time
- * in the stop-seen stamp beside the state file, and names none at or before it. A
- * plain run names it and records nothing. A compaction is no session start: its hook
- * payload's `source` is `compact`, and it prints and records nothing. The
- * stamp is per machine, as the loop is, so whichever session starts first on
- * any seat or repo spends it; a dispatcher's or the loop's job start, or any
- * job's wake, prints and records nothing either (lib/background-start.js, #3707, #3772), so the
- * founder's does, in a terminal or from the agents view.
- *
- * THE RESTART IS ONE COMMAND (#3868): `start` restarts from the stored settings, or
- * writes fresh ones where the control will not read, the script absolute. A loop
- * started again since names no restart.
- *
- * Severity is WARN: a notice for the founder. An absent or damaged state
- * file is no stop. A damaged state file is its own WARN, named at every
- * session start until the loop's next tick rewrites it. A stopped loop's
- * damaged control file is its own WARN on the same terms, until a `start`
- * rewrites it (#3380, #3927); beside the fresh stop it caused, the stop line
- * names it. A running loop's is check-idle-efforts.js's to name, once a day.
- * Residual: that checker's line replays at the next start, so where the loop
- * stopped between the two, that one start names the damage twice.
- *
- * ITS NOTICES REACH THE FOUNDER'S SCREEN as a `systemMessage`, and the model as
- * context (lib/check.js's screenNotices, #3776). A stamp is written once the
- * notice is out.
- */
 
 const fs = require("node:fs");
 const { now: clockNow, runCheck } = require("./lib/check");
@@ -63,7 +23,6 @@ function readSeen(file) {
 		const at = Number(fs.readFileSync(file, "utf8").trim());
 		return Number.isFinite(at) ? at : 0;
 	} catch {
-		/* Absent on the first run; unreadable only repeats the notice (#2014). */
 		return 0;
 	}
 }
@@ -73,11 +32,10 @@ const CHECKER = "refill-loop-stop";
 const STATUS = `node ${scriptPath("refill-loop.js")} status`;
 
 /**
- * Each checkout's no-progress pause written since the stamp (#5275).
  * @param {import("./lib/check").Ctx} ctx
  * @param {import("./lib/refill-loop.js").Control|null} control
- * @param {number} seen the stamp's time
- * @returns {number|null} the latest pause time it named, for the stamp
+ * @param {number} seen
+ * @returns {number|null}
  */
 function reportNoProgressPause(ctx, control, seen) {
 	/** @type {number|null} */
@@ -102,7 +60,7 @@ function reportNoProgressPause(ctx, control, seen) {
 
 /**
  * @param {import("./lib/check").Ctx} ctx
- * @param {number|null} since restartWaitOf's
+ * @param {number|null} since
  */
 function reportRestartWait(ctx, since) {
 	if (since === null) return;
@@ -119,7 +77,7 @@ function reportRestartWait(ctx, since) {
  * @param {import("./lib/check").Ctx} ctx
  * @param {import("./lib/overflow-notice.js").OverflowStart|null} start
  * @param {string} seenFile
- * @returns {number|null} the launch time it named, for the stamp
+ * @returns {number|null}
  */
 function reportOverflowStart(ctx, start, seenFile) {
 	if (start === null || start.at <= readSeen(seenFile)) return null;
@@ -144,7 +102,6 @@ runCheck({
 	usage: "node check-refill-loop-stop.js [--notify] [--json]",
 	screenNotices: true,
 	run(ctx) {
-		/* Read under --notify alone: a plain run's stdin may be a terminal. */
 		if (
 			ctx.notify &&
 			isFounderNoticeHeld(CHECKER, hookMessage.readPayload()?.source)
@@ -164,8 +121,6 @@ runCheck({
 			stopped !== null &&
 			stopped.reason === "control-damaged" &&
 			stopped.at > seen;
-		/* Silent where another line names the damage: a running loop's in
-		 * check-idle-efforts.js, a fresh control-damaged stop's below (#3927). */
 		const control = refillFiles.readControlFile(
 			running || fresh ? () => undefined : reportDamaged,
 		);

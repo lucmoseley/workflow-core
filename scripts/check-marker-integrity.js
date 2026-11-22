@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-marker-integrity.js — how many lines of the two test-pass-marker
- * stores could not be read back as a marker (#182 acceptance criterion: "A
- * malformed store line is counted and reported through `npm run status`,
- * and still never fails a push").
- *
- * WHY THIS EXISTS. `readMarkers` (scripts/lib/test-pass-marker.js) skips a
- * malformed line silently, by design — a store this hook cannot parse must
- * degrade to "no marker", never to a failed push. That silence is also how a
- * real record disappears with nothing said: #182 found
- * `.test-fail-markers.jsonl:45` as 738 NUL bytes followed by a complete,
- * valid marker — a torn append, not the whitespace #149 reported — and the
- * same tearing mechanism can drop a full-run record just as easily.
- *
- * WARN, NEVER FAIL (#182's own words), same as every marker-store reader in
- * this family: a session's push is never blocked on this. `npm run status`
- * is the one channel it speaks on — never a Husky hook, never CI.
- *
- * NO ROTATION AND NO REPAIR. This reports a count; it moves, deletes and
- * rewrites nothing. #156 Q3 declined rotating either store while #148 is
- * still being priced off its history.
- */
 
 const { runCheck } = require("./lib/check");
 const {

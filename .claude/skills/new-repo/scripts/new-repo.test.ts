@@ -1,29 +1,4 @@
 // @vitest-environment node
-/*
- * new-repo.js, driven from outside end to end, asserting the world it leaves —
- * GitHub-side state, the clone, its files and the report — never a step's
- * internals (#707 Q2: the script carries no test hook).
- *
- * HOME is a temporary folder, so `~/<name>` is a fixture. GitHub is a STATEFUL
- * `gh` stub keeping repos, labels and issues as files: `repo create` makes a
- * bare repo, and HOME's gitconfig rewrites https://github.com/ onto it, so the
- * clone's origin reads as GitHub while every push lands locally. The real
- * init-adopter.js and file-issue.js run against it, the former with
- * --no-plugin-install. No network call (#707 Q1).
- *
- * SPAWNED, NOT RUN IN PROCESS (§X3's timeout shape): a run commits through the
- * new repo's real hook stack, so each carries a 170 s timeout of its own. A
- * case committing through that stack is skipped without gitleaks, whose secret
- * scan the stack runs. That stack is most of a run's time, so only a case about
- * the commit runs it, one to a file (this file's first, `*-hook`, `*-mirror`);
- * the rest commit with the hooks off, needing no gitleaks. The --resume files
- * reach a clean run's end state built with the hooks off, which the two
- * end-to-end cases hold equal to a hooked run's (#1150, #4297).
- *
- * The founder runs the script through /new-repo and approves one confirmed
- * run: loosen a case and that run can leave a GitHub repo, clone or
- * `~/.bashrc` block half-made, or a resume that cannot finish it.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -64,8 +39,6 @@ describe("new-repo.js on an empty project", () => {
 			const r = s.run();
 			expect(r.stderr).toBe("");
 			expect(r.status, r.stdout).toBe(0);
-			/* The world the --resume files build their golden from, with the hooks
-			 * off, is the one the real hook stack leaves (#1150). */
 			expect(readEndState(s)).toEqual(
 				cleanRun(false, { hooks: false }).goldenEnd,
 			);
@@ -83,9 +56,7 @@ describe("new-repo.js on an empty project", () => {
 				"push",
 			])
 				expect(statusOf(r.stdout, step), step).toBe("done");
-			// The newest vX.Y.Z by semver, not by string order.
 			expect(r.stdout).toContain("core v1.10.0");
-			// init-adopter's probe lines, on a tracker with no issue yet (#734).
 			expect(
 				r.stdout.slice(
 					r.stdout.indexOf("init-adopter   done — pinned to v1.10.0"),
@@ -99,18 +70,15 @@ describe("new-repo.js on an empty project", () => {
 					"",
 				].join("\n"),
 			);
-			// The gates and rules run the pin, not the core's checkout (#736).
 			const pin = pinned(s.home, "v1.10.0");
 			expect(
 				fs.readFileSync(path.join(s.clone, ".claude/workflow-core.md"), "utf8"),
 			).toContain(`node ${shellQuote(pin)}/scripts/`);
-			// The hooks name no pin at all: each resolves the core at run time (#1839).
 			for (const hook of HOOKS)
 				expect(
 					fs.readFileSync(path.join(s.clone, ".husky", hook), "utf8"),
 				).toBe(renderHookShim(hook));
 
-			// Appended after the three existing blocks, which are left as they were.
 			expect(fs.readFileSync(s.rc, "utf8")).toBe(`${BASHRC}\n${TIDES_BLOCK}\n`);
 			const start = `${BASHRC}\n`.split("\n").length;
 			const [backup] = s.readBackups();
@@ -143,10 +111,8 @@ describe("new-repo.js on an empty project", () => {
 			expect(map.body).not.toContain("commands.test");
 			expect(map.body).toMatch(/^Standalone: /m);
 
-			// The report ends on the new-tab line for this plan and the prompt.
 			const tail = r.stdout.trimEnd().split("\n").slice(-4);
 			expect(tail[0]).toBe("Open a new terminal tab and run: td2");
-			// Not a workflow-core checkout, so no self-plugin setup (#2440).
 			expect(r.stdout).not.toContain("Once per machine");
 			expect(tail[3]).toBe(
 				"/wayfinder Chart the map on #1. It holds my idea and no destination yet: fill that issue as the map rather than creating a new one.",
@@ -158,7 +124,6 @@ describe("new-repo.js on an empty project", () => {
 			expect(s.git("rev-parse", "origin/main")).toBe(
 				s.git("rev-parse", "HEAD"),
 			);
-			// Whole-tree, so a path init writes outside the skeleton pathspec shows here.
 			expect(s.git("status", "--porcelain", "--untracked-files=all")).toBe(
 				"?? .claude/settings.local.json",
 			);
@@ -173,8 +138,6 @@ describe("new-repo.js on an empty project", () => {
 					"utf8",
 				),
 			);
-			/* With the checkout cut over, the first session the aliases start
-			 * is moved to a worktree (guard-main-checkout-job.js). */
 			expect(config.modules ?? []).toEqual([]);
 			expect(isCutOver(s.clone)).toBe(true);
 			expect(config.commands ?? {}).toEqual({});
@@ -186,9 +149,6 @@ describe("new-repo.js on an empty project", () => {
 				"State: pre-launch — the way is being charted on #1 (tides: a tide-table app).",
 			);
 
-			// The local standards file is its header and an empty primitives
-			// table, committed through the hook stack that runs the table
-			// checker (#3466).
 			expect(s.git("show", "HEAD:docs/code-standards.md")).toBe(
 				[
 					"# Code standards — tides",
@@ -204,7 +164,6 @@ describe("new-repo.js on an empty project", () => {
 				].join("\n"),
 			);
 
-			// The Read rules are this machine's: written, never committed.
 			const local = JSON.parse(
 				fs.readFileSync(
 					path.join(s.clone, ".claude/settings.local.json"),
@@ -242,7 +201,7 @@ describe("new-repo.js on an empty project", () => {
 			expect(fs.readFileSync(s.rc, "utf8")).toBe(`${BASHRC}\n${TIDES_BLOCK}\n`);
 			expect(s.readBackups()).toHaveLength(1);
 		},
-		4 * RUN_TIMEOUT_MS, // a run, a hooks-off clean run, a re-run and a resume
+		4 * RUN_TIMEOUT_MS,
 	);
 
 	it("commits the skeleton where a global gitignore hides .claude/settings.local.json, which stopped the #725 live trial", () => {
@@ -332,7 +291,6 @@ describe("new-repo.js test sandbox", () => {
 		const git = (cwd: string, ...a: string[]) =>
 			execFileSync("git", a, { cwd, encoding: "utf8", env: s.env });
 		git(s.sb, "init", "-q", "--bare", bare);
-		// The bare repo's own hook runs, the env's hooksPath being stripped too.
 		fs.writeFileSync(
 			path.join(bare, "hooks/pre-receive"),
 			`#!/bin/sh\nfor k in ${Object.keys(MAINTENANCE_OFF).join(" ")}; do echo "$k=$(git config --get $k)" >&2; done\nexit 1\n`,
@@ -465,7 +423,6 @@ describe("new-repo.js after a part-way stop", () => {
 		expect(r.stdout).not.toContain("Manual step:");
 		expect(s.readState().issues).toHaveLength(1);
 
-		/* Two more failed runs each filed a map before this one. */
 		fs.rmSync(path.join(s.sb, "fail/issue-create"));
 		const gh = s.readState();
 		gh.issues.push(
@@ -572,7 +529,6 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 		);
 		expect(fs.readFileSync(path.join(s.home, backup), "utf8")).toBe(BASHRC);
 		expect(fs.readFileSync(s.rc, "utf8")).toBe(BASHRC);
-		// Stopped before init: the clone holds no skeleton.
 		expect(fs.existsSync(path.join(s.clone, "CLAUDE.md"))).toBe(false);
 	});
 
@@ -580,7 +536,6 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 		const old = buildLiveBlock("tides", "td");
 		const bashrc = `${BASHRC}\n${old}\n`;
 		const s = sandbox({ bashrc });
-		// Stop the run once the step is past, at the map, short of the commit.
 		fs.writeFileSync(path.join(s.sb, "fail/issue-create"), "");
 		const r = s.run();
 		expect(r.status, r.stdout).toBe(1);

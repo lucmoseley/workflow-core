@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-ghost-jobs.js names a job whose record says "working" while
- * the `claude agents` oracle shows no process for it, spares a live or
- * too-young one, goes silent when the oracle is blind, and never writes a job
- * record.
- *
- * Every test drives the real script end to end, the way `npm run status`
- * does, with a fake `claude` on WFC_CLAUDE_BIN standing in for the daemon
- * and every config dir pointed inside the case's own temp dir — so no run can
- * read or write the founder's live job store.
- *
- * The fixture shape is the ruling (mantahostels#1495 — a job whose record says "working"
- * while the oracle lists it carrying no `pid`): that, and not a missing record,
- * is what a ghost looked like.
- *
- * It reports through `npm run status` and is named by dispatch-sessions.js:
- * loosen a case and either a ghost sits "working" in the agents view for good,
- * or a live job is called dead and its session retired by hand.
- */
 
 import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -43,7 +24,6 @@ import {
 const SCRIPT = path.join(__dirname, "check-ghost-jobs.js");
 
 let dir: string;
-/** The second config dir, standing in for this machine's second Claude plan. */
 let second: string;
 
 beforeEach(() => {
@@ -60,7 +40,6 @@ afterEach(() => {
 const jobPath = (name: string, store = dir) =>
 	path.join(store, "jobs", name, "state.json");
 
-/** A job record on disk. `agedMinutes` back-dates its last update. */
 function job(
 	name: string,
 	rec: Record<string, unknown> = {},
@@ -85,12 +64,10 @@ function job(
 	);
 }
 
-/** A `claude` stand-in whose `agents --json` answers `answer`. */
 function fakeClaude(answer: AgentsAnswer): void {
 	writeClaudeStub(path.join(dir, "bin", "claude"), [buildAgentsBranch(answer)]);
 }
 
-/** An oracle record. Omit `pid` for the shape a ghost was seen in. */
 const agent = (sessionId: string, pid?: number) =>
 	pid === undefined
 		? buildListedRow({ id: sessionId.slice(0, 8), sessionId }, [
@@ -99,15 +76,8 @@ const agent = (sessionId: string, pid?: number) =>
 			])
 		: buildListedRow({ pid, id: sessionId.slice(0, 8), sessionId });
 
-/*
- * A live neighbour carrying a pid. Every ghost fixture lists one: with the ghost
- * alone in the listing, "no pid on this record" and "the pid field has gone" are
- * the same reading, and the checker rightly refuses both.
- */
 const HEALTHY = agent("neighbour-0000-0000-0000-00000000000", 4242);
 
-/** A transcript for `sessionId`, last appended to `agedMinutes` ago. At 0 it
- * reads as live, which is the only thing most callers here want (mantahostels#2588). */
 function transcript(sessionId: string, agedMinutes: number, store = dir) {
 	const project = path.join(store, "projects", "a-project");
 	fs.mkdirSync(project, { recursive: true });
@@ -124,7 +94,6 @@ function run(...args: string[]) {
 	return runAs("", ...args);
 }
 
-/** Under a session id, the shape every mid-session caller has. */
 function runAs(sessionId: string, ...args: string[]) {
 	return runWith({ CLAUDE_CODE_SESSION_ID: sessionId }, ...args);
 }
@@ -134,8 +103,6 @@ function runWith(extra: Record<string, string>, ...args: string[]) {
 		env: {
 			...process.env,
 			CLAUDE_CONFIG_DIR: dir,
-			// Every plan, named explicitly so no sibling of the real temp root can
-			// be swept into a case — _C included, or its default IS such a sibling.
 			WFC_CLAUDE_CONFIG_A: dir,
 			WFC_CLAUDE_CONFIG_B: second,
 			WFC_CLAUDE_CONFIG_C: second,
@@ -170,9 +137,6 @@ describe("check-ghost-jobs", () => {
 	});
 
 	it("says nothing about a working job backed by a listed process", () => {
-		/* A fresh transcript, so this stays a case about the ghost test alone:
-		 * a live job that has written nothing for hours is a
-		 * HUNG-JOB (mantahostels#2588), and this fixture's record is eight hours old. */
 		job("alive");
 		transcript("alive-0000-0000-0000-000000000000", 0);
 		fakeClaude([agent("alive-0000-0000-0000-000000000000", 4242)]);
@@ -239,7 +203,6 @@ describe("check-ghost-jobs", () => {
 	});
 
 	it("degrades to silence when no listed agent carries a pid at all", () => {
-		// The field going away must not turn every working job into a ghost.
 		job("a");
 		job("b");
 		fakeClaude([
@@ -343,9 +306,6 @@ describe("check-ghost-jobs", () => {
 		const { out } = run();
 
 		expect(out).toContain("UNREADABLE-JOB");
-		// The roster-route remedy only ever applies to a GHOST-JOB, which names a
-		// session; an unreadable-only report must not dangle a reference to a
-		// roster path this run never printed.
 		expect(out).not.toContain("To actually retire a GHOST-JOB above");
 		expect(out).not.toContain("roster.json");
 	});
@@ -390,15 +350,11 @@ describe("check-ghost-jobs", () => {
 
 		const { out } = run();
 
-		// The remedy that only hides the ghost from this checker must not be
-		// offered as the way to retire one — as an imperative ("set …"), under
-		// any wording, not just the one sentence mantahostels#1495 originally printed.
 		expect(out).not.toMatch(/\bset\b[^.]*state\.json[^.]*"done"/i);
 		expect(out).toContain(
 			'Editing state.json\'s "state" to "done" does NOT stop it',
 		);
 		expect(out).toContain("hides the job from THIS checker's own sweep");
-		// The actual route: the daemon's roster, both pids, verified before signalling.
 		expect(out).toContain("roster.json");
 		expect(out).toContain("replPid");
 		expect(out).toContain("/proc/<pid>/stat field 22");
@@ -446,10 +402,6 @@ describe("check-ghost-jobs", () => {
 		expect(rerun.status).toBe(0);
 	});
 
-	/* The stamp holds every ghost STANDING, not the ones this run happened to
-	 * report — stamping the reported set alone would drop the older ones and
-	 * report them again at the run after next (mantahostels#1975). Three runs, because two
-	 * cannot tell the two apart. */
 	it("--notify keeps an older ghost stamped once a newer one joins it", () => {
 		job("first");
 		fakeClaude([HEALTHY, agent("first-0000-0000-0000-000000000000")]);
@@ -477,16 +429,9 @@ describe("check-ghost-jobs", () => {
 		expect(run("--notify").out).not.toContain("UNREADABLE-JOB");
 	});
 
-	/*
-	 * The producer's stdout is not the delivery under persist mode, so its
-	 * own stamp must not suppress anything (mantahostels#1975).
-	 */
 	describe("under persist mode", () => {
-		// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-		const notify: any = createRequire(__filename)("./lib/notify-report.js");
+		const notify = createRequire(__filename)("./lib/notify-report.js");
 
-		/** The env the child gets, mirrored onto this process so the two agree
-		 *  on where reports and stamps live. */
 		beforeEach(() => {
 			vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
 			const repo = path.join(dir, "repo");
@@ -561,11 +506,6 @@ describe("check-ghost-jobs", () => {
 	});
 });
 
-/*
- * mantahostels#2588. A job that claimed its spare and hung has live processes behind it, so
- * the pid test passes and it is no ghost — it simply stops writing. The second
- * test is its transcript's mtime, or the absence of a transcript altogether.
- */
 describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	const sid = (name: string) => `${name}-0000-0000-0000-000000000000`;
 
@@ -577,8 +517,6 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 		expect(r.out).toContain("HUNG-JOB");
 		expect(r.out).toContain("/implement aa11bb22");
 		expect(r.out).toContain("its transcript has not moved");
-		// It is NOT also reported as a ghost: a pid is behind it. The heading,
-		// not the bare word — the shared remedy text names both findings.
 		expect(r.out).not.toContain("GHOST-JOB (");
 	});
 
@@ -598,12 +536,6 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 		expect(r.out).toContain("(never written)");
 	});
 
-	/*
-	 * The defect that made the first cut of this check dead on arrival: a live
-	 * session's record has `updatedAt` REWRITTEN under it, measured under 1.1
-	 * minutes old on nine live jobs. Age since CREATION is the only usable
-	 * stand-in where there is no transcript.
-	 */
 	it("judges a transcript-less job on createdAt, not the rewritten updatedAt", () => {
 		job(
 			"ee55ff66",
@@ -623,11 +555,6 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 		expect(run().out).not.toContain("HUNG-JOB");
 	});
 
-	/*
-	 * TWO WINDOWS, ONE FINDING (mantahostels#2588). Only a STALE transcript has a healthy
-	 * look-alike — a session on `waiting:`, inside a long tool call, or waiting
-	 * on a subagent — and that is what the four-hour window buys.
-	 */
 	it("names a transcript-less job on the shorter ghost window", () => {
 		job("11ee22ff", {}, 45);
 		fakeClaude([agent(sid("11ee22ff"), 5160), HEALTHY]);
@@ -640,7 +567,6 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 		job("33aa44bb", {}, 45);
 		transcript(sid("33aa44bb"), 45);
 		fakeClaude([agent(sid("33aa44bb"), 5161), HEALTHY]);
-		// 45 minutes of silence is past --minutes and nowhere near --hung-minutes.
 		expect(run().out).not.toContain("HUNG-JOB");
 	});
 
@@ -677,10 +603,6 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 		expect(out).toContain("waiting:");
 	});
 
-	/*
-	 * Left out of the delivery signature, a hung job reprints into every session
-	 * start for as long as it stands.
-	 */
 	it("--notify reports each hung job once", () => {
 		job("aa11bb22");
 		transcript(sid("aa11bb22"), 60 * 9);
@@ -700,13 +622,6 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	});
 });
 
-/*
- * SYNTHETIC-STOP (#5324): a job whose record reads done, or stopped once
- * reaped, ended by the harness's own "No response requested." record. Loosen
- * a case and the founder never hears of a session that stopped mid-task, or
- * is told of one inside the loop's window, after he typed into it, or for an
- * API error or limit the harness wrote in the same shape.
- */
 describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)", () => {
 	const Job = "5e5e5e5e";
 	const Sid = "5e5e5e5e-0000-4000-8000-000000000001";

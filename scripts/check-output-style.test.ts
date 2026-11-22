@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-output-style.js warns on an `outputStyle` no style answers
- * to, and passes the plugin's namespaced style, a project style, a built-in
- * and another plugin's style (#1944).
- *
- * CLAUDE_CONFIG_DIR is an empty directory, so the machine's own user styles
- * never answer.
- *
- * The plugin's style comes from the core's own `.claude-plugin/plugin.json`
- * and `.claude/output-styles/core-voice.md`, read through the checker.
- *
- * It reports through `npm run status`: loosen a case and an adopter's style
- * goes unloaded in silence again.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -52,7 +38,7 @@ describe("output style (#1944)", () => {
 	it("warns on the old `core-voice` default, naming the style the plugin ships", () => {
 		settings(".claude/settings.json", { outputStyle: "core-voice" });
 		const r = run();
-		expect(r.status).toBe(0); // WARN: a report, never a gate
+		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("UNKNOWN-OUTPUT-STYLE");
 		expect(r.stderr).toContain('"core-voice"');
 		expect(r.stderr).toContain(".claude/settings.json");

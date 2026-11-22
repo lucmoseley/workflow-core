@@ -82,8 +82,8 @@ describe("the helpers both mods copy", () => {
 		const sources = readModules();
 		const [delivery, liveness] = MODULES as [string, string];
 		sources[liveness] = (sources[liveness] as string).replace(
-			"an unparseable one is below",
-			"an unparseable one is under",
+			"return have > need",
+			"return have >= need",
 		);
 		expect(driftOf(sources)).toEqual(["isAtFloor: 2 different texts"]);
 		sources[delivery] = (sources[delivery] as string).replace(

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-registrations.js holds a host repo's own hooks, guards and
- * checkers to the core's registration rule against .claude/registrations.json
- * and .claude/guard-fire-needles.json, and under --against refuses only what
- * a commit adds (#1456). In the core, which carries the self-plugin's file, it
- * holds .claude/settings.json to the self-plugin canary alone (#2447).
- *
- * Against a fabricated repo in a throwaway git repo, never this one.
- * .husky/pre-commit refuses on this checker, so loosening a case here loosens
- * that gate.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,8 +10,6 @@ import { emptyRegistry } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-registrations.js");
-// A guard the plugin's own needles key, read live so a port that drops one
-// never strands the fixture (#2996).
 const CORE_GUARD = Object.keys(
 	JSON.parse(
 		fs.readFileSync(path.resolve(__dirname, "guard-fire-needles.json"), "utf8"),
@@ -74,7 +61,6 @@ const run = (...args: string[]) => {
 	return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 };
 
-/** An adopter whose one guard and one checker are fully registered. */
 function registeredAdopter(): void {
 	write(".claude/settings.json", settings("guard-a.sh"));
 	write(".claude/registrations.json", registry({ hooks: [row("guard-a.sh")] }));

@@ -1,13 +1,3 @@
-"""Red-main periods from the scheduled-checks sweeps (the #2216 method), plus the lander's tests.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I red_main.py <sweeps.json> <runs.jsonl> [start] [end]
-sweeps.json: gh run list -R lucmoseley/workflow-core --workflow scheduled-checks.yml --limit 100
-  --json databaseId,createdAt,updatedAt,conclusion,headSha,event,status
-A red period starts at the first failed sweep after a green one and ends at the next green sweep.
-'skipped' and in-progress sweeps carry no verdict and are ignored.
-Lander part: each lander full run's verdict at its sha, in time order; a red stretch is from the first
-red lander run to the next green lander run."""
-
 import json
 import sys
 from datetime import UTC, datetime
@@ -50,7 +40,6 @@ seq = [
     (ts(r["createdAt"]), "green" if r["conclusion"] == "success" else "red")
     for r in rows
 ]
-# state at window start
 t0, t1 = ts(start), ts(end)
 if not seq:
     sys.exit("no sweep with a verdict")

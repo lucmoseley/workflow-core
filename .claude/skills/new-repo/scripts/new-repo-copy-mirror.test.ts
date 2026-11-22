@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * new-repo.js copying a source repo end to end, through the new repo's real
- * hook stack, and a second run finding every step done (#4297).
- * new-repo.test.ts's header says how a run is driven and what a loosened case
- * costs.
- *
- * Over the run-cost budget (base §X8 (5)): its one case is a run §X8 (2) keeps
- * on the real hook stack, which is most of its time.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -41,8 +32,6 @@ describe("new-repo.js copying a source repo", () => {
 			const s = sandbox({ source: SOURCE_IGNORE });
 			const r = s.run();
 			expect(r.status, r.stdout).toBe(0);
-			/* The world the --resume files build their golden from, with the hooks
-			 * off, is the one the real hook stack leaves (#1150). */
 			expect(readEndState(s)).toEqual(
 				cleanRun(true, { hooks: false }).goldenEnd,
 			);
@@ -63,7 +52,6 @@ describe("new-repo.js copying a source repo", () => {
 			expect(r.stdout).toContain("reconcile      done — #2 under #1\n");
 			expect(r.stdout).toMatch(/^init-adopter {3}done — .*, modules none$/m);
 
-			// The default branch and tags only: never the stale branch, never a fork.
 			expect(readEndState(s).originRefs).toEqual([
 				"refs/heads/main",
 				"refs/tags/v1",
@@ -74,8 +62,6 @@ describe("new-repo.js copying a source repo", () => {
 			expect(s.git("show", "HEAD:lib/tide.js")).toBe(
 				"module.exports = () => 2;",
 			);
-			// The copy and the skeleton went in one push, the one creating main,
-			// the commit made from a worktree since removed (#4685).
 			expect(s.git("rev-parse", "origin/main")).toBe(
 				s.git("rev-parse", "HEAD"),
 			);
@@ -92,14 +78,12 @@ describe("new-repo.js copying a source repo", () => {
 			expect(fs.readFileSync(path.join(s.clone, ".gitignore"), "utf8")).toBe(
 				`${SOURCE_IGNORE}${IGNORE_BLOCK}${KEEP_BLOCK}`,
 			);
-			// The negations follow the block and reach none of its paths.
 			expect(readIgnoredScratch(s)).toBe(
 				"private/x\n.claude/tmp/x\n.claude/worktrees/x\n",
 			);
 			expect(s.git("ls-files", "CLAUDE.md", "AGENTS.md", ".gitignore")).toBe(
 				".gitignore\nAGENTS.md\nCLAUDE.md",
 			);
-			// settings.local.json is this machine's, left untracked as in the empty flow.
 			expect(s.git("status", "--porcelain")).toBe(
 				"?? .claude/settings.local.json",
 			);
@@ -174,6 +158,6 @@ describe("new-repo.js copying a source repo", () => {
 			expect(s.readState().issues).toHaveLength(2);
 			expect(readEndState(s).originRefs).toHaveLength(3);
 		},
-		3 * RUN_TIMEOUT_MS, // a run, a hooks-off clean run and a re-run
+		3 * RUN_TIMEOUT_MS,
 	);
 });

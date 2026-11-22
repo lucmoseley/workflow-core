@@ -1,35 +1,4 @@
 #!/usr/bin/env python3
-"""
-scan_sessionstart_intent.py — does a background job's SessionStart see the job's `intent` yet? (mantahostels#1142)
-
-It is a race the daemon usually loses, and the Claude Code version moves the
-odds enough to look like a rule: open through 2.1.234, shut across
-2.1.235-2.1.239, open again at 2.1.241 (per-version counts on mantahostels#1142). Re-run
-after a CLI upgrade rather than re-deriving the argument.
-
-Method. Every job record under <config>/jobs/*/state.json whose `intent` opens
-with one of the injected slash commands, joined to that job's own transcript at
-<config>/projects/<project-slug>/<sessionId>.jsonl, the slug the main
-checkout's or a worktree's (transcript_corpus.py's `roots_on`). A firing counts only from a
-hook attachment on matcher `SessionStart:startup` — a fresh start, so a resume,
-a compact, a fork and a clear are all excluded. Two markers are looked for in
-the attachment's stdout/content:
-
-  "Session named "   scripts/name-issue-session.sh emitted a name
-  "You invoked /"    scripts/inject-tracker-docs.js injected the tracker docs
-
-EVERY config dir is scanned, not just the live one: this machine sets
-CLAUDE_CONFIG_DIR=~/.claude2, and the ~/.claude it left behind holds a disjoint
-set of older jobs. Scanning one dir alone makes an intermittent race read as a
-clean version cut-off (mantahostels#1142).
-
-BLIND SPOT: a hook whose output was too large also writes a second attachment
-under the bare matcher `SessionStart`, holding only a `<persisted-output>`
-pointer. Those are ignored, which is right while the matcher-tagged line still
-carries the text inline. If a harness change ever drops that inline copy, this
-scanner returns zeros and they will read as a CLI regression rather than as its
-own blindness.
-"""
 
 import argparse
 import glob
@@ -43,8 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
 from fail_open import tallied
 
-# Commands scripts/inject-tracker-docs.js injects for. `pick-next` is named by
-# the naming hook but never injected, so counting it would understate injection.
 INJECTED_COMMANDS = {
     "wayfinder",
     "to-spec",
@@ -61,7 +28,6 @@ STARTUP_MATCHER = "SessionStart:startup"
 
 
 def attachment_text(attachment):
-    """Everything a hook attachment can carry its output in, concatenated."""
     text = attachment.get("stdout") or ""
     content = attachment.get("content")
     if isinstance(content, str):
@@ -72,9 +38,6 @@ def attachment_text(attachment):
 
 
 def scan_transcript(path, tally):
-    """(named, injected) — did either hook fire at SessionStart:startup here?
-
-    `tally` receives `tc.records`'s skip counts, which the result carries."""
     named = injected = False
     for record in tc.records(path, tally, needle='"hookEvent"'):
         attachment = record.get("attachment") or {}
@@ -147,7 +110,6 @@ def scan(jobs_dir, projects_dirs):
 
 
 def merge(results):
-    """Several config dirs' scans as one."""
     counts = (
         "jobs_scanned",
         "skipped_no_transcript",
@@ -175,7 +137,6 @@ def merge(results):
 
 
 def config_dirs():
-    """Every seat's config dir holding jobs — transcript_corpus.py's seat set."""
     seen = []
     for d in tc.seats():
         resolved = os.path.realpath(d)
@@ -185,7 +146,9 @@ def config_dirs():
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Whether a background job's SessionStart sees the job's intent yet."
+    )
     parser.add_argument(
         "--config-dir",
         action="append",

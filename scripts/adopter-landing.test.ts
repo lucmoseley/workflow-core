@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Landing on an adopter, against lib/lander-testkit.ts's real bare remote and
- * clone: every module read here is its `.claude/workflow-core.json`'s, the
- * suite's WFC_MODULES cleared. Each push runs the adopter's pre-push hook, the
- * plugin's `.husky/pre-push`, as an adopter's `core.hooksPath` runs it.
- *
- * With no `landingTester` named, the queue lander's tester is the local
- * one (lib/local-tester.js), running the adopter's `commands.test` at each
- * sha. The lander run is driven in process through lib/queue-lander-deps.js,
- * the wiring scripts/queue-lander.js runs, over the stub tracker and the
- * levelling stub, the local tester's suite slot aside: the real one admits
- * against this machine's suite gate and memory, which the suite running this
- * test holds.
- *
- * Over the 10 s budget, as each push crosses the real pre-push hook and each
- * lander test the local tester's real install and run in its worktree: the
- * two routes it holds an adopter to.
- *
- * Loosen it and an adopter's queue ref never lands through its local tester,
- * or a red member's isolation runs beside another's or the red one lands.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -48,8 +27,6 @@ import { admitted, peakHeld } from "./lib/suite-slot-fake";
 landerSandbox();
 
 const ROOT = path.resolve(__dirname, "..");
-/* A runner that runs each `*.check.js` the tree holds and prints vitest's
- * FAIL line for each one that throws. */
 const RUNNER = `const fs = require("node:fs");
 const { execFileSync } = require("node:child_process");
 let red = false;
@@ -66,7 +43,6 @@ const write = (rel: string, text: string) => {
 	fs.writeFileSync(path.join(work, rel), text);
 };
 
-/* The environment a push runs its hooks in: the plugin's, and no session's. */
 const pushEnv = () => {
 	const env: NodeJS.ProcessEnv = { ...process.env, WFC_PLUGIN_ROOT: ROOT };
 	delete env.WFC_MODULES;
@@ -116,7 +92,6 @@ const pushQueue = (name: string, from: string, check: string) => {
 	return sha;
 };
 
-/** One lander run over the adopter's configured tester, as queue-lander.js wires it. */
 const runAdopterLander = async () => {
 	const { gh, readStore } = stubTracker();
 	vi.stubEnv("WFC_GH", gh.env.WFC_GH);
@@ -129,8 +104,6 @@ const runAdopterLander = async () => {
 	return { files: queueLanderFiles(work), slot, readStore };
 };
 
-/* Every `event` core on one call in `work`, its scratch under the case's:
- * the echo recorder reads the process's TMPDIR, the rest the run's env. */
 const cores = (
 	payload: Record<string, unknown>,
 	event: "PreToolUse" | "PostToolUse" = "PreToolUse",
@@ -185,9 +158,6 @@ describe("an adopter with the local tester", () => {
 		expect(git(remote, "rev-parse", "main")).toBe(a);
 		expect(git(remote, "rev-parse", "dropped/b")).toBe(b);
 		expect(remoteHeads()).not.toContain("refs/heads/queue/");
-		/* The local tester pushes no lander ref (#4906, #4910): the isolation
-		 * commits are the shas the verdict ledger kept first-pass named-file
-		 * verdicts at. */
 		expect(remoteHeads()).not.toContain("refs/heads/lander/");
 		const isolations = [
 			...new Set(

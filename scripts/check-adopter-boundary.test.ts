@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * check-adopter-boundary.js over fixture trees: the real page in a fixture
- * repo, then that page with one path moved or dropped, or the tree with a
- * top-level path the page does not name (#5294). Loosen a case and the page
- * can tell the founder an adopter gets a surface it does not, or miss one it
- * does.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

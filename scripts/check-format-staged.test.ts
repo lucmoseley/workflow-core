@@ -1,23 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins that check-format-staged.js refuses a staged shell or Python path its
- * formatter would change, judging the staged blob and never the worktree, and
- * that the .husky/pre-commit block around it refuses the commit (#1332) — and
- * refuses with the install line where a formatter is missing, which the
- * checker calls BROKEN (#1354), skipping that half only where a workflow runs
- * the formatter (#1463).
- *
- * The checker runs in process in a throwaway repo, the hook block as `sh`.
- * shfmt is the core's own pinned copy, resolved through the checker's fallback
- * since the fixture has no node_modules; the real-ruff cases need the machine's
- * ruff and skip without it, CI's node job having none, so a failing ruff is also
- * stubbed for that job to judge it.
- *
- * It is the format gate: loosen a case and unformatted shell or Python lands,
- * or a commit is refused for a neighbour's unstaged file.
- */
-
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -55,12 +37,10 @@ function writeFailingRuff(r: TempRepo, failure: RuffFailure): string {
 	return file;
 }
 
-/** A repo with `staged` written and staged over a one-file seed commit. */
 function repo(staged: Record<string, string>): TempRepo {
 	return stagedRepo("format-staged-", temps, {}, staged);
 }
 
-/** An absent `shfmt` leaves WFC_SHFMT unset, so the core's pinned copy loads. */
 function check(
 	r: TempRepo,
 	opts: { ruff?: string; shfmt?: string; args?: string[] } = {},
@@ -303,10 +283,6 @@ describe("the .husky/pre-commit format gate", () => {
 
 	const probePath = "lib/formatters.js";
 
-	/**
-	 * Runs the cut gate block in `r`, with the checker and the formatter probe
-	 * delegated to the core's.
-	 */
 	function gate(
 		r: TempRepo,
 		env: object = {},
@@ -350,8 +326,6 @@ describe("the .husky/pre-commit format gate", () => {
 		expect(code).toBe(2);
 	});
 
-	// The paired case: a commit only deleting a shell path does not arm the
-	// gate, so the same crashing probe never runs (#1504's review).
 	it("passes a commit that only deletes a shell path, never running the probe", () => {
 		const r = repo({ "scripts/a.sh": SH_OK });
 		r.git("commit", "-qm", "add");
@@ -361,7 +335,6 @@ describe("the .husky/pre-commit format gate", () => {
 		expect(code).toBe(0);
 	});
 
-	/** `r` with a workflow whose one step runs `command`. */
 	const withWorkflow = (r: TempRepo, command: string) => {
 		const dir = path.join(r.root, ".github", "workflows");
 		fs.mkdirSync(dir, { recursive: true });
@@ -422,7 +395,6 @@ describe("the .husky/pre-commit format gate", () => {
 
 	it("never runs the checker when no shell or Python path is staged", () => {
 		const r = repo({ "notes.md": "# x\n" });
-		// No delegate written: a call would fail on the missing script.
 		const run = spawnSync("sh", ["-c", cutGateScript(anchorPath)], {
 			cwd: r.root,
 			encoding: "utf8",

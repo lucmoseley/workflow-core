@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-hook-liveness.js reports a hook that is wired and does not
- * run (mantahostels#1898, decided at mantahostels#1895): a census of failing
- * hooks over the transcripts, a plugin cache manifest that wires nothing, a
- * registered hook command that resolves to no runnable file, and a reap that died
- * mid-run.
- *
- * Every test drives the real script, most through lib/run-in-process.js's
- * in-process seam rather than a subprocess (mantahostels#1945) — with every config dir
- * and the project root pointed inside the case's own temp dir either way, so
- * no run can read the founder's live transcripts, plugin cache or
- * settings.json, nor the census the live core's hooks, and no run can write a
- * notify stamp into the real state directory.
- *
- * An ordinary silent pass leaves NO transcript record at all, so a hook that is
- * fine is represented here by no records rather than by success records.
- *
- * Its self-plugin assertion is a hard gate in .husky/pre-commit, and the rest
- * report through `npm run status`: loosen a case and a dangling hook command
- * lands, or a hook failing at every session start goes on failing unnamed.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -33,11 +12,8 @@ import { useScratchCore } from "./lib/scratch-core-testkit";
 
 const SCRIPT = path.join(__dirname, "check-hook-liveness.js");
 
-/** The first config dir, standing in for this machine's first Claude plan. */
 let dir: string;
-/** The second, so a case can prove the union across plans is read. */
 let second: string;
-/** The repo the hooks belong to. */
 let repo: string;
 
 beforeEach(() => {
@@ -54,14 +30,8 @@ afterEach(() => {
 
 const run = (...args: string[]) => runUnder(dir, ...args);
 
-/** Extra environment for the run in flight, set only by `runWithEnv`. */
 let envExtra: Record<string, string> = {};
 
-/**
- * The same run, with extra environment on top — for a seam the script reads
- * only from the environment, such as the census budget's (mantahostels#2035). Restored
- * after the call, so no case leaks its seam into the next.
- */
 function runWithEnv(extra: Record<string, string>, ...args: string[]) {
 	envExtra = extra;
 	try {
@@ -71,24 +41,18 @@ function runWithEnv(extra: Record<string, string>, ...args: string[]) {
 	}
 }
 
-/** The same run, as the plan whose config dir is `cfg`. */
 const runUnder = (cfg: string, ...args: string[]) => runFor(repo, cfg, ...args);
 
-/** The same run again, against a project root of the case's own choosing. */
 function runFor(root: string, cfg: string, ...args: string[]) {
 	const res = runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: root,
 			CLAUDE_CONFIG_DIR: cfg,
-			// Every plan named explicitly, or _C's default IS a sibling of the real
-			// temp root and a case would sweep it in.
 			WFC_CLAUDE_CONFIG_A: dir,
 			WFC_CLAUDE_CONFIG_B: second,
 			WFC_CLAUDE_CONFIG_C: second,
 			CLAUDE_CODE_SESSION_ID: "",
-			// Unset, or a run under CI writes every WARN's message to stdout as a
-			// ::warning:: annotation and a test of the say passes without it.
 			GITHUB_ACTIONS: "",
 			...envExtra,
 		},
@@ -96,15 +60,9 @@ function runFor(root: string, cfg: string, ...args: string[]) {
 	return { ...res, out: `${res.stdout}${res.stderr}` };
 }
 
-/**
- * Where a config dir keeps this project's transcripts, spelled as the HARNESS
- * spells it — every non-alphanumeric a hyphen — rather than by calling the
- * script's own slug, which is the thing under test (mantahostels#1963).
- */
 const projectDir = (cfg: string, root = repo) =>
 	path.join(cfg, "projects", root.replace(/[^a-zA-Z0-9]/g, "-"));
 
-/** One transcript attachment record, as the harness writes it. */
 function record(type: string, command: string, agoDays = 0) {
 	return JSON.stringify({
 		parentUuid: null,
@@ -114,7 +72,6 @@ function record(type: string, command: string, agoDays = 0) {
 	});
 }
 
-/** A transcript file. `session` names it, so a case can append to it later. */
 function transcript(
 	cfg: string,
 	session: string,
@@ -134,10 +91,6 @@ const failures = (command: string, n: number, agoDays = 0) =>
 const successes = (command: string, n: number) =>
 	Array.from({ length: n }, () => record("hook_success", command));
 
-/**
- * Failure records carrying no `command` at all — the shape every PostToolUse
- * cancellation has, and the one the census cannot attribute to any hook (mantahostels#2296).
- */
 const bare = (n: number, agoDays = 0, type = "hook_cancelled") =>
 	Array.from({ length: n }, () =>
 		JSON.stringify({
@@ -148,11 +101,6 @@ const bare = (n: number, agoDays = 0, type = "hook_cancelled") =>
 		}),
 	);
 
-/**
- * A settings.json with one hook per entry given. A bare string is the command;
- * an object carries whatever else the entry has, `args` above all — the key the
- * exec form adds (mantahostels#2107).
- */
 function settings(commands: Array<string | Record<string, unknown>>) {
 	const at = path.join(repo, ".claude", "settings.json");
 	fs.mkdirSync(path.dirname(at), { recursive: true });
@@ -174,7 +122,6 @@ function settings(commands: Array<string | Record<string, unknown>>) {
 	return at;
 }
 
-/** A settings.json wiring `commands` as persisting, async SessionStart producers. */
 function asyncSettings(commands: string[]) {
 	const at = path.join(repo, ".claude", "settings.json");
 	fs.mkdirSync(path.dirname(at), { recursive: true });
@@ -191,7 +138,6 @@ function asyncSettings(commands: string[]) {
 	return at;
 }
 
-/** A script under the repo's scripts/, executable or not. */
 function script(name: string, { executable = true } = {}) {
 	const at = path.join(repo, "scripts", name);
 	fs.mkdirSync(path.dirname(at), { recursive: true });
@@ -200,14 +146,6 @@ function script(name: string, { executable = true } = {}) {
 	return at;
 }
 
-/**
- * A plugin installed under `cfg`, with a cached hooks.json and a marketplace
- * that declares one. Either may be null, meaning the file is absent.
- *
- * The marketplace is a plain directory rather than a git checkout, so the
- * comparison falls back to the checkout as it stands. `git` passes the pinned
- * commit instead.
- */
 function plugin(
 	cfg: string,
 	{
@@ -221,7 +159,6 @@ function plugin(
 		marketplace?: string;
 		cached: string | null;
 		upstream: string | null;
-		/** Commit the marketplace and pin the entry to that sha. */
 		git?: boolean;
 	},
 ) {
@@ -229,8 +166,6 @@ function plugin(
 	const installPath = path.join(plugins, "cache", marketplace, name, "1.0.0");
 	const marketDir = path.join(plugins, "marketplaces", marketplace);
 
-	// Merged with whatever this marketplace already declares, so a second call
-	// naming the same marketplace ADDS a plugin rather than replacing the first.
 	const marketAt = path.join(marketDir, ".claude-plugin", "marketplace.json");
 	let marketDoc: {
 		name: string;
@@ -278,12 +213,6 @@ function plugin(
 	fs.writeFileSync(installedAt, JSON.stringify(installedDoc));
 }
 
-/**
- * Enables `key` (`"<plugin>@<marketplace>"`) in the repo's own committed
- * `.claude/settings.json`, merged onto whatever that file already holds —
- * one of the files `readEnabledPluginsFor()` merges for the plugin-hosted checks
- * (mantahostels#3515 F9).
- */
 function enablePlugin(key: string) {
 	const at = path.join(repo, ".claude", "settings.json");
 	const doc: Record<string, unknown> = orFallback(
@@ -298,13 +227,6 @@ function enablePlugin(key: string) {
 	fs.writeFileSync(at, JSON.stringify(doc));
 }
 
-/**
- * A `directory`-sourced marketplace: `known_marketplaces.json` names it with
- * `source.source === "directory"` and an `installLocation` that is a plain
- * directory holding its own `.claude-plugin/marketplace.json` — never a
- * clone under `plugins/marketplaces/<name>/`, which this fixture does not
- * create (mantahostels#3515 F9's premise: a directory marketplace never has one).
- */
 function directoryMarketplace(cfg: string, marketplace: string, at: string) {
 	const known = path.join(cfg, "plugins", "known_marketplaces.json");
 	const doc: Record<string, unknown> = orFallback(
@@ -319,14 +241,6 @@ function directoryMarketplace(cfg: string, marketplace: string, at: string) {
 	fs.writeFileSync(known, JSON.stringify(doc));
 }
 
-/**
- * A plugin installed under `cfg`, with a real `${CLAUDE_PLUGIN_ROOT}`-rooted
- * hooks.json on both sides (upstream and cache), for the drop/liveness checks
- * to walk.
- *
- * `hookEntries` is `[event, command]` pairs; `cachedHookEntries` defaults to
- * the same set, so a case names only what it wants to differ.
- */
 function pluginWithHooks(
 	cfg: string,
 	{
@@ -338,7 +252,6 @@ function pluginWithHooks(
 	}: {
 		name?: string;
 		marketplace?: string;
-		/** Where the marketplace's own tree lives, for a directory source. */
 		marketplaceDir?: string;
 		hookEntries: [string, string][];
 		cachedHookEntries?: [string, string][];
@@ -362,10 +275,6 @@ function pluginWithHooks(
 		upstream: manifestOf(hookEntries),
 	});
 	if (marketplaceDir) {
-		// `plugin()` always writes the marketplace tree under
-		// `plugins/marketplaces/<marketplace>/` — move it to the directory
-		// source's own path, which is where `resolveMarketplaceDir` looks once
-		// `directoryMarketplace()` is also called.
 		const from = path.join(cfg, "plugins", "marketplaces", marketplace);
 		fs.mkdirSync(path.dirname(marketplaceDir), { recursive: true });
 		fs.rmSync(marketplaceDir, { recursive: true, force: true });
@@ -374,7 +283,6 @@ function pluginWithHooks(
 	return path.join(cfg, "plugins", "cache", marketplace, name, "1.0.0");
 }
 
-/** A script under a plugin's installed cache root, executable or not. */
 function pluginScript(
 	installPath: string,
 	rel: string,
@@ -387,24 +295,13 @@ function pluginScript(
 	return at;
 }
 
-/**
- * The plugin-root env token a real hooks.json spells `${CLAUDE_PLUGIN_ROOT}` —
- * built by interpolation, never as a literal `"${CLAUDE_PLUGIN_ROOT}"` string,
- * so Biome's `noTemplateCurlyInString` (a real placeholder someone forgot to
- * put in a template) does not mistake this deliberate one for that typo.
- */
 const PLUGIN_ROOT = `$${"{CLAUDE_PLUGIN_ROOT}"}`;
 
-/** A hook command rooted on the plugin token, e.g. `pluginCmd("scripts/r.sh")`. */
 const pluginCmd = (rel: string) => `${PLUGIN_ROOT}/${rel}`;
 
 const WIRED = 'command -v node && node "$CLAUDE_PROJECT_DIR"/scripts/slow.js';
 
 describe("check-hook-liveness — the census", () => {
-	/* The census's async-blind roster merges the core plugin's producers in;
-	 * a stand-in core keeps the live core's out of every case. The host has
-	 * no settings file until a case wires a hook, and --notify stays silent
-	 * on it (#2462). */
 	beforeEach(() => {
 		useScratchCore(path.dirname(dir));
 	});
@@ -422,7 +319,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("counts a hardlinked transcript's unattributable records once (mantahostels#2299)", () => {
-		// Every ratio divides the duplication out; a bare count cannot.
 		const at = transcript(dir, "s1", bare(4));
 		const also = path.join(projectDir(second), "s1.jsonl");
 		fs.mkdirSync(path.dirname(also), { recursive: true });
@@ -433,7 +329,6 @@ describe("check-hook-liveness — the census", () => {
 
 	it("counts a session held on two seats once, from the larger copy (#382)", () => {
 		transcript(dir, "s1", bare(2));
-		// Resumed on the second seat: its own real copy holds the whole session.
 		transcript(second, "s1", bare(4));
 
 		expect(run("--only", "census").out).toContain("4 failure record(s)");
@@ -446,7 +341,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("says the unattributable count beside a failing hook, not instead of one", () => {
-		// The block sits above both `bad` early-returns for exactly this reason.
 		transcript(dir, "s1", [...failures(WIRED, 60), ...bare(3)]);
 
 		const { out } = run("--only", "census");
@@ -456,7 +350,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("says the unattributable count again after it has gone away and returned", () => {
-		// Without the clear, the stamp stands and the line is silenced for good.
 		const at = transcript(dir, "s1", bare(4));
 		expect(run("--notify", "--only", "census").out).toContain(
 			"4 failure record(s)",
@@ -478,7 +371,6 @@ describe("check-hook-liveness — the census", () => {
 
 		expect(out).toContain("4 failure record(s)");
 		expect(out).toContain("named no hook command");
-		// Not a fault: it measures a blind spot, it does not accuse a hook.
 		expect(status).toBe(0);
 	});
 
@@ -510,7 +402,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("stays quiet under --notify when only the unattributable count moves", () => {
-		// Keyed on presence, not the number.
 		transcript(dir, "s1", bare(4));
 		run("--notify", "--only", "census");
 
@@ -520,8 +411,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("stays silent on a zero-success hook failing in too few sessions", () => {
-		// A guard that allows quietly records no success, so the ratio cannot judge
-		// it; 9 failures spread over 300 sessions is 0.33%, under the rate.
 		for (let i = 0; i < 300; i++) transcript(dir, `s${i}`, []);
 		transcript(dir, "s0", failures(WIRED, 9));
 
@@ -591,9 +480,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("counts a record appended after the last run exactly once", () => {
-		// Three rounds, not two: an offset that rewinds to the LENGTH of the last
-		// append rather than the end of the file reads correctly once and then
-		// starts re-counting.
 		transcript(dir, "s1", failures(WIRED, 60));
 		expect(run("--only", "census").out).toContain("60 failed");
 
@@ -623,14 +509,8 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("counts a half-written record once its line completes", () => {
-		// The offset must stop at the last newline, not at the end of the file: a
-		// run that stamps past bytes it never parsed loses that record for good,
-		// because every later run starts after it.
 		const at = transcript(dir, "s1", failures(WIRED, 60));
 		const whole = record("hook_cancelled", WIRED);
-		// Cut PAST the attachment's opening bytes, so the scanner finds the record
-		// and cannot parse it. Cut before them and the guard is untested: nothing
-		// has been seen to skip past.
 		expect(whole.slice(0, 100)).toContain('{"type":"hook_');
 		fs.appendFileSync(at, whole.slice(0, 100));
 		run("--only", "census");
@@ -673,7 +553,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("finds transcripts under a project root carrying a dot", () => {
-		// mantahostels#1963
 		const root = path.join(path.dirname(dir), "repo.git");
 		fs.mkdirSync(root, { recursive: true });
 		const at = projectDir(dir, root);
@@ -690,22 +569,12 @@ describe("check-hook-liveness — the census", () => {
 		expect(status).toBe(1);
 	});
 
-	/*
-	 * The next two turn on the corpus and the notify stamp living in DIFFERENT
-	 * config dirs: transcripts are seeded into `second`, and the stamp goes to the
-	 * sorted-first dir that can hold state, which is `dir`. The stamp sits inside a
-	 * directory the corpus itself enumerates, so seeding both in one dir would
-	 * delete the stamp along with the transcripts and neither guarantee would be
-	 * under test.
-	 */
 	it("says a fault again when its transcripts go away and come back identical", () => {
 		const at = projectDir(second);
 		const seed = () => transcript(second, "s1", failures(WIRED, 60));
 		seed();
 		expect(run("--notify", "--only", "census").out).toContain("60 failed");
 
-		// The set empties by the transcripts going away, not by the fault clearing
-		// — the stamp must still clear, or the same fault returning is silenced.
 		fs.rmSync(at, { recursive: true, force: true });
 		expect(run("--notify", "--only", "census").out).toBe("");
 		seed();
@@ -718,8 +587,6 @@ describe("check-hook-liveness — the census", () => {
 		transcript(second, "s1", failures(WIRED, 60));
 		expect(run("--notify", "--only", "census").out).toContain("60 failed");
 
-		/* An empty set read off a directory that REFUSED to be listed is not the
-		 * fault clearing, so it must not clear the stamp (mantahostels#1964). */
 		fs.chmodSync(at, 0o000);
 		let locked: { out: string };
 		try {
@@ -728,25 +595,15 @@ describe("check-hook-liveness — the census", () => {
 			fs.chmodSync(at, 0o755);
 		}
 
-		/* Asserted, not discarded: where the chmod does not actually deny — as
-		 * root, or on a mount ignoring mode bits — the middle run reads an ordinary
-		 * empty corpus and the case passes on the plain dedupe path, proving
-		 * nothing. */
 		expect(locked.out).toContain("could not be listed");
 
 		expect(run("--notify", "--only", "census").out).toBe("");
 	});
 
 	it("keeps the stamp when EVERY config dir refuses to be listed", () => {
-		/* The unavailable return mantahostels#1964 named, which the empty-`bad` clear does not
-		 * cover. Mode 0o333 is what reaches it: readdir gives EACCES, so `dirs` is
-		 * empty and every dir is unreadable — while the stamp inside stays
-		 * readable, opened by name through a directory that permits traversal and
-		 * refuses listing. */
 		const dirs = [projectDir(dir), projectDir(second)];
 		transcript(second, "s1", failures(WIRED, 60));
 		expect(run("--notify", "--only", "census").out).toContain("60 failed");
-		// Written by the first run's cache; the stamp sits here too.
 		expect(fs.existsSync(dirs[0])).toBe(true);
 
 		for (const at of dirs) fs.chmodSync(at, 0o333);
@@ -757,19 +614,12 @@ describe("check-hook-liveness — the census", () => {
 			for (const at of dirs) fs.chmodSync(at, 0o755);
 		}
 
-		/* Proves the run under test found NO listable dir, rather than some other
-		 * path that happens to leave the stamp alone. These two are every config
-		 * dir the run has. */
 		for (const at of dirs) expect(locked.out).toContain(`${at} could not be`);
 
 		expect(run("--notify", "--only", "census").out).toBe("");
 	});
 
 	it("stays silent where a plan's own project dir is a plain file, not a directory", () => {
-		// ENOTDIR rather than ENOENT, read the same way as detached's mantahostels#2000 case
-		// (mantahostels#2142): the live record from `second` is what stops this passing on
-		// an empty corpus, which would be green whether or not `dir` was ever
-		// visited.
 		transcript(second, "s1", failures(WIRED, 60));
 		const notADir = projectDir(dir);
 		fs.mkdirSync(path.dirname(notADir), { recursive: true });
@@ -783,9 +633,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("puts the notify stamp inside the directory it censuses", () => {
-		/* The corpus and the state path must resolve to ONE directory (mantahostels#1963).
-		 * Asserted under a dotted root, the only place the two candidate spellings
-		 * differ. */
 		const root = path.join(path.dirname(dir), "repo.git");
 		fs.mkdirSync(root, { recursive: true });
 		const at = projectDir(dir, root);
@@ -802,15 +649,12 @@ describe("check-hook-liveness — the census", () => {
 				path.join(at, "notify-reports", "hook-liveness-census.notified"),
 			),
 		).toBe(true);
-		// The census CACHE is what statePath still resolves.
 		expect(fs.existsSync(path.join(at, "hook-liveness-census.json"))).toBe(
 			true,
 		);
 	});
 
 	it("keeps the census cache in the pinned store, not the sorted-first config dir (#385)", () => {
-		/* _A names `two`, which sorts after `one`, and the run is on `one`: a
-		 * non-first seat. The old sorted-first-usable rule picked `one`. */
 		transcript(second, "s1", failures(WIRED, 60));
 		runWithEnv(
 			{
@@ -828,8 +672,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("clears the stamp on a hand run, though a hand run writes none", () => {
-		/* The clear is ungated where the write is not (mantahostels#2244): a run that was not
-		 * the delivery still notices the set empty. */
 		transcript(second, "s1", failures(WIRED, 60));
 		expect(run("--notify", "--only", "census").out).toContain("60 failed");
 
@@ -841,14 +683,9 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("decides the stamp without writing it, by source", () => {
-		/* On the source, because no runtime test reaches the failure: it is a
-		 * process killed between deciding and reporting, and every path that
-		 * returns normally writes the stamp either way. */
 		const src = fs.readFileSync(SCRIPT, "utf8");
 		const from = src.indexOf("function saidBeforeElseQueue");
 		const to = src.indexOf("function flushStamps");
-		// Both anchors found before their span means anything: a renamed function
-		// would otherwise leave this passing over nothing.
 		expect(from).toBeGreaterThanOrEqual(0);
 		expect(to).toBeGreaterThan(from);
 
@@ -858,12 +695,7 @@ describe("check-hook-liveness — the census", () => {
 		expect(decides).not.toMatch(/markDelivered|recordDelivery|writeFileSync/);
 	});
 
-	/*
-	 * The producer's stdout is not the delivery under persist mode, so its
-	 * own stamp must not suppress anything (mantahostels#1975, mantahostels#2244).
-	 */
 	describe("under persist mode", () => {
-		/** delivery-stamp.js's store. */
 		const stampDir = () => path.join(projectDir(dir), "notify-reports");
 		const persist = (...args: string[]) =>
 			runWithEnv({ WFC_NOTIFY_PERSIST: "1" }, ...args);
@@ -899,10 +731,6 @@ describe("check-hook-liveness — the census", () => {
 			expect(readReport().text).toContain("60 failed");
 		});
 
-		/* mantahostels#2277: the eight assertion stamps this checker can never write for
-		 * itself under persist mode travel in the persisted report's own
-		 * `stamps` field instead, for the reader to apply once it has shown the
-		 * report. */
 		it("carries the census assertion's stamp in the persisted report", () => {
 			transcript(second, "s1", failures(WIRED, 60));
 
@@ -923,10 +751,6 @@ describe("check-hook-liveness — the census", () => {
 	it("reports its coverage when the budget stops the scan short", () => {
 		for (let i = 0; i < 40; i++) transcript(dir, `s${i}`, failures(WIRED, 60));
 
-		/* Through the budget seam, on a count of files read, rather than a 1 ms
-		 * wall-clock budget (mantahostels#1945, mantahostels#2035). The seam CAPS the clock rather than
-		 * replacing it, so the budget below is set wide enough that the count is
-		 * what spends it. */
 		const { out } = runWithEnv(
 			{ WFC_CENSUS_BUDGET_AFTER: "5" },
 			"--only",
@@ -936,15 +760,12 @@ describe("check-hook-liveness — the census", () => {
 		);
 
 		expect(out).toContain("Budget spent at 5 of 40 transcript file(s)");
-		// Only the five it read, so the count is the short scan's and not the
-		// whole corpus's.
 		expect(out).toContain("300 failed / 0 succeeded");
 
 		expect(run("--only", "census").out).toContain("2400 failed / 0 succeeded");
 	});
 
 	it("refuses a budget seam that is not a whole number of files, naming the variable and its value", () => {
-		// A usage error at the entry point, not a throw out of the census (mantahostels#2035).
 		const { out, status } = runWithEnv(
 			{ WFC_CENSUS_BUDGET_AFTER: "half" },
 			"--only",
@@ -959,8 +780,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("refuses the seam before any assertion runs, not only the census", () => {
-		// The reason it is validated at the entry point: --only detached never
-		// reaches the census at all, and must still refuse rather than run.
 		const { status } = runWithEnv(
 			{ WFC_CENSUS_BUDGET_AFTER: "-1" },
 			"--only",
@@ -981,8 +800,6 @@ describe("check-hook-liveness — the census", () => {
 		transcript(dir, "s1", failures(WIRED, 60));
 		expect(run("--only", "census").out).toContain("60 failed / 0 succeeded");
 
-		// Replaced rather than appended to, so the cached offset now points past
-		// the end.
 		transcript(dir, "s1", failures(WIRED, 8));
 
 		expect(run("--only", "census").out).toContain("8 failed / 0 succeeded");
@@ -1029,10 +846,7 @@ describe("check-hook-liveness — the census", () => {
 		try {
 			const res = run("--only", "census");
 
-			// stderr, not `out`: the annotation route writes the same sentence to
-			// stdout, so only this stream proves the reader was told.
 			expect(res.stderr).toContain("could not be listed");
-			// A corpus this run could not read is not a hook failing.
 			expect(res.status).toBe(0);
 		} finally {
 			fs.chmodSync(blocked, 0o755);
@@ -1045,7 +859,6 @@ describe("check-hook-liveness — the census", () => {
 		fs.mkdirSync(blocked, { recursive: true });
 		fs.chmodSync(blocked, 0o000);
 		try {
-			// stdout under --notify: that is the stream a SessionStart hook injects.
 			expect(run("--notify", "--only", "census").stdout).toContain(
 				"could not be listed",
 			);
@@ -1077,8 +890,6 @@ describe("check-hook-liveness — the census", () => {
 	it("says one set once for the machine, not once per plan running it", () => {
 		transcript(dir, "s1", failures(WIRED, 60));
 
-		// The stamp is pinned by name rather than hung off the running session's own
-		// config dir, so the second plan reads the first's stamp and stays silent.
 		expect(runUnder(dir, "--notify", "--only", "census").stdout).toContain(
 			"60 failed / 0 succeeded",
 		);
@@ -1091,8 +902,6 @@ describe("check-hook-liveness — the census", () => {
 		transcript(second, "s1", failures(WIRED, 60));
 		const broken = projectDir(dir);
 		fs.mkdirSync(path.dirname(broken), { recursive: true });
-		// access() resolves the link and reports ENOENT, so a walk trusting its
-		// parent's bits would pin the base here and mkdir would then throw EEXIST.
 		fs.symlinkSync(path.join(dir, "nowhere"), broken);
 
 		expect(run("--notify", "--only", "census").stdout).toContain(
@@ -1151,8 +960,6 @@ describe("check-hook-liveness — the census", () => {
 				},
 			});
 
-			// ::warning:: on stdout carries it; a say on stderr would be the same
-			// sentence twice in one run.
 			expect(res.stdout).toContain("::warning::");
 			expect(res.stderr).not.toContain("could not be listed");
 		} finally {
@@ -1161,7 +968,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("counts a record carrying no timestamp instead of dropping it", () => {
-		// A record with no day cannot be shown to fall outside the window.
 		const undated = JSON.stringify({
 			type: "attachment",
 			attachment: {
@@ -1211,8 +1017,6 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	it("keys the blind spot on persisting, not on `async: true` itself", () => {
-		// No `async` field at all: the roster it names is driven by
-		// WFC_NOTIFY_PERSIST=1 + --notify, not by the async flag (mantahostels#2366).
 		transcript(dir, "s1", []);
 		const at = path.join(repo, ".claude", "settings.json");
 		fs.mkdirSync(path.dirname(at), { recursive: true });
@@ -1238,7 +1042,6 @@ describe("check-hook-liveness — the census", () => {
 
 	it("says nothing about the async blind spot for a hook not wired to persist", () => {
 		transcript(dir, "s1", []);
-		// No WFC_NOTIFY_PERSIST=1 on the line: readSessionStartRoster() excludes it.
 		const at = path.join(repo, ".claude", "settings.json");
 		fs.mkdirSync(path.dirname(at), { recursive: true });
 		fs.writeFileSync(
@@ -1441,8 +1244,6 @@ describe("check-hook-liveness — the plugin cache manifest", () => {
 
 	it("counts a plugin sourced from another repository as unverifiable", () => {
 		plugin(dir, { cached: '{"hooks":{}}', upstream: null });
-		// The object form of `source` points at a repository this machine does not
-		// hold, so there is nothing local to compare against.
 		fs.writeFileSync(
 			path.join(
 				dir,
@@ -1471,9 +1272,6 @@ describe("check-hook-liveness — the plugin cache manifest", () => {
 		plugin(dir, { cached, upstream });
 		expect(run("--notify", "--only", "manifest").out).toContain("cached 13 B");
 
-		// The set empties by every plugin being uninstalled, not by the divergence
-		// being repaired — the stamp must still clear, or the same divergence
-		// returning is silenced.
 		fs.rmSync(path.join(dir, "plugins"), { recursive: true, force: true });
 		run("--notify", "--only", "manifest");
 		plugin(dir, { cached, upstream });
@@ -1487,11 +1285,6 @@ describe("check-hook-liveness — the plugin cache manifest", () => {
 		plugin(dir, { cached, upstream });
 		expect(run("--notify", "--only", "manifest").out).toContain("demo@market");
 
-		/* A marketplace refused by a permission bit sends its plugin to
-		 * `unverifiable`, which skips it past the divergence check — `diverged`
-		 * empties without the divergence being repaired, so the stamp must stand
-		 * (mantahostels#1981). Run without --notify because the unverifiable count is said only
-		 * there; the clear itself does not depend on the flag. */
 		const marketAt = path.join(
 			dir,
 			"plugins/marketplaces/market/.claude-plugin/marketplace.json",
@@ -1504,19 +1297,12 @@ describe("check-hook-liveness — the plugin cache manifest", () => {
 			fs.chmodSync(marketAt, 0o644);
 		}
 
-		/* Asserted, not discarded: where the chmod does not actually deny — as
-		 * root, or on a mount ignoring mode bits — the middle run reads the
-		 * divergence as usual and the case passes on the plain dedupe path. */
 		expect(locked.out).toContain("1 plugin(s) could not be compared");
 
 		expect(run("--notify", "--only", "manifest").out).toBe("");
 	});
 
 	it("clears the stamp though a plugin is permanently unverifiable", () => {
-		/* "Sourced from another repository" is a settled answer and an ordinary
-		 * pass, not a failure to look — gating the clear on the whole `unverifiable`
-		 * set would leave the stamp standing for good on any machine holding one
-		 * such plugin, silencing a repaired-and-recurring divergence (mantahostels#1981). */
 		const cached = '{"hooks": {}}';
 		const upstream = '{"hooks":{"Stop":[]}}';
 		plugin(dir, { cached, upstream });
@@ -1532,7 +1318,6 @@ describe("check-hook-liveness — the plugin cache manifest", () => {
 		);
 		expect(run("--notify", "--only", "manifest").out).toContain("demo@market");
 
-		// The divergence is repaired, then recurs identically.
 		fs.writeFileSync(
 			path.join(dir, "plugins/cache/market/demo/1.0.0/hooks/hooks.json"),
 			upstream,
@@ -1547,9 +1332,6 @@ describe("check-hook-liveness — the plugin cache manifest", () => {
 	});
 
 	it("still dedupes a divergence while another plugin's marketplace is unreadable", () => {
-		/* The other limb of the same gate (mantahostels#1981): where the set is NOT empty, the
-		 * stamp must still be written, or a standing divergence is announced at
-		 * every session start for as long as the unrelated fault lasts. */
 		plugin(dir, { cached: '{"hooks": {}}', upstream: '{"hooks":{"Stop":[]}}' });
 		plugin(dir, {
 			name: "other",
@@ -1617,8 +1399,6 @@ describe("check-hook-liveness — a plugin-hosted hook stack (mantahostels#3515 
 	});
 
 	it("does not run the plugin-hosted checks for a plugin this repo has not enabled", () => {
-		// Same hook entries as the passing case, but the missing script is never
-		// created.
 		pluginWithHooks(dir, {
 			hookEntries: [["Stop", pluginCmd("scripts/missing.sh")]],
 		});
@@ -1675,7 +1455,6 @@ describe("check-hook-liveness — a plugin-hosted hook stack (mantahostels#3515 
 			path.join(repo, ".claude", "settings.json"),
 			JSON.stringify({ enabledPlugins: { "demo@market": false } }),
 		);
-		// The script is never created: audited, this would fail.
 		pluginWithHooks(dir, {
 			hookEntries: [["Stop", pluginCmd("scripts/missing.sh")]],
 		});
@@ -1700,8 +1479,6 @@ describe("check-hook-liveness — a plugin-hosted hook stack (mantahostels#3515 
 	});
 
 	it("passes where the plugin-hosted manifests agree, mutation-checked", () => {
-		// Baseline: same hook set both sides — the case that must NOT report a
-		// drop.
 		enablePlugin("demo@market");
 		pluginWithHooks(dir, {
 			hookEntries: [["Stop", pluginCmd("scripts/kept.sh")]],
@@ -1709,8 +1486,6 @@ describe("check-hook-liveness — a plugin-hosted hook stack (mantahostels#3515 
 
 		expect(run("--only", "manifest").out).not.toContain("dropped in packaging");
 
-		// Mutation: drop the SessionStart hook from the cache alone, as the
-		// reporting test does — the finding must now appear.
 		pluginWithHooks(dir, {
 			hookEntries: [
 				["Stop", pluginCmd("scripts/kept.sh")],
@@ -1727,7 +1502,6 @@ describe("check-hook-liveness — a plugin-hosted hook stack (mantahostels#3515 
 		pluginWithHooks(dir, {
 			hookEntries: [["Stop", pluginCmd("scripts/missing.sh")]],
 		});
-		// No pluginScript() call: the file at that path is never created.
 
 		const { out, status } = run("--only", "manifest");
 
@@ -1782,7 +1556,6 @@ describe("check-hook-liveness — the core's self-plugin file paths (#2442)", ()
 			}),
 		);
 	}
-	/* WFC_SCRIPT_ROOT makes `repo` the core. */
 	const asCore = (...args: string[]) =>
 		runWithEnv({ WFC_SCRIPT_ROOT: repo }, ...args);
 
@@ -1942,13 +1715,6 @@ describe("check-hook-liveness — an adopter's settings.json paths", () => {
 		expect(out).toContain("1 .claude/settings.json hook path(s) resolved");
 	});
 
-	/* The exec form (mantahostels#2059) spells its command with braces and carries an
-	 * `args` key. A strip regex that stopped resolving that spelling would fail
-	 * silently: a guard whose path does not resolve produces a non-blocking
-	 * ENOENT visible only in the transcript (mantahostels#2107). */
-	/* The exec form's own spelling, assembled rather than written whole: biome's
-	 * noTemplateCurlyInString cannot tell a shell variable from a botched
-	 * template literal, and every one of these is the shell's. */
 	const braced = (name: string) => `\${CLAUDE_PROJECT_DIR}/scripts/${name}`;
 
 	it("resolves the brace spelling of the project-dir variable", () => {
@@ -1990,9 +1756,6 @@ describe("check-hook-liveness — an adopter's settings.json paths", () => {
 		expect(status).toBe(0);
 	});
 
-	/* The vendor-documented interpreter spelling puts no path in `command` at
-	 * all. Walking `command` alone finds nothing to check, so the entry escapes
-	 * HOOK-PATH-MISSING however wrong its path is (mantahostels#2106). */
 	it("refuses an interpreter-plus-script entry whose script in args is gone, naming the missing script", () => {
 		settings([
 			{
@@ -2008,8 +1771,6 @@ describe("check-hook-liveness — an adopter's settings.json paths", () => {
 		expect(status).toBe(1);
 	});
 
-	/* An interpreter runs the script, so the file need not be executable — the
-	 * `direct` limb has to read the interpreter out of `command` to know that. */
 	it("resolves a script held in args without demanding it be executable", () => {
 		script("check-args.js", { executable: false });
 		settings([
@@ -2027,10 +1788,6 @@ describe("check-hook-liveness — an adopter's settings.json paths", () => {
 		expect(status).toBe(0);
 	});
 
-	/* `node --enable-source-maps scripts/x.js` is the ordinary interpreter shape,
-	 * and args is where those flags now live. Reading only the token immediately
-	 * before the script judges it directly invoked and raises a false
-	 * HOOK-NOT-EXECUTABLE in a pre-commit gate (mantahostels#2106). */
 	it("steps back over the interpreter's own flags before judging direct", () => {
 		script("check-flagged.js", { executable: false });
 		settings([
@@ -2047,7 +1804,6 @@ describe("check-hook-liveness — an adopter's settings.json paths", () => {
 		expect(status).toBe(0);
 	});
 
-	/* A wrapper handed a script path runs it however it likes (#83). */
 	it("does not demand a wrapper's script argument be executable", () => {
 		script("at-wrap.sh");
 		script("check-wrapped.js", { executable: false });
@@ -2108,16 +1864,11 @@ describe("check-hook-liveness — an adopter's settings.json paths", () => {
 
 		const { out, status } = run("--only", "self-plugin");
 
-		/* The event separator is part of the match on purpose: without it, a strip
-		 * regex that left a `}/` prefix on the path would still satisfy a bare
-		 * substring and this would read as a pin it is not (mantahostels#2107). */
 		expect(out).toContain(": scripts/guard-brace-gone.sh does not exist");
 		expect(status).toBe(1);
 	});
 
 	it("passes a repo that has no settings.json at all", () => {
-		// A temp fixture and a fresh checkout both look like this. BROKEN here
-		// refuses every commit either one makes.
 		const { out, status } = run("--only", "self-plugin");
 
 		expect(out).toContain("OK:");
@@ -2138,7 +1889,6 @@ describe("check-hook-liveness — an adopter's settings.json paths", () => {
 
 describe("check-hook-liveness — the five together", () => {
 	it("runs the other assertions when one of them cannot answer", () => {
-		// No transcripts at all, so the census cannot answer.
 		settings(['"$CLAUDE_PROJECT_DIR"/scripts/guard-gone.sh']);
 		plugin(dir, { cached: null, upstream: null });
 
@@ -2170,7 +1920,6 @@ describe("check-hook-liveness — the five together", () => {
 });
 
 describe("check-hook-liveness — the reap run record", () => {
-	/** The reaper's record under `cfg`, one row per mode given. */
 	function reapRun(
 		cfg: string,
 		rows: Record<string, Record<string, unknown>>,
@@ -2182,7 +1931,6 @@ describe("check-hook-liveness — the reap run record", () => {
 		return at;
 	}
 
-	/** A stamp `mins` minutes before now, in the shape the reaper writes. */
 	const ago = (mins: number) =>
 		new Date(Date.now() - mins * 60_000).toISOString();
 
@@ -2193,7 +1941,6 @@ describe("check-hook-liveness — the reap run record", () => {
 
 		expect(out).toContain("the dry reap recorded in");
 		expect(out).toContain("never finished");
-		// A diagnostic, never a gate — this must not refuse a commit or a start.
 		expect(status).toBe(0);
 	});
 
@@ -2228,9 +1975,6 @@ describe("check-hook-liveness — the reap run record", () => {
 	});
 
 	it("does not read a run still in flight as a run that died", () => {
-		// The reaper writes its start half before its slow read, and this checker
-		// is a SessionStart hook beside it — so an open record seconds old is the
-		// run happening right now.
 		reapRun(dir, { live: { mode: "live", startedAt: ago(0) } });
 
 		const { out, status } = run("--only", "reap");
@@ -2262,8 +2006,6 @@ describe("check-hook-liveness — the reap run record", () => {
 		expect(run("--notify", "--only", "reap").stdout).toContain(
 			"never finished",
 		);
-		// Keyed on file and mode, not the stamp: a reap cancelled at every start
-		// writes a fresh one each time and is still one standing fault.
 		reapRun(dir, { dry: { mode: "dry", startedAt: ago(20) } });
 		expect(run("--notify", "--only", "reap").stdout).not.toContain(
 			"never finished",
@@ -2271,8 +2013,6 @@ describe("check-hook-liveness — the reap run record", () => {
 	});
 
 	it("says a cancellation again once a second mode joins the set", () => {
-		// The other half of the stamp: a key that never changed would silence a
-		// new fault for good.
 		reapRun(dir, { dry: { mode: "dry", startedAt: ago(30) } });
 		expect(run("--notify", "--only", "reap").stdout).toContain("the dry reap");
 
@@ -2300,8 +2040,6 @@ describe("check-hook-liveness — the reap run record", () => {
 		reapRun(dir, { dry: { mode: "dry", startedAt: ago(30) } });
 		expect(run("--notify", "--only", "reap").stdout).toContain("the dry reap");
 
-		// The set empties by the file being removed, not by the fault clearing —
-		// the stamp must still clear, or the same fault returning is silenced.
 		fs.rmSync(path.join(dir, "wfc-reap-run.json"));
 		run("--notify", "--only", "reap");
 		reapRun(dir, { dry: { mode: "dry", startedAt: ago(30) } });
@@ -2313,10 +2051,6 @@ describe("check-hook-liveness — the reap run record", () => {
 		const at = reapRun(dir, { dry: { mode: "dry", startedAt: ago(30) } });
 		expect(run("--notify", "--only", "reap").stdout).toContain("the dry reap");
 
-		/* An empty `open` read off a record that REFUSED to be read is not the reap
-		 * being repaired, so it must not clear the stamp (mantahostels#1981). The unavailable
-		 * return does not cover this: `unreadable` is non-empty, so the run carries
-		 * on past it with nothing in `open`. */
 		fs.chmodSync(at, 0o000);
 		let locked: { stdout: string };
 		try {
@@ -2325,7 +2059,6 @@ describe("check-hook-liveness — the reap run record", () => {
 			fs.chmodSync(at, 0o644);
 		}
 
-		// As the manifest case above asserts (mantahostels#1981).
 		expect(locked.stdout).toContain("could not be read");
 
 		expect(run("--notify", "--only", "reap").stdout).not.toContain(
@@ -2334,7 +2067,6 @@ describe("check-hook-liveness — the reap run record", () => {
 	});
 
 	it("still dedupes an open reap while another plan's record is unreadable", () => {
-		// The other limb of the same gate, as in the manifest case above (mantahostels#1981).
 		reapRun(dir, { dry: { mode: "dry", startedAt: ago(30) } });
 		const other = reapRun(second, { dry: { mode: "dry", startedAt: ago(30) } });
 		fs.chmodSync(other, 0o000);
@@ -2351,9 +2083,6 @@ describe("check-hook-liveness — the reap run record", () => {
 	});
 
 	it("clears the stamp on a record read whole and found to be the wrong shape", () => {
-		/* A record that parsed to an array is a STANDING corruption, not a failure
-		 * to look — gating the clear on it would hold the stamp open for good, so
-		 * a repaired-and-recurring reap would never be said again (mantahostels#1981). */
 		reapRun(dir, { dry: { mode: "dry", startedAt: ago(30) } });
 		expect(run("--notify", "--only", "reap").stdout).toContain("the dry reap");
 
@@ -2367,8 +2096,6 @@ describe("check-hook-liveness — the reap run record", () => {
 	});
 
 	it("is on the --notify surface", () => {
-		// With `reap` out of the default --notify set, nothing reads the record at
-		// a session start.
 		reapRun(dir, { dry: { mode: "dry", startedAt: ago(30) } });
 		transcript(dir, "s1", []);
 		plugin(dir, { cached: null, upstream: null });
@@ -2377,7 +2104,6 @@ describe("check-hook-liveness — the reap run record", () => {
 	});
 
 	it("survives a row that is not an object of its own", () => {
-		// A null row is the one that would throw rather than mis-report.
 		reapRun(dir, {}, { raw: JSON.stringify({ dry: "cancelled", live: null }) });
 
 		const { out, status } = run("--only", "reap");
@@ -2388,8 +2114,6 @@ describe("check-hook-liveness — the reap run record", () => {
 	});
 
 	it("passes over a row whose start stamp is missing or not a string", () => {
-		// 2026 is the trap: a bare number Date.parse happily reads as a year, so
-		// the string test is what stops a stamp nobody wrote being aged.
 		reapRun(dir, {
 			dry: { mode: "dry" },
 			live: { mode: "live", startedAt: 2026 },
@@ -2399,14 +2123,12 @@ describe("check-hook-liveness — the reap run record", () => {
 	});
 
 	it("passes over a row whose start stamp will not parse as a date", () => {
-		// It cannot be aged, so it cannot be told from a run in flight.
 		reapRun(dir, { dry: { mode: "dry", startedAt: "the other day" } });
 
 		expect(run("--only", "reap").out).not.toContain("never finished");
 	});
 
 	it("keeps the general noun where an unreadable record joins a real fault", () => {
-		// Two tags, so neither narrow noun is honest.
 		reapRun(dir, { dry: { mode: "dry", startedAt: ago(30) } });
 		reapRun(second, {}, { raw: "{ not json" });
 
@@ -2427,7 +2149,6 @@ describe("check-hook-liveness — the reap run record", () => {
 });
 
 describe("check-hook-liveness — a live reap cancelled at consecutive session starts (mantahostels#1952)", () => {
-	/** The reaper's record under `cfg`, one row per mode given. */
 	function reapRun(cfg: string, rows: Record<string, Record<string, unknown>>) {
 		const at = path.join(cfg, "wfc-reap-run.json");
 		fs.mkdirSync(cfg, { recursive: true });
@@ -2436,8 +2157,6 @@ describe("check-hook-liveness — a live reap cancelled at consecutive session s
 	}
 
 	it("reports a live row seen unfinished across enough starts, however young its own stamp", () => {
-		// Fresh — seconds old — so the single-row `open` check above would never
-		// catch it, which is the whole gap mantahostels#1952 closes.
 		reapRun(dir, {
 			live: {
 				mode: "live",
@@ -2452,7 +2171,6 @@ describe("check-hook-liveness — a live reap cancelled at consecutive session s
 		expect(out).toContain("the live reap recorded in");
 		expect(out).toContain("3 consecutive session starts");
 		expect(out).not.toContain("never finished");
-		// A diagnostic, never a gate.
 		expect(status).toBe(0);
 	});
 
@@ -2509,8 +2227,6 @@ describe("check-hook-liveness — a live reap cancelled at consecutive session s
 			"consecutive session starts",
 		);
 
-		// The deaths figure keeps climbing while the fault stands — the stamp must
-		// still dedupe, keyed on file and mode rather than the count.
 		reapRun(dir, {
 			live: { mode: "live", startedAt: new Date().toISOString(), deaths: 4 },
 		});
@@ -2546,9 +2262,6 @@ describe("check-hook-liveness — a live reap cancelled at consecutive session s
 	});
 
 	it("ignores a dry row's own deaths — dry ages into the single-row check above instead", () => {
-		// Fresh and carrying a `deaths` past the threshold: the chronic report is
-		// `live`-only (its message describes a mode reopened every session start,
-		// which `dry` is not), so this must say nothing at all.
 		reapRun(dir, {
 			dry: { mode: "dry", startedAt: new Date().toISOString(), deaths: 3 },
 		});
@@ -2561,7 +2274,6 @@ describe("check-hook-liveness — a live reap cancelled at consecutive session s
 });
 
 describe("check-hook-liveness — the detached run record", () => {
-	/** The detached-run record under `cfg`, one row per job given. */
 	function detachedRun(
 		cfg: string,
 		rows: Record<string, Record<string, unknown>>,
@@ -2573,7 +2285,6 @@ describe("check-hook-liveness — the detached run record", () => {
 		return at;
 	}
 
-	/** A row for a job that has failed to return `deaths` starts running. */
 	const dead = (deaths: number) => ({
 		deaths,
 		lastFinishedAt: new Date(Date.now() - 3_600_000).toISOString(),
@@ -2588,8 +2299,6 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("says nothing about a job still short of the reporting floor", () => {
-		// DEATHS_TO_REPORT is 3 (scripts/lib/detached-run.js): two in a row is the
-		// ordinary shape of a machine running a dozen sessions at once.
 		detachedRun(dir, { "prune-markers": dead(2) });
 
 		const { out, status } = run("--only", "detached");
@@ -2606,9 +2315,7 @@ describe("check-hook-liveness — the detached run record", () => {
 
 		expect(out).toContain("the detached prune-markers recorded in");
 		expect(out).toContain("failed to return on 3 consecutive session starts");
-		// Anchored on the newline so the two-space indent is pinned (mantahostels#2000).
 		expect(out).toContain("\n  node scripts/session-arbiter.js prune-markers");
-		// A diagnostic, never a gate — this must not refuse a commit or a start.
 		expect(status).toBe(0);
 	});
 
@@ -2666,15 +2373,11 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("says so rather than guessing where the job is not one it knows", () => {
-		// detached-run.js's JOBS and this file's DETACHED_HOW are typed against each
-		// other, so a key outside both can only come off a record written by an
-		// older or a foreign writer — the reader is told, never handed a command.
 		detachedRun(dir, { "some-old-job": dead(3) });
 
 		const { out, status } = run("--only", "detached");
 
 		expect(out).toContain("the detached some-old-job recorded in");
-		// Two-deep, exactly as a known job's command is (mantahostels#2000).
 		expect(out).toContain(
 			"\n  (unknown job — check scripts/lib/detached-run.js",
 		);
@@ -2682,9 +2385,6 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("stays silent where a plan's config dir is a plain file, not a directory", () => {
-		// ENOTDIR rather than ENOENT, and it must read the same way (mantahostels#2000). The
-		// live record is what stops this passing on the unavailable return, which
-		// would be green whether or not the file was ever visited.
 		detachedRun(dir, { "prune-markers": dead(1) });
 		const notADir = path.join(path.dirname(dir), "plan-is-a-file");
 		fs.writeFileSync(notADir, "");
@@ -2701,8 +2401,6 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("is on both default surfaces, not only under --only", () => {
-		// Two arrays, and a case using --only reads neither (mantahostels#2000): --notify is
-		// the session start, the bare run is the command line and pre-commit.
 		detachedRun(dir, { "prune-markers": dead(3) });
 
 		const notify = run("--notify");
@@ -2715,8 +2413,6 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("reports a dead job under every config dir it can read, not just the first", () => {
-		// Both plans readable at once — the union, as distinct from reading a
-		// second plan instead of the running one (mantahostels#2000).
 		detachedRun(dir, { "prune-markers": dead(3) });
 		detachedRun(second, { "retire-stale-containers": dead(4) });
 
@@ -2758,8 +2454,6 @@ describe("check-hook-liveness — the detached run record", () => {
 			"the detached prune-markers",
 		);
 
-		// As the reap case above: the set empties by the file being removed, not by
-		// the fault clearing, and the stamp must still clear.
 		fs.rmSync(path.join(dir, "wfc-detached-run.json"));
 		run("--notify", "--only", "detached");
 		detachedRun(dir, { "prune-markers": dead(3) });
@@ -2775,7 +2469,6 @@ describe("check-hook-liveness — the detached run record", () => {
 			"the detached prune-markers",
 		);
 
-		// The reap case's gate, in the fourth place (mantahostels#2108).
 		fs.chmodSync(at, 0o000);
 		let locked: { stdout: string };
 		try {
@@ -2784,8 +2477,6 @@ describe("check-hook-liveness — the detached run record", () => {
 			fs.chmodSync(at, 0o644);
 		}
 
-		// Asserted so a case where the file was readable after all cannot pass as
-		// the gate working.
 		expect(locked.stdout).toContain("could not be read");
 
 		expect(run("--notify", "--only", "detached").stdout).not.toContain(
@@ -2794,8 +2485,6 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("still dedupes a dead job while another plan's record is unreadable", () => {
-		// The other limb of the same gate: an unreadable record elsewhere must not
-		// make a finding that IS present speak at every start (mantahostels#2108).
 		detachedRun(dir, { "prune-markers": dead(3) });
 		const other = detachedRun(second, { "retire-stale-containers": dead(3) });
 		fs.chmodSync(other, 0o000);
@@ -2812,7 +2501,6 @@ describe("check-hook-liveness — the detached run record", () => {
 	});
 
 	it("clears the stamp on a record read whole and found to be the wrong shape", () => {
-		// The other limb of the reap case's gate (mantahostels#2108).
 		detachedRun(dir, { "prune-markers": dead(3) });
 		expect(run("--notify", "--only", "detached").stdout).toContain(
 			"the detached prune-markers",

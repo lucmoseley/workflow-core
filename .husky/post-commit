@@ -1,31 +1,11 @@
 #!/usr/bin/env sh
-# post-commit — the after-commit notices and this session's own bookkeeping.
-#
-# Nine blocks, none of which can ever block: git ignores post-commit's exit
-# status. Blocks 1-8 are scripts/post-commit-dispatch.js's rows, one Node
-# process for all (lib/post-commit-rows.js, #5207); block 9 stays here, as it
-# sources a shell library post-merge and post-checkout share.
-#
-#   1. how many local commits are not yet pushed  (mantahostels#316)
-#   2. which whole-repo faults THIS commit added  (mantahostels#1750, mantahostels#1825)
-#   3. which instruction-surface census rows THIS commit expired  (#1810)
-#   4. which guard-registry anchors THIS commit expired  (#2375)
-#   5. releasing this session's whole-file claims whose own hunks the commit landed  (mantahostels#2336, #2058, #2148)
-#   6. recording this commit as this session's own  (#766)
-#   7. keeping the shims live sessions need at hook scripts the shared tree deleted  (#2879)
-#   8. which Review-Tier: line an amend dropped  (#4051)
-#   9. re-pointing a session worktree at the store for a commit's lockfile  (#4702)
 
-set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
-# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+set -e
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
-# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
 # shellcheck source=scripts/lib/hook-bound.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 
-# Blocks 1-8. `|| :`: the dispatcher exits 0 itself, and a node killed by the
-# bound above must not abort the relink under `set -e`.
 dispatcher="${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/post-commit-dispatch.js"
 if [ -r "$dispatcher" ]; then
   node "$dispatcher" || :
@@ -33,9 +13,6 @@ else
   echo "post-commit: $dispatcher is missing, so no after-commit report, release or record ran." >&2
 fi
 
-# Block 9 (#4702). A commit that changed the lockfile: a conflicted merge's
-# `git commit`, which never fires post-merge, a cherry-pick, a revert, or a
-# commit a rebase replays after its post-checkout linked the base's store.
 relink_changed_lockfile() {
   git rev-parse -q --verify 'HEAD^' >/dev/null 2>&1 || return 0
   ! git diff --quiet 'HEAD^' HEAD -- package-lock.json 2>/dev/null || return 0

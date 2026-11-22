@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * new-repo.js --resume after a part-way copy of a source repo, from each step
- * the copy can stop after. Split from new-repo.test.ts, whose header says how
- * a run is driven and what a loosened case costs (#3258).
- *
- * Over the run-cost budget (base §X8 (5)): each case is a whole run of the
- * script, with the hooks off (#4297).
- */
 
 import fs from "node:fs";
 import path from "node:path";

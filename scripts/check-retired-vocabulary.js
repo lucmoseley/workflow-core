@@ -1,66 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-retired-vocabulary.js — reports retired wording from §B still live.
- *
- * Usage:
- *   node check-retired-vocabulary.js [<doc-map.md>] [--data-dir <dir>]
- *   (default: docs/doc-map.md; data dir defaults to the map's own directory)
- *
- * A Section B *claim* entry carries no number, so a stale copy of it cannot be
- * found by grepping a figure. The entry lists the **retired vocabulary** a stale
- * copy will be using instead, plus the **legitimate hits** where those phrases
- * correctly survive. This scans the first and subtracts the second.
- *
- * Phrases and allowlists come from doc-map-retired-vocabulary.json, beside the
- * map, and from nowhere else (mantahostels#591): a missing or unloadable data file is
- * BROKEN rather than a scan that finds nothing. The three §B data files are
- * exempt from the scan itself.
- *
- * Stems, not literals (mantahostels#204, docs/doc-map.md §B's preamble). A phrase
- * carries a `literal`, a `stem` or both; the scan takes the stem where one is
- * given and the literal otherwise, and matches it as a regular expression.
- *
- * Report only, never gates: findings are WARN, so the exit code is 0 however
- * many hits there are. Accepted at mantahostels#26, on the ground that a hard fail pressures
- * a session into blunting its own phrase list to get green, which destroys the
- * instrument.
- *
- * An allowlist entry names a path and the places in it the scan suppresses —
- * `L<n>` line numbers, or content anchors, a substring of the line itself, which
- * survives an insertion above it where a line number does not (mantahostels#744). An entry
- * carrying `lines: []` and no anchors suppresses the whole file. An anchor here
- * is a plain string only: the needle-scoped `{ anchor, needle }` form the
- * superseded sidecars take is REFUSED, because this scan resolves its allowlist
- * with no needle in hand and a scoped anchor would suppress nothing (mantahostels#2431).
- *
- * A place that has stopped covering anything is named at WARN and suppresses as
- * before: an anchor matching no line or several, a line pin whose line carries
- * none of the entry's phrases, and a whole-file row whose file carries none of
- * them at all (`resolveAllowlist` in lib/doc-map.js).
- *
- * Class-aware, like check-superseded-values.js. Section A gives every tracked
- * document an authority class; `binary-asset` files carry no prose and are
- * exempt. A Section A that parses no row at all is BROKEN rather than a scan
- * run without the exemption.
- *
- * Each line is tested TWICE — raw, and with `*` and `_` stripped — so a phrase
- * broken across bold markup is still found. The scan is strictly per line, so
- * NEITHER a literal NOR a stem survives a phrase broken across a wrapped
- * line; elastic whitespace (`fromLiteral`) only reaches within one, and a
- * stem is compiled raw with no such transform (mantahostels#2293). A stem that will not
- * compile, or that backtracks exponentially, FAILS THE LOAD and names its
- * entry (mantahostels#590).
- *
- * Section B's own text is out of scope along with the data files.
- *
- * NOISE IS EXPECTED AND IS NOT TUNED AWAY. Baseline: 171 off-allowlist hits on
- * 50 phrases, 19 August 2026 (mantahostels#590 carries the before/after table). Do not
- * allowlist a phrase in the same breath as first grepping it — that defeats the
- * repair. A later run differing by more than a little is drift to read, not a
- * threshold to restore.
- *
- * Scope is read from git, so untracked scratch files are ignored by design.
- */
 
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
@@ -88,7 +26,6 @@ const { escapeRe } = require("./lib/regex-group.js");
 const { reportGroupedHits } = require("./lib/grouped-hits");
 
 /**
- * A literal as a pattern: whitespace is elastic, and backticks are invisible.
  * @param {string} literal
  */
 function fromLiteral(literal) {
@@ -100,12 +37,6 @@ function fromLiteral(literal) {
 }
 
 /**
- * Every phrase of one entry matching one line. Two passes: raw, and with
- * emphasis stripped, which asterisks written inside a phrase would otherwise
- * defeat.
- *
- * The scan and the line-pin diagnostic (mantahostels#847) both ask through here, so a pin
- * can never be judged by a test the scan itself does not run.
  * @param {{patterns: {source: string, pattern: RegExp}[]}} list
  * @param {string} text
  */
@@ -132,9 +63,6 @@ function phrasesOn(list, text) {
  */
 
 /**
- * What the file scan gathers: the hits, the allowlist diagnostics, and the
- * count of hits an allowlist suppressed.
- *
  * @typedef {{
  *   hits: {entry: string, phrase: string, file: string, line: number, text: string}[],
  *   anchorNotes: import("./lib/doc-map").AnchorNote[],
@@ -145,9 +73,6 @@ function phrasesOn(list, text) {
  */
 
 /**
- * The retired-vocabulary data file, or BROKEN where it is missing or
- * unreadable.
- *
  * @param {Ctx} ctx
  * @param {string} dataFile
  * @param {boolean} allowEmpty
@@ -167,9 +92,6 @@ function loadVocab(ctx, dataFile, allowEmpty) {
 	}
 }
 
-/* The scan iterates the data file, so an entry advertising retired wording
- * with no key there is scanned by nothing and still reads green. mantahostels#591
- * ruled that direction for the file; same argument at the entry (mantahostels#1247). */
 /**
  * @param {Ctx} ctx
  * @param {{
@@ -196,8 +118,6 @@ function assertEntriesCovered(ctx, { figures, vocabData, mapRel, dataFile }) {
 }
 
 /**
- * One entry's phrases as patterns, and the literals that yield none.
- *
  * @param {import("./lib/doc-map").RetiredVocabularyEntry["phrases"]} phrases
  */
 function phrasePatterns(phrases) {
@@ -206,17 +126,11 @@ function phrasePatterns(phrases) {
 	/** @type {string[]} */
 	const spans = [];
 	for (const phrase of phrases) {
-		/* The stem wins where both are stated. The loader already compiled
-		 * every stem, so only a degenerate literal (nothing left once the
-		 * backticks go) can still fall out unscanned. */
 		if (phrase.stem)
 			patterns.push({
 				source: phrase.stem,
 				pattern: new RegExp(phrase.stem, "i"),
 			});
-		// lib/doc-map.js's loader already refuses a phrase carrying neither
-		// `stem` nor `literal`, so this always matches — kept explicit rather
-		// than a bare `else` so the checker need not trust that invariant.
 		else if (phrase.literal) {
 			const pattern = fromLiteral(phrase.literal);
 			if (pattern) patterns.push({ source: phrase.literal.trim(), pattern });
@@ -227,9 +141,6 @@ function phrasePatterns(phrases) {
 }
 
 /**
- * Every data-file entry as a phrase list to scan, and the entries with
- * phrases no pattern could be read from.
- *
  * @param {Record<string, import("./lib/doc-map").RetiredVocabularyEntry>} vocabData
  */
 function buildLists(vocabData) {
@@ -253,11 +164,9 @@ function buildLists(vocabData) {
 /**
  * @param {{file: string, lines: string[], skip: ReturnType<typeof mapSkipLine>}} at
  * @param {PhraseList} list
- * @param {Tally} tally accumulator: notes, allowed lines and hits are added
+ * @param {Tally} tally
  */
 function scanList({ file, lines, skip }, list, tally) {
-	/* A content anchor is looked for in the file's current text, so it
-	 * resolves here rather than at load, and its misses are findings. */
 	const {
 		allows,
 		notes,
@@ -283,8 +192,6 @@ function scanList({ file, lines, skip }, list, tally) {
 			tally.allowed += matched.length;
 			continue;
 		}
-		/* Every phrase matching the line is reported, not the first: two
-		 * retired phrases can sit in one sentence. */
 		for (const hit of matched)
 			tally.hits.push({
 				entry: list.entry,
@@ -319,8 +226,6 @@ function scanFiles({ files, mapRel, lists }) {
 }
 
 /**
- * The off-allowlist hits, grouped by phrase, with a RETIRED warning each.
- *
  * @param {Ctx} ctx
  * @param {{hits: Tally["hits"], fileCount: number, allowed: number}} at
  */
@@ -431,8 +336,6 @@ runCheck({
 					allow: l.allow.map((a) => ({
 						path: a.path,
 						lines: a.lines,
-						/* Back to the authored spelling: a compiled anchor is an object,
-						 * and this field has always been the data file's own strings. */
 						anchors: a.anchors.map((x) => x.text),
 					})),
 				})),

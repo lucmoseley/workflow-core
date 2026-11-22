@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * validate.js gates every roadmap edit: it is the step that says whether an edit
- * hit the card it was aimed at. Its failure mode is silence — exiting 0 with a
- * check that never ran — so the regression cases below are mostly about *how* it
- * refuses, not what it accepts.
- *
- * Its two-layer split is mantahostels#696's; the card-shape ceilings are
- * mantahostels#2979's and mantahostels#3335's; the version pin is #54's.
- *
- * The CLI is spawned through roadmap-fixture's `run` against fake roadmaps in a
- * temp directory, so its exit code and printed report are real; the checks
- * alone are also loaded in process through `validateRoadmap`, the form
- * check-roadmap-valid.js calls.
- *
- * .husky/pre-commit refuses on it through check-roadmap-valid.js, and the
- * roadmap-edit loop has the session run it before committing, so loosening a
- * case lets a structurally broken or mis-aimed roadmap edit land on `main`.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -34,11 +16,8 @@ import {
 
 const SCRIPT = "validate.js";
 
-/** n prose words, no markup. */
 const plain = (n: number) => "word ".repeat(n).trim();
 
-// validate.js is CommonJS and runs its CLI only under `require.main === module`,
-// so requiring it here loads the checks without executing the command line.
 const { validateRoadmap, EXPECTED_MAJOR } = createRequire(import.meta.url)(
 	"./validate.js",
 );
@@ -142,9 +121,7 @@ describe("scope diff", () => {
 	});
 });
 
-// CARD SHAPE (mantahostels#2979) is a length proxy for a rule no script can read.
 describe("card shape ceiling", () => {
-	/** A body of exactly n prose words in one paragraph. */
 	const words = (n: number) => `<p>${"word ".repeat(n).trim()}</p>`;
 
 	it("warns on a body this edit grew past the ceiling, naming the card, both word counts and the rule section", () => {
@@ -276,8 +253,6 @@ describe("card shape ceiling", () => {
 		expect(r.stdout).not.toContain("CARD SHAPE");
 	});
 
-	/* Each padding below is 240 words of prose plus 61 raw tokens of markup:
-	 * under the ceiling once stripped, over it if it is not. */
 	it("counts words, not tags", () => {
 		const padded = `<p>${"word ".repeat(240)}${"<br> ".repeat(60)}</p>`;
 		const before = write("cs-b6.html", roadmapHtml([card({ id: "a" })]));
@@ -313,8 +288,6 @@ describe("card shape ceiling", () => {
 	});
 });
 
-/* The same touch-gated proxy on the three other fields SKILL.md §What a card
- * holds governs (mantahostels#3187). */
 describe("the mn, c.x and log ceilings", () => {
 	const callout = (x: string) => ({ type: "flag", k: "tag", x });
 	const done = (over: { id: string; log?: string }) => ({
@@ -419,8 +392,6 @@ describe("the mn, c.x and log ceilings", () => {
 		expect(r.stdout).not.toContain("CARD SHAPE");
 	});
 
-	/* The pre-commit gate runs this check on every roadmap commit, and many cards
-	 * carry no `c` or no `log` — a read that throws refuses them all (mantahostels#3200). */
 	it("does not throw on a card with no c, no log and no mn", () => {
 		const before = write("nil-b.html", roadmapHtml([card({ id: "a" })]));
 		const after = write(
@@ -779,9 +750,6 @@ describe("capOk exemption discipline (mantahostels#3189)", () => {
 	});
 });
 
-// m is optional (mantahostels#831): absent, it means
-// the Opus 5.5 · medium default and is not warned on. When present it must be
-// one of the closed exception codes.
 describe("m-code discipline", () => {
 	it("prints no warning when m is absent", () => {
 		const file = write("no-m.html", roadmapHtml([card({ id: "a" })]));
@@ -836,8 +804,6 @@ describe("m-code discipline", () => {
 	});
 });
 
-// The docmeta stamp is written from reckoning, not copied, and has gone wrong
-// both ways in the live roadmap (mantahostels#3499).
 describe("docmeta stamp sanity", () => {
 	it("accepts a stamp written now", () => {
 		const file = write(
@@ -860,7 +826,6 @@ describe("docmeta stamp sanity", () => {
 		expect(r.stdout).toContain("TZ=Asia/Makassar");
 	});
 
-	// Guards the design choice: age is not the test, so same-day lag is silent.
 	it("tolerates an older stamp that still carries today's date", () => {
 		const stamp = `${witaStamp().split(",")[0]}, 00:01`;
 		const file = write(
@@ -921,9 +886,6 @@ describe("validateRoadmap()'s judgeStampDay: false (#1602)", () => {
 	});
 });
 
-// Characterisation (mantahostels#696): the CLI became a thin wrapper over validateRoadmap(),
-// so these pin the wrapper's own output — the report's sections and the exit
-// code it derives from them.
 describe("the report the CLI prints", () => {
 	it("prints every section, in order, for a clean file with a baseline", () => {
 		const before = write("rep-b.html", roadmapHtml([card({ id: "a" })]));
@@ -933,9 +895,6 @@ describe("the report the CLI prints", () => {
 		);
 		const r = run(SCRIPT, [after, "--original", before]);
 		expect(r.status).toBe(0);
-		// Order matters as much as presence: a caller reading this report scans
-		// it top-down.
-		// `cards:` carries the total, then the per-phase breakdown in phase order.
 		const lines = r.stdout.split("\n").map((l) => l.trimEnd());
 		const at = (needle: string) => {
 			const i = lines.findIndex((l) => l.includes(needle));
@@ -963,8 +922,6 @@ describe("the report the CLI prints", () => {
 		expect(r.stdout).toContain("version:   NOT FOUND");
 	});
 
-	// Warnings never move the exit code — only errors do. A gate reading this
-	// script's status must not start failing on a judgement-call warning.
 	it("exits 0 with warnings and no errors, and does not print FAIL", () => {
 		const file = write(
 			"warn-only.html",
@@ -977,8 +934,6 @@ describe("the report the CLI prints", () => {
 		expect(r.stdout).toContain("OK —");
 	});
 
-	// The roadmap file itself, unlike the baseline, has nothing to report on, so
-	// it stays a FATAL on stderr with no report printed at all.
 	it("is fatal, with no report, when the roadmap file cannot be read", () => {
 		const r = run(SCRIPT, [path.join(dir, "absent.html")]);
 		expect(r.status).toBe(1);
@@ -993,11 +948,6 @@ describe("the report the CLI prints", () => {
 		expect(r.stderr).toContain('FATAL: could not find "const ITEMS = ["');
 	});
 
-	/*
-	 * `run` spawns, so stdout is a real pipe. node drops what is still buffered
-	 * on one at process.exit, and 64 KiB is the pipe buffer: 2,000 errors clear
-	 * it, and the verdict line is written last.
-	 */
 	it("prints a FAIL report longer than the pipe buffer whole, verdict line included (#1444)", () => {
 		const cards = Array.from({ length: 2000 }, (_, i) =>
 			card({ id: `c${i}`, needs: [`missing-prerequisite-${i}`] }),
@@ -1014,7 +964,6 @@ describe("the report the CLI prints", () => {
 	});
 });
 
-// The callable seam the CLI now sits on.
 describe("schema drift on a small roadmap (mantahostels#3519)", () => {
 	const dropped = (n: number) =>
 		validateRoadmap(
@@ -1041,10 +990,6 @@ describe("schema drift on a small roadmap (mantahostels#3519)", () => {
 	});
 });
 
-// An adopter's own copy of validate.js is the core's unmodified file, so its
-// EXPECTED_MAJOR is the core's schema-review checkpoint, not the adopter's —
-// init-adopter.js seeds .claude/workflow-core.json's `roadmapMajorPin` with
-// the adopter's own day-one major instead (#54).
 describe("VERSION TRIPWIRE pin (#54)", () => {
 	it("takes an injected pin over the core's own EXPECTED_MAJOR", () => {
 		const { warnings } = validateRoadmap(
@@ -1166,7 +1111,6 @@ describe("validateRoadmap()", () => {
 		expect(result.cardCount).toBe(2);
 		expect(result.phaseCounts).toEqual({ 0: 1, 1: 1 });
 		expect(result.version).toMatchObject({ major: 5, minor: 4, raw: "v5.4" });
-		// No baseline means no diff ran — distinct from a diff that found nothing.
 		expect(result.scope).toBeNull();
 		expect(result.added).toEqual([]);
 		expect(result.removed).toEqual([]);
@@ -1197,8 +1141,6 @@ describe("validateRoadmap()", () => {
 		});
 	});
 
-	// How the CLI reports an unreadable --original without losing every other
-	// check: it hands the read failure over as the Error itself.
 	it("treats a baseline handed over as an Error as an error naming the path and the unrun scope diff, not a skip", () => {
 		const result = validateRoadmap(
 			roadmapHtml([card({ id: "a" })]),

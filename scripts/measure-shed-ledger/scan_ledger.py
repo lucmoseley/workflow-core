@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""scan_ledger.py — mantahostels#1407: what the shed ledger (docs/doc-map.md §Capture and placement §5) costs.
-
-The unit measured is every bullet in §5. Any line-oriented read of
-docs/doc-map.md that matches one — `grep -n <anything>` included — delivers that
-bullet into the session's context, where every later turn re-reads it. Until
-mantahostels#1430 §5 held its 19 tranches on ONE 22 KB physical line, so a single match
-delivered all of them.
-
-Three things this deliberately does NOT count. Two are understatements —
-subagent transcripts, and occurrences outside a `tool_result` such as an `Agent`
-dispatch prompt. The third pushes the other way and makes the figure a ceiling:
-a turn after a context compaction has dropped the delivery.
-"""
 
 import argparse
 import os
@@ -41,17 +28,8 @@ from delivery_scan import (
 
 NEEDLE = "Sheds paid, most recent first"
 DOC_MAP = "docs/doc-map.md"
-# §5 is located from NEEDLE's own line rather than from its heading text: the
-# heading has been respelled since the window this script measures, and a
-# missed section silently drops a day out of the growth series (mantahostels#1430).
 HEADING = re.compile(r"^#{1,6} ")
-# What counts as §5 payload: its bullets, nested ones included. §5's prose —
-# the reconciliation paragraph above the ledger — is excluded, because no
-# line-oriented read delivers a bullet and that prose together.
 BULLET = re.compile(r"^\s*- ")
-# How much of a bullet's opening identifies it in a transcript. Long enough that
-# no two §5 bullets share one, short enough to survive a truncating read. 40
-# is a guess against both limits, not a measurement.
 ANCHOR_LEN = 40
 
 
@@ -61,8 +39,6 @@ def classify(res):
         return route
     cmd = res.command
     if "doc-map" not in cmd:
-        # The line reached context some other way — a `gh issue view` quoting it,
-        # a task-output `cat`.
         return "Bash, not a doc-map read"
     return f"{bash_read_kind(cmd)} on doc-map"
 
@@ -75,14 +51,10 @@ def scan(start, end, anchors, tally):
         for res in tool_results(recs, start, end):
             if not anchors.search(res.text):
                 continue
-            # Matching per line keeps this the same quantity ledger_bytes_at()
-            # sums, which is what makes their ratio a truncation fraction.
             ledger_b = landed_bytes(res.text, anchors.search)
             route = classify(res)
             routes[route] += 1
             route_bytes[route] += ledger_b
-            # Lexical, and over the whole tool input rather than the command
-            # alone — so it over-counts "deliberate", making incidental a floor.
             hay = intent_text(res)
             asked = re.search(
                 r"shed|ledger|always-loaded|capture and placement|context-budget|ratchet",
@@ -95,7 +67,6 @@ def scan(start, end, anchors, tally):
 
 
 def section_5_bullets(blob, where):
-    """§5's bullet lines, at whatever heading level and spelling it carries."""
     lines = blob.split("\n")
     hits = [i for i, ln in enumerate(lines) if NEEDLE in ln]
     if len(hits) != 1:
@@ -110,13 +81,6 @@ def section_5_bullets(blob, where):
 
 
 def ledger_bytes_at(rev=None):
-    """Total bytes of every bullet in §5, at a revision or in the working tree.
-
-    The same quantity on both sides of mantahostels#1430's split — 26,496 B the commit
-    before, 26,502 B the commit after — so the growth series stays comparable.
-
-    Raises rather than returning 0: a silent zero here prints a $0 headline.
-    """
     where = rev or "HEAD tree"
     if rev:
         blob = git("show", f"{rev}:{DOC_MAP}")
@@ -129,12 +93,6 @@ def ledger_bytes_at(rev=None):
 
 
 def delivery_anchors():
-    """One matcher for the openings of §5's bullets, as a transcript sees them.
-
-    Post-mantahostels#1430 the tranches carry no NEEDLE of their own, so matching on NEEDLE
-    alone would count a 36 B stem where 22 KB of tranches landed and report the
-    ledger as free.
-    """
     bullets = section_5_bullets(
         open(os.path.join(REPO, DOC_MAP), errors="replace").read(), "HEAD tree"
     )
@@ -143,12 +101,6 @@ def delivery_anchors():
 
 
 def sizes_by_date(start, end):
-    """§5's bullet total at the end of each day in the window.
-
-    A day whose revision cannot be parsed is dropped AND named: an unnamed drop
-    silently shortens the least-squares fit and leaves its deliveries scored
-    against a zero exposure, inflating the truncation fraction (mantahostels#1430).
-    """
     out = {}
     for day in window_days(start, end):
         sha = revision_on(day, DOC_MAP)
@@ -197,9 +149,6 @@ def main():
     )
     print(f"  scan {tc.counts_line(tally)}; spend {tc.counts_line(spend)}")
 
-    # A command rarely delivers the whole of what it matched — `head -c`, `cut`
-    # and `--stat` all truncate — and it usually matches one bullet of §5 rather
-    # than all of it (mantahostels#1430).
     sizes = sizes_by_date(start, end)
     exposed = sum(sizes.get(d, 0) for d, _, _ in deliveries)
     frac = delivered / exposed if exposed else 1.0

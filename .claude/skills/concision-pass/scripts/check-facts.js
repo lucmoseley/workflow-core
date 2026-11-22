@@ -1,39 +1,26 @@
 #!/usr/bin/env node
-/**
- * Mechanical guard for a concision pass.
- *
- * Lists every fact-shaped token present in the BEFORE text and absent from the
- * AFTER text: numbers and percentages, issue refs (#65), section refs (§B16),
- * clause numbers (6.1(c)), backticked spans, and quoted strings.
- *
- * A token that merely appears FEWER times is the pass working as intended, so
- * those are counted, not listed, unless --verbose.
- *
- * Exit 0 — nothing lost. Exit 2 — hits to account for. Exit 1 — usage/IO error.
- */
-
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
 
+const USAGE = `usage: check-facts.js <before-file> <after-file> [--verbose]
+
+Lists every fact-shaped token present in BEFORE and absent from AFTER:
+numbers and percentages, issue refs (#65), section refs (§B16), clause
+numbers (6.1(c)), versions, git shas, backticked spans and quoted strings.
+A token that merely appears fewer times is counted, not listed, unless
+--verbose.
+
+Exit 0: nothing lost. Exit 2: tokens to account for. Exit 1: usage or IO error.
+`;
+
 /** @type {Array<[RegExp, string]>} */
 const PATTERNS = [
-	// Order matters only for readability of the report; matches may overlap.
 	[/#\d+/g, "issue ref"],
 	[/§\s?[A-Za-z]?\d+(?:\.\d+)*/g, "section ref"],
-	// vN.M: a leading `v` blocks \b before the digit, so the decimal pattern
-	// below never anchors on it and a version bump reads as bare-number
-	// repetition instead of a changed fact (mantahostels#3323).
 	[/\bv\d+(?:\.\d+)+\b/g, "version"],
 	[/\b\d+\.\d+(?:\([a-z]\))?/g, "clause/decimal"],
 	[/\b\d[\d,]*(?:\.\d+)?\s?%/g, "percentage"],
 	[/\b\d[\d,]*(?:\.\d+)?\b/g, "number"],
-	// Bare git sha: hex digits glued to hex letters block \b on either side of
-	// the digit run, so the number pattern above never anchors and the sha is
-	// read as nothing at all (mantahostels#3323). Requires an a-f letter: a token's kind is
-	// whichever pattern matches it first, so a plain digit run matching both
-	// patterns would inflate the number pattern's own count instead of gaining
-	// a distinct "sha" line. Costs the reverse false positive on a 7+-letter
-	// a-f-only word ("defaced") — the safe direction, so left as is.
 	[/\b(?=\d*[a-f])[0-9a-f]{7,40}\b/g, "sha"],
 	[/`[^`\n]{2,80}`/g, "code span"],
 	[/[“][^”\n]{3,80}[”]/g, "quotation"],
@@ -41,14 +28,6 @@ const PATTERNS = [
 ];
 
 /**
- * Strip HTML tags and decode the few entities the roadmap actually uses.
- *
- * ONLY for HTML. `<[^>]+>` is not a tag matcher outside one: in a .ts file the
- * `<` of `while (Date.now() < deadline)` pairs with an unrelated `>` far later
- * and deletes everything between, so tokens plainly still in the file are
- * reported GONE ENTIRELY (mantahostels#898 carries the run that measured it). A false loss
- * report is worse than none, because the whole point of the check is that the
- * reader trusts it over their own eye.
  * @param {string} raw
  * @param {boolean} isHtml
  * @returns {string}
@@ -65,7 +44,6 @@ function normalise(raw, isHtml) {
 }
 
 /**
- * Map of token -> {kind, count} for one text.
  * @param {string} text
  * @returns {Map<string, {kind: string, count: number}>}
  */
@@ -83,7 +61,6 @@ function tokenise(text) {
 }
 
 /**
- * Read both files, or exit 1 naming the one that failed.
  * @param {string} beforePath
  * @param {string} afterPath
  * @returns {{beforeRaw: string, afterRaw: string}}
@@ -94,16 +71,12 @@ function readBoth(beforePath, afterPath) {
 		const afterRaw = fs.readFileSync(afterPath, "utf8");
 		return { beforeRaw, afterRaw };
 	} catch (err) {
-		// writeFd, not console.error: this line sits right above
-		// process.exit, and node drops whatever is still buffered on a pipe at
-		// exit — the four .claude skill scripts bind §N6 at full force (mantahostels#1189).
 		writeFd(2, `cannot read: ${err instanceof Error ? err.message : err}\n`);
 		process.exit(1);
 	}
 }
 
 /**
- * Split BEFORE's tokens into those gone from AFTER and those mentioned fewer times.
  * @param {Map<string, {kind: string, count: number}>} before
  * @param {Map<string, {kind: string, count: number}>} after
  */
@@ -124,10 +97,7 @@ function main() {
 	const verbose = args.includes("--verbose");
 	const [beforePath, afterPath] = args.filter((a) => !a.startsWith("--"));
 	if (!beforePath || !afterPath) {
-		writeFd(
-			2,
-			"usage: check-facts.js <before-file> <after-file> [--verbose]\n",
-		);
+		writeFd(2, USAGE);
 		process.exit(1);
 	}
 

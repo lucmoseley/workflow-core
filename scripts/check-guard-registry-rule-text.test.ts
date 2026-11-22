@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * Tests for scripts/check-guard-registry.js: the rule-text store (mantahostels#1644).
- *
- * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
- * loosen a case and a rule can claim **Enforced** while its guard is missing
- * or unwired.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from check-guard-registry.test.ts, whose cost was pre-existing (#4294).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -32,20 +22,11 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 afterEach(removeTemps);
 
-/*
- * The rule-text store (mantahostels#1644, spec mantahostels#1641).
- *
- * A rule relocated out of CLAUDE.md into the guard that refuses the mistake has
- * two parts that must agree — the fragment and the wired guard printing it —
- * and any `rule:<id>` trigger left behind must resolve to one.
- */
 describe("the rule-text store", () => {
-	/** A region rule carrying a trigger for `id`, enforced by `guard`. */
 	function triggerRule(id: string, guard: string): string {
 		return `- **Commit by pathspec.** The rule itself is in \`rule:${id}\`. **Enforced** (#117): \`${guard}\` prints it.`;
 	}
 
-	/** A bash script whose only interesting property is the call it makes; the case's hooksWiring decides whether it is wired. */
 	function bashEmitter(id: string): string {
 		return `#!/usr/bin/env bash\n# shellcheck source=scripts/lib/rule-text.sh\nsource "$here/lib/rule-text.sh"\nrule_text ${shellQuote(id)} >&2\nexit 2\n`;
 	}
@@ -66,12 +47,6 @@ describe("the rule-text store", () => {
 		expect(r.code).toBe(0);
 	});
 
-	/**
-	 * A wired Node guard that hands its rules PRE-EMPTIVELY (mantahostels#1804)
-	 * rather than in a refusal: an `injectRules` decision, which
-	 * lib/guard-entry.js resolves through readRuleText at run time, so nothing
-	 * in this file carries a literal accessor call.
-	 */
 	function preemptiveEmitter(...ids: string[]): string {
 		return `#!/usr/bin/env node\nmodule.exports = () => ({ injectRules: [${ids.map((id) => `"${id}"`).join(", ")}] });\n`;
 	}
@@ -138,8 +113,6 @@ describe("the rule-text store", () => {
 	});
 
 	it("fails a pre-emptive call naming an id no fragment answers to", () => {
-		// The accessor throws on an unknown id, so this is a guard that will die
-		// mid-hook — caught here rather than on the session that trips it.
 		const r = run(
 			build({
 				claude: region(
@@ -223,8 +196,6 @@ describe("the rule-text store", () => {
 	});
 
 	it("names two parts in the help text, the trigger no longer among them", () => {
-		/* The JSON envelope is not what reaches a session at a pre-commit gate —
-		 * the prose is (mantahostels#1962). Captured off fd 2, see run()'s Result.report. */
 		const r = run(
 			build({
 				claude: region(triggerRule("file-claim", "scripts/guard-claim.sh")),
@@ -258,8 +229,6 @@ describe("the rule-text store", () => {
 			(f) => f.kind === "UNPRINTED-RULE",
 		)?.detail;
 		expect(detail).toMatch(/no wired emitter/);
-		/* #925: the adopter wording, which names its own wiring, stays out of
-		 * the core's. */
 		expect(detail).toContain("Call it from the guard that refuses the mistake");
 		expect(detail).not.toContain("this repo's .claude/settings.json");
 	});
@@ -352,8 +321,6 @@ describe("the rule-text store", () => {
 	});
 
 	it("reads a trigger sitting outside any guard-registry region", () => {
-		/* A file can carry guard-backed material outside any region
-		 * (mantahostels#1641), so a trigger left there must still be checked. */
 		const root = build({
 			claude: `${region(
 				"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies it.",
@@ -381,18 +348,10 @@ describe("the rule-text store", () => {
 		expect(r.kinds).toContain("ORPHAN-TRIGGER");
 	});
 
-	/*
-	 * THE SECOND FRAGMENT CLASS (mantahostels#2496). A rule with no observable Bash trigger
-	 * is delivered by a command's injected index and fetched by the session, not
-	 * printed by a guard — so the manifest, not the emitter scan, is what says
-	 * the fragment is alive.
-	 */
 	function manifest(rules: Record<string, unknown>): string {
 		return `${JSON.stringify({ comment: "fixture", rules }, null, "\t")}\n`;
 	}
 
-	/** An injector carrying a per-command index that names `ids`. */
-	/** The hook entry the wiring names, and the text module holding its index. */
 	const IndexEntry = "scripts/inject-tracker-docs.js";
 	function injectorIndex(...ids: string[]): Record<string, string> {
 		const lines = ids
@@ -555,8 +514,6 @@ describe("the rule-text store", () => {
 							trigger: "a `git add` on the Bash tool",
 						},
 					}),
-					// The injector exists and indexes something else — a fragment of
-					// its own, so the index is not itself a dangling citation (mantahostels#3135).
 					"docs/agents/rules/commit-pathspec.txt": "Commit by pathspec.\n",
 					...injectorIndex("commit-pathspec"),
 					"scripts/guard-label.sh": "#!/usr/bin/env bash\n",
@@ -627,7 +584,6 @@ describe("the rule-text store", () => {
 	});
 
 	it("passes a manifest id a wired emitter prints, with no index entry", () => {
-		// The delivery routes are alternatives, not both (spec mantahostels#2457, T4).
 		const r = run(
 			build({
 				claude: region(
@@ -698,7 +654,6 @@ describe("a `rule:<id>` cited in a script's comment or string (mantahostels#3135
 	});
 
 	it("reads a citation inside a double-quoted bash string", () => {
-		/* Bash spells the backtick there as \`. */
 		const r = run(
 			build({
 				claude,
@@ -728,7 +683,6 @@ describe("a `rule:<id>` cited in a script's comment or string (mantahostels#3135
 	});
 
 	it("does not read an id spelled without backticks", () => {
-		/* How a guard's log line names a rule in passing. */
 		const r = run(
 			build({
 				claude,
@@ -743,8 +697,6 @@ describe("a `rule:<id>` cited in a script's comment or string (mantahostels#3135
 	});
 
 	it("does not read the store's grammar placeholders as citations", () => {
-		/* `rule:x` and `rule:-x` are how the accessors and the emitter patterns
-		 * discuss the id grammar; both are copied into every fixture here. */
 		const r = run(
 			build({
 				claude,
@@ -759,9 +711,6 @@ describe("a `rule:<id>` cited in a script's comment or string (mantahostels#3135
 	});
 
 	it("reads a lib nothing sources", () => {
-		/* Not narrowed to what the liveness walk reaches: that walk cannot see
-		 * an extension-less require, the majority spelling, so most of
-		 * scripts/lib/ would go unread. */
 		const r = run(
 			build({
 				claude,
@@ -776,11 +725,8 @@ describe("a `rule:<id>` cited in a script's comment or string (mantahostels#3135
 	});
 });
 
-/* #97. Run as the plugin runs it: the REAL script,
- * outside the adopter's tree, so the core's own emitters are the plugin's. */
 describe("an adopter that generates its own rule fragments", () => {
 	const gen = path.join(__dirname, "generate-rule-fragments.js");
-	/* A core fragment no emitter the adopter carries prints. */
 	const coreId = "claim-bash-route";
 
 	function adopter(): string {
@@ -841,8 +787,6 @@ describe("an adopter that generates its own rule fragments", () => {
 	});
 
 	it("--against HEAD judges the commit that first adds the store, not the worktree", () => {
-		/* The HEAD side has no store. Read off the worktree instead, it would
-		 * see the staged fragment too and call its fault inherited. */
 		const root = adopter();
 		const gitAsUser = (...a: string[]) =>
 			execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], {
@@ -864,8 +808,6 @@ describe("an adopter that generates its own rule fragments", () => {
 		expect(r.messages[0]).toContain("adopter-only");
 	});
 
-	/* The adopter's own fragment, and a guard of its own that prints it —
-	 * wired by nothing until a case wires it. */
 	function ownGuard(root: string): void {
 		runInProcess(gen, [], {
 			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
@@ -897,7 +839,6 @@ describe("an adopter that generates its own rule fragments", () => {
 		expect(message).toContain("workflow-core's docs/agents/rules/README.md");
 	});
 
-	/* #925: the route docs/agents/rules/README.md §Adding one promises. */
 	it("passes a fragment of the adopter's own that a guard it wires itself prints", () => {
 		const root = adopter();
 		ownGuard(root);

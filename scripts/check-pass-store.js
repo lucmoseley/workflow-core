@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-pass-store.js — how many test files the per-file pass store kept
- * from running in the last WINDOW_DAYS, against how many the runs that
- * looked it up still ran (#4790), on `npm run status`.
- *
- * Usage:  node scripts/check-pass-store.js [--json]
- *
- * READ-ONLY: it reads the run ledger (lib/run-ledger.js) under the canonical
- * checkout's markers, whose `cachedFiles` is null on a run that looked
- * nothing up — a full run, `--retest`, `--fresh`, the lander — and so
- * counts toward neither figure. A reading, never a finding.
- */
 
 const path = require("node:path");
 const { now, runCheck } = require("./lib/check");
@@ -20,7 +8,6 @@ const { DAY_MS } = require("./lib/retained-jsonl.js");
 const { RUN_LEDGER } = require("./lib/run-ledger.js");
 const { ARCHIVE_MS, repoRoot } = require("./lib/test-pass-marker.js");
 
-/* The store's own retention. */
 const WINDOW_DAYS = ARCHIVE_MS / DAY_MS;
 
 runCheck({
