@@ -16,8 +16,7 @@
  * push, never a red run. EXIT 0 OR 1, NEVER PYTEST'S OWN CODE (#4779): the
  * helper surface lists this command's exits, and pytest's set grows with its
  * version, so every failing exit reads as 1 and pytest's own report says
- * which. cli-args-exempt: every argument is pytest's, passed through
- * unparsed, bar the one whole-argv match below.
+ * which.
  *
  * A BARE RUN IS A TOUCHED ONE (#2934): it hands
  * pytest only the test files `lib/touched-tests.js` resolves from the
@@ -42,6 +41,7 @@
  * (lib/user-scope.js), killed whole when the run ends; a run that hit the cap
  * exits 1 and records no certificate.
  */
+// cli-args-exempt: #5540
 
 const fs = require("node:fs");
 const os = require("node:os");

@@ -218,11 +218,11 @@ describe("what it declines to flag", () => {
 });
 
 describe("the escape hatch and the caller-side cap", () => {
-	it("drops a file whose comment gives a reason", () => {
+	it("drops a file whose comment names an issue", () => {
 		rooted("thing.js");
 		track(
 			"scripts/thing.test.ts",
-			"/* isolation-exempt: hostRoot() resolving to the real repo is the point. */\n" +
+			"/* isolation-exempt: #160 */\n" +
 				'const SCRIPT = path.resolve(__dirname, "thing.js");\n' +
 				'spawnSync("node", [SCRIPT], {});\n',
 		);
@@ -233,7 +233,7 @@ describe("the escape hatch and the caller-side cap", () => {
 		rooted("thing.js");
 		track(
 			"scripts/thing.test.ts",
-			"/* isolation-exempt: reads the real repo on purpose. */\n" +
+			"// isolation-exempt: #160\n" +
 				'const SCRIPT = path.resolve(__dirname, "thing.js");\n' +
 				'spawnSync("node", [SCRIPT], {});\n',
 		);
@@ -241,11 +241,14 @@ describe("the escape hatch and the caller-side cap", () => {
 		expect(r.json().exempt).toBe(1);
 	});
 
-	it("ignores a bare marker carrying no reason", () => {
+	it.each([
+		["no pointer", "/* isolation-exempt: */"],
+		["prose", "/* isolation-exempt: reads the real repo on purpose. */"],
+	])("ignores a marker carrying %s", (_what, marker) => {
 		rooted("thing.js");
 		track(
 			"scripts/thing.test.ts",
-			"/* isolation-exempt: */\n" +
+			`${marker}\n` +
 				'const SCRIPT = path.resolve(__dirname, "thing.js");\n' +
 				'spawnSync("node", [SCRIPT], {});\n',
 		);

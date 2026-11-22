@@ -16,7 +16,7 @@ const POINTER =
 	"A live session holds a path this command writes; this guard has spent " +
 	`its ${SESSION_BUDGET_BYTES} B session budget (mantahostels#2345). It repeats hourly ` +
 	"on a NEW contended path (mantahostels#2364). Read the claims: " +
-	// arbiter-literal-exempt: ctx.corePaths spells it; the ledger prices this text.
+	// arbiter-literal-exempt: #5540
 	"`node scripts/session-arbiter.js list`.";
 
 const POINTER_BYTES = Buffer.byteLength(POINTER);
@@ -246,10 +246,9 @@ function clamp(head, lines, tail, ceiling) {
 	const [first] = lines;
 	if (kept.length === 0 && first !== undefined) kept.push(first);
 	const dropped = lines.length - kept.length;
-	const more = dropped
-		? // arbiter-literal-exempt: ctx.corePaths spells it; OVERFLOW_RESERVE prices it.
-			`\n  … and ${dropped} more — node scripts/session-arbiter.js list`
-		: "";
+	// arbiter-literal-exempt: #5540
+	const overflow = `\n  … and ${dropped} more — node scripts/session-arbiter.js list`;
+	const more = dropped ? overflow : "";
 	return { text: head + kept.join("\n") + more + tail, kept: kept.length };
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { runCheck } = require("./lib/check");
+const { exemptHint, exemptMarker } = require("./lib/exempt-markers.js");
 const { parseLineSites, heresySpec } = require("./lib/heresy-scan.js");
 
 // measured 12 lines in lib/pending-tasks.js, #3452
@@ -8,10 +9,10 @@ const WINDOW = 12;
 const NEWLINE_SPLIT =
 	/\.split\(\s*(?:"\\n"|'\\n'|`\\n`|\/\\n\/|\/\\r\?\\n\/)\s*\)/;
 const PARSE = /\bJSON\.parse\b/;
-const EXEMPT = /jsonl-read-exempt:\s*\w/;
+const EXEMPT = exemptMarker("jsonl-read");
 const READER = "scripts/lib/jsonl.js";
 
-const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in ${READER}, as scripts/lib/dispatch-ledger.js's readCountedRows does; or mark it \`jsonl-read-exempt: <why>\` where the text is no JSONL (#3452).`;
+const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in ${READER}, as scripts/lib/dispatch-ledger.js's readCountedRows does; or mark it ${exemptHint("jsonl-read")}, an issue saying the text is no JSONL (#3452).`;
 
 /** @type {import("./lib/check").CheckSpec} */
 const SPEC = heresySpec({

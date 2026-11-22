@@ -31,9 +31,8 @@
  * (#4079). A commit adding, modifying or retyping no path runs nothing and
  * exits 0. Exits 2, BROKEN's code, where git cannot
  * extract the index or biome will not start.
- *
- * cli-args-exempt: a pass-through wrapper; its argv is `biome check`'s.
  */
+// cli-args-exempt: #5540
 
 const fs = require("node:fs");
 const os = require("node:os");

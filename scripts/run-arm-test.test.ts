@@ -126,7 +126,7 @@ describe("plan", () => {
 		expect(
 			run(planArgs(root, "1"), {
 				...env,
-				// claude-route-exempt: asserts the plan pins PATH's versioned `claude`
+				// claude-route-exempt: #5540
 				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
 			}).code,
 		).toBe(0);

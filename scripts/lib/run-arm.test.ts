@@ -292,7 +292,7 @@ describe("launch", () => {
 		fs.symlinkSync(pinned, path.join(bin, "claude"));
 		const onPath = {
 			WFC_CLAUDE_BIN: undefined,
-			// claude-route-exempt: asserts the launch keeps the plan's pinned `claude`
+			// claude-route-exempt: #5540
 			PATH: `${bin}${path.delimiter}${process.env.PATH}`,
 		};
 		const root = planned(path.join(tmp, "p"), kit({ env: onPath }));
@@ -576,7 +576,7 @@ describe("run", () => {
 		fs.symlinkSync(pinned, link);
 		const onPath = {
 			WFC_CLAUDE_BIN: undefined,
-			// claude-route-exempt: asserts the plan pins PATH's versioned `claude`
+			// claude-route-exempt: #5540
 			PATH: `${bin}${path.delimiter}${process.env.PATH}`,
 		};
 		const root = planned(path.join(tmp, "p"), kit({ env: onPath }));

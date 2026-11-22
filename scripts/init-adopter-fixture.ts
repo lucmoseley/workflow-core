@@ -92,7 +92,7 @@ export function adoptWith(
 	let stderr = "";
 	const savedEnv = process.env;
 	const savedCwd = process.cwd();
-	// env-write-kept: the case's env replaces the whole environment, as a spawn's does.
+	// env-write-exempt: #5540
 	process.env = { ...env };
 	process.chdir(cwd);
 	try {
@@ -108,7 +108,7 @@ export function adoptWith(
 		return { status, stdout, stderr };
 	} finally {
 		process.chdir(savedCwd);
-		// env-write-kept: restores the object the call replaced above.
+		// env-write-exempt: #5540
 		process.env = savedEnv;
 	}
 }

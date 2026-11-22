@@ -45,14 +45,14 @@ const FAKE_PORTS: Ports = {
 
 function withEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
 	const saved = process.env;
-	// env-write-kept: the core reads the whole environment, so each case states it entire; restored in the same synchronous call.
+	// env-write-exempt: #5540
 	process.env = Object.fromEntries(
 		Object.entries(env).filter(([, v]) => v !== undefined),
 	) as NodeJS.ProcessEnv;
 	try {
 		return fn();
 	} finally {
-		// env-write-kept: the restore of the swap above.
+		// env-write-exempt: #5540
 		process.env = saved;
 	}
 }

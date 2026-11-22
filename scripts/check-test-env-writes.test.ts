@@ -93,22 +93,25 @@ describe("what is no direct write", () => {
 		["a read", `const v = ${ENV}.FOO;`],
 		["a comparison", `if (${ENV}.FOO === "x") {}`],
 		["a child env copy", `env.FOO = "x";`],
-		["a kept line", `${ENV}.FOO = "x"; // env-write-kept: read at import`],
+		["an exempt line", `${ENV}.FOO = "x"; // env-write-exempt: #4019`],
 	])("passes %s", (_, line) => {
 		track("scripts/x.test.ts", `${line}\n`);
 		expect(run().status).toBe(0);
 	});
 
-	it("passes a line kept by the comment above it", () => {
+	it("passes a line exempted by the comment above it", () => {
 		track(
 			"scripts/x.test.ts",
-			`// env-write-kept: the module reads it at import\n${ENV}.FOO = "x";\n`,
+			`// env-write-exempt: #4019\n${ENV}.FOO = "x";\n`,
 		);
 		expect(run().status).toBe(0);
 	});
 
-	it("keeps no line on a bare marker with no reason", () => {
-		track("scripts/x.test.ts", `${ENV}.FOO = "x"; // env-write-kept:\n`);
+	it.each([
+		["no pointer", "// env-write-exempt:"],
+		["prose", "// env-write-exempt: read at import"],
+	])("exempts no line on a marker carrying %s", (_what, marker) => {
+		track("scripts/x.test.ts", `${ENV}.FOO = "x"; ${marker}\n`);
 		expect(run().status).toBe(1);
 	});
 

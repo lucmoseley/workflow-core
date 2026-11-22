@@ -22,9 +22,6 @@
  * a call never yields to — so the worker parks forever and the parent waits on
  * it, silently and without limit.
  *
- * cli-args-exempt: a pass-through wrapper; every argv word it does not
- * consume is vitest's, which refuses its own unknown flags.
- *
  * TWO KILLS, WHICHEVER FIRES FIRST. The silence watchdog kills a run that
  * shows no sign of life for five minutes — no output, and no test or hook
  * event the in-flight reporter stamps on its file (#1149). The suite ceiling
@@ -44,6 +41,7 @@
  * each new or changed test file over budget. It never touches the exit code
  * (mantahostels#2255).
  */
+// cli-args-exempt: #5540
 
 const { execFileSync } = require("node:child_process");
 const {
