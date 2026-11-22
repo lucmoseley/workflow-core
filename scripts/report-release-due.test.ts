@@ -162,7 +162,9 @@ describe("the release cut's filer", () => {
 	it("files the cut ticket where the untagged note owes a [choice] step", () => {
 		clone("choice");
 		const fx = stubs();
-		run(fx);
+		const { code, output } = run(fx);
+		expect(code).toBe(0);
+		expect(output).toContain("migrations/v1.1.0.md (1)");
 		expect(fx.calls()).toContain("issue create");
 	});
 
@@ -181,7 +183,9 @@ describe("the release cut's filer", () => {
 	it("files nothing where every note is a released one", () => {
 		clone("none");
 		const fx = stubs();
-		run(fx);
+		const { code, output } = run(fx);
+		expect(code).toBe(0);
+		expect(output).toContain("no migration note newer than v1.0.0");
 		expect(fx.calls()).not.toContain("issue create");
 	});
 
@@ -195,7 +199,18 @@ describe("the release cut's filer", () => {
 		expect(code).toBe(0);
 		expect(output).toContain("blocked on abc1234");
 		expect(fx.calls()).toContain("issue create");
-		expect(fx.calls()).toContain("blocked on abc1234");
+		expect(fx.calls()).toContain(
+			"issue comment 999 --body **Trigger:** design-vault#9 is blocked on abc1234",
+		);
+	});
+
+	it("comments a --because trigger on the open cut ticket it refreshes, so a later rewrite of the body keeps it", () => {
+		clone("act");
+		const fx = stubs([openTicket(1)], "old");
+		run(fx, ["--because", "v1.0.0 breaks session start"]);
+		expect(fx.calls()).toContain(
+			"issue comment 42 --body **Trigger:** v1.0.0 breaks session start",
+		);
 	});
 
 	it("refreshes the open cut ticket rather than filing a second", () => {

@@ -1006,7 +1006,7 @@ process.stdout.write(JSON.stringify([posted]));
 				expect(r.stderr).toBe("");
 				expect(r.status).toBe(0);
 				expect(calls()).toContain(
-					"It supersedes #91, #92, closed as its duplicates: the walk runs their notes too.",
+					"It supersedes #91, #92: the walk runs their notes too.",
 				);
 				for (const n of [91, 92])
 					expect(calls()).toContain(

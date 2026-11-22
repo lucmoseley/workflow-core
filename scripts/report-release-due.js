@@ -9,9 +9,9 @@ const { hostRoot } = require("./lib/host-root");
 const { isCoreHost } = require("./lib/plugin-state.js");
 const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { execGit } = require("./lib/git.js");
+const { gh } = require("./lib/gh");
 const { MAIN } = require("./lib/release-lag.js");
 const { CUT_TITLE, judgeCut } = require("./lib/release-due.js");
-const { parseSteps } = require("./lib/migration-note.js");
 const { MIGRATIONS_DIR } = require("./lib/workflow-core-config.js");
 const { takesLabel, takesRefusal } = require("./lib/takes-label");
 const {
@@ -36,29 +36,17 @@ const git = (root, args) =>
 
 /**
  * @param {string} root
- * @param {string} tag
- * @returns {import("./lib/release-due.js").OwedNote[]}
+ * @returns {import("./lib/release-due.js").NoteFile[]}
  */
-function readOwedNotes(root, tag) {
-	const { TAG_RE, newestTag } = require("./lib/release-tags.js");
-	const listing = git(root, [
-		"ls-tree",
-		"--name-only",
-		MAIN,
-		`${MIGRATIONS_DIR}/`,
-	]);
-	/** @type {import("./lib/release-due.js").OwedNote[]} */
-	const owed = [];
-	for (const note of listing.split("\n")) {
-		const version = path.basename(note, ".md");
-		if (!note.endsWith(".md") || !TAG_RE.test(version)) continue;
-		if (version === tag || newestTag([tag, version]) !== version) continue;
-		const steps = parseSteps(git(root, ["show", `${MAIN}:${note}`])).filter(
-			(s) => s.type !== "notice",
-		).length;
-		if (steps > 0) owed.push({ note, steps });
-	}
-	return owed;
+function readNotes(root) {
+	return git(root, ["ls-tree", "--name-only", MAIN, `${MIGRATIONS_DIR}/`])
+		.split("\n")
+		.filter((note) => note.endsWith(".md"))
+		.map((note) => ({
+			note,
+			version: path.basename(note, ".md"),
+			text: git(root, ["show", `${MAIN}:${note}`]),
+		}));
 }
 
 /**
@@ -74,7 +62,7 @@ function readCut(root) {
 	return {
 		tag,
 		cutSec: readCutTime(root, tag),
-		owed: readOwedNotes(root, tag),
+		notes: readNotes(root),
 	};
 }
 
@@ -121,7 +109,7 @@ function buildLandedBody(tag) {
  */
 function fileRun(root, because) {
 	const reading = readCut(root);
-	const verdict = because ? { due: true, why: because } : judgeCut(reading);
+	const verdict = judgeCut(reading, because);
 	if (!verdict.due) {
 		const open = openTrackingIssue({ title: CUT_TITLE }, { cwd: root });
 		if (!open || Date.parse(open.createdAt) >= reading.cutSec * 1000)
@@ -131,7 +119,13 @@ function fileRun(root, because) {
 	const body = buildBody(reading.tag, verdict.why);
 	const refused = takesRefusal([LABEL], body);
 	if (refused) throw new Error(refused);
-	return `${verdict.why}. ${fileOrRefresh({ title: CUT_TITLE, labels: [LABEL], body })}`;
+	const filed = fileOrRefresh({ title: CUT_TITLE, labels: [LABEL], body });
+	if (because) {
+		const number = /(?:issues\/|#)(\d+)/.exec(filed)?.[1];
+		if (number)
+			gh(["issue", "comment", number, "--body", `**Trigger:** ${because}`]);
+	}
+	return `${verdict.why}. ${filed}`;
 }
 
 function main() {

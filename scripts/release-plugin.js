@@ -444,7 +444,7 @@ function fileBumpIssues(repos, tag) {
 		const walking = older.filter((i) => i.assignees.length > 0);
 		const supersedes =
 			unstarted.length > 0
-				? ` It supersedes ${unstarted.map((i) => `#${i.number}`).join(", ")}, closed as its duplicates: the walk runs their notes too.`
+				? ` It supersedes ${unstarted.map((i) => `#${i.number}`).join(", ")}: the walk runs their notes too.`
 				: "";
 		/** @type {{number: number, id: number}|null} */
 		const created = ghStep(
