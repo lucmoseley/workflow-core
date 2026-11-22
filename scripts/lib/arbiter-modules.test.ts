@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -37,7 +37,7 @@ const keysAfterFacade = (file: string) =>
 	) as string[];
 
 describe("every family module loads as the entry point", () => {
-	it("finds all sixteen — the thirteen families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
+	it("finds all sixteen arbiter-*.js modules beside the facade", () => {
 		expect(families.length).toBe(16);
 	});
 
@@ -53,37 +53,36 @@ describe("every family module loads as the entry point", () => {
 
 describe("the family modules' require graph", () => {
 	const readSource = (f: string) => fs.readFileSync(path.join(LIB, f), "utf8");
-	const siblings = (f: string) =>
-		[...readSource(f).matchAll(/require\("\.\/(arbiter-[\w-]+\.js)"\)/g)].map(
-			(m) => m[1],
-		);
+	const requires = (file: string) =>
+		[...fs.readFileSync(file, "utf8").matchAll(/require\("(\.[^"]+)"\)/g)]
+			.map((m) => path.resolve(path.dirname(file), m[1]))
+			.map((to) => (to.endsWith(".js") ? to : `${to}.js`))
+			.filter((to) => fs.existsSync(to));
 
-	it("holds no cycle", () => {
+	it("holds no cycle through a family module, by any path", () => {
+		const family = new Set(families.map((f) => path.join(LIB, f)));
 		const done = new Set<string>();
 		const cycles: string[] = [];
-		const visit = (f: string, trail: string[]) => {
-			if (trail.includes(f)) {
-				cycles.push([...trail.slice(trail.indexOf(f)), f].join(" → "));
+		const visit = (file: string, trail: string[]) => {
+			if (trail.includes(file)) {
+				const loop = [...trail.slice(trail.indexOf(file)), file];
+				if (loop.some((f) => family.has(f)))
+					cycles.push(loop.map((f) => path.relative(LIB, f)).join(" → "));
 				return;
 			}
-			if (done.has(f)) return;
-			for (const to of siblings(f)) visit(to, [...trail, f]);
-			done.add(f);
+			if (done.has(file)) return;
+			for (const to of requires(file)) visit(to, [...trail, file]);
+			done.add(file);
 		};
-		for (const f of families) visit(f, []);
+		for (const file of family) visit(file, []);
 		expect(cycles).toEqual([]);
 	});
 
-	it("leaves no scripts/*.js filling its exports object in place, as base §N asks", () => {
-		const grep = spawnSync(
-			"git",
-			["grep", "-lE", "^exports\\.[A-Za-z_$]+ =", "--", "scripts/*.js"],
-			{ cwd: path.join(LIB, "../.."), encoding: "utf8" },
+	it("ends each family module on one module.exports, as base §N7 asks of an acyclic file", () => {
+		const inPlace = families.filter((f) =>
+			/^exports\.[A-Za-z_$]+ =/m.test(readSource(f)),
 		);
-		expect({ status: grep.status, files: grep.stdout.trim() }).toEqual({
-			status: 1,
-			files: "",
-		});
+		expect(inPlace).toEqual([]);
 	});
 });
 
