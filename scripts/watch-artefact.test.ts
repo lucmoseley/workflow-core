@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { keptSpawn } from "./lib/kept-spawn.js";
+import { escapeRe } from "./lib/regex-group.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = join(__dirname, "watch-artefact.js");
@@ -227,14 +228,9 @@ describe("reading the agent's own log (#5421)", () => {
 	});
 
 	/* Four checks with no growth before the ceiling: two would stall. */
+	const CeilingS = 4.5 * INTERVAL_S;
 	const watchLog = () =>
-		watch([
-			artefact,
-			String(INTERVAL_S),
-			String(4.5 * INTERVAL_S),
-			"--log",
-			log,
-		]);
+		watch([artefact, String(INTERVAL_S), String(CeilingS), "--log", log]);
 
 	it.each([
 		["an unanswered tool call", toolCall],
@@ -324,24 +320,20 @@ describe("reading the agent's own log (#5421)", () => {
 	describe("on the log alone, for a dispatch with no artefact (#5515)", () => {
 		const watchLogOnly = (steps: [at: number, act: () => void][] = []) =>
 			watch(
-				[
-					"--no-artefact",
-					String(INTERVAL_S),
-					String(4.5 * INTERVAL_S),
-					"--log",
-					log,
-				],
+				["--no-artefact", String(INTERVAL_S), String(CeilingS), "--log", log],
 				steps,
 			);
 
-		it("ends DONE within one log poll of the log ending stopped", async () => {
+		it("ends DONE once the log reads stopped", async () => {
 			writeFileSync(log, toolCall);
 			const r = await watchLogOnly([
 				[1, () => appendFileSync(log, toolResult + turnEnd)],
 			]);
 			expect(r.status).toBe(EXIT.DONE);
 			expect(r.stdout).toMatch(
-				new RegExp(`^DONE ${log} — the agent has stopped; read its report`),
+				new RegExp(
+					`^DONE ${escapeRe(log)} — the agent has stopped; read its report`,
+				),
 			);
 		}, 15_000);
 
@@ -354,10 +346,18 @@ describe("reading the agent's own log (#5421)", () => {
 				write();
 				const r = await watchLogOnly();
 				expect(r.status).toBe(EXIT.CEILING);
-				expect(r.stdout).toMatch(new RegExp(`^CEILING ${log} — `));
+				expect(r.stdout).toMatch(new RegExp(`^CEILING ${escapeRe(log)} — `));
 			},
 			15_000,
 		);
+
+		it("keeps reading a malformed log to the ceiling, saying so once", async () => {
+			writeFileSync(log, "not json\n");
+			const r = await watchLogOnly();
+			expect(r.status).toBe(EXIT.CEILING);
+			expect(r.stderr.match(/still reading it/g)).toEqual(["still reading it"]);
+			expect(r.stderr).toContain(`${log} holds no turn record`);
+		}, 15_000);
 	});
 
 	it("says on its start line when no log is read", async () => {
@@ -373,21 +373,36 @@ describe("a bad invocation", () => {
 		["a non-numeric ceiling", ["x", "1", "soon"]],
 		["a zero first-write deadline", ["x", "1", "--first-write", "0"]],
 		["an empty agent log", ["x", "1", "--log="]],
-		["a log-only watch with no log", ["--no-artefact", "1"]],
-		[
-			"a log-only watch given a path",
-			["--no-artefact", "x", "1", "2", "--log", "l"],
-		],
-		[
-			"a log-only first-write deadline",
-			["--no-artefact", "1", "--log", "l", "--first-write", "5"],
-		],
 	])("refuses %s with exit 2, printing no verdict", async (_label, args) => {
 		const r = await runInProcessAsync(SCRIPT, args);
 		expect(r.status).toBe(EXIT.USAGE);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toMatch(/^watch-artefact: .*\nusage: /);
 	});
+
+	it.each([
+		["no log", ["--no-artefact", "1"], "--no-artefact needs --log"],
+		[
+			"a path",
+			["--no-artefact", "x", "1", "2", "--log", "l"],
+			"--no-artefact takes no artefact path",
+		],
+		[
+			"a first-write deadline",
+			["--no-artefact", "1", "--log", "l", "--first-write", "5"],
+			"--no-artefact has no first write to wait on",
+		],
+	])(
+		"refuses a log-only watch given %s, saying why",
+		async (_label, args, why) => {
+			const r = await runInProcessAsync(SCRIPT, args);
+			expect(r.status).toBe(EXIT.USAGE);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toMatch(
+				new RegExp(`^watch-artefact: ${escapeRe(why)}\n`),
+			);
+		},
+	);
 });
 
 describe("the poll guard (guard-dispatch.js's guard-agent-poll core)", () => {
