@@ -88,11 +88,8 @@ const COPIED = [
 const COMMIT_PATHS = path.join(ROOT, "scripts/commit-paths.js");
 const COMMIT_KEY = path.join(ROOT, "scripts/lib/commit-key.js");
 
-export const SLOW_S = 0.5;
-
 export const STUB = `#!/bin/sh
 r="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
-[ -f "$r/stub-slow" ] && sleep ${SLOW_S}
 lock=0; [ -f "$r/.git/index.lock" ] && lock=1
 staged="$(git diff --cached --name-only | paste -sd, -)"
 echo "lock=$lock stamp=\${WFC_TEST_STAMP-unset} staged=$staged" >> "$r/stub.log"
@@ -300,10 +297,12 @@ export function fixture({
 			patch,
 			inherited,
 			unsetCore = false,
+			stepMs,
 		}: {
 			patch?: string;
 			inherited?: string;
 			unsetCore?: boolean;
+			stepMs?: number;
 		} = {}) {
 			const before = readHead();
 			const readStaged = () => String(git("ls-files", "--stage"));
@@ -313,6 +312,7 @@ export function fixture({
 				delete e.WORKFLOW_CORE_DIR;
 				delete e.WORKFLOW_CORE_CHECKOUT;
 			}
+			if (stepMs !== undefined) e.WFC_STEP_MS = String(stepMs);
 			const r = runInProcess(COMMIT_PATHS, commitPathsArgs(patch), {
 				cwd: root,
 				env: e,

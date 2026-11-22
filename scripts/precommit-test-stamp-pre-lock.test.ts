@@ -10,7 +10,6 @@ import {
 	IN_HOOK,
 	PUSH,
 	recordStaged,
-	SLOW_S,
 	STUB,
 } from "./lib/precommit-test-stamp-testkit";
 
@@ -323,17 +322,16 @@ it("stands down after a green pre-lock run on an unborn branch's first commit, w
 
 it("prints the pre-lock run's start and green lines, and logs its seconds", () => {
 	const f = fixture();
-	fs.writeFileSync(path.join(f.root, "stub-slow"), "");
 	f.edit("a.txt", "changed\n");
-	const r = f.commitPaths();
+	const r = f.commitPaths({ stepMs: 1300 });
 	expect(r.code, r.out).toBe(0);
 	expect(r.out).toContain(
 		"commit-paths: running 'sh stub.sh' before the commit takes the index lock.",
 	);
-	expect(r.out).toMatch(/commit-paths: 'sh stub\.sh' is green \(\d+\.\ds\)/);
+	expect(r.out).toContain("commit-paths: 'sh stub.sh' is green (1.3s)");
 	const [, outcome, preLock] = r.outcome ?? [];
 	expect(outcome).toBe("committed");
-	expect(Number(preLock)).toBeGreaterThanOrEqual(SLOW_S);
+	expect(preLock).toBe("1.3");
 });
 
 it("runs the declared test once under --patch, before the commit, on the patch's private index alone, and the hook stands down", () => {

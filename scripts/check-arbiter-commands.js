@@ -6,6 +6,7 @@ const {
 	heresySpec,
 } = require("./lib/heresy-scan.js");
 const { runCheck } = require("./lib/check");
+const { exemptMarker } = require("./lib/exempt-markers.js");
 
 const ARBITER = "session-arbiter\\.js";
 const NODE = "node +(?:--?[\\w=.-]+ +)*";
@@ -26,7 +27,7 @@ const HAND_SPELT = new RegExp(
 const LITERAL_PATH = new RegExp(
 	`${NODE}["']?(?:\\.{1,2}/)*(?:scripts/)?${ARBITER}`,
 );
-const EXEMPT = /arbiter-literal-exempt:\s*\w/;
+const EXEMPT = exemptMarker("arbiter-literal");
 const BUILDER = "scripts/lib/build-arbiter-command.js";
 
 const FIX = `print it through ${TAG} from ${BUILDER}, its words bare, as scripts/lib/tracker-ops.js does: \${${TAG}\`release \${path}\`}`;

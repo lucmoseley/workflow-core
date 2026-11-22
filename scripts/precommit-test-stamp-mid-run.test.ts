@@ -127,7 +127,7 @@ function signalIfAlive(pid: number, signal: NodeJS.Signals) {
 	}
 }
 
-const UNTIL_MS = 5000;
+const UNTIL_MS = 5000; // guess: a bound on a hold starting and its leftovers clearing (#5574)
 async function until(ok: () => boolean, ms = UNTIL_MS) {
 	for (const end = Date.now() + ms; !ok() && Date.now() < end; )
 		await new Promise((r) => setTimeout(r, 20));

@@ -1,9 +1,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { builtinModules } = require("node:module");
+const { exemptHint } = require("./exempt-markers.js");
 const { ENTRY, renderAt } = require("./plugin-hooks-render.js");
 const {
-	BARE_CITATION_OK,
 	buildCitableLineTest,
 	JS_COMMENT_LINE,
 	JS_TS_FILE,
@@ -579,7 +579,7 @@ function buildShippedText(root, rel, body) {
 const citationFaults = (text, rel) =>
 	unbracketedCodeCitations(text, rel).map(
 		(c) =>
-			`${rel}:${c.line} prints #${c.n} outside a ( … ) on its line, so it ships bare and names the adopter's own issue — bracket it, or put a comment naming ${BARE_CITATION_OK} and why on the line above`,
+			`${rel}:${c.line} prints #${c.n} outside a ( … ) on its line, so it ships bare and names the adopter's own issue — bracket it, or put a ${exemptHint("bare-citation")} comment, an issue saying why, on the line above`,
 	);
 
 /**

@@ -123,13 +123,17 @@ describe("check-cli-args", () => {
 		expect(run().status).toBe(1);
 	});
 
-	it("honours the opt-out marker only where it gives a reason or an issue pointer", () => {
+	it("honours the opt-out marker only where it names an issue", () => {
+		script("pointer.js", `// cli-args-exempt: #4820\n${HAND_ROLLED}`);
+		expect(run().status).toBe(0);
 		script(
 			"wrap.js",
 			`/* cli-args-exempt: passes argv through to vitest untouched */\n${HAND_ROLLED}`,
 		);
-		script("pointer.js", `// cli-args-exempt: #4820\n${HAND_ROLLED}`);
-		expect(run().status).toBe(0);
+		const w = run();
+		expect(w.status).toBe(1);
+		expect(w.out).toContain(": wrap.js.");
+		fs.rmSync(path.join(root, "scripts", "wrap.js"));
 		script("bare.js", `/* cli-args-exempt: */\n${HAND_ROLLED}`);
 		const r = run();
 		expect(r.status).toBe(1);

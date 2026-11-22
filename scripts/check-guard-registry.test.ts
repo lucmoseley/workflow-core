@@ -1353,16 +1353,7 @@ describe("a Node guard's refusal, read from its core (#3001)", () => {
 });
 
 describe("the live delayed-deny guard, mantahostels#964's counter-example", () => {
-	/*
-	 * The REAL core is copied in, so the declaration keeping it silent is
-	 * under test rather than a fixture's imitation of it. The rule quotes the
-	 * core's own refusal verbatim — CLAUDE.md's live wording of the same rule
-	 * happens not to, so pairing the two as they stand would assert nothing.
-	 * The rule names the dispatcher's row running the core.
-	 *
-	 * isolation-exempt: the core is copied in as text for the checker to
-	 * read, and never run, so no fail-open can reach a log.
-	 */
+	// isolation-exempt: #5540
 	const core = "scripts/lib/agent-poll.js";
 	const dispatcher = "scripts/guard-dispatch.js";
 	const named = " (its `guard-agent-poll` core)";

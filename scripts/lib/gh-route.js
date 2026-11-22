@@ -1,6 +1,7 @@
 const { blankComments } = require("./strip-comments.js");
 const { requiredGroup } = require("./regex-group.js");
 const { cutAt } = require("./cut-at.js");
+const { exemptHint, exemptMarker } = require("./exempt-markers.js");
 const { isTestKind } = require("./test-kind.js");
 
 /**
@@ -22,7 +23,7 @@ const { isTestKind } = require("./test-kind.js");
 
 /**
  * @param {{
- *   bin: string,
+ *   bin: "gh" | "claude",
  *   envVar: string,
  *   primitive: string,
  *   secondVar: RegExp,
@@ -48,11 +49,11 @@ function buildRoute({
 		fix: {
 			"SECOND-VAR": `name the binary through ${envVar}, the one var ${primitive} reads, as ${exemplar} and ${shellExemplar} do.`,
 			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
-			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it \`${bin}-route-exempt: #N\` where \`${bin}\` is only text.`,
+			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it ${exemptHint(/** @type {const} */ (`${bin}-route`))} where \`${bin}\` is only text.`,
 			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
 		},
 		secondVar,
-		exempt: new RegExp(`${bin}-route-exempt:\\s*(?:\\w|#\\d)`),
+		exempt: exemptMarker(/** @type {const} */ (`${bin}-route`)),
 		envRead: new RegExp(`\\bprocess\\.env\\.${envVar}\\b(?!\\s*=[^=])`),
 		literalSpawn: new RegExp(
 			`\\b(?:execFileSync|execFile|spawnSync|spawn)\\s*\\(\\s*(["'\`])${bin}\\1`,

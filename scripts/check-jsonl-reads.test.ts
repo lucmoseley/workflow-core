@@ -83,7 +83,8 @@ describe("check-jsonl-reads", () => {
 		expect(r.out).toContain("OK: 4 program(s), no hand-parsed JSONL.");
 	});
 
-	it("honours the opt-out marker only where it gives a reason", () => {
+	it("honours the opt-out marker only where it names an issue", () => {
+		program("pointer.js", `// jsonl-read-exempt: #3452\n${LOOP}`);
 		program(
 			"why.js",
 			`// jsonl-read-exempt: git log lines, not JSONL\n${LOOP}`,
@@ -91,7 +92,9 @@ describe("check-jsonl-reads", () => {
 		program("bare.js", `// jsonl-read-exempt:\n${LOOP}`);
 		const r = run();
 		expect(r.status).toBe(1);
-		expect(r.out).toContain("1 site(s) hand-parse JSONL: scripts/bare.js:2.");
+		expect(r.out).toContain(
+			"2 site(s) hand-parse JSONL: scripts/bare.js:2, scripts/why.js:2.",
+		);
 	});
 });
 

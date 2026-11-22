@@ -16,7 +16,7 @@ tracker deliberately; the prefix is that entry's content and is left alone.
 So is an owner-qualified `lucmoseley/mantahostels#N`, a deliberate cross-repo
 reference.
 
-Genuinely citing an inherited issue the corpus never cited? Put
-`citation-exempt: <why>` on the line — nothing validates the reason.
+Genuinely citing an inherited issue the corpus never cited? Record why on an
+issue and put `citation-exempt: #N`, naming it, on the line.
 `WFC_CITATION_TRACKER_OFF=1` stands the commit gate down for one commit,
 named on that commit's `Weakens:` line.
