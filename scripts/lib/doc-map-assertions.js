@@ -93,8 +93,10 @@ function parseCitedAssertions(text) {
 	);
 }
 
+/** @typedef {{ file: string, text: string }} CitingFile */
+
 /**
- * @param {{ file: string, text: string }[]} files
+ * @param {CitingFile[]} files
  * @returns {{ file: string, assertion: number }[]}
  */
 function unresolvedCitations(files) {

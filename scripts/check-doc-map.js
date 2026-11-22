@@ -125,6 +125,7 @@ const generatorCommand = (name) =>
  * @typedef {Record<string, import("./lib/doc-map").RestatementEntry>} Restatements
  * @typedef {ReturnType<typeof figureHeadings>} Headings
  * @typedef {ReturnType<typeof loadDocClasses> | null} Classes
+ * @typedef {import("./lib/doc-map-assertions").CitingFile} CitingFile
  */
 
 const FIGURE = /(?<![\w#-])\d+(?:\.\d+)?(?![\w-])/g;
@@ -805,9 +806,9 @@ function readCitingFiles(r) {
 			([, v]) => /** @type {{ class?: unknown }} */ (v)?.class === BINARY_CLASS,
 		)
 		.map(([k]) => sectionAMatcher(k));
-	/** @type {{ file: string, text: string }[]} */
+	/** @type {CitingFile[]} */
 	const sectionCiting = [];
-	/** @type {{ file: string, text: string }[]} */
+	/** @type {CitingFile[]} */
 	const assertionCiting = [];
 	for (const file of allTracked) {
 		if (isCollectedTestOrConftest(file) || refExempt.some((t) => t(file)))
@@ -827,7 +828,7 @@ function readCitingFiles(r) {
 
 /**
  * @param {Run} r
- * @param {{ file: string, text: string }[]} refFiles
+ * @param {CitingFile[]} refFiles
  */
 function checkSectionRefs(r, refFiles) {
 	const { ctx, text } = r;
@@ -850,7 +851,7 @@ function checkSectionRefs(r, refFiles) {
 
 /**
  * @param {Ctx} ctx
- * @param {{ file: string, text: string }[]} citingFiles
+ * @param {CitingFile[]} citingFiles
  */
 function checkAssertionCitations(ctx, citingFiles) {
 	const deadCitations = unresolvedCitations(citingFiles);
