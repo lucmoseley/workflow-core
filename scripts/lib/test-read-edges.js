@@ -1684,6 +1684,35 @@ function addReader(byDoc, p, t) {
 	byDoc.set(p, readers);
 }
 
+const TESTKIT = /-testkit\.[cm]?[jt]sx?$/;
+
+/** @param {string} p */
+const forwardsImports = (p) => TESTKIT.test(p) && !isJsTestFile(p);
+
+/**
+ * Walks on through a `*-testkit.*` helper's own imports, measured on #5575 against a two-hop walk through any helper.
+ * @param {string} t
+ * @param {string} source
+ * @param {Set<string>} tracked
+ * @param {(p: string) => string} read
+ * @returns {Set<string>}
+ */
+function helperReads(t, source, tracked, read) {
+	const found = new Set();
+	const seen = new Set([t]);
+	const queue = [...importedHelpers(source, t, tracked)];
+	while (queue.length > 0) {
+		const helper = /** @type {string} */ (queue.pop());
+		if (seen.has(helper)) continue;
+		seen.add(helper);
+		const code = blankComments(read(helper));
+		for (const p of edgesFor(code, tracked, helper)) found.add(p);
+		if (forwardsImports(helper))
+			queue.push(...importedHelpers(code, helper, tracked));
+	}
+	return found;
+}
+
 /**
  * @param {string} t
  * @param {string} source
@@ -1694,9 +1723,8 @@ function addReader(byDoc, p, t) {
 function testReads(t, source, tracked, read) {
 	const found = new Set(edgesFor(source, tracked, t));
 	for (const p of ruleEdgesFor(source, tracked, t)) found.add(p);
-	for (const helper of importedHelpers(source, t, tracked))
-		for (const p of edgesFor(blankComments(read(helper)), tracked, helper))
-			if (p !== t) found.add(p);
+	for (const p of helperReads(t, source, tracked, read))
+		if (p !== t) found.add(p);
 	for (const p of readPatchTargets(found, tracked, read))
 		if (p !== t) found.add(p);
 	return found;

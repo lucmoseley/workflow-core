@@ -560,6 +560,24 @@ describe("buildManifest", () => {
 		expect(edges["scripts/c.test.ts"]).toBeUndefined();
 	});
 
+	it("walks on through a testkit's own imports, and stops at a plain helper's (#5575)", () => {
+		const twoHop = (middle: string) => {
+			const files: Record<string, string> = {
+				[CLAUDE]: "",
+				"scripts/c.test.ts": `import { f } from "./lib/${middle}";\nf();`,
+				[`scripts/lib/${middle}.ts`]: `import { g } from "./helper";\nexport const f = g;`,
+				"scripts/lib/helper.ts": `process.cwd(); read("${CLAUDE}");`,
+			};
+			const { edges } = buildManifest(
+				new Set(Object.keys(files)),
+				(p) => files[p],
+			);
+			return edges[CLAUDE] ?? [];
+		};
+		expect(twoHop("stamp-testkit")).toEqual(["scripts/c.test.ts"]);
+		expect(twoHop("stamp-harness")).toEqual([]);
+	});
+
 	it("takes no edge from a path a helper's comment cites (#2093)", () => {
 		const citing: Record<string, string> = {
 			"scripts/lib/helper.ts": `process.cwd();\n// "${CLAUDE}" §N8\n/* "${DOC}" */`,
