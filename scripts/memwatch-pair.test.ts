@@ -12,8 +12,8 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
 
-// env-write-exempt: #4982
-process.env.WFC_READ_AUDIT_UNTRACED = "1";
+// #4982
+const UNTRACED_ENV = { ...process.env, WFC_READ_AUDIT_UNTRACED: "1" };
 
 const HOME = os.homedir();
 const MEMCHECK = path.join(HOME, "memcheck.sh");
@@ -28,7 +28,7 @@ const memwatch = (env: NodeJS.ProcessEnv) =>
 	promisify(execFile)("bash", [MEMWATCH], { env });
 
 const baseEnv: NodeJS.ProcessEnv = {
-	...process.env,
+	...UNTRACED_ENV,
 	MEMWATCH_MINUTE_LOG: path.join(tmp, "minute.jsonl"),
 	MEMWATCH_RUNAWAY_LOG: path.join(tmp, "runaway-default.jsonl"),
 	MEMWATCH_WIN_READ: "",
@@ -65,7 +65,7 @@ afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 function runMemcheckLine(watchdogSrc: string): string {
 	return execFileSync("bash", [MEMCHECK, "--memwatch-line"], {
-		env: { ...process.env, MEMCHECK_WATCHDOG_SRC: watchdogSrc },
+		env: { ...UNTRACED_ENV, MEMCHECK_WATCHDOG_SRC: watchdogSrc },
 		encoding: "utf8",
 	});
 }
@@ -81,6 +81,7 @@ describe.skipIf(!present).concurrent("memcheck threshold line", () => {
 
 	it("parses a number out of the real watchdog source", () => {
 		const out = execFileSync("bash", [MEMCHECK, "--memwatch-line"], {
+			env: UNTRACED_ENV,
 			encoding: "utf8",
 		});
 		expect(out).toMatch(/exceeds \d+ MB\./);
@@ -111,7 +112,7 @@ describe.skipIf(!present).concurrent("memcheck threshold line", () => {
 		const src = path.join(tmp, "fabricated-memwatch-full.sh");
 		fs.writeFileSync(src, `THRESHOLD_MB="\${MEMWATCH_THRESHOLD_MB:-4321}"\n`);
 		const out = execFileSync("bash", [MEMCHECK], {
-			env: { ...process.env, MEMCHECK_WATCHDOG_SRC: src },
+			env: { ...UNTRACED_ENV, MEMCHECK_WATCHDOG_SRC: src },
 			encoding: "utf8",
 		});
 		expect(out).toContain("4321 MB");
@@ -721,7 +722,9 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch CPU trigger", () => {
 			`#!/bin/sh\ncat <<'EOF'\n${frame}\n${frame}\nEOF\n`,
 			{ mode: 0o755 },
 		);
-		const spinner = spawn("sh", ["-c", "while :; do :; done"]);
+		const spinner = spawn("sh", ["-c", "while :; do :; done"], {
+			env: UNTRACED_ENV,
+		});
 		try {
 			const { out } = await runLoop(
 				{
@@ -776,7 +779,7 @@ describe
 				while (Date.now() < deadline && !re.test(read())) await setTimeout(250);
 			};
 			const spinners = [0, 1].map(() =>
-				spawn("sh", ["-c", "while :; do :; done"]),
+				spawn("sh", ["-c", "while :; do :; done"], { env: UNTRACED_ENV }),
 			);
 			try {
 				await waitFor(/sched clock: frozen/);
