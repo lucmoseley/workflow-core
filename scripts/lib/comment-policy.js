@@ -1,8 +1,5 @@
 const { CALLER_BODY, LOADS_BODY } = require("./code-edges-pragmas.js");
-const {
-	DENIES_BY_EXIT_BODY,
-	DENIES_THROUGH_BODY,
-} = require("./deny-capable.js");
+const { DENIES_THROUGH_BODY } = require("./deny-capable.js");
 const { SHIM_MARK } = require("./hook-shim.js");
 const { EXEMPT_MARKERS, POINTER } = require("./exempt-markers.js");
 const { escapeRe } = require("./regex-group.js");
@@ -632,9 +629,7 @@ const DIRECTIVES = [
 	},
 	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
 	{
-		re: new RegExp(
-			String.raw`^(?:${DENIES_THROUGH_BODY}|${DENIES_BY_EXIT_BODY})[ \t]*$`,
-		),
+		re: new RegExp(String.raw`^${DENIES_THROUGH_BODY}[ \t]*$`),
 		read: readsAsCode,
 	},
 	{

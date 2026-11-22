@@ -428,7 +428,8 @@
 			"failure": "closed",
 			"tree": "host",
 			"host": "agent-poll-host.js",
-			"if": ["Bash(*sleep *)", "Bash(true*)", "Bash(:*)", "Bash(exit*)"]
+			"if": ["Bash(*sleep *)", "Bash(true*)", "Bash(:*)", "Bash(exit*)"],
+			"denyTiming": "delayed"
 		},
 		{
 			"name": "guard-echo-call",

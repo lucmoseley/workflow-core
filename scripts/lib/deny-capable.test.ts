@@ -90,24 +90,36 @@ describe("a DENIES-THROUGH: header line", () => {
 	});
 });
 
-describe("a DENIES-BY: exit 2 header line (#2473)", () => {
-	it("admits a guard declaring it that exits 2", () => {
+describe("an exit-code refusal through REFUSE_EXIT (#2473, #5541)", () => {
+	it("admits a guard that sets REFUSE_EXIT=2 and exits with it", () => {
 		expect(
 			judged(
-				"#!/usr/bin/env bash\n# DENIES-BY: exit 2\n\necho no >&2\nexit 2\n",
+				'#!/usr/bin/env bash\nREFUSE_EXIT=2\necho no >&2\nexit "$REFUSE_EXIT"\n',
 			),
 		).toBe(true);
 	});
 
-	it("declares nothing where the script never exits 2", () => {
-		expect(judged("#!/usr/bin/env bash\n# DENIES-BY: exit 2\n\nexit 1\n")).toBe(
-			false,
-		);
+	it("admits the readonly spelling", () => {
+		expect(
+			judged(
+				'#!/usr/bin/env bash\nreadonly REFUSE_EXIT=2\nexit "$REFUSE_EXIT"\n',
+			),
+		).toBe(true);
 	});
 
-	it("declares nothing below the header", () => {
+	it("declares nothing where the guard never exits with it", () => {
+		expect(judged("#!/usr/bin/env bash\nREFUSE_EXIT=2\nexit 1\n")).toBe(false);
+	});
+
+	it("declares nothing where REFUSE_EXIT is not 2", () => {
 		expect(
-			judged("#!/usr/bin/env bash\nrun\n# DENIES-BY: exit 2\nexit 2\n"),
+			judged('#!/usr/bin/env bash\nREFUSE_EXIT=1\nexit "$REFUSE_EXIT"\n'),
+		).toBe(false);
+	});
+
+	it("reads no commented-out spelling", () => {
+		expect(
+			judged('#!/usr/bin/env bash\n# REFUSE_EXIT=2\n# exit "$REFUSE_EXIT"\n'),
 		).toBe(false);
 	});
 

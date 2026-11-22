@@ -1,33 +1,3 @@
-/*
- * round-holds.js — a PreToolUse dispatcher core (#3858, spec #3597, #3195): one
- * question per founder-only block. It refuses, once a round, a background job's
- * `gh issue comment` that posts a question round, printing the checkout's open
- * repo holds.
- *
- * BEFORE THE POST, as a Stop guard's refusal comes once the round has reached
- * him. Refused rather than told: a PreToolUse context reaches the session with
- * the call's result, the round already out.
- *
- * WHETHER THE ROUND IS THE HOLD'S ACT IS THE SESSION'S JUDGEMENT. So it also
- * refuses a round about one ticket alone, whose re-send passes.
- *
- * A BACKGROUND JOB ONLY: nothing parks in an interactive session.
- *
- * LIMITS
- *  - Two jobs that both find no hold, within seconds, both raise and both ask.
- *  - A body it cannot read (`$(cat …)`, a file the same call writes, a missing
- *    file) passes, logged, and a round posted through `gh api` or a script's
- *    child `gh` is not seen.
- *  - A job that dies between raising and posting leaves a hold whose attachers
- *    wait on a round nobody posted.
- *  - Wired with `if: Bash(gh *)` (best-effort: a `timeout gh …` prefix or a
- *    path-spelled `gh` goes unjudged).
- *
- * IMPLICIT:  refuses, once per round body, a background job's `gh issue comment` whose body opens a `❓ **Qn**` round, printing this checkout's open repo holds and the attach and raise commands.
- * JUSTIFIED: fail-safe — once the round is posted the founder has the duplicate; this is the last moment before it (#3597).
- * DEFEAT:    re-send the same call: the latch passes it.
- */
-
 const { isBackgroundJob } = require("./job-paths.js");
 const { COMMENT_SPELLING, readIssueCall } = require("./gh-acts.js");
 const { isGh } = require("./gh-issue-ref.js");

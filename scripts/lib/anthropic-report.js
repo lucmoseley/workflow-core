@@ -1,22 +1,3 @@
-/*
- * anthropic-report.js — the guard-anthropic-report core (#2798, programme
- * #2733): does a Bash call write to an `anthropics/*` repo?
- *
- * A CORE: it does no I/O. The rule store and the clone's remotes arrive as
- * ports; lib/anthropic-report-host.js builds the real ones.
- *
- * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
- * fail-open, which is logged and lets the whole call through unjudged — bar a
- * clone directory it cannot name, which waits for the walk to end with no
- * deny (#5067).
- *
- * NARROWED by its lib/guard-cores.json row to `if: Bash(*gh *)`, unanchored so
- * a `timeout`/`env`/`nohup` prefix still reaches the walker that steps past it
- * (#3224).
- *
- * UNGUARDED (#1987): a GraphQL target named by node id or a file-read query,
- * an unreadable repo, a script, `curl` or alias, and a Chrome form.
- */
 const {
 	apiPath,
 	defaultsToPost,
