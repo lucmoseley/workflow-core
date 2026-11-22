@@ -200,7 +200,7 @@ function readChangedPaths(ctx) {
  * @param {string} head
  */
 function dropAttributeExcluded(ctx, { paths, renames }, head) {
-	const excluded = readExcludedOr(ctx, paths, {
+	const excluded = readExcludedOrBroken(ctx, paths, {
 		from: head ? { rev: head } : "index",
 	});
 	return {
@@ -215,7 +215,7 @@ function dropAttributeExcluded(ctx, { paths, renames }, head) {
  * @param {import("./lib/git-attributes.js").AttributeRead} read
  * @returns {Set<string>}
  */
-function readExcludedOr(ctx, paths, read) {
+function readExcludedOrBroken(ctx, paths, read) {
 	try {
 		return readAttributeExcluded(paths, read);
 	} catch (e) {
@@ -231,22 +231,34 @@ function readExcludedOr(ctx, paths, read) {
 function readJudgedFiles(ctx, root) {
 	const walked = ctx.has("--root");
 	const files = readTreeFiles(ctx, root, walked);
-	if (!inWorkTree(ctx, root)) return files;
-	const excluded = readExcludedOr(ctx, files, {
+	if (ctx.side) return files;
+	const env = walked ? withoutGitRedirects() : undefined;
+	if (!inWorkTree(ctx, root, env)) return files;
+	const excluded = readExcludedOrBroken(ctx, files, {
 		from: walked ? "worktree" : "index",
 		cwd: root,
+		env,
 	});
 	return files.filter((p) => !excluded.has(p));
 }
 
+const withoutGitRedirects = () =>
+	Object.fromEntries(
+		Object.entries(process.env).filter(
+			([k]) => !["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"].includes(k),
+		),
+	);
+
 /**
  * @param {Ctx} ctx
  * @param {string} root
+ * @param {NodeJS.ProcessEnv} [env]
  */
-function inWorkTree(ctx, root) {
+function inWorkTree(ctx, root, env) {
 	const r = spawnGitSync(["rev-parse", "--is-inside-work-tree"], {
 		cwd: root,
 		encoding: "utf8",
+		...(env ? { env } : {}),
 	});
 	if (r.error) ctx.broken(`git rev-parse failed: ${r.error.message}`);
 	return r.status === 0 && r.stdout.trim() === "true";

@@ -7,7 +7,7 @@ const EXCLUDING_ATTRS = ["linguist-vendored", "linguist-generated"];
 
 /**
  * @typedef {"worktree" | "index" | { rev: string }} AttributeSource
- * @typedef {{ from?: AttributeSource, timeout?: number, cwd?: string }} AttributeRead
+ * @typedef {{ from?: AttributeSource, timeout?: number, cwd?: string, env?: NodeJS.ProcessEnv }} AttributeRead
  */
 
 /**
@@ -17,31 +17,39 @@ const EXCLUDING_ATTRS = ["linguist-vendored", "linguist-generated"];
  */
 function readAttributeExcluded(
 	paths,
-	{ from = "worktree", timeout, cwd } = {},
+	{ from = "worktree", timeout, cwd, env } = {},
 ) {
 	if (paths.length === 0) return new Set();
 	const opts = {
 		encoding: /** @type {const} */ ("utf8"),
 		...(timeout === undefined ? {} : { timeout }),
 		...(cwd === undefined ? {} : { cwd }),
+		...(env === undefined ? {} : { env }),
 	};
 	if (typeof from !== "object") return checkAttr(paths, from === "index", opts);
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "git-attributes-"));
 	try {
-		const index = path.join(dir, "index");
-		const r = spawnGitSync(
-			["read-tree", `--index-output=${index}`, from.rev],
-			opts,
-		);
-		if (r.status !== 0)
-			throw new Error(`git read-tree ${from.rev} failed: ${r.stderr.trim()}`);
-		return checkAttr(paths, true, {
+		const scratch = {
 			...opts,
-			env: { ...process.env, GIT_INDEX_FILE: index },
-		});
+			env: { ...(env ?? process.env), GIT_INDEX_FILE: path.join(dir, "index") },
+		};
+		failed(
+			spawnGitSync(["read-tree", from.rev], scratch),
+			`read-tree ${from.rev}`,
+		);
+		return checkAttr(paths, true, scratch);
 	} finally {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
+}
+
+/**
+ * @param {import("node:child_process").SpawnSyncReturns<string>} r
+ * @param {string} what
+ */
+function failed(r, what) {
+	if (r.error) throw new Error(`git ${what} failed: ${r.error.message}`);
+	if (r.status !== 0) throw new Error(`git ${what} failed: ${r.stderr.trim()}`);
 }
 
 /**
@@ -61,8 +69,7 @@ function checkAttr(paths, cached, opts) {
 		],
 		{ ...opts, input: paths.map((p) => `${p}\0`).join("") },
 	);
-	if (r.status !== 0)
-		throw new Error(`git check-attr failed: ${r.stderr.trim()}`);
+	failed(r, "check-attr");
 	const fields = r.stdout.split("\0");
 	const excluded = new Set();
 	for (let i = 0; i + 2 < fields.length; i += 3) {

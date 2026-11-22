@@ -34,13 +34,19 @@ const commit = (message: string) => {
 	git("commit", "-qm", message);
 };
 
-const run = (...args: string[]) => {
+const runWith = (env: NodeJS.ProcessEnv, ...args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: root,
-		env: { ...process.env, GITHUB_ACTIONS: "", CLAUDE_PROJECT_DIR: root },
+		env: {
+			...process.env,
+			GITHUB_ACTIONS: "",
+			CLAUDE_PROJECT_DIR: root,
+			...env,
+		},
 	});
 	return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 };
+const run = (...args: string[]) => runWith({}, ...args);
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "comment-policy-"));
@@ -104,30 +110,34 @@ describe("check-comment-policy", () => {
 	});
 
 	const marked = ["vendor/a.js", "gen/b.js", "vendor/keep/c.js"];
-	const writeMarked = (text: string) => {
+	const writeMarked = (text: string, dir = "") => {
 		write(
-			".gitattributes",
+			`${dir}.gitattributes`,
 			"vendor/** linguist-vendored\ngen/** linguist-generated\nvendor/keep/** -linguist-vendored\n",
 		);
-		for (const rel of marked) write(rel, text);
+		for (const rel of marked) write(`${dir}${rel}`, text);
 	};
 	const stray = "const a = 1;\n// a stray note\n";
-	const expectOnlyUnmarked = (r: { status: number; out: string }) => {
+	const expectOnlyUnmarked = (
+		r: { status: number; out: string },
+		kept = "vendor/keep/c.js:2",
+	) => {
 		expect(r.status).toBe(1);
-		expect(r.out).toContain("vendor/keep/c.js");
+		expect(r.out).toContain(kept);
 		expect(r.out).not.toContain("vendor/a.js");
 		expect(r.out).not.toContain("gen/b.js");
 	};
 
 	it.each([
-		["the host root", []],
-		["--root", ["--root", "."]],
+		["the host root", [], ""],
+		["--root", ["--root", "."], ""],
+		["a --root below the checkout's top", ["--root", "sub"], "sub/"],
 	])(
 		"--all skips what .gitattributes marks vendored or generated, from %s",
-		(_, args) => {
-			writeMarked(stray);
+		(_, args, dir) => {
+			writeMarked(stray, dir);
 			git("add", "-A");
-			expectOnlyUnmarked(run(...args, "--all"));
+			expectOnlyUnmarked(run(...args, "--all"), "vendor/keep/c.js");
 		},
 	);
 
@@ -251,13 +261,34 @@ describe("check-comment-policy", () => {
 			expectOnlyUnmarked(run("--against", "HEAD"));
 		});
 
-		it("reads --head's own attributes, not the index's", () => {
+		it("reads --head's own attributes, not the index's or the worktree's", () => {
 			writeMarked("const a = 1;\n");
 			commit("attributes");
 			writeMarked(stray);
 			commit("comments");
-			git("rm", "-q", "--cached", ".gitattributes");
+			git("rm", "-q", ".gitattributes");
 			expectOnlyUnmarked(run("--against", "HEAD~1", "--head", "HEAD"));
+		});
+
+		it("judges a side by its own tree under a hook's exported GIT_DIR", () => {
+			writeMarked("const a = 1;\n");
+			commit("attributes");
+			writeMarked(stray);
+			commit("comments");
+			write(
+				".gitattributes",
+				"vendor/** linguist-vendored\ngen/** linguist-generated\n",
+			);
+			git("add", ".gitattributes");
+			expectOnlyUnmarked(
+				runWith(
+					{ GIT_DIR: path.join(root, ".git") },
+					"--against",
+					"HEAD~1",
+					"--head",
+					"HEAD",
+				),
+			);
 		});
 	});
 });
