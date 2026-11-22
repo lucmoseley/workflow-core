@@ -41,7 +41,7 @@
  *     a file, and
  *     Explore and Plan, read-only by their own instructions (#565), are exempt
  *     by name (lib/dispatch-artefact.js's EXEMPT_AGENT_TYPES). A fork is
- *     not, nor is an `isolation: "remote"` dispatch.
+ *     not.
  *
  * The subject is the dispatch's `prompt`, a field the harness requires of
  * every `Agent` and `Task` call; the core judges the whole `tool_input`.

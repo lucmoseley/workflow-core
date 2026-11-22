@@ -229,7 +229,7 @@ describe("injectArtefact — the transform over one Agent call", () => {
 		).not.toBeNull();
 	});
 
-	it("gives a remote dispatch the line, which runs as a local worktree agent (#5521)", () => {
+	it("gives a remote dispatch the line (#5521)", () => {
 		expect(
 			injectArtefact({ prompt: "Do it.", isolation: "remote" }, FILE, watch),
 		).not.toBeNull();
