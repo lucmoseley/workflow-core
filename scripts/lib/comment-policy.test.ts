@@ -132,6 +132,21 @@ describe("the permitted shapes", () => {
 				"py",
 			),
 		).toEqual(["COMMENT@1"]);
+		expect(
+			tags(
+				"// `vitest` ran it twice in May,\n// `vitest` then once in June,\n// and https://example.com/x says why.\nconst a = 1;\n",
+				"js",
+			),
+		).toEqual(["COMMENT@1"]);
+	});
+
+	it("refuses an issue or pull request URL as a source, with reasoning beside it (#5589)", () => {
+		expect(
+			tags(
+				"// WHY THIS EXISTS: history.\n// See [#1297](https://github.com/o/r/issues/1297).\nconst a = 1;\n// kept for the lander https://github.com/o/r/pull/12\nconst b = 1;\n",
+				"js",
+			),
+		).toEqual(["COMMENT@1", "COMMENT@4"]);
 	});
 
 	it("refuses a dependency's name used as a word, unquoted or bare of its scope (#5492)", () => {

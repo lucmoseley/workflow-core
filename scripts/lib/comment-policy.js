@@ -759,7 +759,9 @@ function barePointers(text) {
 const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
 const DERIVATION = /\b(?:measured|guess)\b/i;
 const ISSUE = /(?<![\w&])#\d+|\/[\w.-]+#\d+/;
-const URL = /\bhttps?:\/\/\S/;
+const URLS = /\bhttps?:\/\/\S+/g;
+const ISSUE_URL =
+	/^https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+/;
 
 /**
  * @param {string} line
@@ -825,12 +827,15 @@ function splitDirectives(unit, facts) {
 /**
  * @param {string[]} prose
  * @param {FileFacts} facts
+ * @returns {boolean}
  */
-function sourceNote(prose, facts) {
+function isSourceNote(prose, facts) {
 	const unsourced = prose.filter(
-		(line) => !URL.test(line) && !facts.deps?.test(line),
+		(line) =>
+			!line.match(URLS)?.some((u) => !ISSUE_URL.test(u)) &&
+			!facts.deps?.test(line),
 	).length;
-	return unsourced < prose.length && unsourced <= 1;
+	return prose.length <= 2 && unsourced < prose.length;
 }
 
 /**
@@ -857,7 +862,7 @@ function proseBreach(unit, prose, facts) {
 	}
 	if (prose.length === 1 && DERIVATION.test(text) && ISSUE.test(text))
 		return null;
-	if (sourceNote(prose, facts)) return null;
+	if (isSourceNote(prose, facts)) return null;
 	if (onShippedExport(unit, facts)) return null;
 	return { tag: "COMMENT", ...at, why: "fits no permitted comment kind" };
 }
