@@ -2512,6 +2512,23 @@ describe("Section B pointer shape", () => {
 		expect(r.out).toContain("B1 — pointer says 3 path(s)");
 	});
 
+	it("names the host's own sidecars in the templates, though the plugin ships them too (#5598)", () => {
+		const plugin = mkScratchDir("plugin-");
+		fs.mkdirSync(path.join(plugin, "docs"));
+		for (const f of [RESTATEMENTS, SUPERSEDED])
+			fs.writeFileSync(path.join(plugin, f), "{}\n");
+		fixture(entry("B1", pointer(3)), {
+			B1: { paths: [{ path: "docs/notes.md" }] },
+		});
+		const r = check({ WFC_SCRIPT_ROOT: plugin });
+		expect(r.out).toContain(
+			"- **Restated in:** <n> paths, in `docs/doc-map-restatements.json`.",
+		);
+		expect(r.out).toContain(
+			"- **Supersedes:** see `docs/doc-map-superseded.json`.",
+		);
+	});
+
 	it("prints the three templates when it FAILs", () => {
 		fixture(entry("B1", pointer(3)), {
 			B1: { paths: [{ path: "docs/notes.md" }] },

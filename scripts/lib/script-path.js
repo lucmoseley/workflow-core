@@ -83,19 +83,30 @@ function expandPastePaths(text, host) {
 
 const CORE_PATH = /(?<![\w./$}-])(?:\.\/)?(scripts|docs)\/([\w*.-][\w*./-]*)/g;
 
-// #5598
+/** @type {Set<string> | null} */
+let hostOwned = null;
+
+/** @returns {Set<string>} */
+function hostOwnedPaths() {
+	hostOwned ??= new Set(
+		fs
+			.readFileSync(path.join(__dirname, "host-owned-paths.txt"), "utf8")
+			.split("\n")
+			.filter(Boolean),
+	);
+	return hostOwned;
+}
+
 /**
  * @param {string} text
- * @param {{ keep?: Iterable<string> }} [opts]
  * @returns {string}
  */
-function resolveScriptPaths(text, { keep = [] } = {}) {
+function resolveScriptPaths(text) {
 	if (inCheckout()) return text;
-	const kept = new Set(keep);
 	return text.replace(CORE_PATH, (whole, dir, rest) => {
 		const name = trimEndRun(rest, ".");
 		const file = `${coreRoot()}/${dir}/${name}`;
-		if (!name || kept.has(`${dir}/${name}`) || !fs.existsSync(file))
+		if (!name || hostOwnedPaths().has(`${dir}/${name}`) || !fs.existsSync(file))
 			return whole;
 		return shellQuote(file) + rest.slice(name.length);
 	});
@@ -109,4 +120,5 @@ module.exports = {
 	corePath,
 	expandPastePaths,
 	resolveScriptPaths,
+	hostOwnedPaths,
 };

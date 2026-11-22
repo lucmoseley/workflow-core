@@ -279,16 +279,19 @@ describe("in a plugin install", () => {
 		);
 	});
 
-	it("leaves a kept host-owned path as written though the core ships it (#5598)", () => {
+	it("leaves a host-owned path as written though the core ships it, both twins alike (#5598)", () => {
 		const root = install(["a.js"]);
 		fs.mkdirSync(path.join(root, "docs"));
-		fs.writeFileSync(path.join(root, "docs", "doc-map.md"), "");
+		for (const f of ["doc-map.md", "doc-map-restatements.json"])
+			fs.writeFileSync(path.join(root, "docs", f), "");
 		vi.stubEnv("WFC_SCRIPT_ROOT", root);
-		expect(
-			resolveScriptPaths("node scripts/a.js docs/doc-map.md", {
-				keep: ["docs/doc-map.md"],
-			}),
-		).toBe(`node ${root}/scripts/a.js docs/doc-map.md`);
+		const text =
+			"node scripts/a.js docs/doc-map.md, see `docs/doc-map-restatements.json`.";
+		const want = `node ${root}/scripts/a.js docs/doc-map.md, see \`docs/doc-map-restatements.json\`.`;
+		expect(resolveScriptPaths(text)).toBe(want);
+		expect(bash("resolve_script_paths", { WFC_SCRIPT_ROOT: root }, text)).toBe(
+			want,
+		);
 	});
 
 	it("serves a rule fragment resolved, from both rule-text accessors", () => {

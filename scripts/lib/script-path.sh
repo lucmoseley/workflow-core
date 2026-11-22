@@ -3,6 +3,7 @@ _sp_here="${BASH_SOURCE[0]%/*}"
 [[ "$_sp_here" == "${BASH_SOURCE[0]}" ]] && _sp_here=.
 _SP_CORE_ROOT="$(CDPATH='' cd -P -- "$_sp_here/../.." && pwd)"
 unset _sp_here
+_SP_HOST_OWNED=$'\n'"$(<"$_SP_CORE_ROOT/scripts/lib/host-owned-paths.txt")"$'\n'
 
 _sp_root_into() {
   local -n _sp_root="$1"
@@ -73,7 +74,7 @@ resolve_script_paths() {
     pre="${text%%"${BASH_REMATCH[0]}"*}"
     name="${rest%"${rest##*[!.]}"}"
     out+="$pre$edge"
-    if [[ -n "$name" && -e "$root/$dir/$name" ]]; then
+    if [[ -n "$name" && "$_SP_HOST_OWNED" != *$'\n'"$dir/$name"$'\n'* && -e "$root/$dir/$name" ]]; then
       out+="$(sp_shell_word "$root/$dir/$name")${rest:${#name}}"
     else
       out+="${dot}$dir/$rest"

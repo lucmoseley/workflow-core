@@ -125,12 +125,6 @@ const generatorCommand = (name) =>
 
 const FIGURE = /(?<![\w#-])\d+(?:\.\d+)?(?![\w-])/g;
 
-// #5598
-const HOST_OWNED = [
-	"docs/doc-map.md",
-	...[CLASSES_FILE, ...Object.values(DATA_FILES)].map((f) => `docs/${f}`),
-];
-
 /**
  * @template T
  * @param {Ctx} ctx
@@ -163,7 +157,7 @@ function reportFault(
 	ctx[severity](tag, msg, { [key]: items }, [tag, ...ids].join("\t"));
 	ctx.say(msg);
 	for (const item of items) ctx.say(`  ${line(item)}`);
-	ctx.say(`\n${resolveScriptPaths(advice, { keep: HOST_OWNED })}`);
+	ctx.say(`\n${resolveScriptPaths(advice)}`);
 }
 
 /** @param {number} ms */
