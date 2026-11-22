@@ -36,9 +36,15 @@ const keysAfterFacade = (file: string) =>
 		),
 	) as string[];
 
+const requires = (file: string) =>
+	[...fs.readFileSync(file, "utf8").matchAll(/require\("(\.[^"]+)"\)/g)]
+		.map((m) => path.resolve(path.dirname(file), m[1]))
+		.map((to) => (to.endsWith(".js") ? to : `${to}.js`))
+		.filter((to) => fs.existsSync(to));
+
 describe("every family module loads as the entry point", () => {
-	it("finds all fifteen — the twelve families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
-		expect(families.length).toBe(15);
+	it("finds all sixteen arbiter-*.js modules beside the facade", () => {
+		expect(families.length).toBe(16);
 	});
 
 	for (const file of families) {
@@ -51,48 +57,32 @@ describe("every family module loads as the entry point", () => {
 	}
 });
 
-describe("the two disciplines that make the cycle safe", () => {
+describe("the family modules' require graph", () => {
 	const readSource = (f: string) => fs.readFileSync(path.join(LIB, f), "utf8");
-	const cyclic = families.filter((f) =>
-		readSource(f).includes("biome-ignore lint/suspicious/noImportCycles"),
-	);
 
-	it("names the three files the header says are in the cycle", () => {
-		expect(cyclic).toEqual([
-			"arbiter-content.js",
-			"arbiter-locks.js",
-			"arbiter-observations.js",
-		]);
-	});
-
-	it("never destructures a sibling family's require", () => {
-		const offenders = families.flatMap((f) =>
-			[
-				...readSource(f).matchAll(
-					/const\s*\{[^}]*\}\s*=\s*require\("\.\/(arbiter-[\w-]+)\.js"\)/g,
-				),
-			]
-				.filter((m) => m[1] !== "arbiter-proc")
-				.map((m) => `${f} destructures ${m[1]}.js`),
+	it("holds no cycle through a family module, by any path", () => {
+		const reachesItself = (start: string) => {
+			const seen = new Set<string>();
+			const queue = requires(start);
+			while (queue.length > 0) {
+				const file = queue.pop() as string;
+				if (file === start) return true;
+				if (seen.has(file)) continue;
+				seen.add(file);
+				queue.push(...requires(file));
+			}
+			return false;
+		};
+		expect(families.filter((f) => reachesItself(path.join(LIB, f)))).toEqual(
+			[],
 		);
-		expect(offenders).toEqual([]);
 	});
 
-	it("fills the exports object in place wherever the requires are cyclic", () => {
-		for (const f of cyclic)
-			expect(readSource(f)).not.toMatch(/^module\.exports = \{/m);
-	});
-
-	it("fills it in place nowhere else, as base §N7's cycle exception allows", () => {
-		const inPlace = execFileSync(
-			"git",
-			["grep", "-lE", "^exports\\.[A-Za-z_$]+ =", "--", "scripts/*.js"],
-			{ cwd: path.join(LIB, "../.."), encoding: "utf8" },
-		)
-			.trim()
-			.split("\n")
-			.map((f) => path.basename(f));
-		expect(inPlace).toEqual(cyclic);
+	it("ends each family module on one module.exports, as base §N7 asks of an acyclic file", () => {
+		const inPlace = families.filter((f) =>
+			/^exports\.[A-Za-z_$]+ =/m.test(readSource(f)),
+		);
+		expect(inPlace).toEqual([]);
 	});
 });
 
@@ -140,12 +130,7 @@ describe("nothing the hook entry pulls reaches check.js either", () => {
 			const file = queue.pop() as string;
 			if (seen.has(file) || !fs.existsSync(file)) continue;
 			seen.add(file);
-			for (const m of fs
-				.readFileSync(file, "utf8")
-				.matchAll(/require\("(\.[^"]+)"\)/g)) {
-				const to = path.resolve(path.dirname(file), m[1]);
-				queue.push(to.endsWith(".js") ? to : `${to}.js`);
-			}
+			queue.push(...requires(file));
 		}
 		return seen;
 	};

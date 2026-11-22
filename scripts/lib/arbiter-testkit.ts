@@ -31,6 +31,9 @@ export const issueClaims: typeof import("./arbiter-issue-claims.js") =
 export const ledger: typeof import("./arbiter-ledger.js") = requireLocal(
 	"./arbiter-ledger.js",
 );
+export const lockFiles: typeof import("./arbiter-lock-files.js") = requireLocal(
+	"./arbiter-lock-files.js",
+);
 export const locks: typeof import("./arbiter-locks.js") =
 	requireLocal("./arbiter-locks.js");
 export const markers: typeof import("./arbiter-markers.js") = requireLocal(

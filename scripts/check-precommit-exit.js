@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { saySites } = require("./lib/heresy-scan.js");
 const { FIX_LINE, judgeHook } = require("./lib/precommit-exit.js");
 
@@ -22,7 +22,7 @@ const SPEC = {
 		pathspecs: () => FILES,
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		const files = FILES.filter((rel) => fs.existsSync(path.join(root, rel)));
 		for (const rel of files)
 			for (const { line, match, message } of judgeHook(

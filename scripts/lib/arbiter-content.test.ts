@@ -12,6 +12,7 @@ import {
 	gitRepo,
 	listedLocks,
 	live,
+	lockFiles,
 	locks,
 	noSessions,
 	registerSession,
@@ -341,7 +342,7 @@ describe("content identity — what the file held when its claimant last touched
 	describe("updateIfUnchanged — the rewrite that cannot clobber a replacement", () => {
 		it("puts back a lock that is not the one it read, rather than overwriting it", () => {
 			store.acquire(rel, live(sb, "alice"));
-			const r = locks.updateIfUnchanged(
+			const r = lockFiles.updateIfUnchanged(
 				rel,
 				(m) => m.claimId === "not-this-one",
 				(m) => ({ ...m, blob: "deadbeef" }),
