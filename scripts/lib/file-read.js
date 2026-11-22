@@ -55,4 +55,14 @@ const readTail = (file, bytes) =>
 		}
 	});
 
-module.exports = { readBytes, readTail, readText };
+/**
+ * @template T
+ * @param {FileRead<T>} got
+ * @returns {T | null}
+ */
+function throwUnreadable(got) {
+	if (got.state === "unreadable") throw got.error;
+	return got.state === "read" ? got.data : null;
+}
+
+module.exports = { readBytes, readTail, readText, throwUnreadable };

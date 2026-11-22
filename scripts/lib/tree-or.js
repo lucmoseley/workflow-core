@@ -34,7 +34,6 @@ const treeOrHost = (ctx) =>
 		root: ctx.root,
 		git: ctx.git,
 		read: ctx.read,
-		readText: ctx.readText,
 		repoRel: ctx.repoRel,
 	});
 

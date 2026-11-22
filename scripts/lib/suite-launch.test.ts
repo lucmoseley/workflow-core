@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import type { TreePorts } from "./guard-host-ports.js";
 import { PY_COLLECTED_TEST } from "./test-kind";
+import { treePortsFake } from "./tree-ports-fake";
 
 const { parseCommand, walkCommands } = require("./shell-parse.js") as {
 	parseCommand: (c: string) => { spans: string[] };
@@ -30,7 +32,7 @@ const {
 	hasNamedTestFiles: (words: string[]) => boolean;
 	isWholePytestRun: (argv: string[]) => boolean;
 	buildIsWrapperScript: (
-		tree: () => { readText: (rel: string) => string | null },
+		tree: () => TreePorts,
 		log: (what: string) => void,
 	) => (script: string) => boolean;
 	isOtherRunner: (words: string[], runners: () => string[]) => boolean;
@@ -52,7 +54,7 @@ const scripts: Record<string, string> = {
 const ports = {
 	runners: () => ["scripts/build-site.js"],
 	isWrapperScript: buildIsWrapperScript(
-		() => ({ readText: () => JSON.stringify({ scripts }) }),
+		() => treePortsFake({ "package.json": JSON.stringify({ scripts }) }),
 		() => undefined,
 	),
 };
@@ -257,14 +259,16 @@ describe("isOtherRunner's Python test globs", () => {
 });
 
 describe("buildIsWrapperScript (#4276)", () => {
-	const reader = (readText: (rel: string) => string | null) => {
+	const reader = (pkg?: string | Error) => {
 		const logs: string[] = [];
-		const tree = vi.fn(() => ({ readText }));
+		const tree = vi.fn(() =>
+			treePortsFake(pkg === undefined ? {} : { "package.json": pkg }),
+		);
 		return { logs, tree, is: buildIsWrapperScript(tree, (w) => logs.push(w)) };
 	};
 
 	it("reads the npm script's body, resolving the tree once on the first ask", () => {
-		const r = reader(() => JSON.stringify({ scripts }));
+		const r = reader(JSON.stringify({ scripts }));
 		expect(r.tree).not.toHaveBeenCalled();
 		expect(r.is("test")).toBe(false);
 		expect(r.is("test:changed")).toBe(true);
@@ -272,16 +276,14 @@ describe("buildIsWrapperScript (#4276)", () => {
 	});
 
 	it("answers yes, unlogged, where package.json is absent", () => {
-		const r = reader(() => null);
+		const r = reader();
 		expect(r.is("test")).toBe(true);
 		expect(r.logs).toEqual([]);
 	});
 
 	it("answers yes, logged, where package.json will not read or parse", () => {
-		const unreadable = reader(() => {
-			throw new Error("EACCES");
-		});
-		const unparsed = reader(() => "{");
+		const unreadable = reader(new Error("EACCES"));
+		const unparsed = reader("{");
 		expect(unreadable.is("test")).toBe(true);
 		expect(unparsed.is("test")).toBe(true);
 		expect([...unreadable.logs, ...unparsed.logs]).toHaveLength(2);

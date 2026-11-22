@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { readBytes, readTail, readText } = createRequire(__filename)(
-	"./file-read.js",
-) as typeof import("./file-read.js");
+const { readBytes, readTail, readText, throwUnreadable } = createRequire(
+	__filename,
+)("./file-read.js") as typeof import("./file-read.js");
 
 let dir: string;
 beforeEach(() => {
@@ -81,5 +81,14 @@ describe("readTail", () => {
 	it("tells a missing file apart from an unreadable one", () => {
 		expect(readTail(path.join(dir, "nope"), 8)).toEqual({ state: "absent" });
 		expect(readTail(dir, 8).state).toBe("unreadable");
+	});
+});
+
+describe("throwUnreadable", () => {
+	it("gives a read's data, null for an absent file, and throws an unreadable one's error", () => {
+		fs.writeFileSync(path.join(dir, "a"), "x");
+		expect(throwUnreadable(readText(path.join(dir, "a")))).toBe("x");
+		expect(throwUnreadable(readText(path.join(dir, "nope")))).toBeNull();
+		expect(() => throwUnreadable(readText(dir))).toThrow();
 	});
 });

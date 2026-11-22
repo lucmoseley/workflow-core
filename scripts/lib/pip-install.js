@@ -212,12 +212,10 @@ function loadDeclared(ctx) {
  * @returns {string | null}
  */
 function readDeclaring(tree, rel, ctx) {
-	try {
-		return tree.readText(rel);
-	} catch {
+	const got = tree.read(rel);
+	if (got.state === "unreadable")
 		ctx.log(`${rel} did not read — its packages are vetted as new`);
-		return null;
-	}
+	return got.state === "read" ? got.data : null;
 }
 
 /**

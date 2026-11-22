@@ -16,7 +16,7 @@ const { hotPathSet, isHookRegistration } = require("./hot-path-set.js") as {
 	hotPathSet: (
 		root: string,
 		port: {
-			readText: (rel: string) => string | null;
+			read: (rel: string) => ReturnType<typeof readText>;
 			isFile: (rel: string) => boolean;
 		},
 	) => string[];
@@ -47,11 +47,7 @@ const entry = (command: string, extra: Record<string, unknown> = {}) => ({
 
 const derived = () =>
 	hotPathSet(root, {
-		readText: (rel) => {
-			const read = readText(path.join(root, rel));
-			if (read.state === "unreadable") throw read.error;
-			return read.state === "read" ? read.data : null;
-		},
+		read: (rel) => readText(path.join(root, rel)),
 		isFile: (rel) =>
 			fs.statSync(path.join(root, rel), { throwIfNoEntry: false })?.isFile() ??
 			false,
