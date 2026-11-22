@@ -1,6 +1,3 @@
-// The two clauses, out of the block because the second spells its closer:
-// `if: Bash(*free *)` and `if: Bash(*/proc/meminfo*)`.
-
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 
 const NO_READING = new Set(["--help", "-V", "--version"]);

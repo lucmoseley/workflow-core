@@ -61,14 +61,6 @@
  * waits (#545): the watcher for a subagent, the foreground suite
  * (docs/agents/guard-registry.md §Machine limits), and `bg-run.sh wait`.
  *
- * Narrowed on Bash alone (mantahostels#2811, #3224). The Read and ListAgents
- * routes run unnarrowed, having no command to match on. The Bash routes run
- * only where one of the four `if` clauses on the core's lib/guard-cores.json
- * row matches — `if: Bash(*sleep *)`, `if: Bash(true*)`, `if: Bash(:*)`, `if: Bash(exit*)` — and between them they cover every ORDINARY spelling the three
- * Bash routes classify; lib/if-clause.js drops a segment's leading blanks
- * before matching. On the calls it does run on, a call no route classifies
- * leaves before the clock or the filesystem is touched.
- *
  * FAILS CLOSED on a throw (the dispatcher row's `failure`). Every fault it can name — a
  * window directory it cannot create, a window it cannot write — fails open,
  * logged (mantahostels#103 §6, mantahostels#147).
@@ -95,11 +87,6 @@
  * nothing wakes it to resume — so where the parent is told to end the turn, a
  * subagent is told to wait inside it, in lib/wait-text.js's words (#1735).
  */
-
-// deny-timing: delayed — the deny arrives on the THIRD poll, so a session
-// that never read the rule has already polled twice by the time this text
-// reaches it. CLAUDE.md's copy is the only one that arrives in time: do not
-// cut it (mantahostels#964).
 
 const { scratchDir, tabRecords, textOf } = require("./guard-entry.js");
 const { ruleOrFallback } = require("./guard-verdict.js");

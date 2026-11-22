@@ -28,11 +28,6 @@
  * and `grep … | wc -l` are the cheaper forms this guard is asking for, and
  * warning on them would be warning on the fix.
  *
- * The row's three Bash clauses, `Bash(*cat *)`, `Bash(*sed *)` and
- * `Bash(*awk *)`, name the only three commands `DUMPERS` holds across
- * limbs 1-3 (mantahostels#2811). A clause naming Bash never narrows the Read
- * limb (lib/if-clause.js's clausesAdmit).
- *
  * THE THRESHOLDS are overridable through WFC_WIDE_READ_BYTES, _LINES,
  * _MATCHES, _TOOL_BYTES and _CUT_BYTES, so a test can fire the limbs on
  * fixtures small enough to write.
