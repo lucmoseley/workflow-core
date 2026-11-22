@@ -154,7 +154,7 @@ function spawnDetachedRun({
 			);
 		const child = spawnOutliving(process.execPath, run, {
 			cwd: root,
-			env: buildCheckoutEnv(root),
+			env: { ...buildCheckoutEnv(root), WFC_NOW: undefined },
 			stdio: ["ignore", fd, fd],
 			owner: null,
 			wrap,

@@ -339,8 +339,8 @@ exec ${shellQuote(routed)} "$@"
 	it("rolls back a dispatch that threw a null, and retries it next tick (#4192)", () => {
 		raiseProbe();
 		serve();
-		const libs = ["./gh.js", "./repo-hold-notices.js"].map((l) =>
-			require.resolve(l),
+		const libs = ["./gh-binary.js", "./gh.js", "./repo-hold-notices.js"].map(
+			(l) => require.resolve(l),
 		);
 		const cp = require("node:child_process");
 		const real = cp.execFileSync;

@@ -17,13 +17,14 @@ import {
 	escapeShield,
 	normAbs,
 	parseCommand,
-	parseScript,
+	TEXT_ONLY_PORTS,
 	unmask,
 	unsetText,
+	unwrap,
 	walkCommands,
 	walkGit,
 } from "./shell-parse.js";
-import { literal, QUOTED, unwrap } from "./shell-words.js";
+import { literal, QUOTED } from "./shell-words.js";
 
 const braced = (inner: string) => `$\{${inner}}`;
 const DIR = "/fx";
@@ -1632,12 +1633,17 @@ describe("logical lines (mantahostels#182)", () => {
 	});
 
 	const runsOf = (command: string) => {
-		const spans: string[] = [];
-		return parseScript(command, spans).flatMap((cmd) =>
-			unwrap(cmd.words, spans).map((run) =>
-				run.words.map((w) => literal(w, spans).text),
-			),
+		const parsed = parseCommand(command);
+		const runs: string[][] = [];
+		walkCommands(
+			parsed,
+			(cmd: Command) => {
+				for (const run of unwrap(cmd.words, parsed.spans))
+					runs.push(run.words.map((w) => literal(w, parsed.spans).text));
+			},
+			TEXT_ONLY_PORTS,
 		);
+		return runs;
 	};
 
 	it.each([

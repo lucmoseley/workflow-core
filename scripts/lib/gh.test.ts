@@ -23,6 +23,7 @@ const VALIDATION_FAILED = path.join(
 );
 
 const LIB = path.resolve(__dirname, "gh.js");
+const BINARY_LIB = path.resolve(__dirname, "gh-binary.js");
 const CHECK_LIB = path.resolve(__dirname, "check.js");
 
 let dir: string;
@@ -62,15 +63,19 @@ describe("a call's wall-clock cap (#2677)", () => {
 		inject("#!/bin/sh\nexit 0\n");
 		const cp = require("node:child_process");
 		const spy = vi.spyOn(cp, "execFileSync");
-		try {
+		const reload = () => {
 			delete require.cache[LIB];
+			delete require.cache[BINARY_LIB];
+		};
+		try {
+			reload();
 			require(LIB).gh(["issue", "list"]);
 			expect(
 				(spy.mock.calls[0]?.[2] as { timeout?: number } | undefined)?.timeout,
 			).toBe(300_000);
 		} finally {
 			spy.mockRestore();
-			delete require.cache[LIB];
+			reload();
 		}
 	});
 

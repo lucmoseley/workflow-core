@@ -93,42 +93,6 @@ function refConflictExplanation(marketplaceName, conflict) {
 }
 
 /**
- * Runs `claude plugin marketplace add <addSource> --scope project`, then
- * `claude plugin install <pluginId> -y --scope project`, then `claude plugin
- * update <pluginId> --scope project -y` against `root`.
- *
- * The `install` call alone is not enough to reach a rotated ref (#103):
- * `install` on a plugin already installed under `pluginId` no-ops — it
- * reports success without re-fetching, leaving the previously-installed
- * files (and their `plugin.json` version) exactly as they were, regardless
- * of what `marketplace add` just rotated the source ref to.
- * `update` is the one command that re-pulls an already-installed plugin — it
- * detects a change via `plugin.json`'s `version` field, not the git ref, so
- * a tag that ships with an unbumped `version` still leaves it a no-op. It is
- * run unconditionally, after `install`, rather than only when already
- * installed, because that avoids a second `claude` call (e.g. `plugin list`)
- * just to branch on install state — `update` on a plugin `install` just
- * placed is expected to be a harmless no-op there too.
- *
- * `update` runs in a try of its own, after `marketplace add`/`install`
- * succeed: `install`'s no-op-on-already-installed is confirmed, but
- * `update`'s exit status on a plugin with nothing to update — the case an
- * `install` just landed — is not (#103). Folding it into
- * the same try would let an unverified nonzero there turn a plugin that DID
- * materialise correctly into a reported failure. So a failed `update` comes
- * back as `updateFailed` on an otherwise-`ok: true` result, never as
- * `ok: false` — `marketplace add`/`install` are what `ok` tracks.
- *
- * Returns the argv of all three calls either way, so a caller building a
- * fix-by-hand message on failure renders it from the argv that actually ran
- * rather than reassembling it from `addSource`/`pluginId` by hand, though
- * `fixByHand`'s plain `join(" ")` is not shell-quoted.
- * `configDir` forwards to all three `run()` calls, isolating them from
- * whatever CLAUDE_CONFIG_DIR the caller's own session carries (#117) —
- * `upgrade.js` and `release-plugin.js`'s dry-run-adopter path both thread it
- * through; left unset, `run()`'s own default applies. `timeoutMs` likewise
- * forwards to all three, left unset, `run()`'s own `DEFAULT_TIMEOUT_MS`
- * default applies (#135).
  * @param {{root: string, claudeBin: string, addSource: string, pluginId: string, configDir?: string, timeoutMs?: number}} at
  * @returns {{ok: true, marketplaceAdd: string[], pluginInstall: string[], pluginUpdate: string[], updateFailed?: string}
  *   | {ok: false, marketplaceAdd: string[], pluginInstall: string[], pluginUpdate: string[], reason: string}}

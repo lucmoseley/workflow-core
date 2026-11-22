@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { stubGhScript } from "./gh-stub";
 import { initGitRepo } from "./git-fixture";
 import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
+import { withStubbedEnv } from "./scoped-env";
 import { shellQuote } from "./sh-quote.js";
 
 const { buildHostPorts } =
@@ -18,18 +19,6 @@ afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
 const production = (logged: string[] = []) =>
 	buildHostPorts((what) => logged.push(what));
-
-function withEnv<T>(env: Record<string, string>, fn: () => T): T {
-	const saved = process.env;
-	// env-write-exempt: #5540
-	process.env = { ...saved, ...env };
-	try {
-		return fn();
-	} finally {
-		// env-write-exempt: #5540
-		process.env = saved;
-	}
-}
 
 describe("the `takes:` read", () => {
 	const dir = fs.mkdtempSync(path.join(SCRATCH, "takes-"));
@@ -48,7 +37,9 @@ describe("the `takes:` read", () => {
 		(takes) => {
 			fs.writeFileSync(label, `${takes}\n`);
 			const q = { issue: "7", repo: "", cwd: "" };
-			const real = withEnv(recording.env, () => production().takesLabel(q));
+			const real = withStubbedEnv(recording.env, () =>
+				production().takesLabel(q),
+			);
 			expect(real).toBe(takesPort(() => takes).port(q));
 		},
 	);
@@ -57,7 +48,7 @@ describe("the `takes:` read", () => {
 		fs.rmSync(log, { force: true });
 		fs.writeFileSync(label, "");
 		const q = { issue: "9", repo: "o/r", cwd: "" };
-		withEnv(recording.env, () => production().takesLabel(q));
+		withStubbedEnv(recording.env, () => production().takesLabel(q));
 		const fake = takesPort(() => "");
 		fake.port(q);
 		expect(fs.readFileSync(log, "utf8").startsWith(fake.calls[0])).toBe(true);
@@ -65,7 +56,7 @@ describe("the `takes:` read", () => {
 
 	it("answers nothing where gh fails, as the module cases' default does", () => {
 		expect(
-			withEnv(failing.env, () =>
+			withStubbedEnv(failing.env, () =>
 				production().takesLabel({ issue: "7", repo: "", cwd: "" }),
 			),
 		).toBe("");
@@ -74,7 +65,9 @@ describe("the `takes:` read", () => {
 	it("asks nothing from a cwd that is not a directory", () => {
 		fs.rmSync(log, { force: true });
 		const q = { issue: "7", repo: "", cwd: path.join(dir, "gone") };
-		expect(withEnv(recording.env, () => production().takesLabel(q))).toBe("");
+		expect(
+			withStubbedEnv(recording.env, () => production().takesLabel(q)),
+		).toBe("");
 		expect(fs.existsSync(log)).toBe(false);
 		const fake = takesPort(() => "takes:implement");
 		expect(fake.port(q)).toBe("");
@@ -119,18 +112,18 @@ describe("the review-tier read", () => {
 	});
 
 	it("answers the tier a staged sensitive path owes, as the in-process fake does", () => {
-		const real = withEnv(env, () => production().reviewTier(query()));
-		const fake = withEnv(env, () => tierPort()(query()));
+		const real = withStubbedEnv(env, () => production().reviewTier(query()));
+		const fake = withStubbedEnv(env, () => tierPort()(query()));
 		expect(real).toContain("Tier owed: escalated");
 		expect(real).toBe(fake);
 	});
 
 	it("answers nothing where the tier hook is absent, as the fake does", () => {
 		const missing = path.join(repo, "no-such-hook");
-		const real = withEnv({ ...env, WFC_REVIEW_TIER_HOOK: missing }, () =>
+		const real = withStubbedEnv({ ...env, WFC_REVIEW_TIER_HOOK: missing }, () =>
 			production().reviewTier(query()),
 		);
 		expect(real).toBe("");
-		expect(withEnv(env, () => tierPort(missing)(query()))).toBe("");
+		expect(withStubbedEnv(env, () => tierPort(missing)(query()))).toBe("");
 	});
 });

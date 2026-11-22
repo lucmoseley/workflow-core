@@ -183,6 +183,14 @@ describe("spawnDetachedRun", () => {
 		);
 		expect(logged).toEqual([tmp, null, null, null]);
 	});
+
+	it("starts the lander on the wall clock, whatever WFC_NOW its starter carries (#5568)", async () => {
+		vi.stubEnv("WFC_NOW", "2020-01-01T00:00:00Z");
+		const { logged } = await probeRun(
+			"console.log(JSON.stringify(process.env.WFC_NOW ?? null));",
+		);
+		expect(logged).toBeNull();
+	});
 });
 
 describe("readCodeRef (#5174)", () => {

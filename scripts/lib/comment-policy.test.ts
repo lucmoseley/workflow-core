@@ -360,7 +360,7 @@ describe("what is not a comment", () => {
 		expect(tags("// foo-exempt: #1\nconst a = 1;\n", "js")).toEqual([
 			"COMMENT@1",
 		]);
-		expect(tags("// env-write-exempt: #4019\nconst a = 1;\n", "js")).toEqual(
+		expect(tags("// jsonl-read-exempt: #4019\nconst a = 1;\n", "js")).toEqual(
 			[],
 		);
 	});
