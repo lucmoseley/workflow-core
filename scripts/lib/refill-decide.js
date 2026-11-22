@@ -6,6 +6,7 @@
  */
 
 const path = require("node:path");
+const { LAST_RESUME_OFFSET_MS } = require("./block-act.js");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { buildAgeText } = require("./hold-age.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
@@ -33,6 +34,7 @@ const MODEL = "opus";
  * left is the cap's projection alone, which the per-call floor of one can
  * overrun. */
 const FULL = 100;
+const BILLING_SKIP_MS = LAST_RESUME_OFFSET_MS;
 /* The idle reason of a tick that walked its frontier and launched nothing. */
 const NOTHING_LAUNCHABLE = "nothing launchable";
 /* The idle reason of one missing a checkout's shortlist, named over "nothing
@@ -214,7 +216,10 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {HeldResume[]} [resumable] each session the loop stopped whose
  *   cause has cleared (#3855)
  * @property {TickHold[]} [holds] each checkout's open repo holds (#3860)
+ * @property {BillingStop[]} [billingStops]
  */
+
+/** @typedef {{seat: string, since: number}} BillingStop */
 
 /**
  * `issue` and `raisedAt` are its stored record's, null on a probe this tick
@@ -577,6 +582,19 @@ function pickMoveSeat({
 		overflow,
 		typedSeat,
 	});
+}
+
+/**
+ * @param {SizedSeat[]} seats
+ * @param {BillingStop[]} stops
+ * @param {number} now
+ * @returns {SizedSeat[]}
+ */
+function barBillingSeats(seats, stops, now) {
+	const live = new Set(
+		stops.filter((b) => now - b.since < BILLING_SKIP_MS).map((b) => b.seat),
+	);
+	return seats.map((s) => (live.has(s.seat) ? { ...s, fits: 0 } : s));
 }
 
 /** @param {OverflowReading[]} overflow */
@@ -1329,7 +1347,10 @@ function decideLaunches(
 	const launchSlots = free - resumes.length;
 	if (launchSlots === 0) return buildIdleDecision(spent, held, resumes);
 	const chargedInput = { ...input, seats: seatsLeft };
-	const launchPick = pickSeat(chargedInput);
+	const launchPick = pickSeat({
+		...input,
+		seats: barBillingSeats(seatsLeft, input.billingStops ?? [], input.now),
+	});
 	if (launchPick.seat === null)
 		return buildNoSeatIdle(
 			input,

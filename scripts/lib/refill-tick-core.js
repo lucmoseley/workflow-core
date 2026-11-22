@@ -982,6 +982,22 @@ const buildStandInControl = (io, dryRun, now) => ({
 });
 
 /**
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @returns {import("./refill-decide.js").BillingStop[]}
+ */
+const billingStopsOf = (launches) =>
+	launches.flatMap((l) =>
+		l.block?.billing && l.keyVar === undefined && l.finishedAt === null
+			? [
+					{
+						seat: l.seat,
+						since: Math.max(l.block.since, l.resumes?.triedAt ?? 0),
+					},
+				]
+			: [],
+	);
+
+/**
  * One tick: its decision and the start it judged against. `opening` is what
  * the tick reads before its first write.
  * @param {TickIo} adapter
@@ -1117,6 +1133,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		judgements: io.readGateJudgements().filter((j) => served.includes(j.root)),
 		resumable,
 		holds,
+		billingStops: billingStopsOf(launches),
 	};
 	const { decision, read } = await decide(io, input, control.scope);
 	if (dryRun)
@@ -1143,6 +1160,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 }
 
 module.exports = {
+	billingStopsOf,
 	buildFinishLine,
 	buildReviewSkip,
 	FREE_SLOT_ARGS,

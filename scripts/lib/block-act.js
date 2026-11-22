@@ -10,7 +10,11 @@ const MIN_MS = 60 * 1000;
 /* A transient API stop's resumes, at about these offsets from the stop, then
  * every RESUME_EVERY_MS: untraced (#2359, chosen to land inside the prompt
  * cache's hour). */
-const RESUME_OFFSETS_MS = [1, 5, 15, 30].map((m) => m * MIN_MS);
+const LAST_RESUME_OFFSET_MS = 30 * MIN_MS;
+const RESUME_OFFSETS_MS = [
+	...[1, 5, 15].map((m) => m * MIN_MS),
+	LAST_RESUME_OFFSET_MS,
+];
 const RESUME_EVERY_MS = 30 * MIN_MS;
 /* Untraced (#2359): a guard against a loop that never ends. A limit hold's
  * failed resumes (#3790) and a limit-blocked launch's resumes in a row that
@@ -55,6 +59,7 @@ const SYNTHETIC_TRIES = 2;
  *   `resume-in-place`, a limit-blocked one back on its own seat; `move`, one
  *   onto the other seat the move pick walks to, under its own session id
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
+ *   billing?: true,
  *   bar?: import("./block-cause.js").LimitBar, since: number, tries?: number, nextAt?: number, triedAt?: number,
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
  *   movePick?: Pick<import("./refill-limits.js").MoveTarget, "seat"|"keyVar">|null,
@@ -310,6 +315,7 @@ const blockAct = (block, mode, now) => TABLE[block.cause][mode](block, now);
 
 module.exports = {
 	IDLE_TRIES,
+	LAST_RESUME_OFFSET_MS,
 	RESUME_CAP,
 	SYNTHETIC_QUIET_MS,
 	SYNTHETIC_TRIES,

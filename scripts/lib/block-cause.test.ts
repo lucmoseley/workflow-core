@@ -364,6 +364,54 @@ describe("an API error", () => {
 		).toEqual(transient);
 	});
 
+	describe("a billing stop (#5479)", () => {
+		const Billing =
+			"Claude Code can't use your Claude subscription, usually because a payment is past due · Pay or renew at https://claude.ai/settings/billing (if you just paid, try again shortly), or use an Anthropic API key instead";
+		const billing = { cause: "API_ERROR", sub: "transient", billing: true };
+
+		it("reads the oauth_org_not_allowed row, the detail or the needs as transient, not auth", () => {
+			expect(
+				cause(row(), job({ detail: null, needs: null }), [
+					apiErrorRow("oauth_org_not_allowed", Billing),
+				]),
+			).toEqual(billing);
+			expect(cause(row(), job({ detail: Billing }))).toEqual(billing);
+			expect(
+				cause(
+					row(),
+					job({ detail: null, needs: "can't use subscription — pay or renew" }),
+				),
+			).toEqual(billing);
+		});
+
+		it("leaves an organization's OAuth refusal auth", () => {
+			const auth = { cause: "API_ERROR", sub: "auth" };
+			expect(
+				cause(row(), job({ detail: null, needs: null }), [
+					apiErrorRow(
+						"oauth_org_not_allowed",
+						"Your organization has disabled OAuth for Claude Code",
+					),
+				]),
+			).toEqual(auth);
+			expect(cause(row(), job({ needs: "org disabled OAuth" }))).toEqual(auth);
+		});
+
+		it("reads a launch stopped before its first turn off the error row's version", () => {
+			const first = {
+				...apiErrorRow("oauth_org_not_allowed", Billing),
+				version: "2.1.329",
+			};
+			expect(
+				cause(
+					row(),
+					job({ detail: null, needs: null, cliVersion: undefined }),
+					[first],
+				),
+			).toEqual(billing);
+		});
+	});
+
 	it("reads transient off an API Error detail or a server_error row (rule 7)", () => {
 		const transient = { cause: "API_ERROR", sub: "transient" };
 		expect(cause(row(), job({ detail: "API Error: 529 Overloaded" }))).toEqual(
