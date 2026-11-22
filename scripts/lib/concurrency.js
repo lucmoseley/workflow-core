@@ -476,8 +476,9 @@ function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
  * `npm run status`'s concurrency block.
  * @param {ReturnType<typeof buildVerdict>} r
  * @param {() => UnlistedRead} readLive admission's unlisted row read now
+ * @param {() => number | null} [readHeldRun]
  */
-function buildBlockText(r, readLive) {
+function buildBlockText(r, readLive, readHeldRun = () => null) {
 	const t = r.lastTick;
 	const v = r.verdict;
 	const lines = [
@@ -494,10 +495,10 @@ function buildBlockText(r, readLive) {
 	const largest = t?.memory?.largest;
 	if (largest)
 		lines.push(`memory:    ${largest.name} holds most (${largest.mb} MB)`);
-	const heldRun = t?.memory?.heldRunMb;
+	const heldRun = r.stale ? readHeldRun() : t?.memory?.heldRunMb;
 	if (heldRun)
 		lines.push(
-			`held run:  ${heldRun} MB held for a queued test run the memory rung holds (#5555)`,
+			`held run:  ${heldRun} MB held ${r.stale ? "now" : "at the last tick"} for a queued test run the memory rung holds (#5555)`,
 		);
 	const unlisted = buildUnlistedLine(r, readLive);
 	if (unlisted) lines.push(unlisted);

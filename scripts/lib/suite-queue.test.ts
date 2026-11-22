@@ -405,7 +405,9 @@ describe("readTestsHeldOnMemory (#5555)", () => {
 		const root = qdir();
 		const queueDir = path.join(root, "wfc-suite-queue");
 		const tscDir = path.join(root, "wfc-tsc-queue");
-		joined(queueDir, 11, 11, { chargeMb: 900 }).stamps.onMemoryHeld(true);
+		const rung = joined(queueDir, 11, 11, { chargeMb: 900 }).stamps;
+		rung.onMemoryHeld(true);
+		rung.onMemoryRung(3350);
 		joined(queueDir, 22, 22).stamps.onMemoryHeld(true);
 		joined(queueDir, 33, 33).stamps.onWindowsHeld(true);
 		joined(queueDir, 44, 44, { role: "gate" }).stamps.onMemoryHeld(true);
@@ -422,7 +424,7 @@ describe("readTestsHeldOnMemory (#5555)", () => {
 				alive: (pid: number) => pid !== 22,
 			}),
 		).toEqual([
-			{ pid: 11, chargeMb: 900 },
+			{ pid: 11, chargeMb: 900, rungMb: 3350 },
 			{ pid: 66, chargeMb: launchChargeMb({ kind: "tsc" }) },
 		]);
 	});
@@ -431,6 +433,24 @@ describe("readTestsHeldOnMemory (#5555)", () => {
 		expect(
 			readTestsHeldOnMemory({
 				queueDir: path.join(qdir(), "wfc-suite-queue"),
+			}),
+		).toEqual([]);
+	});
+
+	it("holds none where the queue will not read, its waiters failing open", () => {
+		const queueDir = path.join(qdir(), "wfc-suite-queue");
+		joined(queueDir, 11, 11).stamps.onMemoryHeld(true);
+		const refusing = {
+			...fs,
+			readdirSync: (() => {
+				throw new Error("EACCES");
+			}) as unknown as typeof fs.readdirSync,
+		};
+		expect(
+			readTestsHeldOnMemory({
+				queueDir,
+				queueFs: refusing,
+				alive: () => true,
 			}),
 		).toEqual([]);
 	});
@@ -2582,6 +2602,25 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 			onMemoryHeld: (held: boolean) => heard.push(held),
 		});
 		expect(heard).toEqual([true, false]);
+	});
+
+	it("tells its caller the rung a memory hold waits on, each time it changes (#5555)", async () => {
+		const gates = [
+			{ limb: "memory", rungMb: 3350 },
+			{ limb: "memory", rungMb: 3350 },
+			{ limb: "memory", rungMb: 2950 },
+			{ limb: "count" },
+			null,
+		];
+		const heard: number[] = [];
+		await waitForGate({
+			gate: () => gates.shift() ?? null,
+			admit: noQueue,
+			sleepFn: () => Promise.resolve(),
+			out: { write: () => true },
+			onMemoryRung: (rungMb: number) => heard.push(rungMb),
+		});
+		expect(heard).toEqual([3350, 2950]);
 	});
 
 	/** A wait on `gateRead`'s reading of the gate, asked about `gateWords`:

@@ -577,21 +577,12 @@ describe("the held-run reserve (#5555)", () => {
 		expect(json.slots).toBeGreaterThan(0);
 	});
 
-	it("holds one reserve, the largest charge, never a sum", () => {
+	it("holds the room the run's rung needs where it is more than its charge", () => {
 		const { json } = run({
 			mb: room + 4000,
-			heldRuns: [
-				{ pid: process.pid, chargeMb: Suite },
-				{ pid: 1, chargeMb: 1200 },
-			],
+			heldRuns: [{ pid: process.pid, chargeMb: 1929, rungMb: 3350 }],
 		});
-		expect(json.heldRunMb).toBe(Suite);
-	});
-
-	it("holds nothing for a dead waiter's marker", () => {
-		expect(
-			run({ heldRuns: [{ pid: 2 ** 22 + 1, chargeMb: Suite }] }).json.heldRunMb,
-		).toBe(0);
+		expect(json.heldRunMb).toBe(3350 - HELD);
 	});
 
 	it("prints the reserve in the slot arithmetic", () => {
@@ -1789,7 +1780,10 @@ describe("buildWindowsLine (#4956)", () => {
 describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	afterEach(() => vi.unstubAllEnvs());
 
-	const machine = (m: Machine = {}) => {
+	const machine = (
+		m: Machine = {},
+		heldRuns: { pid: number; chargeMb: number; rungMb?: number }[] = [],
+	) => {
 		for (const [k, v] of Object.entries({
 			...machineEnv(m),
 			WFC_ORACLE_CACHE: "0",
@@ -1801,7 +1795,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			reserves: {
 				landers: readLiveLanders(),
 				gates: readLiveGateSeats(),
-				heldRuns: [],
+				heldRuns,
 				testsHeld: 0,
 			},
 		});
@@ -1809,6 +1803,17 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	};
 	const idleSpare =
 		"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock";
+
+	it("holds one held-run reserve, the largest of each run's charge and its rung less the floor and margin, never a sum (#5555)", () => {
+		const without = machine({ mb: 9000 }).admission;
+		const { admission } = machine({ mb: 9000 }, [
+			{ pid: 1, chargeMb: 1929, rungMb: 3350 },
+			{ pid: 2, chargeMb: 1200 },
+		]);
+		expect(Number(without.budgetMb) - Number(admission.budgetMb)).toBe(
+			3350 - HELD,
+		);
+	});
 
 	it("counts live sessions off the listing, never an orphaned host `ps` still shows", () => {
 		const host = (id: string) =>

@@ -247,7 +247,7 @@ describe("readout's verdict (#3317)", () => {
 			now: T0 + 5 * MIN,
 		});
 		expect(buildBlockText(r, unread)).toContain(
-			"held run:  3000 MB held for a queued test run the memory rung holds (#5555)",
+			"held run:  3000 MB held at the last tick for a queued test run the memory rung holds (#5555)",
 		);
 		expect(
 			buildBlockText(
@@ -255,6 +255,19 @@ describe("readout's verdict (#3317)", () => {
 				unread,
 			),
 		).not.toContain("held run:");
+	});
+
+	it("reads the held-run reserve live where the last tick is stale (#5555)", () => {
+		const r = buildVerdict({ ticks: [], now: T0 });
+		expect(
+			buildBlockText(
+				r,
+				() => ({ count: 0, mb: 0 }),
+				() => 2256,
+			),
+		).toContain(
+			"held run:  2256 MB held now for a queued test run the memory rung holds (#5555)",
+		);
 	});
 
 	it("names a record that would not read above the verdict", () => {

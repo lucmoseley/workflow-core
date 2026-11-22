@@ -116,7 +116,7 @@ const MARKER_STAMPS = [
  * @typedef {import("./part-suite-peak.js").PartKind} PartKind
  * @typedef {{ chargeMb?: number }} SpawnCharge the peak a spawned launch's
  *   climb is charged, where its gate measured one (#5366)
- * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
+ * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, memoryRungMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
  */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
@@ -718,7 +718,7 @@ function queueJoin({
  * stamp set false. Fails silent, like `queueJoin`.
  *
  * @param {string} file
- * @param {{ spawned?: true } & { [K in MarkerStamp]?: boolean }} fields
+ * @param {{ spawned?: true, memoryRungMb?: number } & { [K in MarkerStamp]?: boolean }} fields
  */
 function stampMarker(file, fields, { queueFs = fs } = {}) {
 	if (!file) return;
@@ -831,7 +831,7 @@ function buildHoldListeners(listen) {
  *
  * @param {string} file
  * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
- * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
+ * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, onMemoryRung: (rungMb: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
  */
 function queueStamps(file, options = {}) {
 	let climbHeldMb = 0;
@@ -843,6 +843,8 @@ function queueStamps(file, options = {}) {
 		onPeerHeld: (secs) => {
 			peerS = secs;
 		},
+		onMemoryRung: (rungMb) =>
+			stampMarker(file, { memoryRungMb: rungMb }, options),
 		polledHold: () => ({
 			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
 			...(peerS > 0 ? { peerS } : {}),
@@ -882,36 +884,15 @@ function readLiveRoleMarkers(
 }
 
 /**
- * How many live waiters, in either admitting queue, the Windows-memory hold
- * is holding now: session admission adds no session while one waits (#4956).
- * A queue that will not read counts none, failing open.
- *
- * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
- * @returns {number}
- */
-function readTestsHeldOnWindows({
-	queueDir = defaultQueueDir(),
-	queueFs = fs,
-	alive = pidAlive,
-} = {}) {
-	return [queueDir, ...peerQueueDirs(queueDir)]
-		.flatMap((dir) => readMarkers(dir, queueFs).markers)
-		.filter(
-			({ record }) =>
-				record.windowsHeld === true && !isMarkerStale(record, { alive }),
-		).length;
-}
-
-/**
  * #5555
- * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
- * @returns {{ pid: number, chargeMb: number }[]}
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} options
+ * @returns {{ name: string, record: QueueRecord }[]}
  */
-function readTestsHeldOnMemory({
+function readLiveWaiters({
 	queueDir = defaultQueueDir(),
 	queueFs = fs,
 	alive = pidAlive,
-} = {}) {
+}) {
 	return [
 		{ dir: queueDir, name: QUEUE_NAME },
 		...peerQueueDirs(queueDir).map((dir) => ({
@@ -920,17 +901,46 @@ function readTestsHeldOnMemory({
 		})),
 	].flatMap(({ dir, name }) =>
 		readMarkers(dir, queueFs)
-			.markers.map((m) => m.record)
-			.filter(
-				(r) =>
-					r.memoryHeld === true &&
-					r.role === undefined &&
-					r.admitted !== true &&
-					r.spawned !== true &&
-					!isMarkerStale(r, { alive }),
-			)
-			.map((r) => ({ pid: r.pid, chargeMb: peakMbOf(name, r) })),
+			.markers.filter(({ record }) => !isMarkerStale(record, { alive }))
+			.map(({ record }) => ({ name, record })),
 	);
+}
+
+/**
+ * How many live waiters, in either admitting queue, the Windows-memory hold
+ * is holding now: session admission adds no session while one waits (#4956).
+ * A queue that will not read counts none, failing open.
+ *
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
+ * @returns {number}
+ */
+function readTestsHeldOnWindows(options = {}) {
+	return readLiveWaiters(options).filter(
+		({ record }) => record.windowsHeld === true,
+	).length;
+}
+
+/**
+ * #5555
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
+ * @returns {import("./admission.js").HeldRuns}
+ */
+function readTestsHeldOnMemory(options = {}) {
+	return readLiveWaiters(options)
+		.filter(
+			({ record: r }) =>
+				r.memoryHeld === true &&
+				r.role === undefined &&
+				r.admitted !== true &&
+				r.spawned !== true,
+		)
+		.map(({ name, record: r }) => ({
+			pid: r.pid,
+			chargeMb: peakMbOf(name, r),
+			...(Number.isFinite(r.memoryRungMb)
+				? { rungMb: Number(r.memoryRungMb) }
+				: {}),
+		}));
 }
 
 /* The environment variable a seat hands its driver: the seat's marker path
@@ -1791,7 +1801,7 @@ function changesOnly(listener) {
  * injected (#5446); a queue option's `clock` is wall time and never reaches
  * it.
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onMemoryRung?: (rungMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1816,6 +1826,7 @@ function waitForGate({
 	part = false,
 	onClimbHeld = noop,
 	onPeerHeld = noop,
+	onMemoryRung = noop,
 	onExit = noop,
 	monoClock: clock = monotonicMs,
 	traceLimbs = false,
@@ -1852,6 +1863,14 @@ function waitForGate({
 	);
 	let climbKept = false;
 	let climbHeldMb = 0;
+	/** @type {number | undefined} */
+	let rungHeardMb;
+	/** @param {number} rungMb */
+	const hearRung = (rungMb) => {
+		if (rungMb === rungHeardMb) return;
+		rungHeardMb = rungMb;
+		onMemoryRung(rungMb);
+	};
 	/** @type {number | undefined} when this spell of the Windows-memory hold began */
 	let windowsSince;
 	/* Any spell's release, for the exit log. */
@@ -2004,6 +2023,8 @@ function waitForGate({
 		}
 		/* The memory rung holds the wait (#3058). */
 		hear.onMemoryHeld(denial?.limb === "memory");
+		if (denial?.limb === "memory" && denial.rungMb !== undefined)
+			hearRung(denial.rungMb);
 		/* It holds it at rest, `busy` read as 0 and no climb charged (#4783). */
 		hear.onRestHeld(
 			denial?.limb === "memory" && denial.busy === 0 && !denial.climbMb,

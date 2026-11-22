@@ -181,7 +181,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
  */
 
-/** @typedef {{ pid: number, chargeMb: number }[]} HeldRuns */
+/** @typedef {{ pid: number, chargeMb: number, rungMb?: number }[]} HeldRuns */
 
 const REAP_SCRIPT = () =>
 	process.env.WFC_REAP_SCRIPT ||
@@ -963,7 +963,15 @@ function gateSeatHeldMb({ live }, { pssKbOf, children, sessionPids }) {
  * @param {HeldRuns} heldRuns
  */
 const heldRunMb = (heldRuns) =>
-	heldRuns.length === 0 ? 0 : Math.max(...heldRuns.map((r) => r.chargeMb));
+	Math.max(
+		0,
+		...heldRuns.map((r) =>
+			Math.max(
+				r.chargeMb,
+				(r.rungMb ?? 0) - EARLYOOM_FLOOR_MB - DRAW_MARGIN_MB,
+			),
+		),
+	);
 
 /**
  * What each memory reserve still holds back, in MB, as the list the verdict

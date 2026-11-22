@@ -32,6 +32,7 @@ export interface Gate {
 export interface HeldRun {
 	pid: number;
 	chargeMb?: number;
+	rungMb?: number;
 }
 
 /* A temp root whose suite queue holds a marker per lander and per gate seat,
@@ -56,10 +57,16 @@ export const tmpRootWithMarkers = (
 			path.join(q, `wfc-suite-queue-gate-${pid}.json`),
 			JSON.stringify({ pid, at: 1, role: "gate", chargeMb, spawned }),
 		);
-	for (const { pid, chargeMb } of heldRuns)
+	for (const { pid, chargeMb, rungMb } of heldRuns)
 		fs.writeFileSync(
 			path.join(q, `wfc-suite-queue-held-${pid}.json`),
-			JSON.stringify({ pid, at: 1, chargeMb, memoryHeld: true }),
+			JSON.stringify({
+				pid,
+				at: 1,
+				chargeMb,
+				memoryRungMb: rungMb,
+				memoryHeld: true,
+			}),
 		);
 	return root;
 };

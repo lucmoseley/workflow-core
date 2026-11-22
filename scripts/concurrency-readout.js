@@ -26,13 +26,10 @@ const { writeFd } = require("./lib/write-fd.js");
 /* Untraced: over ten times the ~5 s one run took (#3496). */
 const ADMISSION_TIMEOUT_MS = 60_000;
 
-/**
- * Admission's unlisted row read now, unknown where admission did not give
- * one. Allowance is skipped: the row is memory's alone.
- * @returns {import("./lib/concurrency.js").UnlistedRead}
- */
-function readLiveUnlisted() {
-	const r = spawnSync(
+/** @type {import("node:child_process").SpawnSyncReturns<string> | undefined} */
+let liveAdmission;
+const readLiveAdmission = () => {
+	liveAdmission ??= spawnSync(
 		process.execPath,
 		[path.join(__dirname, "admission.js"), "--json", "--skip-allowance"],
 		{
@@ -41,6 +38,26 @@ function readLiveUnlisted() {
 			maxBuffer: CHILD_MAX_BUFFER,
 		},
 	);
+	return liveAdmission;
+};
+
+/** @returns {number | null} */
+function readLiveHeldRun() {
+	try {
+		const { heldRunMb } = JSON.parse(readLiveAdmission().stdout);
+		return Number.isFinite(heldRunMb) ? heldRunMb : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Admission's unlisted row read now, unknown where admission did not give
+ * one. Allowance is skipped: the row is memory's alone.
+ * @returns {import("./lib/concurrency.js").UnlistedRead}
+ */
+function readLiveUnlisted() {
+	const r = readLiveAdmission();
 	/* Admission prints its JSON on a hold (exit 1) and a refusal (exit 2)
 	 * alike, so the parse judges the read, not the exit. */
 	let row = null;
@@ -65,7 +82,7 @@ function readLiveUnlisted() {
 /** @returns {number} */
 function main() {
 	const r = buildVerdict({ ...readTicks(), now: Date.now() });
-	writeFd(1, `${buildBlockText(r, readLiveUnlisted)}\n`);
+	writeFd(1, `${buildBlockText(r, readLiveUnlisted, readLiveHeldRun)}\n`);
 	return 0;
 }
 
