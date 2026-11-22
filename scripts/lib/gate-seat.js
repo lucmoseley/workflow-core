@@ -104,6 +104,7 @@ const GATE_SELECTION_ENV = "WFC_GATE_SELECTION";
  * @property {number | null} ticket the issue the session holds
  * @property {number} waitS awake seconds (`monotonicMs`)
  * @property {number} runS awake seconds (`monotonicMs`)
+ * @property {number} [wallS]
  * @property {GateOutcome} outcome
  * @property {number} peakTreeMb the command's process-tree PSS peak
  * @property {true} [part]

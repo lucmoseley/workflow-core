@@ -1491,15 +1491,6 @@ function planTouched(rest, at, options) {
 }
 
 /**
- * What the refusal prints.
- *
- * THE HARM IT NAMES IS THE SESSION'S OWN BELIEF, never a push reading a stale
- * certificate — a certificate attests a tree and its read closure (ADR-0007), and
- * committing these files changes paths in a full run's closure, or falls
- * outside the diff a narrowed run was selected from, so it attests nothing
- * about that commit
- * (mantahostels#2169).
- *
  * @param {string[]} mine
  */
 function isolatedRefusal(mine) {

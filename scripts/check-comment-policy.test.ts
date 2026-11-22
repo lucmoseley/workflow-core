@@ -162,7 +162,7 @@ describe("check-comment-policy", () => {
 		it("refuses each refused shape a staged file holds, and passes each permitted one", () => {
 			write("tsconfig.json", '{ "compilerOptions": { "checkJs": true } }');
 			write("package.json", JSON.stringify({ dependencies: { ajv: "8" } }));
-			write("docs/adr/0007-x.md", "# x\n");
+			write("docs/adr/0011-x.md", "# x\n");
 			write(
 				"scripts/lib/helper-surface.json",
 				JSON.stringify({ entryPoints: { "scripts/s.js": ["run"] } }),
@@ -172,7 +172,7 @@ describe("check-comment-policy", () => {
 				[
 					"// SPDX-License-Identifier: MIT",
 					"const a = 1; // biome-ignore format: a table",
-					"// ADR-0007",
+					"// ADR-0011",
 					"const b = 1; // measured 3 s at p95 (#812)",
 					"// #5455",
 					"const c = 1; // `ajv` rejects a bare key",
@@ -206,10 +206,10 @@ describe("check-comment-policy", () => {
 
 		it("reads the manifest and docs/adr/ the commit carries", () => {
 			write("package.json", JSON.stringify({ dependencies: { ajv: "8" } }));
-			write("docs/adr/0007-x.md", "# x\n");
+			write("docs/adr/0011-x.md", "# x\n");
 			write(
 				"scripts/b.js",
-				"// `ajv` rejects a bare key\nconst a = 1;\n// ADR-0007\nconst b = 1;\n",
+				"// `ajv` rejects a bare key\nconst a = 1;\n// ADR-0011\nconst b = 1;\n",
 			);
 			git("add", "-A");
 			expect(run("--against", "HEAD").status).toBe(0);

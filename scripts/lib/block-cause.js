@@ -58,6 +58,8 @@ const AUTH_DETAIL =
 	/^(Login expired|Could not refresh your login|Invalid API key|Your organization has disabled)/;
 const AUTH_NEEDS = /^(login required|org disabled OAuth)/;
 const AUTH_ERRORS = new Set(["authentication_failed", "oauth_org_not_allowed"]);
+const BILLING_TEXT = /can't use your Claude subscription/;
+const BILLING_NEEDS = /^can't use subscription — pay or renew/;
 const EDGE_BLOCK = /API Error: 403\b.*\bCloudflare\b/s;
 /* The `needs` a dialog writes to the job record, the one mark a parked row
  * keeps of it: 2.1.311's `dialog open` table, its managed-settings emit and
@@ -102,7 +104,7 @@ const API_NEEDS = new Set([
  * @typedef {{cause: Exclude<Cause,
  *   "API_ERROR"|"LIMIT"|"LOCKED_OUT"|"RESUMED_IDLE"|"SYNTHETIC_STOP"|"UNKNOWN">}
  *   | {cause: "LIMIT", bar?: LimitBar}
- *   | {cause: "API_ERROR", sub: ApiErrorKind}
+ *   | {cause: "API_ERROR", sub: ApiErrorKind, billing?: true}
  *   | {cause: "LOCKED_OUT", lockout: Lockout}
  *   | {cause: "UNKNOWN", why: string}} Reading
  * @typedef {{row: unknown, job: unknown, tail: unknown}} Records
@@ -140,8 +142,9 @@ function isCliAtLeastMin(v) {
  * Why the row or the job record cannot be read, or null.
  * @param {Record<string, any>} row
  * @param {Record<string, any>} job
+ * @param {unknown} cliVersion
  */
-function fieldFault(row, job) {
+function fieldFault(row, job, cliVersion) {
 	/* 2.1.310's row for a parked session carries `state` and neither `status`
 	 * nor `waitingFor` (#3200). */
 	if (row.status == null && row.state == null)
@@ -150,8 +153,8 @@ function fieldFault(row, job) {
 	if (!isOptionalString(row.status)) return "row status is not a string";
 	if (!isOptionalString(row.waitingFor))
 		return "row waitingFor is not a string";
-	if (!isCliAtLeastMin(job.cliVersion))
-		return `cliVersion ${JSON.stringify(job.cliVersion)} is below ${MIN_CLI.join(".")}`;
+	if (!isCliAtLeastMin(cliVersion))
+		return `cliVersion ${JSON.stringify(cliVersion)} is below ${MIN_CLI.join(".")}`;
 	const wrong =
 		["state", "tempo"].find((f) => typeof job[f] !== "string") ??
 		["detail", "needs", "needsOverlay"].find((f) => !isOptionalString(job[f]));
@@ -314,6 +317,14 @@ const RULES = [
 			(isApiError(f) && EDGE_BLOCK.test(textOf(f.said))),
 		{ cause: "API_ERROR", sub: "transient" },
 	],
+	/* #5479 */
+	[
+		(f) =>
+			BILLING_TEXT.test(f.detail) ||
+			BILLING_NEEDS.test(f.needs) ||
+			(isApiError(f) && BILLING_TEXT.test(textOf(f.said))),
+		{ cause: "API_ERROR", sub: "transient", billing: true },
+	],
 	[
 		(f) =>
 			AUTH_DETAIL.test(f.detail) ||
@@ -347,7 +358,8 @@ function blockCause({ row, job, tail }) {
 	if (!isObject(job)) return { cause: "UNKNOWN", why: "no job record" };
 	if (!Array.isArray(tail) || !tail.every(isObject))
 		return { cause: "UNKNOWN", why: "no transcript" };
-	const fault = fieldFault(row, job);
+	const said = tail.findLast((t) => t.type === "assistant") ?? {};
+	const fault = fieldFault(row, job, job.cliVersion ?? said.version);
 	if (fault) return { cause: "UNKNOWN", why: fault };
 	/** @type {Facts} */
 	const facts = {
@@ -359,7 +371,7 @@ function blockCause({ row, job, tail }) {
 		 * widen it. */
 		waiting: row.status === "waiting" ? (row.waitingFor ?? "") : "",
 		last: tail.at(-1),
-		said: tail.findLast((t) => t.type === "assistant") ?? {},
+		said,
 		lockout: lockoutOf(tail),
 	};
 	const hit = RULES.find(([matches]) => matches(facts));

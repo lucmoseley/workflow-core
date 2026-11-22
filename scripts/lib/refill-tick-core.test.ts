@@ -37,7 +37,12 @@ import {
 } from "./refill-loop-fixture";
 import { actOnOutside } from "./refill-outside.js";
 import { loopStateOf } from "./refill-state-testkit";
-import { admissionRoot, buildFinishLine, runTick } from "./refill-tick-core.js";
+import {
+	admissionRoot,
+	billingStopsOf,
+	buildFinishLine,
+	runTick,
+} from "./refill-tick-core.js";
 import {
 	doneJob,
 	founderRow,
@@ -1630,7 +1635,13 @@ describe("the throughput acts through the tick (#5275)", () => {
 	const throughputOf = (events: BreakerEvent[]) => ({
 		...NO_THROUGHPUT,
 		byRoot: {
-			[WFC]: { commits: [], gateRuns: [], sessions: [], timelinesUnread: [] },
+			[WFC]: {
+				commits: [],
+				gateRuns: [],
+				suiteCommand: null,
+				sessions: [],
+				timelinesUnread: [],
+			},
 		},
 		record: events,
 	});
@@ -1978,5 +1989,40 @@ describe("a launch the harness ended on a synthetic reply, through the tick (#53
 		expect(line).toMatch(
 			/resumed 3 time\(s\) after the harness ended its turn on a synthetic reply$/,
 		);
+	});
+});
+
+describe("billingStopsOf (#5479)", () => {
+	const billing = (over: Record<string, unknown> = {}) =>
+		record({
+			seat: "/home/u/.claude2",
+			block: {
+				cause: "API_ERROR",
+				sub: "transient",
+				billing: true,
+				since: NOW - 20 * MIN,
+			},
+			...over,
+		});
+
+	it("names a running plan-seat launch's billing stop, timed from its latest try", () => {
+		expect(billingStopsOf([billing()])).toEqual([
+			{ seat: "/home/u/.claude2", since: NOW - 20 * MIN },
+		]);
+		expect(
+			billingStopsOf([
+				billing({ resumes: { tries: 2, triedAt: NOW - 5 * MIN, nextAt: NOW } }),
+			]),
+		).toEqual([{ seat: "/home/u/.claude2", since: NOW - 5 * MIN }]);
+	});
+
+	it("leaves out a finished launch, an overflow one and a stop that is not billing", () => {
+		expect(
+			billingStopsOf([
+				billing({ finishedAt: NOW }),
+				billing({ keyVar: "KEY_A" }),
+				record({ block: { cause: "API_ERROR", sub: "auth", since: NOW } }),
+			]),
+		).toEqual([]);
 	});
 });

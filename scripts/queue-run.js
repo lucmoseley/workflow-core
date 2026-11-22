@@ -961,6 +961,7 @@ function spawnGate({ seat, options, err, finish, holder, tree, waitMs, part }) {
 		},
 	});
 	const spawnedAt = clock();
+	const spawnedWallAt = Date.now();
 	/** @type {ReturnType<typeof sampleTreePeak> | undefined} */
 	let sampler;
 	/** @type {import("./lib/gate-seat.js").GateOutcome | null} */
@@ -1010,6 +1011,7 @@ function spawnGate({ seat, options, err, finish, holder, tree, waitMs, part }) {
 			tree,
 			waitS: Math.round(waitMs / 1000),
 			runS: Math.round((clock() - spawnedAt) / 1000),
+			wallS: Math.round((Date.now() - spawnedWallAt) / 1000),
 			outcome,
 			peakTreeMb: Math.round(peakKb / 1024),
 			...(part ? { part: true } : {}),

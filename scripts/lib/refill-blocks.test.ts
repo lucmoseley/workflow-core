@@ -3233,3 +3233,20 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 		expect(all.filter((c) => /^resume /.test(c))).toEqual([]);
 	});
 });
+
+describe("a billing stop's block (#5479)", () => {
+	it("carries its billing mark, which the seat pick reads", () => {
+		const billing = {
+			cause: "API_ERROR" as const,
+			sub: "transient" as const,
+			billing: true as const,
+		};
+		const [out] = markParked(
+			[record()],
+			[agent("job42", "blocked")],
+			() => billing,
+			NOW,
+		);
+		expect(out?.block).toEqual({ ...billing, since: NOW });
+	});
+});
